@@ -7,12 +7,17 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "clean:exercises": "node scripts/clean-exercises.mjs",
+    "translate:exercises": "node scripts/translate-exercises.mjs",
+    "fix:exercises": "node scripts/fix-exercise-translations.mjs"
   },
   "dependencies": {
     "next": "^16.2.5",
     "react": "^19.2.6",
-    "react-dom": "^19.2.6"
+    "react-dom": "^19.2.6",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

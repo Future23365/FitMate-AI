@@ -1,0 +1,824 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
+import { SymbolIcon } from "@/components/app/symbol-icon";
+import type { Exercise, ExerciseFacets, ExerciseSort } from "@/lib/exercises/types";
+
+type ExerciseFacet = {
+  value: string;
+  label: string;
+  count: number;
+};
+
+type ExerciseApiResponse = {
+  items: Exercise[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+  facets: {
+    categories: ExerciseFacet[];
+    levels: ExerciseFacet[];
+    force: ExerciseFacet[];
+    mechanics: ExerciseFacet[];
+    equipment: ExerciseFacet[];
+    muscles: ExerciseFacet[];
+    goalTags: ExerciseFacet[];
+    riskTags: ExerciseFacet[];
+  };
+};
+
+const defaultExerciseFacets: ExerciseFacets = {
+  categories: [],
+  levels: [],
+  force: [],
+  mechanics: [],
+  equipment: [],
+  muscles: [],
+  goalTags: [],
+  riskTags: [],
+};
+
+const exerciseSortOptions: Array<{ value: ExerciseSort; label: string }> = [
+  { value: "name_asc", label: "名称 A-Z" },
+  { value: "name_desc", label: "名称 Z-A" },
+  { value: "level_asc", label: "难度由低到高" },
+  { value: "level_desc", label: "难度由高到低" },
+  { value: "category_asc", label: "分类升序" },
+  { value: "category_desc", label: "分类降序" },
+];
+
+const pageSizeOptions = [12, 24, 48, 96];
+
+function getExerciseImage(exercise?: Exercise) {
+  return (
+    exercise?.imageUrls[0] ||
+    "https://www.gstatic.com/labs-code/stitch/stitch-placeholder-300x300.svg"
+  );
+}
+
+function getDifficultyDot(level?: string | null) {
+  if (level === "expert" || level === "advanced") {
+    return "bg-red-500";
+  }
+
+  if (level === "intermediate") {
+    return "bg-yellow-500";
+  }
+
+  return "bg-green-500";
+}
+
+function getFacetLabel(facets: ExerciseFacet[], value: string) {
+  return facets.find((facet) => facet.value === value)?.label ?? value;
+}
+
+function SelectFilter({
+  label,
+  options,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  options: ExerciseFacet[];
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <label className="flex items-center gap-sm">
+      <span className="font-label-md text-label-md text-on-surface-variant">{label}:</span>
+      <select
+        className="max-w-[150px] cursor-pointer border-none bg-transparent font-label-md text-label-md text-on-surface outline-none focus:ring-0"
+        onChange={(event) => onChange(event.target.value)}
+        value={value}
+      >
+        <option value="">{placeholder}</option>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label} ({option.count})
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+export function ExerciseLibraryPage() {
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("");
+  const [muscle, setMuscle] = useState("");
+  const [level, setLevel] = useState("");
+  const [equipment, setEquipment] = useState("");
+  const [force, setForce] = useState("");
+  const [mechanic, setMechanic] = useState("");
+  const [goalTag, setGoalTag] = useState("");
+  const [riskTag, setRiskTag] = useState("");
+  const [published, setPublished] = useState("");
+  const [sortBy, setSortBy] = useState<ExerciseSort>("name_asc");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(24);
+  const [items, setItems] = useState<Exercise[]>([]);
+  const [facets, setFacets] = useState<ExerciseFacets>(defaultExerciseFacets);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [hasNextPage, setHasNextPage] = useState(false);
+  const [hasPreviousPage, setHasPreviousPage] = useState(false);
+  const [selectedId, setSelectedId] = useState("");
+  const [isLoadingExercises, setIsLoadingExercises] = useState(true);
+  const [exerciseError, setExerciseError] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const params = new URLSearchParams({
+      page: String(page),
+      pageSize: String(pageSize),
+      sort: sortBy,
+    });
+
+    if (query.trim()) {
+      params.set("q", query.trim());
+    }
+
+    if (category) {
+      params.set("category", category);
+    }
+
+    if (muscle) {
+      params.set("muscle", muscle);
+    }
+
+    if (level) {
+      params.set("level", level);
+    }
+
+    if (equipment) {
+      params.set("equipment", equipment);
+    }
+
+    if (force) {
+      params.set("force", force);
+    }
+
+    if (mechanic) {
+      params.set("mechanic", mechanic);
+    }
+
+    if (goalTag) {
+      params.set("goalTag", goalTag);
+    }
+
+    if (riskTag) {
+      params.set("riskTag", riskTag);
+    }
+
+    if (published) {
+      params.set("published", published);
+    }
+
+    fetch(`/api/exercises?${params.toString()}`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("动作库加载失败，请稍后重试。");
+        }
+
+        return (await response.json()) as ExerciseApiResponse;
+      })
+      .then((data) => {
+        setItems(data.items);
+        setFacets(data.facets);
+        setTotal(data.total);
+        setTotalPages(Math.max(1, data.totalPages));
+        setHasNextPage(data.hasNextPage);
+        setHasPreviousPage(data.hasPreviousPage);
+        setExerciseError("");
+        setSelectedId((current) => current || data.items[0]?.id || "");
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+
+        setExerciseError(error instanceof Error ? error.message : "动作库加载失败，请稍后重试。");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setIsLoadingExercises(false);
+        }
+      });
+
+    return () => controller.abort();
+  }, [
+    category,
+    equipment,
+    force,
+    goalTag,
+    level,
+    mechanic,
+    muscle,
+    page,
+    pageSize,
+    published,
+    query,
+    riskTag,
+    sortBy,
+  ]);
+
+  function updateFilter(updater: () => void) {
+    setIsLoadingExercises(true);
+    setPage(1);
+    updater();
+  }
+
+  function resetFilters() {
+    setIsLoadingExercises(true);
+    setQuery("");
+    setCategory("");
+    setMuscle("");
+    setLevel("");
+    setEquipment("");
+    setForce("");
+    setMechanic("");
+    setGoalTag("");
+    setRiskTag("");
+    setPublished("");
+    setSortBy("name_asc");
+    setPage(1);
+  }
+
+  const activeFilters = [
+    query ? `搜索：${query}` : "",
+    category ? `分类：${getFacetLabel(facets.categories, category)}` : "",
+    muscle ? `肌群：${getFacetLabel(facets.muscles, muscle)}` : "",
+    level ? `难度：${getFacetLabel(facets.levels, level)}` : "",
+    equipment ? `器械：${getFacetLabel(facets.equipment, equipment)}` : "",
+    force ? `发力：${getFacetLabel(facets.force, force)}` : "",
+    mechanic ? `机制：${getFacetLabel(facets.mechanics, mechanic)}` : "",
+    goalTag ? `目标：${goalTag}` : "",
+    riskTag ? `风险：${riskTag}` : "",
+    published ? `发布：${published === "true" ? "已发布" : "未发布"}` : "",
+  ].filter(Boolean);
+
+  const featuredMuscles = facets.muscles.slice(0, 8);
+  const effectiveSelectedId = items.some((exercise) => exercise.id === selectedId)
+    ? selectedId
+    : items[0]?.id || "";
+  const selectedExercise = items.find((exercise) => exercise.id === effectiveSelectedId);
+  const relatedExercises = selectedExercise
+    ? items
+        .filter(
+          (exercise) =>
+            exercise.id !== selectedExercise.id &&
+            exercise.primaryMuscles.some((muscleName) =>
+              selectedExercise.primaryMuscles.includes(muscleName),
+            ),
+        )
+        .slice(0, 5)
+    : [];
+
+  return (
+    <div className="min-h-screen bg-background text-on-surface lg:pl-[260px]">
+      <main className="custom-scrollbar h-screen overflow-y-auto p-lg xl:pr-[364px] xl:p-xl">
+        <header className="mb-2xl flex flex-col gap-lg xl:flex-row xl:items-end xl:justify-between">
+          <div>
+            <h1 className="font-headline-lg text-headline-lg">动作库</h1>
+            <p className="mt-xs font-body-md text-body-md text-on-surface-variant">
+              查找标准动作教学，构建你的专属训练方案
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-sm">
+            <button
+              className="flex items-center gap-xs rounded-full border border-outline-variant bg-white px-lg py-sm font-label-md text-label-md transition-colors hover:bg-surface-container-low"
+              type="button"
+            >
+              <SymbolIcon className="text-[20px]">filter_list</SymbolIcon>
+              筛选
+            </button>
+            <button
+              className="flex items-center gap-xs rounded-full border border-outline-variant bg-white px-lg py-sm font-label-md text-label-md transition-colors hover:bg-surface-container-low"
+              type="button"
+            >
+              <SymbolIcon className="text-[20px]">bookmarks</SymbolIcon>
+              批量收藏
+            </button>
+            <button
+              className="flex items-center gap-xs rounded-full bg-primary-container px-lg py-sm font-label-md text-label-md text-white shadow-md transition-opacity hover:opacity-90"
+              type="button"
+            >
+              <SymbolIcon className="text-[20px]">play_circle</SymbolIcon>
+              开始训练
+            </button>
+          </div>
+        </header>
+
+        <section className="mb-2xl rounded-lg border border-outline-variant bg-surface-container-lowest p-lg shadow-sm">
+          <div className="mb-lg flex items-center gap-md rounded-full border border-transparent bg-surface-container-low px-lg py-sm transition-all focus-within:border-primary-container">
+            <SymbolIcon className="text-outline">search</SymbolIcon>
+            <input
+              className="w-full border-none bg-transparent font-body-md text-body-md text-on-surface outline-none placeholder:text-on-surface-variant focus:ring-0"
+              onChange={(event) => updateFilter(() => setQuery(event.target.value))}
+              placeholder="搜索动作名称，如：深蹲、硬拉..."
+              type="text"
+              value={query}
+            />
+          </div>
+
+          <div className="flex flex-col gap-lg">
+            <div className="flex flex-col gap-sm md:flex-row md:items-center">
+              <span className="w-16 shrink-0 font-label-md text-label-md text-on-surface-variant">
+                肌群：
+              </span>
+              <div className="flex flex-wrap gap-sm">
+                <button
+                  className={`rounded-full px-lg py-xs font-label-md text-label-md transition-colors ${
+                    !muscle
+                      ? "bg-primary text-white"
+                      : "bg-surface-container-high text-on-surface-variant hover:bg-outline-variant"
+                  }`}
+                  onClick={() => updateFilter(() => setMuscle(""))}
+                  type="button"
+                >
+                  全部
+                </button>
+                {featuredMuscles.map((facet) => {
+                  const isActive = muscle === facet.value;
+
+                  return (
+                    <button
+                      className={`rounded-full px-lg py-xs font-label-md text-label-md transition-colors ${
+                        isActive
+                          ? "bg-primary text-white"
+                          : "bg-surface-container-high text-on-surface-variant hover:bg-outline-variant"
+                      }`}
+                      key={facet.value}
+                      onClick={() => updateFilter(() => setMuscle(facet.value))}
+                      type="button"
+                    >
+                      {facet.label}
+                      <span className="ml-xs opacity-70">{facet.count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-xl">
+              <SelectFilter
+                label="分类"
+                onChange={(value) => updateFilter(() => setCategory(value))}
+                options={facets.categories}
+                placeholder="全部分类"
+                value={category}
+              />
+              <SelectFilter
+                label="难度"
+                onChange={(value) => updateFilter(() => setLevel(value))}
+                options={facets.levels}
+                placeholder="全部难度"
+                value={level}
+              />
+              <SelectFilter
+                label="器械"
+                onChange={(value) => updateFilter(() => setEquipment(value))}
+                options={facets.equipment}
+                placeholder="全部器械"
+                value={equipment}
+              />
+              <SelectFilter
+                label="发力"
+                onChange={(value) => updateFilter(() => setForce(value))}
+                options={facets.force}
+                placeholder="全部发力"
+                value={force}
+              />
+              <SelectFilter
+                label="机制"
+                onChange={(value) => updateFilter(() => setMechanic(value))}
+                options={facets.mechanics}
+                placeholder="全部机制"
+                value={mechanic}
+              />
+              <label className="flex items-center gap-sm">
+                <span className="font-label-md text-label-md text-on-surface-variant">排序:</span>
+                <select
+                  className="cursor-pointer border-none bg-transparent font-label-md text-label-md text-on-surface outline-none focus:ring-0"
+                  onChange={(event) =>
+                    updateFilter(() => setSortBy(event.target.value as ExerciseSort))
+                  }
+                  value={sortBy}
+                >
+                  {exerciseSortOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="flex flex-wrap gap-xl">
+              <SelectFilter
+                label="目标"
+                onChange={(value) => updateFilter(() => setGoalTag(value))}
+                options={facets.goalTags}
+                placeholder="全部目标"
+                value={goalTag}
+              />
+              <SelectFilter
+                label="风险"
+                onChange={(value) => updateFilter(() => setRiskTag(value))}
+                options={facets.riskTags}
+                placeholder="全部风险"
+                value={riskTag}
+              />
+              <label className="flex items-center gap-sm">
+                <span className="font-label-md text-label-md text-on-surface-variant">状态:</span>
+                <select
+                  className="cursor-pointer border-none bg-transparent font-label-md text-label-md text-on-surface outline-none focus:ring-0"
+                  onChange={(event) => updateFilter(() => setPublished(event.target.value))}
+                  value={published}
+                >
+                  <option value="">全部状态</option>
+                  <option value="true">已发布</option>
+                  <option value="false">未发布</option>
+                </select>
+              </label>
+              <label className="flex items-center gap-sm">
+                <span className="font-label-md text-label-md text-on-surface-variant">每页:</span>
+                <select
+                  className="cursor-pointer border-none bg-transparent font-label-md text-label-md text-on-surface outline-none focus:ring-0"
+                  onChange={(event) => {
+                    setIsLoadingExercises(true);
+                    setPage(1);
+                    setPageSize(Number(event.target.value));
+                  }}
+                  value={pageSize}
+                >
+                  {pageSizeOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option} 条
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            {activeFilters.length ? (
+              <div className="flex flex-wrap items-center gap-sm border-t border-outline-variant pt-md">
+                {activeFilters.map((filter) => (
+                  <span
+                    className="rounded-full bg-primary-fixed px-md py-xs font-label-sm text-label-sm text-on-primary-fixed-variant"
+                    key={filter}
+                  >
+                    {filter}
+                  </span>
+                ))}
+                <button
+                  className="rounded-full border border-outline-variant px-md py-xs font-label-sm text-label-sm text-on-surface-variant transition-colors hover:bg-surface-container"
+                  onClick={resetFilters}
+                  type="button"
+                >
+                  清空筛选
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </section>
+
+        <section>
+          <div className="mb-lg flex items-center justify-between gap-md">
+            <h2 className="font-title-lg text-title-lg">所有动作 ({total})</h2>
+            <span className="font-label-sm text-label-sm text-on-surface-variant">
+              第 {page} / {totalPages} 页 · 当前 {items.length} 条
+            </span>
+          </div>
+
+          {exerciseError ? (
+            <div className="rounded-lg border border-error-container bg-error-container/40 p-lg font-label-md text-label-md text-on-error-container">
+              {exerciseError}
+            </div>
+          ) : null}
+
+          {isLoadingExercises ? (
+            <div className="grid grid-cols-2 gap-lg md:grid-cols-3 2xl:grid-cols-4">
+              {Array.from({ length: 8 }).map((_, index) => (
+                <div className="rounded-lg border border-outline-variant bg-white p-sm" key={index}>
+                  <div className="mb-sm aspect-square animate-pulse rounded-md bg-surface-container" />
+                  <div className="mb-xs h-4 w-2/3 animate-pulse rounded bg-surface-container" />
+                  <div className="h-3 w-1/3 animate-pulse rounded bg-surface-container" />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <>
+              {items.length ? (
+                <div className="grid grid-cols-2 gap-lg md:grid-cols-3 2xl:grid-cols-4">
+                  {items.map((exercise) => {
+                    const isSelected = exercise.id === effectiveSelectedId;
+
+                    return (
+                      <button
+                        className={`rounded-lg p-sm text-left transition-all ${
+                          isSelected
+                            ? "border-2 border-primary-container bg-primary-container/10 ring-2 ring-primary-container/10"
+                            : "border border-outline-variant bg-white hover:border-primary"
+                        }`}
+                        key={exercise.id}
+                        onClick={() => setSelectedId(exercise.id)}
+                        type="button"
+                      >
+                        <div className="mb-sm aspect-square overflow-hidden rounded-md bg-surface-container">
+                          <img
+                            alt={`${exercise.nameZh} 动作示意图`}
+                            className="h-full w-full object-cover"
+                            src={getExerciseImage(exercise)}
+                          />
+                        </div>
+                        <p
+                          className={`mb-[2px] truncate font-label-md text-label-md ${
+                            isSelected ? "text-primary" : ""
+                          }`}
+                        >
+                          {exercise.nameZh}
+                        </p>
+                        <p
+                          className={`flex items-center gap-1 font-label-sm text-label-sm ${
+                            isSelected ? "text-primary" : "text-on-surface-variant"
+                          }`}
+                        >
+                          <span
+                            className={`h-2 w-2 rounded-full ${getDifficultyDot(exercise.level)}`}
+                          />
+                          {exercise.levelZh || "未标注"}
+                        </p>
+                        <p className="mt-xs truncate font-label-sm text-label-sm text-on-surface-variant">
+                          {exercise.categoryZh || "未分类"} ·{" "}
+                          {exercise.equipmentZh || "未标注器械"}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-outline-variant bg-white p-2xl text-center">
+                  <SymbolIcon className="mb-sm text-4xl text-on-surface-variant">
+                    search_off
+                  </SymbolIcon>
+                  <p className="font-title-lg text-title-lg">没有找到匹配动作</p>
+                  <p className="mt-xs font-label-md text-label-md text-on-surface-variant">
+                    调整关键词或清空部分筛选后再试。
+                  </p>
+                </div>
+              )}
+
+              <div className="mt-xl flex flex-col gap-md border-t border-outline-variant pt-lg md:flex-row md:items-center md:justify-between">
+                <span className="font-label-md text-label-md text-on-surface-variant">
+                  共 {total} 条 · 第 {page} / {totalPages} 页
+                </span>
+                <div className="flex items-center gap-sm">
+                  <button
+                    className="rounded-full border border-outline-variant bg-white px-lg py-sm font-label-md text-label-md transition-colors hover:bg-surface-container-low disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={!hasPreviousPage || isLoadingExercises}
+                    onClick={() => {
+                      setIsLoadingExercises(true);
+                      setPage((current) => Math.max(1, current - 1));
+                    }}
+                    type="button"
+                  >
+                    上一页
+                  </button>
+                  <button
+                    className="rounded-full border border-outline-variant bg-white px-lg py-sm font-label-md text-label-md transition-colors hover:bg-surface-container-low disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={!hasNextPage || isLoadingExercises}
+                    onClick={() => {
+                      setIsLoadingExercises(true);
+                      setPage((current) => Math.min(totalPages, current + 1));
+                    }}
+                    type="button"
+                  >
+                    下一页
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </section>
+      </main>
+
+      <ExerciseDetailPanel
+        exercise={selectedExercise}
+        onSelectExercise={setSelectedId}
+        relatedExercises={relatedExercises}
+      />
+    </div>
+  );
+}
+
+function ExerciseDetailPanel({
+  exercise,
+  onSelectExercise,
+  relatedExercises,
+}: {
+  exercise?: Exercise;
+  onSelectExercise: (id: string) => void;
+  relatedExercises: Exercise[];
+}) {
+  return (
+    <aside className="fixed right-0 top-0 z-30 hidden h-screen w-[340px] flex-col border-l border-outline-variant bg-surface-container-lowest xl:flex">
+      <div className="custom-scrollbar flex h-full flex-col overflow-y-auto p-lg">
+        {exercise ? (
+          <>
+            <div className="mb-lg flex flex-col gap-md">
+              <div className="group relative aspect-video w-full overflow-hidden rounded-lg bg-black shadow-lg">
+                <img
+                  alt={`${exercise.nameZh} 动作教学`}
+                  className="h-full w-full object-cover opacity-80"
+                  src={getExerciseImage(exercise)}
+                />
+                <div className="absolute left-0 right-0 top-0 flex items-center justify-between bg-gradient-to-b from-black/50 to-transparent p-sm">
+                  <button
+                    className="flex h-8 w-8 items-center justify-center rounded-full bg-black/20 text-white transition-colors hover:bg-black/40"
+                    type="button"
+                  >
+                    <SymbolIcon className="text-[20px]">close</SymbolIcon>
+                  </button>
+                  <div className="flex gap-xs">
+                    <button
+                      className="flex h-8 w-8 items-center justify-center rounded-full bg-black/20 text-[#EAB308] transition-colors hover:bg-black/40"
+                      type="button"
+                    >
+                      <SymbolIcon className="text-[20px]" filled>
+                        star
+                      </SymbolIcon>
+                    </button>
+                    <button
+                      className="flex h-8 w-8 items-center justify-center rounded-full bg-black/20 text-white transition-colors hover:bg-black/40"
+                      type="button"
+                    >
+                      <SymbolIcon className="text-[20px]">share</SymbolIcon>
+                    </button>
+                  </div>
+                </div>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <button
+                    className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/90 text-white shadow-xl transition-transform hover:scale-110"
+                    type="button"
+                  >
+                    <SymbolIcon className="ml-1 text-4xl">play_arrow</SymbolIcon>
+                  </button>
+                </div>
+                <div className="absolute bottom-0 left-0 right-0 flex flex-col gap-xs bg-gradient-to-t from-black/60 to-transparent p-sm">
+                  <div className="h-1 w-full overflow-hidden rounded-full bg-white/30">
+                    <div className="h-full w-[26%] bg-primary" />
+                  </div>
+                  <div className="flex justify-end">
+                    <span className="text-[10px] font-medium text-white">0:12 / 0:45</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex rounded-full bg-surface-container-low p-1">
+                {["视频教学", "分步图解", "动作演示"].map((tab, index) => (
+                  <button
+                    className={`flex-1 rounded-full py-2 font-label-sm text-label-sm ${
+                      index === 0
+                        ? "bg-primary text-white shadow-sm"
+                        : "text-on-surface-variant transition-colors hover:text-on-surface"
+                    }`}
+                    key={tab}
+                    type="button"
+                  >
+                    {tab}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-lg">
+              <div>
+                <h2 className="mb-xs font-headline-md text-headline-md">{exercise.nameZh}</h2>
+                <div className="flex flex-wrap gap-sm">
+                  {exercise.primaryMusclesZh.slice(0, 2).map((muscleName) => (
+                    <span
+                      className="rounded bg-tertiary-fixed px-sm py-[2px] font-label-sm text-label-sm text-on-tertiary-fixed-variant"
+                      key={muscleName}
+                    >
+                      {muscleName}
+                    </span>
+                  ))}
+                  <span className="rounded bg-surface-container-high px-sm py-[2px] font-label-sm text-label-sm text-on-surface-variant">
+                    难度：{exercise.levelZh || "未标注"}
+                  </span>
+                  <span className="rounded bg-surface-container-high px-sm py-[2px] font-label-sm text-label-sm text-on-surface-variant">
+                    {exercise.equipmentZh || "器械未标注"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-md rounded-lg bg-surface-container-low p-md">
+                <div className="flex flex-col">
+                  <span className="font-label-sm text-label-sm text-on-surface-variant">
+                    建议组数
+                  </span>
+                  <span className="font-title-lg text-title-lg">3-4 组</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="font-label-sm text-label-sm text-on-surface-variant">
+                    目标类型
+                  </span>
+                  <span className="truncate font-title-lg text-title-lg">
+                    {exercise.categoryZh || "训练"}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="mb-md font-title-lg text-title-lg">动作步骤</h3>
+                <div className="flex flex-col gap-md">
+                  {exercise.instructionsZh.slice(0, 5).map((instruction, index) => (
+                    <div className="flex gap-md" key={`${exercise.id}-${index}`}>
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary-container font-label-md text-label-md text-white">
+                        {index + 1}
+                      </span>
+                      <p className="font-body-md text-body-md">{instruction}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-md">
+                <div className="rounded-lg border border-green-100 bg-green-50 p-md">
+                  <h4 className="mb-xs flex items-center gap-xs font-label-md text-label-md text-green-700">
+                    <SymbolIcon className="text-[18px]">check_circle</SymbolIcon>
+                    要点提示
+                  </h4>
+                  <p className="font-label-md text-label-md text-green-600">
+                    保持动作节奏稳定，优先保证姿态标准，再增加次数或负重。
+                  </p>
+                </div>
+                <div className="rounded-lg border border-red-100 bg-red-50 p-md">
+                  <h4 className="mb-xs flex items-center gap-xs font-label-md text-label-md text-red-700">
+                    <SymbolIcon className="text-[18px]">warning</SymbolIcon>
+                    常见错误
+                  </h4>
+                  <p className="font-label-md text-label-md text-red-600">
+                    不要用惯性完成动作；如出现疼痛，应停止并调整动作范围。
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="mb-md font-title-lg text-title-lg">相关动作</h3>
+                <div className="custom-scrollbar flex gap-md overflow-x-auto pb-sm">
+                  {relatedExercises.length ? (
+                    relatedExercises.map((relatedExercise) => (
+                      <button
+                        className="w-24 shrink-0 text-left"
+                        key={relatedExercise.id}
+                        onClick={() => onSelectExercise(relatedExercise.id)}
+                        type="button"
+                      >
+                        <div className="mb-xs aspect-square overflow-hidden rounded-md bg-surface-container">
+                          <img
+                            alt={`${relatedExercise.nameZh} 预览`}
+                            className="h-full w-full object-cover"
+                            src={getExerciseImage(relatedExercise)}
+                          />
+                        </div>
+                        <p className="truncate font-label-sm text-label-sm">
+                          {relatedExercise.nameZh}
+                        </p>
+                      </button>
+                    ))
+                  ) : (
+                    <p className="font-label-md text-label-md text-on-surface-variant">
+                      暂无相关动作
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-auto pt-xl">
+              <button
+                className="w-full rounded-lg bg-primary py-lg font-title-lg text-title-lg text-white shadow-lg transition-all hover:shadow-xl active:scale-[0.98]"
+                type="button"
+              >
+                加入训练计划
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="flex h-full flex-col items-center justify-center text-center text-on-surface-variant">
+            <SymbolIcon className="mb-md text-5xl">fitness_center</SymbolIcon>
+            <p className="font-label-md text-label-md">选择一个动作查看教学详情</p>
+          </div>
+        )}
+      </div>
+    </aside>
+  );
+}
