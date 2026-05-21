@@ -19,6 +19,10 @@ const levelRank: Record<string, number> = {
   expert: 3,
 };
 
+export async function listAllExercises(): Promise<Exercise[]> {
+  return exercises;
+}
+
 export async function listExercises(query: ExerciseListQuery = {}): Promise<ExerciseListResult> {
   const pagination = resolvePagination(query);
   const filtered = exercises

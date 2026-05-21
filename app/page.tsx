@@ -30,6 +30,7 @@ type ChatConversation = {
 };
 
 const chatHistoryStorageKey = "fitmate.chatHistory";
+const chatRequestTimeoutMs = 45_000;
 
 const quickPrompts = ["帮我制定增肌计划", "推荐居家训练", "今天练什么", "制定减脂食谱"];
 
@@ -110,7 +111,7 @@ export default function Home() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
-  const [thinkingEnabled, setThinkingEnabled] = useState(true);
+  const [thinkingEnabled, setThinkingEnabled] = useState(false);
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
   const hasMessages = messages.length > 0;
@@ -237,12 +238,16 @@ export default function Home() {
     setError("");
     setIsLoading(true);
 
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), chatRequestTimeoutMs);
+
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
+        signal: controller.signal,
         body: JSON.stringify({
           messages: requestMessages,
           thinkingEnabled,
@@ -304,8 +309,13 @@ export default function Home() {
         }
       }
     } catch (requestError) {
+      const isAbortError =
+        requestError instanceof DOMException && requestError.name === "AbortError";
+
       setError(
-        requestError instanceof Error
+        isAbortError
+          ? "聊天请求超时，请稍后重试。"
+          : requestError instanceof Error
           ? requestError.message
           : "聊天请求失败，请稍后重试。",
       );
@@ -314,6 +324,7 @@ export default function Home() {
         content: message.content || "请求失败，请检查网络或服务端配置后重试。",
       }));
     } finally {
+      window.clearTimeout(timeout);
       setIsLoading(false);
     }
   }

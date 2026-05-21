@@ -20,6 +20,8 @@ const SYSTEM_PROMPT = `你是 FitMate AI，一个中文 AI 健身聊天助手。
 你的职责是理解用户的健身目标、训练条件、时间安排和限制，并给出安全、可执行的训练建议。
 如果用户描述疼痛、伤病、疾病、孕期或高风险健康情况，你必须提醒其咨询医生或专业人士，不能做医疗诊断。
 当前项目还没有接入动作数据库，因此你不能声称已经保存计划或调用了真实动作库。`;
+const DEEPSEEK_REQUEST_TIMEOUT_MS = 45_000;
+const LOG_PREVIEW_LENGTH = 4000;
 
 function isChatMessage(value: unknown): value is ChatMessage {
   if (!value || typeof value !== "object") {
@@ -71,13 +73,16 @@ export async function POST(request: Request) {
     );
   }
 
-  const response = await fetch("https://api.deepseek.com/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DEEPSEEK_REQUEST_TIMEOUT_MS);
+  let response: Response;
+
+  console.info("[chat] deepseek_request", {
+    model: "deepseek-v4-flash",
+    messageCount: messages.length,
+    thinkingEnabled,
+    timeoutMs: DEEPSEEK_REQUEST_TIMEOUT_MS,
+    payload: previewLogObject({
       model: "deepseek-v4-flash",
       messages: [{ role: "system", content: SYSTEM_PROMPT }, ...messages],
       stream: true,
@@ -87,8 +92,52 @@ export async function POST(request: Request) {
     }),
   });
 
+  try {
+    response = await fetch("https://api.deepseek.com/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: "deepseek-v4-flash",
+        messages: [{ role: "system", content: SYSTEM_PROMPT }, ...messages],
+        stream: true,
+        thinking: {
+          type: thinkingEnabled ? "enabled" : "disabled",
+        },
+      }),
+    });
+  } catch (error) {
+    clearTimeout(timeout);
+    console.warn("[chat] deepseek_failed", {
+      message:
+        error instanceof DOMException && error.name === "AbortError"
+          ? "DeepSeek API request timed out."
+          : "DeepSeek API request failed.",
+      detail: error instanceof Error ? error.message : error,
+    });
+
+    return NextResponse.json(
+      {
+        error:
+          error instanceof DOMException && error.name === "AbortError"
+            ? "DeepSeek API request timed out."
+            : "DeepSeek API request failed.",
+      },
+      { status: 502 },
+    );
+  }
+
   if (!response.ok) {
     const errorText = await response.text();
+    clearTimeout(timeout);
+
+    console.warn("[chat] deepseek_failed", {
+      status: response.status,
+      detail: errorText,
+    });
 
     return NextResponse.json(
       {
@@ -100,19 +149,33 @@ export async function POST(request: Request) {
   }
 
   if (!response.body) {
+    clearTimeout(timeout);
+    console.warn("[chat] deepseek_failed", {
+      status: 502,
+      detail: "DeepSeek API returned an empty stream.",
+    });
+
     return NextResponse.json(
       { error: "DeepSeek API returned an empty stream." },
       { status: 502 },
     );
   }
 
+  console.info("[chat] deepseek_response", {
+    status: response.status,
+    contentType: response.headers.get("content-type"),
+  });
+
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let contentPreview = "";
+      let reasoningPreview = "";
 
       if (!reader) {
+        clearTimeout(timeout);
         controller.enqueue(encodeStreamEvent("error", "DeepSeek API returned an empty stream."));
         controller.close();
         return;
@@ -140,6 +203,11 @@ export async function POST(request: Request) {
             const data = line.replace(/^data:\s*/, "");
 
             if (data === "[DONE]") {
+              clearTimeout(timeout);
+              console.info("[chat] deepseek_stream_done", {
+                content: previewLogText(contentPreview),
+                reasoning: previewLogText(reasoningPreview),
+              });
               controller.enqueue(encodeStreamEvent("done"));
               controller.close();
               return;
@@ -151,18 +219,33 @@ export async function POST(request: Request) {
             const content = delta?.content;
 
             if (reasoning) {
+              reasoningPreview += reasoning;
               controller.enqueue(encodeStreamEvent("reasoning", reasoning));
             }
 
             if (content) {
+              contentPreview += content;
               controller.enqueue(encodeStreamEvent("content", content));
             }
           }
         }
 
+        clearTimeout(timeout);
+        console.info("[chat] deepseek_stream_done", {
+          content: previewLogText(contentPreview),
+          reasoning: previewLogText(reasoningPreview),
+        });
         controller.enqueue(encodeStreamEvent("done"));
         controller.close();
       } catch (error) {
+        clearTimeout(timeout);
+        console.warn("[chat] deepseek_failed", {
+          message:
+            error instanceof DOMException && error.name === "AbortError"
+              ? "DeepSeek API stream timed out."
+              : "Failed to read DeepSeek stream.",
+          detail: error instanceof Error ? error.message : error,
+        });
         controller.enqueue(
           encodeStreamEvent(
             "error",
@@ -181,4 +264,14 @@ export async function POST(request: Request) {
       "X-Accel-Buffering": "no",
     },
   });
+}
+
+function previewLogObject(value: unknown) {
+  const text = JSON.stringify(value);
+
+  return previewLogText(text);
+}
+
+function previewLogText(value: string) {
+  return value.length > LOG_PREVIEW_LENGTH ? `${value.slice(0, LOG_PREVIEW_LENGTH)}...` : value;
 }
