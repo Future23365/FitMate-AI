@@ -254,6 +254,7 @@ export function TrainingPlanPage() {
   const todayKey = toDateKey(today);
   const [monthDate, setMonthDate] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
   const [selectedDateKey, setSelectedDateKey] = useState(todayKey);
+  const [selectedPlanId, setSelectedPlanId] = useState("");
   const [savedWorkouts, setSavedWorkouts] = useState<SavedWorkout[]>(fallbackWorkouts);
   const [schedule, setSchedule] = useState<ScheduledWorkout[]>([]);
   const [toast, setToast] = useState("");
@@ -300,7 +301,9 @@ export function TrainingPlanPage() {
   const filteredWorkouts = savedWorkouts;
   const cells = getCalendarCells(monthDate);
   const selectedDayPlans = schedule.filter((plan) => plan.date === selectedDateKey);
-  const primarySelectedPlan = selectedDayPlans[0];
+  const expandedPlanId = selectedDayPlans.some((plan) => plan.id === selectedPlanId)
+    ? selectedPlanId
+    : selectedDayPlans[0]?.id ?? "";
   const monthlyStats = schedule.filter(
     (plan) =>
       plan.date.startsWith(`${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, "0")}`) &&
@@ -316,11 +319,14 @@ export function TrainingPlanPage() {
   }
 
   function scheduleWorkout(plan: SavedWorkout, dateKey = selectedDateKey) {
+    const scheduledWorkout = createScheduledWorkout(plan, dateKey);
+
     setSchedule((current) => [
       ...current.filter((item) => !(item.date === dateKey && item.status === "rest")),
-      createScheduledWorkout(plan, dateKey),
+      scheduledWorkout,
     ]);
     setSelectedDateKey(dateKey);
+    setSelectedPlanId(scheduledWorkout.id);
     setToast(`已安排：${plan.title} · ${formatDayLabel(dateKey)}`);
   }
 
@@ -343,11 +349,15 @@ export function TrainingPlanPage() {
 
   function updatePlanStatus(planId: string, status: ScheduleStatus) {
     setSchedule((current) => current.map((plan) => (plan.id === planId ? { ...plan, status } : plan)));
+    setSelectedPlanId(planId);
     setToast(`状态已更新为：${getStatusConfig(status).label}`);
   }
 
   function removePlan(planId: string) {
     setSchedule((current) => current.filter((plan) => plan.id !== planId));
+    if (selectedPlanId === planId) {
+      setSelectedPlanId("");
+    }
     setToast("已移除当天安排");
   }
 
@@ -447,7 +457,10 @@ export function TrainingPlanPage() {
                       : "bg-surface-container-low text-outline/60"
                   } ${isSelected ? "relative z-10 bg-primary-fixed/20 ring-2 ring-primary ring-inset" : ""}`}
                   key={cell.dateKey}
-                  onClick={() => setSelectedDateKey(cell.dateKey)}
+                  onClick={() => {
+                    setSelectedDateKey(cell.dateKey);
+                    setSelectedPlanId("");
+                  }}
                   type="button"
                 >
                   <div className="mb-sm flex items-start justify-between">
@@ -496,12 +509,34 @@ export function TrainingPlanPage() {
             <SymbolIcon className="text-[18px]">calendar_today</SymbolIcon>
             当天计划 ({formatDayLabel(selectedDateKey)})
           </h2>
-          {primarySelectedPlan ? (
-            <CurrentPlanCard
-              plan={primarySelectedPlan}
-              onRemove={() => removePlan(primarySelectedPlan.id)}
-              onStatusChange={(status) => updatePlanStatus(primarySelectedPlan.id, status)}
-            />
+          {selectedDayPlans.length ? (
+            <div className="space-y-xs">
+              {selectedDayPlans.map((plan) => {
+                const isExpanded = plan.id === expandedPlanId;
+
+                return (
+                  <div
+                    className={`overflow-hidden transition-all duration-300 ease-out ${
+                      isExpanded ? "rounded-2xl opacity-100" : "rounded-xl opacity-95"
+                    }`}
+                    key={plan.id}
+                  >
+                    {isExpanded ? (
+                      <CurrentPlanCard
+                        plan={plan}
+                        onRemove={() => removePlan(plan.id)}
+                        onStatusChange={(status) => updatePlanStatus(plan.id, status)}
+                      />
+                    ) : (
+                      <CollapsedDayPlanButton
+                        onClick={() => setSelectedPlanId(plan.id)}
+                        plan={plan}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           ) : (
             <div className="rounded-2xl border border-dashed border-outline-variant bg-white p-md text-center">
               <SymbolIcon className="mb-sm text-4xl text-outline">event_busy</SymbolIcon>
@@ -518,21 +553,6 @@ export function TrainingPlanPage() {
               </button>
             </div>
           )}
-          {selectedDayPlans.length > 1 ? (
-            <div className="space-y-xs">
-              {selectedDayPlans.slice(1).map((plan) => (
-                <button
-                  className="flex w-full items-center justify-between rounded-xl border border-outline-variant bg-white p-sm text-left"
-                  key={plan.id}
-                  onClick={() => updatePlanStatus(plan.id, "completed")}
-                  type="button"
-                >
-                  <span className="truncate font-label-md text-label-md">{plan.title}</span>
-                  <SymbolIcon className="text-primary">check_circle</SymbolIcon>
-                </button>
-              ))}
-            </div>
-          ) : null}
         </section>
 
         <section className="space-y-sm">
@@ -571,20 +591,6 @@ export function TrainingPlanPage() {
             <span className="flex items-center gap-sm">
               <SymbolIcon className="text-secondary group-hover:text-primary">self_improvement</SymbolIcon>
               <span className="font-label-md text-label-md">设置为恢复休息日</span>
-            </span>
-            <SymbolIcon className="text-[18px] text-secondary">add</SymbolIcon>
-          </button>
-          <button
-            className="group flex w-full items-center justify-between rounded-xl border border-outline-variant bg-white p-md text-left transition-colors hover:border-primary"
-            onClick={() => {
-              const plan = fallbackWorkouts[0];
-              scheduleWorkout(plan);
-            }}
-            type="button"
-          >
-            <span className="flex items-center gap-sm">
-              <SymbolIcon className="text-secondary group-hover:text-primary">local_fire_department</SymbolIcon>
-              <span className="font-label-md text-label-md">晚间燃脂循环</span>
             </span>
             <SymbolIcon className="text-[18px] text-secondary">add</SymbolIcon>
           </button>
@@ -659,6 +665,39 @@ function CalendarPlanBadge({ plan }: { plan: ScheduledWorkout }) {
       </SymbolIcon>
       <span className="truncate">{plan.status === "missed" ? `${plan.title} (未完成)` : plan.title}</span>
     </div>
+  );
+}
+
+function CollapsedDayPlanButton({
+  onClick,
+  plan,
+}: {
+  onClick: () => void;
+  plan: ScheduledWorkout;
+}) {
+  const status = getStatusConfig(plan.status);
+
+  return (
+    <button
+      className="group flex w-full items-center gap-sm rounded-xl border border-outline-variant bg-white p-sm text-left shadow-sm transition-all duration-200 hover:border-primary/40 hover:bg-primary-fixed/10 hover:shadow-md"
+      onClick={onClick}
+      type="button"
+    >
+      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${status.badgeClass}`}>
+        <SymbolIcon className="text-[18px]" filled={plan.status === "completed"}>
+          {status.icon}
+        </SymbolIcon>
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-label-md text-label-md font-bold">{plan.title}</span>
+        <span className="block truncate text-[10px] text-secondary">
+          {status.label} · {plan.minutes}min · {plan.calories}kcal
+        </span>
+      </span>
+      <SymbolIcon className="text-primary transition-transform duration-200 group-hover:translate-y-0.5">
+        expand_more
+      </SymbolIcon>
+    </button>
   );
 }
 
