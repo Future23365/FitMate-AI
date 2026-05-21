@@ -9,11 +9,17 @@ interface ExercisePreviewSheetProps {
   isOpen: boolean;
   onClose: () => void;
   exercise: Exercise | null;
+  executionTip?: string;
 }
 
 const placeholderImage = "https://www.gstatic.com/labs-code/stitch/stitch-placeholder-300x300.svg";
 
-export function ExercisePreviewSheet({ isOpen, onClose, exercise }: ExercisePreviewSheetProps) {
+export function ExercisePreviewSheet({
+  isOpen,
+  onClose,
+  exercise,
+  executionTip,
+}: ExercisePreviewSheetProps) {
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [mounted, setMounted] = useState(false);
 
@@ -271,38 +277,20 @@ export function ExercisePreviewSheet({ isOpen, onClose, exercise }: ExercisePrev
                     暂无中文动作说明，请结合动作视频或图片参考。
                   </p>
                 )}
+
               </div>
 
-              {/* 卡片四：防伤与安全防护 (极其醒目的琥珀黄色警告卡片) */}
-              <div className="bg-amber-50/80 border border-amber-200/50 shadow-sm rounded-2xl p-md text-amber-900">
-                <h4 className="mb-xs flex items-center gap-xs font-label-sm text-label-sm font-bold text-amber-800">
-                  <SymbolIcon className="text-amber-600 text-[18px]">health_and_safety</SymbolIcon>
-                  安全防护与防伤指引
-                </h4>
-
-                {/* 风险预警标签 */}
-                {exercise.riskTags && exercise.riskTags.length > 0 && (
-                  <div className="mb-sm flex flex-wrap gap-xs">
-                    {exercise.riskTags.map((tag) => (
-                      <span key={tag} className="inline-flex items-center rounded bg-amber-100 px-xs py-[2px] font-label-xs text-label-xs font-bold text-amber-800 border border-amber-200">
-                        ⚠ {tag}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                <div className="font-body-xs text-body-xs leading-relaxed space-y-xs font-medium">
-                  <p>
-                    1. 💡 <strong className="font-bold text-amber-950">姿态维持</strong>：整个运动轨迹中务必锁定核心，维持脊柱中立，严禁弓背借力甩重，避免对腰椎造成过量压迫。
-                  </p>
-                  <p>
-                    2. 💡 <strong className="font-bold text-amber-950">循序渐进</strong>：首组推荐使用空杆或自重来激活肌肉并熟悉动作模式，掌握肌肉募集感后，再循序渐进施加负重。
-                  </p>
-                  <p>
-                    3. 🛑 <strong className="font-bold text-amber-950">伤痛警报</strong>：肌酸微酸是正常的运动充血现象。若关节或肌韧带产生针刺感或撕裂麻木刺痛，应立即停止动作并及时康复诊疗。
+              {executionTip ? (
+                <div className="rounded-2xl border border-primary/10 bg-primary/5 p-md shadow-sm">
+                  <h4 className="mb-xs flex items-center gap-xs font-label-sm text-label-sm font-bold text-primary">
+                    <SymbolIcon className="text-[16px]">tips_and_updates</SymbolIcon>
+                    执行提示
+                  </h4>
+                  <p className="font-body-sm text-body-sm leading-relaxed text-slate-700">
+                    {executionTip}
                   </p>
                 </div>
-              </div>
+              ) : null}
 
             </div>
           </>

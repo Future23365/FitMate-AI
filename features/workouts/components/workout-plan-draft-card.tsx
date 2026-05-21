@@ -64,12 +64,14 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
   const [scheduleRange, setScheduleRange] = useState<7 | 28>(28);
 
   const [activePreviewExercise, setActivePreviewExercise] = useState<Exercise | null>(null);
+  const [activePreviewTip, setActivePreviewTip] = useState<string | undefined>();
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
-  const handleOpenPreview = (exerciseId: string) => {
+  const handleOpenPreview = (exerciseId: string, executionTip?: string) => {
     const exercise = exerciseMap.get(exerciseId);
     if (exercise) {
       setActivePreviewExercise(exercise);
+      setActivePreviewTip(executionTip);
       setIsPreviewOpen(true);
     }
   };
@@ -303,7 +305,7 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
                 return (
                   <div
                     key={`${item.exerciseId}-${index}`}
-                    onClick={() => handleOpenPreview(item.exerciseId)}
+                    onClick={() => handleOpenPreview(item.exerciseId, item.notes)}
                     className="flex items-center gap-md rounded-xl border border-outline-variant bg-surface-container-lowest p-md hover:border-primary-container/40 hover:shadow-sm cursor-pointer transition-all duration-200 group"
                   >
                     {/* 动作封面图片 */}
@@ -463,6 +465,7 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
         isOpen={isPreviewOpen}
         onClose={() => setIsPreviewOpen(false)}
         exercise={activePreviewExercise}
+        executionTip={activePreviewTip}
       />
     </div>
   );
