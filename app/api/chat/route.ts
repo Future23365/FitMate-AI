@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { startAiTrace, summarizeLatestUserMessage, type AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import { serverRequest } from "@/lib/server/http/server-request";
 import {
@@ -73,6 +74,25 @@ const SYSTEM_PROMPT = `你是 FitMate AI，一个中文 AI 健身聊天助手。
 你的职责是理解用户的健身目标、训练条件、时间安排和限制，并给出安全、可执行的训练建议。
 如果用户描述疼痛、伤病、疾病、孕期或高风险健康情况，你必须提醒其咨询医生或专业人士，不能做医疗诊断。
 
+如果用户只是请求“推荐一些动作/有哪些动作可以练/某部位轻松练练”，但没有要求你安排组数、次数、休息、训练顺序、单次训练流程或长期计划，你必须只触发动作推荐卡片，不要触发训练计划或动作编排。
+动作推荐 Trigger 必须在自然语言回复结尾，**单独以一个 \`\`\`json 开头和结尾的代码块形式**输出，格式如下：
+\`\`\`json
+{
+  "type": "exercise_recommendation_trigger",
+  "intent": {
+    "intentType": "routine",
+    "goal": "轻松臀部训练动作推荐",
+    "experience": "beginner",
+    "sessionMinutes": 20,
+    "weeklyFrequency": 1,
+    "equipment": ["none"],
+    "injuryLimitations": [],
+    "preferences": ["轻松一点"],
+    "avoidances": []
+  }
+}
+\`\`\`
+
 如果你在对话中判定用户具有明确的“定制/生成/安排/制定训练计划”的意图，且你已经通过对话基本了解了（或合理默认推断了）他们的意图画像，你必须在你的自然语言回复结尾，**单独以一个 \`\`\`json 开头和结尾的代码块形式**，输出一个专属的 Trigger 对象用于智能触发后台计划生成。
 这个代码块必须格式严格如下：
 \`\`\`json
@@ -94,11 +114,12 @@ const SYSTEM_PROMPT = `你是 FitMate AI，一个中文 AI 健身聊天助手。
 
 注意：
 1. Trigger JSON 块必须紧跟在您自然的文字回复之后，**单独成行输出**，必须确保其 JSON 格式合法。
-2. intentType 只能是 "plan" 或 "routine"。如果用户只是想要一份单次的动作编排/动作组/动作列表，判定为 "routine"；如果用户是想制定整体、长期、周/月训练计划，判定为 "plan"。
+2. intentType 只能是 "plan" 或 "routine"。如果用户要求单次动作编排/动作组/动作列表/训练流程，判定为 "routine"；如果用户是想制定整体、长期、周/月训练计划，判定为 "plan"；如果用户只是要动作推荐，仍使用 intentType="routine"，但 Trigger type 必须是 "exercise_recommendation_trigger"。
 3. experience 只能是 "beginner"、"intermediate" 或 "advanced"，默认 "beginner"。
 4. sessionMinutes 是单次训练时长，单位分钟，默认 30；weeklyFrequency 是每周训练频次，默认 3。
 5. equipment、injuryLimitations、preferences、avoidances 都必须是字符串数组；若无信息，使用空数组，equipment 可合理默认 ["none"]。
-6. 如果用户描述包含任何严重的高风险健康情况（如胸痛、心脏病、心梗、晕厥、孕期、骨折、刚做完手术等），请在正文自然语言回复中极力警告并强烈建议其就医，**不要**输出此 Trigger JSON 代码块。`;
+6. 同一条回复只能输出一个 Trigger；不要同时输出 workout_plan_trigger 和 exercise_recommendation_trigger。
+7. 如果用户描述包含任何严重的高风险健康情况（如胸痛、心脏病、心梗、晕厥、孕期、骨折、刚做完手术等），请在正文自然语言回复中极力警告并强烈建议其就医，**不要**输出此 Trigger JSON 代码块。`;
 const DEEPSEEK_REQUEST_TIMEOUT_MS = 45_000;
 const INTENT_REQUEST_TIMEOUT_MS = 12_000;
 const LOG_PREVIEW_LENGTH = 4000;
@@ -145,6 +166,14 @@ export async function POST(request: Request) {
 
   const messages = body.messages.filter(isChatMessage).slice(-20);
   const thinkingEnabled = body.thinkingEnabled !== false;
+  const trace = startAiTrace({
+    route: "/api/chat",
+    title: summarizeLatestUserMessage(messages),
+    metadata: {
+      messageCount: messages.length,
+      thinkingEnabled,
+    },
+  });
 
   if (messages.length === 0) {
     return NextResponse.json(
@@ -153,9 +182,18 @@ export async function POST(request: Request) {
     );
   }
 
-  const chatIntent = await resolveChatIntent(apiKey, messages);
+  trace.addStep({
+    name: "用户输入",
+    type: "user_input",
+    input: {
+      messages,
+      thinkingEnabled,
+    },
+  });
+
+  const chatIntent = await resolveChatIntent(apiKey, messages, trace);
   const exerciseContext = chatIntent.needsExerciseContext
-    ? await buildExerciseContext(chatIntent, messages)
+    ? await buildExerciseContext(chatIntent, messages, trace)
     : null;
   const systemPrompt = buildSystemPrompt(chatIntent, exerciseContext);
   const controller = new AbortController();
@@ -178,6 +216,23 @@ export async function POST(request: Request) {
       },
     }),
   });
+  trace.addStep({
+    name: "聊天模型请求",
+    type: "model_request",
+    input: {
+      model: "deepseek-v4-flash",
+      messages: [{ role: "system", content: systemPrompt }, ...messages],
+      stream: true,
+      thinking: {
+        type: thinkingEnabled ? "enabled" : "disabled",
+      },
+    },
+    metadata: {
+      intent: chatIntent.type,
+      exerciseContextCount: exerciseContext?.providedExercises.length ?? 0,
+      timeoutMs: DEEPSEEK_REQUEST_TIMEOUT_MS,
+    },
+  });
 
   try {
     response = await serverRequest("https://api.deepseek.com/chat/completions", {
@@ -199,6 +254,13 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     clearTimeout(timeout);
+    trace.addStep({
+      name: "聊天模型请求失败",
+      type: "error",
+      status: "failed",
+      error,
+    });
+    trace.finish("failed");
     console.warn("[chat] deepseek_failed", {
       message:
         error instanceof DOMException && error.name === "AbortError"
@@ -221,6 +283,16 @@ export async function POST(request: Request) {
   if (!response.ok) {
     const errorText = await response.text();
     clearTimeout(timeout);
+    trace.addStep({
+      name: "聊天模型响应失败",
+      type: "error",
+      status: "failed",
+      output: {
+        status: response.status,
+        detail: errorText,
+      },
+    });
+    trace.finish("failed");
 
     console.warn("[chat] deepseek_failed", {
       status: response.status,
@@ -238,6 +310,16 @@ export async function POST(request: Request) {
 
   if (!response.body) {
     clearTimeout(timeout);
+    trace.addStep({
+      name: "聊天模型响应为空",
+      type: "error",
+      status: "failed",
+      output: {
+        status: 502,
+        detail: "DeepSeek API returned an empty stream.",
+      },
+    });
+    trace.finish("failed");
     console.warn("[chat] deepseek_failed", {
       status: 502,
       detail: "DeepSeek API returned an empty stream.",
@@ -259,9 +341,18 @@ export async function POST(request: Request) {
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let contentText = "";
+      let reasoningText = "";
 
       if (!reader) {
         clearTimeout(timeout);
+        trace.addStep({
+          name: "聊天模型响应为空",
+          type: "error",
+          status: "failed",
+          output: "DeepSeek API returned an empty stream.",
+        });
+        trace.finish("failed");
         controller.enqueue(encodeStreamEvent("error", "DeepSeek API returned an empty stream."));
         controller.close();
         return;
@@ -290,6 +381,15 @@ export async function POST(request: Request) {
 
             if (data === "[DONE]") {
               clearTimeout(timeout);
+              trace.addStep({
+                name: "聊天模型流式输出",
+                type: "model_response",
+                output: {
+                  content: contentText,
+                  reasoning: reasoningText,
+                },
+              });
+              trace.finish("success");
               controller.enqueue(encodeStreamEvent("done"));
               controller.close();
               return;
@@ -301,20 +401,38 @@ export async function POST(request: Request) {
             const content = delta?.content;
 
             if (reasoning) {
+              reasoningText += reasoning;
               controller.enqueue(encodeStreamEvent("reasoning", reasoning));
             }
 
             if (content) {
+              contentText += content;
               controller.enqueue(encodeStreamEvent("content", content));
             }
           }
         }
 
         clearTimeout(timeout);
+        trace.addStep({
+          name: "聊天模型流式输出",
+          type: "model_response",
+          output: {
+            content: contentText,
+            reasoning: reasoningText,
+          },
+        });
+        trace.finish("success");
         controller.enqueue(encodeStreamEvent("done"));
         controller.close();
       } catch (error) {
         clearTimeout(timeout);
+        trace.addStep({
+          name: "聊天模型流式读取失败",
+          type: "error",
+          status: "failed",
+          error,
+        });
+        trace.finish("failed");
         console.warn("[chat] deepseek_failed", {
           message:
             error instanceof DOMException && error.name === "AbortError"
@@ -342,30 +460,55 @@ export async function POST(request: Request) {
   });
 }
 
-async function resolveChatIntent(apiKey: string, messages: ChatMessage[]): Promise<ChatIntent> {
+async function resolveChatIntent(
+  apiKey: string,
+  messages: ChatMessage[],
+  trace?: AiTraceLogger,
+): Promise<ChatIntent> {
   const fallbackIntent = createFallbackChatIntent(messages);
 
   try {
-    const result = await requestDeepSeekJson(apiKey, [
+    const modelMessages: DeepSeekChatMessage[] = [
       {
         role: "system",
         content: [
           "你是 FitMate AI 的聊天意图解析器。",
           "请只返回一个合法 JSON 对象，不要输出 Markdown，不要解释。",
           "你需要判断用户是否在请求具体动作推荐、训练计划、单次动作编排、动作替换或动作讲解。",
+          "如果用户只是想看某类动作推荐，不要求组数、次数、休息、训练顺序或计划，type 必须是 exercise_recommendation。",
+          "如果用户要求安排成一套单次训练、动作组合、训练流程、组数次数或休息，type 才是 routine。",
           "如果回答中可能需要出现具体动作名，needsExerciseContext 必须为 true。",
           "如果只是饮食、习惯、一般训练原则或非健身话题，needsExerciseContext 为 false。",
           "JSON 字段必须是：type, needsExerciseContext, workoutIntent, requestedExerciseName。",
           "type 只能是 general_fitness_advice、exercise_recommendation、workout_plan、routine、exercise_replacement、exercise_explanation、non_fitness。",
           "workoutIntent 字段在 needsExerciseContext 为 true 时必须给出，字段为 intentType, goal, experience, sessionMinutes, weeklyFrequency, equipment, injuryLimitations, preferences, avoidances。",
-          "workoutIntent.intentType 只能是 plan 或 routine；experience 只能是 beginner、intermediate、advanced。",
+          "workoutIntent.intentType 只能是 plan 或 routine；exercise_recommendation 场景使用 routine；experience 只能是 beginner、intermediate、advanced。",
           "信息不足时使用保守默认值：goal 使用用户问题的核心目标，experience=beginner，sessionMinutes=30，weeklyFrequency=3，数组字段默认 []。",
         ].join("\n"),
       },
       ...messages,
-    ]);
+    ];
+
+    trace?.addStep({
+      name: "意图解析模型请求",
+      type: "model_request",
+      input: {
+        model: "deepseek-v4-flash",
+        messages: modelMessages,
+        stream: false,
+      },
+    });
+
+    const result = await requestDeepSeekJson(apiKey, modelMessages, trace);
 
     if (!result.ok) {
+      trace?.addStep({
+        name: "意图解析失败，使用兜底意图",
+        type: "intent",
+        status: "failed",
+        output: fallbackIntent,
+        error: result,
+      });
       console.warn("[chat] intent_resolution_failed", result);
       return fallbackIntent;
     }
@@ -373,6 +516,13 @@ async function resolveChatIntent(apiKey: string, messages: ChatMessage[]): Promi
     const parsedIntent = chatIntentSchema.safeParse(result.value);
 
     if (!parsedIntent.success) {
+      trace?.addStep({
+        name: "意图校验失败，使用兜底意图",
+        type: "intent",
+        status: "failed",
+        output: fallbackIntent,
+        error: parsedIntent.error.flatten(),
+      });
       console.warn("[chat] intent_validation_failed", {
         detail: parsedIntent.error.flatten(),
         value: result.value,
@@ -381,6 +531,11 @@ async function resolveChatIntent(apiKey: string, messages: ChatMessage[]): Promi
     }
 
     const data = parsedIntent.data;
+    trace?.addStep({
+      name: "服务端意图解析结果",
+      type: "intent",
+      output: data,
+    });
 
     if (data.needsExerciseContext && !data.workoutIntent) {
       return {
@@ -391,6 +546,13 @@ async function resolveChatIntent(apiKey: string, messages: ChatMessage[]): Promi
 
     return data;
   } catch (error) {
+    trace?.addStep({
+      name: "意图解析异常，使用兜底意图",
+      type: "intent",
+      status: "failed",
+      output: fallbackIntent,
+      error,
+    });
     console.warn("[chat] intent_resolution_failed", {
       detail: error instanceof Error ? error.message : error,
     });
@@ -401,6 +563,7 @@ async function resolveChatIntent(apiKey: string, messages: ChatMessage[]): Promi
 async function buildExerciseContext(
   chatIntent: ChatIntent,
   messages: ChatMessage[],
+  trace?: AiTraceLogger,
 ): Promise<ExerciseContext> {
   const exercises = await listAllExercises();
   const intent = chatIntent.workoutIntent ?? createFallbackWorkoutIntent(messages, chatIntent.type);
@@ -448,7 +611,7 @@ async function buildExerciseContext(
     });
   }
 
-  return {
+  const exerciseContext = {
     intent,
     providedExercises,
     candidateStatus: candidates.candidateStatus,
@@ -456,6 +619,29 @@ async function buildExerciseContext(
     requiredRelevantCandidateCount: candidates.requiredRelevantCandidateCount,
     warnings: candidates.warnings,
   };
+
+  trace?.addStep({
+    name: "动作库获取与候选筛选",
+    type: "exercise_lookup",
+    input: {
+      intent,
+      exerciseCount: exercises.length,
+      requestedExerciseName: chatIntent.requestedExerciseName,
+    },
+    output: {
+      context: exerciseContext,
+      primaryCandidates: candidates.primaryCandidates.slice(0, 20),
+      supplementaryCandidates: candidates.supplementaryCandidates.slice(0, 20),
+      excluded: candidates.excluded.slice(0, 40),
+    },
+    metadata: {
+      primaryCandidateCount: candidates.primaryCandidates.length,
+      supplementaryCandidateCount: candidates.supplementaryCandidates.length,
+      excludedCount: candidates.excluded.length,
+    },
+  });
+
+  return exerciseContext;
 }
 
 function buildSystemPrompt(chatIntent: ChatIntent, exerciseContext: ExerciseContext | null) {
@@ -472,8 +658,9 @@ function buildSystemPrompt(chatIntent: ChatIntent, exerciseContext: ExerciseCont
     "3. 如果 candidateStatus 为 enough 或 limited_but_usable，禁止说动作库没有匹配动作、无法推荐动作或需要用户放宽条件。",
     "4. 对 workout_plan 或 routine 场景，自然语言正文只做目标确认、安全提醒和生成说明，不要另写一套和卡片可能冲突的动作清单；具体动作以后台生成的计划卡片为准。",
     "5. 对 workout_plan 或 routine 场景，只要没有高风险健康情况，必须输出 workout_plan_trigger。",
-    "6. 如果输出 workout_plan_trigger，intent 必须与 serverWorkoutIntent 保持一致。",
-    "7. 如果用户有疼痛、伤病、疾病、孕期或高风险健康情况，正文必须提醒咨询医生或专业人士，不能做医疗诊断。",
+    "6. 对 exercise_recommendation 场景，自然语言正文只做简短说明，不要直接列具体动作；必须输出 exercise_recommendation_trigger，具体动作以推荐卡片为准。",
+    "7. 如果输出 Trigger，intent 必须与 serverWorkoutIntent 保持一致。",
+    "8. 如果用户有疼痛、伤病、疾病、孕期或高风险健康情况，正文必须提醒咨询医生或专业人士，不能做医疗诊断。",
     "",
     "serverParsedIntent:",
     JSON.stringify(
@@ -509,6 +696,7 @@ function buildSystemPrompt(chatIntent: ChatIntent, exerciseContext: ExerciseCont
 async function requestDeepSeekJson(
   apiKey: string,
   messages: DeepSeekChatMessage[],
+  trace?: AiTraceLogger,
 ): Promise<
   | { ok: true; value: unknown }
   | { ok: false; code: "ai_request_failed" | "invalid_json"; message: string; detail?: unknown }
@@ -548,6 +736,16 @@ async function requestDeepSeekJson(
       choices?: Array<{ message?: { content?: string | null } }>;
     };
     const content = body.choices?.[0]?.message?.content?.trim() ?? "";
+    trace?.addStep({
+      name: "意图解析模型输出",
+      type: "model_response",
+      output: {
+        content,
+      },
+      metadata: {
+        status: response.status,
+      },
+    });
     const parsed = parseJsonObject(content);
 
     if (!parsed.ok) {
@@ -597,10 +795,13 @@ function parseJsonObject(content: string):
 }
 
 function createFallbackChatIntent(messages: ChatMessage[]): ChatIntent {
-  const workoutIntent = createFallbackWorkoutIntent(messages, "general_fitness_advice");
+  const type = /推荐|动作|练练|练一下|有哪些/.test(getLatestUserMessage(messages))
+    ? "exercise_recommendation"
+    : "general_fitness_advice";
+  const workoutIntent = createFallbackWorkoutIntent(messages, type);
 
   return {
-    type: "general_fitness_advice",
+    type,
     needsExerciseContext: /动作|训练|计划|编排|替换|推荐|练|胸|背|腿|肩|核心|减脂|增肌/.test(
       getLatestUserMessage(messages),
     ),
@@ -615,7 +816,7 @@ function createFallbackWorkoutIntent(
   const latestUserMessage = getLatestUserMessage(messages);
 
   return workoutPlanIntentSchema.parse({
-    intentType: type === "routine" ? "routine" : "plan",
+    intentType: type === "routine" || type === "exercise_recommendation" ? "routine" : "plan",
     goal: latestUserMessage.slice(0, 80) || "综合体能提升",
     experience: "beginner",
     sessionMinutes: 30,

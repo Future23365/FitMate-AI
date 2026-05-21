@@ -7,8 +7,12 @@ import remarkGfm from "remark-gfm";
 import { AppSidebar } from "@/components/app/app-sidebar";
 import { LogoMark } from "@/components/app/logo-mark";
 import { SymbolIcon } from "@/components/app/symbol-icon";
+import { ExerciseRecommendationCard } from "@/features/exercises/components/exercise-recommendation-card";
 import { useChatController } from "@/features/chat/hooks/use-chat-controller";
-import { extractWorkoutPlanTrigger } from "@/features/chat/lib/workout-plan-trigger";
+import {
+  extractExerciseRecommendationTrigger,
+  extractWorkoutPlanTrigger,
+} from "@/features/chat/lib/workout-plan-trigger";
 import { WorkoutPlanDraftCard } from "@/features/workouts/components/workout-plan-draft-card";
 
 const quickPrompts = ["帮我制定增肌计划", "推荐居家训练", "今天练什么", "制定减脂食谱"];
@@ -68,7 +72,9 @@ function MarkdownContent({ content }: { content: string }) {
 
 export function ChatPage() {
   const {
+    autoRecommendationGenerating,
     autoPlanGenerating,
+    bubbleExerciseRecommendations,
     bubblePlanErrors,
     bubblePlans,
     error,
@@ -195,8 +201,13 @@ export function ChatPage() {
                     ) : null}
                     {(() => {
                       const trigger = extractWorkoutPlanTrigger(message.content);
+                      const recommendationTrigger = extractExerciseRecommendationTrigger(
+                        trigger ? "" : message.content,
+                      );
                       const cleanContent = trigger
                         ? message.content.replace(trigger.rawBlock, "").trim()
+                        : recommendationTrigger
+                          ? message.content.replace(recommendationTrigger.rawBlock, "").trim()
                         : message.content;
 
                       if (message.role === "assistant") {
@@ -218,6 +229,13 @@ export function ChatPage() {
                               </div>
                             )}
 
+                            {autoRecommendationGenerating === message.id && (
+                              <div className="mt-md flex items-center gap-xs rounded-xl border border-primary-container/20 bg-primary-container/5 p-md font-label-sm text-label-sm text-primary animate-pulse shadow-sm">
+                                <SymbolIcon className="animate-spin text-[16px]">autorenew</SymbolIcon>
+                                <span>FitMate 正在筛选合适动作...</span>
+                              </div>
+                            )}
+
                             {/* 2. 安全拦截或生成失败错误 */}
                             {bubblePlanErrors[message.id] && (
                               <div className="mt-md flex items-start gap-xs rounded-xl border border-error-container bg-error-container/20 p-md text-on-error-container shadow-sm">
@@ -235,6 +253,14 @@ export function ChatPage() {
                             {bubblePlans[message.id] && (
                               <div className="mt-md">
                                 <WorkoutPlanDraftCard draft={bubblePlans[message.id]} />
+                              </div>
+                            )}
+
+                            {bubbleExerciseRecommendations[message.id] && (
+                              <div className="mt-md">
+                                <ExerciseRecommendationCard
+                                  card={bubbleExerciseRecommendations[message.id]}
+                                />
                               </div>
                             )}
                           </>
@@ -260,35 +286,7 @@ export function ChatPage() {
         </div>
 
         <div className="border-t border-outline-variant/30 bg-background p-lg xl:p-xl">
-          <form className="mx-auto max-w-4xl space-y-md" onSubmit={handleSubmit}>
-            <div className="flex items-center justify-end">
-              <label className="flex items-center gap-sm rounded-full bg-white px-md py-sm text-label-md text-on-surface-variant shadow-sm">
-                <span>思考模式</span>
-                <span className="min-w-8 text-primary">
-                  {thinkingEnabled ? "开" : "关"}
-                </span>
-                <button
-                  aria-pressed={thinkingEnabled}
-                  aria-label={thinkingEnabled ? "关闭思考模式" : "开启思考模式"}
-                  className={`relative h-6 w-11 rounded-full border transition-colors ${
-                    thinkingEnabled
-                      ? "border-primary-container bg-primary-container"
-                      : "border-outline-variant bg-surface-container-high"
-                  }`}
-                  disabled={isLoading}
-                  onClick={() => setThinkingEnabled((enabled) => !enabled)}
-                  type="button"
-                >
-                  <span
-                    className={`absolute left-1 top-1 h-4 w-4 rounded-full shadow-sm transition-transform ${
-                      thinkingEnabled
-                        ? "translate-x-5 bg-white"
-                        : "translate-x-0 bg-on-surface-variant"
-                    }`}
-                  />
-                </button>
-              </label>
-            </div>
+          <form className="mx-auto max-w-4xl" onSubmit={handleSubmit}>
             <div className="relative flex items-center">
               <div className="absolute left-md flex items-center gap-sm">
                 <SymbolIcon className="cursor-pointer text-on-surface-variant hover:text-primary">
@@ -299,13 +297,35 @@ export function ChatPage() {
                 </SymbolIcon>
               </div>
               <input
-                className="w-full rounded-full border border-outline-variant bg-white py-md pl-[88px] pr-[56px] font-body-md shadow-sm outline-none transition-all placeholder:text-on-surface-variant focus:border-transparent focus:ring-2 focus:ring-primary-container"
+                className="w-full rounded-full border border-outline-variant bg-white py-md pl-[88px] pr-[150px] font-body-md shadow-sm outline-none transition-all placeholder:text-on-surface-variant focus:border-transparent focus:ring-2 focus:ring-primary-container sm:pr-[210px]"
                 disabled={isLoading}
                 onChange={(event) => setInput(event.target.value)}
                 placeholder="向 FitMate AI 提问..."
                 type="text"
                 value={input}
               />
+              <button
+                aria-pressed={thinkingEnabled}
+                aria-label={thinkingEnabled ? "关闭思考模式" : "开启思考模式"}
+                className={`absolute right-[52px] flex h-9 items-center gap-xs rounded-full border px-sm font-label-sm text-label-sm shadow-sm transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 ${
+                  thinkingEnabled
+                    ? "border-primary-container/30 bg-primary-container/10 text-primary"
+                    : "border-outline-variant/60 bg-white/90 text-on-surface-variant hover:border-primary-container/30 hover:bg-surface-container-low"
+                }`}
+                disabled={isLoading}
+                onClick={() => setThinkingEnabled((enabled) => !enabled)}
+                type="button"
+              >
+                <SymbolIcon className="text-[18px]">
+                  {thinkingEnabled ? "psychology" : "psychology_alt"}
+                </SymbolIcon>
+                <span className="hidden sm:inline">思考</span>
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    thinkingEnabled ? "bg-primary" : "bg-outline-variant"
+                  }`}
+                />
+              </button>
               <button
                 className="absolute right-xs flex h-10 w-10 items-center justify-center rounded-full bg-primary-container text-white shadow-lg transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={isLoading}

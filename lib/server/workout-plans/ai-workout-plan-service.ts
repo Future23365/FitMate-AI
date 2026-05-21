@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import type { AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import { serverRequest } from "@/lib/server/http/server-request";
@@ -63,6 +64,10 @@ export type AiWorkoutPlanSuccess = {
 
 export type AiWorkoutPlanResult = AiWorkoutPlanSuccess | AiWorkoutPlanFailure;
 
+type AiWorkoutPlanGenerationOptions = {
+  trace?: AiTraceLogger;
+};
+
 type DeepSeekChatResponse = {
   choices?: Array<{
     message?: {
@@ -83,9 +88,11 @@ const deepSeekRequestTimeoutMs = 45_000;
 
 export async function generateAiWorkoutPlanDraft(
   rawRequest: AiWorkoutPlanRequest,
+  options: AiWorkoutPlanGenerationOptions = {},
 ): Promise<AiWorkoutPlanResult> {
   const request = aiWorkoutPlanRequestSchema.parse(rawRequest);
   const apiKey = process.env.DEEPSEEK_API_KEY;
+  const trace = options.trace;
 
   if (!apiKey) {
     return {
@@ -100,15 +107,50 @@ export async function generateAiWorkoutPlanDraft(
 
   const intentResult = request.intent
     ? { ok: true as const, intent: request.intent }
-    : await extractWorkoutPlanIntent(request.messages, apiKey);
+    : await extractWorkoutPlanIntent(request.messages, apiKey, trace);
 
   if (!intentResult.ok) {
+    trace?.addStep({
+      name: "训练计划意图解析失败",
+      type: "intent",
+      status: "failed",
+      error: intentResult,
+    });
     logAiWorkoutPlanFailure("intent_extraction", intentResult);
     return intentResult;
   }
 
+  trace?.addStep({
+    name: request.intent ? "使用客户端传入意图" : "训练计划意图解析结果",
+    type: "intent",
+    output: intentResult.intent,
+  });
+
   const exercises = await listAllExercises();
   const candidates = selectExerciseCandidates(intentResult.intent, exercises);
+  trace?.addStep({
+    name: "动作库获取与计划候选筛选",
+    type: "candidate_selection",
+    input: {
+      intent: intentResult.intent,
+      exerciseCount: exercises.length,
+    },
+    output: {
+      candidateStatus: candidates.candidateStatus,
+      relevantCandidateCount: candidates.relevantCandidateCount,
+      requiredRelevantCandidateCount: candidates.requiredRelevantCandidateCount,
+      isEnoughCandidates: candidates.isEnoughCandidates,
+      warnings: candidates.warnings,
+      primaryCandidates: candidates.primaryCandidates.slice(0, 40),
+      supplementaryCandidates: candidates.supplementaryCandidates.slice(0, 40),
+      excluded: candidates.excluded.slice(0, 80),
+    },
+    metadata: {
+      primaryCandidateCount: candidates.primaryCandidates.length,
+      supplementaryCandidateCount: candidates.supplementaryCandidates.length,
+      excludedCount: candidates.excluded.length,
+    },
+  });
 
   if (!candidates.isEnoughCandidates) {
     const failure = {
@@ -128,6 +170,7 @@ export async function generateAiWorkoutPlanDraft(
     intentResult.intent,
     candidates,
     apiKey,
+    trace,
   );
 
   if (!draftResult.ok) {
@@ -149,6 +192,17 @@ export async function generateAiWorkoutPlanDraft(
       candidateExerciseIds: getCandidateExerciseIds(candidates),
     },
   );
+  trace?.addStep({
+    name: "训练计划草稿校验",
+    type: "validation",
+    status: validation.valid ? "success" : "failed",
+    input: {
+      draft: draftResult.draft,
+      intent: intentResult.intent,
+      candidateExerciseIds: getCandidateExerciseIds(candidates),
+    },
+    output: validation,
+  });
 
   if (!validation.valid) {
     const failure = {
@@ -187,6 +241,7 @@ export async function generateAiWorkoutPlanDraft(
 async function extractWorkoutPlanIntent(
   messages: AiWorkoutPlanChatMessage[],
   apiKey: string,
+  trace?: AiTraceLogger,
 ): Promise<
   | { ok: true; intent: WorkoutPlanIntent }
   | {
@@ -196,7 +251,7 @@ async function extractWorkoutPlanIntent(
       detail?: unknown;
     }
 > {
-  const content = await requestDeepSeekJson("intent_extraction", apiKey, [
+  const modelMessages: DeepSeekChatMessage[] = [
     {
       role: "system",
       content: [
@@ -210,7 +265,9 @@ async function extractWorkoutPlanIntent(
       ].join("\n"),
     },
     ...messages,
-  ]);
+  ];
+
+  const content = await requestDeepSeekJson("intent_extraction", apiKey, modelMessages, trace);
 
   if (!content.ok) {
     return content;
@@ -244,6 +301,7 @@ async function generateWorkoutPlanDraft(
   intent: WorkoutPlanIntent,
   candidates: ExerciseCandidateResult,
   apiKey: string,
+  trace?: AiTraceLogger,
 ): Promise<
   | { ok: true; draft: WorkoutPlanDraft }
   | {
@@ -279,7 +337,7 @@ async function generateWorkoutPlanDraft(
       goalTags: exercise.goalTags,
     }));
 
-  const content = await requestDeepSeekJson("draft_generation", apiKey, [
+  const modelMessages: DeepSeekChatMessage[] = [
     {
       role: "system",
       content: [
@@ -333,7 +391,9 @@ async function generateWorkoutPlanDraft(
         recentMessages: messages,
       }),
     },
-  ]);
+  ];
+
+  const content = await requestDeepSeekJson("draft_generation", apiKey, modelMessages, trace);
 
   if (!content.ok) {
     return content;
@@ -348,6 +408,13 @@ async function generateWorkoutPlanDraft(
   const parsedDraft = workoutPlanDraftSchema.safeParse(parsedJson.value);
 
   if (!parsedDraft.success) {
+    trace?.addStep({
+      name: "训练计划草稿结构校验失败",
+      type: "validation",
+      status: "failed",
+      input: parsedJson.value,
+      error: parsedDraft.error.flatten(),
+    });
     console.error("[ai-workout-plan-service] draft zod validation failed! Details:", JSON.stringify(parsedDraft.error.format(), null, 2));
     console.error("[ai-workout-plan-service] failed draft JSON was:", JSON.stringify(parsedJson.value, null, 2));
     return {
@@ -368,6 +435,7 @@ async function requestDeepSeekJson(
   taskName: string,
   apiKey: string,
   messages: DeepSeekChatMessage[],
+  trace?: AiTraceLogger,
 ): Promise<
   | { ok: true; content: string }
   | { ok: false; code: "ai_request_failed"; message: string; detail?: unknown }
@@ -376,6 +444,23 @@ async function requestDeepSeekJson(
   const timeout = setTimeout(() => controller.abort(), deepSeekRequestTimeoutMs);
 
   try {
+    trace?.addStep({
+      name: `${taskName} 模型请求`,
+      type: "model_request",
+      input: {
+        model,
+        messages,
+        stream: false,
+        thinking: {
+          type: "disabled",
+        },
+      },
+      metadata: {
+        task: taskName,
+        timeoutMs: deepSeekRequestTimeoutMs,
+      },
+    });
+
     console.info("[ai-workout-plan] deepseek_request", {
       task: taskName,
       model,
@@ -418,6 +503,12 @@ async function requestDeepSeekJson(
         detail,
       } as const;
 
+      trace?.addStep({
+        name: `${taskName} 模型响应失败`,
+        type: "error",
+        status: "failed",
+        output: failure,
+      });
       logAiWorkoutPlanFailure(taskName, failure);
       return failure;
     }
@@ -432,9 +523,27 @@ async function requestDeepSeekJson(
         message: "DeepSeek API returned an empty response.",
       } as const;
 
+      trace?.addStep({
+        name: `${taskName} 模型响应为空`,
+        type: "error",
+        status: "failed",
+        output: failure,
+      });
       logAiWorkoutPlanFailure(taskName, failure);
       return failure;
     }
+
+    trace?.addStep({
+      name: `${taskName} 模型输出`,
+      type: "model_response",
+      output: {
+        content,
+      },
+      metadata: {
+        task: taskName,
+        status: response.status,
+      },
+    });
 
     console.info("[ai-workout-plan] deepseek_response", {
       task: taskName,
@@ -454,6 +563,12 @@ async function requestDeepSeekJson(
       detail: error instanceof Error ? error.message : error,
     } as const;
 
+    trace?.addStep({
+      name: `${taskName} 模型请求异常`,
+      type: "error",
+      status: "failed",
+      error: failure,
+    });
     logAiWorkoutPlanFailure(taskName, failure);
     return failure;
   } finally {

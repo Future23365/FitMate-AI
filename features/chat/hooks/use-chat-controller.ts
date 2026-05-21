@@ -2,10 +2,18 @@
 
 import { useEffect, useState } from "react";
 
-import { requestChatStream, requestWorkoutPlanDraft } from "@/features/chat/api/chat-client";
+import {
+  requestChatStream,
+  requestExerciseRecommendations,
+  requestWorkoutPlanDraft,
+} from "@/features/chat/api/chat-client";
 import { readChatHistory, saveChatConversation } from "@/features/chat/lib/chat-history";
-import { extractWorkoutPlanTrigger } from "@/features/chat/lib/workout-plan-trigger";
+import {
+  extractExerciseRecommendationTrigger,
+  extractWorkoutPlanTrigger,
+} from "@/features/chat/lib/workout-plan-trigger";
 import type { ApiChatMessage, ChatMessage, ChatStreamEvent } from "@/features/chat/types";
+import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
 import type { WorkoutPlanDraft } from "@/lib/shared/workout-plans/draft-schema";
 
 const chatRequestTimeoutMs = 45_000;
@@ -26,7 +34,11 @@ export function useChatController() {
   const [error, setError] = useState("");
   const [thinkingEnabled, setThinkingEnabled] = useState(false);
   const [autoPlanGenerating, setAutoPlanGenerating] = useState<string | null>(null);
+  const [autoRecommendationGenerating, setAutoRecommendationGenerating] = useState<string | null>(null);
   const [bubblePlans, setBubblePlans] = useState<Record<string, WorkoutPlanDraft>>({});
+  const [bubbleExerciseRecommendations, setBubbleExerciseRecommendations] = useState<
+    Record<string, ExerciseRecommendationCard>
+  >({});
   const [bubblePlanErrors, setBubblePlanErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -45,8 +57,10 @@ export function useChatController() {
       setConversationId(matchedConversation.id);
       setMessages(matchedConversation.messages);
       setBubblePlans(matchedConversation.plans ?? {});
+      setBubbleExerciseRecommendations(matchedConversation.exerciseRecommendations ?? {});
       setBubblePlanErrors({});
       setAutoPlanGenerating(null);
+      setAutoRecommendationGenerating(null);
       setError("");
       setInput("");
     }
@@ -68,8 +82,10 @@ export function useChatController() {
       setConversationId(null);
       setMessages([]);
       setBubblePlans({});
+      setBubbleExerciseRecommendations({});
       setBubblePlanErrors({});
       setAutoPlanGenerating(null);
+      setAutoRecommendationGenerating(null);
       setError("");
       setInput("");
     }
@@ -95,8 +111,8 @@ export function useChatController() {
       return;
     }
 
-    saveChatConversation(conversationId, messages, bubblePlans);
-  }, [conversationId, messages, bubblePlans]);
+    saveChatConversation(conversationId, messages, bubblePlans, bubbleExerciseRecommendations);
+  }, [conversationId, messages, bubblePlans, bubbleExerciseRecommendations]);
 
   function updateAssistantMessage(
     assistantId: string,
@@ -127,6 +143,29 @@ export function useChatController() {
       }));
     } finally {
       setAutoPlanGenerating(null);
+    }
+  }
+
+  async function generateExerciseRecommendationsForBubble(
+    messageId: string,
+    intent: unknown,
+    historyMessages: ApiChatMessage[],
+  ) {
+    try {
+      const card = await requestExerciseRecommendations(historyMessages, intent);
+
+      setBubbleExerciseRecommendations((prev) => ({
+        ...prev,
+        [messageId]: card,
+      }));
+    } catch (err: unknown) {
+      console.error("[SilentExerciseRecommendation] Error:", err);
+      setBubblePlanErrors((prev) => ({
+        ...prev,
+        [messageId]: err instanceof Error ? err.message : "生成动作推荐失败，请稍后重试。",
+      }));
+    } finally {
+      setAutoRecommendationGenerating(null);
     }
   }
 
@@ -222,6 +261,18 @@ export function useChatController() {
         const messageId = assistantMessage.id;
         setAutoPlanGenerating(messageId);
         generateWorkoutPlanForBubble(messageId, trigger.intent, requestMessages);
+      } else {
+        const recommendationTrigger = extractExerciseRecommendationTrigger(fullContent);
+
+        if (recommendationTrigger?.intent) {
+          const messageId = assistantMessage.id;
+          setAutoRecommendationGenerating(messageId);
+          generateExerciseRecommendationsForBubble(
+            messageId,
+            recommendationTrigger.intent,
+            requestMessages,
+          );
+        }
       }
     } catch (requestError) {
       const isAbortError =
@@ -245,7 +296,9 @@ export function useChatController() {
   }
 
   return {
+    autoRecommendationGenerating,
     autoPlanGenerating,
+    bubbleExerciseRecommendations,
     bubblePlanErrors,
     bubblePlans,
     error,

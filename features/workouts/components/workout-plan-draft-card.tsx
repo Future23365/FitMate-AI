@@ -460,7 +460,6 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
 
       {/* 底部悬浮动作详情右侧抽屉 */}
       <ExercisePreviewSheet
-        key={activePreviewExercise?.id ?? "empty"}
         isOpen={isPreviewOpen}
         onClose={() => setIsPreviewOpen(false)}
         exercise={activePreviewExercise}

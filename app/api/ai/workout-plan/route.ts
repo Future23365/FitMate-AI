@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
+import { startAiTrace, summarizeLatestUserMessage } from "@/lib/server/dev/ai-trace-logger";
 import {
   aiWorkoutPlanRequestSchema,
   generateAiWorkoutPlanDraft,
@@ -21,11 +22,41 @@ export async function POST(request: Request) {
     );
   }
 
+  const trace = startAiTrace({
+    route: "/api/ai/workout-plan",
+    title: summarizeLatestUserMessage(parsedRequest.data.messages),
+    metadata: {
+      messageCount: parsedRequest.data.messages.length,
+      hasClientIntent: Boolean(parsedRequest.data.intent),
+    },
+  });
+
+  trace.addStep({
+    name: "训练计划生成请求",
+    type: "user_input",
+    input: parsedRequest.data,
+  });
+
   try {
-    const result = await generateAiWorkoutPlanDraft(parsedRequest.data);
+    const result = await generateAiWorkoutPlanDraft(parsedRequest.data, { trace });
+    trace.addStep({
+      name: "训练计划接口结果",
+      type: "final_response",
+      status: result.ok ? "success" : "failed",
+      output: result,
+    });
+    trace.finish(result.ok ? "success" : "failed");
 
     return NextResponse.json(result, { status: resolveStatus(result) });
   } catch (error) {
+    trace.addStep({
+      name: "训练计划接口异常",
+      type: "error",
+      status: "failed",
+      error,
+    });
+    trace.finish("failed");
+
     if (error instanceof ZodError) {
       return NextResponse.json(
         {

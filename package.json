@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "echo \"AI Trace 调试台: http://localhost:3000/dev/ai-traces\"",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

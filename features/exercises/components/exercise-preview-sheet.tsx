@@ -17,6 +17,11 @@ export function ExercisePreviewSheet({ isOpen, onClose, exercise }: ExercisePrev
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [mounted, setMounted] = useState(false);
 
+  // 切换动作时只重置图片索引，不重建整个抽屉，避免首次打开闪烁。
+  useEffect(() => {
+    setActiveImageIndex(0);
+  }, [exercise?.id]);
+
   // 客户端挂载处理，保证 Portal 不参与服务端渲染。
   useEffect(() => {
     const timer = setTimeout(() => {

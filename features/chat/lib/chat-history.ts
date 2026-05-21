@@ -1,4 +1,5 @@
 import type { ChatConversation, ChatMessage } from "@/features/chat/types";
+import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
 import type { WorkoutPlanDraft } from "@/lib/shared/workout-plans/draft-schema";
 
 const chatHistoryStorageKey = "fitmate.chatHistory";
@@ -25,6 +26,7 @@ export function saveChatConversation(
   conversationId: string,
   messages: ChatMessage[],
   bubblePlans: Record<string, WorkoutPlanDraft>,
+  bubbleExerciseRecommendations: Record<string, ExerciseRecommendationCard> = {},
 ) {
   if (!messages.some((message) => message.role === "user")) {
     return;
@@ -36,6 +38,12 @@ export function saveChatConversation(
   for (const [messageId, draft] of Object.entries(bubblePlans)) {
     if (messageIds.has(messageId)) {
       plansToSave[messageId] = draft;
+    }
+  }
+  const exerciseRecommendationsToSave: Record<string, ExerciseRecommendationCard> = {};
+  for (const [messageId, card] of Object.entries(bubbleExerciseRecommendations)) {
+    if (messageIds.has(messageId)) {
+      exerciseRecommendationsToSave[messageId] = card;
     }
   }
 
@@ -52,7 +60,9 @@ export function saveChatConversation(
           message.role === messages[index]?.role &&
           message.reasoningContent === messages[index]?.reasoningContent,
       ) &&
-      JSON.stringify(existing.plans ?? {}) === JSON.stringify(plansToSave);
+      JSON.stringify(existing.plans ?? {}) === JSON.stringify(plansToSave) &&
+      JSON.stringify(existing.exerciseRecommendations ?? {}) ===
+        JSON.stringify(exerciseRecommendationsToSave);
 
     if (isIdentical) {
       return;
@@ -65,6 +75,10 @@ export function saveChatConversation(
     updatedAt: new Date().toISOString(),
     messages,
     plans: Object.keys(plansToSave).length > 0 ? plansToSave : undefined,
+    exerciseRecommendations:
+      Object.keys(exerciseRecommendationsToSave).length > 0
+        ? exerciseRecommendationsToSave
+        : undefined,
   };
   const nextHistory = [
     nextConversation,
