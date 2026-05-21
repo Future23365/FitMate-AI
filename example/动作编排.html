@@ -1,0 +1,454 @@
+<!DOCTYPE html><html lang="zh-CN" style=""><head>
+  <meta charset="utf-8">
+  <meta content="width=device-width, initial-scale=1.0" name="viewport">
+  <title>FitMate AI - 动作编排</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+  <script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "on-primary-fixed": "#00174b",
+                      "surface-container-highest": "#e0e3e5",
+                      "on-background": "#191c1e",
+                      "tertiary": "#0051b1",
+                      "primary-fixed": "#dbe1ff",
+                      "primary": "#004ac6",
+                      "on-tertiary-fixed": "#001a42",
+                      "on-tertiary-fixed-variant": "#004395",
+                      "on-surface": "#191c1e",
+                      "on-error": "#ffffff",
+                      "error-container": "#ffdad6",
+                      "secondary-container": "#dce2f3",
+                      "surface-dim": "#d8dadc",
+                      "tertiary-fixed": "#d8e2ff",
+                      "tertiary-container": "#0f69dc",
+                      "inverse-on-surface": "#eff1f3",
+                      "surface-container": "#eceef0",
+                      "on-error-container": "#93000a",
+                      "on-primary-container": "#eeefff",
+                      "surface-tint": "#0053db",
+                      "tertiary-fixed-dim": "#adc6ff",
+                      "on-secondary-container": "#5e6572",
+                      "surface-bright": "#f7f9fb",
+                      "secondary": "#585f6c",
+                      "primary-container": "#2563eb",
+                      "on-tertiary": "#ffffff",
+                      "surface-container-low": "#f2f4f6",
+                      "on-surface-variant": "#434655",
+                      "on-secondary-fixed-variant": "#404754",
+                      "inverse-primary": "#b4c5ff",
+                      "on-tertiary-container": "#edf0ff",
+                      "on-primary": "#ffffff",
+                      "outline-variant": "#c3c6d7",
+                      "surface-container-lowest": "#ffffff",
+                      "on-secondary-fixed": "#151c27",
+                      "on-primary-fixed-variant": "#003ea8",
+                      "surface-variant": "#e0e3e5",
+                      "inverse-surface": "#2d3133",
+                      "outline": "#737686",
+                      "secondary-fixed-dim": "#c0c7d6",
+                      "on-secondary": "#ffffff",
+                      "background": "#f8fafc",
+                      "surface-container-high": "#e6e8ea",
+                      "surface": "#f7f9fb",
+                      "secondary-fixed": "#dce2f3",
+                      "primary-fixed-dim": "#b4c5ff",
+                      "error": "#ba1a1a"
+              },
+              "borderRadius": {
+                      "DEFAULT": "1rem",
+                      "lg": "2rem",
+                      "xl": "3rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "container-max": "1440px",
+                      "base": "8px",
+                      "lg": "24px",
+                      "xl": "32px",
+                      "xs": "4px",
+                      "gutter": "24px",
+                      "2xl": "48px",
+                      "sm": "8px",
+                      "md": "16px"
+              },
+              "fontFamily": {
+                      "headline-lg": ["Plus Jakarta Sans"],
+                      "headline-md": ["Plus Jakarta Sans"],
+                      "title-lg": ["Plus Jakarta Sans"],
+                      "body-lg": ["Plus Jakarta Sans"],
+                      "body-md": ["Plus Jakarta Sans"],
+                      "label-md": ["Plus Jakarta Sans"],
+                      "label-sm": ["Plus Jakarta Sans"]
+              }
+            }
+          }
+        }
+      </script>
+  <style>
+          body { font-family: 'Plus Jakarta Sans', sans-serif; }
+          .material-symbols-outlined {
+              font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+              vertical-align: middle;
+          }
+          .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+          .custom-scrollbar::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 10px; }
+          .glass-card { background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(8px); }
+      </style>
+  </head>
+  <body class="bg-background text-on-surface">
+  <div class="flex min-h-screen">
+  <!-- Sidebar - Component Mapping from JSON -->
+  <aside class="h-screen w-64 fixed left-0 top-0 bg-surface-container-lowest border-r border-outline-variant flex flex-col py-lg px-md z-40">
+  <div class="flex items-center gap-3 mb-xl">
+  <div class="w-10 h-10 bg-primary-container rounded-xl flex items-center justify-center text-white">
+  <span class="material-symbols-outlined">fitness_center</span>
+  </div>
+  <div>
+  <h1 class="text-title-lg font-headline-lg text-primary">FitAI</h1>
+  <p class="text-[10px] text-on-surface-variant uppercase tracking-wider">专业智能健身助手</p>
+  </div>
+  </div>
+  <button class="flex items-center justify-center gap-2 w-full py-3 bg-primary-container text-white rounded-xl mb-xl hover:opacity-90 transition-all font-semibold">
+  <span class="material-symbols-outlined">add</span>
+  <span class="">开启新对话</span>
+  </button>
+  <nav class="flex-1 space-y-2 overflow-y-auto custom-scrollbar pr-1">
+  <a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:text-primary hover:bg-surface-container-low transition-all rounded-xl" href="#">
+  <span class="material-symbols-outlined">home</span>
+  <span class="font-label-md text-label-md">主页</span>
+  </a>
+  <a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:text-primary hover:bg-surface-container-low transition-all rounded-xl" href="#">
+  <span class="material-symbols-outlined">smart_toy</span>
+  <span class="font-label-md text-label-md">AI 聊天</span>
+  </a>
+  <a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:text-primary hover:bg-surface-container-low transition-all rounded-xl" href="#">
+  <span class="material-symbols-outlined">event_note</span>
+  <span class="font-label-md text-label-md">训练计划</span>
+  </a>
+  <!-- Active Nav Item -->
+  <a class="flex items-center gap-3 px-4 py-3 bg-secondary-container text-on-secondary-container rounded-xl font-semibold scale-95 duration-150 transition-transform" href="#">
+  <span class="material-symbols-outlined">reorder</span>
+  <span class="font-label-md text-label-md">动作编排</span>
+  </a>
+  <a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:text-primary hover:bg-surface-container-low transition-all rounded-xl" href="#">
+  <span class="material-symbols-outlined">restaurant</span>
+  <span class="font-label-md text-label-md">饮食管理</span>
+  </a>
+  <a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:text-primary hover:bg-surface-container-low transition-all rounded-xl" href="#">
+  <span class="material-symbols-outlined">insights</span>
+  <span class="font-label-md text-label-md">进度分析</span>
+  </a>
+  <div class="pt-xl mt-xl border-t border-outline-variant">
+  <p class="px-4 text-[10px] text-outline font-bold uppercase mb-2">历史记录</p>
+  <div class="space-y-1">
+  <a class="px-4 py-2 text-label-md text-on-surface-variant hover:bg-surface-container-low block rounded-lg truncate" href="#">燃脂循环训练 A</a>
+  <a class="px-4 py-2 text-label-md text-on-surface-variant hover:bg-surface-container-low block rounded-lg truncate" href="#">上肢力量强化</a>
+  </div>
+  </div>
+  </nav>
+  <div class="mt-auto pt-lg border-t border-outline-variant">
+  <div class="flex items-center gap-3 px-4 py-3 hover:bg-surface-container-low rounded-xl cursor-pointer transition-all">
+  <div class="w-10 h-10 rounded-full overflow-hidden border-2 border-primary-fixed">
+  <img class="w-full h-full object-cover" data-alt="A professional studio portrait of a fit female user with a friendly expression, set against a clean, softly lit minimalist background with cool tones. The lighting is bright and modern, emphasizing the premium wellness SaaS aesthetic. The overall mood is encouraging and professional, reflecting a high-end fitness brand identity." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDF-AxIBAkIoQYxl1LbCQKALsObpPBE1WC6BkIJplBrqqMIEGYxNLdHP9Hp5u7XQYv6YXFngJm-kzqMU-BtoJhExR5beEthzKGk_jLRiypNUHAap8pPHD7R1PvN2AWXFPBLUg8ys21P-Wtsc1qMprmqbkOUtH20nJJrfuds07zAzoSI9ezpdsFf3x59R_Yha_IAT6YYyjgNSx2uhbJQEn2IVFLCm_3xyE--porwLR9Jh_uN8gzdBx77yz12q92cKvdfqyDnL2LFgN1b">
+  </div>
+  <div class="flex-1 min-w-0">
+  <p class="text-label-md font-bold truncate">张小美</p>
+  <p class="text-[10px] text-outline truncate">高级会员 · 健身达人</p>
+  </div>
+  <span class="material-symbols-outlined text-outline">settings</span>
+  </div>
+  </div>
+  </aside>
+  <!-- Main Workspace -->
+  <main class="flex-1 ml-64 mr-[300px] p-xl overflow-y-auto overflow-x-hidden">
+  <!-- Header Section -->
+  <header class="flex justify-between items-end mb-xl">
+  <div>
+  <h2 class="font-headline-lg text-headline-lg text-on-surface mb-2">个性化动作编排</h2>
+  <p class="font-body-md text-body-md text-on-surface-variant">自由组合训练动作，AI 实时优化您的运动收益</p>
+  </div>
+  <div class="flex gap-md">
+  <button class="px-5 py-2.5 border border-outline text-on-surface font-label-md rounded-xl hover:bg-surface-container-low transition-all">导入模板</button>
+  <button class="px-5 py-2.5 border border-outline text-on-surface font-label-md rounded-xl hover:bg-surface-container-low transition-all">预览训练</button>
+  <button class="px-6 py-2.5 bg-primary-container text-white font-label-md rounded-xl hover:shadow-lg transition-all">保存计划</button>
+  </div>
+  </header>
+  <!-- Workout Main Card -->
+  <section class="bg-white rounded-[24px] border border-outline-variant shadow-sm mb-lg p-md">
+  <div class="flex flex-col md:flex-row items-center justify-between gap-4 mb-6 p-4 bg-surface-container-lowest rounded-2xl border border-outline-variant shadow-sm">
+    <div class="flex flex-col md:flex-row items-center gap-3">
+      <div class="flex items-center gap-2">
+        <h3 class="text-lg font-bold text-on-surface">我的燃脂循环训练</h3>
+        <button class="p-1.5 hover:bg-surface-container rounded-full text-primary transition-all">
+          <span class="material-symbols-outlined text-[18px]">edit</span>
+        </button>
+      </div>
+      <div class="h-4 w-px bg-outline-variant hidden md:block mx-1"></div>
+      
+    </div>
+  
+    <div class="flex items-center gap-6 px-4">
+      <div class="flex items-center gap-2 group cursor-default">
+        <span class="material-symbols-outlined text-outline group-hover:text-primary transition-colors text-xl">schedule</span>
+        <span class="text-label-md font-bold text-on-surface">45 <span class="text-[10px] font-normal text-outline">min</span></span>
+      </div>
+      <div class="flex items-center gap-2 group cursor-default">
+        <span class="material-symbols-outlined text-outline group-hover:text-primary transition-colors text-xl">format_list_numbered</span>
+        <span class="text-label-md font-bold text-on-surface">5 <span class="text-[10px] font-normal text-outline">动作</span></span>
+      </div>
+      <div class="flex items-center gap-2 group cursor-default">
+        <span class="material-symbols-outlined text-primary text-xl">local_fire_department</span>
+        <span class="text-label-md font-bold text-primary">320 <span class="text-[10px] font-normal text-primary/70">kcal</span></span>
+      </div>
+    </div>
+  </div>
+  <!-- Exercise List -->
+  <div class="space-y-2 relative max-w-full overflow-hidden px-1"><!-- Exercise 1 -->
+  <div class="flex items-center gap-4 bg-surface-container-lowest border border-outline-variant rounded-2xl p-4 hover:shadow-md transition-all group">
+  <div class="flex items-center gap-3">
+  <div class="w-8 h-8 rounded-full border-2 border-outline-variant flex items-center justify-center text-label-md font-bold text-outline">1</div>
+  <span class="material-symbols-outlined text-outline cursor-grab">drag_indicator</span>
+  </div>
+  <div class="flex items-center gap-4 flex-1">
+  <div class="w-14 h-14 bg-surface-container-low rounded-xl flex items-center justify-center overflow-hidden flex-shrink-0">
+  <span class="material-symbols-outlined text-primary text-3xl">fitness_center</span>
+  </div>
+  <div class="min-w-[120px]">
+  <p class="font-bold text-body-lg">深蹲 <span class="text-outline text-label-sm font-normal">Squat</span></p>
+  <span class="inline-block mt-1 px-2 py-0.5 bg-tertiary-fixed text-on-tertiary-fixed-variant text-[10px] rounded uppercase font-bold">次数模式</span>
+  </div>
+  <div class="flex items-center gap-8 ml-auto"><div class="text-center min-w-[70px]"><p class="text-[10px] text-outline mb-1">目标次数</p><div class="flex items-center border border-outline-variant rounded-lg h-9 w-full"><button class="flex-1 hover:bg-surface-container-low text-lg">-</button><input class="w-8 text-center border-none text-label-md focus:ring-0 p-0 bg-transparent" type="text" value="12"><button class="flex-1 hover:bg-surface-container-low text-lg">+</button></div></div><div class="text-center min-w-[70px]"><p class="text-[10px] text-outline mb-1">组数</p><div class="flex items-center border border-outline-variant rounded-lg h-9 w-full"><button class="flex-1 hover:bg-surface-container-low text-lg">-</button><input class="w-8 text-center border-none text-label-md focus:ring-0 p-0 bg-transparent" type="text" value="4"><button class="flex-1 hover:bg-surface-container-low text-lg">+</button></div></div><div class="text-center min-w-[70px]"><p class="text-[10px] text-outline mb-1">间歇</p><button class="flex items-center justify-between w-full h-9 px-2 border border-outline-variant rounded-lg text-label-md">30s <span class="material-symbols-outlined text-sm">expand_more</span></button></div></div>
+  </div>
+  <div class="flex gap-1 border-l border-outline-variant pl-4">
+  <button class="p-2 text-outline hover:text-primary transition-all"><span class="material-symbols-outlined">content_copy</span></button>
+  <button class="p-2 text-outline hover:text-error transition-all"><span class="material-symbols-outlined">delete</span></button>
+  </div>
+  </div>
+  <!-- Rest 1-2 -->
+  <div class="flex items-center justify-center py-1">
+  <div class="group flex items-center gap-2 px-3 py-1 bg-surface-container-low/50 border border-dashed border-outline-variant rounded-full text-on-surface-variant hover:border-primary/50 transition-all cursor-pointer">
+  <span class="material-symbols-outlined text-[14px] text-outline group-hover:text-primary">timer</span>
+  <span class="text-[10px] font-medium">休息间隔</span>
+  <div class="flex items-center gap-1 ml-1 bg-white px-1.5 py-0 rounded-full border border-outline-variant">
+  <span class="text-[10px] font-bold">30s</span>
+  <span class="material-symbols-outlined text-[10px]">expand_more</span>
+  </div>
+  </div>
+  </div>
+  <!-- Exercise 2 -->
+  <div class="flex items-center gap-4 bg-surface-container-lowest border border-outline-variant rounded-2xl p-4 hover:shadow-md transition-all group">
+  <div class="flex items-center gap-3">
+  <div class="w-8 h-8 rounded-full border-2 border-outline-variant flex items-center justify-center text-label-md font-bold text-outline">2</div>
+  <span class="material-symbols-outlined text-outline cursor-grab">drag_indicator</span>
+  </div>
+  <div class="flex items-center gap-4 flex-1">
+  <div class="w-14 h-14 bg-surface-container-low rounded-xl flex items-center justify-center overflow-hidden flex-shrink-0">
+  <span class="material-symbols-outlined text-primary text-3xl">sports_gymnastics</span>
+  </div>
+  <div class="min-w-[120px]">
+  <p class="font-bold text-body-lg">俯卧撑 <span class="text-outline text-label-sm font-normal">Push-up</span></p>
+  <span class="inline-block mt-1 px-2 py-0.5 bg-tertiary-fixed text-on-tertiary-fixed-variant text-[10px] rounded uppercase font-bold">次数模式</span>
+  </div>
+  <div class="flex items-center gap-8 ml-auto"><div class="text-center min-w-[70px]"><p class="text-[10px] text-outline mb-1">目标次数</p><div class="flex items-center border border-outline-variant rounded-lg h-9 w-full"><button class="flex-1 hover:bg-surface-container-low text-lg">-</button><input class="w-8 text-center border-none text-label-md focus:ring-0 p-0 bg-transparent" type="text" value="15"><button class="flex-1 hover:bg-surface-container-low text-lg">+</button></div></div><div class="text-center min-w-[70px]"><p class="text-[10px] text-outline mb-1">组数</p><div class="flex items-center border border-outline-variant rounded-lg h-9 w-full"><button class="flex-1 hover:bg-surface-container-low text-lg">-</button><input class="w-8 text-center border-none text-label-md focus:ring-0 p-0 bg-transparent" type="text" value="3"><button class="flex-1 hover:bg-surface-container-low text-lg">+</button></div></div><div class="text-center min-w-[70px]"><p class="text-[10px] text-outline mb-1">间歇</p><button class="flex items-center justify-between w-full h-9 px-2 border border-outline-variant rounded-lg text-label-md">30s <span class="material-symbols-outlined text-sm">expand_more</span></button></div></div>
+  </div>
+  <div class="flex gap-1 border-l border-outline-variant pl-4">
+  <button class="p-2 text-outline hover:text-primary transition-all"><span class="material-symbols-outlined">content_copy</span></button>
+  <button class="p-2 text-outline hover:text-error transition-all"><span class="material-symbols-outlined">delete</span></button>
+  </div>
+  </div>
+  <!-- Rest 2-3 -->
+  <div class="flex items-center justify-center py-1">
+  <div class="group flex items-center gap-2 px-3 py-1 bg-surface-container-low/50 border border-dashed border-outline-variant rounded-full text-on-surface-variant hover:border-primary/50 transition-all cursor-pointer">
+  <span class="material-symbols-outlined text-[14px] text-outline group-hover:text-primary">timer</span>
+  <span class="text-[10px] font-medium">休息间隔</span>
+  <div class="flex items-center gap-1 ml-1 bg-white px-1.5 py-0 rounded-full border border-outline-variant">
+  <span class="text-[10px] font-bold">30s</span>
+  <span class="material-symbols-outlined text-[10px]">expand_more</span>
+  </div>
+  </div>
+  </div>
+  <!-- Exercise 3 -->
+  <div class="flex items-center gap-4 bg-white border-2 border-primary-container rounded-2xl p-4 shadow-lg transition-all group relative overflow-hidden box-border mx-0.5">
+  <div class="absolute left-0 top-0 bottom-0 w-1 bg-primary-container"></div>
+  <div class="flex items-center gap-3">
+  <div class="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center text-label-md font-bold text-white">3</div>
+  <span class="material-symbols-outlined text-primary cursor-grab">drag_indicator</span>
+  </div>
+  <div class="flex items-center gap-4 flex-1">
+  <div class="w-14 h-14 bg-primary/5 rounded-xl flex items-center justify-center overflow-hidden flex-shrink-0">
+  <span class="material-symbols-outlined text-primary text-3xl">accessibility_new</span>
+  </div>
+  <div class="min-w-[120px]">
+  <p class="font-bold text-body-lg text-primary">平板支撑 <span class="text-outline text-label-sm font-normal">Plank</span></p>
+  <span class="inline-block mt-1 px-2 py-0.5 bg-primary-fixed text-on-primary-fixed-variant text-[10px] rounded uppercase font-bold">时长模式</span>
+  </div>
+  <div class="flex items-center gap-8 ml-auto"><div class="text-center min-w-[70px]"><p class="text-[10px] text-outline mb-1">目标时长</p><div class="flex items-center border border-primary-container/30 rounded-lg h-9 w-full"><button class="flex-1 hover:bg-primary/5 text-lg">-</button><input class="w-8 text-center border-none text-label-md focus:ring-0 p-0 bg-transparent" type="text" value="45s"><button class="flex-1 hover:bg-primary/5 text-lg">+</button></div></div><div class="text-center min-w-[70px]"><p class="text-[10px] text-outline mb-1">组数</p><div class="flex items-center border border-primary-container/30 rounded-lg h-9 w-full"><button class="flex-1 hover:bg-primary/5 text-lg">-</button><input class="w-8 text-center border-none text-label-md focus:ring-0 p-0 bg-transparent" type="text" value="3"><button class="flex-1 hover:bg-primary/5 text-lg">+</button></div></div><div class="text-center min-w-[70px]"><p class="text-[10px] text-outline mb-1">间歇</p><button class="flex items-center justify-between w-full h-9 px-2 border border-primary-container/30 rounded-lg text-label-md bg-primary/5">20s <span class="material-symbols-outlined text-sm">expand_more</span></button></div></div>
+  </div>
+  <div class="flex gap-1 border-l border-outline-variant pl-4">
+  <button class="p-2 text-primary hover:bg-primary/5 rounded-lg transition-all"><span class="material-symbols-outlined">content_copy</span></button>
+  <button class="p-2 text-error hover:bg-error/5 rounded-lg transition-all"><span class="material-symbols-outlined">delete</span></button>
+  </div>
+  </div>
+  <!-- Rest 3-4 -->
+  <div class="flex items-center justify-center py-1">
+  <div class="group flex items-center gap-2 px-3 py-1 bg-surface-container-low/50 border border-dashed border-outline-variant rounded-full text-on-surface-variant hover:border-primary/50 transition-all cursor-pointer">
+  <span class="material-symbols-outlined text-[14px] text-outline group-hover:text-primary">timer</span>
+  <span class="text-[10px] font-medium">休息间隔</span>
+  <div class="flex items-center gap-1 ml-1 bg-white px-1.5 py-0 rounded-full border border-outline-variant">
+  <span class="text-[10px] font-bold">30s</span>
+  <span class="material-symbols-outlined text-[10px]">expand_more</span>
+  </div>
+  </div>
+  </div>
+  <div class="opacity-60 flex items-center gap-4 bg-surface-container-lowest border border-outline-variant border-dashed rounded-2xl p-4 box-border overflow-hidden">
+  <div class="flex items-center gap-3">
+  <div class="w-8 h-8 rounded-full border-2 border-outline-variant flex items-center justify-center text-label-md font-bold text-outline">4</div>
+  <span class="material-symbols-outlined text-outline">drag_indicator</span>
+  </div>
+  <div class="flex-1">
+  <p class="font-bold text-body-lg">开合跳 <span class="text-outline text-label-sm font-normal">Jacks</span></p>
+  </div>
+  <div class="text-label-md text-outline px-4 border-l border-outline-variant">时长: 60s · 3组</div>
+  </div></div>
+  <!-- Add Action -->
+  
+  </section>
+  <!-- Bottom Toolbar -->
+  <div class="sticky bottom-0 bg-background/80 backdrop-blur-md pt-4 pb-8 flex justify-center">
+  <div class="flex items-center gap-1 bg-white p-1.5 rounded-2xl border border-outline-variant shadow-xl">
+  <button class="flex items-center gap-2 px-4 py-2.5 hover:bg-surface-container-low rounded-xl text-label-md transition-all">
+  <span class="material-symbols-outlined text-sm">auto_awesome</span> 自动排序
+                      </button>
+  <div class="w-px h-6 bg-outline-variant mx-1"></div>
+  <button class="flex items-center gap-2 px-4 py-2.5 hover:bg-surface-container-low rounded-xl text-label-md transition-all">
+  <span class="material-symbols-outlined text-sm">more_time</span> 插入休息
+                      </button>
+  <div class="w-px h-6 bg-outline-variant mx-1"></div>
+  <button class="flex items-center gap-2 px-4 py-2.5 hover:bg-surface-container-low rounded-xl text-label-md transition-all">
+  <span class="material-symbols-outlined text-sm">sync_alt</span> 生成循环训练
+                      </button>
+  <div class="w-px h-6 bg-outline-variant mx-1"></div>
+  <button class="flex items-center gap-2 px-4 py-2.5 text-primary bg-primary/5 hover:bg-primary/10 rounded-xl text-label-md transition-all font-bold">
+  <span class="material-symbols-outlined text-sm">save</span> 保存为模板
+                      </button>
+  </div>
+  </div>
+  </main>
+  <!-- Right Panel -->
+  <aside class="w-[300px] h-screen fixed right-0 top-0 bg-white border-l border-outline-variant p-md flex flex-col gap-md overflow-y-auto custom-scrollbar">
+  <!-- Action Library -->
+  <div class="flex flex-col h-[400px]">
+  <div class="flex justify-between items-center mb-md">
+  <h4 class="font-bold text-label-md flex items-center gap-2">
+  <span class="material-symbols-outlined text-primary text-xl">folder_open</span> 动作库
+                      </h4>
+  <span class="text-[10px] text-outline px-1.5 py-0.5 bg-surface-container rounded">1,200+</span>
+  </div>
+  <div class="relative mb-3">
+  <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-lg">search</span>
+  <input class="w-full pl-10 pr-4 py-2 bg-surface-container-low border-none rounded-xl text-label-md focus:ring-2 focus:ring-primary/20" placeholder="搜索训练动作..." type="text">
+  </div>
+  <div class="flex gap-2 overflow-x-auto pb-3 custom-scrollbar">
+  <button class="px-3 py-1 bg-primary text-white text-[11px] rounded-lg whitespace-nowrap">全部</button>
+  <button class="px-3 py-1 bg-surface-container-low text-on-surface-variant text-[11px] rounded-lg whitespace-nowrap">上肢</button>
+  <button class="px-3 py-1 bg-surface-container-low text-on-surface-variant text-[11px] rounded-lg whitespace-nowrap">核心</button>
+  <button class="px-3 py-1 bg-surface-container-low text-on-surface-variant text-[11px] rounded-lg whitespace-nowrap">下肢</button>
+  </div>
+  <div class="flex-1 space-y-2 overflow-y-auto pr-1">
+  <div class="p-3 bg-surface-container-lowest border border-outline-variant rounded-xl flex items-center gap-3 hover:border-primary transition-all cursor-pointer">
+  <div class="w-10 h-10 bg-surface-container-low rounded-lg flex items-center justify-center"><span class="material-symbols-outlined text-outline">fitness_center</span></div>
+  <div class="flex-1"><p class="text-label-md font-bold">杠铃卧推</p><p class="text-[10px] text-outline">胸部 · 力量</p></div>
+  <button class="text-primary"><span class="material-symbols-outlined">add_circle</span></button>
+  </div>
+  <div class="p-3 bg-surface-container-lowest border border-outline-variant rounded-xl flex items-center gap-3 hover:border-primary transition-all cursor-pointer">
+  <div class="w-10 h-10 bg-surface-container-low rounded-lg flex items-center justify-center"><span class="material-symbols-outlined text-outline">fitness_center</span></div>
+  <div class="flex-1"><p class="text-label-md font-bold">哑铃飞鸟</p><p class="text-[10px] text-outline">胸部 · 塑形</p></div>
+  <button class="text-primary"><span class="material-symbols-outlined">add_circle</span></button>
+  </div>
+  </div>
+  </div>
+  <!-- Detail View -->
+  <div class="bg-surface-container-low rounded-2xl p-md">
+  <div class="flex justify-between items-start mb-md">
+  <h4 class="font-bold text-label-md">动作详情</h4>
+  <span class="material-symbols-outlined text-outline cursor-pointer">info</span>
+  </div>
+  <div class="mb-lg">
+  <div class="aspect-video w-full rounded-xl mb-3 overflow-hidden border border-outline-variant">
+  <img class="w-full h-full object-cover" data-alt="A high-definition instructional fitness visual of a professional athlete performing a perfect plank on a luxury yoga mat. The setting is a minimalist, modern home gym with soft natural light streaming in from the side. The palette features muted greys, soft blues, and crisp whites. The focus is on form and stability, maintaining a premium Wellness SaaS look that is both clear and aesthetically pleasing." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBXM-IYBXubSkBLfTKP5HfpMjR6YhTiIfHwPARaLQdn7l1rrvSwilyQ-ow8aZ0nbWzLrptbCxHlTCamBUbFLtyyC02CO637qrlTUd7qn0MENWOX9TMDzwnLrebXR5-ztu8-EL8UDl5OMxBK5HWiT8r-LW7W8xAFaJ0VUhkS7Zp78ANKDUBSwUw0wOOE5sHO8LdPV-3TKn-S-dBuU4R-2silcs5Xr2s7t0hjJaf3AeoDDmgJWMgnhFg0Lz8HmuVSL8AA2RR-tBqvMxFo">
+  </div>
+  <div class="flex justify-between items-center mb-1">
+  <h5 class="font-bold text-body-lg">平板支撑</h5>
+  <div class="flex text-primary">
+  <span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">star</span>
+  <span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">star</span>
+  <span class="material-symbols-outlined text-sm">star</span>
+  </div>
+  </div>
+  <p class="text-xs text-outline mb-4">目标部位: 腹横肌, 腹直肌, 背部肌群</p>
+  <div class="space-y-2">
+  <div class="flex gap-2 items-start">
+  <span class="w-1.5 h-1.5 rounded-full bg-primary mt-1.5"></span>
+  <p class="text-[11px] text-on-surface-variant leading-relaxed">双肘撑地，与肩同宽，保持身体呈直线。</p>
+  </div>
+  <div class="flex gap-2 items-start">
+  <span class="w-1.5 h-1.5 rounded-full bg-primary mt-1.5"></span>
+  <p class="text-[11px] text-on-surface-variant leading-relaxed">核心收紧，避免腰部下榻或臀部过高。</p>
+  </div>
+  </div>
+  </div>
+  </div>
+  <!-- Total Stats -->
+  <div class="bg-primary/5 rounded-2xl p-md border border-primary/10">
+  <h4 class="font-bold text-label-md mb-md">训练概览</h4>
+  <div class="grid grid-cols-2 gap-3">
+  <div class="bg-white/60 p-3 rounded-xl">
+  <p class="text-[10px] text-outline mb-1">训练时长</p>
+  <p class="font-bold text-body-md">45m</p>
+  </div>
+  <div class="bg-white/60 p-3 rounded-xl">
+  <p class="text-[10px] text-outline mb-1">总动作数</p>
+  <p class="font-bold text-body-md">5</p>
+  </div>
+  <div class="bg-white/60 p-3 rounded-xl">
+  <p class="text-[10px] text-outline mb-1">预计组数</p>
+  <p class="font-bold text-body-md">16组</p>
+  </div>
+  <div class="bg-white/60 p-3 rounded-xl">
+  <p class="text-[10px] text-outline mb-1">预估消耗</p>
+  <p class="font-bold text-body-md text-primary">320cal</p>
+  </div>
+  </div>
+  </div>
+  </aside>
+  </div>
+  <script>
+          // Simple interactive effects for steppers
+          document.querySelectorAll('button').forEach(btn => {
+              btn.addEventListener('mousedown', function() {
+                  this.classList.add('scale-95');
+              });
+              btn.addEventListener('mouseup', function() {
+                  this.classList.remove('scale-95');
+              });
+          });
+  
+          // Search bar hover effect
+          const searchBar = document.querySelector('input[type="text"]');
+          if(searchBar) {
+              searchBar.addEventListener('focus', () => {
+                  searchBar.parentElement.classList.add('ring-2', 'ring-primary/10');
+              });
+              searchBar.addEventListener('blur', () => {
+                  searchBar.parentElement.classList.remove('ring-2', 'ring-primary/10');
+              });
+          }
+      </script>
+  
+  
+  </body></html>

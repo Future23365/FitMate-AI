@@ -22,6 +22,15 @@ type StreamEvent = {
   delta?: string;
 };
 
+type ChatConversation = {
+  id: string;
+  title: string;
+  updatedAt: string;
+  messages: ChatMessage[];
+};
+
+const chatHistoryStorageKey = "fitmate.chatHistory";
+
 const quickPrompts = ["帮我制定增肌计划", "推荐居家训练", "今天练什么", "制定减脂食谱"];
 
 const weekDays = [
@@ -77,9 +86,28 @@ function MarkdownContent({ content }: { content: string }) {
   );
 }
 
+function readChatHistory(): ChatConversation[] {
+  try {
+    const rawHistory = window.localStorage.getItem(chatHistoryStorageKey);
+    const parsedHistory = rawHistory ? (JSON.parse(rawHistory) as ChatConversation[]) : [];
+
+    return Array.isArray(parsedHistory) ? parsedHistory : [];
+  } catch {
+    return [];
+  }
+}
+
+function createConversationTitle(nextMessages: ChatMessage[]) {
+  const firstUserMessage = nextMessages.find((message) => message.role === "user");
+  const title = firstUserMessage?.content.trim().replace(/\s+/g, " ") || "新对话";
+
+  return title.length > 24 ? `${title.slice(0, 24)}...` : title;
+}
+
 export default function Home() {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [thinkingEnabled, setThinkingEnabled] = useState(true);
@@ -108,6 +136,66 @@ export default function Home() {
     });
   }, [latestMessageState, error, isLoading]);
 
+  useEffect(() => {
+    function loadConversationFromHash() {
+      const id = window.location.hash.replace(/^#/, "");
+
+      if (!id) {
+        return;
+      }
+
+      const conversations = readChatHistory();
+      const matchedConversation = conversations.find((conversation) => conversation.id === id);
+
+      if (!matchedConversation) {
+        return;
+      }
+
+      setConversationId(matchedConversation.id);
+      setMessages(matchedConversation.messages);
+      setError("");
+      setInput("");
+    }
+
+    function startNewConversation() {
+      window.history.replaceState(null, "", window.location.pathname);
+      setConversationId(null);
+      setMessages([]);
+      setError("");
+      setInput("");
+    }
+
+    loadConversationFromHash();
+    window.addEventListener("hashchange", loadConversationFromHash);
+    window.addEventListener("fitmate:new-chat", startNewConversation);
+
+    return () => {
+      window.removeEventListener("hashchange", loadConversationFromHash);
+      window.removeEventListener("fitmate:new-chat", startNewConversation);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!conversationId || !messages.some((message) => message.role === "user")) {
+      return;
+    }
+
+    const title = createConversationTitle(messages);
+    const nextConversation: ChatConversation = {
+      id: conversationId,
+      title,
+      updatedAt: new Date().toISOString(),
+      messages,
+    };
+    const nextHistory = [
+      nextConversation,
+      ...readChatHistory().filter((conversation) => conversation.id !== conversationId),
+    ].slice(0, 30);
+
+    window.localStorage.setItem(chatHistoryStorageKey, JSON.stringify(nextHistory));
+    window.dispatchEvent(new Event("fitmate:chat-history-updated"));
+  }, [conversationId, messages]);
+
   function createMessage(role: ChatMessage["role"], content: string): ChatMessage {
     return {
       id: crypto.randomUUID(),
@@ -134,9 +222,15 @@ export default function Home() {
 
     const userMessage = createMessage("user", text);
     const assistantMessage = createMessage("assistant", "");
+    const nextConversationId = conversationId ?? crypto.randomUUID();
     const requestMessages: ApiChatMessage[] = [...messages, userMessage]
       .filter((message) => message.content.trim().length > 0)
       .map(({ role, content }) => ({ role, content }));
+
+    if (!conversationId) {
+      setConversationId(nextConversationId);
+      window.history.replaceState(null, "", `#${nextConversationId}`);
+    }
 
     setMessages((current) => [...current, userMessage, assistantMessage]);
     setInput("");
@@ -231,7 +325,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-background text-on-surface">
-      <AppSidebar activeLabel="AI聊天" />
+      <AppSidebar activeLabel="首页" />
 
       <header className="fixed left-0 right-0 top-0 z-20 flex h-[64px] items-center justify-between bg-surface px-lg lg:left-[260px] xl:right-[300px] xl:px-xl">
         <div>

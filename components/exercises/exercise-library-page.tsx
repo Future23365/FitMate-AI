@@ -627,72 +627,79 @@ function ExerciseDetailPanel({
   onSelectExercise: (id: string) => void;
   relatedExercises: Exercise[];
 }) {
+  const [selectedImage, setSelectedImage] = useState({
+    exerciseId: "",
+    index: 0,
+  });
+
+  const imageUrls = exercise?.imageUrls.length
+    ? exercise.imageUrls
+    : ["https://www.gstatic.com/labs-code/stitch/stitch-placeholder-300x300.svg"];
+  const activeImageIndex =
+    selectedImage.exerciseId === exercise?.id ? Math.min(selectedImage.index, imageUrls.length - 1) : 0;
+  const activeImageUrl = imageUrls[activeImageIndex];
+  const hasMultipleImages = imageUrls.length > 1;
+
+  function selectImage(index: number) {
+    setSelectedImage({
+      exerciseId: exercise?.id ?? "",
+      index,
+    });
+  }
+
   return (
     <aside className="fixed right-0 top-0 z-30 hidden h-screen w-[340px] flex-col border-l border-outline-variant bg-surface-container-lowest xl:flex">
       <div className="custom-scrollbar flex h-full flex-col overflow-y-auto p-lg">
         {exercise ? (
           <>
             <div className="mb-lg flex flex-col gap-md">
-              <div className="group relative aspect-video w-full overflow-hidden rounded-lg bg-black shadow-lg">
+              <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-outline-variant bg-surface-container shadow-sm">
                 <img
-                  alt={`${exercise.nameZh} 动作教学`}
-                  className="h-full w-full object-cover opacity-80"
-                  src={getExerciseImage(exercise)}
+                  alt={`${exercise.nameZh} 第 ${activeImageIndex + 1} 步示意图`}
+                  className="h-full w-full object-contain"
+                  src={activeImageUrl}
                 />
-                <div className="absolute left-0 right-0 top-0 flex items-center justify-between bg-gradient-to-b from-black/50 to-transparent p-sm">
-                  <button
-                    className="flex h-8 w-8 items-center justify-center rounded-full bg-black/20 text-white transition-colors hover:bg-black/40"
-                    type="button"
-                  >
-                    <SymbolIcon className="text-[20px]">close</SymbolIcon>
-                  </button>
-                  <div className="flex gap-xs">
+                <div className="absolute left-sm top-sm rounded-full bg-black/55 px-sm py-xs font-label-sm text-label-sm text-white">
+                  {activeImageIndex + 1} / {imageUrls.length}
+                </div>
+                {hasMultipleImages ? (
+                  <>
                     <button
-                      className="flex h-8 w-8 items-center justify-center rounded-full bg-black/20 text-[#EAB308] transition-colors hover:bg-black/40"
+                      aria-label="上一张动作图"
+                      className="absolute left-sm top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/70 disabled:cursor-not-allowed disabled:opacity-40"
+                      disabled={activeImageIndex === 0}
+                      onClick={() => selectImage(Math.max(0, activeImageIndex - 1))}
                       type="button"
                     >
-                      <SymbolIcon className="text-[20px]" filled>
-                        star
-                      </SymbolIcon>
+                      <SymbolIcon className="text-[20px]">chevron_left</SymbolIcon>
                     </button>
                     <button
-                      className="flex h-8 w-8 items-center justify-center rounded-full bg-black/20 text-white transition-colors hover:bg-black/40"
+                      aria-label="下一张动作图"
+                      className="absolute right-sm top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/70 disabled:cursor-not-allowed disabled:opacity-40"
+                      disabled={activeImageIndex === imageUrls.length - 1}
+                      onClick={() => selectImage(Math.min(imageUrls.length - 1, activeImageIndex + 1))}
                       type="button"
                     >
-                      <SymbolIcon className="text-[20px]">share</SymbolIcon>
+                      <SymbolIcon className="text-[20px]">chevron_right</SymbolIcon>
                     </button>
-                  </div>
-                </div>
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <button
-                    className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/90 text-white shadow-xl transition-transform hover:scale-110"
-                    type="button"
-                  >
-                    <SymbolIcon className="ml-1 text-4xl">play_arrow</SymbolIcon>
-                  </button>
-                </div>
-                <div className="absolute bottom-0 left-0 right-0 flex flex-col gap-xs bg-gradient-to-t from-black/60 to-transparent p-sm">
-                  <div className="h-1 w-full overflow-hidden rounded-full bg-white/30">
-                    <div className="h-full w-[26%] bg-primary" />
-                  </div>
-                  <div className="flex justify-end">
-                    <span className="text-[10px] font-medium text-white">0:12 / 0:45</span>
-                  </div>
-                </div>
+                  </>
+                ) : null}
               </div>
 
-              <div className="flex rounded-full bg-surface-container-low p-1">
-                {["视频教学", "分步图解", "动作演示"].map((tab, index) => (
+              <div className="flex flex-wrap gap-sm">
+                {imageUrls.map((imageUrl, index) => (
                   <button
-                    className={`flex-1 rounded-full py-2 font-label-sm text-label-sm ${
-                      index === 0
-                        ? "bg-primary text-white shadow-sm"
-                        : "text-on-surface-variant transition-colors hover:text-on-surface"
+                    aria-label={`查看第 ${index + 1} 步动作图`}
+                    className={`flex items-center gap-xs rounded-full px-md py-xs font-label-sm text-label-sm transition-colors ${
+                      activeImageIndex === index
+                        ? "bg-primary text-white"
+                        : "bg-surface-container-high text-on-surface-variant hover:bg-outline-variant"
                     }`}
-                    key={tab}
+                    key={`${imageUrl}-${index}`}
+                    onClick={() => selectImage(index)}
                     type="button"
                   >
-                    {tab}
+                    第 {index + 1} 步
                   </button>
                 ))}
               </div>
@@ -750,27 +757,6 @@ function ExerciseDetailPanel({
                 </div>
               </div>
 
-              <div className="flex flex-col gap-md">
-                <div className="rounded-lg border border-green-100 bg-green-50 p-md">
-                  <h4 className="mb-xs flex items-center gap-xs font-label-md text-label-md text-green-700">
-                    <SymbolIcon className="text-[18px]">check_circle</SymbolIcon>
-                    要点提示
-                  </h4>
-                  <p className="font-label-md text-label-md text-green-600">
-                    保持动作节奏稳定，优先保证姿态标准，再增加次数或负重。
-                  </p>
-                </div>
-                <div className="rounded-lg border border-red-100 bg-red-50 p-md">
-                  <h4 className="mb-xs flex items-center gap-xs font-label-md text-label-md text-red-700">
-                    <SymbolIcon className="text-[18px]">warning</SymbolIcon>
-                    常见错误
-                  </h4>
-                  <p className="font-label-md text-label-md text-red-600">
-                    不要用惯性完成动作；如出现疼痛，应停止并调整动作范围。
-                  </p>
-                </div>
-              </div>
-
               <div>
                 <h3 className="mb-md font-title-lg text-title-lg">相关动作</h3>
                 <div className="custom-scrollbar flex gap-md overflow-x-auto pb-sm">
@@ -803,14 +789,6 @@ function ExerciseDetailPanel({
               </div>
             </div>
 
-            <div className="mt-auto pt-xl">
-              <button
-                className="w-full rounded-lg bg-primary py-lg font-title-lg text-title-lg text-white shadow-lg transition-all hover:shadow-xl active:scale-[0.98]"
-                type="button"
-              >
-                加入训练计划
-              </button>
-            </div>
           </>
         ) : (
           <div className="flex h-full flex-col items-center justify-center text-center text-on-surface-variant">
