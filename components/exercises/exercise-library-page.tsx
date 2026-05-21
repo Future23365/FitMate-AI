@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
+import { clientRequest } from "@/lib/api/client-request";
 import type { Exercise, ExerciseFacets, ExerciseSort } from "@/lib/exercises/types";
 
 type ExerciseFacet = {
@@ -180,14 +181,10 @@ export function ExerciseLibraryPage() {
       params.set("published", published);
     }
 
-    fetch(`/api/exercises?${params.toString()}`, { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error("动作库加载失败，请稍后重试。");
-        }
-
-        return (await response.json()) as ExerciseApiResponse;
-      })
+    clientRequest<ExerciseApiResponse>(`/api/exercises?${params.toString()}`, {
+      signal: controller.signal,
+      errorMessage: "动作库加载失败，请稍后重试。",
+    })
       .then((data) => {
         setItems(data.items);
         setFacets(data.facets);

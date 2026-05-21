@@ -29,6 +29,7 @@ type ScheduledWorkout = {
   minutes: number;
   calories: number;
   items: any[];
+  sourcePlanTitle?: string;
 };
 
 function toDateKey(date: Date) {
@@ -145,6 +146,7 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
               minutes: estimateMinutes(workout.items),
               calories: estimateCalories(workout.items),
               items: workout.items,
+              sourcePlanTitle: draft.title,
             });
           } else {
             newScheduledWorkouts.push({
@@ -156,6 +158,7 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
               minutes: 0,
               calories: 0,
               items: [],
+              sourcePlanTitle: draft.title,
             });
           }
         }
@@ -174,13 +177,16 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
           prevSchedule = [];
         }
 
-        // 清除本时间段内的所有旧安排，防止重复覆盖冲突
+        // 只替换同一计划来源的旧安排，避免误删用户手动安排或其他计划。
         const startRangeKey = toDateKey(today);
         const endRangeDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() + scheduleRange - 1);
         const endRangeKey = toDateKey(endRangeDate);
 
         const filteredPrevSchedule = prevSchedule.filter((item: any) => {
-          return item.date < startRangeKey || item.date > endRangeKey;
+          const isInRange = item.date >= startRangeKey && item.date <= endRangeKey;
+          const isSameImportedPlan = item.sourcePlanTitle === draft.title;
+
+          return !(isInRange && isSameImportedPlan);
         });
 
         const nextSchedule = [...filteredPrevSchedule, ...newScheduledWorkouts];
@@ -195,7 +201,7 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
         if (isRoutineOnly) {
           router.push("/composer");
         } else {
-          router.push("/training-plan");
+          router.push("/plans");
         }
       }, 1200);
     } catch (error) {
@@ -454,6 +460,7 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
 
       {/* 底部悬浮动作详情右侧抽屉 */}
       <ExercisePreviewSheet
+        key={activePreviewExercise?.id ?? "empty"}
         isOpen={isPreviewOpen}
         onClose={() => setIsPreviewOpen(false)}
         exercise={activePreviewExercise}

@@ -8,6 +8,7 @@ import { AppSidebar } from "@/components/app/app-sidebar";
 import { LogoMark } from "@/components/app/logo-mark";
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { WorkoutPlanDraftCard } from "@/components/workouts/workout-plan-draft-card";
+import { clientRequest } from "@/lib/api/client-request";
 
 type ChatMessage = {
   id: string;
@@ -147,20 +148,18 @@ export default function Home() {
     historyMessages: any[],
   ) {
     try {
-      const response = await fetch("/api/ai/workout-plan", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+      const data = await clientRequest<{ ok: boolean; message?: string; draft?: unknown }>(
+        "/api/ai/workout-plan",
+        {
+          method: "POST",
+          body: {
+            messages: historyMessages,
+            intent,
+          },
         },
-        body: JSON.stringify({
-          messages: historyMessages,
-          intent,
-        }),
-      });
+      );
 
-      const data = await response.json();
-
-      if (!response.ok || !data.ok) {
+      if (!data.ok) {
         throw new Error(data.message || "FitMate 安全引擎在校验时发现问题，无法生成计划。");
       }
 
@@ -359,16 +358,15 @@ export default function Home() {
     const timeout = window.setTimeout(() => controller.abort(), chatRequestTimeoutMs);
 
     try {
-      const response = await fetch("/api/chat", {
+      const response = await clientRequest("/api/chat", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        responseType: "raw",
+        throwOnError: false,
         signal: controller.signal,
-        body: JSON.stringify({
+        body: {
           messages: requestMessages,
           thinkingEnabled,
-        }),
+        },
       });
 
       if (!response.ok || !response.body) {

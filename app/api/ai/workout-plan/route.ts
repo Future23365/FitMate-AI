@@ -5,16 +5,6 @@ import {
   aiWorkoutPlanRequestSchema,
   generateAiWorkoutPlanDraft,
 } from "@/lib/workout-plans";
-import { runWorkoutPlanTests } from "@/lib/workout-plans/workout-plan.test";
-
-// 开发模式下，加载该路由时自动对训练计划的所有核心防伤病安全断言跑一遍单元测试
-if (process.env.NODE_ENV === "development") {
-  try {
-    runWorkoutPlanTests();
-  } catch (error) {
-    console.error("❌ [UnitTest] FitMate 核心业务单元测试未通过！请立即检查！", error);
-  }
-}
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);

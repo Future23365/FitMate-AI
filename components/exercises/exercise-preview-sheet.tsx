@@ -17,34 +17,17 @@ export function ExercisePreviewSheet({ isOpen, onClose, exercise }: ExercisePrev
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [mounted, setMounted] = useState(false);
 
-  // 1. 缓存最新的动作详情，防止关闭时数据突然丢失导致面板瞬间空白或动效卡顿
-  const [cachedExercise, setCachedExercise] = useState<Exercise | null>(null);
-
-  // 在 Render-phase 直接安全调整缓存状态，完美规避 react-hooks/set-state-in-effect 规则警告！
-  if (exercise && exercise !== cachedExercise) {
-    setCachedExercise(exercise);
-  }
-
-  // 取当前展示的数据对象（如果外部 exercise 为 null，在关闭动效的 0.5s 里使用 cachedExercise 维持渲染）
-  const displayExercise = exercise || cachedExercise;
-
-  // 客户端挂载处理，保证 SSR Safe Hydration 并通过延迟规避 Effect 同步 setState 报警
+  // 客户端挂载处理，保证 Portal 不参与服务端渲染。
   useEffect(() => {
     const timer = setTimeout(() => {
       setMounted(true);
     }, 0);
+
     return () => {
       clearTimeout(timer);
       setMounted(false);
     };
   }, []);
-
-  // 用 Render-phase 调整状态，避免在 useEffect 中同步 setState 触发 react-hooks/set-state-in-effect 警告
-  const [prevExerciseId, setPrevExerciseId] = useState<string | null>(null);
-  if (exercise && exercise.id !== prevExerciseId) {
-    setPrevExerciseId(exercise.id);
-    setActiveImageIndex(0);
-  }
 
   // 监听 ESC 按键关闭
   useEffect(() => {
@@ -75,8 +58,8 @@ export function ExercisePreviewSheet({ isOpen, onClose, exercise }: ExercisePrev
   // 仅在 SSR 阶段阻断，客户端挂载后保持 Portal 常驻，消除闪烁！
   if (!mounted) return null;
 
-  const images = displayExercise?.imageUrls && displayExercise.imageUrls.length > 0 
-    ? displayExercise.imageUrls 
+  const images = exercise?.imageUrls && exercise.imageUrls.length > 0 
+    ? exercise.imageUrls 
     : [placeholderImage];
 
   const handlePrevImage = () => {
@@ -90,18 +73,18 @@ export function ExercisePreviewSheet({ isOpen, onClose, exercise }: ExercisePrev
   return createPortal(
     <div
       className={`fixed inset-0 z-50 flex justify-end bg-black/20 backdrop-blur-[1px] drawer-backdrop-transition ${
-        isOpen && displayExercise ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+        isOpen && exercise ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
       }`}
       onClick={onClose}
     >
       {/* 右侧滑动抽屉面板主体 (宽度 460px，固定贴在屏幕最右侧) */}
       <div
         className={`h-full w-full sm:w-[460px] bg-slate-50 shadow-2xl flex flex-col drawer-panel-transition ${
-          isOpen && displayExercise ? "translate-x-0" : "translate-x-full"
+          isOpen && exercise ? "translate-x-0" : "translate-x-full"
         }`}
         onClick={(e) => e.stopPropagation()}
       >
-        {displayExercise && (
+        {exercise && (
           <>
             {/* 顶部固定标题栏 */}
             <div className="flex items-center justify-between border-b border-slate-100 bg-white px-lg py-md shrink-0 shadow-sm">
@@ -111,10 +94,10 @@ export function ExercisePreviewSheet({ isOpen, onClose, exercise }: ExercisePrev
                 </span>
                 <div>
                   <h3 className="font-title-md text-title-md font-bold text-slate-800 leading-snug">
-                    {displayExercise.nameZh || "动作详情"}
+                    {exercise.nameZh || "动作详情"}
                   </h3>
                   <p className="font-label-xs text-label-xs text-slate-400">
-                    {displayExercise.nameEn}
+                    {exercise.nameEn}
                   </p>
                 </div>
               </div>
@@ -142,7 +125,7 @@ export function ExercisePreviewSheet({ isOpen, onClose, exercise }: ExercisePrev
                 <div className="relative aspect-[4/3] w-full rounded-xl overflow-hidden bg-slate-100 border border-slate-100 shadow-inner group">
                   <img
                     src={images[activeImageIndex]}
-                    alt={`${displayExercise.nameZh} 演示图`}
+                    alt={`${exercise.nameZh} 演示图`}
                     className="h-full w-full object-contain p-xs"
                     loading="lazy"
                   />
@@ -203,19 +186,19 @@ export function ExercisePreviewSheet({ isOpen, onClose, exercise }: ExercisePrev
                   <div className="rounded-xl bg-slate-50/70 p-xs text-center border border-slate-100/50">
                     <span className="block font-label-xs text-label-xs text-slate-400 font-semibold">动作难度</span>
                     <span className="mt-[2px] block font-body-sm text-body-sm font-bold text-slate-700">
-                      {displayExercise.levelZh || "初级"}
+                      {exercise.levelZh || "初级"}
                     </span>
                   </div>
                   <div className="rounded-xl bg-slate-50/70 p-xs text-center border border-slate-100/50">
                     <span className="block font-label-xs text-label-xs text-slate-400 font-semibold">推荐器械</span>
-                    <span className="mt-[2px] block font-body-sm text-body-sm font-bold text-slate-700 truncate" title={displayExercise.equipmentZh || "自重"}>
-                      {displayExercise.equipmentZh || "自重"}
+                    <span className="mt-[2px] block font-body-sm text-body-sm font-bold text-slate-700 truncate" title={exercise.equipmentZh || "自重"}>
+                      {exercise.equipmentZh || "自重"}
                     </span>
                   </div>
                   <div className="rounded-xl bg-slate-50/70 p-xs text-center border border-slate-100/50">
                     <span className="block font-label-xs text-label-xs text-slate-400 font-semibold">动力类型</span>
                     <span className="mt-[2px] block font-body-sm text-body-sm font-bold text-slate-700">
-                      {displayExercise.forceZh || "向心"}
+                      {exercise.forceZh || "向心"}
                     </span>
                   </div>
                 </div>
@@ -228,8 +211,8 @@ export function ExercisePreviewSheet({ isOpen, onClose, exercise }: ExercisePrev
                       主导发力肌群
                     </span>
                     <div className="flex flex-wrap gap-xs">
-                      {displayExercise.primaryMusclesZh && displayExercise.primaryMusclesZh.length > 0 ? (
-                        displayExercise.primaryMusclesZh.map((muscle) => (
+                      {exercise.primaryMusclesZh && exercise.primaryMusclesZh.length > 0 ? (
+                        exercise.primaryMusclesZh.map((muscle) => (
                           <span key={muscle} className="inline-flex items-center rounded-full bg-primary/10 px-sm py-[2px] font-label-xs text-label-xs font-bold text-primary border border-primary/10">
                             {muscle}
                           </span>
@@ -240,14 +223,14 @@ export function ExercisePreviewSheet({ isOpen, onClose, exercise }: ExercisePrev
                     </div>
                   </div>
 
-                  {displayExercise.secondaryMusclesZh && displayExercise.secondaryMusclesZh.length > 0 && (
+                  {exercise.secondaryMusclesZh && exercise.secondaryMusclesZh.length > 0 && (
                     <div>
                       <span className="inline-flex items-center gap-[2px] font-label-xs text-label-xs font-semibold text-slate-500 mb-xs">
                         <span className="h-1.5 w-1.5 rounded-full bg-slate-300" />
                         辅助发力肌群
                       </span>
                       <div className="flex flex-wrap gap-xs">
-                        {displayExercise.secondaryMusclesZh.map((muscle) => (
+                        {exercise.secondaryMusclesZh.map((muscle) => (
                           <span key={muscle} className="inline-flex items-center rounded-full bg-slate-100 px-sm py-[2px] font-label-xs text-label-xs font-bold text-slate-600 border border-slate-200/50">
                             {muscle}
                           </span>
@@ -265,9 +248,9 @@ export function ExercisePreviewSheet({ isOpen, onClose, exercise }: ExercisePrev
                   标准动作步骤与要领
                 </h4>
 
-                {displayExercise.instructionsZh && displayExercise.instructionsZh.length > 0 ? (
+                {exercise.instructionsZh && exercise.instructionsZh.length > 0 ? (
                   <ol className="space-y-sm">
-                    {displayExercise.instructionsZh.map((step, idx) => (
+                    {exercise.instructionsZh.map((step, idx) => (
                       <li key={idx} className="flex gap-sm items-start">
                         <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary font-black text-[10px] text-white shadow-sm mt-[2px]">
                           {idx + 1}
@@ -293,9 +276,9 @@ export function ExercisePreviewSheet({ isOpen, onClose, exercise }: ExercisePrev
                 </h4>
 
                 {/* 风险预警标签 */}
-                {displayExercise.riskTags && displayExercise.riskTags.length > 0 && (
+                {exercise.riskTags && exercise.riskTags.length > 0 && (
                   <div className="mb-sm flex flex-wrap gap-xs">
-                    {displayExercise.riskTags.map((tag) => (
+                    {exercise.riskTags.map((tag) => (
                       <span key={tag} className="inline-flex items-center rounded bg-amber-100 px-xs py-[2px] font-label-xs text-label-xs font-bold text-amber-800 border border-amber-200">
                         ⚠ {tag}
                       </span>

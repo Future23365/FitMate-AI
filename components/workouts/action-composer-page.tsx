@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
+import { clientRequest } from "@/lib/api/client-request";
 import type { Exercise, ExerciseFacets } from "@/lib/exercises/types";
 
 type ExerciseApiResponse = {
@@ -185,13 +186,9 @@ async function fetchTemplateExercise(config: TemplateExerciseConfig) {
     q: config.query,
     sort: "level_asc",
   });
-  const response = await fetch(`/api/exercises?${params.toString()}`);
-
-  if (!response.ok) {
-    throw new Error("模板动作加载失败");
-  }
-
-  const data = (await response.json()) as ExerciseApiResponse;
+  const data = await clientRequest<ExerciseApiResponse>(`/api/exercises?${params.toString()}`, {
+    errorMessage: "模板动作加载失败",
+  });
   const preferredExercise = config.preferredIds
     .map((id) => data.items.find((exercise) => exercise.id === id))
     .find(Boolean);
@@ -256,14 +253,10 @@ export function ActionComposerPage() {
       params.set("level", libraryLevel);
     }
 
-    fetch(`/api/exercises?${params.toString()}`, { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error("动作库加载失败");
-        }
-
-        return (await response.json()) as ExerciseApiResponse;
-      })
+    clientRequest<ExerciseApiResponse>(`/api/exercises?${params.toString()}`, {
+      signal: controller.signal,
+      errorMessage: "动作库加载失败",
+    })
       .then((data) => {
         setLibraryItems(data.items);
         setLibraryTotal(data.total);

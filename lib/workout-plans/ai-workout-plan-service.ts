@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { listAllExercises } from "@/lib/exercises/exercise-service";
 import type { Exercise } from "@/lib/exercises/types";
+import { serverRequest } from "@/lib/server/http/server-request";
 
 import {
   workoutPlanDraftSchema,
@@ -390,21 +391,22 @@ async function requestDeepSeekJson(
       }),
     });
 
-    const response = await fetch("https://api.deepseek.com/chat/completions", {
+    const response = await serverRequest("https://api.deepseek.com/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
       },
+      responseType: "raw",
+      throwOnError: false,
       signal: controller.signal,
-      body: JSON.stringify({
+      body: {
         model,
         messages,
         stream: false,
         thinking: {
           type: "disabled",
         },
-      }),
+      },
     });
 
     if (!response.ok) {
