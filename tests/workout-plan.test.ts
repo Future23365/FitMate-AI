@@ -118,6 +118,49 @@ export function runWorkoutPlanTests() {
     );
     console.assert(!hasHighImpact, "有膝盖疼痛的用户在 primary 候选集中应当排除高冲击(high_impact)动作");
 
+    // 胸肌目标应优先返回胸部主肌群动作，避免被其他自重力量动作稀释
+    const chestIntent: WorkoutPlanIntent = {
+      intentType: "routine",
+      goal: "胸肌增肌",
+      experience: "beginner",
+      sessionMinutes: 30,
+      weeklyFrequency: 1,
+      equipment: ["自重"],
+      injuryLimitations: [],
+      preferences: ["居家训练"],
+      avoidances: [],
+    };
+    const chestResult = selectExerciseCandidates(chestIntent, exercises);
+    const topChestCandidates = chestResult.primaryCandidates.slice(0, 8);
+    console.assert(
+      chestResult.isEnoughCandidates,
+      "新手自重胸肌目标有俯卧撑类动作时，不应被判定为候选不足"
+    );
+    console.assert(
+      chestResult.candidateStatus !== "insufficient",
+      "新手自重胸肌目标的候选状态不应为 insufficient"
+    );
+    console.assert(
+      topChestCandidates.every((c) => c.exercise.primaryMusclesZh.includes("胸部")),
+      "胸肌目标的前排 primary 候选应当都是胸部主肌群动作"
+    );
+    console.assert(
+      topChestCandidates.some((c) => /俯卧撑/.test(c.exercise.nameZh)),
+      "新手自重胸肌目标应当优先包含俯卧撑类动作"
+    );
+
+    const chestNoneEquipmentResult = selectExerciseCandidates(
+      {
+        ...chestIntent,
+        equipment: ["none"],
+      },
+      exercises
+    );
+    console.assert(
+      chestNoneEquipmentResult.primaryCandidates.some((c) => /俯卧撑/.test(c.exercise.nameZh)),
+      "equipment 为 none 时也应当按自重匹配俯卧撑类动作"
+    );
+
     // -------------------------------------------------------------
     // 测试点 4: 计划草稿转持久化 SavedWorkout 实体 (convertWorkoutPlanDraftToSavedWorkout)
     // -------------------------------------------------------------

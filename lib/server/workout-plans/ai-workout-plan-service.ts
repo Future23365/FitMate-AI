@@ -439,7 +439,6 @@ async function requestDeepSeekJson(
     console.info("[ai-workout-plan] deepseek_response", {
       task: taskName,
       model,
-      content: previewLogText(content),
     });
 
     return {

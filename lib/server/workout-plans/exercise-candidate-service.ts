@@ -30,6 +30,9 @@ export type ExerciseCandidateResult = {
   supplementaryCandidates: ExerciseCandidate[];
   excluded: ExcludedExercise[];
   warnings: string[];
+  candidateStatus: "enough" | "limited_but_usable" | "insufficient";
+  relevantCandidateCount: number;
+  requiredRelevantCandidateCount: number;
   isEnoughCandidates: boolean;
 };
 
@@ -46,7 +49,8 @@ export type WorkoutPlanExerciseIdValidationResult = {
   outsideCandidateExerciseIds: string[];
 };
 
-const defaultMinCandidates = 12;
+const defaultPlanMinCandidates = 12;
+const defaultRoutineMinCandidates = 4;
 const maxPrimaryCandidates = 40;
 const maxSupplementaryCandidates = 40;
 /** 分数 >= 此阈值的动作归为 primary，否则归为 supplementary */
@@ -60,10 +64,11 @@ export function selectExerciseCandidates(
   options: Omit<ExerciseCandidateOptions, "exercises"> = {},
 ): ExerciseCandidateResult {
   const intent = workoutPlanIntentSchema.parse(rawIntent);
-  const minCandidates = options.minCandidates ?? defaultMinCandidates;
   const requestedEquipment = resolveRequestedEquipment(intent.equipment);
   const riskTagsToExclude = resolveRiskTagsToExclude(intent);
   const goalTags = resolveGoalTags(intent);
+  const targetMuscles = resolveTargetMuscles(intent);
+  const candidateRequirement = resolveCandidateRequirement(intent, targetMuscles, options);
   const excluded: ExcludedExercise[] = [];
   const warnings = new Set<string>();
 
@@ -94,6 +99,7 @@ export function selectExerciseCandidates(
           ...scoreExercise(exercise, intent, {
             requestedEquipment,
             goalTags,
+            targetMuscles,
           }),
         },
       ];
@@ -112,13 +118,28 @@ export function selectExerciseCandidates(
     .map((c) => ({ ...c, source: "supplementary" as const }));
 
   const totalCandidates = primaryCandidates.length + supplementaryCandidates.length;
+  const relevantCandidateCount =
+    targetMuscles.size > 0
+      ? primaryCandidates.filter((candidate) => matchesTargetMuscles(candidate.exercise, targetMuscles))
+          .length
+      : primaryCandidates.length;
+  const candidateStatus = resolveCandidateStatus({
+    relevantCandidateCount,
+    requiredRelevantCandidateCount: candidateRequirement.requiredRelevantCandidateCount,
+    totalCandidates,
+    requiredTotalCandidateCount: candidateRequirement.requiredTotalCandidateCount,
+  });
 
-  if (requestedEquipment.size > 0 && totalCandidates < minCandidates) {
-    warnings.add("按当前器械限制筛选后候选动作偏少，可能需要放宽器械条件。");
+  if (requestedEquipment.size > 0 && candidateStatus === "insufficient") {
+    warnings.add("按当前器械限制筛选后没有足够相关动作，可能需要放宽器械条件。");
   }
 
-  if (primaryCandidates.length < minCandidates) {
-    warnings.add("核心候选动作偏少，AI 可能需要更多地使用补充候选动作。");
+  if (candidateStatus === "limited_but_usable") {
+    warnings.add("相关候选动作数量有限但可用，可通过动作变式、组数、次数和休息时间完成编排。");
+  }
+
+  if (candidateStatus === "insufficient") {
+    warnings.add("相关候选动作不足，无法生成可靠的训练计划草稿。");
   }
 
   return {
@@ -127,7 +148,10 @@ export function selectExerciseCandidates(
     supplementaryCandidates,
     excluded,
     warnings: [...warnings],
-    isEnoughCandidates: totalCandidates >= minCandidates,
+    candidateStatus,
+    relevantCandidateCount,
+    requiredRelevantCandidateCount: candidateRequirement.requiredRelevantCandidateCount,
+    isEnoughCandidates: candidateStatus !== "insufficient",
   };
 }
 
@@ -216,10 +240,26 @@ function scoreExercise(
   context: {
     requestedEquipment: Set<string>;
     goalTags: Set<string>;
+    targetMuscles: Set<string>;
   },
 ) {
   let score = 0;
   const reasons: string[] = [];
+
+  const primaryMuscleMatches = exercise.primaryMusclesZh.filter((muscle) =>
+    context.targetMuscles.has(muscle),
+  );
+  const secondaryMuscleMatches = exercise.secondaryMusclesZh.filter((muscle) =>
+    context.targetMuscles.has(muscle),
+  );
+
+  if (primaryMuscleMatches.length > 0) {
+    score += 50;
+    reasons.push(`主肌群匹配 ${primaryMuscleMatches.join("、")}`);
+  } else if (secondaryMuscleMatches.length > 0) {
+    score += 24;
+    reasons.push(`辅助肌群匹配 ${secondaryMuscleMatches.join("、")}`);
+  }
 
   if (exercise.level === "beginner") {
     score += intent.experience === "beginner" ? 30 : 10;
@@ -265,6 +305,55 @@ function scoreExercise(
   };
 }
 
+function resolveCandidateRequirement(
+  intent: WorkoutPlanIntent,
+  targetMuscles: Set<string>,
+  options: Omit<ExerciseCandidateOptions, "exercises">,
+) {
+  const requiredTotalCandidateCount =
+    options.minCandidates ??
+    (intent.intentType === "routine"
+      ? defaultRoutineMinCandidates
+      : Math.min(defaultPlanMinCandidates, Math.max(6, intent.weeklyFrequency * 3)));
+  const requiredRelevantCandidateCount =
+    targetMuscles.size === 0
+      ? requiredTotalCandidateCount
+      : intent.intentType === "routine"
+        ? 3
+        : Math.min(10, Math.max(4, intent.weeklyFrequency * 2));
+
+  return {
+    requiredTotalCandidateCount,
+    requiredRelevantCandidateCount,
+  };
+}
+
+function resolveCandidateStatus(context: {
+  relevantCandidateCount: number;
+  requiredRelevantCandidateCount: number;
+  totalCandidates: number;
+  requiredTotalCandidateCount: number;
+}): ExerciseCandidateResult["candidateStatus"] {
+  if (context.relevantCandidateCount === 0) {
+    return "insufficient";
+  }
+
+  const minimumUsableRelevantCount = Math.min(3, context.requiredRelevantCandidateCount);
+
+  if (context.relevantCandidateCount < minimumUsableRelevantCount) {
+    return "insufficient";
+  }
+
+  if (
+    context.relevantCandidateCount < context.requiredRelevantCandidateCount ||
+    context.totalCandidates < context.requiredTotalCandidateCount
+  ) {
+    return "limited_but_usable";
+  }
+
+  return "enough";
+}
+
 function compareCandidates(
   left: { score: number; exercise: Exercise },
   right: { score: number; exercise: Exercise },
@@ -294,7 +383,11 @@ function resolveRequestedEquipment(equipment: string[]) {
     return requested;
   }
 
-  if (/(无器械|徒手|自重|居家|家里|家中)/.test(normalizedText)) {
+  if (
+    /(无器械|无器材|徒手|自重|居家|家里|家中|none|noequipment|bodyweight|withoutequipment)/.test(
+      normalizedText,
+    )
+  ) {
     for (const item of bodyweightEquipment) {
       requested.add(item);
     }
@@ -380,6 +473,42 @@ function resolveGoalTags(intent: WorkoutPlanIntent) {
   return tags;
 }
 
+function resolveTargetMuscles(intent: WorkoutPlanIntent) {
+  const muscles = new Set<string>();
+  const text = normalizeText([intent.goal, ...intent.preferences].join(" "));
+
+  if (/(胸|胸肌|胸部|上胸|下胸|pector|chest)/.test(text)) {
+    muscles.add("胸部");
+  }
+
+  if (/(背|背部|背阔|中背|lat|back)/.test(text)) {
+    muscles.add("背阔肌");
+    muscles.add("中背部");
+    muscles.add("下背部");
+  }
+
+  if (/(肩|肩部|三角肌|shoulder|deltoid)/.test(text)) {
+    muscles.add("肩部");
+  }
+
+  if (/(腿|下肢|大腿|股四头|腘绳|臀|quad|hamstring|glute|leg)/.test(text)) {
+    muscles.add("股四头肌");
+    muscles.add("腘绳肌");
+    muscles.add("臀部");
+  }
+
+  if (/(核心|腹|腹肌|core|abs)/.test(text)) {
+    muscles.add("腹肌");
+  }
+
+  if (/(手臂|肱二头|二头|肱三头|三头|臂|biceps|triceps|arm)/.test(text)) {
+    muscles.add("肱二头肌");
+    muscles.add("肱三头肌");
+  }
+
+  return muscles;
+}
+
 function hasExcludedRiskTag(exercise: Exercise, riskTagsToExclude: Set<string>) {
   return exercise.riskTags.some((tag) => riskTagsToExclude.has(tag));
 }
@@ -390,7 +519,7 @@ function matchesRequestedEquipment(exercise: Exercise, requestedEquipment: Set<s
   }
 
   if (!exercise.equipmentZh) {
-    return false;
+    return requestedEquipment.has("自重") && isBodyweightLikeExercise(exercise);
   }
 
   if (requestedEquipment.has(exercise.equipmentZh)) {
@@ -402,6 +531,38 @@ function matchesRequestedEquipment(exercise: Exercise, requestedEquipment: Set<s
   }
 
   return false;
+}
+
+function matchesTargetMuscles(exercise: Exercise, targetMuscles: Set<string>) {
+  if (targetMuscles.size === 0) {
+    return true;
+  }
+
+  return [...exercise.primaryMusclesZh, ...exercise.secondaryMusclesZh].some((muscle) =>
+    targetMuscles.has(muscle),
+  );
+}
+
+function isBodyweightLikeExercise(exercise: Exercise) {
+  const text = normalizeText(
+    [
+      exercise.id,
+      exercise.nameEn,
+      exercise.nameZh,
+      exercise.equipment,
+      exercise.equipmentZh,
+      ...exercise.goalTags,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+
+  return (
+    exercise.goalTags.includes("home_friendly") ||
+    /(bodyweight|pushup|push-up|pullup|pull-up|chinup|chin-up|dip|plank|crunch|situp|sit-up|俯卧撑|引体向上|臂屈伸|平板支撑|卷腹|仰卧起坐)/.test(
+      text,
+    )
+  );
 }
 
 function matchesPreference(exercise: Exercise, preferences: string[]) {

@@ -63,6 +63,9 @@ type ExerciseContext = {
     goalTags: string[];
     source: "primary" | "supplementary" | "name_match";
   }>;
+  candidateStatus: "enough" | "limited_but_usable" | "insufficient";
+  relevantCandidateCount: number;
+  requiredRelevantCandidateCount: number;
   warnings: string[];
 };
 
@@ -256,8 +259,6 @@ export async function POST(request: Request) {
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      let contentPreview = "";
-      let reasoningPreview = "";
 
       if (!reader) {
         clearTimeout(timeout);
@@ -289,10 +290,6 @@ export async function POST(request: Request) {
 
             if (data === "[DONE]") {
               clearTimeout(timeout);
-              console.info("[chat] deepseek_stream_done", {
-                content: previewLogText(contentPreview),
-                reasoning: previewLogText(reasoningPreview),
-              });
               controller.enqueue(encodeStreamEvent("done"));
               controller.close();
               return;
@@ -304,22 +301,16 @@ export async function POST(request: Request) {
             const content = delta?.content;
 
             if (reasoning) {
-              reasoningPreview += reasoning;
               controller.enqueue(encodeStreamEvent("reasoning", reasoning));
             }
 
             if (content) {
-              contentPreview += content;
               controller.enqueue(encodeStreamEvent("content", content));
             }
           }
         }
 
         clearTimeout(timeout);
-        console.info("[chat] deepseek_stream_done", {
-          content: previewLogText(contentPreview),
-          reasoning: previewLogText(reasoningPreview),
-        });
         controller.enqueue(encodeStreamEvent("done"));
         controller.close();
       } catch (error) {
@@ -460,6 +451,9 @@ async function buildExerciseContext(
   return {
     intent,
     providedExercises,
+    candidateStatus: candidates.candidateStatus,
+    relevantCandidateCount: candidates.relevantCandidateCount,
+    requiredRelevantCandidateCount: candidates.requiredRelevantCandidateCount,
     warnings: candidates.warnings,
   };
 }
@@ -474,10 +468,12 @@ function buildSystemPrompt(chatIntent: ChatIntent, exerciseContext: ExerciseCont
     "",
     "当前服务端已经先解析了用户意图，并从动作库查询出候选动作。你必须遵守以下规则：",
     "1. 如果回答里提到任何具体训练动作，动作名称必须来自 providedExercises.nameZh，禁止编造动作或使用候选列表之外的动作。",
-    "2. 如果 providedExercises 为空，你不能推荐具体动作，只能说明当前动作库没有足够匹配动作，并建议用户放宽器械、目标或限制条件。",
-    "3. 对 workout_plan 或 routine 场景，自然语言正文只做目标确认、安全提醒和生成说明，不要另写一套和卡片可能冲突的动作清单；具体动作以后台生成的计划卡片为准。",
-    "4. 如果输出 workout_plan_trigger，intent 必须与 serverWorkoutIntent 保持一致。",
-    "5. 如果用户有疼痛、伤病、疾病、孕期或高风险健康情况，正文必须提醒咨询医生或专业人士，不能做医疗诊断。",
+    "2. 只有 candidateStatus 为 insufficient 时，你才能说明当前动作库没有足够匹配动作，并建议用户放宽器械、目标或限制条件。",
+    "3. 如果 candidateStatus 为 enough 或 limited_but_usable，禁止说动作库没有匹配动作、无法推荐动作或需要用户放宽条件。",
+    "4. 对 workout_plan 或 routine 场景，自然语言正文只做目标确认、安全提醒和生成说明，不要另写一套和卡片可能冲突的动作清单；具体动作以后台生成的计划卡片为准。",
+    "5. 对 workout_plan 或 routine 场景，只要没有高风险健康情况，必须输出 workout_plan_trigger。",
+    "6. 如果输出 workout_plan_trigger，intent 必须与 serverWorkoutIntent 保持一致。",
+    "7. 如果用户有疼痛、伤病、疾病、孕期或高风险健康情况，正文必须提醒咨询医生或专业人士，不能做医疗诊断。",
     "",
     "serverParsedIntent:",
     JSON.stringify(
@@ -496,8 +492,17 @@ function buildSystemPrompt(chatIntent: ChatIntent, exerciseContext: ExerciseCont
     "providedExercises:",
     JSON.stringify(exerciseContext.providedExercises, null, 2),
     "",
-    "candidateWarnings:",
-    JSON.stringify(exerciseContext.warnings, null, 2),
+    "candidateState:",
+    JSON.stringify(
+      {
+        status: exerciseContext.candidateStatus,
+        relevantCandidateCount: exerciseContext.relevantCandidateCount,
+        requiredRelevantCandidateCount: exerciseContext.requiredRelevantCandidateCount,
+        warnings: exerciseContext.warnings,
+      },
+      null,
+      2,
+    ),
   ].join("\n");
 }
 
