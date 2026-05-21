@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getExerciseById } from "@/lib/exercises/exercise-service";
+import { getExerciseById } from "@/lib/server/exercises/exercise-service";
 
 type RouteContext = {
   params: Promise<{

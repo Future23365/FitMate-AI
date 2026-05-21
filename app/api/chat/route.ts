@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { listAllExercises } from "@/lib/exercises/exercise-service";
+import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import { serverRequest } from "@/lib/server/http/server-request";
 import {
   selectExerciseCandidates,
   workoutPlanIntentSchema,
   type WorkoutPlanIntent,
-} from "@/lib/workout-plans";
+} from "@/lib/server/workout-plans";
 
 type ChatRole = "user" | "assistant";
 

@@ -1,3 +1,5 @@
+import "server-only";
+
 import exercisesData from "@/data/exercises.zh.json";
 
 import type {
@@ -7,7 +9,7 @@ import type {
   ExerciseListQuery,
   ExerciseListResult,
   ExerciseSort,
-} from "./types";
+} from "@/lib/shared/exercises/types";
 
 const exercises = exercisesData as Exercise[];
 const DEFAULT_LIMIT = 24;

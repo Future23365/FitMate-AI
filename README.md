@@ -1,6 +1,8 @@
 # FitMate AI
 
-AI 健身聊天助手原型。项目目标是通过自然语言理解用户的健身目标、身体状态、训练限制、训练偏好和可用时间，并生成、调整和执行个性化训练计划。
+FitMate AI 是一个 AI 健身聊天助手原型。项目目标是通过自然语言交互理解用户的健身目标、身体状态、训练限制、训练偏好和可用时间，并据此生成、调整和执行个性化训练计划。
+
+当前项目采用 Next.js App Router 构建，前端体验、API Route、服务端 AI 编排、领域规则和共享类型已经按目录做了初步分层。现阶段仍以本地原型和静态动作数据为主，后续会逐步接入数据库、鉴权、用户画像、计划持久化和完整的 AI Tool Calling 闭环。
 
 更完整的架构说明见 [docs/architecture.md](./docs/architecture.md)。
 
@@ -9,13 +11,15 @@ AI 健身聊天助手原型。项目目标是通过自然语言理解用户的�
 当前项目主要完成了以下原型能力：
 
 - 首页 AI 聊天界面，支持 DeepSeek 流式响应。
+- 聊天页可识别训练计划生成意图，并在服务端生成经过候选动作与规则校验的训练计划草稿。
 - 动作库页面，基于 `data/exercises.zh.json` 展示、搜索、筛选动作。
 - 动作编排页面，支持从动作库添加动作、调整组数/次数/休息、保存到本地。
 - 训练日历页面，支持本地安排训练、设置休息日、标记完成/未完成。
 - 训练执行页面，支持倒计时、动作切换、暂停、结束训练。
 - 基础响应式 UI、Tailwind CSS 主题和侧边栏导航。
+- 前端页面与服务端业务代码已分离：`features/` 承载前端功能模块，`lib/server/` 承载服务端服务，`lib/shared/` 承载共享类型和 Schema。
 
-注意：当前仍是前端原型 + 静态动作数据 + 简单聊天 API 的阶段，尚未接入数据库、鉴权、服务端训练计划持久化或 AI 工具调用闭环。
+注意：当前仍是前端原型 + 静态动作数据 + 服务端 AI 编排的阶段，尚未接入数据库、鉴权、服务端训练计划持久化或 AI 工具调用闭环。
 
 ## 技术栈
 
@@ -24,6 +28,7 @@ AI 健身聊天助手原型。项目目标是通过自然语言理解用户的�
 - TypeScript
 - Tailwind CSS
 - DeepSeek Chat Completions API
+- Zod
 - 静态 JSON 动作数据
 
 ## 本地运行
@@ -62,13 +67,61 @@ npm run build
 
 ## 目录说明
 
-- `app/`：Next.js 页面和 API Routes。
-- `components/`：页面级和应用级 React 组件。
-- `lib/exercises/`：动作库类型和查询服务。
-- `data/exercises.zh.json`：当前使用的中文动作数据。
-- `scripts/`：动作数据清洗、翻译和修正脚本。
-- `docs/architecture.md`：目标架构文档。
-- `example/`：设计参考 HTML。
+项目按 Next.js App Router 和前后端边界进行组织：
+
+```txt
+app/
+  api/                     # Route Handlers，仅做 HTTP 入参/出参和服务层调用
+    ai/workout-plan/       # AI 训练计划草稿生成接口
+    chat/                  # 聊天流式响应接口
+    exercises/             # 动作库查询接口
+  page.tsx                 # 首页路由入口，渲染聊天功能模块
+  composer/page.tsx        # 动作编排页路由入口
+  exercises/page.tsx       # 动作库页路由入口
+  plans/page.tsx           # 训练计划页路由入口
+  training/page.tsx        # 训练执行页路由入口
+
+components/
+  app/                     # 跨功能复用的应用级 UI，如侧边栏、Logo、图标
+
+features/
+  chat/                    # 前端聊天功能模块
+    api/                   # 浏览器侧 API client
+    components/            # 聊天页面 UI
+    hooks/                 # 聊天状态机和流式读取逻辑
+    lib/                   # 聊天历史、计划触发解析等前端工具
+    types.ts               # 聊天相关类型
+  exercises/               # 前端动作库功能模块
+  workouts/                # 前端训练编排、计划、执行相关页面组件
+  workout-plans/           # 前端训练计划转换与保存相关工具
+
+lib/
+  client/                  # 浏览器专用基础设施
+    http/client-request.ts # 前端统一请求函数
+  server/                  # 服务端专用基础设施和业务服务
+    http/server-request.ts # 服务端外部 HTTP 请求函数
+    exercises/             # 服务端动作库查询服务
+    workout-plans/         # AI 计划生成、候选动作、计划校验服务
+  shared/                  # 前后端共享类型、Schema 和纯数据结构
+    exercises/
+    workout-plans/
+
+data/
+  exercises.zh.json        # 当前使用的中文动作静态数据
+
+scripts/                   # 动作数据清洗、翻译和修正脚本
+tests/                     # 当前项目内的逻辑测试脚本
+docs/                      # 架构与设计文档
+example/                   # 设计参考 HTML
+```
+
+分层约定：
+
+- `app/api/*` 不直接堆业务逻辑，复杂流程下沉到 `lib/server/*`。
+- `features/*` 是前端功能模块，可以引用 `lib/client/*` 和 `lib/shared/*`，不应引用 `lib/server/*`。
+- `lib/server/*` 是服务端专用代码，可以引用 `lib/shared/*`，不应引用 `lib/client/*`。
+- `lib/shared/*` 只放前后端都可安全使用的类型、Schema 和纯函数，不放数据库、环境变量、外部 API 密钥或浏览器状态。
+- `components/app/*` 只放跨功能复用的应用级 UI，页面级组件优先放在对应 `features/*/components` 中。
 
 ## TODO
 
@@ -107,11 +160,11 @@ npm run build
 - [x] 新增 AI 训练计划生成服务，要求模型只基于候选动作返回结构化 JSON。
 - [x] 新增训练计划校验服务，校验动作 ID、训练时长、训练强度、组数、次数/时长和休息时间。
 - [x] 新增 `POST /api/ai/workout-plan`，用于根据聊天上下文生成可保存的训练计划草稿。
-- [ ] 聊天页支持展示 AI 生成的计划草稿，包括标题、目标、周频率、训练日、动作、组数、次数/时长、休息和安全提示。
-- [ ] 聊天页增加“保存计划”入口，将计划草稿转换为当前动作编排使用的保存结构。
-- [ ] 第一阶段先保存到 `fitmate.workoutHistory`，后续迁移到服务端数据库。
+- [x] 聊天页支持展示 AI 生成的计划草稿，包括标题、目标、周频率、训练日、动作、组数、次数/时长、休息和安全提示。
+- [x] 聊天页增加“保存计划”入口，将计划草稿转换为当前动作编排使用的保存结构。
+- [x] 第一阶段先保存到 `fitmate.workoutHistory`，后续迁移到服务端数据库。
 - [x] 增加失败处理：非法 JSON、非法 `exerciseId`、候选动作不足、高风险健康情况、AI 请求失败。
-- [ ] 增加最小测试：schema 校验、非法 `exerciseId` 拒绝、新手过滤高风险动作、计划保存结构转换。
+- [x] 增加最小测试：schema 校验、非法 `exerciseId` 拒绝、新手过滤高风险动作、计划保存结构转换。
 
 ### 数据与后端
 
@@ -130,13 +183,15 @@ npm run build
 - [ ] 给 `/api/chat` 增加请求体 Zod 校验。
 - [ ] 给 `/api/exercises` 增加 query 参数 Zod 校验。
 - [ ] 增加训练计划、训练日历、训练执行、用户画像等 API。
-- [ ] 避免业务逻辑堆在 API Route 中，沉淀到 service 层。
+- [x] 避免业务逻辑堆在 API Route 中，沉淀到 service 层。
+- [x] 拆分前端请求函数和服务端请求函数，避免浏览器请求与服务器外部请求混用。
 - [ ] 统一 API 错误结构和前端错误展示。
 - [ ] 增加服务端日志，记录 AI 输出校验失败和工具调用失败。
 
 ### 前端体验
 
 - [ ] 移除或禁用尚未实现的按钮，避免用户误以为功能可用。
+- [x] 将首页大 Client Component 拆为 `features/chat/components`、`features/chat/hooks`、`features/chat/api` 和 `features/chat/lib`。
 - [ ] 将训练编排、训练日历、训练执行从 `localStorage` 迁移到服务端数据。
 - [ ] 训练执行页增加休息步骤、每组完成确认、跳过原因、恢复训练能力。
 - [ ] 首页右侧训练概览接入真实计划和今日训练进度。

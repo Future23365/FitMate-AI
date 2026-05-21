@@ -1,6 +1,6 @@
-import type { Exercise } from "@/lib/exercises/types";
+import type { Exercise } from "@/lib/shared/exercises/types";
 
-import { workoutPlanDraftSchema, type WorkoutPlanDraft } from "./draft-schema";
+import { workoutPlanDraftSchema, type WorkoutPlanDraft } from "@/lib/shared/workout-plans/draft-schema";
 
 export type SavedWorkoutMode = "reps" | "duration";
 

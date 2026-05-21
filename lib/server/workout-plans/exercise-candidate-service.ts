@@ -1,12 +1,12 @@
-import { listAllExercises } from "@/lib/exercises/exercise-service";
-import type { Exercise } from "@/lib/exercises/types";
+import { listAllExercises } from "@/lib/server/exercises/exercise-service";
+import type { Exercise } from "@/lib/shared/exercises/types";
 
 import {
   workoutPlanDraftSchema,
   workoutPlanIntentSchema,
   type WorkoutPlanDraft,
   type WorkoutPlanIntent,
-} from "./draft-schema";
+} from "@/lib/shared/workout-plans/draft-schema";
 
 export type ExerciseCandidate = {
   exercise: Exercise;

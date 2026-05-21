@@ -4,11 +4,11 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
-import { ExercisePreviewSheet } from "@/components/exercises/exercise-preview-sheet";
+import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
 import exercisesData from "@/data/exercises.zh.json";
-import type { Exercise } from "@/lib/exercises/types";
-import type { WorkoutPlanDraft } from "@/lib/workout-plans/draft-schema";
-import { convertWorkoutPlanDraftToSavedWorkout } from "@/lib/workout-plans/saved-workout";
+import type { Exercise } from "@/lib/shared/exercises/types";
+import type { WorkoutPlanDraft } from "@/lib/shared/workout-plans/draft-schema";
+import { convertWorkoutPlanDraftToSavedWorkout } from "@/features/workout-plans/lib/saved-workout";
 
 interface WorkoutPlanDraftCardProps {
   draft: WorkoutPlanDraft;

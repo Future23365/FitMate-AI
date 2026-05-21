@@ -4,7 +4,7 @@ import { ZodError } from "zod";
 import {
   aiWorkoutPlanRequestSchema,
   generateAiWorkoutPlanDraft,
-} from "@/lib/workout-plans";
+} from "@/lib/server/workout-plans";
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { getExerciseFacets, listExercises } from "@/lib/exercises/exercise-service";
-import type { ExerciseSort } from "@/lib/exercises/types";
+import { getExerciseFacets, listExercises } from "@/lib/server/exercises/exercise-service";
+import type { ExerciseSort } from "@/lib/shared/exercises/types";
 
 const allowedSorts: ExerciseSort[] = [
   "name_asc",

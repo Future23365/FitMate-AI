@@ -1,5 +1,5 @@
 import { AppSidebar } from "@/components/app/app-sidebar";
-import { TrainingPlanPage } from "@/components/workouts/training-plan-page";
+import { TrainingPlanPage } from "@/features/workouts/components/training-plan-page";
 
 export default function PlansPage() {
   return (

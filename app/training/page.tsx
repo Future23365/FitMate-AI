@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 
-import { WorkoutSessionPage } from "@/components/workouts/workout-session-page";
+import { WorkoutSessionPage } from "@/features/workouts/components/workout-session-page";
 
 export default function TrainingPage() {
   return (

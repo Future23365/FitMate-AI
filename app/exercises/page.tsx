@@ -1,5 +1,5 @@
 import { AppSidebar } from "@/components/app/app-sidebar";
-import { ExerciseLibraryPage } from "@/components/exercises/exercise-library-page";
+import { ExerciseLibraryPage } from "@/features/exercises/components/exercise-library-page";
 
 export default function ExercisesPage() {
   return (

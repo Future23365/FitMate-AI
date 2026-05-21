@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
-import { clientRequest } from "@/lib/api/client-request";
-import type { Exercise, ExerciseFacets, ExerciseSort } from "@/lib/exercises/types";
+import { clientRequest } from "@/lib/client/http/client-request";
+import type { Exercise, ExerciseFacets, ExerciseSort } from "@/lib/shared/exercises/types";
 
 type ExerciseFacet = {
   value: string;

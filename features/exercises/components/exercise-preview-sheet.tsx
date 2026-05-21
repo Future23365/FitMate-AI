@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { SymbolIcon } from "@/components/app/symbol-icon";
-import type { Exercise } from "@/lib/exercises/types";
+import type { Exercise } from "@/lib/shared/exercises/types";
 
 interface ExercisePreviewSheetProps {
   isOpen: boolean;

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-import { listAllExercises } from "@/lib/exercises/exercise-service";
-import type { Exercise } from "@/lib/exercises/types";
+import { listAllExercises } from "@/lib/server/exercises/exercise-service";
+import type { Exercise } from "@/lib/shared/exercises/types";
 import { serverRequest } from "@/lib/server/http/server-request";
 
 import {
@@ -9,7 +9,7 @@ import {
   workoutPlanIntentSchema,
   type WorkoutPlanDraft,
   type WorkoutPlanIntent,
-} from "./draft-schema";
+} from "@/lib/shared/workout-plans/draft-schema";
 import {
   getCandidateExerciseIds,
   selectExerciseCandidates,

@@ -1,3 +1,5 @@
+import "server-only";
+
 export {
   aiWorkoutPlanChatMessageSchema,
   aiWorkoutPlanRequestSchema,
@@ -23,7 +25,7 @@ export {
   type WorkoutPlanDraft,
   type WorkoutPlanIntent,
   type WorkoutPlanItemDraft,
-} from "./draft-schema";
+} from "@/lib/shared/workout-plans/draft-schema";
 
 export {
   getCandidateExerciseIds,
@@ -37,14 +39,6 @@ export {
   type ExcludedExercise,
   type WorkoutPlanExerciseIdValidationResult,
 } from "./exercise-candidate-service";
-
-export {
-  convertWorkoutPlanDraftToSavedWorkout,
-  type SavedWorkout,
-  type SavedWorkoutItem,
-  type SavedWorkoutMode,
-  type WorkoutPlanDraftConversionOptions,
-} from "./saved-workout";
 
 export {
   validateWorkoutPlanDraft,

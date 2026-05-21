@@ -1,14 +1,14 @@
 import exercisesData from "@/data/exercises.zh.json";
-import type { Exercise } from "@/lib/exercises/types";
+import type { Exercise } from "@/lib/shared/exercises/types";
 
 import {
   workoutPlanDraftSchema,
   workoutPlanIntentSchema,
   type WorkoutPlanDraft,
   type WorkoutPlanIntent,
-} from "./draft-schema";
-import { selectExerciseCandidates } from "./exercise-candidate-service";
-import { convertWorkoutPlanDraftToSavedWorkout } from "./saved-workout";
+} from "@/lib/shared/workout-plans/draft-schema";
+import { selectExerciseCandidates } from "@/lib/server/workout-plans/exercise-candidate-service";
+import { convertWorkoutPlanDraftToSavedWorkout } from "@/features/workout-plans/lib/saved-workout";
 
 // 静态动作数据
 const exercises = exercisesData as Exercise[];

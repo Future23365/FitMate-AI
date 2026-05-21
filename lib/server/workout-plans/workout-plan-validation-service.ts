@@ -1,5 +1,5 @@
-import { listAllExercises } from "@/lib/exercises/exercise-service";
-import type { Exercise } from "@/lib/exercises/types";
+import { listAllExercises } from "@/lib/server/exercises/exercise-service";
+import type { Exercise } from "@/lib/shared/exercises/types";
 
 import {
   workoutPlanDraftSchema,
@@ -7,7 +7,7 @@ import {
   type WorkoutDayDraft,
   type WorkoutPlanDraft,
   type WorkoutPlanIntent,
-} from "./draft-schema";
+} from "@/lib/shared/workout-plans/draft-schema";
 import { validateWorkoutPlanDraftExerciseIds } from "./exercise-candidate-service";
 
 export type WorkoutPlanValidationIssueCode =

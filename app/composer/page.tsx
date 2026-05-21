@@ -1,5 +1,5 @@
 import { AppSidebar } from "@/components/app/app-sidebar";
-import { ActionComposerPage } from "@/components/workouts/action-composer-page";
+import { ActionComposerPage } from "@/features/workouts/components/action-composer-page";
 
 export default function ComposerPage() {
   return (
