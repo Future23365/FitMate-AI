@@ -23,6 +23,7 @@ body {
   background: #f7f9fb;
   overflow: hidden;
   font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  transition: background-color 0.5s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 a {
@@ -67,4 +68,40 @@ a {
 
 .ai-chat-bubble {
   box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05);
+}
+
+/* 页面主体向后微缩高奢 3D 空间分层动效 */
+body.drawer-open {
+  /* 保持 body 原生底色，确保露出的背景与系统整体常态色调 100% 绝对一致，杜绝任何颜色断层 */
+}
+
+#app-content-wrapper {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+              border-radius 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: center;
+  will-change: transform, border-radius, box-shadow;
+}
+
+@media (min-width: 640px) {
+  body.drawer-open #app-content-wrapper {
+    transform: scale(0.97); /* 温和对称的中心缩放 */
+    border-radius: 24px;
+    /* 彻底废除 brightness 变暗滤镜，杜绝中间卡片变灰变脏，确保与两侧侧边栏维持 100% 高洁透亮的视觉一致性 */
+    box-shadow: 0 20px 40px -15px rgba(15, 23, 42, 0.08), 0 0 1px 0 rgba(15, 23, 42, 0.06); /* 高奢淡雅 the 物理弥散投影 */
+    overflow: hidden; /* 在缩小时完美裁剪子固定元素的四角为大圆角卡片 */
+    pointer-events: none; /* 抽屉打开时，禁用缩回主体的交互 */
+  }
+}
+
+/* 动作详情抽屉同频 0.5s 呼吸缓动 */
+.drawer-backdrop-transition {
+  transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.drawer-panel-transition {
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
 }

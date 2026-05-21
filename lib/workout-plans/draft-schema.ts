@@ -5,6 +5,7 @@ export const workoutModeSchema = z.enum(["reps", "duration"]);
 export const workoutExperienceSchema = z.enum(["beginner", "intermediate", "advanced"]);
 
 export const workoutPlanIntentSchema = z.object({
+  intentType: z.enum(["plan", "routine"]).default("plan"),
   goal: z.string().trim().min(1, "训练目标不能为空").max(80, "训练目标过长"),
   experience: workoutExperienceSchema,
   sessionMinutes: z.number().int().min(10).max(180),

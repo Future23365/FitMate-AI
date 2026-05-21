@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm";
 import { AppSidebar } from "@/components/app/app-sidebar";
 import { LogoMark } from "@/components/app/logo-mark";
 import { SymbolIcon } from "@/components/app/symbol-icon";
+import { WorkoutPlanDraftCard } from "@/components/workouts/workout-plan-draft-card";
 
 type ChatMessage = {
   id: string;
@@ -27,6 +28,8 @@ type ChatConversation = {
   title: string;
   updatedAt: string;
   messages: ChatMessage[];
+  /** 消息气泡内嵌的训练计划草稿，key 为 messageId */
+  plans?: Record<string, any>;
 };
 
 const chatHistoryStorageKey = "fitmate.chatHistory";
@@ -114,6 +117,68 @@ export default function Home() {
   const [thinkingEnabled, setThinkingEnabled] = useState(false);
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
+  // 新增：计划智能自动生成状态机
+  const [autoPlanGenerating, setAutoPlanGenerating] = useState<string | null>(null);
+  const [bubblePlans, setBubblePlans] = useState<Record<string, any>>({});
+  const [bubblePlanErrors, setBubblePlanErrors] = useState<Record<string, string>>({});
+
+  function extractWorkoutPlanTrigger(content: string) {
+    const regex = /```json\s*(\{[\s\S]*?"type"\s*:\s*"workout_plan_trigger"[\s\S]*?\})\s*```/;
+    const match = content.match(regex);
+
+    if (match && match[1]) {
+      try {
+        const parsed = JSON.parse(match[1]);
+        return {
+          intent: parsed.intent,
+          rawBlock: match[0],
+        };
+      } catch (e) {
+        console.error("Failed to parse trigger JSON:", e);
+      }
+    }
+
+    return null;
+  }
+
+  async function generateWorkoutPlanForBubble(
+    messageId: string,
+    intent: any,
+    historyMessages: any[],
+  ) {
+    try {
+      const response = await fetch("/api/ai/workout-plan", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messages: historyMessages,
+          intent,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.message || "FitMate 安全引擎在校验时发现问题，无法生成计划。");
+      }
+
+      setBubblePlans((prev) => ({
+        ...prev,
+        [messageId]: data.draft,
+      }));
+    } catch (err: any) {
+      console.error("[SilentPlanGeneration] Error:", err);
+      setBubblePlanErrors((prev) => ({
+        ...prev,
+        [messageId]: err.message || "生成训练计划失败，请稍后重试。",
+      }));
+    } finally {
+      setAutoPlanGenerating(null);
+    }
+  }
+
   const hasMessages = messages.length > 0;
   const latestMessageState = messages
     .map((message) => `${message.id}:${message.content.length}:${message.reasoningContent?.length ?? 0}`)
@@ -138,9 +203,7 @@ export default function Home() {
   }, [latestMessageState, error, isLoading]);
 
   useEffect(() => {
-    function loadConversationFromHash() {
-      const id = window.location.hash.replace(/^#/, "");
-
+    function loadConversation(id: string) {
       if (!id) {
         return;
       }
@@ -154,24 +217,48 @@ export default function Home() {
 
       setConversationId(matchedConversation.id);
       setMessages(matchedConversation.messages);
+      setBubblePlans(matchedConversation.plans ?? {});
+      setBubblePlanErrors({});
+      setAutoPlanGenerating(null);
       setError("");
       setInput("");
+    }
+
+    function handleHashChange() {
+      const id = window.location.hash.replace(/^#/, "");
+      loadConversation(id);
+    }
+
+    function handleLoadChat(e: Event) {
+      const customEvent = e as CustomEvent<string>;
+      if (customEvent.detail) {
+        loadConversation(customEvent.detail);
+      }
     }
 
     function startNewConversation() {
       window.history.replaceState(null, "", window.location.pathname);
       setConversationId(null);
       setMessages([]);
+      setBubblePlans({});
+      setBubblePlanErrors({});
+      setAutoPlanGenerating(null);
       setError("");
       setInput("");
     }
 
-    loadConversationFromHash();
-    window.addEventListener("hashchange", loadConversationFromHash);
+    const initialId = window.location.hash.replace(/^#/, "");
+    if (initialId) {
+      loadConversation(initialId);
+    }
+
+    window.addEventListener("hashchange", handleHashChange);
+    window.addEventListener("fitmate:load-chat", handleLoadChat);
     window.addEventListener("fitmate:new-chat", startNewConversation);
 
     return () => {
-      window.removeEventListener("hashchange", loadConversationFromHash);
+      window.removeEventListener("hashchange", handleHashChange);
+      window.removeEventListener("fitmate:load-chat", handleLoadChat);
       window.removeEventListener("fitmate:new-chat", startNewConversation);
     };
   }, []);
@@ -181,21 +268,51 @@ export default function Home() {
       return;
     }
 
+    // 只保留属于当前对话消息的计划，避免存入无关数据
+    const messageIds = new Set(messages.map((m) => m.id));
+    const plansToSave: Record<string, any> = {};
+    for (const [mid, draft] of Object.entries(bubblePlans)) {
+      if (messageIds.has(mid)) {
+        plansToSave[mid] = draft;
+      }
+    }
+
+    const conversations = readChatHistory();
+    const existing = conversations.find((conversation) => conversation.id === conversationId);
+
+    if (existing) {
+      const isIdentical =
+        existing.messages.length === messages.length &&
+        existing.messages.every(
+          (msg, idx) =>
+            msg.id === messages[idx]?.id &&
+            msg.content === messages[idx]?.content &&
+            msg.role === messages[idx]?.role &&
+            msg.reasoningContent === messages[idx]?.reasoningContent,
+        ) &&
+        JSON.stringify(existing.plans ?? {}) === JSON.stringify(plansToSave);
+
+      if (isIdentical) {
+        return;
+      }
+    }
+
     const title = createConversationTitle(messages);
     const nextConversation: ChatConversation = {
       id: conversationId,
       title,
       updatedAt: new Date().toISOString(),
       messages,
+      plans: Object.keys(plansToSave).length > 0 ? plansToSave : undefined,
     };
     const nextHistory = [
       nextConversation,
-      ...readChatHistory().filter((conversation) => conversation.id !== conversationId),
+      ...conversations.filter((conversation) => conversation.id !== conversationId),
     ].slice(0, 30);
 
     window.localStorage.setItem(chatHistoryStorageKey, JSON.stringify(nextHistory));
     window.dispatchEvent(new Event("fitmate:chat-history-updated"));
-  }, [conversationId, messages]);
+  }, [conversationId, messages, bubblePlans]);
 
   function createMessage(role: ChatMessage["role"], content: string): ChatMessage {
     return {
@@ -266,6 +383,7 @@ export default function Home() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let fullContent = "";
 
       while (true) {
         const { done, value } = await reader.read();
@@ -301,12 +419,22 @@ export default function Home() {
           }
 
           if (streamEvent.type === "content") {
+            fullContent += streamEvent.delta ?? "";
             updateAssistantMessage(assistantMessage.id, (message) => ({
               ...message,
               content: `${message.content}${streamEvent.delta ?? ""}`,
             }));
           }
         }
+      }
+
+      // 流读取完成后，静默检测计划 Trigger 并自动触发生成
+      const trigger = extractWorkoutPlanTrigger(fullContent);
+      if (trigger && trigger.intent) {
+        const messageId = assistantMessage.id;
+        setAutoPlanGenerating(messageId);
+        // 静默后台异步生成
+        generateWorkoutPlanForBubble(messageId, trigger.intent, requestMessages);
       }
     } catch (requestError) {
       const isAbortError =
@@ -338,7 +466,8 @@ export default function Home() {
     <div className="min-h-screen bg-background text-on-surface">
       <AppSidebar activeLabel="首页" />
 
-      <header className="fixed left-0 right-0 top-0 z-20 flex h-[64px] items-center justify-between bg-surface px-lg lg:left-[260px] xl:right-[300px] xl:px-xl">
+      <div id="app-content-wrapper">
+        <header className="fixed left-0 right-0 top-0 z-20 flex h-[64px] items-center justify-between bg-surface px-lg lg:left-[260px] xl:right-[300px] xl:px-xl">
         <div>
           <h2 className="flex items-center gap-xs font-title-lg text-title-lg">
             你的 <span className="text-primary-container">AI</span> 健身助手
@@ -416,19 +545,60 @@ export default function Home() {
                         </p>
                       </details>
                     ) : null}
-                    {message.role === "assistant" ? (
-                      message.content ? (
-                        <div className="markdown-answer">
-                          <MarkdownContent content={message.content} />
-                        </div>
-                      ) : (
-                        <p className="font-body-md text-body-md">正在思考...</p>
-                      )
-                    ) : (
-                      <p className="whitespace-pre-wrap font-body-md text-body-md">
-                        {message.content}
-                      </p>
-                    )}
+                    {(() => {
+                      const trigger = extractWorkoutPlanTrigger(message.content);
+                      const cleanContent = trigger
+                        ? message.content.replace(trigger.rawBlock, "").trim()
+                        : message.content;
+
+                      if (message.role === "assistant") {
+                        return (
+                          <>
+                            {cleanContent ? (
+                              <div className="markdown-answer">
+                                <MarkdownContent content={cleanContent} />
+                              </div>
+                            ) : (
+                              <p className="font-body-md text-body-md">正在思考...</p>
+                            )}
+
+                            {/* 1. 安全生成 Loading 动效 */}
+                            {autoPlanGenerating === message.id && (
+                              <div className="mt-md flex items-center gap-xs rounded-xl border border-primary-container/20 bg-primary-container/5 p-md font-label-sm text-label-sm text-primary animate-pulse shadow-sm">
+                                <SymbolIcon className="animate-spin text-[16px]">autorenew</SymbolIcon>
+                                <span>✨ FitMate 安全引擎正在校验并生成专属计划...</span>
+                              </div>
+                            )}
+
+                            {/* 2. 安全拦截或生成失败错误 */}
+                            {bubblePlanErrors[message.id] && (
+                              <div className="mt-md flex items-start gap-xs rounded-xl border border-error-container bg-error-container/20 p-md text-on-error-container shadow-sm">
+                                <SymbolIcon className="mt-[2px] shrink-0 text-[18px] text-error">warning</SymbolIcon>
+                                <div>
+                                  <p className="font-label-sm text-label-sm font-bold">FitMate 安全引擎已拦截</p>
+                                  <p className="mt-xs font-body-xs text-body-xs text-on-surface-variant">
+                                    {bubblePlanErrors[message.id]}
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* 3. 完美的计划预览卡片 */}
+                            {bubblePlans[message.id] && (
+                              <div className="mt-md">
+                                <WorkoutPlanDraftCard draft={bubblePlans[message.id]} />
+                              </div>
+                            )}
+                          </>
+                        );
+                      }
+
+                      return (
+                        <p className="whitespace-pre-wrap font-body-md text-body-md">
+                          {message.content}
+                        </p>
+                      );
+                    })()}
                   </div>
                 </div>
               ))}
@@ -499,8 +669,9 @@ export default function Home() {
           </form>
         </div>
       </main>
+    </div>
 
-      <aside className="fixed right-0 top-0 z-30 hidden h-screen w-[300px] flex-col gap-lg border-l border-outline-variant bg-surface-container-lowest p-lg xl:flex">
+    <aside className="fixed right-0 top-0 z-30 hidden h-screen w-[300px] flex-col gap-lg border-l border-outline-variant bg-surface-container-lowest p-lg xl:flex">
         <section className="space-y-md">
           <h3 className="font-title-lg text-title-lg">今日训练概览</h3>
           <div className="flex flex-col items-center gap-md rounded-2xl bg-surface-container-low p-lg">
@@ -606,5 +777,5 @@ export default function Home() {
         </section>
       </aside>
     </div>
-  );
+);
 }

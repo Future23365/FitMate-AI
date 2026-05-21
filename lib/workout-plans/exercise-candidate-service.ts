@@ -12,6 +12,8 @@ export type ExerciseCandidate = {
   exercise: Exercise;
   score: number;
   reasons: string[];
+  /** 候选来源：primary = 用户意图推断，supplementary = 系统补充 */
+  source: "primary" | "supplementary";
 };
 
 export type ExcludedExercise = {
@@ -22,7 +24,10 @@ export type ExcludedExercise = {
 
 export type ExerciseCandidateResult = {
   intent: WorkoutPlanIntent;
-  candidates: ExerciseCandidate[];
+  /** 用户意图直接推断出的候选动作（高优先级，AI 必须优先选用） */
+  primaryCandidates: ExerciseCandidate[];
+  /** 系统补充的候选动作（AI 自主决定是否选用） */
+  supplementaryCandidates: ExerciseCandidate[];
   excluded: ExcludedExercise[];
   warnings: string[];
   isEnoughCandidates: boolean;
@@ -42,7 +47,10 @@ export type WorkoutPlanExerciseIdValidationResult = {
 };
 
 const defaultMinCandidates = 12;
-const defaultMaxCandidates = 80;
+const maxPrimaryCandidates = 40;
+const maxSupplementaryCandidates = 40;
+/** 分数 >= 此阈值的动作归为 primary，否则归为 supplementary */
+const primaryScoreThreshold = 28;
 const bodyweightEquipment = new Set(["自重"]);
 const genericLowEquipment = new Set(["自重", "其他", "泡沫轴"]);
 
@@ -53,7 +61,6 @@ export function selectExerciseCandidates(
 ): ExerciseCandidateResult {
   const intent = workoutPlanIntentSchema.parse(rawIntent);
   const minCandidates = options.minCandidates ?? defaultMinCandidates;
-  const maxCandidates = options.maxCandidates ?? defaultMaxCandidates;
   const requestedEquipment = resolveRequestedEquipment(intent.equipment);
   const riskTagsToExclude = resolveRiskTagsToExclude(intent);
   const goalTags = resolveGoalTags(intent);
@@ -64,7 +71,8 @@ export function selectExerciseCandidates(
     warnings.add("用户存在疼痛或伤病限制，已排除高冲击或相关风险动作。");
   }
 
-  const candidates = exercises
+  // 第一步：排除不合格动作并评分
+  const allScored = exercises
     .flatMap((exercise) => {
       const exclusionReasons = getExerciseExclusionReasons(exercise, intent, {
         requestedEquipment,
@@ -90,23 +98,36 @@ export function selectExerciseCandidates(
         },
       ];
     })
-    .sort(compareCandidates)
-    .slice(0, maxCandidates);
+    .sort(compareCandidates);
 
-  if (requestedEquipment.size > 0 && candidates.length < minCandidates) {
+  // 第二步：基于分数阈值分层
+  const primaryCandidates: ExerciseCandidate[] = allScored
+    .filter((c) => c.score >= primaryScoreThreshold)
+    .slice(0, maxPrimaryCandidates)
+    .map((c) => ({ ...c, source: "primary" as const }));
+
+  const supplementaryCandidates: ExerciseCandidate[] = allScored
+    .filter((c) => c.score < primaryScoreThreshold)
+    .slice(0, maxSupplementaryCandidates)
+    .map((c) => ({ ...c, source: "supplementary" as const }));
+
+  const totalCandidates = primaryCandidates.length + supplementaryCandidates.length;
+
+  if (requestedEquipment.size > 0 && totalCandidates < minCandidates) {
     warnings.add("按当前器械限制筛选后候选动作偏少，可能需要放宽器械条件。");
   }
 
-  if (candidates.length < minCandidates) {
-    warnings.add("候选动作不足，暂不建议直接生成完整训练计划。");
+  if (primaryCandidates.length < minCandidates) {
+    warnings.add("核心候选动作偏少，AI 可能需要更多地使用补充候选动作。");
   }
 
   return {
     intent,
-    candidates,
+    primaryCandidates,
+    supplementaryCandidates,
     excluded,
     warnings: [...warnings],
-    isEnoughCandidates: candidates.length >= minCandidates,
+    isEnoughCandidates: totalCandidates >= minCandidates,
   };
 }
 
@@ -152,8 +173,12 @@ export async function validateWorkoutPlanDraftExerciseIdsFromStore(
   );
 }
 
+/** 返回 primary + supplementary 的全部候选动作 ID 合集 */
 export function getCandidateExerciseIds(result: ExerciseCandidateResult) {
-  return result.candidates.map((candidate) => candidate.exercise.id);
+  return [
+    ...result.primaryCandidates.map((c) => c.exercise.id),
+    ...result.supplementaryCandidates.map((c) => c.exercise.id),
+  ];
 }
 
 function getExerciseExclusionReasons(
@@ -240,7 +265,10 @@ function scoreExercise(
   };
 }
 
-function compareCandidates(left: ExerciseCandidate, right: ExerciseCandidate) {
+function compareCandidates(
+  left: { score: number; exercise: Exercise },
+  right: { score: number; exercise: Exercise },
+) {
   return (
     right.score - left.score ||
     compareLevel(left.exercise, right.exercise) ||

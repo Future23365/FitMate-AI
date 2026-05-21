@@ -292,6 +292,16 @@ export function ActionComposerPage() {
   }, [libraryCategory, libraryEquipment, libraryLevel, libraryMuscle, libraryQuery]);
 
   useEffect(() => {
+    const hashId = window.location.hash.slice(1);
+    if (!hashId) {
+      const history = readSavedWorkouts();
+      if (history.length > 0) {
+        openSavedWorkout(history[0], false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
     function loadFromHash() {
       const hashId = window.location.hash.slice(1);
 
