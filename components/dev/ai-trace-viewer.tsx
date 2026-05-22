@@ -221,6 +221,7 @@ export function AiTraceViewer() {
                 <details
                   className="overflow-hidden rounded-xl border border-slate-200 bg-white"
                   key={group.id}
+                  open
                 >
                   <summary className="flex cursor-pointer items-center justify-between gap-4 px-5 py-4">
                     <div className="min-w-0">
@@ -417,7 +418,7 @@ function TraceStepDetail({
   const tokenUsage = getVisibleStepTokenUsage(steps, index);
 
   return (
-    <details className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+    <details className="overflow-hidden rounded-lg border border-slate-200 bg-white" open>
       <summary className="flex cursor-pointer items-start justify-between gap-4 bg-slate-50 px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -454,21 +455,13 @@ function TraceStepDetail({
         <StepSummaryCards step={step} tokenUsage={tokenUsage} />
         <div className="grid gap-4 lg:grid-cols-2">
           {!isEmptyValue(step.output) ? (
-            <TraceDataPanel
-              title={getOutputTitle(step)}
-              value={step.output}
-              defaultOpen={shouldOpenDataPanel(step, "output")}
-            />
+            <TraceDataPanel title={getOutputTitle(step)} value={step.output} />
           ) : null}
           {!isEmptyValue(step.error) ? (
             <TraceDataPanel title="错误详情" value={step.error} defaultOpen />
           ) : null}
           {!isEmptyValue(step.input) ? (
-            <TraceDataPanel
-              title={getInputTitle(step)}
-              value={step.input}
-              defaultOpen={shouldOpenDataPanel(step, "input")}
-            />
+            <TraceDataPanel title={getInputTitle(step)} value={step.input} />
           ) : null}
           {debugMetadata ? (
             <TraceDataPanel title="调试信息" value={debugMetadata} />
@@ -596,7 +589,7 @@ function addOptionalNumbers(left: number | undefined, right: number | undefined)
 function TraceDataPanel({
   title,
   value,
-  defaultOpen = false,
+  defaultOpen = true,
 }: {
   title: string;
   value: unknown;
@@ -1000,14 +993,6 @@ function getOutputTitle(step: AiTraceStep) {
   }
 
   return "步骤输出";
-}
-
-function shouldOpenDataPanel(step: AiTraceStep, panel: "input" | "output") {
-  if (panel === "input") {
-    return step.type === "user_input" || step.type === "model_request";
-  }
-
-  return step.type === "intent" || step.type === "model_response";
 }
 
 function getDisplayableMetadata(metadata: AiTraceStep["metadata"]) {
