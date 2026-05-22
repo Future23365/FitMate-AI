@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
@@ -47,7 +48,7 @@ type SessionStep = {
 };
 
 const scheduleStorageKey = "fitmate.trainingSchedule";
-const placeholderImage = "https://www.gstatic.com/labs-code/stitch/stitch-placeholder-300x300.svg";
+const placeholderImage = "/images/exercise-placeholder.svg";
 
 const fallbackPlan: ScheduledWorkout = {
   id: "session-fallback",
@@ -282,9 +283,15 @@ export function WorkoutSessionPage() {
           <span className="mb-md inline-flex h-10 items-center rounded-xl bg-primary px-lg text-body-md font-bold text-white shadow-card">
             当前动作 {Math.max(1, currentExerciseIndex + 1)} / {plan.items.length}
           </span>
-          <div className="grid h-[320px] place-items-center overflow-hidden rounded-xl bg-panel-soft 2xl:h-[420px]">
+          <div className="relative grid h-[320px] place-items-center overflow-hidden rounded-xl bg-panel-soft 2xl:h-[420px]">
             {currentItem.imageUrl && currentItem.imageUrl !== placeholderImage ? (
-              <img alt={`${currentItem.nameZh} 动作图`} className="h-full w-full object-contain" src={currentItem.imageUrl} />
+              <Image
+                alt={`${currentItem.nameZh} 动作图`}
+                className="object-contain"
+                fill
+                sizes="(min-width: 1536px) 390px, 340px"
+                src={currentItem.imageUrl}
+              />
             ) : (
               <SquatIllustration />
             )}

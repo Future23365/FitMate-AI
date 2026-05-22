@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useMemo, useState } from "react";
 
 import exercisesData from "@/data/exercises.zh.json";
@@ -14,7 +15,7 @@ type ExerciseRecommendationCardProps = {
 
 const exercises = exercisesData as Exercise[];
 const exerciseMap = new Map(exercises.map((exercise) => [exercise.id, exercise]));
-const placeholderImage = "https://www.gstatic.com/labs-code/stitch/stitch-placeholder-300x300.svg";
+const placeholderImage = "/images/exercise-placeholder.svg";
 
 export function ExerciseRecommendationCard({ card }: ExerciseRecommendationCardProps) {
   const [activePreviewExercise, setActivePreviewExercise] = useState<Exercise | null>(null);
@@ -88,11 +89,12 @@ export function ExerciseRecommendationCard({ card }: ExerciseRecommendationCardP
               onClick={() => handleOpenPreview(item.exerciseId)}
               type="button"
             >
-              <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-line bg-panel-soft">
-                <img
+              <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-line bg-panel-soft">
+                <Image
                   alt={item.nameZh}
-                  className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                  loading="lazy"
+                  className="object-cover transition-transform duration-300 group-hover:scale-105"
+                  fill
+                  sizes="64px"
                   src={item.imageUrl || placeholderImage}
                 />
               </div>

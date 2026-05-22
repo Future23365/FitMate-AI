@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
@@ -57,7 +58,7 @@ const pageSizeOptions = [12, 24, 48, 96];
 function getExerciseImage(exercise?: Exercise) {
   return (
     exercise?.imageUrls[0] ||
-    "https://www.gstatic.com/labs-code/stitch/stitch-placeholder-300x300.svg"
+    "/images/exercise-placeholder.svg"
   );
 }
 
@@ -528,10 +529,12 @@ export function ExerciseLibraryPage() {
                         onClick={() => setSelectedId(exercise.id)}
                         type="button"
                       >
-                        <div className="mb-sm aspect-square overflow-hidden rounded-lg bg-panel-soft">
-                          <img
+                        <div className="relative mb-sm aspect-square overflow-hidden rounded-lg bg-panel-soft">
+                          <Image
                             alt={`${exercise.nameZh} 动作示意图`}
-                            className="h-full w-full object-cover transition duration-500 hover:scale-105"
+                            className="object-cover transition duration-500 hover:scale-105"
+                            fill
+                            sizes="(min-width: 1536px) 220px, (min-width: 768px) 30vw, 45vw"
                             src={getExerciseImage(exercise)}
                           />
                         </div>
@@ -631,7 +634,7 @@ function ExerciseDetailPanel({
 
   const imageUrls = exercise?.imageUrls.length
     ? exercise.imageUrls
-    : ["https://www.gstatic.com/labs-code/stitch/stitch-placeholder-300x300.svg"];
+    : ["/images/exercise-placeholder.svg"];
   const activeImageIndex =
     selectedImage.exerciseId === exercise?.id ? Math.min(selectedImage.index, imageUrls.length - 1) : 0;
   const activeImageUrl = imageUrls[activeImageIndex];
@@ -651,9 +654,11 @@ function ExerciseDetailPanel({
           <>
             <div className="mb-lg flex flex-col gap-md">
               <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-line bg-panel-soft shadow-card">
-                <img
+                <Image
                   alt={`${exercise.nameZh} 第 ${activeImageIndex + 1} 步示意图`}
-                  className="h-full w-full object-contain"
+                  className="object-contain"
+                  fill
+                  sizes="340px"
                   src={activeImageUrl}
                 />
                 <div className="absolute left-sm top-sm rounded-full bg-black/55 px-sm py-xs font-label-sm text-label-sm text-white">
@@ -765,10 +770,12 @@ function ExerciseDetailPanel({
                         onClick={() => onSelectExercise(relatedExercise.id)}
                         type="button"
                       >
-                        <div className="mb-xs aspect-square overflow-hidden rounded-md bg-surface-container">
-                          <img
+                        <div className="relative mb-xs aspect-square overflow-hidden rounded-md bg-surface-container">
+                          <Image
                             alt={`${relatedExercise.nameZh} 预览`}
-                            className="h-full w-full object-cover"
+                            className="object-cover"
+                            fill
+                            sizes="96px"
                             src={getExerciseImage(relatedExercise)}
                           />
                         </div>

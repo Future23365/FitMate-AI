@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
@@ -52,7 +53,7 @@ type TemplateExerciseConfig = {
 };
 
 const historyStorageKey = "fitmate.workoutHistory";
-const placeholderImage = "https://www.gstatic.com/labs-code/stitch/stitch-placeholder-300x300.svg";
+const placeholderImage = "/images/exercise-placeholder.svg";
 const restOptions = [15, 20, 30, 45, 60, 90];
 const allExercises = exercisesData as Exercise[];
 const exerciseById = new Map(allExercises.map((exercise) => [exercise.id, exercise]));
@@ -894,8 +895,14 @@ export function ActionComposerPage() {
                   onClick={() => openLibraryPreview(exercise)}
                   type="button"
                 >
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-surface-container-low">
-                    <img alt="" className="h-full w-full object-cover" src={exercise.imageUrls[0] || placeholderImage} />
+                  <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-surface-container-low">
+                    <Image
+                      alt=""
+                      className="object-cover"
+                      fill
+                      sizes="40px"
+                      src={exercise.imageUrls[0] || placeholderImage}
+                    />
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-label-md text-label-md font-bold">{exercise.nameZh}</p>
@@ -1129,8 +1136,14 @@ function WorkoutExerciseRow({
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-md md:flex-row md:items-center">
         <div className="flex min-w-0 flex-1 items-center gap-md">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-surface-container-low">
-            <img alt="" className="h-full w-full object-cover" src={item.imageUrl} />
+          <div className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-surface-container-low">
+            <Image
+              alt=""
+              className="object-cover"
+              fill
+              sizes="56px"
+              src={item.imageUrl}
+            />
           </div>
           <div className="min-w-0">
             <p className="truncate font-body-lg text-body-lg font-bold">

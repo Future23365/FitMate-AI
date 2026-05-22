@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { SymbolIcon } from "@/components/app/symbol-icon";
@@ -17,7 +18,7 @@ interface ExercisePreviewSheetProps {
   };
 }
 
-const placeholderImage = "https://www.gstatic.com/labs-code/stitch/stitch-placeholder-300x300.svg";
+const placeholderImage = "/images/exercise-placeholder.svg";
 
 export function ExercisePreviewSheet({
   isOpen,
@@ -149,11 +150,12 @@ export function ExercisePreviewSheet({
 
                 {/* 大图展示区域 */}
                 <div className="relative aspect-[4/3] w-full rounded-xl overflow-hidden bg-slate-100 border border-slate-100 shadow-inner group">
-                  <img
-                    src={images[activeImageIndex]}
+                  <Image
                     alt={`${exercise.nameZh} 演示图`}
-                    className="h-full w-full object-contain p-xs"
-                    loading="lazy"
+                    className="object-contain p-xs"
+                    fill
+                    sizes="(min-width: 640px) 428px, calc(100vw - 32px)"
+                    src={images[activeImageIndex]}
                   />
 
                   {/* 左右翻页按钮 */}

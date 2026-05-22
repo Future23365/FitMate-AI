@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
@@ -15,7 +16,7 @@ interface WorkoutPlanDraftCardProps {
 }
 
 const exercises = exercisesData as Exercise[];
-const placeholderImage = "https://www.gstatic.com/labs-code/stitch/stitch-placeholder-300x300.svg";
+const placeholderImage = "/images/exercise-placeholder.svg";
 const exerciseMap = new Map(exercises.map((item) => [item.id, item]));
 const normalizedExerciseMap = new Map(exercises.map((item) => [item.id.toLowerCase(), item]));
 
@@ -352,11 +353,12 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
                     className="flex items-center gap-md rounded-xl border border-outline-variant bg-surface-container-lowest p-md hover:border-primary-container/40 hover:shadow-sm cursor-pointer transition-all duration-200 group"
                   >
                     {/* 动作封面图片 */}
-                    <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-outline-variant bg-surface-container">
-                      <img
+                    <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-outline-variant bg-surface-container">
+                      <Image
                         alt={exerciseName}
-                        className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
-                        loading="lazy"
+                        className="object-cover transition-transform duration-300 hover:scale-105"
+                        fill
+                        sizes="64px"
                         src={image}
                       />
                     </div>

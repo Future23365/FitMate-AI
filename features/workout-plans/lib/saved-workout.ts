@@ -35,7 +35,7 @@ export type WorkoutPlanDraftConversionOptions = {
   dayIndex?: number;
 };
 
-const placeholderImage = "https://www.gstatic.com/labs-code/stitch/stitch-placeholder-300x300.svg";
+const placeholderImage = "/images/exercise-placeholder.svg";
 
 export function convertWorkoutPlanDraftToSavedWorkout(
   draft: WorkoutPlanDraft,
