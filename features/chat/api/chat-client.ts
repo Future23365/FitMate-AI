@@ -36,12 +36,14 @@ export function requestChatStream(
 export async function requestWorkoutPlanDraft(
   messages: ApiChatMessage[],
   intent: unknown,
+  parentTraceId?: string,
 ) {
   const data = await clientRequest<WorkoutPlanDraftResponse>("/api/ai/workout-plan", {
     method: "POST",
     body: {
       messages,
       intent,
+      parentTraceId,
     },
   });
 

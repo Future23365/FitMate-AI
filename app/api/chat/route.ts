@@ -101,8 +101,8 @@ function isChatMessage(value: unknown): value is ChatMessage {
   );
 }
 
-function encodeStreamEvent(type: string, delta = "") {
-  return new TextEncoder().encode(`${JSON.stringify({ type, delta })}\n`);
+function encodeStreamEvent(type: string, delta = "", metadata?: Record<string, unknown>) {
+  return new TextEncoder().encode(`${JSON.stringify({ type, delta, ...metadata })}\n`);
 }
 
 export async function POST(request: Request) {
@@ -366,7 +366,7 @@ export async function POST(request: Request) {
                 },
               });
               trace.finish("success");
-              controller.enqueue(encodeStreamEvent("done"));
+              controller.enqueue(encodeStreamEvent("done", "", { traceId: trace.id }));
               controller.close();
               return;
             }
@@ -405,7 +405,7 @@ export async function POST(request: Request) {
           },
         });
         trace.finish("success");
-        controller.enqueue(encodeStreamEvent("done"));
+        controller.enqueue(encodeStreamEvent("done", "", { traceId: trace.id }));
         controller.close();
       } catch (error) {
         clearTimeout(timeout);

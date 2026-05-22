@@ -15,6 +15,8 @@ export type ApiChatMessage = Pick<ChatMessage, "role" | "content">;
 export type ChatStreamEvent = {
   type: "reasoning" | "content" | "done" | "error";
   delta?: string;
+  /** 服务端 Trace ID，用于把后续自动计划生成追加到同一条开发日志 */
+  traceId?: string;
 };
 
 export type ChatConversation = {

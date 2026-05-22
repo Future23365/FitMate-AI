@@ -72,9 +72,29 @@ export function createAiTrace(input: {
   route: string;
   title: string;
   metadata?: Record<string, unknown>;
+  existingTraceId?: string;
 }) {
   if (!isAiTraceEnabled()) {
     return null;
+  }
+
+  if (input.existingTraceId) {
+    const existingTrace = findTrace(input.existingTraceId);
+
+    if (existingTrace) {
+      updateAiTrace(existingTrace.id, {
+        metadata: {
+          ...(existingTrace.metadata ?? {}),
+          ...input.metadata,
+          continuedRoutes: [
+            ...getContinuedRoutes(existingTrace.metadata),
+            input.route,
+          ],
+        },
+      });
+
+      return existingTrace;
+    }
   }
 
   const trace: AiTrace = {
@@ -169,6 +189,14 @@ function getStore() {
 
 function findTrace(traceId: string) {
   return getStore().traces.find((trace) => trace.id === traceId);
+}
+
+function getContinuedRoutes(metadata: AiTrace["metadata"]) {
+  const continuedRoutes = metadata?.continuedRoutes;
+
+  return Array.isArray(continuedRoutes)
+    ? continuedRoutes.filter((route): route is string => typeof route === "string")
+    : [];
 }
 
 function createId(prefix: string) {

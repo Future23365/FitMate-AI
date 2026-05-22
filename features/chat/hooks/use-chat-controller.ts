@@ -129,9 +129,10 @@ export function useChatController() {
     messageId: string,
     intent: unknown,
     historyMessages: ApiChatMessage[],
+    parentTraceId?: string,
   ) {
     try {
-      const draft = await requestWorkoutPlanDraft(historyMessages, intent);
+      const draft = await requestWorkoutPlanDraft(historyMessages, intent, parentTraceId);
 
       setBubblePlans((prev) => ({
         ...prev,
@@ -214,6 +215,7 @@ export function useChatController() {
       const decoder = new TextDecoder();
       let buffer = "";
       let fullContent = "";
+      let chatTraceId: string | undefined;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -234,6 +236,7 @@ export function useChatController() {
           const streamEvent = JSON.parse(line) as ChatStreamEvent;
 
           if (streamEvent.type === "done") {
+            chatTraceId = streamEvent.traceId;
             continue;
           }
 
@@ -272,7 +275,7 @@ export function useChatController() {
       if (workoutDraftTrigger?.intent) {
         const messageId = assistantMessage.id;
         setAutoPlanGenerating(messageId);
-        generateWorkoutPlanForBubble(messageId, workoutDraftTrigger.intent, requestMessages);
+        generateWorkoutPlanForBubble(messageId, workoutDraftTrigger.intent, requestMessages, chatTraceId);
       } else {
         const recommendationTrigger = extractExerciseRecommendationTrigger(fullContent);
 

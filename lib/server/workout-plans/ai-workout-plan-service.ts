@@ -30,6 +30,7 @@ export const aiWorkoutPlanChatMessageSchema = z.object({
 export const aiWorkoutPlanRequestSchema = z.object({
   messages: z.array(aiWorkoutPlanChatMessageSchema).min(1).max(30),
   intent: workoutPlanIntentSchema.optional(),
+  parentTraceId: z.string().trim().min(1).max(120).optional(),
 });
 
 export type AiWorkoutPlanChatMessage = z.infer<typeof aiWorkoutPlanChatMessageSchema>;
@@ -411,7 +412,7 @@ async function requestDeepSeekJson(
 
   try {
     trace?.addStep({
-      name: `${taskName} 模型请求`,
+      name: `${taskName} 大模型请求`,
       type: "model_request",
       input: {
         model,
@@ -470,7 +471,7 @@ async function requestDeepSeekJson(
       } as const;
 
       trace?.addStep({
-        name: `${taskName} 模型响应失败`,
+        name: `${taskName} 大模型响应失败`,
         type: "error",
         status: "failed",
         output: failure,
@@ -490,7 +491,7 @@ async function requestDeepSeekJson(
       } as const;
 
       trace?.addStep({
-        name: `${taskName} 模型响应为空`,
+        name: `${taskName} 大模型响应为空`,
         type: "error",
         status: "failed",
         output: failure,
@@ -500,7 +501,7 @@ async function requestDeepSeekJson(
     }
 
     trace?.addStep({
-      name: `${taskName} 模型输出`,
+      name: `${taskName} 大模型输出`,
       type: "model_response",
       output: {
         content,
@@ -531,7 +532,7 @@ async function requestDeepSeekJson(
     } as const;
 
     trace?.addStep({
-      name: `${taskName} 模型请求异常`,
+      name: `${taskName} 大模型请求异常`,
       type: "error",
       status: "failed",
       error: failure,

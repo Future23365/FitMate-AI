@@ -25,9 +25,11 @@ export async function POST(request: Request) {
   const trace = startAiTrace({
     route: "/api/ai/workout-plan",
     title: summarizeLatestUserMessage(parsedRequest.data.messages),
+    existingTraceId: parsedRequest.data.parentTraceId,
     metadata: {
       messageCount: parsedRequest.data.messages.length,
       hasClientIntent: Boolean(parsedRequest.data.intent),
+      continuedFromRoute: parsedRequest.data.parentTraceId ? "/api/chat" : undefined,
     },
   });
 

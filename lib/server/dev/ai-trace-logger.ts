@@ -27,6 +27,7 @@ export function startAiTrace(input: {
   route: string;
   title: string;
   metadata?: Record<string, unknown>;
+  existingTraceId?: string;
 }): AiTraceLogger {
   const trace = createAiTrace(input);
 
