@@ -168,7 +168,7 @@ export async function POST(request: Request) {
     }),
   });
   trace.addStep({
-    name: "聊天模型请求",
+    name: "生成用户回复大模型调用参数",
     type: "model_request",
     input: {
       model: "deepseek-v4-flash",
@@ -333,7 +333,7 @@ export async function POST(request: Request) {
             if (data === "[DONE]") {
               clearTimeout(timeout);
               trace.addStep({
-                name: "聊天模型流式输出",
+                name: "生成用户回复大模型回答",
                 type: "model_response",
                 output: {
                   content: contentText,
@@ -365,7 +365,7 @@ export async function POST(request: Request) {
 
         clearTimeout(timeout);
         trace.addStep({
-          name: "聊天模型流式输出",
+          name: "生成用户回复大模型回答",
           type: "model_response",
           output: {
             content: contentText,
@@ -428,7 +428,7 @@ async function resolveChatIntent(
     ];
 
     trace?.addStep({
-      name: "意图解析模型请求",
+      name: "意图判断请求参数",
       type: "model_request",
       input: {
         model: "deepseek-v4-flash",
@@ -470,7 +470,7 @@ async function resolveChatIntent(
 
     const data = parsedIntent.data;
     trace?.addStep({
-      name: "服务端意图解析结果",
+      name: "意图判断结构化结果",
       type: "intent",
       output: data,
     });
@@ -667,7 +667,7 @@ async function requestDeepSeekJson(
     };
     const content = body.choices?.[0]?.message?.content?.trim() ?? "";
     trace?.addStep({
-      name: "意图解析模型输出",
+      name: "第一次大模型回复：意图判断大模型回复",
       type: "model_response",
       output: {
         content,

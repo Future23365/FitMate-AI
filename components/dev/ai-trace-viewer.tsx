@@ -172,10 +172,10 @@ export function AiTraceViewer() {
                     <StatusBadge status={step.status} />
                   </summary>
                   <div className="grid gap-4 border-t border-slate-100 p-5 lg:grid-cols-2">
-                    {step.metadata ? <JsonBlock title="Metadata" value={step.metadata} /> : null}
-                    {step.input !== undefined ? <JsonBlock title="Input" value={step.input} /> : null}
-                    {step.output !== undefined ? <JsonBlock title="Output" value={step.output} /> : null}
-                    {step.error !== undefined ? <JsonBlock title="Error" value={step.error} /> : null}
+                    {step.metadata ? <ReadableBlock title="Metadata" value={step.metadata} /> : null}
+                    {step.input !== undefined ? <ReadableBlock title="请求参数" value={step.input} /> : null}
+                    {step.output !== undefined ? <ReadableBlock title="模型回复 / 输出" value={step.output} /> : null}
+                    {step.error !== undefined ? <ReadableBlock title="错误" value={step.error} /> : null}
                   </div>
                 </details>
               ))}
@@ -194,7 +194,82 @@ export function AiTraceViewer() {
 function TracePanel({ title, value }: { title: string; value: unknown }) {
   return (
     <div className="mb-5 rounded-lg border border-slate-200 bg-white p-5">
-      <JsonBlock title={title} value={value} />
+      <ReadableBlock title={title} value={value} />
+    </div>
+  );
+}
+
+function ReadableBlock({ title, value }: { title: string; value: unknown }) {
+  if (isModelPayload(value)) {
+    return <ModelPayloadBlock title={title} value={value} />;
+  }
+
+  if (isContentPayload(value)) {
+    return <ContentPayloadBlock title={title} value={value} />;
+  }
+
+  if (typeof value === "string") {
+    return <TextBlock title={title} value={value} />;
+  }
+
+  return <JsonBlock title={title} value={value} />;
+}
+
+function ModelPayloadBlock({ title, value }: { title: string; value: ModelPayload }) {
+  const rest = Object.fromEntries(
+    Object.entries(value).filter(([key]) => key !== "messages"),
+  );
+
+  return (
+    <div className="min-w-0 space-y-4 lg:col-span-2">
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</div>
+      {Object.keys(rest).length > 0 ? <JsonBlock title="调用配置" value={rest} /> : null}
+      <div className="space-y-3">
+        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Messages</div>
+        {value.messages.map((message, index) => (
+          <div className="overflow-hidden rounded-md border border-slate-200 bg-white" key={index}>
+            <div className="border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
+              {index + 1}. {message.role}
+            </div>
+            <pre className="max-h-[420px] whitespace-pre-wrap break-words overflow-auto p-3 text-xs leading-relaxed text-slate-800">
+              {message.content}
+            </pre>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ContentPayloadBlock({ title, value }: { title: string; value: ContentPayload }) {
+  return (
+    <div className="min-w-0 space-y-4 lg:col-span-2">
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</div>
+      {typeof value.content === "string" ? (
+        <TextBlock title="Content" value={value.content || "（空）"} />
+      ) : null}
+      {typeof value.reasoning === "string" && value.reasoning ? (
+        <TextBlock title="Reasoning" value={value.reasoning} />
+      ) : null}
+      {Object.entries(value).some(([key]) => key !== "content" && key !== "reasoning") ? (
+        <JsonBlock
+          title="其他字段"
+          value={Object.fromEntries(
+            Object.entries(value).filter(([key]) => key !== "content" && key !== "reasoning"),
+          )}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function TextBlock({ title, value }: { title: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</div>
+      <pre className="max-h-[560px] whitespace-pre-wrap break-words overflow-auto rounded-md border border-slate-200 bg-white p-4 text-xs leading-relaxed text-slate-800">
+        {value}
+      </pre>
     </div>
   );
 }
@@ -208,6 +283,39 @@ function JsonBlock({ title, value }: { title: string; value: unknown }) {
       </pre>
     </div>
   );
+}
+
+type ModelPayload = {
+  messages: Array<{
+    role: string;
+    content: string;
+  }>;
+} & Record<string, unknown>;
+
+type ContentPayload = {
+  content?: unknown;
+  reasoning?: unknown;
+} & Record<string, unknown>;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isModelPayload(value: unknown): value is ModelPayload {
+  if (!isRecord(value) || !Array.isArray(value.messages)) {
+    return false;
+  }
+
+  return value.messages.every(
+    (message) =>
+      isRecord(message) &&
+      typeof message.role === "string" &&
+      typeof message.content === "string",
+  );
+}
+
+function isContentPayload(value: unknown): value is ContentPayload {
+  return isRecord(value) && (typeof value.content === "string" || typeof value.reasoning === "string");
 }
 
 function StatusBadge({ status }: { status: AiTrace["status"] }) {
