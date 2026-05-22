@@ -24,6 +24,7 @@ import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommend
 import type { WorkoutPlanDraft } from "@/lib/shared/workout-plans/draft-schema";
 
 const chatRequestTimeoutMs = 45_000;
+const recommendationRefreshPattern = /(换一批|再换|换几个|换别的|再来一批|下一批|重新推荐|不要这些|别的动作)/;
 
 function createMessage(role: ChatMessage["role"], content: string): ChatMessage {
   return {
@@ -31,6 +32,18 @@ function createMessage(role: ChatMessage["role"], content: string): ChatMessage 
     role,
     content,
   };
+}
+
+function getRecommendationExerciseIds(card?: ExerciseRecommendationCard) {
+  return card?.items.map((item) => item.exerciseId) ?? [];
+}
+
+function uniqueExerciseIds(ids: string[]) {
+  return [...new Set(ids.filter((id) => id.trim().length > 0))];
+}
+
+function isRecommendationRefreshRequest(text: string) {
+  return recommendationRefreshPattern.test(text);
 }
 
 export function useChatController() {
@@ -45,6 +58,9 @@ export function useChatController() {
   const [bubblePlans, setBubblePlans] = useState<Record<string, WorkoutPlanDraft>>({});
   const [bubbleExerciseRecommendations, setBubbleExerciseRecommendations] = useState<
     Record<string, ExerciseRecommendationCard>
+  >({});
+  const [dislikedExerciseIdsByMessage, setDislikedExerciseIdsByMessage] = useState<
+    Record<string, string[]>
   >({});
   const [bubblePlanErrors, setBubblePlanErrors] = useState<Record<string, string>>({});
   const [conversationContext, setConversationContext] = useState<FitnessConversationContext>(() =>
@@ -68,6 +84,7 @@ export function useChatController() {
       setMessages(matchedConversation.messages);
       setBubblePlans(matchedConversation.plans ?? {});
       setBubbleExerciseRecommendations(matchedConversation.exerciseRecommendations ?? {});
+      setDislikedExerciseIdsByMessage({});
       setConversationContext(
         matchedConversation.conversationContext ??
           buildFitnessConversationContext(matchedConversation.messages),
@@ -97,6 +114,7 @@ export function useChatController() {
       setMessages([]);
       setBubblePlans({});
       setBubbleExerciseRecommendations({});
+      setDislikedExerciseIdsByMessage({});
       setConversationContext(buildFitnessConversationContext([]));
       setBubblePlanErrors({});
       setAutoPlanGenerating(null);
@@ -144,6 +162,25 @@ export function useChatController() {
     );
   }
 
+  function collectLatestRecommendationExerciseIds(
+    currentMessages: ChatMessage[] = messages,
+    currentRecommendations: Record<string, ExerciseRecommendationCard> = bubbleExerciseRecommendations,
+  ) {
+    for (const message of [...currentMessages].reverse()) {
+      const ids = getRecommendationExerciseIds(currentRecommendations[message.id]);
+
+      if (ids.length > 0) {
+        return ids;
+      }
+    }
+
+    return [];
+  }
+
+  function collectDislikedExerciseIds() {
+    return uniqueExerciseIds(Object.values(dislikedExerciseIdsByMessage).flat());
+  }
+
   async function generateWorkoutPlanForBubble(
     messageId: string,
     intent: unknown,
@@ -175,14 +212,22 @@ export function useChatController() {
     historyMessages: ApiChatMessage[],
     context: FitnessConversationContext,
     parentTraceId?: string,
+    excludeExerciseIds: string[] = [],
   ) {
     try {
-      const card = await requestExerciseRecommendations(historyMessages, intent, context, parentTraceId);
+      const card = await requestExerciseRecommendations(historyMessages, intent, context, parentTraceId, {
+        excludeExerciseIds,
+      });
 
       setBubbleExerciseRecommendations((prev) => ({
         ...prev,
         [messageId]: card,
       }));
+      setBubblePlanErrors((prev) => {
+        const next = { ...prev };
+        delete next[messageId];
+        return next;
+      });
     } catch (err: unknown) {
       console.error("[SilentExerciseRecommendation] Error:", err);
       setBubblePlanErrors((prev) => ({
@@ -192,6 +237,76 @@ export function useChatController() {
     } finally {
       setAutoRecommendationGenerating(null);
     }
+  }
+
+  async function refreshExerciseRecommendations(messageId: string, intent?: unknown) {
+    const recommendationIntent = intent ?? conversationContext.currentIntent;
+
+    if (!recommendationIntent) {
+      setBubblePlanErrors((prev) => ({
+        ...prev,
+        [messageId]: "缺少上一轮推荐意图，无法直接换一批。",
+      }));
+      return;
+    }
+
+    const excludeExerciseIds = uniqueExerciseIds([
+      ...getRecommendationExerciseIds(bubbleExerciseRecommendations[messageId]),
+      ...(dislikedExerciseIdsByMessage[messageId] ?? []),
+    ]);
+    const historyMessages = selectMessagesForAiContext(
+      messages
+        .filter((message) => message.content.trim().length > 0)
+        .map(({ role, content }) => ({ role, content })),
+      { maxMessages: 16 },
+    );
+
+    setAutoRecommendationGenerating(messageId);
+    await generateExerciseRecommendationsForBubble(
+      messageId,
+      recommendationIntent,
+      historyMessages,
+      conversationContext,
+      undefined,
+      excludeExerciseIds,
+    );
+  }
+
+  function dislikeExerciseRecommendation(messageId: string, exerciseId: string) {
+    setDislikedExerciseIdsByMessage((prev) => ({
+      ...prev,
+      [messageId]: uniqueExerciseIds([...(prev[messageId] ?? []), exerciseId]),
+    }));
+    setBubbleExerciseRecommendations((prev) => {
+      const card = prev[messageId];
+
+      if (!card) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        [messageId]: {
+          ...card,
+          items: card.items.filter((item) => item.exerciseId !== exerciseId),
+        },
+      };
+    });
+  }
+
+  function composeExerciseRecommendations(messageId: string) {
+    const card = bubbleExerciseRecommendations[messageId];
+    const exerciseNames = card?.items.map((item) => item.nameZh).filter(Boolean) ?? [];
+
+    if (exerciseNames.length === 0) {
+      setBubblePlanErrors((prev) => ({
+        ...prev,
+        [messageId]: "当前没有可编排的推荐动作，请先换一批。",
+      }));
+      return;
+    }
+
+    sendMessage(`把这批动作编成一套训练：${exerciseNames.join("、")}`);
   }
 
   async function sendMessage(nextText?: string) {
@@ -334,6 +449,12 @@ export function useChatController() {
             [...requestMessages, { role: "assistant", content: fullContent }],
             { maxMessages: 16 },
           );
+          const excludeExerciseIds = isRecommendationRefreshRequest(text)
+            ? uniqueExerciseIds([
+                ...collectLatestRecommendationExerciseIds(messages, bubbleExerciseRecommendations),
+                ...collectDislikedExerciseIds(),
+              ])
+            : [];
           setConversationContext(contextWithAssistant);
           setAutoRecommendationGenerating(messageId);
           generateExerciseRecommendationsForBubble(
@@ -342,6 +463,7 @@ export function useChatController() {
             recommendationMessages,
             contextWithAssistant,
             chatTraceId,
+            excludeExerciseIds,
           );
         }
       }
@@ -372,10 +494,13 @@ export function useChatController() {
     bubbleExerciseRecommendations,
     bubblePlanErrors,
     bubblePlans,
+    composeExerciseRecommendations,
+    dislikeExerciseRecommendation,
     error,
     input,
     isLoading,
     messages,
+    refreshExerciseRecommendations,
     sendMessage,
     setInput,
     setThinkingEnabled,

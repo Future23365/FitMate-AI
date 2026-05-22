@@ -78,10 +78,13 @@ export function ChatPage() {
     bubbleExerciseRecommendations,
     bubblePlanErrors,
     bubblePlans,
+    composeExerciseRecommendations,
+    dislikeExerciseRecommendation,
     error,
     input,
     isLoading,
     messages,
+    refreshExerciseRecommendations,
     sendMessage,
     setInput,
     setThinkingEnabled,
@@ -294,6 +297,14 @@ export function ChatPage() {
                               <div className="mt-md">
                                 <ExerciseRecommendationCard
                                   card={bubbleExerciseRecommendations[message.id]}
+                                  isRefreshing={autoRecommendationGenerating === message.id}
+                                  onCompose={() => composeExerciseRecommendations(message.id)}
+                                  onDislike={(exerciseId) =>
+                                    dislikeExerciseRecommendation(message.id, exerciseId)
+                                  }
+                                  onRefresh={() =>
+                                    refreshExerciseRecommendations(message.id, recommendationTrigger?.intent)
+                                  }
                                 />
                               </div>
                             )}

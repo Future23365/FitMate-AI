@@ -800,7 +800,12 @@ function createFallbackChatIntent(
   conversationContext: FitnessConversationContext,
 ): ChatIntent {
   const latestUserMessage = getLatestUserMessage(messages);
-  const isRecommendation = /推荐|有哪些|动作/.test(latestUserMessage) && !/组|套|流程|安排|计划/.test(latestUserMessage);
+  const isRecommendationRefresh = /换一批|再换|换几个|换别的|再来一批|下一批|重新推荐|不要这些|别的动作/.test(
+    latestUserMessage,
+  );
+  const isRecommendation =
+    isRecommendationRefresh ||
+    (/推荐|有哪些|动作/.test(latestUserMessage) && !/组|套|流程|安排|计划/.test(latestUserMessage));
   const isRoutine = /今天|这次|现在|来一套|动作组|流程|安排|练|分钟/.test(latestUserMessage);
   const type = isRecommendation
     ? "exercise_recommendation"
@@ -814,7 +819,10 @@ function createFallbackChatIntent(
     needsExerciseContext: /动作|训练|计划|编排|替换|推荐|练|胸|背|腿|肩|核心|减脂|增肌/.test(
       `${latestUserMessage} ${conversationContext.summary}`,
     ),
-    workoutIntent: conversationContext.currentIntent ?? workoutIntent,
+    workoutIntent:
+      isRecommendationRefresh && conversationContext.currentIntent
+        ? conversationContext.currentIntent
+        : conversationContext.currentIntent ?? workoutIntent,
   };
 }
 

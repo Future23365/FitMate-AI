@@ -17,6 +17,10 @@ type ExerciseRecommendationResponse = {
   card?: ExerciseRecommendationCard;
 };
 
+type ExerciseRecommendationRequestOptions = {
+  excludeExerciseIds?: string[];
+};
+
 export function requestChatStream(
   messages: ApiChatMessage[],
   conversationContext: FitnessConversationContext,
@@ -68,6 +72,7 @@ export async function requestExerciseRecommendations(
   intent: unknown,
   conversationContext: FitnessConversationContext,
   parentTraceId?: string,
+  options: ExerciseRecommendationRequestOptions = {},
 ) {
   const data = await clientRequest<ExerciseRecommendationResponse>("/api/ai/exercise-recommendations", {
     method: "POST",
@@ -76,6 +81,7 @@ export async function requestExerciseRecommendations(
       intent,
       conversationContext,
       parentTraceId,
+      excludeExerciseIds: options.excludeExerciseIds,
     },
   });
 

@@ -7,6 +7,7 @@ export const aiPromptConfig = {
       "请只返回一个合法 JSON 对象，不要输出 Markdown，不要解释。",
       "你需要判断用户是否在请求具体动作推荐、训练计划、单次动作编排、动作替换或动作讲解。",
       "如果用户只是想看某类动作推荐，不要求组数、次数、休息、训练顺序或计划，type 必须是 exercise_recommendation。",
+      "如果用户在已有动作推荐后说“换一批”“再来一批”“换几个”“不要这些”等，仍判定为 exercise_recommendation，并沿用 fitnessConversationContext.currentIntent 里的目标、器械、经验和限制。",
       "如果用户要求安排成一套单次训练、动作组合、训练流程、组数次数或休息，type 才是 routine。",
       "如果用户说“今天”“这次”“现在”“30分钟”“在家想练某部位”“只有自重/哑铃”等，通常是单次训练需求，type 必须是 routine，workoutIntent.intentType 必须是 routine。",
       "只有用户明确说每周、长期、周期、一个月、计划表、多天安排等，type 才能是 workout_plan，workoutIntent.intentType 才能是 plan。",
@@ -54,6 +55,7 @@ export const aiPromptConfig = {
 如果用户描述疾病、孕期或其他高风险健康情况，你必须提醒其咨询医生或专业人士，不能做医疗诊断。
 
 如果用户只是请求“推荐一些动作/有哪些动作可以练/某部位轻松练练”，但没有要求你安排组数、次数、休息、训练顺序、单次训练流程或长期计划，你必须只触发动作推荐卡片，不要触发训练计划或动作编排。
+如果用户在已有动作推荐后说“换一批”“再来一批”“换几个”“不要这些”“换别的动作”，你必须沿用上一轮动作推荐意图，并输出 exercise_recommendation_trigger，不要改成普通聊天回复。
 动作推荐 Trigger 必须在自然语言回复结尾，**单独以一个 \`\`\`json 开头和结尾的代码块形式**输出，格式如下：
 \`\`\`json
 {

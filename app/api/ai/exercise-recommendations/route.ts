@@ -20,7 +20,22 @@ const exerciseRecommendationRequestSchema = z.object({
   intent: exerciseRecommendationIntentSchema,
   conversationContext: fitnessConversationContextSchema.optional(),
   parentTraceId: z.string().trim().min(1).max(120).optional(),
+  excludeExerciseIds: z.array(z.string().trim().min(1).max(120)).max(200).default([]),
 });
+
+function selectRecommendationCandidates(
+  candidates: ReturnType<typeof selectExerciseCandidates>,
+  excludeExerciseIds: Set<string>,
+) {
+  const primaryCandidates = candidates.primaryCandidates.filter(
+    (candidate) => !excludeExerciseIds.has(candidate.exercise.id),
+  );
+  const supplementaryCandidates = candidates.supplementaryCandidates.filter(
+    (candidate) => !excludeExerciseIds.has(candidate.exercise.id),
+  );
+
+  return [...primaryCandidates.slice(0, 8), ...supplementaryCandidates.slice(0, 8)].slice(0, 8);
+}
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
@@ -57,10 +72,17 @@ export async function POST(request: Request) {
 
     const exercises = await listAllExercises();
     const candidates = selectExerciseCandidates(parsedRequest.data.intent, exercises);
-    const selectedCandidates = [
-      ...candidates.primaryCandidates.slice(0, 8),
-      ...candidates.supplementaryCandidates.slice(0, 2),
-    ].slice(0, 8);
+    const excludeExerciseIds = new Set(parsedRequest.data.excludeExerciseIds);
+    const selectedCandidates = selectRecommendationCandidates(candidates, excludeExerciseIds);
+    const fallbackCandidates =
+      selectedCandidates.length === 0 && excludeExerciseIds.size > 0
+        ? selectRecommendationCandidates(candidates, new Set())
+        : [];
+    const finalCandidates = selectedCandidates.length > 0 ? selectedCandidates : fallbackCandidates;
+    const safetyNotes =
+      selectedCandidates.length === 0 && fallbackCandidates.length > 0
+        ? [...candidates.warnings, "当前条件下可替换动作不足，已回填部分高匹配动作。"]
+        : candidates.warnings;
 
     trace.addStep({
       name: "动作推荐候选筛选",
@@ -68,20 +90,22 @@ export async function POST(request: Request) {
       input: {
         intent: parsedRequest.data.intent,
         exerciseCount: exercises.length,
+        excludeExerciseIds: parsedRequest.data.excludeExerciseIds,
       },
       output: {
         candidateStatus: candidates.candidateStatus,
         relevantCandidateCount: candidates.relevantCandidateCount,
-        warnings: candidates.warnings,
-        selectedCandidates,
+        warnings: safetyNotes,
+        selectedCandidates: finalCandidates,
       },
       metadata: {
         primaryCandidateCount: candidates.primaryCandidates.length,
         supplementaryCandidateCount: candidates.supplementaryCandidates.length,
+        excludedRecommendationCount: excludeExerciseIds.size,
       },
     });
 
-    if (selectedCandidates.length === 0) {
+    if (finalCandidates.length === 0) {
       trace.finish("failed");
       return NextResponse.json(
         {
@@ -96,7 +120,7 @@ export async function POST(request: Request) {
       title: "动作推荐",
       goal: parsedRequest.data.intent.goal,
       summary: "以下只展示动作候选，不包含组数、次数、休息或训练日安排。是否编排成训练由后续聊天决定。",
-      items: selectedCandidates.map((candidate) => {
+      items: finalCandidates.map((candidate) => {
         const exercise = candidate.exercise;
 
         return {
@@ -112,7 +136,7 @@ export async function POST(request: Request) {
           reasons: candidate.reasons.slice(0, 4),
         };
       }),
-      safetyNotes: candidates.warnings,
+      safetyNotes,
     });
 
     const result = {
