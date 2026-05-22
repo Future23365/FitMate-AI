@@ -349,7 +349,7 @@ async function generateWorkoutPlanDraft(
         "所有动作的 exerciseId 必须来自以上两组候选（包括 primaryExercises 和 supplementaryExercises），绝对禁止编造动作 ID！",
         "不能给出医疗诊断或治疗建议。",
         intent.intentType === "routine"
-          ? "注意：由于用户的意图是生成单次动作编排列表 (routine)，你输出 of days 数组必须只能包含 1 个训练日，title 也应该聚焦于该单次动作编排（例如「胸肌轰炸动作编排」）。整个计划的 weeklyFrequency 必须固定为 1。"
+          ? "注意：由于用户的意图是生成单次动作编排列表 (routine)，你输出的 days 数组必须只能包含 1 个训练日，title 也应该聚焦于该单次动作编排（例如「30 分钟腹部自重动作组」）。weeklyFrequency 必须固定为 1，不能写成长期训练计划。"
           : "注意：由于用户的意图是生成长期训练计划 (plan)，你必须根据 weeklyFrequency 生成包含多天的完整计划（例如每周 3 次就必须在 days 数组中输出 3 个训练日）。",
         "输出的 JSON 对象必须严格符合以下 TypeScript 类型定义：",
         "",

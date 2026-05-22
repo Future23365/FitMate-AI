@@ -93,8 +93,27 @@ const SYSTEM_PROMPT = `你是 FitMate AI，一个中文 AI 健身聊天助手。
 }
 \`\`\`
 
-如果你在对话中判定用户具有明确的“定制/生成/安排/制定训练计划”的意图，且用户已经明确提供训练目标、单次训练时长、可用器械或训练场地，你必须在你的自然语言回复结尾，**单独以一个 \`\`\`json 开头和结尾的代码块形式**，输出一个专属的 Trigger 对象用于智能触发后台计划生成。
-这个代码块必须格式严格如下：
+如果用户表达的是“今天/这次/现在练什么/练多久/来一套/动作组/训练流程”这类单次训练需求，且已经明确提供训练目标、单次训练时长、可用器械或训练场地，你必须输出单次动作编排 Trigger，不能输出长期训练计划 Trigger。
+单次动作编排 Trigger 必须在自然语言回复结尾，**单独以一个 \`\`\`json 开头和结尾的代码块形式**输出，格式如下：
+\`\`\`json
+{
+  "type": "workout_routine_trigger",
+  "intent": {
+    "intentType": "routine",
+    "goal": "腹部训练",
+    "experience": "beginner",
+    "sessionMinutes": 30,
+    "weeklyFrequency": 1,
+    "equipment": ["自重"],
+    "injuryLimitations": [],
+    "preferences": ["居家训练"],
+    "avoidances": []
+  }
+}
+\`\`\`
+
+如果用户明确表达要制定长期、每周、多天、周期性训练计划，且已经明确提供训练目标、单次训练时长、可用器械或训练场地，你必须在你的自然语言回复结尾，**单独以一个 \`\`\`json 开头和结尾的代码块形式**，输出一个专属的 Trigger 对象用于智能触发后台计划生成。
+长期计划 Trigger 必须格式严格如下：
 \`\`\`json
 {
   "type": "workout_plan_trigger",
@@ -127,9 +146,9 @@ const SYSTEM_PROMPT = `你是 FitMate AI，一个中文 AI 健身聊天助手。
 3. experience 只能是 "beginner"、"intermediate" 或 "advanced"，默认 "beginner"。
 4. sessionMinutes 是单次训练时长，单位分钟；weeklyFrequency 是每周训练频次。只有用户明确提供了生成计划所需关键信息时，才允许把默认值用于 Trigger。
 5. equipment、injuryLimitations、preferences、avoidances 都必须是字符串数组；没有相关信息时使用空数组。
-6. 同一条回复不要同时输出 workout_plan_trigger 和 exercise_recommendation_trigger。
-7. 如果用户缺少训练目标、单次训练时长、可用器械或训练场地中的任意关键信息，你必须只用自然语言追问缺失信息，不要输出 workout_plan_trigger；如果正文给了可直接点击发送的示例问题，可以输出 suggested_question_trigger。
-8. 如果用户描述包含任何严重的高风险健康情况（如胸痛、心脏病、心梗、晕厥、孕期、骨折、刚做完手术等），请在正文自然语言回复中极力警告并强烈建议其就医，**不要**输出 workout_plan_trigger 或 exercise_recommendation_trigger。`;
+6. 同一条回复不要同时输出 workout_plan_trigger、workout_routine_trigger 和 exercise_recommendation_trigger。
+7. 如果用户缺少训练目标、单次训练时长、可用器械或训练场地中的任意关键信息，你必须只用自然语言追问缺失信息，不要输出 workout_plan_trigger 或 workout_routine_trigger；如果正文给了可直接点击发送的示例问题，可以输出 suggested_question_trigger。
+8. 如果用户描述包含任何严重的高风险健康情况（如胸痛、心脏病、心梗、晕厥、孕期、骨折、刚做完手术等），请在正文自然语言回复中极力警告并强烈建议其就医，**不要**输出 workout_plan_trigger、workout_routine_trigger 或 exercise_recommendation_trigger。`;
 const DEEPSEEK_REQUEST_TIMEOUT_MS = 45_000;
 const INTENT_REQUEST_TIMEOUT_MS = 12_000;
 const LOG_PREVIEW_LENGTH = 4000;
@@ -487,6 +506,8 @@ async function resolveChatIntent(
           "你需要判断用户是否在请求具体动作推荐、训练计划、单次动作编排、动作替换或动作讲解。",
           "如果用户只是想看某类动作推荐，不要求组数、次数、休息、训练顺序或计划，type 必须是 exercise_recommendation。",
           "如果用户要求安排成一套单次训练、动作组合、训练流程、组数次数或休息，type 才是 routine。",
+          "如果用户说“今天”“这次”“现在”“30分钟”“在家想练某部位”“只有自重/哑铃”等，通常是单次训练需求，type 必须是 routine，workoutIntent.intentType 必须是 routine。",
+          "只有用户明确说每周、长期、周期、一个月、计划表、多天安排等，type 才能是 workout_plan，workoutIntent.intentType 才能是 plan。",
           "如果用户只说“今天练什么”“帮我安排一下”这类宽泛请求，缺少目标、时长、器械/场地时，仍可识别为 routine，但后续必须先追问，不要把默认值当成用户已提供的信息。",
           "如果回答中可能需要出现具体动作名，needsExerciseContext 必须为 true。",
           "如果只是饮食、习惯、一般训练原则或非健身话题，needsExerciseContext 为 false。",
@@ -667,12 +688,13 @@ function buildSystemPrompt(chatIntent: ChatIntent, exerciseContext: ExerciseCont
     "1. 如果回答里提到任何具体训练动作，动作名称必须来自 providedExercises.nameZh，禁止编造动作或使用候选列表之外的动作。",
     "2. 只有 candidateStatus 为 insufficient 时，你才能说明当前动作库没有足够匹配动作，并建议用户放宽器械、目标或限制条件。",
     "3. 如果 candidateStatus 为 enough 或 limited_but_usable，禁止说动作库没有匹配动作、无法推荐动作或需要用户放宽条件。",
-    "4. 对 workout_plan 或 routine 场景，自然语言正文只做目标说明和生成说明，不要另写一套和卡片可能冲突的动作清单；具体动作以后台生成的计划卡片为准。",
-    "5. 对 workout_plan 或 routine 场景，只有用户已明确提供训练目标、单次训练时长、可用器械或训练场地，且没有高风险健康情况时，才输出 workout_plan_trigger；否则只追问缺失信息。",
-    "6. 对 exercise_recommendation 场景，自然语言正文只做简短说明，不要直接列具体动作；必须输出 exercise_recommendation_trigger，具体动作以推荐卡片为准。",
-    "7. 如果输出 Trigger，intent 必须与 serverWorkoutIntent 保持一致。",
-    "8. 如果用户有疾病、孕期或其他高风险健康情况，正文必须提醒咨询医生或专业人士，不能做医疗诊断。",
-    "9. 如果正文给了用户可直接发送的示例问题或下一步建议问题，必须额外输出 suggested_question_trigger，并把按钮文字放入 suggestedQuestions 字段。",
+    "4. 对 workout_plan 或 routine 场景，自然语言正文只做目标说明和生成说明，不要另写一套和卡片可能冲突的动作清单；具体动作以后台生成的卡片为准。",
+    "5. 对 routine 场景，只有用户已明确提供训练目标、单次训练时长、可用器械或训练场地，且没有高风险健康情况时，才输出 workout_routine_trigger；禁止输出 workout_plan_trigger。",
+    "6. 对 workout_plan 场景，只有用户明确要长期、每周、多天或周期计划，并已提供训练目标、单次训练时长、可用器械或训练场地，且没有高风险健康情况时，才输出 workout_plan_trigger；否则只追问缺失信息。",
+    "7. 对 exercise_recommendation 场景，自然语言正文只做简短说明，不要直接列具体动作；必须输出 exercise_recommendation_trigger，具体动作以推荐卡片为准。",
+    "8. 如果输出 Trigger，intent 必须与 serverWorkoutIntent 保持一致。",
+    "9. 如果用户有疾病、孕期或其他高风险健康情况，正文必须提醒咨询医生或专业人士，不能做医疗诊断。",
+    "10. 如果正文给了用户可直接发送的示例问题或下一步建议问题，必须额外输出 suggested_question_trigger，并把按钮文字放入 suggestedQuestions 字段。",
     "",
     "serverParsedIntent:",
     JSON.stringify(
@@ -807,15 +829,20 @@ function parseJsonObject(content: string):
 }
 
 function createFallbackChatIntent(messages: ChatMessage[]): ChatIntent {
-  const type = /推荐|动作|练练|练一下|有哪些/.test(getLatestUserMessage(messages))
+  const latestUserMessage = getLatestUserMessage(messages);
+  const isRecommendation = /推荐|有哪些|动作/.test(latestUserMessage) && !/组|套|流程|安排|计划/.test(latestUserMessage);
+  const isRoutine = /今天|这次|现在|来一套|动作组|流程|安排|练|分钟/.test(latestUserMessage);
+  const type = isRecommendation
     ? "exercise_recommendation"
+    : isRoutine
+      ? "routine"
     : "general_fitness_advice";
   const workoutIntent = createFallbackWorkoutIntent(messages, type);
 
   return {
     type,
     needsExerciseContext: /动作|训练|计划|编排|替换|推荐|练|胸|背|腿|肩|核心|减脂|增肌/.test(
-      getLatestUserMessage(messages),
+      latestUserMessage,
     ),
     workoutIntent,
   };
@@ -826,13 +853,14 @@ function createFallbackWorkoutIntent(
   type: ChatIntent["type"],
 ): WorkoutPlanIntent {
   const latestUserMessage = getLatestUserMessage(messages);
+  const intentType = type === "routine" || type === "exercise_recommendation" ? "routine" : "plan";
 
   return workoutPlanIntentSchema.parse({
-    intentType: type === "routine" || type === "exercise_recommendation" ? "routine" : "plan",
+    intentType,
     goal: latestUserMessage.slice(0, 80) || "综合体能提升",
     experience: "beginner",
     sessionMinutes: 30,
-    weeklyFrequency: 3,
+    weeklyFrequency: intentType === "routine" ? 1 : 3,
     equipment: [],
     injuryLimitations: extractByPattern(latestUserMessage, /(膝盖|腰|肩|手腕|脚踝|疼|痛|伤|不适)/),
     preferences: extractByPattern(latestUserMessage, /(居家|家里|徒手|自重|哑铃|杠铃|弹力带|低强度|高强度)/),

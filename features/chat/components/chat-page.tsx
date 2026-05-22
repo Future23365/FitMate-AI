@@ -12,6 +12,7 @@ import {
   extractExerciseRecommendationTrigger,
   extractSuggestedQuestionTrigger,
   extractWorkoutPlanTrigger,
+  extractWorkoutRoutineTrigger,
 } from "@/features/chat/lib/workout-plan-trigger";
 import { WorkoutPlanDraftCard } from "@/features/workouts/components/workout-plan-draft-card";
 
@@ -207,13 +208,15 @@ export function ChatPage() {
                     ) : null}
                     {(() => {
                       const trigger = extractWorkoutPlanTrigger(message.content);
+                      const routineTrigger = extractWorkoutRoutineTrigger(message.content);
                       const recommendationTrigger = extractExerciseRecommendationTrigger(
-                        trigger ? "" : message.content,
+                        trigger || routineTrigger ? "" : message.content,
                       );
                       const suggestedQuestionTrigger = extractSuggestedQuestionTrigger(message.content);
                       let cleanContent = message.content;
                       for (const rawBlock of [
                         trigger?.rawBlock,
+                        routineTrigger?.rawBlock,
                         recommendationTrigger?.rawBlock,
                         suggestedQuestionTrigger?.rawBlock,
                       ]) {

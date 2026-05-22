@@ -12,6 +12,7 @@ import {
   extractExerciseRecommendationTrigger,
   extractSuggestedQuestionTrigger,
   extractWorkoutPlanTrigger,
+  extractWorkoutRoutineTrigger,
 } from "@/features/chat/lib/workout-plan-trigger";
 import type { ApiChatMessage, ChatMessage, ChatStreamEvent } from "@/features/chat/types";
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
@@ -258,6 +259,7 @@ export function useChatController() {
       }
 
       const trigger = extractWorkoutPlanTrigger(fullContent);
+      const routineTrigger = extractWorkoutRoutineTrigger(fullContent);
       const suggestedQuestionTrigger = extractSuggestedQuestionTrigger(fullContent);
       if (suggestedQuestionTrigger) {
         updateAssistantMessage(assistantMessage.id, (message) => ({
@@ -266,10 +268,11 @@ export function useChatController() {
         }));
       }
 
-      if (trigger?.intent) {
+      const workoutDraftTrigger = trigger ?? routineTrigger;
+      if (workoutDraftTrigger?.intent) {
         const messageId = assistantMessage.id;
         setAutoPlanGenerating(messageId);
-        generateWorkoutPlanForBubble(messageId, trigger.intent, requestMessages);
+        generateWorkoutPlanForBubble(messageId, workoutDraftTrigger.intent, requestMessages);
       } else {
         const recommendationTrigger = extractExerciseRecommendationTrigger(fullContent);
 

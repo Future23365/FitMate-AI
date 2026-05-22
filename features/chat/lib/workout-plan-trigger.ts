@@ -3,6 +3,11 @@ export type WorkoutPlanTrigger = {
   rawBlock: string;
 };
 
+export type WorkoutRoutineTrigger = {
+  intent: unknown;
+  rawBlock: string;
+};
+
 export type ExerciseRecommendationTrigger = {
   intent: unknown;
   rawBlock: string;
@@ -30,6 +35,27 @@ export function extractWorkoutPlanTrigger(content: string): WorkoutPlanTrigger |
     };
   } catch (error) {
     console.error("Failed to parse trigger JSON:", error);
+    return null;
+  }
+}
+
+export function extractWorkoutRoutineTrigger(content: string): WorkoutRoutineTrigger | null {
+  const regex = /```json\s*(\{[\s\S]*?"type"\s*:\s*"workout_routine_trigger"[\s\S]*?\})\s*```/;
+  const match = content.match(regex);
+
+  if (!match?.[1]) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(match[1]) as { intent?: unknown };
+
+    return {
+      intent: parsed.intent,
+      rawBlock: match[0],
+    };
+  } catch (error) {
+    console.error("Failed to parse routine trigger JSON:", error);
     return null;
   }
 }

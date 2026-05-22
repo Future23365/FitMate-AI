@@ -115,6 +115,7 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
   };
 
   const isRoutineOnly = draft.days.length === 1;
+  const draftKindLabel = isRoutineOnly ? "本次动作编排" : "训练计划";
 
 
   const activeDay = useMemo(() => {
@@ -260,6 +261,9 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
         {/* 卡片头部：标题、主要目标和时长 */}
         <div className="flex flex-col gap-xs md:flex-row md:items-start md:justify-between">
           <div>
+            <span className="mb-xs inline-flex items-center rounded-lg bg-primary-soft px-sm py-xs font-label-xs text-label-xs font-bold text-primary">
+              {draftKindLabel}
+            </span>
             <h3 className="flex items-center gap-xs font-title-lg text-title-lg font-bold text-on-surface">
               <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary-soft text-primary">
                 <SymbolIcon className="text-[18px]">sports_gymnastics</SymbolIcon>
@@ -271,13 +275,15 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
             </p>
           </div>
           <div className="mt-sm flex flex-wrap gap-xs md:mt-0">
-            <span className="inline-flex items-center gap-1 rounded-lg bg-panel-soft px-sm py-xs font-label-sm text-label-sm text-ink">
-              <SymbolIcon className="text-[14px]">event_repeat</SymbolIcon>
-              每周 {draft.weeklyFrequency} 次
-            </span>
+            {!isRoutineOnly && (
+              <span className="inline-flex items-center gap-1 rounded-lg bg-panel-soft px-sm py-xs font-label-sm text-label-sm text-ink">
+                <SymbolIcon className="text-[14px]">event_repeat</SymbolIcon>
+                每周 {draft.weeklyFrequency} 次
+              </span>
+            )}
             <span className="inline-flex items-center gap-1 rounded-lg bg-primary-soft px-sm py-xs font-label-sm text-label-sm font-bold text-primary">
               <SymbolIcon className="text-[14px]">schedule</SymbolIcon>
-              单次 {draft.estimatedSessionMinutes} 分钟
+              {isRoutineOnly ? "本次" : "单次"} {draft.estimatedSessionMinutes} 分钟
             </span>
           </div>
         </div>
@@ -322,7 +328,7 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
             <div className="flex items-center justify-between">
               <span className="font-label-sm text-label-sm font-bold text-on-surface-variant flex items-center gap-1">
                 <SymbolIcon className="text-[16px]">ads_click</SymbolIcon>
-                今日焦点：{activeDay.focus}
+                {isRoutineOnly ? "本次重点" : "今日焦点"}：{activeDay.focus}
               </span>
               <span className="font-label-sm text-label-sm text-on-surface-variant flex items-center gap-1">
                 <SymbolIcon className="text-[16px]">timelapse</SymbolIcon>
@@ -464,7 +470,7 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
         <div className="mt-lg flex flex-col gap-md border-t border-outline-variant/40 pt-lg sm:flex-row sm:items-center sm:justify-between">
           <p className="font-label-xs text-label-xs text-on-surface-variant">
             {isRoutineOnly
-              ? "* 导入后将自动添加进您的已保存动作列表"
+              ? "* 保存后将添加到您的动作编排列表，可直接进入训练"
               : `* 导入后将全量保存动作，并排定未来 ${scheduleRange === 7 ? "1" : "4"} 周的日历计划`}
           </p>
           <button
@@ -480,17 +486,17 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
             {saveSuccess ? (
               <>
                 <SymbolIcon className="animate-bounce">check_circle</SymbolIcon>
-                {isRoutineOnly ? "保存成功！正在为您跳转..." : "导入成功！正在为您跳转..."}
+                {isRoutineOnly ? "动作编排已保存！正在为您跳转..." : "导入成功！正在为您跳转..."}
               </>
             ) : isSaving ? (
               <>
                 <SymbolIcon className="animate-spin">autorenew</SymbolIcon>
-                {isRoutineOnly ? "正在为您保存动作..." : "正在为您导入计划..."}
+                {isRoutineOnly ? "正在保存动作编排..." : "正在为您导入计划..."}
               </>
             ) : (
               <>
                 <SymbolIcon>save_alt</SymbolIcon>
-                {isRoutineOnly ? "确认并保存此动作编排" : "确认并导入此计划"}
+                {isRoutineOnly ? "保存本次动作编排" : "确认并导入此计划"}
               </>
             )}
           </button>
