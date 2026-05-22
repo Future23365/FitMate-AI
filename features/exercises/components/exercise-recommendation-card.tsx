@@ -53,34 +53,21 @@ export function ExerciseRecommendationCard({
       <div className="h-1 w-full bg-primary" />
 
       <div className="p-md">
-        <div className="flex flex-col gap-sm lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0">
-            <h3 className="flex min-w-0 items-center gap-xs font-title-md text-title-md font-bold text-on-surface">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
-                <SymbolIcon className="text-[17px]">recommend</SymbolIcon>
-              </span>
-              <span className="truncate">{card.title}</span>
-            </h3>
-            <p className="mt-xs font-body-sm text-body-sm text-muted">
-              {card.summary}
-            </p>
-          </div>
-          <div className="flex shrink-0 flex-col items-start gap-xs lg:items-end">
-            <div className="flex flex-wrap justify-start gap-xs lg:justify-end">
-              <span className="inline-flex items-center gap-1 rounded-lg bg-panel-soft px-sm py-[3px] font-label-xs text-label-xs text-ink">
-                <SymbolIcon className="text-[14px]">fitness_center</SymbolIcon>
-                {card.items.length} 个动作
-              </span>
-              {totalMuscles.map((muscle) => (
-                <span
-                  className="rounded-lg bg-primary-soft px-sm py-[3px] font-label-xs text-label-xs font-bold text-primary"
-                  key={muscle}
-                >
-                  {muscle}
+        <div className="space-y-sm">
+          <div className="flex flex-col gap-sm sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <h3 className="flex min-w-0 items-center gap-xs font-title-md text-title-md font-bold text-on-surface">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
+                  <SymbolIcon className="text-[17px]">recommend</SymbolIcon>
                 </span>
-              ))}
+                <span className="truncate">{card.title}</span>
+              </h3>
+              <p className="mt-xs font-body-sm text-body-sm text-muted">
+                {card.summary}
+              </p>
             </div>
-            <div className="flex flex-wrap gap-xs">
+
+            <div className="flex shrink-0 flex-wrap gap-xs">
               {onRefresh ? (
                 <button
                   className="inline-flex items-center gap-xs rounded-lg border border-primary/20 bg-primary-soft px-sm py-xs font-label-xs text-label-xs font-bold text-primary transition-colors hover:border-primary/40 hover:bg-[#dbe5ff] disabled:cursor-not-allowed disabled:opacity-60"
@@ -107,6 +94,21 @@ export function ExerciseRecommendationCard({
               ) : null}
             </div>
           </div>
+
+          <div className="flex flex-wrap gap-xs">
+            <span className="inline-flex items-center gap-1 rounded-lg bg-panel-soft px-sm py-[3px] font-label-xs text-label-xs text-ink">
+              <SymbolIcon className="text-[14px]">fitness_center</SymbolIcon>
+              {card.items.length} 个动作
+            </span>
+            {totalMuscles.map((muscle) => (
+              <span
+                className="rounded-lg bg-primary-soft px-sm py-[3px] font-label-xs text-label-xs font-bold text-primary"
+                key={muscle}
+              >
+                {muscle}
+              </span>
+            ))}
+          </div>
         </div>
 
         {card.items.length === 0 ? (
@@ -126,62 +128,63 @@ export function ExerciseRecommendationCard({
           </div>
         ) : null}
 
-        <div className="mt-sm grid gap-xs xl:grid-cols-2">
+        <div className="mt-sm grid gap-sm sm:grid-cols-2">
           {card.items.map((item) => (
             <div
-              className="group flex min-w-0 items-center gap-xs rounded-lg border border-line bg-white p-sm text-left transition-all duration-200 hover:border-primary/40 hover:bg-panel-soft/40"
+              className="group relative min-w-0 rounded-lg border border-line bg-white p-sm pr-11 text-left transition-all duration-200 hover:border-primary/40 hover:bg-panel-soft/40"
               key={item.exerciseId}
             >
               <button
-                className="flex min-w-0 flex-1 items-center gap-sm text-left"
+                className="block w-full min-w-0 text-left"
                 onClick={() => handleOpenPreview(item.exerciseId)}
                 type="button"
               >
-                <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-line bg-panel-soft">
-                  <Image
-                    alt={item.nameZh}
-                    className="object-cover transition-transform duration-300 group-hover:scale-105"
-                    fill
-                    sizes="48px"
-                    src={item.imageUrl || placeholderImage}
-                  />
-                </div>
+                <div className="flex min-w-0 items-center gap-sm">
+                  <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-line bg-panel-soft">
+                    <Image
+                      alt={item.nameZh}
+                      className="object-cover transition-transform duration-300 group-hover:scale-105"
+                      fill
+                      sizes="48px"
+                      src={item.imageUrl || placeholderImage}
+                    />
+                  </div>
 
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-start justify-between gap-sm">
-                    <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-center gap-xs">
                       <h4 className="truncate font-label-md text-label-md font-bold text-on-surface">
                         {item.nameZh}
                       </h4>
-                      <div className="mt-[2px] flex flex-wrap items-center gap-xs font-label-xs text-label-xs text-muted">
-                        <span className="rounded-lg bg-panel-soft px-1 py-[2px]">
-                          {item.categoryZh}
-                        </span>
-                        <span>{item.levelZh}</span>
-                        <span>{item.equipmentZh}</span>
-                      </div>
+                      <SymbolIcon className="shrink-0 text-[15px] text-on-surface-variant transition-colors group-hover:text-primary">
+                        info
+                      </SymbolIcon>
                     </div>
-                    <SymbolIcon className="shrink-0 text-[16px] text-on-surface-variant transition-colors group-hover:text-primary">
-                      info
-                    </SymbolIcon>
-                  </div>
 
-                  <div className="mt-xs flex flex-wrap gap-xs">
-                    {item.primaryMusclesZh.slice(0, 3).map((muscle) => (
-                      <span
-                        className="rounded-md bg-primary-soft px-xs py-[1px] font-label-xs text-label-xs font-bold text-primary"
-                        key={muscle}
-                      >
-                        {muscle}
+                    <div className="mt-[2px] flex min-w-0 items-center gap-xs font-label-xs text-label-xs text-muted">
+                      <span className="shrink-0 rounded-md bg-panel-soft px-1 py-[1px]">
+                        {item.levelZh}
                       </span>
-                    ))}
+                      <span className="truncate">{item.categoryZh}</span>
+                      <span className="truncate">{item.equipmentZh}</span>
+                    </div>
                   </div>
+                </div>
+
+                <div className="mt-xs flex flex-wrap gap-xs">
+                  {item.primaryMusclesZh.slice(0, 3).map((muscle) => (
+                    <span
+                      className="rounded-md bg-primary-soft px-xs py-[1px] font-label-xs text-label-xs font-bold text-primary"
+                      key={muscle}
+                    >
+                      {muscle}
+                    </span>
+                  ))}
                 </div>
               </button>
               {onDislike ? (
                 <button
                   aria-label={`不喜欢 ${item.nameZh}`}
-                  className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-line bg-white text-muted transition-colors hover:border-error/30 hover:bg-error-container/20 hover:text-error"
+                  className="absolute right-sm top-sm grid h-8 w-8 place-items-center rounded-lg border border-line bg-white text-muted transition-colors hover:border-error/30 hover:bg-error-container/20 hover:text-error"
                   onClick={() => onDislike(item.exerciseId)}
                   title="不喜欢"
                   type="button"
