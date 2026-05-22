@@ -24,6 +24,7 @@ import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommend
 import type { WorkoutPlanDraft } from "@/lib/shared/workout-plans/draft-schema";
 
 const chatRequestTimeoutMs = 45_000;
+const thinkingEnabledStorageKey = "fitmate.chat.thinkingEnabled";
 const recommendationRefreshPattern = /(换一批|再换|换几个|换别的|再来一批|下一批|重新推荐|不要这些|别的动作)/;
 
 function createMessage(role: ChatMessage["role"], content: string): ChatMessage {
@@ -46,13 +47,25 @@ function isRecommendationRefreshRequest(text: string) {
   return recommendationRefreshPattern.test(text);
 }
 
+function readThinkingEnabledPreference() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  try {
+    return window.localStorage.getItem(thinkingEnabledStorageKey) === "true";
+  } catch {
+    return false;
+  }
+}
+
 export function useChatController() {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
-  const [thinkingEnabled, setThinkingEnabled] = useState(false);
+  const [thinkingEnabled, setThinkingEnabled] = useState(readThinkingEnabledPreference);
   const [autoPlanGenerating, setAutoPlanGenerating] = useState<string | null>(null);
   const [autoRecommendationGenerating, setAutoRecommendationGenerating] = useState<string | null>(null);
   const [bubblePlans, setBubblePlans] = useState<Record<string, WorkoutPlanDraft>>({});
@@ -66,6 +79,14 @@ export function useChatController() {
   const [conversationContext, setConversationContext] = useState<FitnessConversationContext>(() =>
     buildFitnessConversationContext([]),
   );
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(thinkingEnabledStorageKey, String(thinkingEnabled));
+    } catch {
+      // localStorage 不可用时保持当前会话内状态即可
+    }
+  }, [thinkingEnabled]);
 
   useEffect(() => {
     function loadConversation(id: string) {
