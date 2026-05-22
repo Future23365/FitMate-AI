@@ -339,77 +339,63 @@ function TraceTimeline({ groups }: { groups: TraceStepGroup[] }) {
 }
 
 function createGroupLogPayload(trace: AiTrace, group: TraceStepGroup) {
-  return {
-    kind: "ai_trace_step_group",
-    trace: {
-      id: trace.id,
-      route: trace.route,
-      title: trace.title,
-      status: trace.status,
-      createdAt: trace.createdAt,
-      endedAt: trace.endedAt,
-      durationMs: trace.durationMs,
-      metadata: trace.metadata,
-    },
-    group: {
-      id: group.id,
-      title: group.title,
-      description: group.description,
-      status: group.status,
-      startedAt: group.startedAt,
-      endedAt: group.endedAt,
-      durationMs: group.durationMs,
-      tokenUsage: getGroupTokenUsage(group),
-      steps: group.steps.map((step, index) => createStepSnapshot(step, group.steps, index)),
-    },
-  };
+  return createCompactLogPayload({
+    title: `${trace.title} - ${group.title}`,
+    steps: group.steps,
+  });
 }
 
 function createStepLogPayload(trace: AiTrace, group: TraceStepGroup, step: AiTraceStep) {
-  const stepIndex = group.steps.findIndex((item) => item.id === step.id);
-
-  return {
-    kind: "ai_trace_step_event",
-    trace: {
-      id: trace.id,
-      route: trace.route,
-      title: trace.title,
-      status: trace.status,
-      createdAt: trace.createdAt,
-      endedAt: trace.endedAt,
-      durationMs: trace.durationMs,
-      metadata: trace.metadata,
-    },
-    group: {
-      id: group.id,
-      title: group.title,
-      description: group.description,
-      status: group.status,
-    },
-    step: createStepSnapshot(step, group.steps, Math.max(stepIndex, 0)),
-  };
+  return createCompactLogPayload({
+    title: `${trace.title} - ${group.title} - ${getStepTitle(step)}`,
+    steps: [step],
+  });
 }
 
-// 保存给 Codex 排查时需要的完整输入、输出、错误和调试上下文。
-function createStepSnapshot(step: AiTraceStep, steps: AiTraceStep[], index: number) {
-  return {
-    id: step.id,
-    title: getStepTitle(step),
-    name: step.name,
-    type: step.type,
-    status: step.status,
-    startedAt: step.startedAt,
-    endedAt: step.endedAt,
-    durationMs: step.durationMs,
-    summary: getStepSummary(step),
-    inputTitle: getInputTitle(step),
-    input: step.input,
-    outputTitle: getOutputTitle(step),
-    output: step.output,
-    error: step.error,
-    metadata: step.metadata,
-    tokenUsage: getVisibleStepTokenUsage(steps, index),
-  };
+// 只保留排查需要的请求参数、回复结果、意图结果和错误详情。
+function createCompactLogPayload(input: { title: string; steps: AiTraceStep[] }) {
+  const requests = input.steps
+    .filter((step) => !isEmptyValue(step.input))
+    .map((step) => ({
+      request: getStepTitle(step),
+      requestType: getInputTitle(step),
+      params: step.input,
+    }));
+  const responses = input.steps
+    .filter((step) => step.type !== "intent" && !isEmptyValue(step.output))
+    .map((step) => ({
+      responseStep: getStepTitle(step),
+      responseType: getOutputTitle(step),
+      result: step.output,
+    }));
+  const intents = input.steps
+    .filter((step) => step.type === "intent")
+    .map((step) => ({
+      intentStep: getStepTitle(step),
+      intentResult: isEmptyValue(step.output) ? undefined : step.output,
+      errorDetails: isEmptyValue(step.error) ? undefined : step.error,
+    }))
+    .filter((item) => item.intentResult !== undefined || item.errorDetails !== undefined);
+  const errors = input.steps
+    .filter((step) => step.type !== "intent" && !isEmptyValue(step.error))
+    .map((step) => ({
+      errorStep: getStepTitle(step),
+      errorDetails: step.error,
+    }));
+
+  return omitEmptyArrays({
+    title: input.title,
+    requests,
+    responses,
+    intents,
+    errors,
+  });
+}
+
+function omitEmptyArrays<T extends Record<string, unknown>>(value: T) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, item]) => !Array.isArray(item) || item.length > 0),
+  );
 }
 
 function TraceStepDetail({

@@ -87,15 +87,7 @@ export async function POST(request: Request) {
     `// Saved at: ${savedAt}`,
     "",
     "module.exports = ",
-    JSON.stringify(
-      {
-        savedAt,
-        target: body.target ?? null,
-        payload: body.payload,
-      },
-      null,
-      2,
-    ),
+    JSON.stringify(body.payload, null, 2),
     ";\n",
   ].join("\n");
 
