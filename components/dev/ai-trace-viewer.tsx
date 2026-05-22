@@ -279,15 +279,17 @@ function TraceStepDetail({ step, index }: { step: AiTraceStep; index: number }) 
             <TraceDataPanel
               title={getOutputTitle(step)}
               value={step.output}
+              defaultOpen={shouldOpenDataPanel(step, "output")}
             />
           ) : null}
           {!isEmptyValue(step.error) ? (
-            <TraceDataPanel title="错误详情" value={step.error} />
+            <TraceDataPanel title="错误详情" value={step.error} defaultOpen />
           ) : null}
           {!isEmptyValue(step.input) ? (
             <TraceDataPanel
               title={getInputTitle(step)}
               value={step.input}
+              defaultOpen={shouldOpenDataPanel(step, "input")}
             />
           ) : null}
           {debugMetadata ? (
@@ -401,13 +403,16 @@ function addOptionalNumbers(left: number | undefined, right: number | undefined)
 function TraceDataPanel({
   title,
   value,
+  defaultOpen = false,
 }: {
   title: string;
   value: unknown;
+  defaultOpen?: boolean;
 }) {
   return (
     <details
       className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white"
+      open={defaultOpen}
     >
       <summary className="cursor-pointer bg-white px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 hover:bg-slate-50">
         {title}
@@ -803,6 +808,14 @@ function getOutputTitle(step: AiTraceStep) {
   }
 
   return "步骤输出";
+}
+
+function shouldOpenDataPanel(step: AiTraceStep, panel: "input" | "output") {
+  if (panel === "input") {
+    return step.type === "user_input";
+  }
+
+  return step.type === "intent" || step.type === "model_response";
 }
 
 function getDisplayableMetadata(metadata: AiTraceStep["metadata"]) {
