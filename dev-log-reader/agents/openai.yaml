@@ -1,0 +1,6 @@
+interface:
+  display_name: "Dev Log Reader"
+  short_description: "读取 codex_logs/last_log.js 排查 AI 日志"
+  default_prompt: "Use $dev-log-reader to read the saved dev log and diagnose the issue."
+policy:
+  allow_implicit_invocation: true
