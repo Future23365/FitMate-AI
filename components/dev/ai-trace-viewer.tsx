@@ -932,14 +932,26 @@ function getVisibleStepTokenUsage(steps: AiTraceStep[], index: number) {
   }
 
   if (step.type === "model_request") {
-    return findNextModelResponseTokenUsage(steps, index);
+    return pickPromptTokenUsage(findNextModelResponseTokenUsage(steps, index));
   }
 
   if (step.type === "model_response" && hasPreviousModelRequest(steps, index)) {
-    return null;
+    return pickCompletionTokenUsage(getTokenUsage(step));
   }
 
   return getTokenUsage(step);
+}
+
+function pickPromptTokenUsage(usage: TokenUsage | null) {
+  return typeof usage?.prompt_tokens === "number"
+    ? { prompt_tokens: usage.prompt_tokens }
+    : null;
+}
+
+function pickCompletionTokenUsage(usage: TokenUsage | null) {
+  return typeof usage?.completion_tokens === "number"
+    ? { completion_tokens: usage.completion_tokens }
+    : null;
 }
 
 function findNextModelResponseTokenUsage(steps: AiTraceStep[], startIndex: number) {
