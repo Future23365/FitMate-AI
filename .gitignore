@@ -3,6 +3,7 @@ node_modules
 out
 dist
 coverage
+codex_logs
 tsconfig.tsbuildinfo
 .env
 .env*.local

@@ -81,13 +81,15 @@ export async function POST(request: Request) {
 
   const logDir = path.join(process.cwd(), "codex_logs");
   const logPath = path.join(logDir, "last_log.js");
+  const savedAt = new Date().toISOString();
   const content = [
     "// AI Trace saved from /dev/ai-traces for Codex debugging.",
-    `// Saved at: ${new Date().toISOString()}`,
+    `// Saved at: ${savedAt}`,
+    "",
     "module.exports = ",
     JSON.stringify(
       {
-        savedAt: new Date().toISOString(),
+        savedAt,
         target: body.target ?? null,
         payload: body.payload,
       },
@@ -95,7 +97,7 @@ export async function POST(request: Request) {
       2,
     ),
     ";\n",
-  ].join("");
+  ].join("\n");
 
   await mkdir(logDir, { recursive: true });
   await writeFile(logPath, content, "utf8");
