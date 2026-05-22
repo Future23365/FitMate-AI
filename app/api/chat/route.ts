@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import {
-  chatExerciseContextRulesPrompt,
-  chatIntentResolverPrompt,
-  chatSystemPrompt,
+  chatCompletionExerciseContextPrompt,
+  chatCompletionSystemPrompt,
+  chatIntentResolutionPrompt,
 } from "@/app/api/ai-prompt-config";
 import { startAiTrace, summarizeLatestUserMessage, type AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
@@ -426,7 +426,7 @@ async function resolveChatIntent(
     const modelMessages: DeepSeekChatMessage[] = [
       {
         role: "system",
-        content: chatIntentResolverPrompt,
+        content: chatIntentResolutionPrompt,
       },
       ...messages,
     ];
@@ -588,13 +588,13 @@ async function buildExerciseContext(
 
 function buildSystemPrompt(chatIntent: ChatIntent, exerciseContext: ExerciseContext | null) {
   if (!exerciseContext) {
-    return chatSystemPrompt;
+    return chatCompletionSystemPrompt;
   }
 
   return [
-    chatSystemPrompt,
+    chatCompletionSystemPrompt,
     "",
-    chatExerciseContextRulesPrompt,
+    chatCompletionExerciseContextPrompt,
     "",
     "serverParsedIntent:",
     JSON.stringify(
