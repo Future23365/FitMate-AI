@@ -221,7 +221,6 @@ export function AiTraceViewer() {
                 <details
                   className="overflow-hidden rounded-xl border border-slate-200 bg-white"
                   key={group.id}
-                  open
                 >
                   <summary className="flex cursor-pointer items-center justify-between gap-4 px-5 py-4">
                     <div className="min-w-0">
@@ -418,7 +417,7 @@ function TraceStepDetail({
   const tokenUsage = getVisibleStepTokenUsage(steps, index);
 
   return (
-    <details className="overflow-hidden rounded-lg border border-slate-200 bg-white" open>
+    <details className="overflow-hidden rounded-lg border border-slate-200 bg-white">
       <summary className="flex cursor-pointer items-start justify-between gap-4 bg-slate-50 px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
