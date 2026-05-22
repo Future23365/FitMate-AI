@@ -466,6 +466,9 @@ async function resolveChatIntent(
         model: "deepseek-v4-flash",
         messages: modelMessages,
         stream: false,
+        response_format: {
+          type: "json_object",
+        },
       },
     });
 
@@ -679,6 +682,9 @@ async function requestDeepSeekJson(
         model: "deepseek-v4-flash",
         messages,
         stream: false,
+        response_format: {
+          type: "json_object",
+        },
         thinking: {
           type: "disabled",
         },
