@@ -311,16 +311,8 @@ export function ChatPage() {
         <div className="border-t border-line/60 bg-white/35 p-lg backdrop-blur-xl xl:p-xl">
           <form className="mx-auto max-w-4xl" onSubmit={handleSubmit}>
             <div className="relative flex items-center">
-              <div className="absolute left-md flex items-center gap-sm">
-                <SymbolIcon className="cursor-pointer text-on-surface-variant hover:text-primary">
-                  attach_file
-                </SymbolIcon>
-                <SymbolIcon className="cursor-pointer text-on-surface-variant hover:text-primary">
-                  mic
-                </SymbolIcon>
-              </div>
               <input
-                className="w-full rounded-xl border border-line bg-white py-md pl-[88px] pr-[150px] font-body-md shadow-card outline-none transition-all placeholder:text-muted focus:border-primary focus:ring-4 focus:ring-primary/10 sm:pr-[210px]"
+                className="w-full rounded-xl border border-line bg-white py-md pl-md pr-[150px] font-body-md shadow-card outline-none transition-all placeholder:text-muted focus:border-primary focus:ring-4 focus:ring-primary/10 sm:pr-[210px]"
                 disabled={isLoading}
                 onChange={(event) => setInput(event.target.value)}
                 placeholder="向 FitMate AI 提问..."
