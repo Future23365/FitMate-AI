@@ -675,83 +675,68 @@ async function requestDeepSeekJson(
   const timeout = setTimeout(() => controller.abort(), INTENT_REQUEST_TIMEOUT_MS);
 
   try {
-    for (let attempt = 1; attempt <= 2; attempt += 1) {
-      const response = await serverRequest("https://api.deepseek.com/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
+    const response = await serverRequest("https://api.deepseek.com/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+      responseType: "raw",
+      throwOnError: false,
+      signal: controller.signal,
+      body: {
+        model: "deepseek-v4-flash",
+        messages,
+        stream: false,
+        response_format: {
+          type: "json_object",
         },
-        responseType: "raw",
-        throwOnError: false,
-        signal: controller.signal,
-        body: {
-          model: "deepseek-v4-flash",
-          messages,
-          stream: false,
-          response_format: {
-            type: "json_object",
-          },
-          thinking: {
-            type: "disabled",
-          },
+        thinking: {
+          type: "disabled",
         },
-      });
+      },
+    });
 
-      if (!response.ok) {
-        return {
-          ok: false,
-          code: "ai_request_failed",
-          message: "DeepSeek intent request failed.",
-          detail: await response.text(),
-        };
-      }
-
-      const body = (await response.json()) as DeepSeekChatResponse;
-      const content = body.choices?.[0]?.message?.content?.trim() ?? "";
-      trace?.addStep({
-        name:
-          attempt === 1
-            ? "第一次大模型回复：意图判断大模型回复"
-            : "第二次大模型回复：意图判断空内容重试",
-        type: "model_response",
-        output: {
-          content,
-        },
-        metadata: {
-          status: response.status,
-          tokenUsage: body.usage,
-          attempt,
-        },
-      });
-
-      if (!content) {
-        if (attempt === 1) {
-          continue;
-        }
-
-        return {
-          ok: false,
-          code: "empty_content",
-          message: "DeepSeek intent request returned empty content.",
-        };
-      }
-
-      const parsed = parseJsonObject(content);
-
-      if (!parsed.ok) {
-        return parsed;
-      }
-
+    if (!response.ok) {
       return {
-        ok: true,
-        value: parsed.value,
+        ok: false,
+        code: "ai_request_failed",
+        message: "DeepSeek intent request failed.",
+        detail: await response.text(),
       };
     }
 
+    const body = (await response.json()) as DeepSeekChatResponse;
+    const content = body.choices?.[0]?.message?.content?.trim() ?? "";
+    trace?.addStep({
+      name: "第一次大模型回复：意图判断大模型回复",
+      type: "model_response",
+      output: {
+        content,
+      },
+      metadata: {
+        status: response.status,
+        tokenUsage: body.usage,
+        emptyContent: !content,
+      },
+    });
+
+    if (!content) {
+      return {
+        ok: false,
+        code: "empty_content",
+        message: "DeepSeek intent request returned empty content.",
+      };
+    }
+
+    const parsed = parseJsonObject(content);
+
+    if (!parsed.ok) {
+      return parsed;
+    }
+
     return {
-      ok: false,
-      code: "empty_content",
-      message: "DeepSeek intent request returned empty content.",
+      ok: true,
+      value: parsed.value,
     };
   } catch (error) {
     return {
