@@ -190,9 +190,11 @@ export function AppSidebar() {
                     }
                   }}
                 >
-                  <span className="truncate flex-1">{item.title}</span>
+                  <span className="min-w-0 flex-1 truncate font-semibold text-ink transition-colors group-hover/hist:text-primary">
+                    {item.title}
+                  </span>
                   {/* 默认显示时间，hover 时切换为删除按钮 */}
-                  <span className="ml-1 shrink-0 font-mono text-[10px] font-medium text-muted group-hover/hist:hidden">
+                  <span className="ml-2 shrink-0 font-mono text-[9px] font-medium text-gray-400/70 group-hover/hist:hidden">
                     {formatHistoryTime(item.updatedAt)}
                   </span>
                   <button

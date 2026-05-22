@@ -141,8 +141,8 @@ export function ChatPage() {
           {!hasMessages ? (
             <div className="flex h-full flex-col items-center justify-center space-y-xl px-lg text-center">
               <div className="flex flex-col items-center gap-md">
-                <LogoMark className="mb-md h-24 w-24 animate-pulse rounded-[20px]" />
-                <h2 className="font-display-lg text-display-lg font-extrabold tracking-[-0.03em] text-ink">
+                <LogoMark className="mb-lg h-24 w-24 animate-pulse rounded-[20px] shadow-blue-500/20 drop-shadow-[0_18px_28px_rgba(36,89,230,0.18)]" />
+                <h2 className="mt-xs font-display-lg text-display-lg font-extrabold tracking-[-0.03em] text-ink">
                   你好！我是你的 AI 健身助手
                 </h2>
                 <p className="max-w-lg font-body-lg text-body-lg text-muted">
@@ -152,7 +152,7 @@ export function ChatPage() {
               <div className="flex max-w-2xl flex-wrap justify-center gap-sm">
                 {quickPrompts.map((prompt) => (
                   <button
-                    className="whitespace-nowrap rounded-xl border border-line bg-white px-lg py-sm text-label-md font-bold shadow-card transition-all hover:bg-panel-soft disabled:cursor-not-allowed disabled:opacity-60"
+                    className="whitespace-nowrap rounded-xl bg-white px-lg py-sm text-label-md font-bold shadow-[0_8px_22px_rgba(16,24,40,0.08)] transition-all hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_14px_32px_rgba(16,24,40,0.12)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
                     disabled={isLoading}
                     key={prompt}
                     onClick={() => sendMessage(prompt)}
@@ -309,7 +309,7 @@ export function ChatPage() {
         </div>
 
         <div className="border-t border-line/60 bg-white/35 p-lg backdrop-blur-xl xl:p-xl">
-          <form className="mx-auto max-w-4xl" onSubmit={handleSubmit}>
+          <form className="mx-auto max-w-[850px]" onSubmit={handleSubmit}>
             <div className="relative flex items-center">
               <input
                 className="w-full rounded-xl border border-line bg-white py-md pl-md pr-[150px] font-body-md shadow-card outline-none transition-all placeholder:text-muted focus:border-primary focus:ring-4 focus:ring-primary/10 sm:pr-[210px]"
