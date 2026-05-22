@@ -25,7 +25,6 @@ export function ExerciseRecommendationCard({
   card,
   isRefreshing = false,
   onCompose,
-  onDislike,
   onRefresh,
 }: ExerciseRecommendationCardProps) {
   const [activePreviewExercise, setActivePreviewExercise] = useState<Exercise | null>(null);
@@ -103,7 +102,7 @@ export function ExerciseRecommendationCard({
         <div className="mt-sm grid gap-sm sm:grid-cols-2">
           {card.items.map((item) => (
             <div
-              className="group relative min-w-0 rounded-lg border border-line bg-white p-sm pr-11 text-left transition-all duration-200 hover:border-primary/40 hover:bg-panel-soft/40"
+              className="group min-w-0 rounded-lg border border-line bg-white p-sm text-left transition-all duration-200 hover:border-primary/40 hover:bg-panel-soft/40"
               key={item.exerciseId}
             >
               <button
@@ -127,15 +126,15 @@ export function ExerciseRecommendationCard({
                       <h4 className="truncate font-body-md text-body-md font-bold text-on-surface">
                         {item.nameZh}
                       </h4>
+                      <span className="shrink-0 rounded-md bg-primary-soft px-1.5 py-[1px] font-label-xs text-label-xs font-bold text-primary">
+                        {item.primaryMusclesZh[0]}
+                      </span>
                       <SymbolIcon className="shrink-0 text-[15px] text-on-surface-variant transition-colors group-hover:text-primary">
                         info
                       </SymbolIcon>
                     </div>
 
                     <div className="mt-xs flex min-w-0 flex-wrap items-center gap-xs font-label-xs text-label-xs text-muted">
-                      <span className="shrink-0 rounded-md bg-primary-soft px-1.5 py-[1px] font-bold text-primary">
-                        {item.primaryMusclesZh[0]}
-                      </span>
                       <span className="shrink-0 rounded-md bg-panel-soft px-1.5 py-[1px]">
                         {item.levelZh}
                       </span>
@@ -145,17 +144,6 @@ export function ExerciseRecommendationCard({
                   </div>
                 </div>
               </button>
-              {onDislike ? (
-                <button
-                  aria-label={`不喜欢 ${item.nameZh}`}
-                  className="absolute right-sm top-sm grid h-8 w-8 place-items-center rounded-lg border border-line bg-white text-muted transition-colors hover:border-error/30 hover:bg-error-container/20 hover:text-error"
-                  onClick={() => onDislike(item.exerciseId)}
-                  title="不喜欢"
-                  type="button"
-                >
-                  <SymbolIcon className="text-[16px]">thumb_down</SymbolIcon>
-                </button>
-              ) : null}
             </div>
           ))}
         </div>
