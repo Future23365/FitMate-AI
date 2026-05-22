@@ -54,55 +54,26 @@ export function ExerciseRecommendationCard({
 
       <div className="p-md">
         <div className="space-y-sm">
-          <div className="flex flex-col gap-sm sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0">
-              <h3 className="flex min-w-0 items-center gap-xs font-title-md text-title-md font-bold text-on-surface">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
-                  <SymbolIcon className="text-[17px]">recommend</SymbolIcon>
-                </span>
-                <span className="truncate">{card.title}</span>
-              </h3>
-              <p className="mt-xs font-body-sm text-body-sm text-muted">
-                {card.summary}
-              </p>
-            </div>
-
-            <div className="flex shrink-0 flex-wrap gap-xs">
-              {onRefresh ? (
-                <button
-                  className="inline-flex items-center gap-xs rounded-lg border border-primary/20 bg-primary-soft px-sm py-xs font-label-xs text-label-xs font-bold text-primary transition-colors hover:border-primary/40 hover:bg-[#dbe5ff] disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={isRefreshing}
-                  onClick={onRefresh}
-                  type="button"
-                >
-                  <SymbolIcon className={`text-[15px] ${isRefreshing ? "animate-spin" : ""}`}>
-                    autorenew
-                  </SymbolIcon>
-                  换一批
-                </button>
-              ) : null}
-              {onCompose ? (
-                <button
-                  className="inline-flex items-center gap-xs rounded-lg border border-line bg-white px-sm py-xs font-label-xs text-label-xs font-bold text-ink transition-colors hover:border-primary/30 hover:bg-panel-soft disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={isRefreshing || card.items.length === 0}
-                  onClick={onCompose}
-                  type="button"
-                >
-                  <SymbolIcon className="text-[15px]">playlist_add</SymbolIcon>
-                  编成训练
-                </button>
-              ) : null}
-            </div>
+          <div className="min-w-0">
+            <h3 className="flex min-w-0 items-center gap-xs text-[15px] font-bold leading-5 text-on-surface">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
+                <SymbolIcon className="text-[17px]">recommend</SymbolIcon>
+              </span>
+              <span className="truncate">{card.title}</span>
+            </h3>
+            <p className="mt-xs text-[13px] leading-5 text-muted">
+              {card.summary}
+            </p>
           </div>
 
           <div className="flex flex-wrap gap-xs">
-            <span className="inline-flex items-center gap-1 rounded-lg bg-panel-soft px-sm py-[3px] font-label-xs text-label-xs text-ink">
+            <span className="inline-flex items-center gap-1 rounded-lg bg-panel-soft px-sm py-[3px] text-[12px] font-medium leading-4 text-ink">
               <SymbolIcon className="text-[14px]">fitness_center</SymbolIcon>
               {card.items.length} 个动作
             </span>
             {totalMuscles.map((muscle) => (
               <span
-                className="rounded-lg bg-primary-soft px-sm py-[3px] font-label-xs text-label-xs font-bold text-primary"
+                className="rounded-lg bg-primary-soft px-sm py-[3px] text-[12px] font-bold leading-4 text-primary"
                 key={muscle}
               >
                 {muscle}
@@ -152,7 +123,7 @@ export function ExerciseRecommendationCard({
 
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-center gap-xs">
-                      <h4 className="truncate font-label-md text-label-md font-bold text-on-surface">
+                      <h4 className="truncate text-[14px] font-bold leading-5 text-on-surface">
                         {item.nameZh}
                       </h4>
                       <SymbolIcon className="shrink-0 text-[15px] text-on-surface-variant transition-colors group-hover:text-primary">
@@ -160,7 +131,7 @@ export function ExerciseRecommendationCard({
                       </SymbolIcon>
                     </div>
 
-                    <div className="mt-[2px] flex min-w-0 items-center gap-xs font-label-xs text-label-xs text-muted">
+                    <div className="mt-[2px] flex min-w-0 items-center gap-xs text-[12px] leading-4 text-muted">
                       <span className="shrink-0 rounded-md bg-panel-soft px-1 py-[1px]">
                         {item.levelZh}
                       </span>
@@ -173,7 +144,7 @@ export function ExerciseRecommendationCard({
                 <div className="mt-xs flex flex-wrap gap-xs">
                   {item.primaryMusclesZh.slice(0, 3).map((muscle) => (
                     <span
-                      className="rounded-md bg-primary-soft px-xs py-[1px] font-label-xs text-label-xs font-bold text-primary"
+                      className="rounded-md bg-primary-soft px-xs py-[1px] text-[12px] font-bold leading-4 text-primary"
                       key={muscle}
                     >
                       {muscle}
@@ -195,6 +166,35 @@ export function ExerciseRecommendationCard({
             </div>
           ))}
         </div>
+
+        {onRefresh || onCompose ? (
+          <div className="mt-sm flex flex-wrap justify-end gap-xs border-t border-line/70 pt-sm">
+            {onRefresh ? (
+              <button
+                className="inline-flex items-center gap-xs rounded-lg border border-primary/20 bg-primary-soft px-sm py-xs text-[12px] font-bold leading-4 text-primary transition-colors hover:border-primary/40 hover:bg-[#dbe5ff] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isRefreshing}
+                onClick={onRefresh}
+                type="button"
+              >
+                <SymbolIcon className={`text-[15px] ${isRefreshing ? "animate-spin" : ""}`}>
+                  autorenew
+                </SymbolIcon>
+                换一批
+              </button>
+            ) : null}
+            {onCompose ? (
+              <button
+                className="inline-flex items-center gap-xs rounded-lg border border-line bg-white px-sm py-xs text-[12px] font-bold leading-4 text-ink transition-colors hover:border-primary/30 hover:bg-panel-soft disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isRefreshing || card.items.length === 0}
+                onClick={onCompose}
+                type="button"
+              >
+                <SymbolIcon className="text-[15px]">playlist_add</SymbolIcon>
+                编成训练
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <ExercisePreviewSheet
