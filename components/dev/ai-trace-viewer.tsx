@@ -812,7 +812,7 @@ function getOutputTitle(step: AiTraceStep) {
 
 function shouldOpenDataPanel(step: AiTraceStep, panel: "input" | "output") {
   if (panel === "input") {
-    return step.type === "user_input";
+    return step.type === "user_input" || step.type === "model_request";
   }
 
   return step.type === "intent" || step.type === "model_response";
