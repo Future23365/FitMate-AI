@@ -102,7 +102,7 @@ export function ExerciseRecommendationCard({
         <div className="mt-sm grid gap-sm sm:grid-cols-2">
           {card.items.map((item) => (
             <div
-              className="group min-w-0 rounded-lg border border-line bg-white p-sm text-left transition-all duration-200 hover:border-primary/40 hover:bg-panel-soft/40"
+              className="group min-w-0 rounded-xl border border-line bg-white p-md text-left transition-all duration-200 hover:border-primary/40 hover:bg-panel-soft/40 hover:shadow-sm"
               key={item.exerciseId}
             >
               <button
@@ -110,13 +110,13 @@ export function ExerciseRecommendationCard({
                 onClick={() => handleOpenPreview(item.exerciseId)}
                 type="button"
               >
-                <div className="flex min-w-0 items-center gap-sm">
-                  <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-line bg-panel-soft">
+                <div className="flex min-w-0 items-center gap-md">
+                  <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-line bg-panel-soft">
                     <Image
                       alt={item.nameZh}
                       className="object-cover transition-transform duration-300 group-hover:scale-105"
                       fill
-                      sizes="48px"
+                      sizes="64px"
                       src={item.imageUrl || placeholderImage}
                     />
                   </div>
