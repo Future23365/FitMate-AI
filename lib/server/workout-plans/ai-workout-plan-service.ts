@@ -1,12 +1,6 @@
 import { z } from "zod";
 
-import {
-  workoutPlanDraftGenerationBasePrompts,
-  workoutPlanDraftGenerationSchemaPrompts,
-  workoutPlanIntentExtractionPrompt,
-  workoutPlanLongTermDraftGenerationPrompt,
-  workoutPlanRoutineDraftGenerationPrompt,
-} from "@/app/api/ai-prompt-config";
+import { aiPromptConfig } from "@/app/api/ai-prompt-config";
 import type { AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import type { Exercise } from "@/lib/shared/exercises/types";
@@ -261,7 +255,7 @@ async function extractWorkoutPlanIntent(
   const modelMessages: DeepSeekChatMessage[] = [
     {
       role: "system",
-      content: workoutPlanIntentExtractionPrompt,
+      content: aiPromptConfig.workoutPlanIntentExtraction.system,
     },
     ...messages,
   ];
@@ -340,11 +334,11 @@ async function generateWorkoutPlanDraft(
     {
       role: "system",
       content: [
-        ...workoutPlanDraftGenerationBasePrompts,
+        ...aiPromptConfig.workoutPlanDraftGeneration.base,
         intent.intentType === "routine"
-          ? workoutPlanRoutineDraftGenerationPrompt
-          : workoutPlanLongTermDraftGenerationPrompt,
-        ...workoutPlanDraftGenerationSchemaPrompts,
+          ? aiPromptConfig.workoutPlanDraftGeneration.routine
+          : aiPromptConfig.workoutPlanDraftGeneration.plan,
+        ...aiPromptConfig.workoutPlanDraftGeneration.schema,
       ].join("\n"),
     },
     {

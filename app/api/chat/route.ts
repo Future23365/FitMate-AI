@@ -1,11 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import {
-  chatCompletionExerciseContextPrompt,
-  chatCompletionSystemPrompt,
-  chatIntentResolutionPrompt,
-} from "@/app/api/ai-prompt-config";
+import { aiPromptConfig } from "@/app/api/ai-prompt-config";
 import { startAiTrace, summarizeLatestUserMessage, type AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import { serverRequest } from "@/lib/server/http/server-request";
@@ -426,7 +422,7 @@ async function resolveChatIntent(
     const modelMessages: DeepSeekChatMessage[] = [
       {
         role: "system",
-        content: chatIntentResolutionPrompt,
+        content: aiPromptConfig.chatIntentResolution.system,
       },
       ...messages,
     ];
@@ -588,13 +584,13 @@ async function buildExerciseContext(
 
 function buildSystemPrompt(chatIntent: ChatIntent, exerciseContext: ExerciseContext | null) {
   if (!exerciseContext) {
-    return chatCompletionSystemPrompt;
+    return aiPromptConfig.chatCompletion.system;
   }
 
   return [
-    chatCompletionSystemPrompt,
+    aiPromptConfig.chatCompletion.system,
     "",
-    chatCompletionExerciseContextPrompt,
+    aiPromptConfig.chatCompletion.exerciseContext,
     "",
     "serverParsedIntent:",
     JSON.stringify(
