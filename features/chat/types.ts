@@ -6,6 +6,8 @@ export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   reasoningContent?: string;
+  /** 模型显式给出的下一步问题建议，点击后自动作为用户消息发送 */
+  suggestedQuestions?: string[];
 };
 
 export type ApiChatMessage = Pick<ChatMessage, "role" | "content">;

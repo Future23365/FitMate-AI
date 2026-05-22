@@ -112,15 +112,24 @@ const SYSTEM_PROMPT = `你是 FitMate AI，一个中文 AI 健身聊天助手。
 }
 \`\`\`
 
+如果你的自然语言回复中给了用户一个可以直接照着发送的示例问题、示例描述或下一步建议问题，你必须把这些可点击问题单独输出到 suggestedQuestions 字段中，不要让前端从正文中自行判断。
+建议问题 Trigger 必须在自然语言回复结尾，**单独以一个 \`\`\`json 开头和结尾的代码块形式**输出，格式如下：
+\`\`\`json
+{
+  "type": "suggested_question_trigger",
+  "suggestedQuestions": ["今天在家想练20分钟腹部"]
+}
+\`\`\`
+
 注意：
 1. Trigger JSON 块必须紧跟在您自然的文字回复之后，**单独成行输出**，必须确保其 JSON 格式合法。
 2. intentType 只能是 "plan" 或 "routine"。如果用户要求单次动作编排/动作组/动作列表/训练流程，判定为 "routine"；如果用户是想制定整体、长期、周/月训练计划，判定为 "plan"；如果用户只是要动作推荐，仍使用 intentType="routine"，但 Trigger type 必须是 "exercise_recommendation_trigger"。
 3. experience 只能是 "beginner"、"intermediate" 或 "advanced"，默认 "beginner"。
 4. sessionMinutes 是单次训练时长，单位分钟；weeklyFrequency 是每周训练频次。只有用户明确提供了生成计划所需关键信息时，才允许把默认值用于 Trigger。
 5. equipment、injuryLimitations、preferences、avoidances 都必须是字符串数组；没有相关信息时使用空数组。
-6. 同一条回复只能输出一个 Trigger；不要同时输出 workout_plan_trigger 和 exercise_recommendation_trigger。
-7. 如果用户缺少训练目标、单次训练时长、可用器械或训练场地中的任意关键信息，你必须只用自然语言追问缺失信息，不要输出 workout_plan_trigger，不要输出任何 JSON 代码块。
-8. 如果用户描述包含任何严重的高风险健康情况（如胸痛、心脏病、心梗、晕厥、孕期、骨折、刚做完手术等），请在正文自然语言回复中极力警告并强烈建议其就医，**不要**输出此 Trigger JSON 代码块。`;
+6. 同一条回复不要同时输出 workout_plan_trigger 和 exercise_recommendation_trigger。
+7. 如果用户缺少训练目标、单次训练时长、可用器械或训练场地中的任意关键信息，你必须只用自然语言追问缺失信息，不要输出 workout_plan_trigger；如果正文给了可直接点击发送的示例问题，可以输出 suggested_question_trigger。
+8. 如果用户描述包含任何严重的高风险健康情况（如胸痛、心脏病、心梗、晕厥、孕期、骨折、刚做完手术等），请在正文自然语言回复中极力警告并强烈建议其就医，**不要**输出 workout_plan_trigger 或 exercise_recommendation_trigger。`;
 const DEEPSEEK_REQUEST_TIMEOUT_MS = 45_000;
 const INTENT_REQUEST_TIMEOUT_MS = 12_000;
 const LOG_PREVIEW_LENGTH = 4000;
@@ -663,6 +672,7 @@ function buildSystemPrompt(chatIntent: ChatIntent, exerciseContext: ExerciseCont
     "6. 对 exercise_recommendation 场景，自然语言正文只做简短说明，不要直接列具体动作；必须输出 exercise_recommendation_trigger，具体动作以推荐卡片为准。",
     "7. 如果输出 Trigger，intent 必须与 serverWorkoutIntent 保持一致。",
     "8. 如果用户有疾病、孕期或其他高风险健康情况，正文必须提醒咨询医生或专业人士，不能做医疗诊断。",
+    "9. 如果正文给了用户可直接发送的示例问题或下一步建议问题，必须额外输出 suggested_question_trigger，并把按钮文字放入 suggestedQuestions 字段。",
     "",
     "serverParsedIntent:",
     JSON.stringify(

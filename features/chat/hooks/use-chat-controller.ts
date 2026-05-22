@@ -10,6 +10,7 @@ import {
 import { readChatHistory, saveChatConversation } from "@/features/chat/lib/chat-history";
 import {
   extractExerciseRecommendationTrigger,
+  extractSuggestedQuestionTrigger,
   extractWorkoutPlanTrigger,
 } from "@/features/chat/lib/workout-plan-trigger";
 import type { ApiChatMessage, ChatMessage, ChatStreamEvent } from "@/features/chat/types";
@@ -257,6 +258,14 @@ export function useChatController() {
       }
 
       const trigger = extractWorkoutPlanTrigger(fullContent);
+      const suggestedQuestionTrigger = extractSuggestedQuestionTrigger(fullContent);
+      if (suggestedQuestionTrigger) {
+        updateAssistantMessage(assistantMessage.id, (message) => ({
+          ...message,
+          suggestedQuestions: suggestedQuestionTrigger.suggestedQuestions,
+        }));
+      }
+
       if (trigger?.intent) {
         const messageId = assistantMessage.id;
         setAutoPlanGenerating(messageId);

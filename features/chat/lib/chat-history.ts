@@ -58,7 +58,9 @@ export function saveChatConversation(
           message.id === messages[index]?.id &&
           message.content === messages[index]?.content &&
           message.role === messages[index]?.role &&
-          message.reasoningContent === messages[index]?.reasoningContent,
+          message.reasoningContent === messages[index]?.reasoningContent &&
+          JSON.stringify(message.suggestedQuestions ?? []) ===
+            JSON.stringify(messages[index]?.suggestedQuestions ?? []),
       ) &&
       JSON.stringify(existing.plans ?? {}) === JSON.stringify(plansToSave) &&
       JSON.stringify(existing.exerciseRecommendations ?? {}) ===
