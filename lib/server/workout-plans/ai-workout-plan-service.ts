@@ -75,6 +75,13 @@ type DeepSeekChatResponse = {
       content?: string | null;
     };
   }>;
+  usage?: DeepSeekTokenUsage;
+};
+
+type DeepSeekTokenUsage = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
 };
 
 type DeepSeekChatMessage = {
@@ -501,6 +508,7 @@ async function requestDeepSeekJson(
       metadata: {
         task: taskName,
         status: response.status,
+        tokenUsage: data.usage,
       },
     });
 

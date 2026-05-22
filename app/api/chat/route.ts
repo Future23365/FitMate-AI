@@ -25,11 +25,23 @@ type DeepSeekStreamChunk = {
       reasoning_content?: string | null;
     };
   }>;
+  usage?: DeepSeekTokenUsage | null;
 };
 
 type DeepSeekChatMessage = {
   role: "system" | "user" | "assistant";
   content: string;
+};
+
+type DeepSeekTokenUsage = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+};
+
+type DeepSeekChatResponse = {
+  choices?: Array<{ message?: { content?: string | null } }>;
+  usage?: DeepSeekTokenUsage;
 };
 
 const chatIntentSchema = z.object({
@@ -162,6 +174,9 @@ export async function POST(request: Request) {
       model: "deepseek-v4-flash",
       messages: [{ role: "system", content: systemPrompt }, ...messages],
       stream: true,
+      stream_options: {
+        include_usage: true,
+      },
       thinking: {
         type: thinkingEnabled ? "enabled" : "disabled",
       },
@@ -174,6 +189,9 @@ export async function POST(request: Request) {
       model: "deepseek-v4-flash",
       messages: [{ role: "system", content: systemPrompt }, ...messages],
       stream: true,
+      stream_options: {
+        include_usage: true,
+      },
       thinking: {
         type: thinkingEnabled ? "enabled" : "disabled",
       },
@@ -198,6 +216,9 @@ export async function POST(request: Request) {
         model: "deepseek-v4-flash",
         messages: [{ role: "system", content: systemPrompt }, ...messages],
         stream: true,
+        stream_options: {
+          include_usage: true,
+        },
         thinking: {
           type: thinkingEnabled ? "enabled" : "disabled",
         },
@@ -294,6 +315,7 @@ export async function POST(request: Request) {
       let buffer = "";
       let contentText = "";
       let reasoningText = "";
+      let tokenUsage: DeepSeekTokenUsage | null = null;
 
       if (!reader) {
         clearTimeout(timeout);
@@ -339,6 +361,9 @@ export async function POST(request: Request) {
                   content: contentText,
                   reasoning: reasoningText,
                 },
+                metadata: {
+                  tokenUsage,
+                },
               });
               trace.finish("success");
               controller.enqueue(encodeStreamEvent("done"));
@@ -347,6 +372,10 @@ export async function POST(request: Request) {
             }
 
             const chunk = JSON.parse(data) as DeepSeekStreamChunk;
+            if (chunk.usage) {
+              tokenUsage = chunk.usage;
+            }
+
             const delta = chunk.choices?.[0]?.delta;
             const reasoning = delta?.reasoning_content;
             const content = delta?.content;
@@ -370,6 +399,9 @@ export async function POST(request: Request) {
           output: {
             content: contentText,
             reasoning: reasoningText,
+          },
+          metadata: {
+            tokenUsage,
           },
         });
         trace.finish("success");
@@ -662,9 +694,7 @@ async function requestDeepSeekJson(
       };
     }
 
-    const body = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string | null } }>;
-    };
+    const body = (await response.json()) as DeepSeekChatResponse;
     const content = body.choices?.[0]?.message?.content?.trim() ?? "";
     trace?.addStep({
       name: "第一次大模型回复：意图判断大模型回复",
@@ -674,6 +704,7 @@ async function requestDeepSeekJson(
       },
       metadata: {
         status: response.status,
+        tokenUsage: body.usage,
       },
     });
     const parsed = parseJsonObject(content);

@@ -595,7 +595,20 @@ function getStepSummaryItems(step: AiTraceStep) {
   const output = isRecord(step.output) ? step.output : null;
   const input = isRecord(step.input) ? step.input : null;
   const metadata = isRecord(step.metadata) ? step.metadata : null;
+  const tokenUsage = getTokenUsage(step);
   const items: Array<{ label: string; value: string }> = [];
+
+  if (typeof tokenUsage?.prompt_tokens === "number") {
+    items.push({ label: "输入 token", value: formatNumber(tokenUsage.prompt_tokens) });
+  }
+
+  if (typeof tokenUsage?.completion_tokens === "number") {
+    items.push({ label: "输出 token", value: formatNumber(tokenUsage.completion_tokens) });
+  }
+
+  if (typeof tokenUsage?.total_tokens === "number") {
+    items.push({ label: "总 token", value: formatNumber(tokenUsage.total_tokens) });
+  }
 
   if (metadata?.task && typeof metadata.task === "string") {
     items.push({ label: "任务", value: getTaskLabel(metadata.task) });
@@ -655,7 +668,7 @@ function getStepSummaryItems(step: AiTraceStep) {
     items.push({ label: "消息数", value: String(input.messages.length) });
   }
 
-  return items.slice(0, 6);
+  return items.slice(0, 8);
 }
 
 function getInputTitle(step: AiTraceStep) {
@@ -725,7 +738,9 @@ function getDisplayableMetadata(metadata: AiTraceStep["metadata"]) {
     return null;
   }
 
-  const entries = Object.entries(metadata).filter(([key]) => !["task", "status"].includes(key));
+  const entries = Object.entries(metadata).filter(
+    ([key]) => !["task", "status", "tokenUsage"].includes(key),
+  );
 
   if (entries.length === 0) {
     return null;
@@ -776,6 +791,25 @@ function addRecordItem(
   }
 }
 
+function getTokenUsage(step: AiTraceStep) {
+  const metadata = isRecord(step.metadata) ? step.metadata : null;
+  const output = isRecord(step.output) ? step.output : null;
+  const fromMetadata = metadata?.tokenUsage;
+  const fromOutput = output?.usage;
+  const usage = isRecord(fromMetadata) ? fromMetadata : isRecord(fromOutput) ? fromOutput : null;
+
+  if (!usage) {
+    return null;
+  }
+
+  return {
+    prompt_tokens: typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : undefined,
+    completion_tokens:
+      typeof usage.completion_tokens === "number" ? usage.completion_tokens : undefined,
+    total_tokens: typeof usage.total_tokens === "number" ? usage.total_tokens : undefined,
+  };
+}
+
 function getTaskLabel(task: string) {
   const labels: Record<string, string> = {
     intent_extraction: "意图提取",
@@ -783,6 +817,10 @@ function getTaskLabel(task: string) {
   };
 
   return labels[task] ?? task;
+}
+
+function formatNumber(value: number) {
+  return new Intl.NumberFormat("zh-CN").format(value);
 }
 
 function getStepTask(step: AiTraceStep) {
