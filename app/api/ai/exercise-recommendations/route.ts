@@ -4,6 +4,7 @@ import { z } from "zod";
 import { startAiTrace, summarizeLatestUserMessage } from "@/lib/server/dev/ai-trace-logger";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import { selectExerciseCandidates } from "@/lib/server/workout-plans";
+import { fitnessConversationContextSchema } from "@/lib/shared/chat/fitness-conversation-context";
 import {
   exerciseRecommendationCardSchema,
   exerciseRecommendationIntentSchema,
@@ -15,8 +16,9 @@ const exerciseRecommendationRequestSchema = z.object({
       role: z.enum(["user", "assistant"]),
       content: z.string().trim().min(1).max(4000),
     }),
-  ).min(1).max(30),
+  ).min(1).max(200),
   intent: exerciseRecommendationIntentSchema,
+  conversationContext: fitnessConversationContextSchema.optional(),
 });
 
 export async function POST(request: Request) {
@@ -39,6 +41,7 @@ export async function POST(request: Request) {
     title: summarizeLatestUserMessage(parsedRequest.data.messages),
     metadata: {
       messageCount: parsedRequest.data.messages.length,
+      hasConversationContext: Boolean(parsedRequest.data.conversationContext),
     },
   });
 

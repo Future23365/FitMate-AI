@@ -4,6 +4,13 @@ import { aiPromptConfig } from "@/app/api/ai-prompt-config";
 import type { AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import type { Exercise } from "@/lib/shared/exercises/types";
+import {
+  buildFitnessConversationContext,
+  fitnessConversationContextSchema,
+  formatFitnessConversationContextForPrompt,
+  selectMessagesForAiContext,
+  type FitnessConversationContext,
+} from "@/lib/shared/chat/fitness-conversation-context";
 import { serverRequest } from "@/lib/server/http/server-request";
 
 import {
@@ -28,8 +35,9 @@ export const aiWorkoutPlanChatMessageSchema = z.object({
 });
 
 export const aiWorkoutPlanRequestSchema = z.object({
-  messages: z.array(aiWorkoutPlanChatMessageSchema).min(1).max(30),
+  messages: z.array(aiWorkoutPlanChatMessageSchema).min(1).max(200),
   intent: workoutPlanIntentSchema.optional(),
+  conversationContext: fitnessConversationContextSchema.optional(),
   parentTraceId: z.string().trim().min(1).max(120).optional(),
 });
 
@@ -102,6 +110,9 @@ export async function generateAiWorkoutPlanDraft(
   const request = aiWorkoutPlanRequestSchema.parse(rawRequest);
   const apiKey = process.env.DEEPSEEK_API_KEY;
   const trace = options.trace;
+  const conversationContext =
+    request.conversationContext ?? buildFitnessConversationContext(request.messages);
+  const contextMessages = selectMessagesForAiContext(request.messages, { maxMessages: 16 });
 
   if (!apiKey) {
     return {
@@ -116,7 +127,7 @@ export async function generateAiWorkoutPlanDraft(
 
   const intentResult = request.intent
     ? { ok: true as const, intent: request.intent }
-    : await extractWorkoutPlanIntent(request.messages, apiKey, trace);
+    : await extractWorkoutPlanIntent(contextMessages, conversationContext, apiKey, trace);
 
   if (!intentResult.ok) {
     trace?.addStep({
@@ -175,7 +186,8 @@ export async function generateAiWorkoutPlanDraft(
   }
 
   const draftResult = await generateWorkoutPlanDraft(
-    request.messages,
+    contextMessages,
+    conversationContext,
     intentResult.intent,
     candidates,
     apiKey,
@@ -249,6 +261,7 @@ export async function generateAiWorkoutPlanDraft(
 
 async function extractWorkoutPlanIntent(
   messages: AiWorkoutPlanChatMessage[],
+  conversationContext: FitnessConversationContext,
   apiKey: string,
   trace?: AiTraceLogger,
 ): Promise<
@@ -263,7 +276,12 @@ async function extractWorkoutPlanIntent(
   const modelMessages: DeepSeekChatMessage[] = [
     {
       role: "system",
-      content: aiPromptConfig.workoutPlanIntentExtraction.system,
+      content: [
+        aiPromptConfig.workoutPlanIntentExtraction.system,
+        formatFitnessConversationContextForPrompt(conversationContext),
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
     },
     ...messages,
   ];
@@ -299,6 +317,7 @@ async function extractWorkoutPlanIntent(
 
 async function generateWorkoutPlanDraft(
   messages: AiWorkoutPlanChatMessage[],
+  conversationContext: FitnessConversationContext,
   intent: WorkoutPlanIntent,
   candidates: ExerciseCandidateResult,
   apiKey: string,
@@ -353,6 +372,7 @@ async function generateWorkoutPlanDraft(
       role: "user",
       content: JSON.stringify({
         intent,
+        conversationContext,
         primaryExercises: primaryPayload,
         supplementaryExercises: supplementaryPayload,
         recentMessages: messages,

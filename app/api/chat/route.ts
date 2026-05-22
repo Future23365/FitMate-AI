@@ -2,6 +2,14 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { aiPromptConfig } from "@/app/api/ai-prompt-config";
+import {
+  buildFitnessConversationContext,
+  fitnessConversationContextSchema,
+  formatFitnessConversationContextForPrompt,
+  normalizeAiContextMessages,
+  selectMessagesForAiContext,
+  type FitnessConversationContext,
+} from "@/lib/shared/chat/fitness-conversation-context";
 import { startAiTrace, summarizeLatestUserMessage, type AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import { serverRequest } from "@/lib/server/http/server-request";
@@ -87,20 +95,6 @@ const DEEPSEEK_REQUEST_TIMEOUT_MS = 45_000;
 const INTENT_REQUEST_TIMEOUT_MS = 12_000;
 const LOG_PREVIEW_LENGTH = 4000;
 
-function isChatMessage(value: unknown): value is ChatMessage {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const maybeMessage = value as Partial<ChatMessage>;
-
-  return (
-    (maybeMessage.role === "user" || maybeMessage.role === "assistant") &&
-    typeof maybeMessage.content === "string" &&
-    maybeMessage.content.trim().length > 0
-  );
-}
-
 function encodeStreamEvent(type: string, delta = "", metadata?: Record<string, unknown>) {
   return new TextEncoder().encode(`${JSON.stringify({ type, delta, ...metadata })}\n`);
 }
@@ -117,6 +111,7 @@ export async function POST(request: Request) {
 
   const body = (await request.json().catch(() => null)) as {
     messages?: unknown;
+    conversationContext?: unknown;
     thinkingEnabled?: unknown;
   } | null;
 
@@ -127,18 +122,25 @@ export async function POST(request: Request) {
     );
   }
 
-  const messages = body.messages.filter(isChatMessage).slice(-20);
+  const rawMessages = normalizeAiContextMessages(body.messages);
+  const parsedContext = fitnessConversationContextSchema.safeParse(body.conversationContext);
+  const conversationContext = parsedContext.success
+    ? parsedContext.data
+    : buildFitnessConversationContext(rawMessages);
+  const messages = selectMessagesForAiContext(rawMessages, { maxMessages: 16 });
   const thinkingEnabled = body.thinkingEnabled !== false;
   const trace = startAiTrace({
     route: "/api/chat",
-    title: summarizeLatestUserMessage(messages),
+    title: summarizeLatestUserMessage(rawMessages),
     metadata: {
-      messageCount: messages.length,
+      messageCount: rawMessages.length,
+      aiContextMessageCount: messages.length,
+      hasClientConversationContext: parsedContext.success,
       thinkingEnabled,
     },
   });
 
-  if (messages.length === 0) {
+  if (rawMessages.length === 0) {
     return NextResponse.json(
       { error: "At least one valid message is required." },
       { status: 400 },
@@ -149,16 +151,18 @@ export async function POST(request: Request) {
     name: "用户输入",
     type: "user_input",
     input: {
-      messages,
+      messages: rawMessages,
+      conversationContext,
+      aiContextMessages: messages,
       thinkingEnabled,
     },
   });
 
-  const chatIntent = await resolveChatIntent(apiKey, messages, trace);
+  const chatIntent = await resolveChatIntent(apiKey, messages, conversationContext, trace);
   const exerciseContext = chatIntent.needsExerciseContext
-    ? await buildExerciseContext(chatIntent, messages, trace)
+    ? await buildExerciseContext(chatIntent, messages, conversationContext, trace)
     : null;
-  const systemPrompt = buildSystemPrompt(chatIntent, exerciseContext);
+  const systemPrompt = buildSystemPrompt(chatIntent, exerciseContext, conversationContext);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DEEPSEEK_REQUEST_TIMEOUT_MS);
   let response: Response;
@@ -446,15 +450,19 @@ export async function POST(request: Request) {
 async function resolveChatIntent(
   apiKey: string,
   messages: ChatMessage[],
+  conversationContext: FitnessConversationContext,
   trace?: AiTraceLogger,
 ): Promise<ChatIntent> {
-  const fallbackIntent = createFallbackChatIntent(messages);
+  const fallbackIntent = createFallbackChatIntent(messages, conversationContext);
+  const contextPrompt = formatFitnessConversationContextForPrompt(conversationContext);
 
   try {
     const modelMessages: DeepSeekChatMessage[] = [
       {
         role: "system",
-        content: aiPromptConfig.chatIntentResolution.system,
+        content: [aiPromptConfig.chatIntentResolution.system, contextPrompt]
+          .filter(Boolean)
+          .join("\n\n"),
       },
       ...messages,
     ];
@@ -536,10 +544,14 @@ async function resolveChatIntent(
 async function buildExerciseContext(
   chatIntent: ChatIntent,
   messages: ChatMessage[],
+  conversationContext: FitnessConversationContext,
   trace?: AiTraceLogger,
 ): Promise<ExerciseContext> {
   const exercises = await listAllExercises();
-  const intent = chatIntent.workoutIntent ?? createFallbackWorkoutIntent(messages, chatIntent.type);
+  const intent =
+    chatIntent.workoutIntent ??
+    conversationContext.currentIntent ??
+    createFallbackWorkoutIntent(messages, chatIntent.type, conversationContext);
   const candidates = selectExerciseCandidates(intent, exercises);
   const nameMatches = findExerciseNameMatches(exercises, chatIntent.requestedExerciseName);
   const seenIds = new Set<string>();
@@ -617,13 +629,20 @@ async function buildExerciseContext(
   return exerciseContext;
 }
 
-function buildSystemPrompt(chatIntent: ChatIntent, exerciseContext: ExerciseContext | null) {
+function buildSystemPrompt(
+  chatIntent: ChatIntent,
+  exerciseContext: ExerciseContext | null,
+  conversationContext: FitnessConversationContext,
+) {
+  const contextPrompt = formatFitnessConversationContextForPrompt(conversationContext);
+
   if (!exerciseContext) {
-    return aiPromptConfig.chatCompletion.system;
+    return [aiPromptConfig.chatCompletion.system, contextPrompt].filter(Boolean).join("\n\n");
   }
 
   return [
     aiPromptConfig.chatCompletion.system,
+    contextPrompt,
     "",
     aiPromptConfig.chatCompletion.exerciseContext,
     "",
@@ -776,7 +795,10 @@ function parseJsonObject(content: string):
   }
 }
 
-function createFallbackChatIntent(messages: ChatMessage[]): ChatIntent {
+function createFallbackChatIntent(
+  messages: ChatMessage[],
+  conversationContext: FitnessConversationContext,
+): ChatIntent {
   const latestUserMessage = getLatestUserMessage(messages);
   const isRecommendation = /推荐|有哪些|动作/.test(latestUserMessage) && !/组|套|流程|安排|计划/.test(latestUserMessage);
   const isRoutine = /今天|这次|现在|来一套|动作组|流程|安排|练|分钟/.test(latestUserMessage);
@@ -790,29 +812,35 @@ function createFallbackChatIntent(messages: ChatMessage[]): ChatIntent {
   return {
     type,
     needsExerciseContext: /动作|训练|计划|编排|替换|推荐|练|胸|背|腿|肩|核心|减脂|增肌/.test(
-      latestUserMessage,
+      `${latestUserMessage} ${conversationContext.summary}`,
     ),
-    workoutIntent,
+    workoutIntent: conversationContext.currentIntent ?? workoutIntent,
   };
 }
 
 function createFallbackWorkoutIntent(
   messages: ChatMessage[],
   type: ChatIntent["type"],
+  conversationContext?: FitnessConversationContext,
 ): WorkoutPlanIntent {
   const latestUserMessage = getLatestUserMessage(messages);
+  const knownFacts = conversationContext?.knownFacts;
   const intentType = type === "routine" || type === "exercise_recommendation" ? "routine" : "plan";
 
   return workoutPlanIntentSchema.parse({
     intentType,
-    goal: latestUserMessage.slice(0, 80) || "综合体能提升",
-    experience: "beginner",
-    sessionMinutes: 30,
-    weeklyFrequency: intentType === "routine" ? 1 : 3,
-    equipment: [],
-    injuryLimitations: extractByPattern(latestUserMessage, /(膝盖|腰|肩|手腕|脚踝|疼|痛|伤|不适)/),
-    preferences: extractByPattern(latestUserMessage, /(居家|家里|徒手|自重|哑铃|杠铃|弹力带|低强度|高强度)/),
-    avoidances: [],
+    goal: (knownFacts?.goal ?? latestUserMessage.slice(0, 80)) || "综合体能提升",
+    experience: knownFacts?.experience ?? "beginner",
+    sessionMinutes: knownFacts?.sessionMinutes ?? 30,
+    weeklyFrequency: knownFacts?.weeklyFrequency ?? (intentType === "routine" ? 1 : 3),
+    equipment: knownFacts?.equipment?.length ? knownFacts.equipment : [],
+    injuryLimitations: knownFacts?.injuryLimitations?.length
+      ? knownFacts.injuryLimitations
+      : extractByPattern(latestUserMessage, /(膝盖|腰|肩|手腕|脚踝|疼|痛|伤|不适)/),
+    preferences: knownFacts?.preferences?.length
+      ? knownFacts.preferences
+      : extractByPattern(latestUserMessage, /(居家|家里|徒手|自重|哑铃|杠铃|弹力带|低强度|高强度)/),
+    avoidances: knownFacts?.avoidances?.length ? knownFacts.avoidances : [],
   });
 }
 

@@ -1,5 +1,6 @@
 import type { WorkoutPlanDraft } from "@/lib/shared/workout-plans/draft-schema";
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
+import type { FitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
 
 export type ChatMessage = {
   id: string;
@@ -28,4 +29,6 @@ export type ChatConversation = {
   plans?: Record<string, WorkoutPlanDraft>;
   /** 消息气泡内嵌的动作推荐卡片，key 为 messageId */
   exerciseRecommendations?: Record<string, ExerciseRecommendationCard>;
+  /** 从完整对话沉淀出的健身上下文，用于后续 AI 请求补足长期记忆 */
+  conversationContext?: FitnessConversationContext;
 };

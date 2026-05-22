@@ -15,6 +15,11 @@ import {
   extractWorkoutRoutineTrigger,
 } from "@/features/chat/lib/workout-plan-trigger";
 import type { ApiChatMessage, ChatMessage, ChatStreamEvent } from "@/features/chat/types";
+import {
+  buildFitnessConversationContext,
+  selectMessagesForAiContext,
+  type FitnessConversationContext,
+} from "@/lib/shared/chat/fitness-conversation-context";
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
 import type { WorkoutPlanDraft } from "@/lib/shared/workout-plans/draft-schema";
 
@@ -42,6 +47,9 @@ export function useChatController() {
     Record<string, ExerciseRecommendationCard>
   >({});
   const [bubblePlanErrors, setBubblePlanErrors] = useState<Record<string, string>>({});
+  const [conversationContext, setConversationContext] = useState<FitnessConversationContext>(() =>
+    buildFitnessConversationContext([]),
+  );
 
   useEffect(() => {
     function loadConversation(id: string) {
@@ -60,6 +68,10 @@ export function useChatController() {
       setMessages(matchedConversation.messages);
       setBubblePlans(matchedConversation.plans ?? {});
       setBubbleExerciseRecommendations(matchedConversation.exerciseRecommendations ?? {});
+      setConversationContext(
+        matchedConversation.conversationContext ??
+          buildFitnessConversationContext(matchedConversation.messages),
+      );
       setBubblePlanErrors({});
       setAutoPlanGenerating(null);
       setAutoRecommendationGenerating(null);
@@ -85,6 +97,7 @@ export function useChatController() {
       setMessages([]);
       setBubblePlans({});
       setBubbleExerciseRecommendations({});
+      setConversationContext(buildFitnessConversationContext([]));
       setBubblePlanErrors({});
       setAutoPlanGenerating(null);
       setAutoRecommendationGenerating(null);
@@ -113,8 +126,14 @@ export function useChatController() {
       return;
     }
 
-    saveChatConversation(conversationId, messages, bubblePlans, bubbleExerciseRecommendations);
-  }, [conversationId, messages, bubblePlans, bubbleExerciseRecommendations]);
+    saveChatConversation(
+      conversationId,
+      messages,
+      bubblePlans,
+      bubbleExerciseRecommendations,
+      conversationContext,
+    );
+  }, [conversationId, messages, bubblePlans, bubbleExerciseRecommendations, conversationContext]);
 
   function updateAssistantMessage(
     assistantId: string,
@@ -129,10 +148,11 @@ export function useChatController() {
     messageId: string,
     intent: unknown,
     historyMessages: ApiChatMessage[],
+    context: FitnessConversationContext,
     parentTraceId?: string,
   ) {
     try {
-      const draft = await requestWorkoutPlanDraft(historyMessages, intent, parentTraceId);
+      const draft = await requestWorkoutPlanDraft(historyMessages, intent, context, parentTraceId);
 
       setBubblePlans((prev) => ({
         ...prev,
@@ -153,9 +173,10 @@ export function useChatController() {
     messageId: string,
     intent: unknown,
     historyMessages: ApiChatMessage[],
+    context: FitnessConversationContext,
   ) {
     try {
-      const card = await requestExerciseRecommendations(historyMessages, intent);
+      const card = await requestExerciseRecommendations(historyMessages, intent, context);
 
       setBubbleExerciseRecommendations((prev) => ({
         ...prev,
@@ -185,6 +206,8 @@ export function useChatController() {
     const requestMessages: ApiChatMessage[] = [...messages, userMessage]
       .filter((message) => message.content.trim().length > 0)
       .map(({ role, content }) => ({ role, content }));
+    const nextConversationContext = buildFitnessConversationContext(requestMessages);
+    const aiMessages = selectMessagesForAiContext(requestMessages);
 
     if (!conversationId) {
       setConversationId(nextConversationId);
@@ -192,6 +215,7 @@ export function useChatController() {
     }
 
     setMessages((current) => [...current, userMessage, assistantMessage]);
+    setConversationContext(nextConversationContext);
     setInput("");
     setError("");
     setIsLoading(true);
@@ -200,7 +224,12 @@ export function useChatController() {
     const timeout = window.setTimeout(() => controller.abort(), chatRequestTimeoutMs);
 
     try {
-      const response = await requestChatStream(requestMessages, thinkingEnabled, controller.signal);
+      const response = await requestChatStream(
+        aiMessages,
+        nextConversationContext,
+        thinkingEnabled,
+        controller.signal,
+      );
 
       if (!response.ok || !response.body) {
         const data = (await response.json().catch(() => null)) as {
@@ -274,18 +303,43 @@ export function useChatController() {
       const workoutDraftTrigger = trigger ?? routineTrigger;
       if (workoutDraftTrigger?.intent) {
         const messageId = assistantMessage.id;
+        const contextWithAssistant = buildFitnessConversationContext([
+          ...requestMessages,
+          { role: "assistant", content: fullContent },
+        ]);
+        const planMessages = selectMessagesForAiContext(
+          [...requestMessages, { role: "assistant", content: fullContent }],
+          { maxMessages: 16 },
+        );
+        setConversationContext(contextWithAssistant);
         setAutoPlanGenerating(messageId);
-        generateWorkoutPlanForBubble(messageId, workoutDraftTrigger.intent, requestMessages, chatTraceId);
+        generateWorkoutPlanForBubble(
+          messageId,
+          workoutDraftTrigger.intent,
+          planMessages,
+          contextWithAssistant,
+          chatTraceId,
+        );
       } else {
         const recommendationTrigger = extractExerciseRecommendationTrigger(fullContent);
 
         if (recommendationTrigger?.intent) {
           const messageId = assistantMessage.id;
+          const contextWithAssistant = buildFitnessConversationContext([
+            ...requestMessages,
+            { role: "assistant", content: fullContent },
+          ]);
+          const recommendationMessages = selectMessagesForAiContext(
+            [...requestMessages, { role: "assistant", content: fullContent }],
+            { maxMessages: 16 },
+          );
+          setConversationContext(contextWithAssistant);
           setAutoRecommendationGenerating(messageId);
           generateExerciseRecommendationsForBubble(
             messageId,
             recommendationTrigger.intent,
-            requestMessages,
+            recommendationMessages,
+            contextWithAssistant,
           );
         }
       }

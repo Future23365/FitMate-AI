@@ -1,4 +1,5 @@
 import type { ChatConversation, ChatMessage } from "@/features/chat/types";
+import type { FitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
 import type { WorkoutPlanDraft } from "@/lib/shared/workout-plans/draft-schema";
 
@@ -27,6 +28,7 @@ export function saveChatConversation(
   messages: ChatMessage[],
   bubblePlans: Record<string, WorkoutPlanDraft>,
   bubbleExerciseRecommendations: Record<string, ExerciseRecommendationCard> = {},
+  conversationContext?: FitnessConversationContext,
 ) {
   if (!messages.some((message) => message.role === "user")) {
     return;
@@ -64,7 +66,9 @@ export function saveChatConversation(
       ) &&
       JSON.stringify(existing.plans ?? {}) === JSON.stringify(plansToSave) &&
       JSON.stringify(existing.exerciseRecommendations ?? {}) ===
-        JSON.stringify(exerciseRecommendationsToSave);
+        JSON.stringify(exerciseRecommendationsToSave) &&
+      JSON.stringify(existing.conversationContext ?? null) ===
+        JSON.stringify(conversationContext ?? null);
 
     if (isIdentical) {
       return;
@@ -81,6 +85,7 @@ export function saveChatConversation(
       Object.keys(exerciseRecommendationsToSave).length > 0
         ? exerciseRecommendationsToSave
         : undefined,
+    conversationContext,
   };
   const nextHistory = [
     nextConversation,

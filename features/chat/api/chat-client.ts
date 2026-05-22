@@ -1,6 +1,7 @@
 import { clientRequest } from "@/lib/client/http/client-request";
 
 import type { ApiChatMessage } from "@/features/chat/types";
+import type { FitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
 import type { WorkoutPlanDraft } from "@/lib/shared/workout-plans/draft-schema";
 
@@ -18,6 +19,7 @@ type ExerciseRecommendationResponse = {
 
 export function requestChatStream(
   messages: ApiChatMessage[],
+  conversationContext: FitnessConversationContext,
   thinkingEnabled: boolean,
   signal: AbortSignal,
 ) {
@@ -28,6 +30,7 @@ export function requestChatStream(
     signal,
     body: {
       messages,
+      conversationContext,
       thinkingEnabled,
     },
   });
@@ -36,6 +39,7 @@ export function requestChatStream(
 export async function requestWorkoutPlanDraft(
   messages: ApiChatMessage[],
   intent: unknown,
+  conversationContext: FitnessConversationContext,
   parentTraceId?: string,
 ) {
   const data = await clientRequest<WorkoutPlanDraftResponse>("/api/ai/workout-plan", {
@@ -43,6 +47,7 @@ export async function requestWorkoutPlanDraft(
     body: {
       messages,
       intent,
+      conversationContext,
       parentTraceId,
     },
   });
@@ -61,12 +66,14 @@ export async function requestWorkoutPlanDraft(
 export async function requestExerciseRecommendations(
   messages: ApiChatMessage[],
   intent: unknown,
+  conversationContext: FitnessConversationContext,
 ) {
   const data = await clientRequest<ExerciseRecommendationResponse>("/api/ai/exercise-recommendations", {
     method: "POST",
     body: {
       messages,
       intent,
+      conversationContext,
     },
   });
 

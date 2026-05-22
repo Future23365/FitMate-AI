@@ -29,6 +29,7 @@ export async function POST(request: Request) {
     metadata: {
       messageCount: parsedRequest.data.messages.length,
       hasClientIntent: Boolean(parsedRequest.data.intent),
+      hasConversationContext: Boolean(parsedRequest.data.conversationContext),
       continuedFromRoute: parsedRequest.data.parentTraceId ? "/api/chat" : undefined,
     },
   });
