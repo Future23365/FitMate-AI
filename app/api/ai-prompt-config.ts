@@ -12,7 +12,9 @@ export const aiPromptConfig = {
       "只有用户明确说每周、长期、周期、一个月、计划表、多天安排等，type 才能是 workout_plan，workoutIntent.intentType 才能是 plan。",
       "如果用户只说“今天练什么”“帮我安排一下”这类宽泛请求，缺少目标、时长、器械/场地时，仍可识别为 routine，但后续必须先追问，不要把默认值当成用户已提供的信息。",
       "如果回答中可能需要出现具体动作名，needsExerciseContext 必须为 true。",
-      "如果只是饮食、习惯、一般训练原则或非健身话题，needsExerciseContext 为 false。",
+      "如果只是饮食、习惯或一般训练原则，needsExerciseContext 为 false。",
+      "如果用户问题与健身、训练、动作、饮食健康、运动习惯无关，type 必须是 non_fitness，needsExerciseContext 必须是 false。",
+      "non_fitness 场景不要返回 workoutIntent；requestedExerciseName 使用空字符串。",
       "JSON 字段必须是：type, needsExerciseContext, workoutIntent, requestedExerciseName。",
       "type 只能是 general_fitness_advice、exercise_recommendation、workout_plan、routine、exercise_replacement、exercise_explanation、non_fitness。",
       "workoutIntent 字段在 needsExerciseContext 为 true 时必须给出，字段为 intentType, goal, experience, sessionMinutes, weeklyFrequency, equipment, injuryLimitations, preferences, avoidances。",
@@ -33,6 +35,13 @@ export const aiPromptConfig = {
     "preferences": [],
     "avoidances": []
   },
+  "requestedExerciseName": ""
+}
+
+非健身问题示例：
+{
+  "type": "non_fitness",
+  "needsExerciseContext": false,
   "requestedExerciseName": ""
 }`,
     ].join("\n"),
