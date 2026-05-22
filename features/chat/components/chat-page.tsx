@@ -131,28 +131,6 @@ export function ChatPage() {
               告诉我你的目标，我来为你生成训练计划
             </p>
           </div>
-          <div className="flex items-center gap-3 text-muted">
-            <button
-              aria-label="通知"
-              className="relative grid h-10 w-10 place-items-center rounded-xl border border-line bg-white/80 text-muted shadow-card transition-colors hover:text-primary"
-              type="button"
-            >
-              <SymbolIcon>notifications</SymbolIcon>
-              <span className="absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-danger" />
-            </button>
-            <button
-              aria-label="帮助"
-              className="grid h-10 w-10 place-items-center rounded-xl border border-line bg-white/80 text-muted shadow-card transition-colors hover:text-primary"
-              type="button"
-            >
-              <SymbolIcon>help_outline</SymbolIcon>
-            </button>
-            <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl border border-line bg-primary-soft text-primary shadow-card">
-              <SymbolIcon className="text-[20px]" filled>
-                person
-              </SymbolIcon>
-            </div>
-          </div>
         </header>
 
       <main className="fixed inset-0 bottom-0 left-0 top-[64px] flex flex-col bg-transparent lg:left-[260px] xl:right-[300px]">
