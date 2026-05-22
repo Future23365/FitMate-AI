@@ -129,6 +129,9 @@ export function AiTraceViewer() {
                   <span>{trace.route}</span>
                   <span>{formatDuration(trace.durationMs)}</span>
                 </div>
+                <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-slate-500">
+                  <TokenUsageBadges usage={getTraceTokenUsage(trace)} compact />
+                </div>
                 <div className="mt-1 text-xs text-slate-400">{formatTime(trace.createdAt)}</div>
               </button>
             ))
@@ -315,30 +318,50 @@ function StepSummaryCards({ step }: { step: AiTraceStep }) {
   );
 }
 
-function TokenUsageBadges({ usage }: { usage: TokenUsage | null }) {
+function TokenUsageBadges({ usage, compact = false }: { usage: TokenUsage | null; compact?: boolean }) {
   if (!usage) {
     return null;
   }
 
+  const labelClassName = compact ? "px-1.5 py-0.5" : "px-2 py-0.5";
+
   return (
     <>
       {typeof usage.prompt_tokens === "number" ? (
-        <span className="rounded bg-blue-50 px-2 py-0.5 font-medium text-blue-700 ring-1 ring-blue-100">
+        <span className={`rounded bg-blue-50 font-medium text-blue-700 ring-1 ring-blue-100 ${labelClassName}`}>
           输入 token {formatNumber(usage.prompt_tokens)}
         </span>
       ) : null}
       {typeof usage.completion_tokens === "number" ? (
-        <span className="rounded bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 ring-1 ring-emerald-100">
+        <span className={`rounded bg-emerald-50 font-medium text-emerald-700 ring-1 ring-emerald-100 ${labelClassName}`}>
           输出 token {formatNumber(usage.completion_tokens)}
         </span>
       ) : null}
       {typeof usage.total_tokens === "number" ? (
-        <span className="rounded bg-slate-100 px-2 py-0.5 font-medium text-slate-700 ring-1 ring-slate-200">
+        <span className={`rounded bg-slate-100 font-medium text-slate-700 ring-1 ring-slate-200 ${labelClassName}`}>
           总 token {formatNumber(usage.total_tokens)}
         </span>
       ) : null}
     </>
   );
+}
+
+function getTraceTokenUsage(trace: AiTrace) {
+  const totals = trace.steps.reduce<TokenUsage>((sum, step) => {
+    const usage = getTokenUsage(step);
+
+    if (!usage) {
+      return sum;
+    }
+
+    return {
+      prompt_tokens: addOptionalNumbers(sum.prompt_tokens, usage.prompt_tokens),
+      completion_tokens: addOptionalNumbers(sum.completion_tokens, usage.completion_tokens),
+      total_tokens: addOptionalNumbers(sum.total_tokens, usage.total_tokens),
+    };
+  }, {});
+
+  return hasTokenUsage(totals) ? totals : null;
 }
 
 function getGroupTokenUsage(group: TraceStepGroup) {
@@ -356,11 +379,15 @@ function getGroupTokenUsage(group: TraceStepGroup) {
     };
   }, {});
 
-  return totals.prompt_tokens !== undefined ||
-    totals.completion_tokens !== undefined ||
-    totals.total_tokens !== undefined
-    ? totals
-    : null;
+  return hasTokenUsage(totals) ? totals : null;
+}
+
+function hasTokenUsage(usage: TokenUsage) {
+  return (
+    usage.prompt_tokens !== undefined ||
+    usage.completion_tokens !== undefined ||
+    usage.total_tokens !== undefined
+  );
 }
 
 function addOptionalNumbers(left: number | undefined, right: number | undefined) {
