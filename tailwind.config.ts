@@ -96,6 +96,7 @@ const config: Config = {
       },
       fontFamily: {
         "label-sm": ["Plus Jakarta Sans"],
+        "body-xs": ["Plus Jakarta Sans"],
         "body-md": ["Plus Jakarta Sans"],
         "headline-lg": ["Plus Jakarta Sans"],
         "body-lg": ["Plus Jakarta Sans"],
@@ -115,6 +116,10 @@ const config: Config = {
         "label-sm": [
           "12px",
           { lineHeight: "16px", letterSpacing: "0", fontWeight: "600" },
+        ],
+        "body-xs": [
+          "12px",
+          { lineHeight: "18px", letterSpacing: "0", fontWeight: "400" },
         ],
         "body-md": [
           "16px",

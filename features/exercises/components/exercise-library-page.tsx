@@ -95,7 +95,7 @@ function SelectFilter({
     <label className="flex items-center gap-sm">
       <span className="font-label-md text-label-md text-muted">{label}:</span>
       <select
-        className="max-w-[150px] cursor-pointer rounded-lg border border-line bg-white px-2 py-1 font-label-md text-label-md text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
+        className="app-control-surface max-w-[150px] cursor-pointer rounded-lg px-2 py-1 font-label-md text-label-md outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
         onChange={(event) => onChange(event.target.value)}
         value={value}
       >
@@ -279,32 +279,32 @@ export function ExerciseLibraryPage() {
     : [];
 
   return (
-    <div className="app-mesh-bg min-h-screen text-ink lg:pl-[260px]">
-      <main className="custom-scrollbar h-screen overflow-y-auto p-lg xl:pr-[364px] xl:p-xl">
+    <div className="app-mesh-bg app-page-shell lg:pl-[260px]">
+      <main className="custom-scrollbar app-content-scroll xl:pr-[364px] xl:p-xl">
         <header className="mb-2xl flex flex-col gap-lg xl:flex-row xl:items-end xl:justify-between">
           <div>
-            <h1 className="font-headline-lg text-headline-lg font-extrabold tracking-[-0.03em]">动作库</h1>
+            <h1 className="font-headline-lg text-headline-lg font-extrabold">动作库</h1>
             <p className="mt-xs font-body-md text-body-md text-muted">
               查找标准动作教学，构建你的专属训练方案
             </p>
           </div>
           <div className="flex flex-wrap gap-sm">
             <button
-              className="flex items-center gap-xs rounded-xl border border-line bg-white px-lg py-sm font-label-md text-label-md font-bold shadow-card transition-colors hover:bg-panel-soft"
+              className="app-control-surface flex items-center gap-xs rounded-xl px-lg py-sm font-label-md text-label-md font-bold shadow-card"
               type="button"
             >
               <SymbolIcon className="text-[20px]">filter_list</SymbolIcon>
               筛选
             </button>
             <button
-              className="flex items-center gap-xs rounded-xl border border-line bg-white px-lg py-sm font-label-md text-label-md font-bold shadow-card transition-colors hover:bg-panel-soft"
+              className="app-control-surface flex items-center gap-xs rounded-xl px-lg py-sm font-label-md text-label-md font-bold shadow-card"
               type="button"
             >
               <SymbolIcon className="text-[20px]">bookmarks</SymbolIcon>
               批量收藏
             </button>
             <button
-              className="flex items-center gap-xs rounded-xl bg-primary px-lg py-sm font-label-md text-label-md font-bold text-white shadow-card transition-all hover:bg-primary-deep hover:shadow-lift"
+              className="app-button-primary flex items-center gap-xs rounded-xl px-lg py-sm font-label-md text-label-md font-bold"
               type="button"
             >
               <SymbolIcon className="text-[20px]">play_circle</SymbolIcon>
@@ -313,7 +313,7 @@ export function ExerciseLibraryPage() {
           </div>
         </header>
 
-        <section className="mb-2xl rounded-[20px] border border-line bg-white p-lg shadow-card">
+        <section className="app-section-card mb-2xl p-lg">
           <div className="mb-lg flex items-center gap-md rounded-xl border border-line bg-white px-lg py-sm transition-all focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
             <SymbolIcon className="text-muted">search</SymbolIcon>
             <input
@@ -332,10 +332,10 @@ export function ExerciseLibraryPage() {
               </span>
               <div className="flex flex-wrap gap-sm">
                 <button
-                    className={`rounded-lg px-lg py-xs font-label-md text-label-md transition-colors ${
+                  className={`px-lg py-xs font-label-md text-label-md ${
                     !muscle
-                      ? "bg-primary text-white"
-                      : "bg-panel-soft text-muted hover:bg-primary-soft hover:text-primary"
+                      ? "app-chip-active"
+                      : "app-chip"
                   }`}
                   onClick={() => updateFilter(() => setMuscle(""))}
                   type="button"
@@ -347,10 +347,10 @@ export function ExerciseLibraryPage() {
 
                   return (
                     <button
-                        className={`rounded-lg px-lg py-xs font-label-md text-label-md transition-colors ${
+                      className={`px-lg py-xs font-label-md text-label-md ${
                         isActive
-                          ? "bg-primary text-white"
-                          : "bg-panel-soft text-muted hover:bg-primary-soft hover:text-primary"
+                          ? "app-chip-active"
+                          : "app-chip"
                       }`}
                       key={facet.value}
                       onClick={() => updateFilter(() => setMuscle(facet.value))}
@@ -403,7 +403,7 @@ export function ExerciseLibraryPage() {
               <label className="flex items-center gap-sm">
                 <span className="font-label-md text-label-md text-muted">排序:</span>
                 <select
-                  className="cursor-pointer rounded-lg border border-line bg-white px-2 py-1 font-label-md text-label-md text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
+                  className="app-control-surface cursor-pointer rounded-lg px-2 py-1 font-label-md text-label-md outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
                   onChange={(event) =>
                     updateFilter(() => setSortBy(event.target.value as ExerciseSort))
                   }
@@ -436,7 +436,7 @@ export function ExerciseLibraryPage() {
               <label className="flex items-center gap-sm">
                 <span className="font-label-md text-label-md text-muted">状态:</span>
                 <select
-                  className="cursor-pointer rounded-lg border border-line bg-white px-2 py-1 font-label-md text-label-md text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
+                  className="app-control-surface cursor-pointer rounded-lg px-2 py-1 font-label-md text-label-md outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
                   onChange={(event) => updateFilter(() => setPublished(event.target.value))}
                   value={published}
                 >
@@ -448,7 +448,7 @@ export function ExerciseLibraryPage() {
               <label className="flex items-center gap-sm">
                 <span className="font-label-md text-label-md text-muted">每页:</span>
                 <select
-                  className="cursor-pointer rounded-lg border border-line bg-white px-2 py-1 font-label-md text-label-md text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
+                  className="app-control-surface cursor-pointer rounded-lg px-2 py-1 font-label-md text-label-md outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
                   onChange={(event) => {
                     setIsLoadingExercises(true);
                     setPage(1);
@@ -476,7 +476,7 @@ export function ExerciseLibraryPage() {
                   </span>
                 ))}
                 <button
-                  className="rounded-lg border border-line px-md py-xs font-label-sm text-label-sm text-muted transition-colors hover:bg-panel-soft"
+                  className="app-control-surface rounded-lg px-md py-xs font-label-sm text-label-sm text-muted"
                   onClick={resetFilters}
                   type="button"
                 >
@@ -496,7 +496,7 @@ export function ExerciseLibraryPage() {
           </div>
 
           {exerciseError ? (
-            <div className="rounded-lg border border-error-container bg-error-container/40 p-lg font-label-md text-label-md text-on-error-container">
+            <div className="app-status-error rounded-lg p-lg font-label-md text-label-md">
               {exerciseError}
             </div>
           ) : null}
@@ -504,7 +504,7 @@ export function ExerciseLibraryPage() {
           {isLoadingExercises ? (
             <div className="grid grid-cols-2 gap-lg md:grid-cols-3 2xl:grid-cols-4">
               {Array.from({ length: 8 }).map((_, index) => (
-                <div className="rounded-xl border border-line bg-white p-sm shadow-card" key={index}>
+                <div className="app-section-card-compact p-sm" key={index}>
                   <div className="mb-sm aspect-square animate-pulse rounded-md bg-surface-container" />
                   <div className="mb-xs h-4 w-2/3 animate-pulse rounded bg-surface-container" />
                   <div className="h-3 w-1/3 animate-pulse rounded bg-surface-container" />
@@ -520,7 +520,7 @@ export function ExerciseLibraryPage() {
 
                     return (
                       <button
-                        className={`rounded-xl p-sm text-left transition-all ${
+                        className={`rounded-xl p-sm text-left transition-all active:scale-[0.99] ${
                           isSelected
                             ? "border-2 border-primary bg-primary/5 ring-2 ring-primary/10"
                             : "border border-line bg-white shadow-card hover:border-primary hover:shadow-lift"
@@ -564,7 +564,7 @@ export function ExerciseLibraryPage() {
                   })}
                 </div>
               ) : (
-                <div className="rounded-xl border border-dashed border-line bg-white p-2xl text-center shadow-card">
+                <div className="app-empty-state p-2xl text-center">
                   <SymbolIcon className="mb-sm text-4xl text-muted">
                     search_off
                   </SymbolIcon>
@@ -581,7 +581,7 @@ export function ExerciseLibraryPage() {
                 </span>
                 <div className="flex items-center gap-sm">
                   <button
-                    className="rounded-xl border border-line bg-white px-lg py-sm font-label-md text-label-md font-bold transition-colors hover:bg-panel-soft disabled:cursor-not-allowed disabled:opacity-50"
+                    className="app-control-surface rounded-xl px-lg py-sm font-label-md text-label-md font-bold disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={!hasPreviousPage || isLoadingExercises}
                     onClick={() => {
                       setIsLoadingExercises(true);
@@ -592,7 +592,7 @@ export function ExerciseLibraryPage() {
                     上一页
                   </button>
                   <button
-                    className="rounded-xl border border-line bg-white px-lg py-sm font-label-md text-label-md font-bold transition-colors hover:bg-panel-soft disabled:cursor-not-allowed disabled:opacity-50"
+                    className="app-control-surface rounded-xl px-lg py-sm font-label-md text-label-md font-bold disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={!hasNextPage || isLoadingExercises}
                     onClick={() => {
                       setIsLoadingExercises(true);
@@ -648,7 +648,7 @@ function ExerciseDetailPanel({
   }
 
   return (
-    <aside className="fixed right-0 top-0 z-30 hidden h-screen w-[340px] flex-col border-l border-line/70 bg-white/68 shadow-nav backdrop-blur-2xl xl:flex">
+    <aside className="app-sidebar-surface fixed right-0 top-0 z-30 hidden h-screen w-[340px] flex-col border-l xl:flex">
       <div className="custom-scrollbar flex h-full flex-col overflow-y-auto p-lg">
         {exercise ? (
           <>
@@ -692,7 +692,7 @@ function ExerciseDetailPanel({
                 {imageUrls.map((imageUrl, index) => (
                   <button
                     aria-label={`查看第 ${index + 1} 步动作图`}
-                    className={`flex items-center gap-xs rounded-full px-md py-xs font-label-sm text-label-sm transition-colors ${
+                    className={`flex items-center gap-xs rounded-full px-md py-xs font-label-sm text-label-sm transition-all ${
                       activeImageIndex === index
                         ? "bg-primary text-white"
                         : "bg-panel-soft text-muted hover:bg-primary-soft hover:text-primary"

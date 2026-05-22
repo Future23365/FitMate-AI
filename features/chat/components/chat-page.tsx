@@ -121,39 +121,39 @@ export function ChatPage() {
   }
 
   return (
-    <div className="app-mesh-bg min-h-screen text-ink">
-      <header className="fixed left-0 right-0 top-0 z-20 flex h-16 items-center justify-between border-b border-line/70 bg-white/68 px-lg shadow-nav backdrop-blur-2xl lg:left-[260px] xl:right-[300px] xl:px-xl">
-          <div>
-            <h2 className="flex items-center gap-xs text-xl font-extrabold tracking-tight text-ink">
-              你的 <span className="text-primary">AI</span> 健身助手
-            </h2>
-            <p className="text-xs font-semibold text-muted">
-              告诉我你的目标，我来为你生成训练计划
-            </p>
+    <div className="app-mesh-bg app-page-shell">
+      <header className="app-topbar fixed left-0 right-0 top-0 z-20 flex h-16 items-center justify-between border-b px-md sm:px-lg lg:left-[260px] xl:right-[300px] xl:px-xl">
+        <div>
+          <h2 className="flex items-center gap-xs text-lg font-extrabold text-ink sm:text-xl">
+            你的 <span className="text-primary">AI</span> 健身助手
+          </h2>
+          <p className="hidden text-xs font-semibold text-muted sm:block">
+            告诉我你的目标，我来为你生成训练计划
+          </p>
+        </div>
+        <div className="flex items-center gap-3 text-muted">
+          <button
+            aria-label="通知"
+            className="app-control-surface relative grid h-10 w-10 place-items-center rounded-xl text-muted shadow-card hover:text-primary"
+            type="button"
+          >
+            <SymbolIcon>notifications</SymbolIcon>
+            <span className="absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-danger" />
+          </button>
+          <button
+            aria-label="帮助"
+            className="app-control-surface grid h-10 w-10 place-items-center rounded-xl text-muted shadow-card hover:text-primary"
+            type="button"
+          >
+            <SymbolIcon>help_outline</SymbolIcon>
+          </button>
+          <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl border border-line bg-primary-soft text-primary shadow-card">
+            <SymbolIcon className="text-[20px]" filled>
+              person
+            </SymbolIcon>
           </div>
-          <div className="flex items-center gap-3 text-muted">
-            <button
-              aria-label="通知"
-              className="relative grid h-10 w-10 place-items-center rounded-xl border border-line bg-white/80 text-muted shadow-card transition-colors hover:text-primary"
-              type="button"
-            >
-              <SymbolIcon>notifications</SymbolIcon>
-              <span className="absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-danger" />
-            </button>
-            <button
-              aria-label="帮助"
-              className="grid h-10 w-10 place-items-center rounded-xl border border-line bg-white/80 text-muted shadow-card transition-colors hover:text-primary"
-              type="button"
-            >
-              <SymbolIcon>help_outline</SymbolIcon>
-            </button>
-            <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl border border-line bg-primary-soft text-primary shadow-card">
-              <SymbolIcon className="text-[20px]" filled>
-                person
-              </SymbolIcon>
-            </div>
-          </div>
-        </header>
+        </div>
+      </header>
 
       <main className="fixed inset-0 bottom-0 left-0 top-[64px] flex flex-col bg-transparent lg:left-[260px] xl:right-[300px]">
         <div
@@ -161,10 +161,10 @@ export function ChatPage() {
           ref={chatScrollRef}
         >
           {!hasMessages ? (
-            <div className="flex h-full flex-col items-center justify-center space-y-xl px-lg text-center">
+            <div className="mx-auto flex h-full max-w-3xl flex-col items-center justify-center space-y-xl px-md text-center">
               <div className="flex flex-col items-center gap-md">
-                <LogoMark className="mb-md h-24 w-24 animate-pulse rounded-[20px]" />
-                <h2 className="font-display-lg text-display-lg font-extrabold tracking-[-0.03em] text-ink">
+                <LogoMark className="mb-md h-20 w-20 animate-pulse rounded-[20px] sm:h-24 sm:w-24" />
+                <h2 className="font-headline-lg text-[clamp(28px,5vw,40px)] font-extrabold leading-tight text-ink">
                   你好！我是你的 AI 健身助手
                 </h2>
                 <p className="max-w-lg font-body-lg text-body-lg text-muted">
@@ -174,7 +174,7 @@ export function ChatPage() {
               <div className="flex max-w-2xl flex-wrap justify-center gap-sm">
                 {quickPrompts.map((prompt) => (
                   <button
-                    className="whitespace-nowrap rounded-xl border border-line bg-white px-lg py-sm text-label-md font-bold shadow-card transition-all hover:bg-panel-soft disabled:cursor-not-allowed disabled:opacity-60"
+                    className="app-control-surface whitespace-nowrap rounded-xl px-lg py-sm text-label-md font-bold shadow-card disabled:opacity-60"
                     disabled={isLoading}
                     key={prompt}
                     onClick={() => sendMessage(prompt)}
@@ -193,10 +193,10 @@ export function ChatPage() {
                   key={message.id}
                 >
                   <div
-                    className={`ai-chat-bubble max-w-[78%] rounded-xl p-lg ${
+                    className={`ai-chat-bubble max-w-[88%] rounded-xl p-md sm:max-w-[78%] sm:p-lg ${
                       message.role === "user"
                         ? "rounded-tr-none bg-primary text-white"
-                        : "rounded-tl-none border border-line bg-white text-ink"
+                        : "rounded-tl-none border border-line bg-white/95 text-ink"
                     }`}
                   >
                     {message.reasoningContent ? (
@@ -246,7 +246,7 @@ export function ChatPage() {
                               <div className="mt-md flex flex-wrap gap-sm">
                                 {suggestedQuestions.map((question) => (
                                   <button
-                                    className="max-w-full break-words rounded-xl border border-primary/20 bg-primary-soft px-md py-sm text-left font-label-sm text-label-sm font-bold text-primary transition-colors hover:border-primary/40 hover:bg-[#dbe5ff] disabled:cursor-not-allowed disabled:opacity-60"
+                                    className="max-w-full break-words rounded-xl border border-primary/20 bg-primary-soft px-md py-sm text-left font-label-sm text-label-sm font-bold text-primary transition-all hover:border-primary/40 hover:bg-[#dbe5ff] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
                                     disabled={isLoading}
                                     key={question}
                                     onClick={() => sendMessage(question)}
@@ -322,7 +322,7 @@ export function ChatPage() {
                 </div>
               ))}
               {error ? (
-                <div className="rounded-xl border border-error-container bg-error-container/40 p-md text-label-md text-on-error-container">
+                <div className="app-status-error rounded-xl p-md text-label-md">
                   {error}
                 </div>
               ) : null}
@@ -330,7 +330,7 @@ export function ChatPage() {
           )}
         </div>
 
-        <div className="border-t border-line/60 bg-white/35 p-lg backdrop-blur-xl xl:p-xl">
+        <div className="border-t border-line/60 bg-white/55 p-md backdrop-blur-xl sm:p-lg xl:p-xl">
           <form className="mx-auto max-w-4xl" onSubmit={handleSubmit}>
             <div className="relative flex items-center">
               <div className="absolute left-md flex items-center gap-sm">
@@ -342,7 +342,7 @@ export function ChatPage() {
                 </SymbolIcon>
               </div>
               <input
-                className="w-full rounded-xl border border-line bg-white py-md pl-[88px] pr-[150px] font-body-md shadow-card outline-none transition-all placeholder:text-muted focus:border-primary focus:ring-4 focus:ring-primary/10 sm:pr-[210px]"
+                className="w-full rounded-xl border border-line bg-white py-md pl-[88px] pr-[108px] font-body-md shadow-card outline-none transition-all placeholder:text-muted focus:border-primary focus:ring-4 focus:ring-primary/10 sm:pr-[210px]"
                 disabled={isLoading}
                 onChange={(event) => setInput(event.target.value)}
                 placeholder="向 FitMate AI 提问..."
@@ -382,10 +382,10 @@ export function ChatPage() {
           </form>
         </div>
       </main>
-      <aside className="fixed right-0 top-0 z-30 hidden h-screen w-[300px] flex-col gap-lg border-l border-line/70 bg-white/68 p-lg shadow-nav backdrop-blur-2xl xl:flex">
+      <aside className="app-sidebar-surface fixed right-0 top-0 z-30 hidden h-screen w-[300px] flex-col gap-lg border-l p-lg xl:flex">
         <section className="space-y-md">
           <h3 className="font-title-lg text-title-lg">今日训练概览</h3>
-          <div className="flex flex-col items-center gap-md rounded-[20px] border border-line bg-white p-lg shadow-card">
+          <div className="app-section-card flex flex-col items-center gap-md p-lg">
             <div className="relative flex h-32 w-32 items-center justify-center">
               <svg className="h-full w-full -rotate-90">
                 <circle
@@ -417,11 +417,11 @@ export function ChatPage() {
             </div>
 
             <div className="grid w-full grid-cols-2 gap-sm">
-              <div className="rounded-xl bg-panel-soft p-sm text-center opacity-70">
+              <div className="rounded-xl bg-panel-soft p-sm text-center opacity-85">
                 <p className="text-label-sm text-muted">用时</p>
                 <p className="font-label-md text-label-md font-bold">-- min</p>
               </div>
-              <div className="rounded-xl bg-panel-soft p-sm text-center opacity-70">
+              <div className="rounded-xl bg-panel-soft p-sm text-center opacity-85">
                 <p className="text-label-sm text-muted">消耗</p>
                 <p className="font-label-md text-label-md font-bold">-- kcal</p>
               </div>
@@ -459,7 +459,7 @@ export function ChatPage() {
         <section className="flex-1 space-y-sm">
           <h3 className="font-label-md text-label-md font-bold">动作推荐</h3>
           <div className="space-y-sm">
-              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-line bg-white p-xl text-center opacity-70">
+            <div className="app-empty-state flex flex-col items-center justify-center p-xl text-center text-muted">
               <SymbolIcon className="mb-sm text-4xl">model_training</SymbolIcon>
               <p className="text-label-sm">
                 开始对话以获取

@@ -130,19 +130,19 @@ export function AppSidebar() {
   }
 
   return (
-    <aside className="fixed left-0 top-0 z-30 hidden h-screen w-[260px] flex-col border-r border-line/70 bg-white/68 px-4 py-6 shadow-nav backdrop-blur-2xl lg:flex">
+    <aside className="app-sidebar-surface fixed left-0 top-0 z-30 hidden h-screen w-[260px] flex-col border-r px-4 py-6 lg:flex">
       <div className="mb-8 flex items-center gap-3 px-3">
         <LogoMark />
         <div>
-          <h1 className="text-xl font-extrabold tracking-tight text-primary">FitMate AI</h1>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted">
+          <h1 className="text-xl font-extrabold text-primary">FitMate AI</h1>
+          <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">
             AI Fitness Coach
           </p>
         </div>
       </div>
 
       <Link
-        className="mb-7 flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-bold text-white shadow-card transition-all hover:bg-primary-deep hover:shadow-lift active:scale-[0.98]"
+        className="app-button-primary mb-7 flex w-full items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-bold"
         href="/"
         onClick={() => window.dispatchEvent(new Event("fitmate:new-chat"))}
       >
@@ -152,10 +152,10 @@ export function AppSidebar() {
       <nav className="custom-scrollbar flex-1 space-y-1.5 overflow-y-auto">
         {navItems.map((item) => {
           const isActive = pathname === item.href;
-          const itemClassName = `flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold transition-colors ${
+          const itemClassName = `flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold transition-all active:scale-[0.99] ${
             isActive
               ? "bg-primary-soft font-extrabold text-primary ring-1 ring-primary/10"
-              : "text-muted hover:bg-panel-soft hover:text-primary"
+              : "text-muted hover:bg-panel-soft hover:text-primary hover:ring-1 hover:ring-line/70"
           }`;
 
           return (
@@ -174,7 +174,7 @@ export function AppSidebar() {
             <div className="space-y-xs">
               {historyItems.map((item) => (
                 <a
-                  className="group/hist flex cursor-pointer items-center justify-between gap-1 rounded-xl px-3 py-2 text-sm font-semibold text-muted transition-colors hover:bg-panel-soft hover:text-primary"
+                  className="group/hist flex cursor-pointer items-center justify-between gap-1 rounded-xl px-3 py-2 text-sm font-semibold text-muted transition-all hover:bg-panel-soft hover:text-primary hover:ring-1 hover:ring-line/70 active:scale-[0.99]"
                   href={`/#${item.id}`}
                   key={item.id}
                   title={item.title}
@@ -196,7 +196,7 @@ export function AppSidebar() {
                     {formatHistoryTime(item.updatedAt)}
                   </span>
                   <button
-                    className="hidden shrink-0 items-center justify-center rounded-md p-[2px] text-muted transition-colors hover:bg-error-container hover:text-error group-hover/hist:flex"
+                    className="hidden shrink-0 items-center justify-center rounded-md p-[2px] text-muted transition-colors hover:bg-error-container hover:text-error group-focus-within/hist:flex group-hover/hist:flex"
                     title="删除对话"
                     onClick={(e) => {
                       // 阻止事件冒泡到外层 <a>，避免触发加载对话
@@ -211,7 +211,7 @@ export function AppSidebar() {
               ))}
             </div>
           ) : (
-            <p className="px-3 py-2 text-xs font-semibold text-muted">
+            <p className="rounded-xl border border-dashed border-line/80 bg-panel/70 px-3 py-3 text-xs font-semibold text-muted">
               暂无对话
             </p>
           )}
