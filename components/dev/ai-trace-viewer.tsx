@@ -2,12 +2,23 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import type { AiTrace } from "@/lib/server/dev/ai-trace-store";
+import type { AiTrace, AiTraceStep } from "@/lib/server/dev/ai-trace-store";
 
 type TraceResponse = {
   ok: boolean;
   traces?: AiTrace[];
   error?: string;
+};
+
+type TraceStepGroup = {
+  id: string;
+  title: string;
+  description: string;
+  status: AiTrace["status"];
+  steps: AiTraceStep[];
+  startedAt?: string;
+  endedAt?: string;
+  durationMs?: number;
 };
 
 export function AiTraceViewer() {
@@ -19,6 +30,10 @@ export function AiTraceViewer() {
   const selectedTrace = useMemo(
     () => traces.find((trace) => trace.id === selectedTraceId) ?? traces[0] ?? null,
     [selectedTraceId, traces],
+  );
+  const selectedStepGroups = useMemo(
+    () => (selectedTrace ? groupTraceSteps(selectedTrace.steps) : []),
+    [selectedTrace],
   );
 
   async function loadTraces() {
@@ -147,12 +162,14 @@ export function AiTraceViewer() {
               <TracePanel title="Trace Metadata" value={selectedTrace.metadata} />
             ) : null}
 
+            <TraceTimeline groups={selectedStepGroups} />
+
             <div className="space-y-4">
-              {selectedTrace.steps.map((step, index) => (
+              {selectedStepGroups.map((group, index) => (
                 <details
-                  className="overflow-hidden rounded-lg border border-slate-200 bg-white"
-                  key={step.id}
-                  open={index < 4 || step.status === "failed"}
+                  className="overflow-hidden rounded-xl border border-slate-200 bg-white"
+                  key={group.id}
+                  open={index < 3 || group.status === "failed"}
                 >
                   <summary className="flex cursor-pointer items-center justify-between gap-4 px-5 py-4">
                     <div className="min-w-0">
@@ -160,22 +177,23 @@ export function AiTraceViewer() {
                         <span className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-600">
                           {index + 1}
                         </span>
-                        <span className="truncate text-sm font-semibold">{step.name}</span>
+                        <span className="truncate text-sm font-semibold">{group.title}</span>
                         <span className="rounded bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">
-                          {step.type}
+                          {group.steps.length} 条事件
                         </span>
                       </div>
-                      <div className="mt-2 text-xs text-slate-500">
-                        {formatTime(step.startedAt)} · {formatDuration(step.durationMs)}
+                      <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
+                        <span>{group.description}</span>
+                        <span>{formatTime(group.startedAt)}</span>
+                        <span>{formatDuration(group.durationMs)}</span>
                       </div>
                     </div>
-                    <StatusBadge status={step.status} />
+                    <StatusBadge status={group.status} />
                   </summary>
-                  <div className="grid gap-4 border-t border-slate-100 p-5 lg:grid-cols-2">
-                    {step.metadata ? <ReadableBlock title="Metadata" value={step.metadata} /> : null}
-                    {step.input !== undefined ? <ReadableBlock title="请求参数" value={step.input} /> : null}
-                    {step.output !== undefined ? <ReadableBlock title="模型回复 / 输出" value={step.output} /> : null}
-                    {step.error !== undefined ? <ReadableBlock title="错误" value={step.error} /> : null}
+                  <div className="space-y-4 border-t border-slate-100 p-5">
+                    {group.steps.map((step, stepIndex) => (
+                      <TraceStepDetail key={step.id} step={step} index={stepIndex} />
+                    ))}
                   </div>
                 </details>
               ))}
@@ -188,6 +206,67 @@ export function AiTraceViewer() {
         )}
       </section>
     </main>
+  );
+}
+
+function TraceTimeline({ groups }: { groups: TraceStepGroup[] }) {
+  if (groups.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mb-5 rounded-xl border border-slate-200 bg-white p-4">
+      <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">流程概览</div>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {groups.map((group, index) => (
+          <div className="flex min-w-0 gap-3 rounded-lg border border-slate-100 bg-slate-50 p-3" key={group.id}>
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
+              {index + 1}
+            </span>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <div className="truncate text-sm font-semibold text-slate-900">{group.title}</div>
+                <StatusDot status={group.status} />
+              </div>
+              <div className="mt-1 truncate text-xs text-slate-500">{group.description}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TraceStepDetail({ step, index }: { step: AiTraceStep; index: number }) {
+  const title = getStepTitle(step);
+  const summary = getStepSummary(step);
+
+  return (
+    <details className="overflow-hidden rounded-lg border border-slate-200 bg-white" open={step.status === "failed"}>
+      <summary className="flex cursor-pointer items-start justify-between gap-4 bg-slate-50 px-4 py-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-slate-400">{index + 1}</span>
+            <span className="truncate text-sm font-semibold text-slate-800">{title}</span>
+            <span className="rounded bg-white px-2 py-1 text-[11px] font-medium text-slate-500 ring-1 ring-slate-200">
+              {getStepTypeLabel(step.type)}
+            </span>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
+            <span>{summary}</span>
+            <span>{formatTime(step.startedAt)}</span>
+            <span>{formatDuration(step.durationMs)}</span>
+          </div>
+        </div>
+        <StatusBadge status={step.status} />
+      </summary>
+      <div className="grid gap-4 p-4 lg:grid-cols-2">
+        {step.metadata ? <ReadableBlock title="Metadata" value={step.metadata} /> : null}
+        {step.input !== undefined ? <ReadableBlock title="请求参数" value={step.input} /> : null}
+        {step.output !== undefined ? <ReadableBlock title="模型回复 / 输出" value={step.output} /> : null}
+        {step.error !== undefined ? <ReadableBlock title="错误" value={step.error} /> : null}
+      </div>
+    </details>
   );
 }
 
@@ -316,6 +395,214 @@ function isModelPayload(value: unknown): value is ModelPayload {
 
 function isContentPayload(value: unknown): value is ContentPayload {
   return isRecord(value) && (typeof value.content === "string" || typeof value.reasoning === "string");
+}
+
+function groupTraceSteps(steps: AiTraceStep[]): TraceStepGroup[] {
+  const groupMap = new Map<string, TraceStepGroup>();
+
+  for (const step of steps) {
+    const definition = getStepGroupDefinition(step);
+    const group = groupMap.get(definition.id);
+
+    if (group) {
+      group.steps.push(step);
+      group.status = mergeStatus(group.status, step.status);
+      group.startedAt = minIsoTime(group.startedAt, step.startedAt);
+      group.endedAt = maxIsoTime(group.endedAt, step.endedAt);
+      group.durationMs = getGroupDuration(group);
+      continue;
+    }
+
+    groupMap.set(definition.id, {
+      ...definition,
+      status: step.status,
+      steps: [step],
+      startedAt: step.startedAt,
+      endedAt: step.endedAt,
+      durationMs: step.durationMs,
+    });
+  }
+
+  return [...groupMap.values()].map((group) => ({
+    ...group,
+    durationMs: getGroupDuration(group),
+  }));
+}
+
+function getStepGroupDefinition(step: AiTraceStep) {
+  if (step.type === "user_input") {
+    return {
+      id: "01_user_input",
+      title: "用户输入",
+      description: "本次请求的消息、开关和接口入参",
+    };
+  }
+
+  if (step.type === "intent" || getStepTask(step) === "intent_extraction" || step.name.includes("意图")) {
+    return {
+      id: "02_intent",
+      title: "意图理解",
+      description: "识别目标、训练类型、限制条件和兜底结果",
+    };
+  }
+
+  if (step.type === "exercise_lookup" || step.type === "candidate_selection") {
+    return {
+      id: "03_candidates",
+      title: "动作候选",
+      description: "读取动作库并按目标、器械、风险过滤候选",
+    };
+  }
+
+  if (step.type === "validation" || step.name.includes("校验")) {
+    return {
+      id: "05_validation",
+      title: "服务端校验",
+      description: "校验计划结构、动作 ID、候选范围和训练规则",
+    };
+  }
+
+  if (getStepTask(step) === "draft_generation" || step.name.includes("草稿")) {
+    return {
+      id: "04_draft",
+      title: "计划草稿生成",
+      description: "调用模型生成结构化训练计划草稿",
+    };
+  }
+
+  if (step.type === "final_response") {
+    return {
+      id: "06_final_response",
+      title: "接口返回",
+      description: "返回给前端的最终结果",
+    };
+  }
+
+  if (step.type === "model_request" || step.type === "model_response") {
+    return {
+      id: "04_model_response",
+      title: "回复生成",
+      description: "生成聊天回复或模型中间输出",
+    };
+  }
+
+  return {
+    id: step.type === "error" ? "99_error" : `90_${step.type}`,
+    title: step.type === "error" ? "异常处理" : getStepTypeLabel(step.type),
+    description: step.type === "error" ? "请求失败、模型失败或流式读取失败" : "其他调试事件",
+  };
+}
+
+function getStepTitle(step: AiTraceStep) {
+  const task = getStepTask(step);
+
+  if (task === "intent_extraction") {
+    return step.type === "model_request" ? "训练计划意图提取请求" : "训练计划意图提取输出";
+  }
+
+  if (task === "draft_generation") {
+    return step.type === "model_request" ? "训练计划草稿生成请求" : "训练计划草稿模型输出";
+  }
+
+  return step.name
+    .replace("第一次大模型回复：", "")
+    .replace("大模型调用参数", "模型请求")
+    .replace("大模型回答", "模型输出");
+}
+
+function getStepSummary(step: AiTraceStep) {
+  const task = getStepTask(step);
+
+  if (task) {
+    return `task: ${task}`;
+  }
+
+  if (step.status === "failed") {
+    return "失败事件，展开查看错误详情";
+  }
+
+  if (step.type === "user_input") {
+    return "请求入口数据";
+  }
+
+  return getStepTypeLabel(step.type);
+}
+
+function getStepTask(step: AiTraceStep) {
+  const task = step.metadata?.task;
+  return typeof task === "string" ? task : null;
+}
+
+function getStepTypeLabel(type: AiTraceStep["type"]) {
+  const labels: Record<AiTraceStep["type"], string> = {
+    user_input: "用户输入",
+    model_request: "模型请求",
+    model_response: "模型输出",
+    intent: "意图",
+    exercise_lookup: "动作库",
+    candidate_selection: "候选筛选",
+    validation: "校验",
+    final_response: "最终返回",
+    error: "错误",
+  };
+
+  return labels[type];
+}
+
+function mergeStatus(current: AiTrace["status"], next: AiTrace["status"]) {
+  if (current === "failed" || next === "failed") {
+    return "failed";
+  }
+
+  if (current === "running" || next === "running") {
+    return "running";
+  }
+
+  return "success";
+}
+
+function minIsoTime(current: string | undefined, next: string | undefined) {
+  if (!current) {
+    return next;
+  }
+
+  if (!next) {
+    return current;
+  }
+
+  return new Date(next).getTime() < new Date(current).getTime() ? next : current;
+}
+
+function maxIsoTime(current: string | undefined, next: string | undefined) {
+  if (!current) {
+    return next;
+  }
+
+  if (!next) {
+    return current;
+  }
+
+  return new Date(next).getTime() > new Date(current).getTime() ? next : current;
+}
+
+function getGroupDuration(group: TraceStepGroup) {
+  if (group.startedAt && group.endedAt) {
+    return new Date(group.endedAt).getTime() - new Date(group.startedAt).getTime();
+  }
+
+  const totalDuration = group.steps.reduce((sum, step) => sum + (step.durationMs ?? 0), 0);
+  return totalDuration > 0 ? totalDuration : group.durationMs;
+}
+
+function StatusDot({ status }: { status: AiTrace["status"] }) {
+  const className =
+    status === "success"
+      ? "bg-emerald-500"
+      : status === "failed"
+        ? "bg-red-500"
+        : "bg-amber-500";
+
+  return <span className={`h-2 w-2 shrink-0 rounded-full ${className}`} />;
 }
 
 function StatusBadge({ status }: { status: AiTrace["status"] }) {
