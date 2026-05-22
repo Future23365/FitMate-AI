@@ -244,7 +244,7 @@ export function ChatPage() {
                             {autoPlanGenerating === message.id && (
                               <div className="mt-md flex animate-pulse items-center gap-xs rounded-xl border border-primary/20 bg-primary/5 p-md font-label-sm text-label-sm text-primary shadow-sm">
                                 <SymbolIcon className="animate-spin text-[16px]">autorenew</SymbolIcon>
-                                <span>FitMate 安全引擎正在校验并生成专属计划...</span>
+                                <span>正在生成计划</span>
                               </div>
                             )}
 
