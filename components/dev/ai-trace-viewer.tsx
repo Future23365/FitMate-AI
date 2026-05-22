@@ -10,6 +10,12 @@ type TraceResponse = {
   error?: string;
 };
 
+type SaveLogResponse = {
+  ok: boolean;
+  path?: string;
+  error?: string;
+};
+
 type TraceStepGroup = {
   id: string;
   title: string;
@@ -32,6 +38,8 @@ export function AiTraceViewer() {
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [savingLogTarget, setSavingLogTarget] = useState<string | null>(null);
+  const [saveLogMessage, setSaveLogMessage] = useState<string | null>(null);
 
   const selectedTrace = useMemo(
     () => traces.find((trace) => trace.id === selectedTraceId) ?? traces[0] ?? null,
@@ -73,6 +81,40 @@ export function AiTraceViewer() {
     setSelectedTraceId(null);
   }
 
+  async function saveTraceLog(input: {
+    targetId: string;
+    target: Record<string, unknown>;
+    payload: Record<string, unknown>;
+  }) {
+    setSavingLogTarget(input.targetId);
+    setSaveLogMessage(null);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/dev/ai-traces", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          target: input.target,
+          payload: input.payload,
+        }),
+      });
+      const data = (await response.json()) as SaveLogResponse;
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || "Failed to save AI trace log.");
+      }
+
+      setSaveLogMessage(`已保存到 ${data.path}`);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Failed to save AI trace log.");
+    } finally {
+      setSavingLogTarget(null);
+    }
+  }
+
   useEffect(() => {
     const initialTimer = window.setTimeout(() => {
       void loadTraces();
@@ -106,6 +148,7 @@ export function AiTraceViewer() {
             </button>
           </div>
           {error ? <p className="mt-3 text-xs text-red-600">{error}</p> : null}
+          {saveLogMessage ? <p className="mt-3 break-words text-xs text-emerald-700">{saveLogMessage}</p> : null}
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -197,7 +240,34 @@ export function AiTraceViewer() {
                         <TokenUsageBadges usage={getGroupTokenUsage(group)} labelPrefix="阶段" />
                       </div>
                     </div>
-                    <StatusBadge status={group.status} />
+                    <div className="flex shrink-0 items-center gap-2">
+                      <button
+                        className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        type="button"
+                        disabled={savingLogTarget === group.id}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          if (!selectedTrace) {
+                            return;
+                          }
+
+                          void saveTraceLog({
+                            targetId: group.id,
+                            target: {
+                              type: "step_group",
+                              traceId: selectedTrace.id,
+                              groupId: group.id,
+                              title: group.title,
+                            },
+                            payload: createGroupLogPayload(selectedTrace, group),
+                          });
+                        }}
+                      >
+                        {savingLogTarget === group.id ? "保存中" : "保存log"}
+                      </button>
+                      <StatusBadge status={group.status} />
+                    </div>
                   </summary>
                   <div className="space-y-4 border-t border-slate-100 p-5">
                     {group.steps.map((step, stepIndex) => (
@@ -206,6 +276,23 @@ export function AiTraceViewer() {
                         step={step}
                         steps={group.steps}
                         index={stepIndex}
+                        isSaving={savingLogTarget === step.id}
+                        onSaveLog={() => {
+                          if (!selectedTrace) {
+                            return;
+                          }
+
+                          void saveTraceLog({
+                            targetId: step.id,
+                            target: {
+                              type: "step_event",
+                              traceId: selectedTrace.id,
+                              stepId: step.id,
+                              title: getStepTitle(step),
+                            },
+                            payload: createStepLogPayload(selectedTrace, group, step),
+                          });
+                        }}
                       />
                     ))}
                   </div>
@@ -251,14 +338,92 @@ function TraceTimeline({ groups }: { groups: TraceStepGroup[] }) {
   );
 }
 
+function createGroupLogPayload(trace: AiTrace, group: TraceStepGroup) {
+  return {
+    kind: "ai_trace_step_group",
+    trace: {
+      id: trace.id,
+      route: trace.route,
+      title: trace.title,
+      status: trace.status,
+      createdAt: trace.createdAt,
+      endedAt: trace.endedAt,
+      durationMs: trace.durationMs,
+      metadata: trace.metadata,
+    },
+    group: {
+      id: group.id,
+      title: group.title,
+      description: group.description,
+      status: group.status,
+      startedAt: group.startedAt,
+      endedAt: group.endedAt,
+      durationMs: group.durationMs,
+      tokenUsage: getGroupTokenUsage(group),
+      steps: group.steps.map((step, index) => createStepSnapshot(step, group.steps, index)),
+    },
+  };
+}
+
+function createStepLogPayload(trace: AiTrace, group: TraceStepGroup, step: AiTraceStep) {
+  const stepIndex = group.steps.findIndex((item) => item.id === step.id);
+
+  return {
+    kind: "ai_trace_step_event",
+    trace: {
+      id: trace.id,
+      route: trace.route,
+      title: trace.title,
+      status: trace.status,
+      createdAt: trace.createdAt,
+      endedAt: trace.endedAt,
+      durationMs: trace.durationMs,
+      metadata: trace.metadata,
+    },
+    group: {
+      id: group.id,
+      title: group.title,
+      description: group.description,
+      status: group.status,
+    },
+    step: createStepSnapshot(step, group.steps, Math.max(stepIndex, 0)),
+  };
+}
+
+// 保存给 Codex 排查时需要的完整输入、输出、错误和调试上下文。
+function createStepSnapshot(step: AiTraceStep, steps: AiTraceStep[], index: number) {
+  return {
+    id: step.id,
+    title: getStepTitle(step),
+    name: step.name,
+    type: step.type,
+    status: step.status,
+    startedAt: step.startedAt,
+    endedAt: step.endedAt,
+    durationMs: step.durationMs,
+    summary: getStepSummary(step),
+    inputTitle: getInputTitle(step),
+    input: step.input,
+    outputTitle: getOutputTitle(step),
+    output: step.output,
+    error: step.error,
+    metadata: step.metadata,
+    tokenUsage: getVisibleStepTokenUsage(steps, index),
+  };
+}
+
 function TraceStepDetail({
   step,
   steps,
   index,
+  isSaving,
+  onSaveLog,
 }: {
   step: AiTraceStep;
   steps: AiTraceStep[];
   index: number;
+  isSaving: boolean;
+  onSaveLog: () => void;
 }) {
   const title = getStepTitle(step);
   const summary = getStepSummary(step);
@@ -283,7 +448,21 @@ function TraceStepDetail({
             <TokenUsageBadges usage={tokenUsage} labelPrefix="本次" />
           </div>
         </div>
-        <StatusBadge status={step.status} />
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            className="rounded-md border border-blue-200 bg-white px-3 py-2 text-xs font-medium text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            disabled={isSaving}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onSaveLog();
+            }}
+          >
+            {isSaving ? "保存中" : "保存log"}
+          </button>
+          <StatusBadge status={step.status} />
+        </div>
       </summary>
       <div className="space-y-4 p-4">
         <StepSummaryCards step={step} tokenUsage={tokenUsage} />
