@@ -54,32 +54,33 @@ export function ExerciseRecommendationCard({
 
       <div className="p-md">
         <div className="space-y-sm">
-          <div className="min-w-0">
+          <div className="flex min-w-0 flex-col gap-xs lg:flex-row lg:items-start lg:justify-between">
             <h3 className="flex min-w-0 items-center gap-xs text-[15px] font-bold leading-5 text-on-surface">
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
                 <SymbolIcon className="text-[17px]">recommend</SymbolIcon>
               </span>
               <span className="truncate">{card.title}</span>
             </h3>
-            <p className="mt-xs text-[13px] leading-5 text-muted">
-              {card.summary}
-            </p>
+
+            <div className="flex shrink-0 flex-wrap gap-xs lg:justify-end">
+              <span className="inline-flex items-center gap-1 rounded-lg bg-panel-soft px-sm py-[3px] text-[12px] font-medium leading-4 text-ink">
+                <SymbolIcon className="text-[14px]">fitness_center</SymbolIcon>
+                {card.items.length} 个动作
+              </span>
+              {totalMuscles.map((muscle) => (
+                <span
+                  className="rounded-lg bg-primary-soft px-sm py-[3px] text-[12px] font-bold leading-4 text-primary"
+                  key={muscle}
+                >
+                  {muscle}
+                </span>
+              ))}
+            </div>
           </div>
 
-          <div className="flex flex-wrap gap-xs">
-            <span className="inline-flex items-center gap-1 rounded-lg bg-panel-soft px-sm py-[3px] text-[12px] font-medium leading-4 text-ink">
-              <SymbolIcon className="text-[14px]">fitness_center</SymbolIcon>
-              {card.items.length} 个动作
-            </span>
-            {totalMuscles.map((muscle) => (
-              <span
-                className="rounded-lg bg-primary-soft px-sm py-[3px] text-[12px] font-bold leading-4 text-primary"
-                key={muscle}
-              >
-                {muscle}
-              </span>
-            ))}
-          </div>
+          <p className="text-[13px] leading-5 text-muted">
+            {card.summary}
+          </p>
         </div>
 
         {card.items.length === 0 ? (
@@ -131,25 +132,17 @@ export function ExerciseRecommendationCard({
                       </SymbolIcon>
                     </div>
 
-                    <div className="mt-[2px] flex min-w-0 items-center gap-xs text-[12px] leading-4 text-muted">
-                      <span className="shrink-0 rounded-md bg-panel-soft px-1 py-[1px]">
+                    <div className="mt-[2px] flex min-w-0 flex-wrap items-center gap-xs text-[12px] leading-4 text-muted">
+                      <span className="shrink-0 rounded-md bg-primary-soft px-1.5 py-[1px] font-bold text-primary">
+                        {item.primaryMusclesZh[0]}
+                      </span>
+                      <span className="shrink-0 rounded-md bg-panel-soft px-1.5 py-[1px]">
                         {item.levelZh}
                       </span>
                       <span className="truncate">{item.categoryZh}</span>
                       <span className="truncate">{item.equipmentZh}</span>
                     </div>
                   </div>
-                </div>
-
-                <div className="mt-xs flex flex-wrap gap-xs">
-                  {item.primaryMusclesZh.slice(0, 3).map((muscle) => (
-                    <span
-                      className="rounded-md bg-primary-soft px-xs py-[1px] text-[12px] font-bold leading-4 text-primary"
-                      key={muscle}
-                    >
-                      {muscle}
-                    </span>
-                  ))}
                 </div>
               </button>
               {onDislike ? (
