@@ -55,21 +55,21 @@ export function ExerciseRecommendationCard({
       <div className="p-md">
         <div className="space-y-sm">
           <div className="flex min-w-0 flex-col gap-xs lg:flex-row lg:items-start lg:justify-between">
-            <h3 className="flex min-w-0 items-center gap-xs text-[15px] font-bold leading-5 text-on-surface">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
-                <SymbolIcon className="text-[17px]">recommend</SymbolIcon>
+            <h3 className="flex min-w-0 items-center gap-xs font-title-lg text-title-lg font-bold text-on-surface">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
+                <SymbolIcon className="text-[18px]">recommend</SymbolIcon>
               </span>
               <span className="truncate">{card.title}</span>
             </h3>
 
             <div className="flex shrink-0 flex-wrap gap-xs lg:justify-end">
-              <span className="inline-flex items-center gap-1 rounded-lg bg-panel-soft px-sm py-[3px] text-[12px] font-medium leading-4 text-ink">
+              <span className="inline-flex items-center gap-1 rounded-lg bg-panel-soft px-sm py-xs font-label-sm text-label-sm text-ink">
                 <SymbolIcon className="text-[14px]">fitness_center</SymbolIcon>
                 {card.items.length} 个动作
               </span>
               {totalMuscles.map((muscle) => (
                 <span
-                  className="rounded-lg bg-primary-soft px-sm py-[3px] text-[12px] font-bold leading-4 text-primary"
+                  className="rounded-lg bg-primary-soft px-sm py-xs font-label-sm text-label-sm font-bold text-primary"
                   key={muscle}
                 >
                   {muscle}
@@ -78,7 +78,7 @@ export function ExerciseRecommendationCard({
             </div>
           </div>
 
-          <p className="text-[13px] leading-5 text-muted">
+          <p className="font-body-sm text-body-sm text-muted">
             {card.summary}
           </p>
         </div>
@@ -124,7 +124,7 @@ export function ExerciseRecommendationCard({
 
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-center gap-xs">
-                      <h4 className="truncate text-[14px] font-bold leading-5 text-on-surface">
+                      <h4 className="truncate font-body-md text-body-md font-bold text-on-surface">
                         {item.nameZh}
                       </h4>
                       <SymbolIcon className="shrink-0 text-[15px] text-on-surface-variant transition-colors group-hover:text-primary">
@@ -132,7 +132,7 @@ export function ExerciseRecommendationCard({
                       </SymbolIcon>
                     </div>
 
-                    <div className="mt-[2px] flex min-w-0 flex-wrap items-center gap-xs text-[12px] leading-4 text-muted">
+                    <div className="mt-xs flex min-w-0 flex-wrap items-center gap-xs font-label-xs text-label-xs text-muted">
                       <span className="shrink-0 rounded-md bg-primary-soft px-1.5 py-[1px] font-bold text-primary">
                         {item.primaryMusclesZh[0]}
                       </span>
@@ -164,7 +164,7 @@ export function ExerciseRecommendationCard({
           <div className="mt-sm flex flex-wrap justify-end gap-xs border-t border-line/70 pt-sm">
             {onRefresh ? (
               <button
-                className="inline-flex items-center gap-xs rounded-lg border border-primary/20 bg-primary-soft px-sm py-xs text-[12px] font-bold leading-4 text-primary transition-colors hover:border-primary/40 hover:bg-[#dbe5ff] disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center gap-xs rounded-lg border border-primary/20 bg-primary-soft px-sm py-xs font-label-sm text-label-sm font-bold text-primary transition-colors hover:border-primary/40 hover:bg-[#dbe5ff] disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={isRefreshing}
                 onClick={onRefresh}
                 type="button"
@@ -177,7 +177,7 @@ export function ExerciseRecommendationCard({
             ) : null}
             {onCompose ? (
               <button
-                className="inline-flex items-center gap-xs rounded-lg border border-line bg-white px-sm py-xs text-[12px] font-bold leading-4 text-ink transition-colors hover:border-primary/30 hover:bg-panel-soft disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center gap-xs rounded-lg border border-line bg-white px-sm py-xs font-label-sm text-label-sm font-bold text-ink transition-colors hover:border-primary/30 hover:bg-panel-soft disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={isRefreshing || card.items.length === 0}
                 onClick={onCompose}
                 type="button"
