@@ -146,7 +146,8 @@ export function AppSidebar() {
         href="/"
         onClick={() => window.dispatchEvent(new Event("fitmate:new-chat"))}
       >
-        <SymbolIcon>add</SymbolIcon>+ 新建对话
+        <SymbolIcon className="text-[20px]">add_comment</SymbolIcon>
+        <span>新建对话</span>
       </Link>
 
       <nav className="custom-scrollbar flex-1 space-y-1.5 overflow-y-auto">
