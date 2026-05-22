@@ -16,54 +16,7 @@ import {
 } from "@/features/chat/lib/workout-plan-trigger";
 import { WorkoutPlanDraftCard } from "@/features/workouts/components/workout-plan-draft-card";
 
-const quickPrompts = [
-  {
-    label: "制定增肌计划",
-    prompt: "帮我制定一个每周 4 次、每次 45 分钟的增肌训练计划",
-    icon: "fitness_center",
-  },
-  {
-    label: "居家训练",
-    prompt: "我今天在家想练 20 分钟核心和臀腿，需要一个无器械训练",
-    icon: "home",
-  },
-  {
-    label: "今天练什么",
-    prompt: "根据我最近的训练状态，帮我安排今天的训练重点",
-    icon: "bolt",
-  },
-  {
-    label: "动作替换",
-    prompt: "帮我把高冲击动作替换成更适合新手的低冲击动作",
-    icon: "sync_alt",
-  },
-];
-
-const insightCards = [
-  { label: "训练目标", value: "待确认", icon: "flag", tone: "bg-primary-soft text-primary" },
-  { label: "本周节奏", value: "3/4 次", icon: "calendar_today", tone: "bg-success-soft text-success-text" },
-  { label: "计划状态", value: "可生成", icon: "auto_awesome", tone: "bg-warning-soft text-warning-text" },
-];
-
-const coachingModes = [
-  {
-    title: "生成计划",
-    description: "目标、时长、器械明确后，输出可执行训练安排。",
-    icon: "edit_calendar",
-  },
-  {
-    title: "推荐动作",
-    description: "按部位、器械和经验筛选动作，并支持继续编排。",
-    icon: "exercise",
-  },
-  {
-    title: "调整强度",
-    description: "根据疲劳、疼痛或时间变化，重排训练内容。",
-    icon: "tune",
-  },
-];
-
-const readinessItems = ["目标", "时长", "器械", "训练经验"];
+const quickPrompts = ["帮我制定增肌计划", "推荐居家训练", "今天练什么", "制定减脂食谱"];
 
 const weekDays = [
   { label: "一", done: true },
@@ -208,118 +161,29 @@ export function ChatPage() {
           ref={chatScrollRef}
         >
           {!hasMessages ? (
-            <div className="mx-auto flex min-h-full w-full max-w-6xl flex-col justify-center gap-xl py-xl">
-              <section className="grid items-stretch gap-lg lg:grid-cols-[minmax(0,1.1fr)_380px]">
-                <div className="flex min-h-[420px] flex-col justify-between rounded-[20px] border border-line bg-white p-lg shadow-card md:p-xl">
-                  <div>
-                    <div className="mb-lg flex items-center gap-sm">
-                      <LogoMark className="h-12 w-12" />
-                      <div>
-                        <p className="text-label-sm font-extrabold uppercase text-primary">
-                          FitMate AI Coach
-                        </p>
-                        <p className="text-label-sm text-muted">训练计划 · 动作推荐 · 强度调整</p>
-                      </div>
-                    </div>
-
-                    <h2 className="max-w-2xl text-[34px] font-extrabold leading-[1.12] text-ink md:text-[44px]">
-                      把今天的状态说清楚，我来整理成可执行训练。
-                    </h2>
-                    <p className="mt-md max-w-2xl text-body-lg text-muted">
-                      先告诉我目标、可用时间和器械条件。FitMate 会先补齐关键信息，再生成训练计划或推荐动作。
-                    </p>
-                  </div>
-
-                  <div className="mt-xl grid gap-sm sm:grid-cols-3">
-                    {insightCards.map((item) => (
-                      <div
-                        className="rounded-xl border border-line bg-panel-soft/70 p-md"
-                        key={item.label}
-                      >
-                        <div
-                          className={`mb-sm flex h-9 w-9 items-center justify-center rounded-xl ${item.tone}`}
-                        >
-                          <SymbolIcon className="text-[20px]">{item.icon}</SymbolIcon>
-                        </div>
-                        <p className="text-label-sm font-bold text-muted">{item.label}</p>
-                        <p className="mt-xs text-title-lg font-extrabold text-ink">{item.value}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-md rounded-[20px] border border-line bg-white p-lg shadow-card">
-                  <div className="rounded-xl bg-primary-soft p-md">
-                    <div className="mb-sm flex items-center justify-between">
-                      <span className="text-label-sm font-extrabold text-primary">计划生成准备度</span>
-                      <span className="rounded-full bg-white px-sm py-xs text-[12px] font-bold text-primary shadow-sm">
-                        0/4
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-sm">
-                      {readinessItems.map((item) => (
-                        <div
-                          className="flex items-center gap-xs rounded-lg border border-primary/10 bg-white/75 px-sm py-xs text-label-sm font-bold text-muted"
-                          key={item}
-                        >
-                          <span className="h-2 w-2 rounded-full bg-outline-variant" />
-                          {item}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="space-y-sm">
-                    {coachingModes.map((mode) => (
-                      <div
-                        className="flex gap-sm rounded-xl border border-line bg-white p-md transition-colors hover:border-primary/30 hover:bg-panel-soft"
-                        key={mode.title}
-                      >
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-panel-soft text-primary">
-                          <SymbolIcon>{mode.icon}</SymbolIcon>
-                        </div>
-                        <div>
-                          <h3 className="text-label-md font-extrabold text-ink">{mode.title}</h3>
-                          <p className="mt-xs text-label-sm leading-relaxed text-muted">
-                            {mode.description}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </section>
-
-              <section className="rounded-[20px] border border-line bg-white/80 p-md shadow-card backdrop-blur">
-                <div className="mb-md flex flex-col gap-xs sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <h3 className="text-title-lg font-extrabold text-ink">快速开始</h3>
-                    <p className="text-label-md text-muted">选择一个入口，FitMate 会直接发送给对话。</p>
-                  </div>
-                  <span className="hidden rounded-full bg-panel-soft px-sm py-xs text-label-sm font-bold text-muted sm:inline-flex">
-                    支持继续追问和改计划
-                  </span>
-                </div>
-                <div className="grid gap-sm md:grid-cols-2 xl:grid-cols-4">
-                  {quickPrompts.map((item) => (
-                    <button
-                      className="group flex min-h-[104px] cursor-pointer flex-col items-start justify-between rounded-xl border border-line bg-white p-md text-left shadow-card transition-all hover:border-primary/30 hover:bg-primary-soft/50 hover:shadow-lift active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
-                      disabled={isLoading}
-                      key={item.label}
-                      onClick={() => sendMessage(item.prompt)}
-                      type="button"
-                    >
-                      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-panel-soft text-primary transition-colors group-hover:bg-white">
-                        <SymbolIcon className="text-[20px]">{item.icon}</SymbolIcon>
-                      </span>
-                      <span className="mt-md text-label-md font-extrabold text-ink">{item.label}</span>
-                      <span className="mt-xs line-clamp-2 text-label-sm leading-relaxed text-muted">
-                        {item.prompt}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </section>
+            <div className="flex h-full flex-col items-center justify-center space-y-xl px-lg text-center">
+              <div className="flex flex-col items-center gap-md">
+                <LogoMark className="mb-md h-24 w-24 animate-pulse rounded-[20px]" />
+                <h2 className="font-display-lg text-display-lg font-extrabold tracking-[-0.03em] text-ink">
+                  你好！我是你的 AI 健身助手
+                </h2>
+                <p className="max-w-lg font-body-lg text-body-lg text-muted">
+                  我可以为你制定减脂、增肌或保持健康的专业计划。试着告诉我你的目标吧！
+                </p>
+              </div>
+              <div className="flex max-w-2xl flex-wrap justify-center gap-sm">
+                {quickPrompts.map((prompt) => (
+                  <button
+                    className="whitespace-nowrap rounded-xl border border-line bg-white px-lg py-sm text-label-md font-bold shadow-card transition-all hover:bg-panel-soft disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={isLoading}
+                    key={prompt}
+                    onClick={() => sendMessage(prompt)}
+                    type="button"
+                  >
+                    {prompt}
+                  </button>
+                ))}
+              </div>
             </div>
           ) : (
             <div className="mx-auto flex max-w-4xl flex-col gap-md">
