@@ -158,8 +158,8 @@ export function AiTraceViewer() {
               </div>
             </div>
 
-            {selectedTrace.metadata ? (
-              <TracePanel title="Trace Metadata" value={selectedTrace.metadata} />
+            {selectedTrace.metadata && !isEmptyValue(selectedTrace.metadata) ? (
+              <TracePanel title="请求概览" value={selectedTrace.metadata} />
             ) : null}
 
             <TraceTimeline groups={selectedStepGroups} />
@@ -240,6 +240,7 @@ function TraceTimeline({ groups }: { groups: TraceStepGroup[] }) {
 function TraceStepDetail({ step, index }: { step: AiTraceStep; index: number }) {
   const title = getStepTitle(step);
   const summary = getStepSummary(step);
+  const debugMetadata = getDisplayableMetadata(step.metadata);
 
   return (
     <details className="overflow-hidden rounded-lg border border-slate-200 bg-white" open={step.status === "failed"}>
@@ -260,11 +261,73 @@ function TraceStepDetail({ step, index }: { step: AiTraceStep; index: number }) 
         </div>
         <StatusBadge status={step.status} />
       </summary>
-      <div className="grid gap-4 p-4 lg:grid-cols-2">
-        {step.metadata ? <ReadableBlock title="Metadata" value={step.metadata} /> : null}
-        {step.input !== undefined ? <ReadableBlock title="请求参数" value={step.input} /> : null}
-        {step.output !== undefined ? <ReadableBlock title="模型回复 / 输出" value={step.output} /> : null}
-        {step.error !== undefined ? <ReadableBlock title="错误" value={step.error} /> : null}
+      <div className="space-y-4 p-4">
+        <StepSummaryCards step={step} />
+        <div className="grid gap-4 lg:grid-cols-2">
+          {!isEmptyValue(step.output) ? (
+            <TraceDataPanel
+              title={getOutputTitle(step)}
+              value={step.output}
+              defaultOpen={shouldOpenOutput(step)}
+            />
+          ) : null}
+          {!isEmptyValue(step.error) ? (
+            <TraceDataPanel title="错误详情" value={step.error} defaultOpen />
+          ) : null}
+          {!isEmptyValue(step.input) ? (
+            <TraceDataPanel
+              title={getInputTitle(step)}
+              value={step.input}
+              defaultOpen={shouldOpenInput(step)}
+            />
+          ) : null}
+          {debugMetadata ? (
+            <TraceDataPanel title="调试信息" value={debugMetadata} defaultOpen={false} />
+          ) : null}
+        </div>
+      </div>
+    </details>
+  );
+}
+
+function StepSummaryCards({ step }: { step: AiTraceStep }) {
+  const items = getStepSummaryItems(step);
+
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      {items.map((item) => (
+        <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2" key={item.label}>
+          <div className="text-[11px] font-medium text-slate-500">{item.label}</div>
+          <div className="mt-1 truncate text-sm font-semibold text-slate-900">{item.value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TraceDataPanel({
+  title,
+  value,
+  defaultOpen = false,
+}: {
+  title: string;
+  value: unknown;
+  defaultOpen?: boolean;
+}) {
+  return (
+    <details
+      className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white"
+      open={defaultOpen}
+    >
+      <summary className="cursor-pointer bg-white px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 hover:bg-slate-50">
+        {title}
+      </summary>
+      <div className="border-t border-slate-100 p-3">
+        <ReadableBlock title="" value={value} />
       </div>
     </details>
   );
@@ -301,10 +364,10 @@ function ModelPayloadBlock({ title, value }: { title: string; value: ModelPayloa
 
   return (
     <div className="min-w-0 space-y-4 lg:col-span-2">
-      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</div>
+      {title ? <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</div> : null}
       {Object.keys(rest).length > 0 ? <JsonBlock title="调用配置" value={rest} /> : null}
       <div className="space-y-3">
-        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Messages</div>
+        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">消息列表</div>
         {value.messages.map((message, index) => (
           <div className="overflow-hidden rounded-md border border-slate-200 bg-white" key={index}>
             <div className="border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
@@ -323,12 +386,12 @@ function ModelPayloadBlock({ title, value }: { title: string; value: ModelPayloa
 function ContentPayloadBlock({ title, value }: { title: string; value: ContentPayload }) {
   return (
     <div className="min-w-0 space-y-4 lg:col-span-2">
-      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</div>
+      {title ? <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</div> : null}
       {typeof value.content === "string" ? (
-        <TextBlock title="Content" value={value.content || "（空）"} />
+        <TextBlock title="回复内容" value={value.content || "（空）"} />
       ) : null}
       {typeof value.reasoning === "string" && value.reasoning ? (
-        <TextBlock title="Reasoning" value={value.reasoning} />
+        <TextBlock title="推理内容" value={value.reasoning} />
       ) : null}
       {Object.entries(value).some(([key]) => key !== "content" && key !== "reasoning") ? (
         <JsonBlock
@@ -345,7 +408,7 @@ function ContentPayloadBlock({ title, value }: { title: string; value: ContentPa
 function TextBlock({ title, value }: { title: string; value: string }) {
   return (
     <div className="min-w-0">
-      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</div>
+      {title ? <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</div> : null}
       <pre className="max-h-[560px] whitespace-pre-wrap break-words overflow-auto rounded-md border border-slate-200 bg-white p-4 text-xs leading-relaxed text-slate-800">
         {value}
       </pre>
@@ -356,7 +419,7 @@ function TextBlock({ title, value }: { title: string; value: string }) {
 function JsonBlock({ title, value }: { title: string; value: unknown }) {
   return (
     <div className="min-w-0">
-      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</div>
+      {title ? <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</div> : null}
       <pre className="max-h-[520px] overflow-auto rounded-md bg-slate-950 p-4 text-xs leading-relaxed text-slate-100">
         {JSON.stringify(value, null, 2)}
       </pre>
@@ -526,6 +589,200 @@ function getStepSummary(step: AiTraceStep) {
   }
 
   return getStepTypeLabel(step.type);
+}
+
+function getStepSummaryItems(step: AiTraceStep) {
+  const output = isRecord(step.output) ? step.output : null;
+  const input = isRecord(step.input) ? step.input : null;
+  const metadata = isRecord(step.metadata) ? step.metadata : null;
+  const items: Array<{ label: string; value: string }> = [];
+
+  if (metadata?.task && typeof metadata.task === "string") {
+    items.push({ label: "任务", value: getTaskLabel(metadata.task) });
+  }
+
+  if (typeof metadata?.timeoutMs === "number") {
+    items.push({ label: "超时", value: formatDuration(metadata.timeoutMs) });
+  }
+
+  if (typeof metadata?.status === "number") {
+    items.push({ label: "HTTP 状态", value: String(metadata.status) });
+  }
+
+  if (typeof metadata?.primaryCandidateCount === "number") {
+    items.push({ label: "主候选", value: String(metadata.primaryCandidateCount) });
+  }
+
+  if (typeof metadata?.supplementaryCandidateCount === "number") {
+    items.push({ label: "补充候选", value: String(metadata.supplementaryCandidateCount) });
+  }
+
+  if (typeof metadata?.excludedCount === "number") {
+    items.push({ label: "排除动作", value: String(metadata.excludedCount) });
+  }
+
+  if (typeof metadata?.exerciseContextCount === "number") {
+    items.push({ label: "上下文动作", value: String(metadata.exerciseContextCount) });
+  }
+
+  if (output) {
+    addRecordItem(items, output, "candidateStatus", "候选状态");
+    addRecordItem(items, output, "relevantCandidateCount", "相关候选");
+    addRecordItem(items, output, "requiredRelevantCandidateCount", "最低需求");
+    addRecordItem(items, output, "isEnoughCandidates", "候选充足");
+    addRecordItem(items, output, "ok", "结果");
+    addRecordItem(items, output, "code", "错误码");
+
+    const content = output.content;
+    if (typeof content === "string") {
+      items.push({ label: "回复长度", value: `${content.length} 字` });
+    }
+
+    const reasoning = output.reasoning;
+    if (typeof reasoning === "string" && reasoning) {
+      items.push({ label: "推理长度", value: `${reasoning.length} 字` });
+    }
+
+    const draft = output.draft;
+    if (isRecord(draft) && typeof draft.title === "string") {
+      items.push({ label: "计划标题", value: draft.title });
+    }
+  }
+
+  if (isModelPayload(step.input)) {
+    items.push({ label: "消息数", value: String(step.input.messages.length) });
+  } else if (input && Array.isArray(input.messages)) {
+    items.push({ label: "消息数", value: String(input.messages.length) });
+  }
+
+  return items.slice(0, 6);
+}
+
+function getInputTitle(step: AiTraceStep) {
+  if (step.type === "model_request") {
+    return "模型请求参数";
+  }
+
+  if (step.type === "candidate_selection" || step.type === "exercise_lookup") {
+    return "筛选输入";
+  }
+
+  if (step.type === "validation") {
+    return "校验输入";
+  }
+
+  if (step.type === "user_input") {
+    return "请求入参";
+  }
+
+  return "输入";
+}
+
+function getOutputTitle(step: AiTraceStep) {
+  if (step.type === "model_response") {
+    return "模型回复";
+  }
+
+  if (step.type === "candidate_selection" || step.type === "exercise_lookup") {
+    return "筛选结果";
+  }
+
+  if (step.type === "intent") {
+    return "意图结果";
+  }
+
+  if (step.type === "validation") {
+    return "校验结果";
+  }
+
+  if (step.type === "final_response") {
+    return "接口返回";
+  }
+
+  if (step.type === "error") {
+    return "失败结果";
+  }
+
+  return "步骤输出";
+}
+
+function shouldOpenInput(step: AiTraceStep) {
+  return step.type === "user_input" || step.status === "failed";
+}
+
+function shouldOpenOutput(step: AiTraceStep) {
+  return (
+    step.status === "failed" ||
+    step.type === "intent" ||
+    step.type === "model_response" ||
+    step.type === "validation" ||
+    step.type === "final_response"
+  );
+}
+
+function getDisplayableMetadata(metadata: AiTraceStep["metadata"]) {
+  if (!metadata || isEmptyValue(metadata)) {
+    return null;
+  }
+
+  const entries = Object.entries(metadata).filter(([key]) => !["task", "status"].includes(key));
+
+  if (entries.length === 0) {
+    return null;
+  }
+
+  return Object.fromEntries(entries);
+}
+
+function isEmptyValue(value: unknown) {
+  if (value === undefined || value === null) {
+    return true;
+  }
+
+  if (typeof value === "string") {
+    return value.trim().length === 0;
+  }
+
+  if (Array.isArray(value)) {
+    return value.length === 0;
+  }
+
+  if (isRecord(value)) {
+    return Object.keys(value).length === 0;
+  }
+
+  return false;
+}
+
+function addRecordItem(
+  items: Array<{ label: string; value: string }>,
+  record: Record<string, unknown>,
+  key: string,
+  label: string,
+) {
+  const value = record[key];
+
+  if (value === undefined || value === null) {
+    return;
+  }
+
+  if (typeof value === "boolean") {
+    items.push({ label, value: value ? "是" : "否" });
+    return;
+  }
+
+  if (typeof value === "string" || typeof value === "number") {
+    items.push({ label, value: String(value) });
+  }
+}
+
+function getTaskLabel(task: string) {
+  const labels: Record<string, string> = {
+    intent_extraction: "意图提取",
+    draft_generation: "草稿生成",
+  };
+
+  return labels[task] ?? task;
 }
 
 function getStepTask(step: AiTraceStep) {
