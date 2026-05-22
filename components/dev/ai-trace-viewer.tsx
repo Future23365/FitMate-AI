@@ -130,8 +130,7 @@ export function AiTraceViewer() {
                   <span>{formatDuration(trace.durationMs)}</span>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-slate-500">
-                  <FinalReplyTokenBadge usage={getFinalReplyTokenUsage(trace)} />
-                  <TokenUsageBadges usage={getTraceTokenUsage(trace)} compact labelPrefix="全部" />
+                  <TokenUsageBadges usage={getTraceTokenUsage(trace)} compact />
                 </div>
                 <div className="mt-1 text-xs text-slate-400">{formatTime(trace.createdAt)}</div>
               </button>
@@ -340,18 +339,6 @@ function StepSummaryCards({
   );
 }
 
-function FinalReplyTokenBadge({ usage }: { usage: TokenUsage | null }) {
-  if (typeof usage?.prompt_tokens !== "number") {
-    return null;
-  }
-
-  return (
-    <span className="rounded bg-violet-50 px-1.5 py-0.5 font-medium text-violet-700 ring-1 ring-violet-100">
-      最终回复输入 token {formatNumber(usage.prompt_tokens)}
-    </span>
-  );
-}
-
 function TokenUsageBadges({
   usage,
   compact = false,
@@ -405,14 +392,6 @@ function getTraceTokenUsage(trace: AiTrace) {
   }, {});
 
   return hasTokenUsage(totals) ? totals : null;
-}
-
-function getFinalReplyTokenUsage(trace: AiTrace) {
-  const finalReplyStep = [...trace.steps]
-    .reverse()
-    .find((step) => step.type === "model_response" && step.name.includes("生成用户回复"));
-
-  return finalReplyStep ? getTokenUsage(finalReplyStep) : null;
 }
 
 function getGroupTokenUsage(group: TraceStepGroup) {
