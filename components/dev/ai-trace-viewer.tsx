@@ -21,6 +21,12 @@ type TraceStepGroup = {
   durationMs?: number;
 };
 
+type TokenUsage = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+};
+
 export function AiTraceViewer() {
   const [traces, setTraces] = useState<AiTrace[]>([]);
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
@@ -169,7 +175,6 @@ export function AiTraceViewer() {
                 <details
                   className="overflow-hidden rounded-xl border border-slate-200 bg-white"
                   key={group.id}
-                  open
                 >
                   <summary className="flex cursor-pointer items-center justify-between gap-4 px-5 py-4">
                     <div className="min-w-0">
@@ -186,6 +191,7 @@ export function AiTraceViewer() {
                         <span>{group.description}</span>
                         <span>{formatTime(group.startedAt)}</span>
                         <span>{formatDuration(group.durationMs)}</span>
+                        <TokenUsageBadges usage={getGroupTokenUsage(group)} />
                       </div>
                     </div>
                     <StatusBadge status={group.status} />
@@ -241,9 +247,10 @@ function TraceStepDetail({ step, index }: { step: AiTraceStep; index: number }) 
   const title = getStepTitle(step);
   const summary = getStepSummary(step);
   const debugMetadata = getDisplayableMetadata(step.metadata);
+  const tokenUsage = getTokenUsage(step);
 
   return (
-    <details className="overflow-hidden rounded-lg border border-slate-200 bg-white" open>
+    <details className="overflow-hidden rounded-lg border border-slate-200 bg-white">
       <summary className="flex cursor-pointer items-start justify-between gap-4 bg-slate-50 px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -257,6 +264,7 @@ function TraceStepDetail({ step, index }: { step: AiTraceStep; index: number }) 
             <span>{summary}</span>
             <span>{formatTime(step.startedAt)}</span>
             <span>{formatDuration(step.durationMs)}</span>
+            <TokenUsageBadges usage={tokenUsage} />
           </div>
         </div>
         <StatusBadge status={step.status} />
@@ -307,6 +315,62 @@ function StepSummaryCards({ step }: { step: AiTraceStep }) {
   );
 }
 
+function TokenUsageBadges({ usage }: { usage: TokenUsage | null }) {
+  if (!usage) {
+    return null;
+  }
+
+  return (
+    <>
+      {typeof usage.prompt_tokens === "number" ? (
+        <span className="rounded bg-blue-50 px-2 py-0.5 font-medium text-blue-700 ring-1 ring-blue-100">
+          输入 token {formatNumber(usage.prompt_tokens)}
+        </span>
+      ) : null}
+      {typeof usage.completion_tokens === "number" ? (
+        <span className="rounded bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 ring-1 ring-emerald-100">
+          输出 token {formatNumber(usage.completion_tokens)}
+        </span>
+      ) : null}
+      {typeof usage.total_tokens === "number" ? (
+        <span className="rounded bg-slate-100 px-2 py-0.5 font-medium text-slate-700 ring-1 ring-slate-200">
+          总 token {formatNumber(usage.total_tokens)}
+        </span>
+      ) : null}
+    </>
+  );
+}
+
+function getGroupTokenUsage(group: TraceStepGroup) {
+  const totals = group.steps.reduce<TokenUsage>((sum, step) => {
+    const usage = getTokenUsage(step);
+
+    if (!usage) {
+      return sum;
+    }
+
+    return {
+      prompt_tokens: addOptionalNumbers(sum.prompt_tokens, usage.prompt_tokens),
+      completion_tokens: addOptionalNumbers(sum.completion_tokens, usage.completion_tokens),
+      total_tokens: addOptionalNumbers(sum.total_tokens, usage.total_tokens),
+    };
+  }, {});
+
+  return totals.prompt_tokens !== undefined ||
+    totals.completion_tokens !== undefined ||
+    totals.total_tokens !== undefined
+    ? totals
+    : null;
+}
+
+function addOptionalNumbers(left: number | undefined, right: number | undefined) {
+  if (right === undefined) {
+    return left;
+  }
+
+  return (left ?? 0) + right;
+}
+
 function TraceDataPanel({
   title,
   value,
@@ -317,7 +381,6 @@ function TraceDataPanel({
   return (
     <details
       className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white"
-      open
     >
       <summary className="cursor-pointer bg-white px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 hover:bg-slate-50">
         {title}
