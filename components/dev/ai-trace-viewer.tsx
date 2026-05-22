@@ -130,7 +130,8 @@ export function AiTraceViewer() {
                   <span>{formatDuration(trace.durationMs)}</span>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-slate-500">
-                  <TokenUsageBadges usage={getTraceTokenUsage(trace)} compact />
+                  <FinalReplyTokenBadge usage={getFinalReplyTokenUsage(trace)} />
+                  <TokenUsageBadges usage={getTraceTokenUsage(trace)} compact labelPrefix="全部" />
                 </div>
                 <div className="mt-1 text-xs text-slate-400">{formatTime(trace.createdAt)}</div>
               </button>
@@ -194,14 +195,19 @@ export function AiTraceViewer() {
                         <span>{group.description}</span>
                         <span>{formatTime(group.startedAt)}</span>
                         <span>{formatDuration(group.durationMs)}</span>
-                        <TokenUsageBadges usage={getGroupTokenUsage(group)} />
+                        <TokenUsageBadges usage={getGroupTokenUsage(group)} labelPrefix="阶段" />
                       </div>
                     </div>
                     <StatusBadge status={group.status} />
                   </summary>
                   <div className="space-y-4 border-t border-slate-100 p-5">
                     {group.steps.map((step, stepIndex) => (
-                      <TraceStepDetail key={step.id} step={step} index={stepIndex} />
+                      <TraceStepDetail
+                        key={step.id}
+                        step={step}
+                        steps={group.steps}
+                        index={stepIndex}
+                      />
                     ))}
                   </div>
                 </details>
@@ -246,11 +252,19 @@ function TraceTimeline({ groups }: { groups: TraceStepGroup[] }) {
   );
 }
 
-function TraceStepDetail({ step, index }: { step: AiTraceStep; index: number }) {
+function TraceStepDetail({
+  step,
+  steps,
+  index,
+}: {
+  step: AiTraceStep;
+  steps: AiTraceStep[];
+  index: number;
+}) {
   const title = getStepTitle(step);
   const summary = getStepSummary(step);
   const debugMetadata = getDisplayableMetadata(step.metadata);
-  const tokenUsage = getTokenUsage(step);
+  const tokenUsage = getVisibleStepTokenUsage(steps, index);
 
   return (
     <details className="overflow-hidden rounded-lg border border-slate-200 bg-white">
@@ -267,13 +281,13 @@ function TraceStepDetail({ step, index }: { step: AiTraceStep; index: number }) 
             <span>{summary}</span>
             <span>{formatTime(step.startedAt)}</span>
             <span>{formatDuration(step.durationMs)}</span>
-            <TokenUsageBadges usage={tokenUsage} />
+            <TokenUsageBadges usage={tokenUsage} labelPrefix="本次" />
           </div>
         </div>
         <StatusBadge status={step.status} />
       </summary>
       <div className="space-y-4 p-4">
-        <StepSummaryCards step={step} />
+        <StepSummaryCards step={step} tokenUsage={tokenUsage} />
         <div className="grid gap-4 lg:grid-cols-2">
           {!isEmptyValue(step.output) ? (
             <TraceDataPanel
@@ -301,8 +315,14 @@ function TraceStepDetail({ step, index }: { step: AiTraceStep; index: number }) 
   );
 }
 
-function StepSummaryCards({ step }: { step: AiTraceStep }) {
-  const items = getStepSummaryItems(step);
+function StepSummaryCards({
+  step,
+  tokenUsage,
+}: {
+  step: AiTraceStep;
+  tokenUsage: TokenUsage | null;
+}) {
+  const items = getStepSummaryItems(step, tokenUsage);
 
   if (items.length === 0) {
     return null;
@@ -320,28 +340,49 @@ function StepSummaryCards({ step }: { step: AiTraceStep }) {
   );
 }
 
-function TokenUsageBadges({ usage, compact = false }: { usage: TokenUsage | null; compact?: boolean }) {
+function FinalReplyTokenBadge({ usage }: { usage: TokenUsage | null }) {
+  if (typeof usage?.prompt_tokens !== "number") {
+    return null;
+  }
+
+  return (
+    <span className="rounded bg-violet-50 px-1.5 py-0.5 font-medium text-violet-700 ring-1 ring-violet-100">
+      最终回复输入 token {formatNumber(usage.prompt_tokens)}
+    </span>
+  );
+}
+
+function TokenUsageBadges({
+  usage,
+  compact = false,
+  labelPrefix = "",
+}: {
+  usage: TokenUsage | null;
+  compact?: boolean;
+  labelPrefix?: string;
+}) {
   if (!usage) {
     return null;
   }
 
   const labelClassName = compact ? "px-1.5 py-0.5" : "px-2 py-0.5";
+  const prefix = labelPrefix ? `${labelPrefix}` : "";
 
   return (
     <>
       {typeof usage.prompt_tokens === "number" ? (
         <span className={`rounded bg-blue-50 font-medium text-blue-700 ring-1 ring-blue-100 ${labelClassName}`}>
-          输入 token {formatNumber(usage.prompt_tokens)}
+          {prefix}输入 token {formatNumber(usage.prompt_tokens)}
         </span>
       ) : null}
       {typeof usage.completion_tokens === "number" ? (
         <span className={`rounded bg-emerald-50 font-medium text-emerald-700 ring-1 ring-emerald-100 ${labelClassName}`}>
-          输出 token {formatNumber(usage.completion_tokens)}
+          {prefix}输出 token {formatNumber(usage.completion_tokens)}
         </span>
       ) : null}
       {typeof usage.total_tokens === "number" ? (
         <span className={`rounded bg-slate-100 font-medium text-slate-700 ring-1 ring-slate-200 ${labelClassName}`}>
-          总 token {formatNumber(usage.total_tokens)}
+          {prefix}总 token {formatNumber(usage.total_tokens)}
         </span>
       ) : null}
     </>
@@ -364,6 +405,14 @@ function getTraceTokenUsage(trace: AiTrace) {
   }, {});
 
   return hasTokenUsage(totals) ? totals : null;
+}
+
+function getFinalReplyTokenUsage(trace: AiTrace) {
+  const finalReplyStep = [...trace.steps]
+    .reverse()
+    .find((step) => step.type === "model_response" && step.name.includes("生成用户回复"));
+
+  return finalReplyStep ? getTokenUsage(finalReplyStep) : null;
 }
 
 function getGroupTokenUsage(group: TraceStepGroup) {
@@ -682,11 +731,10 @@ function getStepSummary(step: AiTraceStep) {
   return getStepTypeLabel(step.type);
 }
 
-function getStepSummaryItems(step: AiTraceStep) {
+function getStepSummaryItems(step: AiTraceStep, tokenUsage: TokenUsage | null) {
   const output = isRecord(step.output) ? step.output : null;
   const input = isRecord(step.input) ? step.input : null;
   const metadata = isRecord(step.metadata) ? step.metadata : null;
-  const tokenUsage = getTokenUsage(step);
   const items: Array<{ label: string; value: string }> = [];
 
   if (typeof tokenUsage?.prompt_tokens === "number") {
@@ -874,6 +922,56 @@ function addRecordItem(
   if (typeof value === "string" || typeof value === "number") {
     items.push({ label, value: String(value) });
   }
+}
+
+function getVisibleStepTokenUsage(steps: AiTraceStep[], index: number) {
+  const step = steps[index];
+
+  if (!step) {
+    return null;
+  }
+
+  if (step.type === "model_request") {
+    return findNextModelResponseTokenUsage(steps, index);
+  }
+
+  if (step.type === "model_response" && hasPreviousModelRequest(steps, index)) {
+    return null;
+  }
+
+  return getTokenUsage(step);
+}
+
+function findNextModelResponseTokenUsage(steps: AiTraceStep[], startIndex: number) {
+  for (let index = startIndex + 1; index < steps.length; index += 1) {
+    const step = steps[index];
+
+    if (step.type === "model_request") {
+      return null;
+    }
+
+    if (step.type === "model_response") {
+      return getTokenUsage(step);
+    }
+  }
+
+  return null;
+}
+
+function hasPreviousModelRequest(steps: AiTraceStep[], startIndex: number) {
+  for (let index = startIndex - 1; index >= 0; index -= 1) {
+    const step = steps[index];
+
+    if (step.type === "model_response") {
+      return false;
+    }
+
+    if (step.type === "model_request") {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function getTokenUsage(step: AiTraceStep) {
