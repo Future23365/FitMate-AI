@@ -174,9 +174,10 @@ export function useChatController() {
     intent: unknown,
     historyMessages: ApiChatMessage[],
     context: FitnessConversationContext,
+    parentTraceId?: string,
   ) {
     try {
-      const card = await requestExerciseRecommendations(historyMessages, intent, context);
+      const card = await requestExerciseRecommendations(historyMessages, intent, context, parentTraceId);
 
       setBubbleExerciseRecommendations((prev) => ({
         ...prev,
@@ -340,6 +341,7 @@ export function useChatController() {
             recommendationTrigger.intent,
             recommendationMessages,
             contextWithAssistant,
+            chatTraceId,
           );
         }
       }

@@ -19,6 +19,7 @@ const exerciseRecommendationRequestSchema = z.object({
   ).min(1).max(200),
   intent: exerciseRecommendationIntentSchema,
   conversationContext: fitnessConversationContextSchema.optional(),
+  parentTraceId: z.string().trim().min(1).max(120).optional(),
 });
 
 export async function POST(request: Request) {
@@ -39,13 +40,21 @@ export async function POST(request: Request) {
   const trace = startAiTrace({
     route: "/api/ai/exercise-recommendations",
     title: summarizeLatestUserMessage(parsedRequest.data.messages),
+    existingTraceId: parsedRequest.data.parentTraceId,
     metadata: {
       messageCount: parsedRequest.data.messages.length,
       hasConversationContext: Boolean(parsedRequest.data.conversationContext),
+      continuedFromRoute: parsedRequest.data.parentTraceId ? "/api/chat" : undefined,
     },
   });
 
   try {
+    trace.addStep({
+      name: "动作推荐生成请求",
+      type: "user_input",
+      input: parsedRequest.data,
+    });
+
     const exercises = await listAllExercises();
     const candidates = selectExerciseCandidates(parsedRequest.data.intent, exercises);
     const selectedCandidates = [

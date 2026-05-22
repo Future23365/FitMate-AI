@@ -67,6 +67,7 @@ export async function requestExerciseRecommendations(
   messages: ApiChatMessage[],
   intent: unknown,
   conversationContext: FitnessConversationContext,
+  parentTraceId?: string,
 ) {
   const data = await clientRequest<ExerciseRecommendationResponse>("/api/ai/exercise-recommendations", {
     method: "POST",
@@ -74,6 +75,7 @@ export async function requestExerciseRecommendations(
       messages,
       intent,
       conversationContext,
+      parentTraceId,
     },
   });
 
