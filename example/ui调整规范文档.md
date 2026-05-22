@@ -304,11 +304,10 @@ ExerciseCard
   box-shadow:
     0 1px 2px rgba(16, 24, 40, 0.06),
     0 8px 24px rgba(16, 24, 40, 0.06);
-  transition: transform .3s ease, box-shadow .3s ease;
+  transition: box-shadow .3s ease, border-color .3s ease;
 }
 
 .exercise-card:hover {
-  transform: translateY(-4px);
   box-shadow: 0 16px 40px rgba(16, 24, 40, 0.10);
 }
 ```
@@ -719,8 +718,7 @@ AI 聊天输入框可以更高：
 ### 15.1 卡片 hover
 
 ```css
-transition: transform .3s ease, box-shadow .3s ease;
-transform: translateY(-4px);
+transition: box-shadow .3s ease, border-color .3s ease;
 ```
 
 ### 15.2 图片 hover
@@ -992,7 +990,7 @@ Common
 - 图片圆角改为 `8px`。
 - 卡片边框使用 `#D7DDE5`。
 - 默认阴影使用 `shadow-card`。
-- hover 使用 `translateY(-4px)` 和 `shadow-lift`。
+- hover 不使用上浮位移，可保留 `shadow-lift`、边框或背景反馈。
 
 ### Step 4：重构顶部训练摘要区
 
@@ -1054,4 +1052,3 @@ Common
 5. 主按钮、选中态、AI 标签都使用统一蓝色体系。
 6. 卡片、按钮、输入框、抽屉的圆角和阴影统一。
 7. 训练相关页面有一定运动张力，但不过度硬核。
-

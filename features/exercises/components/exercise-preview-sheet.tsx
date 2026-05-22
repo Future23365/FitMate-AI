@@ -10,6 +10,11 @@ interface ExercisePreviewSheetProps {
   onClose: () => void;
   exercise: Exercise | null;
   executionTip?: string;
+  primaryAction?: {
+    icon?: string;
+    label: string;
+    onClick: () => void;
+  };
 }
 
 const placeholderImage = "https://www.gstatic.com/labs-code/stitch/stitch-placeholder-300x300.svg";
@@ -19,14 +24,13 @@ export function ExercisePreviewSheet({
   onClose,
   exercise,
   executionTip,
+  primaryAction,
 }: ExercisePreviewSheetProps) {
-  const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const [imageSelection, setImageSelection] = useState({
+    exerciseId: "",
+    index: 0,
+  });
   const [mounted, setMounted] = useState(false);
-
-  // 切换动作时只重置图片索引，不重建整个抽屉，避免首次打开闪烁。
-  useEffect(() => {
-    setActiveImageIndex(0);
-  }, [exercise?.id]);
 
   // 客户端挂载处理，保证 Portal 不参与服务端渲染。
   useEffect(() => {
@@ -72,13 +76,24 @@ export function ExercisePreviewSheet({
   const images = exercise?.imageUrls && exercise.imageUrls.length > 0 
     ? exercise.imageUrls 
     : [placeholderImage];
+  const activeImageIndex =
+    imageSelection.exerciseId === exercise?.id
+      ? Math.min(imageSelection.index, images.length - 1)
+      : 0;
+
+  function selectImage(index: number) {
+    setImageSelection({
+      exerciseId: exercise?.id ?? "",
+      index,
+    });
+  }
 
   const handlePrevImage = () => {
-    setActiveImageIndex((prev) => (prev === 0 ? images.length - 1 : prev - 1));
+    selectImage(activeImageIndex === 0 ? images.length - 1 : activeImageIndex - 1);
   };
 
   const handleNextImage = () => {
-    setActiveImageIndex((prev) => (prev === images.length - 1 ? 0 : prev + 1));
+    selectImage(activeImageIndex === images.length - 1 ? 0 : activeImageIndex + 1);
   };
 
   return createPortal(
@@ -173,7 +188,7 @@ export function ExercisePreviewSheet({
                     {images.map((_, idx) => (
                       <button
                         key={idx}
-                        onClick={() => setActiveImageIndex(idx)}
+                        onClick={() => selectImage(idx)}
                         className={`h-1.5 rounded-full transition-all duration-300 ${
                           activeImageIndex === idx ? "w-6 bg-primary" : "w-1.5 bg-slate-200 hover:bg-slate-300"
                         }`}
@@ -293,6 +308,20 @@ export function ExercisePreviewSheet({
               ) : null}
 
             </div>
+            {primaryAction ? (
+              <div className="shrink-0 border-t border-slate-100 bg-white p-md shadow-[0_-8px_24px_rgba(15,23,42,0.06)]">
+                <button
+                  className="flex w-full items-center justify-center gap-xs rounded-xl bg-primary px-md py-sm font-label-md text-label-md font-bold text-white transition-colors hover:bg-primary-deep"
+                  onClick={primaryAction.onClick}
+                  type="button"
+                >
+                  {primaryAction.icon ? (
+                    <SymbolIcon className="text-[18px]">{primaryAction.icon}</SymbolIcon>
+                  ) : null}
+                  {primaryAction.label}
+                </button>
+              </div>
+            ) : null}
           </>
         )}
       </div>

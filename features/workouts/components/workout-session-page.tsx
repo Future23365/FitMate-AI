@@ -239,7 +239,7 @@ export function WorkoutSessionPage() {
   }
 
   return (
-    <main className="custom-scrollbar min-h-screen overflow-y-auto bg-[radial-gradient(circle_at_top_center,#ffffff_0%,#f8fbff_56%,#f3f7fd_100%)] px-md py-lg text-slate-950 md:px-xl">
+    <main className="custom-scrollbar app-mesh-bg min-h-screen overflow-y-auto px-md py-lg text-ink md:px-xl lg:pl-[284px]">
       <header className="mb-lg flex items-center justify-between gap-md">
         <Link className="flex items-center gap-md font-headline-md text-headline-md font-bold" href="/plans">
           <span className="grid h-9 w-9 place-items-center rounded-full text-3xl leading-none transition-colors hover:bg-white">
@@ -248,21 +248,21 @@ export function WorkoutSessionPage() {
           训练中
         </Link>
         <div className="flex items-center gap-sm">
-          <button className="relative grid h-10 w-10 place-items-center rounded-full transition-colors hover:bg-white" type="button">
+          <button className="relative grid h-10 w-10 place-items-center rounded-xl border border-line bg-white text-muted shadow-card transition-colors hover:text-primary" type="button">
             <SymbolIcon className="text-2xl">notifications</SymbolIcon>
             <span className="absolute right-1 top-1 grid h-5 min-w-5 place-items-center rounded-full border-2 border-white bg-red-500 px-1 text-[10px] font-bold text-white">
               2
             </span>
           </button>
-          <button className="grid h-10 w-10 place-items-center rounded-full transition-colors hover:bg-white" type="button">
+          <button className="grid h-10 w-10 place-items-center rounded-xl border border-line bg-white text-muted shadow-card transition-colors hover:text-primary" type="button">
             <SymbolIcon className="text-2xl">settings</SymbolIcon>
           </button>
         </div>
       </header>
 
-      <section className="mb-lg grid gap-lg rounded-[24px] border border-[#e5eaf2] bg-white/90 p-lg shadow-[0_14px_40px_rgba(15,23,42,0.06)] backdrop-blur-md xl:grid-cols-[1.7fr_1fr_1fr_1fr]">
+      <section className="mb-lg grid gap-lg rounded-[20px] border border-line bg-white/90 p-lg shadow-card backdrop-blur-md xl:grid-cols-[1.7fr_1fr_1fr_1fr]">
         <div className="flex items-center gap-md">
-          <div className="grid h-[72px] w-[72px] shrink-0 place-items-center rounded-full bg-[#eff6ff] text-primary shadow-[inset_0_0_0_1px_#dceafe]">
+          <div className="grid h-[72px] w-[72px] shrink-0 place-items-center rounded-[20px] bg-primary-soft text-primary shadow-[inset_0_0_0_1px_#dceafe]">
             <SymbolIcon className="text-4xl">directions_run</SymbolIcon>
           </div>
           <div className="min-w-0">
@@ -278,11 +278,11 @@ export function WorkoutSessionPage() {
       </section>
 
       <section className="grid items-start gap-lg xl:grid-cols-[340px_minmax(480px,1fr)_360px] 2xl:grid-cols-[390px_minmax(520px,1fr)_410px]">
-        <aside className="rounded-[24px] border border-[#e5eaf2] bg-white/90 p-lg shadow-[0_14px_40px_rgba(15,23,42,0.06)]">
-          <span className="mb-md inline-flex h-10 items-center rounded-[10px] bg-gradient-to-b from-blue-500 to-blue-600 px-lg text-body-md font-bold text-white shadow-[0_10px_24px_rgba(37,99,235,0.18)]">
+        <aside className="rounded-[20px] border border-line bg-white/90 p-lg shadow-card">
+          <span className="mb-md inline-flex h-10 items-center rounded-xl bg-primary px-lg text-body-md font-bold text-white shadow-card">
             当前动作 {Math.max(1, currentExerciseIndex + 1)} / {plan.items.length}
           </span>
-          <div className="grid h-[320px] place-items-center overflow-hidden rounded-[20px] bg-[radial-gradient(circle_at_center,#ffffff_0_40%,#f5f7fb_70%_100%)] 2xl:h-[420px]">
+          <div className="grid h-[320px] place-items-center overflow-hidden rounded-xl bg-panel-soft 2xl:h-[420px]">
             {currentItem.imageUrl && currentItem.imageUrl !== placeholderImage ? (
               <img alt={`${currentItem.nameZh} 动作图`} className="h-full w-full object-contain" src={currentItem.imageUrl} />
             ) : (
@@ -302,11 +302,11 @@ export function WorkoutSessionPage() {
           <p className="mb-sm text-xl font-bold 2xl:mb-md 2xl:text-[23px]">
             目标：{currentItem.mode === "duration" ? `${currentItem.target} 秒` : `${currentItem.target} 次`} · 第 {activeStep?.setIndex ?? 1} / {activeStep?.totalSets ?? 1} 组
           </p>
-          <div className="mb-md h-[9px] w-full max-w-[560px] overflow-hidden rounded-full bg-[#e7ecf4] 2xl:mb-xl">
-            <span className="block h-full rounded-full bg-gradient-to-r from-blue-600 to-blue-400" style={{ width: `${Math.max(3, Math.min(100, progress))}%` }} />
+          <div className="mb-md h-[9px] w-full max-w-[560px] overflow-hidden rounded-full bg-panel-soft 2xl:mb-xl">
+            <span className="block h-full rounded-full bg-primary" style={{ width: `${Math.max(3, Math.min(100, progress))}%` }} />
           </div>
           <button
-            className="mb-md flex h-[46px] w-full max-w-[540px] items-center justify-center gap-md rounded-[13px] border border-[#d9e7ff] bg-[#f2f7ff] px-lg text-body-md font-bold 2xl:mb-xl 2xl:h-[54px] 2xl:text-body-lg"
+            className="mb-md flex h-[46px] w-full max-w-[540px] items-center justify-center gap-md rounded-xl border border-primary/20 bg-primary-soft px-lg text-body-md font-bold 2xl:mb-xl 2xl:h-[54px] 2xl:text-body-lg"
             onClick={() => setIsAudioOn((value) => !value)}
             type="button"
           >
@@ -327,7 +327,7 @@ export function WorkoutSessionPage() {
         </section>
 
         <aside className="flex flex-col gap-md">
-          <section className="rounded-[24px] border border-[#e5eaf2] bg-white/90 p-lg shadow-[0_14px_40px_rgba(15,23,42,0.06)]">
+          <section className="rounded-[20px] border border-line bg-white/90 p-lg shadow-card">
             <div className="mb-md flex items-center justify-between">
               <h2 className="text-title-lg font-extrabold">训练项目（{plan.items.length} / {plan.items.length}）</h2>
               <span className="text-label-md font-bold text-primary">收起⌃</span>
@@ -339,8 +339,8 @@ export function WorkoutSessionPage() {
 
                 return (
                   <button
-                    className={`grid min-h-[78px] w-full grid-cols-[76px_1fr_36px] items-center gap-md rounded-[14px] p-sm text-left transition-colors ${
-                      isActive ? "bg-[#eef6ff]" : "hover:bg-surface-container-low"
+                    className={`grid min-h-[78px] w-full grid-cols-[76px_1fr_36px] items-center gap-md rounded-xl p-sm text-left transition-colors ${
+                      isActive ? "bg-primary-soft" : "hover:bg-panel-soft"
                     }`}
                     key={item.id}
                     onClick={() => {
@@ -373,7 +373,7 @@ export function WorkoutSessionPage() {
             </div>
           </section>
 
-          <section className="rounded-[24px] border border-[#e5eaf2] bg-white/90 p-lg shadow-[0_14px_40px_rgba(15,23,42,0.06)]">
+          <section className="rounded-[20px] border border-line bg-white/90 p-lg shadow-card">
             <div className="mb-lg flex items-center justify-between">
               <h2 className="text-title-lg font-extrabold">训练控制</h2>
               <span className="flex items-center gap-xs text-label-sm font-bold text-slate-500">
@@ -382,11 +382,11 @@ export function WorkoutSessionPage() {
               </span>
             </div>
             <div className="grid grid-cols-2 gap-md">
-              <button className="flex h-[54px] items-center justify-center gap-xs rounded-[10px] border border-red-300 bg-white text-body-md font-extrabold text-red-500" onClick={finishTraining} type="button">
+              <button className="flex h-[54px] items-center justify-center gap-xs rounded-xl border border-red-300 bg-white text-body-md font-extrabold text-red-500" onClick={finishTraining} type="button">
                 <SymbolIcon className="text-lg">stop</SymbolIcon>
                 结束训练
               </button>
-              <button className="flex h-[54px] items-center justify-center gap-xs rounded-[10px] border border-blue-300 bg-white text-body-md font-extrabold text-blue-600" onClick={() => goToStep(activeStepIndex + 1)} type="button">
+              <button className="flex h-[54px] items-center justify-center gap-xs rounded-xl border border-primary/30 bg-white text-body-md font-extrabold text-primary" onClick={() => goToStep(activeStepIndex + 1)} type="button">
                 <SymbolIcon className="text-lg">skip_next</SymbolIcon>
                 跳过本组
               </button>
@@ -396,7 +396,7 @@ export function WorkoutSessionPage() {
       </section>
 
       {showTip ? (
-        <section className="mt-xl flex min-h-[62px] items-center gap-md rounded-xl bg-[#eff6ff] px-lg text-body-lg text-slate-700">
+        <section className="mt-xl flex min-h-[62px] items-center gap-md rounded-xl border border-primary/10 bg-primary-soft px-lg text-body-lg text-muted">
           <SymbolIcon className="text-2xl text-primary">tips_and_updates</SymbolIcon>
           <span className="font-extrabold text-primary">训练提示</span>
           <span className="min-w-0 flex-1 truncate">
@@ -451,8 +451,8 @@ function SessionControl({
       <button
         className={`grid place-items-center rounded-full ${
           large
-            ? "h-16 w-16 border-0 bg-gradient-to-b from-blue-500 to-blue-600 text-white shadow-[0_22px_38px_rgba(37,99,235,0.28)] 2xl:h-28 2xl:w-28"
-            : "h-12 w-12 border border-[#dbe3ee] bg-white text-slate-800 shadow-[0_12px_28px_rgba(15,23,42,0.06)] 2xl:h-[74px] 2xl:w-[74px]"
+            ? "h-16 w-16 border-0 bg-primary text-white shadow-lift 2xl:h-28 2xl:w-28"
+            : "h-12 w-12 border border-line bg-white text-slate-800 shadow-card 2xl:h-[74px] 2xl:w-[74px]"
         }`}
         onClick={onClick}
         type="button"

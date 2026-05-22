@@ -348,7 +348,6 @@ async function generateWorkoutPlanDraft(
         "2. supplementaryExercises（补充候选）：用户未明确提及的补充动作，你可以根据训练计划的完整性自主选用（如热身、拉伸、协同肌群训练等），但不必全部使用。",
         "所有动作的 exerciseId 必须来自以上两组候选（包括 primaryExercises 和 supplementaryExercises），绝对禁止编造动作 ID！",
         "不能给出医疗诊断或治疗建议。",
-        "如果用户有疼痛或伤病限制，计划必须保守，并在 safetyNotes 中提示停止疼痛动作并咨询专业人士。",
         intent.intentType === "routine"
           ? "注意：由于用户的意图是生成单次动作编排列表 (routine)，你输出 of days 数组必须只能包含 1 个训练日，title 也应该聚焦于该单次动作编排（例如「胸肌轰炸动作编排」）。整个计划的 weeklyFrequency 必须固定为 1。"
           : "注意：由于用户的意图是生成长期训练计划 (plan)，你必须根据 weeklyFrequency 生成包含多天的完整计划（例如每周 3 次就必须在 days 数组中输出 3 个训练日）。",

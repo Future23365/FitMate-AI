@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { AppSidebar } from "@/components/app/app-sidebar";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -13,7 +14,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body>
+        <div id="app-content-wrapper">
+          <AppSidebar />
+          {children}
+        </div>
+      </body>
     </html>
   );
 }

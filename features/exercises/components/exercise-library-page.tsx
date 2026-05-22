@@ -92,9 +92,9 @@ function SelectFilter({
 }) {
   return (
     <label className="flex items-center gap-sm">
-      <span className="font-label-md text-label-md text-on-surface-variant">{label}:</span>
+      <span className="font-label-md text-label-md text-muted">{label}:</span>
       <select
-        className="max-w-[150px] cursor-pointer border-none bg-transparent font-label-md text-label-md text-on-surface outline-none focus:ring-0"
+        className="max-w-[150px] cursor-pointer rounded-lg border border-line bg-white px-2 py-1 font-label-md text-label-md text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
         onChange={(event) => onChange(event.target.value)}
         value={value}
       >
@@ -278,32 +278,32 @@ export function ExerciseLibraryPage() {
     : [];
 
   return (
-    <div className="min-h-screen bg-background text-on-surface lg:pl-[260px]">
+    <div className="app-mesh-bg min-h-screen text-ink lg:pl-[260px]">
       <main className="custom-scrollbar h-screen overflow-y-auto p-lg xl:pr-[364px] xl:p-xl">
         <header className="mb-2xl flex flex-col gap-lg xl:flex-row xl:items-end xl:justify-between">
           <div>
-            <h1 className="font-headline-lg text-headline-lg">动作库</h1>
-            <p className="mt-xs font-body-md text-body-md text-on-surface-variant">
+            <h1 className="font-headline-lg text-headline-lg font-extrabold tracking-[-0.03em]">动作库</h1>
+            <p className="mt-xs font-body-md text-body-md text-muted">
               查找标准动作教学，构建你的专属训练方案
             </p>
           </div>
           <div className="flex flex-wrap gap-sm">
             <button
-              className="flex items-center gap-xs rounded-full border border-outline-variant bg-white px-lg py-sm font-label-md text-label-md transition-colors hover:bg-surface-container-low"
+              className="flex items-center gap-xs rounded-xl border border-line bg-white px-lg py-sm font-label-md text-label-md font-bold shadow-card transition-colors hover:bg-panel-soft"
               type="button"
             >
               <SymbolIcon className="text-[20px]">filter_list</SymbolIcon>
               筛选
             </button>
             <button
-              className="flex items-center gap-xs rounded-full border border-outline-variant bg-white px-lg py-sm font-label-md text-label-md transition-colors hover:bg-surface-container-low"
+              className="flex items-center gap-xs rounded-xl border border-line bg-white px-lg py-sm font-label-md text-label-md font-bold shadow-card transition-colors hover:bg-panel-soft"
               type="button"
             >
               <SymbolIcon className="text-[20px]">bookmarks</SymbolIcon>
               批量收藏
             </button>
             <button
-              className="flex items-center gap-xs rounded-full bg-primary-container px-lg py-sm font-label-md text-label-md text-white shadow-md transition-opacity hover:opacity-90"
+              className="flex items-center gap-xs rounded-xl bg-primary px-lg py-sm font-label-md text-label-md font-bold text-white shadow-card transition-all hover:bg-primary-deep hover:shadow-lift"
               type="button"
             >
               <SymbolIcon className="text-[20px]">play_circle</SymbolIcon>
@@ -312,11 +312,11 @@ export function ExerciseLibraryPage() {
           </div>
         </header>
 
-        <section className="mb-2xl rounded-lg border border-outline-variant bg-surface-container-lowest p-lg shadow-sm">
-          <div className="mb-lg flex items-center gap-md rounded-full border border-transparent bg-surface-container-low px-lg py-sm transition-all focus-within:border-primary-container">
-            <SymbolIcon className="text-outline">search</SymbolIcon>
+        <section className="mb-2xl rounded-[20px] border border-line bg-white p-lg shadow-card">
+          <div className="mb-lg flex items-center gap-md rounded-xl border border-line bg-white px-lg py-sm transition-all focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
+            <SymbolIcon className="text-muted">search</SymbolIcon>
             <input
-              className="w-full border-none bg-transparent font-body-md text-body-md text-on-surface outline-none placeholder:text-on-surface-variant focus:ring-0"
+              className="w-full border-none bg-transparent font-body-md text-body-md text-ink outline-none placeholder:text-muted focus:ring-0"
               onChange={(event) => updateFilter(() => setQuery(event.target.value))}
               placeholder="搜索动作名称，如：深蹲、硬拉..."
               type="text"
@@ -326,15 +326,15 @@ export function ExerciseLibraryPage() {
 
           <div className="flex flex-col gap-lg">
             <div className="flex flex-col gap-sm md:flex-row md:items-center">
-              <span className="w-16 shrink-0 font-label-md text-label-md text-on-surface-variant">
+              <span className="w-16 shrink-0 font-label-md text-label-md text-muted">
                 肌群：
               </span>
               <div className="flex flex-wrap gap-sm">
                 <button
-                  className={`rounded-full px-lg py-xs font-label-md text-label-md transition-colors ${
+                    className={`rounded-lg px-lg py-xs font-label-md text-label-md transition-colors ${
                     !muscle
                       ? "bg-primary text-white"
-                      : "bg-surface-container-high text-on-surface-variant hover:bg-outline-variant"
+                      : "bg-panel-soft text-muted hover:bg-primary-soft hover:text-primary"
                   }`}
                   onClick={() => updateFilter(() => setMuscle(""))}
                   type="button"
@@ -346,10 +346,10 @@ export function ExerciseLibraryPage() {
 
                   return (
                     <button
-                      className={`rounded-full px-lg py-xs font-label-md text-label-md transition-colors ${
+                        className={`rounded-lg px-lg py-xs font-label-md text-label-md transition-colors ${
                         isActive
                           ? "bg-primary text-white"
-                          : "bg-surface-container-high text-on-surface-variant hover:bg-outline-variant"
+                          : "bg-panel-soft text-muted hover:bg-primary-soft hover:text-primary"
                       }`}
                       key={facet.value}
                       onClick={() => updateFilter(() => setMuscle(facet.value))}
@@ -400,9 +400,9 @@ export function ExerciseLibraryPage() {
                 value={mechanic}
               />
               <label className="flex items-center gap-sm">
-                <span className="font-label-md text-label-md text-on-surface-variant">排序:</span>
+                <span className="font-label-md text-label-md text-muted">排序:</span>
                 <select
-                  className="cursor-pointer border-none bg-transparent font-label-md text-label-md text-on-surface outline-none focus:ring-0"
+                  className="cursor-pointer rounded-lg border border-line bg-white px-2 py-1 font-label-md text-label-md text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
                   onChange={(event) =>
                     updateFilter(() => setSortBy(event.target.value as ExerciseSort))
                   }
@@ -433,9 +433,9 @@ export function ExerciseLibraryPage() {
                 value={riskTag}
               />
               <label className="flex items-center gap-sm">
-                <span className="font-label-md text-label-md text-on-surface-variant">状态:</span>
+                <span className="font-label-md text-label-md text-muted">状态:</span>
                 <select
-                  className="cursor-pointer border-none bg-transparent font-label-md text-label-md text-on-surface outline-none focus:ring-0"
+                  className="cursor-pointer rounded-lg border border-line bg-white px-2 py-1 font-label-md text-label-md text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
                   onChange={(event) => updateFilter(() => setPublished(event.target.value))}
                   value={published}
                 >
@@ -445,9 +445,9 @@ export function ExerciseLibraryPage() {
                 </select>
               </label>
               <label className="flex items-center gap-sm">
-                <span className="font-label-md text-label-md text-on-surface-variant">每页:</span>
+                <span className="font-label-md text-label-md text-muted">每页:</span>
                 <select
-                  className="cursor-pointer border-none bg-transparent font-label-md text-label-md text-on-surface outline-none focus:ring-0"
+                  className="cursor-pointer rounded-lg border border-line bg-white px-2 py-1 font-label-md text-label-md text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
                   onChange={(event) => {
                     setIsLoadingExercises(true);
                     setPage(1);
@@ -465,17 +465,17 @@ export function ExerciseLibraryPage() {
             </div>
 
             {activeFilters.length ? (
-              <div className="flex flex-wrap items-center gap-sm border-t border-outline-variant pt-md">
+              <div className="flex flex-wrap items-center gap-sm border-t border-line pt-md">
                 {activeFilters.map((filter) => (
                   <span
-                    className="rounded-full bg-primary-fixed px-md py-xs font-label-sm text-label-sm text-on-primary-fixed-variant"
+                    className="rounded-lg bg-primary-soft px-md py-xs font-label-sm text-label-sm font-bold text-primary"
                     key={filter}
                   >
                     {filter}
                   </span>
                 ))}
                 <button
-                  className="rounded-full border border-outline-variant px-md py-xs font-label-sm text-label-sm text-on-surface-variant transition-colors hover:bg-surface-container"
+                  className="rounded-lg border border-line px-md py-xs font-label-sm text-label-sm text-muted transition-colors hover:bg-panel-soft"
                   onClick={resetFilters}
                   type="button"
                 >
@@ -488,8 +488,8 @@ export function ExerciseLibraryPage() {
 
         <section>
           <div className="mb-lg flex items-center justify-between gap-md">
-            <h2 className="font-title-lg text-title-lg">所有动作 ({total})</h2>
-            <span className="font-label-sm text-label-sm text-on-surface-variant">
+            <h2 className="font-title-lg text-title-lg font-extrabold">所有动作 ({total})</h2>
+            <span className="font-label-sm text-label-sm text-muted">
               第 {page} / {totalPages} 页 · 当前 {items.length} 条
             </span>
           </div>
@@ -503,7 +503,7 @@ export function ExerciseLibraryPage() {
           {isLoadingExercises ? (
             <div className="grid grid-cols-2 gap-lg md:grid-cols-3 2xl:grid-cols-4">
               {Array.from({ length: 8 }).map((_, index) => (
-                <div className="rounded-lg border border-outline-variant bg-white p-sm" key={index}>
+                <div className="rounded-xl border border-line bg-white p-sm shadow-card" key={index}>
                   <div className="mb-sm aspect-square animate-pulse rounded-md bg-surface-container" />
                   <div className="mb-xs h-4 w-2/3 animate-pulse rounded bg-surface-container" />
                   <div className="h-3 w-1/3 animate-pulse rounded bg-surface-container" />
@@ -519,19 +519,19 @@ export function ExerciseLibraryPage() {
 
                     return (
                       <button
-                        className={`rounded-lg p-sm text-left transition-all ${
+                        className={`rounded-xl p-sm text-left transition-all ${
                           isSelected
-                            ? "border-2 border-primary-container bg-primary-container/10 ring-2 ring-primary-container/10"
-                            : "border border-outline-variant bg-white hover:border-primary"
+                            ? "border-2 border-primary bg-primary/5 ring-2 ring-primary/10"
+                            : "border border-line bg-white shadow-card hover:border-primary hover:shadow-lift"
                         }`}
                         key={exercise.id}
                         onClick={() => setSelectedId(exercise.id)}
                         type="button"
                       >
-                        <div className="mb-sm aspect-square overflow-hidden rounded-md bg-surface-container">
+                        <div className="mb-sm aspect-square overflow-hidden rounded-lg bg-panel-soft">
                           <img
                             alt={`${exercise.nameZh} 动作示意图`}
-                            className="h-full w-full object-cover"
+                            className="h-full w-full object-cover transition duration-500 hover:scale-105"
                             src={getExerciseImage(exercise)}
                           />
                         </div>
@@ -544,7 +544,7 @@ export function ExerciseLibraryPage() {
                         </p>
                         <p
                           className={`flex items-center gap-1 font-label-sm text-label-sm ${
-                            isSelected ? "text-primary" : "text-on-surface-variant"
+                            isSelected ? "text-primary" : "text-muted"
                           }`}
                         >
                           <span
@@ -552,7 +552,7 @@ export function ExerciseLibraryPage() {
                           />
                           {exercise.levelZh || "未标注"}
                         </p>
-                        <p className="mt-xs truncate font-label-sm text-label-sm text-on-surface-variant">
+                        <p className="mt-xs truncate font-label-sm text-label-sm text-muted">
                           {exercise.categoryZh || "未分类"} ·{" "}
                           {exercise.equipmentZh || "未标注器械"}
                         </p>
@@ -561,24 +561,24 @@ export function ExerciseLibraryPage() {
                   })}
                 </div>
               ) : (
-                <div className="rounded-lg border border-dashed border-outline-variant bg-white p-2xl text-center">
-                  <SymbolIcon className="mb-sm text-4xl text-on-surface-variant">
+                <div className="rounded-xl border border-dashed border-line bg-white p-2xl text-center shadow-card">
+                  <SymbolIcon className="mb-sm text-4xl text-muted">
                     search_off
                   </SymbolIcon>
                   <p className="font-title-lg text-title-lg">没有找到匹配动作</p>
-                  <p className="mt-xs font-label-md text-label-md text-on-surface-variant">
+                  <p className="mt-xs font-label-md text-label-md text-muted">
                     调整关键词或清空部分筛选后再试。
                   </p>
                 </div>
               )}
 
-              <div className="mt-xl flex flex-col gap-md border-t border-outline-variant pt-lg md:flex-row md:items-center md:justify-between">
-                <span className="font-label-md text-label-md text-on-surface-variant">
+              <div className="mt-xl flex flex-col gap-md border-t border-line pt-lg md:flex-row md:items-center md:justify-between">
+                <span className="font-label-md text-label-md text-muted">
                   共 {total} 条 · 第 {page} / {totalPages} 页
                 </span>
                 <div className="flex items-center gap-sm">
                   <button
-                    className="rounded-full border border-outline-variant bg-white px-lg py-sm font-label-md text-label-md transition-colors hover:bg-surface-container-low disabled:cursor-not-allowed disabled:opacity-50"
+                    className="rounded-xl border border-line bg-white px-lg py-sm font-label-md text-label-md font-bold transition-colors hover:bg-panel-soft disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={!hasPreviousPage || isLoadingExercises}
                     onClick={() => {
                       setIsLoadingExercises(true);
@@ -589,7 +589,7 @@ export function ExerciseLibraryPage() {
                     上一页
                   </button>
                   <button
-                    className="rounded-full border border-outline-variant bg-white px-lg py-sm font-label-md text-label-md transition-colors hover:bg-surface-container-low disabled:cursor-not-allowed disabled:opacity-50"
+                    className="rounded-xl border border-line bg-white px-lg py-sm font-label-md text-label-md font-bold transition-colors hover:bg-panel-soft disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={!hasNextPage || isLoadingExercises}
                     onClick={() => {
                       setIsLoadingExercises(true);
@@ -645,12 +645,12 @@ function ExerciseDetailPanel({
   }
 
   return (
-    <aside className="fixed right-0 top-0 z-30 hidden h-screen w-[340px] flex-col border-l border-outline-variant bg-surface-container-lowest xl:flex">
+    <aside className="fixed right-0 top-0 z-30 hidden h-screen w-[340px] flex-col border-l border-line/70 bg-white/68 shadow-nav backdrop-blur-2xl xl:flex">
       <div className="custom-scrollbar flex h-full flex-col overflow-y-auto p-lg">
         {exercise ? (
           <>
             <div className="mb-lg flex flex-col gap-md">
-              <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-outline-variant bg-surface-container shadow-sm">
+              <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-line bg-panel-soft shadow-card">
                 <img
                   alt={`${exercise.nameZh} 第 ${activeImageIndex + 1} 步示意图`}
                   className="h-full w-full object-contain"
@@ -690,7 +690,7 @@ function ExerciseDetailPanel({
                     className={`flex items-center gap-xs rounded-full px-md py-xs font-label-sm text-label-sm transition-colors ${
                       activeImageIndex === index
                         ? "bg-primary text-white"
-                        : "bg-surface-container-high text-on-surface-variant hover:bg-outline-variant"
+                        : "bg-panel-soft text-muted hover:bg-primary-soft hover:text-primary"
                     }`}
                     key={`${imageUrl}-${index}`}
                     onClick={() => selectImage(index)}
@@ -708,30 +708,30 @@ function ExerciseDetailPanel({
                 <div className="flex flex-wrap gap-sm">
                   {exercise.primaryMusclesZh.slice(0, 2).map((muscleName) => (
                     <span
-                      className="rounded bg-tertiary-fixed px-sm py-[2px] font-label-sm text-label-sm text-on-tertiary-fixed-variant"
+                      className="rounded-lg bg-primary-soft px-sm py-[2px] font-label-sm text-label-sm font-bold text-primary"
                       key={muscleName}
                     >
                       {muscleName}
                     </span>
                   ))}
-                  <span className="rounded bg-surface-container-high px-sm py-[2px] font-label-sm text-label-sm text-on-surface-variant">
+                  <span className="rounded-lg bg-panel-soft px-sm py-[2px] font-label-sm text-label-sm text-muted">
                     难度：{exercise.levelZh || "未标注"}
                   </span>
-                  <span className="rounded bg-surface-container-high px-sm py-[2px] font-label-sm text-label-sm text-on-surface-variant">
+                  <span className="rounded-lg bg-panel-soft px-sm py-[2px] font-label-sm text-label-sm text-muted">
                     {exercise.equipmentZh || "器械未标注"}
                   </span>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-md rounded-lg bg-surface-container-low p-md">
+              <div className="grid grid-cols-2 gap-md rounded-xl bg-panel-soft p-md">
                 <div className="flex flex-col">
-                  <span className="font-label-sm text-label-sm text-on-surface-variant">
+                  <span className="font-label-sm text-label-sm text-muted">
                     建议组数
                   </span>
                   <span className="font-title-lg text-title-lg">3-4 组</span>
                 </div>
                 <div className="flex flex-col">
-                  <span className="font-label-sm text-label-sm text-on-surface-variant">
+                  <span className="font-label-sm text-label-sm text-muted">
                     目标类型
                   </span>
                   <span className="truncate font-title-lg text-title-lg">
@@ -745,7 +745,7 @@ function ExerciseDetailPanel({
                 <div className="flex flex-col gap-md">
                   {exercise.instructionsZh.slice(0, 5).map((instruction, index) => (
                     <div className="flex gap-md" key={`${exercise.id}-${index}`}>
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary-container font-label-md text-label-md text-white">
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-primary font-label-md text-label-md text-white">
                         {index + 1}
                       </span>
                       <p className="font-body-md text-body-md">{instruction}</p>
@@ -778,7 +778,7 @@ function ExerciseDetailPanel({
                       </button>
                     ))
                   ) : (
-                    <p className="font-label-md text-label-md text-on-surface-variant">
+            <p className="font-label-md text-label-md text-muted">
                       暂无相关动作
                     </p>
                   )}
@@ -788,7 +788,7 @@ function ExerciseDetailPanel({
 
           </>
         ) : (
-          <div className="flex h-full flex-col items-center justify-center text-center text-on-surface-variant">
+          <div className="flex h-full flex-col items-center justify-center text-center text-muted">
             <SymbolIcon className="mb-md text-5xl">fitness_center</SymbolIcon>
             <p className="font-label-md text-label-md">选择一个动作查看教学详情</p>
           </div>

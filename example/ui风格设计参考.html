@@ -127,23 +127,37 @@
           </div>
         </div>
 
-        <div class="rounded-[20px] border border-line bg-ink p-6 text-white shadow-card">
-          <p class="text-xs font-extrabold uppercase tracking-[0.16em] text-white/50">Workout Focus</p>
-          <div class="mt-4 grid grid-cols-3 gap-3 text-center">
-            <div class="rounded-xl bg-white/8 p-3">
-              <p class="text-2xl font-extrabold">72%</p>
-              <p class="mt-1 text-xs text-white/55">胸部</p>
+        <div class="rounded-[20px] border border-line bg-[#F8FAFF] p-6 shadow-card">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <p class="text-xs font-extrabold uppercase tracking-[0.16em] text-primary">Workout Focus</p>
+              <h4 class="mt-2 text-xl font-extrabold tracking-[-0.02em] text-ink">训练重点分布</h4>
             </div>
-            <div class="rounded-xl bg-white/8 p-3">
-              <p class="text-2xl font-extrabold">21%</p>
-              <p class="mt-1 text-xs text-white/55">三头</p>
-            </div>
-            <div class="rounded-xl bg-white/8 p-3">
-              <p class="text-2xl font-extrabold">7%</p>
-              <p class="mt-1 text-xs text-white/55">核心</p>
+            <div class="grid h-11 w-11 place-items-center rounded-xl bg-primarySoft text-primary">
+              <span class="material-symbols-outlined">monitoring</span>
             </div>
           </div>
-          <div class="mt-5 rounded-xl bg-white/8 p-3 text-sm leading-6 text-white/70">AI 建议：主训练动作之间休息 90 秒，孤立动作控制离心 3 秒。</div>
+          <div class="mt-4 grid grid-cols-3 gap-3 text-center">
+            <div class="rounded-xl border border-line bg-white p-3 shadow-sm">
+              <p class="text-2xl font-extrabold text-primary">72%</p>
+              <p class="mt-1 text-xs font-semibold text-muted">胸部</p>
+            </div>
+            <div class="rounded-xl border border-line bg-white p-3 shadow-sm">
+              <p class="text-2xl font-extrabold text-primary">21%</p>
+              <p class="mt-1 text-xs font-semibold text-muted">三头</p>
+            </div>
+            <div class="rounded-xl border border-line bg-white p-3 shadow-sm">
+              <p class="text-2xl font-extrabold text-primary">7%</p>
+              <p class="mt-1 text-xs font-semibold text-muted">核心</p>
+            </div>
+          </div>
+          <div class="mt-5 rounded-xl border border-primary/10 bg-primarySoft p-3 text-sm leading-6 text-ink">
+            <div class="mb-1 flex items-center gap-2 font-extrabold text-primary">
+              <span class="material-symbols-outlined text-[18px]">auto_awesome</span>
+              AI 训练建议
+            </div>
+            主训练动作之间休息 90 秒，孤立动作控制离心 3 秒。
+          </div>
         </div>
       </div>
 
@@ -154,7 +168,7 @@
           <div class="h-px flex-1 bg-line"></div>
         </div>
 
-        <article class="exercise-card md:col-span-6 rounded-xl border border-line bg-white p-4 shadow-card transition duration-300 hover:-translate-y-1 hover:shadow-lift">
+        <article class="exercise-card md:col-span-6 rounded-xl border border-line bg-white p-4 shadow-card transition duration-300 hover:shadow-lift">
           <div class="flex gap-4">
             <div class="h-24 w-24 flex-shrink-0 overflow-hidden rounded-lg bg-panelSoft">
               <img class="h-full w-full object-cover transition duration-500 hover:scale-105" src="https://images.unsplash.com/photo-1599901860904-17e6ed7083a0?q=80&w=500&auto=format&fit=crop" alt="动态拉伸" />
@@ -177,7 +191,7 @@
           </div>
         </article>
 
-        <article class="exercise-card md:col-span-6 rounded-xl border border-line bg-white p-4 shadow-card transition duration-300 hover:-translate-y-1 hover:shadow-lift">
+        <article class="exercise-card md:col-span-6 rounded-xl border border-line bg-white p-4 shadow-card transition duration-300 hover:shadow-lift">
           <div class="flex gap-4">
             <div class="h-24 w-24 flex-shrink-0 overflow-hidden rounded-lg bg-panelSoft">
               <img class="h-full w-full object-cover transition duration-500 hover:scale-105" src="https://images.unsplash.com/photo-1434596922112-19c563067271?q=80&w=500&auto=format&fit=crop" alt="跳绳" />
@@ -206,7 +220,7 @@
           <div class="h-px flex-1 bg-line"></div>
         </div>
 
-        <article class="exercise-card md:col-span-4 overflow-hidden rounded-xl border border-line bg-white shadow-card transition duration-300 hover:-translate-y-1 hover:shadow-lift">
+        <article class="exercise-card md:col-span-4 overflow-hidden rounded-xl border border-line bg-white shadow-card transition duration-300 hover:shadow-lift">
           <div class="relative h-40 overflow-hidden bg-panelSoft">
             <img class="h-full w-full object-cover transition duration-500 hover:scale-105" src="https://images.unsplash.com/photo-1534367610401-9f5ed68180aa?q=80&w=700&auto=format&fit=crop" alt="杠铃卧推" />
             <span class="absolute left-3 top-3 rounded-lg bg-white/90 px-2.5 py-1 text-xs font-extrabold text-primary backdrop-blur">Compound</span>
@@ -232,7 +246,7 @@
           </div>
         </article>
 
-        <article class="exercise-card md:col-span-4 overflow-hidden rounded-xl border border-line bg-white shadow-card transition duration-300 hover:-translate-y-1 hover:shadow-lift">
+        <article class="exercise-card md:col-span-4 overflow-hidden rounded-xl border border-line bg-white shadow-card transition duration-300 hover:shadow-lift">
           <div class="relative h-40 overflow-hidden bg-panelSoft">
             <img class="h-full w-full object-cover transition duration-500 hover:scale-105" src="https://images.unsplash.com/photo-1517838277536-f5f99be501cd?q=80&w=700&auto=format&fit=crop" alt="哑铃侧平举" />
             <span class="absolute left-3 top-3 rounded-lg bg-white/90 px-2.5 py-1 text-xs font-extrabold text-primary backdrop-blur">Isolation</span>
@@ -252,7 +266,7 @@
           </div>
         </article>
 
-        <article class="exercise-card md:col-span-4 overflow-hidden rounded-xl border border-line bg-white shadow-card transition duration-300 hover:-translate-y-1 hover:shadow-lift">
+        <article class="exercise-card md:col-span-4 overflow-hidden rounded-xl border border-line bg-white shadow-card transition duration-300 hover:shadow-lift">
           <div class="relative h-40 overflow-hidden bg-panelSoft">
             <img class="h-full w-full object-cover transition duration-500 hover:scale-105" src="https://images.unsplash.com/photo-1576678927484-cc907957088c?q=80&w=700&auto=format&fit=crop" alt="绳索下压" />
             <span class="absolute left-3 top-3 rounded-lg bg-white/90 px-2.5 py-1 text-xs font-extrabold text-primary backdrop-blur">Cable</span>

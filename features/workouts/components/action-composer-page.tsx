@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
+import exercisesData from "@/data/exercises.zh.json";
+import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
 import { clientRequest } from "@/lib/client/http/client-request";
 import type { Exercise, ExerciseFacets } from "@/lib/shared/exercises/types";
 
@@ -52,6 +54,8 @@ type TemplateExerciseConfig = {
 const historyStorageKey = "fitmate.workoutHistory";
 const placeholderImage = "https://www.gstatic.com/labs-code/stitch/stitch-placeholder-300x300.svg";
 const restOptions = [15, 20, 30, 45, 60, 90];
+const allExercises = exercisesData as Exercise[];
+const exerciseById = new Map(allExercises.map((exercise) => [exercise.id, exercise]));
 const defaultExerciseFacets: ExerciseFacets = {
   categories: [],
   levels: [],
@@ -130,6 +134,46 @@ function normalizeWorkoutItem(item: WorkoutItem): WorkoutItem {
     ...item,
     setRestSeconds: item.setRestSeconds ?? legacyRestSeconds,
     transitionRestSeconds: item.transitionRestSeconds ?? legacyRestSeconds,
+  };
+}
+
+function toPreviewExercise(item: WorkoutItem): Exercise {
+  const matchedExercise = exerciseById.get(item.exerciseId);
+
+  if (matchedExercise) {
+    return matchedExercise;
+  }
+
+  return {
+    id: item.exerciseId,
+    source: "local",
+    sourceUrl: "",
+    sourceId: item.exerciseId,
+    license: "",
+    nameEn: item.nameEn,
+    nameZh: item.nameZh,
+    category: null,
+    categoryZh: item.categoryZh,
+    level: null,
+    levelZh: null,
+    force: null,
+    forceZh: null,
+    mechanic: null,
+    mechanicZh: null,
+    equipment: null,
+    equipmentZh: item.equipmentZh,
+    primaryMuscles: [],
+    primaryMusclesZh: item.musclesZh,
+    secondaryMuscles: [],
+    secondaryMusclesZh: [],
+    instructionsEn: [],
+    instructionsZh: item.instructionsZh,
+    images: [],
+    imageUrls: [item.imageUrl || placeholderImage],
+    riskTags: [],
+    goalTags: [],
+    reviewStatus: "fallback",
+    isPublished: true,
   };
 }
 
@@ -221,10 +265,8 @@ export function ActionComposerPage() {
   const [showPreview, setShowPreview] = useState(false);
   const [draggingItemId, setDraggingItemId] = useState("");
   const [dragOverItemId, setDragOverItemId] = useState("");
-  const [detailImageSelection, setDetailImageSelection] = useState({
-    detailId: "",
-    index: 0,
-  });
+  const [activePreviewExercise, setActivePreviewExercise] = useState<Exercise | null>(null);
+  const [activePreviewSource, setActivePreviewSource] = useState<"library" | "plan" | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -353,21 +395,6 @@ export function ActionComposerPage() {
     Boolean(libraryMuscle) ||
     Boolean(libraryEquipment) ||
     Boolean(libraryLevel);
-  const detailName = selectedLibraryExercise?.nameZh ?? selectedItem?.nameZh;
-  const detailId = selectedLibraryExercise?.id ?? selectedItem?.id ?? "";
-  const detailImageUrls = selectedLibraryExercise?.imageUrls.length
-    ? selectedLibraryExercise.imageUrls
-    : [selectedItem?.imageUrl ?? placeholderImage];
-  const activeDetailImageIndex =
-    detailImageSelection.detailId === detailId
-      ? Math.min(detailImageSelection.index, detailImageUrls.length - 1)
-      : 0;
-  const detailImageUrl = detailImageUrls[activeDetailImageIndex] ?? placeholderImage;
-  const detailMuscles =
-    selectedLibraryExercise?.primaryMusclesZh ?? selectedItem?.musclesZh ?? [];
-  const detailInstructions =
-    selectedLibraryExercise?.instructionsZh ?? selectedItem?.instructionsZh ?? [];
-  const hasMultipleDetailImages = detailImageUrls.length > 1;
 
   function updateItem(id: string, updater: (item: WorkoutItem) => WorkoutItem) {
     setItems((current) => current.map((item) => (item.id === id ? updater(item) : item)));
@@ -379,6 +406,31 @@ export function ActionComposerPage() {
     setSelectedItemId(nextItem.id);
     setSelectedLibraryExerciseId("");
     setSaveStatus("");
+  }
+
+  function openLibraryPreview(exercise: Exercise) {
+    setSelectedLibraryExerciseId(exercise.id);
+    setActivePreviewExercise(exercise);
+    setActivePreviewSource("library");
+  }
+
+  function openPlanPreview(item: WorkoutItem) {
+    setActivePreviewExercise(toPreviewExercise(item));
+    setActivePreviewSource("plan");
+  }
+
+  function closePreviewSheet() {
+    setActivePreviewExercise(null);
+    setActivePreviewSource(null);
+  }
+
+  function addPreviewExercise() {
+    if (!activePreviewExercise) {
+      return;
+    }
+
+    addExercise(activePreviewExercise);
+    closePreviewSheet();
   }
 
   function resetLibraryFilters() {
@@ -572,7 +624,7 @@ export function ActionComposerPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-on-surface lg:pl-[260px] xl:pr-[300px]">
+    <div className="app-mesh-bg min-h-screen text-ink lg:pl-[260px] xl:pr-[300px]">
       <main className="custom-scrollbar h-screen overflow-y-auto overflow-x-hidden p-lg pb-28 xl:p-xl">
         <header className="mb-xl flex flex-col gap-lg xl:flex-row xl:items-end xl:justify-between">
           <div>
@@ -594,36 +646,39 @@ export function ActionComposerPage() {
           </div>
         </header>
 
-        <section className="mb-lg space-y-sm rounded-2xl border border-outline-variant bg-white p-md shadow-sm">
+        <section className="mb-lg space-y-sm rounded-[20px] border border-line bg-white p-md shadow-card">
           <div className="flex items-center justify-between gap-md">
-            <h2 className="flex items-center gap-xs font-title-lg text-title-lg">
+            <h2 className="flex items-center gap-xs font-title-lg text-title-lg font-extrabold">
               <SymbolIcon className="text-[20px] text-primary">bookmark</SymbolIcon>
               已保存编排
             </h2>
-            <span className="font-label-sm text-label-sm text-outline">
+            <span className="font-label-sm text-label-sm text-muted">
               {savedWorkouts.length ? `${savedWorkouts.length} 个` : "暂无保存"}
             </span>
           </div>
           {savedWorkouts.length ? (
-            <div className="custom-scrollbar -mx-xs flex gap-sm overflow-x-auto px-xs pb-xs">
-              {savedWorkouts.map((workout) => (
-                <SavedCompositionCard
-                  isActive={workout.id === activeSavedWorkoutId}
-                  key={workout.id}
-                  onDelete={() => deleteSavedWorkout(workout)}
-                  onDuplicate={() => duplicateSavedWorkout(workout)}
-                  onOpen={() => openSavedWorkout(workout)}
-                  workout={workout}
-                />
-              ))}
+            <div className="relative -mx-xs">
+              <div className="scrollbar-none flex gap-sm overflow-x-auto px-xs pb-1">
+                {savedWorkouts.map((workout) => (
+                  <SavedCompositionCard
+                    isActive={workout.id === activeSavedWorkoutId}
+                    key={workout.id}
+                    onDelete={() => deleteSavedWorkout(workout)}
+                    onDuplicate={() => duplicateSavedWorkout(workout)}
+                    onOpen={() => openSavedWorkout(workout)}
+                    workout={workout}
+                  />
+                ))}
+              </div>
+              <div className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-white to-transparent" />
             </div>
           ) : (
-            <div className="flex flex-col gap-sm rounded-2xl border border-dashed border-outline-variant bg-surface-container-lowest p-md md:flex-row md:items-center md:justify-between">
-              <p className="font-label-md text-label-md text-on-surface-variant">
+            <div className="flex flex-col gap-sm rounded-xl border border-dashed border-line bg-panel-soft p-md md:flex-row md:items-center md:justify-between">
+              <p className="font-label-md text-label-md text-muted">
                 保存当前编排后，会在这里快速切换、复制或删除。
               </p>
               <button
-                className="flex shrink-0 items-center justify-center gap-xs rounded-full bg-primary-container px-md py-sm font-label-md text-label-md text-white transition-opacity hover:opacity-90"
+                className="flex shrink-0 items-center justify-center gap-xs rounded-xl bg-primary px-md py-sm font-label-md text-label-md font-bold text-white transition-colors hover:bg-primary-deep"
                 onClick={savePlan}
                 type="button"
               >
@@ -634,12 +689,12 @@ export function ActionComposerPage() {
           )}
         </section>
 
-        <section className="mb-lg rounded-2xl border border-outline-variant bg-white p-md shadow-sm">
-          <div className="mb-lg flex flex-col gap-md rounded-2xl border border-outline-variant bg-surface-container-lowest p-md md:flex-row md:items-center md:justify-between">
+        <section className="mb-lg rounded-[20px] border border-line bg-white p-md shadow-card">
+          <div className="mb-lg flex flex-col gap-md rounded-xl border border-line bg-panel p-md md:flex-row md:items-center md:justify-between">
             <div className="flex min-w-0 flex-1 items-center gap-sm">
               <input
                 aria-label="训练计划名称"
-                className="min-w-0 flex-1 border-none bg-transparent font-title-lg text-title-lg font-bold outline-none focus:ring-0"
+                className="min-w-0 flex-1 border-none bg-transparent font-title-lg text-title-lg font-extrabold outline-none focus:ring-0"
                 onChange={(event) => setPlanTitle(event.target.value)}
                 value={planTitle}
               />
@@ -659,7 +714,6 @@ export function ActionComposerPage() {
                   <WorkoutExerciseRow
                     dragState={dragOverItemId === item.id ? "over" : draggingItemId === item.id ? "dragging" : "idle"}
                     index={index}
-                    isSelected={item.id === selectedItem?.id}
                     item={item}
                     onDelete={() => deleteItem(item.id)}
                     onDragEnd={() => {
@@ -677,7 +731,7 @@ export function ActionComposerPage() {
                       setDragOverItemId("");
                     }}
                     onDuplicate={() => duplicateItem(item)}
-                    onSelect={() => setSelectedItemId(item.id)}
+                    onPreview={() => openPlanPreview(item)}
                     onUpdate={(updater) => updateItem(item.id, updater)}
                   />
                   {index < items.length - 1 ? (
@@ -703,8 +757,8 @@ export function ActionComposerPage() {
         </section>
 
         {showPreview ? (
-          <section className="mb-lg rounded-2xl border border-primary-container/20 bg-primary/5 p-lg">
-            <h2 className="mb-md font-title-lg text-title-lg">训练预览</h2>
+          <section className="mb-lg rounded-[20px] border border-primary/20 bg-primary/5 p-lg">
+            <h2 className="mb-md font-title-lg text-title-lg font-extrabold">训练预览</h2>
             <div className="grid gap-sm md:grid-cols-2">
               {items.map((item, index) => (
                 <div className="rounded-xl bg-white p-md font-label-md text-label-md" key={item.id}>
@@ -716,7 +770,7 @@ export function ActionComposerPage() {
         ) : null}
 
         <div className="sticky bottom-0 flex justify-center bg-background/80 py-md backdrop-blur-md">
-          <div className="flex flex-wrap items-center justify-center gap-xs rounded-2xl border border-outline-variant bg-white p-xs shadow-xl">
+          <div className="flex flex-wrap items-center justify-center gap-xs rounded-[20px] border border-line bg-white p-xs shadow-lift">
             <ToolbarButton icon="auto_awesome" label="自动排序" onClick={autoSort} />
             <ToolbarButton icon="more_time" label="插入休息" onClick={insertRest} />
             <ToolbarButton icon="sync_alt" label="生成循环训练" onClick={() => setPlanTitle("循环训练计划")} />
@@ -731,7 +785,7 @@ export function ActionComposerPage() {
         ) : null}
       </main>
 
-      <aside className="fixed right-0 top-0 z-30 hidden h-screen w-[300px] flex-col gap-md overflow-y-auto border-l border-outline-variant bg-white p-md xl:flex">
+      <aside className="fixed right-0 top-0 z-30 hidden h-screen w-[300px] flex-col gap-md overflow-y-auto border-l border-line/70 bg-white/68 p-md shadow-nav backdrop-blur-2xl xl:flex">
         <section className="flex min-h-[420px] flex-col">
           <div className="mb-md flex items-center justify-between">
             <h2 className="flex items-center gap-xs font-label-md text-label-md font-bold">
@@ -747,7 +801,7 @@ export function ActionComposerPage() {
               search
             </SymbolIcon>
             <input
-              className="w-full rounded-xl border-none bg-surface-container-low py-sm pl-10 pr-md font-label-md text-label-md outline-none focus:ring-2 focus:ring-primary/20"
+              className="w-full rounded-xl border border-line bg-white py-sm pl-10 pr-md font-label-md text-label-md outline-none focus:border-primary focus:ring-4 focus:ring-primary/10"
               onChange={(event) => setLibraryQuery(event.target.value)}
               placeholder="搜索训练动作..."
               value={libraryQuery}
@@ -837,7 +891,7 @@ export function ActionComposerPage() {
                       : "border-outline-variant bg-surface-container-lowest hover:border-primary"
                   }`}
                   key={exercise.id}
-                  onClick={() => setSelectedLibraryExerciseId(exercise.id)}
+                  onClick={() => openLibraryPreview(exercise)}
                   type="button"
                 >
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-surface-container-low">
@@ -865,114 +919,7 @@ export function ActionComposerPage() {
           </div>
         </section>
 
-        <section className="rounded-2xl bg-surface-container-low p-md">
-          <div className="mb-md flex items-start justify-between">
-            <h2 className="font-label-md text-label-md font-bold">动作详情</h2>
-            <SymbolIcon className="text-outline">info</SymbolIcon>
-          </div>
-          {detailName ? (
-            <>
-              <div className="relative mb-sm aspect-video overflow-hidden rounded-lg border border-outline-variant bg-surface-container-high">
-                <img alt={`${detailName} 动作图`} className="h-full w-full object-cover" src={detailImageUrl} />
-                <div className="absolute left-xs top-xs rounded-full bg-black/55 px-xs py-[2px] text-[10px] font-bold text-white">
-                  {activeDetailImageIndex + 1} / {detailImageUrls.length}
-                </div>
-                {hasMultipleDetailImages ? (
-                  <>
-                    <button
-                      aria-label="上一张动作分步图"
-                      className="absolute left-xs top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/70 disabled:cursor-not-allowed disabled:opacity-40"
-                      disabled={activeDetailImageIndex === 0}
-                      onClick={() =>
-                        setDetailImageSelection({
-                          detailId,
-                          index: Math.max(0, activeDetailImageIndex - 1),
-                        })
-                      }
-                      type="button"
-                    >
-                      <SymbolIcon className="text-[18px]">chevron_left</SymbolIcon>
-                    </button>
-                    <button
-                      aria-label="下一张动作分步图"
-                      className="absolute right-xs top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/70 disabled:cursor-not-allowed disabled:opacity-40"
-                      disabled={activeDetailImageIndex === detailImageUrls.length - 1}
-                      onClick={() =>
-                        setDetailImageSelection({
-                          detailId,
-                          index: Math.min(detailImageUrls.length - 1, activeDetailImageIndex + 1),
-                        })
-                      }
-                      type="button"
-                    >
-                      <SymbolIcon className="text-[18px]">chevron_right</SymbolIcon>
-                    </button>
-                  </>
-                ) : null}
-              </div>
-              {hasMultipleDetailImages ? (
-                <div className="custom-scrollbar mb-md flex gap-xs overflow-x-auto pb-xs">
-                  {detailImageUrls.map((imageUrl, index) => (
-                    <button
-                      aria-label={`查看第 ${index + 1} 步动作图`}
-                      className={`shrink-0 rounded-full px-sm py-[2px] text-[10px] font-bold transition-colors ${
-                        activeDetailImageIndex === index
-                          ? "bg-primary text-white"
-                          : "bg-white text-on-surface-variant hover:bg-surface-container"
-                      }`}
-                      key={`${imageUrl}-${index}`}
-                      onClick={() => setDetailImageSelection({ detailId, index })}
-                      type="button"
-                    >
-                      第 {index + 1} 步
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-              <div className="mb-sm flex items-center justify-between gap-sm">
-                <h3 className="truncate font-body-lg text-body-lg font-bold">{detailName}</h3>
-                <div className="flex text-primary">
-                  <SymbolIcon className="text-sm" filled>star</SymbolIcon>
-                  <SymbolIcon className="text-sm" filled>star</SymbolIcon>
-                  <SymbolIcon className="text-sm">star</SymbolIcon>
-                </div>
-              </div>
-              <p className="mb-md text-xs text-outline">
-                目标部位：{detailMuscles.slice(0, 3).join("、") || "综合"}
-              </p>
-              <div className="custom-scrollbar max-h-44 space-y-sm overflow-y-auto pr-xs">
-                {detailInstructions.length ? (
-                  detailInstructions.map((instruction, index) => (
-                  <div className="flex items-start gap-sm" key={`${instruction}-${index}`}>
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary-container text-[10px] font-bold text-white">
-                      {index + 1}
-                    </span>
-                    <p className="text-[11px] leading-relaxed text-on-surface-variant">{instruction}</p>
-                  </div>
-                  ))
-                ) : (
-                  <p className="rounded-lg bg-white p-sm text-[11px] text-on-surface-variant">
-                    暂无详细步骤。
-                  </p>
-                )}
-              </div>
-              {selectedLibraryExercise ? (
-                <button
-                  className="mt-md flex w-full items-center justify-center gap-xs rounded-xl bg-primary-container py-sm font-label-md text-label-md text-white transition-opacity hover:opacity-90"
-                  onClick={() => addExercise(selectedLibraryExercise)}
-                  type="button"
-                >
-                  <SymbolIcon className="text-[18px]">playlist_add</SymbolIcon>
-                  加入当前计划
-                </button>
-              ) : null}
-            </>
-          ) : (
-            <p className="font-label-md text-label-md text-on-surface-variant">选择一个动作查看详情。</p>
-          )}
-        </section>
-
-        <section className="rounded-2xl border border-primary/10 bg-primary/5 p-md">
+        <section className="rounded-[20px] border border-primary/10 bg-primary/5 p-md">
           <h2 className="mb-md font-label-md text-label-md font-bold">训练概览</h2>
           <div className="grid grid-cols-2 gap-sm">
             <OverviewTile label="训练时长" value={`${totalMinutes}m`} />
@@ -982,6 +929,20 @@ export function ActionComposerPage() {
           </div>
         </section>
       </aside>
+      <ExercisePreviewSheet
+        exercise={activePreviewExercise}
+        isOpen={Boolean(activePreviewExercise)}
+        onClose={closePreviewSheet}
+        primaryAction={
+          activePreviewSource === "library"
+            ? {
+                icon: "playlist_add",
+                label: "加入当前计划",
+                onClick: addPreviewExercise,
+              }
+            : undefined
+        }
+      />
     </div>
   );
 }
@@ -1011,10 +972,10 @@ function SavedCompositionCard({
 
   return (
     <div
-      className={`group flex w-64 shrink-0 items-center gap-sm rounded-2xl border p-sm text-left transition-all ${
+      className={`group flex w-64 shrink-0 items-center gap-sm rounded-xl border p-sm text-left transition-all ${
         isActive
-          ? "border-primary-container bg-primary/5 shadow-md ring-2 ring-primary-container/20"
-          : "border-outline-variant/70 bg-white hover:border-primary/40 hover:shadow-md"
+          ? "border-primary bg-primary/5 shadow-card ring-2 ring-primary/10"
+          : "border-line bg-white hover:border-primary/40 hover:ring-1 hover:ring-primary/10"
       }`}
     >
       <button
@@ -1024,7 +985,7 @@ function SavedCompositionCard({
       >
         <span
           className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
-            isActive ? "bg-primary-container text-white" : "bg-tertiary-fixed text-tertiary"
+            isActive ? "bg-primary text-white" : "bg-primary-soft text-primary"
           }`}
         >
           <SymbolIcon className="text-[20px]">{icon}</SymbolIcon>
@@ -1107,7 +1068,6 @@ function LibraryFilterSelect({
 function WorkoutExerciseRow({
   dragState,
   index,
-  isSelected,
   item,
   onDelete,
   onDragEnd,
@@ -1115,12 +1075,11 @@ function WorkoutExerciseRow({
   onDragStart,
   onDrop,
   onDuplicate,
-  onSelect,
+  onPreview,
   onUpdate,
 }: {
   dragState: "dragging" | "idle" | "over";
   index: number;
-  isSelected: boolean;
   item: WorkoutItem;
   onDelete: () => void;
   onDragEnd: () => void;
@@ -1128,17 +1087,15 @@ function WorkoutExerciseRow({
   onDragStart: () => void;
   onDrop: () => void;
   onDuplicate: () => void;
-  onSelect: () => void;
+  onPreview: () => void;
   onUpdate: (updater: (item: WorkoutItem) => WorkoutItem) => void;
 }) {
   return (
     <div
-      className={`relative flex flex-col gap-md rounded-2xl p-md transition-all md:flex-row md:items-center ${
-        isSelected
-          ? "border-2 border-primary-container bg-white shadow-lg"
-          : "border border-outline-variant bg-surface-container-lowest hover:shadow-md"
-      } ${dragState === "dragging" ? "opacity-50" : ""} ${
-        dragState === "over" ? "ring-2 ring-primary-container ring-offset-2 ring-offset-background" : ""
+      className={`relative flex flex-col gap-md rounded-xl border border-line bg-white p-md transition-all hover:border-primary/40 hover:ring-1 hover:ring-primary/10 md:flex-row md:items-center ${
+        dragState === "dragging" ? "opacity-50" : ""
+      } ${
+        dragState === "over" ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""
       }`}
       draggable
       onDragEnd={onDragEnd}
@@ -1156,15 +1113,9 @@ function WorkoutExerciseRow({
         event.preventDefault();
         onDrop();
       }}
-      onClick={onSelect}
     >
-      {isSelected ? <div className="absolute bottom-0 left-0 top-0 w-1 rounded-l-2xl bg-primary-container" /> : null}
       <div className="flex items-center gap-sm">
-        <div
-          className={`flex h-8 w-8 items-center justify-center rounded-full font-label-md text-label-md font-bold ${
-            isSelected ? "bg-primary-container text-white" : "border-2 border-outline-variant text-outline"
-          }`}
-        >
+        <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-line font-label-md text-label-md font-bold text-muted">
           {index + 1}
         </div>
         <button
@@ -1173,18 +1124,16 @@ function WorkoutExerciseRow({
           onClick={(event) => event.stopPropagation()}
           type="button"
         >
-          <SymbolIcon className={isSelected ? "text-primary" : "text-outline"}>
-            drag_indicator
-          </SymbolIcon>
+          <SymbolIcon className="text-outline">drag_indicator</SymbolIcon>
         </button>
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-md md:flex-row md:items-center">
         <div className="flex min-w-0 flex-1 items-center gap-md">
-          <div className={`flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl ${isSelected ? "bg-primary/5" : "bg-surface-container-low"}`}>
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-surface-container-low">
             <img alt="" className="h-full w-full object-cover" src={item.imageUrl} />
           </div>
           <div className="min-w-0">
-            <p className={`truncate font-body-lg text-body-lg font-bold ${isSelected ? "text-primary" : ""}`}>
+            <p className="truncate font-body-lg text-body-lg font-bold">
               {item.nameZh} <span className="text-label-sm font-normal text-outline">{item.nameEn}</span>
             </p>
             <span className={`mt-xs inline-block rounded px-sm py-[2px] text-[10px] font-bold uppercase ${item.mode === "duration" ? "bg-primary-fixed text-on-primary-fixed-variant" : "bg-tertiary-fixed text-on-tertiary-fixed-variant"}`}>
@@ -1207,9 +1156,8 @@ function WorkoutExerciseRow({
           <label className="min-w-[76px] text-center">
             <span className="mb-xs block text-[10px] text-outline">间歇</span>
             <select
-              className={`h-9 w-full rounded-lg border bg-transparent px-xs text-center font-label-md text-label-md outline-none focus:ring-0 ${
-                isSelected ? "border-primary-container/30 bg-primary/5" : "border-outline-variant"
-              }`}
+              className="h-9 w-full rounded-lg border border-outline-variant bg-transparent px-xs text-center font-label-md text-label-md outline-none focus:ring-0"
+              onClick={(event) => event.stopPropagation()}
               onChange={(event) =>
                 onUpdate((current) => ({ ...current, setRestSeconds: Number(event.target.value) }))
               }
@@ -1225,6 +1173,17 @@ function WorkoutExerciseRow({
         </div>
       </div>
       <div className="flex gap-xs border-outline-variant md:border-l md:pl-md">
+        <button
+          aria-label={`查看动作详情：${item.nameZh}`}
+          className="rounded-lg p-sm text-outline transition-colors hover:bg-primary/5 hover:text-primary"
+          onClick={(event) => {
+            event.stopPropagation();
+            onPreview();
+          }}
+          type="button"
+        >
+          <SymbolIcon>info</SymbolIcon>
+        </button>
         <button className="rounded-lg p-sm text-outline transition-colors hover:bg-primary/5 hover:text-primary" onClick={(event) => { event.stopPropagation(); onDuplicate(); }} type="button">
           <SymbolIcon>content_copy</SymbolIcon>
         </button>

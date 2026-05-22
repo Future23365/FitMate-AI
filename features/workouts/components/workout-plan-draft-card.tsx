@@ -7,7 +7,7 @@ import { SymbolIcon } from "@/components/app/symbol-icon";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
 import exercisesData from "@/data/exercises.zh.json";
 import type { Exercise } from "@/lib/shared/exercises/types";
-import type { WorkoutPlanDraft } from "@/lib/shared/workout-plans/draft-schema";
+import type { WorkoutPlanDraft, WorkoutPlanItemDraft } from "@/lib/shared/workout-plans/draft-schema";
 import { convertWorkoutPlanDraftToSavedWorkout } from "@/features/workout-plans/lib/saved-workout";
 
 interface WorkoutPlanDraftCardProps {
@@ -17,6 +17,7 @@ interface WorkoutPlanDraftCardProps {
 const exercises = exercisesData as Exercise[];
 const placeholderImage = "https://www.gstatic.com/labs-code/stitch/stitch-placeholder-300x300.svg";
 const exerciseMap = new Map(exercises.map((item) => [item.id, item]));
+const normalizedExerciseMap = new Map(exercises.map((item) => [item.id.toLowerCase(), item]));
 
 type ScheduleStatus = "completed" | "missed" | "planned" | "rest";
 
@@ -54,6 +55,44 @@ function estimateCalories(items: any[]) {
   return Math.max(80, Math.round(estimateMinutes(items) * 7.2 + items.length * 12));
 }
 
+function findExerciseById(exerciseId: string) {
+  return exerciseMap.get(exerciseId) ?? normalizedExerciseMap.get(exerciseId.toLowerCase());
+}
+
+function toFallbackPreviewExercise(item: WorkoutPlanItemDraft): Exercise {
+  return {
+    id: item.exerciseId,
+    source: "draft",
+    sourceUrl: "",
+    sourceId: item.exerciseId,
+    license: "",
+    nameEn: item.exerciseId,
+    nameZh: item.exerciseId,
+    category: null,
+    categoryZh: "训练",
+    level: null,
+    levelZh: null,
+    force: null,
+    forceZh: null,
+    mechanic: null,
+    mechanicZh: null,
+    equipment: null,
+    equipmentZh: "未标注器械",
+    primaryMuscles: [],
+    primaryMusclesZh: ["综合"],
+    secondaryMuscles: [],
+    secondaryMusclesZh: [],
+    instructionsEn: [],
+    instructionsZh: item.notes ? [item.notes] : [],
+    images: [],
+    imageUrls: [placeholderImage],
+    riskTags: [],
+    goalTags: [],
+    reviewStatus: "fallback",
+    isPublished: true,
+  };
+}
+
 export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
   const router = useRouter();
   const [activeDayIndex, setActiveDayIndex] = useState(
@@ -67,13 +106,12 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
   const [activePreviewTip, setActivePreviewTip] = useState<string | undefined>();
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
-  const handleOpenPreview = (exerciseId: string, executionTip?: string) => {
-    const exercise = exerciseMap.get(exerciseId);
-    if (exercise) {
-      setActivePreviewExercise(exercise);
-      setActivePreviewTip(executionTip);
-      setIsPreviewOpen(true);
-    }
+  const handleOpenPreview = (item: WorkoutPlanItemDraft) => {
+    const exercise = findExerciseById(item.exerciseId) ?? toFallbackPreviewExercise(item);
+
+    setActivePreviewExercise(exercise);
+    setActivePreviewTip(item.notes);
+    setIsPreviewOpen(true);
   };
 
   const isRoutineOnly = draft.days.length === 1;
@@ -215,30 +253,29 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
   };
 
   return (
-    <div className="relative mt-md overflow-hidden rounded-2xl border border-outline-variant bg-white/90 shadow-lg backdrop-blur-md transition-all duration-300 hover:shadow-xl">
-      {/* 渐变修饰顶部条 */}
-      <div className="h-1.5 w-full bg-gradient-to-r from-primary to-primary-container" />
+    <div className="relative mt-md overflow-hidden rounded-[20px] border border-line bg-white/95 shadow-card backdrop-blur-md transition-all duration-300 hover:shadow-lift">
+      <div className="h-1.5 w-full bg-primary" />
 
       <div className="p-lg">
         {/* 卡片头部：标题、主要目标和时长 */}
         <div className="flex flex-col gap-xs md:flex-row md:items-start md:justify-between">
           <div>
             <h3 className="flex items-center gap-xs font-title-lg text-title-lg font-bold text-on-surface">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary-container/10 text-primary">
+              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary-soft text-primary">
                 <SymbolIcon className="text-[18px]">sports_gymnastics</SymbolIcon>
               </span>
               {draft.title}
             </h3>
-            <p className="mt-xs font-body-sm text-body-sm text-on-surface-variant">
+            <p className="mt-xs font-body-sm text-body-sm text-muted">
               {draft.summary}
             </p>
           </div>
           <div className="mt-sm flex flex-wrap gap-xs md:mt-0">
-            <span className="inline-flex items-center gap-1 rounded-full bg-surface-container-high px-sm py-xs font-label-sm text-label-sm text-on-surface">
+            <span className="inline-flex items-center gap-1 rounded-lg bg-panel-soft px-sm py-xs font-label-sm text-label-sm text-ink">
               <SymbolIcon className="text-[14px]">event_repeat</SymbolIcon>
               每周 {draft.weeklyFrequency} 次
             </span>
-            <span className="inline-flex items-center gap-1 rounded-full bg-primary-container/10 px-sm py-xs font-label-sm text-label-sm text-primary">
+            <span className="inline-flex items-center gap-1 rounded-lg bg-primary-soft px-sm py-xs font-label-sm text-label-sm font-bold text-primary">
               <SymbolIcon className="text-[14px]">schedule</SymbolIcon>
               单次 {draft.estimatedSessionMinutes} 分钟
             </span>
@@ -296,7 +333,7 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
             {/* 当天动作列表卡片流 */}
             <div className="space-y-sm">
               {activeDay.items.map((item, index) => {
-                const exercise = exerciseMap.get(item.exerciseId);
+                const exercise = findExerciseById(item.exerciseId);
                 const exerciseName = exercise?.nameZh || "未知动作";
                 const category = exercise?.categoryZh || "训练";
                 const equipment = exercise?.equipmentZh || "自重";
@@ -305,7 +342,7 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
                 return (
                   <div
                     key={`${item.exerciseId}-${index}`}
-                    onClick={() => handleOpenPreview(item.exerciseId, item.notes)}
+                    onClick={() => handleOpenPreview(item)}
                     className="flex items-center gap-md rounded-xl border border-outline-variant bg-surface-container-lowest p-md hover:border-primary-container/40 hover:shadow-sm cursor-pointer transition-all duration-200 group"
                   >
                     {/* 动作封面图片 */}

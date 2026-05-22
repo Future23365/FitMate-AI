@@ -38,30 +38,30 @@ export function ExerciseRecommendationCard({ card }: ExerciseRecommendationCardP
   }
 
   return (
-    <div className="relative mt-md overflow-hidden rounded-2xl border border-outline-variant bg-white/90 shadow-lg backdrop-blur-md transition-all duration-300 hover:shadow-xl">
-      <div className="h-1.5 w-full bg-gradient-to-r from-tertiary to-primary" />
+    <div className="relative mt-md overflow-hidden rounded-[20px] border border-line bg-white/95 shadow-card backdrop-blur-md transition-all duration-300 hover:shadow-lift">
+      <div className="h-1.5 w-full bg-primary" />
 
       <div className="p-lg">
         <div className="flex flex-col gap-sm md:flex-row md:items-start md:justify-between">
           <div>
             <h3 className="flex items-center gap-xs font-title-lg text-title-lg font-bold text-on-surface">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-tertiary-container/20 text-tertiary">
+              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary-soft text-primary">
                 <SymbolIcon className="text-[18px]">recommend</SymbolIcon>
               </span>
               {card.title}
             </h3>
-            <p className="mt-xs font-body-sm text-body-sm text-on-surface-variant">
+            <p className="mt-xs font-body-sm text-body-sm text-muted">
               {card.summary}
             </p>
           </div>
           <div className="flex flex-wrap gap-xs">
-            <span className="inline-flex items-center gap-1 rounded-full bg-surface-container-high px-sm py-xs font-label-sm text-label-sm text-on-surface">
+            <span className="inline-flex items-center gap-1 rounded-lg bg-panel-soft px-sm py-xs font-label-sm text-label-sm text-ink">
               <SymbolIcon className="text-[14px]">fitness_center</SymbolIcon>
               {card.items.length} 个动作
             </span>
             {totalMuscles.map((muscle) => (
               <span
-                className="rounded-full bg-primary-container/10 px-sm py-xs font-label-sm text-label-sm text-primary"
+                className="rounded-lg bg-primary-soft px-sm py-xs font-label-sm text-label-sm font-bold text-primary"
                 key={muscle}
               >
                 {muscle}
@@ -83,12 +83,12 @@ export function ExerciseRecommendationCard({ card }: ExerciseRecommendationCardP
         <div className="mt-md grid gap-sm sm:grid-cols-2">
           {card.items.map((item) => (
             <button
-              className="group flex min-w-0 items-center gap-md rounded-xl border border-outline-variant bg-surface-container-lowest p-md text-left transition-all duration-200 hover:border-primary-container/40 hover:shadow-sm"
+              className="group flex min-w-0 items-center gap-md rounded-xl border border-line bg-white p-md text-left transition-all duration-200 hover:border-primary/40 hover:shadow-card"
               key={item.exerciseId}
               onClick={() => handleOpenPreview(item.exerciseId)}
               type="button"
             >
-              <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-outline-variant bg-surface-container">
+              <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-line bg-panel-soft">
                 <img
                   alt={item.nameZh}
                   className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
@@ -103,8 +103,8 @@ export function ExerciseRecommendationCard({ card }: ExerciseRecommendationCardP
                     <h4 className="truncate font-body-md text-body-md font-bold text-on-surface">
                       {item.nameZh}
                     </h4>
-                    <div className="mt-xs flex flex-wrap items-center gap-xs font-label-xs text-label-xs text-on-surface-variant">
-                      <span className="rounded bg-surface-container px-1 py-[2px]">
+                    <div className="mt-xs flex flex-wrap items-center gap-xs font-label-xs text-label-xs text-muted">
+                      <span className="rounded-lg bg-panel-soft px-1 py-[2px]">
                         {item.categoryZh}
                       </span>
                       <span>{item.levelZh}</span>
@@ -119,7 +119,7 @@ export function ExerciseRecommendationCard({ card }: ExerciseRecommendationCardP
                 <div className="mt-sm flex flex-wrap gap-xs">
                   {item.primaryMusclesZh.slice(0, 3).map((muscle) => (
                     <span
-                      className="rounded-full bg-primary/10 px-sm py-[2px] font-label-xs text-label-xs font-bold text-primary"
+                    className="rounded-lg bg-primary-soft px-sm py-[2px] font-label-xs text-label-xs font-bold text-primary"
                       key={muscle}
                     >
                       {muscle}

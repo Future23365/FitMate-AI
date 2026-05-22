@@ -362,17 +362,17 @@ export function TrainingPlanPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-on-surface lg:pl-[260px] xl:pr-[320px]">
+    <div className="app-mesh-bg min-h-screen text-ink lg:pl-[260px] xl:pr-[320px]">
       <main className="custom-scrollbar h-screen overflow-y-auto overflow-x-hidden p-lg xl:p-xl">
         <section className="mb-xl flex flex-col gap-md md:flex-row md:items-end md:justify-between">
           <div>
-            <h1 className="font-headline-lg text-headline-lg">训练日历</h1>
-            <p className="mt-xs font-body-md text-body-md text-on-surface-variant">
+            <h1 className="font-headline-lg text-headline-lg font-extrabold tracking-[-0.03em]">训练日历</h1>
+            <p className="mt-xs font-body-md text-body-md text-muted">
               规划你的健身周，保持运动节奏。
             </p>
           </div>
           <button
-            className="flex items-center justify-center gap-xs rounded-full bg-primary-container px-lg py-md font-label-md text-label-md text-white shadow-md transition-all hover:shadow-lg active:scale-[0.98]"
+            className="flex items-center justify-center gap-xs rounded-xl bg-primary px-lg py-md font-label-md text-label-md font-bold text-white shadow-card transition-all hover:bg-primary-deep hover:shadow-lift active:scale-[0.98]"
             onClick={() => {
               const plan = filteredWorkouts[0] ?? fallbackWorkouts[0];
               scheduleWorkout(plan);
@@ -386,28 +386,31 @@ export function TrainingPlanPage() {
 
         <section className="mb-xl space-y-sm">
           <div className="flex items-center justify-between">
-            <h2 className="font-title-lg text-title-lg">已保存计划</h2>
+            <h2 className="font-title-lg text-title-lg font-extrabold">已保存计划</h2>
             <Link className="font-label-sm text-label-sm font-bold text-primary hover:underline" href="/composer">
               管理全部
             </Link>
           </div>
-          <div className="custom-scrollbar -mx-xs flex gap-md overflow-x-auto px-xs pb-sm">
-            {filteredWorkouts.map((workout) => (
-              <SavedPlanCard
-                key={workout.id}
-                workout={workout}
-                onSchedule={() => scheduleWorkout(workout)}
-              />
-            ))}
+          <div className="relative -mx-xs">
+            <div className="scrollbar-none flex gap-md overflow-x-auto px-xs pb-1">
+              {filteredWorkouts.map((workout) => (
+                <SavedPlanCard
+                  key={workout.id}
+                  workout={workout}
+                  onSchedule={() => scheduleWorkout(workout)}
+                />
+              ))}
+            </div>
+            <div className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-[#F6F8FB] to-transparent" />
           </div>
         </section>
 
-        <section className="rounded-2xl border border-outline-variant bg-white p-lg shadow-sm">
+        <section className="rounded-[20px] border border-line bg-white p-lg shadow-card">
           <div className="mb-xl flex items-center justify-between gap-md">
-            <div className="flex shrink-0 items-center gap-sm rounded-full bg-surface-container px-md py-sm">
+            <div className="flex shrink-0 items-center gap-sm rounded-xl bg-panel-soft px-md py-sm">
               <button
                 aria-label="上个月"
-                className="rounded-full p-xs text-secondary transition-colors hover:bg-white hover:text-primary"
+                className="rounded-lg p-xs text-secondary transition-colors hover:bg-white hover:text-primary"
                 onClick={() => shiftMonth(-1)}
                 type="button"
               >
@@ -418,14 +421,14 @@ export function TrainingPlanPage() {
               </span>
               <button
                 aria-label="下个月"
-                className="rounded-full p-xs text-secondary transition-colors hover:bg-white hover:text-primary"
+                className="rounded-lg p-xs text-secondary transition-colors hover:bg-white hover:text-primary"
                 onClick={() => shiftMonth(1)}
                 type="button"
               >
                 <SymbolIcon>chevron_right</SymbolIcon>
               </button>
             </div>
-            <div className="custom-scrollbar ml-auto flex min-w-0 max-w-[min(520px,55%)] shrink overflow-x-auto whitespace-nowrap rounded-full bg-surface-container-low px-sm py-sm md:px-lg">
+            <div className="custom-scrollbar ml-auto flex min-w-0 max-w-[min(520px,55%)] shrink overflow-x-auto whitespace-nowrap rounded-xl bg-panel-soft px-sm py-sm md:px-lg">
               <div className="flex shrink-0 items-center gap-sm md:gap-md">
               <LegendDot className="bg-primary-container" label="已完成" />
               <LegendDot className="border-2 border-primary-container" label="已安排" />
@@ -435,10 +438,10 @@ export function TrainingPlanPage() {
             </div>
           </div>
 
-          <div className="grid min-w-[760px] grid-cols-7 gap-px overflow-hidden rounded-xl border border-outline-variant/50 bg-outline-variant/50 shadow-inner">
+          <div className="grid min-w-[760px] grid-cols-7 gap-px overflow-hidden rounded-xl border border-line bg-line shadow-inner">
             {weekdays.map((weekday) => (
               <div
-                className="border-b border-outline-variant/40 bg-surface-container-low p-md text-center font-label-md text-label-md font-bold text-secondary"
+                className="border-b border-line bg-panel-soft p-md text-center font-label-md text-label-md font-bold text-secondary"
                 key={weekday}
               >
                 {weekday}
@@ -453,9 +456,9 @@ export function TrainingPlanPage() {
                 <button
                   className={`group min-h-[122px] p-sm text-left transition-all ${
                     cell.isCurrentMonth
-                      ? "bg-white hover:bg-primary-fixed/10"
-                      : "bg-surface-container-low text-outline/60"
-                  } ${isSelected ? "relative z-10 bg-primary-fixed/20 ring-2 ring-primary ring-inset" : ""}`}
+                      ? "bg-white hover:bg-primary-soft/60"
+                      : "bg-panel-soft text-muted/60"
+                  } ${isSelected ? "relative z-10 bg-primary-soft ring-2 ring-primary ring-inset" : ""}`}
                   key={cell.dateKey}
                   onClick={() => {
                     setSelectedDateKey(cell.dateKey);
@@ -467,12 +470,12 @@ export function TrainingPlanPage() {
                     <span
                       className={`flex h-8 min-w-8 items-center justify-center rounded-full px-xs font-title-lg text-title-lg transition-colors ${
                         isSelected
-                          ? "bg-primary text-white shadow-sm"
+                            ? "bg-primary text-white shadow-sm"
                           : isToday
                             ? "bg-primary-container text-white"
                             : cell.isCurrentMonth
-                              ? "bg-surface-container-low text-on-surface group-hover:bg-white group-hover:text-primary"
-                              : "bg-surface text-outline/60"
+                              ? "bg-panel-soft text-ink group-hover:bg-white group-hover:text-primary"
+                              : "bg-surface text-muted/60"
                       }`}
                     >
                       {cell.date.getDate()}
@@ -503,9 +506,9 @@ export function TrainingPlanPage() {
         </section>
       </main>
 
-      <aside className="custom-scrollbar fixed right-0 top-0 z-30 hidden h-screen w-[320px] flex-col gap-lg overflow-y-auto border-l border-outline-variant bg-surface p-md xl:flex">
+      <aside className="custom-scrollbar fixed right-0 top-0 z-30 hidden h-screen w-[320px] flex-col gap-lg overflow-y-auto border-l border-line/70 bg-white/68 p-md shadow-nav backdrop-blur-2xl xl:flex">
         <section className="space-y-md">
-          <h2 className="flex items-center gap-xs font-label-md text-label-md text-secondary">
+          <h2 className="flex items-center gap-xs font-label-md text-label-md font-bold text-secondary">
             <SymbolIcon className="text-[18px]">calendar_today</SymbolIcon>
             当天计划 ({formatDayLabel(selectedDateKey)})
           </h2>
@@ -538,11 +541,11 @@ export function TrainingPlanPage() {
               })}
             </div>
           ) : (
-            <div className="rounded-2xl border border-dashed border-outline-variant bg-white p-md text-center">
+            <div className="rounded-[20px] border border-dashed border-line bg-white p-md text-center shadow-card">
               <SymbolIcon className="mb-sm text-4xl text-outline">event_busy</SymbolIcon>
-              <p className="font-label-md text-label-md text-on-surface-variant">当天还没有训练安排</p>
+              <p className="font-label-md text-label-md text-muted">当天还没有训练安排</p>
               <button
-                className="mt-md rounded-full bg-primary-container px-md py-sm font-label-md text-label-md text-white"
+                className="mt-md rounded-xl bg-primary px-md py-sm font-label-md text-label-md font-bold text-white"
                 onClick={() => {
                   const plan = filteredWorkouts[0] ?? fallbackWorkouts[0];
                   scheduleWorkout(plan);
@@ -556,7 +559,7 @@ export function TrainingPlanPage() {
         </section>
 
         <section className="space-y-sm">
-          <h2 className="font-label-md text-label-md text-secondary">本月统计</h2>
+          <h2 className="font-label-md text-label-md font-bold text-secondary">本月统计</h2>
           <div className="grid grid-cols-2 gap-sm">
             <StatsTile label="完成训练/次" value={completedCount} />
             <StatsTile label="总时长/min" value={completedMinutes} />
@@ -567,7 +570,7 @@ export function TrainingPlanPage() {
 
         <section className="space-y-sm">
           <div className="flex items-center justify-between">
-            <h2 className="font-label-md text-label-md text-secondary">最近动态</h2>
+            <h2 className="font-label-md text-label-md font-bold text-secondary">最近动态</h2>
             <span className="text-[12px] text-primary">详情</span>
           </div>
           <div className="space-y-xs">
@@ -582,9 +585,9 @@ export function TrainingPlanPage() {
         </section>
 
         <section className="space-y-sm">
-          <h2 className="font-label-md text-label-md text-secondary">快速建议</h2>
+          <h2 className="font-label-md text-label-md font-bold text-secondary">快速建议</h2>
           <button
-            className="group flex w-full items-center justify-between rounded-xl border border-outline-variant bg-white p-md text-left transition-colors hover:border-primary"
+            className="group flex w-full items-center justify-between rounded-xl border border-line bg-white p-md text-left shadow-card transition-colors hover:border-primary"
             onClick={addRestDay}
             type="button"
           >
@@ -624,8 +627,8 @@ function SavedPlanCard({
         : "fitness_center";
 
   return (
-    <div className="group flex w-56 shrink-0 cursor-pointer items-center gap-sm rounded-2xl border border-outline-variant/60 bg-white/80 p-sm shadow-sm backdrop-blur-md transition-all hover:shadow-md">
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-tertiary-fixed text-tertiary">
+    <div className="group flex w-56 shrink-0 cursor-pointer items-center gap-sm rounded-xl border border-line bg-white p-sm shadow-card transition-all hover:border-primary/40 hover:ring-1 hover:ring-primary/10">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary">
         <SymbolIcon className="text-[20px]">{icon}</SymbolIcon>
       </div>
       <div className="min-w-0 flex-1">
@@ -679,7 +682,7 @@ function CollapsedDayPlanButton({
 
   return (
     <button
-      className="group flex w-full items-center gap-sm rounded-xl border border-outline-variant bg-white p-sm text-left shadow-sm transition-all duration-200 hover:border-primary/40 hover:bg-primary-fixed/10 hover:shadow-md"
+      className="group flex w-full items-center gap-sm rounded-xl border border-line bg-white p-sm text-left shadow-card transition-all duration-200 hover:border-primary/40 hover:bg-primary-soft/60 hover:shadow-lift"
       onClick={onClick}
       type="button"
     >
@@ -714,14 +717,14 @@ function CurrentPlanCard({
 
   if (plan.status === "rest") {
     return (
-      <div className="rounded-2xl bg-surface-container-high p-md text-center">
+      <div className="rounded-[20px] border border-line bg-panel-soft p-md text-center">
         <SymbolIcon className="mb-sm text-4xl text-secondary">self_improvement</SymbolIcon>
         <h3 className="font-headline-md text-headline-md">恢复休息日</h3>
         <p className="mt-xs font-label-md text-label-md text-on-surface-variant">
           保持轻活动和睡眠，让训练恢复更充分。
         </p>
         <button
-          className="mt-md rounded-full bg-white px-md py-sm font-label-md text-label-md text-primary"
+          className="mt-md rounded-xl bg-white px-md py-sm font-label-md text-label-md font-bold text-primary"
           onClick={onRemove}
           type="button"
         >
@@ -732,47 +735,49 @@ function CurrentPlanCard({
   }
 
   return (
-    <div className="space-y-md rounded-2xl bg-primary-container p-md text-white shadow-lg shadow-primary-container/20">
+    <div className="space-y-md rounded-[20px] border border-line bg-[#F8FAFF] p-md text-ink shadow-card">
       <div className="flex items-start justify-between gap-sm">
         <div className="min-w-0">
           <h3 className="font-headline-md text-headline-md">{plan.title}</h3>
-          <p className="font-label-sm text-label-sm opacity-80">
+          <p className="font-label-sm text-label-sm text-muted">
             {status.label} · {plan.minutes}分钟 · {plan.calories}kcal
           </p>
         </div>
-        <SymbolIcon>{plan.title.includes("燃脂") ? "local_fire_department" : "fitness_center"}</SymbolIcon>
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary-soft text-primary">
+          <SymbolIcon>{plan.title.includes("燃脂") ? "local_fire_department" : "fitness_center"}</SymbolIcon>
+        </span>
       </div>
-      <ul className="space-y-xs font-label-sm text-label-sm">
+      <ul className="space-y-xs font-label-sm text-label-sm text-muted">
         {plan.items.slice(0, 4).map((item) => (
           <li className="flex items-center gap-xs" key={item.id}>
-            <SymbolIcon className="text-[14px]">check</SymbolIcon>
+            <SymbolIcon className="text-[14px] text-primary">check</SymbolIcon>
             {item.nameZh} x {item.mode === "duration" ? `${item.target}s` : item.target}
           </li>
         ))}
       </ul>
       <div className="grid grid-cols-3 gap-xs">
         <Link
-          className="col-span-3 rounded-xl bg-white px-sm py-sm text-center font-label-sm text-label-sm font-bold text-primary-container"
+          className="col-span-3 rounded-xl bg-primary px-sm py-sm text-center font-label-sm text-label-sm font-bold text-white shadow-card transition-colors hover:bg-primary-deep"
           href={`/training?planId=${encodeURIComponent(plan.id)}`}
         >
           开始训练
         </Link>
         <button
-          className="rounded-xl bg-white px-sm py-sm font-label-sm text-label-sm font-bold text-primary-container"
+          className="rounded-xl border border-line bg-white px-sm py-sm font-label-sm text-label-sm font-bold text-primary"
           onClick={() => onStatusChange("completed")}
           type="button"
         >
           完成
         </button>
         <button
-          className="rounded-xl bg-white/15 px-sm py-sm font-label-sm text-label-sm font-bold"
+          className="rounded-xl border border-line bg-white px-sm py-sm font-label-sm text-label-sm font-bold text-muted"
           onClick={() => onStatusChange("missed")}
           type="button"
         >
           未完成
         </button>
         <button
-          className="rounded-xl bg-white/15 px-sm py-sm font-label-sm text-label-sm font-bold"
+          className="rounded-xl border border-line bg-white px-sm py-sm font-label-sm text-label-sm font-bold text-muted"
           onClick={onRemove}
           type="button"
         >
@@ -785,7 +790,7 @@ function CurrentPlanCard({
 
 function StatsTile({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-2xl border border-outline-variant bg-white p-md text-center">
+    <div className="rounded-xl border border-line bg-white p-md text-center shadow-card">
       <p className="font-headline-md text-headline-md font-bold text-primary">{value}</p>
       <p className="text-[10px] text-secondary">{label}</p>
     </div>
@@ -796,8 +801,8 @@ function ActivityItem({ plan }: { plan: ScheduledWorkout }) {
   const status = getStatusConfig(plan.status);
 
   return (
-    <div className="flex items-center gap-md rounded-xl border border-outline-variant/50 bg-white p-sm">
-      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface-container-high text-primary">
+    <div className="flex items-center gap-md rounded-xl border border-line bg-white p-sm shadow-card">
+      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-soft text-primary">
         <SymbolIcon className="text-[18px]">{status.icon}</SymbolIcon>
       </div>
       <div className="min-w-0 flex-1">

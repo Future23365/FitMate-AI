@@ -60,7 +60,7 @@ function formatHistoryTime(isoString: string | undefined | null): string {
   }
 }
 
-export function AppSidebar({ activeLabel }: { activeLabel: string }) {
+export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const [historyItems, setHistoryItems] = useState<SidebarHistoryItem[]>([]);
@@ -124,30 +124,38 @@ export function AppSidebar({ activeLabel }: { activeLabel: string }) {
     }
   }
 
+  // 开发调试页使用独立布局，不显示主应用侧边栏。
+  if (pathname.startsWith("/dev")) {
+    return null;
+  }
+
   return (
-    <aside className="fixed left-0 top-0 z-30 hidden h-screen w-[260px] flex-col border-r border-outline-variant bg-surface-container-lowest p-md shadow-sm lg:flex">
-      <div className="mb-xl flex items-center gap-sm">
+    <aside className="fixed left-0 top-0 z-30 hidden h-screen w-[260px] flex-col border-r border-line/70 bg-white/68 px-4 py-6 shadow-nav backdrop-blur-2xl lg:flex">
+      <div className="mb-8 flex items-center gap-3 px-3">
         <LogoMark />
-        <h1 className="font-headline-md text-headline-md font-bold text-primary">
-          FitMate AI
-        </h1>
+        <div>
+          <h1 className="text-xl font-extrabold tracking-tight text-primary">FitMate AI</h1>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted">
+            AI Fitness Coach
+          </p>
+        </div>
       </div>
 
       <Link
-        className="mb-xl flex w-full items-center justify-center gap-sm rounded-full bg-primary-container px-lg py-md font-label-md text-label-md text-white transition-opacity hover:opacity-90 active:scale-[0.98]"
+        className="mb-7 flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-bold text-white shadow-card transition-all hover:bg-primary-deep hover:shadow-lift active:scale-[0.98]"
         href="/"
         onClick={() => window.dispatchEvent(new Event("fitmate:new-chat"))}
       >
         <SymbolIcon>add</SymbolIcon>+ 新建对话
       </Link>
 
-      <nav className="custom-scrollbar flex-1 space-y-xs overflow-y-auto">
+      <nav className="custom-scrollbar flex-1 space-y-1.5 overflow-y-auto">
         {navItems.map((item) => {
-          const isActive = activeLabel === item.label;
-          const itemClassName = `flex w-full items-center gap-md rounded-lg px-lg py-sm text-left font-label-md text-label-md transition-colors ${
+          const isActive = pathname === item.href;
+          const itemClassName = `flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold transition-colors ${
             isActive
-              ? "bg-secondary-container font-bold text-primary"
-              : "text-on-surface-variant hover:bg-surface-container"
+              ? "bg-primary-soft font-extrabold text-primary ring-1 ring-primary/10"
+              : "text-muted hover:bg-panel-soft hover:text-primary"
           }`;
 
           return (
@@ -158,15 +166,15 @@ export function AppSidebar({ activeLabel }: { activeLabel: string }) {
           );
         })}
 
-        <div className="mt-xl border-t border-outline-variant pt-lg">
-          <p className="mb-sm px-lg text-[10px] font-bold uppercase text-outline">
+        <div className="mt-7 border-t border-line pt-5">
+          <p className="mb-2 px-3 text-[10px] font-extrabold uppercase tracking-[0.14em] text-muted">
             历史记录
           </p>
           {historyItems.length ? (
             <div className="space-y-xs">
               {historyItems.map((item) => (
                 <a
-                  className="group/hist flex items-center justify-between gap-xs rounded-lg px-lg py-sm font-label-md text-label-md text-on-surface-variant transition-colors hover:bg-surface-container hover:text-primary cursor-pointer"
+                  className="group/hist flex cursor-pointer items-center justify-between gap-1 rounded-xl px-3 py-2 text-sm font-semibold text-muted transition-colors hover:bg-panel-soft hover:text-primary"
                   href={`/#${item.id}`}
                   key={item.id}
                   title={item.title}
@@ -184,11 +192,11 @@ export function AppSidebar({ activeLabel }: { activeLabel: string }) {
                 >
                   <span className="truncate flex-1">{item.title}</span>
                   {/* 默认显示时间，hover 时切换为删除按钮 */}
-                  <span className="shrink-0 text-[10px] text-outline ml-xs font-mono font-medium group-hover/hist:hidden">
+                  <span className="ml-1 shrink-0 font-mono text-[10px] font-medium text-muted group-hover/hist:hidden">
                     {formatHistoryTime(item.updatedAt)}
                   </span>
                   <button
-                    className="hidden shrink-0 items-center justify-center rounded-md p-[2px] text-on-surface-variant transition-colors hover:bg-error-container hover:text-error group-hover/hist:flex"
+                    className="hidden shrink-0 items-center justify-center rounded-md p-[2px] text-muted transition-colors hover:bg-error-container hover:text-error group-hover/hist:flex"
                     title="删除对话"
                     onClick={(e) => {
                       // 阻止事件冒泡到外层 <a>，避免触发加载对话
@@ -203,29 +211,12 @@ export function AppSidebar({ activeLabel }: { activeLabel: string }) {
               ))}
             </div>
           ) : (
-            <p className="px-lg py-sm font-label-sm text-label-sm text-outline">
+            <p className="px-3 py-2 text-xs font-semibold text-muted">
               暂无对话
             </p>
           )}
         </div>
       </nav>
-
-      <div className="mt-auto border-t border-outline-variant pt-md">
-        <div className="flex items-center gap-md rounded-xl bg-surface-container-low p-sm">
-          <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-primary-fixed text-primary">
-            <SymbolIcon filled>person</SymbolIcon>
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate font-label-md text-label-md font-bold">健身达人</p>
-            <p className="font-label-sm text-label-sm text-on-surface-variant">
-              Lv.18 · 连续 23 天
-            </p>
-          </div>
-          <SymbolIcon className="text-primary" filled>
-            stars
-          </SymbolIcon>
-        </div>
-      </div>
     </aside>
   );
 }

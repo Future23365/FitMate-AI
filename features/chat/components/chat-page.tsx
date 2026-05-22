@@ -4,7 +4,6 @@ import { FormEvent, useEffect, useMemo, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { AppSidebar } from "@/components/app/app-sidebar";
 import { LogoMark } from "@/components/app/logo-mark";
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { ExerciseRecommendationCard } from "@/features/exercises/components/exercise-recommendation-card";
@@ -117,35 +116,41 @@ export function ChatPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-on-surface">
-      <AppSidebar activeLabel="首页" />
-
-      <div id="app-content-wrapper">
-        <header className="fixed left-0 right-0 top-0 z-20 flex h-[64px] items-center justify-between bg-surface px-lg lg:left-[260px] xl:right-[300px] xl:px-xl">
-        <div>
-          <h2 className="flex items-center gap-xs font-title-lg text-title-lg">
-            你的 <span className="text-primary-container">AI</span> 健身助手
-          </h2>
-          <p className="font-label-sm text-label-sm text-on-surface-variant">
-            告诉我你的目标，我来为你生成训练计划
-          </p>
-        </div>
-        <div className="flex items-center gap-lg text-on-surface-variant">
-          <SymbolIcon className="cursor-pointer transition-colors hover:text-primary">
-            notifications
-          </SymbolIcon>
-          <SymbolIcon className="cursor-pointer transition-colors hover:text-primary">
-            help_outline
-          </SymbolIcon>
-          <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border border-outline-variant bg-primary-fixed text-primary">
-            <SymbolIcon className="text-[20px]" filled>
-              person
-            </SymbolIcon>
+    <div className="app-mesh-bg min-h-screen text-ink">
+      <header className="fixed left-0 right-0 top-0 z-20 flex h-16 items-center justify-between border-b border-line/70 bg-white/68 px-lg shadow-nav backdrop-blur-2xl lg:left-[260px] xl:right-[300px] xl:px-xl">
+          <div>
+            <h2 className="flex items-center gap-xs text-xl font-extrabold tracking-tight text-ink">
+              你的 <span className="text-primary">AI</span> 健身助手
+            </h2>
+            <p className="text-xs font-semibold text-muted">
+              告诉我你的目标，我来为你生成训练计划
+            </p>
           </div>
-        </div>
-      </header>
+          <div className="flex items-center gap-3 text-muted">
+            <button
+              aria-label="通知"
+              className="relative grid h-10 w-10 place-items-center rounded-xl border border-line bg-white/80 text-muted shadow-card transition-colors hover:text-primary"
+              type="button"
+            >
+              <SymbolIcon>notifications</SymbolIcon>
+              <span className="absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-danger" />
+            </button>
+            <button
+              aria-label="帮助"
+              className="grid h-10 w-10 place-items-center rounded-xl border border-line bg-white/80 text-muted shadow-card transition-colors hover:text-primary"
+              type="button"
+            >
+              <SymbolIcon>help_outline</SymbolIcon>
+            </button>
+            <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl border border-line bg-primary-soft text-primary shadow-card">
+              <SymbolIcon className="text-[20px]" filled>
+                person
+              </SymbolIcon>
+            </div>
+          </div>
+        </header>
 
-      <main className="fixed inset-0 bottom-0 left-0 top-[64px] flex flex-col bg-background lg:left-[260px] xl:right-[300px]">
+      <main className="fixed inset-0 bottom-0 left-0 top-[64px] flex flex-col bg-transparent lg:left-[260px] xl:right-[300px]">
         <div
           className="custom-scrollbar flex-1 space-y-xl overflow-y-auto p-lg xl:p-xl"
           ref={chatScrollRef}
@@ -153,18 +158,18 @@ export function ChatPage() {
           {!hasMessages ? (
             <div className="flex h-full flex-col items-center justify-center space-y-xl px-lg text-center">
               <div className="flex flex-col items-center gap-md">
-                <LogoMark className="mb-md h-24 w-24 animate-pulse rounded-[28px]" />
-                <h2 className="font-display-lg text-display-lg text-on-surface">
+                <LogoMark className="mb-md h-24 w-24 animate-pulse rounded-[20px]" />
+                <h2 className="font-display-lg text-display-lg font-extrabold tracking-[-0.03em] text-ink">
                   你好！我是你的 AI 健身助手
                 </h2>
-                <p className="max-w-lg font-body-lg text-body-lg text-on-surface-variant">
+                <p className="max-w-lg font-body-lg text-body-lg text-muted">
                   我可以为你制定减脂、增肌或保持健康的专业计划。试着告诉我你的目标吧！
                 </p>
               </div>
               <div className="flex max-w-2xl flex-wrap justify-center gap-sm">
                 {quickPrompts.map((prompt) => (
                   <button
-                    className="whitespace-nowrap rounded-full border border-outline-variant bg-white px-lg py-sm text-label-md shadow-sm transition-colors hover:bg-surface-container disabled:cursor-not-allowed disabled:opacity-60"
+                    className="whitespace-nowrap rounded-xl border border-line bg-white px-lg py-sm text-label-md font-bold shadow-card transition-all hover:bg-panel-soft disabled:cursor-not-allowed disabled:opacity-60"
                     disabled={isLoading}
                     key={prompt}
                     onClick={() => sendMessage(prompt)}
@@ -183,10 +188,10 @@ export function ChatPage() {
                   key={message.id}
                 >
                   <div
-                    className={`ai-chat-bubble max-w-[78%] rounded-2xl p-lg ${
+                    className={`ai-chat-bubble max-w-[78%] rounded-xl p-lg ${
                       message.role === "user"
-                        ? "rounded-tr-none bg-primary-container text-white"
-                        : "rounded-tl-none bg-white text-on-surface"
+                        ? "rounded-tr-none bg-primary text-white"
+                        : "rounded-tl-none border border-line bg-white text-ink"
                     }`}
                   >
                     {message.reasoningContent ? (
@@ -223,9 +228,9 @@ export function ChatPage() {
 
                             {/* 1. 安全生成 Loading 动效 */}
                             {autoPlanGenerating === message.id && (
-                              <div className="mt-md flex items-center gap-xs rounded-xl border border-primary-container/20 bg-primary-container/5 p-md font-label-sm text-label-sm text-primary animate-pulse shadow-sm">
+                              <div className="mt-md flex animate-pulse items-center gap-xs rounded-xl border border-primary/20 bg-primary/5 p-md font-label-sm text-label-sm text-primary shadow-sm">
                                 <SymbolIcon className="animate-spin text-[16px]">autorenew</SymbolIcon>
-                                <span>✨ FitMate 安全引擎正在校验并生成专属计划...</span>
+                                <span>FitMate 安全引擎正在校验并生成专属计划...</span>
                               </div>
                             )}
 
@@ -285,7 +290,7 @@ export function ChatPage() {
           )}
         </div>
 
-        <div className="border-t border-outline-variant/30 bg-background p-lg xl:p-xl">
+        <div className="border-t border-line/60 bg-white/35 p-lg backdrop-blur-xl xl:p-xl">
           <form className="mx-auto max-w-4xl" onSubmit={handleSubmit}>
             <div className="relative flex items-center">
               <div className="absolute left-md flex items-center gap-sm">
@@ -297,7 +302,7 @@ export function ChatPage() {
                 </SymbolIcon>
               </div>
               <input
-                className="w-full rounded-full border border-outline-variant bg-white py-md pl-[88px] pr-[150px] font-body-md shadow-sm outline-none transition-all placeholder:text-on-surface-variant focus:border-transparent focus:ring-2 focus:ring-primary-container sm:pr-[210px]"
+                className="w-full rounded-xl border border-line bg-white py-md pl-[88px] pr-[150px] font-body-md shadow-card outline-none transition-all placeholder:text-muted focus:border-primary focus:ring-4 focus:ring-primary/10 sm:pr-[210px]"
                 disabled={isLoading}
                 onChange={(event) => setInput(event.target.value)}
                 placeholder="向 FitMate AI 提问..."
@@ -309,8 +314,8 @@ export function ChatPage() {
                 aria-label={thinkingEnabled ? "关闭思考模式" : "开启思考模式"}
                 className={`absolute right-[52px] flex h-9 items-center gap-xs rounded-full border px-sm font-label-sm text-label-sm shadow-sm transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 ${
                   thinkingEnabled
-                    ? "border-primary-container/30 bg-primary-container/10 text-primary"
-                    : "border-outline-variant/60 bg-white/90 text-on-surface-variant hover:border-primary-container/30 hover:bg-surface-container-low"
+                    ? "border-primary/30 bg-primary-soft text-primary"
+                    : "border-line bg-white/90 text-muted hover:border-primary/30 hover:bg-panel-soft"
                 }`}
                 disabled={isLoading}
                 onClick={() => setThinkingEnabled((enabled) => !enabled)}
@@ -327,7 +332,7 @@ export function ChatPage() {
                 />
               </button>
               <button
-                className="absolute right-xs flex h-10 w-10 items-center justify-center rounded-full bg-primary-container text-white shadow-lg transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+                className="absolute right-xs flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-white shadow-card transition-all hover:bg-primary-deep hover:shadow-lift active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={isLoading}
                 type="submit"
               >
@@ -337,12 +342,10 @@ export function ChatPage() {
           </form>
         </div>
       </main>
-    </div>
-
-    <aside className="fixed right-0 top-0 z-30 hidden h-screen w-[300px] flex-col gap-lg border-l border-outline-variant bg-surface-container-lowest p-lg xl:flex">
+      <aside className="fixed right-0 top-0 z-30 hidden h-screen w-[300px] flex-col gap-lg border-l border-line/70 bg-white/68 p-lg shadow-nav backdrop-blur-2xl xl:flex">
         <section className="space-y-md">
           <h3 className="font-title-lg text-title-lg">今日训练概览</h3>
-          <div className="flex flex-col items-center gap-md rounded-2xl bg-surface-container-low p-lg">
+          <div className="flex flex-col items-center gap-md rounded-[20px] border border-line bg-white p-lg shadow-card">
             <div className="relative flex h-32 w-32 items-center justify-center">
               <svg className="h-full w-full -rotate-90">
                 <circle
@@ -374,12 +377,12 @@ export function ChatPage() {
             </div>
 
             <div className="grid w-full grid-cols-2 gap-sm">
-              <div className="rounded-xl bg-white p-sm text-center opacity-50 shadow-sm">
-                <p className="text-label-sm text-on-surface-variant">用时</p>
+              <div className="rounded-xl bg-panel-soft p-sm text-center opacity-70">
+                <p className="text-label-sm text-muted">用时</p>
                 <p className="font-label-md text-label-md font-bold">-- min</p>
               </div>
-              <div className="rounded-xl bg-white p-sm text-center opacity-50 shadow-sm">
-                <p className="text-label-sm text-on-surface-variant">消耗</p>
+              <div className="rounded-xl bg-panel-soft p-sm text-center opacity-70">
+                <p className="text-label-sm text-muted">消耗</p>
                 <p className="font-label-md text-label-md font-bold">-- kcal</p>
               </div>
             </div>
@@ -416,7 +419,7 @@ export function ChatPage() {
         <section className="flex-1 space-y-sm">
           <h3 className="font-label-md text-label-md font-bold">动作推荐</h3>
           <div className="space-y-sm">
-            <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-outline-variant p-xl text-center opacity-60">
+              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-line bg-white p-xl text-center opacity-70">
               <SymbolIcon className="mb-sm text-4xl">model_training</SymbolIcon>
               <p className="text-label-sm">
                 开始对话以获取
@@ -428,16 +431,16 @@ export function ChatPage() {
         </section>
 
         <section className="mt-auto">
-          <div className="relative rounded-2xl border border-tertiary-container/20 bg-tertiary-container/10 p-md">
-            <div className="mb-xs flex items-center gap-xs text-tertiary">
+          <div className="relative rounded-[20px] border border-primary/10 bg-primary-soft p-md text-ink shadow-card">
+            <div className="mb-xs flex items-center gap-xs text-primary">
               <SymbolIcon className="text-[18px]">lightbulb</SymbolIcon>
               <span className="font-label-sm text-label-sm font-bold">训练小贴士</span>
             </div>
-            <p className="font-label-sm text-label-sm leading-relaxed text-on-surface-variant">
+            <p className="font-label-sm text-label-sm leading-relaxed text-muted">
               “晚上训练后记得补充高质量蛋白质，并保证 7-8 小时睡眠，这有助于你的肌肉恢复和减脂效果。”
             </p>
             <div className="absolute -right-2 -top-3">
-              <span className="rounded-full bg-primary px-sm py-1 text-[10px] font-bold text-white">
+              <span className="rounded-full bg-white px-sm py-1 text-[10px] font-bold text-primary shadow-card">
                 FitMate AI
               </span>
             </div>
