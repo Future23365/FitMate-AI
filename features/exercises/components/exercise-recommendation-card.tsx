@@ -126,12 +126,9 @@ export function ExerciseRecommendationCard({
                       <h4 className="truncate font-body-md text-body-md font-bold text-on-surface">
                         {item.nameZh}
                       </h4>
-                      <span className="shrink-0 rounded-md bg-primary-soft px-1.5 py-[1px] font-label-xs text-label-xs font-bold text-primary">
+                      <span className="ml-auto shrink-0 rounded-md bg-primary-soft px-1.5 py-[1px] font-label-xs text-label-xs font-bold text-primary">
                         {item.primaryMusclesZh[0]}
                       </span>
-                      <SymbolIcon className="shrink-0 text-[15px] text-on-surface-variant transition-colors group-hover:text-primary">
-                        info
-                      </SymbolIcon>
                     </div>
 
                     <div className="mt-xs flex min-w-0 flex-wrap items-center gap-xs font-label-xs text-label-xs text-muted">
