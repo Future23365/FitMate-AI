@@ -7,6 +7,8 @@ export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   reasoningContent?: string;
+  /** 仅用于前端加载态，不保存或展示模型原始推理内容 */
+  isReasoning?: boolean;
   /** 模型显式给出的下一步问题建议，点击后自动作为用户消息发送 */
   suggestedQuestions?: string[];
 };

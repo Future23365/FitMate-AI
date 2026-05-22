@@ -71,6 +71,20 @@ function MarkdownContent({ content }: { content: string }) {
   );
 }
 
+function ChatThinkingIndicator() {
+  return (
+    <div className="flex items-center gap-sm rounded-xl border border-primary/15 bg-primary-soft/70 px-md py-sm text-primary">
+      <SymbolIcon className="animate-pulse text-[18px]">psychology</SymbolIcon>
+      <span className="font-body-md text-body-md">正在思考</span>
+      <span className="flex items-center gap-[3px]" aria-hidden="true">
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary [animation-delay:-0.2s]" />
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary [animation-delay:-0.1s]" />
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" />
+      </span>
+    </div>
+  );
+}
+
 export function ChatPage() {
   const {
     autoRecommendationGenerating,
@@ -177,16 +191,6 @@ export function ChatPage() {
                         : "rounded-tl-none border border-line bg-white text-ink"
                     }`}
                   >
-                    {message.reasoningContent ? (
-                      <details className="mb-md rounded-md bg-surface-container-low p-md text-on-surface-variant" open>
-                        <summary className="cursor-pointer font-label-md text-label-md font-bold text-primary">
-                          思考过程
-                        </summary>
-                        <p className="mt-sm whitespace-pre-wrap font-label-sm text-label-sm leading-relaxed">
-                          {message.reasoningContent}
-                        </p>
-                      </details>
-                    ) : null}
                     {(() => {
                       const trigger = extractWorkoutPlanTrigger(message.content);
                       const routineTrigger = extractWorkoutRoutineTrigger(message.content);
@@ -217,7 +221,7 @@ export function ChatPage() {
                                 <MarkdownContent content={cleanContent} />
                               </div>
                             ) : (
-                              <p className="font-body-md text-body-md">正在思考...</p>
+                              <ChatThinkingIndicator />
                             )}
 
                             {suggestedQuestions.length > 0 && (

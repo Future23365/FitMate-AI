@@ -392,7 +392,7 @@ export function useChatController() {
           if (streamEvent.type === "reasoning") {
             updateAssistantMessage(assistantMessage.id, (message) => ({
               ...message,
-              reasoningContent: `${message.reasoningContent ?? ""}${streamEvent.delta ?? ""}`,
+              isReasoning: true,
             }));
           }
 
@@ -401,10 +401,16 @@ export function useChatController() {
             updateAssistantMessage(assistantMessage.id, (message) => ({
               ...message,
               content: `${message.content}${streamEvent.delta ?? ""}`,
+              isReasoning: false,
             }));
           }
         }
       }
+
+      updateAssistantMessage(assistantMessage.id, (message) => ({
+        ...message,
+        isReasoning: false,
+      }));
 
       const trigger = extractWorkoutPlanTrigger(fullContent);
       const routineTrigger = extractWorkoutRoutineTrigger(fullContent);
@@ -481,6 +487,7 @@ export function useChatController() {
       updateAssistantMessage(assistantMessage.id, (message) => ({
         ...message,
         content: message.content || "请求失败，请检查网络或服务端配置后重试。",
+        isReasoning: false,
       }));
     } finally {
       window.clearTimeout(timeout);

@@ -30,12 +30,16 @@ export function saveChatConversation(
   bubbleExerciseRecommendations: Record<string, ExerciseRecommendationCard> = {},
   conversationContext?: FitnessConversationContext,
 ) {
-  if (!messages.some((message) => message.role === "user")) {
+  const messagesToSave = messages.map(
+    ({ isReasoning: _isReasoning, reasoningContent: _reasoningContent, ...message }) => message,
+  );
+
+  if (!messagesToSave.some((message) => message.role === "user")) {
     return;
   }
 
   // 只保留属于当前对话消息的计划，避免存入无关数据
-  const messageIds = new Set(messages.map((message) => message.id));
+  const messageIds = new Set(messagesToSave.map((message) => message.id));
   const plansToSave: Record<string, WorkoutPlanDraft> = {};
   for (const [messageId, draft] of Object.entries(bubblePlans)) {
     if (messageIds.has(messageId)) {
@@ -54,15 +58,14 @@ export function saveChatConversation(
 
   if (existing) {
     const isIdentical =
-      existing.messages.length === messages.length &&
+      existing.messages.length === messagesToSave.length &&
       existing.messages.every(
         (message, index) =>
-          message.id === messages[index]?.id &&
-          message.content === messages[index]?.content &&
-          message.role === messages[index]?.role &&
-          message.reasoningContent === messages[index]?.reasoningContent &&
+          message.id === messagesToSave[index]?.id &&
+          message.content === messagesToSave[index]?.content &&
+          message.role === messagesToSave[index]?.role &&
           JSON.stringify(message.suggestedQuestions ?? []) ===
-            JSON.stringify(messages[index]?.suggestedQuestions ?? []),
+            JSON.stringify(messagesToSave[index]?.suggestedQuestions ?? []),
       ) &&
       JSON.stringify(existing.plans ?? {}) === JSON.stringify(plansToSave) &&
       JSON.stringify(existing.exerciseRecommendations ?? {}) ===
@@ -77,9 +80,9 @@ export function saveChatConversation(
 
   const nextConversation: ChatConversation = {
     id: conversationId,
-    title: createConversationTitle(messages),
+    title: createConversationTitle(messagesToSave),
     updatedAt: new Date().toISOString(),
-    messages,
+    messages: messagesToSave,
     plans: Object.keys(plansToSave).length > 0 ? plansToSave : undefined,
     exerciseRecommendations:
       Object.keys(exerciseRecommendationsToSave).length > 0
