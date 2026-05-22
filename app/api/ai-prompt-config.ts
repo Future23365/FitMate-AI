@@ -18,6 +18,23 @@ export const aiPromptConfig = {
       "workoutIntent 字段在 needsExerciseContext 为 true 时必须给出，字段为 intentType, goal, experience, sessionMinutes, weeklyFrequency, equipment, injuryLimitations, preferences, avoidances。",
       "workoutIntent.intentType 只能是 plan 或 routine；exercise_recommendation 场景使用 routine；experience 只能是 beginner、intermediate、advanced。",
       "信息不足时为了满足 JSON Schema 可以使用占位默认值：goal 使用用户问题的核心目标，experience=beginner，sessionMinutes=30，weeklyFrequency=3，数组字段默认 []。这些默认值只用于结构化解析，不代表可以直接生成训练计划。",
+      "必须返回非空 JSON。示例：",
+      `{
+  "type": "routine",
+  "needsExerciseContext": true,
+  "workoutIntent": {
+    "intentType": "routine",
+    "goal": "今天练什么",
+    "experience": "beginner",
+    "sessionMinutes": 30,
+    "weeklyFrequency": 1,
+    "equipment": [],
+    "injuryLimitations": [],
+    "preferences": [],
+    "avoidances": []
+  },
+  "requestedExerciseName": ""
+}`,
     ].join("\n"),
   },
 
