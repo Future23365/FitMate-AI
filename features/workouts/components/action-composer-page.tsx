@@ -1103,7 +1103,7 @@ function WorkoutSectionBlock({
     <section
       className={`relative overflow-hidden rounded-[20px] border p-md transition-all ${
         isSelected
-          ? "border-primary bg-primary-soft/55 shadow-lift ring-2 ring-primary/25"
+          ? "border-primary/45 bg-primary-soft/45 shadow-card ring-1 ring-primary/15"
           : "border-line bg-white"
       }`}
       onDragOver={(event) => event.preventDefault()}
@@ -1112,9 +1112,6 @@ function WorkoutSectionBlock({
         onDropToEnd();
       }}
     >
-      {isSelected ? (
-        <span className="absolute inset-y-0 left-0 w-1.5 bg-primary" aria-hidden="true" />
-      ) : null}
       <div className="mb-md flex flex-col gap-sm md:flex-row md:items-center md:justify-between">
         <div className="flex min-w-0 items-start gap-sm">
           <span
