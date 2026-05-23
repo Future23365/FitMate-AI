@@ -40,6 +40,7 @@ type ScheduledWorkout = {
   calories: number;
   items: WorkoutItem[];
   trainingLoopRounds?: number;
+  trainingLoopRestSeconds?: number;
 };
 
 type SessionStep = {
@@ -54,6 +55,7 @@ type SessionStep = {
 const scheduleStorageKey = "fitmate.trainingSchedule";
 const placeholderImage = "/images/exercise-placeholder.svg";
 const defaultRepIntervalSeconds = 2;
+const defaultTrainingLoopRestSeconds = 45;
 
 const fallbackPlan: ScheduledWorkout = {
   id: "session-fallback",
@@ -111,7 +113,25 @@ function expandWorkoutItems(items: WorkoutItem[], trainingLoopRounds = 1) {
   return [...warmupItems, ...loopedTrainingItems, ...stretchItems];
 }
 
-function estimateMinutes(items: WorkoutItem[], trainingLoopRounds = 1) {
+function getTrainingLoopRestTotalSeconds(
+  items: WorkoutItem[],
+  trainingLoopRounds: number,
+  trainingLoopRestSeconds: number,
+) {
+  const trainingItems = items.filter((item) => (item.section ?? "training") === "training");
+
+  if (!trainingItems.length) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(12, Math.round(trainingLoopRounds)) - 1) * Math.max(0, trainingLoopRestSeconds);
+}
+
+function estimateMinutes(
+  items: WorkoutItem[],
+  trainingLoopRounds = 1,
+  trainingLoopRestSeconds = defaultTrainingLoopRestSeconds,
+) {
   const expandedItems = expandWorkoutItems(items, trainingLoopRounds);
   const seconds = expandedItems.reduce((total, item, index) => {
     const activeSeconds = getStepDuration(item);
@@ -119,14 +139,24 @@ function estimateMinutes(items: WorkoutItem[], trainingLoopRounds = 1) {
     const transitionRestSeconds = index < expandedItems.length - 1 ? item.transitionRestSeconds : 0;
 
     return total + activeSeconds * item.sets + setRestSeconds + transitionRestSeconds;
-  }, 0);
+  }, getTrainingLoopRestTotalSeconds(items, trainingLoopRounds, trainingLoopRestSeconds));
 
   return Math.max(1, Math.round(seconds / 60));
 }
 
-function estimateCalories(items: WorkoutItem[], trainingLoopRounds = 1) {
+function estimateCalories(
+  items: WorkoutItem[],
+  trainingLoopRounds = 1,
+  trainingLoopRestSeconds = defaultTrainingLoopRestSeconds,
+) {
   const expandedItems = expandWorkoutItems(items, trainingLoopRounds);
-  return Math.max(0, Math.round(estimateMinutes(items, trainingLoopRounds) * 7.2 + expandedItems.length * 12));
+  return Math.max(
+    0,
+    Math.round(
+      estimateMinutes(items, trainingLoopRounds, trainingLoopRestSeconds) * 7.2 +
+        expandedItems.length * 12,
+    ),
+  );
 }
 
 function getStepDuration(item: WorkoutItem) {
@@ -216,7 +246,11 @@ export function WorkoutSessionPage() {
       ? ((activeStep.durationSeconds - remainingSeconds) / activeStep.durationSeconds) * 100
       : 0;
   const trainedCalories = Math.min(
-    estimateCalories(plan.items, plan.trainingLoopRounds ?? 1),
+    estimateCalories(
+      plan.items,
+      plan.trainingLoopRounds ?? 1,
+      plan.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds,
+    ),
     Math.round(Math.max(0, elapsedSeconds / 60) * 7.2 + completedStepIds.size * 8),
   );
   const sessionProgress = steps.length
@@ -228,12 +262,26 @@ export function WorkoutSessionPage() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const selectedPlan = getPlanFromStorage(planId);
+      const selectedLoopRestSeconds =
+        selectedPlan.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds;
       const selectedSteps = buildSessionSteps(selectedPlan.items, selectedPlan.trainingLoopRounds ?? 1);
 
       setPlan({
         ...selectedPlan,
-        minutes: selectedPlan.minutes || estimateMinutes(selectedPlan.items, selectedPlan.trainingLoopRounds ?? 1),
-        calories: selectedPlan.calories || estimateCalories(selectedPlan.items, selectedPlan.trainingLoopRounds ?? 1),
+        minutes:
+          selectedPlan.minutes ||
+          estimateMinutes(
+            selectedPlan.items,
+            selectedPlan.trainingLoopRounds ?? 1,
+            selectedLoopRestSeconds,
+          ),
+        calories:
+          selectedPlan.calories ||
+          estimateCalories(
+            selectedPlan.items,
+            selectedPlan.trainingLoopRounds ?? 1,
+            selectedLoopRestSeconds,
+          ),
       });
       setActiveStepIndex(0);
       setElapsedSeconds(0);
@@ -500,7 +548,12 @@ export function WorkoutSessionPage() {
                 <h2 className="text-title-lg font-extrabold">训练控制</h2>
                 <span className="flex items-center gap-xs text-label-md font-bold text-muted">
                   <SymbolIcon className="text-lg">timer</SymbolIcon>
-                  {plan.minutes || estimateMinutes(plan.items, plan.trainingLoopRounds ?? 1)} 分钟
+                  {plan.minutes ||
+                    estimateMinutes(
+                      plan.items,
+                      plan.trainingLoopRounds ?? 1,
+                      plan.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds,
+                    )} 分钟
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-sm">

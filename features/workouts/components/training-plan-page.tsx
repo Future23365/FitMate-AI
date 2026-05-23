@@ -29,6 +29,7 @@ type SavedWorkout = {
   savedAt: string;
   items: WorkoutItem[];
   trainingLoopRounds?: number;
+  trainingLoopRestSeconds?: number;
 };
 
 type WorkoutSection = "warmup" | "training" | "stretch";
@@ -45,6 +46,7 @@ type ScheduledWorkout = {
   calories: number;
   items: WorkoutItem[];
   trainingLoopRounds?: number;
+  trainingLoopRestSeconds?: number;
 };
 
 type CalendarCell = {
@@ -55,6 +57,7 @@ type CalendarCell = {
 
 const historyStorageKey = "fitmate.workoutHistory";
 const scheduleStorageKey = "fitmate.trainingSchedule";
+const defaultTrainingLoopRestSeconds = 45;
 const weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
 const fallbackWorkouts: SavedWorkout[] = [
@@ -150,7 +153,25 @@ function expandWorkoutItems(items: WorkoutItem[], trainingLoopRounds = 1) {
   return [...warmupItems, ...loopedTrainingItems, ...stretchItems];
 }
 
-function estimateMinutes(items: WorkoutItem[], trainingLoopRounds = 1) {
+function getTrainingLoopRestTotalSeconds(
+  items: WorkoutItem[],
+  trainingLoopRounds: number,
+  trainingLoopRestSeconds: number,
+) {
+  const trainingItems = items.filter((item) => (item.section ?? "training") === "training");
+
+  if (!trainingItems.length) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(12, Math.round(trainingLoopRounds)) - 1) * Math.max(0, trainingLoopRestSeconds);
+}
+
+function estimateMinutes(
+  items: WorkoutItem[],
+  trainingLoopRounds = 1,
+  trainingLoopRestSeconds = defaultTrainingLoopRestSeconds,
+) {
   const expandedItems = expandWorkoutItems(items, trainingLoopRounds);
   const seconds = expandedItems.reduce((total, item, index) => {
     const activeSeconds = item.mode === "duration" ? item.target : item.target * 4;
@@ -158,14 +179,24 @@ function estimateMinutes(items: WorkoutItem[], trainingLoopRounds = 1) {
     const transitionRest = index < expandedItems.length - 1 ? item.transitionRestSeconds : 0;
 
     return total + activeSeconds * item.sets + restBetweenSets + transitionRest;
-  }, 0);
+  }, getTrainingLoopRestTotalSeconds(items, trainingLoopRounds, trainingLoopRestSeconds));
 
   return Math.max(15, Math.round(seconds / 60));
 }
 
-function estimateCalories(items: WorkoutItem[], trainingLoopRounds = 1) {
+function estimateCalories(
+  items: WorkoutItem[],
+  trainingLoopRounds = 1,
+  trainingLoopRestSeconds = defaultTrainingLoopRestSeconds,
+) {
   const expandedItems = expandWorkoutItems(items, trainingLoopRounds);
-  return Math.max(80, Math.round(estimateMinutes(items, trainingLoopRounds) * 7.2 + expandedItems.length * 12));
+  return Math.max(
+    80,
+    Math.round(
+      estimateMinutes(items, trainingLoopRounds, trainingLoopRestSeconds) * 7.2 +
+        expandedItems.length * 12,
+    ),
+  );
 }
 
 function getCalendarCells(monthDate: Date): CalendarCell[] {
@@ -223,6 +254,7 @@ function createScheduledWorkout(
 ): ScheduledWorkout {
   const items = plan.items;
   const trainingLoopRounds = plan.trainingLoopRounds ?? 1;
+  const trainingLoopRestSeconds = plan.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds;
 
   return {
     id: `${plan.id}-${dateKey}-${crypto.randomUUID()}`,
@@ -230,10 +262,11 @@ function createScheduledWorkout(
     planId: plan.id,
     title: plan.title,
     status,
-    minutes: estimateMinutes(items, trainingLoopRounds),
-    calories: estimateCalories(items, trainingLoopRounds),
+    minutes: estimateMinutes(items, trainingLoopRounds, trainingLoopRestSeconds),
+    calories: estimateCalories(items, trainingLoopRounds, trainingLoopRestSeconds),
     items,
     trainingLoopRounds,
+    trainingLoopRestSeconds,
   };
 }
 
@@ -638,8 +671,9 @@ function SavedPlanCard({
   workout: SavedWorkout;
 }) {
   const loopRounds = workout.trainingLoopRounds ?? 1;
-  const minutes = estimateMinutes(workout.items, loopRounds);
-  const calories = estimateCalories(workout.items, loopRounds);
+  const loopRestSeconds = workout.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds;
+  const minutes = estimateMinutes(workout.items, loopRounds, loopRestSeconds);
+  const calories = estimateCalories(workout.items, loopRounds, loopRestSeconds);
   const icon = workout.title.includes("燃脂")
     ? "local_fire_department"
     : workout.title.includes("核心")

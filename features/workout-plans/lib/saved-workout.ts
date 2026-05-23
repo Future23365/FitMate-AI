@@ -29,6 +29,7 @@ export type SavedWorkout = {
   savedAt: string;
   items: SavedWorkoutItem[];
   trainingLoopRounds?: number;
+  trainingLoopRestSeconds?: number;
 };
 
 export type WorkoutPlanDraftConversionOptions = {
@@ -55,6 +56,7 @@ export function convertWorkoutPlanDraftToSavedWorkout(
     title: day.title || parsedDraft.title,
     savedAt: formatLocalDateTime(options.savedAt ?? new Date()),
     trainingLoopRounds: 1,
+    trainingLoopRestSeconds: 45,
     items: day.items.map((item) => {
       const exercise = exerciseById.get(item.exerciseId);
 

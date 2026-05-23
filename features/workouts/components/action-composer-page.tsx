@@ -44,6 +44,7 @@ type SavedWorkout = {
   savedAt: string;
   items: WorkoutItem[];
   trainingLoopRounds?: number;
+  trainingLoopRestSeconds?: number;
 };
 
 type TemplateExerciseConfig = {
@@ -62,6 +63,7 @@ const placeholderImage = "/images/exercise-placeholder.svg";
 const restOptions = [15, 20, 30, 45, 60, 90];
 const loopRoundOptions = [1, 2, 3, 4, 5, 6];
 const defaultTrainingLoopRounds = 3;
+const defaultTrainingLoopRestSeconds = 45;
 const sectionConfigs: Array<{
   id: WorkoutSection;
   title: string;
@@ -286,6 +288,20 @@ function expandWorkoutItems(items: WorkoutItem[], trainingLoopRounds: number) {
   return [...warmupItems, ...loopedTrainingItems, ...stretchItems];
 }
 
+function getTrainingLoopRestTotalSeconds(
+  items: WorkoutItem[],
+  trainingLoopRounds: number,
+  trainingLoopRestSeconds: number,
+) {
+  const trainingItems = getSectionItems(items.map(normalizeWorkoutItem), "training");
+
+  if (!trainingItems.length) {
+    return 0;
+  }
+
+  return Math.max(0, clampLoopRounds(trainingLoopRounds) - 1) * Math.max(0, trainingLoopRestSeconds);
+}
+
 function getSectionItems(items: WorkoutItem[], section: WorkoutSection) {
   return items.filter((item) => (item.section ?? inferWorkoutSection(item)) === section);
 }
@@ -294,7 +310,11 @@ function clampLoopRounds(value: number) {
   return Math.min(12, Math.max(1, Number.isFinite(value) ? Math.round(value) : 1));
 }
 
-function estimateMinutes(items: WorkoutItem[], trainingLoopRounds = 1) {
+function estimateMinutes(
+  items: WorkoutItem[],
+  trainingLoopRounds = 1,
+  trainingLoopRestSeconds = defaultTrainingLoopRestSeconds,
+) {
   const expandedItems = expandWorkoutItems(items, trainingLoopRounds);
   const seconds = expandedItems.reduce((total, item, index) => {
     const activeSeconds = item.mode === "duration" ? item.target : item.target * 4;
@@ -302,14 +322,24 @@ function estimateMinutes(items: WorkoutItem[], trainingLoopRounds = 1) {
     const transitionRestSeconds = index < expandedItems.length - 1 ? item.transitionRestSeconds : 0;
 
     return total + activeSeconds * item.sets + setRestSeconds + transitionRestSeconds;
-  }, 0);
+  }, getTrainingLoopRestTotalSeconds(items, trainingLoopRounds, trainingLoopRestSeconds));
 
   return Math.max(1, Math.round(seconds / 60));
 }
 
-function estimateCalories(items: WorkoutItem[], trainingLoopRounds = 1) {
+function estimateCalories(
+  items: WorkoutItem[],
+  trainingLoopRounds = 1,
+  trainingLoopRestSeconds = defaultTrainingLoopRestSeconds,
+) {
   const expandedItems = expandWorkoutItems(items, trainingLoopRounds);
-  return Math.max(0, Math.round(estimateMinutes(items, trainingLoopRounds) * 7.2 + expandedItems.length * 12));
+  return Math.max(
+    0,
+    Math.round(
+      estimateMinutes(items, trainingLoopRounds, trainingLoopRestSeconds) * 7.2 +
+        expandedItems.length * 12,
+    ),
+  );
 }
 
 function getTotalSets(items: WorkoutItem[], trainingLoopRounds = 1) {
@@ -363,6 +393,7 @@ export function ActionComposerPage() {
   const [dragOverItemId, setDragOverItemId] = useState("");
   const [selectedSection, setSelectedSection] = useState<WorkoutSection>("training");
   const [trainingLoopRounds, setTrainingLoopRounds] = useState(defaultTrainingLoopRounds);
+  const [trainingLoopRestSeconds, setTrainingLoopRestSeconds] = useState(defaultTrainingLoopRestSeconds);
   const [activePreviewExercise, setActivePreviewExercise] = useState<Exercise | null>(null);
   const [activePreviewSource, setActivePreviewSource] = useState<"library" | "plan" | null>(null);
 
@@ -493,8 +524,8 @@ export function ActionComposerPage() {
   const selectedItem = items.find((item) => item.id === selectedItemId) ?? items[0];
   const selectedLibraryExercise =
     libraryItems.find((exercise) => exercise.id === selectedLibraryExerciseId) ?? libraryItems[0];
-  const totalMinutes = estimateMinutes(items, trainingLoopRounds);
-  const totalCalories = estimateCalories(items, trainingLoopRounds);
+  const totalMinutes = estimateMinutes(items, trainingLoopRounds, trainingLoopRestSeconds);
+  const totalCalories = estimateCalories(items, trainingLoopRounds, trainingLoopRestSeconds);
   const totalSets = getTotalSets(items, trainingLoopRounds);
   const expandedPreviewItems = expandWorkoutItems(items, trainingLoopRounds);
   const hasLibraryFilters =
@@ -608,6 +639,7 @@ export function ActionComposerPage() {
 
       setPlanTitle("燃脂循环训练 A");
       setTrainingLoopRounds(defaultTrainingLoopRounds);
+      setTrainingLoopRestSeconds(defaultTrainingLoopRestSeconds);
       setItems(composedItems);
       setSelectedItemId(composedItems[0]?.id ?? "");
       setSaveStatus(`已从动作库导入 ${composedItems.length} 个模板动作`);
@@ -648,6 +680,7 @@ export function ActionComposerPage() {
     setPlanTitle(workout.title);
     setItems(normalizedItems);
     setTrainingLoopRounds(clampLoopRounds(workout.trainingLoopRounds ?? 1));
+    setTrainingLoopRestSeconds(workout.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds);
     setSelectedItemId(normalizedItems[0]?.id ?? "");
     setSelectedSection(normalizedItems[0]?.section ?? "training");
     setActiveSavedWorkoutId(workout.id);
@@ -666,6 +699,7 @@ export function ActionComposerPage() {
       title: `${workout.title} 副本`,
       savedAt: formatDateTime(now),
       trainingLoopRounds: clampLoopRounds(workout.trainingLoopRounds ?? 1),
+      trainingLoopRestSeconds: workout.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds,
       items: workout.items.map((item) => ({
         ...normalizeWorkoutItem(item),
         id: crypto.randomUUID(),
@@ -706,6 +740,7 @@ export function ActionComposerPage() {
       title: planTitle.trim() || "未命名训练计划",
       savedAt: formatDateTime(now),
       trainingLoopRounds: clampLoopRounds(trainingLoopRounds),
+      trainingLoopRestSeconds,
       items: items.map(normalizeWorkoutItem),
     };
     const rawHistory = window.localStorage.getItem(historyStorageKey);
@@ -871,7 +906,7 @@ export function ActionComposerPage() {
             </div>
             <div className="flex shrink-0 items-center gap-xs rounded-xl bg-primary-soft px-md py-sm text-label-md font-bold text-primary">
               <SymbolIcon className="text-[18px]">sync_alt</SymbolIcon>
-              训练循环 {trainingLoopRounds} 轮
+              训练循环 {trainingLoopRounds} 轮 · 间隙 {trainingLoopRestSeconds}s
             </div>
           </div>
 
@@ -887,6 +922,7 @@ export function ActionComposerPage() {
                     itemCount={sectionItems.length}
                     key={section.id}
                     loopRounds={trainingLoopRounds}
+                    loopRestSeconds={trainingLoopRestSeconds}
                     onAddNext={() => setSelectedSection(section.id)}
                     onDropToEnd={() => {
                       moveItemToSectionEnd(draggingItemId, section.id);
@@ -894,6 +930,7 @@ export function ActionComposerPage() {
                       setDragOverItemId("");
                     }}
                     onLoopRoundsChange={setTrainingLoopRounds}
+                    onLoopRestSecondsChange={setTrainingLoopRestSeconds}
                     section={section}
                   >
                     {sectionItems.map((item, index) => (
@@ -969,6 +1006,7 @@ export function ActionComposerPage() {
               onClick={() => {
                 setPlanTitle("循环训练计划");
                 setTrainingLoopRounds(defaultTrainingLoopRounds);
+                setTrainingLoopRestSeconds(defaultTrainingLoopRestSeconds);
                 setSelectedSection("training");
               }}
             />
@@ -1169,9 +1207,11 @@ function WorkoutSectionBlock({
   isSelected,
   itemCount,
   loopRounds,
+  loopRestSeconds,
   onAddNext,
   onDropToEnd,
   onLoopRoundsChange,
+  onLoopRestSecondsChange,
   section,
 }: {
   children: ReactNode;
@@ -1179,9 +1219,11 @@ function WorkoutSectionBlock({
   isSelected: boolean;
   itemCount: number;
   loopRounds: number;
+  loopRestSeconds: number;
   onAddNext: () => void;
   onDropToEnd: () => void;
   onLoopRoundsChange: (value: number) => void;
+  onLoopRestSecondsChange: (value: number) => void;
   section: (typeof sectionConfigs)[number];
 }) {
   const isTraining = section.id === "training";
@@ -1222,21 +1264,38 @@ function WorkoutSectionBlock({
         </div>
         <div className="flex flex-wrap items-center gap-sm">
           {isTraining ? (
-            <label className="flex items-center gap-xs rounded-xl border border-line bg-panel-soft px-sm py-xs font-label-md text-label-md text-secondary">
-              <SymbolIcon className="text-[18px] text-primary">sync_alt</SymbolIcon>
-              循环
-              <select
-                className="h-8 rounded-lg border border-outline-variant bg-white px-sm text-center font-bold text-ink outline-none focus:ring-2 focus:ring-primary/20"
-                onChange={(event) => onLoopRoundsChange(Number(event.target.value))}
-                value={loopRounds}
-              >
-                {loopRoundOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {option}轮
-                  </option>
-                ))}
-              </select>
-            </label>
+            <>
+              <label className="flex items-center gap-xs rounded-xl border border-line bg-panel-soft px-sm py-xs font-label-md text-label-md text-secondary">
+                <SymbolIcon className="text-[18px] text-primary">timer</SymbolIcon>
+                循环间隙
+                <select
+                  className="h-8 rounded-lg border border-outline-variant bg-white px-sm text-center font-bold text-ink outline-none focus:ring-2 focus:ring-primary/20"
+                  onChange={(event) => onLoopRestSecondsChange(Number(event.target.value))}
+                  value={loopRestSeconds}
+                >
+                  {restOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}s
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center gap-xs rounded-xl border border-line bg-panel-soft px-sm py-xs font-label-md text-label-md text-secondary">
+                <SymbolIcon className="text-[18px] text-primary">sync_alt</SymbolIcon>
+                循环
+                <select
+                  className="h-8 rounded-lg border border-outline-variant bg-white px-sm text-center font-bold text-ink outline-none focus:ring-2 focus:ring-primary/20"
+                  onChange={(event) => onLoopRoundsChange(Number(event.target.value))}
+                  value={loopRounds}
+                >
+                  {loopRoundOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}轮
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
           ) : null}
           <button
             className={`flex items-center gap-xs rounded-xl border px-md py-sm font-label-md text-label-md transition-colors ${
@@ -1277,9 +1336,10 @@ function SavedCompositionCard({
   workout: SavedWorkout;
 }) {
   const loopRounds = clampLoopRounds(workout.trainingLoopRounds ?? 1);
+  const loopRestSeconds = workout.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds;
   const normalizedItems = workout.items.map(normalizeWorkoutItem);
-  const minutes = estimateMinutes(normalizedItems, loopRounds);
-  const calories = estimateCalories(normalizedItems, loopRounds);
+  const minutes = estimateMinutes(normalizedItems, loopRounds, loopRestSeconds);
+  const calories = estimateCalories(normalizedItems, loopRounds, loopRestSeconds);
   const icon = workout.title.includes("燃脂")
     ? "local_fire_department"
     : workout.title.includes("核心")

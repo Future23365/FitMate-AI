@@ -32,6 +32,7 @@ type ScheduledWorkout = {
   calories: number;
   items: any[];
   trainingLoopRounds?: number;
+  trainingLoopRestSeconds?: number;
   sourcePlanTitle?: string;
 };
 
@@ -192,6 +193,7 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
               calories: estimateCalories(workout.items),
               items: workout.items,
               trainingLoopRounds: workout.trainingLoopRounds,
+              trainingLoopRestSeconds: workout.trainingLoopRestSeconds,
               sourcePlanTitle: draft.title,
             });
           } else {
