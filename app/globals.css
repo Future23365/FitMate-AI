@@ -139,7 +139,6 @@ body.drawer-open {
   overflow: hidden;
   background: transparent;
   pointer-events: none;
-  perspective: 1400px;
 }
 
 .route-transition-page {
@@ -149,29 +148,29 @@ body.drawer-open {
   pointer-events: auto;
   transform-origin: center;
   backface-visibility: hidden;
-  will-change: transform, opacity, filter;
+  will-change: transform, opacity;
 }
 
 .route-transition-page-enter {
   z-index: 2;
-  animation: route-page-enter 0.52s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: route-page-enter 0.18s ease-out both;
 }
 
 .route-transition-page-exit {
   z-index: 1;
   pointer-events: none;
-  animation: route-page-exit 0.52s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: route-page-exit 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @keyframes route-page-enter {
   0% {
-    transform: translate3d(100%, 0, 0);
-    box-shadow: -24px 0 44px rgba(15, 23, 42, 0.08);
+    opacity: 0.86;
+    transform: scale(0.998);
   }
 
   100% {
-    transform: translate3d(0, 0, 0);
-    box-shadow: -8px 0 18px rgba(15, 23, 42, 0);
+    opacity: 1;
+    transform: scale(1);
   }
 }
 
@@ -179,13 +178,11 @@ body.drawer-open {
   0% {
     opacity: 1;
     transform: translate3d(0, 0, 0) scale(1);
-    filter: saturate(1);
   }
 
   100% {
-    opacity: 0.94;
-    transform: translate3d(-28px, 0, -90px) scale(0.965);
-    filter: saturate(0.95);
+    opacity: 0.92;
+    transform: scale(0.985);
   }
 }
 

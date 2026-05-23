@@ -9,7 +9,7 @@ type RouteSnapshot = {
   phase: "initial" | "entering";
 };
 
-const transitionDurationMs = 520;
+const transitionDurationMs = 280;
 
 export function RouteTransition({ children }: { children: ReactNode }) {
   const pathname = usePathname();
