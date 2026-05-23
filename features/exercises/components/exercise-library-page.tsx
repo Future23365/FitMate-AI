@@ -631,6 +631,7 @@ function ExerciseDetailPanel({
     exerciseId: "",
     index: 0,
   });
+  const [isAutoPlaying, setIsAutoPlaying] = useState(false);
 
   const imageUrls = exercise?.imageUrls.length
     ? exercise.imageUrls
@@ -639,6 +640,25 @@ function ExerciseDetailPanel({
     selectedImage.exerciseId === exercise?.id ? Math.min(selectedImage.index, imageUrls.length - 1) : 0;
   const activeImageUrl = imageUrls[activeImageIndex];
   const hasMultipleImages = imageUrls.length > 1;
+
+  useEffect(() => {
+    if (!exercise || !hasMultipleImages || !isAutoPlaying) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setSelectedImage((current) => {
+        const currentIndex = current.exerciseId === exercise.id ? current.index : 0;
+
+        return {
+          exerciseId: exercise.id,
+          index: (currentIndex + 1) % imageUrls.length,
+        };
+      });
+    }, 1200);
+
+    return () => window.clearInterval(timer);
+  }, [exercise, hasMultipleImages, imageUrls.length, isAutoPlaying]);
 
   function selectImage(index: number) {
     setSelectedImage({
@@ -667,6 +687,17 @@ function ExerciseDetailPanel({
                 </div>
                 {hasMultipleImages ? (
                   <>
+                    <button
+                      aria-label={isAutoPlaying ? "暂停自动播放" : "自动播放动作图"}
+                      className="absolute right-sm top-sm flex h-8 w-8 items-center justify-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/70"
+                      onClick={() => setIsAutoPlaying((current) => !current)}
+                      title={isAutoPlaying ? "暂停自动播放" : "自动播放动作图"}
+                      type="button"
+                    >
+                      <SymbolIcon className="text-[20px]">
+                        {isAutoPlaying ? "pause" : "play_arrow"}
+                      </SymbolIcon>
+                    </button>
                     <button
                       aria-label="上一张动作图"
                       className="absolute left-sm top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/70 disabled:cursor-not-allowed disabled:opacity-40"
