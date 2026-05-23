@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: fitmate-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: fitmate
+      POSTGRES_USER: fitmate
+      POSTGRES_PASSWORD: fitmate
+    ports:
+      - "5432:5432"
+    volumes:
+      - fitmate-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fitmate -d fitmate"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  fitmate-postgres-data:

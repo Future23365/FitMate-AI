@@ -51,7 +51,21 @@ cp .env.example .env.local
 
 ```bash
 DEEPSEEK_API_KEY=
-DATABASE_URL=
+DATABASE_URL="postgresql://fitmate:fitmate@localhost:5432/fitmate?schema=public"
+```
+
+启动本地 PostgreSQL：
+
+```bash
+docker compose up -d postgres
+```
+
+初始化 Prisma Client、数据库表和动作 seed 数据：
+
+```bash
+npm run db:generate
+npm run db:migrate
+npm run db:seed
 ```
 
 启动开发服务：
@@ -60,15 +74,15 @@ DATABASE_URL=
 npm run dev
 ```
 
-常用检查命令：
+常用命令：
 
 ```bash
 npm run typecheck
 npm run lint
 npm run build
-npm run db:generate
-npm run db:migrate
-npm run db:seed
+docker compose ps
+docker compose stop postgres
+docker compose down
 ```
 
 ## 目录说明
