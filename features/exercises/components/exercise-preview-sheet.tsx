@@ -220,7 +220,7 @@ export function ExercisePreviewSheet({
 
                   {/* 步骤角标 */}
                   <div className="absolute right-sm bottom-sm bg-black/60 backdrop-blur-sm text-white rounded-full px-sm py-[2px] font-label-xs text-label-xs font-semibold">
-                    分步 {activeImageIndex + 1} / {images.length}
+                    {activeImageIndex + 1} / {images.length}
                   </div>
                 </div>
 
