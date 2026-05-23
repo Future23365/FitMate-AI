@@ -62,17 +62,11 @@ export async function saveChatConversation(rawConversation: ChatConversation) {
       where: { id: conversation.id },
       update: {
         title: conversation.title,
-        metadata: {
-          conversationContext: conversation.conversationContext,
-        },
       },
       create: {
         id: conversation.id,
         userId: user.id,
         title: conversation.title,
-        metadata: {
-          conversationContext: conversation.conversationContext,
-        },
       },
     });
 
@@ -83,18 +77,23 @@ export async function saveChatConversation(rawConversation: ChatConversation) {
       },
     });
     await tx.chatMessage.createMany({
-      data: conversation.messages.map((message, index) => ({
-        id: message.id,
-        chatSessionId: conversation.id,
-        role: message.role,
-        content: message.content,
-        createdAt: new Date(Date.now() + index),
-        metadata: {
-          suggestedReplies: message.suggestedReplies,
-          plan: conversation.plans?.[message.id],
-          exerciseRecommendation: conversation.exerciseRecommendations?.[message.id],
-        },
-      })),
+      data: conversation.messages.map((message, index) => {
+        const isLastMessage = index === conversation.messages.length - 1;
+
+        return {
+          id: message.id,
+          chatSessionId: conversation.id,
+          role: message.role,
+          content: message.content,
+          createdAt: new Date(Date.now() + index),
+          metadata: {
+            suggestedReplies: message.suggestedReplies,
+            plan: conversation.plans?.[message.id],
+            exerciseRecommendation: conversation.exerciseRecommendations?.[message.id],
+            conversationContext: isLastMessage ? conversation.conversationContext : undefined,
+          },
+        };
+      }),
     });
 
     const savedSession = await tx.chatSession.findFirstOrThrow({
@@ -172,9 +171,9 @@ function mapChatSessionToConversation(session: ChatSessionWithMessages): ChatCon
     }
   }
 
-  const sessionMetadata = readObject(session.metadata);
+  const latestMessageMetadata = readObject(session.messages.at(-1)?.metadata);
   const conversationContext =
-    (sessionMetadata?.conversationContext as ChatConversation["conversationContext"]) ??
+    (latestMessageMetadata?.conversationContext as ChatConversation["conversationContext"]) ??
     buildFitnessConversationContext(messages);
 
   return {
@@ -209,7 +208,7 @@ function filterMessageRecord<T>(record: Record<string, T> | undefined, messageId
   return filtered;
 }
 
-function readObject(value: Prisma.JsonValue | null) {
+function readObject(value: Prisma.JsonValue | null | undefined) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
   }
