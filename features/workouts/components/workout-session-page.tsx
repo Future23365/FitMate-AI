@@ -167,6 +167,7 @@ export function WorkoutSessionPage() {
   const steps = useMemo(() => buildSessionSteps(plan.items), [plan.items]);
   const activeStep = steps[activeStepIndex] ?? steps[0];
   const currentItem = activeStep?.item ?? fallbackPlan.items[0];
+  const isTimedStep = currentItem.mode === "duration";
   const completedItems = new Set(steps.slice(0, activeStepIndex).map((step) => step.item.id));
   const currentExerciseIndex = plan.items.findIndex((item) => item.id === currentItem.id);
   const progress =
@@ -208,10 +209,17 @@ export function WorkoutSessionPage() {
 
     const timer = window.setInterval(() => {
       setElapsedSeconds((value) => value + 1);
+      if (activeStep.item.mode !== "duration") {
+        return;
+      }
+
       setRemainingSeconds((value) => {
         if (value <= 1) {
           const nextIndex = Math.min(activeStepIndex + 1, steps.length - 1);
           setActiveStepIndex(nextIndex);
+          if (nextIndex === activeStepIndex) {
+            setIsPaused(true);
+          }
 
           return nextIndex === activeStepIndex ? 0 : steps[nextIndex]?.durationSeconds ?? 0;
         }
@@ -227,6 +235,18 @@ export function WorkoutSessionPage() {
     const boundedIndex = Math.min(Math.max(0, nextIndex), steps.length - 1);
     setActiveStepIndex(boundedIndex);
     setRemainingSeconds(steps[boundedIndex]?.durationSeconds ?? 45);
+  }
+
+  function completeCurrentStep() {
+    const isLastStep = activeStepIndex >= steps.length - 1;
+
+    if (isLastStep) {
+      setIsPaused(true);
+      setRemainingSeconds(0);
+      return;
+    }
+
+    goToStep(activeStepIndex + 1);
   }
 
   function finishTraining() {
@@ -337,8 +357,8 @@ export function WorkoutSessionPage() {
 
           <section className="flex min-h-0 flex-col items-center justify-center rounded-[20px] border border-line bg-white px-lg py-lg text-center shadow-card">
             <span className="mb-sm inline-flex items-center gap-xs rounded-full bg-primary-soft px-md py-xs text-label-md font-bold text-primary">
-              <SymbolIcon className="text-lg">fitness_center</SymbolIcon>
-              第 {activeStep?.setIndex ?? 1} / {activeStep?.totalSets ?? 1} 组
+              <SymbolIcon className="text-lg">{isTimedStep ? "timer" : "format_list_numbered"}</SymbolIcon>
+              {isTimedStep ? "计时步骤" : "计次步骤"} · 第 {activeStep?.setIndex ?? 1} / {activeStep?.totalSets ?? 1} 组
             </span>
             <h2 className="max-w-[680px] text-[30px] font-extrabold leading-tight text-ink md:text-[38px]">
               {currentItem.nameZh}
@@ -346,18 +366,44 @@ export function WorkoutSessionPage() {
             <p className="mt-sm text-body-lg font-semibold text-muted">
               {currentItem.musclesZh.slice(0, 3).join("、") || currentItem.categoryZh}
             </p>
-            <div className="my-md text-[clamp(76px,12vw,132px)] font-black leading-none text-ink [font-variant-numeric:tabular-nums]">
-              {formatClock(remainingSeconds)}
-            </div>
-            <p className="text-body-lg font-extrabold text-ink">
-              目标 {currentItem.mode === "duration" ? `${currentItem.target} 秒` : `${currentItem.target} 次`}
-            </p>
-            <div className="mt-sm h-2.5 w-full max-w-[620px] overflow-hidden rounded-full bg-panel-soft">
-              <span
-                className="block h-full rounded-full bg-primary transition-[width] duration-300"
-                style={{ width: `${Math.max(3, Math.min(100, progress))}%` }}
-              />
-            </div>
+            {isTimedStep ? (
+              <>
+                <div className="my-md text-[clamp(76px,12vw,132px)] font-black leading-none text-ink [font-variant-numeric:tabular-nums]">
+                  {formatClock(remainingSeconds)}
+                </div>
+                <p className="text-body-lg font-extrabold text-ink">
+                  目标 {currentItem.target} 秒 · 倒计时结束后自动进入下一组
+                </p>
+                <div className="mt-sm h-2.5 w-full max-w-[620px] overflow-hidden rounded-full bg-panel-soft">
+                  <span
+                    className="block h-full rounded-full bg-primary transition-[width] duration-300"
+                    style={{ width: `${Math.max(3, Math.min(100, progress))}%` }}
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="my-md flex items-end justify-center gap-sm text-ink">
+                  <span className="text-[clamp(92px,14vw,148px)] font-black leading-none [font-variant-numeric:tabular-nums]">
+                    {currentItem.target}
+                  </span>
+                  <span className="pb-sm text-[34px] font-extrabold leading-none text-muted">次</span>
+                </div>
+                <p className="text-body-lg font-extrabold text-ink">
+                  按标准动作完成目标次数后，手动进入下一组
+                </p>
+                <button
+                  className="mt-md flex h-12 min-w-[180px] items-center justify-center gap-sm rounded-xl bg-primary px-lg text-body-md font-extrabold text-white shadow-card transition-colors hover:bg-primary-deep"
+                  onClick={completeCurrentStep}
+                  type="button"
+                >
+                  <SymbolIcon className="text-xl" filled>
+                    check_circle
+                  </SymbolIcon>
+                  完成本组
+                </button>
+              </>
+            )}
             <div className="mt-lg flex items-start justify-center gap-lg md:gap-xl">
               <SessionControl icon="skip_previous" label="上一个" onClick={() => goToStep(activeStepIndex - 1)} />
               <SessionControl
@@ -366,7 +412,7 @@ export function WorkoutSessionPage() {
                 large
                 onClick={() => setIsPaused((value) => !value)}
               />
-              <SessionControl icon="skip_next" label="下一个" onClick={() => goToStep(activeStepIndex + 1)} />
+              <SessionControl icon="skip_next" label="下一个" onClick={completeCurrentStep} />
             </div>
           </section>
 
@@ -510,7 +556,7 @@ function SessionControl({
       <button
         className={`grid place-items-center rounded-full transition-transform active:scale-95 ${
           large
-            ? "h-18 w-18 border-0 bg-primary text-white shadow-lift md:h-20 md:w-20"
+            ? "h-[72px] w-[72px] border-0 bg-primary text-white shadow-lift md:h-20 md:w-20"
             : "h-12 w-12 border border-line bg-white text-ink shadow-card hover:bg-panel-soft"
         }`}
         onClick={onClick}
