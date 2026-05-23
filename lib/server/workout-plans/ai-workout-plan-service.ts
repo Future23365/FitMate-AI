@@ -403,7 +403,6 @@ async function generateWorkoutPlanDraft(
       error: parsedDraft.error.flatten(),
     });
     console.error("[ai-workout-plan-service] draft zod validation failed! Details:", JSON.stringify(parsedDraft.error.format(), null, 2));
-    console.error("[ai-workout-plan-service] failed draft JSON was:", JSON.stringify(parsedJson.value, null, 2));
     return {
       ok: false,
       code: "invalid_ai_output",
@@ -531,11 +530,6 @@ async function requestDeepSeekJson(
         status: response.status,
         tokenUsage: data.usage,
       },
-    });
-
-    console.info("[ai-workout-plan] deepseek_response", {
-      task: taskName,
-      model,
     });
 
     return {

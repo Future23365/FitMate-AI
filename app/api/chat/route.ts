@@ -342,11 +342,6 @@ export async function POST(request: Request) {
     );
   }
 
-  console.info("[chat] deepseek_response", {
-    status: response.status,
-    contentType: response.headers.get("content-type"),
-  });
-
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const reader = response.body?.getReader();
