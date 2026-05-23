@@ -6,16 +6,76 @@ datasource db {
   provider = "postgresql"
 }
 
+enum AuthProvider {
+  credentials
+  google
+  github
+  apple
+  anonymous
+}
+
+enum ExerciseReviewStatus {
+  machine_translated
+  machine_assisted
+  human_reviewed
+  rejected
+  fallback
+}
+
+enum WorkoutPlanStatus {
+  draft
+  active
+  archived
+}
+
+enum WorkoutPlanSource {
+  ai
+  manual
+  imported
+}
+
+enum WorkoutSessionStatus {
+  planned
+  in_progress
+  completed
+  missed
+  cancelled
+}
+
+enum ChatMessageRole {
+  system
+  user
+  assistant
+  tool
+}
+
 model User {
   id           String           @id @default(cuid())
   email        String?          @unique
   displayName  String?
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
+  identities   UserIdentity[]
   profile      UserProfile?
   workoutPlans WorkoutPlan[]
   sessions     WorkoutSession[]
   chatSessions ChatSession[]
+}
+
+model UserIdentity {
+  id                String       @id @default(cuid())
+  userId            String
+  provider          AuthProvider
+  providerAccountId String
+  email             String?
+  emailVerifiedAt   DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@index([email])
 }
 
 model UserProfile {
@@ -35,7 +95,7 @@ model UserProfile {
 }
 
 model Exercise {
-  id                 String            @id
+  id                 String               @id
   source             String
   sourceUrl          String
   sourceId           String
@@ -54,22 +114,23 @@ model Exercise {
   equipmentZh        String?
   homeRequirement    String
   homeRequirementZh  String
-  primaryMuscles     String[]          @default([])
-  primaryMusclesZh   String[]          @default([])
-  secondaryMuscles   String[]          @default([])
-  secondaryMusclesZh String[]          @default([])
-  instructionsEn     String[]          @default([])
-  instructionsZh     String[]          @default([])
-  images             String[]          @default([])
-  imageUrls          String[]          @default([])
-  riskTags           String[]          @default([])
-  goalTags           String[]          @default([])
-  reviewStatus       String            @default("machine_translated")
-  isPublished        Boolean           @default(false)
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
+  primaryMuscles     String[]             @default([])
+  primaryMusclesZh   String[]             @default([])
+  secondaryMuscles   String[]             @default([])
+  secondaryMusclesZh String[]             @default([])
+  instructionsEn     String[]             @default([])
+  instructionsZh     String[]             @default([])
+  images             String[]             @default([])
+  imageUrls          String[]             @default([])
+  riskTags           String[]             @default([])
+  goalTags           String[]             @default([])
+  reviewStatus       ExerciseReviewStatus @default(machine_translated)
+  isPublished        Boolean              @default(false)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
   workoutItems       WorkoutPlanItem[]
 
+  @@unique([source, sourceId])
   @@index([category])
   @@index([level])
   @@index([equipment])
@@ -78,22 +139,22 @@ model Exercise {
 }
 
 model WorkoutPlan {
-  id                      String           @id @default(cuid())
+  id                      String            @id @default(cuid())
   userId                  String
   title                   String
   goal                    String
   summary                 String?
   weeklyFrequency         Int
   estimatedSessionMinutes Int
-  status                  String           @default("draft")
-  source                  String           @default("ai")
-  safetyNotes             String[]         @default([])
+  status                  WorkoutPlanStatus @default(draft)
+  source                  WorkoutPlanSource @default(ai)
+  safetyNotes             String[]          @default([])
   trainingLoopRounds      Int?
   trainingLoopRestSeconds Int?
   sourceAiTraceId         String?
-  createdAt               DateTime         @default(now())
-  updatedAt               DateTime         @updatedAt
-  user                    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt               DateTime          @default(now())
+  updatedAt               DateTime          @updatedAt
+  user                    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   days                    WorkoutPlanDay[]
   sessions                WorkoutSession[]
 
@@ -134,24 +195,25 @@ model WorkoutPlanItem {
   workoutPlanDay        WorkoutPlanDay @relation(fields: [workoutPlanDayId], references: [id], onDelete: Cascade)
   exercise              Exercise       @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
 
+  @@unique([workoutPlanDayId, sortOrder])
   @@index([exerciseId])
   @@index([workoutPlanDayId, sortOrder])
 }
 
 model WorkoutSession {
-  id              String       @id @default(cuid())
+  id              String               @id @default(cuid())
   userId          String
   workoutPlanId   String?
   scheduledFor    DateTime?
   startedAt       DateTime?
   endedAt         DateTime?
-  status          String       @default("planned")
+  status          WorkoutSessionStatus @default(planned)
   durationSeconds Int?
   feedback        Json?
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
-  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workoutPlan     WorkoutPlan? @relation(fields: [workoutPlanId], references: [id], onDelete: SetNull)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  user            User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workoutPlan     WorkoutPlan?         @relation(fields: [workoutPlanId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([status])
@@ -171,13 +233,13 @@ model ChatSession {
 }
 
 model ChatMessage {
-  id            String      @id @default(cuid())
+  id            String          @id @default(cuid())
   chatSessionId String
-  role          String
+  role          ChatMessageRole
   content       String
   metadata      Json?
-  createdAt     DateTime    @default(now())
-  chatSession   ChatSession @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
+  createdAt     DateTime        @default(now())
+  chatSession   ChatSession     @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
 
   @@index([chatSessionId, createdAt])
 }

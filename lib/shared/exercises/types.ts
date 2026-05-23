@@ -1,3 +1,10 @@
+export type ExerciseReviewStatus =
+  | "machine_translated"
+  | "machine_assisted"
+  | "human_reviewed"
+  | "rejected"
+  | "fallback";
+
 export type Exercise = {
   id: string;
   source: string;
@@ -28,7 +35,7 @@ export type Exercise = {
   imageUrls: string[];
   riskTags: string[];
   goalTags: string[];
-  reviewStatus: string;
+  reviewStatus: ExerciseReviewStatus;
   isPublished: boolean;
 };
 
