@@ -173,10 +173,10 @@ export function ExercisePreviewSheet({
                 </h4>
 
                 {/* 大图展示区域 */}
-                <div className="group relative aspect-square w-full overflow-hidden rounded-xl bg-white">
+                <div className="group relative aspect-[3/2] w-full overflow-hidden rounded-xl bg-white">
                   <Image
                     alt={`${exercise.nameZh} 演示图`}
-                    className="object-contain"
+                    className="object-cover"
                     fill
                     sizes="(min-width: 640px) 428px, calc(100vw - 32px)"
                     src={images[activeImageIndex]}
