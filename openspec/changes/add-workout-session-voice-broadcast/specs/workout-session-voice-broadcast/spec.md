@@ -31,19 +31,19 @@ The system SHALL reuse the top volume button on the workout session page as the 
 - **THEN** the system MUST keep the current page session usable and fall back to in-memory toggle state
 
 ### Requirement: Startup voice sequence
-The system SHALL automatically announce the workout overview and start countdown when voice broadcast is enabled for a training session.
+The system SHALL use a preparation countdown before the workout session timer starts.
 
 #### Scenario: Training session starts with voice enabled
 - **WHEN** `/training` loads a workout timeline and voice broadcast is enabled
-- **THEN** the system announces the planned workout actions and then announces “3，2，1开始”
+- **THEN** the system announces “第一个动作：” with the first action name and then announces “3，2，1” before starting the workout timer
 
-#### Scenario: Workout has many actions
-- **WHEN** the workout contains more actions than are reasonable to announce in full
-- **THEN** the system announces a concise action overview and total action count instead of reading an excessively long list
+#### Scenario: Training session starts with voice disabled
+- **WHEN** `/training` loads a workout timeline and voice broadcast is disabled
+- **THEN** the system still waits for the preparation countdown before starting the workout timer without speaking prompts
 
 #### Scenario: User manually changes step after startup
 - **WHEN** the user jumps to another step after the startup sequence has already run
-- **THEN** the system MUST NOT replay the full workout overview and MUST only announce the current step context
+- **THEN** the system MUST NOT replay the preparation countdown and MUST only announce the current step context when voice broadcast is enabled
 
 ### Requirement: Step transition voice cues
 The system SHALL announce relevant workout step transitions using existing workout timeline data.

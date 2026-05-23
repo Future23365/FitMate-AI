@@ -3,7 +3,7 @@ import type { WorkoutItem, WorkoutTimelineStep } from "@/lib/shared/workouts/com
 const defaultOverviewLimit = 5;
 
 export function buildWorkoutStartupCues(items: WorkoutItem[]) {
-  return [buildWorkoutOverviewCue(items), "3，2，1开始"];
+  return [buildWorkoutOverviewCue(items), buildFirstWorkoutActionCue(items[0]), "3", "2", "1"];
 }
 
 export function buildWorkoutOverviewCue(items: WorkoutItem[], limit = defaultOverviewLimit) {
@@ -27,6 +27,14 @@ export function buildWorkoutStepVoiceCue(step: WorkoutTimelineStep) {
   const targetText = step.item.mode === "duration" ? `${step.item.target} 秒` : `${step.item.target} 次`;
 
   return `开始 ${step.item.nameZh}，第 ${step.setIndex} 组，共 ${step.totalSets} 组，目标 ${targetText}。`;
+}
+
+export function buildFirstWorkoutActionCue(item?: WorkoutItem) {
+  return item ? `第一个动作：${item.nameZh}。` : "准备开始第一个动作。";
+}
+
+export function buildPreparationCountdownCue(second: number) {
+  return String(Math.max(1, Math.min(3, Math.floor(second))));
 }
 
 export function buildRepetitionCountCue(count: number) {

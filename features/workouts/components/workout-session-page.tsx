@@ -32,6 +32,8 @@ import {
   type WorkoutMode,
 } from "@/lib/shared/workouts/composition";
 
+const preparationCountdownStart = 3;
+
 const fallbackPlan: ScheduledWorkout = {
   id: "session-fallback",
   date: "today",
@@ -108,6 +110,7 @@ export function WorkoutSessionPage() {
   const [activeStepIndex, setActiveStepIndex] = useState(0);
   const [remainingSeconds, setRemainingSeconds] = useState(45);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [preparationCountdown, setPreparationCountdown] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
   const [isAudioOn, setIsAudioOn] = useState(true);
   const [loadedPlanKey, setLoadedPlanKey] = useState("");
@@ -156,6 +159,8 @@ export function WorkoutSessionPage() {
   const nextItem = orderedItems[currentExerciseIndex + 1];
   const remainingSteps = Math.max(0, steps.length - activeStepIndex - 1);
   const requestedPlanKey = planId ?? "default";
+  const isPlanReady = loadedPlanKey === requestedPlanKey;
+  const isPreparing = preparationCountdown > 0;
   const sessionVoiceId = `${plan.id}:${plan.date}:${plan.planId}`;
 
   useEffect(() => {
@@ -182,6 +187,7 @@ export function WorkoutSessionPage() {
       setActiveStepIndex(0);
       setElapsedSeconds(0);
       setRemainingSeconds(selectedSteps[0]?.durationSeconds ?? 45);
+      setPreparationCountdown(preparationCountdownStart);
       setLoadedPlanKey(requestKey);
     });
 
@@ -205,13 +211,26 @@ export function WorkoutSessionPage() {
     isEnabled: isAudioOn && loadedPlanKey === requestedPlanKey && isVoicePreferenceLoaded,
     isPaused,
     overviewItems: orderedItems,
+    preparationCountdown,
     remainingSeconds,
     sessionId: sessionVoiceId,
     steps,
   });
 
   useEffect(() => {
-    if (isPaused || !activeStep) {
+    if (!isPlanReady || isPaused || preparationCountdown <= 0) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setPreparationCountdown((value) => Math.max(0, value - 1));
+    }, 1000);
+
+    return () => window.clearTimeout(timer);
+  }, [isPaused, isPlanReady, preparationCountdown]);
+
+  useEffect(() => {
+    if (isPaused || isPreparing || !activeStep) {
       return;
     }
 
@@ -233,10 +252,11 @@ export function WorkoutSessionPage() {
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [activeStep, activeStepIndex, isPaused, steps]);
+  }, [activeStep, activeStepIndex, isPaused, isPreparing, steps]);
 
   function goToStep(nextIndex: number) {
     const boundedIndex = Math.min(Math.max(0, nextIndex), steps.length - 1);
+    setPreparationCountdown(0);
     setActiveStepIndex(boundedIndex);
     setRemainingSeconds(steps[boundedIndex]?.durationSeconds ?? 45);
   }
@@ -246,6 +266,7 @@ export function WorkoutSessionPage() {
 
     if (isLastStep) {
       setIsPaused(true);
+      setPreparationCountdown(0);
       setRemainingSeconds(0);
       return;
     }
@@ -255,6 +276,7 @@ export function WorkoutSessionPage() {
 
   function finishTraining() {
     setIsPaused(true);
+    setPreparationCountdown(0);
 
     void updateScheduledWorkoutStatus(plan.id, "completed")
       .then((updatedPlan) => {
@@ -326,7 +348,7 @@ export function WorkoutSessionPage() {
                   <h1 className="mt-xs truncate text-[20px] font-extrabold leading-tight">{plan.title}</h1>
                 </div>
                 <span className="rounded-full bg-primary-soft px-md py-xs text-label-md font-bold text-primary">
-                  {plan.status === "completed" ? "已完成" : "进行中"}
+                  {plan.status === "completed" ? "已完成" : isPreparing ? "准备中" : "进行中"}
                 </span>
               </div>
               <div className="grid grid-cols-3 gap-sm">
@@ -365,25 +387,38 @@ export function WorkoutSessionPage() {
           <section className="flex min-h-0 flex-col items-center justify-center rounded-[20px] border border-line bg-white px-lg py-lg text-center shadow-card">
             <span className="mb-sm inline-flex items-center gap-xs rounded-full bg-primary-soft px-md py-xs text-label-md font-bold text-primary">
               <SymbolIcon className="text-lg">
-                {isRestStep ? "timer" : isTimedStep ? "timer" : "format_list_numbered"}
+                {isPreparing ? "timer" : isRestStep ? "timer" : isTimedStep ? "timer" : "format_list_numbered"}
               </SymbolIcon>
-              {isRestStep
+              {isPreparing
+                ? "准备开始"
+                : isRestStep
                 ? activeRestStep?.label
                 : `${isTimedStep ? "计时步骤" : "计次步骤"} · 第 ${activeExerciseStep?.setIndex ?? 1} / ${
                     activeExerciseStep?.totalSets ?? 1
                   } 组`}
             </span>
             <h2 className="max-w-[680px] text-[30px] font-extrabold leading-tight text-ink md:text-[38px]">
-              {isRestStep ? activeRestStep?.label : currentItem.nameZh}
+              {isPreparing ? `第一个动作：${currentItem.nameZh}` : isRestStep ? activeRestStep?.label : currentItem.nameZh}
             </h2>
             <p className="mt-sm text-body-lg font-semibold text-muted">
-              {isRestStep
+              {isPreparing
+                ? "倒计时结束后开始训练"
+                : isRestStep
                 ? activeRestStep?.nextItem
                   ? `下一个动作：${activeRestStep.nextItem.nameZh}`
                   : "准备进入下一步"
                 : currentItem.musclesZh.slice(0, 3).join("、") || currentItem.categoryZh}
             </p>
-            {isRestStep ? (
+            {isPreparing ? (
+              <>
+                <div className="my-md text-[clamp(92px,14vw,148px)] font-black leading-none text-primary [font-variant-numeric:tabular-nums]">
+                  {preparationCountdown}
+                </div>
+                <p className="text-body-lg font-extrabold text-ink">
+                  保持站姿，准备开始第一个动作
+                </p>
+              </>
+            ) : isRestStep ? (
               <>
                 <div className="my-md text-[clamp(76px,12vw,132px)] font-black leading-none text-ink [font-variant-numeric:tabular-nums]">
                   {formatClock(remainingSeconds)}
