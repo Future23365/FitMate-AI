@@ -1,27 +1,27 @@
-## 1. Voice Cue Model
+## 1. 语音提示模型
 
-- [ ] 1.1 Add a workout voice cue utility that converts `WorkoutTimelineStep` data into Chinese startup, exercise, rest, next-group, and repetition-count prompt text.
-- [ ] 1.2 Add concise workout overview generation that limits long action lists while preserving total action count.
-- [ ] 1.3 Add focused tests for cue generation across duration steps, rep steps, repetition counts, set rests, exercise transitions, loop rests, and long workouts.
+- [ ] 1.1 新增训练语音提示工具，将 `WorkoutTimelineStep` 数据转换为中文的启动、动作、休息、下一组动作和按次计数提示文案。
+- [ ] 1.2 新增简洁的训练概览生成逻辑，在保留总动作数量的同时限制过长动作列表。
+- [ ] 1.3 为提示文案生成补充聚焦测试，覆盖计时步骤、按次步骤、按次计数、组间休息、动作切换、循环间隙和长训练。
 
-## 2. Browser Audio Hook
+## 2. 浏览器音频 Hook
 
-- [ ] 2.1 Implement a client-only `useWorkoutVoiceBroadcast` hook that wraps `window.speechSynthesis` and `SpeechSynthesisUtterance`.
-- [ ] 2.2 Implement speech queue cancellation for pause, resume, skip, finish, disable, and component unmount flows.
-- [ ] 2.3 Implement short local beep cues for every elapsed second during duration-mode exercise steps, with graceful fallback when browser audio is unavailable.
-- [ ] 2.4 Implement numeric counting speech cues for reps-mode exercise steps, deduped so each reached count is announced once per step.
-- [ ] 2.5 Prefer `zh-CN` speech settings and Chinese voices when available, while falling back to the browser default voice.
+- [ ] 2.1 实现仅客户端使用的 `useWorkoutVoiceBroadcast` hook，封装 `window.speechSynthesis` 和 `SpeechSynthesisUtterance`。
+- [ ] 2.2 实现语音队列取消逻辑，覆盖暂停、继续、跳步、完成、关闭播报和组件卸载流程。
+- [ ] 2.3 为计时模式动作的每个已训练秒数实现短促本地 beep 提示，并在浏览器音频不可用时优雅降级。
+- [ ] 2.4 为按次模式动作实现数字计数语音提示，并去重，确保同一步骤中每个达到的计数只播报一次。
+- [ ] 2.5 优先使用 `zh-CN` 语音设置和可用中文 voice，不可用时回退到浏览器默认 voice。
 
-## 3. Training Page Integration
+## 3. 训练页面接入
 
-- [ ] 3.1 Replace the existing top audio button behavior in `WorkoutSessionPage` with the voice broadcast toggle while preserving the current visual affordance.
-- [ ] 3.2 Default voice broadcast to enabled unless `localStorage` contains a disabled preference.
-- [ ] 3.3 Persist toggle changes under a `fitmate.*` localStorage key without adding server persistence.
-- [ ] 3.4 Wire the hook to workout timeline state so startup sequence, step transitions, manual step changes, pauses, resumes, and training finish trigger the correct audio behavior.
-- [ ] 3.5 Keep `/plans`, `/composer`, AI routes, workout persistence APIs, and training data schemas unchanged.
+- [ ] 3.1 在 `WorkoutSessionPage` 中用语音播报开关替换现有顶部音频按钮行为，同时保留当前视觉提示。
+- [ ] 3.2 默认开启语音播报，除非 `localStorage` 中存在关闭偏好。
+- [ ] 3.3 使用 `fitmate.*` localStorage key 持久化开关变化，不增加服务端持久化。
+- [ ] 3.4 将 hook 接入训练 timeline 状态，使启动序列、步骤切换、手动跳步、暂停、继续和训练完成触发正确音频行为。
+- [ ] 3.5 保持 `/plans`、`/composer`、AI routes、训练持久化 API 和训练数据 schema 不变。
 
-## 4. Verification
+## 4. 验证
 
-- [ ] 4.1 Run the relevant TypeScript and lint checks for changed files.
-- [ ] 4.2 Verify unsupported `speechSynthesis`, unavailable `localStorage`, and unavailable audio context paths do not break the training page.
-- [ ] 4.3 Manually verify `/training` starts with voice enabled, the volume button toggles and persists local preference, startup says “3，2，1开始”, step changes announce current or next-group action, duration-mode actions beep every second, and reps-mode actions announce “1，2，3...” according to the repetition interval.
+- [ ] 4.1 运行与改动文件相关的 TypeScript 和 lint 检查。
+- [ ] 4.2 验证不支持 `speechSynthesis`、`localStorage` 不可用、audio context 不可用时不会破坏训练页面。
+- [ ] 4.3 手动验证 `/training` 默认开启语音，音量按钮可切换并持久化本地偏好，启动时播报“3，2，1开始”，步骤切换时播报当前动作或下一组动作，计时模式动作每秒 beep，按次模式动作按重复间隔播报“1，2，3...”。
