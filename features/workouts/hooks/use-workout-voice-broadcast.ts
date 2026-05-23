@@ -1,0 +1,253 @@
+"use client";
+
+import { useEffect, useMemo, useRef, type MutableRefObject } from "react";
+
+import type { WorkoutItem, WorkoutTimelineStep } from "@/lib/shared/workouts/composition";
+import {
+  buildRepetitionCountCue,
+  buildWorkoutStartupCues,
+  buildWorkoutStepVoiceCue,
+} from "@/lib/shared/workouts/voice-cues";
+
+export const workoutVoiceBroadcastStorageKey = "fitmate.workoutVoiceBroadcast.enabled";
+
+type UseWorkoutVoiceBroadcastOptions = {
+  activeStepIndex: number;
+  completedReps: number;
+  isEnabled: boolean;
+  isPaused: boolean;
+  overviewItems: WorkoutItem[];
+  remainingSeconds: number;
+  sessionId: string;
+  steps: WorkoutTimelineStep[];
+};
+
+type WindowWithWebKitAudioContext = Window &
+  typeof globalThis & {
+    webkitAudioContext?: typeof AudioContext;
+  };
+
+export function readWorkoutVoiceBroadcastPreference() {
+  if (typeof window === "undefined") {
+    return true;
+  }
+
+  try {
+    return window.localStorage.getItem(workoutVoiceBroadcastStorageKey) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+export function writeWorkoutVoiceBroadcastPreference(isEnabled: boolean) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(workoutVoiceBroadcastStorageKey, String(isEnabled));
+  } catch {
+    // Local preference persistence is best-effort; audio controls keep working in memory.
+  }
+}
+
+export function useWorkoutVoiceBroadcast({
+  activeStepIndex,
+  completedReps,
+  isEnabled,
+  isPaused,
+  overviewItems,
+  remainingSeconds,
+  sessionId,
+  steps,
+}: UseWorkoutVoiceBroadcastOptions) {
+  const activeStep = steps[activeStepIndex];
+  const activeStepKey = activeStep ? `${sessionId}:${activeStep.id}:${activeStepIndex}` : "";
+  const startupSessionIdRef = useRef("");
+  const currentStepKeyRef = useRef("");
+  const lastBeepElapsedRef = useRef(0);
+  const lastCountRef = useRef(0);
+  const wasPausedRef = useRef(isPaused);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const startupCues = useMemo(() => buildWorkoutStartupCues(overviewItems), [overviewItems]);
+
+  useEffect(() => {
+    if (!isEnabled) {
+      cancelSpeech();
+      return;
+    }
+
+    if (isPaused) {
+      cancelSpeech();
+    }
+  }, [isEnabled, isPaused]);
+
+  useEffect(() => {
+    return () => {
+      cancelSpeech();
+      void audioContextRef.current?.close().catch(() => undefined);
+      audioContextRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!activeStep || !isEnabled || isPaused) {
+      return;
+    }
+
+    if (startupSessionIdRef.current !== sessionId) {
+      startupSessionIdRef.current = sessionId;
+      currentStepKeyRef.current = activeStepKey;
+      resetRhythmRefs(lastBeepElapsedRef, lastCountRef);
+      speakTexts([...startupCues, buildWorkoutStepVoiceCue(activeStep)], true);
+      return;
+    }
+
+    if (currentStepKeyRef.current !== activeStepKey) {
+      currentStepKeyRef.current = activeStepKey;
+      resetRhythmRefs(lastBeepElapsedRef, lastCountRef);
+      speakTexts([buildWorkoutStepVoiceCue(activeStep)], true);
+    }
+  }, [activeStep, activeStepKey, isEnabled, isPaused, sessionId, startupCues]);
+
+  useEffect(() => {
+    if (!activeStep || !isEnabled) {
+      wasPausedRef.current = isPaused;
+      return;
+    }
+
+    if (!wasPausedRef.current && isPaused) {
+      cancelSpeech();
+    }
+
+    if (wasPausedRef.current && !isPaused) {
+      speakTexts(["继续训练", buildWorkoutStepVoiceCue(activeStep)], true);
+    }
+
+    wasPausedRef.current = isPaused;
+  }, [activeStep, isEnabled, isPaused]);
+
+  useEffect(() => {
+    if (!activeStep || !isEnabled || isPaused || activeStep.type !== "exercise" || activeStep.item.mode !== "duration") {
+      return;
+    }
+
+    const elapsedSeconds = activeStep.durationSeconds - remainingSeconds;
+    if (elapsedSeconds <= 0 || elapsedSeconds <= lastBeepElapsedRef.current) {
+      return;
+    }
+
+    lastBeepElapsedRef.current = elapsedSeconds;
+    playBeep(audioContextRef);
+  }, [activeStep, isEnabled, isPaused, remainingSeconds]);
+
+  useEffect(() => {
+    if (!activeStep || !isEnabled || isPaused || activeStep.type !== "exercise" || activeStep.item.mode !== "reps") {
+      return;
+    }
+
+    if (completedReps <= 0 || completedReps <= lastCountRef.current || completedReps > activeStep.item.target) {
+      return;
+    }
+
+    lastCountRef.current = completedReps;
+    speakTexts([buildRepetitionCountCue(completedReps)], true);
+  }, [activeStep, completedReps, isEnabled, isPaused]);
+}
+
+function resetRhythmRefs(
+  lastBeepElapsedRef: MutableRefObject<number>,
+  lastCountRef: MutableRefObject<number>,
+) {
+  lastBeepElapsedRef.current = 0;
+  lastCountRef.current = 0;
+}
+
+function speakTexts(texts: string[], interrupt = false) {
+  if (!canSpeak()) {
+    return;
+  }
+
+  if (interrupt) {
+    cancelSpeech();
+  }
+
+  const voice = selectChineseVoice();
+  texts
+    .map((text) => text.trim())
+    .filter(Boolean)
+    .forEach((text) => {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "zh-CN";
+      utterance.rate = 1;
+      utterance.pitch = 1;
+      utterance.volume = 1;
+
+      if (voice) {
+        utterance.voice = voice;
+      }
+
+      window.speechSynthesis.speak(utterance);
+    });
+}
+
+function cancelSpeech() {
+  if (!canSpeak()) {
+    return;
+  }
+
+  window.speechSynthesis.cancel();
+}
+
+function canSpeak() {
+  return typeof window !== "undefined" && "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+}
+
+function selectChineseVoice() {
+  if (!canSpeak()) {
+    return undefined;
+  }
+
+  return window.speechSynthesis
+    .getVoices()
+    .find((voice) => voice.lang.toLowerCase().startsWith("zh") || /chinese|mandarin|中文|普通话/i.test(voice.name));
+}
+
+function playBeep(audioContextRef: MutableRefObject<AudioContext | null>) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    const AudioContextClass =
+      window.AudioContext ?? (window as WindowWithWebKitAudioContext).webkitAudioContext;
+
+    if (!AudioContextClass) {
+      return;
+    }
+
+    const audioContext = audioContextRef.current ?? new AudioContextClass();
+    audioContextRef.current = audioContext;
+
+    if (audioContext.state === "suspended") {
+      void audioContext.resume().catch(() => undefined);
+    }
+
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    const now = audioContext.currentTime;
+
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(880, now);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.18, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+
+    oscillator.connect(gain);
+    gain.connect(audioContext.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.14);
+  } catch {
+    // Beep cues are optional; workout timing and speech prompts must keep running.
+  }
+}

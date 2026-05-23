@@ -20,7 +20,7 @@ The system SHALL reuse the top volume button on the workout session page as the 
 
 #### Scenario: User disables voice broadcast
 - **WHEN** the user clicks the top volume button while voice broadcast is enabled
-- **THEN** the system disables voice broadcast, cancels pending speech and countdown sound, and stores the disabled preference in `localStorage`
+- **THEN** the system disables voice broadcast, cancels pending speech and rhythm cues, and stores the disabled preference in `localStorage`
 
 #### Scenario: User returns after disabling voice broadcast
 - **WHEN** the user opens `/training` after previously disabling voice broadcast locally
@@ -107,11 +107,11 @@ The system SHALL use browser Web Speech API speech synthesis for spoken prompts 
 
 #### Scenario: User pauses or ends training
 - **WHEN** the user pauses training, finishes training, disables voice broadcast, or leaves `/training`
-- **THEN** the system cancels pending speech and countdown cues
+- **THEN** the system cancels pending speech and rhythm cues
 
 ### Requirement: No AI or server-side audio
 The system SHALL NOT use AI services, speech recognition, microphone input, or server-side audio persistence for workout session voice broadcast.
 
 #### Scenario: Voice broadcast runs
-- **WHEN** voice broadcast announces workout steps or plays countdown cues
+- **WHEN** voice broadcast announces workout steps or plays rhythm cues
 - **THEN** the system MUST NOT call AI endpoints, request microphone permissions, create speech recognition sessions, or persist audio state on the server

@@ -29,7 +29,7 @@
 
 ### 1. 语音播报封装为训练页专用客户端 hook
 
-新增训练语音 hook，例如 `useWorkoutVoiceBroadcast()`，由 `WorkoutSessionPage` 传入当前 timeline 状态、开关状态、暂停状态和控制事件。hook 内部负责访问 `window.speechSynthesis`、生成 `SpeechSynthesisUtterance`、取消队列和播放倒计时提示音。
+新增训练语音 hook，例如 `useWorkoutVoiceBroadcast()`，由 `WorkoutSessionPage` 传入当前 timeline 状态、开关状态、暂停状态和控制事件。hook 内部负责访问 `window.speechSynthesis`、生成 `SpeechSynthesisUtterance`、取消队列、播放计时动作 beep 和播报按次动作计数。
 
 备选方案是在 `WorkoutSessionPage` 内直接写多个 `useEffect`。不采用，因为训练页已经承担倒计时、计划加载和 UI 展示，继续散写浏览器音频副作用会让状态边界变得不清晰，也不利于后续测试提示文案。
 

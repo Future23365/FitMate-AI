@@ -12,6 +12,11 @@ import {
   updateScheduledWorkoutStatus,
 } from "@/features/workouts/api/workout-data-client";
 import {
+  readWorkoutVoiceBroadcastPreference,
+  useWorkoutVoiceBroadcast,
+  writeWorkoutVoiceBroadcastPreference,
+} from "@/features/workouts/hooks/use-workout-voice-broadcast";
+import {
   buildWorkoutTimeline,
   defaultSetRestSeconds,
   defaultTransitionRestSeconds,
@@ -105,6 +110,8 @@ export function WorkoutSessionPage() {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
   const [isAudioOn, setIsAudioOn] = useState(true);
+  const [loadedPlanKey, setLoadedPlanKey] = useState("");
+  const [isVoicePreferenceLoaded, setIsVoicePreferenceLoaded] = useState(false);
   const [showTip, setShowTip] = useState(true);
 
   const loopConfig = useMemo(() => getWorkoutLoopConfig(plan), [plan]);
@@ -148,9 +155,12 @@ export function WorkoutSessionPage() {
     : 0;
   const nextItem = orderedItems[currentExerciseIndex + 1];
   const remainingSteps = Math.max(0, steps.length - activeStepIndex - 1);
+  const requestedPlanKey = planId ?? "default";
+  const sessionVoiceId = `${plan.id}:${plan.date}:${plan.planId}`;
 
   useEffect(() => {
     let cancelled = false;
+    const requestKey = planId ?? "default";
 
     void getPlanFromDatabase(planId).then((selectedPlan) => {
       if (cancelled) {
@@ -172,12 +182,33 @@ export function WorkoutSessionPage() {
       setActiveStepIndex(0);
       setElapsedSeconds(0);
       setRemainingSeconds(selectedSteps[0]?.durationSeconds ?? 45);
+      setLoadedPlanKey(requestKey);
     });
 
     return () => {
       cancelled = true;
     };
   }, [planId]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setIsAudioOn(readWorkoutVoiceBroadcastPreference());
+      setIsVoicePreferenceLoaded(true);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useWorkoutVoiceBroadcast({
+    activeStepIndex,
+    completedReps,
+    isEnabled: isAudioOn && loadedPlanKey === requestedPlanKey && isVoicePreferenceLoaded,
+    isPaused,
+    overviewItems: orderedItems,
+    remainingSeconds,
+    sessionId: sessionVoiceId,
+    steps,
+  });
 
   useEffect(() => {
     if (isPaused || !activeStep) {
@@ -258,13 +289,19 @@ export function WorkoutSessionPage() {
           </div>
           <div className="flex items-center gap-sm">
             <button
-              aria-label="切换提示音"
+              aria-label={isAudioOn ? "关闭语音播报" : "开启语音播报"}
               className={`grid h-11 w-11 place-items-center rounded-xl border transition-colors ${
                 isAudioOn
                   ? "border-primary/20 bg-primary-soft text-primary"
                   : "border-line bg-white text-muted hover:text-primary"
               }`}
-              onClick={() => setIsAudioOn((value) => !value)}
+              onClick={() => {
+                setIsAudioOn((value) => {
+                  const nextValue = !value;
+                  writeWorkoutVoiceBroadcastPreference(nextValue);
+                  return nextValue;
+                });
+              }}
               type="button"
             >
               <SymbolIcon className="text-2xl">{isAudioOn ? "volume_up" : "volume_off"}</SymbolIcon>
