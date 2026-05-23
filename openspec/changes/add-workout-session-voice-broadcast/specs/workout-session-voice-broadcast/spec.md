@@ -35,7 +35,8 @@ The system SHALL use a preparation voice countdown before each exercise step sta
 
 #### Scenario: First exercise starts with voice enabled
 - **WHEN** `/training` loads a workout timeline and voice broadcast is enabled
-- **THEN** the system announces “第一个动作：” with the first action name and then announces “3，2，1，开始” before starting the workout timer
+- **THEN** the system announces the first action name and target amount
+- **AND** the system waits until that action prompt finishes before announcing “3，2，1，开始” and starting the workout timer
 
 #### Scenario: Exercise step starts with voice disabled
 - **WHEN** `/training` loads a workout timeline and voice broadcast is disabled
@@ -43,7 +44,8 @@ The system SHALL use a preparation voice countdown before each exercise step sta
 
 #### Scenario: Later exercise step begins
 - **WHEN** the active timeline moves to a later exercise step after a rest or skip
-- **THEN** the system announces the action name and “3，2，1，开始” before starting that exercise step timer
+- **THEN** the system announces the action name and target amount
+- **AND** the system waits until that action prompt finishes before announcing “3，2，1，开始” and starting that exercise step timer
 
 #### Scenario: Rest step begins
 - **WHEN** the active timeline moves to a rest step

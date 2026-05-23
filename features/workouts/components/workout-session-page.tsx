@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import {
@@ -112,6 +112,7 @@ export function WorkoutSessionPage() {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [preparationCountdown, setPreparationCountdown] = useState(0);
   const [preparedStepKey, setPreparedStepKey] = useState("");
+  const [preparationCountdownStepKey, setPreparationCountdownStepKey] = useState("");
   const [isPaused, setIsPaused] = useState(false);
   const [isAudioOn, setIsAudioOn] = useState(true);
   const [loadedPlanKey, setLoadedPlanKey] = useState("");
@@ -164,6 +165,7 @@ export function WorkoutSessionPage() {
   const activeStepKey = activeStep ? `${sessionVoiceId}:${activeStep.id}:${activeStepIndex}` : "";
   const isPlanReady = loadedPlanKey === requestedPlanKey;
   const needsExercisePreparation = activeStep?.type === "exercise" && preparedStepKey !== activeStepKey;
+  const isPreparationCountdownActive = preparationCountdownStepKey === activeStepKey;
   const isPreparing = Boolean(needsExercisePreparation && preparationCountdown > 0);
 
   useEffect(() => {
@@ -191,6 +193,7 @@ export function WorkoutSessionPage() {
       setElapsedSeconds(0);
       setRemainingSeconds(selectedSteps[0]?.durationSeconds ?? 45);
       setPreparedStepKey("");
+      setPreparationCountdownStepKey("");
       setPreparationCountdown(selectedSteps[0]?.type === "exercise" ? preparationCountdownStart : 0);
       setLoadedPlanKey(requestKey);
     });
@@ -209,12 +212,18 @@ export function WorkoutSessionPage() {
     return () => window.clearTimeout(timer);
   }, []);
 
+  const markPreparationIntroComplete = useCallback((stepKey: string) => {
+    setPreparationCountdownStepKey(stepKey);
+  }, []);
+
   useWorkoutVoiceBroadcast({
     activeStepIndex,
     completedReps,
     isEnabled: isAudioOn && loadedPlanKey === requestedPlanKey && isVoicePreferenceLoaded,
+    isPreparationCountdownActive,
     isFirstExerciseStep: activeStepIndex === 0,
     isPaused,
+    onPreparationIntroComplete: markPreparationIntroComplete,
     preparationCountdown,
     remainingSeconds,
     sessionId: sessionVoiceId,
@@ -222,7 +231,30 @@ export function WorkoutSessionPage() {
   });
 
   useEffect(() => {
-    if (!isPlanReady || isPaused || !needsExercisePreparation || preparationCountdown <= 0) {
+    if (!isPlanReady || !isVoicePreferenceLoaded || isAudioOn || !needsExercisePreparation || !activeStepKey) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => markPreparationIntroComplete(activeStepKey), 0);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    activeStepKey,
+    isAudioOn,
+    isPlanReady,
+    isVoicePreferenceLoaded,
+    markPreparationIntroComplete,
+    needsExercisePreparation,
+  ]);
+
+  useEffect(() => {
+    if (
+      !isPlanReady ||
+      isPaused ||
+      !needsExercisePreparation ||
+      !isPreparationCountdownActive ||
+      preparationCountdown <= 0
+    ) {
       return;
     }
 
@@ -234,7 +266,14 @@ export function WorkoutSessionPage() {
     }, 1000);
 
     return () => window.clearTimeout(timer);
-  }, [activeStepKey, isPaused, isPlanReady, needsExercisePreparation, preparationCountdown]);
+  }, [
+    activeStepKey,
+    isPaused,
+    isPlanReady,
+    isPreparationCountdownActive,
+    needsExercisePreparation,
+    preparationCountdown,
+  ]);
 
   useEffect(() => {
     if (isPaused || needsExercisePreparation || !activeStep) {
@@ -266,6 +305,7 @@ export function WorkoutSessionPage() {
   function goToStep(nextIndex: number) {
     const boundedIndex = Math.min(Math.max(0, nextIndex), steps.length - 1);
     setPreparedStepKey("");
+    setPreparationCountdownStepKey("");
     setPreparationCountdown(steps[boundedIndex]?.type === "exercise" ? preparationCountdownStart : 0);
     setActiveStepIndex(boundedIndex);
     setRemainingSeconds(steps[boundedIndex]?.durationSeconds ?? 45);
@@ -277,6 +317,7 @@ export function WorkoutSessionPage() {
     if (isLastStep) {
       setIsPaused(true);
       setPreparedStepKey("");
+      setPreparationCountdownStepKey("");
       setPreparationCountdown(0);
       setRemainingSeconds(0);
       return;
@@ -288,6 +329,7 @@ export function WorkoutSessionPage() {
   function finishTraining() {
     setIsPaused(true);
     setPreparedStepKey("");
+    setPreparationCountdownStepKey("");
     setPreparationCountdown(0);
 
     void updateScheduledWorkoutStatus(plan.id, "completed")
@@ -428,10 +470,10 @@ export function WorkoutSessionPage() {
             {isPreparing ? (
               <>
                 <div className="my-md text-[clamp(92px,14vw,148px)] font-black leading-none text-primary [font-variant-numeric:tabular-nums]">
-                  {preparationCountdown}
+                  {isPreparationCountdownActive ? preparationCountdown : "准备"}
                 </div>
                 <p className="text-body-lg font-extrabold text-ink">
-                  保持姿势，准备开始动作
+                  {isPreparationCountdownActive ? "保持姿势，准备开始动作" : "先听动作提示，再开始倒计时"}
                 </p>
               </>
             ) : isRestStep ? (

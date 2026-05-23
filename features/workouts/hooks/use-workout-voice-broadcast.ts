@@ -11,13 +11,19 @@ import {
 } from "@/lib/shared/workouts/voice-cues";
 
 export const workoutVoiceBroadcastStorageKey = "fitmate.workoutVoiceBroadcast.enabled";
+const speechUnavailablePreparationDelayMs = 1200;
+const speechCompletionFallbackMinMs = 1600;
+const speechCompletionFallbackMaxMs = 8000;
+const speechCompletionFallbackMsPerChar = 220;
 
 type UseWorkoutVoiceBroadcastOptions = {
   activeStepIndex: number;
   completedReps: number;
   isEnabled: boolean;
+  isPreparationCountdownActive: boolean;
   isFirstExerciseStep: boolean;
   isPaused: boolean;
+  onPreparationIntroComplete: (stepKey: string) => void;
   preparationCountdown: number;
   remainingSeconds: number;
   sessionId: string;
@@ -57,8 +63,10 @@ export function useWorkoutVoiceBroadcast({
   activeStepIndex,
   completedReps,
   isEnabled,
+  isPreparationCountdownActive,
   isFirstExerciseStep,
   isPaused,
+  onPreparationIntroComplete,
   preparationCountdown,
   remainingSeconds,
   sessionId,
@@ -78,11 +86,15 @@ export function useWorkoutVoiceBroadcast({
 
   useEffect(() => {
     if (!isEnabled) {
+      preparationStepKeyRef.current = "";
+      lastPreparationSecondRef.current = 0;
       cancelSpeech();
       return;
     }
 
     if (isPaused) {
+      preparationStepKeyRef.current = "";
+      lastPreparationSecondRef.current = 0;
       cancelSpeech();
     }
   }, [isEnabled, isPaused]);
@@ -114,7 +126,11 @@ export function useWorkoutVoiceBroadcast({
         currentStepKeyRef.current = activeStepKey;
         resetRhythmRefs(lastBeepElapsedRef, lastCountRef);
         lastPreparationSecondRef.current = 0;
-        speakTexts([buildWorkoutActionPreparationCue(activeStep, isFirstExerciseStep)], true);
+        speakTexts([buildWorkoutActionPreparationCue(activeStep, isFirstExerciseStep)], true, () => {
+          if (preparationStepKeyRef.current === activeStepKey) {
+            onPreparationIntroComplete(activeStepKey);
+          }
+        });
       }
 
       return;
@@ -125,10 +141,10 @@ export function useWorkoutVoiceBroadcast({
       resetRhythmRefs(lastBeepElapsedRef, lastCountRef);
       speakTexts([buildWorkoutStepVoiceCue(activeStep)], true);
     }
-  }, [activeStep, activeStepKey, isEnabled, isFirstExerciseStep, isPaused, isPreparing, sessionId]);
+  }, [activeStep, activeStepKey, isEnabled, isFirstExerciseStep, isPaused, isPreparing, onPreparationIntroComplete, sessionId]);
 
   useEffect(() => {
-    if (!isEnabled || isPaused || preparationCountdown <= 0) {
+    if (!isEnabled || isPaused || !isPreparationCountdownActive || preparationCountdown <= 0) {
       return;
     }
 
@@ -138,7 +154,7 @@ export function useWorkoutVoiceBroadcast({
 
     lastPreparationSecondRef.current = preparationCountdown;
     speakTexts([buildPreparationCountdownCue(preparationCountdown)]);
-  }, [isEnabled, isPaused, preparationCountdown]);
+  }, [isEnabled, isPaused, isPreparationCountdownActive, preparationCountdown]);
 
   useEffect(() => {
     if (!activeStep || !isEnabled) {
@@ -207,8 +223,9 @@ function resetRhythmRefs(
   lastCountRef.current = 0;
 }
 
-function speakTexts(texts: string[], interrupt = false) {
+function speakTexts(texts: string[], interrupt = false, onDone?: () => void) {
   if (!canSpeak()) {
+    globalThis.setTimeout(() => onDone?.(), speechUnavailablePreparationDelayMs);
     return;
   }
 
@@ -216,23 +233,62 @@ function speakTexts(texts: string[], interrupt = false) {
     cancelSpeech();
   }
 
-  const voice = selectChineseVoice();
-  texts
+  const normalizedTexts = texts
     .map((text) => text.trim())
-    .filter(Boolean)
-    .forEach((text) => {
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = "zh-CN";
-      utterance.rate = 1;
-      utterance.pitch = 1;
-      utterance.volume = 1;
+    .filter(Boolean);
 
-      if (voice) {
-        utterance.voice = voice;
-      }
+  if (normalizedTexts.length === 0) {
+    globalThis.setTimeout(() => onDone?.(), 0);
+    return;
+  }
 
-      window.speechSynthesis.speak(utterance);
-    });
+  const voice = selectChineseVoice();
+  let completionTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
+  let hasCompleted = false;
+  const completeOnce = () => {
+    if (hasCompleted) {
+      return;
+    }
+
+    hasCompleted = true;
+    if (completionTimer) {
+      globalThis.clearTimeout(completionTimer);
+    }
+
+    onDone?.();
+  };
+
+  if (onDone) {
+    completionTimer = globalThis.setTimeout(completeOnce, estimateSpeechCompletionFallbackMs(normalizedTexts));
+  }
+
+  normalizedTexts.forEach((text, index) => {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "zh-CN";
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    utterance.volume = 1;
+
+    if (voice) {
+      utterance.voice = voice;
+    }
+
+    if (index === normalizedTexts.length - 1 && onDone) {
+      utterance.onend = completeOnce;
+      utterance.onerror = completeOnce;
+    }
+
+    window.speechSynthesis.speak(utterance);
+  });
+}
+
+function estimateSpeechCompletionFallbackMs(texts: string[]) {
+  const estimatedMs = texts.join("").length * speechCompletionFallbackMsPerChar + speechUnavailablePreparationDelayMs;
+
+  return Math.min(
+    speechCompletionFallbackMaxMs,
+    Math.max(speechCompletionFallbackMinMs, estimatedMs),
+  );
 }
 
 function cancelSpeech() {

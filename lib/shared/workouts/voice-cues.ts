@@ -30,7 +30,7 @@ export function buildWorkoutStepVoiceCue(step: WorkoutTimelineStep) {
 }
 
 export function buildFirstWorkoutActionCue(item?: WorkoutItem) {
-  return item ? `第一个动作：${item.nameZh}。` : "准备开始第一个动作。";
+  return item ? `第一组动作，${item.nameZh}，${formatPreparationTarget(item)}。` : "准备开始第一组动作。";
 }
 
 export function buildWorkoutActionPreparationCue(step: WorkoutTimelineStep, isFirstExercise: boolean) {
@@ -38,10 +38,9 @@ export function buildWorkoutActionPreparationCue(step: WorkoutTimelineStep, isFi
     return "准备进入下一步。";
   }
 
-  const prefix = isFirstExercise ? "第一个动作" : "动作";
-  const setText = step.totalSets > 1 ? `，第 ${step.setIndex} 组` : "";
+  const prefix = isFirstExercise ? "第一组动作" : "下一组";
 
-  return `${prefix}：${step.item.nameZh}${setText}。`;
+  return `${prefix}，${step.item.nameZh}，${formatPreparationTarget(step.item)}。`;
 }
 
 export function buildPreparationCountdownCue(second: number) {
@@ -52,4 +51,8 @@ export function buildPreparationCountdownCue(second: number) {
 
 export function buildRepetitionCountCue(count: number) {
   return String(Math.max(1, Math.floor(count)));
+}
+
+function formatPreparationTarget(item: WorkoutItem) {
+  return item.mode === "duration" ? `${item.target} 秒` : `${item.target} 个`;
 }
