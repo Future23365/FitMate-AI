@@ -132,6 +132,70 @@ body.drawer-open {
   will-change: transform, border-radius, box-shadow;
 }
 
+.route-transition-root {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  overflow: hidden;
+  background: transparent;
+  pointer-events: none;
+  perspective: 1400px;
+}
+
+.route-transition-page {
+  position: absolute;
+  inset: 0;
+  min-height: 100%;
+  pointer-events: auto;
+  transform-origin: center;
+  backface-visibility: hidden;
+  will-change: transform, opacity, filter;
+}
+
+.route-transition-page-enter {
+  z-index: 2;
+  animation: route-page-enter 0.52s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.route-transition-page-exit {
+  z-index: 1;
+  pointer-events: none;
+  animation: route-page-exit 0.52s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes route-page-enter {
+  0% {
+    transform: translate3d(100%, 0, 0);
+    box-shadow: -24px 0 44px rgba(15, 23, 42, 0.08);
+  }
+
+  100% {
+    transform: translate3d(0, 0, 0);
+    box-shadow: -8px 0 18px rgba(15, 23, 42, 0);
+  }
+}
+
+@keyframes route-page-exit {
+  0% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    filter: saturate(1);
+  }
+
+  100% {
+    opacity: 0.94;
+    transform: translate3d(-28px, 0, -90px) scale(0.965);
+    filter: saturate(0.95);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-transition-page-enter,
+  .route-transition-page-exit {
+    animation: none;
+  }
+}
+
 @media (min-width: 640px) {
   body.drawer-open #app-content-wrapper {
     transform: scale(0.97); /* 温和对称的中心缩放 */

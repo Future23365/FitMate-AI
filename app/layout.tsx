@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { AppSidebar } from "@/components/app/app-sidebar";
+import { RouteTransition } from "@/components/app/route-transition";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -17,7 +18,7 @@ export default function RootLayout({
       <body>
         <div id="app-content-wrapper">
           <AppSidebar />
-          {children}
+          <RouteTransition>{children}</RouteTransition>
         </div>
       </body>
     </html>
