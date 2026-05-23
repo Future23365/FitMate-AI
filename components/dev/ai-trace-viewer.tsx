@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { AiTrace, AiTraceStep } from "@/lib/server/dev/ai-trace-store";
 
@@ -40,6 +40,7 @@ export function AiTraceViewer() {
   const [isLoading, setIsLoading] = useState(false);
   const [savingLogTarget, setSavingLogTarget] = useState<string | null>(null);
   const [saveLogMessage, setSaveLogMessage] = useState<string | null>(null);
+  const lastAutoRefreshAtRef = useRef(0);
 
   const selectedTrace = useMemo(
     () => traces.find((trace) => trace.id === selectedTraceId) ?? traces[0] ?? null,
@@ -72,6 +73,17 @@ export function AiTraceViewer() {
       setIsLoading(false);
     }
   }, []);
+
+  const autoRefreshTraces = useCallback(() => {
+    const now = Date.now();
+
+    if (now - lastAutoRefreshAtRef.current < 500) {
+      return;
+    }
+
+    lastAutoRefreshAtRef.current = now;
+    void loadTraces();
+  }, [loadTraces]);
 
   async function clearTraces() {
     await fetch("/api/dev/ai-traces", {
@@ -117,13 +129,28 @@ export function AiTraceViewer() {
 
   useEffect(() => {
     const initialRefreshTimer = window.setTimeout(() => {
-      void loadTraces();
+      autoRefreshTraces();
     }, 0);
+
+    function refreshWhenPageBecomesVisible() {
+      if (document.visibilityState === "visible") {
+        autoRefreshTraces();
+      }
+    }
+
+    function refreshWhenWindowFocuses() {
+      autoRefreshTraces();
+    }
+
+    document.addEventListener("visibilitychange", refreshWhenPageBecomesVisible);
+    window.addEventListener("focus", refreshWhenWindowFocuses);
 
     return () => {
       window.clearTimeout(initialRefreshTimer);
+      document.removeEventListener("visibilitychange", refreshWhenPageBecomesVisible);
+      window.removeEventListener("focus", refreshWhenWindowFocuses);
     };
-  }, [loadTraces]);
+  }, [autoRefreshTraces]);
 
   return (
     <main className="flex h-screen bg-[#f6f8fb] text-slate-950">
