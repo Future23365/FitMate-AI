@@ -147,36 +147,31 @@ body.drawer-open {
   min-height: 100%;
   background: var(--color-canvas);
   pointer-events: auto;
-  transform-origin: center;
-  backface-visibility: hidden;
-  will-change: transform, opacity;
-}
-
-.route-transition-page-active {
   z-index: 1;
 }
 
-.route-transition-page-exit {
+.route-transition-overlay {
+  position: absolute;
+  inset: 0;
   z-index: 2;
+  background: rgba(246, 248, 251, 0.72);
   pointer-events: none;
-  animation: route-page-exit 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-@keyframes route-page-exit {
-  0% {
-    opacity: 1;
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-
-  100% {
-    opacity: 1;
-    transform: scale(0.97);
-  }
+  animation: route-overlay-fade 0.22s ease-out both;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .route-transition-page-exit {
+  .route-transition-overlay {
     animation: none;
+  }
+}
+
+@keyframes route-overlay-fade {
+  0% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
   }
 }
 

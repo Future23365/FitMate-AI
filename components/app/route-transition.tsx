@@ -3,52 +3,35 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 
-type RouteSnapshot = {
-  key: string;
-  content: ReactNode;
-};
-
-const transitionDurationMs = 320;
+const transitionDurationMs = 220;
 
 export function RouteTransition({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const previousPathRef = useRef(pathname);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const initialRoute: RouteSnapshot = {
-    key: pathname,
-    content: children,
-  };
-  const activeRef = useRef<RouteSnapshot>({
-    key: pathname,
-    content: children,
-  });
-  const [activeRoute, setActiveRoute] = useState<RouteSnapshot>(initialRoute);
-  const [exitingRoute, setExitingRoute] = useState<RouteSnapshot | null>(null);
+  const [overlayKey, setOverlayKey] = useState(0);
+  const [isTransitioning, setIsTransitioning] = useState(false);
 
-  // 保留上一帧路由快照，给退出页留出缩小后退动画时间。
+  // 路由切换只触发短遮罩，不再缩放页面内容，避免标题重影和缩放错觉。
   useLayoutEffect(() => {
-    if (pathname === activeRef.current.key) {
+    if (pathname === previousPathRef.current) {
       return;
     }
+
+    previousPathRef.current = pathname;
 
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
     }
 
-    const leavingRoute = activeRef.current;
-    const enteringRoute: RouteSnapshot = {
-      key: pathname,
-      content: children,
-    };
-
-    activeRef.current = enteringRoute;
-    setExitingRoute(leavingRoute);
-    setActiveRoute(enteringRoute);
+    setOverlayKey((key) => key + 1);
+    setIsTransitioning(true);
 
     timeoutRef.current = setTimeout(() => {
-      setExitingRoute(null);
+      setIsTransitioning(false);
       timeoutRef.current = null;
     }, transitionDurationMs);
-  }, [children, pathname]);
+  }, [pathname]);
 
   useEffect(() => {
     return () => {
@@ -60,13 +43,11 @@ export function RouteTransition({ children }: { children: ReactNode }) {
 
   return (
     <div className="route-transition-root" aria-live="off">
-      <div key={`active-${activeRoute.key}`} className="route-transition-page route-transition-page-active">
-        {activeRoute.content}
+      <div className="route-transition-page">
+        {children}
       </div>
-      {exitingRoute ? (
-        <div key={`exit-${exitingRoute.key}`} className="route-transition-page route-transition-page-exit">
-          {exitingRoute.content}
-        </div>
+      {isTransitioning ? (
+        <div key={overlayKey} className="route-transition-overlay" aria-hidden="true" />
       ) : null}
     </div>
   );
