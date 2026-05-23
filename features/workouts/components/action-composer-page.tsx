@@ -17,7 +17,6 @@ import {
   defaultTransitionRestSeconds,
   estimateWorkoutCalories,
   estimateWorkoutMinutes,
-  expandWorkoutItems,
   getSectionItems,
   getTotalWorkoutSets,
   inferWorkoutSection,
@@ -257,7 +256,6 @@ export function ActionComposerPage() {
   const [selectedLibraryExerciseId, setSelectedLibraryExerciseId] = useState("");
   const [isLoadingLibrary, setIsLoadingLibrary] = useState(true);
   const [saveStatus, setSaveStatus] = useState("");
-  const [showPreview, setShowPreview] = useState(false);
   const [draggingItemId, setDraggingItemId] = useState("");
   const [dragOverItemId, setDragOverItemId] = useState("");
   const [selectedSection, setSelectedSection] = useState<WorkoutSection>("training");
@@ -397,7 +395,6 @@ export function ActionComposerPage() {
   const totalMinutes = estimateWorkoutMinutes(items, workoutEstimateOptions);
   const totalCalories = estimateWorkoutCalories(items, workoutEstimateOptions);
   const totalSets = getTotalWorkoutSets(items, trainingLoopRounds);
-  const expandedPreviewItems = expandWorkoutItems(items, trainingLoopRounds);
   const hasLibraryFilters =
     Boolean(libraryQuery.trim()) ||
     Boolean(libraryCategory) ||
@@ -544,6 +541,18 @@ export function ActionComposerPage() {
     setSaveStatus("已调整动作之间的休息间隔");
   }
 
+  function createNewComposition() {
+    setPlanTitle("新的动作编排");
+    setItems([]);
+    setTrainingLoopRounds(defaultTrainingLoopRounds);
+    setTrainingLoopRestSeconds(defaultTrainingLoopRestSeconds);
+    setSelectedItemId("");
+    setSelectedSection("training");
+    setActiveSavedWorkoutId("");
+    setSaveStatus("已新建空白编排");
+    window.history.replaceState(null, "", window.location.pathname);
+  }
+
   function openSavedWorkout(workout: SavedWorkout, updateHash = true) {
     const normalizedWorkout = normalizeSavedWorkout(workout);
     const normalizedItems = normalizedWorkout.items;
@@ -603,25 +612,30 @@ export function ActionComposerPage() {
     setSaveStatus(`已删除：${workout.title}`);
   }
 
-  function savePlan() {
+  function saveComposition() {
     const now = new Date();
+    const currentHistory = readSavedWorkouts();
+    const activeWorkoutExists = currentHistory.some((workout) => workout.id === activeSavedWorkoutId);
+    const savedWorkoutId = activeWorkoutExists ? activeSavedWorkoutId : crypto.randomUUID();
     const savedWorkout: SavedWorkout = {
-      id: crypto.randomUUID(),
-      title: planTitle.trim() || "未命名训练计划",
+      id: savedWorkoutId,
+      title: planTitle.trim() || "未命名动作编排",
       savedAt: formatDateTime(now),
       trainingLoopRounds: clampLoopRounds(trainingLoopRounds),
       trainingLoopRestSeconds,
       items: items.map(normalizeWorkoutItem),
     };
-    const rawHistory = window.localStorage.getItem(historyStorageKey);
-    const currentHistory = rawHistory ? (JSON.parse(rawHistory) as SavedWorkout[]) : [];
-    const nextHistory = [savedWorkout, ...currentHistory].slice(0, 8);
+    // 保存当前编辑中的编排：有来源记录时覆盖更新，没有来源记录时创建新记录。
+    const nextHistory = activeWorkoutExists
+      ? currentHistory.map((workout) => (workout.id === savedWorkoutId ? savedWorkout : workout))
+      : [savedWorkout, ...currentHistory].slice(0, 8);
 
     window.localStorage.setItem(historyStorageKey, JSON.stringify(nextHistory));
     setSavedWorkouts(nextHistory);
-    setActiveSavedWorkoutId(savedWorkout.id);
+    setActiveSavedWorkoutId(savedWorkoutId);
     window.dispatchEvent(new Event("fitmate:history-updated"));
-    setSaveStatus(`已保存：${savedWorkout.savedAt}`);
+    window.history.replaceState(null, "", `#${savedWorkoutId}`);
+    setSaveStatus(activeWorkoutExists ? `已更新：${savedWorkout.savedAt}` : `已保存：${savedWorkout.savedAt}`);
   }
 
   function moveItem(draggedId: string, targetId: string, targetSection: WorkoutSection) {
@@ -683,14 +697,14 @@ export function ActionComposerPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-sm">
+            <button className="rounded-xl border border-outline px-lg py-sm font-label-md text-label-md transition-colors hover:bg-surface-container-low" onClick={createNewComposition} type="button">
+              新增编排
+            </button>
             <button className="rounded-xl border border-outline px-lg py-sm font-label-md text-label-md transition-colors hover:bg-surface-container-low" onClick={importTemplate} type="button">
               导入模板
             </button>
-            <button className="rounded-xl border border-outline px-lg py-sm font-label-md text-label-md transition-colors hover:bg-surface-container-low" onClick={() => setShowPreview((value) => !value)} type="button">
-              预览训练
-            </button>
-            <button className="rounded-xl bg-primary-container px-lg py-sm font-label-md text-label-md text-white shadow-sm transition-opacity hover:opacity-90" onClick={savePlan} type="button">
-              保存计划
+            <button className="rounded-xl bg-primary-container px-lg py-sm font-label-md text-label-md text-white shadow-sm transition-opacity hover:opacity-90" onClick={saveComposition} type="button">
+              保存编排
             </button>
           </div>
         </header>
@@ -728,7 +742,7 @@ export function ActionComposerPage() {
               </p>
               <button
                 className="flex shrink-0 items-center justify-center gap-xs rounded-xl bg-primary px-md py-sm font-label-md text-label-md font-bold text-white transition-colors hover:bg-primary-deep"
-                onClick={savePlan}
+                onClick={saveComposition}
                 type="button"
               >
                 <SymbolIcon className="text-[18px]">save</SymbolIcon>
@@ -853,19 +867,6 @@ export function ActionComposerPage() {
           )}
         </section>
 
-        {showPreview ? (
-          <section className="mb-lg rounded-[20px] border border-primary/20 bg-primary/5 p-lg">
-            <h2 className="mb-md font-title-lg text-title-lg font-extrabold">训练预览</h2>
-            <div className="grid gap-sm md:grid-cols-2">
-              {expandedPreviewItems.map((item, index) => (
-                <div className="rounded-xl bg-white p-md font-label-md text-label-md" key={`${item.id}-${index}`}>
-                  {index + 1}. {item.nameZh} · {item.mode === "duration" ? `${item.target}s` : `${item.target}次`} · {item.sets}组
-                </div>
-              ))}
-            </div>
-          </section>
-        ) : null}
-
         <div className="sticky bottom-0 flex justify-center bg-background/80 py-md backdrop-blur-md">
           <div className="flex flex-wrap items-center justify-center gap-xs rounded-[20px] border border-line bg-white p-xs shadow-lift">
             <ToolbarButton icon="auto_awesome" label="自动排序" onClick={autoSort} />
@@ -880,7 +881,7 @@ export function ActionComposerPage() {
                 setSelectedSection("training");
               }}
             />
-            <ToolbarButton icon="save" label="保存为模板" onClick={savePlan} primary />
+            <ToolbarButton icon="save" label="保存编排" onClick={saveComposition} primary />
           </div>
         </div>
 
