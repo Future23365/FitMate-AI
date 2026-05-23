@@ -387,6 +387,15 @@ export function ActionComposerPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!saveStatus) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => setSaveStatus(""), 1800);
+    return () => window.clearTimeout(timer);
+  }, [saveStatus]);
+
   const selectedItem = items.find((item) => item.id === selectedItemId) ?? items[0];
   const selectedLibraryExercise =
     libraryItems.find((exercise) => exercise.id === selectedLibraryExerciseId) ?? libraryItems[0];
