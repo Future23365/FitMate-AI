@@ -538,22 +538,36 @@ export function ExerciseLibraryPage() {
                             src={getExerciseImage(exercise)}
                           />
                         </div>
-                        <p
-                          className={`mb-[2px] truncate font-label-md text-label-md ${
-                            isSelected ? "text-primary" : ""
-                          }`}
-                        >
-                          {exercise.nameZh}
-                        </p>
-                        <p
-                          className={`flex items-center gap-1 font-label-sm text-label-sm ${
-                            isSelected ? "text-primary" : "text-muted"
-                          }`}
-                        >
+                        <div className="mb-[2px] flex min-w-0 items-center gap-xs">
+                          <p
+                            className={`min-w-0 flex-1 truncate font-label-md text-label-md ${
+                              isSelected ? "text-primary" : ""
+                            }`}
+                          >
+                            {exercise.nameZh}
+                          </p>
                           <span
-                            className={`h-2 w-2 rounded-full ${getDifficultyDot(exercise.level)}`}
+                            className={`inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-[1px] font-label-xs text-label-xs ${
+                              isSelected
+                                ? "bg-primary text-white"
+                                : "bg-panel-soft text-muted"
+                            }`}
+                          >
+                            <span
+                              className={`h-1.5 w-1.5 rounded-full ${getDifficultyDot(exercise.level)}`}
+                            />
+                            {exercise.levelZh || "未标注"}
+                          </span>
+                        </div>
+                        <p className="flex items-center gap-1 font-label-sm text-label-sm text-primary">
+                          <span
+                            className={`h-2 w-2 rounded-full ${
+                              isSelected ? "bg-primary" : "bg-primary/70"
+                            }`}
                           />
-                          {exercise.levelZh || "未标注"}
+                          <span className="truncate">
+                            {exercise.primaryMusclesZh[0] || "未标注肌群"}
+                          </span>
                         </p>
                         <p className="mt-xs truncate font-label-sm text-label-sm text-muted">
                           {exercise.categoryZh || "未分类"} ·{" "}
