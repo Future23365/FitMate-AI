@@ -1,5 +1,3 @@
-import Link from "next/link";
-
 import { SymbolIcon } from "@/components/app/symbol-icon";
 
 const profileItems = [
@@ -13,7 +11,7 @@ export default function SettingsPage() {
   return (
     <main className="app-mesh-bg fixed inset-0 overflow-y-auto px-lg py-xl text-ink lg:left-[260px] xl:px-2xl">
       <div className="mx-auto flex max-w-5xl flex-col gap-xl">
-        <header className="flex flex-col gap-md rounded-2xl border border-line/70 bg-white/78 p-xl shadow-card backdrop-blur-2xl md:flex-row md:items-center md:justify-between">
+        <header className="rounded-2xl border border-line/70 bg-white/78 p-xl shadow-card backdrop-blur-2xl">
           <div className="flex items-center gap-md">
             <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-primary-soft text-xl font-extrabold text-primary ring-1 ring-primary/10">
               FM
@@ -28,13 +26,6 @@ export default function SettingsPage() {
               </p>
             </div>
           </div>
-          <Link
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-line bg-white px-4 py-2 text-sm font-bold text-ink transition-colors hover:bg-panel-soft hover:text-primary"
-            href="/"
-          >
-            <SymbolIcon className="text-[18px]">arrow_back</SymbolIcon>
-            返回聊天
-          </Link>
         </header>
 
         <section className="grid gap-md md:grid-cols-2">
