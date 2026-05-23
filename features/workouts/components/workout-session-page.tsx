@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import { SymbolIcon } from "@/components/app/symbol-icon";
 
 type WorkoutMode = "duration" | "reps";
+type WorkoutSection = "warmup" | "training" | "stretch";
 
 type WorkoutItem = {
   id: string;
@@ -24,6 +25,7 @@ type WorkoutItem = {
   sets: number;
   setRestSeconds: number;
   transitionRestSeconds: number;
+  section?: WorkoutSection;
 };
 
 type ScheduleStatus = "completed" | "missed" | "planned" | "rest";
@@ -37,11 +39,13 @@ type ScheduledWorkout = {
   minutes: number;
   calories: number;
   items: WorkoutItem[];
+  trainingLoopRounds?: number;
 };
 
 type SessionStep = {
   id: string;
   item: WorkoutItem;
+  itemIndex: number;
   setIndex: number;
   totalSets: number;
   durationSeconds: number;
@@ -95,11 +99,24 @@ function createFallbackItem(
   };
 }
 
-function estimateMinutes(items: WorkoutItem[]) {
-  const seconds = items.reduce((total, item, index) => {
+function expandWorkoutItems(items: WorkoutItem[], trainingLoopRounds = 1) {
+  const warmupItems = items.filter((item) => (item.section ?? "training") === "warmup");
+  const trainingItems = items.filter((item) => (item.section ?? "training") === "training");
+  const stretchItems = items.filter((item) => (item.section ?? "training") === "stretch");
+  const loopedTrainingItems = Array.from(
+    { length: Math.max(1, Math.min(12, Math.round(trainingLoopRounds))) },
+    () => trainingItems,
+  ).flat();
+
+  return [...warmupItems, ...loopedTrainingItems, ...stretchItems];
+}
+
+function estimateMinutes(items: WorkoutItem[], trainingLoopRounds = 1) {
+  const expandedItems = expandWorkoutItems(items, trainingLoopRounds);
+  const seconds = expandedItems.reduce((total, item, index) => {
     const activeSeconds = getStepDuration(item);
     const setRestSeconds = item.setRestSeconds * Math.max(0, item.sets - 1);
-    const transitionRestSeconds = index < items.length - 1 ? item.transitionRestSeconds : 0;
+    const transitionRestSeconds = index < expandedItems.length - 1 ? item.transitionRestSeconds : 0;
 
     return total + activeSeconds * item.sets + setRestSeconds + transitionRestSeconds;
   }, 0);
@@ -107,8 +124,9 @@ function estimateMinutes(items: WorkoutItem[]) {
   return Math.max(1, Math.round(seconds / 60));
 }
 
-function estimateCalories(items: WorkoutItem[]) {
-  return Math.max(0, Math.round(estimateMinutes(items) * 7.2 + items.length * 12));
+function estimateCalories(items: WorkoutItem[], trainingLoopRounds = 1) {
+  const expandedItems = expandWorkoutItems(items, trainingLoopRounds);
+  return Math.max(0, Math.round(estimateMinutes(items, trainingLoopRounds) * 7.2 + expandedItems.length * 12));
 }
 
 function getStepDuration(item: WorkoutItem) {
@@ -124,11 +142,12 @@ function getRepIntervalSeconds(item: WorkoutItem) {
   return defaultRepIntervalSeconds;
 }
 
-function buildSessionSteps(items: WorkoutItem[]) {
-  return items.flatMap((item) =>
+function buildSessionSteps(items: WorkoutItem[], trainingLoopRounds = 1) {
+  return expandWorkoutItems(items, trainingLoopRounds).flatMap((item, itemIndex) =>
     Array.from({ length: Math.max(1, item.sets) }, (_, index) => ({
-      id: `${item.id}-${index}`,
+      id: `${item.id}-${itemIndex}-${index}`,
       item,
+      itemIndex,
       setIndex: index + 1,
       totalSets: Math.max(1, item.sets),
       durationSeconds: getStepDuration(item),
@@ -174,7 +193,14 @@ export function WorkoutSessionPage() {
   const [isAudioOn, setIsAudioOn] = useState(true);
   const [showTip, setShowTip] = useState(true);
 
-  const steps = useMemo(() => buildSessionSteps(plan.items), [plan.items]);
+  const orderedItems = useMemo(
+    () => expandWorkoutItems(plan.items, plan.trainingLoopRounds ?? 1),
+    [plan.items, plan.trainingLoopRounds],
+  );
+  const steps = useMemo(
+    () => buildSessionSteps(plan.items, plan.trainingLoopRounds ?? 1),
+    [plan.items, plan.trainingLoopRounds],
+  );
   const activeStep = steps[activeStepIndex] ?? steps[0];
   const currentItem = activeStep?.item ?? fallbackPlan.items[0];
   const isTimedStep = currentItem.mode === "duration";
@@ -183,31 +209,31 @@ export function WorkoutSessionPage() {
   const completedReps = isTimedStep
     ? 0
     : Math.min(currentItem.target, Math.floor(Math.max(0, stepElapsedSeconds) / repIntervalSeconds));
-  const completedItems = new Set(steps.slice(0, activeStepIndex).map((step) => step.item.id));
-  const currentExerciseIndex = plan.items.findIndex((item) => item.id === currentItem.id);
+  const completedStepIds = new Set(steps.slice(0, activeStepIndex).map((step) => step.id));
+  const currentExerciseIndex = activeStep?.itemIndex ?? 0;
   const progress =
     activeStep && activeStep.durationSeconds > 0
       ? ((activeStep.durationSeconds - remainingSeconds) / activeStep.durationSeconds) * 100
       : 0;
   const trainedCalories = Math.min(
-    estimateCalories(plan.items),
-    Math.round(Math.max(0, elapsedSeconds / 60) * 7.2 + completedItems.size * 8),
+    estimateCalories(plan.items, plan.trainingLoopRounds ?? 1),
+    Math.round(Math.max(0, elapsedSeconds / 60) * 7.2 + completedStepIds.size * 8),
   );
   const sessionProgress = steps.length
     ? ((activeStepIndex + Math.max(0, Math.min(1, progress / 100))) / steps.length) * 100
     : 0;
-  const nextItem = plan.items[currentExerciseIndex + 1];
+  const nextItem = orderedItems[currentExerciseIndex + 1];
   const remainingSteps = Math.max(0, steps.length - activeStepIndex - 1);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const selectedPlan = getPlanFromStorage(planId);
-      const selectedSteps = buildSessionSteps(selectedPlan.items);
+      const selectedSteps = buildSessionSteps(selectedPlan.items, selectedPlan.trainingLoopRounds ?? 1);
 
       setPlan({
         ...selectedPlan,
-        minutes: selectedPlan.minutes || estimateMinutes(selectedPlan.items),
-        calories: selectedPlan.calories || estimateCalories(selectedPlan.items),
+        minutes: selectedPlan.minutes || estimateMinutes(selectedPlan.items, selectedPlan.trainingLoopRounds ?? 1),
+        calories: selectedPlan.calories || estimateCalories(selectedPlan.items, selectedPlan.trainingLoopRounds ?? 1),
       });
       setActiveStepIndex(0);
       setElapsedSeconds(0);
@@ -347,7 +373,7 @@ export function WorkoutSessionPage() {
                   <h2 className="text-title-lg font-extrabold">{currentItem.nameZh}</h2>
                 </div>
                 <span className="rounded-xl bg-panel-soft px-sm py-xs text-label-md font-bold text-muted">
-                  {Math.max(1, currentExerciseIndex + 1)}/{plan.items.length}
+                  {Math.max(1, currentExerciseIndex + 1)}/{orderedItems.length}
                 </span>
               </div>
               <div className="relative grid min-h-0 flex-1 place-items-center overflow-hidden rounded-xl bg-panel-soft">
@@ -430,14 +456,16 @@ export function WorkoutSessionPage() {
               <div className="mb-sm flex items-center justify-between gap-md">
                 <div>
                   <p className="text-label-md font-bold text-primary">训练项目</p>
-                  <h2 className="text-title-lg font-extrabold">{plan.items.length} 个动作</h2>
+                  <h2 className="text-title-lg font-extrabold">{orderedItems.length} 个动作</h2>
                 </div>
                 <SymbolIcon className="text-2xl text-muted">expand_less</SymbolIcon>
               </div>
               <div className="custom-scrollbar min-h-0 flex-1 space-y-sm overflow-y-auto pr-xs">
-                {plan.items.map((item, index) => {
-                  const isActive = item.id === currentItem.id;
-                  const isDone = completedItems.has(item.id);
+                {orderedItems.map((item, index) => {
+                  const isActive = index === currentExerciseIndex;
+                  const isDone = steps
+                    .filter((step) => step.itemIndex === index)
+                    .every((step) => completedStepIds.has(step.id));
 
                   return (
                     <button
@@ -446,9 +474,9 @@ export function WorkoutSessionPage() {
                           ? "border-primary/25 bg-primary-soft text-primary"
                           : "border-transparent bg-white hover:border-line hover:bg-panel-soft"
                       }`}
-                      key={item.id}
+                      key={`${item.id}-${index}`}
                       onClick={() => {
-                        const nextStepIndex = steps.findIndex((step) => step.item.id === item.id);
+                        const nextStepIndex = steps.findIndex((step) => step.itemIndex === index);
                         goToStep(nextStepIndex < 0 ? index : nextStepIndex);
                       }}
                       type="button"
@@ -472,7 +500,7 @@ export function WorkoutSessionPage() {
                 <h2 className="text-title-lg font-extrabold">训练控制</h2>
                 <span className="flex items-center gap-xs text-label-md font-bold text-muted">
                   <SymbolIcon className="text-lg">timer</SymbolIcon>
-                  {plan.minutes || estimateMinutes(plan.items)} 分钟
+                  {plan.minutes || estimateMinutes(plan.items, plan.trainingLoopRounds ?? 1)} 分钟
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-sm">

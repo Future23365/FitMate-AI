@@ -3,6 +3,7 @@ import type { Exercise } from "@/lib/shared/exercises/types";
 import { workoutPlanDraftSchema, type WorkoutPlanDraft } from "@/lib/shared/workout-plans/draft-schema";
 
 export type SavedWorkoutMode = "reps" | "duration";
+export type SavedWorkoutSection = "warmup" | "training" | "stretch";
 
 export type SavedWorkoutItem = {
   id: string;
@@ -19,6 +20,7 @@ export type SavedWorkoutItem = {
   sets: number;
   setRestSeconds: number;
   transitionRestSeconds: number;
+  section?: SavedWorkoutSection;
 };
 
 export type SavedWorkout = {
@@ -26,6 +28,7 @@ export type SavedWorkout = {
   title: string;
   savedAt: string;
   items: SavedWorkoutItem[];
+  trainingLoopRounds?: number;
 };
 
 export type WorkoutPlanDraftConversionOptions = {
@@ -51,6 +54,7 @@ export function convertWorkoutPlanDraftToSavedWorkout(
     id: options.id ?? createId(),
     title: day.title || parsedDraft.title,
     savedAt: formatLocalDateTime(options.savedAt ?? new Date()),
+    trainingLoopRounds: 1,
     items: day.items.map((item) => {
       const exercise = exerciseById.get(item.exerciseId);
 
@@ -73,6 +77,7 @@ export function convertWorkoutPlanDraftToSavedWorkout(
         sets: item.sets,
         setRestSeconds: item.setRestSeconds,
         transitionRestSeconds: item.transitionRestSeconds,
+        section: "training",
       };
     }),
   };

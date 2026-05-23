@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
@@ -16,6 +17,7 @@ type ExerciseApiResponse = {
 };
 
 type WorkoutMode = "reps" | "duration";
+type WorkoutSection = "warmup" | "training" | "stretch";
 
 type WorkoutItem = {
   id: string;
@@ -33,6 +35,7 @@ type WorkoutItem = {
   setRestSeconds: number;
   transitionRestSeconds: number;
   restSeconds?: number;
+  section?: WorkoutSection;
 };
 
 type SavedWorkout = {
@@ -40,12 +43,14 @@ type SavedWorkout = {
   title: string;
   savedAt: string;
   items: WorkoutItem[];
+  trainingLoopRounds?: number;
 };
 
 type TemplateExerciseConfig = {
   query: string;
   preferredIds: string[];
   mode?: WorkoutMode;
+  section?: WorkoutSection;
   target?: number;
   sets?: number;
   setRestSeconds?: number;
@@ -55,6 +60,33 @@ type TemplateExerciseConfig = {
 const historyStorageKey = "fitmate.workoutHistory";
 const placeholderImage = "/images/exercise-placeholder.svg";
 const restOptions = [15, 20, 30, 45, 60, 90];
+const loopRoundOptions = [1, 2, 3, 4, 5, 6];
+const defaultTrainingLoopRounds = 3;
+const sectionConfigs: Array<{
+  id: WorkoutSection;
+  title: string;
+  subtitle: string;
+  icon: string;
+}> = [
+  {
+    id: "warmup",
+    title: "热身",
+    subtitle: "激活关节、提升心率，为主训练做准备",
+    icon: "local_fire_department",
+  },
+  {
+    id: "training",
+    title: "训练",
+    subtitle: "主训练动作，可按循环次数重复执行",
+    icon: "fitness_center",
+  },
+  {
+    id: "stretch",
+    title: "拉伸",
+    subtitle: "降低心率、放松目标肌群",
+    icon: "self_improvement",
+  },
+];
 const allExercises = exercisesData as Exercise[];
 const exerciseById = new Map(allExercises.map((exercise) => [exercise.id, exercise]));
 const defaultExerciseFacets: ExerciseFacets = {
@@ -71,9 +103,20 @@ const defaultExerciseFacets: ExerciseFacets = {
 
 const templateExerciseConfigs: TemplateExerciseConfig[] = [
   {
+    query: "开合跳",
+    preferredIds: ["Jumping_Jacks", "Jumping_Jack"],
+    mode: "duration",
+    section: "warmup",
+    target: 40,
+    sets: 2,
+    setRestSeconds: 20,
+    transitionRestSeconds: 30,
+  },
+  {
     query: "自重深蹲",
     preferredIds: ["Bodyweight_Squat", "Chair_Squat"],
     mode: "reps",
+    section: "training",
     target: 12,
     sets: 4,
     setRestSeconds: 30,
@@ -83,6 +126,7 @@ const templateExerciseConfigs: TemplateExerciseConfig[] = [
     query: "俯卧撑",
     preferredIds: ["Pushups", "Incline_Push-Up"],
     mode: "reps",
+    section: "training",
     target: 15,
     sets: 3,
     setRestSeconds: 30,
@@ -92,17 +136,28 @@ const templateExerciseConfigs: TemplateExerciseConfig[] = [
     query: "平板支撑",
     preferredIds: ["Plank", "Push_Up_to_Side_Plank"],
     mode: "duration",
+    section: "training",
     target: 45,
     sets: 3,
     setRestSeconds: 20,
     transitionRestSeconds: 30,
+  },
+  {
+    query: "拉伸",
+    preferredIds: ["Standing_Hamstring_and_Calf_Stretch", "Seated_Hamstring_Stretch"],
+    mode: "duration",
+    section: "stretch",
+    target: 45,
+    sets: 2,
+    setRestSeconds: 15,
+    transitionRestSeconds: 20,
   },
 ];
 
 function toWorkoutItem(
   exercise: Exercise,
   overrides: Partial<
-    Pick<WorkoutItem, "mode" | "target" | "sets" | "setRestSeconds" | "transitionRestSeconds">
+    Pick<WorkoutItem, "mode" | "target" | "sets" | "setRestSeconds" | "transitionRestSeconds" | "section">
   > = {},
 ): WorkoutItem {
   const category = exercise.categoryZh || "训练";
@@ -126,6 +181,7 @@ function toWorkoutItem(
     sets: overrides.sets ?? 3,
     setRestSeconds: overrides.setRestSeconds ?? 30,
     transitionRestSeconds: overrides.transitionRestSeconds ?? 45,
+    section: overrides.section ?? "training",
   };
 }
 
@@ -136,7 +192,22 @@ function normalizeWorkoutItem(item: WorkoutItem): WorkoutItem {
     ...item,
     setRestSeconds: item.setRestSeconds ?? legacyRestSeconds,
     transitionRestSeconds: item.transitionRestSeconds ?? legacyRestSeconds,
+    section: item.section ?? inferWorkoutSection(item),
   };
+}
+
+function inferWorkoutSection(item: Pick<WorkoutItem, "categoryZh" | "nameZh">): WorkoutSection {
+  const text = `${item.categoryZh} ${item.nameZh}`;
+
+  if (/拉伸|伸展|放松/.test(text)) {
+    return "stretch";
+  }
+
+  if (/热身|激活|动态/.test(text)) {
+    return "warmup";
+  }
+
+  return "training";
 }
 
 function toPreviewExercise(item: WorkoutItem): Exercise {
@@ -204,11 +275,31 @@ function readSavedWorkouts() {
   }
 }
 
-function estimateMinutes(items: WorkoutItem[]) {
-  const seconds = items.reduce((total, item, index) => {
+function expandWorkoutItems(items: WorkoutItem[], trainingLoopRounds: number) {
+  const normalizedItems = items.map(normalizeWorkoutItem);
+  const warmupItems = getSectionItems(normalizedItems, "warmup");
+  const trainingItems = getSectionItems(normalizedItems, "training");
+  const stretchItems = getSectionItems(normalizedItems, "stretch");
+  const rounds = clampLoopRounds(trainingLoopRounds);
+  const loopedTrainingItems = Array.from({ length: rounds }, () => trainingItems).flat();
+
+  return [...warmupItems, ...loopedTrainingItems, ...stretchItems];
+}
+
+function getSectionItems(items: WorkoutItem[], section: WorkoutSection) {
+  return items.filter((item) => (item.section ?? inferWorkoutSection(item)) === section);
+}
+
+function clampLoopRounds(value: number) {
+  return Math.min(12, Math.max(1, Number.isFinite(value) ? Math.round(value) : 1));
+}
+
+function estimateMinutes(items: WorkoutItem[], trainingLoopRounds = 1) {
+  const expandedItems = expandWorkoutItems(items, trainingLoopRounds);
+  const seconds = expandedItems.reduce((total, item, index) => {
     const activeSeconds = item.mode === "duration" ? item.target : item.target * 4;
     const setRestSeconds = item.setRestSeconds * Math.max(0, item.sets - 1);
-    const transitionRestSeconds = index < items.length - 1 ? item.transitionRestSeconds : 0;
+    const transitionRestSeconds = index < expandedItems.length - 1 ? item.transitionRestSeconds : 0;
 
     return total + activeSeconds * item.sets + setRestSeconds + transitionRestSeconds;
   }, 0);
@@ -216,12 +307,13 @@ function estimateMinutes(items: WorkoutItem[]) {
   return Math.max(1, Math.round(seconds / 60));
 }
 
-function estimateCalories(items: WorkoutItem[]) {
-  return Math.max(0, Math.round(estimateMinutes(items) * 7.2 + items.length * 12));
+function estimateCalories(items: WorkoutItem[], trainingLoopRounds = 1) {
+  const expandedItems = expandWorkoutItems(items, trainingLoopRounds);
+  return Math.max(0, Math.round(estimateMinutes(items, trainingLoopRounds) * 7.2 + expandedItems.length * 12));
 }
 
-function getTotalSets(items: WorkoutItem[]) {
-  return items.reduce((total, item) => total + item.sets, 0);
+function getTotalSets(items: WorkoutItem[], trainingLoopRounds = 1) {
+  return expandWorkoutItems(items, trainingLoopRounds).reduce((total, item) => total + item.sets, 0);
 }
 
 function changeNumber(value: number, delta: number, min: number, max: number) {
@@ -269,6 +361,8 @@ export function ActionComposerPage() {
   const [showPreview, setShowPreview] = useState(false);
   const [draggingItemId, setDraggingItemId] = useState("");
   const [dragOverItemId, setDragOverItemId] = useState("");
+  const [selectedSection, setSelectedSection] = useState<WorkoutSection>("training");
+  const [trainingLoopRounds, setTrainingLoopRounds] = useState(defaultTrainingLoopRounds);
   const [activePreviewExercise, setActivePreviewExercise] = useState<Exercise | null>(null);
   const [activePreviewSource, setActivePreviewSource] = useState<"library" | "plan" | null>(null);
 
@@ -399,9 +493,10 @@ export function ActionComposerPage() {
   const selectedItem = items.find((item) => item.id === selectedItemId) ?? items[0];
   const selectedLibraryExercise =
     libraryItems.find((exercise) => exercise.id === selectedLibraryExerciseId) ?? libraryItems[0];
-  const totalMinutes = estimateMinutes(items);
-  const totalCalories = estimateCalories(items);
-  const totalSets = getTotalSets(items);
+  const totalMinutes = estimateMinutes(items, trainingLoopRounds);
+  const totalCalories = estimateCalories(items, trainingLoopRounds);
+  const totalSets = getTotalSets(items, trainingLoopRounds);
+  const expandedPreviewItems = expandWorkoutItems(items, trainingLoopRounds);
   const hasLibraryFilters =
     Boolean(libraryQuery.trim()) ||
     Boolean(libraryCategory) ||
@@ -413,11 +508,12 @@ export function ActionComposerPage() {
     setItems((current) => current.map((item) => (item.id === id ? updater(item) : item)));
   }
 
-  function addExercise(exercise: Exercise) {
-    const nextItem = toWorkoutItem(exercise);
+  function addExercise(exercise: Exercise, section = selectedSection) {
+    const nextItem = toWorkoutItem(exercise, { section });
     setItems((current) => [...current, nextItem]);
     setSelectedItemId(nextItem.id);
     setSelectedLibraryExerciseId("");
+    setSelectedSection(section);
     setSaveStatus("");
   }
 
@@ -486,6 +582,7 @@ export function ActionComposerPage() {
           ? [
               toWorkoutItem(exercise, {
                 mode: config.mode,
+                section: config.section,
                 target: config.target,
                 sets: config.sets,
                 setRestSeconds: config.setRestSeconds,
@@ -510,6 +607,7 @@ export function ActionComposerPage() {
       const composedItems = [...nextItems, ...supplementalItems];
 
       setPlanTitle("燃脂循环训练 A");
+      setTrainingLoopRounds(defaultTrainingLoopRounds);
       setItems(composedItems);
       setSelectedItemId(composedItems[0]?.id ?? "");
       setSaveStatus(`已从动作库导入 ${composedItems.length} 个模板动作`);
@@ -520,11 +618,14 @@ export function ActionComposerPage() {
 
   function autoSort() {
     const sortedItems = [...items].sort((left, right) => {
-      const order = ["热身", "拉伸", "核心", "力量", "有氧", "训练"];
-      return order.indexOf(left.categoryZh) - order.indexOf(right.categoryZh);
+      const sectionOrder: WorkoutSection[] = ["warmup", "training", "stretch"];
+      return (
+        sectionOrder.indexOf(left.section ?? inferWorkoutSection(left)) -
+        sectionOrder.indexOf(right.section ?? inferWorkoutSection(right))
+      );
     });
     setItems(sortedItems);
-    setSaveStatus("已按训练类型自动排序");
+    setSaveStatus("已按热身、训练、拉伸排序");
   }
 
   function insertRest() {
@@ -546,7 +647,9 @@ export function ActionComposerPage() {
 
     setPlanTitle(workout.title);
     setItems(normalizedItems);
+    setTrainingLoopRounds(clampLoopRounds(workout.trainingLoopRounds ?? 1));
     setSelectedItemId(normalizedItems[0]?.id ?? "");
+    setSelectedSection(normalizedItems[0]?.section ?? "training");
     setActiveSavedWorkoutId(workout.id);
     setSaveStatus(`已加载：${workout.title}`);
 
@@ -562,6 +665,7 @@ export function ActionComposerPage() {
       id: crypto.randomUUID(),
       title: `${workout.title} 副本`,
       savedAt: formatDateTime(now),
+      trainingLoopRounds: clampLoopRounds(workout.trainingLoopRounds ?? 1),
       items: workout.items.map((item) => ({
         ...normalizeWorkoutItem(item),
         id: crypto.randomUUID(),
@@ -601,7 +705,8 @@ export function ActionComposerPage() {
       id: crypto.randomUUID(),
       title: planTitle.trim() || "未命名训练计划",
       savedAt: formatDateTime(now),
-      items,
+      trainingLoopRounds: clampLoopRounds(trainingLoopRounds),
+      items: items.map(normalizeWorkoutItem),
     };
     const rawHistory = window.localStorage.getItem(historyStorageKey);
     const currentHistory = rawHistory ? (JSON.parse(rawHistory) as SavedWorkout[]) : [];
@@ -614,26 +719,52 @@ export function ActionComposerPage() {
     setSaveStatus(`已保存：${savedWorkout.savedAt}`);
   }
 
-  function moveItem(draggedId: string, targetId: string) {
+  function moveItem(draggedId: string, targetId: string, targetSection: WorkoutSection) {
     if (!draggedId || !targetId || draggedId === targetId) {
       return;
     }
 
     setItems((current) => {
       const draggedIndex = current.findIndex((item) => item.id === draggedId);
-      const targetIndex = current.findIndex((item) => item.id === targetId);
 
-      if (draggedIndex < 0 || targetIndex < 0) {
+      if (draggedIndex < 0) {
         return current;
       }
 
       const nextItems = [...current];
       const [draggedItem] = nextItems.splice(draggedIndex, 1);
-      nextItems.splice(targetIndex, 0, draggedItem);
+      const targetIndex = nextItems.findIndex((item) => item.id === targetId);
+
+      if (targetIndex < 0) {
+        return current;
+      }
+
+      nextItems.splice(targetIndex, 0, { ...draggedItem, section: targetSection });
 
       return nextItems;
     });
     setSaveStatus("已调整动作顺序");
+  }
+
+  function moveItemToSectionEnd(draggedId: string, targetSection: WorkoutSection) {
+    if (!draggedId) {
+      return;
+    }
+
+    setItems((current) => {
+      const draggedItem = current.find((item) => item.id === draggedId);
+
+      if (!draggedItem) {
+        return current;
+      }
+
+      return [
+        ...current.filter((item) => item.id !== draggedId),
+        { ...draggedItem, section: targetSection },
+      ];
+    });
+    setSelectedSection(targetSection);
+    setSaveStatus(`已移动到${sectionConfigs.find((section) => section.id === targetSection)?.title ?? "当前步骤"}`);
   }
 
   return (
@@ -720,46 +851,95 @@ export function ActionComposerPage() {
             </div>
           </div>
 
-          {items.length ? (
-            <div>
-              {items.map((item, index) => (
-                <div key={item.id}>
-                  <WorkoutExerciseRow
-                    dragState={dragOverItemId === item.id ? "over" : draggingItemId === item.id ? "dragging" : "idle"}
-                    index={index}
-                    item={item}
-                    onDelete={() => deleteItem(item.id)}
-                    onDragEnd={() => {
-                      setDraggingItemId("");
-                      setDragOverItemId("");
-                    }}
-                    onDragEnter={() => setDragOverItemId(item.id)}
-                    onDragStart={() => {
-                      setDraggingItemId(item.id);
-                      setDragOverItemId("");
-                    }}
-                    onDrop={() => {
-                      moveItem(draggingItemId, item.id);
-                      setDraggingItemId("");
-                      setDragOverItemId("");
-                    }}
-                    onDuplicate={() => duplicateItem(item)}
-                    onPreview={() => openPlanPreview(item)}
-                    onUpdate={(updater) => updateItem(item.id, updater)}
-                  />
-                  {index < items.length - 1 ? (
-                    <RestIntervalControl
-                      seconds={item.transitionRestSeconds}
-                      onChange={(nextSeconds) =>
-                        updateItem(item.id, (current) => ({
-                          ...current,
-                          transitionRestSeconds: nextSeconds,
-                        }))
-                      }
-                    />
-                  ) : null}
-                </div>
+          <div className="mb-lg flex flex-col gap-sm rounded-xl border border-line bg-white p-sm md:flex-row md:items-center md:justify-between">
+            <div className="flex min-w-0 items-center gap-xs overflow-x-auto">
+              {sectionConfigs.map((section) => (
+                <button
+                  className={`flex shrink-0 items-center gap-xs rounded-xl px-md py-sm font-label-md text-label-md transition-colors ${
+                    selectedSection === section.id
+                      ? "bg-primary text-white"
+                      : "bg-panel-soft text-secondary hover:bg-primary-soft hover:text-primary"
+                  }`}
+                  key={section.id}
+                  onClick={() => setSelectedSection(section.id)}
+                  type="button"
+                >
+                  <SymbolIcon className="text-[18px]">{section.icon}</SymbolIcon>
+                  添加到{section.title}
+                </button>
               ))}
+            </div>
+            <div className="flex shrink-0 items-center gap-xs rounded-xl bg-primary-soft px-md py-sm text-label-md font-bold text-primary">
+              <SymbolIcon className="text-[18px]">sync_alt</SymbolIcon>
+              训练循环 {trainingLoopRounds} 轮
+            </div>
+          </div>
+
+          {items.length ? (
+            <div className="space-y-md">
+              {sectionConfigs.map((section, sectionIndex) => {
+                const sectionItems = getSectionItems(items, section.id);
+
+                return (
+                  <WorkoutSectionBlock
+                    index={sectionIndex}
+                    isSelected={selectedSection === section.id}
+                    itemCount={sectionItems.length}
+                    key={section.id}
+                    loopRounds={trainingLoopRounds}
+                    onAddNext={() => setSelectedSection(section.id)}
+                    onDropToEnd={() => {
+                      moveItemToSectionEnd(draggingItemId, section.id);
+                      setDraggingItemId("");
+                      setDragOverItemId("");
+                    }}
+                    onLoopRoundsChange={setTrainingLoopRounds}
+                    section={section}
+                  >
+                    {sectionItems.map((item, index) => (
+                      <div key={item.id}>
+                        <WorkoutExerciseRow
+                          dragState={dragOverItemId === item.id ? "over" : draggingItemId === item.id ? "dragging" : "idle"}
+                          index={index}
+                          item={item}
+                          onDelete={() => deleteItem(item.id)}
+                          onDragEnd={() => {
+                            setDraggingItemId("");
+                            setDragOverItemId("");
+                          }}
+                          onDragEnter={() => setDragOverItemId(item.id)}
+                          onDragStart={() => {
+                            setDraggingItemId(item.id);
+                            setDragOverItemId("");
+                          }}
+                          onDrop={() => {
+                            moveItem(draggingItemId, item.id, section.id);
+                            setDraggingItemId("");
+                            setDragOverItemId("");
+                          }}
+                          onDuplicate={() => duplicateItem(item)}
+                          onPreview={() => openPlanPreview(item)}
+                          onSectionChange={(nextSection) =>
+                            updateItem(item.id, (current) => ({ ...current, section: nextSection }))
+                          }
+                          onUpdate={(updater) => updateItem(item.id, updater)}
+                        />
+                        {index < sectionItems.length - 1 ? (
+                          <RestIntervalControl
+                            seconds={item.transitionRestSeconds}
+                            onChange={(nextSeconds) =>
+                              updateItem(item.id, (current) => ({
+                                ...current,
+                                transitionRestSeconds: nextSeconds,
+                              }))
+                            }
+                          />
+                        ) : null}
+                      </div>
+                    ))}
+                  </WorkoutSectionBlock>
+                );
+              })}
             </div>
           ) : (
             <div className="rounded-2xl border border-dashed border-outline-variant bg-surface-container-lowest p-2xl text-center">
@@ -773,8 +953,8 @@ export function ActionComposerPage() {
           <section className="mb-lg rounded-[20px] border border-primary/20 bg-primary/5 p-lg">
             <h2 className="mb-md font-title-lg text-title-lg font-extrabold">训练预览</h2>
             <div className="grid gap-sm md:grid-cols-2">
-              {items.map((item, index) => (
-                <div className="rounded-xl bg-white p-md font-label-md text-label-md" key={item.id}>
+              {expandedPreviewItems.map((item, index) => (
+                <div className="rounded-xl bg-white p-md font-label-md text-label-md" key={`${item.id}-${index}`}>
                   {index + 1}. {item.nameZh} · {item.mode === "duration" ? `${item.target}s` : `${item.target}次`} · {item.sets}组
                 </div>
               ))}
@@ -786,7 +966,15 @@ export function ActionComposerPage() {
           <div className="flex flex-wrap items-center justify-center gap-xs rounded-[20px] border border-line bg-white p-xs shadow-lift">
             <ToolbarButton icon="auto_awesome" label="自动排序" onClick={autoSort} />
             <ToolbarButton icon="more_time" label="插入休息" onClick={insertRest} />
-            <ToolbarButton icon="sync_alt" label="生成循环训练" onClick={() => setPlanTitle("循环训练计划")} />
+            <ToolbarButton
+              icon="sync_alt"
+              label="生成循环训练"
+              onClick={() => {
+                setPlanTitle("循环训练计划");
+                setTrainingLoopRounds(defaultTrainingLoopRounds);
+                setSelectedSection("training");
+              }}
+            />
             <ToolbarButton icon="save" label="保存为模板" onClick={savePlan} primary />
           </div>
         </div>
@@ -978,6 +1166,93 @@ export function ActionComposerPage() {
   );
 }
 
+function WorkoutSectionBlock({
+  children,
+  index,
+  isSelected,
+  itemCount,
+  loopRounds,
+  onAddNext,
+  onDropToEnd,
+  onLoopRoundsChange,
+  section,
+}: {
+  children: ReactNode;
+  index: number;
+  isSelected: boolean;
+  itemCount: number;
+  loopRounds: number;
+  onAddNext: () => void;
+  onDropToEnd: () => void;
+  onLoopRoundsChange: (value: number) => void;
+  section: (typeof sectionConfigs)[number];
+}) {
+  const isTraining = section.id === "training";
+
+  return (
+    <section
+      className={`rounded-[20px] border bg-white p-md transition-colors ${
+        isSelected ? "border-primary/30 ring-2 ring-primary/10" : "border-line"
+      }`}
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={(event) => {
+        event.preventDefault();
+        onDropToEnd();
+      }}
+    >
+      <div className="mb-md flex flex-col gap-sm md:flex-row md:items-center md:justify-between">
+        <div className="flex min-w-0 items-start gap-sm">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary-soft text-primary">
+            <SymbolIcon className="text-[22px]">{section.icon}</SymbolIcon>
+          </span>
+          <div className="min-w-0">
+            <h3 className="font-title-lg text-title-lg font-extrabold">
+              {index + 1}. {section.title}
+            </h3>
+            <p className="mt-[2px] font-label-sm text-label-sm text-muted">
+              {section.subtitle} · {itemCount} 个动作
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-sm">
+          {isTraining ? (
+            <label className="flex items-center gap-xs rounded-xl border border-line bg-panel-soft px-sm py-xs font-label-md text-label-md text-secondary">
+              <SymbolIcon className="text-[18px] text-primary">sync_alt</SymbolIcon>
+              循环
+              <select
+                className="h-8 rounded-lg border border-outline-variant bg-white px-sm text-center font-bold text-ink outline-none focus:ring-2 focus:ring-primary/20"
+                onChange={(event) => onLoopRoundsChange(Number(event.target.value))}
+                value={loopRounds}
+              >
+                {loopRoundOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}轮
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <button
+            className="flex items-center gap-xs rounded-xl border border-outline px-md py-sm font-label-md text-label-md transition-colors hover:bg-panel-soft"
+            onClick={onAddNext}
+            type="button"
+          >
+            <SymbolIcon className="text-[18px]">playlist_add</SymbolIcon>
+            下个动作加入这里
+          </button>
+        </div>
+      </div>
+      {itemCount ? (
+        <div>{children}</div>
+      ) : (
+        <div className="rounded-xl border border-dashed border-outline-variant bg-panel-soft p-md text-center font-label-md text-label-md text-muted">
+          从右侧动作库添加到{section.title}，或把已有动作拖到这里。
+        </div>
+      )}
+    </section>
+  );
+}
+
 function SavedCompositionCard({
   isActive,
   onDelete,
@@ -991,8 +1266,10 @@ function SavedCompositionCard({
   onOpen: () => void;
   workout: SavedWorkout;
 }) {
-  const minutes = estimateMinutes(workout.items.map(normalizeWorkoutItem));
-  const calories = estimateCalories(workout.items.map(normalizeWorkoutItem));
+  const loopRounds = clampLoopRounds(workout.trainingLoopRounds ?? 1);
+  const normalizedItems = workout.items.map(normalizeWorkoutItem);
+  const minutes = estimateMinutes(normalizedItems, loopRounds);
+  const calories = estimateCalories(normalizedItems, loopRounds);
   const icon = workout.title.includes("燃脂")
     ? "local_fire_department"
     : workout.title.includes("核心")
@@ -1026,7 +1303,7 @@ function SavedCompositionCard({
             {workout.title}
           </span>
           <span className="block truncate text-[10px] text-secondary">
-            {workout.items.length} 动作 · {minutes}min · {calories}kcal
+            {workout.items.length} 动作 · 训练{loopRounds}轮 · {minutes}min · {calories}kcal
           </span>
           <span className="block truncate text-[10px] text-outline">
             {workout.savedAt}
@@ -1107,6 +1384,7 @@ function WorkoutExerciseRow({
   onDrop,
   onDuplicate,
   onPreview,
+  onSectionChange,
   onUpdate,
 }: {
   dragState: "dragging" | "idle" | "over";
@@ -1119,6 +1397,7 @@ function WorkoutExerciseRow({
   onDrop: () => void;
   onDuplicate: () => void;
   onPreview: () => void;
+  onSectionChange: (section: WorkoutSection) => void;
   onUpdate: (updater: (item: WorkoutItem) => WorkoutItem) => void;
 }) {
   return (
@@ -1142,6 +1421,7 @@ function WorkoutExerciseRow({
       }}
       onDrop={(event) => {
         event.preventDefault();
+        event.stopPropagation();
         onDrop();
       }}
     >
@@ -1203,6 +1483,21 @@ function WorkoutExerciseRow({
               {restOptions.map((option) => (
                 <option key={option} value={option}>
                   {option}s
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="min-w-[86px] text-center">
+            <span className="mb-xs block text-[10px] text-outline">步骤</span>
+            <select
+              className="h-9 w-full rounded-lg border border-outline-variant bg-transparent px-xs text-center font-label-md text-label-md outline-none focus:ring-0"
+              onClick={(event) => event.stopPropagation()}
+              onChange={(event) => onSectionChange(event.target.value as WorkoutSection)}
+              value={item.section ?? inferWorkoutSection(item)}
+            >
+              {sectionConfigs.map((section) => (
+                <option key={section.id} value={section.id}>
+                  {section.title}
                 </option>
               ))}
             </select>

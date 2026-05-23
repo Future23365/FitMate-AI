@@ -20,6 +20,7 @@ type WorkoutItem = {
   sets: number;
   setRestSeconds: number;
   transitionRestSeconds: number;
+  section?: WorkoutSection;
 };
 
 type SavedWorkout = {
@@ -27,7 +28,10 @@ type SavedWorkout = {
   title: string;
   savedAt: string;
   items: WorkoutItem[];
+  trainingLoopRounds?: number;
 };
+
+type WorkoutSection = "warmup" | "training" | "stretch";
 
 type ScheduleStatus = "completed" | "missed" | "planned" | "rest";
 
@@ -40,6 +44,7 @@ type ScheduledWorkout = {
   minutes: number;
   calories: number;
   items: WorkoutItem[];
+  trainingLoopRounds?: number;
 };
 
 type CalendarCell = {
@@ -133,11 +138,24 @@ function formatDayLabel(dateKey: string) {
   return `${Number(month)}月${Number(day)}日`;
 }
 
-function estimateMinutes(items: WorkoutItem[]) {
-  const seconds = items.reduce((total, item, index) => {
+function expandWorkoutItems(items: WorkoutItem[], trainingLoopRounds = 1) {
+  const warmupItems = items.filter((item) => (item.section ?? "training") === "warmup");
+  const trainingItems = items.filter((item) => (item.section ?? "training") === "training");
+  const stretchItems = items.filter((item) => (item.section ?? "training") === "stretch");
+  const loopedTrainingItems = Array.from(
+    { length: Math.max(1, Math.min(12, Math.round(trainingLoopRounds))) },
+    () => trainingItems,
+  ).flat();
+
+  return [...warmupItems, ...loopedTrainingItems, ...stretchItems];
+}
+
+function estimateMinutes(items: WorkoutItem[], trainingLoopRounds = 1) {
+  const expandedItems = expandWorkoutItems(items, trainingLoopRounds);
+  const seconds = expandedItems.reduce((total, item, index) => {
     const activeSeconds = item.mode === "duration" ? item.target : item.target * 4;
     const restBetweenSets = item.setRestSeconds * Math.max(0, item.sets - 1);
-    const transitionRest = index < items.length - 1 ? item.transitionRestSeconds : 0;
+    const transitionRest = index < expandedItems.length - 1 ? item.transitionRestSeconds : 0;
 
     return total + activeSeconds * item.sets + restBetweenSets + transitionRest;
   }, 0);
@@ -145,8 +163,9 @@ function estimateMinutes(items: WorkoutItem[]) {
   return Math.max(15, Math.round(seconds / 60));
 }
 
-function estimateCalories(items: WorkoutItem[]) {
-  return Math.max(80, Math.round(estimateMinutes(items) * 7.2 + items.length * 12));
+function estimateCalories(items: WorkoutItem[], trainingLoopRounds = 1) {
+  const expandedItems = expandWorkoutItems(items, trainingLoopRounds);
+  return Math.max(80, Math.round(estimateMinutes(items, trainingLoopRounds) * 7.2 + expandedItems.length * 12));
 }
 
 function getCalendarCells(monthDate: Date): CalendarCell[] {
@@ -203,6 +222,7 @@ function createScheduledWorkout(
   status: ScheduleStatus = "planned",
 ): ScheduledWorkout {
   const items = plan.items;
+  const trainingLoopRounds = plan.trainingLoopRounds ?? 1;
 
   return {
     id: `${plan.id}-${dateKey}-${crypto.randomUUID()}`,
@@ -210,9 +230,10 @@ function createScheduledWorkout(
     planId: plan.id,
     title: plan.title,
     status,
-    minutes: estimateMinutes(items),
-    calories: estimateCalories(items),
+    minutes: estimateMinutes(items, trainingLoopRounds),
+    calories: estimateCalories(items, trainingLoopRounds),
     items,
+    trainingLoopRounds,
   };
 }
 
@@ -616,8 +637,9 @@ function SavedPlanCard({
   onSchedule: () => void;
   workout: SavedWorkout;
 }) {
-  const minutes = estimateMinutes(workout.items);
-  const calories = estimateCalories(workout.items);
+  const loopRounds = workout.trainingLoopRounds ?? 1;
+  const minutes = estimateMinutes(workout.items, loopRounds);
+  const calories = estimateCalories(workout.items, loopRounds);
   const icon = workout.title.includes("燃脂")
     ? "local_fire_department"
     : workout.title.includes("核心")
@@ -634,7 +656,7 @@ function SavedPlanCard({
       <div className="min-w-0 flex-1">
         <h3 className="truncate font-label-md text-label-md font-bold">{workout.title}</h3>
         <p className="text-[10px] text-secondary">
-          {workout.items.length}动作 · {calories}kcal · {minutes}min
+          {workout.items.length}动作 · 训练{loopRounds}轮 · {calories}kcal · {minutes}min
         </p>
       </div>
       <button

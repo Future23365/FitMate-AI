@@ -31,6 +31,7 @@ type ScheduledWorkout = {
   minutes: number;
   calories: number;
   items: any[];
+  trainingLoopRounds?: number;
   sourcePlanTitle?: string;
 };
 
@@ -190,6 +191,7 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
               minutes: estimateMinutes(workout.items),
               calories: estimateCalories(workout.items),
               items: workout.items,
+              trainingLoopRounds: workout.trainingLoopRounds,
               sourcePlanTitle: draft.title,
             });
           } else {
