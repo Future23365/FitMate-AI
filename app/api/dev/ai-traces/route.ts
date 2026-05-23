@@ -80,7 +80,7 @@ export async function POST(request: Request) {
   }
 
   const logDir = path.join(process.cwd(), "codex_logs");
-  const logPath = path.join(logDir, "last_log.js");
+  const logPath = path.join(logDir, "ai_trace_log.js");
   const savedAt = new Date().toISOString();
   const content = [
     "// AI Trace saved from /dev/ai-traces for Codex debugging.",
