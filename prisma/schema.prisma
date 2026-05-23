@@ -1,0 +1,183 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           String           @id @default(cuid())
+  email        String?          @unique
+  displayName  String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  profile      UserProfile?
+  workoutPlans WorkoutPlan[]
+  sessions     WorkoutSession[]
+  chatSessions ChatSession[]
+}
+
+model UserProfile {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  goal              String?
+  experience        String?
+  sessionMinutes    Int?
+  weeklyFrequency   Int?
+  equipment         String[] @default([])
+  injuryLimitations String[] @default([])
+  preferences       String[] @default([])
+  avoidances        String[] @default([])
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Exercise {
+  id                 String            @id
+  source             String
+  sourceUrl          String
+  sourceId           String
+  license            String
+  nameEn             String
+  nameZh             String
+  category           String?
+  categoryZh         String?
+  level              String?
+  levelZh            String?
+  force              String?
+  forceZh            String?
+  mechanic           String?
+  mechanicZh         String?
+  equipment          String?
+  equipmentZh        String?
+  homeRequirement    String
+  homeRequirementZh  String
+  primaryMuscles     String[]          @default([])
+  primaryMusclesZh   String[]          @default([])
+  secondaryMuscles   String[]          @default([])
+  secondaryMusclesZh String[]          @default([])
+  instructionsEn     String[]          @default([])
+  instructionsZh     String[]          @default([])
+  images             String[]          @default([])
+  imageUrls          String[]          @default([])
+  riskTags           String[]          @default([])
+  goalTags           String[]          @default([])
+  reviewStatus       String            @default("machine_translated")
+  isPublished        Boolean           @default(false)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  workoutItems       WorkoutPlanItem[]
+
+  @@index([category])
+  @@index([level])
+  @@index([equipment])
+  @@index([reviewStatus])
+  @@index([isPublished])
+}
+
+model WorkoutPlan {
+  id                      String           @id @default(cuid())
+  userId                  String
+  title                   String
+  goal                    String
+  summary                 String?
+  weeklyFrequency         Int
+  estimatedSessionMinutes Int
+  status                  String           @default("draft")
+  source                  String           @default("ai")
+  safetyNotes             String[]         @default([])
+  trainingLoopRounds      Int?
+  trainingLoopRestSeconds Int?
+  sourceAiTraceId         String?
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+  user                    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  days                    WorkoutPlanDay[]
+  sessions                WorkoutSession[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model WorkoutPlanDay {
+  id               String            @id @default(cuid())
+  workoutPlanId    String
+  dayIndex         Int
+  title            String
+  focus            String
+  estimatedMinutes Int
+  safetyNotes      String[]          @default([])
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  workoutPlan      WorkoutPlan       @relation(fields: [workoutPlanId], references: [id], onDelete: Cascade)
+  items            WorkoutPlanItem[]
+
+  @@unique([workoutPlanId, dayIndex])
+}
+
+model WorkoutPlanItem {
+  id                    String         @id @default(cuid())
+  workoutPlanDayId      String
+  exerciseId            String
+  mode                  String
+  target                Int
+  sets                  Int
+  setRestSeconds        Int
+  transitionRestSeconds Int
+  section               String?
+  notes                 String?
+  sortOrder             Int
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  workoutPlanDay        WorkoutPlanDay @relation(fields: [workoutPlanDayId], references: [id], onDelete: Cascade)
+  exercise              Exercise       @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
+
+  @@index([exerciseId])
+  @@index([workoutPlanDayId, sortOrder])
+}
+
+model WorkoutSession {
+  id              String       @id @default(cuid())
+  userId          String
+  workoutPlanId   String?
+  scheduledFor    DateTime?
+  startedAt       DateTime?
+  endedAt         DateTime?
+  status          String       @default("planned")
+  durationSeconds Int?
+  feedback        Json?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workoutPlan     WorkoutPlan? @relation(fields: [workoutPlanId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([status])
+  @@index([scheduledFor])
+}
+
+model ChatSession {
+  id        String        @id @default(cuid())
+  userId    String
+  title     String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  ChatMessage[]
+
+  @@index([userId])
+}
+
+model ChatMessage {
+  id            String      @id @default(cuid())
+  chatSessionId String
+  role          String
+  content       String
+  metadata      Json?
+  createdAt     DateTime    @default(now())
+  chatSession   ChatSession @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
+
+  @@index([chatSessionId, createdAt])
+}

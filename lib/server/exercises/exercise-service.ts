@@ -1,7 +1,6 @@
 import "server-only";
 
-import exercisesData from "@/data/exercises.zh.json";
-
+import { getExerciseRecordById, listExerciseRecords } from "@/lib/server/exercises/exercise-repository";
 import type {
   Exercise,
   ExerciseFacetItem,
@@ -11,7 +10,6 @@ import type {
   ExerciseSort,
 } from "@/lib/shared/exercises/types";
 
-const exercises = exercisesData as Exercise[];
 const DEFAULT_LIMIT = 24;
 const MAX_LIMIT = 100;
 const DEFAULT_SORT: ExerciseSort = "name_asc";
@@ -22,10 +20,11 @@ const levelRank: Record<string, number> = {
 };
 
 export async function listAllExercises(): Promise<Exercise[]> {
-  return exercises;
+  return listExerciseRecords();
 }
 
 export async function listExercises(query: ExerciseListQuery = {}): Promise<ExerciseListResult> {
+  const exercises = await listExerciseRecords();
   const pagination = resolvePagination(query);
   const filtered = exercises
     .filter((exercise) => matchesExerciseQuery(exercise, query))
@@ -46,20 +45,22 @@ export async function listExercises(query: ExerciseListQuery = {}): Promise<Exer
 }
 
 export async function getExerciseById(id: string): Promise<Exercise | null> {
-  return exercises.find((exercise) => exercise.id === id) ?? null;
+  return getExerciseRecordById(id);
 }
 
 export async function getExerciseFacets(): Promise<ExerciseFacets> {
+  const exercises = await listExerciseRecords();
+
   return {
-    categories: collectFacet("category", "categoryZh"),
-    levels: collectFacet("level", "levelZh"),
-    force: collectFacet("force", "forceZh"),
-    mechanics: collectFacet("mechanic", "mechanicZh"),
-    equipment: collectFacet("equipment", "equipmentZh"),
-    homeRequirements: collectFacet("homeRequirement", "homeRequirementZh"),
-    muscles: collectArrayFacet("primaryMuscles", "primaryMusclesZh"),
-    goalTags: collectTagFacet("goalTags"),
-    riskTags: collectTagFacet("riskTags"),
+    categories: collectFacet(exercises, "category", "categoryZh"),
+    levels: collectFacet(exercises, "level", "levelZh"),
+    force: collectFacet(exercises, "force", "forceZh"),
+    mechanics: collectFacet(exercises, "mechanic", "mechanicZh"),
+    equipment: collectFacet(exercises, "equipment", "equipmentZh"),
+    homeRequirements: collectFacet(exercises, "homeRequirement", "homeRequirementZh"),
+    muscles: collectArrayFacet(exercises, "primaryMuscles", "primaryMusclesZh"),
+    goalTags: collectTagFacet(exercises, "goalTags"),
+    riskTags: collectTagFacet(exercises, "riskTags"),
   };
 }
 
@@ -227,7 +228,11 @@ function compareLevel(left: Exercise, right: Exercise) {
   return leftRank - rightRank || compareText(left.nameZh, right.nameZh);
 }
 
-function collectFacet(valueKey: keyof Exercise, labelKey: keyof Exercise): ExerciseFacetItem[] {
+function collectFacet(
+  exercises: Exercise[],
+  valueKey: keyof Exercise,
+  labelKey: keyof Exercise,
+): ExerciseFacetItem[] {
   const values = new Map<string, ExerciseFacetItem>();
 
   for (const exercise of exercises) {
@@ -244,11 +249,14 @@ function collectFacet(valueKey: keyof Exercise, labelKey: keyof Exercise): Exerc
     }
   }
 
-  return [...values.values()]
-    .sort((a, b) => a.label.localeCompare(b.label, "zh-Hans-CN"));
+  return [...values.values()].sort((a, b) => a.label.localeCompare(b.label, "zh-Hans-CN"));
 }
 
-function collectArrayFacet(valueKey: keyof Exercise, labelKey: keyof Exercise): ExerciseFacetItem[] {
+function collectArrayFacet(
+  exercises: Exercise[],
+  valueKey: keyof Exercise,
+  labelKey: keyof Exercise,
+): ExerciseFacetItem[] {
   const values = new Map<string, ExerciseFacetItem>();
 
   for (const exercise of exercises) {
@@ -273,11 +281,10 @@ function collectArrayFacet(valueKey: keyof Exercise, labelKey: keyof Exercise): 
     }
   }
 
-  return [...values.values()]
-    .sort((a, b) => a.label.localeCompare(b.label, "zh-Hans-CN"));
+  return [...values.values()].sort((a, b) => a.label.localeCompare(b.label, "zh-Hans-CN"));
 }
 
-function collectTagFacet(key: "goalTags" | "riskTags"): ExerciseFacetItem[] {
+function collectTagFacet(exercises: Exercise[], key: "goalTags" | "riskTags"): ExerciseFacetItem[] {
   const values = new Map<string, ExerciseFacetItem>();
 
   for (const exercise of exercises) {

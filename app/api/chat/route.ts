@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { aiPromptConfig } from "@/app/api/ai-prompt-config";
 import {
+  aiContextChatMessageSchema,
   buildFitnessConversationContext,
   fitnessConversationContextSchema,
   formatFitnessConversationContextForPrompt,
@@ -12,6 +13,7 @@ import {
 } from "@/lib/shared/chat/fitness-conversation-context";
 import { startAiTrace, summarizeLatestUserMessage, type AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
+import { jsonApiError } from "@/lib/server/http/api-error";
 import { serverRequest } from "@/lib/server/http/server-request";
 import {
   selectExerciseCandidates,
@@ -78,6 +80,12 @@ const chatIntentSchema = z.object({
 
 type ChatIntent = z.infer<typeof chatIntentSchema>;
 
+const chatRequestSchema = z.object({
+  messages: z.array(aiContextChatMessageSchema).min(1).max(200),
+  conversationContext: fitnessConversationContextSchema.optional(),
+  thinkingEnabled: z.boolean().optional(),
+});
+
 type AssistantAction = {
   action: "exercise_recommendation" | "workout_routine" | "workout_plan";
   intent: WorkoutPlanIntent;
@@ -115,48 +123,43 @@ export async function POST(request: Request) {
   const apiKey = process.env.DEEPSEEK_API_KEY;
 
   if (!apiKey) {
-    return NextResponse.json(
-      { error: "Missing DEEPSEEK_API_KEY environment variable." },
-      { status: 500 },
+    return jsonApiError(
+      "missing_configuration",
+      "Missing DEEPSEEK_API_KEY environment variable.",
+      500,
     );
   }
 
-  const body = (await request.json().catch(() => null)) as {
-    messages?: unknown;
-    conversationContext?: unknown;
-    thinkingEnabled?: unknown;
-  } | null;
+  const body = await request.json().catch(() => null);
+  const parsedRequest = chatRequestSchema.safeParse(body);
 
-  if (!body || !Array.isArray(body.messages)) {
-    return NextResponse.json(
-      { error: "Request body must include a messages array." },
-      { status: 400 },
+  if (!parsedRequest.success) {
+    return jsonApiError(
+      "validation_failed",
+      "Invalid chat request body.",
+      400,
+      parsedRequest.error.flatten(),
     );
   }
 
-  const rawMessages = normalizeAiContextMessages(body.messages);
-  const parsedContext = fitnessConversationContextSchema.safeParse(body.conversationContext);
-  const conversationContext = parsedContext.success
-    ? parsedContext.data
-    : buildFitnessConversationContext(rawMessages);
+  const rawMessages = normalizeAiContextMessages(parsedRequest.data.messages);
+  const conversationContext =
+    parsedRequest.data.conversationContext ?? buildFitnessConversationContext(rawMessages);
   const messages = selectMessagesForAiContext(rawMessages, { maxMessages: 16 });
-  const thinkingEnabled = body.thinkingEnabled !== false;
+  const thinkingEnabled = parsedRequest.data.thinkingEnabled !== false;
   const trace = startAiTrace({
     route: "/api/chat",
     title: summarizeLatestUserMessage(rawMessages),
     metadata: {
       messageCount: rawMessages.length,
       aiContextMessageCount: messages.length,
-      hasClientConversationContext: parsedContext.success,
+      hasClientConversationContext: Boolean(parsedRequest.data.conversationContext),
       thinkingEnabled,
     },
   });
 
   if (rawMessages.length === 0) {
-    return NextResponse.json(
-      { error: "At least one valid message is required." },
-      { status: 400 },
-    );
+    return jsonApiError("validation_failed", "At least one valid message is required.", 400);
   }
 
   trace.addStep({

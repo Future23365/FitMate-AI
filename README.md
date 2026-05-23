@@ -2,7 +2,7 @@
 
 FitMate AI 是一个 AI 健身聊天助手原型。项目目标是通过自然语言交互理解用户的健身目标、身体状态、训练限制、训练偏好和可用时间，并据此生成、调整和执行个性化训练计划。
 
-当前项目采用 Next.js App Router 构建，前端体验、API Route、服务端 AI 编排、领域规则和共享类型已经按目录做了初步分层。现阶段仍以本地原型和静态动作数据为主，后续会逐步接入数据库、鉴权、用户画像、计划持久化和完整的 AI Tool Calling 闭环。
+当前项目采用 Next.js App Router 构建，前端体验、API Route、服务端 AI 编排、领域规则、共享类型和 Prisma 数据模型已经按目录做了初步分层。现阶段仍以本地原型为主，动作数据已具备 PostgreSQL/Prisma seed 与开发期静态数据回退，后续会逐步接入真实数据库实例、鉴权、用户画像、计划持久化和完整的 AI Tool Calling 闭环。
 
 更完整的架构说明见 [docs/architecture.md](./docs/architecture.md)。
 
@@ -12,14 +12,14 @@ FitMate AI 是一个 AI 健身聊天助手原型。项目目标是通过自然�
 
 - 首页 AI 聊天界面，支持 DeepSeek 流式响应。
 - 聊天页可识别训练计划生成意图，并在服务端生成经过候选动作与规则校验的训练计划草稿。
-- 动作库页面，基于 `data/exercises.zh.json` 展示、搜索、筛选动作。
+- 动作库页面，基于动作 repository 展示、搜索、筛选动作；配置数据库后读取 Prisma/PostgreSQL，未配置时回退到 `data/exercises.zh.json`。
 - 动作编排页面，支持从动作库添加动作、调整组数/次数/休息、保存到本地。
 - 训练日历页面，支持本地安排训练、设置休息日、标记完成/未完成。
 - 训练执行页面，支持倒计时、动作切换、暂停、结束训练。
 - 基础响应式 UI、Tailwind CSS 主题和侧边栏导航。
 - 前端页面与服务端业务代码已分离：`features/` 承载前端功能模块，`lib/server/` 承载服务端服务，`lib/shared/` 承载共享类型和 Schema。
 
-注意：当前仍是前端原型 + 静态动作数据 + 服务端 AI 编排的阶段，尚未接入数据库、鉴权、服务端训练计划持久化或 AI 工具调用闭环。
+注意：当前仍是前端原型 + 动作 seed 数据 + 服务端 AI 编排的阶段，尚未接入鉴权、服务端训练计划持久化或 AI 工具调用闭环。Prisma schema、PostgreSQL 配置、动作 seed 脚本和动作 repository 边界已经建立，但本地运行数据库能力仍需要配置 `DATABASE_URL` 后执行迁移与 seed。
 
 ## 技术栈
 
@@ -27,9 +27,11 @@ FitMate AI 是一个 AI 健身聊天助手原型。项目目标是通过自然�
 - React
 - TypeScript
 - Tailwind CSS
+- Prisma
+- PostgreSQL
 - DeepSeek Chat Completions API
 - Zod
-- 静态 JSON 动作数据
+- 静态 JSON 动作 seed 数据
 
 ## 本地运行
 
@@ -49,6 +51,7 @@ cp .env.example .env.local
 
 ```bash
 DEEPSEEK_API_KEY=
+DATABASE_URL=
 ```
 
 启动开发服务：
@@ -63,6 +66,9 @@ npm run dev
 npm run typecheck
 npm run lint
 npm run build
+npm run db:generate
+npm run db:migrate
+npm run db:seed
 ```
 
 ## 目录说明
@@ -99,6 +105,7 @@ lib/
   client/                  # 浏览器专用基础设施
     http/client-request.ts # 前端统一请求函数
   server/                  # 服务端专用基础设施和业务服务
+    db/                    # Prisma Client 单例和数据库配置入口
     http/server-request.ts # 服务端外部 HTTP 请求函数
     exercises/             # 服务端动作库查询服务
     workout-plans/         # AI 计划生成、候选动作、计划校验服务
@@ -107,7 +114,10 @@ lib/
     workout-plans/
 
 data/
-  exercises.zh.json        # 当前使用的中文动作静态数据
+  exercises.zh.json        # 中文动作 seed 数据，开发期无数据库时作为回退数据源
+
+prisma/
+  schema.prisma            # PostgreSQL/Prisma 数据模型
 
 scripts/                   # 动作数据清洗、翻译和修正脚本
 tests/                     # 当前项目内的逻辑测试脚本
@@ -172,9 +182,10 @@ example/                   # 设计参考 HTML
 ### 数据与后端
 
 - [x] 静态动作数据已包含发布状态、审核状态、风险标签、目标标签和来源许可证字段。
-- [ ] 后续处理：引入 PostgreSQL 作为事实数据来源。
-- [ ] 后续处理：引入 Prisma，建立 `User`、`Exercise`、`WorkoutPlan`、`WorkoutSession`、`ChatSession` 等模型。
-- [ ] 后续处理：将 `data/exercises.zh.json` 迁移为数据库 seed 数据。
+- [x] 建立 PostgreSQL / Prisma 数据层骨架。
+- [x] 引入 Prisma，建立 `User`、`Exercise`、`WorkoutPlan`、`WorkoutSession`、`ChatSession` 等核心模型。
+- [x] 将 `data/exercises.zh.json` 迁移为数据库 seed 数据。
+- [ ] 后续处理：配置真实 PostgreSQL 实例并执行迁移，让数据库成为线上事实数据来源。
 - [ ] 后续处理：建立动作审核流程，将 `reviewStatus=machine_translated` 的动作转为人工审核状态。
 - [ ] 后续处理：修复动作数据质量问题：当前动作 `published=false`，少量中文步骤仍含英文长句。
 - [ ] 后续处理：增加动作媒体资源同步策略，避免长期依赖第三方图片链接。
@@ -187,8 +198,8 @@ example/                   # 设计参考 HTML
 - [x] 避免业务逻辑堆在 API Route 中，沉淀到 service 层。
 - [x] 拆分前端请求函数和服务端请求函数，避免浏览器请求与服务器外部请求混用。
 - [x] `POST /api/ai/workout-plan` 和 `POST /api/ai/exercise-recommendations` 已使用 Zod 校验请求体。
-- [ ] 后续处理：给 `/api/chat` 增加完整请求体 Zod 校验。
-- [ ] 后续处理：给 `/api/exercises` 增加 query 参数 Zod 校验，替代手写解析。
+- [x] 给 `/api/chat` 增加完整请求体 Zod 校验。
+- [x] 给 `/api/exercises` 增加 query 参数 Zod 校验，替代手写解析。
 - [ ] 后续处理：增加训练计划、训练日历、训练执行、用户画像等服务端 API。
 - [ ] 后续处理：统一 API 错误结构和前端错误展示。
 - [ ] 后续处理：接入 Tool Calling 后记录工具调用失败日志。

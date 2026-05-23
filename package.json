@@ -9,12 +9,22 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "node scripts/seed-exercises.mjs",
     "clean:exercises": "node scripts/clean-exercises.mjs",
     "translate:exercises": "node scripts/translate-exercises.mjs",
     "fix:exercises": "node scripts/fix-exercise-translations.mjs"
   },
+  "prisma": {
+    "seed": "node scripts/seed-exercises.mjs"
+  },
   "dependencies": {
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
     "next": "^16.2.5",
+    "pg": "^8.21.0",
+    "prisma": "^7.8.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-markdown": "^10.1.0",
