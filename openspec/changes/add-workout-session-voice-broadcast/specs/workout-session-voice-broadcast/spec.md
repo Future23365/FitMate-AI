@@ -64,20 +64,35 @@ The system SHALL announce relevant workout step transitions using existing worko
 - **WHEN** the user clicks previous, next, skip, or selects an action from the session list
 - **THEN** the system cancels pending speech and announces the newly active step if voice broadcast is enabled
 
-### Requirement: Countdown sound cues
-The system SHALL play short local “嘟嘟声” countdown cues during key countdown moments when voice broadcast is enabled.
+### Requirement: Timed exercise beep cues
+The system SHALL play short local “嘟” beep cues every second during timed exercise steps when voice broadcast is enabled.
 
-#### Scenario: Countdown reaches final seconds
-- **WHEN** an active timed, rep-derived, or rest step reaches the configured final countdown seconds
-- **THEN** the system plays short beep cues without changing the workout timer
+#### Scenario: Timed exercise is active
+- **WHEN** an active exercise step uses duration mode and voice broadcast is enabled
+- **THEN** the system plays one short beep cue for each elapsed second of the timed action without changing the workout timer
 
-#### Scenario: Countdown sound is unavailable
-- **WHEN** the browser cannot create or play the local countdown sound
+#### Scenario: Timed exercise is paused or skipped
+- **WHEN** the user pauses training, skips to another step, finishes training, disables voice broadcast, or leaves `/training`
+- **THEN** the system stops pending timed-action beep cues
+
+#### Scenario: Timed beep sound is unavailable
+- **WHEN** the browser cannot create or play the local beep sound
 - **THEN** the system MUST continue the workout timer and voice broadcast without blocking the session
 
-#### Scenario: Voice broadcast is disabled during countdown
-- **WHEN** the user disables voice broadcast while countdown cues are pending
-- **THEN** the system stops pending countdown cues and does not play additional beeps until voice broadcast is enabled again
+### Requirement: Repetition counting voice cues
+The system SHALL announce numeric counting cues for repetition-based exercise steps when voice broadcast is enabled.
+
+#### Scenario: Repetition exercise is active
+- **WHEN** an active exercise step uses reps mode and voice broadcast is enabled
+- **THEN** the system announces numeric counts such as “1，2，3...” according to the workout repetition interval until the target repetition count is reached
+
+#### Scenario: Repetition count advances
+- **WHEN** the calculated completed repetition count increases
+- **THEN** the system announces only the newly reached count and MUST NOT replay previous counts for the same step
+
+#### Scenario: Repetition exercise is paused or skipped
+- **WHEN** the user pauses training, skips to another step, finishes training, disables voice broadcast, or leaves `/training`
+- **THEN** the system stops pending repetition counting cues
 
 ### Requirement: Browser speech synthesis behavior
 The system SHALL use browser Web Speech API speech synthesis for spoken prompts and degrade gracefully when unsupported.
