@@ -294,8 +294,8 @@
     "forceZh": "静态",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "other",
+    "equipmentZh": "其他",
     "primaryMuscles": [
       "adductors"
     ],
@@ -704,8 +704,8 @@
     "forceZh": "推",
     "mechanic": "compound",
     "mechanicZh": "复合动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "quadriceps"
     ],
@@ -1198,8 +1198,8 @@
     "forceZh": "拉",
     "mechanic": "isolation",
     "mechanicZh": "孤立动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "other",
+    "equipmentZh": "其他",
     "primaryMuscles": [
       "calves"
     ],
@@ -1250,8 +1250,8 @@
     "forceZh": "静态",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "glutes"
     ],
@@ -1415,8 +1415,8 @@
     "forceZh": "推",
     "mechanic": "isolation",
     "mechanicZh": "孤立动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "shoulders"
     ],
@@ -5864,8 +5864,8 @@
     "forceZh": "推",
     "mechanic": "compound",
     "mechanicZh": "复合动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "quadriceps"
     ],
@@ -8433,8 +8433,8 @@
     "forceZh": "静态",
     "mechanic": "isolation",
     "mechanicZh": "孤立动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "other",
+    "equipmentZh": "其他",
     "primaryMuscles": [
       "calves"
     ],
@@ -8485,8 +8485,8 @@
     "forceZh": "静态",
     "mechanic": "isolation",
     "mechanicZh": "孤立动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "other",
+    "equipmentZh": "其他",
     "primaryMuscles": [
       "calves"
     ],
@@ -8712,8 +8712,8 @@
     "forceZh": null,
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "adductors"
     ],
@@ -8780,8 +8780,8 @@
     "forceZh": "静态",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "lower back"
     ],
@@ -9074,8 +9074,8 @@
     "forceZh": "静态",
     "mechanic": "isolation",
     "mechanicZh": "孤立动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "other",
+    "equipmentZh": "其他",
     "primaryMuscles": [
       "lats"
     ],
@@ -9623,8 +9623,8 @@
     "forceZh": "静态",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "lower back"
     ],
@@ -9748,8 +9748,8 @@
     "forceZh": "静态",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "neck"
     ],
@@ -11295,8 +11295,8 @@
     "forceZh": "拉",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "lower back"
     ],
@@ -11654,8 +11654,8 @@
     "forceZh": "静态",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "lower back"
     ],
@@ -12399,8 +12399,8 @@
     "forceZh": "推",
     "mechanic": "compound",
     "mechanicZh": "复合动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "other",
+    "equipmentZh": "其他",
     "primaryMuscles": [
       "chest"
     ],
@@ -15354,8 +15354,8 @@
     "forceZh": "拉",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "lats"
     ],
@@ -15404,8 +15404,8 @@
     "forceZh": "拉",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "chest"
     ],
@@ -15572,8 +15572,8 @@
     "forceZh": "拉",
     "mechanic": "isolation",
     "mechanicZh": "孤立动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "shoulders"
     ],
@@ -15683,8 +15683,8 @@
     "forceZh": "静态",
     "mechanic": "isolation",
     "mechanicZh": "孤立动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "chest"
     ],
@@ -16736,8 +16736,8 @@
     "forceZh": "拉",
     "mechanic": "isolation",
     "mechanicZh": "孤立动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "other",
+    "equipmentZh": "其他",
     "primaryMuscles": [
       "hamstrings"
     ],
@@ -17224,8 +17224,8 @@
     "forceZh": "推",
     "mechanic": "compound",
     "mechanicZh": "复合动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "quadriceps"
     ],
@@ -18630,8 +18630,8 @@
     "forceZh": "静态",
     "mechanic": "compound",
     "mechanicZh": "复合动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "adductors"
     ],
@@ -18980,8 +18980,8 @@
     "forceZh": "静态",
     "mechanic": "isolation",
     "mechanicZh": "孤立动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "bands",
+    "equipmentZh": "弹力带",
     "primaryMuscles": [
       "hamstrings"
     ],
@@ -20027,8 +20027,8 @@
     "forceZh": "静态",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "lower back"
     ],
@@ -21665,8 +21665,8 @@
     "forceZh": "拉",
     "mechanic": "compound",
     "mechanicZh": "复合动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "barbell",
+    "equipmentZh": "杠铃",
     "primaryMuscles": [
       "middle back"
     ],
@@ -21845,8 +21845,8 @@
     "forceZh": "拉",
     "mechanic": "compound",
     "mechanicZh": "复合动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "quadriceps"
     ],
@@ -23637,8 +23637,8 @@
     "forceZh": "静态",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "glutes"
     ],
@@ -23878,8 +23878,8 @@
     "forceZh": "拉",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "shoulders"
     ],
@@ -24062,8 +24062,8 @@
     "forceZh": "静态",
     "mechanic": "isolation",
     "mechanicZh": "孤立动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "forearms"
     ],
@@ -24170,8 +24170,8 @@
     "forceZh": "静态",
     "mechanic": "isolation",
     "mechanicZh": "孤立动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "quadriceps"
     ],
@@ -24923,8 +24923,8 @@
     "forceZh": "推",
     "mechanic": "isolation",
     "mechanicZh": "孤立动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "hamstrings"
     ],
@@ -25683,8 +25683,8 @@
     "forceZh": "推",
     "mechanic": "compound",
     "mechanicZh": "复合动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "hamstrings"
     ],
@@ -25745,8 +25745,8 @@
     "forceZh": null,
     "mechanic": "compound",
     "mechanicZh": "复合动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "other",
+    "equipmentZh": "其他",
     "primaryMuscles": [
       "hamstrings"
     ],
@@ -26006,8 +26006,8 @@
     "forceZh": "静态",
     "mechanic": "isolation",
     "mechanicZh": "孤立动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "quadriceps"
     ],
@@ -28198,8 +28198,8 @@
     "forceZh": "静态",
     "mechanic": "isolation",
     "mechanicZh": "孤立动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "middle back"
     ],
@@ -28371,8 +28371,8 @@
     "forceZh": "拉",
     "mechanic": "compound",
     "mechanicZh": "复合动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "quadriceps"
     ],
@@ -28432,8 +28432,8 @@
     "forceZh": null,
     "mechanic": "compound",
     "mechanicZh": "复合动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "hamstrings"
     ],
@@ -29241,8 +29241,8 @@
     "forceZh": "静态",
     "mechanic": "isolation",
     "mechanicZh": "孤立动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "quadriceps"
     ],
@@ -30714,8 +30714,8 @@
     "forceZh": "静态",
     "mechanic": "isolation",
     "mechanicZh": "孤立动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "other",
+    "equipmentZh": "其他",
     "primaryMuscles": [
       "lats"
     ],
@@ -31200,8 +31200,8 @@
     "forceZh": "静态",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "quadriceps"
     ],
@@ -31314,8 +31314,8 @@
     "forceZh": "静态",
     "mechanic": "compound",
     "mechanicZh": "复合动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "glutes"
     ],
@@ -31819,8 +31819,8 @@
     "forceZh": "静态",
     "mechanic": "compound",
     "mechanicZh": "复合动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "abdominals"
     ],
@@ -32379,8 +32379,8 @@
     "forceZh": "静态",
     "mechanic": "compound",
     "mechanicZh": "复合动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "lower back"
     ],
@@ -33869,8 +33869,8 @@
     "forceZh": "静态",
     "mechanic": "isolation",
     "mechanicZh": "孤立动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "other",
+    "equipmentZh": "其他",
     "primaryMuscles": [
       "hamstrings"
     ],
@@ -37243,8 +37243,8 @@
     "forceZh": "静态",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "hamstrings"
     ],
@@ -37497,8 +37497,8 @@
     "forceZh": "拉",
     "mechanic": "isolation",
     "mechanicZh": "孤立动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "traps"
     ],
@@ -38269,8 +38269,8 @@
     "forceZh": "静态",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "calves"
     ],
@@ -38739,8 +38739,8 @@
     "forceZh": "静态",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "hamstrings"
     ],
@@ -38967,8 +38967,8 @@
     "forceZh": "静态",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "other",
+    "equipmentZh": "其他",
     "primaryMuscles": [
       "hamstrings"
     ],
@@ -39423,8 +39423,8 @@
     "forceZh": "静态",
     "mechanic": "isolation",
     "mechanicZh": "孤立动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "abdominals"
     ],
@@ -39886,8 +39886,8 @@
     "forceZh": "拉",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "shoulders"
     ],
@@ -40000,8 +40000,8 @@
     "forceZh": "拉",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "shoulders"
     ],
@@ -40054,8 +40054,8 @@
     "forceZh": "拉",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "shoulders"
     ],
@@ -40104,8 +40104,8 @@
     "forceZh": "静态",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "lats"
     ],
@@ -40487,8 +40487,8 @@
     "forceZh": "静态",
     "mechanic": "isolation",
     "mechanicZh": "孤立动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "adductors"
     ],
@@ -40543,8 +40543,8 @@
     "forceZh": "静态",
     "mechanic": "isolation",
     "mechanicZh": "孤立动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "neck"
     ],
@@ -40593,8 +40593,8 @@
     "forceZh": "推",
     "mechanic": "compound",
     "mechanicZh": "复合动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "quadriceps"
     ],
@@ -40727,8 +40727,8 @@
     "forceZh": "静态",
     "mechanic": "isolation",
     "mechanicZh": "孤立动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "shoulders"
     ],
@@ -41701,8 +41701,8 @@
     "forceZh": "推",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "quadriceps"
     ],
@@ -44243,8 +44243,8 @@
     "forceZh": "静态",
     "mechanic": "isolation",
     "mechanicZh": "孤立动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "other",
+    "equipmentZh": "其他",
     "primaryMuscles": [
       "middle back"
     ],
@@ -44658,8 +44658,8 @@
     "forceZh": "推",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "hamstrings"
     ],
@@ -46367,8 +46367,8 @@
     "forceZh": "静态",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "other",
+    "equipmentZh": "其他",
     "primaryMuscles": [
       "calves"
     ],
@@ -46534,8 +46534,8 @@
     "forceZh": "静态",
     "mechanic": "isolation",
     "mechanicZh": "孤立动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "quadriceps"
     ],
@@ -46643,8 +46643,8 @@
     "forceZh": "静态",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "abdominals"
     ],
@@ -47494,8 +47494,8 @@
     "forceZh": "静态",
     "mechanic": "isolation",
     "mechanicZh": "孤立动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "lower back"
     ],
@@ -47606,8 +47606,8 @@
     "forceZh": "静态",
     "mechanic": "isolation",
     "mechanicZh": "孤立动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "calves"
     ],
@@ -47656,8 +47656,8 @@
     "forceZh": "静态",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "hamstrings"
     ],
@@ -49542,8 +49542,8 @@
     "forceZh": "静态",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "hamstrings"
     ],
@@ -49897,8 +49897,8 @@
     "forceZh": null,
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "other",
+    "equipmentZh": "其他",
     "primaryMuscles": [
       "quadriceps"
     ],
@@ -50071,8 +50071,8 @@
     "forceZh": "静态",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "triceps"
     ],
@@ -50347,8 +50347,8 @@
     "forceZh": "静态",
     "mechanic": "isolation",
     "mechanicZh": "孤立动作",
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "triceps"
     ],
@@ -50813,8 +50813,8 @@
     "forceZh": "静态",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "hamstrings"
     ],
@@ -50871,8 +50871,8 @@
     "forceZh": "静态",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "middle back"
     ],
@@ -51102,8 +51102,8 @@
     "forceZh": "静态",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "shoulders"
     ],
@@ -52595,8 +52595,8 @@
     "forceZh": "拉",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "abductors"
     ],
@@ -52656,8 +52656,8 @@
     "forceZh": "静态",
     "mechanic": null,
     "mechanicZh": null,
-    "equipment": null,
-    "equipmentZh": null,
+    "equipment": "body only",
+    "equipmentZh": "自重",
     "primaryMuscles": [
       "hamstrings"
     ],
