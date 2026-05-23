@@ -11,10 +11,7 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:seed": "node scripts/seed-exercises.mjs",
-    "clean:exercises": "node scripts/clean-exercises.mjs",
-    "translate:exercises": "node scripts/translate-exercises.mjs",
-    "fix:exercises": "node scripts/fix-exercise-translations.mjs"
+    "db:seed": "node scripts/seed-exercises.mjs"
   },
   "prisma": {
     "seed": "node scripts/seed-exercises.mjs"
