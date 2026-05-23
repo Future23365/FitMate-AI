@@ -444,14 +444,95 @@ function getDiagnosticMetadata(metadata: AiTraceStep["metadata"]) {
   );
 }
 
-function compactObject<T extends Record<string, unknown>>(value: T) {
+function compactObject<T extends Record<string, unknown>>(value: T): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(value).filter(([, item]) => !isEmptyValue(item)),
   );
 }
 
-function compactValue(value: unknown) {
-  return isEmptyValue(value) ? undefined : value;
+function compactValue(value: unknown): unknown {
+  if (isEmptyValue(value)) {
+    return undefined;
+  }
+
+  if (Array.isArray(value)) {
+    const items: unknown[] = value
+      .map((item): unknown => compactValue(item))
+      .filter((item) => !isEmptyValue(item));
+
+    return items.length > 0 ? items : undefined;
+  }
+
+  if (!isRecord(value)) {
+    return value;
+  }
+
+  if (isCandidateRecord(value)) {
+    return compactCandidateRecord(value);
+  }
+
+  if (isExerciseRecord(value)) {
+    return compactExerciseRecord(value);
+  }
+
+  return compactObject(
+    Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, compactValue(item)]),
+    ),
+  );
+}
+
+function compactCandidateRecord(value: Record<string, unknown>): Record<string, unknown> {
+  const exercise: unknown = isRecord(value.exercise) ? compactExerciseRecord(value.exercise) : undefined;
+
+  return compactObject({
+    exercise,
+    score: value.score,
+    source: value.source,
+    reasons: compactValue(value.reasons),
+    candidateSource: value.candidateSource,
+    candidateScore: value.candidateScore,
+    candidateReasons: compactValue(value.candidateReasons),
+  });
+}
+
+function compactExerciseRecord(value: Record<string, unknown>): Record<string, unknown> {
+  return compactObject({
+    exerciseId: getExerciseId(value),
+    nameZh: value.nameZh,
+    categoryZh: value.categoryZh,
+    level: value.level,
+    equipmentZh: value.equipmentZh,
+    primaryMusclesZh: compactValue(value.primaryMusclesZh),
+    riskTags: compactValue(value.riskTags),
+    goalTags: compactValue(value.goalTags),
+    reasons: compactValue(value.reasons),
+    candidateSource: value.candidateSource,
+    candidateScore: value.candidateScore,
+    candidateReasons: compactValue(value.candidateReasons),
+  });
+}
+
+function getExerciseId(value: Record<string, unknown>) {
+  const id = value.exerciseId ?? value.id ?? value.sourceId;
+
+  return typeof id === "string" ? id : undefined;
+}
+
+function isCandidateRecord(value: Record<string, unknown>) {
+  return isRecord(value.exercise);
+}
+
+function isExerciseRecord(value: Record<string, unknown>) {
+  return (
+    getExerciseId(value) !== undefined &&
+    (
+      typeof value.nameZh === "string" ||
+      typeof value.nameEn === "string" ||
+      Array.isArray(value.instructionsZh) ||
+      Array.isArray(value.imageUrls)
+    )
+  );
 }
 
 function TraceStepDetail({
