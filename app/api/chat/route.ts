@@ -113,7 +113,6 @@ type ExerciseContext = {
 
 const DEEPSEEK_REQUEST_TIMEOUT_MS = 45_000;
 const INTENT_REQUEST_TIMEOUT_MS = 12_000;
-const LOG_PREVIEW_LENGTH = 4000;
 
 function encodeStreamEvent(type: string, delta = "", metadata?: Record<string, unknown>) {
   return new TextEncoder().encode(`${JSON.stringify({ type, delta, ...metadata })}\n`);
@@ -202,25 +201,6 @@ export async function POST(request: Request) {
   const timeout = setTimeout(() => controller.abort(), DEEPSEEK_REQUEST_TIMEOUT_MS);
   let response: Response;
 
-  console.info("[chat] deepseek_request", {
-    model: "deepseek-v4-flash",
-    messageCount: messages.length,
-    thinkingEnabled,
-    intent: chatIntent.type,
-    exerciseContextCount: exerciseContext?.providedExercises.length ?? 0,
-    timeoutMs: DEEPSEEK_REQUEST_TIMEOUT_MS,
-    payload: previewLogObject({
-      model: "deepseek-v4-flash",
-      messages: [{ role: "system", content: systemPrompt }, ...messages],
-      stream: true,
-      stream_options: {
-        include_usage: true,
-      },
-      thinking: {
-        type: thinkingEnabled ? "enabled" : "disabled",
-      },
-    }),
-  });
   trace.addStep({
     name: "生成用户回复大模型调用参数",
     type: "model_request",
@@ -982,14 +962,4 @@ function getLatestUserMessage(messages: ChatMessage[]) {
 
 function extractByPattern(text: string, pattern: RegExp) {
   return pattern.test(text) ? [text.slice(0, 80)] : [];
-}
-
-function previewLogObject(value: unknown) {
-  const text = JSON.stringify(value);
-
-  return previewLogText(text);
-}
-
-function previewLogText(value: string) {
-  return value.length > LOG_PREVIEW_LENGTH ? `${value.slice(0, LOG_PREVIEW_LENGTH)}...` : value;
 }

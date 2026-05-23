@@ -57,7 +57,6 @@ type GenerateAiExerciseRecommendationsResult =
 
 const model = "deepseek-v4-flash";
 const requestTimeoutMs = 45_000;
-const logPreviewLength = 4000;
 
 const modelOutputSchema = z.object({
   title: z.string().trim().min(1).max(100),
@@ -233,23 +232,6 @@ async function requestDeepSeekRecommendationJson(
       },
     });
 
-    console.info("[ai-exercise-recommendations] deepseek_request", {
-      model,
-      messageCount: messages.length,
-      timeoutMs: requestTimeoutMs,
-      payload: previewLogObject({
-        model,
-        messages,
-        stream: false,
-        response_format: {
-          type: "json_object",
-        },
-        thinking: {
-          type: "disabled",
-        },
-      }),
-    });
-
     const response = await serverRequest("https://api.deepseek.com/chat/completions", {
       method: "POST",
       headers: {
@@ -362,9 +344,4 @@ function dedupeByExerciseId<T extends { exerciseId: string }>(items: T[]) {
 
 function uniqueStrings(values: string[]) {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
-}
-
-function previewLogObject(value: unknown) {
-  const text = JSON.stringify(value);
-  return text.length > logPreviewLength ? `${text.slice(0, logPreviewLength)}...` : text;
 }

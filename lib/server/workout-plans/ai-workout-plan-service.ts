@@ -100,7 +100,6 @@ type DeepSeekChatMessage = {
 
 const model = "deepseek-v4-flash";
 const maxModelCandidates = 40;
-const logPreviewLength = 4000;
 const deepSeekRequestTimeoutMs = 45_000;
 
 export async function generateAiWorkoutPlanDraft(
@@ -447,21 +446,6 @@ async function requestDeepSeekJson(
       },
     });
 
-    console.info("[ai-workout-plan] deepseek_request", {
-      task: taskName,
-      model,
-      messageCount: messages.length,
-      timeoutMs: deepSeekRequestTimeoutMs,
-      payload: previewLogObject({
-        model,
-        messages,
-        stream: false,
-        thinking: {
-          type: "disabled",
-        },
-      }),
-    });
-
     const response = await serverRequest("https://api.deepseek.com/chat/completions", {
       method: "POST",
       headers: {
@@ -605,12 +589,4 @@ function logAiWorkoutPlanFailure(
     message: failure.message,
     detail: failure.detail,
   });
-}
-
-function previewLogText(value: string) {
-  return value.length > logPreviewLength ? `${value.slice(0, logPreviewLength)}...` : value;
-}
-
-function previewLogObject(value: unknown) {
-  return previewLogText(JSON.stringify(value));
 }
