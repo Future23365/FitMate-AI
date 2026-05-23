@@ -662,7 +662,7 @@ function ExerciseDetailPanel({
     exerciseId: "",
     index: 0,
   });
-  const [isAutoPlaying, setIsAutoPlaying] = useState(true);
+  const [isAutoPlaying, setIsAutoPlaying] = useState(false);
 
   const imageUrls = exercise?.imageUrls.length
     ? exercise.imageUrls
@@ -704,10 +704,11 @@ function ExerciseDetailPanel({
         {exercise ? (
           <>
             <div className="mb-lg flex flex-col gap-md">
-              <div className="relative aspect-square w-full overflow-hidden rounded-lg border border-line bg-panel-soft shadow-card">
+              <div className="relative aspect-[3/2] w-full overflow-hidden rounded-lg bg-[#EEF2F6] shadow-card ring-1 ring-line/70">
+                <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(230,236,255,0.95),rgba(246,248,251,0.76)_48%,rgba(238,242,246,0.96))]" />
                 <Image
                   alt={`${exercise.nameZh} 第 ${activeImageIndex + 1} 步示意图`}
-                  className="object-contain p-md"
+                  className="object-cover mix-blend-multiply contrast-[1.05] saturate-[0.98]"
                   fill
                   sizes="340px"
                   src={activeImageUrl}

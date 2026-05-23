@@ -31,7 +31,20 @@ export function ExercisePreviewSheet({
     exerciseId: "",
     index: 0,
   });
+  const [autoPlay, setAutoPlay] = useState({
+    exerciseId: "",
+    isPlaying: true,
+  });
   const [mounted, setMounted] = useState(false);
+
+  const images =
+    exercise?.imageUrls && exercise.imageUrls.length > 0 ? exercise.imageUrls : [placeholderImage];
+  const activeImageIndex =
+    imageSelection.exerciseId === exercise?.id
+      ? Math.min(imageSelection.index, images.length - 1)
+      : 0;
+  const hasMultipleImages = images.length > 1;
+  const isAutoPlaying = autoPlay.exerciseId === exercise?.id ? autoPlay.isPlaying : true;
 
   // 客户端挂载处理，保证 Portal 不参与服务端渲染。
   useEffect(() => {
@@ -71,16 +84,27 @@ export function ExercisePreviewSheet({
     };
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen || !exercise || !hasMultipleImages || !isAutoPlaying) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setImageSelection((current) => {
+        const currentIndex = current.exerciseId === exercise.id ? current.index : 0;
+
+        return {
+          exerciseId: exercise.id,
+          index: (currentIndex + 1) % images.length,
+        };
+      });
+    }, 1200);
+
+    return () => window.clearInterval(timer);
+  }, [exercise, hasMultipleImages, images.length, isAutoPlaying, isOpen]);
+
   // 仅在 SSR 阶段阻断，客户端挂载后保持 Portal 常驻，消除闪烁！
   if (!mounted) return null;
-
-  const images = exercise?.imageUrls && exercise.imageUrls.length > 0 
-    ? exercise.imageUrls 
-    : [placeholderImage];
-  const activeImageIndex =
-    imageSelection.exerciseId === exercise?.id
-      ? Math.min(imageSelection.index, images.length - 1)
-      : 0;
 
   function selectImage(index: number) {
     setImageSelection({
@@ -149,10 +173,10 @@ export function ExercisePreviewSheet({
                 </h4>
 
                 {/* 大图展示区域 */}
-                <div className="relative aspect-[4/3] w-full rounded-xl overflow-hidden bg-slate-100 border border-slate-100 shadow-inner group">
+                <div className="group relative aspect-square w-full overflow-hidden rounded-xl border border-slate-100 bg-slate-100 shadow-inner">
                   <Image
                     alt={`${exercise.nameZh} 演示图`}
-                    className="object-contain p-xs"
+                    className="object-contain p-md"
                     fill
                     sizes="(min-width: 640px) 428px, calc(100vw - 32px)"
                     src={images[activeImageIndex]}
@@ -174,6 +198,22 @@ export function ExercisePreviewSheet({
                         type="button"
                       >
                         <SymbolIcon className="text-[18px]">chevron_right</SymbolIcon>
+                      </button>
+                      <button
+                        aria-label={isAutoPlaying ? "暂停自动切换图片" : "自动切换图片"}
+                        className="absolute right-sm top-sm flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-slate-700 shadow-md transition-all hover:scale-105 hover:bg-white active:scale-95"
+                        onClick={() =>
+                          setAutoPlay({
+                            exerciseId: exercise.id,
+                            isPlaying: !isAutoPlaying,
+                          })
+                        }
+                        title={isAutoPlaying ? "暂停自动切换图片" : "自动切换图片"}
+                        type="button"
+                      >
+                        <SymbolIcon className="text-[18px]">
+                          {isAutoPlaying ? "pause" : "play_arrow"}
+                        </SymbolIcon>
                       </button>
                     </>
                   )}
