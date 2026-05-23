@@ -16,7 +16,7 @@ export const aiPromptConfig = {
       "如果只是饮食、习惯或一般训练原则，needsExerciseContext 为 false。",
       "如果用户问题与健身、训练、动作、饮食健康、运动习惯无关，type 必须是 non_fitness，needsExerciseContext 必须是 false。",
       "non_fitness 场景不要返回 workoutIntent；requestedExerciseName 使用空字符串。",
-      "JSON 字段必须是：type, needsExerciseContext, workoutIntent, requestedExerciseName, canTriggerAction, missingActionFields, suggestedQuestions。",
+      "JSON 字段必须是：type, needsExerciseContext, workoutIntent, requestedExerciseName, canTriggerAction, missingActionFields, suggestedReplies。",
       "type 只能是 general_fitness_advice、exercise_recommendation、workout_plan、routine、exercise_replacement、exercise_explanation、non_fitness。",
       "workoutIntent 字段在 needsExerciseContext 为 true 时必须给出，字段为 intentType, goal, experience, sessionMinutes, weeklyFrequency, equipment, injuryLimitations, preferences, avoidances。",
       "workoutIntent.intentType 只能是 plan 或 routine；exercise_recommendation 场景使用 routine；experience 只能是 beginner、intermediate、advanced。",
@@ -24,7 +24,9 @@ export const aiPromptConfig = {
       "exercise_recommendation 场景：只要能明确用户想推荐的训练目标或部位，且没有高风险健康情况，canTriggerAction 可以为 true。",
       "routine 和 workout_plan 场景：只有用户明确提供训练目标、单次训练时长、可用器械或训练场地，且没有高风险健康情况，canTriggerAction 才能为 true。",
       "如果关键信息不足，canTriggerAction 必须为 false，并把缺失项写入 missingActionFields，例如 goal、sessionMinutes、equipmentOrLocation。",
-      "suggestedQuestions 只用于 canTriggerAction=false 时给用户可点击的补充信息问题，最多 3 条；canTriggerAction=true 时必须返回空数组。",
+      "suggestedReplies 只用于 canTriggerAction=false 时给用户可点击发送的补充信息回复，最多 3 条；canTriggerAction=true 时必须返回空数组。",
+      "suggestedReplies 必须使用用户第一人称口吻，表示用户点击后会直接发出的消息；禁止写成 AI 问用户的问题，禁止疑问句。",
+      "suggestedReplies 应该是完整可发送的用户回答，例如“我今天想练 20 分钟”“我在家自重练”“我去健身房练 45 分钟”，不要写“这次大概多久？”“在家还是去健身房练？”。",
       "信息不足时为了满足 JSON Schema 可以使用占位默认值：goal 使用用户问题的核心目标，experience=beginner，sessionMinutes=30，weeklyFrequency=3，数组字段默认 []。这些默认值只用于结构化解析，不代表可以直接生成训练计划。",
       "必须返回非空 JSON。示例：",
       `{
@@ -44,7 +46,7 @@ export const aiPromptConfig = {
   "requestedExerciseName": "",
   "canTriggerAction": false,
   "missingActionFields": ["goal", "equipmentOrLocation"],
-  "suggestedQuestions": ["今天在家自重练 30 分钟核心"]
+  "suggestedReplies": ["我今天在家自重练 30 分钟核心", "我想先练 20 分钟全身", "我去健身房练 45 分钟"]
 }
 
 非健身问题示例：
@@ -54,7 +56,7 @@ export const aiPromptConfig = {
   "requestedExerciseName": "",
   "canTriggerAction": false,
   "missingActionFields": [],
-  "suggestedQuestions": []
+  "suggestedReplies": []
 }`,
     ].join("\n"),
   },
@@ -66,7 +68,7 @@ export const aiPromptConfig = {
 如果用户描述疾病、孕期或其他高风险健康情况，你必须提醒其咨询医生或专业人士，不能做医疗诊断。
 
 服务端已经在本次回复前完成了结构化意图解析，并会通过内部事件处理动作推荐、单次编排或长期计划。你只负责输出用户可见的自然语言。
-禁止输出任何内部 Trigger、JSON、代码块或 Markdown fenced block；不要把 workout_plan_trigger、workout_routine_trigger、exercise_recommendation_trigger、suggested_question_trigger 写进正文。
+禁止输出任何内部 Trigger、JSON、代码块或 Markdown fenced block；不要把 workout_plan_trigger、workout_routine_trigger、exercise_recommendation_trigger、suggested_reply_trigger、suggested_question_trigger 写进正文。
 如果服务端会处理动作推荐、单次编排或长期计划，你的正文只做一句自然过渡，不要直接列一套具体动作清单，避免和后续结果冲突。
 不要提及“卡片”“下方”“马上生成”“稍后生成”“后台生成”“系统正在”等 UI 或系统流程字样。
 如果信息不足以生成动作推荐、单次编排或长期计划，你需要自然追问缺失信息，并尽量给出用户可以直接照着回答的简短示例。

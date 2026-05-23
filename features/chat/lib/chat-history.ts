@@ -31,7 +31,15 @@ export function saveChatConversation(
   conversationContext?: FitnessConversationContext,
 ) {
   const messagesToSave = messages.map(
-    ({ isReasoning: _isReasoning, reasoningContent: _reasoningContent, ...message }) => message,
+    ({
+      isReasoning: _isReasoning,
+      reasoningContent: _reasoningContent,
+      suggestedQuestions,
+      ...message
+    }) => ({
+      ...message,
+      suggestedReplies: message.suggestedReplies ?? suggestedQuestions,
+    }),
   );
 
   if (!messagesToSave.some((message) => message.role === "user")) {
@@ -64,8 +72,8 @@ export function saveChatConversation(
           message.id === messagesToSave[index]?.id &&
           message.content === messagesToSave[index]?.content &&
           message.role === messagesToSave[index]?.role &&
-          JSON.stringify(message.suggestedQuestions ?? []) ===
-            JSON.stringify(messagesToSave[index]?.suggestedQuestions ?? []),
+          JSON.stringify(message.suggestedReplies ?? message.suggestedQuestions ?? []) ===
+            JSON.stringify(messagesToSave[index]?.suggestedReplies ?? []),
       ) &&
       JSON.stringify(existing.plans ?? {}) === JSON.stringify(plansToSave) &&
       JSON.stringify(existing.exerciseRecommendations ?? {}) ===

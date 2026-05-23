@@ -69,8 +69,12 @@ const chatIntentSchema = z.object({
   requestedExerciseName: z.string().trim().max(80).optional(),
   canTriggerAction: z.boolean().default(false),
   missingActionFields: z.array(z.string().trim().min(1)).max(12).default([]),
+  suggestedReplies: z.array(z.string().trim().min(1).max(120)).max(3).default([]),
   suggestedQuestions: z.array(z.string().trim().min(1).max(120)).max(3).default([]),
-});
+}).transform(({ suggestedQuestions, ...data }) => ({
+  ...data,
+  suggestedReplies: data.suggestedReplies.length > 0 ? data.suggestedReplies : suggestedQuestions,
+}));
 
 type ChatIntent = z.infer<typeof chatIntentSchema>;
 
@@ -171,7 +175,7 @@ export async function POST(request: Request) {
     ? await buildExerciseContext(chatIntent, messages, conversationContext, trace)
     : null;
   const assistantAction = resolveAssistantAction(chatIntent, exerciseContext);
-  const visibleSuggestedQuestions = resolveVisibleSuggestedQuestions(chatIntent, assistantAction);
+  const visibleSuggestedReplies = resolveVisibleSuggestedReplies(chatIntent, assistantAction);
   trace.addStep({
     name: "服务端内部动作事件",
     type: "intent",
@@ -180,9 +184,9 @@ export async function POST(request: Request) {
       assistantAction,
       canTriggerAction: chatIntent.canTriggerAction,
       missingActionFields: chatIntent.missingActionFields,
-      suggestedQuestions: visibleSuggestedQuestions,
-      suppressedSuggestedQuestions: chatIntent.suggestedQuestions.filter(
-        (question) => !visibleSuggestedQuestions.includes(question),
+      suggestedReplies: visibleSuggestedReplies,
+      suppressedSuggestedReplies: chatIntent.suggestedReplies.filter(
+        (reply) => !visibleSuggestedReplies.includes(reply),
       ),
       candidateStatus: exerciseContext?.candidateStatus,
     },
@@ -358,10 +362,10 @@ export async function POST(request: Request) {
         );
       }
 
-      if (visibleSuggestedQuestions.length > 0) {
+      if (visibleSuggestedReplies.length > 0) {
         controller.enqueue(
-          encodeStreamEvent("suggested_questions", "", {
-            suggestedQuestions: visibleSuggestedQuestions,
+          encodeStreamEvent("suggested_replies", "", {
+            suggestedReplies: visibleSuggestedReplies,
           }),
         );
       }
@@ -715,16 +719,16 @@ function resolveAssistantAction(
   }
 }
 
-function resolveVisibleSuggestedQuestions(
+function resolveVisibleSuggestedReplies(
   chatIntent: ChatIntent,
   assistantAction: AssistantAction | null,
 ) {
-  // 只有需要用户补信息时展示建议问题；已触发内部动作时避免按钮和生成态同时出现。
+  // 只有需要用户补信息时展示一键回复；已触发内部动作时避免按钮和生成态同时出现。
   if (assistantAction || chatIntent.canTriggerAction) {
     return [];
   }
 
-  return chatIntent.suggestedQuestions;
+  return chatIntent.suggestedReplies;
 }
 
 function buildSystemPrompt(
@@ -925,7 +929,7 @@ function createFallbackChatIntent(
         : conversationContext.currentIntent ?? workoutIntent,
     canTriggerAction: false,
     missingActionFields: [],
-    suggestedQuestions: [],
+    suggestedReplies: [],
   };
 }
 

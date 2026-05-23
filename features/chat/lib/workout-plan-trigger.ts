@@ -13,8 +13,8 @@ export type ExerciseRecommendationTrigger = {
   rawBlock: string;
 };
 
-export type SuggestedQuestionTrigger = {
-  suggestedQuestions: string[];
+export type SuggestedReplyTrigger = {
+  suggestedReplies: string[];
   rawBlock: string;
 };
 
@@ -84,7 +84,7 @@ export function extractExerciseRecommendationTrigger(
   }
 }
 
-export function extractSuggestedQuestionTrigger(content: string): SuggestedQuestionTrigger | null {
+export function extractSuggestedReplyTrigger(content: string): SuggestedReplyTrigger | null {
   const regex = /```json\s*([\s\S]*?)\s*```/g;
 
   for (const match of content.matchAll(regex)) {
@@ -93,29 +93,36 @@ export function extractSuggestedQuestionTrigger(content: string): SuggestedQuest
     }
 
     try {
-      const parsed = JSON.parse(match[1]) as { type?: unknown; suggestedQuestions?: unknown };
-      if (parsed.type !== "suggested_question_trigger") {
+      const parsed = JSON.parse(match[1]) as {
+        type?: unknown;
+        suggestedReplies?: unknown;
+        suggestedQuestions?: unknown;
+      };
+      if (parsed.type !== "suggested_reply_trigger" && parsed.type !== "suggested_question_trigger") {
         continue;
       }
 
-      const suggestedQuestions = Array.isArray(parsed.suggestedQuestions)
-        ? parsed.suggestedQuestions
-            .filter((question): question is string => typeof question === "string")
-            .map((question) => question.trim())
+      const rawReplies = Array.isArray(parsed.suggestedReplies)
+        ? parsed.suggestedReplies
+        : parsed.suggestedQuestions;
+      const suggestedReplies = Array.isArray(rawReplies)
+        ? rawReplies
+            .filter((reply): reply is string => typeof reply === "string")
+            .map((reply) => reply.trim())
             .filter(Boolean)
             .slice(0, 3)
         : [];
 
-      if (suggestedQuestions.length === 0) {
+      if (suggestedReplies.length === 0) {
         return null;
       }
 
       return {
-        suggestedQuestions,
+        suggestedReplies,
         rawBlock: match[0],
       };
     } catch (error) {
-      console.error("Failed to parse suggested question trigger JSON:", error);
+      console.error("Failed to parse suggested reply trigger JSON:", error);
     }
   }
 

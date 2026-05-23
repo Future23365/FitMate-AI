@@ -10,7 +10,7 @@ import { ExerciseRecommendationCard } from "@/features/exercises/components/exer
 import { useChatController } from "@/features/chat/hooks/use-chat-controller";
 import {
   extractExerciseRecommendationTrigger,
-  extractSuggestedQuestionTrigger,
+  extractSuggestedReplyTrigger,
   extractWorkoutPlanTrigger,
   extractWorkoutRoutineTrigger,
 } from "@/features/chat/lib/workout-plan-trigger";
@@ -197,21 +197,24 @@ export function ChatPage() {
                       const recommendationTrigger = extractExerciseRecommendationTrigger(
                         trigger || routineTrigger ? "" : message.content,
                       );
-                      const suggestedQuestionTrigger = extractSuggestedQuestionTrigger(message.content);
+                      const suggestedReplyTrigger = extractSuggestedReplyTrigger(message.content);
                       let cleanContent = message.content;
                       for (const rawBlock of [
                         trigger?.rawBlock,
                         routineTrigger?.rawBlock,
                         recommendationTrigger?.rawBlock,
-                        suggestedQuestionTrigger?.rawBlock,
+                        suggestedReplyTrigger?.rawBlock,
                       ]) {
                         if (rawBlock) {
                           cleanContent = cleanContent.replace(rawBlock, "");
                         }
                       }
                       cleanContent = cleanContent.trim();
-                      const suggestedQuestions =
-                        message.suggestedQuestions ?? suggestedQuestionTrigger?.suggestedQuestions ?? [];
+                      const suggestedReplies =
+                        message.suggestedReplies ??
+                        message.suggestedQuestions ??
+                        suggestedReplyTrigger?.suggestedReplies ??
+                        [];
 
                       if (message.role === "assistant") {
                         return (
@@ -224,17 +227,17 @@ export function ChatPage() {
                               <ChatThinkingIndicator />
                             )}
 
-                            {suggestedQuestions.length > 0 && (
+                            {suggestedReplies.length > 0 && (
                               <div className="mt-md flex flex-wrap gap-sm">
-                                {suggestedQuestions.map((question) => (
+                                {suggestedReplies.map((reply) => (
                                   <button
                                     className="max-w-full break-words rounded-xl border border-primary/20 bg-primary-soft px-md py-sm text-left font-label-sm text-label-sm font-bold text-primary transition-colors hover:border-primary/40 hover:bg-[#dbe5ff] disabled:cursor-not-allowed disabled:opacity-60"
                                     disabled={isLoading}
-                                    key={question}
-                                    onClick={() => sendMessage(question)}
+                                    key={reply}
+                                    onClick={() => sendMessage(reply)}
                                     type="button"
                                   >
-                                    {question}
+                                    {reply}
                                   </button>
                                 ))}
                               </div>

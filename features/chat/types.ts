@@ -9,7 +9,9 @@ export type ChatMessage = {
   reasoningContent?: string;
   /** 仅用于前端加载态，不保存或展示模型原始推理内容 */
   isReasoning?: boolean;
-  /** 模型显式给出的下一步问题建议，点击后自动作为用户消息发送 */
+  /** 模型显式给出的用户视角一键回复，点击后自动作为用户消息发送 */
+  suggestedReplies?: string[];
+  /** @deprecated 旧历史兼容字段；新消息使用 suggestedReplies */
   suggestedQuestions?: string[];
 };
 
@@ -21,10 +23,19 @@ export type AssistantActionEvent = {
 };
 
 export type ChatStreamEvent = {
-  type: "reasoning" | "content" | "done" | "error" | "assistant_action" | "suggested_questions";
+  type:
+    | "reasoning"
+    | "content"
+    | "done"
+    | "error"
+    | "assistant_action"
+    | "suggested_replies"
+    | "suggested_questions";
   delta?: string;
   action?: AssistantActionEvent["action"];
   intent?: unknown;
+  suggestedReplies?: string[];
+  /** @deprecated 旧流事件兼容字段；新事件使用 suggestedReplies */
   suggestedQuestions?: string[];
   /** 服务端 Trace ID，用于把后续自动计划生成追加到同一条开发日志 */
   traceId?: string;

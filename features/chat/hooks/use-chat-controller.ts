@@ -10,7 +10,7 @@ import {
 import { readChatHistory, saveChatConversation } from "@/features/chat/lib/chat-history";
 import {
   extractExerciseRecommendationTrigger,
-  extractSuggestedQuestionTrigger,
+  extractSuggestedReplyTrigger,
   extractWorkoutPlanTrigger,
   extractWorkoutRoutineTrigger,
 } from "@/features/chat/lib/workout-plan-trigger";
@@ -424,19 +424,23 @@ export function useChatController() {
             continue;
           }
 
-          if (streamEvent.type === "suggested_questions") {
-            const suggestedQuestions = Array.isArray(streamEvent.suggestedQuestions)
-              ? streamEvent.suggestedQuestions
-                  .filter((question): question is string => typeof question === "string")
-                  .map((question) => question.trim())
+          if (streamEvent.type === "suggested_replies" || streamEvent.type === "suggested_questions") {
+            const rawReplies =
+              streamEvent.type === "suggested_replies"
+                ? streamEvent.suggestedReplies
+                : streamEvent.suggestedQuestions;
+            const suggestedReplies = Array.isArray(rawReplies)
+              ? rawReplies
+                  .filter((reply): reply is string => typeof reply === "string")
+                  .map((reply) => reply.trim())
                   .filter(Boolean)
                   .slice(0, 3)
               : [];
 
-            if (suggestedQuestions.length > 0) {
+            if (suggestedReplies.length > 0) {
               updateAssistantMessage(assistantMessage.id, (message) => ({
                 ...message,
-                suggestedQuestions,
+                suggestedReplies,
               }));
             }
             continue;
@@ -467,11 +471,11 @@ export function useChatController() {
 
       const trigger = extractWorkoutPlanTrigger(fullContent);
       const routineTrigger = extractWorkoutRoutineTrigger(fullContent);
-      const suggestedQuestionTrigger = extractSuggestedQuestionTrigger(fullContent);
-      if (suggestedQuestionTrigger) {
+      const suggestedReplyTrigger = extractSuggestedReplyTrigger(fullContent);
+      if (suggestedReplyTrigger) {
         updateAssistantMessage(assistantMessage.id, (message) => ({
           ...message,
-          suggestedQuestions: suggestedQuestionTrigger.suggestedQuestions,
+          suggestedReplies: suggestedReplyTrigger.suggestedReplies,
         }));
       }
 
