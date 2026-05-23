@@ -547,14 +547,14 @@ export function ExerciseLibraryPage() {
                             {exercise.nameZh}
                           </p>
                           <span
-                            className={`inline-flex shrink-0 items-center gap-1 font-label-xs text-[10px] leading-none ${
+                            className={`inline-flex shrink-0 items-center gap-1 font-label-xs text-[11px] leading-none ${
                               isSelected
                                 ? "text-primary"
                                 : "text-muted"
                             }`}
                           >
                             <span
-                              className={`h-1 w-1 rounded-full ${getDifficultyDot(exercise.level)}`}
+                              className={`h-1.5 w-1.5 rounded-full ${getDifficultyDot(exercise.level)}`}
                             />
                             {exercise.levelZh || "未标注"}
                           </span>
