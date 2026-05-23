@@ -1191,8 +1191,10 @@ function WorkoutSectionBlock({
 
   return (
     <section
-      className={`rounded-[20px] border bg-white p-md transition-colors ${
-        isSelected ? "border-primary/30 ring-2 ring-primary/10" : "border-line"
+      className={`relative overflow-hidden rounded-[20px] border p-md transition-all ${
+        isSelected
+          ? "border-primary bg-primary-soft/55 shadow-lift ring-2 ring-primary/25"
+          : "border-line bg-white"
       }`}
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
@@ -1200,9 +1202,16 @@ function WorkoutSectionBlock({
         onDropToEnd();
       }}
     >
+      {isSelected ? (
+        <span className="absolute inset-y-0 left-0 w-1.5 bg-primary" aria-hidden="true" />
+      ) : null}
       <div className="mb-md flex flex-col gap-sm md:flex-row md:items-center md:justify-between">
         <div className="flex min-w-0 items-start gap-sm">
-          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary-soft text-primary">
+          <span
+            className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${
+              isSelected ? "bg-primary text-white" : "bg-primary-soft text-primary"
+            }`}
+          >
             <SymbolIcon className="text-[22px]">{section.icon}</SymbolIcon>
           </span>
           <div className="min-w-0">
@@ -1233,12 +1242,16 @@ function WorkoutSectionBlock({
             </label>
           ) : null}
           <button
-            className="flex items-center gap-xs rounded-xl border border-outline px-md py-sm font-label-md text-label-md transition-colors hover:bg-panel-soft"
+            className={`flex items-center gap-xs rounded-xl border px-md py-sm font-label-md text-label-md transition-colors ${
+              isSelected
+                ? "border-primary bg-primary text-white shadow-card hover:bg-primary-deep"
+                : "border-outline bg-white hover:bg-panel-soft"
+            }`}
             onClick={onAddNext}
             type="button"
           >
-            <SymbolIcon className="text-[18px]">playlist_add</SymbolIcon>
-            下个动作加入这里
+            <SymbolIcon className="text-[18px]">{isSelected ? "check_circle" : "playlist_add"}</SymbolIcon>
+            {isSelected ? "当前加入位置" : "下个动作加入这里"}
           </button>
         </div>
       </div>
