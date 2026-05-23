@@ -129,7 +129,7 @@ export async function POST(request: Request) {
           nameEn: exercise.nameEn,
           categoryZh: exercise.categoryZh ?? "训练",
           levelZh: exercise.levelZh ?? "初级",
-          equipmentZh: exercise.equipmentZh ?? "自重",
+          equipmentZh: exercise.equipmentZh ?? "未标注器械",
           primaryMusclesZh: exercise.primaryMusclesZh,
           secondaryMusclesZh: exercise.secondaryMusclesZh,
           imageUrl: exercise.imageUrls[0],
