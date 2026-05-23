@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 
 type RouteSnapshot = {
@@ -28,14 +28,8 @@ export function RouteTransition({ children }: { children: ReactNode }) {
   const [exitingRoute, setExitingRoute] = useState<RouteSnapshot | null>(null);
 
   // 保留上一帧路由快照，给退出页留出缩小后退动画时间。
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (pathname === activeRef.current.key) {
-      const refreshedRoute = {
-        ...activeRef.current,
-        content: children,
-      };
-      activeRef.current = refreshedRoute;
-      setActiveRoute(refreshedRoute);
       return;
     }
 
