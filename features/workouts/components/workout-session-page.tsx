@@ -245,9 +245,9 @@ export function WorkoutSessionPage() {
   }
 
   return (
-    <main className="custom-scrollbar h-dvh overflow-y-auto bg-canvas text-ink">
-      <div className="flex min-h-dvh flex-col gap-md px-md py-md md:px-xl md:py-lg 2xl:px-2xl">
-        <header className="flex shrink-0 flex-wrap items-center justify-between gap-md rounded-[20px] border border-line bg-white px-md py-sm shadow-card md:px-lg">
+    <main className="custom-scrollbar h-dvh overflow-y-auto bg-canvas text-ink xl:overflow-hidden">
+      <div className="flex min-h-dvh flex-col gap-sm px-md py-sm md:px-lg md:py-md xl:h-dvh xl:min-h-0 2xl:px-xl">
+        <header className="flex shrink-0 flex-wrap items-center justify-between gap-sm rounded-[20px] border border-line bg-white px-md py-xs shadow-card md:px-lg">
           <Link
             className="flex min-h-11 items-center gap-sm rounded-xl px-sm text-body-md font-extrabold text-ink transition-colors hover:bg-panel-soft hover:text-primary"
             href="/plans"
@@ -290,13 +290,13 @@ export function WorkoutSessionPage() {
           </div>
         </header>
 
-        <section className="grid flex-1 gap-md xl:min-h-0 xl:grid-cols-[minmax(280px,0.9fr)_minmax(420px,1.25fr)_minmax(300px,0.85fr)]">
-          <aside className="flex min-h-0 flex-col gap-md">
-            <section className="rounded-[20px] border border-line bg-white p-lg shadow-card">
-              <div className="mb-md flex items-start justify-between gap-md">
+        <section className="grid min-h-0 flex-1 gap-sm xl:grid-cols-[minmax(260px,0.86fr)_minmax(390px,1.28fr)_minmax(280px,0.82fr)]">
+          <aside className="flex min-h-0 flex-col gap-sm">
+            <section className="rounded-[20px] border border-line bg-white p-md shadow-card">
+              <div className="mb-sm flex items-start justify-between gap-md">
                 <div className="min-w-0">
                   <p className="text-label-md font-bold text-primary">当前计划</p>
-                  <h1 className="mt-xs truncate text-[22px] font-extrabold leading-tight">{plan.title}</h1>
+                  <h1 className="mt-xs truncate text-[20px] font-extrabold leading-tight">{plan.title}</h1>
                 </div>
                 <span className="rounded-full bg-primary-soft px-md py-xs text-label-md font-bold text-primary">
                   {plan.status === "completed" ? "已完成" : "进行中"}
@@ -309,8 +309,8 @@ export function WorkoutSessionPage() {
               </div>
             </section>
 
-            <section className="flex min-h-[280px] flex-1 flex-col rounded-[20px] border border-line bg-white p-lg shadow-card">
-              <div className="mb-md flex items-center justify-between gap-md">
+            <section className="flex min-h-0 flex-1 flex-col rounded-[20px] border border-line bg-white p-md shadow-card">
+              <div className="mb-sm flex items-center justify-between gap-md">
                 <div>
                   <p className="text-label-md font-bold text-primary">动作示范</p>
                   <h2 className="text-title-lg font-extrabold">{currentItem.nameZh}</h2>
@@ -319,7 +319,7 @@ export function WorkoutSessionPage() {
                   {Math.max(1, currentExerciseIndex + 1)}/{plan.items.length}
                 </span>
               </div>
-              <div className="relative grid min-h-[240px] flex-1 place-items-center overflow-hidden rounded-xl bg-panel-soft">
+              <div className="relative grid min-h-0 flex-1 place-items-center overflow-hidden rounded-xl bg-panel-soft">
                 {currentItem.imageUrl && currentItem.imageUrl !== placeholderImage ? (
                   <Image
                     alt={`${currentItem.nameZh} 动作图`}
@@ -335,30 +335,30 @@ export function WorkoutSessionPage() {
             </section>
           </aside>
 
-          <section className="flex min-h-[520px] flex-col items-center justify-center rounded-[20px] border border-line bg-white px-lg py-xl text-center shadow-card xl:min-h-0">
-            <span className="mb-md inline-flex items-center gap-xs rounded-full bg-primary-soft px-md py-xs text-label-md font-bold text-primary">
+          <section className="flex min-h-0 flex-col items-center justify-center rounded-[20px] border border-line bg-white px-lg py-lg text-center shadow-card">
+            <span className="mb-sm inline-flex items-center gap-xs rounded-full bg-primary-soft px-md py-xs text-label-md font-bold text-primary">
               <SymbolIcon className="text-lg">fitness_center</SymbolIcon>
               第 {activeStep?.setIndex ?? 1} / {activeStep?.totalSets ?? 1} 组
             </span>
-            <h2 className="max-w-[680px] text-[34px] font-extrabold leading-tight text-ink md:text-[44px]">
+            <h2 className="max-w-[680px] text-[30px] font-extrabold leading-tight text-ink md:text-[38px]">
               {currentItem.nameZh}
             </h2>
             <p className="mt-sm text-body-lg font-semibold text-muted">
               {currentItem.musclesZh.slice(0, 3).join("、") || currentItem.categoryZh}
             </p>
-            <div className="my-lg text-[clamp(84px,16vw,172px)] font-black leading-none text-ink [font-variant-numeric:tabular-nums]">
+            <div className="my-md text-[clamp(76px,12vw,132px)] font-black leading-none text-ink [font-variant-numeric:tabular-nums]">
               {formatClock(remainingSeconds)}
             </div>
             <p className="text-body-lg font-extrabold text-ink">
               目标 {currentItem.mode === "duration" ? `${currentItem.target} 秒` : `${currentItem.target} 次`}
             </p>
-            <div className="mt-md h-3 w-full max-w-[620px] overflow-hidden rounded-full bg-panel-soft">
+            <div className="mt-sm h-2.5 w-full max-w-[620px] overflow-hidden rounded-full bg-panel-soft">
               <span
                 className="block h-full rounded-full bg-primary transition-[width] duration-300"
                 style={{ width: `${Math.max(3, Math.min(100, progress))}%` }}
               />
             </div>
-            <div className="mt-xl flex items-start justify-center gap-lg md:gap-xl">
+            <div className="mt-lg flex items-start justify-center gap-lg md:gap-xl">
               <SessionControl icon="skip_previous" label="上一个" onClick={() => goToStep(activeStepIndex - 1)} />
               <SessionControl
                 icon={isPaused ? "play_arrow" : "pause"}
@@ -370,9 +370,9 @@ export function WorkoutSessionPage() {
             </div>
           </section>
 
-          <aside className="flex min-h-0 flex-col gap-md">
-            <section className="flex min-h-[360px] flex-1 flex-col rounded-[20px] border border-line bg-white p-lg shadow-card">
-              <div className="mb-md flex items-center justify-between gap-md">
+          <aside className="flex min-h-0 flex-col gap-sm">
+            <section className="flex min-h-0 flex-1 flex-col rounded-[20px] border border-line bg-white p-md shadow-card">
+              <div className="mb-sm flex items-center justify-between gap-md">
                 <div>
                   <p className="text-label-md font-bold text-primary">训练项目</p>
                   <h2 className="text-title-lg font-extrabold">{plan.items.length} 个动作</h2>
@@ -386,7 +386,7 @@ export function WorkoutSessionPage() {
 
                   return (
                     <button
-                      className={`grid min-h-[76px] w-full grid-cols-[64px_1fr_36px] items-center gap-md rounded-xl border p-sm text-left transition-colors ${
+                      className={`grid min-h-[64px] w-full grid-cols-[56px_1fr_32px] items-center gap-sm rounded-xl border p-xs text-left transition-colors ${
                         isActive
                           ? "border-primary/25 bg-primary-soft text-primary"
                           : "border-transparent bg-white hover:border-line hover:bg-panel-soft"
@@ -412,8 +412,8 @@ export function WorkoutSessionPage() {
               </div>
             </section>
 
-            <section className="rounded-[20px] border border-line bg-white p-lg shadow-card">
-              <div className="mb-md flex items-center justify-between">
+            <section className="shrink-0 rounded-[20px] border border-line bg-white p-md shadow-card">
+              <div className="mb-sm flex items-center justify-between">
                 <h2 className="text-title-lg font-extrabold">训练控制</h2>
                 <span className="flex items-center gap-xs text-label-md font-bold text-muted">
                   <SymbolIcon className="text-lg">timer</SymbolIcon>
@@ -422,7 +422,7 @@ export function WorkoutSessionPage() {
               </div>
               <div className="grid grid-cols-2 gap-sm">
                 <button
-                  className="flex h-[52px] items-center justify-center gap-xs rounded-xl border border-red-200 bg-white text-body-md font-extrabold text-danger transition-colors hover:bg-red-50"
+                  className="flex h-11 items-center justify-center gap-xs rounded-xl border border-red-200 bg-white text-body-md font-extrabold text-danger transition-colors hover:bg-red-50"
                   onClick={finishTraining}
                   type="button"
                 >
@@ -430,7 +430,7 @@ export function WorkoutSessionPage() {
                   结束
                 </button>
                 <button
-                  className="flex h-[52px] items-center justify-center gap-xs rounded-xl border border-primary/30 bg-white text-body-md font-extrabold text-primary transition-colors hover:bg-primary-soft"
+                  className="flex h-11 items-center justify-center gap-xs rounded-xl border border-primary/30 bg-white text-body-md font-extrabold text-primary transition-colors hover:bg-primary-soft"
                   onClick={() => goToStep(activeStepIndex + 1)}
                   type="button"
                 >
@@ -439,7 +439,7 @@ export function WorkoutSessionPage() {
                 </button>
               </div>
               {nextItem ? (
-                <div className="mt-md rounded-xl bg-panel-soft p-md">
+                <div className="mt-sm rounded-xl bg-panel-soft p-sm">
                   <p className="text-label-md font-bold text-muted">下一个动作</p>
                   <p className="mt-xs truncate text-body-md font-extrabold">{nextItem.nameZh}</p>
                 </div>
@@ -449,7 +449,7 @@ export function WorkoutSessionPage() {
         </section>
 
         {showTip ? (
-          <section className="flex shrink-0 items-center gap-md rounded-[20px] border border-primary/10 bg-primary-soft px-lg py-md text-body-md text-muted">
+          <section className="flex h-12 shrink-0 items-center gap-md overflow-hidden rounded-[20px] border border-primary/10 bg-primary-soft px-md text-body-md text-muted">
             <SymbolIcon className="text-2xl text-primary">tips_and_updates</SymbolIcon>
             <span className="font-extrabold text-primary">训练提示</span>
             <span className="min-w-0 flex-1 truncate">
@@ -483,12 +483,12 @@ function Metric({
 }) {
   return (
     <div className="min-w-0 rounded-xl border border-line bg-panel-soft px-sm py-md">
-      <p className="mb-xs flex items-center justify-center gap-xs text-label-md font-semibold text-muted">
-        <SymbolIcon className="text-xl text-muted">{icon}</SymbolIcon>
+      <p className="mb-xs flex items-center justify-center gap-xs text-label-sm font-semibold text-muted">
+        <SymbolIcon className="text-lg text-muted">{icon}</SymbolIcon>
         {label}
       </p>
-      <p className="truncate text-center text-[24px] font-black leading-tight text-ink [font-variant-numeric:tabular-nums]">
-        {value} {suffix ? <span className="text-body-lg font-bold">{suffix}</span> : null}
+      <p className="truncate text-center text-[20px] font-black leading-tight text-ink [font-variant-numeric:tabular-nums]">
+        {value} {suffix ? <span className="text-label-md font-bold">{suffix}</span> : null}
       </p>
     </div>
   );
@@ -506,12 +506,12 @@ function SessionControl({
   onClick: () => void;
 }) {
   return (
-    <div className="flex min-w-[82px] flex-col items-center gap-sm text-label-md font-bold text-muted">
+    <div className="flex min-w-[76px] flex-col items-center gap-xs text-label-md font-bold text-muted">
       <button
         className={`grid place-items-center rounded-full transition-transform active:scale-95 ${
           large
-            ? "h-20 w-20 border-0 bg-primary text-white shadow-lift md:h-24 md:w-24"
-            : "h-14 w-14 border border-line bg-white text-ink shadow-card hover:bg-panel-soft"
+            ? "h-18 w-18 border-0 bg-primary text-white shadow-lift md:h-20 md:w-20"
+            : "h-12 w-12 border border-line bg-white text-ink shadow-card hover:bg-panel-soft"
         }`}
         onClick={onClick}
         type="button"
@@ -527,13 +527,13 @@ function SessionControl({
 
 function ExerciseThumb({ index, item }: { index: number; item: WorkoutItem }) {
   return (
-    <div className="relative grid h-[58px] w-16 place-items-center overflow-hidden rounded-[8px] bg-panel-soft">
+    <div className="relative grid h-12 w-14 place-items-center overflow-hidden rounded-[8px] bg-panel-soft">
       {item.imageUrl && item.imageUrl !== placeholderImage ? (
         <Image
           alt={`${item.nameZh} 缩略图`}
           className="object-contain p-xs"
           fill
-          sizes="64px"
+          sizes="56px"
           src={item.imageUrl}
         />
       ) : (
@@ -554,7 +554,7 @@ function StepStatus({
 }) {
   if (isDone) {
     return (
-      <span className="grid h-8 w-8 place-items-center rounded-full bg-success-soft text-success-text">
+      <span className="grid h-7 w-7 place-items-center rounded-full bg-success-soft text-success-text">
         <SymbolIcon className="text-lg" filled>
           check
         </SymbolIcon>
@@ -564,7 +564,7 @@ function StepStatus({
 
   if (isActive) {
     return (
-      <span className="grid h-8 w-8 place-items-center rounded-full bg-primary text-white">
+      <span className="grid h-7 w-7 place-items-center rounded-full bg-primary text-white">
         <SymbolIcon className="text-lg" filled>
           play_arrow
         </SymbolIcon>
@@ -573,7 +573,7 @@ function StepStatus({
   }
 
   return (
-    <span className="grid h-8 w-8 place-items-center rounded-full border border-line bg-white text-label-md font-extrabold text-muted">
+    <span className="grid h-7 w-7 place-items-center rounded-full border border-line bg-white text-label-md font-extrabold text-muted">
       {index + 1}
     </span>
   );
@@ -581,7 +581,7 @@ function StepStatus({
 
 function SquatIllustration() {
   return (
-    <div className="relative h-[330px] w-[300px] scale-90 2xl:scale-100" aria-label="深蹲动作示意">
+    <div className="relative h-[330px] w-[300px] scale-[0.76] 2xl:scale-90" aria-label="深蹲动作示意">
       <span className="absolute left-[151px] top-[5px] h-[38px] w-[70px] -rotate-[8deg] rounded-[55%_55%_45%_45%] bg-slate-950" />
       <span className="absolute left-[160px] top-[18px] h-[62px] w-[54px] rounded-[42%_42%_48%_48%] bg-[#f2c7a8] shadow-[inset_-8px_0_0_rgba(0,0,0,0.05)]" />
       <span className="absolute left-[173px] top-[72px] h-[28px] w-[24px] rounded-lg bg-[#eebc9c]" />
