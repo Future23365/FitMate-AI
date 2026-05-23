@@ -124,8 +124,8 @@ export function AppSidebar() {
     }
   }
 
-  // 开发调试页使用独立布局，不显示主应用侧边栏。
-  if (pathname.startsWith("/dev")) {
+  // 开发调试页与训练执行页使用独立布局，不显示主应用侧边栏。
+  if (pathname.startsWith("/dev") || pathname.startsWith("/training")) {
     return null;
   }
 

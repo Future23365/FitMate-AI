@@ -177,6 +177,11 @@ export function WorkoutSessionPage() {
     estimateCalories(plan.items),
     Math.round(Math.max(0, elapsedSeconds / 60) * 7.2 + completedItems.size * 8),
   );
+  const sessionProgress = steps.length
+    ? ((activeStepIndex + Math.max(0, Math.min(1, progress / 100))) / steps.length) * 100
+    : 0;
+  const nextItem = plan.items[currentExerciseIndex + 1];
+  const remainingSteps = Math.max(0, steps.length - activeStepIndex - 1);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -240,180 +245,227 @@ export function WorkoutSessionPage() {
   }
 
   return (
-    <main className="custom-scrollbar app-mesh-bg min-h-screen overflow-y-auto px-md py-lg text-ink md:px-xl lg:pl-[284px]">
-      <header className="mb-lg flex items-center justify-between gap-md">
-        <Link className="flex items-center gap-md font-headline-md text-headline-md font-bold" href="/plans">
-          <span className="grid h-9 w-9 place-items-center rounded-full text-3xl leading-none transition-colors hover:bg-white">
-            ←
-          </span>
-          训练中
-        </Link>
-        <div className="flex items-center gap-sm">
-          <button className="relative grid h-10 w-10 place-items-center rounded-xl border border-line bg-white text-muted shadow-card transition-colors hover:text-primary" type="button">
-            <SymbolIcon className="text-2xl">notifications</SymbolIcon>
-            <span className="absolute right-1 top-1 grid h-5 min-w-5 place-items-center rounded-full border-2 border-white bg-red-500 px-1 text-[10px] font-bold text-white">
-              2
-            </span>
-          </button>
-          <button className="grid h-10 w-10 place-items-center rounded-xl border border-line bg-white text-muted shadow-card transition-colors hover:text-primary" type="button">
-            <SymbolIcon className="text-2xl">settings</SymbolIcon>
-          </button>
-        </div>
-      </header>
-
-      <section className="mb-lg grid gap-lg rounded-[20px] border border-line bg-white/90 p-lg shadow-card backdrop-blur-md xl:grid-cols-[1.7fr_1fr_1fr_1fr]">
-        <div className="flex items-center gap-md">
-          <div className="grid h-[72px] w-[72px] shrink-0 place-items-center rounded-[20px] bg-primary-soft text-primary shadow-[inset_0_0_0_1px_#dceafe]">
-            <SymbolIcon className="text-4xl">directions_run</SymbolIcon>
-          </div>
-          <div className="min-w-0">
-            <h1 className="truncate text-[22px] font-extrabold">{plan.title}</h1>
-            <p className="mt-xs text-body-md text-slate-600">
-              {plan.minutes || estimateMinutes(plan.items)} 分钟 · {plan.items.length} 个动作 · {plan.calories || estimateCalories(plan.items)} kcal
-            </p>
-          </div>
-        </div>
-        <Metric icon="schedule" label="已训练时间" value={formatClock(elapsedSeconds)} />
-        <Metric icon="local_fire_department" label="消耗热量" suffix="kcal" value={trainedCalories} />
-        <Metric icon="favorite" label="平均心率" suffix="bpm" value={Math.min(142, 118 + Math.floor(elapsedSeconds / 45))} />
-      </section>
-
-      <section className="grid items-start gap-lg xl:grid-cols-[340px_minmax(480px,1fr)_360px] 2xl:grid-cols-[390px_minmax(520px,1fr)_410px]">
-        <aside className="rounded-[20px] border border-line bg-white/90 p-lg shadow-card">
-          <span className="mb-md inline-flex h-10 items-center rounded-xl bg-primary px-lg text-body-md font-bold text-white shadow-card">
-            当前动作 {Math.max(1, currentExerciseIndex + 1)} / {plan.items.length}
-          </span>
-          <div className="relative grid h-[320px] place-items-center overflow-hidden rounded-xl bg-panel-soft 2xl:h-[420px]">
-            {currentItem.imageUrl && currentItem.imageUrl !== placeholderImage ? (
-              <Image
-                alt={`${currentItem.nameZh} 动作图`}
-                className="object-contain"
-                fill
-                sizes="(min-width: 1536px) 390px, 340px"
-                src={currentItem.imageUrl}
-              />
-            ) : (
-              <SquatIllustration />
-            )}
-          </div>
-        </aside>
-
-        <section className="flex min-h-[380px] flex-col items-center justify-center px-md text-center 2xl:min-h-[500px]">
-          <h2 className="text-[32px] font-black leading-tight text-slate-950 2xl:text-[42px]">{currentItem.nameZh}</h2>
-          <p className="mb-lg mt-xs text-title-lg text-slate-700 2xl:mb-xl">
-            锻炼部位：{currentItem.musclesZh.slice(0, 3).join("、") || currentItem.categoryZh}
-          </p>
-          <div className="mb-sm text-[clamp(78px,11vw,148px)] font-black leading-[0.9] tracking-[-0.08em] text-[#0f1b31] [font-variant-numeric:tabular-nums] 2xl:mb-lg 2xl:text-[clamp(128px,15vw,196px)]">
-            {formatClock(remainingSeconds)}
-          </div>
-          <p className="mb-sm text-xl font-bold 2xl:mb-md 2xl:text-[23px]">
-            目标：{currentItem.mode === "duration" ? `${currentItem.target} 秒` : `${currentItem.target} 次`} · 第 {activeStep?.setIndex ?? 1} / {activeStep?.totalSets ?? 1} 组
-          </p>
-          <div className="mb-md h-[9px] w-full max-w-[560px] overflow-hidden rounded-full bg-panel-soft 2xl:mb-xl">
-            <span className="block h-full rounded-full bg-primary" style={{ width: `${Math.max(3, Math.min(100, progress))}%` }} />
-          </div>
-          <button
-            className="mb-md flex h-[46px] w-full max-w-[540px] items-center justify-center gap-md rounded-xl border border-primary/20 bg-primary-soft px-lg text-body-md font-bold 2xl:mb-xl 2xl:h-[54px] 2xl:text-body-lg"
-            onClick={() => setIsAudioOn((value) => !value)}
-            type="button"
+    <main className="custom-scrollbar h-dvh overflow-y-auto bg-canvas text-ink">
+      <div className="flex min-h-dvh flex-col gap-md px-md py-md md:px-xl md:py-lg 2xl:px-2xl">
+        <header className="flex shrink-0 flex-wrap items-center justify-between gap-md rounded-[20px] border border-line bg-white px-md py-sm shadow-card md:px-lg">
+          <Link
+            className="flex min-h-11 items-center gap-sm rounded-xl px-sm text-body-md font-extrabold text-ink transition-colors hover:bg-panel-soft hover:text-primary"
+            href="/plans"
           >
-            <SymbolIcon className="text-2xl text-blue-700">volume_up</SymbolIcon>
-            每秒提示音：{isAudioOn ? "已开启" : "已关闭"}
-            <AudioWave />
-          </button>
-          <div className="flex items-start justify-center gap-lg md:gap-xl 2xl:gap-[80px]">
-            <SessionControl icon="skip_previous" label="上一个" onClick={() => goToStep(activeStepIndex - 1)} />
-            <SessionControl
-              icon={isPaused ? "play_arrow" : "pause"}
-              label={isPaused ? "继续" : "暂停"}
-              large
-              onClick={() => setIsPaused((value) => !value)}
-            />
-            <SessionControl icon="skip_next" label="下一个" onClick={() => goToStep(activeStepIndex + 1)} />
+            <SymbolIcon className="text-2xl">arrow_back</SymbolIcon>
+            训练中
+          </Link>
+          <div className="flex min-w-0 flex-1 items-center gap-md md:max-w-[520px]">
+            <div className="h-2 flex-1 overflow-hidden rounded-full bg-panel-soft">
+              <span
+                className="block h-full rounded-full bg-primary transition-[width] duration-300"
+                style={{ width: `${Math.max(2, Math.min(100, sessionProgress))}%` }}
+              />
+            </div>
+            <span className="shrink-0 text-label-md font-bold text-muted">
+              {activeStepIndex + 1}/{Math.max(1, steps.length)}
+            </span>
           </div>
-        </section>
+          <div className="flex items-center gap-sm">
+            <button
+              aria-label="切换提示音"
+              className={`grid h-11 w-11 place-items-center rounded-xl border transition-colors ${
+                isAudioOn
+                  ? "border-primary/20 bg-primary-soft text-primary"
+                  : "border-line bg-white text-muted hover:text-primary"
+              }`}
+              onClick={() => setIsAudioOn((value) => !value)}
+              type="button"
+            >
+              <SymbolIcon className="text-2xl">{isAudioOn ? "volume_up" : "volume_off"}</SymbolIcon>
+            </button>
+            <button
+              aria-label="结束训练"
+              className="grid h-11 w-11 place-items-center rounded-xl border border-red-200 bg-white text-danger transition-colors hover:bg-red-50"
+              onClick={finishTraining}
+              type="button"
+            >
+              <SymbolIcon className="text-2xl">stop</SymbolIcon>
+            </button>
+          </div>
+        </header>
 
-        <aside className="flex flex-col gap-md">
-          <section className="rounded-[20px] border border-line bg-white/90 p-lg shadow-card">
-            <div className="mb-md flex items-center justify-between">
-              <h2 className="text-title-lg font-extrabold">训练项目（{plan.items.length} / {plan.items.length}）</h2>
-              <span className="text-label-md font-bold text-primary">收起⌃</span>
+        <section className="grid flex-1 gap-md xl:min-h-0 xl:grid-cols-[minmax(280px,0.9fr)_minmax(420px,1.25fr)_minmax(300px,0.85fr)]">
+          <aside className="flex min-h-0 flex-col gap-md">
+            <section className="rounded-[20px] border border-line bg-white p-lg shadow-card">
+              <div className="mb-md flex items-start justify-between gap-md">
+                <div className="min-w-0">
+                  <p className="text-label-md font-bold text-primary">当前计划</p>
+                  <h1 className="mt-xs truncate text-[22px] font-extrabold leading-tight">{plan.title}</h1>
+                </div>
+                <span className="rounded-full bg-primary-soft px-md py-xs text-label-md font-bold text-primary">
+                  {plan.status === "completed" ? "已完成" : "进行中"}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-sm">
+                <Metric icon="schedule" label="已训练" value={formatClock(elapsedSeconds)} />
+                <Metric icon="local_fire_department" label="热量" suffix="kcal" value={trainedCalories} />
+                <Metric icon="repeat" label="剩余" suffix="组" value={remainingSteps} />
+              </div>
+            </section>
+
+            <section className="flex min-h-[280px] flex-1 flex-col rounded-[20px] border border-line bg-white p-lg shadow-card">
+              <div className="mb-md flex items-center justify-between gap-md">
+                <div>
+                  <p className="text-label-md font-bold text-primary">动作示范</p>
+                  <h2 className="text-title-lg font-extrabold">{currentItem.nameZh}</h2>
+                </div>
+                <span className="rounded-xl bg-panel-soft px-sm py-xs text-label-md font-bold text-muted">
+                  {Math.max(1, currentExerciseIndex + 1)}/{plan.items.length}
+                </span>
+              </div>
+              <div className="relative grid min-h-[240px] flex-1 place-items-center overflow-hidden rounded-xl bg-panel-soft">
+                {currentItem.imageUrl && currentItem.imageUrl !== placeholderImage ? (
+                  <Image
+                    alt={`${currentItem.nameZh} 动作图`}
+                    className="object-contain p-md"
+                    fill
+                    sizes="(min-width: 1280px) 30vw, 100vw"
+                    src={currentItem.imageUrl}
+                  />
+                ) : (
+                  <SquatIllustration />
+                )}
+              </div>
+            </section>
+          </aside>
+
+          <section className="flex min-h-[520px] flex-col items-center justify-center rounded-[20px] border border-line bg-white px-lg py-xl text-center shadow-card xl:min-h-0">
+            <span className="mb-md inline-flex items-center gap-xs rounded-full bg-primary-soft px-md py-xs text-label-md font-bold text-primary">
+              <SymbolIcon className="text-lg">fitness_center</SymbolIcon>
+              第 {activeStep?.setIndex ?? 1} / {activeStep?.totalSets ?? 1} 组
+            </span>
+            <h2 className="max-w-[680px] text-[34px] font-extrabold leading-tight text-ink md:text-[44px]">
+              {currentItem.nameZh}
+            </h2>
+            <p className="mt-sm text-body-lg font-semibold text-muted">
+              {currentItem.musclesZh.slice(0, 3).join("、") || currentItem.categoryZh}
+            </p>
+            <div className="my-lg text-[clamp(84px,16vw,172px)] font-black leading-none text-ink [font-variant-numeric:tabular-nums]">
+              {formatClock(remainingSeconds)}
             </div>
-            <div className="space-y-sm">
-              {plan.items.map((item, index) => {
-                const isActive = item.id === currentItem.id;
-                const isDone = completedItems.has(item.id);
-
-                return (
-                  <button
-                    className={`grid min-h-[78px] w-full grid-cols-[76px_1fr_36px] items-center gap-md rounded-xl p-sm text-left transition-colors ${
-                      isActive ? "bg-primary-soft" : "hover:bg-panel-soft"
-                    }`}
-                    key={item.id}
-                    onClick={() => {
-                      const nextStepIndex = steps.findIndex((step) => step.item.id === item.id);
-                      goToStep(nextStepIndex < 0 ? index : nextStepIndex);
-                    }}
-                    type="button"
-                  >
-                    <div className="grid h-[58px] w-[76px] place-items-center overflow-hidden rounded-[10px] bg-slate-100">
-                      <MiniFigure variant={index} />
-                    </div>
-                    <div className="min-w-0">
-                      <p className={`truncate text-body-lg font-extrabold ${isActive ? "text-primary" : ""}`}>{item.nameZh}</p>
-                      <p className="text-label-md font-semibold text-slate-500">
-                        {item.mode === "duration" ? `${item.target} 秒` : `${item.target} 次`} · {item.sets}组
-                      </p>
-                    </div>
-                    <span className={`grid h-8 w-8 place-items-center rounded-full text-sm font-extrabold ${
-                      isDone
-                        ? "bg-green-500 text-white"
-                        : isActive
-                          ? "bg-blue-600 text-white"
-                          : "border-2 border-slate-400 bg-white text-slate-500"
-                    }`}>
-                      {isDone ? "✓" : isActive ? "▶" : index + 1}
-                    </span>
-                  </button>
-                );
-              })}
+            <p className="text-body-lg font-extrabold text-ink">
+              目标 {currentItem.mode === "duration" ? `${currentItem.target} 秒` : `${currentItem.target} 次`}
+            </p>
+            <div className="mt-md h-3 w-full max-w-[620px] overflow-hidden rounded-full bg-panel-soft">
+              <span
+                className="block h-full rounded-full bg-primary transition-[width] duration-300"
+                style={{ width: `${Math.max(3, Math.min(100, progress))}%` }}
+              />
+            </div>
+            <div className="mt-xl flex items-start justify-center gap-lg md:gap-xl">
+              <SessionControl icon="skip_previous" label="上一个" onClick={() => goToStep(activeStepIndex - 1)} />
+              <SessionControl
+                icon={isPaused ? "play_arrow" : "pause"}
+                label={isPaused ? "继续" : "暂停"}
+                large
+                onClick={() => setIsPaused((value) => !value)}
+              />
+              <SessionControl icon="skip_next" label="下一个" onClick={() => goToStep(activeStepIndex + 1)} />
             </div>
           </section>
 
-          <section className="rounded-[20px] border border-line bg-white/90 p-lg shadow-card">
-            <div className="mb-lg flex items-center justify-between">
-              <h2 className="text-title-lg font-extrabold">训练控制</h2>
-              <span className="flex items-center gap-xs text-label-sm font-bold text-slate-500">
-                <SymbolIcon className="text-base">settings</SymbolIcon>
-                设置
-              </span>
-            </div>
-            <div className="grid grid-cols-2 gap-md">
-              <button className="flex h-[54px] items-center justify-center gap-xs rounded-xl border border-red-300 bg-white text-body-md font-extrabold text-red-500" onClick={finishTraining} type="button">
-                <SymbolIcon className="text-lg">stop</SymbolIcon>
-                结束训练
-              </button>
-              <button className="flex h-[54px] items-center justify-center gap-xs rounded-xl border border-primary/30 bg-white text-body-md font-extrabold text-primary" onClick={() => goToStep(activeStepIndex + 1)} type="button">
-                <SymbolIcon className="text-lg">skip_next</SymbolIcon>
-                跳过本组
-              </button>
-            </div>
-          </section>
-        </aside>
-      </section>
+          <aside className="flex min-h-0 flex-col gap-md">
+            <section className="flex min-h-[360px] flex-1 flex-col rounded-[20px] border border-line bg-white p-lg shadow-card">
+              <div className="mb-md flex items-center justify-between gap-md">
+                <div>
+                  <p className="text-label-md font-bold text-primary">训练项目</p>
+                  <h2 className="text-title-lg font-extrabold">{plan.items.length} 个动作</h2>
+                </div>
+                <SymbolIcon className="text-2xl text-muted">expand_less</SymbolIcon>
+              </div>
+              <div className="custom-scrollbar min-h-0 flex-1 space-y-sm overflow-y-auto pr-xs">
+                {plan.items.map((item, index) => {
+                  const isActive = item.id === currentItem.id;
+                  const isDone = completedItems.has(item.id);
 
-      {showTip ? (
-        <section className="mt-xl flex min-h-[62px] items-center gap-md rounded-xl border border-primary/10 bg-primary-soft px-lg text-body-lg text-muted">
-          <SymbolIcon className="text-2xl text-primary">tips_and_updates</SymbolIcon>
-          <span className="font-extrabold text-primary">训练提示</span>
-          <span className="min-w-0 flex-1 truncate">
-            {currentItem.instructionsZh[0] || "保持核心收紧，动作标准，注意呼吸节奏，避免代偿。"}
-          </span>
-          <button aria-label="关闭提示" className="text-3xl leading-none" onClick={() => setShowTip(false)} type="button">
-            ×
-          </button>
+                  return (
+                    <button
+                      className={`grid min-h-[76px] w-full grid-cols-[64px_1fr_36px] items-center gap-md rounded-xl border p-sm text-left transition-colors ${
+                        isActive
+                          ? "border-primary/25 bg-primary-soft text-primary"
+                          : "border-transparent bg-white hover:border-line hover:bg-panel-soft"
+                      }`}
+                      key={item.id}
+                      onClick={() => {
+                        const nextStepIndex = steps.findIndex((step) => step.item.id === item.id);
+                        goToStep(nextStepIndex < 0 ? index : nextStepIndex);
+                      }}
+                      type="button"
+                    >
+                      <ExerciseThumb item={item} index={index} />
+                      <div className="min-w-0">
+                        <p className="truncate text-body-md font-extrabold">{item.nameZh}</p>
+                        <p className="truncate text-label-md font-semibold text-muted">
+                          {item.mode === "duration" ? `${item.target} 秒` : `${item.target} 次`} · {item.sets}组
+                        </p>
+                      </div>
+                      <StepStatus index={index} isActive={isActive} isDone={isDone} />
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="rounded-[20px] border border-line bg-white p-lg shadow-card">
+              <div className="mb-md flex items-center justify-between">
+                <h2 className="text-title-lg font-extrabold">训练控制</h2>
+                <span className="flex items-center gap-xs text-label-md font-bold text-muted">
+                  <SymbolIcon className="text-lg">timer</SymbolIcon>
+                  {plan.minutes || estimateMinutes(plan.items)} 分钟
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-sm">
+                <button
+                  className="flex h-[52px] items-center justify-center gap-xs rounded-xl border border-red-200 bg-white text-body-md font-extrabold text-danger transition-colors hover:bg-red-50"
+                  onClick={finishTraining}
+                  type="button"
+                >
+                  <SymbolIcon className="text-lg">stop</SymbolIcon>
+                  结束
+                </button>
+                <button
+                  className="flex h-[52px] items-center justify-center gap-xs rounded-xl border border-primary/30 bg-white text-body-md font-extrabold text-primary transition-colors hover:bg-primary-soft"
+                  onClick={() => goToStep(activeStepIndex + 1)}
+                  type="button"
+                >
+                  <SymbolIcon className="text-lg">skip_next</SymbolIcon>
+                  跳过
+                </button>
+              </div>
+              {nextItem ? (
+                <div className="mt-md rounded-xl bg-panel-soft p-md">
+                  <p className="text-label-md font-bold text-muted">下一个动作</p>
+                  <p className="mt-xs truncate text-body-md font-extrabold">{nextItem.nameZh}</p>
+                </div>
+              ) : null}
+            </section>
+          </aside>
         </section>
-      ) : null}
+
+        {showTip ? (
+          <section className="flex shrink-0 items-center gap-md rounded-[20px] border border-primary/10 bg-primary-soft px-lg py-md text-body-md text-muted">
+            <SymbolIcon className="text-2xl text-primary">tips_and_updates</SymbolIcon>
+            <span className="font-extrabold text-primary">训练提示</span>
+            <span className="min-w-0 flex-1 truncate">
+              {currentItem.instructionsZh[0] || "保持核心收紧，动作标准，注意呼吸节奏，避免代偿。"}
+            </span>
+            <button
+              aria-label="关闭提示"
+              className="grid h-9 w-9 place-items-center rounded-xl text-muted transition-colors hover:bg-white hover:text-ink"
+              onClick={() => setShowTip(false)}
+              type="button"
+            >
+              <SymbolIcon className="text-xl">close</SymbolIcon>
+            </button>
+          </section>
+        ) : null}
+      </div>
     </main>
   );
 }
@@ -430,12 +482,12 @@ function Metric({
   value: number | string;
 }) {
   return (
-    <div className="flex min-h-[74px] flex-col items-center justify-center border-[#e5eaf2] xl:border-l">
-      <p className="mb-xs flex items-center gap-xs text-label-md text-slate-600">
-        <SymbolIcon className="text-xl text-slate-600">{icon}</SymbolIcon>
+    <div className="min-w-0 rounded-xl border border-line bg-panel-soft px-sm py-md">
+      <p className="mb-xs flex items-center justify-center gap-xs text-label-md font-semibold text-muted">
+        <SymbolIcon className="text-xl text-muted">{icon}</SymbolIcon>
         {label}
       </p>
-      <p className="text-[31px] font-black tracking-[-0.03em]">
+      <p className="truncate text-center text-[24px] font-black leading-tight text-ink [font-variant-numeric:tabular-nums]">
         {value} {suffix ? <span className="text-body-lg font-bold">{suffix}</span> : null}
       </p>
     </div>
@@ -454,17 +506,17 @@ function SessionControl({
   onClick: () => void;
 }) {
   return (
-    <div className="flex min-w-[82px] flex-col items-center gap-[6px] text-label-md font-bold text-slate-700 2xl:gap-sm 2xl:text-body-md">
+    <div className="flex min-w-[82px] flex-col items-center gap-sm text-label-md font-bold text-muted">
       <button
-        className={`grid place-items-center rounded-full ${
+        className={`grid place-items-center rounded-full transition-transform active:scale-95 ${
           large
-            ? "h-16 w-16 border-0 bg-primary text-white shadow-lift 2xl:h-28 2xl:w-28"
-            : "h-12 w-12 border border-line bg-white text-slate-800 shadow-card 2xl:h-[74px] 2xl:w-[74px]"
+            ? "h-20 w-20 border-0 bg-primary text-white shadow-lift md:h-24 md:w-24"
+            : "h-14 w-14 border border-line bg-white text-ink shadow-card hover:bg-panel-soft"
         }`}
         onClick={onClick}
         type="button"
       >
-        <SymbolIcon className={large ? "text-3xl 2xl:text-5xl" : "text-2xl 2xl:text-3xl"} filled={large}>
+        <SymbolIcon className={large ? "text-4xl" : "text-2xl"} filled={large}>
           {icon}
         </SymbolIcon>
       </button>
@@ -473,14 +525,56 @@ function SessionControl({
   );
 }
 
-function AudioWave() {
-  const heights = [10, 18, 24, 14, 22, 12, 26, 18, 9, 20, 25, 13, 21, 16, 24, 11];
+function ExerciseThumb({ index, item }: { index: number; item: WorkoutItem }) {
+  return (
+    <div className="relative grid h-[58px] w-16 place-items-center overflow-hidden rounded-[8px] bg-panel-soft">
+      {item.imageUrl && item.imageUrl !== placeholderImage ? (
+        <Image
+          alt={`${item.nameZh} 缩略图`}
+          className="object-contain p-xs"
+          fill
+          sizes="64px"
+          src={item.imageUrl}
+        />
+      ) : (
+        <MiniFigure variant={index} />
+      )}
+    </div>
+  );
+}
+
+function StepStatus({
+  index,
+  isActive,
+  isDone,
+}: {
+  index: number;
+  isActive: boolean;
+  isDone: boolean;
+}) {
+  if (isDone) {
+    return (
+      <span className="grid h-8 w-8 place-items-center rounded-full bg-success-soft text-success-text">
+        <SymbolIcon className="text-lg" filled>
+          check
+        </SymbolIcon>
+      </span>
+    );
+  }
+
+  if (isActive) {
+    return (
+      <span className="grid h-8 w-8 place-items-center rounded-full bg-primary text-white">
+        <SymbolIcon className="text-lg" filled>
+          play_arrow
+        </SymbolIcon>
+      </span>
+    );
+  }
 
   return (
-    <span className="hidden h-7 items-center gap-1 sm:flex" aria-hidden="true">
-      {heights.map((height, index) => (
-        <span className="w-[3px] rounded-full bg-blue-500" key={`${height}-${index}`} style={{ height }} />
-      ))}
+    <span className="grid h-8 w-8 place-items-center rounded-full border border-line bg-white text-label-md font-extrabold text-muted">
+      {index + 1}
     </span>
   );
 }
