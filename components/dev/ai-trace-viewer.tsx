@@ -208,6 +208,24 @@ export function AiTraceViewer() {
                   <span>{formatDuration(selectedTrace.durationMs)}</span>
                 </div>
               </div>
+              <button
+                className="shrink-0 rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                type="button"
+                disabled={savingLogTarget === selectedTrace.id}
+                onClick={() => {
+                  void saveTraceLog({
+                    targetId: selectedTrace.id,
+                    target: {
+                      type: "full_trace",
+                      traceId: selectedTrace.id,
+                      title: selectedTrace.title,
+                    },
+                    payload: createTraceLogPayload(selectedTrace, selectedStepGroups),
+                  });
+                }}
+              >
+                {savingLogTarget === selectedTrace.id ? "保存中" : "保存全链路log"}
+              </button>
             </div>
 
             {selectedTrace.metadata && !isEmptyValue(selectedTrace.metadata) ? (
@@ -338,64 +356,102 @@ function TraceTimeline({ groups }: { groups: TraceStepGroup[] }) {
   );
 }
 
+function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) {
+  return compactObject({
+    title: trace.title,
+    trace: compactObject({
+      route: trace.route,
+      status: trace.status,
+      createdAt: trace.createdAt,
+      endedAt: trace.endedAt,
+      durationMs: trace.durationMs,
+      tokenUsage: getTraceTokenUsage(trace),
+      metadata: compactValue(trace.metadata),
+    }),
+    stages: groups.map((group, index) => createStageLogEntry(group, index)),
+  });
+}
+
 function createGroupLogPayload(trace: AiTrace, group: TraceStepGroup) {
-  return createCompactLogPayload({
+  return createStepsLogPayload({
     title: `${trace.title} - ${group.title}`,
     steps: group.steps,
   });
 }
 
 function createStepLogPayload(trace: AiTrace, group: TraceStepGroup, step: AiTraceStep) {
-  return createCompactLogPayload({
+  return createStepsLogPayload({
     title: `${trace.title} - ${group.title} - ${getStepTitle(step)}`,
     steps: [step],
   });
 }
 
-// 只保留排查需要的请求参数、回复结果、意图结果和错误详情。
-function createCompactLogPayload(input: { title: string; steps: AiTraceStep[] }) {
-  const requests = input.steps
-    .filter((step) => !isEmptyValue(step.input))
-    .map((step) => ({
-      request: getStepTitle(step),
-      requestType: getInputTitle(step),
-      params: step.input,
-    }));
-  const responses = input.steps
-    .filter((step) => step.type !== "intent" && !isEmptyValue(step.output))
-    .map((step) => ({
-      responseStep: getStepTitle(step),
-      responseType: getOutputTitle(step),
-      result: step.output,
-    }));
-  const intents = input.steps
-    .filter((step) => step.type === "intent")
-    .map((step) => ({
-      intentStep: getStepTitle(step),
-      intentResult: isEmptyValue(step.output) ? undefined : step.output,
-      errorDetails: isEmptyValue(step.error) ? undefined : step.error,
-    }))
-    .filter((item) => item.intentResult !== undefined || item.errorDetails !== undefined);
-  const errors = input.steps
-    .filter((step) => step.type !== "intent" && !isEmptyValue(step.error))
-    .map((step) => ({
-      errorStep: getStepTitle(step),
-      errorDetails: step.error,
-    }));
-
-  return omitEmptyArrays({
+// 保存给 Codex 排查用的日志时，只保留链路定位、模型输入输出、候选/校验结果和错误详情。
+function createStepsLogPayload(input: { title: string; steps: AiTraceStep[] }) {
+  return compactObject({
     title: input.title,
-    requests,
-    responses,
-    intents,
-    errors,
+    events: input.steps.map(createStepLogEntry),
   });
 }
 
-function omitEmptyArrays<T extends Record<string, unknown>>(value: T) {
-  return Object.fromEntries(
-    Object.entries(value).filter(([, item]) => !Array.isArray(item) || item.length > 0),
+function createStageLogEntry(group: TraceStepGroup, index: number) {
+  return compactObject({
+    order: index + 1,
+    stage: group.title,
+    description: group.description,
+    status: group.status,
+    startedAt: group.startedAt,
+    endedAt: group.endedAt,
+    durationMs: group.durationMs,
+    tokenUsage: getGroupTokenUsage(group),
+    events: group.steps.map(createStepLogEntry),
+  });
+}
+
+function createStepLogEntry(step: AiTraceStep) {
+  const task = getStepTask(step);
+  const tokenUsage = getTokenUsage(step);
+  const diagnosticMetadata = getDiagnosticMetadata(step.metadata);
+
+  return compactObject({
+    step: getStepTitle(step),
+    type: step.type,
+    typeLabel: getStepTypeLabel(step.type),
+    status: step.status,
+    startedAt: step.startedAt,
+    endedAt: step.endedAt,
+    durationMs: step.durationMs,
+    task,
+    tokenUsage,
+    inputTitle: isEmptyValue(step.input) ? undefined : getInputTitle(step),
+    input: compactValue(step.input),
+    outputTitle: isEmptyValue(step.output) ? undefined : getOutputTitle(step),
+    output: compactValue(step.output),
+    error: compactValue(step.error),
+    metadata: diagnosticMetadata,
+  });
+}
+
+function getDiagnosticMetadata(metadata: AiTraceStep["metadata"]) {
+  if (!metadata || isEmptyValue(metadata)) {
+    return undefined;
+  }
+
+  return compactObject(
+    Object.fromEntries(
+      Object.entries(metadata).filter(([key]) => !["task", "tokenUsage"].includes(key)),
+    ),
   );
+}
+
+function compactObject<T extends Record<string, unknown>>(value: T) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, item]) => !isEmptyValue(item)),
+  );
+}
+
+function compactValue(value: unknown) {
+  return isEmptyValue(value) ? undefined : value;
 }
 
 function TraceStepDetail({
