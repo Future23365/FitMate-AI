@@ -547,7 +547,7 @@ export function ExerciseLibraryPage() {
                             {exercise.nameZh}
                           </p>
                           <span
-                            className={`inline-flex shrink-0 items-center gap-1 font-label-xs text-[11px] leading-none ${
+                            className={`inline-flex shrink-0 items-center gap-1 font-label-xs text-[12px] leading-tight ${
                               isSelected
                                 ? "text-primary"
                                 : "text-muted"
