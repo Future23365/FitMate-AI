@@ -14,6 +14,11 @@ const navItems = [
   { label: "动作库", icon: "fitness_center", href: "/exercises" },
 ];
 
+const currentUser = {
+  name: "FitMate 用户",
+  initials: "FM",
+};
+
 type SidebarHistoryItem = {
   id: string;
   title: string;
@@ -64,6 +69,7 @@ export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const [historyItems, setHistoryItems] = useState<SidebarHistoryItem[]>([]);
+  const isSettingsActive = pathname.startsWith("/settings");
 
   useEffect(() => {
     function syncHistory() {
@@ -220,6 +226,32 @@ export function AppSidebar() {
           )}
         </div>
       </nav>
+
+      <div className="mt-4 border-t border-line pt-4">
+        <div className="flex items-center gap-3 rounded-xl border border-line/80 bg-white/72 p-2.5 shadow-card backdrop-blur-xl">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-soft text-sm font-extrabold text-primary ring-1 ring-primary/10">
+            {currentUser.initials}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-extrabold text-ink">{currentUser.name}</p>
+            <p className="text-xs font-semibold text-muted">个人账户</p>
+          </div>
+          <Link
+            aria-label="进入设置"
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-colors ${
+              isSettingsActive
+                ? "bg-primary-soft text-primary"
+                : "text-muted hover:bg-panel-soft hover:text-primary"
+            }`}
+            href="/settings"
+            title="设置"
+          >
+            <SymbolIcon className="text-[20px]" filled={isSettingsActive}>
+              settings
+            </SymbolIcon>
+          </Link>
+        </div>
+      </div>
     </aside>
   );
 }
