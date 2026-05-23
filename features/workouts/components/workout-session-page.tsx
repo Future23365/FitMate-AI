@@ -49,6 +49,7 @@ type SessionStep = {
 
 const scheduleStorageKey = "fitmate.trainingSchedule";
 const placeholderImage = "/images/exercise-placeholder.svg";
+const defaultRepIntervalSeconds = 2;
 
 const fallbackPlan: ScheduledWorkout = {
   id: "session-fallback",
@@ -96,7 +97,7 @@ function createFallbackItem(
 
 function estimateMinutes(items: WorkoutItem[]) {
   const seconds = items.reduce((total, item, index) => {
-    const activeSeconds = item.mode === "duration" ? item.target : item.target * 4;
+    const activeSeconds = getStepDuration(item);
     const setRestSeconds = item.setRestSeconds * Math.max(0, item.sets - 1);
     const transitionRestSeconds = index < items.length - 1 ? item.transitionRestSeconds : 0;
 
@@ -111,7 +112,16 @@ function estimateCalories(items: WorkoutItem[]) {
 }
 
 function getStepDuration(item: WorkoutItem) {
-  return Math.max(5, item.mode === "duration" ? item.target : item.target * 4);
+  return Math.max(5, item.mode === "duration" ? item.target : item.target * getRepIntervalSeconds(item));
+}
+
+function getRepIntervalSeconds(item: WorkoutItem) {
+  if (item.mode === "duration") {
+    return 1;
+  }
+
+  // 按次动作由系统按固定节奏自动计次，不要求训练中手动确认。
+  return defaultRepIntervalSeconds;
 }
 
 function buildSessionSteps(items: WorkoutItem[]) {
@@ -168,6 +178,11 @@ export function WorkoutSessionPage() {
   const activeStep = steps[activeStepIndex] ?? steps[0];
   const currentItem = activeStep?.item ?? fallbackPlan.items[0];
   const isTimedStep = currentItem.mode === "duration";
+  const repIntervalSeconds = getRepIntervalSeconds(currentItem);
+  const stepElapsedSeconds = activeStep ? activeStep.durationSeconds - remainingSeconds : 0;
+  const completedReps = isTimedStep
+    ? 0
+    : Math.min(currentItem.target, Math.floor(Math.max(0, stepElapsedSeconds) / repIntervalSeconds));
   const completedItems = new Set(steps.slice(0, activeStepIndex).map((step) => step.item.id));
   const currentExerciseIndex = plan.items.findIndex((item) => item.id === currentItem.id);
   const progress =
@@ -209,10 +224,6 @@ export function WorkoutSessionPage() {
 
     const timer = window.setInterval(() => {
       setElapsedSeconds((value) => value + 1);
-      if (activeStep.item.mode !== "duration") {
-        return;
-      }
-
       setRemainingSeconds((value) => {
         if (value <= 1) {
           const nextIndex = Math.min(activeStepIndex + 1, steps.length - 1);
@@ -385,23 +396,21 @@ export function WorkoutSessionPage() {
               <>
                 <div className="my-md flex items-end justify-center gap-sm text-ink">
                   <span className="text-[clamp(92px,14vw,148px)] font-black leading-none [font-variant-numeric:tabular-nums]">
-                    {currentItem.target}
+                    {completedReps}
                   </span>
-                  <span className="pb-sm text-[34px] font-extrabold leading-none text-muted">次</span>
+                  <span className="pb-sm text-[34px] font-extrabold leading-none text-muted">
+                    / {currentItem.target} 次
+                  </span>
                 </div>
                 <p className="text-body-lg font-extrabold text-ink">
-                  按标准动作完成目标次数后，手动进入下一组
+                  系统按每 {repIntervalSeconds} 秒 1 次自动计次，达到目标后进入下一组
                 </p>
-                <button
-                  className="mt-md flex h-12 min-w-[180px] items-center justify-center gap-sm rounded-xl bg-primary px-lg text-body-md font-extrabold text-white shadow-card transition-colors hover:bg-primary-deep"
-                  onClick={completeCurrentStep}
-                  type="button"
-                >
-                  <SymbolIcon className="text-xl" filled>
-                    check_circle
-                  </SymbolIcon>
-                  完成本组
-                </button>
+                <div className="mt-sm h-2.5 w-full max-w-[620px] overflow-hidden rounded-full bg-panel-soft">
+                  <span
+                    className="block h-full rounded-full bg-primary transition-[width] duration-300"
+                    style={{ width: `${Math.max(3, Math.min(100, progress))}%` }}
+                  />
+                </div>
               </>
             )}
             <div className="mt-lg flex items-start justify-center gap-lg md:gap-xl">
