@@ -67,9 +67,17 @@ const chatIntentSchema = z.object({
   needsExerciseContext: z.boolean().default(false),
   workoutIntent: workoutPlanIntentSchema.optional(),
   requestedExerciseName: z.string().trim().max(80).optional(),
+  canTriggerAction: z.boolean().default(false),
+  missingActionFields: z.array(z.string().trim().min(1)).max(12).default([]),
+  suggestedQuestions: z.array(z.string().trim().min(1).max(120)).max(3).default([]),
 });
 
 type ChatIntent = z.infer<typeof chatIntentSchema>;
+
+type AssistantAction = {
+  action: "exercise_recommendation" | "workout_routine" | "workout_plan";
+  intent: WorkoutPlanIntent;
+};
 
 type ExerciseContext = {
   intent: WorkoutPlanIntent;
@@ -162,6 +170,22 @@ export async function POST(request: Request) {
   const exerciseContext = chatIntent.needsExerciseContext
     ? await buildExerciseContext(chatIntent, messages, conversationContext, trace)
     : null;
+  const assistantAction = resolveAssistantAction(chatIntent, exerciseContext);
+  trace.addStep({
+    name: "服务端内部动作事件",
+    type: "intent",
+    status: "success",
+    output: {
+      assistantAction,
+      canTriggerAction: chatIntent.canTriggerAction,
+      missingActionFields: chatIntent.missingActionFields,
+      suggestedQuestions: chatIntent.suggestedQuestions,
+      candidateStatus: exerciseContext?.candidateStatus,
+    },
+    metadata: {
+      skipped: !assistantAction,
+    },
+  });
   const systemPrompt = buildSystemPrompt(chatIntent, exerciseContext, conversationContext);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DEEPSEEK_REQUEST_TIMEOUT_MS);
@@ -320,6 +344,23 @@ export async function POST(request: Request) {
       let contentText = "";
       let reasoningText = "";
       let tokenUsage: DeepSeekTokenUsage | null = null;
+
+      if (assistantAction) {
+        controller.enqueue(
+          encodeStreamEvent("assistant_action", "", {
+            action: assistantAction.action,
+            intent: assistantAction.intent,
+          }),
+        );
+      }
+
+      if (chatIntent.suggestedQuestions.length > 0) {
+        controller.enqueue(
+          encodeStreamEvent("suggested_questions", "", {
+            suggestedQuestions: chatIntent.suggestedQuestions,
+          }),
+        );
+      }
 
       if (!reader) {
         clearTimeout(timeout);
@@ -629,6 +670,47 @@ async function buildExerciseContext(
   return exerciseContext;
 }
 
+function resolveAssistantAction(
+  chatIntent: ChatIntent,
+  exerciseContext: ExerciseContext | null,
+): AssistantAction | null {
+  if (
+    !chatIntent.canTriggerAction ||
+    !exerciseContext ||
+    exerciseContext.candidateStatus === "insufficient"
+  ) {
+    return null;
+  }
+
+  // 聊天模型只负责自然语言；真正触发计划/推荐由服务端结构化意图转成内部事件。
+  switch (chatIntent.type) {
+    case "exercise_recommendation":
+      return {
+        action: "exercise_recommendation",
+        intent: exerciseContext.intent,
+      };
+    case "routine":
+      return {
+        action: "workout_routine",
+        intent: {
+          ...exerciseContext.intent,
+          intentType: "routine",
+          weeklyFrequency: 1,
+        },
+      };
+    case "workout_plan":
+      return {
+        action: "workout_plan",
+        intent: {
+          ...exerciseContext.intent,
+          intentType: "plan",
+        },
+      };
+    default:
+      return null;
+  }
+}
+
 function buildSystemPrompt(
   chatIntent: ChatIntent,
   exerciseContext: ExerciseContext | null,
@@ -652,6 +734,8 @@ function buildSystemPrompt(
         type: chatIntent.type,
         needsExerciseContext: chatIntent.needsExerciseContext,
         requestedExerciseName: chatIntent.requestedExerciseName,
+        canTriggerAction: chatIntent.canTriggerAction,
+        missingActionFields: chatIntent.missingActionFields,
       },
       null,
       2,
@@ -823,6 +907,9 @@ function createFallbackChatIntent(
       isRecommendationRefresh && conversationContext.currentIntent
         ? conversationContext.currentIntent
         : conversationContext.currentIntent ?? workoutIntent,
+    canTriggerAction: false,
+    missingActionFields: [],
+    suggestedQuestions: [],
   };
 }
 

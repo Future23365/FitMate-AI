@@ -15,9 +15,17 @@ export type ChatMessage = {
 
 export type ApiChatMessage = Pick<ChatMessage, "role" | "content">;
 
+export type AssistantActionEvent = {
+  action: "exercise_recommendation" | "workout_routine" | "workout_plan";
+  intent: unknown;
+};
+
 export type ChatStreamEvent = {
-  type: "reasoning" | "content" | "done" | "error";
+  type: "reasoning" | "content" | "done" | "error" | "assistant_action" | "suggested_questions";
   delta?: string;
+  action?: AssistantActionEvent["action"];
+  intent?: unknown;
+  suggestedQuestions?: string[];
   /** 服务端 Trace ID，用于把后续自动计划生成追加到同一条开发日志 */
   traceId?: string;
 };

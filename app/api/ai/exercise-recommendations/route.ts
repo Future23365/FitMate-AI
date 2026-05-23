@@ -2,13 +2,11 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { startAiTrace, summarizeLatestUserMessage } from "@/lib/server/dev/ai-trace-logger";
+import { generateAiExerciseRecommendations } from "@/lib/server/exercise-recommendations/ai-exercise-recommendation-service";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import { selectExerciseCandidates } from "@/lib/server/workout-plans";
 import { fitnessConversationContextSchema } from "@/lib/shared/chat/fitness-conversation-context";
-import {
-  exerciseRecommendationCardSchema,
-  exerciseRecommendationIntentSchema,
-} from "@/lib/shared/exercise-recommendations/schema";
+import { exerciseRecommendationIntentSchema } from "@/lib/shared/exercise-recommendations/schema";
 
 const exerciseRecommendationRequestSchema = z.object({
   messages: z.array(
@@ -34,10 +32,19 @@ function selectRecommendationCandidates(
     (candidate) => !excludeExerciseIds.has(candidate.exercise.id),
   );
 
-  return [...primaryCandidates.slice(0, 8), ...supplementaryCandidates.slice(0, 8)].slice(0, 8);
+  return [...primaryCandidates.slice(0, 16), ...supplementaryCandidates.slice(0, 8)].slice(0, 20);
 }
 
 export async function POST(request: Request) {
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+
+  if (!apiKey) {
+    return NextResponse.json(
+      { ok: false, message: "Missing DEEPSEEK_API_KEY environment variable." },
+      { status: 500 },
+    );
+  }
+
   const body = await request.json().catch(() => null);
   const parsedRequest = exerciseRecommendationRequestSchema.safeParse(body);
 
@@ -79,6 +86,8 @@ export async function POST(request: Request) {
         ? selectRecommendationCandidates(candidates, new Set())
         : [];
     const finalCandidates = selectedCandidates.length > 0 ? selectedCandidates : fallbackCandidates;
+    const effectiveExcludeExerciseIds =
+      selectedCandidates.length > 0 ? parsedRequest.data.excludeExerciseIds : [];
     const safetyNotes =
       selectedCandidates.length === 0 && fallbackCandidates.length > 0
         ? [...candidates.warnings, "当前条件下可替换动作不足，已回填部分高匹配动作。"]
@@ -116,33 +125,40 @@ export async function POST(request: Request) {
       );
     }
 
-    const card = exerciseRecommendationCardSchema.parse({
-      title: "动作推荐",
-      goal: parsedRequest.data.intent.goal,
-      summary: "以下只展示动作候选，不包含组数、次数、休息或训练日安排。是否编排成训练由后续聊天决定。",
-      items: finalCandidates.map((candidate) => {
-        const exercise = candidate.exercise;
-
-        return {
-          exerciseId: exercise.id,
-          nameZh: exercise.nameZh,
-          nameEn: exercise.nameEn,
-          categoryZh: exercise.categoryZh ?? "训练",
-          levelZh: exercise.levelZh ?? "初级",
-          equipmentZh: exercise.equipmentZh ?? "未标注器械",
-          primaryMusclesZh: exercise.primaryMusclesZh,
-          secondaryMusclesZh: exercise.secondaryMusclesZh,
-          imageUrl: exercise.imageUrls[0],
-          reasons: candidate.reasons.slice(0, 4),
-        };
-      }),
+    const recommendationResult = await generateAiExerciseRecommendations({
+      apiKey,
+      intent: parsedRequest.data.intent,
+      messages: parsedRequest.data.messages,
+      conversationContext: parsedRequest.data.conversationContext,
+      candidates: finalCandidates,
       safetyNotes,
+      excludeExerciseIds: effectiveExcludeExerciseIds,
+      trace,
     });
+
+    if (!recommendationResult.ok) {
+      trace.addStep({
+        name: "动作推荐模型生成失败",
+        type: "error",
+        status: "failed",
+        error: recommendationResult,
+      });
+      trace.finish("failed");
+
+      return NextResponse.json(
+        {
+          ok: false,
+          message: recommendationResult.message,
+          detail: recommendationResult.detail,
+        },
+        { status: 502 },
+      );
+    }
 
     const result = {
       ok: true,
       intent: parsedRequest.data.intent,
-      card,
+      card: recommendationResult.card,
     };
 
     trace.addStep({

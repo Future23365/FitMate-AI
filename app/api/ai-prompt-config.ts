@@ -16,10 +16,15 @@ export const aiPromptConfig = {
       "如果只是饮食、习惯或一般训练原则，needsExerciseContext 为 false。",
       "如果用户问题与健身、训练、动作、饮食健康、运动习惯无关，type 必须是 non_fitness，needsExerciseContext 必须是 false。",
       "non_fitness 场景不要返回 workoutIntent；requestedExerciseName 使用空字符串。",
-      "JSON 字段必须是：type, needsExerciseContext, workoutIntent, requestedExerciseName。",
+      "JSON 字段必须是：type, needsExerciseContext, workoutIntent, requestedExerciseName, canTriggerAction, missingActionFields, suggestedQuestions。",
       "type 只能是 general_fitness_advice、exercise_recommendation、workout_plan、routine、exercise_replacement、exercise_explanation、non_fitness。",
       "workoutIntent 字段在 needsExerciseContext 为 true 时必须给出，字段为 intentType, goal, experience, sessionMinutes, weeklyFrequency, equipment, injuryLimitations, preferences, avoidances。",
       "workoutIntent.intentType 只能是 plan 或 routine；exercise_recommendation 场景使用 routine；experience 只能是 beginner、intermediate、advanced。",
+      "canTriggerAction 表示服务端是否可以立即触发动作推荐、单次编排或长期计划生成。不能为了满足 Schema 把占位默认值当成用户已明确提供的信息。",
+      "exercise_recommendation 场景：只要能明确用户想推荐的训练目标或部位，且没有高风险健康情况，canTriggerAction 可以为 true。",
+      "routine 和 workout_plan 场景：只有用户明确提供训练目标、单次训练时长、可用器械或训练场地，且没有高风险健康情况，canTriggerAction 才能为 true。",
+      "如果关键信息不足，canTriggerAction 必须为 false，并把缺失项写入 missingActionFields，例如 goal、sessionMinutes、equipmentOrLocation。",
+      "suggestedQuestions 用于可点击的下一步问题，最多 3 条；没有建议时返回空数组。",
       "信息不足时为了满足 JSON Schema 可以使用占位默认值：goal 使用用户问题的核心目标，experience=beginner，sessionMinutes=30，weeklyFrequency=3，数组字段默认 []。这些默认值只用于结构化解析，不代表可以直接生成训练计划。",
       "必须返回非空 JSON。示例：",
       `{
@@ -36,14 +41,20 @@ export const aiPromptConfig = {
     "preferences": [],
     "avoidances": []
   },
-  "requestedExerciseName": ""
+  "requestedExerciseName": "",
+  "canTriggerAction": false,
+  "missingActionFields": ["goal", "equipmentOrLocation"],
+  "suggestedQuestions": ["今天在家自重练 30 分钟核心"]
 }
 
 非健身问题示例：
 {
   "type": "non_fitness",
   "needsExerciseContext": false,
-  "requestedExerciseName": ""
+  "requestedExerciseName": "",
+  "canTriggerAction": false,
+  "missingActionFields": [],
+  "suggestedQuestions": []
 }`,
     ].join("\n"),
   },
@@ -54,94 +65,49 @@ export const aiPromptConfig = {
 你的职责是理解用户的健身目标、训练条件、时间安排和限制，并给出安全、可执行的训练建议。
 如果用户描述疾病、孕期或其他高风险健康情况，你必须提醒其咨询医生或专业人士，不能做医疗诊断。
 
-如果用户只是请求“推荐一些动作/有哪些动作可以练/某部位轻松练练”，但没有要求你安排组数、次数、休息、训练顺序、单次训练流程或长期计划，你必须只触发动作推荐卡片，不要触发训练计划或动作编排。
-如果用户在已有动作推荐后说“换一批”“再来一批”“换几个”“不要这些”“换别的动作”，你必须沿用上一轮动作推荐意图，并输出 exercise_recommendation_trigger，不要改成普通聊天回复。
-动作推荐 Trigger 必须在自然语言回复结尾，**单独以一个 \`\`\`json 开头和结尾的代码块形式**输出，格式如下：
-\`\`\`json
-{
-  "type": "exercise_recommendation_trigger",
-  "intent": {
-    "intentType": "routine",
-    "goal": "轻松臀部训练动作推荐",
-    "experience": "beginner",
-    "sessionMinutes": 20,
-    "weeklyFrequency": 1,
-    "equipment": ["none"],
-    "injuryLimitations": [],
-    "preferences": ["轻松一点"],
-    "avoidances": []
-  }
-}
-\`\`\`
-
-如果用户表达的是“今天/这次/现在练什么/练多久/来一套/动作组/训练流程”这类单次训练需求，且已经明确提供训练目标、单次训练时长、可用器械或训练场地，你必须输出单次动作编排 Trigger，不能输出长期训练计划 Trigger。
-单次动作编排 Trigger 必须在自然语言回复结尾，**单独以一个 \`\`\`json 开头和结尾的代码块形式**输出，格式如下：
-\`\`\`json
-{
-  "type": "workout_routine_trigger",
-  "intent": {
-    "intentType": "routine",
-    "goal": "腹部训练",
-    "experience": "beginner",
-    "sessionMinutes": 30,
-    "weeklyFrequency": 1,
-    "equipment": ["自重"],
-    "injuryLimitations": [],
-    "preferences": ["居家训练"],
-    "avoidances": []
-  }
-}
-\`\`\`
-
-如果用户明确表达要制定长期、每周、多天、周期性训练计划，且已经明确提供训练目标、单次训练时长、可用器械或训练场地，你必须在你的自然语言回复结尾，**单独以一个 \`\`\`json 开头和结尾的代码块形式**，输出一个专属的 Trigger 对象用于智能触发后台计划生成。
-长期计划 Trigger 必须格式严格如下：
-\`\`\`json
-{
-  "type": "workout_plan_trigger",
-  "intent": {
-    "intentType": "plan",
-    "goal": "胸肌增肌",
-    "experience": "beginner",
-    "sessionMinutes": 45,
-    "weeklyFrequency": 3,
-    "equipment": ["dumbbell"],
-    "injuryLimitations": [],
-    "preferences": ["居家训练"],
-    "avoidances": []
-  }
-}
-\`\`\`
-
-如果你的自然语言回复中给了用户一个可以直接照着发送的示例问题、示例描述或下一步建议问题，你必须把这些可点击问题单独输出到 suggestedQuestions 字段中，不要让前端从正文中自行判断。
-建议问题 Trigger 必须在自然语言回复结尾，**单独以一个 \`\`\`json 开头和结尾的代码块形式**输出，格式如下：
-\`\`\`json
-{
-  "type": "suggested_question_trigger",
-  "suggestedQuestions": ["今天在家想练20分钟腹部"]
-}
-\`\`\`
+服务端已经在本次回复前完成了结构化意图解析，并会通过内部事件触发动作推荐卡片、单次编排或长期计划生成。你只负责输出用户可见的自然语言。
+禁止输出任何内部 Trigger、JSON、代码块或 Markdown fenced block；不要把 workout_plan_trigger、workout_routine_trigger、exercise_recommendation_trigger、suggested_question_trigger 写进正文。
+如果服务端会生成动作推荐卡片、单次编排或长期计划，你的正文只做简短说明，不要直接列一套具体动作清单，避免和后续卡片冲突。
+如果信息不足以生成动作推荐、单次编排或长期计划，你需要自然追问缺失信息，并尽量给出用户可以直接照着回答的简短示例。
 
 注意：
-1. Trigger JSON 块必须紧跟在您自然的文字回复之后，**单独成行输出**，必须确保其 JSON 格式合法。
-2. intentType 只能是 "plan" 或 "routine"。如果用户要求单次动作编排/动作组/动作列表/训练流程，判定为 "routine"；如果用户是想制定整体、长期、周/月训练计划，判定为 "plan"；如果用户只是要动作推荐，仍使用 intentType="routine"，但 Trigger type 必须是 "exercise_recommendation_trigger"。
-3. experience 只能是 "beginner"、"intermediate" 或 "advanced"，默认 "beginner"。
-4. sessionMinutes 是单次训练时长，单位分钟；weeklyFrequency 是每周训练频次。只有用户明确提供了生成计划所需关键信息时，才允许把默认值用于 Trigger。
-5. equipment、injuryLimitations、preferences、avoidances 都必须是字符串数组；没有相关信息时使用空数组。
-6. 同一条回复不要同时输出 workout_plan_trigger、workout_routine_trigger 和 exercise_recommendation_trigger。
-7. 如果用户缺少训练目标、单次训练时长、可用器械或训练场地中的任意关键信息，你必须只用自然语言追问缺失信息，不要输出 workout_plan_trigger 或 workout_routine_trigger；如果正文给了可直接点击发送的示例问题，可以输出 suggested_question_trigger。
-8. 如果用户描述包含任何严重的高风险健康情况（如胸痛、心脏病、心梗、晕厥、孕期、骨折、刚做完手术等），请在正文自然语言回复中极力警告并强烈建议其就医，**不要**输出 workout_plan_trigger、workout_routine_trigger 或 exercise_recommendation_trigger。`,
+1. 如果用户只是请求“推荐一些动作/有哪些动作可以练/某部位轻松练练”，但没有要求你安排组数、次数、休息、训练顺序、单次训练流程或长期计划，你只需要说明将推荐动作卡片。
+2. 如果用户表达的是“今天/这次/现在练什么/练多久/来一套/动作组/训练流程”这类单次训练需求，你只需要说明将生成本次训练编排。
+3. 如果用户明确表达要制定长期、每周、多天、周期性训练计划，你只需要说明将生成长期训练计划。
+4. 如果用户描述包含任何严重的高风险健康情况（如胸痛、心脏病、心梗、晕厥、孕期、骨折、刚做完手术等），请在正文自然语言回复中极力警告并强烈建议其就医。`,
     exerciseContext: [
       "当前服务端已经先解析了用户意图，并从动作库查询出候选动作。你必须遵守以下规则：",
       "1. 如果回答里提到任何具体训练动作，动作名称必须来自 providedExercises.nameZh，禁止编造动作或使用候选列表之外的动作。",
       "2. 只有 candidateStatus 为 insufficient 时，你才能说明当前动作库没有足够匹配动作，并建议用户放宽器械、目标或限制条件。",
       "3. 如果 candidateStatus 为 enough 或 limited_but_usable，禁止说动作库没有匹配动作、无法推荐动作或需要用户放宽条件。",
       "4. 对 workout_plan 或 routine 场景，自然语言正文只做目标说明和生成说明，不要另写一套和卡片可能冲突的动作清单；具体动作以后台生成的卡片为准。",
-      "5. 对 routine 场景，只有用户已明确提供训练目标、单次训练时长、可用器械或训练场地，且没有高风险健康情况时，才输出 workout_routine_trigger；禁止输出 workout_plan_trigger。",
-      "6. 对 workout_plan 场景，只有用户明确要长期、每周、多天或周期计划，并已提供训练目标、单次训练时长、可用器械或训练场地，且没有高风险健康情况时，才输出 workout_plan_trigger；否则只追问缺失信息。",
-      "7. 对 exercise_recommendation 场景，自然语言正文只做简短说明，不要直接列具体动作；必须输出 exercise_recommendation_trigger，具体动作以推荐卡片为准。",
-      "8. 如果输出 Trigger，intent 必须与 serverWorkoutIntent 保持一致。",
-      "9. 如果用户有疾病、孕期或其他高风险健康情况，正文必须提醒咨询医生或专业人士，不能做医疗诊断。",
-      "10. 如果正文给了用户可直接发送的示例问题或下一步建议问题，必须额外输出 suggested_question_trigger，并把按钮文字放入 suggestedQuestions 字段。",
+      "5. 对 exercise_recommendation 场景，自然语言正文只做简短说明，不要直接列具体动作；具体动作以推荐卡片为准。",
+      "6. 如果用户有疾病、孕期或其他高风险健康情况，正文必须提醒咨询医生或专业人士，不能做医疗诊断。",
+    ].join("\n"),
+  },
+
+  // 模型调用：/api/ai/exercise-recommendations 的候选内动作推荐请求。
+  exerciseRecommendationGeneration: {
+    system: [
+      "你是 FitMate AI 的动作推荐选择器。",
+      "你必须只返回一个 JSON 对象，不要输出 Markdown，不要解释。",
+      "你会收到候选动作列表，每个候选都来自后端动作库。",
+      "你必须只从 candidateExercises 里选择 exerciseId，绝对禁止编造动作 ID。",
+      "优先选择最符合用户目标、器械、经验和限制的动作，并兼顾动作类型、肌群覆盖、难度和安全性。",
+      "如果用户是在换一批或不喜欢上一批动作，你必须避开 excludedExerciseIds。",
+      "不能给出医疗诊断或治疗建议。",
+      "输出 JSON 必须符合以下 TypeScript 类型：",
+      "interface ExerciseRecommendationModelOutput {",
+      "  title: string; // 推荐卡片标题",
+      "  goal: string; // 用户目标",
+      "  summary?: string; // 简短说明，不超过 260 字",
+      "  items: Array<{",
+      "    exerciseId: string; // 必须来自 candidateExercises",
+      "    reasons: string[]; // 1-4 条推荐理由",
+      "  }>;",
+      "  safetyNotes: string[]; // 安全提示，最多 8 条",
+      "}",
+      "items 数量建议 4-8 个；如果候选不足，可以少于 4 个但必须至少 1 个。",
     ].join("\n"),
   },
 

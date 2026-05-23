@@ -14,7 +14,12 @@ import {
   extractWorkoutPlanTrigger,
   extractWorkoutRoutineTrigger,
 } from "@/features/chat/lib/workout-plan-trigger";
-import type { ApiChatMessage, ChatMessage, ChatStreamEvent } from "@/features/chat/types";
+import type {
+  ApiChatMessage,
+  AssistantActionEvent,
+  ChatMessage,
+  ChatStreamEvent,
+} from "@/features/chat/types";
 import {
   buildFitnessConversationContext,
   selectMessagesForAiContext,
@@ -382,6 +387,7 @@ export function useChatController() {
       let buffer = "";
       let fullContent = "";
       let chatTraceId: string | undefined;
+      let assistantAction: AssistantActionEvent | null = null;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -408,6 +414,32 @@ export function useChatController() {
 
           if (streamEvent.type === "error") {
             throw new Error(streamEvent.delta || "聊天请求失败，请稍后重试。");
+          }
+
+          if (streamEvent.type === "assistant_action" && streamEvent.action) {
+            assistantAction = {
+              action: streamEvent.action,
+              intent: streamEvent.intent,
+            };
+            continue;
+          }
+
+          if (streamEvent.type === "suggested_questions") {
+            const suggestedQuestions = Array.isArray(streamEvent.suggestedQuestions)
+              ? streamEvent.suggestedQuestions
+                  .filter((question): question is string => typeof question === "string")
+                  .map((question) => question.trim())
+                  .filter(Boolean)
+                  .slice(0, 3)
+              : [];
+
+            if (suggestedQuestions.length > 0) {
+              updateAssistantMessage(assistantMessage.id, (message) => ({
+                ...message,
+                suggestedQuestions,
+              }));
+            }
+            continue;
           }
 
           if (streamEvent.type === "reasoning") {
@@ -444,7 +476,15 @@ export function useChatController() {
       }
 
       const workoutDraftTrigger = trigger ?? routineTrigger;
-      if (workoutDraftTrigger?.intent) {
+      const actionIntent = assistantAction?.intent ?? workoutDraftTrigger?.intent;
+      const actionType =
+        assistantAction?.action ??
+        (trigger ? "workout_plan" : routineTrigger ? "workout_routine" : undefined);
+
+      if (
+        actionIntent &&
+        (actionType === "workout_plan" || actionType === "workout_routine")
+      ) {
         const messageId = assistantMessage.id;
         const contextWithAssistant = buildFitnessConversationContext([
           ...requestMessages,
@@ -458,13 +498,16 @@ export function useChatController() {
         setAutoPlanGenerating(messageId);
         generateWorkoutPlanForBubble(
           messageId,
-          workoutDraftTrigger.intent,
+          actionIntent,
           planMessages,
           contextWithAssistant,
           chatTraceId,
         );
       } else {
-        const recommendationTrigger = extractExerciseRecommendationTrigger(fullContent);
+        const recommendationTrigger =
+          assistantAction?.action === "exercise_recommendation"
+            ? { intent: assistantAction.intent }
+            : extractExerciseRecommendationTrigger(fullContent);
 
         if (recommendationTrigger?.intent) {
           const messageId = assistantMessage.id;
