@@ -178,7 +178,7 @@ function toWorkoutItem(
     imageUrl: exercise.imageUrls[0] || placeholderImage,
     mode: overrides.mode ?? (isDuration ? "duration" : "reps"),
     target: overrides.target ?? (isDuration ? 45 : 12),
-    sets: overrides.sets ?? 3,
+    sets: overrides.sets ?? 1,
     setRestSeconds: overrides.setRestSeconds ?? 30,
     transitionRestSeconds: overrides.transitionRestSeconds ?? 45,
     section: overrides.section ?? "training",
@@ -919,9 +919,6 @@ export function ActionComposerPage() {
                           }}
                           onDuplicate={() => duplicateItem(item)}
                           onPreview={() => openPlanPreview(item)}
-                          onSectionChange={(nextSection) =>
-                            updateItem(item.id, (current) => ({ ...current, section: nextSection }))
-                          }
                           onUpdate={(updater) => updateItem(item.id, updater)}
                         />
                         {index < sectionItems.length - 1 ? (
@@ -1397,7 +1394,6 @@ function WorkoutExerciseRow({
   onDrop,
   onDuplicate,
   onPreview,
-  onSectionChange,
   onUpdate,
 }: {
   dragState: "dragging" | "idle" | "over";
@@ -1410,7 +1406,6 @@ function WorkoutExerciseRow({
   onDrop: () => void;
   onDuplicate: () => void;
   onPreview: () => void;
-  onSectionChange: (section: WorkoutSection) => void;
   onUpdate: (updater: (item: WorkoutItem) => WorkoutItem) => void;
 }) {
   return (
@@ -1485,38 +1480,25 @@ function WorkoutExerciseRow({
             value={item.sets}
             onChange={(nextValue) => onUpdate((current) => ({ ...current, sets: nextValue }))}
           />
-          <label className="min-w-[76px] text-center">
-            <span className="mb-xs block text-[10px] text-outline">组间</span>
-            <select
-              className="h-9 w-full rounded-lg border border-outline-variant bg-transparent px-xs text-center font-label-md text-label-md outline-none focus:ring-0"
-              onClick={(event) => event.stopPropagation()}
-              onChange={(event) =>
-                onUpdate((current) => ({ ...current, setRestSeconds: Number(event.target.value) }))
-              }
-              value={item.setRestSeconds}
-            >
-              {restOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}s
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="min-w-[86px] text-center">
-            <span className="mb-xs block text-[10px] text-outline">步骤</span>
-            <select
-              className="h-9 w-full rounded-lg border border-outline-variant bg-transparent px-xs text-center font-label-md text-label-md outline-none focus:ring-0"
-              onClick={(event) => event.stopPropagation()}
-              onChange={(event) => onSectionChange(event.target.value as WorkoutSection)}
-              value={item.section ?? inferWorkoutSection(item)}
-            >
-              {sectionConfigs.map((section) => (
-                <option key={section.id} value={section.id}>
-                  {section.title}
-                </option>
-              ))}
-            </select>
-          </label>
+          {item.sets > 1 ? (
+            <label className="min-w-[76px] text-center">
+              <span className="mb-xs block text-[10px] text-outline">组间</span>
+              <select
+                className="h-9 w-full rounded-lg border border-outline-variant bg-transparent px-xs text-center font-label-md text-label-md outline-none focus:ring-0"
+                onClick={(event) => event.stopPropagation()}
+                onChange={(event) =>
+                  onUpdate((current) => ({ ...current, setRestSeconds: Number(event.target.value) }))
+                }
+                value={item.setRestSeconds}
+              >
+                {restOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}s
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
         </div>
       </div>
       <div className="flex gap-xs border-outline-variant md:border-l md:pl-md">
