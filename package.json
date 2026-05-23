@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "predev": "echo \"AI Trace 调试台: http://localhost:3000/dev/ai-traces\"",
-    "dev": "next dev",
+    "dev": "node scripts/dev-with-error-log.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
