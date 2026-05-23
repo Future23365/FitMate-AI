@@ -136,8 +136,8 @@ export function AppSidebar() {
   }
 
   return (
-    <aside className="fixed left-0 top-0 z-30 hidden h-screen w-[260px] flex-col border-r border-line/70 bg-white/68 px-4 py-6 shadow-nav backdrop-blur-2xl lg:flex">
-      <div className="mb-8 flex items-center gap-3 px-3">
+    <aside className="fixed left-0 top-0 z-30 hidden h-screen w-[260px] flex-col overflow-hidden border-r border-line/70 bg-white/68 px-4 py-6 shadow-nav backdrop-blur-2xl lg:flex">
+      <div className="mb-8 flex shrink-0 items-center gap-3 px-3">
         <LogoMark />
         <div>
           <h1 className="text-xl font-extrabold tracking-tight text-primary">FitMate AI</h1>
@@ -148,7 +148,7 @@ export function AppSidebar() {
       </div>
 
       <Link
-        className="mb-7 flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-bold text-white shadow-card transition-all hover:bg-primary-deep hover:shadow-lift active:scale-[0.98]"
+        className="mb-7 flex w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-bold text-white shadow-card transition-all hover:bg-primary-deep hover:shadow-lift active:scale-[0.98]"
         href="/"
         onClick={() => window.dispatchEvent(new Event("fitmate:new-chat"))}
       >
@@ -156,29 +156,31 @@ export function AppSidebar() {
         <span>新建对话</span>
       </Link>
 
-      <nav className="custom-scrollbar flex-1 space-y-1.5 overflow-y-auto">
-        {navItems.map((item) => {
-          const isActive = pathname === item.href;
-          const itemClassName = `flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold transition-colors ${
-            isActive
-              ? "bg-primary-soft font-extrabold text-primary ring-1 ring-primary/10"
-              : "text-muted hover:bg-panel-soft hover:text-primary"
-          }`;
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <nav className="shrink-0 space-y-1.5">
+          {navItems.map((item) => {
+            const isActive = pathname === item.href;
+            const itemClassName = `flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold transition-colors ${
+              isActive
+                ? "bg-primary-soft font-extrabold text-primary ring-1 ring-primary/10"
+                : "text-muted hover:bg-panel-soft hover:text-primary"
+            }`;
 
-          return (
-            <Link className={itemClassName} href={item.href} key={item.label}>
-              <SymbolIcon filled={isActive}>{item.icon}</SymbolIcon>
-              {item.label}
-            </Link>
-          );
-        })}
+            return (
+              <Link className={itemClassName} href={item.href} key={item.label}>
+                <SymbolIcon filled={isActive}>{item.icon}</SymbolIcon>
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
 
-        <div className="mt-7 border-t border-line pt-5">
+        <section className="mt-7 flex min-h-0 flex-1 flex-col border-t border-line pt-5">
           <p className="mb-2 px-3 text-[10px] font-extrabold uppercase tracking-[0.14em] text-muted">
             历史记录
           </p>
           {historyItems.length ? (
-            <div className="space-y-xs">
+            <div className="custom-scrollbar min-h-0 flex-1 space-y-xs overflow-y-auto pr-1">
               {historyItems.map((item) => (
                 <a
                   className="group/hist flex cursor-pointer items-center justify-between gap-1 rounded-xl px-3 py-2 text-sm font-semibold text-muted transition-colors hover:bg-panel-soft hover:text-primary"
@@ -224,10 +226,10 @@ export function AppSidebar() {
               暂无对话
             </p>
           )}
-        </div>
-      </nav>
+        </section>
+      </div>
 
-      <div className="mt-4 border-t border-line pt-4">
+      <div className="mt-4 shrink-0 border-t border-line pt-4">
         <div className="flex items-center gap-3 rounded-xl border border-line/80 bg-white/72 p-2.5 shadow-card backdrop-blur-xl">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-soft text-sm font-extrabold text-primary ring-1 ring-primary/10">
             {currentUser.initials}
