@@ -922,19 +922,20 @@ export function ActionComposerPage() {
                           onSectionChange={(nextSection) =>
                             updateItem(item.id, (current) => ({ ...current, section: nextSection }))
                           }
+                          onTransitionRestChange={
+                            index < sectionItems.length - 1
+                              ? (nextSeconds) =>
+                                  updateItem(item.id, (current) => ({
+                                    ...current,
+                                    transitionRestSeconds: nextSeconds,
+                                  }))
+                              : undefined
+                          }
                           onUpdate={(updater) => updateItem(item.id, updater)}
+                          transitionRestSeconds={
+                            index < sectionItems.length - 1 ? item.transitionRestSeconds : undefined
+                          }
                         />
-                        {index < sectionItems.length - 1 ? (
-                          <RestIntervalControl
-                            seconds={item.transitionRestSeconds}
-                            onChange={(nextSeconds) =>
-                              updateItem(item.id, (current) => ({
-                                ...current,
-                                transitionRestSeconds: nextSeconds,
-                              }))
-                            }
-                          />
-                        ) : null}
                       </div>
                     ))}
                   </WorkoutSectionBlock>
@@ -1398,7 +1399,9 @@ function WorkoutExerciseRow({
   onDuplicate,
   onPreview,
   onSectionChange,
+  onTransitionRestChange,
   onUpdate,
+  transitionRestSeconds,
 }: {
   dragState: "dragging" | "idle" | "over";
   index: number;
@@ -1411,7 +1414,9 @@ function WorkoutExerciseRow({
   onDuplicate: () => void;
   onPreview: () => void;
   onSectionChange: (section: WorkoutSection) => void;
+  onTransitionRestChange?: (seconds: number) => void;
   onUpdate: (updater: (item: WorkoutItem) => WorkoutItem) => void;
+  transitionRestSeconds?: number;
 }) {
   return (
     <div
@@ -1466,9 +1471,30 @@ function WorkoutExerciseRow({
             <p className="truncate font-body-lg text-body-lg font-bold">
               {item.nameZh} <span className="text-label-sm font-normal text-outline">{item.nameEn}</span>
             </p>
-            <span className={`mt-xs inline-block rounded px-sm py-[2px] text-[10px] font-bold uppercase ${item.mode === "duration" ? "bg-primary-fixed text-on-primary-fixed-variant" : "bg-tertiary-fixed text-on-tertiary-fixed-variant"}`}>
-              {item.mode === "duration" ? "时长模式" : "次数模式"}
-            </span>
+            <div className="mt-xs flex flex-wrap items-center gap-xs">
+              <span className={`inline-block rounded px-sm py-[2px] text-[10px] font-bold uppercase ${item.mode === "duration" ? "bg-primary-fixed text-on-primary-fixed-variant" : "bg-tertiary-fixed text-on-tertiary-fixed-variant"}`}>
+                {item.mode === "duration" ? "时长模式" : "次数模式"}
+              </span>
+              {transitionRestSeconds !== undefined && onTransitionRestChange ? (
+                <label className="inline-flex h-6 cursor-pointer items-center gap-[3px] rounded-md border border-outline-variant bg-panel-soft pl-xs pr-[3px] text-[10px] font-semibold text-secondary transition-colors hover:border-primary/50 hover:bg-primary-soft/70">
+                  <SymbolIcon className="text-[13px] text-primary">timer</SymbolIcon>
+                  <span>下个休息</span>
+                  <select
+                    aria-label={`调整 ${item.nameZh} 后的动作间休息`}
+                    className="h-5 rounded border border-outline-variant bg-white px-[3px] text-[10px] font-bold text-ink outline-none focus:ring-2 focus:ring-primary/20"
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={(event) => onTransitionRestChange(Number(event.target.value))}
+                    value={transitionRestSeconds}
+                  >
+                    {restOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}s
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+            </div>
           </div>
         </div>
         <div className="flex flex-wrap items-end gap-md md:ml-auto">
@@ -1484,7 +1510,7 @@ function WorkoutExerciseRow({
             onChange={(nextValue) => onUpdate((current) => ({ ...current, sets: nextValue }))}
           />
           <label className="min-w-[76px] text-center">
-            <span className="mb-xs block text-[10px] text-outline">间歇</span>
+            <span className="mb-xs block text-[10px] text-outline">组间</span>
             <select
               className="h-9 w-full rounded-lg border border-outline-variant bg-transparent px-xs text-center font-label-md text-label-md outline-none focus:ring-0"
               onClick={(event) => event.stopPropagation()}
@@ -1536,37 +1562,6 @@ function WorkoutExerciseRow({
           <SymbolIcon>delete</SymbolIcon>
         </button>
       </div>
-    </div>
-  );
-}
-
-function RestIntervalControl({
-  onChange,
-  seconds,
-}: {
-  onChange: (seconds: number) => void;
-  seconds: number;
-}) {
-  return (
-    <div className="flex items-center justify-center py-xs">
-      <label className="group flex cursor-pointer items-center gap-xs rounded-full border border-dashed border-outline-variant bg-surface-container-low/50 px-md py-xs text-on-surface-variant transition-all hover:border-primary/50">
-        <SymbolIcon className="text-[14px] text-outline transition-colors group-hover:text-primary">
-          timer
-        </SymbolIcon>
-        <span className="text-[10px] font-medium">休息间隔</span>
-        <select
-          aria-label="休息间隔"
-          className="ml-xs h-6 rounded-full border border-outline-variant bg-white px-sm py-0 text-[10px] font-bold text-on-surface outline-none focus:ring-2 focus:ring-primary/20"
-          onChange={(event) => onChange(Number(event.target.value))}
-          value={seconds}
-        >
-          {restOptions.map((option) => (
-            <option key={option} value={option}>
-              {option}s
-            </option>
-          ))}
-        </select>
-      </label>
     </div>
   );
 }
