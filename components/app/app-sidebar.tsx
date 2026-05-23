@@ -87,7 +87,7 @@ export function AppSidebar() {
         );
         setHistoryItems(
           sortedHistory.length
-            ? sortedHistory.slice(0, 6).map((item) => ({
+            ? sortedHistory.map((item) => ({
                 id: item.id,
                 title: item.title,
                 updatedAt: item.updatedAt,
