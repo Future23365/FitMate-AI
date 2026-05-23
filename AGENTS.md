@@ -8,9 +8,9 @@
 
 ## OpenSpec 使用规则
 
-OpenSpec 负责具体的 proposal / apply / archive 工作流；本文件只规定什么时候必须使用 OpenSpec，以及 Codex 在使用 OpenSpec 时的边界。
+OpenSpec 负责具体的 proposal / apply / archive 工作流；本要求只规定什么时候必须使用 OpenSpec，以及 Codex 在使用 OpenSpec 时的边界。
 
-对于非简单改动，在实现前必须先进入 OpenSpec。OpenSpec 规则优先于直接实现规则，除非我明确要求跳过 OpenSpec 或直接实现。
+对于非简单改动，在实现前必须先进入 OpenSpec，并补充OpenSpec流程相关文档。OpenSpec 规则优先于直接实现规则，除非我明确要求跳过 OpenSpec 或直接实现。
 
 必须先走 OpenSpec 的场景包括：
 
@@ -36,6 +36,26 @@ OpenSpec 负责具体的 proposal / apply / archive 工作流；本文件只规�
 - 明确要求直接修改、跳过 OpenSpec、hotfix、quick patch、minimal change 或最小改动的任务
 
 即使只涉及单个文件，只要改变核心业务行为、AI 行为、数据模型、权限安全、训练计划生成规则或用户可观察流程，也必须先走 OpenSpec。
+
+### OpenSpec 处理
+
+OpenSpec 生成或修改的说明性文档应使用中文，便于人工 review。
+
+适用文件包括但不限于：
+- proposal.md
+- design.md
+- tasks.md
+- specs/**/spec.md 中的 Requirements、Scenarios、Acceptance Criteria 等说明性内容
+
+要求：
+1. 只翻译/改写说明性内容，不改变需求含义、功能边界或验收标准
+2. 保留原有 markdown 结构，尤其是 tasks.md 的 checklist 结构
+3. 保留文件名、目录名、组件名、函数名、变量名、API 名、命令、代码标识符为英文
+4. 保留 OpenSpec 固定字段名、命令名、change id、spec id 为英文
+5. 不要因为翻译而新增、删除或合并任务
+6. 不要因为翻译而新增需求、扩大范围或引入额外技术方案
+7. 如果原文存在歧义，先标记为“需要确认”，不要自行改写成确定需求
+8. 实现代码、测试代码、提交信息中的技术标识保持项目现有语言风格
 
 ## 开发理念
 
@@ -142,6 +162,11 @@ OpenSpec 负责具体的 proposal / apply / archive 工作流；本文件只规�
 - 只有在实际修改代码、文档或配置后，才需要提交 commit。
 - 完成一次用户请求对应的完整改动后，如果相关检查无错误，则自动提交一次 commit。
 - commit message 使用中文提交说明。
+  - 生成中文 commit message，格式为：
+    `改动方向: 简短描述`
+    改动方向从以下选择：功能新增、修复问题、样式调整、文档调整、重构代码、架构调整、性能优化、测试调整、配置调整、依赖调整、工程化调整、类型调整。
+    根据 diff 判断最主要的改动方向，只选一个。OpenSpec、README、设计文档、需求说明、任务清单等归为「文档调整」；只有实际代码涉及模块边界、目录分层、状态管理、请求层、权限体系变化时，才用「架构调整」。
+    描述不超过 30 个中文字符。不要使用 feat、fix、docs 等英文前缀。只输出 commit message，不要解释。
 - 不要 amend、rebase 或改写已有提交，除非我明确要求。
 
 ## 技术栈
