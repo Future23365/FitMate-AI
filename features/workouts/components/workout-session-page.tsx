@@ -55,7 +55,7 @@ type SessionStep = {
 const scheduleStorageKey = "fitmate.trainingSchedule";
 const placeholderImage = "/images/exercise-placeholder.svg";
 const defaultRepIntervalSeconds = 2;
-const defaultTrainingLoopRestSeconds = 45;
+const defaultTrainingLoopRestSeconds = 120;
 
 const fallbackPlan: ScheduledWorkout = {
   id: "session-fallback",
@@ -97,7 +97,7 @@ function createFallbackItem(
     target,
     sets: 1,
     setRestSeconds: 30,
-    transitionRestSeconds: 45,
+    transitionRestSeconds: 20,
   };
 }
 

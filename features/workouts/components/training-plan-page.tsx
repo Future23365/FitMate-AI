@@ -57,7 +57,7 @@ type CalendarCell = {
 
 const historyStorageKey = "fitmate.workoutHistory";
 const scheduleStorageKey = "fitmate.trainingSchedule";
-const defaultTrainingLoopRestSeconds = 45;
+const defaultTrainingLoopRestSeconds = 120;
 const weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
 const fallbackWorkouts: SavedWorkout[] = [
@@ -122,7 +122,7 @@ function createFallbackItem(
     target,
     sets: 3,
     setRestSeconds: 30,
-    transitionRestSeconds: 45,
+    transitionRestSeconds: 20,
   };
 }
 

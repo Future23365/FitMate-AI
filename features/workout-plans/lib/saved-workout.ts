@@ -56,7 +56,7 @@ export function convertWorkoutPlanDraftToSavedWorkout(
     title: day.title || parsedDraft.title,
     savedAt: formatLocalDateTime(options.savedAt ?? new Date()),
     trainingLoopRounds: 1,
-    trainingLoopRestSeconds: 45,
+    trainingLoopRestSeconds: 120,
     items: day.items.map((item) => {
       const exercise = exerciseById.get(item.exerciseId);
 

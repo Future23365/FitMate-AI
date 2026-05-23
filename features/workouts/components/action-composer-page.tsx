@@ -60,10 +60,10 @@ type TemplateExerciseConfig = {
 
 const historyStorageKey = "fitmate.workoutHistory";
 const placeholderImage = "/images/exercise-placeholder.svg";
-const restOptions = [15, 20, 30, 45, 60, 90];
+const restOptions = [15, 20, 30, 45, 60, 90, 120];
 const loopRoundOptions = [1, 2, 3, 4, 5, 6];
 const defaultTrainingLoopRounds = 3;
-const defaultTrainingLoopRestSeconds = 45;
+const defaultTrainingLoopRestSeconds = 120;
 const sectionConfigs: Array<{
   id: WorkoutSection;
   title: string;
@@ -112,7 +112,7 @@ const templateExerciseConfigs: TemplateExerciseConfig[] = [
     target: 40,
     sets: 2,
     setRestSeconds: 20,
-    transitionRestSeconds: 30,
+    transitionRestSeconds: 20,
   },
   {
     query: "自重深蹲",
@@ -122,7 +122,7 @@ const templateExerciseConfigs: TemplateExerciseConfig[] = [
     target: 12,
     sets: 4,
     setRestSeconds: 30,
-    transitionRestSeconds: 45,
+    transitionRestSeconds: 20,
   },
   {
     query: "俯卧撑",
@@ -132,7 +132,7 @@ const templateExerciseConfigs: TemplateExerciseConfig[] = [
     target: 15,
     sets: 3,
     setRestSeconds: 30,
-    transitionRestSeconds: 45,
+    transitionRestSeconds: 20,
   },
   {
     query: "平板支撑",
@@ -142,7 +142,7 @@ const templateExerciseConfigs: TemplateExerciseConfig[] = [
     target: 45,
     sets: 3,
     setRestSeconds: 20,
-    transitionRestSeconds: 30,
+    transitionRestSeconds: 20,
   },
   {
     query: "拉伸",
@@ -182,7 +182,7 @@ function toWorkoutItem(
     target: overrides.target ?? (isDuration ? 45 : 12),
     sets: overrides.sets ?? 1,
     setRestSeconds: overrides.setRestSeconds ?? 30,
-    transitionRestSeconds: overrides.transitionRestSeconds ?? 45,
+    transitionRestSeconds: overrides.transitionRestSeconds ?? 20,
     section: overrides.section ?? "training",
   };
 }
@@ -193,7 +193,7 @@ function normalizeWorkoutItem(item: WorkoutItem): WorkoutItem {
   return {
     ...item,
     setRestSeconds: item.setRestSeconds ?? legacyRestSeconds,
-    transitionRestSeconds: item.transitionRestSeconds ?? legacyRestSeconds,
+    transitionRestSeconds: item.transitionRestSeconds ?? item.restSeconds ?? 20,
     section: item.section ?? inferWorkoutSection(item),
   };
 }
