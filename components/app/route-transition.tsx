@@ -6,7 +6,6 @@ import { usePathname } from "next/navigation";
 type RouteSnapshot = {
   key: string;
   content: ReactNode;
-  phase: "initial" | "entering";
 };
 
 const transitionDurationMs = 320;
@@ -17,12 +16,10 @@ export function RouteTransition({ children }: { children: ReactNode }) {
   const initialRoute: RouteSnapshot = {
     key: pathname,
     content: children,
-    phase: "initial",
   };
   const activeRef = useRef<RouteSnapshot>({
     key: pathname,
     content: children,
-    phase: "initial",
   });
   const [activeRoute, setActiveRoute] = useState<RouteSnapshot>(initialRoute);
   const [exitingRoute, setExitingRoute] = useState<RouteSnapshot | null>(null);
@@ -41,7 +38,6 @@ export function RouteTransition({ children }: { children: ReactNode }) {
     const enteringRoute: RouteSnapshot = {
       key: pathname,
       content: children,
-      phase: "entering",
     };
 
     activeRef.current = enteringRoute;
@@ -64,22 +60,14 @@ export function RouteTransition({ children }: { children: ReactNode }) {
 
   return (
     <div className="route-transition-root" aria-live="off">
+      <div key={`active-${activeRoute.key}`} className="route-transition-page route-transition-page-active">
+        {activeRoute.content}
+      </div>
       {exitingRoute ? (
         <div key={`exit-${exitingRoute.key}`} className="route-transition-page route-transition-page-exit">
           {exitingRoute.content}
         </div>
       ) : null}
-      <div
-        key={`active-${activeRoute.key}`}
-        className={[
-          "route-transition-page",
-          activeRoute.phase === "entering" ? "route-transition-page-enter" : "",
-        ]
-          .filter(Boolean)
-          .join(" ")}
-      >
-        {activeRoute.content}
-      </div>
     </div>
   );
 }
