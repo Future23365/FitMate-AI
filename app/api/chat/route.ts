@@ -171,6 +171,7 @@ export async function POST(request: Request) {
     ? await buildExerciseContext(chatIntent, messages, conversationContext, trace)
     : null;
   const assistantAction = resolveAssistantAction(chatIntent, exerciseContext);
+  const visibleSuggestedQuestions = resolveVisibleSuggestedQuestions(chatIntent, assistantAction);
   trace.addStep({
     name: "服务端内部动作事件",
     type: "intent",
@@ -179,7 +180,10 @@ export async function POST(request: Request) {
       assistantAction,
       canTriggerAction: chatIntent.canTriggerAction,
       missingActionFields: chatIntent.missingActionFields,
-      suggestedQuestions: chatIntent.suggestedQuestions,
+      suggestedQuestions: visibleSuggestedQuestions,
+      suppressedSuggestedQuestions: chatIntent.suggestedQuestions.filter(
+        (question) => !visibleSuggestedQuestions.includes(question),
+      ),
       candidateStatus: exerciseContext?.candidateStatus,
     },
     metadata: {
@@ -354,10 +358,10 @@ export async function POST(request: Request) {
         );
       }
 
-      if (chatIntent.suggestedQuestions.length > 0) {
+      if (visibleSuggestedQuestions.length > 0) {
         controller.enqueue(
           encodeStreamEvent("suggested_questions", "", {
-            suggestedQuestions: chatIntent.suggestedQuestions,
+            suggestedQuestions: visibleSuggestedQuestions,
           }),
         );
       }
@@ -709,6 +713,18 @@ function resolveAssistantAction(
     default:
       return null;
   }
+}
+
+function resolveVisibleSuggestedQuestions(
+  chatIntent: ChatIntent,
+  assistantAction: AssistantAction | null,
+) {
+  // 只有需要用户补信息时展示建议问题；已触发内部动作时避免按钮和生成态同时出现。
+  if (assistantAction || chatIntent.canTriggerAction) {
+    return [];
+  }
+
+  return chatIntent.suggestedQuestions;
 }
 
 function buildSystemPrompt(

@@ -24,7 +24,7 @@ export const aiPromptConfig = {
       "exercise_recommendation 场景：只要能明确用户想推荐的训练目标或部位，且没有高风险健康情况，canTriggerAction 可以为 true。",
       "routine 和 workout_plan 场景：只有用户明确提供训练目标、单次训练时长、可用器械或训练场地，且没有高风险健康情况，canTriggerAction 才能为 true。",
       "如果关键信息不足，canTriggerAction 必须为 false，并把缺失项写入 missingActionFields，例如 goal、sessionMinutes、equipmentOrLocation。",
-      "suggestedQuestions 用于可点击的下一步问题，最多 3 条；没有建议时返回空数组。",
+      "suggestedQuestions 只用于 canTriggerAction=false 时给用户可点击的补充信息问题，最多 3 条；canTriggerAction=true 时必须返回空数组。",
       "信息不足时为了满足 JSON Schema 可以使用占位默认值：goal 使用用户问题的核心目标，experience=beginner，sessionMinutes=30，weeklyFrequency=3，数组字段默认 []。这些默认值只用于结构化解析，不代表可以直接生成训练计划。",
       "必须返回非空 JSON。示例：",
       `{
