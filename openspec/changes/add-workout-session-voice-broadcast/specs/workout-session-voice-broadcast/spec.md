@@ -30,20 +30,24 @@ The system SHALL reuse the top volume button on the workout session page as the 
 - **WHEN** `localStorage` cannot be read or written
 - **THEN** the system MUST keep the current page session usable and fall back to in-memory toggle state
 
-### Requirement: Startup voice sequence
-The system SHALL use a preparation countdown before the workout session timer starts.
+### Requirement: Exercise preparation voice sequence
+The system SHALL use a preparation voice countdown before each exercise step starts timing.
 
-#### Scenario: Training session starts with voice enabled
+#### Scenario: First exercise starts with voice enabled
 - **WHEN** `/training` loads a workout timeline and voice broadcast is enabled
-- **THEN** the system announces “第一个动作：” with the first action name and then announces “3，2，1” before starting the workout timer
+- **THEN** the system announces “第一个动作：” with the first action name and then announces “3，2，1，开始” before starting the workout timer
 
-#### Scenario: Training session starts with voice disabled
+#### Scenario: Exercise step starts with voice disabled
 - **WHEN** `/training` loads a workout timeline and voice broadcast is disabled
 - **THEN** the system still waits for the preparation countdown before starting the workout timer without speaking prompts
 
-#### Scenario: User manually changes step after startup
-- **WHEN** the user jumps to another step after the startup sequence has already run
-- **THEN** the system MUST NOT replay the preparation countdown and MUST only announce the current step context when voice broadcast is enabled
+#### Scenario: Later exercise step begins
+- **WHEN** the active timeline moves to a later exercise step after a rest or skip
+- **THEN** the system announces the action name and “3，2，1，开始” before starting that exercise step timer
+
+#### Scenario: Rest step begins
+- **WHEN** the active timeline moves to a rest step
+- **THEN** the system starts the rest timer without an exercise preparation countdown
 
 ### Requirement: Step transition voice cues
 The system SHALL announce relevant workout step transitions using existing workout timeline data.

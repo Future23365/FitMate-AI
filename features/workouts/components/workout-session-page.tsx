@@ -111,6 +111,7 @@ export function WorkoutSessionPage() {
   const [remainingSeconds, setRemainingSeconds] = useState(45);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [preparationCountdown, setPreparationCountdown] = useState(0);
+  const [preparedStepKey, setPreparedStepKey] = useState("");
   const [isPaused, setIsPaused] = useState(false);
   const [isAudioOn, setIsAudioOn] = useState(true);
   const [loadedPlanKey, setLoadedPlanKey] = useState("");
@@ -159,9 +160,11 @@ export function WorkoutSessionPage() {
   const nextItem = orderedItems[currentExerciseIndex + 1];
   const remainingSteps = Math.max(0, steps.length - activeStepIndex - 1);
   const requestedPlanKey = planId ?? "default";
-  const isPlanReady = loadedPlanKey === requestedPlanKey;
-  const isPreparing = preparationCountdown > 0;
   const sessionVoiceId = `${plan.id}:${plan.date}:${plan.planId}`;
+  const activeStepKey = activeStep ? `${sessionVoiceId}:${activeStep.id}:${activeStepIndex}` : "";
+  const isPlanReady = loadedPlanKey === requestedPlanKey;
+  const needsExercisePreparation = activeStep?.type === "exercise" && preparedStepKey !== activeStepKey;
+  const isPreparing = Boolean(needsExercisePreparation && preparationCountdown > 0);
 
   useEffect(() => {
     let cancelled = false;
@@ -187,7 +190,8 @@ export function WorkoutSessionPage() {
       setActiveStepIndex(0);
       setElapsedSeconds(0);
       setRemainingSeconds(selectedSteps[0]?.durationSeconds ?? 45);
-      setPreparationCountdown(preparationCountdownStart);
+      setPreparedStepKey("");
+      setPreparationCountdown(selectedSteps[0]?.type === "exercise" ? preparationCountdownStart : 0);
       setLoadedPlanKey(requestKey);
     });
 
@@ -209,8 +213,8 @@ export function WorkoutSessionPage() {
     activeStepIndex,
     completedReps,
     isEnabled: isAudioOn && loadedPlanKey === requestedPlanKey && isVoicePreferenceLoaded,
+    isFirstExerciseStep: activeStepIndex === 0,
     isPaused,
-    overviewItems: orderedItems,
     preparationCountdown,
     remainingSeconds,
     sessionId: sessionVoiceId,
@@ -218,19 +222,22 @@ export function WorkoutSessionPage() {
   });
 
   useEffect(() => {
-    if (!isPlanReady || isPaused || preparationCountdown <= 0) {
+    if (!isPlanReady || isPaused || !needsExercisePreparation || preparationCountdown <= 0) {
       return;
     }
 
     const timer = window.setTimeout(() => {
       setPreparationCountdown((value) => Math.max(0, value - 1));
+      if (preparationCountdown <= 1 && activeStepKey) {
+        setPreparedStepKey(activeStepKey);
+      }
     }, 1000);
 
     return () => window.clearTimeout(timer);
-  }, [isPaused, isPlanReady, preparationCountdown]);
+  }, [activeStepKey, isPaused, isPlanReady, needsExercisePreparation, preparationCountdown]);
 
   useEffect(() => {
-    if (isPaused || isPreparing || !activeStep) {
+    if (isPaused || needsExercisePreparation || !activeStep) {
       return;
     }
 
@@ -239,11 +246,13 @@ export function WorkoutSessionPage() {
       setRemainingSeconds((value) => {
         if (value <= 1) {
           const nextIndex = Math.min(activeStepIndex + 1, steps.length - 1);
+          const nextStep = steps[nextIndex];
           setActiveStepIndex(nextIndex);
           if (nextIndex === activeStepIndex) {
             setIsPaused(true);
           }
 
+          setPreparationCountdown(nextStep?.type === "exercise" && nextIndex !== activeStepIndex ? preparationCountdownStart : 0);
           return nextIndex === activeStepIndex ? 0 : steps[nextIndex]?.durationSeconds ?? 0;
         }
 
@@ -252,11 +261,12 @@ export function WorkoutSessionPage() {
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [activeStep, activeStepIndex, isPaused, isPreparing, steps]);
+  }, [activeStep, activeStepIndex, isPaused, needsExercisePreparation, steps]);
 
   function goToStep(nextIndex: number) {
     const boundedIndex = Math.min(Math.max(0, nextIndex), steps.length - 1);
-    setPreparationCountdown(0);
+    setPreparedStepKey("");
+    setPreparationCountdown(steps[boundedIndex]?.type === "exercise" ? preparationCountdownStart : 0);
     setActiveStepIndex(boundedIndex);
     setRemainingSeconds(steps[boundedIndex]?.durationSeconds ?? 45);
   }
@@ -266,6 +276,7 @@ export function WorkoutSessionPage() {
 
     if (isLastStep) {
       setIsPaused(true);
+      setPreparedStepKey("");
       setPreparationCountdown(0);
       setRemainingSeconds(0);
       return;
@@ -276,6 +287,7 @@ export function WorkoutSessionPage() {
 
   function finishTraining() {
     setIsPaused(true);
+    setPreparedStepKey("");
     setPreparationCountdown(0);
 
     void updateScheduledWorkoutStatus(plan.id, "completed")
@@ -398,7 +410,11 @@ export function WorkoutSessionPage() {
                   } 组`}
             </span>
             <h2 className="max-w-[680px] text-[30px] font-extrabold leading-tight text-ink md:text-[38px]">
-              {isPreparing ? `第一个动作：${currentItem.nameZh}` : isRestStep ? activeRestStep?.label : currentItem.nameZh}
+              {isPreparing
+                ? `${activeStepIndex === 0 ? "第一个动作" : "准备动作"}：${currentItem.nameZh}`
+                : isRestStep
+                ? activeRestStep?.label
+                : currentItem.nameZh}
             </h2>
             <p className="mt-sm text-body-lg font-semibold text-muted">
               {isPreparing
@@ -415,7 +431,7 @@ export function WorkoutSessionPage() {
                   {preparationCountdown}
                 </div>
                 <p className="text-body-lg font-extrabold text-ink">
-                  保持站姿，准备开始第一个动作
+                  保持姿势，准备开始动作
                 </p>
               </>
             ) : isRestStep ? (

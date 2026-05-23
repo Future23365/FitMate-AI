@@ -2,6 +2,7 @@ import {
   buildFirstWorkoutActionCue,
   buildPreparationCountdownCue,
   buildRepetitionCountCue,
+  buildWorkoutActionPreparationCue,
   buildWorkoutOverviewCue,
   buildWorkoutStartupCues,
   buildWorkoutStepVoiceCue,
@@ -97,6 +98,15 @@ export function runWorkoutVoiceCueTests() {
   console.assert(buildRepetitionCountCue(3) === "3", "按次计数应播报当前达到的数字");
   console.assert(buildFirstWorkoutActionCue(timedItem) === "第一个动作：深蹲。", "第一个动作提示不符");
   console.assert(buildPreparationCountdownCue(2) === "2", "准备倒计时提示不符");
+  console.assert(buildPreparationCountdownCue(1) === "1，开始", "准备倒计时最后一秒应播报开始");
+  console.assert(
+    buildWorkoutActionPreparationCue(durationStep, true) === "第一个动作：深蹲，第 2 组。",
+    "首个动作准备提示不符",
+  );
+  console.assert(
+    buildWorkoutActionPreparationCue(repsStep, false) === "动作：俯卧撑，第 1 组。",
+    "后续动作准备提示不符",
+  );
 
   const longOverview = buildWorkoutOverviewCue(
     [
@@ -117,5 +127,5 @@ export function runWorkoutVoiceCueTests() {
   const startupCues = buildWorkoutStartupCues([timedItem, repsItem]);
   console.assert(startupCues[0] === "本次训练 2 个动作：深蹲、俯卧撑。准备开始。", "启动概览不符");
   console.assert(startupCues[1] === "第一个动作：深蹲。", "启动第一个动作文案不符");
-  console.assert(startupCues.slice(2).join("，") === "3，2，1", "启动倒计时文案不符");
+  console.assert(startupCues.slice(2).join("，") === "3，2，1，开始", "启动倒计时文案不符");
 }

@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, type MutableRefObject } from "react";
+import { useEffect, useRef, type MutableRefObject } from "react";
 
-import type { WorkoutItem, WorkoutTimelineStep } from "@/lib/shared/workouts/composition";
+import type { WorkoutTimelineStep } from "@/lib/shared/workouts/composition";
 import {
-  buildFirstWorkoutActionCue,
   buildPreparationCountdownCue,
   buildRepetitionCountCue,
+  buildWorkoutActionPreparationCue,
   buildWorkoutStepVoiceCue,
 } from "@/lib/shared/workouts/voice-cues";
 
@@ -16,8 +16,8 @@ type UseWorkoutVoiceBroadcastOptions = {
   activeStepIndex: number;
   completedReps: number;
   isEnabled: boolean;
+  isFirstExerciseStep: boolean;
   isPaused: boolean;
-  overviewItems: WorkoutItem[];
   preparationCountdown: number;
   remainingSeconds: number;
   sessionId: string;
@@ -57,8 +57,8 @@ export function useWorkoutVoiceBroadcast({
   activeStepIndex,
   completedReps,
   isEnabled,
+  isFirstExerciseStep,
   isPaused,
-  overviewItems,
   preparationCountdown,
   remainingSeconds,
   sessionId,
@@ -69,12 +69,12 @@ export function useWorkoutVoiceBroadcast({
   const isPreparing = preparationCountdown > 0;
   const startupSessionIdRef = useRef("");
   const currentStepKeyRef = useRef("");
+  const preparationStepKeyRef = useRef("");
   const lastBeepElapsedRef = useRef(0);
   const lastCountRef = useRef(0);
   const lastPreparationSecondRef = useRef(0);
   const wasPausedRef = useRef(isPaused);
   const audioContextRef = useRef<AudioContext | null>(null);
-  const firstActionCue = useMemo(() => buildFirstWorkoutActionCue(overviewItems[0]), [overviewItems]);
 
   useEffect(() => {
     if (!isEnabled) {
@@ -103,13 +103,20 @@ export function useWorkoutVoiceBroadcast({
     if (startupSessionIdRef.current !== sessionId) {
       startupSessionIdRef.current = sessionId;
       currentStepKeyRef.current = "";
+      preparationStepKeyRef.current = "";
       resetRhythmRefs(lastBeepElapsedRef, lastCountRef);
       lastPreparationSecondRef.current = 0;
-      speakTexts([firstActionCue], true);
-      return;
     }
 
     if (isPreparing) {
+      if (preparationStepKeyRef.current !== activeStepKey) {
+        preparationStepKeyRef.current = activeStepKey;
+        currentStepKeyRef.current = activeStepKey;
+        resetRhythmRefs(lastBeepElapsedRef, lastCountRef);
+        lastPreparationSecondRef.current = 0;
+        speakTexts([buildWorkoutActionPreparationCue(activeStep, isFirstExerciseStep)], true);
+      }
+
       return;
     }
 
@@ -118,7 +125,7 @@ export function useWorkoutVoiceBroadcast({
       resetRhythmRefs(lastBeepElapsedRef, lastCountRef);
       speakTexts([buildWorkoutStepVoiceCue(activeStep)], true);
     }
-  }, [activeStep, activeStepKey, firstActionCue, isEnabled, isPaused, isPreparing, sessionId]);
+  }, [activeStep, activeStepKey, isEnabled, isFirstExerciseStep, isPaused, isPreparing, sessionId]);
 
   useEffect(() => {
     if (!isEnabled || isPaused || preparationCountdown <= 0) {
