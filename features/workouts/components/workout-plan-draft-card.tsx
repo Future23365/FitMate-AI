@@ -79,6 +79,8 @@ function toFallbackPreviewExercise(item: WorkoutPlanItemDraft): Exercise {
     mechanicZh: null,
     equipment: null,
     equipmentZh: "未标注器械",
+    homeRequirement: "unknown",
+    homeRequirementZh: "未标注",
     primaryMuscles: [],
     primaryMusclesZh: ["综合"],
     secondaryMuscles: [],

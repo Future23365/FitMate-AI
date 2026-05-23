@@ -22,6 +22,7 @@ export async function GET(request: Request) {
     force: getOptionalParam(url, "force"),
     mechanic: getOptionalParam(url, "mechanic"),
     equipment: getOptionalParam(url, "equipment"),
+    homeRequirement: getOptionalParam(url, "homeRequirement"),
     muscle: getOptionalParam(url, "muscle"),
     goalTag: getOptionalParam(url, "goalTag"),
     riskTag: getOptionalParam(url, "riskTag"),

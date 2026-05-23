@@ -56,6 +56,7 @@ export async function getExerciseFacets(): Promise<ExerciseFacets> {
     force: collectFacet("force", "forceZh"),
     mechanics: collectFacet("mechanic", "mechanicZh"),
     equipment: collectFacet("equipment", "equipmentZh"),
+    homeRequirements: collectFacet("homeRequirement", "homeRequirementZh"),
     muscles: collectArrayFacet("primaryMuscles", "primaryMusclesZh"),
     goalTags: collectTagFacet("goalTags"),
     riskTags: collectTagFacet("riskTags"),
@@ -91,6 +92,14 @@ function matchesExerciseQuery(exercise: Exercise, query: ExerciseListQuery) {
     query.equipment &&
     exercise.equipment !== query.equipment &&
     exercise.equipmentZh !== query.equipment
+  ) {
+    return false;
+  }
+
+  if (
+    query.homeRequirement &&
+    exercise.homeRequirement !== query.homeRequirement &&
+    exercise.homeRequirementZh !== query.homeRequirement
   ) {
     return false;
   }
@@ -139,6 +148,8 @@ function matchesSearchText(exercise: Exercise, keyword: string) {
       exercise.categoryZh,
       exercise.equipment,
       exercise.equipmentZh,
+      exercise.homeRequirement,
+      exercise.homeRequirementZh,
       exercise.level,
       exercise.levelZh,
       ...exercise.primaryMuscles,

@@ -16,6 +16,8 @@ export type Exercise = {
   mechanicZh: string | null;
   equipment: string | null;
   equipmentZh: string | null;
+  homeRequirement: string;
+  homeRequirementZh: string;
   primaryMuscles: string[];
   primaryMusclesZh: string[];
   secondaryMuscles: string[];
@@ -37,6 +39,7 @@ export type ExerciseListQuery = {
   force?: string;
   mechanic?: string;
   equipment?: string;
+  homeRequirement?: string;
   muscle?: string;
   goalTag?: string;
   riskTag?: string;
@@ -68,6 +71,7 @@ export type ExerciseFacets = {
   force: ExerciseFacetItem[];
   mechanics: ExerciseFacetItem[];
   equipment: ExerciseFacetItem[];
+  homeRequirements: ExerciseFacetItem[];
   muscles: ExerciseFacetItem[];
   goalTags: ExerciseFacetItem[];
   riskTags: ExerciseFacetItem[];

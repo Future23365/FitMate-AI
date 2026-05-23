@@ -27,6 +27,7 @@ type ExerciseApiResponse = {
     force: ExerciseFacet[];
     mechanics: ExerciseFacet[];
     equipment: ExerciseFacet[];
+    homeRequirements: ExerciseFacet[];
     muscles: ExerciseFacet[];
     goalTags: ExerciseFacet[];
     riskTags: ExerciseFacet[];
@@ -39,6 +40,7 @@ const defaultExerciseFacets: ExerciseFacets = {
   force: [],
   mechanics: [],
   equipment: [],
+  homeRequirements: [],
   muscles: [],
   goalTags: [],
   riskTags: [],
@@ -116,6 +118,7 @@ export function ExerciseLibraryPage() {
   const [muscle, setMuscle] = useState("");
   const [level, setLevel] = useState("");
   const [equipment, setEquipment] = useState("");
+  const [homeRequirement, setHomeRequirement] = useState("");
   const [force, setForce] = useState("");
   const [mechanic, setMechanic] = useState("");
   const [goalTag, setGoalTag] = useState("");
@@ -160,6 +163,10 @@ export function ExerciseLibraryPage() {
 
     if (equipment) {
       params.set("equipment", equipment);
+    }
+
+    if (homeRequirement) {
+      params.set("homeRequirement", homeRequirement);
     }
 
     if (force) {
@@ -215,6 +222,7 @@ export function ExerciseLibraryPage() {
     equipment,
     force,
     goalTag,
+    homeRequirement,
     level,
     mechanic,
     muscle,
@@ -239,6 +247,7 @@ export function ExerciseLibraryPage() {
     setMuscle("");
     setLevel("");
     setEquipment("");
+    setHomeRequirement("");
     setForce("");
     setMechanic("");
     setGoalTag("");
@@ -254,6 +263,7 @@ export function ExerciseLibraryPage() {
     muscle ? `肌群：${getFacetLabel(facets.muscles, muscle)}` : "",
     level ? `难度：${getFacetLabel(facets.levels, level)}` : "",
     equipment ? `器械：${getFacetLabel(facets.equipment, equipment)}` : "",
+    homeRequirement ? `居家条件：${getFacetLabel(facets.homeRequirements, homeRequirement)}` : "",
     force ? `发力：${getFacetLabel(facets.force, force)}` : "",
     mechanic ? `机制：${getFacetLabel(facets.mechanics, mechanic)}` : "",
     goalTag ? `目标：${goalTag}` : "",
@@ -385,6 +395,13 @@ export function ExerciseLibraryPage() {
                 options={facets.equipment}
                 placeholder="全部器械"
                 value={equipment}
+              />
+              <SelectFilter
+                label="居家条件"
+                onChange={(value) => updateFilter(() => setHomeRequirement(value))}
+                options={facets.homeRequirements}
+                placeholder="全部条件"
+                value={homeRequirement}
               />
               <SelectFilter
                 label="发力"
