@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { AiTrace, AiTraceStep } from "@/lib/server/dev/ai-trace-store";
 
@@ -50,7 +50,7 @@ export function AiTraceViewer() {
     [selectedTrace],
   );
 
-  async function loadTraces() {
+  const loadTraces = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
@@ -71,7 +71,7 @@ export function AiTraceViewer() {
     } finally {
       setIsLoading(false);
     }
-  }
+  }, []);
 
   async function clearTraces() {
     await fetch("/api/dev/ai-traces", {
@@ -116,19 +116,14 @@ export function AiTraceViewer() {
   }
 
   useEffect(() => {
-    const initialTimer = window.setTimeout(() => {
+    const initialRefreshTimer = window.setTimeout(() => {
       void loadTraces();
     }, 0);
 
-    const timer = window.setInterval(() => {
-      void loadTraces();
-    }, 2500);
-
     return () => {
-      window.clearTimeout(initialTimer);
-      window.clearInterval(timer);
+      window.clearTimeout(initialRefreshTimer);
     };
-  }, []);
+  }, [loadTraces]);
 
   return (
     <main className="flex h-screen bg-[#f6f8fb] text-slate-950">
