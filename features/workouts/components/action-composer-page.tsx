@@ -897,15 +897,14 @@ export function ActionComposerPage() {
                 const isSelected = exercise.id === selectedLibraryExercise?.id;
 
                 return (
-                <button
+                <div
                   className={`flex w-full items-center gap-sm rounded-xl border p-sm text-left transition-all ${
                     isSelected
                       ? "border-primary-container bg-primary/5 ring-2 ring-primary-container/10"
                       : "border-outline-variant bg-surface-container-lowest hover:border-primary"
                   }`}
                   key={exercise.id}
-                  onClick={() => openLibraryPreview(exercise)}
-                  type="button"
+                  onClick={() => setSelectedLibraryExerciseId(exercise.id)}
                 >
                   <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-surface-container-low">
                     <Image
@@ -922,16 +921,29 @@ export function ActionComposerPage() {
                       {(exercise.primaryMusclesZh[0] || exercise.categoryZh || "综合")} · {exercise.equipmentZh || "未标注"}
                     </p>
                   </div>
-                  <span
+                  <button
+                    aria-label={`查看动作详情：${exercise.nameZh}`}
+                    className="rounded-full p-xs text-outline transition-colors hover:bg-primary/10 hover:text-primary"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openLibraryPreview(exercise);
+                    }}
+                    type="button"
+                  >
+                    <SymbolIcon>info</SymbolIcon>
+                  </button>
+                  <button
+                    aria-label={`加入当前计划：${exercise.nameZh}`}
                     className="rounded-full p-xs text-primary transition-colors hover:bg-primary/10"
                     onClick={(event) => {
                       event.stopPropagation();
                       addExercise(exercise);
                     }}
+                    type="button"
                   >
                     <SymbolIcon>add_circle</SymbolIcon>
-                  </span>
-                </button>
+                  </button>
+                </div>
                 );
               })
             )}
