@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import type { Exercise } from "@/lib/shared/exercises/types";
@@ -19,6 +19,47 @@ interface ExercisePreviewSheetProps {
 }
 
 const placeholderImage = "/images/exercise-placeholder.svg";
+const autoplayIntervalMs = 1200;
+const autoplayImageWaitMs = 120;
+type ImageLoadStatus = "loaded" | "failed";
+const emptyImageLoadStatus: Record<string, ImageLoadStatus> = {};
+type ExerciseImageLoadState = {
+  exerciseId: string;
+  statusByUrl: Record<string, ImageLoadStatus>;
+};
+
+function preloadExerciseImage(src: string) {
+  return new Promise<void>((resolve, reject) => {
+    const image = new window.Image();
+    image.onload = async () => {
+      try {
+        await image.decode?.();
+      } catch {
+        // Some browsers resolve onload before decode is available or reliable.
+      }
+      resolve();
+    };
+    image.onerror = reject;
+    image.src = src;
+  });
+}
+
+function getNextPlayableImageIndex(
+  currentIndex: number,
+  images: string[],
+  imageLoadStatus: Record<string, ImageLoadStatus>
+) {
+  for (let offset = 1; offset < images.length; offset += 1) {
+    const nextIndex = (currentIndex + offset) % images.length;
+    const status = imageLoadStatus[images[nextIndex]];
+
+    if (status !== "failed") {
+      return nextIndex;
+    }
+  }
+
+  return currentIndex;
+}
 
 export function ExercisePreviewSheet({
   isOpen,
@@ -35,16 +76,51 @@ export function ExercisePreviewSheet({
     exerciseId: "",
     isPlaying: true,
   });
+  const [imageLoadState, setImageLoadState] = useState<ExerciseImageLoadState>({
+    exerciseId: "",
+    statusByUrl: {},
+  });
   const [mounted, setMounted] = useState(false);
 
-  const images =
-    exercise?.imageUrls && exercise.imageUrls.length > 0 ? exercise.imageUrls : [placeholderImage];
+  const images = useMemo(
+    () => (exercise?.imageUrls && exercise.imageUrls.length > 0 ? exercise.imageUrls : [placeholderImage]),
+    [exercise]
+  );
+  const exerciseId = exercise?.id ?? "";
   const activeImageIndex =
-    imageSelection.exerciseId === exercise?.id
+    imageSelection.exerciseId === exerciseId
       ? Math.min(imageSelection.index, images.length - 1)
       : 0;
   const hasMultipleImages = images.length > 1;
-  const isAutoPlaying = autoPlay.exerciseId === exercise?.id ? autoPlay.isPlaying : true;
+  const isAutoPlaying = autoPlay.exerciseId === exerciseId ? autoPlay.isPlaying : true;
+  const imageLoadStatus =
+    imageLoadState.exerciseId === exerciseId ? imageLoadState.statusByUrl : emptyImageLoadStatus;
+  const activeImageUrl = images[activeImageIndex];
+
+  const setImageStatus = useCallback((nextExerciseId: string, src: string, status: ImageLoadStatus) => {
+    setImageLoadState((current) => {
+      const statusByUrl = current.exerciseId === nextExerciseId ? current.statusByUrl : {};
+
+      if (statusByUrl[src] === status) {
+        return current;
+      }
+
+      return {
+        exerciseId: nextExerciseId,
+        statusByUrl: { ...statusByUrl, [src]: status },
+      };
+    });
+  }, []);
+
+  const markImageLoaded = useCallback(
+    (nextExerciseId: string, src: string) => setImageStatus(nextExerciseId, src, "loaded"),
+    [setImageStatus]
+  );
+
+  const markImageFailed = useCallback(
+    (nextExerciseId: string, src: string) => setImageStatus(nextExerciseId, src, "failed"),
+    [setImageStatus]
+  );
 
   // 客户端挂载处理，保证 Portal 不参与服务端渲染。
   useEffect(() => {
@@ -85,23 +161,62 @@ export function ExercisePreviewSheet({
   }, [isOpen]);
 
   useEffect(() => {
-    if (!isOpen || !exercise || !hasMultipleImages || !isAutoPlaying) {
+    if (!isOpen || !exerciseId) {
       return;
     }
 
-    const timer = window.setInterval(() => {
+    let cancelled = false;
+
+    for (const src of images) {
+      preloadExerciseImage(src)
+        .then(() => {
+          if (!cancelled) {
+            markImageLoaded(exerciseId, src);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            markImageFailed(exerciseId, src);
+          }
+        });
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [exerciseId, images, isOpen, markImageFailed, markImageLoaded]);
+
+  useEffect(() => {
+    if (!isOpen || !exerciseId || !hasMultipleImages || !isAutoPlaying) {
+      return;
+    }
+
+    const nextIndex = getNextPlayableImageIndex(activeImageIndex, images, imageLoadStatus);
+    if (nextIndex === activeImageIndex) {
+      return;
+    }
+
+    const nextImageUrl = images[nextIndex];
+    const isNextImageLoaded = imageLoadStatus[nextImageUrl] === "loaded";
+    const delay = isNextImageLoaded ? autoplayIntervalMs : autoplayImageWaitMs;
+
+    const timer = window.setTimeout(() => {
+      if (!isNextImageLoaded) {
+        return;
+      }
+
       setImageSelection((current) => {
-        const currentIndex = current.exerciseId === exercise.id ? current.index : 0;
+        const currentIndex = current.exerciseId === exerciseId ? current.index : 0;
 
         return {
-          exerciseId: exercise.id,
-          index: (currentIndex + 1) % images.length,
+          exerciseId,
+          index: getNextPlayableImageIndex(currentIndex, images, imageLoadStatus),
         };
       });
-    }, 1200);
+    }, delay);
 
-    return () => window.clearInterval(timer);
-  }, [exercise, hasMultipleImages, images.length, isAutoPlaying, isOpen]);
+    return () => window.clearTimeout(timer);
+  }, [activeImageIndex, exerciseId, hasMultipleImages, imageLoadStatus, images, isAutoPlaying, isOpen]);
 
   // 仅在 SSR 阶段阻断，客户端挂载后保持 Portal 常驻，消除闪烁！
   if (!mounted) return null;
@@ -178,8 +293,10 @@ export function ExercisePreviewSheet({
                     alt={`${exercise.nameZh} 演示图`}
                     className="object-cover"
                     fill
+                    onError={() => markImageFailed(exerciseId, activeImageUrl)}
+                    onLoad={() => markImageLoaded(exerciseId, activeImageUrl)}
                     sizes="(min-width: 640px) 428px, calc(100vw - 32px)"
-                    src={images[activeImageIndex]}
+                    src={activeImageUrl}
                   />
 
                   {/* 左右翻页按钮 */}
