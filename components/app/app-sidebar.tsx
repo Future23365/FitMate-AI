@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { deleteChatConversation, readChatHistory } from "@/features/chat/lib/chat-history";
 import { LogoMark } from "./logo-mark";
 import { SymbolIcon } from "./symbol-icon";
 
@@ -24,8 +25,6 @@ type SidebarHistoryItem = {
   title: string;
   updatedAt?: string;
 };
-
-const chatHistoryStorageKey = "fitmate.chatHistory";
 
 function getTimeSafe(isoString: string | undefined | null): number {
   if (!isoString) {
@@ -72,17 +71,10 @@ export function AppSidebar() {
   const isSettingsActive = pathname.startsWith("/settings");
 
   useEffect(() => {
-    function syncHistory() {
-      const rawHistory = window.localStorage.getItem(chatHistoryStorageKey);
-
-      if (!rawHistory) {
-        setHistoryItems([]);
-        return;
-      }
-
+    async function syncHistory() {
       try {
-        const parsedHistory = JSON.parse(rawHistory) as SidebarHistoryItem[];
-        const sortedHistory = [...parsedHistory].sort(
+        const conversations = await readChatHistory();
+        const sortedHistory = [...conversations].sort(
           (a, b) => getTimeSafe(b.updatedAt) - getTimeSafe(a.updatedAt),
         );
         setHistoryItems(
@@ -99,35 +91,24 @@ export function AppSidebar() {
       }
     }
 
-    syncHistory();
-    window.addEventListener("storage", syncHistory);
+    void syncHistory();
     window.addEventListener("fitmate:chat-history-updated", syncHistory);
 
     return () => {
-      window.removeEventListener("storage", syncHistory);
       window.removeEventListener("fitmate:chat-history-updated", syncHistory);
     };
   }, []);
 
   /** 删除指定对话，并同步侧边栏与聊天页状态 */
   function deleteConversation(id: string) {
-    try {
-      const raw = window.localStorage.getItem(chatHistoryStorageKey);
-      const conversations = raw ? (JSON.parse(raw) as SidebarHistoryItem[]) : [];
-      const next = conversations.filter((c) => c.id !== id);
-      window.localStorage.setItem(chatHistoryStorageKey, JSON.stringify(next));
-    } catch {
-      // localStorage 操作失败时静默忽略
-    }
+    void deleteChatConversation(id).then(() => {
+      window.dispatchEvent(new Event("fitmate:chat-history-updated"));
 
-    // 同步侧边栏列表
-    window.dispatchEvent(new Event("fitmate:chat-history-updated"));
-
-    // 如果删除的是当前正在查看的对话，重置为新对话
-    const currentHash = window.location.hash.replace(/^#/, "");
-    if (currentHash === id) {
-      window.dispatchEvent(new Event("fitmate:new-chat"));
-    }
+      const currentHash = window.location.hash.replace(/^#/, "");
+      if (currentHash === id) {
+        window.dispatchEvent(new Event("fitmate:new-chat"));
+      }
+    });
   }
 
   // 开发调试页与训练执行页使用独立布局，不显示主应用侧边栏。

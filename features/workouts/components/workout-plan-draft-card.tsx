@@ -6,10 +6,16 @@ import { useRouter } from "next/navigation";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
-import exercisesData from "@/data/exercises.zh.json";
+import {
+  createScheduledWorkout,
+  createWorkout,
+  deleteScheduledWorkout,
+  listScheduledWorkouts,
+} from "@/features/workouts/api/workout-data-client";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import type { WorkoutPlanDraft, WorkoutPlanItemDraft } from "@/lib/shared/workout-plans/draft-schema";
 import { convertWorkoutPlanDraftToSavedWorkout } from "@/features/workout-plans/lib/saved-workout";
+import { clientRequest } from "@/lib/client/http/client-request";
 import {
   estimateWorkoutCalories,
   estimateWorkoutMinutes,
@@ -22,10 +28,11 @@ interface WorkoutPlanDraftCardProps {
   draft: WorkoutPlanDraft;
 }
 
-const exercises = exercisesData as Exercise[];
 const placeholderImage = placeholderWorkoutImage;
-const exerciseMap = new Map(exercises.map((item) => [item.id, item]));
-const normalizedExerciseMap = new Map(exercises.map((item) => [item.id.toLowerCase(), item]));
+
+type ExerciseApiResponse = {
+  item: Exercise;
+};
 
 function toDateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
@@ -33,8 +40,28 @@ function toDateKey(date: Date) {
   ).padStart(2, "0")}`;
 }
 
-function findExerciseById(exerciseId: string) {
-  return exerciseMap.get(exerciseId) ?? normalizedExerciseMap.get(exerciseId.toLowerCase());
+function findExerciseById(exerciseId: string, exerciseMap: Map<string, Exercise>) {
+  return exerciseMap.get(exerciseId) ?? exerciseMap.get(exerciseId.toLowerCase());
+}
+
+async function fetchExerciseById(exerciseId: string) {
+  const data = await clientRequest<ExerciseApiResponse>(
+    `/api/exercises/${encodeURIComponent(exerciseId)}`,
+    { errorMessage: "动作详情加载失败" },
+  );
+
+  return data.item;
+}
+
+async function fetchDraftExercises(draft: WorkoutPlanDraft, cachedExercises: Map<string, Exercise>) {
+  const ids = [
+    ...new Set(draft.days.flatMap((day) => day.items.map((item) => item.exerciseId))),
+  ];
+  const exercises = await Promise.all(
+    ids.map(async (id) => findExerciseById(id, cachedExercises) ?? fetchExerciseById(id)),
+  );
+
+  return exercises;
 }
 
 function toFallbackPreviewExercise(item: WorkoutPlanItemDraft): Exercise {
@@ -81,17 +108,34 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [scheduleRange, setScheduleRange] = useState<7 | 28>(28);
+  const [exerciseMap, setExerciseMap] = useState<Map<string, Exercise>>(() => new Map());
 
   const [activePreviewExercise, setActivePreviewExercise] = useState<Exercise | null>(null);
   const [activePreviewTip, setActivePreviewTip] = useState<string | undefined>();
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   const handleOpenPreview = (item: WorkoutPlanItemDraft) => {
-    const exercise = findExerciseById(item.exerciseId) ?? toFallbackPreviewExercise(item);
+    const exercise = findExerciseById(item.exerciseId, exerciseMap) ?? toFallbackPreviewExercise(item);
 
     setActivePreviewExercise(exercise);
     setActivePreviewTip(item.notes);
     setIsPreviewOpen(true);
+
+    if (!findExerciseById(item.exerciseId, exerciseMap)) {
+      void fetchExerciseById(item.exerciseId)
+        .then((dbExercise) => {
+          setExerciseMap((current) => {
+            const next = new Map(current);
+            next.set(dbExercise.id, dbExercise);
+            next.set(dbExercise.id.toLowerCase(), dbExercise);
+            return next;
+          });
+          setActivePreviewExercise(dbExercise);
+        })
+        .catch(() => {
+          setActivePreviewExercise(toFallbackPreviewExercise(item));
+        });
+    }
   };
 
   const isRoutineOnly = draft.days.length === 1;
@@ -105,32 +149,25 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
   const handleSave = async () => {
     setIsSaving(true);
     try {
+      const draftExercises = await fetchDraftExercises(draft, exerciseMap);
+      setExerciseMap((current) => {
+        const next = new Map(current);
+        draftExercises.forEach((exercise) => {
+          next.set(exercise.id, exercise);
+          next.set(exercise.id.toLowerCase(), exercise);
+        });
+        return next;
+      });
       // 1. 全量保存 Routine
       const savedWorkouts = draft.days.map((day) => {
-        const workout = convertWorkoutPlanDraftToSavedWorkout(draft, exercises, {
+        const workout = convertWorkoutPlanDraftToSavedWorkout(draft, draftExercises, {
           dayIndex: day.dayIndex,
         });
         // 润色命名：[计划标题] 训练日标题
         workout.title = `[${draft.title}] ${day.title || `训练日 ${day.dayIndex || 1}`}`;
         return workout;
       });
-
-      const historyStorageKey = "fitmate.workoutHistory";
-      const rawHistory = window.localStorage.getItem(historyStorageKey);
-      let prevHistory = [];
-
-      try {
-        prevHistory = rawHistory ? JSON.parse(rawHistory) : [];
-        if (!Array.isArray(prevHistory)) {
-          prevHistory = [];
-        }
-      } catch {
-        prevHistory = [];
-      }
-
-      const nextHistory = [...savedWorkouts, ...prevHistory];
-      window.localStorage.setItem(historyStorageKey, JSON.stringify(nextHistory));
-      window.dispatchEvent(new Event("fitmate:workout-history-updated"));
+      const persistedWorkouts = await Promise.all(savedWorkouts.map((workout) => createWorkout(workout)));
 
       // 2. 智能日程排班 (如果是长期计划且天数 > 1)
       if (!isRoutineOnly) {
@@ -155,7 +192,7 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
           const isTrainingDay = (trainingDaysMap[draft.weeklyFrequency] || [1, 3, 5]).includes(dayOfWeek);
 
           if (isTrainingDay) {
-            const workout = savedWorkouts[trainingDayCount % savedWorkouts.length];
+            const workout = persistedWorkouts[trainingDayCount % persistedWorkouts.length];
             const loopConfig = getWorkoutLoopConfig(workout);
             trainingDayCount++;
 
@@ -193,35 +230,20 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
           }
         }
 
-        // 保存到 localStorage fitmate.trainingSchedule
-        const scheduleStorageKey = "fitmate.trainingSchedule";
-        const rawSchedule = window.localStorage.getItem(scheduleStorageKey);
-        let prevSchedule = [];
-
-        try {
-          prevSchedule = rawSchedule ? JSON.parse(rawSchedule) : [];
-          if (!Array.isArray(prevSchedule)) {
-            prevSchedule = [];
-          }
-        } catch {
-          prevSchedule = [];
-        }
-
         // 只替换同一计划来源的旧安排，避免误删用户手动安排或其他计划。
         const startRangeKey = toDateKey(today);
         const endRangeDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() + scheduleRange - 1);
         const endRangeKey = toDateKey(endRangeDate);
-
-        const filteredPrevSchedule = prevSchedule.filter((item: any) => {
+        const existingSchedule = await listScheduledWorkouts();
+        const importedSessionsToReplace = existingSchedule.filter((item) => {
           const isInRange = item.date >= startRangeKey && item.date <= endRangeKey;
           const isSameImportedPlan = item.sourcePlanTitle === draft.title;
 
-          return !(isInRange && isSameImportedPlan);
+          return isInRange && isSameImportedPlan;
         });
 
-        const nextSchedule = [...filteredPrevSchedule, ...newScheduledWorkouts];
-        window.localStorage.setItem(scheduleStorageKey, JSON.stringify(nextSchedule));
-        window.dispatchEvent(new Event("fitmate:training-schedule-updated"));
+        await Promise.all(importedSessionsToReplace.map((item) => deleteScheduledWorkout(item.id)));
+        await Promise.all(newScheduledWorkouts.map((workout) => createScheduledWorkout(workout)));
       }
 
       setSaveSuccess(true);
@@ -328,7 +350,7 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
             {/* 当天动作列表卡片流 */}
             <div className="space-y-sm">
               {activeDay.items.map((item, index) => {
-                const exercise = findExerciseById(item.exerciseId);
+                const exercise = findExerciseById(item.exerciseId, exerciseMap);
                 const exerciseName = exercise?.nameZh || "未知动作";
                 const category = exercise?.categoryZh || "训练";
                 const equipment = exercise?.equipmentZh || "自重";

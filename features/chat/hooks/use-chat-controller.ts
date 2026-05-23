@@ -7,7 +7,7 @@ import {
   requestExerciseRecommendations,
   requestWorkoutPlanDraft,
 } from "@/features/chat/api/chat-client";
-import { readChatHistory, saveChatConversation } from "@/features/chat/lib/chat-history";
+import { readChatConversation, saveChatConversation } from "@/features/chat/lib/chat-history";
 import {
   extractExerciseRecommendationTrigger,
   extractSuggestedReplyTrigger,
@@ -94,13 +94,12 @@ export function useChatController() {
   }, [thinkingEnabled]);
 
   useEffect(() => {
-    function loadConversation(id: string) {
+    async function loadConversation(id: string) {
       if (!id) {
         return;
       }
 
-      const conversations = readChatHistory();
-      const matchedConversation = conversations.find((conversation) => conversation.id === id);
+      const matchedConversation = await readChatConversation(id);
 
       if (!matchedConversation) {
         return;
@@ -124,13 +123,13 @@ export function useChatController() {
 
     function handleHashChange() {
       const id = window.location.hash.replace(/^#/, "");
-      loadConversation(id);
+      void loadConversation(id);
     }
 
     function handleLoadChat(event: Event) {
       const customEvent = event as CustomEvent<string>;
       if (customEvent.detail) {
-        loadConversation(customEvent.detail);
+        void loadConversation(customEvent.detail);
       }
     }
 
@@ -151,7 +150,7 @@ export function useChatController() {
 
     const initialId = window.location.hash.replace(/^#/, "");
     if (initialId) {
-      loadConversation(initialId);
+      void loadConversation(initialId);
     }
 
     window.addEventListener("hashchange", handleHashChange);
@@ -170,13 +169,19 @@ export function useChatController() {
       return;
     }
 
-    saveChatConversation(
-      conversationId,
-      messages,
-      bubblePlans,
-      bubbleExerciseRecommendations,
-      conversationContext,
-    );
+    const timer = window.setTimeout(() => {
+      void saveChatConversation(
+        conversationId,
+        messages,
+        bubblePlans,
+        bubbleExerciseRecommendations,
+        conversationContext,
+      ).catch((saveError: unknown) => {
+        console.error("[ChatHistory] Save failed:", saveError);
+      });
+    }, 400);
+
+    return () => window.clearTimeout(timer);
   }, [conversationId, messages, bubblePlans, bubbleExerciseRecommendations, conversationContext]);
 
   function updateAssistantMessage(

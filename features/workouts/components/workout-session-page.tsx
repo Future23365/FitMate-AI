@@ -7,6 +7,11 @@ import { useEffect, useMemo, useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import {
+  getScheduledWorkout,
+  listScheduledWorkouts,
+  updateScheduledWorkoutStatus,
+} from "@/features/workouts/api/workout-data-client";
+import {
   buildWorkoutTimeline,
   defaultSetRestSeconds,
   defaultTransitionRestSeconds,
@@ -21,8 +26,6 @@ import {
   type WorkoutItem,
   type WorkoutMode,
 } from "@/lib/shared/workouts/composition";
-
-const scheduleStorageKey = "fitmate.trainingSchedule";
 
 const fallbackPlan: ScheduledWorkout = {
   id: "session-fallback",
@@ -75,27 +78,19 @@ function formatClock(totalSeconds: number) {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
-function getPlanFromStorage(planId: string | null) {
-  if (typeof window === "undefined") {
-    return fallbackPlan;
-  }
+async function getPlanFromDatabase(planId: string | null) {
+  const matchedPlan = planId
+    ? await getScheduledWorkout(planId)
+    : (await listScheduledWorkouts()).find((plan) => plan.status === "planned");
 
-  try {
-    const rawSchedule = window.localStorage.getItem(scheduleStorageKey);
-    const schedule = rawSchedule ? (JSON.parse(rawSchedule) as ScheduledWorkout[]) : [];
-    const matchedPlan = planId ? schedule.find((plan) => plan.id === planId) : schedule.find((plan) => plan.status === "planned");
-
-    if (matchedPlan && matchedPlan.items.length) {
-      const loopConfig = getWorkoutLoopConfig(matchedPlan);
-      return {
-        ...matchedPlan,
-        items: matchedPlan.items.map(normalizeWorkoutItem),
-        trainingLoopRestSeconds: loopConfig.trainingLoopRestSeconds,
-        trainingLoopRounds: loopConfig.trainingLoopRounds,
-      };
-    }
-  } catch {
-    return fallbackPlan;
+  if (matchedPlan && matchedPlan.items.length) {
+    const loopConfig = getWorkoutLoopConfig(matchedPlan);
+    return {
+      ...matchedPlan,
+      items: matchedPlan.items.map(normalizeWorkoutItem),
+      trainingLoopRestSeconds: loopConfig.trainingLoopRestSeconds,
+      trainingLoopRounds: loopConfig.trainingLoopRounds,
+    };
   }
 
   return fallbackPlan;
@@ -155,8 +150,13 @@ export function WorkoutSessionPage() {
   const remainingSteps = Math.max(0, steps.length - activeStepIndex - 1);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const selectedPlan = getPlanFromStorage(planId);
+    let cancelled = false;
+
+    void getPlanFromDatabase(planId).then((selectedPlan) => {
+      if (cancelled) {
+        return;
+      }
+
       const selectedLoopConfig = getWorkoutLoopConfig(selectedPlan);
       const selectedSteps = buildWorkoutTimeline(selectedPlan.items, selectedLoopConfig);
 
@@ -172,9 +172,11 @@ export function WorkoutSessionPage() {
       setActiveStepIndex(0);
       setElapsedSeconds(0);
       setRemainingSeconds(selectedSteps[0]?.durationSeconds ?? 45);
-    }, 0);
+    });
 
-    return () => window.clearTimeout(timer);
+    return () => {
+      cancelled = true;
+    };
   }, [planId]);
 
   useEffect(() => {
@@ -223,16 +225,13 @@ export function WorkoutSessionPage() {
   function finishTraining() {
     setIsPaused(true);
 
-    try {
-      const rawSchedule = window.localStorage.getItem(scheduleStorageKey);
-      const schedule = rawSchedule ? (JSON.parse(rawSchedule) as ScheduledWorkout[]) : [];
-      const nextSchedule = schedule.map((item) =>
-        item.id === plan.id ? { ...item, status: "completed" as const } : item,
-      );
-      window.localStorage.setItem(scheduleStorageKey, JSON.stringify(nextSchedule));
-    } catch {
-      // 结束训练的本地状态写入失败不影响当前页面展示。
-    }
+    void updateScheduledWorkoutStatus(plan.id, "completed")
+      .then((updatedPlan) => {
+        setPlan(updatedPlan);
+      })
+      .catch((error: unknown) => {
+        console.error("[WorkoutSession] Finish failed:", error);
+      });
   }
 
   return (

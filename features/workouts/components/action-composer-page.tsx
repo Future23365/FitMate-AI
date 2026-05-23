@@ -5,8 +5,14 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
-import exercisesData from "@/data/exercises.zh.json";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
+import {
+  createWorkout,
+  deleteWorkout,
+  getSavedWorkout,
+  listSavedWorkouts,
+  saveWorkout,
+} from "@/features/workouts/api/workout-data-client";
 import { clientRequest } from "@/lib/client/http/client-request";
 import type { Exercise, ExerciseFacets } from "@/lib/shared/exercises/types";
 import {
@@ -49,10 +55,7 @@ type TemplateExerciseConfig = {
   transitionRestSeconds?: number;
 };
 
-const historyStorageKey = "fitmate.workoutHistory";
 const sectionConfigs = workoutSectionConfigs;
-const allExercises = exercisesData as Exercise[];
-const exerciseById = new Map(allExercises.map((exercise) => [exercise.id, exercise]));
 const defaultExerciseFacets: ExerciseFacets = {
   categories: [],
   levels: [],
@@ -149,7 +152,7 @@ function toWorkoutItem(
   };
 }
 
-function toPreviewExercise(item: WorkoutItem): Exercise {
+function toPreviewExercise(item: WorkoutItem, exerciseById: Map<string, Exercise>): Exercise {
   const matchedExercise = exerciseById.get(item.exerciseId);
 
   if (matchedExercise) {
@@ -199,21 +202,6 @@ function formatDateTime(date: Date) {
   ).padStart(2, "0")}`;
 }
 
-function readSavedWorkouts() {
-  const rawHistory = window.localStorage.getItem(historyStorageKey);
-
-  if (!rawHistory) {
-    return [];
-  }
-
-  try {
-    const savedWorkouts = JSON.parse(rawHistory) as SavedWorkout[];
-    return Array.isArray(savedWorkouts) ? savedWorkouts.map(normalizeSavedWorkout) : [];
-  } catch {
-    return [];
-  }
-}
-
 function changeNumber(value: number, delta: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value + delta));
 }
@@ -246,6 +234,7 @@ export function ActionComposerPage() {
   const [activeSavedWorkoutId, setActiveSavedWorkoutId] = useState("");
   const [selectedItemId, setSelectedItemId] = useState("");
   const [libraryItems, setLibraryItems] = useState<Exercise[]>([]);
+  const [exerciseCache, setExerciseCache] = useState<Map<string, Exercise>>(() => new Map());
   const [libraryTotal, setLibraryTotal] = useState(0);
   const [libraryFacets, setLibraryFacets] = useState<ExerciseFacets>(defaultExerciseFacets);
   const [libraryQuery, setLibraryQuery] = useState("");
@@ -297,6 +286,11 @@ export function ActionComposerPage() {
     })
       .then((data) => {
         setLibraryItems(data.items);
+        setExerciseCache((current) => {
+          const next = new Map(current);
+          data.items.forEach((exercise) => next.set(exercise.id, exercise));
+          return next;
+        });
         setLibraryTotal(data.total);
         setLibraryFacets(data.facets);
         setSelectedLibraryExerciseId((current) =>
@@ -323,61 +317,50 @@ export function ActionComposerPage() {
   }, [libraryCategory, libraryEquipment, libraryLevel, libraryMuscle, libraryQuery]);
 
   useEffect(() => {
-    const hashId = window.location.hash.slice(1);
-    if (!hashId) {
-      const history = readSavedWorkouts();
-      if (history.length > 0) {
-        openSavedWorkout(history[0], false);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    function loadFromHash() {
+    async function loadFromHash() {
       const hashId = window.location.hash.slice(1);
 
       if (!hashId) {
         return;
       }
 
-      const rawHistory = window.localStorage.getItem(historyStorageKey);
-
-      if (!rawHistory) {
-        return;
-      }
-
       try {
-        const savedWorkouts = JSON.parse(rawHistory) as SavedWorkout[];
-        const matchedWorkout = savedWorkouts.find((workout) => workout.id === hashId);
-
-        if (matchedWorkout) {
-          openSavedWorkout(matchedWorkout, false);
-        }
+        const matchedWorkout = await getSavedWorkout(hashId);
+        openSavedWorkout(matchedWorkout, false);
       } catch {
-        setSaveStatus("历史记录读取失败");
+        setSaveStatus("训练编排读取失败");
       }
     }
 
-    loadFromHash();
+    void loadFromHash();
     window.addEventListener("hashchange", loadFromHash);
 
     return () => window.removeEventListener("hashchange", loadFromHash);
   }, []);
 
   useEffect(() => {
-    function syncSavedWorkouts() {
-      setSavedWorkouts(readSavedWorkouts());
+    async function syncSavedWorkouts() {
+      try {
+        const nextWorkouts = await listSavedWorkouts();
+        setSavedWorkouts(nextWorkouts.map(normalizeSavedWorkout));
+
+        const hashId = window.location.hash.slice(1);
+        if (!hashId && nextWorkouts.length > 0 && !activeSavedWorkoutId && items.length === 0) {
+          openSavedWorkout(nextWorkouts[0], false);
+        }
+      } catch {
+        setSaveStatus("已保存编排加载失败");
+        setSavedWorkouts([]);
+      }
     }
 
-    syncSavedWorkouts();
-    window.addEventListener("storage", syncSavedWorkouts);
-    window.addEventListener("fitmate:history-updated", syncSavedWorkouts);
+    void syncSavedWorkouts();
+    window.addEventListener("fitmate:workouts-updated", syncSavedWorkouts);
 
     return () => {
-      window.removeEventListener("storage", syncSavedWorkouts);
-      window.removeEventListener("fitmate:history-updated", syncSavedWorkouts);
+      window.removeEventListener("fitmate:workouts-updated", syncSavedWorkouts);
     };
-  }, []);
+  }, [activeSavedWorkoutId, items.length]);
 
   useEffect(() => {
     if (!saveStatus) {
@@ -422,7 +405,7 @@ export function ActionComposerPage() {
   }
 
   function openPlanPreview(item: WorkoutItem) {
-    setActivePreviewExercise(toPreviewExercise(item));
+    setActivePreviewExercise(toPreviewExercise(item, exerciseCache));
     setActivePreviewSource("plan");
   }
 
@@ -571,7 +554,7 @@ export function ActionComposerPage() {
     }
   }
 
-  function duplicateSavedWorkout(workout: SavedWorkout) {
+  async function duplicateSavedWorkout(workout: SavedWorkout) {
     const now = new Date();
     const normalizedWorkout = normalizeSavedWorkout(workout);
     const copiedWorkout: SavedWorkout = {
@@ -584,38 +567,40 @@ export function ActionComposerPage() {
         id: crypto.randomUUID(),
       })),
     };
-    const nextHistory = [copiedWorkout, ...savedWorkouts].slice(0, 8);
 
-    window.localStorage.setItem(historyStorageKey, JSON.stringify(nextHistory));
-    setSavedWorkouts(nextHistory);
-    window.dispatchEvent(new Event("fitmate:history-updated"));
-    setSaveStatus(`已复制：${workout.title}`);
+    try {
+      const savedCopy = await createWorkout(copiedWorkout);
+      setSavedWorkouts((current) => [savedCopy, ...current].slice(0, 8));
+      setSaveStatus(`已复制：${workout.title}`);
+    } catch {
+      setSaveStatus("复制训练编排失败");
+    }
   }
 
-  function deleteSavedWorkout(workout: SavedWorkout) {
+  async function deleteSavedWorkout(workout: SavedWorkout) {
     const confirmed = window.confirm(`删除已保存编排「${workout.title}」？`);
 
     if (!confirmed) {
       return;
     }
 
-    const nextHistory = savedWorkouts.filter((savedWorkout) => savedWorkout.id !== workout.id);
+    try {
+      await deleteWorkout(workout.id);
+      setSavedWorkouts((current) => current.filter((savedWorkout) => savedWorkout.id !== workout.id));
 
-    window.localStorage.setItem(historyStorageKey, JSON.stringify(nextHistory));
-    setSavedWorkouts(nextHistory);
-    window.dispatchEvent(new Event("fitmate:history-updated"));
+      if (activeSavedWorkoutId === workout.id) {
+        setActiveSavedWorkoutId("");
+      }
 
-    if (activeSavedWorkoutId === workout.id) {
-      setActiveSavedWorkoutId("");
+      setSaveStatus(`已删除：${workout.title}`);
+    } catch {
+      setSaveStatus("删除训练编排失败");
     }
-
-    setSaveStatus(`已删除：${workout.title}`);
   }
 
-  function saveComposition() {
+  async function saveComposition() {
     const now = new Date();
-    const currentHistory = readSavedWorkouts();
-    const activeWorkoutExists = currentHistory.some((workout) => workout.id === activeSavedWorkoutId);
+    const activeWorkoutExists = savedWorkouts.some((workout) => workout.id === activeSavedWorkoutId);
     const savedWorkoutId = activeWorkoutExists ? activeSavedWorkoutId : crypto.randomUUID();
     const savedWorkout: SavedWorkout = {
       id: savedWorkoutId,
@@ -625,17 +610,24 @@ export function ActionComposerPage() {
       trainingLoopRestSeconds,
       items: items.map(normalizeWorkoutItem),
     };
-    // 保存当前编辑中的编排：有来源记录时覆盖更新，没有来源记录时创建新记录。
-    const nextHistory = activeWorkoutExists
-      ? currentHistory.map((workout) => (workout.id === savedWorkoutId ? savedWorkout : workout))
-      : [savedWorkout, ...currentHistory].slice(0, 8);
 
-    window.localStorage.setItem(historyStorageKey, JSON.stringify(nextHistory));
-    setSavedWorkouts(nextHistory);
-    setActiveSavedWorkoutId(savedWorkoutId);
-    window.dispatchEvent(new Event("fitmate:history-updated"));
-    window.history.replaceState(null, "", `#${savedWorkoutId}`);
-    setSaveStatus(activeWorkoutExists ? `已更新：${savedWorkout.savedAt}` : `已保存：${savedWorkout.savedAt}`);
+    try {
+      const persistedWorkout = await saveWorkout(savedWorkout);
+      setSavedWorkouts((current) =>
+        activeWorkoutExists
+          ? current.map((workout) => (workout.id === savedWorkoutId ? persistedWorkout : workout))
+          : [persistedWorkout, ...current].slice(0, 8),
+      );
+      setActiveSavedWorkoutId(savedWorkoutId);
+      window.history.replaceState(null, "", `#${savedWorkoutId}`);
+      setSaveStatus(
+        activeWorkoutExists
+          ? `已更新：${persistedWorkout.savedAt}`
+          : `已保存：${persistedWorkout.savedAt}`,
+      );
+    } catch {
+      setSaveStatus("保存训练编排失败，请确认动作来自数据库");
+    }
   }
 
   function moveItem(draggedId: string, targetId: string, targetSection: WorkoutSection) {

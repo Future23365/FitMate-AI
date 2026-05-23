@@ -1,19 +1,46 @@
+"use client";
+
+import { clientRequest } from "@/lib/client/http/client-request";
 import type { ChatConversation, ChatMessage } from "@/features/chat/types";
 import type { FitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
 import type { WorkoutPlanDraft } from "@/lib/shared/workout-plans/draft-schema";
 
-const chatHistoryStorageKey = "fitmate.chatHistory";
+type ChatHistoryResponse = {
+  items: ChatConversation[];
+};
 
-export function readChatHistory(): ChatConversation[] {
+type ChatConversationResponse = {
+  item: ChatConversation;
+};
+
+export async function readChatHistory(): Promise<ChatConversation[]> {
+  const data = await clientRequest<ChatHistoryResponse>("/api/chat/conversations", {
+    errorMessage: "聊天历史加载失败",
+  });
+
+  return data.items;
+}
+
+export async function readChatConversation(id: string): Promise<ChatConversation | null> {
   try {
-    const rawHistory = window.localStorage.getItem(chatHistoryStorageKey);
-    const parsedHistory = rawHistory ? (JSON.parse(rawHistory) as ChatConversation[]) : [];
+    const data = await clientRequest<ChatConversationResponse>(
+      `/api/chat/conversations/${encodeURIComponent(id)}`,
+      { errorMessage: "聊天记录加载失败" },
+    );
 
-    return Array.isArray(parsedHistory) ? parsedHistory : [];
+    return data.item;
   } catch {
-    return [];
+    return null;
   }
+}
+
+export async function deleteChatConversation(id: string) {
+  await clientRequest(`/api/chat/conversations/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    responseType: "raw",
+    errorMessage: "删除对话失败",
+  });
 }
 
 export function createConversationTitle(nextMessages: ChatMessage[]) {
@@ -23,7 +50,7 @@ export function createConversationTitle(nextMessages: ChatMessage[]) {
   return title.length > 24 ? `${title.slice(0, 24)}...` : title;
 }
 
-export function saveChatConversation(
+export async function saveChatConversation(
   conversationId: string,
   messages: ChatMessage[],
   bubblePlans: Record<string, WorkoutPlanDraft>,
@@ -43,10 +70,9 @@ export function saveChatConversation(
   );
 
   if (!messagesToSave.some((message) => message.role === "user")) {
-    return;
+    return null;
   }
 
-  // 只保留属于当前对话消息的计划，避免存入无关数据
   const messageIds = new Set(messagesToSave.map((message) => message.id));
   const plansToSave: Record<string, WorkoutPlanDraft> = {};
   for (const [messageId, draft] of Object.entries(bubblePlans)) {
@@ -61,48 +87,26 @@ export function saveChatConversation(
     }
   }
 
-  const conversations = readChatHistory();
-  const existing = conversations.find((conversation) => conversation.id === conversationId);
+  const data = await clientRequest<ChatConversationResponse>(
+    `/api/chat/conversations/${encodeURIComponent(conversationId)}`,
+    {
+      method: "PUT",
+      errorMessage: "保存对话失败",
+      body: {
+        id: conversationId,
+        title: createConversationTitle(messagesToSave),
+        updatedAt: new Date().toISOString(),
+        messages: messagesToSave,
+        plans: Object.keys(plansToSave).length > 0 ? plansToSave : undefined,
+        exerciseRecommendations:
+          Object.keys(exerciseRecommendationsToSave).length > 0
+            ? exerciseRecommendationsToSave
+            : undefined,
+        conversationContext,
+      },
+    },
+  );
 
-  if (existing) {
-    const isIdentical =
-      existing.messages.length === messagesToSave.length &&
-      existing.messages.every(
-        (message, index) =>
-          message.id === messagesToSave[index]?.id &&
-          message.content === messagesToSave[index]?.content &&
-          message.role === messagesToSave[index]?.role &&
-          JSON.stringify(message.suggestedReplies ?? message.suggestedQuestions ?? []) ===
-            JSON.stringify(messagesToSave[index]?.suggestedReplies ?? []),
-      ) &&
-      JSON.stringify(existing.plans ?? {}) === JSON.stringify(plansToSave) &&
-      JSON.stringify(existing.exerciseRecommendations ?? {}) ===
-        JSON.stringify(exerciseRecommendationsToSave) &&
-      JSON.stringify(existing.conversationContext ?? null) ===
-        JSON.stringify(conversationContext ?? null);
-
-    if (isIdentical) {
-      return;
-    }
-  }
-
-  const nextConversation: ChatConversation = {
-    id: conversationId,
-    title: createConversationTitle(messagesToSave),
-    updatedAt: new Date().toISOString(),
-    messages: messagesToSave,
-    plans: Object.keys(plansToSave).length > 0 ? plansToSave : undefined,
-    exerciseRecommendations:
-      Object.keys(exerciseRecommendationsToSave).length > 0
-        ? exerciseRecommendationsToSave
-        : undefined,
-    conversationContext,
-  };
-  const nextHistory = [
-    nextConversation,
-    ...conversations.filter((conversation) => conversation.id !== conversationId),
-  ].slice(0, 30);
-
-  window.localStorage.setItem(chatHistoryStorageKey, JSON.stringify(nextHistory));
   window.dispatchEvent(new Event("fitmate:chat-history-updated"));
+  return data.item;
 }

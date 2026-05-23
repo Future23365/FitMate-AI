@@ -3,11 +3,14 @@
 import Image from "next/image";
 import { useMemo, useState } from "react";
 
-import exercisesData from "@/data/exercises.zh.json";
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
-import type { ExerciseRecommendationCard as ExerciseRecommendationCardData } from "@/lib/shared/exercise-recommendations/schema";
+import type {
+  ExerciseRecommendationCard as ExerciseRecommendationCardData,
+  ExerciseRecommendationItem,
+} from "@/lib/shared/exercise-recommendations/schema";
 import type { Exercise } from "@/lib/shared/exercises/types";
+import { clientRequest } from "@/lib/client/http/client-request";
 
 type ExerciseRecommendationCardProps = {
   card: ExerciseRecommendationCardData;
@@ -17,9 +20,47 @@ type ExerciseRecommendationCardProps = {
   onRefresh?: () => void;
 };
 
-const exercises = exercisesData as Exercise[];
-const exerciseMap = new Map(exercises.map((exercise) => [exercise.id, exercise]));
 const placeholderImage = "/images/exercise-placeholder.svg";
+
+type ExerciseApiResponse = {
+  item: Exercise;
+};
+
+function toPreviewFallbackExercise(item: ExerciseRecommendationItem): Exercise {
+  return {
+    id: item.exerciseId,
+    source: "recommendation",
+    sourceUrl: "",
+    sourceId: item.exerciseId,
+    license: "",
+    nameEn: item.nameEn ?? item.exerciseId,
+    nameZh: item.nameZh,
+    category: null,
+    categoryZh: item.categoryZh,
+    level: null,
+    levelZh: item.levelZh,
+    force: null,
+    forceZh: null,
+    mechanic: null,
+    mechanicZh: null,
+    equipment: null,
+    equipmentZh: item.equipmentZh,
+    homeRequirement: "unknown",
+    homeRequirementZh: "未标注",
+    primaryMuscles: [],
+    primaryMusclesZh: item.primaryMusclesZh,
+    secondaryMuscles: [],
+    secondaryMusclesZh: item.secondaryMusclesZh,
+    instructionsEn: [],
+    instructionsZh: item.reasons,
+    images: [],
+    imageUrls: [item.imageUrl || placeholderImage],
+    riskTags: [],
+    goalTags: [],
+    reviewStatus: "fallback",
+    isPublished: true,
+  };
+}
 
 export function ExerciseRecommendationCard({
   card,
@@ -29,6 +70,7 @@ export function ExerciseRecommendationCard({
 }: ExerciseRecommendationCardProps) {
   const [activePreviewExercise, setActivePreviewExercise] = useState<Exercise | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [exerciseMap, setExerciseMap] = useState<Map<string, Exercise>>(() => new Map());
 
   const totalMuscles = useMemo(() => {
     const muscles = new Set(card.items.flatMap((item) => item.primaryMusclesZh));
@@ -36,15 +78,28 @@ export function ExerciseRecommendationCard({
     return [...muscles].slice(0, 4);
   }, [card.items]);
 
-  function handleOpenPreview(exerciseId: string) {
-    const exercise = exerciseMap.get(exerciseId);
+  function handleOpenPreview(item: ExerciseRecommendationItem) {
+    const cachedExercise = exerciseMap.get(item.exerciseId);
 
-    if (!exercise) {
-      return;
-    }
-
-    setActivePreviewExercise(exercise);
+    setActivePreviewExercise(cachedExercise ?? toPreviewFallbackExercise(item));
     setIsPreviewOpen(true);
+
+    if (!cachedExercise) {
+      void clientRequest<ExerciseApiResponse>(`/api/exercises/${encodeURIComponent(item.exerciseId)}`, {
+        errorMessage: "动作详情加载失败",
+      })
+        .then((data) => {
+          setExerciseMap((current) => {
+            const next = new Map(current);
+            next.set(data.item.id, data.item);
+            return next;
+          });
+          setActivePreviewExercise(data.item);
+        })
+        .catch(() => {
+          setActivePreviewExercise(toPreviewFallbackExercise(item));
+        });
+    }
   }
 
   return (
@@ -107,7 +162,7 @@ export function ExerciseRecommendationCard({
             >
               <button
                 className="block w-full min-w-0 text-left"
-                onClick={() => handleOpenPreview(item.exerciseId)}
+                onClick={() => handleOpenPreview(item)}
                 type="button"
               >
                 <div className="flex min-w-0 items-center gap-md">

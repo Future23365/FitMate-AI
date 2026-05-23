@@ -1,58 +1,33 @@
 import "server-only";
 
-import exercisesData from "@/data/exercises.zh.json";
 import { getPrismaClient, isDatabaseConfigured } from "@/lib/server/db/prisma";
 import type { Exercise } from "@/lib/shared/exercises/types";
 
-const staticExercises = exercisesData as Exercise[];
-
-// The repository is the only place that knows whether exercises come from PostgreSQL or the local seed JSON.
+// The repository is the only place that reads exercise facts from PostgreSQL.
 export async function listExerciseRecords(): Promise<Exercise[]> {
   if (!isDatabaseConfigured()) {
-    return staticExercises;
+    throw new Error("DATABASE_URL is required before reading exercises from PostgreSQL.");
   }
 
-  try {
-    const prisma = getPrismaClient();
-    const exercises = await prisma.exercise.findMany({
-      orderBy: { nameZh: "asc" },
-    });
+  const prisma = getPrismaClient();
+  const exercises = await prisma.exercise.findMany({
+    orderBy: { nameZh: "asc" },
+  });
 
-    return exercises.map(mapExerciseRecord);
-  } catch (error) {
-    if (process.env.NODE_ENV === "production") {
-      throw error;
-    }
-
-    console.warn("[exercise-repository] database_unavailable_using_static_seed", {
-      message: error instanceof Error ? error.message : String(error),
-    });
-    return staticExercises;
-  }
+  return exercises.map(mapExerciseRecord);
 }
 
 export async function getExerciseRecordById(id: string): Promise<Exercise | null> {
   if (!isDatabaseConfigured()) {
-    return staticExercises.find((exercise) => exercise.id === id) ?? null;
+    throw new Error("DATABASE_URL is required before reading exercises from PostgreSQL.");
   }
 
-  try {
-    const prisma = getPrismaClient();
-    const exercise = await prisma.exercise.findUnique({
-      where: { id },
-    });
+  const prisma = getPrismaClient();
+  const exercise = await prisma.exercise.findUnique({
+    where: { id },
+  });
 
-    return exercise ? mapExerciseRecord(exercise) : null;
-  } catch (error) {
-    if (process.env.NODE_ENV === "production") {
-      throw error;
-    }
-
-    console.warn("[exercise-repository] database_unavailable_using_static_seed", {
-      message: error instanceof Error ? error.message : String(error),
-    });
-    return staticExercises.find((exercise) => exercise.id === id) ?? null;
-  }
+  return exercise ? mapExerciseRecord(exercise) : null;
 }
 
 function mapExerciseRecord(exercise: Exercise): Exercise {

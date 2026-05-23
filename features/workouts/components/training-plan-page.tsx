@@ -5,17 +5,20 @@ import { useEffect, useMemo, useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import {
-  defaultSetRestSeconds,
-  defaultTransitionRestSeconds,
+  createScheduledWorkout,
+  deleteScheduledWorkout,
+  listSavedWorkouts,
+  listScheduledWorkouts,
+  updateScheduledWorkoutStatus,
+} from "@/features/workouts/api/workout-data-client";
+import {
   estimateWorkoutCalories,
   estimateWorkoutMinutes,
   getWorkoutLoopConfig,
   normalizeSavedWorkout,
-  placeholderWorkoutImage,
   type SavedWorkout,
   type ScheduledWorkout,
   type ScheduleStatus,
-  type WorkoutItem,
 } from "@/lib/shared/workouts/composition";
 
 type CalendarCell = {
@@ -24,75 +27,7 @@ type CalendarCell = {
   isCurrentMonth: boolean;
 };
 
-const historyStorageKey = "fitmate.workoutHistory";
-const scheduleStorageKey = "fitmate.trainingSchedule";
 const weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
-
-const fallbackWorkouts: SavedWorkout[] = [
-  {
-    id: "fat-burn-circuit",
-    title: "燃脂循环训练",
-    savedAt: "模板",
-    items: [
-      createFallbackItem("jumping-jack", "开合跳", "Jumping Jack", "有氧", 30, "duration"),
-      createFallbackItem("burpee", "波比跳", "Burpee", "力量", 15, "reps"),
-      createFallbackItem("push-up", "俯卧撑", "Push-up", "力量", 20, "reps"),
-    ],
-  },
-  {
-    id: "upper-strength",
-    title: "上肢力量",
-    savedAt: "模板",
-    items: [
-      createFallbackItem("push-up", "俯卧撑", "Push-up", "力量", 15, "reps"),
-      createFallbackItem("plank-shoulder-tap", "平板肩触", "Plank Shoulder Tap", "核心", 20, "reps"),
-    ],
-  },
-  {
-    id: "home-hiit",
-    title: "居家HIIT",
-    savedAt: "模板",
-    items: [
-      createFallbackItem("mountain-climber", "登山跑", "Mountain Climber", "有氧", 40, "duration"),
-      createFallbackItem("squat", "深蹲", "Squat", "力量", 18, "reps"),
-    ],
-  },
-  {
-    id: "core-stability",
-    title: "核心稳定",
-    savedAt: "模板",
-    items: [
-      createFallbackItem("plank", "平板支撑", "Plank", "核心", 45, "duration"),
-      createFallbackItem("dead-bug", "死虫式", "Dead Bug", "核心", 12, "reps"),
-    ],
-  },
-];
-
-function createFallbackItem(
-  id: string,
-  nameZh: string,
-  nameEn: string,
-  categoryZh: string,
-  target: number,
-  mode: WorkoutItem["mode"],
-): WorkoutItem {
-  return {
-    id,
-    exerciseId: id,
-    nameZh,
-    nameEn,
-    categoryZh,
-    equipmentZh: "自重",
-    musclesZh: ["综合"],
-    instructionsZh: [],
-    imageUrl: placeholderWorkoutImage,
-    mode,
-    target,
-    sets: 3,
-    setRestSeconds: defaultSetRestSeconds,
-    transitionRestSeconds: defaultTransitionRestSeconds,
-  };
-}
 
 function toDateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
@@ -127,37 +62,7 @@ function getCalendarCells(monthDate: Date): CalendarCell[] {
   });
 }
 
-function getDefaultSchedule(today: Date): ScheduledWorkout[] {
-  const basePlans = fallbackWorkouts.slice(0, 3);
-  const offsets: Array<[number, ScheduleStatus]> = [
-    [-6, "completed"],
-    [-4, "completed"],
-    [-2, "missed"],
-    [0, "planned"],
-    [3, "rest"],
-  ];
-
-  return offsets.map(([offset, status], index) => {
-    const date = new Date(today);
-    date.setDate(today.getDate() + offset);
-    const plan = basePlans[index % basePlans.length];
-
-    return status === "rest"
-      ? {
-          id: `seed-rest-${toDateKey(date)}`,
-          date: toDateKey(date),
-          planId: "rest",
-          title: "休息日",
-          status,
-          minutes: 0,
-          calories: 0,
-          items: [],
-        }
-      : createScheduledWorkout(plan, toDateKey(date), status);
-  });
-}
-
-function createScheduledWorkout(
+function createScheduledEntry(
   plan: SavedWorkout,
   dateKey: string,
   status: ScheduleStatus = "planned",
@@ -226,39 +131,33 @@ export function TrainingPlanPage() {
   const [monthDate, setMonthDate] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
   const [selectedDateKey, setSelectedDateKey] = useState(todayKey);
   const [selectedPlanId, setSelectedPlanId] = useState("");
-  const [savedWorkouts, setSavedWorkouts] = useState<SavedWorkout[]>(fallbackWorkouts);
+  const [savedWorkouts, setSavedWorkouts] = useState<SavedWorkout[]>([]);
   const [schedule, setSchedule] = useState<ScheduledWorkout[]>([]);
   const [toast, setToast] = useState("");
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
+    async function syncData() {
       try {
-        const rawHistory = window.localStorage.getItem(historyStorageKey);
-        const history = rawHistory ? (JSON.parse(rawHistory) as SavedWorkout[]) : [];
-        setSavedWorkouts(history.length ? history.map(normalizeSavedWorkout) : fallbackWorkouts);
+        const [nextWorkouts, nextSchedule] = await Promise.all([
+          listSavedWorkouts(),
+          listScheduledWorkouts(),
+        ]);
+        setSavedWorkouts(nextWorkouts.map(normalizeSavedWorkout));
+        setSchedule(nextSchedule);
       } catch {
-        setSavedWorkouts(fallbackWorkouts);
+        setToast("训练数据加载失败");
       }
-
-      try {
-        const rawSchedule = window.localStorage.getItem(scheduleStorageKey);
-        const parsedSchedule = rawSchedule ? (JSON.parse(rawSchedule) as ScheduledWorkout[]) : [];
-        setSchedule(parsedSchedule.length ? parsedSchedule : getDefaultSchedule(today));
-      } catch {
-        setSchedule(getDefaultSchedule(today));
-      }
-    }, 0);
-
-    return () => window.clearTimeout(timer);
-  }, [today]);
-
-  useEffect(() => {
-    if (!schedule.length) {
-      return;
     }
 
-    window.localStorage.setItem(scheduleStorageKey, JSON.stringify(schedule));
-  }, [schedule]);
+    void syncData();
+    window.addEventListener("fitmate:workouts-updated", syncData);
+    window.addEventListener("fitmate:training-schedule-updated", syncData);
+
+    return () => {
+      window.removeEventListener("fitmate:workouts-updated", syncData);
+      window.removeEventListener("fitmate:training-schedule-updated", syncData);
+    };
+  }, []);
 
   useEffect(() => {
     if (!toast) {
@@ -289,47 +188,71 @@ export function TrainingPlanPage() {
     setMonthDate((current) => new Date(current.getFullYear(), current.getMonth() + delta, 1));
   }
 
-  function scheduleWorkout(plan: SavedWorkout, dateKey = selectedDateKey) {
-    const scheduledWorkout = createScheduledWorkout(plan, dateKey);
+  async function scheduleWorkout(plan: SavedWorkout, dateKey = selectedDateKey) {
+    const scheduledWorkout = createScheduledEntry(plan, dateKey);
 
-    setSchedule((current) => [
-      ...current.filter((item) => !(item.date === dateKey && item.status === "rest")),
-      scheduledWorkout,
-    ]);
-    setSelectedDateKey(dateKey);
-    setSelectedPlanId(scheduledWorkout.id);
-    setToast(`已安排：${plan.title} · ${formatDayLabel(dateKey)}`);
-  }
-
-  function addRestDay() {
-    setSchedule((current) => [
-      ...current.filter((item) => item.date !== selectedDateKey),
-      {
-        id: `rest-${selectedDateKey}-${crypto.randomUUID()}`,
-        date: selectedDateKey,
-        planId: "rest",
-        title: "休息日",
-        status: "rest",
-        minutes: 0,
-        calories: 0,
-        items: [],
-      },
-    ]);
-    setToast(`已设置休息日：${formatDayLabel(selectedDateKey)}`);
-  }
-
-  function updatePlanStatus(planId: string, status: ScheduleStatus) {
-    setSchedule((current) => current.map((plan) => (plan.id === planId ? { ...plan, status } : plan)));
-    setSelectedPlanId(planId);
-    setToast(`状态已更新为：${getStatusConfig(status).label}`);
-  }
-
-  function removePlan(planId: string) {
-    setSchedule((current) => current.filter((plan) => plan.id !== planId));
-    if (selectedPlanId === planId) {
-      setSelectedPlanId("");
+    try {
+      const persistedWorkout = await createScheduledWorkout(scheduledWorkout);
+      setSchedule((current) => [
+        ...current.filter((item) => !(item.date === dateKey && item.status === "rest")),
+        persistedWorkout,
+      ]);
+      setSelectedDateKey(dateKey);
+      setSelectedPlanId(persistedWorkout.id);
+      setToast(`已安排：${plan.title} · ${formatDayLabel(dateKey)}`);
+    } catch {
+      setToast("安排训练失败");
     }
-    setToast("已移除当天安排");
+  }
+
+  async function addRestDay() {
+    const restDay: ScheduledWorkout = {
+      id: `rest-${selectedDateKey}-${crypto.randomUUID()}`,
+      date: selectedDateKey,
+      planId: "rest",
+      title: "休息日",
+      status: "rest",
+      minutes: 0,
+      calories: 0,
+      items: [],
+    };
+
+    try {
+      await Promise.all(schedule.filter((item) => item.date === selectedDateKey).map((item) => deleteScheduledWorkout(item.id)));
+      const persistedRestDay = await createScheduledWorkout(restDay);
+      setSchedule((current) => [
+        ...current.filter((item) => item.date !== selectedDateKey),
+        persistedRestDay,
+      ]);
+      setSelectedPlanId(persistedRestDay.id);
+      setToast(`已设置休息日：${formatDayLabel(selectedDateKey)}`);
+    } catch {
+      setToast("设置休息日失败");
+    }
+  }
+
+  async function updatePlanStatus(planId: string, status: ScheduleStatus) {
+    try {
+      const persistedPlan = await updateScheduledWorkoutStatus(planId, status);
+      setSchedule((current) => current.map((plan) => (plan.id === planId ? persistedPlan : plan)));
+      setSelectedPlanId(planId);
+      setToast(`状态已更新为：${getStatusConfig(status).label}`);
+    } catch {
+      setToast("训练状态更新失败");
+    }
+  }
+
+  async function removePlan(planId: string) {
+    try {
+      await deleteScheduledWorkout(planId);
+      setSchedule((current) => current.filter((plan) => plan.id !== planId));
+      if (selectedPlanId === planId) {
+        setSelectedPlanId("");
+      }
+      setToast("已移除当天安排");
+    } catch {
+      setToast("移除当天安排失败");
+    }
   }
 
   return (
@@ -345,8 +268,10 @@ export function TrainingPlanPage() {
           <button
             className="flex items-center justify-center gap-xs rounded-xl bg-primary px-lg py-md font-label-md text-label-md font-bold text-white shadow-card transition-all hover:bg-primary-deep hover:shadow-lift active:scale-[0.98]"
             onClick={() => {
-              const plan = filteredWorkouts[0] ?? fallbackWorkouts[0];
-              scheduleWorkout(plan);
+              const plan = filteredWorkouts[0];
+              if (plan) {
+                void scheduleWorkout(plan);
+              }
             }}
             type="button"
           >
@@ -368,7 +293,7 @@ export function TrainingPlanPage() {
                 <SavedPlanCard
                   key={workout.id}
                   workout={workout}
-                  onSchedule={() => scheduleWorkout(workout)}
+                  onSchedule={() => void scheduleWorkout(workout)}
                 />
               ))}
             </div>
@@ -498,8 +423,8 @@ export function TrainingPlanPage() {
                     {isExpanded ? (
                       <CurrentPlanCard
                         plan={plan}
-                        onRemove={() => removePlan(plan.id)}
-                        onStatusChange={(status) => updatePlanStatus(plan.id, status)}
+                        onRemove={() => void removePlan(plan.id)}
+                        onStatusChange={(status) => void updatePlanStatus(plan.id, status)}
                       />
                     ) : (
                       <CollapsedDayPlanButton
@@ -518,8 +443,10 @@ export function TrainingPlanPage() {
               <button
                 className="mt-md rounded-xl bg-primary px-md py-sm font-label-md text-label-md font-bold text-white"
                 onClick={() => {
-                  const plan = filteredWorkouts[0] ?? fallbackWorkouts[0];
-                  scheduleWorkout(plan);
+                  const plan = filteredWorkouts[0];
+                  if (plan) {
+                    void scheduleWorkout(plan);
+                  }
                 }}
                 type="button"
               >
@@ -559,7 +486,7 @@ export function TrainingPlanPage() {
           <h2 className="font-label-md text-label-md font-bold text-secondary">快速建议</h2>
           <button
             className="group flex w-full items-center justify-between rounded-xl border border-line bg-white p-md text-left shadow-card transition-colors hover:border-primary"
-            onClick={addRestDay}
+            onClick={() => void addRestDay()}
             type="button"
           >
             <span className="flex items-center gap-sm">
