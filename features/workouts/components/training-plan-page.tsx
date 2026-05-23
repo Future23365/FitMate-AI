@@ -4,50 +4,19 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
-
-type WorkoutItem = {
-  id: string;
-  exerciseId: string;
-  nameZh: string;
-  nameEn: string;
-  categoryZh: string;
-  equipmentZh: string;
-  musclesZh: string[];
-  instructionsZh: string[];
-  imageUrl: string;
-  mode: "duration" | "reps";
-  target: number;
-  sets: number;
-  setRestSeconds: number;
-  transitionRestSeconds: number;
-  section?: WorkoutSection;
-};
-
-type SavedWorkout = {
-  id: string;
-  title: string;
-  savedAt: string;
-  items: WorkoutItem[];
-  trainingLoopRounds?: number;
-  trainingLoopRestSeconds?: number;
-};
-
-type WorkoutSection = "warmup" | "training" | "stretch";
-
-type ScheduleStatus = "completed" | "missed" | "planned" | "rest";
-
-type ScheduledWorkout = {
-  id: string;
-  date: string;
-  planId: string;
-  title: string;
-  status: ScheduleStatus;
-  minutes: number;
-  calories: number;
-  items: WorkoutItem[];
-  trainingLoopRounds?: number;
-  trainingLoopRestSeconds?: number;
-};
+import {
+  defaultSetRestSeconds,
+  defaultTransitionRestSeconds,
+  estimateWorkoutCalories,
+  estimateWorkoutMinutes,
+  getWorkoutLoopConfig,
+  normalizeSavedWorkout,
+  placeholderWorkoutImage,
+  type SavedWorkout,
+  type ScheduledWorkout,
+  type ScheduleStatus,
+  type WorkoutItem,
+} from "@/lib/shared/workouts/composition";
 
 type CalendarCell = {
   date: Date;
@@ -57,7 +26,6 @@ type CalendarCell = {
 
 const historyStorageKey = "fitmate.workoutHistory";
 const scheduleStorageKey = "fitmate.trainingSchedule";
-const defaultTrainingLoopRestSeconds = 120;
 const weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
 const fallbackWorkouts: SavedWorkout[] = [
@@ -117,12 +85,12 @@ function createFallbackItem(
     equipmentZh: "自重",
     musclesZh: ["综合"],
     instructionsZh: [],
-    imageUrl: "https://www.gstatic.com/labs-code/stitch/stitch-placeholder-300x300.svg",
+    imageUrl: placeholderWorkoutImage,
     mode,
     target,
     sets: 3,
-    setRestSeconds: 30,
-    transitionRestSeconds: 20,
+    setRestSeconds: defaultSetRestSeconds,
+    transitionRestSeconds: defaultTransitionRestSeconds,
   };
 }
 
@@ -139,64 +107,6 @@ function formatMonth(date: Date) {
 function formatDayLabel(dateKey: string) {
   const [, month, day] = dateKey.split("-");
   return `${Number(month)}月${Number(day)}日`;
-}
-
-function expandWorkoutItems(items: WorkoutItem[], trainingLoopRounds = 1) {
-  const warmupItems = items.filter((item) => (item.section ?? "training") === "warmup");
-  const trainingItems = items.filter((item) => (item.section ?? "training") === "training");
-  const stretchItems = items.filter((item) => (item.section ?? "training") === "stretch");
-  const loopedTrainingItems = Array.from(
-    { length: Math.max(1, Math.min(12, Math.round(trainingLoopRounds))) },
-    () => trainingItems,
-  ).flat();
-
-  return [...warmupItems, ...loopedTrainingItems, ...stretchItems];
-}
-
-function getTrainingLoopRestTotalSeconds(
-  items: WorkoutItem[],
-  trainingLoopRounds: number,
-  trainingLoopRestSeconds: number,
-) {
-  const trainingItems = items.filter((item) => (item.section ?? "training") === "training");
-
-  if (!trainingItems.length) {
-    return 0;
-  }
-
-  return Math.max(0, Math.min(12, Math.round(trainingLoopRounds)) - 1) * Math.max(0, trainingLoopRestSeconds);
-}
-
-function estimateMinutes(
-  items: WorkoutItem[],
-  trainingLoopRounds = 1,
-  trainingLoopRestSeconds = defaultTrainingLoopRestSeconds,
-) {
-  const expandedItems = expandWorkoutItems(items, trainingLoopRounds);
-  const seconds = expandedItems.reduce((total, item, index) => {
-    const activeSeconds = item.mode === "duration" ? item.target : item.target * 4;
-    const restBetweenSets = item.setRestSeconds * Math.max(0, item.sets - 1);
-    const transitionRest = index < expandedItems.length - 1 ? item.transitionRestSeconds : 0;
-
-    return total + activeSeconds * item.sets + restBetweenSets + transitionRest;
-  }, getTrainingLoopRestTotalSeconds(items, trainingLoopRounds, trainingLoopRestSeconds));
-
-  return Math.max(15, Math.round(seconds / 60));
-}
-
-function estimateCalories(
-  items: WorkoutItem[],
-  trainingLoopRounds = 1,
-  trainingLoopRestSeconds = defaultTrainingLoopRestSeconds,
-) {
-  const expandedItems = expandWorkoutItems(items, trainingLoopRounds);
-  return Math.max(
-    80,
-    Math.round(
-      estimateMinutes(items, trainingLoopRounds, trainingLoopRestSeconds) * 7.2 +
-        expandedItems.length * 12,
-    ),
-  );
 }
 
 function getCalendarCells(monthDate: Date): CalendarCell[] {
@@ -252,19 +162,26 @@ function createScheduledWorkout(
   dateKey: string,
   status: ScheduleStatus = "planned",
 ): ScheduledWorkout {
-  const items = plan.items;
-  const trainingLoopRounds = plan.trainingLoopRounds ?? 1;
-  const trainingLoopRestSeconds = plan.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds;
+  const normalizedPlan = normalizeSavedWorkout(plan);
+  const { trainingLoopRestSeconds, trainingLoopRounds } = getWorkoutLoopConfig(normalizedPlan);
 
   return {
-    id: `${plan.id}-${dateKey}-${crypto.randomUUID()}`,
+    id: `${normalizedPlan.id}-${dateKey}-${crypto.randomUUID()}`,
     date: dateKey,
-    planId: plan.id,
-    title: plan.title,
+    planId: normalizedPlan.id,
+    title: normalizedPlan.title,
     status,
-    minutes: estimateMinutes(items, trainingLoopRounds, trainingLoopRestSeconds),
-    calories: estimateCalories(items, trainingLoopRounds, trainingLoopRestSeconds),
-    items,
+    minutes: estimateWorkoutMinutes(normalizedPlan.items, {
+      minimumMinutes: 15,
+      trainingLoopRestSeconds,
+      trainingLoopRounds,
+    }),
+    calories: estimateWorkoutCalories(normalizedPlan.items, {
+      minimumCalories: 80,
+      trainingLoopRestSeconds,
+      trainingLoopRounds,
+    }),
+    items: normalizedPlan.items,
     trainingLoopRounds,
     trainingLoopRestSeconds,
   };
@@ -318,7 +235,7 @@ export function TrainingPlanPage() {
       try {
         const rawHistory = window.localStorage.getItem(historyStorageKey);
         const history = rawHistory ? (JSON.parse(rawHistory) as SavedWorkout[]) : [];
-        setSavedWorkouts(history.length ? history : fallbackWorkouts);
+        setSavedWorkouts(history.length ? history.map(normalizeSavedWorkout) : fallbackWorkouts);
       } catch {
         setSavedWorkouts(fallbackWorkouts);
       }
@@ -670,10 +587,18 @@ function SavedPlanCard({
   onSchedule: () => void;
   workout: SavedWorkout;
 }) {
-  const loopRounds = workout.trainingLoopRounds ?? 1;
-  const loopRestSeconds = workout.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds;
-  const minutes = estimateMinutes(workout.items, loopRounds, loopRestSeconds);
-  const calories = estimateCalories(workout.items, loopRounds, loopRestSeconds);
+  const normalizedWorkout = normalizeSavedWorkout(workout);
+  const { trainingLoopRestSeconds, trainingLoopRounds } = getWorkoutLoopConfig(normalizedWorkout);
+  const minutes = estimateWorkoutMinutes(normalizedWorkout.items, {
+    minimumMinutes: 15,
+    trainingLoopRestSeconds,
+    trainingLoopRounds,
+  });
+  const calories = estimateWorkoutCalories(normalizedWorkout.items, {
+    minimumCalories: 80,
+    trainingLoopRestSeconds,
+    trainingLoopRounds,
+  });
   const icon = workout.title.includes("燃脂")
     ? "local_fire_department"
     : workout.title.includes("核心")
@@ -690,7 +615,7 @@ function SavedPlanCard({
       <div className="min-w-0 flex-1">
         <h3 className="truncate font-label-md text-label-md font-bold">{workout.title}</h3>
         <p className="text-[10px] text-secondary">
-          {workout.items.length}动作 · 训练{loopRounds}轮 · {calories}kcal · {minutes}min
+          {normalizedWorkout.items.length}动作 · 训练{trainingLoopRounds}轮 · {calories}kcal · {minutes}min
         </p>
       </div>
       <button

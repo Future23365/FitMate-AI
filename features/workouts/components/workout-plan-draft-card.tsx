@@ -10,52 +10,27 @@ import exercisesData from "@/data/exercises.zh.json";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import type { WorkoutPlanDraft, WorkoutPlanItemDraft } from "@/lib/shared/workout-plans/draft-schema";
 import { convertWorkoutPlanDraftToSavedWorkout } from "@/features/workout-plans/lib/saved-workout";
+import {
+  estimateWorkoutCalories,
+  estimateWorkoutMinutes,
+  getWorkoutLoopConfig,
+  placeholderWorkoutImage,
+  type ScheduledWorkout,
+} from "@/lib/shared/workouts/composition";
 
 interface WorkoutPlanDraftCardProps {
   draft: WorkoutPlanDraft;
 }
 
 const exercises = exercisesData as Exercise[];
-const placeholderImage = "/images/exercise-placeholder.svg";
+const placeholderImage = placeholderWorkoutImage;
 const exerciseMap = new Map(exercises.map((item) => [item.id, item]));
 const normalizedExerciseMap = new Map(exercises.map((item) => [item.id.toLowerCase(), item]));
-
-type ScheduleStatus = "completed" | "missed" | "planned" | "rest";
-
-type ScheduledWorkout = {
-  id: string;
-  date: string;
-  planId: string;
-  title: string;
-  status: ScheduleStatus;
-  minutes: number;
-  calories: number;
-  items: any[];
-  trainingLoopRounds?: number;
-  trainingLoopRestSeconds?: number;
-  sourcePlanTitle?: string;
-};
 
 function toDateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
     date.getDate(),
   ).padStart(2, "0")}`;
-}
-
-function estimateMinutes(items: any[]) {
-  const seconds = items.reduce((total, item, index) => {
-    const activeSeconds = item.mode === "duration" ? item.target : item.target * 4;
-    const restBetweenSets = item.setRestSeconds * Math.max(0, item.sets - 1);
-    const transitionRest = index < items.length - 1 ? item.transitionRestSeconds : 0;
-
-    return total + activeSeconds * item.sets + restBetweenSets + transitionRest;
-  }, 0);
-
-  return Math.max(15, Math.round(seconds / 60));
-}
-
-function estimateCalories(items: any[]) {
-  return Math.max(80, Math.round(estimateMinutes(items) * 7.2 + items.length * 12));
 }
 
 function findExerciseById(exerciseId: string) {
@@ -181,6 +156,7 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
 
           if (isTrainingDay) {
             const workout = savedWorkouts[trainingDayCount % savedWorkouts.length];
+            const loopConfig = getWorkoutLoopConfig(workout);
             trainingDayCount++;
 
             newScheduledWorkouts.push({
@@ -189,8 +165,14 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
               planId: workout.id,
               title: workout.title,
               status: "planned",
-              minutes: estimateMinutes(workout.items),
-              calories: estimateCalories(workout.items),
+              minutes: estimateWorkoutMinutes(workout.items, {
+                minimumMinutes: 15,
+                ...loopConfig,
+              }),
+              calories: estimateWorkoutCalories(workout.items, {
+                minimumCalories: 80,
+                ...loopConfig,
+              }),
               items: workout.items,
               trainingLoopRounds: workout.trainingLoopRounds,
               trainingLoopRestSeconds: workout.trainingLoopRestSeconds,

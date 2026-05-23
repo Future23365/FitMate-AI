@@ -9,42 +9,34 @@ import exercisesData from "@/data/exercises.zh.json";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
 import { clientRequest } from "@/lib/client/http/client-request";
 import type { Exercise, ExerciseFacets } from "@/lib/shared/exercises/types";
+import {
+  clampLoopRounds,
+  defaultSetRestSeconds,
+  defaultTrainingLoopRestSeconds,
+  defaultTrainingLoopRounds,
+  defaultTransitionRestSeconds,
+  estimateWorkoutCalories,
+  estimateWorkoutMinutes,
+  expandWorkoutItems,
+  getSectionItems,
+  getTotalWorkoutSets,
+  inferWorkoutSection,
+  loopRoundOptions,
+  normalizeSavedWorkout,
+  normalizeWorkoutItem,
+  placeholderWorkoutImage,
+  restOptions,
+  workoutSectionConfigs,
+  type SavedWorkout,
+  type WorkoutItem,
+  type WorkoutMode,
+  type WorkoutSection,
+} from "@/lib/shared/workouts/composition";
 
 type ExerciseApiResponse = {
   items: Exercise[];
   total: number;
   facets: ExerciseFacets;
-};
-
-type WorkoutMode = "reps" | "duration";
-type WorkoutSection = "warmup" | "training" | "stretch";
-
-type WorkoutItem = {
-  id: string;
-  exerciseId: string;
-  nameZh: string;
-  nameEn: string;
-  categoryZh: string;
-  equipmentZh: string;
-  musclesZh: string[];
-  instructionsZh: string[];
-  imageUrl: string;
-  mode: WorkoutMode;
-  target: number;
-  sets: number;
-  setRestSeconds: number;
-  transitionRestSeconds: number;
-  restSeconds?: number;
-  section?: WorkoutSection;
-};
-
-type SavedWorkout = {
-  id: string;
-  title: string;
-  savedAt: string;
-  items: WorkoutItem[];
-  trainingLoopRounds?: number;
-  trainingLoopRestSeconds?: number;
 };
 
 type TemplateExerciseConfig = {
@@ -59,36 +51,7 @@ type TemplateExerciseConfig = {
 };
 
 const historyStorageKey = "fitmate.workoutHistory";
-const placeholderImage = "/images/exercise-placeholder.svg";
-const restOptions = [15, 20, 30, 45, 60, 90, 120];
-const loopRoundOptions = [1, 2, 3, 4, 5, 6];
-const defaultTrainingLoopRounds = 3;
-const defaultTrainingLoopRestSeconds = 120;
-const sectionConfigs: Array<{
-  id: WorkoutSection;
-  title: string;
-  subtitle: string;
-  icon: string;
-}> = [
-  {
-    id: "warmup",
-    title: "热身",
-    subtitle: "激活关节、提升心率，为主训练做准备",
-    icon: "local_fire_department",
-  },
-  {
-    id: "training",
-    title: "训练",
-    subtitle: "主训练动作，可按循环次数重复执行",
-    icon: "fitness_center",
-  },
-  {
-    id: "stretch",
-    title: "拉伸",
-    subtitle: "降低心率、放松目标肌群",
-    icon: "self_improvement",
-  },
-];
+const sectionConfigs = workoutSectionConfigs;
 const allExercises = exercisesData as Exercise[];
 const exerciseById = new Map(allExercises.map((exercise) => [exercise.id, exercise]));
 const defaultExerciseFacets: ExerciseFacets = {
@@ -177,39 +140,14 @@ function toWorkoutItem(
     equipmentZh: exercise.equipmentZh || "未标注器械",
     musclesZh: exercise.primaryMusclesZh.length ? exercise.primaryMusclesZh : ["综合"],
     instructionsZh: exercise.instructionsZh,
-    imageUrl: exercise.imageUrls[0] || placeholderImage,
+    imageUrl: exercise.imageUrls[0] || placeholderWorkoutImage,
     mode: overrides.mode ?? (isDuration ? "duration" : "reps"),
     target: overrides.target ?? (isDuration ? 45 : 12),
     sets: overrides.sets ?? 1,
-    setRestSeconds: overrides.setRestSeconds ?? 30,
-    transitionRestSeconds: overrides.transitionRestSeconds ?? 20,
+    setRestSeconds: overrides.setRestSeconds ?? defaultSetRestSeconds,
+    transitionRestSeconds: overrides.transitionRestSeconds ?? defaultTransitionRestSeconds,
     section: overrides.section ?? "training",
   };
-}
-
-function normalizeWorkoutItem(item: WorkoutItem): WorkoutItem {
-  const legacyRestSeconds = item.restSeconds ?? 30;
-
-  return {
-    ...item,
-    setRestSeconds: item.setRestSeconds ?? legacyRestSeconds,
-    transitionRestSeconds: item.transitionRestSeconds ?? item.restSeconds ?? 20,
-    section: item.section ?? inferWorkoutSection(item),
-  };
-}
-
-function inferWorkoutSection(item: Pick<WorkoutItem, "categoryZh" | "nameZh">): WorkoutSection {
-  const text = `${item.categoryZh} ${item.nameZh}`;
-
-  if (/拉伸|伸展|放松/.test(text)) {
-    return "stretch";
-  }
-
-  if (/热身|激活|动态/.test(text)) {
-    return "warmup";
-  }
-
-  return "training";
 }
 
 function toPreviewExercise(item: WorkoutItem): Exercise {
@@ -246,7 +184,7 @@ function toPreviewExercise(item: WorkoutItem): Exercise {
     instructionsEn: [],
     instructionsZh: item.instructionsZh,
     images: [],
-    imageUrls: [item.imageUrl || placeholderImage],
+    imageUrls: [item.imageUrl || placeholderWorkoutImage],
     riskTags: [],
     goalTags: [],
     reviewStatus: "fallback",
@@ -271,79 +209,10 @@ function readSavedWorkouts() {
 
   try {
     const savedWorkouts = JSON.parse(rawHistory) as SavedWorkout[];
-    return Array.isArray(savedWorkouts) ? savedWorkouts : [];
+    return Array.isArray(savedWorkouts) ? savedWorkouts.map(normalizeSavedWorkout) : [];
   } catch {
     return [];
   }
-}
-
-function expandWorkoutItems(items: WorkoutItem[], trainingLoopRounds: number) {
-  const normalizedItems = items.map(normalizeWorkoutItem);
-  const warmupItems = getSectionItems(normalizedItems, "warmup");
-  const trainingItems = getSectionItems(normalizedItems, "training");
-  const stretchItems = getSectionItems(normalizedItems, "stretch");
-  const rounds = clampLoopRounds(trainingLoopRounds);
-  const loopedTrainingItems = Array.from({ length: rounds }, () => trainingItems).flat();
-
-  return [...warmupItems, ...loopedTrainingItems, ...stretchItems];
-}
-
-function getTrainingLoopRestTotalSeconds(
-  items: WorkoutItem[],
-  trainingLoopRounds: number,
-  trainingLoopRestSeconds: number,
-) {
-  const trainingItems = getSectionItems(items.map(normalizeWorkoutItem), "training");
-
-  if (!trainingItems.length) {
-    return 0;
-  }
-
-  return Math.max(0, clampLoopRounds(trainingLoopRounds) - 1) * Math.max(0, trainingLoopRestSeconds);
-}
-
-function getSectionItems(items: WorkoutItem[], section: WorkoutSection) {
-  return items.filter((item) => (item.section ?? inferWorkoutSection(item)) === section);
-}
-
-function clampLoopRounds(value: number) {
-  return Math.min(12, Math.max(1, Number.isFinite(value) ? Math.round(value) : 1));
-}
-
-function estimateMinutes(
-  items: WorkoutItem[],
-  trainingLoopRounds = 1,
-  trainingLoopRestSeconds = defaultTrainingLoopRestSeconds,
-) {
-  const expandedItems = expandWorkoutItems(items, trainingLoopRounds);
-  const seconds = expandedItems.reduce((total, item, index) => {
-    const activeSeconds = item.mode === "duration" ? item.target : item.target * 4;
-    const setRestSeconds = item.setRestSeconds * Math.max(0, item.sets - 1);
-    const transitionRestSeconds = index < expandedItems.length - 1 ? item.transitionRestSeconds : 0;
-
-    return total + activeSeconds * item.sets + setRestSeconds + transitionRestSeconds;
-  }, getTrainingLoopRestTotalSeconds(items, trainingLoopRounds, trainingLoopRestSeconds));
-
-  return Math.max(1, Math.round(seconds / 60));
-}
-
-function estimateCalories(
-  items: WorkoutItem[],
-  trainingLoopRounds = 1,
-  trainingLoopRestSeconds = defaultTrainingLoopRestSeconds,
-) {
-  const expandedItems = expandWorkoutItems(items, trainingLoopRounds);
-  return Math.max(
-    0,
-    Math.round(
-      estimateMinutes(items, trainingLoopRounds, trainingLoopRestSeconds) * 7.2 +
-        expandedItems.length * 12,
-    ),
-  );
-}
-
-function getTotalSets(items: WorkoutItem[], trainingLoopRounds = 1) {
-  return expandWorkoutItems(items, trainingLoopRounds).reduce((total, item) => total + item.sets, 0);
 }
 
 function changeNumber(value: number, delta: number, min: number, max: number) {
@@ -524,9 +393,10 @@ export function ActionComposerPage() {
   const selectedItem = items.find((item) => item.id === selectedItemId) ?? items[0];
   const selectedLibraryExercise =
     libraryItems.find((exercise) => exercise.id === selectedLibraryExerciseId) ?? libraryItems[0];
-  const totalMinutes = estimateMinutes(items, trainingLoopRounds, trainingLoopRestSeconds);
-  const totalCalories = estimateCalories(items, trainingLoopRounds, trainingLoopRestSeconds);
-  const totalSets = getTotalSets(items, trainingLoopRounds);
+  const workoutEstimateOptions = { trainingLoopRestSeconds, trainingLoopRounds };
+  const totalMinutes = estimateWorkoutMinutes(items, workoutEstimateOptions);
+  const totalCalories = estimateWorkoutCalories(items, workoutEstimateOptions);
+  const totalSets = getTotalWorkoutSets(items, trainingLoopRounds);
   const expandedPreviewItems = expandWorkoutItems(items, trainingLoopRounds);
   const hasLibraryFilters =
     Boolean(libraryQuery.trim()) ||
@@ -675,12 +545,13 @@ export function ActionComposerPage() {
   }
 
   function openSavedWorkout(workout: SavedWorkout, updateHash = true) {
-    const normalizedItems = workout.items.map(normalizeWorkoutItem);
+    const normalizedWorkout = normalizeSavedWorkout(workout);
+    const normalizedItems = normalizedWorkout.items;
 
-    setPlanTitle(workout.title);
+    setPlanTitle(normalizedWorkout.title);
     setItems(normalizedItems);
-    setTrainingLoopRounds(clampLoopRounds(workout.trainingLoopRounds ?? 1));
-    setTrainingLoopRestSeconds(workout.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds);
+    setTrainingLoopRounds(normalizedWorkout.trainingLoopRounds ?? 1);
+    setTrainingLoopRestSeconds(normalizedWorkout.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds);
     setSelectedItemId(normalizedItems[0]?.id ?? "");
     setSelectedSection(normalizedItems[0]?.section ?? "training");
     setActiveSavedWorkoutId(workout.id);
@@ -693,14 +564,13 @@ export function ActionComposerPage() {
 
   function duplicateSavedWorkout(workout: SavedWorkout) {
     const now = new Date();
+    const normalizedWorkout = normalizeSavedWorkout(workout);
     const copiedWorkout: SavedWorkout = {
-      ...workout,
+      ...normalizedWorkout,
       id: crypto.randomUUID(),
-      title: `${workout.title} 副本`,
+      title: `${normalizedWorkout.title} 副本`,
       savedAt: formatDateTime(now),
-      trainingLoopRounds: clampLoopRounds(workout.trainingLoopRounds ?? 1),
-      trainingLoopRestSeconds: workout.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds,
-      items: workout.items.map((item) => ({
+      items: normalizedWorkout.items.map((item) => ({
         ...normalizeWorkoutItem(item),
         id: crypto.randomUUID(),
       })),
@@ -1135,7 +1005,7 @@ export function ActionComposerPage() {
                       className="object-cover"
                       fill
                       sizes="40px"
-                      src={exercise.imageUrls[0] || placeholderImage}
+                      src={exercise.imageUrls[0] || placeholderWorkoutImage}
                     />
                   </div>
                   <div className="min-w-0 flex-1">
@@ -1338,8 +1208,14 @@ function SavedCompositionCard({
   const loopRounds = clampLoopRounds(workout.trainingLoopRounds ?? 1);
   const loopRestSeconds = workout.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds;
   const normalizedItems = workout.items.map(normalizeWorkoutItem);
-  const minutes = estimateMinutes(normalizedItems, loopRounds, loopRestSeconds);
-  const calories = estimateCalories(normalizedItems, loopRounds, loopRestSeconds);
+  const minutes = estimateWorkoutMinutes(normalizedItems, {
+    trainingLoopRestSeconds: loopRestSeconds,
+    trainingLoopRounds: loopRounds,
+  });
+  const calories = estimateWorkoutCalories(normalizedItems, {
+    trainingLoopRestSeconds: loopRestSeconds,
+    trainingLoopRounds: loopRounds,
+  });
   const icon = workout.title.includes("燃脂")
     ? "local_fire_department"
     : workout.title.includes("核心")

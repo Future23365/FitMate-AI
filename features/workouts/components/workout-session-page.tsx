@@ -6,56 +6,23 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
-
-type WorkoutMode = "duration" | "reps";
-type WorkoutSection = "warmup" | "training" | "stretch";
-
-type WorkoutItem = {
-  id: string;
-  exerciseId: string;
-  nameZh: string;
-  nameEn: string;
-  categoryZh: string;
-  equipmentZh: string;
-  musclesZh: string[];
-  instructionsZh: string[];
-  imageUrl: string;
-  mode: WorkoutMode;
-  target: number;
-  sets: number;
-  setRestSeconds: number;
-  transitionRestSeconds: number;
-  section?: WorkoutSection;
-};
-
-type ScheduleStatus = "completed" | "missed" | "planned" | "rest";
-
-type ScheduledWorkout = {
-  id: string;
-  date: string;
-  planId: string;
-  title: string;
-  status: ScheduleStatus;
-  minutes: number;
-  calories: number;
-  items: WorkoutItem[];
-  trainingLoopRounds?: number;
-  trainingLoopRestSeconds?: number;
-};
-
-type SessionStep = {
-  id: string;
-  item: WorkoutItem;
-  itemIndex: number;
-  setIndex: number;
-  totalSets: number;
-  durationSeconds: number;
-};
+import {
+  buildWorkoutTimeline,
+  defaultSetRestSeconds,
+  defaultTransitionRestSeconds,
+  estimateWorkoutCalories,
+  estimateWorkoutMinutes,
+  expandWorkoutItems,
+  getRepIntervalSeconds,
+  getWorkoutLoopConfig,
+  normalizeWorkoutItem,
+  placeholderWorkoutImage,
+  type ScheduledWorkout,
+  type WorkoutItem,
+  type WorkoutMode,
+} from "@/lib/shared/workouts/composition";
 
 const scheduleStorageKey = "fitmate.trainingSchedule";
-const placeholderImage = "/images/exercise-placeholder.svg";
-const defaultRepIntervalSeconds = 2;
-const defaultTrainingLoopRestSeconds = 120;
 
 const fallbackPlan: ScheduledWorkout = {
   id: "session-fallback",
@@ -92,97 +59,13 @@ function createFallbackItem(
     equipmentZh: "自重",
     musclesZh,
     instructionsZh: ["保持核心收紧，动作标准，注意呼吸节奏。"],
-    imageUrl: placeholderImage,
+    imageUrl: placeholderWorkoutImage,
     mode,
     target,
     sets: 1,
-    setRestSeconds: 30,
-    transitionRestSeconds: 20,
+    setRestSeconds: defaultSetRestSeconds,
+    transitionRestSeconds: defaultTransitionRestSeconds,
   };
-}
-
-function expandWorkoutItems(items: WorkoutItem[], trainingLoopRounds = 1) {
-  const warmupItems = items.filter((item) => (item.section ?? "training") === "warmup");
-  const trainingItems = items.filter((item) => (item.section ?? "training") === "training");
-  const stretchItems = items.filter((item) => (item.section ?? "training") === "stretch");
-  const loopedTrainingItems = Array.from(
-    { length: Math.max(1, Math.min(12, Math.round(trainingLoopRounds))) },
-    () => trainingItems,
-  ).flat();
-
-  return [...warmupItems, ...loopedTrainingItems, ...stretchItems];
-}
-
-function getTrainingLoopRestTotalSeconds(
-  items: WorkoutItem[],
-  trainingLoopRounds: number,
-  trainingLoopRestSeconds: number,
-) {
-  const trainingItems = items.filter((item) => (item.section ?? "training") === "training");
-
-  if (!trainingItems.length) {
-    return 0;
-  }
-
-  return Math.max(0, Math.min(12, Math.round(trainingLoopRounds)) - 1) * Math.max(0, trainingLoopRestSeconds);
-}
-
-function estimateMinutes(
-  items: WorkoutItem[],
-  trainingLoopRounds = 1,
-  trainingLoopRestSeconds = defaultTrainingLoopRestSeconds,
-) {
-  const expandedItems = expandWorkoutItems(items, trainingLoopRounds);
-  const seconds = expandedItems.reduce((total, item, index) => {
-    const activeSeconds = getStepDuration(item);
-    const setRestSeconds = item.setRestSeconds * Math.max(0, item.sets - 1);
-    const transitionRestSeconds = index < expandedItems.length - 1 ? item.transitionRestSeconds : 0;
-
-    return total + activeSeconds * item.sets + setRestSeconds + transitionRestSeconds;
-  }, getTrainingLoopRestTotalSeconds(items, trainingLoopRounds, trainingLoopRestSeconds));
-
-  return Math.max(1, Math.round(seconds / 60));
-}
-
-function estimateCalories(
-  items: WorkoutItem[],
-  trainingLoopRounds = 1,
-  trainingLoopRestSeconds = defaultTrainingLoopRestSeconds,
-) {
-  const expandedItems = expandWorkoutItems(items, trainingLoopRounds);
-  return Math.max(
-    0,
-    Math.round(
-      estimateMinutes(items, trainingLoopRounds, trainingLoopRestSeconds) * 7.2 +
-        expandedItems.length * 12,
-    ),
-  );
-}
-
-function getStepDuration(item: WorkoutItem) {
-  return Math.max(5, item.mode === "duration" ? item.target : item.target * getRepIntervalSeconds(item));
-}
-
-function getRepIntervalSeconds(item: WorkoutItem) {
-  if (item.mode === "duration") {
-    return 1;
-  }
-
-  // 按次动作由系统按固定节奏自动计次，不要求训练中手动确认。
-  return defaultRepIntervalSeconds;
-}
-
-function buildSessionSteps(items: WorkoutItem[], trainingLoopRounds = 1) {
-  return expandWorkoutItems(items, trainingLoopRounds).flatMap((item, itemIndex) =>
-    Array.from({ length: Math.max(1, item.sets) }, (_, index) => ({
-      id: `${item.id}-${itemIndex}-${index}`,
-      item,
-      itemIndex,
-      setIndex: index + 1,
-      totalSets: Math.max(1, item.sets),
-      durationSeconds: getStepDuration(item),
-    })),
-  );
 }
 
 function formatClock(totalSeconds: number) {
@@ -203,7 +86,13 @@ function getPlanFromStorage(planId: string | null) {
     const matchedPlan = planId ? schedule.find((plan) => plan.id === planId) : schedule.find((plan) => plan.status === "planned");
 
     if (matchedPlan && matchedPlan.items.length) {
-      return matchedPlan;
+      const loopConfig = getWorkoutLoopConfig(matchedPlan);
+      return {
+        ...matchedPlan,
+        items: matchedPlan.items.map(normalizeWorkoutItem),
+        trainingLoopRestSeconds: loopConfig.trainingLoopRestSeconds,
+        trainingLoopRounds: loopConfig.trainingLoopRounds,
+      };
     }
   } catch {
     return fallbackPlan;
@@ -223,34 +112,40 @@ export function WorkoutSessionPage() {
   const [isAudioOn, setIsAudioOn] = useState(true);
   const [showTip, setShowTip] = useState(true);
 
+  const loopConfig = useMemo(() => getWorkoutLoopConfig(plan), [plan]);
   const orderedItems = useMemo(
-    () => expandWorkoutItems(plan.items, plan.trainingLoopRounds ?? 1),
-    [plan.items, plan.trainingLoopRounds],
+    () => expandWorkoutItems(plan.items, loopConfig.trainingLoopRounds),
+    [plan.items, loopConfig.trainingLoopRounds],
   );
   const steps = useMemo(
-    () => buildSessionSteps(plan.items, plan.trainingLoopRounds ?? 1),
-    [plan.items, plan.trainingLoopRounds],
+    () => buildWorkoutTimeline(plan.items, loopConfig),
+    [loopConfig, plan.items],
   );
   const activeStep = steps[activeStepIndex] ?? steps[0];
-  const currentItem = activeStep?.item ?? fallbackPlan.items[0];
+  const activeExerciseStep = activeStep?.type === "exercise" ? activeStep : null;
+  const activeRestStep = activeStep?.type === "rest" ? activeStep : null;
+  const currentItem =
+    activeExerciseStep
+      ? activeExerciseStep.item
+      : activeRestStep?.nextItem ?? activeRestStep?.afterItem ?? fallbackPlan.items[0];
+  const isRestStep = Boolean(activeRestStep);
   const isTimedStep = currentItem.mode === "duration";
   const repIntervalSeconds = getRepIntervalSeconds(currentItem);
   const stepElapsedSeconds = activeStep ? activeStep.durationSeconds - remainingSeconds : 0;
-  const completedReps = isTimedStep
+  const completedReps = isRestStep || isTimedStep
     ? 0
     : Math.min(currentItem.target, Math.floor(Math.max(0, stepElapsedSeconds) / repIntervalSeconds));
   const completedStepIds = new Set(steps.slice(0, activeStepIndex).map((step) => step.id));
-  const currentExerciseIndex = activeStep?.itemIndex ?? 0;
+  const currentExerciseIndex =
+    activeExerciseStep
+      ? activeExerciseStep.itemIndex
+      : Math.max(0, orderedItems.findIndex((item) => item.id === activeRestStep?.nextItem?.id));
   const progress =
     activeStep && activeStep.durationSeconds > 0
       ? ((activeStep.durationSeconds - remainingSeconds) / activeStep.durationSeconds) * 100
       : 0;
   const trainedCalories = Math.min(
-    estimateCalories(
-      plan.items,
-      plan.trainingLoopRounds ?? 1,
-      plan.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds,
-    ),
+    estimateWorkoutCalories(plan.items, loopConfig),
     Math.round(Math.max(0, elapsedSeconds / 60) * 7.2 + completedStepIds.size * 8),
   );
   const sessionProgress = steps.length
@@ -262,26 +157,17 @@ export function WorkoutSessionPage() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const selectedPlan = getPlanFromStorage(planId);
-      const selectedLoopRestSeconds =
-        selectedPlan.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds;
-      const selectedSteps = buildSessionSteps(selectedPlan.items, selectedPlan.trainingLoopRounds ?? 1);
+      const selectedLoopConfig = getWorkoutLoopConfig(selectedPlan);
+      const selectedSteps = buildWorkoutTimeline(selectedPlan.items, selectedLoopConfig);
 
       setPlan({
         ...selectedPlan,
         minutes:
           selectedPlan.minutes ||
-          estimateMinutes(
-            selectedPlan.items,
-            selectedPlan.trainingLoopRounds ?? 1,
-            selectedLoopRestSeconds,
-          ),
+          estimateWorkoutMinutes(selectedPlan.items, selectedLoopConfig),
         calories:
           selectedPlan.calories ||
-          estimateCalories(
-            selectedPlan.items,
-            selectedPlan.trainingLoopRounds ?? 1,
-            selectedLoopRestSeconds,
-          ),
+          estimateWorkoutCalories(selectedPlan.items, selectedLoopConfig),
       });
       setActiveStepIndex(0);
       setElapsedSeconds(0);
@@ -410,7 +296,7 @@ export function WorkoutSessionPage() {
               <div className="grid grid-cols-3 gap-sm">
                 <Metric icon="schedule" label="已训练" value={formatClock(elapsedSeconds)} />
                 <Metric icon="local_fire_department" label="热量" suffix="kcal" value={trainedCalories} />
-                <Metric icon="repeat" label="剩余" suffix="组" value={remainingSteps} />
+                <Metric icon="repeat" label="剩余" suffix="步" value={remainingSteps} />
               </div>
             </section>
 
@@ -425,7 +311,7 @@ export function WorkoutSessionPage() {
                 </span>
               </div>
               <div className="relative grid min-h-0 flex-1 place-items-center overflow-hidden rounded-xl bg-panel-soft">
-                {currentItem.imageUrl && currentItem.imageUrl !== placeholderImage ? (
+                {currentItem.imageUrl && currentItem.imageUrl !== placeholderWorkoutImage ? (
                   <Image
                     alt={`${currentItem.nameZh} 动作图`}
                     className="object-contain p-md"
@@ -442,16 +328,41 @@ export function WorkoutSessionPage() {
 
           <section className="flex min-h-0 flex-col items-center justify-center rounded-[20px] border border-line bg-white px-lg py-lg text-center shadow-card">
             <span className="mb-sm inline-flex items-center gap-xs rounded-full bg-primary-soft px-md py-xs text-label-md font-bold text-primary">
-              <SymbolIcon className="text-lg">{isTimedStep ? "timer" : "format_list_numbered"}</SymbolIcon>
-              {isTimedStep ? "计时步骤" : "计次步骤"} · 第 {activeStep?.setIndex ?? 1} / {activeStep?.totalSets ?? 1} 组
+              <SymbolIcon className="text-lg">
+                {isRestStep ? "timer" : isTimedStep ? "timer" : "format_list_numbered"}
+              </SymbolIcon>
+              {isRestStep
+                ? activeRestStep?.label
+                : `${isTimedStep ? "计时步骤" : "计次步骤"} · 第 ${activeExerciseStep?.setIndex ?? 1} / ${
+                    activeExerciseStep?.totalSets ?? 1
+                  } 组`}
             </span>
             <h2 className="max-w-[680px] text-[30px] font-extrabold leading-tight text-ink md:text-[38px]">
-              {currentItem.nameZh}
+              {isRestStep ? activeRestStep?.label : currentItem.nameZh}
             </h2>
             <p className="mt-sm text-body-lg font-semibold text-muted">
-              {currentItem.musclesZh.slice(0, 3).join("、") || currentItem.categoryZh}
+              {isRestStep
+                ? activeRestStep?.nextItem
+                  ? `下一个动作：${activeRestStep.nextItem.nameZh}`
+                  : "准备进入下一步"
+                : currentItem.musclesZh.slice(0, 3).join("、") || currentItem.categoryZh}
             </p>
-            {isTimedStep ? (
+            {isRestStep ? (
+              <>
+                <div className="my-md text-[clamp(76px,12vw,132px)] font-black leading-none text-ink [font-variant-numeric:tabular-nums]">
+                  {formatClock(remainingSeconds)}
+                </div>
+                <p className="text-body-lg font-extrabold text-ink">
+                  休息结束后自动进入下一步
+                </p>
+                <div className="mt-sm h-2.5 w-full max-w-[620px] overflow-hidden rounded-full bg-panel-soft">
+                  <span
+                    className="block h-full rounded-full bg-primary transition-[width] duration-300"
+                    style={{ width: `${Math.max(3, Math.min(100, progress))}%` }}
+                  />
+                </div>
+              </>
+            ) : isTimedStep ? (
               <>
                 <div className="my-md text-[clamp(76px,12vw,132px)] font-black leading-none text-ink [font-variant-numeric:tabular-nums]">
                   {formatClock(remainingSeconds)}
@@ -512,7 +423,7 @@ export function WorkoutSessionPage() {
                 {orderedItems.map((item, index) => {
                   const isActive = index === currentExerciseIndex;
                   const isDone = steps
-                    .filter((step) => step.itemIndex === index)
+                    .filter((step) => step.type === "exercise" && step.itemIndex === index)
                     .every((step) => completedStepIds.has(step.id));
 
                   return (
@@ -524,7 +435,9 @@ export function WorkoutSessionPage() {
                       }`}
                       key={`${item.id}-${index}`}
                       onClick={() => {
-                        const nextStepIndex = steps.findIndex((step) => step.itemIndex === index);
+                        const nextStepIndex = steps.findIndex(
+                          (step) => step.type === "exercise" && step.itemIndex === index,
+                        );
                         goToStep(nextStepIndex < 0 ? index : nextStepIndex);
                       }}
                       type="button"
@@ -548,12 +461,7 @@ export function WorkoutSessionPage() {
                 <h2 className="text-title-lg font-extrabold">训练控制</h2>
                 <span className="flex items-center gap-xs text-label-md font-bold text-muted">
                   <SymbolIcon className="text-lg">timer</SymbolIcon>
-                  {plan.minutes ||
-                    estimateMinutes(
-                      plan.items,
-                      plan.trainingLoopRounds ?? 1,
-                      plan.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds,
-                    )} 分钟
+                  {plan.minutes || estimateWorkoutMinutes(plan.items, loopConfig)} 分钟
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-sm">
@@ -664,7 +572,7 @@ function SessionControl({
 function ExerciseThumb({ index, item }: { index: number; item: WorkoutItem }) {
   return (
     <div className="relative grid h-12 w-14 place-items-center overflow-hidden rounded-[8px] bg-panel-soft">
-      {item.imageUrl && item.imageUrl !== placeholderImage ? (
+      {item.imageUrl && item.imageUrl !== placeholderWorkoutImage ? (
         <Image
           alt={`${item.nameZh} 缩略图`}
           className="object-contain p-xs"

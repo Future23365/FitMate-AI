@@ -1,36 +1,19 @@
 import type { Exercise } from "@/lib/shared/exercises/types";
+import {
+  defaultTrainingLoopRestSeconds,
+  placeholderWorkoutImage,
+  type SavedWorkout,
+  type WorkoutItem,
+  type WorkoutMode,
+  type WorkoutSection,
+} from "@/lib/shared/workouts/composition";
 
 import { workoutPlanDraftSchema, type WorkoutPlanDraft } from "@/lib/shared/workout-plans/draft-schema";
 
-export type SavedWorkoutMode = "reps" | "duration";
-export type SavedWorkoutSection = "warmup" | "training" | "stretch";
-
-export type SavedWorkoutItem = {
-  id: string;
-  exerciseId: string;
-  nameZh: string;
-  nameEn: string;
-  categoryZh: string;
-  equipmentZh: string;
-  musclesZh: string[];
-  instructionsZh: string[];
-  imageUrl: string;
-  mode: SavedWorkoutMode;
-  target: number;
-  sets: number;
-  setRestSeconds: number;
-  transitionRestSeconds: number;
-  section?: SavedWorkoutSection;
-};
-
-export type SavedWorkout = {
-  id: string;
-  title: string;
-  savedAt: string;
-  items: SavedWorkoutItem[];
-  trainingLoopRounds?: number;
-  trainingLoopRestSeconds?: number;
-};
+export type SavedWorkoutMode = WorkoutMode;
+export type SavedWorkoutSection = WorkoutSection;
+export type SavedWorkoutItem = WorkoutItem;
+export type { SavedWorkout };
 
 export type WorkoutPlanDraftConversionOptions = {
   id?: string;
@@ -38,8 +21,6 @@ export type WorkoutPlanDraftConversionOptions = {
   createId?: () => string;
   dayIndex?: number;
 };
-
-const placeholderImage = "/images/exercise-placeholder.svg";
 
 export function convertWorkoutPlanDraftToSavedWorkout(
   draft: WorkoutPlanDraft,
@@ -56,7 +37,7 @@ export function convertWorkoutPlanDraftToSavedWorkout(
     title: day.title || parsedDraft.title,
     savedAt: formatLocalDateTime(options.savedAt ?? new Date()),
     trainingLoopRounds: 1,
-    trainingLoopRestSeconds: 120,
+    trainingLoopRestSeconds: defaultTrainingLoopRestSeconds,
     items: day.items.map((item) => {
       const exercise = exerciseById.get(item.exerciseId);
 
@@ -73,7 +54,7 @@ export function convertWorkoutPlanDraftToSavedWorkout(
         equipmentZh: exercise.equipmentZh || "未标注器械",
         musclesZh: exercise.primaryMusclesZh.length ? exercise.primaryMusclesZh : ["综合"],
         instructionsZh: exercise.instructionsZh,
-        imageUrl: exercise.imageUrls[0] || placeholderImage,
+        imageUrl: exercise.imageUrls[0] || placeholderWorkoutImage,
         mode: item.mode,
         target: item.target,
         sets: item.sets,
