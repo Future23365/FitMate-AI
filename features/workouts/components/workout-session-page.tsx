@@ -310,6 +310,8 @@ export function WorkoutSessionPage() {
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [isVoiceSettingsClosing, setIsVoiceSettingsClosing] = useState(false);
   const voiceSettingsCloseTimerRef = useRef<number | null>(null);
+  const voiceSettingsOpenFrameRef = useRef<number | null>(null);
+  const voiceSettingsOpenNextFrameRef = useRef<number | null>(null);
 
   const loopConfig = useMemo(() => getWorkoutLoopConfig(plan), [plan]);
   const voiceBroadcastConfig = useMemo(
@@ -491,6 +493,12 @@ export function WorkoutSessionPage() {
       if (voiceSettingsCloseTimerRef.current !== null) {
         window.clearTimeout(voiceSettingsCloseTimerRef.current);
       }
+      if (voiceSettingsOpenFrameRef.current !== null) {
+        window.cancelAnimationFrame(voiceSettingsOpenFrameRef.current);
+      }
+      if (voiceSettingsOpenNextFrameRef.current !== null) {
+        window.cancelAnimationFrame(voiceSettingsOpenNextFrameRef.current);
+      }
     };
   }, []);
 
@@ -499,14 +507,37 @@ export function WorkoutSessionPage() {
       window.clearTimeout(voiceSettingsCloseTimerRef.current);
       voiceSettingsCloseTimerRef.current = null;
     }
+    if (voiceSettingsOpenFrameRef.current !== null) {
+      window.cancelAnimationFrame(voiceSettingsOpenFrameRef.current);
+      voiceSettingsOpenFrameRef.current = null;
+    }
+    if (voiceSettingsOpenNextFrameRef.current !== null) {
+      window.cancelAnimationFrame(voiceSettingsOpenNextFrameRef.current);
+      voiceSettingsOpenNextFrameRef.current = null;
+    }
 
-    setIsVoiceSettingsClosing(false);
+    setIsVoiceSettingsClosing(true);
     setIsVoiceSettingsOpen(true);
+    voiceSettingsOpenFrameRef.current = window.requestAnimationFrame(() => {
+      voiceSettingsOpenNextFrameRef.current = window.requestAnimationFrame(() => {
+        setIsVoiceSettingsClosing(false);
+        voiceSettingsOpenFrameRef.current = null;
+        voiceSettingsOpenNextFrameRef.current = null;
+      });
+    });
   }, []);
 
   const closeVoiceSettings = useCallback(() => {
     if (voiceSettingsCloseTimerRef.current !== null) {
       window.clearTimeout(voiceSettingsCloseTimerRef.current);
+    }
+    if (voiceSettingsOpenFrameRef.current !== null) {
+      window.cancelAnimationFrame(voiceSettingsOpenFrameRef.current);
+      voiceSettingsOpenFrameRef.current = null;
+    }
+    if (voiceSettingsOpenNextFrameRef.current !== null) {
+      window.cancelAnimationFrame(voiceSettingsOpenNextFrameRef.current);
+      voiceSettingsOpenNextFrameRef.current = null;
     }
 
     setIsVoiceSettingsClosing(true);
