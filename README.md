@@ -77,6 +77,7 @@ npm run dev
 常用命令：
 
 ```bash
+npm test
 npm run typecheck
 npm run lint
 npm run build
@@ -84,6 +85,14 @@ docker compose ps
 docker compose stop postgres
 docker compose down
 ```
+
+测试与验证命令：
+
+- `npm test`：运行 Vitest 自动化测试，覆盖共享领域逻辑、服务边界、API Route 边界和前端请求转换。
+- `npm run typecheck`：运行 TypeScript 静态类型检查。
+- `npm run lint`：运行 ESLint 源码质量检查。
+- `npm run build`：验证 Next.js 构建、路由和服务端/客户端模块边界。
+- UI/交互或浏览器能力变更仍需使用 Chrome DevTools MCP 做真实 Chrome 验证，并检查页面渲染、Console、Network 和关键交互结果。
 
 ## 目录说明
 
@@ -248,14 +257,14 @@ example/                   # 设计参考 HTML
 
 ### 工程质量
 
-- [x] 已增加 `tests/` 目录和训练计划核心逻辑测试脚本。
-- [x] 已覆盖动作过滤、风险过滤、AI 输出 Schema 校验和计划保存结构转换的基础测试。
-- [x] 已提供 `npm run typecheck`、`npm run lint`、`npm run build` 检查脚本。
-- [ ] 后续处理：接入正式测试框架和 `npm test` 脚本，替代手写 `console.assert`。
-- [ ] 后续处理：为计划估算、动作推荐和聊天触发解析增加更完整的单元测试。
+- [x] 已接入 Vitest 和 `npm test`，测试失败会返回非零退出码。
+- [x] 已将既有手写 `console.assert` 测试迁移为正式测试框架用例。
+- [x] 已覆盖动作过滤、风险过滤、AI 输出 Schema 校验、计划保存结构转换、训练 timeline、聊天上下文、trigger 解析、API 边界和请求封装。
+- [x] 已提供 `npm test`、`npm run typecheck`、`npm run lint`、`npm run build` 检查脚本。
 - [ ] 后续处理：为关键页面增加基础集成测试或端到端测试。
-- [ ] 后续处理：增加 CI，至少运行 `npm run typecheck`、`npm run lint`、`npm run build`。
+- [ ] 后续处理：增加 CI，至少运行 `npm test`、`npm run typecheck`、`npm run lint`、`npm run build`。
 - [ ] 可选处理：评估是否需要锁定 Next.js/React 版本，降低升级风险。
 
 ### 其他
 - [] 语音播报增加配置功能，从配置文件读取播报规则，并可以配置播报文字，间隙等
+- [] 语音播报发音不准，后续加入大模型增加是几声

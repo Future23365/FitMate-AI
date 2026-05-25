@@ -24,11 +24,10 @@
 
 **Non-Goals:**
 
-- 不新增或修改实际测试用例。
-- 不安装测试依赖，不新增 `npm test`，不改 `package.json`。
-- 不改变业务代码、API 契约、AI prompt、模型调用链路或数据库结构。
+- 不改变业务运行时行为、API 契约、AI prompt、模型调用链路或数据库结构。
 - 不归档两个原 change。
-- 不重新设计测试框架选型。
+- 不重新设计测试框架选型；继续采用 `formalize-testing-workflow` 已决策的 Vitest。
+- 不引入浏览器端到端测试框架；页面渲染和交互仍按项目规则使用 Chrome DevTools MCP 验证。
 
 ## Decisions
 
@@ -57,15 +56,17 @@
 
 两个 change 不合并。原因是它们的 review 关注点不同：补测试用例关注业务覆盖和用例质量；补测试流程关注 runner、脚本、依赖和验收规范。合并会让实现和 review 范围过大，也会让问题来源难以定位。
 
-### 4. 通过文档一致性任务解决冲突
+### 4. 以总控 change 一次完成实施闭环
 
-本 change 实施时应只修改 OpenSpec 文档中的依赖和职责表述，例如去掉 `expand-test-coverage` 对 `formalize-testing-workflow` 先完成的硬依赖，并在 `formalize-testing-workflow` 中说明它需要承接 `expand-test-coverage` 新增测试的 runner 和脚本执行。不应提前修改测试代码或 `package.json`。
+本 change 实施时先修改 OpenSpec 文档中的依赖和职责表述，例如去掉 `expand-test-coverage` 对 `formalize-testing-workflow` 先完成的硬依赖，并在 `formalize-testing-workflow` 中说明它需要承接 `expand-test-coverage` 新增测试的 runner 和脚本执行。
+
+文档冲突解决后，本 change 继续按顺序实施两个原 change：先补测试用例和 fixture，再接入 Vitest、`npm test`、现有手写测试迁移和验收说明。这样最终交付时能同时验证新增测试与统一 runner 的闭环，而不是停留在文档编排状态。
 
 ## Risks / Trade-offs
 
 - [Risk] 先补测试用例但 runner 未接入，短期内无法统一执行。→ Mitigation: 测试用例按目标框架风格编写，并在交付中记录等待 `formalize-testing-workflow` 承接的命令入口。
 - [Risk] 两个 change 的验收命令重复导致任务混乱。→ Mitigation: 通用命令策略归 `formalize-testing-workflow`，`expand-test-coverage` 只保留本 change 的实际执行清单。
-- [Risk] 修改既有 OpenSpec 文档时意外扩大原 change 范围。→ Mitigation: 只调整依赖顺序和重复职责表述，不新增测试覆盖需求或测试框架方案。
+- [Risk] 修改既有 OpenSpec 文档时意外扩大原 change 范围。→ Mitigation: 只调整依赖顺序和重复职责表述，不新增两个原 change 之外的测试覆盖需求或测试框架方案。
 - [Risk] 先补用例可能暴露模块不可测试，需要小范围重构。→ Mitigation: 仅允许为测试暴露稳定纯函数或服务入口，避免导出不稳定内部实现。
 
 ## Migration Plan

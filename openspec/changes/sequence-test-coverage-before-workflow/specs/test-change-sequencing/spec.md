@@ -65,15 +65,15 @@
 - **WHEN** `formalize-testing-workflow` 文档描述测试 runner 或 `npm test`
 - **THEN** 文档 MUST 明确 runner 和 `npm test` 需要承接 `expand-test-coverage` 新增测试
 
-### Requirement: No Runtime Behavior Changes
+### Requirement: Runtime Behavior Is Preserved
 
-本编排 change MUST 只修改 OpenSpec 文档和实施顺序说明，不得修改应用运行时代码、测试代码、依赖配置、`package.json` 或 API 契约。
+本总控 change MUST 可以修改测试代码、测试配置、测试依赖、`package.json` 和工程说明，以完成两个测试 change 的实施闭环；但 MUST NOT 改变应用运行时业务行为、API 契约、AI prompt、模型调用链路或数据库结构。
 
-#### Scenario: Documentation-only change
+#### Scenario: Test infrastructure and coverage are implemented
 
 - **WHEN** 本 change 被实施
-- **THEN** 改动 MUST 限于 OpenSpec 文档
-- **THEN** 不得新增测试文件、安装依赖或修改应用源码
+- **THEN** 改动 MAY 包含测试文件、测试 fixture、测试 runner 配置、测试脚本和工程说明
+- **THEN** 改动 MUST 服务于 `expand-test-coverage` 与 `formalize-testing-workflow` 已定义的测试目标
 
 #### Scenario: Validation passes
 

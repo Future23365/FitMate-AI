@@ -144,9 +144,19 @@ OpenSpec 生成或修改的说明性文档应使用中文，便于人工 review�
 - 默认不用内置预览检查每个小改动。只有在我明确要求使用预览时，才使用内部预览，并默认切换到 PC 视口，推荐尺寸为 `1440x900`。
 - 修改 TypeScript、React、API、Prisma、Schema 或校验逻辑后，应优先运行与改动相关的检查。
 - 如果项目提供相关命令，优先按需使用 `npm run lint`、`npm run typecheck`、`npm run build` 或相关测试命令。
+- 非文案类 OpenSpec change 的 `tasks.md` 必须包含与改动范围相关的测试或验证步骤。
+- TypeScript、React、API、Schema、AI 编排、训练规则或共享业务逻辑改动应运行 `npm test` 或相关自动化测试，并按需运行 `npm run typecheck`。
+- 影响构建、路由、依赖配置或服务端/客户端模块边界时，应运行 `npm run build` 或说明无法运行的原因。
 - 如果没有运行检查，应说明原因。
 - 对新增的核心文件、复杂函数、关键数据结构添加简短注释。
 - 不要为显而易见的代码添加重复解释型注释。
+
+## 浏览器验证规则
+
+- 当任务需要浏览器预览、运行时验证、UI 交互验证时，不要使用 Codex 内置预览。
+- 必须使用 `chrome-devtools` MCP 在真实 Chrome 中打开页面进行验证。
+- 验证时需要检查页面渲染、Console 报错、Network 请求失败、交互行为是否符合预期。
+- 如果 Chrome DevTools MCP 不可用，不要静默改用内置预览；需要明确告诉我 MCP 不可用。
 
 ## 调试与日志规则
 

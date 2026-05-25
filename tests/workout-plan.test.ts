@@ -1,193 +1,132 @@
 import exercisesData from "@/data/exercises.zh.json";
-import type { Exercise } from "@/lib/shared/exercises/types";
+import { describe, expect, it } from "vitest";
 
-import {
-  workoutPlanDraftSchema,
-  workoutPlanIntentSchema,
-  type WorkoutPlanDraft,
-  type WorkoutPlanIntent,
-} from "@/lib/shared/workout-plans/draft-schema";
-import { selectExerciseCandidates } from "@/lib/server/workout-plans/exercise-candidate-service";
 import { convertWorkoutPlanDraftToSavedWorkout } from "@/features/workout-plans/lib/saved-workout";
+import { selectExerciseCandidates } from "@/lib/server/workout-plans/exercise-candidate-service";
+import type { Exercise } from "@/lib/shared/exercises/types";
+import { workoutPlanIntentSchema } from "@/lib/shared/workout-plans/draft-schema";
 import { normalizeWorkoutItem } from "@/lib/shared/workouts/composition";
 
-// 静态动作数据
+import { createWorkoutPlanDraft, createWorkoutPlanIntent } from "./fixtures/domain";
+
 const exercises = exercisesData as Exercise[];
 
-/**
- * 敏感词高风险身体状况拦截检测 (移植自 ai-workout-plan-service.ts/hasHighRiskHealthCondition)
- */
 function hasHighRiskHealthCondition(text: string): boolean {
   return /(胸痛|心脏病|心梗|中风|晕厥|昏厥|怀孕|孕期|产后|骨折|术后|手术后|高血压|糖尿病|癌症|肿瘤)/.test(
-    text
+    text,
   );
 }
 
-/**
- * 核心测试套件
- */
-export function runWorkoutPlanTests() {
-  console.log("🚀 开始执行 FitMate AI 训练计划核心逻辑单元测试...");
-
-  try {
-    // -------------------------------------------------------------
-    // 测试点 1: Zod 意图 Schema 验证 (workoutPlanIntentSchema)
-    // -------------------------------------------------------------
-    console.log("🧪 测试点 1: Zod 意图 Schema 验证...");
-    const validIntent: WorkoutPlanIntent = {
+describe("workout plan core logic", () => {
+  it("validates workout plan intent schema and high-risk health terms", () => {
+    const validIntent = createWorkoutPlanIntent({
       intentType: "plan",
       goal: "增肌塑形",
-      experience: "beginner",
       sessionMinutes: 45,
       weeklyFrequency: 3,
       equipment: ["哑铃"],
-      injuryLimitations: [],
       preferences: ["居家"],
-      avoidances: [],
-    };
-    const parsed = workoutPlanIntentSchema.parse(validIntent);
-    console.assert(parsed.experience === "beginner", "experience 应当正确解析");
-    console.assert(parsed.sessionMinutes === 45, "sessionMinutes 应当正确解析");
+    });
 
-    // 测试非法参数拦截
-    try {
-      workoutPlanIntentSchema.parse({
+    expect(workoutPlanIntentSchema.parse(validIntent)).toMatchObject({
+      experience: "beginner",
+      sessionMinutes: 45,
+    });
+    expect(
+      workoutPlanIntentSchema.safeParse({
         ...validIntent,
-        experience: "superman", // 非法经验级别
-      });
-      console.assert(false, "应当拦截非法的 experience 经验级");
-    } catch {
-      // 成功拦截，符合预期
-    }
+        experience: "superman",
+      }).success,
+    ).toBe(false);
+    expect(hasHighRiskHealthCondition("我是一个健康的上班族，想减脂。")).toBe(false);
+    expect(hasHighRiskHealthCondition("我刚做完手术，术后恢复期，心脏不太舒服，胸痛。")).toBe(true);
+    expect(hasHighRiskHealthCondition("我是孕妇，目前处于孕期，想做点轻量拉伸。")).toBe(true);
+  });
 
-    // -------------------------------------------------------------
-    // 测试点 2: 敏感词与高风险健康拦截 (hasHighRiskHealthCondition)
-    // -------------------------------------------------------------
-    console.log("🧪 测试点 2: 敏感词与高风险身体状况安全拦截...");
-    const safeText = "我是一个健康的上班族，想减脂，膝盖有一点点累，没有受过伤。";
-    const unsafeText1 = "我刚做完手术，术后恢复期，心脏不太舒服，胸痛。";
-    const unsafeText2 = "我是孕妇，目前处于孕期，想做点轻量拉伸。";
+  it("selects safe and relevant exercise candidates from real seed data", () => {
+    const beginnerResult = selectExerciseCandidates(
+      createWorkoutPlanIntent({
+        intentType: "plan",
+        goal: "提升心肺",
+        weeklyFrequency: 3,
+        equipment: ["自重"],
+        preferences: [],
+      }),
+      exercises,
+    );
+    expect(beginnerResult.primaryCandidates.some((candidate) => candidate.exercise.level === "expert")).toBe(false);
+    expect(beginnerResult.primaryCandidates.every((candidate) => candidate.score >= 28)).toBe(true);
+    expect(beginnerResult.supplementaryCandidates.every((candidate) => candidate.score < 28)).toBe(true);
 
-    console.assert(!hasHighRiskHealthCondition(safeText), "安全文本不应当被拦截");
-    console.assert(hasHighRiskHealthCondition(unsafeText1), "胸痛、术后等词汇必须被安全拦截");
-    console.assert(hasHighRiskHealthCondition(unsafeText2), "孕期等敏感词必须被安全拦截");
-
-    // -------------------------------------------------------------
-    // 测试点 3: 动作候选筛选与安全防伤病过滤 (selectExerciseCandidates)
-    // -------------------------------------------------------------
-    console.log("🧪 测试点 3: 动作筛选与防伤病过滤...");
-    // 新手排除专家动作
-    const beginnerIntent: WorkoutPlanIntent = {
-      intentType: "plan",
-      goal: "提升心肺",
-      experience: "beginner",
-      sessionMinutes: 30,
-      weeklyFrequency: 3,
-      equipment: ["自重"],
-      injuryLimitations: [],
-      preferences: [],
-      avoidances: [],
-    };
-    const beginnerResult = selectExerciseCandidates(beginnerIntent, exercises);
-    
-    // 验证新手用户的候选动作中不能含有 expert 动作
-    const hasExpert = beginnerResult.primaryCandidates.some(
-      (c) => c.exercise.level === "expert"
+    const injuryResult = selectExerciseCandidates(
+      createWorkoutPlanIntent({
+        goal: "提升心肺",
+        weeklyFrequency: 3,
+        equipment: ["自重"],
+        preferences: [],
+        injuryLimitations: ["膝盖疼痛，有半月板旧伤"],
+      }),
+      exercises,
     );
-    console.assert(!hasExpert, "新手用户的 primary 动作候选集不能含有专家级(expert)动作");
-
-    // 验证分层分数正确性
-    const primaryScoreCorrect = beginnerResult.primaryCandidates.every(
-      (c) => c.score >= 28
-    );
-    console.assert(primaryScoreCorrect, "primary 候选的分数都应当大于等于 28");
-
-    const supplementaryScoreCorrect = beginnerResult.supplementaryCandidates.every(
-      (c) => c.score < 28
-    );
-    console.assert(supplementaryScoreCorrect, "supplementary 候选的分数都应当小于 28");
-
-    // 伤病用户排除高冲击动作
-    const injuryIntent: WorkoutPlanIntent = {
-      ...beginnerIntent,
-      injuryLimitations: ["膝盖疼痛，有半月板旧伤"],
-    };
-    const injuryResult = selectExerciseCandidates(injuryIntent, exercises);
-    // 验证膝盖伤病排除了高冲击 (high_impact) 动作
-    const hasHighImpact = injuryResult.primaryCandidates.some((c) =>
-      c.exercise.riskTags.includes("high_impact")
-    );
-    console.assert(!hasHighImpact, "有膝盖疼痛的用户在 primary 候选集中应当排除高冲击(high_impact)动作");
-
-    // 胸肌目标应优先返回胸部主肌群动作，避免被其他自重力量动作稀释
-    const chestIntent: WorkoutPlanIntent = {
-      intentType: "routine",
-      goal: "胸肌增肌",
-      experience: "beginner",
-      sessionMinutes: 30,
-      weeklyFrequency: 1,
-      equipment: ["自重"],
-      injuryLimitations: [],
-      preferences: ["居家训练"],
-      avoidances: [],
-    };
-    const chestResult = selectExerciseCandidates(chestIntent, exercises);
-    const topChestCandidates = chestResult.primaryCandidates.slice(0, 8);
-    console.assert(
-      chestResult.isEnoughCandidates,
-      "新手自重胸肌目标有俯卧撑类动作时，不应被判定为候选不足"
-    );
-    console.assert(
-      chestResult.candidateStatus !== "insufficient",
-      "新手自重胸肌目标的候选状态不应为 insufficient"
-    );
-    console.assert(
-      topChestCandidates.every((c) => c.exercise.primaryMusclesZh.includes("胸部")),
-      "胸肌目标的前排 primary 候选应当都是胸部主肌群动作"
-    );
-    console.assert(
-      topChestCandidates.some((c) => /俯卧撑/.test(c.exercise.nameZh)),
-      "新手自重胸肌目标应当优先包含俯卧撑类动作"
+    expect(injuryResult.primaryCandidates.some((candidate) => candidate.exercise.riskTags.includes("high_impact"))).toBe(
+      false,
     );
 
-    const chestNoneEquipmentResult = selectExerciseCandidates(
-      {
-        ...chestIntent,
+    const chestResult = selectExerciseCandidates(
+      createWorkoutPlanIntent({
+        goal: "胸肌增肌",
+        equipment: ["自重"],
+      }),
+      exercises,
+    );
+    expect(chestResult.isEnoughCandidates).toBe(true);
+    expect(chestResult.candidateStatus).not.toBe("insufficient");
+    expect(chestResult.primaryCandidates.slice(0, 8).every((candidate) => candidate.exercise.primaryMusclesZh.includes("胸部"))).toBe(
+      true,
+    );
+    expect(chestResult.primaryCandidates.some((candidate) => /俯卧撑/.test(candidate.exercise.nameZh))).toBe(true);
+
+    const noneEquipmentResult = selectExerciseCandidates(
+      createWorkoutPlanIntent({
+        goal: "胸肌增肌",
         equipment: ["none"],
-      },
-      exercises
+      }),
+      exercises,
     );
-    console.assert(
-      chestNoneEquipmentResult.primaryCandidates.some((c) => /俯卧撑/.test(c.exercise.nameZh)),
-      "equipment 为 none 时也应当按自重匹配俯卧撑类动作"
+    expect(noneEquipmentResult.primaryCandidates.some((candidate) => /俯卧撑/.test(candidate.exercise.nameZh))).toBe(
+      true,
     );
+  });
 
-    // -------------------------------------------------------------
-    // 测试点 4: 计划草稿转持久化 SavedWorkout 实体 (convertWorkoutPlanDraftToSavedWorkout)
-    // -------------------------------------------------------------
-    console.log("🧪 测试点 4: 计划草稿转换与转码验证...");
-    
-    // 模拟一个合规的计划草稿
-    // 我们找出候选集中的前两个动作 ID，避免随机编造导致校验失败
-    const mockExerciseIds = beginnerResult.primaryCandidates.slice(0, 2).map((c) => c.exercise.id);
-    console.assert(mockExerciseIds.length >= 2, "动作库中必须有足够的候选动作以供测试");
+  it("converts workout plan draft to saved workout and keeps image compatibility", () => {
+    const candidates = selectExerciseCandidates(
+      createWorkoutPlanIntent({
+        intentType: "plan",
+        goal: "提升心肺",
+        weeklyFrequency: 3,
+        equipment: ["自重"],
+        preferences: [],
+      }),
+      exercises,
+    );
+    const exerciseIds = candidates.primaryCandidates.slice(0, 2).map((candidate) => candidate.exercise.id);
+    expect(exerciseIds).toHaveLength(2);
 
-    const mockDraft: WorkoutPlanDraft = {
+    const draft = createWorkoutPlanDraft({
       title: "活力减脂计划",
       goal: "全身减脂",
-      summary: "适合新手的自重全身减脂计划",
       weeklyFrequency: 3,
       estimatedSessionMinutes: 30,
-      safetyNotes: ["注意保持身体直立，避免憋气"],
       days: [
         {
           title: "Day 1 核心激活",
           focus: "核心与下肢",
           dayIndex: 1,
           estimatedMinutes: 25,
+          safetyNotes: ["训练前后注意拉伸"],
           items: [
             {
-              exerciseId: mockExerciseIds[0],
+              exerciseId: exerciseIds[0],
               mode: "reps",
               sets: 3,
               target: 15,
@@ -196,7 +135,7 @@ export function runWorkoutPlanTests() {
               notes: "注意核心收紧",
             },
             {
-              exerciseId: mockExerciseIds[1],
+              exerciseId: exerciseIds[1],
               mode: "duration",
               sets: 3,
               target: 30,
@@ -205,42 +144,39 @@ export function runWorkoutPlanTests() {
               notes: "平稳呼吸",
             },
           ],
-          safetyNotes: ["训练前后注意拉伸"],
         },
       ],
-    };
+    });
 
-    const savedWorkout = convertWorkoutPlanDraftToSavedWorkout(mockDraft, exercises, {
+    const savedWorkout = convertWorkoutPlanDraftToSavedWorkout(draft, exercises, {
+      createId: () => "fixture-id",
       dayIndex: 1,
+      id: "workout-1",
+      savedAt: new Date("2026-05-25T10:30:00"),
     });
 
-    console.assert(savedWorkout.title === "Day 1 核心激活", "SavedWorkout 标题解析不符");
-    console.assert(savedWorkout.items.length === 2, "SavedWorkout 动作数量解析不符");
-    
-    const firstSavedItem = savedWorkout.items[0];
-    console.assert(firstSavedItem.exerciseId === mockExerciseIds[0], "动作 ID 转换错误");
-    console.assert(firstSavedItem.sets === 3, "组数转换错误");
-    console.assert(firstSavedItem.target === 15, "次数转换错误");
-    console.assert(firstSavedItem.setRestSeconds === 45, "组间休息转换错误");
-    const firstSourceExercise = exercises.find((exercise) => exercise.id === mockExerciseIds[0]);
-    console.assert(
-      firstSavedItem.imageUrls?.length === firstSourceExercise?.imageUrls.length,
-      "SavedWorkout 应保留动作库完整示范图列表"
-    );
-
-    const legacyItem = normalizeWorkoutItem({
-      ...firstSavedItem,
-      imageUrl: "/legacy-demo.jpg",
-      imageUrls: undefined,
+    expect(savedWorkout).toMatchObject({
+      id: "workout-1",
+      title: "Day 1 核心激活",
+      savedAt: "2026-05-25 10:30",
     });
-    console.assert(
-      legacyItem.imageUrls?.length === 1 && legacyItem.imageUrls[0] === "/legacy-demo.jpg",
-      "旧 WorkoutItem 应从 imageUrl 兼容生成 imageUrls"
+    expect(savedWorkout.items).toHaveLength(2);
+    expect(savedWorkout.items[0]).toMatchObject({
+      exerciseId: exerciseIds[0],
+      sets: 3,
+      target: 15,
+      setRestSeconds: 45,
+    });
+    expect(savedWorkout.items[0].imageUrls).toHaveLength(
+      exercises.find((exercise) => exercise.id === exerciseIds[0])?.imageUrls.length ?? 0,
     );
 
-    console.log("✅ 所有 FitMate AI 训练计划核心逻辑单元测试全部顺利通过！");
-  } catch (error) {
-    console.error("❌ 单元测试运行发生异常，测试未通过：", error);
-    throw error;
-  }
-}
+    expect(
+      normalizeWorkoutItem({
+        ...savedWorkout.items[0],
+        imageUrl: "/legacy-demo.jpg",
+        imageUrls: undefined,
+      }).imageUrls,
+    ).toEqual(["/legacy-demo.jpg"]);
+  });
+});

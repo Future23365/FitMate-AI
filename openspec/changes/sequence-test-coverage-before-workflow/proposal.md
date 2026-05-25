@@ -8,7 +8,7 @@
 - 明确两个 change 的职责边界：`expand-test-coverage` 负责测试用例范围、fixture、覆盖优先级和具体测试文件；`formalize-testing-workflow` 负责测试框架、脚本、runner、验收命令和流程文档。
 - 处理重复点：调整前两个 change 的说明性文档，避免两个 change 都同时定义测试 runner 或都重复扩展测试覆盖范围。
 - 调整既有文档中的依赖表述，去掉 `expand-test-coverage` 对 `formalize-testing-workflow` 先完成的硬依赖。
-- 不新增业务测试用例、不接入测试框架、不改变业务代码；本 change 只处理执行顺序和需求文档一致性。
+- 作为总控实施 change，按顺序完成测试覆盖补充、测试 runner 接入、工程说明更新和最终验证。
 
 ## Capabilities
 
@@ -25,4 +25,5 @@
 - 影响 `openspec/changes/expand-test-coverage/*` 和 `openspec/changes/formalize-testing-workflow/*` 的说明性文档一致性。
 - 调整 `expand-test-coverage` 中关于 `formalize-testing-workflow` 前置依赖的表述。
 - 调整 `formalize-testing-workflow` 中关于承接 `expand-test-coverage` 新增测试的表述。
-- 不影响应用运行时代码、测试代码、`package.json`、依赖安装或 API 契约。
+- 影响测试代码、测试配置、`package.json`、`package-lock.json` 和工程说明，用于补齐自动化测试与统一执行入口。
+- 不影响应用运行时代码、用户流程、数据库结构、AI prompt、模型调用链路或 API 契约。

@@ -1,3 +1,5 @@
+import { afterEach, describe, expect, it } from "vitest";
+
 import {
   createWorkoutVoiceSpeechJob,
   readWorkoutVoiceBroadcastPreference,
@@ -34,11 +36,16 @@ class MockSpeechSynthesisUtterance {
   }
 }
 
-export async function runWorkoutVoiceBroadcastControllerTests() {
-  const originalWindowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
-  const originalUtteranceDescriptor = Object.getOwnPropertyDescriptor(globalThis, "SpeechSynthesisUtterance");
+const originalWindowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
+const originalUtteranceDescriptor = Object.getOwnPropertyDescriptor(globalThis, "SpeechSynthesisUtterance");
 
-  try {
+afterEach(() => {
+  restoreDescriptor("window", originalWindowDescriptor);
+  restoreDescriptor("SpeechSynthesisUtterance", originalUtteranceDescriptor);
+});
+
+describe("workout voice broadcast controller", () => {
+  it("speaks queued cues and reports success from speech events", () => {
     const environment = installMockSpeechEnvironment();
     let started = false;
     let completed = false;
@@ -58,14 +65,16 @@ export async function runWorkoutVoiceBroadcastControllerTests() {
       reason: "test-success",
     });
 
-    console.assert(environment.resumeCount === 1, "开启语音时应 resume speechSynthesis");
-    console.assert(environment.spoken.length === 1, "开启语音时应立即 speak 当前步骤");
-    (environment.spoken[0].onstart as (() => void) | null)?.();
-    (environment.spoken[0].onend as (() => void) | null)?.();
-    console.assert(started, "speech onstart 应更新播放状态");
-    console.assert(completed, "speech onend 应完成当前任务");
-    console.assert(failed === null, "成功播报不应产生错误状态");
+    expect(environment.resumeCount).toBe(1);
+    expect(environment.spoken).toHaveLength(1);
+    environment.spoken[0].onstart?.({} as SpeechSynthesisEvent);
+    environment.spoken[0].onend?.({} as SpeechSynthesisEvent);
+    expect(started).toBe(true);
+    expect(completed).toBe(true);
+    expect(failed).toBeNull();
+  });
 
+  it("handles delayed start, speech errors, multi-cue errors, and stale callbacks", () => {
     const delayedStartEnvironment = installMockSpeechEnvironment();
     let delayedStartCompleted = false;
     let delayedStartReason: WorkoutVoiceBroadcastError | null = null;
@@ -79,10 +88,10 @@ export async function runWorkoutVoiceBroadcastControllerTests() {
       },
       reason: "test-delayed-start",
     });
-    console.assert(delayedStartEnvironment.spoken.length === 1, "首次启动时应立即发起 speak 尝试");
-    (delayedStartEnvironment.spoken[0].onend as (() => void) | null)?.();
-    console.assert(delayedStartCompleted, "即使浏览器没有触发 onstart，onend 到达也应完成播报");
-    console.assert(delayedStartReason === null, "未触发 onstart 不应被误判为 speech_blocked");
+    expect(delayedStartEnvironment.spoken).toHaveLength(1);
+    delayedStartEnvironment.spoken[0].onend?.({} as SpeechSynthesisEvent);
+    expect(delayedStartCompleted).toBe(true);
+    expect(delayedStartReason).toBeNull();
 
     const speechErrorEnvironment = installMockSpeechEnvironment();
     let speechErrorReason: WorkoutVoiceBroadcastError | null = null;
@@ -93,8 +102,8 @@ export async function runWorkoutVoiceBroadcastControllerTests() {
       },
       reason: "test-speech-error",
     });
-    (speechErrorEnvironment.spoken[0].onerror as (() => void) | null)?.();
-    console.assert(speechErrorReason === "speech_error", "真实 speechSynthesis onerror 应暴露 speech_error");
+    speechErrorEnvironment.spoken[0].onerror?.({} as SpeechSynthesisErrorEvent);
+    expect(speechErrorReason).toBe("speech_error");
 
     const multiCueErrorEnvironment = installMockSpeechEnvironment();
     let multiCueErrorReason: WorkoutVoiceBroadcastError | null = null;
@@ -105,9 +114,9 @@ export async function runWorkoutVoiceBroadcastControllerTests() {
       },
       reason: "test-multi-cue-error",
     });
-    console.assert(multiCueErrorEnvironment.spoken.length === 2, "激活播报应支持先播短提示再播当前步骤");
-    (multiCueErrorEnvironment.spoken[0].onerror as (() => void) | null)?.();
-    console.assert(multiCueErrorReason === "speech_error", "多段播报中任意 utterance 出错都应暴露 speech_error");
+    expect(multiCueErrorEnvironment.spoken).toHaveLength(2);
+    multiCueErrorEnvironment.spoken[0].onerror?.({} as SpeechSynthesisErrorEvent);
+    expect(multiCueErrorReason).toBe("speech_error");
 
     const staleEnvironment = installMockSpeechEnvironment();
     let staleCompleted = false;
@@ -119,9 +128,11 @@ export async function runWorkoutVoiceBroadcastControllerTests() {
       reason: "test-stale",
     });
     staleJob.cancel("test-cancel");
-    (staleEnvironment.spoken[0].onend as (() => void) | null)?.();
-    console.assert(!staleCompleted, "取消后的迟到 onend 不应完成任务");
+    staleEnvironment.spoken[0].onend?.({} as SpeechSynthesisEvent);
+    expect(staleCompleted).toBe(false);
+  });
 
+  it("falls back when speech or localStorage is unavailable", async () => {
     installUnsupportedSpeechEnvironment();
     let unsupportedCompleted = false;
     createWorkoutVoiceSpeechJob(["1，开始"], {
@@ -132,21 +143,18 @@ export async function runWorkoutVoiceBroadcastControllerTests() {
       reason: "test-unsupported",
     });
     await wait(1250);
-    console.assert(unsupportedCompleted, "speechSynthesis 不可用时应走无声降级完成任务");
+    expect(unsupportedCompleted).toBe(true);
 
     installUnavailableStorageEnvironment();
-    console.assert(!readWorkoutVoiceBroadcastPreference(), "localStorage 不可用时语音偏好应安全降级为关闭");
-    console.assert(!readWorkoutVoiceBroadcastTipSeen(), "localStorage 不可用时提示状态应安全降级为未看过");
-    writeWorkoutVoiceBroadcastPreference(true);
-    writeWorkoutVoiceBroadcastTipSeen();
+    expect(readWorkoutVoiceBroadcastPreference()).toBe(false);
+    expect(readWorkoutVoiceBroadcastTipSeen()).toBe(false);
+    expect(() => writeWorkoutVoiceBroadcastPreference(true)).not.toThrow();
+    expect(() => writeWorkoutVoiceBroadcastTipSeen()).not.toThrow();
 
     installMockSpeechEnvironment();
-    console.assert(!unlockWorkoutVoiceBroadcastAudio(), "Web Audio 不可用时应返回失败且不影响语音控制器");
-  } finally {
-    restoreDescriptor("window", originalWindowDescriptor);
-    restoreDescriptor("SpeechSynthesisUtterance", originalUtteranceDescriptor);
-  }
-}
+    expect(unlockWorkoutVoiceBroadcastAudio()).toBe(false);
+  });
+});
 
 function installMockSpeechEnvironment(): MockSpeechEnvironment {
   const environment: MockSpeechEnvironment = {
