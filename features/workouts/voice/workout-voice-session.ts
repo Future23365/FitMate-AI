@@ -31,6 +31,7 @@ export type WorkoutVoiceSpeechJobOptions = {
   onDone?: () => void;
   onError?: (reason: WorkoutVoiceBroadcastError) => void;
   onStart?: () => void;
+  onDiagnostic?: (event: string, payload?: Record<string, unknown>) => void;
   reason: string;
 };
 
@@ -400,6 +401,7 @@ export class WorkoutVoiceSession {
 
     const job = createWorkoutVoiceSpeechJob(cue.texts, {
       jobId,
+      onDiagnostic: this.diagnostic,
       onDone: () => this.completeActiveCue(jobId),
       onError: (reason) => this.failActiveCue(jobId, reason),
       onStart: () => {
@@ -561,6 +563,7 @@ export function createWorkoutVoiceSpeechJob(
   texts: string[],
   {
     jobId,
+    onDiagnostic,
     onDone,
     onError,
     onStart,
@@ -569,6 +572,9 @@ export function createWorkoutVoiceSpeechJob(
   config: WorkoutVoiceBroadcastConfig = workoutVoiceBroadcastConfig,
 ): SpeechJob {
   let completionTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
+  let startTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
+  let voiceLoadTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
+  let voicesChangedListener: (() => void) | undefined;
   let isCancelled = false;
   const utterances: SpeechSynthesisUtterance[] = [];
   const normalizedTexts = texts.map((text) => text.trim()).filter(Boolean);
@@ -578,6 +584,18 @@ export function createWorkoutVoiceSpeechJob(
     if (completionTimer) {
       globalThis.clearTimeout(completionTimer);
       completionTimer = undefined;
+    }
+    if (startTimer) {
+      globalThis.clearTimeout(startTimer);
+      startTimer = undefined;
+    }
+    if (voiceLoadTimer) {
+      globalThis.clearTimeout(voiceLoadTimer);
+      voiceLoadTimer = undefined;
+    }
+    if (voicesChangedListener) {
+      window.speechSynthesis.removeEventListener?.("voiceschanged", voicesChangedListener);
+      voicesChangedListener = undefined;
     }
     utterances.forEach((utterance) => {
       utterance.onstart = null;
@@ -605,6 +623,7 @@ export function createWorkoutVoiceSpeechJob(
   }
 
   let hasCompleted = false;
+  let hasStarted = false;
   const completeOnce = () => {
     if (hasCompleted || isCancelled) {
       return;
@@ -614,6 +633,17 @@ export function createWorkoutVoiceSpeechJob(
     if (completionTimer) {
       globalThis.clearTimeout(completionTimer);
     }
+    if (startTimer) {
+      globalThis.clearTimeout(startTimer);
+    }
+    if (voiceLoadTimer) {
+      globalThis.clearTimeout(voiceLoadTimer);
+    }
+    if (voicesChangedListener) {
+      window.speechSynthesis.removeEventListener?.("voiceschanged", voicesChangedListener);
+      voicesChangedListener = undefined;
+    }
+    onDiagnostic?.("speech end", { jobId, reason, started: hasStarted });
     onDone?.();
   };
 
@@ -626,6 +656,17 @@ export function createWorkoutVoiceSpeechJob(
     if (completionTimer) {
       globalThis.clearTimeout(completionTimer);
     }
+    if (startTimer) {
+      globalThis.clearTimeout(startTimer);
+    }
+    if (voiceLoadTimer) {
+      globalThis.clearTimeout(voiceLoadTimer);
+    }
+    if (voicesChangedListener) {
+      window.speechSynthesis.removeEventListener?.("voiceschanged", voicesChangedListener);
+      voicesChangedListener = undefined;
+    }
+    onDiagnostic?.("speech error", { jobId, reason, errorReason, started: hasStarted });
     onError?.(errorReason);
   };
 
@@ -633,33 +674,91 @@ export function createWorkoutVoiceSpeechJob(
     window.speechSynthesis.cancel();
     window.speechSynthesis.resume();
 
-    const voice = selectChineseVoice(config);
+    const speakTexts = () => {
+      if (isCancelled || hasCompleted) {
+        return;
+      }
 
-    completionTimer = globalThis.setTimeout(
-      completeOnce,
-      estimateSpeechCompletionFallbackMs(normalizedTexts, config),
-    );
+      if (voiceLoadTimer) {
+        globalThis.clearTimeout(voiceLoadTimer);
+        voiceLoadTimer = undefined;
+      }
+      if (voicesChangedListener) {
+        window.speechSynthesis.removeEventListener?.("voiceschanged", voicesChangedListener);
+        voicesChangedListener = undefined;
+      }
 
-    normalizedTexts.forEach((text, index) => {
-      const utterance = createSpeechUtterance(text, voice, config);
+      const voice = selectChineseVoice(config);
+      onDiagnostic?.("speech request", {
+        jobId,
+        reason,
+        textCount: normalizedTexts.length,
+        voice: voice ? `${voice.name} (${voice.lang})` : "default",
+        voices: window.speechSynthesis.getVoices().length,
+      });
 
-      if (index === 0) {
-        utterance.onstart = () => {
-          if (!isCancelled) {
-            onStart?.();
+      startTimer = globalThis.setTimeout(() => {
+        if (!hasStarted) {
+          errorOnce("speech_blocked");
+        }
+      }, config.fallback.speechStartTimeoutMs);
+
+      completionTimer = globalThis.setTimeout(
+        () => {
+          if (hasStarted) {
+            completeOnce();
+            return;
           }
+
+          errorOnce("speech_blocked");
+        },
+        estimateSpeechCompletionFallbackMs(normalizedTexts, config),
+      );
+
+      normalizedTexts.forEach((text, index) => {
+        const utterance = createSpeechUtterance(text, voice, config);
+
+        if (index === 0) {
+          utterance.onstart = () => {
+            if (!isCancelled) {
+              hasStarted = true;
+              if (startTimer) {
+                globalThis.clearTimeout(startTimer);
+                startTimer = undefined;
+              }
+              onDiagnostic?.("speech start", { jobId, reason, text });
+              onStart?.();
+            }
+          };
+        }
+
+        utterance.onerror = (event) => {
+          onDiagnostic?.("speech utterance error", {
+            error: "error" in event ? event.error : undefined,
+            jobId,
+            reason,
+            text,
+          });
+          errorOnce("speech_error");
         };
-      }
 
-      utterance.onerror = () => errorOnce("speech_error");
+        if (index === normalizedTexts.length - 1) {
+          utterance.onend = completeOnce;
+        }
 
-      if (index === normalizedTexts.length - 1) {
-        utterance.onend = completeOnce;
-      }
+        utterances.push(utterance);
+        window.speechSynthesis.speak(utterance);
+      });
+    };
 
-      utterances.push(utterance);
-      window.speechSynthesis.speak(utterance);
-    });
+    if (window.speechSynthesis.getVoices().length === 0) {
+      onDiagnostic?.("speech voices pending", { jobId, reason });
+      voicesChangedListener = speakTexts;
+      window.speechSynthesis.addEventListener?.("voiceschanged", voicesChangedListener, { once: true });
+      voiceLoadTimer = globalThis.setTimeout(speakTexts, config.fallback.speechVoiceLoadTimeoutMs);
+    } else {
+      speakTexts();
+    }
   } catch {
     errorOnce("speech_error");
   }

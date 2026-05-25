@@ -9,6 +9,7 @@ import {
   writeWorkoutVoiceBroadcastTipSeen,
   type WorkoutVoiceBroadcastError,
 } from "@/features/workouts/hooks/use-workout-voice-broadcast";
+import { workoutVoiceBroadcastConfig } from "@/lib/shared/workouts/voice-broadcast-config";
 
 type MockUtterance = SpeechSynthesisUtterance & {
   text: string;
@@ -130,6 +131,34 @@ describe("workout voice broadcast controller", () => {
     staleJob.cancel("test-cancel");
     staleEnvironment.spoken[0].onend?.({} as SpeechSynthesisEvent);
     expect(staleCompleted).toBe(false);
+  });
+
+  it("marks speech as blocked when speak never starts", async () => {
+    installMockSpeechEnvironment();
+    let completed = false;
+    let failed: WorkoutVoiceBroadcastError | null = null;
+
+    createWorkoutVoiceSpeechJob(["第一组动作，俯卧撑，15 个。"], {
+      jobId: 7,
+      onDone: () => {
+        completed = true;
+      },
+      onError: (reason) => {
+        failed = reason;
+      },
+      reason: "test-blocked",
+    }, {
+      ...workoutVoiceBroadcastConfig,
+      fallback: {
+        ...workoutVoiceBroadcastConfig.fallback,
+        speechCompletionFallbackMinMs: 60,
+        speechStartTimeoutMs: 20,
+      },
+    });
+
+    await wait(40);
+    expect(completed).toBe(false);
+    expect(failed).toBe("speech_blocked");
   });
 
   it("falls back when speech or localStorage is unavailable", async () => {

@@ -38,6 +38,8 @@ export type WorkoutVoiceBroadcastConfig = {
     speechCompletionFallbackMaxMs: number;
     speechCompletionFallbackMinMs: number;
     speechCompletionFallbackMsPerChar: number;
+    speechStartTimeoutMs: number;
+    speechVoiceLoadTimeoutMs: number;
     speechUnavailablePreparationDelayMs: number;
   };
   queue: {
@@ -84,6 +86,8 @@ export const workoutVoiceBroadcastConfig = validateWorkoutVoiceBroadcastConfig({
     speechCompletionFallbackMaxMs: 8000,
     speechCompletionFallbackMinMs: 1600,
     speechCompletionFallbackMsPerChar: 220,
+    speechStartTimeoutMs: 3500,
+    speechVoiceLoadTimeoutMs: 800,
     speechUnavailablePreparationDelayMs: 1200,
   },
   queue: {
@@ -189,6 +193,8 @@ export function validateWorkoutVoiceBroadcastConfig(config: WorkoutVoiceBroadcas
   assertPositive(config.fallback.speechCompletionFallbackMaxMs, "fallback.speechCompletionFallbackMaxMs");
   assertPositive(config.fallback.speechCompletionFallbackMinMs, "fallback.speechCompletionFallbackMinMs");
   assertPositive(config.fallback.speechCompletionFallbackMsPerChar, "fallback.speechCompletionFallbackMsPerChar");
+  assertPositive(config.fallback.speechStartTimeoutMs, "fallback.speechStartTimeoutMs");
+  assertPositive(config.fallback.speechVoiceLoadTimeoutMs, "fallback.speechVoiceLoadTimeoutMs");
   assertPositive(config.fallback.speechUnavailablePreparationDelayMs, "fallback.speechUnavailablePreparationDelayMs");
   assertPositive(config.queue.maxSize, "queue.maxSize");
   assertRange(config.speech.pitch, "speech.pitch", 0.1, 2);

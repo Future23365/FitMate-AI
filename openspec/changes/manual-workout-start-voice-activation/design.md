@@ -52,6 +52,8 @@
 
 如果语音偏好已开启但页面还没有音频权限，开始按钮只做静默音频解锁并直接播报当前动作准备提示，不额外播报“语音播报已开启”。如果语音偏好关闭，开始按钮只启动训练；用户仍可点击语音按钮开启语音，只有这个开关动作才播报“语音播报已开启”。
 
+语音调度器必须只在浏览器触发真实 speech 生命周期事件后才把 Web Speech 视为已启动。若 `speechSynthesis.speak()` 调用后在配置的启动等待时间内没有触发 `onstart` 或 `onend`，调度器将其标记为 `speech_blocked`，避免页面误认为语音成功并继续只播放 Web Audio beep。首次 voices 列表为空时，调度器会等待 `voiceschanged` 或配置的短超时后再创建 utterance。
+
 ### 3. 移除任意页面手势恢复语音
 
 删除或停用 `shouldRetryVoiceActivation` 驱动的全局 `pointerdown` / `keydown` 监听。语音激活入口收敛为：

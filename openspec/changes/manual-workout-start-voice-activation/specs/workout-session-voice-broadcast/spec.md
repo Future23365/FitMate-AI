@@ -110,6 +110,12 @@
 - **AND** the system MUST keep workout timers and controls usable
 - **AND** the system MUST provide retry through the voice button and development diagnostic log
 
+#### Scenario: Speech call never starts
+- **WHEN** `speechSynthesis.speak()` is called but no `onstart` or `onend` event arrives within the configured speech start timeout
+- **THEN** the system MUST mark the speech attempt as `speech_blocked`
+- **AND** the system MUST NOT mark voice broadcast as activated solely from fallback timeouts or Web Audio beep availability
+- **AND** the system MUST expose development diagnostics that show the speech request, voice count, selected voice, and blocked state
+
 #### Scenario: Stale speech event arrives
 - **WHEN** a canceled speech job later emits `onend` or `onerror`
 - **THEN** the system MUST ignore that event and MUST NOT advance the current workout step or preparation countdown
