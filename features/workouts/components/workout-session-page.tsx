@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
@@ -62,26 +62,58 @@ const voiceSettingsRanges = {
   volume: { max: 1, min: 0, step: 0.05 },
 };
 
-const voiceApiCompatibility = [
+type VoiceApiBrowserKey = "chrome" | "edge" | "firefox" | "safari" | "iosSafari";
+
+type VoiceApiBrowserSupport = {
+  browser: VoiceApiBrowserKey;
+  label: string;
+  version: string;
+};
+
+const webSpeechBrowserSupport: VoiceApiBrowserSupport[] = [
+  { browser: "chrome", label: "Chrome", version: "33+" },
+  { browser: "edge", label: "Edge", version: "14+" },
+  { browser: "firefox", label: "Firefox", version: "49+" },
+  { browser: "safari", label: "Safari", version: "7+" },
+  { browser: "iosSafari", label: "iOS Safari", version: "7+" },
+];
+
+const webAudioBrowserSupport: VoiceApiBrowserSupport[] = [
+  { browser: "chrome", label: "Chrome", version: "14+" },
+  { browser: "edge", label: "Edge", version: "12+" },
+  { browser: "firefox", label: "Firefox", version: "25+" },
+  { browser: "safari", label: "Safari", version: "6+" },
+  { browser: "iosSafari", label: "iOS Safari", version: "6+" },
+];
+
+const voiceApiCompatibility: Array<{
+  api: string;
+  browsers: VoiceApiBrowserSupport[];
+  usage: string;
+}> = [
   {
     api: "Web Speech: speechSynthesis",
+    browsers: webSpeechBrowserSupport,
     usage: "训练口令、倒计时、计次播报",
-    versions: "Chrome 33+ / Edge 14+ / Firefox 49+ / Safari 7+ / iOS Safari 7+",
   },
   {
     api: "SpeechSynthesisUtterance.voice",
+    browsers: webSpeechBrowserSupport,
     usage: "应用用户选择的 voice",
-    versions: "Chrome 33+ / Edge 14+ / Firefox 49+ / Safari 7+ / iOS Safari 7+",
   },
   {
     api: "speechSynthesis.getVoices / voiceschanged",
+    browsers: [
+      ...webSpeechBrowserSupport.slice(0, 2),
+      { browser: "firefox", label: "Firefox", version: "49+ / Android voice 约 62+" },
+      ...webSpeechBrowserSupport.slice(3),
+    ],
     usage: "读取 voice 列表并处理延迟加载",
-    versions: "跟随 Web Speech 支持；Firefox Android voice 属性约 62+",
   },
   {
     api: "Web Audio: AudioContext",
+    browsers: webAudioBrowserSupport,
     usage: "计时动作的每秒节奏音",
-    versions: "Chrome 14+ / Edge 12+ / Firefox 25+ / Safari 6+ / iOS Safari 6+",
   },
 ];
 
@@ -219,6 +251,36 @@ function getVoiceButtonLabel(
   return isPreferenceOn ? "关闭语音播报" : "开启语音播报";
 }
 
+// 语音设置弹窗只重排展示顺序，保存和播报仍使用浏览器提供的 voiceURI。
+function sortWorkoutVoiceOptions(voices: SpeechSynthesisVoice[]) {
+  return voices
+    .map((voice, index) => ({ index, priority: getWorkoutVoicePriority(voice), voice }))
+    .sort((left, right) => left.priority - right.priority || left.index - right.index)
+    .map(({ voice }) => voice);
+}
+
+function getWorkoutVoicePriority(voice: SpeechSynthesisVoice) {
+  const lang = voice.lang.toLowerCase();
+  const name = voice.name.toLowerCase();
+
+  if (lang === "zh-cn") {
+    return 0;
+  }
+
+  if (
+    lang.startsWith("zh-") ||
+    lang === "zh" ||
+    name.includes("chinese") ||
+    name.includes("mandarin") ||
+    voice.name.includes("中文") ||
+    voice.name.includes("普通话")
+  ) {
+    return 1;
+  }
+
+  return 2;
+}
+
 export function WorkoutSessionPage() {
   const searchParams = useSearchParams();
   const planId = searchParams.get("planId")?.trim() ?? "";
@@ -245,11 +307,17 @@ export function WorkoutSessionPage() {
     defaultWorkoutVoiceBroadcastUserSettings,
   );
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [isVoiceSettingsClosing, setIsVoiceSettingsClosing] = useState(false);
+  const voiceSettingsCloseTimerRef = useRef<number | null>(null);
 
   const loopConfig = useMemo(() => getWorkoutLoopConfig(plan), [plan]);
   const voiceBroadcastConfig = useMemo(
     () => buildWorkoutVoiceBroadcastConfig(voiceSettings),
     [voiceSettings],
+  );
+  const sortedAvailableVoices = useMemo(
+    () => sortWorkoutVoiceOptions(availableVoices),
+    [availableVoices],
   );
   const steps = useMemo(
     () => buildWorkoutTimeline(plan.items, loopConfig),
@@ -415,6 +483,37 @@ export function WorkoutSessionPage() {
       window.clearTimeout(refreshTimer);
       window.speechSynthesis.removeEventListener?.("voiceschanged", loadVoices);
     };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (voiceSettingsCloseTimerRef.current !== null) {
+        window.clearTimeout(voiceSettingsCloseTimerRef.current);
+      }
+    };
+  }, []);
+
+  const openVoiceSettings = useCallback(() => {
+    if (voiceSettingsCloseTimerRef.current !== null) {
+      window.clearTimeout(voiceSettingsCloseTimerRef.current);
+      voiceSettingsCloseTimerRef.current = null;
+    }
+
+    setIsVoiceSettingsClosing(false);
+    setIsVoiceSettingsOpen(true);
+  }, []);
+
+  const closeVoiceSettings = useCallback(() => {
+    if (voiceSettingsCloseTimerRef.current !== null) {
+      window.clearTimeout(voiceSettingsCloseTimerRef.current);
+    }
+
+    setIsVoiceSettingsClosing(true);
+    voiceSettingsCloseTimerRef.current = window.setTimeout(() => {
+      setIsVoiceSettingsOpen(false);
+      setIsVoiceSettingsClosing(false);
+      voiceSettingsCloseTimerRef.current = null;
+    }, 180);
   }, []);
 
   const markPreparationIntroComplete = useCallback((stepKey: string) => {
@@ -678,7 +777,13 @@ export function WorkoutSessionPage() {
 
   return (
     <main className="custom-scrollbar h-dvh overflow-y-auto bg-canvas text-ink xl:overflow-hidden">
-      <div className="flex min-h-dvh flex-col gap-sm px-md py-sm md:px-lg md:py-md xl:h-dvh xl:min-h-0 2xl:px-xl">
+      <div
+        className={`flex min-h-dvh origin-center flex-col gap-sm px-md py-sm transition-[transform,border-radius,filter,box-shadow] duration-200 ease-out md:px-lg md:py-md xl:h-dvh xl:min-h-0 2xl:px-xl ${
+          isVoiceSettingsOpen
+            ? "scale-[0.965] rounded-[28px] shadow-lift blur-[0.2px] xl:translate-y-2"
+            : "scale-100 rounded-none shadow-none blur-0"
+        }`}
+      >
         <header className="flex shrink-0 flex-wrap items-center justify-between gap-sm rounded-[20px] border border-line bg-white px-md py-xs shadow-card md:px-lg">
           <Link
             className="flex min-h-11 items-center gap-sm rounded-xl px-sm text-body-md font-extrabold text-ink transition-colors hover:bg-panel-soft hover:text-primary"
@@ -702,7 +807,7 @@ export function WorkoutSessionPage() {
             <button
               aria-label="打开语音设置"
               className="grid h-11 w-11 place-items-center rounded-xl border border-line bg-white text-muted transition-colors hover:bg-panel-soft hover:text-primary"
-              onClick={() => setIsVoiceSettingsOpen(true)}
+              onClick={openVoiceSettings}
               type="button"
             >
               <SymbolIcon className="text-2xl">settings</SymbolIcon>
@@ -1082,10 +1187,11 @@ export function WorkoutSessionPage() {
         onClose={() => setIsExerciseDetailOpen(false)}
       />
       <VoiceSettingsDialog
-        availableVoices={availableVoices}
+        availableVoices={sortedAvailableVoices}
+        isClosing={isVoiceSettingsClosing}
         isOpen={isVoiceSettingsOpen}
         isRunningSelfCheck={isVoiceSelfChecking}
-        onClose={() => setIsVoiceSettingsOpen(false)}
+        onClose={closeVoiceSettings}
         onResetSettings={resetVoiceSettings}
         onRunSelfCheck={runVoiceSelfCheck}
         onUpdateSettings={updateVoiceSetting}
@@ -1228,6 +1334,7 @@ function VoiceTipBubble({
 
 function VoiceSettingsDialog({
   availableVoices,
+  isClosing,
   isOpen,
   isRunningSelfCheck,
   onClose,
@@ -1238,6 +1345,7 @@ function VoiceSettingsDialog({
   settings,
 }: {
   availableVoices: SpeechSynthesisVoice[];
+  isClosing: boolean;
   isOpen: boolean;
   isRunningSelfCheck: boolean;
   onClose: () => void;
@@ -1256,16 +1364,21 @@ function VoiceSettingsDialog({
   const selectedVoiceExists = settings.voiceURI
     ? availableVoices.some((voice) => voice.voiceURI === settings.voiceURI)
     : true;
+  const showRestartAdvice = shouldShowVoiceRestartAdvice(selfCheckResult);
 
   return (
     <div
       aria-modal="true"
-      className="fixed inset-0 z-50 grid place-items-center bg-ink/35 px-md py-lg"
+      className={`fixed inset-0 z-50 grid place-items-center bg-ink/35 px-md py-lg transition-opacity duration-200 ease-out ${
+        isClosing ? "opacity-0" : "opacity-100"
+      }`}
       onClick={onClose}
       role="dialog"
     >
       <section
-        className="custom-scrollbar max-h-[min(760px,calc(100dvh-40px))] w-full max-w-[920px] overflow-y-auto rounded-[20px] border border-line bg-white p-md text-ink shadow-lift md:p-lg"
+        className={`custom-scrollbar max-h-[min(760px,calc(100dvh-40px))] w-full max-w-[920px] overflow-y-auto rounded-[20px] border border-line bg-white p-md text-ink shadow-lift transition-[transform,opacity] duration-200 ease-out md:p-lg ${
+          isClosing ? "translate-y-3 scale-[0.97] opacity-0" : "translate-y-0 scale-100 opacity-100"
+        }`}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-md">
@@ -1386,6 +1499,12 @@ function VoiceSettingsDialog({
                 <VoiceSelfCheckStepRow key={step.id} step={step} />
               ))}
             </div>
+            {showRestartAdvice ? (
+              <div className="mt-sm flex items-start gap-sm rounded-xl border border-[#FFD8A8] bg-[#FFF7E6] p-sm text-label-md font-bold text-[#B54708]">
+                <SymbolIcon className="mt-[1px] text-lg">restart_alt</SymbolIcon>
+                <p>浏览器语音 API 可用但本次自检未完整通过，可尝试重启浏览器后再检测。</p>
+              </div>
+            ) : null}
             {selfCheckResult ? (
               <dl className="mt-md grid grid-cols-2 gap-sm rounded-xl bg-panel-soft p-sm text-label-md font-semibold text-muted">
                 <div className="min-w-0">
@@ -1419,7 +1538,20 @@ function VoiceSettingsDialog({
               <div className="rounded-xl border border-line bg-white p-sm" key={item.api}>
                 <p className="text-label-md font-extrabold text-ink">{item.api}</p>
                 <p className="mt-xs text-label-md font-semibold text-muted">{item.usage}</p>
-                <p className="mt-xs text-label-md font-bold text-primary">{item.versions}</p>
+                <div className="mt-sm grid gap-xs sm:grid-cols-2">
+                  {item.browsers.map((browser) => (
+                    <div
+                      className="grid min-h-[46px] grid-cols-[28px_1fr] items-center gap-xs rounded-lg border border-line bg-panel-soft px-xs py-xs"
+                      key={`${item.api}-${browser.browser}`}
+                    >
+                      <BrowserApiIcon browser={browser.browser} />
+                      <div className="min-w-0">
+                        <p className="truncate text-label-md font-extrabold text-ink">{browser.label}</p>
+                        <p className="truncate text-label-md font-bold text-primary">{browser.version}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             ))}
           </div>
@@ -1495,6 +1627,57 @@ function VoiceSelfCheckStepRow({
       </div>
     </div>
   );
+}
+
+function BrowserApiIcon({ browser }: { browser: VoiceApiBrowserKey }) {
+  const iconMeta: Record<VoiceApiBrowserKey, { className: string; label: string }> = {
+    chrome: {
+      className: "bg-[conic-gradient(#34A853_0_33%,#FBBC05_0_66%,#EA4335_0_86%,#4285F4_0)]",
+      label: "C",
+    },
+    edge: {
+      className: "bg-[conic-gradient(#0078D7_0_35%,#00A4EF_0_58%,#39D353_0_80%,#0A4FB3_0)]",
+      label: "E",
+    },
+    firefox: {
+      className: "bg-[conic-gradient(#FF7139_0_35%,#FFB000_0_58%,#D63AFF_0_80%,#7A2DFF_0)]",
+      label: "F",
+    },
+    safari: {
+      className: "bg-[conic-gradient(#0A84FF_0_35%,#64D2FF_0_60%,#FFFFFF_0_76%,#FF3B30_0)]",
+      label: "S",
+    },
+    iosSafari: {
+      className: "bg-[conic-gradient(#0A84FF_0_35%,#64D2FF_0_60%,#FFFFFF_0_76%,#FF3B30_0)]",
+      label: "iOS",
+    },
+  };
+  const meta = iconMeta[browser];
+
+  return (
+    <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full p-[2px] ${meta.className}`}>
+      <span className="grid h-full w-full place-items-center rounded-full bg-white/90 text-[10px] font-black leading-none text-ink">
+        {meta.label}
+      </span>
+    </span>
+  );
+}
+
+function shouldShowVoiceRestartAdvice(result: WorkoutVoiceSelfCheckResult | null) {
+  if (!result) {
+    return false;
+  }
+
+  const apiLooksAvailable =
+    result.supported ||
+    result.steps.some((step) => step.id === "speech-api" && step.status === "passed");
+  const hasRuntimeFailure =
+    result.status === "blocked" ||
+    result.status === "error" ||
+    result.reason === "speech_end_timeout" ||
+    result.steps.some((step) => step.status === "failed" || step.status === "warning");
+
+  return apiLooksAvailable && hasRuntimeFailure;
 }
 
 function getVoiceSelfCheckSummary(
