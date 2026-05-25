@@ -16,6 +16,7 @@ const speechUnavailablePreparationDelayMs = 1200;
 const speechCompletionFallbackMinMs = 1600;
 const speechCompletionFallbackMaxMs = 8000;
 const speechCompletionFallbackMsPerChar = 220;
+const speechRestartDelayMs = 80;
 
 type UseWorkoutVoiceBroadcastOptions = {
   activeStepIndex: number;
@@ -128,7 +129,7 @@ export function useWorkoutVoiceBroadcast({
       stopSpeech();
     }
 
-    const speechJob = speakTexts(texts, interrupt, onDone);
+    const speechJob = speakTexts(texts, onDone);
     activeSpeechJobRef.current = speechJob;
   }, [stopSpeech]);
 
@@ -212,8 +213,9 @@ export function useWorkoutVoiceBroadcast({
   }, [activeStep, completedReps, isEnabled, isPaused, isPreparing, startSpeech]);
 }
 
-function speakTexts(texts: string[], interrupt = false, onDone?: () => void): SpeechJob {
+function speakTexts(texts: string[], onDone?: () => void): SpeechJob {
   let completionTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
+  let startTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
   let isCancelled = false;
   const utterances: SpeechSynthesisUtterance[] = [];
 
@@ -222,6 +224,10 @@ function speakTexts(texts: string[], interrupt = false, onDone?: () => void): Sp
     if (completionTimer) {
       globalThis.clearTimeout(completionTimer);
       completionTimer = undefined;
+    }
+    if (startTimer) {
+      globalThis.clearTimeout(startTimer);
+      startTimer = undefined;
     }
 
     utterances.forEach((utterance) => {
@@ -239,10 +245,6 @@ function speakTexts(texts: string[], interrupt = false, onDone?: () => void): Sp
     return { cancel: cancelJob };
   }
 
-  if (interrupt) {
-    cancelSpeech();
-  }
-
   const normalizedTexts = texts
     .map((text) => text.trim())
     .filter(Boolean);
@@ -256,7 +258,6 @@ function speakTexts(texts: string[], interrupt = false, onDone?: () => void): Sp
     return { cancel: cancelJob };
   }
 
-  const voice = selectChineseVoice();
   let hasCompleted = false;
   const completeOnce = () => {
     if (hasCompleted || isCancelled) {
@@ -271,29 +272,39 @@ function speakTexts(texts: string[], interrupt = false, onDone?: () => void): Sp
     onDone?.();
   };
 
-  if (onDone) {
-    completionTimer = globalThis.setTimeout(completeOnce, estimateSpeechCompletionFallbackMs(normalizedTexts));
-  }
-
-  normalizedTexts.forEach((text, index) => {
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "zh-CN";
-    utterance.rate = 1;
-    utterance.pitch = 1;
-    utterance.volume = 1;
-
-    if (voice) {
-      utterance.voice = voice;
+  startTimer = globalThis.setTimeout(() => {
+    if (isCancelled) {
+      return;
     }
 
-    if (index === normalizedTexts.length - 1 && onDone) {
-      utterance.onend = completeOnce;
-      utterance.onerror = completeOnce;
+    window.speechSynthesis.resume();
+
+    const voice = selectChineseVoice();
+
+    if (onDone) {
+      completionTimer = globalThis.setTimeout(completeOnce, estimateSpeechCompletionFallbackMs(normalizedTexts));
     }
 
-    utterances.push(utterance);
-    window.speechSynthesis.speak(utterance);
-  });
+    normalizedTexts.forEach((text, index) => {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "zh-CN";
+      utterance.rate = 1;
+      utterance.pitch = 1;
+      utterance.volume = 1;
+
+      if (voice) {
+        utterance.voice = voice;
+      }
+
+      if (index === normalizedTexts.length - 1 && onDone) {
+        utterance.onend = completeOnce;
+        utterance.onerror = completeOnce;
+      }
+
+      utterances.push(utterance);
+      window.speechSynthesis.speak(utterance);
+    });
+  }, speechRestartDelayMs);
 
   return { cancel: cancelJob };
 }
