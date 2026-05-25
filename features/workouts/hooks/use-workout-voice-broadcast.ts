@@ -127,13 +127,6 @@ export function useWorkoutVoiceBroadcast({
   const activeStep = steps[activeStepIndex];
   const activeStepKey = activeStep ? `${sessionId}:${activeStep.id}:${activeStepIndex}` : "";
   const isPreparing = preparationCountdown > 0;
-  const startupSessionIdRef = useRef("");
-  const currentStepKeyRef = useRef("");
-  const preparationStepKeyRef = useRef("");
-  const lastBeepElapsedRef = useRef(0);
-  const lastCountRef = useRef(0);
-  const lastPreparationSecondRef = useRef(0);
-  const wasPausedRef = useRef(isPaused);
   const audioContextRef = useRef<AudioContext | null>(null);
   const activeSpeechJobRef = useRef<SpeechJob | null>(null);
 
@@ -166,25 +159,11 @@ export function useWorkoutVoiceBroadcast({
       window.removeEventListener("pagehide", stopSessionAudio);
       window.removeEventListener("beforeunload", stopSessionAudio);
       stopSessionAudio();
-      currentStepKeyRef.current = "";
-      preparationStepKeyRef.current = "";
-      lastPreparationSecondRef.current = 0;
-      resetRhythmRefs(lastBeepElapsedRef, lastCountRef);
     };
   }, [stopSessionAudio]);
 
   useEffect(() => {
-    if (!isEnabled) {
-      currentStepKeyRef.current = "";
-      preparationStepKeyRef.current = "";
-      lastPreparationSecondRef.current = 0;
-      stopSpeech();
-      return;
-    }
-
-    if (isPaused) {
-      preparationStepKeyRef.current = "";
-      lastPreparationSecondRef.current = 0;
+    if (!isEnabled || isPaused) {
       stopSpeech();
     }
   }, [isEnabled, isPaused, stopSpeech]);
@@ -194,66 +173,23 @@ export function useWorkoutVoiceBroadcast({
       return;
     }
 
-    if (startupSessionIdRef.current !== sessionId) {
-      startupSessionIdRef.current = sessionId;
-      currentStepKeyRef.current = "";
-      preparationStepKeyRef.current = "";
-      lastPreparationSecondRef.current = 0;
-      resetRhythmRefs(lastBeepElapsedRef, lastCountRef);
-    }
-
     if (isPreparing) {
-      if (preparationStepKeyRef.current !== activeStepKey) {
-        preparationStepKeyRef.current = activeStepKey;
-        currentStepKeyRef.current = activeStepKey;
-        lastPreparationSecondRef.current = 0;
-        resetRhythmRefs(lastBeepElapsedRef, lastCountRef);
-        startSpeech([buildWorkoutActionPreparationCue(activeStep, isFirstExerciseStep)], true, () => {
-          if (preparationStepKeyRef.current === activeStepKey) {
-            onPreparationIntroComplete(activeStepKey);
-          }
-        });
-      }
-
+      startSpeech([buildWorkoutActionPreparationCue(activeStep, isFirstExerciseStep)], true, () => {
+        onPreparationIntroComplete(activeStepKey);
+      });
       return;
     }
 
-    if (currentStepKeyRef.current !== activeStepKey) {
-      currentStepKeyRef.current = activeStepKey;
-      resetRhythmRefs(lastBeepElapsedRef, lastCountRef);
-      startSpeech([buildWorkoutStepVoiceCue(activeStep)], true);
-    }
-  }, [activeStep, activeStepKey, isEnabled, isFirstExerciseStep, isPaused, isPreparing, onPreparationIntroComplete, sessionId, startSpeech]);
+    startSpeech([buildWorkoutStepVoiceCue(activeStep)], true);
+  }, [activeStep, activeStepKey, isEnabled, isFirstExerciseStep, isPaused, isPreparing, onPreparationIntroComplete, startSpeech]);
 
   useEffect(() => {
     if (!isEnabled || isPaused || !isPreparationCountdownActive || preparationCountdown <= 0) {
       return;
     }
 
-    if (lastPreparationSecondRef.current === preparationCountdown) {
-      return;
-    }
-
-    lastPreparationSecondRef.current = preparationCountdown;
     startSpeech([buildPreparationCountdownCue(preparationCountdown)]);
   }, [isEnabled, isPaused, isPreparationCountdownActive, preparationCountdown, startSpeech]);
-
-  useEffect(() => {
-    if (!activeStep || !isEnabled) {
-      wasPausedRef.current = isPaused;
-      return;
-    }
-
-    if (!wasPausedRef.current && isPaused) {
-      stopSpeech();
-    }
-
-    if (wasPausedRef.current && !isPaused && !isPreparing) {
-      startSpeech(["继续训练", buildWorkoutStepVoiceCue(activeStep)], true);
-    }
-
-    wasPausedRef.current = isPaused;
-  }, [activeStep, isEnabled, isPaused, isPreparing, startSpeech, stopSpeech]);
 
   useEffect(() => {
     if (
@@ -268,11 +204,10 @@ export function useWorkoutVoiceBroadcast({
     }
 
     const elapsedSeconds = activeStep.durationSeconds - remainingSeconds;
-    if (elapsedSeconds <= 0 || elapsedSeconds <= lastBeepElapsedRef.current) {
+    if (elapsedSeconds <= 0) {
       return;
     }
 
-    lastBeepElapsedRef.current = elapsedSeconds;
     playBeep(audioContextRef);
   }, [activeStep, isEnabled, isPaused, isPreparing, remainingSeconds]);
 
@@ -288,21 +223,12 @@ export function useWorkoutVoiceBroadcast({
       return;
     }
 
-    if (completedReps <= 0 || completedReps <= lastCountRef.current || completedReps > activeStep.item.target) {
+    if (completedReps <= 0 || completedReps > activeStep.item.target) {
       return;
     }
 
-    lastCountRef.current = completedReps;
     startSpeech([buildRepetitionCountCue(completedReps)], true);
   }, [activeStep, completedReps, isEnabled, isPaused, isPreparing, startSpeech]);
-}
-
-function resetRhythmRefs(
-  lastBeepElapsedRef: MutableRefObject<number>,
-  lastCountRef: MutableRefObject<number>,
-) {
-  lastBeepElapsedRef.current = 0;
-  lastCountRef.current = 0;
 }
 
 function speakTexts(texts: string[], onDone?: () => void): SpeechJob {
