@@ -4,7 +4,7 @@ FitMate AI 是一个 AI 健身聊天助手原型。项目目标是通过自然�
 
 当前项目采用 Next.js App Router 构建，前端体验、API Route、服务端 AI 编排、领域规则、共享类型和 Prisma 数据模型已经按目录做了初步分层。动作库、聊天历史、训练编排、训练日历和训练执行状态已接入 PostgreSQL/Prisma；当前仍缺少正式鉴权、用户画像管理和完整的 AI Tool Calling 闭环。
 
-更完整的架构说明见 [docs/architecture.md](./docs/architecture.md)，当前数据库表结构、字段含义和关系说明见 [docs/database-design.md](./docs/database-design.md)。
+更完整的架构说明见 [docs/architecture.md](./docs/architecture.md)。当前数据库表结构、字段含义和关系说明见 [docs/database-design.md](./docs/database-design.md)，该文档根据已有数据库整理，仅用于帮助开发者理解当前设计，不作为数据库设计规范。
 
 ## 当前状态
 

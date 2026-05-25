@@ -1,6 +1,8 @@
 # 数据库设计说明
 
-本文档说明当前 PostgreSQL / Prisma 数据模型的设计。当前事实来源是 `prisma/schema.prisma`，迁移文件位于 `prisma/migrations/`。
+本文档是根据当前已有 PostgreSQL / Prisma 数据模型整理的现状说明，事实来源是 `prisma/schema.prisma`，迁移文件位于 `prisma/migrations/`。
+
+本文档的作用是帮助开发者理解当前数据库设计、表关系和字段含义，不是数据库设计规范，也不作为未来设计数据库或变更 schema 的约束依据。后续数据库变更仍应以实际需求、OpenSpec 变更流程和 `prisma/schema.prisma` 为准。
 
 ## 1. 设计概览
 
