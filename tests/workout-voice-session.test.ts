@@ -113,7 +113,7 @@ describe("workout voice session scheduler", () => {
         secondPreparationCompleted = true;
       },
     });
-    expect(environment.cancelCount).toBeGreaterThan(1);
+    expect(environment.cancelCount).toBe(1);
     environment.spoken[1].onend?.({} as SpeechSynthesisEvent);
     expect(firstPreparationCompleted).toBe(false);
 
@@ -163,7 +163,6 @@ describe("workout voice session scheduler", () => {
       onPreparationIntroComplete: () => undefined,
     });
     session.setPreferenceEnabled(false);
-    const cancelCountBeforeActivation = environment.cancelCount;
     session.activateCurrentStep(true);
     session.setPreferenceEnabled(true);
     session.setContext({
@@ -179,7 +178,7 @@ describe("workout voice session scheduler", () => {
       "语音播报已开启。",
       "第一组动作，俯卧撑，12 个。",
     ]);
-    expect(environment.cancelCount).toBe(cancelCountBeforeActivation + 1);
+    expect(environment.cancelCount).toBe(0);
   });
 
   it("completes preparation intro when start control activates current step speech", () => {

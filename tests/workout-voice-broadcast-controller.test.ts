@@ -67,6 +67,7 @@ describe("workout voice broadcast controller", () => {
     });
 
     expect(environment.resumeCount).toBe(1);
+    expect(environment.cancelCount).toBe(0);
     expect(environment.spoken).toHaveLength(1);
     environment.spoken[0].onstart?.({} as SpeechSynthesisEvent);
     environment.spoken[0].onend?.({} as SpeechSynthesisEvent);

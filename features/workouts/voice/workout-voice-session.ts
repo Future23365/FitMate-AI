@@ -492,7 +492,6 @@ export class WorkoutVoiceSession {
 
   private cancelCurrent(reason: string) {
     if (!this.activeCue) {
-      cancelBrowserSpeech();
       return;
     }
 
@@ -671,7 +670,6 @@ export function createWorkoutVoiceSpeechJob(
   };
 
   try {
-    window.speechSynthesis.cancel();
     window.speechSynthesis.resume();
 
     const speakTexts = () => {

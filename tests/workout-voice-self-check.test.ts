@@ -76,7 +76,7 @@ describe("workout voice self-check", () => {
       voices: 1,
     });
     expect(result.events).toEqual(["speech-request", "speech-start", "speech-end"]);
-    expect(environment.cancelCount).toBe(1);
+    expect(environment.cancelCount).toBe(0);
     expect(environment.resumeCount).toBe(1);
   });
 
