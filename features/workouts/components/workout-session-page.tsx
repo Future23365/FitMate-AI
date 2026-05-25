@@ -180,26 +180,6 @@ function getVoiceButtonLabel(
   return isPreferenceOn ? "关闭语音播报" : "开启语音播报";
 }
 
-function getVoiceStatusText(status: WorkoutVoiceBroadcastStatus) {
-  switch (status) {
-    case "needs-activation":
-      return "点击任意训练控制可恢复语音";
-    case "activating":
-      return "正在启动语音";
-    case "speaking":
-      return "正在播报";
-    case "failed":
-      return "语音未启动，可重试";
-    case "unsupported":
-      return "当前浏览器不支持语音播报";
-    case "active":
-      return "语音已开启";
-    case "off":
-    default:
-      return "语音已关闭";
-  }
-}
-
 export function WorkoutSessionPage() {
   const searchParams = useSearchParams();
   const planId = searchParams.get("planId");
@@ -210,6 +190,7 @@ export function WorkoutSessionPage() {
   const [preparationCountdown, setPreparationCountdown] = useState(0);
   const [preparedStepKey, setPreparedStepKey] = useState("");
   const [preparationCountdownStepKey, setPreparationCountdownStepKey] = useState("");
+  const [hasStarted, setHasStarted] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [isAudioOn, setIsAudioOn] = useState(false);
   const [loadedPlanKey, setLoadedPlanKey] = useState("");
@@ -270,7 +251,8 @@ export function WorkoutSessionPage() {
   const isPlanReady = loadedPlanKey === requestedPlanKey;
   const needsExercisePreparation = activeStep?.type === "exercise" && preparedStepKey !== activeStepKey;
   const isPreparationCountdownActive = preparationCountdownStepKey === activeStepKey;
-  const isPreparing = Boolean(needsExercisePreparation && preparationCountdown > 0);
+  const isPreparing = Boolean(hasStarted && needsExercisePreparation && preparationCountdown > 0);
+  const isAwaitingStart = isPlanReady && !hasStarted && plan.status !== "completed";
 
   useEffect(() => {
     let cancelled = false;
@@ -299,6 +281,8 @@ export function WorkoutSessionPage() {
       setPreparedStepKey("");
       setPreparationCountdownStepKey("");
       setPreparationCountdown(selectedSteps[0]?.type === "exercise" ? preparationCountdownStart : 0);
+      setHasStarted(false);
+      setIsPaused(false);
       setLoadedPlanKey(requestKey);
       setIsExerciseDetailOpen(false);
     });
@@ -336,6 +320,7 @@ export function WorkoutSessionPage() {
     isPaused,
     isPreferenceEnabled: isAudioOn && loadedPlanKey === requestedPlanKey && isVoicePreferenceLoaded,
     isPreparationCountdownActive,
+    isSessionStarted: hasStarted,
     onPreparationIntroComplete: markPreparationIntroComplete,
     preparationCountdown,
     remainingSeconds,
@@ -350,30 +335,6 @@ export function WorkoutSessionPage() {
   const shouldRetryVoiceActivation =
     isVoicePreferenceOn && (voiceStatus === "needs-activation" || voiceStatus === "failed");
   const shouldShowVoiceFirstTip = isVoicePreferenceLoaded && showVoiceTip && !isVoicePreferenceOn;
-  const shouldShowVoiceActionPrompt = isVoicePreferenceLoaded && isVoicePreferenceOn && !isVoiceBroadcastActive;
-
-  useEffect(() => {
-    if (!shouldRetryVoiceActivation) {
-      return;
-    }
-
-    const activateOnUserGesture = (event: Event) => {
-      const target = event.target instanceof Element ? event.target : null;
-      if (target?.closest("[data-workout-voice-button]")) {
-        return;
-      }
-
-      voiceSession.activateCurrentStep();
-    };
-
-    window.addEventListener("pointerdown", activateOnUserGesture, { capture: true, once: true });
-    window.addEventListener("keydown", activateOnUserGesture, { capture: true, once: true });
-
-    return () => {
-      window.removeEventListener("pointerdown", activateOnUserGesture, true);
-      window.removeEventListener("keydown", activateOnUserGesture, true);
-    };
-  }, [shouldRetryVoiceActivation, voiceSession]);
 
   const handleVoiceButtonClick = useCallback(() => {
     if (!isVoiceSupported) {
@@ -418,10 +379,20 @@ export function WorkoutSessionPage() {
     setRemainingSeconds(nextStep?.durationSeconds ?? 45);
   }, [steps, voiceSession]);
 
+  const startTraining = useCallback(() => {
+    setHasStarted(true);
+    setIsPaused(false);
+
+    if (isVoicePreferenceOn && isVoiceSupported && !isVoiceBroadcastActive) {
+      voiceSession.activateCurrentStep();
+    }
+  }, [isVoiceBroadcastActive, isVoicePreferenceOn, isVoiceSupported, voiceSession]);
+
   const completeCurrentStep = useCallback(({ cancelVoice = true }: { cancelVoice?: boolean } = {}) => {
     const isLastStep = activeStepIndex >= steps.length - 1;
 
     if (isLastStep) {
+      setHasStarted(false);
       setIsPaused(true);
       setPreparedStepKey("");
       setPreparationCountdownStepKey("");
@@ -435,6 +406,7 @@ export function WorkoutSessionPage() {
 
   useEffect(() => {
     if (
+      !hasStarted ||
       !isPlanReady ||
       !isVoicePreferenceLoaded ||
       isVoicePreferenceOn ||
@@ -449,6 +421,7 @@ export function WorkoutSessionPage() {
     return () => window.clearTimeout(timer);
   }, [
     activeStepKey,
+    hasStarted,
     isAudioOn,
     isPlanReady,
     isVoicePreferenceLoaded,
@@ -459,6 +432,7 @@ export function WorkoutSessionPage() {
 
   useEffect(() => {
     if (
+      !hasStarted ||
       !isPlanReady ||
       isPaused ||
       !needsExercisePreparation ||
@@ -478,6 +452,7 @@ export function WorkoutSessionPage() {
     return () => window.clearTimeout(timer);
   }, [
     activeStepKey,
+    hasStarted,
     isPaused,
     isPlanReady,
     isPreparationCountdownActive,
@@ -486,7 +461,7 @@ export function WorkoutSessionPage() {
   ]);
 
   useEffect(() => {
-    if (isPaused || needsExercisePreparation || !activeStep) {
+    if (!hasStarted || isPaused || needsExercisePreparation || !activeStep) {
       return;
     }
 
@@ -501,7 +476,7 @@ export function WorkoutSessionPage() {
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [activeStep, completeCurrentStep, isPaused, needsExercisePreparation, remainingSeconds]);
+  }, [activeStep, completeCurrentStep, hasStarted, isPaused, needsExercisePreparation, remainingSeconds]);
 
   const openCurrentExerciseDetail = useCallback(() => {
     setIsPaused(true);
@@ -509,6 +484,7 @@ export function WorkoutSessionPage() {
   }, []);
 
   function finishTraining() {
+    setHasStarted(false);
     setIsPaused(true);
     setPreparedStepKey("");
     setPreparationCountdownStepKey("");
@@ -582,20 +558,6 @@ export function WorkoutSessionPage() {
                   tone="primary"
                 />
               ) : null}
-              {shouldShowVoiceActionPrompt ? (
-                <VoiceTipBubble
-                  actionLabel={voiceStatus === "failed" ? "重试" : "激活"}
-                  description={
-                    voiceStatus === "failed"
-                      ? "语音没有成功启动，请重试。"
-                      : "刷新后需要点击一次恢复播报。"
-                  }
-                  icon={voiceStatus === "failed" ? "volume_off" : "volume_up"}
-                  onPrimaryAction={handleVoiceButtonClick}
-                  title={getVoiceStatusText(voiceStatus)}
-                  tone={voiceStatus === "failed" ? "danger" : "primary"}
-                />
-              ) : null}
             </div>
             <button
               aria-label="结束训练"
@@ -617,7 +579,15 @@ export function WorkoutSessionPage() {
                   <h1 className="mt-xs truncate text-[20px] font-extrabold leading-tight">{plan.title}</h1>
                 </div>
                 <span className="rounded-full bg-primary-soft px-md py-xs text-label-md font-bold text-primary">
-                  {plan.status === "completed" ? "已完成" : isPreparing ? "准备中" : "进行中"}
+                  {plan.status === "completed"
+                    ? "已完成"
+                    : isAwaitingStart
+                    ? "待开始"
+                    : isPaused
+                    ? "已暂停"
+                    : isPreparing
+                    ? "准备中"
+                    : "进行中"}
                 </span>
               </div>
               <div className="grid grid-cols-3 gap-sm">
@@ -675,9 +645,11 @@ export function WorkoutSessionPage() {
           <section className="flex min-h-0 flex-col items-center justify-center rounded-[20px] border border-line bg-white px-lg py-lg text-center shadow-card">
             <span className="mb-sm inline-flex items-center gap-xs rounded-full bg-primary-soft px-md py-xs text-label-md font-bold text-primary">
               <SymbolIcon className="text-lg">
-                {isPreparing ? "timer" : isRestStep ? "timer" : isTimedStep ? "timer" : "format_list_numbered"}
+                {isAwaitingStart ? "play_arrow" : isPreparing ? "timer" : isRestStep ? "timer" : isTimedStep ? "timer" : "format_list_numbered"}
               </SymbolIcon>
-              {isPreparing
+              {isAwaitingStart
+                ? "点击开始后训练"
+                : isPreparing
                 ? "准备开始"
                 : isRestStep
                 ? activeRestStep?.label
@@ -686,14 +658,18 @@ export function WorkoutSessionPage() {
                   } 组`}
             </span>
             <h2 className="max-w-[680px] text-[30px] font-extrabold leading-tight text-ink md:text-[38px]">
-              {isPreparing
+              {isAwaitingStart
+                ? currentItem.nameZh
+                : isPreparing
                 ? `${activeStepIndex === 0 ? "第一个动作" : "准备动作"}：${currentItem.nameZh}`
                 : isRestStep
                 ? activeRestStep?.label
                 : currentItem.nameZh}
             </h2>
             <p className="mt-sm text-body-lg font-semibold text-muted">
-              {isPreparing
+              {isAwaitingStart
+                ? "准备好后点击开始"
+                : isPreparing
                 ? "倒计时结束后开始训练"
                 : isRestStep
                 ? nextItem
@@ -701,7 +677,18 @@ export function WorkoutSessionPage() {
                   : "准备进入下一步"
                 : currentItem.musclesZh.slice(0, 3).join("、") || currentItem.categoryZh}
             </p>
-            {isPreparing ? (
+            {isAwaitingStart ? (
+              <>
+                <div className="my-md grid h-[clamp(112px,16vw,156px)] w-[clamp(112px,16vw,156px)] place-items-center rounded-full bg-primary-soft text-primary ring-1 ring-primary/15">
+                  <SymbolIcon className="text-[clamp(64px,8vw,92px)]" filled>
+                    play_arrow
+                  </SymbolIcon>
+                </div>
+                <p className="text-body-lg font-extrabold text-ink">
+                  训练尚未开始，计时和语音会在点击开始后启动
+                </p>
+              </>
+            ) : isPreparing ? (
               <>
                 <div className="my-md text-[clamp(92px,14vw,148px)] font-black leading-none text-primary [font-variant-numeric:tabular-nums]">
                   {isPreparationCountdownActive ? preparationCountdown : "准备"}
@@ -763,16 +750,32 @@ export function WorkoutSessionPage() {
             )}
             <div className="mt-lg flex items-start justify-center gap-lg md:gap-xl">
               <SessionControl icon="skip_previous" label="上一个" onClick={() => goToStep(activeStepIndex - 1)} />
-              <SessionControl
-                icon={isPaused ? "play_arrow" : "pause"}
-                label={isPaused ? "继续" : "暂停"}
-                large
-                onClick={() => setIsPaused((value) => !value)}
-              />
+              {isAwaitingStart ? (
+                <SessionControl
+                  icon="play_arrow"
+                  label="开始"
+                  large
+                  onClick={startTraining}
+                />
+              ) : (
+                <SessionControl
+                  icon={isPaused ? "play_arrow" : "pause"}
+                  label={isPaused ? "继续" : "暂停"}
+                  large
+                  onClick={() => setIsPaused((value) => !value)}
+                />
+              )}
               <SessionControl
                 icon="skip_next"
                 label={isRestStep ? "跳过休息" : "下一个"}
-                onClick={completeCurrentStep}
+                onClick={() => {
+                  if (hasStarted) {
+                    completeCurrentStep();
+                    return;
+                  }
+
+                  goToStep(activeStepIndex + 1);
+                }}
               />
             </div>
           </section>
@@ -853,7 +856,14 @@ export function WorkoutSessionPage() {
                 </button>
                 <button
                   className="flex h-11 items-center justify-center gap-xs rounded-xl border border-primary/30 bg-white text-body-md font-extrabold text-primary transition-colors hover:bg-primary-soft"
-                  onClick={() => completeCurrentStep()}
+                  onClick={() => {
+                    if (hasStarted) {
+                      completeCurrentStep();
+                      return;
+                    }
+
+                    goToStep(activeStepIndex + 1);
+                  }}
                   type="button"
                 >
                   <SymbolIcon className="text-lg">skip_next</SymbolIcon>

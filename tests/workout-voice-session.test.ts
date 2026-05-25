@@ -181,6 +181,35 @@ describe("workout voice session scheduler", () => {
     ]);
     expect(environment.cancelCount).toBe(cancelCountBeforeActivation + 1);
   });
+
+  it("completes preparation intro when start control activates current step speech", () => {
+    const environment = installMockSpeechEnvironment();
+    const step = createExerciseStep({ mode: "reps", target: 15 });
+    let completedStepKey = "";
+    const session = new WorkoutVoiceSession();
+
+    session.setContext({
+      activeStep: step,
+      activeStepKey: "session:start-control",
+      isFirstExerciseStep: true,
+      isPaused: false,
+      isPreparing: true,
+      onPreparationIntroComplete: (stepKey) => {
+        completedStepKey = stepKey;
+      },
+    });
+    session.setPreferenceEnabled(true);
+    session.activateCurrentStep();
+
+    expect(environment.spoken.map((utterance) => utterance.text)).toEqual([
+      "语音播报已开启。",
+      "第一组动作，俯卧撑，15 个。",
+    ]);
+
+    environment.spoken[0].onstart?.({} as SpeechSynthesisEvent);
+    environment.spoken[1].onend?.({} as SpeechSynthesisEvent);
+    expect(completedStepKey).toBe("session:start-control");
+  });
 });
 
 function createExerciseStep({

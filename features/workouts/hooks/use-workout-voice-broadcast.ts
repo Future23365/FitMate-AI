@@ -27,6 +27,7 @@ type UseWorkoutVoiceBroadcastOptions = {
   isPaused: boolean;
   isPreferenceEnabled: boolean;
   isPreparationCountdownActive: boolean;
+  isSessionStarted: boolean;
   onPreparationIntroComplete: (stepKey: string) => void;
   preparationCountdown: number;
   remainingSeconds: number;
@@ -93,6 +94,7 @@ export function useWorkoutVoiceBroadcast({
   isPaused,
   isPreferenceEnabled,
   isPreparationCountdownActive,
+  isSessionStarted,
   onPreparationIntroComplete,
   preparationCountdown,
   remainingSeconds,
@@ -145,7 +147,9 @@ export function useWorkoutVoiceBroadcast({
       onPreparationIntroComplete,
     });
     session.setPreferenceEnabled(isPreferenceEnabled);
-    session.handleStepChanged();
+    if (isSessionStarted) {
+      session.handleStepChanged();
+    }
   }, [
     activeStep,
     activeStepKey,
@@ -154,11 +158,12 @@ export function useWorkoutVoiceBroadcast({
     isPaused,
     isPreferenceEnabled,
     isPreparing,
+    isSessionStarted,
     onPreparationIntroComplete,
   ]);
 
   useEffect(() => {
-    if (!isPreferenceEnabled || isPaused || !isPreparationCountdownActive || preparationCountdown <= 0) {
+    if (!isSessionStarted || !isPreferenceEnabled || isPaused || !isPreparationCountdownActive || preparationCountdown <= 0) {
       return;
     }
 
@@ -168,20 +173,22 @@ export function useWorkoutVoiceBroadcast({
     isPaused,
     isPreferenceEnabled,
     isPreparationCountdownActive,
+    isSessionStarted,
     preparationCountdown,
   ]);
 
   useEffect(() => {
-    if (!isPreferenceEnabled || isPaused) {
+    if (!isSessionStarted || !isPreferenceEnabled || isPaused) {
       return;
     }
 
     getSession().handleRepetitionCount(completedReps);
-  }, [completedReps, getSession, isPaused, isPreferenceEnabled]);
+  }, [completedReps, getSession, isPaused, isPreferenceEnabled, isSessionStarted]);
 
   useEffect(() => {
     if (
       !activeStep ||
+      !isSessionStarted ||
       !isPreferenceEnabled ||
       isPaused ||
       isPreparing ||
@@ -197,7 +204,7 @@ export function useWorkoutVoiceBroadcast({
     }
 
     getSession().playTimedBeep();
-  }, [activeStep, getSession, isPaused, isPreferenceEnabled, isPreparing, remainingSeconds]);
+  }, [activeStep, getSession, isPaused, isPreferenceEnabled, isPreparing, isSessionStarted, remainingSeconds]);
 
   const activateCurrentStep = useCallback((forcePreferenceEnabled = false) => {
     getSession().activateCurrentStep(forcePreferenceEnabled);
