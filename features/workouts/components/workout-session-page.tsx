@@ -402,6 +402,8 @@ export function WorkoutSessionPage() {
                 className={`grid h-11 w-11 place-items-center rounded-xl border transition-colors ${
                   isAudioOn
                     ? "border-primary/20 bg-primary-soft text-primary"
+                    : showVoiceTip
+                      ? "border-primary bg-primary-soft text-primary shadow-lift ring-4 ring-primary/15"
                     : "border-line bg-white text-muted hover:text-primary"
                 }`}
                 onClick={() => setVoiceBroadcastEnabled(!isAudioOn)}
@@ -410,22 +412,24 @@ export function WorkoutSessionPage() {
                 <SymbolIcon className="text-2xl">{isAudioOn ? "volume_up" : "volume_off"}</SymbolIcon>
               </button>
               {isVoicePreferenceLoaded && showVoiceTip && !isAudioOn ? (
-                <div className="absolute right-0 top-[calc(100%+10px)] z-30 w-[210px] rounded-xl border border-primary/15 bg-white p-sm text-left shadow-card">
+                <div className="absolute right-0 top-[calc(100%+12px)] z-30 w-[244px] rounded-xl border border-primary/35 bg-primary-soft p-md text-left shadow-lift ring-1 ring-primary/10">
                   <span
                     aria-hidden="true"
-                    className="absolute -top-[6px] right-4 h-3 w-3 rotate-45 border-l border-t border-primary/15 bg-white"
+                    className="absolute -top-[7px] right-4 h-4 w-4 rotate-45 border-l border-t border-primary/35 bg-primary-soft"
                   />
-                  <div className="flex items-start gap-xs">
-                    <SymbolIcon className="mt-[1px] text-xl text-primary">campaign</SymbolIcon>
+                  <div className="flex items-start gap-sm">
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary text-white shadow-card">
+                      <SymbolIcon className="text-xl">campaign</SymbolIcon>
+                    </span>
                     <div className="min-w-0 flex-1">
-                      <p className="text-label-md font-extrabold text-ink">语音播报</p>
-                      <p className="mt-[2px] text-label-sm font-semibold leading-snug text-muted">
+                      <p className="text-body-md font-extrabold text-ink">语音播报开关</p>
+                      <p className="mt-xs text-label-md font-bold leading-snug text-primary">
                         点上方按钮即可开启或关闭。
                       </p>
                     </div>
                     <button
                       aria-label="关闭语音提示"
-                      className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-panel-soft hover:text-ink"
+                      className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-primary transition-colors hover:bg-white hover:text-ink"
                       onClick={() => setShowVoiceTip(false)}
                       type="button"
                     >
