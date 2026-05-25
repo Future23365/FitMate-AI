@@ -2,7 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 
-import { aiPromptConfig } from "@/app/api/ai-prompt-config";
+import { aiPromptConfig } from "@/lib/server/ai/prompt-config";
 import type { AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
 import { serverRequest } from "@/lib/server/http/server-request";
 import type { ExerciseCandidate } from "@/lib/server/workout-plans";

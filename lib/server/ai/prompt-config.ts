@@ -1,3 +1,5 @@
+import "server-only";
+
 // 每个顶层字段对应一次大模型调用，子字段只用于同一次调用内部的提示词拆分。
 export const aiPromptConfig = {
   // 模型调用：/api/chat 的聊天意图解析请求。

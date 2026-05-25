@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { aiPromptConfig } from "@/app/api/ai-prompt-config";
+import { aiPromptConfig } from "@/lib/server/ai/prompt-config";
 import type { AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import type { Exercise } from "@/lib/shared/exercises/types";

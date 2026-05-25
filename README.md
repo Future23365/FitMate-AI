@@ -119,6 +119,8 @@ lib/
   client/                  # 浏览器专用基础设施
     http/client-request.ts # 前端统一请求函数
   server/                  # 服务端专用基础设施和业务服务
+    ai/                    # 服务端 AI prompt 配置和模型调用配置
+    chat/                  # 服务端聊天意图解析、候选动作注入和流式回复编排
     db/                    # Prisma Client 单例和数据库配置入口
     http/server-request.ts # 服务端外部 HTTP 请求函数
     exercises/             # 服务端动作库查询服务
