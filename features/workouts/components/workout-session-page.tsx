@@ -16,10 +16,10 @@ import {
   isWorkoutVoiceBroadcastSupported,
   readWorkoutVoiceBroadcastPreference,
   readWorkoutVoiceBroadcastTipSeen,
-  unlockWorkoutVoiceBroadcastAudio,
   useWorkoutVoiceBroadcast,
   writeWorkoutVoiceBroadcastPreference,
   writeWorkoutVoiceBroadcastTipSeen,
+  type WorkoutVoiceBroadcastStatus,
 } from "@/features/workouts/hooks/use-workout-voice-broadcast";
 import {
   buildWorkoutTimeline,
@@ -161,6 +161,42 @@ function mapWorkoutItemToExercise(item: WorkoutItem): Exercise {
   };
 }
 
+function getVoiceButtonLabel(
+  isSupported: boolean,
+  isPreferenceOn: boolean,
+  status: WorkoutVoiceBroadcastStatus,
+) {
+  if (!isSupported) {
+    return "当前浏览器不支持语音播报";
+  }
+
+  if (isPreferenceOn && (status === "needs-activation" || status === "failed")) {
+    return "启动语音播报";
+  }
+
+  return isPreferenceOn ? "关闭语音播报" : "开启语音播报";
+}
+
+function getVoiceStatusText(status: WorkoutVoiceBroadcastStatus) {
+  switch (status) {
+    case "needs-activation":
+      return "点击任意训练控制可恢复语音";
+    case "activating":
+      return "正在启动语音";
+    case "speaking":
+      return "正在播报";
+    case "failed":
+      return "语音未启动，可重试";
+    case "unsupported":
+      return "当前浏览器不支持语音播报";
+    case "active":
+      return "语音已开启";
+    case "off":
+    default:
+      return "语音已关闭";
+  }
+}
+
 export function WorkoutSessionPage() {
   const searchParams = useSearchParams();
   const planId = searchParams.get("planId");
@@ -173,8 +209,6 @@ export function WorkoutSessionPage() {
   const [preparationCountdownStepKey, setPreparationCountdownStepKey] = useState("");
   const [isPaused, setIsPaused] = useState(false);
   const [isAudioOn, setIsAudioOn] = useState(false);
-  const [isVoiceAudioActive, setIsVoiceAudioActive] = useState(false);
-  const [isVoiceSupported, setIsVoiceSupported] = useState(false);
   const [loadedPlanKey, setLoadedPlanKey] = useState("");
   const [isVoicePreferenceLoaded, setIsVoicePreferenceLoaded] = useState(false);
   const [showTip, setShowTip] = useState(true);
@@ -230,7 +264,6 @@ export function WorkoutSessionPage() {
   const sessionVoiceId = `${plan.id}:${plan.date}:${plan.planId}`;
   const activeStepKey = activeStep ? `${sessionVoiceId}:${activeStep.id}:${activeStepIndex}` : "";
   const isPlanReady = loadedPlanKey === requestedPlanKey;
-  const isVoiceBroadcastActive = isVoiceSupported && isAudioOn && isVoiceAudioActive;
   const needsExercisePreparation = activeStep?.type === "exercise" && preparedStepKey !== activeStepKey;
   const isPreparationCountdownActive = preparationCountdownStepKey === activeStepKey;
   const isPreparing = Boolean(needsExercisePreparation && preparationCountdown > 0);
@@ -277,9 +310,7 @@ export function WorkoutSessionPage() {
       const savedAudioPreference = canUseVoiceBroadcast && readWorkoutVoiceBroadcastPreference();
       const hasSeenVoiceTip = readWorkoutVoiceBroadcastTipSeen();
 
-      setIsVoiceSupported(canUseVoiceBroadcast);
       setIsAudioOn(savedAudioPreference);
-      setIsVoiceAudioActive(false);
       if (canUseVoiceBroadcast && !savedAudioPreference && !hasSeenVoiceTip) {
         setShowVoiceTip(true);
         writeWorkoutVoiceBroadcastTipSeen();
@@ -294,23 +325,39 @@ export function WorkoutSessionPage() {
     setPreparationCountdownStepKey(stepKey);
   }, []);
 
-  const activateVoiceAudio = useCallback((announce = false) => {
-    if (!isVoiceSupported) {
-      return false;
-    }
-
-    unlockWorkoutVoiceBroadcastAudio({ announce });
-    setIsVoiceAudioActive(true);
-    return true;
-  }, [isVoiceSupported]);
+  const voiceSession = useWorkoutVoiceBroadcast({
+    activeStepIndex,
+    completedReps,
+    isFirstExerciseStep: activeStepIndex === 0,
+    isPaused,
+    isPreferenceEnabled: isAudioOn && loadedPlanKey === requestedPlanKey && isVoicePreferenceLoaded,
+    isPreparationCountdownActive,
+    onPreparationIntroComplete: markPreparationIntroComplete,
+    preparationCountdown,
+    remainingSeconds,
+    sessionId: sessionVoiceId,
+    steps,
+  });
+  const isVoiceSupported = voiceSession.isSupported;
+  const isVoicePreferenceOn = isVoiceSupported && isAudioOn;
+  const voiceStatus = isVoiceSupported ? voiceSession.status : "unsupported";
+  const isVoiceBroadcastActive =
+    isVoicePreferenceOn && (voiceStatus === "active" || voiceStatus === "speaking" || voiceStatus === "activating");
+  const shouldRetryVoiceActivation =
+    isVoicePreferenceOn && (voiceStatus === "needs-activation" || voiceStatus === "failed");
 
   useEffect(() => {
-    if (!isVoiceSupported || !isAudioOn || isVoiceAudioActive) {
+    if (!shouldRetryVoiceActivation) {
       return;
     }
 
-    const activateOnUserGesture = () => {
-      activateVoiceAudio();
+    const activateOnUserGesture = (event: Event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest("[data-workout-voice-button]")) {
+        return;
+      }
+
+      voiceSession.activateCurrentStep();
     };
 
     window.addEventListener("pointerdown", activateOnUserGesture, { capture: true, once: true });
@@ -320,43 +367,37 @@ export function WorkoutSessionPage() {
       window.removeEventListener("pointerdown", activateOnUserGesture, true);
       window.removeEventListener("keydown", activateOnUserGesture, true);
     };
-  }, [activateVoiceAudio, isAudioOn, isVoiceAudioActive, isVoiceSupported]);
+  }, [shouldRetryVoiceActivation, voiceSession]);
 
-  const setVoiceBroadcastEnabled = useCallback((nextValue: boolean) => {
+  const handleVoiceButtonClick = useCallback(() => {
     if (!isVoiceSupported) {
       return;
     }
 
-    if (nextValue) {
-      activateVoiceAudio(true);
-    } else {
-      setIsVoiceAudioActive(false);
+    if (!isVoicePreferenceOn) {
+      setIsAudioOn(true);
+      setShowVoiceTip(false);
+      writeWorkoutVoiceBroadcastPreference(true);
+      voiceSession.activateCurrentStep(true);
+      return;
     }
 
-    setIsAudioOn(nextValue);
-    setShowVoiceTip(false);
-    writeWorkoutVoiceBroadcastPreference(nextValue);
-  }, [activateVoiceAudio, isVoiceSupported]);
+    if (shouldRetryVoiceActivation) {
+      voiceSession.activateCurrentStep();
+      return;
+    }
 
-  useWorkoutVoiceBroadcast({
-    activeStepIndex,
-    completedReps,
-    isEnabled: isVoiceBroadcastActive && loadedPlanKey === requestedPlanKey && isVoicePreferenceLoaded,
-    isPreparationCountdownActive,
-    isFirstExerciseStep: activeStepIndex === 0,
-    isPaused,
-    onPreparationIntroComplete: markPreparationIntroComplete,
-    preparationCountdown,
-    remainingSeconds,
-    sessionId: sessionVoiceId,
-    steps,
-  });
+    voiceSession.disableVoiceSession();
+    setIsAudioOn(false);
+    setShowVoiceTip(false);
+    writeWorkoutVoiceBroadcastPreference(false);
+  }, [isVoicePreferenceOn, isVoiceSupported, shouldRetryVoiceActivation, voiceSession]);
 
   useEffect(() => {
     if (
       !isPlanReady ||
       !isVoicePreferenceLoaded ||
-      (isVoiceSupported && isAudioOn) ||
+      isVoicePreferenceOn ||
       !needsExercisePreparation ||
       !activeStepKey
     ) {
@@ -371,7 +412,7 @@ export function WorkoutSessionPage() {
     isAudioOn,
     isPlanReady,
     isVoicePreferenceLoaded,
-    isVoiceSupported,
+    isVoicePreferenceOn,
     markPreparationIntroComplete,
     needsExercisePreparation,
   ]);
@@ -500,31 +541,30 @@ export function WorkoutSessionPage() {
           <div className="flex items-center gap-sm">
             <div className="relative">
               <button
-                aria-label={
-                  isVoiceSupported
-                    ? isVoiceBroadcastActive
-                      ? "关闭语音播报"
-                      : "开启语音播报"
-                    : "当前浏览器不支持语音播报"
-                }
+                aria-label={getVoiceButtonLabel(isVoiceSupported, isVoicePreferenceOn, voiceStatus)}
                 className={`grid h-11 w-11 place-items-center rounded-xl border transition-colors ${
                   !isVoiceSupported
                     ? "cursor-not-allowed border-line bg-panel-soft text-muted"
                     : isVoiceBroadcastActive
                     ? "border-primary/20 bg-primary-soft text-primary"
+                    : voiceStatus === "failed"
+                    ? "border-red-200 bg-red-50 text-danger shadow-lift ring-4 ring-red-100"
+                    : voiceStatus === "needs-activation"
+                    ? "border-primary bg-primary-soft text-primary shadow-lift ring-4 ring-primary/15"
                     : showVoiceTip
                       ? "border-primary bg-primary-soft text-primary shadow-lift ring-4 ring-primary/15"
                     : "border-line bg-white text-muted hover:text-primary"
                 }`}
+                data-workout-voice-button
                 disabled={!isVoiceSupported}
-                onClick={() => setVoiceBroadcastEnabled(!isVoiceBroadcastActive)}
+                onClick={handleVoiceButtonClick}
                 type="button"
               >
                 <SymbolIcon className="text-2xl">
-                  {isVoiceSupported && isVoiceBroadcastActive ? "volume_up" : "volume_off"}
+                  {isVoiceSupported && isVoicePreferenceOn ? "volume_up" : "volume_off"}
                 </SymbolIcon>
               </button>
-              {isVoicePreferenceLoaded && showVoiceTip && !isVoiceBroadcastActive ? (
+              {isVoicePreferenceLoaded && showVoiceTip && !isVoicePreferenceOn ? (
                 <div className="absolute right-0 top-[calc(100%+12px)] z-30 w-[244px] rounded-xl border border-primary/35 bg-primary-soft p-md text-left shadow-lift ring-1 ring-primary/10">
                   <span
                     aria-hidden="true"
@@ -549,6 +589,14 @@ export function WorkoutSessionPage() {
                       <SymbolIcon className="text-lg">close</SymbolIcon>
                     </button>
                   </div>
+                </div>
+              ) : null}
+              {isVoicePreferenceLoaded && isVoicePreferenceOn && !isVoiceBroadcastActive ? (
+                <div className="absolute right-0 top-[calc(100%+12px)] z-30 w-[228px] rounded-xl border border-line bg-white p-sm text-left shadow-lift">
+                  <p className="text-label-md font-extrabold text-ink">{getVoiceStatusText(voiceStatus)}</p>
+                  <p className="mt-1 text-label-sm font-semibold text-muted">
+                    {voiceStatus === "failed" ? "浏览器可能阻止了本次播放。" : "刷新后需要一次用户手势。"}
+                  </p>
                 </div>
               ) : null}
             </div>

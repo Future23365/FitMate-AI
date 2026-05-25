@@ -1,0 +1,193 @@
+import {
+  createWorkoutVoiceSpeechJob,
+  readWorkoutVoiceBroadcastPreference,
+  readWorkoutVoiceBroadcastTipSeen,
+  unlockWorkoutVoiceBroadcastAudio,
+  writeWorkoutVoiceBroadcastPreference,
+  writeWorkoutVoiceBroadcastTipSeen,
+  type WorkoutVoiceBroadcastError,
+} from "@/features/workouts/hooks/use-workout-voice-broadcast";
+
+type MockUtterance = SpeechSynthesisUtterance & {
+  text: string;
+};
+
+type MockSpeechEnvironment = {
+  cancelCount: number;
+  resumeCount: number;
+  spoken: MockUtterance[];
+};
+
+class MockSpeechSynthesisUtterance {
+  lang = "";
+  onend: ((event?: unknown) => void) | null = null;
+  onerror: ((event?: unknown) => void) | null = null;
+  onstart: ((event?: unknown) => void) | null = null;
+  pitch = 1;
+  rate = 1;
+  text: string;
+  voice: SpeechSynthesisVoice | null = null;
+  volume = 1;
+
+  constructor(text: string) {
+    this.text = text;
+  }
+}
+
+export async function runWorkoutVoiceBroadcastControllerTests() {
+  const originalWindowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const originalUtteranceDescriptor = Object.getOwnPropertyDescriptor(globalThis, "SpeechSynthesisUtterance");
+
+  try {
+    const environment = installMockSpeechEnvironment();
+    let started = false;
+    let completed = false;
+    let failed: WorkoutVoiceBroadcastError | null = null;
+
+    createWorkoutVoiceSpeechJob(["第一组动作，开合跳，45 秒。"], {
+      failOnMissingStart: true,
+      jobId: 1,
+      onDone: () => {
+        completed = true;
+      },
+      onError: (reason) => {
+        failed = reason;
+      },
+      onStart: () => {
+        started = true;
+      },
+      reason: "test-success",
+    });
+
+    console.assert(environment.resumeCount === 1, "开启语音时应 resume speechSynthesis");
+    console.assert(environment.spoken.length === 1, "开启语音时应立即 speak 当前步骤");
+    (environment.spoken[0].onstart as (() => void) | null)?.();
+    (environment.spoken[0].onend as (() => void) | null)?.();
+    console.assert(started, "speech onstart 应更新播放状态");
+    console.assert(completed, "speech onend 应完成当前任务");
+    console.assert(failed === null, "成功播报不应产生错误状态");
+
+    const blockedEnvironment = installMockSpeechEnvironment();
+    let blockedReason: WorkoutVoiceBroadcastError | null = null;
+    createWorkoutVoiceSpeechJob(["下一组，深蹲，45 秒。"], {
+      failOnMissingStart: true,
+      jobId: 2,
+      onError: (reason) => {
+        blockedReason = reason;
+      },
+      reason: "test-blocked",
+    });
+    console.assert(blockedEnvironment.spoken.length === 1, "被浏览器阻止前仍应发起 speak 尝试");
+    await wait(950);
+    console.assert(blockedReason === "speech_blocked", "未触发 onstart 时应暴露 speech_blocked");
+
+    const staleEnvironment = installMockSpeechEnvironment();
+    let staleCompleted = false;
+    const staleJob = createWorkoutVoiceSpeechJob(["3"], {
+      jobId: 3,
+      onDone: () => {
+        staleCompleted = true;
+      },
+      reason: "test-stale",
+    });
+    staleJob.cancel("test-cancel");
+    (staleEnvironment.spoken[0].onend as (() => void) | null)?.();
+    console.assert(!staleCompleted, "取消后的迟到 onend 不应完成任务");
+
+    installUnsupportedSpeechEnvironment();
+    let unsupportedCompleted = false;
+    createWorkoutVoiceSpeechJob(["1，开始"], {
+      jobId: 4,
+      onDone: () => {
+        unsupportedCompleted = true;
+      },
+      reason: "test-unsupported",
+    });
+    await wait(1250);
+    console.assert(unsupportedCompleted, "speechSynthesis 不可用时应走无声降级完成任务");
+
+    installUnavailableStorageEnvironment();
+    console.assert(!readWorkoutVoiceBroadcastPreference(), "localStorage 不可用时语音偏好应安全降级为关闭");
+    console.assert(!readWorkoutVoiceBroadcastTipSeen(), "localStorage 不可用时提示状态应安全降级为未看过");
+    writeWorkoutVoiceBroadcastPreference(true);
+    writeWorkoutVoiceBroadcastTipSeen();
+
+    installMockSpeechEnvironment();
+    console.assert(!unlockWorkoutVoiceBroadcastAudio(), "Web Audio 不可用时应返回失败且不影响语音控制器");
+  } finally {
+    restoreDescriptor("window", originalWindowDescriptor);
+    restoreDescriptor("SpeechSynthesisUtterance", originalUtteranceDescriptor);
+  }
+}
+
+function installMockSpeechEnvironment(): MockSpeechEnvironment {
+  const environment: MockSpeechEnvironment = {
+    cancelCount: 0,
+    resumeCount: 0,
+    spoken: [],
+  };
+  const speechSynthesis = {
+    cancel: () => {
+      environment.cancelCount += 1;
+    },
+    getVoices: () => [
+      {
+        lang: "zh-CN",
+        name: "Chinese Mock Voice",
+      } as SpeechSynthesisVoice,
+    ],
+    resume: () => {
+      environment.resumeCount += 1;
+    },
+    speak: (utterance: SpeechSynthesisUtterance) => {
+      environment.spoken.push(utterance as MockUtterance);
+    },
+  };
+
+  Object.defineProperty(globalThis, "SpeechSynthesisUtterance", {
+    configurable: true,
+    value: MockSpeechSynthesisUtterance,
+  });
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      SpeechSynthesisUtterance: MockSpeechSynthesisUtterance,
+      speechSynthesis,
+    },
+  });
+
+  return environment;
+}
+
+function installUnsupportedSpeechEnvironment() {
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {},
+  });
+}
+
+function installUnavailableStorageEnvironment() {
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      get localStorage() {
+        throw new Error("localStorage unavailable");
+      },
+    },
+  });
+}
+
+function restoreDescriptor(name: "window" | "SpeechSynthesisUtterance", descriptor?: PropertyDescriptor) {
+  if (descriptor) {
+    Object.defineProperty(globalThis, name, descriptor);
+    return;
+  }
+
+  Reflect.deleteProperty(globalThis, name);
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => {
+    globalThis.setTimeout(resolve, ms);
+  });
+}

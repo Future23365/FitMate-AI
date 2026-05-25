@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { WorkoutTimelineStep } from "@/lib/shared/workouts/composition";
 import {
@@ -12,21 +12,36 @@ import {
 
 export const workoutVoiceBroadcastStorageKey = "fitmate.workoutVoiceBroadcast.enabled";
 export const workoutVoiceBroadcastTipSeenStorageKey = "fitmate.workoutVoiceBroadcast.tipSeen";
+
 const speechUnavailablePreparationDelayMs = 1200;
+const speechStartFallbackMs = 900;
 const speechCompletionFallbackMinMs = 1600;
 const speechCompletionFallbackMaxMs = 8000;
 const speechCompletionFallbackMsPerChar = 220;
-const speechRestartDelayMs = 80;
-const voiceActivationCue = "语音播报已开启";
 let workoutAudioContext: AudioContext | null = null;
+
+export type WorkoutVoiceBroadcastStatus =
+  | "unsupported"
+  | "off"
+  | "needs-activation"
+  | "activating"
+  | "active"
+  | "speaking"
+  | "failed";
+
+export type WorkoutVoiceBroadcastError =
+  | "speech_unsupported"
+  | "speech_blocked"
+  | "speech_error"
+  | "audio_context_unavailable";
 
 type UseWorkoutVoiceBroadcastOptions = {
   activeStepIndex: number;
   completedReps: number;
-  isEnabled: boolean;
-  isPreparationCountdownActive: boolean;
   isFirstExerciseStep: boolean;
   isPaused: boolean;
+  isPreferenceEnabled: boolean;
+  isPreparationCountdownActive: boolean;
   onPreparationIntroComplete: (stepKey: string) => void;
   preparationCountdown: number;
   remainingSeconds: number;
@@ -40,8 +55,21 @@ type WindowWithWebKitAudioContext = Window &
   };
 
 type SpeechJob = {
-  cancel: () => void;
+  cancel: (reason?: string) => void;
+  id: number;
 };
+
+export type WorkoutVoiceSpeechJobOptions = {
+  failOnMissingStart?: boolean;
+  forcePreferenceEnabled?: boolean;
+  jobId: number;
+  onDone?: () => void;
+  onError?: (reason: WorkoutVoiceBroadcastError) => void;
+  onStart?: () => void;
+  reason: string;
+};
+
+type SpeakTextsOptions = Omit<WorkoutVoiceSpeechJobOptions, "jobId">;
 
 export function readWorkoutVoiceBroadcastPreference() {
   if (typeof window === "undefined") {
@@ -95,36 +123,17 @@ export function isWorkoutVoiceBroadcastSupported() {
   return canSpeak();
 }
 
-export function unlockWorkoutVoiceBroadcastAudio({ announce = false } = {}) {
-  if (typeof window === "undefined") {
-    return false;
-  }
-
-  let didPrimeSpeech = false;
-
-  if (canSpeak()) {
-    try {
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.resume();
-      if (announce) {
-        window.speechSynthesis.speak(createSpeechUtterance(voiceActivationCue));
-        didPrimeSpeech = true;
-      }
-    } catch {
-      // User-gesture audio unlock is best-effort; the session flow still handles timing.
-    }
-  }
-
-  return unlockWebAudio() || didPrimeSpeech;
+export function unlockWorkoutVoiceBroadcastAudio() {
+  return unlockWebAudio();
 }
 
 export function useWorkoutVoiceBroadcast({
   activeStepIndex,
   completedReps,
-  isEnabled,
-  isPreparationCountdownActive,
   isFirstExerciseStep,
   isPaused,
+  isPreferenceEnabled,
+  isPreparationCountdownActive,
   onPreparationIntroComplete,
   preparationCountdown,
   remainingSeconds,
@@ -134,76 +143,223 @@ export function useWorkoutVoiceBroadcast({
   const activeStep = steps[activeStepIndex];
   const activeStepKey = activeStep ? `${sessionId}:${activeStep.id}:${activeStepIndex}` : "";
   const isPreparing = preparationCountdown > 0;
+  const [isSupported, setIsSupported] = useState(false);
+  const [status, setStatus] = useState<WorkoutVoiceBroadcastStatus>(() => {
+    return "unsupported";
+  });
+  const [lastError, setLastError] = useState<WorkoutVoiceBroadcastError | null>(null);
   const activeSpeechJobRef = useRef<SpeechJob | null>(null);
-  const hasActiveSpeechCycleRef = useRef(false);
+  const jobSequenceRef = useRef(0);
+  const activeJobIdRef = useRef(0);
+  const hasActivatedRef = useRef(false);
+  const lastRepetitionCueKeyRef = useRef("");
 
-  const stopSpeech = useCallback(() => {
-    activeSpeechJobRef.current?.cancel();
-    activeSpeechJobRef.current = null;
-    cancelSpeech();
+  const setVoiceState = useCallback((nextStatus: WorkoutVoiceBroadcastStatus, nextError: WorkoutVoiceBroadcastError | null = null) => {
+    setStatus(nextStatus);
+    setLastError(nextError);
   }, []);
 
-  const stopSessionAudio = useCallback(() => {
-    stopSpeech();
-  }, [stopSpeech]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setIsSupported(canSpeak()), 0);
 
-  const startSpeech = useCallback((texts: string[], interrupt = false, onDone?: () => void) => {
-    if (interrupt) {
-      stopSpeech();
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  const cancelSpeech = useCallback((reason = "cancel") => {
+    activeJobIdRef.current += 1;
+    activeSpeechJobRef.current?.cancel(reason);
+    activeSpeechJobRef.current = null;
+    cancelBrowserSpeech();
+    logVoiceDiagnostic("cancel", { reason });
+  }, []);
+
+  const finishPreparationIntro = useCallback(() => {
+    if (activeStepKey) {
+      onPreparationIntroComplete(activeStepKey);
+    }
+  }, [activeStepKey, onPreparationIntroComplete]);
+
+  const handleSpeechFailure = useCallback((reason: WorkoutVoiceBroadcastError) => {
+    hasActivatedRef.current = false;
+    setVoiceState("failed", reason);
+    logVoiceDiagnostic("speech error", { reason });
+  }, [setVoiceState]);
+
+  const startSpeech = useCallback((texts: string[], options: SpeakTextsOptions) => {
+    cancelSpeech(`replace:${options.reason}`);
+
+    if (!isPreferenceEnabled && !options.forcePreferenceEnabled) {
+      return;
     }
 
-    const speechJob = speakTexts(texts, onDone);
-    activeSpeechJobRef.current = speechJob;
-  }, [stopSpeech]);
+    if (!canSpeak()) {
+      setVoiceState("unsupported", "speech_unsupported");
+      options.onDone?.();
+      return;
+    }
+
+    setVoiceState(options.failOnMissingStart ? "activating" : "speaking");
+
+    const jobId = jobSequenceRef.current + 1;
+    jobSequenceRef.current = jobId;
+    activeJobIdRef.current = jobId;
+
+    activeSpeechJobRef.current = createWorkoutVoiceSpeechJob(texts, {
+      failOnMissingStart: options.failOnMissingStart,
+      jobId,
+      onDone: () => {
+        if (activeJobIdRef.current !== jobId) {
+          logVoiceDiagnostic("stale end", { jobId });
+          return;
+        }
+
+        activeSpeechJobRef.current = null;
+        hasActivatedRef.current = true;
+        setVoiceState("active");
+        options.onDone?.();
+      },
+      onError: (reason) => {
+        if (activeJobIdRef.current !== jobId) {
+          logVoiceDiagnostic("stale error", { jobId, reason });
+          return;
+        }
+
+        activeSpeechJobRef.current = null;
+        handleSpeechFailure(reason);
+        options.onDone?.();
+      },
+      onStart: () => {
+        if (activeJobIdRef.current !== jobId) {
+          logVoiceDiagnostic("stale start", { jobId });
+          return;
+        }
+
+        hasActivatedRef.current = true;
+        setVoiceState("speaking");
+        options.onStart?.();
+      },
+      reason: options.reason,
+    });
+  }, [cancelSpeech, handleSpeechFailure, isPreferenceEnabled, setVoiceState]);
+
+  const speakCurrentStep = useCallback((reason = "current-step", forcePreferenceEnabled = false) => {
+    if (!activeStep || (!isPreferenceEnabled && !forcePreferenceEnabled) || isPaused) {
+      return;
+    }
+
+    const introText =
+      activeStep.type === "exercise" && isPreparing
+        ? buildWorkoutActionPreparationCue(activeStep, isFirstExerciseStep)
+        : buildWorkoutStepVoiceCue(activeStep);
+
+    startSpeech([introText], {
+      forcePreferenceEnabled,
+      failOnMissingStart: !hasActivatedRef.current,
+      onDone: activeStep.type === "exercise" && isPreparing ? finishPreparationIntro : undefined,
+      reason,
+    });
+  }, [
+    activeStep,
+    finishPreparationIntro,
+    isFirstExerciseStep,
+    isPaused,
+    isPreferenceEnabled,
+    isPreparing,
+    startSpeech,
+  ]);
+
+  const activateCurrentStep = useCallback((forcePreferenceEnabled = false) => {
+    if (!isSupported) {
+      setVoiceState("unsupported", "speech_unsupported");
+      return;
+    }
+
+    if (!isPreferenceEnabled && !forcePreferenceEnabled) {
+      setVoiceState("off");
+      return;
+    }
+
+    logVoiceDiagnostic("activation retry", { activeStepKey });
+    unlockWorkoutVoiceBroadcastAudio();
+    speakCurrentStep("activation", forcePreferenceEnabled);
+  }, [activeStepKey, isPreferenceEnabled, isSupported, setVoiceState, speakCurrentStep]);
+
+  const disableVoiceSession = useCallback(() => {
+    hasActivatedRef.current = false;
+    lastRepetitionCueKeyRef.current = "";
+    cancelSpeech("disabled");
+    setVoiceState(isSupported ? "off" : "unsupported");
+  }, [cancelSpeech, isSupported, setVoiceState]);
 
   useEffect(() => {
-    window.addEventListener("pagehide", stopSessionAudio);
-    window.addEventListener("beforeunload", stopSessionAudio);
+    if (!isSupported) {
+      const timer = window.setTimeout(() => setVoiceState("unsupported", "speech_unsupported"), 0);
+
+      return () => window.clearTimeout(timer);
+    }
+
+    if (!isPreferenceEnabled) {
+      const timer = window.setTimeout(disableVoiceSession, 0);
+
+      return () => window.clearTimeout(timer);
+    }
+
+    if (!hasActivatedRef.current && status !== "activating" && status !== "failed") {
+      const timer = window.setTimeout(() => setVoiceState("needs-activation"), 0);
+
+      return () => window.clearTimeout(timer);
+    }
+  }, [disableVoiceSession, isPreferenceEnabled, isSupported, setVoiceState, status]);
+
+  useEffect(() => {
+    window.addEventListener("pagehide", disableVoiceSession);
+    window.addEventListener("beforeunload", disableVoiceSession);
 
     return () => {
-      window.removeEventListener("pagehide", stopSessionAudio);
-      window.removeEventListener("beforeunload", stopSessionAudio);
-      stopSessionAudio();
+      window.removeEventListener("pagehide", disableVoiceSession);
+      window.removeEventListener("beforeunload", disableVoiceSession);
+      disableVoiceSession();
     };
-  }, [stopSessionAudio]);
+  }, [disableVoiceSession]);
 
   useEffect(() => {
-    if (!isEnabled || isPaused) {
-      hasActiveSpeechCycleRef.current = false;
-      stopSpeech();
+    if (!isPreferenceEnabled || isPaused) {
+      cancelSpeech(isPaused ? "paused" : "preference-off");
+      if (isPreferenceEnabled && isPaused && hasActivatedRef.current) {
+        setVoiceState("active");
+      }
     }
-  }, [isEnabled, isPaused, stopSpeech]);
+  }, [cancelSpeech, isPaused, isPreferenceEnabled, setVoiceState]);
 
   useEffect(() => {
-    if (!activeStep || !isEnabled || isPaused) {
+    if (!activeStep || !isPreferenceEnabled || isPaused || !hasActivatedRef.current) {
       return;
     }
 
-    const shouldInterrupt = hasActiveSpeechCycleRef.current;
-    hasActiveSpeechCycleRef.current = true;
-
-    if (isPreparing) {
-      startSpeech([buildWorkoutActionPreparationCue(activeStep, isFirstExerciseStep)], shouldInterrupt, () => {
-        onPreparationIntroComplete(activeStepKey);
-      });
-      return;
-    }
-
-    startSpeech([buildWorkoutStepVoiceCue(activeStep)], shouldInterrupt);
-  }, [activeStep, activeStepKey, isEnabled, isFirstExerciseStep, isPaused, isPreparing, onPreparationIntroComplete, startSpeech]);
+    speakCurrentStep("step-change");
+  }, [activeStep, activeStepKey, isPaused, isPreferenceEnabled, speakCurrentStep]);
 
   useEffect(() => {
-    if (!isEnabled || isPaused || !isPreparationCountdownActive || preparationCountdown <= 0) {
+    if (!isPreferenceEnabled || isPaused || !hasActivatedRef.current || !isPreparationCountdownActive || preparationCountdown <= 0) {
       return;
     }
 
-    startSpeech([buildPreparationCountdownCue(preparationCountdown)]);
-  }, [isEnabled, isPaused, isPreparationCountdownActive, preparationCountdown, startSpeech]);
+    startSpeech([buildPreparationCountdownCue(preparationCountdown)], {
+      reason: "preparation-countdown",
+    });
+  }, [
+    isPaused,
+    isPreferenceEnabled,
+    isPreparationCountdownActive,
+    preparationCountdown,
+    startSpeech,
+  ]);
 
   useEffect(() => {
     if (
       !activeStep ||
-      !isEnabled ||
+      !isPreferenceEnabled ||
+      !hasActivatedRef.current ||
       isPaused ||
       isPreparing ||
       activeStep.type !== "exercise" ||
@@ -218,12 +374,13 @@ export function useWorkoutVoiceBroadcast({
     }
 
     playBeep();
-  }, [activeStep, isEnabled, isPaused, isPreparing, remainingSeconds]);
+  }, [activeStep, isPaused, isPreferenceEnabled, isPreparing, remainingSeconds]);
 
   useEffect(() => {
     if (
       !activeStep ||
-      !isEnabled ||
+      !isPreferenceEnabled ||
+      !hasActivatedRef.current ||
       isPaused ||
       isPreparing ||
       activeStep.type !== "exercise" ||
@@ -236,31 +393,74 @@ export function useWorkoutVoiceBroadcast({
       return;
     }
 
-    startSpeech([buildRepetitionCountCue(completedReps)], true);
-  }, [activeStep, completedReps, isEnabled, isPaused, isPreparing, startSpeech]);
+    const cueKey = `${activeStepKey}:${completedReps}`;
+    if (lastRepetitionCueKeyRef.current === cueKey) {
+      return;
+    }
+
+    lastRepetitionCueKeyRef.current = cueKey;
+    startSpeech([buildRepetitionCountCue(completedReps)], {
+      reason: "repetition-count",
+    });
+  }, [
+    activeStep,
+    activeStepKey,
+    completedReps,
+    isPaused,
+    isPreferenceEnabled,
+    isPreparing,
+    startSpeech,
+  ]);
+
+  useEffect(() => {
+    lastRepetitionCueKeyRef.current = "";
+  }, [activeStepKey]);
+
+  return useMemo(() => ({
+    activateCurrentStep,
+    cancelCurrentVoice: cancelSpeech,
+    disableVoiceSession,
+    isActive: status === "active" || status === "speaking" || status === "activating",
+    isSupported,
+    lastError,
+    status,
+  }), [activateCurrentStep, cancelSpeech, disableVoiceSession, isSupported, lastError, status]);
 }
 
-function speakTexts(texts: string[], onDone?: () => void): SpeechJob {
+export function createWorkoutVoiceSpeechJob(
+  texts: string[],
+  {
+    failOnMissingStart = false,
+    jobId,
+    onDone,
+    onError,
+    onStart,
+    reason,
+  }: WorkoutVoiceSpeechJobOptions,
+): SpeechJob {
   let completionTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
-  let startTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
+  let startFallbackTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
   let isCancelled = false;
   const utterances: SpeechSynthesisUtterance[] = [];
+  const normalizedTexts = texts.map((text) => text.trim()).filter(Boolean);
 
-  const cancelJob = () => {
+  const cancelJob = (cancelReason = "cancel") => {
     isCancelled = true;
     if (completionTimer) {
       globalThis.clearTimeout(completionTimer);
       completionTimer = undefined;
     }
-    if (startTimer) {
-      globalThis.clearTimeout(startTimer);
-      startTimer = undefined;
+    if (startFallbackTimer) {
+      globalThis.clearTimeout(startFallbackTimer);
+      startFallbackTimer = undefined;
     }
 
     utterances.forEach((utterance) => {
+      utterance.onstart = null;
       utterance.onend = null;
       utterance.onerror = null;
     });
+    logVoiceDiagnostic("cancel job", { cancelReason, jobId, reason });
   };
 
   if (!canSpeak()) {
@@ -269,12 +469,8 @@ function speakTexts(texts: string[], onDone?: () => void): SpeechJob {
         onDone?.();
       }
     }, speechUnavailablePreparationDelayMs);
-    return { cancel: cancelJob };
+    return { cancel: cancelJob, id: jobId };
   }
-
-  const normalizedTexts = texts
-    .map((text) => text.trim())
-    .filter(Boolean);
 
   if (normalizedTexts.length === 0) {
     completionTimer = globalThis.setTimeout(() => {
@@ -282,9 +478,10 @@ function speakTexts(texts: string[], onDone?: () => void): SpeechJob {
         onDone?.();
       }
     }, 0);
-    return { cancel: cancelJob };
+    return { cancel: cancelJob, id: jobId };
   }
 
+  let hasStarted = false;
   let hasCompleted = false;
   const completeOnce = () => {
     if (hasCompleted || isCancelled) {
@@ -295,37 +492,77 @@ function speakTexts(texts: string[], onDone?: () => void): SpeechJob {
     if (completionTimer) {
       globalThis.clearTimeout(completionTimer);
     }
+    if (startFallbackTimer) {
+      globalThis.clearTimeout(startFallbackTimer);
+    }
 
+    logVoiceDiagnostic("end", { jobId, reason });
     onDone?.();
   };
 
-  startTimer = globalThis.setTimeout(() => {
-    if (isCancelled) {
+  const errorOnce = (errorReason: WorkoutVoiceBroadcastError) => {
+    if (hasCompleted || isCancelled) {
       return;
     }
 
+    hasCompleted = true;
+    if (completionTimer) {
+      globalThis.clearTimeout(completionTimer);
+    }
+    if (startFallbackTimer) {
+      globalThis.clearTimeout(startFallbackTimer);
+    }
+
+    logVoiceDiagnostic("error", { errorReason, jobId, reason });
+    onError?.(errorReason);
+  };
+
+  try {
+    window.speechSynthesis.cancel();
     window.speechSynthesis.resume();
 
     const voice = selectChineseVoice();
 
-    if (onDone) {
-      completionTimer = globalThis.setTimeout(completeOnce, estimateSpeechCompletionFallbackMs(normalizedTexts));
-    }
+    startFallbackTimer = globalThis.setTimeout(() => {
+      if (!hasStarted && failOnMissingStart) {
+        errorOnce("speech_blocked");
+      }
+    }, speechStartFallbackMs);
+
+    completionTimer = globalThis.setTimeout(completeOnce, estimateSpeechCompletionFallbackMs(normalizedTexts));
 
     normalizedTexts.forEach((text, index) => {
       const utterance = createSpeechUtterance(text, voice);
 
-      if (index === normalizedTexts.length - 1 && onDone) {
+      if (index === 0) {
+        utterance.onstart = () => {
+          if (isCancelled) {
+            return;
+          }
+
+          hasStarted = true;
+          if (startFallbackTimer) {
+            globalThis.clearTimeout(startFallbackTimer);
+            startFallbackTimer = undefined;
+          }
+          logVoiceDiagnostic("start", { jobId, reason, text });
+          onStart?.();
+        };
+      }
+
+      if (index === normalizedTexts.length - 1) {
         utterance.onend = completeOnce;
-        utterance.onerror = completeOnce;
+        utterance.onerror = () => errorOnce("speech_error");
       }
 
       utterances.push(utterance);
       window.speechSynthesis.speak(utterance);
     });
-  }, speechRestartDelayMs);
+  } catch {
+    errorOnce("speech_error");
+  }
 
-  return { cancel: cancelJob };
+  return { cancel: cancelJob, id: jobId };
 }
 
 function estimateSpeechCompletionFallbackMs(texts: string[]) {
@@ -337,12 +574,16 @@ function estimateSpeechCompletionFallbackMs(texts: string[]) {
   );
 }
 
-function cancelSpeech() {
+function cancelBrowserSpeech() {
   if (!canSpeak()) {
     return;
   }
 
-  window.speechSynthesis.cancel();
+  try {
+    window.speechSynthesis.cancel();
+  } catch {
+    // Browser speech cancellation is best-effort.
+  }
 }
 
 function canSpeak() {
@@ -386,6 +627,7 @@ function unlockWebAudio() {
     const AudioContextClass = getAudioContextClass();
 
     if (!AudioContextClass) {
+      logVoiceDiagnostic("audio unavailable", { reason: "missing AudioContext" });
       return false;
     }
 
@@ -406,7 +648,7 @@ function unlockWebAudio() {
     void audioContext.resume().catch(() => undefined);
     return true;
   } catch {
-    // Web Audio unlock is optional; speech prompts remain the primary voice path.
+    logVoiceDiagnostic("audio unavailable", { reason: "unlock failed" });
     return false;
   }
 }
@@ -437,6 +679,14 @@ function playBeep() {
     oscillator.start(now);
     oscillator.stop(now + 0.14);
   } catch {
-    // Beep cues are optional; workout timing and speech prompts must keep running.
+    logVoiceDiagnostic("audio unavailable", { reason: "beep failed" });
   }
+}
+
+function logVoiceDiagnostic(event: string, payload?: Record<string, unknown>) {
+  if (process.env.NODE_ENV !== "development") {
+    return;
+  }
+
+  console.debug("[WorkoutVoice]", event, payload ?? {});
 }
