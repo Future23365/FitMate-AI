@@ -127,10 +127,11 @@ export function WorkoutSessionPage() {
   const [preparedStepKey, setPreparedStepKey] = useState("");
   const [preparationCountdownStepKey, setPreparationCountdownStepKey] = useState("");
   const [isPaused, setIsPaused] = useState(false);
-  const [isAudioOn, setIsAudioOn] = useState(true);
+  const [isAudioOn, setIsAudioOn] = useState(false);
   const [loadedPlanKey, setLoadedPlanKey] = useState("");
   const [isVoicePreferenceLoaded, setIsVoicePreferenceLoaded] = useState(false);
   const [showTip, setShowTip] = useState(true);
+  const [showVoiceTip, setShowVoiceTip] = useState(true);
 
   const loopConfig = useMemo(() => getWorkoutLoopConfig(plan), [plan]);
   const orderedItems = useMemo(
@@ -230,6 +231,12 @@ export function WorkoutSessionPage() {
 
   const markPreparationIntroComplete = useCallback((stepKey: string) => {
     setPreparationCountdownStepKey(stepKey);
+  }, []);
+
+  const setVoiceBroadcastEnabled = useCallback((nextValue: boolean) => {
+    setIsAudioOn(nextValue);
+    setShowVoiceTip(false);
+    writeWorkoutVoiceBroadcastPreference(nextValue);
   }, []);
 
   useWorkoutVoiceBroadcast({
@@ -380,24 +387,49 @@ export function WorkoutSessionPage() {
             </span>
           </div>
           <div className="flex items-center gap-sm">
-            <button
-              aria-label={isAudioOn ? "关闭语音播报" : "开启语音播报"}
-              className={`grid h-11 w-11 place-items-center rounded-xl border transition-colors ${
-                isAudioOn
-                  ? "border-primary/20 bg-primary-soft text-primary"
-                  : "border-line bg-white text-muted hover:text-primary"
-              }`}
-              onClick={() => {
-                setIsAudioOn((value) => {
-                  const nextValue = !value;
-                  writeWorkoutVoiceBroadcastPreference(nextValue);
-                  return nextValue;
-                });
-              }}
-              type="button"
-            >
-              <SymbolIcon className="text-2xl">{isAudioOn ? "volume_up" : "volume_off"}</SymbolIcon>
-            </button>
+            <div className="relative">
+              <button
+                aria-label={isAudioOn ? "关闭语音播报" : "开启语音播报"}
+                className={`grid h-11 w-11 place-items-center rounded-xl border transition-colors ${
+                  isAudioOn
+                    ? "border-primary/20 bg-primary-soft text-primary"
+                    : "border-line bg-white text-muted hover:text-primary"
+                }`}
+                onClick={() => setVoiceBroadcastEnabled(!isAudioOn)}
+                type="button"
+              >
+                <SymbolIcon className="text-2xl">{isAudioOn ? "volume_up" : "volume_off"}</SymbolIcon>
+              </button>
+              {isVoicePreferenceLoaded && showVoiceTip && !isAudioOn ? (
+                <div className="absolute right-0 top-[calc(100%+8px)] z-30 w-[236px] rounded-xl border border-primary/15 bg-white p-sm text-left shadow-card">
+                  <div className="flex items-start gap-xs">
+                    <SymbolIcon className="mt-[1px] text-xl text-primary">volume_up</SymbolIcon>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-label-md font-extrabold text-ink">当前已静音</p>
+                      <p className="mt-[2px] text-label-sm font-semibold leading-snug text-muted">
+                        需要语音提示时，可在这里开启播报。
+                      </p>
+                    </div>
+                    <button
+                      aria-label="关闭语音提示"
+                      className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-panel-soft hover:text-ink"
+                      onClick={() => setShowVoiceTip(false)}
+                      type="button"
+                    >
+                      <SymbolIcon className="text-lg">close</SymbolIcon>
+                    </button>
+                  </div>
+                  <button
+                    className="mt-sm flex h-9 w-full items-center justify-center gap-xs rounded-xl bg-primary text-label-md font-extrabold text-white transition-colors hover:bg-primary-deep"
+                    onClick={() => setVoiceBroadcastEnabled(true)}
+                    type="button"
+                  >
+                    <SymbolIcon className="text-lg">volume_up</SymbolIcon>
+                    开启播报
+                  </button>
+                </div>
+              ) : null}
+            </div>
             <button
               aria-label="结束训练"
               className="grid h-11 w-11 place-items-center rounded-xl border border-red-200 bg-white text-danger transition-colors hover:bg-red-50"

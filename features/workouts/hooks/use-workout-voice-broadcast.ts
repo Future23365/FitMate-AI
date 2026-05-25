@@ -37,13 +37,13 @@ type WindowWithWebKitAudioContext = Window &
 
 export function readWorkoutVoiceBroadcastPreference() {
   if (typeof window === "undefined") {
-    return true;
+    return false;
   }
 
   try {
-    return window.localStorage.getItem(workoutVoiceBroadcastStorageKey) !== "false";
+    return window.localStorage.getItem(workoutVoiceBroadcastStorageKey) === "true";
   } catch {
-    return true;
+    return false;
   }
 }
 
