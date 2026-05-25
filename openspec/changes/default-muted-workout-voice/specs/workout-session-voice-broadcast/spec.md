@@ -6,7 +6,12 @@
 #### Scenario: First training session visit
 - **WHEN** no local voice broadcast preference exists and the user opens `/training`
 - **THEN** voice broadcast is disabled by default
-- **AND** the workout session page shows a lightweight tip near the top volume button that tells the user they can enable sound there
+- **AND** the workout session page shows a lightweight tip with a small arrow pointing to the top volume button that tells the user they can enable sound there
+- **AND** the system records locally that the voice broadcast tip has been shown
+
+#### Scenario: User returns after seeing voice broadcast tip
+- **WHEN** the voice broadcast tip has already been shown locally and the user opens `/training`
+- **THEN** the workout session page MUST NOT automatically show the voice broadcast tip again
 
 #### Scenario: User enables voice broadcast
 - **WHEN** the user clicks the top volume button while voice broadcast is disabled

@@ -11,6 +11,7 @@ import {
 } from "@/lib/shared/workouts/voice-cues";
 
 export const workoutVoiceBroadcastStorageKey = "fitmate.workoutVoiceBroadcast.enabled";
+export const workoutVoiceBroadcastTipSeenStorageKey = "fitmate.workoutVoiceBroadcast.tipSeen";
 const speechUnavailablePreparationDelayMs = 1200;
 const speechCompletionFallbackMinMs = 1600;
 const speechCompletionFallbackMaxMs = 8000;
@@ -56,6 +57,30 @@ export function writeWorkoutVoiceBroadcastPreference(isEnabled: boolean) {
     window.localStorage.setItem(workoutVoiceBroadcastStorageKey, String(isEnabled));
   } catch {
     // Local preference persistence is best-effort; audio controls keep working in memory.
+  }
+}
+
+export function readWorkoutVoiceBroadcastTipSeen() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  try {
+    return window.localStorage.getItem(workoutVoiceBroadcastTipSeenStorageKey) === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function writeWorkoutVoiceBroadcastTipSeen() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(workoutVoiceBroadcastTipSeenStorageKey, "true");
+  } catch {
+    // Local tip persistence is best-effort; the current page can still hide the tip in memory.
   }
 }
 

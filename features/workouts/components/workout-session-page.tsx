@@ -13,8 +13,10 @@ import {
 } from "@/features/workouts/api/workout-data-client";
 import {
   readWorkoutVoiceBroadcastPreference,
+  readWorkoutVoiceBroadcastTipSeen,
   useWorkoutVoiceBroadcast,
   writeWorkoutVoiceBroadcastPreference,
+  writeWorkoutVoiceBroadcastTipSeen,
 } from "@/features/workouts/hooks/use-workout-voice-broadcast";
 import {
   buildWorkoutTimeline,
@@ -131,7 +133,7 @@ export function WorkoutSessionPage() {
   const [loadedPlanKey, setLoadedPlanKey] = useState("");
   const [isVoicePreferenceLoaded, setIsVoicePreferenceLoaded] = useState(false);
   const [showTip, setShowTip] = useState(true);
-  const [showVoiceTip, setShowVoiceTip] = useState(true);
+  const [showVoiceTip, setShowVoiceTip] = useState(false);
 
   const loopConfig = useMemo(() => getWorkoutLoopConfig(plan), [plan]);
   const orderedItems = useMemo(
@@ -222,7 +224,14 @@ export function WorkoutSessionPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      setIsAudioOn(readWorkoutVoiceBroadcastPreference());
+      const savedAudioPreference = readWorkoutVoiceBroadcastPreference();
+      const hasSeenVoiceTip = readWorkoutVoiceBroadcastTipSeen();
+
+      setIsAudioOn(savedAudioPreference);
+      if (!savedAudioPreference && !hasSeenVoiceTip) {
+        setShowVoiceTip(true);
+        writeWorkoutVoiceBroadcastTipSeen();
+      }
       setIsVoicePreferenceLoaded(true);
     }, 0);
 
@@ -401,13 +410,17 @@ export function WorkoutSessionPage() {
                 <SymbolIcon className="text-2xl">{isAudioOn ? "volume_up" : "volume_off"}</SymbolIcon>
               </button>
               {isVoicePreferenceLoaded && showVoiceTip && !isAudioOn ? (
-                <div className="absolute right-0 top-[calc(100%+8px)] z-30 w-[236px] rounded-xl border border-primary/15 bg-white p-sm text-left shadow-card">
+                <div className="absolute right-0 top-[calc(100%+10px)] z-30 w-[210px] rounded-xl border border-primary/15 bg-white p-sm text-left shadow-card">
+                  <span
+                    aria-hidden="true"
+                    className="absolute -top-[6px] right-4 h-3 w-3 rotate-45 border-l border-t border-primary/15 bg-white"
+                  />
                   <div className="flex items-start gap-xs">
-                    <SymbolIcon className="mt-[1px] text-xl text-primary">volume_up</SymbolIcon>
+                    <SymbolIcon className="mt-[1px] text-xl text-primary">campaign</SymbolIcon>
                     <div className="min-w-0 flex-1">
-                      <p className="text-label-md font-extrabold text-ink">当前已静音</p>
+                      <p className="text-label-md font-extrabold text-ink">语音播报</p>
                       <p className="mt-[2px] text-label-sm font-semibold leading-snug text-muted">
-                        需要语音提示时，可在这里开启播报。
+                        点上方按钮即可开启或关闭。
                       </p>
                     </div>
                     <button
@@ -419,14 +432,6 @@ export function WorkoutSessionPage() {
                       <SymbolIcon className="text-lg">close</SymbolIcon>
                     </button>
                   </div>
-                  <button
-                    className="mt-sm flex h-9 w-full items-center justify-center gap-xs rounded-xl bg-primary text-label-md font-extrabold text-white transition-colors hover:bg-primary-deep"
-                    onClick={() => setVoiceBroadcastEnabled(true)}
-                    type="button"
-                  >
-                    <SymbolIcon className="text-lg">volume_up</SymbolIcon>
-                    开启播报
-                  </button>
                 </div>
               ) : null}
             </div>
