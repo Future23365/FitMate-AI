@@ -415,11 +415,7 @@ export function WorkoutSessionPage() {
                 <div className="absolute right-0 top-[calc(100%+12px)] z-30 w-[244px] rounded-xl border border-primary/35 bg-primary-soft p-md text-left shadow-lift ring-1 ring-primary/10">
                   <span
                     aria-hidden="true"
-                    className="absolute -top-[9px] right-4 h-0 w-0 border-x-[9px] border-b-[9px] border-x-transparent border-b-primary/35"
-                  />
-                  <span
-                    aria-hidden="true"
-                    className="absolute -top-[7px] right-4 h-0 w-0 border-x-[7px] border-b-[7px] border-x-transparent border-b-primary-soft"
+                    className="absolute -top-[8px] right-5 h-4 w-4 bg-primary-soft [clip-path:polygon(50%_0,0_100%,100%_100%)]"
                   />
                   <div className="flex items-start gap-sm">
                     <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary text-white shadow-card">
