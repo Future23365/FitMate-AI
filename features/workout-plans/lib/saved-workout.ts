@@ -45,6 +45,8 @@ export function convertWorkoutPlanDraftToSavedWorkout(
         throw new Error(`Invalid exerciseId: ${item.exerciseId}`);
       }
 
+      const imageUrls = exercise.imageUrls.length ? exercise.imageUrls : [placeholderWorkoutImage];
+
       return {
         id: createId(),
         exerciseId: exercise.id,
@@ -54,7 +56,8 @@ export function convertWorkoutPlanDraftToSavedWorkout(
         equipmentZh: exercise.equipmentZh || "未标注器械",
         musclesZh: exercise.primaryMusclesZh.length ? exercise.primaryMusclesZh : ["综合"],
         instructionsZh: exercise.instructionsZh,
-        imageUrl: exercise.imageUrls[0] || placeholderWorkoutImage,
+        imageUrl: imageUrls[0],
+        imageUrls,
         mode: item.mode,
         target: item.target,
         sets: item.sets,

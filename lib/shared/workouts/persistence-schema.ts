@@ -13,6 +13,7 @@ export const workoutItemSchema = z.object({
   musclesZh: z.array(z.string()),
   instructionsZh: z.array(z.string()),
   imageUrl: z.string(),
+  imageUrls: z.array(z.string()).optional(),
   mode: workoutModeSchema,
   target: z.number().int().positive(),
   sets: z.number().int().positive(),

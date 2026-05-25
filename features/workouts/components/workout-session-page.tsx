@@ -23,6 +23,7 @@ import {
   estimateWorkoutCalories,
   estimateWorkoutMinutes,
   expandWorkoutItems,
+  getWorkoutItemImageUrls,
   getRepIntervalSeconds,
   getWorkoutLoopConfig,
   normalizeWorkoutItem,
@@ -83,6 +84,14 @@ function formatClock(totalSeconds: number) {
   const seconds = Math.max(0, totalSeconds) % 60;
 
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function getWorkoutDemoImageIndex(imageCount: number, elapsedSeconds: number) {
+  if (imageCount <= 1) {
+    return 0;
+  }
+
+  return Math.floor(Math.max(0, elapsedSeconds)) % imageCount;
 }
 
 async function getPlanFromDatabase(planId: string | null) {
@@ -151,6 +160,9 @@ export function WorkoutSessionPage() {
     activeStep && activeStep.durationSeconds > 0
       ? ((activeStep.durationSeconds - remainingSeconds) / activeStep.durationSeconds) * 100
       : 0;
+  const demoImageUrls = getWorkoutItemImageUrls(currentItem);
+  const demoImageIndex = getWorkoutDemoImageIndex(demoImageUrls.length, stepElapsedSeconds);
+  const activeDemoImageUrl = demoImageUrls[demoImageIndex] ?? placeholderWorkoutImage;
   const trainedCalories = Math.min(
     estimateWorkoutCalories(plan.items, loopConfig),
     Math.round(Math.max(0, elapsedSeconds / 60) * 7.2 + completedStepIds.size * 8),
@@ -423,14 +435,23 @@ export function WorkoutSessionPage() {
                 </span>
               </div>
               <div className="relative grid min-h-0 flex-1 place-items-center overflow-hidden rounded-xl bg-panel-soft">
-                {currentItem.imageUrl && currentItem.imageUrl !== placeholderWorkoutImage ? (
-                  <Image
-                    alt={`${currentItem.nameZh} 动作图`}
-                    className="object-contain p-md"
-                    fill
-                    sizes="(min-width: 1280px) 30vw, 100vw"
-                    src={currentItem.imageUrl}
-                  />
+                {activeDemoImageUrl && activeDemoImageUrl !== placeholderWorkoutImage ? (
+                  <>
+                    <Image
+                      alt={`${currentItem.nameZh} 动作图`}
+                      className="object-contain p-md"
+                      fill
+                      key={`${currentItem.id}-${demoImageIndex}-${activeDemoImageUrl}`}
+                      priority={activeStepIndex === 0 && demoImageIndex === 0}
+                      sizes="(min-width: 1280px) 30vw, 100vw"
+                      src={activeDemoImageUrl}
+                    />
+                    {demoImageUrls.length > 1 ? (
+                      <div className="absolute bottom-sm right-sm rounded-full border border-white/80 bg-white/90 px-sm py-xs text-label-md font-extrabold text-muted shadow-sm">
+                        {demoImageIndex + 1}/{demoImageUrls.length}
+                      </div>
+                    ) : null}
+                  </>
                 ) : (
                   <SquatIllustration />
                 )}

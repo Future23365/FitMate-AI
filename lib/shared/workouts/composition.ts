@@ -11,6 +11,7 @@ export type WorkoutItem = {
   musclesZh: string[];
   instructionsZh: string[];
   imageUrl: string;
+  imageUrls?: string[];
   mode: WorkoutMode;
   target: number;
   sets: number;
@@ -120,13 +121,25 @@ export function inferWorkoutSection(item: Pick<WorkoutItem, "categoryZh" | "name
 
 export function normalizeWorkoutItem(item: WorkoutItem): WorkoutItem {
   const legacyRestSeconds = item.restSeconds ?? defaultSetRestSeconds;
+  const imageUrls = getWorkoutItemImageUrls(item);
 
   return {
     ...item,
+    imageUrl: imageUrls[0],
+    imageUrls,
     setRestSeconds: item.setRestSeconds ?? legacyRestSeconds,
     transitionRestSeconds: item.transitionRestSeconds ?? item.restSeconds ?? defaultTransitionRestSeconds,
     section: item.section ?? inferWorkoutSection(item),
   };
+}
+
+export function getWorkoutItemImageUrls(item: Pick<WorkoutItem, "imageUrl" | "imageUrls">) {
+  const imageUrls = [...(item.imageUrls ?? []), item.imageUrl]
+    .map((imageUrl) => imageUrl.trim())
+    .filter(Boolean);
+  const uniqueImageUrls = Array.from(new Set(imageUrls));
+
+  return uniqueImageUrls.length ? uniqueImageUrls : [placeholderWorkoutImage];
 }
 
 export function normalizeSavedWorkout(workout: SavedWorkout): SavedWorkout {

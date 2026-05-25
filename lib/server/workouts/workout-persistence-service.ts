@@ -354,6 +354,7 @@ function mapWorkoutPlanItemToWorkoutItem(
   item: WorkoutPlanWithItems["days"][number]["items"][number],
 ): WorkoutItem {
   const exercise = item.exercise;
+  const imageUrls = exercise.imageUrls.length ? exercise.imageUrls : [placeholderWorkoutImage];
 
   return normalizeWorkoutItem({
     id: item.id,
@@ -364,7 +365,8 @@ function mapWorkoutPlanItemToWorkoutItem(
     equipmentZh: exercise.equipmentZh || "未标注器械",
     musclesZh: exercise.primaryMusclesZh.length ? exercise.primaryMusclesZh : ["综合"],
     instructionsZh: exercise.instructionsZh,
-    imageUrl: exercise.imageUrls[0] || placeholderWorkoutImage,
+    imageUrl: imageUrls[0],
+    imageUrls,
     mode: item.mode === "duration" ? "duration" : "reps",
     target: item.target,
     sets: item.sets,

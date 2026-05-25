@@ -128,6 +128,7 @@ function toWorkoutItem(
   > = {},
 ): WorkoutItem {
   const category = exercise.categoryZh || "训练";
+  const imageUrls = exercise.imageUrls.length ? exercise.imageUrls : [placeholderWorkoutImage];
   const isDuration =
     category.includes("拉伸") ||
     exercise.nameZh.includes("支撑") ||
@@ -142,7 +143,8 @@ function toWorkoutItem(
     equipmentZh: exercise.equipmentZh || "未标注器械",
     musclesZh: exercise.primaryMusclesZh.length ? exercise.primaryMusclesZh : ["综合"],
     instructionsZh: exercise.instructionsZh,
-    imageUrl: exercise.imageUrls[0] || placeholderWorkoutImage,
+    imageUrl: imageUrls[0],
+    imageUrls,
     mode: overrides.mode ?? (isDuration ? "duration" : "reps"),
     target: overrides.target ?? (isDuration ? 45 : 12),
     sets: overrides.sets ?? 1,
@@ -186,7 +188,7 @@ function toPreviewExercise(item: WorkoutItem, exerciseById: Map<string, Exercise
     instructionsEn: [],
     instructionsZh: item.instructionsZh,
     images: [],
-    imageUrls: [item.imageUrl || placeholderWorkoutImage],
+    imageUrls: item.imageUrls?.length ? item.imageUrls : [item.imageUrl || placeholderWorkoutImage],
     riskTags: [],
     goalTags: [],
     reviewStatus: "fallback",

@@ -9,6 +9,7 @@ import {
 } from "@/lib/shared/workout-plans/draft-schema";
 import { selectExerciseCandidates } from "@/lib/server/workout-plans/exercise-candidate-service";
 import { convertWorkoutPlanDraftToSavedWorkout } from "@/features/workout-plans/lib/saved-workout";
+import { normalizeWorkoutItem } from "@/lib/shared/workouts/composition";
 
 // 静态动作数据
 const exercises = exercisesData as Exercise[];
@@ -221,6 +222,21 @@ export function runWorkoutPlanTests() {
     console.assert(firstSavedItem.sets === 3, "组数转换错误");
     console.assert(firstSavedItem.target === 15, "次数转换错误");
     console.assert(firstSavedItem.setRestSeconds === 45, "组间休息转换错误");
+    const firstSourceExercise = exercises.find((exercise) => exercise.id === mockExerciseIds[0]);
+    console.assert(
+      firstSavedItem.imageUrls?.length === firstSourceExercise?.imageUrls.length,
+      "SavedWorkout 应保留动作库完整示范图列表"
+    );
+
+    const legacyItem = normalizeWorkoutItem({
+      ...firstSavedItem,
+      imageUrl: "/legacy-demo.jpg",
+      imageUrls: undefined,
+    });
+    console.assert(
+      legacyItem.imageUrls?.length === 1 && legacyItem.imageUrls[0] === "/legacy-demo.jpg",
+      "旧 WorkoutItem 应从 imageUrl 兼容生成 imageUrls"
+    );
 
     console.log("✅ 所有 FitMate AI 训练计划核心逻辑单元测试全部顺利通过！");
   } catch (error) {
