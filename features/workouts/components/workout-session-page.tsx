@@ -9,7 +9,6 @@ import { SymbolIcon } from "@/components/app/symbol-icon";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
 import {
   getScheduledWorkout,
-  listScheduledWorkouts,
   updateScheduledWorkoutStatus,
 } from "@/features/workouts/api/workout-data-client";
 import {
@@ -107,10 +106,8 @@ function getWorkoutDemoImageIndex(imageCount: number, elapsedSeconds: number, mo
   return Math.floor(Math.max(0, elapsedSeconds)) % imageCount;
 }
 
-async function getPlanFromDatabase(planId: string | null) {
-  const matchedPlan = planId
-    ? await getScheduledWorkout(planId)
-    : (await listScheduledWorkouts()).find((plan) => plan.status === "planned");
+async function getPlanFromDatabase(planId: string) {
+  const matchedPlan = await getScheduledWorkout(planId);
 
   if (matchedPlan && matchedPlan.items.length) {
     const loopConfig = getWorkoutLoopConfig(matchedPlan);
@@ -122,7 +119,7 @@ async function getPlanFromDatabase(planId: string | null) {
     };
   }
 
-  return fallbackPlan;
+  throw new Error("Workout plan has no items.");
 }
 
 function mapWorkoutItemToExercise(item: WorkoutItem): Exercise {
@@ -182,7 +179,7 @@ function getVoiceButtonLabel(
 
 export function WorkoutSessionPage() {
   const searchParams = useSearchParams();
-  const planId = searchParams.get("planId");
+  const planId = searchParams.get("planId")?.trim() ?? "";
   const [plan, setPlan] = useState<ScheduledWorkout>(fallbackPlan);
   const [activeStepIndex, setActiveStepIndex] = useState(0);
   const [remainingSeconds, setRemainingSeconds] = useState(45);
@@ -194,6 +191,7 @@ export function WorkoutSessionPage() {
   const [isPaused, setIsPaused] = useState(false);
   const [isAudioOn, setIsAudioOn] = useState(false);
   const [loadedPlanKey, setLoadedPlanKey] = useState("");
+  const [loadError, setLoadError] = useState("");
   const [isVoicePreferenceLoaded, setIsVoicePreferenceLoaded] = useState(false);
   const [showTip, setShowTip] = useState(true);
   const [showVoiceTip, setShowVoiceTip] = useState(false);
@@ -245,20 +243,48 @@ export function WorkoutSessionPage() {
     sessionListView.nextExerciseStepIndex === null ? null : steps[sessionListView.nextExerciseStepIndex];
   const nextItem = nextExerciseStep?.type === "exercise" ? nextExerciseStep.item : null;
   const remainingSteps = Math.max(0, steps.length - activeStepIndex - 1);
-  const requestedPlanKey = planId ?? "default";
+  const requestedPlanKey = planId;
   const sessionVoiceId = `${plan.id}:${plan.date}:${plan.planId}`;
   const activeStepKey = activeStep ? `${sessionVoiceId}:${activeStep.id}:${activeStepIndex}` : "";
-  const isPlanReady = loadedPlanKey === requestedPlanKey;
+  const isPlanReady = Boolean(planId && !loadError && loadedPlanKey === requestedPlanKey);
   const needsExercisePreparation = activeStep?.type === "exercise" && preparedStepKey !== activeStepKey;
   const isPreparationCountdownActive = preparationCountdownStepKey === activeStepKey;
   const isPreparing = Boolean(hasStarted && needsExercisePreparation && preparationCountdown > 0);
-  const isAwaitingStart = isPlanReady && !hasStarted && plan.status !== "completed";
+  const isAwaitingStart = isPlanReady && !hasStarted;
 
   useEffect(() => {
     let cancelled = false;
-    const requestKey = planId ?? "default";
+    let resetTimer: number | undefined;
+    const requestKey = planId;
 
-    void getPlanFromDatabase(planId).then((selectedPlan) => {
+    if (!requestKey) {
+      resetTimer = window.setTimeout(() => {
+        if (cancelled) {
+          return;
+        }
+
+        setLoadedPlanKey("");
+        setLoadError("缺少训练计划参数，请从训练计划页面进入训练。");
+        setHasStarted(false);
+        setIsPaused(false);
+        setPreparedStepKey("");
+        setPreparationCountdownStepKey("");
+        setPreparationCountdown(0);
+        setElapsedSeconds(0);
+        setActiveStepIndex(0);
+        setRemainingSeconds(0);
+        setIsExerciseDetailOpen(false);
+      }, 0);
+
+      return () => {
+        cancelled = true;
+        if (resetTimer) {
+          window.clearTimeout(resetTimer);
+        }
+      };
+    }
+
+    void getPlanFromDatabase(requestKey).then((selectedPlan) => {
       if (cancelled) {
         return;
       }
@@ -275,6 +301,7 @@ export function WorkoutSessionPage() {
           selectedPlan.calories ||
           estimateWorkoutCalories(selectedPlan.items, selectedLoopConfig),
       });
+      setLoadError("");
       setActiveStepIndex(0);
       setElapsedSeconds(0);
       setRemainingSeconds(selectedSteps[0]?.durationSeconds ?? 45);
@@ -285,6 +312,14 @@ export function WorkoutSessionPage() {
       setIsPaused(false);
       setLoadedPlanKey(requestKey);
       setIsExerciseDetailOpen(false);
+    }).catch((error: unknown) => {
+      if (cancelled) {
+        return;
+      }
+
+      console.error("[WorkoutSession] Load failed:", error);
+      setLoadedPlanKey("");
+      setLoadError("训练安排加载失败，请从训练计划页面重新进入。");
     });
 
     return () => {
@@ -318,7 +353,7 @@ export function WorkoutSessionPage() {
     completedReps,
     isFirstExerciseStep: activeStepIndex === 0,
     isPaused,
-    isPreferenceEnabled: isAudioOn && loadedPlanKey === requestedPlanKey && isVoicePreferenceLoaded,
+    isPreferenceEnabled: isPlanReady && isAudioOn && isVoicePreferenceLoaded,
     isPreparationCountdownActive,
     isSessionStarted: hasStarted,
     onPreparationIntroComplete: markPreparationIntroComplete,
@@ -499,6 +534,30 @@ export function WorkoutSessionPage() {
       });
   }
 
+  if (loadError) {
+    return (
+      <TrainingSessionMessage
+        actionHref="/plans"
+        actionLabel="返回训练计划"
+        icon="error"
+        title="无法开始训练"
+        description={loadError}
+      />
+    );
+  }
+
+  if (!isPlanReady) {
+    return (
+      <TrainingSessionMessage
+        actionHref="/plans"
+        actionLabel="返回训练计划"
+        icon="hourglass_empty"
+        title="正在加载训练"
+        description="正在读取训练安排。"
+      />
+    );
+  }
+
   return (
     <main className="custom-scrollbar h-dvh overflow-y-auto bg-canvas text-ink xl:overflow-hidden">
       <div className="flex min-h-dvh flex-col gap-sm px-md py-sm md:px-lg md:py-md xl:h-dvh xl:min-h-0 2xl:px-xl">
@@ -579,9 +638,7 @@ export function WorkoutSessionPage() {
                   <h1 className="mt-xs truncate text-[20px] font-extrabold leading-tight">{plan.title}</h1>
                 </div>
                 <span className="rounded-full bg-primary-soft px-md py-xs text-label-md font-bold text-primary">
-                  {plan.status === "completed"
-                    ? "已完成"
-                    : isAwaitingStart
+                  {isAwaitingStart
                     ? "待开始"
                     : isPaused
                     ? "已暂停"
@@ -923,6 +980,38 @@ function Metric({
         {value} {suffix ? <span className="text-label-md font-bold">{suffix}</span> : null}
       </p>
     </div>
+  );
+}
+
+function TrainingSessionMessage({
+  actionHref,
+  actionLabel,
+  description,
+  icon,
+  title,
+}: {
+  actionHref: string;
+  actionLabel: string;
+  description: string;
+  icon: string;
+  title: string;
+}) {
+  return (
+    <main className="grid min-h-dvh place-items-center bg-canvas px-md text-ink">
+      <section className="w-full max-w-[440px] rounded-[20px] border border-line bg-white p-lg text-center shadow-card">
+        <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-primary-soft text-primary">
+          <SymbolIcon className="text-3xl">{icon}</SymbolIcon>
+        </span>
+        <h1 className="mt-md text-title-lg font-extrabold">{title}</h1>
+        <p className="mt-sm text-body-md font-semibold text-muted">{description}</p>
+        <Link
+          className="mt-lg inline-flex h-11 items-center justify-center rounded-xl bg-primary px-lg text-body-md font-extrabold text-white transition-colors hover:bg-primary-deep"
+          href={actionHref}
+        >
+          {actionLabel}
+        </Link>
+      </section>
+    </main>
   );
 }
 
