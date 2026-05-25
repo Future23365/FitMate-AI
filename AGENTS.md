@@ -140,7 +140,15 @@ OpenSpec 生成或修改的说明性文档应使用中文，便于人工 review�
 - 如果需求不明确，先写出合理假设，然后继续推进最安全的实现方案。
 ## 开发与验证规则
 
-- 严禁主动启动 dev server，包括 `npm run dev`、`next dev`、`npm exec next dev`。默认复用我已经启动的 `http://localhost:3000`。如果访问失败，先用 Chrome DevTools MCP 复核；仍失败时只报告错误并等待，不要自行启动新服务或占用其他端口。
+- 默认禁止 Codex 主动打开页面、使用 `chrome-devtools` MCP、Browser、Playwright、截图工具或其他真实浏览器方式查看效果。
+- 除非满足以下任一条件，否则不要自行打开页面验证：
+  - 我明确要求「打开页面」「看效果」「用浏览器验证」「截图」「检查 UI」。
+  - 问题只能在真实浏览器中复现或定位，例如布局遮挡、点击交互、运行时 hydration、真实路由跳转问题。
+  - 我明确要求完成视觉还原，并且静态检查无法判断结果。
+- 简单修 bug、改 TypeScript、改 API、改文案、改样式时，优先使用代码阅读、类型检查、lint、测试或构建验证，不要默认打开页面。
+- 如果认为必须使用浏览器验证，先说明原因并等待我确认，不要直接打开。
+- 严禁主动启动 dev server，包括 `npm run dev`、`next dev`、`npm exec next dev`。如确需浏览器验证，只能复用我已启动的 `http://localhost:3000`。
+- 如果 Chrome DevTools MCP 不可用，不要静默改用内置预览；需要明确告诉我 MCP 不可用。
 - 修改 TypeScript、React、API、Prisma、Schema 或校验逻辑后，应优先运行与改动相关的检查。
 - 如果项目提供相关命令，优先按需使用 `npm run lint`、`npm run typecheck`、`npm run build` 或相关测试命令。
 - 非文案类 OpenSpec change 的 `tasks.md` 必须包含与改动范围相关的测试或验证步骤。
@@ -148,12 +156,6 @@ OpenSpec 生成或修改的说明性文档应使用中文，便于人工 review�
 - 影响构建、路由、依赖配置或服务端/客户端模块边界时，应运行 `npm run build` 或说明无法运行的原因。
 - 如果没有运行检查，应说明原因。
 
-## 浏览器验证规则
-
-- 当任务需要浏览器预览、运行时验证、UI 交互验证时，不要使用 Codex 内置预览。
-- 必须使用 `chrome-devtools` MCP 在真实 Chrome 中打开页面进行验证。
-- 验证时需要检查页面渲染、Console 报错、Network 请求失败、交互行为是否符合预期。
-- 如果 Chrome DevTools MCP 不可用，不要静默改用内置预览；需要明确告诉我 MCP 不可用。
 
 ## 调试与日志规则
 
