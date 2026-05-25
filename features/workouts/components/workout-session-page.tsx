@@ -173,6 +173,7 @@ export function WorkoutSessionPage() {
   const [preparationCountdownStepKey, setPreparationCountdownStepKey] = useState("");
   const [isPaused, setIsPaused] = useState(false);
   const [isAudioOn, setIsAudioOn] = useState(false);
+  const [isVoiceAudioActive, setIsVoiceAudioActive] = useState(false);
   const [isVoiceSupported, setIsVoiceSupported] = useState(false);
   const [loadedPlanKey, setLoadedPlanKey] = useState("");
   const [isVoicePreferenceLoaded, setIsVoicePreferenceLoaded] = useState(false);
@@ -229,7 +230,7 @@ export function WorkoutSessionPage() {
   const sessionVoiceId = `${plan.id}:${plan.date}:${plan.planId}`;
   const activeStepKey = activeStep ? `${sessionVoiceId}:${activeStep.id}:${activeStepIndex}` : "";
   const isPlanReady = loadedPlanKey === requestedPlanKey;
-  const isVoiceBroadcastActive = isVoiceSupported && isAudioOn;
+  const isVoiceBroadcastActive = isVoiceSupported && isAudioOn && isVoiceAudioActive;
   const needsExercisePreparation = activeStep?.type === "exercise" && preparedStepKey !== activeStepKey;
   const isPreparationCountdownActive = preparationCountdownStepKey === activeStepKey;
   const isPreparing = Boolean(needsExercisePreparation && preparationCountdown > 0);
@@ -278,6 +279,7 @@ export function WorkoutSessionPage() {
 
       setIsVoiceSupported(canUseVoiceBroadcast);
       setIsAudioOn(savedAudioPreference);
+      setIsVoiceAudioActive(false);
       if (canUseVoiceBroadcast && !savedAudioPreference && !hasSeenVoiceTip) {
         setShowVoiceTip(true);
         writeWorkoutVoiceBroadcastTipSeen();
@@ -292,19 +294,49 @@ export function WorkoutSessionPage() {
     setPreparationCountdownStepKey(stepKey);
   }, []);
 
+  const activateVoiceAudio = useCallback((announce = false) => {
+    if (!isVoiceSupported) {
+      return false;
+    }
+
+    unlockWorkoutVoiceBroadcastAudio({ announce });
+    setIsVoiceAudioActive(true);
+    return true;
+  }, [isVoiceSupported]);
+
+  useEffect(() => {
+    if (!isVoiceSupported || !isAudioOn || isVoiceAudioActive) {
+      return;
+    }
+
+    const activateOnUserGesture = () => {
+      activateVoiceAudio();
+    };
+
+    window.addEventListener("pointerdown", activateOnUserGesture, { capture: true, once: true });
+    window.addEventListener("keydown", activateOnUserGesture, { capture: true, once: true });
+
+    return () => {
+      window.removeEventListener("pointerdown", activateOnUserGesture, true);
+      window.removeEventListener("keydown", activateOnUserGesture, true);
+    };
+  }, [activateVoiceAudio, isAudioOn, isVoiceAudioActive, isVoiceSupported]);
+
   const setVoiceBroadcastEnabled = useCallback((nextValue: boolean) => {
     if (!isVoiceSupported) {
       return;
     }
 
     if (nextValue) {
-      unlockWorkoutVoiceBroadcastAudio();
+      activateVoiceAudio(true);
+    } else {
+      setIsVoiceAudioActive(false);
     }
 
     setIsAudioOn(nextValue);
     setShowVoiceTip(false);
     writeWorkoutVoiceBroadcastPreference(nextValue);
-  }, [isVoiceSupported]);
+  }, [activateVoiceAudio, isVoiceSupported]);
 
   useWorkoutVoiceBroadcast({
     activeStepIndex,
@@ -324,7 +356,7 @@ export function WorkoutSessionPage() {
     if (
       !isPlanReady ||
       !isVoicePreferenceLoaded ||
-      isVoiceBroadcastActive ||
+      (isVoiceSupported && isAudioOn) ||
       !needsExercisePreparation ||
       !activeStepKey
     ) {
@@ -339,7 +371,7 @@ export function WorkoutSessionPage() {
     isAudioOn,
     isPlanReady,
     isVoicePreferenceLoaded,
-    isVoiceBroadcastActive,
+    isVoiceSupported,
     markPreparationIntroComplete,
     needsExercisePreparation,
   ]);
@@ -470,7 +502,7 @@ export function WorkoutSessionPage() {
               <button
                 aria-label={
                   isVoiceSupported
-                    ? isAudioOn
+                    ? isVoiceBroadcastActive
                       ? "关闭语音播报"
                       : "开启语音播报"
                     : "当前浏览器不支持语音播报"
@@ -478,21 +510,21 @@ export function WorkoutSessionPage() {
                 className={`grid h-11 w-11 place-items-center rounded-xl border transition-colors ${
                   !isVoiceSupported
                     ? "cursor-not-allowed border-line bg-panel-soft text-muted"
-                    : isAudioOn
+                    : isVoiceBroadcastActive
                     ? "border-primary/20 bg-primary-soft text-primary"
                     : showVoiceTip
                       ? "border-primary bg-primary-soft text-primary shadow-lift ring-4 ring-primary/15"
                     : "border-line bg-white text-muted hover:text-primary"
                 }`}
                 disabled={!isVoiceSupported}
-                onClick={() => setVoiceBroadcastEnabled(!isAudioOn)}
+                onClick={() => setVoiceBroadcastEnabled(!isVoiceBroadcastActive)}
                 type="button"
               >
                 <SymbolIcon className="text-2xl">
-                  {isVoiceSupported && isAudioOn ? "volume_up" : "volume_off"}
+                  {isVoiceSupported && isVoiceBroadcastActive ? "volume_up" : "volume_off"}
                 </SymbolIcon>
               </button>
-              {isVoicePreferenceLoaded && showVoiceTip && !isAudioOn ? (
+              {isVoicePreferenceLoaded && showVoiceTip && !isVoiceBroadcastActive ? (
                 <div className="absolute right-0 top-[calc(100%+12px)] z-30 w-[244px] rounded-xl border border-primary/35 bg-primary-soft p-md text-left shadow-lift ring-1 ring-primary/10">
                   <span
                     aria-hidden="true"

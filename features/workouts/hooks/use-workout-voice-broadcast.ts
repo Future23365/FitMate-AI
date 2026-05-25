@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, type MutableRefObject } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import type { WorkoutTimelineStep } from "@/lib/shared/workouts/composition";
 import {
@@ -17,6 +17,8 @@ const speechCompletionFallbackMinMs = 1600;
 const speechCompletionFallbackMaxMs = 8000;
 const speechCompletionFallbackMsPerChar = 220;
 const speechRestartDelayMs = 80;
+const voiceActivationCue = "语音播报已开启";
+let workoutAudioContext: AudioContext | null = null;
 
 type UseWorkoutVoiceBroadcastOptions = {
   activeStepIndex: number;
@@ -93,22 +95,27 @@ export function isWorkoutVoiceBroadcastSupported() {
   return canSpeak();
 }
 
-export function unlockWorkoutVoiceBroadcastAudio() {
+export function unlockWorkoutVoiceBroadcastAudio({ announce = false } = {}) {
   if (typeof window === "undefined") {
-    return;
+    return false;
   }
+
+  let didPrimeSpeech = false;
 
   if (canSpeak()) {
     try {
       window.speechSynthesis.cancel();
       window.speechSynthesis.resume();
-      window.speechSynthesis.speak(createSpeechUtterance("语音播报已开启"));
+      if (announce) {
+        window.speechSynthesis.speak(createSpeechUtterance(voiceActivationCue));
+        didPrimeSpeech = true;
+      }
     } catch {
       // User-gesture audio unlock is best-effort; the session flow still handles timing.
     }
   }
 
-  unlockWebAudio();
+  return unlockWebAudio() || didPrimeSpeech;
 }
 
 export function useWorkoutVoiceBroadcast({
@@ -127,8 +134,8 @@ export function useWorkoutVoiceBroadcast({
   const activeStep = steps[activeStepIndex];
   const activeStepKey = activeStep ? `${sessionId}:${activeStep.id}:${activeStepIndex}` : "";
   const isPreparing = preparationCountdown > 0;
-  const audioContextRef = useRef<AudioContext | null>(null);
   const activeSpeechJobRef = useRef<SpeechJob | null>(null);
+  const hasActiveSpeechCycleRef = useRef(false);
 
   const stopSpeech = useCallback(() => {
     activeSpeechJobRef.current?.cancel();
@@ -138,8 +145,6 @@ export function useWorkoutVoiceBroadcast({
 
   const stopSessionAudio = useCallback(() => {
     stopSpeech();
-    void audioContextRef.current?.close().catch(() => undefined);
-    audioContextRef.current = null;
   }, [stopSpeech]);
 
   const startSpeech = useCallback((texts: string[], interrupt = false, onDone?: () => void) => {
@@ -164,6 +169,7 @@ export function useWorkoutVoiceBroadcast({
 
   useEffect(() => {
     if (!isEnabled || isPaused) {
+      hasActiveSpeechCycleRef.current = false;
       stopSpeech();
     }
   }, [isEnabled, isPaused, stopSpeech]);
@@ -173,14 +179,17 @@ export function useWorkoutVoiceBroadcast({
       return;
     }
 
+    const shouldInterrupt = hasActiveSpeechCycleRef.current;
+    hasActiveSpeechCycleRef.current = true;
+
     if (isPreparing) {
-      startSpeech([buildWorkoutActionPreparationCue(activeStep, isFirstExerciseStep)], true, () => {
+      startSpeech([buildWorkoutActionPreparationCue(activeStep, isFirstExerciseStep)], shouldInterrupt, () => {
         onPreparationIntroComplete(activeStepKey);
       });
       return;
     }
 
-    startSpeech([buildWorkoutStepVoiceCue(activeStep)], true);
+    startSpeech([buildWorkoutStepVoiceCue(activeStep)], shouldInterrupt);
   }, [activeStep, activeStepKey, isEnabled, isFirstExerciseStep, isPaused, isPreparing, onPreparationIntroComplete, startSpeech]);
 
   useEffect(() => {
@@ -208,7 +217,7 @@ export function useWorkoutVoiceBroadcast({
       return;
     }
 
-    playBeep(audioContextRef);
+    playBeep();
   }, [activeStep, isEnabled, isPaused, isPreparing, remainingSeconds]);
 
   useEffect(() => {
@@ -377,10 +386,14 @@ function unlockWebAudio() {
     const AudioContextClass = getAudioContextClass();
 
     if (!AudioContextClass) {
-      return;
+      return false;
     }
 
-    const audioContext = new AudioContextClass();
+    if (!workoutAudioContext || workoutAudioContext.state === "closed") {
+      workoutAudioContext = new AudioContextClass();
+    }
+
+    const audioContext = workoutAudioContext;
     const oscillator = audioContext.createOscillator();
     const gain = audioContext.createGain();
     const now = audioContext.currentTime;
@@ -391,33 +404,24 @@ function unlockWebAudio() {
     oscillator.start(now);
     oscillator.stop(now + 0.02);
     void audioContext.resume().catch(() => undefined);
-    globalThis.setTimeout(() => {
-      void audioContext.close().catch(() => undefined);
-    }, 120);
+    return true;
   } catch {
     // Web Audio unlock is optional; speech prompts remain the primary voice path.
+    return false;
   }
 }
 
-function playBeep(audioContextRef: MutableRefObject<AudioContext | null>) {
+function playBeep() {
   if (typeof window === "undefined") {
     return;
   }
 
   try {
-    const AudioContextClass = getAudioContextClass();
-
-    if (!AudioContextClass) {
+    if (!workoutAudioContext || workoutAudioContext.state !== "running") {
       return;
     }
 
-    const audioContext = audioContextRef.current ?? new AudioContextClass();
-    audioContextRef.current = audioContext;
-
-    if (audioContext.state === "suspended") {
-      void audioContext.resume().catch(() => undefined);
-    }
-
+    const audioContext = workoutAudioContext;
     const oscillator = audioContext.createOscillator();
     const gain = audioContext.createGain();
     const now = audioContext.currentTime;
