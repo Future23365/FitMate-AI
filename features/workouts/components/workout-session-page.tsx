@@ -21,6 +21,10 @@ import {
   type WorkoutVoiceBroadcastStatus,
 } from "@/features/workouts/hooks/use-workout-voice-broadcast";
 import {
+  runWorkoutVoiceSelfCheck,
+  type WorkoutVoiceSelfCheckResult,
+} from "@/features/workouts/voice/workout-voice-self-check";
+import {
   buildWorkoutTimeline,
   defaultSetRestSeconds,
   defaultTransitionRestSeconds,
@@ -196,6 +200,8 @@ export function WorkoutSessionPage() {
   const [showTip, setShowTip] = useState(true);
   const [showVoiceTip, setShowVoiceTip] = useState(false);
   const [isExerciseDetailOpen, setIsExerciseDetailOpen] = useState(false);
+  const [isVoiceSelfChecking, setIsVoiceSelfChecking] = useState(false);
+  const [voiceSelfCheckResult, setVoiceSelfCheckResult] = useState<WorkoutVoiceSelfCheckResult | null>(null);
 
   const loopConfig = useMemo(() => getWorkoutLoopConfig(plan), [plan]);
   const steps = useMemo(
@@ -394,6 +400,34 @@ export function WorkoutSessionPage() {
     setShowVoiceTip(false);
     writeWorkoutVoiceBroadcastPreference(false);
   }, [isVoicePreferenceOn, isVoiceSupported, shouldRetryVoiceActivation, voiceSession]);
+
+  const runVoiceSelfCheck = useCallback(() => {
+    setIsVoiceSelfChecking(true);
+    setVoiceSelfCheckResult(null);
+
+    void runWorkoutVoiceSelfCheck({
+      onDiagnostic: logVoiceSelfCheckDiagnostic,
+    }).then((result) => {
+      setVoiceSelfCheckResult(result);
+    }).catch((error: unknown) => {
+      console.error("[WorkoutVoiceCheck] failed", error);
+      setVoiceSelfCheckResult({
+        elapsedMs: 0,
+        ended: false,
+        error: error instanceof Error ? error.message : "unknown",
+        events: ["speech-error"],
+        reason: "speech_error",
+        selectedVoice: "default",
+        started: false,
+        status: "error",
+        supported: isWorkoutVoiceBroadcastSupported(),
+        text: "语音自检",
+        voices: 0,
+      });
+    }).finally(() => {
+      setIsVoiceSelfChecking(false);
+    });
+  }, []);
 
   const goToStep = useCallback((nextIndex: number, { cancelVoice = true }: { cancelVoice?: boolean } = {}) => {
     if (!steps.length) {
@@ -922,6 +956,11 @@ export function WorkoutSessionPage() {
                   {isRestStep ? "跳过休息" : "下一个"}
                 </button>
               </div>
+              <VoiceSelfCheckPanel
+                isRunning={isVoiceSelfChecking}
+                onRun={runVoiceSelfCheck}
+                result={voiceSelfCheckResult}
+              />
               {nextItem ? (
                 <div className="mt-sm rounded-xl bg-panel-soft p-sm">
                   <p className="text-label-md font-bold text-muted">下一个动作</p>
@@ -1089,6 +1128,85 @@ function VoiceTipBubble({
   );
 }
 
+function VoiceSelfCheckPanel({
+  isRunning,
+  onRun,
+  result,
+}: {
+  isRunning: boolean;
+  onRun: () => void;
+  result: WorkoutVoiceSelfCheckResult | null;
+}) {
+  const summary = getVoiceSelfCheckSummary(isRunning, result);
+
+  return (
+    <div className="mt-sm rounded-xl border border-line bg-panel-soft p-sm">
+      <div className="flex items-center justify-between gap-sm">
+        <div className="min-w-0">
+          <p className="text-label-md font-extrabold text-ink">语音自检</p>
+          <p className={`mt-[2px] text-label-md font-semibold ${summary.className}`}>{summary.text}</p>
+        </div>
+        <button
+          className="flex h-9 shrink-0 items-center justify-center gap-xs rounded-xl border border-primary/30 bg-white px-sm text-label-md font-extrabold text-primary transition-colors hover:bg-primary-soft disabled:cursor-not-allowed disabled:border-line disabled:text-muted"
+          disabled={isRunning}
+          onClick={onRun}
+          type="button"
+        >
+          <SymbolIcon className="text-lg">{isRunning ? "hourglass_empty" : "record_voice_over"}</SymbolIcon>
+          {isRunning ? "检测中" : "自检"}
+        </button>
+      </div>
+      {result ? (
+        <dl className="mt-sm grid grid-cols-2 gap-x-sm gap-y-xs text-label-md font-semibold text-muted">
+          <div className="min-w-0">
+            <dt className="text-muted">voices</dt>
+            <dd className="truncate text-ink">{result.voices}</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-muted">voice</dt>
+            <dd className="truncate text-ink">{result.selectedVoice}</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-muted">events</dt>
+            <dd className="truncate text-ink">{result.events.join(", ") || "-"}</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-muted">reason</dt>
+            <dd className="truncate text-ink">{result.reason ?? "-"}</dd>
+          </div>
+        </dl>
+      ) : null}
+    </div>
+  );
+}
+
+function getVoiceSelfCheckSummary(
+  isRunning: boolean,
+  result: WorkoutVoiceSelfCheckResult | null,
+) {
+  if (isRunning) {
+    return { className: "text-primary", text: "正在直接检测浏览器语音合成" };
+  }
+
+  if (!result) {
+    return { className: "text-muted", text: "不影响训练状态和语音开关" };
+  }
+
+  if (result.status === "ended" || result.status === "started") {
+    return { className: "text-success-text", text: result.status === "ended" ? "语音自检通过" : "语音已启动，未收到结束事件" };
+  }
+
+  if (result.status === "unsupported") {
+    return { className: "text-danger", text: "当前浏览器不支持语音合成" };
+  }
+
+  if (result.status === "blocked") {
+    return { className: "text-danger", text: "语音未启动，浏览器阻止了 Web Speech" };
+  }
+
+  return { className: "text-danger", text: "语音自检失败" };
+}
+
 function SessionControl({
   icon,
   label,
@@ -1208,4 +1326,12 @@ function MiniFigure({ variant }: { variant: number }) {
       className={`relative block h-[42px] w-[58px] before:absolute before:rounded-full before:bg-slate-950 after:absolute after:rounded-full after:bg-slate-950 ${styles[variant % styles.length]}`}
     />
   );
+}
+
+function logVoiceSelfCheckDiagnostic(event: string, payload?: Record<string, unknown>) {
+  if (process.env.NODE_ENV !== "development") {
+    return;
+  }
+
+  console.debug("[WorkoutVoiceCheck]", event, payload ?? {});
 }
