@@ -350,7 +350,7 @@ export function WorkoutSessionPage() {
     }
 
     if (shouldRetryVoiceActivation) {
-      voiceSession.activateCurrentStep();
+      voiceSession.activateCurrentStep(false, { includeActivationPrompt: false });
       return;
     }
 
@@ -384,7 +384,7 @@ export function WorkoutSessionPage() {
     setIsPaused(false);
 
     if (isVoicePreferenceOn && isVoiceSupported && !isVoiceBroadcastActive) {
-      voiceSession.activateCurrentStep();
+      voiceSession.activateCurrentStep(false, { includeActivationPrompt: false });
     }
   }, [isVoiceBroadcastActive, isVoicePreferenceOn, isVoiceSupported, voiceSession]);
 
@@ -679,12 +679,7 @@ export function WorkoutSessionPage() {
             </p>
             {isAwaitingStart ? (
               <>
-                <div className="my-md grid h-[clamp(112px,16vw,156px)] w-[clamp(112px,16vw,156px)] place-items-center rounded-full bg-primary-soft text-primary ring-1 ring-primary/15">
-                  <SymbolIcon className="text-[clamp(64px,8vw,92px)]" filled>
-                    play_arrow
-                  </SymbolIcon>
-                </div>
-                <p className="text-body-lg font-extrabold text-ink">
+                <p className="my-md text-body-lg font-extrabold text-ink">
                   训练尚未开始，计时和语音会在点击开始后启动
                 </p>
               </>

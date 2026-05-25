@@ -199,15 +199,14 @@ describe("workout voice session scheduler", () => {
       },
     });
     session.setPreferenceEnabled(true);
-    session.activateCurrentStep();
+    session.activateCurrentStep(false, { includeActivationPrompt: false });
 
     expect(environment.spoken.map((utterance) => utterance.text)).toEqual([
-      "语音播报已开启。",
       "第一组动作，俯卧撑，15 个。",
     ]);
 
     environment.spoken[0].onstart?.({} as SpeechSynthesisEvent);
-    environment.spoken[1].onend?.({} as SpeechSynthesisEvent);
+    environment.spoken[0].onend?.({} as SpeechSynthesisEvent);
     expect(completedStepKey).toBe("session:start-control");
   });
 });

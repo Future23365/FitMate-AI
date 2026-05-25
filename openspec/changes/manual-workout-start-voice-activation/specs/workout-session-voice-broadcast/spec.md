@@ -23,9 +23,10 @@
 
 #### Scenario: User starts training with voice preference enabled
 - **WHEN** the user clicks the training start button while local voice broadcast preference is enabled
-- **THEN** the system MUST attempt to activate speech and current step broadcast within that start click flow
+- **THEN** the system MUST attempt silent audio unlock and current step broadcast within that start click flow
 - **AND** the system MUST NOT require a separate pause, skip, list selection, or arbitrary page gesture to restore voice
 - **AND** the system MUST NOT show a “刷新后需要点击一次恢复播报” style prompt
+- **AND** the system MUST NOT speak the activation template such as “语音播报已开启”
 
 #### Scenario: User disables voice broadcast
 - **WHEN** the user clicks the top volume button while voice broadcast is enabled, activating, waiting for activation, speaking, or failed
@@ -89,7 +90,8 @@
 #### Scenario: Start button activates voice playback
 - **WHEN** voice broadcast is enabled and the user clicks the training start button
 - **THEN** the system MUST submit an activation event to the voice scheduler in the same user gesture flow
-- **AND** the scheduler MUST attempt to speak the configured activation cue and current workout step cue without letting immediate repetition or countdown cues cancel them
+- **AND** the scheduler MUST attempt to speak the current workout step cue without letting immediate repetition or countdown cues cancel it
+- **AND** the scheduler MUST reserve the configured activation cue for the top voice button enable action
 - **AND** the system MUST update playback state from the resulting speech events or configured fallback timeout
 
 #### Scenario: Voice button activates or retries voice playback

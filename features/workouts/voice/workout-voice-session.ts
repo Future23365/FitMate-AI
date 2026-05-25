@@ -89,6 +89,10 @@ type WorkoutVoiceSessionOptions = {
   onStateChange?: (state: WorkoutVoiceSessionState) => void;
 };
 
+type WorkoutVoiceActivationOptions = {
+  includeActivationPrompt?: boolean;
+};
+
 let workoutAudioContext: AudioContext | null = null;
 
 export class WorkoutVoiceSession {
@@ -166,7 +170,7 @@ export class WorkoutVoiceSession {
     }
   }
 
-  activateCurrentStep(forcePreferenceEnabled = false) {
+  activateCurrentStep(forcePreferenceEnabled = false, { includeActivationPrompt = true }: WorkoutVoiceActivationOptions = {}) {
     if (!this.state.isSupported) {
       this.setState("unsupported", "speech_unsupported");
       return;
@@ -186,7 +190,9 @@ export class WorkoutVoiceSession {
 
     const context = this.context;
     const introText = context?.activeStep ? this.buildCurrentStepText(context) : "";
-    const texts = this.hasActivated ? [introText] : [this.config.templates.activation, introText];
+    const texts = !this.hasActivated && includeActivationPrompt
+      ? [this.config.templates.activation, introText]
+      : [introText];
 
     this.scheduleCue({
       dedupeKey: `activation:${context?.activeStepKey ?? "none"}`,

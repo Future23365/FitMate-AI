@@ -206,8 +206,11 @@ export function useWorkoutVoiceBroadcast({
     getSession().playTimedBeep();
   }, [activeStep, getSession, isPaused, isPreferenceEnabled, isPreparing, isSessionStarted, remainingSeconds]);
 
-  const activateCurrentStep = useCallback((forcePreferenceEnabled = false) => {
-    getSession().activateCurrentStep(forcePreferenceEnabled);
+  const activateCurrentStep = useCallback((
+    forcePreferenceEnabled = false,
+    options?: { includeActivationPrompt?: boolean },
+  ) => {
+    getSession().activateCurrentStep(forcePreferenceEnabled, options);
   }, [getSession]);
 
   const cancelCurrentVoice = useCallback((reason = "cancel") => {
