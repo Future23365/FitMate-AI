@@ -276,8 +276,8 @@ export function useWorkoutVoiceBroadcast({
     }
 
     logVoiceDiagnostic("activation retry", { activeStepKey });
-    unlockWorkoutVoiceBroadcastAudio();
     speakCurrentStep("activation", forcePreferenceEnabled);
+    unlockWorkoutVoiceBroadcastAudio();
   }, [activeStepKey, isPreferenceEnabled, isSupported, setVoiceState, speakCurrentStep]);
 
   const disableVoiceSession = useCallback(() => {
