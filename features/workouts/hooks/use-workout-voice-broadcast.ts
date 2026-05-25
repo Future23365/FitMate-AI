@@ -4,6 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { WorkoutTimelineStep } from "@/lib/shared/workouts/composition";
 import {
+  defaultWorkoutVoiceBroadcastUserSettings,
+  normalizeWorkoutVoiceBroadcastUserSettings,
+  type WorkoutVoiceBroadcastConfig,
+  type WorkoutVoiceBroadcastUserSettings,
+} from "@/lib/shared/workouts/voice-broadcast-config";
+import {
   createWorkoutVoiceSpeechJob,
   isWorkoutVoiceSpeechSupported,
   unlockWorkoutVoiceBroadcastAudio,
@@ -19,10 +25,12 @@ export type { WorkoutVoiceBroadcastError, WorkoutVoiceBroadcastStatus, WorkoutVo
 
 export const workoutVoiceBroadcastStorageKey = "fitmate.workoutVoiceBroadcast.enabled";
 export const workoutVoiceBroadcastTipSeenStorageKey = "fitmate.workoutVoiceBroadcast.tipSeen";
+export const workoutVoiceBroadcastSettingsStorageKey = "fitmate.workoutVoiceBroadcast.settings";
 
 type UseWorkoutVoiceBroadcastOptions = {
   activeStepIndex: number;
   completedReps: number;
+  config: WorkoutVoiceBroadcastConfig;
   isFirstExerciseStep: boolean;
   isPaused: boolean;
   isPreferenceEnabled: boolean;
@@ -83,6 +91,37 @@ export function writeWorkoutVoiceBroadcastTipSeen() {
   }
 }
 
+export function readWorkoutVoiceBroadcastSettings(): WorkoutVoiceBroadcastUserSettings {
+  if (typeof window === "undefined") {
+    return defaultWorkoutVoiceBroadcastUserSettings;
+  }
+
+  try {
+    const storedValue = window.localStorage.getItem(workoutVoiceBroadcastSettingsStorageKey);
+
+    return normalizeWorkoutVoiceBroadcastUserSettings(
+      storedValue ? JSON.parse(storedValue) as Partial<WorkoutVoiceBroadcastUserSettings> : undefined,
+    );
+  } catch {
+    return defaultWorkoutVoiceBroadcastUserSettings;
+  }
+}
+
+export function writeWorkoutVoiceBroadcastSettings(settings: WorkoutVoiceBroadcastUserSettings) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(
+      workoutVoiceBroadcastSettingsStorageKey,
+      JSON.stringify(normalizeWorkoutVoiceBroadcastUserSettings(settings)),
+    );
+  } catch {
+    // Local voice tuning is best-effort; the current in-memory settings still apply.
+  }
+}
+
 export function isWorkoutVoiceBroadcastSupported() {
   return isWorkoutVoiceSpeechSupported();
 }
@@ -90,6 +129,7 @@ export function isWorkoutVoiceBroadcastSupported() {
 export function useWorkoutVoiceBroadcast({
   activeStepIndex,
   completedReps,
+  config,
   isFirstExerciseStep,
   isPaused,
   isPreferenceEnabled,
@@ -110,11 +150,13 @@ export function useWorkoutVoiceBroadcast({
     lastError: null,
     status: "unsupported",
   }));
+  const configRef = useRef(config);
   const sessionRef = useRef<WorkoutVoiceSession | null>(null);
 
   const getSession = useCallback(() => {
     if (!sessionRef.current) {
       sessionRef.current = new WorkoutVoiceSession({
+        config: configRef.current,
         onDiagnostic: ({ event, payload }) => logVoiceDiagnostic(event, payload),
         onStateChange: setVoiceState,
       });
@@ -123,6 +165,11 @@ export function useWorkoutVoiceBroadcast({
 
     return sessionRef.current;
   }, []);
+
+  useEffect(() => {
+    configRef.current = config;
+    getSession().updateConfig(config);
+  }, [config, getSession]);
 
   useEffect(() => {
     const session = getSession();

@@ -50,6 +50,7 @@ export type WorkoutVoiceBroadcastConfig = {
     lang: string;
     pitch: number;
     rate: number;
+    voiceURI: string;
     volume: number;
   };
   timing: {
@@ -98,6 +99,7 @@ export const workoutVoiceBroadcastConfig = validateWorkoutVoiceBroadcastConfig({
     lang: "zh-CN",
     pitch: 1,
     rate: 1,
+    voiceURI: "",
     volume: 1,
   },
   timing: {
@@ -215,8 +217,67 @@ export function validateWorkoutVoiceBroadcastConfig(config: WorkoutVoiceBroadcas
   return config;
 }
 
+export type WorkoutVoiceBroadcastUserSettings = {
+  beepVolume: number;
+  pitch: number;
+  rate: number;
+  voiceURI: string;
+  volume: number;
+};
+
+export const defaultWorkoutVoiceBroadcastUserSettings: WorkoutVoiceBroadcastUserSettings = {
+  beepVolume: workoutVoiceBroadcastConfig.beep.volume,
+  pitch: workoutVoiceBroadcastConfig.speech.pitch,
+  rate: workoutVoiceBroadcastConfig.speech.rate,
+  voiceURI: workoutVoiceBroadcastConfig.speech.voiceURI,
+  volume: workoutVoiceBroadcastConfig.speech.volume,
+};
+
+// 将用户本地设置收敛到安全范围，避免异常 localStorage 数据影响训练播报。
+export function normalizeWorkoutVoiceBroadcastUserSettings(
+  input: Partial<WorkoutVoiceBroadcastUserSettings> = {},
+): WorkoutVoiceBroadcastUserSettings {
+  return {
+    beepVolume: clampNumber(input.beepVolume, 0, 1, defaultWorkoutVoiceBroadcastUserSettings.beepVolume),
+    pitch: clampNumber(input.pitch, 0.5, 1.5, defaultWorkoutVoiceBroadcastUserSettings.pitch),
+    rate: clampNumber(input.rate, 0.65, 1.35, defaultWorkoutVoiceBroadcastUserSettings.rate),
+    voiceURI: typeof input.voiceURI === "string" ? input.voiceURI : defaultWorkoutVoiceBroadcastUserSettings.voiceURI,
+    volume: clampNumber(input.volume, 0, 1, defaultWorkoutVoiceBroadcastUserSettings.volume),
+  };
+}
+
+// 基于默认播报策略生成运行时配置，训练播报和自检共用这条入口。
+export function buildWorkoutVoiceBroadcastConfig(
+  userSettings: Partial<WorkoutVoiceBroadcastUserSettings> = {},
+) {
+  const settings = normalizeWorkoutVoiceBroadcastUserSettings(userSettings);
+
+  return validateWorkoutVoiceBroadcastConfig({
+    ...workoutVoiceBroadcastConfig,
+    beep: {
+      ...workoutVoiceBroadcastConfig.beep,
+      volume: settings.beepVolume,
+    },
+    speech: {
+      ...workoutVoiceBroadcastConfig.speech,
+      pitch: settings.pitch,
+      rate: settings.rate,
+      voiceURI: settings.voiceURI,
+      volume: settings.volume,
+    },
+  });
+}
+
 function formatDefaultPreparationTarget(item: WorkoutItem) {
   return item.mode === "duration" ? `${item.target} 秒` : `${item.target} 个`;
+}
+
+function clampNumber(value: unknown, min: number, max: number, fallback: number) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback;
+  }
+
+  return Math.min(max, Math.max(min, value));
 }
 
 function assertPositive(value: number, field: string, allowZero = false) {

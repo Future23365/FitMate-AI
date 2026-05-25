@@ -14,15 +14,18 @@ import {
 import {
   isWorkoutVoiceBroadcastSupported,
   readWorkoutVoiceBroadcastPreference,
+  readWorkoutVoiceBroadcastSettings,
   readWorkoutVoiceBroadcastTipSeen,
   useWorkoutVoiceBroadcast,
   writeWorkoutVoiceBroadcastPreference,
+  writeWorkoutVoiceBroadcastSettings,
   writeWorkoutVoiceBroadcastTipSeen,
   type WorkoutVoiceBroadcastStatus,
 } from "@/features/workouts/hooks/use-workout-voice-broadcast";
 import {
   runWorkoutVoiceSelfCheck,
   type WorkoutVoiceSelfCheckResult,
+  type WorkoutVoiceSelfCheckStepStatus,
 } from "@/features/workouts/voice/workout-voice-self-check";
 import {
   buildWorkoutTimeline,
@@ -40,12 +43,47 @@ import {
   type WorkoutMode,
 } from "@/lib/shared/workouts/composition";
 import {
+  buildWorkoutVoiceBroadcastConfig,
+  defaultWorkoutVoiceBroadcastUserSettings,
+  normalizeWorkoutVoiceBroadcastUserSettings,
+  type WorkoutVoiceBroadcastUserSettings,
+} from "@/lib/shared/workouts/voice-broadcast-config";
+import {
   buildWorkoutSessionListView,
   getRelevantExerciseStep,
 } from "@/lib/shared/workouts/session-flow";
 import type { Exercise } from "@/lib/shared/exercises/types";
 
 const preparationCountdownStart = 3;
+const voiceSettingsRanges = {
+  beepVolume: { max: 1, min: 0, step: 0.05 },
+  pitch: { max: 1.5, min: 0.5, step: 0.05 },
+  rate: { max: 1.35, min: 0.65, step: 0.05 },
+  volume: { max: 1, min: 0, step: 0.05 },
+};
+
+const voiceApiCompatibility = [
+  {
+    api: "Web Speech: speechSynthesis",
+    usage: "训练口令、倒计时、计次播报",
+    versions: "Chrome 33+ / Edge 14+ / Firefox 49+ / Safari 7+ / iOS Safari 7+",
+  },
+  {
+    api: "SpeechSynthesisUtterance.voice",
+    usage: "应用用户选择的 voice",
+    versions: "Chrome 33+ / Edge 14+ / Firefox 49+ / Safari 7+ / iOS Safari 7+",
+  },
+  {
+    api: "speechSynthesis.getVoices / voiceschanged",
+    usage: "读取 voice 列表并处理延迟加载",
+    versions: "跟随 Web Speech 支持；Firefox Android voice 属性约 62+",
+  },
+  {
+    api: "Web Audio: AudioContext",
+    usage: "计时动作的每秒节奏音",
+    versions: "Chrome 14+ / Edge 12+ / Firefox 25+ / Safari 6+ / iOS Safari 6+",
+  },
+];
 
 const fallbackPlan: ScheduledWorkout = {
   id: "session-fallback",
@@ -202,8 +240,17 @@ export function WorkoutSessionPage() {
   const [isExerciseDetailOpen, setIsExerciseDetailOpen] = useState(false);
   const [isVoiceSelfChecking, setIsVoiceSelfChecking] = useState(false);
   const [voiceSelfCheckResult, setVoiceSelfCheckResult] = useState<WorkoutVoiceSelfCheckResult | null>(null);
+  const [isVoiceSettingsOpen, setIsVoiceSettingsOpen] = useState(false);
+  const [voiceSettings, setVoiceSettings] = useState<WorkoutVoiceBroadcastUserSettings>(
+    defaultWorkoutVoiceBroadcastUserSettings,
+  );
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
 
   const loopConfig = useMemo(() => getWorkoutLoopConfig(plan), [plan]);
+  const voiceBroadcastConfig = useMemo(
+    () => buildWorkoutVoiceBroadcastConfig(voiceSettings),
+    [voiceSettings],
+  );
   const steps = useMemo(
     () => buildWorkoutTimeline(plan.items, loopConfig),
     [loopConfig, plan.items],
@@ -340,6 +387,7 @@ export function WorkoutSessionPage() {
       const hasSeenVoiceTip = readWorkoutVoiceBroadcastTipSeen();
 
       setIsAudioOn(savedAudioPreference);
+      setVoiceSettings(readWorkoutVoiceBroadcastSettings());
       if (canUseVoiceBroadcast && !savedAudioPreference && !hasSeenVoiceTip) {
         setShowVoiceTip(true);
         writeWorkoutVoiceBroadcastTipSeen();
@@ -350,6 +398,25 @@ export function WorkoutSessionPage() {
     return () => window.clearTimeout(timer);
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined" || !isWorkoutVoiceBroadcastSupported()) {
+      return;
+    }
+
+    const loadVoices = () => {
+      setAvailableVoices(window.speechSynthesis.getVoices());
+    };
+
+    loadVoices();
+    const refreshTimer = window.setTimeout(loadVoices, 500);
+    window.speechSynthesis.addEventListener?.("voiceschanged", loadVoices);
+
+    return () => {
+      window.clearTimeout(refreshTimer);
+      window.speechSynthesis.removeEventListener?.("voiceschanged", loadVoices);
+    };
+  }, []);
+
   const markPreparationIntroComplete = useCallback((stepKey: string) => {
     setPreparationCountdownStepKey(stepKey);
   }, []);
@@ -357,6 +424,7 @@ export function WorkoutSessionPage() {
   const voiceSession = useWorkoutVoiceBroadcast({
     activeStepIndex,
     completedReps,
+    config: voiceBroadcastConfig,
     isFirstExerciseStep: activeStepIndex === 0,
     isPaused,
     isPreferenceEnabled: isPlanReady && isAudioOn && isVoicePreferenceLoaded,
@@ -401,13 +469,28 @@ export function WorkoutSessionPage() {
     writeWorkoutVoiceBroadcastPreference(false);
   }, [isVoicePreferenceOn, isVoiceSupported, shouldRetryVoiceActivation, voiceSession]);
 
+  const updateVoiceSetting = useCallback((patch: Partial<WorkoutVoiceBroadcastUserSettings>) => {
+    setVoiceSettings((current) => {
+      const nextSettings = normalizeWorkoutVoiceBroadcastUserSettings({ ...current, ...patch });
+      writeWorkoutVoiceBroadcastSettings(nextSettings);
+
+      return nextSettings;
+    });
+  }, []);
+
+  const resetVoiceSettings = useCallback(() => {
+    setVoiceSettings(defaultWorkoutVoiceBroadcastUserSettings);
+    writeWorkoutVoiceBroadcastSettings(defaultWorkoutVoiceBroadcastUserSettings);
+    setVoiceSelfCheckResult(null);
+  }, []);
+
   const runVoiceSelfCheck = useCallback(() => {
     setIsVoiceSelfChecking(true);
     setVoiceSelfCheckResult(null);
 
     void runWorkoutVoiceSelfCheck({
       onDiagnostic: logVoiceSelfCheckDiagnostic,
-    }).then((result) => {
+    }, voiceBroadcastConfig).then((result) => {
       setVoiceSelfCheckResult(result);
     }).catch((error: unknown) => {
       console.error("[WorkoutVoiceCheck] failed", error);
@@ -420,6 +503,7 @@ export function WorkoutSessionPage() {
         selectedVoice: "default",
         started: false,
         status: "error",
+        steps: createFailedVoiceSelfCheckSteps(error),
         supported: isWorkoutVoiceBroadcastSupported(),
         text: "语音自检",
         voices: 0,
@@ -427,7 +511,7 @@ export function WorkoutSessionPage() {
     }).finally(() => {
       setIsVoiceSelfChecking(false);
     });
-  }, []);
+  }, [voiceBroadcastConfig]);
 
   const goToStep = useCallback((nextIndex: number, { cancelVoice = true }: { cancelVoice?: boolean } = {}) => {
     if (!steps.length) {
@@ -615,6 +699,14 @@ export function WorkoutSessionPage() {
             </span>
           </div>
           <div className="flex items-center gap-sm">
+            <button
+              aria-label="打开语音设置"
+              className="grid h-11 w-11 place-items-center rounded-xl border border-line bg-white text-muted transition-colors hover:bg-panel-soft hover:text-primary"
+              onClick={() => setIsVoiceSettingsOpen(true)}
+              type="button"
+            >
+              <SymbolIcon className="text-2xl">settings</SymbolIcon>
+            </button>
             <div className="relative">
               <button
                 aria-label={getVoiceButtonLabel(isVoiceSupported, isVoicePreferenceOn, voiceStatus)}
@@ -956,11 +1048,6 @@ export function WorkoutSessionPage() {
                   {isRestStep ? "跳过休息" : "下一个"}
                 </button>
               </div>
-              <VoiceSelfCheckPanel
-                isRunning={isVoiceSelfChecking}
-                onRun={runVoiceSelfCheck}
-                result={voiceSelfCheckResult}
-              />
               {nextItem ? (
                 <div className="mt-sm rounded-xl bg-panel-soft p-sm">
                   <p className="text-label-md font-bold text-muted">下一个动作</p>
@@ -993,6 +1080,17 @@ export function WorkoutSessionPage() {
         exercise={currentExerciseDetail}
         isOpen={isExerciseDetailOpen}
         onClose={() => setIsExerciseDetailOpen(false)}
+      />
+      <VoiceSettingsDialog
+        availableVoices={availableVoices}
+        isOpen={isVoiceSettingsOpen}
+        isRunningSelfCheck={isVoiceSelfChecking}
+        onClose={() => setIsVoiceSettingsOpen(false)}
+        onResetSettings={resetVoiceSettings}
+        onRunSelfCheck={runVoiceSelfCheck}
+        onUpdateSettings={updateVoiceSetting}
+        selfCheckResult={voiceSelfCheckResult}
+        settings={voiceSettings}
       />
     </main>
   );
@@ -1128,54 +1226,273 @@ function VoiceTipBubble({
   );
 }
 
-function VoiceSelfCheckPanel({
-  isRunning,
-  onRun,
-  result,
+function VoiceSettingsDialog({
+  availableVoices,
+  isOpen,
+  isRunningSelfCheck,
+  onClose,
+  onResetSettings,
+  onRunSelfCheck,
+  onUpdateSettings,
+  selfCheckResult,
+  settings,
 }: {
-  isRunning: boolean;
-  onRun: () => void;
-  result: WorkoutVoiceSelfCheckResult | null;
+  availableVoices: SpeechSynthesisVoice[];
+  isOpen: boolean;
+  isRunningSelfCheck: boolean;
+  onClose: () => void;
+  onResetSettings: () => void;
+  onRunSelfCheck: () => void;
+  onUpdateSettings: (patch: Partial<WorkoutVoiceBroadcastUserSettings>) => void;
+  selfCheckResult: WorkoutVoiceSelfCheckResult | null;
+  settings: WorkoutVoiceBroadcastUserSettings;
 }) {
-  const summary = getVoiceSelfCheckSummary(isRunning, result);
+  if (!isOpen) {
+    return null;
+  }
+
+  const selfCheckSummary = getVoiceSelfCheckSummary(isRunningSelfCheck, selfCheckResult);
+  const visibleSteps = selfCheckResult?.steps ?? createPendingVoiceSelfCheckSteps();
+  const selectedVoiceExists = settings.voiceURI
+    ? availableVoices.some((voice) => voice.voiceURI === settings.voiceURI)
+    : true;
 
   return (
-    <div className="mt-sm rounded-xl border border-line bg-panel-soft p-sm">
-      <div className="flex items-center justify-between gap-sm">
-        <div className="min-w-0">
-          <p className="text-label-md font-extrabold text-ink">语音自检</p>
-          <p className={`mt-[2px] text-label-md font-semibold ${summary.className}`}>{summary.text}</p>
+    <div
+      aria-modal="true"
+      className="fixed inset-0 z-50 grid place-items-center bg-ink/35 px-md py-lg"
+      onClick={onClose}
+      role="dialog"
+    >
+      <section
+        className="custom-scrollbar max-h-[min(760px,calc(100dvh-40px))] w-full max-w-[920px] overflow-y-auto rounded-[20px] border border-line bg-white p-md text-ink shadow-lift md:p-lg"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-md">
+          <div>
+            <p className="text-label-md font-bold text-primary">训练语音</p>
+            <h2 className="mt-xs text-[24px] font-extrabold leading-tight">播报设置</h2>
+          </div>
+          <button
+            aria-label="关闭语音设置"
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-line bg-white text-muted transition-colors hover:bg-panel-soft hover:text-ink"
+            onClick={onClose}
+            type="button"
+          >
+            <SymbolIcon className="text-2xl">close</SymbolIcon>
+          </button>
         </div>
-        <button
-          className="flex h-9 shrink-0 items-center justify-center gap-xs rounded-xl border border-primary/30 bg-white px-sm text-label-md font-extrabold text-primary transition-colors hover:bg-primary-soft disabled:cursor-not-allowed disabled:border-line disabled:text-muted"
-          disabled={isRunning}
-          onClick={onRun}
-          type="button"
-        >
-          <SymbolIcon className="text-lg">{isRunning ? "hourglass_empty" : "record_voice_over"}</SymbolIcon>
-          {isRunning ? "检测中" : "自检"}
-        </button>
+
+        <div className="mt-md grid gap-md lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
+          <section className="rounded-xl border border-line bg-panel-soft p-md">
+            <div className="flex items-center justify-between gap-sm">
+              <div>
+                <p className="text-body-md font-extrabold text-ink">Voice</p>
+                <p className="mt-xs text-label-md font-semibold text-muted">
+                  {availableVoices.length ? `${availableVoices.length} 个可用 voice` : "使用默认 voice"}
+                </p>
+              </div>
+              <button
+                className="flex h-9 items-center gap-xs rounded-xl border border-line bg-white px-sm text-label-md font-extrabold text-muted transition-colors hover:bg-white hover:text-primary"
+                onClick={onResetSettings}
+                type="button"
+              >
+                <SymbolIcon className="text-lg">restart_alt</SymbolIcon>
+                重置
+              </button>
+            </div>
+            <label className="mt-sm block" htmlFor="workout-voice-setting-voice">
+              <span className="mb-xs block text-label-md font-bold text-muted">选择 voice</span>
+              <select
+                className="h-11 w-full rounded-xl border border-line bg-white px-sm text-body-md font-bold text-ink outline-none transition-colors focus:border-primary"
+                id="workout-voice-setting-voice"
+                name="workout-voice-setting-voice"
+                onChange={(event) => onUpdateSettings({ voiceURI: event.target.value })}
+                value={selectedVoiceExists ? settings.voiceURI : ""}
+              >
+                <option value="">自动选择中文 / 默认 voice</option>
+                {availableVoices.map((voice) => (
+                  <option key={voice.voiceURI || `${voice.name}-${voice.lang}`} value={voice.voiceURI}>
+                    {voice.name} ({voice.lang}){voice.default ? " · default" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {!selectedVoiceExists ? (
+              <p className="mt-xs text-label-md font-bold text-danger">
+                上次选择的 voice 当前不可用，实际播报会自动回退。
+              </p>
+            ) : null}
+            <div className="mt-md space-y-sm">
+              <VoiceRangeControl
+                id="workout-voice-setting-rate"
+                label="语速"
+                max={voiceSettingsRanges.rate.max}
+                min={voiceSettingsRanges.rate.min}
+                onChange={(value) => onUpdateSettings({ rate: value })}
+                step={voiceSettingsRanges.rate.step}
+                value={settings.rate}
+              />
+              <VoiceRangeControl
+                id="workout-voice-setting-volume"
+                label="音量"
+                max={voiceSettingsRanges.volume.max}
+                min={voiceSettingsRanges.volume.min}
+                onChange={(value) => onUpdateSettings({ volume: value })}
+                step={voiceSettingsRanges.volume.step}
+                value={settings.volume}
+              />
+              <VoiceRangeControl
+                id="workout-voice-setting-pitch"
+                label="音调"
+                max={voiceSettingsRanges.pitch.max}
+                min={voiceSettingsRanges.pitch.min}
+                onChange={(value) => onUpdateSettings({ pitch: value })}
+                step={voiceSettingsRanges.pitch.step}
+                value={settings.pitch}
+              />
+              <VoiceRangeControl
+                id="workout-voice-setting-beep-volume"
+                label="节奏音量"
+                max={voiceSettingsRanges.beepVolume.max}
+                min={voiceSettingsRanges.beepVolume.min}
+                onChange={(value) => onUpdateSettings({ beepVolume: value })}
+                step={voiceSettingsRanges.beepVolume.step}
+                value={settings.beepVolume}
+              />
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-line bg-white p-md">
+            <div className="flex items-start justify-between gap-md">
+              <div>
+                <p className="text-body-md font-extrabold text-ink">全流程自检</p>
+                <p className={`mt-xs text-label-md font-semibold ${selfCheckSummary.className}`}>
+                  {selfCheckSummary.text}
+                </p>
+              </div>
+              <button
+                className="flex h-10 shrink-0 items-center justify-center gap-xs rounded-xl bg-primary px-md text-label-md font-extrabold text-white transition-colors hover:bg-primary-deep disabled:cursor-not-allowed disabled:bg-muted"
+                disabled={isRunningSelfCheck}
+                onClick={onRunSelfCheck}
+                type="button"
+              >
+                <SymbolIcon className="text-lg">{isRunningSelfCheck ? "hourglass_empty" : "fact_check"}</SymbolIcon>
+                {isRunningSelfCheck ? "检测中" : "开始自检"}
+              </button>
+            </div>
+            <div className="mt-md space-y-xs">
+              {visibleSteps.map((step) => (
+                <VoiceSelfCheckStepRow key={step.id} step={step} />
+              ))}
+            </div>
+            {selfCheckResult ? (
+              <dl className="mt-md grid grid-cols-2 gap-sm rounded-xl bg-panel-soft p-sm text-label-md font-semibold text-muted">
+                <div className="min-w-0">
+                  <dt>耗时</dt>
+                  <dd className="truncate font-extrabold text-ink">{selfCheckResult.elapsedMs} ms</dd>
+                </div>
+                <div className="min-w-0">
+                  <dt>voices</dt>
+                  <dd className="truncate font-extrabold text-ink">{selfCheckResult.voices}</dd>
+                </div>
+                <div className="min-w-0">
+                  <dt>voice</dt>
+                  <dd className="truncate font-extrabold text-ink">{selfCheckResult.selectedVoice}</dd>
+                </div>
+                <div className="min-w-0">
+                  <dt>reason</dt>
+                  <dd className="truncate font-extrabold text-ink">{selfCheckResult.reason ?? "-"}</dd>
+                </div>
+              </dl>
+            ) : null}
+          </section>
+        </div>
+
+        <section className="mt-md rounded-xl border border-line bg-panel-soft p-md">
+          <div className="mb-sm flex items-center gap-xs text-body-md font-extrabold text-ink">
+            <SymbolIcon className="text-xl text-primary">travel_explore</SymbolIcon>
+            浏览器 API 版本
+          </div>
+          <div className="grid gap-sm md:grid-cols-2">
+            {voiceApiCompatibility.map((item) => (
+              <div className="rounded-xl border border-line bg-white p-sm" key={item.api}>
+                <p className="text-label-md font-extrabold text-ink">{item.api}</p>
+                <p className="mt-xs text-label-md font-semibold text-muted">{item.usage}</p>
+                <p className="mt-xs text-label-md font-bold text-primary">{item.versions}</p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-sm text-label-md font-semibold text-muted">
+            版本范围参考 MDN / Can I Use 当前兼容数据；最终是否可用以本机自检和浏览器运行时能力为准。
+          </p>
+        </section>
+      </section>
+    </div>
+  );
+}
+
+function VoiceRangeControl({
+  id,
+  label,
+  max,
+  min,
+  onChange,
+  step,
+  value,
+}: {
+  id: string;
+  label: string;
+  max: number;
+  min: number;
+  onChange: (value: number) => void;
+  step: number;
+  value: number;
+}) {
+  return (
+    <label className="block rounded-xl border border-line bg-white p-sm" htmlFor={id}>
+      <span className="mb-xs flex items-center justify-between gap-sm text-label-md font-bold text-muted">
+        <span>{label}</span>
+        <span className="font-extrabold text-ink">{value.toFixed(2)}</span>
+      </span>
+      <input
+        className="w-full accent-primary"
+        id={id}
+        max={max}
+        min={min}
+        name={id}
+        onChange={(event) => onChange(Number(event.target.value))}
+        step={step}
+        type="range"
+        value={value}
+      />
+    </label>
+  );
+}
+
+function VoiceSelfCheckStepRow({
+  step,
+}: {
+  step: {
+    detail: string;
+    id: string;
+    label: string;
+    status: WorkoutVoiceSelfCheckStepStatus;
+  };
+}) {
+  const meta = getVoiceSelfCheckStepMeta(step.status);
+
+  return (
+    <div className="grid min-h-[58px] grid-cols-[36px_1fr] items-center gap-sm rounded-xl border border-line bg-panel-soft px-sm py-xs">
+      <span className={`grid h-8 w-8 place-items-center rounded-full ${meta.className}`}>
+        <SymbolIcon className="text-lg" filled={step.status === "passed"}>
+          {meta.icon}
+        </SymbolIcon>
+      </span>
+      <div className="min-w-0">
+        <p className="truncate text-label-md font-extrabold text-ink">{step.label}</p>
+        <p className="truncate text-label-md font-semibold text-muted">{step.detail}</p>
       </div>
-      {result ? (
-        <dl className="mt-sm grid grid-cols-2 gap-x-sm gap-y-xs text-label-md font-semibold text-muted">
-          <div className="min-w-0">
-            <dt className="text-muted">voices</dt>
-            <dd className="truncate text-ink">{result.voices}</dd>
-          </div>
-          <div className="min-w-0">
-            <dt className="text-muted">voice</dt>
-            <dd className="truncate text-ink">{result.selectedVoice}</dd>
-          </div>
-          <div className="min-w-0">
-            <dt className="text-muted">events</dt>
-            <dd className="truncate text-ink">{result.events.join(", ") || "-"}</dd>
-          </div>
-          <div className="min-w-0">
-            <dt className="text-muted">reason</dt>
-            <dd className="truncate text-ink">{result.reason ?? "-"}</dd>
-          </div>
-        </dl>
-      ) : null}
     </div>
   );
 }
@@ -1185,15 +1502,15 @@ function getVoiceSelfCheckSummary(
   result: WorkoutVoiceSelfCheckResult | null,
 ) {
   if (isRunning) {
-    return { className: "text-primary", text: "正在直接检测浏览器语音合成" };
+    return { className: "text-primary", text: "正在检测语音合成、voice 和节奏音" };
   }
 
   if (!result) {
-    return { className: "text-muted", text: "不影响训练状态和语音开关" };
+    return { className: "text-muted", text: "点击后会播放一次测试语音和短促节奏音" };
   }
 
   if (result.status === "ended" || result.status === "started") {
-    return { className: "text-success-text", text: result.status === "ended" ? "语音自检通过" : "语音已启动，未收到结束事件" };
+    return { className: "text-success-text", text: result.status === "ended" ? "全流程自检通过" : "语音已启动，未收到结束事件" };
   }
 
   if (result.status === "unsupported") {
@@ -1205,6 +1522,48 @@ function getVoiceSelfCheckSummary(
   }
 
   return { className: "text-danger", text: "语音自检失败" };
+}
+
+function getVoiceSelfCheckStepMeta(status: WorkoutVoiceSelfCheckStepStatus) {
+  if (status === "passed") {
+    return { className: "bg-success-soft text-success-text", icon: "check" };
+  }
+
+  if (status === "failed") {
+    return { className: "bg-red-50 text-danger", icon: "close" };
+  }
+
+  if (status === "warning") {
+    return { className: "bg-[#FFF7E6] text-[#B54708]", icon: "priority_high" };
+  }
+
+  if (status === "running") {
+    return { className: "bg-primary-soft text-primary", icon: "hourglass_empty" };
+  }
+
+  return { className: "bg-white text-muted", icon: "radio_button_unchecked" };
+}
+
+function createPendingVoiceSelfCheckSteps() {
+  return [
+    { detail: "等待点击开始自检。", id: "speech-api", label: "Web Speech API", status: "pending" as const },
+    { detail: "等待读取浏览器 voice。", id: "voice-list", label: "Voice 列表", status: "pending" as const },
+    { detail: "等待匹配 voice。", id: "voice-selection", label: "Voice 选择", status: "pending" as const },
+    { detail: "等待测试节奏音。", id: "web-audio", label: "Web Audio", status: "pending" as const },
+    { detail: "等待提交语音请求。", id: "speech-request", label: "语音请求", status: "pending" as const },
+    { detail: "等待播放启动。", id: "speech-start", label: "播放启动", status: "pending" as const },
+    { detail: "等待播放结束。", id: "speech-end", label: "播放结束", status: "pending" as const },
+  ];
+}
+
+function createFailedVoiceSelfCheckSteps(error: unknown) {
+  const message = error instanceof Error ? error.message : "unknown";
+
+  return createPendingVoiceSelfCheckSteps().map((step, index) => ({
+    ...step,
+    detail: index === 0 ? `自检异常：${message}` : "自检异常中止。",
+    status: "failed" as const,
+  }));
 }
 
 function SessionControl({

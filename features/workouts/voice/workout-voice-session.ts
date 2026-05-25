@@ -152,6 +152,11 @@ export class WorkoutVoiceSession {
     }
   }
 
+  // 语音设置弹窗更新配置后，后续播报任务会从这里读取最新参数。
+  updateConfig(config: WorkoutVoiceBroadcastConfig) {
+    this.config = config;
+  }
+
   setContext(nextContext: WorkoutVoiceContext) {
     const previousStepKey = this.context?.activeStepKey ?? "";
     const wasPaused = this.previousPaused;
@@ -804,9 +809,12 @@ function selectChineseVoice(config: WorkoutVoiceBroadcastConfig) {
     return undefined;
   }
 
-  return window.speechSynthesis
-    .getVoices()
-    .find((voice) => (
+  const voices = window.speechSynthesis.getVoices();
+  const configuredVoice = config.speech.voiceURI
+    ? voices.find((voice) => voice.voiceURI === config.speech.voiceURI)
+    : undefined;
+
+  return configuredVoice ?? voices.find((voice) => (
       voice.lang.toLowerCase().startsWith(config.speech.lang.toLowerCase().slice(0, 2)) ||
       /chinese|mandarin|中文|普通话/i.test(voice.name)
     ));

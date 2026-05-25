@@ -11,6 +11,8 @@ type MockUtterance = SpeechSynthesisUtterance & {
 };
 
 type MockSpeechEnvironment = {
+  audioCloseCount: number;
+  audioResumeCount: number;
   cancelCount: number;
   diagnostics: string[];
   resumeCount: number;
@@ -31,6 +33,33 @@ class MockSpeechSynthesisUtterance {
   constructor(text: string) {
     this.text = text;
   }
+}
+
+class MockAudioNode {
+  connect() {
+    return undefined;
+  }
+}
+
+class MockOscillatorNode extends MockAudioNode {
+  frequency = {
+    setValueAtTime: () => undefined,
+  };
+  type = "sine";
+
+  start() {
+    return undefined;
+  }
+
+  stop() {
+    return undefined;
+  }
+}
+
+class MockGainNode extends MockAudioNode {
+  gain = {
+    setValueAtTime: () => undefined,
+  };
 }
 
 const originalWindowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
@@ -55,7 +84,8 @@ describe("workout voice self-check", () => {
       supported: false,
       voices: 0,
     });
-    expect(result.events).toEqual(["unsupported"]);
+    expect(result.events).toEqual(expect.arrayContaining(["unsupported", "audio-request"]));
+    expect(result.steps.find((step) => step.id === "speech-api")?.status).toBe("failed");
   });
 
   it("reports success when speech starts and ends", async () => {
@@ -75,7 +105,10 @@ describe("workout voice self-check", () => {
       supported: true,
       voices: 1,
     });
-    expect(result.events).toEqual(["speech-request", "speech-start", "speech-end"]);
+    expect(result.events).toEqual(expect.arrayContaining(["audio-request", "audio-start", "speech-request", "speech-start", "speech-end"]));
+    expect(result.steps.find((step) => step.id === "web-audio")?.status).toBe("passed");
+    expect(result.steps.find((step) => step.id === "speech-end")?.status).toBe("passed");
+    expect(environment.audioResumeCount).toBe(1);
     expect(environment.cancelCount).toBe(0);
     expect(environment.resumeCount).toBe(1);
   });
@@ -95,7 +128,8 @@ describe("workout voice self-check", () => {
       status: "blocked",
       voices: 1,
     });
-    expect(result.events).toEqual(["speech-request", "speech-blocked"]);
+    expect(result.events).toEqual(expect.arrayContaining(["audio-request", "audio-start", "speech-request", "speech-blocked"]));
+    expect(result.steps.find((step) => step.id === "speech-start")?.status).toBe("failed");
   });
 
   it("reports utterance errors with diagnostic events", async () => {
@@ -110,7 +144,8 @@ describe("workout voice self-check", () => {
       reason: "speech_error",
       status: "error",
     });
-    expect(result.events).toEqual(["speech-request", "speech-error"]);
+    expect(result.events).toEqual(expect.arrayContaining(["audio-request", "audio-start", "speech-request", "speech-error"]));
+    expect(result.steps.find((step) => step.id === "speech-end")?.status).toBe("failed");
     expect(environment.diagnostics).toContain("speech error");
   });
 });
@@ -136,11 +171,38 @@ function runSelfCheck(environment: MockSpeechEnvironment) {
 
 function installMockSpeechEnvironment(): MockSpeechEnvironment {
   const environment: MockSpeechEnvironment = {
+    audioCloseCount: 0,
+    audioResumeCount: 0,
     cancelCount: 0,
     diagnostics: [],
     resumeCount: 0,
     spoken: [],
   };
+  class MockAudioContext {
+    currentTime = 0;
+    destination = new MockAudioNode();
+    state = "running";
+
+    close() {
+      environment.audioCloseCount += 1;
+
+      return Promise.resolve();
+    }
+
+    createGain() {
+      return new MockGainNode();
+    }
+
+    createOscillator() {
+      return new MockOscillatorNode();
+    }
+
+    resume() {
+      environment.audioResumeCount += 1;
+
+      return Promise.resolve();
+    }
+  }
   const speechSynthesis = {
     addEventListener: () => undefined,
     cancel: () => {
@@ -168,6 +230,7 @@ function installMockSpeechEnvironment(): MockSpeechEnvironment {
   Object.defineProperty(globalThis, "window", {
     configurable: true,
     value: {
+      AudioContext: MockAudioContext,
       SpeechSynthesisUtterance: MockSpeechSynthesisUtterance,
       speechSynthesis,
     },
