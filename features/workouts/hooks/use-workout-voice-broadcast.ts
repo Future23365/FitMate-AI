@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type MutableRefObject } from "react";
+import { useCallback, useEffect, useRef, type MutableRefObject } from "react";
 
 import type { WorkoutTimelineStep } from "@/lib/shared/workouts/composition";
 import {
@@ -35,6 +35,10 @@ type WindowWithWebKitAudioContext = Window &
   typeof globalThis & {
     webkitAudioContext?: typeof AudioContext;
   };
+
+type SpeechJob = {
+  cancel: () => void;
+};
 
 export function readWorkoutVoiceBroadcastPreference() {
   if (typeof window === "undefined") {
@@ -84,6 +88,10 @@ export function writeWorkoutVoiceBroadcastTipSeen() {
   }
 }
 
+export function isWorkoutVoiceBroadcastSupported() {
+  return canSpeak();
+}
+
 export function useWorkoutVoiceBroadcast({
   activeStepIndex,
   completedReps,
@@ -108,29 +116,59 @@ export function useWorkoutVoiceBroadcast({
   const lastPreparationSecondRef = useRef(0);
   const wasPausedRef = useRef(isPaused);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const activeSpeechJobRef = useRef<SpeechJob | null>(null);
+
+  const stopSpeech = useCallback(() => {
+    activeSpeechJobRef.current?.cancel();
+    activeSpeechJobRef.current = null;
+    cancelSpeech();
+  }, []);
+
+  const stopSessionAudio = useCallback(() => {
+    stopSpeech();
+    void audioContextRef.current?.close().catch(() => undefined);
+    audioContextRef.current = null;
+  }, [stopSpeech]);
+
+  const startSpeech = useCallback((texts: string[], interrupt = false, onDone?: () => void) => {
+    if (interrupt) {
+      stopSpeech();
+    }
+
+    const speechJob = speakTexts(texts, interrupt, onDone);
+    activeSpeechJobRef.current = speechJob;
+  }, [stopSpeech]);
+
+  useEffect(() => {
+    window.addEventListener("pagehide", stopSessionAudio);
+    window.addEventListener("beforeunload", stopSessionAudio);
+
+    return () => {
+      window.removeEventListener("pagehide", stopSessionAudio);
+      window.removeEventListener("beforeunload", stopSessionAudio);
+      stopSessionAudio();
+      currentStepKeyRef.current = "";
+      preparationStepKeyRef.current = "";
+      lastPreparationSecondRef.current = 0;
+      resetRhythmRefs(lastBeepElapsedRef, lastCountRef);
+    };
+  }, [stopSessionAudio]);
 
   useEffect(() => {
     if (!isEnabled) {
+      currentStepKeyRef.current = "";
       preparationStepKeyRef.current = "";
       lastPreparationSecondRef.current = 0;
-      cancelSpeech();
+      stopSpeech();
       return;
     }
 
     if (isPaused) {
       preparationStepKeyRef.current = "";
       lastPreparationSecondRef.current = 0;
-      cancelSpeech();
+      stopSpeech();
     }
-  }, [isEnabled, isPaused]);
-
-  useEffect(() => {
-    return () => {
-      cancelSpeech();
-      void audioContextRef.current?.close().catch(() => undefined);
-      audioContextRef.current = null;
-    };
-  }, []);
+  }, [isEnabled, isPaused, stopSpeech]);
 
   useEffect(() => {
     if (!activeStep || !isEnabled || isPaused) {
@@ -151,7 +189,7 @@ export function useWorkoutVoiceBroadcast({
         currentStepKeyRef.current = activeStepKey;
         resetRhythmRefs(lastBeepElapsedRef, lastCountRef);
         lastPreparationSecondRef.current = 0;
-        speakTexts([buildWorkoutActionPreparationCue(activeStep, isFirstExerciseStep)], true, () => {
+        startSpeech([buildWorkoutActionPreparationCue(activeStep, isFirstExerciseStep)], true, () => {
           if (preparationStepKeyRef.current === activeStepKey) {
             onPreparationIntroComplete(activeStepKey);
           }
@@ -164,9 +202,9 @@ export function useWorkoutVoiceBroadcast({
     if (currentStepKeyRef.current !== activeStepKey) {
       currentStepKeyRef.current = activeStepKey;
       resetRhythmRefs(lastBeepElapsedRef, lastCountRef);
-      speakTexts([buildWorkoutStepVoiceCue(activeStep)], true);
+      startSpeech([buildWorkoutStepVoiceCue(activeStep)], true);
     }
-  }, [activeStep, activeStepKey, isEnabled, isFirstExerciseStep, isPaused, isPreparing, onPreparationIntroComplete, sessionId]);
+  }, [activeStep, activeStepKey, isEnabled, isFirstExerciseStep, isPaused, isPreparing, onPreparationIntroComplete, sessionId, startSpeech]);
 
   useEffect(() => {
     if (!isEnabled || isPaused || !isPreparationCountdownActive || preparationCountdown <= 0) {
@@ -178,8 +216,8 @@ export function useWorkoutVoiceBroadcast({
     }
 
     lastPreparationSecondRef.current = preparationCountdown;
-    speakTexts([buildPreparationCountdownCue(preparationCountdown)]);
-  }, [isEnabled, isPaused, isPreparationCountdownActive, preparationCountdown]);
+    startSpeech([buildPreparationCountdownCue(preparationCountdown)]);
+  }, [isEnabled, isPaused, isPreparationCountdownActive, preparationCountdown, startSpeech]);
 
   useEffect(() => {
     if (!activeStep || !isEnabled) {
@@ -188,15 +226,15 @@ export function useWorkoutVoiceBroadcast({
     }
 
     if (!wasPausedRef.current && isPaused) {
-      cancelSpeech();
+      stopSpeech();
     }
 
     if (wasPausedRef.current && !isPaused && !isPreparing) {
-      speakTexts(["继续训练", buildWorkoutStepVoiceCue(activeStep)], true);
+      startSpeech(["继续训练", buildWorkoutStepVoiceCue(activeStep)], true);
     }
 
     wasPausedRef.current = isPaused;
-  }, [activeStep, isEnabled, isPaused, isPreparing]);
+  }, [activeStep, isEnabled, isPaused, isPreparing, startSpeech, stopSpeech]);
 
   useEffect(() => {
     if (
@@ -236,8 +274,8 @@ export function useWorkoutVoiceBroadcast({
     }
 
     lastCountRef.current = completedReps;
-    speakTexts([buildRepetitionCountCue(completedReps)], true);
-  }, [activeStep, completedReps, isEnabled, isPaused, isPreparing]);
+    startSpeech([buildRepetitionCountCue(completedReps)], true);
+  }, [activeStep, completedReps, isEnabled, isPaused, isPreparing, startSpeech]);
 }
 
 function resetRhythmRefs(
@@ -248,10 +286,31 @@ function resetRhythmRefs(
   lastCountRef.current = 0;
 }
 
-function speakTexts(texts: string[], interrupt = false, onDone?: () => void) {
+function speakTexts(texts: string[], interrupt = false, onDone?: () => void): SpeechJob {
+  let completionTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
+  let isCancelled = false;
+  const utterances: SpeechSynthesisUtterance[] = [];
+
+  const cancelJob = () => {
+    isCancelled = true;
+    if (completionTimer) {
+      globalThis.clearTimeout(completionTimer);
+      completionTimer = undefined;
+    }
+
+    utterances.forEach((utterance) => {
+      utterance.onend = null;
+      utterance.onerror = null;
+    });
+  };
+
   if (!canSpeak()) {
-    globalThis.setTimeout(() => onDone?.(), speechUnavailablePreparationDelayMs);
-    return;
+    completionTimer = globalThis.setTimeout(() => {
+      if (!isCancelled) {
+        onDone?.();
+      }
+    }, speechUnavailablePreparationDelayMs);
+    return { cancel: cancelJob };
   }
 
   if (interrupt) {
@@ -263,15 +322,18 @@ function speakTexts(texts: string[], interrupt = false, onDone?: () => void) {
     .filter(Boolean);
 
   if (normalizedTexts.length === 0) {
-    globalThis.setTimeout(() => onDone?.(), 0);
-    return;
+    completionTimer = globalThis.setTimeout(() => {
+      if (!isCancelled) {
+        onDone?.();
+      }
+    }, 0);
+    return { cancel: cancelJob };
   }
 
   const voice = selectChineseVoice();
-  let completionTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
   let hasCompleted = false;
   const completeOnce = () => {
-    if (hasCompleted) {
+    if (hasCompleted || isCancelled) {
       return;
     }
 
@@ -303,8 +365,11 @@ function speakTexts(texts: string[], interrupt = false, onDone?: () => void) {
       utterance.onerror = completeOnce;
     }
 
+    utterances.push(utterance);
     window.speechSynthesis.speak(utterance);
   });
+
+  return { cancel: cancelJob };
 }
 
 function estimateSpeechCompletionFallbackMs(texts: string[]) {

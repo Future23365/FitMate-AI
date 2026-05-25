@@ -13,6 +13,7 @@ import {
   updateScheduledWorkoutStatus,
 } from "@/features/workouts/api/workout-data-client";
 import {
+  isWorkoutVoiceBroadcastSupported,
   readWorkoutVoiceBroadcastPreference,
   readWorkoutVoiceBroadcastTipSeen,
   useWorkoutVoiceBroadcast,
@@ -171,6 +172,7 @@ export function WorkoutSessionPage() {
   const [preparationCountdownStepKey, setPreparationCountdownStepKey] = useState("");
   const [isPaused, setIsPaused] = useState(false);
   const [isAudioOn, setIsAudioOn] = useState(false);
+  const [isVoiceSupported, setIsVoiceSupported] = useState(false);
   const [loadedPlanKey, setLoadedPlanKey] = useState("");
   const [isVoicePreferenceLoaded, setIsVoicePreferenceLoaded] = useState(false);
   const [showTip, setShowTip] = useState(true);
@@ -268,11 +270,13 @@ export function WorkoutSessionPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const savedAudioPreference = readWorkoutVoiceBroadcastPreference();
+      const canUseVoiceBroadcast = isWorkoutVoiceBroadcastSupported();
+      const savedAudioPreference = canUseVoiceBroadcast && readWorkoutVoiceBroadcastPreference();
       const hasSeenVoiceTip = readWorkoutVoiceBroadcastTipSeen();
 
+      setIsVoiceSupported(canUseVoiceBroadcast);
       setIsAudioOn(savedAudioPreference);
-      if (!savedAudioPreference && !hasSeenVoiceTip) {
+      if (canUseVoiceBroadcast && !savedAudioPreference && !hasSeenVoiceTip) {
         setShowVoiceTip(true);
         writeWorkoutVoiceBroadcastTipSeen();
       }
@@ -287,15 +291,19 @@ export function WorkoutSessionPage() {
   }, []);
 
   const setVoiceBroadcastEnabled = useCallback((nextValue: boolean) => {
+    if (!isVoiceSupported) {
+      return;
+    }
+
     setIsAudioOn(nextValue);
     setShowVoiceTip(false);
     writeWorkoutVoiceBroadcastPreference(nextValue);
-  }, []);
+  }, [isVoiceSupported]);
 
   useWorkoutVoiceBroadcast({
     activeStepIndex,
     completedReps,
-    isEnabled: isAudioOn && loadedPlanKey === requestedPlanKey && isVoicePreferenceLoaded,
+    isEnabled: isVoiceSupported && isAudioOn && loadedPlanKey === requestedPlanKey && isVoicePreferenceLoaded,
     isPreparationCountdownActive,
     isFirstExerciseStep: activeStepIndex === 0,
     isPaused,
@@ -307,7 +315,13 @@ export function WorkoutSessionPage() {
   });
 
   useEffect(() => {
-    if (!isPlanReady || !isVoicePreferenceLoaded || isAudioOn || !needsExercisePreparation || !activeStepKey) {
+    if (
+      !isPlanReady ||
+      !isVoicePreferenceLoaded ||
+      (isVoiceSupported && isAudioOn) ||
+      !needsExercisePreparation ||
+      !activeStepKey
+    ) {
       return;
     }
 
@@ -319,6 +333,7 @@ export function WorkoutSessionPage() {
     isAudioOn,
     isPlanReady,
     isVoicePreferenceLoaded,
+    isVoiceSupported,
     markPreparationIntroComplete,
     needsExercisePreparation,
   ]);
@@ -447,18 +462,29 @@ export function WorkoutSessionPage() {
           <div className="flex items-center gap-sm">
             <div className="relative">
               <button
-                aria-label={isAudioOn ? "关闭语音播报" : "开启语音播报"}
+                aria-label={
+                  isVoiceSupported
+                    ? isAudioOn
+                      ? "关闭语音播报"
+                      : "开启语音播报"
+                    : "当前浏览器不支持语音播报"
+                }
                 className={`grid h-11 w-11 place-items-center rounded-xl border transition-colors ${
-                  isAudioOn
+                  !isVoiceSupported
+                    ? "cursor-not-allowed border-line bg-panel-soft text-muted"
+                    : isAudioOn
                     ? "border-primary/20 bg-primary-soft text-primary"
                     : showVoiceTip
                       ? "border-primary bg-primary-soft text-primary shadow-lift ring-4 ring-primary/15"
                     : "border-line bg-white text-muted hover:text-primary"
                 }`}
+                disabled={!isVoiceSupported}
                 onClick={() => setVoiceBroadcastEnabled(!isAudioOn)}
                 type="button"
               >
-                <SymbolIcon className="text-2xl">{isAudioOn ? "volume_up" : "volume_off"}</SymbolIcon>
+                <SymbolIcon className="text-2xl">
+                  {isVoiceSupported && isAudioOn ? "volume_up" : "volume_off"}
+                </SymbolIcon>
               </button>
               {isVoicePreferenceLoaded && showVoiceTip && !isAudioOn ? (
                 <div className="absolute right-0 top-[calc(100%+12px)] z-30 w-[244px] rounded-xl border border-primary/35 bg-primary-soft p-md text-left shadow-lift ring-1 ring-primary/10">
