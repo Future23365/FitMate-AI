@@ -7,6 +7,13 @@ const config: Config = {
     "./features/**/*.{js,ts,jsx,tsx,mdx}",
   ],
   theme: {
+    screens: {
+      sm: "0px",
+      md: "0px",
+      lg: "0px",
+      xl: "0px",
+      "2xl": "1536px",
+    },
     extend: {
       colors: {
         ink: "#111827",
