@@ -282,6 +282,18 @@ function getWorkoutVoicePriority(voice: SpeechSynthesisVoice) {
   return 2;
 }
 
+// 语音设置弹窗沿用动作详情抽屉的全局背景缩放类，但由弹窗自己的打开/关闭时序控制。
+function setVoiceSettingsBackdropActive(isActive: boolean) {
+  if (isActive) {
+    document.body.style.overflow = "hidden";
+    document.body.classList.add("drawer-open");
+    return;
+  }
+
+  document.body.style.overflow = "";
+  document.body.classList.remove("drawer-open");
+}
+
 export function WorkoutSessionPage() {
   const searchParams = useSearchParams();
   const planId = searchParams.get("planId")?.trim() ?? "";
@@ -499,6 +511,7 @@ export function WorkoutSessionPage() {
       if (voiceSettingsOpenNextFrameRef.current !== null) {
         window.cancelAnimationFrame(voiceSettingsOpenNextFrameRef.current);
       }
+      setVoiceSettingsBackdropActive(false);
     };
   }, []);
 
@@ -518,7 +531,9 @@ export function WorkoutSessionPage() {
 
     setIsVoiceSettingsClosing(true);
     setIsVoiceSettingsOpen(true);
+    document.body.style.overflow = "hidden";
     voiceSettingsOpenFrameRef.current = window.requestAnimationFrame(() => {
+      setVoiceSettingsBackdropActive(true);
       voiceSettingsOpenNextFrameRef.current = window.requestAnimationFrame(() => {
         setIsVoiceSettingsClosing(false);
         voiceSettingsOpenFrameRef.current = null;
@@ -541,29 +556,13 @@ export function WorkoutSessionPage() {
     }
 
     setIsVoiceSettingsClosing(true);
+    setVoiceSettingsBackdropActive(false);
     voiceSettingsCloseTimerRef.current = window.setTimeout(() => {
       setIsVoiceSettingsOpen(false);
       setIsVoiceSettingsClosing(false);
       voiceSettingsCloseTimerRef.current = null;
     }, 500);
   }, []);
-
-  // 语音设置弹窗复用动作详情抽屉的全局页面后缩效果，避免维护两套动画语义。
-  useEffect(() => {
-    if (isVoiceSettingsOpen) {
-      document.body.style.overflow = "hidden";
-      document.body.classList.add("drawer-open");
-      return () => {
-        document.body.style.overflow = "";
-        document.body.classList.remove("drawer-open");
-      };
-    }
-
-    document.body.style.overflow = "";
-    document.body.classList.remove("drawer-open");
-
-    return undefined;
-  }, [isVoiceSettingsOpen]);
 
   const markPreparationIntroComplete = useCallback((stepKey: string) => {
     setPreparationCountdownStepKey(stepKey);
