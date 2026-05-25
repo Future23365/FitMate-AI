@@ -86,9 +86,13 @@ function formatClock(totalSeconds: number) {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
-function getWorkoutDemoImageIndex(imageCount: number, elapsedSeconds: number) {
+function getWorkoutDemoImageIndex(imageCount: number, elapsedSeconds: number, mode: WorkoutMode) {
   if (imageCount <= 1) {
     return 0;
+  }
+
+  if (mode === "duration") {
+    return imageCount - 1;
   }
 
   return Math.floor(Math.max(0, elapsedSeconds)) % imageCount;
@@ -161,7 +165,7 @@ export function WorkoutSessionPage() {
       ? ((activeStep.durationSeconds - remainingSeconds) / activeStep.durationSeconds) * 100
       : 0;
   const demoImageUrls = getWorkoutItemImageUrls(currentItem);
-  const demoImageIndex = getWorkoutDemoImageIndex(demoImageUrls.length, stepElapsedSeconds);
+  const demoImageIndex = getWorkoutDemoImageIndex(demoImageUrls.length, stepElapsedSeconds, currentItem.mode);
   const activeDemoImageUrl = demoImageUrls[demoImageIndex] ?? placeholderWorkoutImage;
   const trainedCalories = Math.min(
     estimateWorkoutCalories(plan.items, loopConfig),
@@ -442,7 +446,7 @@ export function WorkoutSessionPage() {
                       className="object-contain p-md"
                       fill
                       key={`${currentItem.id}-${demoImageIndex}-${activeDemoImageUrl}`}
-                      priority={activeStepIndex === 0 && demoImageIndex === 0}
+                      priority={activeStepIndex === 0}
                       sizes="(min-width: 1280px) 30vw, 100vw"
                       src={activeDemoImageUrl}
                     />

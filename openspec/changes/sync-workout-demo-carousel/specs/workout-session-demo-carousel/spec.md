@@ -13,12 +13,13 @@ The system SHALL preserve all available demo images for workout items used by th
 - **THEN** the system derives a one-item image list from `imageUrl`
 
 ### Requirement: Workout session demo carousel
-The system SHALL automatically cycle through all demo images for the currently relevant workout action on `/training`.
+The system SHALL show demo images for the currently relevant workout action on `/training` according to the action mode.
 
 #### Scenario: Timed exercise is active
 - **WHEN** the current timeline step is an exercise step with multiple demo images
-- **THEN** the action demo area cycles through all demo images within that step duration
-- **AND** the displayed image advances according to the same elapsed step time used by the workout timer
+- **AND** the exercise uses duration mode
+- **THEN** the action demo area displays the last demo image by default
+- **AND** the displayed image does not cycle independently during that timed step
 
 #### Scenario: Repetition exercise is active
 - **WHEN** the current timeline step is a repetition exercise with multiple demo images
@@ -27,7 +28,8 @@ The system SHALL automatically cycle through all demo images for the currently r
 
 #### Scenario: Preparation countdown is active
 - **WHEN** the current exercise is waiting for its preparation voice prompt or countdown
-- **THEN** the action demo area shows the current exercise demo images without advancing the workout step timer
+- **THEN** the action demo area shows the current exercise demo image selected by the action mode
+- **AND** the workout step timer does not advance during preparation
 
 #### Scenario: Training is paused
 - **WHEN** the user pauses the workout session
@@ -37,7 +39,8 @@ The system SHALL automatically cycle through all demo images for the currently r
 #### Scenario: User changes step
 - **WHEN** the user clicks previous, next, skip, or selects an action from the session list
 - **THEN** the action demo area immediately switches to the newly relevant action
-- **AND** the demo image starts from the beginning of that action sequence
+- **AND** repetition action demo images start from the beginning of that action sequence
+- **AND** duration action demo images show the last image by default
 
 ### Requirement: Rest step demo preview
 The system SHALL use rest steps to visually prepare the next workout action without changing rest timing.

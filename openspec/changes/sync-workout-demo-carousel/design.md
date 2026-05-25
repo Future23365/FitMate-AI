@@ -31,11 +31,11 @@
 
    取舍：如果动作库图片未来更新，已保存训练不会自动更新；这是当前训练数据快照模型的自然结果。
 
-3. 训练页用派生函数根据 `activeStep`、`remainingSeconds` 和 `isPaused` 计算当前图片，而不是新增图片轮播状态。
+3. 训练页用派生函数根据 `activeStep`、`remainingSeconds`、动作 `mode` 和 `isPaused` 计算当前图片，而不是新增图片轮播状态。
 
    原因：`remainingSeconds` 已经是训练计时和语音播报的共同节奏来源。图片索引从 `durationSeconds - remainingSeconds` 派生，可以避免独立定时器在暂停、跳步、准备倒计时中漂移。
 
-   取舍：轮播粒度以秒为单位，不做更平滑的毫秒级动画；这与当前训练计时和语音节奏一致。
+   取舍：计次动作按秒级节奏循环分步示范图；计时动作通常是保持类姿势，默认展示最后一张终点姿势图，不做循环。
 
 ## Risks / Trade-offs
 
