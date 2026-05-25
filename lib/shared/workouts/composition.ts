@@ -207,10 +207,13 @@ export function buildWorkoutTimeline(
   ];
   const steps: WorkoutTimelineStep[] = [];
   let exerciseIndex = 0;
+  let trainingExerciseIndex = 0;
 
   // Build the executable timeline once so estimates, previews, and training execution stay aligned.
   sequence.forEach((item, index) => {
     const totalSets = Math.max(1, item.sets);
+    const section = item.section ?? "training";
+    const trainingPosition = section === "training" ? trainingExerciseIndex : -1;
 
     Array.from({ length: totalSets }, (_, setIndex) => {
       steps.push({
@@ -239,11 +242,12 @@ export function buildWorkoutTimeline(
     const nextItem = sequence[index + 1];
 
     if (nextItem) {
+      const nextSection = nextItem.section ?? "training";
       const isLoopBoundary =
-        (item.section ?? "training") === "training" &&
-        (nextItem.section ?? "training") === "training" &&
+        section === "training" &&
+        nextSection === "training" &&
         trainingItems.length > 0 &&
-        (exerciseIndex + 1) % trainingItems.length === 0;
+        (trainingPosition + 1) % trainingItems.length === 0;
       const restSeconds = isLoopBoundary ? loopRestSeconds : item.transitionRestSeconds;
 
       if (restSeconds > 0) {
@@ -259,6 +263,9 @@ export function buildWorkoutTimeline(
       }
     }
 
+    if (section === "training") {
+      trainingExerciseIndex += 1;
+    }
     exerciseIndex += 1;
   });
 

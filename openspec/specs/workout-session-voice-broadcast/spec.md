@@ -15,17 +15,18 @@ The system SHALL provide voice broadcast only on the `/training` workout session
 - **THEN** the system MUST NOT start voice broadcast or render additional voice broadcast controls for those pages
 
 ### Requirement: Voice broadcast toggle and local preference
-系统 SHALL 在训练执行页复用顶部音量按钮作为语音播报开关，并在本地持久化用户选择，同时确保开关视觉状态不伪装成已成功播放。
+系统 SHALL 在训练执行页复用顶部音量按钮作为语音播报开关，并在本地持久化用户选择，同时确保开关视觉状态不伪装成已成功播放，并为需要用户注意的语音状态提供醒目、可操作的提示。
 
 #### Scenario: First training session visit
 - **WHEN** no local voice broadcast preference exists and the user opens `/training`
 - **THEN** voice broadcast is disabled by default
-- **AND** the workout session page shows a lightweight tip with a small arrow pointing to the top volume button that tells the user they can enable sound there
+- **AND** the workout session page shows a prominent voice tip near the session controls or voice button that tells the user they can enable sound there
+- **AND** the tip MUST provide a clear visual relationship to the top volume button without covering the primary workout timer
 - **AND** the system records locally that the voice broadcast tip has been shown
 
 #### Scenario: User returns after seeing voice broadcast tip
 - **WHEN** the voice broadcast tip has already been shown locally and the user opens `/training`
-- **THEN** the workout session page MUST NOT automatically show the voice broadcast tip again
+- **THEN** the workout session page MUST NOT automatically show the first-visit voice broadcast tip again
 
 #### Scenario: User enables voice broadcast
 - **WHEN** the user clicks the top volume button while voice broadcast is disabled
@@ -41,6 +42,12 @@ The system SHALL provide voice broadcast only on the `/training` workout session
 #### Scenario: User returns after disabling voice broadcast
 - **WHEN** the user opens `/training` after previously disabling voice broadcast locally
 - **THEN** voice broadcast remains disabled until the user turns it on again
+
+#### Scenario: Voice requires activation or retry
+- **WHEN** voice broadcast preference is enabled but the page is waiting for activation or the last playback attempt failed
+- **THEN** the workout session page MUST show an obvious retry or activation prompt
+- **AND** the prompt MUST include an actionable control or clear direction that lets the user trigger voice activation
+- **AND** the prompt MUST be visually stronger than passive helper text
 
 #### Scenario: Local storage is unavailable
 - **WHEN** `localStorage` cannot be read or written
@@ -169,13 +176,14 @@ The system SHALL NOT use AI services, speech recognition, microphone input, or s
 - **THEN** the system MUST NOT call AI endpoints, request microphone permissions, create speech recognition sessions, or persist audio state on the server
 
 ### Requirement: Voice playback state and activation
-系统 SHALL 在训练执行页维护可观察的语音播放状态，区分用户本地偏好、浏览器能力、页面音频激活状态和当前播报任务状态。
+系统 SHALL 在训练执行页维护可观察的语音播放状态，区分用户本地偏好、浏览器能力、页面音频激活状态和当前播报任务状态，并通过醒目的状态提示帮助用户恢复语音播报。
 
 #### Scenario: Preference is enabled after refresh
 - **WHEN** the user opens `/training` after previously enabling voice broadcast locally
 - **THEN** the system MUST restore the enabled preference from `localStorage`
 - **AND** the system MUST mark voice broadcast as waiting for page activation until a valid user gesture starts a real speech attempt
 - **AND** the system MUST NOT show voice broadcast as actively speaking before speech playback is confirmed
+- **AND** the workout session page MUST show a visible activation prompt that is stronger than a small icon color change
 
 #### Scenario: User gesture activates voice playback
 - **WHEN** voice broadcast is enabled and the user performs a valid training page gesture such as clicking the voice button, pressing a key, clicking pause, or clicking skip
@@ -186,7 +194,7 @@ The system SHALL NOT use AI services, speech recognition, microphone input, or s
 - **WHEN** a speech attempt emits an error or does not start within the supported fallback window
 - **THEN** the system MUST mark voice playback as failed or requiring activation
 - **AND** the system MUST keep workout timers and controls usable
-- **AND** the system MUST provide a user-visible retry state or development diagnostic log
+- **AND** the system MUST provide a prominent user-visible retry state and development diagnostic log
 
 #### Scenario: Stale speech event arrives
 - **WHEN** a canceled speech job later emits `onend` or `onerror`

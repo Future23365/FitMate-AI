@@ -27,7 +27,6 @@ import {
   defaultTransitionRestSeconds,
   estimateWorkoutCalories,
   estimateWorkoutMinutes,
-  expandWorkoutItems,
   getWorkoutItemImageUrls,
   getRepIntervalSeconds,
   getWorkoutLoopConfig,
@@ -37,6 +36,10 @@ import {
   type WorkoutItem,
   type WorkoutMode,
 } from "@/lib/shared/workouts/composition";
+import {
+  buildWorkoutSessionListView,
+  getRelevantExerciseStep,
+} from "@/lib/shared/workouts/session-flow";
 import type { Exercise } from "@/lib/shared/exercises/types";
 
 const preparationCountdownStart = 3;
@@ -216,10 +219,6 @@ export function WorkoutSessionPage() {
   const [isExerciseDetailOpen, setIsExerciseDetailOpen] = useState(false);
 
   const loopConfig = useMemo(() => getWorkoutLoopConfig(plan), [plan]);
-  const orderedItems = useMemo(
-    () => expandWorkoutItems(plan.items, loopConfig.trainingLoopRounds),
-    [plan.items, loopConfig.trainingLoopRounds],
-  );
   const steps = useMemo(
     () => buildWorkoutTimeline(plan.items, loopConfig),
     [loopConfig, plan.items],
@@ -227,10 +226,16 @@ export function WorkoutSessionPage() {
   const activeStep = steps[activeStepIndex] ?? steps[0];
   const activeExerciseStep = activeStep?.type === "exercise" ? activeStep : null;
   const activeRestStep = activeStep?.type === "rest" ? activeStep : null;
+  const sessionListView = useMemo(
+    () => buildWorkoutSessionListView({ activeStepIndex, steps, trainingLoopRounds: loopConfig.trainingLoopRounds }),
+    [activeStepIndex, loopConfig.trainingLoopRounds, steps],
+  );
+  const currentListItem = sessionListView.items.find((item) => item.isActive) ?? sessionListView.items[0];
+  const relevantExerciseStep = getRelevantExerciseStep(steps, activeStepIndex);
   const currentItem =
     activeExerciseStep
       ? activeExerciseStep.item
-      : activeRestStep?.nextItem ?? activeRestStep?.afterItem ?? fallbackPlan.items[0];
+      : relevantExerciseStep?.step.item ?? activeRestStep?.afterItem ?? fallbackPlan.items[0];
   const isRestStep = Boolean(activeRestStep);
   const isTimedStep = currentItem.mode === "duration";
   const repIntervalSeconds = getRepIntervalSeconds(currentItem);
@@ -239,10 +244,7 @@ export function WorkoutSessionPage() {
     ? 0
     : Math.min(currentItem.target, Math.floor(Math.max(0, stepElapsedSeconds) / repIntervalSeconds));
   const completedStepIds = new Set(steps.slice(0, activeStepIndex).map((step) => step.id));
-  const currentExerciseIndex =
-    activeExerciseStep
-      ? activeExerciseStep.itemIndex
-      : Math.max(0, orderedItems.findIndex((item) => item.id === activeRestStep?.nextItem?.id));
+  const currentExerciseIndex = currentListItem?.displayIndex ?? relevantExerciseStep?.step.itemIndex ?? 0;
   const progress =
     activeStep && activeStep.durationSeconds > 0
       ? ((activeStep.durationSeconds - remainingSeconds) / activeStep.durationSeconds) * 100
@@ -258,7 +260,9 @@ export function WorkoutSessionPage() {
   const sessionProgress = steps.length
     ? ((activeStepIndex + Math.max(0, Math.min(1, progress / 100))) / steps.length) * 100
     : 0;
-  const nextItem = orderedItems[currentExerciseIndex + 1];
+  const nextExerciseStep =
+    sessionListView.nextExerciseStepIndex === null ? null : steps[sessionListView.nextExerciseStepIndex];
+  const nextItem = nextExerciseStep?.type === "exercise" ? nextExerciseStep.item : null;
   const remainingSteps = Math.max(0, steps.length - activeStepIndex - 1);
   const requestedPlanKey = planId ?? "default";
   const sessionVoiceId = `${plan.id}:${plan.date}:${plan.planId}`;
@@ -345,6 +349,8 @@ export function WorkoutSessionPage() {
     isVoicePreferenceOn && (voiceStatus === "active" || voiceStatus === "speaking" || voiceStatus === "activating");
   const shouldRetryVoiceActivation =
     isVoicePreferenceOn && (voiceStatus === "needs-activation" || voiceStatus === "failed");
+  const shouldShowVoiceFirstTip = isVoicePreferenceLoaded && showVoiceTip && !isVoicePreferenceOn;
+  const shouldShowVoiceActionPrompt = isVoicePreferenceLoaded && isVoicePreferenceOn && !isVoiceBroadcastActive;
 
   useEffect(() => {
     if (!shouldRetryVoiceActivation) {
@@ -392,6 +398,40 @@ export function WorkoutSessionPage() {
     setShowVoiceTip(false);
     writeWorkoutVoiceBroadcastPreference(false);
   }, [isVoicePreferenceOn, isVoiceSupported, shouldRetryVoiceActivation, voiceSession]);
+
+  const goToStep = useCallback((nextIndex: number, { cancelVoice = true }: { cancelVoice?: boolean } = {}) => {
+    if (!steps.length) {
+      return;
+    }
+
+    const boundedIndex = Math.min(Math.max(0, nextIndex), steps.length - 1);
+    const nextStep = steps[boundedIndex];
+
+    if (cancelVoice) {
+      voiceSession.cancelCurrentVoice("step-change");
+    }
+
+    setPreparedStepKey("");
+    setPreparationCountdownStepKey("");
+    setPreparationCountdown(nextStep?.type === "exercise" ? preparationCountdownStart : 0);
+    setActiveStepIndex(boundedIndex);
+    setRemainingSeconds(nextStep?.durationSeconds ?? 45);
+  }, [steps, voiceSession]);
+
+  const completeCurrentStep = useCallback(({ cancelVoice = true }: { cancelVoice?: boolean } = {}) => {
+    const isLastStep = activeStepIndex >= steps.length - 1;
+
+    if (isLastStep) {
+      setIsPaused(true);
+      setPreparedStepKey("");
+      setPreparationCountdownStepKey("");
+      setPreparationCountdown(0);
+      setRemainingSeconds(0);
+      return;
+    }
+
+    goToStep(activeStepIndex + 1, { cancelVoice });
+  }, [activeStepIndex, goToStep, steps.length]);
 
   useEffect(() => {
     if (
@@ -452,54 +492,21 @@ export function WorkoutSessionPage() {
 
     const timer = window.setInterval(() => {
       setElapsedSeconds((value) => value + 1);
-      setRemainingSeconds((value) => {
-        if (value <= 1) {
-          const nextIndex = Math.min(activeStepIndex + 1, steps.length - 1);
-          const nextStep = steps[nextIndex];
-          setActiveStepIndex(nextIndex);
-          if (nextIndex === activeStepIndex) {
-            setIsPaused(true);
-          }
+      if (remainingSeconds <= 1) {
+        completeCurrentStep({ cancelVoice: false });
+        return;
+      }
 
-          setPreparationCountdown(nextStep?.type === "exercise" && nextIndex !== activeStepIndex ? preparationCountdownStart : 0);
-          return nextIndex === activeStepIndex ? 0 : steps[nextIndex]?.durationSeconds ?? 0;
-        }
-
-        return value - 1;
-      });
+      setRemainingSeconds((value) => Math.max(0, value - 1));
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [activeStep, activeStepIndex, isPaused, needsExercisePreparation, steps]);
+  }, [activeStep, completeCurrentStep, isPaused, needsExercisePreparation, remainingSeconds]);
 
   const openCurrentExerciseDetail = useCallback(() => {
     setIsPaused(true);
     setIsExerciseDetailOpen(true);
   }, []);
-
-  function goToStep(nextIndex: number) {
-    const boundedIndex = Math.min(Math.max(0, nextIndex), steps.length - 1);
-    setPreparedStepKey("");
-    setPreparationCountdownStepKey("");
-    setPreparationCountdown(steps[boundedIndex]?.type === "exercise" ? preparationCountdownStart : 0);
-    setActiveStepIndex(boundedIndex);
-    setRemainingSeconds(steps[boundedIndex]?.durationSeconds ?? 45);
-  }
-
-  function completeCurrentStep() {
-    const isLastStep = activeStepIndex >= steps.length - 1;
-
-    if (isLastStep) {
-      setIsPaused(true);
-      setPreparedStepKey("");
-      setPreparationCountdownStepKey("");
-      setPreparationCountdown(0);
-      setRemainingSeconds(0);
-      return;
-    }
-
-    goToStep(activeStepIndex + 1);
-  }
 
   function finishTraining() {
     setIsPaused(true);
@@ -564,40 +571,30 @@ export function WorkoutSessionPage() {
                   {isVoiceSupported && isVoicePreferenceOn ? "volume_up" : "volume_off"}
                 </SymbolIcon>
               </button>
-              {isVoicePreferenceLoaded && showVoiceTip && !isVoicePreferenceOn ? (
-                <div className="absolute right-0 top-[calc(100%+12px)] z-30 w-[244px] rounded-xl border border-primary/35 bg-primary-soft p-md text-left shadow-lift ring-1 ring-primary/10">
-                  <span
-                    aria-hidden="true"
-                    className="absolute -top-[8px] right-5 h-4 w-4 bg-primary-soft [clip-path:polygon(50%_0,0_100%,100%_100%)]"
-                  />
-                  <div className="flex items-start gap-sm">
-                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary text-white shadow-card">
-                      <SymbolIcon className="text-xl">campaign</SymbolIcon>
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-body-md font-extrabold text-ink">语音播报开关</p>
-                      <p className="mt-xs text-label-md font-bold leading-snug text-primary">
-                        点上方按钮即可开启或关闭。
-                      </p>
-                    </div>
-                    <button
-                      aria-label="关闭语音提示"
-                      className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-primary transition-colors hover:bg-white hover:text-ink"
-                      onClick={() => setShowVoiceTip(false)}
-                      type="button"
-                    >
-                      <SymbolIcon className="text-lg">close</SymbolIcon>
-                    </button>
-                  </div>
-                </div>
+              {shouldShowVoiceFirstTip ? (
+                <VoiceTipBubble
+                  actionLabel="开启"
+                  description="点这里开启动作播报、倒计时和计次提示。"
+                  icon="campaign"
+                  onDismiss={() => setShowVoiceTip(false)}
+                  onPrimaryAction={handleVoiceButtonClick}
+                  title="语音播报"
+                  tone="primary"
+                />
               ) : null}
-              {isVoicePreferenceLoaded && isVoicePreferenceOn && !isVoiceBroadcastActive ? (
-                <div className="absolute right-0 top-[calc(100%+12px)] z-30 w-[228px] rounded-xl border border-line bg-white p-sm text-left shadow-lift">
-                  <p className="text-label-md font-extrabold text-ink">{getVoiceStatusText(voiceStatus)}</p>
-                  <p className="mt-1 text-label-sm font-semibold text-muted">
-                    {voiceStatus === "failed" ? "请再次点击语音按钮，或检查系统语音设置。" : "刷新后需要一次用户手势。"}
-                  </p>
-                </div>
+              {shouldShowVoiceActionPrompt ? (
+                <VoiceTipBubble
+                  actionLabel={voiceStatus === "failed" ? "重试" : "激活"}
+                  description={
+                    voiceStatus === "failed"
+                      ? "语音没有成功启动，请重试。"
+                      : "刷新后需要点击一次恢复播报。"
+                  }
+                  icon={voiceStatus === "failed" ? "volume_off" : "volume_up"}
+                  onPrimaryAction={handleVoiceButtonClick}
+                  title={getVoiceStatusText(voiceStatus)}
+                  tone={voiceStatus === "failed" ? "danger" : "primary"}
+                />
               ) : null}
             </div>
             <button
@@ -646,7 +643,7 @@ export function WorkoutSessionPage() {
                     动作详情
                   </button>
                   <span className="rounded-xl bg-panel-soft px-sm py-xs text-label-md font-bold text-muted">
-                    {Math.max(1, currentExerciseIndex + 1)}/{orderedItems.length}
+                    {Math.max(1, currentExerciseIndex + 1)}/{sessionListView.items.length}
                   </span>
                 </div>
               </div>
@@ -699,8 +696,8 @@ export function WorkoutSessionPage() {
               {isPreparing
                 ? "倒计时结束后开始训练"
                 : isRestStep
-                ? activeRestStep?.nextItem
-                  ? `下一个动作：${activeRestStep.nextItem.nameZh}`
+                ? nextItem
+                  ? `下一个动作：${nextItem.nameZh}`
                   : "准备进入下一步"
                 : currentItem.musclesZh.slice(0, 3).join("、") || currentItem.categoryZh}
             </p>
@@ -772,7 +769,11 @@ export function WorkoutSessionPage() {
                 large
                 onClick={() => setIsPaused((value) => !value)}
               />
-              <SessionControl icon="skip_next" label="下一个" onClick={completeCurrentStep} />
+              <SessionControl
+                icon="skip_next"
+                label={isRestStep ? "跳过休息" : "下一个"}
+                onClick={completeCurrentStep}
+              />
             </div>
           </section>
 
@@ -781,42 +782,53 @@ export function WorkoutSessionPage() {
               <div className="mb-sm flex items-center justify-between gap-md">
                 <div>
                   <p className="text-label-md font-bold text-primary">训练项目</p>
-                  <h2 className="text-title-lg font-extrabold">{orderedItems.length} 个动作</h2>
+                  <h2 className="text-title-lg font-extrabold">{sessionListView.items.length} 个动作</h2>
                 </div>
                 <SymbolIcon className="text-2xl text-muted">expand_less</SymbolIcon>
               </div>
               <div className="custom-scrollbar min-h-0 flex-1 space-y-sm overflow-y-auto pr-xs">
-                {orderedItems.map((item, index) => {
-                  const isActive = index === currentExerciseIndex;
-                  const isDone = steps
-                    .filter((step) => step.type === "exercise" && step.itemIndex === index)
-                    .every((step) => completedStepIds.has(step.id));
+                {sessionListView.items.map((listItem, index) => {
+                  const item = listItem.item;
+                  const previousItem = sessionListView.items[index - 1];
+                  const shouldShowLoopDivider =
+                    Boolean(listItem.loopRound && listItem.loopRounds) &&
+                    listItem.loopRound !== previousItem?.loopRound;
 
                   return (
-                    <button
-                      className={`grid min-h-[64px] w-full grid-cols-[56px_1fr_32px] items-center gap-sm rounded-xl border p-xs text-left transition-colors ${
-                        isActive
-                          ? "border-primary/25 bg-primary-soft text-primary"
-                          : "border-transparent bg-white hover:border-line hover:bg-panel-soft"
-                      }`}
-                      key={`${item.id}-${index}`}
-                      onClick={() => {
-                        const nextStepIndex = steps.findIndex(
-                          (step) => step.type === "exercise" && step.itemIndex === index,
-                        );
-                        goToStep(nextStepIndex < 0 ? index : nextStepIndex);
-                      }}
-                      type="button"
-                    >
-                      <ExerciseThumb item={item} index={index} />
-                      <div className="min-w-0">
-                        <p className="truncate text-body-md font-extrabold">{item.nameZh}</p>
-                        <p className="truncate text-label-md font-semibold text-muted">
-                          {item.mode === "duration" ? `${item.target} 秒` : `${item.target} 次`} · {item.sets}组
-                        </p>
-                      </div>
-                      <StepStatus index={index} isActive={isActive} isDone={isDone} />
-                    </button>
+                    <div className="space-y-xs" key={listItem.key}>
+                      {shouldShowLoopDivider ? (
+                        <div className="flex items-center gap-xs px-xs py-xs text-label-md font-extrabold text-primary">
+                          <span className="h-px flex-1 bg-primary/20" />
+                          <span className="rounded-full bg-primary-soft px-sm py-[3px] ring-1 ring-primary/15">
+                            第 {listItem.loopRound}/{listItem.loopRounds} 轮
+                          </span>
+                          <span className="h-px flex-1 bg-primary/20" />
+                        </div>
+                      ) : null}
+                      <button
+                        className={`grid min-h-[64px] w-full grid-cols-[56px_1fr_32px] items-center gap-sm rounded-xl border p-xs text-left transition-colors ${
+                          listItem.isActive
+                            ? "border-primary/25 bg-primary-soft text-primary"
+                            : "border-transparent bg-white hover:border-line hover:bg-panel-soft"
+                        }`}
+                        onClick={() => goToStep(listItem.targetStepIndex)}
+                        type="button"
+                      >
+                        <ExerciseThumb item={item} index={listItem.displayIndex} />
+                        <div className="min-w-0">
+                          <p className="truncate text-body-md font-extrabold">{item.nameZh}</p>
+                          <p className="truncate text-label-md font-semibold text-muted">
+                            {item.mode === "duration" ? `${item.target} 秒` : `${item.target} 次`} · {item.sets}组
+                            {listItem.isUpcomingFromRest ? " · 休息后进入" : ""}
+                          </p>
+                        </div>
+                        <StepStatus
+                          index={listItem.displayIndex}
+                          isActive={listItem.isActive}
+                          isDone={listItem.isDone}
+                        />
+                      </button>
+                    </div>
                   );
                 })}
               </div>
@@ -841,11 +853,11 @@ export function WorkoutSessionPage() {
                 </button>
                 <button
                   className="flex h-11 items-center justify-center gap-xs rounded-xl border border-primary/30 bg-white text-body-md font-extrabold text-primary transition-colors hover:bg-primary-soft"
-                  onClick={() => goToStep(activeStepIndex + 1)}
+                  onClick={() => completeCurrentStep()}
                   type="button"
                 >
                   <SymbolIcon className="text-lg">skip_next</SymbolIcon>
-                  跳过
+                  {isRestStep ? "跳过休息" : "下一个"}
                 </button>
               </div>
               {nextItem ? (
@@ -905,6 +917,80 @@ function Metric({
       <p className="truncate text-center text-[20px] font-black leading-tight text-ink [font-variant-numeric:tabular-nums]">
         {value} {suffix ? <span className="text-label-md font-bold">{suffix}</span> : null}
       </p>
+    </div>
+  );
+}
+
+function VoiceTipBubble({
+  actionLabel,
+  description,
+  icon,
+  onDismiss,
+  onPrimaryAction,
+  title,
+  tone,
+}: {
+  actionLabel: string;
+  description: string;
+  icon: string;
+  onDismiss?: () => void;
+  onPrimaryAction: () => void;
+  title: string;
+  tone: "danger" | "primary";
+}) {
+  const isDanger = tone === "danger";
+
+  return (
+    <div
+      className={`absolute right-0 top-[calc(100%+12px)] z-30 w-[268px] rounded-xl border p-md text-left shadow-lift ring-1 ${
+        isDanger
+          ? "border-red-200 bg-red-50 text-danger ring-red-100"
+          : "border-primary/35 bg-primary-soft text-primary ring-primary/10"
+      }`}
+    >
+      <span
+        aria-hidden="true"
+        className={`absolute -top-[8px] right-5 h-4 w-4 [clip-path:polygon(50%_0,0_100%,100%_100%)] ${
+          isDanger ? "bg-red-50" : "bg-primary-soft"
+        }`}
+      />
+      <div className="flex items-start gap-sm">
+        <span
+          className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg text-white shadow-card ${
+            isDanger ? "bg-danger" : "bg-primary"
+          }`}
+        >
+          <SymbolIcon className="text-xl">{icon}</SymbolIcon>
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-body-md font-extrabold text-ink">{title}</p>
+          <p className={`mt-xs text-label-md font-semibold leading-snug ${isDanger ? "text-danger" : "text-primary"}`}>
+            {description}
+          </p>
+        </div>
+        {onDismiss ? (
+          <button
+            aria-label="关闭语音提示"
+            className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg transition-colors ${
+              isDanger ? "text-danger hover:bg-white hover:text-ink" : "text-primary hover:bg-white hover:text-ink"
+            }`}
+            onClick={onDismiss}
+            type="button"
+          >
+            <SymbolIcon className="text-lg">close</SymbolIcon>
+          </button>
+        ) : null}
+      </div>
+      <button
+        className={`mt-sm flex h-9 w-full items-center justify-center gap-xs rounded-xl text-label-md font-extrabold text-white transition-colors ${
+          isDanger ? "bg-danger hover:bg-red-600" : "bg-primary hover:bg-primary-deep"
+        }`}
+        onClick={onPrimaryAction}
+        type="button"
+      >
+        <SymbolIcon className="text-lg">volume_up</SymbolIcon>
+        {actionLabel}
+      </button>
     </div>
   );
 }
