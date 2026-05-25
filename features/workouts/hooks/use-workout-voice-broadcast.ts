@@ -17,6 +17,7 @@ const speechUnavailablePreparationDelayMs = 1200;
 const speechCompletionFallbackMinMs = 1600;
 const speechCompletionFallbackMaxMs = 8000;
 const speechCompletionFallbackMsPerChar = 220;
+const voiceActivationCue = "语音播报已开启。";
 let workoutAudioContext: AudioContext | null = null;
 
 export type WorkoutVoiceBroadcastStatus =
@@ -248,8 +249,11 @@ export function useWorkoutVoiceBroadcast({
       activeStep.type === "exercise" && isPreparing
         ? buildWorkoutActionPreparationCue(activeStep, isFirstExerciseStep)
         : buildWorkoutStepVoiceCue(activeStep);
+    const speechTexts = reason === "activation" && !hasActivatedRef.current
+      ? [voiceActivationCue, introText]
+      : [introText];
 
-    startSpeech([introText], {
+    startSpeech(speechTexts, {
       forcePreferenceEnabled,
       onDone: activeStep.type === "exercise" && isPreparing ? finishPreparationIntro : undefined,
       reason,
@@ -519,9 +523,10 @@ export function createWorkoutVoiceSpeechJob(
         };
       }
 
+      utterance.onerror = () => errorOnce("speech_error");
+
       if (index === normalizedTexts.length - 1) {
         utterance.onend = completeOnce;
-        utterance.onerror = () => errorOnce("speech_error");
       }
 
       utterances.push(utterance);

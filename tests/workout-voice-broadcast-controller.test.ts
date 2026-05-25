@@ -96,6 +96,19 @@ export async function runWorkoutVoiceBroadcastControllerTests() {
     (speechErrorEnvironment.spoken[0].onerror as (() => void) | null)?.();
     console.assert(speechErrorReason === "speech_error", "真实 speechSynthesis onerror 应暴露 speech_error");
 
+    const multiCueErrorEnvironment = installMockSpeechEnvironment();
+    let multiCueErrorReason: WorkoutVoiceBroadcastError | null = null;
+    createWorkoutVoiceSpeechJob(["语音播报已开启。", "第一组动作，俯卧撑，15 个。"], {
+      jobId: 6,
+      onError: (reason) => {
+        multiCueErrorReason = reason;
+      },
+      reason: "test-multi-cue-error",
+    });
+    console.assert(multiCueErrorEnvironment.spoken.length === 2, "激活播报应支持先播短提示再播当前步骤");
+    (multiCueErrorEnvironment.spoken[0].onerror as (() => void) | null)?.();
+    console.assert(multiCueErrorReason === "speech_error", "多段播报中任意 utterance 出错都应暴露 speech_error");
+
     const staleEnvironment = installMockSpeechEnvironment();
     let staleCompleted = false;
     const staleJob = createWorkoutVoiceSpeechJob(["3"], {
