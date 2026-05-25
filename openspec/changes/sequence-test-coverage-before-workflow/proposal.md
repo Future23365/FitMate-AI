@@ -4,9 +4,9 @@
 
 ## What Changes
 
-- 新增一个编排型 change，明确两个测试 change 的执行顺序：先完成 `expand-test-coverage`，再完成 `formalize-testing-workflow`。
+- 新增一个编排型 change，明确两个测试 change 的执行顺序：先完成 `expand-test-coverage`，再完成 `formalize-testing-workflow`，最终让新增测试用例被统一测试流程顺利承接。
 - 明确两个 change 的职责边界：`expand-test-coverage` 负责测试用例范围、fixture、覆盖优先级和具体测试文件；`formalize-testing-workflow` 负责测试框架、脚本、runner、验收命令和流程文档。
-- 处理重复点：避免两个 change 都同时定义测试 runner 或都重复扩展测试覆盖范围。
+- 处理重复点：调整前两个 change 的说明性文档，避免两个 change 都同时定义测试 runner 或都重复扩展测试覆盖范围。
 - 调整既有文档中的依赖表述，去掉 `expand-test-coverage` 对 `formalize-testing-workflow` 先完成的硬依赖。
 - 不新增业务测试用例、不接入测试框架、不改变业务代码；本 change 只处理执行顺序和需求文档一致性。
 
@@ -23,5 +23,6 @@
 ## Impact
 
 - 影响 `openspec/changes/expand-test-coverage/*` 和 `openspec/changes/formalize-testing-workflow/*` 的说明性文档一致性。
-- 可能调整 `expand-test-coverage` 中关于 `formalize-testing-workflow` 前置依赖的表述。
+- 调整 `expand-test-coverage` 中关于 `formalize-testing-workflow` 前置依赖的表述。
+- 调整 `formalize-testing-workflow` 中关于承接 `expand-test-coverage` 新增测试的表述。
 - 不影响应用运行时代码、测试代码、`package.json`、依赖安装或 API 契约。

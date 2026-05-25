@@ -99,13 +99,13 @@
 
 ### Requirement: Verification Commands
 
-完成测试补充后，验收 MUST 运行项目测试和相关静态检查，并记录执行结果。
+完成测试补充后，验收 MUST 运行当前可用的项目测试和相关静态检查，并记录执行结果。若 `npm test` 尚未由 `formalize-testing-workflow` 接入，验收 MUST 记录新增测试等待后续 runner 和脚本承接。
 
 #### Scenario: Automated tests pass
 
 - **WHEN** 本 change 实现完成
-- **THEN** 验收 MUST 运行 `npm test`
-- **THEN** 所有新增和迁移后的测试 MUST 通过
+- **THEN** 如果 `npm test` 已可用，验收 MUST 运行 `npm test`
+- **THEN** 如果 `npm test` 尚未可用，验收 MUST 记录新增测试等待 `formalize-testing-workflow` 统一接入执行
 
 #### Scenario: Static checks pass
 

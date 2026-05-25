@@ -15,6 +15,12 @@
 - **WHEN** 文档提到两个测试 change 的依赖关系
 - **THEN** 文档 MUST 与“先 `expand-test-coverage`，后 `formalize-testing-workflow`”保持一致
 
+#### Scenario: End-to-end test onboarding is completed
+
+- **WHEN** `expand-test-coverage` 和 `formalize-testing-workflow` 都完成
+- **THEN** `expand-test-coverage` 新增测试 MUST 被 `formalize-testing-workflow` 的 runner 和 `npm test` 承接
+- **THEN** 项目 MUST 形成从测试用例补充到统一测试脚本执行的完整闭环
+
 ### Requirement: Test Change Responsibilities Are Separated
 
 项目 MUST 将测试覆盖范围和测试流程职责分开维护，避免两个 change 重复定义同一类需求。
@@ -53,6 +59,11 @@
 
 - **WHEN** `expand-test-coverage` 文档将 `formalize-testing-workflow` 描述为必须先完成的前置条件
 - **THEN** 文档 MUST 改写为 `expand-test-coverage` 先实施，后续由 `formalize-testing-workflow` 统一承接 runner 和脚本执行
+
+#### Scenario: Workflow accepts expanded tests
+
+- **WHEN** `formalize-testing-workflow` 文档描述测试 runner 或 `npm test`
+- **THEN** 文档 MUST 明确 runner 和 `npm test` 需要承接 `expand-test-coverage` 新增测试
 
 ### Requirement: No Runtime Behavior Changes
 

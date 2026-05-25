@@ -2,7 +2,7 @@
 
 当前测试状态不是少量缺口，而是测试体系刚起步：
 
-- `package.json` 仍未提供 `npm test`，正式 runner 的接入已由 `formalize-testing-workflow` change 约束。
+- `package.json` 仍未提供 `npm test`；正式 runner、脚本和验收流程由后续 `formalize-testing-workflow` change 承接，本 change 不要求它先完成。
 - `tests/` 只有 4 个文件，且仍使用 `console.assert` 手写 runner。
 - `app/`、`features/`、`lib/` 下约 62 个 TypeScript/React 文件，核心行为分布在 API route、AI 编排、动作库服务、训练计划校验、训练执行 timeline、聊天上下文、持久化服务和前端 hooks/组件中。
 - 当前测试覆盖了部分训练计划候选、保存结构转换、语音 cue、语音播报控制器和聊天服务边界，但没有系统覆盖 API 入参、错误映射、动作库筛选、conversationContext、trigger 解析、训练 timeline、workout persistence 和推荐卡片相关逻辑。
@@ -83,12 +83,13 @@ Route Handler 测试只覆盖 HTTP 边界：请求解析、Zod 校验、状态�
 
 ## Migration Plan
 
-1. 等 `formalize-testing-workflow` 完成正式 test runner 和现有测试迁移后，再实施本 change。
-2. 新增 `tests/fixtures/*` 或相近测试工厂，统一构造动作、计划、聊天和 API request 数据。
-3. 分批补充共享领域逻辑测试、服务层测试、API route 测试和前端业务逻辑测试。
-4. 对需要轻微重构才能测试的模块，先抽出纯函数或服务入口，再补测试。
-5. 每批测试补充后运行 `npm test`、`npm run typecheck` 和必要的 `npm run lint`；涉及路由/构建边界时运行 `npm run build`。
+1. 先实施本 change，新增 `tests/fixtures/*` 或相近测试工厂，统一构造动作、计划、聊天和 API request 数据。
+2. 分批补充共享领域逻辑测试、服务层测试、API route 测试和前端业务逻辑测试。
+3. 对需要轻微重构才能测试的模块，先抽出纯函数或服务入口，再补测试。
+4. 如果此阶段 `npm test` 尚未接入，应记录新增测试等待 `formalize-testing-workflow` 承接的 runner 和脚本入口。
+5. 后续实施 `formalize-testing-workflow`，统一接入正式测试 runner、`npm test`、现有手写测试迁移和验收流程。
+6. 两个 change 都完成后，运行 `npm test`、`npm run typecheck`、必要的 `npm run lint`；涉及路由/构建边界时运行 `npm run build`。
 
 ## Open Questions
 
-无需要产品确认的问题。实现时如果发现某个模块必须先完成 `formalize-testing-workflow` 或其它架构 change，应该在 tasks 中保留依赖顺序，不跳过测试目标。
+无需要产品确认的问题。实现时如果发现某个模块需要正式 runner 才能执行测试，应记录为等待 `formalize-testing-workflow` 承接的执行入口，不跳过测试目标。

@@ -4,12 +4,15 @@
 
 后续训练计划生成、聊天 AI 编排、动作候选筛选和训练执行流程都会继续变化。测试流程需要先成为项目约定，否则每个 OpenSpec change 的验收口径会不一致，容易出现“代码改了但相关逻辑测试没有跑”的情况。
 
+如果 `expand-test-coverage` 已先实施，本 change 还需要把它新增的测试文件统一接入 runner 和 `npm test`，但不重新定义测试覆盖范围。
+
 ## Goals / Non-Goals
 
 **Goals:**
 
 - 建立项目级 `npm test` 脚本，作为本地和后续 CI 可复用的测试入口。
 - 将现有手写逻辑测试迁移为测试框架可发现、可失败退出、可读报告的测试用例。
+- 承接 `expand-test-coverage` 新增测试，让新增测试和迁移测试都能通过统一 runner 执行。
 - 明确后续 OpenSpec change 的 `tasks.md` 必须包含与改动相关的测试或验证步骤。
 - 建立按改动类型选择验证命令的规则，避免所有变更都只靠 `typecheck` 或人工检查。
 - 保持测试代码优先覆盖确定性业务规则、Schema、AI 输出校验、动作筛选、训练 timeline 和语音 cue 这类可稳定断言的逻辑。
@@ -32,7 +35,7 @@
 
 ### 2. 先迁移现有测试语义，再扩大测试覆盖
 
-第一阶段应保持现有测试意图不变：训练计划 Schema、动作候选筛选、风险过滤、保存结构转换、训练语音 cue、语音播报控制器降级路径都迁移为 `describe` / `it` / `expect`。迁移时删除手写 `console.assert`，让失败能通过测试框架返回非零退出码。
+第一阶段应保持现有测试意图不变：训练计划 Schema、动作候选筛选、风险过滤、保存结构转换、训练语音 cue、语音播报控制器降级路径都迁移为 `describe` / `it` / `expect`。迁移时删除手写 `console.assert`，让失败能通过测试框架返回非零退出码。若 `expand-test-coverage` 已新增测试，这些测试只需要纳入同一个 runner，不在本 change 中重新扩大覆盖清单。
 
 备选方案是边接框架边大规模补测试。这个方向长期需要，但会让“测试流程接入”和“业务覆盖扩张”耦合在一起，review 时难以判断失败来自框架接入还是新增断言本身。
 
@@ -65,7 +68,7 @@
 ## Migration Plan
 
 1. 安装并配置 Vitest，新增项目级 `npm test` 脚本。
-2. 迁移现有 `tests/*.test.ts` 为测试框架可自动发现的用例。
+2. 迁移现有 `tests/*.test.ts` 为测试框架可自动发现的用例，并确保 `expand-test-coverage` 新增测试也被同一 runner 发现。
 3. 运行 `npm test`、`npm run typecheck` 和 `npm run lint`，确保接入测试流程本身不破坏现有源码质量。
 4. 更新 README 或相关工程说明，记录测试命令和后续验收要求。
 5. 后续每个 OpenSpec change 在 `tasks.md` 中按改动类型列出相关测试与验证任务。

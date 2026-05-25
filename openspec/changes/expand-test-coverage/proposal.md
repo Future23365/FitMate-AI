@@ -4,7 +4,7 @@
 
 ## What Changes
 
-- 在正式测试流程接入后，系统性补充核心业务和高风险路径的测试用例。
+- 先系统性补充核心业务和高风险路径的测试用例；统一 runner、`npm test` 和验收流程由后续 `formalize-testing-workflow` 承接。
 - 优先覆盖确定性逻辑：Schema、解析器、动作筛选、训练计划校验、训练 timeline、聊天 trigger、上下文保留、API 入参校验和错误映射。
 - 补齐服务端边界测试：动作库服务、训练计划生成前后校验、动作推荐候选、聊天历史服务、workout persistence 服务和 Route Handler 的轻量集成验证。
 - 为关键前端逻辑补充 hook/工具函数级测试，并对训练执行页、动作预览、推荐卡片等高风险交互保留浏览器验收任务。
@@ -24,6 +24,6 @@
 
 - 影响 `tests/` 目录，可能新增按领域拆分的测试文件，例如聊天、动作库、训练计划、训练执行、持久化和 API route 测试。
 - 影响部分业务模块的可测试性，可能需要导出少量纯函数或把确定性逻辑下沉到 `lib/shared/*` / `lib/server/*`。
-- 依赖 `formalize-testing-workflow` 中的正式测试 runner 和 `npm test` 脚本先落地。
+- 与 `formalize-testing-workflow` 顺序衔接：本 change 先补齐测试用例和测试数据组织，后续由 `formalize-testing-workflow` 接入正式测试 runner 和 `npm test`。
 - 可能需要补充测试 fixture 或工厂函数，避免测试直接依赖完整 UI 或真实 AI 调用。
 - 不影响运行时用户流程、数据库迁移、第三方 API 调用或生产配置。

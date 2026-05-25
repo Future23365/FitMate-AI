@@ -35,6 +35,11 @@
 - **THEN** 测试框架 MUST 报告失败用例
 - **THEN** `npm test` MUST 返回非零退出码
 
+#### Scenario: Expanded tests are discovered
+
+- **WHEN** `expand-test-coverage` 已新增测试文件
+- **THEN** `npm test` MUST 自动发现并运行这些新增测试
+
 ### Requirement: Change Acceptance Includes Relevant Tests
 
 后续 OpenSpec change 的实现验收 MUST 包含与改动范围相关的测试或验证步骤。`tasks.md` MUST 明确列出需要运行的命令或浏览器验证，并在最终交付中说明执行结果。

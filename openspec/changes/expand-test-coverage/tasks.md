@@ -1,6 +1,6 @@
-## 1. 前置条件与测试数据
+## 1. 测试数据与顺序衔接
 
-- [ ] 1.1 确认 `formalize-testing-workflow` 已完成，`npm test` 可运行并能发现当前测试。
+- [ ] 1.1 确认本 change 先于 `formalize-testing-workflow` 实施，并记录新增测试后续需要由 `formalize-testing-workflow` 承接的 runner 和脚本入口。
 - [ ] 1.2 新增测试 fixture 或工厂函数，覆盖 `Exercise`、`WorkoutItem`、`WorkoutPlanIntent`、`WorkoutPlanDraft`、聊天消息和 API request。
 - [ ] 1.3 清理测试数据组织方式，确保单元测试默认使用最小 fixture，只有真实数据兼容性测试读取 `data/exercises.zh.json`。
 
@@ -36,7 +36,7 @@
 
 ## 6. 验证
 
-- [ ] 6.1 运行 `npm test`。
+- [ ] 6.1 如果 `npm test` 已可用，运行 `npm test`；如果尚未可用，记录新增测试等待 `formalize-testing-workflow` 统一接入执行。
 - [ ] 6.2 运行 `npm run typecheck`。
 - [ ] 6.3 运行 `npm run lint`。
 - [ ] 6.4 如修改 Route Handler、Next.js 配置、依赖配置或服务端/客户端导入边界，运行 `npm run build`。

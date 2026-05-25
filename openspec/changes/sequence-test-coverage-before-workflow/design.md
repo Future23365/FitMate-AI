@@ -17,9 +17,9 @@
 
 **Goals:**
 
-- 明确执行顺序：先实施 `expand-test-coverage`，再实施 `formalize-testing-workflow`。
+- 明确执行顺序：先实施 `expand-test-coverage`，再实施 `formalize-testing-workflow`，最终让测试用例和测试流程完整闭环。
 - 明确重复内容归属，避免两个 change 同时负责 runner、脚本或测试覆盖范围。
-- 调整既有说明文档中的冲突依赖表述，让两个 change 可以按指定顺序实施。
+- 调整既有说明文档中的冲突依赖和承接关系表述，让两个 change 可以按指定顺序实施。
 - 保留两个原 change 的业务目标，不把它们合并成一个大 change。
 
 **Non-Goals:**
@@ -38,7 +38,7 @@
 
 1. `expand-test-coverage`：先补测试用例和必要的 fixture/测试数据组织；如果 runner 尚未完成，测试文件可以先按目标框架风格编写，但最终执行入口由后续流程 change 承接。
 2. `formalize-testing-workflow`：再接入测试框架、`npm test`、现有手写测试迁移和验收流程文档。
-3. 收尾验证：确认新增测试、迁移测试和项目级脚本都能通过统一命令执行。
+3. 收尾验证：确认新增测试、迁移测试和项目级脚本都能通过统一命令执行，形成完整测试接入闭环。
 
 这个顺序符合当前要求“先完成补测试用例，再完成补测试流程”。它的代价是第一阶段新增的测试可能暂时不能通过 `npm test` 统一执行；因此第一阶段完成时必须记录哪些测试等待 runner 接入承接。
 
@@ -59,7 +59,7 @@
 
 ### 4. 通过文档一致性任务解决冲突
 
-本 change 实施时应只修改 OpenSpec 文档中的依赖和职责表述，例如去掉 `expand-test-coverage` 对 `formalize-testing-workflow` 先完成的硬依赖，改成“测试流程完成后统一承接执行”。不应提前修改测试代码或 `package.json`。
+本 change 实施时应只修改 OpenSpec 文档中的依赖和职责表述，例如去掉 `expand-test-coverage` 对 `formalize-testing-workflow` 先完成的硬依赖，并在 `formalize-testing-workflow` 中说明它需要承接 `expand-test-coverage` 新增测试的 runner 和脚本执行。不应提前修改测试代码或 `package.json`。
 
 ## Risks / Trade-offs
 
@@ -72,7 +72,7 @@
 
 1. 在 `expand-test-coverage` 文档中去掉 `formalize-testing-workflow` 必须先完成的硬前置条件。
 2. 在 `expand-test-coverage` 中保留测试覆盖范围和测试数据策略，不再定义 runner 或测试脚本归属。
-3. 在 `formalize-testing-workflow` 中保留 runner、`npm test`、手写测试迁移和验收流程，不扩展测试覆盖清单。
+3. 在 `formalize-testing-workflow` 中保留 runner、`npm test`、手写测试迁移和验收流程，不扩展测试覆盖清单，并说明需要承接 `expand-test-coverage` 新增测试。
 4. 按顺序实施：先 `expand-test-coverage`，再 `formalize-testing-workflow`。
 5. 两个 change 都完成后，统一运行最终测试和静态检查。
 
