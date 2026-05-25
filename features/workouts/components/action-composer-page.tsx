@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
@@ -254,6 +254,7 @@ export function ActionComposerPage() {
   const [trainingLoopRestSeconds, setTrainingLoopRestSeconds] = useState(defaultTrainingLoopRestSeconds);
   const [activePreviewExercise, setActivePreviewExercise] = useState<Exercise | null>(null);
   const [activePreviewSource, setActivePreviewSource] = useState<"library" | "plan" | null>(null);
+  const hasHandledInitialWorkoutLoadRef = useRef(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -346,9 +347,13 @@ export function ActionComposerPage() {
         const nextWorkouts = await listSavedWorkouts();
         setSavedWorkouts(nextWorkouts.map(normalizeSavedWorkout));
 
-        const hashId = window.location.hash.slice(1);
-        if (!hashId && nextWorkouts.length > 0 && !activeSavedWorkoutId && items.length === 0) {
-          openSavedWorkout(nextWorkouts[0], false);
+        if (!hasHandledInitialWorkoutLoadRef.current) {
+          hasHandledInitialWorkoutLoadRef.current = true;
+
+          const hashId = window.location.hash.slice(1);
+          if (!hashId && nextWorkouts.length > 0 && !activeSavedWorkoutId && items.length === 0) {
+            openSavedWorkout(nextWorkouts[0], false);
+          }
         }
       } catch {
         setSaveStatus("已保存编排加载失败");
@@ -614,7 +619,9 @@ export function ActionComposerPage() {
     };
 
     try {
-      const persistedWorkout = await saveWorkout(savedWorkout);
+      const persistedWorkout = activeWorkoutExists
+        ? await saveWorkout(savedWorkout)
+        : await createWorkout(savedWorkout);
       setSavedWorkouts((current) =>
         activeWorkoutExists
           ? current.map((workout) => (workout.id === savedWorkoutId ? persistedWorkout : workout))
