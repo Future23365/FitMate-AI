@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
+import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
 import {
   getScheduledWorkout,
   listScheduledWorkouts,
@@ -34,6 +35,7 @@ import {
   type WorkoutItem,
   type WorkoutMode,
 } from "@/lib/shared/workouts/composition";
+import type { Exercise } from "@/lib/shared/exercises/types";
 
 const preparationCountdownStart = 3;
 
@@ -118,6 +120,45 @@ async function getPlanFromDatabase(planId: string | null) {
   return fallbackPlan;
 }
 
+function mapWorkoutItemToExercise(item: WorkoutItem): Exercise {
+  const imageUrls = getWorkoutItemImageUrls(item);
+  const primaryMusclesZh = item.musclesZh.filter(Boolean);
+
+  return {
+    id: item.exerciseId || item.id,
+    source: "workout-session",
+    sourceUrl: "",
+    sourceId: item.exerciseId || item.id,
+    license: "",
+    nameEn: item.nameEn,
+    nameZh: item.nameZh,
+    category: null,
+    categoryZh: item.categoryZh || null,
+    level: null,
+    levelZh: null,
+    force: null,
+    forceZh: null,
+    mechanic: null,
+    mechanicZh: null,
+    equipment: null,
+    equipmentZh: item.equipmentZh || null,
+    homeRequirement: "unknown",
+    homeRequirementZh: "未标注",
+    primaryMuscles: [],
+    primaryMusclesZh,
+    secondaryMuscles: [],
+    secondaryMusclesZh: [],
+    instructionsEn: [],
+    instructionsZh: item.instructionsZh,
+    images: imageUrls,
+    imageUrls,
+    riskTags: [],
+    goalTags: [],
+    reviewStatus: "fallback",
+    isPublished: true,
+  };
+}
+
 export function WorkoutSessionPage() {
   const searchParams = useSearchParams();
   const planId = searchParams.get("planId");
@@ -134,6 +175,7 @@ export function WorkoutSessionPage() {
   const [isVoicePreferenceLoaded, setIsVoicePreferenceLoaded] = useState(false);
   const [showTip, setShowTip] = useState(true);
   const [showVoiceTip, setShowVoiceTip] = useState(false);
+  const [isExerciseDetailOpen, setIsExerciseDetailOpen] = useState(false);
 
   const loopConfig = useMemo(() => getWorkoutLoopConfig(plan), [plan]);
   const orderedItems = useMemo(
@@ -170,6 +212,7 @@ export function WorkoutSessionPage() {
   const demoImageUrls = getWorkoutItemImageUrls(currentItem);
   const demoImageIndex = getWorkoutDemoImageIndex(demoImageUrls.length, stepElapsedSeconds, currentItem.mode);
   const activeDemoImageUrl = demoImageUrls[demoImageIndex] ?? placeholderWorkoutImage;
+  const currentExerciseDetail = useMemo(() => mapWorkoutItemToExercise(currentItem), [currentItem]);
   const trainedCalories = Math.min(
     estimateWorkoutCalories(plan.items, loopConfig),
     Math.round(Math.max(0, elapsedSeconds / 60) * 7.2 + completedStepIds.size * 8),
@@ -215,6 +258,7 @@ export function WorkoutSessionPage() {
       setPreparationCountdownStepKey("");
       setPreparationCountdown(selectedSteps[0]?.type === "exercise" ? preparationCountdownStart : 0);
       setLoadedPlanKey(requestKey);
+      setIsExerciseDetailOpen(false);
     });
 
     return () => {
@@ -333,6 +377,11 @@ export function WorkoutSessionPage() {
 
     return () => window.clearInterval(timer);
   }, [activeStep, activeStepIndex, isPaused, needsExercisePreparation, steps]);
+
+  const openCurrentExerciseDetail = useCallback(() => {
+    setIsPaused(true);
+    setIsExerciseDetailOpen(true);
+  }, []);
 
   function goToStep(nextIndex: number) {
     const boundedIndex = Math.min(Math.max(0, nextIndex), steps.length - 1);
@@ -475,9 +524,19 @@ export function WorkoutSessionPage() {
                   <p className="text-label-md font-bold text-primary">动作示范</p>
                   <h2 className="text-title-lg font-extrabold">{currentItem.nameZh}</h2>
                 </div>
-                <span className="rounded-xl bg-panel-soft px-sm py-xs text-label-md font-bold text-muted">
-                  {Math.max(1, currentExerciseIndex + 1)}/{orderedItems.length}
-                </span>
+                <div className="flex shrink-0 items-center gap-xs">
+                  <button
+                    className="flex h-9 items-center gap-xs rounded-xl border border-primary/20 bg-white px-sm text-label-md font-extrabold text-primary transition-colors hover:bg-primary-soft disabled:cursor-not-allowed disabled:border-line disabled:text-muted"
+                    onClick={openCurrentExerciseDetail}
+                    type="button"
+                  >
+                    <SymbolIcon className="text-lg">info</SymbolIcon>
+                    动作详情
+                  </button>
+                  <span className="rounded-xl bg-panel-soft px-sm py-xs text-label-md font-bold text-muted">
+                    {Math.max(1, currentExerciseIndex + 1)}/{orderedItems.length}
+                  </span>
+                </div>
               </div>
               <div className="relative grid min-h-0 flex-1 place-items-center overflow-hidden rounded-xl bg-panel-soft">
                 {activeDemoImageUrl && activeDemoImageUrl !== placeholderWorkoutImage ? (
@@ -705,6 +764,11 @@ export function WorkoutSessionPage() {
           </section>
         ) : null}
       </div>
+      <ExercisePreviewSheet
+        exercise={currentExerciseDetail}
+        isOpen={isExerciseDetailOpen}
+        onClose={() => setIsExerciseDetailOpen(false)}
+      />
     </main>
   );
 }
