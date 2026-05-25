@@ -14,7 +14,6 @@ export const workoutVoiceBroadcastStorageKey = "fitmate.workoutVoiceBroadcast.en
 export const workoutVoiceBroadcastTipSeenStorageKey = "fitmate.workoutVoiceBroadcast.tipSeen";
 
 const speechUnavailablePreparationDelayMs = 1200;
-const speechStartFallbackMs = 900;
 const speechCompletionFallbackMinMs = 1600;
 const speechCompletionFallbackMaxMs = 8000;
 const speechCompletionFallbackMsPerChar = 220;
@@ -60,7 +59,6 @@ type SpeechJob = {
 };
 
 export type WorkoutVoiceSpeechJobOptions = {
-  failOnMissingStart?: boolean;
   forcePreferenceEnabled?: boolean;
   jobId: number;
   onDone?: () => void;
@@ -198,14 +196,13 @@ export function useWorkoutVoiceBroadcast({
       return;
     }
 
-    setVoiceState(options.failOnMissingStart ? "activating" : "speaking");
+    setVoiceState(hasActivatedRef.current ? "speaking" : "activating");
 
     const jobId = jobSequenceRef.current + 1;
     jobSequenceRef.current = jobId;
     activeJobIdRef.current = jobId;
 
     activeSpeechJobRef.current = createWorkoutVoiceSpeechJob(texts, {
-      failOnMissingStart: options.failOnMissingStart,
       jobId,
       onDone: () => {
         if (activeJobIdRef.current !== jobId) {
@@ -254,7 +251,6 @@ export function useWorkoutVoiceBroadcast({
 
     startSpeech([introText], {
       forcePreferenceEnabled,
-      failOnMissingStart: !hasActivatedRef.current,
       onDone: activeStep.type === "exercise" && isPreparing ? finishPreparationIntro : undefined,
       reason,
     });
@@ -430,7 +426,6 @@ export function useWorkoutVoiceBroadcast({
 export function createWorkoutVoiceSpeechJob(
   texts: string[],
   {
-    failOnMissingStart = false,
     jobId,
     onDone,
     onError,
@@ -439,7 +434,6 @@ export function createWorkoutVoiceSpeechJob(
   }: WorkoutVoiceSpeechJobOptions,
 ): SpeechJob {
   let completionTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
-  let startFallbackTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
   let isCancelled = false;
   const utterances: SpeechSynthesisUtterance[] = [];
   const normalizedTexts = texts.map((text) => text.trim()).filter(Boolean);
@@ -450,11 +444,6 @@ export function createWorkoutVoiceSpeechJob(
       globalThis.clearTimeout(completionTimer);
       completionTimer = undefined;
     }
-    if (startFallbackTimer) {
-      globalThis.clearTimeout(startFallbackTimer);
-      startFallbackTimer = undefined;
-    }
-
     utterances.forEach((utterance) => {
       utterance.onstart = null;
       utterance.onend = null;
@@ -481,7 +470,6 @@ export function createWorkoutVoiceSpeechJob(
     return { cancel: cancelJob, id: jobId };
   }
 
-  let hasStarted = false;
   let hasCompleted = false;
   const completeOnce = () => {
     if (hasCompleted || isCancelled) {
@@ -492,10 +480,6 @@ export function createWorkoutVoiceSpeechJob(
     if (completionTimer) {
       globalThis.clearTimeout(completionTimer);
     }
-    if (startFallbackTimer) {
-      globalThis.clearTimeout(startFallbackTimer);
-    }
-
     logVoiceDiagnostic("end", { jobId, reason });
     onDone?.();
   };
@@ -509,10 +493,6 @@ export function createWorkoutVoiceSpeechJob(
     if (completionTimer) {
       globalThis.clearTimeout(completionTimer);
     }
-    if (startFallbackTimer) {
-      globalThis.clearTimeout(startFallbackTimer);
-    }
-
     logVoiceDiagnostic("error", { errorReason, jobId, reason });
     onError?.(errorReason);
   };
@@ -522,12 +502,6 @@ export function createWorkoutVoiceSpeechJob(
     window.speechSynthesis.resume();
 
     const voice = selectChineseVoice();
-
-    startFallbackTimer = globalThis.setTimeout(() => {
-      if (!hasStarted && failOnMissingStart) {
-        errorOnce("speech_blocked");
-      }
-    }, speechStartFallbackMs);
 
     completionTimer = globalThis.setTimeout(completeOnce, estimateSpeechCompletionFallbackMs(normalizedTexts));
 
@@ -540,11 +514,6 @@ export function createWorkoutVoiceSpeechJob(
             return;
           }
 
-          hasStarted = true;
-          if (startFallbackTimer) {
-            globalThis.clearTimeout(startFallbackTimer);
-            startFallbackTimer = undefined;
-          }
           logVoiceDiagnostic("start", { jobId, reason, text });
           onStart?.();
         };

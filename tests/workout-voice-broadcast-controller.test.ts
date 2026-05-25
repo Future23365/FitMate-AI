@@ -45,7 +45,6 @@ export async function runWorkoutVoiceBroadcastControllerTests() {
     let failed: WorkoutVoiceBroadcastError | null = null;
 
     createWorkoutVoiceSpeechJob(["第一组动作，开合跳，45 秒。"], {
-      failOnMissingStart: true,
       jobId: 1,
       onDone: () => {
         completed = true;
@@ -67,19 +66,35 @@ export async function runWorkoutVoiceBroadcastControllerTests() {
     console.assert(completed, "speech onend 应完成当前任务");
     console.assert(failed === null, "成功播报不应产生错误状态");
 
-    const blockedEnvironment = installMockSpeechEnvironment();
-    let blockedReason: WorkoutVoiceBroadcastError | null = null;
+    const delayedStartEnvironment = installMockSpeechEnvironment();
+    let delayedStartCompleted = false;
+    let delayedStartReason: WorkoutVoiceBroadcastError | null = null;
     createWorkoutVoiceSpeechJob(["下一组，深蹲，45 秒。"], {
-      failOnMissingStart: true,
       jobId: 2,
-      onError: (reason) => {
-        blockedReason = reason;
+      onDone: () => {
+        delayedStartCompleted = true;
       },
-      reason: "test-blocked",
+      onError: (reason) => {
+        delayedStartReason = reason;
+      },
+      reason: "test-delayed-start",
     });
-    console.assert(blockedEnvironment.spoken.length === 1, "被浏览器阻止前仍应发起 speak 尝试");
-    await wait(950);
-    console.assert(blockedReason === "speech_blocked", "未触发 onstart 时应暴露 speech_blocked");
+    console.assert(delayedStartEnvironment.spoken.length === 1, "首次启动时应立即发起 speak 尝试");
+    (delayedStartEnvironment.spoken[0].onend as (() => void) | null)?.();
+    console.assert(delayedStartCompleted, "即使浏览器没有触发 onstart，onend 到达也应完成播报");
+    console.assert(delayedStartReason === null, "未触发 onstart 不应被误判为 speech_blocked");
+
+    const speechErrorEnvironment = installMockSpeechEnvironment();
+    let speechErrorReason: WorkoutVoiceBroadcastError | null = null;
+    createWorkoutVoiceSpeechJob(["下一组，深蹲，45 秒。"], {
+      jobId: 5,
+      onError: (reason) => {
+        speechErrorReason = reason;
+      },
+      reason: "test-speech-error",
+    });
+    (speechErrorEnvironment.spoken[0].onerror as (() => void) | null)?.();
+    console.assert(speechErrorReason === "speech_error", "真实 speechSynthesis onerror 应暴露 speech_error");
 
     const staleEnvironment = installMockSpeechEnvironment();
     let staleCompleted = false;

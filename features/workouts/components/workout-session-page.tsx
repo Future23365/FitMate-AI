@@ -595,7 +595,7 @@ export function WorkoutSessionPage() {
                 <div className="absolute right-0 top-[calc(100%+12px)] z-30 w-[228px] rounded-xl border border-line bg-white p-sm text-left shadow-lift">
                   <p className="text-label-md font-extrabold text-ink">{getVoiceStatusText(voiceStatus)}</p>
                   <p className="mt-1 text-label-sm font-semibold text-muted">
-                    {voiceStatus === "failed" ? "浏览器可能阻止了本次播放。" : "刷新后需要一次用户手势。"}
+                    {voiceStatus === "failed" ? "请再次点击语音按钮，或检查系统语音设置。" : "刷新后需要一次用户手势。"}
                   </p>
                 </div>
               ) : null}
