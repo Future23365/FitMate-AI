@@ -824,7 +824,7 @@ export function WorkoutSessionPage() {
   }
 
   return (
-    <main className="custom-scrollbar h-dvh overflow-y-auto bg-canvas text-ink xl:overflow-hidden">
+    <main className="custom-scrollbar h-dvh overflow-y-auto bg-background text-ink xl:overflow-hidden">
       <div className="flex min-h-dvh flex-col gap-sm px-md py-sm md:px-lg md:py-md xl:h-dvh xl:min-h-0 2xl:px-xl">
         <header className="flex shrink-0 flex-wrap items-center justify-between gap-sm rounded-[20px] border border-line bg-white px-md py-xs shadow-card md:px-lg">
           <Link
@@ -1282,7 +1282,7 @@ function TrainingSessionMessage({
   title: string;
 }) {
   return (
-    <main className="grid min-h-dvh place-items-center bg-canvas px-md text-ink">
+    <main className="grid min-h-dvh place-items-center bg-background px-md text-ink">
       <section className="w-full max-w-[440px] rounded-[20px] border border-line bg-white p-lg text-center shadow-card">
         <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-primary-soft text-primary">
           <SymbolIcon className="text-3xl">{icon}</SymbolIcon>
