@@ -148,6 +148,39 @@ describe("workout voice session scheduler", () => {
     environment.spoken[0].onerror?.({} as SpeechSynthesisErrorEvent);
     expect(failed).toBe("speech_error");
   });
+
+  it("allows voice activation while the workout is already paused", () => {
+    const environment = installMockSpeechEnvironment();
+    const step = createExerciseStep({ mode: "reps", target: 12 });
+    const session = new WorkoutVoiceSession();
+
+    session.setContext({
+      activeStep: step,
+      activeStepKey: "session:paused",
+      isFirstExerciseStep: true,
+      isPaused: true,
+      isPreparing: true,
+      onPreparationIntroComplete: () => undefined,
+    });
+    session.setPreferenceEnabled(false);
+    const cancelCountBeforeActivation = environment.cancelCount;
+    session.activateCurrentStep(true);
+    session.setPreferenceEnabled(true);
+    session.setContext({
+      activeStep: step,
+      activeStepKey: "session:paused",
+      isFirstExerciseStep: true,
+      isPaused: true,
+      isPreparing: true,
+      onPreparationIntroComplete: () => undefined,
+    });
+
+    expect(environment.spoken.map((utterance) => utterance.text)).toEqual([
+      "语音播报已开启。",
+      "第一组动作，俯卧撑，12 个。",
+    ]);
+    expect(environment.cancelCount).toBe(cancelCountBeforeActivation + 1);
+  });
 });
 
 function createExerciseStep({

@@ -104,6 +104,7 @@ export class WorkoutVoiceSession {
   private lastStepCueKey = "";
   private onDiagnostic?: (event: WorkoutVoiceDiagnosticEvent) => void;
   private onStateChange?: (state: WorkoutVoiceSessionState) => void;
+  private previousPaused = false;
   private preferenceEnabled = false;
   private queue: WorkoutVoiceCue[] = [];
   private state: WorkoutVoiceSessionState;
@@ -148,7 +149,9 @@ export class WorkoutVoiceSession {
 
   setContext(nextContext: WorkoutVoiceContext) {
     const previousStepKey = this.context?.activeStepKey ?? "";
+    const wasPaused = this.previousPaused;
     this.context = nextContext;
+    this.previousPaused = nextContext.isPaused;
 
     if (previousStepKey && previousStepKey !== nextContext.activeStepKey) {
       this.cancelAll("step-change");
@@ -158,7 +161,7 @@ export class WorkoutVoiceSession {
       this.lastStepCueKey = "";
     }
 
-    if (nextContext.isPaused) {
+    if (nextContext.isPaused && !wasPaused) {
       this.pause();
     }
   }
