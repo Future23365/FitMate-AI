@@ -4,6 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
@@ -513,8 +514,25 @@ export function WorkoutSessionPage() {
       setIsVoiceSettingsOpen(false);
       setIsVoiceSettingsClosing(false);
       voiceSettingsCloseTimerRef.current = null;
-    }, 180);
+    }, 500);
   }, []);
+
+  // 语音设置弹窗复用动作详情抽屉的全局页面后缩效果，避免维护两套动画语义。
+  useEffect(() => {
+    if (isVoiceSettingsOpen) {
+      document.body.style.overflow = "hidden";
+      document.body.classList.add("drawer-open");
+      return () => {
+        document.body.style.overflow = "";
+        document.body.classList.remove("drawer-open");
+      };
+    }
+
+    document.body.style.overflow = "";
+    document.body.classList.remove("drawer-open");
+
+    return undefined;
+  }, [isVoiceSettingsOpen]);
 
   const markPreparationIntroComplete = useCallback((stepKey: string) => {
     setPreparationCountdownStepKey(stepKey);
@@ -777,13 +795,7 @@ export function WorkoutSessionPage() {
 
   return (
     <main className="custom-scrollbar h-dvh overflow-y-auto bg-canvas text-ink xl:overflow-hidden">
-      <div
-        className={`flex min-h-dvh origin-center flex-col gap-sm px-md py-sm transition-[transform,border-radius,filter,box-shadow] duration-200 ease-out md:px-lg md:py-md xl:h-dvh xl:min-h-0 2xl:px-xl ${
-          isVoiceSettingsOpen
-            ? "scale-[0.965] rounded-[28px] shadow-lift blur-[0.2px] xl:translate-y-2"
-            : "scale-100 rounded-none shadow-none blur-0"
-        }`}
-      >
+      <div className="flex min-h-dvh flex-col gap-sm px-md py-sm md:px-lg md:py-md xl:h-dvh xl:min-h-0 2xl:px-xl">
         <header className="flex shrink-0 flex-wrap items-center justify-between gap-sm rounded-[20px] border border-line bg-white px-md py-xs shadow-card md:px-lg">
           <Link
             className="flex min-h-11 items-center gap-sm rounded-xl px-sm text-body-md font-extrabold text-ink transition-colors hover:bg-panel-soft hover:text-primary"
@@ -1366,18 +1378,18 @@ function VoiceSettingsDialog({
     : true;
   const showRestartAdvice = shouldShowVoiceRestartAdvice(selfCheckResult);
 
-  return (
+  return createPortal(
     <div
       aria-modal="true"
-      className={`fixed inset-0 z-50 grid place-items-center bg-ink/35 px-md py-lg transition-opacity duration-200 ease-out ${
-        isClosing ? "opacity-0" : "opacity-100"
+      className={`fixed inset-0 z-50 grid place-items-center bg-black/20 px-md py-lg backdrop-blur-[1px] drawer-backdrop-transition ${
+        isClosing ? "pointer-events-none opacity-0" : "pointer-events-auto opacity-100"
       }`}
       onClick={onClose}
       role="dialog"
     >
       <section
-        className={`custom-scrollbar max-h-[min(760px,calc(100dvh-40px))] w-full max-w-[920px] overflow-y-auto rounded-[20px] border border-line bg-white p-md text-ink shadow-lift transition-[transform,opacity] duration-200 ease-out md:p-lg ${
-          isClosing ? "translate-y-3 scale-[0.97] opacity-0" : "translate-y-0 scale-100 opacity-100"
+        className={`custom-scrollbar max-h-[min(760px,calc(100dvh-40px))] w-full max-w-[920px] origin-center overflow-y-auto rounded-[20px] border border-line bg-white p-md text-ink shadow-lift drawer-panel-transition md:p-lg ${
+          isClosing ? "translate-y-8 scale-[0.96]" : "translate-y-0 scale-100"
         }`}
         onClick={(event) => event.stopPropagation()}
       >
@@ -1560,7 +1572,8 @@ function VoiceSettingsDialog({
           </p>
         </section>
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1630,35 +1643,18 @@ function VoiceSelfCheckStepRow({
 }
 
 function BrowserApiIcon({ browser }: { browser: VoiceApiBrowserKey }) {
-  const iconMeta: Record<VoiceApiBrowserKey, { className: string; label: string }> = {
-    chrome: {
-      className: "bg-[conic-gradient(#34A853_0_33%,#FBBC05_0_66%,#EA4335_0_86%,#4285F4_0)]",
-      label: "C",
-    },
-    edge: {
-      className: "bg-[conic-gradient(#0078D7_0_35%,#00A4EF_0_58%,#39D353_0_80%,#0A4FB3_0)]",
-      label: "E",
-    },
-    firefox: {
-      className: "bg-[conic-gradient(#FF7139_0_35%,#FFB000_0_58%,#D63AFF_0_80%,#7A2DFF_0)]",
-      label: "F",
-    },
-    safari: {
-      className: "bg-[conic-gradient(#0A84FF_0_35%,#64D2FF_0_60%,#FFFFFF_0_76%,#FF3B30_0)]",
-      label: "S",
-    },
-    iosSafari: {
-      className: "bg-[conic-gradient(#0A84FF_0_35%,#64D2FF_0_60%,#FFFFFF_0_76%,#FF3B30_0)]",
-      label: "iOS",
-    },
+  const iconMeta: Record<VoiceApiBrowserKey, { alt: string; src: string }> = {
+    chrome: { alt: "Chrome", src: "/browser-logos/chrome.svg" },
+    edge: { alt: "Edge", src: "/browser-logos/edge.svg" },
+    firefox: { alt: "Firefox", src: "/browser-logos/firefox.svg" },
+    safari: { alt: "Safari", src: "/browser-logos/safari.svg" },
+    iosSafari: { alt: "iOS Safari", src: "/browser-logos/safari-ios.svg" },
   };
   const meta = iconMeta[browser];
 
   return (
-    <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full p-[2px] ${meta.className}`}>
-      <span className="grid h-full w-full place-items-center rounded-full bg-white/90 text-[10px] font-black leading-none text-ink">
-        {meta.label}
-      </span>
+    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-white shadow-sm ring-1 ring-line/70">
+      <Image alt={`${meta.alt} logo`} className="h-6 w-6 object-contain" height={24} src={meta.src} width={24} />
     </span>
   );
 }

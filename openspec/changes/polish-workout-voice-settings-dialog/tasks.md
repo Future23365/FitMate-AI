@@ -24,3 +24,8 @@
 - [x] 5.1 运行 `openspec validate polish-workout-voice-settings-dialog --strict`。
 - [x] 5.2 运行 `npm run typecheck`、`npm run lint` 和相关测试。
 - [x] 5.3 使用 Chrome DevTools MCP 验证 `/training` 弹窗排序、动效、自检失败提示和浏览器图标展示；如果本地服务不可访问，记录原因。
+
+## 6. 追加视觉打磨
+
+- [x] 6.1 将语音设置弹窗的页面缩放、遮罩模糊和动画节奏对齐动作详情抽屉。
+- [x] 6.2 使用本地真实彩色 SVG 浏览器图标替换字母伪图标，并验证布局一致性。
