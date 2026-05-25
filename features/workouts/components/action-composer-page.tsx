@@ -681,7 +681,7 @@ export function ActionComposerPage() {
   }
 
   return (
-    <div className="app-mesh-bg min-h-screen text-ink lg:pl-[260px] xl:pr-[300px]">
+    <div className="app-mesh-bg min-h-screen text-ink md:pl-[260px] xl:pr-[300px]">
       <main className="custom-scrollbar h-screen overflow-y-auto overflow-x-hidden p-lg pb-28 xl:p-xl">
         <header className="mb-xl flex flex-col gap-lg xl:flex-row xl:items-end xl:justify-between">
           <div>

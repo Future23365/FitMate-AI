@@ -256,7 +256,7 @@ export function TrainingPlanPage() {
   }
 
   return (
-    <div className="app-mesh-bg min-h-screen text-ink lg:pl-[260px] xl:pr-[320px]">
+    <div className="app-mesh-bg min-h-screen text-ink md:pl-[260px] xl:pr-[320px]">
       <main className="custom-scrollbar h-screen overflow-y-auto overflow-x-hidden p-lg xl:p-xl">
         <section className="mb-xl flex flex-col gap-md md:flex-row md:items-end md:justify-between">
           <div>

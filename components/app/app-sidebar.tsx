@@ -298,14 +298,14 @@ export function AppSidebar() {
         aria-expanded={isMobileNavOpen}
         aria-label="打开导航"
         aria-controls="mobile-app-navigation"
-        className="fixed right-4 top-4 z-40 flex h-11 w-11 items-center justify-center rounded-xl border border-line/80 bg-white/82 text-ink shadow-nav backdrop-blur-2xl transition-colors hover:bg-panel-soft lg:hidden"
+        className="fixed right-4 top-4 z-40 flex h-11 w-11 items-center justify-center rounded-xl border border-line/80 bg-white/82 text-ink shadow-nav backdrop-blur-2xl transition-colors hover:bg-panel-soft md:hidden"
         onClick={() => setIsMobileNavOpen(true)}
         type="button"
       >
         <SymbolIcon>menu</SymbolIcon>
       </button>
 
-      <aside className="fixed left-0 top-0 z-30 hidden h-screen w-[260px] flex-col overflow-hidden border-r border-line/70 bg-white/68 px-4 py-6 shadow-nav backdrop-blur-2xl lg:flex">
+      <aside className="fixed left-0 top-0 z-30 hidden h-screen w-[260px] flex-col overflow-hidden border-r border-line/70 bg-white/68 px-4 py-6 shadow-nav backdrop-blur-2xl md:flex">
         <SidebarPanel
           historyItems={historyItems}
           isSettingsActive={isSettingsActive}
@@ -316,7 +316,7 @@ export function AppSidebar() {
       </aside>
 
       {isMobileNavOpen ? (
-        <div className="fixed inset-0 z-50 lg:hidden">
+        <div className="fixed inset-0 z-50 md:hidden">
           <button
             aria-label="关闭导航"
             className="absolute inset-0 h-full w-full bg-ink/28 backdrop-blur-sm"

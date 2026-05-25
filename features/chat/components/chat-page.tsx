@@ -136,7 +136,7 @@ export function ChatPage() {
 
   return (
     <div className="app-mesh-bg min-h-screen text-ink">
-      <header className="fixed left-0 right-0 top-0 z-20 flex h-16 items-center justify-between border-b border-line/70 bg-white/68 px-lg shadow-nav backdrop-blur-2xl lg:left-[260px] xl:right-[300px] xl:px-xl">
+      <header className="fixed left-0 right-0 top-0 z-20 flex h-16 items-center justify-between border-b border-line/70 bg-white/68 px-lg shadow-nav backdrop-blur-2xl md:left-[260px] xl:right-[300px] xl:px-xl">
           <div>
             <h2 className="flex items-center gap-xs text-xl font-extrabold tracking-tight text-ink">
               你的 <span className="text-primary">AI</span> 健身助手
@@ -147,7 +147,7 @@ export function ChatPage() {
           </div>
         </header>
 
-      <main className="fixed inset-0 bottom-0 left-0 top-[64px] flex flex-col bg-transparent lg:left-[260px] xl:right-[300px]">
+      <main className="fixed inset-0 bottom-0 left-0 top-[64px] flex flex-col bg-transparent md:left-[260px] xl:right-[300px]">
         <div
           className="custom-scrollbar flex-1 space-y-xl overflow-y-auto p-lg xl:p-xl"
           ref={chatScrollRef}
