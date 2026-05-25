@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
@@ -40,7 +40,6 @@ import {
 import type { Exercise } from "@/lib/shared/exercises/types";
 
 const preparationCountdownStart = 3;
-const voiceUnlockActivationDelayMs = 350;
 
 const fallbackPlan: ScheduledWorkout = {
   id: "session-fallback",
@@ -174,7 +173,6 @@ export function WorkoutSessionPage() {
   const [preparationCountdownStepKey, setPreparationCountdownStepKey] = useState("");
   const [isPaused, setIsPaused] = useState(false);
   const [isAudioOn, setIsAudioOn] = useState(false);
-  const [isAudioUnlocked, setIsAudioUnlocked] = useState(false);
   const [isVoiceSupported, setIsVoiceSupported] = useState(false);
   const [loadedPlanKey, setLoadedPlanKey] = useState("");
   const [isVoicePreferenceLoaded, setIsVoicePreferenceLoaded] = useState(false);
@@ -231,11 +229,10 @@ export function WorkoutSessionPage() {
   const sessionVoiceId = `${plan.id}:${plan.date}:${plan.planId}`;
   const activeStepKey = activeStep ? `${sessionVoiceId}:${activeStep.id}:${activeStepIndex}` : "";
   const isPlanReady = loadedPlanKey === requestedPlanKey;
-  const isVoiceBroadcastActive = isVoiceSupported && isAudioOn && isAudioUnlocked;
+  const isVoiceBroadcastActive = isVoiceSupported && isAudioOn;
   const needsExercisePreparation = activeStep?.type === "exercise" && preparedStepKey !== activeStepKey;
   const isPreparationCountdownActive = preparationCountdownStepKey === activeStepKey;
   const isPreparing = Boolean(needsExercisePreparation && preparationCountdown > 0);
-  const voiceUnlockTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -281,7 +278,6 @@ export function WorkoutSessionPage() {
 
       setIsVoiceSupported(canUseVoiceBroadcast);
       setIsAudioOn(savedAudioPreference);
-      setIsAudioUnlocked(false);
       if (canUseVoiceBroadcast && !savedAudioPreference && !hasSeenVoiceTip) {
         setShowVoiceTip(true);
         writeWorkoutVoiceBroadcastTipSeen();
@@ -296,62 +292,19 @@ export function WorkoutSessionPage() {
     setPreparationCountdownStepKey(stepKey);
   }, []);
 
-  const clearVoiceUnlockTimer = useCallback(() => {
-    if (!voiceUnlockTimerRef.current) {
-      return;
-    }
-
-    window.clearTimeout(voiceUnlockTimerRef.current);
-    voiceUnlockTimerRef.current = null;
-  }, []);
-
-  const armVoiceBroadcastAudio = useCallback(() => {
-    if (!isVoiceSupported) {
-      return;
-    }
-
-    unlockWorkoutVoiceBroadcastAudio();
-    clearVoiceUnlockTimer();
-    voiceUnlockTimerRef.current = window.setTimeout(() => {
-      setIsAudioUnlocked(true);
-      voiceUnlockTimerRef.current = null;
-    }, voiceUnlockActivationDelayMs);
-  }, [clearVoiceUnlockTimer, isVoiceSupported]);
-
-  useEffect(() => clearVoiceUnlockTimer, [clearVoiceUnlockTimer]);
-
-  useEffect(() => {
-    if (!isVoiceSupported || !isAudioOn || isAudioUnlocked) {
-      return;
-    }
-
-    const activateAudio = () => armVoiceBroadcastAudio();
-
-    window.addEventListener("pointerdown", activateAudio, { capture: true, once: true });
-    window.addEventListener("keydown", activateAudio, { capture: true, once: true });
-
-    return () => {
-      window.removeEventListener("pointerdown", activateAudio, true);
-      window.removeEventListener("keydown", activateAudio, true);
-    };
-  }, [armVoiceBroadcastAudio, isAudioOn, isAudioUnlocked, isVoiceSupported]);
-
   const setVoiceBroadcastEnabled = useCallback((nextValue: boolean) => {
     if (!isVoiceSupported) {
       return;
     }
 
     if (nextValue) {
-      armVoiceBroadcastAudio();
-    } else {
-      clearVoiceUnlockTimer();
-      setIsAudioUnlocked(false);
+      unlockWorkoutVoiceBroadcastAudio();
     }
 
     setIsAudioOn(nextValue);
     setShowVoiceTip(false);
     writeWorkoutVoiceBroadcastPreference(nextValue);
-  }, [armVoiceBroadcastAudio, clearVoiceUnlockTimer, isVoiceSupported]);
+  }, [isVoiceSupported]);
 
   useWorkoutVoiceBroadcast({
     activeStepIndex,
