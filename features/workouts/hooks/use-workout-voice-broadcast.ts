@@ -93,6 +93,24 @@ export function isWorkoutVoiceBroadcastSupported() {
   return canSpeak();
 }
 
+export function unlockWorkoutVoiceBroadcastAudio() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (canSpeak()) {
+    try {
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.resume();
+      window.speechSynthesis.speak(createSpeechUtterance("语音播报已开启"));
+    } catch {
+      // User-gesture audio unlock is best-effort; the session flow still handles timing.
+    }
+  }
+
+  unlockWebAudio();
+}
+
 export function useWorkoutVoiceBroadcast({
   activeStepIndex,
   completedReps,
@@ -109,6 +127,13 @@ export function useWorkoutVoiceBroadcast({
   const activeStep = steps[activeStepIndex];
   const activeStepKey = activeStep ? `${sessionId}:${activeStep.id}:${activeStepIndex}` : "";
   const isPreparing = preparationCountdown > 0;
+  const startupSessionIdRef = useRef("");
+  const currentStepKeyRef = useRef("");
+  const preparationStepKeyRef = useRef("");
+  const lastBeepElapsedRef = useRef(0);
+  const lastCountRef = useRef(0);
+  const lastPreparationSecondRef = useRef(0);
+  const wasPausedRef = useRef(isPaused);
   const audioContextRef = useRef<AudioContext | null>(null);
   const activeSpeechJobRef = useRef<SpeechJob | null>(null);
 
@@ -141,11 +166,25 @@ export function useWorkoutVoiceBroadcast({
       window.removeEventListener("pagehide", stopSessionAudio);
       window.removeEventListener("beforeunload", stopSessionAudio);
       stopSessionAudio();
+      currentStepKeyRef.current = "";
+      preparationStepKeyRef.current = "";
+      lastPreparationSecondRef.current = 0;
+      resetRhythmRefs(lastBeepElapsedRef, lastCountRef);
     };
   }, [stopSessionAudio]);
 
   useEffect(() => {
-    if (!isEnabled || isPaused) {
+    if (!isEnabled) {
+      currentStepKeyRef.current = "";
+      preparationStepKeyRef.current = "";
+      lastPreparationSecondRef.current = 0;
+      stopSpeech();
+      return;
+    }
+
+    if (isPaused) {
+      preparationStepKeyRef.current = "";
+      lastPreparationSecondRef.current = 0;
       stopSpeech();
     }
   }, [isEnabled, isPaused, stopSpeech]);
@@ -155,23 +194,66 @@ export function useWorkoutVoiceBroadcast({
       return;
     }
 
+    if (startupSessionIdRef.current !== sessionId) {
+      startupSessionIdRef.current = sessionId;
+      currentStepKeyRef.current = "";
+      preparationStepKeyRef.current = "";
+      lastPreparationSecondRef.current = 0;
+      resetRhythmRefs(lastBeepElapsedRef, lastCountRef);
+    }
+
     if (isPreparing) {
-      startSpeech([buildWorkoutActionPreparationCue(activeStep, isFirstExerciseStep)], true, () => {
-        onPreparationIntroComplete(activeStepKey);
-      });
+      if (preparationStepKeyRef.current !== activeStepKey) {
+        preparationStepKeyRef.current = activeStepKey;
+        currentStepKeyRef.current = activeStepKey;
+        lastPreparationSecondRef.current = 0;
+        resetRhythmRefs(lastBeepElapsedRef, lastCountRef);
+        startSpeech([buildWorkoutActionPreparationCue(activeStep, isFirstExerciseStep)], true, () => {
+          if (preparationStepKeyRef.current === activeStepKey) {
+            onPreparationIntroComplete(activeStepKey);
+          }
+        });
+      }
+
       return;
     }
 
-    startSpeech([buildWorkoutStepVoiceCue(activeStep)], true);
-  }, [activeStep, activeStepKey, isEnabled, isFirstExerciseStep, isPaused, isPreparing, onPreparationIntroComplete, startSpeech]);
+    if (currentStepKeyRef.current !== activeStepKey) {
+      currentStepKeyRef.current = activeStepKey;
+      resetRhythmRefs(lastBeepElapsedRef, lastCountRef);
+      startSpeech([buildWorkoutStepVoiceCue(activeStep)], true);
+    }
+  }, [activeStep, activeStepKey, isEnabled, isFirstExerciseStep, isPaused, isPreparing, onPreparationIntroComplete, sessionId, startSpeech]);
 
   useEffect(() => {
     if (!isEnabled || isPaused || !isPreparationCountdownActive || preparationCountdown <= 0) {
       return;
     }
 
+    if (lastPreparationSecondRef.current === preparationCountdown) {
+      return;
+    }
+
+    lastPreparationSecondRef.current = preparationCountdown;
     startSpeech([buildPreparationCountdownCue(preparationCountdown)]);
   }, [isEnabled, isPaused, isPreparationCountdownActive, preparationCountdown, startSpeech]);
+
+  useEffect(() => {
+    if (!activeStep || !isEnabled) {
+      wasPausedRef.current = isPaused;
+      return;
+    }
+
+    if (!wasPausedRef.current && isPaused) {
+      stopSpeech();
+    }
+
+    if (wasPausedRef.current && !isPaused && !isPreparing) {
+      startSpeech(["继续训练", buildWorkoutStepVoiceCue(activeStep)], true);
+    }
+
+    wasPausedRef.current = isPaused;
+  }, [activeStep, isEnabled, isPaused, isPreparing, startSpeech, stopSpeech]);
 
   useEffect(() => {
     if (
@@ -186,10 +268,11 @@ export function useWorkoutVoiceBroadcast({
     }
 
     const elapsedSeconds = activeStep.durationSeconds - remainingSeconds;
-    if (elapsedSeconds <= 0) {
+    if (elapsedSeconds <= 0 || elapsedSeconds <= lastBeepElapsedRef.current) {
       return;
     }
 
+    lastBeepElapsedRef.current = elapsedSeconds;
     playBeep(audioContextRef);
   }, [activeStep, isEnabled, isPaused, isPreparing, remainingSeconds]);
 
@@ -205,12 +288,21 @@ export function useWorkoutVoiceBroadcast({
       return;
     }
 
-    if (completedReps <= 0 || completedReps > activeStep.item.target) {
+    if (completedReps <= 0 || completedReps <= lastCountRef.current || completedReps > activeStep.item.target) {
       return;
     }
 
+    lastCountRef.current = completedReps;
     startSpeech([buildRepetitionCountCue(completedReps)], true);
   }, [activeStep, completedReps, isEnabled, isPaused, isPreparing, startSpeech]);
+}
+
+function resetRhythmRefs(
+  lastBeepElapsedRef: MutableRefObject<number>,
+  lastCountRef: MutableRefObject<number>,
+) {
+  lastBeepElapsedRef.current = 0;
+  lastCountRef.current = 0;
 }
 
 function speakTexts(texts: string[], onDone?: () => void): SpeechJob {
@@ -286,15 +378,7 @@ function speakTexts(texts: string[], onDone?: () => void): SpeechJob {
     }
 
     normalizedTexts.forEach((text, index) => {
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = "zh-CN";
-      utterance.rate = 1;
-      utterance.pitch = 1;
-      utterance.volume = 1;
-
-      if (voice) {
-        utterance.voice = voice;
-      }
+      const utterance = createSpeechUtterance(text, voice);
 
       if (index === normalizedTexts.length - 1 && onDone) {
         utterance.onend = completeOnce;
@@ -340,14 +424,62 @@ function selectChineseVoice() {
     .find((voice) => voice.lang.toLowerCase().startsWith("zh") || /chinese|mandarin|中文|普通话/i.test(voice.name));
 }
 
+function createSpeechUtterance(text: string, voice = selectChineseVoice()) {
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = "zh-CN";
+  utterance.rate = 1;
+  utterance.pitch = 1;
+  utterance.volume = 1;
+
+  if (voice) {
+    utterance.voice = voice;
+  }
+
+  return utterance;
+}
+
+function getAudioContextClass() {
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+
+  return window.AudioContext ?? (window as WindowWithWebKitAudioContext).webkitAudioContext;
+}
+
+function unlockWebAudio() {
+  try {
+    const AudioContextClass = getAudioContextClass();
+
+    if (!AudioContextClass) {
+      return;
+    }
+
+    const audioContext = new AudioContextClass();
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    const now = audioContext.currentTime;
+
+    gain.gain.setValueAtTime(0.0001, now);
+    oscillator.connect(gain);
+    gain.connect(audioContext.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.02);
+    void audioContext.resume().catch(() => undefined);
+    globalThis.setTimeout(() => {
+      void audioContext.close().catch(() => undefined);
+    }, 120);
+  } catch {
+    // Web Audio unlock is optional; speech prompts remain the primary voice path.
+  }
+}
+
 function playBeep(audioContextRef: MutableRefObject<AudioContext | null>) {
   if (typeof window === "undefined") {
     return;
   }
 
   try {
-    const AudioContextClass =
-      window.AudioContext ?? (window as WindowWithWebKitAudioContext).webkitAudioContext;
+    const AudioContextClass = getAudioContextClass();
 
     if (!AudioContextClass) {
       return;

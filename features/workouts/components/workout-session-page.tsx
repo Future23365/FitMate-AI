@@ -16,6 +16,7 @@ import {
   isWorkoutVoiceBroadcastSupported,
   readWorkoutVoiceBroadcastPreference,
   readWorkoutVoiceBroadcastTipSeen,
+  unlockWorkoutVoiceBroadcastAudio,
   useWorkoutVoiceBroadcast,
   writeWorkoutVoiceBroadcastPreference,
   writeWorkoutVoiceBroadcastTipSeen,
@@ -293,6 +294,10 @@ export function WorkoutSessionPage() {
   const setVoiceBroadcastEnabled = useCallback((nextValue: boolean) => {
     if (!isVoiceSupported) {
       return;
+    }
+
+    if (nextValue) {
+      unlockWorkoutVoiceBroadcastAudio();
     }
 
     setIsAudioOn(nextValue);
