@@ -1,58 +1,68 @@
 import type { WorkoutItem, WorkoutTimelineStep } from "@/lib/shared/workouts/composition";
+import {
+  workoutVoiceBroadcastConfig,
+  type WorkoutVoiceBroadcastConfig,
+} from "@/lib/shared/workouts/voice-broadcast-config";
 
-const defaultOverviewLimit = 5;
-
-export function buildWorkoutStartupCues(items: WorkoutItem[]) {
-  return [buildWorkoutOverviewCue(items), buildFirstWorkoutActionCue(items[0]), "3", "2", "1，开始"];
+export function buildWorkoutStartupCues(
+  items: WorkoutItem[],
+  config: WorkoutVoiceBroadcastConfig = workoutVoiceBroadcastConfig,
+) {
+  return [
+    buildWorkoutOverviewCue(items, undefined, config),
+    buildFirstWorkoutActionCue(items[0], config),
+    buildPreparationCountdownCue(3, config),
+    buildPreparationCountdownCue(2, config),
+    buildPreparationCountdownCue(1, config),
+  ];
 }
 
-export function buildWorkoutOverviewCue(items: WorkoutItem[], limit = defaultOverviewLimit) {
+export function buildWorkoutOverviewCue(
+  items: WorkoutItem[],
+  limit?: number,
+  config: WorkoutVoiceBroadcastConfig = workoutVoiceBroadcastConfig,
+) {
   if (items.length === 0) {
-    return "准备开始训练。";
+    return config.templates.emptyOverview;
   }
 
-  const names = items.map((item) => item.nameZh).filter(Boolean);
-  const visibleNames = names.slice(0, Math.max(1, limit));
-  const suffix = names.length > visibleNames.length ? "等" : "";
-
-  return `本次训练 ${items.length} 个动作：${visibleNames.join("、")}${suffix}。准备开始。`;
+  return config.templates.overview(items, { overviewLimit: limit, totalItems: items.length });
 }
 
-export function buildWorkoutStepVoiceCue(step: WorkoutTimelineStep) {
-  if (step.type === "rest") {
-    const nextActionText = step.nextItem ? `，下一组动作 ${step.nextItem.nameZh}` : "";
-    return `${step.label} ${step.durationSeconds} 秒${nextActionText}。`;
-  }
-
-  const targetText = step.item.mode === "duration" ? `${step.item.target} 秒` : `${step.item.target} 次`;
-
-  return `开始 ${step.item.nameZh}，第 ${step.setIndex} 组，共 ${step.totalSets} 组，目标 ${targetText}。`;
+export function buildWorkoutStepVoiceCue(
+  step: WorkoutTimelineStep,
+  config: WorkoutVoiceBroadcastConfig = workoutVoiceBroadcastConfig,
+) {
+  return config.templates.stepVoice(step);
 }
 
-export function buildFirstWorkoutActionCue(item?: WorkoutItem) {
-  return item ? `第一组动作，${item.nameZh}，${formatPreparationTarget(item)}。` : "准备开始第一组动作。";
+export function buildFirstWorkoutActionCue(
+  item?: WorkoutItem,
+  config: WorkoutVoiceBroadcastConfig = workoutVoiceBroadcastConfig,
+) {
+  return item
+    ? `第一组动作，${item.nameZh}，${config.templates.preparationTarget(item)}。`
+    : config.templates.firstActionFallback;
 }
 
-export function buildWorkoutActionPreparationCue(step: WorkoutTimelineStep, isFirstExercise: boolean) {
-  if (step.type !== "exercise") {
-    return "准备进入下一步。";
-  }
-
-  const prefix = isFirstExercise ? "第一组动作" : "下一组";
-
-  return `${prefix}，${step.item.nameZh}，${formatPreparationTarget(step.item)}。`;
+export function buildWorkoutActionPreparationCue(
+  step: WorkoutTimelineStep,
+  isFirstExercise: boolean,
+  config: WorkoutVoiceBroadcastConfig = workoutVoiceBroadcastConfig,
+) {
+  return config.templates.stepPreparation(step, { isFirstExercise, step });
 }
 
-export function buildPreparationCountdownCue(second: number) {
-  const normalizedSecond = Math.max(1, Math.min(3, Math.floor(second)));
-
-  return normalizedSecond === 1 ? "1，开始" : String(normalizedSecond);
+export function buildPreparationCountdownCue(
+  second: number,
+  config: WorkoutVoiceBroadcastConfig = workoutVoiceBroadcastConfig,
+) {
+  return config.templates.preparationCountdown({ second });
 }
 
-export function buildRepetitionCountCue(count: number) {
-  return String(Math.max(1, Math.floor(count)));
-}
-
-function formatPreparationTarget(item: WorkoutItem) {
-  return item.mode === "duration" ? `${item.target} 秒` : `${item.target} 个`;
+export function buildRepetitionCountCue(
+  count: number,
+  config: WorkoutVoiceBroadcastConfig = workoutVoiceBroadcastConfig,
+) {
+  return config.templates.repetitionCount(count);
 }
