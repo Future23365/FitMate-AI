@@ -18,7 +18,7 @@
 - **AND** 系统 MUST 记录该持久化错误，便于排查 result 或 schedule 写入失败
 
 #### Scenario: Completed persisted workout opens again
-- **WHEN** 用户打开 `/training?planId=<id>` 且该训练安排服务端状态为 `completed` 或已存在 `WorkoutSessionResult`
+- **WHEN** 用户打开 `/training?scheduleId=<id>` 且该训练安排服务端状态为 `completed` 或已存在 `WorkoutSessionResult`
 - **THEN** 系统 MUST 仍然展示当前页面训练的待开始状态
 - **AND** 系统 MUST NOT 仅因为服务端状态为 `completed` 或已存在训练结果而显示本地完成态
 

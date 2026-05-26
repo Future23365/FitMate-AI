@@ -2,7 +2,7 @@
 
 当前训练数据模型把用户动作编排、计划日、日历安排和完成状态混在 `WorkoutPlan`、`WorkoutPlanDay`、`WorkoutPlanItem`、`WorkoutSession` 里，表名和产品语义不一致，已经导致对“编排列表、计划、日历、训练记录”的理解偏差。
 
-本次需要按最新产品理解重构：最小单元是动作，动作组成编排列表，编排列表被安排到日历，用户完成训练后形成训练结果。这个改动属于数据库核心模型重构，需要一次性明确数据边界、迁移路径和调用面。
+本次需要按最新产品理解重构：最小单元是动作，动作组成编排列表，编排列表被安排到日历，用户完成训练后形成训练结果。这个改动属于数据库核心模型重构，项目仍处于开发阶段，可以做破坏性改动；目标是把模型改正确，不为旧训练数据和旧接口命名保留兼容层。
 
 ## What Changes
 
@@ -11,6 +11,8 @@
 - **BREAKING** 将当前 `WorkoutSession` 的“日历安排 + 粗完成状态”职责拆分：
   - `WorkoutSchedule` 负责某个日期安排哪套 `WorkoutRoutine`，以及 planned/missed/cancelled/rest 等日历状态。
   - `WorkoutSessionResult` 负责一次实际训练完成结果，包括开始/结束时间、实际训练时长、完成状态和后续可扩展的执行摘要。
+- **BREAKING** 替换旧 workout API 路径和前端命名，不保留 `/api/workouts`、`/api/workout-sessions`、`SavedWorkout`、`ScheduledWorkout`、`planId` 等旧语义作为兼容入口。
+- **BREAKING** 允许开发期重建训练相关数据库表；旧 `WorkoutPlan`、`WorkoutPlanDay`、`WorkoutPlanItem`、`WorkoutSession` 中的训练业务数据不作为必须迁移对象。
 - 保留 `Exercise` 作为动作事实来源，`WorkoutRoutineItem.exerciseId` 必须继续引用数据库动作，禁止保存不存在的动作。
 - 保留现有产品界面的核心对象：动作库、动作编排页、训练日历页、训练执行页；不新增“计划外壳”表，因为当前界面没有独立展示计划外壳。
 - 调整服务端持久化服务、共享 schema、客户端 API 包装、API Route、页面调用和测试，使命名和数据流符合最新模型。
@@ -28,7 +30,7 @@
 
 - Prisma schema 和迁移：
   - `prisma/schema.prisma`
-  - 新增数据库迁移，包含旧数据迁移或开发期重建策略。
+  - 新增破坏性数据库迁移或开发期重建策略，不要求保留旧训练业务数据。
 - 服务端持久化层：
   - `lib/server/workouts/workout-persistence-service.ts`
   - `lib/server/users/current-user.ts` 的关系字段引用如有需要同步调整。
@@ -37,10 +39,11 @@
   - `lib/shared/workouts/persistence-schema.ts`
   - 可能新增 routine/schedule/result 命名的共享 schema。
 - HTTP API 和客户端调用：
-  - `app/api/workouts/*`
-  - `app/api/workout-sessions/*`
+  - 新增或替换为 `app/api/workout-routines/*`
+  - 新增或替换为 `app/api/workout-schedules/*`
+  - 新增或替换为训练结果提交 API，例如 `app/api/workout-session-results/*`
   - `features/workouts/api/workout-data-client.ts`
-  - API 路径可先保持兼容，但内部命名和返回结构需要逐步切到 routine/schedule/result 语义。
+  - 不保留旧 URL 兼容层，调用方一次性切换到 routine/schedule/result 语义。
 - 前端功能面：
   - `features/workouts/components/action-composer-page.tsx`
   - `features/workouts/components/workout-plan-draft-card.tsx`

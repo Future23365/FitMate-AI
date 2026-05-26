@@ -26,6 +26,12 @@
 - **THEN** 系统 MUST 更新 routine 当前定义
 - **AND** 系统 MUST 保留已存在 `WorkoutSchedule` 的展示快照，避免历史日历标题、预估分钟或预估热量被意外改写
 
+#### Scenario: Legacy workout API is removed
+- **WHEN** 本 change 实现完成
+- **THEN** 前端和测试 MUST 使用 routine 命名的 API、类型和服务函数
+- **AND** 系统 MUST NOT 保留 `SavedWorkout` 作为持久化类型别名
+- **AND** 系统 MUST NOT 保留 `/api/workouts` 作为动作编排的兼容入口
+
 ### Requirement: Workout schedule persistence
 系统 SHALL 使用 `WorkoutSchedule` 保存日历上某一天安排哪套编排或休息日。
 
@@ -55,6 +61,13 @@
 - **THEN** 系统 MUST 只更新当前用户拥有的 `WorkoutSchedule`
 - **AND** 系统 MUST 保持状态枚举与日历筛选、月度统计和卡片徽标一致
 
+#### Scenario: Legacy schedule API is removed
+- **WHEN** 本 change 实现完成
+- **THEN** 前端和测试 MUST 使用 schedule 命名的 API、类型和服务函数
+- **AND** 系统 MUST NOT 保留 `ScheduledWorkout` 作为持久化类型别名
+- **AND** 系统 MUST NOT 保留 `/api/workout-sessions` 作为日历安排的兼容入口
+- **AND** 训练执行页 MUST 使用 `scheduleId` 表达当前训练安排 id
+
 ### Requirement: Workout session result persistence
 系统 SHALL 使用 `WorkoutSessionResult` 保存用户实际执行一次训练后的结果摘要。
 
@@ -81,23 +94,22 @@
 - **THEN** 系统 MUST 仍允许用户重新开始当前页面训练流程
 - **AND** 系统 MUST NOT 仅因为已有 `WorkoutSessionResult` 就跳过待开始状态
 
-### Requirement: Migration preserves workout data
-系统 SHALL 在数据库重构迁移中保留已有动作编排、日历安排和完成状态。
+### Requirement: Development data reset
+系统 SHALL 允许本次训练数据模型重构以破坏性方式替换旧训练表，并且 SHALL NOT 为未上线开发数据增加兼容迁移复杂度。
 
-#### Scenario: Existing workout plan is migrated
-- **WHEN** 迁移处理旧 `WorkoutPlan`
-- **THEN** 系统 MUST 为每个可执行旧计划生成对应 `WorkoutRoutine`
-- **AND** 旧 `WorkoutPlanItem` MUST 迁移为 `WorkoutRoutineItem`
-- **AND** 旧动作顺序、组数、目标次数或秒数、休息秒数和训练段 MUST 被保留
+#### Scenario: Old workout tables are replaced
+- **WHEN** 本 change 修改 Prisma schema
+- **THEN** 系统 MUST 删除或停用旧 `WorkoutPlan`、`WorkoutPlanDay`、`WorkoutPlanItem` 和 `WorkoutSession`
+- **AND** 系统 MUST 使用 `WorkoutRoutine`、`WorkoutRoutineItem`、`WorkoutSchedule` 和 `WorkoutSessionResult` 作为训练持久化事实表
+- **AND** 系统 MUST NOT 为旧训练业务数据编写保留语义的迁移逻辑
 
-#### Scenario: Existing workout session is migrated
-- **WHEN** 迁移处理旧 `WorkoutSession`
-- **THEN** 系统 MUST 创建对应 `WorkoutSchedule`
-- **AND** 旧 `scheduledFor`、状态、展示分钟、展示热量和来源标签 MUST 尽量保留
-- **AND** 旧休息日记录 MUST 迁移为 `WorkoutSchedule.status = rest`
+#### Scenario: Non-workout data remains scoped
+- **WHEN** 执行破坏性训练数据重构
+- **THEN** 实现 MUST 明确破坏范围
+- **AND** 系统 MUST NOT 无意删除动作库 `Exercise`、用户、聊天历史等不属于训练表重构目标的数据
+- **AND** 如果实现选择全库 reset，任务记录 MUST 明确需要重新 seed 动作库
 
-#### Scenario: Existing completed session is migrated
-- **WHEN** 旧 `WorkoutSession.status` 为 `completed`
-- **THEN** 系统 MUST 创建基础 `WorkoutSessionResult`
-- **AND** 基础结果 MUST 至少保留可得的 `startedAt`、`endedAt`、`durationSeconds` 和完成状态
-- **AND** 缺失的实际执行摘要 MUST 使用安全默认值或留空，而不是编造动作级结果
+#### Scenario: Old naming is cleaned
+- **WHEN** 本 change 实现完成
+- **THEN** 业务代码 MUST NOT 继续使用 `WorkoutPlanDay` 表达用户动作编排
+- **AND** 持久化层、API client、测试 fixture 和文档 MUST NOT 继续使用旧 `WorkoutPlan` 三层结构描述当前产品模型

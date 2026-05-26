@@ -9,6 +9,8 @@
 
 最新产品理解是：动作是最小单元，动作组成编排列表，编排列表被安排到日历，用户完成训练后形成训练结果。当前界面没有独立展示“计划外壳”，所以不再新增或保留 `WorkoutPlan` 作为长期存在的父级计划表。
 
+项目当前未上线，训练相关数据没有生产兼容要求。本 change 采用破坏性重构：可以删除旧训练表、替换旧 API 路径、重命名前端共享类型，并要求调用面一次性切换到新语义。
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -21,8 +23,8 @@
 - 删除 `WorkoutPlanDay` 对单次编排的强制中间层。
 - 将 `WorkoutSession` 的日历职责和训练结果职责拆开。
 - 保持 `Exercise` 作为动作事实来源，所有 routine item 继续通过 `exerciseId` 引用动作库。
-- 在迁移中尽量保留现有用户保存编排、日历安排、完成/未完成状态、预估分钟和热量展示数据。
-- 更新服务端、共享 schema、前端 API 包装和测试命名，减少旧 `Plan`/`SavedWorkout`/`ScheduledWorkout` 概念继续扩散。
+- 使用破坏性 Prisma 迁移或开发期数据库重建，删除旧训练模型，不迁移旧训练业务数据。
+- 更新服务端、共享 schema、前端 API 包装和测试命名，删除旧 `Plan`/`SavedWorkout`/`ScheduledWorkout` 概念。
 
 **Non-Goals:**
 
@@ -30,6 +32,7 @@
 - 不重构 AI 生成草稿的完整 prompt 语义；AI 仍可生成多日草稿，但保存时应转成多个 `WorkoutRoutine` 和多个 `WorkoutSchedule`。
 - 不在本次强制实现每组级别训练明细；`WorkoutSessionResult` 先保存本次训练结果摘要，并为后续 `WorkoutSessionExerciseResult`/`WorkoutSetResult` 预留扩展。
 - 不改变动作库 `Exercise` 的导入和查询模型。
+- 不保留旧训练数据迁移、旧 API URL 兼容、旧共享类型别名或旧查询参数名。
 
 ## Decisions
 
@@ -88,17 +91,16 @@
 - `userId`
 - `routineId?`
 - `scheduledFor`
-- `status`: `planned` / `missed` / `cancelled` / `rest`
+- `status`: `planned` / `completed` / `missed` / `cancelled` / `rest`
 - `titleSnapshot`
 - `estimatedMinutes`
 - `estimatedCalories`
-- `sourceLabel?`
 - `createdAt`
 - `updatedAt`
 
 `routineId` 对休息日可为空；普通训练安排必须关联 `WorkoutRoutine`。`titleSnapshot`、`estimatedMinutes`、`estimatedCalories` 是日历展示快照，避免 routine 后续改名或改参数导致历史日历展示漂移。
 
-取舍：可以保留 `sourceLabel` 替代旧 `feedback.sourcePlanTitle`，用于“这批安排来自某次 AI 草稿标题”的 UI 分组或替换，但它不是计划外壳，也不作为长期计划实体。
+取舍：不保留旧 `feedback.sourcePlanTitle` 的迁移字段。如果后续确实需要按一次 AI 生成批次分组或批量替换日历安排，应新增明确的 `generationBatchId` 或 `batchLabel` 字段，而不是复用旧反馈 JSON 语义。
 
 ### 4. 用 `WorkoutSessionResult` 表达实际训练完成结果
 
@@ -126,22 +128,19 @@
 
 取舍：不直接做每组级别记录。当前训练执行页已经有 `elapsedSeconds`、完成步骤、当前动作和估算热量，先把这些摘要写入 result，后续再扩展动作级/组级结果表。
 
-### 5. API 路径先兼容，内部语义重命名
+### 5. API 路径一次性改成新语义
 
-现有前端大量调用：
+旧路径和旧命名会继续误导模型边界，因此本次不做 URL 兼容层。建议改为：
 
-- `/api/workouts`
-- `/api/workouts/[id]`
-- `/api/workout-sessions`
-- `/api/workout-sessions/[id]`
+- `/api/workout-routines`
+- `/api/workout-routines/[id]`
+- `/api/workout-schedules`
+- `/api/workout-schedules/[id]`
+- `/api/workout-session-results` 或 `/api/workout-schedules/[id]/result`
 
-为降低一次性改动风险，可以先保持路径兼容：
+客户端函数同步使用 `listWorkoutRoutines`、`createWorkoutRoutine`、`updateWorkoutRoutine`、`deleteWorkoutRoutine`、`listWorkoutSchedules`、`createWorkoutSchedule`、`updateWorkoutScheduleStatus`、`deleteWorkoutSchedule`、`saveWorkoutSessionResult`。
 
-- `/api/workouts` 内部改为 routine CRUD，客户端函数重命名为 `listWorkoutRoutines`、`createWorkoutRoutine`、`updateWorkoutRoutine`、`deleteWorkoutRoutine`。
-- `/api/workout-sessions` 内部改为 schedule CRUD，客户端函数重命名为 `listWorkoutSchedules`、`createWorkoutSchedule`、`updateWorkoutScheduleStatus`、`deleteWorkoutSchedule`。
-- 训练完成新增明确服务方法，例如 `completeWorkoutSchedule()` 或 `saveWorkoutSessionResult()`，可以复用现有 PATCH 路径，也可以新增更语义化 endpoint。若新增 endpoint，应在任务中同步更新 route 测试。
-
-取舍：路径可以后续再统一改成 `/api/workout-routines` 和 `/api/workout-schedules`。本次重点是数据库和代码语义，不强制同时改 URL，避免 UI 调用面过大。
+取舍：这是破坏性改动，会要求所有调用面一次性切换，但比保留旧 `/api/workouts` 和 `/api/workout-sessions` 更符合当前产品语义。
 
 ### 6. AI 计划草稿保存为 routine + schedule，不保存计划外壳
 
@@ -150,26 +149,27 @@ AI 生成的多日草稿只是展示和保存来源，不产生 `WorkoutPlan` �
 - 每个训练日转换成一套 `WorkoutRoutine`。
 - 如果用户选择排期，则为日期范围生成 `WorkoutSchedule`，每个训练日 schedule 指向对应 routine。
 - 休息日生成 `WorkoutSchedule(status = rest, routineId = null)`。
-- 如需区分同一批 AI 草稿，可以写 `sourceLabel`，但不能依赖它表达正式计划实体。
+- 本次不为“同一批 AI 草稿”创建持久化父实体；如后续需要批量替换，可新增明确的批次字段。
 
-### 7. 命名逐步收敛，但避免大面积无意义改文件名
+### 7. 命名一次性收敛
 
-共享类型应优先重命名：
+共享类型和服务函数必须一次性重命名：
 
 - `SavedWorkout` -> `WorkoutRoutine`
-- `WorkoutItem` -> `WorkoutRoutineItem` 或保留执行层 `WorkoutItem`，但持久化 schema 使用 routine 命名。
+- `WorkoutItem` 在持久化语境中改为 `WorkoutRoutineItem`；如果训练执行层仍需要轻量执行项，应使用独立的执行层类型名。
 - `ScheduledWorkout` -> `WorkoutSchedule`
 - `ScheduleStatus` -> `WorkoutScheduleStatus`
+- 训练页 URL 查询参数从 `planId` 改为 `scheduleId`
 
-文件名可按模块边界逐步调整，不必为了命名一次性移动所有 UI 文件。关键是服务、schema、API client 和测试中的业务对象名必须收敛。
+文件名是否移动按模块清晰度决定，但导出的类型、函数、schema、API 路径和路由参数不能保留旧业务含义。
 
 ## Risks / Trade-offs
 
-- **数据迁移丢失关联** → 迁移脚本必须明确旧表到新表映射，并在迁移后校验 routine 数量、item 数量、schedule 数量和已完成状态数量。
+- **破坏性重建导致本地旧训练数据丢失** → 接受该结果；实现前确认只影响训练相关开发数据，不删除 `Exercise`、`User`、`ChatSession` 等非目标数据。
 - **历史日历展示漂移** → `WorkoutSchedule` 必须保存标题、分钟、热量等展示快照，不只依赖当前 routine。
 - **完成状态与结果重复** → schedule 的 `completed` 用于列表筛选和日历徽标，result 用于完成详情；服务层必须保证完成操作在事务里同时维护两者。
-- **API 命名和 URL 不一致** → 本次允许 URL 兼容，但客户端函数和服务命名必须改成 routine/schedule/result，避免继续把旧名字扩散。
-- **AI 多日草稿缺少父级实体后不好批量替换** → 用 `sourceLabel` 或一次性生成的 `importBatchId` 作为 schedule 的轻量来源标记；它不是产品级 plan 表，不承载独立生命周期。
+- **API URL 破坏性变更导致调用面大面积报错** → 先改客户端 API 封装和 route 测试，再替换页面调用，避免旧路径残留。
+- **AI 多日草稿缺少父级实体后不好批量替换** → 本次不做批量计划外壳；如果后续有真实 UI 需求，再加明确的批次字段或计划实体。
 - **测试 fixture 大量失效** → 先更新共享 fixture 工厂，再改 persistence/API/client 测试，避免每个测试重复构造新模型。
 - **迁移期间 Prisma 类型大面积报错** → 先改 schema 和服务层查询 include，再改共享类型和前端调用，最后清理旧类型和文档。
 
@@ -179,19 +179,18 @@ AI 生成的多日草稿只是展示和保存来源，不产生 `WorkoutPlan` �
    - 新增 `WorkoutRoutine`、`WorkoutRoutineItem`、`WorkoutSchedule`、`WorkoutSessionResult`。
    - 新增或重命名对应 enum：`WorkoutRoutineStatus`、`WorkoutRoutineSource`、`WorkoutScheduleStatus`、`WorkoutSessionResultStatus`。
    - 更新 `User` 和 `Exercise` 关系字段。
-2. 创建 Prisma 迁移：
-   - 旧 `WorkoutPlan` + 第一层 `WorkoutPlanDay` 迁移为 `WorkoutRoutine`。
-   - 旧 `WorkoutPlanItem` 迁移为 `WorkoutRoutineItem`。
-   - 旧 `WorkoutSession` 迁移为 `WorkoutSchedule`。
-   - 旧 `WorkoutSession.status = completed` 的记录迁移出基础 `WorkoutSessionResult`，至少保存 `startedAt`、`endedAt`、`durationSeconds` 和 completed 状态。
-   - 旧 `feedback.minutes`、`feedback.calories`、`feedback.sourcePlanTitle` 分别迁移到 schedule 展示快照和来源标记。
+2. 创建破坏性 Prisma 迁移或执行开发期数据库重建：
+   - 删除旧 `WorkoutPlan`、`WorkoutPlanDay`、`WorkoutPlanItem`、`WorkoutSession`。
+   - 删除旧训练相关 enum。
+   - 不迁移旧训练业务数据。
+   - 保留动作库、用户、聊天历史等非本次目标数据，除非实现时明确选择全库 reset 并重新 seed。
 3. 更新服务层：
    - 将 workout persistence service 拆成 routine、schedule、session result 三组方法，或在同一模块内按三段清晰分区。
    - 所有查询必须带 `userId` 隔离。
    - 完成训练使用事务写入 result 并更新 schedule。
 4. 更新共享 schema 和客户端 API：
    - 新增 routine/schedule/result schema。
-   - 兼容 API 路径时，函数名仍应改成产品语义。
+   - 新增新 API 路径并删除旧 workout/workout-session 路由调用。
 5. 更新 UI 调用：
    - 动作编排页只保存 routine。
    - 训练日历页只安排 routine 到 schedule。
@@ -209,6 +208,5 @@ AI 生成的多日草稿只是展示和保存来源，不产生 `WorkoutPlan` �
 
 ## Open Questions
 
-- 旧数据库里如果存在多 `WorkoutPlanDay` 的 `WorkoutPlan`，是否将每个 day 拆成独立 `WorkoutRoutine`？当前建议拆分，但实现前需要用真实数据确认是否存在这种记录。
 - `WorkoutSchedule.status` 是否保留 `completed`，还是完全通过 `WorkoutSessionResult` 判断完成？当前建议保留，便于日历列表和统计查询。
-- 是否需要 `importBatchId` 替代 `sourceLabel` 来支持 AI 批量排期替换？当前建议先用可空轻量字段，不建计划外壳。
+- 训练完成结果 API 使用 `/api/workout-session-results` 还是 `/api/workout-schedules/[id]/result`？当前建议选后者，因为结果必须归属于某条 schedule。
