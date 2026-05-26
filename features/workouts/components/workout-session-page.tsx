@@ -46,6 +46,7 @@ import {
   type WorkoutItem,
   type WorkoutMode,
   type WorkoutSection,
+  type WorkoutTimelineStep,
 } from "@/lib/shared/workouts/composition";
 import {
   buildWorkoutVoiceBroadcastConfig,
@@ -66,6 +67,9 @@ const voiceSettingsRanges = {
   rate: { max: 1.35, min: 0.65, step: 0.05 },
   volume: { max: 1, min: 0, step: 0.05 },
 };
+
+// 训练执行页用显式阶段串联动作提示、准备倒计时和正式计时，避免派生布尔值出现卡住的中间态。
+type PreparationPhase = "idle" | "waiting_intro" | "counting_down" | "running";
 
 type VoiceApiBrowserKey = "chrome" | "edge" | "firefox" | "safari" | "iosSafari";
 
@@ -308,8 +312,8 @@ export function WorkoutSessionPage() {
   const [remainingSeconds, setRemainingSeconds] = useState(45);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [preparationCountdown, setPreparationCountdown] = useState(0);
-  const [preparedStepKey, setPreparedStepKey] = useState("");
-  const [preparationCountdownStepKey, setPreparationCountdownStepKey] = useState("");
+  const [preparationStepKey, setPreparationStepKey] = useState("");
+  const [preparationPhase, setPreparationPhase] = useState<PreparationPhase>("idle");
   const [hasStarted, setHasStarted] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [isSessionComplete, setIsSessionComplete] = useState(false);
@@ -397,9 +401,16 @@ export function WorkoutSessionPage() {
   const sessionVoiceId = `${plan.id}:${plan.date}:${plan.routineId ?? "rest"}`;
   const activeStepKey = activeStep ? `${sessionVoiceId}:${activeStep.id}:${activeStepIndex}` : "";
   const isPlanReady = Boolean(scheduleId && !loadError && loadedPlanKey === requestedPlanKey);
-  const needsExercisePreparation = activeStep?.type === "exercise" && preparedStepKey !== activeStepKey;
-  const isPreparationCountdownActive = preparationCountdownStepKey === activeStepKey;
-  const isPreparing = Boolean(hasStarted && needsExercisePreparation && preparationCountdown > 0);
+  const activeStepPreparationPhase =
+    preparationStepKey === activeStepKey ? preparationPhase : "idle";
+  const isPreparationCountdownActive = activeStepPreparationPhase === "counting_down";
+  const isPreparing = Boolean(
+    hasStarted &&
+    activeStep?.type === "exercise" &&
+    activeStepPreparationPhase !== "running",
+  );
+  const canRunActiveStep =
+    activeStep?.type !== "exercise" || activeStepPreparationPhase === "running";
   const isAwaitingStart = isPlanReady && !hasStarted && !isSessionComplete;
   const displayedStepCount = Math.max(1, steps.length);
   const displayedStepIndex = isSessionComplete ? displayedStepCount : activeStepIndex + 1;
@@ -421,8 +432,8 @@ export function WorkoutSessionPage() {
         setIsPaused(false);
         setIsSessionComplete(false);
         setIsElapsedTimerManuallyPaused(false);
-        setPreparedStepKey("");
-        setPreparationCountdownStepKey("");
+        setPreparationStepKey("");
+        setPreparationPhase("idle");
         setPreparationCountdown(0);
         setElapsedSeconds(0);
         setSessionStartedAt(null);
@@ -461,8 +472,8 @@ export function WorkoutSessionPage() {
       setElapsedSeconds(0);
       setSessionStartedAt(null);
       setRemainingSeconds(selectedSteps[0]?.durationSeconds ?? 45);
-      setPreparedStepKey("");
-      setPreparationCountdownStepKey("");
+      setPreparationStepKey("");
+      setPreparationPhase("idle");
       setPreparationCountdown(selectedSteps[0]?.type === "exercise" ? preparationCountdownStart : 0);
       setHasStarted(false);
       setIsPaused(false);
@@ -588,8 +599,14 @@ export function WorkoutSessionPage() {
   }, []);
 
   const markPreparationIntroComplete = useCallback((stepKey: string) => {
-    setPreparationCountdownStepKey(stepKey);
-  }, []);
+    if (!stepKey || stepKey !== activeStepKey) {
+      return;
+    }
+
+    setPreparationStepKey(stepKey);
+    setPreparationCountdown((value) => value || preparationCountdownStart);
+    setPreparationPhase("counting_down");
+  }, [activeStepKey]);
 
   const voiceSession = useWorkoutVoiceBroadcast({
     activeStepIndex,
@@ -681,6 +698,20 @@ export function WorkoutSessionPage() {
     });
   }, [voiceBroadcastConfig]);
 
+  // 每次进入新步骤时只在事件入口初始化准备阶段，避免 effect 根据派生状态再同步写 state。
+  const prepareStepForSession = useCallback((step: WorkoutTimelineStep | undefined, stepIndex: number) => {
+    if (step?.type === "exercise") {
+      setPreparationStepKey(`${sessionVoiceId}:${step.id}:${stepIndex}`);
+      setPreparationPhase("waiting_intro");
+      setPreparationCountdown(preparationCountdownStart);
+      return;
+    }
+
+    setPreparationStepKey("");
+    setPreparationPhase("idle");
+    setPreparationCountdown(0);
+  }, [sessionVoiceId]);
+
   const goToStep = useCallback((nextIndex: number, { cancelVoice = true }: { cancelVoice?: boolean } = {}) => {
     if (!steps.length) {
       return;
@@ -694,15 +725,14 @@ export function WorkoutSessionPage() {
     }
 
     setIsSessionComplete(false);
-    setPreparedStepKey("");
-    setPreparationCountdownStepKey("");
-    setPreparationCountdown(nextStep?.type === "exercise" ? preparationCountdownStart : 0);
+    prepareStepForSession(nextStep, boundedIndex);
     setActiveStepIndex(boundedIndex);
     setRemainingSeconds(nextStep?.durationSeconds ?? 45);
-  }, [steps, voiceSession]);
+  }, [prepareStepForSession, steps, voiceSession]);
 
   const startTraining = useCallback(() => {
     setIsSessionComplete(false);
+    prepareStepForSession(activeStep, activeStepIndex);
     setHasStarted(true);
     setIsPaused(false);
     setIsElapsedTimerManuallyPaused(false);
@@ -711,7 +741,15 @@ export function WorkoutSessionPage() {
     if (isVoicePreferenceOn && isVoiceSupported && !isVoiceBroadcastActive) {
       voiceSession.activateCurrentStep(false, { includeActivationPrompt: false });
     }
-  }, [isVoiceBroadcastActive, isVoicePreferenceOn, isVoiceSupported, voiceSession]);
+  }, [
+    activeStep,
+    activeStepIndex,
+    isVoiceBroadcastActive,
+    isVoicePreferenceOn,
+    isVoiceSupported,
+    prepareStepForSession,
+    voiceSession,
+  ]);
 
   // 页面完成态先于服务端记录完成，避免持久化失败影响本次训练的结束反馈。
   const completeWorkoutSession = useCallback(() => {
@@ -720,8 +758,8 @@ export function WorkoutSessionPage() {
     setHasStarted(false);
     setIsPaused(true);
     setIsElapsedTimerManuallyPaused(false);
-    setPreparedStepKey("");
-    setPreparationCountdownStepKey("");
+    setPreparationStepKey("");
+    setPreparationPhase("idle");
     setPreparationCountdown(0);
     setRemainingSeconds(0);
 
@@ -773,7 +811,8 @@ export function WorkoutSessionPage() {
       !isPlanReady ||
       !isVoicePreferenceLoaded ||
       isVoicePreferenceOn ||
-      !needsExercisePreparation ||
+      preparationPhase !== "waiting_intro" ||
+      preparationStepKey !== activeStepKey ||
       !activeStepKey
     ) {
       return;
@@ -785,12 +824,12 @@ export function WorkoutSessionPage() {
   }, [
     activeStepKey,
     hasStarted,
-    isAudioOn,
     isPlanReady,
     isVoicePreferenceLoaded,
     isVoicePreferenceOn,
     markPreparationIntroComplete,
-    needsExercisePreparation,
+    preparationPhase,
+    preparationStepKey,
   ]);
 
   useEffect(() => {
@@ -798,17 +837,19 @@ export function WorkoutSessionPage() {
       !hasStarted ||
       !isPlanReady ||
       isPaused ||
-      !needsExercisePreparation ||
-      !isPreparationCountdownActive ||
+      preparationPhase !== "counting_down" ||
+      preparationStepKey !== activeStepKey ||
       preparationCountdown <= 0
     ) {
       return;
     }
 
     const timer = window.setTimeout(() => {
-      setPreparationCountdown((value) => Math.max(0, value - 1));
-      if (preparationCountdown <= 1 && activeStepKey) {
-        setPreparedStepKey(activeStepKey);
+      const nextCountdown = Math.max(0, preparationCountdown - 1);
+
+      setPreparationCountdown(nextCountdown);
+      if (nextCountdown === 0) {
+        setPreparationPhase("running");
       }
     }, 1000);
 
@@ -818,8 +859,8 @@ export function WorkoutSessionPage() {
     hasStarted,
     isPaused,
     isPlanReady,
-    isPreparationCountdownActive,
-    needsExercisePreparation,
+    preparationPhase,
+    preparationStepKey,
     preparationCountdown,
   ]);
 
@@ -837,7 +878,7 @@ export function WorkoutSessionPage() {
   }, [hasStarted, isElapsedTimerManuallyPaused, isPlanReady]);
 
   useEffect(() => {
-    if (!hasStarted || isPaused || needsExercisePreparation || !activeStep) {
+    if (!hasStarted || isPaused || !canRunActiveStep || !activeStep) {
       return;
     }
 
@@ -851,7 +892,7 @@ export function WorkoutSessionPage() {
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [activeStep, completeCurrentStep, hasStarted, isPaused, needsExercisePreparation, remainingSeconds]);
+  }, [activeStep, canRunActiveStep, completeCurrentStep, hasStarted, isPaused, remainingSeconds]);
 
   const openCurrentExerciseDetail = useCallback(() => {
     setIsPaused(true);
