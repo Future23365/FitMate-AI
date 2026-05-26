@@ -21,13 +21,16 @@ import {
   writeWorkoutVoiceBroadcastPreference,
   writeWorkoutVoiceBroadcastSettings,
   writeWorkoutVoiceBroadcastTipSeen,
-  type WorkoutVoiceBroadcastStatus,
 } from "@/features/workouts/hooks/use-workout-voice-broadcast";
 import {
   runWorkoutVoiceSelfCheck,
   type WorkoutVoiceSelfCheckResult,
   type WorkoutVoiceSelfCheckStepStatus,
 } from "@/features/workouts/voice/workout-voice-self-check";
+import {
+  getWorkoutVoiceToggleLabel,
+  resolveWorkoutVoiceToggleIntent,
+} from "@/features/workouts/voice/workout-voice-toggle";
 import {
   buildWorkoutTimeline,
   defaultSetRestSeconds,
@@ -196,22 +199,6 @@ function mapWorkoutItemToExercise(item: WorkoutItem): Exercise {
     reviewStatus: "fallback",
     isPublished: true,
   };
-}
-
-function getVoiceButtonLabel(
-  isSupported: boolean,
-  isPreferenceOn: boolean,
-  status: WorkoutVoiceBroadcastStatus,
-) {
-  if (!isSupported) {
-    return "当前浏览器不支持语音播报";
-  }
-
-  if (isPreferenceOn && (status === "needs-activation" || status === "failed")) {
-    return "启动语音播报";
-  }
-
-  return isPreferenceOn ? "关闭语音播报" : "开启语音播报";
 }
 
 // 语音设置弹窗只重排展示顺序，保存和播报仍使用浏览器提供的 voiceURI。
@@ -550,16 +537,19 @@ export function WorkoutSessionPage() {
   const voiceStatus = isVoiceSupported ? voiceSession.status : "unsupported";
   const isVoiceBroadcastActive =
     isVoicePreferenceOn && (voiceStatus === "active" || voiceStatus === "speaking" || voiceStatus === "activating");
-  const shouldRetryVoiceActivation =
-    isVoicePreferenceOn && (voiceStatus === "needs-activation" || voiceStatus === "failed");
   const shouldShowVoiceFirstTip = isVoicePreferenceLoaded && showVoiceTip && !isVoicePreferenceOn;
 
   const handleVoiceButtonClick = useCallback(() => {
-    if (!isVoiceSupported) {
+    const toggleIntent = resolveWorkoutVoiceToggleIntent({
+      isPreferenceOn: isVoicePreferenceOn,
+      isSupported: isVoiceSupported,
+    });
+
+    if (toggleIntent === "unavailable") {
       return;
     }
 
-    if (!isVoicePreferenceOn) {
+    if (toggleIntent === "enable") {
       setIsAudioOn(true);
       setShowVoiceTip(false);
       writeWorkoutVoiceBroadcastPreference(true);
@@ -567,16 +557,11 @@ export function WorkoutSessionPage() {
       return;
     }
 
-    if (shouldRetryVoiceActivation) {
-      voiceSession.activateCurrentStep(false, { includeActivationPrompt: false });
-      return;
-    }
-
     voiceSession.disableVoiceSession();
     setIsAudioOn(false);
     setShowVoiceTip(false);
     writeWorkoutVoiceBroadcastPreference(false);
-  }, [isVoicePreferenceOn, isVoiceSupported, shouldRetryVoiceActivation, voiceSession]);
+  }, [isVoicePreferenceOn, isVoiceSupported, voiceSession]);
 
   const updateVoiceSetting = useCallback((patch: Partial<WorkoutVoiceBroadcastUserSettings>) => {
     setVoiceSettings((current) => {
@@ -818,16 +803,15 @@ export function WorkoutSessionPage() {
             </button>
             <div className="relative">
               <button
-                aria-label={getVoiceButtonLabel(isVoiceSupported, isVoicePreferenceOn, voiceStatus)}
+                aria-label={getWorkoutVoiceToggleLabel({
+                  isPreferenceOn: isVoicePreferenceOn,
+                  isSupported: isVoiceSupported,
+                })}
                 className={`grid h-11 w-11 place-items-center rounded-xl border transition-colors ${
                   !isVoiceSupported
                     ? "cursor-not-allowed border-line bg-panel-soft text-muted"
-                    : isVoiceBroadcastActive
+                    : isVoicePreferenceOn
                     ? "border-primary/20 bg-primary-soft text-primary"
-                    : voiceStatus === "failed"
-                    ? "border-red-200 bg-red-50 text-danger shadow-lift ring-4 ring-red-100"
-                    : voiceStatus === "needs-activation"
-                    ? "border-primary bg-primary-soft text-primary shadow-lift ring-4 ring-primary/15"
                     : showVoiceTip
                       ? "border-primary bg-primary-soft text-primary shadow-lift ring-4 ring-primary/15"
                     : "border-line bg-white text-muted hover:text-primary"
