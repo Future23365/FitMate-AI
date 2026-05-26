@@ -45,6 +45,7 @@ import {
   type ScheduledWorkout,
   type WorkoutItem,
   type WorkoutMode,
+  type WorkoutSection,
 } from "@/lib/shared/workouts/composition";
 import {
   buildWorkoutVoiceBroadcastConfig,
@@ -72,6 +73,34 @@ type VoiceApiBrowserSupport = {
   browser: VoiceApiBrowserKey;
   label: string;
   version: string;
+};
+
+type SessionSectionDividerMeta = {
+  badgeClassName: string;
+  icon: string;
+  lineClassName: string;
+  title: string;
+};
+
+const sessionSectionDividerMeta: Record<WorkoutSection, SessionSectionDividerMeta> = {
+  warmup: {
+    badgeClassName: "border-warning-text/15 bg-warning-soft text-warning-text",
+    icon: "local_fire_department",
+    lineClassName: "bg-warning-text/20",
+    title: "热身",
+  },
+  training: {
+    badgeClassName: "border-primary/15 bg-primary-soft text-primary",
+    icon: "fitness_center",
+    lineClassName: "bg-primary/20",
+    title: "正式训练",
+  },
+  stretch: {
+    badgeClassName: "border-success-text/15 bg-success-soft text-success-text",
+    icon: "self_improvement",
+    lineClassName: "bg-success-text/20",
+    title: "拉伸",
+  },
 };
 
 // 语音设置弹窗只展示 Web Speech 语音合成所需的最低浏览器版本。
@@ -1092,12 +1121,21 @@ export function WorkoutSessionPage() {
                 {sessionListView.items.map((listItem, index) => {
                   const item = listItem.item;
                   const previousItem = sessionListView.items[index - 1];
+                  const shouldShowSectionDivider = listItem.section !== previousItem?.section;
+                  const sectionLoopLabel =
+                    listItem.section === "training" && listItem.loopRound && listItem.loopRounds
+                      ? `第 ${listItem.loopRound}/${listItem.loopRounds} 轮`
+                      : undefined;
                   const shouldShowLoopDivider =
                     Boolean(listItem.loopRound && listItem.loopRounds) &&
-                    listItem.loopRound !== previousItem?.loopRound;
+                    listItem.loopRound !== previousItem?.loopRound &&
+                    !shouldShowSectionDivider;
 
                   return (
                     <div className="space-y-xs" key={listItem.key}>
+                      {shouldShowSectionDivider ? (
+                        <SessionSectionDivider loopLabel={sectionLoopLabel} section={listItem.section} />
+                      ) : null}
                       {shouldShowLoopDivider ? (
                         <div className="flex items-center gap-xs px-xs py-xs text-label-md font-extrabold text-primary">
                           <span className="h-px flex-1 bg-primary/20" />
@@ -1238,6 +1276,25 @@ function Metric({
       <p className="truncate text-center text-[20px] font-black leading-tight text-ink [font-variant-numeric:tabular-nums]">
         {value} {suffix ? <span className="text-label-md font-bold">{suffix}</span> : null}
       </p>
+    </div>
+  );
+}
+
+// 训练列表阶段分隔条用于把热身、正式训练和拉伸从视觉上拆开。
+function SessionSectionDivider({ loopLabel, section }: { loopLabel?: string; section: WorkoutSection }) {
+  const meta = sessionSectionDividerMeta[section];
+
+  return (
+    <div className="flex items-center gap-xs px-xs py-xs text-label-md font-extrabold">
+      <span className={`h-px flex-1 ${meta.lineClassName}`} />
+      <span
+        className={`inline-flex items-center gap-[5px] rounded-full border px-sm py-[3px] ${meta.badgeClassName}`}
+      >
+        <SymbolIcon className="text-base">{meta.icon}</SymbolIcon>
+        {meta.title}
+        {loopLabel ? <span className="opacity-75">· {loopLabel}</span> : null}
+      </span>
+      <span className={`h-px flex-1 ${meta.lineClassName}`} />
     </div>
   );
 }
