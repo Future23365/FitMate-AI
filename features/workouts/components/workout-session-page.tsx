@@ -290,6 +290,7 @@ export function WorkoutSessionPage() {
   const activeStep = steps[activeStepIndex] ?? steps[0];
   const activeExerciseStep = activeStep?.type === "exercise" ? activeStep : null;
   const activeRestStep = activeStep?.type === "rest" ? activeStep : null;
+  const isRestStep = Boolean(activeRestStep);
   const sessionListView = useMemo(
     () => buildWorkoutSessionListView({ activeStepIndex, steps, trainingLoopRounds: loopConfig.trainingLoopRounds }),
     [activeStepIndex, loopConfig.trainingLoopRounds, steps],
@@ -300,7 +301,9 @@ export function WorkoutSessionPage() {
     activeExerciseStep
       ? activeExerciseStep.item
       : relevantExerciseStep?.step.item ?? activeRestStep?.afterItem ?? fallbackPlan.items[0];
-  const isRestStep = Boolean(activeRestStep);
+  // 休息态的示范图是准备提示，不跟随休息倒计时轮换。
+  const demoItem = activeRestStep?.nextItem ?? currentItem;
+  const demoHeading = isRestStep && activeRestStep?.nextItem ? "下一组动作" : "动作示范";
   const isTimedStep = currentItem.mode === "duration";
   const repIntervalSeconds = getRepIntervalSeconds(currentItem);
   const stepElapsedSeconds = activeStep ? activeStep.durationSeconds - remainingSeconds : 0;
@@ -313,10 +316,10 @@ export function WorkoutSessionPage() {
     activeStep && activeStep.durationSeconds > 0
       ? ((activeStep.durationSeconds - remainingSeconds) / activeStep.durationSeconds) * 100
       : 0;
-  const demoImageUrls = getWorkoutItemImageUrls(currentItem);
-  const demoImageIndex = getWorkoutDemoImageIndex(demoImageUrls.length, stepElapsedSeconds, currentItem.mode);
+  const demoImageUrls = getWorkoutItemImageUrls(demoItem);
+  const demoImageIndex = isRestStep ? 0 : getWorkoutDemoImageIndex(demoImageUrls.length, stepElapsedSeconds, demoItem.mode);
   const activeDemoImageUrl = demoImageUrls[demoImageIndex] ?? placeholderWorkoutImage;
-  const currentExerciseDetail = useMemo(() => mapWorkoutItemToExercise(currentItem), [currentItem]);
+  const currentExerciseDetail = useMemo(() => mapWorkoutItemToExercise(demoItem), [demoItem]);
   const trainedCalories = Math.min(
     estimateWorkoutCalories(plan.items, loopConfig),
     Math.round(Math.max(0, elapsedSeconds / 60) * 7.2 + completedStepIds.size * 8),
@@ -876,8 +879,8 @@ export function WorkoutSessionPage() {
             <section className="flex min-h-0 flex-1 flex-col rounded-[20px] border border-line bg-white p-md shadow-card">
               <div className="mb-sm flex items-center justify-between gap-md">
                 <div>
-                  <p className="text-label-md font-bold text-primary">动作示范</p>
-                  <h2 className="text-title-lg font-extrabold">{currentItem.nameZh}</h2>
+                  <p className="text-label-md font-bold text-primary">{demoHeading}</p>
+                  <h2 className="text-title-lg font-extrabold">{demoItem.nameZh}</h2>
                 </div>
                 <div className="flex shrink-0 items-center gap-xs">
                   <button
@@ -897,10 +900,10 @@ export function WorkoutSessionPage() {
                 {activeDemoImageUrl && activeDemoImageUrl !== placeholderWorkoutImage ? (
                   <>
                     <Image
-                      alt={`${currentItem.nameZh} 动作图`}
+                      alt={`${demoItem.nameZh} 动作图`}
                       className="object-contain p-md"
                       fill
-                      key={`${currentItem.id}-${demoImageIndex}-${activeDemoImageUrl}`}
+                      key={`${demoItem.id}-${demoImageIndex}-${activeDemoImageUrl}`}
                       priority={activeStepIndex === 0}
                       sizes="(min-width: 1280px) 30vw, 100vw"
                       src={activeDemoImageUrl}
