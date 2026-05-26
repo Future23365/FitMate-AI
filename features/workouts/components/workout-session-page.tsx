@@ -1543,14 +1543,13 @@ function VoiceSettingsDialog({
             <div className="mt-sm flex flex-wrap gap-xs">
               {webSpeechMinimumBrowserRequirements.map((browser) => (
                 <div
-                  className="flex min-h-9 min-w-[116px] flex-1 items-center gap-[3px] rounded-lg border border-line bg-panel-soft px-xs py-[3px] sm:flex-none"
+                  className="flex min-h-9 min-w-[104px] flex-1 items-center gap-[3px] rounded-lg border border-line bg-panel-soft px-xs py-[3px] sm:flex-none"
                   key={browser.browser}
                 >
                   <BrowserApiIcon browser={browser.browser} />
-                  <div className="min-w-0">
-                    <p className="truncate text-label-md font-extrabold text-ink">{browser.label}</p>
-                    <p className="truncate text-label-md font-bold text-primary">{browser.version}</p>
-                  </div>
+                  <p className="min-w-0 truncate text-label-md font-extrabold text-ink">
+                    {browser.label} <span className="font-bold text-primary">{browser.version}</span>
+                  </p>
                 </div>
               ))}
             </div>
