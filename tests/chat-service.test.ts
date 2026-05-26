@@ -11,6 +11,7 @@ import {
   type ChatIntent,
   type ExerciseContext,
 } from "@/lib/server/chat/chat-service";
+import { aiPromptConfig } from "@/lib/server/ai/prompt-config";
 
 import { createConversationContext, createWorkoutPlanIntent } from "./fixtures/domain";
 
@@ -96,6 +97,42 @@ describe("AI chat service deterministic boundaries", () => {
       ),
     ).toEqual(["我今天在家自重练 30 分钟"]);
     expect(resolveVisibleSuggestedReplies({ ...chatIntent, suggestedReplies: ["补充信息"] }, routineAction)).toEqual([]);
+  });
+
+  it("documents explicit exercise list routines can use default duration", () => {
+    expect(aiPromptConfig.chatIntentResolution.system).toContain(
+      "明确列出具体动作名称",
+    );
+    expect(aiPromptConfig.chatIntentResolution.system).toContain(
+      "missingActionFields 不要包含 sessionMinutes",
+    );
+    expect(aiPromptConfig.chatCompletion.system).toContain(
+      "先按默认估算时长整理",
+    );
+
+    const chatIntent: ChatIntent = {
+      type: "routine",
+      needsExerciseContext: true,
+      workoutIntent: {
+        ...routineIntent,
+        goal: "把这批动作编成一套训练：卷腹、单腿臀桥、侧举腿、90/90 腘绳肌拉伸",
+        sessionMinutes: 20,
+        weeklyFrequency: 1,
+      },
+      requestedExerciseName: "",
+      canTriggerAction: true,
+      missingActionFields: [],
+      suggestedReplies: [],
+    };
+
+    expect(resolveAssistantAction(chatIntent, createExerciseContext({ intent: chatIntent.workoutIntent }))).toMatchObject({
+      action: "workout_routine",
+      intent: {
+        intentType: "routine",
+        sessionMinutes: 20,
+        weeklyFrequency: 1,
+      },
+    });
   });
 
   it("parses fenced JSON and encodes NDJSON stream events", () => {
