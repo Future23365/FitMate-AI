@@ -1540,10 +1540,10 @@ function VoiceSettingsDialog({
           <div className="rounded-xl border border-line bg-white p-sm">
             <p className="text-label-md font-extrabold text-ink">Web Speech API</p>
             <p className="mt-xs text-label-md font-semibold text-muted">训练口令、倒计时和计次播报所需的最低版本</p>
-            <div className="mt-sm grid gap-xs sm:grid-cols-2 lg:grid-cols-3">
+            <div className="mt-sm flex flex-wrap gap-xs">
               {webSpeechMinimumBrowserRequirements.map((browser) => (
                 <div
-                  className="grid min-h-[46px] grid-cols-[28px_1fr] items-center gap-xs rounded-lg border border-line bg-panel-soft px-xs py-xs"
+                  className="flex min-h-9 min-w-[116px] flex-1 items-center gap-[3px] rounded-lg border border-line bg-panel-soft px-xs py-[3px] sm:flex-none"
                   key={browser.browser}
                 >
                   <BrowserApiIcon browser={browser.browser} />
