@@ -56,7 +56,7 @@ describe("workout voice session scheduler", () => {
       activeStepKey: "session:push-up:0",
       isFirstExerciseStep: true,
       isPaused: false,
-      isPreparing: true,
+      executionPhase: "preparing_intro",
       onPreparationIntroComplete: () => {
         preparationCompleted = true;
       },
@@ -92,7 +92,7 @@ describe("workout voice session scheduler", () => {
       activeStepKey: "session:push-up:0",
       isFirstExerciseStep: true,
       isPaused: false,
-      isPreparing: true,
+      executionPhase: "preparing_intro",
       onPreparationIntroComplete: () => {
         preparationCompleted = true;
       },
@@ -120,7 +120,7 @@ describe("workout voice session scheduler", () => {
       activeStepKey: "session:first",
       isFirstExerciseStep: true,
       isPaused: false,
-      isPreparing: true,
+      executionPhase: "preparing_intro",
       onPreparationIntroComplete: () => {
         firstPreparationCompleted = true;
       },
@@ -134,7 +134,7 @@ describe("workout voice session scheduler", () => {
       activeStepKey: "session:second",
       isFirstExerciseStep: false,
       isPaused: false,
-      isPreparing: true,
+      executionPhase: "preparing_intro",
       onPreparationIntroComplete: () => {
         secondPreparationCompleted = true;
       },
@@ -185,7 +185,7 @@ describe("workout voice session scheduler", () => {
       activeStepKey: "session:paused",
       isFirstExerciseStep: true,
       isPaused: true,
-      isPreparing: true,
+      executionPhase: "preparing_intro",
       onPreparationIntroComplete: () => undefined,
     });
     session.setPreferenceEnabled(false);
@@ -196,7 +196,7 @@ describe("workout voice session scheduler", () => {
       activeStepKey: "session:paused",
       isFirstExerciseStep: true,
       isPaused: true,
-      isPreparing: true,
+      executionPhase: "preparing_intro",
       onPreparationIntroComplete: () => undefined,
     });
 
@@ -218,7 +218,7 @@ describe("workout voice session scheduler", () => {
       activeStepKey: "session:start-control",
       isFirstExerciseStep: true,
       isPaused: false,
-      isPreparing: true,
+      executionPhase: "preparing_intro",
       onPreparationIntroComplete: (stepKey) => {
         completedStepKey = stepKey;
       },
@@ -233,6 +233,63 @@ describe("workout voice session scheduler", () => {
     environment.spoken[0].onstart?.({} as SpeechSynthesisEvent);
     environment.spoken[0].onend?.({} as SpeechSynthesisEvent);
     expect(completedStepKey).toBe("session:start-control");
+  });
+
+  it("does not let preparation callbacks fire after the page marks the exercise running", () => {
+    const environment = installMockSpeechEnvironment();
+    const step = createExerciseStep({ mode: "duration", target: 30 });
+    let completedStepKey = "";
+    const session = new WorkoutVoiceSession();
+
+    session.setContext({
+      activeStep: step,
+      activeStepKey: "session:running",
+      executionPhase: "running_exercise",
+      isFirstExerciseStep: true,
+      isPaused: false,
+      onPreparationIntroComplete: (stepKey) => {
+        completedStepKey = stepKey;
+      },
+    });
+    session.setPreferenceEnabled(true);
+    session.activateCurrentStep(true, { includeActivationPrompt: false });
+
+    expect(environment.spoken.map((utterance) => utterance.text)).toEqual([]);
+    expect(completedStepKey).toBe("");
+  });
+
+  it("plays repetition cues only when the page execution state is running exercise", () => {
+    const environment = installMockSpeechEnvironment();
+    const step = createExerciseStep({ mode: "reps", target: 12 });
+    const session = new WorkoutVoiceSession();
+
+    session.setContext({
+      activeStep: step,
+      activeStepKey: "session:reps",
+      executionPhase: "preparing_countdown",
+      isFirstExerciseStep: true,
+      isPaused: false,
+      onPreparationIntroComplete: () => undefined,
+    });
+    session.setPreferenceEnabled(true);
+    session.activateCurrentStep(true, { includeCurrentStepPrompt: false });
+    environment.spoken[0].onstart?.({} as SpeechSynthesisEvent);
+    environment.spoken[0].onend?.({} as SpeechSynthesisEvent);
+
+    session.handleRepetitionCount(1);
+    expect(environment.spoken.map((utterance) => utterance.text)).toEqual(["语音播报已开启。"]);
+
+    session.setContext({
+      activeStep: step,
+      activeStepKey: "session:reps",
+      executionPhase: "running_exercise",
+      isFirstExerciseStep: true,
+      isPaused: false,
+      onPreparationIntroComplete: () => undefined,
+    });
+    session.handleRepetitionCount(1);
+
+    expect(environment.spoken.at(-1)?.text).toBe("1");
   });
 });
 

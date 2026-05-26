@@ -1,4 +1,5 @@
 import type { WorkoutTimelineStep } from "@/lib/shared/workouts/composition";
+import type { WorkoutExecutionStatus } from "@/lib/shared/workouts/session-execution";
 import {
   workoutVoiceBroadcastConfig,
   type WorkoutVoiceBroadcastConfig,
@@ -78,9 +79,9 @@ type ActiveWorkoutVoiceCue = {
 type WorkoutVoiceContext = {
   activeStep?: WorkoutTimelineStep;
   activeStepKey: string;
+  executionPhase: WorkoutExecutionStatus;
   isFirstExerciseStep: boolean;
   isPaused: boolean;
-  isPreparing: boolean;
   onPreparationIntroComplete: (stepKey: string) => void;
 };
 
@@ -91,6 +92,7 @@ type WorkoutVoiceSessionOptions = {
 };
 
 type WorkoutVoiceActivationOptions = {
+  executionPhase?: WorkoutExecutionStatus;
   includeActivationPrompt?: boolean;
   includeCurrentStepPrompt?: boolean;
 };
@@ -179,7 +181,11 @@ export class WorkoutVoiceSession {
 
   activateCurrentStep(
     forcePreferenceEnabled = false,
-    { includeActivationPrompt = true, includeCurrentStepPrompt = true }: WorkoutVoiceActivationOptions = {},
+    {
+      executionPhase,
+      includeActivationPrompt = true,
+      includeCurrentStepPrompt = true,
+    }: WorkoutVoiceActivationOptions = {},
   ) {
     if (!this.state.isSupported) {
       this.setState("unsupported", "speech_unsupported");
@@ -198,7 +204,9 @@ export class WorkoutVoiceSession {
     this.diagnostic("activation retry", { activeStepKey: this.context?.activeStepKey ?? "" });
     unlockWebAudio(this.config, this.diagnostic);
 
-    const context = this.context;
+    const context = this.context && executionPhase
+      ? { ...this.context, executionPhase }
+      : this.context;
     const hasActivationText = !this.hasActivated && includeActivationPrompt;
     const introText = includeCurrentStepPrompt && context?.activeStep ? this.buildCurrentStepText(context) : "";
     const texts = [
@@ -225,7 +233,9 @@ export class WorkoutVoiceSession {
     }
 
     const type: WorkoutVoiceCueType =
-      context.activeStep?.type === "exercise" && context.isPreparing ? "preparation-intro" : "step-intro";
+      context.activeStep?.type === "exercise" && isWorkoutVoicePreparationIntroPhase(context.executionPhase)
+        ? "preparation-intro"
+        : "step-intro";
     const stepCueKey = `${context.activeStepKey}:${type}`;
     if (this.lastStepCueKey === stepCueKey) {
       return;
@@ -268,7 +278,7 @@ export class WorkoutVoiceSession {
     if (
       !this.canScheduleWorkoutCue(context) ||
       !context.activeStep ||
-      context.isPreparing ||
+      context.executionPhase !== "running_exercise" ||
       context.activeStep.type !== "exercise" ||
       context.activeStep.item.mode !== "reps" ||
       count <= 0 ||
@@ -522,7 +532,7 @@ export class WorkoutVoiceSession {
       return "";
     }
 
-    if (context.activeStep.type === "exercise" && context.isPreparing) {
+    if (context.activeStep.type === "exercise" && isWorkoutVoicePreparationIntroPhase(context.executionPhase)) {
       return buildWorkoutActionPreparationCue(context.activeStep, context.isFirstExerciseStep, this.config);
     }
 
@@ -530,7 +540,10 @@ export class WorkoutVoiceSession {
   }
 
   private shouldCompletePreparationIntro(context: WorkoutVoiceContext | null | undefined) {
-    return Boolean(context?.activeStep?.type === "exercise" && context.isPreparing);
+    return Boolean(
+      context?.activeStep?.type === "exercise" &&
+      isWorkoutVoicePreparationIntroPhase(context.executionPhase),
+    );
   }
 
   private canScheduleWorkoutCue(context: WorkoutVoiceContext | null): context is WorkoutVoiceContext {
@@ -810,6 +823,10 @@ function cancelBrowserSpeech() {
 
 function canSpeak() {
   return typeof window !== "undefined" && "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+}
+
+function isWorkoutVoicePreparationIntroPhase(executionPhase: WorkoutExecutionStatus) {
+  return executionPhase === "preparing_intro";
 }
 
 function selectChineseVoice(config: WorkoutVoiceBroadcastConfig) {

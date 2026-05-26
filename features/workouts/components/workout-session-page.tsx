@@ -49,6 +49,21 @@ import {
   type WorkoutTimelineStep,
 } from "@/lib/shared/workouts/composition";
 import {
+  buildWorkoutExecutionStepKey,
+  canWorkoutExecutionRunStep,
+  completeWorkoutExecution,
+  createIdleWorkoutExecutionState,
+  createWorkoutExecutionLoadError,
+  createWorkoutStepExecutionState,
+  isWorkoutExecutionPaused,
+  isWorkoutExecutionPreparingForStep,
+  isWorkoutPreparationCountdownActive,
+  markWorkoutPreparationIntroComplete,
+  pauseWorkoutExecution,
+  resumeWorkoutExecution,
+  tickWorkoutPreparationCountdown,
+} from "@/lib/shared/workouts/session-execution";
+import {
   buildWorkoutVoiceBroadcastConfig,
   defaultWorkoutVoiceBroadcastUserSettings,
   normalizeWorkoutVoiceBroadcastUserSettings,
@@ -60,16 +75,12 @@ import {
 } from "@/lib/shared/workouts/session-flow";
 import type { Exercise } from "@/lib/shared/exercises/types";
 
-const preparationCountdownStart = 3;
 const voiceSettingsRanges = {
   beepVolume: { max: 1, min: 0, step: 0.05 },
   pitch: { max: 1.5, min: 0.5, step: 0.05 },
   rate: { max: 1.35, min: 0.65, step: 0.05 },
   volume: { max: 1, min: 0, step: 0.05 },
 };
-
-// 训练执行页用显式阶段串联动作提示、准备倒计时和正式计时，避免派生布尔值出现卡住的中间态。
-type PreparationPhase = "idle" | "waiting_intro" | "counting_down" | "running";
 
 type VoiceApiBrowserKey = "chrome" | "edge" | "firefox" | "safari" | "iosSafari";
 
@@ -311,11 +322,8 @@ export function WorkoutSessionPage() {
   const [activeStepIndex, setActiveStepIndex] = useState(0);
   const [remainingSeconds, setRemainingSeconds] = useState(45);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [preparationCountdown, setPreparationCountdown] = useState(0);
-  const [preparationStepKey, setPreparationStepKey] = useState("");
-  const [preparationPhase, setPreparationPhase] = useState<PreparationPhase>("idle");
+  const [executionState, setExecutionState] = useState(() => createIdleWorkoutExecutionState());
   const [hasStarted, setHasStarted] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
   const [isSessionComplete, setIsSessionComplete] = useState(false);
   const [sessionStartedAt, setSessionStartedAt] = useState<Date | null>(null);
   const [isElapsedTimerManuallyPaused, setIsElapsedTimerManuallyPaused] = useState(false);
@@ -399,18 +407,17 @@ export function WorkoutSessionPage() {
   const remainingSteps = Math.max(0, steps.length - activeStepIndex - 1);
   const requestedPlanKey = scheduleId;
   const sessionVoiceId = `${plan.id}:${plan.date}:${plan.routineId ?? "rest"}`;
-  const activeStepKey = activeStep ? `${sessionVoiceId}:${activeStep.id}:${activeStepIndex}` : "";
+  const activeStepKey = buildWorkoutExecutionStepKey(sessionVoiceId, activeStep, activeStepIndex);
   const isPlanReady = Boolean(scheduleId && !loadError && loadedPlanKey === requestedPlanKey);
-  const activeStepPreparationPhase =
-    preparationStepKey === activeStepKey ? preparationPhase : "idle";
-  const isPreparationCountdownActive = activeStepPreparationPhase === "counting_down";
+  const preparationCountdown = executionState.stepKey === activeStepKey ? executionState.preparationCountdown : 0;
+  const isPaused = isWorkoutExecutionPaused(executionState);
+  const isPreparationCountdownActive = isWorkoutPreparationCountdownActive(executionState, activeStepKey);
   const isPreparing = Boolean(
     hasStarted &&
     activeStep?.type === "exercise" &&
-    activeStepPreparationPhase !== "running",
+    isWorkoutExecutionPreparingForStep(executionState, activeStepKey),
   );
-  const canRunActiveStep =
-    activeStep?.type !== "exercise" || activeStepPreparationPhase === "running";
+  const canRunActiveStep = canWorkoutExecutionRunStep(executionState, activeStepKey, activeStep?.type);
   const isAwaitingStart = isPlanReady && !hasStarted && !isSessionComplete;
   const displayedStepCount = Math.max(1, steps.length);
   const displayedStepIndex = isSessionComplete ? displayedStepCount : activeStepIndex + 1;
@@ -429,12 +436,9 @@ export function WorkoutSessionPage() {
         setLoadedPlanKey("");
         setLoadError("缺少训练安排参数，请从训练计划页面进入训练。");
         setHasStarted(false);
-        setIsPaused(false);
         setIsSessionComplete(false);
         setIsElapsedTimerManuallyPaused(false);
-        setPreparationStepKey("");
-        setPreparationPhase("idle");
-        setPreparationCountdown(0);
+        setExecutionState(createWorkoutExecutionLoadError("missing schedule id"));
         setElapsedSeconds(0);
         setSessionStartedAt(null);
         setActiveStepIndex(0);
@@ -472,11 +476,8 @@ export function WorkoutSessionPage() {
       setElapsedSeconds(0);
       setSessionStartedAt(null);
       setRemainingSeconds(selectedSteps[0]?.durationSeconds ?? 45);
-      setPreparationStepKey("");
-      setPreparationPhase("idle");
-      setPreparationCountdown(selectedSteps[0]?.type === "exercise" ? preparationCountdownStart : 0);
+      setExecutionState((current) => createIdleWorkoutExecutionState(current.version + 1));
       setHasStarted(false);
-      setIsPaused(false);
       setIsSessionComplete(false);
       setIsElapsedTimerManuallyPaused(false);
       setLoadedPlanKey(requestKey);
@@ -489,6 +490,7 @@ export function WorkoutSessionPage() {
       console.error("[TrainingSession] Load failed:", error);
       setLoadedPlanKey("");
       setLoadError("训练安排加载失败，请从训练计划页面重新进入。");
+      setExecutionState(createWorkoutExecutionLoadError("load failed"));
       setIsSessionComplete(false);
     });
 
@@ -603,9 +605,7 @@ export function WorkoutSessionPage() {
       return;
     }
 
-    setPreparationStepKey(stepKey);
-    setPreparationCountdown((value) => value || preparationCountdownStart);
-    setPreparationPhase("counting_down");
+    setExecutionState((current) => markWorkoutPreparationIntroComplete(current, stepKey));
   }, [activeStepKey]);
 
   const voiceSession = useWorkoutVoiceBroadcast({
@@ -615,10 +615,9 @@ export function WorkoutSessionPage() {
     isFirstExerciseStep: activeStepIndex === 0,
     isPaused,
     isPreferenceEnabled: isPlanReady && isAudioOn && isVoicePreferenceLoaded,
-    isPreparationCountdownActive,
     isSessionStarted: hasStarted && !isSessionComplete,
     onPreparationIntroComplete: markPreparationIntroComplete,
-    preparationCountdown,
+    executionState,
     remainingSeconds,
     sessionId: sessionVoiceId,
     steps,
@@ -700,16 +699,12 @@ export function WorkoutSessionPage() {
 
   // 每次进入新步骤时只在事件入口初始化准备阶段，避免 effect 根据派生状态再同步写 state。
   const prepareStepForSession = useCallback((step: WorkoutTimelineStep | undefined, stepIndex: number) => {
-    if (step?.type === "exercise") {
-      setPreparationStepKey(`${sessionVoiceId}:${step.id}:${stepIndex}`);
-      setPreparationPhase("waiting_intro");
-      setPreparationCountdown(preparationCountdownStart);
-      return;
-    }
-
-    setPreparationStepKey("");
-    setPreparationPhase("idle");
-    setPreparationCountdown(0);
+    setExecutionState((current) => createWorkoutStepExecutionState({
+      sessionId: sessionVoiceId,
+      step,
+      stepIndex,
+      version: current.version + 1,
+    }));
   }, [sessionVoiceId]);
 
   const goToStep = useCallback((nextIndex: number, { cancelVoice = true }: { cancelVoice?: boolean } = {}) => {
@@ -725,21 +720,27 @@ export function WorkoutSessionPage() {
     }
 
     setIsSessionComplete(false);
-    prepareStepForSession(nextStep, boundedIndex);
+    if (hasStarted) {
+      prepareStepForSession(nextStep, boundedIndex);
+    } else {
+      setExecutionState((current) => createIdleWorkoutExecutionState(current.version + 1));
+    }
     setActiveStepIndex(boundedIndex);
     setRemainingSeconds(nextStep?.durationSeconds ?? 45);
-  }, [prepareStepForSession, steps, voiceSession]);
+  }, [hasStarted, prepareStepForSession, steps, voiceSession]);
 
   const startTraining = useCallback(() => {
     setIsSessionComplete(false);
     prepareStepForSession(activeStep, activeStepIndex);
     setHasStarted(true);
-    setIsPaused(false);
     setIsElapsedTimerManuallyPaused(false);
     setSessionStartedAt((current) => current ?? new Date());
 
     if (isVoicePreferenceOn && isVoiceSupported && !isVoiceBroadcastActive) {
-      voiceSession.activateCurrentStep(false, { includeActivationPrompt: false });
+      voiceSession.activateCurrentStep(false, {
+        executionPhase: activeStep?.type === "exercise" ? "preparing_intro" : "running_rest",
+        includeActivationPrompt: false,
+      });
     }
   }, [
     activeStep,
@@ -756,11 +757,8 @@ export function WorkoutSessionPage() {
     voiceSession.cancelCurrentVoice("session-complete");
     setIsSessionComplete(true);
     setHasStarted(false);
-    setIsPaused(true);
     setIsElapsedTimerManuallyPaused(false);
-    setPreparationStepKey("");
-    setPreparationPhase("idle");
-    setPreparationCountdown(0);
+    setExecutionState((current) => completeWorkoutExecution(current));
     setRemainingSeconds(0);
 
     const endedAt = new Date();
@@ -801,7 +799,9 @@ export function WorkoutSessionPage() {
   const toggleManualPause = useCallback(() => {
     const nextPaused = !isPaused;
 
-    setIsPaused(nextPaused);
+    setExecutionState((current) => (
+      nextPaused ? pauseWorkoutExecution(current) : resumeWorkoutExecution(current)
+    ));
     setIsElapsedTimerManuallyPaused(nextPaused);
   }, [isPaused]);
 
@@ -810,26 +810,34 @@ export function WorkoutSessionPage() {
       !hasStarted ||
       !isPlanReady ||
       !isVoicePreferenceLoaded ||
-      isVoicePreferenceOn ||
-      preparationPhase !== "waiting_intro" ||
-      preparationStepKey !== activeStepKey ||
+      isPaused ||
+      executionState.status !== "preparing_intro" ||
+      executionState.stepKey !== activeStepKey ||
       !activeStepKey
     ) {
       return;
     }
 
-    const timer = window.setTimeout(() => markPreparationIntroComplete(activeStepKey), 0);
+    const fallbackDelay =
+      isVoicePreferenceOn && voiceStatus !== "failed" && voiceStatus !== "unsupported"
+        ? voiceBroadcastConfig.fallback.speechCompletionFallbackMaxMs + 250
+        : voiceBroadcastConfig.fallback.silentPreparationDelayMs;
+    const timer = window.setTimeout(() => markPreparationIntroComplete(activeStepKey), fallbackDelay);
 
     return () => window.clearTimeout(timer);
   }, [
     activeStepKey,
+    executionState.status,
+    executionState.stepKey,
     hasStarted,
+    isPaused,
     isPlanReady,
     isVoicePreferenceLoaded,
     isVoicePreferenceOn,
     markPreparationIntroComplete,
-    preparationPhase,
-    preparationStepKey,
+    voiceBroadcastConfig.fallback.silentPreparationDelayMs,
+    voiceBroadcastConfig.fallback.speechCompletionFallbackMaxMs,
+    voiceStatus,
   ]);
 
   useEffect(() => {
@@ -837,30 +845,25 @@ export function WorkoutSessionPage() {
       !hasStarted ||
       !isPlanReady ||
       isPaused ||
-      preparationPhase !== "counting_down" ||
-      preparationStepKey !== activeStepKey ||
+      executionState.status !== "preparing_countdown" ||
+      executionState.stepKey !== activeStepKey ||
       preparationCountdown <= 0
     ) {
       return;
     }
 
     const timer = window.setTimeout(() => {
-      const nextCountdown = Math.max(0, preparationCountdown - 1);
-
-      setPreparationCountdown(nextCountdown);
-      if (nextCountdown === 0) {
-        setPreparationPhase("running");
-      }
+      setExecutionState((current) => tickWorkoutPreparationCountdown(current, activeStepKey));
     }, 1000);
 
     return () => window.clearTimeout(timer);
   }, [
     activeStepKey,
+    executionState.status,
+    executionState.stepKey,
     hasStarted,
     isPaused,
     isPlanReady,
-    preparationPhase,
-    preparationStepKey,
     preparationCountdown,
   ]);
 
@@ -895,7 +898,7 @@ export function WorkoutSessionPage() {
   }, [activeStep, canRunActiveStep, completeCurrentStep, hasStarted, isPaused, remainingSeconds]);
 
   const openCurrentExerciseDetail = useCallback(() => {
-    setIsPaused(true);
+    setExecutionState((current) => pauseWorkoutExecution(current));
     setIsExerciseDetailOpen(true);
   }, []);
 

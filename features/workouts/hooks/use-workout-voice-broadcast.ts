@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { WorkoutTimelineStep } from "@/lib/shared/workouts/composition";
+import type { WorkoutExecutionState, WorkoutExecutionStatus } from "@/lib/shared/workouts/session-execution";
 import {
   defaultWorkoutVoiceBroadcastUserSettings,
   normalizeWorkoutVoiceBroadcastUserSettings,
@@ -31,13 +32,12 @@ type UseWorkoutVoiceBroadcastOptions = {
   activeStepIndex: number;
   completedReps: number;
   config: WorkoutVoiceBroadcastConfig;
+  executionState: WorkoutExecutionState;
   isFirstExerciseStep: boolean;
   isPaused: boolean;
   isPreferenceEnabled: boolean;
-  isPreparationCountdownActive: boolean;
   isSessionStarted: boolean;
   onPreparationIntroComplete: (stepKey: string) => void;
-  preparationCountdown: number;
   remainingSeconds: number;
   sessionId: string;
   steps: WorkoutTimelineStep[];
@@ -130,20 +130,22 @@ export function useWorkoutVoiceBroadcast({
   activeStepIndex,
   completedReps,
   config,
+  executionState,
   isFirstExerciseStep,
   isPaused,
   isPreferenceEnabled,
-  isPreparationCountdownActive,
   isSessionStarted,
   onPreparationIntroComplete,
-  preparationCountdown,
   remainingSeconds,
   sessionId,
   steps,
 }: UseWorkoutVoiceBroadcastOptions) {
   const activeStep = steps[activeStepIndex];
   const activeStepKey = activeStep ? `${sessionId}:${activeStep.id}:${activeStepIndex}` : "";
-  const isPreparing = preparationCountdown > 0;
+  const activeStepExecutionPhase =
+    executionState.stepKey === activeStepKey ? executionState.status : "idle";
+  const isPreparationCountdownActive = activeStepExecutionPhase === "preparing_countdown";
+  const preparationCountdown = isPreparationCountdownActive ? executionState.preparationCountdown : 0;
   const [voiceState, setVoiceState] = useState<WorkoutVoiceSessionState>(() => ({
     isActive: false,
     isSupported: false,
@@ -188,9 +190,9 @@ export function useWorkoutVoiceBroadcast({
     session.setContext({
       activeStep,
       activeStepKey,
+      executionPhase: activeStepExecutionPhase,
       isFirstExerciseStep,
       isPaused,
-      isPreparing,
       onPreparationIntroComplete,
     });
     session.setPreferenceEnabled(isPreferenceEnabled);
@@ -200,11 +202,11 @@ export function useWorkoutVoiceBroadcast({
   }, [
     activeStep,
     activeStepKey,
+    activeStepExecutionPhase,
     getSession,
     isFirstExerciseStep,
     isPaused,
     isPreferenceEnabled,
-    isPreparing,
     isSessionStarted,
     onPreparationIntroComplete,
   ]);
@@ -238,7 +240,7 @@ export function useWorkoutVoiceBroadcast({
       !isSessionStarted ||
       !isPreferenceEnabled ||
       isPaused ||
-      isPreparing ||
+      activeStepExecutionPhase !== "running_exercise" ||
       activeStep.type !== "exercise" ||
       activeStep.item.mode !== "duration"
     ) {
@@ -251,11 +253,15 @@ export function useWorkoutVoiceBroadcast({
     }
 
     getSession().playTimedBeep();
-  }, [activeStep, getSession, isPaused, isPreferenceEnabled, isPreparing, isSessionStarted, remainingSeconds]);
+  }, [activeStep, activeStepExecutionPhase, getSession, isPaused, isPreferenceEnabled, isSessionStarted, remainingSeconds]);
 
   const activateCurrentStep = useCallback((
     forcePreferenceEnabled = false,
-    options?: { includeActivationPrompt?: boolean; includeCurrentStepPrompt?: boolean },
+    options?: {
+      executionPhase?: WorkoutExecutionStatus;
+      includeActivationPrompt?: boolean;
+      includeCurrentStepPrompt?: boolean;
+    },
   ) => {
     getSession().activateCurrentStep(forcePreferenceEnabled, options);
   }, [getSession]);

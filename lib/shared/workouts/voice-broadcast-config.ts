@@ -121,7 +121,7 @@ export const workoutVoiceBroadcastConfig = validateWorkoutVoiceBroadcastConfig({
       priority: 80,
       staleAfterMs: 10000,
     },
-    // 动作准备提示会决定准备倒计时何时开始，因此优先级高于普通步骤介绍。
+    // 动作准备提示只描述下一组动作，倒计时放行由页面训练执行状态机决定。
     "preparation-intro": {
       enqueue: true,
       interruptCurrent: true,
@@ -173,7 +173,7 @@ export const workoutVoiceBroadcastConfig = validateWorkoutVoiceBroadcastConfig({
     preparationTarget: formatDefaultPreparationTarget,
     // repetitionCount 只播当前完成次数，具体节流和去重由 rep-count 策略控制。
     repetitionCount: (count) => String(Math.max(1, Math.floor(count))),
-    // stepPreparation 在动作计时前播报，完成后训练页才进入准备倒计时。
+    // stepPreparation 在动作计时前播报动作目标，不拥有动作计时放行状态。
     stepPreparation: (step, context) => {
       if (step.type !== "exercise") {
         return "准备进入下一步。";
