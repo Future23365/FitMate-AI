@@ -92,6 +92,7 @@ type WorkoutVoiceSessionOptions = {
 
 type WorkoutVoiceActivationOptions = {
   includeActivationPrompt?: boolean;
+  includeCurrentStepPrompt?: boolean;
 };
 
 let workoutAudioContext: AudioContext | null = null;
@@ -176,7 +177,10 @@ export class WorkoutVoiceSession {
     }
   }
 
-  activateCurrentStep(forcePreferenceEnabled = false, { includeActivationPrompt = true }: WorkoutVoiceActivationOptions = {}) {
+  activateCurrentStep(
+    forcePreferenceEnabled = false,
+    { includeActivationPrompt = true, includeCurrentStepPrompt = true }: WorkoutVoiceActivationOptions = {},
+  ) {
     if (!this.state.isSupported) {
       this.setState("unsupported", "speech_unsupported");
       return;
@@ -195,14 +199,18 @@ export class WorkoutVoiceSession {
     unlockWebAudio(this.config, this.diagnostic);
 
     const context = this.context;
-    const introText = context?.activeStep ? this.buildCurrentStepText(context) : "";
-    const texts = !this.hasActivated && includeActivationPrompt
-      ? [this.config.templates.activation, introText]
-      : [introText];
+    const hasActivationText = !this.hasActivated && includeActivationPrompt;
+    const introText = includeCurrentStepPrompt && context?.activeStep ? this.buildCurrentStepText(context) : "";
+    const texts = [
+      hasActivationText ? this.config.templates.activation : "",
+      introText,
+    ];
+    const shouldCompletePreparationIntro =
+      this.shouldCompletePreparationIntro(context) && (includeCurrentStepPrompt || hasActivationText);
 
     this.scheduleCue({
       dedupeKey: `activation:${context?.activeStepKey ?? "none"}`,
-      onDone: this.shouldCompletePreparationIntro(context) ? () => context?.onPreparationIntroComplete(context.activeStepKey) : undefined,
+      onDone: shouldCompletePreparationIntro ? () => context?.onPreparationIntroComplete(context.activeStepKey) : undefined,
       stepKey: context?.activeStepKey ?? "",
       texts,
       type: "activation",

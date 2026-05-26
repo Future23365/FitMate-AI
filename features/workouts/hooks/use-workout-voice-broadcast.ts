@@ -255,7 +255,7 @@ export function useWorkoutVoiceBroadcast({
 
   const activateCurrentStep = useCallback((
     forcePreferenceEnabled = false,
-    options?: { includeActivationPrompt?: boolean },
+    options?: { includeActivationPrompt?: boolean; includeCurrentStepPrompt?: boolean },
   ) => {
     getSession().activateCurrentStep(forcePreferenceEnabled, options);
   }, [getSession]);

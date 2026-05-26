@@ -563,7 +563,7 @@ export function WorkoutSessionPage() {
       setIsAudioOn(true);
       setShowVoiceTip(false);
       writeWorkoutVoiceBroadcastPreference(true);
-      voiceSession.activateCurrentStep(true);
+      voiceSession.activateCurrentStep(true, { includeCurrentStepPrompt: false });
       return;
     }
 

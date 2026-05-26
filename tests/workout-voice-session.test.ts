@@ -81,6 +81,32 @@ describe("workout voice session scheduler", () => {
     expect(environment.spoken.at(-1)?.text).toBe("3");
   });
 
+  it("can activate voice without announcing the current workout step", () => {
+    const environment = installMockSpeechEnvironment();
+    const step = createExerciseStep({ mode: "reps", target: 12 });
+    let preparationCompleted = false;
+    const session = new WorkoutVoiceSession();
+
+    session.setContext({
+      activeStep: step,
+      activeStepKey: "session:push-up:0",
+      isFirstExerciseStep: true,
+      isPaused: false,
+      isPreparing: true,
+      onPreparationIntroComplete: () => {
+        preparationCompleted = true;
+      },
+    });
+    session.setPreferenceEnabled(true);
+    session.activateCurrentStep(true, { includeCurrentStepPrompt: false });
+
+    expect(environment.spoken.map((utterance) => utterance.text)).toEqual([
+      "语音播报已开启。",
+    ]);
+    environment.spoken[0].onend?.({} as SpeechSynthesisEvent);
+    expect(preparationCompleted).toBe(true);
+  });
+
   it("cancels old step speech and ignores stale callbacks after step changes", () => {
     const environment = installMockSpeechEnvironment();
     const firstStep = createExerciseStep({ id: "push-up-step", nameZh: "俯卧撑" });
