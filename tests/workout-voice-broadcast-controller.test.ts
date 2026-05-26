@@ -3,10 +3,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createWorkoutVoiceSpeechJob,
   readWorkoutVoiceBroadcastPreference,
+  readWorkoutVoiceBroadcastSettings,
   readWorkoutVoiceBroadcastTipSeen,
   unlockWorkoutVoiceBroadcastAudio,
   writeWorkoutVoiceBroadcastPreference,
+  writeWorkoutVoiceBroadcastSettings,
   writeWorkoutVoiceBroadcastTipSeen,
+  workoutVoiceBroadcastSettingsStorageKey,
   type WorkoutVoiceBroadcastError,
 } from "@/features/workouts/hooks/use-workout-voice-broadcast";
 import { workoutVoiceBroadcastConfig } from "@/lib/shared/workouts/voice-broadcast-config";
@@ -184,6 +187,40 @@ describe("workout voice broadcast controller", () => {
     installMockSpeechEnvironment();
     expect(unlockWorkoutVoiceBroadcastAudio()).toBe(false);
   });
+
+  it("persists and normalizes workout voice settings from localStorage", () => {
+    const storage = installStorageEnvironment();
+
+    storage.setItem(workoutVoiceBroadcastSettingsStorageKey, JSON.stringify({
+      beepVolume: 2,
+      pitch: 0.2,
+      rate: 3,
+      voiceURI: "mock-voice",
+      volume: -1,
+    }));
+    expect(readWorkoutVoiceBroadcastSettings()).toEqual({
+      beepVolume: 1,
+      pitch: 0.5,
+      rate: 1.35,
+      voiceURI: "mock-voice",
+      volume: 0,
+    });
+
+    writeWorkoutVoiceBroadcastSettings({
+      beepVolume: 0.3,
+      pitch: 1.1,
+      rate: 0.9,
+      voiceURI: "stable-voice",
+      volume: 0.7,
+    });
+    expect(JSON.parse(storage.getItem(workoutVoiceBroadcastSettingsStorageKey) ?? "{}")).toEqual({
+      beepVolume: 0.3,
+      pitch: 1.1,
+      rate: 0.9,
+      voiceURI: "stable-voice",
+      volume: 0.7,
+    });
+  });
 });
 
 function installMockSpeechEnvironment(): MockSpeechEnvironment {
@@ -241,6 +278,25 @@ function installUnavailableStorageEnvironment() {
       },
     },
   });
+}
+
+function installStorageEnvironment() {
+  const values = new Map<string, string>();
+  const localStorage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      values.set(key, value);
+    },
+  };
+
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      localStorage,
+    },
+  });
+
+  return localStorage;
 }
 
 function restoreDescriptor(name: "window" | "SpeechSynthesisUtterance", descriptor?: PropertyDescriptor) {

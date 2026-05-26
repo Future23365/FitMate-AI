@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import { createWorkoutItem } from "@/tests/fixtures/domain";
 import {
+  buildWorkoutVoiceBroadcastConfig,
+  defaultWorkoutVoiceBroadcastUserSettings,
+  normalizeWorkoutVoiceBroadcastUserSettings,
   validateWorkoutVoiceBroadcastConfig,
   workoutVoiceBroadcastConfig,
 } from "@/lib/shared/workouts/voice-broadcast-config";
@@ -52,5 +55,31 @@ describe("workout voice broadcast config", () => {
 
     expect(buildWorkoutActionPreparationCue(step, true, customConfig)).toBe("请准备 深蹲");
     expect(buildPreparationCountdownCue(2, customConfig)).toBe("倒数 2");
+  });
+
+  it("normalizes user settings before building runtime speech and beep config", () => {
+    const settings = normalizeWorkoutVoiceBroadcastUserSettings({
+      beepVolume: 0.42,
+      pitch: 0.2,
+      rate: 3,
+      voiceURI: "mock-zh-cn",
+      volume: -1,
+    });
+
+    expect(settings).toEqual({
+      beepVolume: 0.42,
+      pitch: 0.5,
+      rate: 1.35,
+      voiceURI: "mock-zh-cn",
+      volume: 0,
+    });
+
+    const config = buildWorkoutVoiceBroadcastConfig(settings);
+    expect(config.beep.volume).toBe(0.42);
+    expect(config.speech.pitch).toBe(0.5);
+    expect(config.speech.rate).toBe(1.35);
+    expect(config.speech.voiceURI).toBe("mock-zh-cn");
+    expect(config.speech.volume).toBe(0);
+    expect(defaultWorkoutVoiceBroadcastUserSettings.rate).toBe(workoutVoiceBroadcastConfig.speech.rate);
   });
 });

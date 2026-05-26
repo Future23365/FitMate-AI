@@ -25,7 +25,9 @@ export type WorkoutVoiceTemplateContext = {
   totalItems?: number;
 };
 
+// 训练语音播报的统一配置源；页面设置、自检和运行时播报都应先合成这个结构再执行。
 export type WorkoutVoiceBroadcastConfig = {
+  // Web Audio 短促节奏音配置，只影响计时动作中的 beep，不影响 Web Speech 口播音量。
   beep: {
     durationMs: number;
     frequencyHz: number;
@@ -33,6 +35,7 @@ export type WorkoutVoiceBroadcastConfig = {
     unlockDurationMs: number;
     volume: number;
   };
+  // 浏览器语音事件不稳定时的兜底时长，决定等待 voice、onstart、onend 和静音推进的边界。
   fallback: {
     silentPreparationDelayMs: number;
     speechCompletionFallbackMaxMs: number;
@@ -42,10 +45,12 @@ export type WorkoutVoiceBroadcastConfig = {
     speechVoiceLoadTimeoutMs: number;
     speechUnavailablePreparationDelayMs: number;
   };
+  // 播报任务队列控制，避免倒计时、计次和动作提示在浏览器队列中无限堆积。
   queue: {
     maxSize: number;
     overflowPolicy: WorkoutVoiceOverflowPolicy;
   };
+  // Web Speech API 参数；voiceURI 为空时会自动优先匹配中文 voice，再回退浏览器默认 voice。
   speech: {
     lang: string;
     pitch: number;
@@ -53,11 +58,14 @@ export type WorkoutVoiceBroadcastConfig = {
     voiceURI: string;
     volume: number;
   };
+  // 训练流程触发节奏，控制准备倒计时口播间隔和计次口播的最短间隔。
   timing: {
     preparationCountdownIntervalMs: number;
     repetitionCueMinIntervalMs: number;
   };
+  // 不同类型口播的优先级和插队策略，保证动作准备提示优先于低价值计次提示。
   cuePolicies: Record<WorkoutVoiceCueType, WorkoutVoiceCuePolicy>;
+  // 口播文案模板；需要调整播报内容时改这里，不要从 UI 文案反推语音内容。
   templates: {
     activation: string;
     emptyOverview: string;
@@ -74,6 +82,7 @@ export type WorkoutVoiceBroadcastConfig = {
 
 const defaultOverviewLimit = 5;
 
+// 默认配置是训练语音的产品基线，用户设置只覆盖 voiceURI、语速、音调、口播音量和 beep 音量。
 export const workoutVoiceBroadcastConfig = validateWorkoutVoiceBroadcastConfig({
   beep: {
     durationMs: 140,
@@ -218,13 +227,19 @@ export function validateWorkoutVoiceBroadcastConfig(config: WorkoutVoiceBroadcas
 }
 
 export type WorkoutVoiceBroadcastUserSettings = {
+  // 计时训练里的 Web Audio beep 音量，范围 0-1。
   beepVolume: number;
+  // SpeechSynthesisUtterance.pitch，当前 UI 限制在 0.5-1.5，避免过尖或过低。
   pitch: number;
+  // SpeechSynthesisUtterance.rate，当前 UI 限制在 0.65-1.35，避免口令过快或过慢。
   rate: number;
+  // 用户选择的浏览器 voiceURI；为空表示自动选择中文 voice 或默认 voice。
   voiceURI: string;
+  // SpeechSynthesisUtterance.volume，只影响语音口播，范围 0-1。
   volume: number;
 };
 
+// 语音设置弹窗的重置值必须来自默认运行时配置，避免 UI 默认值和实际播报基线分叉。
 export const defaultWorkoutVoiceBroadcastUserSettings: WorkoutVoiceBroadcastUserSettings = {
   beepVolume: workoutVoiceBroadcastConfig.beep.volume,
   pitch: workoutVoiceBroadcastConfig.speech.pitch,
