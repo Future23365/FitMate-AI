@@ -23,7 +23,6 @@ import {
 export { createWorkoutVoiceSpeechJob, unlockWorkoutVoiceBroadcastAudio };
 export type { WorkoutVoiceBroadcastError, WorkoutVoiceBroadcastStatus, WorkoutVoiceSpeechJobOptions };
 
-// 训练语音使用 localStorage 保存本机偏好；这些键只代表当前浏览器，不写入服务端用户数据。
 export const workoutVoiceBroadcastStorageKey = "fitmate.workoutVoiceBroadcast.enabled";
 export const workoutVoiceBroadcastTipSeenStorageKey = "fitmate.workoutVoiceBroadcast.tipSeen";
 export const workoutVoiceBroadcastSettingsStorageKey = "fitmate.workoutVoiceBroadcast.settings";
@@ -44,7 +43,6 @@ type UseWorkoutVoiceBroadcastOptions = {
   steps: WorkoutTimelineStep[];
 };
 
-// 读取训练页语音总开关；不可用或异常时默认关闭，避免刷新后假装已经可播放。
 export function readWorkoutVoiceBroadcastPreference() {
   if (typeof window === "undefined") {
     return false;
@@ -57,7 +55,6 @@ export function readWorkoutVoiceBroadcastPreference() {
   }
 }
 
-// 写入训练页语音总开关，后续进入 /training 时会用它恢复到关闭或等待激活状态。
 export function writeWorkoutVoiceBroadcastPreference(isEnabled: boolean) {
   if (typeof window === "undefined") {
     return;
@@ -70,7 +67,6 @@ export function writeWorkoutVoiceBroadcastPreference(isEnabled: boolean) {
   }
 }
 
-// 读取首进提示展示标记；它只控制提示是否重复出现，不影响语音是否开启。
 export function readWorkoutVoiceBroadcastTipSeen() {
   if (typeof window === "undefined") {
     return false;
@@ -83,7 +79,6 @@ export function readWorkoutVoiceBroadcastTipSeen() {
   }
 }
 
-// 写入首进提示展示标记，避免每次进入训练执行页都打断用户。
 export function writeWorkoutVoiceBroadcastTipSeen() {
   if (typeof window === "undefined") {
     return;
@@ -96,7 +91,6 @@ export function writeWorkoutVoiceBroadcastTipSeen() {
   }
 }
 
-// 读取本机语音调节项，并统一归一化，防止旧版本或手写 localStorage 数据越界。
 export function readWorkoutVoiceBroadcastSettings(): WorkoutVoiceBroadcastUserSettings {
   if (typeof window === "undefined") {
     return defaultWorkoutVoiceBroadcastUserSettings;
@@ -113,7 +107,6 @@ export function readWorkoutVoiceBroadcastSettings(): WorkoutVoiceBroadcastUserSe
   }
 }
 
-// 保存语音调节项；运行中的页面会立即用内存状态生效，localStorage 负责下次进入恢复。
 export function writeWorkoutVoiceBroadcastSettings(settings: WorkoutVoiceBroadcastUserSettings) {
   if (typeof window === "undefined") {
     return;
@@ -129,12 +122,10 @@ export function writeWorkoutVoiceBroadcastSettings(settings: WorkoutVoiceBroadca
   }
 }
 
-// 判断当前浏览器是否具备 Web Speech 播报入口；Web Audio beep 会在自检里单独验证。
 export function isWorkoutVoiceBroadcastSupported() {
   return isWorkoutVoiceSpeechSupported();
 }
 
-// 将训练流程状态转换为语音会话事件，页面只传入当前步骤、倒计时和配置，不直接操作 speechSynthesis。
 export function useWorkoutVoiceBroadcast({
   activeStepIndex,
   completedReps,

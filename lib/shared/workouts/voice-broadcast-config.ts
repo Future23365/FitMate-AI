@@ -25,9 +25,7 @@ export type WorkoutVoiceTemplateContext = {
   totalItems?: number;
 };
 
-// 训练语音播报的统一配置源；页面设置、自检和运行时播报都应先合成这个结构再执行。
 export type WorkoutVoiceBroadcastConfig = {
-  // Web Audio 短促节奏音配置，只影响计时动作中的 beep，不影响 Web Speech 口播音量。
   beep: {
     durationMs: number;
     frequencyHz: number;
@@ -35,7 +33,6 @@ export type WorkoutVoiceBroadcastConfig = {
     unlockDurationMs: number;
     volume: number;
   };
-  // 浏览器语音事件不稳定时的兜底时长，决定等待 voice、onstart、onend 和静音推进的边界。
   fallback: {
     silentPreparationDelayMs: number;
     speechCompletionFallbackMaxMs: number;
@@ -45,12 +42,10 @@ export type WorkoutVoiceBroadcastConfig = {
     speechVoiceLoadTimeoutMs: number;
     speechUnavailablePreparationDelayMs: number;
   };
-  // 播报任务队列控制，避免倒计时、计次和动作提示在浏览器队列中无限堆积。
   queue: {
     maxSize: number;
     overflowPolicy: WorkoutVoiceOverflowPolicy;
   };
-  // Web Speech API 参数；voiceURI 为空时会自动优先匹配中文 voice，再回退浏览器默认 voice。
   speech: {
     lang: string;
     pitch: number;
@@ -58,14 +53,11 @@ export type WorkoutVoiceBroadcastConfig = {
     voiceURI: string;
     volume: number;
   };
-  // 训练流程触发节奏，控制准备倒计时口播间隔和计次口播的最短间隔。
   timing: {
     preparationCountdownIntervalMs: number;
     repetitionCueMinIntervalMs: number;
   };
-  // 不同类型口播的优先级和插队策略，保证动作准备提示优先于低价值计次提示。
   cuePolicies: Record<WorkoutVoiceCueType, WorkoutVoiceCuePolicy>;
-  // 口播文案模板；需要调整播报内容时改这里，不要从 UI 文案反推语音内容。
   templates: {
     activation: string;
     emptyOverview: string;
@@ -82,7 +74,6 @@ export type WorkoutVoiceBroadcastConfig = {
 
 const defaultOverviewLimit = 5;
 
-// 默认配置是训练语音的产品基线，用户设置只覆盖 voiceURI、语速、音调、口播音量和 beep 音量。
 export const workoutVoiceBroadcastConfig = validateWorkoutVoiceBroadcastConfig({
   beep: {
     durationMs: 140,
@@ -116,30 +107,35 @@ export const workoutVoiceBroadcastConfig = validateWorkoutVoiceBroadcastConfig({
     repetitionCueMinIntervalMs: 1800,
   },
   cuePolicies: {
+    // 开启语音时的激活口令必须立即打断当前任务，用于在用户手势内解锁 Web Speech 播放。
     activation: {
       enqueue: false,
       interruptCurrent: true,
       priority: 100,
       staleAfterMs: 10000,
     },
+    // 普通步骤介绍允许排队，但新步骤提示需要高于倒计时和计次提示，避免训练切换时播旧内容。
     "step-intro": {
       enqueue: true,
       interruptCurrent: true,
       priority: 80,
       staleAfterMs: 10000,
     },
+    // 动作准备提示会决定准备倒计时何时开始，因此优先级高于普通步骤介绍。
     "preparation-intro": {
       enqueue: true,
       interruptCurrent: true,
       priority: 90,
       staleAfterMs: 10000,
     },
+    // 准备倒计时按训练流程逐秒播报，不打断正在播放的准备提示，只保留短过期窗口。
     "preparation-countdown": {
       enqueue: true,
       interruptCurrent: false,
       priority: 70,
       staleAfterMs: 4000,
     },
+    // 计次提示是低优先级即时反馈，不排队也不打断，避免高频计次挤占动作口令。
     "rep-count": {
       enqueue: false,
       interruptCurrent: false,
@@ -148,10 +144,13 @@ export const workoutVoiceBroadcastConfig = validateWorkoutVoiceBroadcastConfig({
     },
   },
   templates: {
+    // activation 只提示语音已打开，不承载训练内容；当前步骤内容由 stepPreparation 或 stepVoice 决定。
     activation: "语音播报已开启。",
+    // emptyOverview 和 firstActionFallback 处理缺少训练动作或当前步骤时的兜底开场。
     emptyOverview: "准备开始训练。",
     firstActionFallback: "准备开始第一组动作。",
     nonExercisePreparation: "准备进入下一步。",
+    // overview 是训练开始前的整体提示，只播前几个动作名，避免长计划开场过久。
     overview: (items, context) => {
       if (items.length === 0) {
         return "准备开始训练。";
@@ -164,13 +163,17 @@ export const workoutVoiceBroadcastConfig = validateWorkoutVoiceBroadcastConfig({
 
       return `本次训练 ${items.length} 个动作：${visibleNames.join("、")}${suffix}。准备开始。`;
     },
+    // preparationCountdown 绑定 3-2-1 准备倒计时，最后一秒合并“开始”作为训练开始信号。
     preparationCountdown: (context) => {
       const second = Math.max(1, Math.min(3, Math.floor(context.second ?? 1)));
 
       return second === 1 ? "1，开始" : String(second);
     },
+    // preparationTarget 只描述下一组目标，用于 stepPreparation 组合动作准备口令。
     preparationTarget: formatDefaultPreparationTarget,
+    // repetitionCount 只播当前完成次数，具体节流和去重由 rep-count 策略控制。
     repetitionCount: (count) => String(Math.max(1, Math.floor(count))),
+    // stepPreparation 在动作计时前播报，完成后训练页才进入准备倒计时。
     stepPreparation: (step, context) => {
       if (step.type !== "exercise") {
         return "准备进入下一步。";
@@ -180,6 +183,7 @@ export const workoutVoiceBroadcastConfig = validateWorkoutVoiceBroadcastConfig({
 
       return `${prefix}，${step.item.nameZh}，${formatDefaultPreparationTarget(step.item)}。`;
     },
+    // stepVoice 只用于已经进入当前步骤后的播报；休息步骤会顺带提示下一组动作。
     stepVoice: (step) => {
       if (step.type === "rest") {
         const nextActionText = step.nextItem ? `，下一组动作 ${step.nextItem.nameZh}` : "";
@@ -189,7 +193,10 @@ export const workoutVoiceBroadcastConfig = validateWorkoutVoiceBroadcastConfig({
 
       const targetText = step.item.mode === "duration" ? `${step.item.target} 秒` : `${step.item.target} 次`;
 
-      return `开始 ${step.item.nameZh}，第 ${step.setIndex} 组，共 ${step.totalSets} 组，目标 ${targetText}。`;
+      // 动作开始提示暂时关闭；需要恢复时可返回下面这条完整训练口令。
+      // return `开始 ${step.item.nameZh}，第 ${step.setIndex} 组，共 ${step.totalSets} 组，目标 ${targetText}。`;
+      void targetText;
+      return "";
     },
   },
 });
@@ -227,19 +234,13 @@ export function validateWorkoutVoiceBroadcastConfig(config: WorkoutVoiceBroadcas
 }
 
 export type WorkoutVoiceBroadcastUserSettings = {
-  // 计时训练里的 Web Audio beep 音量，范围 0-1。
   beepVolume: number;
-  // SpeechSynthesisUtterance.pitch，当前 UI 限制在 0.5-1.5，避免过尖或过低。
   pitch: number;
-  // SpeechSynthesisUtterance.rate，当前 UI 限制在 0.65-1.35，避免口令过快或过慢。
   rate: number;
-  // 用户选择的浏览器 voiceURI；为空表示自动选择中文 voice 或默认 voice。
   voiceURI: string;
-  // SpeechSynthesisUtterance.volume，只影响语音口播，范围 0-1。
   volume: number;
 };
 
-// 语音设置弹窗的重置值必须来自默认运行时配置，避免 UI 默认值和实际播报基线分叉。
 export const defaultWorkoutVoiceBroadcastUserSettings: WorkoutVoiceBroadcastUserSettings = {
   beepVolume: workoutVoiceBroadcastConfig.beep.volume,
   pitch: workoutVoiceBroadcastConfig.speech.pitch,
