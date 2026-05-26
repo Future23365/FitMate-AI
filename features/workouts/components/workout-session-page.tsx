@@ -255,6 +255,7 @@ export function WorkoutSessionPage() {
   const [preparationCountdownStepKey, setPreparationCountdownStepKey] = useState("");
   const [hasStarted, setHasStarted] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [isElapsedTimerManuallyPaused, setIsElapsedTimerManuallyPaused] = useState(false);
   const [isAudioOn, setIsAudioOn] = useState(false);
   const [loadedPlanKey, setLoadedPlanKey] = useState("");
   const [loadError, setLoadError] = useState("");
@@ -355,6 +356,7 @@ export function WorkoutSessionPage() {
         setLoadError("缺少训练计划参数，请从训练计划页面进入训练。");
         setHasStarted(false);
         setIsPaused(false);
+        setIsElapsedTimerManuallyPaused(false);
         setPreparedStepKey("");
         setPreparationCountdownStepKey("");
         setPreparationCountdown(0);
@@ -398,6 +400,7 @@ export function WorkoutSessionPage() {
       setPreparationCountdown(selectedSteps[0]?.type === "exercise" ? preparationCountdownStart : 0);
       setHasStarted(false);
       setIsPaused(false);
+      setIsElapsedTimerManuallyPaused(false);
       setLoadedPlanKey(requestKey);
       setIsExerciseDetailOpen(false);
     }).catch((error: unknown) => {
@@ -632,6 +635,7 @@ export function WorkoutSessionPage() {
   const startTraining = useCallback(() => {
     setHasStarted(true);
     setIsPaused(false);
+    setIsElapsedTimerManuallyPaused(false);
 
     if (isVoicePreferenceOn && isVoiceSupported && !isVoiceBroadcastActive) {
       voiceSession.activateCurrentStep(false, { includeActivationPrompt: false });
@@ -644,6 +648,7 @@ export function WorkoutSessionPage() {
     if (isLastStep) {
       setHasStarted(false);
       setIsPaused(true);
+      setIsElapsedTimerManuallyPaused(false);
       setPreparedStepKey("");
       setPreparationCountdownStepKey("");
       setPreparationCountdown(0);
@@ -653,6 +658,13 @@ export function WorkoutSessionPage() {
 
     goToStep(activeStepIndex + 1, { cancelVoice });
   }, [activeStepIndex, goToStep, steps.length]);
+
+  const toggleManualPause = useCallback(() => {
+    const nextPaused = !isPaused;
+
+    setIsPaused(nextPaused);
+    setIsElapsedTimerManuallyPaused(nextPaused);
+  }, [isPaused]);
 
   useEffect(() => {
     if (
@@ -711,12 +723,24 @@ export function WorkoutSessionPage() {
   ]);
 
   useEffect(() => {
+    if (!hasStarted || !isPlanReady || isElapsedTimerManuallyPaused) {
+      return;
+    }
+
+    // 总训练时长独立于步骤状态，只有用户手动暂停时才停止。
+    const timer = window.setInterval(() => {
+      setElapsedSeconds((value) => value + 1);
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [hasStarted, isElapsedTimerManuallyPaused, isPlanReady]);
+
+  useEffect(() => {
     if (!hasStarted || isPaused || needsExercisePreparation || !activeStep) {
       return;
     }
 
     const timer = window.setInterval(() => {
-      setElapsedSeconds((value) => value + 1);
       if (remainingSeconds <= 1) {
         completeCurrentStep({ cancelVoice: false });
         return;
@@ -736,6 +760,7 @@ export function WorkoutSessionPage() {
   function finishTraining() {
     setHasStarted(false);
     setIsPaused(true);
+    setIsElapsedTimerManuallyPaused(false);
     setPreparedStepKey("");
     setPreparationCountdownStepKey("");
     setPreparationCountdown(0);
@@ -1036,7 +1061,7 @@ export function WorkoutSessionPage() {
                   icon={isPaused ? "play_arrow" : "pause"}
                   label={isPaused ? "继续" : "暂停"}
                   large
-                  onClick={() => setIsPaused((value) => !value)}
+                  onClick={toggleManualPause}
                 />
               )}
               <SessionControl
