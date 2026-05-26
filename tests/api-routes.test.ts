@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createChatConversation, createExercise, createSavedWorkout, createScheduledWorkout, createWorkoutPlanIntent } from "./fixtures/domain";
+import { createChatConversation, createExercise, createWorkoutRoutine, createWorkoutSchedule, createWorkoutPlanIntent } from "./fixtures/domain";
 
 const traceMocks = vi.hoisted(() => ({
   startAiTrace: vi.fn(() => ({
@@ -28,15 +28,16 @@ const exerciseServiceMocks = vi.hoisted(() => ({
   listExercises: vi.fn(),
 }));
 const workoutPersistenceMocks = vi.hoisted(() => ({
-  createScheduledWorkout: vi.fn(),
-  deleteSavedWorkout: vi.fn(),
-  deleteScheduledWorkout: vi.fn(),
-  getSavedWorkoutById: vi.fn(),
-  getScheduledWorkoutById: vi.fn(),
-  listSavedWorkouts: vi.fn(),
-  listScheduledWorkouts: vi.fn(),
-  saveWorkout: vi.fn(),
-  updateScheduledWorkoutStatus: vi.fn(),
+  createWorkoutSchedule: vi.fn(),
+  deleteWorkoutRoutine: vi.fn(),
+  deleteWorkoutSchedule: vi.fn(),
+  getWorkoutRoutineById: vi.fn(),
+  getWorkoutScheduleById: vi.fn(),
+  listWorkoutRoutines: vi.fn(),
+  listWorkoutSchedules: vi.fn(),
+  saveWorkoutSessionResult: vi.fn(),
+  saveWorkoutRoutine: vi.fn(),
+  updateWorkoutScheduleStatus: vi.fn(),
 }));
 const chatHistoryMocks = vi.hoisted(() => ({
   deleteChatConversation: vi.fn(),
@@ -73,10 +74,11 @@ const workoutPlanRoute = await import("@/app/api/ai/workout-plan/route");
 const exerciseRecommendationRoute = await import("@/app/api/ai/exercise-recommendations/route");
 const exercisesRoute = await import("@/app/api/exercises/route");
 const exerciseDetailRoute = await import("@/app/api/exercises/[id]/route");
-const workoutsRoute = await import("@/app/api/workouts/route");
-const workoutDetailRoute = await import("@/app/api/workouts/[id]/route");
-const sessionsRoute = await import("@/app/api/workout-sessions/route");
-const sessionDetailRoute = await import("@/app/api/workout-sessions/[id]/route");
+const workoutRoutinesRoute = await import("@/app/api/workout-routines/route");
+const workoutRoutineDetailRoute = await import("@/app/api/workout-routines/[id]/route");
+const workoutSchedulesRoute = await import("@/app/api/workout-schedules/route");
+const workoutScheduleDetailRoute = await import("@/app/api/workout-schedules/[id]/route");
+const workoutScheduleResultRoute = await import("@/app/api/workout-schedules/[id]/result/route");
 const conversationsRoute = await import("@/app/api/chat/conversations/route");
 const conversationDetailRoute = await import("@/app/api/chat/conversations/[id]/route");
 
@@ -119,13 +121,14 @@ describe("API route boundaries", () => {
     exerciseServiceMocks.listExercises.mockResolvedValue({ items: [], total: 0 });
     exerciseServiceMocks.getExerciseFacets.mockResolvedValue({ categories: [] });
     exerciseServiceMocks.getExerciseById.mockResolvedValue(createExercise({ id: "push-up" }));
-    workoutPersistenceMocks.listSavedWorkouts.mockResolvedValue([createSavedWorkout()]);
-    workoutPersistenceMocks.getSavedWorkoutById.mockResolvedValue(createSavedWorkout({ id: "workout-1" }));
-    workoutPersistenceMocks.saveWorkout.mockImplementation(async (workout) => workout);
-    workoutPersistenceMocks.listScheduledWorkouts.mockResolvedValue([createScheduledWorkout()]);
-    workoutPersistenceMocks.getScheduledWorkoutById.mockResolvedValue(createScheduledWorkout({ id: "session-1" }));
-    workoutPersistenceMocks.createScheduledWorkout.mockImplementation(async (session) => session);
-    workoutPersistenceMocks.updateScheduledWorkoutStatus.mockResolvedValue(createScheduledWorkout({ status: "completed" }));
+    workoutPersistenceMocks.listWorkoutRoutines.mockResolvedValue([createWorkoutRoutine()]);
+    workoutPersistenceMocks.getWorkoutRoutineById.mockResolvedValue(createWorkoutRoutine({ id: "workout-1" }));
+    workoutPersistenceMocks.saveWorkoutRoutine.mockImplementation(async (workout) => workout);
+    workoutPersistenceMocks.listWorkoutSchedules.mockResolvedValue([createWorkoutSchedule()]);
+    workoutPersistenceMocks.getWorkoutScheduleById.mockResolvedValue(createWorkoutSchedule({ id: "session-1" }));
+    workoutPersistenceMocks.createWorkoutSchedule.mockImplementation(async (session) => session);
+    workoutPersistenceMocks.updateWorkoutScheduleStatus.mockResolvedValue(createWorkoutSchedule({ status: "completed" }));
+    workoutPersistenceMocks.saveWorkoutSessionResult.mockResolvedValue({ id: "result-1", status: "completed" });
     chatHistoryMocks.listChatConversations.mockResolvedValue([createChatConversation()]);
     chatHistoryMocks.getChatConversationById.mockResolvedValue(createChatConversation({ id: "conversation-1" }));
     chatHistoryMocks.saveChatConversation.mockImplementation(async (conversation) => conversation);
@@ -198,25 +201,37 @@ describe("API route boundaries", () => {
   });
 
   it("handles workout and workout session resource routes", async () => {
-    await expect((await workoutsRoute.GET()).json()).resolves.toMatchObject({ items: [expect.any(Object)] });
-    await expect((await workoutsRoute.POST(jsonRequest("/api/workouts", createSavedWorkout()))).json()).resolves.toMatchObject({
-      item: { id: "saved-workout-1" },
+    await expect((await workoutRoutinesRoute.GET()).json()).resolves.toMatchObject({ items: [expect.any(Object)] });
+    await expect((await workoutRoutinesRoute.POST(jsonRequest("/api/workout-routines", createWorkoutRoutine()))).json()).resolves.toMatchObject({
+      item: { id: "workout-routine-1" },
     });
-    await expect((await workoutDetailRoute.GET(new Request("http://localhost"), params("workout-1"))).json()).resolves.toMatchObject({
+    await expect((await workoutRoutineDetailRoute.GET(new Request("http://localhost"), params("workout-1"))).json()).resolves.toMatchObject({
       item: { id: "workout-1" },
     });
-    await workoutDetailRoute.PUT(jsonRequest("/api/workouts/workout-1", createSavedWorkout({ id: "ignored" })), params("workout-1"));
-    expect(workoutPersistenceMocks.saveWorkout).toHaveBeenCalledWith(expect.objectContaining({ id: "workout-1" }));
-    expect((await workoutDetailRoute.DELETE(new Request("http://localhost"), params("workout-1"))).status).toBe(204);
+    await workoutRoutineDetailRoute.PUT(jsonRequest("/api/workout-routines/workout-1", createWorkoutRoutine({ id: "ignored" })), params("workout-1"));
+    expect(workoutPersistenceMocks.saveWorkoutRoutine).toHaveBeenCalledWith(expect.objectContaining({ id: "workout-1" }));
+    expect((await workoutRoutineDetailRoute.DELETE(new Request("http://localhost"), params("workout-1"))).status).toBe(204);
 
-    await expect((await sessionsRoute.GET()).json()).resolves.toMatchObject({ items: [expect.any(Object)] });
-    await expect((await sessionsRoute.POST(jsonRequest("/api/workout-sessions", createScheduledWorkout()))).json()).resolves.toMatchObject({
+    await expect((await workoutSchedulesRoute.GET()).json()).resolves.toMatchObject({ items: [expect.any(Object)] });
+    await expect((await workoutSchedulesRoute.POST(jsonRequest("/api/workout-schedules", createWorkoutSchedule()))).json()).resolves.toMatchObject({
       item: { id: "schedule-1" },
     });
-    await expect((await sessionDetailRoute.PATCH(jsonRequest("/api/workout-sessions/session-1", { status: "completed" }), params("session-1"))).json()).resolves.toMatchObject({
+    await expect((await workoutScheduleDetailRoute.PATCH(jsonRequest("/api/workout-schedules/session-1", { status: "completed" }), params("session-1"))).json()).resolves.toMatchObject({
       item: { status: "completed" },
     });
-    expect((await sessionDetailRoute.DELETE(new Request("http://localhost"), params("session-1"))).status).toBe(204);
+    await expect(
+      (await workoutScheduleResultRoute.PUT(jsonRequest("/api/workout-schedules/session-1/result", {
+        completedExerciseCount: 1,
+        completedStepCount: 2,
+        durationSeconds: 120,
+        endedAt: "2026-05-25T10:02:00.000Z",
+        estimatedCalories: 20,
+        startedAt: "2026-05-25T10:00:00.000Z",
+        totalExerciseCount: 1,
+        totalStepCount: 2,
+      }), params("session-1"))).json(),
+    ).resolves.toMatchObject({ item: { id: "result-1" } });
+    expect((await workoutScheduleDetailRoute.DELETE(new Request("http://localhost"), params("session-1"))).status).toBe(204);
   });
 
   it("handles chat conversation resource routes", async () => {

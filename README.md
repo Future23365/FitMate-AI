@@ -121,8 +121,8 @@ features/
     lib/                   # 聊天历史、计划触发解析等前端工具
     types.ts               # 聊天相关类型
   exercises/               # 前端动作库功能模块
-  workouts/                # 前端训练编排、计划、执行相关页面组件
-  workout-plans/           # 前端训练计划转换与保存相关工具
+  workouts/                # 前端训练编排、日历、执行相关页面组件
+  workout-plans/           # 前端训练计划草稿转换为 routine 的工具
 
 lib/
   client/                  # 浏览器专用基础设施
@@ -134,9 +134,11 @@ lib/
     http/server-request.ts # 服务端外部 HTTP 请求函数
     exercises/             # 服务端动作库查询服务
     workout-plans/         # AI 计划生成、候选动作、计划校验服务
+    workouts/              # 训练 routine、schedule、session result 持久化服务
   shared/                  # 前后端共享类型、Schema 和纯数据结构
     exercises/
     workout-plans/
+    workouts/
 
 data/
   exercises.zh.json        # 中文动作 seed 数据，开发期无数据库时作为回退数据源
@@ -167,7 +169,7 @@ example/                   # 设计参考 HTML
 - [x] 聊天历史服务端持久化，替代 `localStorage`。
 - [x] 训练编排服务端保存、编辑和删除。
 - [x] 训练日历服务端持久化，支持跨设备同步的基础数据结构。
-- [x] 训练执行状态落库，结束训练后同步完成状态。
+- [x] 训练执行结果落库，结束训练后写入 `WorkoutSessionResult` 并同步日历完成状态。
 - [ ] 后续处理：训练计划版本管理、完整训练执行明细、动作组完成情况和训练反馈。
 - [ ] 后续处理：训练结束后的主观反馈收集，例如难度、疼痛、疲劳、喜欢/不喜欢的动作。
 - [ ] 后续处理：基于反馈自动调整后续计划。
@@ -200,7 +202,7 @@ example/                   # 设计参考 HTML
 - [x] 新增训练计划校验服务，校验动作 ID、训练时长、训练强度、组数、次数/时长和休息时间。
 - [x] 新增 `POST /api/ai/workout-plan`，用于根据聊天上下文生成可保存的训练计划草稿。
 - [x] 聊天页支持展示 AI 生成的计划草稿，包括标题、目标、周频率、训练日、动作、组数、次数/时长、休息和安全提示。
-- [x] 聊天页增加“保存计划”入口，将计划草稿转换为当前动作编排使用的保存结构。
+- [x] 聊天页增加“保存计划”入口，将计划草稿转换为当前动作编排使用的 `WorkoutRoutine`。
 - [x] 计划草稿保存到服务端数据库，并可自动写入训练日历。
 - [x] 增加失败处理：非法 JSON、非法 `exerciseId`、候选动作不足、高风险健康情况、AI 请求失败。
 - [x] 增加最小测试：schema 校验、非法 `exerciseId` 拒绝、新手过滤高风险动作、计划保存结构转换。
@@ -209,7 +211,7 @@ example/                   # 设计参考 HTML
 
 - [x] 静态动作数据已包含发布状态、审核状态、风险标签、目标标签和来源许可证字段。
 - [x] 建立 PostgreSQL / Prisma 数据层骨架。
-- [x] 引入 Prisma，建立 `User`、`Exercise`、`WorkoutPlan`、`WorkoutSession`、`ChatSession` 等核心模型。
+- [x] 引入 Prisma，建立 `User`、`Exercise`、`WorkoutRoutine`、`WorkoutSchedule`、`WorkoutSessionResult`、`ChatSession` 等核心模型。
 - [x] 将 `data/exercises.zh.json` 迁移为数据库 seed 数据。
 - [x] 运行时动作库、聊天、训练编排、训练日历和训练状态读写已统一走 PostgreSQL/Prisma。
 - [ ] 后续处理：配置真实托管 PostgreSQL 实例并执行迁移，让数据库成为线上事实数据来源。

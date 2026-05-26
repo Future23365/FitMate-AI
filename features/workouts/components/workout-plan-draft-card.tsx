@@ -7,21 +7,21 @@ import { useRouter } from "next/navigation";
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
 import {
-  createScheduledWorkout,
-  createWorkout,
-  deleteScheduledWorkout,
-  listScheduledWorkouts,
+  createWorkoutSchedule,
+  createWorkoutRoutine,
+  deleteWorkoutSchedule,
+  listWorkoutSchedules,
 } from "@/features/workouts/api/workout-data-client";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import type { WorkoutPlanDraft, WorkoutPlanItemDraft } from "@/lib/shared/workout-plans/draft-schema";
-import { convertWorkoutPlanDraftToSavedWorkout } from "@/features/workout-plans/lib/saved-workout";
+import { convertWorkoutPlanDraftToWorkoutRoutine } from "@/features/workout-plans/lib/workout-routine-conversion";
 import { clientRequest } from "@/lib/client/http/client-request";
 import {
   estimateWorkoutCalories,
   estimateWorkoutMinutes,
   getWorkoutLoopConfig,
   placeholderWorkoutImage,
-  type ScheduledWorkout,
+  type WorkoutSchedule,
 } from "@/lib/shared/workouts/composition";
 
 interface WorkoutPlanDraftCardProps {
@@ -159,15 +159,15 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
         return next;
       });
       // 1. 全量保存 Routine
-      const savedWorkouts = draft.days.map((day) => {
-        const workout = convertWorkoutPlanDraftToSavedWorkout(draft, draftExercises, {
+      const draftRoutines = draft.days.map((day) => {
+        const workout = convertWorkoutPlanDraftToWorkoutRoutine(draft, draftExercises, {
           dayIndex: day.dayIndex,
         });
         // 润色命名：[计划标题] 训练日标题
         workout.title = `[${draft.title}] ${day.title || `训练日 ${day.dayIndex || 1}`}`;
         return workout;
       });
-      const persistedWorkouts = await Promise.all(savedWorkouts.map((workout) => createWorkout(workout)));
+      const persistedWorkouts = await Promise.all(draftRoutines.map((workout) => createWorkoutRoutine(workout)));
 
       // 2. 智能日程排班 (如果是长期计划且天数 > 1)
       if (!isRoutineOnly) {
@@ -182,7 +182,7 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
           7: [1, 2, 3, 4, 5, 6, 7], // 每天
         };
 
-        const newScheduledWorkouts: ScheduledWorkout[] = [];
+        const newWorkoutSchedules: WorkoutSchedule[] = [];
         let trainingDayCount = 0;
 
         for (let d = 0; d < scheduleRange; d++) {
@@ -196,10 +196,10 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
             const loopConfig = getWorkoutLoopConfig(workout);
             trainingDayCount++;
 
-            newScheduledWorkouts.push({
+            newWorkoutSchedules.push({
               id: `${workout.id}-${dateKey}-${crypto.randomUUID()}`,
               date: dateKey,
-              planId: workout.id,
+              routineId: workout.id,
               title: workout.title,
               status: "planned",
               minutes: estimateWorkoutMinutes(workout.items, {
@@ -213,19 +213,18 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
               items: workout.items,
               trainingLoopRounds: workout.trainingLoopRounds,
               trainingLoopRestSeconds: workout.trainingLoopRestSeconds,
-              sourcePlanTitle: draft.title,
+              sourceRoutineTitle: draft.title,
             });
           } else {
-            newScheduledWorkouts.push({
+            newWorkoutSchedules.push({
               id: `rest-${dateKey}-${crypto.randomUUID()}`,
               date: dateKey,
-              planId: "rest",
               title: "休息日",
               status: "rest",
               minutes: 0,
               calories: 0,
               items: [],
-              sourcePlanTitle: draft.title,
+              sourceRoutineTitle: draft.title,
             });
           }
         }
@@ -234,16 +233,16 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
         const startRangeKey = toDateKey(today);
         const endRangeDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() + scheduleRange - 1);
         const endRangeKey = toDateKey(endRangeDate);
-        const existingSchedule = await listScheduledWorkouts();
+        const existingSchedule = await listWorkoutSchedules();
         const importedSessionsToReplace = existingSchedule.filter((item) => {
           const isInRange = item.date >= startRangeKey && item.date <= endRangeKey;
-          const isSameImportedPlan = item.sourcePlanTitle === draft.title;
+          const isSameImportedPlan = item.sourceRoutineTitle === draft.title;
 
           return isInRange && isSameImportedPlan;
         });
 
-        await Promise.all(importedSessionsToReplace.map((item) => deleteScheduledWorkout(item.id)));
-        await Promise.all(newScheduledWorkouts.map((workout) => createScheduledWorkout(workout)));
+        await Promise.all(importedSessionsToReplace.map((item) => deleteWorkoutSchedule(item.id)));
+        await Promise.all(newWorkoutSchedules.map((workout) => createWorkoutSchedule(workout)));
       }
 
       setSaveSuccess(true);

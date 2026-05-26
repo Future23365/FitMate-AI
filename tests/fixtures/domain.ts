@@ -2,7 +2,7 @@ import type { ApiChatMessage, ChatConversation } from "@/features/chat/types";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import type { FitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
 import type { WorkoutPlanDraft, WorkoutPlanIntent } from "@/lib/shared/workout-plans/draft-schema";
-import type { SavedWorkout, ScheduledWorkout, WorkoutItem } from "@/lib/shared/workouts/composition";
+import type { WorkoutRoutine, WorkoutSchedule, WorkoutItem } from "@/lib/shared/workouts/composition";
 
 export function createExercise(overrides: Partial<Exercise> = {}): Exercise {
   const id = overrides.id ?? "push-up";
@@ -111,22 +111,22 @@ export function createWorkoutPlanDraft(overrides: Partial<WorkoutPlanDraft> = {}
   };
 }
 
-export function createSavedWorkout(overrides: Partial<SavedWorkout> = {}): SavedWorkout {
+export function createWorkoutRoutine(overrides: Partial<WorkoutRoutine> = {}): WorkoutRoutine {
   return {
-    id: overrides.id ?? "saved-workout-1",
+    id: overrides.id ?? "workout-routine-1",
     title: overrides.title ?? "居家训练",
-    savedAt: overrides.savedAt ?? "2026-05-25 10:00",
+    updatedAt: overrides.updatedAt ?? "2026-05-25 10:00",
     items: overrides.items ?? [createWorkoutItem()],
     trainingLoopRounds: overrides.trainingLoopRounds ?? 1,
     trainingLoopRestSeconds: overrides.trainingLoopRestSeconds ?? 90,
   };
 }
 
-export function createScheduledWorkout(overrides: Partial<ScheduledWorkout> = {}): ScheduledWorkout {
+export function createWorkoutSchedule(overrides: Partial<WorkoutSchedule> = {}): WorkoutSchedule {
   return {
     id: overrides.id ?? "schedule-1",
     date: overrides.date ?? "2026-05-25",
-    planId: overrides.planId ?? "saved-workout-1",
+    routineId: overrides.routineId ?? "workout-routine-1",
     title: overrides.title ?? "居家训练",
     status: overrides.status ?? "planned",
     minutes: overrides.minutes ?? 20,
@@ -134,7 +134,7 @@ export function createScheduledWorkout(overrides: Partial<ScheduledWorkout> = {}
     items: overrides.items ?? [createWorkoutItem()],
     trainingLoopRounds: overrides.trainingLoopRounds ?? 1,
     trainingLoopRestSeconds: overrides.trainingLoopRestSeconds ?? 90,
-    sourcePlanTitle: overrides.sourcePlanTitle,
+    sourceRoutineTitle: overrides.sourceRoutineTitle,
   };
 }
 

@@ -1,7 +1,7 @@
 import exercisesData from "@/data/exercises.zh.json";
 import { describe, expect, it } from "vitest";
 
-import { convertWorkoutPlanDraftToSavedWorkout } from "@/features/workout-plans/lib/saved-workout";
+import { convertWorkoutPlanDraftToWorkoutRoutine } from "@/features/workout-plans/lib/workout-routine-conversion";
 import { selectExerciseCandidates } from "@/lib/server/workout-plans/exercise-candidate-service";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import { workoutPlanIntentSchema } from "@/lib/shared/workout-plans/draft-schema";
@@ -148,35 +148,92 @@ describe("workout plan core logic", () => {
       ],
     });
 
-    const savedWorkout = convertWorkoutPlanDraftToSavedWorkout(draft, exercises, {
+    const workoutRoutine = convertWorkoutPlanDraftToWorkoutRoutine(draft, exercises, {
       createId: () => "fixture-id",
       dayIndex: 1,
       id: "workout-1",
-      savedAt: new Date("2026-05-25T10:30:00"),
+      updatedAt: new Date("2026-05-25T10:30:00"),
     });
 
-    expect(savedWorkout).toMatchObject({
+    expect(workoutRoutine).toMatchObject({
       id: "workout-1",
       title: "Day 1 核心激活",
-      savedAt: "2026-05-25 10:30",
+      updatedAt: "2026-05-25 10:30",
     });
-    expect(savedWorkout.items).toHaveLength(2);
-    expect(savedWorkout.items[0]).toMatchObject({
+    expect(workoutRoutine.items).toHaveLength(2);
+    expect(workoutRoutine.items[0]).toMatchObject({
       exerciseId: exerciseIds[0],
       sets: 3,
       target: 15,
       setRestSeconds: 45,
     });
-    expect(savedWorkout.items[0].imageUrls).toHaveLength(
+    expect(workoutRoutine.items[0].imageUrls).toHaveLength(
       exercises.find((exercise) => exercise.id === exerciseIds[0])?.imageUrls.length ?? 0,
     );
 
     expect(
       normalizeWorkoutItem({
-        ...savedWorkout.items[0],
+        ...workoutRoutine.items[0],
         imageUrl: "/legacy-demo.jpg",
         imageUrls: undefined,
       }).imageUrls,
     ).toEqual(["/legacy-demo.jpg"]);
+  });
+
+  it("converts each AI draft day into an independent workout routine", () => {
+    const candidates = selectExerciseCandidates(createWorkoutPlanIntent({ goal: "全身训练" }), exercises);
+    const exerciseIds = candidates.primaryCandidates.slice(0, 2).map((candidate) => candidate.exercise.id);
+    const draft = createWorkoutPlanDraft({
+      title: "两日训练草稿",
+      days: [
+        {
+          title: "Day 1 上肢",
+          focus: "上肢",
+          dayIndex: 1,
+          estimatedMinutes: 20,
+          safetyNotes: [],
+          items: [
+            {
+              exerciseId: exerciseIds[0],
+              mode: "reps",
+              sets: 2,
+              target: 12,
+              setRestSeconds: 30,
+              transitionRestSeconds: 30,
+            },
+          ],
+        },
+        {
+          title: "Day 2 下肢",
+          focus: "下肢",
+          dayIndex: 2,
+          estimatedMinutes: 20,
+          safetyNotes: [],
+          items: [
+            {
+              exerciseId: exerciseIds[1],
+              mode: "duration",
+              sets: 2,
+              target: 30,
+              setRestSeconds: 30,
+              transitionRestSeconds: 30,
+            },
+          ],
+        },
+      ],
+    });
+
+    const routines = [1, 2].map((dayIndex) =>
+      convertWorkoutPlanDraftToWorkoutRoutine(draft, exercises, {
+        createId: () => `routine-${dayIndex}`,
+        dayIndex,
+        id: `routine-${dayIndex}`,
+        updatedAt: new Date("2026-05-25T10:30:00"),
+      }),
+    );
+
+    expect(routines).toHaveLength(2);
+    expect(routines.map((routine) => routine.title)).toEqual(["Day 1 上肢", "Day 2 下肢"]);
+    expect(routines[0].items[0].exerciseId).not.toBe(routines[1].items[0].exerciseId);
   });
 });

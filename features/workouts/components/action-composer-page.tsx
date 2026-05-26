@@ -7,11 +7,11 @@ import { useEffect, useRef, useState } from "react";
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
 import {
-  createWorkout,
-  deleteWorkout,
-  getSavedWorkout,
-  listSavedWorkouts,
-  saveWorkout,
+  createWorkoutRoutine,
+  deleteWorkoutRoutine as deleteWorkoutRoutineRequest,
+  getWorkoutRoutine,
+  listWorkoutRoutines,
+  saveWorkoutRoutine,
 } from "@/features/workouts/api/workout-data-client";
 import { clientRequest } from "@/lib/client/http/client-request";
 import type { Exercise, ExerciseFacets } from "@/lib/shared/exercises/types";
@@ -27,12 +27,12 @@ import {
   getTotalWorkoutSets,
   inferWorkoutSection,
   loopRoundOptions,
-  normalizeSavedWorkout,
+  normalizeWorkoutRoutine,
   normalizeWorkoutItem,
   placeholderWorkoutImage,
   restOptions,
   workoutSectionConfigs,
-  type SavedWorkout,
+  type WorkoutRoutine,
   type WorkoutItem,
   type WorkoutMode,
   type WorkoutSection,
@@ -232,8 +232,8 @@ async function fetchTemplateExercise(config: TemplateExerciseConfig) {
 export function ActionComposerPage() {
   const [planTitle, setPlanTitle] = useState("我的燃脂循环训练");
   const [items, setItems] = useState<WorkoutItem[]>([]);
-  const [savedWorkouts, setSavedWorkouts] = useState<SavedWorkout[]>([]);
-  const [activeSavedWorkoutId, setActiveSavedWorkoutId] = useState("");
+  const [workoutRoutines, setWorkoutRoutines] = useState<WorkoutRoutine[]>([]);
+  const [activeWorkoutRoutineId, setActiveWorkoutRoutineId] = useState("");
   const [selectedItemId, setSelectedItemId] = useState("");
   const [libraryItems, setLibraryItems] = useState<Exercise[]>([]);
   const [exerciseCache, setExerciseCache] = useState<Map<string, Exercise>>(() => new Map());
@@ -328,8 +328,8 @@ export function ActionComposerPage() {
       }
 
       try {
-        const matchedWorkout = await getSavedWorkout(hashId);
-        openSavedWorkout(matchedWorkout, false);
+        const matchedWorkout = await getWorkoutRoutine(hashId);
+        openWorkoutRoutine(matchedWorkout, false);
       } catch {
         setSaveStatus("训练编排读取失败");
       }
@@ -342,32 +342,32 @@ export function ActionComposerPage() {
   }, []);
 
   useEffect(() => {
-    async function syncSavedWorkouts() {
+    async function syncWorkoutRoutines() {
       try {
-        const nextWorkouts = await listSavedWorkouts();
-        setSavedWorkouts(nextWorkouts.map(normalizeSavedWorkout));
+        const nextWorkouts = await listWorkoutRoutines();
+        setWorkoutRoutines(nextWorkouts.map(normalizeWorkoutRoutine));
 
         if (!hasHandledInitialWorkoutLoadRef.current) {
           hasHandledInitialWorkoutLoadRef.current = true;
 
           const hashId = window.location.hash.slice(1);
-          if (!hashId && nextWorkouts.length > 0 && !activeSavedWorkoutId && items.length === 0) {
-            openSavedWorkout(nextWorkouts[0], false);
+          if (!hashId && nextWorkouts.length > 0 && !activeWorkoutRoutineId && items.length === 0) {
+            openWorkoutRoutine(nextWorkouts[0], false);
           }
         }
       } catch {
         setSaveStatus("已保存编排加载失败");
-        setSavedWorkouts([]);
+        setWorkoutRoutines([]);
       }
     }
 
-    void syncSavedWorkouts();
-    window.addEventListener("fitmate:workouts-updated", syncSavedWorkouts);
+    void syncWorkoutRoutines();
+    window.addEventListener("fitmate:workouts-updated", syncWorkoutRoutines);
 
     return () => {
-      window.removeEventListener("fitmate:workouts-updated", syncSavedWorkouts);
+      window.removeEventListener("fitmate:workouts-updated", syncWorkoutRoutines);
     };
-  }, [activeSavedWorkoutId, items.length]);
+  }, [activeWorkoutRoutineId, items.length]);
 
   useEffect(() => {
     if (!saveStatus) {
@@ -538,13 +538,13 @@ export function ActionComposerPage() {
     setTrainingLoopRestSeconds(defaultTrainingLoopRestSeconds);
     setSelectedItemId("");
     setSelectedSection("training");
-    setActiveSavedWorkoutId("");
+    setActiveWorkoutRoutineId("");
     setSaveStatus("已新建空白编排");
     window.history.replaceState(null, "", window.location.pathname);
   }
 
-  function openSavedWorkout(workout: SavedWorkout, updateHash = true) {
-    const normalizedWorkout = normalizeSavedWorkout(workout);
+  function openWorkoutRoutine(workout: WorkoutRoutine, updateHash = true) {
+    const normalizedWorkout = normalizeWorkoutRoutine(workout);
     const normalizedItems = normalizedWorkout.items;
 
     setPlanTitle(normalizedWorkout.title);
@@ -553,7 +553,7 @@ export function ActionComposerPage() {
     setTrainingLoopRestSeconds(normalizedWorkout.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds);
     setSelectedItemId(normalizedItems[0]?.id ?? "");
     setSelectedSection(normalizedItems[0]?.section ?? "training");
-    setActiveSavedWorkoutId(workout.id);
+    setActiveWorkoutRoutineId(workout.id);
     setSaveStatus(`已加载：${workout.title}`);
 
     if (updateHash) {
@@ -561,14 +561,14 @@ export function ActionComposerPage() {
     }
   }
 
-  async function duplicateSavedWorkout(workout: SavedWorkout) {
+  async function duplicateWorkoutRoutine(workout: WorkoutRoutine) {
     const now = new Date();
-    const normalizedWorkout = normalizeSavedWorkout(workout);
-    const copiedWorkout: SavedWorkout = {
+    const normalizedWorkout = normalizeWorkoutRoutine(workout);
+    const copiedWorkout: WorkoutRoutine = {
       ...normalizedWorkout,
       id: crypto.randomUUID(),
       title: `${normalizedWorkout.title} 副本`,
-      savedAt: formatDateTime(now),
+      updatedAt: formatDateTime(now),
       items: normalizedWorkout.items.map((item) => ({
         ...normalizeWorkoutItem(item),
         id: crypto.randomUUID(),
@@ -576,15 +576,15 @@ export function ActionComposerPage() {
     };
 
     try {
-      const savedCopy = await createWorkout(copiedWorkout);
-      setSavedWorkouts((current) => [savedCopy, ...current].slice(0, 8));
+      const savedCopy = await createWorkoutRoutine(copiedWorkout);
+      setWorkoutRoutines((current) => [savedCopy, ...current].slice(0, 8));
       setSaveStatus(`已复制：${workout.title}`);
     } catch {
       setSaveStatus("复制训练编排失败");
     }
   }
 
-  async function deleteSavedWorkout(workout: SavedWorkout) {
+  async function removeWorkoutRoutine(workout: WorkoutRoutine) {
     const confirmed = window.confirm(`删除已保存编排「${workout.title}」？`);
 
     if (!confirmed) {
@@ -592,11 +592,11 @@ export function ActionComposerPage() {
     }
 
     try {
-      await deleteWorkout(workout.id);
-      setSavedWorkouts((current) => current.filter((savedWorkout) => savedWorkout.id !== workout.id));
+      await deleteWorkoutRoutineRequest(workout.id);
+      setWorkoutRoutines((current) => current.filter((routine) => routine.id !== workout.id));
 
-      if (activeSavedWorkoutId === workout.id) {
-        setActiveSavedWorkoutId("");
+      if (activeWorkoutRoutineId === workout.id) {
+        setActiveWorkoutRoutineId("");
       }
 
       setSaveStatus(`已删除：${workout.title}`);
@@ -607,12 +607,12 @@ export function ActionComposerPage() {
 
   async function saveComposition() {
     const now = new Date();
-    const activeWorkoutExists = savedWorkouts.some((workout) => workout.id === activeSavedWorkoutId);
-    const savedWorkoutId = activeWorkoutExists ? activeSavedWorkoutId : crypto.randomUUID();
-    const savedWorkout: SavedWorkout = {
-      id: savedWorkoutId,
+    const activeWorkoutExists = workoutRoutines.some((workout) => workout.id === activeWorkoutRoutineId);
+    const routineId = activeWorkoutExists ? activeWorkoutRoutineId : crypto.randomUUID();
+    const routine: WorkoutRoutine = {
+      id: routineId,
       title: planTitle.trim() || "未命名动作编排",
-      savedAt: formatDateTime(now),
+      updatedAt: formatDateTime(now),
       trainingLoopRounds: clampLoopRounds(trainingLoopRounds),
       trainingLoopRestSeconds,
       items: items.map(normalizeWorkoutItem),
@@ -620,19 +620,19 @@ export function ActionComposerPage() {
 
     try {
       const persistedWorkout = activeWorkoutExists
-        ? await saveWorkout(savedWorkout)
-        : await createWorkout(savedWorkout);
-      setSavedWorkouts((current) =>
+        ? await saveWorkoutRoutine(routine)
+        : await createWorkoutRoutine(routine);
+      setWorkoutRoutines((current) =>
         activeWorkoutExists
-          ? current.map((workout) => (workout.id === savedWorkoutId ? persistedWorkout : workout))
+          ? current.map((workout) => (workout.id === routineId ? persistedWorkout : workout))
           : [persistedWorkout, ...current].slice(0, 8),
       );
-      setActiveSavedWorkoutId(savedWorkoutId);
-      window.history.replaceState(null, "", `#${savedWorkoutId}`);
+      setActiveWorkoutRoutineId(routineId);
+      window.history.replaceState(null, "", `#${routineId}`);
       setSaveStatus(
         activeWorkoutExists
-          ? `已更新：${persistedWorkout.savedAt}`
-          : `已保存：${persistedWorkout.savedAt}`,
+          ? `已更新：${persistedWorkout.updatedAt}`
+          : `已保存：${persistedWorkout.updatedAt}`,
       );
     } catch {
       setSaveStatus("保存训练编排失败，请确认动作来自数据库");
@@ -717,19 +717,19 @@ export function ActionComposerPage() {
               已保存编排
             </h2>
             <span className="font-label-sm text-label-sm text-muted">
-              {savedWorkouts.length ? `${savedWorkouts.length} 个` : "暂无保存"}
+              {workoutRoutines.length ? `${workoutRoutines.length} 个` : "暂无保存"}
             </span>
           </div>
-          {savedWorkouts.length ? (
+          {workoutRoutines.length ? (
             <div className="relative -mx-xs">
               <div className="scrollbar-none flex gap-sm overflow-x-auto px-xs pb-1">
-                {savedWorkouts.map((workout) => (
-                  <SavedCompositionCard
-                    isActive={workout.id === activeSavedWorkoutId}
+                {workoutRoutines.map((workout) => (
+                  <RoutineCompositionCard
+                    isActive={workout.id === activeWorkoutRoutineId}
                     key={workout.id}
-                    onDelete={() => deleteSavedWorkout(workout)}
-                    onDuplicate={() => duplicateSavedWorkout(workout)}
-                    onOpen={() => openSavedWorkout(workout)}
+                    onDelete={() => removeWorkoutRoutine(workout)}
+                    onDuplicate={() => duplicateWorkoutRoutine(workout)}
+                    onOpen={() => openWorkoutRoutine(workout)}
                     workout={workout}
                   />
                 ))}
@@ -1191,7 +1191,7 @@ function WorkoutSectionBlock({
   );
 }
 
-function SavedCompositionCard({
+function RoutineCompositionCard({
   isActive,
   onDelete,
   onDuplicate,
@@ -1202,7 +1202,7 @@ function SavedCompositionCard({
   onDelete: () => void;
   onDuplicate: () => void;
   onOpen: () => void;
-  workout: SavedWorkout;
+  workout: WorkoutRoutine;
 }) {
   const loopRounds = clampLoopRounds(workout.trainingLoopRounds ?? 1);
   const loopRestSeconds = workout.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds;
@@ -1251,7 +1251,7 @@ function SavedCompositionCard({
             {workout.items.length} 动作 · 训练{loopRounds}轮 · {minutes}min · {calories}kcal
           </span>
           <span className="block truncate text-[10px] text-outline">
-            {workout.savedAt}
+            {workout.updatedAt}
           </span>
         </span>
       </button>

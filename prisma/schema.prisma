@@ -22,25 +22,28 @@ enum ExerciseReviewStatus {
   fallback
 }
 
-enum WorkoutPlanStatus {
-  draft
+enum WorkoutRoutineStatus {
   active
   archived
 }
 
-enum WorkoutPlanSource {
+enum WorkoutRoutineSource {
   ai
   manual
   imported
 }
 
-enum WorkoutSessionStatus {
+enum WorkoutScheduleStatus {
   planned
-  in_progress
   completed
   missed
   cancelled
   rest
+}
+
+enum WorkoutSessionResultStatus {
+  completed
+  abandoned
 }
 
 enum ChatMessageRole {
@@ -58,8 +61,9 @@ model User {
   updatedAt    DateTime         @updatedAt
   identities   UserIdentity[]
   profile      UserProfile?
-  workoutPlans WorkoutPlan[]
-  sessions     WorkoutSession[]
+  routines     WorkoutRoutine[]
+  schedules    WorkoutSchedule[]
+  results      WorkoutSessionResult[]
   chatSessions ChatSession[]
 }
 
@@ -129,7 +133,7 @@ model Exercise {
   isPublished        Boolean              @default(false)
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
-  workoutItems       WorkoutPlanItem[]
+  workoutItems       WorkoutRoutineItem[]
 
   @@unique([source, sourceId])
   @@index([category])
@@ -139,49 +143,32 @@ model Exercise {
   @@index([isPublished])
 }
 
-model WorkoutPlan {
+model WorkoutRoutine {
   id                      String            @id @default(cuid())
   userId                  String
   title                   String
-  goal                    String
   summary                 String?
-  weeklyFrequency         Int
-  estimatedSessionMinutes Int
-  status                  WorkoutPlanStatus @default(draft)
-  source                  WorkoutPlanSource @default(ai)
-  safetyNotes             String[]          @default([])
+  estimatedMinutes        Int
+  estimatedCalories       Int               @default(0)
+  status                  WorkoutRoutineStatus @default(active)
+  source                  WorkoutRoutineSource @default(ai)
   trainingLoopRounds      Int?
   trainingLoopRestSeconds Int?
   sourceAiTraceId         String?
   createdAt               DateTime          @default(now())
   updatedAt               DateTime          @updatedAt
   user                    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  days                    WorkoutPlanDay[]
-  sessions                WorkoutSession[]
+  items                   WorkoutRoutineItem[]
+  schedules               WorkoutSchedule[]
+  results                 WorkoutSessionResult[]
 
   @@index([userId])
   @@index([status])
 }
 
-model WorkoutPlanDay {
-  id               String            @id @default(cuid())
-  workoutPlanId    String
-  dayIndex         Int
-  title            String
-  focus            String
-  estimatedMinutes Int
-  safetyNotes      String[]          @default([])
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  workoutPlan      WorkoutPlan       @relation(fields: [workoutPlanId], references: [id], onDelete: Cascade)
-  items            WorkoutPlanItem[]
-
-  @@unique([workoutPlanId, dayIndex])
-}
-
-model WorkoutPlanItem {
+model WorkoutRoutineItem {
   id                    String         @id @default(cuid())
-  workoutPlanDayId      String
+  routineId             String
   exerciseId            String
   mode                  String
   target                Int
@@ -193,32 +180,60 @@ model WorkoutPlanItem {
   sortOrder             Int
   createdAt             DateTime       @default(now())
   updatedAt             DateTime       @updatedAt
-  workoutPlanDay        WorkoutPlanDay @relation(fields: [workoutPlanDayId], references: [id], onDelete: Cascade)
+  routine               WorkoutRoutine @relation(fields: [routineId], references: [id], onDelete: Cascade)
   exercise              Exercise       @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
 
-  @@unique([workoutPlanDayId, sortOrder])
+  @@unique([routineId, sortOrder])
   @@index([exerciseId])
-  @@index([workoutPlanDayId, sortOrder])
+  @@index([routineId, sortOrder])
 }
 
-model WorkoutSession {
+model WorkoutSchedule {
   id              String               @id @default(cuid())
   userId          String
-  workoutPlanId   String?
-  scheduledFor    DateTime?
-  startedAt       DateTime?
-  endedAt         DateTime?
-  status          WorkoutSessionStatus @default(planned)
-  durationSeconds Int?
-  feedback        Json?
+  routineId       String?
+  scheduledFor    DateTime
+  status          WorkoutScheduleStatus @default(planned)
+  titleSnapshot   String
+  estimatedMinutes Int               @default(0)
+  estimatedCalories Int              @default(0)
   createdAt       DateTime             @default(now())
   updatedAt       DateTime             @updatedAt
   user            User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workoutPlan     WorkoutPlan?         @relation(fields: [workoutPlanId], references: [id], onDelete: SetNull)
+  routine         WorkoutRoutine?      @relation(fields: [routineId], references: [id], onDelete: SetNull)
+  result          WorkoutSessionResult?
 
   @@index([userId])
   @@index([status])
   @@index([scheduledFor])
+  @@index([routineId])
+}
+
+model WorkoutSessionResult {
+  id                     String                     @id @default(cuid())
+  userId                 String
+  scheduleId             String                     @unique
+  routineId              String?
+  startedAt              DateTime
+  endedAt                DateTime
+  durationSeconds        Int
+  completedStepCount     Int
+  totalStepCount         Int
+  completedExerciseCount Int
+  totalExerciseCount     Int
+  estimatedCalories      Int
+  actualCalories         Int?
+  status                 WorkoutSessionResultStatus @default(completed)
+  feedback               Json?
+  createdAt              DateTime                   @default(now())
+  updatedAt              DateTime                   @updatedAt
+  user                   User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  schedule               WorkoutSchedule            @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  routine                WorkoutRoutine?            @relation(fields: [routineId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([routineId])
+  @@index([status])
 }
 
 model ChatSession {

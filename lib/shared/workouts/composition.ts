@@ -1,6 +1,7 @@
 export type WorkoutMode = "duration" | "reps";
 export type WorkoutSection = "warmup" | "training" | "stretch";
 
+// 训练执行层的动作项，独立于数据库 routine item 命名，供时间线和页面播放复用。
 export type WorkoutItem = {
   id: string;
   exerciseId: string;
@@ -21,29 +22,48 @@ export type WorkoutItem = {
   section?: WorkoutSection;
 };
 
-export type SavedWorkout = {
+// WorkoutRoutine 表示用户可复用的一套动作编排。
+export type WorkoutRoutine = {
   id: string;
   title: string;
-  savedAt: string;
+  updatedAt: string;
   items: WorkoutItem[];
   trainingLoopRounds?: number;
   trainingLoopRestSeconds?: number;
 };
 
-export type ScheduleStatus = "completed" | "missed" | "planned" | "rest";
+export type WorkoutScheduleStatus = "cancelled" | "completed" | "missed" | "planned" | "rest";
 
-export type ScheduledWorkout = {
+// WorkoutSchedule 表示日历上的一次训练安排或休息日。
+export type WorkoutSchedule = {
   id: string;
   date: string;
-  planId: string;
+  routineId?: string;
   title: string;
-  status: ScheduleStatus;
+  status: WorkoutScheduleStatus;
   minutes: number;
   calories: number;
   items: WorkoutItem[];
   trainingLoopRounds?: number;
   trainingLoopRestSeconds?: number;
-  sourcePlanTitle?: string;
+  sourceRoutineTitle?: string;
+};
+
+// WorkoutSessionResult 保存一次训练完成后的摘要结果。
+export type WorkoutSessionResult = {
+  id: string;
+  scheduleId: string;
+  routineId?: string;
+  startedAt: string;
+  endedAt: string;
+  durationSeconds: number;
+  completedStepCount: number;
+  totalStepCount: number;
+  completedExerciseCount: number;
+  totalExerciseCount: number;
+  estimatedCalories: number;
+  actualCalories?: number;
+  status: "completed" | "abandoned";
 };
 
 export type WorkoutTimelineExerciseStep = {
@@ -105,6 +125,7 @@ export const defaultTrainingLoopRestSeconds = 120;
 export const defaultRepIntervalSeconds = 2;
 export const placeholderWorkoutImage = "/images/exercise-placeholder.svg";
 
+// 根据动作名称和分类为编排项补齐训练阶段。
 export function inferWorkoutSection(item: Pick<WorkoutItem, "categoryZh" | "nameZh">): WorkoutSection {
   const text = `${item.categoryZh} ${item.nameZh}`;
 
@@ -119,6 +140,7 @@ export function inferWorkoutSection(item: Pick<WorkoutItem, "categoryZh" | "name
   return "training";
 }
 
+// 统一训练执行项的默认休息、图片和阶段字段。
 export function normalizeWorkoutItem(item: WorkoutItem): WorkoutItem {
   const legacyRestSeconds = item.restSeconds ?? defaultSetRestSeconds;
   const imageUrls = getWorkoutItemImageUrls(item);
@@ -133,6 +155,7 @@ export function normalizeWorkoutItem(item: WorkoutItem): WorkoutItem {
   };
 }
 
+// 兼容旧单图字段和新多图字段，保证动作卡片总有可渲染图片。
 export function getWorkoutItemImageUrls(item: Pick<WorkoutItem, "imageUrl" | "imageUrls">) {
   const imageUrls = [...(item.imageUrls ?? []), item.imageUrl]
     .map((imageUrl) => imageUrl.trim())
@@ -142,38 +165,45 @@ export function getWorkoutItemImageUrls(item: Pick<WorkoutItem, "imageUrl" | "im
   return uniqueImageUrls.length ? uniqueImageUrls : [placeholderWorkoutImage];
 }
 
-export function normalizeSavedWorkout(workout: SavedWorkout): SavedWorkout {
+// 统一 routine 的循环配置和动作项，作为保存、排期和执行前的共同入口。
+export function normalizeWorkoutRoutine(routine: WorkoutRoutine): WorkoutRoutine {
   return {
-    ...workout,
-    items: workout.items.map(normalizeWorkoutItem),
-    trainingLoopRounds: clampLoopRounds(workout.trainingLoopRounds ?? 1),
-    trainingLoopRestSeconds: workout.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds,
+    ...routine,
+    items: routine.items.map(normalizeWorkoutItem),
+    trainingLoopRounds: clampLoopRounds(routine.trainingLoopRounds ?? 1),
+    trainingLoopRestSeconds: routine.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds,
   };
 }
 
+// 按阶段读取动作项，供编排页展示和执行时间线构建复用。
 export function getSectionItems(items: WorkoutItem[], section: WorkoutSection) {
   return items.filter((item) => (item.section ?? inferWorkoutSection(item)) === section);
 }
 
+// 限制训练循环轮数，避免异常输入生成过长时间线。
 export function clampLoopRounds(value: number) {
   return Math.min(12, Math.max(1, Number.isFinite(value) ? Math.round(value) : 1));
 }
 
-export function getWorkoutLoopConfig(workout: Pick<SavedWorkout, "trainingLoopRestSeconds" | "trainingLoopRounds">) {
+// 读取 routine 的循环配置，保证估算和执行时间线使用同一组默认值。
+export function getWorkoutLoopConfig(routine: Pick<WorkoutRoutine, "trainingLoopRestSeconds" | "trainingLoopRounds">) {
   return {
-    trainingLoopRounds: clampLoopRounds(workout.trainingLoopRounds ?? 1),
-    trainingLoopRestSeconds: workout.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds,
+    trainingLoopRounds: clampLoopRounds(routine.trainingLoopRounds ?? 1),
+    trainingLoopRestSeconds: routine.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds,
   };
 }
 
+// 计算单个动作步骤的执行秒数，计次动作按默认节奏估算。
 export function getStepDuration(item: WorkoutItem) {
   return Math.max(5, item.mode === "duration" ? item.target : item.target * getRepIntervalSeconds(item));
 }
 
+// 计次动作的默认节奏用于估算和自动推进。
 export function getRepIntervalSeconds(item: WorkoutItem) {
   return item.mode === "duration" ? 1 : defaultRepIntervalSeconds;
 }
 
+// 展开热身、循环训练和拉伸动作，用于统计和热量估算。
 export function expandWorkoutItems(
   items: WorkoutItem[],
   trainingLoopRounds = 1,
@@ -187,6 +217,7 @@ export function expandWorkoutItems(
   return [...warmupItems, ...loopedTrainingItems, ...stretchItems];
 }
 
+// 将 routine items 转成训练执行页可播放的步骤时间线。
 export function buildWorkoutTimeline(
   items: WorkoutItem[],
   options: {
@@ -272,6 +303,7 @@ export function buildWorkoutTimeline(
   return steps;
 }
 
+// 基于执行时间线估算整套 routine 的训练秒数。
 export function estimateWorkoutSeconds(
   items: WorkoutItem[],
   options: {
@@ -282,6 +314,7 @@ export function estimateWorkoutSeconds(
   return buildWorkoutTimeline(items, options).reduce((total, step) => total + step.durationSeconds, 0);
 }
 
+// 基于执行时间线估算整套 routine 的训练分钟数。
 export function estimateWorkoutMinutes(
   items: WorkoutItem[],
   options: {
@@ -294,6 +327,7 @@ export function estimateWorkoutMinutes(
   return Math.max(minimumMinutes, Math.round(estimateWorkoutSeconds(items, options) / 60));
 }
 
+// 使用训练时长和动作数量估算整套 routine 的热量消耗。
 export function estimateWorkoutCalories(
   items: WorkoutItem[],
   options: {
@@ -311,6 +345,7 @@ export function estimateWorkoutCalories(
   );
 }
 
+// 统计展开循环后的总组数，供摘要和测试校验使用。
 export function getTotalWorkoutSets(items: WorkoutItem[], trainingLoopRounds = 1) {
   return expandWorkoutItems(items, trainingLoopRounds).reduce((total, item) => total + Math.max(1, item.sets), 0);
 }

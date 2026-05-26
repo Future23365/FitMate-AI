@@ -5,20 +5,20 @@ import { useEffect, useMemo, useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import {
-  createScheduledWorkout,
-  deleteScheduledWorkout,
-  listSavedWorkouts,
-  listScheduledWorkouts,
-  updateScheduledWorkoutStatus,
+  createWorkoutSchedule,
+  deleteWorkoutSchedule,
+  listWorkoutRoutines,
+  listWorkoutSchedules,
+  updateWorkoutScheduleStatus,
 } from "@/features/workouts/api/workout-data-client";
 import {
   estimateWorkoutCalories,
   estimateWorkoutMinutes,
   getWorkoutLoopConfig,
-  normalizeSavedWorkout,
-  type SavedWorkout,
-  type ScheduledWorkout,
-  type ScheduleStatus,
+  normalizeWorkoutRoutine,
+  type WorkoutRoutine,
+  type WorkoutSchedule,
+  type WorkoutScheduleStatus,
 } from "@/lib/shared/workouts/composition";
 
 type CalendarCell = {
@@ -63,36 +63,36 @@ function getCalendarCells(monthDate: Date): CalendarCell[] {
 }
 
 function createScheduledEntry(
-  plan: SavedWorkout,
+  routine: WorkoutRoutine,
   dateKey: string,
-  status: ScheduleStatus = "planned",
-): ScheduledWorkout {
-  const normalizedPlan = normalizeSavedWorkout(plan);
-  const { trainingLoopRestSeconds, trainingLoopRounds } = getWorkoutLoopConfig(normalizedPlan);
+  status: WorkoutScheduleStatus = "planned",
+): WorkoutSchedule {
+  const normalizedRoutine = normalizeWorkoutRoutine(routine);
+  const { trainingLoopRestSeconds, trainingLoopRounds } = getWorkoutLoopConfig(normalizedRoutine);
 
   return {
-    id: `${normalizedPlan.id}-${dateKey}-${crypto.randomUUID()}`,
+    id: `${normalizedRoutine.id}-${dateKey}-${crypto.randomUUID()}`,
     date: dateKey,
-    planId: normalizedPlan.id,
-    title: normalizedPlan.title,
+    routineId: normalizedRoutine.id,
+    title: normalizedRoutine.title,
     status,
-    minutes: estimateWorkoutMinutes(normalizedPlan.items, {
+    minutes: estimateWorkoutMinutes(normalizedRoutine.items, {
       minimumMinutes: 15,
       trainingLoopRestSeconds,
       trainingLoopRounds,
     }),
-    calories: estimateWorkoutCalories(normalizedPlan.items, {
+    calories: estimateWorkoutCalories(normalizedRoutine.items, {
       minimumCalories: 80,
       trainingLoopRestSeconds,
       trainingLoopRounds,
     }),
-    items: normalizedPlan.items,
+    items: normalizedRoutine.items,
     trainingLoopRounds,
     trainingLoopRestSeconds,
   };
 }
 
-function getStatusConfig(status: ScheduleStatus) {
+function getStatusConfig(status: WorkoutScheduleStatus) {
   switch (status) {
     case "completed":
       return {
@@ -130,19 +130,19 @@ export function TrainingPlanPage() {
   const todayKey = toDateKey(today);
   const [monthDate, setMonthDate] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
   const [selectedDateKey, setSelectedDateKey] = useState(todayKey);
-  const [selectedPlanId, setSelectedPlanId] = useState("");
-  const [savedWorkouts, setSavedWorkouts] = useState<SavedWorkout[]>([]);
-  const [schedule, setSchedule] = useState<ScheduledWorkout[]>([]);
+  const [selectedScheduleId, setSelectedScheduleId] = useState("");
+  const [workoutRoutines, setWorkoutRoutines] = useState<WorkoutRoutine[]>([]);
+  const [schedule, setSchedule] = useState<WorkoutSchedule[]>([]);
   const [toast, setToast] = useState("");
 
   useEffect(() => {
     async function syncData() {
       try {
         const [nextWorkouts, nextSchedule] = await Promise.all([
-          listSavedWorkouts(),
-          listScheduledWorkouts(),
+          listWorkoutRoutines(),
+          listWorkoutSchedules(),
         ]);
-        setSavedWorkouts(nextWorkouts.map(normalizeSavedWorkout));
+        setWorkoutRoutines(nextWorkouts.map(normalizeWorkoutRoutine));
         setSchedule(nextSchedule);
       } catch {
         setToast("训练数据加载失败");
@@ -168,11 +168,11 @@ export function TrainingPlanPage() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  const filteredWorkouts = savedWorkouts;
+  const filteredWorkouts = workoutRoutines;
   const cells = getCalendarCells(monthDate);
   const selectedDayPlans = schedule.filter((plan) => plan.date === selectedDateKey);
-  const expandedPlanId = selectedDayPlans.some((plan) => plan.id === selectedPlanId)
-    ? selectedPlanId
+  const expandedPlanId = selectedDayPlans.some((plan) => plan.id === selectedScheduleId)
+    ? selectedScheduleId
     : selectedDayPlans[0]?.id ?? "";
   const monthlyStats = schedule.filter(
     (plan) =>
@@ -188,17 +188,17 @@ export function TrainingPlanPage() {
     setMonthDate((current) => new Date(current.getFullYear(), current.getMonth() + delta, 1));
   }
 
-  async function scheduleWorkout(plan: SavedWorkout, dateKey = selectedDateKey) {
+  async function scheduleWorkout(plan: WorkoutRoutine, dateKey = selectedDateKey) {
     const scheduledWorkout = createScheduledEntry(plan, dateKey);
 
     try {
-      const persistedWorkout = await createScheduledWorkout(scheduledWorkout);
+      const persistedWorkout = await createWorkoutSchedule(scheduledWorkout);
       setSchedule((current) => [
         ...current.filter((item) => !(item.date === dateKey && item.status === "rest")),
         persistedWorkout,
       ]);
       setSelectedDateKey(dateKey);
-      setSelectedPlanId(persistedWorkout.id);
+      setSelectedScheduleId(persistedWorkout.id);
       setToast(`已安排：${plan.title} · ${formatDayLabel(dateKey)}`);
     } catch {
       setToast("安排训练失败");
@@ -206,10 +206,9 @@ export function TrainingPlanPage() {
   }
 
   async function addRestDay() {
-    const restDay: ScheduledWorkout = {
+    const restDay: WorkoutSchedule = {
       id: `rest-${selectedDateKey}-${crypto.randomUUID()}`,
       date: selectedDateKey,
-      planId: "rest",
       title: "休息日",
       status: "rest",
       minutes: 0,
@@ -218,36 +217,36 @@ export function TrainingPlanPage() {
     };
 
     try {
-      await Promise.all(schedule.filter((item) => item.date === selectedDateKey).map((item) => deleteScheduledWorkout(item.id)));
-      const persistedRestDay = await createScheduledWorkout(restDay);
+      await Promise.all(schedule.filter((item) => item.date === selectedDateKey).map((item) => deleteWorkoutSchedule(item.id)));
+      const persistedRestDay = await createWorkoutSchedule(restDay);
       setSchedule((current) => [
         ...current.filter((item) => item.date !== selectedDateKey),
         persistedRestDay,
       ]);
-      setSelectedPlanId(persistedRestDay.id);
+      setSelectedScheduleId(persistedRestDay.id);
       setToast(`已设置休息日：${formatDayLabel(selectedDateKey)}`);
     } catch {
       setToast("设置休息日失败");
     }
   }
 
-  async function updatePlanStatus(planId: string, status: ScheduleStatus) {
+  async function updatePlanStatus(scheduleId: string, status: WorkoutScheduleStatus) {
     try {
-      const persistedPlan = await updateScheduledWorkoutStatus(planId, status);
-      setSchedule((current) => current.map((plan) => (plan.id === planId ? persistedPlan : plan)));
-      setSelectedPlanId(planId);
+      const persistedPlan = await updateWorkoutScheduleStatus(scheduleId, status);
+      setSchedule((current) => current.map((plan) => (plan.id === scheduleId ? persistedPlan : plan)));
+      setSelectedScheduleId(scheduleId);
       setToast(`状态已更新为：${getStatusConfig(status).label}`);
     } catch {
       setToast("训练状态更新失败");
     }
   }
 
-  async function removePlan(planId: string) {
+  async function removePlan(scheduleId: string) {
     try {
-      await deleteScheduledWorkout(planId);
-      setSchedule((current) => current.filter((plan) => plan.id !== planId));
-      if (selectedPlanId === planId) {
-        setSelectedPlanId("");
+      await deleteWorkoutSchedule(scheduleId);
+      setSchedule((current) => current.filter((plan) => plan.id !== scheduleId));
+      if (selectedScheduleId === scheduleId) {
+        setSelectedScheduleId("");
       }
       setToast("已移除当天安排");
     } catch {
@@ -358,7 +357,7 @@ export function TrainingPlanPage() {
                   key={cell.dateKey}
                   onClick={() => {
                     setSelectedDateKey(cell.dateKey);
-                    setSelectedPlanId("");
+                    setSelectedScheduleId("");
                   }}
                   type="button"
                 >
@@ -428,7 +427,7 @@ export function TrainingPlanPage() {
                       />
                     ) : (
                       <CollapsedDayPlanButton
-                        onClick={() => setSelectedPlanId(plan.id)}
+                        onClick={() => setSelectedScheduleId(plan.id)}
                         plan={plan}
                       />
                     )}
@@ -512,9 +511,9 @@ function SavedPlanCard({
   workout,
 }: {
   onSchedule: () => void;
-  workout: SavedWorkout;
+  workout: WorkoutRoutine;
 }) {
-  const normalizedWorkout = normalizeSavedWorkout(workout);
+  const normalizedWorkout = normalizeWorkoutRoutine(workout);
   const { trainingLoopRestSeconds, trainingLoopRounds } = getWorkoutLoopConfig(normalizedWorkout);
   const minutes = estimateWorkoutMinutes(normalizedWorkout.items, {
     minimumMinutes: 15,
@@ -566,7 +565,7 @@ function LegendDot({ className, label }: { className: string; label: string }) {
   );
 }
 
-function CalendarPlanBadge({ plan }: { plan: ScheduledWorkout }) {
+function CalendarPlanBadge({ plan }: { plan: WorkoutSchedule }) {
   const status = getStatusConfig(plan.status);
 
   return (
@@ -584,7 +583,7 @@ function CollapsedDayPlanButton({
   plan,
 }: {
   onClick: () => void;
-  plan: ScheduledWorkout;
+  plan: WorkoutSchedule;
 }) {
   const status = getStatusConfig(plan.status);
 
@@ -618,8 +617,8 @@ function CurrentPlanCard({
   plan,
 }: {
   onRemove: () => void;
-  onStatusChange: (status: ScheduleStatus) => void;
-  plan: ScheduledWorkout;
+  onStatusChange: (status: WorkoutScheduleStatus) => void;
+  plan: WorkoutSchedule;
 }) {
   const status = getStatusConfig(plan.status);
 
@@ -666,7 +665,7 @@ function CurrentPlanCard({
       <div className="grid grid-cols-3 gap-xs">
         <Link
           className="col-span-3 rounded-xl bg-primary px-sm py-sm text-center font-label-sm text-label-sm font-bold text-white shadow-card transition-colors hover:bg-primary-deep"
-          href={`/training?planId=${encodeURIComponent(plan.id)}`}
+          href={`/training?scheduleId=${encodeURIComponent(plan.id)}`}
         >
           开始训练
         </Link>
@@ -705,7 +704,7 @@ function StatsTile({ label, value }: { label: string; value: number }) {
   );
 }
 
-function ActivityItem({ plan }: { plan: ScheduledWorkout }) {
+function ActivityItem({ plan }: { plan: WorkoutSchedule }) {
   const status = getStatusConfig(plan.status);
 
   return (

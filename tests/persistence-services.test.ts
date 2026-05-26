@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createChatConversation, createExercise, createSavedWorkout } from "./fixtures/domain";
+import { createChatConversation, createExercise, createWorkoutRoutine } from "./fixtures/domain";
 
 const prismaMock = vi.hoisted(() => ({
   chatMessage: {
@@ -15,21 +15,30 @@ const prismaMock = vi.hoisted(() => ({
     findUnique: vi.fn(),
     upsert: vi.fn(),
   },
-  workoutPlan: {
-    deleteMany: vi.fn(),
+  exercise: {
+    findMany: vi.fn(),
+  },
+  workoutRoutine: {
     findFirst: vi.fn(),
     findFirstOrThrow: vi.fn(),
     findMany: vi.fn(),
     findUnique: vi.fn(),
+    updateMany: vi.fn(),
     upsert: vi.fn(),
   },
-  workoutPlanDay: {
-    create: vi.fn(),
+  workoutRoutineItem: {
+    createMany: vi.fn(),
     deleteMany: vi.fn(),
   },
-  workoutSession: {
+  workoutSchedule: {
+    create: vi.fn(),
+    findFirst: vi.fn(),
     findMany: vi.fn(),
+    update: vi.fn(),
     updateMany: vi.fn(),
+  },
+  workoutSessionResult: {
+    upsert: vi.fn(),
   },
   $transaction: vi.fn(),
 }));
@@ -64,38 +73,76 @@ describe("persistence services", () => {
     userMocks.getCurrentUser.mockResolvedValue({ id: "user-1" });
   });
 
-  it("maps workout plans and scopes saved workout queries by userId", async () => {
-    prismaMock.workoutPlan.findMany.mockResolvedValue([createWorkoutPlanRecord()]);
+  it("maps workout routines and scopes routine queries by userId", async () => {
+    prismaMock.workoutRoutine.findMany.mockResolvedValue([createWorkoutRoutineRecord()]);
 
-    const workouts = await workoutPersistence.listSavedWorkouts();
+    const workouts = await workoutPersistence.listWorkoutRoutines();
 
-    expect(prismaMock.workoutPlan.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { userId: "user-1", status: { not: "archived" } },
+    expect(prismaMock.workoutRoutine.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { userId: "user-1", status: "active" },
     }));
     expect(workouts[0]).toMatchObject({
-      id: "plan-1",
+      id: "routine-1",
       title: "胸肌训练",
       items: [expect.objectContaining({ exerciseId: "push-up", imageUrls: ["/push-up.png"] })],
     });
   });
 
-  it("rejects saving another user's workout and scopes delete paths", async () => {
-    prismaMock.workoutPlan.findUnique.mockResolvedValue({ userId: "other-user" });
+  it("rejects saving another user's routine and scopes delete paths", async () => {
+    prismaMock.workoutRoutine.findUnique.mockResolvedValue({ userId: "other-user" });
 
-    await expect(workoutPersistence.saveWorkout(createSavedWorkout({ id: "plan-1" }))).rejects.toThrow(
-      "Workout plan belongs to another user.",
+    await expect(workoutPersistence.saveWorkoutRoutine(createWorkoutRoutine({ id: "routine-1" }))).rejects.toThrow(
+      "Workout routine belongs to another user.",
     );
 
-    await workoutPersistence.deleteSavedWorkout("plan-1");
-    expect(prismaMock.workoutPlan.deleteMany).toHaveBeenCalledWith({
-      where: { id: "plan-1", userId: "user-1" },
+    await workoutPersistence.deleteWorkoutRoutine("routine-1");
+    expect(prismaMock.workoutRoutine.updateMany).toHaveBeenCalledWith({
+      where: { id: "routine-1", userId: "user-1" },
+      data: { status: "archived" },
     });
 
-    await workoutPersistence.deleteScheduledWorkout("session-1");
-    expect(prismaMock.workoutSession.updateMany).toHaveBeenCalledWith({
+    await workoutPersistence.deleteWorkoutSchedule("session-1");
+    expect(prismaMock.workoutSchedule.updateMany).toHaveBeenCalledWith({
       where: { id: "session-1", userId: "user-1" },
       data: { status: "cancelled" },
     });
+  });
+
+  it("writes workout session result and marks schedule completed in one transaction", async () => {
+    prismaMock.workoutSchedule.findFirst.mockResolvedValue({ id: "schedule-1", routineId: "routine-1" });
+    prismaMock.workoutSessionResult.upsert.mockResolvedValue({
+      id: "result-1",
+      userId: "user-1",
+      scheduleId: "schedule-1",
+      routineId: "routine-1",
+      startedAt: new Date("2026-05-25T10:00:00.000Z"),
+      endedAt: new Date("2026-05-25T10:02:00.000Z"),
+      durationSeconds: 120,
+      completedStepCount: 2,
+      totalStepCount: 2,
+      completedExerciseCount: 1,
+      totalExerciseCount: 1,
+      estimatedCalories: 20,
+      actualCalories: null,
+      status: "completed",
+    });
+
+    const result = await workoutPersistence.saveWorkoutSessionResult("schedule-1", {
+      completedExerciseCount: 1,
+      completedStepCount: 2,
+      durationSeconds: 120,
+      endedAt: "2026-05-25T10:02:00.000Z",
+      estimatedCalories: 20,
+      startedAt: "2026-05-25T10:00:00.000Z",
+      totalExerciseCount: 1,
+      totalStepCount: 2,
+    });
+
+    expect(prismaMock.workoutSchedule.update).toHaveBeenCalledWith({
+      where: { id: "schedule-1", userId: "user-1" },
+      data: { status: "completed" },
+    });
+    expect(result).toMatchObject({ id: "result-1", scheduleId: "schedule-1", status: "completed" });
   });
 
   it("maps chat history metadata and saves only conversations with user messages", async () => {
@@ -145,7 +192,7 @@ describe("persistence services", () => {
   });
 });
 
-function createWorkoutPlanRecord() {
+function createWorkoutRoutineRecord() {
   const exercise = createExercise({
     id: "push-up",
     nameZh: "俯卧撑",
@@ -153,25 +200,21 @@ function createWorkoutPlanRecord() {
   });
 
   return {
-    id: "plan-1",
+    id: "routine-1",
     title: "胸肌训练",
     updatedAt: new Date("2026-05-25T10:30:00"),
     trainingLoopRounds: 1,
     trainingLoopRestSeconds: 90,
-    days: [
+    items: [
       {
-        items: [
-          {
-            id: "item-1",
-            exercise,
-            mode: "reps",
-            target: 12,
-            sets: 3,
-            setRestSeconds: 45,
-            transitionRestSeconds: 60,
-            section: "training",
-          },
-        ],
+        id: "item-1",
+        exercise,
+        mode: "reps",
+        target: 12,
+        sets: 3,
+        setRestSeconds: 45,
+        transitionRestSeconds: 60,
+        section: "training",
       },
     ],
   };

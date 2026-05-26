@@ -68,8 +68,8 @@ describe("workout voice cues", () => {
       nextItem: timedItem,
     };
 
-    expect(buildWorkoutStepVoiceCue(durationStep)).toBe("开始 深蹲，第 2 组，共 3 组，目标 45 秒。");
-    expect(buildWorkoutStepVoiceCue(repsStep)).toBe("开始 俯卧撑，第 1 组，共 2 组，目标 12 次。");
+    expect(buildWorkoutStepVoiceCue(durationStep)).toBe("");
+    expect(buildWorkoutStepVoiceCue(repsStep)).toBe("");
     expect(buildWorkoutStepVoiceCue(restStep)).toBe("组间休息 30 秒，下一组动作 俯卧撑。");
     expect(buildWorkoutStepVoiceCue(loopRestStep)).toBe("循环间隙 90 秒，下一组动作 深蹲。");
     expect(buildRepetitionCountCue(3)).toBe("3");

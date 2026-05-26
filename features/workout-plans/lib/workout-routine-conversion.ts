@@ -2,31 +2,32 @@ import type { Exercise } from "@/lib/shared/exercises/types";
 import {
   defaultTrainingLoopRestSeconds,
   placeholderWorkoutImage,
-  type SavedWorkout,
   type WorkoutItem,
   type WorkoutMode,
+  type WorkoutRoutine,
   type WorkoutSection,
 } from "@/lib/shared/workouts/composition";
 
 import { workoutPlanDraftSchema, type WorkoutPlanDraft } from "@/lib/shared/workout-plans/draft-schema";
 
-export type SavedWorkoutMode = WorkoutMode;
-export type SavedWorkoutSection = WorkoutSection;
-export type SavedWorkoutItem = WorkoutItem;
-export type { SavedWorkout };
+export type WorkoutRoutineMode = WorkoutMode;
+export type WorkoutRoutineSection = WorkoutSection;
+export type WorkoutRoutineItem = WorkoutItem;
+export type { WorkoutRoutine };
 
 export type WorkoutPlanDraftConversionOptions = {
   id?: string;
-  savedAt?: Date;
+  updatedAt?: Date;
   createId?: () => string;
   dayIndex?: number;
 };
 
-export function convertWorkoutPlanDraftToSavedWorkout(
+// 将 AI 多日草稿中的某个训练日转换成独立 routine，不再创建计划外壳。
+export function convertWorkoutPlanDraftToWorkoutRoutine(
   draft: WorkoutPlanDraft,
   exercises: Exercise[],
   options: WorkoutPlanDraftConversionOptions = {},
-): SavedWorkout {
+): WorkoutRoutine {
   const parsedDraft = workoutPlanDraftSchema.parse(draft);
   const day = resolveDraftDay(parsedDraft, options.dayIndex);
   const exerciseById = new Map(exercises.map((exercise) => [exercise.id, exercise]));
@@ -35,7 +36,7 @@ export function convertWorkoutPlanDraftToSavedWorkout(
   return {
     id: options.id ?? createId(),
     title: day.title || parsedDraft.title,
-    savedAt: formatLocalDateTime(options.savedAt ?? new Date()),
+    updatedAt: formatLocalDateTime(options.updatedAt ?? new Date()),
     trainingLoopRounds: 1,
     trainingLoopRestSeconds: defaultTrainingLoopRestSeconds,
     items: day.items.map((item) => {

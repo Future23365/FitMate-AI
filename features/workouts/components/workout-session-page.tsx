@@ -9,8 +9,8 @@ import { createPortal } from "react-dom";
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
 import {
-  getScheduledWorkout,
-  updateScheduledWorkoutStatus,
+  getWorkoutSchedule,
+  saveWorkoutSessionResult,
 } from "@/features/workouts/api/workout-data-client";
 import {
   isWorkoutVoiceBroadcastSupported,
@@ -42,7 +42,7 @@ import {
   getWorkoutLoopConfig,
   normalizeWorkoutItem,
   placeholderWorkoutImage,
-  type ScheduledWorkout,
+  type WorkoutSchedule,
   type WorkoutItem,
   type WorkoutMode,
   type WorkoutSection,
@@ -140,10 +140,10 @@ const webSpeechMinimumBrowserRequirements: VoiceApiBrowserSupport[] = [
   { browser: "iosSafari", label: "iOS Safari", version: "7+" },
 ];
 
-const fallbackPlan: ScheduledWorkout = {
+const fallbackPlan: WorkoutSchedule = {
   id: "session-fallback",
   date: "today",
-  planId: "fat-burn-circuit",
+  routineId: "fat-burn-circuit",
   title: "燃脂循环训练",
   status: "planned",
   minutes: 45,
@@ -203,8 +203,8 @@ function getWorkoutDemoImageIndex(imageCount: number, elapsedSeconds: number, mo
   return Math.floor(Math.max(0, elapsedSeconds)) % imageCount;
 }
 
-async function getPlanFromDatabase(planId: string) {
-  const matchedPlan = await getScheduledWorkout(planId);
+async function getScheduleFromDatabase(scheduleId: string) {
+  const matchedPlan = await getWorkoutSchedule(scheduleId);
 
   if (matchedPlan && matchedPlan.items.length) {
     const loopConfig = getWorkoutLoopConfig(matchedPlan);
@@ -216,7 +216,7 @@ async function getPlanFromDatabase(planId: string) {
     };
   }
 
-  throw new Error("Workout plan has no items.");
+  throw new Error("Workout schedule has no items.");
 }
 
 function mapWorkoutItemToExercise(item: WorkoutItem): Exercise {
@@ -302,8 +302,8 @@ function setVoiceSettingsBackdropActive(isActive: boolean) {
 
 export function WorkoutSessionPage() {
   const searchParams = useSearchParams();
-  const planId = searchParams.get("planId")?.trim() ?? "";
-  const [plan, setPlan] = useState<ScheduledWorkout>(fallbackPlan);
+  const scheduleId = searchParams.get("scheduleId")?.trim() ?? "";
+  const [plan, setPlan] = useState<WorkoutSchedule>(fallbackPlan);
   const [activeStepIndex, setActiveStepIndex] = useState(0);
   const [remainingSeconds, setRemainingSeconds] = useState(45);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -313,6 +313,7 @@ export function WorkoutSessionPage() {
   const [hasStarted, setHasStarted] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [isSessionComplete, setIsSessionComplete] = useState(false);
+  const [sessionStartedAt, setSessionStartedAt] = useState<Date | null>(null);
   const [isElapsedTimerManuallyPaused, setIsElapsedTimerManuallyPaused] = useState(false);
   const [isAudioOn, setIsAudioOn] = useState(false);
   const [loadedPlanKey, setLoadedPlanKey] = useState("");
@@ -392,10 +393,10 @@ export function WorkoutSessionPage() {
     sessionListView.nextExerciseStepIndex === null ? null : steps[sessionListView.nextExerciseStepIndex];
   const nextItem = nextExerciseStep?.type === "exercise" ? nextExerciseStep.item : null;
   const remainingSteps = Math.max(0, steps.length - activeStepIndex - 1);
-  const requestedPlanKey = planId;
-  const sessionVoiceId = `${plan.id}:${plan.date}:${plan.planId}`;
+  const requestedPlanKey = scheduleId;
+  const sessionVoiceId = `${plan.id}:${plan.date}:${plan.routineId ?? "rest"}`;
   const activeStepKey = activeStep ? `${sessionVoiceId}:${activeStep.id}:${activeStepIndex}` : "";
-  const isPlanReady = Boolean(planId && !loadError && loadedPlanKey === requestedPlanKey);
+  const isPlanReady = Boolean(scheduleId && !loadError && loadedPlanKey === requestedPlanKey);
   const needsExercisePreparation = activeStep?.type === "exercise" && preparedStepKey !== activeStepKey;
   const isPreparationCountdownActive = preparationCountdownStepKey === activeStepKey;
   const isPreparing = Boolean(hasStarted && needsExercisePreparation && preparationCountdown > 0);
@@ -406,7 +407,7 @@ export function WorkoutSessionPage() {
   useEffect(() => {
     let cancelled = false;
     let resetTimer: number | undefined;
-    const requestKey = planId;
+    const requestKey = scheduleId;
 
     if (!requestKey) {
       resetTimer = window.setTimeout(() => {
@@ -415,7 +416,7 @@ export function WorkoutSessionPage() {
         }
 
         setLoadedPlanKey("");
-        setLoadError("缺少训练计划参数，请从训练计划页面进入训练。");
+        setLoadError("缺少训练安排参数，请从训练计划页面进入训练。");
         setHasStarted(false);
         setIsPaused(false);
         setIsSessionComplete(false);
@@ -424,6 +425,7 @@ export function WorkoutSessionPage() {
         setPreparationCountdownStepKey("");
         setPreparationCountdown(0);
         setElapsedSeconds(0);
+        setSessionStartedAt(null);
         setActiveStepIndex(0);
         setRemainingSeconds(0);
         setIsExerciseDetailOpen(false);
@@ -437,7 +439,7 @@ export function WorkoutSessionPage() {
       };
     }
 
-    void getPlanFromDatabase(requestKey).then((selectedPlan) => {
+    void getScheduleFromDatabase(requestKey).then((selectedPlan) => {
       if (cancelled) {
         return;
       }
@@ -457,6 +459,7 @@ export function WorkoutSessionPage() {
       setLoadError("");
       setActiveStepIndex(0);
       setElapsedSeconds(0);
+      setSessionStartedAt(null);
       setRemainingSeconds(selectedSteps[0]?.durationSeconds ?? 45);
       setPreparedStepKey("");
       setPreparationCountdownStepKey("");
@@ -481,7 +484,7 @@ export function WorkoutSessionPage() {
     return () => {
       cancelled = true;
     };
-  }, [planId]);
+  }, [scheduleId]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -703,6 +706,7 @@ export function WorkoutSessionPage() {
     setHasStarted(true);
     setIsPaused(false);
     setIsElapsedTimerManuallyPaused(false);
+    setSessionStartedAt((current) => current ?? new Date());
 
     if (isVoicePreferenceOn && isVoiceSupported && !isVoiceBroadcastActive) {
       voiceSession.activateCurrentStep(false, { includeActivationPrompt: false });
@@ -721,14 +725,29 @@ export function WorkoutSessionPage() {
     setPreparationCountdown(0);
     setRemainingSeconds(0);
 
-    void updateScheduledWorkoutStatus(plan.id, "completed")
-      .then((updatedPlan) => {
-        setPlan(updatedPlan);
+    const endedAt = new Date();
+    const startedAt = sessionStartedAt ?? new Date(endedAt.getTime() - Math.max(0, elapsedSeconds) * 1000);
+    const totalExerciseCount = steps.filter((step) => step.type === "exercise").length;
+
+    void saveWorkoutSessionResult(plan.id, {
+      actualCalories: undefined,
+      completedExerciseCount: totalExerciseCount,
+      completedStepCount: steps.length,
+      durationSeconds: Math.max(0, elapsedSeconds),
+      endedAt: endedAt.toISOString(),
+      estimatedCalories: trainedCalories,
+      startedAt: startedAt.toISOString(),
+      status: "completed",
+      totalExerciseCount,
+      totalStepCount: steps.length,
+    })
+      .then(() => {
+        setPlan((current) => ({ ...current, status: "completed" }));
       })
       .catch((error: unknown) => {
         console.error("[WorkoutSession] Finish failed:", error);
       });
-  }, [plan.id, voiceSession]);
+  }, [elapsedSeconds, plan.id, sessionStartedAt, steps, trainedCalories, voiceSession]);
 
   const completeCurrentStep = useCallback(({ cancelVoice = true }: { cancelVoice?: boolean } = {}) => {
     const isLastStep = activeStepIndex >= steps.length - 1;

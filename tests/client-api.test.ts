@@ -2,24 +2,25 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { requestChatStream, requestExerciseRecommendations, requestWorkoutPlanDraft } from "@/features/chat/api/chat-client";
 import {
-  createScheduledWorkout as createScheduledWorkoutRequest,
-  createWorkout,
-  deleteScheduledWorkout,
-  deleteWorkout,
-  getSavedWorkout,
-  getScheduledWorkout,
-  listSavedWorkouts,
-  listScheduledWorkouts,
-  saveWorkout,
-  updateScheduledWorkoutStatus,
+  createWorkoutSchedule as createWorkoutScheduleRequest,
+  createWorkoutRoutine as createWorkoutRoutineRequest,
+  deleteWorkoutSchedule,
+  deleteWorkoutRoutine,
+  getWorkoutRoutine,
+  getWorkoutSchedule,
+  listWorkoutRoutines,
+  listWorkoutSchedules,
+  saveWorkoutSessionResult,
+  saveWorkoutRoutine,
+  updateWorkoutScheduleStatus,
 } from "@/features/workouts/api/workout-data-client";
 import { ClientRequestError } from "@/lib/client/http/client-request";
 
 import {
   createApiChatMessages,
   createConversationContext,
-  createSavedWorkout,
-  createScheduledWorkout,
+  createWorkoutRoutine,
+  createWorkoutSchedule,
   createWorkoutPlanDraft,
   createWorkoutPlanIntent,
 } from "./fixtures/domain";
@@ -64,36 +65,48 @@ describe("frontend API clients", () => {
   });
 
   it("maps workout data requests, errors, and update events", async () => {
-    const savedWorkout = createSavedWorkout({ id: "workout-1" });
-    const scheduledWorkout = createScheduledWorkout({ id: "session-1" });
+    const workoutRoutine = createWorkoutRoutine({ id: "workout-1" });
+    const workoutSchedule = createWorkoutSchedule({ id: "session-1" });
     vi.stubGlobal(
       "fetch",
       vi
         .fn()
-        .mockResolvedValueOnce(Response.json({ items: [savedWorkout] }))
-        .mockResolvedValueOnce(Response.json({ item: savedWorkout }))
-        .mockResolvedValueOnce(Response.json({ item: savedWorkout }))
-        .mockResolvedValueOnce(Response.json({ item: savedWorkout }))
+        .mockResolvedValueOnce(Response.json({ items: [workoutRoutine] }))
+        .mockResolvedValueOnce(Response.json({ item: workoutRoutine }))
+        .mockResolvedValueOnce(Response.json({ item: workoutRoutine }))
+        .mockResolvedValueOnce(Response.json({ item: workoutRoutine }))
         .mockResolvedValueOnce(new Response(null, { status: 204 }))
-        .mockResolvedValueOnce(Response.json({ items: [scheduledWorkout] }))
-        .mockResolvedValueOnce(Response.json({ item: scheduledWorkout }))
-        .mockResolvedValueOnce(Response.json({ item: scheduledWorkout }))
-        .mockResolvedValueOnce(Response.json({ item: { ...scheduledWorkout, status: "completed" } }))
+        .mockResolvedValueOnce(Response.json({ items: [workoutSchedule] }))
+        .mockResolvedValueOnce(Response.json({ item: workoutSchedule }))
+        .mockResolvedValueOnce(Response.json({ item: workoutSchedule }))
+        .mockResolvedValueOnce(Response.json({ item: { ...workoutSchedule, status: "completed" } }))
         .mockResolvedValueOnce(new Response(null, { status: 204 }))
+        .mockResolvedValueOnce(Response.json({ item: { id: "result-1", status: "completed" } }))
         .mockResolvedValueOnce(Response.json({ message: "保存失败" }, { status: 500 })),
     );
 
-    await expect(listSavedWorkouts()).resolves.toEqual([savedWorkout]);
-    await expect(getSavedWorkout("workout-1")).resolves.toEqual(savedWorkout);
-    await expect(saveWorkout(savedWorkout)).resolves.toEqual(savedWorkout);
-    await expect(createWorkout(savedWorkout)).resolves.toEqual(savedWorkout);
-    await expect(deleteWorkout("workout-1")).resolves.toBeUndefined();
-    await expect(listScheduledWorkouts()).resolves.toEqual([scheduledWorkout]);
-    await expect(getScheduledWorkout("session-1")).resolves.toEqual(scheduledWorkout);
-    await expect(createScheduledWorkoutRequest(scheduledWorkout)).resolves.toEqual(scheduledWorkout);
-    await expect(updateScheduledWorkoutStatus("session-1", "completed")).resolves.toMatchObject({ status: "completed" });
-    await expect(deleteScheduledWorkout("session-1")).resolves.toBeUndefined();
-    await expect(saveWorkout(savedWorkout)).rejects.toBeInstanceOf(ClientRequestError);
+    await expect(listWorkoutRoutines()).resolves.toEqual([workoutRoutine]);
+    await expect(getWorkoutRoutine("workout-1")).resolves.toEqual(workoutRoutine);
+    await expect(saveWorkoutRoutine(workoutRoutine)).resolves.toEqual(workoutRoutine);
+    await expect(createWorkoutRoutineRequest(workoutRoutine)).resolves.toEqual(workoutRoutine);
+    await expect(deleteWorkoutRoutine("workout-1")).resolves.toBeUndefined();
+    await expect(listWorkoutSchedules()).resolves.toEqual([workoutSchedule]);
+    await expect(getWorkoutSchedule("session-1")).resolves.toEqual(workoutSchedule);
+    await expect(createWorkoutScheduleRequest(workoutSchedule)).resolves.toEqual(workoutSchedule);
+    await expect(updateWorkoutScheduleStatus("session-1", "completed")).resolves.toMatchObject({ status: "completed" });
+    await expect(deleteWorkoutSchedule("session-1")).resolves.toBeUndefined();
+    await expect(saveWorkoutSessionResult("session-1", {
+      completedExerciseCount: 1,
+      completedStepCount: 2,
+      durationSeconds: 120,
+      endedAt: "2026-05-25T10:02:00.000Z",
+      estimatedCalories: 20,
+      startedAt: "2026-05-25T10:00:00.000Z",
+      status: "completed",
+      totalExerciseCount: 1,
+      totalStepCount: 2,
+    })).resolves.toMatchObject({ id: "result-1" });
+    await expect(saveWorkoutRoutine(workoutRoutine)).rejects.toBeInstanceOf(ClientRequestError);
     expect(window.dispatchEvent).toHaveBeenCalled();
   });
 });

@@ -4,109 +4,104 @@ import type { Prisma } from "@prisma/client";
 
 import { getPrismaClient } from "@/lib/server/db/prisma";
 import { getCurrentUser } from "@/lib/server/users/current-user";
-import type { SavedWorkout, ScheduledWorkout, ScheduleStatus, WorkoutItem } from "@/lib/shared/workouts/composition";
+import type {
+  WorkoutItem,
+  WorkoutRoutine,
+  WorkoutSchedule,
+  WorkoutScheduleStatus,
+  WorkoutSessionResult,
+} from "@/lib/shared/workouts/composition";
 import {
-  clampLoopRounds,
   defaultTrainingLoopRestSeconds,
   estimateWorkoutCalories,
   estimateWorkoutMinutes,
   getWorkoutLoopConfig,
-  normalizeSavedWorkout,
   normalizeWorkoutItem,
+  normalizeWorkoutRoutine,
   placeholderWorkoutImage,
 } from "@/lib/shared/workouts/composition";
-import { savedWorkoutSchema, scheduledWorkoutSchema, scheduleStatusSchema } from "@/lib/shared/workouts/persistence-schema";
+import {
+  workoutRoutineSchema,
+  workoutScheduleSchema,
+  workoutScheduleStatusSchema,
+  workoutSessionResultInputSchema,
+} from "@/lib/shared/workouts/persistence-schema";
 
-type WorkoutPlanWithItems = Prisma.WorkoutPlanGetPayload<{
-  include: {
-    days: {
-      include: {
-        items: {
-          include: { exercise: true };
-          orderBy: { sortOrder: "asc" };
-        };
-      };
-      orderBy: { dayIndex: "asc" };
-    };
-  };
+type WorkoutRoutineWithItems = Prisma.WorkoutRoutineGetPayload<{
+  include: typeof workoutRoutineInclude;
 }>;
 
-type WorkoutSessionWithPlan = Prisma.WorkoutSessionGetPayload<{
-  include: {
-    workoutPlan: {
-      include: {
-        days: {
-          include: {
-            items: {
-              include: { exercise: true };
-              orderBy: { sortOrder: "asc" };
-            };
-          };
-          orderBy: { dayIndex: "asc" };
-        };
-      };
-    };
-  };
+type WorkoutScheduleWithRoutine = Prisma.WorkoutScheduleGetPayload<{
+  include: typeof workoutScheduleInclude;
 }>;
 
-export async function listSavedWorkouts() {
+type WorkoutSessionResultRecord = Prisma.WorkoutSessionResultGetPayload<Record<string, never>>;
+
+// Routine 查询只返回当前用户未归档的可复用动作编排。
+export async function listWorkoutRoutines() {
   const prisma = getPrismaClient();
   const user = await getCurrentUser();
-  const plans = await prisma.workoutPlan.findMany({
-    where: { userId: user.id, status: { not: "archived" } },
-    include: workoutPlanInclude,
+  const routines = await prisma.workoutRoutine.findMany({
+    where: { userId: user.id, status: "active" },
+    include: workoutRoutineInclude,
     orderBy: { updatedAt: "desc" },
   });
 
-  return plans.map(mapWorkoutPlanToSavedWorkout);
+  return routines.map(mapWorkoutRoutineRecord);
 }
 
-export async function getSavedWorkoutById(id: string) {
+// Routine 详情用于编排编辑和训练日历选择，始终带 userId 隔离。
+export async function getWorkoutRoutineById(id: string) {
   const prisma = getPrismaClient();
   const user = await getCurrentUser();
-  const plan = await prisma.workoutPlan.findFirst({
-    where: { id, userId: user.id, status: { not: "archived" } },
-    include: workoutPlanInclude,
+  const routine = await prisma.workoutRoutine.findFirst({
+    where: { id, userId: user.id, status: "active" },
+    include: workoutRoutineInclude,
   });
 
-  return plan ? mapWorkoutPlanToSavedWorkout(plan) : null;
+  return routine ? mapWorkoutRoutineRecord(routine) : null;
 }
 
-export async function saveWorkout(rawWorkout: SavedWorkout) {
-  const parsedWorkout = normalizeSavedWorkout(savedWorkoutSchema.parse(rawWorkout));
+// 保存 routine 时先校验动作库 id，再整体替换 item 顺序，避免旧计划日中间层残留。
+export async function saveWorkoutRoutine(rawRoutine: WorkoutRoutine) {
+  const parsedRoutine = normalizeWorkoutRoutine(workoutRoutineSchema.parse(rawRoutine));
   const prisma = getPrismaClient();
   const user = await getCurrentUser();
-  const loopConfig = getWorkoutLoopConfig(parsedWorkout);
-  const estimatedMinutes = estimateWorkoutMinutes(parsedWorkout.items, loopConfig);
-  const existingPlan = await prisma.workoutPlan.findUnique({
-    where: { id: parsedWorkout.id },
+  const loopConfig = getWorkoutLoopConfig(parsedRoutine);
+  const estimatedMinutes = estimateWorkoutMinutes(parsedRoutine.items, loopConfig);
+  const estimatedCalories = estimateWorkoutCalories(parsedRoutine.items, {
+    minimumCalories: 0,
+    ...loopConfig,
+  });
+  const existingRoutine = await prisma.workoutRoutine.findUnique({
+    where: { id: parsedRoutine.id },
     select: { userId: true },
   });
 
-  if (existingPlan && existingPlan.userId !== user.id) {
-    throw new Error("Workout plan belongs to another user.");
+  if (existingRoutine && existingRoutine.userId !== user.id) {
+    throw new Error("Workout routine belongs to another user.");
   }
 
+  await assertExerciseIdsExist(parsedRoutine.items.map((item) => item.exerciseId));
+
   return prisma.$transaction(async (tx) => {
-    const plan = await tx.workoutPlan.upsert({
-      where: { id: parsedWorkout.id },
+    const routine = await tx.workoutRoutine.upsert({
+      where: { id: parsedRoutine.id },
       update: {
-        title: parsedWorkout.title,
-        goal: "custom_workout",
-        weeklyFrequency: 1,
-        estimatedSessionMinutes: estimatedMinutes,
+        title: parsedRoutine.title,
+        estimatedMinutes,
+        estimatedCalories,
         status: "active",
         source: "manual",
         trainingLoopRounds: loopConfig.trainingLoopRounds,
         trainingLoopRestSeconds: loopConfig.trainingLoopRestSeconds,
       },
       create: {
-        id: parsedWorkout.id,
+        id: parsedRoutine.id,
         userId: user.id,
-        title: parsedWorkout.title,
-        goal: "custom_workout",
-        weeklyFrequency: 1,
-        estimatedSessionMinutes: estimatedMinutes,
+        title: parsedRoutine.title,
+        estimatedMinutes,
+        estimatedCalories,
         status: "active",
         source: "manual",
         trainingLoopRounds: loopConfig.trainingLoopRounds,
@@ -115,244 +110,296 @@ export async function saveWorkout(rawWorkout: SavedWorkout) {
       select: { id: true },
     });
 
-    await tx.workoutPlanDay.deleteMany({ where: { workoutPlanId: plan.id } });
-    await tx.workoutPlanDay.create({
-      data: {
-        workoutPlanId: plan.id,
-        dayIndex: 1,
-        title: parsedWorkout.title,
-        focus: "自定义编排",
-        estimatedMinutes,
-        items: {
-          create: parsedWorkout.items.map((item, index) => {
-            const normalizedItem = normalizeWorkoutItem(item);
+    await tx.workoutRoutineItem.deleteMany({ where: { routineId: routine.id } });
+    await tx.workoutRoutineItem.createMany({
+      data: parsedRoutine.items.map((item, index) => {
+        const normalizedItem = normalizeWorkoutItem(item);
 
-            return {
-              exerciseId: normalizedItem.exerciseId,
-              mode: normalizedItem.mode,
-              target: normalizedItem.target,
-              sets: normalizedItem.sets,
-              setRestSeconds: normalizedItem.setRestSeconds,
-              transitionRestSeconds: normalizedItem.transitionRestSeconds,
-              section: normalizedItem.section,
-              sortOrder: index + 1,
-            };
-          }),
-        },
-      },
+        return {
+          id: normalizedItem.id,
+          routineId: routine.id,
+          exerciseId: normalizedItem.exerciseId,
+          mode: normalizedItem.mode,
+          target: normalizedItem.target,
+          sets: normalizedItem.sets,
+          setRestSeconds: normalizedItem.setRestSeconds,
+          transitionRestSeconds: normalizedItem.transitionRestSeconds,
+          section: normalizedItem.section,
+          sortOrder: index + 1,
+        };
+      }),
     });
 
-    const savedPlan = await tx.workoutPlan.findFirstOrThrow({
-      where: { id: plan.id, userId: user.id },
-      include: workoutPlanInclude,
+    const savedRoutine = await tx.workoutRoutine.findFirstOrThrow({
+      where: { id: routine.id, userId: user.id },
+      include: workoutRoutineInclude,
     });
 
-    return mapWorkoutPlanToSavedWorkout(savedPlan);
+    return mapWorkoutRoutineRecord(savedRoutine);
   });
 }
 
-export async function deleteSavedWorkout(id: string) {
+// 归档 routine，保留已存在 schedule 的展示快照和历史 result。
+export async function deleteWorkoutRoutine(id: string) {
   const prisma = getPrismaClient();
   const user = await getCurrentUser();
-  await prisma.workoutPlan.deleteMany({ where: { id, userId: user.id } });
+  await prisma.workoutRoutine.updateMany({
+    where: { id, userId: user.id },
+    data: { status: "archived" },
+  });
 }
 
-export async function listScheduledWorkouts() {
+// Schedule 查询返回日历可展示快照，以及训练执行需要的 routine items。
+export async function listWorkoutSchedules() {
   const prisma = getPrismaClient();
   const user = await getCurrentUser();
-  const sessions = await prisma.workoutSession.findMany({
+  const schedules = await prisma.workoutSchedule.findMany({
     where: { userId: user.id, status: { not: "cancelled" } },
-    include: workoutSessionInclude,
+    include: workoutScheduleInclude,
     orderBy: [{ scheduledFor: "asc" }, { createdAt: "asc" }],
   });
 
-  return sessions.map(mapWorkoutSessionToScheduledWorkout).filter(Boolean) as ScheduledWorkout[];
+  return schedules.map(mapWorkoutScheduleRecord).filter(Boolean) as WorkoutSchedule[];
 }
 
-export async function getScheduledWorkoutById(id: string) {
+// Schedule 详情用于训练执行页按 scheduleId 加载当前安排。
+export async function getWorkoutScheduleById(id: string) {
   const prisma = getPrismaClient();
   const user = await getCurrentUser();
-  const session = await prisma.workoutSession.findFirst({
+  const schedule = await prisma.workoutSchedule.findFirst({
     where: { id, userId: user.id, status: { not: "cancelled" } },
-    include: workoutSessionInclude,
+    include: workoutScheduleInclude,
   });
 
-  return session ? mapWorkoutSessionToScheduledWorkout(session) : null;
+  return schedule ? mapWorkoutScheduleRecord(schedule) : null;
 }
 
-export async function createScheduledWorkout(rawSchedule: ScheduledWorkout) {
-  const parsedSchedule = scheduledWorkoutSchema.parse(rawSchedule);
+// 创建日历安排时保存展示快照，休息日不创建空 routine。
+export async function createWorkoutSchedule(rawSchedule: WorkoutSchedule) {
+  const parsedSchedule = workoutScheduleSchema.parse(rawSchedule);
   const prisma = getPrismaClient();
   const user = await getCurrentUser();
 
   if (parsedSchedule.status === "rest") {
-    const session = await prisma.workoutSession.create({
+    const schedule = await prisma.workoutSchedule.create({
       data: {
         id: parsedSchedule.id,
         userId: user.id,
         scheduledFor: parseDateKey(parsedSchedule.date),
         status: "rest",
-        feedback: {
-          kind: "rest_day",
-          title: parsedSchedule.title,
-          minutes: parsedSchedule.minutes,
-          calories: parsedSchedule.calories,
-        },
+        titleSnapshot: parsedSchedule.title,
+        estimatedMinutes: parsedSchedule.minutes,
+        estimatedCalories: parsedSchedule.calories,
       },
-      include: workoutSessionInclude,
+      include: workoutScheduleInclude,
     });
 
-    return mapWorkoutSessionToScheduledWorkout(session);
+    return mapWorkoutScheduleRecord(schedule);
   }
 
-  const plan = await prisma.workoutPlan.findFirst({
-    where: { id: parsedSchedule.planId, userId: user.id, status: { not: "archived" } },
-    include: workoutPlanInclude,
+  if (!parsedSchedule.routineId) {
+    throw new Error("Workout routine id is required for training schedule.");
+  }
+
+  const routine = await prisma.workoutRoutine.findFirst({
+    where: { id: parsedSchedule.routineId, userId: user.id, status: "active" },
+    include: workoutRoutineInclude,
   });
 
-  if (!plan) {
-    throw new Error(`Workout plan not found: ${parsedSchedule.planId}`);
+  if (!routine) {
+    throw new Error(`Workout routine not found: ${parsedSchedule.routineId}`);
   }
 
-  const savedWorkout = mapWorkoutPlanToSavedWorkout(plan);
-  const loopConfig = getWorkoutLoopConfig(savedWorkout);
-  const session = await prisma.workoutSession.create({
+  const workoutRoutine = mapWorkoutRoutineRecord(routine);
+  const loopConfig = getWorkoutLoopConfig(workoutRoutine);
+  const minutes = estimateWorkoutMinutes(workoutRoutine.items, {
+    minimumMinutes: 15,
+    ...loopConfig,
+  });
+  const calories = estimateWorkoutCalories(workoutRoutine.items, {
+    minimumCalories: 80,
+    ...loopConfig,
+  });
+  const schedule = await prisma.workoutSchedule.create({
     data: {
       id: parsedSchedule.id,
       userId: user.id,
-      workoutPlanId: plan.id,
+      routineId: routine.id,
       scheduledFor: parseDateKey(parsedSchedule.date),
-      status: mapScheduleStatusToSessionStatus(parsedSchedule.status),
-      durationSeconds: Math.max(0, parsedSchedule.minutes) * 60,
-      feedback: {
-        sourcePlanTitle: parsedSchedule.sourcePlanTitle,
-        minutes: estimateWorkoutMinutes(savedWorkout.items, {
-          minimumMinutes: 15,
-          ...loopConfig,
-        }),
-        calories: estimateWorkoutCalories(savedWorkout.items, {
-          minimumCalories: 80,
-          ...loopConfig,
-        }),
-      },
+      status: parsedSchedule.status,
+      titleSnapshot: workoutRoutine.title,
+      estimatedMinutes: minutes,
+      estimatedCalories: calories,
     },
-    include: workoutSessionInclude,
+    include: workoutScheduleInclude,
   });
 
-  return mapWorkoutSessionToScheduledWorkout(session);
+  return mapWorkoutScheduleRecord(schedule);
 }
 
-export async function updateScheduledWorkoutStatus(id: string, rawStatus: ScheduleStatus) {
-  const status = scheduleStatusSchema.parse(rawStatus);
+// 更新 schedule 状态只作用于当前用户自己的日历安排。
+export async function updateWorkoutScheduleStatus(id: string, rawStatus: WorkoutScheduleStatus) {
+  const status = workoutScheduleStatusSchema.parse(rawStatus);
   const prisma = getPrismaClient();
   const user = await getCurrentUser();
-  const session = await prisma.workoutSession.update({
+  const schedule = await prisma.workoutSchedule.update({
     where: { id, userId: user.id },
-    data: {
-      status: mapScheduleStatusToSessionStatus(status),
-      startedAt: status === "completed" ? new Date() : undefined,
-      endedAt: status === "completed" ? new Date() : undefined,
-    },
-    include: workoutSessionInclude,
+    data: { status },
+    include: workoutScheduleInclude,
   });
 
-  return mapWorkoutSessionToScheduledWorkout(session);
+  return mapWorkoutScheduleRecord(schedule);
 }
 
-export async function deleteScheduledWorkout(id: string) {
+// 删除 schedule 使用取消状态，保留 result 与未来审计空间。
+export async function deleteWorkoutSchedule(id: string) {
   const prisma = getPrismaClient();
   const user = await getCurrentUser();
-  await prisma.workoutSession.updateMany({
+  await prisma.workoutSchedule.updateMany({
     where: { id, userId: user.id },
     data: { status: "cancelled" },
   });
 }
 
-const workoutPlanInclude = {
-  days: {
-    include: {
-      items: {
-        include: { exercise: true },
-        orderBy: { sortOrder: "asc" },
+// 保存训练完成结果时在事务内维护 result 和 schedule completed 状态。
+export async function saveWorkoutSessionResult(scheduleId: string, rawResult: unknown) {
+  const parsedResult = workoutSessionResultInputSchema.parse(rawResult);
+  const prisma = getPrismaClient();
+  const user = await getCurrentUser();
+  const schedule = await prisma.workoutSchedule.findFirst({
+    where: { id: scheduleId, userId: user.id, status: { not: "cancelled" } },
+    select: { id: true, routineId: true },
+  });
+
+  if (!schedule) {
+    throw new Error(`Workout schedule not found: ${scheduleId}`);
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    const savedResult = await tx.workoutSessionResult.upsert({
+      where: { scheduleId },
+      update: {
+        routineId: schedule.routineId,
+        startedAt: new Date(parsedResult.startedAt),
+        endedAt: new Date(parsedResult.endedAt),
+        durationSeconds: parsedResult.durationSeconds,
+        completedStepCount: parsedResult.completedStepCount,
+        totalStepCount: parsedResult.totalStepCount,
+        completedExerciseCount: parsedResult.completedExerciseCount,
+        totalExerciseCount: parsedResult.totalExerciseCount,
+        estimatedCalories: parsedResult.estimatedCalories,
+        actualCalories: parsedResult.actualCalories,
+        status: parsedResult.status ?? "completed",
       },
-    },
-    orderBy: { dayIndex: "asc" },
+      create: {
+        userId: user.id,
+        scheduleId,
+        routineId: schedule.routineId,
+        startedAt: new Date(parsedResult.startedAt),
+        endedAt: new Date(parsedResult.endedAt),
+        durationSeconds: parsedResult.durationSeconds,
+        completedStepCount: parsedResult.completedStepCount,
+        totalStepCount: parsedResult.totalStepCount,
+        completedExerciseCount: parsedResult.completedExerciseCount,
+        totalExerciseCount: parsedResult.totalExerciseCount,
+        estimatedCalories: parsedResult.estimatedCalories,
+        actualCalories: parsedResult.actualCalories,
+        status: parsedResult.status ?? "completed",
+      },
+    });
+
+    await tx.workoutSchedule.update({
+      where: { id: scheduleId, userId: user.id },
+      data: { status: "completed" },
+    });
+
+    return savedResult;
+  });
+
+  return mapWorkoutSessionResultRecord(result);
+}
+
+const workoutRoutineInclude = {
+  items: {
+    include: { exercise: true },
+    orderBy: { sortOrder: "asc" },
   },
-} satisfies Prisma.WorkoutPlanInclude;
+} satisfies Prisma.WorkoutRoutineInclude;
 
-const workoutSessionInclude = {
-  workoutPlan: {
-    include: workoutPlanInclude,
+const workoutScheduleInclude = {
+  routine: {
+    include: workoutRoutineInclude,
   },
-} satisfies Prisma.WorkoutSessionInclude;
+  result: true,
+} satisfies Prisma.WorkoutScheduleInclude;
 
-function mapWorkoutPlanToSavedWorkout(plan: WorkoutPlanWithItems): SavedWorkout {
-  const primaryDay = plan.days[0];
-
-  return normalizeSavedWorkout({
-    id: plan.id,
-    title: plan.title,
-    savedAt: formatDateTime(plan.updatedAt),
-    trainingLoopRounds: plan.trainingLoopRounds ?? undefined,
-    trainingLoopRestSeconds: plan.trainingLoopRestSeconds ?? undefined,
-    items: primaryDay?.items.map(mapWorkoutPlanItemToWorkoutItem) ?? [],
+function mapWorkoutRoutineRecord(routine: WorkoutRoutineWithItems): WorkoutRoutine {
+  return normalizeWorkoutRoutine({
+    id: routine.id,
+    title: routine.title,
+    updatedAt: formatDateTime(routine.updatedAt),
+    trainingLoopRounds: routine.trainingLoopRounds ?? undefined,
+    trainingLoopRestSeconds: routine.trainingLoopRestSeconds ?? undefined,
+    items: routine.items.map(mapWorkoutRoutineItemRecord),
   });
 }
 
-function mapWorkoutSessionToScheduledWorkout(session: WorkoutSessionWithPlan): ScheduledWorkout | null {
-  const status = mapSessionStatusToScheduleStatus(session.status);
-  const date = session.scheduledFor ? toDateKey(session.scheduledFor) : toDateKey(session.createdAt);
+function mapWorkoutScheduleRecord(schedule: WorkoutScheduleWithRoutine): WorkoutSchedule | null {
+  const date = toDateKey(schedule.scheduledFor);
 
-  if (status === "rest") {
+  if (schedule.status === "rest") {
     return {
-      id: session.id,
+      id: schedule.id,
       date,
-      planId: "rest",
-      title: readFeedbackString(session.feedback, "title") ?? "休息日",
-      status,
-      minutes: readFeedbackNumber(session.feedback, "minutes") ?? 0,
-      calories: readFeedbackNumber(session.feedback, "calories") ?? 0,
+      title: schedule.titleSnapshot || "休息日",
+      status: "rest",
+      minutes: schedule.estimatedMinutes,
+      calories: schedule.estimatedCalories,
       items: [],
     };
   }
 
-  if (!session.workoutPlan) {
+  if (!schedule.routine) {
     return null;
   }
 
-  const savedWorkout = mapWorkoutPlanToSavedWorkout(session.workoutPlan);
-  const loopConfig = getWorkoutLoopConfig(savedWorkout);
-  const minutes =
-    readFeedbackNumber(session.feedback, "minutes") ??
-    estimateWorkoutMinutes(savedWorkout.items, {
-      minimumMinutes: 15,
-      ...loopConfig,
-    });
-  const calories =
-    readFeedbackNumber(session.feedback, "calories") ??
-    estimateWorkoutCalories(savedWorkout.items, {
-      minimumCalories: 80,
-      ...loopConfig,
-    });
+  const routine = mapWorkoutRoutineRecord(schedule.routine);
+  const loopConfig = getWorkoutLoopConfig(routine);
 
   return {
-    id: session.id,
+    id: schedule.id,
     date,
-    planId: savedWorkout.id,
-    title: savedWorkout.title,
-    status,
-    minutes,
-    calories,
-    items: savedWorkout.items,
+    routineId: routine.id,
+    title: schedule.titleSnapshot || routine.title,
+    status: mapScheduleStatus(schedule.status),
+    minutes: schedule.estimatedMinutes,
+    calories: schedule.estimatedCalories,
+    items: routine.items,
     trainingLoopRounds: loopConfig.trainingLoopRounds,
     trainingLoopRestSeconds: loopConfig.trainingLoopRestSeconds,
-    sourcePlanTitle: readFeedbackString(session.feedback, "sourcePlanTitle") ?? undefined,
+    sourceRoutineTitle: routine.title,
   };
 }
 
-function mapWorkoutPlanItemToWorkoutItem(
-  item: WorkoutPlanWithItems["days"][number]["items"][number],
-): WorkoutItem {
+function mapWorkoutSessionResultRecord(result: WorkoutSessionResultRecord): WorkoutSessionResult {
+  return {
+    id: result.id,
+    scheduleId: result.scheduleId,
+    routineId: result.routineId ?? undefined,
+    startedAt: result.startedAt.toISOString(),
+    endedAt: result.endedAt.toISOString(),
+    durationSeconds: result.durationSeconds,
+    completedStepCount: result.completedStepCount,
+    totalStepCount: result.totalStepCount,
+    completedExerciseCount: result.completedExerciseCount,
+    totalExerciseCount: result.totalExerciseCount,
+    estimatedCalories: result.estimatedCalories,
+    actualCalories: result.actualCalories ?? undefined,
+    status: result.status,
+  };
+}
+
+function mapWorkoutRoutineItemRecord(item: WorkoutRoutineWithItems["items"][number]): WorkoutItem {
   const exercise = item.exercise;
   const imageUrls = exercise.imageUrls.length ? exercise.imageUrls : [placeholderWorkoutImage];
 
@@ -376,38 +423,32 @@ function mapWorkoutPlanItemToWorkoutItem(
   });
 }
 
-function mapScheduleStatusToSessionStatus(status: ScheduleStatus) {
-  if (status === "rest") {
-    return "rest";
+async function assertExerciseIdsExist(exerciseIds: string[]) {
+  const uniqueExerciseIds = Array.from(new Set(exerciseIds));
+
+  if (!uniqueExerciseIds.length) {
+    return;
   }
 
-  return status;
+  const prisma = getPrismaClient();
+  const exercises = await prisma.exercise.findMany({
+    where: { id: { in: uniqueExerciseIds } },
+    select: { id: true },
+  });
+  const existingIds = new Set(exercises.map((exercise) => exercise.id));
+  const missingIds = uniqueExerciseIds.filter((id) => !existingIds.has(id));
+
+  if (missingIds.length) {
+    throw new Error(`Invalid exerciseId: ${missingIds.join(", ")}`);
+  }
 }
 
-function mapSessionStatusToScheduleStatus(status: string): ScheduleStatus {
-  if (status === "completed" || status === "missed" || status === "rest") {
+function mapScheduleStatus(status: string): WorkoutScheduleStatus {
+  if (status === "cancelled" || status === "completed" || status === "missed" || status === "rest") {
     return status;
   }
 
   return "planned";
-}
-
-function readFeedbackString(feedback: Prisma.JsonValue | null, key: string) {
-  if (!feedback || typeof feedback !== "object" || Array.isArray(feedback)) {
-    return null;
-  }
-
-  const value = (feedback as Record<string, unknown>)[key];
-  return typeof value === "string" ? value : null;
-}
-
-function readFeedbackNumber(feedback: Prisma.JsonValue | null, key: string) {
-  if (!feedback || typeof feedback !== "object" || Array.isArray(feedback)) {
-    return null;
-  }
-
-  const value = (feedback as Record<string, unknown>)[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function parseDateKey(dateKey: string) {

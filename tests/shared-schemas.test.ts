@@ -3,11 +3,15 @@ import { describe, expect, it } from "vitest";
 import { exerciseRecommendationCardSchema } from "@/lib/shared/exercise-recommendations/schema";
 import { exerciseListQuerySchema } from "@/lib/shared/exercises/query-schema";
 import { workoutPlanDraftSchema, workoutPlanIntentSchema } from "@/lib/shared/workout-plans/draft-schema";
-import { savedWorkoutSchema, scheduledWorkoutSchema } from "@/lib/shared/workouts/persistence-schema";
+import {
+  workoutRoutineSchema,
+  workoutScheduleSchema,
+  workoutSessionResultInputSchema,
+} from "@/lib/shared/workouts/persistence-schema";
 
 import {
-  createSavedWorkout,
-  createScheduledWorkout,
+  createWorkoutRoutine,
+  createWorkoutSchedule,
   createWorkoutPlanDraft,
   createWorkoutPlanIntent,
 } from "./fixtures/domain";
@@ -51,10 +55,30 @@ describe("shared schemas", () => {
   });
 
   it("accepts valid workout persistence input and rejects invalid status or date", () => {
-    expect(savedWorkoutSchema.safeParse(createSavedWorkout()).success).toBe(true);
-    expect(savedWorkoutSchema.safeParse(createSavedWorkout({ title: "" })).success).toBe(false);
-    expect(scheduledWorkoutSchema.safeParse(createScheduledWorkout()).success).toBe(true);
-    expect(scheduledWorkoutSchema.safeParse(createScheduledWorkout({ date: "2026/05/25" })).success).toBe(false);
-    expect(scheduledWorkoutSchema.safeParse(createScheduledWorkout({ status: "done" as never })).success).toBe(false);
+    expect(workoutRoutineSchema.safeParse(createWorkoutRoutine()).success).toBe(true);
+    expect(workoutRoutineSchema.safeParse(createWorkoutRoutine({ title: "" })).success).toBe(false);
+    expect(workoutScheduleSchema.safeParse(createWorkoutSchedule()).success).toBe(true);
+    expect(workoutScheduleSchema.safeParse(createWorkoutSchedule({ date: "2026/05/25" })).success).toBe(false);
+    expect(workoutScheduleSchema.safeParse(createWorkoutSchedule({ status: "done" as never })).success).toBe(false);
+    expect(workoutSessionResultInputSchema.safeParse({
+      completedExerciseCount: 1,
+      completedStepCount: 2,
+      durationSeconds: 120,
+      endedAt: "2026-05-25T10:02:00.000Z",
+      estimatedCalories: 20,
+      startedAt: "2026-05-25T10:00:00.000Z",
+      totalExerciseCount: 1,
+      totalStepCount: 2,
+    }).success).toBe(true);
+    expect(workoutSessionResultInputSchema.safeParse({
+      completedExerciseCount: -1,
+      completedStepCount: 2,
+      durationSeconds: 120,
+      endedAt: "2026-05-25T10:02:00.000Z",
+      estimatedCalories: 20,
+      startedAt: "2026-05-25T10:00:00.000Z",
+      totalExerciseCount: 1,
+      totalStepCount: 2,
+    }).success).toBe(false);
   });
 });

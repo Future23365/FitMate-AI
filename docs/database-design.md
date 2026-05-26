@@ -2,7 +2,7 @@
 
 本文档是根据当前已有 PostgreSQL / Prisma 数据模型整理的现状说明，事实来源是 `prisma/schema.prisma`，迁移文件位于 `prisma/migrations/`。
 
-本文档的作用是帮助开发者理解当前数据库设计、表关系和字段含义，不是数据库设计规范，也不作为未来设计数据库或变更 schema 的约束依据。后续数据库变更仍应以实际需求、OpenSpec 变更流程和 `prisma/schema.prisma` 为准。
+本文档用于帮助开发者理解当前数据库设计、表关系和字段含义，不是未来数据库设计规范。后续数据库变更仍应以实际需求、OpenSpec 变更流程和 `prisma/schema.prisma` 为准。
 
 ## 1. 设计概览
 
@@ -12,7 +12,7 @@
 |---|---|---|
 | 用户与身份 | `User`、`UserIdentity`、`UserProfile` | 保存用户主体、登录身份和健身画像。当前鉴权尚未正式接入，服务端会创建固定的本地演示用户。 |
 | 动作库 | `Exercise` | 保存训练动作的标准事实数据，包括来源、分类、肌群、器械、居家可做条件、图片、教学步骤和审核状态。 |
-| 训练计划与执行 | `WorkoutPlan`、`WorkoutPlanDay`、`WorkoutPlanItem`、`WorkoutSession` | 保存用户训练计划、计划中的训练日、动作编排和日历执行记录。 |
+| 训练编排、日历与结果 | `WorkoutRoutine`、`WorkoutRoutineItem`、`WorkoutSchedule`、`WorkoutSessionResult` | 保存用户可复用动作编排、编排项、日历安排和实际训练结果摘要。 |
 | 聊天历史 | `ChatSession`、`ChatMessage` | 保存用户和 AI 的对话历史，以及绑定在消息上的计划卡片、推荐卡片和结构化上下文。 |
 
 主要关系如下：
@@ -21,10 +21,12 @@
 User
   ├─ UserIdentity
   ├─ UserProfile
-  ├─ WorkoutPlan
-  │    ├─ WorkoutPlanDay
-  │    │    └─ WorkoutPlanItem ── Exercise
-  │    └─ WorkoutSession
+  ├─ WorkoutRoutine
+  │    ├─ WorkoutRoutineItem ── Exercise
+  │    ├─ WorkoutSchedule
+  │    └─ WorkoutSessionResult
+  ├─ WorkoutSchedule
+  │    └─ WorkoutSessionResult
   └─ ChatSession
        └─ ChatMessage
 ```
@@ -55,19 +57,18 @@ User
 | `rejected` | 已拒绝，不应面向用户使用。 |
 | `fallback` | 兜底动作数据，通常用于保证系统可用性。 |
 
-### WorkoutPlanStatus
+### WorkoutRoutineStatus
 
-训练计划状态。
+训练编排状态。
 
 | 值 | 含义 |
 |---|---|
-| `draft` | 草稿计划。 |
-| `active` | 正在使用或已保存的计划。 |
+| `active` | 正在使用或已保存的编排。 |
 | `archived` | 已归档，不在常规列表中展示。 |
 
-### WorkoutPlanSource
+### WorkoutRoutineSource
 
-训练计划来源。
+训练编排来源。
 
 | 值 | 含义 |
 |---|---|
@@ -75,18 +76,26 @@ User
 | `manual` | 用户手动编排。 |
 | `imported` | 外部导入。 |
 
-### WorkoutSessionStatus
+### WorkoutScheduleStatus
 
-训练日程或执行记录状态。
+训练日历安排状态。
 
 | 值 | 含义 |
 |---|---|
 | `planned` | 已计划，尚未完成。 |
-| `in_progress` | 训练进行中。 |
 | `completed` | 已完成。 |
 | `missed` | 已错过。 |
 | `cancelled` | 已取消，当前删除日程时使用软取消。 |
 | `rest` | 休息日。 |
+
+### WorkoutSessionResultStatus
+
+训练结果状态。
+
+| 值 | 含义 |
+|---|---|
+| `completed` | 已完成训练。 |
+| `abandoned` | 中途放弃或未完整完成。 |
 
 ### ChatMessageRole
 
@@ -119,8 +128,9 @@ User
 |---|---|
 | `identities` | 一个用户可以绑定多个登录身份。 |
 | `profile` | 一个用户最多有一份健身画像。 |
-| `workoutPlans` | 一个用户可以拥有多个训练计划。 |
-| `sessions` | 一个用户可以拥有多个训练执行或日程记录。 |
+| `routines` | 一个用户可以拥有多个训练编排。 |
+| `schedules` | 一个用户可以拥有多个训练日历安排。 |
+| `results` | 一个用户可以拥有多个训练结果。 |
 | `chatSessions` | 一个用户可以拥有多个聊天会话。 |
 
 ### UserIdentity
@@ -137,15 +147,6 @@ User
 | `emailVerifiedAt` | `DateTime?` | 可空 | 邮箱验证时间。 |
 | `createdAt` | `DateTime` | 默认 `now()` | 身份记录创建时间。 |
 | `updatedAt` | `DateTime` | `@updatedAt` | 身份记录最后更新时间。 |
-
-约束与索引：
-
-| 约束 / 索引 | 作用 |
-|---|---|
-| `@@unique([provider, providerAccountId])` | 防止同一提供商账号重复绑定。 |
-| `@@index([userId])` | 支持按用户查询身份。 |
-| `@@index([email])` | 支持按邮箱查找身份。 |
-| `onDelete: Cascade` | 删除用户时同步删除身份记录。 |
 
 ### UserProfile
 
@@ -166,16 +167,9 @@ User
 | `createdAt` | `DateTime` | 默认 `now()` | 画像创建时间。 |
 | `updatedAt` | `DateTime` | `@updatedAt` | 画像最后更新时间。 |
 
-约束：
-
-| 约束 | 作用 |
-|---|---|
-| `userId @unique` | 保证每个用户最多只有一份画像。 |
-| `onDelete: Cascade` | 删除用户时同步删除画像。 |
-
 ### Exercise
 
-动作库表，是训练计划动作引用的事实来源。计划中的动作必须引用这里已有的 `Exercise.id`。
+动作库表，是训练编排动作引用的事实来源。编排中的动作必须引用这里已有的 `Exercise.id`。
 
 | 字段 | 类型 | 约束 / 默认值 | 作用 |
 |---|---|---|---|
@@ -186,161 +180,103 @@ User
 | `license` | `String` | 必填 | 数据许可信息。 |
 | `nameEn` | `String` | 必填 | 英文动作名。 |
 | `nameZh` | `String` | 必填 | 中文动作名。 |
-| `category` | `String?` | 可空，已建索引 | 英文动作分类。 |
-| `categoryZh` | `String?` | 可空 | 中文动作分类。 |
-| `level` | `String?` | 可空，已建索引 | 英文难度等级。 |
-| `levelZh` | `String?` | 可空 | 中文难度等级。 |
-| `force` | `String?` | 可空 | 英文发力类型，例如推、拉。 |
-| `forceZh` | `String?` | 可空 | 中文发力类型。 |
-| `mechanic` | `String?` | 可空 | 英文动作机制，例如 compound、isolation。 |
-| `mechanicZh` | `String?` | 可空 | 中文动作机制。 |
-| `equipment` | `String?` | 可空，已建索引 | 英文器械标签。 |
-| `equipmentZh` | `String?` | 可空 | 中文器械标签。 |
-| `homeRequirement` | `String` | 必填 | 居家训练条件标签，用于区别器械和居家可做性。 |
-| `homeRequirementZh` | `String` | 必填 | 中文居家训练条件标签。 |
-| `primaryMuscles` | `String[]` | 默认 `[]` | 英文主练肌群。 |
-| `primaryMusclesZh` | `String[]` | 默认 `[]` | 中文主练肌群。 |
-| `secondaryMuscles` | `String[]` | 默认 `[]` | 英文辅助肌群。 |
-| `secondaryMusclesZh` | `String[]` | 默认 `[]` | 中文辅助肌群。 |
-| `instructionsEn` | `String[]` | 默认 `[]` | 英文动作步骤。 |
-| `instructionsZh` | `String[]` | 默认 `[]` | 中文动作步骤。 |
-| `images` | `String[]` | 默认 `[]` | 原始图片路径或图片标识。 |
-| `imageUrls` | `String[]` | 默认 `[]` | 可直接展示的图片 URL。 |
-| `riskTags` | `String[]` | 默认 `[]` | 风险标签，例如高冲击、膝盖压力等。 |
-| `goalTags` | `String[]` | 默认 `[]` | 适配目标标签，例如减脂、核心、活动度。 |
+| `category` / `categoryZh` | `String?` | 可空 | 动作分类。 |
+| `level` / `levelZh` | `String?` | 可空 | 难度等级。 |
+| `force` / `forceZh` | `String?` | 可空 | 发力类型。 |
+| `mechanic` / `mechanicZh` | `String?` | 可空 | 动作机制。 |
+| `equipment` / `equipmentZh` | `String?` | 可空 | 器械标签。 |
+| `homeRequirement` / `homeRequirementZh` | `String` | 必填 | 居家训练条件标签。 |
+| `primaryMuscles` / `primaryMusclesZh` | `String[]` | 默认 `[]` | 主练肌群。 |
+| `secondaryMuscles` / `secondaryMusclesZh` | `String[]` | 默认 `[]` | 辅助肌群。 |
+| `instructionsEn` / `instructionsZh` | `String[]` | 默认 `[]` | 动作步骤。 |
+| `images` / `imageUrls` | `String[]` | 默认 `[]` | 原始图片路径和可直接展示图片 URL。 |
+| `riskTags` | `String[]` | 默认 `[]` | 风险标签。 |
+| `goalTags` | `String[]` | 默认 `[]` | 适配目标标签。 |
 | `reviewStatus` | `ExerciseReviewStatus` | 默认 `machine_translated`，已建索引 | 内容审核状态。 |
 | `isPublished` | `Boolean` | 默认 `false`，已建索引 | 是否发布给用户使用。 |
 | `createdAt` | `DateTime` | 默认 `now()` | 动作记录创建时间。 |
 | `updatedAt` | `DateTime` | `@updatedAt` | 动作记录最后更新时间。 |
 
-约束与索引：
+### WorkoutRoutine
 
-| 约束 / 索引 | 作用 |
-|---|---|
-| `@@unique([source, sourceId])` | 防止同一来源动作重复导入。 |
-| `@@index([category])` | 支持按分类筛选。 |
-| `@@index([level])` | 支持按难度筛选。 |
-| `@@index([equipment])` | 支持按器械筛选。 |
-| `@@index([reviewStatus])` | 支持内容审核管理。 |
-| `@@index([isPublished])` | 支持只查询已发布动作。 |
-
-### WorkoutPlan
-
-训练计划表，保存用户保存或生成的一套训练方案。当前手动编排的单次训练也持久化为一个 `WorkoutPlan`。
+训练编排表，保存用户可复用的一套动作列表。当前动作编排页、AI 草稿保存和日历排期都会以 routine 为训练模板。
 
 | 字段 | 类型 | 约束 / 默认值 | 作用 |
 |---|---|---|---|
-| `id` | `String` | 主键，默认 `cuid()` | 训练计划唯一标识。保存手动编排时也可能由前端传入。 |
+| `id` | `String` | 主键，默认 `cuid()` | 编排唯一标识。保存手动编排时也可能由前端传入。 |
 | `userId` | `String` | 外键，关联 `User.id`，已建索引 | 所属用户，用于权限隔离。 |
-| `title` | `String` | 必填 | 计划标题。 |
-| `goal` | `String` | 必填 | 计划目标。手动编排当前写入 `custom_workout`。 |
-| `summary` | `String?` | 可空 | 计划摘要。 |
-| `weeklyFrequency` | `Int` | 必填 | 计划建议每周训练次数。 |
-| `estimatedSessionMinutes` | `Int` | 必填 | 单次训练预估时长，单位分钟。 |
-| `status` | `WorkoutPlanStatus` | 默认 `draft`，已建索引 | 计划状态。 |
-| `source` | `WorkoutPlanSource` | 默认 `ai` | 计划来源。 |
-| `safetyNotes` | `String[]` | 默认 `[]` | 计划级安全提示。 |
-| `trainingLoopRounds` | `Int?` | 可空 | 整套训练循环轮数。为空时业务层使用默认值。 |
+| `title` | `String` | 必填 | 编排标题。 |
+| `summary` | `String?` | 可空 | 编排摘要。当前 UI 暂未稳定使用。 |
+| `estimatedMinutes` | `Int` | 必填 | 预估训练分钟数。 |
+| `estimatedCalories` | `Int` | 默认 `0` | 预估消耗热量。 |
+| `status` | `WorkoutRoutineStatus` | 默认 `active`，已建索引 | 编排状态。 |
+| `source` | `WorkoutRoutineSource` | 默认 `ai` | 编排来源。 |
+| `trainingLoopRounds` | `Int?` | 可空 | 主训练循环轮数。为空时业务层使用默认值。 |
 | `trainingLoopRestSeconds` | `Int?` | 可空 | 每轮训练之间的休息秒数。为空时业务层使用默认值。 |
-| `sourceAiTraceId` | `String?` | 可空 | 生成该计划的 AI Trace id，用于调试和追溯。 |
-| `createdAt` | `DateTime` | 默认 `now()` | 计划创建时间。 |
-| `updatedAt` | `DateTime` | `@updatedAt` | 计划最后更新时间。 |
+| `sourceAiTraceId` | `String?` | 可空 | 生成该编排的 AI Trace id。 |
+| `createdAt` | `DateTime` | 默认 `now()` | 编排创建时间。 |
+| `updatedAt` | `DateTime` | `@updatedAt` | 编排最后更新时间。 |
 
-关系与删除策略：
+### WorkoutRoutineItem
 
-| 关系 | 说明 |
-|---|---|
-| `user` | 计划属于一个用户，删除用户时级联删除计划。 |
-| `days` | 一个计划包含多个训练日，删除计划时级联删除训练日。 |
-| `sessions` | 一个计划可以被多个训练日程引用；删除计划时日程的 `workoutPlanId` 会置空。 |
-
-### WorkoutPlanDay
-
-训练计划日表，表示一个计划中的第几天或第几个训练单元。
-
-| 字段 | 类型 | 约束 / 默认值 | 作用 |
-|---|---|---|---|
-| `id` | `String` | 主键，默认 `cuid()` | 训练日唯一标识。 |
-| `workoutPlanId` | `String` | 外键，关联 `WorkoutPlan.id` | 所属训练计划。 |
-| `dayIndex` | `Int` | 与 `workoutPlanId` 组合唯一 | 计划内第几天或第几个训练单元。 |
-| `title` | `String` | 必填 | 训练日标题。 |
-| `focus` | `String` | 必填 | 训练重点，例如上肢、核心、全身。 |
-| `estimatedMinutes` | `Int` | 必填 | 本训练日预估时长，单位分钟。 |
-| `safetyNotes` | `String[]` | 默认 `[]` | 训练日级安全提示。 |
-| `createdAt` | `DateTime` | 默认 `now()` | 训练日创建时间。 |
-| `updatedAt` | `DateTime` | `@updatedAt` | 训练日最后更新时间。 |
-
-约束：
-
-| 约束 | 作用 |
-|---|---|
-| `@@unique([workoutPlanId, dayIndex])` | 保证同一计划内训练日顺序不重复。 |
-| `onDelete: Cascade` | 删除计划时同步删除训练日。 |
-
-### WorkoutPlanItem
-
-训练计划动作表，表示某个训练日中的一个动作编排项。
+训练编排动作项表，直接挂在 `WorkoutRoutine` 下，不再经过训练日中间层。
 
 | 字段 | 类型 | 约束 / 默认值 | 作用 |
 |---|---|---|---|
 | `id` | `String` | 主键，默认 `cuid()` | 动作编排项唯一标识。 |
-| `workoutPlanDayId` | `String` | 外键，关联 `WorkoutPlanDay.id` | 所属训练日。 |
+| `routineId` | `String` | 外键，关联 `WorkoutRoutine.id` | 所属编排。 |
 | `exerciseId` | `String` | 外键，关联 `Exercise.id`，已建索引 | 引用的动作库动作。 |
 | `mode` | `String` | 必填 | 训练目标模式。当前业务层使用 `reps` 或 `duration`。 |
-| `target` | `Int` | 必填 | 目标次数或目标秒数，取决于 `mode`。 |
+| `target` | `Int` | 必填 | 目标次数或目标秒数。 |
 | `sets` | `Int` | 必填 | 组数。 |
 | `setRestSeconds` | `Int` | 必填 | 同一动作组间休息秒数。 |
 | `transitionRestSeconds` | `Int` | 必填 | 当前动作到下一个动作之间的休息秒数。 |
 | `section` | `String?` | 可空 | 所属训练段。当前业务层识别 `warmup`、`training`、`stretch`。 |
 | `notes` | `String?` | 可空 | 动作编排备注。 |
-| `sortOrder` | `Int` | 与 `workoutPlanDayId` 组合唯一 | 动作在训练日内的排序。 |
+| `sortOrder` | `Int` | 与 `routineId` 组合唯一 | 动作在编排内的排序。 |
 | `createdAt` | `DateTime` | 默认 `now()` | 动作编排项创建时间。 |
 | `updatedAt` | `DateTime` | `@updatedAt` | 动作编排项最后更新时间。 |
 
-约束与索引：
+### WorkoutSchedule
 
-| 约束 / 索引 | 作用 |
-|---|---|
-| `@@unique([workoutPlanDayId, sortOrder])` | 保证同一训练日内动作顺序不重复。 |
-| `@@index([exerciseId])` | 支持从动作反查计划引用。 |
-| `@@index([workoutPlanDayId, sortOrder])` | 支持按训练日顺序读取动作列表。 |
-| `WorkoutPlanDay onDelete: Cascade` | 删除训练日时同步删除动作编排项。 |
-| `Exercise onDelete: Restrict` | 已被计划引用的动作不能直接删除，避免计划悬空。 |
-
-### WorkoutSession
-
-训练日程和执行记录表。当前既用于日历中的计划训练，也用于休息日记录。
+训练日历安排表，表示某一天安排哪套 routine，或该日期是休息日。`titleSnapshot`、`estimatedMinutes`、`estimatedCalories` 是日历展示快照，避免 routine 后续改名或调整动作时改写历史日历展示。
 
 | 字段 | 类型 | 约束 / 默认值 | 作用 |
 |---|---|---|---|
-| `id` | `String` | 主键，默认 `cuid()` | 训练日程或执行记录唯一标识。 |
+| `id` | `String` | 主键，默认 `cuid()` | 日历安排唯一标识。 |
 | `userId` | `String` | 外键，关联 `User.id`，已建索引 | 所属用户，用于权限隔离。 |
-| `workoutPlanId` | `String?` | 可空外键，关联 `WorkoutPlan.id` | 关联的训练计划。休息日没有训练计划。 |
-| `scheduledFor` | `DateTime?` | 可空，已建索引 | 计划训练日期。当前按日期 key 转为 UTC 零点保存。 |
-| `startedAt` | `DateTime?` | 可空 | 训练开始时间。 |
-| `endedAt` | `DateTime?` | 可空 | 训练结束时间。 |
-| `status` | `WorkoutSessionStatus` | 默认 `planned`，已建索引 | 日程或执行状态。 |
-| `durationSeconds` | `Int?` | 可空 | 训练持续时间，单位秒。 |
-| `feedback` | `Json?` | 可空 | 训练反馈或日程展示补充数据。 |
-| `createdAt` | `DateTime` | 默认 `now()` | 记录创建时间。 |
-| `updatedAt` | `DateTime` | `@updatedAt` | 记录最后更新时间。 |
+| `routineId` | `String?` | 可空外键，关联 `WorkoutRoutine.id` | 关联的训练编排。休息日可为空。 |
+| `scheduledFor` | `DateTime` | 必填，已建索引 | 计划训练日期。当前按日期 key 转为 UTC 零点保存。 |
+| `status` | `WorkoutScheduleStatus` | 默认 `planned`，已建索引 | 日历安排状态。 |
+| `titleSnapshot` | `String` | 必填 | 日历展示标题快照。 |
+| `estimatedMinutes` | `Int` | 默认 `0` | 日历展示分钟数快照。 |
+| `estimatedCalories` | `Int` | 默认 `0` | 日历展示热量快照。 |
+| `createdAt` | `DateTime` | 默认 `now()` | 日历安排创建时间。 |
+| `updatedAt` | `DateTime` | `@updatedAt` | 日历安排最后更新时间。 |
 
-当前 `feedback` 已使用的结构：
+### WorkoutSessionResult
 
-| 场景 | 字段 | 作用 |
-|---|---|---|
-| 休息日 | `kind: "rest_day"` | 标记这是休息日记录。 |
-| 休息日 | `title` | 休息日展示标题。 |
-| 休息日 / 训练日 | `minutes` | 日历展示用分钟数。 |
-| 休息日 / 训练日 | `calories` | 日历展示用热量估算。 |
-| 训练日 | `sourcePlanTitle` | 来源计划标题，用于日历展示。 |
+训练结果表，保存用户实际执行一次训练后的摘要。完成训练时服务端会在事务中创建或更新 result，并同步把对应 `WorkoutSchedule.status` 标记为 `completed`。
 
-关系与删除策略：
-
-| 关系 | 说明 |
-|---|---|
-| `user` | 记录属于一个用户，删除用户时级联删除记录。 |
-| `workoutPlan` | 记录可关联计划；删除计划时 `workoutPlanId` 置空，保留历史日程。 |
+| 字段 | 类型 | 约束 / 默认值 | 作用 |
+|---|---|---|---|
+| `id` | `String` | 主键，默认 `cuid()` | 训练结果唯一标识。 |
+| `userId` | `String` | 外键，关联 `User.id`，已建索引 | 所属用户，用于权限隔离。 |
+| `scheduleId` | `String` | 唯一外键，关联 `WorkoutSchedule.id` | 对应的日历安排。 |
+| `routineId` | `String?` | 可空外键，关联 `WorkoutRoutine.id` | 完成时对应的 routine。 |
+| `startedAt` | `DateTime` | 必填 | 本次训练开始时间。 |
+| `endedAt` | `DateTime` | 必填 | 本次训练结束时间。 |
+| `durationSeconds` | `Int` | 必填 | 实际训练秒数。 |
+| `completedStepCount` | `Int` | 必填 | 完成的执行步骤数。 |
+| `totalStepCount` | `Int` | 必填 | 总执行步骤数。 |
+| `completedExerciseCount` | `Int` | 必填 | 完成的动作步骤数。 |
+| `totalExerciseCount` | `Int` | 必填 | 总动作步骤数。 |
+| `estimatedCalories` | `Int` | 必填 | 本次训练估算热量。 |
+| `actualCalories` | `Int?` | 可空 | 后续可接入设备或手动记录的实际热量。 |
+| `status` | `WorkoutSessionResultStatus` | 默认 `completed`，已建索引 | 训练结果状态。 |
+| `feedback` | `Json?` | 可空 | 后续扩展训练反馈。 |
+| `createdAt` | `DateTime` | 默认 `now()` | 训练结果创建时间。 |
+| `updatedAt` | `DateTime` | `@updatedAt` | 训练结果最后更新时间。 |
 
 ### ChatSession
 
@@ -353,13 +289,6 @@ User
 | `title` | `String?` | 可空 | 会话标题。为空时业务层可根据第一条用户消息生成标题。 |
 | `createdAt` | `DateTime` | 默认 `now()` | 会话创建时间。 |
 | `updatedAt` | `DateTime` | `@updatedAt` | 会话最后更新时间。 |
-
-关系：
-
-| 关系 | 说明 |
-|---|---|
-| `messages` | 一个会话包含多条消息。 |
-| `user` | 删除用户时级联删除会话。 |
 
 ### ChatMessage
 
@@ -383,25 +312,20 @@ User
 | `exerciseRecommendation` | 绑定在该消息上的动作推荐卡片。 |
 | `conversationContext` | 结构化对话上下文。当前只写入最后一条消息，用于恢复长对话上下文。 |
 
-约束与索引：
-
-| 约束 / 索引 | 作用 |
-|---|---|
-| `@@index([chatSessionId, createdAt])` | 支持按会话和时间顺序读取消息。 |
-| `onDelete: Cascade` | 删除会话时同步删除消息。 |
-
 ## 4. 关系与删除策略总结
 
 | 从表 | 关联主表 | 删除主表时的行为 | 设计原因 |
 |---|---|---|---|
 | `UserIdentity` | `User` | `Cascade` | 用户删除后登录身份不再有意义。 |
 | `UserProfile` | `User` | `Cascade` | 用户画像属于用户私有数据。 |
-| `WorkoutPlan` | `User` | `Cascade` | 训练计划属于用户私有数据。 |
-| `WorkoutPlanDay` | `WorkoutPlan` | `Cascade` | 训练日不能脱离计划存在。 |
-| `WorkoutPlanItem` | `WorkoutPlanDay` | `Cascade` | 动作编排项不能脱离训练日存在。 |
-| `WorkoutPlanItem` | `Exercise` | `Restrict` | 防止删除已被计划引用的动作，保证历史计划可读取。 |
-| `WorkoutSession` | `User` | `Cascade` | 训练日程属于用户私有数据。 |
-| `WorkoutSession` | `WorkoutPlan` | `SetNull` | 删除计划后保留历史日程或执行记录。 |
+| `WorkoutRoutine` | `User` | `Cascade` | 训练编排属于用户私有数据。 |
+| `WorkoutRoutineItem` | `WorkoutRoutine` | `Cascade` | 动作编排项不能脱离 routine 存在。 |
+| `WorkoutRoutineItem` | `Exercise` | `Restrict` | 防止删除已被编排引用的动作，保证训练可执行。 |
+| `WorkoutSchedule` | `User` | `Cascade` | 训练日历安排属于用户私有数据。 |
+| `WorkoutSchedule` | `WorkoutRoutine` | `SetNull` | routine 归档或删除后仍保留日历快照和结果记录。 |
+| `WorkoutSessionResult` | `User` | `Cascade` | 训练结果属于用户私有数据。 |
+| `WorkoutSessionResult` | `WorkoutSchedule` | `Cascade` | 训练结果必须归属于一条日历安排。 |
+| `WorkoutSessionResult` | `WorkoutRoutine` | `SetNull` | routine 删除后仍保留训练结果摘要。 |
 | `ChatSession` | `User` | `Cascade` | 聊天会话属于用户私有数据。 |
 | `ChatMessage` | `ChatSession` | `Cascade` | 消息不能脱离会话存在。 |
 
@@ -410,6 +334,8 @@ User
 - PostgreSQL 是业务事实数据来源，所有用户私有数据都应通过 `userId` 隔离。
 - 当前正式鉴权尚未接入，`lib/server/users/current-user.ts` 会创建固定的本地演示用户 `local-demo-user`。
 - 动作库的 `equipment` 和 `homeRequirement` 是两个不同维度：前者表示器械，后者表示居家训练条件。
-- 训练计划动作通过 `WorkoutPlanItem.exerciseId` 强制引用 `Exercise`，避免 AI 或客户端保存不存在的动作。
-- `WorkoutSession.feedback` 和 `ChatMessage.metadata` 是 JSON 扩展字段，适合保存展示补充信息和结构化上下文；如果某类数据变成稳定查询条件，应优先升级为显式字段。
+- 训练编排动作通过 `WorkoutRoutineItem.exerciseId` 强制引用 `Exercise`，避免 AI 或客户端保存不存在的动作。
+- `WorkoutSchedule` 保存日历展示快照；routine 后续更新不会自动改写已存在日历安排的标题、分钟数和热量。
+- `WorkoutSessionResult` 保存训练完成摘要；`WorkoutSchedule.status = completed` 用于日历筛选、统计和徽标展示。
+- `ChatMessage.metadata` 是聊天结构化上下文和卡片数据的落点；如果某类数据变成稳定查询条件，应优先升级为显式字段。
 - 当前 `ChatSession` 不保存 `metadata`，对话上下文已迁移到 `ChatMessage.metadata.conversationContext`。

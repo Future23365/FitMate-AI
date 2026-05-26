@@ -1,44 +1,56 @@
 "use client";
 
 import { clientRequest } from "@/lib/client/http/client-request";
-import type { SavedWorkout, ScheduledWorkout, ScheduleStatus } from "@/lib/shared/workouts/composition";
+import type {
+  WorkoutRoutine,
+  WorkoutSchedule,
+  WorkoutScheduleStatus,
+  WorkoutSessionResult,
+} from "@/lib/shared/workouts/composition";
 
-type SavedWorkoutsResponse = {
-  items: SavedWorkout[];
+type WorkoutRoutinesResponse = {
+  items: WorkoutRoutine[];
 };
 
-type SavedWorkoutResponse = {
-  item: SavedWorkout;
+type WorkoutRoutineResponse = {
+  item: WorkoutRoutine;
 };
 
-type ScheduledWorkoutsResponse = {
-  items: ScheduledWorkout[];
+type WorkoutSchedulesResponse = {
+  items: WorkoutSchedule[];
 };
 
-type ScheduledWorkoutResponse = {
-  item: ScheduledWorkout;
+type WorkoutScheduleResponse = {
+  item: WorkoutSchedule;
 };
 
-export async function listSavedWorkouts() {
-  const data = await clientRequest<SavedWorkoutsResponse>("/api/workouts", {
-    errorMessage: "已保存计划加载失败",
+type WorkoutSessionResultResponse = {
+  item: WorkoutSessionResult;
+};
+
+export type WorkoutSessionResultInput = Omit<WorkoutSessionResult, "id" | "routineId" | "scheduleId">;
+
+// 客户端 routine API 封装是动作编排页和日历选择的唯一入口。
+export async function listWorkoutRoutines() {
+  const data = await clientRequest<WorkoutRoutinesResponse>("/api/workout-routines", {
+    errorMessage: "训练编排加载失败",
   });
 
   return data.items;
 }
 
-export async function getSavedWorkout(id: string) {
-  const data = await clientRequest<SavedWorkoutResponse>(`/api/workouts/${encodeURIComponent(id)}`, {
+export async function getWorkoutRoutine(id: string) {
+  const data = await clientRequest<WorkoutRoutineResponse>(`/api/workout-routines/${encodeURIComponent(id)}`, {
     errorMessage: "训练编排加载失败",
   });
 
   return data.item;
 }
 
-export async function saveWorkout(workout: SavedWorkout) {
-  const data = await clientRequest<SavedWorkoutResponse>(`/api/workouts/${encodeURIComponent(workout.id)}`, {
+export async function saveWorkoutRoutine(routine: WorkoutRoutine) {
+  const data = await clientRequest<WorkoutRoutineResponse>(`/api/workout-routines/${encodeURIComponent(routine.id)}`, {
     method: "PUT",
-    body: workout,
+    body: routine,
     errorMessage: "保存训练编排失败",
   });
 
@@ -46,10 +58,10 @@ export async function saveWorkout(workout: SavedWorkout) {
   return data.item;
 }
 
-export async function createWorkout(workout: SavedWorkout) {
-  const data = await clientRequest<SavedWorkoutResponse>("/api/workouts", {
+export async function createWorkoutRoutine(routine: WorkoutRoutine) {
+  const data = await clientRequest<WorkoutRoutineResponse>("/api/workout-routines", {
     method: "POST",
-    body: workout,
+    body: routine,
     errorMessage: "创建训练编排失败",
   });
 
@@ -57,8 +69,8 @@ export async function createWorkout(workout: SavedWorkout) {
   return data.item;
 }
 
-export async function deleteWorkout(id: string) {
-  await clientRequest(`/api/workouts/${encodeURIComponent(id)}`, {
+export async function deleteWorkoutRoutine(id: string) {
+  await clientRequest(`/api/workout-routines/${encodeURIComponent(id)}`, {
     method: "DELETE",
     responseType: "raw",
     errorMessage: "删除训练编排失败",
@@ -67,27 +79,28 @@ export async function deleteWorkout(id: string) {
   window.dispatchEvent(new Event("fitmate:workouts-updated"));
 }
 
-export async function listScheduledWorkouts() {
-  const data = await clientRequest<ScheduledWorkoutsResponse>("/api/workout-sessions", {
+// 客户端 schedule API 封装是训练日历和训练执行页加载安排的唯一入口。
+export async function listWorkoutSchedules() {
+  const data = await clientRequest<WorkoutSchedulesResponse>("/api/workout-schedules", {
     errorMessage: "训练日历加载失败",
   });
 
   return data.items;
 }
 
-export async function getScheduledWorkout(id: string) {
-  const data = await clientRequest<ScheduledWorkoutResponse>(
-    `/api/workout-sessions/${encodeURIComponent(id)}`,
+export async function getWorkoutSchedule(id: string) {
+  const data = await clientRequest<WorkoutScheduleResponse>(
+    `/api/workout-schedules/${encodeURIComponent(id)}`,
     { errorMessage: "训练安排加载失败" },
   );
 
   return data.item;
 }
 
-export async function createScheduledWorkout(workout: ScheduledWorkout) {
-  const data = await clientRequest<ScheduledWorkoutResponse>("/api/workout-sessions", {
+export async function createWorkoutSchedule(schedule: WorkoutSchedule) {
+  const data = await clientRequest<WorkoutScheduleResponse>("/api/workout-schedules", {
     method: "POST",
-    body: workout,
+    body: schedule,
     errorMessage: "安排训练失败",
   });
 
@@ -95,9 +108,9 @@ export async function createScheduledWorkout(workout: ScheduledWorkout) {
   return data.item;
 }
 
-export async function updateScheduledWorkoutStatus(id: string, status: ScheduleStatus) {
-  const data = await clientRequest<ScheduledWorkoutResponse>(
-    `/api/workout-sessions/${encodeURIComponent(id)}`,
+export async function updateWorkoutScheduleStatus(id: string, status: WorkoutScheduleStatus) {
+  const data = await clientRequest<WorkoutScheduleResponse>(
+    `/api/workout-schedules/${encodeURIComponent(id)}`,
     {
       method: "PATCH",
       body: { status },
@@ -109,12 +122,26 @@ export async function updateScheduledWorkoutStatus(id: string, status: ScheduleS
   return data.item;
 }
 
-export async function deleteScheduledWorkout(id: string) {
-  await clientRequest(`/api/workout-sessions/${encodeURIComponent(id)}`, {
+export async function deleteWorkoutSchedule(id: string) {
+  await clientRequest(`/api/workout-schedules/${encodeURIComponent(id)}`, {
     method: "DELETE",
     responseType: "raw",
     errorMessage: "移除训练安排失败",
   });
 
   window.dispatchEvent(new Event("fitmate:training-schedule-updated"));
+}
+
+export async function saveWorkoutSessionResult(scheduleId: string, result: WorkoutSessionResultInput) {
+  const data = await clientRequest<WorkoutSessionResultResponse>(
+    `/api/workout-schedules/${encodeURIComponent(scheduleId)}/result`,
+    {
+      method: "PUT",
+      body: result,
+      errorMessage: "训练结果保存失败",
+    },
+  );
+
+  window.dispatchEvent(new Event("fitmate:training-schedule-updated"));
+  return data.item;
 }
