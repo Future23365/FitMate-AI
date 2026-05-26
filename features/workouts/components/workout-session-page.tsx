@@ -71,51 +71,13 @@ type VoiceApiBrowserSupport = {
   version: string;
 };
 
-const webSpeechBrowserSupport: VoiceApiBrowserSupport[] = [
+// 语音设置弹窗只展示 Web Speech 语音合成所需的最低浏览器版本。
+const webSpeechMinimumBrowserRequirements: VoiceApiBrowserSupport[] = [
   { browser: "chrome", label: "Chrome", version: "33+" },
   { browser: "edge", label: "Edge", version: "14+" },
   { browser: "firefox", label: "Firefox", version: "49+" },
   { browser: "safari", label: "Safari", version: "7+" },
   { browser: "iosSafari", label: "iOS Safari", version: "7+" },
-];
-
-const webAudioBrowserSupport: VoiceApiBrowserSupport[] = [
-  { browser: "chrome", label: "Chrome", version: "14+" },
-  { browser: "edge", label: "Edge", version: "12+" },
-  { browser: "firefox", label: "Firefox", version: "25+" },
-  { browser: "safari", label: "Safari", version: "6+" },
-  { browser: "iosSafari", label: "iOS Safari", version: "6+" },
-];
-
-const voiceApiCompatibility: Array<{
-  api: string;
-  browsers: VoiceApiBrowserSupport[];
-  usage: string;
-}> = [
-  {
-    api: "Web Speech: speechSynthesis",
-    browsers: webSpeechBrowserSupport,
-    usage: "训练口令、倒计时、计次播报",
-  },
-  {
-    api: "SpeechSynthesisUtterance.voice",
-    browsers: webSpeechBrowserSupport,
-    usage: "应用用户选择的 voice",
-  },
-  {
-    api: "speechSynthesis.getVoices / voiceschanged",
-    browsers: [
-      ...webSpeechBrowserSupport.slice(0, 2),
-      { browser: "firefox", label: "Firefox", version: "49+ / Android voice 约 62+" },
-      ...webSpeechBrowserSupport.slice(3),
-    ],
-    usage: "读取 voice 列表并处理延迟加载",
-  },
-  {
-    api: "Web Audio: AudioContext",
-    browsers: webAudioBrowserSupport,
-    usage: "计时动作的每秒节奏音",
-  },
 ];
 
 const fallbackPlan: ScheduledWorkout = {
@@ -1575,27 +1537,23 @@ function VoiceSettingsDialog({
             <SymbolIcon className="text-xl text-primary">travel_explore</SymbolIcon>
             浏览器 API 版本
           </div>
-          <div className="grid gap-sm md:grid-cols-2">
-            {voiceApiCompatibility.map((item) => (
-              <div className="rounded-xl border border-line bg-white p-sm" key={item.api}>
-                <p className="text-label-md font-extrabold text-ink">{item.api}</p>
-                <p className="mt-xs text-label-md font-semibold text-muted">{item.usage}</p>
-                <div className="mt-sm grid gap-xs sm:grid-cols-2">
-                  {item.browsers.map((browser) => (
-                    <div
-                      className="grid min-h-[46px] grid-cols-[28px_1fr] items-center gap-xs rounded-lg border border-line bg-panel-soft px-xs py-xs"
-                      key={`${item.api}-${browser.browser}`}
-                    >
-                      <BrowserApiIcon browser={browser.browser} />
-                      <div className="min-w-0">
-                        <p className="truncate text-label-md font-extrabold text-ink">{browser.label}</p>
-                        <p className="truncate text-label-md font-bold text-primary">{browser.version}</p>
-                      </div>
-                    </div>
-                  ))}
+          <div className="rounded-xl border border-line bg-white p-sm">
+            <p className="text-label-md font-extrabold text-ink">Web Speech API</p>
+            <p className="mt-xs text-label-md font-semibold text-muted">训练口令、倒计时和计次播报所需的最低版本</p>
+            <div className="mt-sm grid gap-xs sm:grid-cols-2 lg:grid-cols-3">
+              {webSpeechMinimumBrowserRequirements.map((browser) => (
+                <div
+                  className="grid min-h-[46px] grid-cols-[28px_1fr] items-center gap-xs rounded-lg border border-line bg-panel-soft px-xs py-xs"
+                  key={browser.browser}
+                >
+                  <BrowserApiIcon browser={browser.browser} />
+                  <div className="min-w-0">
+                    <p className="truncate text-label-md font-extrabold text-ink">{browser.label}</p>
+                    <p className="truncate text-label-md font-bold text-primary">{browser.version}</p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
           <p className="mt-sm text-label-md font-semibold text-muted">
             版本范围参考 MDN / Can I Use 当前兼容数据；最终是否可用以本机自检和浏览器运行时能力为准。
