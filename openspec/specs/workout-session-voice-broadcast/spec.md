@@ -16,7 +16,7 @@ The system SHALL provide voice broadcast only on the `/training` workout session
 - **THEN** the system MUST NOT start voice broadcast or render additional voice broadcast controls for those pages
 
 ### Requirement: Voice broadcast toggle and local preference
-系统 SHALL 在训练执行页复用顶部音量按钮作为语音播报开关，并在本地持久化用户选择，同时确保开关视觉状态不伪装成已成功播放，并为需要用户注意的语音状态提供醒目、可操作的提示。系统 SHALL 将语音配置和全流程自检收拢到顶部语音设置弹窗，而不是在训练控制区常驻展示自检面板。
+系统 SHALL 在训练执行页复用顶部音量按钮作为语音播报开关，并在本地持久化用户选择，同时确保开关按钮只有打开语音和关闭语音两个用户可见功能。系统 SHALL 将语音配置和全流程自检收拢到顶部语音设置弹窗，而不是在训练控制区常驻展示自检面板。
 
 #### Scenario: First training session visit
 - **WHEN** no local voice broadcast preference exists and the user opens `/training`
@@ -32,8 +32,8 @@ The system SHALL provide voice broadcast only on the `/training` workout session
 #### Scenario: User enables voice broadcast
 - **WHEN** the user clicks the top volume button while voice broadcast is disabled
 - **THEN** the system stores the enabled preference in `localStorage`
-- **AND** the system MUST immediately attempt to speak the current workout step within that click flow
-- **AND** the system MUST show active voice state only after playback is confirmed or clearly show that activation is still required
+- **AND** the system MAY speak the configured activation confirmation such as “语音播报已开启”
+- **AND** the system MUST NOT announce the current workout step from this toggle action
 - **AND** later visits to `/training` keep voice broadcast preference enabled until the user turns it off again
 
 #### Scenario: User disables voice broadcast
@@ -44,11 +44,11 @@ The system SHALL provide voice broadcast only on the `/training` workout session
 - **WHEN** the user opens `/training` after previously disabling voice broadcast locally
 - **THEN** voice broadcast remains disabled until the user turns it on again
 
-#### Scenario: Voice requires activation or retry
-- **WHEN** voice broadcast preference is enabled but the page is waiting for activation or the last playback attempt failed
-- **THEN** the workout session page MUST show an obvious retry or activation prompt
-- **AND** the prompt MUST include an actionable control or clear direction that lets the user trigger voice activation
-- **AND** the prompt MUST be visually stronger than passive helper text
+#### Scenario: User returns after enabling voice broadcast
+- **WHEN** the user opens `/training` after previously enabling voice broadcast locally
+- **THEN** the system restores the enabled preference from `localStorage`
+- **AND** the top volume button MUST remain a close voice control rather than a retry or restore voice control
+- **AND** the workout session page MUST NOT show a “重新点击恢复播报” style prompt
 
 #### Scenario: Local storage is unavailable
 - **WHEN** `localStorage` cannot be read or written
@@ -211,14 +211,14 @@ The system SHALL NOT use AI services, speech recognition, microphone input, or s
 - **THEN** the system MUST NOT call AI endpoints, request microphone permissions, create speech recognition sessions, or persist audio state on the server
 
 ### Requirement: Voice playback state and activation
-系统 SHALL 在训练执行页维护可观察的语音播放状态，区分用户本地偏好、浏览器能力、页面音频激活状态、当前调度任务状态和失败状态，并把语音激活限制在明确的开始按钮和语音按钮交互中。
+系统 SHALL 在训练执行页维护可观察的语音播放状态，区分用户本地偏好、浏览器能力、页面音频激活状态、当前调度任务状态和失败状态，并把当前步骤播报激活限制在明确的开始按钮交互中。顶部语音按钮 SHALL 只改变本地语音偏好。
 
 #### Scenario: Preference is enabled after refresh
 - **WHEN** the user opens `/training` after previously enabling voice broadcast locally
 - **THEN** the system MUST restore the enabled preference from `localStorage`
 - **AND** the system MUST keep the workout session in待开始状态 until the user clicks start
 - **AND** the system MUST NOT show voice broadcast as actively speaking before speech playback is confirmed
-- **AND** the workout session page MUST NOT show a prompt that asks the user to click arbitrary training controls to restore voice
+- **AND** the workout session page MUST NOT show a prompt that asks the user to click arbitrary training controls or the voice button to restore voice
 
 #### Scenario: Start button activates voice playback
 - **WHEN** voice broadcast is enabled and the user clicks the training start button
@@ -227,9 +227,10 @@ The system SHALL NOT use AI services, speech recognition, microphone input, or s
 - **AND** the scheduler MUST reserve the configured activation cue for the top voice button enable action
 - **AND** the system MUST update playback state from the resulting speech events or configured fallback timeout
 
-#### Scenario: Voice button activates or retries voice playback
-- **WHEN** voice broadcast is disabled, waiting for activation, or failed and the user clicks the top voice button
-- **THEN** the system MUST use that click as the activation or retry gesture
+#### Scenario: Voice button is not a retry control
+- **WHEN** voice broadcast is enabled, waiting for activation, or failed and the user clicks the top voice button
+- **THEN** the system MUST disable voice broadcast
+- **AND** the system MUST NOT use that click to retry current step speech
 - **AND** the system MUST NOT require the user to click pause, skip, next, previous, or a list item to recover voice
 
 #### Scenario: Training control does not restore voice
@@ -241,7 +242,7 @@ The system SHALL NOT use AI services, speech recognition, microphone input, or s
 - **WHEN** a speech attempt emits an error or does not start within the supported fallback window
 - **THEN** the system MUST mark voice playback as failed or requiring activation
 - **AND** the system MUST keep workout timers and controls usable
-- **AND** the system MUST provide retry through the voice button and development diagnostic log
+- **AND** the system MUST keep development diagnostic logs available for troubleshooting
 
 #### Scenario: Speech call never starts
 - **WHEN** `speechSynthesis.speak()` is called but no `onstart` or `onend` event arrives within the configured speech start timeout
