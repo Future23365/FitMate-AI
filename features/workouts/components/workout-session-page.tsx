@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
@@ -82,6 +82,19 @@ type SessionSectionDividerMeta = {
   title: string;
 };
 
+type WorkoutCompletionConfettiPiece = {
+  color: string;
+  delay: string;
+  duration: string;
+  height: string;
+  rotate: string;
+  width: string;
+  xEnd: string;
+  xStart: string;
+};
+
+type WorkoutCompletionConfettiStyle = CSSProperties & Record<`--${string}`, string>;
+
 const sessionSectionDividerMeta: Record<WorkoutSection, SessionSectionDividerMeta> = {
   warmup: {
     badgeClassName: "border-warning-text/15 bg-warning-soft text-warning-text",
@@ -102,6 +115,21 @@ const sessionSectionDividerMeta: Record<WorkoutSection, SessionSectionDividerMet
     title: "拉伸",
   },
 };
+
+const workoutCompletionConfettiPieces: WorkoutCompletionConfettiPiece[] = [
+  { color: "#2459E6", delay: "0s", duration: "1.55s", height: "12px", rotate: "180deg", width: "7px", xEnd: "-38vw", xStart: "-8vw" },
+  { color: "#14B8A6", delay: "0.04s", duration: "1.68s", height: "10px", rotate: "-210deg", width: "10px", xEnd: "-28vw", xStart: "-4vw" },
+  { color: "#F59E0B", delay: "0.08s", duration: "1.5s", height: "14px", rotate: "260deg", width: "6px", xEnd: "-18vw", xStart: "-2vw" },
+  { color: "#E5484D", delay: "0.02s", duration: "1.72s", height: "9px", rotate: "-160deg", width: "9px", xEnd: "-10vw", xStart: "-1vw" },
+  { color: "#8B5CF6", delay: "0.1s", duration: "1.62s", height: "13px", rotate: "220deg", width: "7px", xEnd: "0vw", xStart: "0vw" },
+  { color: "#22C55E", delay: "0.06s", duration: "1.58s", height: "10px", rotate: "-240deg", width: "8px", xEnd: "11vw", xStart: "1vw" },
+  { color: "#EC4899", delay: "0.12s", duration: "1.76s", height: "12px", rotate: "300deg", width: "6px", xEnd: "20vw", xStart: "3vw" },
+  { color: "#0EA5E9", delay: "0.16s", duration: "1.66s", height: "8px", rotate: "-190deg", width: "11px", xEnd: "30vw", xStart: "5vw" },
+  { color: "#F97316", delay: "0.2s", duration: "1.8s", height: "14px", rotate: "250deg", width: "7px", xEnd: "39vw", xStart: "8vw" },
+  { color: "#84CC16", delay: "0.18s", duration: "1.52s", height: "9px", rotate: "-280deg", width: "9px", xEnd: "-34vw", xStart: "-6vw" },
+  { color: "#06B6D4", delay: "0.24s", duration: "1.7s", height: "13px", rotate: "210deg", width: "6px", xEnd: "-22vw", xStart: "-3vw" },
+  { color: "#F43F5E", delay: "0.28s", duration: "1.6s", height: "10px", rotate: "-230deg", width: "10px", xEnd: "26vw", xStart: "4vw" },
+];
 
 // 语音设置弹窗只展示 Web Speech 语音合成所需的最低浏览器版本。
 const webSpeechMinimumBrowserRequirements: VoiceApiBrowserSupport[] = [
@@ -284,6 +312,7 @@ export function WorkoutSessionPage() {
   const [preparationCountdownStepKey, setPreparationCountdownStepKey] = useState("");
   const [hasStarted, setHasStarted] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [isSessionComplete, setIsSessionComplete] = useState(false);
   const [isElapsedTimerManuallyPaused, setIsElapsedTimerManuallyPaused] = useState(false);
   const [isAudioOn, setIsAudioOn] = useState(false);
   const [loadedPlanKey, setLoadedPlanKey] = useState("");
@@ -354,9 +383,11 @@ export function WorkoutSessionPage() {
     estimateWorkoutCalories(plan.items, loopConfig),
     Math.round(Math.max(0, elapsedSeconds / 60) * 7.2 + completedStepIds.size * 8),
   );
-  const sessionProgress = steps.length
-    ? ((activeStepIndex + Math.max(0, Math.min(1, progress / 100))) / steps.length) * 100
-    : 0;
+  const sessionProgress = isSessionComplete
+    ? 100
+    : steps.length
+      ? ((activeStepIndex + Math.max(0, Math.min(1, progress / 100))) / steps.length) * 100
+      : 0;
   const nextExerciseStep =
     sessionListView.nextExerciseStepIndex === null ? null : steps[sessionListView.nextExerciseStepIndex];
   const nextItem = nextExerciseStep?.type === "exercise" ? nextExerciseStep.item : null;
@@ -368,7 +399,9 @@ export function WorkoutSessionPage() {
   const needsExercisePreparation = activeStep?.type === "exercise" && preparedStepKey !== activeStepKey;
   const isPreparationCountdownActive = preparationCountdownStepKey === activeStepKey;
   const isPreparing = Boolean(hasStarted && needsExercisePreparation && preparationCountdown > 0);
-  const isAwaitingStart = isPlanReady && !hasStarted;
+  const isAwaitingStart = isPlanReady && !hasStarted && !isSessionComplete;
+  const displayedStepCount = Math.max(1, steps.length);
+  const displayedStepIndex = isSessionComplete ? displayedStepCount : activeStepIndex + 1;
 
   useEffect(() => {
     let cancelled = false;
@@ -385,6 +418,7 @@ export function WorkoutSessionPage() {
         setLoadError("缺少训练计划参数，请从训练计划页面进入训练。");
         setHasStarted(false);
         setIsPaused(false);
+        setIsSessionComplete(false);
         setIsElapsedTimerManuallyPaused(false);
         setPreparedStepKey("");
         setPreparationCountdownStepKey("");
@@ -429,6 +463,7 @@ export function WorkoutSessionPage() {
       setPreparationCountdown(selectedSteps[0]?.type === "exercise" ? preparationCountdownStart : 0);
       setHasStarted(false);
       setIsPaused(false);
+      setIsSessionComplete(false);
       setIsElapsedTimerManuallyPaused(false);
       setLoadedPlanKey(requestKey);
       setIsExerciseDetailOpen(false);
@@ -440,6 +475,7 @@ export function WorkoutSessionPage() {
       console.error("[WorkoutSession] Load failed:", error);
       setLoadedPlanKey("");
       setLoadError("训练安排加载失败，请从训练计划页面重新进入。");
+      setIsSessionComplete(false);
     });
 
     return () => {
@@ -560,7 +596,7 @@ export function WorkoutSessionPage() {
     isPaused,
     isPreferenceEnabled: isPlanReady && isAudioOn && isVoicePreferenceLoaded,
     isPreparationCountdownActive,
-    isSessionStarted: hasStarted,
+    isSessionStarted: hasStarted && !isSessionComplete,
     onPreparationIntroComplete: markPreparationIntroComplete,
     preparationCountdown,
     remainingSeconds,
@@ -654,6 +690,7 @@ export function WorkoutSessionPage() {
       voiceSession.cancelCurrentVoice("step-change");
     }
 
+    setIsSessionComplete(false);
     setPreparedStepKey("");
     setPreparationCountdownStepKey("");
     setPreparationCountdown(nextStep?.type === "exercise" ? preparationCountdownStart : 0);
@@ -662,6 +699,7 @@ export function WorkoutSessionPage() {
   }, [steps, voiceSession]);
 
   const startTraining = useCallback(() => {
+    setIsSessionComplete(false);
     setHasStarted(true);
     setIsPaused(false);
     setIsElapsedTimerManuallyPaused(false);
@@ -671,22 +709,37 @@ export function WorkoutSessionPage() {
     }
   }, [isVoiceBroadcastActive, isVoicePreferenceOn, isVoiceSupported, voiceSession]);
 
+  // 页面完成态先于服务端记录完成，避免持久化失败影响本次训练的结束反馈。
+  const completeWorkoutSession = useCallback(() => {
+    voiceSession.cancelCurrentVoice("session-complete");
+    setIsSessionComplete(true);
+    setHasStarted(false);
+    setIsPaused(true);
+    setIsElapsedTimerManuallyPaused(false);
+    setPreparedStepKey("");
+    setPreparationCountdownStepKey("");
+    setPreparationCountdown(0);
+    setRemainingSeconds(0);
+
+    void updateScheduledWorkoutStatus(plan.id, "completed")
+      .then((updatedPlan) => {
+        setPlan(updatedPlan);
+      })
+      .catch((error: unknown) => {
+        console.error("[WorkoutSession] Finish failed:", error);
+      });
+  }, [plan.id, voiceSession]);
+
   const completeCurrentStep = useCallback(({ cancelVoice = true }: { cancelVoice?: boolean } = {}) => {
     const isLastStep = activeStepIndex >= steps.length - 1;
 
     if (isLastStep) {
-      setHasStarted(false);
-      setIsPaused(true);
-      setIsElapsedTimerManuallyPaused(false);
-      setPreparedStepKey("");
-      setPreparationCountdownStepKey("");
-      setPreparationCountdown(0);
-      setRemainingSeconds(0);
+      completeWorkoutSession();
       return;
     }
 
     goToStep(activeStepIndex + 1, { cancelVoice });
-  }, [activeStepIndex, goToStep, steps.length]);
+  }, [activeStepIndex, completeWorkoutSession, goToStep, steps.length]);
 
   const toggleManualPause = useCallback(() => {
     const nextPaused = !isPaused;
@@ -787,20 +840,7 @@ export function WorkoutSessionPage() {
   }, []);
 
   function finishTraining() {
-    setHasStarted(false);
-    setIsPaused(true);
-    setIsElapsedTimerManuallyPaused(false);
-    setPreparedStepKey("");
-    setPreparationCountdownStepKey("");
-    setPreparationCountdown(0);
-
-    void updateScheduledWorkoutStatus(plan.id, "completed")
-      .then((updatedPlan) => {
-        setPlan(updatedPlan);
-      })
-      .catch((error: unknown) => {
-        console.error("[WorkoutSession] Finish failed:", error);
-      });
+    completeWorkoutSession();
   }
 
   if (loadError) {
@@ -846,7 +886,7 @@ export function WorkoutSessionPage() {
               />
             </div>
             <span className="shrink-0 text-label-md font-bold text-muted">
-              {activeStepIndex + 1}/{Math.max(1, steps.length)}
+              {displayedStepIndex}/{displayedStepCount}
             </span>
           </div>
           <div className="flex items-center gap-sm">
@@ -894,14 +934,16 @@ export function WorkoutSessionPage() {
                 />
               ) : null}
             </div>
-            <button
-              aria-label="结束训练"
-              className="grid h-11 w-11 place-items-center rounded-xl border border-red-200 bg-white text-danger transition-colors hover:bg-red-50"
-              onClick={finishTraining}
-              type="button"
-            >
-              <SymbolIcon className="text-2xl">stop</SymbolIcon>
-            </button>
+            {!isSessionComplete ? (
+              <button
+                aria-label="结束训练"
+                className="grid h-11 w-11 place-items-center rounded-xl border border-red-200 bg-white text-danger transition-colors hover:bg-red-50"
+                onClick={finishTraining}
+                type="button"
+              >
+                <SymbolIcon className="text-2xl">stop</SymbolIcon>
+              </button>
+            ) : null}
           </div>
         </header>
 
@@ -914,7 +956,9 @@ export function WorkoutSessionPage() {
                   <h1 className="mt-xs truncate text-[20px] font-extrabold leading-tight">{plan.title}</h1>
                 </div>
                 <span className="rounded-full bg-primary-soft px-md py-xs text-label-md font-bold text-primary">
-                  {isAwaitingStart
+                  {isSessionComplete
+                    ? "已完成"
+                    : isAwaitingStart
                     ? "待开始"
                     : isPaused
                     ? "已暂停"
@@ -975,48 +1019,64 @@ export function WorkoutSessionPage() {
             </section>
           </aside>
 
-          <section className="flex min-h-0 flex-col items-center justify-center rounded-[20px] border border-line bg-white px-lg py-lg text-center shadow-card">
-            <span className="mb-sm inline-flex items-center gap-xs rounded-full bg-primary-soft px-md py-xs text-label-md font-bold text-primary">
-              <SymbolIcon className="text-lg">
-                {isAwaitingStart ? "play_arrow" : isPreparing ? "timer" : isRestStep ? "timer" : isTimedStep ? "timer" : "format_list_numbered"}
-              </SymbolIcon>
-              {isAwaitingStart
-                ? "点击开始后训练"
-                : isPreparing
-                ? "准备开始"
-                : isRestStep
-                ? activeRestStep?.label
-                : `${isTimedStep ? "计时步骤" : "计次步骤"} · 第 ${activeExerciseStep?.setIndex ?? 1} / ${
-                    activeExerciseStep?.totalSets ?? 1
-                  } 组`}
-            </span>
-            <h2 className="max-w-[680px] text-[30px] font-extrabold leading-tight text-ink md:text-[38px]">
-              {isAwaitingStart
-                ? currentItem.nameZh
-                : isPreparing
-                ? `${activeStepIndex === 0 ? "第一个动作" : "准备动作"}：${currentItem.nameZh}`
-                : isRestStep
-                ? activeRestStep?.label
-                : currentItem.nameZh}
-            </h2>
-            <p className="mt-sm text-body-lg font-semibold text-muted">
-              {isAwaitingStart
-                ? "准备好后点击开始"
-                : isPreparing
-                ? "倒计时结束后开始训练"
-                : isRestStep
-                ? nextItem
-                  ? `下一个动作：${nextItem.nameZh}`
-                  : "准备进入下一步"
-                : currentItem.musclesZh.slice(0, 3).join("、") || currentItem.categoryZh}
-            </p>
-            {isAwaitingStart ? (
+          <section className="relative isolate flex min-h-0 flex-col items-center justify-center overflow-hidden rounded-[20px] border border-line bg-white px-lg py-lg text-center shadow-card">
+            {isSessionComplete ? (
+              <>
+                <WorkoutCompletionConfetti />
+                <span className="relative z-10 mb-md grid h-20 w-20 place-items-center rounded-full bg-success-soft text-success-text ring-1 ring-success-text/15">
+                  <SymbolIcon className="text-5xl" filled>
+                    check
+                  </SymbolIcon>
+                </span>
+                <h2 className="relative z-10 max-w-[680px] text-[30px] font-extrabold leading-tight text-ink md:text-[38px]">
+                  恭喜，已完成本次训练
+                </h2>
+              </>
+            ) : (
+              <>
+                <span className="mb-sm inline-flex items-center gap-xs rounded-full bg-primary-soft px-md py-xs text-label-md font-bold text-primary">
+                  <SymbolIcon className="text-lg">
+                    {isAwaitingStart ? "play_arrow" : isPreparing ? "timer" : isRestStep ? "timer" : isTimedStep ? "timer" : "format_list_numbered"}
+                  </SymbolIcon>
+                  {isAwaitingStart
+                    ? "点击开始后训练"
+                    : isPreparing
+                    ? "准备开始"
+                    : isRestStep
+                    ? activeRestStep?.label
+                    : `${isTimedStep ? "计时步骤" : "计次步骤"} · 第 ${activeExerciseStep?.setIndex ?? 1} / ${
+                        activeExerciseStep?.totalSets ?? 1
+                      } 组`}
+                </span>
+                <h2 className="max-w-[680px] text-[30px] font-extrabold leading-tight text-ink md:text-[38px]">
+                  {isAwaitingStart
+                    ? currentItem.nameZh
+                    : isPreparing
+                    ? `${activeStepIndex === 0 ? "第一个动作" : "准备动作"}：${currentItem.nameZh}`
+                    : isRestStep
+                    ? activeRestStep?.label
+                    : currentItem.nameZh}
+                </h2>
+                <p className="mt-sm text-body-lg font-semibold text-muted">
+                  {isAwaitingStart
+                    ? "准备好后点击开始"
+                    : isPreparing
+                    ? "倒计时结束后开始训练"
+                    : isRestStep
+                    ? nextItem
+                      ? `下一个动作：${nextItem.nameZh}`
+                      : "准备进入下一步"
+                    : currentItem.musclesZh.slice(0, 3).join("、") || currentItem.categoryZh}
+                </p>
+              </>
+            )}
+            {!isSessionComplete && isAwaitingStart ? (
               <>
                 <p className="my-md text-body-lg font-extrabold text-ink">
                   训练尚未开始，计时和语音会在点击开始后启动
                 </p>
               </>
-            ) : isPreparing ? (
+            ) : !isSessionComplete && isPreparing ? (
               <>
                 <div className="my-md text-[clamp(92px,14vw,148px)] font-black leading-none text-primary [font-variant-numeric:tabular-nums]">
                   {isPreparationCountdownActive ? preparationCountdown : "准备"}
@@ -1025,7 +1085,7 @@ export function WorkoutSessionPage() {
                   {isPreparationCountdownActive ? "保持姿势，准备开始动作" : "先听动作提示，再开始倒计时"}
                 </p>
               </>
-            ) : isRestStep ? (
+            ) : !isSessionComplete && isRestStep ? (
               <>
                 <div className="my-md text-[clamp(76px,12vw,132px)] font-black leading-none text-ink [font-variant-numeric:tabular-nums]">
                   {formatClock(remainingSeconds)}
@@ -1040,7 +1100,7 @@ export function WorkoutSessionPage() {
                   />
                 </div>
               </>
-            ) : isTimedStep ? (
+            ) : !isSessionComplete && isTimedStep ? (
               <>
                 <div className="my-md text-[clamp(76px,12vw,132px)] font-black leading-none text-ink [font-variant-numeric:tabular-nums]">
                   {formatClock(remainingSeconds)}
@@ -1055,7 +1115,7 @@ export function WorkoutSessionPage() {
                   />
                 </div>
               </>
-            ) : (
+            ) : !isSessionComplete ? (
               <>
                 <div className="my-md flex items-end justify-center gap-sm text-ink">
                   <span className="text-[clamp(92px,14vw,148px)] font-black leading-none [font-variant-numeric:tabular-nums]">
@@ -1075,37 +1135,39 @@ export function WorkoutSessionPage() {
                   />
                 </div>
               </>
-            )}
-            <div className="mt-lg flex items-start justify-center gap-lg md:gap-xl">
-              <SessionControl icon="skip_previous" label="上一个" onClick={() => goToStep(activeStepIndex - 1)} />
-              {isAwaitingStart ? (
+            ) : null}
+            {!isSessionComplete ? (
+              <div className="mt-lg flex items-start justify-center gap-lg md:gap-xl">
+                <SessionControl icon="skip_previous" label="上一个" onClick={() => goToStep(activeStepIndex - 1)} />
+                {isAwaitingStart ? (
+                  <SessionControl
+                    icon="play_arrow"
+                    label="开始"
+                    large
+                    onClick={startTraining}
+                  />
+                ) : (
+                  <SessionControl
+                    icon={isPaused ? "play_arrow" : "pause"}
+                    label={isPaused ? "继续" : "暂停"}
+                    large
+                    onClick={toggleManualPause}
+                  />
+                )}
                 <SessionControl
-                  icon="play_arrow"
-                  label="开始"
-                  large
-                  onClick={startTraining}
-                />
-              ) : (
-                <SessionControl
-                  icon={isPaused ? "play_arrow" : "pause"}
-                  label={isPaused ? "继续" : "暂停"}
-                  large
-                  onClick={toggleManualPause}
-                />
-              )}
-              <SessionControl
-                icon="skip_next"
-                label={isRestStep ? "跳过休息" : "下一个"}
-                onClick={() => {
-                  if (hasStarted) {
-                    completeCurrentStep();
-                    return;
-                  }
+                  icon="skip_next"
+                  label={isRestStep ? "跳过休息" : "下一个"}
+                  onClick={() => {
+                    if (hasStarted) {
+                      completeCurrentStep();
+                      return;
+                    }
 
-                  goToStep(activeStepIndex + 1);
-                }}
-              />
-            </div>
+                    goToStep(activeStepIndex + 1);
+                  }}
+                />
+              </div>
+            ) : null}
           </section>
 
           <aside className="flex min-h-0 flex-col gap-sm">
@@ -1174,50 +1236,52 @@ export function WorkoutSessionPage() {
               </div>
             </section>
 
-            <section className="shrink-0 rounded-[20px] border border-line bg-white p-md shadow-card">
-              <div className="mb-sm flex items-center justify-between">
-                <h2 className="text-title-lg font-extrabold">训练控制</h2>
-                <span className="flex items-center gap-xs text-label-md font-bold text-muted">
-                  <SymbolIcon className="text-lg">timer</SymbolIcon>
-                  {plan.minutes || estimateWorkoutMinutes(plan.items, loopConfig)} 分钟
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-sm">
-                <button
-                  className="flex h-11 items-center justify-center gap-xs rounded-xl border border-red-200 bg-white text-body-md font-extrabold text-danger transition-colors hover:bg-red-50"
-                  onClick={finishTraining}
-                  type="button"
-                >
-                  <SymbolIcon className="text-lg">stop</SymbolIcon>
-                  结束
-                </button>
-                <button
-                  className="flex h-11 items-center justify-center gap-xs rounded-xl border border-primary/30 bg-white text-body-md font-extrabold text-primary transition-colors hover:bg-primary-soft"
-                  onClick={() => {
-                    if (hasStarted) {
-                      completeCurrentStep();
-                      return;
-                    }
-
-                    goToStep(activeStepIndex + 1);
-                  }}
-                  type="button"
-                >
-                  <SymbolIcon className="text-lg">skip_next</SymbolIcon>
-                  {isRestStep ? "跳过休息" : "下一个"}
-                </button>
-              </div>
-              {nextItem ? (
-                <div className="mt-sm rounded-xl bg-panel-soft p-sm">
-                  <p className="text-label-md font-bold text-muted">下一个动作</p>
-                  <p className="mt-xs truncate text-body-md font-extrabold">{nextItem.nameZh}</p>
+            {!isSessionComplete ? (
+              <section className="shrink-0 rounded-[20px] border border-line bg-white p-md shadow-card">
+                <div className="mb-sm flex items-center justify-between">
+                  <h2 className="text-title-lg font-extrabold">训练控制</h2>
+                  <span className="flex items-center gap-xs text-label-md font-bold text-muted">
+                    <SymbolIcon className="text-lg">timer</SymbolIcon>
+                    {plan.minutes || estimateWorkoutMinutes(plan.items, loopConfig)} 分钟
+                  </span>
                 </div>
-              ) : null}
-            </section>
+                <div className="grid grid-cols-2 gap-sm">
+                  <button
+                    className="flex h-11 items-center justify-center gap-xs rounded-xl border border-red-200 bg-white text-body-md font-extrabold text-danger transition-colors hover:bg-red-50"
+                    onClick={finishTraining}
+                    type="button"
+                  >
+                    <SymbolIcon className="text-lg">stop</SymbolIcon>
+                    结束
+                  </button>
+                  <button
+                    className="flex h-11 items-center justify-center gap-xs rounded-xl border border-primary/30 bg-white text-body-md font-extrabold text-primary transition-colors hover:bg-primary-soft"
+                    onClick={() => {
+                      if (hasStarted) {
+                        completeCurrentStep();
+                        return;
+                      }
+
+                      goToStep(activeStepIndex + 1);
+                    }}
+                    type="button"
+                  >
+                    <SymbolIcon className="text-lg">skip_next</SymbolIcon>
+                    {isRestStep ? "跳过休息" : "下一个"}
+                  </button>
+                </div>
+                {nextItem ? (
+                  <div className="mt-sm rounded-xl bg-panel-soft p-sm">
+                    <p className="text-label-md font-bold text-muted">下一个动作</p>
+                    <p className="mt-xs truncate text-body-md font-extrabold">{nextItem.nameZh}</p>
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
           </aside>
         </section>
 
-        {showTip ? (
+        {showTip && !isSessionComplete ? (
           <section className="flex h-12 shrink-0 items-center gap-md overflow-hidden rounded-[20px] border border-primary/10 bg-primary-soft px-md text-body-md text-muted">
             <SymbolIcon className="text-2xl text-primary">tips_and_updates</SymbolIcon>
             <span className="font-extrabold text-primary">训练提示</span>
@@ -1278,6 +1342,36 @@ function Metric({
       </p>
     </div>
   );
+}
+
+// 完成态纸屑只表达本次页面训练结束，不参与训练流程状态计算。
+function WorkoutCompletionConfetti() {
+  return (
+    <div aria-hidden className="workout-completion-confetti pointer-events-none absolute inset-0 z-0">
+      {workoutCompletionConfettiPieces.map((piece, index) => (
+        <span
+          className="workout-completion-confetti-piece"
+          key={`${piece.color}-${index}`}
+          style={getWorkoutCompletionConfettiStyle(piece)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function getWorkoutCompletionConfettiStyle(
+  piece: WorkoutCompletionConfettiPiece,
+): WorkoutCompletionConfettiStyle {
+  return {
+    "--confetti-color": piece.color,
+    "--confetti-delay": piece.delay,
+    "--confetti-duration": piece.duration,
+    "--confetti-height": piece.height,
+    "--confetti-rotate": piece.rotate,
+    "--confetti-width": piece.width,
+    "--confetti-x-end": piece.xEnd,
+    "--confetti-x-start": piece.xStart,
+  } as WorkoutCompletionConfettiStyle;
 }
 
 // 训练列表阶段分隔条用于把热身、正式训练和拉伸从视觉上拆开。

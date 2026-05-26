@@ -194,10 +194,64 @@ body.drawer-open {
   }
 }
 
+.workout-completion-confetti {
+  overflow: hidden;
+}
+
+.workout-completion-confetti-piece {
+  position: absolute;
+  bottom: -18px;
+  left: 50%;
+  width: var(--confetti-width);
+  height: var(--confetti-height);
+  border-radius: 2px;
+  background: var(--confetti-color);
+  box-shadow: 0 12px 24px rgba(17, 24, 39, 0.12);
+  opacity: 0;
+  transform: translate3d(var(--confetti-x-start), 0, 0) rotate(0deg);
+  animation: workout-confetti-burst var(--confetti-duration) cubic-bezier(0.16, 1, 0.3, 1) var(--confetti-delay) 2 both;
+}
+
+.workout-completion-confetti-piece:nth-child(3n) {
+  border-radius: 999px;
+}
+
+.workout-completion-confetti-piece:nth-child(4n) {
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+
+@keyframes workout-confetti-burst {
+  0% {
+    opacity: 0;
+    transform: translate3d(var(--confetti-x-start), 0, 0) rotate(0deg) scale(0.7);
+  }
+
+  12% {
+    opacity: 1;
+  }
+
+  56% {
+    opacity: 1;
+    transform: translate3d(var(--confetti-x-end), -58vh, 0) rotate(var(--confetti-rotate)) scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--confetti-x-end), -70vh, 0) rotate(var(--confetti-rotate)) scale(0.86);
+  }
+}
+
 @media (min-width: 640px) {
   body.drawer-open #app-content-wrapper {
     transform: scale(0.97); /* 抽屉打开时只保留主体整体缩放，不额外卡片化背景 */
     pointer-events: none; /* 抽屉打开时，禁用缩回主体的交互 */
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workout-completion-confetti-piece {
+    animation: none;
+    opacity: 0;
   }
 }
 
