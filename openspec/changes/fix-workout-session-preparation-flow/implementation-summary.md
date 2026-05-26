@@ -23,6 +23,13 @@
 - 暂停保留 `pausedFromStatus`，继续时恢复暂停前状态，不重新创建准备 key。
 - 跳步会取消当前语音 cue，并为新步骤创建新的状态归属，旧 step key 回调无法更新当前状态。
 
+## 跟进修复
+
+- 用户复测发现“已训练”总计时正常，但步骤计时在暂停后继续只能走一两秒。
+- 根因是步骤计时 effect 依赖的 `completeCurrentStep()` 间接依赖 `completeWorkoutSession()`，而 `completeWorkoutSession()` 依赖每秒变化的 `elapsedSeconds` 和 `trainedCalories`。
+- 当总训练时长每秒更新时，步骤计时 interval 也会被清理重建，两个 1 秒 timer 对齐后可能导致步骤计时无法稳定触发。
+- 修复方式是把完成提交所需的最新 `elapsedSeconds`、`trainedCalories`、`sessionStartedAt`、`steps` 和 `planId` 放入 `sessionResultSnapshotRef`，让步骤计时不再被总计时重建。
+
 ## 验证结果
 
 - `npm test`：21 个测试文件通过，76 个测试通过。

@@ -396,6 +396,13 @@ export function WorkoutSessionPage() {
     estimateWorkoutCalories(plan.items, loopConfig),
     Math.round(Math.max(0, elapsedSeconds / 60) * 7.2 + completedStepIds.size * 8),
   );
+  const sessionResultSnapshotRef = useRef({
+    elapsedSeconds: 0,
+    planId: fallbackPlan.id,
+    sessionStartedAt: null as Date | null,
+    steps: [] as WorkoutTimelineStep[],
+    trainedCalories: 0,
+  });
   const sessionProgress = isSessionComplete
     ? 100
     : steps.length
@@ -421,6 +428,16 @@ export function WorkoutSessionPage() {
   const isAwaitingStart = isPlanReady && !hasStarted && !isSessionComplete;
   const displayedStepCount = Math.max(1, steps.length);
   const displayedStepIndex = isSessionComplete ? displayedStepCount : activeStepIndex + 1;
+
+  useEffect(() => {
+    sessionResultSnapshotRef.current = {
+      elapsedSeconds,
+      planId: plan.id,
+      sessionStartedAt,
+      steps,
+      trainedCalories,
+    };
+  }, [elapsedSeconds, plan.id, sessionStartedAt, steps, trainedCalories]);
 
   useEffect(() => {
     let cancelled = false;
@@ -754,6 +771,14 @@ export function WorkoutSessionPage() {
 
   // 页面完成态先于服务端记录完成，避免持久化失败影响本次训练的结束反馈。
   const completeWorkoutSession = useCallback(() => {
+    const {
+      elapsedSeconds: latestElapsedSeconds,
+      planId,
+      sessionStartedAt: latestSessionStartedAt,
+      steps: latestSteps,
+      trainedCalories: latestTrainedCalories,
+    } = sessionResultSnapshotRef.current;
+
     voiceSession.cancelCurrentVoice("session-complete");
     setIsSessionComplete(true);
     setHasStarted(false);
@@ -762,20 +787,20 @@ export function WorkoutSessionPage() {
     setRemainingSeconds(0);
 
     const endedAt = new Date();
-    const startedAt = sessionStartedAt ?? new Date(endedAt.getTime() - Math.max(0, elapsedSeconds) * 1000);
-    const totalExerciseCount = steps.filter((step) => step.type === "exercise").length;
+    const startedAt = latestSessionStartedAt ?? new Date(endedAt.getTime() - Math.max(0, latestElapsedSeconds) * 1000);
+    const totalExerciseCount = latestSteps.filter((step) => step.type === "exercise").length;
 
-    void saveWorkoutSessionResult(plan.id, {
+    void saveWorkoutSessionResult(planId, {
       actualCalories: undefined,
       completedExerciseCount: totalExerciseCount,
-      completedStepCount: steps.length,
-      durationSeconds: Math.max(0, elapsedSeconds),
+      completedStepCount: latestSteps.length,
+      durationSeconds: Math.max(0, latestElapsedSeconds),
       endedAt: endedAt.toISOString(),
-      estimatedCalories: trainedCalories,
+      estimatedCalories: latestTrainedCalories,
       startedAt: startedAt.toISOString(),
       status: "completed",
       totalExerciseCount,
-      totalStepCount: steps.length,
+      totalStepCount: latestSteps.length,
     })
       .then(() => {
         setPlan((current) => ({ ...current, status: "completed" }));
@@ -783,7 +808,7 @@ export function WorkoutSessionPage() {
       .catch((error: unknown) => {
         console.error("[TrainingSession] Finish failed:", error);
       });
-  }, [elapsedSeconds, plan.id, sessionStartedAt, steps, trainedCalories, voiceSession]);
+  }, [voiceSession]);
 
   const completeCurrentStep = useCallback(({ cancelVoice = true }: { cancelVoice?: boolean } = {}) => {
     const isLastStep = activeStepIndex >= steps.length - 1;
