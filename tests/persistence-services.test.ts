@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createChatConversation, createExercise, createWorkoutRoutine } from "./fixtures/domain";
+import {
+  createChatConversation,
+  createExercise,
+  createWorkoutItem,
+  createWorkoutRoutine,
+  createWorkoutSchedule,
+} from "./fixtures/domain";
 
 const prismaMock = vi.hoisted(() => ({
   chatMessage: {
@@ -108,6 +114,66 @@ describe("persistence services", () => {
     });
   });
 
+  it("validates routine exercise ids and writes routine item order", async () => {
+    prismaMock.workoutRoutine.findUnique.mockResolvedValue(null);
+    prismaMock.exercise.findMany.mockResolvedValue([{ id: "push-up" }, { id: "squat" }]);
+    prismaMock.workoutRoutine.upsert.mockResolvedValue({ id: "routine-1" });
+    prismaMock.workoutRoutine.findFirstOrThrow.mockResolvedValue(createWorkoutRoutineRecord());
+
+    await workoutPersistence.saveWorkoutRoutine(createWorkoutRoutine({
+      id: "routine-1",
+      items: [
+        createWorkoutItem({ id: "item-1", exerciseId: "push-up" }),
+        createWorkoutItem({ id: "item-2", exerciseId: "squat" }),
+      ],
+    }));
+
+    expect(prismaMock.exercise.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: { in: ["push-up", "squat"] } },
+    }));
+    expect(prismaMock.workoutRoutineItem.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({ exerciseId: "push-up", sortOrder: 1 }),
+        expect.objectContaining({ exerciseId: "squat", sortOrder: 2 }),
+      ],
+    });
+  });
+
+  it("rejects routine items with unknown exercise ids before writing", async () => {
+    prismaMock.workoutRoutine.findUnique.mockResolvedValue(null);
+    prismaMock.exercise.findMany.mockResolvedValue([{ id: "push-up" }]);
+
+    await expect(workoutPersistence.saveWorkoutRoutine(createWorkoutRoutine({
+      items: [
+        createWorkoutItem({ exerciseId: "push-up" }),
+        createWorkoutItem({ id: "bad-item", exerciseId: "missing-exercise" }),
+      ],
+    }))).rejects.toThrow("Invalid exerciseId: missing-exercise");
+    expect(prismaMock.workoutRoutine.upsert).not.toHaveBeenCalled();
+  });
+
+  it("creates rest schedules without routine and training schedules from routine snapshots", async () => {
+    prismaMock.workoutSchedule.create
+      .mockResolvedValueOnce(createWorkoutScheduleRecord({ status: "rest", routine: null }))
+      .mockResolvedValueOnce(createWorkoutScheduleRecord());
+    prismaMock.workoutRoutine.findFirst.mockResolvedValue(createWorkoutRoutineRecord());
+
+    const restSchedule = await workoutPersistence.createWorkoutSchedule({
+      ...createWorkoutSchedule({ id: "rest-1", status: "rest", title: "休息日", items: [] }),
+      routineId: undefined,
+    });
+    const trainingSchedule = await workoutPersistence.createWorkoutSchedule(createWorkoutSchedule({ id: "schedule-1" }));
+
+    expect(prismaMock.workoutSchedule.create).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      data: expect.not.objectContaining({ routineId: expect.any(String) }),
+    }));
+    expect(restSchedule).toMatchObject({ id: "rest-1", status: "rest", items: [] });
+    expect(prismaMock.workoutRoutine.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "workout-routine-1", userId: "user-1", status: "active" },
+    }));
+    expect(trainingSchedule).toMatchObject({ id: "schedule-1", routineId: "routine-1", items: [expect.any(Object)] });
+  });
+
   it("writes workout session result and marks schedule completed in one transaction", async () => {
     prismaMock.workoutSchedule.findFirst.mockResolvedValue({ id: "schedule-1", routineId: "routine-1" });
     prismaMock.workoutSessionResult.upsert.mockResolvedValue({
@@ -143,6 +209,32 @@ describe("persistence services", () => {
       data: { status: "completed" },
     });
     expect(result).toMatchObject({ id: "result-1", scheduleId: "schedule-1", status: "completed" });
+  });
+
+  it("rejects invalid or unauthorized workout session results", async () => {
+    await expect(workoutPersistence.saveWorkoutSessionResult("schedule-1", {
+      completedExerciseCount: 1,
+      completedStepCount: 2,
+      durationSeconds: -1,
+      endedAt: "2026-05-25T10:02:00.000Z",
+      estimatedCalories: 20,
+      startedAt: "2026-05-25T10:00:00.000Z",
+      totalExerciseCount: 1,
+      totalStepCount: 2,
+    })).rejects.toThrow();
+    expect(prismaMock.workoutSchedule.findFirst).not.toHaveBeenCalled();
+
+    prismaMock.workoutSchedule.findFirst.mockResolvedValue(null);
+    await expect(workoutPersistence.saveWorkoutSessionResult("missing-schedule", {
+      completedExerciseCount: 1,
+      completedStepCount: 2,
+      durationSeconds: 120,
+      endedAt: "2026-05-25T10:02:00.000Z",
+      estimatedCalories: 20,
+      startedAt: "2026-05-25T10:00:00.000Z",
+      totalExerciseCount: 1,
+      totalStepCount: 2,
+    })).rejects.toThrow("Workout schedule not found: missing-schedule");
   });
 
   it("maps chat history metadata and saves only conversations with user messages", async () => {
@@ -217,5 +309,18 @@ function createWorkoutRoutineRecord() {
         section: "training",
       },
     ],
+  };
+}
+
+function createWorkoutScheduleRecord(overrides: { status?: string; routine?: ReturnType<typeof createWorkoutRoutineRecord> | null } = {}) {
+  return {
+    id: overrides.status === "rest" ? "rest-1" : "schedule-1",
+    scheduledFor: new Date("2026-05-25T00:00:00.000Z"),
+    status: overrides.status ?? "planned",
+    titleSnapshot: overrides.status === "rest" ? "休息日" : "居家训练",
+    estimatedMinutes: 20,
+    estimatedCalories: 120,
+    routine: overrides.routine === undefined ? createWorkoutRoutineRecord() : overrides.routine,
+    result: null,
   };
 }

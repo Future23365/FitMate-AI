@@ -10,6 +10,7 @@ import {
 } from "@/lib/shared/workouts/persistence-schema";
 
 import {
+  createWorkoutItem,
   createWorkoutRoutine,
   createWorkoutSchedule,
   createWorkoutPlanDraft,
@@ -54,12 +55,24 @@ describe("shared schemas", () => {
     expect(exerciseListQuerySchema.safeParse({ offset: "-1" }).success).toBe(false);
   });
 
-  it("accepts valid workout persistence input and rejects invalid status or date", () => {
+  it("validates workout routine and routine item persistence input", () => {
     expect(workoutRoutineSchema.safeParse(createWorkoutRoutine()).success).toBe(true);
     expect(workoutRoutineSchema.safeParse(createWorkoutRoutine({ title: "" })).success).toBe(false);
+    expect(workoutRoutineSchema.safeParse(createWorkoutRoutine({ items: [createWorkoutItem({ exerciseId: "" })] })).success).toBe(false);
+    expect(workoutRoutineSchema.safeParse(createWorkoutRoutine({ items: [createWorkoutItem({ target: 0 })] })).success).toBe(false);
+    expect(workoutRoutineSchema.safeParse(createWorkoutRoutine({ items: [createWorkoutItem({ setRestSeconds: -1 })] })).success).toBe(false);
+    expect(workoutRoutineSchema.safeParse(createWorkoutRoutine({ items: [createWorkoutItem({ mode: "distance" as never })] })).success).toBe(false);
+  });
+
+  it("validates workout schedule persistence input", () => {
     expect(workoutScheduleSchema.safeParse(createWorkoutSchedule()).success).toBe(true);
+    expect(workoutScheduleSchema.safeParse({ ...createWorkoutSchedule(), id: undefined }).success).toBe(false);
     expect(workoutScheduleSchema.safeParse(createWorkoutSchedule({ date: "2026/05/25" })).success).toBe(false);
     expect(workoutScheduleSchema.safeParse(createWorkoutSchedule({ status: "done" as never })).success).toBe(false);
+    expect(workoutScheduleSchema.safeParse(createWorkoutSchedule({ minutes: -1 })).success).toBe(false);
+  });
+
+  it("validates workout session result persistence input", () => {
     expect(workoutSessionResultInputSchema.safeParse({
       completedExerciseCount: 1,
       completedStepCount: 2,
@@ -74,6 +87,25 @@ describe("shared schemas", () => {
       completedExerciseCount: -1,
       completedStepCount: 2,
       durationSeconds: 120,
+      endedAt: "2026-05-25T10:02:00.000Z",
+      estimatedCalories: 20,
+      startedAt: "2026-05-25T10:00:00.000Z",
+      totalExerciseCount: 1,
+      totalStepCount: 2,
+    }).success).toBe(false);
+    expect(workoutSessionResultInputSchema.safeParse({
+      completedExerciseCount: 1,
+      completedStepCount: 2,
+      durationSeconds: 120,
+      endedAt: "not-a-date",
+      estimatedCalories: 20,
+      startedAt: "2026-05-25T10:00:00.000Z",
+      totalExerciseCount: 1,
+      totalStepCount: 2,
+    }).success).toBe(false);
+    expect(workoutSessionResultInputSchema.safeParse({
+      completedExerciseCount: 1,
+      completedStepCount: 2,
       endedAt: "2026-05-25T10:02:00.000Z",
       estimatedCalories: 20,
       startedAt: "2026-05-25T10:00:00.000Z",

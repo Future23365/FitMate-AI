@@ -4,22 +4,22 @@
 TBD - created by archiving change fix-workout-session-step-flow. Update Purpose after archive.
 ## Requirements
 ### Requirement: Timeline-ordered session progression
-系统 SHALL 在 `/training` 使用显式 `planId` 对应的训练安排和 `buildWorkoutTimeline()` 生成的线性步骤顺序作为训练推进、手动跳步和完成状态的唯一依据，并且 SHALL 保证持久化完成状态不影响当前前端训练执行流程。
+系统 SHALL 在 `/training` 使用显式 `scheduleId` 对应的训练安排和 `buildWorkoutTimeline()` 生成的线性步骤顺序作为训练推进、手动跳步和完成状态的唯一依据，并且 SHALL 保证持久化完成状态不影响当前前端训练执行流程。
 
 #### Scenario: User opens training without plan id
-- **WHEN** 用户打开 `/training` 且 URL 缺少 `planId`
+- **WHEN** 用户打开 `/training` 且 URL 缺少 `scheduleId`
 - **THEN** 系统 MUST NOT 自动选择默认训练、planned 训练或 fallback 训练
 - **AND** 系统 MUST 展示缺少训练安排的错误状态和返回训练计划页的入口
 - **AND** 系统 MUST NOT 启动训练倒计时、步骤推进或语音播报
 
 #### Scenario: User opens training with plan id
-- **WHEN** 用户打开 `/training?planId=<id>`
-- **THEN** 系统 MUST 加载该 `planId` 对应的训练安排
+- **WHEN** 用户打开 `/training?scheduleId=<id>`
+- **THEN** 系统 MUST 加载该 `scheduleId` 对应的训练安排
 - **AND** 系统 MUST 使用该训练安排生成训练时间线
 - **AND** 系统 MUST NOT 使用其他 planned 训练或 fallback 训练替代
 
 #### Scenario: Completed workout opens again
-- **WHEN** 用户打开 `/training?planId=<id>` 且该训练安排状态为 `completed`
+- **WHEN** 用户打开 `/training?scheduleId=<id>` 且该训练安排状态为 `completed`
 - **THEN** 系统 MUST 仍然展示当前前端训练的待开始状态和“开始”控制
 - **AND** 系统 MUST NOT 因为持久化状态为 `completed` 而显示暂停控制、跳过开始状态或阻止训练执行
 
@@ -119,7 +119,7 @@ TBD - created by archiving change fix-workout-session-step-flow. Update Purpose 
 - **AND** 系统 MUST NOT 因服务端记录失败而回到运行中、暂停或待开始状态
 
 #### Scenario: Completed persisted workout opens again
-- **WHEN** 用户打开 `/training?planId=<id>` 且该训练安排服务端状态为 `completed`
+- **WHEN** 用户打开 `/training?scheduleId=<id>` 且该训练安排服务端状态为 `completed`
 - **THEN** 系统 MUST 仍然展示当前页面训练的待开始状态
 - **AND** 系统 MUST NOT 仅因为服务端状态为 `completed` 显示本地完成态
 
@@ -165,4 +165,3 @@ TBD - created by archiving change fix-workout-session-step-flow. Update Purpose 
 - **WHEN** 用户加载新的训练安排、缺少训练安排参数，或训练页面重置为待开始状态
 - **THEN** “已训练”总时长 MUST 重置为 0
 - **AND** 手动暂停计时状态 MUST 重置为未暂停
-

@@ -475,7 +475,7 @@ export function WorkoutSessionPage() {
         return;
       }
 
-      console.error("[WorkoutSession] Load failed:", error);
+      console.error("[TrainingSession] Load failed:", error);
       setLoadedPlanKey("");
       setLoadError("训练安排加载失败，请从训练计划页面重新进入。");
       setIsSessionComplete(false);
@@ -745,7 +745,7 @@ export function WorkoutSessionPage() {
         setPlan((current) => ({ ...current, status: "completed" }));
       })
       .catch((error: unknown) => {
-        console.error("[WorkoutSession] Finish failed:", error);
+        console.error("[TrainingSession] Finish failed:", error);
       });
   }, [elapsedSeconds, plan.id, sessionStartedAt, steps, trainedCalories, voiceSession]);
 
