@@ -3,9 +3,7 @@
 ## Purpose
 
 定义 `/training` 训练执行页的动作示范图展示规则，包括训练动作保留完整示范图、计次动作循环展示、计时动作默认展示最后一张图、休息步骤预览和缺图降级。
-
 ## Requirements
-
 ### Requirement: Workout item demo images
 系统 SHALL 为训练执行页使用的训练动作保留所有可用示范图。
 
@@ -49,16 +47,19 @@
 - **AND** 计时动作示范图默认显示最后一张图
 
 ### Requirement: Rest step demo preview
-系统 SHALL 在休息步骤中通过视觉示范帮助用户准备下一个训练动作，同时不改变休息计时。
+系统 SHALL 在休息步骤中通过静止的视觉示范帮助用户准备下一个训练动作，同时不改变休息计时。
 
 #### Scenario: Rest step has next action
 - **WHEN** 当前时间线步骤是休息步骤并且存在下一个动作
 - **THEN** 动作示范区域显示下一个动作的示范图
+- **AND** 示范图固定为下一个动作的准备预览图，不随休息倒计时轮换
+- **AND** 示范区域提示这是下一个动作或下一组动作
 - **AND** 休息计时和休息语音提示继续描述当前休息步骤
 
 #### Scenario: Rest step has no next action
 - **WHEN** 当前时间线步骤是没有下一个动作的休息步骤
 - **THEN** 动作示范区域回退到最相关的已完成动作或占位内容
+- **AND** 示范图不随休息倒计时轮换
 
 ### Requirement: Demo image fallback
 系统 SHALL 在示范图不完整或不可用时保持训练执行页可用。
@@ -70,3 +71,4 @@
 #### Scenario: Action has no usable demo image
 - **WHEN** 当前相关动作没有可用图片 URL
 - **THEN** 动作示范区域显示现有 fallback illustration 或占位图
+
