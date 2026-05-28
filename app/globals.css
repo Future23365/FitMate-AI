@@ -78,6 +78,14 @@ a {
   border-radius: 999px;
 }
 
+.thin-horizontal-scrollbar {
+  scrollbar-width: thin;
+}
+
+.thin-horizontal-scrollbar::-webkit-scrollbar {
+  height: 3px;
+}
+
 .scrollbar-none {
   -ms-overflow-style: none;
   scrollbar-width: none;

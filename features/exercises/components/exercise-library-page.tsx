@@ -1119,7 +1119,7 @@ function ExerciseDetailPanel({
 
               <div>
                 <h3 className="mb-md font-title-lg text-title-lg">相关动作</h3>
-                <div className="custom-scrollbar flex gap-md overflow-x-auto pb-sm">
+                <div className="custom-scrollbar thin-horizontal-scrollbar flex gap-md overflow-x-auto pb-sm">
                   {relatedExercises.length ? (
                     relatedExercises.map((relatedExercise) => (
                       <button
