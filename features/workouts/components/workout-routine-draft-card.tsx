@@ -263,10 +263,10 @@ export function WorkoutRoutineDraftCard({
               <p className="mt-xs font-body-sm text-body-sm text-muted">{draft.summary}</p>
             )}
           </div>
-          <div className="text-center">
-            <div className="rounded-xl border border-line bg-white px-sm py-xs">
-              <p className="font-label-xs text-label-xs text-muted">预估</p>
-              <p className="font-label-md text-label-md font-bold text-ink">{estimatedMinutes} 分钟</p>
+          <div>
+            <div className="inline-flex items-center gap-xs rounded-xl border border-line bg-white px-sm py-xs">
+              <span className="font-label-xs text-label-xs text-muted">预估</span>
+              <span className="font-label-md text-label-md font-bold text-ink">{estimatedMinutes} 分钟</span>
             </div>
           </div>
         </div>
