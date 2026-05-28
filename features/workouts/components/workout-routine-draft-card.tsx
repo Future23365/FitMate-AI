@@ -325,7 +325,7 @@ export function WorkoutRoutineDraftCard({
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-xs">
-                          <h5 className="truncate font-label-md text-label-md font-bold text-on-surface">
+                          <h5 className="truncate font-body-md text-body-md font-bold text-on-surface">
                             {exerciseName}
                           </h5>
                           <SymbolIcon className="text-[14px] text-muted">info</SymbolIcon>
