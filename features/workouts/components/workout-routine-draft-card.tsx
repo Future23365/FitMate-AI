@@ -377,11 +377,11 @@ export function WorkoutRoutineDraftCard({
         )}
 
         <div className="flex flex-col gap-sm border-t border-line pt-md sm:flex-row sm:items-center sm:justify-between">
-          <p className="font-label-xs text-label-xs text-muted">
+          <p className="min-w-0 flex-1 font-label-xs text-label-xs text-muted">
             保存后会进入动作编排列表，可继续编辑或安排到训练日历。
           </p>
           <button
-            className={`inline-flex items-center justify-center gap-xs rounded-xl px-lg py-sm font-label-md text-label-md font-bold shadow-card transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+            className={`inline-flex shrink-0 items-center justify-center gap-xs whitespace-nowrap rounded-xl px-lg py-sm font-label-md text-label-md font-bold shadow-card transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
               saveSuccess ? "bg-[#12B76A] text-white" : "bg-primary text-white hover:bg-primary-deep"
             }`}
             disabled={isSaving || saveSuccess}
