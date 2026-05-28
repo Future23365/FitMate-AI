@@ -13,6 +13,14 @@ TBD - created by archiving change refactor-workout-data-model. Update Purpose af
 - **AND** 每个 `WorkoutRoutineItem` MUST 保存 `exerciseId`、`mode`、`target`、`sets`、`setRestSeconds`、`transitionRestSeconds`、`section` 和 `sortOrder`
 - **AND** 系统 MUST NOT 为单次动作编排创建 `WorkoutPlanDay` 或等价的训练日中间层
 
+#### Scenario: AI routine draft is saved as workout routine
+- **WHEN** 用户保存聊天页面推送的 AI 单次训练编排
+- **THEN** 系统 MUST 创建一个归属于当前用户的 `WorkoutRoutine`
+- **AND** 系统 MUST 保存 AI 草稿中的 `trainingLoopRounds` 和 `trainingLoopRestSeconds`
+- **AND** 系统 MUST 将热身、训练、拉伸三个 section 中的动作按展示顺序保存为 `WorkoutRoutineItem`
+- **AND** 每个保存后的 `WorkoutRoutineItem.section` MUST 与 AI 草稿中的 section 一致
+- **AND** 系统 MUST NOT 将 AI routine 草稿降级保存为所有动作都属于 `training`
+
 #### Scenario: Routine item references exercise library
 - **WHEN** 系统保存 `WorkoutRoutineItem`
 - **THEN** `exerciseId` MUST 引用数据库中已存在的 `Exercise.id`
@@ -116,4 +124,3 @@ TBD - created by archiving change refactor-workout-data-model. Update Purpose af
 - **WHEN** 本 change 实现完成
 - **THEN** 业务代码 MUST NOT 继续使用 `WorkoutPlanDay` 表达用户动作编排
 - **AND** 持久化层、API client、测试 fixture 和文档 MUST NOT 继续使用旧 `WorkoutPlan` 三层结构描述当前产品模型
-

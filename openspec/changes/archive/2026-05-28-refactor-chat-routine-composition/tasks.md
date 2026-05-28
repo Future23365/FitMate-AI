@@ -39,4 +39,4 @@
 
 - [x] 6.1 更新 README 或相关架构/数据库文档中聊天推送 routine 到 `WorkoutRoutine` 保存的当前链路说明。
 - [x] 6.2 运行 `openspec validate refactor-chat-routine-composition --strict`。
-- [ ] 6.3 实现完成并验证后归档该 OpenSpec change。
+- [x] 6.3 实现完成并验证后归档该 OpenSpec change。
