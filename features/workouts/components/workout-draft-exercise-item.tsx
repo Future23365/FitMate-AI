@@ -52,12 +52,12 @@ export function WorkoutDraftExerciseItem({
           </p>
         )}
       </div>
-      <div className="flex min-w-[76px] shrink-0 flex-col items-end rounded-lg bg-primary-soft/70 px-sm py-xs text-right">
-        <p className="font-body-md text-body-md font-black leading-none text-primary">
+      <div className="flex min-w-[64px] shrink-0 flex-col items-end text-right">
+        <p className="font-body-md text-body-md font-extrabold leading-none text-primary">
           {sets}
-          <span className="ml-[2px] font-label-sm text-label-sm font-bold text-primary/75">组</span>
+          <span className="ml-[2px] font-label-sm text-label-sm font-bold text-muted">组</span>
         </p>
-        <p className="mt-[3px] font-label-sm text-label-sm font-bold text-muted">
+        <p className="mt-xs font-label-sm text-label-sm font-semibold text-muted">
           {target}
           {mode === "reps" ? "次/组" : "秒/组"}
         </p>
