@@ -223,6 +223,11 @@ a {
   text-decoration: none;
 }
 
+button:not(:disabled),
+[role="button"]:not(:disabled) {
+  cursor: pointer;
+}
+
 .material-symbols-outlined {
   -webkit-font-feature-settings: "liga" 1;
   -webkit-font-smoothing: antialiased;

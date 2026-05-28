@@ -305,7 +305,7 @@ export function AppSidebar() {
         <SymbolIcon>menu</SymbolIcon>
       </button>
 
-      <aside className="fixed left-0 top-0 z-30 hidden h-screen w-[260px] flex-col overflow-hidden border-r border-line/70 bg-white/68 px-4 py-6 shadow-nav backdrop-blur-2xl md:flex">
+      <aside className="fixed left-0 top-0 z-30 hidden h-screen w-[260px] flex-col overflow-hidden border-r border-line/70 bg-transparent px-4 py-6 shadow-nav backdrop-blur-2xl md:flex">
         <SidebarPanel
           historyItems={historyItems}
           isSettingsActive={isSettingsActive}
