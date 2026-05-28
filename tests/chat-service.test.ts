@@ -106,9 +106,9 @@ describe("AI chat service deterministic boundaries", () => {
     expect(aiPromptConfig.chatIntentResolution.system).toContain(
       "missingActionFields 不要包含 sessionMinutes",
     );
-    expect(aiPromptConfig.chatCompletion.system).toContain(
-      "先按默认估算时长整理",
-    );
+    expect(aiPromptConfig.chatCompletion.system).toContain("按估算时长整理");
+    expect(aiPromptConfig.chatCompletion.system).toContain("不要使用固定模板句");
+    expect(aiPromptConfig.chatCompletion.system).not.toContain("你还没有告诉我具体训练时长");
 
     const chatIntent: ChatIntent = {
       type: "routine",
@@ -133,6 +133,18 @@ describe("AI chat service deterministic boundaries", () => {
         weeklyFrequency: 1,
       },
     });
+  });
+
+  it("documents chat completion should follow structured session minutes", () => {
+    expect(aiPromptConfig.chatCompletion.system).toContain(
+      "如果 serverWorkoutIntent 中已有 sessionMinutes",
+    );
+    expect(aiPromptConfig.chatCompletion.system).toContain(
+      "我先按 20 分钟整理这次训练",
+    );
+    expect(aiPromptConfig.chatCompletion.system).toContain(
+      "如果 serverWorkoutIntent 没有明确 sessionMinutes",
+    );
   });
 
   it("documents timed single-session requests must trigger routine composition", () => {
