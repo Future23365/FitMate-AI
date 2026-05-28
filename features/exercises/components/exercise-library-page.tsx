@@ -966,6 +966,16 @@ function ExerciseDetailPanel({
     selectedImage.exerciseId === exercise?.id ? Math.min(selectedImage.index, imageUrls.length - 1) : 0;
   const activeImageUrl = imageUrls[activeImageIndex];
   const hasMultipleImages = imageUrls.length > 1;
+  const detailStats = exercise
+    ? [
+        { icon: "signal_cellular_alt", label: "难度", value: exercise.levelZh || "未标注" },
+        { icon: "fitness_center", label: "器械", value: exercise.equipmentZh || "自重" },
+        { icon: "sync_alt", label: "发力", value: exercise.forceZh || "未标注" },
+        { icon: "home_work", label: "场景", value: exercise.homeRequirementZh || "未标注" },
+      ]
+    : [];
+  const stepPreview = exercise?.instructionsZh.slice(0, 5) ?? [];
+  const trainingTip = stepPreview[0] ?? "";
 
   useEffect(() => {
     if (!exercise || !hasMultipleImages || !isAutoPlaying) {
@@ -995,11 +1005,11 @@ function ExerciseDetailPanel({
 
   return (
     <aside className="fixed right-0 top-0 z-30 hidden h-screen w-[340px] flex-col border-l border-line/70 bg-white/68 shadow-nav backdrop-blur-2xl xl:flex">
-      <div className="custom-scrollbar flex h-full flex-col overflow-y-auto p-lg">
+      <div className="custom-scrollbar flex h-full flex-col overflow-y-auto px-md py-lg">
         {exercise ? (
           <>
-            <div className="mb-lg flex flex-col gap-md">
-              <div className="relative aspect-[3/2] w-full overflow-hidden rounded-lg bg-[#EEF2F6] shadow-card ring-1 ring-line/70">
+            <div className="mb-lg flex flex-col gap-sm">
+              <div className="relative aspect-[3/2] w-full overflow-hidden rounded-xl bg-[#EEF2F6] shadow-card ring-1 ring-line/70">
                 <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(230,236,255,0.95),rgba(246,248,251,0.76)_48%,rgba(238,242,246,0.96))]" />
                 <Image
                   alt={`${exercise.nameZh} 第 ${activeImageIndex + 1} 步示意图`}
@@ -1008,14 +1018,19 @@ function ExerciseDetailPanel({
                   sizes="340px"
                   src={activeImageUrl}
                 />
-                <div className="absolute left-sm top-sm rounded-full bg-black/55 px-sm py-xs font-label-sm text-label-sm text-white">
-                  {activeImageIndex + 1} / {imageUrls.length}
+                <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/58 to-transparent px-sm pb-sm pt-xl">
+                  <div className="rounded-full bg-white/92 px-sm py-[2px] font-label-sm text-label-sm font-bold text-ink shadow-sm">
+                    第 {activeImageIndex + 1} 步 / 共 {imageUrls.length} 步
+                  </div>
+                  <span className="rounded-full bg-black/55 px-sm py-[2px] font-label-sm text-label-sm text-white">
+                    {exercise.categoryZh || "训练动作"}
+                  </span>
                 </div>
                 {hasMultipleImages ? (
                   <>
                     <button
                       aria-label={isAutoPlaying ? "暂停自动播放" : "自动播放动作图"}
-                      className="absolute right-sm top-sm flex h-8 w-8 items-center justify-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/70"
+                      className="absolute right-sm top-sm flex h-8 w-8 items-center justify-center rounded-full bg-white/92 text-ink shadow-sm transition-colors hover:bg-white"
                       onClick={() => setIsAutoPlaying((current) => !current)}
                       title={isAutoPlaying ? "暂停自动播放" : "自动播放动作图"}
                       type="button"
@@ -1026,7 +1041,7 @@ function ExerciseDetailPanel({
                     </button>
                     <button
                       aria-label="上一张动作图"
-                      className="absolute left-sm top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/70 disabled:cursor-not-allowed disabled:opacity-40"
+                      className="absolute left-sm top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-white/88 text-ink shadow-sm transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
                       disabled={activeImageIndex === 0}
                       onClick={() => selectImage(Math.max(0, activeImageIndex - 1))}
                       type="button"
@@ -1035,7 +1050,7 @@ function ExerciseDetailPanel({
                     </button>
                     <button
                       aria-label="下一张动作图"
-                      className="absolute right-sm top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/70 disabled:cursor-not-allowed disabled:opacity-40"
+                      className="absolute right-sm top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-white/88 text-ink shadow-sm transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
                       disabled={activeImageIndex === imageUrls.length - 1}
                       onClick={() => selectImage(Math.min(imageUrls.length - 1, activeImageIndex + 1))}
                       type="button"
@@ -1046,11 +1061,11 @@ function ExerciseDetailPanel({
                 ) : null}
               </div>
 
-              <div className="flex flex-wrap gap-sm">
+              <div className="flex gap-xs overflow-x-auto pb-xs scrollbar-none">
                 {imageUrls.map((imageUrl, index) => (
                   <button
                     aria-label={`查看第 ${index + 1} 步动作图`}
-                    className={`flex items-center gap-xs rounded-full px-md py-xs font-label-sm text-label-sm transition-colors ${
+                    className={`flex shrink-0 items-center gap-xs rounded-full px-sm py-[3px] font-label-sm text-label-sm transition-colors ${
                       activeImageIndex === index
                         ? "bg-primary text-white"
                         : "bg-panel-soft text-muted hover:bg-primary-soft hover:text-primary"
@@ -1066,78 +1081,112 @@ function ExerciseDetailPanel({
             </div>
 
             <div className="flex flex-col gap-lg">
-              <div>
-                <h2 className="mb-xs font-headline-md text-headline-md">{exercise.nameZh}</h2>
-                <div className="flex flex-wrap gap-sm">
+              <div className="rounded-xl border border-line/70 bg-white/78 p-md shadow-card">
+                <p className="mb-[2px] font-label-sm text-label-sm text-muted">
+                  {exercise.nameEn}
+                </p>
+                <h2 className="mb-sm font-headline-md text-headline-md">{exercise.nameZh}</h2>
+                <div className="flex flex-wrap gap-xs">
                   {exercise.primaryMusclesZh.slice(0, 2).map((muscleName) => (
                     <span
-                      className="rounded-lg bg-primary-soft px-sm py-[2px] font-label-sm text-label-sm font-bold text-primary"
+                      className="rounded-full bg-primary-soft px-sm py-[2px] font-label-sm text-label-sm font-bold text-primary"
                       key={muscleName}
                     >
                       {muscleName}
                     </span>
                   ))}
-                  <span className="rounded-lg bg-panel-soft px-sm py-[2px] font-label-sm text-label-sm text-muted">
-                    难度：{exercise.levelZh || "未标注"}
+                  <span className="rounded-full bg-panel-soft px-sm py-[2px] font-label-sm text-label-sm text-muted">
+                    {exercise.levelZh || "未标注难度"}
                   </span>
-                  <span className="rounded-lg bg-panel-soft px-sm py-[2px] font-label-sm text-label-sm text-muted">
+                  <span className="rounded-full bg-panel-soft px-sm py-[2px] font-label-sm text-label-sm text-muted">
                     {exercise.equipmentZh || "器械未标注"}
                   </span>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-md rounded-xl bg-panel-soft p-md">
-                <div className="flex flex-col">
-                  <span className="font-label-sm text-label-sm text-muted">
-                    建议组数
-                  </span>
-                  <span className="font-title-lg text-title-lg">3-4 组</span>
-                </div>
-                <div className="flex flex-col">
-                  <span className="font-label-sm text-label-sm text-muted">
-                    目标类型
-                  </span>
-                  <span className="truncate font-title-lg text-title-lg">
-                    {exercise.categoryZh || "训练"}
-                  </span>
-                </div>
+              <div className="grid grid-cols-2 gap-sm">
+                {detailStats.map((stat) => (
+                  <div
+                    className="min-w-0 rounded-xl border border-line/70 bg-white/80 p-sm shadow-card"
+                    key={stat.label}
+                  >
+                    <div className="mb-xs flex items-center gap-xs text-muted">
+                      <SymbolIcon className="text-[16px]">{stat.icon}</SymbolIcon>
+                      <span className="font-label-sm text-label-sm">{stat.label}</span>
+                    </div>
+                    <p className="truncate font-title-md text-title-md" title={stat.value}>
+                      {stat.value}
+                    </p>
+                  </div>
+                ))}
               </div>
+
+              {trainingTip ? (
+                <div className="rounded-xl border border-primary/12 bg-primary/5 p-md">
+                  <h3 className="mb-xs flex items-center gap-xs font-label-md text-label-md font-bold text-primary">
+                    <SymbolIcon className="text-[18px]">tips_and_updates</SymbolIcon>
+                    动作提示
+                  </h3>
+                  <p className="line-clamp-2 font-body-sm text-body-sm leading-relaxed text-ink">
+                    {trainingTip}
+                  </p>
+                </div>
+              ) : null}
+
+              {exercise.secondaryMusclesZh.length ? (
+                <div>
+                  <h3 className="mb-sm font-title-md text-title-md">辅助肌群</h3>
+                  <div className="flex flex-wrap gap-xs">
+                    {exercise.secondaryMusclesZh.slice(0, 4).map((muscleName) => (
+                      <span
+                        className="rounded-full bg-panel-soft px-sm py-[2px] font-label-sm text-label-sm text-muted"
+                        key={muscleName}
+                      >
+                        {muscleName}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               <div>
                 <h3 className="mb-md font-title-lg text-title-lg">动作步骤</h3>
-                <div className="flex flex-col gap-md">
-                  {exercise.instructionsZh.slice(0, 5).map((instruction, index) => (
-                    <div className="flex gap-md" key={`${exercise.id}-${index}`}>
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-primary font-label-md text-label-md text-white">
+                <ol className="relative flex flex-col gap-md">
+                  {stepPreview.map((instruction, index) => (
+                    <li className="relative grid grid-cols-[28px_1fr] gap-sm" key={`${exercise.id}-${index}`}>
+                      {index < stepPreview.length - 1 ? (
+                        <span className="absolute left-[13px] top-7 h-[calc(100%+8px)] w-px bg-line" />
+                      ) : null}
+                      <span className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary font-label-sm text-label-sm font-bold text-white shadow-sm">
                         {index + 1}
                       </span>
-                      <p className="font-body-md text-body-md">{instruction}</p>
-                    </div>
+                      <p className="font-body-md text-body-md leading-relaxed text-ink">{instruction}</p>
+                    </li>
                   ))}
-                </div>
+                </ol>
               </div>
 
               <div>
-                <h3 className="mb-md font-title-lg text-title-lg">相关动作</h3>
-                <div className="custom-scrollbar thin-horizontal-scrollbar flex gap-md overflow-x-auto pb-sm">
+                <h3 className="mb-sm font-title-lg text-title-lg">相关动作</h3>
+                <div className="custom-scrollbar thin-horizontal-scrollbar flex gap-sm overflow-x-auto pb-sm">
                   {relatedExercises.length ? (
                     relatedExercises.map((relatedExercise) => (
                       <button
-                        className="w-24 shrink-0 text-left"
+                        className="w-[76px] shrink-0 rounded-xl p-xs text-left transition-colors hover:bg-primary-soft"
                         key={relatedExercise.id}
                         onClick={() => onSelectExercise(relatedExercise.id)}
                         type="button"
                       >
-                        <div className="relative mb-xs aspect-square overflow-hidden rounded-md bg-surface-container">
+                        <div className="relative mb-xs aspect-square overflow-hidden rounded-lg bg-surface-container ring-1 ring-line/70">
                           <Image
                             alt={`${relatedExercise.nameZh} 预览`}
                             className="object-cover"
                             fill
-                            sizes="96px"
+                            sizes="76px"
                             src={getExerciseImage(relatedExercise)}
                           />
                         </div>
-                        <p className="truncate font-label-sm text-label-sm">
+                        <p className="line-clamp-2 font-label-sm text-label-sm leading-tight">
                           {relatedExercise.nameZh}
                         </p>
                       </button>
