@@ -1527,14 +1527,8 @@ function WorkoutExerciseRow({
   onUpdate: (updater: (item: WorkoutItem) => WorkoutItem) => void;
 }) {
   const itemTags = [
-    {
-      label: "肌群",
-      value: item.musclesZh.slice(0, 2).join("、") || exercise?.primaryMusclesZh.slice(0, 2).join("、") || "综合",
-    },
-    {
-      label: "器械",
-      value: item.equipmentZh || exercise?.equipmentZh || "未标注器械",
-    },
+    item.musclesZh.slice(0, 2).join("、") || exercise?.primaryMusclesZh.slice(0, 2).join("、") || "综合",
+    item.equipmentZh || exercise?.equipmentZh || "未标注器械",
   ];
 
   return (
@@ -1591,12 +1585,11 @@ function WorkoutExerciseRow({
             <div className="mt-xs flex max-w-full flex-nowrap items-center gap-xs overflow-hidden">
               {itemTags.map((tag) => (
                 <span
-                  className="inline-flex min-w-0 max-w-[140px] shrink-0 items-center gap-[4px] rounded-md bg-surface-container-low px-xs py-[2px] text-[11px] leading-none"
-                  key={`${tag.label}-${tag.value}`}
-                  title={tag.value}
+                  className="inline-flex min-w-0 max-w-[140px] shrink-0 items-center rounded-md bg-surface-container-low px-xs py-[2px] text-[11px] font-semibold leading-none text-secondary"
+                  key={tag}
+                  title={tag}
                 >
-                  <span className="shrink-0 text-[10px] font-medium text-outline">{tag.label}</span>
-                  <span className="truncate font-semibold text-secondary">{tag.value}</span>
+                  <span className="truncate">{tag}</span>
                 </span>
               ))}
             </div>
