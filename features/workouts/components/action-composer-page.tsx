@@ -854,97 +854,70 @@ export function ActionComposerPage() {
             </div>
           </div>
 
-          <div className="mb-lg flex flex-col gap-sm rounded-xl border border-line bg-white p-sm md:flex-row md:items-center md:justify-between">
-            <div className="flex min-w-0 items-center gap-xs overflow-x-auto">
-              {sectionConfigs.map((section) => (
-                <button
-                  className={`flex shrink-0 items-center gap-xs rounded-xl px-md py-sm font-label-md text-label-md transition-colors ${
-                    selectedSection === section.id
-                      ? "bg-primary text-white"
-                      : "bg-panel-soft text-secondary hover:bg-primary-soft hover:text-primary"
-                  }`}
+          <div className="space-y-md">
+            {sectionConfigs.map((section, sectionIndex) => {
+              const sectionItems = getSectionItems(items, section.id);
+
+              return (
+                <WorkoutSectionBlock
+                  index={sectionIndex}
+                  isSelected={selectedSection === section.id}
+                  itemCount={sectionItems.length}
                   key={section.id}
-                  onClick={() => setSelectedSection(section.id)}
-                  type="button"
+                  loopRounds={trainingLoopRounds}
+                  loopRestSeconds={trainingLoopRestSeconds}
+                  onAddNext={() => setSelectedSection(section.id)}
+                  onDropToEnd={() => {
+                    moveItemToSectionEnd(draggingItemId, section.id);
+                    setDraggingItemId("");
+                    setDragOverItemId("");
+                  }}
+                  onLoopRoundsChange={setTrainingLoopRounds}
+                  onLoopRestSecondsChange={setTrainingLoopRestSeconds}
+                  section={section}
                 >
-                  <SymbolIcon className="text-[18px]">{section.icon}</SymbolIcon>
-                  添加到{section.title}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {items.length ? (
-            <div className="space-y-md">
-              {sectionConfigs.map((section, sectionIndex) => {
-                const sectionItems = getSectionItems(items, section.id);
-
-                return (
-                  <WorkoutSectionBlock
-                    index={sectionIndex}
-                    isSelected={selectedSection === section.id}
-                    itemCount={sectionItems.length}
-                    key={section.id}
-                    loopRounds={trainingLoopRounds}
-                    loopRestSeconds={trainingLoopRestSeconds}
-                    onAddNext={() => setSelectedSection(section.id)}
-                    onDropToEnd={() => {
-                      moveItemToSectionEnd(draggingItemId, section.id);
-                      setDraggingItemId("");
-                      setDragOverItemId("");
-                    }}
-                    onLoopRoundsChange={setTrainingLoopRounds}
-                    onLoopRestSecondsChange={setTrainingLoopRestSeconds}
-                    section={section}
-                  >
-                    {sectionItems.map((item, index) => (
-                      <div key={item.id}>
-                        <WorkoutExerciseRow
-                          dragState={dragOverItemId === item.id ? "over" : draggingItemId === item.id ? "dragging" : "idle"}
-                          index={index}
-                          item={item}
-                          onDelete={() => deleteItem(item.id)}
-                          onDragEnd={() => {
-                            setDraggingItemId("");
-                            setDragOverItemId("");
-                          }}
-                          onDragEnter={() => setDragOverItemId(item.id)}
-                          onDragStart={() => {
-                            setDraggingItemId(item.id);
-                            setDragOverItemId("");
-                          }}
-                          onDrop={() => {
-                            moveItem(draggingItemId, item.id, section.id);
-                            setDraggingItemId("");
-                            setDragOverItemId("");
-                          }}
-                          onDuplicate={() => duplicateItem(item)}
-                          onPreview={() => openPlanPreview(item)}
-                          onUpdate={(updater) => updateItem(item.id, updater)}
+                  {sectionItems.map((item, index) => (
+                    <div key={item.id}>
+                      <WorkoutExerciseRow
+                        dragState={dragOverItemId === item.id ? "over" : draggingItemId === item.id ? "dragging" : "idle"}
+                        index={index}
+                        item={item}
+                        onDelete={() => deleteItem(item.id)}
+                        onDragEnd={() => {
+                          setDraggingItemId("");
+                          setDragOverItemId("");
+                        }}
+                        onDragEnter={() => setDragOverItemId(item.id)}
+                        onDragStart={() => {
+                          setDraggingItemId(item.id);
+                          setDragOverItemId("");
+                        }}
+                        onDrop={() => {
+                          moveItem(draggingItemId, item.id, section.id);
+                          setDraggingItemId("");
+                          setDragOverItemId("");
+                        }}
+                        onDuplicate={() => duplicateItem(item)}
+                        onPreview={() => openPlanPreview(item)}
+                        onUpdate={(updater) => updateItem(item.id, updater)}
+                      />
+                      {index < sectionItems.length - 1 ? (
+                        <RestIntervalControl
+                          seconds={item.transitionRestSeconds}
+                          onChange={(nextSeconds) =>
+                            updateItem(item.id, (current) => ({
+                              ...current,
+                              transitionRestSeconds: nextSeconds,
+                            }))
+                          }
                         />
-                        {index < sectionItems.length - 1 ? (
-                          <RestIntervalControl
-                            seconds={item.transitionRestSeconds}
-                            onChange={(nextSeconds) =>
-                              updateItem(item.id, (current) => ({
-                                ...current,
-                                transitionRestSeconds: nextSeconds,
-                              }))
-                            }
-                          />
-                        ) : null}
-                      </div>
-                    ))}
-                  </WorkoutSectionBlock>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="rounded-2xl border border-dashed border-outline-variant bg-surface-container-lowest p-2xl text-center">
-              <SymbolIcon className="mb-sm text-4xl text-outline">playlist_add</SymbolIcon>
-              <p className="font-title-lg text-title-lg">从右侧动作库添加训练动作</p>
-            </div>
-          )}
+                      ) : null}
+                    </div>
+                  ))}
+                </WorkoutSectionBlock>
+              );
+            })}
+          </div>
         </section>
 
         <div className="sticky bottom-0 flex justify-center bg-background/80 py-md backdrop-blur-md">
@@ -1246,7 +1219,7 @@ function WorkoutSectionBlock({
             type="button"
           >
             <SymbolIcon className="text-[18px]">{isSelected ? "check_circle" : "playlist_add"}</SymbolIcon>
-            {isSelected ? "当前加入位置" : "下个动作加入这里"}
+            {isSelected ? `当前添加到${section.title}` : `添加到${section.title}`}
           </button>
         </div>
       </div>
