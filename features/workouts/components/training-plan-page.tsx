@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import {
@@ -130,9 +130,9 @@ export function TrainingPlanPage() {
   const [selectedScheduleId, setSelectedScheduleId] = useState("");
   const [workoutRoutines, setWorkoutRoutines] = useState<WorkoutRoutine[]>([]);
   const [schedule, setSchedule] = useState<WorkoutSchedule[]>([]);
-  const [isSavedPlansOpen, setIsSavedPlansOpen] = useState(false);
+  // 右侧栏模式承载当前日期详情和计划选择，避免顶部浮层覆盖月历主体。
+  const [sidePanelMode, setSidePanelMode] = useState<"day" | "saved-plans">("day");
   const [toast, setToast] = useState("");
-  const savedPlansMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     async function syncData() {
@@ -166,23 +166,6 @@ export function TrainingPlanPage() {
     const timer = window.setTimeout(() => setToast(""), 1800);
     return () => window.clearTimeout(timer);
   }, [toast]);
-
-  useEffect(() => {
-    if (!isSavedPlansOpen) {
-      return;
-    }
-
-    function handlePointerDown(event: PointerEvent) {
-      if (savedPlansMenuRef.current?.contains(event.target as Node)) {
-        return;
-      }
-
-      setIsSavedPlansOpen(false);
-    }
-
-    window.addEventListener("pointerdown", handlePointerDown);
-    return () => window.removeEventListener("pointerdown", handlePointerDown);
-  }, [isSavedPlansOpen]);
 
   const filteredWorkouts = workoutRoutines;
   const cells = getCalendarCells(monthDate);
@@ -221,6 +204,7 @@ export function TrainingPlanPage() {
       ]);
       setSelectedDateKey(dateKey);
       setSelectedScheduleId(persistedWorkout.id);
+      setSidePanelMode("day");
       setToast(`已安排：${plan.title} · ${formatDayLabel(dateKey)}`);
     } catch {
       setToast("安排训练失败");
@@ -328,59 +312,6 @@ export function TrainingPlanPage() {
                   <LegendDot className="bg-surface-container-highest" label="休息日" />
                 </div>
               </div>
-              <div className="relative" ref={savedPlansMenuRef}>
-                <button
-                  aria-expanded={isSavedPlansOpen}
-                  className="flex items-center gap-xs rounded-xl border border-line bg-white px-md py-sm font-label-md text-label-md font-bold text-primary shadow-card transition-colors hover:border-primary/40 hover:bg-primary-soft"
-                  onClick={() => setIsSavedPlansOpen((current) => !current)}
-                  type="button"
-                >
-                  <SymbolIcon className="text-[18px]">inventory_2</SymbolIcon>
-                  已保存计划
-                  <span className="rounded-full bg-primary-soft px-xs text-[10px] text-primary">
-                    {filteredWorkouts.length}
-                  </span>
-                </button>
-                {isSavedPlansOpen ? (
-                  <div className="absolute right-0 top-[calc(100%+8px)] z-40 w-[360px] overflow-hidden rounded-2xl border border-line bg-white shadow-lift">
-                    <div className="flex items-center justify-between border-b border-line bg-panel-soft px-md py-sm">
-                      <span className="font-label-md text-label-md font-bold">选择计划安排到 {formatDayLabel(selectedDateKey)}</span>
-                      <Link
-                        className="font-label-sm text-label-sm font-bold text-primary hover:underline"
-                        href="/composer"
-                        onClick={() => setIsSavedPlansOpen(false)}
-                      >
-                        管理全部
-                      </Link>
-                    </div>
-                    <div className="custom-scrollbar max-h-[420px] space-y-xs overflow-y-auto p-sm">
-                      {filteredWorkouts.length ? (
-                        filteredWorkouts.map((workout) => (
-                          <SavedPlanMenuItem
-                            key={workout.id}
-                            workout={workout}
-                            onSchedule={() => {
-                              setIsSavedPlansOpen(false);
-                              void scheduleWorkout(workout);
-                            }}
-                          />
-                        ))
-                      ) : (
-                        <div className="rounded-xl border border-dashed border-line p-md text-center">
-                          <p className="font-label-md text-label-md text-muted">还没有已保存计划</p>
-                          <Link
-                            className="mt-sm inline-flex rounded-xl bg-primary px-md py-sm font-label-md text-label-md font-bold text-white"
-                            href="/composer"
-                            onClick={() => setIsSavedPlansOpen(false)}
-                          >
-                            去编排
-                          </Link>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ) : null}
-              </div>
               <button
                 className="flex items-center justify-center gap-xs rounded-xl bg-primary px-md py-sm font-label-md text-label-md font-bold text-white shadow-card transition-all hover:bg-primary-deep hover:shadow-lift active:scale-[0.98]"
                 onClick={() => {
@@ -422,6 +353,7 @@ export function TrainingPlanPage() {
                   onClick={() => {
                     setSelectedDateKey(cell.dateKey);
                     setSelectedScheduleId("");
+                    setSidePanelMode("day");
                   }}
                   type="button"
                 >
@@ -464,58 +396,122 @@ export function TrainingPlanPage() {
       </main>
 
       <aside className="app-shell-glass custom-scrollbar fixed right-0 top-0 z-30 hidden h-screen w-[320px] flex-col gap-lg overflow-y-auto border-l border-line/70 p-md shadow-nav xl:flex">
-        <section className="space-y-md">
-          <h2 className="flex items-center gap-xs font-label-md text-label-md font-bold text-secondary">
-            <SymbolIcon className="text-[18px]">calendar_today</SymbolIcon>
-            当天计划 ({formatDayLabel(selectedDateKey)})
-          </h2>
-          {selectedDayPlans.length ? (
+        {sidePanelMode === "saved-plans" ? (
+          <section className="space-y-md">
             <div className="space-y-xs">
-              {selectedDayPlans.map((plan) => {
-                const isExpanded = plan.id === expandedPlanId;
-
-                return (
-                  <div
-                    className={`overflow-hidden transition-all duration-300 ease-out ${
-                      isExpanded ? "rounded-2xl opacity-100" : "rounded-xl opacity-95"
-                    }`}
-                    key={plan.id}
-                  >
-                    {isExpanded ? (
-                      <CurrentPlanCard
-                        plan={plan}
-                        onRemove={() => void removePlan(plan.id)}
-                        onStatusChange={(status) => void updatePlanStatus(plan.id, status)}
-                      />
-                    ) : (
-                      <CollapsedDayPlanButton
-                        onClick={() => setSelectedScheduleId(plan.id)}
-                        plan={plan}
-                      />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="rounded-[20px] border border-dashed border-line bg-white p-md text-center shadow-card">
-              <SymbolIcon className="mb-sm text-4xl text-outline">event_busy</SymbolIcon>
-              <p className="font-label-md text-label-md text-muted">当天还没有训练安排</p>
               <button
-                className="mt-md rounded-xl bg-primary px-md py-sm font-label-md text-label-md font-bold text-white"
-                onClick={() => {
-                  const plan = filteredWorkouts[0];
-                  if (plan) {
-                    void scheduleWorkout(plan);
-                  }
-                }}
+                className="flex items-center gap-xs font-label-sm text-label-sm font-bold text-secondary transition-colors hover:text-primary"
+                onClick={() => setSidePanelMode("day")}
                 type="button"
               >
-                快速安排
+                <SymbolIcon className="text-[18px]">arrow_back</SymbolIcon>
+                返回当天安排
               </button>
+              <div className="flex items-start justify-between gap-sm">
+                <div>
+                  <h2 className="font-title-md text-title-md font-extrabold">选择已保存计划</h2>
+                  <p className="font-label-sm text-label-sm text-muted">
+                    安排到 {formatDayLabel(selectedDateKey)}
+                  </p>
+                </div>
+                <Link className="font-label-sm text-label-sm font-bold text-primary hover:underline" href="/composer">
+                  管理全部
+                </Link>
+              </div>
             </div>
-          )}
-        </section>
+
+            {filteredWorkouts.length ? (
+              <div className="overflow-hidden rounded-xl border border-line bg-white">
+                {filteredWorkouts.map((workout) => (
+                  <SavedPlanListItem
+                    key={workout.id}
+                    onSchedule={() => void scheduleWorkout(workout)}
+                    workout={workout}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-dashed border-line bg-white p-md text-center">
+                <SymbolIcon className="mb-sm text-3xl text-outline">inventory_2</SymbolIcon>
+                <p className="font-label-md text-label-md text-muted">还没有已保存计划</p>
+                <Link
+                  className="mt-sm inline-flex rounded-xl bg-primary px-md py-sm font-label-md text-label-md font-bold text-white"
+                  href="/composer"
+                >
+                  去编排
+                </Link>
+              </div>
+            )}
+          </section>
+        ) : (
+          <section className="space-y-md">
+            <h2 className="flex items-center gap-xs font-label-md text-label-md font-bold text-secondary">
+              <SymbolIcon className="text-[18px]">calendar_today</SymbolIcon>
+              当天计划 ({formatDayLabel(selectedDateKey)})
+            </h2>
+            <button
+              className="flex w-full items-center justify-between rounded-xl border border-line bg-white p-md text-left shadow-card transition-colors hover:border-primary/40 hover:bg-primary-soft"
+              onClick={() => setSidePanelMode("saved-plans")}
+              type="button"
+            >
+              <span className="flex min-w-0 items-center gap-sm">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary">
+                  <SymbolIcon className="text-[19px]">inventory_2</SymbolIcon>
+                </span>
+                <span className="min-w-0">
+                  <span className="block font-label-md text-label-md font-bold text-ink">
+                    从已保存计划添加
+                  </span>
+                  <span className="block font-label-sm text-label-sm text-muted">
+                    {filteredWorkouts.length} 个可用计划
+                  </span>
+                </span>
+              </span>
+              <SymbolIcon className="shrink-0 text-[18px] text-secondary">chevron_right</SymbolIcon>
+            </button>
+            {selectedDayPlans.length ? (
+              <div className="space-y-xs">
+                {selectedDayPlans.map((plan) => {
+                  const isExpanded = plan.id === expandedPlanId;
+
+                  return (
+                    <div
+                      className={`overflow-hidden transition-all duration-300 ease-out ${
+                        isExpanded ? "rounded-2xl opacity-100" : "rounded-xl opacity-95"
+                      }`}
+                      key={plan.id}
+                    >
+                      {isExpanded ? (
+                        <CurrentPlanCard
+                          plan={plan}
+                          onRemove={() => void removePlan(plan.id)}
+                          onStatusChange={(status) => void updatePlanStatus(plan.id, status)}
+                        />
+                      ) : (
+                        <CollapsedDayPlanButton
+                          onClick={() => setSelectedScheduleId(plan.id)}
+                          plan={plan}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="rounded-[20px] border border-dashed border-line bg-white p-md text-center shadow-card">
+                <SymbolIcon className="mb-sm text-4xl text-outline">event_busy</SymbolIcon>
+                <p className="font-label-md text-label-md text-muted">当天还没有训练安排</p>
+                <button
+                  className="mt-md rounded-xl bg-primary px-md py-sm font-label-md text-label-md font-bold text-white"
+                  onClick={() => setSidePanelMode("saved-plans")}
+                  type="button"
+                >
+                  从已保存计划添加
+                </button>
+              </div>
+            )}
+          </section>
+        )}
 
         <section className="space-y-sm">
           <h2 className="font-label-md text-label-md font-bold text-secondary">本月统计</h2>
@@ -568,8 +564,8 @@ export function TrainingPlanPage() {
   );
 }
 
-// SavedPlanMenuItem 承载训练日历页的排期素材，避免已保存计划常驻占用月历空间。
-function SavedPlanMenuItem({
+// SavedPlanListItem 承载右侧栏中的排期素材，保持列表扫描和添加动作足够轻量。
+function SavedPlanListItem({
   onSchedule,
   workout,
 }: {
@@ -595,8 +591,8 @@ function SavedPlanMenuItem({
         : "fitness_center";
 
   return (
-    <div className="group flex w-full items-center gap-sm rounded-xl border border-line bg-white p-sm shadow-card transition-all hover:border-primary/40 hover:ring-1 hover:ring-primary/10">
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary">
+    <div className="group flex w-full items-center gap-sm border-b border-line/80 bg-white p-sm last:border-b-0 hover:bg-primary-soft/70">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary">
         <SymbolIcon className="text-[20px]">{icon}</SymbolIcon>
       </div>
       <div className="min-w-0 flex-1">
