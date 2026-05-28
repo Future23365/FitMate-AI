@@ -315,6 +315,19 @@ body,
   animation: mesh-bg-drift 26s ease-in-out infinite alternate;
 }
 
+/* Shell 层只承载导航和布局，让 mesh 背景能透出；内容卡片仍使用白色 surface。 */
+.app-shell-glass {
+  background-color: rgba(246, 248, 251, 0.24);
+  -webkit-backdrop-filter: blur(30px) saturate(1.08);
+  backdrop-filter: blur(30px) saturate(1.08);
+}
+
+.app-shell-glass-soft {
+  background-color: rgba(246, 248, 251, 0.18);
+  -webkit-backdrop-filter: blur(24px) saturate(1.05);
+  backdrop-filter: blur(24px) saturate(1.05);
+}
+
 @keyframes mesh-bg-drift {
   0% {
     background-position: 100% 0%, 0% 0%, 0 0;

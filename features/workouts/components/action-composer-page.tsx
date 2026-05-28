@@ -1068,7 +1068,7 @@ export function ActionComposerPage() {
         ) : null}
       </main>
 
-      <aside className="fixed right-0 top-0 z-30 hidden h-screen w-[300px] flex-col gap-md overflow-y-auto border-l border-line/70 bg-white/68 p-md shadow-nav backdrop-blur-2xl xl:flex">
+      <aside className="app-shell-glass fixed right-0 top-0 z-30 hidden h-screen w-[300px] flex-col gap-md overflow-y-auto border-l border-line/70 p-md shadow-nav xl:flex">
         <section className="flex min-h-[420px] flex-col">
           <div className="mb-md flex items-center justify-between">
             <h2 className="flex items-center gap-xs font-label-md text-label-md font-bold">

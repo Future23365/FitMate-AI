@@ -139,7 +139,7 @@ export function ChatPage() {
 
   return (
     <div className="app-mesh-bg min-h-screen text-ink">
-      <header className="fixed left-0 right-0 top-0 z-20 flex h-16 items-center justify-between border-b border-line/70 bg-white/68 px-lg shadow-nav backdrop-blur-2xl md:left-[260px] xl:right-[300px] xl:px-xl">
+      <header className="app-shell-glass fixed left-0 right-0 top-0 z-20 flex h-16 items-center justify-between border-b border-line/70 px-lg shadow-nav md:left-[260px] xl:right-[300px] xl:px-xl">
           <div>
             <h2 className="flex items-center gap-xs text-xl font-extrabold tracking-tight text-ink">
               你的 <span className="text-primary">AI</span> 健身助手
@@ -330,7 +330,7 @@ export function ChatPage() {
           )}
         </div>
 
-        <div className="border-t border-line/60 bg-white/35 p-lg backdrop-blur-xl xl:p-xl">
+        <div className="app-shell-glass-soft border-t border-line/60 p-lg xl:p-xl">
           <form className="mx-auto max-w-[850px]" onSubmit={handleSubmit}>
             <div className="relative flex items-center">
               <input
@@ -374,7 +374,7 @@ export function ChatPage() {
           </form>
         </div>
       </main>
-      <aside className="fixed right-0 top-0 z-30 hidden h-screen w-[300px] flex-col gap-lg border-l border-line/70 bg-white/68 p-lg shadow-nav backdrop-blur-2xl xl:flex">
+      <aside className="app-shell-glass fixed right-0 top-0 z-30 hidden h-screen w-[300px] flex-col gap-lg border-l border-line/70 p-lg shadow-nav xl:flex">
         <section className="space-y-md">
           <h3 className="font-title-lg text-title-lg">今日训练概览</h3>
           <div className="flex flex-col items-center gap-md rounded-[20px] border border-line bg-white p-lg shadow-card">

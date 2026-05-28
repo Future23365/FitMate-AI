@@ -463,7 +463,7 @@ export function TrainingPlanPage() {
         </section>
       </main>
 
-      <aside className="custom-scrollbar fixed right-0 top-0 z-30 hidden h-screen w-[320px] flex-col gap-lg overflow-y-auto border-l border-line/70 bg-white/68 p-md shadow-nav backdrop-blur-2xl xl:flex">
+      <aside className="app-shell-glass custom-scrollbar fixed right-0 top-0 z-30 hidden h-screen w-[320px] flex-col gap-lg overflow-y-auto border-l border-line/70 p-md shadow-nav xl:flex">
         <section className="space-y-md">
           <h2 className="flex items-center gap-xs font-label-md text-label-md font-bold text-secondary">
             <SymbolIcon className="text-[18px]">calendar_today</SymbolIcon>

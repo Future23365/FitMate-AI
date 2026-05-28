@@ -686,7 +686,7 @@ export function ExerciseLibraryPage() {
           </div>
         </header>
 
-        <section className="-mx-lg mb-lg border-y border-line/80 bg-[#F6F8FB]/92 px-lg py-md backdrop-blur-xl xl:-mx-xl xl:px-xl">
+        <section className="app-shell-glass-soft -mx-lg mb-lg border-y border-line/80 px-lg py-md xl:-mx-xl xl:px-xl">
           <div className="flex flex-col gap-sm xl:flex-row xl:items-center">
             <div className="flex min-h-11 flex-1 items-center gap-md rounded-xl border border-line bg-white px-lg py-sm shadow-card transition-all focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
               <SymbolIcon className="text-muted">search</SymbolIcon>
@@ -1004,7 +1004,7 @@ function ExerciseDetailPanel({
   }
 
   return (
-    <aside className="fixed right-0 top-0 z-30 hidden h-screen w-[340px] flex-col border-l border-line/70 bg-white/68 shadow-nav backdrop-blur-2xl xl:flex">
+    <aside className="app-shell-glass fixed right-0 top-0 z-30 hidden h-screen w-[340px] flex-col border-l border-line/70 shadow-nav xl:flex">
       <div className="custom-scrollbar flex h-full flex-col overflow-y-auto px-md py-lg">
         {exercise ? (
           <>
