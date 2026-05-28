@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import type { ReactNode } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
@@ -261,6 +261,34 @@ export function ActionComposerPage() {
   const titleInputRef = useRef<HTMLInputElement>(null);
   const hasHandledInitialWorkoutLoadRef = useRef(false);
 
+  // 标题更新集中在这里，避免展示态标题和编辑态草稿在切换编排时出现不同步。
+  const applyPlanTitle = useCallback((nextTitle: string) => {
+    setPlanTitle(nextTitle);
+    setTitleDraft(nextTitle);
+    setIsEditingTitle(false);
+  }, []);
+
+  const openWorkoutRoutine = useCallback(
+    (workout: WorkoutRoutine, updateHash = true) => {
+      const normalizedWorkout = normalizeWorkoutRoutine(workout);
+      const normalizedItems = normalizedWorkout.items;
+
+      applyPlanTitle(normalizedWorkout.title);
+      setItems(normalizedItems);
+      setTrainingLoopRounds(normalizedWorkout.trainingLoopRounds ?? 1);
+      setTrainingLoopRestSeconds(normalizedWorkout.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds);
+      setSelectedItemId(normalizedItems[0]?.id ?? "");
+      setSelectedSection(normalizedItems[0]?.section ?? "training");
+      setActiveWorkoutRoutineId(workout.id);
+      setSaveStatus(`已加载：${workout.title}`);
+
+      if (updateHash) {
+        window.history.replaceState(null, "", `#${workout.id}`);
+      }
+    },
+    [applyPlanTitle],
+  );
+
   useEffect(() => {
     const controller = new AbortController();
     const params = new URLSearchParams({
@@ -358,7 +386,7 @@ export function ActionComposerPage() {
     window.addEventListener("hashchange", loadFromHash);
 
     return () => window.removeEventListener("hashchange", loadFromHash);
-  }, []);
+  }, [openWorkoutRoutine]);
 
   useEffect(() => {
     async function syncWorkoutRoutines() {
@@ -386,7 +414,7 @@ export function ActionComposerPage() {
     return () => {
       window.removeEventListener("fitmate:workouts-updated", syncWorkoutRoutines);
     };
-  }, [activeWorkoutRoutineId, items.length]);
+  }, [activeWorkoutRoutineId, items.length, openWorkoutRoutine]);
 
   useEffect(() => {
     if (!saveStatus) {
@@ -423,13 +451,6 @@ export function ActionComposerPage() {
 
   function updateItem(id: string, updater: (item: WorkoutItem) => WorkoutItem) {
     setItems((current) => current.map((item) => (item.id === id ? updater(item) : item)));
-  }
-
-  // 标题更新集中在这里，避免展示态标题和编辑态草稿在切换编排时出现不同步。
-  function applyPlanTitle(nextTitle: string) {
-    setPlanTitle(nextTitle);
-    setTitleDraft(nextTitle);
-    setIsEditingTitle(false);
   }
 
   function startTitleEdit() {
@@ -594,24 +615,6 @@ export function ActionComposerPage() {
     setActiveWorkoutRoutineId("");
     setSaveStatus("已新建空白编排");
     window.history.replaceState(null, "", window.location.pathname);
-  }
-
-  function openWorkoutRoutine(workout: WorkoutRoutine, updateHash = true) {
-    const normalizedWorkout = normalizeWorkoutRoutine(workout);
-    const normalizedItems = normalizedWorkout.items;
-
-    applyPlanTitle(normalizedWorkout.title);
-    setItems(normalizedItems);
-    setTrainingLoopRounds(normalizedWorkout.trainingLoopRounds ?? 1);
-    setTrainingLoopRestSeconds(normalizedWorkout.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds);
-    setSelectedItemId(normalizedItems[0]?.id ?? "");
-    setSelectedSection(normalizedItems[0]?.section ?? "training");
-    setActiveWorkoutRoutineId(workout.id);
-    setSaveStatus(`已加载：${workout.title}`);
-
-    if (updateHash) {
-      window.history.replaceState(null, "", `#${workout.id}`);
-    }
   }
 
   async function duplicateWorkoutRoutine(workout: WorkoutRoutine) {
