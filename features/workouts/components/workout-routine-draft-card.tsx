@@ -340,11 +340,11 @@ export function WorkoutRoutineDraftCard({
                         )}
                       </div>
                       <div className="shrink-0 text-right">
-                        <p className="font-label-md text-label-md font-black text-primary">
-                          {item.sets} 组
+                        <p className="font-body-lg text-body-lg font-black text-primary">
+                          {item.sets}组
                         </p>
-                        <p className="font-label-xs text-label-xs text-muted">
-                          {item.mode === "reps" ? `${item.target} 次` : `${item.target} 秒`}
+                        <p className="font-label-md text-label-md font-bold text-muted">
+                          每组{item.target}{item.mode === "reps" ? "次" : "秒"}
                         </p>
                       </div>
                     </button>

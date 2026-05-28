@@ -457,11 +457,11 @@ export function WorkoutPlanDraftCard({
                         </div>
                         {/* 组数/次数指标 */}
                         <div className="text-right shrink-0">
-                          <p className="font-body-md text-body-md font-black text-primary">
-                            {item.sets} <span className="font-normal text-on-surface-variant">组</span>
+                          <p className="font-body-lg text-body-lg font-black text-primary">
+                            {item.sets}<span className="font-normal text-on-surface-variant">组</span>
                           </p>
-                          <p className="mt-xs font-label-xs text-label-xs text-on-surface-variant">
-                            {item.mode === "reps" ? `${item.target} 次` : `${item.target} 秒`}
+                          <p className="mt-xs font-label-md text-label-md font-bold text-on-surface-variant">
+                            每组{item.target}{item.mode === "reps" ? "次" : "秒"}
                           </p>
                         </div>
                       </div>
