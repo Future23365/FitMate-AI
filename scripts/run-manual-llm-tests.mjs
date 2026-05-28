@@ -1,9 +1,10 @@
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import { loadEnvConfig } from "@next/env";
+import nextEnv from "@next/env";
 
 const manualLlmCaseCount = 20;
+const { loadEnvConfig } = nextEnv;
 
 loadEnvConfig(process.cwd());
 
