@@ -47,10 +47,10 @@ export function WorkoutDraftExerciseItem({
         </div>
         <div className="mt-xs flex min-w-0 items-center gap-xs">
           <span className="shrink-0 rounded-md border border-line bg-panel-soft px-xs py-[1px] font-label-xs text-label-xs font-bold text-ink">
-            {exercise?.equipmentZh || "未标注器械"}
+            {muscles}
           </span>
           <span className="truncate font-label-sm text-label-sm font-semibold text-muted">
-            {muscles}
+            {exercise?.equipmentZh || "未标注器械"}
           </span>
         </div>
         <div className="mt-xs flex min-w-0 items-center justify-between gap-md">
