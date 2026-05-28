@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { clientRequest } from "@/lib/client/http/client-request";
@@ -279,7 +280,7 @@ function FilterDrawer({
   published: string;
   riskTag: string;
 }) {
-  return (
+  return createPortal(
     <div
       aria-modal="true"
       className={`fixed inset-0 z-50 flex justify-end bg-black/20 backdrop-blur-[1px] drawer-backdrop-transition ${
@@ -426,7 +427,8 @@ function FilterDrawer({
           </button>
         </div>
       </aside>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

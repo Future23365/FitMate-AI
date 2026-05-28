@@ -24,7 +24,7 @@
 - 默认页面使用普通流式搜索工具栏，只保留搜索框、筛选入口、已选数量和已选条件横向 chips。相比四条筛选行常驻页面，这能把首屏纵向空间还给动作列表，并且不会在滚动时长期占据顶部视口。
 - 核心筛选使用统一 `ChipFilterRow` 组件，覆盖肌群、分类、器械和目标，并放入 `FilterDrawer`。这样能复用同一套选中态、数量展示和横向滚动行为，避免每个维度各自实现。
 - 低频筛选和核心筛选共用 `FilterDrawer`。相比默认展开面板，抽屉能保留完整能力，同时不改变列表区高度。
-- `FilterDrawer` 复用动作详情抽屉的 `drawer-backdrop-transition` 和 `drawer-panel-transition`，保持右侧滑入、遮罩淡入和关闭动画一致。
+- `FilterDrawer` 和动作详情抽屉一样通过 `createPortal` 挂载到 `document.body`，并复用 `drawer-backdrop-transition` 和 `drawer-panel-transition`，避免被 `#app-content-wrapper` 的整体缩放影响。
 - 已选条件使用结构化数组保存 `key`、`label` 和 `clear` 处理函数。相比只拼接字符串，结构化数据可以支持单项移除，并减少后续扩展成本。
 - 排序和每页数量保留原生 `select`，但移动到结果栏右侧。排序/分页是列表呈现控制，不属于动作属性筛选，视觉上应和筛选区分离。
 
