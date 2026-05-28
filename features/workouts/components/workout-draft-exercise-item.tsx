@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 
+import { SymbolIcon } from "@/components/app/symbol-icon";
 import { ExerciseDetailIconButton } from "@/features/exercises/components/exercise-detail-icon-button";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import type { WorkoutMode } from "@/lib/shared/workout-plans/draft-schema";
@@ -44,13 +45,19 @@ export function WorkoutDraftExerciseItem({
             {exerciseName}
           </h5>
         </div>
-        <p className="mt-xs truncate font-label-sm text-label-sm font-semibold text-muted">
-          {exercise?.equipmentZh || "未标注器械"} · {muscles}
-        </p>
+        <div className="mt-xs flex min-w-0 items-center gap-xs">
+          <span className="shrink-0 rounded-md border border-line bg-panel-soft px-xs py-[1px] font-label-xs text-label-xs font-bold text-ink">
+            {exercise?.equipmentZh || "未标注器械"}
+          </span>
+          <span className="truncate font-label-sm text-label-sm font-semibold text-muted">
+            {muscles}
+          </span>
+        </div>
         <div className="mt-xs flex min-w-0 items-center justify-between gap-md">
           {notes ? (
-            <p className="line-clamp-1 min-w-0 font-label-sm text-label-sm font-semibold text-primary">
-              {notes}
+            <p className="flex min-w-0 items-center gap-[4px] font-label-sm text-label-sm font-medium text-muted">
+              <SymbolIcon className="shrink-0 text-[15px] text-[#F59E0B]">lightbulb</SymbolIcon>
+              <span className="line-clamp-1 min-w-0">{notes}</span>
             </p>
           ) : (
             <span aria-hidden="true" className="min-w-0 flex-1" />
