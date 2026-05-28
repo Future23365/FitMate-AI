@@ -62,6 +62,7 @@ const exerciseSortOptions: Array<{ value: ExerciseSort; label: string }> = [
 ];
 
 const pageSizeOptions = [12, 24, 48, 96];
+const drawerTransitionMs = 500;
 
 function getExerciseImage(exercise?: Exercise) {
   return (
@@ -247,6 +248,7 @@ function FilterDrawer({
   onPublishedChange,
   onReset,
   onRiskTagChange,
+  isOpen,
   published,
   riskTag,
 }: {
@@ -273,22 +275,25 @@ function FilterDrawer({
   onPublishedChange: (value: string) => void;
   onReset: () => void;
   onRiskTagChange: (value: string) => void;
+  isOpen: boolean;
   published: string;
   riskTag: string;
 }) {
   return (
     <div
       aria-modal="true"
-      className="fixed inset-0 z-50 flex justify-end bg-black/30 backdrop-blur-sm"
+      className={`fixed inset-0 z-50 flex justify-end bg-black/20 backdrop-blur-[1px] drawer-backdrop-transition ${
+        isOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
+      }`}
+      onClick={onClose}
       role="dialog"
     >
-      <button
-        aria-label="关闭筛选面板"
-        className="absolute inset-0 cursor-default"
-        onClick={onClose}
-        type="button"
-      />
-      <aside className="relative flex h-full w-full max-w-[440px] flex-col border-l border-line bg-white shadow-nav">
+      <aside
+        className={`relative flex h-full w-full max-w-[440px] flex-col border-l border-line bg-white shadow-2xl drawer-panel-transition ${
+          isOpen ? "translate-x-0" : "translate-x-full"
+        }`}
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="flex items-center justify-between border-b border-line px-lg py-md">
           <div>
             <h2 className="font-title-lg text-title-lg font-extrabold">筛选动作</h2>
@@ -450,6 +455,7 @@ export function ExerciseLibraryPage() {
   const [isLoadingExercises, setIsLoadingExercises] = useState(true);
   const [exerciseError, setExerciseError] = useState("");
   const [isMoreFiltersOpen, setIsMoreFiltersOpen] = useState(false);
+  const [isFilterDrawerMounted, setIsFilterDrawerMounted] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -564,6 +570,33 @@ export function ExerciseLibraryPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isMoreFiltersOpen]);
 
+  useEffect(() => {
+    if (isMoreFiltersOpen) {
+      document.body.style.overflow = "hidden";
+      document.body.classList.add("drawer-open");
+    } else {
+      document.body.style.overflow = "";
+      document.body.classList.remove("drawer-open");
+    }
+
+    return () => {
+      document.body.style.overflow = "";
+      document.body.classList.remove("drawer-open");
+    };
+  }, [isMoreFiltersOpen]);
+
+  useEffect(() => {
+    if (isMoreFiltersOpen) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setIsFilterDrawerMounted(false);
+    }, drawerTransitionMs);
+
+    return () => window.clearTimeout(timer);
+  }, [isMoreFiltersOpen]);
+
   function updateFilter(updater: () => void) {
     setIsLoadingExercises(true);
     setPage(1);
@@ -584,6 +617,17 @@ export function ExerciseLibraryPage() {
     setRiskTag("");
     setPublished("");
     setPage(1);
+  }
+
+  function openFilterDrawer() {
+    setIsFilterDrawerMounted(true);
+    window.requestAnimationFrame(() => {
+      setIsMoreFiltersOpen(true);
+    });
+  }
+
+  function closeFilterDrawer() {
+    setIsMoreFiltersOpen(false);
   }
 
   const activeFilters: ActiveFilter[] = [
@@ -694,7 +738,7 @@ export function ExerciseLibraryPage() {
           </div>
         </header>
 
-        <section className="sticky top-0 z-20 -mx-lg mb-lg border-y border-line/80 bg-[#F6F8FB]/92 px-lg py-md backdrop-blur-xl xl:-mx-xl xl:px-xl">
+        <section className="-mx-lg mb-lg border-y border-line/80 bg-[#F6F8FB]/92 px-lg py-md backdrop-blur-xl xl:-mx-xl xl:px-xl">
           <div className="flex flex-col gap-sm xl:flex-row xl:items-center">
             <div className="flex min-h-11 flex-1 items-center gap-md rounded-xl border border-line bg-white px-lg py-sm shadow-card transition-all focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
               <SymbolIcon className="text-muted">search</SymbolIcon>
@@ -710,7 +754,7 @@ export function ExerciseLibraryPage() {
               <button
                 aria-expanded={isMoreFiltersOpen}
                 className="inline-flex h-11 items-center gap-xs rounded-xl border border-line bg-white px-lg font-label-md text-label-md font-bold text-ink shadow-card transition-colors hover:bg-panel-soft"
-                onClick={() => setIsMoreFiltersOpen(true)}
+                onClick={openFilterDrawer}
                 type="button"
               >
                 <SymbolIcon className="text-[20px]">tune</SymbolIcon>
@@ -740,7 +784,7 @@ export function ExerciseLibraryPage() {
           ) : null}
         </section>
 
-        {isMoreFiltersOpen ? (
+        {isFilterDrawerMounted ? (
           <FilterDrawer
             activeFilters={activeFilters}
             category={category}
@@ -749,12 +793,13 @@ export function ExerciseLibraryPage() {
             force={force}
             goalTag={goalTag}
             homeRequirement={homeRequirement}
+            isOpen={isMoreFiltersOpen}
             level={level}
             mechanic={mechanic}
             moreFilterCount={moreFilterCount}
             muscle={muscle}
             onCategoryChange={(value) => updateFilter(() => setCategory(value))}
-            onClose={() => setIsMoreFiltersOpen(false)}
+            onClose={closeFilterDrawer}
             onEquipmentChange={(value) => updateFilter(() => setEquipment(value))}
             onForceChange={(value) => updateFilter(() => setForce(value))}
             onGoalTagChange={(value) => updateFilter(() => setGoalTag(value))}
