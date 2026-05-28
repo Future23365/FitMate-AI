@@ -13,6 +13,12 @@ type ExerciseFacet = {
   count: number;
 };
 
+type ActiveFilter = {
+  key: string;
+  label: string;
+  onClear: () => void;
+};
+
 type ExerciseApiResponse = {
   items: Exercise[];
   total: number;
@@ -80,6 +86,74 @@ function getFacetLabel(facets: ExerciseFacet[], value: string) {
   return facets.find((facet) => facet.value === value)?.label ?? value;
 }
 
+// 核心筛选只外露高频选项，并保留当前已选项，避免 chip 轨道过长又丢失状态。
+function getVisibleFacetOptions(options: ExerciseFacet[], value: string, limit = 10) {
+  const visibleOptions = options.slice(0, limit);
+
+  if (!value || visibleOptions.some((option) => option.value === value)) {
+    return visibleOptions;
+  }
+
+  const selectedOption = options.find((option) => option.value === value);
+
+  return selectedOption ? [selectedOption, ...visibleOptions].slice(0, limit) : visibleOptions;
+}
+
+// 统一动作库高频筛选的 chip 行，保证肌群、分类、器械和目标使用同一种交互。
+function ChipFilterRow({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: ExerciseFacet[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const visibleOptions = getVisibleFacetOptions(options, value);
+
+  return (
+    <div className="grid gap-sm md:grid-cols-[64px_minmax(0,1fr)]">
+      <span className="font-label-md text-label-md text-muted md:pt-1.5">{label}</span>
+      <div className="flex min-w-0 gap-sm overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <button
+          aria-pressed={!value}
+          className={`shrink-0 whitespace-nowrap rounded-lg px-lg py-xs font-label-md text-label-md transition-colors ${
+            !value
+              ? "bg-primary text-white"
+              : "bg-panel-soft text-muted hover:bg-primary-soft hover:text-primary"
+          }`}
+          onClick={() => onChange("")}
+          type="button"
+        >
+          全部
+        </button>
+        {visibleOptions.map((facet) => {
+          const isActive = value === facet.value;
+
+          return (
+            <button
+              aria-pressed={isActive}
+              className={`shrink-0 whitespace-nowrap rounded-lg px-lg py-xs font-label-md text-label-md transition-colors ${
+                isActive
+                  ? "bg-primary text-white"
+                  : "bg-panel-soft text-muted hover:bg-primary-soft hover:text-primary"
+              }`}
+              key={facet.value}
+              onClick={() => onChange(facet.value)}
+              type="button"
+            >
+              {facet.label}
+              <span className="ml-xs opacity-70">{facet.count}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function SelectFilter({
   label,
   options,
@@ -94,10 +168,10 @@ function SelectFilter({
   placeholder: string;
 }) {
   return (
-    <label className="flex items-center gap-sm">
+    <label className="flex min-w-0 flex-col gap-xs">
       <span className="font-label-md text-label-md text-muted">{label}:</span>
       <select
-        className="max-w-[150px] cursor-pointer rounded-lg border border-line bg-white px-2 py-1 font-label-md text-label-md text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
+        className="h-10 w-full cursor-pointer rounded-lg border border-line bg-white px-md font-label-md text-label-md text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
         onChange={(event) => onChange(event.target.value)}
         value={value}
       >
@@ -136,6 +210,7 @@ export function ExerciseLibraryPage() {
   const [selectedId, setSelectedId] = useState("");
   const [isLoadingExercises, setIsLoadingExercises] = useState(true);
   const [exerciseError, setExerciseError] = useState("");
+  const [isMoreFiltersOpen, setIsMoreFiltersOpen] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -253,25 +328,89 @@ export function ExerciseLibraryPage() {
     setGoalTag("");
     setRiskTag("");
     setPublished("");
-    setSortBy("name_asc");
     setPage(1);
   }
 
-  const activeFilters = [
-    query ? `搜索：${query}` : "",
-    category ? `分类：${getFacetLabel(facets.categories, category)}` : "",
-    muscle ? `肌群：${getFacetLabel(facets.muscles, muscle)}` : "",
-    level ? `难度：${getFacetLabel(facets.levels, level)}` : "",
-    equipment ? `器械：${getFacetLabel(facets.equipment, equipment)}` : "",
-    homeRequirement ? `居家条件：${getFacetLabel(facets.homeRequirements, homeRequirement)}` : "",
-    force ? `发力：${getFacetLabel(facets.force, force)}` : "",
-    mechanic ? `机制：${getFacetLabel(facets.mechanics, mechanic)}` : "",
-    goalTag ? `目标：${goalTag}` : "",
-    riskTag ? `风险：${riskTag}` : "",
-    published ? `发布：${published === "true" ? "已发布" : "未发布"}` : "",
-  ].filter(Boolean);
-
-  const featuredMuscles = facets.muscles.slice(0, 8);
+  const activeFilters: ActiveFilter[] = [
+    query
+      ? {
+          key: "query",
+          label: `搜索：${query}`,
+          onClear: () => updateFilter(() => setQuery("")),
+        }
+      : null,
+    category
+      ? {
+          key: "category",
+          label: `分类：${getFacetLabel(facets.categories, category)}`,
+          onClear: () => updateFilter(() => setCategory("")),
+        }
+      : null,
+    muscle
+      ? {
+          key: "muscle",
+          label: `肌群：${getFacetLabel(facets.muscles, muscle)}`,
+          onClear: () => updateFilter(() => setMuscle("")),
+        }
+      : null,
+    equipment
+      ? {
+          key: "equipment",
+          label: `器械：${getFacetLabel(facets.equipment, equipment)}`,
+          onClear: () => updateFilter(() => setEquipment("")),
+        }
+      : null,
+    goalTag
+      ? {
+          key: "goalTag",
+          label: `目标：${getFacetLabel(facets.goalTags, goalTag)}`,
+          onClear: () => updateFilter(() => setGoalTag("")),
+        }
+      : null,
+    level
+      ? {
+          key: "level",
+          label: `难度：${getFacetLabel(facets.levels, level)}`,
+          onClear: () => updateFilter(() => setLevel("")),
+        }
+      : null,
+    homeRequirement
+      ? {
+          key: "homeRequirement",
+          label: `居家条件：${getFacetLabel(facets.homeRequirements, homeRequirement)}`,
+          onClear: () => updateFilter(() => setHomeRequirement("")),
+        }
+      : null,
+    force
+      ? {
+          key: "force",
+          label: `发力：${getFacetLabel(facets.force, force)}`,
+          onClear: () => updateFilter(() => setForce("")),
+        }
+      : null,
+    mechanic
+      ? {
+          key: "mechanic",
+          label: `机制：${getFacetLabel(facets.mechanics, mechanic)}`,
+          onClear: () => updateFilter(() => setMechanic("")),
+        }
+      : null,
+    riskTag
+      ? {
+          key: "riskTag",
+          label: `风险：${getFacetLabel(facets.riskTags, riskTag)}`,
+          onClear: () => updateFilter(() => setRiskTag("")),
+        }
+      : null,
+    published
+      ? {
+          key: "published",
+          label: `状态：${published === "true" ? "已发布" : "未发布"}`,
+          onClear: () => updateFilter(() => setPublished("")),
+        }
+      : null,
+  ].filter((filter): filter is ActiveFilter => Boolean(filter));
+  const moreFilterCount = [level, homeRequirement, force, mechanic, riskTag, published].filter(Boolean).length;
   const effectiveSelectedId = items.some((exercise) => exercise.id === selectedId)
     ? selectedId
     : items[0]?.id || "";
@@ -301,6 +440,7 @@ export function ExerciseLibraryPage() {
           <div className="flex flex-wrap gap-sm">
             <button
               className="flex items-center gap-xs rounded-xl border border-line bg-white px-lg py-sm font-label-md text-label-md font-bold shadow-card transition-colors hover:bg-panel-soft"
+              onClick={() => setIsMoreFiltersOpen((current) => !current)}
               type="button"
             >
               <SymbolIcon className="text-[20px]">filter_list</SymbolIcon>
@@ -336,91 +476,144 @@ export function ExerciseLibraryPage() {
           </div>
 
           <div className="flex flex-col gap-lg">
-            <div className="grid gap-sm md:grid-cols-[64px_minmax(0,1fr)]">
-              <span className="font-label-md text-label-md text-muted md:pt-1.5">
-                肌群：
-              </span>
-              <div className="flex min-w-0 gap-sm overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                <button
-                  className={`shrink-0 whitespace-nowrap rounded-lg px-lg py-xs font-label-md text-label-md transition-colors ${
-                    !muscle
-                      ? "bg-primary text-white"
-                      : "bg-panel-soft text-muted hover:bg-primary-soft hover:text-primary"
-                  }`}
-                  onClick={() => updateFilter(() => setMuscle(""))}
-                  type="button"
-                >
-                  全部
-                </button>
-                {featuredMuscles.map((facet) => {
-                  const isActive = muscle === facet.value;
-
-                  return (
-                    <button
-                      className={`shrink-0 whitespace-nowrap rounded-lg px-lg py-xs font-label-md text-label-md transition-colors ${
-                        isActive
-                          ? "bg-primary text-white"
-                          : "bg-panel-soft text-muted hover:bg-primary-soft hover:text-primary"
-                      }`}
-                      key={facet.value}
-                      onClick={() => updateFilter(() => setMuscle(facet.value))}
-                      type="button"
-                    >
-                      {facet.label}
-                      <span className="ml-xs opacity-70">{facet.count}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-xl">
-              <SelectFilter
+            <div className="flex flex-col gap-md">
+              <ChipFilterRow
+                label="肌群"
+                onChange={(value) => updateFilter(() => setMuscle(value))}
+                options={facets.muscles}
+                value={muscle}
+              />
+              <ChipFilterRow
                 label="分类"
                 onChange={(value) => updateFilter(() => setCategory(value))}
                 options={facets.categories}
-                placeholder="全部分类"
                 value={category}
               />
-              <SelectFilter
-                label="难度"
-                onChange={(value) => updateFilter(() => setLevel(value))}
-                options={facets.levels}
-                placeholder="全部难度"
-                value={level}
-              />
-              <SelectFilter
+              <ChipFilterRow
                 label="器械"
                 onChange={(value) => updateFilter(() => setEquipment(value))}
                 options={facets.equipment}
-                placeholder="全部器械"
                 value={equipment}
               />
-              <SelectFilter
-                label="居家条件"
-                onChange={(value) => updateFilter(() => setHomeRequirement(value))}
-                options={facets.homeRequirements}
-                placeholder="全部条件"
-                value={homeRequirement}
+              <ChipFilterRow
+                label="目标"
+                onChange={(value) => updateFilter(() => setGoalTag(value))}
+                options={facets.goalTags}
+                value={goalTag}
               />
-              <SelectFilter
-                label="发力"
-                onChange={(value) => updateFilter(() => setForce(value))}
-                options={facets.force}
-                placeholder="全部发力"
-                value={force}
-              />
-              <SelectFilter
-                label="机制"
-                onChange={(value) => updateFilter(() => setMechanic(value))}
-                options={facets.mechanics}
-                placeholder="全部机制"
-                value={mechanic}
-              />
+            </div>
+
+            <div className="border-t border-line pt-md">
+              <button
+                aria-expanded={isMoreFiltersOpen}
+                className="inline-flex items-center gap-xs rounded-xl border border-line bg-white px-lg py-sm font-label-md text-label-md font-bold text-ink transition-colors hover:bg-panel-soft"
+                onClick={() => setIsMoreFiltersOpen((current) => !current)}
+                type="button"
+              >
+                <SymbolIcon className="text-[20px]">tune</SymbolIcon>
+                更多筛选
+                {moreFilterCount ? (
+                  <span className="rounded-full bg-primary-soft px-xs text-label-xs font-bold text-primary">
+                    {moreFilterCount}
+                  </span>
+                ) : null}
+                <SymbolIcon className="text-[18px]">
+                  {isMoreFiltersOpen ? "expand_less" : "expand_more"}
+                </SymbolIcon>
+              </button>
+
+              {isMoreFiltersOpen ? (
+                <div className="mt-md grid gap-md rounded-xl border border-line bg-panel-soft p-md md:grid-cols-2 xl:grid-cols-3">
+                  <SelectFilter
+                    label="难度"
+                    onChange={(value) => updateFilter(() => setLevel(value))}
+                    options={facets.levels}
+                    placeholder="全部难度"
+                    value={level}
+                  />
+                  <SelectFilter
+                    label="居家条件"
+                    onChange={(value) => updateFilter(() => setHomeRequirement(value))}
+                    options={facets.homeRequirements}
+                    placeholder="全部条件"
+                    value={homeRequirement}
+                  />
+                  <SelectFilter
+                    label="发力"
+                    onChange={(value) => updateFilter(() => setForce(value))}
+                    options={facets.force}
+                    placeholder="全部发力"
+                    value={force}
+                  />
+                  <SelectFilter
+                    label="机制"
+                    onChange={(value) => updateFilter(() => setMechanic(value))}
+                    options={facets.mechanics}
+                    placeholder="全部机制"
+                    value={mechanic}
+                  />
+                  <SelectFilter
+                    label="风险"
+                    onChange={(value) => updateFilter(() => setRiskTag(value))}
+                    options={facets.riskTags}
+                    placeholder="全部风险"
+                    value={riskTag}
+                  />
+                  <label className="flex min-w-0 flex-col gap-xs">
+                    <span className="font-label-md text-label-md text-muted">状态:</span>
+                    <select
+                      className="h-10 w-full cursor-pointer rounded-lg border border-line bg-white px-md font-label-md text-label-md text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
+                      onChange={(event) => updateFilter(() => setPublished(event.target.value))}
+                      value={published}
+                    >
+                      <option value="">全部状态</option>
+                      <option value="true">已发布</option>
+                      <option value="false">未发布</option>
+                    </select>
+                  </label>
+                </div>
+              ) : null}
+            </div>
+
+            {activeFilters.length ? (
+              <div className="flex flex-wrap items-center gap-sm border-t border-line pt-md">
+                {activeFilters.map((filter) => (
+                  <button
+                    aria-label={`移除${filter.label}`}
+                    className="inline-flex items-center gap-xs rounded-lg bg-primary-soft px-md py-xs font-label-sm text-label-sm font-bold text-primary transition-colors hover:bg-primary/15"
+                    key={filter.key}
+                    onClick={filter.onClear}
+                    type="button"
+                  >
+                    {filter.label}
+                    <SymbolIcon className="text-[16px]">close</SymbolIcon>
+                  </button>
+                ))}
+                <button
+                  className="rounded-lg border border-line px-md py-xs font-label-sm text-label-sm text-muted transition-colors hover:bg-panel-soft"
+                  onClick={resetFilters}
+                  type="button"
+                >
+                  清空筛选
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </section>
+
+        <section>
+          <div className="mb-lg flex flex-col gap-md border-b border-line pb-md xl:flex-row xl:items-end xl:justify-between">
+            <div>
+              <h2 className="font-title-lg text-title-lg font-extrabold">所有动作</h2>
+              <p className="mt-xs font-label-sm text-label-sm text-muted">
+                共 {total} 条 · 第 {page} / {totalPages} 页 · 当前 {items.length} 条
+              </p>
+            </div>
+            <div className="flex flex-col gap-sm sm:flex-row sm:items-center">
               <label className="flex items-center gap-sm">
-                <span className="font-label-md text-label-md text-muted">排序:</span>
+                <span className="shrink-0 font-label-md text-label-md text-muted">排序:</span>
                 <select
-                  className="cursor-pointer rounded-lg border border-line bg-white px-2 py-1 font-label-md text-label-md text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
+                  className="h-10 cursor-pointer rounded-lg border border-line bg-white px-md font-label-md text-label-md text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
                   onChange={(event) =>
                     updateFilter(() => setSortBy(event.target.value as ExerciseSort))
                   }
@@ -433,39 +626,10 @@ export function ExerciseLibraryPage() {
                   ))}
                 </select>
               </label>
-            </div>
-
-            <div className="flex flex-wrap gap-xl">
-              <SelectFilter
-                label="目标"
-                onChange={(value) => updateFilter(() => setGoalTag(value))}
-                options={facets.goalTags}
-                placeholder="全部目标"
-                value={goalTag}
-              />
-              <SelectFilter
-                label="风险"
-                onChange={(value) => updateFilter(() => setRiskTag(value))}
-                options={facets.riskTags}
-                placeholder="全部风险"
-                value={riskTag}
-              />
               <label className="flex items-center gap-sm">
-                <span className="font-label-md text-label-md text-muted">状态:</span>
+                <span className="shrink-0 font-label-md text-label-md text-muted">每页:</span>
                 <select
-                  className="cursor-pointer rounded-lg border border-line bg-white px-2 py-1 font-label-md text-label-md text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
-                  onChange={(event) => updateFilter(() => setPublished(event.target.value))}
-                  value={published}
-                >
-                  <option value="">全部状态</option>
-                  <option value="true">已发布</option>
-                  <option value="false">未发布</option>
-                </select>
-              </label>
-              <label className="flex items-center gap-sm">
-                <span className="font-label-md text-label-md text-muted">每页:</span>
-                <select
-                  className="cursor-pointer rounded-lg border border-line bg-white px-2 py-1 font-label-md text-label-md text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
+                  className="h-10 cursor-pointer rounded-lg border border-line bg-white px-md font-label-md text-label-md text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
                   onChange={(event) => {
                     setIsLoadingExercises(true);
                     setPage(1);
@@ -481,35 +645,6 @@ export function ExerciseLibraryPage() {
                 </select>
               </label>
             </div>
-
-            {activeFilters.length ? (
-              <div className="flex flex-wrap items-center gap-sm border-t border-line pt-md">
-                {activeFilters.map((filter) => (
-                  <span
-                    className="rounded-lg bg-primary-soft px-md py-xs font-label-sm text-label-sm font-bold text-primary"
-                    key={filter}
-                  >
-                    {filter}
-                  </span>
-                ))}
-                <button
-                  className="rounded-lg border border-line px-md py-xs font-label-sm text-label-sm text-muted transition-colors hover:bg-panel-soft"
-                  onClick={resetFilters}
-                  type="button"
-                >
-                  清空筛选
-                </button>
-              </div>
-            ) : null}
-          </div>
-        </section>
-
-        <section>
-          <div className="mb-lg flex items-center justify-between gap-md">
-            <h2 className="font-title-lg text-title-lg font-extrabold">所有动作 ({total})</h2>
-            <span className="font-label-sm text-label-sm text-muted">
-              第 {page} / {totalPages} 页 · 当前 {items.length} 条
-            </span>
           </div>
 
           {exerciseError ? (
