@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 
@@ -68,6 +68,10 @@ async function fetchDraftExercises(draft: WorkoutRoutineDraft, cachedExercises: 
   return exercises;
 }
 
+function collectRoutineDraftExerciseIds(draft: WorkoutRoutineDraft) {
+  return [...new Set(draft.sections.flatMap((section) => section.items.map((item) => item.exerciseId)))];
+}
+
 function toFallbackPreviewExercise(item: WorkoutRoutineDraftItem): Exercise {
   return {
     id: item.exerciseId,
@@ -126,21 +130,72 @@ export function WorkoutRoutineDraftCard({
 
     return next;
   }, [fetchedExerciseMap, initialExerciseMap]);
+  const draftExerciseIds = useMemo(() => collectRoutineDraftExerciseIds(draft), [draft]);
+  const loadedExercises = useMemo(() => {
+    return draftExerciseIds.flatMap((exerciseId) => {
+      const exercise = findExerciseById(exerciseId, exerciseMap);
+      return exercise ? [exercise] : [];
+    });
+  }, [draftExerciseIds, exerciseMap]);
   const workoutItems = useMemo(() => {
     try {
-      return convertWorkoutRoutineDraftToWorkoutRoutine(draft, initialExercises, {
+      return convertWorkoutRoutineDraftToWorkoutRoutine(draft, loadedExercises, {
         createId: () => "preview-item",
       }).items;
     } catch {
       return [];
     }
-  }, [draft, initialExercises]);
+  }, [draft, loadedExercises]);
   const estimatedMinutes = workoutItems.length
     ? estimateWorkoutMinutes(workoutItems, {
         trainingLoopRounds: draft.trainingLoopRounds,
         trainingLoopRestSeconds: draft.trainingLoopRestSeconds,
       })
     : draft.estimatedSessionMinutes;
+
+  useEffect(() => {
+    const missingExerciseIds = draftExerciseIds.filter(
+      (exerciseId) => !findExerciseById(exerciseId, exerciseMap),
+    );
+
+    if (missingExerciseIds.length === 0) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    // 聊天历史回放或候选快照不完整时，首屏先补齐动作详情，避免必须点击后才显示。
+    void Promise.allSettled(missingExerciseIds.map((exerciseId) => fetchExerciseById(exerciseId))).then(
+      (results) => {
+        if (isCancelled) {
+          return;
+        }
+
+        const loaded = results.flatMap((result) =>
+          result.status === "fulfilled" ? [result.value] : [],
+        );
+
+        if (loaded.length === 0) {
+          return;
+        }
+
+        setFetchedExerciseMap((current) => {
+          const next = new Map(current);
+
+          for (const exercise of loaded) {
+            next.set(exercise.id, exercise);
+            next.set(exercise.id.toLowerCase(), exercise);
+          }
+
+          return next;
+        });
+      },
+    );
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [draftExerciseIds, exerciseMap]);
 
   const handleOpenPreview = (item: WorkoutRoutineDraftItem) => {
     const exercise = findExerciseById(item.exerciseId, exerciseMap) ?? toFallbackPreviewExercise(item);
