@@ -37,9 +37,14 @@ export function WorkoutDraftExerciseItem({
   return (
     <div className="group/exercise-card relative flex w-full items-center gap-md rounded-xl border border-line bg-white p-sm pr-xl text-left transition-colors hover:border-primary/30 hover:bg-panel-soft">
       <ExerciseDetailIconButton onClick={onOpenPreview} />
-      <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-line bg-panel-soft">
+      <button
+        aria-label={`查看${exerciseName}动作详情`}
+        className="relative h-14 w-14 shrink-0 cursor-pointer overflow-hidden rounded-lg border border-line bg-panel-soft transition-colors hover:border-primary/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+        onClick={onOpenPreview}
+        type="button"
+      >
         <Image alt={exerciseName} className="object-cover" fill sizes="56px" src={image} />
-      </div>
+      </button>
       <div className="min-w-0 flex-1 pr-xs">
         <div className="flex items-center gap-xs">
           <h5 className="truncate font-body-lg text-body-lg font-extrabold leading-tight text-on-surface">
