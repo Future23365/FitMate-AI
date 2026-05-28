@@ -98,14 +98,14 @@ function SidebarPanel({
       </div>
 
       <Link
-        className="mb-7 flex w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-bold text-white shadow-card transition-all hover:bg-primary-deep hover:shadow-lift active:scale-[0.98]"
+        className="mb-7 flex w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-bold text-on-primary shadow-card transition-all hover:bg-primary-deep hover:shadow-lift active:scale-[0.98]"
         href="/"
         onClick={() => {
           window.dispatchEvent(new Event("fitmate:new-chat"));
           onNavigate?.();
         }}
       >
-        <SymbolIcon className="text-[20px]">add_comment</SymbolIcon>
+        <SymbolIcon className="text-[20px] text-on-primary">add_comment</SymbolIcon>
         <span>新建对话</span>
       </Link>
 

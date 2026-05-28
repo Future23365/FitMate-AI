@@ -8,6 +8,13 @@ layer(base);
 @import "tailwindcss";
 
 @theme {
+  /* Tailwind 4 的 CSS-first 配置入口；保留当前项目 PC-only 的断点基线。 */
+  --breakpoint-sm: 0px;
+  --breakpoint-md: 0px;
+  --breakpoint-lg: 0px;
+  --breakpoint-xl: 0px;
+  --breakpoint-2xl: 1536px;
+
   --color-ink: #111827;
   --color-muted: #667085;
   --color-line: #d7dde5;
