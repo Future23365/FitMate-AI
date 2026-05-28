@@ -1,14 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
-import { ExerciseDetailIconButton } from "@/features/exercises/components/exercise-detail-icon-button";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
 import { convertWorkoutRoutineDraftToWorkoutRoutine } from "@/features/workout-plans/lib/workout-routine-conversion";
 import { createWorkoutRoutine } from "@/features/workouts/api/workout-data-client";
+import { WorkoutDraftExerciseItem } from "@/features/workouts/components/workout-draft-exercise-item";
 import { clientRequest } from "@/lib/client/http/client-request";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import type { WorkoutRoutineDraft, WorkoutRoutineDraftItem } from "@/lib/shared/workout-plans/draft-schema";
@@ -304,49 +303,18 @@ export function WorkoutRoutineDraftCard({
               <div className="space-y-xs">
                 {section.items.map((item, index) => {
                   const exercise = findExerciseById(item.exerciseId, exerciseMap);
-                  const exerciseName = exercise?.nameZh || item.exerciseId;
-                  const image = exercise?.imageUrls?.[0] || placeholderWorkoutImage;
-                  const muscles = exercise?.primaryMusclesZh?.slice(0, 2).join("、") || "综合";
 
                   return (
-                    <div
-                      className="group/exercise-card relative flex w-full items-center gap-md rounded-xl border border-line bg-white p-sm pr-xl text-left transition-colors hover:border-primary/30 hover:bg-panel-soft"
+                    <WorkoutDraftExerciseItem
+                      exercise={exercise}
+                      exerciseId={item.exerciseId}
                       key={`${item.section}-${item.exerciseId}-${index}`}
-                    >
-                      <ExerciseDetailIconButton onClick={() => handleOpenPreview(item)} />
-                      <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-line bg-panel-soft">
-                        <Image
-                          alt={exerciseName}
-                          className="object-cover"
-                          fill
-                          sizes="56px"
-                          src={image}
-                        />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-xs">
-                          <h5 className="truncate font-body-md text-body-md font-bold text-on-surface">
-                            {exerciseName}
-                          </h5>
-                        </div>
-                        <p className="mt-[2px] truncate font-label-xs text-label-xs text-muted">
-                          {exercise?.equipmentZh || "未标注器械"} · {muscles}
-                        </p>
-                        {item.notes && (
-                          <p className="mt-xs line-clamp-1 font-label-xs text-label-xs text-primary">
-                            {item.notes}
-                          </p>
-                        )}
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <p className="font-body-lg text-body-lg font-black text-primary">
-                          {item.sets}组
-                        </p>
-                        <p className="font-label-md text-label-md font-bold text-muted">
-                          每组{item.target}{item.mode === "reps" ? "次" : "秒"}
-                        </p>
-                      </div>
-                    </div>
+                      mode={item.mode}
+                      notes={item.notes}
+                      onOpenPreview={() => handleOpenPreview(item)}
+                      sets={item.sets}
+                      target={item.target}
+                    />
                   );
                 })}
               </div>

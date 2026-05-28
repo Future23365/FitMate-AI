@@ -1,11 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
-import { ExerciseDetailIconButton } from "@/features/exercises/components/exercise-detail-icon-button";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
 import {
   createWorkoutSchedule,
@@ -13,6 +11,7 @@ import {
   deleteWorkoutSchedule,
   listWorkoutSchedules,
 } from "@/features/workouts/api/workout-data-client";
+import { WorkoutDraftExerciseItem } from "@/features/workouts/components/workout-draft-exercise-item";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import type { WorkoutPlanDraft, WorkoutPlanItemDraft } from "@/lib/shared/workout-plans/draft-schema";
 import { convertWorkoutPlanDraftToWorkoutRoutine } from "@/features/workout-plans/lib/workout-routine-conversion";
@@ -30,7 +29,6 @@ interface WorkoutPlanDraftCardProps {
   initialExercises?: Exercise[];
 }
 
-const placeholderImage = placeholderWorkoutImage;
 const emptyInitialExercises: Exercise[] = [];
 
 type ExerciseApiResponse = {
@@ -110,7 +108,7 @@ function toFallbackPreviewExercise(item: WorkoutPlanItemDraft): Exercise {
     instructionsEn: [],
     instructionsZh: item.notes ? [item.notes] : [],
     images: [],
-    imageUrls: [placeholderImage],
+    imageUrls: [placeholderWorkoutImage],
     riskTags: [],
     goalTags: [],
     reviewStatus: "fallback",
@@ -414,64 +412,21 @@ export function WorkoutPlanDraftCard({
             </div>
 
             {/* 当天动作列表卡片流 */}
-            <div className="space-y-sm">
+            <div className="space-y-xs">
               {activeDay.items.map((item, index) => {
                 const exercise = findExerciseById(item.exerciseId, exerciseMap);
-                const exerciseName = exercise?.nameZh || item.exerciseId;
-                const category = exercise?.categoryZh || "加载中";
-                const equipment = exercise?.equipmentZh || "加载中";
-                const image = exercise?.imageUrls?.[0] || placeholderImage;
 
                 return (
-                  <div
+                  <WorkoutDraftExerciseItem
+                    exercise={exercise}
+                    exerciseId={item.exerciseId}
                     key={`${item.exerciseId}-${index}`}
-                    className="group/exercise-card relative flex items-center gap-md rounded-xl border border-outline-variant bg-surface-container-lowest p-md pr-xl transition-all duration-200 hover:border-primary-container/40 hover:shadow-sm"
-                  >
-                    <ExerciseDetailIconButton onClick={() => handleOpenPreview(item)} />
-                    {/* 动作封面图片 */}
-                    <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-outline-variant bg-surface-container">
-                      <Image
-                        alt={exerciseName}
-                        className="object-cover transition-transform duration-300 group-hover/exercise-card:scale-105"
-                        fill
-                        sizes="64px"
-                        src={image}
-                      />
-                    </div>
-
-                    {/* 动作内容与参数 */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-sm">
-                        <div>
-                          <h4 className="font-body-md text-body-md font-bold text-on-surface truncate flex items-center gap-xs">
-                            <span className="truncate">{exerciseName}</span>
-                          </h4>
-                          <div className="mt-xs flex items-center gap-xs font-label-xs text-label-xs text-on-surface-variant">
-                            <span className="rounded bg-surface-container px-1 py-[2px]">{category}</span>
-                            <span className="text-outline-variant">•</span>
-                            <span>{equipment}</span>
-                          </div>
-                        </div>
-                        {/* 组数/次数指标 */}
-                        <div className="text-right shrink-0">
-                          <p className="font-body-lg text-body-lg font-black text-primary">
-                            {item.sets}<span className="font-normal text-on-surface-variant">组</span>
-                          </p>
-                          <p className="mt-xs font-label-md text-label-md font-bold text-on-surface-variant">
-                            每组{item.target}{item.mode === "reps" ? "次" : "秒"}
-                          </p>
-                        </div>
-                      </div>
-
-                      {item.notes && (
-                        <div className="mt-sm flex flex-wrap items-center justify-end gap-sm border-t border-outline-variant/30 pt-xs">
-                          <p className="font-label-xs text-label-xs text-primary truncate max-w-[200px]" title={item.notes}>
-                            💡 {item.notes}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                    mode={item.mode}
+                    notes={item.notes}
+                    onOpenPreview={() => handleOpenPreview(item)}
+                    sets={item.sets}
+                    target={item.target}
+                  />
                 );
               })}
             </div>
