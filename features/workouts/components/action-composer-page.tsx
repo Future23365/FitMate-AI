@@ -1535,10 +1535,6 @@ function WorkoutExerciseRow({
       icon: "exercise",
       label: item.equipmentZh || exercise?.equipmentZh || "未标注器械",
     },
-    {
-      icon: "signal_cellular_alt",
-      label: exercise?.levelZh || "未标注难度",
-    },
   ];
   const modeLabel = item.mode === "duration" ? "时长模式" : "次数模式";
 
@@ -1593,10 +1589,10 @@ function WorkoutExerciseRow({
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate font-body-lg text-body-lg font-bold">{item.nameZh}</p>
-            <div className="mt-xs grid w-full max-w-[420px] grid-cols-3 gap-xs">
+            <div className="mt-xs flex max-w-full flex-nowrap items-center gap-xs overflow-hidden">
               {itemTags.map((tag) => (
                 <span
-                  className="inline-flex min-w-0 items-center gap-[3px] rounded-lg border border-outline-variant bg-panel-soft px-xs py-[2px] text-[10px] font-semibold text-secondary"
+                  className="inline-flex min-w-0 max-w-[170px] shrink items-center gap-[3px] rounded-lg border border-outline-variant bg-panel-soft px-xs py-[2px] text-[10px] font-semibold text-secondary"
                   key={`${tag.icon}-${tag.label}`}
                   title={tag.label}
                 >
