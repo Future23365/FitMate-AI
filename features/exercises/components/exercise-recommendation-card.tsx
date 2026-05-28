@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useMemo, useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
+import { ExerciseDetailIconButton } from "@/features/exercises/components/exercise-detail-icon-button";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
 import type {
   ExerciseRecommendationCard as ExerciseRecommendationCardData,
@@ -157,45 +158,38 @@ export function ExerciseRecommendationCard({
         <div className="mt-sm grid gap-sm sm:grid-cols-2">
           {card.items.map((item) => (
             <div
-              className="group min-w-0 rounded-xl border border-line bg-white p-md text-left transition-all duration-200 hover:border-primary/40 hover:bg-panel-soft/40 hover:shadow-sm"
+              className="group/exercise-card relative min-w-0 rounded-xl border border-line bg-white p-md pr-xl text-left transition-all duration-200 hover:border-primary/40 hover:bg-panel-soft/40 hover:shadow-sm"
               key={item.exerciseId}
             >
-              <button
-                className="block w-full min-w-0 text-left"
-                onClick={() => handleOpenPreview(item)}
-                type="button"
-              >
-                <div className="flex min-w-0 items-center gap-md">
-                  <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-line bg-panel-soft">
-                    <Image
-                      alt={item.nameZh}
-                      className="object-cover transition-transform duration-300 group-hover:scale-105"
-                      fill
-                      sizes="64px"
-                      src={item.imageUrl || placeholderImage}
-                    />
-                  </div>
+              <ExerciseDetailIconButton onClick={() => handleOpenPreview(item)} />
+              <div className="flex min-w-0 items-center gap-md">
+                <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-line bg-panel-soft">
+                  <Image
+                    alt={item.nameZh}
+                    className="object-cover transition-transform duration-300 group-hover/exercise-card:scale-105"
+                    fill
+                    sizes="64px"
+                    src={item.imageUrl || placeholderImage}
+                  />
+                </div>
 
-                  <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 items-center gap-xs">
-                      <h4 className="truncate font-body-md text-body-md font-bold text-on-surface">
-                        {item.nameZh}
-                      </h4>
-                      <span className="ml-auto shrink-0 rounded-md bg-primary-soft px-1.5 py-[1px] font-label-xs text-label-xs font-bold text-primary">
-                        {item.primaryMusclesZh[0]}
-                      </span>
-                    </div>
+                <div className="min-w-0 flex-1">
+                  <h4 className="truncate font-body-md text-body-md font-bold text-on-surface">
+                    {item.nameZh}
+                  </h4>
 
-                    <div className="mt-xs flex min-w-0 flex-wrap items-center gap-xs font-label-xs text-label-xs text-muted">
-                      <span className="shrink-0 rounded-md bg-panel-soft px-1.5 py-[1px]">
-                        {item.levelZh}
-                      </span>
-                      <span className="truncate">{item.categoryZh}</span>
-                      <span className="truncate">{item.equipmentZh}</span>
-                    </div>
+                  <div className="mt-xs flex min-w-0 flex-wrap items-center gap-xs font-label-xs text-label-xs text-muted">
+                    <span className="shrink-0 rounded-md bg-primary-soft px-1.5 py-[1px] font-bold text-primary">
+                      {item.primaryMusclesZh[0]}
+                    </span>
+                    <span className="shrink-0 rounded-md bg-panel-soft px-1.5 py-[1px]">
+                      {item.levelZh}
+                    </span>
+                    <span className="truncate">{item.categoryZh}</span>
+                    <span className="truncate">{item.equipmentZh}</span>
                   </div>
                 </div>
-              </button>
+              </div>
             </div>
           ))}
         </div>

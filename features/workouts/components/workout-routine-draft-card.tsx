@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
+import { ExerciseDetailIconButton } from "@/features/exercises/components/exercise-detail-icon-button";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
 import { convertWorkoutRoutineDraftToWorkoutRoutine } from "@/features/workout-plans/lib/workout-routine-conversion";
 import { createWorkoutRoutine } from "@/features/workouts/api/workout-data-client";
@@ -308,12 +309,11 @@ export function WorkoutRoutineDraftCard({
                   const muscles = exercise?.primaryMusclesZh?.slice(0, 2).join("、") || "综合";
 
                   return (
-                    <button
-                      className="flex w-full items-center gap-md rounded-xl border border-line bg-white p-sm text-left transition-colors hover:border-primary/30 hover:bg-panel-soft"
+                    <div
+                      className="group/exercise-card relative flex w-full items-center gap-md rounded-xl border border-line bg-white p-sm pr-xl text-left transition-colors hover:border-primary/30 hover:bg-panel-soft"
                       key={`${item.section}-${item.exerciseId}-${index}`}
-                      onClick={() => handleOpenPreview(item)}
-                      type="button"
                     >
+                      <ExerciseDetailIconButton onClick={() => handleOpenPreview(item)} />
                       <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-line bg-panel-soft">
                         <Image
                           alt={exerciseName}
@@ -328,7 +328,6 @@ export function WorkoutRoutineDraftCard({
                           <h5 className="truncate font-body-md text-body-md font-bold text-on-surface">
                             {exerciseName}
                           </h5>
-                          <SymbolIcon className="text-[14px] text-muted">info</SymbolIcon>
                         </div>
                         <p className="mt-[2px] truncate font-label-xs text-label-xs text-muted">
                           {exercise?.equipmentZh || "未标注器械"} · {muscles}
@@ -347,7 +346,7 @@ export function WorkoutRoutineDraftCard({
                           每组{item.target}{item.mode === "reps" ? "次" : "秒"}
                         </p>
                       </div>
-                    </button>
+                    </div>
                   );
                 })}
               </div>

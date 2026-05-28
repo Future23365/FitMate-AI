@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
+import { ExerciseDetailIconButton } from "@/features/exercises/components/exercise-detail-icon-button";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
 import {
   createWorkoutSchedule,
@@ -424,14 +425,14 @@ export function WorkoutPlanDraftCard({
                 return (
                   <div
                     key={`${item.exerciseId}-${index}`}
-                    onClick={() => handleOpenPreview(item)}
-                    className="flex items-center gap-md rounded-xl border border-outline-variant bg-surface-container-lowest p-md hover:border-primary-container/40 hover:shadow-sm cursor-pointer transition-all duration-200 group"
+                    className="group/exercise-card relative flex items-center gap-md rounded-xl border border-outline-variant bg-surface-container-lowest p-md pr-xl transition-all duration-200 hover:border-primary-container/40 hover:shadow-sm"
                   >
+                    <ExerciseDetailIconButton onClick={() => handleOpenPreview(item)} />
                     {/* 动作封面图片 */}
                     <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-outline-variant bg-surface-container">
                       <Image
                         alt={exerciseName}
-                        className="object-cover transition-transform duration-300 hover:scale-105"
+                        className="object-cover transition-transform duration-300 group-hover/exercise-card:scale-105"
                         fill
                         sizes="64px"
                         src={image}
@@ -444,10 +445,6 @@ export function WorkoutPlanDraftCard({
                         <div>
                           <h4 className="font-body-md text-body-md font-bold text-on-surface truncate flex items-center gap-xs">
                             <span className="truncate">{exerciseName}</span>
-                            <span className="inline-flex items-center gap-[2px] rounded-full bg-primary/10 px-sm py-[2px] font-label-xs text-label-xs text-primary opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                              <SymbolIcon className="text-[12px]">info</SymbolIcon>
-                              <span>查看教学</span>
-                            </span>
                           </h4>
                           <div className="mt-xs flex items-center gap-xs font-label-xs text-label-xs text-on-surface-variant">
                             <span className="rounded bg-surface-container px-1 py-[2px]">{category}</span>
