@@ -319,7 +319,12 @@ export function ActionComposerPage() {
       pageSize: "30",
       sort: "name_asc",
     });
-    setIsLoadingLibrary(true);
+
+    queueMicrotask(() => {
+      if (!controller.signal.aborted) {
+        setIsLoadingLibrary(true);
+      }
+    });
 
     if (libraryQuery.trim()) {
       params.set("q", libraryQuery.trim());
@@ -354,6 +359,15 @@ export function ActionComposerPage() {
       errorMessage: "动作库加载失败",
     })
       .then((data) => {
+        const shouldClearCategory = !hasFacetValue(data.facets.categories, libraryCategory);
+        const shouldClearMuscle = !hasFacetValue(data.facets.muscles, libraryMuscle);
+        const shouldClearEquipment = !hasFacetValue(data.facets.equipment, libraryEquipment);
+        const shouldClearLevel = !hasFacetValue(data.facets.levels, libraryLevel);
+        const shouldClearHomeRequirement = !hasFacetValue(
+          data.facets.homeRequirements,
+          libraryHomeRequirement,
+        );
+
         setLibraryItems(data.items);
         setExerciseCache((current) => {
           const next = new Map(current);
@@ -367,6 +381,37 @@ export function ActionComposerPage() {
             ? current
             : data.items[0]?.id ?? "",
         );
+
+        // 请求返回的新 facets 是筛选项的事实来源，失效筛选在这里统一归一化。
+        if (shouldClearCategory) {
+          setLibraryCategory("");
+        }
+
+        if (shouldClearMuscle) {
+          setLibraryMuscle("");
+        }
+
+        if (shouldClearEquipment) {
+          setLibraryEquipment("");
+        }
+
+        if (shouldClearLevel) {
+          setLibraryLevel("");
+        }
+
+        if (shouldClearHomeRequirement) {
+          setLibraryHomeRequirement("");
+        }
+
+        if (
+          shouldClearCategory ||
+          shouldClearMuscle ||
+          shouldClearEquipment ||
+          shouldClearLevel ||
+          shouldClearHomeRequirement
+        ) {
+          setSaveStatus("已清除与当前用途不匹配的筛选");
+        }
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") {
@@ -391,46 +436,6 @@ export function ActionComposerPage() {
     libraryMuscle,
     libraryQuery,
     librarySuitabilityFilter,
-  ]);
-
-  useEffect(() => {
-    let didClearInvalidFilter = false;
-
-    if (!hasFacetValue(libraryFacets.categories, libraryCategory)) {
-      setLibraryCategory("");
-      didClearInvalidFilter = true;
-    }
-
-    if (!hasFacetValue(libraryFacets.muscles, libraryMuscle)) {
-      setLibraryMuscle("");
-      didClearInvalidFilter = true;
-    }
-
-    if (!hasFacetValue(libraryFacets.equipment, libraryEquipment)) {
-      setLibraryEquipment("");
-      didClearInvalidFilter = true;
-    }
-
-    if (!hasFacetValue(libraryFacets.levels, libraryLevel)) {
-      setLibraryLevel("");
-      didClearInvalidFilter = true;
-    }
-
-    if (!hasFacetValue(libraryFacets.homeRequirements, libraryHomeRequirement)) {
-      setLibraryHomeRequirement("");
-      didClearInvalidFilter = true;
-    }
-
-    if (didClearInvalidFilter) {
-      setSaveStatus("已清除与当前用途不匹配的筛选");
-    }
-  }, [
-    libraryCategory,
-    libraryEquipment,
-    libraryFacets,
-    libraryHomeRequirement,
-    libraryLevel,
-    libraryMuscle,
   ]);
 
   useEffect(() => {
