@@ -397,7 +397,7 @@ export function TrainingPlanPage() {
 
       <aside className="app-shell-glass custom-scrollbar fixed right-0 top-0 z-30 hidden h-screen w-[320px] flex-col gap-lg overflow-y-auto border-l border-line/70 p-md shadow-nav xl:flex">
         {sidePanelMode === "saved-plans" ? (
-          <section className="space-y-md">
+          <section className="training-side-panel-enter flex min-h-0 flex-1 flex-col gap-md">
             <div className="space-y-xs">
               <button
                 className="flex items-center gap-xs font-label-sm text-label-sm font-bold text-secondary transition-colors hover:text-primary"
@@ -409,19 +409,22 @@ export function TrainingPlanPage() {
               </button>
               <div className="flex items-start justify-between gap-sm">
                 <div>
-                  <h2 className="font-title-md text-title-md font-extrabold">选择已保存计划</h2>
+                  <h2 className="font-title-md text-title-md font-extrabold">选择已保存编排</h2>
                   <p className="font-label-sm text-label-sm text-muted">
-                    安排到 {formatDayLabel(selectedDateKey)}
+                    {filteredWorkouts.length} 个编排 · 安排到 {formatDayLabel(selectedDateKey)}
                   </p>
                 </div>
-                <Link className="font-label-sm text-label-sm font-bold text-primary hover:underline" href="/composer">
+                <Link
+                  className="shrink-0 rounded-lg px-xs py-[2px] font-label-sm text-label-sm font-bold text-primary hover:bg-primary-soft"
+                  href="/composer"
+                >
                   管理全部
                 </Link>
               </div>
             </div>
 
             {filteredWorkouts.length ? (
-              <div className="overflow-hidden rounded-xl border border-line bg-white">
+              <div className="training-saved-plan-list custom-scrollbar min-h-0 flex-1 space-y-sm overflow-y-auto rounded-2xl border border-line bg-panel-soft p-sm">
                 {filteredWorkouts.map((workout) => (
                   <SavedPlanListItem
                     key={workout.id}
@@ -433,7 +436,7 @@ export function TrainingPlanPage() {
             ) : (
               <div className="rounded-xl border border-dashed border-line bg-white p-md text-center">
                 <SymbolIcon className="mb-sm text-3xl text-outline">inventory_2</SymbolIcon>
-                <p className="font-label-md text-label-md text-muted">还没有已保存计划</p>
+                <p className="font-label-md text-label-md text-muted">还没有已保存编排</p>
                 <Link
                   className="mt-sm inline-flex rounded-xl bg-primary px-md py-sm font-label-md text-label-md font-bold text-white"
                   href="/composer"
@@ -444,7 +447,7 @@ export function TrainingPlanPage() {
             )}
           </section>
         ) : (
-          <section className="space-y-md">
+          <section className="training-side-panel-enter space-y-md">
             <h2 className="flex items-center gap-xs font-label-md text-label-md font-bold text-secondary">
               <SymbolIcon className="text-[18px]">calendar_today</SymbolIcon>
               当天计划 ({formatDayLabel(selectedDateKey)})
@@ -460,10 +463,10 @@ export function TrainingPlanPage() {
                 </span>
                 <span className="min-w-0">
                   <span className="block font-label-md text-label-md font-bold text-ink">
-                    从已保存计划添加
+                    从已保存编排添加
                   </span>
                   <span className="block font-label-sm text-label-sm text-muted">
-                    {filteredWorkouts.length} 个可用计划
+                    {filteredWorkouts.length} 个可用编排
                   </span>
                 </span>
               </span>
@@ -506,53 +509,57 @@ export function TrainingPlanPage() {
                   onClick={() => setSidePanelMode("saved-plans")}
                   type="button"
                 >
-                  从已保存计划添加
+                  从已保存编排添加
                 </button>
               </div>
             )}
           </section>
         )}
 
-        <section className="space-y-sm">
-          <h2 className="font-label-md text-label-md font-bold text-secondary">本月统计</h2>
-          <div className="grid grid-cols-2 gap-sm">
-            <StatsTile label="完成训练/次" value={completedCount} />
-            <StatsTile label="总时长/min" value={completedMinutes} />
-            <StatsTile label="消耗/kcal" value={completedCalories} />
-            <StatsTile label="待完成/次" value={plannedCount} />
-          </div>
-        </section>
+        {sidePanelMode === "day" ? (
+          <>
+            <section className="space-y-sm">
+              <h2 className="font-label-md text-label-md font-bold text-secondary">本月统计</h2>
+              <div className="grid grid-cols-2 gap-sm">
+                <StatsTile label="完成训练/次" value={completedCount} />
+                <StatsTile label="总时长/min" value={completedMinutes} />
+                <StatsTile label="消耗/kcal" value={completedCalories} />
+                <StatsTile label="待完成/次" value={plannedCount} />
+              </div>
+            </section>
 
-        <section className="space-y-sm">
-          <div className="flex items-center justify-between">
-            <h2 className="font-label-md text-label-md font-bold text-secondary">最近动态</h2>
-            <span className="text-[12px] text-primary">详情</span>
-          </div>
-          <div className="space-y-xs">
-            {schedule
-              .filter((plan) => plan.status === "completed" || plan.status === "missed")
-              .slice(-4)
-              .reverse()
-              .map((plan) => (
-                <ActivityItem key={plan.id} plan={plan} />
-              ))}
-          </div>
-        </section>
+            <section className="space-y-sm">
+              <div className="flex items-center justify-between">
+                <h2 className="font-label-md text-label-md font-bold text-secondary">最近动态</h2>
+                <span className="text-[12px] text-primary">详情</span>
+              </div>
+              <div className="space-y-xs">
+                {schedule
+                  .filter((plan) => plan.status === "completed" || plan.status === "missed")
+                  .slice(-4)
+                  .reverse()
+                  .map((plan) => (
+                    <ActivityItem key={plan.id} plan={plan} />
+                  ))}
+              </div>
+            </section>
 
-        <section className="space-y-sm">
-          <h2 className="font-label-md text-label-md font-bold text-secondary">快速建议</h2>
-          <button
-            className="group flex w-full items-center justify-between rounded-xl border border-line bg-white p-md text-left shadow-card transition-colors hover:border-primary"
-            onClick={() => void addRestDay()}
-            type="button"
-          >
-            <span className="flex items-center gap-sm">
-              <SymbolIcon className="text-secondary group-hover:text-primary">self_improvement</SymbolIcon>
-              <span className="font-label-md text-label-md">设置为恢复休息日</span>
-            </span>
-            <SymbolIcon className="text-[18px] text-secondary">add</SymbolIcon>
-          </button>
-        </section>
+            <section className="space-y-sm">
+              <h2 className="font-label-md text-label-md font-bold text-secondary">快速建议</h2>
+              <button
+                className="group flex w-full items-center justify-between rounded-xl border border-line bg-white p-md text-left shadow-card transition-colors hover:border-primary"
+                onClick={() => void addRestDay()}
+                type="button"
+              >
+                <span className="flex items-center gap-sm">
+                  <SymbolIcon className="text-secondary group-hover:text-primary">self_improvement</SymbolIcon>
+                  <span className="font-label-md text-label-md">设置为恢复休息日</span>
+                </span>
+                <SymbolIcon className="text-[18px] text-secondary">add</SymbolIcon>
+              </button>
+            </section>
+          </>
+        ) : null}
       </aside>
 
       {toast ? (
@@ -564,7 +571,7 @@ export function TrainingPlanPage() {
   );
 }
 
-// SavedPlanListItem 承载右侧栏中的排期素材，保持列表扫描和添加动作足够轻量。
+// SavedPlanListItem 承载右侧栏中的排期素材，展示编排关键信息并保持添加动作明确。
 function SavedPlanListItem({
   onSchedule,
   workout,
@@ -582,33 +589,48 @@ function SavedPlanListItem({
     minimumCalories: 80,
     ...timingConfig,
   });
-  const icon = workout.title.includes("燃脂")
-    ? "local_fire_department"
-    : workout.title.includes("核心")
-      ? "accessibility_new"
-      : workout.title.includes("居家")
-        ? "home"
-        : "fitness_center";
+  const metrics = [
+    `${normalizedWorkout.items.length}动作`,
+    `${timingConfig.trainingLoopRounds}轮`,
+    `${minutes}min`,
+  ];
 
   return (
-    <div className="group flex w-full items-center gap-sm border-b border-line/80 bg-white p-sm last:border-b-0 hover:bg-primary-soft/70">
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary">
-        <SymbolIcon className="text-[20px]">{icon}</SymbolIcon>
+    <div className="training-saved-plan-item-enter group rounded-xl border border-line bg-white p-sm shadow-sm transition-all hover:-translate-y-[1px] hover:border-primary/30 hover:shadow-card">
+      <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-sm">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary">
+          <SymbolIcon className="text-[21px]">assignment</SymbolIcon>
+        </div>
+        <div className="min-w-0 space-y-xs">
+          <h3
+            className="training-saved-plan-title font-label-md text-label-md font-bold leading-snug text-ink"
+            title={workout.title}
+          >
+            {workout.title}
+          </h3>
+          <p className="font-label-sm text-label-sm text-muted">预计消耗 {calories} kcal</p>
+          <div className="flex items-center justify-between gap-sm">
+            <div className="flex min-w-0 flex-wrap gap-xs">
+              {metrics.map((metric) => (
+                <span
+                  className="rounded-lg bg-surface-container-low px-xs py-[2px] text-[10px] font-bold leading-none text-secondary"
+                  key={metric}
+                >
+                  {metric}
+                </span>
+              ))}
+            </div>
+            <button
+              aria-label={`安排 ${workout.title}`}
+              className="shrink-0 rounded-lg bg-primary px-sm py-xs font-label-sm text-label-sm font-bold text-white shadow-sm transition-colors hover:bg-primary-deep"
+              onClick={onSchedule}
+              type="button"
+            >
+              安排
+            </button>
+          </div>
+        </div>
       </div>
-      <div className="min-w-0 flex-1">
-        <h3 className="truncate font-label-md text-label-md font-bold">{workout.title}</h3>
-        <p className="text-[10px] text-secondary">
-          {normalizedWorkout.items.length}动作 · 训练{timingConfig.trainingLoopRounds}轮 · {calories}kcal · {minutes}min
-        </p>
-      </div>
-      <button
-        aria-label={`安排 ${workout.title}`}
-        className="rounded-full p-xs text-primary transition-colors hover:bg-primary/10"
-        onClick={onSchedule}
-        type="button"
-      >
-        <SymbolIcon className="text-[18px]">add</SymbolIcon>
-      </button>
     </div>
   );
 }

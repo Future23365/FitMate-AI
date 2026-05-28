@@ -57,6 +57,7 @@ type TemplateExerciseConfig = {
 };
 
 type LibrarySuitabilityFilter = "all" | ExerciseSuitability;
+type RightPanelView = "library" | "saved";
 
 const sectionConfigs = workoutSectionConfigs;
 const librarySuitabilityOptions: Array<{
@@ -269,7 +270,7 @@ export function ActionComposerPage() {
   const [selectedLibraryExerciseId, setSelectedLibraryExerciseId] = useState("");
   const [isLoadingLibrary, setIsLoadingLibrary] = useState(true);
   const [saveStatus, setSaveStatus] = useState("");
-  const [isSavedMenuOpen, setIsSavedMenuOpen] = useState(false);
+  const [rightPanelView, setRightPanelView] = useState<RightPanelView>("library");
   const [draggingItemId, setDraggingItemId] = useState("");
   const [dragOverItemId, setDragOverItemId] = useState("");
   const [selectedSection, setSelectedSection] = useState<WorkoutSection>("training");
@@ -280,7 +281,6 @@ export function ActionComposerPage() {
   const [activePreviewExercise, setActivePreviewExercise] = useState<Exercise | null>(null);
   const [activePreviewSource, setActivePreviewSource] = useState<"library" | "plan" | null>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
-  const savedMenuRef = useRef<HTMLDivElement>(null);
   const hasHandledInitialWorkoutLoadRef = useRef(false);
 
   // 标题更新集中在这里，避免展示态标题和编辑态草稿在切换编排时出现不同步。
@@ -505,34 +505,6 @@ export function ActionComposerPage() {
     titleInputRef.current?.focus();
     titleInputRef.current?.select();
   }, [isEditingTitle]);
-
-  useEffect(() => {
-    if (!isSavedMenuOpen) {
-      return;
-    }
-
-    function closeSavedMenuOnOutside(event: MouseEvent) {
-      if (savedMenuRef.current?.contains(event.target as Node)) {
-        return;
-      }
-
-      setIsSavedMenuOpen(false);
-    }
-
-    function closeSavedMenuOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setIsSavedMenuOpen(false);
-      }
-    }
-
-    document.addEventListener("mousedown", closeSavedMenuOnOutside);
-    document.addEventListener("keydown", closeSavedMenuOnEscape);
-
-    return () => {
-      document.removeEventListener("mousedown", closeSavedMenuOnOutside);
-      document.removeEventListener("keydown", closeSavedMenuOnEscape);
-    };
-  }, [isSavedMenuOpen]);
 
   const selectedLibraryExercise =
     libraryItems.find((exercise) => exercise.id === selectedLibraryExerciseId) ?? libraryItems[0];
@@ -891,76 +863,6 @@ export function ActionComposerPage() {
                   </div>
                 )}
               </div>
-              <div className="relative shrink-0" ref={savedMenuRef}>
-                <button
-                  aria-expanded={isSavedMenuOpen}
-                  className="flex h-10 items-center gap-xs rounded-xl border border-outline bg-white px-md font-label-md text-label-md transition-colors hover:bg-surface-container-low"
-                  onClick={() => setIsSavedMenuOpen((current) => !current)}
-                  type="button"
-                >
-                  <SymbolIcon className="text-[18px] text-primary">bookmark</SymbolIcon>
-                  已保存
-                  <span className="rounded bg-surface-container px-xs py-[2px] text-[10px] text-outline">
-                    {workoutRoutines.length}
-                  </span>
-                  <SymbolIcon className="text-[18px] text-outline">
-                    {isSavedMenuOpen ? "expand_less" : "expand_more"}
-                  </SymbolIcon>
-                </button>
-                {isSavedMenuOpen ? (
-                  <div className="absolute right-0 top-full z-50 mt-xs w-[calc(100vw-2rem)] max-w-[420px] rounded-[20px] border border-line bg-white p-sm shadow-lift">
-                    <div className="mb-sm flex items-center justify-between gap-md">
-                      <h2 className="flex items-center gap-xs font-label-md text-label-md font-bold">
-                        <SymbolIcon className="text-[18px] text-primary">bookmark</SymbolIcon>
-                        已保存编排
-                      </h2>
-                      <span className="text-[11px] text-outline">
-                        {workoutRoutines.length ? `${workoutRoutines.length} 个` : "暂无保存"}
-                      </span>
-                    </div>
-                    {workoutRoutines.length ? (
-                      <div className="custom-scrollbar max-h-[360px] space-y-xs overflow-y-auto pr-xs">
-                        {workoutRoutines.map((workout) => (
-                          <RoutineCompositionCard
-                            isActive={workout.id === activeWorkoutRoutineId}
-                            key={workout.id}
-                            onDelete={() => {
-                              void removeWorkoutRoutine(workout);
-                              setIsSavedMenuOpen(false);
-                            }}
-                            onDuplicate={() => {
-                              void duplicateWorkoutRoutine(workout);
-                              setIsSavedMenuOpen(false);
-                            }}
-                            onOpen={() => {
-                              openWorkoutRoutine(workout);
-                              setIsSavedMenuOpen(false);
-                            }}
-                            workout={workout}
-                          />
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="rounded-xl border border-dashed border-line bg-panel-soft p-md">
-                        <p className="font-label-md text-label-md text-muted">
-                          保存当前编排后，会在这里快速切换、复制或删除。
-                        </p>
-                        <button
-                          className="mt-sm flex w-full items-center justify-center gap-xs rounded-xl bg-primary px-md py-sm font-label-md text-label-md font-bold text-white transition-colors hover:bg-primary-deep"
-                          onClick={() => {
-                            void saveComposition();
-                            setIsSavedMenuOpen(false);
-                          }}
-                          type="button"
-                        >
-                          <SymbolIcon className="text-[18px]">save</SymbolIcon>
-                          保存当前编排
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ) : null}
-              </div>
             </div>
             <div className="flex flex-col gap-sm pt-xs lg:flex-row lg:items-center lg:justify-between">
               <div className="flex min-w-0 flex-wrap items-center gap-xs">
@@ -1074,163 +976,229 @@ export function ActionComposerPage() {
       </main>
 
       <aside className="app-shell-glass fixed right-0 top-0 z-30 hidden h-screen w-[300px] flex-col gap-md overflow-y-auto border-l border-line/70 p-md shadow-nav xl:flex">
-        <section className="flex min-h-[420px] flex-col">
-          <div className="mb-md flex items-center justify-between">
-            <h2 className="flex items-center gap-xs font-label-md text-label-md font-bold">
-              <SymbolIcon className="text-xl text-primary">folder_open</SymbolIcon>
-              动作库
-            </h2>
-            <span className="rounded bg-surface-container px-xs py-[2px] text-[10px] text-outline">
-              {libraryTotal} 条
-            </span>
-          </div>
-          <div className="relative mb-sm">
-            <SymbolIcon className="absolute left-sm top-1/2 -translate-y-1/2 text-lg text-outline">
-              search
-            </SymbolIcon>
-            <input
-              className="w-full rounded-xl border border-line bg-white py-sm pl-10 pr-md font-label-md text-label-md outline-none focus:border-primary focus:ring-4 focus:ring-primary/10"
-              onChange={(event) => setLibraryQuery(event.target.value)}
-              placeholder="搜索训练动作..."
-              value={libraryQuery}
-            />
-          </div>
-          <div className="relative mb-sm overflow-hidden rounded-xl border border-line bg-panel-soft">
-            <div className="pointer-events-none absolute inset-0 bg-panel-soft" />
-            <div className="scrollbar-none relative flex gap-[3px] overflow-x-auto overscroll-x-contain p-[3px]">
-              {librarySuitabilityOptions.map((option) => (
-                <button
-                  aria-label={option.label}
-                  className={`flex h-8 shrink-0 items-center justify-center gap-[3px] rounded-lg border px-sm text-[11px] font-semibold transition-colors ${
-                    librarySuitabilityFilter === option.id
-                      ? "border-primary/25 bg-white text-primary shadow-sm"
-                      : "border-transparent text-secondary hover:bg-white/70 hover:text-primary"
-                  }`}
-                  key={option.id}
-                  onClick={() => setLibrarySuitabilityFilter(option.id)}
-                  type="button"
-                >
-                  <SymbolIcon className="text-[15px]">{option.icon}</SymbolIcon>
-                  <span>{option.label}</span>
-                </button>
-              ))}
+        <section className="flex min-h-[420px] flex-1 flex-col">
+          <div className="mb-md rounded-xl border border-line bg-panel-soft p-[3px]">
+            <div className="grid grid-cols-2 gap-[3px]">
+              <button
+                aria-pressed={rightPanelView === "library"}
+                className={`flex h-9 min-w-0 items-center justify-center gap-[4px] rounded-lg px-[4px] text-[12px] font-bold transition-colors ${
+                  rightPanelView === "library"
+                    ? "bg-white text-primary shadow-sm"
+                    : "text-secondary hover:bg-white/70 hover:text-primary"
+                }`}
+                onClick={() => setRightPanelView("library")}
+                type="button"
+              >
+                <SymbolIcon className="text-[18px]">folder_open</SymbolIcon>
+                动作库
+                <span className="rounded bg-surface-container px-xs py-[1px] text-[10px] text-outline">
+                  {libraryTotal}
+                </span>
+              </button>
+              <button
+                aria-pressed={rightPanelView === "saved"}
+                className={`flex h-9 min-w-0 items-center justify-center gap-[4px] rounded-lg px-[4px] text-[12px] font-bold transition-colors ${
+                  rightPanelView === "saved"
+                    ? "bg-white text-primary shadow-sm"
+                    : "text-secondary hover:bg-white/70 hover:text-primary"
+                }`}
+                onClick={() => setRightPanelView("saved")}
+                type="button"
+              >
+                <SymbolIcon className="text-[18px]">bookmark</SymbolIcon>
+                <span className="whitespace-nowrap">已保存编排</span>
+                <span className="rounded bg-surface-container px-xs py-[1px] text-[10px] text-outline">
+                  {workoutRoutines.length}
+                </span>
+              </button>
             </div>
           </div>
-          <div className="mb-sm grid grid-cols-2 gap-xs">
-            <LibraryFilterSelect
-              label="分类"
-              onChange={setLibraryCategory}
-              options={libraryFacets.categories}
-              value={libraryCategory}
-            />
-            <LibraryFilterSelect
-              label="肌群"
-              onChange={setLibraryMuscle}
-              options={libraryFacets.muscles.slice(0, 16)}
-              value={libraryMuscle}
-            />
-            <LibraryFilterSelect
-              label="器械"
-              onChange={setLibraryEquipment}
-              options={libraryFacets.equipment.slice(0, 16)}
-              value={libraryEquipment}
-            />
-            <LibraryFilterSelect
-              label="难度"
-              onChange={setLibraryLevel}
-              options={libraryFacets.levels}
-              value={libraryLevel}
-            />
-            <LibraryFilterSelect
-              label="居家条件"
-              onChange={setLibraryHomeRequirement}
-              options={libraryFacets.homeRequirements}
-              value={libraryHomeRequirement}
-            />
-            <button
-              className="rounded-lg border border-outline-variant bg-white px-sm py-xs text-[11px] font-medium text-on-surface-variant transition-colors hover:bg-surface-container-low disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={!hasLibraryFilters}
-              onClick={resetLibraryFilters}
-              type="button"
-            >
-              清空筛选
-            </button>
-          </div>
-          <div className="custom-scrollbar flex-1 space-y-sm overflow-y-auto pr-xs">
-            {isLoadingLibrary ? (
-              <p className="rounded-xl bg-surface-container-low p-md text-center font-label-md text-label-md text-on-surface-variant">
-                正在加载动作库...
-              </p>
-            ) : !libraryItems.length ? (
-              <div className="rounded-xl border border-dashed border-outline-variant bg-surface-container-lowest p-md text-center">
-                <SymbolIcon className="mb-xs text-3xl text-outline">search_off</SymbolIcon>
-                <p className="font-label-md text-label-md">没有找到匹配动作</p>
+
+          {rightPanelView === "library" ? (
+            <>
+              <div className="relative mb-sm">
+                <SymbolIcon className="absolute left-sm top-1/2 -translate-y-1/2 text-lg text-outline">
+                  search
+                </SymbolIcon>
+                <input
+                  className="w-full rounded-xl border border-line bg-white py-sm pl-10 pr-md font-label-md text-label-md outline-none focus:border-primary focus:ring-4 focus:ring-primary/10"
+                  onChange={(event) => setLibraryQuery(event.target.value)}
+                  placeholder="搜索训练动作..."
+                  value={libraryQuery}
+                />
+              </div>
+              <div className="relative mb-sm overflow-hidden rounded-xl border border-line bg-panel-soft">
+                <div className="pointer-events-none absolute inset-0 bg-panel-soft" />
+                <div className="scrollbar-none relative flex gap-[3px] overflow-x-auto overscroll-x-contain p-[3px]">
+                  {librarySuitabilityOptions.map((option) => (
+                    <button
+                      aria-label={option.label}
+                      className={`flex h-8 shrink-0 items-center justify-center gap-[3px] rounded-lg border px-sm text-[11px] font-semibold transition-colors ${
+                        librarySuitabilityFilter === option.id
+                          ? "border-primary/25 bg-white text-primary shadow-sm"
+                          : "border-transparent text-secondary hover:bg-white/70 hover:text-primary"
+                      }`}
+                      key={option.id}
+                      onClick={() => setLibrarySuitabilityFilter(option.id)}
+                      type="button"
+                    >
+                      <SymbolIcon className="text-[15px]">{option.icon}</SymbolIcon>
+                      <span>{option.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="mb-sm grid grid-cols-2 gap-xs">
+                <LibraryFilterSelect
+                  label="分类"
+                  onChange={setLibraryCategory}
+                  options={libraryFacets.categories}
+                  value={libraryCategory}
+                />
+                <LibraryFilterSelect
+                  label="肌群"
+                  onChange={setLibraryMuscle}
+                  options={libraryFacets.muscles.slice(0, 16)}
+                  value={libraryMuscle}
+                />
+                <LibraryFilterSelect
+                  label="器械"
+                  onChange={setLibraryEquipment}
+                  options={libraryFacets.equipment.slice(0, 16)}
+                  value={libraryEquipment}
+                />
+                <LibraryFilterSelect
+                  label="难度"
+                  onChange={setLibraryLevel}
+                  options={libraryFacets.levels}
+                  value={libraryLevel}
+                />
+                <LibraryFilterSelect
+                  label="居家条件"
+                  onChange={setLibraryHomeRequirement}
+                  options={libraryFacets.homeRequirements}
+                  value={libraryHomeRequirement}
+                />
                 <button
-                  className="mt-sm rounded-full bg-primary px-md py-xs text-[11px] font-bold text-white"
+                  className="rounded-lg border border-outline-variant bg-white px-sm py-xs text-[11px] font-medium text-on-surface-variant transition-colors hover:bg-surface-container-low disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={!hasLibraryFilters}
                   onClick={resetLibraryFilters}
                   type="button"
                 >
-                  重置筛选
+                  清空筛选
                 </button>
               </div>
-            ) : (
-              libraryItems.map((exercise) => {
-                const isSelected = exercise.id === selectedLibraryExercise?.id;
+              <div className="custom-scrollbar flex-1 space-y-sm overflow-y-auto pr-xs">
+                {isLoadingLibrary ? (
+                  <p className="rounded-xl bg-surface-container-low p-md text-center font-label-md text-label-md text-on-surface-variant">
+                    正在加载动作库...
+                  </p>
+                ) : !libraryItems.length ? (
+                  <div className="rounded-xl border border-dashed border-outline-variant bg-surface-container-lowest p-md text-center">
+                    <SymbolIcon className="mb-xs text-3xl text-outline">search_off</SymbolIcon>
+                    <p className="font-label-md text-label-md">没有找到匹配动作</p>
+                    <button
+                      className="mt-sm rounded-full bg-primary px-md py-xs text-[11px] font-bold text-white"
+                      onClick={resetLibraryFilters}
+                      type="button"
+                    >
+                      重置筛选
+                    </button>
+                  </div>
+                ) : (
+                  libraryItems.map((exercise) => {
+                    const isSelected = exercise.id === selectedLibraryExercise?.id;
 
-                return (
-                <div
-                  className={`flex w-full items-center gap-sm rounded-xl border p-sm text-left transition-all ${
-                    isSelected
-                      ? "border-primary-container bg-primary/5 ring-2 ring-primary-container/10"
-                      : "border-outline-variant bg-surface-container-lowest hover:border-primary"
-                  }`}
-                  key={exercise.id}
-                  onClick={() => setSelectedLibraryExerciseId(exercise.id)}
-                >
-                  <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-surface-container-low">
-                    <Image
-                      alt=""
-                      className="object-cover"
-                      fill
-                      sizes="40px"
-                      src={exercise.imageUrls[0] || placeholderWorkoutImage}
-                    />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-label-md text-label-md font-bold">{exercise.nameZh}</p>
-                    <p className="truncate text-[10px] text-outline">
-                      {(exercise.primaryMusclesZh[0] || exercise.categoryZh || "综合")} · {exercise.equipmentZh || "未标注"}
-                    </p>
-                  </div>
+                    return (
+                      <div
+                        className={`flex w-full items-center gap-sm rounded-xl border p-sm text-left transition-all ${
+                          isSelected
+                            ? "border-primary-container bg-primary/5 ring-2 ring-primary-container/10"
+                            : "border-outline-variant bg-surface-container-lowest hover:border-primary"
+                        }`}
+                        key={exercise.id}
+                        onClick={() => setSelectedLibraryExerciseId(exercise.id)}
+                      >
+                        <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-surface-container-low">
+                          <Image
+                            alt=""
+                            className="object-cover"
+                            fill
+                            sizes="40px"
+                            src={exercise.imageUrls[0] || placeholderWorkoutImage}
+                          />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-label-md text-label-md font-bold">{exercise.nameZh}</p>
+                          <p className="truncate text-[10px] text-outline">
+                            {(exercise.primaryMusclesZh[0] || exercise.categoryZh || "综合")} · {exercise.equipmentZh || "未标注"}
+                          </p>
+                        </div>
+                        <button
+                          aria-label={`查看动作详情：${exercise.nameZh}`}
+                          className="rounded-full p-xs text-outline transition-colors hover:bg-primary/10 hover:text-primary"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openLibraryPreview(exercise);
+                          }}
+                          type="button"
+                        >
+                          <SymbolIcon>info</SymbolIcon>
+                        </button>
+                        <button
+                          aria-label={`加入当前计划：${exercise.nameZh}`}
+                          className="rounded-full p-xs text-primary transition-colors hover:bg-primary/10"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            addExercise(exercise);
+                          }}
+                          type="button"
+                        >
+                          <SymbolIcon>add_circle</SymbolIcon>
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="custom-scrollbar flex-1 space-y-sm overflow-y-auto pr-xs">
+              {workoutRoutines.length ? (
+                workoutRoutines.map((workout) => (
+                  <RoutineCompositionCard
+                    isActive={workout.id === activeWorkoutRoutineId}
+                    key={workout.id}
+                    onDelete={() => {
+                      void removeWorkoutRoutine(workout);
+                    }}
+                    onDuplicate={() => {
+                      void duplicateWorkoutRoutine(workout);
+                    }}
+                    onOpen={() => openWorkoutRoutine(workout)}
+                    workout={workout}
+                  />
+                ))
+              ) : (
+                <div className="rounded-xl border border-dashed border-line bg-panel-soft p-md">
+                  <p className="font-label-md text-label-md text-muted">
+                    保存当前编排后，会在这里快速切换、复制或删除。
+                  </p>
                   <button
-                    aria-label={`查看动作详情：${exercise.nameZh}`}
-                    className="rounded-full p-xs text-outline transition-colors hover:bg-primary/10 hover:text-primary"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      openLibraryPreview(exercise);
+                    className="mt-sm flex w-full items-center justify-center gap-xs rounded-xl bg-primary px-md py-sm font-label-md text-label-md font-bold text-white transition-colors hover:bg-primary-deep"
+                    onClick={() => {
+                      void saveComposition();
                     }}
                     type="button"
                   >
-                    <SymbolIcon>info</SymbolIcon>
-                  </button>
-                  <button
-                    aria-label={`加入当前计划：${exercise.nameZh}`}
-                    className="rounded-full p-xs text-primary transition-colors hover:bg-primary/10"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      addExercise(exercise);
-                    }}
-                    type="button"
-                  >
-                    <SymbolIcon>add_circle</SymbolIcon>
+                    <SymbolIcon className="text-[18px]">save</SymbolIcon>
+                    保存当前编排
                   </button>
                 </div>
-                );
-              })
-            )}
-          </div>
+              )}
+            </div>
+          )}
         </section>
-
       </aside>
       <ExercisePreviewSheet
         exercise={activePreviewExercise}
@@ -1398,25 +1366,24 @@ function RoutineCompositionCard({
     warmupToTrainingRestSeconds,
     trainingToStretchRestSeconds,
   });
-  const icon = workout.title.includes("燃脂")
-    ? "local_fire_department"
-    : workout.title.includes("核心")
-      ? "accessibility_new"
-      : workout.title.includes("居家")
-        ? "home"
-        : "fitness_center";
-
   return (
     <div
-      className={`group flex w-full items-center gap-sm rounded-xl border p-sm text-left transition-all ${
+      className={`group relative flex w-full items-center gap-sm overflow-hidden rounded-xl border p-sm text-left transition-all ${
         isActive
           ? "border-primary bg-primary/5 shadow-card ring-2 ring-primary/10"
           : "border-line bg-white hover:border-primary/40 hover:ring-1 hover:ring-primary/10"
       }`}
     >
+      <span
+        className={`absolute left-0 top-sm h-[calc(100%-1rem)] w-[3px] rounded-r-full transition-colors ${
+          isActive ? "bg-primary" : "bg-transparent group-hover:bg-primary/25"
+        }`}
+        aria-hidden="true"
+      />
       <button
-        className="flex min-w-0 flex-1 items-center gap-sm text-left"
+        className="flex min-w-0 flex-1 items-center gap-sm pl-[2px] text-left transition-[padding] md:group-hover:pr-16"
         onClick={onOpen}
+        title={workout.title}
         type="button"
       >
         <span
@@ -1424,36 +1391,47 @@ function RoutineCompositionCard({
             isActive ? "bg-primary text-white" : "bg-primary-soft text-primary"
           }`}
         >
-          <SymbolIcon className="text-[20px]">{icon}</SymbolIcon>
+          <SymbolIcon className="text-[20px]">fitness_center</SymbolIcon>
         </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate font-label-md text-label-md font-bold">
+        <span className="min-w-0 flex-1 space-y-[3px]">
+          <span className="block max-w-full truncate font-label-md text-label-md font-bold leading-tight">
             {workout.title}
           </span>
-          <span className="block truncate text-[10px] text-secondary">
-            {workout.items.length} 动作 · 训练{loopRounds}轮 · {minutes}min · {calories}kcal
+          <span className="flex max-w-full items-center gap-1 overflow-hidden">
+            <span className="shrink-0 rounded bg-surface-container px-[5px] py-[1px] text-[10px] font-semibold text-secondary">
+              {workout.items.length}动作
+            </span>
+            <span className="shrink-0 rounded bg-surface-container px-[5px] py-[1px] text-[10px] font-semibold text-secondary">
+              {loopRounds}轮
+            </span>
+            <span className="shrink-0 rounded bg-primary-soft px-[5px] py-[1px] text-[10px] font-semibold text-primary">
+              {minutes}min
+            </span>
+            <span className="shrink-0 rounded bg-surface-container px-[5px] py-[1px] text-[10px] font-semibold text-secondary">
+              {calories}kcal
+            </span>
           </span>
           <span className="block truncate text-[10px] text-outline">
             {workout.updatedAt}
           </span>
         </span>
       </button>
-      <div className="flex shrink-0 items-center gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
+      <div className="absolute right-sm top-1/2 flex -translate-y-1/2 shrink-0 items-center gap-1 rounded-full border border-line bg-white/95 p-[2px] opacity-100 shadow-sm transition-opacity md:pointer-events-none md:opacity-0 md:group-hover:pointer-events-auto md:group-hover:opacity-100">
         <button
           aria-label={`复制 ${workout.title}`}
-          className="rounded-full p-xs text-outline transition-colors hover:bg-primary/10 hover:text-primary"
+          className="grid h-7 w-7 place-items-center rounded-full text-outline transition-colors hover:bg-primary/10 hover:text-primary"
           onClick={onDuplicate}
           type="button"
         >
-          <SymbolIcon className="text-[18px]">content_copy</SymbolIcon>
+          <SymbolIcon className="text-[18px] leading-none">content_copy</SymbolIcon>
         </button>
         <button
           aria-label={`删除 ${workout.title}`}
-          className="rounded-full p-xs text-outline transition-colors hover:bg-error/10 hover:text-error"
+          className="grid h-7 w-7 place-items-center rounded-full text-outline transition-colors hover:bg-error/10 hover:text-error"
           onClick={onDelete}
           type="button"
         >
-          <SymbolIcon className="text-[18px]">delete</SymbolIcon>
+          <SymbolIcon className="text-[18px] leading-none">delete</SymbolIcon>
         </button>
       </div>
     </div>

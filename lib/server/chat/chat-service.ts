@@ -797,13 +797,15 @@ async function requestDeepSeekJson(
       };
     }
 
-    const body = (await response.json()) as DeepSeekChatResponse;
+    const rawResponseText = await response.text();
+    const body = JSON.parse(rawResponseText) as DeepSeekChatResponse;
     const content = body.choices?.[0]?.message?.content?.trim() ?? "";
     trace?.addStep({
       name: "第一次大模型回复：意图判断大模型回复",
       type: "model_response",
       output: {
         content,
+        rawResponse: rawResponseText,
       },
       metadata: {
         status: response.status,
