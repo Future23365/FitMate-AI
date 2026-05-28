@@ -4,11 +4,21 @@ import type { Exercise } from "@/lib/shared/exercises/types";
 import {
   workoutPlanDraftSchema,
   workoutPlanIntentSchema,
+  workoutRoutineDraftSchema,
+  type WorkoutRoutineDraft,
   type WorkoutDayDraft,
   type WorkoutPlanDraft,
   type WorkoutPlanIntent,
 } from "@/lib/shared/workout-plans/draft-schema";
-import { validateWorkoutPlanDraftExerciseIds } from "./exercise-candidate-service";
+import {
+  defaultTrainingLoopRestSeconds,
+  estimateWorkoutMinutes,
+  type WorkoutItem,
+} from "@/lib/shared/workouts/composition";
+import {
+  validateWorkoutPlanDraftExerciseIds,
+  validateWorkoutRoutineDraftExerciseIds,
+} from "./exercise-candidate-service";
 
 export type WorkoutPlanValidationIssueCode =
   | "invalid_exercise_id"
@@ -21,6 +31,7 @@ export type WorkoutPlanValidationIssueCode =
   | "beginner_volume_high"
   | "rest_too_short"
   | "missing_safety_notes"
+  | "missing_routine_section"
   | "high_risk_exercise";
 
 export type WorkoutPlanValidationIssue = {
@@ -218,6 +229,172 @@ export function validateWorkoutPlanDraft(
     dayEstimates,
     maxEstimatedMinutes,
     totalWeeklySets,
+  };
+}
+
+// 校验聊天推送的三段式 routine 草稿，确保它能无损转换为 WorkoutRoutine。
+export function validateWorkoutRoutineDraft(
+  rawDraft: WorkoutRoutineDraft,
+  rawIntent: WorkoutPlanIntent,
+  options: WorkoutPlanValidationOptions,
+): WorkoutPlanValidationResult {
+  const draft = workoutRoutineDraftSchema.parse(rawDraft);
+  const intent = workoutPlanIntentSchema.parse(rawIntent);
+  const candidateIds = [...new Set(options.candidateExerciseIds)];
+  const exerciseIdValidation = validateWorkoutRoutineDraftExerciseIds(
+    draft,
+    candidateIds,
+    options.exercises,
+  );
+  const exerciseById = new Map(options.exercises.map((exercise) => [exercise.id, exercise]));
+  const errors: WorkoutPlanValidationIssue[] = [];
+  const warnings: WorkoutPlanValidationIssue[] = [];
+  const allItems = draft.sections.flatMap((section) => section.items);
+  const workoutItemsForEstimate: WorkoutItem[] = allItems.map((item) => ({
+    id: item.exerciseId,
+    exerciseId: item.exerciseId,
+    nameZh: item.exerciseId,
+    nameEn: item.exerciseId,
+    categoryZh: item.section,
+    equipmentZh: "",
+    musclesZh: [],
+    instructionsZh: [],
+    imageUrl: "",
+    mode: item.mode,
+    target: item.target,
+    sets: item.sets,
+    setRestSeconds: item.setRestSeconds,
+    transitionRestSeconds: item.transitionRestSeconds,
+    section: item.section,
+  }));
+  const estimatedMinutes = estimateWorkoutMinutes(workoutItemsForEstimate, {
+    trainingLoopRounds: draft.trainingLoopRounds,
+    trainingLoopRestSeconds: draft.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds,
+  });
+  const totalSets = allItems.reduce((total, item) => total + item.sets, 0);
+  const dayEstimates: WorkoutPlanDayEstimate[] = [
+    {
+      dayIndex: 1,
+      title: draft.title,
+      estimatedMinutes,
+      declaredEstimatedMinutes: draft.estimatedSessionMinutes,
+      totalSets,
+      exerciseCount: allItems.length,
+    },
+  ];
+
+  if (candidateIds.length === 0) {
+    errors.push({
+      code: "empty_candidate_set",
+      message: "候选动作集合为空，不能校验或生成单次训练编排。",
+    });
+  }
+
+  for (const section of ["warmup", "training", "stretch"] as const) {
+    if (!draft.sections.some((candidate) => candidate.section === section && candidate.items.length > 0)) {
+      errors.push({
+        code: "missing_routine_section",
+        message: `单次训练编排缺少 ${section} 阶段动作。`,
+      });
+    }
+  }
+
+  for (const exerciseId of exerciseIdValidation.invalidExerciseIds) {
+    errors.push({
+      code: "invalid_exercise_id",
+      exerciseId,
+      message: `动作 ID 不存在于动作库：${exerciseId}`,
+    });
+  }
+
+  for (const exerciseId of exerciseIdValidation.outsideCandidateExerciseIds) {
+    errors.push({
+      code: "outside_candidate_exercise_id",
+      exerciseId,
+      message: `动作 ID 不在本次候选集中：${exerciseId}`,
+    });
+  }
+
+  if (estimatedMinutes > intent.sessionMinutes + 15) {
+    errors.push({
+      code: "session_too_long",
+      dayIndex: 1,
+      message: `单次训练编排估算 ${estimatedMinutes} 分钟，明显超过用户每次 ${intent.sessionMinutes} 分钟。`,
+    });
+  }
+
+  if (Math.abs(estimatedMinutes - draft.estimatedSessionMinutes) > 10) {
+    warnings.push({
+      code: "day_estimate_mismatch",
+      dayIndex: 1,
+      message: `单次训练编排声明 ${draft.estimatedSessionMinutes} 分钟，实际估算约 ${estimatedMinutes} 分钟。`,
+    });
+  }
+
+  if (totalSets > 24) {
+    warnings.push({
+      code: "too_many_daily_sets",
+      dayIndex: 1,
+      message: `单次训练编排共 ${totalSets} 组，训练量偏高。`,
+    });
+  }
+
+  if (intent.experience === "beginner" && totalSets > 16) {
+    warnings.push({
+      code: "beginner_volume_high",
+      dayIndex: 1,
+      message: `单次训练编排对新手可能偏高，建议降低组数或动作数量。`,
+    });
+  }
+
+  for (const item of allItems) {
+    const exercise = exerciseById.get(item.exerciseId);
+
+    if (item.sets >= 5 && intent.experience === "beginner") {
+      warnings.push({
+        code: "beginner_volume_high",
+        dayIndex: 1,
+        exerciseId: item.exerciseId,
+        message: `动作 ${item.exerciseId} 为 ${item.sets} 组，对新手可能偏高。`,
+      });
+    }
+
+    if (item.setRestSeconds < 20 && item.sets >= 3) {
+      warnings.push({
+        code: "rest_too_short",
+        dayIndex: 1,
+        exerciseId: item.exerciseId,
+        message: `动作 ${item.exerciseId} 组间休息 ${item.setRestSeconds} 秒，可能不足。`,
+      });
+    }
+
+    if (exercise && hasRelevantRisk(exercise, intent)) {
+      warnings.push({
+        code: "high_risk_exercise",
+        dayIndex: 1,
+        exerciseId: item.exerciseId,
+        message: `动作「${exercise.nameZh}」带有风险标签，需确认符合用户限制。`,
+      });
+    }
+  }
+
+  if (intent.injuryLimitations.length > 0 && draft.safetyNotes.length === 0) {
+    warnings.push({
+      code: "missing_safety_notes",
+      message: "用户存在疼痛或伤病限制，但单次训练编排缺少整体安全提示。",
+    });
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+    exerciseIds: exerciseIdValidation.exerciseIds,
+    invalidExerciseIds: exerciseIdValidation.invalidExerciseIds,
+    outsideCandidateExerciseIds: exerciseIdValidation.outsideCandidateExerciseIds,
+    dayEstimates,
+    maxEstimatedMinutes: estimatedMinutes,
+    totalWeeklySets: totalSets,
   };
 }
 

@@ -15,6 +15,7 @@ import {
   extractWorkoutRoutineTrigger,
 } from "@/features/chat/lib/workout-plan-trigger";
 import { WorkoutPlanDraftCard } from "@/features/workouts/components/workout-plan-draft-card";
+import { WorkoutRoutineDraftCard } from "@/features/workouts/components/workout-routine-draft-card";
 
 const quickPrompts = ["帮我制定增肌计划", "推荐居家训练", "今天练什么", "制定减脂食谱"];
 
@@ -93,6 +94,7 @@ export function ChatPage() {
     bubblePlanExercises,
     bubblePlanErrors,
     bubblePlans,
+    bubbleRoutines,
     composeExerciseRecommendations,
     dislikeExerciseRecommendation,
     error,
@@ -248,7 +250,7 @@ export function ChatPage() {
                             {autoPlanGenerating === message.id && (
                               <div className="mt-md flex animate-pulse items-center gap-xs rounded-xl border border-primary/20 bg-primary/5 p-md font-label-sm text-label-sm text-primary shadow-sm">
                                 <SymbolIcon className="animate-spin text-[16px]">autorenew</SymbolIcon>
-                                <span>正在生成计划</span>
+                                <span>正在整理训练内容</span>
                               </div>
                             )}
 
@@ -277,6 +279,15 @@ export function ChatPage() {
                               <div className="mt-md">
                                 <WorkoutPlanDraftCard
                                   draft={bubblePlans[message.id]}
+                                  initialExercises={bubblePlanExercises[message.id]}
+                                />
+                              </div>
+                            )}
+
+                            {bubbleRoutines[message.id] && (
+                              <div className="mt-md">
+                                <WorkoutRoutineDraftCard
+                                  draft={bubbleRoutines[message.id]}
                                   initialExercises={bubblePlanExercises[message.id]}
                                 />
                               </div>

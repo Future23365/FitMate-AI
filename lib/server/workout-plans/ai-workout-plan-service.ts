@@ -16,8 +16,10 @@ import { serverRequest } from "@/lib/server/http/server-request";
 import {
   workoutPlanDraftSchema,
   workoutPlanIntentSchema,
+  workoutRoutineDraftSchema,
   type WorkoutPlanDraft,
   type WorkoutPlanIntent,
+  type WorkoutRoutineDraft,
 } from "@/lib/shared/workout-plans/draft-schema";
 import {
   getCandidateExerciseIds,
@@ -26,6 +28,7 @@ import {
 } from "./exercise-candidate-service";
 import {
   validateWorkoutPlanDraft,
+  validateWorkoutRoutineDraft,
   type WorkoutPlanValidationResult,
 } from "./workout-plan-validation-service";
 
@@ -64,10 +67,20 @@ export type AiWorkoutPlanFailure = {
   validation?: WorkoutPlanValidationResult;
 };
 
-export type AiWorkoutPlanSuccess = {
+export type AiWorkoutPlanSuccess =
+  | {
   ok: true;
+  kind: "plan";
   intent: WorkoutPlanIntent;
   draft: WorkoutPlanDraft;
+  candidates: ExerciseCandidateResult;
+  validation: WorkoutPlanValidationResult;
+}
+  | {
+  ok: true;
+  kind: "routine";
+  intent: WorkoutPlanIntent;
+  draft: WorkoutRoutineDraft;
   candidates: ExerciseCandidateResult;
   validation: WorkoutPlanValidationResult;
 };
@@ -204,16 +217,18 @@ export async function generateAiWorkoutPlanDraft(
     return failure;
   }
 
-  const validation = validateWorkoutPlanDraft(
-    draftResult.draft,
-    intentResult.intent,
-    {
-      exercises,
-      candidateExerciseIds: getCandidateExerciseIds(candidates),
-    },
-  );
+  const validation =
+    intentResult.intent.intentType === "routine"
+      ? validateWorkoutRoutineDraft(draftResult.draft as WorkoutRoutineDraft, intentResult.intent, {
+          exercises,
+          candidateExerciseIds: getCandidateExerciseIds(candidates),
+        })
+      : validateWorkoutPlanDraft(draftResult.draft as WorkoutPlanDraft, intentResult.intent, {
+          exercises,
+          candidateExerciseIds: getCandidateExerciseIds(candidates),
+        });
   trace?.addStep({
-    name: "训练计划草稿校验",
+    name: intentResult.intent.intentType === "routine" ? "单次训练编排草稿校验" : "训练计划草稿校验",
     type: "validation",
     status: validation.valid ? "success" : "failed",
     input: {
@@ -228,7 +243,10 @@ export async function generateAiWorkoutPlanDraft(
     const failure = {
       ok: false,
       code: "plan_validation_failed",
-      message: "AI 生成的训练计划没有通过服务端校验。",
+      message:
+        intentResult.intent.intentType === "routine"
+          ? "AI 生成的单次训练编排没有通过服务端校验。"
+          : "AI 生成的训练计划没有通过服务端校验。",
       intent: intentResult.intent,
       candidates,
       validation,
@@ -238,17 +256,29 @@ export async function generateAiWorkoutPlanDraft(
     return failure;
   }
 
-  const success = {
-    ok: true,
-    intent: intentResult.intent,
-    draft: draftResult.draft,
-    candidates,
-    validation,
-  } satisfies AiWorkoutPlanSuccess;
+  const success =
+    intentResult.intent.intentType === "routine"
+      ? ({
+          ok: true,
+          kind: "routine",
+          intent: intentResult.intent,
+          draft: draftResult.draft as WorkoutRoutineDraft,
+          candidates,
+          validation,
+        } satisfies AiWorkoutPlanSuccess)
+      : ({
+          ok: true,
+          kind: "plan",
+          intent: intentResult.intent,
+          draft: draftResult.draft as WorkoutPlanDraft,
+          candidates,
+          validation,
+        } satisfies AiWorkoutPlanSuccess);
 
   console.info("[ai-workout-plan] completed", {
     title: success.draft.title,
-    weeklyFrequency: success.draft.weeklyFrequency,
+    kind: success.kind,
+    weeklyFrequency: success.intent.weeklyFrequency,
     candidateCount:
       success.candidates.primaryCandidates.length +
       success.candidates.supplementaryCandidates.length,
@@ -322,7 +352,7 @@ async function generateWorkoutPlanDraft(
   apiKey: string,
   trace?: AiTraceLogger,
 ): Promise<
-  | { ok: true; draft: WorkoutPlanDraft }
+  | { ok: true; draft: WorkoutPlanDraft | WorkoutRoutineDraft }
   | {
       ok: false;
       code: "ai_request_failed" | "invalid_json" | "invalid_ai_output";
@@ -391,11 +421,14 @@ async function generateWorkoutPlanDraft(
     return parsedJson;
   }
 
-  const parsedDraft = workoutPlanDraftSchema.safeParse(parsedJson.value);
+  const parsedDraft =
+    intent.intentType === "routine"
+      ? workoutRoutineDraftSchema.safeParse(parsedJson.value)
+      : workoutPlanDraftSchema.safeParse(parsedJson.value);
 
   if (!parsedDraft.success) {
     trace?.addStep({
-      name: "训练计划草稿结构校验失败",
+      name: intent.intentType === "routine" ? "单次训练编排结构校验失败" : "训练计划草稿结构校验失败",
       type: "validation",
       status: "failed",
       input: parsedJson.value,
@@ -405,7 +438,10 @@ async function generateWorkoutPlanDraft(
     return {
       ok: false,
       code: "invalid_ai_output",
-      message: "AI 生成的训练计划草稿未通过结构校验。",
+      message:
+        intent.intentType === "routine"
+          ? "AI 生成的单次训练编排未通过结构校验。"
+          : "AI 生成的训练计划草稿未通过结构校验。",
       detail: parsedDraft.error.flatten(),
     };
   }

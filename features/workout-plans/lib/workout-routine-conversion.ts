@@ -8,7 +8,12 @@ import {
   type WorkoutSection,
 } from "@/lib/shared/workouts/composition";
 
-import { workoutPlanDraftSchema, type WorkoutPlanDraft } from "@/lib/shared/workout-plans/draft-schema";
+import {
+  workoutPlanDraftSchema,
+  workoutRoutineDraftSchema,
+  type WorkoutPlanDraft,
+  type WorkoutRoutineDraft,
+} from "@/lib/shared/workout-plans/draft-schema";
 
 export type WorkoutRoutineMode = WorkoutMode;
 export type WorkoutRoutineSection = WorkoutSection;
@@ -20,6 +25,12 @@ export type WorkoutPlanDraftConversionOptions = {
   updatedAt?: Date;
   createId?: () => string;
   dayIndex?: number;
+};
+
+export type WorkoutRoutineDraftConversionOptions = {
+  id?: string;
+  updatedAt?: Date;
+  createId?: () => string;
 };
 
 // 将 AI 多日草稿中的某个训练日转换成独立 routine，不再创建计划外壳。
@@ -67,6 +78,58 @@ export function convertWorkoutPlanDraftToWorkoutRoutine(
         section: "training",
       };
     }),
+  };
+}
+
+// 将聊天推送的三段式 routine 草稿转换为持久化 routine，保留阶段和循环配置。
+export function convertWorkoutRoutineDraftToWorkoutRoutine(
+  draft: WorkoutRoutineDraft,
+  exercises: Exercise[],
+  options: WorkoutRoutineDraftConversionOptions = {},
+): WorkoutRoutine {
+  const parsedDraft = workoutRoutineDraftSchema.parse(draft);
+  const exerciseById = new Map(exercises.map((exercise) => [exercise.id, exercise]));
+  const createId = options.createId ?? createLocalId;
+  const orderedSections = (["warmup", "training", "stretch"] as const)
+    .map((section) => parsedDraft.sections.find((candidate) => candidate.section === section))
+    .filter((section): section is NonNullable<typeof section> => Boolean(section));
+
+  return {
+    id: options.id ?? createId(),
+    title: parsedDraft.title,
+    updatedAt: formatLocalDateTime(options.updatedAt ?? new Date()),
+    trainingLoopRounds: parsedDraft.trainingLoopRounds,
+    trainingLoopRestSeconds: parsedDraft.trainingLoopRestSeconds,
+    items: orderedSections.flatMap((section) =>
+      section.items.map((item) => {
+        const exercise = exerciseById.get(item.exerciseId);
+
+        if (!exercise) {
+          throw new Error(`Invalid exerciseId: ${item.exerciseId}`);
+        }
+
+        const imageUrls = exercise.imageUrls.length ? exercise.imageUrls : [placeholderWorkoutImage];
+
+        return {
+          id: createId(),
+          exerciseId: exercise.id,
+          nameZh: exercise.nameZh,
+          nameEn: exercise.nameEn,
+          categoryZh: exercise.categoryZh || "训练",
+          equipmentZh: exercise.equipmentZh || "未标注器械",
+          musclesZh: exercise.primaryMusclesZh.length ? exercise.primaryMusclesZh : ["综合"],
+          instructionsZh: exercise.instructionsZh,
+          imageUrl: imageUrls[0],
+          imageUrls,
+          mode: item.mode,
+          target: item.target,
+          sets: item.sets,
+          setRestSeconds: item.setRestSeconds,
+          transitionRestSeconds: item.transitionRestSeconds,
+          section: section.section,
+        } satisfies WorkoutItem;
+      }),
+    ),
   };
 }
 

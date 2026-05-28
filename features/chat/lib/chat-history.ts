@@ -4,7 +4,7 @@ import { clientRequest } from "@/lib/client/http/client-request";
 import type { ChatConversation, ChatMessage } from "@/features/chat/types";
 import type { FitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
-import type { WorkoutPlanDraft } from "@/lib/shared/workout-plans/draft-schema";
+import type { WorkoutPlanDraft, WorkoutRoutineDraft } from "@/lib/shared/workout-plans/draft-schema";
 
 type ChatHistoryResponse = {
   items: ChatConversation[];
@@ -54,6 +54,7 @@ export async function saveChatConversation(
   conversationId: string,
   messages: ChatMessage[],
   bubblePlans: Record<string, WorkoutPlanDraft>,
+  bubbleRoutines: Record<string, WorkoutRoutineDraft> = {},
   bubbleExerciseRecommendations: Record<string, ExerciseRecommendationCard> = {},
   conversationContext?: FitnessConversationContext,
 ) {
@@ -80,6 +81,12 @@ export async function saveChatConversation(
       plansToSave[messageId] = draft;
     }
   }
+  const routinesToSave: Record<string, WorkoutRoutineDraft> = {};
+  for (const [messageId, draft] of Object.entries(bubbleRoutines)) {
+    if (messageIds.has(messageId)) {
+      routinesToSave[messageId] = draft;
+    }
+  }
   const exerciseRecommendationsToSave: Record<string, ExerciseRecommendationCard> = {};
   for (const [messageId, card] of Object.entries(bubbleExerciseRecommendations)) {
     if (messageIds.has(messageId)) {
@@ -98,6 +105,7 @@ export async function saveChatConversation(
         updatedAt: new Date().toISOString(),
         messages: messagesToSave,
         plans: Object.keys(plansToSave).length > 0 ? plansToSave : undefined,
+        routines: Object.keys(routinesToSave).length > 0 ? routinesToSave : undefined,
         exerciseRecommendations:
           Object.keys(exerciseRecommendationsToSave).length > 0
             ? exerciseRecommendationsToSave

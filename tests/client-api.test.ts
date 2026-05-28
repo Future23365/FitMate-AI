@@ -24,6 +24,7 @@ import {
   createWorkoutSchedule,
   createWorkoutPlanDraft,
   createWorkoutPlanIntent,
+  createWorkoutRoutineDraft,
 } from "./fixtures/domain";
 
 describe("frontend API clients", () => {
@@ -38,6 +39,7 @@ describe("frontend API clients", () => {
       .mockResolvedValueOnce(
         Response.json({
           ok: true,
+          kind: "plan",
           draft: createWorkoutPlanDraft(),
           candidates: {
             primaryCandidates: [
@@ -45,6 +47,22 @@ describe("frontend API clients", () => {
               { exercise: createExercise({ id: "unused", nameZh: "未使用动作" }) },
             ],
             supplementaryCandidates: [],
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          ok: true,
+          kind: "routine",
+          draft: createWorkoutRoutineDraft(),
+          candidates: {
+            primaryCandidates: [
+              { exercise: createExercise({ id: "push-up", nameZh: "俯卧撑" }) },
+            ],
+            supplementaryCandidates: [
+              { exercise: createExercise({ id: "warmup", nameZh: "肩部动态热身" }) },
+              { exercise: createExercise({ id: "stretch", nameZh: "胸肩拉伸" }) },
+            ],
           },
         }),
       )
@@ -57,6 +75,7 @@ describe("frontend API clients", () => {
 
     await expect(requestChatStream(messages, context, false, signal)).resolves.toBeInstanceOf(Response);
     await expect(requestWorkoutPlanDraft(messages, createWorkoutPlanIntent(), context, "trace-1")).resolves.toMatchObject({
+      kind: "plan",
       draft: {
         title: "居家胸肌训练",
       },
@@ -66,6 +85,20 @@ describe("frontend API clients", () => {
           nameZh: "俯卧撑",
         },
       ],
+    });
+    await expect(
+      requestWorkoutPlanDraft(messages, createWorkoutPlanIntent({ intentType: "routine" }), context, "trace-2"),
+    ).resolves.toMatchObject({
+      kind: "routine",
+      draft: {
+        kind: "routine",
+        trainingLoopRounds: 3,
+      },
+      exercises: expect.arrayContaining([
+        expect.objectContaining({ id: "warmup" }),
+        expect.objectContaining({ id: "push-up" }),
+        expect.objectContaining({ id: "stretch" }),
+      ]),
     });
     await expect(
       requestExerciseRecommendations(messages, createWorkoutPlanIntent(), context, "trace-1", {
@@ -80,7 +113,7 @@ describe("frontend API clients", () => {
     expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toMatchObject({
       parentTraceId: "trace-1",
     });
-    expect(JSON.parse(fetchMock.mock.calls[2][1].body as string)).toMatchObject({
+    expect(JSON.parse(fetchMock.mock.calls[3][1].body as string)).toMatchObject({
       excludeExerciseIds: ["push-up"],
     });
   });

@@ -1,12 +1,26 @@
 import { describe, expect, it } from "vitest";
 
-import { selectExerciseCandidates, validateWorkoutPlanDraftExerciseIds } from "@/lib/server/workout-plans/exercise-candidate-service";
-import { validateWorkoutPlanDraft } from "@/lib/server/workout-plans/workout-plan-validation-service";
+import {
+  selectExerciseCandidates,
+  validateWorkoutPlanDraftExerciseIds,
+  validateWorkoutRoutineDraftExerciseIds,
+} from "@/lib/server/workout-plans/exercise-candidate-service";
+import {
+  validateWorkoutPlanDraft,
+  validateWorkoutRoutineDraft,
+} from "@/lib/server/workout-plans/workout-plan-validation-service";
 
-import { createExercise, createWorkoutPlanDraft, createWorkoutPlanIntent } from "./fixtures/domain";
+import {
+  createExercise,
+  createWorkoutPlanDraft,
+  createWorkoutPlanIntent,
+  createWorkoutRoutineDraft,
+} from "./fixtures/domain";
 
 const exercises = [
+  createExercise({ id: "warmup", nameZh: "肩部动态热身", categoryZh: "热身", primaryMusclesZh: ["肩部"] }),
   createExercise({ id: "push-up", nameZh: "俯卧撑", primaryMusclesZh: ["胸部"], primaryMuscles: ["chest"] }),
+  createExercise({ id: "stretch", nameZh: "胸肩拉伸", categoryZh: "拉伸", primaryMusclesZh: ["胸部"] }),
   createExercise({
     id: "jump-squat",
     nameZh: "跳跃深蹲",
@@ -94,6 +108,14 @@ describe("workout plan candidate and validation services", () => {
       invalidExerciseIds: ["unknown"],
       outsideCandidateExerciseIds: ["push-up"],
     });
+
+    expect(
+      validateWorkoutRoutineDraftExerciseIds(createWorkoutRoutineDraft(), ["warmup", "push-up"], exercises),
+    ).toMatchObject({
+      valid: false,
+      invalidExerciseIds: [],
+      outsideCandidateExerciseIds: ["stretch"],
+    });
   });
 
   it("reports validation errors and warnings for risky or mismatched drafts", () => {
@@ -140,5 +162,36 @@ describe("workout plan candidate and validation services", () => {
         "missing_safety_notes",
       ]),
     );
+  });
+
+  it("validates routine draft sections, loop config, and estimated duration", () => {
+    const intent = createWorkoutPlanIntent({
+      intentType: "routine",
+      sessionMinutes: 30,
+    });
+    const routineDraft = createWorkoutRoutineDraft({
+      estimatedSessionMinutes: 12,
+      trainingLoopRounds: 2,
+    });
+
+    const result = validateWorkoutRoutineDraft(routineDraft, intent, {
+      exercises,
+      candidateExerciseIds: ["warmup", "push-up", "stretch"],
+    });
+
+    expect(result.valid).toBe(true);
+    expect(result.exerciseIds).toEqual(["warmup", "push-up", "stretch"]);
+    expect(result.dayEstimates[0]).toMatchObject({
+      dayIndex: 1,
+      exerciseCount: 3,
+    });
+
+    const outsideCandidateResult = validateWorkoutRoutineDraft(routineDraft, intent, {
+      exercises,
+      candidateExerciseIds: ["warmup", "push-up"],
+    });
+
+    expect(outsideCandidateResult.valid).toBe(false);
+    expect(outsideCandidateResult.errors.map((issue) => issue.code)).toContain("outside_candidate_exercise_id");
   });
 });

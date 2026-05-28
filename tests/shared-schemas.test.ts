@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { exerciseRecommendationCardSchema } from "@/lib/shared/exercise-recommendations/schema";
 import { exerciseListQuerySchema } from "@/lib/shared/exercises/query-schema";
-import { workoutPlanDraftSchema, workoutPlanIntentSchema } from "@/lib/shared/workout-plans/draft-schema";
+import {
+  workoutPlanDraftSchema,
+  workoutPlanIntentSchema,
+  workoutRoutineDraftSchema,
+} from "@/lib/shared/workout-plans/draft-schema";
 import {
   workoutRoutineSchema,
   workoutScheduleSchema,
@@ -15,6 +19,7 @@ import {
   createWorkoutSchedule,
   createWorkoutPlanDraft,
   createWorkoutPlanIntent,
+  createWorkoutRoutineDraft,
 } from "./fixtures/domain";
 
 describe("shared schemas", () => {
@@ -23,6 +28,32 @@ describe("shared schemas", () => {
     expect(workoutPlanIntentSchema.safeParse(createWorkoutPlanIntent({ sessionMinutes: 5 })).success).toBe(false);
     expect(workoutPlanDraftSchema.safeParse(createWorkoutPlanDraft()).success).toBe(true);
     expect(workoutPlanDraftSchema.safeParse(createWorkoutPlanDraft({ days: [] })).success).toBe(false);
+    expect(workoutRoutineDraftSchema.safeParse(createWorkoutRoutineDraft()).success).toBe(true);
+    expect(workoutRoutineDraftSchema.safeParse(createWorkoutRoutineDraft({ sections: [] })).success).toBe(false);
+    expect(
+      workoutRoutineDraftSchema.safeParse(
+        createWorkoutRoutineDraft({
+          sections: [
+            {
+              section: "warmup",
+              title: "热身",
+              items: [
+                {
+                  exerciseId: "warmup",
+                  section: "training",
+                  mode: "duration",
+                  sets: 1,
+                  target: 30,
+                  setRestSeconds: 0,
+                  transitionRestSeconds: 0,
+                },
+              ],
+            },
+            ...createWorkoutRoutineDraft().sections.slice(1),
+          ],
+        }),
+      ).success,
+    ).toBe(false);
   });
 
   it("accepts valid recommendation and exercise query input while rejecting invalid values", () => {

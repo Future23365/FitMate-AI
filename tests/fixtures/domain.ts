@@ -1,7 +1,11 @@
 import type { ApiChatMessage, ChatConversation } from "@/features/chat/types";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import type { FitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
-import type { WorkoutPlanDraft, WorkoutPlanIntent } from "@/lib/shared/workout-plans/draft-schema";
+import type {
+  WorkoutPlanDraft,
+  WorkoutPlanIntent,
+  WorkoutRoutineDraft,
+} from "@/lib/shared/workout-plans/draft-schema";
 import type { WorkoutRoutine, WorkoutSchedule, WorkoutItem } from "@/lib/shared/workouts/composition";
 
 export function createExercise(overrides: Partial<Exercise> = {}): Exercise {
@@ -108,6 +112,71 @@ export function createWorkoutPlanDraft(overrides: Partial<WorkoutPlanDraft> = {}
         ],
       },
     ],
+  };
+}
+
+export function createWorkoutRoutineDraft(overrides: Partial<WorkoutRoutineDraft> = {}): WorkoutRoutineDraft {
+  const sections = overrides.sections ?? [
+    {
+      section: "warmup" as const,
+      title: "热身激活",
+      items: [
+        {
+          exerciseId: "warmup",
+          section: "warmup" as const,
+          mode: "duration" as const,
+          sets: 1,
+          target: 45,
+          setRestSeconds: 0,
+          transitionRestSeconds: 20,
+          notes: "逐步提升心率。",
+        },
+      ],
+    },
+    {
+      section: "training" as const,
+      title: "主训练",
+      items: [
+        {
+          exerciseId: "push-up",
+          section: "training" as const,
+          mode: "reps" as const,
+          sets: 3,
+          target: 12,
+          setRestSeconds: 45,
+          transitionRestSeconds: 30,
+          notes: "保持核心收紧。",
+        },
+      ],
+    },
+    {
+      section: "stretch" as const,
+      title: "拉伸放松",
+      items: [
+        {
+          exerciseId: "stretch",
+          section: "stretch" as const,
+          mode: "duration" as const,
+          sets: 1,
+          target: 40,
+          setRestSeconds: 0,
+          transitionRestSeconds: 0,
+          notes: "放松胸肩。",
+        },
+      ],
+    },
+  ];
+
+  return {
+    kind: "routine",
+    title: overrides.title ?? "居家胸肌循环",
+    goal: overrides.goal ?? "胸肌训练",
+    summary: overrides.summary ?? "包含热身、主训练和拉伸的单次编排。",
+    estimatedSessionMinutes: overrides.estimatedSessionMinutes ?? 12,
+    trainingLoopRounds: overrides.trainingLoopRounds ?? 3,
+    trainingLoopRestSeconds: overrides.trainingLoopRestSeconds ?? 90,
+    sections,
+    safetyNotes: overrides.safetyNotes ?? ["如有疼痛请停止训练。"],
   };
 }
 

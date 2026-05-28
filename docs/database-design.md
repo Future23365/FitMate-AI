@@ -308,7 +308,8 @@ User
 | 字段 | 作用 |
 |---|---|
 | `suggestedReplies` | AI 回复后的建议追问或快捷回复。 |
-| `plan` | 绑定在该消息上的训练计划草稿卡片。 |
+| `plan` | 绑定在该消息上的长期训练计划草稿卡片。 |
+| `routine` | 绑定在该消息上的单次训练编排草稿卡片，包含热身、训练、拉伸三段式动作和主训练循环配置。 |
 | `exerciseRecommendation` | 绑定在该消息上的动作推荐卡片。 |
 | `conversationContext` | 结构化对话上下文。当前只写入最后一条消息，用于恢复长对话上下文。 |
 
@@ -337,5 +338,5 @@ User
 - 训练编排动作通过 `WorkoutRoutineItem.exerciseId` 强制引用 `Exercise`，避免 AI 或客户端保存不存在的动作。
 - `WorkoutSchedule` 保存日历展示快照；routine 后续更新不会自动改写已存在日历安排的标题、分钟数和热量。
 - `WorkoutSessionResult` 保存训练完成摘要；`WorkoutSchedule.status = completed` 用于日历筛选、统计和徽标展示。
-- `ChatMessage.metadata` 是聊天结构化上下文和卡片数据的落点；如果某类数据变成稳定查询条件，应优先升级为显式字段。
+- `ChatMessage.metadata` 是聊天结构化上下文和卡片数据的落点；当前 `plan` 保存长期训练计划草稿，`routine` 保存单次训练编排草稿。如果某类数据变成稳定查询条件，应优先升级为显式字段。
 - 当前 `ChatSession` 不保存 `metadata`，对话上下文已迁移到 `ChatMessage.metadata.conversationContext`。

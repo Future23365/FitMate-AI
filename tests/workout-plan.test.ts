@@ -1,13 +1,21 @@
 import exercisesData from "@/data/exercises.zh.json";
 import { describe, expect, it } from "vitest";
 
-import { convertWorkoutPlanDraftToWorkoutRoutine } from "@/features/workout-plans/lib/workout-routine-conversion";
+import {
+  convertWorkoutPlanDraftToWorkoutRoutine,
+  convertWorkoutRoutineDraftToWorkoutRoutine,
+} from "@/features/workout-plans/lib/workout-routine-conversion";
 import { selectExerciseCandidates } from "@/lib/server/workout-plans/exercise-candidate-service";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import { workoutPlanIntentSchema } from "@/lib/shared/workout-plans/draft-schema";
 import { normalizeWorkoutItem } from "@/lib/shared/workouts/composition";
 
-import { createWorkoutPlanDraft, createWorkoutPlanIntent } from "./fixtures/domain";
+import {
+  createExercise,
+  createWorkoutPlanDraft,
+  createWorkoutPlanIntent,
+  createWorkoutRoutineDraft,
+} from "./fixtures/domain";
 
 const exercises = exercisesData as Exercise[];
 
@@ -235,5 +243,39 @@ describe("workout plan core logic", () => {
     expect(routines).toHaveLength(2);
     expect(routines.map((routine) => routine.title)).toEqual(["Day 1 上肢", "Day 2 下肢"]);
     expect(routines[0].items[0].exerciseId).not.toBe(routines[1].items[0].exerciseId);
+  });
+
+  it("converts routine draft sections and loop config to a saved workout routine", () => {
+    const routineDraft = createWorkoutRoutineDraft({
+      trainingLoopRounds: 4,
+      trainingLoopRestSeconds: 75,
+    });
+    const routineExercises = [
+      createExercise({ id: "warmup", nameZh: "肩部动态热身", categoryZh: "热身", primaryMusclesZh: ["肩部"] }),
+      createExercise({ id: "push-up", nameZh: "俯卧撑", categoryZh: "力量", primaryMusclesZh: ["胸部"] }),
+      createExercise({ id: "stretch", nameZh: "胸肩拉伸", categoryZh: "拉伸", primaryMusclesZh: ["胸部"] }),
+    ];
+
+    const routine = convertWorkoutRoutineDraftToWorkoutRoutine(routineDraft, routineExercises, {
+      createId: () => "routine-item",
+      id: "routine-1",
+      updatedAt: new Date("2026-05-25T10:30:00"),
+    });
+
+    expect(routine).toMatchObject({
+      id: "routine-1",
+      title: "居家胸肌循环",
+      trainingLoopRounds: 4,
+      trainingLoopRestSeconds: 75,
+    });
+    expect(routine.items.map((item) => item.section)).toEqual(["warmup", "training", "stretch"]);
+    expect(routine.items[1]).toMatchObject({
+      exerciseId: "push-up",
+      mode: "reps",
+      sets: 3,
+      target: 12,
+      setRestSeconds: 45,
+      transitionRestSeconds: 30,
+    });
   });
 });

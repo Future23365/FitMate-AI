@@ -169,8 +169,6 @@ export function WorkoutPlanDraftCard({
     }
   };
 
-  const isRoutineOnly = draft.days.length === 1;
-  const draftKindLabel = isRoutineOnly ? "本次动作编排" : "训练计划";
   const draftExerciseIds = useMemo(() => collectDraftExerciseIds(draft), [draft]);
 
   useEffect(() => {
@@ -244,8 +242,8 @@ export function WorkoutPlanDraftCard({
       });
       const persistedWorkouts = await Promise.all(draftRoutines.map((workout) => createWorkoutRoutine(workout)));
 
-      // 2. 智能日程排班 (如果是长期计划且天数 > 1)
-      if (!isRoutineOnly) {
+      // AI 长期计划保存后会按频次生成日历安排。
+      {
         const today = new Date();
         const trainingDaysMap: Record<number, number[]> = {
           1: [3], // 周三
@@ -324,11 +322,7 @@ export function WorkoutPlanDraftCard({
 
       // 停留 1.2 秒展现成功状态，随后顺滑跳转
       setTimeout(() => {
-        if (isRoutineOnly) {
-          router.push("/composer");
-        } else {
-          router.push("/plans");
-        }
+        router.push("/plans");
       }, 1200);
     } catch (error) {
       console.error("[WorkoutPlanDraftCard] Save failed:", error);
@@ -347,7 +341,7 @@ export function WorkoutPlanDraftCard({
         <div className="flex flex-col gap-xs md:flex-row md:items-start md:justify-between">
           <div>
             <span className="mb-xs inline-flex items-center rounded-lg bg-primary-soft px-sm py-xs font-label-xs text-label-xs font-bold text-primary">
-              {draftKindLabel}
+              训练计划
             </span>
             <h3 className="flex items-center gap-xs font-title-lg text-title-lg font-bold text-on-surface">
               <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary-soft text-primary">
@@ -360,15 +354,13 @@ export function WorkoutPlanDraftCard({
             </p>
           </div>
           <div className="mt-sm flex flex-wrap gap-xs md:mt-0">
-            {!isRoutineOnly && (
-              <span className="inline-flex items-center gap-1 rounded-lg bg-panel-soft px-sm py-xs font-label-sm text-label-sm text-ink">
-                <SymbolIcon className="text-[14px]">event_repeat</SymbolIcon>
-                每周 {draft.weeklyFrequency} 次
-              </span>
-            )}
+            <span className="inline-flex items-center gap-1 rounded-lg bg-panel-soft px-sm py-xs font-label-sm text-label-sm text-ink">
+              <SymbolIcon className="text-[14px]">event_repeat</SymbolIcon>
+              每周 {draft.weeklyFrequency} 次
+            </span>
             <span className="inline-flex items-center gap-1 rounded-lg bg-primary-soft px-sm py-xs font-label-sm text-label-sm font-bold text-primary">
               <SymbolIcon className="text-[14px]">schedule</SymbolIcon>
-              {isRoutineOnly ? "本次" : "单次"} {draft.estimatedSessionMinutes} 分钟
+              单次 {draft.estimatedSessionMinutes} 分钟
             </span>
           </div>
         </div>
@@ -413,7 +405,7 @@ export function WorkoutPlanDraftCard({
             <div className="flex items-center justify-between">
               <span className="font-label-sm text-label-sm font-bold text-on-surface-variant flex items-center gap-1">
                 <SymbolIcon className="text-[16px]">ads_click</SymbolIcon>
-                {isRoutineOnly ? "本次重点" : "今日焦点"}：{activeDay.focus}
+                今日焦点：{activeDay.focus}
               </span>
               <span className="font-label-sm text-label-sm text-on-surface-variant flex items-center gap-1">
                 <SymbolIcon className="text-[16px]">timelapse</SymbolIcon>
@@ -509,9 +501,8 @@ export function WorkoutPlanDraftCard({
           </div>
         )}
 
-        {/* 排班计划设置区域 (仅在多天计划场景展示) */}
-        {!isRoutineOnly && (
-          <div className="mt-lg rounded-2xl border border-outline-variant bg-surface-container-low p-md transition-all duration-300">
+        {/* 排班计划设置区域 */}
+        <div className="mt-lg rounded-2xl border border-outline-variant bg-surface-container-low p-md transition-all duration-300">
             <div className="flex flex-col gap-sm md:flex-row md:items-center md:justify-between">
               <div>
                 <h4 className="flex items-center gap-xs font-label-md text-label-md font-bold text-on-surface">
@@ -549,15 +540,12 @@ export function WorkoutPlanDraftCard({
                 </button>
               </div>
             </div>
-          </div>
-        )}
+        </div>
 
         {/* 底部操作闭环区 */}
         <div className="mt-lg flex flex-col gap-md border-t border-outline-variant/40 pt-lg sm:flex-row sm:items-center sm:justify-between">
           <p className="font-label-xs text-label-xs text-on-surface-variant">
-            {isRoutineOnly
-              ? "* 保存后将添加到您的动作编排列表，可直接进入训练"
-              : `* 导入后将全量保存动作，并排定未来 ${scheduleRange === 7 ? "1" : "4"} 周的日历计划`}
+            {`* 导入后将全量保存动作，并排定未来 ${scheduleRange === 7 ? "1" : "4"} 周的日历计划`}
           </p>
           <button
             onClick={handleSave}
@@ -572,17 +560,17 @@ export function WorkoutPlanDraftCard({
             {saveSuccess ? (
               <>
                 <SymbolIcon className="animate-bounce">check_circle</SymbolIcon>
-                {isRoutineOnly ? "动作编排已保存！正在为您跳转..." : "导入成功！正在为您跳转..."}
+                导入成功！正在为您跳转...
               </>
             ) : isSaving ? (
               <>
                 <SymbolIcon className="animate-spin">autorenew</SymbolIcon>
-                {isRoutineOnly ? "正在保存动作编排..." : "正在为您导入计划..."}
+                正在为您导入计划...
               </>
             ) : (
               <>
                 <SymbolIcon>save_alt</SymbolIcon>
-                {isRoutineOnly ? "保存本次动作编排" : "确认并导入此计划"}
+                确认并导入此计划
               </>
             )}
           </button>

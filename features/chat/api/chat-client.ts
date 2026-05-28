@@ -4,17 +4,19 @@ import type { ApiChatMessage } from "@/features/chat/types";
 import type { FitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
-import type { WorkoutPlanDraft } from "@/lib/shared/workout-plans/draft-schema";
+import type { WorkoutPlanDraft, WorkoutRoutineDraft } from "@/lib/shared/workout-plans/draft-schema";
 
 type WorkoutPlanDraftResponse = {
   ok: boolean;
+  kind?: "plan" | "routine";
   message?: string;
-  draft?: WorkoutPlanDraft;
+  draft?: WorkoutPlanDraft | WorkoutRoutineDraft;
   candidates?: WorkoutPlanCandidateResponse;
 };
 
 export type WorkoutPlanDraftPayload = {
-  draft: WorkoutPlanDraft;
+  kind: "plan" | "routine";
+  draft: WorkoutPlanDraft | WorkoutRoutineDraft;
   exercises: Exercise[];
 };
 
@@ -76,18 +78,24 @@ export async function requestWorkoutPlanDraft(
     throw new Error("训练计划生成失败，请稍后重试。");
   }
 
+  const kind = data.kind ?? ("days" in data.draft ? "plan" : "routine");
+
   return {
+    kind,
     draft: data.draft,
     exercises: collectDraftExercisesFromCandidates(data.draft, data.candidates),
   };
 }
 
 function collectDraftExercisesFromCandidates(
-  draft: WorkoutPlanDraft,
+  draft: WorkoutPlanDraft | WorkoutRoutineDraft,
   candidates?: WorkoutPlanCandidateResponse,
 ) {
   const draftExerciseIds = new Set(
-    draft.days.flatMap((day) => day.items.map((item) => item.exerciseId.toLowerCase())),
+    ("days" in draft
+      ? draft.days.flatMap((day) => day.items)
+      : draft.sections.flatMap((section) => section.items)
+    ).map((item) => item.exerciseId.toLowerCase()),
   );
   const exerciseById = new Map<string, Exercise>();
 

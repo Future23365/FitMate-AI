@@ -4,8 +4,10 @@ import type { Exercise } from "@/lib/shared/exercises/types";
 import {
   workoutPlanDraftSchema,
   workoutPlanIntentSchema,
+  workoutRoutineDraftSchema,
   type WorkoutPlanDraft,
   type WorkoutPlanIntent,
+  type WorkoutRoutineDraft,
 } from "@/lib/shared/workout-plans/draft-schema";
 
 export type ExerciseCandidate = {
@@ -116,8 +118,12 @@ export function selectExerciseCandidates(
     .filter((c) => c.score < primaryScoreThreshold)
     .slice(0, maxSupplementaryCandidates)
     .map((c) => ({ ...c, source: "supplementary" as const }));
+  const structuredSupplementaryCandidates =
+    intent.intentType === "routine"
+      ? mergeRoutineStructureCandidates(supplementaryCandidates, allScored, primaryCandidates)
+      : supplementaryCandidates;
 
-  const totalCandidates = primaryCandidates.length + supplementaryCandidates.length;
+  const totalCandidates = primaryCandidates.length + structuredSupplementaryCandidates.length;
   const relevantCandidateCount =
     targetMuscles.size > 0
       ? primaryCandidates.filter((candidate) => matchesTargetMuscles(candidate.exercise, targetMuscles))
@@ -145,7 +151,7 @@ export function selectExerciseCandidates(
   return {
     intent,
     primaryCandidates,
-    supplementaryCandidates,
+    supplementaryCandidates: structuredSupplementaryCandidates,
     excluded,
     warnings: [...warnings],
     candidateStatus,
@@ -172,6 +178,30 @@ export function validateWorkoutPlanDraftExerciseIds(
   const candidateIds = new Set(candidateExerciseIds);
   const exerciseIds = [
     ...new Set(draft.days.flatMap((day) => day.items.map((item) => item.exerciseId))),
+  ];
+  const invalidExerciseIds = exerciseIds.filter((exerciseId) => !allExerciseIds.has(exerciseId));
+  const outsideCandidateExerciseIds = exerciseIds.filter(
+    (exerciseId) => allExerciseIds.has(exerciseId) && !candidateIds.has(exerciseId),
+  );
+
+  return {
+    valid: invalidExerciseIds.length === 0 && outsideCandidateExerciseIds.length === 0,
+    exerciseIds,
+    invalidExerciseIds,
+    outsideCandidateExerciseIds,
+  };
+}
+
+export function validateWorkoutRoutineDraftExerciseIds(
+  rawDraft: WorkoutRoutineDraft,
+  candidateExerciseIds: Iterable<string>,
+  exercises: Exercise[],
+): WorkoutPlanExerciseIdValidationResult {
+  const draft = workoutRoutineDraftSchema.parse(rawDraft);
+  const allExerciseIds = new Set(exercises.map((exercise) => exercise.id));
+  const candidateIds = new Set(candidateExerciseIds);
+  const exerciseIds = [
+    ...new Set(draft.sections.flatMap((section) => section.items.map((item) => item.exerciseId))),
   ];
   const invalidExerciseIds = exerciseIds.filter((exerciseId) => !allExerciseIds.has(exerciseId));
   const outsideCandidateExerciseIds = exerciseIds.filter(
@@ -373,6 +403,44 @@ function compareLevel(left: Exercise, right: Exercise) {
   };
 
   return (rank[left.level ?? ""] ?? 99) - (rank[right.level ?? ""] ?? 99);
+}
+
+function mergeRoutineStructureCandidates(
+  supplementaryCandidates: ExerciseCandidate[],
+  allScored: Array<{ exercise: Exercise; score: number; reasons: string[] }>,
+  primaryCandidates: ExerciseCandidate[],
+) {
+  const selectedIds = new Set([
+    ...primaryCandidates.map((candidate) => candidate.exercise.id),
+    ...supplementaryCandidates.map((candidate) => candidate.exercise.id),
+  ]);
+  const structuredCandidates = [...supplementaryCandidates];
+
+  for (const candidate of allScored) {
+    if (selectedIds.has(candidate.exercise.id) || !isRoutineStructureCandidate(candidate.exercise)) {
+      continue;
+    }
+
+    if (structuredCandidates.length >= maxSupplementaryCandidates) {
+      structuredCandidates.pop();
+    }
+
+    selectedIds.add(candidate.exercise.id);
+    structuredCandidates.push({
+      ...candidate,
+      reasons: [...candidate.reasons, "补充热身或拉伸阶段"],
+      source: "supplementary",
+    });
+
+  }
+
+  return structuredCandidates;
+}
+
+function isRoutineStructureCandidate(exercise: Exercise) {
+  const text = `${exercise.categoryZh ?? ""} ${exercise.nameZh} ${exercise.goalTags.join(" ")}`;
+
+  return /(热身|激活|动态|拉伸|伸展|放松|mobility|stretch)/i.test(text);
 }
 
 function resolveRequestedEquipment(equipment: string[]) {

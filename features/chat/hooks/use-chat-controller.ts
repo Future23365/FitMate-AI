@@ -27,7 +27,7 @@ import {
 } from "@/lib/shared/chat/fitness-conversation-context";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
-import type { WorkoutPlanDraft } from "@/lib/shared/workout-plans/draft-schema";
+import type { WorkoutPlanDraft, WorkoutRoutineDraft } from "@/lib/shared/workout-plans/draft-schema";
 
 const chatRequestTimeoutMs = 45_000;
 const thinkingEnabledStorageKey = "fitmate.chat.thinkingEnabled";
@@ -75,6 +75,7 @@ export function useChatController() {
   const [autoPlanGenerating, setAutoPlanGenerating] = useState<string | null>(null);
   const [autoRecommendationGenerating, setAutoRecommendationGenerating] = useState<string | null>(null);
   const [bubblePlans, setBubblePlans] = useState<Record<string, WorkoutPlanDraft>>({});
+  const [bubbleRoutines, setBubbleRoutines] = useState<Record<string, WorkoutRoutineDraft>>({});
   const [bubblePlanExercises, setBubblePlanExercises] = useState<Record<string, Exercise[]>>({});
   const [bubbleExerciseRecommendations, setBubbleExerciseRecommendations] = useState<
     Record<string, ExerciseRecommendationCard>
@@ -110,6 +111,7 @@ export function useChatController() {
       setConversationId(matchedConversation.id);
       setMessages(matchedConversation.messages);
       setBubblePlans(matchedConversation.plans ?? {});
+      setBubbleRoutines(matchedConversation.routines ?? {});
       setBubblePlanExercises({});
       setBubbleExerciseRecommendations(matchedConversation.exerciseRecommendations ?? {});
       setDislikedExerciseIdsByMessage({});
@@ -141,6 +143,7 @@ export function useChatController() {
       setConversationId(null);
       setMessages([]);
       setBubblePlans({});
+      setBubbleRoutines({});
       setBubblePlanExercises({});
       setBubbleExerciseRecommendations({});
       setDislikedExerciseIdsByMessage({});
@@ -178,6 +181,7 @@ export function useChatController() {
         conversationId,
         messages,
         bubblePlans,
+        bubbleRoutines,
         bubbleExerciseRecommendations,
         conversationContext,
       ).catch((saveError: unknown) => {
@@ -186,7 +190,7 @@ export function useChatController() {
     }, 400);
 
     return () => window.clearTimeout(timer);
-  }, [conversationId, messages, bubblePlans, bubbleExerciseRecommendations, conversationContext]);
+  }, [conversationId, messages, bubblePlans, bubbleRoutines, bubbleExerciseRecommendations, conversationContext]);
 
   function updateAssistantMessage(
     assistantId: string,
@@ -226,10 +230,27 @@ export function useChatController() {
     try {
       const planPayload = await requestWorkoutPlanDraft(historyMessages, intent, context, parentTraceId);
 
-      setBubblePlans((prev) => ({
-        ...prev,
-        [messageId]: planPayload.draft,
-      }));
+      if (planPayload.kind === "routine") {
+        setBubbleRoutines((prev) => ({
+          ...prev,
+          [messageId]: planPayload.draft as WorkoutRoutineDraft,
+        }));
+        setBubblePlans((prev) => {
+          const next = { ...prev };
+          delete next[messageId];
+          return next;
+        });
+      } else {
+        setBubblePlans((prev) => ({
+          ...prev,
+          [messageId]: planPayload.draft as WorkoutPlanDraft,
+        }));
+        setBubbleRoutines((prev) => {
+          const next = { ...prev };
+          delete next[messageId];
+          return next;
+        });
+      }
       setBubblePlanExercises((prev) => ({
         ...prev,
         [messageId]: planPayload.exercises,
@@ -583,6 +604,7 @@ export function useChatController() {
     bubblePlanExercises,
     bubblePlanErrors,
     bubblePlans,
+    bubbleRoutines,
     composeExerciseRecommendations,
     dislikeExerciseRecommendation,
     error,
