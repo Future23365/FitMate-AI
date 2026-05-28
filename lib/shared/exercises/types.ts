@@ -42,6 +42,7 @@ export type Exercise = {
 export type ExerciseListQuery = {
   q?: string;
   category?: string;
+  workoutSection?: "stretch" | "training" | "warmup";
   level?: string;
   force?: string;
   mechanic?: string;

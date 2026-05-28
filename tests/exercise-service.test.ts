@@ -63,6 +63,21 @@ describe("exercise service", () => {
         goalTags: ["strength"],
         isPublished: false,
       }),
+      createExercise({
+        id: "hamstring-stretch",
+        nameZh: "腘绳肌拉伸",
+        category: "stretching",
+        categoryZh: "拉伸",
+        level: "beginner",
+        levelZh: "新手",
+        equipment: "bodyweight",
+        equipmentZh: "自重",
+        homeRequirement: "no_equipment",
+        homeRequirementZh: "无器械",
+        primaryMuscles: ["hamstrings"],
+        primaryMusclesZh: ["腘绳肌"],
+        goalTags: ["mobility"],
+      }),
     ]);
     repositoryMocks.getExerciseRecordById.mockResolvedValue(createExercise({ id: "push-up" }));
   });
@@ -84,10 +99,28 @@ describe("exercise service", () => {
     expect(paged).toMatchObject({
       page: 2,
       pageSize: 1,
-      total: 3,
-      totalPages: 3,
+      total: 4,
+      totalPages: 4,
       hasNextPage: true,
       hasPreviousPage: true,
+    });
+  });
+
+  it("filters by inferred workout section before pagination", async () => {
+    await expect(listExercises({ workoutSection: "warmup" })).resolves.toMatchObject({
+      items: [expect.objectContaining({ id: "jump-squat" })],
+      total: 1,
+    });
+    await expect(listExercises({ workoutSection: "stretch" })).resolves.toMatchObject({
+      items: [expect.objectContaining({ id: "hamstring-stretch" })],
+      total: 1,
+    });
+    await expect(listExercises({ workoutSection: "training" })).resolves.toMatchObject({
+      total: 2,
+      items: expect.arrayContaining([
+        expect.objectContaining({ id: "push-up" }),
+        expect.objectContaining({ id: "dumbbell-row" }),
+      ]),
     });
   });
 
@@ -103,12 +136,12 @@ describe("exercise service", () => {
     );
     expect(facets.equipment).toEqual(
       expect.arrayContaining([
-        { value: "bodyweight", label: "自重", count: 2 },
+        { value: "bodyweight", label: "自重", count: 3 },
         { value: "dumbbell", label: "哑铃", count: 1 },
       ]),
     );
     expect(facets.homeRequirements).toEqual(
-      expect.arrayContaining([{ value: "no_equipment", label: "无器械", count: 1 }]),
+      expect.arrayContaining([{ value: "no_equipment", label: "无器械", count: 2 }]),
     );
     expect(facets.muscles).toEqual(
       expect.arrayContaining([{ value: "chest", label: "胸部", count: 1 }]),

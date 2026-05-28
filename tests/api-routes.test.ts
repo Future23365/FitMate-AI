@@ -188,9 +188,9 @@ describe("API route boundaries", () => {
     const badList = await exercisesRoute.GET(new Request("http://localhost/api/exercises?page=0"));
     expect(badList.status).toBe(400);
 
-    const list = await exercisesRoute.GET(new Request("http://localhost/api/exercises?q=push&page=1"));
+    const list = await exercisesRoute.GET(new Request("http://localhost/api/exercises?q=push&page=1&workoutSection=stretch"));
     await expect(list.json()).resolves.toMatchObject({ items: [], facets: { categories: [] } });
-    expect(exerciseServiceMocks.listExercises).toHaveBeenCalledWith(expect.objectContaining({ q: "push", page: 1 }));
+    expect(exerciseServiceMocks.listExercises).toHaveBeenCalledWith(expect.objectContaining({ q: "push", page: 1, workoutSection: "stretch" }));
 
     const detail = await exerciseDetailRoute.GET(new Request("http://localhost/api/exercises/push-up"), params("push-up"));
     await expect(detail.json()).resolves.toMatchObject({ item: { id: "push-up" } });

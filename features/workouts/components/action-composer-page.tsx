@@ -243,6 +243,7 @@ export function ActionComposerPage() {
   const [libraryFacets, setLibraryFacets] = useState<ExerciseFacets>(defaultExerciseFacets);
   const [libraryQuery, setLibraryQuery] = useState("");
   const [libraryCategory, setLibraryCategory] = useState("");
+  const [libraryWorkoutSection, setLibraryWorkoutSection] = useState<WorkoutSection>("training");
   const [libraryMuscle, setLibraryMuscle] = useState("");
   const [libraryEquipment, setLibraryEquipment] = useState("");
   const [libraryLevel, setLibraryLevel] = useState("");
@@ -274,6 +275,8 @@ export function ActionComposerPage() {
     if (libraryCategory) {
       params.set("category", libraryCategory);
     }
+
+    params.set("workoutSection", libraryWorkoutSection);
 
     if (libraryMuscle) {
       params.set("muscle", libraryMuscle);
@@ -325,7 +328,15 @@ export function ActionComposerPage() {
       });
 
     return () => controller.abort();
-  }, [libraryCategory, libraryEquipment, libraryHomeRequirement, libraryLevel, libraryMuscle, libraryQuery]);
+  }, [
+    libraryCategory,
+    libraryEquipment,
+    libraryHomeRequirement,
+    libraryLevel,
+    libraryMuscle,
+    libraryQuery,
+    libraryWorkoutSection,
+  ]);
 
   useEffect(() => {
     async function loadFromHash() {
@@ -978,16 +989,16 @@ export function ActionComposerPage() {
             {sectionConfigs.map((section) => (
               <button
                 className={`flex min-w-0 flex-col items-center gap-[2px] rounded-lg px-xs py-xs text-[10px] font-bold transition-colors ${
-                  selectedSection === section.id
+                  libraryWorkoutSection === section.id
                     ? "bg-primary text-white"
                     : "text-on-surface-variant hover:bg-primary-soft hover:text-primary"
                 }`}
                 key={section.id}
-                onClick={() => setSelectedSection(section.id)}
+                onClick={() => setLibraryWorkoutSection(section.id)}
                 type="button"
               >
                 <SymbolIcon className="text-[17px]">{section.icon}</SymbolIcon>
-                <span className="w-full truncate">添加到{section.title}</span>
+                <span className="w-full truncate">{section.title}</span>
               </button>
             ))}
           </div>

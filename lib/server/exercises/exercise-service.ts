@@ -73,6 +73,10 @@ function matchesExerciseQuery(exercise: Exercise, query: ExerciseListQuery) {
     return false;
   }
 
+  if (query.workoutSection && inferExerciseWorkoutSection(exercise) !== query.workoutSection) {
+    return false;
+  }
+
   if (query.level && exercise.level !== query.level && exercise.levelZh !== query.level) {
     return false;
   }
@@ -122,6 +126,31 @@ function matchesExerciseQuery(exercise: Exercise, query: ExerciseListQuery) {
   }
 
   return true;
+}
+
+// 动作库阶段筛选复用现有动作元数据做服务端推断，确保先过滤再分页。
+function inferExerciseWorkoutSection(exercise: Exercise): NonNullable<ExerciseListQuery["workoutSection"]> {
+  const text = normalizeSearchText(
+    [
+      exercise.category,
+      exercise.categoryZh,
+      exercise.nameEn,
+      exercise.nameZh,
+      ...exercise.goalTags,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+
+  if (/拉伸|伸展|放松|stretch|stretching|mobility/.test(text)) {
+    return "stretch";
+  }
+
+  if (/热身|激活|动态|warmup|warm-up|activation|dynamic|有氧|cardio|开合跳|jumping jack|跑步|running|步行|walk|跳绳|rope|单车|bike|treadmill/.test(text)) {
+    return "warmup";
+  }
+
+  return "training";
 }
 
 function matchesMuscle(exercise: Exercise, muscle: string) {

@@ -46,10 +46,14 @@ const optionalOffsetParam = z.preprocess((value) => {
   return typeof value === "string" ? Number(value) : value;
 }, z.number().int().min(0).optional());
 
+// 动作库阶段筛选用于动作编排页右侧面板，不改变动作保存时的 section。
+const workoutSectionQuerySchema = z.enum(["warmup", "training", "stretch"]).optional();
+
 // Query parsing lives in shared code so API routes and future server actions enforce the same filters.
 export const exerciseListQuerySchema = z.object({
   q: optionalTextParam,
   category: optionalTextParam,
+  workoutSection: workoutSectionQuerySchema,
   level: optionalTextParam,
   force: optionalTextParam,
   mechanic: optionalTextParam,
