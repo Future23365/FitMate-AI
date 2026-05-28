@@ -1104,14 +1104,16 @@ function ExerciseDetailPanel({
               <div className="grid grid-cols-2 gap-sm">
                 {detailStats.map((stat) => (
                   <div
-                    className="min-w-0 rounded-xl border border-line/70 bg-white/80 p-sm shadow-card"
+                    className="min-w-0 rounded-xl border border-line/70 bg-white/72 p-sm"
                     key={stat.label}
                   >
-                    <div className="mb-xs flex items-center gap-xs text-muted">
-                      <SymbolIcon className="text-[16px]">{stat.icon}</SymbolIcon>
-                      <span className="font-label-sm text-label-sm">{stat.label}</span>
+                    <div className="mb-sm flex items-center gap-xs">
+                      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-primary-soft text-primary">
+                        <SymbolIcon className="text-[16px]">{stat.icon}</SymbolIcon>
+                      </span>
+                      <span className="font-label-sm text-label-sm font-bold text-muted">{stat.label}</span>
                     </div>
-                    <p className="truncate font-title-md text-title-md" title={stat.value}>
+                    <p className="truncate pl-[34px] font-label-md text-label-md font-extrabold text-ink" title={stat.value}>
                       {stat.value}
                     </p>
                   </div>
