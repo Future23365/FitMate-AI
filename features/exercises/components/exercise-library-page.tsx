@@ -2,8 +2,8 @@
 
 import Image from "next/image";
 import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
 
+import { RightDrawer } from "@/components/app/right-drawer";
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { clientRequest } from "@/lib/client/http/client-request";
 import type { Exercise, ExerciseFacets, ExerciseSort } from "@/lib/shared/exercises/types";
@@ -63,7 +63,6 @@ const exerciseSortOptions: Array<{ value: ExerciseSort; label: string }> = [
 ];
 
 const pageSizeOptions = [12, 24, 48, 96];
-const drawerTransitionMs = 500;
 
 function getExerciseImage(exercise?: Exercise) {
   return (
@@ -280,21 +279,30 @@ function FilterDrawer({
   published: string;
   riskTag: string;
 }) {
-  return createPortal(
-    <div
-      aria-modal="true"
-      className={`fixed inset-0 z-50 flex justify-end bg-black/20 backdrop-blur-[1px] drawer-backdrop-transition ${
-        isOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
-      }`}
-      onClick={onClose}
-      role="dialog"
-    >
-      <aside
-        className={`relative flex h-full w-full max-w-[440px] flex-col border-l border-line bg-white shadow-2xl drawer-panel-transition ${
-          isOpen ? "translate-x-0" : "translate-x-full"
-        }`}
-        onClick={(event) => event.stopPropagation()}
-      >
+  return (
+    <RightDrawer
+      ariaLabel="筛选动作"
+      bodyClassName="custom-scrollbar flex-1 overflow-y-auto px-lg py-lg"
+      footer={
+        <div className="flex items-center gap-sm border-t border-line px-lg py-md">
+          <button
+            className="flex-1 rounded-xl border border-line bg-white px-lg py-sm font-label-md text-label-md font-bold text-ink transition-colors hover:bg-panel-soft"
+            onClick={onReset}
+            type="button"
+          >
+            清空
+          </button>
+          <button
+            className="flex-1 rounded-xl bg-primary px-lg py-sm font-label-md text-label-md font-bold text-white transition-colors hover:bg-primary-deep"
+            onClick={onClose}
+            type="button"
+          >
+            查看结果
+          </button>
+        </div>
+      }
+      footerClassName="shrink-0"
+      header={
         <div className="flex items-center justify-between border-b border-line px-lg py-md">
           <div>
             <h2 className="font-title-lg text-title-lg font-extrabold">筛选动作</h2>
@@ -311,8 +319,13 @@ function FilterDrawer({
             <SymbolIcon className="text-[22px]">close</SymbolIcon>
           </button>
         </div>
-
-        <div className="custom-scrollbar flex-1 overflow-y-auto px-lg py-lg">
+      }
+      headerClassName="shrink-0"
+      isOpen={isOpen}
+      onClose={onClose}
+      panelClassName="border-l border-line bg-white"
+      widthClassName="max-w-[440px]"
+    >
           {activeFilters.length ? (
             <div className="mb-lg">
               <ActiveFilterChips activeFilters={activeFilters} onReset={onReset} />
@@ -408,27 +421,7 @@ function FilterDrawer({
               </label>
             </div>
           </section>
-        </div>
-
-        <div className="flex items-center gap-sm border-t border-line px-lg py-md">
-          <button
-            className="flex-1 rounded-xl border border-line bg-white px-lg py-sm font-label-md text-label-md font-bold text-ink transition-colors hover:bg-panel-soft"
-            onClick={onReset}
-            type="button"
-          >
-            清空
-          </button>
-          <button
-            className="flex-1 rounded-xl bg-primary px-lg py-sm font-label-md text-label-md font-bold text-white transition-colors hover:bg-primary-deep"
-            onClick={onClose}
-            type="button"
-          >
-            查看结果
-          </button>
-        </div>
-      </aside>
-    </div>,
-    document.body,
+    </RightDrawer>
   );
 }
 
@@ -457,7 +450,6 @@ export function ExerciseLibraryPage() {
   const [isLoadingExercises, setIsLoadingExercises] = useState(true);
   const [exerciseError, setExerciseError] = useState("");
   const [isMoreFiltersOpen, setIsMoreFiltersOpen] = useState(false);
-  const [isFilterDrawerMounted, setIsFilterDrawerMounted] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -556,49 +548,6 @@ export function ExerciseLibraryPage() {
     sortBy,
   ]);
 
-  useEffect(() => {
-    if (!isMoreFiltersOpen) {
-      return;
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setIsMoreFiltersOpen(false);
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isMoreFiltersOpen]);
-
-  useEffect(() => {
-    if (isMoreFiltersOpen) {
-      document.body.style.overflow = "hidden";
-      document.body.classList.add("drawer-open");
-    } else {
-      document.body.style.overflow = "";
-      document.body.classList.remove("drawer-open");
-    }
-
-    return () => {
-      document.body.style.overflow = "";
-      document.body.classList.remove("drawer-open");
-    };
-  }, [isMoreFiltersOpen]);
-
-  useEffect(() => {
-    if (isMoreFiltersOpen) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      setIsFilterDrawerMounted(false);
-    }, drawerTransitionMs);
-
-    return () => window.clearTimeout(timer);
-  }, [isMoreFiltersOpen]);
-
   function updateFilter(updater: () => void) {
     setIsLoadingExercises(true);
     setPage(1);
@@ -622,10 +571,7 @@ export function ExerciseLibraryPage() {
   }
 
   function openFilterDrawer() {
-    setIsFilterDrawerMounted(true);
-    window.requestAnimationFrame(() => {
-      setIsMoreFiltersOpen(true);
-    });
+    setIsMoreFiltersOpen(true);
   }
 
   function closeFilterDrawer() {
@@ -786,8 +732,7 @@ export function ExerciseLibraryPage() {
           ) : null}
         </section>
 
-        {isFilterDrawerMounted ? (
-          <FilterDrawer
+        <FilterDrawer
             activeFilters={activeFilters}
             category={category}
             equipment={equipment}
@@ -815,7 +760,6 @@ export function ExerciseLibraryPage() {
             published={published}
             riskTag={riskTag}
           />
-        ) : null}
 
         <section>
           <div className="mb-lg flex flex-col gap-md border-b border-line pb-md xl:flex-row xl:items-end xl:justify-between">

@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
+import { RightDrawer } from "@/components/app/right-drawer";
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import type { Exercise } from "@/lib/shared/exercises/types";
 
@@ -80,7 +80,6 @@ export function ExercisePreviewSheet({
     exerciseId: "",
     statusByUrl: {},
   });
-  const [mounted, setMounted] = useState(false);
 
   const images = useMemo(
     () => (exercise?.imageUrls && exercise.imageUrls.length > 0 ? exercise.imageUrls : [placeholderImage]),
@@ -121,44 +120,6 @@ export function ExercisePreviewSheet({
     (nextExerciseId: string, src: string) => setImageStatus(nextExerciseId, src, "failed"),
     [setImageStatus]
   );
-
-  // 客户端挂载处理，保证 Portal 不参与服务端渲染。
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setMounted(true);
-    }, 0);
-
-    return () => {
-      clearTimeout(timer);
-      setMounted(false);
-    };
-  }, []);
-
-  // 监听 ESC 按键关闭
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isOpen) {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
-
-  // 当抽屉打开时，禁用背后聊天页面的滚动穿透，并为 body 挂载 drawer-open 类以联动微缩效果
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = "hidden";
-      document.body.classList.add("drawer-open");
-    } else {
-      document.body.style.overflow = "";
-      document.body.classList.remove("drawer-open");
-    }
-    return () => {
-      document.body.style.overflow = "";
-      document.body.classList.remove("drawer-open");
-    };
-  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen || !exerciseId) {
@@ -218,9 +179,6 @@ export function ExercisePreviewSheet({
     return () => window.clearTimeout(timer);
   }, [activeImageIndex, exerciseId, hasMultipleImages, imageLoadStatus, images, isAutoPlaying, isOpen]);
 
-  // 仅在 SSR 阶段阻断，客户端挂载后保持 Portal 常驻，消除闪烁！
-  if (!mounted) return null;
-
   function selectImage(index: number) {
     setImageSelection({
       exerciseId: exercise?.id ?? "",
@@ -236,24 +194,30 @@ export function ExercisePreviewSheet({
     selectImage(activeImageIndex === images.length - 1 ? 0 : activeImageIndex + 1);
   };
 
-  return createPortal(
-    <div
-      className={`fixed inset-0 z-50 flex justify-end bg-black/20 backdrop-blur-[1px] drawer-backdrop-transition ${
-        isOpen && exercise ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
-      }`}
-      onClick={onClose}
-    >
-      {/* 右侧滑动抽屉面板主体 (宽度 460px，固定贴在屏幕最右侧) */}
-      <div
-        className={`h-full w-full sm:w-[460px] bg-slate-50 shadow-2xl flex flex-col drawer-panel-transition ${
-          isOpen && exercise ? "translate-x-0" : "translate-x-full"
-        }`}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {exercise && (
-          <>
-            {/* 顶部固定标题栏 */}
-            <div className="flex items-center justify-between border-b border-slate-100 bg-white px-lg py-md shrink-0 shadow-sm">
+  return (
+    <RightDrawer
+      ariaLabel="动作详情"
+      bodyClassName="custom-scrollbar flex-1 space-y-md overflow-y-auto p-md"
+      footer={
+        primaryAction && exercise ? (
+          <div className="shrink-0 border-t border-slate-100 bg-white p-md shadow-[0_-8px_24px_rgba(15,23,42,0.06)]">
+            <button
+              className="flex w-full items-center justify-center gap-xs rounded-xl bg-primary px-md py-sm font-label-md text-label-md font-bold text-white transition-colors hover:bg-primary-deep"
+              onClick={primaryAction.onClick}
+              type="button"
+            >
+              {primaryAction.icon ? (
+                <SymbolIcon className="text-[18px]">{primaryAction.icon}</SymbolIcon>
+              ) : null}
+              {primaryAction.label}
+            </button>
+          </div>
+        ) : null
+      }
+      footerClassName="shrink-0"
+      header={
+        exercise ? (
+          <div className="flex items-center justify-between border-b border-slate-100 bg-white px-lg py-md shadow-sm">
               <div className="flex items-center gap-xs">
                 <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary">
                   <SymbolIcon className="text-[20px]">fitness_center</SymbolIcon>
@@ -276,10 +240,16 @@ export function ExercisePreviewSheet({
                 <SymbolIcon className="text-[20px]">close</SymbolIcon>
               </button>
             </div>
-
-            {/* 内部独立的独立滚动区 (卡片化堆叠流) */}
-            <div className="flex-1 overflow-y-auto p-md space-y-md custom-scrollbar">
-              
+        ) : null
+      }
+      headerClassName="shrink-0"
+      isOpen={isOpen && Boolean(exercise)}
+      onClose={onClose}
+      panelClassName="bg-slate-50"
+      widthClassName="sm:w-[460px]"
+    >
+      {exercise ? (
+        <>
               {/* 卡片一：动作视觉演示 (步骤图轮播 + 快切大按钮) */}
               <div className="bg-white shadow-sm rounded-2xl p-md border border-slate-100/60">
                 <h4 className="mb-sm flex items-center gap-xs font-label-sm text-label-sm font-bold text-slate-700">
@@ -465,26 +435,8 @@ export function ExercisePreviewSheet({
                   </p>
                 </div>
               ) : null}
-
-            </div>
-            {primaryAction ? (
-              <div className="shrink-0 border-t border-slate-100 bg-white p-md shadow-[0_-8px_24px_rgba(15,23,42,0.06)]">
-                <button
-                  className="flex w-full items-center justify-center gap-xs rounded-xl bg-primary px-md py-sm font-label-md text-label-md font-bold text-white transition-colors hover:bg-primary-deep"
-                  onClick={primaryAction.onClick}
-                  type="button"
-                >
-                  {primaryAction.icon ? (
-                    <SymbolIcon className="text-[18px]">{primaryAction.icon}</SymbolIcon>
-                  ) : null}
-                  {primaryAction.label}
-                </button>
-              </div>
-            ) : null}
-          </>
-        )}
-      </div>
-    </div>,
-    document.body
+        </>
+      ) : null}
+    </RightDrawer>
   );
 }
