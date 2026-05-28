@@ -2,6 +2,7 @@ import { clientRequest } from "@/lib/client/http/client-request";
 
 import type { ApiChatMessage } from "@/features/chat/types";
 import type { FitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
+import type { Exercise } from "@/lib/shared/exercises/types";
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
 import type { WorkoutPlanDraft } from "@/lib/shared/workout-plans/draft-schema";
 
@@ -9,6 +10,17 @@ type WorkoutPlanDraftResponse = {
   ok: boolean;
   message?: string;
   draft?: WorkoutPlanDraft;
+  candidates?: WorkoutPlanCandidateResponse;
+};
+
+export type WorkoutPlanDraftPayload = {
+  draft: WorkoutPlanDraft;
+  exercises: Exercise[];
+};
+
+type WorkoutPlanCandidateResponse = {
+  primaryCandidates?: Array<{ exercise?: Exercise }>;
+  supplementaryCandidates?: Array<{ exercise?: Exercise }>;
 };
 
 type ExerciseRecommendationResponse = {
@@ -45,7 +57,7 @@ export async function requestWorkoutPlanDraft(
   intent: unknown,
   conversationContext: FitnessConversationContext,
   parentTraceId?: string,
-) {
+): Promise<WorkoutPlanDraftPayload> {
   const data = await clientRequest<WorkoutPlanDraftResponse>("/api/ai/workout-plan", {
     method: "POST",
     body: {
@@ -64,7 +76,35 @@ export async function requestWorkoutPlanDraft(
     throw new Error("训练计划生成失败，请稍后重试。");
   }
 
-  return data.draft;
+  return {
+    draft: data.draft,
+    exercises: collectDraftExercisesFromCandidates(data.draft, data.candidates),
+  };
+}
+
+function collectDraftExercisesFromCandidates(
+  draft: WorkoutPlanDraft,
+  candidates?: WorkoutPlanCandidateResponse,
+) {
+  const draftExerciseIds = new Set(
+    draft.days.flatMap((day) => day.items.map((item) => item.exerciseId.toLowerCase())),
+  );
+  const exerciseById = new Map<string, Exercise>();
+
+  for (const candidate of [
+    ...(candidates?.primaryCandidates ?? []),
+    ...(candidates?.supplementaryCandidates ?? []),
+  ]) {
+    const exercise = candidate.exercise;
+
+    if (!exercise || !draftExerciseIds.has(exercise.id.toLowerCase())) {
+      continue;
+    }
+
+    exerciseById.set(exercise.id.toLowerCase(), exercise);
+  }
+
+  return [...exerciseById.values()];
 }
 
 export async function requestExerciseRecommendations(

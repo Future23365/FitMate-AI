@@ -25,6 +25,7 @@ import {
   selectMessagesForAiContext,
   type FitnessConversationContext,
 } from "@/lib/shared/chat/fitness-conversation-context";
+import type { Exercise } from "@/lib/shared/exercises/types";
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
 import type { WorkoutPlanDraft } from "@/lib/shared/workout-plans/draft-schema";
 
@@ -74,6 +75,7 @@ export function useChatController() {
   const [autoPlanGenerating, setAutoPlanGenerating] = useState<string | null>(null);
   const [autoRecommendationGenerating, setAutoRecommendationGenerating] = useState<string | null>(null);
   const [bubblePlans, setBubblePlans] = useState<Record<string, WorkoutPlanDraft>>({});
+  const [bubblePlanExercises, setBubblePlanExercises] = useState<Record<string, Exercise[]>>({});
   const [bubbleExerciseRecommendations, setBubbleExerciseRecommendations] = useState<
     Record<string, ExerciseRecommendationCard>
   >({});
@@ -108,6 +110,7 @@ export function useChatController() {
       setConversationId(matchedConversation.id);
       setMessages(matchedConversation.messages);
       setBubblePlans(matchedConversation.plans ?? {});
+      setBubblePlanExercises({});
       setBubbleExerciseRecommendations(matchedConversation.exerciseRecommendations ?? {});
       setDislikedExerciseIdsByMessage({});
       setConversationContext(
@@ -138,6 +141,7 @@ export function useChatController() {
       setConversationId(null);
       setMessages([]);
       setBubblePlans({});
+      setBubblePlanExercises({});
       setBubbleExerciseRecommendations({});
       setDislikedExerciseIdsByMessage({});
       setConversationContext(buildFitnessConversationContext([]));
@@ -220,11 +224,15 @@ export function useChatController() {
     parentTraceId?: string,
   ) {
     try {
-      const draft = await requestWorkoutPlanDraft(historyMessages, intent, context, parentTraceId);
+      const planPayload = await requestWorkoutPlanDraft(historyMessages, intent, context, parentTraceId);
 
       setBubblePlans((prev) => ({
         ...prev,
-        [messageId]: draft,
+        [messageId]: planPayload.draft,
+      }));
+      setBubblePlanExercises((prev) => ({
+        ...prev,
+        [messageId]: planPayload.exercises,
       }));
     } catch (err: unknown) {
       console.error("[SilentPlanGeneration] Error:", err);
@@ -572,6 +580,7 @@ export function useChatController() {
     autoRecommendationGenerating,
     autoPlanGenerating,
     bubbleExerciseRecommendations,
+    bubblePlanExercises,
     bubblePlanErrors,
     bubblePlans,
     composeExerciseRecommendations,

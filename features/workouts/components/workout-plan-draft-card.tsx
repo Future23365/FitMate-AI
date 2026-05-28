@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 
@@ -26,9 +26,11 @@ import {
 
 interface WorkoutPlanDraftCardProps {
   draft: WorkoutPlanDraft;
+  initialExercises?: Exercise[];
 }
 
 const placeholderImage = placeholderWorkoutImage;
+const emptyInitialExercises: Exercise[] = [];
 
 type ExerciseApiResponse = {
   item: Exercise;
@@ -42,6 +44,21 @@ function toDateKey(date: Date) {
 
 function findExerciseById(exerciseId: string, exerciseMap: Map<string, Exercise>) {
   return exerciseMap.get(exerciseId) ?? exerciseMap.get(exerciseId.toLowerCase());
+}
+
+function createExerciseMap(exercises: Exercise[] = []) {
+  const exerciseMap = new Map<string, Exercise>();
+
+  for (const exercise of exercises) {
+    exerciseMap.set(exercise.id, exercise);
+    exerciseMap.set(exercise.id.toLowerCase(), exercise);
+  }
+
+  return exerciseMap;
+}
+
+function collectDraftExerciseIds(draft: WorkoutPlanDraft) {
+  return [...new Set(draft.days.flatMap((day) => day.items.map((item) => item.exerciseId)))];
 }
 
 async function fetchExerciseById(exerciseId: string) {
@@ -100,7 +117,10 @@ function toFallbackPreviewExercise(item: WorkoutPlanItemDraft): Exercise {
   };
 }
 
-export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
+export function WorkoutPlanDraftCard({
+  draft,
+  initialExercises = emptyInitialExercises,
+}: WorkoutPlanDraftCardProps) {
   const router = useRouter();
   const [activeDayIndex, setActiveDayIndex] = useState(
     draft.days[0]?.dayIndex ?? 1
@@ -108,11 +128,22 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [scheduleRange, setScheduleRange] = useState<7 | 28>(28);
-  const [exerciseMap, setExerciseMap] = useState<Map<string, Exercise>>(() => new Map());
+  const [fetchedExerciseMap, setFetchedExerciseMap] = useState<Map<string, Exercise>>(() => new Map());
 
   const [activePreviewExercise, setActivePreviewExercise] = useState<Exercise | null>(null);
   const [activePreviewTip, setActivePreviewTip] = useState<string | undefined>();
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+
+  const initialExerciseMap = useMemo(() => createExerciseMap(initialExercises), [initialExercises]);
+  const exerciseMap = useMemo(() => {
+    const next = new Map(initialExerciseMap);
+
+    for (const [key, exercise] of fetchedExerciseMap) {
+      next.set(key, exercise);
+    }
+
+    return next;
+  }, [fetchedExerciseMap, initialExerciseMap]);
 
   const handleOpenPreview = (item: WorkoutPlanItemDraft) => {
     const exercise = findExerciseById(item.exerciseId, exerciseMap) ?? toFallbackPreviewExercise(item);
@@ -124,7 +155,7 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
     if (!findExerciseById(item.exerciseId, exerciseMap)) {
       void fetchExerciseById(item.exerciseId)
         .then((dbExercise) => {
-          setExerciseMap((current) => {
+          setFetchedExerciseMap((current) => {
             const next = new Map(current);
             next.set(dbExercise.id, dbExercise);
             next.set(dbExercise.id.toLowerCase(), dbExercise);
@@ -140,7 +171,51 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
 
   const isRoutineOnly = draft.days.length === 1;
   const draftKindLabel = isRoutineOnly ? "本次动作编排" : "训练计划";
+  const draftExerciseIds = useMemo(() => collectDraftExerciseIds(draft), [draft]);
 
+  useEffect(() => {
+    const missingExerciseIds = draftExerciseIds.filter(
+      (exerciseId) => !findExerciseById(exerciseId, exerciseMap),
+    );
+
+    if (missingExerciseIds.length === 0) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    // 计划卡片首屏需要动作快照；候选缺失或历史会话回放时，批量补齐详情。
+    void Promise.allSettled(missingExerciseIds.map((exerciseId) => fetchExerciseById(exerciseId))).then(
+      (results) => {
+        if (isCancelled) {
+          return;
+        }
+
+        const loadedExercises = results.flatMap((result) =>
+          result.status === "fulfilled" ? [result.value] : [],
+        );
+
+        if (loadedExercises.length === 0) {
+          return;
+        }
+
+        setFetchedExerciseMap((current) => {
+          const next = new Map(current);
+
+          for (const exercise of loadedExercises) {
+            next.set(exercise.id, exercise);
+            next.set(exercise.id.toLowerCase(), exercise);
+          }
+
+          return next;
+        });
+      },
+    );
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [draftExerciseIds, exerciseMap]);
 
   const activeDay = useMemo(() => {
     return draft.days.find((day) => day.dayIndex === activeDayIndex) ?? draft.days[0];
@@ -150,7 +225,7 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
     setIsSaving(true);
     try {
       const draftExercises = await fetchDraftExercises(draft, exerciseMap);
-      setExerciseMap((current) => {
+      setFetchedExerciseMap((current) => {
         const next = new Map(current);
         draftExercises.forEach((exercise) => {
           next.set(exercise.id, exercise);
@@ -350,9 +425,9 @@ export function WorkoutPlanDraftCard({ draft }: WorkoutPlanDraftCardProps) {
             <div className="space-y-sm">
               {activeDay.items.map((item, index) => {
                 const exercise = findExerciseById(item.exerciseId, exerciseMap);
-                const exerciseName = exercise?.nameZh || "未知动作";
-                const category = exercise?.categoryZh || "训练";
-                const equipment = exercise?.equipmentZh || "自重";
+                const exerciseName = exercise?.nameZh || item.exerciseId;
+                const category = exercise?.categoryZh || "加载中";
+                const equipment = exercise?.equipmentZh || "加载中";
                 const image = exercise?.imageUrls?.[0] || placeholderImage;
 
                 return (

@@ -90,6 +90,7 @@ export function ChatPage() {
     autoRecommendationGenerating,
     autoPlanGenerating,
     bubbleExerciseRecommendations,
+    bubblePlanExercises,
     bubblePlanErrors,
     bubblePlans,
     composeExerciseRecommendations,
@@ -274,7 +275,10 @@ export function ChatPage() {
                             {/* 3. 完美的计划预览卡片 */}
                             {bubblePlans[message.id] && (
                               <div className="mt-md">
-                                <WorkoutPlanDraftCard draft={bubblePlans[message.id]} />
+                                <WorkoutPlanDraftCard
+                                  draft={bubblePlans[message.id]}
+                                  initialExercises={bubblePlanExercises[message.id]}
+                                />
                               </div>
                             )}
 

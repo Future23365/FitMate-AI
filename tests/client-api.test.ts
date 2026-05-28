@@ -19,6 +19,7 @@ import { ClientRequestError } from "@/lib/client/http/client-request";
 import {
   createApiChatMessages,
   createConversationContext,
+  createExercise,
   createWorkoutRoutine,
   createWorkoutSchedule,
   createWorkoutPlanDraft,
@@ -34,7 +35,19 @@ describe("frontend API clients", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(new Response("stream", { status: 200 }))
-      .mockResolvedValueOnce(Response.json({ ok: true, draft: createWorkoutPlanDraft() }))
+      .mockResolvedValueOnce(
+        Response.json({
+          ok: true,
+          draft: createWorkoutPlanDraft(),
+          candidates: {
+            primaryCandidates: [
+              { exercise: createExercise({ id: "push-up", nameZh: "俯卧撑" }) },
+              { exercise: createExercise({ id: "unused", nameZh: "未使用动作" }) },
+            ],
+            supplementaryCandidates: [],
+          },
+        }),
+      )
       .mockResolvedValueOnce(Response.json({ ok: false, message: "推荐失败" }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -44,7 +57,15 @@ describe("frontend API clients", () => {
 
     await expect(requestChatStream(messages, context, false, signal)).resolves.toBeInstanceOf(Response);
     await expect(requestWorkoutPlanDraft(messages, createWorkoutPlanIntent(), context, "trace-1")).resolves.toMatchObject({
-      title: "居家胸肌训练",
+      draft: {
+        title: "居家胸肌训练",
+      },
+      exercises: [
+        {
+          id: "push-up",
+          nameZh: "俯卧撑",
+        },
+      ],
     });
     await expect(
       requestExerciseRecommendations(messages, createWorkoutPlanIntent(), context, "trace-1", {
