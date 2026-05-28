@@ -78,12 +78,13 @@ describe("shared schemas", () => {
     expect(exerciseRecommendationCardSchema.safeParse({ title: "空推荐", goal: "胸肌", items: [] }).success).toBe(
       false,
     );
-    expect(exerciseListQuerySchema.parse({ page: "2", published: "true", q: "  俯卧撑  ", workoutSection: "warmup" })).toMatchObject({
+    expect(exerciseListQuerySchema.parse({ page: "2", published: "true", q: "  俯卧撑  ", suitability: "warmup" })).toMatchObject({
       page: 2,
       published: true,
       q: "俯卧撑",
-      workoutSection: "warmup",
+      suitability: "warmup",
     });
+    expect(exerciseListQuerySchema.safeParse({ suitability: "all" }).success).toBe(false);
     expect(exerciseListQuerySchema.safeParse({ offset: "-1" }).success).toBe(false);
   });
 

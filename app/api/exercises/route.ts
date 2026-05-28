@@ -21,6 +21,6 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     ...result,
-    facets: await getExerciseFacets(),
+    facets: await getExerciseFacets({ suitability: parsedQuery.data.suitability }),
   });
 }

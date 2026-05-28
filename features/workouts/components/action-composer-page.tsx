@@ -14,7 +14,7 @@ import {
   saveWorkoutRoutine,
 } from "@/features/workouts/api/workout-data-client";
 import { clientRequest } from "@/lib/client/http/client-request";
-import type { Exercise, ExerciseFacets } from "@/lib/shared/exercises/types";
+import type { Exercise, ExerciseFacets, ExerciseSuitability } from "@/lib/shared/exercises/types";
 import {
   clampLoopRounds,
   defaultSetRestSeconds,
@@ -55,7 +55,19 @@ type TemplateExerciseConfig = {
   transitionRestSeconds?: number;
 };
 
+type LibrarySuitabilityFilter = "all" | ExerciseSuitability;
+
 const sectionConfigs = workoutSectionConfigs;
+const librarySuitabilityOptions: Array<{
+  id: LibrarySuitabilityFilter;
+  label: string;
+  icon: string;
+}> = [
+  { id: "all", label: "全部", icon: "select_all" },
+  { id: "warmup", label: "适合热身", icon: "local_fire_department" },
+  { id: "training", label: "适合主训练", icon: "fitness_center" },
+  { id: "stretch", label: "适合拉伸", icon: "self_improvement" },
+];
 const defaultExerciseFacets: ExerciseFacets = {
   categories: [],
   levels: [],
@@ -208,6 +220,10 @@ function changeNumber(value: number, delta: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value + delta));
 }
 
+function hasFacetValue(options: ExerciseFacets["categories"], value: string) {
+  return !value || options.some((option) => option.value === value || option.label === value);
+}
+
 async function fetchTemplateExercise(config: TemplateExerciseConfig) {
   const params = new URLSearchParams({
     pageSize: "20",
@@ -243,7 +259,8 @@ export function ActionComposerPage() {
   const [libraryFacets, setLibraryFacets] = useState<ExerciseFacets>(defaultExerciseFacets);
   const [libraryQuery, setLibraryQuery] = useState("");
   const [libraryCategory, setLibraryCategory] = useState("");
-  const [libraryWorkoutSection, setLibraryWorkoutSection] = useState<WorkoutSection>("training");
+  const [librarySuitabilityFilter, setLibrarySuitabilityFilter] =
+    useState<LibrarySuitabilityFilter>("all");
   const [libraryMuscle, setLibraryMuscle] = useState("");
   const [libraryEquipment, setLibraryEquipment] = useState("");
   const [libraryLevel, setLibraryLevel] = useState("");
@@ -295,6 +312,7 @@ export function ActionComposerPage() {
       pageSize: "30",
       sort: "name_asc",
     });
+    setIsLoadingLibrary(true);
 
     if (libraryQuery.trim()) {
       params.set("q", libraryQuery.trim());
@@ -304,7 +322,9 @@ export function ActionComposerPage() {
       params.set("category", libraryCategory);
     }
 
-    params.set("workoutSection", libraryWorkoutSection);
+    if (librarySuitabilityFilter !== "all") {
+      params.set("suitability", librarySuitabilityFilter);
+    }
 
     if (libraryMuscle) {
       params.set("muscle", libraryMuscle);
@@ -363,7 +383,47 @@ export function ActionComposerPage() {
     libraryLevel,
     libraryMuscle,
     libraryQuery,
-    libraryWorkoutSection,
+    librarySuitabilityFilter,
+  ]);
+
+  useEffect(() => {
+    let didClearInvalidFilter = false;
+
+    if (!hasFacetValue(libraryFacets.categories, libraryCategory)) {
+      setLibraryCategory("");
+      didClearInvalidFilter = true;
+    }
+
+    if (!hasFacetValue(libraryFacets.muscles, libraryMuscle)) {
+      setLibraryMuscle("");
+      didClearInvalidFilter = true;
+    }
+
+    if (!hasFacetValue(libraryFacets.equipment, libraryEquipment)) {
+      setLibraryEquipment("");
+      didClearInvalidFilter = true;
+    }
+
+    if (!hasFacetValue(libraryFacets.levels, libraryLevel)) {
+      setLibraryLevel("");
+      didClearInvalidFilter = true;
+    }
+
+    if (!hasFacetValue(libraryFacets.homeRequirements, libraryHomeRequirement)) {
+      setLibraryHomeRequirement("");
+      didClearInvalidFilter = true;
+    }
+
+    if (didClearInvalidFilter) {
+      setSaveStatus("已清除与当前用途不匹配的筛选");
+    }
+  }, [
+    libraryCategory,
+    libraryEquipment,
+    libraryFacets,
+    libraryHomeRequirement,
+    libraryLevel,
+    libraryMuscle,
   ]);
 
   useEffect(() => {
@@ -988,20 +1048,20 @@ export function ActionComposerPage() {
               value={libraryQuery}
             />
           </div>
-          <div className="mb-sm grid grid-cols-3 gap-xs rounded-xl border border-line bg-surface-container-lowest p-xs">
-            {sectionConfigs.map((section) => (
+          <div className="mb-sm grid grid-cols-2 gap-xs rounded-xl border border-line bg-surface-container-lowest p-xs">
+            {librarySuitabilityOptions.map((option) => (
               <button
                 className={`flex min-w-0 flex-col items-center gap-[2px] rounded-lg px-xs py-xs text-[10px] font-bold transition-colors ${
-                  libraryWorkoutSection === section.id
+                  librarySuitabilityFilter === option.id
                     ? "bg-primary text-white"
                     : "text-on-surface-variant hover:bg-primary-soft hover:text-primary"
                 }`}
-                key={section.id}
-                onClick={() => setLibraryWorkoutSection(section.id)}
+                key={option.id}
+                onClick={() => setLibrarySuitabilityFilter(option.id)}
                 type="button"
               >
-                <SymbolIcon className="text-[17px]">{section.icon}</SymbolIcon>
-                <span className="w-full truncate">{section.title}</span>
+                <SymbolIcon className="text-[17px]">{option.icon}</SymbolIcon>
+                <span className="w-full truncate">{option.label}</span>
               </button>
             ))}
           </div>

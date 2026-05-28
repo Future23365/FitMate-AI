@@ -8,6 +8,7 @@ import type {
   ExerciseListQuery,
   ExerciseListResult,
   ExerciseSort,
+  ExerciseSuitability,
 } from "@/lib/shared/exercises/types";
 
 const DEFAULT_LIMIT = 24;
@@ -18,6 +19,8 @@ const levelRank: Record<string, number> = {
   intermediate: 2,
   expert: 3,
 };
+
+export type ExerciseSuitabilityFlags = Record<ExerciseSuitability, boolean>;
 
 export async function listAllExercises(): Promise<Exercise[]> {
   return listExerciseRecords();
@@ -48,19 +51,23 @@ export async function getExerciseById(id: string): Promise<Exercise | null> {
   return getExerciseRecordById(id);
 }
 
-export async function getExerciseFacets(): Promise<ExerciseFacets> {
+export async function getExerciseFacets(scope: Pick<ExerciseListQuery, "suitability"> = {}): Promise<ExerciseFacets> {
   const exercises = await listExerciseRecords();
+  const suitability = scope.suitability;
+  const scopedExercises = suitability
+    ? exercises.filter((exercise) => getExerciseSuitability(exercise)[suitability])
+    : exercises;
 
   return {
-    categories: collectFacet(exercises, "category", "categoryZh"),
-    levels: collectFacet(exercises, "level", "levelZh"),
-    force: collectFacet(exercises, "force", "forceZh"),
-    mechanics: collectFacet(exercises, "mechanic", "mechanicZh"),
-    equipment: collectFacet(exercises, "equipment", "equipmentZh"),
-    homeRequirements: collectFacet(exercises, "homeRequirement", "homeRequirementZh"),
-    muscles: collectArrayFacet(exercises, "primaryMuscles", "primaryMusclesZh"),
-    goalTags: collectTagFacet(exercises, "goalTags"),
-    riskTags: collectTagFacet(exercises, "riskTags"),
+    categories: collectFacet(scopedExercises, "category", "categoryZh"),
+    levels: collectFacet(scopedExercises, "level", "levelZh"),
+    force: collectFacet(scopedExercises, "force", "forceZh"),
+    mechanics: collectFacet(scopedExercises, "mechanic", "mechanicZh"),
+    equipment: collectFacet(scopedExercises, "equipment", "equipmentZh"),
+    homeRequirements: collectFacet(scopedExercises, "homeRequirement", "homeRequirementZh"),
+    muscles: collectArrayFacet(scopedExercises, "primaryMuscles", "primaryMusclesZh"),
+    goalTags: collectTagFacet(scopedExercises, "goalTags"),
+    riskTags: collectTagFacet(scopedExercises, "riskTags"),
   };
 }
 
@@ -73,7 +80,7 @@ function matchesExerciseQuery(exercise: Exercise, query: ExerciseListQuery) {
     return false;
   }
 
-  if (query.workoutSection && inferExerciseWorkoutSection(exercise) !== query.workoutSection) {
+  if (query.suitability && !getExerciseSuitability(exercise)[query.suitability]) {
     return false;
   }
 
@@ -128,29 +135,45 @@ function matchesExerciseQuery(exercise: Exercise, query: ExerciseListQuery) {
   return true;
 }
 
-// 动作库阶段筛选复用现有动作元数据做服务端推断，确保先过滤再分页。
-function inferExerciseWorkoutSection(exercise: Exercise): NonNullable<ExerciseListQuery["workoutSection"]> {
+// 根据现有动作元数据派生非互斥用途适配结果，供右侧动作库筛选和 facets 复用。
+export function getExerciseSuitability(exercise: Exercise): ExerciseSuitabilityFlags {
   const text = normalizeSearchText(
     [
       exercise.category,
       exercise.categoryZh,
+      exercise.level,
+      exercise.levelZh,
       exercise.nameEn,
       exercise.nameZh,
+      ...exercise.riskTags,
       ...exercise.goalTags,
     ]
       .filter(Boolean)
       .join(" "),
   );
+  const hasStretchSignal = /拉伸|伸展|放松|stretch|stretching|mobility/.test(text);
+  const hasWarmupSignal =
+    /热身|激活|动态|warmup|warm-up|activation|dynamic|有氧|cardio|开合跳|jumping jack|跑步|running|步行|walk|跳绳|rope|单车|bike|treadmill/.test(
+      text,
+    );
+  const hasTrainingSignal =
+    /力量|strength|力量举|powerlifting|增强式|plyometric|奥林匹克|olympic|大力士|strongman|有氧|cardio|训练|training/.test(
+      text,
+    );
+  const hasHighWarmupRisk =
+    /高冲击|high_impact|高风险|high_risk|奥林匹克|olympic|大力士|strongman|力量举|powerlifting|advanced|expert/.test(
+      text,
+    );
 
-  if (/拉伸|伸展|放松|stretch|stretching|mobility/.test(text)) {
-    return "stretch";
-  }
+  const stretch = hasStretchSignal;
+  const warmup = hasWarmupSignal && !hasHighWarmupRisk;
+  const training = hasTrainingSignal || (!stretch && !warmup);
 
-  if (/热身|激活|动态|warmup|warm-up|activation|dynamic|有氧|cardio|开合跳|jumping jack|跑步|running|步行|walk|跳绳|rope|单车|bike|treadmill/.test(text)) {
-    return "warmup";
-  }
-
-  return "training";
+  return {
+    warmup,
+    training,
+    stretch,
+  };
 }
 
 function matchesMuscle(exercise: Exercise, muscle: string) {
