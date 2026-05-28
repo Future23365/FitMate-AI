@@ -1,7 +1,12 @@
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import { loadEnvConfig } from "@next/env";
+
 const manualLlmCaseCount = 20;
+
+loadEnvConfig(process.cwd());
+
 const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
 
 if (!apiKey) {
