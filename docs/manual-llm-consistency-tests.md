@@ -57,10 +57,12 @@ docs/manual-llm-consistency-latest-report.md
 - 动作推荐普通推荐和 `excludedExerciseIds` 排除
 - `WorkoutPlanIntent` 的 `plan`、`routine` 和默认值补齐
 - `WorkoutPlanDraft` 与 `WorkoutRoutineDraft`
+- “6 天计划”“每周 6 练”“未来 6 天每天练”的周期语义、周频率和日历范围区分
+- 长期计划非休息训练日必须包含 `warmup`、`training`、`stretch` 三段式 `sections`
 
 ## 断言策略
 
-结构化输出会做 JSON 解析和 Zod Schema 校验，并检查关键字段、候选动作 ID、排除动作和 routine 分段。
+结构化输出会做 JSON 解析和 Zod Schema 校验，并检查关键字段、候选动作 ID、排除动作、routine 分段和长期 plan 的周期化三段式训练日。
 
 自然语言输出不做全文快照匹配，只检查稳定语义和禁止项，例如：
 

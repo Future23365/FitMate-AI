@@ -158,6 +158,43 @@ function assertStructuredExpectations(testCase: ManualLlmCase, output: ParsedOut
     assertCondition(testCase, Array.isArray(record.days) && record.days.length > 0, "plan 草稿必须包含 days", output);
   }
 
+  if (expectation.requirePlanSections) {
+    const days = Array.isArray(record.days) ? record.days : [];
+
+    for (const day of days) {
+      const dayRecord = asRecord(day);
+
+      if (dayRecord?.isRestDay === true) {
+        continue;
+      }
+
+      const sections = Array.isArray(dayRecord?.sections)
+        ? dayRecord.sections.map((section) => asRecord(section)?.section ?? "")
+        : [];
+
+      for (const section of ["warmup", "training", "stretch"]) {
+        assertCondition(testCase, sections.includes(section), `plan 训练日缺少 ${section} 阶段`, {
+          day: dayRecord,
+          sections,
+        });
+      }
+    }
+  }
+
+  if (typeof expectation.expectedCycleLengthDays === "number") {
+    assertCondition(testCase, record.cycleLengthDays === expectation.expectedCycleLengthDays, "cycleLengthDays 不符合预期", {
+      expected: expectation.expectedCycleLengthDays,
+      actual: record.cycleLengthDays,
+    });
+  }
+
+  if (typeof expectation.expectedCalendarHorizonDays === "number") {
+    assertCondition(testCase, record.calendarHorizonDays === expectation.expectedCalendarHorizonDays, "calendarHorizonDays 不符合预期", {
+      expected: expectation.expectedCalendarHorizonDays,
+      actual: record.calendarHorizonDays,
+    });
+  }
+
   if (expectation.requireRoutineSections) {
     const sections = Array.isArray(record.sections)
       ? record.sections.map((section) => asRecord(section)?.section ?? "")
@@ -205,6 +242,14 @@ function collectExerciseIds(output: ParsedOutput) {
   if (Array.isArray(record.days)) {
     return record.days.flatMap((day) => {
       const dayRecord = asRecord(day);
+
+      if (Array.isArray(dayRecord?.sections)) {
+        return dayRecord.sections.flatMap((section) => {
+          const sectionRecord = asRecord(section);
+
+          return Array.isArray(sectionRecord?.items) ? collectExerciseIdsFromItems(sectionRecord.items) : [];
+        });
+      }
 
       return Array.isArray(dayRecord?.items) ? collectExerciseIdsFromItems(dayRecord.items) : [];
     });

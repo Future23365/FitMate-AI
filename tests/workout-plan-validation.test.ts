@@ -40,6 +40,60 @@ const exercises = [
   }),
 ];
 
+function createValidationDay(exerciseIds: string[]) {
+  return {
+    title: "Day 1",
+    focus: "胸部",
+    cycleDayIndex: 1,
+    dayType: "strength" as const,
+    isRestDay: false,
+    estimatedMinutes: 20,
+    recoveryNotes: [],
+    safetyNotes: [],
+    sections: [
+      {
+        section: "warmup" as const,
+        title: "热身",
+        items: [{
+          exerciseId: exerciseIds[0],
+          section: "warmup" as const,
+          mode: "duration" as const,
+          sets: 1,
+          target: 30,
+          setRestSeconds: 0,
+          transitionRestSeconds: 10,
+        }],
+      },
+      {
+        section: "training" as const,
+        title: "主训练",
+        items: exerciseIds.slice(1).map((exerciseId) => ({
+          exerciseId,
+          section: "training" as const,
+          mode: "reps" as const,
+          sets: 3,
+          target: 12,
+          setRestSeconds: 45,
+          transitionRestSeconds: 60,
+        })),
+      },
+      {
+        section: "stretch" as const,
+        title: "拉伸",
+        items: [{
+          exerciseId: "stretch",
+          section: "stretch" as const,
+          mode: "duration" as const,
+          sets: 1,
+          target: 30,
+          setRestSeconds: 0,
+          transitionRestSeconds: 0,
+        }],
+      },
+    ],
+  };
+}
+
 describe("workout plan candidate and validation services", () => {
   it("filters by target muscle, equipment, injury, avoidance, candidate sufficiency, and ordering", () => {
     const chestResult = selectExerciseCandidates(createWorkoutPlanIntent({ goal: "胸肌增肌", equipment: ["自重"] }), exercises);
@@ -76,37 +130,14 @@ describe("workout plan candidate and validation services", () => {
   it("validates exercise ids against store and candidate set", () => {
     const draft = createWorkoutPlanDraft({
       days: [
-        {
-          title: "Day 1",
-          focus: "胸部",
-          estimatedMinutes: 20,
-          safetyNotes: [],
-          items: [
-            {
-              exerciseId: "push-up",
-              mode: "reps",
-              sets: 3,
-              target: 12,
-              setRestSeconds: 45,
-              transitionRestSeconds: 60,
-            },
-            {
-              exerciseId: "unknown",
-              mode: "duration",
-              sets: 1,
-              target: 30,
-              setRestSeconds: 30,
-              transitionRestSeconds: 0,
-            },
-          ],
-        },
+        createValidationDay(["warmup", "push-up", "unknown"]),
       ],
     });
 
     expect(validateWorkoutPlanDraftExerciseIds(draft, ["jump-squat"], exercises)).toMatchObject({
       valid: false,
       invalidExerciseIds: ["unknown"],
-      outsideCandidateExerciseIds: ["push-up"],
+      outsideCandidateExerciseIds: ["warmup", "push-up", "stretch"],
     });
 
     expect(
@@ -128,18 +159,47 @@ describe("workout plan candidate and validation services", () => {
       safetyNotes: [],
       days: [
         {
-          title: "Day 1",
+          ...createValidationDay(["warmup", "jump-squat"]),
           focus: "腿部",
-          estimatedMinutes: 5,
-          safetyNotes: [],
-          items: [
+          sections: [
             {
-              exerciseId: "jump-squat",
-              mode: "reps",
-              sets: 5,
-              target: 120,
-              setRestSeconds: 10,
-              transitionRestSeconds: 0,
+              section: "warmup" as const,
+              title: "热身",
+              items: [{
+                exerciseId: "warmup",
+                section: "warmup" as const,
+                mode: "duration" as const,
+                sets: 1,
+                target: 30,
+                setRestSeconds: 0,
+                transitionRestSeconds: 10,
+              }],
+            },
+            {
+              section: "training" as const,
+              title: "主训练",
+              items: [{
+                exerciseId: "jump-squat",
+                section: "training" as const,
+                mode: "reps" as const,
+                sets: 5,
+                target: 120,
+                setRestSeconds: 10,
+                transitionRestSeconds: 0,
+              }],
+            },
+            {
+              section: "stretch" as const,
+              title: "拉伸",
+              items: [{
+                exerciseId: "stretch",
+                section: "stretch" as const,
+                mode: "duration" as const,
+                sets: 1,
+                target: 30,
+                setRestSeconds: 0,
+                transitionRestSeconds: 0,
+              }],
             },
           ],
         },
@@ -148,7 +208,7 @@ describe("workout plan candidate and validation services", () => {
 
     const result = validateWorkoutPlanDraft(draft, intent, {
       exercises,
-      candidateExerciseIds: ["jump-squat"],
+      candidateExerciseIds: ["warmup", "jump-squat", "stretch"],
     });
 
     expect(result.valid).toBe(false);

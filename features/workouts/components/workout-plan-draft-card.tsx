@@ -15,14 +15,15 @@ import { WorkoutDraftExerciseItem } from "@/features/workouts/components/workout
 import type { Exercise } from "@/lib/shared/exercises/types";
 import type { WorkoutPlanDraft, WorkoutPlanItemDraft } from "@/lib/shared/workout-plans/draft-schema";
 import { convertWorkoutPlanDraftToWorkoutRoutine } from "@/features/workout-plans/lib/workout-routine-conversion";
-import { clientRequest } from "@/lib/client/http/client-request";
 import {
-  estimateWorkoutCalories,
-  estimateWorkoutMinutes,
-  getWorkoutTimingConfig,
-  placeholderWorkoutImage,
-  type WorkoutSchedule,
-} from "@/lib/shared/workouts/composition";
+  buildWorkoutPlanSchedules,
+  getWorkoutPlanImportOptions,
+  getWorkoutPlanTrainingDays,
+  selectWorkoutPlanSchedulesToReplace,
+  type WorkoutPlanImportOption,
+} from "@/features/workout-plans/lib/workout-plan-scheduling";
+import { clientRequest } from "@/lib/client/http/client-request";
+import { placeholderWorkoutImage, workoutSectionConfigs } from "@/lib/shared/workouts/composition";
 
 interface WorkoutPlanDraftCardProps {
   draft: WorkoutPlanDraft;
@@ -34,12 +35,6 @@ const emptyInitialExercises: Exercise[] = [];
 type ExerciseApiResponse = {
   item: Exercise;
 };
-
-function toDateKey(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
-    date.getDate(),
-  ).padStart(2, "0")}`;
-}
 
 function findExerciseById(exerciseId: string, exerciseMap: Map<string, Exercise>) {
   return exerciseMap.get(exerciseId) ?? exerciseMap.get(exerciseId.toLowerCase());
@@ -57,7 +52,13 @@ function createExerciseMap(exercises: Exercise[] = []) {
 }
 
 function collectDraftExerciseIds(draft: WorkoutPlanDraft) {
-  return [...new Set(draft.days.flatMap((day) => day.items.map((item) => item.exerciseId)))];
+  return [
+    ...new Set(
+      draft.days.flatMap((day) =>
+        day.sections.flatMap((section) => section.items.map((item) => item.exerciseId)),
+      ),
+    ),
+  ];
 }
 
 async function fetchExerciseById(exerciseId: string) {
@@ -70,9 +71,7 @@ async function fetchExerciseById(exerciseId: string) {
 }
 
 async function fetchDraftExercises(draft: WorkoutPlanDraft, cachedExercises: Map<string, Exercise>) {
-  const ids = [
-    ...new Set(draft.days.flatMap((day) => day.items.map((item) => item.exerciseId))),
-  ];
+  const ids = collectDraftExerciseIds(draft);
   const exercises = await Promise.all(
     ids.map(async (id) => findExerciseById(id, cachedExercises) ?? fetchExerciseById(id)),
   );
@@ -122,11 +121,12 @@ export function WorkoutPlanDraftCard({
 }: WorkoutPlanDraftCardProps) {
   const router = useRouter();
   const [activeDayIndex, setActiveDayIndex] = useState(
-    draft.days[0]?.dayIndex ?? 1
+    draft.days[0]?.cycleDayIndex ?? 1
   );
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [scheduleRange, setScheduleRange] = useState<7 | 28>(28);
+  const [selectedImportOptionId, setSelectedImportOptionId] =
+    useState<WorkoutPlanImportOption["id"]>("cycle-1");
   const [fetchedExerciseMap, setFetchedExerciseMap] = useState<Map<string, Exercise>>(() => new Map());
 
   const [activePreviewExercise, setActivePreviewExercise] = useState<Exercise | null>(null);
@@ -215,8 +215,17 @@ export function WorkoutPlanDraftCard({
   }, [draftExerciseIds, exerciseMap]);
 
   const activeDay = useMemo(() => {
-    return draft.days.find((day) => day.dayIndex === activeDayIndex) ?? draft.days[0];
+    return draft.days.find((day) => day.cycleDayIndex === activeDayIndex) ?? draft.days[0];
   }, [draft.days, activeDayIndex]);
+  const importOptions = useMemo(() => getWorkoutPlanImportOptions(draft), [draft]);
+  const selectedImportOption =
+    importOptions.find((option) => option.id === selectedImportOptionId) ??
+    importOptions[0] ?? {
+      id: "cycle-1",
+      label: "导入本周期",
+      repeatCount: 1,
+      daysToImport: draft.cycleLengthDays,
+    };
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -230,86 +239,35 @@ export function WorkoutPlanDraftCard({
         });
         return next;
       });
-      // 1. 全量保存 Routine
-      const draftRoutines = draft.days.map((day) => {
+      // 只为非休息训练日保存 routine，休息日会在日历中生成 rest schedule。
+      const draftRoutines = getWorkoutPlanTrainingDays(draft).map((day) => {
         const workout = convertWorkoutPlanDraftToWorkoutRoutine(draft, draftExercises, {
-          dayIndex: day.dayIndex,
+          dayIndex: day.cycleDayIndex,
         });
-        // 润色命名：[计划标题] 训练日标题
-        workout.title = `[${draft.title}] ${day.title || `训练日 ${day.dayIndex || 1}`}`;
-        return workout;
+        workout.title = `[${draft.title}] ${day.title || `训练日 ${day.cycleDayIndex || 1}`}`;
+        return {
+          cycleDayIndex: day.cycleDayIndex,
+          workout,
+        };
       });
-      const persistedWorkouts = await Promise.all(draftRoutines.map((workout) => createWorkoutRoutine(workout)));
+      const persistedWorkouts = await Promise.all(
+        draftRoutines.map(async ({ cycleDayIndex, workout }) => ({
+          cycleDayIndex,
+          routine: await createWorkoutRoutine(workout),
+        })),
+      );
 
-      // AI 长期计划保存后会按频次生成日历安排。
+      // AI 长期计划保存后按周期日序展开到日历，保留训练日和休息日节奏。
       {
         const today = new Date();
-        const trainingDaysMap: Record<number, number[]> = {
-          1: [3], // 周三
-          2: [2, 4], // 周二、周四
-          3: [1, 3, 5], // 周一、周三、周五
-          4: [1, 2, 4, 5], // 周一、周二、周四、周五
-          5: [1, 2, 3, 5, 6], // 周一、周二、周三、周五、周六
-          6: [1, 2, 3, 4, 5, 6], // 周一至周六
-          7: [1, 2, 3, 4, 5, 6, 7], // 每天
-        };
-
-        const newWorkoutSchedules: WorkoutSchedule[] = [];
-        let trainingDayCount = 0;
-
-        for (let d = 0; d < scheduleRange; d++) {
-          const targetDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() + d);
-          const dateKey = toDateKey(targetDate);
-          const dayOfWeek = targetDate.getDay() === 0 ? 7 : targetDate.getDay();
-          const isTrainingDay = (trainingDaysMap[draft.weeklyFrequency] || [1, 3, 5]).includes(dayOfWeek);
-
-          if (isTrainingDay) {
-            const workout = persistedWorkouts[trainingDayCount % persistedWorkouts.length];
-            const timingConfig = getWorkoutTimingConfig(workout);
-            trainingDayCount++;
-
-            newWorkoutSchedules.push({
-              id: `${workout.id}-${dateKey}-${crypto.randomUUID()}`,
-              date: dateKey,
-              routineId: workout.id,
-              title: workout.title,
-              status: "planned",
-              minutes: estimateWorkoutMinutes(workout.items, {
-                minimumMinutes: 15,
-                ...timingConfig,
-              }),
-              calories: estimateWorkoutCalories(workout.items, {
-                minimumCalories: 80,
-                ...timingConfig,
-              }),
-              items: workout.items,
-              ...timingConfig,
-              sourceRoutineTitle: draft.title,
-            });
-          } else {
-            newWorkoutSchedules.push({
-              id: `rest-${dateKey}-${crypto.randomUUID()}`,
-              date: dateKey,
-              title: "休息日",
-              status: "rest",
-              minutes: 0,
-              calories: 0,
-              items: [],
-              sourceRoutineTitle: draft.title,
-            });
-          }
-        }
-
-        // 只替换同一计划来源的旧安排，避免误删用户手动安排或其他计划。
-        const startRangeKey = toDateKey(today);
-        const endRangeDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() + scheduleRange - 1);
-        const endRangeKey = toDateKey(endRangeDate);
+        const newWorkoutSchedules = buildWorkoutPlanSchedules(draft, persistedWorkouts, {
+          startDate: today,
+          daysToImport: selectedImportOption.daysToImport,
+        });
         const existingSchedule = await listWorkoutSchedules();
-        const importedSessionsToReplace = existingSchedule.filter((item) => {
-          const isInRange = item.date >= startRangeKey && item.date <= endRangeKey;
-          const isSameImportedPlan = item.sourceRoutineTitle === draft.title;
-
-          return isInRange && isSameImportedPlan;
+        const importedSessionsToReplace = selectWorkoutPlanSchedulesToReplace(existingSchedule, draft, {
+          startDate: today,
+          daysToImport: selectedImportOption.daysToImport,
         });
 
         await Promise.all(importedSessionsToReplace.map((item) => deleteWorkoutSchedule(item.id)));
@@ -354,7 +312,11 @@ export function WorkoutPlanDraftCard({
           <div className="mt-sm flex flex-wrap gap-xs md:mt-0">
             <span className="inline-flex items-center gap-1 rounded-lg bg-panel-soft px-sm py-xs font-label-sm text-label-sm text-ink">
               <SymbolIcon className="text-[14px]">event_repeat</SymbolIcon>
-              每周 {draft.weeklyFrequency} 次
+              {draft.cycleLengthDays} 天周期
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-lg bg-panel-soft px-sm py-xs font-label-sm text-label-sm text-ink">
+              <SymbolIcon className="text-[14px]">exercise</SymbolIcon>
+              训练 {draft.trainingDayCount} 天 · 休息 {draft.restDayCount} 天
             </span>
             <span className="inline-flex items-center gap-1 rounded-lg bg-primary-soft px-sm py-xs font-label-sm text-label-sm font-bold text-primary">
               <SymbolIcon className="text-[14px]">schedule</SymbolIcon>
@@ -374,11 +336,22 @@ export function WorkoutPlanDraftCard({
           </div>
         )}
 
+        <div className="mt-md grid gap-sm md:grid-cols-2">
+          <div className="rounded-xl border border-line bg-panel-soft p-md">
+            <p className="font-label-xs text-label-xs font-bold text-muted">递进节奏</p>
+            <p className="mt-xs font-body-sm text-body-sm text-on-surface">{draft.progression}</p>
+          </div>
+          <div className="rounded-xl border border-line bg-panel-soft p-md">
+            <p className="font-label-xs text-label-xs font-bold text-muted">恢复策略</p>
+            <p className="mt-xs font-body-sm text-body-sm text-on-surface">{draft.recoveryStrategy}</p>
+          </div>
+        </div>
+
         {/* 训练日切换 Tabs */}
         {draft.days.length > 1 && (
           <div className="mt-lg flex gap-xs border-b border-outline-variant/30 pb-xs overflow-x-auto custom-scrollbar">
             {draft.days.map((day, idx) => {
-              const dayIdx = day.dayIndex ?? (idx + 1);
+              const dayIdx = day.cycleDayIndex ?? (idx + 1);
               return (
                 <button
                   key={dayIdx}
@@ -390,7 +363,7 @@ export function WorkoutPlanDraftCard({
                   }`}
                   type="button"
                 >
-                  <span>{day.title || `训练日 ${dayIdx}`}</span>
+                  <span>{day.isRestDay ? `休息 ${dayIdx}` : day.title || `训练日 ${dayIdx}`}</span>
                 </button>
               );
             })}
@@ -400,10 +373,10 @@ export function WorkoutPlanDraftCard({
         {/* 当前训练日计划详情 */}
         {activeDay && (
           <div className="mt-md space-y-md">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-xs md:flex-row md:items-center md:justify-between">
               <span className="font-label-sm text-label-sm font-bold text-on-surface-variant flex items-center gap-1">
                 <SymbolIcon className="text-[16px]">ads_click</SymbolIcon>
-                今日焦点：{activeDay.focus}
+                第 {activeDay.cycleDayIndex} 天 · {activeDay.dayType} · {activeDay.focus}
               </span>
               <span className="font-label-sm text-label-sm text-on-surface-variant flex items-center gap-1">
                 <SymbolIcon className="text-[16px]">timelapse</SymbolIcon>
@@ -411,25 +384,56 @@ export function WorkoutPlanDraftCard({
               </span>
             </div>
 
-            {/* 当天动作列表卡片流 */}
-            <div className="space-y-xs">
-              {activeDay.items.map((item, index) => {
-                const exercise = findExerciseById(item.exerciseId, exerciseMap);
+            {activeDay.isRestDay ? (
+              <div className="rounded-xl border border-line bg-panel-soft p-md">
+                <p className="font-body-sm text-body-sm text-on-surface">
+                  {(activeDay.recoveryNotes.length ? activeDay.recoveryNotes : activeDay.safetyNotes).join("；") ||
+                    "安排低强度恢复，保持轻松活动和充足睡眠。"}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-sm">
+                {workoutSectionConfigs.map((sectionConfig) => {
+                  const section = activeDay.sections.find((candidate) => candidate.section === sectionConfig.id);
 
-                return (
-                  <WorkoutDraftExerciseItem
-                    exercise={exercise}
-                    exerciseId={item.exerciseId}
-                    key={`${item.exerciseId}-${index}`}
-                    mode={item.mode}
-                    notes={item.notes}
-                    onOpenPreview={() => handleOpenPreview(item)}
-                    sets={item.sets}
-                    target={item.target}
-                  />
-                );
-              })}
-            </div>
+                  if (!section) {
+                    return null;
+                  }
+
+                  return (
+                    <div className="space-y-xs" key={section.section}>
+                      <div className="flex items-center gap-xs">
+                        <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary-soft text-primary">
+                          <SymbolIcon className="text-[15px]">{sectionConfig.icon}</SymbolIcon>
+                        </span>
+                        <div>
+                          <p className="font-label-sm text-label-sm font-bold text-on-surface">
+                            {sectionConfig.title}
+                          </p>
+                          <p className="font-label-xs text-label-xs text-muted">{section.title}</p>
+                        </div>
+                      </div>
+                      {section.items.map((item, index) => {
+                        const exercise = findExerciseById(item.exerciseId, exerciseMap);
+
+                        return (
+                          <WorkoutDraftExerciseItem
+                            exercise={exercise}
+                            exerciseId={item.exerciseId}
+                            key={`${section.section}-${item.exerciseId}-${index}`}
+                            mode={item.mode}
+                            notes={item.notes}
+                            onOpenPreview={() => handleOpenPreview(item)}
+                            sets={item.sets}
+                            target={item.target}
+                          />
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             {/* 本训练日专属安全建议 */}
             {activeDay.safetyNotes && activeDay.safetyNotes.length > 0 && (
@@ -449,35 +453,27 @@ export function WorkoutPlanDraftCard({
                   <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-primary">
                     <SymbolIcon className="text-[14px]">calendar_month</SymbolIcon>
                   </span>
-                  日历日程智能排班
+                  周期导入
                 </h4>
                 <p className="mt-xs font-body-xs text-body-xs text-on-surface-variant">
-                  智能排班系统将根据每周 {draft.weeklyFrequency} 次频次，规律合理地铺满您的训练日程。
+                  按 {draft.cycleLengthDays} 天周期重复铺排训练日和休息日。
                 </p>
               </div>
               <div className="flex items-center gap-xs rounded-xl bg-surface px-xs py-xs shadow-sm border border-outline-variant/30 shrink-0">
-                <button
-                  onClick={() => setScheduleRange(7)}
-                  className={`rounded-lg px-md py-xs font-label-sm text-label-sm font-bold transition-all ${
-                    scheduleRange === 7
-                      ? "bg-primary text-white shadow-sm"
-                      : "text-on-surface-variant hover:bg-surface-container-low"
-                  }`}
-                  type="button"
-                >
-                  未来 1 周
-                </button>
-                <button
-                  onClick={() => setScheduleRange(28)}
-                  className={`rounded-lg px-md py-xs font-label-sm text-label-sm font-bold transition-all ${
-                    scheduleRange === 28
-                      ? "bg-primary text-white shadow-sm"
-                      : "text-on-surface-variant hover:bg-surface-container-low"
-                  }`}
-                  type="button"
-                >
-                  未来 4 周 (推荐)
-                </button>
+                {importOptions.map((option) => (
+                  <button
+                    className={`rounded-lg px-md py-xs font-label-sm text-label-sm font-bold transition-all ${
+                      selectedImportOption.id === option.id
+                        ? "bg-primary text-white shadow-sm"
+                        : "text-on-surface-variant hover:bg-surface-container-low"
+                    }`}
+                    key={option.id}
+                    onClick={() => setSelectedImportOptionId(option.id)}
+                    type="button"
+                  >
+                    {option.label}
+                  </button>
+                ))}
               </div>
             </div>
         </div>
@@ -485,7 +481,7 @@ export function WorkoutPlanDraftCard({
         {/* 底部操作闭环区 */}
         <div className="mt-lg flex flex-col gap-md border-t border-outline-variant/40 pt-lg sm:flex-row sm:items-center sm:justify-between">
           <p className="font-label-xs text-label-xs text-on-surface-variant">
-            {`* 导入后将全量保存动作，并排定未来 ${scheduleRange === 7 ? "1" : "4"} 周的日历计划`}
+            {`* 导入后将保存训练日 routine，并排定未来 ${selectedImportOption.daysToImport} 天的周期日程`}
           </p>
           <button
             onClick={handleSave}

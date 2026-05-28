@@ -917,6 +917,7 @@ function createFallbackWorkoutIntent(
     experience: knownFacts?.experience ?? "beginner",
     sessionMinutes: knownFacts?.sessionMinutes ?? 30,
     weeklyFrequency: knownFacts?.weeklyFrequency ?? (intentType === "routine" ? 1 : 3),
+    calendarHorizonDays: knownFacts?.calendarHorizonDays,
     equipment: knownFacts?.equipment?.length ? knownFacts.equipment : [],
     injuryLimitations: knownFacts?.injuryLimitations?.length
       ? knownFacts.injuryLimitations

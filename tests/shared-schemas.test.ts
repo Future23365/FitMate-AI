@@ -28,6 +28,48 @@ describe("shared schemas", () => {
     expect(workoutPlanIntentSchema.safeParse(createWorkoutPlanIntent({ sessionMinutes: 5 })).success).toBe(false);
     expect(workoutPlanDraftSchema.safeParse(createWorkoutPlanDraft()).success).toBe(true);
     expect(workoutPlanDraftSchema.safeParse(createWorkoutPlanDraft({ days: [] })).success).toBe(false);
+    expect(workoutPlanDraftSchema.safeParse({ ...createWorkoutPlanDraft(), cycleLengthDays: undefined }).success).toBe(false);
+    expect(
+      workoutPlanDraftSchema.safeParse(
+        createWorkoutPlanDraft({
+          days: [
+            {
+              ...createWorkoutPlanDraft().days[0],
+              sections: createWorkoutPlanDraft().days[0].sections.filter((section) => section.section !== "warmup"),
+            },
+          ],
+        }),
+      ).success,
+    ).toBe(false);
+    expect(
+      workoutPlanDraftSchema.safeParse(
+        createWorkoutPlanDraft({
+          days: [
+            {
+              ...createWorkoutPlanDraft().days[0],
+              sections: [
+                {
+                  section: "warmup",
+                  title: "热身",
+                  items: [
+                    {
+                      exerciseId: "warmup",
+                      section: "training",
+                      mode: "duration",
+                      sets: 1,
+                      target: 30,
+                      setRestSeconds: 0,
+                      transitionRestSeconds: 0,
+                    },
+                  ],
+                },
+                ...createWorkoutPlanDraft().days[0].sections.slice(1),
+              ],
+            },
+          ],
+        }),
+      ).success,
+    ).toBe(false);
     expect(workoutRoutineDraftSchema.safeParse(createWorkoutRoutineDraft()).success).toBe(true);
     expect(workoutRoutineDraftSchema.safeParse(createWorkoutRoutineDraft({ sections: [] })).success).toBe(false);
     expect(

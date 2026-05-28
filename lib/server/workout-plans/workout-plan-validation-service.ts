@@ -7,6 +7,7 @@ import {
   workoutRoutineDraftSchema,
   type WorkoutRoutineDraft,
   type WorkoutDayDraft,
+  type WorkoutPlanItemDraft,
   type WorkoutPlanDraft,
   type WorkoutPlanIntent,
 } from "@/lib/shared/workout-plans/draft-schema";
@@ -24,6 +25,8 @@ export type WorkoutPlanValidationIssueCode =
   | "invalid_exercise_id"
   | "outside_candidate_exercise_id"
   | "empty_candidate_set"
+  | "cycle_structure_mismatch"
+  | "day_similarity_high"
   | "weekly_frequency_mismatch"
   | "session_too_long"
   | "day_estimate_mismatch"
@@ -121,17 +124,42 @@ export function validateWorkoutPlanDraft(
     });
   }
 
-  if (draft.weeklyFrequency !== intent.weeklyFrequency) {
+  if (draft.cycleLengthDays !== draft.days.length) {
+    errors.push({
+      code: "cycle_structure_mismatch",
+      message: `计划周期为 ${draft.cycleLengthDays} 天，但 days 包含 ${draft.days.length} 天。`,
+    });
+  }
+
+  if (draft.trainingDayCount !== draft.days.filter((day) => !day.isRestDay).length) {
+    errors.push({
+      code: "cycle_structure_mismatch",
+      message: "trainingDayCount 必须与非休息训练日数量一致。",
+    });
+  }
+
+  if (draft.restDayCount !== draft.days.filter((day) => day.isRestDay).length) {
+    errors.push({
+      code: "cycle_structure_mismatch",
+      message: "restDayCount 必须与休息日数量一致。",
+    });
+  }
+
+  if (draft.weeklyFrequency && draft.weeklyFrequency !== intent.weeklyFrequency) {
     warnings.push({
       code: "weekly_frequency_mismatch",
       message: `计划周频率为 ${draft.weeklyFrequency}，用户意图为 ${intent.weeklyFrequency}。`,
     });
   }
 
-  if (draft.days.length !== intent.weeklyFrequency) {
+  if (
+    draft.weeklyFrequency &&
+    draft.trainingDayCount !== draft.weeklyFrequency &&
+    !intent.calendarHorizonDays
+  ) {
     warnings.push({
       code: "weekly_frequency_mismatch",
-      message: `计划包含 ${draft.days.length} 个训练日，用户期望每周 ${intent.weeklyFrequency} 次。`,
+      message: `计划周期包含 ${draft.trainingDayCount} 个训练日，用户期望每周 ${intent.weeklyFrequency} 次。`,
     });
   }
 
@@ -169,8 +197,26 @@ export function validateWorkoutPlanDraft(
     }
   }
 
+  const trainingDaySignatures = new Map<string, number>();
   for (const [dayIndex, day] of draft.days.entries()) {
-    for (const item of day.items) {
+    const dayItems = getWorkoutDayItems(day);
+
+    if (!day.isRestDay) {
+      const signature = dayItems.map((item) => item.exerciseId).sort().join("|");
+      const previousIndex = trainingDaySignatures.get(signature);
+
+      if (previousIndex !== undefined && signature) {
+        errors.push({
+          code: "day_similarity_high",
+          dayIndex: dayIndex + 1,
+          message: `训练日「${day.title}」与第 ${previousIndex} 天动作组合高度重复。`,
+        });
+      }
+
+      trainingDaySignatures.set(signature, dayIndex + 1);
+    }
+
+    for (const item of dayItems) {
       const exercise = exerciseById.get(item.exerciseId);
 
       if (item.sets >= 5 && intent.experience === "beginner") {
@@ -399,22 +445,27 @@ export function validateWorkoutRoutineDraft(
 }
 
 function estimateWorkoutDay(day: WorkoutDayDraft, fallbackDayIndex: number): WorkoutPlanDayEstimate {
-  const seconds = day.items.reduce((total, item, index) => {
+  const items = getWorkoutDayItems(day);
+  const seconds = items.reduce((total, item, index) => {
     const activeSeconds = item.mode === "duration" ? item.target : item.target * 4;
     const setRestSeconds = item.setRestSeconds * Math.max(0, item.sets - 1);
-    const transitionRestSeconds = index < day.items.length - 1 ? item.transitionRestSeconds : 0;
+    const transitionRestSeconds = index < items.length - 1 ? item.transitionRestSeconds : 0;
 
     return total + activeSeconds * item.sets + setRestSeconds + transitionRestSeconds;
   }, 0);
 
   return {
-    dayIndex: day.dayIndex ?? fallbackDayIndex,
+    dayIndex: day.cycleDayIndex ?? fallbackDayIndex,
     title: day.title,
-    estimatedMinutes: Math.max(1, Math.round(seconds / 60)),
+    estimatedMinutes: items.length === 0 ? 0 : Math.max(1, Math.round(seconds / 60)),
     declaredEstimatedMinutes: day.estimatedMinutes,
-    totalSets: day.items.reduce((total, item) => total + item.sets, 0),
-    exerciseCount: day.items.length,
+    totalSets: items.reduce((total, item) => total + item.sets, 0),
+    exerciseCount: items.length,
   };
+}
+
+function getWorkoutDayItems(day: WorkoutDayDraft): WorkoutPlanItemDraft[] {
+  return day.sections.flatMap((section) => section.items);
 }
 
 function hasRelevantRisk(exercise: Exercise, intent: WorkoutPlanIntent) {

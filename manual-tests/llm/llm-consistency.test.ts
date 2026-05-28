@@ -393,8 +393,15 @@ function describeLocalResult(testCase: ManualLlmCase, content: string) {
     const items = Array.isArray(parsed.items) ? `items=${parsed.items.length}` : "";
     const days = Array.isArray(parsed.days) ? `days=${parsed.days.length}` : "";
     const sections = Array.isArray(parsed.sections) ? `sections=${parsed.sections.length}` : "";
+    const planSections = Array.isArray(parsed.days)
+      ? `planSections=${parsed.days.reduce((total, day) => {
+          const dayRecord = typeof day === "object" && day !== null ? day as Record<string, unknown> : {};
 
-    return [type, intentType ? `intentType=${String(intentType)}` : "", canTriggerAction, items, days, sections]
+          return total + (Array.isArray(dayRecord.sections) ? dayRecord.sections.length : 0);
+        }, 0)}`
+      : "";
+
+    return [type, intentType ? `intentType=${String(intentType)}` : "", canTriggerAction, items, days, sections, planSections]
       .filter(Boolean)
       .join("，") || "结构化输出已通过本地解析。";
   } catch {

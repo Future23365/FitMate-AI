@@ -118,10 +118,9 @@ export function selectExerciseCandidates(
     .filter((c) => c.score < primaryScoreThreshold)
     .slice(0, maxSupplementaryCandidates)
     .map((c) => ({ ...c, source: "supplementary" as const }));
-  const structuredSupplementaryCandidates =
-    intent.intentType === "routine"
-      ? mergeRoutineStructureCandidates(supplementaryCandidates, allScored, primaryCandidates)
-      : supplementaryCandidates;
+  const structuredSupplementaryCandidates = ["plan", "routine"].includes(intent.intentType)
+    ? mergeStructuredSectionCandidates(supplementaryCandidates, allScored, primaryCandidates)
+    : supplementaryCandidates;
 
   const totalCandidates = primaryCandidates.length + structuredSupplementaryCandidates.length;
   const relevantCandidateCount =
@@ -177,7 +176,11 @@ export function validateWorkoutPlanDraftExerciseIds(
   const allExerciseIds = new Set(exercises.map((exercise) => exercise.id));
   const candidateIds = new Set(candidateExerciseIds);
   const exerciseIds = [
-    ...new Set(draft.days.flatMap((day) => day.items.map((item) => item.exerciseId))),
+    ...new Set(
+      draft.days.flatMap((day) =>
+        day.sections.flatMap((section) => section.items.map((item) => item.exerciseId)),
+      ),
+    ),
   ];
   const invalidExerciseIds = exerciseIds.filter((exerciseId) => !allExerciseIds.has(exerciseId));
   const outsideCandidateExerciseIds = exerciseIds.filter(
@@ -405,7 +408,7 @@ function compareLevel(left: Exercise, right: Exercise) {
   return (rank[left.level ?? ""] ?? 99) - (rank[right.level ?? ""] ?? 99);
 }
 
-function mergeRoutineStructureCandidates(
+function mergeStructuredSectionCandidates(
   supplementaryCandidates: ExerciseCandidate[],
   allScored: Array<{ exercise: Exercise; score: number; reasons: string[] }>,
   primaryCandidates: ExerciseCandidate[],
@@ -417,7 +420,7 @@ function mergeRoutineStructureCandidates(
   const structuredCandidates = [...supplementaryCandidates];
 
   for (const candidate of allScored) {
-    if (selectedIds.has(candidate.exercise.id) || !isRoutineStructureCandidate(candidate.exercise)) {
+    if (selectedIds.has(candidate.exercise.id) || !isSectionStructureCandidate(candidate.exercise)) {
       continue;
     }
 
@@ -428,7 +431,7 @@ function mergeRoutineStructureCandidates(
     selectedIds.add(candidate.exercise.id);
     structuredCandidates.push({
       ...candidate,
-      reasons: [...candidate.reasons, "补充热身或拉伸阶段"],
+      reasons: [...candidate.reasons, "补充热身、拉伸或恢复阶段"],
       source: "supplementary",
     });
 
@@ -437,10 +440,10 @@ function mergeRoutineStructureCandidates(
   return structuredCandidates;
 }
 
-function isRoutineStructureCandidate(exercise: Exercise) {
+function isSectionStructureCandidate(exercise: Exercise) {
   const text = `${exercise.categoryZh ?? ""} ${exercise.nameZh} ${exercise.goalTags.join(" ")}`;
 
-  return /(热身|激活|动态|拉伸|伸展|放松|mobility|stretch)/i.test(text);
+  return /(热身|激活|动态|拉伸|伸展|放松|恢复|mobility|stretch|warmup|recovery)/i.test(text);
 }
 
 function resolveRequestedEquipment(equipment: string[]) {

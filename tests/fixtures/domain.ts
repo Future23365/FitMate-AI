@@ -69,7 +69,7 @@ export function createWorkoutItem(overrides: Partial<WorkoutItem> = {}): Workout
 }
 
 export function createWorkoutPlanIntent(overrides: Partial<WorkoutPlanIntent> = {}): WorkoutPlanIntent {
-  return {
+  const intent: WorkoutPlanIntent = {
     intentType: overrides.intentType ?? "routine",
     goal: overrides.goal ?? "胸肌训练",
     experience: overrides.experience ?? "beginner",
@@ -80,39 +80,110 @@ export function createWorkoutPlanIntent(overrides: Partial<WorkoutPlanIntent> = 
     preferences: overrides.preferences ?? ["居家训练"],
     avoidances: overrides.avoidances ?? [],
   };
+
+  if (overrides.calendarHorizonDays !== undefined) {
+    intent.calendarHorizonDays = overrides.calendarHorizonDays;
+  }
+
+  return intent;
 }
 
 export function createWorkoutPlanDraft(overrides: Partial<WorkoutPlanDraft> = {}): WorkoutPlanDraft {
-  const exerciseId = overrides.days?.[0]?.items[0]?.exerciseId ?? "push-up";
+  const exerciseId = overrides.days?.[0]?.sections?.[1]?.items[0]?.exerciseId ?? "push-up";
+  const days = overrides.days ?? [
+    {
+      title: "Day 1 胸肌激活",
+      focus: "胸部与核心",
+      cycleDayIndex: 1,
+      dayType: "strength" as const,
+      isRestDay: false,
+      estimatedMinutes: 20,
+      recoveryNotes: [],
+      safetyNotes: ["保持动作稳定。"],
+      sections: [
+        {
+          section: "warmup" as const,
+          title: "热身激活",
+          items: [
+            {
+              exerciseId: "warmup",
+              section: "warmup" as const,
+              mode: "duration" as const,
+              sets: 1,
+              target: 45,
+              setRestSeconds: 0,
+              transitionRestSeconds: 20,
+              notes: "逐步提升心率。",
+            },
+          ],
+        },
+        {
+          section: "training" as const,
+          title: "主训练",
+          items: [
+            {
+              exerciseId,
+              section: "training" as const,
+              mode: "reps" as const,
+              sets: 3,
+              target: 12,
+              setRestSeconds: 45,
+              transitionRestSeconds: 60,
+              notes: "保持身体成一直线。",
+            },
+          ],
+        },
+        {
+          section: "stretch" as const,
+          title: "拉伸放松",
+          items: [
+            {
+              exerciseId: "stretch",
+              section: "stretch" as const,
+              mode: "duration" as const,
+              sets: 1,
+              target: 40,
+              setRestSeconds: 0,
+              transitionRestSeconds: 0,
+              notes: "放松胸肩。",
+            },
+          ],
+        },
+      ],
+    },
+  ];
+  const trainingDayCount = days.filter((day) => !day.isRestDay).length;
+  const restDayCount = days.filter((day) => day.isRestDay).length;
 
-  return {
+  const draft: WorkoutPlanDraft = {
+    kind: "plan",
     title: overrides.title ?? "居家胸肌训练",
     goal: overrides.goal ?? "胸肌训练",
     summary: overrides.summary ?? "适合新手的居家训练。",
+    cycleLengthDays: overrides.cycleLengthDays ?? days.length,
+    trainingDayCount: overrides.trainingDayCount ?? trainingDayCount,
+    restDayCount: overrides.restDayCount ?? restDayCount,
+    cycleRepeatable: overrides.cycleRepeatable ?? true,
     weeklyFrequency: overrides.weeklyFrequency ?? 1,
     estimatedSessionMinutes: overrides.estimatedSessionMinutes ?? 30,
+    progression: overrides.progression ?? "先稳定完成动作，再逐步增加训练量。",
+    recoveryStrategy: overrides.recoveryStrategy ?? "训练日之间安排低强度恢复。",
+    schedulePattern: overrides.schedulePattern ?? days.map((day) => ({
+      cycleDayIndex: day.cycleDayIndex,
+      title: day.title,
+      dayType: day.dayType,
+      focus: day.focus,
+      isRestDay: day.isRestDay,
+    })),
     safetyNotes: overrides.safetyNotes ?? ["如有疼痛请停止训练。"],
-    days: overrides.days ?? [
-      {
-        title: "Day 1 胸肌激活",
-        focus: "胸部与核心",
-        dayIndex: 1,
-        estimatedMinutes: 20,
-        safetyNotes: ["保持动作稳定。"],
-        items: [
-          {
-            exerciseId,
-            mode: "reps",
-            sets: 3,
-            target: 12,
-            setRestSeconds: 45,
-            transitionRestSeconds: 60,
-            notes: "保持身体成一直线。",
-          },
-        ],
-      },
-    ],
+    days,
   };
+
+  if (overrides.calendarHorizonDays !== undefined) {
+    draft.calendarHorizonDays = overrides.calendarHorizonDays;
+  }
+
+  return draft;
 }
 
 export function createWorkoutRoutineDraft(overrides: Partial<WorkoutRoutineDraft> = {}): WorkoutRoutineDraft {

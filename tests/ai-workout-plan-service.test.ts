@@ -102,25 +102,6 @@ describe("AI workout plan orchestration boundaries", () => {
                   content: JSON.stringify(
                     createWorkoutPlanDraft({
                       weeklyFrequency: 1,
-                      days: [
-                        {
-                          title: "Day 1 胸肌训练",
-                          focus: "胸部",
-                          dayIndex: 1,
-                          estimatedMinutes: 20,
-                          safetyNotes: [],
-                          items: [
-                            {
-                              exerciseId: "push-up",
-                              mode: "reps",
-                              sets: 3,
-                              target: 12,
-                              setRestSeconds: 45,
-                              transitionRestSeconds: 30,
-                            },
-                          ],
-                        },
-                      ],
                     }),
                   ),
                 },

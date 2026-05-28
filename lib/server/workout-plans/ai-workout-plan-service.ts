@@ -237,6 +237,14 @@ export async function generateAiWorkoutPlanDraft(
       candidateExerciseIds: getCandidateExerciseIds(candidates),
     },
     output: validation,
+    metadata: {
+      kind: intentResult.intent.intentType,
+      candidateCount: getCandidateExerciseIds(candidates).length,
+      planCycle:
+        intentResult.intent.intentType === "plan"
+          ? summarizePlanCycle(draftResult.draft as WorkoutPlanDraft)
+          : undefined,
+    },
   });
 
   if (!validation.valid) {
@@ -279,6 +287,9 @@ export async function generateAiWorkoutPlanDraft(
     title: success.draft.title,
     kind: success.kind,
     weeklyFrequency: success.intent.weeklyFrequency,
+    cycleLengthDays: success.kind === "plan" ? success.draft.cycleLengthDays : undefined,
+    trainingDayCount: success.kind === "plan" ? success.draft.trainingDayCount : undefined,
+    restDayCount: success.kind === "plan" ? success.draft.restDayCount : undefined,
     candidateCount:
       success.candidates.primaryCandidates.length +
       success.candidates.supplementaryCandidates.length,
@@ -286,6 +297,19 @@ export async function generateAiWorkoutPlanDraft(
   });
 
   return success;
+}
+
+function summarizePlanCycle(draft: WorkoutPlanDraft) {
+  return {
+    cycleLengthDays: draft.cycleLengthDays,
+    trainingDayCount: draft.trainingDayCount,
+    restDayCount: draft.restDayCount,
+    weeklyFrequency: draft.weeklyFrequency,
+    calendarHorizonDays: draft.calendarHorizonDays,
+    missingSectionDays: draft.days
+      .filter((day) => !day.isRestDay && day.sections.length < 3)
+      .map((day) => day.cycleDayIndex),
+  };
 }
 
 async function extractWorkoutPlanIntent(

@@ -5,9 +5,14 @@ import {
   convertWorkoutPlanDraftToWorkoutRoutine,
   convertWorkoutRoutineDraftToWorkoutRoutine,
 } from "@/features/workout-plans/lib/workout-routine-conversion";
+import {
+  buildWorkoutPlanSchedules,
+  getWorkoutPlanImportOptions,
+  selectWorkoutPlanSchedulesToReplace,
+} from "@/features/workout-plans/lib/workout-plan-scheduling";
 import { selectExerciseCandidates } from "@/lib/server/workout-plans/exercise-candidate-service";
 import type { Exercise } from "@/lib/shared/exercises/types";
-import { workoutPlanIntentSchema } from "@/lib/shared/workout-plans/draft-schema";
+import { workoutPlanIntentSchema, type WorkoutDayDraft } from "@/lib/shared/workout-plans/draft-schema";
 import { normalizeWorkoutItem } from "@/lib/shared/workouts/composition";
 
 import {
@@ -23,6 +28,83 @@ function hasHighRiskHealthCondition(text: string): boolean {
   return /(胸痛|心脏病|心梗|中风|晕厥|昏厥|怀孕|孕期|产后|骨折|术后|手术后|高血压|糖尿病|癌症|肿瘤)/.test(
     text,
   );
+}
+
+function createPlanDay(
+  overrides: Partial<WorkoutDayDraft> & {
+    cycleDayIndex: number;
+    focus: string;
+    title: string;
+    trainingExerciseId?: string;
+  },
+): WorkoutDayDraft {
+  if (overrides.isRestDay) {
+    return {
+      title: overrides.title,
+      focus: overrides.focus,
+      cycleDayIndex: overrides.cycleDayIndex,
+      dayType: overrides.dayType ?? "rest",
+      isRestDay: true,
+      estimatedMinutes: overrides.estimatedMinutes ?? 0,
+      recoveryNotes: overrides.recoveryNotes ?? ["轻松活动并保证睡眠。"],
+      safetyNotes: overrides.safetyNotes ?? [],
+      sections: [],
+    };
+  }
+
+  const trainingExerciseId = overrides.trainingExerciseId ?? "push-up";
+
+  return {
+    title: overrides.title,
+    focus: overrides.focus,
+    cycleDayIndex: overrides.cycleDayIndex,
+    dayType: overrides.dayType ?? "strength",
+    isRestDay: false,
+    estimatedMinutes: overrides.estimatedMinutes ?? 20,
+    recoveryNotes: overrides.recoveryNotes ?? [],
+    safetyNotes: overrides.safetyNotes ?? [],
+    sections: overrides.sections ?? [
+      {
+        section: "warmup",
+        title: "热身",
+        items: [{
+          exerciseId: trainingExerciseId,
+          section: "warmup",
+          mode: "duration",
+          sets: 1,
+          target: 30,
+          setRestSeconds: 0,
+          transitionRestSeconds: 20,
+        }],
+      },
+      {
+        section: "training",
+        title: "主训练",
+        items: [{
+          exerciseId: trainingExerciseId,
+          section: "training",
+          mode: "reps",
+          sets: 2,
+          target: 12,
+          setRestSeconds: 30,
+          transitionRestSeconds: 30,
+        }],
+      },
+      {
+        section: "stretch",
+        title: "拉伸",
+        items: [{
+          exerciseId: trainingExerciseId,
+          section: "stretch",
+          mode: "duration",
+          sets: 1,
+          target: 30,
+          setRestSeconds: 0,
+          transitionRestSeconds: 0,
+        }],
+      },
+    ],
+  };
 }
 
 describe("workout plan core logic", () => {
@@ -126,33 +208,55 @@ describe("workout plan core logic", () => {
       weeklyFrequency: 3,
       estimatedSessionMinutes: 30,
       days: [
-        {
+        createPlanDay({
           title: "Day 1 核心激活",
           focus: "核心与下肢",
-          dayIndex: 1,
+          cycleDayIndex: 1,
           estimatedMinutes: 25,
           safetyNotes: ["训练前后注意拉伸"],
-          items: [
+          sections: [
             {
-              exerciseId: exerciseIds[0],
-              mode: "reps",
-              sets: 3,
-              target: 15,
-              setRestSeconds: 45,
-              transitionRestSeconds: 60,
-              notes: "注意核心收紧",
+              section: "warmup",
+              title: "热身",
+              items: [{
+                exerciseId: exerciseIds[0],
+                section: "warmup",
+                mode: "duration",
+                sets: 1,
+                target: 30,
+                setRestSeconds: 0,
+                transitionRestSeconds: 20,
+              }],
             },
             {
+              section: "training",
+              title: "主训练",
+              items: [{
               exerciseId: exerciseIds[1],
+              section: "training",
               mode: "duration",
               sets: 3,
               target: 30,
               setRestSeconds: 45,
               transitionRestSeconds: 60,
               notes: "平稳呼吸",
+              }],
+            },
+            {
+              section: "stretch",
+              title: "拉伸",
+              items: [{
+                exerciseId: exerciseIds[0],
+                section: "stretch",
+                mode: "duration",
+                sets: 1,
+                target: 30,
+                setRestSeconds: 0,
+                transitionRestSeconds: 0,
+              }],
             },
           ],
-        },
+        }),
       ],
     });
 
@@ -168,12 +272,11 @@ describe("workout plan core logic", () => {
       title: "Day 1 核心激活",
       updatedAt: "2026-05-25 10:30",
     });
-    expect(workoutRoutine.items).toHaveLength(2);
+    expect(workoutRoutine.items).toHaveLength(3);
+    expect(workoutRoutine.items.map((item) => item.section)).toEqual(["warmup", "training", "stretch"]);
     expect(workoutRoutine.items[0]).toMatchObject({
       exerciseId: exerciseIds[0],
-      sets: 3,
-      target: 15,
-      setRestSeconds: 45,
+      section: "warmup",
     });
     expect(workoutRoutine.items[0].imageUrls).toHaveLength(
       exercises.find((exercise) => exercise.id === exerciseIds[0])?.imageUrls.length ?? 0,
@@ -194,40 +297,19 @@ describe("workout plan core logic", () => {
     const draft = createWorkoutPlanDraft({
       title: "两日训练草稿",
       days: [
-        {
+        createPlanDay({
           title: "Day 1 上肢",
           focus: "上肢",
-          dayIndex: 1,
-          estimatedMinutes: 20,
-          safetyNotes: [],
-          items: [
-            {
-              exerciseId: exerciseIds[0],
-              mode: "reps",
-              sets: 2,
-              target: 12,
-              setRestSeconds: 30,
-              transitionRestSeconds: 30,
-            },
-          ],
-        },
-        {
+          cycleDayIndex: 1,
+          trainingExerciseId: exerciseIds[0],
+        }),
+        createPlanDay({
           title: "Day 2 下肢",
           focus: "下肢",
-          dayIndex: 2,
-          estimatedMinutes: 20,
-          safetyNotes: [],
-          items: [
-            {
-              exerciseId: exerciseIds[1],
-              mode: "duration",
-              sets: 2,
-              target: 30,
-              setRestSeconds: 30,
-              transitionRestSeconds: 30,
-            },
-          ],
-        },
+          cycleDayIndex: 2,
+          dayType: "mixed",
+          trainingExerciseId: exerciseIds[1],
+        }),
       ],
     });
 
@@ -242,7 +324,55 @@ describe("workout plan core logic", () => {
 
     expect(routines).toHaveLength(2);
     expect(routines.map((routine) => routine.title)).toEqual(["Day 1 上肢", "Day 2 下肢"]);
-    expect(routines[0].items[0].exerciseId).not.toBe(routines[1].items[0].exerciseId);
+    expect(routines[0].items[1].exerciseId).not.toBe(routines[1].items[1].exerciseId);
+  });
+
+  it("builds cycle-based workout schedules and scoped replacement range", () => {
+    const draft = createWorkoutPlanDraft({
+      title: "三日周期计划",
+      days: [
+        createPlanDay({ title: "Day 1 上肢", focus: "上肢", cycleDayIndex: 1 }),
+        createPlanDay({ title: "Day 2 恢复", focus: "恢复", cycleDayIndex: 2, isRestDay: true }),
+        createPlanDay({ title: "Day 3 下肢", focus: "下肢", cycleDayIndex: 3 }),
+      ],
+    });
+    const routineA = createWorkoutRoutineDraft();
+    const routine = convertWorkoutRoutineDraftToWorkoutRoutine(routineA, [
+      createExercise({ id: "warmup" }),
+      createExercise({ id: "push-up" }),
+      createExercise({ id: "stretch" }),
+    ], { id: "routine-1" });
+    const importOptions = getWorkoutPlanImportOptions(draft);
+    const schedules = buildWorkoutPlanSchedules(draft, [
+      { cycleDayIndex: 1, routine: { ...routine, id: "routine-1", title: "Day 1 上肢" } },
+      { cycleDayIndex: 3, routine: { ...routine, id: "routine-3", title: "Day 3 下肢" } },
+    ], {
+      startDate: new Date("2026-05-25T00:00:00"),
+      daysToImport: importOptions[1].daysToImport,
+      createId: () => "id",
+    });
+
+    expect(importOptions.map((option) => option.label)).toEqual(["导入本周期", "重复 2 个周期", "重复 4 个周期"]);
+    expect(schedules).toHaveLength(6);
+    expect(schedules.map((schedule) => schedule.status)).toEqual([
+      "planned",
+      "rest",
+      "planned",
+      "planned",
+      "rest",
+      "planned",
+    ]);
+
+    const replaceTargets = selectWorkoutPlanSchedulesToReplace([
+      schedules[0],
+      { ...schedules[0], id: "other", sourceRoutineTitle: "其他计划" },
+      { ...schedules[0], id: "outside", date: "2026-06-30" },
+    ], draft, {
+      startDate: new Date("2026-05-25T00:00:00"),
+      daysToImport: 6,
+    });
+
+    expect(replaceTargets.map((schedule) => schedule.id)).toEqual([schedules[0].id]);
   });
 
   it("converts routine draft sections and loop config to a saved workout routine", () => {

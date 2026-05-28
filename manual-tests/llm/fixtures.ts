@@ -22,6 +22,9 @@ export type LlmCaseExpectation = {
   requireCandidateExerciseIdsOnly?: boolean;
   requireRoutineSections?: boolean;
   requirePlanDays?: boolean;
+  requirePlanSections?: boolean;
+  expectedCycleLengthDays?: number;
+  expectedCalendarHorizonDays?: number;
 };
 
 // 单个手动 LLM 用例，按真实模型调用点组织输入和期望输出。
@@ -64,6 +67,19 @@ const planIntent: WorkoutPlanIntent = {
   injuryLimitations: [],
   preferences: ["居家训练"],
   avoidances: [],
+};
+
+const sixDayPlanIntent: WorkoutPlanIntent = {
+  ...planIntent,
+  goal: "6 天综合训练计划",
+  weeklyFrequency: 3,
+};
+
+const sixDayCalendarIntent: WorkoutPlanIntent = {
+  ...planIntent,
+  goal: "未来 6 天每天训练",
+  weeklyFrequency: 7,
+  calendarHorizonDays: 6,
 };
 
 const chestContext: FitnessConversationContext = {
@@ -394,6 +410,37 @@ export const manualLlmCases: ManualLlmCase[] = [
       allowedExerciseIds: manualLlmCandidateExercises.map((exercise) => exercise.id),
       requireCandidateExerciseIdsOnly: true,
       requirePlanDays: true,
+      requirePlanSections: true,
+    },
+  },
+  {
+    name: "训练草稿：6 天周期计划",
+    callSite: "workoutPlanDraftGeneration",
+    inputSummary: "用户要求 6 天计划时输出 cycleLengthDays=6",
+    messages: [{ role: "user", content: "帮我安排 6 天训练计划，每次 30 分钟，在家自重。" }],
+    conversationContext: emptyConversationContext(),
+    intent: sixDayPlanIntent,
+    expectation: {
+      outputSchema: "workoutPlanDraft",
+      allowedExerciseIds: manualLlmCandidateExercises.map((exercise) => exercise.id),
+      requireCandidateExerciseIdsOnly: true,
+      requirePlanSections: true,
+      expectedCycleLengthDays: 6,
+    },
+  },
+  {
+    name: "训练草稿：未来 6 天日历范围",
+    callSite: "workoutPlanDraftGeneration",
+    inputSummary: "用户要求未来 6 天每天练时输出 calendarHorizonDays=6",
+    messages: [{ role: "user", content: "未来 6 天每天练，每次 30 分钟，在家自重。" }],
+    conversationContext: emptyConversationContext(),
+    intent: sixDayCalendarIntent,
+    expectation: {
+      outputSchema: "workoutPlanDraft",
+      allowedExerciseIds: manualLlmCandidateExercises.map((exercise) => exercise.id),
+      requireCandidateExerciseIdsOnly: true,
+      requirePlanSections: true,
+      expectedCalendarHorizonDays: 6,
     },
   },
   {

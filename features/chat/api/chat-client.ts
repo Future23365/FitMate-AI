@@ -93,7 +93,7 @@ function collectDraftExercisesFromCandidates(
 ) {
   const draftExerciseIds = new Set(
     ("days" in draft
-      ? draft.days.flatMap((day) => day.items)
+      ? draft.days.flatMap((day) => day.sections.flatMap((section) => section.items))
       : draft.sections.flatMap((section) => section.items)
     ).map((item) => item.exerciseId.toLowerCase()),
   );

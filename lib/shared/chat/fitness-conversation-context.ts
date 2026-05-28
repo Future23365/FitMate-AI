@@ -16,6 +16,7 @@ export const fitnessConversationKnownFactsSchema = z.object({
   experience: workoutExperienceSchema.optional(),
   sessionMinutes: z.number().int().min(1).max(240).optional(),
   weeklyFrequency: z.number().int().min(1).max(7).optional(),
+  calendarHorizonDays: z.number().int().min(1).max(90).optional(),
   equipment: z.array(z.string().trim().min(1).max(40)).max(30).default([]),
   injuryLimitations: z.array(z.string().trim().min(1).max(120)).max(30).default([]),
   preferences: z.array(z.string().trim().min(1).max(80)).max(30).default([]),
@@ -203,6 +204,7 @@ function mergeIntentIntoFacts(
   knownFacts.experience = intent.experience;
   knownFacts.sessionMinutes = intent.sessionMinutes;
   knownFacts.weeklyFrequency = intent.weeklyFrequency;
+  knownFacts.calendarHorizonDays = intent.calendarHorizonDays;
   intent.equipment.forEach((item) => arrayFacts.equipment.add(item));
   intent.injuryLimitations.forEach((item) => arrayFacts.injuryLimitations.add(item));
   intent.preferences.forEach((item) => arrayFacts.preferences.add(item));
@@ -221,6 +223,7 @@ function mergeUserMessageFacts(
 ) {
   const minutes = extractSessionMinutes(content);
   const weeklyFrequency = extractWeeklyFrequency(content);
+  const calendarHorizonDays = extractCalendarHorizonDays(content);
   const experience = extractExperience(content);
   const goal = extractGoal(content);
 
@@ -230,6 +233,10 @@ function mergeUserMessageFacts(
 
   if (weeklyFrequency) {
     knownFacts.weeklyFrequency = weeklyFrequency;
+  }
+
+  if (calendarHorizonDays) {
+    knownFacts.calendarHorizonDays = calendarHorizonDays;
   }
 
   if (experience) {
@@ -260,6 +267,7 @@ function mergeKnownFactsIntoIntent(
     experience: knownFacts.experience ?? intent.experience,
     sessionMinutes: knownFacts.sessionMinutes ?? intent.sessionMinutes,
     weeklyFrequency: knownFacts.weeklyFrequency ?? intent.weeklyFrequency,
+    calendarHorizonDays: knownFacts.calendarHorizonDays ?? intent.calendarHorizonDays,
     equipment: knownFacts.equipment.length > 0 ? knownFacts.equipment : intent.equipment,
     injuryLimitations:
       knownFacts.injuryLimitations.length > 0
@@ -279,6 +287,7 @@ function buildContextSummary(
     knownFacts.experience ? `经验：${knownFacts.experience}` : "",
     knownFacts.sessionMinutes ? `单次时长：${knownFacts.sessionMinutes}分钟` : "",
     knownFacts.weeklyFrequency ? `频率：每周${knownFacts.weeklyFrequency}次` : "",
+    knownFacts.calendarHorizonDays ? `日历范围：未来${knownFacts.calendarHorizonDays}天` : "",
     knownFacts.equipment.length > 0 ? `器械：${knownFacts.equipment.join("、")}` : "",
     knownFacts.preferences.length > 0 ? `偏好：${knownFacts.preferences.join("、")}` : "",
     knownFacts.injuryLimitations.length > 0
@@ -306,6 +315,13 @@ function extractWeeklyFrequency(content: string) {
   const frequency = match ? Number(match[1]) : undefined;
 
   return frequency && frequency >= 1 && frequency <= 7 ? frequency : undefined;
+}
+
+function extractCalendarHorizonDays(content: string) {
+  const match = content.match(/未来\s*(\d{1,2})\s*天/);
+  const days = match ? Number(match[1]) : undefined;
+
+  return days && days >= 1 && days <= 90 ? days : undefined;
 }
 
 function extractExperience(content: string) {

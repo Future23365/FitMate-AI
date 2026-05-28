@@ -313,6 +313,8 @@ User
 | `exerciseRecommendation` | 绑定在该消息上的动作推荐卡片。 |
 | `conversationContext` | 结构化对话上下文。当前只写入最后一条消息，用于恢复长对话上下文。 |
 
+长期 `plan` 草稿当前不会单独落库为新的计划表，而是保存在 `ChatMessage.metadata.plan` 中，作为聊天消息上的结构化推送卡片。草稿包含 `cycleLengthDays`、`trainingDayCount`、`restDayCount`、`cycleRepeatable`、`progression`、`recoveryStrategy`、`schedulePattern` 和周期日 `days`；非休息周期日必须用 `warmup`、`training`、`stretch` 三段式 `sections` 表达动作，休息日只表达恢复说明。用户导入长期计划时，业务层只为非休息周期日创建 `WorkoutRoutine`，并把每个动作的 `section` 写入 `WorkoutRoutineItem.section`；随后按本周期、重复 2 个周期、重复 4 个周期或明确的 `calendarHorizonDays` 生成 `WorkoutSchedule`。重复导入时只替换同一 `sourceRoutineTitle` 且位于本次导入日期范围内的旧日程，避免误删手动安排或其他计划来源。
+
 ## 4. 关系与删除策略总结
 
 | 从表 | 关联主表 | 删除主表时的行为 | 设计原因 |
