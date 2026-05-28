@@ -231,6 +231,8 @@ async function fetchTemplateExercise(config: TemplateExerciseConfig) {
 
 export function ActionComposerPage() {
   const [planTitle, setPlanTitle] = useState("我的燃脂循环训练");
+  const [titleDraft, setTitleDraft] = useState(planTitle);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [items, setItems] = useState<WorkoutItem[]>([]);
   const [workoutRoutines, setWorkoutRoutines] = useState<WorkoutRoutine[]>([]);
   const [activeWorkoutRoutineId, setActiveWorkoutRoutineId] = useState("");
@@ -254,6 +256,7 @@ export function ActionComposerPage() {
   const [trainingLoopRestSeconds, setTrainingLoopRestSeconds] = useState(defaultTrainingLoopRestSeconds);
   const [activePreviewExercise, setActivePreviewExercise] = useState<Exercise | null>(null);
   const [activePreviewSource, setActivePreviewSource] = useState<"library" | "plan" | null>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
   const hasHandledInitialWorkoutLoadRef = useRef(false);
 
   useEffect(() => {
@@ -378,6 +381,15 @@ export function ActionComposerPage() {
     return () => window.clearTimeout(timer);
   }, [saveStatus]);
 
+  useEffect(() => {
+    if (!isEditingTitle) {
+      return;
+    }
+
+    titleInputRef.current?.focus();
+    titleInputRef.current?.select();
+  }, [isEditingTitle]);
+
   const selectedItem = items.find((item) => item.id === selectedItemId) ?? items[0];
   const selectedLibraryExercise =
     libraryItems.find((exercise) => exercise.id === selectedLibraryExerciseId) ?? libraryItems[0];
@@ -394,6 +406,29 @@ export function ActionComposerPage() {
 
   function updateItem(id: string, updater: (item: WorkoutItem) => WorkoutItem) {
     setItems((current) => current.map((item) => (item.id === id ? updater(item) : item)));
+  }
+
+  // 标题更新集中在这里，避免展示态标题和编辑态草稿在切换编排时出现不同步。
+  function applyPlanTitle(nextTitle: string) {
+    setPlanTitle(nextTitle);
+    setTitleDraft(nextTitle);
+    setIsEditingTitle(false);
+  }
+
+  function startTitleEdit() {
+    setTitleDraft(planTitle);
+    setIsEditingTitle(true);
+    setSaveStatus("");
+  }
+
+  function commitTitleEdit() {
+    const nextTitle = titleDraft.trim() || "未命名动作编排";
+    applyPlanTitle(nextTitle);
+  }
+
+  function cancelTitleEdit() {
+    setTitleDraft(planTitle);
+    setIsEditingTitle(false);
   }
 
   function addExercise(exercise: Exercise, section = selectedSection) {
@@ -494,7 +529,7 @@ export function ActionComposerPage() {
 
       const composedItems = [...nextItems, ...supplementalItems];
 
-      setPlanTitle("燃脂循环训练 A");
+      applyPlanTitle("燃脂循环训练 A");
       setTrainingLoopRounds(defaultTrainingLoopRounds);
       setTrainingLoopRestSeconds(defaultTrainingLoopRestSeconds);
       setItems(composedItems);
@@ -532,7 +567,7 @@ export function ActionComposerPage() {
   }
 
   function createNewComposition() {
-    setPlanTitle("新的动作编排");
+    applyPlanTitle("新的动作编排");
     setItems([]);
     setTrainingLoopRounds(defaultTrainingLoopRounds);
     setTrainingLoopRestSeconds(defaultTrainingLoopRestSeconds);
@@ -547,7 +582,7 @@ export function ActionComposerPage() {
     const normalizedWorkout = normalizeWorkoutRoutine(workout);
     const normalizedItems = normalizedWorkout.items;
 
-    setPlanTitle(normalizedWorkout.title);
+    applyPlanTitle(normalizedWorkout.title);
     setItems(normalizedItems);
     setTrainingLoopRounds(normalizedWorkout.trainingLoopRounds ?? 1);
     setTrainingLoopRestSeconds(normalizedWorkout.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds);
@@ -754,20 +789,72 @@ export function ActionComposerPage() {
         </section>
 
         <section className="mb-lg rounded-[20px] border border-line bg-white p-md shadow-card">
-          <div className="mb-lg flex flex-col gap-md rounded-xl border border-line bg-panel p-md md:flex-row md:items-center md:justify-between">
-            <div className="flex min-w-0 flex-1 items-center gap-sm">
-              <input
-                aria-label="训练计划名称"
-                className="min-w-0 flex-1 border-none bg-transparent font-title-lg text-title-lg font-extrabold outline-none focus:ring-0"
-                onChange={(event) => setPlanTitle(event.target.value)}
-                value={planTitle}
-              />
-              <SymbolIcon className="text-[18px] text-primary">edit</SymbolIcon>
+          <div className="mb-lg rounded-xl border border-line bg-panel p-md">
+            <div className="mb-md flex min-w-0 flex-col gap-sm md:flex-row md:items-center md:justify-between">
+              <div className="min-w-0 flex-1">
+                {isEditingTitle ? (
+                  <div className="flex min-w-0 items-center gap-xs">
+                    <input
+                      aria-label="编排名称"
+                      className="min-w-0 flex-1 rounded-xl border border-primary/35 bg-white px-md py-sm font-title-lg text-title-lg font-extrabold text-ink outline-none ring-4 ring-primary/10"
+                      onBlur={commitTitleEdit}
+                      onChange={(event) => setTitleDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          commitTitleEdit();
+                        }
+                        if (event.key === "Escape") {
+                          cancelTitleEdit();
+                        }
+                      }}
+                      ref={titleInputRef}
+                      value={titleDraft}
+                    />
+                    <button
+                      aria-label="确认编排名称"
+                      className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary text-white transition-colors hover:bg-primary-deep"
+                      onClick={commitTitleEdit}
+                      onMouseDown={(event) => event.preventDefault()}
+                      type="button"
+                    >
+                      <SymbolIcon className="text-[20px]">check</SymbolIcon>
+                    </button>
+                    <button
+                      aria-label="取消编辑编排名称"
+                      className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-outline-variant bg-white text-outline transition-colors hover:bg-surface-container-low"
+                      onClick={cancelTitleEdit}
+                      onMouseDown={(event) => event.preventDefault()}
+                      type="button"
+                    >
+                      <SymbolIcon className="text-[20px]">close</SymbolIcon>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex min-w-0 items-center gap-sm">
+                    <h2 className="truncate font-headline-md text-headline-md font-extrabold text-ink">
+                      {planTitle}
+                    </h2>
+                    <button
+                      aria-label="编辑编排名称"
+                      className="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-primary transition-colors hover:bg-primary-soft"
+                      onClick={startTitleEdit}
+                      type="button"
+                    >
+                      <SymbolIcon className="text-[20px]">edit</SymbolIcon>
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="flex shrink-0 items-center gap-xs rounded-xl bg-primary-soft px-md py-sm text-label-md font-bold text-primary">
+                <SymbolIcon className="text-[18px]">sync_alt</SymbolIcon>
+                训练循环 {trainingLoopRounds} 轮 · 间隙 {trainingLoopRestSeconds}s
+              </div>
             </div>
-            <div className="flex flex-wrap items-center gap-lg">
-              <Stat icon="schedule" label="min" value={totalMinutes} />
-              <Stat icon="format_list_numbered" label="动作" value={items.length} />
-              <Stat icon="local_fire_department" label="kcal" value={totalCalories} primary />
+            <div className="grid gap-sm sm:grid-cols-2 xl:grid-cols-4">
+              <CompositionMetric icon="schedule" label="预计时长" suffix="min" value={totalMinutes} />
+              <CompositionMetric icon="format_list_numbered" label="动作数量" suffix="个" value={items.length} />
+              <CompositionMetric icon="repeat" label="预计组数" suffix="组" value={totalSets} />
+              <CompositionMetric icon="local_fire_department" label="预估消耗" suffix="kcal" value={totalCalories} primary />
             </div>
           </div>
 
@@ -788,10 +875,6 @@ export function ActionComposerPage() {
                   添加到{section.title}
                 </button>
               ))}
-            </div>
-            <div className="flex shrink-0 items-center gap-xs rounded-xl bg-primary-soft px-md py-sm text-label-md font-bold text-primary">
-              <SymbolIcon className="text-[18px]">sync_alt</SymbolIcon>
-              训练循环 {trainingLoopRounds} 轮 · 间隙 {trainingLoopRestSeconds}s
             </div>
           </div>
 
@@ -876,7 +959,7 @@ export function ActionComposerPage() {
               icon="sync_alt"
               label="生成循环训练"
               onClick={() => {
-                setPlanTitle("循环训练计划");
+                applyPlanTitle("循环训练计划");
                 setTrainingLoopRounds(defaultTrainingLoopRounds);
                 setTrainingLoopRestSeconds(defaultTrainingLoopRestSeconds);
                 setSelectedSection("training");
@@ -1045,15 +1128,6 @@ export function ActionComposerPage() {
           </div>
         </section>
 
-        <section className="rounded-[20px] border border-primary/10 bg-primary/5 p-md">
-          <h2 className="mb-md font-label-md text-label-md font-bold">训练概览</h2>
-          <div className="grid grid-cols-2 gap-sm">
-            <OverviewTile label="训练时长" value={`${totalMinutes}m`} />
-            <OverviewTile label="总动作数" value={String(items.length)} />
-            <OverviewTile label="预计组数" value={`${totalSets}组`} />
-            <OverviewTile label="预估消耗" value={`${totalCalories}cal`} primary />
-          </div>
-        </section>
       </aside>
       <ExercisePreviewSheet
         exercise={activePreviewExercise}
@@ -1277,12 +1351,40 @@ function RoutineCompositionCard({
   );
 }
 
-function Stat({ icon, label, value, primary = false }: { icon: string; label: string; value: number; primary?: boolean }) {
+function CompositionMetric({
+  icon,
+  label,
+  primary = false,
+  suffix,
+  value,
+}: {
+  icon: string;
+  label: string;
+  primary?: boolean;
+  suffix: string;
+  value: number;
+}) {
   return (
-    <div className={`flex items-center gap-xs ${primary ? "text-primary" : "text-on-surface"}`}>
-      <SymbolIcon className={`text-xl ${primary ? "text-primary" : "text-outline"}`}>{icon}</SymbolIcon>
-      <span className="font-label-md text-label-md font-bold">
-        {value} <span className="text-[10px] font-normal opacity-70">{label}</span>
+    <div
+      className={`flex min-w-0 items-center gap-sm rounded-xl border px-md py-sm ${
+        primary
+          ? "border-primary/20 bg-primary-soft text-primary"
+          : "border-outline-variant bg-white text-ink"
+      }`}
+    >
+      <span
+        className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${
+          primary ? "bg-primary text-white" : "bg-surface-container-low text-primary"
+        }`}
+      >
+        <SymbolIcon className="text-[20px]">{icon}</SymbolIcon>
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate text-[10px] font-medium text-secondary">{label}</span>
+        <span className="block font-title-md text-title-md font-extrabold">
+          {value}
+          <span className="ml-[2px] text-[11px] font-medium text-secondary">{suffix}</span>
+        </span>
       </span>
     </div>
   );
@@ -1546,14 +1648,5 @@ function ToolbarButton({
       <SymbolIcon className="text-sm">{icon}</SymbolIcon>
       {label}
     </button>
-  );
-}
-
-function OverviewTile({ label, value, primary = false }: { label: string; value: string; primary?: boolean }) {
-  return (
-    <div className="rounded-xl bg-white/70 p-sm">
-      <p className="mb-xs text-[10px] text-outline">{label}</p>
-      <p className={`font-body-md text-body-md font-bold ${primary ? "text-primary" : ""}`}>{value}</p>
-    </div>
   );
 }
