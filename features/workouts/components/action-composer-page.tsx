@@ -789,8 +789,8 @@ export function ActionComposerPage() {
         </section>
 
         <section className="mb-lg rounded-[20px] border border-line bg-white p-md shadow-card">
-          <div className="mb-lg rounded-xl border border-line bg-panel p-md">
-            <div className="mb-md flex min-w-0 flex-col gap-sm md:flex-row md:items-center md:justify-between">
+          <div className="mb-lg rounded-xl border border-line bg-panel px-md py-sm">
+            <div className="flex min-w-0 items-center justify-between gap-md py-xs">
               <div className="min-w-0 flex-1">
                 {isEditingTitle ? (
                   <div className="flex min-w-0 items-center gap-xs">
@@ -845,12 +845,8 @@ export function ActionComposerPage() {
                   </div>
                 )}
               </div>
-              <div className="flex shrink-0 items-center gap-xs rounded-xl bg-primary-soft px-md py-sm text-label-md font-bold text-primary">
-                <SymbolIcon className="text-[18px]">sync_alt</SymbolIcon>
-                训练循环 {trainingLoopRounds} 轮 · 间隙 {trainingLoopRestSeconds}s
-              </div>
             </div>
-            <div className="grid gap-sm sm:grid-cols-2 xl:grid-cols-4">
+            <div className="mt-sm grid border-t border-line/70 pt-sm sm:grid-cols-2 xl:grid-cols-4">
               <CompositionMetric icon="schedule" label="预计时长" suffix="min" value={totalMinutes} />
               <CompositionMetric icon="format_list_numbered" label="动作数量" suffix="个" value={items.length} />
               <CompositionMetric icon="repeat" label="预计组数" suffix="组" value={totalSets} />
@@ -1366,24 +1362,19 @@ function CompositionMetric({
 }) {
   return (
     <div
-      className={`flex min-w-0 items-center gap-sm rounded-xl border px-md py-sm ${
-        primary
-          ? "border-primary/20 bg-primary-soft text-primary"
-          : "border-outline-variant bg-white text-ink"
-      }`}
+      className={`flex min-w-0 items-center gap-sm px-sm py-xs sm:px-md xl:border-l xl:first:border-l-0 ${
+        primary ? "text-primary" : "text-ink"
+      } border-line/70`}
     >
-      <span
-        className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${
-          primary ? "bg-primary text-white" : "bg-surface-container-low text-primary"
-        }`}
-      >
+      <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${primary ? "text-primary" : "text-outline"}`}>
         <SymbolIcon className="text-[20px]">{icon}</SymbolIcon>
       </span>
-      <span className="min-w-0">
-        <span className="block truncate text-[10px] font-medium text-secondary">{label}</span>
-        <span className="block font-title-md text-title-md font-extrabold">
+      <span className="min-w-0 flex items-baseline gap-xs">
+        <span className={`font-title-lg text-title-lg font-extrabold ${primary ? "text-primary" : "text-ink"}`}>
           {value}
-          <span className="ml-[2px] text-[11px] font-medium text-secondary">{suffix}</span>
+        </span>
+        <span className="truncate font-label-sm text-label-sm text-secondary">
+          {suffix} · {label}
         </span>
       </span>
     </div>
