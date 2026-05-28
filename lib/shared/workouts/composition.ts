@@ -30,6 +30,8 @@ export type WorkoutRoutine = {
   items: WorkoutItem[];
   trainingLoopRounds?: number;
   trainingLoopRestSeconds?: number;
+  warmupToTrainingRestSeconds?: number;
+  trainingToStretchRestSeconds?: number;
 };
 
 export type WorkoutScheduleStatus = "cancelled" | "completed" | "missed" | "planned" | "rest";
@@ -46,6 +48,8 @@ export type WorkoutSchedule = {
   items: WorkoutItem[];
   trainingLoopRounds?: number;
   trainingLoopRestSeconds?: number;
+  warmupToTrainingRestSeconds?: number;
+  trainingToStretchRestSeconds?: number;
   sourceRoutineTitle?: string;
 };
 
@@ -79,7 +83,7 @@ export type WorkoutTimelineExerciseStep = {
 export type WorkoutTimelineRestStep = {
   id: string;
   type: "rest";
-  reason: "between_exercises" | "between_loops" | "between_sets";
+  reason: "between_exercises" | "between_loops" | "between_sections" | "between_sets";
   durationSeconds: number;
   label: string;
   afterItem?: WorkoutItem;
@@ -122,6 +126,8 @@ export const defaultSetRestSeconds = 30;
 export const defaultTransitionRestSeconds = 20;
 export const defaultTrainingLoopRounds = 3;
 export const defaultTrainingLoopRestSeconds = 120;
+export const defaultWarmupToTrainingRestSeconds = 60;
+export const defaultTrainingToStretchRestSeconds = 60;
 export const defaultRepIntervalSeconds = 2;
 export const placeholderWorkoutImage = "/images/exercise-placeholder.svg";
 
@@ -172,6 +178,8 @@ export function normalizeWorkoutRoutine(routine: WorkoutRoutine): WorkoutRoutine
     items: routine.items.map(normalizeWorkoutItem),
     trainingLoopRounds: clampLoopRounds(routine.trainingLoopRounds ?? 1),
     trainingLoopRestSeconds: routine.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds,
+    warmupToTrainingRestSeconds: routine.warmupToTrainingRestSeconds ?? defaultWarmupToTrainingRestSeconds,
+    trainingToStretchRestSeconds: routine.trainingToStretchRestSeconds ?? defaultTrainingToStretchRestSeconds,
   };
 }
 
@@ -190,6 +198,23 @@ export function getWorkoutLoopConfig(routine: Pick<WorkoutRoutine, "trainingLoop
   return {
     trainingLoopRounds: clampLoopRounds(routine.trainingLoopRounds ?? 1),
     trainingLoopRestSeconds: routine.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds,
+  };
+}
+
+// 读取 routine 的完整时间配置，保证阶段间休息、循环和估算共用同一组默认值。
+export function getWorkoutTimingConfig(
+  routine: Pick<
+    WorkoutRoutine,
+    | "trainingLoopRestSeconds"
+    | "trainingLoopRounds"
+    | "trainingToStretchRestSeconds"
+    | "warmupToTrainingRestSeconds"
+  >,
+) {
+  return {
+    ...getWorkoutLoopConfig(routine),
+    warmupToTrainingRestSeconds: routine.warmupToTrainingRestSeconds ?? defaultWarmupToTrainingRestSeconds,
+    trainingToStretchRestSeconds: routine.trainingToStretchRestSeconds ?? defaultTrainingToStretchRestSeconds,
   };
 }
 
@@ -223,6 +248,8 @@ export function buildWorkoutTimeline(
   options: {
     trainingLoopRestSeconds?: number;
     trainingLoopRounds?: number;
+    trainingToStretchRestSeconds?: number;
+    warmupToTrainingRestSeconds?: number;
   } = {},
 ): WorkoutTimelineStep[] {
   const normalizedItems = items.map(normalizeWorkoutItem);
@@ -231,6 +258,8 @@ export function buildWorkoutTimeline(
   const stretchItems = getSectionItems(normalizedItems, "stretch");
   const rounds = clampLoopRounds(options.trainingLoopRounds ?? 1);
   const loopRestSeconds = options.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds;
+  const warmupToTrainingRestSeconds = options.warmupToTrainingRestSeconds ?? defaultWarmupToTrainingRestSeconds;
+  const trainingToStretchRestSeconds = options.trainingToStretchRestSeconds ?? defaultTrainingToStretchRestSeconds;
   const sequence = [
     ...warmupItems,
     ...Array.from({ length: rounds }, () => trainingItems).flat(),
@@ -279,15 +308,26 @@ export function buildWorkoutTimeline(
         nextSection === "training" &&
         trainingItems.length > 0 &&
         (trainingPosition + 1) % trainingItems.length === 0;
-      const restSeconds = isLoopBoundary ? loopRestSeconds : item.transitionRestSeconds;
+      const isWarmupToTrainingBoundary = section === "warmup" && nextSection === "training";
+      const isTrainingToStretchBoundary = section === "training" && nextSection === "stretch";
+      const isSectionBoundary = isWarmupToTrainingBoundary || isTrainingToStretchBoundary;
+      const restSeconds = isLoopBoundary
+        ? loopRestSeconds
+        : isWarmupToTrainingBoundary
+          ? warmupToTrainingRestSeconds
+          : isTrainingToStretchBoundary
+            ? trainingToStretchRestSeconds
+            : item.transitionRestSeconds;
 
       if (restSeconds > 0) {
         steps.push({
-          id: `${item.id}-${index}-${isLoopBoundary ? "loop-rest" : "transition-rest"}`,
+          id: `${item.id}-${index}-${
+            isLoopBoundary ? "loop-rest" : isSectionBoundary ? "section-rest" : "transition-rest"
+          }`,
           type: "rest",
-          reason: isLoopBoundary ? "between_loops" : "between_exercises",
+          reason: isLoopBoundary ? "between_loops" : isSectionBoundary ? "between_sections" : "between_exercises",
           durationSeconds: restSeconds,
-          label: isLoopBoundary ? "循环间隙" : "动作间休息",
+          label: isLoopBoundary ? "循环间隙" : isSectionBoundary ? "阶段间休息" : "动作间休息",
           afterItem: item,
           nextItem,
         });
@@ -309,6 +349,8 @@ export function estimateWorkoutSeconds(
   options: {
     trainingLoopRestSeconds?: number;
     trainingLoopRounds?: number;
+    trainingToStretchRestSeconds?: number;
+    warmupToTrainingRestSeconds?: number;
   } = {},
 ) {
   return buildWorkoutTimeline(items, options).reduce((total, step) => total + step.durationSeconds, 0);
@@ -321,6 +363,8 @@ export function estimateWorkoutMinutes(
     minimumMinutes?: number;
     trainingLoopRestSeconds?: number;
     trainingLoopRounds?: number;
+    trainingToStretchRestSeconds?: number;
+    warmupToTrainingRestSeconds?: number;
   } = {},
 ) {
   const minimumMinutes = options.minimumMinutes ?? 1;
@@ -334,6 +378,8 @@ export function estimateWorkoutCalories(
     minimumCalories?: number;
     trainingLoopRestSeconds?: number;
     trainingLoopRounds?: number;
+    trainingToStretchRestSeconds?: number;
+    warmupToTrainingRestSeconds?: number;
   } = {},
 ) {
   const expandedItems = expandWorkoutItems(items, options.trainingLoopRounds ?? 1);

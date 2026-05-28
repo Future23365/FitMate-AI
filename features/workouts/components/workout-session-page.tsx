@@ -39,7 +39,7 @@ import {
   estimateWorkoutMinutes,
   getWorkoutItemImageUrls,
   getRepIntervalSeconds,
-  getWorkoutLoopConfig,
+  getWorkoutTimingConfig,
   normalizeWorkoutItem,
   placeholderWorkoutImage,
   type WorkoutSchedule,
@@ -222,12 +222,11 @@ async function getScheduleFromDatabase(scheduleId: string) {
   const matchedPlan = await getWorkoutSchedule(scheduleId);
 
   if (matchedPlan && matchedPlan.items.length) {
-    const loopConfig = getWorkoutLoopConfig(matchedPlan);
+    const timingConfig = getWorkoutTimingConfig(matchedPlan);
     return {
       ...matchedPlan,
       items: matchedPlan.items.map(normalizeWorkoutItem),
-      trainingLoopRestSeconds: loopConfig.trainingLoopRestSeconds,
-      trainingLoopRounds: loopConfig.trainingLoopRounds,
+      ...timingConfig,
     };
   }
 
@@ -346,7 +345,7 @@ export function WorkoutSessionPage() {
   const voiceSettingsOpenFrameRef = useRef<number | null>(null);
   const voiceSettingsOpenNextFrameRef = useRef<number | null>(null);
 
-  const loopConfig = useMemo(() => getWorkoutLoopConfig(plan), [plan]);
+  const timingConfig = useMemo(() => getWorkoutTimingConfig(plan), [plan]);
   const voiceBroadcastConfig = useMemo(
     () => buildWorkoutVoiceBroadcastConfig(voiceSettings),
     [voiceSettings],
@@ -356,16 +355,16 @@ export function WorkoutSessionPage() {
     [availableVoices],
   );
   const steps = useMemo(
-    () => buildWorkoutTimeline(plan.items, loopConfig),
-    [loopConfig, plan.items],
+    () => buildWorkoutTimeline(plan.items, timingConfig),
+    [timingConfig, plan.items],
   );
   const activeStep = steps[activeStepIndex] ?? steps[0];
   const activeExerciseStep = activeStep?.type === "exercise" ? activeStep : null;
   const activeRestStep = activeStep?.type === "rest" ? activeStep : null;
   const isRestStep = Boolean(activeRestStep);
   const sessionListView = useMemo(
-    () => buildWorkoutSessionListView({ activeStepIndex, steps, trainingLoopRounds: loopConfig.trainingLoopRounds }),
-    [activeStepIndex, loopConfig.trainingLoopRounds, steps],
+    () => buildWorkoutSessionListView({ activeStepIndex, steps, trainingLoopRounds: timingConfig.trainingLoopRounds }),
+    [activeStepIndex, timingConfig.trainingLoopRounds, steps],
   );
   const currentListItem = sessionListView.items.find((item) => item.isActive) ?? sessionListView.items[0];
   const relevantExerciseStep = getRelevantExerciseStep(steps, activeStepIndex);
@@ -393,7 +392,7 @@ export function WorkoutSessionPage() {
   const activeDemoImageUrl = demoImageUrls[demoImageIndex] ?? placeholderWorkoutImage;
   const currentExerciseDetail = useMemo(() => mapWorkoutItemToExercise(demoItem), [demoItem]);
   const trainedCalories = Math.min(
-    estimateWorkoutCalories(plan.items, loopConfig),
+    estimateWorkoutCalories(plan.items, timingConfig),
     Math.round(Math.max(0, elapsedSeconds / 60) * 7.2 + completedStepIds.size * 8),
   );
   const sessionResultSnapshotRef = useRef({
@@ -476,17 +475,17 @@ export function WorkoutSessionPage() {
         return;
       }
 
-      const selectedLoopConfig = getWorkoutLoopConfig(selectedPlan);
-      const selectedSteps = buildWorkoutTimeline(selectedPlan.items, selectedLoopConfig);
+      const selectedTimingConfig = getWorkoutTimingConfig(selectedPlan);
+      const selectedSteps = buildWorkoutTimeline(selectedPlan.items, selectedTimingConfig);
 
       setPlan({
         ...selectedPlan,
         minutes:
           selectedPlan.minutes ||
-          estimateWorkoutMinutes(selectedPlan.items, selectedLoopConfig),
+          estimateWorkoutMinutes(selectedPlan.items, selectedTimingConfig),
         calories:
           selectedPlan.calories ||
-          estimateWorkoutCalories(selectedPlan.items, selectedLoopConfig),
+          estimateWorkoutCalories(selectedPlan.items, selectedTimingConfig),
       });
       setLoadError("");
       setActiveStepIndex(0);
@@ -1330,7 +1329,7 @@ export function WorkoutSessionPage() {
                   <h2 className="text-title-lg font-extrabold">训练控制</h2>
                   <span className="flex items-center gap-xs text-label-md font-bold text-muted">
                     <SymbolIcon className="text-lg">timer</SymbolIcon>
-                    {plan.minutes || estimateWorkoutMinutes(plan.items, loopConfig)} 分钟
+                    {plan.minutes || estimateWorkoutMinutes(plan.items, timingConfig)} 分钟
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-sm">

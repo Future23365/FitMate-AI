@@ -58,6 +58,8 @@ describe("workout composition", () => {
     const timeline = buildWorkoutTimeline(items, {
       trainingLoopRounds: 2,
       trainingLoopRestSeconds: 90,
+      warmupToTrainingRestSeconds: 45,
+      trainingToStretchRestSeconds: 75,
     });
 
     expect(expanded.map((item) => item.id)).toEqual([
@@ -72,15 +74,17 @@ describe("workout composition", () => {
     expect(timeline).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ type: "rest", reason: "between_sets", label: "组间休息", durationSeconds: 20 }),
-        expect.objectContaining({ type: "rest", reason: "between_exercises", label: "动作间休息", durationSeconds: 10 }),
+        expect.objectContaining({ type: "rest", reason: "between_sections", label: "阶段间休息", durationSeconds: 45 }),
+        expect.objectContaining({ type: "rest", reason: "between_exercises", label: "动作间休息", durationSeconds: 15 }),
         expect.objectContaining({ type: "rest", reason: "between_loops", label: "循环间隙", durationSeconds: 90 }),
+        expect.objectContaining({ type: "rest", reason: "between_sections", label: "阶段间休息", durationSeconds: 75 }),
       ]),
     );
     expect(
       timeline.find((step) => step.type === "exercise" && step.item.id === "squat"),
     ).toMatchObject({ durationSeconds: 24 });
     expect(getTotalWorkoutSets(items, 2)).toBe(8);
-    expect(estimateWorkoutMinutes(items, { trainingLoopRounds: 2, trainingLoopRestSeconds: 90 })).toBeGreaterThan(1);
+    expect(estimateWorkoutMinutes(items, { trainingLoopRounds: 2, trainingLoopRestSeconds: 90, warmupToTrainingRestSeconds: 45, trainingToStretchRestSeconds: 75 })).toBeGreaterThan(1);
     expect(estimateWorkoutCalories(items, { minimumCalories: 80, trainingLoopRounds: 2 })).toBeGreaterThanOrEqual(80);
   });
 });

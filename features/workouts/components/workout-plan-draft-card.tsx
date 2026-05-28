@@ -19,7 +19,7 @@ import { clientRequest } from "@/lib/client/http/client-request";
 import {
   estimateWorkoutCalories,
   estimateWorkoutMinutes,
-  getWorkoutLoopConfig,
+  getWorkoutTimingConfig,
   placeholderWorkoutImage,
   type WorkoutSchedule,
 } from "@/lib/shared/workouts/composition";
@@ -266,7 +266,7 @@ export function WorkoutPlanDraftCard({
 
           if (isTrainingDay) {
             const workout = persistedWorkouts[trainingDayCount % persistedWorkouts.length];
-            const loopConfig = getWorkoutLoopConfig(workout);
+            const timingConfig = getWorkoutTimingConfig(workout);
             trainingDayCount++;
 
             newWorkoutSchedules.push({
@@ -277,15 +277,14 @@ export function WorkoutPlanDraftCard({
               status: "planned",
               minutes: estimateWorkoutMinutes(workout.items, {
                 minimumMinutes: 15,
-                ...loopConfig,
+                ...timingConfig,
               }),
               calories: estimateWorkoutCalories(workout.items, {
                 minimumCalories: 80,
-                ...loopConfig,
+                ...timingConfig,
               }),
               items: workout.items,
-              trainingLoopRounds: workout.trainingLoopRounds,
-              trainingLoopRestSeconds: workout.trainingLoopRestSeconds,
+              ...timingConfig,
               sourceRoutineTitle: draft.title,
             });
           } else {

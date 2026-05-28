@@ -94,6 +94,8 @@ describe("shared schemas", () => {
     expect(workoutRoutineSchema.safeParse(createWorkoutRoutine({ items: [createWorkoutItem({ exerciseId: "" })] })).success).toBe(false);
     expect(workoutRoutineSchema.safeParse(createWorkoutRoutine({ items: [createWorkoutItem({ target: 0 })] })).success).toBe(false);
     expect(workoutRoutineSchema.safeParse(createWorkoutRoutine({ items: [createWorkoutItem({ setRestSeconds: -1 })] })).success).toBe(false);
+    expect(workoutRoutineSchema.safeParse(createWorkoutRoutine({ warmupToTrainingRestSeconds: -1 })).success).toBe(false);
+    expect(workoutRoutineSchema.safeParse(createWorkoutRoutine({ trainingToStretchRestSeconds: -1 })).success).toBe(false);
     expect(workoutRoutineSchema.safeParse(createWorkoutRoutine({ items: [createWorkoutItem({ mode: "distance" as never })] })).success).toBe(false);
   });
 

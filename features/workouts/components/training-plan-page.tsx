@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import {
@@ -14,7 +14,7 @@ import {
 import {
   estimateWorkoutCalories,
   estimateWorkoutMinutes,
-  getWorkoutLoopConfig,
+  getWorkoutTimingConfig,
   normalizeWorkoutRoutine,
   type WorkoutRoutine,
   type WorkoutSchedule,
@@ -68,7 +68,7 @@ function createScheduledEntry(
   status: WorkoutScheduleStatus = "planned",
 ): WorkoutSchedule {
   const normalizedRoutine = normalizeWorkoutRoutine(routine);
-  const { trainingLoopRestSeconds, trainingLoopRounds } = getWorkoutLoopConfig(normalizedRoutine);
+  const timingConfig = getWorkoutTimingConfig(normalizedRoutine);
 
   return {
     id: `${normalizedRoutine.id}-${dateKey}-${crypto.randomUUID()}`,
@@ -78,17 +78,14 @@ function createScheduledEntry(
     status,
     minutes: estimateWorkoutMinutes(normalizedRoutine.items, {
       minimumMinutes: 15,
-      trainingLoopRestSeconds,
-      trainingLoopRounds,
+      ...timingConfig,
     }),
     calories: estimateWorkoutCalories(normalizedRoutine.items, {
       minimumCalories: 80,
-      trainingLoopRestSeconds,
-      trainingLoopRounds,
+      ...timingConfig,
     }),
     items: normalizedRoutine.items,
-    trainingLoopRounds,
-    trainingLoopRestSeconds,
+    ...timingConfig,
   };
 }
 
@@ -133,7 +130,9 @@ export function TrainingPlanPage() {
   const [selectedScheduleId, setSelectedScheduleId] = useState("");
   const [workoutRoutines, setWorkoutRoutines] = useState<WorkoutRoutine[]>([]);
   const [schedule, setSchedule] = useState<WorkoutSchedule[]>([]);
+  const [isSavedPlansOpen, setIsSavedPlansOpen] = useState(false);
   const [toast, setToast] = useState("");
+  const savedPlansMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     async function syncData() {
@@ -168,6 +167,23 @@ export function TrainingPlanPage() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  useEffect(() => {
+    if (!isSavedPlansOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (savedPlansMenuRef.current?.contains(event.target as Node)) {
+        return;
+      }
+
+      setIsSavedPlansOpen(false);
+    }
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => window.removeEventListener("pointerdown", handlePointerDown);
+  }, [isSavedPlansOpen]);
+
   const filteredWorkouts = workoutRoutines;
   const cells = getCalendarCells(monthDate);
   const selectedDayPlans = schedule.filter((plan) => plan.date === selectedDateKey);
@@ -186,6 +202,12 @@ export function TrainingPlanPage() {
 
   function shiftMonth(delta: number) {
     setMonthDate((current) => new Date(current.getFullYear(), current.getMonth() + delta, 1));
+  }
+
+  function goToToday() {
+    setMonthDate(new Date(today.getFullYear(), today.getMonth(), 1));
+    setSelectedDateKey(todayKey);
+    setSelectedScheduleId("");
   }
 
   async function scheduleWorkout(plan: WorkoutRoutine, dateKey = selectedDateKey) {
@@ -256,87 +278,129 @@ export function TrainingPlanPage() {
 
   return (
     <div className="app-mesh-bg min-h-screen text-ink md:pl-[260px] xl:pr-[320px]">
-      <main className="custom-scrollbar h-screen overflow-y-auto overflow-x-hidden p-lg xl:p-xl">
-        <section className="mb-xl flex flex-col gap-md md:flex-row md:items-end md:justify-between">
-          <div>
-            <h1 className="font-headline-lg text-headline-lg font-extrabold tracking-[-0.03em]">训练日历</h1>
-            <p className="mt-xs font-body-md text-body-md text-muted">
-              规划你的健身周，保持运动节奏。
-            </p>
-          </div>
-          <button
-            className="flex items-center justify-center gap-xs rounded-xl bg-primary px-lg py-md font-label-md text-label-md font-bold text-white shadow-card transition-all hover:bg-primary-deep hover:shadow-lift active:scale-[0.98]"
-            onClick={() => {
-              const plan = filteredWorkouts[0];
-              if (plan) {
-                void scheduleWorkout(plan);
-              }
-            }}
-            type="button"
-          >
-            <SymbolIcon className="text-[20px]">event_available</SymbolIcon>
-            安排新训练
-          </button>
-        </section>
-
-        <section className="mb-xl space-y-sm">
-          <div className="flex items-center justify-between">
-            <h2 className="font-title-lg text-title-lg font-extrabold">已保存计划</h2>
-            <Link className="font-label-sm text-label-sm font-bold text-primary hover:underline" href="/composer">
-              管理全部
-            </Link>
-          </div>
-          <div className="relative -mx-xs">
-            <div className="scrollbar-none flex gap-md overflow-x-auto px-xs pb-1">
-              {filteredWorkouts.map((workout) => (
-                <SavedPlanCard
-                  key={workout.id}
-                  workout={workout}
-                  onSchedule={() => void scheduleWorkout(workout)}
-                />
-              ))}
-            </div>
-            <div className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-[#F6F8FB] to-transparent" />
-          </div>
-        </section>
-
-        <section className="rounded-[20px] border border-line bg-white p-lg shadow-card">
-          <div className="mb-xl flex items-center justify-between gap-md">
-            <div className="flex shrink-0 items-center gap-sm rounded-xl bg-panel-soft px-md py-sm">
-              <button
-                aria-label="上个月"
-                className="rounded-lg p-xs text-secondary transition-colors hover:bg-white hover:text-primary"
-                onClick={() => shiftMonth(-1)}
-                type="button"
-              >
-                <SymbolIcon>chevron_left</SymbolIcon>
-              </button>
-              <span className="min-w-36 text-center font-headline-md text-headline-md">
-                {formatMonth(monthDate)}
-              </span>
-              <button
-                aria-label="下个月"
-                className="rounded-lg p-xs text-secondary transition-colors hover:bg-white hover:text-primary"
-                onClick={() => shiftMonth(1)}
-                type="button"
-              >
-                <SymbolIcon>chevron_right</SymbolIcon>
-              </button>
-            </div>
-            <div className="custom-scrollbar ml-auto flex min-w-0 max-w-[min(520px,55%)] shrink overflow-x-auto whitespace-nowrap rounded-xl bg-panel-soft px-sm py-sm md:px-lg">
-              <div className="flex shrink-0 items-center gap-sm md:gap-md">
-              <LegendDot className="bg-primary-container" label="已完成" />
-              <LegendDot className="border-2 border-primary-container" label="已安排" />
-              <LegendDot className="bg-error" label="未完成" />
-              <LegendDot className="bg-surface-container-highest" label="休息日" />
+      <main className="flex h-screen min-h-0 flex-col overflow-hidden p-lg xl:p-xl">
+        <section className="flex min-h-0 flex-1 flex-col rounded-[20px] border border-line bg-white p-md shadow-card xl:p-lg">
+          <div className="mb-md flex shrink-0 flex-wrap items-center justify-between gap-md">
+            <div className="flex min-w-0 flex-wrap items-center gap-md">
+              <div className="w-40 shrink-0">
+                <h1 className="font-headline-md text-headline-md font-extrabold">训练日历</h1>
+                <p className="font-label-sm text-label-sm text-muted tabular-nums">
+                  当前选中：{formatDayLabel(selectedDateKey)}
+                </p>
               </div>
+              <div className="flex shrink-0 items-center gap-sm rounded-xl bg-panel-soft px-md py-sm">
+                <button
+                  aria-label="上个月"
+                  className="rounded-lg p-xs text-secondary transition-colors hover:bg-white hover:text-primary"
+                  onClick={() => shiftMonth(-1)}
+                  type="button"
+                >
+                  <SymbolIcon>chevron_left</SymbolIcon>
+                </button>
+                <span className="min-w-36 text-center font-headline-md text-headline-md">
+                  {formatMonth(monthDate)}
+                </span>
+                <button
+                  aria-label="下个月"
+                  className="rounded-lg p-xs text-secondary transition-colors hover:bg-white hover:text-primary"
+                  onClick={() => shiftMonth(1)}
+                  type="button"
+                >
+                  <SymbolIcon>chevron_right</SymbolIcon>
+                </button>
+              </div>
+              <button
+                className="flex items-center gap-xs rounded-xl border border-line bg-white px-md py-sm font-label-md text-label-md font-bold text-primary shadow-card transition-colors hover:border-primary/40 hover:bg-primary-soft"
+                onClick={goToToday}
+                type="button"
+              >
+                <SymbolIcon className="text-[18px]">today</SymbolIcon>
+                回到今天
+              </button>
+            </div>
+
+            <div className="flex min-w-0 flex-wrap items-center justify-end gap-sm">
+              <div className="custom-scrollbar flex max-w-[360px] shrink overflow-x-auto whitespace-nowrap rounded-xl bg-panel-soft px-sm py-sm">
+                <div className="flex shrink-0 items-center gap-sm md:gap-md">
+                  <LegendDot className="bg-primary-container" label="已完成" />
+                  <LegendDot className="border-2 border-primary-container" label="已安排" />
+                  <LegendDot className="bg-error" label="未完成" />
+                  <LegendDot className="bg-surface-container-highest" label="休息日" />
+                </div>
+              </div>
+              <div className="relative" ref={savedPlansMenuRef}>
+                <button
+                  aria-expanded={isSavedPlansOpen}
+                  className="flex items-center gap-xs rounded-xl border border-line bg-white px-md py-sm font-label-md text-label-md font-bold text-primary shadow-card transition-colors hover:border-primary/40 hover:bg-primary-soft"
+                  onClick={() => setIsSavedPlansOpen((current) => !current)}
+                  type="button"
+                >
+                  <SymbolIcon className="text-[18px]">inventory_2</SymbolIcon>
+                  已保存计划
+                  <span className="rounded-full bg-primary-soft px-xs text-[10px] text-primary">
+                    {filteredWorkouts.length}
+                  </span>
+                </button>
+                {isSavedPlansOpen ? (
+                  <div className="absolute right-0 top-[calc(100%+8px)] z-40 w-[360px] overflow-hidden rounded-2xl border border-line bg-white shadow-lift">
+                    <div className="flex items-center justify-between border-b border-line bg-panel-soft px-md py-sm">
+                      <span className="font-label-md text-label-md font-bold">选择计划安排到 {formatDayLabel(selectedDateKey)}</span>
+                      <Link
+                        className="font-label-sm text-label-sm font-bold text-primary hover:underline"
+                        href="/composer"
+                        onClick={() => setIsSavedPlansOpen(false)}
+                      >
+                        管理全部
+                      </Link>
+                    </div>
+                    <div className="custom-scrollbar max-h-[420px] space-y-xs overflow-y-auto p-sm">
+                      {filteredWorkouts.length ? (
+                        filteredWorkouts.map((workout) => (
+                          <SavedPlanMenuItem
+                            key={workout.id}
+                            workout={workout}
+                            onSchedule={() => {
+                              setIsSavedPlansOpen(false);
+                              void scheduleWorkout(workout);
+                            }}
+                          />
+                        ))
+                      ) : (
+                        <div className="rounded-xl border border-dashed border-line p-md text-center">
+                          <p className="font-label-md text-label-md text-muted">还没有已保存计划</p>
+                          <Link
+                            className="mt-sm inline-flex rounded-xl bg-primary px-md py-sm font-label-md text-label-md font-bold text-white"
+                            href="/composer"
+                            onClick={() => setIsSavedPlansOpen(false)}
+                          >
+                            去编排
+                          </Link>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+              <button
+                className="flex items-center justify-center gap-xs rounded-xl bg-primary px-md py-sm font-label-md text-label-md font-bold text-white shadow-card transition-all hover:bg-primary-deep hover:shadow-lift active:scale-[0.98]"
+                onClick={() => {
+                  const plan = filteredWorkouts[0];
+                  if (plan) {
+                    void scheduleWorkout(plan);
+                  }
+                }}
+                type="button"
+              >
+                <SymbolIcon className="text-[20px]">event_available</SymbolIcon>
+                快速安排
+              </button>
             </div>
           </div>
 
-          <div className="grid min-w-[760px] grid-cols-7 gap-px overflow-hidden rounded-xl border border-line bg-line shadow-inner">
+          <div className="grid min-h-0 min-w-[760px] flex-1 grid-cols-7 grid-rows-[auto_repeat(6,minmax(0,1fr))] gap-px overflow-hidden rounded-xl border border-line bg-line shadow-inner">
             {weekdays.map((weekday) => (
               <div
-                className="border-b border-line bg-panel-soft p-md text-center font-label-md text-label-md font-bold text-secondary"
+                className="border-b border-line bg-panel-soft px-md py-sm text-center font-label-md text-label-md font-bold text-secondary"
                 key={weekday}
               >
                 {weekday}
@@ -349,7 +413,7 @@ export function TrainingPlanPage() {
 
               return (
                 <button
-                  className={`group min-h-[122px] p-sm text-left transition-all ${
+                  className={`group min-h-0 overflow-hidden p-sm text-left transition-all ${
                     cell.isCurrentMonth
                       ? "bg-white hover:bg-primary-soft/60"
                       : "bg-panel-soft text-muted/60"
@@ -381,13 +445,11 @@ export function TrainingPlanPage() {
                       </span>
                     ) : null}
                   </div>
-                  <div className="min-h-12 space-y-xs">
-                    {plans.slice(0, 2).map((plan) => (
-                      <CalendarPlanBadge key={plan.id} plan={plan} />
-                    ))}
-                    {plans.length > 2 ? (
-                      <span className="block rounded bg-surface-container-high px-sm py-xs text-[10px] text-secondary">
-                        +{plans.length - 2} 项
+                  <div className="flex min-h-6 min-w-0 items-center gap-xs">
+                    {plans[0] ? <CalendarPlanBadge plan={plans[0]} /> : null}
+                    {plans.length > 1 ? (
+                      <span className="flex h-6 shrink-0 items-center justify-center rounded-lg bg-surface-container-high px-xs text-[10px] font-bold leading-none text-secondary">
+                        +{plans.length - 1} 项
                       </span>
                     ) : null}
                   </div>
@@ -506,7 +568,8 @@ export function TrainingPlanPage() {
   );
 }
 
-function SavedPlanCard({
+// SavedPlanMenuItem 承载训练日历页的排期素材，避免已保存计划常驻占用月历空间。
+function SavedPlanMenuItem({
   onSchedule,
   workout,
 }: {
@@ -514,16 +577,14 @@ function SavedPlanCard({
   workout: WorkoutRoutine;
 }) {
   const normalizedWorkout = normalizeWorkoutRoutine(workout);
-  const { trainingLoopRestSeconds, trainingLoopRounds } = getWorkoutLoopConfig(normalizedWorkout);
+  const timingConfig = getWorkoutTimingConfig(normalizedWorkout);
   const minutes = estimateWorkoutMinutes(normalizedWorkout.items, {
     minimumMinutes: 15,
-    trainingLoopRestSeconds,
-    trainingLoopRounds,
+    ...timingConfig,
   });
   const calories = estimateWorkoutCalories(normalizedWorkout.items, {
     minimumCalories: 80,
-    trainingLoopRestSeconds,
-    trainingLoopRounds,
+    ...timingConfig,
   });
   const icon = workout.title.includes("燃脂")
     ? "local_fire_department"
@@ -534,19 +595,19 @@ function SavedPlanCard({
         : "fitness_center";
 
   return (
-    <div className="group flex w-56 shrink-0 cursor-pointer items-center gap-sm rounded-xl border border-line bg-white p-sm shadow-card transition-all hover:border-primary/40 hover:ring-1 hover:ring-primary/10">
+    <div className="group flex w-full items-center gap-sm rounded-xl border border-line bg-white p-sm shadow-card transition-all hover:border-primary/40 hover:ring-1 hover:ring-primary/10">
       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary">
         <SymbolIcon className="text-[20px]">{icon}</SymbolIcon>
       </div>
       <div className="min-w-0 flex-1">
         <h3 className="truncate font-label-md text-label-md font-bold">{workout.title}</h3>
         <p className="text-[10px] text-secondary">
-          {normalizedWorkout.items.length}动作 · 训练{trainingLoopRounds}轮 · {calories}kcal · {minutes}min
+          {normalizedWorkout.items.length}动作 · 训练{timingConfig.trainingLoopRounds}轮 · {calories}kcal · {minutes}min
         </p>
       </div>
       <button
         aria-label={`安排 ${workout.title}`}
-        className="rounded-full p-xs text-primary opacity-100 transition-colors hover:bg-primary/10 md:opacity-0 md:group-hover:opacity-100"
+        className="rounded-full p-xs text-primary transition-colors hover:bg-primary/10"
         onClick={onSchedule}
         type="button"
       >
@@ -569,11 +630,15 @@ function CalendarPlanBadge({ plan }: { plan: WorkoutSchedule }) {
   const status = getStatusConfig(plan.status);
 
   return (
-    <div className={`flex items-center gap-xs rounded-lg px-sm py-xs text-[10px] shadow-sm ${status.badgeClass}`}>
-      <SymbolIcon className="text-[14px]" filled={plan.status === "completed"}>
+    <div
+      className={`flex h-6 min-w-0 flex-1 items-center gap-xs rounded-lg px-sm text-[10px] leading-none shadow-sm ${status.badgeClass}`}
+    >
+      <SymbolIcon className="shrink-0 text-[14px]" filled={plan.status === "completed"}>
         {status.icon}
       </SymbolIcon>
-      <span className="truncate">{plan.status === "missed" ? `${plan.title} (未完成)` : plan.title}</span>
+      <span className="min-w-0 flex-1 truncate">
+        {plan.status === "missed" ? `${plan.title} (未完成)` : plan.title}
+      </span>
     </div>
   );
 }

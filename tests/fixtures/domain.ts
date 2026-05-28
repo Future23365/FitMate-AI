@@ -188,6 +188,8 @@ export function createWorkoutRoutine(overrides: Partial<WorkoutRoutine> = {}): W
     items: overrides.items ?? [createWorkoutItem()],
     trainingLoopRounds: overrides.trainingLoopRounds ?? 1,
     trainingLoopRestSeconds: overrides.trainingLoopRestSeconds ?? 90,
+    warmupToTrainingRestSeconds: overrides.warmupToTrainingRestSeconds ?? 60,
+    trainingToStretchRestSeconds: overrides.trainingToStretchRestSeconds ?? 60,
   };
 }
 
@@ -203,6 +205,8 @@ export function createWorkoutSchedule(overrides: Partial<WorkoutSchedule> = {}):
     items: overrides.items ?? [createWorkoutItem()],
     trainingLoopRounds: overrides.trainingLoopRounds ?? 1,
     trainingLoopRestSeconds: overrides.trainingLoopRestSeconds ?? 90,
+    warmupToTrainingRestSeconds: overrides.warmupToTrainingRestSeconds ?? 60,
+    trainingToStretchRestSeconds: overrides.trainingToStretchRestSeconds ?? 60,
     sourceRoutineTitle: overrides.sourceRoutineTitle,
   };
 }

@@ -15,7 +15,7 @@ import {
   defaultTrainingLoopRestSeconds,
   estimateWorkoutCalories,
   estimateWorkoutMinutes,
-  getWorkoutLoopConfig,
+  getWorkoutTimingConfig,
   normalizeWorkoutItem,
   normalizeWorkoutRoutine,
   placeholderWorkoutImage,
@@ -67,11 +67,11 @@ export async function saveWorkoutRoutine(rawRoutine: WorkoutRoutine) {
   const parsedRoutine = normalizeWorkoutRoutine(workoutRoutineSchema.parse(rawRoutine));
   const prisma = getPrismaClient();
   const user = await getCurrentUser();
-  const loopConfig = getWorkoutLoopConfig(parsedRoutine);
-  const estimatedMinutes = estimateWorkoutMinutes(parsedRoutine.items, loopConfig);
+  const timingConfig = getWorkoutTimingConfig(parsedRoutine);
+  const estimatedMinutes = estimateWorkoutMinutes(parsedRoutine.items, timingConfig);
   const estimatedCalories = estimateWorkoutCalories(parsedRoutine.items, {
     minimumCalories: 0,
-    ...loopConfig,
+    ...timingConfig,
   });
   const existingRoutine = await prisma.workoutRoutine.findUnique({
     where: { id: parsedRoutine.id },
@@ -93,8 +93,10 @@ export async function saveWorkoutRoutine(rawRoutine: WorkoutRoutine) {
         estimatedCalories,
         status: "active",
         source: "manual",
-        trainingLoopRounds: loopConfig.trainingLoopRounds,
-        trainingLoopRestSeconds: loopConfig.trainingLoopRestSeconds,
+        trainingLoopRounds: timingConfig.trainingLoopRounds,
+        trainingLoopRestSeconds: timingConfig.trainingLoopRestSeconds,
+        warmupToTrainingRestSeconds: timingConfig.warmupToTrainingRestSeconds,
+        trainingToStretchRestSeconds: timingConfig.trainingToStretchRestSeconds,
       },
       create: {
         id: parsedRoutine.id,
@@ -104,8 +106,10 @@ export async function saveWorkoutRoutine(rawRoutine: WorkoutRoutine) {
         estimatedCalories,
         status: "active",
         source: "manual",
-        trainingLoopRounds: loopConfig.trainingLoopRounds,
-        trainingLoopRestSeconds: loopConfig.trainingLoopRestSeconds,
+        trainingLoopRounds: timingConfig.trainingLoopRounds,
+        trainingLoopRestSeconds: timingConfig.trainingLoopRestSeconds,
+        warmupToTrainingRestSeconds: timingConfig.warmupToTrainingRestSeconds,
+        trainingToStretchRestSeconds: timingConfig.trainingToStretchRestSeconds,
       },
       select: { id: true },
     });
@@ -211,14 +215,14 @@ export async function createWorkoutSchedule(rawSchedule: WorkoutSchedule) {
   }
 
   const workoutRoutine = mapWorkoutRoutineRecord(routine);
-  const loopConfig = getWorkoutLoopConfig(workoutRoutine);
+  const timingConfig = getWorkoutTimingConfig(workoutRoutine);
   const minutes = estimateWorkoutMinutes(workoutRoutine.items, {
     minimumMinutes: 15,
-    ...loopConfig,
+    ...timingConfig,
   });
   const calories = estimateWorkoutCalories(workoutRoutine.items, {
     minimumCalories: 80,
-    ...loopConfig,
+    ...timingConfig,
   });
   const schedule = await prisma.workoutSchedule.create({
     data: {
@@ -340,6 +344,8 @@ function mapWorkoutRoutineRecord(routine: WorkoutRoutineWithItems): WorkoutRouti
     updatedAt: formatDateTime(routine.updatedAt),
     trainingLoopRounds: routine.trainingLoopRounds ?? undefined,
     trainingLoopRestSeconds: routine.trainingLoopRestSeconds ?? undefined,
+    warmupToTrainingRestSeconds: routine.warmupToTrainingRestSeconds ?? undefined,
+    trainingToStretchRestSeconds: routine.trainingToStretchRestSeconds ?? undefined,
     items: routine.items.map(mapWorkoutRoutineItemRecord),
   });
 }
@@ -364,7 +370,7 @@ function mapWorkoutScheduleRecord(schedule: WorkoutScheduleWithRoutine): Workout
   }
 
   const routine = mapWorkoutRoutineRecord(schedule.routine);
-  const loopConfig = getWorkoutLoopConfig(routine);
+  const timingConfig = getWorkoutTimingConfig(routine);
 
   return {
     id: schedule.id,
@@ -375,8 +381,10 @@ function mapWorkoutScheduleRecord(schedule: WorkoutScheduleWithRoutine): Workout
     minutes: schedule.estimatedMinutes,
     calories: schedule.estimatedCalories,
     items: routine.items,
-    trainingLoopRounds: loopConfig.trainingLoopRounds,
-    trainingLoopRestSeconds: loopConfig.trainingLoopRestSeconds,
+    trainingLoopRounds: timingConfig.trainingLoopRounds,
+    trainingLoopRestSeconds: timingConfig.trainingLoopRestSeconds,
+    warmupToTrainingRestSeconds: timingConfig.warmupToTrainingRestSeconds,
+    trainingToStretchRestSeconds: timingConfig.trainingToStretchRestSeconds,
     sourceRoutineTitle: routine.title,
   };
 }

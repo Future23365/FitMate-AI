@@ -17,15 +17,16 @@ import { clientRequest } from "@/lib/client/http/client-request";
 import type { Exercise, ExerciseFacets, ExerciseSuitability } from "@/lib/shared/exercises/types";
 import {
   clampLoopRounds,
+  defaultTrainingToStretchRestSeconds,
   defaultSetRestSeconds,
   defaultTrainingLoopRestSeconds,
   defaultTrainingLoopRounds,
   defaultTransitionRestSeconds,
+  defaultWarmupToTrainingRestSeconds,
   estimateWorkoutCalories,
   estimateWorkoutMinutes,
   getSectionItems,
   getTotalWorkoutSets,
-  inferWorkoutSection,
   loopRoundOptions,
   normalizeWorkoutRoutine,
   normalizeWorkoutItem,
@@ -268,14 +269,18 @@ export function ActionComposerPage() {
   const [selectedLibraryExerciseId, setSelectedLibraryExerciseId] = useState("");
   const [isLoadingLibrary, setIsLoadingLibrary] = useState(true);
   const [saveStatus, setSaveStatus] = useState("");
+  const [isSavedMenuOpen, setIsSavedMenuOpen] = useState(false);
   const [draggingItemId, setDraggingItemId] = useState("");
   const [dragOverItemId, setDragOverItemId] = useState("");
   const [selectedSection, setSelectedSection] = useState<WorkoutSection>("training");
   const [trainingLoopRounds, setTrainingLoopRounds] = useState(defaultTrainingLoopRounds);
   const [trainingLoopRestSeconds, setTrainingLoopRestSeconds] = useState(defaultTrainingLoopRestSeconds);
+  const [warmupToTrainingRestSeconds, setWarmupToTrainingRestSeconds] = useState(defaultWarmupToTrainingRestSeconds);
+  const [trainingToStretchRestSeconds, setTrainingToStretchRestSeconds] = useState(defaultTrainingToStretchRestSeconds);
   const [activePreviewExercise, setActivePreviewExercise] = useState<Exercise | null>(null);
   const [activePreviewSource, setActivePreviewSource] = useState<"library" | "plan" | null>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const savedMenuRef = useRef<HTMLDivElement>(null);
   const hasHandledInitialWorkoutLoadRef = useRef(false);
 
   // 标题更新集中在这里，避免展示态标题和编辑态草稿在切换编排时出现不同步。
@@ -294,6 +299,8 @@ export function ActionComposerPage() {
       setItems(normalizedItems);
       setTrainingLoopRounds(normalizedWorkout.trainingLoopRounds ?? 1);
       setTrainingLoopRestSeconds(normalizedWorkout.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds);
+      setWarmupToTrainingRestSeconds(normalizedWorkout.warmupToTrainingRestSeconds ?? defaultWarmupToTrainingRestSeconds);
+      setTrainingToStretchRestSeconds(normalizedWorkout.trainingToStretchRestSeconds ?? defaultTrainingToStretchRestSeconds);
       setSelectedItemId(normalizedItems[0]?.id ?? "");
       setSelectedSection(normalizedItems[0]?.section ?? "training");
       setActiveWorkoutRoutineId(workout.id);
@@ -494,10 +501,42 @@ export function ActionComposerPage() {
     titleInputRef.current?.select();
   }, [isEditingTitle]);
 
-  const selectedItem = items.find((item) => item.id === selectedItemId) ?? items[0];
+  useEffect(() => {
+    if (!isSavedMenuOpen) {
+      return;
+    }
+
+    function closeSavedMenuOnOutside(event: MouseEvent) {
+      if (savedMenuRef.current?.contains(event.target as Node)) {
+        return;
+      }
+
+      setIsSavedMenuOpen(false);
+    }
+
+    function closeSavedMenuOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsSavedMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", closeSavedMenuOnOutside);
+    document.addEventListener("keydown", closeSavedMenuOnEscape);
+
+    return () => {
+      document.removeEventListener("mousedown", closeSavedMenuOnOutside);
+      document.removeEventListener("keydown", closeSavedMenuOnEscape);
+    };
+  }, [isSavedMenuOpen]);
+
   const selectedLibraryExercise =
     libraryItems.find((exercise) => exercise.id === selectedLibraryExerciseId) ?? libraryItems[0];
-  const workoutEstimateOptions = { trainingLoopRestSeconds, trainingLoopRounds };
+  const workoutEstimateOptions = {
+    trainingLoopRestSeconds,
+    trainingLoopRounds,
+    warmupToTrainingRestSeconds,
+    trainingToStretchRestSeconds,
+  };
   const totalMinutes = estimateWorkoutMinutes(items, workoutEstimateOptions);
   const totalCalories = estimateWorkoutCalories(items, workoutEstimateOptions);
   const totalSets = getTotalWorkoutSets(items, trainingLoopRounds);
@@ -631,6 +670,8 @@ export function ActionComposerPage() {
       applyPlanTitle("燃脂循环训练 A");
       setTrainingLoopRounds(defaultTrainingLoopRounds);
       setTrainingLoopRestSeconds(defaultTrainingLoopRestSeconds);
+      setWarmupToTrainingRestSeconds(defaultWarmupToTrainingRestSeconds);
+      setTrainingToStretchRestSeconds(defaultTrainingToStretchRestSeconds);
       setItems(composedItems);
       setSelectedItemId(composedItems[0]?.id ?? "");
       setSaveStatus(`已从动作库导入 ${composedItems.length} 个模板动作`);
@@ -639,37 +680,13 @@ export function ActionComposerPage() {
     }
   }
 
-  function autoSort() {
-    const sortedItems = [...items].sort((left, right) => {
-      const sectionOrder: WorkoutSection[] = ["warmup", "training", "stretch"];
-      return (
-        sectionOrder.indexOf(left.section ?? inferWorkoutSection(left)) -
-        sectionOrder.indexOf(right.section ?? inferWorkoutSection(right))
-      );
-    });
-    setItems(sortedItems);
-    setSaveStatus("已按热身、训练、拉伸排序");
-  }
-
-  function insertRest() {
-    if (!selectedItem) {
-      return;
-    }
-
-    updateItem(selectedItem.id, (item) => ({
-      ...item,
-      transitionRestSeconds:
-        restOptions[(restOptions.indexOf(item.transitionRestSeconds) + 1) % restOptions.length] ??
-        30,
-    }));
-    setSaveStatus("已调整动作之间的休息间隔");
-  }
-
   function createNewComposition() {
     applyPlanTitle("新的动作编排");
     setItems([]);
     setTrainingLoopRounds(defaultTrainingLoopRounds);
     setTrainingLoopRestSeconds(defaultTrainingLoopRestSeconds);
+    setWarmupToTrainingRestSeconds(defaultWarmupToTrainingRestSeconds);
+    setTrainingToStretchRestSeconds(defaultTrainingToStretchRestSeconds);
     setSelectedItemId("");
     setSelectedSection("training");
     setActiveWorkoutRoutineId("");
@@ -731,6 +748,8 @@ export function ActionComposerPage() {
       updatedAt: formatDateTime(now),
       trainingLoopRounds: clampLoopRounds(trainingLoopRounds),
       trainingLoopRestSeconds,
+      warmupToTrainingRestSeconds,
+      trainingToStretchRestSeconds,
       items: items.map(normalizeWorkoutItem),
     };
 
@@ -805,79 +824,20 @@ export function ActionComposerPage() {
 
   return (
     <div className="app-mesh-bg min-h-screen text-ink md:pl-[260px] xl:pr-[300px]">
-      <main className="custom-scrollbar h-screen overflow-y-auto overflow-x-hidden p-lg pb-28 xl:p-xl">
-        <header className="mb-xl flex flex-col gap-lg xl:flex-row xl:items-end xl:justify-between">
-          <div>
-            <h1 className="font-headline-lg text-headline-lg">个性化动作编排</h1>
-            <p className="mt-xs font-body-md text-body-md text-on-surface-variant">
-              自由组合训练动作，实时调整训练参数与执行顺序
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-sm">
-            <button className="rounded-xl border border-outline px-lg py-sm font-label-md text-label-md transition-colors hover:bg-surface-container-low" onClick={createNewComposition} type="button">
-              新增编排
-            </button>
-            <button className="rounded-xl border border-outline px-lg py-sm font-label-md text-label-md transition-colors hover:bg-surface-container-low" onClick={importTemplate} type="button">
-              导入模板
-            </button>
-            <button className="rounded-xl bg-primary-container px-lg py-sm font-label-md text-label-md text-white shadow-sm transition-opacity hover:opacity-90" onClick={saveComposition} type="button">
-              保存编排
-            </button>
-          </div>
-        </header>
-
-        <section className="mb-lg space-y-sm rounded-[20px] border border-line bg-white p-md shadow-card">
-          <div className="flex items-center justify-between gap-md">
-            <h2 className="flex items-center gap-xs font-title-lg text-title-lg font-extrabold">
-              <SymbolIcon className="text-[20px] text-primary">bookmark</SymbolIcon>
-              已保存编排
-            </h2>
-            <span className="font-label-sm text-label-sm text-muted">
-              {workoutRoutines.length ? `${workoutRoutines.length} 个` : "暂无保存"}
-            </span>
-          </div>
-          {workoutRoutines.length ? (
-            <div className="relative -mx-xs">
-              <div className="scrollbar-none flex gap-sm overflow-x-auto px-xs pb-1">
-                {workoutRoutines.map((workout) => (
-                  <RoutineCompositionCard
-                    isActive={workout.id === activeWorkoutRoutineId}
-                    key={workout.id}
-                    onDelete={() => removeWorkoutRoutine(workout)}
-                    onDuplicate={() => duplicateWorkoutRoutine(workout)}
-                    onOpen={() => openWorkoutRoutine(workout)}
-                    workout={workout}
-                  />
-                ))}
-              </div>
-              <div className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-white to-transparent" />
-            </div>
-          ) : (
-            <div className="flex flex-col gap-sm rounded-xl border border-dashed border-line bg-panel-soft p-md md:flex-row md:items-center md:justify-between">
-              <p className="font-label-md text-label-md text-muted">
-                保存当前编排后，会在这里快速切换、复制或删除。
-              </p>
-              <button
-                className="flex shrink-0 items-center justify-center gap-xs rounded-xl bg-primary px-md py-sm font-label-md text-label-md font-bold text-white transition-colors hover:bg-primary-deep"
-                onClick={saveComposition}
-                type="button"
-              >
-                <SymbolIcon className="text-[18px]">save</SymbolIcon>
-                保存当前编排
-              </button>
-            </div>
-          )}
-        </section>
-
-        <section className="mb-lg rounded-[20px] border border-line bg-white p-md shadow-card">
-          <div className="mb-lg rounded-xl border border-line bg-panel px-md py-sm">
-            <div className="flex min-w-0 items-center justify-between gap-md py-xs">
+      <main className="custom-scrollbar h-screen overflow-y-auto overflow-x-hidden px-lg pb-lg pt-sm xl:px-xl xl:pb-xl">
+        <header className="sticky top-0 z-40 mb-md rounded-[16px] border-b border-line/70 bg-white px-sm py-xs shadow-[0_8px_18px_rgba(15,23,42,0.06)] md:px-md md:py-sm">
+          <div className="flex flex-col gap-sm">
+            <div className="flex min-w-0 flex-col gap-sm lg:flex-row lg:items-center lg:justify-between">
               <div className="min-w-0 flex-1">
+                <p className="mb-[2px] flex items-center gap-[4px] font-label-sm text-label-sm font-bold text-primary">
+                  <SymbolIcon className="text-[15px]">edit_note</SymbolIcon>
+                  个性化动作编排
+                </p>
                 {isEditingTitle ? (
                   <div className="flex min-w-0 items-center gap-xs">
                     <input
                       aria-label="编排名称"
-                      className="min-w-0 flex-1 rounded-xl border border-primary/35 bg-white px-md py-sm font-title-lg text-title-lg font-extrabold text-ink outline-none ring-4 ring-primary/10"
+                      className="h-10 min-w-0 flex-1 rounded-xl border border-primary/35 bg-white px-md font-title-lg text-title-lg font-extrabold text-ink outline-none ring-4 ring-primary/10"
                       onBlur={commitTitleEdit}
                       onChange={(event) => setTitleDraft(event.target.value)}
                       onKeyDown={(event) => {
@@ -911,113 +871,195 @@ export function ActionComposerPage() {
                     </button>
                   </div>
                 ) : (
-                  <div className="flex min-w-0 items-center gap-sm">
-                    <h2 className="truncate font-headline-md text-headline-md font-extrabold text-ink">
+                  <div className="flex min-w-0 items-center gap-xs">
+                    <h1 className="min-w-0 truncate font-title-lg text-title-lg font-extrabold text-ink">
                       {planTitle}
-                    </h2>
+                    </h1>
                     <button
                       aria-label="编辑编排名称"
-                      className="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-primary transition-colors hover:bg-primary-soft"
+                      className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-primary transition-colors hover:bg-primary-soft"
                       onClick={startTitleEdit}
                       type="button"
                     >
-                      <SymbolIcon className="text-[20px]">edit</SymbolIcon>
+                      <SymbolIcon className="text-[18px]">edit</SymbolIcon>
                     </button>
                   </div>
                 )}
               </div>
+              <div className="relative shrink-0" ref={savedMenuRef}>
+                <button
+                  aria-expanded={isSavedMenuOpen}
+                  className="flex h-10 items-center gap-xs rounded-xl border border-outline bg-white px-md font-label-md text-label-md transition-colors hover:bg-surface-container-low"
+                  onClick={() => setIsSavedMenuOpen((current) => !current)}
+                  type="button"
+                >
+                  <SymbolIcon className="text-[18px] text-primary">bookmark</SymbolIcon>
+                  已保存
+                  <span className="rounded bg-surface-container px-xs py-[2px] text-[10px] text-outline">
+                    {workoutRoutines.length}
+                  </span>
+                  <SymbolIcon className="text-[18px] text-outline">
+                    {isSavedMenuOpen ? "expand_less" : "expand_more"}
+                  </SymbolIcon>
+                </button>
+                {isSavedMenuOpen ? (
+                  <div className="absolute right-0 top-full z-50 mt-xs w-[calc(100vw-2rem)] max-w-[420px] rounded-[20px] border border-line bg-white p-sm shadow-lift">
+                    <div className="mb-sm flex items-center justify-between gap-md">
+                      <h2 className="flex items-center gap-xs font-label-md text-label-md font-bold">
+                        <SymbolIcon className="text-[18px] text-primary">bookmark</SymbolIcon>
+                        已保存编排
+                      </h2>
+                      <span className="text-[11px] text-outline">
+                        {workoutRoutines.length ? `${workoutRoutines.length} 个` : "暂无保存"}
+                      </span>
+                    </div>
+                    {workoutRoutines.length ? (
+                      <div className="custom-scrollbar max-h-[360px] space-y-xs overflow-y-auto pr-xs">
+                        {workoutRoutines.map((workout) => (
+                          <RoutineCompositionCard
+                            isActive={workout.id === activeWorkoutRoutineId}
+                            key={workout.id}
+                            onDelete={() => {
+                              void removeWorkoutRoutine(workout);
+                              setIsSavedMenuOpen(false);
+                            }}
+                            onDuplicate={() => {
+                              void duplicateWorkoutRoutine(workout);
+                              setIsSavedMenuOpen(false);
+                            }}
+                            onOpen={() => {
+                              openWorkoutRoutine(workout);
+                              setIsSavedMenuOpen(false);
+                            }}
+                            workout={workout}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-dashed border-line bg-panel-soft p-md">
+                        <p className="font-label-md text-label-md text-muted">
+                          保存当前编排后，会在这里快速切换、复制或删除。
+                        </p>
+                        <button
+                          className="mt-sm flex w-full items-center justify-center gap-xs rounded-xl bg-primary px-md py-sm font-label-md text-label-md font-bold text-white transition-colors hover:bg-primary-deep"
+                          onClick={() => {
+                            void saveComposition();
+                            setIsSavedMenuOpen(false);
+                          }}
+                          type="button"
+                        >
+                          <SymbolIcon className="text-[18px]">save</SymbolIcon>
+                          保存当前编排
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
             </div>
-            <div className="mt-sm grid border-t border-line/70 pt-sm sm:grid-cols-2 xl:grid-cols-4">
-              <CompositionMetric icon="schedule" label="预计时长" suffix="min" value={totalMinutes} />
-              <CompositionMetric icon="format_list_numbered" label="动作数量" suffix="个" value={items.length} />
-              <CompositionMetric icon="repeat" label="预计组数" suffix="组" value={totalSets} />
-              <CompositionMetric icon="local_fire_department" label="预估消耗" suffix="kcal" value={totalCalories} primary />
+            <div className="flex flex-col gap-sm pt-xs lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex min-w-0 flex-wrap items-center gap-xs">
+                <WorkbenchMetric icon="schedule" label="预计" suffix="min" value={totalMinutes} />
+                <WorkbenchMetric icon="format_list_numbered" label="动作" suffix="个" value={items.length} />
+                <WorkbenchMetric icon="repeat" label="组数" suffix="组" value={totalSets} />
+                <WorkbenchMetric icon="local_fire_department" label="消耗" suffix="kcal" value={totalCalories} primary />
+              </div>
+              <div className="flex flex-wrap items-center gap-xs">
+                <button className="h-10 rounded-xl border border-outline px-md font-label-md text-label-md transition-colors hover:bg-surface-container-low" onClick={createNewComposition} type="button">
+                  新增
+                </button>
+                <button className="h-10 rounded-xl border border-outline px-md font-label-md text-label-md transition-colors hover:bg-surface-container-low" onClick={importTemplate} type="button">
+                  导入模板
+                </button>
+                <button className="h-10 rounded-xl bg-primary-container px-md font-label-md text-label-md text-white shadow-sm transition-opacity hover:opacity-90" onClick={saveComposition} type="button">
+                  保存
+                </button>
+              </div>
             </div>
           </div>
+        </header>
 
+        <section className="mb-lg rounded-[20px] border border-line bg-white p-md shadow-card">
           <div className="space-y-md">
             {sectionConfigs.map((section, sectionIndex) => {
               const sectionItems = getSectionItems(items, section.id);
 
               return (
-                <WorkoutSectionBlock
-                  index={sectionIndex}
-                  isSelected={selectedSection === section.id}
-                  itemCount={sectionItems.length}
-                  key={section.id}
-                  loopRounds={trainingLoopRounds}
-                  loopRestSeconds={trainingLoopRestSeconds}
-                  onAddNext={() => setSelectedSection(section.id)}
-                  onDropToEnd={() => {
-                    moveItemToSectionEnd(draggingItemId, section.id);
-                    setDraggingItemId("");
-                    setDragOverItemId("");
-                  }}
-                  onLoopRoundsChange={setTrainingLoopRounds}
-                  onLoopRestSecondsChange={setTrainingLoopRestSeconds}
-                  section={section}
-                >
-                  {sectionItems.map((item, index) => (
-                    <div key={item.id}>
-                      <WorkoutExerciseRow
-                        dragState={dragOverItemId === item.id ? "over" : draggingItemId === item.id ? "dragging" : "idle"}
-                        index={index}
-                        item={item}
-                        onDelete={() => deleteItem(item.id)}
-                        onDragEnd={() => {
-                          setDraggingItemId("");
-                          setDragOverItemId("");
-                        }}
-                        onDragEnter={() => setDragOverItemId(item.id)}
-                        onDragStart={() => {
-                          setDraggingItemId(item.id);
-                          setDragOverItemId("");
-                        }}
-                        onDrop={() => {
-                          moveItem(draggingItemId, item.id, section.id);
-                          setDraggingItemId("");
-                          setDragOverItemId("");
-                        }}
-                        onDuplicate={() => duplicateItem(item)}
-                        onPreview={() => openPlanPreview(item)}
-                        onUpdate={(updater) => updateItem(item.id, updater)}
-                      />
-                      {index < sectionItems.length - 1 ? (
-                        <RestIntervalControl
-                          seconds={item.transitionRestSeconds}
-                          onChange={(nextSeconds) =>
-                            updateItem(item.id, (current) => ({
-                              ...current,
-                              transitionRestSeconds: nextSeconds,
-                            }))
-                          }
+                <div className="space-y-sm" key={section.id}>
+                  <WorkoutSectionBlock
+                    index={sectionIndex}
+                    isSelected={selectedSection === section.id}
+                    itemCount={sectionItems.length}
+                    loopRounds={trainingLoopRounds}
+                    loopRestSeconds={trainingLoopRestSeconds}
+                    onAddNext={() => setSelectedSection(section.id)}
+                    onDropToEnd={() => {
+                      moveItemToSectionEnd(draggingItemId, section.id);
+                      setDraggingItemId("");
+                      setDragOverItemId("");
+                    }}
+                    onLoopRoundsChange={setTrainingLoopRounds}
+                    onLoopRestSecondsChange={setTrainingLoopRestSeconds}
+                    section={section}
+                  >
+                    {sectionItems.map((item, index) => (
+                      <div key={item.id}>
+                        <WorkoutExerciseRow
+                          dragState={dragOverItemId === item.id ? "over" : draggingItemId === item.id ? "dragging" : "idle"}
+                          index={index}
+                          item={item}
+                          onDelete={() => deleteItem(item.id)}
+                          onDragEnd={() => {
+                            setDraggingItemId("");
+                            setDragOverItemId("");
+                          }}
+                          onDragEnter={() => setDragOverItemId(item.id)}
+                          onDragStart={() => {
+                            setDraggingItemId(item.id);
+                            setDragOverItemId("");
+                          }}
+                          onDrop={() => {
+                            moveItem(draggingItemId, item.id, section.id);
+                            setDraggingItemId("");
+                            setDragOverItemId("");
+                          }}
+                          onDuplicate={() => duplicateItem(item)}
+                          onPreview={() => openPlanPreview(item)}
+                          onUpdate={(updater) => updateItem(item.id, updater)}
                         />
-                      ) : null}
-                    </div>
-                  ))}
-                </WorkoutSectionBlock>
+                        {index < sectionItems.length - 1 ? (
+                          <RestIntervalControl
+                            seconds={item.transitionRestSeconds}
+                            onChange={(nextSeconds) =>
+                              updateItem(item.id, (current) => ({
+                                ...current,
+                                transitionRestSeconds: nextSeconds,
+                              }))
+                            }
+                          />
+                        ) : null}
+                      </div>
+                    ))}
+                  </WorkoutSectionBlock>
+                  {section.id === "warmup" ? (
+                    <SectionBoundaryRestControl
+                      label="热身到训练休息"
+                      seconds={warmupToTrainingRestSeconds}
+                      onChange={setWarmupToTrainingRestSeconds}
+                    />
+                  ) : null}
+                  {section.id === "training" ? (
+                    <SectionBoundaryRestControl
+                      label="训练到拉伸休息"
+                      seconds={trainingToStretchRestSeconds}
+                      onChange={setTrainingToStretchRestSeconds}
+                    />
+                  ) : null}
+                </div>
               );
             })}
           </div>
         </section>
-
-        <div className="sticky bottom-0 flex justify-center bg-background/80 py-md backdrop-blur-md">
-          <div className="flex flex-wrap items-center justify-center gap-xs rounded-[20px] border border-line bg-white p-xs shadow-lift">
-            <ToolbarButton icon="auto_awesome" label="自动排序" onClick={autoSort} />
-            <ToolbarButton icon="more_time" label="插入休息" onClick={insertRest} />
-            <ToolbarButton
-              icon="sync_alt"
-              label="生成循环训练"
-              onClick={() => {
-                applyPlanTitle("循环训练计划");
-                setTrainingLoopRounds(defaultTrainingLoopRounds);
-                setTrainingLoopRestSeconds(defaultTrainingLoopRestSeconds);
-                setSelectedSection("training");
-              }}
-            />
-            <ToolbarButton icon="save" label="保存编排" onClick={saveComposition} primary />
-          </div>
-        </div>
 
         {saveStatus ? (
           <div className="fixed bottom-lg left-1/2 z-40 -translate-x-1/2 rounded-full bg-inverse-surface px-lg py-sm font-label-md text-label-md text-inverse-on-surface shadow-lg">
@@ -1048,23 +1090,26 @@ export function ActionComposerPage() {
               value={libraryQuery}
             />
           </div>
-          <div className="scrollbar-none mb-sm flex gap-[3px] overflow-x-auto rounded-xl border border-line bg-panel-soft p-[3px]">
-            {librarySuitabilityOptions.map((option) => (
-              <button
-                aria-label={option.label}
-                className={`flex h-8 shrink-0 items-center justify-center gap-[3px] rounded-lg border px-sm text-[11px] font-semibold transition-colors ${
-                  librarySuitabilityFilter === option.id
-                    ? "border-primary/25 bg-white text-primary shadow-sm"
-                    : "border-transparent text-secondary hover:bg-white/70 hover:text-primary"
-                }`}
-                key={option.id}
-                onClick={() => setLibrarySuitabilityFilter(option.id)}
-                type="button"
-              >
-                <SymbolIcon className="text-[15px]">{option.icon}</SymbolIcon>
-                <span>{option.label}</span>
-              </button>
-            ))}
+          <div className="relative mb-sm overflow-hidden rounded-xl border border-line bg-panel-soft">
+            <div className="pointer-events-none absolute inset-0 bg-panel-soft" />
+            <div className="scrollbar-none relative flex gap-[3px] overflow-x-auto overscroll-x-contain p-[3px]">
+              {librarySuitabilityOptions.map((option) => (
+                <button
+                  aria-label={option.label}
+                  className={`flex h-8 shrink-0 items-center justify-center gap-[3px] rounded-lg border px-sm text-[11px] font-semibold transition-colors ${
+                    librarySuitabilityFilter === option.id
+                      ? "border-primary/25 bg-white text-primary shadow-sm"
+                      : "border-transparent text-secondary hover:bg-white/70 hover:text-primary"
+                  }`}
+                  key={option.id}
+                  onClick={() => setLibrarySuitabilityFilter(option.id)}
+                  type="button"
+                >
+                  <SymbolIcon className="text-[15px]">{option.icon}</SymbolIcon>
+                  <span>{option.label}</span>
+                </button>
+              ))}
+            </div>
           </div>
           <div className="mb-sm grid grid-cols-2 gap-xs">
             <LibraryFilterSelect
@@ -1333,14 +1378,20 @@ function RoutineCompositionCard({
 }) {
   const loopRounds = clampLoopRounds(workout.trainingLoopRounds ?? 1);
   const loopRestSeconds = workout.trainingLoopRestSeconds ?? defaultTrainingLoopRestSeconds;
+  const warmupToTrainingRestSeconds = workout.warmupToTrainingRestSeconds ?? defaultWarmupToTrainingRestSeconds;
+  const trainingToStretchRestSeconds = workout.trainingToStretchRestSeconds ?? defaultTrainingToStretchRestSeconds;
   const normalizedItems = workout.items.map(normalizeWorkoutItem);
   const minutes = estimateWorkoutMinutes(normalizedItems, {
     trainingLoopRestSeconds: loopRestSeconds,
     trainingLoopRounds: loopRounds,
+    warmupToTrainingRestSeconds,
+    trainingToStretchRestSeconds,
   });
   const calories = estimateWorkoutCalories(normalizedItems, {
     trainingLoopRestSeconds: loopRestSeconds,
     trainingLoopRounds: loopRounds,
+    warmupToTrainingRestSeconds,
+    trainingToStretchRestSeconds,
   });
   const icon = workout.title.includes("燃脂")
     ? "local_fire_department"
@@ -1352,7 +1403,7 @@ function RoutineCompositionCard({
 
   return (
     <div
-      className={`group flex w-64 shrink-0 items-center gap-sm rounded-xl border p-sm text-left transition-all ${
+      className={`group flex w-full items-center gap-sm rounded-xl border p-sm text-left transition-all ${
         isActive
           ? "border-primary bg-primary/5 shadow-card ring-2 ring-primary/10"
           : "border-line bg-white hover:border-primary/40 hover:ring-1 hover:ring-primary/10"
@@ -1404,7 +1455,7 @@ function RoutineCompositionCard({
   );
 }
 
-function CompositionMetric({
+function WorkbenchMetric({
   icon,
   label,
   primary = false,
@@ -1419,20 +1470,16 @@ function CompositionMetric({
 }) {
   return (
     <div
-      className={`flex min-w-0 items-center gap-sm px-sm py-xs sm:px-md xl:border-l xl:first:border-l-0 ${
-        primary ? "text-primary" : "text-ink"
-      } border-line/70`}
+      className={`flex h-8 shrink-0 items-center gap-[3px] rounded-full border px-sm ${
+        primary ? "border-primary/20 bg-primary-soft text-primary" : "border-line bg-panel-soft text-ink"
+      }`}
     >
-      <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${primary ? "text-primary" : "text-outline"}`}>
-        <SymbolIcon className="text-[20px]">{icon}</SymbolIcon>
+      <span className={primary ? "text-primary" : "text-outline"}>
+        <SymbolIcon className="text-[15px]">{icon}</SymbolIcon>
       </span>
-      <span className="min-w-0 flex items-baseline gap-xs">
-        <span className={`font-title-lg text-title-lg font-extrabold ${primary ? "text-primary" : "text-ink"}`}>
-          {value}
-        </span>
-        <span className="truncate font-label-sm text-label-sm text-secondary">
-          {suffix} · {label}
-        </span>
+      <span className="font-label-md text-label-md font-extrabold">{value}</span>
+      <span className="font-label-sm text-label-sm text-secondary">
+        {suffix} · {label}
       </span>
     </div>
   );
@@ -1543,9 +1590,7 @@ function WorkoutExerciseRow({
             />
           </div>
           <div className="min-w-0">
-            <p className="truncate font-body-lg text-body-lg font-bold">
-              {item.nameZh} <span className="text-label-sm font-normal text-outline">{item.nameEn}</span>
-            </p>
+            <p className="truncate font-body-lg text-body-lg font-bold">{item.nameZh}</p>
             <div className="mt-xs flex flex-wrap items-center gap-xs">
               <span className={`inline-block rounded px-sm py-[2px] text-[10px] font-bold uppercase ${item.mode === "duration" ? "bg-primary-fixed text-on-primary-fixed-variant" : "bg-tertiary-fixed text-on-tertiary-fixed-variant"}`}>
                 {item.mode === "duration" ? "时长模式" : "次数模式"}
@@ -1605,6 +1650,39 @@ function WorkoutExerciseRow({
           <SymbolIcon>delete</SymbolIcon>
         </button>
       </div>
+    </div>
+  );
+}
+
+function SectionBoundaryRestControl({
+  label,
+  onChange,
+  seconds,
+}: {
+  label: string;
+  onChange: (seconds: number) => void;
+  seconds: number;
+}) {
+  return (
+    <div className="flex h-7 items-center justify-center">
+      <span className="h-px min-w-8 bg-outline-variant/70" aria-hidden="true" />
+      <label className="mx-xs flex h-7 items-center gap-[4px] rounded-full border border-line bg-panel-soft px-sm text-[10px] font-medium text-secondary">
+        <SymbolIcon className="text-[13px] text-primary">timer</SymbolIcon>
+        {label}
+        <select
+          aria-label={label}
+          className="h-5 rounded-full border border-outline-variant bg-white px-[5px] text-[10px] font-bold text-ink outline-none focus:ring-2 focus:ring-primary/20"
+          onChange={(event) => onChange(Number(event.target.value))}
+          value={seconds}
+        >
+          {restOptions.map((option) => (
+            <option key={option} value={option}>
+              {option}s
+            </option>
+          ))}
+        </select>
+      </label>
+      <span className="h-px min-w-8 bg-outline-variant/70" aria-hidden="true" />
     </div>
   );
 }
@@ -1671,30 +1749,5 @@ function Stepper({
         </button>
       </div>
     </div>
-  );
-}
-
-function ToolbarButton({
-  icon,
-  label,
-  onClick,
-  primary = false,
-}: {
-  icon: string;
-  label: string;
-  onClick: () => void;
-  primary?: boolean;
-}) {
-  return (
-    <button
-      className={`flex items-center gap-xs rounded-xl px-md py-sm font-label-md text-label-md transition-colors ${
-        primary ? "bg-primary/5 font-bold text-primary hover:bg-primary/10" : "hover:bg-surface-container-low"
-      }`}
-      onClick={onClick}
-      type="button"
-    >
-      <SymbolIcon className="text-sm">{icon}</SymbolIcon>
-      {label}
-    </button>
   );
 }

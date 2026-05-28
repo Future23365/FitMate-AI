@@ -32,6 +32,8 @@ export const workoutRoutineSchema = z.object({
   items: z.array(workoutItemSchema),
   trainingLoopRounds: z.number().int().positive().optional(),
   trainingLoopRestSeconds: z.number().int().min(0).optional(),
+  warmupToTrainingRestSeconds: z.number().int().min(0).optional(),
+  trainingToStretchRestSeconds: z.number().int().min(0).optional(),
 });
 
 export const workoutScheduleStatusSchema = z.enum(["cancelled", "completed", "missed", "planned", "rest"]);
@@ -48,6 +50,8 @@ export const workoutScheduleSchema = z.object({
   items: z.array(workoutItemSchema),
   trainingLoopRounds: z.number().int().positive().optional(),
   trainingLoopRestSeconds: z.number().int().min(0).optional(),
+  warmupToTrainingRestSeconds: z.number().int().min(0).optional(),
+  trainingToStretchRestSeconds: z.number().int().min(0).optional(),
   sourceRoutineTitle: z.string().optional(),
 });
 

@@ -126,6 +126,8 @@ describe("persistence services", () => {
 
     await workoutPersistence.saveWorkoutRoutine(createWorkoutRoutine({
       id: "routine-1",
+      warmupToTrainingRestSeconds: 45,
+      trainingToStretchRestSeconds: 75,
       items: [
         createWorkoutItem({ id: "item-1", exerciseId: "push-up" }),
         createWorkoutItem({ id: "item-2", exerciseId: "squat" }),
@@ -134,6 +136,16 @@ describe("persistence services", () => {
 
     expect(prismaMock.exercise.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: { in: ["push-up", "squat"] } },
+    }));
+    expect(prismaMock.workoutRoutine.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({
+        warmupToTrainingRestSeconds: 45,
+        trainingToStretchRestSeconds: 75,
+      }),
+      update: expect.objectContaining({
+        warmupToTrainingRestSeconds: 45,
+        trainingToStretchRestSeconds: 75,
+      }),
     }));
     expect(prismaMock.workoutRoutineItem.createMany).toHaveBeenCalledWith({
       data: [
@@ -391,6 +403,8 @@ function createWorkoutRoutineRecord() {
     updatedAt: new Date("2026-05-25T10:30:00"),
     trainingLoopRounds: 1,
     trainingLoopRestSeconds: 90,
+    warmupToTrainingRestSeconds: 45,
+    trainingToStretchRestSeconds: 75,
     items: [
       {
         id: "item-1",
