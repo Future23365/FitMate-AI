@@ -913,6 +913,7 @@ export function ActionComposerPage() {
                       <div key={item.id}>
                         <WorkoutExerciseRow
                           dragState={dragOverItemId === item.id ? "over" : draggingItemId === item.id ? "dragging" : "idle"}
+                          exercise={exerciseCache.get(item.exerciseId)}
                           index={index}
                           item={item}
                           onDelete={() => deleteItem(item.id)}
@@ -1500,6 +1501,7 @@ function LibraryFilterSelect({
 
 function WorkoutExerciseRow({
   dragState,
+  exercise,
   index,
   item,
   onDelete,
@@ -1512,6 +1514,7 @@ function WorkoutExerciseRow({
   onUpdate,
 }: {
   dragState: "dragging" | "idle" | "over";
+  exercise?: Exercise;
   index: number;
   item: WorkoutItem;
   onDelete: () => void;
@@ -1523,6 +1526,22 @@ function WorkoutExerciseRow({
   onPreview: () => void;
   onUpdate: (updater: (item: WorkoutItem) => WorkoutItem) => void;
 }) {
+  const itemTags = [
+    {
+      icon: "target",
+      label: item.musclesZh.slice(0, 2).join("、") || exercise?.primaryMusclesZh.slice(0, 2).join("、") || "综合",
+    },
+    {
+      icon: "exercise",
+      label: item.equipmentZh || exercise?.equipmentZh || "未标注器械",
+    },
+    {
+      icon: "signal_cellular_alt",
+      label: exercise?.levelZh || "未标注难度",
+    },
+  ];
+  const modeLabel = item.mode === "duration" ? "时长模式" : "次数模式";
+
   return (
     <div
       className={`relative flex flex-col gap-md rounded-xl border border-line bg-white p-md transition-all hover:border-primary/40 hover:ring-1 hover:ring-primary/10 md:flex-row md:items-center ${
@@ -1575,13 +1594,26 @@ function WorkoutExerciseRow({
           <div className="min-w-0">
             <p className="truncate font-body-lg text-body-lg font-bold">{item.nameZh}</p>
             <div className="mt-xs flex flex-wrap items-center gap-xs">
-              <span className={`inline-block rounded px-sm py-[2px] text-[10px] font-bold uppercase ${item.mode === "duration" ? "bg-primary-fixed text-on-primary-fixed-variant" : "bg-tertiary-fixed text-on-tertiary-fixed-variant"}`}>
-                {item.mode === "duration" ? "时长模式" : "次数模式"}
-              </span>
+              {itemTags.map((tag) => (
+                <span
+                  className="inline-flex max-w-[160px] items-center gap-[3px] rounded-lg border border-outline-variant bg-panel-soft px-xs py-[2px] text-[10px] font-semibold text-secondary"
+                  key={`${tag.icon}-${tag.label}`}
+                  title={tag.label}
+                >
+                  <SymbolIcon className="text-[13px] text-outline">{tag.icon}</SymbolIcon>
+                  <span className="truncate">{tag.label}</span>
+                </span>
+              ))}
             </div>
           </div>
         </div>
         <div className="flex flex-wrap items-end gap-md md:ml-auto">
+          <div className="min-w-[70px] text-center">
+            <p className="mb-xs text-[10px] text-outline">模式</p>
+            <span className={`inline-flex h-9 items-center rounded-lg px-sm text-[10px] font-bold ${item.mode === "duration" ? "bg-primary-fixed text-on-primary-fixed-variant" : "bg-tertiary-fixed text-on-tertiary-fixed-variant"}`}>
+              {modeLabel}
+            </span>
+          </div>
           <Stepper
             label={item.mode === "duration" ? "目标时长" : "目标次数"}
             suffix={item.mode === "duration" ? "s" : ""}
