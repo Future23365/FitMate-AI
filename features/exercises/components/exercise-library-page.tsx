@@ -86,7 +86,7 @@ function getFacetLabel(facets: ExerciseFacet[], value: string) {
   return facets.find((facet) => facet.value === value)?.label ?? value;
 }
 
-// 核心筛选只外露高频选项，并保留当前已选项，避免 chip 轨道过长又丢失状态。
+// 核心筛选在抽屉内保留高频选项和当前已选项，避免默认页面被筛选区占满。
 function getVisibleFacetOptions(options: ExerciseFacet[], value: string, limit = 10) {
   const visibleOptions = options.slice(0, limit);
 
@@ -154,6 +154,43 @@ function ChipFilterRow({
   );
 }
 
+// 已选筛选条件在工具栏中保持可见，支持快速移除而不占用列表纵向空间。
+function ActiveFilterChips({
+  activeFilters,
+  onReset,
+}: {
+  activeFilters: ActiveFilter[];
+  onReset: () => void;
+}) {
+  if (!activeFilters.length) {
+    return null;
+  }
+
+  return (
+    <div className="flex min-w-0 items-center gap-sm overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {activeFilters.map((filter) => (
+        <button
+          aria-label={`移除${filter.label}`}
+          className="inline-flex shrink-0 items-center gap-xs rounded-lg bg-primary-soft px-md py-xs font-label-sm text-label-sm font-bold text-primary transition-colors hover:bg-primary/15"
+          key={filter.key}
+          onClick={filter.onClear}
+          type="button"
+        >
+          {filter.label}
+          <SymbolIcon className="text-[16px]">close</SymbolIcon>
+        </button>
+      ))}
+      <button
+        className="shrink-0 rounded-lg border border-line bg-white px-md py-xs font-label-sm text-label-sm text-muted transition-colors hover:bg-panel-soft"
+        onClick={onReset}
+        type="button"
+      >
+        清空筛选
+      </button>
+    </div>
+  );
+}
+
 function SelectFilter({
   label,
   options,
@@ -183,6 +220,208 @@ function SelectFilter({
         ))}
       </select>
     </label>
+  );
+}
+
+function FilterDrawer({
+  activeFilters,
+  category,
+  equipment,
+  facets,
+  force,
+  goalTag,
+  homeRequirement,
+  level,
+  mechanic,
+  moreFilterCount,
+  muscle,
+  onCategoryChange,
+  onClose,
+  onEquipmentChange,
+  onForceChange,
+  onGoalTagChange,
+  onHomeRequirementChange,
+  onLevelChange,
+  onMechanicChange,
+  onMuscleChange,
+  onPublishedChange,
+  onReset,
+  onRiskTagChange,
+  published,
+  riskTag,
+}: {
+  activeFilters: ActiveFilter[];
+  category: string;
+  equipment: string;
+  facets: ExerciseFacets;
+  force: string;
+  goalTag: string;
+  homeRequirement: string;
+  level: string;
+  mechanic: string;
+  moreFilterCount: number;
+  muscle: string;
+  onCategoryChange: (value: string) => void;
+  onClose: () => void;
+  onEquipmentChange: (value: string) => void;
+  onForceChange: (value: string) => void;
+  onGoalTagChange: (value: string) => void;
+  onHomeRequirementChange: (value: string) => void;
+  onLevelChange: (value: string) => void;
+  onMechanicChange: (value: string) => void;
+  onMuscleChange: (value: string) => void;
+  onPublishedChange: (value: string) => void;
+  onReset: () => void;
+  onRiskTagChange: (value: string) => void;
+  published: string;
+  riskTag: string;
+}) {
+  return (
+    <div
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex justify-end bg-black/30 backdrop-blur-sm"
+      role="dialog"
+    >
+      <button
+        aria-label="关闭筛选面板"
+        className="absolute inset-0 cursor-default"
+        onClick={onClose}
+        type="button"
+      />
+      <aside className="relative flex h-full w-full max-w-[440px] flex-col border-l border-line bg-white shadow-nav">
+        <div className="flex items-center justify-between border-b border-line px-lg py-md">
+          <div>
+            <h2 className="font-title-lg text-title-lg font-extrabold">筛选动作</h2>
+            <p className="mt-[2px] font-label-sm text-label-sm text-muted">
+              {activeFilters.length ? `已选 ${activeFilters.length} 项` : "选择动作属性快速缩小范围"}
+            </p>
+          </div>
+          <button
+            aria-label="关闭筛选面板"
+            className="flex h-10 w-10 items-center justify-center rounded-xl border border-line text-muted transition-colors hover:bg-panel-soft hover:text-ink"
+            onClick={onClose}
+            type="button"
+          >
+            <SymbolIcon className="text-[22px]">close</SymbolIcon>
+          </button>
+        </div>
+
+        <div className="custom-scrollbar flex-1 overflow-y-auto px-lg py-lg">
+          {activeFilters.length ? (
+            <div className="mb-lg">
+              <ActiveFilterChips activeFilters={activeFilters} onReset={onReset} />
+            </div>
+          ) : null}
+
+          <section className="mb-xl">
+            <h3 className="mb-md font-title-md text-title-md font-extrabold">常用筛选</h3>
+            <div className="flex flex-col gap-md">
+              <ChipFilterRow
+                label="肌群"
+                onChange={onMuscleChange}
+                options={facets.muscles}
+                value={muscle}
+              />
+              <ChipFilterRow
+                label="分类"
+                onChange={onCategoryChange}
+                options={facets.categories}
+                value={category}
+              />
+              <ChipFilterRow
+                label="器械"
+                onChange={onEquipmentChange}
+                options={facets.equipment}
+                value={equipment}
+              />
+              <ChipFilterRow
+                label="目标"
+                onChange={onGoalTagChange}
+                options={facets.goalTags}
+                value={goalTag}
+              />
+            </div>
+          </section>
+
+          <section>
+            <div className="mb-md flex items-center justify-between">
+              <h3 className="font-title-md text-title-md font-extrabold">更多筛选</h3>
+              {moreFilterCount ? (
+                <span className="rounded-full bg-primary-soft px-sm py-[2px] font-label-sm text-label-sm font-bold text-primary">
+                  {moreFilterCount} 项
+                </span>
+              ) : null}
+            </div>
+            <div className="grid gap-md">
+              <SelectFilter
+                label="难度"
+                onChange={onLevelChange}
+                options={facets.levels}
+                placeholder="全部难度"
+                value={level}
+              />
+              <SelectFilter
+                label="居家条件"
+                onChange={onHomeRequirementChange}
+                options={facets.homeRequirements}
+                placeholder="全部条件"
+                value={homeRequirement}
+              />
+              <SelectFilter
+                label="发力"
+                onChange={onForceChange}
+                options={facets.force}
+                placeholder="全部发力"
+                value={force}
+              />
+              <SelectFilter
+                label="机制"
+                onChange={onMechanicChange}
+                options={facets.mechanics}
+                placeholder="全部机制"
+                value={mechanic}
+              />
+              <SelectFilter
+                label="风险"
+                onChange={onRiskTagChange}
+                options={facets.riskTags}
+                placeholder="全部风险"
+                value={riskTag}
+              />
+              <label className="flex min-w-0 flex-col gap-xs">
+                <span className="font-label-md text-label-md text-muted">状态:</span>
+                <select
+                  className="h-10 w-full cursor-pointer rounded-lg border border-line bg-white px-md font-label-md text-label-md text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
+                  onChange={(event) => onPublishedChange(event.target.value)}
+                  value={published}
+                >
+                  <option value="">全部状态</option>
+                  <option value="true">已发布</option>
+                  <option value="false">未发布</option>
+                </select>
+              </label>
+            </div>
+          </section>
+        </div>
+
+        <div className="flex items-center gap-sm border-t border-line px-lg py-md">
+          <button
+            className="flex-1 rounded-xl border border-line bg-white px-lg py-sm font-label-md text-label-md font-bold text-ink transition-colors hover:bg-panel-soft"
+            onClick={onReset}
+            type="button"
+          >
+            清空
+          </button>
+          <button
+            className="flex-1 rounded-xl bg-primary px-lg py-sm font-label-md text-label-md font-bold text-white transition-colors hover:bg-primary-deep"
+            onClick={onClose}
+            type="button"
+          >
+            查看结果
+          </button>
+        </div>
+      </aside>
+    </div>
   );
 }
 
@@ -309,6 +548,22 @@ export function ExerciseLibraryPage() {
     sortBy,
   ]);
 
+  useEffect(() => {
+    if (!isMoreFiltersOpen) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsMoreFiltersOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isMoreFiltersOpen]);
+
   function updateFilter(updater: () => void) {
     setIsLoadingExercises(true);
     setPage(1);
@@ -430,176 +685,90 @@ export function ExerciseLibraryPage() {
   return (
     <div className="app-mesh-bg min-h-screen text-ink md:pl-[260px]">
       <main className="custom-scrollbar h-screen overflow-y-auto p-lg xl:pr-[364px] xl:p-xl">
-        <header className="mb-2xl flex flex-col gap-lg xl:flex-row xl:items-end xl:justify-between">
+        <header className="mb-lg flex flex-col gap-xs">
           <div>
             <h1 className="font-headline-lg text-headline-lg font-extrabold tracking-[-0.03em]">动作库</h1>
             <p className="mt-xs font-body-md text-body-md text-muted">
               查找标准动作教学，构建你的专属训练方案
             </p>
           </div>
-          <div className="flex flex-wrap gap-sm">
-            <button
-              className="flex items-center gap-xs rounded-xl border border-line bg-white px-lg py-sm font-label-md text-label-md font-bold shadow-card transition-colors hover:bg-panel-soft"
-              onClick={() => setIsMoreFiltersOpen((current) => !current)}
-              type="button"
-            >
-              <SymbolIcon className="text-[20px]">filter_list</SymbolIcon>
-              筛选
-            </button>
-            <button
-              className="flex items-center gap-xs rounded-xl border border-line bg-white px-lg py-sm font-label-md text-label-md font-bold shadow-card transition-colors hover:bg-panel-soft"
-              type="button"
-            >
-              <SymbolIcon className="text-[20px]">bookmarks</SymbolIcon>
-              批量收藏
-            </button>
-            <button
-              className="flex items-center gap-xs rounded-xl bg-primary px-lg py-sm font-label-md text-label-md font-bold text-white shadow-card transition-all hover:bg-primary-deep hover:shadow-lift"
-              type="button"
-            >
-              <SymbolIcon className="text-[20px]">play_circle</SymbolIcon>
-              开始训练
-            </button>
-          </div>
         </header>
 
-        <section className="mb-2xl rounded-[20px] border border-line bg-white p-lg shadow-card">
-          <div className="mb-lg flex items-center gap-md rounded-xl border border-line bg-white px-lg py-sm transition-all focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
-            <SymbolIcon className="text-muted">search</SymbolIcon>
-            <input
-              className="w-full border-none bg-transparent font-body-md text-body-md text-ink outline-none placeholder:text-muted focus:ring-0"
-              onChange={(event) => updateFilter(() => setQuery(event.target.value))}
-              placeholder="搜索动作名称，如：深蹲、硬拉..."
-              type="text"
-              value={query}
-            />
-          </div>
-
-          <div className="flex flex-col gap-lg">
-            <div className="flex flex-col gap-md">
-              <ChipFilterRow
-                label="肌群"
-                onChange={(value) => updateFilter(() => setMuscle(value))}
-                options={facets.muscles}
-                value={muscle}
-              />
-              <ChipFilterRow
-                label="分类"
-                onChange={(value) => updateFilter(() => setCategory(value))}
-                options={facets.categories}
-                value={category}
-              />
-              <ChipFilterRow
-                label="器械"
-                onChange={(value) => updateFilter(() => setEquipment(value))}
-                options={facets.equipment}
-                value={equipment}
-              />
-              <ChipFilterRow
-                label="目标"
-                onChange={(value) => updateFilter(() => setGoalTag(value))}
-                options={facets.goalTags}
-                value={goalTag}
+        <section className="sticky top-0 z-20 -mx-lg mb-lg border-y border-line/80 bg-[#F6F8FB]/92 px-lg py-md backdrop-blur-xl xl:-mx-xl xl:px-xl">
+          <div className="flex flex-col gap-sm xl:flex-row xl:items-center">
+            <div className="flex min-h-11 flex-1 items-center gap-md rounded-xl border border-line bg-white px-lg py-sm shadow-card transition-all focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
+              <SymbolIcon className="text-muted">search</SymbolIcon>
+              <input
+                className="w-full border-none bg-transparent font-body-md text-body-md text-ink outline-none placeholder:text-muted focus:ring-0"
+                onChange={(event) => updateFilter(() => setQuery(event.target.value))}
+                placeholder="搜索动作名称，如：深蹲、硬拉..."
+                type="text"
+                value={query}
               />
             </div>
-
-            <div className="border-t border-line pt-md">
+            <div className="flex items-center gap-sm">
               <button
                 aria-expanded={isMoreFiltersOpen}
-                className="inline-flex items-center gap-xs rounded-xl border border-line bg-white px-lg py-sm font-label-md text-label-md font-bold text-ink transition-colors hover:bg-panel-soft"
-                onClick={() => setIsMoreFiltersOpen((current) => !current)}
+                className="inline-flex h-11 items-center gap-xs rounded-xl border border-line bg-white px-lg font-label-md text-label-md font-bold text-ink shadow-card transition-colors hover:bg-panel-soft"
+                onClick={() => setIsMoreFiltersOpen(true)}
                 type="button"
               >
                 <SymbolIcon className="text-[20px]">tune</SymbolIcon>
-                更多筛选
-                {moreFilterCount ? (
-                  <span className="rounded-full bg-primary-soft px-xs text-label-xs font-bold text-primary">
-                    {moreFilterCount}
+                筛选
+                {activeFilters.length ? (
+                  <span className="rounded-full bg-primary px-xs text-label-xs font-bold text-white">
+                    {activeFilters.length}
                   </span>
                 ) : null}
-                <SymbolIcon className="text-[18px]">
-                  {isMoreFiltersOpen ? "expand_less" : "expand_more"}
-                </SymbolIcon>
               </button>
-
-              {isMoreFiltersOpen ? (
-                <div className="mt-md grid gap-md rounded-xl border border-line bg-panel-soft p-md md:grid-cols-2 xl:grid-cols-3">
-                  <SelectFilter
-                    label="难度"
-                    onChange={(value) => updateFilter(() => setLevel(value))}
-                    options={facets.levels}
-                    placeholder="全部难度"
-                    value={level}
-                  />
-                  <SelectFilter
-                    label="居家条件"
-                    onChange={(value) => updateFilter(() => setHomeRequirement(value))}
-                    options={facets.homeRequirements}
-                    placeholder="全部条件"
-                    value={homeRequirement}
-                  />
-                  <SelectFilter
-                    label="发力"
-                    onChange={(value) => updateFilter(() => setForce(value))}
-                    options={facets.force}
-                    placeholder="全部发力"
-                    value={force}
-                  />
-                  <SelectFilter
-                    label="机制"
-                    onChange={(value) => updateFilter(() => setMechanic(value))}
-                    options={facets.mechanics}
-                    placeholder="全部机制"
-                    value={mechanic}
-                  />
-                  <SelectFilter
-                    label="风险"
-                    onChange={(value) => updateFilter(() => setRiskTag(value))}
-                    options={facets.riskTags}
-                    placeholder="全部风险"
-                    value={riskTag}
-                  />
-                  <label className="flex min-w-0 flex-col gap-xs">
-                    <span className="font-label-md text-label-md text-muted">状态:</span>
-                    <select
-                      className="h-10 w-full cursor-pointer rounded-lg border border-line bg-white px-md font-label-md text-label-md text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
-                      onChange={(event) => updateFilter(() => setPublished(event.target.value))}
-                      value={published}
-                    >
-                      <option value="">全部状态</option>
-                      <option value="true">已发布</option>
-                      <option value="false">未发布</option>
-                    </select>
-                  </label>
-                </div>
-              ) : null}
-            </div>
-
-            {activeFilters.length ? (
-              <div className="flex flex-wrap items-center gap-sm border-t border-line pt-md">
-                {activeFilters.map((filter) => (
-                  <button
-                    aria-label={`移除${filter.label}`}
-                    className="inline-flex items-center gap-xs rounded-lg bg-primary-soft px-md py-xs font-label-sm text-label-sm font-bold text-primary transition-colors hover:bg-primary/15"
-                    key={filter.key}
-                    onClick={filter.onClear}
-                    type="button"
-                  >
-                    {filter.label}
-                    <SymbolIcon className="text-[16px]">close</SymbolIcon>
-                  </button>
-                ))}
+              {activeFilters.length ? (
                 <button
-                  className="rounded-lg border border-line px-md py-xs font-label-sm text-label-sm text-muted transition-colors hover:bg-panel-soft"
+                  className="hidden h-11 rounded-xl border border-line bg-white px-lg font-label-md text-label-md font-bold text-muted shadow-card transition-colors hover:bg-panel-soft sm:block"
                   onClick={resetFilters}
                   type="button"
                 >
-                  清空筛选
+                  清空
                 </button>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
           </div>
+
+          {activeFilters.length ? (
+            <div className="mt-sm">
+              <ActiveFilterChips activeFilters={activeFilters} onReset={resetFilters} />
+            </div>
+          ) : null}
         </section>
+
+        {isMoreFiltersOpen ? (
+          <FilterDrawer
+            activeFilters={activeFilters}
+            category={category}
+            equipment={equipment}
+            facets={facets}
+            force={force}
+            goalTag={goalTag}
+            homeRequirement={homeRequirement}
+            level={level}
+            mechanic={mechanic}
+            moreFilterCount={moreFilterCount}
+            muscle={muscle}
+            onCategoryChange={(value) => updateFilter(() => setCategory(value))}
+            onClose={() => setIsMoreFiltersOpen(false)}
+            onEquipmentChange={(value) => updateFilter(() => setEquipment(value))}
+            onForceChange={(value) => updateFilter(() => setForce(value))}
+            onGoalTagChange={(value) => updateFilter(() => setGoalTag(value))}
+            onHomeRequirementChange={(value) => updateFilter(() => setHomeRequirement(value))}
+            onLevelChange={(value) => updateFilter(() => setLevel(value))}
+            onMechanicChange={(value) => updateFilter(() => setMechanic(value))}
+            onMuscleChange={(value) => updateFilter(() => setMuscle(value))}
+            onPublishedChange={(value) => updateFilter(() => setPublished(value))}
+            onReset={resetFilters}
+            onRiskTagChange={(value) => updateFilter(() => setRiskTag(value))}
+            published={published}
+            riskTag={riskTag}
+          />
+        ) : null}
 
         <section>
           <div className="mb-lg flex flex-col gap-md border-b border-line pb-md xl:flex-row xl:items-end xl:justify-between">
