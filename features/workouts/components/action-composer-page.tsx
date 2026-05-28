@@ -1528,15 +1528,14 @@ function WorkoutExerciseRow({
 }) {
   const itemTags = [
     {
-      icon: "target",
-      label: item.musclesZh.slice(0, 2).join("、") || exercise?.primaryMusclesZh.slice(0, 2).join("、") || "综合",
+      label: "肌群",
+      value: item.musclesZh.slice(0, 2).join("、") || exercise?.primaryMusclesZh.slice(0, 2).join("、") || "综合",
     },
     {
-      icon: "exercise",
-      label: item.equipmentZh || exercise?.equipmentZh || "未标注器械",
+      label: "器械",
+      value: item.equipmentZh || exercise?.equipmentZh || "未标注器械",
     },
   ];
-  const modeLabel = item.mode === "duration" ? "时长模式" : "次数模式";
 
   return (
     <div
@@ -1577,7 +1576,7 @@ function WorkoutExerciseRow({
         </button>
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-md md:flex-row md:items-center">
-        <div className="flex min-w-0 flex-1 items-center gap-md">
+        <div className="flex min-w-0 flex-1 items-center gap-md md:w-[220px] md:flex-none">
           <div className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-surface-container-low">
             <Image
               alt=""
@@ -1592,24 +1591,18 @@ function WorkoutExerciseRow({
             <div className="mt-xs flex max-w-full flex-nowrap items-center gap-xs overflow-hidden">
               {itemTags.map((tag) => (
                 <span
-                  className="inline-flex min-w-0 max-w-[170px] shrink items-center gap-[3px] rounded-lg border border-outline-variant bg-panel-soft px-xs py-[2px] text-[10px] font-semibold text-secondary"
-                  key={`${tag.icon}-${tag.label}`}
-                  title={tag.label}
+                  className="inline-flex min-w-0 max-w-[140px] shrink-0 items-center gap-[4px] rounded-md bg-surface-container-low px-xs py-[2px] text-[11px] leading-none"
+                  key={`${tag.label}-${tag.value}`}
+                  title={tag.value}
                 >
-                  <SymbolIcon className="text-[13px] text-outline">{tag.icon}</SymbolIcon>
-                  <span className="truncate">{tag.label}</span>
+                  <span className="shrink-0 text-[10px] font-medium text-outline">{tag.label}</span>
+                  <span className="truncate font-semibold text-secondary">{tag.value}</span>
                 </span>
               ))}
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap items-end gap-md md:ml-auto">
-          <div className="min-w-[70px] text-center">
-            <p className="mb-xs text-[10px] text-outline">模式</p>
-            <span className={`inline-flex h-9 items-center rounded-lg px-sm text-[10px] font-bold ${item.mode === "duration" ? "bg-primary-fixed text-on-primary-fixed-variant" : "bg-tertiary-fixed text-on-tertiary-fixed-variant"}`}>
-              {modeLabel}
-            </span>
-          </div>
+        <div className="flex flex-wrap items-end gap-sm md:ml-auto md:max-w-[330px] md:justify-end">
           <Stepper
             label={item.mode === "duration" ? "目标时长" : "目标次数"}
             suffix={item.mode === "duration" ? "s" : ""}
