@@ -61,16 +61,11 @@ describeIfConfigured("manual LLM consistency", () => {
   beforeAll(() => {
     const estimate = estimateTokenUsage();
 
-    console.log(
-      [
-        "Manual LLM consistency token estimate:",
-        `cases=${manualLlmCases.length}`,
-        `estimated_prompt_tokens=${estimate.promptTokens}`,
-        `estimated_completion_tokens=${estimate.completionTokens}`,
-        `estimated_total_tokens=${estimate.totalTokens}`,
-        "说明：这是按请求文本长度粗略估算，最终以模型返回 usage 为准。",
-      ].join(" "),
-    );
+    console.log("手动 LLM 一致性测试 token 预估：");
+    console.log(`预估输入token：${estimate.promptTokens}`);
+    console.log(`预估输出token：${estimate.completionTokens}`);
+    console.log(`预估总token：${estimate.totalTokens}`);
+    console.log("说明：这是按请求文本长度粗略估算，最终以模型返回 usage 为准。");
   });
 
   afterAll(async () => {

@@ -23,16 +23,11 @@ if (!apiKey) {
   process.exit(0);
 }
 
-console.log(
-  [
-    "Manual LLM consistency token estimate:",
-    `cases=${manualLlmCaseCount}`,
-    `estimated_prompt_tokens=${estimatedPromptTokens}`,
-    `estimated_completion_tokens=${estimatedCompletionTokens}`,
-    `estimated_total_tokens=${estimatedPromptTokens + estimatedCompletionTokens}`,
-    "说明：这是按当前用例规模粗略估算，最终以模型返回 usage 为准。",
-  ].join(" "),
-);
+console.log("手动 LLM 一致性测试 token 预估：");
+console.log(`预估输入token：${estimatedPromptTokens}`);
+console.log(`预估输出token：${estimatedCompletionTokens}`);
+console.log(`预估总token：${estimatedPromptTokens + estimatedCompletionTokens}`);
+console.log("说明：这是按当前用例规模粗略估算，最终以模型返回 usage 为准。");
 
 const vitestBin = fileURLToPath(new URL("../node_modules/.bin/vitest", import.meta.url));
 const result = spawnSync(vitestBin, ["run", "--config", "vitest.llm.config.ts"], {
