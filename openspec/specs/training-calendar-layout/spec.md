@@ -1,0 +1,36 @@
+# training-calendar-layout Specification
+
+## Purpose
+TBD - created by archiving change compact-training-calendar-layout. Update Purpose after archive.
+## Requirements
+### Requirement: 月历作为训练日历主体
+训练日历页在桌面端 SHALL 以月历作为主内容主体，减少非日历内容对首屏空间的占用。
+
+#### Scenario: 用户打开训练日历页
+- **WHEN** 用户在桌面端打开训练日历页
+- **THEN** 系统 MUST 在主内容区域优先展示当前月份日历
+- **AND** 系统 MUST 避免在月历上方常驻展示已保存计划列表
+
+### Requirement: 已保存计划按需展示
+训练日历页 SHALL 将已保存计划作为按需打开的排期素材入口，而不是默认常驻内容区。
+
+#### Scenario: 用户查看已保存计划
+- **WHEN** 用户点击“已保存计划”入口
+- **THEN** 系统 MUST 展开可用于安排训练的已保存计划列表
+- **AND** 列表 MUST 支持将某个已保存计划安排到当前选中日期
+- **AND** 系统 MUST 保留进入动作编排页管理全部计划的入口
+
+#### Scenario: 用户选择已保存计划排期
+- **WHEN** 用户在已保存计划列表中选择一个计划进行安排
+- **THEN** 系统 MUST 使用当前选中日期创建对应 `WorkoutSchedule`
+- **AND** 系统 MUST 关闭已保存计划列表或明确回到月历主体
+
+### Requirement: 月历单元格展示紧凑摘要
+训练日历页 SHALL 在月历单元格内展示当天安排摘要，并把完整详情和操作交给选中日期的详情区域。
+
+#### Scenario: 日期存在多个安排
+- **WHEN** 某个日期存在多个训练安排
+- **THEN** 月历单元格 MUST 展示至少一个可识别的安排摘要
+- **AND** 月历单元格 MUST 展示剩余安排数量
+- **AND** 选中该日期后详情区域 MUST 展示当天完整安排列表
+
