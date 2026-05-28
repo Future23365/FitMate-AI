@@ -248,7 +248,7 @@ export function WorkoutRoutineDraftCard({
   };
 
   return (
-    <div className="mt-md overflow-hidden rounded-[20px] border border-line bg-white shadow-card">
+    <div className="app-push-card mt-md overflow-hidden rounded-[20px] border border-line bg-white shadow-card">
       <div className="border-b border-line bg-panel-soft px-lg py-md">
         <div className="flex flex-col gap-sm md:flex-row md:items-start md:justify-between">
           <div>

@@ -343,6 +343,25 @@ body,
   backdrop-filter: blur(24px) saturate(1.05);
 }
 
+/* 聊天推送卡片需要比普通控件更易读，局部放大 MD3 字号 token，不影响全站表单和导航。 */
+.app-push-card {
+  --text-label-xs: 12px;
+  --text-label-xs--line-height: 16px;
+  --text-label-xs--font-weight: 600;
+  --text-label-sm: 13px;
+  --text-label-sm--line-height: 18px;
+  --text-label-md: 15px;
+  --text-label-md--line-height: 22px;
+  --text-body-xs: 13px;
+  --text-body-xs--line-height: 20px;
+  --text-body-sm: 15px;
+  --text-body-sm--line-height: 22px;
+  --text-body-md: 17px;
+  --text-body-md--line-height: 25px;
+  --text-title-lg: 21px;
+  --text-title-lg--line-height: 30px;
+}
+
 @keyframes mesh-bg-drift {
   0% {
     background-position: 100% 0%, 0% 0%, 0 0;

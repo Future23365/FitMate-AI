@@ -332,7 +332,7 @@ export function WorkoutPlanDraftCard({
   };
 
   return (
-    <div className="relative mt-md overflow-hidden rounded-[20px] border border-line bg-white/95 shadow-card backdrop-blur-md transition-all duration-300 hover:shadow-lift">
+    <div className="app-push-card relative mt-md overflow-hidden rounded-[20px] border border-line bg-white/95 shadow-card backdrop-blur-md transition-all duration-300 hover:shadow-lift">
       <div className="h-1.5 w-full bg-primary" />
 
       <div className="p-lg">

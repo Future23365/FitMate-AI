@@ -103,7 +103,7 @@ export function ExerciseRecommendationCard({
   }
 
   return (
-    <div className="relative overflow-hidden rounded-xl border border-line bg-white/95 shadow-sm backdrop-blur-md transition-all duration-300 hover:shadow-card">
+    <div className="app-push-card relative overflow-hidden rounded-xl border border-line bg-white/95 shadow-sm backdrop-blur-md transition-all duration-300 hover:shadow-card">
       <div className="h-1 w-full bg-primary" />
 
       <div className="p-md">
