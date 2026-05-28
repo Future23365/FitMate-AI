@@ -246,6 +246,7 @@ export function ActionComposerPage() {
   const [libraryMuscle, setLibraryMuscle] = useState("");
   const [libraryEquipment, setLibraryEquipment] = useState("");
   const [libraryLevel, setLibraryLevel] = useState("");
+  const [libraryHomeRequirement, setLibraryHomeRequirement] = useState("");
   const [selectedLibraryExerciseId, setSelectedLibraryExerciseId] = useState("");
   const [isLoadingLibrary, setIsLoadingLibrary] = useState(true);
   const [saveStatus, setSaveStatus] = useState("");
@@ -286,6 +287,10 @@ export function ActionComposerPage() {
       params.set("level", libraryLevel);
     }
 
+    if (libraryHomeRequirement) {
+      params.set("homeRequirement", libraryHomeRequirement);
+    }
+
     clientRequest<ExerciseApiResponse>(`/api/exercises?${params.toString()}`, {
       signal: controller.signal,
       errorMessage: "动作库加载失败",
@@ -320,7 +325,7 @@ export function ActionComposerPage() {
       });
 
     return () => controller.abort();
-  }, [libraryCategory, libraryEquipment, libraryLevel, libraryMuscle, libraryQuery]);
+  }, [libraryCategory, libraryEquipment, libraryHomeRequirement, libraryLevel, libraryMuscle, libraryQuery]);
 
   useEffect(() => {
     async function loadFromHash() {
@@ -402,6 +407,7 @@ export function ActionComposerPage() {
     Boolean(libraryCategory) ||
     Boolean(libraryMuscle) ||
     Boolean(libraryEquipment) ||
+    Boolean(libraryHomeRequirement) ||
     Boolean(libraryLevel);
 
   function updateItem(id: string, updater: (item: WorkoutItem) => WorkoutItem) {
@@ -470,6 +476,7 @@ export function ActionComposerPage() {
     setLibraryCategory("");
     setLibraryMuscle("");
     setLibraryEquipment("");
+    setLibraryHomeRequirement("");
     setLibraryLevel("");
   }
 
@@ -967,34 +974,30 @@ export function ActionComposerPage() {
               value={libraryQuery}
             />
           </div>
-          <div className="custom-scrollbar mb-sm flex gap-xs overflow-x-auto pb-xs">
-            <button
-              className={`whitespace-nowrap rounded-lg px-md py-xs text-[11px] transition-colors ${
-                !libraryCategory
-                  ? "bg-primary text-white"
-                  : "bg-surface-container-low text-on-surface-variant hover:bg-surface-container"
-              }`}
-              onClick={() => setLibraryCategory("")}
-              type="button"
-            >
-              全部
-            </button>
-            {libraryFacets.categories.slice(0, 8).map((category) => (
+          <div className="mb-sm grid grid-cols-3 gap-xs rounded-xl border border-line bg-surface-container-lowest p-xs">
+            {sectionConfigs.map((section) => (
               <button
-                className={`whitespace-nowrap rounded-lg px-md py-xs text-[11px] transition-colors ${
-                  libraryCategory === category.value
+                className={`flex min-w-0 flex-col items-center gap-[2px] rounded-lg px-xs py-xs text-[10px] font-bold transition-colors ${
+                  selectedSection === section.id
                     ? "bg-primary text-white"
-                    : "bg-surface-container-low text-on-surface-variant hover:bg-surface-container"
+                    : "text-on-surface-variant hover:bg-primary-soft hover:text-primary"
                 }`}
-                key={category.value}
-                onClick={() => setLibraryCategory(category.value)}
+                key={section.id}
+                onClick={() => setSelectedSection(section.id)}
                 type="button"
               >
-                {category.label}
+                <SymbolIcon className="text-[17px]">{section.icon}</SymbolIcon>
+                <span className="w-full truncate">添加到{section.title}</span>
               </button>
             ))}
           </div>
           <div className="mb-sm grid grid-cols-2 gap-xs">
+            <LibraryFilterSelect
+              label="分类"
+              onChange={setLibraryCategory}
+              options={libraryFacets.categories}
+              value={libraryCategory}
+            />
             <LibraryFilterSelect
               label="肌群"
               onChange={setLibraryMuscle}
@@ -1012,6 +1015,12 @@ export function ActionComposerPage() {
               onChange={setLibraryLevel}
               options={libraryFacets.levels}
               value={libraryLevel}
+            />
+            <LibraryFilterSelect
+              label="居家条件"
+              onChange={setLibraryHomeRequirement}
+              options={libraryFacets.homeRequirements}
+              value={libraryHomeRequirement}
             />
             <button
               className="rounded-lg border border-outline-variant bg-white px-sm py-xs text-[11px] font-medium text-on-surface-variant transition-colors hover:bg-surface-container-low disabled:cursor-not-allowed disabled:opacity-50"
