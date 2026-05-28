@@ -30,6 +30,7 @@ export function WorkoutDraftExerciseItem({
   const exerciseName = exercise?.nameZh || exerciseId;
   const image = exercise?.imageUrls?.[0] || placeholderWorkoutImage;
   const muscles = exercise?.primaryMusclesZh?.slice(0, 2).join("、") || "综合";
+  const prescription = `${sets}组 · ${target}${mode === "reps" ? "次/组" : "秒/组"}`;
 
   return (
     <div className="group/exercise-card relative flex w-full items-center gap-md rounded-xl border border-line bg-white p-sm pr-xl text-left transition-colors hover:border-primary/30 hover:bg-panel-soft">
@@ -46,21 +47,18 @@ export function WorkoutDraftExerciseItem({
         <p className="mt-xs truncate font-label-sm text-label-sm font-semibold text-muted">
           {exercise?.equipmentZh || "未标注器械"} · {muscles}
         </p>
-        {notes && (
-          <p className="mt-xs line-clamp-1 font-label-sm text-label-sm font-semibold text-primary">
-            {notes}
+        <div className="mt-xs flex min-w-0 items-center justify-between gap-md">
+          {notes ? (
+            <p className="line-clamp-1 min-w-0 font-label-sm text-label-sm font-semibold text-primary">
+              {notes}
+            </p>
+          ) : (
+            <span aria-hidden="true" className="min-w-0 flex-1" />
+          )}
+          <p className="shrink-0 font-label-sm text-label-sm font-extrabold text-primary">
+            {prescription}
           </p>
-        )}
-      </div>
-      <div className="flex min-w-[64px] shrink-0 flex-col items-end text-right">
-        <p className="font-body-md text-body-md font-extrabold leading-none text-primary">
-          {sets}
-          <span className="ml-[2px] font-label-sm text-label-sm font-bold text-muted">组</span>
-        </p>
-        <p className="mt-xs font-label-sm text-label-sm font-semibold text-muted">
-          {target}
-          {mode === "reps" ? "次/组" : "秒/组"}
-        </p>
+        </div>
       </div>
     </div>
   );
