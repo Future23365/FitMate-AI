@@ -14,22 +14,29 @@
 - **THEN** 基础组件 MUST NOT import 聊天、动作、训练、AI Trace、Prisma 或服务端领域类型
 - **AND** 基础组件 MUST 只表达通用 UI 结构、样式变体和可访问性交互
 
-### Requirement: Tailwind v3 兼容接入
-系统 SHALL 在当前 Tailwind CSS 3.4 项目结构下接入 shadcn/ui，并且 MUST NOT 在本 change 中升级 Tailwind 主版本或迁移到 Tailwind v4 配置模型。
+### Requirement: Tailwind 4.3 升级
+系统 SHALL 将项目从 Tailwind CSS 3.4 升级到 Tailwind CSS 4.3，并且 MUST 按 Tailwind v4 的配置、PostCSS 插件和 CSS 入口要求迁移现有样式体系。
 
-#### Scenario: 开发者初始化 shadcn/ui
-- **WHEN** 开发者执行 shadcn 初始化或组件生成
-- **THEN** 初始化方式 MUST 与 Tailwind CSS 3.4 兼容
-- **AND** `tailwind.config.ts` MUST 保持 Tailwind v3 可工作的配置结构
-- **AND** `app/globals.css` MUST 继续正确加载 Tailwind base、components 和 utilities
+#### Scenario: 开发者升级 Tailwind
+- **WHEN** 开发者执行 Tailwind 升级
+- **THEN** `tailwindcss` MUST 升级到 4.3
+- **AND** PostCSS 集成 MUST 使用 `@tailwindcss/postcss`
+- **AND** `app/globals.css` MUST 使用 Tailwind v4 支持的 CSS 入口
+- **AND** 项目现有设计 token MUST 迁移到 Tailwind v4 可维护结构
 
-#### Scenario: shadcn 最新模板与 Tailwind v3 不兼容
-- **WHEN** shadcn 最新 CLI 或 registry 输出 Tailwind v4 专用配置
-- **THEN** 实现 MUST 停止使用该输出直接覆盖项目配置
-- **AND** 实现 MUST 选择 Tailwind v3 兼容模板或明确拆出独立 Tailwind 升级 change
+#### Scenario: Tailwind v4 破坏性变更被处理
+- **WHEN** 开发者完成 Tailwind 4.3 升级
+- **THEN** 实现 MUST 检查并处理已移除或改名的 Tailwind utility
+- **AND** 实现 MUST 检查默认 border color、ring width、outline、space/divide selector 和 Preflight 变化对页面的影响
+- **AND** 实现 MUST 保留当前项目浅色 MD3 视觉 token 的语义
+
+#### Scenario: shadcn/ui 初始化发生在 Tailwind 4.3 基础上
+- **WHEN** 开发者初始化 shadcn/ui 或生成组件
+- **THEN** shadcn 配置 MUST 面向 Tailwind 4.3 项目结构
+- **AND** `components/ui/*` 组件 MUST 使用与 Tailwind 4.3 兼容的模板和主题变量
 
 ### Requirement: 项目主题映射
-系统 SHALL 将 shadcn/ui semantic tokens 映射到当前项目浅色 Material Design 3 风格，并且 MUST 避免形成第二套冲突视觉体系。
+系统 SHALL 将 shadcn/ui semantic tokens 映射到 Tailwind 4.3 下的当前项目浅色 Material Design 3 风格，并且 MUST 避免形成第二套冲突视觉体系。
 
 #### Scenario: 基础组件渲染默认样式
 - **WHEN** 页面使用 `Button`、`Card`、`Badge`、`Input`、`Dialog` 或 `Sheet`

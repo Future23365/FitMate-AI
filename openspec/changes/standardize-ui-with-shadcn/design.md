@@ -12,13 +12,14 @@
 - 调试台：`components/dev/ai-trace-viewer.tsx` 使用了另一套 slate/blue/red 样式和自实现按钮、标签、详情面板。
 - 设置页：`app/settings/page.tsx` 是低复杂度页面，但也应纳入基础组件一致性。
 
-项目当前是 Tailwind CSS 3.4。shadcn 当前最新文档主要面向更新的 Tailwind 路径，而官方 v3 文档说明 Tailwind v3 项目应使用 v3 兼容的 shadcn CLI/组件模板。因此本 change 默认不做 Tailwind v4 迁移，避免把组件库接入和 Tailwind 主版本升级耦合到同一次重构。
+项目当前是 Tailwind CSS 3.4。Tailwind 官方已发布 v4.3，shadcn 当前 Next.js 安装路径也面向 Tailwind v4 项目。因此本 change 将组件库标准化和 Tailwind 4.3 升级合并处理，避免先按 v3 接入 shadcn 后很快再经历一轮基础样式和组件模板迁移。
 
 ## Goals / Non-Goals
 
 **Goals:**
 
 - 建立 `shadcn/ui` 基础组件层，形成项目统一的 Button、Card、Input、Textarea、Badge、Tabs、Select、Dialog、Sheet、Drawer、Popover、DropdownMenu、ScrollArea、Tooltip、Skeleton、Separator、Slider、Switch、Label 等基础控件来源。
+- 将 Tailwind CSS 升级到 4.3，迁移 `postcss.config.js`、`app/globals.css` 和主题 token 到 v4 可维护结构。
 - 将 shadcn 组件主题适配到现有浅色 Material Design 3 风格，保持 `#F6F8FB` 页面背景、白色 panel、蓝色 primary、清晰边框和克制阴影。
 - 逐页替换基础控件，减少页面内重复 className 和重复交互实现。
 - 保留业务组件边界：领域组件继续表达聊天、动作、训练、计划和 AI Trace 的业务状态；它们内部优先组合 `components/ui`。
@@ -27,7 +28,6 @@
 
 **Non-Goals:**
 
-- 不升级 Tailwind CSS v4，不迁移到新的 Tailwind 配置模型。
 - 不引入第二套大型 UI 库，不用 MUI、Ant Design、Chakra UI 等替代现有 Tailwind 体系。
 - 不把所有业务组件删除。`ExercisePreviewSheet`、`ExerciseRecommendationCard`、`WorkoutSessionPage` 内部子组件等承载领域语义的组件应保留，只替换其中的基础控件和可复用外壳。
 - 不重做产品信息架构、路由、训练执行流程、聊天协议、动作筛选语义或计划保存流程。
@@ -45,16 +45,21 @@
 - 相比一次性大规模替换全部 JSX，先建立基础层再分页面迁移，可以让每个页面都有独立验收点。
 - 相比引入外部不可控组件库，本地源码更适合当前项目的 MD3 token 和健身业务卡片视觉。
 
-### 2. Tailwind v3 兼容接入，不在本 change 中升级 Tailwind
+### 2. Tailwind 4.3 升级和 shadcn 接入合并处理
 
-实现时应先运行 shadcn 诊断或初始化命令确认当前 Tailwind 3.4 项目可用路径。默认使用 Tailwind v3 兼容版本的 shadcn CLI/registry 初始化；如 CLI 输出与官方文档变化不一致，应以“保持 Tailwind v3 工作正常”为优先约束。
+实现时应先确认 Node.js 版本满足 Tailwind v4 升级工具要求，再将 `tailwindcss` 升级到 4.3，并按官方 v4 路径处理 PostCSS 插件、CSS 入口和配置迁移。相比先维持 Tailwind v3 再接入 shadcn，这次直接升级到 v4.3 能让 `components/ui` 使用当前 shadcn 模板，减少二次迁移成本。
 
 建议实施边界：
 
+- 优先评估 `npx @tailwindcss/upgrade` 在本仓库的输出，但必须人工 review diff，不能让升级工具无审查地覆盖项目 token、断点和全局 CSS。
+- 将 PostCSS 配置从 `tailwindcss` 插件迁移到 `@tailwindcss/postcss`，并按 v4 要求更新 devDependencies。
+- 将 `app/globals.css` 的 `@tailwind base; @tailwind components; @tailwind utilities;` 迁移为 v4 的 CSS-first 入口，并用 `@theme` 或等价方式承载现有项目 token。
+- 迁移或删除 `tailwind.config.ts` 前必须保留现有颜色、字体、spacing、radius、shadow、断点和内容扫描语义；如果某些配置必须继续通过 JS 配置表达，需在 design/实现说明中注明原因。
+- 扫描并处理 Tailwind v4 破坏性变更：废弃 opacity utilities、`shadow-sm`/`rounded-sm`/`blur-sm` 等 scale rename、`outline-none`、默认 ring、默认 border color、space/divide selector 变化、Preflight 变化。
 - 新增 `components.json`，设置 `tsx: true`、`rsc: true`、`aliases.components: "@/components"`、`aliases.utils: "@/lib/utils"`、`aliases.ui: "@/components/ui"`。
 - 新增或复用 `lib/utils.ts`，导出 `cn`，用于 `clsx` + `tailwind-merge`。
 - 新增依赖时只添加 shadcn 组件实际需要的依赖，不顺手引入 Framer Motion、React Hook Form 或图表库。
-- `tailwind.config.ts` 保持 Tailwind v3 结构，补充 shadcn 所需 semantic tokens 时必须映射到现有颜色变量，避免生成一套与项目 token 并行冲突的颜色体系。
+- shadcn 的 semantic tokens 必须映射到 Tailwind v4.3 下的现有颜色变量，避免生成一套与项目 token 并行冲突的颜色体系。
 
 ### 3. shadcn 组件只承载基础交互，业务组件继续留在领域目录
 
@@ -111,7 +116,7 @@
 - `Card` 默认圆角不超过现有大型摘要规范；动作卡片和列表项继续控制在约 12px，页面大摘要可用 20px。
 - 所有 interactive icon button 必须有 `aria-label` 或可见文本。
 - `Dialog`/`Sheet` 必须有标题语义；如果视觉不需要标题，也应使用可访问的隐藏标题。
-- `ScrollArea` 只替换真实需要滚动容器的区域，不把整个页面嵌套进多层滚动。
+- `ScrollArea` 只替换真实需要滚动容器的区域，不把整个页面嵌套进多层滚动；可以用 Tailwind 4.3 原生 scrollbar utilities 逐步替代项目中重复的自定义滚动条 class。
 - `Select`、`Switch`、`Slider`、`Checkbox` 必须配合 `Label` 或明确 `aria-label`。
 - 不新增大面积深色面板，不引入紫蓝渐变、装饰球或营销式 hero。
 
@@ -124,7 +129,8 @@
 
 ## Risks / Trade-offs
 
-- [Risk] Tailwind v3 与 shadcn 最新模板不匹配，导致生成的 CSS 变量或 utility class 不工作 → Mitigation: 实现前先确认 CLI 输出；默认走 Tailwind v3 兼容版本；不在本 change 中升级 Tailwind。
+- [Risk] Tailwind 4.3 是主版本升级，可能改变 Preflight、默认 border/ring、space/divide selector 和部分 utility 名称，导致页面视觉细节回归 → Mitigation: 先运行升级工具并人工 review，再按页面分阶段迁移和验收。
+- [Risk] Tailwind v4 的现代浏览器要求高于 v3，旧浏览器可能不再被支持 → Mitigation: 明确本项目按 Tailwind v4 官方浏览器边界验收；如未来需要旧浏览器支持，应另开兼容 change。
 - [Risk] 一次性替换所有页面导致 review 困难且容易引入交互回归 → Mitigation: 按基础层、共享组件、页面分批提交任务，每个页面都有独立检查项。
 - [Risk] shadcn 默认 token 与现有 MD3 token 并存造成颜色体系冲突 → Mitigation: 将 shadcn semantic token 映射到现有 `primary`、`canvas`、`panel`、`line`、`muted`，不要生成另一套视觉风格。
 - [Risk] Radix 弹层默认行为与现有 `drawer-open` 页面缩放或训练页语音弹窗交互冲突 → Mitigation: 先在 `RightDrawer` 和 `VoiceSettingsDialog` 这类适配层中统一处理，不让每个业务页面直接绕过适配。
@@ -133,22 +139,25 @@
 
 ## Migration Plan
 
-1. 基础准备：确认 Tailwind v3 兼容路径，初始化 `components.json`、`components/ui`、`lib/utils.ts`，安装 shadcn 基础依赖。
-2. 组件生成：添加第一批基础组件 `button card badge input textarea label separator skeleton scroll-area tooltip alert`。
-3. 交互生成：添加 `select tabs switch slider checkbox dropdown-menu popover dialog sheet drawer accordion progress` 等页面需要的组件。
-4. 主题适配：调整 `app/globals.css` 和 `tailwind.config.ts`，让 shadcn semantic token 映射现有项目 token，并检查浅色 MD3 风格不漂移。
-5. 共享层迁移：迁移 `AppSidebar`、`RightDrawer`、低风险设置页，验证基础组件视觉和可访问性。
-6. 内容页迁移：迁移聊天页、动作推荐卡、动作库和动作详情抽屉。
-7. 训练页迁移：迁移计划草稿卡、routine 草稿卡、训练计划页、动作编排页和训练执行页。
-8. 调试台迁移：迁移 AI Trace Viewer 的按钮、状态标签、面板、滚动区和详情展开结构。
-9. 清理重复实现：删除已替换的页面内基础控件实现、重复弹层外壳和不再使用的样式 class。
-10. 验收：运行 OpenSpec 校验、lint、typecheck、相关测试和 build；按页面检查清单做人工 review。
+1. 基础准备：确认 Node.js、Next.js、PostCSS、Tailwind、shadcn CLI 当前状态，制定 Tailwind 4.3 升级 diff review 清单。
+2. Tailwind 升级：升级 `tailwindcss` 到 4.3，新增 `@tailwindcss/postcss`，迁移 `postcss.config.js`、`app/globals.css` 和 token 配置。
+3. 兼容扫描：处理 Tailwind v4 破坏性变更、旧 utility、默认 border/ring、space/divide selector、Preflight 和自定义滚动条策略。
+4. shadcn 初始化：初始化 `components.json`、`components/ui`、`lib/utils.ts`，安装 shadcn 基础依赖。
+5. 组件生成：添加基础组件 `button card badge input textarea label separator skeleton scroll-area tooltip alert`。
+6. 交互生成：添加 `select tabs switch slider checkbox dropdown-menu popover dialog sheet drawer accordion progress` 等页面需要的组件。
+7. 主题适配：让 shadcn semantic token 映射现有项目 token，并检查浅色 MD3 风格不漂移。
+8. 共享层迁移：迁移 `AppSidebar`、`RightDrawer`、低风险设置页，验证基础组件视觉和可访问性。
+9. 内容页迁移：迁移聊天页、动作推荐卡、动作库和动作详情抽屉。
+10. 训练页迁移：迁移计划草稿卡、routine 草稿卡、训练计划页、动作编排页和训练执行页。
+11. 调试台迁移：迁移 AI Trace Viewer 的按钮、状态标签、面板、滚动区和详情展开结构。
+12. 清理重复实现：删除已替换的页面内基础控件实现、重复弹层外壳和不再使用的样式 class。
+13. 验收：运行 OpenSpec 校验、lint、typecheck、相关测试和 build；按页面检查清单做人工 review。
 
 ## Rollback Strategy
 
 - `components/ui` 是本地源码，若某个基础组件变体有问题，应优先修复组件变体，而不是回退页面。
 - 如果某个页面迁移造成严重交互回归，可以保留基础层和其他已迁移页面，只回退该页面对应 commit 或任务分支。
-- 如果 shadcn 初始化本身与 Tailwind v3 冲突，应停止页面迁移，先回退初始化文件并重新选择 Tailwind v3 兼容模板；不要带着半可用基础层继续替换页面。
+- 如果 Tailwind 4.3 升级导致构建链路不可恢复，应先回退 Tailwind/PostCSS/CSS 入口相关改动，再继续 shadcn 页面迁移；不要带着半可用基础层继续替换页面。
 
 ## Open Questions
 

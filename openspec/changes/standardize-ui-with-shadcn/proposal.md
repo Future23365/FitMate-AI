@@ -4,7 +4,8 @@
 
 ## What Changes
 
-- 引入 `shadcn/ui` 项目配置、基础依赖和 `components/ui/*` 组件目录，保留项目现有浅色 Material Design 3 视觉 token，并将 shadcn 组件适配到当前 `primary`、`surface`、`outline`、`muted` 等设计语言。
+- 将 Tailwind CSS 从当前 3.4 升级到 4.3，并按 Tailwind v4 的 CSS-first 配置、PostCSS 插件拆分和浏览器支持边界迁移现有样式入口。
+- 引入 `shadcn/ui` 项目配置、基础依赖和 `components/ui/*` 组件目录，保留项目现有浅色 Material Design 3 视觉 token，并将 shadcn 组件适配到 Tailwind v4.3 下的 `primary`、`surface`、`outline`、`muted` 等设计语言。
 - 建立项目级 UI 基础组件使用规范，明确哪些交互控件必须优先使用 `components/ui`，哪些业务组件继续保留在 `components/app`、`components/dev` 或 `features/*/components`。
 - 逐页替换自实现基础控件：聊天首页、动作库、动作推荐卡、动作详情抽屉、训练计划页、动作编排页、训练执行页、设置页和 AI Trace 调试台都应迁移到统一的 Button、Card、Input、Textarea、Badge、Tabs、Select、Dialog/Sheet/Drawer、ScrollArea、Tooltip、Dropdown/Menu、Skeleton 等组件。
 - 清理重复的自实现按钮、表单、标签、筛选选择器、弹窗外壳和卡片样式，但保留承载领域状态和复杂布局的业务组件。
@@ -23,7 +24,7 @@
 
 ## Impact
 
-- 影响依赖与配置：`package.json`、`package-lock.json`、`components.json`、`tailwind.config.ts`、`app/globals.css`、`lib/utils.ts` 或等价的 `cn` 工具位置。
+- 影响依赖与配置：`package.json`、`package-lock.json`、`components.json`、`postcss.config.js`、`tailwind.config.ts` 的迁移或删除策略、`app/globals.css`、`lib/utils.ts` 或等价的 `cn` 工具位置。
 - 影响基础 UI 目录：新增 `components/ui/*`，包括按钮、卡片、表单、标签、弹窗、抽屉、菜单、滚动区域、骨架屏和提示等组件。
 - 影响应用外壳与共享组件：`components/app/app-sidebar.tsx`、`components/app/right-drawer.tsx`、`components/app/route-transition.tsx`、`components/app/symbol-icon.tsx`、`components/dev/ai-trace-viewer.tsx`。
 - 影响页面和业务组件：`features/chat/components/chat-page.tsx`、`features/exercises/components/*`、`features/workouts/components/*`、`app/settings/page.tsx` 以及对应 `app/*/page.tsx` 入口。

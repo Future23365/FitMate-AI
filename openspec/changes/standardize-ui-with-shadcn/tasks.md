@@ -1,20 +1,26 @@
-## 1. 基础接入与兼容性确认
+## 1. Tailwind 4.3 与 shadcn/ui 基础接入
 
-- [ ] 1.1 确认当前 `tailwindcss` 版本、`tailwind.config.ts`、`app/globals.css`、`tsconfig.json` alias 和 package manager 状态，记录 shadcn/ui 应使用的 Tailwind v3 兼容初始化路径。
-- [ ] 1.2 初始化 `components.json`，配置 `tsx`、`rsc`、`aliases.components`、`aliases.ui`、`aliases.utils`、`tailwind.config` 和 `tailwind.css`，确保路径匹配当前仓库结构。
-- [ ] 1.3 新增或复用 `lib/utils.ts`，导出供 shadcn 组件使用的 `cn` 工具，并添加简短中文意图注释说明它负责合并条件 className 和 Tailwind 冲突。
-- [ ] 1.4 安装 shadcn/ui 基础依赖和当前组件实际需要的 Radix/utility 依赖，更新 `package.json` 和 `package-lock.json`，不引入与本重构无关的依赖。
-- [ ] 1.5 生成第一批基础组件：`button`、`card`、`badge`、`input`、`textarea`、`label`、`separator`、`skeleton`、`scroll-area`、`tooltip`、`alert`。
-- [ ] 1.6 生成第二批交互组件：`select`、`tabs`、`switch`、`slider`、`checkbox`、`dropdown-menu`、`popover`、`dialog`、`sheet`、`drawer`、`accordion`、`progress`。
-- [ ] 1.7 检查 `components/ui/*` 不 import 任何聊天、动作、训练、AI Trace、Prisma 或服务端领域类型。
+- [ ] 1.1 确认当前 Node.js、Next.js、PostCSS、`tailwindcss`、`tailwind.config.ts`、`postcss.config.js`、`app/globals.css`、`tsconfig.json` alias 和 package manager 状态，记录 Tailwind 4.3 升级前基线。
+- [ ] 1.2 评估运行 `npx @tailwindcss/upgrade` 的输出；如使用升级工具，必须人工 review diff 后再保留改动。
+- [ ] 1.3 将 `tailwindcss` 升级到 4.3，并添加 Tailwind v4 PostCSS 集成需要的 `@tailwindcss/postcss`，更新 `package.json` 和 `package-lock.json`。
+- [ ] 1.4 将 `postcss.config.js` 从 Tailwind v3 插件配置迁移到 Tailwind v4 的 `@tailwindcss/postcss` 配置，删除不再需要的 v3 专用 PostCSS 插件配置。
+- [ ] 1.5 将 `app/globals.css` 从 `@tailwind base/components/utilities` 入口迁移到 Tailwind v4 CSS 入口，并迁移项目颜色、字体、spacing、radius、shadow、断点等 token。
+- [ ] 1.6 处理 Tailwind v4 破坏性变更：移除或替换废弃 opacity utilities、utility rename、`outline-none`、默认 ring、默认 border color、space/divide selector 和 Preflight 差异。
+- [ ] 1.7 初始化 `components.json`，配置 `tsx`、`rsc`、`aliases.components`、`aliases.ui`、`aliases.utils`、`tailwind.css` 和 Tailwind v4 对应配置，确保路径匹配当前仓库结构。
+- [ ] 1.8 新增或复用 `lib/utils.ts`，导出供 shadcn 组件使用的 `cn` 工具，并添加简短中文意图注释说明它负责合并条件 className 和 Tailwind 冲突。
+- [ ] 1.9 安装 shadcn/ui 基础依赖和当前组件实际需要的 Radix/utility 依赖，不引入与本重构无关的依赖。
+- [ ] 1.10 生成第一批基础组件：`button`、`card`、`badge`、`input`、`textarea`、`label`、`separator`、`skeleton`、`scroll-area`、`tooltip`、`alert`。
+- [ ] 1.11 生成第二批交互组件：`select`、`tabs`、`switch`、`slider`、`checkbox`、`dropdown-menu`、`popover`、`dialog`、`sheet`、`drawer`、`accordion`、`progress`。
+- [ ] 1.12 检查 `components/ui/*` 不 import 任何聊天、动作、训练、AI Trace、Prisma 或服务端领域类型。
 
 ## 2. 主题与组件变体适配
 
-- [ ] 2.1 将 shadcn semantic tokens 映射到项目现有浅色 MD3 token，覆盖 background、foreground、primary、secondary、muted、accent、destructive、border、input、ring、card、popover 等语义。
+- [ ] 2.1 将 shadcn semantic tokens 映射到 Tailwind 4.3 下的项目现有浅色 MD3 token，覆盖 background、foreground、primary、secondary、muted、accent、destructive、border、input、ring、card、popover 等语义。
 - [ ] 2.2 调整 `Button` 变体和尺寸，覆盖 `default`、`secondary`、`outline`、`ghost`、`destructive`、`link`，并按项目需要补充 `soft` 或 `chip` 变体。
 - [ ] 2.3 调整 `Card`、`Badge`、`Input`、`Textarea`、`Select`、`Tabs`、`Dialog`、`Sheet` 的圆角、边框、focus ring、disabled、hover 和密度，使其符合现有浅色专业风格。
 - [ ] 2.4 保留 Material Symbols 图标体系，确认基础组件中的图标按钮通过 `SymbolIcon` 或现有图标约定组合，不引入新的主图标体系。
-- [ ] 2.5 检查 `app/globals.css` 中现有滚动条、route transition、drawer、训练完成 confetti 和 body 背景样式没有被 shadcn token 覆盖破坏。
+- [ ] 2.5 检查 `app/globals.css` 中现有滚动条、route transition、drawer、训练完成 confetti 和 body 背景样式没有被 Tailwind 4.3 或 shadcn token 覆盖破坏。
+- [ ] 2.6 评估是否用 Tailwind 4.3 原生 scrollbar utilities 替代重复自定义滚动条 class，保留确实需要自定义 CSS 的场景。
 
 ## 3. 应用外壳和共享弹层迁移
 
@@ -91,6 +97,7 @@
 - [ ] 12.3 运行 `npm run typecheck`。
 - [ ] 12.4 运行 `npm test`。
 - [ ] 12.5 运行 `npm run build`，如因环境权限或外部条件失败，记录原始失败信息和原因。
-- [ ] 12.6 人工核对聊天、动作库、动作详情、训练计划、动作编排、训练执行、设置和 AI Trace 调试台页面的按钮、卡片、输入、标签、弹层、状态反馈风格一致。
-- [ ] 12.7 人工核对窄视口下主要页面文字不溢出、控件不遮挡、关键操作入口可见。
-- [ ] 12.8 人工核对训练执行页在步骤切换、暂停/继续、语音设置打开、完成状态下核心控制区不跳动。
+- [ ] 12.6 运行 `rg` 扫描 Tailwind v4 已移除或改名 utilities，确认没有遗漏的 v3 写法导致样式失效。
+- [ ] 12.7 人工核对聊天、动作库、动作详情、训练计划、动作编排、训练执行、设置和 AI Trace 调试台页面的按钮、卡片、输入、标签、弹层、状态反馈风格一致。
+- [ ] 12.8 人工核对窄视口下主要页面文字不溢出、控件不遮挡、关键操作入口可见。
+- [ ] 12.9 人工核对训练执行页在步骤切换、暂停/继续、语音设置打开、完成状态下核心控制区不跳动。
