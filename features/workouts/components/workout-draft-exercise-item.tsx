@@ -37,26 +37,29 @@ export function WorkoutDraftExerciseItem({
       <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-line bg-panel-soft">
         <Image alt={exerciseName} className="object-cover" fill sizes="56px" src={image} />
       </div>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 pr-xs">
         <div className="flex items-center gap-xs">
-          <h5 className="truncate font-body-md text-body-md font-bold text-on-surface">
+          <h5 className="truncate font-body-lg text-body-lg font-extrabold leading-tight text-on-surface">
             {exerciseName}
           </h5>
         </div>
-        <p className="mt-[2px] truncate font-label-xs text-label-xs text-muted">
+        <p className="mt-xs truncate font-label-sm text-label-sm font-semibold text-muted">
           {exercise?.equipmentZh || "未标注器械"} · {muscles}
         </p>
         {notes && (
-          <p className="mt-xs line-clamp-1 font-label-xs text-label-xs text-primary">
+          <p className="mt-xs line-clamp-1 font-label-sm text-label-sm font-semibold text-primary">
             {notes}
           </p>
         )}
       </div>
-      <div className="shrink-0 text-right">
-        <p className="font-body-lg text-body-lg font-black text-primary">{sets}组</p>
-        <p className="font-label-md text-label-md font-bold text-muted">
-          每组{target}
-          {mode === "reps" ? "次" : "秒"}
+      <div className="flex min-w-[76px] shrink-0 flex-col items-end rounded-lg bg-primary-soft/70 px-sm py-xs text-right">
+        <p className="font-body-md text-body-md font-black leading-none text-primary">
+          {sets}
+          <span className="ml-[2px] font-label-sm text-label-sm font-bold text-primary/75">组</span>
+        </p>
+        <p className="mt-[3px] font-label-sm text-label-sm font-bold text-muted">
+          {target}
+          {mode === "reps" ? "次/组" : "秒/组"}
         </p>
       </div>
     </div>
