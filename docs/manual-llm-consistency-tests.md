@@ -8,7 +8,17 @@
 DEEPSEEK_API_KEY=你的真实 key npm run test:llm
 ```
 
-缺少 `DEEPSEEK_API_KEY` 时，命令会明确报错，并说明不会使用 mock、旧快照或非真实模型结果。
+命令会自动读取项目根目录的 `.env*` 配置。缺少 `DEEPSEEK_API_KEY` 时，命令会明确报错，并说明不会使用 mock、旧快照或非真实模型结果。
+
+运行开始时会输出本次测试的粗略 token 预估，包括预计 prompt tokens、预计 completion tokens 和预计总量。预估按当前用例规模粗略计算，最终以模型返回的 `usage` 为准。
+
+运行结束后会输出真实 token 汇总，并生成验收报告：
+
+```text
+docs/manual-llm-consistency-latest-report.md
+```
+
+验收报告会记录用例通过/失败数量、总 token 消耗，以及类似“用户提问 / 大模型回答 / 本地意图解析结果”的简要结果，方便人工快速判断模型输出是否仍符合预期。命令结束后也会在终端打印报告摘要和部分样例结果，不需要打开完整报告就能做粗验收。
 
 ## 与默认测试的边界
 
@@ -16,6 +26,7 @@ DEEPSEEK_API_KEY=你的真实 key npm run test:llm
 - 手动 LLM 测试位于 `manual-tests/llm/`，由 `vitest.llm.config.ts` 单独收集。
 - 这组测试依赖外部模型、网络和账户额度，结果可能因为模型波动出现偶发失败。
 - 失败时应先看失败报告里的调用点、用例名、输入摘要、实际输出和失败原因，再判断是 prompt 需要调整，还是 fixture 预期需要更新。
+- 每次真实运行都会覆盖 `docs/manual-llm-consistency-latest-report.md`，该文件用于人工验收最新一次结果。
 
 ## 覆盖范围
 

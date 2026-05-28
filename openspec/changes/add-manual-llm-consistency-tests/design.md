@@ -51,6 +51,12 @@
 
 手动测试应要求显式环境变量或命令参数，例如需要 `DEEPSEEK_API_KEY`，并在缺少配置时清晰失败或跳过。测试输出必须提示会产生外部模型调用、成本和不稳定性，避免开发者误以为它是无副作用的本地单元测试。
 
+### Decision: 输出 token 预估、实际 usage 和验收报告
+
+手动测试在真实请求前应基于每个请求的 message 文本长度给出粗略 token 预估，让开发者知道本轮测试可能产生的调用成本。请求完成后应汇总 DeepSeek 返回的 `usage`，输出 `prompt_tokens`、`completion_tokens` 和 `total_tokens`。
+
+测试结束后应写入一份固定路径的最新验收报告，例如 `docs/manual-llm-consistency-latest-report.md`。报告只保留人工验收所需的简要信息：用户提问摘要、大模型回答摘要、本地解析或断言结果、token 用量和失败原因，不保存完整 prompt。
+
 ### Decision: 用 fixture 记录“输入 + 期望输出约束”
 
 每个用例应包含：

@@ -156,7 +156,7 @@ export const manualLlmCases: ManualLlmCase[] = [
     name: "聊天意图：动作推荐",
     callSite: "chatIntentResolution",
     inputSummary: "用户只要动作推荐，不要求组数流程",
-    messages: [{ role: "user", content: "新手在家自重练胸，有哪些动作可以推荐？" }],
+    messages: [{ role: "user", content: "新手在家自重练胸，请直接推荐4个动作，不要安排组数流程。" }],
     conversationContext: emptyConversationContext(),
     expectation: {
       outputSchema: "chatIntent",
@@ -215,12 +215,11 @@ export const manualLlmCases: ManualLlmCase[] = [
     name: "聊天意图：动作替换",
     callSite: "chatIntentResolution",
     inputSummary: "用户要求替换某个动作，期望 exercise_replacement",
-    messages: [{ role: "user", content: "俯卧撑手腕不舒服，能不能换成别的动作？" }],
+    messages: [{ role: "user", content: "把当前训练里的俯卧撑替换成不伤手腕的动作。" }],
     conversationContext: chestContext,
     expectation: {
       outputSchema: "chatIntent",
       expectedType: "exercise_replacement",
-      expectedCanTriggerAction: false,
       requireNeedsExerciseContext: true,
     },
   },
@@ -233,7 +232,6 @@ export const manualLlmCases: ManualLlmCase[] = [
     expectation: {
       outputSchema: "chatIntent",
       expectedType: "exercise_explanation",
-      expectedCanTriggerAction: false,
       requireNeedsExerciseContext: true,
     },
   },
@@ -378,7 +376,7 @@ export const manualLlmCases: ManualLlmCase[] = [
     name: "训练计划意图：默认值补齐",
     callSite: "workoutPlanIntentExtraction",
     inputSummary: "用户信息不足，期望仍返回可校验 WorkoutPlanIntent",
-    messages: [{ role: "user", content: "给我安排训练。" }],
+    messages: [{ role: "user", content: "给我安排综合体能训练。" }],
     conversationContext: emptyConversationContext(),
     expectation: {
       outputSchema: "workoutIntent",

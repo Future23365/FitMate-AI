@@ -15,6 +15,7 @@
 - **WHEN** 开发者执行专用手动 LLM 测试命令
 - **THEN** 系统 MUST 运行 LLM 输入输出一致性测试
 - **AND** 测试输出 MUST 明确显示被运行的 LLM 调用点、用例名称和通过或失败结果
+- **AND** 测试开始前 MUST 输出本次运行的粗略 token 消耗预估
 
 #### Scenario: Missing model configuration is explicit
 
@@ -118,4 +119,12 @@
 
 - **WHEN** 专用手动 LLM 测试命令结束
 - **THEN** 系统 MUST 输出测试总数、通过数、失败数和被跳过数
+- **AND** 系统 MUST 输出模型返回的 `prompt_tokens`、`completion_tokens` 和 `total_tokens` 汇总
 - **AND** 任一非跳过测试失败时命令 MUST 以非零退出码结束
+
+#### Scenario: Acceptance report is written
+
+- **WHEN** 专用手动 LLM 测试命令结束
+- **THEN** 系统 MUST 生成一份测试后验收文档
+- **AND** 验收文档 MUST 包含用例通过/失败数量、真实 token 汇总和简要人工验收结果
+- **AND** 简要人工验收结果 MUST 能展示用户提问、大模型回答摘要和本地解析或断言结果

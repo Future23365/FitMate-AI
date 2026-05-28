@@ -44,20 +44,35 @@ export function assertCaseOutput(testCase: ManualLlmCase, output: string) {
 }
 
 function parseStructuredOutput(testCase: ManualLlmCase, value: unknown): ParsedOutput {
+  const normalizedValue = normalizeNullableOptionalFields(value);
+
   switch (testCase.expectation.outputSchema) {
     case "chatIntent":
-      return parseWithSchema(testCase, value, chatIntentSchema);
+      return parseWithSchema(testCase, normalizedValue, chatIntentSchema);
     case "recommendation":
-      return parseWithSchema(testCase, value, recommendationOutputSchema);
+      return parseWithSchema(testCase, normalizedValue, recommendationOutputSchema);
     case "workoutIntent":
-      return parseWithSchema(testCase, value, workoutPlanIntentSchema);
+      return parseWithSchema(testCase, normalizedValue, workoutPlanIntentSchema);
     case "workoutPlanDraft":
-      return parseWithSchema(testCase, value, workoutPlanDraftSchema);
+      return parseWithSchema(testCase, normalizedValue, workoutPlanDraftSchema);
     case "workoutRoutineDraft":
-      return parseWithSchema(testCase, value, workoutRoutineDraftSchema);
+      return parseWithSchema(testCase, normalizedValue, workoutRoutineDraftSchema);
     default:
-      return value as Record<string, unknown>;
+      return normalizedValue as Record<string, unknown>;
   }
+}
+
+function normalizeNullableOptionalFields(value: unknown) {
+  const record = asRecord(value);
+
+  if (!record) {
+    return value;
+  }
+
+  return {
+    ...record,
+    workoutIntent: record.workoutIntent === null ? undefined : record.workoutIntent,
+  };
 }
 
 function parseWithSchema<T extends z.ZodType>(testCase: ManualLlmCase, value: unknown, schema: T): z.infer<T> {
