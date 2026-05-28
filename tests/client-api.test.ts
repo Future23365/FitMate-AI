@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { requestChatStream, requestExerciseRecommendations, requestWorkoutPlanDraft } from "@/features/chat/api/chat-client";
+import { saveChatConversation } from "@/features/chat/lib/chat-history";
 import {
   createWorkoutSchedule as createWorkoutScheduleRequest,
   createWorkoutRoutine as createWorkoutRoutineRequest,
@@ -18,6 +19,7 @@ import { ClientRequestError } from "@/lib/client/http/client-request";
 
 import {
   createApiChatMessages,
+  createChatConversation,
   createConversationContext,
   createExercise,
   createWorkoutRoutine,
@@ -162,5 +164,45 @@ describe("frontend API clients", () => {
     })).resolves.toMatchObject({ id: "result-1" });
     await expect(saveWorkoutRoutine(workoutRoutine)).rejects.toBeInstanceOf(ClientRequestError);
     expect(window.dispatchEvent).toHaveBeenCalled();
+  });
+
+  it("preserves chat message timestamps when saving chat history", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({
+        item: createChatConversation({ id: "conversation-1" }),
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await saveChatConversation(
+      "conversation-1",
+      [
+        {
+          id: "message-1",
+          role: "user",
+          content: "今天在家练胸",
+          createdAt: "2026-05-25T09:00:00.000Z",
+        },
+        {
+          id: "message-2",
+          role: "assistant",
+          content: "可以。",
+          createdAt: "2026-05-25T09:01:00.000Z",
+        },
+      ],
+      {},
+      {},
+      {},
+      createConversationContext(),
+    );
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({
+      id: "conversation-1",
+      messages: [
+        { id: "message-1", createdAt: "2026-05-25T09:00:00.000Z" },
+        { id: "message-2", createdAt: "2026-05-25T09:01:00.000Z" },
+      ],
+    });
+    expect(window.dispatchEvent).toHaveBeenCalledWith(expect.any(Event));
   });
 });

@@ -22,10 +22,12 @@ export async function listChatConversations() {
     where: { userId: user.id },
     include: chatSessionInclude,
     orderBy: { updatedAt: "desc" },
-    take: 30,
   });
 
-  return sessions.map(mapChatSessionToConversation);
+  return sessions
+    .map(mapChatSessionToConversation)
+    .sort((a, b) => getTimeSafe(b.updatedAt) - getTimeSafe(a.updatedAt))
+    .slice(0, 30);
 }
 
 export async function getChatConversationById(id: string) {
@@ -76,8 +78,12 @@ export async function saveChatConversation(rawConversation: ChatConversation) {
         chatSession: { userId: user.id },
       },
     });
+    const savedAtMs = Date.now();
     await tx.chatMessage.createMany({
+      // 历史消息时间是侧边栏排序事实；旧消息保留原时间，新消息才按当前保存时刻补齐。
       data: conversation.messages.map((message, index) => {
+        const fallbackCreatedAt = new Date(savedAtMs + index);
+        const createdAt = readDate(message.createdAt) ?? fallbackCreatedAt;
         const isLastMessage = index === conversation.messages.length - 1;
 
         return {
@@ -85,7 +91,7 @@ export async function saveChatConversation(rawConversation: ChatConversation) {
           chatSessionId: conversation.id,
           role: message.role,
           content: message.content,
-          createdAt: new Date(Date.now() + index),
+          createdAt,
           metadata: {
             suggestedReplies: message.suggestedReplies,
             plan: conversation.plans?.[message.id],
@@ -160,6 +166,7 @@ function mapChatSessionToConversation(session: ChatSessionWithMessages): ChatCon
       id: dbMessage.id,
       role: dbMessage.role === "assistant" ? "assistant" : "user",
       content: dbMessage.content,
+      createdAt: dbMessage.createdAt.toISOString(),
       suggestedReplies: suggestedReplies.length ? suggestedReplies : undefined,
     };
 
@@ -187,7 +194,7 @@ function mapChatSessionToConversation(session: ChatSessionWithMessages): ChatCon
   return {
     id: session.id,
     title: session.title ?? createConversationTitle(messages),
-    updatedAt: session.updatedAt.toISOString(),
+    updatedAt: getConversationDisplayTime(session).toISOString(),
     messages,
     plans: Object.keys(plans).length ? plans : undefined,
     routines: Object.keys(routines).length ? routines : undefined,
@@ -196,6 +203,21 @@ function mapChatSessionToConversation(session: ChatSessionWithMessages): ChatCon
       : undefined,
     conversationContext,
   };
+}
+
+function getConversationDisplayTime(session: ChatSessionWithMessages) {
+  for (const message of [...session.messages].reverse()) {
+    if (message.role === "user" || message.role === "assistant") {
+      return message.createdAt;
+    }
+  }
+
+  return session.updatedAt;
+}
+
+function getTimeSafe(isoString: string | undefined | null): number {
+  const date = readDate(isoString);
+  return date?.getTime() ?? 0;
 }
 
 function createConversationTitle(messages: ChatMessage[]) {
@@ -227,4 +249,13 @@ function readObject(value: Prisma.JsonValue | null | undefined) {
 
 function readStringArray(value: unknown) {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function readDate(value: unknown) {
+  if (typeof value !== "string" && !(value instanceof Date)) {
+    return null;
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }

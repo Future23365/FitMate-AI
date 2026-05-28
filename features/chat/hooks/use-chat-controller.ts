@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   requestChatStream,
@@ -38,6 +38,7 @@ function createMessage(role: ChatMessage["role"], content: string): ChatMessage 
     id: crypto.randomUUID(),
     role,
     content,
+    createdAt: new Date().toISOString(),
   };
 }
 
@@ -87,6 +88,7 @@ export function useChatController() {
   const [conversationContext, setConversationContext] = useState<FitnessConversationContext>(() =>
     buildFitnessConversationContext([]),
   );
+  const skipNextAutoSaveRef = useRef(false);
 
   useEffect(() => {
     try {
@@ -108,6 +110,7 @@ export function useChatController() {
         return;
       }
 
+      skipNextAutoSaveRef.current = true;
       setConversationId(matchedConversation.id);
       setMessages(matchedConversation.messages);
       setBubblePlans(matchedConversation.plans ?? {});
@@ -173,6 +176,11 @@ export function useChatController() {
 
   useEffect(() => {
     if (!conversationId) {
+      return;
+    }
+
+    if (skipNextAutoSaveRef.current) {
+      skipNextAutoSaveRef.current = false;
       return;
     }
 

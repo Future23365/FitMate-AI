@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createChatConversation,
@@ -77,6 +77,10 @@ describe("persistence services", () => {
     }
     prismaMock.$transaction.mockImplementation(async (callback) => callback(prismaMock));
     userMocks.getCurrentUser.mockResolvedValue({ id: "user-1" });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("maps workout routines and scopes routine queries by userId", async () => {
@@ -237,23 +241,25 @@ describe("persistence services", () => {
     })).rejects.toThrow("Workout schedule not found: missing-schedule");
   });
 
-  it("maps chat history metadata and saves only conversations with user messages", async () => {
+  it("maps chat history metadata and uses latest message time for history ordering", async () => {
     prismaMock.chatSession.findMany.mockResolvedValue([
       {
         id: "chat-1",
         title: null,
-        updatedAt: new Date("2026-05-25T10:00:00.000Z"),
+        updatedAt: new Date("2026-05-25T12:00:00.000Z"),
         messages: [
           {
             id: "m1",
             role: "user",
             content: "今天练胸",
+            createdAt: new Date("2026-05-25T09:00:00.000Z"),
             metadata: null,
           },
           {
             id: "m2",
             role: "assistant",
             content: "可以。",
+            createdAt: new Date("2026-05-25T09:01:00.000Z"),
             metadata: {
               suggestedReplies: ["30 分钟"],
               conversationContext: createChatConversation().conversationContext,
@@ -261,18 +267,106 @@ describe("persistence services", () => {
           },
         ],
       },
+      {
+        id: "chat-2",
+        title: "更晚的真实消息",
+        updatedAt: new Date("2026-05-25T08:00:00.000Z"),
+        messages: [
+          {
+            id: "m3",
+            role: "user",
+            content: "明天练背",
+            createdAt: new Date("2026-05-25T10:30:00.000Z"),
+            metadata: null,
+          },
+        ],
+      },
+      {
+        id: "chat-empty",
+        title: "缺少消息时间",
+        updatedAt: new Date("2026-05-25T11:00:00.000Z"),
+        messages: [],
+      },
     ]);
 
     const conversations = await chatHistory.listChatConversations();
     expect(prismaMock.chatSession.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { userId: "user-1" },
     }));
-    expect(conversations[0]).toMatchObject({
+    expect(conversations.map((conversation) => conversation.id)).toEqual(["chat-empty", "chat-2", "chat-1"]);
+    expect(conversations[0]).toMatchObject({ id: "chat-empty", updatedAt: "2026-05-25T11:00:00.000Z" });
+    expect(conversations[2]).toMatchObject({
       id: "chat-1",
       title: "今天练胸",
+      updatedAt: "2026-05-25T09:01:00.000Z",
       messages: [expect.objectContaining({ id: "m1" }), expect.objectContaining({ suggestedReplies: ["30 分钟"] })],
     });
+  });
 
+  it("saves chat history without rewriting existing message timestamps", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(new Date("2026-05-25T12:00:00.000Z").getTime());
+    prismaMock.chatSession.findUnique.mockResolvedValue(null);
+    prismaMock.chatSession.findFirstOrThrow.mockResolvedValue({
+      id: "chat-save",
+      title: "今天练胸",
+      updatedAt: new Date("2026-05-25T12:00:00.000Z"),
+      messages: [
+        {
+          id: "m1",
+          role: "user",
+          content: "今天练胸",
+          createdAt: new Date("2026-05-25T09:00:00.000Z"),
+          metadata: null,
+        },
+        {
+          id: "m2",
+          role: "assistant",
+          content: "可以。",
+          createdAt: new Date("2026-05-25T09:01:00.000Z"),
+          metadata: null,
+        },
+        {
+          id: "m3",
+          role: "user",
+          content: "加一点核心",
+          createdAt: new Date("2026-05-25T12:00:02.000Z"),
+          metadata: null,
+        },
+      ],
+    });
+
+    await chatHistory.saveChatConversation(createChatConversation({
+      id: "chat-save",
+      messages: [
+        {
+          id: "m1",
+          role: "user",
+          content: "今天练胸",
+          createdAt: "2026-05-25T09:00:00.000Z",
+        },
+        {
+          id: "m2",
+          role: "assistant",
+          content: "可以。",
+          createdAt: "2026-05-25T09:01:00.000Z",
+        },
+        {
+          id: "m3",
+          role: "user",
+          content: "加一点核心",
+        },
+      ],
+    }));
+
+    const createManyPayload = prismaMock.chatMessage.createMany.mock.calls[0][0].data;
+    expect(createManyPayload).toMatchObject([
+      { id: "m1", createdAt: new Date("2026-05-25T09:00:00.000Z") },
+      { id: "m2", createdAt: new Date("2026-05-25T09:01:00.000Z") },
+      { id: "m3", createdAt: new Date("2026-05-25T12:00:00.002Z") },
+    ]);
+  });
+
+  it("does not persist assistant-only chat conversations", async () => {
     const assistantOnly = createChatConversation({
       messages: [{ id: "assistant-only", role: "assistant", content: "你好" }],
     });

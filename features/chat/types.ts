@@ -6,6 +6,8 @@ export type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  /** 消息创建时间，是聊天历史展示和排序的事实来源。 */
+  createdAt?: string;
   reasoningContent?: string;
   /** 仅用于前端加载态，不保存或展示模型原始推理内容 */
   isReasoning?: boolean;
