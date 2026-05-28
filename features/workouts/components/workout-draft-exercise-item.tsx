@@ -31,6 +31,7 @@ export function WorkoutDraftExerciseItem({
   const exerciseName = exercise?.nameZh || exerciseId;
   const image = exercise?.imageUrls?.[0] || placeholderWorkoutImage;
   const muscles = exercise?.primaryMusclesZh?.slice(0, 2).join("、") || "综合";
+  const level = exercise?.levelZh;
   const prescription = `${sets}组 · ${target}${mode === "reps" ? "次/组" : "秒/组"}`;
 
   return (
@@ -49,6 +50,11 @@ export function WorkoutDraftExerciseItem({
           <span className="shrink-0 rounded-md border border-line bg-panel-soft px-xs py-[1px] font-label-xs text-label-xs font-bold text-ink">
             {muscles}
           </span>
+          {level && (
+            <span className="shrink-0 rounded-md border border-primary/15 bg-white px-xs py-[1px] font-label-xs text-label-xs font-bold text-primary">
+              {level}
+            </span>
+          )}
           <span className="truncate font-label-sm text-label-sm font-semibold text-muted">
             {exercise?.equipmentZh || "未标注器械"}
           </span>
