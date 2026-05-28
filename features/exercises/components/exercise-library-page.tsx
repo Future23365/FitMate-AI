@@ -1018,10 +1018,7 @@ function ExerciseDetailPanel({
                   sizes="340px"
                   src={activeImageUrl}
                 />
-                <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/58 to-transparent px-sm pb-sm pt-xl">
-                  <div className="rounded-full bg-white/92 px-sm py-[2px] font-label-sm text-label-sm font-bold text-ink shadow-sm">
-                    第 {activeImageIndex + 1} 步 / 共 {imageUrls.length} 步
-                  </div>
+                <div className="absolute inset-x-0 bottom-0 flex items-center justify-end bg-gradient-to-t from-black/58 to-transparent px-sm pb-sm pt-xl">
                   <span className="rounded-full bg-black/55 px-sm py-[2px] font-label-sm text-label-sm text-white">
                     {exercise.categoryZh || "训练动作"}
                   </span>
