@@ -336,13 +336,13 @@ export function ExerciseLibraryPage() {
           </div>
 
           <div className="flex flex-col gap-lg">
-            <div className="flex flex-col gap-sm md:flex-row md:items-center">
-              <span className="w-16 shrink-0 font-label-md text-label-md text-muted">
+            <div className="grid gap-sm md:grid-cols-[64px_minmax(0,1fr)]">
+              <span className="font-label-md text-label-md text-muted md:pt-1.5">
                 肌群：
               </span>
-              <div className="flex flex-wrap gap-sm">
+              <div className="flex min-w-0 gap-sm overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 <button
-                    className={`rounded-lg px-lg py-xs font-label-md text-label-md transition-colors ${
+                  className={`shrink-0 whitespace-nowrap rounded-lg px-lg py-xs font-label-md text-label-md transition-colors ${
                     !muscle
                       ? "bg-primary text-white"
                       : "bg-panel-soft text-muted hover:bg-primary-soft hover:text-primary"
@@ -357,7 +357,7 @@ export function ExerciseLibraryPage() {
 
                   return (
                     <button
-                        className={`rounded-lg px-lg py-xs font-label-md text-label-md transition-colors ${
+                      className={`shrink-0 whitespace-nowrap rounded-lg px-lg py-xs font-label-md text-label-md transition-colors ${
                         isActive
                           ? "bg-primary text-white"
                           : "bg-panel-soft text-muted hover:bg-primary-soft hover:text-primary"
