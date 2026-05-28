@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getExerciseRecordById, listExerciseRecords } from "@/lib/server/exercises/exercise-repository";
+import { getExerciseTagLabel } from "@/lib/shared/exercises/tag-labels";
 import type {
   Exercise,
   ExerciseFacetItem,
@@ -344,11 +345,11 @@ function collectTagFacet(exercises: Exercise[], key: "goalTags" | "riskTags"): E
       const current = values.get(tag);
       values.set(tag, {
         value: tag,
-        label: tag,
+        label: getExerciseTagLabel(key, tag),
         count: (current?.count ?? 0) + 1,
       });
     }
   }
 
-  return [...values.values()].sort((a, b) => a.value.localeCompare(b.value));
+  return [...values.values()].sort((a, b) => a.label.localeCompare(b.label, "zh-Hans-CN"));
 }

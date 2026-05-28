@@ -211,7 +211,13 @@ describe("exercise service", () => {
     expect(facets.muscles).toEqual(
       expect.arrayContaining([{ value: "chest", label: "胸部", count: 1 }]),
     );
-    expect(facets.riskTags).toEqual(expect.arrayContaining([{ value: "high_impact", label: "high_impact", count: 1 }]));
+    expect(facets.goalTags).toEqual(
+      expect.arrayContaining([
+        { value: "home_friendly", label: "居家友好", count: 1 },
+        { value: "strength", label: "力量训练", count: 2 },
+      ]),
+    );
+    expect(facets.riskTags).toEqual(expect.arrayContaining([{ value: "high_impact", label: "高冲击", count: 1 }]));
   });
 
   it("returns facets scoped to suitability without applying lower-level filters", async () => {
@@ -223,7 +229,7 @@ describe("exercise service", () => {
       ]),
     );
     expect(warmupFacets.riskTags).not.toEqual(
-      expect.arrayContaining([{ value: "high_impact", label: "high_impact", count: 1 }]),
+      expect.arrayContaining([{ value: "high_impact", label: "高冲击", count: 1 }]),
     );
   });
 });
