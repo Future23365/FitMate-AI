@@ -61,12 +61,13 @@ const sectionConfigs = workoutSectionConfigs;
 const librarySuitabilityOptions: Array<{
   id: LibrarySuitabilityFilter;
   label: string;
+  shortLabel: string;
   icon: string;
 }> = [
-  { id: "all", label: "全部", icon: "select_all" },
-  { id: "warmup", label: "适合热身", icon: "local_fire_department" },
-  { id: "training", label: "适合主训练", icon: "fitness_center" },
-  { id: "stretch", label: "适合拉伸", icon: "self_improvement" },
+  { id: "all", label: "全部", shortLabel: "全部", icon: "select_all" },
+  { id: "warmup", label: "适合热身", shortLabel: "热身", icon: "local_fire_department" },
+  { id: "training", label: "适合主训练", shortLabel: "主训练", icon: "fitness_center" },
+  { id: "stretch", label: "适合拉伸", shortLabel: "拉伸", icon: "self_improvement" },
 ];
 const defaultExerciseFacets: ExerciseFacets = {
   categories: [],
@@ -1048,20 +1049,21 @@ export function ActionComposerPage() {
               value={libraryQuery}
             />
           </div>
-          <div className="mb-sm grid grid-cols-2 gap-xs rounded-xl border border-line bg-surface-container-lowest p-xs">
+          <div className="mb-sm grid grid-cols-2 gap-[3px] rounded-xl border border-line bg-panel-soft p-[3px]">
             {librarySuitabilityOptions.map((option) => (
               <button
-                className={`flex min-w-0 flex-col items-center gap-[2px] rounded-lg px-xs py-xs text-[10px] font-bold transition-colors ${
+                aria-label={option.label}
+                className={`flex h-8 min-w-0 items-center justify-center gap-[3px] rounded-lg border px-xs text-[11px] font-semibold transition-colors ${
                   librarySuitabilityFilter === option.id
-                    ? "bg-primary text-white"
-                    : "text-on-surface-variant hover:bg-primary-soft hover:text-primary"
+                    ? "border-primary/25 bg-white text-primary shadow-sm"
+                    : "border-transparent text-secondary hover:bg-white/70 hover:text-primary"
                 }`}
                 key={option.id}
                 onClick={() => setLibrarySuitabilityFilter(option.id)}
                 type="button"
               >
-                <SymbolIcon className="text-[17px]">{option.icon}</SymbolIcon>
-                <span className="w-full truncate">{option.label}</span>
+                <SymbolIcon className="text-[15px]">{option.icon}</SymbolIcon>
+                <span className="truncate">{option.shortLabel}</span>
               </button>
             ))}
           </div>
