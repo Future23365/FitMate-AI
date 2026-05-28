@@ -346,9 +346,6 @@ export function WorkoutRoutineDraftCard({
                         <p className="font-label-xs text-label-xs text-muted">
                           {item.mode === "reps" ? `${item.target} 次` : `${item.target} 秒`}
                         </p>
-                        <p className="mt-[2px] font-label-xs text-label-xs text-muted">
-                          组间 {item.setRestSeconds}s
-                        </p>
                       </div>
                     </button>
                   );

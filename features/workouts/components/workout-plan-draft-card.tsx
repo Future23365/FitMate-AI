@@ -466,24 +466,13 @@ export function WorkoutPlanDraftCard({
                         </div>
                       </div>
 
-                      {/* 动作休息与备注 */}
-                      <div className="mt-sm flex flex-wrap items-center justify-between gap-sm border-t border-outline-variant/30 pt-xs">
-                        <div className="flex items-center gap-xs font-label-xs text-label-xs text-on-surface-variant">
-                          <SymbolIcon className="text-[14px]">motion_photos_pause</SymbolIcon>
-                          <span>组间息 {item.setRestSeconds}s</span>
-                          {item.transitionRestSeconds > 0 && (
-                            <>
-                              <span className="text-outline-variant">•</span>
-                              <span>过渡息 {item.transitionRestSeconds}s</span>
-                            </>
-                          )}
-                        </div>
-                        {item.notes && (
+                      {item.notes && (
+                        <div className="mt-sm flex flex-wrap items-center justify-end gap-sm border-t border-outline-variant/30 pt-xs">
                           <p className="font-label-xs text-label-xs text-primary truncate max-w-[200px]" title={item.notes}>
                             💡 {item.notes}
                           </p>
-                        )}
-                      </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
