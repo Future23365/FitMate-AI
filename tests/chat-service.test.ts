@@ -135,6 +135,45 @@ describe("AI chat service deterministic boundaries", () => {
     });
   });
 
+  it("documents timed single-session requests must trigger routine composition", () => {
+    expect(aiPromptConfig.chatIntentResolution.system).toContain(
+      "顶层 type 是服务端唯一触发意图",
+    );
+    expect(aiPromptConfig.chatIntentResolution.system).toContain(
+      "练腿，20分钟，没有器械",
+    );
+    expect(aiPromptConfig.chatIntentResolution.system).toContain(
+      "不得返回 exercise_recommendation",
+    );
+
+    const timedLegIntent = createWorkoutPlanIntent({
+      intentType: "routine",
+      goal: "练腿",
+      sessionMinutes: 20,
+      weeklyFrequency: 1,
+      equipment: [],
+    });
+    const chatIntent: ChatIntent = {
+      type: "routine",
+      needsExerciseContext: true,
+      workoutIntent: timedLegIntent,
+      requestedExerciseName: "",
+      canTriggerAction: true,
+      missingActionFields: [],
+      suggestedReplies: [],
+    };
+
+    expect(resolveAssistantAction(chatIntent, createExerciseContext({ intent: timedLegIntent }))).toMatchObject({
+      action: "workout_routine",
+      intent: {
+        intentType: "routine",
+        goal: "练腿",
+        sessionMinutes: 20,
+        weeklyFrequency: 1,
+      },
+    });
+  });
+
   it("parses fenced JSON and encodes NDJSON stream events", () => {
     const parsedJson = parseJsonObject("```json\n{\"ok\":true}\n```");
     const streamEvent = new TextDecoder().decode(
