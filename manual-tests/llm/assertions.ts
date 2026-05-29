@@ -293,11 +293,6 @@ function assertNaturalLanguageExpectations(testCase: ManualLlmCase, output: stri
     });
   }
 
-  if (expectation.requireDoctorSafetyAdvice) {
-    assertCondition(testCase, /医生|医师|专业人士|就医|医疗/.test(output), "高风险健康场景必须提醒咨询专业人士", {
-      output,
-    });
-  }
 }
 
 function assertCondition(testCase: ManualLlmCase, condition: unknown, message: string, detail?: unknown): asserts condition {

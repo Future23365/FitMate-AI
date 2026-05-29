@@ -1,22 +1,16 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { startAiTrace, summarizeLatestUserMessage } from "@/lib/server/dev/ai-trace-logger";
+import { startAiTrace } from "@/lib/server/dev/ai-trace-logger";
 import { generateAiExerciseRecommendations } from "@/lib/server/exercise-recommendations/ai-exercise-recommendation-service";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import { selectExerciseCandidates } from "@/lib/server/workout-plans";
-import { fitnessConversationContextSchema } from "@/lib/shared/chat/fitness-conversation-context";
 import { exerciseRecommendationIntentSchema } from "@/lib/shared/exercise-recommendations/schema";
 
 const exerciseRecommendationRequestSchema = z.object({
-  messages: z.array(
-    z.object({
-      role: z.enum(["user", "assistant"]),
-      content: z.string().trim().min(1).max(4000),
-    }),
-  ).min(1).max(200),
+  latestUserMessage: z.string().trim().min(1).max(4000),
+  conversationSummary: z.string().trim().max(2000).default(""),
   intent: exerciseRecommendationIntentSchema,
-  conversationContext: fitnessConversationContextSchema.optional(),
   parentTraceId: z.string().trim().min(1).max(120).optional(),
   excludeExerciseIds: z.array(z.string().trim().min(1).max(120)).max(200).default([]),
 });
@@ -61,11 +55,11 @@ export async function POST(request: Request) {
 
   const trace = startAiTrace({
     route: "/api/ai/exercise-recommendations",
-    title: summarizeLatestUserMessage(parsedRequest.data.messages),
+    title: parsedRequest.data.latestUserMessage,
     existingTraceId: parsedRequest.data.parentTraceId,
     metadata: {
-      messageCount: parsedRequest.data.messages.length,
-      hasConversationContext: Boolean(parsedRequest.data.conversationContext),
+      messageCount: 1,
+      hasConversationSummary: parsedRequest.data.conversationSummary.trim().length > 0,
       continuedFromRoute: parsedRequest.data.parentTraceId ? "/api/chat" : undefined,
     },
   });
@@ -128,8 +122,8 @@ export async function POST(request: Request) {
     const recommendationResult = await generateAiExerciseRecommendations({
       apiKey,
       intent: parsedRequest.data.intent,
-      messages: parsedRequest.data.messages,
-      conversationContext: parsedRequest.data.conversationContext,
+      latestUserMessage: parsedRequest.data.latestUserMessage,
+      conversationSummary: parsedRequest.data.conversationSummary,
       candidates: finalCandidates,
       safetyNotes,
       excludeExerciseIds: effectiveExcludeExerciseIds,

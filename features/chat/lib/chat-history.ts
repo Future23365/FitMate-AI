@@ -2,7 +2,7 @@
 
 import { clientRequest } from "@/lib/client/http/client-request";
 import type { ChatConversation, ChatMessage } from "@/features/chat/types";
-import type { FitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
+import type { ConversationSummaryContext, FitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
 import type { WorkoutPlanDraft, WorkoutRoutineDraft } from "@/lib/shared/workout-plans/draft-schema";
 
@@ -56,6 +56,7 @@ export async function saveChatConversation(
   bubblePlans: Record<string, WorkoutPlanDraft>,
   bubbleRoutines: Record<string, WorkoutRoutineDraft> = {},
   bubbleExerciseRecommendations: Record<string, ExerciseRecommendationCard> = {},
+  conversationSummary?: Pick<ConversationSummaryContext, "summary">,
   conversationContext?: FitnessConversationContext,
 ) {
   const messagesToSave = messages.map(
@@ -110,6 +111,7 @@ export async function saveChatConversation(
           Object.keys(exerciseRecommendationsToSave).length > 0
             ? exerciseRecommendationsToSave
             : undefined,
+        conversationSummary,
         conversationContext,
       },
     },

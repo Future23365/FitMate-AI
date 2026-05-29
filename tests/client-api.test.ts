@@ -73,10 +73,11 @@ describe("frontend API clients", () => {
 
     const messages = createApiChatMessages();
     const context = createConversationContext();
+    const summary = { summary: context.summary };
     const signal = new AbortController().signal;
 
-    await expect(requestChatStream(messages, context, false, signal)).resolves.toBeInstanceOf(Response);
-    await expect(requestWorkoutPlanDraft(messages, createWorkoutPlanIntent(), context, "trace-1")).resolves.toMatchObject({
+    await expect(requestChatStream(messages[0].content, summary.summary, false, signal)).resolves.toBeInstanceOf(Response);
+    await expect(requestWorkoutPlanDraft(messages[0].content, createWorkoutPlanIntent(), summary, "trace-1")).resolves.toMatchObject({
       kind: "plan",
       draft: {
         title: "居家胸肌训练",
@@ -89,7 +90,7 @@ describe("frontend API clients", () => {
       ],
     });
     await expect(
-      requestWorkoutPlanDraft(messages, createWorkoutPlanIntent({ intentType: "routine" }), context, "trace-2"),
+      requestWorkoutPlanDraft(messages[0].content, createWorkoutPlanIntent({ intentType: "routine" }), summary, "trace-2"),
     ).resolves.toMatchObject({
       kind: "routine",
       draft: {
@@ -103,14 +104,15 @@ describe("frontend API clients", () => {
       ]),
     });
     await expect(
-      requestExerciseRecommendations(messages, createWorkoutPlanIntent(), context, "trace-1", {
+      requestExerciseRecommendations(messages[0].content, createWorkoutPlanIntent(), summary, "trace-1", {
         excludeExerciseIds: ["push-up"],
       }),
     ).rejects.toThrow("推荐失败");
 
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({
       thinkingEnabled: false,
-      conversationContext: context,
+      latestUserMessage: messages[0].content,
+      conversationSummary: summary.summary,
     });
     expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toMatchObject({
       parentTraceId: "trace-1",
@@ -193,6 +195,7 @@ describe("frontend API clients", () => {
       {},
       {},
       {},
+      { summary: "用户想在家练胸肌。" },
       createConversationContext(),
     );
 
@@ -202,6 +205,7 @@ describe("frontend API clients", () => {
         { id: "message-1", createdAt: "2026-05-25T09:00:00.000Z" },
         { id: "message-2", createdAt: "2026-05-25T09:01:00.000Z" },
       ],
+      conversationSummary: { summary: "用户想在家练胸肌。" },
     });
     expect(window.dispatchEvent).toHaveBeenCalledWith(expect.any(Event));
   });

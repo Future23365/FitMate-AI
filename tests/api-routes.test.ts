@@ -135,10 +135,13 @@ describe("API route boundaries", () => {
   });
 
   it("validates /api/chat body and returns stream response for legal requests", async () => {
-    const invalid = await chatRoute.POST(jsonRequest("/api/chat", { messages: [{ role: "user", content: "" }] }));
+    const invalid = await chatRoute.POST(jsonRequest("/api/chat", { latestUserMessage: "" }));
     await expect(invalid.json()).resolves.toMatchObject({ code: "validation_failed" });
 
-    const valid = await chatRoute.POST(jsonRequest("/api/chat", { messages: [{ role: "user", content: "练胸" }] }));
+    const valid = await chatRoute.POST(jsonRequest("/api/chat", {
+      latestUserMessage: "练胸",
+      conversationSummary: "用户想练胸。",
+    }));
     expect(valid.status).toBe(200);
     expect(chatServiceMocks.createAiChatResponse).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -149,7 +152,7 @@ describe("API route boundaries", () => {
   });
 
   it("maps AI workout plan and recommendation request boundaries", async () => {
-    const badPlan = await workoutPlanRoute.POST(jsonRequest("/api/ai/workout-plan", { messages: [] }));
+    const badPlan = await workoutPlanRoute.POST(jsonRequest("/api/ai/workout-plan", { latestUserMessage: "" }));
     expect(badPlan.status).toBe(400);
 
     workoutPlanMocks.generateAiWorkoutPlanDraft.mockResolvedValueOnce({
@@ -159,7 +162,8 @@ describe("API route boundaries", () => {
     });
     const failedPlan = await workoutPlanRoute.POST(
       jsonRequest("/api/ai/workout-plan", {
-        messages: [{ role: "user", content: "练胸" }],
+        latestUserMessage: "练胸",
+        conversationSummary: "用户想练胸。",
         intent: createWorkoutPlanIntent(),
         parentTraceId: "trace-parent",
       }),
@@ -169,7 +173,8 @@ describe("API route boundaries", () => {
 
     const recommendation = await exerciseRecommendationRoute.POST(
       jsonRequest("/api/ai/exercise-recommendations", {
-        messages: [{ role: "user", content: "推荐动作" }],
+        latestUserMessage: "推荐动作",
+        conversationSummary: "用户想练胸。",
         intent: createWorkoutPlanIntent(),
         parentTraceId: "trace-parent",
         excludeExerciseIds: ["old"],

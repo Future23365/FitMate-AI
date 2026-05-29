@@ -11,6 +11,11 @@ export const aiContextChatMessageSchema = z.object({
   content: z.string().trim().min(1).max(4000),
 });
 
+export const conversationSummaryContextSchema = z.object({
+  summary: z.string().trim().max(2000).default(""),
+  latestUserMessage: z.string().trim().min(1).max(4000),
+});
+
 export const fitnessConversationKnownFactsSchema = z.object({
   goal: z.string().trim().min(1).max(120).optional(),
   experience: workoutExperienceSchema.optional(),
@@ -37,11 +42,12 @@ export const fitnessConversationContextSchema = z.object({
 });
 
 export type AiContextChatMessage = z.infer<typeof aiContextChatMessageSchema>;
+export type ConversationSummaryContext = z.infer<typeof conversationSummaryContextSchema>;
 export type FitnessConversationKnownFacts = z.infer<typeof fitnessConversationKnownFactsSchema>;
 export type FitnessConversationContext = z.infer<typeof fitnessConversationContextSchema>;
 
 const durableFactPattern =
-  /目标|减脂|增肌|塑形|力量|心肺|体能|胸|背|腿|肩|核心|臀|手臂|分钟|min|小时|每周|一周|次|自重|徒手|哑铃|杠铃|壶铃|弹力带|瑜伽垫|健身房|居家|家里|新手|初学|进阶|高级|疼|痛|伤|不适|避免|不要|不想/;
+  /目标|减脂|增肌|塑形|力量|心肺|体能|胸|背|腿|肩|核心|臀|手臂|分钟|min|小时|每周|一周|次|自重|徒手|哑铃|杠铃|壶铃|弹力带|瑜伽垫|健身房|居家|家里|新手|初学|进阶|高级|避免|不要|不想/;
 
 const triggerPattern =
   /```json\s*(\{[\s\S]*?"type"\s*:\s*"(?:workout_plan_trigger|workout_routine_trigger|exercise_recommendation_trigger)"[\s\S]*?\})\s*```/g;
@@ -108,7 +114,8 @@ export function buildFitnessConversationContext(
   return context;
 }
 
-export function selectMessagesForAiContext(
+// 仅用于旧会话迁移测试和人工排查，模型调用路径不得再使用历史消息窗口。
+export function selectMessagesForLegacyContextMigration(
   rawMessages: Array<Pick<AiContextChatMessage, "role" | "content">>,
   options: { maxMessages?: number; recentWindow?: number } = {},
 ): AiContextChatMessage[] {
@@ -149,6 +156,46 @@ export function selectMessagesForAiContext(
     .map(([, message]) => message);
 }
 
+// 模型可见上下文的唯一共享契约；结构化旧上下文只能用于服务端迁移和确定性兜底。
+export function buildConversationSummaryContext(input: {
+  summary?: string;
+  latestUserMessage: string;
+}): ConversationSummaryContext {
+  return conversationSummaryContextSchema.parse({
+    summary: input.summary ?? "",
+    latestUserMessage: input.latestUserMessage,
+  });
+}
+
+// 旧会话可能只保存结构化 conversationContext；这里把它迁移成自然语言 summary。
+export function initializeConversationSummary(
+  rawMessages: Array<Pick<AiContextChatMessage, "role" | "content">>,
+  legacyContext?: Pick<FitnessConversationContext, "summary"> | null,
+) {
+  const latestUserMessage = [...normalizeAiContextMessages(rawMessages)]
+    .reverse()
+    .find((message) => message.role === "user")?.content ?? "";
+  const summary = legacyContext?.summary?.trim() || buildFitnessConversationContext(rawMessages).summary;
+
+  return {
+    summary,
+    latestUserMessage,
+  };
+}
+
+export function formatConversationSummaryContextForPrompt(
+  context: Pick<ConversationSummaryContext, "summary"> | undefined,
+) {
+  const summary = context?.summary?.trim();
+
+  return [
+    "conversationSummary:",
+    summary || "暂无历史总结。本轮只根据当前用户消息和服务端结构化校验结果回复。",
+    "",
+    "只能把 conversationSummary 当作历史摘要参考；当前最新 user message 优先级最高。",
+  ].join("\n");
+}
+
 export function formatFitnessConversationContextForPrompt(
   context: FitnessConversationContext | undefined,
 ) {
@@ -156,19 +203,7 @@ export function formatFitnessConversationContextForPrompt(
     return "";
   }
 
-  return [
-    "fitnessConversationContext:",
-    JSON.stringify(
-      {
-        summary: context.summary,
-        currentIntent: context.currentIntent,
-        knownFacts: context.knownFacts,
-        unresolvedQuestions: context.unresolvedQuestions,
-      },
-      null,
-      2,
-    ),
-  ].join("\n");
+  return formatConversationSummaryContextForPrompt(context);
 }
 
 function extractLatestTriggerIntent(content: string) {
@@ -206,7 +241,6 @@ function mergeIntentIntoFacts(
   knownFacts.weeklyFrequency = intent.weeklyFrequency;
   knownFacts.calendarHorizonDays = intent.calendarHorizonDays;
   intent.equipment.forEach((item) => arrayFacts.equipment.add(item));
-  intent.injuryLimitations.forEach((item) => arrayFacts.injuryLimitations.add(item));
   intent.preferences.forEach((item) => arrayFacts.preferences.add(item));
   intent.avoidances.forEach((item) => arrayFacts.avoidances.add(item));
 }
@@ -249,7 +283,6 @@ function mergeUserMessageFacts(
 
   extractEquipment(content).forEach((item) => arrayFacts.equipment.add(item));
   extractPreferences(content).forEach((item) => arrayFacts.preferences.add(item));
-  extractInjuryLimitations(content).forEach((item) => arrayFacts.injuryLimitations.add(item));
   extractAvoidances(content).forEach((item) => arrayFacts.avoidances.add(item));
 }
 
@@ -269,10 +302,7 @@ function mergeKnownFactsIntoIntent(
     weeklyFrequency: knownFacts.weeklyFrequency ?? intent.weeklyFrequency,
     calendarHorizonDays: knownFacts.calendarHorizonDays ?? intent.calendarHorizonDays,
     equipment: knownFacts.equipment.length > 0 ? knownFacts.equipment : intent.equipment,
-    injuryLimitations:
-      knownFacts.injuryLimitations.length > 0
-        ? knownFacts.injuryLimitations
-        : intent.injuryLimitations,
+    injuryLimitations: [],
     preferences: knownFacts.preferences.length > 0 ? knownFacts.preferences : intent.preferences,
     avoidances: knownFacts.avoidances.length > 0 ? knownFacts.avoidances : intent.avoidances,
   });
@@ -290,9 +320,6 @@ function buildContextSummary(
     knownFacts.calendarHorizonDays ? `日历范围：未来${knownFacts.calendarHorizonDays}天` : "",
     knownFacts.equipment.length > 0 ? `器械：${knownFacts.equipment.join("、")}` : "",
     knownFacts.preferences.length > 0 ? `偏好：${knownFacts.preferences.join("、")}` : "",
-    knownFacts.injuryLimitations.length > 0
-      ? `限制：${knownFacts.injuryLimitations.join("、")}`
-      : "",
     knownFacts.avoidances.length > 0 ? `避免：${knownFacts.avoidances.join("、")}` : "",
     currentIntent ? `当前意图：${currentIntent.intentType}` : "",
     knownFacts.latestUserMessage ? `最近用户输入：${knownFacts.latestUserMessage}` : "",
@@ -387,12 +414,6 @@ function extractPreferences(content: string) {
   }
 
   return preferences;
-}
-
-function extractInjuryLimitations(content: string) {
-  return /(膝盖|腰|肩|手腕|脚踝|疼|痛|伤|不适)/.test(content)
-    ? [previewText(content, 120)]
-    : [];
 }
 
 function extractAvoidances(content: string) {

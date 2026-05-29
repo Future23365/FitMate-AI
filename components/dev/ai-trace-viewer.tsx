@@ -1101,6 +1101,10 @@ function getStepSummaryItems(step: AiTraceStep, tokenUsage: TokenUsage | null) {
   } else if (input && Array.isArray(input.messages)) {
     items.push({ label: "消息数", value: String(input.messages.length) });
   }
+  if (input) {
+    addRecordItem(items, input, "latestUserMessage", "最新用户消息");
+    addRecordItem(items, input, "conversationSummary", "上下文总结");
+  }
 
   return items.slice(0, 8);
 }

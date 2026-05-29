@@ -4,6 +4,7 @@ import {
   chatRequestSchema,
   createFallbackChatIntent,
   encodeChatStreamEvent,
+  getActionBlockingMissingFields,
   parseJsonObject,
   prepareAiChatRequest,
   resolveAssistantAction,
@@ -46,22 +47,21 @@ describe("AI chat service deterministic boundaries", () => {
   it("validates input and prepares AI request context", () => {
     expect(
       chatRequestSchema.safeParse({
-        messages: [{ role: "user", content: "" }],
+        latestUserMessage: "",
       }).success,
     ).toBe(false);
 
     const preparedRequest = prepareAiChatRequest({
-      messages: [
-        { role: "user", content: "  今天在家练胸 30 分钟  " },
-        { role: "assistant", content: "可以，我来整理。" },
-      ],
+      latestUserMessage: "今天在家练胸 30 分钟",
+      conversationSummary: "用户想在家练胸肌。",
       thinkingEnabled: false,
     });
 
-    expect(preparedRequest.rawMessages).toHaveLength(2);
-    expect(preparedRequest.messages).toHaveLength(2);
+    expect(preparedRequest.rawMessages).toHaveLength(1);
+    expect(preparedRequest.messages).toEqual([{ role: "user", content: "今天在家练胸 30 分钟" }]);
+    expect(preparedRequest.conversationSummaryContext.summary).toBe("用户想在家练胸肌。");
     expect(preparedRequest.thinkingEnabled).toBe(false);
-    expect(preparedRequest.hasClientConversationContext).toBe(false);
+    expect(preparedRequest.hasClientConversationSummary).toBe(true);
   });
 
   it("resolves fallback intent, assistant action, and visible suggested replies", () => {
@@ -184,6 +184,110 @@ describe("AI chat service deterministic boundaries", () => {
         weeklyFrequency: 1,
       },
     });
+  });
+
+  it("triggers exercise recommendations when only the target body part is clear", () => {
+    expect(aiPromptConfig.chatIntentResolution.system).toContain(
+      "即使缺少器械、场地或训练时长",
+    );
+    expect(aiPromptConfig.chatIntentResolution.system).toContain(
+      "missingActionFields 不要包含 equipmentOrLocation 或 sessionMinutes",
+    );
+
+    const legRecommendationIntent = createWorkoutPlanIntent({
+      intentType: "routine",
+      goal: "练腿",
+      sessionMinutes: 30,
+      equipment: [],
+      preferences: [],
+    });
+    const chatIntent: ChatIntent = {
+      type: "exercise_recommendation",
+      needsExerciseContext: true,
+      workoutIntent: legRecommendationIntent,
+      requestedExerciseName: "",
+      canTriggerAction: false,
+      missingActionFields: ["equipmentOrLocation"],
+      suggestedReplies: ["我今天在家用自重练腿"],
+    };
+
+    expect(resolveAssistantAction(chatIntent, createExerciseContext({ intent: legRecommendationIntent }))).toMatchObject({
+      action: "exercise_recommendation",
+      intent: {
+        intentType: "routine",
+        goal: "练腿",
+      },
+    });
+    expect(
+      resolveAssistantAction(
+        chatIntent,
+        createExerciseContext({ intent: legRecommendationIntent, candidateStatus: "insufficient" }),
+      ),
+    ).toBeNull();
+    expect(resolveVisibleSuggestedReplies(chatIntent, resolveAssistantAction(chatIntent, createExerciseContext({ intent: legRecommendationIntent })))).toEqual([]);
+  });
+
+  it("ignores health-related missing fields when deriving assistant actions", () => {
+    const weeklyPlanIntent = createWorkoutPlanIntent({
+      intentType: "plan",
+      goal: "居家自重练腿",
+      sessionMinutes: 20,
+      weeklyFrequency: 7,
+      equipment: ["自重"],
+    });
+    const chatIntent: ChatIntent = {
+      type: "workout_plan",
+      needsExerciseContext: true,
+      workoutIntent: weeklyPlanIntent,
+      requestedExerciseName: "",
+      canTriggerAction: false,
+      missingActionFields: ["goal", "injuryLimitations"],
+      suggestedReplies: ["我没有额外信息"],
+    };
+
+    expect(getActionBlockingMissingFields(chatIntent.missingActionFields, weeklyPlanIntent)).toEqual([]);
+    expect(resolveAssistantAction(chatIntent, createExerciseContext({ intent: weeklyPlanIntent }))).toMatchObject({
+      action: "workout_plan",
+      intent: {
+        intentType: "plan",
+        goal: "居家自重练腿",
+        sessionMinutes: 20,
+        weeklyFrequency: 7,
+      },
+    });
+    expect(resolveVisibleSuggestedReplies(chatIntent, resolveAssistantAction(chatIntent, createExerciseContext({ intent: weeklyPlanIntent })))).toEqual([]);
+  });
+
+  it("keeps non-health missing fields as action blockers", () => {
+    const incompleteIntent = createWorkoutPlanIntent({
+      intentType: "routine",
+      goal: "",
+      sessionMinutes: 0,
+      equipment: [],
+      preferences: [],
+    });
+
+    expect(getActionBlockingMissingFields(["goal", "sessionMinutes"], incompleteIntent)).toEqual([
+      "goal",
+      "sessionMinutes",
+    ]);
+  });
+
+  it("documents prompts do not ask for health checks", () => {
+    const promptText = [
+      aiPromptConfig.chatIntentResolution.system,
+      aiPromptConfig.chatCompletion.system,
+      aiPromptConfig.chatCompletion.exerciseContext,
+      aiPromptConfig.exerciseRecommendationGeneration.system,
+      aiPromptConfig.workoutPlanDraftGeneration.base.join("\n"),
+      aiPromptConfig.workoutPlanDraftGeneration.schema.join("\n"),
+    ].join("\n");
+
+    expect(promptText).not.toContain("膝盖不适");
+    expect(promptText).not.toContain("高风险健康");
+    expect(promptText).not.toContain("咨询医生");
+    expect(promptText).not.toContain("医疗诊断");
+    expect(promptText).not.toContain("就医");
   });
 
   it("parses fenced JSON and encodes NDJSON stream events", () => {

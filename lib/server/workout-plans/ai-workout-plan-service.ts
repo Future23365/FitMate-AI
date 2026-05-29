@@ -5,11 +5,9 @@ import type { AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import {
-  buildFitnessConversationContext,
-  fitnessConversationContextSchema,
-  formatFitnessConversationContextForPrompt,
-  selectMessagesForAiContext,
-  type FitnessConversationContext,
+  buildConversationSummaryContext,
+  formatConversationSummaryContextForPrompt,
+  type ConversationSummaryContext,
 } from "@/lib/shared/chat/fitness-conversation-context";
 import { serverRequest } from "@/lib/server/http/server-request";
 
@@ -38,9 +36,10 @@ export const aiWorkoutPlanChatMessageSchema = z.object({
 });
 
 export const aiWorkoutPlanRequestSchema = z.object({
-  messages: z.array(aiWorkoutPlanChatMessageSchema).min(1).max(200),
+  latestUserMessage: z.string().trim().min(1).max(4000),
+  conversationSummary: z.string().trim().max(2000).default(""),
+  messages: z.array(aiWorkoutPlanChatMessageSchema).min(1).max(200).optional(),
   intent: workoutPlanIntentSchema.optional(),
-  conversationContext: fitnessConversationContextSchema.optional(),
   parentTraceId: z.string().trim().min(1).max(120).optional(),
 });
 
@@ -49,7 +48,6 @@ export type AiWorkoutPlanRequest = z.infer<typeof aiWorkoutPlanRequestSchema>;
 
 export type AiWorkoutPlanFailureCode =
   | "missing_api_key"
-  | "high_risk_health_condition"
   | "intent_extraction_failed"
   | "candidate_actions_insufficient"
   | "ai_request_failed"
@@ -122,9 +120,10 @@ export async function generateAiWorkoutPlanDraft(
   const request = aiWorkoutPlanRequestSchema.parse(rawRequest);
   const apiKey = process.env.DEEPSEEK_API_KEY;
   const trace = options.trace;
-  const conversationContext =
-    request.conversationContext ?? buildFitnessConversationContext(request.messages);
-  const contextMessages = selectMessagesForAiContext(request.messages, { maxMessages: 16 });
+  const conversationSummaryContext = buildConversationSummaryContext({
+    summary: request.conversationSummary,
+    latestUserMessage: request.latestUserMessage,
+  });
 
   if (!apiKey) {
     return {
@@ -134,12 +133,9 @@ export async function generateAiWorkoutPlanDraft(
     };
   }
 
-  // 高风险健康情况由 AI 聊天层 system prompt 自行判断，不在此处硬拦截
-
-
   const intentResult = request.intent
     ? { ok: true as const, intent: request.intent }
-    : await extractWorkoutPlanIntent(contextMessages, conversationContext, apiKey, trace);
+    : await extractWorkoutPlanIntent(conversationSummaryContext, apiKey, trace);
 
   if (!intentResult.ok) {
     trace?.addStep({
@@ -198,8 +194,7 @@ export async function generateAiWorkoutPlanDraft(
   }
 
   const draftResult = await generateWorkoutPlanDraft(
-    contextMessages,
-    conversationContext,
+    conversationSummaryContext,
     intentResult.intent,
     candidates,
     apiKey,
@@ -313,8 +308,7 @@ function summarizePlanCycle(draft: WorkoutPlanDraft) {
 }
 
 async function extractWorkoutPlanIntent(
-  messages: AiWorkoutPlanChatMessage[],
-  conversationContext: FitnessConversationContext,
+  conversationSummaryContext: ConversationSummaryContext,
   apiKey: string,
   trace?: AiTraceLogger,
 ): Promise<
@@ -331,12 +325,15 @@ async function extractWorkoutPlanIntent(
       role: "system",
       content: [
         aiPromptConfig.workoutPlanIntentExtraction.system,
-        formatFitnessConversationContextForPrompt(conversationContext),
+        formatConversationSummaryContextForPrompt(conversationSummaryContext),
       ]
         .filter(Boolean)
         .join("\n\n"),
     },
-    ...messages,
+    {
+      role: "user",
+      content: conversationSummaryContext.latestUserMessage,
+    },
   ];
 
   const content = await requestDeepSeekJson("intent_extraction", apiKey, modelMessages, trace);
@@ -369,8 +366,7 @@ async function extractWorkoutPlanIntent(
 }
 
 async function generateWorkoutPlanDraft(
-  messages: AiWorkoutPlanChatMessage[],
-  conversationContext: FitnessConversationContext,
+  conversationSummaryContext: ConversationSummaryContext,
   intent: WorkoutPlanIntent,
   candidates: ExerciseCandidateResult,
   apiKey: string,
@@ -425,10 +421,10 @@ async function generateWorkoutPlanDraft(
       role: "user",
       content: JSON.stringify({
         intent,
-        conversationContext,
+        conversationSummary: conversationSummaryContext.summary,
+        latestUserMessage: conversationSummaryContext.latestUserMessage,
         primaryExercises: primaryPayload,
         supplementaryExercises: supplementaryPayload,
-        recentMessages: messages,
       }),
     },
   ];
@@ -625,14 +621,6 @@ function parseJsonObject(
       detail: error instanceof Error ? error.message : error,
     };
   }
-}
-
-function hasHighRiskHealthCondition(messages: AiWorkoutPlanChatMessage[]) {
-  const text = messages.map((message) => message.content).join(" ");
-
-  return /(胸痛|心脏病|心梗|中风|晕厥|昏厥|怀孕|孕期|产后|骨折|术后|手术后|高血压|糖尿病|癌症|肿瘤)/.test(
-    text,
-  );
 }
 
 function logAiWorkoutPlanFailure(

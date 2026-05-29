@@ -21,8 +21,10 @@ import type {
   ChatStreamEvent,
 } from "@/features/chat/types";
 import {
+  buildConversationSummaryContext,
   buildFitnessConversationContext,
-  selectMessagesForAiContext,
+  initializeConversationSummary,
+  type ConversationSummaryContext,
   type FitnessConversationContext,
 } from "@/lib/shared/chat/fitness-conversation-context";
 import type { Exercise } from "@/lib/shared/exercises/types";
@@ -88,6 +90,9 @@ export function useChatController() {
   const [conversationContext, setConversationContext] = useState<FitnessConversationContext>(() =>
     buildFitnessConversationContext([]),
   );
+  const [conversationSummary, setConversationSummary] = useState<Pick<ConversationSummaryContext, "summary">>({
+    summary: "",
+  });
   const skipNextAutoSaveRef = useRef(false);
 
   useEffect(() => {
@@ -122,6 +127,13 @@ export function useChatController() {
         matchedConversation.conversationContext ??
           buildFitnessConversationContext(matchedConversation.messages),
       );
+      setConversationSummary(
+        matchedConversation.conversationSummary ??
+          initializeConversationSummary(
+            matchedConversation.messages,
+            matchedConversation.conversationContext,
+          ),
+      );
       setBubblePlanErrors({});
       setAutoPlanGenerating(null);
       setAutoRecommendationGenerating(null);
@@ -151,6 +163,7 @@ export function useChatController() {
       setBubbleExerciseRecommendations({});
       setDislikedExerciseIdsByMessage({});
       setConversationContext(buildFitnessConversationContext([]));
+      setConversationSummary({ summary: "" });
       setBubblePlanErrors({});
       setAutoPlanGenerating(null);
       setAutoRecommendationGenerating(null);
@@ -191,6 +204,7 @@ export function useChatController() {
         bubblePlans,
         bubbleRoutines,
         bubbleExerciseRecommendations,
+        conversationSummary,
         conversationContext,
       ).catch((saveError: unknown) => {
         console.error("[ChatHistory] Save failed:", saveError);
@@ -198,7 +212,15 @@ export function useChatController() {
     }, 400);
 
     return () => window.clearTimeout(timer);
-  }, [conversationId, messages, bubblePlans, bubbleRoutines, bubbleExerciseRecommendations, conversationContext]);
+  }, [
+    conversationId,
+    messages,
+    bubblePlans,
+    bubbleRoutines,
+    bubbleExerciseRecommendations,
+    conversationSummary,
+    conversationContext,
+  ]);
 
   function updateAssistantMessage(
     assistantId: string,
@@ -231,12 +253,17 @@ export function useChatController() {
   async function generateWorkoutPlanForBubble(
     messageId: string,
     intent: unknown,
-    historyMessages: ApiChatMessage[],
-    context: FitnessConversationContext,
+    latestUserMessage: string,
+    summaryContext: Pick<ConversationSummaryContext, "summary">,
     parentTraceId?: string,
   ) {
     try {
-      const planPayload = await requestWorkoutPlanDraft(historyMessages, intent, context, parentTraceId);
+      const planPayload = await requestWorkoutPlanDraft(
+        latestUserMessage,
+        intent,
+        summaryContext,
+        parentTraceId,
+      );
 
       if (planPayload.kind === "routine") {
         setBubbleRoutines((prev) => ({
@@ -277,13 +304,13 @@ export function useChatController() {
   async function generateExerciseRecommendationsForBubble(
     messageId: string,
     intent: unknown,
-    historyMessages: ApiChatMessage[],
-    context: FitnessConversationContext,
+    latestUserMessage: string,
+    summaryContext: Pick<ConversationSummaryContext, "summary">,
     parentTraceId?: string,
     excludeExerciseIds: string[] = [],
   ) {
     try {
-      const card = await requestExerciseRecommendations(historyMessages, intent, context, parentTraceId, {
+      const card = await requestExerciseRecommendations(latestUserMessage, intent, summaryContext, parentTraceId, {
         excludeExerciseIds,
       });
 
@@ -322,19 +349,12 @@ export function useChatController() {
       ...getRecommendationExerciseIds(bubbleExerciseRecommendations[messageId]),
       ...(dislikedExerciseIdsByMessage[messageId] ?? []),
     ]);
-    const historyMessages = selectMessagesForAiContext(
-      messages
-        .filter((message) => message.content.trim().length > 0)
-        .map(({ role, content }) => ({ role, content })),
-      { maxMessages: 16 },
-    );
-
     setAutoRecommendationGenerating(messageId);
     await generateExerciseRecommendationsForBubble(
       messageId,
       recommendationIntent,
-      historyMessages,
-      conversationContext,
+      "换一批动作",
+      conversationSummary,
       undefined,
       excludeExerciseIds,
     );
@@ -391,7 +411,10 @@ export function useChatController() {
       .filter((message) => message.content.trim().length > 0)
       .map(({ role, content }) => ({ role, content }));
     const nextConversationContext = buildFitnessConversationContext(requestMessages);
-    const aiMessages = selectMessagesForAiContext(requestMessages);
+    const requestSummaryContext = buildConversationSummaryContext({
+      summary: conversationSummary.summary,
+      latestUserMessage: text,
+    });
 
     if (!conversationId) {
       setConversationId(nextConversationId);
@@ -409,8 +432,8 @@ export function useChatController() {
 
     try {
       const response = await requestChatStream(
-        aiMessages,
-        nextConversationContext,
+        requestSummaryContext.latestUserMessage,
+        requestSummaryContext.summary,
         thinkingEnabled,
         controller.signal,
       );
@@ -430,6 +453,7 @@ export function useChatController() {
       let fullContent = "";
       let chatTraceId: string | undefined;
       let assistantAction: AssistantActionEvent | null = null;
+      let updatedConversationSummary = requestSummaryContext.summary;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -451,6 +475,10 @@ export function useChatController() {
 
           if (streamEvent.type === "done") {
             chatTraceId = streamEvent.traceId;
+            if (typeof streamEvent.conversationSummary === "string") {
+              updatedConversationSummary = streamEvent.conversationSummary;
+              setConversationSummary({ summary: updatedConversationSummary });
+            }
             continue;
           }
 
@@ -536,17 +564,13 @@ export function useChatController() {
           ...requestMessages,
           { role: "assistant", content: fullContent },
         ]);
-        const planMessages = selectMessagesForAiContext(
-          [...requestMessages, { role: "assistant", content: fullContent }],
-          { maxMessages: 16 },
-        );
         setConversationContext(contextWithAssistant);
         setAutoPlanGenerating(messageId);
         generateWorkoutPlanForBubble(
           messageId,
           actionIntent,
-          planMessages,
-          contextWithAssistant,
+          text,
+          { summary: updatedConversationSummary },
           chatTraceId,
         );
       } else {
@@ -561,10 +585,6 @@ export function useChatController() {
             ...requestMessages,
             { role: "assistant", content: fullContent },
           ]);
-          const recommendationMessages = selectMessagesForAiContext(
-            [...requestMessages, { role: "assistant", content: fullContent }],
-            { maxMessages: 16 },
-          );
           const excludeExerciseIds = isRecommendationRefreshRequest(text)
             ? uniqueExerciseIds([
                 ...collectLatestRecommendationExerciseIds(messages, bubbleExerciseRecommendations),
@@ -576,8 +596,8 @@ export function useChatController() {
           generateExerciseRecommendationsForBubble(
             messageId,
             recommendationTrigger.intent,
-            recommendationMessages,
-            contextWithAssistant,
+            text,
+            { summary: updatedConversationSummary },
             chatTraceId,
             excludeExerciseIds,
           );

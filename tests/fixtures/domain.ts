@@ -175,7 +175,7 @@ export function createWorkoutPlanDraft(overrides: Partial<WorkoutPlanDraft> = {}
       focus: day.focus,
       isRestDay: day.isRestDay,
     })),
-    safetyNotes: overrides.safetyNotes ?? ["如有疼痛请停止训练。"],
+    safetyNotes: overrides.safetyNotes ?? ["保持动作节奏稳定。"],
     days,
   };
 
@@ -247,7 +247,7 @@ export function createWorkoutRoutineDraft(overrides: Partial<WorkoutRoutineDraft
     trainingLoopRounds: overrides.trainingLoopRounds ?? 3,
     trainingLoopRestSeconds: overrides.trainingLoopRestSeconds ?? 90,
     sections,
-    safetyNotes: overrides.safetyNotes ?? ["如有疼痛请停止训练。"],
+    safetyNotes: overrides.safetyNotes ?? ["保持动作节奏稳定。"],
   };
 }
 
@@ -317,6 +317,7 @@ export function createChatConversation(overrides: Partial<ChatConversation> = {}
       { id: "message-1", role: "user", content: "今天在家练胸" },
       { id: "message-2", role: "assistant", content: "可以。" },
     ],
+    conversationSummary: overrides.conversationSummary ?? { summary: "用户想在家练胸肌。" },
     conversationContext: overrides.conversationContext ?? createConversationContext(),
     plans: overrides.plans,
     exerciseRecommendations: overrides.exerciseRecommendations,

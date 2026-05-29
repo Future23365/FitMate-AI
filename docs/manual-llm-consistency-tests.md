@@ -51,8 +51,8 @@ docs/manual-llm-consistency-latest-report.md
 - `canTriggerAction=false`
 - 信息不足追问和第一人称 `suggestedReplies`
 - 显式动作列表默认时长
-- 换一批复用 `fitnessConversationContext.currentIntent`
-- 高风险健康提醒
+- 换一批基于 `conversationSummary` 和服务端结构化 intent 复用上一轮目标
+- 训练强度偏好自然回复
 - 候选充足、候选有限可用、候选不足表达
 - 动作推荐普通推荐和 `excludedExerciseIds` 排除
 - `WorkoutPlanIntent` 的 `plan`、`routine` 和默认值补齐
@@ -69,7 +69,7 @@ docs/manual-llm-consistency-latest-report.md
 - 不输出内部 Trigger。
 - 不输出 JSON fenced block。
 - 不提及 `卡片`、`下方`、`后台生成` 等 UI 或系统流程字样。
-- 高风险健康输入必须提醒咨询医生或专业人士。
+- 训练强度偏好不应触发内部 Trigger 或泄漏系统流程。
 
 ## 维护规则
 

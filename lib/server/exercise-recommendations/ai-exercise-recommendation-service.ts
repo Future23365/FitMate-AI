@@ -11,7 +11,7 @@ import {
   type ExerciseRecommendationCard,
   type ExerciseRecommendationIntent,
 } from "@/lib/shared/exercise-recommendations/schema";
-import type { FitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
+import { buildConversationSummaryContext } from "@/lib/shared/chat/fitness-conversation-context";
 
 type DeepSeekChatMessage = {
   role: "system" | "user" | "assistant";
@@ -27,16 +27,11 @@ type DeepSeekChatResponse = {
   };
 };
 
-type RecommendationChatMessage = {
-  role: "user" | "assistant";
-  content: string;
-};
-
 type GenerateAiExerciseRecommendationsRequest = {
   apiKey: string;
   intent: ExerciseRecommendationIntent;
-  messages: RecommendationChatMessage[];
-  conversationContext?: FitnessConversationContext;
+  latestUserMessage: string;
+  conversationSummary: string;
   candidates: ExerciseCandidate[];
   safetyNotes: string[];
   excludeExerciseIds: string[];
@@ -77,6 +72,10 @@ const modelOutputSchema = z.object({
 export async function generateAiExerciseRecommendations(
   request: GenerateAiExerciseRecommendationsRequest,
 ): Promise<GenerateAiExerciseRecommendationsResult> {
+  const conversationSummaryContext = buildConversationSummaryContext({
+    summary: request.conversationSummary,
+    latestUserMessage: request.latestUserMessage,
+  });
   const candidateById = new Map(
     request.candidates.map((candidate) => [candidate.exercise.id, candidate]),
   );
@@ -90,7 +89,8 @@ export async function generateAiExerciseRecommendations(
       role: "user",
       content: JSON.stringify({
         intent: request.intent,
-        conversationContext: request.conversationContext,
+        conversationSummary: conversationSummaryContext.summary,
+        latestUserMessage: conversationSummaryContext.latestUserMessage,
         excludedExerciseIds: request.excludeExerciseIds,
         candidateExercises: request.candidates.map((candidate) => {
           const exercise = candidate.exercise;
@@ -112,7 +112,6 @@ export async function generateAiExerciseRecommendations(
             candidateReasons: candidate.reasons,
           };
         }),
-        recentMessages: request.messages,
       }),
     },
   ];

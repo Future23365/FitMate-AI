@@ -29,10 +29,11 @@ describe("AI workout plan orchestration boundaries", () => {
   });
 
   it("validates request schema and reports missing model configuration before external calls", async () => {
-    expect(aiWorkoutPlanRequestSchema.safeParse({ messages: [] }).success).toBe(false);
+    expect(aiWorkoutPlanRequestSchema.safeParse({ latestUserMessage: "" }).success).toBe(false);
 
     const result = await generateAiWorkoutPlanDraft({
-      messages: [{ role: "user", content: "今天练胸" }],
+      latestUserMessage: "今天练胸",
+      conversationSummary: "",
       intent: createWorkoutPlanIntent(),
     });
 
@@ -59,7 +60,8 @@ describe("AI workout plan orchestration boundaries", () => {
     ]);
 
     const result = await generateAiWorkoutPlanDraft({
-      messages: [{ role: "user", content: "新手在家自重练胸" }],
+      latestUserMessage: "新手在家自重练胸",
+      conversationSummary: "用户是新手，想在家自重练胸。",
       intent: createWorkoutPlanIntent({
         goal: "胸肌训练",
         equipment: ["自重"],
@@ -112,7 +114,8 @@ describe("AI workout plan orchestration boundaries", () => {
       );
 
     const routineResult = await generateAiWorkoutPlanDraft({
-      messages: [{ role: "user", content: "今天在家自重练胸 30 分钟" }],
+      latestUserMessage: "今天在家自重练胸 30 分钟",
+      conversationSummary: "用户想在家自重练胸。",
       intent: createWorkoutPlanIntent({
         intentType: "routine",
         goal: "胸肌训练",
@@ -121,7 +124,8 @@ describe("AI workout plan orchestration boundaries", () => {
       }),
     });
     const planResult = await generateAiWorkoutPlanDraft({
-      messages: [{ role: "user", content: "给我每周一次胸肌计划" }],
+      latestUserMessage: "给我每周一次胸肌计划",
+      conversationSummary: "用户想要胸肌训练计划。",
       intent: createWorkoutPlanIntent({
         intentType: "plan",
         goal: "胸肌训练",
@@ -140,5 +144,16 @@ describe("AI workout plan orchestration boundaries", () => {
       kind: "plan",
       draft: { weeklyFrequency: 1 },
     });
+
+    const routineRequestBody = serverRequestMocks.serverRequest.mock.calls[0][1].body;
+    const routineModelPayload = JSON.parse(routineRequestBody.messages[1].content);
+    expect(routineRequestBody.messages).toHaveLength(2);
+    expect(routineModelPayload).toMatchObject({
+      conversationSummary: "用户想在家自重练胸。",
+      latestUserMessage: "今天在家自重练胸 30 分钟",
+      intent: expect.objectContaining({ intentType: "routine" }),
+    });
+    expect(routineModelPayload).not.toHaveProperty("recentMessages");
+    expect(routineModelPayload).not.toHaveProperty("conversationContext");
   });
 });
