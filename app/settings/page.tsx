@@ -9,7 +9,7 @@ const profileItems = [
 
 export default function SettingsPage() {
   return (
-    <main className="app-mesh-bg fixed inset-0 overflow-y-auto px-lg py-xl text-ink md:left-[260px] xl:px-2xl">
+    <main className="app-mesh-bg fixed bottom-0 left-[var(--app-sidebar-width)] right-0 top-0 overflow-y-auto px-lg py-xl text-ink transition-[left] duration-300 xl:px-2xl">
       <div className="mx-auto flex max-w-5xl flex-col gap-xl">
         <header className="rounded-2xl border border-line/70 bg-white/78 p-xl shadow-card backdrop-blur-2xl">
           <div className="flex items-center gap-md">

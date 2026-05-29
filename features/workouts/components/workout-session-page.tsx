@@ -955,8 +955,8 @@ export function WorkoutSessionPage() {
   }
 
   return (
-    <main className="custom-scrollbar app-mesh-bg h-dvh overflow-y-auto text-ink xl:overflow-hidden">
-      <div className="flex min-h-dvh flex-col gap-sm px-md py-sm md:px-lg md:py-md xl:h-dvh xl:min-h-0 2xl:px-xl">
+    <main className="custom-scrollbar app-mesh-bg h-dvh overflow-y-auto text-ink lg:overflow-hidden">
+      <div className="flex min-h-dvh flex-col gap-sm px-md py-sm md:px-lg md:py-md lg:h-dvh lg:min-h-0 2xl:px-xl">
         <header className="flex shrink-0 flex-wrap items-center justify-between gap-sm rounded-[20px] border border-line bg-white px-md py-xs shadow-card md:px-lg">
           <Link
             className="flex min-h-11 items-center gap-sm rounded-xl px-sm text-body-md font-extrabold text-ink transition-colors hover:bg-panel-soft hover:text-primary"
@@ -1034,7 +1034,7 @@ export function WorkoutSessionPage() {
           </div>
         </header>
 
-        <section className="grid min-h-0 flex-1 gap-sm xl:grid-cols-[minmax(260px,0.86fr)_minmax(390px,1.28fr)_minmax(280px,0.82fr)]">
+        <section className="grid min-h-0 flex-1 gap-sm lg:grid-cols-[minmax(260px,0.86fr)_minmax(390px,1.28fr)_minmax(280px,0.82fr)]">
           <aside className="flex min-h-0 flex-col gap-sm">
             <section className="rounded-[20px] border border-line bg-white p-md shadow-card">
               <div className="mb-sm flex items-start justify-between gap-md">

@@ -8,13 +8,13 @@ layer(base);
 @import "tailwindcss";
 
 @theme {
-  /* Tailwind 4 的 CSS-first 配置入口；保留当前项目 PC-only 的断点基线。 */
+  /* Tailwind 4 的 CSS-first 配置入口；这里保留 PC-only 产品边界，但恢复可区分桌面宽度的断点。 */
   --breakpoint-*: initial;
-  --breakpoint-sm: 0px;
-  --breakpoint-md: 0px;
-  --breakpoint-lg: 0px;
-  --breakpoint-xl: 0px;
-  --breakpoint-2xl: 1536px;
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 960px;
+  --breakpoint-lg: 1180px;
+  --breakpoint-xl: 1440px;
+  --breakpoint-2xl: 1680px;
 
   --color-ink: #111827;
   --color-muted: #667085;
@@ -239,6 +239,22 @@ layer(base);
   --color-primary-soft: #e6ecff;
   --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.06), 0 8px 24px rgba(16, 24, 40, 0.06);
   --shadow-lift: 0 16px 40px rgba(16, 24, 40, 0.10);
+  --app-sidebar-expanded-width: 260px;
+  --app-sidebar-collapsed-width: 88px;
+  --app-sidebar-width: var(--app-sidebar-expanded-width);
+  --workspace-material-panel-width: 340px;
+  --workspace-calendar-panel-width: 340px;
+  --workspace-main-min-width: 760px;
+}
+
+:root[data-app-sidebar="collapsed"] {
+  --app-sidebar-width: var(--app-sidebar-collapsed-width);
+}
+
+@media (max-width: 959.98px) {
+  :root {
+    --app-sidebar-width: 0px;
+  }
 }
 
 * {
