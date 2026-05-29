@@ -224,6 +224,8 @@ export function AppSidebar() {
   const router = useRouter();
   const [historyItems, setHistoryItems] = useState<SidebarHistoryItem[]>([]);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+  const [isSidebarCollapseLocked, setIsSidebarCollapseLocked] = useState(false);
+  const [isDesktopSidebarExpanded, setIsDesktopSidebarExpanded] = useState(false);
   const isSettingsActive = pathname.startsWith("/settings");
 
   useEffect(() => {
@@ -267,7 +269,17 @@ export function AppSidebar() {
     });
   }
 
+  /** 桌面 rail 点击导航后短暂锁定收缩态，避免路由切换后 hover/focus 继续撑开侧栏。 */
+  function lockDesktopSidebarCollapse() {
+    setIsSidebarCollapseLocked(true);
+    setIsDesktopSidebarExpanded(false);
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  }
+
   function handleHistorySelect(id: string) {
+    lockDesktopSidebarCollapse();
     if (pathname === "/") {
       // 已在聊天页，直接通过事件加载对话，避免不必要的路由重渲染
       window.history.pushState(null, "", `#${id}`);
@@ -301,6 +313,15 @@ export function AppSidebar() {
     };
   }, [isMobileNavOpen]);
 
+  useEffect(() => {
+    const shouldScalePage = isDesktopSidebarExpanded && !isSidebarCollapseLocked;
+    document.body.classList.toggle("sidebar-rail-open", shouldScalePage);
+
+    return () => {
+      document.body.classList.remove("sidebar-rail-open");
+    };
+  }, [isDesktopSidebarExpanded, isSidebarCollapseLocked]);
+
   // 开发调试页与训练执行页使用独立布局，不显示主应用侧边栏。
   if (pathname.startsWith("/dev") || pathname.startsWith("/training")) {
     return null;
@@ -319,13 +340,37 @@ export function AppSidebar() {
         <SymbolIcon>menu</SymbolIcon>
       </button>
 
-      <aside className="app-sidebar app-shell-glass fixed left-0 top-0 z-30 hidden h-screen flex-col overflow-hidden border-r border-line/70 px-4 py-6 shadow-nav md:flex">
+      <aside
+        className={`app-sidebar app-shell-glass fixed left-0 top-0 z-30 hidden h-screen flex-col overflow-hidden border-r border-line/70 px-4 py-6 shadow-nav md:flex ${
+          isSidebarCollapseLocked ? "app-sidebar-collapse-locked" : ""
+        }`}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) {
+            setIsDesktopSidebarExpanded(false);
+          }
+        }}
+        onFocus={() => {
+          if (!isSidebarCollapseLocked) {
+            setIsDesktopSidebarExpanded(true);
+          }
+        }}
+        onMouseEnter={() => {
+          if (!isSidebarCollapseLocked) {
+            setIsDesktopSidebarExpanded(true);
+          }
+        }}
+        onMouseLeave={() => {
+          setIsSidebarCollapseLocked(false);
+          setIsDesktopSidebarExpanded(false);
+        }}
+      >
         <SidebarPanel
           historyItems={historyItems}
           isSettingsActive={isSettingsActive}
           pathname={pathname}
           onDeleteConversation={deleteConversation}
           onHistorySelect={handleHistorySelect}
+          onNavigate={lockDesktopSidebarCollapse}
         />
       </aside>
 

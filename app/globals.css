@@ -598,6 +598,54 @@ body,
     pointer-events: auto;
     transform: scale(1);
   }
+
+  .app-sidebar.app-sidebar-collapse-locked {
+    padding: 16px 14px;
+    width: var(--app-sidebar-rail-width);
+    box-shadow: var(--shadow-nav);
+  }
+
+  .app-sidebar.app-sidebar-collapse-locked .app-sidebar-brand,
+  .app-sidebar.app-sidebar-collapse-locked .app-sidebar-primary-action,
+  .app-sidebar.app-sidebar-collapse-locked .app-sidebar-nav-link {
+    column-gap: 0;
+  }
+
+  .app-sidebar.app-sidebar-collapse-locked .app-sidebar-copy,
+  .app-sidebar.app-sidebar-collapse-locked .app-sidebar-label {
+    max-width: 0;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(-4px);
+  }
+
+  .app-sidebar.app-sidebar-collapse-locked .app-sidebar-history-section {
+    border-top-color: transparent;
+    flex: 0 0 auto;
+    margin-top: 0;
+    max-height: 0;
+    max-width: 0;
+    min-height: 0;
+    opacity: 0;
+    padding-top: 0;
+    pointer-events: none;
+  }
+
+  .app-sidebar.app-sidebar-collapse-locked .app-sidebar-user-card {
+    justify-content: center;
+    gap: 0;
+    padding: 0;
+    border-color: transparent;
+    background-color: transparent;
+    box-shadow: none;
+  }
+
+  .app-sidebar.app-sidebar-collapse-locked .app-sidebar-user-avatar {
+    max-width: 0;
+    opacity: 0;
+    pointer-events: none;
+    transform: scale(0.86);
+  }
 }
 
 .premium-card {
@@ -635,6 +683,8 @@ body.drawer-open {
   overflow: hidden;
   background: transparent;
   pointer-events: none;
+  transform-origin: center;
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .route-transition-page {
@@ -785,6 +835,10 @@ body.drawer-open {
   body.drawer-open #app-content-wrapper {
     transform: scale(0.97); /* 抽屉打开时只保留主体整体缩放，不额外卡片化背景 */
     pointer-events: none; /* 抽屉打开时，禁用缩回主体的交互 */
+  }
+
+  body.sidebar-rail-open .route-transition-root {
+    transform: scale(0.97);
   }
 }
 
