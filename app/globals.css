@@ -387,11 +387,41 @@ body,
   --app-sidebar-expanded-width: 260px;
   --app-sidebar-rail-width: 72px;
   --app-sidebar-offset: var(--app-sidebar-expanded-width);
+  --responsive-right-sidebar-width: 300px;
+  --responsive-right-sidebar-offset: var(--responsive-right-sidebar-width);
+  --responsive-right-sidebar-peek: 44px;
 }
 
 @media (max-width: 1279px) {
   :root {
     --app-sidebar-offset: var(--app-sidebar-rail-width);
+  }
+}
+
+@media (max-width: 1535px) {
+  .responsive-right-sidebar-scope {
+    --responsive-right-sidebar-offset: 0px;
+  }
+}
+
+/* 右侧栏在窄桌面改为浮层半收起，避免继续挤压三列布局的主内容宽度。 */
+.responsive-right-sidebar {
+  max-width: var(--responsive-right-sidebar-width);
+  min-width: var(--responsive-right-sidebar-width);
+  width: var(--responsive-right-sidebar-width);
+  transition:
+    transform 0.22s ease,
+    box-shadow 0.22s ease;
+}
+
+@media (max-width: 1535px) {
+  .responsive-right-sidebar {
+    transform: translateX(calc(100% - var(--responsive-right-sidebar-peek)));
+  }
+
+  .responsive-right-sidebar:is(:hover, :focus-within) {
+    box-shadow: var(--shadow-lift);
+    transform: translateX(0);
   }
 }
 

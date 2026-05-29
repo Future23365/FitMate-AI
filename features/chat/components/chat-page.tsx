@@ -1,10 +1,15 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef } from "react";
+import type { FormEvent } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { LogoMark } from "@/components/app/logo-mark";
+import {
+  getResponsiveRightSidebarStyle,
+  ResponsiveRightSidebar,
+} from "@/components/app/responsive-right-sidebar";
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { ExerciseRecommendationCard } from "@/features/exercises/components/exercise-recommendation-card";
 import { useChatController } from "@/features/chat/hooks/use-chat-controller";
@@ -28,6 +33,8 @@ const weekDays = [
   { label: "六", current: true },
   { label: "日", done: false },
 ];
+
+const homeRightSidebarStyle = getResponsiveRightSidebarStyle(300);
 
 function MarkdownContent({ content }: { content: string }) {
   return (
@@ -86,6 +93,125 @@ function ChatThinkingIndicator() {
   );
 }
 
+function HomeRightSidebar() {
+  const completionOffset = useMemo(() => {
+    const circumference = 364.4;
+    return circumference - circumference * 0;
+  }, []);
+
+  return (
+    <ResponsiveRightSidebar
+      className="gap-lg p-lg"
+      label="首页训练侧边栏"
+      width={300}
+    >
+      <section className="space-y-md">
+        <h3 className="font-title-lg text-title-lg">今日训练概览</h3>
+        <div className="flex flex-col items-center gap-md rounded-[20px] border border-line bg-white p-lg shadow-card">
+          <div className="relative flex h-32 w-32 items-center justify-center">
+            <svg className="h-full w-full -rotate-90">
+              <circle
+                className="text-outline-variant"
+                cx="64"
+                cy="64"
+                fill="transparent"
+                r="58"
+                stroke="currentColor"
+                strokeWidth="8"
+              />
+              <circle
+                className="text-primary-container"
+                cx="64"
+                cy="64"
+                fill="transparent"
+                r="58"
+                stroke="currentColor"
+                strokeDasharray="364.4"
+                strokeDashoffset={completionOffset}
+                strokeWidth="8"
+              />
+            </svg>
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <span className="font-headline-md text-headline-md font-bold text-outline-variant">
+                0%
+              </span>
+            </div>
+          </div>
+
+          <div className="grid w-full grid-cols-2 gap-sm">
+            <div className="rounded-xl bg-panel-soft p-sm text-center opacity-70">
+              <p className="text-label-sm text-muted">用时</p>
+              <p className="font-label-md text-label-md font-bold">-- min</p>
+            </div>
+            <div className="rounded-xl bg-panel-soft p-sm text-center opacity-70">
+              <p className="text-label-sm text-muted">消耗</p>
+              <p className="font-label-md text-label-md font-bold">-- kcal</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="space-y-sm">
+        <div className="flex items-center justify-between">
+          <h3 className="font-label-md text-label-md font-bold">本周计划</h3>
+          <span className="text-label-sm text-primary">3/4 次完成</span>
+        </div>
+        <div className="flex justify-between gap-xs px-xs">
+          {weekDays.map((day) => (
+            <div
+              className={`flex h-8 w-8 items-center justify-center rounded-full text-label-sm ${
+                day.done
+                  ? "bg-primary-container text-white"
+                  : day.current
+                    ? "border-2 border-primary-container bg-surface-container-high font-bold text-primary-container"
+                    : "bg-surface-container-high text-on-surface-variant"
+              }`}
+              key={day.label}
+            >
+              {day.done ? (
+                <SymbolIcon className="text-[16px]">check</SymbolIcon>
+              ) : (
+                day.label
+              )}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="flex-1 space-y-sm">
+        <h3 className="font-label-md text-label-md font-bold">动作推荐</h3>
+        <div className="space-y-sm">
+          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-line bg-white p-xl text-center opacity-70">
+            <SymbolIcon className="mb-sm text-4xl">model_training</SymbolIcon>
+            <p className="text-label-sm">
+              开始对话以获取
+              <br />
+              个性化动作推荐
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="mt-auto">
+        <div className="relative rounded-[20px] border border-primary/10 bg-primary-soft p-md text-ink shadow-card">
+          <div className="mb-xs flex items-center gap-xs text-primary">
+            <SymbolIcon className="text-[18px]">lightbulb</SymbolIcon>
+            <span className="font-label-sm text-label-sm font-bold">训练小贴士</span>
+          </div>
+          <p className="font-label-sm text-label-sm leading-relaxed text-muted">
+            “晚上训练后记得补充高质量蛋白质，并保证 7-8 小时睡眠，这有助于你的肌肉恢复和减脂效果。”
+          </p>
+          <div className="absolute -right-2 -top-3">
+            <span className="rounded-full bg-white px-sm py-1 text-[10px] font-bold text-primary shadow-card">
+              FitMate AI
+            </span>
+          </div>
+        </div>
+      </section>
+    </ResponsiveRightSidebar>
+  );
+}
+
 export function ChatPage() {
   const {
     autoRecommendationGenerating,
@@ -114,11 +240,6 @@ export function ChatPage() {
     .map((message) => `${message.id}:${message.content.length}:${message.reasoningContent?.length ?? 0}`)
     .join("|");
 
-  const completionOffset = useMemo(() => {
-    const circumference = 364.4;
-    return circumference - circumference * 0;
-  }, []);
-
   useEffect(() => {
     const chatScroll = chatScrollRef.current;
 
@@ -138,19 +259,22 @@ export function ChatPage() {
   }
 
   return (
-    <div className="app-mesh-bg min-h-screen text-ink">
-      <header className="app-shell-glass fixed left-[var(--app-sidebar-offset)] right-0 top-0 z-20 flex h-16 items-center justify-between border-b border-line/70 px-lg shadow-nav xl:right-[300px] xl:px-xl">
-          <div>
-            <h2 className="flex items-center gap-xs text-xl font-extrabold tracking-tight text-ink">
-              你的 <span className="text-primary">AI</span> 健身助手
-            </h2>
-            <p className="text-xs font-semibold text-muted">
-              告诉我你的目标，我来为你生成训练计划
-            </p>
-          </div>
-        </header>
+    <div
+      className="responsive-right-sidebar-scope app-mesh-bg min-h-screen text-ink"
+      style={homeRightSidebarStyle}
+    >
+      <header className="app-shell-glass fixed left-[var(--app-sidebar-offset)] right-[var(--responsive-right-sidebar-offset)] top-0 z-20 flex h-16 items-center justify-between border-b border-line/70 px-xl shadow-nav">
+        <div>
+          <h2 className="flex items-center gap-xs text-xl font-extrabold tracking-tight text-ink">
+            你的 <span className="text-primary">AI</span> 健身助手
+          </h2>
+          <p className="text-xs font-semibold text-muted">
+            告诉我你的目标，我来为你生成训练计划
+          </p>
+        </div>
+      </header>
 
-      <main className="fixed bottom-0 left-[var(--app-sidebar-offset)] right-0 top-[64px] flex flex-col bg-transparent xl:right-[300px]">
+      <main className="fixed bottom-0 left-[var(--app-sidebar-offset)] right-[var(--responsive-right-sidebar-offset)] top-[64px] flex flex-col bg-transparent">
         <div
           className="custom-scrollbar flex-1 space-y-xl overflow-y-auto p-lg xl:p-xl"
           ref={chatScrollRef}
@@ -374,111 +498,7 @@ export function ChatPage() {
           </form>
         </div>
       </main>
-      <aside className="app-shell-glass fixed right-0 top-0 z-30 hidden h-screen w-[300px] flex-col gap-lg border-l border-line/70 p-lg shadow-nav xl:flex">
-        <section className="space-y-md">
-          <h3 className="font-title-lg text-title-lg">今日训练概览</h3>
-          <div className="flex flex-col items-center gap-md rounded-[20px] border border-line bg-white p-lg shadow-card">
-            <div className="relative flex h-32 w-32 items-center justify-center">
-              <svg className="h-full w-full -rotate-90">
-                <circle
-                  className="text-outline-variant"
-                  cx="64"
-                  cy="64"
-                  fill="transparent"
-                  r="58"
-                  stroke="currentColor"
-                  strokeWidth="8"
-                />
-                <circle
-                  className="text-primary-container"
-                  cx="64"
-                  cy="64"
-                  fill="transparent"
-                  r="58"
-                  stroke="currentColor"
-                  strokeDasharray="364.4"
-                  strokeDashoffset={completionOffset}
-                  strokeWidth="8"
-                />
-              </svg>
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="font-headline-md text-headline-md font-bold text-outline-variant">
-                  0%
-                </span>
-              </div>
-            </div>
-
-            <div className="grid w-full grid-cols-2 gap-sm">
-              <div className="rounded-xl bg-panel-soft p-sm text-center opacity-70">
-                <p className="text-label-sm text-muted">用时</p>
-                <p className="font-label-md text-label-md font-bold">-- min</p>
-              </div>
-              <div className="rounded-xl bg-panel-soft p-sm text-center opacity-70">
-                <p className="text-label-sm text-muted">消耗</p>
-                <p className="font-label-md text-label-md font-bold">-- kcal</p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="space-y-sm">
-          <div className="flex items-center justify-between">
-            <h3 className="font-label-md text-label-md font-bold">本周计划</h3>
-            <span className="text-label-sm text-primary">3/4 次完成</span>
-          </div>
-          <div className="flex justify-between gap-xs px-xs">
-            {weekDays.map((day) => (
-              <div
-                className={`flex h-8 w-8 items-center justify-center rounded-full text-label-sm ${
-                  day.done
-                    ? "bg-primary-container text-white"
-                    : day.current
-                      ? "border-2 border-primary-container bg-surface-container-high font-bold text-primary-container"
-                      : "bg-surface-container-high text-on-surface-variant"
-                }`}
-                key={day.label}
-              >
-                {day.done ? (
-                  <SymbolIcon className="text-[16px]">check</SymbolIcon>
-                ) : (
-                  day.label
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="flex-1 space-y-sm">
-          <h3 className="font-label-md text-label-md font-bold">动作推荐</h3>
-          <div className="space-y-sm">
-              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-line bg-white p-xl text-center opacity-70">
-              <SymbolIcon className="mb-sm text-4xl">model_training</SymbolIcon>
-              <p className="text-label-sm">
-                开始对话以获取
-                <br />
-                个性化动作推荐
-              </p>
-            </div>
-          </div>
-        </section>
-
-        <section className="mt-auto">
-          <div className="relative rounded-[20px] border border-primary/10 bg-primary-soft p-md text-ink shadow-card">
-            <div className="mb-xs flex items-center gap-xs text-primary">
-              <SymbolIcon className="text-[18px]">lightbulb</SymbolIcon>
-              <span className="font-label-sm text-label-sm font-bold">训练小贴士</span>
-            </div>
-            <p className="font-label-sm text-label-sm leading-relaxed text-muted">
-              “晚上训练后记得补充高质量蛋白质，并保证 7-8 小时睡眠，这有助于你的肌肉恢复和减脂效果。”
-            </p>
-            <div className="absolute -right-2 -top-3">
-              <span className="rounded-full bg-white px-sm py-1 text-[10px] font-bold text-primary shadow-card">
-                FitMate AI
-              </span>
-            </div>
-          </div>
-        </section>
-      </aside>
+      <HomeRightSidebar />
     </div>
-);
+  );
 }
