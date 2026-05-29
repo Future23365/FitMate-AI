@@ -24,7 +24,7 @@
    - 取舍：不使用旧版 Tailwind config，避免出现两套主题来源。
 
 2. 首批新增 `Button`、`Card`、`Input`、`Select` 和 `NumberStepper`
-   - 原因：`Button`、`Card`、`Input`、`Select` 复用面高；`NumberStepper` 能覆盖动作编排中“目标次数 / 目标时长 / 组数”的实际输入场景，右侧动作库筛选能验证下拉选择组件是否可用。
+   - 原因：`Button`、`Card`、`Input`、`Select` 复用面高；`NumberStepper` 能覆盖动作编排中“目标次数 / 目标时长 / 组数”的实际输入场景，`Select` 先用于动作条目的“组间”间隔设置。
    - 取舍：暂不批量生成 Dialog、Select、Form 等组件，避免一次性引入大量 Radix 依赖和未使用代码。
 
 3. 将数字步进器做成本地组合组件

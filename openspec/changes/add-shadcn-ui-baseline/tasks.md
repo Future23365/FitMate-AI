@@ -12,7 +12,8 @@
 - [x] 2.4 新增 `components/ui/number-stepper.tsx`，组合 Button 与 Input 提供数字步进输入
 - [x] 2.5 将 `/composer` 动作卡片的目标值和组数输入替换为 `NumberStepper`
 - [x] 2.6 新增 `components/ui/select.tsx`，提供项目 token 对齐的 Select 基线
-- [x] 2.7 将 `/composer` 右侧动作库筛选下拉替换为 `Select`
+- [x] 2.7 保留 `/composer` 右侧动作库筛选为原生 `<select>`，暂不接入 `Select`
+- [x] 2.8 将 `/composer` 动作条目的组间间隔下拉替换为 `Select`
 
 ## 3. 验证
 

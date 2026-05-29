@@ -1496,22 +1496,19 @@ function LibraryFilterSelect({
   value: string;
 }) {
   return (
-    <Select
-      onValueChange={(nextValue) => onChange(nextValue === "all" ? "" : nextValue)}
-      value={value || "all"}
+    <select
+      aria-label={label}
+      className="h-9 w-full rounded-lg border border-outline-variant bg-white px-sm text-[11px] font-semibold text-on-surface outline-none transition-colors hover:bg-surface-container-low focus:border-primary focus:ring-2 focus:ring-primary/20"
+      onChange={(event) => onChange(event.target.value)}
+      value={value}
     >
-      <SelectTrigger aria-label={label}>
-        <SelectValue placeholder={label} />
-      </SelectTrigger>
-      <SelectContent className="max-w-[260px]">
-        <SelectItem value="all">{label}</SelectItem>
-        {options.map((option) => (
-          <SelectItem key={option.value} value={option.value}>
-            {option.label} ({option.count})
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+      <option value="">{label}</option>
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label} ({option.count})
+        </option>
+      ))}
+    </select>
   );
 }
 
@@ -1630,23 +1627,33 @@ function WorkoutExerciseRow({
             stopPropagation
           />
           {item.sets > 1 ? (
-            <label className="min-w-[76px] text-center">
-              <span className="mb-xs block text-[10px] text-outline">组间</span>
-              <select
-                className="h-9 w-full rounded-lg border border-outline-variant bg-transparent px-xs text-center font-label-md text-label-md outline-none focus:ring-0"
-                onClick={(event) => event.stopPropagation()}
-                onChange={(event) =>
-                  onUpdate((current) => ({ ...current, setRestSeconds: Number(event.target.value) }))
+            <div
+              className="flex h-14 w-[88px] flex-col justify-center text-center"
+              onClick={(event) => event.stopPropagation()}
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <p className="mb-xs truncate text-[10px] font-medium leading-none text-outline">组间</p>
+              <Select
+                onValueChange={(nextValue) =>
+                  onUpdate((current) => ({ ...current, setRestSeconds: Number(nextValue) }))
                 }
-                value={item.setRestSeconds}
+                value={String(item.setRestSeconds)}
               >
-                {restOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {option}s
-                  </option>
-                ))}
-              </select>
-            </label>
+                <SelectTrigger
+                  aria-label="组间"
+                  className="relative h-8 w-full justify-center rounded-[10px] border-line bg-white px-2 pr-5 text-center font-label-md text-label-md font-semibold leading-8 text-ink shadow-[0_1px_2px_rgba(16,24,40,0.06),inset_0_1px_0_rgba(255,255,255,0.9)] hover:bg-primary-soft focus-visible:ring-0 [&>span]:min-w-0 [&>span]:text-center [&>svg]:absolute [&>svg]:right-1.5"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="min-w-[88px]">
+                  {restOptions.map((option) => (
+                    <SelectItem className="pr-3" key={option} value={String(option)}>
+                      {option}s
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           ) : null}
         </div>
       </div>

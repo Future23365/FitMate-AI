@@ -45,10 +45,10 @@ function NumberStepper({
   return (
     <div className={cn("flex h-14 w-[88px] flex-col justify-center text-center", className)} {...props}>
       <p className="mb-xs truncate text-[10px] font-medium leading-none text-outline">{label}</p>
-      <div className="grid h-8 grid-cols-[26px_1fr_26px] overflow-hidden rounded-[10px] border border-outline-variant bg-surface-container-low/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]">
+      <div className="grid h-8 grid-cols-[26px_1fr_26px] overflow-hidden rounded-[10px] border border-line bg-white shadow-[0_1px_2px_rgba(16,24,40,0.06),inset_0_1px_0_rgba(255,255,255,0.9)]">
         <Button
           aria-label={`减少${label}`}
-          className="flex h-full w-full min-w-0 items-center justify-center rounded-none border-r border-outline-variant bg-transparent p-0 text-muted hover:bg-white hover:text-primary disabled:bg-transparent"
+          className="flex h-full w-full min-w-0 items-center justify-center rounded-none border-r border-line bg-transparent p-0 text-muted hover:bg-primary-soft hover:text-primary disabled:bg-transparent"
           disabled={value <= min}
           onClick={(event) => {
             stopCardClick(event);
@@ -60,11 +60,11 @@ function NumberStepper({
         >
           <Minus aria-hidden="true" className="size-3.5 shrink-0" strokeWidth={2.4} />
         </Button>
-        <div className="relative flex h-full min-w-0 items-center justify-center bg-card">
+        <div className="relative flex h-full min-w-0 items-center justify-center bg-white">
           <Input
             aria-label={label}
             className={cn(
-              "h-full min-w-0 rounded-none border-0 bg-transparent p-0 text-center font-label-md text-label-md leading-8 text-ink focus-visible:ring-0",
+              "h-full min-w-0 rounded-none border-0 bg-transparent p-0 text-center text-[11px] font-semibold leading-8 text-ink focus-visible:ring-0",
               suffix ? "pr-2" : "",
             )}
             inputMode="numeric"
@@ -83,7 +83,7 @@ function NumberStepper({
         </div>
         <Button
           aria-label={`增加${label}`}
-          className="flex h-full w-full min-w-0 items-center justify-center rounded-none border-l border-outline-variant bg-transparent p-0 text-muted hover:bg-white hover:text-primary disabled:bg-transparent"
+          className="flex h-full w-full min-w-0 items-center justify-center rounded-none border-l border-line bg-transparent p-0 text-muted hover:bg-primary-soft hover:text-primary disabled:bg-transparent"
           disabled={value >= max}
           onClick={(event) => {
             stopCardClick(event);
