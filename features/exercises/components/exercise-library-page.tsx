@@ -982,7 +982,6 @@ function ExerciseDetailPanel({
       ]
     : [];
   const stepPreview = exercise?.instructionsZh.slice(0, 5) ?? [];
-  const trainingTip = stepPreview[0] ?? "";
 
   useEffect(() => {
     if (!exercise || !hasMultipleImages || !isAutoPlaying) {
@@ -1126,18 +1125,6 @@ function ExerciseDetailPanel({
                   </div>
                 ))}
               </div>
-
-              {trainingTip ? (
-                <div className="rounded-xl border border-primary/12 bg-primary/5 p-md">
-                  <h3 className="mb-xs flex items-center gap-xs font-label-md text-label-md font-bold text-primary">
-                    <SymbolIcon className="text-[18px]">tips_and_updates</SymbolIcon>
-                    动作提示
-                  </h3>
-                  <p className="line-clamp-2 font-body-sm text-body-sm leading-relaxed text-ink">
-                    {trainingTip}
-                  </p>
-                </div>
-              ) : null}
 
               {exercise.secondaryMusclesZh.length ? (
                 <div>
