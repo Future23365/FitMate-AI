@@ -1,6 +1,10 @@
 "use client";
 
-import type { CSSProperties, ReactNode } from "react";
+import {
+  useSyncExternalStore,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 
 const defaultRightSidebarWidth = 320;
@@ -10,6 +14,26 @@ type ResponsiveRightSidebarProps = {
   className?: string;
   label?: string;
   width?: number;
+};
+
+const subscribePortalRoot = (onStoreChange: () => void) => {
+  const frameId = window.requestAnimationFrame(onStoreChange);
+
+  return () => {
+    window.cancelAnimationFrame(frameId);
+  };
+};
+
+const getPortalRootSnapshot = () => {
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  return document.body;
+};
+
+const getPortalRootServerSnapshot = () => {
+  return null;
 };
 
 // getResponsiveRightSidebarStyle 提供页面级宽度变量，保证主内容避让和右侧栏本体使用同一事实。
@@ -26,6 +50,11 @@ export function ResponsiveRightSidebar({
   label,
   width = defaultRightSidebarWidth,
 }: ResponsiveRightSidebarProps) {
+  const portalRoot = useSyncExternalStore(
+    subscribePortalRoot,
+    getPortalRootSnapshot,
+    getPortalRootServerSnapshot,
+  );
   const style = getResponsiveRightSidebarStyle(width);
   const sidebar = (
     <aside
@@ -37,9 +66,9 @@ export function ResponsiveRightSidebar({
     </aside>
   );
 
-  if (typeof document === "undefined") {
+  if (!portalRoot) {
     return null;
   }
 
-  return createPortal(sidebar, document.body);
+  return createPortal(sidebar, portalRoot);
 }

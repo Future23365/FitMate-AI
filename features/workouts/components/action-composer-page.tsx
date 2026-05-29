@@ -7,6 +7,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ResponsiveRightSidebar } from "@/components/app/responsive-right-sidebar";
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { useAutoHideScrollbar } from "@/components/app/use-auto-hide-scrollbar";
+import { NumberStepper } from "@/components/ui/number-stepper";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
 import {
   createWorkoutRoutine,
@@ -218,10 +226,6 @@ function formatDateTime(date: Date) {
   ).padStart(2, "0")} ${String(date.getHours()).padStart(2, "0")}:${String(
     date.getMinutes(),
   ).padStart(2, "0")}`;
-}
-
-function changeNumber(value: number, delta: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value + delta));
 }
 
 function hasFacetValue(options: ExerciseFacets["categories"], value: string) {
@@ -1492,21 +1496,22 @@ function LibraryFilterSelect({
   value: string;
 }) {
   return (
-    <label className="min-w-0">
-      <span className="sr-only">{label}</span>
-      <select
-        className="h-8 w-full rounded-lg border border-outline-variant bg-white px-xs text-[11px] text-on-surface outline-none focus:ring-2 focus:ring-primary/20"
-        onChange={(event) => onChange(event.target.value)}
-        value={value}
-      >
-        <option value="">{label}</option>
+    <Select
+      onValueChange={(nextValue) => onChange(nextValue === "all" ? "" : nextValue)}
+      value={value || "all"}
+    >
+      <SelectTrigger aria-label={label}>
+        <SelectValue placeholder={label} />
+      </SelectTrigger>
+      <SelectContent className="max-w-[260px]">
+        <SelectItem value="all">{label}</SelectItem>
         {options.map((option) => (
-          <option key={option.value} value={option.value}>
+          <SelectItem key={option.value} value={option.value}>
             {option.label} ({option.count})
-          </option>
+          </SelectItem>
         ))}
-      </select>
-    </label>
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -1607,16 +1612,22 @@ function WorkoutExerciseRow({
           </div>
         </div>
         <div className="flex flex-wrap items-end gap-sm md:ml-auto md:max-w-[330px] md:justify-end">
-          <Stepper
+          <NumberStepper
             label={item.mode === "duration" ? "目标时长" : "目标次数"}
+            max={999}
+            min={1}
             suffix={item.mode === "duration" ? "s" : ""}
             value={item.target}
-            onChange={(nextValue) => onUpdate((current) => ({ ...current, target: nextValue }))}
+            onValueChange={(nextValue) => onUpdate((current) => ({ ...current, target: nextValue }))}
+            stopPropagation
           />
-          <Stepper
+          <NumberStepper
             label="组数"
+            max={999}
+            min={1}
             value={item.sets}
-            onChange={(nextValue) => onUpdate((current) => ({ ...current, sets: nextValue }))}
+            onValueChange={(nextValue) => onUpdate((current) => ({ ...current, sets: nextValue }))}
+            stopPropagation
           />
           {item.sets > 1 ? (
             <label className="min-w-[76px] text-center">
@@ -1724,38 +1735,6 @@ function RestIntervalControl({
         </select>
       </label>
       <span className="h-px min-w-10 bg-outline-variant/70" aria-hidden="true" />
-    </div>
-  );
-}
-
-function Stepper({
-  label,
-  onChange,
-  suffix = "",
-  value,
-}: {
-  label: string;
-  onChange: (value: number) => void;
-  suffix?: string;
-  value: number;
-}) {
-  return (
-    <div className="min-w-[76px] text-center">
-      <p className="mb-xs text-[10px] text-outline">{label}</p>
-      <div className="flex h-9 items-center rounded-lg border border-outline-variant">
-        <button className="flex-1 text-lg hover:bg-surface-container-low" onClick={(event) => { event.stopPropagation(); onChange(changeNumber(value, -1, 1, 999)); }} type="button">
-          -
-        </button>
-        <input
-          className="w-10 border-none bg-transparent p-0 text-center font-label-md text-label-md outline-none focus:ring-0"
-          onClick={(event) => event.stopPropagation()}
-          onChange={(event) => onChange(changeNumber(Number(event.target.value.replace(/\D/g, "")) || 1, 0, 1, 999))}
-          value={`${value}${suffix}`}
-        />
-        <button className="flex-1 text-lg hover:bg-surface-container-low" onClick={(event) => { event.stopPropagation(); onChange(changeNumber(value, 1, 1, 999)); }} type="button">
-          +
-        </button>
-      </div>
     </div>
   );
 }
