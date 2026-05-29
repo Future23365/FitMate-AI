@@ -226,6 +226,7 @@ export function AppSidebar() {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [isSidebarCollapseLocked, setIsSidebarCollapseLocked] = useState(false);
   const [isDesktopSidebarExpanded, setIsDesktopSidebarExpanded] = useState(false);
+  const [isSidebarRailMode, setIsSidebarRailMode] = useState(false);
   const isSettingsActive = pathname.startsWith("/settings");
 
   useEffect(() => {
@@ -314,13 +315,28 @@ export function AppSidebar() {
   }, [isMobileNavOpen]);
 
   useEffect(() => {
-    const shouldScalePage = isDesktopSidebarExpanded && !isSidebarCollapseLocked;
+    const railMediaQuery = window.matchMedia("(max-width: 1279px)");
+
+    function syncSidebarRailMode(event: MediaQueryListEvent | MediaQueryList) {
+      setIsSidebarRailMode(event.matches);
+    }
+
+    syncSidebarRailMode(railMediaQuery);
+    railMediaQuery.addEventListener("change", syncSidebarRailMode);
+
+    return () => {
+      railMediaQuery.removeEventListener("change", syncSidebarRailMode);
+    };
+  }, []);
+
+  useEffect(() => {
+    const shouldScalePage = isSidebarRailMode && isDesktopSidebarExpanded && !isSidebarCollapseLocked;
     document.body.classList.toggle("sidebar-rail-open", shouldScalePage);
 
     return () => {
       document.body.classList.remove("sidebar-rail-open");
     };
-  }, [isDesktopSidebarExpanded, isSidebarCollapseLocked]);
+  }, [isDesktopSidebarExpanded, isSidebarCollapseLocked, isSidebarRailMode]);
 
   // 开发调试页与训练执行页使用独立布局，不显示主应用侧边栏。
   if (pathname.startsWith("/dev") || pathname.startsWith("/training")) {

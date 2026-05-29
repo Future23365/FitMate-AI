@@ -300,9 +300,14 @@ button:not(:disabled),
 
 /* 右侧固定栏页面的主体滚动条默认弱化，真实滚动时短暂显示，避免和右侧浮层贴边抢视觉。 */
 .right-sidebar-main-scroll {
+  scrollbar-gutter: stable both-edges;
   scrollbar-color: transparent transparent;
   scrollbar-width: thin;
   transition: scrollbar-color 0.18s ease;
+}
+
+.right-sidebar-main-scroll::-webkit-scrollbar {
+  width: 4px;
 }
 
 .right-sidebar-main-scroll::-webkit-scrollbar-thumb {
@@ -406,7 +411,7 @@ body,
   --app-sidebar-expanded-width: 260px;
   --app-sidebar-rail-width: 72px;
   --app-sidebar-offset: var(--app-sidebar-expanded-width);
-  --responsive-right-sidebar-width: 300px;
+  --responsive-right-sidebar-width: 320px;
   --responsive-right-sidebar-offset: var(--responsive-right-sidebar-width);
   --responsive-right-sidebar-peek: 44px;
 }
@@ -421,6 +426,16 @@ body,
   .responsive-right-sidebar-scope {
     --responsive-right-sidebar-offset: var(--responsive-right-sidebar-peek);
   }
+}
+
+/* 三列页面统一由 shell 占住左右侧栏，主体盒子用同一 padding 形成左右等距。 */
+.right-sidebar-page-shell {
+  padding-left: var(--app-sidebar-offset);
+  padding-right: var(--responsive-right-sidebar-offset);
+}
+
+.right-sidebar-page-main {
+  padding: var(--spacing-xl);
 }
 
 /* 右侧栏在窄桌面改为视口外浮层，避免继续挤压三列布局的主内容宽度。 */

@@ -3,10 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
-import {
-  getResponsiveRightSidebarStyle,
-  ResponsiveRightSidebar,
-} from "@/components/app/responsive-right-sidebar";
+import { ResponsiveRightSidebar } from "@/components/app/responsive-right-sidebar";
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import {
   createWorkoutSchedule,
@@ -32,7 +29,6 @@ type CalendarCell = {
 };
 
 const weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
-const trainingPlanRightSidebarStyle = getResponsiveRightSidebarStyle(320);
 
 function toDateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
@@ -267,10 +263,9 @@ export function TrainingPlanPage() {
 
   return (
     <div
-      className="responsive-right-sidebar-scope app-mesh-bg min-h-screen pl-[var(--app-sidebar-offset)] pr-[var(--responsive-right-sidebar-offset)] text-ink"
-      style={trainingPlanRightSidebarStyle}
+      className="responsive-right-sidebar-scope right-sidebar-page-shell app-mesh-bg min-h-screen text-ink"
     >
-      <main className="flex h-screen min-h-0 flex-col overflow-hidden p-lg xl:p-xl">
+      <main className="right-sidebar-page-main flex h-screen min-h-0 flex-col overflow-hidden">
         <section className="flex min-h-0 flex-1 flex-col rounded-[20px] border border-line bg-white p-md shadow-card xl:p-lg">
           <div className="mb-md flex shrink-0 flex-wrap items-center justify-between gap-md">
             <div className="flex min-w-0 flex-wrap items-center gap-md">
@@ -406,7 +401,6 @@ export function TrainingPlanPage() {
       <ResponsiveRightSidebar
         className="custom-scrollbar gap-lg overflow-y-auto p-md"
         label="训练日历侧边栏"
-        width={320}
       >
         {sidePanelMode === "saved-plans" ? (
           <section className="training-side-panel-enter flex min-h-0 flex-1 flex-col gap-md">

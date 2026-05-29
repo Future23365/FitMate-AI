@@ -4,10 +4,7 @@ import Image from "next/image";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import {
-  getResponsiveRightSidebarStyle,
-  ResponsiveRightSidebar,
-} from "@/components/app/responsive-right-sidebar";
+import { ResponsiveRightSidebar } from "@/components/app/responsive-right-sidebar";
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { useAutoHideScrollbar } from "@/components/app/use-auto-hide-scrollbar";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
@@ -64,7 +61,6 @@ type TemplateExerciseConfig = {
 type LibrarySuitabilityFilter = "all" | ExerciseSuitability;
 type RightPanelView = "library" | "saved";
 
-const composerRightSidebarStyle = getResponsiveRightSidebarStyle(300);
 const sectionConfigs = workoutSectionConfigs;
 const librarySuitabilityOptions: Array<{
   id: LibrarySuitabilityFilter;
@@ -808,14 +804,13 @@ export function ActionComposerPage() {
 
   return (
     <div
-      className="responsive-right-sidebar-scope app-mesh-bg min-h-screen pl-[var(--app-sidebar-offset)] pr-[var(--responsive-right-sidebar-offset)] text-ink"
-      style={composerRightSidebarStyle}
+      className="responsive-right-sidebar-scope right-sidebar-page-shell app-mesh-bg min-h-screen text-ink"
     >
       <main
-        className="custom-scrollbar right-sidebar-main-scroll h-screen overflow-y-auto overflow-x-hidden px-lg pb-lg pt-sm xl:px-xl xl:pb-xl"
+        className="custom-scrollbar right-sidebar-main-scroll right-sidebar-page-main h-screen overflow-y-auto"
         ref={mainScrollRef}
       >
-        <header className="sticky top-0 z-40 mb-md rounded-[16px] border-b border-line/70 bg-white px-sm py-xs shadow-[0_8px_18px_rgba(15,23,42,0.06)] md:px-md md:py-sm">
+        <header className="mb-md rounded-[16px] border-b border-line/70 bg-white px-sm py-xs shadow-[0_8px_18px_rgba(15,23,42,0.06)] md:px-md md:py-sm">
           <div className="flex flex-col gap-sm">
             <div className="flex min-w-0 flex-col gap-sm lg:flex-row lg:items-center lg:justify-between">
               <div className="min-w-0 flex-1">
@@ -992,7 +987,6 @@ export function ActionComposerPage() {
       <ResponsiveRightSidebar
         className="gap-md overflow-y-auto p-md"
         label="动作编排侧边栏"
-        width={300}
       >
         <section className="flex min-h-[420px] flex-1 flex-col">
           <div className="mb-md rounded-xl border border-line bg-panel-soft p-[3px]">

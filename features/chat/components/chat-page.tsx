@@ -6,10 +6,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { LogoMark } from "@/components/app/logo-mark";
-import {
-  getResponsiveRightSidebarStyle,
-  ResponsiveRightSidebar,
-} from "@/components/app/responsive-right-sidebar";
+import { ResponsiveRightSidebar } from "@/components/app/responsive-right-sidebar";
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { useAutoHideScrollbar } from "@/components/app/use-auto-hide-scrollbar";
 import { ExerciseRecommendationCard } from "@/features/exercises/components/exercise-recommendation-card";
@@ -34,8 +31,6 @@ const weekDays = [
   { label: "六", current: true },
   { label: "日", done: false },
 ];
-
-const homeRightSidebarStyle = getResponsiveRightSidebarStyle(300);
 
 function MarkdownContent({ content }: { content: string }) {
   return (
@@ -104,7 +99,6 @@ function HomeRightSidebar() {
     <ResponsiveRightSidebar
       className="gap-lg p-lg"
       label="首页训练侧边栏"
-      width={300}
     >
       <section className="space-y-md">
         <h3 className="font-title-lg text-title-lg">今日训练概览</h3>
@@ -262,7 +256,6 @@ export function ChatPage() {
   return (
     <div
       className="responsive-right-sidebar-scope app-mesh-bg min-h-screen text-ink"
-      style={homeRightSidebarStyle}
     >
       <header className="app-shell-glass fixed left-[var(--app-sidebar-offset)] right-[var(--responsive-right-sidebar-offset)] top-0 z-20 flex h-16 items-center justify-between border-b border-line/70 px-xl shadow-nav">
         <div>

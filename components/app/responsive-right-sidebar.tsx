@@ -3,6 +3,8 @@
 import type { CSSProperties, ReactNode } from "react";
 import { createPortal } from "react-dom";
 
+const defaultRightSidebarWidth = 320;
+
 type ResponsiveRightSidebarProps = {
   children: ReactNode;
   className?: string;
@@ -11,7 +13,7 @@ type ResponsiveRightSidebarProps = {
 };
 
 // getResponsiveRightSidebarStyle 提供页面级宽度变量，保证主内容避让和右侧栏本体使用同一事实。
-export function getResponsiveRightSidebarStyle(width = 300) {
+export function getResponsiveRightSidebarStyle(width = defaultRightSidebarWidth) {
   return {
     "--responsive-right-sidebar-width": `${width}px`,
   } as CSSProperties;
@@ -22,7 +24,7 @@ export function ResponsiveRightSidebar({
   children,
   className = "",
   label,
-  width = 300,
+  width = defaultRightSidebarWidth,
 }: ResponsiveRightSidebarProps) {
   const style = getResponsiveRightSidebarStyle(width);
   const sidebar = (

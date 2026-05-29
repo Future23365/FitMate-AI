@@ -4,10 +4,7 @@ import Image from "next/image";
 import { useEffect, useState } from "react";
 
 import { RightDrawer } from "@/components/app/right-drawer";
-import {
-  getResponsiveRightSidebarStyle,
-  ResponsiveRightSidebar,
-} from "@/components/app/responsive-right-sidebar";
+import { ResponsiveRightSidebar } from "@/components/app/responsive-right-sidebar";
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { useAutoHideScrollbar } from "@/components/app/use-auto-hide-scrollbar";
 import { clientRequest } from "@/lib/client/http/client-request";
@@ -68,8 +65,6 @@ const exerciseSortOptions: Array<{ value: ExerciseSort; label: string }> = [
 ];
 
 const pageSizeOptions = [12, 24, 48, 96];
-const exerciseLibraryRightSidebarStyle = getResponsiveRightSidebarStyle(300);
-
 function getExerciseImage(exercise?: Exercise) {
   return (
     exercise?.imageUrls[0] ||
@@ -683,11 +678,10 @@ export function ExerciseLibraryPage() {
 
   return (
     <div
-      className="responsive-right-sidebar-scope app-mesh-bg min-h-screen pl-[var(--app-sidebar-offset)] pr-[var(--responsive-right-sidebar-offset)] text-ink"
-      style={exerciseLibraryRightSidebarStyle}
+      className="responsive-right-sidebar-scope right-sidebar-page-shell app-mesh-bg min-h-screen text-ink"
     >
       <main
-        className="custom-scrollbar right-sidebar-main-scroll h-screen overflow-y-auto p-lg xl:p-xl"
+        className="custom-scrollbar right-sidebar-main-scroll right-sidebar-page-main h-screen overflow-y-auto"
         ref={mainScrollRef}
       >
         <header className="mb-lg flex flex-col gap-xs">
@@ -1017,7 +1011,7 @@ function ExerciseDetailPanel({
   }
 
   return (
-    <ResponsiveRightSidebar label="动作详情侧边栏" width={300}>
+    <ResponsiveRightSidebar label="动作详情侧边栏">
       <div className="custom-scrollbar flex h-full flex-col overflow-y-auto px-md py-lg">
         {exercise ? (
           <>
@@ -1028,7 +1022,7 @@ function ExerciseDetailPanel({
                   alt={`${exercise.nameZh} 第 ${activeImageIndex + 1} 步示意图`}
                   className="object-cover mix-blend-multiply contrast-[1.05] saturate-[0.98]"
                   fill
-                  sizes="300px"
+                  sizes="320px"
                   src={activeImageUrl}
                 />
                 <div className="absolute inset-x-0 bottom-0 flex items-center justify-end bg-gradient-to-t from-black/58 to-transparent px-sm pb-sm pt-xl">
