@@ -433,9 +433,9 @@ body,
 
 @media (max-width: 1279px) {
   .app-sidebar {
-    align-items: center;
+    align-items: stretch;
     overflow: hidden;
-    padding: 16px 10px;
+    padding: 16px 14px;
     width: var(--app-sidebar-rail-width);
   }
 
@@ -479,14 +479,15 @@ body,
   }
 
   .app-sidebar-primary-action {
-    align-self: center;
+    align-items: center;
     column-gap: 0;
     display: grid;
     grid-template-columns: 44px minmax(0, 1fr);
     height: 44px;
+    overflow: hidden;
     padding-left: 0;
     padding-right: 0;
-    width: 44px;
+    width: 100%;
   }
 
   .app-sidebar-primary-action .app-sidebar-icon,
@@ -496,28 +497,27 @@ body,
   }
 
   .app-sidebar:is(:hover, :focus-within) .app-sidebar-primary-action {
-    align-self: stretch;
     column-gap: 8px;
     padding-left: 0;
     padding-right: 0;
-    width: 100%;
   }
 
   .app-sidebar-nav-link {
+    align-items: center;
     column-gap: 0;
     display: grid;
     grid-template-columns: 44px minmax(0, 1fr);
     height: 44px;
+    overflow: hidden;
     padding-left: 0;
     padding-right: 0;
-    width: 44px;
+    width: 100%;
   }
 
   .app-sidebar:is(:hover, :focus-within) .app-sidebar-nav-link {
     column-gap: 12px;
     padding-left: 0;
     padding-right: 0;
-    width: 100%;
   }
 
   .app-sidebar-history-section {
