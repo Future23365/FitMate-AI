@@ -1,4 +1,7 @@
+"use client";
+
 import type { CSSProperties, ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 type ResponsiveRightSidebarProps = {
   children: ReactNode;
@@ -14,7 +17,7 @@ export function getResponsiveRightSidebarStyle(width = 300) {
   } as CSSProperties;
 }
 
-// ResponsiveRightSidebar 统一右侧栏的占位与浮层行为，页面只需复用同一宽度变量。
+// ResponsiveRightSidebar 通过 portal 脱离页面主体缩放层，统一右侧栏的占位与浮层行为。
 export function ResponsiveRightSidebar({
   children,
   className = "",
@@ -22,8 +25,7 @@ export function ResponsiveRightSidebar({
   width = 300,
 }: ResponsiveRightSidebarProps) {
   const style = getResponsiveRightSidebarStyle(width);
-
-  return (
+  const sidebar = (
     <aside
       aria-label={label}
       className={`responsive-right-sidebar app-shell-glass fixed right-0 top-0 z-30 flex h-screen flex-col border-l border-line/70 shadow-nav ${className}`}
@@ -32,4 +34,10 @@ export function ResponsiveRightSidebar({
       {children}
     </aside>
   );
+
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  return createPortal(sidebar, document.body);
 }
