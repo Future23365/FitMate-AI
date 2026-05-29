@@ -383,6 +383,168 @@ body,
   }
 }
 
+:root {
+  --app-sidebar-expanded-width: 260px;
+  --app-sidebar-rail-width: 72px;
+  --app-sidebar-offset: var(--app-sidebar-expanded-width);
+}
+
+@media (max-width: 1279px) {
+  :root {
+    --app-sidebar-offset: var(--app-sidebar-rail-width);
+  }
+}
+
+/* 普通应用页共享同一个左侧占位事实；窄桌面由完整侧边栏收缩为图标 rail。 */
+.app-sidebar {
+  width: var(--app-sidebar-expanded-width);
+  transition:
+    width 0.2s ease,
+    padding 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.app-sidebar-nav-link,
+.app-sidebar-primary-action,
+.app-sidebar-label,
+.app-sidebar-copy,
+.app-sidebar-history-section,
+.app-sidebar-user-card {
+  transition:
+    opacity 0.16s ease,
+    max-width 0.2s ease,
+    width 0.2s ease,
+    padding 0.2s ease,
+    margin 0.2s ease,
+    gap 0.2s ease,
+    border-color 0.2s ease,
+    background-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+@media (max-width: 1279px) {
+  .app-sidebar {
+    align-items: center;
+    overflow: hidden;
+    padding: 16px 10px;
+    width: var(--app-sidebar-rail-width);
+  }
+
+  .app-sidebar:is(:hover, :focus-within) {
+    align-items: stretch;
+    padding: 24px 16px;
+    width: var(--app-sidebar-expanded-width);
+    box-shadow: var(--shadow-lift);
+  }
+
+  .app-sidebar-brand {
+    justify-content: center;
+    gap: 0;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .app-sidebar:is(:hover, :focus-within) .app-sidebar-brand {
+    justify-content: flex-start;
+    gap: 12px;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .app-sidebar-copy,
+  .app-sidebar-label {
+    max-width: 0;
+    opacity: 0;
+    overflow: hidden;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+
+  .app-sidebar:is(:hover, :focus-within) .app-sidebar-copy,
+  .app-sidebar:is(:hover, :focus-within) .app-sidebar-label {
+    max-width: 180px;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .app-sidebar-primary-action {
+    align-self: center;
+    height: 44px;
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+    width: 44px;
+  }
+
+  .app-sidebar:is(:hover, :focus-within) .app-sidebar-primary-action {
+    align-self: stretch;
+    padding-left: 20px;
+    padding-right: 20px;
+    width: 100%;
+  }
+
+  .app-sidebar-nav-link {
+    height: 44px;
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+    width: 44px;
+  }
+
+  .app-sidebar:is(:hover, :focus-within) .app-sidebar-nav-link {
+    justify-content: flex-start;
+    padding-left: 12px;
+    padding-right: 12px;
+    width: 100%;
+  }
+
+  .app-sidebar-history-section {
+    border-top-color: transparent;
+    flex: 0 0 auto;
+    margin-top: 0;
+    max-height: 0;
+    max-width: 0;
+    min-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    padding-top: 0;
+    pointer-events: none;
+  }
+
+  .app-sidebar:is(:hover, :focus-within) .app-sidebar-history-section {
+    border-top-color: var(--color-line);
+    flex: 1 1 0%;
+    margin-top: 28px;
+    max-height: 100%;
+    max-width: 100%;
+    min-height: 0;
+    opacity: 1;
+    overflow: hidden;
+    padding-top: 20px;
+    pointer-events: auto;
+  }
+
+  .app-sidebar-user-card {
+    flex-direction: column;
+    gap: 4px;
+    padding: 2px;
+    width: 44px;
+    border-color: transparent;
+    background-color: transparent;
+    box-shadow: none;
+  }
+
+  .app-sidebar:is(:hover, :focus-within) .app-sidebar-user-card {
+    flex-direction: row;
+    gap: 12px;
+    padding: 10px;
+    width: 100%;
+    border-color: rgba(215, 221, 229, 0.8);
+    background-color: rgba(255, 255, 255, 0.72);
+    box-shadow: var(--shadow-card);
+  }
+}
+
 .premium-card {
   border: 1px solid var(--color-line);
   background: rgba(255, 255, 255, 0.92);

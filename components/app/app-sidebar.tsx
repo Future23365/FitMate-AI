@@ -85,9 +85,9 @@ function SidebarPanel({
 }: SidebarPanelProps) {
   return (
     <>
-      <div className="mb-8 flex shrink-0 items-center gap-3 px-3">
+      <div className="app-sidebar-brand mb-8 flex shrink-0 items-center gap-3 px-3">
         <LogoMark />
-        <div>
+        <div className="app-sidebar-copy">
           <h1 className="text-xl font-extrabold tracking-tight text-primary" id={titleId}>
             FitMate AI
           </h1>
@@ -98,7 +98,8 @@ function SidebarPanel({
       </div>
 
       <Link
-        className="mb-7 flex w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-bold text-white shadow-card transition-all hover:bg-primary-deep hover:shadow-lift active:scale-[0.98]"
+        aria-label="新建对话"
+        className="app-sidebar-primary-action mb-7 flex w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-bold text-white shadow-card transition-all hover:bg-primary-deep hover:shadow-lift active:scale-[0.98]"
         href="/"
         onClick={() => {
           window.dispatchEvent(new Event("fitmate:new-chat"));
@@ -106,7 +107,7 @@ function SidebarPanel({
         }}
       >
         <SymbolIcon className="text-[20px]">add_comment</SymbolIcon>
-        <span>新建对话</span>
+        <span className="app-sidebar-label">新建对话</span>
       </Link>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -120,16 +121,23 @@ function SidebarPanel({
             }`;
 
             return (
-              <Link className={itemClassName} href={item.href} key={item.label} onClick={onNavigate}>
+              <Link
+                aria-label={item.label}
+                className={`app-sidebar-nav-link ${itemClassName}`}
+                href={item.href}
+                key={item.label}
+                onClick={onNavigate}
+                title={item.label}
+              >
                 <SymbolIcon filled={isActive}>{item.icon}</SymbolIcon>
-                {item.label}
+                <span className="app-sidebar-label">{item.label}</span>
               </Link>
             );
           })}
         </nav>
 
-        <section className="mt-7 flex min-h-0 flex-1 flex-col border-t border-line pt-5">
-          <p className="mb-2 px-3 text-[10px] font-extrabold uppercase tracking-[0.14em] text-muted">
+        <section className="app-sidebar-history-section mt-7 flex min-h-0 flex-1 flex-col border-t border-line pt-5">
+          <p className="app-sidebar-copy mb-2 px-3 text-[10px] font-extrabold uppercase tracking-[0.14em] text-muted">
             历史记录
           </p>
           {historyItems.length ? (
@@ -168,7 +176,7 @@ function SidebarPanel({
               ))}
             </div>
           ) : (
-            <p className="px-3 py-2 text-xs font-semibold text-muted">
+            <p className="app-sidebar-copy px-3 py-2 text-xs font-semibold text-muted">
               暂无对话
             </p>
           )}
@@ -176,11 +184,11 @@ function SidebarPanel({
       </div>
 
       <div className="mt-4 shrink-0 border-t border-line pt-4">
-        <div className="flex items-center gap-3 rounded-xl border border-line/80 bg-white/72 p-2.5 shadow-card backdrop-blur-xl">
+        <div className="app-sidebar-user-card flex items-center gap-3 rounded-xl border border-line/80 bg-white/72 p-2.5 shadow-card backdrop-blur-xl">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-soft text-sm font-extrabold text-primary ring-1 ring-primary/10">
             {currentUser.initials}
           </div>
-          <div className="min-w-0 flex-1">
+          <div className="app-sidebar-copy min-w-0 flex-1">
             <p className="truncate text-sm font-extrabold text-ink">{currentUser.name}</p>
             <p className="text-xs font-semibold text-muted">个人账户</p>
           </div>
@@ -305,7 +313,7 @@ export function AppSidebar() {
         <SymbolIcon>menu</SymbolIcon>
       </button>
 
-      <aside className="app-shell-glass fixed left-0 top-0 z-30 hidden h-screen w-[260px] flex-col overflow-hidden border-r border-line/70 px-4 py-6 shadow-nav md:flex">
+      <aside className="app-sidebar app-shell-glass fixed left-0 top-0 z-30 hidden h-screen flex-col overflow-hidden border-r border-line/70 px-4 py-6 shadow-nav md:flex">
         <SidebarPanel
           historyItems={historyItems}
           isSettingsActive={isSettingsActive}

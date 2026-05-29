@@ -800,7 +800,7 @@ export function ActionComposerPage() {
   }
 
   return (
-    <div className="app-mesh-bg min-h-screen text-ink md:pl-[260px] xl:pr-[300px]">
+    <div className="app-mesh-bg min-h-screen pl-[var(--app-sidebar-offset)] text-ink xl:pr-[300px]">
       <main className="custom-scrollbar h-screen overflow-y-auto overflow-x-hidden px-lg pb-lg pt-sm xl:px-xl xl:pb-xl">
         <header className="sticky top-0 z-40 mb-md rounded-[16px] border-b border-line/70 bg-white px-sm py-xs shadow-[0_8px_18px_rgba(15,23,42,0.06)] md:px-md md:py-sm">
           <div className="flex flex-col gap-sm">

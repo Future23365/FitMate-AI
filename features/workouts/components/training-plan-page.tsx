@@ -261,7 +261,7 @@ export function TrainingPlanPage() {
   }
 
   return (
-    <div className="app-mesh-bg min-h-screen text-ink md:pl-[260px] xl:pr-[320px]">
+    <div className="app-mesh-bg min-h-screen pl-[var(--app-sidebar-offset)] text-ink xl:pr-[320px]">
       <main className="flex h-screen min-h-0 flex-col overflow-hidden p-lg xl:p-xl">
         <section className="flex min-h-0 flex-1 flex-col rounded-[20px] border border-line bg-white p-md shadow-card xl:p-lg">
           <div className="mb-md flex shrink-0 flex-wrap items-center justify-between gap-md">
