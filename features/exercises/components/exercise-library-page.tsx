@@ -675,7 +675,7 @@ export function ExerciseLibraryPage() {
     : [];
 
   return (
-    <div className="app-mesh-bg min-h-screen pl-[var(--app-sidebar-width)] text-ink transition-[padding-left] duration-300">
+    <div className="app-mesh-bg min-h-screen text-ink md:pl-[260px]">
       <main className="custom-scrollbar h-screen overflow-y-auto p-lg xl:pr-[364px] xl:p-xl">
         <header className="mb-lg flex flex-col gap-xs">
           <div>

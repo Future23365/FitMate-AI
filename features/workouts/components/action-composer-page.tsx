@@ -5,7 +5,6 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
-import { WorkspaceRightPanel } from "@/components/app/workspace-right-panel";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
 import {
   createWorkoutRoutine,
@@ -272,7 +271,6 @@ export function ActionComposerPage() {
   const [isLoadingLibrary, setIsLoadingLibrary] = useState(true);
   const [saveStatus, setSaveStatus] = useState("");
   const [rightPanelView, setRightPanelView] = useState<RightPanelView>("library");
-  const [isMaterialPanelOpen, setIsMaterialPanelOpen] = useState(false);
   const [draggingItemId, setDraggingItemId] = useState("");
   const [dragOverItemId, setDragOverItemId] = useState("");
   const [selectedSection, setSelectedSection] = useState<WorkoutSection>("training");
@@ -590,11 +588,6 @@ export function ActionComposerPage() {
     setLibraryLevel("");
   }
 
-  function openMaterialPanel(view: RightPanelView) {
-    setRightPanelView(view);
-    setIsMaterialPanelOpen(true);
-  }
-
   function duplicateItem(item: WorkoutItem) {
     const nextItem = { ...item, id: crypto.randomUUID(), nameZh: `${item.nameZh} 副本` };
     setItems((current) => {
@@ -807,7 +800,7 @@ export function ActionComposerPage() {
   }
 
   return (
-    <div className="app-mesh-bg min-h-screen pl-[var(--app-sidebar-width)] text-ink transition-[padding-left,padding-right] duration-300 xl:pr-[var(--workspace-material-panel-width)]">
+    <div className="app-mesh-bg min-h-screen text-ink md:pl-[260px] xl:pr-[300px]">
       <main className="custom-scrollbar h-screen overflow-y-auto overflow-x-hidden px-lg pb-lg pt-sm xl:px-xl xl:pb-xl">
         <header className="sticky top-0 z-40 mb-md rounded-[16px] border-b border-line/70 bg-white px-sm py-xs shadow-[0_8px_18px_rgba(15,23,42,0.06)] md:px-md md:py-sm">
           <div className="flex flex-col gap-sm">
@@ -887,25 +880,6 @@ export function ActionComposerPage() {
                 </button>
                 <button className="h-10 rounded-xl bg-primary-container px-md font-label-md text-label-md text-white shadow-sm transition-opacity hover:opacity-90" onClick={saveComposition} type="button">
                   保存
-                </button>
-                <button
-                  className="flex h-10 items-center gap-xs rounded-xl border border-primary/25 bg-primary-soft px-md font-label-md text-label-md font-bold text-primary transition-colors hover:bg-[#dbe5ff] xl:hidden"
-                  onClick={() => openMaterialPanel("library")}
-                  type="button"
-                >
-                  <SymbolIcon className="text-[18px]">folder_open</SymbolIcon>
-                  动作库
-                </button>
-                <button
-                  className="flex h-10 items-center gap-xs rounded-xl border border-line bg-white px-md font-label-md text-label-md font-bold text-secondary shadow-sm transition-colors hover:border-primary/30 hover:bg-panel-soft hover:text-primary xl:hidden"
-                  onClick={() => openMaterialPanel("saved")}
-                  type="button"
-                >
-                  <SymbolIcon className="text-[18px]">bookmark</SymbolIcon>
-                  已保存
-                  <span className="rounded bg-surface-container px-xs py-[1px] text-[10px] text-outline">
-                    {workoutRoutines.length}
-                  </span>
                 </button>
               </div>
             </div>
@@ -1002,15 +976,7 @@ export function ActionComposerPage() {
         ) : null}
       </main>
 
-      <WorkspaceRightPanel
-        ariaLabel="动作编排素材面板"
-        bodyClassName="flex flex-col"
-        dockedWidthClassName="w-[var(--workspace-material-panel-width)]"
-        isOpen={isMaterialPanelOpen}
-        title="素材面板"
-        widthClassName="w-full sm:w-[420px] sm:max-w-[calc(100vw-32px)]"
-        onClose={() => setIsMaterialPanelOpen(false)}
-      >
+      <aside className="app-shell-glass fixed right-0 top-0 z-30 hidden h-screen w-[300px] flex-col gap-md overflow-y-auto border-l border-line/70 p-md shadow-nav xl:flex">
         <section className="flex min-h-[420px] flex-1 flex-col">
           <div className="mb-md rounded-xl border border-line bg-panel-soft p-[3px]">
             <div className="grid grid-cols-2 gap-[3px]">
@@ -1234,7 +1200,7 @@ export function ActionComposerPage() {
             </div>
           )}
         </section>
-      </WorkspaceRightPanel>
+      </aside>
       <ExercisePreviewSheet
         exercise={activePreviewExercise}
         isOpen={Boolean(activePreviewExercise)}
@@ -1364,7 +1330,7 @@ function WorkoutSectionBlock({
         <div>{children}</div>
       ) : (
         <div className="rounded-xl border border-dashed border-outline-variant bg-panel-soft p-md text-center font-label-md text-label-md text-muted">
-          从动作库添加到{section.title}，或把已有动作拖到这里。
+          从右侧动作库添加到{section.title}，或把已有动作拖到这里。
         </div>
       )}
     </section>
@@ -1567,7 +1533,7 @@ function WorkoutExerciseRow({
 
   return (
     <div
-      className={`relative flex flex-col gap-md rounded-xl border border-line bg-white p-md transition-all hover:border-primary/40 hover:ring-1 hover:ring-primary/10 lg:flex-row lg:items-center ${
+      className={`relative flex flex-col gap-md rounded-xl border border-line bg-white p-md transition-all hover:border-primary/40 hover:ring-1 hover:ring-primary/10 md:flex-row md:items-center ${
         dragState === "dragging" ? "opacity-50" : ""
       } ${
         dragState === "over" ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""
@@ -1603,8 +1569,8 @@ function WorkoutExerciseRow({
           <SymbolIcon className="text-outline">drag_indicator</SymbolIcon>
         </button>
       </div>
-      <div className="flex min-w-0 flex-1 flex-col gap-md lg:flex-row lg:items-center">
-        <div className="flex min-w-0 flex-1 items-center gap-md lg:w-[260px] lg:flex-none">
+      <div className="flex min-w-0 flex-1 flex-col gap-md md:flex-row md:items-center">
+        <div className="flex min-w-0 flex-1 items-center gap-md md:w-[220px] md:flex-none">
           <div className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-surface-container-low">
             <Image
               alt=""
@@ -1629,7 +1595,7 @@ function WorkoutExerciseRow({
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap items-end gap-sm lg:ml-auto lg:max-w-[380px] lg:justify-end">
+        <div className="flex flex-wrap items-end gap-sm md:ml-auto md:max-w-[330px] md:justify-end">
           <Stepper
             label={item.mode === "duration" ? "目标时长" : "目标次数"}
             suffix={item.mode === "duration" ? "s" : ""}
@@ -1662,7 +1628,7 @@ function WorkoutExerciseRow({
           ) : null}
         </div>
       </div>
-      <div className="flex gap-xs border-outline-variant lg:border-l lg:pl-md">
+      <div className="flex gap-xs border-outline-variant md:border-l md:pl-md">
         <button
           aria-label={`查看动作详情：${item.nameZh}`}
           className="rounded-lg p-sm text-outline transition-colors hover:bg-primary/5 hover:text-primary"

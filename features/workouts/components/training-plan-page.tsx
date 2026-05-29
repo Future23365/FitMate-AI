@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
-import { WorkspaceRightPanel } from "@/components/app/workspace-right-panel";
 import {
   createWorkoutSchedule,
   deleteWorkoutSchedule,
@@ -133,7 +132,6 @@ export function TrainingPlanPage() {
   const [schedule, setSchedule] = useState<WorkoutSchedule[]>([]);
   // 右侧栏模式承载当前日期详情和计划选择，避免顶部浮层覆盖月历主体。
   const [sidePanelMode, setSidePanelMode] = useState<"day" | "saved-plans">("day");
-  const [isDatePanelOpen, setIsDatePanelOpen] = useState(false);
   const [toast, setToast] = useState("");
 
   useEffect(() => {
@@ -263,7 +261,7 @@ export function TrainingPlanPage() {
   }
 
   return (
-    <div className="app-mesh-bg min-h-screen pl-[var(--app-sidebar-width)] text-ink transition-[padding-left,padding-right] duration-300 xl:pr-[var(--workspace-calendar-panel-width)]">
+    <div className="app-mesh-bg min-h-screen text-ink md:pl-[260px] xl:pr-[320px]">
       <main className="flex h-screen min-h-0 flex-col overflow-hidden p-lg xl:p-xl">
         <section className="flex min-h-0 flex-1 flex-col rounded-[20px] border border-line bg-white p-md shadow-card xl:p-lg">
           <div className="mb-md flex shrink-0 flex-wrap items-center justify-between gap-md">
@@ -315,20 +313,6 @@ export function TrainingPlanPage() {
                 </div>
               </div>
               <button
-                className="flex items-center justify-center gap-xs rounded-xl border border-primary/25 bg-primary-soft px-md py-sm font-label-md text-label-md font-bold text-primary shadow-card transition-colors hover:bg-[#dbe5ff] xl:hidden"
-                onClick={() => {
-                  setSidePanelMode("day");
-                  setIsDatePanelOpen(true);
-                }}
-                type="button"
-              >
-                <SymbolIcon className="text-[18px]">event_note</SymbolIcon>
-                当天详情
-                <span className="rounded bg-white px-xs py-[1px] text-[10px] text-primary">
-                  {selectedDayPlans.length}
-                </span>
-              </button>
-              <button
                 className="flex items-center justify-center gap-xs rounded-xl bg-primary px-md py-sm font-label-md text-label-md font-bold text-white shadow-card transition-all hover:bg-primary-deep hover:shadow-lift active:scale-[0.98]"
                 onClick={() => {
                   const plan = filteredWorkouts[0];
@@ -344,8 +328,7 @@ export function TrainingPlanPage() {
             </div>
           </div>
 
-          <div className="custom-scrollbar min-h-0 flex-1 overflow-x-auto">
-            <div className="grid min-h-full min-w-[720px] grid-cols-7 grid-rows-[auto_repeat(6,minmax(0,1fr))] gap-px overflow-hidden rounded-xl border border-line bg-line shadow-inner">
+          <div className="grid min-h-0 min-w-[760px] flex-1 grid-cols-7 grid-rows-[auto_repeat(6,minmax(0,1fr))] gap-px overflow-hidden rounded-xl border border-line bg-line shadow-inner">
             {weekdays.map((weekday) => (
               <div
                 className="border-b border-line bg-panel-soft px-md py-sm text-center font-label-md text-label-md font-bold text-secondary"
@@ -408,21 +391,11 @@ export function TrainingPlanPage() {
                 </button>
               );
             })}
-            </div>
           </div>
         </section>
       </main>
 
-      <WorkspaceRightPanel
-        ariaLabel="训练日历日期详情面板"
-        bodyClassName="flex flex-col gap-lg"
-        description={formatDayLabel(selectedDateKey)}
-        dockedWidthClassName="w-[var(--workspace-calendar-panel-width)]"
-        isOpen={isDatePanelOpen}
-        title="日期详情"
-        widthClassName="w-full sm:w-[420px] sm:max-w-[calc(100vw-32px)]"
-        onClose={() => setIsDatePanelOpen(false)}
-      >
+      <aside className="app-shell-glass custom-scrollbar fixed right-0 top-0 z-30 hidden h-screen w-[320px] flex-col gap-lg overflow-y-auto border-l border-line/70 p-md shadow-nav xl:flex">
         {sidePanelMode === "saved-plans" ? (
           <section className="training-side-panel-enter flex min-h-0 flex-1 flex-col gap-md">
             <div className="space-y-xs">
@@ -587,7 +560,7 @@ export function TrainingPlanPage() {
             </section>
           </>
         ) : null}
-      </WorkspaceRightPanel>
+      </aside>
 
       {toast ? (
         <div className="fixed bottom-lg left-1/2 z-50 -translate-x-1/2 rounded-full bg-inverse-surface px-lg py-sm font-label-md text-label-md text-inverse-on-surface shadow-lg">
