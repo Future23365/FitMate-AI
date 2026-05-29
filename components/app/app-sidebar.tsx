@@ -106,7 +106,9 @@ function SidebarPanel({
           onNavigate?.();
         }}
       >
-        <SymbolIcon className="text-[20px]">add_comment</SymbolIcon>
+        <span className="app-sidebar-icon">
+          <SymbolIcon className="text-[20px]">add_comment</SymbolIcon>
+        </span>
         <span className="app-sidebar-label">新建对话</span>
       </Link>
 
@@ -129,7 +131,9 @@ function SidebarPanel({
                 onClick={onNavigate}
                 title={item.label}
               >
-                <SymbolIcon filled={isActive}>{item.icon}</SymbolIcon>
+                <span className="app-sidebar-icon">
+                  <SymbolIcon filled={isActive}>{item.icon}</SymbolIcon>
+                </span>
                 <span className="app-sidebar-label">{item.label}</span>
               </Link>
             );
