@@ -70,6 +70,46 @@ type LibrarySuitabilityFilter = "all" | ExerciseSuitability;
 type RightPanelView = "library" | "saved";
 
 const sectionConfigs = workoutSectionConfigs;
+const sectionVisualStyles: Record<
+  WorkoutSection,
+  {
+    accentText: string;
+    block: string;
+    chip: string;
+    icon: string;
+    line: string;
+    node: string;
+    selected: string;
+  }
+> = {
+  warmup: {
+    accentText: "text-[#B25E09]",
+    block: "border-[#F4C56B]/45 bg-[#FFF8EA]",
+    chip: "border-[#F4C56B]/45 bg-[#FFF1CC] text-[#8A4B08]",
+    icon: "bg-[#FFF1CC] text-[#B25E09]",
+    line: "bg-[#F4C56B]/55",
+    node: "bg-[#F59E0B]",
+    selected: "border-[#F59E0B]/55 bg-[#FFF4D6] ring-[#F59E0B]/15",
+  },
+  training: {
+    accentText: "text-primary",
+    block: "border-primary/20 bg-[#F8FAFF]",
+    chip: "border-primary/20 bg-primary-soft text-primary",
+    icon: "bg-primary-soft text-primary",
+    line: "bg-primary/35",
+    node: "bg-primary",
+    selected: "border-primary/45 bg-primary-soft/45 ring-primary/15",
+  },
+  stretch: {
+    accentText: "text-[#047857]",
+    block: "border-[#A7F3D0]/55 bg-[#F0FDF7]",
+    chip: "border-[#A7F3D0]/70 bg-[#DCFCE7] text-[#047857]",
+    icon: "bg-[#DCFCE7] text-[#047857]",
+    line: "bg-[#86EFAC]/65",
+    node: "bg-[#10B981]",
+    selected: "border-[#10B981]/45 bg-[#ECFDF3] ring-[#10B981]/15",
+  },
+};
 const librarySuitabilityOptions: Array<{
   id: LibrarySuitabilityFilter;
   label: string;
@@ -230,6 +270,32 @@ function formatDateTime(date: Date) {
 
 function hasFacetValue(options: ExerciseFacets["categories"], value: string) {
   return !value || options.some((option) => option.value === value || option.label === value);
+}
+
+// 阶段摘要只服务编排画布的信息层级，不改变 routine 的保存或执行规则。
+function summarizeComposerSection(
+  sectionItems: WorkoutItem[],
+  section: WorkoutSection,
+  options: {
+    trainingLoopRestSeconds: number;
+    trainingLoopRounds: number;
+  },
+) {
+  const isTraining = section === "training";
+  const sectionLoopRounds = isTraining ? options.trainingLoopRounds : 1;
+
+  return {
+    minutes: sectionItems.length
+      ? estimateWorkoutMinutes(sectionItems, {
+          minimumMinutes: 0,
+          trainingLoopRestSeconds: isTraining ? options.trainingLoopRestSeconds : 0,
+          trainingLoopRounds: sectionLoopRounds,
+          trainingToStretchRestSeconds: 0,
+          warmupToTrainingRestSeconds: 0,
+        })
+      : 0,
+    sets: getTotalWorkoutSets(sectionItems, sectionLoopRounds),
+  };
 }
 
 async function fetchTemplateExercise(config: TemplateExerciseConfig) {
@@ -898,19 +964,45 @@ export function ActionComposerPage() {
           </div>
         </header>
 
-        <section className="mb-lg rounded-[20px] border border-line bg-white p-md shadow-card">
-          <div className="space-y-md">
+        <section className="mb-lg overflow-hidden rounded-[24px] border border-line bg-[#F8FAFC] p-sm shadow-card md:p-md">
+          <div className="mb-md flex flex-col gap-xs px-xs md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="font-label-sm text-label-sm font-bold text-primary">训练流程画布</p>
+              <h2 className="mt-[2px] font-title-md text-title-md font-extrabold text-ink">
+                按执行顺序编排热身、主训练和拉伸
+              </h2>
+            </div>
+            <p className="font-label-sm text-label-sm text-muted">
+              拖拽调整顺序，休息节点会进入训练时间线
+            </p>
+          </div>
+          <div className="relative space-y-md pl-8 md:pl-10">
+            <span
+              className="absolute bottom-8 left-[14px] top-8 w-px bg-gradient-to-b from-[#F4C56B]/70 via-primary/40 to-[#86EFAC]/70 md:left-[18px]"
+              aria-hidden="true"
+            />
             {sectionConfigs.map((section, sectionIndex) => {
               const sectionItems = getSectionItems(items, section.id);
+              const sectionSummary = summarizeComposerSection(sectionItems, section.id, {
+                trainingLoopRestSeconds,
+                trainingLoopRounds,
+              });
 
               return (
-                <div className="space-y-sm" key={section.id}>
+                <div className="relative space-y-sm" key={section.id}>
+                  <span
+                    className={`absolute -left-[25px] top-6 z-10 grid h-7 w-7 place-items-center rounded-full border-[3px] border-[#F8FAFC] text-white shadow-sm md:-left-[31px] ${sectionVisualStyles[section.id].node}`}
+                    aria-hidden="true"
+                  >
+                    <SymbolIcon className="text-[15px]">{section.icon}</SymbolIcon>
+                  </span>
                   <WorkoutSectionBlock
                     index={sectionIndex}
                     isSelected={selectedSection === section.id}
                     itemCount={sectionItems.length}
                     loopRounds={trainingLoopRounds}
                     loopRestSeconds={trainingLoopRestSeconds}
+                    minutes={sectionSummary.minutes}
                     onAddNext={() => setSelectedSection(section.id)}
                     onDropToEnd={() => {
                       moveItemToSectionEnd(draggingItemId, section.id);
@@ -920,6 +1012,7 @@ export function ActionComposerPage() {
                     onLoopRoundsChange={setTrainingLoopRounds}
                     onLoopRestSecondsChange={setTrainingLoopRestSeconds}
                     section={section}
+                    sets={sectionSummary.sets}
                   >
                     {sectionItems.map((item, index) => (
                       <div key={item.id}>
@@ -949,6 +1042,7 @@ export function ActionComposerPage() {
                         />
                         {index < sectionItems.length - 1 ? (
                           <RestIntervalControl
+                            section={section.id}
                             seconds={item.transitionRestSeconds}
                             onChange={(nextSeconds) =>
                               updateItem(item.id, (current) => ({
@@ -964,6 +1058,7 @@ export function ActionComposerPage() {
                   {section.id === "warmup" ? (
                     <SectionBoundaryRestControl
                       label="热身到训练休息"
+                      section="warmup"
                       seconds={warmupToTrainingRestSeconds}
                       onChange={setWarmupToTrainingRestSeconds}
                     />
@@ -971,6 +1066,7 @@ export function ActionComposerPage() {
                   {section.id === "training" ? (
                     <SectionBoundaryRestControl
                       label="训练到拉伸休息"
+                      section="training"
                       seconds={trainingToStretchRestSeconds}
                       onChange={setTrainingToStretchRestSeconds}
                     />
@@ -1241,11 +1337,13 @@ function WorkoutSectionBlock({
   itemCount,
   loopRounds,
   loopRestSeconds,
+  minutes,
   onAddNext,
   onDropToEnd,
   onLoopRoundsChange,
   onLoopRestSecondsChange,
   section,
+  sets,
 }: {
   children: ReactNode;
   index: number;
@@ -1253,20 +1351,23 @@ function WorkoutSectionBlock({
   itemCount: number;
   loopRounds: number;
   loopRestSeconds: number;
+  minutes: number;
   onAddNext: () => void;
   onDropToEnd: () => void;
   onLoopRoundsChange: (value: number) => void;
   onLoopRestSecondsChange: (value: number) => void;
   section: (typeof sectionConfigs)[number];
+  sets: number;
 }) {
   const isTraining = section.id === "training";
+  const visual = sectionVisualStyles[section.id];
 
   return (
     <section
-      className={`relative overflow-hidden rounded-[20px] border p-md transition-all ${
+      className={`group relative overflow-hidden rounded-[20px] border px-md pb-sm pt-md transition-all ${
         isSelected
-          ? "border-primary/45 bg-primary-soft/45 shadow-card ring-1 ring-primary/15"
-          : "border-line bg-white"
+          ? `${visual.selected} shadow-card ring-1`
+          : `${visual.block} hover:border-primary/25 hover:shadow-[0_10px_24px_rgba(15,23,42,0.06)]`
       }`}
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
@@ -1274,11 +1375,12 @@ function WorkoutSectionBlock({
         onDropToEnd();
       }}
     >
-      <div className="mb-md flex flex-col gap-sm md:flex-row md:items-center md:justify-between">
+      <div className={`absolute inset-y-0 left-0 w-1 ${visual.line}`} aria-hidden="true" />
+      <div className="mb-md flex flex-col gap-sm md:flex-row md:items-start md:justify-between">
         <div className="flex min-w-0 items-start gap-sm">
           <span
             className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${
-              isSelected ? "bg-primary text-white" : "bg-primary-soft text-primary"
+              isSelected ? `${visual.node} text-white` : visual.icon
             }`}
           >
             <SymbolIcon className="text-[22px]">{section.icon}</SymbolIcon>
@@ -1288,33 +1390,18 @@ function WorkoutSectionBlock({
               {index + 1}. {section.title}
             </h3>
             <p className="mt-[2px] font-label-sm text-label-sm text-muted">
-              {section.subtitle} · {itemCount} 个动作
+              {section.subtitle}
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-sm">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-xs">
           {isTraining ? (
-            <>
-              <label className="flex items-center gap-xs rounded-xl border border-line bg-panel-soft px-sm py-xs font-label-md text-label-md text-secondary">
-                <SymbolIcon className="text-[18px] text-primary">timer</SymbolIcon>
-                循环间隙
+            <div className="flex h-9 items-center overflow-hidden rounded-xl border border-line bg-white/85 p-[2px] shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+              <label className="flex h-full items-center gap-xs rounded-lg px-sm font-label-md text-label-md text-secondary transition-colors hover:bg-primary-soft/60">
+                <SymbolIcon className={`text-[18px] ${visual.accentText}`}>repeat</SymbolIcon>
+                <span>轮数</span>
                 <select
-                  className="h-8 rounded-lg border border-outline-variant bg-white px-sm text-center font-bold text-ink outline-none focus:ring-2 focus:ring-primary/20"
-                  onChange={(event) => onLoopRestSecondsChange(Number(event.target.value))}
-                  value={loopRestSeconds}
-                >
-                  {restOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {option}s
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex items-center gap-xs rounded-xl border border-line bg-panel-soft px-sm py-xs font-label-md text-label-md text-secondary">
-                <SymbolIcon className="text-[18px] text-primary">sync_alt</SymbolIcon>
-                循环
-                <select
-                  className="h-8 rounded-lg border border-outline-variant bg-white px-sm text-center font-bold text-ink outline-none focus:ring-2 focus:ring-primary/20"
+                  className="h-7 rounded-lg border border-outline-variant bg-white px-sm text-center font-bold text-ink outline-none focus:ring-2 focus:ring-primary/20"
                   onChange={(event) => onLoopRoundsChange(Number(event.target.value))}
                   value={loopRounds}
                 >
@@ -1325,12 +1412,28 @@ function WorkoutSectionBlock({
                   ))}
                 </select>
               </label>
-            </>
+              <span className="mx-[2px] h-5 w-px bg-line" aria-hidden="true" />
+              <label className="flex h-full items-center gap-xs rounded-lg px-sm font-label-md text-label-md text-secondary transition-colors hover:bg-primary-soft/60">
+                <SymbolIcon className={`text-[18px] ${visual.accentText}`}>timer</SymbolIcon>
+                <span className="whitespace-nowrap">轮间休息</span>
+                <select
+                  className="h-7 rounded-lg border border-outline-variant bg-white px-sm text-center font-bold text-ink outline-none focus:ring-2 focus:ring-primary/20"
+                  onChange={(event) => onLoopRestSecondsChange(Number(event.target.value))}
+                  value={loopRestSeconds}
+                >
+                  {restOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}s
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           ) : null}
           <button
-            className={`flex items-center gap-xs rounded-xl border px-md py-sm font-label-md text-label-md transition-colors ${
+            className={`flex h-9 shrink-0 items-center justify-center gap-xs rounded-xl border px-md font-label-md text-label-md transition-colors active:scale-[0.98] ${
               isSelected
-                ? "border-primary bg-primary text-white shadow-card hover:bg-primary-deep"
+                ? `${visual.node} border-transparent text-white shadow-card hover:opacity-90`
                 : "border-outline bg-white hover:bg-panel-soft"
             }`}
             onClick={onAddNext}
@@ -1342,13 +1445,41 @@ function WorkoutSectionBlock({
         </div>
       </div>
       {itemCount ? (
-        <div>{children}</div>
+        <div className="space-y-xs">{children}</div>
       ) : (
-        <div className="rounded-xl border border-dashed border-outline-variant bg-panel-soft p-md text-center font-label-md text-label-md text-muted">
-          从右侧动作库添加到{section.title}，或把已有动作拖到这里。
+        <div className="flex min-h-[96px] items-center justify-center rounded-xl border border-dashed border-outline-variant bg-white/65 p-md text-center font-label-md text-label-md text-muted">
+          <div>
+            <SymbolIcon className={`mb-xs text-3xl ${visual.accentText}`}>{section.icon}</SymbolIcon>
+            <p>拖入{section.title}动作，或从右侧动作库添加到当前阶段。</p>
+          </div>
         </div>
       )}
+      <div className="mt-md flex flex-wrap items-center justify-end gap-x-sm gap-y-[2px] border-t border-line/70 pt-xs">
+        <SectionSummaryPill icon="format_list_numbered" label="动作" value={`${itemCount} 个`} visual={visual} />
+        <SectionSummaryPill icon="repeat" label="组数" value={`${sets} 组`} visual={visual} />
+        <SectionSummaryPill icon="schedule" label="预计" value={`${minutes} min`} visual={visual} />
+      </div>
     </section>
+  );
+}
+
+function SectionSummaryPill({
+  icon,
+  label,
+  value,
+  visual,
+}: {
+  icon: string;
+  label: string;
+  value: string;
+  visual: (typeof sectionVisualStyles)[WorkoutSection];
+}) {
+  return (
+    <span className="flex h-7 items-center gap-[4px] font-label-sm text-label-sm text-secondary">
+      <SymbolIcon className={`text-[15px] ${visual.accentText}`}>{icon}</SymbolIcon>
+      <span className="font-extrabold text-ink">{value}</span>
+      <span className="font-medium text-muted">{label}</span>
+    </span>
   );
 }
 
@@ -1539,6 +1670,8 @@ function WorkoutExerciseRow({
   onPreview: () => void;
   onUpdate: (updater: (item: WorkoutItem) => WorkoutItem) => void;
 }) {
+  const section = item.section ?? "training";
+  const visual = sectionVisualStyles[section];
   const itemTags = [
     item.musclesZh.slice(0, 2).join("、") || exercise?.primaryMusclesZh.slice(0, 2).join("、") || "综合",
     item.equipmentZh || exercise?.equipmentZh || "未标注器械",
@@ -1546,7 +1679,7 @@ function WorkoutExerciseRow({
 
   return (
     <div
-      className={`relative flex flex-col gap-md rounded-xl border border-line bg-white p-md transition-all hover:border-primary/40 hover:ring-1 hover:ring-primary/10 md:flex-row md:items-center ${
+      className={`relative flex flex-col gap-md overflow-hidden rounded-2xl border border-line bg-white/95 p-md shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all hover:border-primary/35 hover:shadow-[0_12px_26px_rgba(15,23,42,0.07)] hover:ring-1 hover:ring-primary/10 md:flex-row md:items-center ${
         dragState === "dragging" ? "opacity-50" : ""
       } ${
         dragState === "over" ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""
@@ -1569,32 +1702,46 @@ function WorkoutExerciseRow({
         onDrop();
       }}
     >
-      <div className="flex items-center gap-sm">
-        <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-line font-label-md text-label-md font-bold text-muted">
-          {index + 1}
+      <div className={`absolute inset-y-0 left-0 w-1 ${visual.line}`} aria-hidden="true" />
+      <div className="flex items-center gap-sm pl-xs md:w-[58px] md:shrink-0">
+        <div className={`flex h-9 w-9 items-center justify-center rounded-full border font-label-md text-label-md font-extrabold ${visual.chip}`}>
+          {String(index + 1).padStart(2, "0")}
         </div>
         <button
           aria-label={`拖拽排序：${item.nameZh}`}
-          className="cursor-grab rounded-md p-xs active:cursor-grabbing"
+          className="cursor-grab rounded-md p-xs text-outline transition-colors hover:bg-surface-container-low hover:text-primary active:cursor-grabbing"
           onClick={(event) => event.stopPropagation()}
           type="button"
         >
-          <SymbolIcon className="text-outline">drag_indicator</SymbolIcon>
+          <SymbolIcon>drag_indicator</SymbolIcon>
         </button>
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-md md:flex-row md:items-center">
-        <div className="flex min-w-0 flex-1 items-center gap-md md:w-[220px] md:flex-none">
-          <div className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-surface-container-low">
+        <div className="flex min-w-0 flex-1 items-center gap-md md:min-w-[250px]">
+          <button
+            aria-label={`查看动作详情：${item.nameZh}`}
+            className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-surface-container-low ring-1 ring-line transition-transform hover:scale-[1.02]"
+            onClick={(event) => {
+              event.stopPropagation();
+              onPreview();
+            }}
+            type="button"
+          >
             <Image
               alt=""
               className="object-cover"
               fill
-              sizes="56px"
+              sizes="64px"
               src={item.imageUrl}
             />
-          </div>
+          </button>
           <div className="min-w-0 flex-1">
-            <p className="truncate font-body-lg text-body-lg font-bold">{item.nameZh}</p>
+            <div className="flex min-w-0 items-center gap-xs">
+              <p className="truncate font-title-sm text-title-sm font-extrabold text-ink">{item.nameZh}</p>
+              <span className={`hidden rounded-full border px-xs py-[1px] text-[10px] font-bold md:inline-flex ${visual.chip}`}>
+                {item.mode === "duration" ? "计时" : "次数"}
+              </span>
+            </div>
             <div className="mt-xs flex max-w-full flex-nowrap items-center gap-xs overflow-hidden">
               {itemTags.map((tag) => (
                 <span
@@ -1608,8 +1755,9 @@ function WorkoutExerciseRow({
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap items-end gap-sm md:ml-auto md:max-w-[330px] md:justify-end">
+        <div className="flex flex-wrap items-end gap-sm rounded-xl border border-line bg-[#F8FAFC] px-sm py-xs md:ml-auto md:justify-end">
           <NumberStepper
+            className="w-[96px]"
             label={item.mode === "duration" ? "目标时长" : "目标次数"}
             max={999}
             min={1}
@@ -1619,6 +1767,7 @@ function WorkoutExerciseRow({
             stopPropagation
           />
           <NumberStepper
+            className="w-[82px]"
             label="组数"
             max={999}
             min={1}
@@ -1626,35 +1775,38 @@ function WorkoutExerciseRow({
             onValueChange={(nextValue) => onUpdate((current) => ({ ...current, sets: nextValue }))}
             stopPropagation
           />
-          {item.sets > 1 ? (
-            <div
-              className="flex h-14 w-[88px] flex-col justify-center text-center"
-              onClick={(event) => event.stopPropagation()}
-              onPointerDown={(event) => event.stopPropagation()}
+          <div
+            className="flex h-14 w-[82px] flex-col justify-center text-center"
+            onClick={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            <p className={`mb-xs truncate text-[10px] font-medium leading-none ${item.sets > 1 ? "text-outline" : "text-outline/60"}`}>
+              组间
+            </p>
+            <Select
+              disabled={item.sets <= 1}
+              onValueChange={(nextValue) =>
+                onUpdate((current) => ({ ...current, setRestSeconds: Number(nextValue) }))
+              }
+              value={String(item.setRestSeconds)}
             >
-              <p className="mb-xs truncate text-[10px] font-medium leading-none text-outline">组间</p>
-              <Select
-                onValueChange={(nextValue) =>
-                  onUpdate((current) => ({ ...current, setRestSeconds: Number(nextValue) }))
-                }
-                value={String(item.setRestSeconds)}
+              <SelectTrigger
+                aria-label={item.sets > 1 ? "组间" : "组间，1组时不可选"}
+                className={`relative h-8 w-full justify-center rounded-[10px] border-line bg-white px-2 pr-5 text-center font-label-md text-label-md font-semibold leading-8 text-ink shadow-[0_1px_2px_rgba(16,24,40,0.06),inset_0_1px_0_rgba(255,255,255,0.9)] hover:bg-primary-soft focus-visible:ring-0 [&>span]:min-w-0 [&>span]:text-center [&>svg]:absolute [&>svg]:right-1.5 ${
+                  item.sets > 1 ? "" : "bg-surface-container-low text-outline shadow-none hover:bg-surface-container-low"
+                }`}
               >
-                <SelectTrigger
-                  aria-label="组间"
-                  className="relative h-8 w-full justify-center rounded-[10px] border-line bg-white px-2 pr-5 text-center font-label-md text-label-md font-semibold leading-8 text-ink shadow-[0_1px_2px_rgba(16,24,40,0.06),inset_0_1px_0_rgba(255,255,255,0.9)] hover:bg-primary-soft focus-visible:ring-0 [&>span]:min-w-0 [&>span]:text-center [&>svg]:absolute [&>svg]:right-1.5"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="min-w-[88px]">
-                  {restOptions.map((option) => (
-                    <SelectItem className="pr-3" key={option} value={String(option)}>
-                      {option}s
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          ) : null}
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="min-w-[88px]">
+                {restOptions.map((option) => (
+                  <SelectItem className="pr-3" key={option} value={String(option)}>
+                    {option}s
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
       <div className="flex gap-xs border-outline-variant md:border-l md:pl-md">
@@ -1683,21 +1835,27 @@ function WorkoutExerciseRow({
 function SectionBoundaryRestControl({
   label,
   onChange,
+  section,
   seconds,
 }: {
   label: string;
   onChange: (seconds: number) => void;
+  section: WorkoutSection;
   seconds: number;
 }) {
+  const visual = sectionVisualStyles[section];
+
   return (
-    <div className="flex h-7 items-center justify-center">
-      <span className="h-px min-w-8 bg-outline-variant/70" aria-hidden="true" />
-      <label className="mx-xs flex h-7 items-center gap-[4px] rounded-full border border-line bg-panel-soft px-sm text-[10px] font-medium text-secondary">
-        <SymbolIcon className="text-[13px] text-primary">timer</SymbolIcon>
-        {label}
+    <div className="relative flex h-10 items-center justify-center">
+      <span className={`h-px min-w-10 ${visual.line}`} aria-hidden="true" />
+      <label className={`mx-xs flex h-8 items-center gap-[5px] rounded-full border bg-white px-sm text-[11px] font-semibold shadow-[0_4px_12px_rgba(15,23,42,0.05)] transition-colors hover:border-primary/40 ${visual.chip}`}>
+        <span className={`grid h-5 w-5 place-items-center rounded-full text-white ${visual.node}`}>
+          <SymbolIcon className="text-[13px]">timer</SymbolIcon>
+        </span>
+        <span>{label}</span>
         <select
           aria-label={label}
-          className="h-5 rounded-full border border-outline-variant bg-white px-[5px] text-[10px] font-bold text-ink outline-none focus:ring-2 focus:ring-primary/20"
+          className="h-6 rounded-full border border-outline-variant bg-white px-[6px] text-[10px] font-bold text-ink outline-none focus:ring-2 focus:ring-primary/20"
           onChange={(event) => onChange(Number(event.target.value))}
           value={seconds}
         >
@@ -1708,25 +1866,29 @@ function SectionBoundaryRestControl({
           ))}
         </select>
       </label>
-      <span className="h-px min-w-8 bg-outline-variant/70" aria-hidden="true" />
+      <span className={`h-px min-w-10 ${visual.line}`} aria-hidden="true" />
     </div>
   );
 }
 
 function RestIntervalControl({
   onChange,
+  section,
   seconds,
 }: {
   onChange: (seconds: number) => void;
+  section: WorkoutSection;
   seconds: number;
 }) {
+  const visual = sectionVisualStyles[section];
+
   return (
-    <div className="flex h-7 items-center justify-center">
-      <span className="h-px min-w-10 bg-outline-variant/70" aria-hidden="true" />
-      <label className="group mx-xs flex h-6 cursor-pointer items-center gap-[3px] rounded-full border border-dashed border-outline-variant bg-white px-xs text-[10px] font-medium text-secondary transition-colors hover:border-primary/50 hover:bg-primary-soft/60">
-        <SymbolIcon className="text-[13px] text-outline transition-colors group-hover:text-primary">
-          timer
-        </SymbolIcon>
+    <div className="flex h-9 items-center justify-center">
+      <span className={`h-px min-w-12 ${visual.line}`} aria-hidden="true" />
+      <label className="group mx-xs flex h-7 cursor-pointer items-center gap-[4px] rounded-full border border-dashed border-outline-variant bg-white px-xs text-[10px] font-semibold text-secondary shadow-[0_2px_8px_rgba(15,23,42,0.04)] transition-colors hover:border-primary/50 hover:bg-primary-soft/60">
+        <span className={`grid h-5 w-5 place-items-center rounded-full text-white ${visual.node}`}>
+          <SymbolIcon className="text-[13px]">timer</SymbolIcon>
+        </span>
         <span>动作间休息</span>
         <select
           aria-label="动作间休息"
@@ -1741,7 +1903,7 @@ function RestIntervalControl({
           ))}
         </select>
       </label>
-      <span className="h-px min-w-10 bg-outline-variant/70" aria-hidden="true" />
+      <span className={`h-px min-w-12 ${visual.line}`} aria-hidden="true" />
     </div>
   );
 }
