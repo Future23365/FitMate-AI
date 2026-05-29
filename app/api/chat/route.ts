@@ -41,7 +41,7 @@ export async function POST(request: Request) {
     metadata: {
       messageCount: preparedRequest.rawMessages.length,
       aiContextMessageCount: preparedRequest.messages.length,
-      hasClientConversationContext: preparedRequest.hasClientConversationContext,
+      hasClientConversationSummary: preparedRequest.hasClientConversationSummary,
       thinkingEnabled: preparedRequest.thinkingEnabled,
     },
   });

@@ -1,7 +1,6 @@
 import { clientRequest } from "@/lib/client/http/client-request";
 
-import type { ApiChatMessage } from "@/features/chat/types";
-import type { FitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
+import type { ConversationSummaryContext } from "@/lib/shared/chat/fitness-conversation-context";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
 import type { WorkoutPlanDraft, WorkoutRoutineDraft } from "@/lib/shared/workout-plans/draft-schema";
@@ -36,8 +35,8 @@ type ExerciseRecommendationRequestOptions = {
 };
 
 export function requestChatStream(
-  messages: ApiChatMessage[],
-  conversationContext: FitnessConversationContext,
+  latestUserMessage: string,
+  conversationSummary: string,
   thinkingEnabled: boolean,
   signal: AbortSignal,
 ) {
@@ -47,25 +46,25 @@ export function requestChatStream(
     throwOnError: false,
     signal,
     body: {
-      messages,
-      conversationContext,
+      latestUserMessage,
+      conversationSummary,
       thinkingEnabled,
     },
   });
 }
 
 export async function requestWorkoutPlanDraft(
-  messages: ApiChatMessage[],
+  latestUserMessage: string,
   intent: unknown,
-  conversationContext: FitnessConversationContext,
+  conversationSummary: Pick<ConversationSummaryContext, "summary">,
   parentTraceId?: string,
 ): Promise<WorkoutPlanDraftPayload> {
   const data = await clientRequest<WorkoutPlanDraftResponse>("/api/ai/workout-plan", {
     method: "POST",
     body: {
-      messages,
+      latestUserMessage,
       intent,
-      conversationContext,
+      conversationSummary: conversationSummary.summary,
       parentTraceId,
     },
   });
@@ -116,18 +115,18 @@ function collectDraftExercisesFromCandidates(
 }
 
 export async function requestExerciseRecommendations(
-  messages: ApiChatMessage[],
+  latestUserMessage: string,
   intent: unknown,
-  conversationContext: FitnessConversationContext,
+  conversationSummary: Pick<ConversationSummaryContext, "summary">,
   parentTraceId?: string,
   options: ExerciseRecommendationRequestOptions = {},
 ) {
   const data = await clientRequest<ExerciseRecommendationResponse>("/api/ai/exercise-recommendations", {
     method: "POST",
     body: {
-      messages,
+      latestUserMessage,
       intent,
-      conversationContext,
+      conversationSummary: conversationSummary.summary,
       parentTraceId,
       excludeExerciseIds: options.excludeExerciseIds,
     },

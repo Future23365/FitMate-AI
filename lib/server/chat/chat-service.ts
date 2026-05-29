@@ -3,13 +3,15 @@ import "server-only";
 import { z } from "zod";
 
 import { aiPromptConfig } from "@/lib/server/ai/prompt-config";
+import { updateConversationSummary } from "@/lib/server/chat/conversation-summary-service";
 import {
   aiContextChatMessageSchema,
   buildFitnessConversationContext,
+  buildConversationSummaryContext,
+  formatConversationSummaryContextForPrompt,
   fitnessConversationContextSchema,
-  formatFitnessConversationContextForPrompt,
   normalizeAiContextMessages,
-  selectMessagesForAiContext,
+  type ConversationSummaryContext,
   type FitnessConversationContext,
 } from "@/lib/shared/chat/fitness-conversation-context";
 import type { AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
@@ -81,7 +83,9 @@ export const chatIntentSchema = z.object({
 export type ChatIntent = z.infer<typeof chatIntentSchema>;
 
 export const chatRequestSchema = z.object({
-  messages: z.array(aiContextChatMessageSchema).min(1).max(200),
+  latestUserMessage: z.string().trim().min(1).max(4000),
+  conversationSummary: z.string().trim().max(2000).default(""),
+  messages: z.array(aiContextChatMessageSchema).min(1).max(200).optional(),
   conversationContext: fitnessConversationContextSchema.optional(),
   thinkingEnabled: z.boolean().optional(),
 });
@@ -91,9 +95,10 @@ export type AiChatRequest = z.infer<typeof chatRequestSchema>;
 export type PreparedAiChatRequest = {
   rawMessages: ChatMessage[];
   messages: ChatMessage[];
-  conversationContext: FitnessConversationContext;
+  conversationSummaryContext: ConversationSummaryContext;
+  internalConversationContext: FitnessConversationContext;
   thinkingEnabled: boolean;
-  hasClientConversationContext: boolean;
+  hasClientConversationSummary: boolean;
 };
 
 export type AssistantAction = {
@@ -125,15 +130,23 @@ const DEEPSEEK_REQUEST_TIMEOUT_MS = 45_000;
 const INTENT_REQUEST_TIMEOUT_MS = 12_000;
 
 export function prepareAiChatRequest(request: AiChatRequest): PreparedAiChatRequest {
-  const rawMessages = normalizeAiContextMessages(request.messages);
+  const rawMessages = normalizeAiContextMessages(
+    request.messages ?? [{ role: "user", content: request.latestUserMessage }],
+  );
+  const messages = [{ role: "user" as const, content: request.latestUserMessage }];
+  const conversationSummaryContext = buildConversationSummaryContext({
+    summary: request.conversationSummary,
+    latestUserMessage: request.latestUserMessage,
+  });
 
   return {
     rawMessages,
-    conversationContext:
+    conversationSummaryContext,
+    internalConversationContext:
       request.conversationContext ?? buildFitnessConversationContext(rawMessages),
-    messages: selectMessagesForAiContext(rawMessages, { maxMessages: 16 }),
+    messages,
     thinkingEnabled: request.thinkingEnabled !== false,
-    hasClientConversationContext: Boolean(request.conversationContext),
+    hasClientConversationSummary: request.conversationSummary.trim().length > 0,
   };
 }
 
@@ -150,22 +163,29 @@ export async function createAiChatResponse({
   request: PreparedAiChatRequest;
   trace: AiTraceLogger;
 }): Promise<Response> {
-  const { rawMessages, conversationContext, messages, thinkingEnabled } = request;
+  const {
+    rawMessages,
+    conversationSummaryContext,
+    internalConversationContext,
+    messages,
+    thinkingEnabled,
+  } = request;
 
   trace.addStep({
     name: "用户输入",
     type: "user_input",
     input: {
       messages: rawMessages,
-      conversationContext,
+      latestUserMessage: conversationSummaryContext.latestUserMessage,
+      conversationSummary: conversationSummaryContext.summary,
       aiContextMessages: messages,
       thinkingEnabled,
     },
   });
 
-  const chatIntent = await resolveChatIntent(apiKey, messages, conversationContext, trace);
+  const chatIntent = await resolveChatIntent(apiKey, messages, conversationSummaryContext, internalConversationContext, trace);
   const exerciseContext = chatIntent.needsExerciseContext
-    ? await buildExerciseContext(chatIntent, messages, conversationContext, trace)
+    ? await buildExerciseContext(chatIntent, messages, internalConversationContext, trace)
     : null;
   const assistantAction = resolveAssistantAction(chatIntent, exerciseContext);
   const visibleSuggestedReplies = resolveVisibleSuggestedReplies(chatIntent, assistantAction);
@@ -187,7 +207,7 @@ export async function createAiChatResponse({
       skipped: !assistantAction,
     },
   });
-  const systemPrompt = buildSystemPrompt(chatIntent, exerciseContext, conversationContext);
+  const systemPrompt = buildSystemPrompt(chatIntent, exerciseContext, conversationSummaryContext);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DEEPSEEK_REQUEST_TIMEOUT_MS);
   let response: Response;
@@ -209,6 +229,7 @@ export async function createAiChatResponse({
     metadata: {
       intent: chatIntent.type,
       exerciseContextCount: exerciseContext?.providedExercises.length ?? 0,
+      modelVisibleMessageCount: 2,
       timeoutMs: DEEPSEEK_REQUEST_TIMEOUT_MS,
     },
   });
@@ -387,8 +408,21 @@ export async function createAiChatResponse({
                   tokenUsage,
                 },
               });
+              const summaryUpdate = await updateConversationSummary({
+                apiKey,
+                previousSummary: conversationSummaryContext.summary,
+                latestUserMessage: conversationSummaryContext.latestUserMessage,
+                assistantReply: contentText,
+                internalActionSummary: summarizeAssistantAction(assistantAction),
+                trace,
+              });
               trace.finish("success");
-              controller.enqueue(encodeChatStreamEvent("done", "", { traceId: trace.id }));
+              controller.enqueue(
+                encodeChatStreamEvent("done", "", {
+                  traceId: trace.id,
+                  conversationSummary: summaryUpdate.summary,
+                }),
+              );
               controller.close();
               return;
             }
@@ -426,8 +460,21 @@ export async function createAiChatResponse({
             tokenUsage,
           },
         });
+        const summaryUpdate = await updateConversationSummary({
+          apiKey,
+          previousSummary: conversationSummaryContext.summary,
+          latestUserMessage: conversationSummaryContext.latestUserMessage,
+          assistantReply: contentText,
+          internalActionSummary: summarizeAssistantAction(assistantAction),
+          trace,
+        });
         trace.finish("success");
-        controller.enqueue(encodeChatStreamEvent("done", "", { traceId: trace.id }));
+        controller.enqueue(
+          encodeChatStreamEvent("done", "", {
+            traceId: trace.id,
+            conversationSummary: summaryUpdate.summary,
+          }),
+        );
         controller.close();
       } catch (error) {
         clearTimeout(timeout);
@@ -468,11 +515,12 @@ export async function createAiChatResponse({
 async function resolveChatIntent(
   apiKey: string,
   messages: ChatMessage[],
-  conversationContext: FitnessConversationContext,
+  conversationSummaryContext: ConversationSummaryContext,
+  internalConversationContext: FitnessConversationContext,
   trace?: AiTraceLogger,
 ): Promise<ChatIntent> {
-  const fallbackIntent = createFallbackChatIntent(messages, conversationContext);
-  const contextPrompt = formatFitnessConversationContextForPrompt(conversationContext);
+  const fallbackIntent = createFallbackChatIntent(messages, internalConversationContext, conversationSummaryContext.summary);
+  const contextPrompt = formatConversationSummaryContextForPrompt(conversationSummaryContext);
 
   try {
     const modelMessages: DeepSeekChatMessage[] = [
@@ -700,12 +748,23 @@ export function resolveVisibleSuggestedReplies(
   return chatIntent.suggestedReplies;
 }
 
+function summarizeAssistantAction(assistantAction: AssistantAction | null) {
+  if (!assistantAction) {
+    return "";
+  }
+
+  return JSON.stringify({
+    action: assistantAction.action,
+    intent: assistantAction.intent,
+  });
+}
+
 function buildSystemPrompt(
   chatIntent: ChatIntent,
   exerciseContext: ExerciseContext | null,
-  conversationContext: FitnessConversationContext,
+  conversationSummaryContext: ConversationSummaryContext,
 ) {
-  const contextPrompt = formatFitnessConversationContextForPrompt(conversationContext);
+  const contextPrompt = formatConversationSummaryContextForPrompt(conversationSummaryContext);
 
   if (!exerciseContext) {
     return [aiPromptConfig.chatCompletion.system, contextPrompt].filter(Boolean).join("\n\n");
@@ -873,6 +932,7 @@ export function parseJsonObject(content: string):
 export function createFallbackChatIntent(
   messages: ChatMessage[],
   conversationContext: FitnessConversationContext,
+  conversationSummary = conversationContext.summary,
 ): ChatIntent {
   const latestUserMessage = getLatestUserMessage(messages);
   const isRecommendationRefresh = /换一批|再换|换几个|换别的|再来一批|下一批|重新推荐|不要这些|别的动作/.test(
@@ -892,7 +952,7 @@ export function createFallbackChatIntent(
   return {
     type,
     needsExerciseContext: /动作|训练|计划|编排|替换|推荐|练|胸|背|腿|肩|核心|减脂|增肌/.test(
-      `${latestUserMessage} ${conversationContext.summary}`,
+      `${latestUserMessage} ${conversationSummary}`,
     ),
     workoutIntent:
       isRecommendationRefresh && conversationContext.currentIntent

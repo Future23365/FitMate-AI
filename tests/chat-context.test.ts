@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildConversationSummaryContext,
   buildFitnessConversationContext,
+  formatConversationSummaryContextForPrompt,
   formatFitnessConversationContextForPrompt,
-  selectMessagesForAiContext,
+  initializeConversationSummary,
+  selectMessagesForLegacyContextMigration,
 } from "@/lib/shared/chat/fitness-conversation-context";
 
 import { createWorkoutPlanIntent } from "./fixtures/domain";
@@ -31,9 +34,14 @@ describe("fitness conversation context", () => {
       { role: "user" as const, content: "换一批动作" },
     ];
 
-    const selected = selectMessagesForAiContext(messages, { maxMessages: 8, recentWindow: 4 });
+    const selected = selectMessagesForLegacyContextMigration(messages, { maxMessages: 8, recentWindow: 4 });
     const context = buildFitnessConversationContext(messages);
     const prompt = formatFitnessConversationContextForPrompt(context);
+    const summaryContext = buildConversationSummaryContext({
+      summary: context.summary,
+      latestUserMessage: "换一批动作",
+    });
+    const summaryPrompt = formatConversationSummaryContextForPrompt(summaryContext);
 
     expect(selected[0].content).toContain("我想减脂");
     expect(selected.some((message) => message.content.includes("膝盖"))).toBe(true);
@@ -45,7 +53,21 @@ describe("fitness conversation context", () => {
     });
     expect(context.knownFacts.injuryLimitations).toContain("我膝盖有点痛，避免跳跃。");
     expect(context.knownFacts.avoidances).toContain("我膝盖有点痛，避免跳跃。");
-    expect(prompt).toContain("fitnessConversationContext:");
+    expect(prompt).toContain("conversationSummary:");
+    expect(prompt).not.toContain("knownFacts");
+    expect(summaryPrompt).toContain("conversationSummary:");
     expect(prompt).toContain("胸肌增肌");
+  });
+
+  it("initializes natural language summary from legacy conversation context", () => {
+    const summary = initializeConversationSummary(
+      [{ role: "user", content: "今天在家练胸 30 分钟" }],
+      { summary: "用户想在家练胸肌。" },
+    );
+
+    expect(summary).toMatchObject({
+      summary: "用户想在家练胸肌。",
+      latestUserMessage: "今天在家练胸 30 分钟",
+    });
   });
 });

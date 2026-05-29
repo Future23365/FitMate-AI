@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
-import { startAiTrace, summarizeLatestUserMessage } from "@/lib/server/dev/ai-trace-logger";
+import { startAiTrace } from "@/lib/server/dev/ai-trace-logger";
 import {
   aiWorkoutPlanRequestSchema,
   generateAiWorkoutPlanDraft,
@@ -24,12 +24,12 @@ export async function POST(request: Request) {
 
   const trace = startAiTrace({
     route: "/api/ai/workout-plan",
-    title: summarizeLatestUserMessage(parsedRequest.data.messages),
+    title: parsedRequest.data.latestUserMessage,
     existingTraceId: parsedRequest.data.parentTraceId,
     metadata: {
-      messageCount: parsedRequest.data.messages.length,
+      messageCount: 1,
       hasClientIntent: Boolean(parsedRequest.data.intent),
-      hasConversationContext: Boolean(parsedRequest.data.conversationContext),
+      hasConversationSummary: parsedRequest.data.conversationSummary.trim().length > 0,
       continuedFromRoute: parsedRequest.data.parentTraceId ? "/api/chat" : undefined,
     },
   });

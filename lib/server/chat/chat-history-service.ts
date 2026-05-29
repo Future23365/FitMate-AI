@@ -5,7 +5,10 @@ import type { Prisma } from "@prisma/client";
 import type { ChatConversation, ChatMessage } from "@/features/chat/types";
 import { getPrismaClient } from "@/lib/server/db/prisma";
 import { getCurrentUser } from "@/lib/server/users/current-user";
-import { buildFitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
+import {
+  buildFitnessConversationContext,
+  initializeConversationSummary,
+} from "@/lib/shared/chat/fitness-conversation-context";
 
 type ChatSessionWithMessages = Prisma.ChatSessionGetPayload<{
   include: {
@@ -97,6 +100,7 @@ export async function saveChatConversation(rawConversation: ChatConversation) {
             plan: conversation.plans?.[message.id],
             routine: conversation.routines?.[message.id],
             exerciseRecommendation: conversation.exerciseRecommendations?.[message.id],
+            conversationSummary: isLastMessage ? conversation.conversationSummary : undefined,
             conversationContext: isLastMessage ? conversation.conversationContext : undefined,
           },
         };
@@ -138,6 +142,9 @@ function normalizeConversation(conversation: ChatConversation): ChatConversation
   const conversationContext =
     conversation.conversationContext ??
     buildFitnessConversationContext(messages.map(({ role, content }) => ({ role, content })));
+  const conversationSummary =
+    conversation.conversationSummary ??
+    initializeConversationSummary(messages.map(({ role, content }) => ({ role, content })), conversationContext);
 
   return {
     id: conversation.id,
@@ -149,6 +156,7 @@ function normalizeConversation(conversation: ChatConversation): ChatConversation
     exerciseRecommendations: Object.keys(exerciseRecommendations).length
       ? exerciseRecommendations
       : undefined,
+    conversationSummary,
     conversationContext,
   };
 }
@@ -187,8 +195,12 @@ function mapChatSessionToConversation(session: ChatSessionWithMessages): ChatCon
   }
 
   const latestMessageMetadata = readObject(session.messages.at(-1)?.metadata);
+  const legacyConversationContext = latestMessageMetadata?.conversationContext as ChatConversation["conversationContext"];
+  const conversationSummary =
+    (latestMessageMetadata?.conversationSummary as ChatConversation["conversationSummary"]) ??
+    initializeConversationSummary(messages, legacyConversationContext);
   const conversationContext =
-    (latestMessageMetadata?.conversationContext as ChatConversation["conversationContext"]) ??
+    legacyConversationContext ??
     buildFitnessConversationContext(messages);
 
   return {
@@ -201,6 +213,7 @@ function mapChatSessionToConversation(session: ChatSessionWithMessages): ChatCon
     exerciseRecommendations: Object.keys(exerciseRecommendations).length
       ? exerciseRecommendations
       : undefined,
+    conversationSummary,
     conversationContext,
   };
 }

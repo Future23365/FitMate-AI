@@ -46,22 +46,21 @@ describe("AI chat service deterministic boundaries", () => {
   it("validates input and prepares AI request context", () => {
     expect(
       chatRequestSchema.safeParse({
-        messages: [{ role: "user", content: "" }],
+        latestUserMessage: "",
       }).success,
     ).toBe(false);
 
     const preparedRequest = prepareAiChatRequest({
-      messages: [
-        { role: "user", content: "  今天在家练胸 30 分钟  " },
-        { role: "assistant", content: "可以，我来整理。" },
-      ],
+      latestUserMessage: "今天在家练胸 30 分钟",
+      conversationSummary: "用户想在家练胸肌。",
       thinkingEnabled: false,
     });
 
-    expect(preparedRequest.rawMessages).toHaveLength(2);
-    expect(preparedRequest.messages).toHaveLength(2);
+    expect(preparedRequest.rawMessages).toHaveLength(1);
+    expect(preparedRequest.messages).toEqual([{ role: "user", content: "今天在家练胸 30 分钟" }]);
+    expect(preparedRequest.conversationSummaryContext.summary).toBe("用户想在家练胸肌。");
     expect(preparedRequest.thinkingEnabled).toBe(false);
-    expect(preparedRequest.hasClientConversationContext).toBe(false);
+    expect(preparedRequest.hasClientConversationSummary).toBe(true);
   });
 
   it("resolves fallback intent, assistant action, and visible suggested replies", () => {

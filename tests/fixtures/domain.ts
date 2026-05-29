@@ -317,6 +317,7 @@ export function createChatConversation(overrides: Partial<ChatConversation> = {}
       { id: "message-1", role: "user", content: "今天在家练胸" },
       { id: "message-2", role: "assistant", content: "可以。" },
     ],
+    conversationSummary: overrides.conversationSummary ?? { summary: "用户想在家练胸肌。" },
     conversationContext: overrides.conversationContext ?? createConversationContext(),
     plans: overrides.plans,
     exerciseRecommendations: overrides.exerciseRecommendations,

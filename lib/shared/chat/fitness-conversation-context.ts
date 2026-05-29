@@ -11,6 +11,11 @@ export const aiContextChatMessageSchema = z.object({
   content: z.string().trim().min(1).max(4000),
 });
 
+export const conversationSummaryContextSchema = z.object({
+  summary: z.string().trim().max(2000).default(""),
+  latestUserMessage: z.string().trim().min(1).max(4000),
+});
+
 export const fitnessConversationKnownFactsSchema = z.object({
   goal: z.string().trim().min(1).max(120).optional(),
   experience: workoutExperienceSchema.optional(),
@@ -37,6 +42,7 @@ export const fitnessConversationContextSchema = z.object({
 });
 
 export type AiContextChatMessage = z.infer<typeof aiContextChatMessageSchema>;
+export type ConversationSummaryContext = z.infer<typeof conversationSummaryContextSchema>;
 export type FitnessConversationKnownFacts = z.infer<typeof fitnessConversationKnownFactsSchema>;
 export type FitnessConversationContext = z.infer<typeof fitnessConversationContextSchema>;
 
@@ -108,7 +114,8 @@ export function buildFitnessConversationContext(
   return context;
 }
 
-export function selectMessagesForAiContext(
+// 仅用于旧会话迁移测试和人工排查，模型调用路径不得再使用历史消息窗口。
+export function selectMessagesForLegacyContextMigration(
   rawMessages: Array<Pick<AiContextChatMessage, "role" | "content">>,
   options: { maxMessages?: number; recentWindow?: number } = {},
 ): AiContextChatMessage[] {
@@ -149,6 +156,46 @@ export function selectMessagesForAiContext(
     .map(([, message]) => message);
 }
 
+// 模型可见上下文的唯一共享契约；结构化旧上下文只能用于服务端迁移和确定性兜底。
+export function buildConversationSummaryContext(input: {
+  summary?: string;
+  latestUserMessage: string;
+}): ConversationSummaryContext {
+  return conversationSummaryContextSchema.parse({
+    summary: input.summary ?? "",
+    latestUserMessage: input.latestUserMessage,
+  });
+}
+
+// 旧会话可能只保存结构化 conversationContext；这里把它迁移成自然语言 summary。
+export function initializeConversationSummary(
+  rawMessages: Array<Pick<AiContextChatMessage, "role" | "content">>,
+  legacyContext?: Pick<FitnessConversationContext, "summary"> | null,
+) {
+  const latestUserMessage = [...normalizeAiContextMessages(rawMessages)]
+    .reverse()
+    .find((message) => message.role === "user")?.content ?? "";
+  const summary = legacyContext?.summary?.trim() || buildFitnessConversationContext(rawMessages).summary;
+
+  return {
+    summary,
+    latestUserMessage,
+  };
+}
+
+export function formatConversationSummaryContextForPrompt(
+  context: Pick<ConversationSummaryContext, "summary"> | undefined,
+) {
+  const summary = context?.summary?.trim();
+
+  return [
+    "conversationSummary:",
+    summary || "暂无历史总结。本轮只根据当前用户消息和服务端结构化校验结果回复。",
+    "",
+    "只能把 conversationSummary 当作历史摘要参考；当前最新 user message 优先级最高。",
+  ].join("\n");
+}
+
 export function formatFitnessConversationContextForPrompt(
   context: FitnessConversationContext | undefined,
 ) {
@@ -156,19 +203,7 @@ export function formatFitnessConversationContextForPrompt(
     return "";
   }
 
-  return [
-    "fitnessConversationContext:",
-    JSON.stringify(
-      {
-        summary: context.summary,
-        currentIntent: context.currentIntent,
-        knownFacts: context.knownFacts,
-        unresolvedQuestions: context.unresolvedQuestions,
-      },
-      null,
-      2,
-    ),
-  ].join("\n");
+  return formatConversationSummaryContextForPrompt(context);
 }
 
 function extractLatestTriggerIntent(content: string) {

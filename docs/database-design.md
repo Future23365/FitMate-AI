@@ -13,7 +13,7 @@
 | 用户与身份 | `User`、`UserIdentity`、`UserProfile` | 保存用户主体、登录身份和健身画像。当前鉴权尚未正式接入，服务端会创建固定的本地演示用户。 |
 | 动作库 | `Exercise` | 保存训练动作的标准事实数据，包括来源、分类、肌群、器械、居家可做条件、图片、教学步骤和审核状态。 |
 | 训练编排、日历与结果 | `WorkoutRoutine`、`WorkoutRoutineItem`、`WorkoutSchedule`、`WorkoutSessionResult` | 保存用户可复用动作编排、编排项、日历安排和实际训练结果摘要。 |
-| 聊天历史 | `ChatSession`、`ChatMessage` | 保存用户和 AI 的对话历史，以及绑定在消息上的计划卡片、推荐卡片和结构化上下文。 |
+| 聊天历史 | `ChatSession`、`ChatMessage` | 保存用户和 AI 的对话历史，以及绑定在消息上的计划卡片、推荐卡片和自然语言上下文总结。 |
 
 主要关系如下：
 
@@ -311,7 +311,8 @@ User
 | `plan` | 绑定在该消息上的长期训练计划草稿卡片。 |
 | `routine` | 绑定在该消息上的单次训练编排草稿卡片，包含热身、训练、拉伸三段式动作和主训练循环配置。 |
 | `exerciseRecommendation` | 绑定在该消息上的动作推荐卡片。 |
-| `conversationContext` | 结构化对话上下文。当前只写入最后一条消息，用于恢复长对话上下文。 |
+| `conversationSummary` | 服务端维护的自然语言对话总结。当前只写入最后一条消息，供下一轮模型调用使用。 |
+| `conversationContext` | 旧结构化对话上下文。仅用于历史迁移和服务端确定性兜底，不再作为模型可见协议。 |
 
 长期 `plan` 草稿当前不会单独落库为新的计划表，而是保存在 `ChatMessage.metadata.plan` 中，作为聊天消息上的结构化推送卡片。草稿包含 `cycleLengthDays`、`trainingDayCount`、`restDayCount`、`cycleRepeatable`、`progression`、`recoveryStrategy`、`schedulePattern` 和周期日 `days`；非休息周期日必须用 `warmup`、`training`、`stretch` 三段式 `sections` 表达动作，休息日只表达恢复说明。用户导入长期计划时，业务层只为非休息周期日创建 `WorkoutRoutine`，并把每个动作的 `section` 写入 `WorkoutRoutineItem.section`；随后按本周期、重复 2 个周期、重复 4 个周期或明确的 `calendarHorizonDays` 生成 `WorkoutSchedule`。重复导入时只替换同一 `sourceRoutineTitle` 且位于本次导入日期范围内的旧日程，避免误删手动安排或其他计划来源。
 
@@ -340,5 +341,5 @@ User
 - 训练编排动作通过 `WorkoutRoutineItem.exerciseId` 强制引用 `Exercise`，避免 AI 或客户端保存不存在的动作。
 - `WorkoutSchedule` 保存日历展示快照；routine 后续更新不会自动改写已存在日历安排的标题、分钟数和热量。
 - `WorkoutSessionResult` 保存训练完成摘要；`WorkoutSchedule.status = completed` 用于日历筛选、统计和徽标展示。
-- `ChatMessage.metadata` 是聊天结构化上下文和卡片数据的落点；当前 `plan` 保存长期训练计划草稿，`routine` 保存单次训练编排草稿。如果某类数据变成稳定查询条件，应优先升级为显式字段。
-- 当前 `ChatSession` 不保存 `metadata`，对话上下文已迁移到 `ChatMessage.metadata.conversationContext`。
+- `ChatMessage.metadata` 是聊天上下文总结和卡片数据的落点；当前 `plan` 保存长期训练计划草稿，`routine` 保存单次训练编排草稿。如果某类数据变成稳定查询条件，应优先升级为显式字段。
+- 当前 `ChatSession` 不保存 `metadata`，模型可见上下文已迁移到 `ChatMessage.metadata.conversationSummary`；旧 `conversationContext` 只用于历史迁移。

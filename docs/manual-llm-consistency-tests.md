@@ -51,7 +51,7 @@ docs/manual-llm-consistency-latest-report.md
 - `canTriggerAction=false`
 - 信息不足追问和第一人称 `suggestedReplies`
 - 显式动作列表默认时长
-- 换一批复用 `fitnessConversationContext.currentIntent`
+- 换一批基于 `conversationSummary` 和服务端结构化 intent 复用上一轮目标
 - 高风险健康提醒
 - 候选充足、候选有限可用、候选不足表达
 - 动作推荐普通推荐和 `excludedExerciseIds` 排除

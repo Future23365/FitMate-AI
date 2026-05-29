@@ -205,6 +205,8 @@ Zod 用于在服务端再次校验模型输出，避免模型生成不可执行�
 理解用户 → 查询动作 → 生成计划 → 校验计划 → 保存计划
 ```
 
+当前聊天链路由服务端维护自然语言 `conversationSummary`。`/api/chat`、`/api/ai/workout-plan` 和 `/api/ai/exercise-recommendations` 的模型可见输入只包含 `conversationSummary` 与当前最新用户消息；完整历史消息窗口和旧结构化 `conversationContext` 不再传给模型。结构化 `assistant_action`、`workoutIntent`、候选动作和草稿校验仍保留在服务端内部，用于权限隔离、动作库约束和最终执行。
+
 LangGraph 可以作为后期选择，用于构建更复杂的 Agent 状态机和多步骤任务流，但不建议一开始就引入。
 
 ---
@@ -956,4 +958,3 @@ Redis / Queue / Object Storage
 - 内容管理与监控系统
 
 短期应优先完成稳定的产品闭环，长期再扩展 Agent、RAG、后台管理、多端体验和训练智能化能力。
-
