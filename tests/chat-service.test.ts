@@ -186,6 +186,47 @@ describe("AI chat service deterministic boundaries", () => {
     });
   });
 
+  it("triggers exercise recommendations when only the target body part is clear", () => {
+    expect(aiPromptConfig.chatIntentResolution.system).toContain(
+      "即使缺少器械、场地或训练时长",
+    );
+    expect(aiPromptConfig.chatIntentResolution.system).toContain(
+      "missingActionFields 不要包含 equipmentOrLocation 或 sessionMinutes",
+    );
+
+    const legRecommendationIntent = createWorkoutPlanIntent({
+      intentType: "routine",
+      goal: "练腿",
+      sessionMinutes: 30,
+      equipment: [],
+      preferences: [],
+    });
+    const chatIntent: ChatIntent = {
+      type: "exercise_recommendation",
+      needsExerciseContext: true,
+      workoutIntent: legRecommendationIntent,
+      requestedExerciseName: "",
+      canTriggerAction: false,
+      missingActionFields: ["equipmentOrLocation"],
+      suggestedReplies: ["我今天在家用自重练腿"],
+    };
+
+    expect(resolveAssistantAction(chatIntent, createExerciseContext({ intent: legRecommendationIntent }))).toMatchObject({
+      action: "exercise_recommendation",
+      intent: {
+        intentType: "routine",
+        goal: "练腿",
+      },
+    });
+    expect(
+      resolveAssistantAction(
+        chatIntent,
+        createExerciseContext({ intent: legRecommendationIntent, candidateStatus: "insufficient" }),
+      ),
+    ).toBeNull();
+    expect(resolveVisibleSuggestedReplies(chatIntent, resolveAssistantAction(chatIntent, createExerciseContext({ intent: legRecommendationIntent })))).toEqual([]);
+  });
+
   it("ignores health-related missing fields when deriving assistant actions", () => {
     const weeklyPlanIntent = createWorkoutPlanIntent({
       intentType: "plan",

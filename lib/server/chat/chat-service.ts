@@ -738,7 +738,7 @@ export function resolveAssistantAction(
   }
 }
 
-// 健康/伤病类字段不参与触发拦截；用户未主动说明时默认不追问。
+// 服务端兜底触发边界：动作推荐只要求目标明确，训练编排和长期计划继续检查关键字段。
 export function canTriggerAssistantAction(
   chatIntent: ChatIntent,
   exerciseContext: ExerciseContext | null,
@@ -751,12 +751,20 @@ export function canTriggerAssistantAction(
     return true;
   }
 
+  if (chatIntent.type === "exercise_recommendation") {
+    return hasRecommendationTarget(chatIntent, exerciseContext.intent);
+  }
+
   const blockingFields = getActionBlockingMissingFields(
     chatIntent.missingActionFields,
     exerciseContext.intent,
   );
 
   return blockingFields.length === 0 && isActionType(chatIntent.type);
+}
+
+function hasRecommendationTarget(chatIntent: ChatIntent, intent: WorkoutPlanIntent) {
+  return intent.goal.trim().length > 0 || (chatIntent.requestedExerciseName ?? "").trim().length > 0;
 }
 
 export function getActionBlockingMissingFields(
