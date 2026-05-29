@@ -86,7 +86,9 @@ function SidebarPanel({
   return (
     <>
       <div className="app-sidebar-brand mb-8 flex shrink-0 items-center gap-3 px-3">
-        <LogoMark />
+        <span className="app-sidebar-brand-icon">
+          <LogoMark />
+        </span>
         <div className="app-sidebar-copy">
           <h1 className="text-xl font-extrabold tracking-tight text-primary" id={titleId}>
             FitMate AI
@@ -189,7 +191,7 @@ function SidebarPanel({
 
       <div className="mt-4 shrink-0 border-t border-line pt-4">
         <div className="app-sidebar-user-card flex items-center gap-3 rounded-xl border border-line/80 bg-white/72 p-2.5 shadow-card backdrop-blur-xl">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-soft text-sm font-extrabold text-primary ring-1 ring-primary/10">
+          <div className="app-sidebar-user-avatar flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-soft text-sm font-extrabold text-primary ring-1 ring-primary/10">
             {currentUser.initials}
           </div>
           <div className="app-sidebar-copy min-w-0 flex-1">
@@ -198,7 +200,7 @@ function SidebarPanel({
           </div>
           <Link
             aria-label="进入设置"
-            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-colors ${
+            className={`app-sidebar-settings-link flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-colors ${
               isSettingsActive
                 ? "bg-primary-soft text-primary"
                 : "text-muted hover:bg-panel-soft hover:text-primary"

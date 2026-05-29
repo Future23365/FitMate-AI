@@ -406,11 +406,15 @@ body,
 
 .app-sidebar-nav-link,
 .app-sidebar-primary-action,
+.app-sidebar-brand,
 .app-sidebar-label,
 .app-sidebar-icon,
+.app-sidebar-brand-icon,
 .app-sidebar-copy,
 .app-sidebar-history-section,
-.app-sidebar-user-card {
+.app-sidebar-user-card,
+.app-sidebar-user-avatar,
+.app-sidebar-settings-link {
   transition:
     opacity 0.16s ease,
     max-width 0.2s ease,
@@ -431,6 +435,12 @@ body,
   line-height: 1;
 }
 
+.app-sidebar-brand-icon {
+  display: inline-grid;
+  place-items: center;
+  line-height: 1;
+}
+
 @media (max-width: 1279px) {
   .app-sidebar {
     align-items: stretch;
@@ -447,17 +457,23 @@ body,
   }
 
   .app-sidebar-brand {
-    justify-content: center;
-    gap: 0;
-    padding-left: 0;
-    padding-right: 0;
+    align-items: center;
+    column-gap: 0;
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    overflow: hidden;
+    padding: 0;
+    width: 100%;
+  }
+
+  .app-sidebar-brand-icon {
+    height: 44px;
+    width: 44px;
   }
 
   .app-sidebar:is(:hover, :focus-within) .app-sidebar-brand {
-    justify-content: flex-start;
-    gap: 12px;
-    padding-left: 12px;
-    padding-right: 12px;
+    column-gap: 12px;
+    padding: 0;
   }
 
   .app-sidebar-copy,
@@ -485,8 +501,7 @@ body,
     grid-template-columns: 44px minmax(0, 1fr);
     height: 44px;
     overflow: hidden;
-    padding-left: 0;
-    padding-right: 0;
+    padding: 0;
     width: 100%;
   }
 
@@ -498,8 +513,7 @@ body,
 
   .app-sidebar:is(:hover, :focus-within) .app-sidebar-primary-action {
     column-gap: 8px;
-    padding-left: 0;
-    padding-right: 0;
+    padding: 0;
   }
 
   .app-sidebar-nav-link {
@@ -509,15 +523,13 @@ body,
     grid-template-columns: 44px minmax(0, 1fr);
     height: 44px;
     overflow: hidden;
-    padding-left: 0;
-    padding-right: 0;
+    padding: 0;
     width: 100%;
   }
 
   .app-sidebar:is(:hover, :focus-within) .app-sidebar-nav-link {
     column-gap: 12px;
-    padding-left: 0;
-    padding-right: 0;
+    padding: 0;
   }
 
   .app-sidebar-history-section {
@@ -547,23 +559,44 @@ body,
   }
 
   .app-sidebar-user-card {
-    flex-direction: column;
-    gap: 4px;
-    padding: 2px;
-    width: 44px;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    padding: 0;
+    width: 100%;
     border-color: transparent;
     background-color: transparent;
     box-shadow: none;
   }
 
+  .app-sidebar-user-avatar {
+    max-width: 0;
+    opacity: 0;
+    overflow: hidden;
+    pointer-events: none;
+    transform: scale(0.86);
+  }
+
+  .app-sidebar-settings-link {
+    height: 44px;
+    width: 44px;
+  }
+
   .app-sidebar:is(:hover, :focus-within) .app-sidebar-user-card {
-    flex-direction: row;
+    justify-content: flex-start;
     gap: 12px;
     padding: 10px;
     width: 100%;
     border-color: rgba(215, 221, 229, 0.8);
     background-color: rgba(255, 255, 255, 0.72);
     box-shadow: var(--shadow-card);
+  }
+
+  .app-sidebar:is(:hover, :focus-within) .app-sidebar-user-avatar {
+    max-width: 40px;
+    opacity: 1;
+    pointer-events: auto;
+    transform: scale(1);
   }
 }
 
