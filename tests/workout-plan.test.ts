@@ -24,12 +24,6 @@ import {
 
 const exercises = exercisesData as Exercise[];
 
-function hasHighRiskHealthCondition(text: string): boolean {
-  return /(胸痛|心脏病|心梗|中风|晕厥|昏厥|怀孕|孕期|产后|骨折|术后|手术后|高血压|糖尿病|癌症|肿瘤)/.test(
-    text,
-  );
-}
-
 function createPlanDay(
   overrides: Partial<WorkoutDayDraft> & {
     cycleDayIndex: number;
@@ -108,7 +102,7 @@ function createPlanDay(
 }
 
 describe("workout plan core logic", () => {
-  it("validates workout plan intent schema and high-risk health terms", () => {
+  it("validates workout plan intent schema", () => {
     const validIntent = createWorkoutPlanIntent({
       intentType: "plan",
       goal: "增肌塑形",
@@ -128,12 +122,9 @@ describe("workout plan core logic", () => {
         experience: "superman",
       }).success,
     ).toBe(false);
-    expect(hasHighRiskHealthCondition("我是一个健康的上班族，想减脂。")).toBe(false);
-    expect(hasHighRiskHealthCondition("我刚做完手术，术后恢复期，心脏不太舒服，胸痛。")).toBe(true);
-    expect(hasHighRiskHealthCondition("我是孕妇，目前处于孕期，想做点轻量拉伸。")).toBe(true);
   });
 
-  it("selects safe and relevant exercise candidates from real seed data", () => {
+  it("selects relevant exercise candidates from real seed data", () => {
     const beginnerResult = selectExerciseCandidates(
       createWorkoutPlanIntent({
         intentType: "plan",
@@ -147,20 +138,6 @@ describe("workout plan core logic", () => {
     expect(beginnerResult.primaryCandidates.some((candidate) => candidate.exercise.level === "expert")).toBe(false);
     expect(beginnerResult.primaryCandidates.every((candidate) => candidate.score >= 28)).toBe(true);
     expect(beginnerResult.supplementaryCandidates.every((candidate) => candidate.score < 28)).toBe(true);
-
-    const injuryResult = selectExerciseCandidates(
-      createWorkoutPlanIntent({
-        goal: "提升心肺",
-        weeklyFrequency: 3,
-        equipment: ["自重"],
-        preferences: [],
-        injuryLimitations: ["膝盖疼痛，有半月板旧伤"],
-      }),
-      exercises,
-    );
-    expect(injuryResult.primaryCandidates.some((candidate) => candidate.exercise.riskTags.includes("high_impact"))).toBe(
-      false,
-    );
 
     const chestResult = selectExerciseCandidates(
       createWorkoutPlanIntent({

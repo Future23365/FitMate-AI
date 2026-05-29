@@ -67,23 +67,17 @@ export function selectExerciseCandidates(
 ): ExerciseCandidateResult {
   const intent = workoutPlanIntentSchema.parse(rawIntent);
   const requestedEquipment = resolveRequestedEquipment(intent.equipment);
-  const riskTagsToExclude = resolveRiskTagsToExclude(intent);
   const goalTags = resolveGoalTags(intent);
   const targetMuscles = resolveTargetMuscles(intent);
   const candidateRequirement = resolveCandidateRequirement(intent, targetMuscles, options);
   const excluded: ExcludedExercise[] = [];
   const warnings = new Set<string>();
 
-  if (intent.injuryLimitations.length > 0) {
-    warnings.add("用户存在疼痛或伤病限制，已排除高冲击或相关风险动作。");
-  }
-
   // 第一步：排除不合格动作并评分
   const allScored = exercises
     .flatMap((exercise) => {
       const exclusionReasons = getExerciseExclusionReasons(exercise, intent, {
         requestedEquipment,
-        riskTagsToExclude,
       });
 
       if (exclusionReasons.length > 0) {
@@ -243,17 +237,12 @@ function getExerciseExclusionReasons(
   intent: WorkoutPlanIntent,
   context: {
     requestedEquipment: Set<string>;
-    riskTagsToExclude: Set<string>;
   },
 ) {
   const reasons: string[] = [];
 
   if (intent.experience === "beginner" && exercise.level === "expert") {
     reasons.push("新手用户排除 expert 动作");
-  }
-
-  if (hasExcludedRiskTag(exercise, context.riskTagsToExclude)) {
-    reasons.push("命中疼痛或伤病相关风险标签");
   }
 
   if (!matchesRequestedEquipment(exercise, context.requestedEquipment)) {
@@ -321,15 +310,6 @@ function scoreExercise(
   if (matchesPreference(exercise, intent.preferences)) {
     score += 10;
     reasons.push("匹配用户偏好");
-  }
-
-  if (exercise.riskTags.length === 0) {
-    score += 8;
-    reasons.push("无风险标签");
-  }
-
-  if (exercise.categoryZh === "拉伸") {
-    score += intent.injuryLimitations.length > 0 ? 6 : 0;
   }
 
   return {
@@ -486,37 +466,6 @@ function resolveRequestedEquipment(equipment: string[]) {
   return requested;
 }
 
-function resolveRiskTagsToExclude(intent: WorkoutPlanIntent) {
-  const tags = new Set<string>();
-  const text = normalizeText([...intent.injuryLimitations, ...intent.avoidances].join(" "));
-
-  if (!text) {
-    return tags;
-  }
-
-  if (/(疼|痛|伤|不适|恢复|术后)/.test(text)) {
-    tags.add("high_impact");
-    tags.add("spine_load");
-  }
-
-  if (/(膝|膝盖|髌|半月板)/.test(text)) {
-    tags.add("knee_attention");
-    tags.add("high_impact");
-  }
-
-  if (/(腰|下背|背|脊柱|椎间盘)/.test(text)) {
-    tags.add("lower_back_attention");
-    tags.add("spine_load");
-    tags.add("high_impact");
-  }
-
-  if (/(肩|肩膀|肩袖)/.test(text)) {
-    tags.add("shoulder_attention");
-  }
-
-  return tags;
-}
-
 function resolveGoalTags(intent: WorkoutPlanIntent) {
   const tags = new Set<string>();
   const text = normalizeText([intent.goal, ...intent.preferences].join(" "));
@@ -578,10 +527,6 @@ function resolveTargetMuscles(intent: WorkoutPlanIntent) {
   }
 
   return muscles;
-}
-
-function hasExcludedRiskTag(exercise: Exercise, riskTagsToExclude: Set<string>) {
-  return exercise.riskTags.some((tag) => riskTagsToExclude.has(tag));
 }
 
 function matchesRequestedEquipment(exercise: Exercise, requestedEquipment: Set<string>) {

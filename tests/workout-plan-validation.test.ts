@@ -95,23 +95,10 @@ function createValidationDay(exerciseIds: string[]) {
 }
 
 describe("workout plan candidate and validation services", () => {
-  it("filters by target muscle, equipment, injury, avoidance, candidate sufficiency, and ordering", () => {
+  it("filters by target muscle, equipment, avoidance, candidate sufficiency, and ordering", () => {
     const chestResult = selectExerciseCandidates(createWorkoutPlanIntent({ goal: "胸肌增肌", equipment: ["自重"] }), exercises);
     expect(chestResult.primaryCandidates[0].exercise.id).toBe("push-up");
     expect(chestResult.candidateStatus).toBe("insufficient");
-
-    const injuryResult = selectExerciseCandidates(
-      createWorkoutPlanIntent({
-        goal: "腿部心肺",
-        equipment: ["自重"],
-        injuryLimitations: ["膝盖疼痛"],
-      }),
-      exercises,
-    );
-    expect(injuryResult.excluded).toEqual(
-      expect.arrayContaining([expect.objectContaining({ exerciseId: "jump-squat" })]),
-    );
-    expect(injuryResult.warnings.join(" ")).toContain("伤病限制");
 
     const avoidedResult = selectExerciseCandidates(
       createWorkoutPlanIntent({
@@ -149,10 +136,9 @@ describe("workout plan candidate and validation services", () => {
     });
   });
 
-  it("reports validation errors and warnings for risky or mismatched drafts", () => {
+  it("reports validation errors and warnings for mismatched drafts", () => {
     const intent = createWorkoutPlanIntent({
       sessionMinutes: 10,
-      injuryLimitations: ["膝盖疼痛"],
     });
     const draft = createWorkoutPlanDraft({
       weeklyFrequency: 2,
@@ -218,8 +204,6 @@ describe("workout plan candidate and validation services", () => {
         "weekly_frequency_mismatch",
         "beginner_volume_high",
         "rest_too_short",
-        "high_risk_exercise",
-        "missing_safety_notes",
       ]),
     );
   });

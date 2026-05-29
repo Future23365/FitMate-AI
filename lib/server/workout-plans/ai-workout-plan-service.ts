@@ -48,7 +48,6 @@ export type AiWorkoutPlanRequest = z.infer<typeof aiWorkoutPlanRequestSchema>;
 
 export type AiWorkoutPlanFailureCode =
   | "missing_api_key"
-  | "high_risk_health_condition"
   | "intent_extraction_failed"
   | "candidate_actions_insufficient"
   | "ai_request_failed"
@@ -133,9 +132,6 @@ export async function generateAiWorkoutPlanDraft(
       message: "Missing DEEPSEEK_API_KEY environment variable.",
     };
   }
-
-  // 高风险健康情况由 AI 聊天层 system prompt 自行判断，不在此处硬拦截
-
 
   const intentResult = request.intent
     ? { ok: true as const, intent: request.intent }
@@ -625,14 +621,6 @@ function parseJsonObject(
       detail: error instanceof Error ? error.message : error,
     };
   }
-}
-
-function hasHighRiskHealthCondition(messages: AiWorkoutPlanChatMessage[]) {
-  const text = messages.map((message) => message.content).join(" ");
-
-  return /(胸痛|心脏病|心梗|中风|晕厥|昏厥|怀孕|孕期|产后|骨折|术后|手术后|高血压|糖尿病|癌症|肿瘤)/.test(
-    text,
-  );
 }
 
 function logAiWorkoutPlanFailure(

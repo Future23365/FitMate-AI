@@ -161,7 +161,7 @@ User
 | `sessionMinutes` | `Int?` | 可空 | 单次训练期望时长，单位分钟。 |
 | `weeklyFrequency` | `Int?` | 可空 | 每周训练频率。 |
 | `equipment` | `String[]` | 默认 `[]` | 可用器械。 |
-| `injuryLimitations` | `String[]` | 默认 `[]` | 伤病、疼痛或动作限制。 |
+| `injuryLimitations` | `String[]` | 默认 `[]` | 历史兼容字段；当前聊天触发链路不主动追问或依赖该字段。 |
 | `preferences` | `String[]` | 默认 `[]` | 用户偏好，例如训练形式、动作偏好。 |
 | `avoidances` | `String[]` | 默认 `[]` | 用户希望避免的内容。 |
 | `createdAt` | `DateTime` | 默认 `now()` | 画像创建时间。 |

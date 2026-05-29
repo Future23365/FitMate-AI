@@ -699,8 +699,10 @@ export function resolveAssistantAction(
   chatIntent: ChatIntent,
   exerciseContext: ExerciseContext | null,
 ): AssistantAction | null {
+  const canTriggerAction = canTriggerAssistantAction(chatIntent, exerciseContext);
+
   if (
-    !chatIntent.canTriggerAction ||
+    !canTriggerAction ||
     !exerciseContext ||
     exerciseContext.candidateStatus === "insufficient"
   ) {
@@ -734,6 +736,64 @@ export function resolveAssistantAction(
     default:
       return null;
   }
+}
+
+// 健康/伤病类字段不参与触发拦截；用户未主动说明时默认不追问。
+export function canTriggerAssistantAction(
+  chatIntent: ChatIntent,
+  exerciseContext: ExerciseContext | null,
+) {
+  if (!exerciseContext || exerciseContext.candidateStatus === "insufficient") {
+    return false;
+  }
+
+  if (chatIntent.canTriggerAction) {
+    return true;
+  }
+
+  const blockingFields = getActionBlockingMissingFields(
+    chatIntent.missingActionFields,
+    exerciseContext.intent,
+  );
+
+  return blockingFields.length === 0 && isActionType(chatIntent.type);
+}
+
+export function getActionBlockingMissingFields(
+  missingActionFields: string[],
+  intent: WorkoutPlanIntent,
+) {
+  return missingActionFields.filter(
+    (field) => !isHealthRelatedMissingField(field) && !isMissingFieldSatisfiedByIntent(field, intent),
+  );
+}
+
+function isHealthRelatedMissingField(field: string) {
+  return /injury|injuries|pain|health|medical|body|restriction|limitation|knee|shoulder|back|wrist|ankle|伤|疼|痛|不适|健康|医疗|身体|膝|肩|腰|手腕|脚踝/i.test(
+    field,
+  );
+}
+
+function isMissingFieldSatisfiedByIntent(field: string, intent: WorkoutPlanIntent) {
+  const normalizedField = field.trim().toLowerCase();
+
+  if (normalizedField === "goal") {
+    return intent.goal.trim().length > 0;
+  }
+
+  if (normalizedField === "sessionminutes" || normalizedField === "duration") {
+    return intent.sessionMinutes > 0;
+  }
+
+  if (normalizedField === "equipmentorlocation" || normalizedField === "equipment" || normalizedField === "location") {
+    return intent.equipment.length > 0 || intent.preferences.length > 0;
+  }
+
+  return false;
+}
+
+function isActionType(type: ChatIntent["type"]) {
+  return type === "exercise_recommendation" || type === "routine" || type === "workout_plan";
 }
 
 export function resolveVisibleSuggestedReplies(
@@ -981,9 +1041,7 @@ function createFallbackWorkoutIntent(
     weeklyFrequency: knownFacts?.weeklyFrequency ?? (intentType === "routine" ? 1 : 3),
     calendarHorizonDays: knownFacts?.calendarHorizonDays,
     equipment: knownFacts?.equipment?.length ? knownFacts.equipment : [],
-    injuryLimitations: knownFacts?.injuryLimitations?.length
-      ? knownFacts.injuryLimitations
-      : extractByPattern(latestUserMessage, /(膝盖|腰|肩|手腕|脚踝|疼|痛|伤|不适)/),
+    injuryLimitations: [],
     preferences: knownFacts?.preferences?.length
       ? knownFacts.preferences
       : extractByPattern(latestUserMessage, /(居家|家里|徒手|自重|哑铃|杠铃|弹力带|低强度|高强度)/),

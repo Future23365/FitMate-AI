@@ -90,7 +90,6 @@ function resolveStatus(result: Awaited<ReturnType<typeof generateAiWorkoutPlanDr
   switch (result.code) {
     case "missing_api_key":
       return 500;
-    case "high_risk_health_condition":
     case "candidate_actions_insufficient":
     case "intent_extraction_failed":
     case "invalid_json":

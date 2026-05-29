@@ -47,7 +47,7 @@ export type FitnessConversationKnownFacts = z.infer<typeof fitnessConversationKn
 export type FitnessConversationContext = z.infer<typeof fitnessConversationContextSchema>;
 
 const durableFactPattern =
-  /目标|减脂|增肌|塑形|力量|心肺|体能|胸|背|腿|肩|核心|臀|手臂|分钟|min|小时|每周|一周|次|自重|徒手|哑铃|杠铃|壶铃|弹力带|瑜伽垫|健身房|居家|家里|新手|初学|进阶|高级|疼|痛|伤|不适|避免|不要|不想/;
+  /目标|减脂|增肌|塑形|力量|心肺|体能|胸|背|腿|肩|核心|臀|手臂|分钟|min|小时|每周|一周|次|自重|徒手|哑铃|杠铃|壶铃|弹力带|瑜伽垫|健身房|居家|家里|新手|初学|进阶|高级|避免|不要|不想/;
 
 const triggerPattern =
   /```json\s*(\{[\s\S]*?"type"\s*:\s*"(?:workout_plan_trigger|workout_routine_trigger|exercise_recommendation_trigger)"[\s\S]*?\})\s*```/g;
@@ -241,7 +241,6 @@ function mergeIntentIntoFacts(
   knownFacts.weeklyFrequency = intent.weeklyFrequency;
   knownFacts.calendarHorizonDays = intent.calendarHorizonDays;
   intent.equipment.forEach((item) => arrayFacts.equipment.add(item));
-  intent.injuryLimitations.forEach((item) => arrayFacts.injuryLimitations.add(item));
   intent.preferences.forEach((item) => arrayFacts.preferences.add(item));
   intent.avoidances.forEach((item) => arrayFacts.avoidances.add(item));
 }
@@ -284,7 +283,6 @@ function mergeUserMessageFacts(
 
   extractEquipment(content).forEach((item) => arrayFacts.equipment.add(item));
   extractPreferences(content).forEach((item) => arrayFacts.preferences.add(item));
-  extractInjuryLimitations(content).forEach((item) => arrayFacts.injuryLimitations.add(item));
   extractAvoidances(content).forEach((item) => arrayFacts.avoidances.add(item));
 }
 
@@ -304,10 +302,7 @@ function mergeKnownFactsIntoIntent(
     weeklyFrequency: knownFacts.weeklyFrequency ?? intent.weeklyFrequency,
     calendarHorizonDays: knownFacts.calendarHorizonDays ?? intent.calendarHorizonDays,
     equipment: knownFacts.equipment.length > 0 ? knownFacts.equipment : intent.equipment,
-    injuryLimitations:
-      knownFacts.injuryLimitations.length > 0
-        ? knownFacts.injuryLimitations
-        : intent.injuryLimitations,
+    injuryLimitations: [],
     preferences: knownFacts.preferences.length > 0 ? knownFacts.preferences : intent.preferences,
     avoidances: knownFacts.avoidances.length > 0 ? knownFacts.avoidances : intent.avoidances,
   });
@@ -325,9 +320,6 @@ function buildContextSummary(
     knownFacts.calendarHorizonDays ? `日历范围：未来${knownFacts.calendarHorizonDays}天` : "",
     knownFacts.equipment.length > 0 ? `器械：${knownFacts.equipment.join("、")}` : "",
     knownFacts.preferences.length > 0 ? `偏好：${knownFacts.preferences.join("、")}` : "",
-    knownFacts.injuryLimitations.length > 0
-      ? `限制：${knownFacts.injuryLimitations.join("、")}`
-      : "",
     knownFacts.avoidances.length > 0 ? `避免：${knownFacts.avoidances.join("、")}` : "",
     currentIntent ? `当前意图：${currentIntent.intentType}` : "",
     knownFacts.latestUserMessage ? `最近用户输入：${knownFacts.latestUserMessage}` : "",
@@ -422,12 +414,6 @@ function extractPreferences(content: string) {
   }
 
   return preferences;
-}
-
-function extractInjuryLimitations(content: string) {
-  return /(膝盖|腰|肩|手腕|脚踝|疼|痛|伤|不适)/.test(content)
-    ? [previewText(content, 120)]
-    : [];
 }
 
 function extractAvoidances(content: string) {

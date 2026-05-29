@@ -94,7 +94,6 @@ export function validateWorkoutPlanDraft(
     candidateIds,
     options.exercises,
   );
-  const exerciseById = new Map(options.exercises.map((exercise) => [exercise.id, exercise]));
   const errors: WorkoutPlanValidationIssue[] = [];
   const warnings: WorkoutPlanValidationIssue[] = [];
   const dayEstimates = draft.days.map((day, index) => estimateWorkoutDay(day, index + 1));
@@ -217,8 +216,6 @@ export function validateWorkoutPlanDraft(
     }
 
     for (const item of dayItems) {
-      const exercise = exerciseById.get(item.exerciseId);
-
       if (item.sets >= 5 && intent.experience === "beginner") {
         warnings.push({
           code: "beginner_volume_high",
@@ -236,32 +233,6 @@ export function validateWorkoutPlanDraft(
           message: `动作 ${item.exerciseId} 组间休息 ${item.setRestSeconds} 秒，可能不足。`,
         });
       }
-
-      if (exercise && hasRelevantRisk(exercise, intent)) {
-        warnings.push({
-          code: "high_risk_exercise",
-          dayIndex: dayIndex + 1,
-          exerciseId: item.exerciseId,
-          message: `动作「${exercise.nameZh}」带有风险标签，需确认符合用户限制。`,
-        });
-      }
-    }
-  }
-
-  if (intent.injuryLimitations.length > 0 && draft.safetyNotes.length === 0) {
-    warnings.push({
-      code: "missing_safety_notes",
-      message: "用户存在疼痛或伤病限制，但计划缺少整体安全提示。",
-    });
-  }
-
-  for (const [index, day] of draft.days.entries()) {
-    if (intent.injuryLimitations.length > 0 && day.safetyNotes.length === 0) {
-      warnings.push({
-        code: "missing_safety_notes",
-        dayIndex: index + 1,
-        message: `训练日「${day.title}」缺少安全提示。`,
-      });
     }
   }
 
@@ -292,7 +263,6 @@ export function validateWorkoutRoutineDraft(
     candidateIds,
     options.exercises,
   );
-  const exerciseById = new Map(options.exercises.map((exercise) => [exercise.id, exercise]));
   const errors: WorkoutPlanValidationIssue[] = [];
   const warnings: WorkoutPlanValidationIssue[] = [];
   const allItems = draft.sections.flatMap((section) => section.items);
@@ -394,8 +364,6 @@ export function validateWorkoutRoutineDraft(
   }
 
   for (const item of allItems) {
-    const exercise = exerciseById.get(item.exerciseId);
-
     if (item.sets >= 5 && intent.experience === "beginner") {
       warnings.push({
         code: "beginner_volume_high",
@@ -413,22 +381,6 @@ export function validateWorkoutRoutineDraft(
         message: `动作 ${item.exerciseId} 组间休息 ${item.setRestSeconds} 秒，可能不足。`,
       });
     }
-
-    if (exercise && hasRelevantRisk(exercise, intent)) {
-      warnings.push({
-        code: "high_risk_exercise",
-        dayIndex: 1,
-        exerciseId: item.exerciseId,
-        message: `动作「${exercise.nameZh}」带有风险标签，需确认符合用户限制。`,
-      });
-    }
-  }
-
-  if (intent.injuryLimitations.length > 0 && draft.safetyNotes.length === 0) {
-    warnings.push({
-      code: "missing_safety_notes",
-      message: "用户存在疼痛或伤病限制，但单次训练编排缺少整体安全提示。",
-    });
   }
 
   return {
@@ -466,36 +418,4 @@ function estimateWorkoutDay(day: WorkoutDayDraft, fallbackDayIndex: number): Wor
 
 function getWorkoutDayItems(day: WorkoutDayDraft): WorkoutPlanItemDraft[] {
   return day.sections.flatMap((section) => section.items);
-}
-
-function hasRelevantRisk(exercise: Exercise, intent: WorkoutPlanIntent) {
-  if (exercise.riskTags.length === 0 || intent.injuryLimitations.length === 0) {
-    return false;
-  }
-
-  const text = normalizeText(intent.injuryLimitations.join(" "));
-
-  return exercise.riskTags.some((tag) => {
-    if (tag === "high_impact") {
-      return /(疼|痛|伤|不适|恢复|术后|膝|腰|背)/.test(text);
-    }
-
-    if (tag === "knee_attention") {
-      return /(膝|膝盖|髌|半月板)/.test(text);
-    }
-
-    if (tag === "lower_back_attention" || tag === "spine_load") {
-      return /(腰|下背|背|脊柱|椎间盘)/.test(text);
-    }
-
-    if (tag === "shoulder_attention") {
-      return /(肩|肩膀|肩袖)/.test(text);
-    }
-
-    return false;
-  });
-}
-
-function normalizeText(value: string) {
-  return value.trim().toLowerCase().replace(/\s+/g, "");
 }
