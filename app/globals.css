@@ -298,6 +298,25 @@ button:not(:disabled),
   border-radius: 999px;
 }
 
+/* 右侧固定栏页面的主体滚动条默认弱化，真实滚动时短暂显示，避免和右侧浮层贴边抢视觉。 */
+.right-sidebar-main-scroll {
+  scrollbar-color: transparent transparent;
+  scrollbar-width: thin;
+  transition: scrollbar-color 0.18s ease;
+}
+
+.right-sidebar-main-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+
+.right-sidebar-main-scroll:is(.is-scrolling, :focus-within) {
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+.right-sidebar-main-scroll:is(.is-scrolling, :focus-within)::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+}
+
 .thin-horizontal-scrollbar {
   scrollbar-width: thin;
 }
@@ -398,13 +417,13 @@ body,
   }
 }
 
-@media (max-width: 1535px) {
+@media (max-width: 1199px) {
   .responsive-right-sidebar-scope {
-    --responsive-right-sidebar-offset: 0px;
+    --responsive-right-sidebar-offset: var(--responsive-right-sidebar-peek);
   }
 }
 
-/* 右侧栏在窄桌面改为浮层半收起，避免继续挤压三列布局的主内容宽度。 */
+/* 右侧栏在窄桌面改为视口外浮层，避免继续挤压三列布局的主内容宽度。 */
 .responsive-right-sidebar {
   max-width: var(--responsive-right-sidebar-width);
   min-width: var(--responsive-right-sidebar-width);
@@ -414,13 +433,15 @@ body,
     box-shadow 0.22s ease;
 }
 
-@media (max-width: 1535px) {
+@media (max-width: 1199px) {
   .responsive-right-sidebar {
+    border-left-color: rgba(215, 221, 229, 0.9);
+    box-shadow: -10px 0 28px rgba(16, 24, 40, 0.08);
     transform: translateX(calc(100% - var(--responsive-right-sidebar-peek)));
   }
 
   .responsive-right-sidebar:is(:hover, :focus-within) {
-    box-shadow: var(--shadow-lift);
+    box-shadow: -18px 0 40px rgba(16, 24, 40, 0.12);
     transform: translateX(0);
   }
 }

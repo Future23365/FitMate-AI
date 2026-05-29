@@ -3,6 +3,10 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+import {
+  getResponsiveRightSidebarStyle,
+  ResponsiveRightSidebar,
+} from "@/components/app/responsive-right-sidebar";
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import {
   createWorkoutSchedule,
@@ -28,6 +32,7 @@ type CalendarCell = {
 };
 
 const weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+const trainingPlanRightSidebarStyle = getResponsiveRightSidebarStyle(320);
 
 function toDateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
@@ -261,7 +266,10 @@ export function TrainingPlanPage() {
   }
 
   return (
-    <div className="app-mesh-bg min-h-screen pl-[var(--app-sidebar-offset)] text-ink xl:pr-[320px]">
+    <div
+      className="responsive-right-sidebar-scope app-mesh-bg min-h-screen pl-[var(--app-sidebar-offset)] pr-[var(--responsive-right-sidebar-offset)] text-ink"
+      style={trainingPlanRightSidebarStyle}
+    >
       <main className="flex h-screen min-h-0 flex-col overflow-hidden p-lg xl:p-xl">
         <section className="flex min-h-0 flex-1 flex-col rounded-[20px] border border-line bg-white p-md shadow-card xl:p-lg">
           <div className="mb-md flex shrink-0 flex-wrap items-center justify-between gap-md">
@@ -395,7 +403,11 @@ export function TrainingPlanPage() {
         </section>
       </main>
 
-      <aside className="app-shell-glass custom-scrollbar fixed right-0 top-0 z-30 hidden h-screen w-[320px] flex-col gap-lg overflow-y-auto border-l border-line/70 p-md shadow-nav xl:flex">
+      <ResponsiveRightSidebar
+        className="custom-scrollbar gap-lg overflow-y-auto p-md"
+        label="训练日历侧边栏"
+        width={320}
+      >
         {sidePanelMode === "saved-plans" ? (
           <section className="training-side-panel-enter flex min-h-0 flex-1 flex-col gap-md">
             <div className="space-y-xs">
@@ -560,7 +572,7 @@ export function TrainingPlanPage() {
             </section>
           </>
         ) : null}
-      </aside>
+      </ResponsiveRightSidebar>
 
       {toast ? (
         <div className="fixed bottom-lg left-1/2 z-50 -translate-x-1/2 rounded-full bg-inverse-surface px-lg py-sm font-label-md text-label-md text-inverse-on-surface shadow-lg">

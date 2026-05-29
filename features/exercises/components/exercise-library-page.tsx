@@ -4,7 +4,12 @@ import Image from "next/image";
 import { useEffect, useState } from "react";
 
 import { RightDrawer } from "@/components/app/right-drawer";
+import {
+  getResponsiveRightSidebarStyle,
+  ResponsiveRightSidebar,
+} from "@/components/app/responsive-right-sidebar";
 import { SymbolIcon } from "@/components/app/symbol-icon";
+import { useAutoHideScrollbar } from "@/components/app/use-auto-hide-scrollbar";
 import { clientRequest } from "@/lib/client/http/client-request";
 import type { Exercise, ExerciseFacets, ExerciseSort } from "@/lib/shared/exercises/types";
 
@@ -63,6 +68,7 @@ const exerciseSortOptions: Array<{ value: ExerciseSort; label: string }> = [
 ];
 
 const pageSizeOptions = [12, 24, 48, 96];
+const exerciseLibraryRightSidebarStyle = getResponsiveRightSidebarStyle(300);
 
 function getExerciseImage(exercise?: Exercise) {
   return (
@@ -426,6 +432,7 @@ function FilterDrawer({
 }
 
 export function ExerciseLibraryPage() {
+  const mainScrollRef = useAutoHideScrollbar<HTMLElement>();
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
   const [muscle, setMuscle] = useState("");
@@ -675,8 +682,14 @@ export function ExerciseLibraryPage() {
     : [];
 
   return (
-    <div className="app-mesh-bg min-h-screen pl-[var(--app-sidebar-offset)] text-ink">
-      <main className="custom-scrollbar h-screen overflow-y-auto p-lg xl:pr-[364px] xl:p-xl">
+    <div
+      className="responsive-right-sidebar-scope app-mesh-bg min-h-screen pl-[var(--app-sidebar-offset)] pr-[var(--responsive-right-sidebar-offset)] text-ink"
+      style={exerciseLibraryRightSidebarStyle}
+    >
+      <main
+        className="custom-scrollbar right-sidebar-main-scroll h-screen overflow-y-auto p-lg xl:p-xl"
+        ref={mainScrollRef}
+      >
         <header className="mb-lg flex flex-col gap-xs">
           <div>
             <h1 className="font-headline-lg text-headline-lg font-extrabold tracking-[-0.03em]">动作库</h1>
@@ -1004,7 +1017,7 @@ function ExerciseDetailPanel({
   }
 
   return (
-    <aside className="app-shell-glass fixed right-0 top-0 z-30 hidden h-screen w-[340px] flex-col border-l border-line/70 shadow-nav xl:flex">
+    <ResponsiveRightSidebar label="动作详情侧边栏" width={300}>
       <div className="custom-scrollbar flex h-full flex-col overflow-y-auto px-md py-lg">
         {exercise ? (
           <>
@@ -1015,7 +1028,7 @@ function ExerciseDetailPanel({
                   alt={`${exercise.nameZh} 第 ${activeImageIndex + 1} 步示意图`}
                   className="object-cover mix-blend-multiply contrast-[1.05] saturate-[0.98]"
                   fill
-                  sizes="340px"
+                  sizes="300px"
                   src={activeImageUrl}
                 />
                 <div className="absolute inset-x-0 bottom-0 flex items-center justify-end bg-gradient-to-t from-black/58 to-transparent px-sm pb-sm pt-xl">
@@ -1207,6 +1220,6 @@ function ExerciseDetailPanel({
           </div>
         )}
       </div>
-    </aside>
+    </ResponsiveRightSidebar>
   );
 }

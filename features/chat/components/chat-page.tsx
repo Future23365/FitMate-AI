@@ -1,7 +1,7 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -11,6 +11,7 @@ import {
   ResponsiveRightSidebar,
 } from "@/components/app/responsive-right-sidebar";
 import { SymbolIcon } from "@/components/app/symbol-icon";
+import { useAutoHideScrollbar } from "@/components/app/use-auto-hide-scrollbar";
 import { ExerciseRecommendationCard } from "@/features/exercises/components/exercise-recommendation-card";
 import { useChatController } from "@/features/chat/hooks/use-chat-controller";
 import {
@@ -233,7 +234,7 @@ export function ChatPage() {
     setThinkingEnabled,
     thinkingEnabled,
   } = useChatController();
-  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const chatScrollRef = useAutoHideScrollbar<HTMLDivElement>();
 
   const hasMessages = messages.length > 0;
   const latestMessageState = messages
@@ -251,7 +252,7 @@ export function ChatPage() {
       top: chatScroll.scrollHeight,
       behavior: "smooth",
     });
-  }, [latestMessageState, error, isLoading]);
+  }, [latestMessageState, error, isLoading, chatScrollRef]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -276,7 +277,7 @@ export function ChatPage() {
 
       <main className="fixed bottom-0 left-[var(--app-sidebar-offset)] right-[var(--responsive-right-sidebar-offset)] top-[64px] flex flex-col bg-transparent">
         <div
-          className="custom-scrollbar flex-1 space-y-xl overflow-y-auto p-lg xl:p-xl"
+          className="custom-scrollbar right-sidebar-main-scroll flex-1 space-y-xl overflow-y-auto p-lg xl:p-xl"
           ref={chatScrollRef}
         >
           {!hasMessages ? (

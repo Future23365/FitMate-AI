@@ -4,7 +4,12 @@ import Image from "next/image";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import {
+  getResponsiveRightSidebarStyle,
+  ResponsiveRightSidebar,
+} from "@/components/app/responsive-right-sidebar";
 import { SymbolIcon } from "@/components/app/symbol-icon";
+import { useAutoHideScrollbar } from "@/components/app/use-auto-hide-scrollbar";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
 import {
   createWorkoutRoutine,
@@ -59,6 +64,7 @@ type TemplateExerciseConfig = {
 type LibrarySuitabilityFilter = "all" | ExerciseSuitability;
 type RightPanelView = "library" | "saved";
 
+const composerRightSidebarStyle = getResponsiveRightSidebarStyle(300);
 const sectionConfigs = workoutSectionConfigs;
 const librarySuitabilityOptions: Array<{
   id: LibrarySuitabilityFilter;
@@ -248,6 +254,7 @@ async function fetchTemplateExercise(config: TemplateExerciseConfig) {
 }
 
 export function ActionComposerPage() {
+  const mainScrollRef = useAutoHideScrollbar<HTMLElement>();
   const [planTitle, setPlanTitle] = useState("我的燃脂循环训练");
   const [titleDraft, setTitleDraft] = useState(planTitle);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -800,8 +807,14 @@ export function ActionComposerPage() {
   }
 
   return (
-    <div className="app-mesh-bg min-h-screen pl-[var(--app-sidebar-offset)] text-ink xl:pr-[300px]">
-      <main className="custom-scrollbar h-screen overflow-y-auto overflow-x-hidden px-lg pb-lg pt-sm xl:px-xl xl:pb-xl">
+    <div
+      className="responsive-right-sidebar-scope app-mesh-bg min-h-screen pl-[var(--app-sidebar-offset)] pr-[var(--responsive-right-sidebar-offset)] text-ink"
+      style={composerRightSidebarStyle}
+    >
+      <main
+        className="custom-scrollbar right-sidebar-main-scroll h-screen overflow-y-auto overflow-x-hidden px-lg pb-lg pt-sm xl:px-xl xl:pb-xl"
+        ref={mainScrollRef}
+      >
         <header className="sticky top-0 z-40 mb-md rounded-[16px] border-b border-line/70 bg-white px-sm py-xs shadow-[0_8px_18px_rgba(15,23,42,0.06)] md:px-md md:py-sm">
           <div className="flex flex-col gap-sm">
             <div className="flex min-w-0 flex-col gap-sm lg:flex-row lg:items-center lg:justify-between">
@@ -976,7 +989,11 @@ export function ActionComposerPage() {
         ) : null}
       </main>
 
-      <aside className="app-shell-glass fixed right-0 top-0 z-30 hidden h-screen w-[300px] flex-col gap-md overflow-y-auto border-l border-line/70 p-md shadow-nav xl:flex">
+      <ResponsiveRightSidebar
+        className="gap-md overflow-y-auto p-md"
+        label="动作编排侧边栏"
+        width={300}
+      >
         <section className="flex min-h-[420px] flex-1 flex-col">
           <div className="mb-md rounded-xl border border-line bg-panel-soft p-[3px]">
             <div className="grid grid-cols-2 gap-[3px]">
@@ -1200,7 +1217,7 @@ export function ActionComposerPage() {
             </div>
           )}
         </section>
-      </aside>
+      </ResponsiveRightSidebar>
       <ExercisePreviewSheet
         exercise={activePreviewExercise}
         isOpen={Boolean(activePreviewExercise)}
