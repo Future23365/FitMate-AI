@@ -422,7 +422,7 @@ body,
   }
 }
 
-@media (max-width: 1199px) {
+@media (max-width: 1279px) {
   .responsive-right-sidebar-scope {
     --responsive-right-sidebar-offset: var(--responsive-right-sidebar-peek);
   }
@@ -448,7 +448,7 @@ body,
     box-shadow 0.22s ease;
 }
 
-@media (max-width: 1199px) {
+@media (max-width: 1279px) {
   .responsive-right-sidebar {
     border-left-color: rgba(215, 221, 229, 0.9);
     box-shadow: -10px 0 28px rgba(16, 24, 40, 0.08);
