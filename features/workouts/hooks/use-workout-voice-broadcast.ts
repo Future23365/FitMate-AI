@@ -270,11 +270,16 @@ export function useWorkoutVoiceBroadcast({
     getSession().cancelAll(reason);
   }, [getSession]);
 
+  const announceSessionComplete = useCallback(() => {
+    getSession().announceSessionComplete();
+  }, [getSession]);
+
   const disableVoiceSession = useCallback(() => {
     getSession().disable("disabled");
   }, [getSession]);
 
   return useMemo(() => ({
+    announceSessionComplete,
     activateCurrentStep,
     cancelCurrentVoice,
     disableVoiceSession,
@@ -283,6 +288,7 @@ export function useWorkoutVoiceBroadcast({
     lastError: voiceState.lastError,
     status: voiceState.status,
   }), [
+    announceSessionComplete,
     activateCurrentStep,
     cancelCurrentVoice,
     disableVoiceSession,

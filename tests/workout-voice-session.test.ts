@@ -107,6 +107,38 @@ describe("workout voice session scheduler", () => {
     expect(preparationCompleted).toBe(true);
   });
 
+  it("announces session completion after canceling active step speech", () => {
+    const environment = installMockSpeechEnvironment();
+    const step = createExerciseStep({ mode: "duration", target: 30 });
+    let preparationCompleted = false;
+    const session = new WorkoutVoiceSession();
+
+    session.setContext({
+      activeStep: step,
+      activeStepKey: "session:complete",
+      isFirstExerciseStep: true,
+      isPaused: false,
+      executionPhase: "preparing_intro",
+      onPreparationIntroComplete: () => {
+        preparationCompleted = true;
+      },
+    });
+    session.setPreferenceEnabled(true);
+    session.activateCurrentStep(true);
+    environment.spoken[0].onstart?.({} as SpeechSynthesisEvent);
+
+    session.announceSessionComplete();
+
+    expect(environment.cancelCount).toBe(1);
+    expect(environment.spoken.map((utterance) => utterance.text)).toEqual([
+      "语音播报已开启。",
+      "第一组动作，俯卧撑，30 秒。",
+      "本次训练已完成",
+    ]);
+    environment.spoken[1].onend?.({} as SpeechSynthesisEvent);
+    expect(preparationCompleted).toBe(false);
+  });
+
   it("cancels old step speech and ignores stale callbacks after step changes", () => {
     const environment = installMockSpeechEnvironment();
     const firstStep = createExerciseStep({ id: "push-up-step", nameZh: "俯卧撑" });

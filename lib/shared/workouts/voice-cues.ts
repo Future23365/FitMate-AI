@@ -66,3 +66,9 @@ export function buildRepetitionCountCue(
 ) {
   return config.templates.repetitionCount(count);
 }
+
+export function buildWorkoutCompletionCue(
+  config: WorkoutVoiceBroadcastConfig = workoutVoiceBroadcastConfig,
+) {
+  return config.templates.sessionComplete;
+}

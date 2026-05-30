@@ -792,7 +792,7 @@ export function WorkoutSessionPage() {
       trainedCalories: latestTrainedCalories,
     } = sessionResultSnapshotRef.current;
 
-    voiceSession.cancelCurrentVoice("session-complete");
+    voiceSession.announceSessionComplete();
     setIsSessionComplete(true);
     setHasStarted(false);
     setIsElapsedTimerManuallyPaused(false);
@@ -1052,11 +1052,11 @@ export function WorkoutSessionPage() {
           <aside className="flex min-h-0 flex-col gap-sm">
             <section className="rounded-[20px] border border-line bg-white p-md shadow-card">
               <div className="mb-sm flex items-start justify-between gap-md">
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className="text-label-md font-bold text-primary">当前计划</p>
                   <h1 className="mt-xs truncate text-[20px] font-extrabold leading-tight">{plan.title}</h1>
                 </div>
-                <span className="rounded-full bg-primary-soft px-md py-xs text-label-md font-bold text-primary">
+                <span className="shrink-0 whitespace-nowrap rounded-full bg-primary-soft px-md py-xs text-label-md font-bold text-primary">
                   {isSessionComplete
                     ? "已完成"
                     : isAwaitingStart
