@@ -887,9 +887,10 @@ function shouldOpenStepByDefault(step: AiTraceStep, index: number) {
 
 function StepFocusPanel({ step }: { step: AiTraceStep }) {
   const promptFocus = getModelPromptFocus(step);
+  const longTextFocus = getLongTextFocus(step, Boolean(promptFocus));
   const draftFocus = getWorkoutDraftFocus(step);
 
-  if (!promptFocus && !draftFocus) {
+  if (!promptFocus && longTextFocus.length === 0 && !draftFocus) {
     return null;
   }
 
@@ -902,6 +903,7 @@ function StepFocusPanel({ step }: { step: AiTraceStep }) {
         </p>
       </div>
       {promptFocus ? <PromptFocusBlock focus={promptFocus} /> : null}
+      {longTextFocus.length > 0 ? <LongTextFocusBlock items={longTextFocus} /> : null}
       {draftFocus ? <WorkoutDraftFocusBlock focus={draftFocus} /> : null}
     </div>
   );
@@ -973,6 +975,28 @@ function PromptFocusBlock({ focus }: { focus: PromptFocus }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+type LongTextFocusItem = {
+  key: string;
+  title: string;
+  value: string;
+};
+
+function LongTextFocusBlock({ items }: { items: LongTextFocusItem[] }) {
+  return (
+    <div className="space-y-3 rounded-xl border border-amber-200 bg-white p-4">
+      <div>
+        <div className="text-sm font-semibold text-slate-950">大模型长文本字段</div>
+        <p className="mt-1 text-xs leading-5 text-slate-600">
+          从模型请求/输出里的 content、preview 等长文本字段提取出来单独展示，避免在 JSON 中横向阅读。
+        </p>
+      </div>
+      {items.map((item) => (
+        <TextBlock title={item.title} value={item.value || "（空）"} key={item.key} />
+      ))}
     </div>
   );
 }
@@ -1378,6 +1402,112 @@ function isModelPayload(value: unknown): value is ModelPayload {
 
 function isContentPayload(value: unknown): value is ContentPayload {
   return isRecord(value) && (typeof value.content === "string" || typeof value.reasoning === "string");
+}
+
+function getLongTextFocus(step: AiTraceStep, skipStringMessageContent: boolean): LongTextFocusItem[] {
+  const items: LongTextFocusItem[] = [];
+
+  collectLongTextFields(items, step.input, {
+    rootLabel: getInputTitle(step),
+    path: [],
+    skipStringMessageContent,
+  });
+  collectLongTextFields(items, step.output, {
+    rootLabel: getOutputTitle(step),
+    path: [],
+    skipStringMessageContent: false,
+  });
+
+  return dedupeLongTextItems(items).slice(0, 12);
+}
+
+function collectLongTextFields(
+  items: LongTextFocusItem[],
+  value: unknown,
+  context: {
+    rootLabel: string;
+    path: string[];
+    skipStringMessageContent: boolean;
+  },
+) {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => {
+      collectLongTextFields(items, item, {
+        ...context,
+        path: [...context.path, String(index)],
+      });
+    });
+    return;
+  }
+
+  if (!isRecord(value)) {
+    return;
+  }
+
+  for (const [key, item] of Object.entries(value)) {
+    const path = [...context.path, key];
+    const isLongTextKey = key === "content" || key === "preview";
+    const isMessageContent = isMessageContentPath(path);
+
+    if (isLongTextKey) {
+      const text = getLongTextValue(item);
+
+      if (text && !(context.skipStringMessageContent && isMessageContent && typeof item === "string")) {
+        items.push({
+          key: `${context.rootLabel}:${path.join(".")}`,
+          title: `${context.rootLabel} / ${formatLongTextPath(path)}`,
+          value: text,
+        });
+        continue;
+      }
+    }
+
+    collectLongTextFields(items, item, {
+      ...context,
+      path,
+    });
+  }
+}
+
+function getLongTextValue(value: unknown) {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (isRecord(value) && typeof value.preview === "string") {
+    return value.preview;
+  }
+
+  return null;
+}
+
+function isMessageContentPath(path: string[]) {
+  const contentIndex = path.lastIndexOf("content");
+
+  return contentIndex >= 2 && path[contentIndex - 2] === "messages";
+}
+
+function formatLongTextPath(path: string[]) {
+  if (path.length >= 3 && path[path.length - 1] === "content" && path[path.length - 3] === "messages") {
+    return `message ${Number(path[path.length - 2]) + 1} content`;
+  }
+
+  return path.join(".");
+}
+
+function dedupeLongTextItems(items: LongTextFocusItem[]) {
+  const seen = new Set<string>();
+
+  return items.filter((item) => {
+    const signature = `${item.title}:${item.value}`;
+
+    if (seen.has(signature)) {
+      return false;
+    }
+
+    seen.add(signature);
+    return true;
+  });
 }
 
 function getModelPromptFocus(step: AiTraceStep): PromptFocus | null {
