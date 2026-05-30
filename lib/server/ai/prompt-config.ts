@@ -42,6 +42,10 @@ export const aiPromptConfig = {
       "workoutIntent.intentType 只能是 plan 或 routine；exercise_recommendation 场景只能用于纯动作推荐过滤条件，不代表生成本次训练编排；experience 只能是 beginner、intermediate、advanced。",
       "如果你准备返回 workoutIntent.intentType = routine，并且用户已经提供单次训练时长或本次训练条件，顶层 type 也必须是 routine，不得返回 exercise_recommendation。",
       "canTriggerAction 表示服务端是否可以立即触发动作推荐、单次编排或长期计划生成。不能为了满足 Schema 把占位默认值当成用户已明确提供的信息。",
+      "conversationSummary 中已有的训练目标、经验、器械或场地、单次时长、频率、偏好和避免项都是可沿用上下文；当前消息只补充其中一个字段时，必须把摘要中仍然有效的字段合并进 workoutIntent，不要因为当前消息没有重复说明就清空。",
+      "用户没有明确说明经验水平时，默认按 beginner / 简单训练推送；不要仅因为缺少经验把 experience 或 trainingExperience 放入 missingActionFields。",
+      "如果 conversationSummary 或当前消息已经表达用户在家、自重、徒手、无器械或没有可用设备，这表示器械或场地条件已经明确；workoutIntent 应将这类语义归一为可生成的结构化条件，例如 equipment 包含“自重”或 preferences 包含“无器械/居家训练”，missingActionFields 不得包含 equipmentOrLocation。",
+      "routine 和 workout_plan 场景如果只缺少经验或健康、伤病、疼痛、身体限制等信息，且目标、时长、频率、器械或场地等核心条件已经满足，canTriggerAction 必须为 true。",
       "exercise_recommendation 场景：只要能明确用户想推荐的训练目标或部位，即使缺少器械、场地或训练时长，canTriggerAction 必须为 true，missingActionFields 不要包含 equipmentOrLocation 或 sessionMinutes。",
       "routine 和 workout_plan 场景：用户明确提供训练目标、单次训练时长、可用器械或训练场地后，canTriggerAction 可以为 true。",
       "例外：如果用户已经明确列出具体动作名称，并要求“编成一套训练”“编成动作组”“安排训练流程”等单次训练编排，即使没有显式说明训练时长，也必须允许使用默认或估算的 sessionMinutes，canTriggerAction 必须为 true，missingActionFields 不要包含 sessionMinutes。",
@@ -92,16 +96,19 @@ export const aiPromptConfig = {
 
 服务端已经在本次回复前完成了结构化意图解析，并会通过内部事件处理动作推荐、单次编排或长期计划。你只负责输出用户可见的自然语言。
 禁止输出任何内部 Trigger、JSON、代码块或 Markdown fenced block；不要把 workout_plan_trigger、workout_routine_trigger、exercise_recommendation_trigger、suggested_reply_trigger、suggested_question_trigger 写进正文。
-如果服务端会处理动作推荐、单次编排或长期计划，你的正文只做一句自然过渡，不要直接列一套具体动作清单，避免和后续结果冲突。
+只有 serverAssistantAction.triggered 为 true 时，才可以说会按当前条件整理动作推荐、单次编排或长期计划；正文只做一句自然过渡，不要直接列一套具体动作清单，避免和后续结果冲突。
+如果 serverAssistantAction.triggered 为 false，你必须根据 serverAssistantAction.blockingMissingFields 自然追问仍然缺失的信息，不要承诺会整理或生成训练结果。
 如果 serverWorkoutIntent 中已有 sessionMinutes，你需要按该时长自然描述本次训练，例如“我先按 20 分钟整理这次训练”。
 如果用户给出了明确动作列表并要求编成单次训练，但 serverWorkoutIntent 中没有明确 sessionMinutes，你可以自然说明会先按估算时长整理，并提示用户后续可以补充时长调整；不要使用固定模板句。
 不要提及“卡片”“下方”“马上生成”“稍后生成”“后台生成”“系统正在”等 UI 或系统流程字样。
 如果信息不足以生成动作推荐、单次编排或长期计划，你需要自然追问缺失信息，并尽量给出用户可以直接照着回答的简短示例。
+如果用户没有明确说明经验水平，但服务端已经按 beginner / 简单训练触发内部动作，你不要把该默认值说成用户明确确认过的经验。
 
 注意：
-1. 如果用户只是请求“推荐一些动作/有哪些动作可以练/某部位轻松练练”，但没有要求你安排组数、次数、休息、训练顺序、单次训练流程或长期计划，你只需要用自然语言说会按条件整理动作推荐，例如“我先按居家、自重、适合新手的方向整理一组动作。”。
-2. 如果用户表达的是“今天/这次/现在练什么/练多久/来一套/动作组/训练流程”这类单次训练需求，你只需要用自然语言说会按条件整理本次训练，例如“我先按你的时间和器械条件整理这次训练。”；如果 serverWorkoutIntent 已有 sessionMinutes，要沿用该时长表达；如果 serverWorkoutIntent 没有明确 sessionMinutes 但已经给出明确动作列表，可以宽泛说明会先按估算时长整理，用户可以继续补充时长调整。
-3. 如果用户明确表达要制定长期、每周、多天、周期性训练计划，你只需要用自然语言说会按周期目标整理安排，例如“我先按你的周期目标整理训练安排。”。`,
+1. 当 serverAssistantAction.triggered 为 true，且用户只是请求“推荐一些动作/有哪些动作可以练/某部位轻松练练”，但没有要求你安排组数、次数、休息、训练顺序、单次训练流程或长期计划，你只需要用自然语言说会按条件整理动作推荐，例如“我先按居家、自重、适合新手的方向整理一组动作。”。
+2. 当 serverAssistantAction.triggered 为 true，且用户表达的是“今天/这次/现在练什么/练多久/来一套/动作组/训练流程”这类单次训练需求，你只需要用自然语言说会按条件整理本次训练，例如“我先按你的时间和器械条件整理这次训练。”；如果 serverWorkoutIntent 已有 sessionMinutes，要沿用该时长表达；如果 serverWorkoutIntent 没有明确 sessionMinutes 但已经给出明确动作列表，可以宽泛说明会先按估算时长整理，用户可以继续补充时长调整。
+3. 当 serverAssistantAction.triggered 为 true，且用户明确表达要制定长期、每周、多天、周期性训练计划，你只需要用自然语言说会按周期目标整理安排，例如“我先按你的周期目标整理训练安排。”。
+4. 当 serverAssistantAction.triggered 为 false，以上三条都不适用；你必须追问 serverAssistantAction.blockingMissingFields 指向的缺失信息。`,
     exerciseContext: [
       "当前服务端已经先解析了用户意图，并从动作库查询出候选动作。你必须遵守以下规则：",
       "1. 如果回答里提到任何具体训练动作，动作名称必须来自 providedExercises.nameZh，禁止编造动作或使用候选列表之外的动作。",

@@ -207,7 +207,7 @@ export async function createAiChatResponse({
       skipped: !assistantAction,
     },
   });
-  const systemPrompt = buildSystemPrompt(chatIntent, exerciseContext, conversationSummaryContext);
+  const systemPrompt = buildSystemPrompt(chatIntent, exerciseContext, conversationSummaryContext, assistantAction);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DEEPSEEK_REQUEST_TIMEOUT_MS);
   let response: Response;
@@ -789,6 +789,16 @@ function isMissingFieldSatisfiedByIntent(field: string, intent: WorkoutPlanInten
     return intent.goal.trim().length > 0;
   }
 
+  if (
+    normalizedField === "experience" ||
+    normalizedField === "trainingexperience" ||
+    normalizedField === "fitnesslevel" ||
+    normalizedField === "level"
+  ) {
+    // 经验未明确时使用保守新手默认值生成，避免把简单训练链路卡在二次确认上。
+    return ["beginner", "intermediate", "advanced"].includes(intent.experience);
+  }
+
   if (normalizedField === "sessionminutes" || normalizedField === "duration") {
     return intent.sessionMinutes > 0;
   }
@@ -831,6 +841,7 @@ function buildSystemPrompt(
   chatIntent: ChatIntent,
   exerciseContext: ExerciseContext | null,
   conversationSummaryContext: ConversationSummaryContext,
+  assistantAction: AssistantAction | null,
 ) {
   const contextPrompt = formatConversationSummaryContextForPrompt(conversationSummaryContext);
 
@@ -852,6 +863,19 @@ function buildSystemPrompt(
         requestedExerciseName: chatIntent.requestedExerciseName,
         canTriggerAction: chatIntent.canTriggerAction,
         missingActionFields: chatIntent.missingActionFields,
+      },
+      null,
+      2,
+    ),
+    "",
+    "serverAssistantAction:",
+    JSON.stringify(
+      {
+        triggered: Boolean(assistantAction),
+        action: assistantAction?.action ?? null,
+        blockingMissingFields: assistantAction
+          ? []
+          : getActionBlockingMissingFields(chatIntent.missingActionFields, exerciseContext.intent),
       },
       null,
       2,

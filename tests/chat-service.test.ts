@@ -258,6 +258,70 @@ describe("AI chat service deterministic boundaries", () => {
     expect(resolveVisibleSuggestedReplies(chatIntent, resolveAssistantAction(chatIntent, createExerciseContext({ intent: weeklyPlanIntent })))).toEqual([]);
   });
 
+  it("uses default beginner experience when routine core fields are complete", () => {
+    const noEquipmentRoutineIntent = createWorkoutPlanIntent({
+      intentType: "routine",
+      goal: "增肌",
+      experience: "beginner",
+      sessionMinutes: 30,
+      weeklyFrequency: 3,
+      equipment: [],
+      preferences: ["无器械"],
+    });
+    const chatIntent: ChatIntent = {
+      type: "routine",
+      needsExerciseContext: true,
+      workoutIntent: noEquipmentRoutineIntent,
+      requestedExerciseName: "",
+      canTriggerAction: false,
+      missingActionFields: ["experience"],
+      suggestedReplies: ["我是初学者"],
+    };
+
+    expect(getActionBlockingMissingFields(chatIntent.missingActionFields, noEquipmentRoutineIntent)).toEqual([]);
+    expect(resolveAssistantAction(chatIntent, createExerciseContext({ intent: noEquipmentRoutineIntent }))).toMatchObject({
+      action: "workout_routine",
+      intent: {
+        intentType: "routine",
+        goal: "增肌",
+        sessionMinutes: 30,
+        weeklyFrequency: 1,
+      },
+    });
+  });
+
+  it("uses default beginner experience when plan core fields are complete", () => {
+    const weeklyPlanIntent = createWorkoutPlanIntent({
+      intentType: "plan",
+      goal: "增肌",
+      experience: "beginner",
+      sessionMinutes: 30,
+      weeklyFrequency: 3,
+      equipment: [],
+      preferences: ["无器械"],
+    });
+    const chatIntent: ChatIntent = {
+      type: "workout_plan",
+      needsExerciseContext: true,
+      workoutIntent: weeklyPlanIntent,
+      requestedExerciseName: "",
+      canTriggerAction: false,
+      missingActionFields: ["experience", "injuryLimitations"],
+      suggestedReplies: ["我是初学者", "我没有受伤限制"],
+    };
+
+    expect(getActionBlockingMissingFields(chatIntent.missingActionFields, weeklyPlanIntent)).toEqual([]);
+    expect(resolveAssistantAction(chatIntent, createExerciseContext({ intent: weeklyPlanIntent }))).toMatchObject({
+      action: "workout_plan",
+      intent: {
+        intentType: "plan",
+        goal: "增肌",
+        sessionMinutes: 30,
+        weeklyFrequency: 3,
+      },
+    });
+  });
+
   it("keeps non-health missing fields as action blockers", () => {
     const incompleteIntent = createWorkoutPlanIntent({
       intentType: "routine",
@@ -271,6 +335,38 @@ describe("AI chat service deterministic boundaries", () => {
       "goal",
       "sessionMinutes",
     ]);
+  });
+
+  it("does not let default beginner experience bypass candidate or core field blockers", () => {
+    const incompleteIntent = createWorkoutPlanIntent({
+      intentType: "routine",
+      goal: "",
+      experience: "beginner",
+      sessionMinutes: 0,
+      equipment: [],
+      preferences: [],
+    });
+    const chatIntent: ChatIntent = {
+      type: "routine",
+      needsExerciseContext: true,
+      workoutIntent: incompleteIntent,
+      requestedExerciseName: "",
+      canTriggerAction: false,
+      missingActionFields: ["experience", "goal", "sessionMinutes"],
+      suggestedReplies: ["我想先练 20 分钟全身"],
+    };
+
+    expect(getActionBlockingMissingFields(chatIntent.missingActionFields, incompleteIntent)).toEqual([
+      "goal",
+      "sessionMinutes",
+    ]);
+    expect(resolveAssistantAction(chatIntent, createExerciseContext({ intent: incompleteIntent }))).toBeNull();
+    expect(
+      resolveAssistantAction(
+        { ...chatIntent, missingActionFields: ["experience"] },
+        createExerciseContext({ intent: incompleteIntent, candidateStatus: "insufficient" }),
+      ),
+    ).toBeNull();
   });
 
   it("documents prompts do not ask for health checks", () => {
@@ -288,6 +384,34 @@ describe("AI chat service deterministic boundaries", () => {
     expect(promptText).not.toContain("咨询医生");
     expect(promptText).not.toContain("医疗诊断");
     expect(promptText).not.toContain("就医");
+  });
+
+  it("documents default beginner action trigger prompt boundaries", () => {
+    expect(aiPromptConfig.chatIntentResolution.system).toContain(
+      "默认按 beginner / 简单训练推送",
+    );
+    expect(aiPromptConfig.chatIntentResolution.system).toContain(
+      "不要仅因为缺少经验把 experience 或 trainingExperience 放入 missingActionFields",
+    );
+    expect(aiPromptConfig.chatCompletion.system).toContain("serverAssistantAction.triggered");
+    expect(aiPromptConfig.chatCompletion.system).toContain("blockingMissingFields");
+    expect(aiPromptConfig.chatCompletion.system).toContain("不要把该默认值说成用户明确确认过的经验");
+    expect(aiPromptConfig.chatContextSummarization.system).toContain("不要把系统默认值描述成用户明确提供的信息");
+  });
+
+  it("documents intent prompt must carry forward equipment and location facts", () => {
+    expect(aiPromptConfig.chatIntentResolution.system).toContain(
+      "当前消息只补充其中一个字段时，必须把摘要中仍然有效的字段合并进 workoutIntent",
+    );
+    expect(aiPromptConfig.chatIntentResolution.system).toContain(
+      "在家、自重、徒手、无器械或没有可用设备",
+    );
+    expect(aiPromptConfig.chatIntentResolution.system).toContain(
+      "missingActionFields 不得包含 equipmentOrLocation",
+    );
+    expect(aiPromptConfig.chatCompletion.system).toContain(
+      "当 serverAssistantAction.triggered 为 false，以上三条都不适用",
+    );
   });
 
   it("parses fenced JSON and encodes NDJSON stream events", () => {

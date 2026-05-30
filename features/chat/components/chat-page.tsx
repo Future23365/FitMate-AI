@@ -431,7 +431,7 @@ export function ChatPage() {
                                   <div className="mt-md flex items-start gap-xs rounded-xl border border-error-container bg-error-container/20 p-md text-on-error-container shadow-sm">
                                     <SymbolIcon className="mt-[2px] shrink-0 text-[18px] text-error">warning</SymbolIcon>
                                     <div>
-                                      <p className="font-label-sm text-label-sm font-bold">FitMate 安全引擎已拦截</p>
+                                      <p className="font-label-sm text-label-sm font-bold">计划生成失败</p>
                                       <p className="mt-xs font-body-xs text-body-xs text-on-surface-variant">
                                         {bubblePlanErrors[message.id]}
                                       </p>
