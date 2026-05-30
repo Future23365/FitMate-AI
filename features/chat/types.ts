@@ -1,4 +1,8 @@
-import type { WorkoutPlanDraft, WorkoutRoutineDraft } from "@/lib/shared/workout-plans/draft-schema";
+import type {
+  WorkoutPlanDraft,
+  WorkoutPlanIntent,
+  WorkoutRoutineDraft,
+} from "@/lib/shared/workout-plans/draft-schema";
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
 import type { ConversationSummaryContext, FitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
 import type { ReferenceResolution } from "@/lib/shared/reference-resolver/schema";
@@ -66,6 +70,8 @@ export type ChatConversation = {
   routines?: Record<string, WorkoutRoutineDraft>;
   /** 消息气泡内嵌的动作推荐卡片，key 为 messageId */
   exerciseRecommendations?: Record<string, ExerciseRecommendationCard>;
+  /** 动作推荐卡片生成时使用的结构化意图，供换一批复用上一轮上下文 */
+  recommendationIntents?: Record<string, WorkoutPlanIntent>;
   /** 服务端维护的自然语言上下文总结，是模型可见历史上下文 */
   conversationSummary?: Pick<ConversationSummaryContext, "summary">;
   /** @deprecated 仅用于旧历史迁移和服务端确定性兜底，不再作为模型可见协议 */

@@ -394,5 +394,6 @@ export function createChatConversation(overrides: Partial<ChatConversation> = {}
     plans: overrides.plans,
     routines: overrides.routines,
     exerciseRecommendations: overrides.exerciseRecommendations,
+    recommendationIntents: overrides.recommendationIntents,
   };
 }

@@ -102,6 +102,7 @@ export async function saveChatConversation(rawConversation: ChatConversation) {
             plan: conversation.plans?.[message.id],
             routine: conversation.routines?.[message.id],
             exerciseRecommendation: conversation.exerciseRecommendations?.[message.id],
+            recommendationIntent: conversation.recommendationIntents?.[message.id],
             conversationSummary: isLastMessage ? conversation.conversationSummary : undefined,
             conversationContext: isLastMessage ? conversation.conversationContext : undefined,
           },
@@ -150,6 +151,7 @@ function normalizeConversation(conversation: ChatConversation): ChatConversation
   const plans = filterMessageRecord(conversation.plans, messageIds);
   const routines = filterMessageRecord(conversation.routines, messageIds);
   const exerciseRecommendations = filterMessageRecord(conversation.exerciseRecommendations, messageIds);
+  const recommendationIntents = filterMessageRecord(conversation.recommendationIntents, messageIds);
   const conversationContext =
     conversation.conversationContext ??
     buildFitnessConversationContext(messages.map(({ role, content }) => ({ role, content })));
@@ -167,6 +169,9 @@ function normalizeConversation(conversation: ChatConversation): ChatConversation
     exerciseRecommendations: Object.keys(exerciseRecommendations).length
       ? exerciseRecommendations
       : undefined,
+    recommendationIntents: Object.keys(recommendationIntents).length
+      ? recommendationIntents
+      : undefined,
     conversationSummary,
     conversationContext,
   };
@@ -177,6 +182,7 @@ function mapChatSessionToConversation(session: ChatSessionWithMessages): ChatCon
   const plans: NonNullable<ChatConversation["plans"]> = {};
   const routines: NonNullable<ChatConversation["routines"]> = {};
   const exerciseRecommendations: NonNullable<ChatConversation["exerciseRecommendations"]> = {};
+  const recommendationIntents: NonNullable<ChatConversation["recommendationIntents"]> = {};
 
   for (const dbMessage of session.messages) {
     const metadata = readObject(dbMessage.metadata);
@@ -203,6 +209,11 @@ function mapChatSessionToConversation(session: ChatSessionWithMessages): ChatCon
       exerciseRecommendations[message.id] =
         metadata.exerciseRecommendation as NonNullable<ChatConversation["exerciseRecommendations"]>[string];
     }
+
+    if (metadata?.recommendationIntent) {
+      recommendationIntents[message.id] =
+        metadata.recommendationIntent as NonNullable<ChatConversation["recommendationIntents"]>[string];
+    }
   }
 
   const latestMessageMetadata = readObject(session.messages.at(-1)?.metadata);
@@ -223,6 +234,9 @@ function mapChatSessionToConversation(session: ChatSessionWithMessages): ChatCon
     routines: Object.keys(routines).length ? routines : undefined,
     exerciseRecommendations: Object.keys(exerciseRecommendations).length
       ? exerciseRecommendations
+      : undefined,
+    recommendationIntents: Object.keys(recommendationIntents).length
+      ? recommendationIntents
       : undefined,
     conversationSummary,
     conversationContext,

@@ -5,6 +5,7 @@ import {
   createExercise,
   createWorkoutItem,
   createWorkoutPlanDraft,
+  createWorkoutPlanIntent,
   createWorkoutRoutine,
   createWorkoutRoutineDraft,
   createWorkoutSchedule,
@@ -285,6 +286,7 @@ describe("persistence services", () => {
             createdAt: new Date("2026-05-25T09:01:00.000Z"),
             metadata: {
               suggestedReplies: ["30 分钟"],
+              recommendationIntent: createWorkoutPlanIntent({ goal: "练胸" }),
               conversationContext: createChatConversation().conversationContext,
             },
           },
@@ -323,6 +325,7 @@ describe("persistence services", () => {
       title: "今天练胸",
       updatedAt: "2026-05-25T09:01:00.000Z",
       messages: [expect.objectContaining({ id: "m1" }), expect.objectContaining({ suggestedReplies: ["30 分钟"] })],
+      recommendationIntents: { m2: expect.objectContaining({ goal: "练胸" }) },
     });
   });
 
@@ -427,6 +430,9 @@ describe("persistence services", () => {
       exerciseRecommendations: {
         m2: createExerciseRecommendationCard(),
       },
+      recommendationIntents: {
+        m2: createWorkoutPlanIntent({ goal: "练胸" }),
+      },
       routines: {
         m2: createWorkoutRoutineDraft(),
       },
@@ -445,6 +451,16 @@ describe("persistence services", () => {
     expect(prismaMock.conversationArtifact.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ messageId: "m2", kind: "plan" }),
     }));
+    expect(prismaMock.chatMessage.createMany.mock.calls[0][0].data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "m2",
+          metadata: expect.objectContaining({
+            recommendationIntent: expect.objectContaining({ goal: "练胸" }),
+          }),
+        }),
+      ]),
+    );
     expect(prismaMock.artifactIndex.upsert).toHaveBeenCalledTimes(3);
   });
 

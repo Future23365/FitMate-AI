@@ -233,6 +233,9 @@ describe("frontend API clients", () => {
       {},
       {},
       {},
+      {
+        "message-2": createWorkoutPlanIntent(),
+      },
       { summary: "用户想在家练胸肌。" },
       createConversationContext(),
     );
@@ -243,6 +246,9 @@ describe("frontend API clients", () => {
         { id: "message-1", createdAt: "2026-05-25T09:00:00.000Z" },
         { id: "message-2", createdAt: "2026-05-25T09:01:00.000Z" },
       ],
+      recommendationIntents: {
+        "message-2": expect.objectContaining({ goal: "胸肌训练" }),
+      },
       conversationSummary: { summary: "用户想在家练胸肌。" },
     });
     expect(window.dispatchEvent).toHaveBeenCalledWith(expect.any(Event));
