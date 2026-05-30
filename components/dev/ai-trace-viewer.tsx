@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 
 import type { AiTrace, AiTraceStep } from "@/lib/server/dev/ai-trace-store";
 
@@ -36,6 +37,7 @@ type TokenUsage = {
 export function AiTraceViewer() {
   const [traces, setTraces] = useState<AiTrace[]>([]);
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [savingLogTarget, setSavingLogTarget] = useState<string | null>(null);
@@ -49,6 +51,10 @@ export function AiTraceViewer() {
   const selectedStepGroups = useMemo(
     () => (selectedTrace ? groupTraceSteps(selectedTrace.steps) : []),
     [selectedTrace],
+  );
+  const selectedGroup = useMemo(
+    () => selectedStepGroups.find((group) => group.id === selectedGroupId) ?? selectedStepGroups[0] ?? null,
+    [selectedGroupId, selectedStepGroups],
   );
 
   const loadTraces = useCallback(async () => {
@@ -217,127 +223,67 @@ export function AiTraceViewer() {
 
       <section className="min-w-0 flex-1 overflow-y-auto">
         {selectedTrace ? (
-          <div className="mx-auto max-w-6xl px-8 py-8">
-            <div className="mb-6 flex items-start justify-between gap-4">
-              <div>
-                <div className="mb-2 flex items-center gap-3">
-                  <h2 className="text-2xl font-semibold">{selectedTrace.title}</h2>
-                  <StatusBadge status={selectedTrace.status} />
+          <div className="mx-auto max-w-[1600px] px-8 py-7">
+            <TraceHero
+              trace={selectedTrace}
+              groups={selectedStepGroups}
+              isSaving={savingLogTarget === selectedTrace.id}
+              onSaveLog={() => {
+                void saveTraceLog({
+                  targetId: selectedTrace.id,
+                  target: {
+                    type: "full_trace",
+                    traceId: selectedTrace.id,
+                    title: selectedTrace.title,
+                  },
+                  payload: createTraceLogPayload(selectedTrace, selectedStepGroups),
+                });
+              }}
+            />
+
+            <div className="mt-5 min-w-0 space-y-5">
+              <TraceOverview trace={selectedTrace} />
+              <TraceFlowNavigator
+                groups={selectedStepGroups}
+                selectedGroupId={selectedGroup?.id ?? null}
+                onSelect={setSelectedGroupId}
+              />
+              {selectedGroup ? (
+                <StageInspector
+                  trace={selectedTrace}
+                  group={selectedGroup}
+                  isSavingGroup={savingLogTarget === selectedGroup.id}
+                  savingLogTarget={savingLogTarget}
+                  onSaveGroupLog={() => {
+                    void saveTraceLog({
+                      targetId: selectedGroup.id,
+                      target: {
+                        type: "step_group",
+                        traceId: selectedTrace.id,
+                        groupId: selectedGroup.id,
+                        title: selectedGroup.title,
+                      },
+                      payload: createGroupLogPayload(selectedTrace, selectedGroup),
+                    });
+                  }}
+                  onSaveStepLog={(step) => {
+                    void saveTraceLog({
+                      targetId: step.id,
+                      target: {
+                        type: "step_event",
+                        traceId: selectedTrace.id,
+                        stepId: step.id,
+                        title: getStepTitle(step),
+                      },
+                      payload: createStepLogPayload(selectedTrace, selectedGroup, step),
+                    });
+                  }}
+                />
+              ) : (
+                <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
+                  这条 Trace 还没有记录步骤。
                 </div>
-                <div className="flex flex-wrap gap-3 text-sm text-slate-500">
-                  <span>{selectedTrace.route}</span>
-                  <span>{formatTime(selectedTrace.createdAt)}</span>
-                  <span>{formatDuration(selectedTrace.durationMs)}</span>
-                </div>
-              </div>
-              <button
-                className="shrink-0 rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
-                type="button"
-                disabled={savingLogTarget === selectedTrace.id}
-                onClick={() => {
-                  void saveTraceLog({
-                    targetId: selectedTrace.id,
-                    target: {
-                      type: "full_trace",
-                      traceId: selectedTrace.id,
-                      title: selectedTrace.title,
-                    },
-                    payload: createTraceLogPayload(selectedTrace, selectedStepGroups),
-                  });
-                }}
-              >
-                {savingLogTarget === selectedTrace.id ? "保存中" : "保存全链路log"}
-              </button>
-            </div>
-
-            {selectedTrace.metadata && !isEmptyValue(selectedTrace.metadata) ? (
-              <TracePanel title="请求概览" value={selectedTrace.metadata} />
-            ) : null}
-
-            <TraceTimeline groups={selectedStepGroups} />
-
-            <div className="space-y-4">
-              {selectedStepGroups.map((group, index) => (
-                <details
-                  className="overflow-hidden rounded-xl border border-slate-200 bg-white"
-                  key={group.id}
-                >
-                  <summary className="flex cursor-pointer items-center justify-between gap-4 px-5 py-4">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-3">
-                        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-600">
-                          {index + 1}
-                        </span>
-                        <span className="truncate text-sm font-semibold">{group.title}</span>
-                        <span className="rounded bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">
-                          {group.steps.length} 条事件
-                        </span>
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
-                        <span>{group.description}</span>
-                        <span>{formatTime(group.startedAt)}</span>
-                        <span>{formatDuration(group.durationMs)}</span>
-                        <TokenUsageBadges usage={getGroupTokenUsage(group)} labelPrefix="阶段" />
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <button
-                        className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
-                        type="button"
-                        disabled={savingLogTarget === group.id}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          if (!selectedTrace) {
-                            return;
-                          }
-
-                          void saveTraceLog({
-                            targetId: group.id,
-                            target: {
-                              type: "step_group",
-                              traceId: selectedTrace.id,
-                              groupId: group.id,
-                              title: group.title,
-                            },
-                            payload: createGroupLogPayload(selectedTrace, group),
-                          });
-                        }}
-                      >
-                        {savingLogTarget === group.id ? "保存中" : "保存log"}
-                      </button>
-                      <StatusBadge status={group.status} />
-                    </div>
-                  </summary>
-                  <div className="space-y-4 border-t border-slate-100 p-5">
-                    {group.steps.map((step, stepIndex) => (
-                      <TraceStepDetail
-                        key={step.id}
-                        step={step}
-                        steps={group.steps}
-                        index={stepIndex}
-                        isSaving={savingLogTarget === step.id}
-                        onSaveLog={() => {
-                          if (!selectedTrace) {
-                            return;
-                          }
-
-                          void saveTraceLog({
-                            targetId: step.id,
-                            target: {
-                              type: "step_event",
-                              traceId: selectedTrace.id,
-                              stepId: step.id,
-                              title: getStepTitle(step),
-                            },
-                            payload: createStepLogPayload(selectedTrace, group, step),
-                          });
-                        }}
-                      />
-                    ))}
-                  </div>
-                </details>
-              ))}
+              )}
             </div>
           </div>
         ) : (
@@ -350,31 +296,280 @@ export function AiTraceViewer() {
   );
 }
 
-function TraceTimeline({ groups }: { groups: TraceStepGroup[] }) {
+function TraceHero({
+  trace,
+  groups,
+  isSaving,
+  onSaveLog,
+}: {
+  trace: AiTrace;
+  groups: TraceStepGroup[];
+  isSaving: boolean;
+  onSaveLog: () => void;
+}) {
+  const tokenUsage = getTraceTokenUsage(trace);
+
+  return (
+    <header className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="text-2xl font-semibold text-slate-950">{trace.title}</h2>
+            <StatusBadge status={trace.status} />
+          </div>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
+            这条链路从请求入口开始，依次展示意图理解、动作候选、模型生成、服务端校验和最终返回。优先看流程节点定位问题，再进入阶段详情看字段解释和原始数据。
+          </p>
+        </div>
+        <button
+          className="shrink-0 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+          type="button"
+          disabled={isSaving}
+          onClick={onSaveLog}
+        >
+          {isSaving ? "保存中" : "保存全链路log"}
+        </button>
+      </div>
+
+      <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard label="接口路径" value={trace.route} description="本次 trace 关联的服务端入口。" />
+        <MetricCard label="流程阶段" value={`${groups.length} 个`} description="按业务链路归并后的主要步骤。" />
+        <MetricCard label="总耗时" value={formatDuration(trace.durationMs)} description="trace 从创建到结束的总耗时。" />
+        <MetricCard
+          label="Token"
+          value={tokenUsage?.total_tokens ? formatNumber(tokenUsage.total_tokens) : "-"}
+          description="模型输入和输出 token 合计。"
+        />
+      </div>
+    </header>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  description,
+}: {
+  label: string;
+  value: string;
+  description: string;
+}) {
+  return (
+    <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
+      <div className="text-xs font-medium text-slate-500">{label}</div>
+      <div className="mt-1 truncate text-lg font-semibold text-slate-950">{value}</div>
+      <div className="mt-1 text-xs leading-5 text-slate-500">{description}</div>
+    </div>
+  );
+}
+
+function TraceOverview({ trace }: { trace: AiTrace }) {
+  const items = getTraceOverviewItems(trace);
+
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white">
+      <SectionHeader
+        eyebrow="Request"
+        title="请求概览"
+        description="先确认这次请求的入口、状态、时间、token 和 trace metadata，避免直接陷入原始 JSON。"
+      />
+      <div className="grid gap-3 border-t border-slate-100 p-4 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
+        {items.map((item) => (
+          <FieldExplanationCard item={item} key={item.key} />
+        ))}
+      </div>
+      {trace.metadata && !isEmptyValue(trace.metadata) ? (
+        <div className="border-t border-slate-100 p-4">
+          <TraceDataPanel title="原始 metadata" value={trace.metadata} defaultOpen={false} />
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function TraceFlowNavigator({
+  groups,
+  selectedGroupId,
+  onSelect,
+}: {
+  groups: TraceStepGroup[];
+  selectedGroupId: string | null;
+  onSelect: (groupId: string) => void;
+}) {
   if (groups.length === 0) {
     return null;
   }
 
   return (
-    <div className="mb-5 rounded-xl border border-slate-200 bg-white p-4">
-      <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">流程概览</div>
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {groups.map((group, index) => (
-          <div className="flex min-w-0 gap-3 rounded-lg border border-slate-100 bg-slate-50 p-3" key={group.id}>
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
-              {index + 1}
-            </span>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <div className="truncate text-sm font-semibold text-slate-900">{group.title}</div>
-                <StatusDot status={group.status} />
+    <section className="rounded-xl border border-slate-200 bg-white">
+      <SectionHeader
+        eyebrow="Flow"
+        title="流程步骤"
+        description="按一次 AI 请求的主链路阅读：输入、意图、候选、生成、校验、返回。点击节点查看该阶段详情。"
+      />
+      <div className="grid gap-3 border-t border-slate-100 p-4 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
+        {groups.map((group, index) => {
+          const isSelected = group.id === selectedGroupId;
+          const usage = getGroupTokenUsage(group);
+
+          return (
+            <button
+              className={`min-w-0 rounded-xl border p-4 text-left transition ${
+                isSelected
+                  ? "border-blue-300 bg-blue-50 shadow-[0_8px_20px_rgba(36,89,230,0.10)]"
+                  : "border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50"
+              }`}
+              key={group.id}
+              type="button"
+              onClick={() => onSelect(group.id)}
+            >
+              <div className="flex items-center gap-3">
+                <span
+                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                    isSelected ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600"
+                  }`}
+                >
+                  {index + 1}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-sm font-semibold text-slate-950">{group.title}</span>
+                    <StatusDot status={group.status} />
+                  </div>
+                  <div className="mt-1 truncate text-xs text-slate-500">{group.description}</div>
+                </div>
               </div>
-              <div className="mt-1 truncate text-xs text-slate-500">{group.description}</div>
-            </div>
+              <div className="mt-3 flex flex-wrap gap-1.5 text-[11px] text-slate-500">
+                <Pill>{group.steps.length} 条事件</Pill>
+                <Pill>{formatDuration(group.durationMs)}</Pill>
+                <TokenUsageBadges usage={usage} compact />
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function StageInspector({
+  trace,
+  group,
+  isSavingGroup,
+  savingLogTarget,
+  onSaveGroupLog,
+  onSaveStepLog,
+}: {
+  trace: AiTrace;
+  group: TraceStepGroup;
+  isSavingGroup: boolean;
+  savingLogTarget: string | null;
+  onSaveGroupLog: () => void;
+  onSaveStepLog: (step: AiTraceStep) => void;
+}) {
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white">
+      <div className="flex flex-wrap items-start justify-between gap-3 p-5">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-lg font-semibold text-slate-950">{group.title}</h3>
+            <StatusBadge status={group.status} />
+            <Pill>{group.steps.length} 条事件</Pill>
           </div>
+          <p className="mt-2 text-sm leading-6 text-slate-500">{group.description}</p>
+        </div>
+        <button
+          className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+          type="button"
+          disabled={isSavingGroup}
+          onClick={onSaveGroupLog}
+        >
+          {isSavingGroup ? "保存中" : "保存阶段log"}
+        </button>
+      </div>
+
+      <div className="grid gap-3 border-t border-slate-100 p-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard label="开始时间" value={formatTime(group.startedAt)} description="该阶段第一条事件的开始时间。" />
+        <MetricCard label="阶段耗时" value={formatDuration(group.durationMs)} description="该阶段事件的合计或首尾耗时。" />
+        <MetricCard label="阶段状态" value={getStatusLabel(group.status)} description={getStatusDescription(group.status)} />
+        <MetricCard
+          label="Token 合计"
+          value={getGroupTokenUsage(group)?.total_tokens ? formatNumber(getGroupTokenUsage(group)?.total_tokens ?? 0) : "-"}
+          description="该阶段内模型事件上报的 token 总量。"
+        />
+      </div>
+
+      <div className="space-y-4 border-t border-slate-100 p-4">
+        {group.steps.map((step, index) => (
+          <TraceStepDetail
+            key={step.id}
+            step={step}
+            steps={group.steps}
+            index={index}
+            isSaving={savingLogTarget === step.id}
+            onSaveLog={() => onSaveStepLog(step)}
+          />
         ))}
       </div>
+
+      <div className="border-t border-slate-100 p-4">
+        <TraceDataPanel
+          title={`原始阶段数据：${trace.title} / ${group.title}`}
+          value={createGroupLogPayload(trace, group)}
+          defaultOpen={false}
+        />
+      </div>
+    </section>
+  );
+}
+
+function SectionHeader({
+  eyebrow,
+  title,
+  description,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="p-5">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">{eyebrow}</div>
+      <h3 className="mt-1 text-base font-semibold text-slate-950">{title}</h3>
+      <p className="mt-1 text-sm leading-6 text-slate-500">{description}</p>
     </div>
+  );
+}
+
+type FieldExplanationItem = {
+  key: string;
+  label: string;
+  value: string;
+  description: string;
+};
+
+function FieldExplanationCard({ item }: { item: FieldExplanationItem }) {
+  return (
+    <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50 p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-xs font-semibold text-slate-700">{item.label}</div>
+          <div className="mt-1 break-words text-sm font-medium leading-6 text-slate-950">{item.value}</div>
+        </div>
+        <code className="max-w-full break-words rounded-md bg-white px-1.5 py-1 text-[11px] leading-5 text-slate-500 ring-1 ring-slate-200">
+          {item.key}
+        </code>
+      </div>
+      <div className="mt-2 text-xs leading-5 text-slate-500">{item.description}</div>
+    </div>
+  );
+}
+
+function Pill({ children }: { children: ReactNode }) {
+  return (
+    <span className="rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-600 ring-1 ring-slate-200">
+      {children}
+    </span>
   );
 }
 
@@ -611,7 +806,8 @@ function TraceStepDetail({
       </summary>
       <div className="space-y-4 p-4">
         <StepSummaryCards step={step} tokenUsage={tokenUsage} />
-        <div className="grid gap-4 lg:grid-cols-2">
+        <StepInterpretation step={step} tokenUsage={tokenUsage} />
+        <div className="space-y-4">
           {!isEmptyValue(step.output) ? (
             <TraceDataPanel title={getOutputTitle(step)} value={step.output} />
           ) : null}
@@ -627,6 +823,49 @@ function TraceStepDetail({
         </div>
       </div>
     </details>
+  );
+}
+
+function StepInterpretation({
+  step,
+  tokenUsage,
+}: {
+  step: AiTraceStep;
+  tokenUsage: TokenUsage | null;
+}) {
+  const items = getStepExplanationItems(step, tokenUsage);
+  const interpretation = getStepInterpretation(step);
+
+  if (items.length === 0 && !interpretation) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-slate-950">结果解释</div>
+          <p className="mt-1 text-xs leading-5 text-slate-600">
+            这里把该事件的主要字段翻译成调试语义；未覆盖字段仍可在下方原始 JSON 中查看。
+          </p>
+        </div>
+        <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-blue-700 ring-1 ring-blue-100">
+          {getStepTypeLabel(step.type)}
+        </span>
+      </div>
+      {interpretation ? (
+        <div className="mt-3 rounded-lg border border-blue-100 bg-white p-3 text-sm leading-6 text-slate-700">
+          {interpretation}
+        </div>
+      ) : null}
+      {items.length > 0 ? (
+        <div className="mt-3 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
+          {items.map((item) => (
+            <FieldExplanationCard item={item} key={`${step.id}-${item.key}`} />
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -768,14 +1007,6 @@ function TraceDataPanel({
   );
 }
 
-function TracePanel({ title, value }: { title: string; value: unknown }) {
-  return (
-    <div className="mb-5 rounded-lg border border-slate-200 bg-white p-5">
-      <ReadableBlock title={title} value={value} />
-    </div>
-  );
-}
-
 function ReadableBlock({ title, value }: { title: string; value: unknown }) {
   if (isModelPayload(value)) {
     return <ModelPayloadBlock title={title} value={value} />;
@@ -796,19 +1027,48 @@ function ModelPayloadBlock({ title, value }: { title: string; value: ModelPayloa
   const rest = Object.fromEntries(
     Object.entries(value).filter(([key]) => key !== "messages"),
   );
+  const configItems = getModelConfigItems(rest);
 
   return (
     <div className="min-w-0 space-y-4 lg:col-span-2">
       {title ? <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</div> : null}
-      {Object.keys(rest).length > 0 ? <JsonBlock title="调用配置" value={rest} /> : null}
-      <div className="space-y-3">
-        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">消息列表</div>
-        {value.messages.map((message, index) => (
-          <div className="overflow-hidden rounded-md border border-slate-200 bg-white" key={index}>
-            <div className="border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
-              {index + 1}. {message.role}
+      {configItems.length > 0 ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="text-sm font-semibold text-slate-950">调用配置</div>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            这些字段决定模型、输出格式、是否流式返回和推理开关，是排查模型行为的第一入口。
+          </p>
+          <div className="mt-3 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
+            {configItems.map((item) => (
+              <FieldExplanationCard item={item} key={item.key} />
+            ))}
+          </div>
+          {Object.keys(rest).length > 0 ? (
+            <div className="mt-3">
+              <TraceDataPanel title="原始调用配置" value={rest} defaultOpen={false} />
             </div>
-            <pre className="max-h-[420px] whitespace-pre-wrap break-words overflow-auto p-3 text-xs leading-relaxed text-slate-800">
+          ) : null}
+        </div>
+      ) : null}
+      <div className="space-y-3">
+        <div>
+          <div className="text-sm font-semibold text-slate-950">消息列表</div>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            按发送给模型的顺序展示。system 通常是规则，user 是用户输入或上下文，assistant 是历史回复。
+          </p>
+        </div>
+        {value.messages.map((message, index) => (
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white" key={index}>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3">
+              <div className="flex items-center gap-2">
+                <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-600 ring-1 ring-slate-200">
+                  {index + 1}
+                </span>
+                <span className="text-sm font-semibold text-slate-700">{message.role}</span>
+              </div>
+              <span className="text-xs text-slate-500">{getMessageRoleDescription(message.role)}</span>
+            </div>
+            <pre className="max-h-[70dvh] whitespace-pre-wrap break-words overflow-auto p-5 text-sm leading-7 text-slate-800">
               {message.content}
             </pre>
           </div>
@@ -844,7 +1104,7 @@ function TextBlock({ title, value }: { title: string; value: string }) {
   return (
     <div className="min-w-0">
       {title ? <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</div> : null}
-      <pre className="max-h-[560px] whitespace-pre-wrap break-words overflow-auto rounded-md border border-slate-200 bg-white p-4 text-xs leading-relaxed text-slate-800">
+      <pre className="max-h-[70dvh] whitespace-pre-wrap break-words overflow-auto rounded-md border border-slate-200 bg-white p-5 text-sm leading-7 text-slate-800">
         {value}
       </pre>
     </div>
@@ -855,7 +1115,7 @@ function JsonBlock({ title, value }: { title: string; value: unknown }) {
   return (
     <div className="min-w-0">
       {title ? <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</div> : null}
-      <pre className="max-h-[520px] overflow-auto rounded-md bg-slate-950 p-4 text-xs leading-relaxed text-slate-100">
+      <pre className="max-h-[70dvh] overflow-auto rounded-md bg-slate-950 p-5 text-xs leading-6 text-slate-100">
         {JSON.stringify(value, null, 2)}
       </pre>
     </div>
@@ -1107,6 +1367,403 @@ function getStepSummaryItems(step: AiTraceStep, tokenUsage: TokenUsage | null) {
   }
 
   return items.slice(0, 8);
+}
+
+function getTraceOverviewItems(trace: AiTrace): FieldExplanationItem[] {
+  const usage = getTraceTokenUsage(trace);
+  const metadata = isRecord(trace.metadata) ? trace.metadata : {};
+  const items: FieldExplanationItem[] = [
+    {
+      key: "route",
+      label: "接口路径",
+      value: trace.route,
+      description: "本次 trace 由哪个服务端入口创建，用来区分聊天、计划生成或动作推荐链路。",
+    },
+    {
+      key: "status",
+      label: "请求状态",
+      value: getStatusLabel(trace.status),
+      description: getStatusDescription(trace.status),
+    },
+    {
+      key: "createdAt",
+      label: "创建时间",
+      value: formatTime(trace.createdAt),
+      description: "服务端开始记录 trace 的时间。",
+    },
+    {
+      key: "durationMs",
+      label: "总耗时",
+      value: formatDuration(trace.durationMs),
+      description: "从 trace 创建到 finish 的时间，长耗时通常需要看模型请求或动作查询阶段。",
+    },
+    {
+      key: "tokenUsage.total_tokens",
+      label: "总 token",
+      value: usage?.total_tokens ? formatNumber(usage.total_tokens) : "-",
+      description: "模型输入和输出 token 合计，用于判断上下文体积和成本。",
+    },
+  ];
+
+  addKnownMetadataItem(items, metadata, "latestUserMessage", "最新用户消息", "本轮真正驱动 AI 判断的最新用户输入。");
+  addKnownMetadataItem(items, metadata, "parentTraceId", "父级 trace", "下游接口复用的上游 trace id，用于串起聊天和动作/计划生成。");
+  addKnownMetadataItem(items, metadata, "continuedRoutes", "连续路由", "同一 trace 继续记录过的后续服务端入口。");
+  addKnownMetadataItem(items, metadata, "thinkingEnabled", "推理开关", "本次聊天是否允许模型返回 reasoning 或开启 thinking 配置。");
+
+  return items;
+}
+
+function getStepExplanationItems(step: AiTraceStep, tokenUsage: TokenUsage | null): FieldExplanationItem[] {
+  const items: FieldExplanationItem[] = [];
+  const input = isRecord(step.input) ? step.input : null;
+  const output = isRecord(step.output) ? step.output : null;
+  const metadata = isRecord(step.metadata) ? step.metadata : null;
+  const intent = getIntentRecord(step);
+
+  if (input && step.type === "user_input") {
+    addKnownMetadataItem(items, input, "latestUserMessage", "最新用户消息", "这句话会直接影响意图判断和后续 prompt。");
+    addKnownMetadataItem(items, input, "conversationSummary", "上下文总结", "服务端压缩后的历史上下文，避免把完整聊天记录直接塞给模型。");
+    addKnownMetadataItem(items, input, "thinkingEnabled", "推理开关", "前端传入的 thinking 设置，决定回复生成阶段的模型 thinking 配置。");
+    if (Array.isArray(input.messages)) {
+      items.push({
+        key: "messages",
+        label: "原始消息数",
+        value: `${input.messages.length} 条`,
+        description: "客户端提交给接口的原始消息数量。",
+      });
+    }
+    if (Array.isArray(input.aiContextMessages)) {
+      items.push({
+        key: "aiContextMessages",
+        label: "模型可见消息数",
+        value: `${input.aiContextMessages.length} 条`,
+        description: "经过上下文选择后会进入 AI 判断链路的消息数量。",
+      });
+    }
+  }
+
+  if (intent) {
+    const workoutIntent = isRecord(intent.workoutIntent) ? intent.workoutIntent : intent;
+    addKnownMetadataItem(items, intent, "type", "聊天意图", "模型识别出的顶层聊天意图，决定是否需要动作上下文或后续内部动作。");
+    addKnownMetadataItem(items, intent, "needsExerciseContext", "需要动作上下文", "为 true 时服务端会查询动作库并筛选候选动作。");
+    addKnownMetadataItem(items, intent, "requestedExerciseName", "点名动作", "用户是否明确提到某个动作名称。");
+    addKnownMetadataItem(items, intent, "canTriggerAction", "可触发动作", "模型判断当前信息是否足够推送动作推荐或训练计划。");
+    addKnownMetadataItem(items, intent, "missingActionFields", "缺失字段", "仍需要追问的关键信息；为空通常表示可以继续执行内部动作。");
+    addKnownMetadataItem(items, intent, "suggestedReplies", "建议回复", "模型建议前端展示给用户的快捷追问或选项。");
+    addKnownMetadataItem(items, workoutIntent, "intentType", "训练意图类型", "routine 表示单次训练编排，plan 表示多日计划，exercise_recommendation 表示动作推荐。");
+    addKnownMetadataItem(items, workoutIntent, "goal", "训练目标", "用户表达的目标，如增肌、减脂、练腿或提升体能。");
+    addKnownMetadataItem(items, workoutIntent, "targetMuscles", "目标肌群", "模型识别出的主要训练部位。");
+    addKnownMetadataItem(items, workoutIntent, "equipmentOrLocation", "器械/场地", "用户可用器械或训练地点，会影响动作候选筛选。");
+    addKnownMetadataItem(items, workoutIntent, "sessionMinutes", "单次时长", "单次训练希望控制的分钟数。");
+    addKnownMetadataItem(items, workoutIntent, "trainingDaysPerWeek", "每周天数", "计划类请求用于安排频率。");
+    addKnownMetadataItem(items, workoutIntent, "experienceLevel", "经验水平", "用于控制动作难度和风险。");
+    addKnownMetadataItem(items, workoutIntent, "confidence", "置信度", "模型对当前结构化结果的信心，低置信度时更需要看原始输出。");
+  }
+
+  if (output && (step.type === "exercise_lookup" || step.type === "candidate_selection")) {
+    const candidateOutput = isRecord(output.context) ? output.context : output;
+    addKnownMetadataItem(items, candidateOutput, "candidateStatus", "候选状态", "候选动作是否足够支撑后续推荐或生成。");
+    addKnownMetadataItem(items, candidateOutput, "relevantCandidateCount", "相关候选数", "符合目标、器械、风险等条件的动作数量。");
+    addKnownMetadataItem(items, candidateOutput, "requiredRelevantCandidateCount", "最低需求数", "服务端认为可靠生成所需的最低候选数量。");
+    addKnownMetadataItem(items, candidateOutput, "isEnoughCandidates", "候选是否充足", "为 false 时通常会阻止计划草稿生成。");
+    addKnownMetadataItem(items, candidateOutput, "warnings", "候选警告", "动作不足、筛选过窄或安全限制等提示。");
+    if (metadata) {
+      addKnownMetadataItem(items, metadata, "primaryCandidateCount", "主候选总数", "主要候选池的完整数量，不只是页面截断展示的数量。");
+      addKnownMetadataItem(items, metadata, "supplementaryCandidateCount", "补充候选总数", "用于补足热身、拉伸或替代动作的候选数量。");
+      addKnownMetadataItem(items, metadata, "excludedCount", "排除动作数", "被规则筛掉的动作数量。");
+    }
+  }
+
+  if (output && step.type === "validation") {
+    addKnownMetadataItem(items, output, "valid", "校验通过", "服务端最终结构校验、动作 id 校验和规则校验是否通过。");
+    addKnownMetadataItem(items, output, "ok", "结果状态", "服务端返回对象的成功标记。");
+    addKnownMetadataItem(items, output, "code", "错误码", "失败时用于定位是哪类校验或生成问题。");
+    addKnownMetadataItem(items, output, "message", "错误信息", "失败时给出的可读说明。");
+    addKnownMetadataItem(items, output, "errors", "校验错误", "具体字段或动作规则不符合预期的列表。");
+  }
+
+  if (isModelPayload(step.input)) {
+    items.push(...getModelConfigItems(Object.fromEntries(Object.entries(step.input).filter(([key]) => key !== "messages"))));
+    items.push({
+      key: "messages",
+      label: "消息数量",
+      value: `${step.input.messages.length} 条`,
+      description: "实际传给模型的消息数，排查上下文过长或缺失时优先看这里。",
+    });
+  }
+
+  if (tokenUsage?.prompt_tokens !== undefined) {
+    items.push({
+      key: "tokenUsage.prompt_tokens",
+      label: "输入 token",
+      value: formatNumber(tokenUsage.prompt_tokens),
+      description: "本次模型调用的 prompt token，过高通常说明上下文或动作候选过长。",
+    });
+  }
+  if (tokenUsage?.completion_tokens !== undefined) {
+    items.push({
+      key: "tokenUsage.completion_tokens",
+      label: "输出 token",
+      value: formatNumber(tokenUsage.completion_tokens),
+      description: "模型回复消耗的 token，过高通常需要看回复内容或结构化输出。",
+    });
+  }
+
+  if (output && isContentPayload(output)) {
+    if (typeof output.content === "string") {
+      items.push({
+        key: "content",
+        label: "回复内容长度",
+        value: `${output.content.length} 字`,
+        description: "模型返回的主要文本长度；结构化 JSON 也可能放在这个字段里。",
+      });
+    }
+    if (typeof output.reasoning === "string" && output.reasoning) {
+      items.push({
+        key: "reasoning",
+        label: "推理内容长度",
+        value: `${output.reasoning.length} 字`,
+        description: "模型返回的 reasoning 长度，用于排查 thinking 行为和额外 token。",
+      });
+    }
+  }
+
+  return dedupeExplanationItems(items).slice(0, 12);
+}
+
+function getStepInterpretation(step: AiTraceStep) {
+  const intent = getIntentRecord(step);
+
+  if (intent) {
+    const canTriggerAction = intent.canTriggerAction;
+    const missingActionFields = Array.isArray(intent.missingActionFields) ? intent.missingActionFields : [];
+    const workoutIntent = isRecord(intent.workoutIntent) ? intent.workoutIntent : intent;
+    const intentType = typeof workoutIntent.intentType === "string" ? workoutIntent.intentType : undefined;
+    const triggerText =
+      canTriggerAction === true
+        ? "当前信息被判断为足够，可以继续触发内部动作。"
+        : canTriggerAction === false
+          ? "当前信息暂时不足，通常需要继续追问或只返回普通聊天回复。"
+          : "当前结果没有显式 canTriggerAction，需要结合后续内部动作事件判断。";
+    const missingText = missingActionFields.length > 0 ? `缺失字段：${missingActionFields.join("、")}。` : "没有记录缺失字段。";
+
+    return `识别到的训练意图类型是 ${intentType ?? "未标注"}。${triggerText}${missingText}`;
+  }
+
+  if (step.type === "exercise_lookup" || step.type === "candidate_selection") {
+    const output = isRecord(step.output) ? step.output : {};
+    const candidateOutput = isRecord(output.context) ? output.context : output;
+    const status = stringifyValue(candidateOutput.candidateStatus ?? "未标注");
+    const enough = candidateOutput.isEnoughCandidates;
+
+    if (typeof enough === "boolean") {
+      return enough
+        ? `候选状态为 ${status}，服务端认为候选动作足够继续生成或推荐。`
+        : `候选状态为 ${status}，服务端认为候选动作不足，后续可能降级为追问或失败。`;
+    }
+
+    return `候选状态为 ${status}，需要结合相关候选数和警告判断是否足够。`;
+  }
+
+  if (step.type === "validation") {
+    const output = isRecord(step.output) ? step.output : {};
+    const valid = output.valid ?? output.ok;
+
+    if (valid === true) {
+      return "服务端校验通过，说明结构化输出、动作 id 和训练规则满足当前链路要求。";
+    }
+
+    if (valid === false) {
+      return "服务端校验失败，需要优先查看错误码、errors 和原始草稿，确认是模型输出结构问题还是动作候选不匹配。";
+    }
+  }
+
+  if (step.type === "model_request") {
+    return "这是即将发送给模型的完整请求。优先检查 model、response_format、stream、thinking 和 messages 顺序。";
+  }
+
+  if (step.type === "model_response") {
+    return "这是模型返回结果。优先检查 content 是否为空、是否为合法 JSON，以及 token usage 是否异常。";
+  }
+
+  if (step.type === "user_input") {
+    return "这是请求入口数据。先确认最新用户消息、上下文总结和模型可见消息是否符合预期。";
+  }
+
+  if (step.status === "failed" || step.type === "error") {
+    return "这是失败事件。优先查看错误详情和 metadata 中的 HTTP 状态、错误码或异常堆栈。";
+  }
+
+  return null;
+}
+
+function getModelConfigItems(config: Record<string, unknown>): FieldExplanationItem[] {
+  const items: FieldExplanationItem[] = [];
+
+  addConfigItem(items, config, "model", "模型", "实际请求的模型名称，排查模型版本或供应商配置时优先看这里。");
+  addConfigItem(items, config, "stream", "流式返回", "为 true 时接口会逐段读取模型输出，并在结束时记录 usage。");
+  addConfigItem(items, config, "response_format", "响应格式", "要求模型返回普通文本还是 JSON object 等结构化格式。");
+  addConfigItem(items, config, "thinking", "推理配置", "控制模型 thinking/reasoning 行为，可能影响输出内容和 token。");
+  addConfigItem(items, config, "stream_options", "流式选项", "例如 include_usage，用于要求流式响应带回 token usage。");
+  addConfigItem(items, config, "temperature", "随机性", "值越高输出越发散；未设置时使用模型或 SDK 默认值。");
+  addConfigItem(items, config, "max_tokens", "最大输出 token", "限制模型最多可以生成多少 token。");
+
+  return items;
+}
+
+function addConfigItem(
+  items: FieldExplanationItem[],
+  record: Record<string, unknown>,
+  key: string,
+  label: string,
+  description: string,
+) {
+  if (!(key in record)) {
+    return;
+  }
+
+  items.push({
+    key,
+    label,
+    value: stringifyValue(record[key]),
+    description,
+  });
+}
+
+function addKnownMetadataItem(
+  items: FieldExplanationItem[],
+  record: Record<string, unknown>,
+  key: string,
+  label: string,
+  description: string,
+) {
+  if (!(key in record) || record[key] === undefined || record[key] === null || isEmptyValue(record[key])) {
+    return;
+  }
+
+  items.push({
+    key,
+    label,
+    value: stringifyValue(record[key]),
+    description,
+  });
+}
+
+function dedupeExplanationItems(items: FieldExplanationItem[]) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (seen.has(item.key)) {
+      return false;
+    }
+
+    seen.add(item.key);
+    return true;
+  });
+}
+
+function getIntentRecord(step: AiTraceStep): Record<string, unknown> | null {
+  const output = isRecord(step.output) ? step.output : null;
+
+  if (output && looksLikeIntentRecord(output)) {
+    return output;
+  }
+
+  if (output && isRecord(output.intent) && looksLikeIntentRecord(output.intent)) {
+    return output.intent;
+  }
+
+  if (output && isRecord(output.modelOutput) && looksLikeIntentRecord(output.modelOutput)) {
+    return output.modelOutput;
+  }
+
+  if (output && typeof output.content === "string") {
+    const parsed = parseJsonRecord(output.content);
+
+    if (parsed && looksLikeIntentRecord(parsed)) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+function looksLikeIntentRecord(value: Record<string, unknown>) {
+  return (
+    "intentType" in value ||
+    "workoutIntent" in value ||
+    "canTriggerAction" in value ||
+    "missingActionFields" in value ||
+    "needsExerciseContext" in value ||
+    "targetMuscles" in value
+  );
+}
+
+function parseJsonRecord(value: string) {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function stringifyValue(value: unknown): string {
+  if (value === undefined || value === null) {
+    return "-";
+  }
+
+  if (typeof value === "boolean") {
+    return value ? "是" : "否";
+  }
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? formatNumber(value) : String(value);
+  }
+
+  if (typeof value === "string") {
+    return value || "（空）";
+  }
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return "无";
+    }
+
+    return value.map((item) => stringifyValue(item)).join("、");
+  }
+
+  return JSON.stringify(value);
+}
+
+function getMessageRoleDescription(role: string) {
+  const descriptions: Record<string, string> = {
+    system: "规则、身份和输出约束",
+    user: "用户输入或用户侧上下文",
+    assistant: "历史助手回复",
+    tool: "工具调用结果",
+  };
+
+  return descriptions[role] ?? "自定义消息角色";
+}
+
+function getStatusLabel(status: AiTrace["status"]) {
+  const labels: Record<AiTrace["status"], string> = {
+    running: "运行中",
+    success: "成功",
+    failed: "失败",
+  };
+
+  return labels[status];
+}
+
+function getStatusDescription(status: AiTrace["status"]) {
+  const descriptions: Record<AiTrace["status"], string> = {
+    running: "链路还没有结束，可能仍在等待模型或下游接口。",
+    success: "链路正常结束，可以继续检查结果是否符合预期。",
+    failed: "链路已失败，应优先查看失败阶段的 error、metadata 和原始输出。",
+  };
+
+  return descriptions[status];
 }
 
 function getInputTitle(step: AiTraceStep) {
