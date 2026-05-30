@@ -97,18 +97,21 @@ type SessionSectionDividerMeta = {
   title: string;
 };
 
-type WorkoutCompletionConfettiPiece = {
+type WorkoutCompletionSpark = {
+  angle: string;
   color: string;
   delay: string;
-  duration: string;
-  height: string;
-  rotate: string;
-  width: string;
-  xEnd: string;
-  xStart: string;
+  distance: string;
+  size: string;
 };
 
-type WorkoutCompletionConfettiStyle = CSSProperties & Record<`--${string}`, string>;
+type WorkoutCompletionRay = {
+  angle: string;
+  delay: string;
+  length: string;
+};
+
+type WorkoutCompletionCelebrationStyle = CSSProperties & Record<`--${string}`, string>;
 
 const sessionSectionDividerMeta: Record<WorkoutSection, SessionSectionDividerMeta> = {
   warmup: {
@@ -131,19 +134,30 @@ const sessionSectionDividerMeta: Record<WorkoutSection, SessionSectionDividerMet
   },
 };
 
-const workoutCompletionConfettiPieces: WorkoutCompletionConfettiPiece[] = [
-  { color: "#2459E6", delay: "0s", duration: "1.55s", height: "12px", rotate: "180deg", width: "7px", xEnd: "-38vw", xStart: "-8vw" },
-  { color: "#14B8A6", delay: "0.04s", duration: "1.68s", height: "10px", rotate: "-210deg", width: "10px", xEnd: "-28vw", xStart: "-4vw" },
-  { color: "#F59E0B", delay: "0.08s", duration: "1.5s", height: "14px", rotate: "260deg", width: "6px", xEnd: "-18vw", xStart: "-2vw" },
-  { color: "#E5484D", delay: "0.02s", duration: "1.72s", height: "9px", rotate: "-160deg", width: "9px", xEnd: "-10vw", xStart: "-1vw" },
-  { color: "#8B5CF6", delay: "0.1s", duration: "1.62s", height: "13px", rotate: "220deg", width: "7px", xEnd: "0vw", xStart: "0vw" },
-  { color: "#22C55E", delay: "0.06s", duration: "1.58s", height: "10px", rotate: "-240deg", width: "8px", xEnd: "11vw", xStart: "1vw" },
-  { color: "#EC4899", delay: "0.12s", duration: "1.76s", height: "12px", rotate: "300deg", width: "6px", xEnd: "20vw", xStart: "3vw" },
-  { color: "#0EA5E9", delay: "0.16s", duration: "1.66s", height: "8px", rotate: "-190deg", width: "11px", xEnd: "30vw", xStart: "5vw" },
-  { color: "#F97316", delay: "0.2s", duration: "1.8s", height: "14px", rotate: "250deg", width: "7px", xEnd: "39vw", xStart: "8vw" },
-  { color: "#84CC16", delay: "0.18s", duration: "1.52s", height: "9px", rotate: "-280deg", width: "9px", xEnd: "-34vw", xStart: "-6vw" },
-  { color: "#06B6D4", delay: "0.24s", duration: "1.7s", height: "13px", rotate: "210deg", width: "6px", xEnd: "-22vw", xStart: "-3vw" },
-  { color: "#F43F5E", delay: "0.28s", duration: "1.6s", height: "10px", rotate: "-230deg", width: "10px", xEnd: "26vw", xStart: "4vw" },
+const workoutCompletionRays: WorkoutCompletionRay[] = [
+  { angle: "-72deg", delay: "0.08s", length: "56px" },
+  { angle: "-38deg", delay: "0.14s", length: "70px" },
+  { angle: "-8deg", delay: "0.05s", length: "52px" },
+  { angle: "28deg", delay: "0.16s", length: "64px" },
+  { angle: "62deg", delay: "0.1s", length: "48px" },
+  { angle: "104deg", delay: "0.18s", length: "58px" },
+  { angle: "146deg", delay: "0.07s", length: "66px" },
+  { angle: "196deg", delay: "0.15s", length: "50px" },
+  { angle: "236deg", delay: "0.11s", length: "62px" },
+  { angle: "286deg", delay: "0.2s", length: "54px" },
+];
+
+const workoutCompletionSparks: WorkoutCompletionSpark[] = [
+  { angle: "-82deg", color: "#2459E6", delay: "0.04s", distance: "132px", size: "8px" },
+  { angle: "-48deg", color: "#047857", delay: "0.12s", distance: "150px", size: "10px" },
+  { angle: "-15deg", color: "#F59E0B", delay: "0.08s", distance: "126px", size: "7px" },
+  { angle: "22deg", color: "#2459E6", delay: "0.16s", distance: "142px", size: "9px" },
+  { angle: "58deg", color: "#047857", delay: "0.1s", distance: "118px", size: "7px" },
+  { angle: "116deg", color: "#2459E6", delay: "0.18s", distance: "136px", size: "8px" },
+  { angle: "162deg", color: "#F59E0B", delay: "0.06s", distance: "128px", size: "9px" },
+  { angle: "216deg", color: "#047857", delay: "0.14s", distance: "146px", size: "7px" },
+  { angle: "258deg", color: "#2459E6", delay: "0.2s", distance: "122px", size: "8px" },
+  { angle: "304deg", color: "#F59E0B", delay: "0.11s", distance: "140px", size: "10px" },
 ];
 
 // 语音设置弹窗只展示 Web Speech 语音合成所需的最低浏览器版本。
@@ -778,7 +792,7 @@ export function WorkoutSessionPage() {
       trainedCalories: latestTrainedCalories,
     } = sessionResultSnapshotRef.current;
 
-    voiceSession.cancelCurrentVoice("session-complete");
+    voiceSession.announceSessionComplete();
     setIsSessionComplete(true);
     setHasStarted(false);
     setIsElapsedTimerManuallyPaused(false);
@@ -1038,11 +1052,11 @@ export function WorkoutSessionPage() {
           <aside className="flex min-h-0 flex-col gap-sm">
             <section className="rounded-[20px] border border-line bg-white p-md shadow-card">
               <div className="mb-sm flex items-start justify-between gap-md">
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className="text-label-md font-bold text-primary">当前计划</p>
                   <h1 className="mt-xs truncate text-[20px] font-extrabold leading-tight">{plan.title}</h1>
                 </div>
-                <span className="rounded-full bg-primary-soft px-md py-xs text-label-md font-bold text-primary">
+                <span className="shrink-0 whitespace-nowrap rounded-full bg-primary-soft px-md py-xs text-label-md font-bold text-primary">
                   {isSessionComplete
                     ? "已完成"
                     : isAwaitingStart
@@ -1109,11 +1123,13 @@ export function WorkoutSessionPage() {
           <section className="relative isolate flex min-h-0 flex-col items-center justify-center overflow-hidden rounded-[20px] border border-line bg-white px-lg py-lg text-center shadow-card">
             {isSessionComplete ? (
               <>
-                <WorkoutCompletionConfetti />
-                <span className="relative z-10 mb-md grid h-20 w-20 place-items-center rounded-full bg-success-soft text-success-text ring-1 ring-success-text/15">
-                  <SymbolIcon className="text-5xl" filled>
-                    check
-                  </SymbolIcon>
+                <span className="relative z-10 mb-md grid h-36 w-36 place-items-center">
+                  <WorkoutCompletionCelebration />
+                  <span className="workout-completion-medal relative z-10 grid h-20 w-20 place-items-center rounded-full bg-success-soft text-success-text ring-1 ring-success-text/15">
+                    <SymbolIcon className="text-5xl" filled>
+                      check
+                    </SymbolIcon>
+                  </span>
                 </span>
                 <h2 className="relative z-10 max-w-[680px] text-[30px] font-extrabold leading-tight text-ink md:text-[38px]">
                   恭喜，已完成本次训练
@@ -1431,34 +1447,47 @@ function Metric({
   );
 }
 
-// 完成态纸屑只表达本次页面训练结束，不参与训练流程状态计算。
-function WorkoutCompletionConfetti() {
+// 完成态欢呼动画只表达页面反馈，不参与训练流程状态计算。
+function WorkoutCompletionCelebration() {
   return (
-    <div aria-hidden className="workout-completion-confetti pointer-events-none absolute inset-0 z-0">
-      {workoutCompletionConfettiPieces.map((piece, index) => (
+    <div aria-hidden className="workout-completion-celebration pointer-events-none absolute inset-0 z-0">
+      <span className="workout-completion-aura workout-completion-aura-primary" />
+      <span className="workout-completion-aura workout-completion-aura-secondary" />
+      <span className="workout-completion-orbit" />
+      {workoutCompletionRays.map((ray, index) => (
         <span
-          className="workout-completion-confetti-piece"
-          key={`${piece.color}-${index}`}
-          style={getWorkoutCompletionConfettiStyle(piece)}
+          className="workout-completion-ray"
+          key={`ray-${ray.angle}-${index}`}
+          style={getWorkoutCompletionRayStyle(ray)}
+        />
+      ))}
+      {workoutCompletionSparks.map((spark, index) => (
+        <span
+          className="workout-completion-spark"
+          key={`${spark.color}-${spark.angle}-${index}`}
+          style={getWorkoutCompletionSparkStyle(spark)}
         />
       ))}
     </div>
   );
 }
 
-function getWorkoutCompletionConfettiStyle(
-  piece: WorkoutCompletionConfettiPiece,
-): WorkoutCompletionConfettiStyle {
+function getWorkoutCompletionRayStyle(ray: WorkoutCompletionRay): WorkoutCompletionCelebrationStyle {
   return {
-    "--confetti-color": piece.color,
-    "--confetti-delay": piece.delay,
-    "--confetti-duration": piece.duration,
-    "--confetti-height": piece.height,
-    "--confetti-rotate": piece.rotate,
-    "--confetti-width": piece.width,
-    "--confetti-x-end": piece.xEnd,
-    "--confetti-x-start": piece.xStart,
-  } as WorkoutCompletionConfettiStyle;
+    "--completion-ray-angle": ray.angle,
+    "--completion-ray-delay": ray.delay,
+    "--completion-ray-length": ray.length,
+  } as WorkoutCompletionCelebrationStyle;
+}
+
+function getWorkoutCompletionSparkStyle(spark: WorkoutCompletionSpark): WorkoutCompletionCelebrationStyle {
+  return {
+    "--completion-spark-angle": spark.angle,
+    "--completion-spark-color": spark.color,
+    "--completion-spark-delay": spark.delay,
+    "--completion-spark-distance": spark.distance,
+    "--completion-spark-size": spark.size,
+  } as WorkoutCompletionCelebrationStyle;
 }
 
 // 训练列表阶段分隔条用于把热身、正式训练和拉伸从视觉上拆开。

@@ -10,6 +10,7 @@ import {
 } from "@/lib/shared/workouts/voice-broadcast-config";
 import {
   buildPreparationCountdownCue,
+  buildWorkoutCompletionCue,
   buildWorkoutActionPreparationCue,
 } from "@/lib/shared/workouts/voice-cues";
 import type { WorkoutTimelineStep } from "@/lib/shared/workouts/composition";
@@ -49,12 +50,14 @@ describe("workout voice broadcast config", () => {
       templates: {
         ...workoutVoiceBroadcastConfig.templates,
         preparationCountdown: ({ second }) => `倒数 ${second}`,
+        sessionComplete: "训练结束",
         stepPreparation: (nextStep) => `请准备 ${nextStep.type === "exercise" ? nextStep.item.nameZh : "下一步"}`,
       },
     });
 
     expect(buildWorkoutActionPreparationCue(step, true, customConfig)).toBe("请准备 深蹲");
     expect(buildPreparationCountdownCue(2, customConfig)).toBe("倒数 2");
+    expect(buildWorkoutCompletionCue(customConfig)).toBe("训练结束");
   });
 
   it("normalizes user settings before building runtime speech and beep config", () => {

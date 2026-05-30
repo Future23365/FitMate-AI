@@ -9,6 +9,7 @@ import {
   buildPreparationCountdownCue,
   buildRepetitionCountCue,
   buildWorkoutActionPreparationCue,
+  buildWorkoutCompletionCue,
   buildWorkoutStepVoiceCue,
 } from "@/lib/shared/workouts/voice-cues";
 
@@ -318,6 +319,22 @@ export class WorkoutVoiceSession {
 
     this.lastBeepAt = now;
     playBeep(this.config, this.diagnostic);
+  }
+
+  // 训练完成是会话级语音提示，需要在清理步骤级任务后再播报。
+  announceSessionComplete() {
+    this.cancelAll("session-complete");
+
+    if (!this.preferenceEnabled || !this.hasActivated || !this.state.isSupported) {
+      return false;
+    }
+
+    return this.scheduleCue({
+      dedupeKey: "session-complete",
+      stepKey: "",
+      texts: [buildWorkoutCompletionCue(this.config)],
+      type: "session-complete",
+    }, { forceInterrupt: true });
   }
 
   pause() {

@@ -5,7 +5,8 @@ export type WorkoutVoiceCueType =
   | "step-intro"
   | "preparation-intro"
   | "preparation-countdown"
-  | "rep-count";
+  | "rep-count"
+  | "session-complete";
 
 export type WorkoutVoiceOverflowPolicy = "drop-low-priority" | "drop-newest";
 
@@ -67,6 +68,7 @@ export type WorkoutVoiceBroadcastConfig = {
     preparationCountdown: (context: WorkoutVoiceTemplateContext) => string;
     preparationTarget: (item: WorkoutItem) => string;
     repetitionCount: (count: number) => string;
+    sessionComplete: string;
     stepPreparation: (step: WorkoutTimelineStep, context: WorkoutVoiceTemplateContext) => string;
     stepVoice: (step: WorkoutTimelineStep) => string;
   };
@@ -142,6 +144,13 @@ export const workoutVoiceBroadcastConfig = validateWorkoutVoiceBroadcastConfig({
       priority: 20,
       staleAfterMs: 1600,
     },
+    // 训练完成提示代表会话结束，必须打断仍在播放或排队的步骤级提示。
+    "session-complete": {
+      enqueue: false,
+      interruptCurrent: true,
+      priority: 110,
+      staleAfterMs: 10000,
+    },
   },
   templates: {
     // activation 只提示语音已打开，不承载训练内容；当前步骤内容由 stepPreparation 或 stepVoice 决定。
@@ -173,6 +182,8 @@ export const workoutVoiceBroadcastConfig = validateWorkoutVoiceBroadcastConfig({
     preparationTarget: formatDefaultPreparationTarget,
     // repetitionCount 只播当前完成次数，具体节流和去重由 rep-count 策略控制。
     repetitionCount: (count) => String(Math.max(1, Math.floor(count))),
+    // sessionComplete 是训练完成态的会话级提示，不依赖当前动作步骤。
+    sessionComplete: "本次训练已完成",
     // stepPreparation 在动作计时前播报动作目标，不拥有动作计时放行状态。
     stepPreparation: (step, context) => {
       if (step.type !== "exercise") {
