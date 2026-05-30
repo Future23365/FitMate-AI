@@ -21,6 +21,7 @@ import {
 type WorkoutRoutineDraftCardProps = {
   draft: WorkoutRoutineDraft;
   initialExercises?: Exercise[];
+  sourceChatMessageId?: string;
 };
 
 type ExerciseApiResponse = {
@@ -111,6 +112,7 @@ function toFallbackPreviewExercise(item: WorkoutRoutineDraftItem): Exercise {
 export function WorkoutRoutineDraftCard({
   draft,
   initialExercises = [],
+  sourceChatMessageId,
 }: WorkoutRoutineDraftCardProps) {
   const router = useRouter();
   const [fetchedExerciseMap, setFetchedExerciseMap] = useState<Map<string, Exercise>>(() => new Map());
@@ -236,7 +238,10 @@ export function WorkoutRoutineDraftCard({
         return next;
       });
       const routine = convertWorkoutRoutineDraftToWorkoutRoutine(draft, draftExercises);
-      await createWorkoutRoutine(routine);
+      await createWorkoutRoutine(routine, {
+        sourceChatMessageId,
+        sourceArtifactKind: "routine",
+      });
       setSaveSuccess(true);
       window.setTimeout(() => router.push("/composer"), 900);
     } catch (error) {

@@ -53,18 +53,41 @@ enum ChatMessageRole {
   tool
 }
 
+enum ConversationArtifactKind {
+  exercise_recommendation
+  routine
+  plan
+}
+
+enum ConversationArtifactScope {
+  chat
+}
+
+enum ConversationArtifactStatus {
+  active
+  superseded
+  archived
+}
+
+enum ConversationArtifactSourceEntityKind {
+  workout_routine
+  workout_schedule
+}
+
 model User {
-  id           String           @id @default(cuid())
-  email        String?          @unique
-  displayName  String?
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
-  identities   UserIdentity[]
-  profile      UserProfile?
-  routines     WorkoutRoutine[]
-  schedules    WorkoutSchedule[]
-  results      WorkoutSessionResult[]
-  chatSessions ChatSession[]
+  id              String                 @id @default(cuid())
+  email           String?                @unique
+  displayName     String?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  identities      UserIdentity[]
+  profile         UserProfile?
+  routines        WorkoutRoutine[]
+  schedules       WorkoutSchedule[]
+  results         WorkoutSessionResult[]
+  chatSessions    ChatSession[]
+  artifacts       ConversationArtifact[]
+  artifactIndexes ArtifactIndex[]
 }
 
 model UserIdentity {
@@ -239,25 +262,87 @@ model WorkoutSessionResult {
 }
 
 model ChatSession {
-  id        String        @id @default(cuid())
-  userId    String
-  title     String?
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  messages  ChatMessage[]
+  id              String                 @id @default(cuid())
+  userId          String
+  title           String?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  user            User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages        ChatMessage[]
+  artifacts       ConversationArtifact[]
+  artifactIndexes ArtifactIndex[]
 
   @@index([userId])
 }
 
 model ChatMessage {
-  id            String          @id @default(cuid())
+  id            String                 @id @default(cuid())
   chatSessionId String
   role          ChatMessageRole
   content       String
   metadata      Json?
-  createdAt     DateTime        @default(now())
-  chatSession   ChatSession     @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
+  createdAt     DateTime               @default(now())
+  chatSession   ChatSession            @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
+  artifacts     ConversationArtifact[]
 
   @@index([chatSessionId, createdAt])
+}
+
+model ConversationArtifact {
+  id                   String                               @id @default(cuid())
+  userId               String
+  sessionId            String
+  messageId            String?
+  kind                 ConversationArtifactKind
+  scope                ConversationArtifactScope            @default(chat)
+  payloadSchemaVersion Int
+  payload              Json
+  status               ConversationArtifactStatus           @default(active)
+  revision             Int                                  @default(1)
+  revisionOfArtifactId String?
+  sourceEntityKind     ConversationArtifactSourceEntityKind?
+  sourceEntityId       String?
+  createdAt            DateTime                             @default(now())
+  updatedAt            DateTime                             @updatedAt
+  user                 User                                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session              ChatSession                          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  message              ChatMessage?                         @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  revisionOfArtifact   ConversationArtifact?                @relation("ArtifactRevision", fields: [revisionOfArtifactId], references: [id], onDelete: SetNull)
+  revisions            ConversationArtifact[]               @relation("ArtifactRevision")
+  index                ArtifactIndex?
+
+  @@unique([messageId, kind, revision])
+  @@index([userId, sessionId, status, updatedAt])
+  @@index([messageId, kind, status])
+  @@index([revisionOfArtifactId])
+  @@index([sourceEntityKind, sourceEntityId])
+}
+
+model ArtifactIndex {
+  id                   String                     @id @default(cuid())
+  artifactId           String                     @unique
+  userId               String
+  sessionId            String
+  kind                 ConversationArtifactKind
+  scope                ConversationArtifactScope  @default(chat)
+  status               ConversationArtifactStatus @default(active)
+  title                String
+  summary              String?
+  exerciseIds          String[]                   @default([])
+  goals                String[]                   @default([])
+  muscles              String[]                   @default([])
+  equipment            String[]                   @default([])
+  sessionMinutes       Int?
+  weeklyFrequency      Int?
+  trainingDayCount     Int?
+  sourceMessageId      String?
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
+  artifact             ConversationArtifact       @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+  user                 User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session              ChatSession                @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([userId, sessionId, status, updatedAt])
+  @@index([kind])
+  @@index([sourceMessageId])
 }

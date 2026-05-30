@@ -3,8 +3,10 @@ import "server-only";
 import type { Prisma } from "@prisma/client";
 
 import type { ChatConversation, ChatMessage } from "@/features/chat/types";
+import { createOrUpdateConversationArtifact } from "@/lib/server/conversation-artifacts/artifact-service";
 import { getPrismaClient } from "@/lib/server/db/prisma";
 import { getCurrentUser } from "@/lib/server/users/current-user";
+import type { ConversationArtifactKind } from "@/lib/shared/conversation-artifacts/schema";
 import {
   buildFitnessConversationContext,
   initializeConversationSummary,
@@ -105,6 +107,15 @@ export async function saveChatConversation(rawConversation: ChatConversation) {
           },
         };
       }),
+    });
+    await createConversationArtifactsFromMessages({
+      tx,
+      userId: user.id,
+      sessionId: conversation.id,
+      messages: conversation.messages,
+      plans: conversation.plans,
+      routines: conversation.routines,
+      exerciseRecommendations: conversation.exerciseRecommendations,
     });
 
     const savedSession = await tx.chatSession.findFirstOrThrow({
@@ -216,6 +227,64 @@ function mapChatSessionToConversation(session: ChatSessionWithMessages): ChatCon
     conversationSummary,
     conversationContext,
   };
+}
+
+async function createConversationArtifactsFromMessages({
+  tx,
+  userId,
+  sessionId,
+  messages,
+  plans,
+  routines,
+  exerciseRecommendations,
+}: {
+  tx: Prisma.TransactionClient;
+  userId: string;
+  sessionId: string;
+  messages: ChatMessage[];
+  plans?: ChatConversation["plans"];
+  routines?: ChatConversation["routines"];
+  exerciseRecommendations?: ChatConversation["exerciseRecommendations"];
+}) {
+  const messageIds = new Set(messages.map((message) => message.id));
+  const candidates: Array<{
+    messageId: string;
+    kind: ConversationArtifactKind;
+    payload: unknown;
+  }> = [
+    ...Object.entries(exerciseRecommendations ?? {}).map(([messageId, payload]) => ({
+      messageId,
+      kind: "exercise_recommendation" as const,
+      payload,
+    })),
+    ...Object.entries(routines ?? {}).map(([messageId, payload]) => ({
+      messageId,
+      kind: "routine" as const,
+      payload,
+    })),
+    ...Object.entries(plans ?? {}).map(([messageId, payload]) => ({
+      messageId,
+      kind: "plan" as const,
+      payload,
+    })),
+  ];
+
+  for (const candidate of candidates) {
+    if (!messageIds.has(candidate.messageId)) {
+      continue;
+    }
+
+    await createOrUpdateConversationArtifact(
+      {
+        userId,
+        sessionId,
+        messageId: candidate.messageId,
+        kind: candidate.kind,
+        payload: candidate.payload,
+      },
+      tx,
+    );
+  }
 }
 
 function getConversationDisplayTime(session: ChatSessionWithMessages) {

@@ -28,6 +28,7 @@ import { placeholderWorkoutImage, workoutSectionConfigs } from "@/lib/shared/wor
 interface WorkoutPlanDraftCardProps {
   draft: WorkoutPlanDraft;
   initialExercises?: Exercise[];
+  sourceChatMessageId?: string;
 }
 
 const emptyInitialExercises: Exercise[] = [];
@@ -118,6 +119,7 @@ function toFallbackPreviewExercise(item: WorkoutPlanItemDraft): Exercise {
 export function WorkoutPlanDraftCard({
   draft,
   initialExercises = emptyInitialExercises,
+  sourceChatMessageId,
 }: WorkoutPlanDraftCardProps) {
   const router = useRouter();
   const [activeDayIndex, setActiveDayIndex] = useState(
@@ -253,7 +255,10 @@ export function WorkoutPlanDraftCard({
       const persistedWorkouts = await Promise.all(
         draftRoutines.map(async ({ cycleDayIndex, workout }) => ({
           cycleDayIndex,
-          routine: await createWorkoutRoutine(workout),
+          routine: await createWorkoutRoutine(workout, {
+            sourceChatMessageId,
+            sourceArtifactKind: "plan",
+          }),
         })),
       );
 
@@ -271,7 +276,14 @@ export function WorkoutPlanDraftCard({
         });
 
         await Promise.all(importedSessionsToReplace.map((item) => deleteWorkoutSchedule(item.id)));
-        await Promise.all(newWorkoutSchedules.map((workout) => createWorkoutSchedule(workout)));
+        await Promise.all(
+          newWorkoutSchedules.map((workout) =>
+            createWorkoutSchedule(workout, {
+              sourceChatMessageId,
+              sourceArtifactKind: "plan",
+            }),
+          ),
+        );
       }
 
       setSaveSuccess(true);

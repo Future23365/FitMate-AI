@@ -13,7 +13,7 @@
 | 用户与身份 | `User`、`UserIdentity`、`UserProfile` | 保存用户主体、登录身份和健身画像。当前鉴权尚未正式接入，服务端会创建固定的本地演示用户。 |
 | 动作库 | `Exercise` | 保存训练动作的标准事实数据，包括来源、分类、肌群、器械、居家可做条件、图片、教学步骤和审核状态。 |
 | 训练编排、日历与结果 | `WorkoutRoutine`、`WorkoutRoutineItem`、`WorkoutSchedule`、`WorkoutSessionResult` | 保存用户可复用动作编排、编排项、日历安排和实际训练结果摘要。 |
-| 聊天历史 | `ChatSession`、`ChatMessage` | 保存用户和 AI 的对话历史，以及绑定在消息上的计划卡片、推荐卡片和自然语言上下文总结。 |
+| 聊天历史 | `ChatSession`、`ChatMessage`、`ConversationArtifact`、`ArtifactIndex` | 保存用户和 AI 的对话历史、聊天结构化卡片事实源、轻量索引和自然语言上下文总结。 |
 
 主要关系如下：
 
@@ -28,7 +28,9 @@ User
   ├─ WorkoutSchedule
   │    └─ WorkoutSessionResult
   └─ ChatSession
-       └─ ChatMessage
+       ├─ ChatMessage
+       ├─ ConversationArtifact
+       └─ ArtifactIndex
 ```
 
 ## 2. 枚举
@@ -107,6 +109,39 @@ User
 | `user` | 用户消息。 |
 | `assistant` | AI 回复。 |
 | `tool` | 工具消息。当前持久化服务会过滤掉该角色。 |
+
+### ConversationArtifactKind
+
+聊天结构化卡片类型。
+
+| 值 | 含义 |
+|---|---|
+| `exercise_recommendation` | 动作推荐卡片。 |
+| `routine` | 单次训练编排卡片。 |
+| `plan` | 长期训练计划卡片。 |
+
+### ConversationArtifactScope
+
+artifact 的使用范围。当前只有 `chat`，表示来自聊天会话。
+
+### ConversationArtifactStatus
+
+artifact 生命周期状态。
+
+| 值 | 含义 |
+|---|---|
+| `active` | 当前可优先引用的版本。 |
+| `superseded` | 已被新 revision 替代，历史仍可读取。 |
+| `archived` | 已归档，常规上下文不再优先读取。 |
+
+### ConversationArtifactSourceEntityKind
+
+artifact 保存后的来源实体类型。
+
+| 值 | 含义 |
+|---|---|
+| `workout_routine` | 已保存为训练编排。 |
+| `workout_schedule` | 已导入为训练日历安排。 |
 
 ## 3. 表设计
 
@@ -316,6 +351,40 @@ User
 
 长期 `plan` 草稿当前不会单独落库为新的计划表，而是保存在 `ChatMessage.metadata.plan` 中，作为聊天消息上的结构化推送卡片。草稿包含 `cycleLengthDays`、`trainingDayCount`、`restDayCount`、`cycleRepeatable`、`progression`、`recoveryStrategy`、`schedulePattern` 和周期日 `days`；非休息周期日必须用 `warmup`、`training`、`stretch` 三段式 `sections` 表达动作，休息日只表达恢复说明。用户导入长期计划时，业务层只为非休息周期日创建 `WorkoutRoutine`，并把每个动作的 `section` 写入 `WorkoutRoutineItem.section`；随后按本周期、重复 2 个周期、重复 4 个周期或明确的 `calendarHorizonDays` 生成 `WorkoutSchedule`。重复导入时只替换同一 `sourceRoutineTitle` 且位于本次导入日期范围内的旧日程，避免误删手动安排或其他计划来源。
 
+### ConversationArtifact
+
+聊天结构化卡片事实源表，保存用户在对话中实际看到过的动作推荐、routine 或 plan payload。
+
+| 字段 | 类型 | 约束 / 默认值 | 作用 |
+|---|---|---|---|
+| `id` | `String` | 主键，默认 `cuid()` | artifact 唯一标识。 |
+| `userId` | `String` | 外键，关联 `User.id`，已建索引 | 所属用户，用于权限隔离。 |
+| `sessionId` | `String` | 外键，关联 `ChatSession.id`，已建索引 | 所属聊天会话。 |
+| `messageId` | `String?` | 外键，关联 `ChatMessage.id` | 产生该卡片的消息。旧消息删除重写时可为空。 |
+| `kind` | `ConversationArtifactKind` | 必填 | 卡片类型。 |
+| `scope` | `ConversationArtifactScope` | 默认 `chat` | artifact 使用范围。 |
+| `payloadSchemaVersion` | `Int` | 必填 | payload schema 版本。 |
+| `payload` | `Json` | 必填 | 服务端校验后的完整结构化卡片 payload。 |
+| `status` | `ConversationArtifactStatus` | 默认 `active` | 当前版本状态。 |
+| `revision` | `Int` | 默认 `1` | 同一消息同一 kind 的版本号。 |
+| `revisionOfArtifactId` | `String?` | 可空 | 被修订的上一个 artifact。 |
+| `sourceEntityKind` / `sourceEntityId` | enum / `String?` | 可空 | 用户保存 routine 或导入 schedule 后关联的来源实体。 |
+
+### ArtifactIndex
+
+artifact 轻量检索索引。聊天上下文和后续引用解析优先读取该表，完整 payload 仍从 `ConversationArtifact` 读取。
+
+| 字段 | 类型 | 作用 |
+|---|---|---|
+| `artifactId` | `String` | 唯一关联 `ConversationArtifact.id`。 |
+| `userId` / `sessionId` | `String` | 权限隔离和会话过滤。 |
+| `kind` / `scope` / `status` | enum | 检索类型和生命周期过滤。 |
+| `title` / `summary` | `String` / `String?` | 模型上下文和引用排序展示文本。 |
+| `exerciseIds` | `String[]` | payload 中提取的主要动作 id。 |
+| `goals` / `muscles` / `equipment` | `String[]` | 可稳定提取的训练目标、肌群和器械。 |
+| `sessionMinutes` / `weeklyFrequency` / `trainingDayCount` | `Int?` | 训练时长、周频率和训练日数量。 |
+| `sourceMessageId` | `String?` | 用于聊天历史消息重写后继续匹配来源消息。 |
+
 ## 4. 关系与删除策略总结
 
 | 从表 | 关联主表 | 删除主表时的行为 | 设计原因 |
@@ -332,6 +401,9 @@ User
 | `WorkoutSessionResult` | `WorkoutRoutine` | `SetNull` | routine 删除后仍保留训练结果摘要。 |
 | `ChatSession` | `User` | `Cascade` | 聊天会话属于用户私有数据。 |
 | `ChatMessage` | `ChatSession` | `Cascade` | 消息不能脱离会话存在。 |
+| `ConversationArtifact` | `User` / `ChatSession` | `Cascade` | artifact 属于用户和会话私有事实源。 |
+| `ConversationArtifact` | `ChatMessage` | `SetNull` | 聊天历史重写消息时保留 artifact 事实源。 |
+| `ArtifactIndex` | `ConversationArtifact` | `Cascade` | 索引不能脱离 artifact 存在。 |
 
 ## 5. 当前实现注意事项
 

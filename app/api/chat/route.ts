@@ -5,6 +5,7 @@ import {
   createAiChatResponse,
   prepareAiChatRequest,
 } from "@/lib/server/chat/chat-service";
+import { listRecentArtifactSummariesForCurrentUser } from "@/lib/server/conversation-artifacts/artifact-service";
 
 export async function POST(request: Request) {
   const apiKey = process.env.DEEPSEEK_API_KEY;
@@ -30,6 +31,9 @@ export async function POST(request: Request) {
   }
 
   const preparedRequest = prepareAiChatRequest(parsedRequest.data);
+  preparedRequest.recentArtifactSummaries = await listRecentArtifactSummariesForCurrentUser(
+    parsedRequest.data.conversationId,
+  );
 
   if (preparedRequest.rawMessages.length === 0) {
     return jsonApiError("validation_failed", "At least one valid message is required.", 400);
@@ -41,6 +45,7 @@ export async function POST(request: Request) {
     metadata: {
       messageCount: preparedRequest.rawMessages.length,
       aiContextMessageCount: preparedRequest.messages.length,
+      recentArtifactCount: preparedRequest.recentArtifactSummaries.length,
       hasClientConversationSummary: preparedRequest.hasClientConversationSummary,
       thinkingEnabled: preparedRequest.thinkingEnabled,
     },

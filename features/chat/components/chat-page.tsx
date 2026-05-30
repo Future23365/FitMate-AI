@@ -460,6 +460,7 @@ export function ChatPage() {
                                     <WorkoutPlanDraftCard
                                       draft={bubblePlans[message.id]}
                                       initialExercises={bubblePlanExercises[message.id]}
+                                      sourceChatMessageId={message.id}
                                     />
                                   </div>
                                 )}
@@ -469,6 +470,7 @@ export function ChatPage() {
                                     <WorkoutRoutineDraftCard
                                       draft={bubbleRoutines[message.id]}
                                       initialExercises={bubblePlanExercises[message.id]}
+                                      sourceChatMessageId={message.id}
                                     />
                                   </div>
                                 )}

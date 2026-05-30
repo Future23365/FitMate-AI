@@ -55,6 +55,7 @@ export class WorkoutPlanGenerationRecoveryError extends Error {
 }
 
 export function requestChatStream(
+  conversationId: string,
   latestUserMessage: string,
   conversationSummary: string,
   thinkingEnabled: boolean,
@@ -66,6 +67,7 @@ export function requestChatStream(
     throwOnError: false,
     signal,
     body: {
+      conversationId,
       latestUserMessage,
       conversationSummary,
       thinkingEnabled,

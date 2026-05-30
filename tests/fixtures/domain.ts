@@ -320,6 +320,7 @@ export function createChatConversation(overrides: Partial<ChatConversation> = {}
     conversationSummary: overrides.conversationSummary ?? { summary: "用户想在家练胸肌。" },
     conversationContext: overrides.conversationContext ?? createConversationContext(),
     plans: overrides.plans,
+    routines: overrides.routines,
     exerciseRecommendations: overrides.exerciseRecommendations,
   };
 }

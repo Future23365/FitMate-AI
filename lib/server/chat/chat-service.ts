@@ -5,6 +5,10 @@ import { z } from "zod";
 import { aiPromptConfig } from "@/lib/server/ai/prompt-config";
 import { updateConversationSummary } from "@/lib/server/chat/conversation-summary-service";
 import {
+  formatRecentArtifactSummariesForPrompt,
+  type RecentArtifactSummary,
+} from "@/lib/server/conversation-artifacts/artifact-service";
+import {
   aiContextChatMessageSchema,
   buildFitnessConversationContext,
   buildConversationSummaryContext,
@@ -83,6 +87,7 @@ export const chatIntentSchema = z.object({
 export type ChatIntent = z.infer<typeof chatIntentSchema>;
 
 export const chatRequestSchema = z.object({
+  conversationId: z.string().trim().min(1).max(120).optional(),
   latestUserMessage: z.string().trim().min(1).max(4000),
   conversationSummary: z.string().trim().max(2000).default(""),
   messages: z.array(aiContextChatMessageSchema).min(1).max(200).optional(),
@@ -97,6 +102,7 @@ export type PreparedAiChatRequest = {
   messages: ChatMessage[];
   conversationSummaryContext: ConversationSummaryContext;
   internalConversationContext: FitnessConversationContext;
+  recentArtifactSummaries: RecentArtifactSummary[];
   thinkingEnabled: boolean;
   hasClientConversationSummary: boolean;
 };
@@ -144,6 +150,7 @@ export function prepareAiChatRequest(request: AiChatRequest): PreparedAiChatRequ
     conversationSummaryContext,
     internalConversationContext:
       request.conversationContext ?? buildFitnessConversationContext(rawMessages),
+    recentArtifactSummaries: [],
     messages,
     thinkingEnabled: request.thinkingEnabled !== false,
     hasClientConversationSummary: request.conversationSummary.trim().length > 0,
@@ -168,6 +175,7 @@ export async function createAiChatResponse({
     conversationSummaryContext,
     internalConversationContext,
     messages,
+    recentArtifactSummaries,
     thinkingEnabled,
   } = request;
 
@@ -178,12 +186,20 @@ export async function createAiChatResponse({
       messages: rawMessages,
       latestUserMessage: conversationSummaryContext.latestUserMessage,
       conversationSummary: conversationSummaryContext.summary,
+      recentArtifactSummaries,
       aiContextMessages: messages,
       thinkingEnabled,
     },
   });
 
-  const chatIntent = await resolveChatIntent(apiKey, messages, conversationSummaryContext, internalConversationContext, trace);
+  const chatIntent = await resolveChatIntent(
+    apiKey,
+    messages,
+    conversationSummaryContext,
+    internalConversationContext,
+    recentArtifactSummaries,
+    trace,
+  );
   const exerciseContext = chatIntent.needsExerciseContext
     ? await buildExerciseContext(chatIntent, messages, internalConversationContext, trace)
     : null;
@@ -207,7 +223,13 @@ export async function createAiChatResponse({
       skipped: !assistantAction,
     },
   });
-  const systemPrompt = buildSystemPrompt(chatIntent, exerciseContext, conversationSummaryContext, assistantAction);
+  const systemPrompt = buildSystemPrompt(
+    chatIntent,
+    exerciseContext,
+    conversationSummaryContext,
+    assistantAction,
+    recentArtifactSummaries,
+  );
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DEEPSEEK_REQUEST_TIMEOUT_MS);
   let response: Response;
@@ -517,16 +539,18 @@ async function resolveChatIntent(
   messages: ChatMessage[],
   conversationSummaryContext: ConversationSummaryContext,
   internalConversationContext: FitnessConversationContext,
+  recentArtifactSummaries: RecentArtifactSummary[],
   trace?: AiTraceLogger,
 ): Promise<ChatIntent> {
   const fallbackIntent = createFallbackChatIntent(messages, internalConversationContext, conversationSummaryContext.summary);
   const contextPrompt = formatConversationSummaryContextForPrompt(conversationSummaryContext);
+  const artifactPrompt = formatRecentArtifactSummariesForPrompt(recentArtifactSummaries);
 
   try {
     const modelMessages: DeepSeekChatMessage[] = [
       {
         role: "system",
-        content: [aiPromptConfig.chatIntentResolution.system, contextPrompt]
+        content: [aiPromptConfig.chatIntentResolution.system, contextPrompt, artifactPrompt]
           .filter(Boolean)
           .join("\n\n"),
       },
@@ -842,16 +866,20 @@ function buildSystemPrompt(
   exerciseContext: ExerciseContext | null,
   conversationSummaryContext: ConversationSummaryContext,
   assistantAction: AssistantAction | null,
+  recentArtifactSummaries: RecentArtifactSummary[],
 ) {
   const contextPrompt = formatConversationSummaryContextForPrompt(conversationSummaryContext);
+  const artifactPrompt = formatRecentArtifactSummariesForPrompt(recentArtifactSummaries);
 
   if (!exerciseContext) {
-    return [aiPromptConfig.chatCompletion.system, contextPrompt].filter(Boolean).join("\n\n");
+    return [aiPromptConfig.chatCompletion.system, contextPrompt, artifactPrompt].filter(Boolean).join("\n\n");
   }
 
   return [
     aiPromptConfig.chatCompletion.system,
     contextPrompt,
+    "",
+    artifactPrompt,
     "",
     aiPromptConfig.chatCompletion.exerciseContext,
     "",

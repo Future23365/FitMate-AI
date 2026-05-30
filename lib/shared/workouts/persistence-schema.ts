@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const workoutModeSchema = z.enum(["duration", "reps"]);
 export const workoutSectionSchema = z.enum(["warmup", "training", "stretch"]);
+export const sourceArtifactKindSchema = z.enum(["routine", "plan"]);
 
 // routine item schema 约束保存和执行都会使用的动作参数。
 export const workoutItemSchema = z.object({
@@ -29,6 +30,8 @@ export const workoutRoutineSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
   updatedAt: z.string().min(1),
+  sourceChatMessageId: z.string().min(1).optional(),
+  sourceArtifactKind: sourceArtifactKindSchema.optional(),
   items: z.array(workoutItemSchema),
   trainingLoopRounds: z.number().int().positive().optional(),
   trainingLoopRestSeconds: z.number().int().min(0).optional(),
@@ -43,6 +46,8 @@ export const workoutScheduleSchema = z.object({
   id: z.string().min(1),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   routineId: z.string().min(1).optional(),
+  sourceChatMessageId: z.string().min(1).optional(),
+  sourceArtifactKind: z.literal("plan").optional(),
   title: z.string().min(1),
   status: workoutScheduleStatusSchema,
   minutes: z.number().int().min(0),

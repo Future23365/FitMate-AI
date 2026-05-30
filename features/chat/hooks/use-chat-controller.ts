@@ -472,6 +472,7 @@ export function useChatController() {
 
     try {
       const response = await requestChatStream(
+        nextConversationId,
         requestSummaryContext.latestUserMessage,
         requestSummaryContext.summary,
         thinkingEnabled,

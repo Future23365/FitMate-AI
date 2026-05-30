@@ -2,6 +2,7 @@ import "server-only";
 
 import type { Prisma } from "@prisma/client";
 
+import { linkArtifactSourceEntityFromMessage } from "@/lib/server/conversation-artifacts/artifact-service";
 import { getPrismaClient } from "@/lib/server/db/prisma";
 import { getCurrentUser } from "@/lib/server/users/current-user";
 import type {
@@ -139,6 +140,19 @@ export async function saveWorkoutRoutine(rawRoutine: WorkoutRoutine) {
       include: workoutRoutineInclude,
     });
 
+    if (parsedRoutine.sourceChatMessageId) {
+      await linkArtifactSourceEntityFromMessage(
+        {
+          userId: user.id,
+          messageId: parsedRoutine.sourceChatMessageId,
+          kind: parsedRoutine.sourceArtifactKind ?? "routine",
+          sourceEntityKind: "workout_routine",
+          sourceEntityId: routine.id,
+        },
+        tx,
+      );
+    }
+
     return mapWorkoutRoutineRecord(savedRoutine);
   });
 }
@@ -185,17 +199,34 @@ export async function createWorkoutSchedule(rawSchedule: WorkoutSchedule) {
   const user = await getCurrentUser();
 
   if (parsedSchedule.status === "rest") {
-    const schedule = await prisma.workoutSchedule.create({
-      data: {
-        id: parsedSchedule.id,
-        userId: user.id,
-        scheduledFor: parseDateKey(parsedSchedule.date),
-        status: "rest",
-        titleSnapshot: parsedSchedule.title,
-        estimatedMinutes: parsedSchedule.minutes,
-        estimatedCalories: parsedSchedule.calories,
-      },
-      include: workoutScheduleInclude,
+    const schedule = await prisma.$transaction(async (tx) => {
+      const savedSchedule = await tx.workoutSchedule.create({
+        data: {
+          id: parsedSchedule.id,
+          userId: user.id,
+          scheduledFor: parseDateKey(parsedSchedule.date),
+          status: "rest",
+          titleSnapshot: parsedSchedule.title,
+          estimatedMinutes: parsedSchedule.minutes,
+          estimatedCalories: parsedSchedule.calories,
+        },
+        include: workoutScheduleInclude,
+      });
+
+      if (parsedSchedule.sourceChatMessageId) {
+        await linkArtifactSourceEntityFromMessage(
+          {
+            userId: user.id,
+            messageId: parsedSchedule.sourceChatMessageId,
+            kind: parsedSchedule.sourceArtifactKind ?? "plan",
+            sourceEntityKind: "workout_schedule",
+            sourceEntityId: savedSchedule.id,
+          },
+          tx,
+        );
+      }
+
+      return savedSchedule;
     });
 
     return mapWorkoutScheduleRecord(schedule);
@@ -224,18 +255,35 @@ export async function createWorkoutSchedule(rawSchedule: WorkoutSchedule) {
     minimumCalories: 80,
     ...timingConfig,
   });
-  const schedule = await prisma.workoutSchedule.create({
-    data: {
-      id: parsedSchedule.id,
-      userId: user.id,
-      routineId: routine.id,
-      scheduledFor: parseDateKey(parsedSchedule.date),
-      status: parsedSchedule.status,
-      titleSnapshot: workoutRoutine.title,
-      estimatedMinutes: minutes,
-      estimatedCalories: calories,
-    },
-    include: workoutScheduleInclude,
+  const schedule = await prisma.$transaction(async (tx) => {
+    const savedSchedule = await tx.workoutSchedule.create({
+      data: {
+        id: parsedSchedule.id,
+        userId: user.id,
+        routineId: routine.id,
+        scheduledFor: parseDateKey(parsedSchedule.date),
+        status: parsedSchedule.status,
+        titleSnapshot: workoutRoutine.title,
+        estimatedMinutes: minutes,
+        estimatedCalories: calories,
+      },
+      include: workoutScheduleInclude,
+    });
+
+    if (parsedSchedule.sourceChatMessageId) {
+      await linkArtifactSourceEntityFromMessage(
+        {
+          userId: user.id,
+          messageId: parsedSchedule.sourceChatMessageId,
+          kind: parsedSchedule.sourceArtifactKind ?? "plan",
+          sourceEntityKind: "workout_schedule",
+          sourceEntityId: savedSchedule.id,
+        },
+        tx,
+      );
+    }
+
+    return savedSchedule;
   });
 
   return mapWorkoutScheduleRecord(schedule);

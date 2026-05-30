@@ -4,11 +4,17 @@ import {
   createChatConversation,
   createExercise,
   createWorkoutItem,
+  createWorkoutPlanDraft,
   createWorkoutRoutine,
+  createWorkoutRoutineDraft,
   createWorkoutSchedule,
 } from "./fixtures/domain";
 
 const prismaMock = vi.hoisted(() => ({
+  artifactIndex: {
+    updateMany: vi.fn(),
+    upsert: vi.fn(),
+  },
   chatMessage: {
     createMany: vi.fn(),
     deleteMany: vi.fn(),
@@ -20,6 +26,11 @@ const prismaMock = vi.hoisted(() => ({
     findMany: vi.fn(),
     findUnique: vi.fn(),
     upsert: vi.fn(),
+  },
+  conversationArtifact: {
+    create: vi.fn(),
+    findFirst: vi.fn(),
+    update: vi.fn(),
   },
   exercise: {
     findMany: vi.fn(),
@@ -378,6 +389,65 @@ describe("persistence services", () => {
     ]);
   });
 
+  it("creates artifacts for pushed chat cards when saving conversation history", async () => {
+    prismaMock.chatSession.findUnique.mockResolvedValue(null);
+    prismaMock.conversationArtifact.findFirst.mockResolvedValue(null);
+    prismaMock.conversationArtifact.create
+      .mockResolvedValueOnce({ id: "artifact-rec", revision: 1 })
+      .mockResolvedValueOnce({ id: "artifact-routine", revision: 1 })
+      .mockResolvedValueOnce({ id: "artifact-plan", revision: 1 });
+    prismaMock.chatSession.findFirstOrThrow.mockResolvedValue({
+      id: "chat-save",
+      title: "今天练胸",
+      updatedAt: new Date("2026-05-25T12:00:00.000Z"),
+      messages: [
+        {
+          id: "m1",
+          role: "user",
+          content: "今天练胸",
+          createdAt: new Date("2026-05-25T09:00:00.000Z"),
+          metadata: null,
+        },
+        {
+          id: "m2",
+          role: "assistant",
+          content: "可以。",
+          createdAt: new Date("2026-05-25T09:01:00.000Z"),
+          metadata: null,
+        },
+      ],
+    });
+
+    await chatHistory.saveChatConversation(createChatConversation({
+      id: "chat-save",
+      messages: [
+        { id: "m1", role: "user", content: "今天练胸" },
+        { id: "m2", role: "assistant", content: "可以。" },
+      ],
+      exerciseRecommendations: {
+        m2: createExerciseRecommendationCard(),
+      },
+      routines: {
+        m2: createWorkoutRoutineDraft(),
+      },
+      plans: {
+        m2: createWorkoutPlanDraft(),
+      },
+    }));
+
+    expect(prismaMock.conversationArtifact.create).toHaveBeenCalledTimes(3);
+    expect(prismaMock.conversationArtifact.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ messageId: "m2", kind: "exercise_recommendation" }),
+    }));
+    expect(prismaMock.conversationArtifact.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ messageId: "m2", kind: "routine" }),
+    }));
+    expect(prismaMock.conversationArtifact.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ messageId: "m2", kind: "plan" }),
+    }));
+    expect(prismaMock.artifactIndex.upsert).toHaveBeenCalledTimes(3);
+  });
+
   it("does not persist assistant-only chat conversations", async () => {
     const assistantOnly = createChatConversation({
       messages: [{ id: "assistant-only", role: "assistant", content: "你好" }],
@@ -389,6 +459,27 @@ describe("persistence services", () => {
     expect(prismaMock.chatSession.upsert).not.toHaveBeenCalled();
   });
 });
+
+function createExerciseRecommendationCard() {
+  return {
+    title: "居家胸肌动作",
+    goal: "胸肌训练",
+    summary: "适合新手的自重动作。",
+    items: [
+      {
+        exerciseId: "push-up",
+        nameZh: "俯卧撑",
+        categoryZh: "力量",
+        levelZh: "新手",
+        equipmentZh: "自重",
+        primaryMusclesZh: ["胸部"],
+        secondaryMusclesZh: ["肱三头肌"],
+        reasons: ["无需器械"],
+      },
+    ],
+    safetyNotes: [],
+  };
+}
 
 function createWorkoutRoutineRecord() {
   const exercise = createExercise({

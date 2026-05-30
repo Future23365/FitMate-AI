@@ -27,6 +27,9 @@ export type WorkoutRoutine = {
   id: string;
   title: string;
   updatedAt: string;
+  /** 聊天卡片保存为 routine 后，服务端用来源消息回写 ConversationArtifact。 */
+  sourceChatMessageId?: string;
+  sourceArtifactKind?: "routine" | "plan";
   items: WorkoutItem[];
   trainingLoopRounds?: number;
   trainingLoopRestSeconds?: number;
@@ -41,6 +44,9 @@ export type WorkoutSchedule = {
   id: string;
   date: string;
   routineId?: string;
+  /** 聊天 plan 卡片导入日历后，服务端用来源消息回写 ConversationArtifact。 */
+  sourceChatMessageId?: string;
+  sourceArtifactKind?: "plan";
   title: string;
   status: WorkoutScheduleStatus;
   minutes: number;

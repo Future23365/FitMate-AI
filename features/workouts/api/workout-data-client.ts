@@ -28,6 +28,11 @@ type WorkoutSessionResultResponse = {
   item: WorkoutSessionResult;
 };
 
+type ArtifactSourceOptions = {
+  sourceChatMessageId?: string;
+  sourceArtifactKind?: "routine" | "plan";
+};
+
 export type WorkoutSessionResultInput = Omit<WorkoutSessionResult, "id" | "routineId" | "scheduleId">;
 
 // 客户端 routine API 封装是动作编排页和日历选择的唯一入口。
@@ -47,10 +52,10 @@ export async function getWorkoutRoutine(id: string) {
   return data.item;
 }
 
-export async function saveWorkoutRoutine(routine: WorkoutRoutine) {
+export async function saveWorkoutRoutine(routine: WorkoutRoutine, options: ArtifactSourceOptions = {}) {
   const data = await clientRequest<WorkoutRoutineResponse>(`/api/workout-routines/${encodeURIComponent(routine.id)}`, {
     method: "PUT",
-    body: routine,
+    body: { ...routine, ...options },
     errorMessage: "保存训练编排失败",
   });
 
@@ -58,10 +63,10 @@ export async function saveWorkoutRoutine(routine: WorkoutRoutine) {
   return data.item;
 }
 
-export async function createWorkoutRoutine(routine: WorkoutRoutine) {
+export async function createWorkoutRoutine(routine: WorkoutRoutine, options: ArtifactSourceOptions = {}) {
   const data = await clientRequest<WorkoutRoutineResponse>("/api/workout-routines", {
     method: "POST",
-    body: routine,
+    body: { ...routine, ...options },
     errorMessage: "创建训练编排失败",
   });
 
@@ -97,10 +102,10 @@ export async function getWorkoutSchedule(id: string) {
   return data.item;
 }
 
-export async function createWorkoutSchedule(schedule: WorkoutSchedule) {
+export async function createWorkoutSchedule(schedule: WorkoutSchedule, options: ArtifactSourceOptions = {}) {
   const data = await clientRequest<WorkoutScheduleResponse>("/api/workout-schedules", {
     method: "POST",
-    body: schedule,
+    body: { ...schedule, ...options },
     errorMessage: "安排训练失败",
   });
 
