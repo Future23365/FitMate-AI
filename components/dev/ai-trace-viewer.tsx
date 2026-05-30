@@ -398,7 +398,7 @@ function TraceFlowTimeline({
       <SectionHeader
         eyebrow="Flow"
         title="流程步骤"
-        description="每个阶段下面直接显示对应事件、重点字段、模型 prompt、草稿摘要和 Raw JSON，按链路顺序从上到下排查。"
+        description="阶段默认收起，先按模块顺序定位问题；展开某个阶段后，再查看事件、重点字段、模型 prompt、草稿摘要和 Raw JSON。"
       />
       <div className="space-y-5 border-t border-slate-100 p-4">
         {groups.map((group, index) => {
@@ -478,8 +478,8 @@ function StageInspector({
   const usage = getGroupTokenUsage(group);
 
   return (
-    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-      <div className="flex flex-wrap items-start justify-between gap-3 p-5">
+    <details className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <summary className="flex cursor-pointer list-none flex-wrap items-start justify-between gap-3 p-5 hover:bg-slate-50">
         <div className="grid min-w-0 flex-1 grid-cols-[44px_minmax(0,1fr)] gap-4">
           <span
             className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
@@ -497,6 +497,9 @@ function StageInspector({
               <Pill>{group.steps.length} 条事件</Pill>
               <Pill>{formatDuration(group.durationMs)}</Pill>
               <TokenUsageBadges usage={usage} compact />
+              <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-blue-700 ring-1 ring-blue-100">
+                展开模块
+              </span>
             </div>
             <p className="mt-2 text-sm leading-6 text-slate-500">{group.description}</p>
             {isOutOfFlow ? (
@@ -510,11 +513,15 @@ function StageInspector({
           className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
           type="button"
           disabled={isSavingGroup}
-          onClick={onSaveGroupLog}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onSaveGroupLog();
+          }}
         >
           {isSavingGroup ? "保存中" : "保存阶段log"}
         </button>
-      </div>
+      </summary>
 
       <div className="grid gap-3 border-t border-slate-100 p-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="开始时间" value={formatTime(group.startedAt)} description="该阶段第一条事件的开始时间。" />
@@ -547,7 +554,7 @@ function StageInspector({
           defaultOpen={false}
         />
       </div>
-    </section>
+    </details>
   );
 }
 

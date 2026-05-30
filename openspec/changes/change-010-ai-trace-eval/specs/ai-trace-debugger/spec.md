@@ -6,8 +6,9 @@
 #### Scenario: 查看流程节点
 - **WHEN** trace 包含 user input、intent、candidate selection、reference resolution、tool call、patch proposal、model request、model response、validation、persistence 或 final response steps
 - **THEN** 页面 MUST 按链路顺序展示阶段节点、阶段状态、事件数量、耗时和 token usage
-- **AND** 阶段节点下面 MUST 直接展示该阶段的事件内容，开发者不需要先点步骤再滚动到其他区域查看内容
-- **AND** 失败事件、草稿生成事件或阶段首个事件 SHOULD 默认展开，便于快速定位关键输出
+- **AND** 阶段节点 MUST 默认收起，便于开发者先扫描并定位模块
+- **AND** 开发者展开某个阶段后，页面 MUST 在当前阶段下方直接展示该阶段的事件内容，不需要滚动到其他区域查看内容
+- **AND** 阶段内部的失败事件、草稿生成事件或首个事件 SHOULD 默认展开，便于快速定位关键输出
 - **AND** 页面 MUST 为 reference resolution、tool call、patch proposal 和 validation step 展示可读摘要
 
 #### Scenario: 请求概览默认收起

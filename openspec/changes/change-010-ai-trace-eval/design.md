@@ -43,7 +43,7 @@ trace input 保存 `latestUserMessage`、`recentArtifactSummaries`、用户画�
 
 ### Decision 5: 流程阶段和内容必须就地绑定
 
-调试页不再把“流程步骤”作为单独导航，再把内容放到页面下方。每个阶段卡片直接包含阶段摘要、耗时、token、事件列表、重点解释、模型 prompt、计划草稿摘要和 Raw JSON。这样开发者从上到下扫链路时，不需要先点阶段再滚动到另一个区域查内容。
+调试页不再把“流程步骤”作为单独导航，再把内容放到页面下方。阶段卡片默认收起，只展示阶段摘要、耗时、token 和状态，方便开发者先扫描模块；展开某个阶段后，当前阶段下方直接包含事件列表、重点解释、模型 prompt、计划草稿摘要和 Raw JSON。这样开发者从上到下扫链路时，不需要先点阶段再滚动到另一个区域查内容。
 
 请求概览默认收起，只作为入口、权限、metadata 和全局 token 的辅助核对区域。主要视线留给本轮请求的阶段链路和失败节点。
 
@@ -59,5 +59,5 @@ Raw JSON 仍保留完整字段，但不作为理解计划草稿的唯一入口�
 - [Risk] trace 记录敏感信息。→ Mitigation: trace 写入前执行 userId 范围约束和字段脱敏，禁止记录其他用户 artifact payload。
 - [Risk] step 类型太多导致 UI 复杂。→ Mitigation: 第一版只覆盖第一批 change 需要的基础 step，后续 Eval / Replay 再扩展。
 - [Risk] 失败路径 trace 缺失。→ Mitigation: 工具调用、校验和持久化失败必须记录 error step 或失败 output。
-- [Risk] 阶段内容全部展开导致页面过长。→ Mitigation: 阶段保留纵向顺序，单个事件仍可用 details 收起；失败事件和草稿生成事件默认展开。
+- [Risk] 阶段内容全部展开导致页面过长。→ Mitigation: 阶段默认收起，只在展开后展示内容；阶段内部失败事件和草稿生成事件默认展开。
 - [Risk] prompt 和草稿摘要可能遗漏低频字段。→ Mitigation: 重点摘要只覆盖排查高频字段，完整输入、输出、metadata 和错误继续通过 Raw JSON 查看和保存。
