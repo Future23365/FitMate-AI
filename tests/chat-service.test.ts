@@ -210,6 +210,9 @@ describe("AI chat service deterministic boundaries", () => {
     expect(aiPromptConfig.chatIntentResolution.system).toContain(
       "missingActionFields 不要包含 equipmentOrLocation 或 sessionMinutes",
     );
+    expect(aiPromptConfig.chatIntentResolution.system).toContain(
+      "目标明确的纯动作推荐不得返回 suggestedReplies",
+    );
 
     const legRecommendationIntent = createWorkoutPlanIntent({
       intentType: "routine",
@@ -223,9 +226,9 @@ describe("AI chat service deterministic boundaries", () => {
       needsExerciseContext: true,
       workoutIntent: legRecommendationIntent,
       requestedExerciseName: "",
-      canTriggerAction: false,
-      missingActionFields: ["equipmentOrLocation"],
-      suggestedReplies: ["我今天在家用自重练腿"],
+      canTriggerAction: true,
+      missingActionFields: [],
+      suggestedReplies: [],
     };
 
     expect(resolveAssistantAction(chatIntent, createExerciseContext({ intent: legRecommendationIntent }))).toMatchObject({
@@ -242,6 +245,36 @@ describe("AI chat service deterministic boundaries", () => {
       ),
     ).toBeNull();
     expect(resolveVisibleSuggestedReplies(chatIntent, resolveAssistantAction(chatIntent, createExerciseContext({ intent: legRecommendationIntent })))).toEqual([]);
+  });
+
+  it("keeps clarification replies instead of triggering exercise recommendations", () => {
+    const muscleGainIntent = createWorkoutPlanIntent({
+      intentType: "routine",
+      goal: "增肌",
+      experience: "beginner",
+      sessionMinutes: 30,
+      weeklyFrequency: 1,
+      equipment: [],
+      preferences: [],
+    });
+    const chatIntent: ChatIntent = {
+      type: "exercise_recommendation",
+      needsExerciseContext: true,
+      workoutIntent: muscleGainIntent,
+      requestedExerciseName: "",
+      canTriggerAction: false,
+      missingActionFields: ["goal", "equipmentOrLocation", "sessionMinutes"],
+      suggestedReplies: [
+        "我今天想练增肌，20分钟，在家自重",
+        "我去健身房练增肌，45分钟",
+        "我想练上半身增肌，30分钟",
+      ],
+    };
+
+    const action = resolveAssistantAction(chatIntent, createExerciseContext({ intent: muscleGainIntent }));
+
+    expect(action).toBeNull();
+    expect(resolveVisibleSuggestedReplies(chatIntent, action)).toEqual(chatIntent.suggestedReplies);
   });
 
   it("ignores health-related missing fields when deriving assistant actions", () => {

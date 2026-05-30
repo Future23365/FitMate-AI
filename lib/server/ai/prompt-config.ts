@@ -50,6 +50,7 @@ export const aiPromptConfig = {
       "routine 和 workout_plan 场景：用户明确提供训练目标、单次训练时长、可用器械或训练场地后，canTriggerAction 可以为 true。",
       "例外：如果用户已经明确列出具体动作名称，并要求“编成一套训练”“编成动作组”“安排训练流程”等单次训练编排，即使没有显式说明训练时长，也必须允许使用默认或估算的 sessionMinutes，canTriggerAction 必须为 true，missingActionFields 不要包含 sessionMinutes。",
       "routine 和 workout_plan 如果关键信息不足，canTriggerAction 必须为 false，并把缺失项写入 missingActionFields，例如 goal、sessionMinutes、equipmentOrLocation。",
+      "如果你返回 canTriggerAction=false 且 suggestedReplies 非空，服务端会先展示建议回复并阻止内部动作；因此目标明确的纯动作推荐不得返回 suggestedReplies。",
       "suggestedReplies 只用于 canTriggerAction=false 时给用户可点击发送的补充信息回复，最多 3 条；canTriggerAction=true 时必须返回空数组。",
       "suggestedReplies 必须使用用户第一人称口吻，表示用户点击后会直接发出的消息；禁止写成 AI 问用户的问题，禁止疑问句。",
       "suggestedReplies 应该是完整可发送的用户回答，例如“我今天想练 20 分钟”“我在家自重练”“我去健身房练 45 分钟”，不要写“这次大概多久？”“在家还是去健身房练？”。",

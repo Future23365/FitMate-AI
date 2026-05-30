@@ -1068,7 +1068,7 @@ export function resolveAssistantAction(
   }
 }
 
-// 服务端兜底触发边界：动作推荐只要求目标明确，训练编排和长期计划继续检查关键字段。
+// 服务端兜底触发边界：追问优先于推送；动作推荐只在没有显式追问时使用目标兜底。
 export function canTriggerAssistantAction(
   chatIntent: ChatIntent,
   exerciseContext: ExerciseContext | null,
@@ -1082,6 +1082,10 @@ export function canTriggerAssistantAction(
   }
 
   if (chatIntent.type === "exercise_recommendation") {
+    if (hasPendingSuggestedReplies(chatIntent)) {
+      return false;
+    }
+
     return hasRecommendationTarget(chatIntent, exerciseContext.intent);
   }
 
@@ -1095,6 +1099,10 @@ export function canTriggerAssistantAction(
 
 function hasRecommendationTarget(chatIntent: ChatIntent, intent: WorkoutPlanIntent) {
   return intent.goal.trim().length > 0 || (chatIntent.requestedExerciseName ?? "").trim().length > 0;
+}
+
+function hasPendingSuggestedReplies(chatIntent: ChatIntent) {
+  return !chatIntent.canTriggerAction && chatIntent.suggestedReplies.length > 0;
 }
 
 export function getActionBlockingMissingFields(
