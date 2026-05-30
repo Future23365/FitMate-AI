@@ -1,0 +1,65 @@
+# workout-generation-validation-recovery Specification
+
+## Purpose
+TBD - created by archiving change recover-workout-plan-validation-failures. Update Purpose after archive.
+## Requirements
+### Requirement: 训练草稿校验失败必须进入恢复流程
+
+当 AI 生成的训练草稿没有通过服务端校验时，系统 SHALL 根据校验问题类型进入自动修复或用户引导流程，而不是直接把所有校验失败作为终止型错误。
+
+#### Scenario: 可恢复校验失败
+
+- **WHEN** 训练草稿校验结果包含 `session_too_long`、`day_estimate_mismatch`、`too_many_daily_sets`、`beginner_volume_high`、`rest_too_short` 或 `weekly_frequency_mismatch`
+- **THEN** 系统 MUST 将该失败标记为可恢复
+- **AND** 系统 MUST 尝试自动修复一次或返回可继续对话的引导
+- **AND** 系统 MUST NOT 展示未通过校验的训练草稿卡片
+
+#### Scenario: 硬边界校验失败
+
+- **WHEN** 训练草稿校验结果包含动作 ID 不存在、动作不在候选集合、候选集合为空、缺少必要结构或 Schema 解析失败
+- **THEN** 系统 MUST 继续阻止该草稿展示或保存
+- **AND** 系统 MAY 尝试一次结构修复
+- **AND** 修复后仍失败时系统 MUST 返回明确的失败提示
+
+### Requirement: 校验失败后必须自动修复一次
+
+系统 SHALL 在首次训练草稿校验失败后，把校验结果反馈给 LLM 并请求一次修复版草稿。
+
+#### Scenario: 时长超出后的自动修复
+
+- **WHEN** AI 生成的单次训练编排被估算为 49 分钟
+- **AND** 用户目标时长为 30 分钟
+- **THEN** 修复请求 MUST 明确要求模型压缩到 30 分钟附近
+- **AND** 修复请求 MUST 要求减少动作数量、组数、循环轮数或休息配置
+- **AND** 修复后的草稿 MUST 重新通过同一套服务端校验
+
+#### Scenario: 自动修复通过
+
+- **WHEN** 修复后的训练草稿通过服务端校验
+- **THEN** 接口 MUST 返回修复后的有效草稿
+- **AND** 前端 MUST 正常展示训练卡片
+
+#### Scenario: 自动修复仍失败
+
+- **WHEN** 修复后的训练草稿仍未通过服务端校验
+- **THEN** 接口 MUST 返回结构化失败结果
+- **AND** 结果 MUST 包含用户可理解的 `guidanceMessage`
+- **AND** 结果 MUST 包含可继续对话的 `suggestedReplies`
+
+### Requirement: 前端必须展示可继续对话的恢复引导
+
+当前端收到可恢复的训练生成失败结果时，聊天页面 SHALL 展示“计划生成失败”以及可操作的引导文案，而不是只展示内部错误。
+
+#### Scenario: 时长超出引导
+
+- **WHEN** 训练生成失败结果标记为可恢复
+- **AND** 主要原因是训练估算时长超过用户目标时长
+- **THEN** 前端 MUST 展示类似“这版训练估算约 49 分钟，超过你原本的 30 分钟。你想压缩到 30 分钟，还是保留完整训练量？”的文案
+- **AND** 前端 MUST 提供可点击或可复制的继续对话建议
+
+#### Scenario: 用户继续选择
+
+- **WHEN** 用户发送“压缩到 30 分钟”或等价选择
+- **THEN** 后续意图解析 MUST 能把该选择视为对上一轮失败训练生成的调整请求
+- **AND** 系统 MUST 使用已有目标、器械、经验和候选上下文重新生成
+

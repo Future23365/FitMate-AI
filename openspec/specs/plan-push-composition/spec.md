@@ -162,3 +162,19 @@ TBD - created by archiving change improve-plan-push-composition. Update Purpose 
 - **THEN** 系统 MUST 继续追问缺失的核心训练条件
 - **AND** 系统 MUST NOT 仅凭默认经验触发 `workout_plan`
 
+### Requirement: 长期计划校验失败必须可恢复
+
+聊天推送长期 plan 时，系统 SHALL 将可调整的服务端校验失败转成自动修复或继续对话引导。
+
+#### Scenario: 计划训练日时长超出
+
+- **WHEN** AI 生成的长期计划草稿中某个训练日估算时长超过用户目标时长
+- **THEN** 系统 MUST 先尝试自动压缩该计划并重新校验
+- **AND** 系统 MUST NOT 展示未通过校验的计划卡片
+
+#### Scenario: 周频率或训练日结构需要调整
+
+- **WHEN** 长期计划草稿的周频率、训练日数量或恢复安排与用户意图不一致
+- **THEN** 系统 MUST 优先尝试自动修复
+- **AND** 修复失败时系统 MUST 引导用户确认训练频率、周期长度或是否保留完整训练量
+
