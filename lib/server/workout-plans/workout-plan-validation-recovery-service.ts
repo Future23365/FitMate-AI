@@ -6,6 +6,7 @@ import type {
 
 const recoverableIssueCodes = new Set<WorkoutPlanValidationIssueCode>([
   "session_too_long",
+  "session_too_short",
   "day_estimate_mismatch",
   "too_many_daily_sets",
   "beginner_volume_high",
@@ -70,6 +71,17 @@ function buildGuidanceMessage(
     }
   }
 
+  if (primaryIssue?.code === "session_too_short") {
+    const estimate = validation.dayEstimates.find((item) => item.dayIndex === primaryIssue.dayIndex)
+      ?? validation.dayEstimates[0];
+
+    if (estimate) {
+      const target = targetSessionMinutes ?? estimate.declaredEstimatedMinutes;
+
+      return `这版训练估算约 ${estimate.estimatedMinutes} 分钟，低于你原本的 ${target} 分钟。你想补足到 ${target} 分钟，还是保留轻量版本？`;
+    }
+  }
+
   if (recoverable) {
     return "这版训练的时长、训练量或频率还需要调整。你可以选择压缩时长、减少动作数量或降低每个动作组数。";
   }
@@ -90,6 +102,12 @@ function buildSuggestedReplies(
     const target = targetSessionMinutes ?? 30;
 
     return [`压缩到 ${target} 分钟`, "保留完整训练量", "减少动作数量", "降低每个动作组数"];
+  }
+
+  if (primaryIssueCode === "session_too_short") {
+    const target = targetSessionMinutes ?? 30;
+
+    return [`补足到 ${target} 分钟`, "增加主训练轮数", "增加每个动作组数", "增加一个主训练动作"];
   }
 
   return ["减少动作数量", "降低每个动作组数", "保留完整训练量"];

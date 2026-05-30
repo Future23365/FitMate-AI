@@ -32,6 +32,7 @@ export type WorkoutPlanValidationIssueCode =
   | "consecutive_load_high"
   | "weekly_frequency_mismatch"
   | "session_too_long"
+  | "session_too_short"
   | "day_estimate_mismatch"
   | "too_many_daily_sets"
   | "beginner_volume_high"
@@ -75,6 +76,9 @@ export type WorkoutPlanValidationOptions = {
   candidateExerciseIds: Iterable<string>;
   memoryState?: ConversationMemoryState;
 };
+
+const sessionDurationToleranceMinutes = 10;
+const minimumTargetMinutesForShortSessionCheck = 20;
 
 export async function validateWorkoutPlanDraftFromStore(
   rawDraft: WorkoutPlanDraft,
@@ -437,6 +441,14 @@ export function validateWorkoutRoutineDraft(
     });
   }
 
+  if (isSessionTooShortForTarget(estimatedMinutes, intent.sessionMinutes)) {
+    errors.push({
+      code: "session_too_short",
+      dayIndex: 1,
+      message: `单次训练编排估算 ${estimatedMinutes} 分钟，明显低于用户每次 ${intent.sessionMinutes} 分钟。`,
+    });
+  }
+
   if (Math.abs(estimatedMinutes - draft.estimatedSessionMinutes) > 10) {
     warnings.push({
       code: "day_estimate_mismatch",
@@ -505,6 +517,12 @@ export function validateWorkoutRoutineDraft(
     maxEstimatedMinutes: estimatedMinutes,
     totalWeeklySets: totalSets,
   };
+}
+
+// 明确时长的 routine 需要接近目标可执行时长，避免只信任 LLM 声明分钟数。
+function isSessionTooShortForTarget(estimatedMinutes: number, targetSessionMinutes: number) {
+  return targetSessionMinutes >= minimumTargetMinutesForShortSessionCheck
+    && estimatedMinutes < targetSessionMinutes - sessionDurationToleranceMinutes;
 }
 
 function estimateWorkoutDay(day: WorkoutDayDraft, fallbackDayIndex: number): WorkoutPlanDayEstimate {

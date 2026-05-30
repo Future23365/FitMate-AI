@@ -182,6 +182,8 @@ export const aiPromptConfig = {
         "routine 必须包含热身、训练、拉伸三个 sections：warmup、training、stretch；每个 section 至少 1 个动作。",
         "trainingLoopRounds 表示主训练 section 循环轮数，必须是 1-6 的整数；trainingLoopRestSeconds 表示每轮主训练之间的休息秒数。",
         "主训练循环只重复 training section，warmup 和 stretch 不参与循环。",
+        "如果 intent.sessionMinutes 已提供，它表示目标可执行时长；estimatedSessionMinutes 必须接近按动作次数/秒数、组数、休息和 trainingLoopRounds 估算出的真实时长，不能只把用户目标时长写进声明字段。",
+        "当实际编排明显短于 intent.sessionMinutes 时，优先增加主训练循环轮数、主训练动作组数、合理次数、合适训练动作或合理休息来补足时长。",
         "每个动作 item 必须包含 section、exerciseId、mode、sets、target、setRestSeconds、transitionRestSeconds；item.section 必须与所属 section 一致。",
         "热身必须优先从 warmupExercises 中选择，主训练必须优先从 trainingExercises 中选择，拉伸必须优先从 stretchExercises 中选择。",
       ].join("\n"),

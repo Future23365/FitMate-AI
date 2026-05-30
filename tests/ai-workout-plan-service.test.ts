@@ -118,7 +118,7 @@ describe("AI workout plan orchestration boundaries", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            choices: [{ message: { content: JSON.stringify(createWorkoutRoutineDraft()) } }],
+            choices: [{ message: { content: JSON.stringify(createThirtyMinuteRoutineDraft()) } }],
           }),
         ),
       )
@@ -164,7 +164,7 @@ describe("AI workout plan orchestration boundaries", () => {
     expect(routineResult).toMatchObject({
       ok: true,
       kind: "routine",
-      draft: { kind: "routine", trainingLoopRounds: 3 },
+      draft: { kind: "routine", trainingLoopRounds: 2 },
     });
     expect(planResult).toMatchObject({
       ok: true,
@@ -273,11 +273,7 @@ describe("AI workout plan orchestration boundaries", () => {
         createWorkoutRoutineDraft().sections[2],
       ],
     });
-    const repairedDraft = createWorkoutRoutineDraft({
-      estimatedSessionMinutes: 30,
-      trainingLoopRounds: 2,
-      trainingLoopRestSeconds: 45,
-    });
+    const repairedDraft = createThirtyMinuteRoutineDraft();
     serverRequestMocks.serverRequest
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(longDraft) } }] })),
@@ -318,6 +314,83 @@ describe("AI workout plan orchestration boundaries", () => {
       },
       originalDraft: {
         trainingLoopRounds: 12,
+      },
+    });
+  });
+
+  it("repairs a session_too_short routine by asking the model to add training volume", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
+    exerciseServiceMocks.listAllExercises.mockResolvedValue(createModelExercises());
+    const shortDraft = createWorkoutRoutineDraft({
+      estimatedSessionMinutes: 30,
+      trainingLoopRounds: 1,
+      trainingLoopRestSeconds: 45,
+    });
+    const repairedDraft = createWorkoutRoutineDraft({
+      estimatedSessionMinutes: 30,
+      trainingLoopRounds: 2,
+      trainingLoopRestSeconds: 45,
+      sections: [
+        createWorkoutRoutineDraft().sections[0],
+        {
+          section: "training",
+          title: "补足主训练",
+          items: [
+            {
+              exerciseId: "push-up",
+              section: "training",
+              mode: "duration",
+              sets: 3,
+              target: 180,
+              setRestSeconds: 60,
+              transitionRestSeconds: 60,
+            },
+          ],
+        },
+        createWorkoutRoutineDraft().sections[2],
+      ],
+    });
+    serverRequestMocks.serverRequest
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(shortDraft) } }] })),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(repairedDraft) } }] })),
+      );
+
+    const result = await generateAiWorkoutPlanDraft({
+      latestUserMessage: "今天在家自重练胸 30 分钟",
+      conversationSummary: "用户想在家自重练胸。",
+      intent: createWorkoutPlanIntent({
+        intentType: "routine",
+        goal: "胸肌训练",
+        sessionMinutes: 30,
+        weeklyFrequency: 1,
+      }),
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      kind: "routine",
+      draft: {
+        trainingLoopRounds: 2,
+      },
+    });
+    expect(serverRequestMocks.serverRequest).toHaveBeenCalledTimes(2);
+    const repairRequestBody = serverRequestMocks.serverRequest.mock.calls[1][1].body;
+    const repairPayload = JSON.parse(repairRequestBody.messages[1].content);
+    expect(repairRequestBody.messages[0].content).toContain("必须把训练补足到用户目标时长附近");
+    expect(repairRequestBody.messages[0].content).toContain("禁止只修改 estimatedSessionMinutes");
+    expect(repairPayload).toMatchObject({
+      recovery: {
+        recoverable: true,
+        primaryIssueCode: "session_too_short",
+      },
+      validation: {
+        errors: [expect.objectContaining({ code: "session_too_short" })],
+      },
+      originalDraft: {
+        trainingLoopRounds: 1,
       },
     });
   });
@@ -391,4 +464,31 @@ function createModelExercises() {
     createExercise({ id: "knee-push-up", nameZh: "跪姿俯卧撑", primaryMusclesZh: ["胸部"], primaryMuscles: ["chest"] }),
     createExercise({ id: "stretch", nameZh: "胸肩拉伸", categoryZh: "拉伸", primaryMusclesZh: ["胸部"] }),
   ];
+}
+
+function createThirtyMinuteRoutineDraft() {
+  return createWorkoutRoutineDraft({
+    estimatedSessionMinutes: 30,
+    trainingLoopRounds: 2,
+    trainingLoopRestSeconds: 45,
+    sections: [
+      createWorkoutRoutineDraft().sections[0],
+      {
+        section: "training",
+        title: "主训练",
+        items: [
+          {
+            exerciseId: "push-up",
+            section: "training",
+            mode: "duration",
+            sets: 3,
+            target: 180,
+            setRestSeconds: 60,
+            transitionRestSeconds: 60,
+          },
+        ],
+      },
+      createWorkoutRoutineDraft().sections[2],
+    ],
+  });
 }

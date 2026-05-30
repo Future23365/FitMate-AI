@@ -290,7 +290,7 @@ describe("workout plan candidate and validation services", () => {
   it("validates routine draft sections, loop config, and estimated duration", () => {
     const intent = createWorkoutPlanIntent({
       intentType: "routine",
-      sessionMinutes: 30,
+      sessionMinutes: 12,
     });
     const routineDraft = createWorkoutRoutineDraft({
       estimatedSessionMinutes: 12,
@@ -316,6 +316,47 @@ describe("workout plan candidate and validation services", () => {
 
     expect(outsideCandidateResult.valid).toBe(false);
     expect(outsideCandidateResult.errors.map((issue) => issue.code)).toContain("outside_candidate_exercise_id");
+  });
+
+  it("rejects routine drafts that are materially shorter than the target session duration", () => {
+    const intent = createWorkoutPlanIntent({
+      intentType: "routine",
+      sessionMinutes: 40,
+    });
+    const routineDraft = createWorkoutRoutineDraft({
+      estimatedSessionMinutes: 40,
+      trainingLoopRounds: 2,
+      trainingLoopRestSeconds: 90,
+      sections: [
+        createWorkoutRoutineDraft().sections[0],
+        {
+          section: "training",
+          title: "主训练",
+          items: [
+            {
+              exerciseId: "push-up",
+              section: "training",
+              mode: "reps",
+              sets: 2,
+              target: 10,
+              setRestSeconds: 60,
+              transitionRestSeconds: 60,
+            },
+          ],
+        },
+        createWorkoutRoutineDraft().sections[2],
+      ],
+    });
+
+    const result = validateWorkoutRoutineDraft(routineDraft, intent, {
+      exercises,
+      candidateExerciseIds: ["warmup", "push-up", "stretch"],
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.dayEstimates[0].estimatedMinutes).toBeLessThan(30);
+    expect(result.errors.map((issue) => issue.code)).toContain("session_too_short");
+    expect(result.warnings.map((issue) => issue.code)).toContain("day_estimate_mismatch");
   });
 
   it("rejects exercises placed in illegal sections", () => {
