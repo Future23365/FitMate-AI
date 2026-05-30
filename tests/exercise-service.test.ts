@@ -9,7 +9,7 @@ const repositoryMocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/server/exercises/exercise-repository", () => repositoryMocks);
 
-const { getExerciseById, getExerciseFacets, getExerciseSuitability, listExercises } = await import(
+const { getExerciseById, getExerciseFacets, getExerciseSuitability, listExercises, searchExercises } = await import(
   "@/lib/server/exercises/exercise-service"
 );
 
@@ -30,6 +30,55 @@ describe("exercise service", () => {
         primaryMuscles: ["chest"],
         primaryMusclesZh: ["胸部"],
         goalTags: ["strength", "home_friendly"],
+      }),
+      createExercise({
+        id: "triceps-extension",
+        nameZh: "肱三头肌臂屈伸",
+        category: "strength",
+        categoryZh: "力量",
+        level: "beginner",
+        levelZh: "新手",
+        equipment: "bodyweight",
+        equipmentZh: "自重",
+        homeRequirement: "no_equipment",
+        homeRequirementZh: "无器械",
+        primaryMuscles: ["triceps"],
+        primaryMusclesZh: ["肱三头肌"],
+        goalTags: ["strength"],
+      }),
+      createExercise({
+        id: "dead-bug",
+        nameZh: "死虫式",
+        category: "strength",
+        categoryZh: "力量",
+        level: "beginner",
+        levelZh: "新手",
+        equipment: "bodyweight",
+        equipmentZh: "自重",
+        homeRequirement: "no_equipment",
+        homeRequirementZh: "无器械",
+        primaryMuscles: ["core"],
+        primaryMusclesZh: ["核心"],
+        movementPattern: "anti_rotation",
+        goalTags: ["stability"],
+      }),
+      createExercise({
+        id: "band-pull-apart",
+        nameZh: "弹力带拉开",
+        category: "mobility",
+        categoryZh: "灵活性",
+        level: "beginner",
+        levelZh: "新手",
+        equipment: "resistance_band",
+        equipmentZh: "弹力带",
+        homeRequirement: "equipment",
+        homeRequirementZh: "需要器械",
+        primaryMuscles: ["shoulders"],
+        primaryMusclesZh: ["肩部"],
+        secondaryMuscles: ["back"],
+        secondaryMusclesZh: ["背部"],
+        movementPattern: "pull",
+        goalTags: ["mobility"],
       }),
       createExercise({
         id: "jump-squat",
@@ -131,8 +180,8 @@ describe("exercise service", () => {
     expect(paged).toMatchObject({
       page: 2,
       pageSize: 1,
-      total: 6,
-      totalPages: 6,
+      total: 9,
+      totalPages: 9,
       hasNextPage: true,
       hasPreviousPage: true,
     });
@@ -151,10 +200,10 @@ describe("exercise service", () => {
         expect.objectContaining({ id: "hamstring-stretch" }),
         expect.objectContaining({ id: "dynamic-stretch" }),
       ]),
-      total: 2,
+      total: 3,
     });
     await expect(listExercises({ suitability: "training" })).resolves.toMatchObject({
-      total: 4,
+      total: 6,
       items: expect.arrayContaining([
         expect.objectContaining({ id: "push-up" }),
         expect.objectContaining({ id: "jump-squat" }),
@@ -195,18 +244,18 @@ describe("exercise service", () => {
     const facets = await getExerciseFacets();
     expect(facets.categories).toEqual(
       expect.arrayContaining([
-        { value: "strength", label: "力量", count: 2 },
+        { value: "strength", label: "力量", count: 4 },
         { value: "cardio", label: "有氧训练", count: 2 },
       ]),
     );
     expect(facets.equipment).toEqual(
       expect.arrayContaining([
-        { value: "bodyweight", label: "自重", count: 5 },
+        { value: "bodyweight", label: "自重", count: 7 },
         { value: "dumbbell", label: "哑铃", count: 1 },
       ]),
     );
     expect(facets.homeRequirements).toEqual(
-      expect.arrayContaining([{ value: "no_equipment", label: "无器械", count: 3 }]),
+      expect.arrayContaining([{ value: "no_equipment", label: "无器械", count: 5 }]),
     );
     expect(facets.muscles).toEqual(
       expect.arrayContaining([{ value: "chest", label: "胸部", count: 1 }]),
@@ -214,7 +263,7 @@ describe("exercise service", () => {
     expect(facets.goalTags).toEqual(
       expect.arrayContaining([
         { value: "home_friendly", label: "居家友好", count: 1 },
-        { value: "strength", label: "力量训练", count: 2 },
+        { value: "strength", label: "力量训练", count: 3 },
       ]),
     );
     expect(facets.riskTags).toEqual(expect.arrayContaining([{ value: "high_impact", label: "高冲击", count: 1 }]));
@@ -231,5 +280,38 @@ describe("exercise service", () => {
     expect(warmupFacets.riskTags).not.toEqual(
       expect.arrayContaining([{ value: "high_impact", label: "高冲击", count: 1 }]),
     );
+  });
+
+  it("uses hybrid search for fuzzy body-part and posture expressions", async () => {
+    await expect(searchExercises({ query: "拜拜肉", limit: 3 })).resolves.toMatchObject({
+      candidates: expect.arrayContaining([expect.objectContaining({ id: "triceps-extension" })]),
+      diagnostics: expect.objectContaining({
+        finalExerciseIds: expect.arrayContaining(["triceps-extension"]),
+      }),
+    });
+
+    await expect(searchExercises({ query: "核心不稳", limit: 3 })).resolves.toMatchObject({
+      candidates: expect.arrayContaining([expect.objectContaining({ id: "dead-bug" })]),
+    });
+
+    await expect(searchExercises({ query: "圆肩", limit: 3 })).resolves.toMatchObject({
+      candidates: expect.arrayContaining([expect.objectContaining({ id: "band-pull-apart" })]),
+    });
+  });
+
+  it("keeps hard filters ahead of vector recall", async () => {
+    await expect(
+      searchExercises({
+        query: "圆肩",
+        equipment: ["自重"],
+        visibility: "published",
+        limit: 5,
+      }),
+    ).resolves.toMatchObject({
+      candidates: expect.not.arrayContaining([expect.objectContaining({ id: "band-pull-apart" })]),
+      diagnostics: expect.objectContaining({
+        finalExerciseIds: expect.not.arrayContaining(["band-pull-apart"]),
+      }),
+    });
   });
 });

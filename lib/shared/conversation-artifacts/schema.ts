@@ -53,6 +53,8 @@ export const artifactIndexSchema = z.object({
   weeklyFrequency: z.number().int().min(1).max(7).optional(),
   trainingDayCount: z.number().int().min(0).optional(),
   sourceMessageId: z.string().trim().min(1).optional(),
+  embeddingText: z.string().trim().max(4000).optional(),
+  embedding: z.array(z.number()).optional(),
 });
 
 export const conversationArtifactSchema = z.object({

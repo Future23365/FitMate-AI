@@ -85,6 +85,8 @@ describe("conversation artifact service", () => {
         goals: ["胸肌训练"],
         muscles: ["胸部", "肱三头肌"],
         equipment: ["自重"],
+        embeddingText: expect.stringContaining("居家胸肌动作"),
+        embedding: expect.any(Array),
       }),
     }));
   });
@@ -185,6 +187,8 @@ describe("conversation artifact service", () => {
         sessionMinutes: 30,
         weeklyFrequency: null,
         trainingDayCount: null,
+        embeddingText: "居家胸肌循环 | 胸部自重训练 | 胸部 | 自重",
+        embedding: null,
         updatedAt: new Date("2026-05-30T08:00:00.000Z"),
       },
       {
@@ -200,6 +204,8 @@ describe("conversation artifact service", () => {
         sessionMinutes: 20,
         weeklyFrequency: null,
         trainingDayCount: null,
+        embeddingText: "腿部训练 | 下肢力量 | 腿部 | 自重",
+        embedding: null,
         updatedAt: new Date("2026-05-30T07:00:00.000Z"),
       },
     ]);
@@ -215,7 +221,7 @@ describe("conversation artifact service", () => {
 
     expect(prismaMock.artifactIndex.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { userId: "user-1", status: "active", kind: "routine" },
-      take: 12,
+      take: 24,
     }));
     expect(candidates).toEqual([
       expect.objectContaining({
@@ -225,6 +231,50 @@ describe("conversation artifact service", () => {
       }),
     ]);
     expect(candidates[0]).not.toHaveProperty("payload");
+  });
+
+  it("keeps artifact hybrid search inside current user and status filters", async () => {
+    prismaMock.artifactIndex.findMany.mockResolvedValue([
+      {
+        artifactId: "artifact-core",
+        sessionId: "chat-2",
+        kind: "routine",
+        scope: "chat",
+        status: "active",
+        title: "核心稳定训练",
+        summary: "平板支撑和抗旋转训练。",
+        exerciseIds: ["plank"],
+        goals: ["核心稳定"],
+        muscles: ["核心"],
+        equipment: ["自重"],
+        sessionMinutes: 20,
+        weeklyFrequency: null,
+        trainingDayCount: null,
+        embeddingText: "核心稳定训练 | 平板支撑 | 抗旋转 | 核心",
+        embedding: null,
+        updatedAt: new Date("2026-05-30T08:00:00.000Z"),
+      },
+    ]);
+
+    const result = await artifactService.searchArtifactsDetailed({
+      userId: "user-1",
+      sessionId: "chat-1",
+      sessionScope: "current_user",
+      kind: "routine",
+      query: "核心不稳",
+      limit: 3,
+    });
+
+    expect(prismaMock.artifactIndex.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { userId: "user-1", status: "active", kind: "routine" },
+    }));
+    expect(result).toMatchObject({
+      candidates: [expect.objectContaining({ artifactId: "artifact-core" })],
+      diagnostics: expect.objectContaining({
+        recalledCount: 1,
+        finalCandidateIds: ["artifact-core"],
+      }),
+    });
   });
 
   it("reads artifact payload only after user and schema validation", async () => {

@@ -23,6 +23,8 @@
 
 项目事实数据在 PostgreSQL 中，第一版向量检索优先使用 pgvector，避免额外维护独立向量库和跨库一致性。规模上来后再考虑独立 Vector DB。
 
+实现落地时允许先使用 PostgreSQL `Json` 字段保存固定维度本地 hashing embedding，查询端在结构化硬过滤后的候选集合内执行 cosine rerank。该方案不引入外部模型调用成本，适合当前本地开发和测试；后续迁移到 pgvector 时，回滚边界是删除 `embeddingText` / `embedding` 字段、回退迁移，并恢复全文检索排序。
+
 ### Decision 2: embeddingText 由服务端生成
 
 artifact 和 exercise 的 embeddingText 由服务端从标题、摘要、目标、肌群、器械、动作别名和结构化字段生成，避免直接把大 payload 或未经脱敏内容送入 embedding。

@@ -20,6 +20,15 @@ import {
   workoutRoutineDraftSchema,
 } from "@/lib/shared/workout-plans/draft-schema";
 import type { ReferenceArtifactCandidate } from "@/lib/shared/reference-resolver/schema";
+import {
+  buildEmbeddingText,
+  cosineSimilarity,
+  createSearchEmbedding,
+  parseSearchEmbedding,
+  scoreHybridTextMatch,
+  uniqueStrings,
+  type HybridSearchScore,
+} from "@/lib/shared/search/hybrid-search";
 
 type ArtifactClient = Pick<
   PrismaClient,
@@ -55,6 +64,25 @@ type SearchArtifactsInput = {
   limit?: number;
 };
 
+export type ArtifactSearchDiagnostics = {
+  query?: string;
+  filters: {
+    userId: string;
+    sessionId?: string;
+    sessionScope: ArtifactSearchScope;
+    kind?: ConversationArtifactKind;
+    status: ConversationArtifactStatus;
+  };
+  recalledCount: number;
+  filteredCount: number;
+  rerank: Array<{
+    artifactId: string;
+    score: HybridSearchScore;
+  }>;
+  finalCandidateIds: string[];
+  failureReasons: string[];
+};
+
 type GetArtifactPayloadInput = {
   userId: string;
   artifactId: string;
@@ -64,6 +92,8 @@ type ArtifactIndexRow = {
   artifactId: string;
   sessionId: string;
   kind: ConversationArtifactKind;
+  scope: ConversationArtifactScope;
+  status: ConversationArtifactStatus;
   title: string;
   summary: string | null;
   exerciseIds: string[];
@@ -73,6 +103,8 @@ type ArtifactIndexRow = {
   sessionMinutes: number | null;
   weeklyFrequency: number | null;
   trainingDayCount: number | null;
+  embeddingText: string | null;
+  embedding: unknown;
   updatedAt: Date;
 };
 
@@ -313,8 +345,23 @@ export async function searchArtifacts(
   input: SearchArtifactsInput,
   client: Pick<PrismaClient, "artifactIndex"> = getPrismaClient(),
 ): Promise<ReferenceArtifactCandidate[]> {
+  const result = await searchArtifactsDetailed(input, client);
+
+  return result.candidates;
+}
+
+// Hybrid search 先执行 userId/status/kind/session 硬过滤，再在候选内做全文、向量和业务排序。
+export async function searchArtifactsDetailed(
+  input: SearchArtifactsInput,
+  client: Pick<PrismaClient, "artifactIndex"> = getPrismaClient(),
+): Promise<{
+  candidates: ReferenceArtifactCandidate[];
+  diagnostics: ArtifactSearchDiagnostics;
+}> {
   const limit = clampLimit(input.limit);
   const sessionScope = input.sessionScope ?? "current_session";
+  const query = input.query?.trim();
+  const take = query ? Math.max(limit * 8, 24) : limit;
   const rows = await client.artifactIndex.findMany({
     where: {
       userId: input.userId,
@@ -325,24 +372,45 @@ export async function searchArtifacts(
         : {}),
     },
     orderBy: { updatedAt: "desc" },
-    take: input.query?.trim() ? Math.max(limit * 4, 12) : limit,
+    take,
   });
+
   const rankedRows = rows
     .map((row) => ({
       row: row as ArtifactIndexRow,
-      score: scoreArtifactIndex(row as ArtifactIndexRow, input.query, input.sessionId),
+      score: scoreArtifactIndex(row as ArtifactIndexRow, query, input.sessionId),
     }))
-    .filter(({ score }) => !input.query?.trim() || score > 0)
+    .filter(({ score }) => !query || score.totalScore > 0)
     .sort((left, right) => {
-      if (right.score !== left.score) {
-        return right.score - left.score;
+      if (right.score.totalScore !== left.score.totalScore) {
+        return right.score.totalScore - left.score.totalScore;
       }
 
       return right.row.updatedAt.getTime() - left.row.updatedAt.getTime();
     })
     .slice(0, limit);
 
-  return rankedRows.map(({ row }) => artifactIndexRowToCandidate(row));
+  const candidates = rankedRows.map(({ row }) => artifactIndexRowToCandidate(row));
+  const diagnostics: ArtifactSearchDiagnostics = {
+    query,
+    filters: {
+      userId: input.userId,
+      sessionId: input.sessionId,
+      sessionScope,
+      kind: input.kind,
+      status: "active",
+    },
+    recalledCount: rows.length,
+    filteredCount: Math.max(rows.length - rankedRows.length, 0),
+    rerank: rankedRows.map(({ row, score }) => ({
+      artifactId: row.artifactId,
+      score,
+    })),
+    finalCandidateIds: candidates.map((candidate) => candidate.artifactId),
+    failureReasons: candidates.length > 0 ? [] : [query ? "no_hybrid_match" : "no_accessible_artifact"],
+  };
+
+  return { candidates, diagnostics };
 }
 
 // 当前用户检索包装用于 /api/chat 编排，避免调用方重复处理用户隔离。
@@ -353,6 +421,15 @@ export async function searchArtifactsForCurrentUser(
   const user = await getCurrentUser();
 
   return searchArtifacts({ ...input, userId: user.id }, client);
+}
+
+export async function searchArtifactsForCurrentUserDetailed(
+  input: Omit<SearchArtifactsInput, "userId">,
+  client: Pick<PrismaClient, "artifactIndex"> = getPrismaClient(),
+) {
+  const user = await getCurrentUser();
+
+  return searchArtifactsDetailed({ ...input, userId: user.id }, client);
 }
 
 // 完整 payload 读取工具集中处理 userId、status 和 kind/version 校验。
@@ -503,6 +580,8 @@ function upsertArtifactIndex(
       weeklyFrequency: index.weeklyFrequency,
       trainingDayCount: index.trainingDayCount,
       sourceMessageId: index.sourceMessageId,
+      embeddingText: index.embeddingText,
+      embedding: index.embedding,
     },
     create: index,
   });
@@ -521,8 +600,7 @@ export function buildArtifactIndex(input: {
 }): ArtifactIndex {
   if (input.kind === "exercise_recommendation") {
     const payload = exerciseRecommendationCardSchema.parse(input.payload);
-
-    return {
+    const baseIndex = {
       artifactId: input.artifactId,
       userId: input.userId,
       sessionId: input.sessionId,
@@ -537,12 +615,13 @@ export function buildArtifactIndex(input: {
       equipment: unique(payload.items.map((item) => item.equipmentZh)),
       sourceMessageId: input.sourceMessageId,
     };
+
+    return withArtifactEmbedding(baseIndex);
   }
 
   if (input.kind === "routine") {
     const payload = workoutRoutineDraftSchema.parse(input.payload);
-
-    return {
+    const baseIndex = {
       artifactId: input.artifactId,
       userId: input.userId,
       sessionId: input.sessionId,
@@ -553,16 +632,17 @@ export function buildArtifactIndex(input: {
       summary: payload.summary,
       exerciseIds: unique(payload.sections.flatMap((section) => section.items.map((item) => item.exerciseId))),
       goals: [payload.goal],
-      muscles: [],
+      muscles: unique(payload.sections.flatMap((section) => section.items.map((item) => item.notes))),
       equipment: [],
       sessionMinutes: payload.estimatedSessionMinutes,
       sourceMessageId: input.sourceMessageId,
     };
+
+    return withArtifactEmbedding(baseIndex);
   }
 
   const payload = workoutPlanDraftSchema.parse(input.payload);
-
-  return {
+  const baseIndex = {
     artifactId: input.artifactId,
     userId: input.userId,
     sessionId: input.sessionId,
@@ -577,13 +657,15 @@ export function buildArtifactIndex(input: {
       ),
     ),
     goals: unique([payload.goal, ...payload.days.map((day) => day.focus)]),
-    muscles: [],
+    muscles: unique(payload.days.map((day) => day.focus)),
     equipment: [],
     sessionMinutes: payload.estimatedSessionMinutes,
     weeklyFrequency: payload.weeklyFrequency,
     trainingDayCount: payload.trainingDayCount,
     sourceMessageId: input.sourceMessageId,
   };
+
+  return withArtifactEmbedding(baseIndex);
 }
 
 function stableJsonEquals(left: unknown, right: unknown) {
@@ -595,7 +677,7 @@ function toJsonPayload(payload: ConversationArtifactPayload) {
 }
 
 function unique(values: Array<string | undefined>) {
-  return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
+  return uniqueStrings(values);
 }
 
 function artifactIndexRowToCandidate(row: ArtifactIndexRow): ReferenceArtifactCandidate {
@@ -619,75 +701,75 @@ function clampLimit(limit = 6) {
   return Math.min(Math.max(Math.trunc(limit), 1), 12);
 }
 
-function scoreArtifactIndex(row: ArtifactIndexRow, query: string | undefined, sessionId: string | undefined) {
-  let score = sessionId && row.sessionId === sessionId ? 20 : 0;
-  const terms = expandSearchTerms(query);
-
-  if (terms.length === 0) {
-    return score;
-  }
-
-  const haystack = normalizeSearchText([
+function scoreArtifactIndex(
+  row: ArtifactIndexRow,
+  query: string | undefined,
+  sessionId: string | undefined,
+): HybridSearchScore {
+  const reasons: string[] = [];
+  const text = [
     row.kind,
     row.title,
     row.summary ?? "",
     ...row.goals,
     ...row.muscles,
     ...row.equipment,
-  ].join(" "));
+    row.embeddingText ?? "",
+  ].join(" ");
+  const textMatch = scoreHybridTextMatch(query, text);
+  const queryEmbedding = query ? createSearchEmbedding(query) : undefined;
+  const rowEmbedding = parseSearchEmbedding(row.embedding) ?? (row.embeddingText ? createSearchEmbedding(row.embeddingText) : undefined);
+  const vectorScore = queryEmbedding ? Math.max(0, cosineSimilarity(queryEmbedding, rowEmbedding)) * 35 : 0;
+  const recencyScore = sessionId && row.sessionId === sessionId ? 12 : 0;
+  const businessScore = recencyScore + (row.kind === "routine" ? 2 : 0);
 
-  for (const term of terms) {
-    if (haystack.includes(term)) {
-      score += term.length >= 2 ? 10 : 4;
-    }
+  if (textMatch.matchedTerms.length > 0) {
+    reasons.push(`全文匹配 ${textMatch.matchedTerms.join("、")}`);
   }
 
-  return score;
-}
-
-function expandSearchTerms(query: string | undefined) {
-  const normalized = normalizeSearchText(query ?? "");
-
-  if (!normalized) {
-    return [];
+  if (vectorScore > 0) {
+    reasons.push(`向量相似度 ${vectorScore.toFixed(2)}`);
   }
 
-  const terms = new Set(
-    normalized
-      .split(/[\s,，。.!！？、;；:：]+/)
-      .map((term) => term.trim())
-      .filter((term) => term.length > 0 && !isGenericReferenceTerm(term)),
-  );
-
-  for (const [pattern, additions] of semanticSearchSynonyms) {
-    if (pattern.test(normalized)) {
-      additions.forEach((term) => terms.add(normalizeSearchText(term)));
-    }
+  if (recencyScore > 0) {
+    reasons.push("当前会话优先");
   }
 
-  return [...terms];
+  const totalScore =
+    query && textMatch.score === 0 && vectorScore < 18
+      ? 0
+      : textMatch.score + vectorScore + businessScore;
+
+  return {
+    textScore: textMatch.score,
+    vectorScore,
+    businessScore,
+    totalScore,
+    reasons,
+  };
 }
 
-function normalizeSearchText(value: string) {
-  return value.toLowerCase().replace(/\s+/g, "");
-}
+// Artifact embeddingText 只包含安全轻量索引字段，避免把完整 payload 或私密长文本推进向量层。
+function withArtifactEmbedding(index: Omit<ArtifactIndex, "embeddingText" | "embedding">): ArtifactIndex {
+  const embeddingText = buildEmbeddingText([
+    index.kind,
+    index.title,
+    index.summary,
+    index.goals,
+    index.muscles,
+    index.equipment,
+    index.exerciseIds,
+    index.sessionMinutes,
+    index.weeklyFrequency,
+    index.trainingDayCount,
+  ]);
 
-function isGenericReferenceTerm(term: string) {
-  return /^(这个|这套|这批|那个|那套|之前|上次|刚才|刚刚|上一个|上一套|计划|训练|动作|推荐|帮我|按|把|改成|调整|说明)$/.test(
-    term,
-  );
+  return {
+    ...index,
+    embeddingText,
+    embedding: createSearchEmbedding(embeddingText),
+  };
 }
-
-const semanticSearchSynonyms: Array<[RegExp, string[]]> = [
-  [/练胸|胸肌|胸部/, ["胸", "胸肌", "胸部"]],
-  [/练腿|腿部|下肢/, ["腿", "腿部", "下肢"]],
-  [/背|背部/, ["背", "背部"]],
-  [/肩|肩部/, ["肩", "肩部"]],
-  [/核心|腹/, ["核心", "腹部"]],
-  [/自重|徒手|无器械/, ["自重", "徒手", "无器械"]],
-  [/长期|每周|周期|计划/, ["plan", "长期计划"]],
-  [/单次|这套|训练流程|编排/, ["routine", "单次训练"]],
-];
 
 function runArtifactWrite<T>(
   client: ArtifactWritableClient,

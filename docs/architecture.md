@@ -681,6 +681,8 @@ Redis 可用于保存临时训练状态，尤其是未来支持跨设备恢复�
 - 周期性训练提醒
 - AI 生成结果审计
 
+当前第一阶段不引入独立 Vector DB。Artifact 与 Exercise 的 `embeddingText` / `embedding` 由服务端写入或 `npm run db:refresh-embeddings` 刷新，查询端必须先完成 userId、status、kind、section、器械、难度和风险等结构化硬过滤，再在候选集合内做全文、向量和业务 rerank。
+
 ### 15.3 选型建议
 
 如果项目部署在 Vercel 并希望简化后端任务，Inngest 是比较合适的选择。

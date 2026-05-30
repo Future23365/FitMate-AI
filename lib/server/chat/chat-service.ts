@@ -921,6 +921,7 @@ async function buildExerciseContext(
   const candidates = selectExerciseCandidates(memoryAwareIntent, exercises, {
     userId: options.userId,
     memoryState: options.memoryState,
+    hybridQuery: messages.at(-1)?.content,
   });
   const nameMatches = findExerciseNameMatches(exercises, chatIntent.requestedExerciseName);
   const seenIds = new Set<string>();
@@ -973,6 +974,27 @@ async function buildExerciseContext(
     requiredRelevantCandidateCount: candidates.requiredRelevantCandidateCount,
     warnings: candidates.warnings,
   };
+
+  if (candidates.recommendationTrace.hybridSearch) {
+    options.trace?.addStep({
+      name: "动作 Hybrid Search 检索",
+      type: "rag_query",
+      input: {
+        query: candidates.recommendationTrace.hybridSearch.query,
+        filters: candidates.recommendationTrace.hybridSearch.filters,
+      },
+      output: {
+        recalledCount: candidates.recommendationTrace.hybridSearch.recalledCount,
+        filteredCount: candidates.recommendationTrace.hybridSearch.filteredCount,
+        rerank: candidates.recommendationTrace.hybridSearch.rerank.slice(0, 20),
+        finalExerciseIds: candidates.recommendationTrace.hybridSearch.finalExerciseIds.slice(0, 20),
+        failureReasons: candidates.recommendationTrace.hybridSearch.failureReasons,
+      },
+      metadata: {
+        candidateCount: candidates.recommendationTrace.hybridSearch.finalExerciseIds.length,
+      },
+    });
+  }
 
   options.trace?.addStep({
     name: "动作库获取与候选筛选",

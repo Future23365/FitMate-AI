@@ -1,7 +1,7 @@
 import "server-only";
 
 import {
-  searchArtifactsForCurrentUser,
+  searchArtifactsForCurrentUserDetailed,
 } from "@/lib/server/conversation-artifacts/artifact-service";
 import type { ChatIntent } from "@/lib/server/chat/chat-service";
 import type { AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
@@ -80,12 +80,32 @@ export async function resolveReference(input: ResolveReferenceInput): Promise<Re
     return result;
   }
   const searchStartedAt = new Date().toISOString();
-  const candidates = await searchArtifactsForCurrentUser({
+  const artifactSearch = await searchArtifactsForCurrentUserDetailed({
     sessionId: parsedInput.sessionId,
     sessionScope: "current_user",
     kind: inferredKind,
     query: semanticQuery,
     limit: 6,
+  });
+  const candidates = artifactSearch.candidates;
+  input.trace?.addStep({
+    name: "Artifact Hybrid Search 检索",
+    type: "rag_query",
+    input: {
+      query: artifactSearch.diagnostics.query,
+      filters: artifactSearch.diagnostics.filters,
+    },
+    output: {
+      recalledCount: artifactSearch.diagnostics.recalledCount,
+      filteredCount: artifactSearch.diagnostics.filteredCount,
+      rerank: artifactSearch.diagnostics.rerank,
+      finalCandidateIds: artifactSearch.diagnostics.finalCandidateIds,
+      failureReasons: artifactSearch.diagnostics.failureReasons,
+    },
+    metadata: {
+      startedAt: searchStartedAt,
+      candidateCount: artifactSearch.diagnostics.finalCandidateIds.length,
+    },
   });
   input.trace?.addStep({
     name: "searchArtifacts 受控工具调用",

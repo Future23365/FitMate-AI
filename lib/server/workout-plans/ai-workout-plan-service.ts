@@ -178,7 +178,29 @@ export async function generateAiWorkoutPlanDraft(
   });
 
   const exercises = await listAllExercises();
-  const candidates = selectExerciseCandidates(intentResult.intent, exercises);
+  const candidates = selectExerciseCandidates(intentResult.intent, exercises, {
+    hybridQuery: request.latestUserMessage,
+  });
+  if (candidates.recommendationTrace.hybridSearch) {
+    trace?.addStep({
+      name: "训练计划动作 Hybrid Search 检索",
+      type: "rag_query",
+      input: {
+        query: candidates.recommendationTrace.hybridSearch.query,
+        filters: candidates.recommendationTrace.hybridSearch.filters,
+      },
+      output: {
+        recalledCount: candidates.recommendationTrace.hybridSearch.recalledCount,
+        filteredCount: candidates.recommendationTrace.hybridSearch.filteredCount,
+        rerank: candidates.recommendationTrace.hybridSearch.rerank.slice(0, 20),
+        finalExerciseIds: candidates.recommendationTrace.hybridSearch.finalExerciseIds.slice(0, 20),
+        failureReasons: candidates.recommendationTrace.hybridSearch.failureReasons,
+      },
+      metadata: {
+        candidateCount: candidates.recommendationTrace.hybridSearch.finalExerciseIds.length,
+      },
+    });
+  }
   trace?.addStep({
     name: "动作库获取与计划候选筛选",
     type: "candidate_selection",

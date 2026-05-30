@@ -92,6 +92,8 @@ export type Exercise = {
   progressionExerciseIds: string[];
   substitutionGroupId: string | null;
   goalTags: string[];
+  embeddingText?: string | null;
+  embedding?: number[] | null;
   reviewStatus: ExerciseReviewStatus;
   isPublished: boolean;
 };

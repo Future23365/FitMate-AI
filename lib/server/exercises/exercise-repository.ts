@@ -14,6 +14,7 @@ type ExerciseRecord = Omit<
   | "regressionExerciseIds"
   | "progressionExerciseIds"
   | "substitutionGroupId"
+  | "embedding"
 > & {
   allowedSections?: string[];
   intensityRole?: string | null;
@@ -23,6 +24,8 @@ type ExerciseRecord = Omit<
   regressionExerciseIds?: string[];
   progressionExerciseIds?: string[];
   substitutionGroupId?: string | null;
+  embeddingText?: string | null;
+  embedding?: unknown;
 };
 
 // The repository is the only place that reads exercise facts from PostgreSQL.
@@ -93,6 +96,8 @@ function mapExerciseRecord(exercise: ExerciseRecord): Exercise {
     progressionExerciseIds: metadata.progressionExerciseIds,
     substitutionGroupId: metadata.substitutionGroupId,
     goalTags: exercise.goalTags,
+    embeddingText: exercise.embeddingText,
+    embedding: Array.isArray(exercise.embedding) ? exercise.embedding.filter((value): value is number => typeof value === "number") : null,
     reviewStatus: exercise.reviewStatus,
     isPublished: exercise.isPublished,
   };

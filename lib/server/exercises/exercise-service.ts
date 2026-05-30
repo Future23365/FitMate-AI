@@ -3,6 +3,14 @@ import "server-only";
 import { getExerciseRecordById, listExerciseRecords } from "@/lib/server/exercises/exercise-repository";
 import { normalizeExerciseMetadata } from "@/lib/shared/exercises/metadata";
 import { getExerciseTagLabel } from "@/lib/shared/exercises/tag-labels";
+import {
+  buildEmbeddingText,
+  cosineSimilarity,
+  createSearchEmbedding,
+  parseSearchEmbedding,
+  scoreHybridTextMatch,
+  type HybridSearchScore,
+} from "@/lib/shared/search/hybrid-search";
 import type {
   Exercise,
   ExerciseFacetItem,
@@ -23,6 +31,35 @@ const levelRank: Record<string, number> = {
 };
 
 export type ExerciseSuitabilityFlags = Record<ExerciseSuitability, boolean>;
+
+export type ExerciseSearchInput = {
+  query?: string;
+  limit?: number;
+  visibility?: "all" | "published";
+  allowedSections?: ExerciseSuitability[];
+  equipment?: string[];
+  level?: string;
+  excludedRiskTags?: string[];
+  injuryLimitations?: string[];
+};
+
+export type ExerciseSearchDiagnostics = {
+  query?: string;
+  filters: Omit<ExerciseSearchInput, "query" | "limit">;
+  recalledCount: number;
+  filteredCount: number;
+  rerank: Array<{
+    exerciseId: string;
+    score: HybridSearchScore;
+  }>;
+  finalExerciseIds: string[];
+  failureReasons: string[];
+};
+
+export type ExerciseSearchResult = {
+  candidates: Exercise[];
+  diagnostics: ExerciseSearchDiagnostics;
+};
 
 export async function listAllExercises(): Promise<Exercise[]> {
   return listExerciseRecords();
@@ -51,6 +88,55 @@ export async function listExercises(query: ExerciseListQuery = {}): Promise<Exer
 
 export async function getExerciseById(id: string): Promise<Exercise | null> {
   return getExerciseRecordById(id);
+}
+
+export async function searchExercises(input: ExerciseSearchInput = {}): Promise<ExerciseSearchResult> {
+  return searchExercisesInMemory(await listExerciseRecords(), input);
+}
+
+// 动作 hybrid search 只在结构化过滤后的候选内做全文和向量排序，不能替代分池与 Validator。
+export function searchExercisesInMemory(exercises: Exercise[], input: ExerciseSearchInput = {}): ExerciseSearchResult {
+  const query = input.query?.trim();
+  const limit = clampLimit(input.limit);
+  const filtered = exercises.filter((exercise) => matchesExerciseHardFilters(exercise, input));
+  const ranked = filtered
+    .map((exercise) => ({
+      exercise,
+      score: scoreExerciseHybridSearch(exercise, query),
+    }))
+    .filter(({ score }) => !query || score.totalScore > 0)
+    .sort((left, right) => {
+      if (right.score.totalScore !== left.score.totalScore) {
+        return right.score.totalScore - left.score.totalScore;
+      }
+
+      return compareText(left.exercise.nameZh, right.exercise.nameZh);
+    })
+    .slice(0, limit);
+  const candidates = ranked.map(({ exercise }) => exercise);
+
+  return {
+    candidates,
+    diagnostics: {
+      query,
+      filters: {
+        visibility: input.visibility,
+        allowedSections: input.allowedSections,
+        equipment: input.equipment,
+        level: input.level,
+        excludedRiskTags: input.excludedRiskTags,
+        injuryLimitations: input.injuryLimitations,
+      },
+      recalledCount: filtered.length,
+      filteredCount: Math.max(exercises.length - filtered.length, 0),
+      rerank: ranked.map(({ exercise, score }) => ({
+        exerciseId: exercise.id,
+        score,
+      })),
+      finalExerciseIds: candidates.map((exercise) => exercise.id),
+      failureReasons: candidates.length > 0 ? [] : [query ? "no_hybrid_match" : "no_exercise_after_filters"],
+    },
+  };
 }
 
 export async function getExerciseFacets(scope: Pick<ExerciseListQuery, "suitability"> = {}): Promise<ExerciseFacets> {
@@ -229,6 +315,151 @@ function matchesSearchText(exercise: Exercise, keyword: string) {
   );
 
   return haystack.includes(normalizedKeyword);
+}
+
+// embeddingText 只拼接动作库可公开检索字段，避免把运行时用户上下文写入全局动作索引。
+export function buildExerciseEmbeddingText(exercise: Exercise) {
+  const metadata = normalizeExerciseMetadata(exercise);
+
+  return buildEmbeddingText([
+    exercise.id,
+    exercise.nameZh,
+    exercise.nameEn,
+    exercise.categoryZh,
+    exercise.category,
+    exercise.levelZh,
+    exercise.level,
+    exercise.forceZh,
+    exercise.force,
+    exercise.mechanicZh,
+    exercise.mechanic,
+    exercise.equipmentZh,
+    exercise.equipment,
+    exercise.homeRequirementZh,
+    exercise.homeRequirement,
+    exercise.primaryMusclesZh,
+    exercise.primaryMuscles,
+    exercise.secondaryMusclesZh,
+    exercise.secondaryMuscles,
+    exercise.goalTags,
+    exercise.riskTags,
+    metadata.allowedSections,
+    metadata.intensityRole,
+    metadata.movementPattern,
+    metadata.difficulty,
+    metadata.contraindications,
+    exercise.instructionsZh.slice(0, 3),
+  ]);
+}
+
+export function buildExerciseEmbedding(exercise: Exercise) {
+  return createSearchEmbedding(buildExerciseEmbeddingText(exercise));
+}
+
+function matchesExerciseHardFilters(exercise: Exercise, input: ExerciseSearchInput) {
+  const metadata = normalizeExerciseMetadata(exercise);
+
+  if (input.visibility === "published" && !exercise.isPublished) {
+    return false;
+  }
+
+  if (input.level && exercise.level !== input.level && exercise.levelZh !== input.level) {
+    return false;
+  }
+
+  if (input.allowedSections?.length && !input.allowedSections.some((section) => metadata.allowedSections.includes(section))) {
+    return false;
+  }
+
+  if (input.equipment?.length && !matchesRequestedEquipment(exercise, new Set(input.equipment))) {
+    return false;
+  }
+
+  if (input.excludedRiskTags?.some((risk) => exercise.riskTags.includes(risk))) {
+    return false;
+  }
+
+  if (input.injuryLimitations?.length && matchesRiskLimit(exercise, input.injuryLimitations)) {
+    return false;
+  }
+
+  return true;
+}
+
+function scoreExerciseHybridSearch(exercise: Exercise, query: string | undefined): HybridSearchScore {
+  const embeddingText = exercise.embeddingText ?? buildExerciseEmbeddingText(exercise);
+  const textMatch = scoreHybridTextMatch(query, embeddingText);
+  const queryEmbedding = query ? createSearchEmbedding(query) : undefined;
+  const exerciseEmbedding = parseSearchEmbedding(exercise.embedding) ?? createSearchEmbedding(embeddingText);
+  const vectorScore = queryEmbedding ? Math.max(0, cosineSimilarity(queryEmbedding, exerciseEmbedding)) * 40 : 0;
+  const metadata = normalizeExerciseMetadata(exercise);
+  const businessScore =
+    (exercise.isPublished ? 4 : 0) +
+    (metadata.difficulty === "beginner" ? 3 : 0) +
+    (metadata.allowedSections.includes("training") ? 2 : 0);
+  const reasons: string[] = [];
+
+  if (textMatch.matchedTerms.length > 0) {
+    reasons.push(`全文匹配 ${textMatch.matchedTerms.join("、")}`);
+  }
+
+  if (vectorScore > 0) {
+    reasons.push(`向量相似度 ${vectorScore.toFixed(2)}`);
+  }
+
+  if (businessScore > 0) {
+    reasons.push("业务适配加权");
+  }
+
+  const totalScore =
+    query && textMatch.score === 0 && vectorScore < 18
+      ? 0
+      : textMatch.score + vectorScore + businessScore;
+
+  return {
+    textScore: textMatch.score,
+    vectorScore,
+    businessScore,
+    totalScore,
+    reasons,
+  };
+}
+
+function matchesRequestedEquipment(exercise: Exercise, requestedEquipment: Set<string>) {
+  if (requestedEquipment.size === 0) {
+    return true;
+  }
+
+  const exerciseEquipment = [exercise.equipment, exercise.equipmentZh, exercise.homeRequirement, exercise.homeRequirementZh]
+    .filter(Boolean)
+    .map((value) => value?.trim());
+
+  if (exerciseEquipment.some((value) => value && requestedEquipment.has(value))) {
+    return true;
+  }
+
+  return requestedEquipment.has("自重") && exercise.homeRequirementZh === "无器械";
+}
+
+function matchesRiskLimit(exercise: Exercise, injuryLimitations: string[]) {
+  if (injuryLimitations.length === 0) {
+    return false;
+  }
+
+  const normalizedLimits = injuryLimitations.map(normalizeSearchText);
+  const riskText = normalizeSearchText(
+    [
+      ...exercise.riskTags,
+      ...exercise.contraindications,
+      exercise.nameZh,
+      exercise.categoryZh,
+      exercise.movementPattern,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+
+  return normalizedLimits.some((limit) => limit && riskText.includes(limit));
 }
 
 function normalizeSearchText(value: string) {

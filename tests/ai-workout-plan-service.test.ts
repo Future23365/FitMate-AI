@@ -9,6 +9,27 @@ import {
 
 const exerciseServiceMocks = vi.hoisted(() => ({
   listAllExercises: vi.fn(),
+  searchExercisesInMemory: vi.fn((exercises: Array<{ id: string }>, input: { query?: string } = {}) => ({
+    candidates: exercises,
+    diagnostics: {
+      query: input.query,
+      filters: {},
+      recalledCount: exercises.length,
+      filteredCount: 0,
+      rerank: exercises.map((exercise) => ({
+        exerciseId: exercise.id,
+        score: {
+          textScore: 0,
+          vectorScore: 0,
+          businessScore: 0,
+          totalScore: 0,
+          reasons: [],
+        },
+      })),
+      finalExerciseIds: exercises.map((exercise) => exercise.id),
+      failureReasons: [],
+    },
+  })),
 }));
 const serverRequestMocks = vi.hoisted(() => ({
   serverRequest: vi.fn(),
@@ -29,6 +50,7 @@ describe("AI workout plan orchestration boundaries", () => {
   beforeEach(() => {
     vi.stubEnv("DEEPSEEK_API_KEY", "");
     exerciseServiceMocks.listAllExercises.mockResolvedValue([]);
+    exerciseServiceMocks.searchExercisesInMemory.mockClear();
     serverRequestMocks.serverRequest.mockReset();
     artifactServiceMocks.getArtifactPayloadForCurrentUser.mockReset();
   });

@@ -66,6 +66,7 @@ docker compose up -d postgres
 npm run db:generate
 npm run db:migrate
 npm run db:seed
+npm run db:refresh-embeddings
 ```
 
 启动开发服务：
@@ -237,11 +238,12 @@ example/                   # 设计参考 HTML
 
 ### 数据与后端
 
-- [x] 静态动作数据已包含发布状态、审核状态、风险标签、目标标签和来源许可证字段，seed 时会归一化训练阶段、角色、运动模式、难度和替代关系元数据。
+- [x] 静态动作数据已包含发布状态、审核状态、风险标签、目标标签和来源许可证字段，seed 时会归一化训练阶段、角色、运动模式、难度、替代关系元数据和 hybrid search embedding。
 - [x] 建立 PostgreSQL / Prisma 数据层骨架。
 - [x] 引入 Prisma，建立 `User`、`Exercise`、`WorkoutRoutine`、`WorkoutSchedule`、`WorkoutSessionResult`、`ChatSession` 等核心模型。
 - [x] 将 `data/exercises.zh.json` 迁移为数据库 seed 数据。
 - [x] 运行时动作库、聊天、训练编排、训练日历和训练状态读写已统一走 PostgreSQL/Prisma。
+- [x] Artifact 与 Exercise 支持结构化硬过滤约束下的本地 hybrid search；迁移或历史数据导入后可运行 `npm run db:refresh-embeddings` 刷新 `embeddingText` 与 `embedding`。
 - [ ] 后续处理：配置真实托管 PostgreSQL 实例并执行迁移，让数据库成为线上事实数据来源。
 - [ ] 后续处理：建立动作审核流程，将 `reviewStatus=machine_translated` 的动作转为人工审核状态。
 - [ ] 后续处理：修复动作数据质量问题：当前动作 `published=false`，少量中文步骤仍含英文长句。

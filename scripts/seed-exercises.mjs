@@ -9,6 +9,7 @@ const prisma = new PrismaClient({ adapter });
 
 function toExerciseRecord(exercise) {
   const metadata = normalizeExerciseMetadata(exercise);
+  const embeddingText = buildExerciseEmbeddingText(exercise, metadata);
 
   return {
     id: exercise.id,
@@ -48,6 +49,8 @@ function toExerciseRecord(exercise) {
     progressionExerciseIds: metadata.progressionExerciseIds,
     substitutionGroupId: metadata.substitutionGroupId,
     goalTags: exercise.goalTags ?? [],
+    embeddingText,
+    embedding: createSearchEmbedding(embeddingText),
     reviewStatus: exercise.reviewStatus ?? "machine_translated",
     isPublished: exercise.isPublished ?? false,
   };
@@ -141,6 +144,93 @@ function inferContraindications(text) {
 
 function normalizeText(value) {
   return value.trim().toLowerCase().replace(/\s+/g, "");
+}
+
+// Seed 写入动作索引用的本地 hashing embedding，与应用内 hybrid search 保持同一维度。
+function buildExerciseEmbeddingText(exercise, metadata) {
+  return uniqueStrings([
+    exercise.id,
+    exercise.nameZh,
+    exercise.nameEn,
+    exercise.categoryZh,
+    exercise.category,
+    exercise.levelZh,
+    exercise.level,
+    exercise.forceZh,
+    exercise.force,
+    exercise.mechanicZh,
+    exercise.mechanic,
+    exercise.equipmentZh,
+    exercise.equipment,
+    exercise.homeRequirementZh,
+    exercise.homeRequirement,
+    ...(exercise.primaryMusclesZh ?? []),
+    ...(exercise.primaryMuscles ?? []),
+    ...(exercise.secondaryMusclesZh ?? []),
+    ...(exercise.secondaryMuscles ?? []),
+    ...(exercise.goalTags ?? []),
+    ...(exercise.riskTags ?? []),
+    ...(metadata.allowedSections ?? []),
+    metadata.intensityRole,
+    metadata.movementPattern,
+    metadata.difficulty,
+    ...(metadata.contraindications ?? []),
+    ...(exercise.instructionsZh ?? []).slice(0, 3),
+  ]).join(" | ");
+}
+
+function createSearchEmbedding(text) {
+  const dimensions = 48;
+  const vector = Array.from({ length: dimensions }, () => 0);
+
+  for (const term of expandSearchTerms(text)) {
+    const weight = term.length >= 4 ? 1.4 : term.length >= 2 ? 1 : 0.5;
+    const index = positiveHash(term) % dimensions;
+    const sign = positiveHash(`${term}:sign`) % 2 === 0 ? 1 : -1;
+    vector[index] += sign * weight;
+  }
+
+  const norm = Math.sqrt(vector.reduce((sum, value) => sum + value ** 2, 0));
+  return norm === 0 ? vector : vector.map((value) => Number((value / norm).toFixed(6)));
+}
+
+function expandSearchTerms(value) {
+  const terms = new Set();
+
+  for (const rawTerm of value
+    .toLowerCase()
+    .split(/[\s,，。.!！？、;；:：/|()（）【】\[\]{}"'“”‘’+-]+/)
+    .map(normalizeText)
+    .filter(Boolean)) {
+    terms.add(rawTerm);
+
+    if (rawTerm.length <= 2) {
+      continue;
+    }
+
+    for (let size = 2; size <= Math.min(4, rawTerm.length); size += 1) {
+      for (let index = 0; index <= rawTerm.length - size; index += 1) {
+        terms.add(rawTerm.slice(index, index + size));
+      }
+    }
+  }
+
+  return [...terms];
+}
+
+function positiveHash(value) {
+  let hash = 2166136261;
+
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return hash >>> 0;
+}
+
+function uniqueStrings(values) {
+  return [...new Set(values.map((value) => value?.trim()).filter(Boolean))];
 }
 
 async function main() {

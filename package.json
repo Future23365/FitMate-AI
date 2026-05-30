@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:seed": "node scripts/seed-exercises.mjs"
+    "db:seed": "node scripts/seed-exercises.mjs",
+    "db:refresh-embeddings": "node scripts/refresh-search-embeddings.mjs"
   },
   "prisma": {
     "seed": "node scripts/seed-exercises.mjs"

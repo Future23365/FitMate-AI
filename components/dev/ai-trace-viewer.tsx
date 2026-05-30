@@ -2243,6 +2243,7 @@ function getStepTypeLabel(type: AiTraceStep["type"]) {
     model_response: "模型输出",
     intent: "意图",
     reference_resolution: "引用解析",
+    rag_query: "RAG 检索",
     tool_call: "工具调用",
     patch_proposal: "Patch",
     exercise_lookup: "动作库",

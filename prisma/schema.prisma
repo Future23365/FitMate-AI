@@ -204,6 +204,8 @@ model Exercise {
   progressionExerciseIds String[]         @default([])
   substitutionGroupId String?
   goalTags           String[]             @default([])
+  embeddingText      String?
+  embedding          Json?
   reviewStatus       ExerciseReviewStatus @default(machine_translated)
   isPublished        Boolean              @default(false)
   createdAt          DateTime             @default(now())
@@ -435,6 +437,8 @@ model ArtifactIndex {
   weeklyFrequency      Int?
   trainingDayCount     Int?
   sourceMessageId      String?
+  embeddingText        String?
+  embedding            Json?
   createdAt            DateTime                   @default(now())
   updatedAt            DateTime                   @updatedAt
   artifact             ConversationArtifact       @relation(fields: [artifactId], references: [id], onDelete: Cascade)

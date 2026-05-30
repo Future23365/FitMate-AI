@@ -1,4 +1,8 @@
-import { listAllExercises } from "@/lib/server/exercises/exercise-service";
+import {
+  listAllExercises,
+  searchExercisesInMemory,
+  type ExerciseSearchDiagnostics,
+} from "@/lib/server/exercises/exercise-service";
 import {
   isExerciseAllowedInSection,
   normalizeExerciseMetadata,
@@ -66,6 +70,7 @@ export type ExerciseCandidateResult = {
   isEnoughCandidates: boolean;
   recommendationTrace: RecommendationTrace;
   relaxationOptions: RecommendationRelaxationOption[];
+  hybridSearch?: ExerciseSearchDiagnostics;
 };
 
 export type RecommendationExcludeReason =
@@ -123,6 +128,7 @@ export type RecommendationTrace = {
   fallbackUsed: boolean;
   finalExerciseIds: string[];
   relaxationOptions: RecommendationRelaxationOption[];
+  hybridSearch?: ExerciseSearchDiagnostics;
 };
 
 export type ExerciseCandidateOptions = {
@@ -137,6 +143,7 @@ export type ExerciseCandidateOptions = {
   memoryState?: ConversationMemoryState;
   exposureSources?: ExerciseExposureSource[];
   allowSoftConstraintRelaxation?: boolean;
+  hybridQuery?: string;
 };
 
 export type WorkoutPlanExerciseIdValidationResult = {
@@ -166,6 +173,7 @@ export function selectExerciseCandidates(
   const targetMuscles = resolveTargetMuscles(intent);
   const candidateRequirement = resolveCandidateRequirement(intent, targetMuscles, options);
   const exposureExclusions = buildExposureExclusions(options.exposureSources);
+  const hybridSearch = resolveExerciseHybridSearch(exercises, intent, options);
   const strictSelection = runCandidateSelection({
     intent,
     exercises,
@@ -176,6 +184,7 @@ export function selectExerciseCandidates(
     candidateRequirement,
     exposureExclusions,
     relaxedConstraints: new Set(),
+    hybridScores: hybridSearch.scores,
   });
   const relaxableConstraints = resolveRelaxableConstraints(strictSelection.excluded);
   const shouldRelax =
@@ -193,6 +202,7 @@ export function selectExerciseCandidates(
         candidateRequirement,
         exposureExclusions,
         relaxedConstraints: new Set(relaxableConstraints),
+        hybridScores: hybridSearch.scores,
       })
     : strictSelection;
   const warnings = new Set<string>(finalSelection.warnings);
@@ -235,6 +245,7 @@ export function selectExerciseCandidates(
     relaxedConstraints: relaxableConstraints,
     fallbackUsed: shouldRelax,
     relaxationOptions,
+    hybridSearch: hybridSearch.diagnostics,
   });
 
   return {
@@ -251,6 +262,7 @@ export function selectExerciseCandidates(
     isEnoughCandidates: finalSelection.candidateStatus !== "insufficient",
     recommendationTrace,
     relaxationOptions,
+    hybridSearch: hybridSearch.diagnostics,
   };
 }
 
@@ -361,6 +373,7 @@ function runCandidateSelection(input: {
   candidateRequirement: ReturnType<typeof resolveCandidateRequirement>;
   exposureExclusions: Map<string, ExerciseExclusionReasonEntry[]>;
   relaxedConstraints: Set<RecommendationExcludeReason>;
+  hybridScores: Map<string, { score: number; reasons: string[] }>;
 }): CandidateSelectionSnapshot {
   const excluded: ExcludedExercise[] = [];
 
@@ -394,9 +407,10 @@ function runCandidateSelection(input: {
             requestedEquipment: input.requestedEquipment,
             goalTags: input.goalTags,
             targetMuscles: input.targetMuscles,
-            memoryState: input.options.memoryState,
-          }),
-        },
+          memoryState: input.options.memoryState,
+          hybridScore: input.hybridScores.get(exercise.id),
+        }),
+      },
       ];
     })
     .sort(compareCandidates);
@@ -467,6 +481,55 @@ function buildExposureExclusions(sources: ExerciseExposureSource[] | undefined) 
   return entriesById;
 }
 
+// 模糊自然语言动作需求先转成 hybrid recall 加权，最终仍由硬过滤、分池和 Validator 决定可用集合。
+function resolveExerciseHybridSearch(
+  exercises: Exercise[],
+  intent: WorkoutPlanIntent,
+  options: Omit<ExerciseCandidateOptions, "exercises">,
+) {
+  const query = options.hybridQuery?.trim() || buildExerciseHybridQuery(intent);
+
+  if (!query) {
+    return {
+      scores: new Map<string, { score: number; reasons: string[] }>(),
+      diagnostics: undefined,
+    };
+  }
+
+  const result = searchExercisesInMemory(exercises, {
+    query,
+    limit: Math.min(maxPrimaryCandidates + maxSupplementaryCandidates, 80),
+    visibility: options.visibility,
+    allowedSections: options.section ? [options.section] : undefined,
+    equipment: intent.equipment,
+    injuryLimitations: intent.injuryLimitations,
+  });
+  const scores = new Map<string, { score: number; reasons: string[] }>();
+
+  for (const item of result.diagnostics.rerank) {
+    scores.set(item.exerciseId, {
+      score: Math.min(36, item.score.textScore * 0.7 + item.score.vectorScore * 0.8 + item.score.businessScore),
+      reasons: item.score.reasons.map((reason) => `HybridSearch: ${reason}`),
+    });
+  }
+
+  return {
+    scores,
+    diagnostics: result.diagnostics,
+  };
+}
+
+function buildExerciseHybridQuery(intent: WorkoutPlanIntent) {
+  return [
+    intent.goal,
+    ...intent.preferences,
+    ...intent.avoidances,
+  ]
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .join(" ");
+}
+
 function resolveRelaxableConstraints(excluded: ExcludedExercise[]) {
   const constraints = new Set<RecommendationExcludeReason>();
 
@@ -516,6 +579,7 @@ function buildRecommendationTrace(input: {
   relaxedConstraints: RecommendationExcludeReason[];
   fallbackUsed: boolean;
   relaxationOptions: RecommendationRelaxationOption[];
+  hybridSearch?: ExerciseSearchDiagnostics;
 }): RecommendationTrace {
   const finalExerciseIds = getSelectionExerciseIds(input.finalSelection);
 
@@ -545,6 +609,7 @@ function buildRecommendationTrace(input: {
     fallbackUsed: input.fallbackUsed,
     finalExerciseIds,
     relaxationOptions: input.relaxationOptions,
+    hybridSearch: input.hybridSearch,
   };
 }
 
@@ -659,6 +724,7 @@ function scoreExercise(
     goalTags: Set<string>;
     targetMuscles: Set<string>;
     memoryState?: ConversationMemoryState;
+    hybridScore?: { score: number; reasons: string[] };
   },
 ) {
   let score = 0;
@@ -717,6 +783,11 @@ function scoreExercise(
   const memoryAdjustment = scoreExerciseMemory(exercise, context.memoryState);
   score += memoryAdjustment.score;
   reasons.push(...memoryAdjustment.reasons);
+
+  if (context.hybridScore && context.hybridScore.score > 0) {
+    score += context.hybridScore.score;
+    reasons.push(...context.hybridScore.reasons);
+  }
 
   return {
     score,

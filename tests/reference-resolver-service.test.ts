@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReferenceArtifactCandidate } from "@/lib/shared/reference-resolver/schema";
 
 const artifactSearchMocks = vi.hoisted(() => ({
-  searchArtifactsForCurrentUser: vi.fn(),
+  searchArtifactsForCurrentUserDetailed: vi.fn(),
 }));
 
 vi.mock("@/lib/server/conversation-artifacts/artifact-service", () => artifactSearchMocks);
@@ -12,7 +12,7 @@ const referenceResolver = await import("@/lib/server/reference-resolver/referenc
 
 describe("reference resolver service", () => {
   beforeEach(() => {
-    artifactSearchMocks.searchArtifactsForCurrentUser.mockReset();
+    artifactSearchMocks.searchArtifactsForCurrentUserDetailed.mockReset();
   });
 
   it("resolves near references from current recent artifacts", async () => {
@@ -28,7 +28,7 @@ describe("reference resolver service", () => {
       artifactId: "artifact-routine",
       confidence: "high",
     });
-    expect(artifactSearchMocks.searchArtifactsForCurrentUser).not.toHaveBeenCalled();
+    expect(artifactSearchMocks.searchArtifactsForCurrentUserDetailed).not.toHaveBeenCalled();
   });
 
   it("returns ambiguous when a bare near reference can point to multiple recent artifacts", async () => {
@@ -54,9 +54,9 @@ describe("reference resolver service", () => {
 
   it("resolves semantic references through bounded artifact search", async () => {
     const trace = createTraceMock();
-    artifactSearchMocks.searchArtifactsForCurrentUser.mockResolvedValue([
+    artifactSearchMocks.searchArtifactsForCurrentUserDetailed.mockResolvedValue(createArtifactSearchResult([
       createCandidate({ artifactId: "artifact-chest", kind: "routine", title: "胸肌单次训练" }),
-    ]);
+    ]));
 
     const result = await referenceResolver.resolveReference({
       latestUserMessage: "按之前那套练胸的改成一周四练",
@@ -66,7 +66,7 @@ describe("reference resolver service", () => {
       trace,
     });
 
-    expect(artifactSearchMocks.searchArtifactsForCurrentUser).toHaveBeenCalledWith(expect.objectContaining({
+    expect(artifactSearchMocks.searchArtifactsForCurrentUserDetailed).toHaveBeenCalledWith(expect.objectContaining({
       sessionId: "chat-1",
       sessionScope: "current_user",
       kind: "routine",
@@ -93,9 +93,9 @@ describe("reference resolver service", () => {
   });
 
   it("resolves long term plan semantic references by kind", async () => {
-    artifactSearchMocks.searchArtifactsForCurrentUser.mockResolvedValue([
+    artifactSearchMocks.searchArtifactsForCurrentUserDetailed.mockResolvedValue(createArtifactSearchResult([
       createCandidate({ artifactId: "artifact-plan", kind: "plan", title: "四周长期计划" }),
-    ]);
+    ]));
 
     const result = await referenceResolver.resolveReference({
       latestUserMessage: "上次长期计划继续用",
@@ -104,7 +104,7 @@ describe("reference resolver service", () => {
       intentType: "workout_plan",
     });
 
-    expect(artifactSearchMocks.searchArtifactsForCurrentUser).toHaveBeenCalledWith(expect.objectContaining({
+    expect(artifactSearchMocks.searchArtifactsForCurrentUserDetailed).toHaveBeenCalledWith(expect.objectContaining({
       kind: "plan",
     }));
     expect(result).toMatchObject({
@@ -140,6 +140,36 @@ function createCandidate(overrides: Partial<ReferenceArtifactCandidate> = {}): R
     weeklyFrequency: overrides.weeklyFrequency,
     trainingDayCount: overrides.trainingDayCount,
     updatedAt: overrides.updatedAt ?? "2026-05-30T08:00:00.000Z",
+  };
+}
+
+function createArtifactSearchResult(candidates: ReferenceArtifactCandidate[]) {
+  return {
+    candidates,
+    diagnostics: {
+      query: "练胸",
+      filters: {
+        userId: "user-1",
+        sessionId: "chat-1",
+        sessionScope: "current_user" as const,
+        kind: candidates[0]?.kind,
+        status: "active" as const,
+      },
+      recalledCount: candidates.length,
+      filteredCount: 0,
+      rerank: candidates.map((candidate) => ({
+        artifactId: candidate.artifactId,
+        score: {
+          textScore: 10,
+          vectorScore: 20,
+          businessScore: 0,
+          totalScore: 30,
+          reasons: ["测试候选"],
+        },
+      })),
+      finalCandidateIds: candidates.map((candidate) => candidate.artifactId),
+      failureReasons: [],
+    },
   };
 }
 
