@@ -21,6 +21,7 @@ type TraceStepGroup = {
   id: string;
   title: string;
   description: string;
+  placement: "main_flow" | "out_of_flow";
   status: AiTrace["status"];
   steps: AiTraceStep[];
   startedAt?: string;
@@ -52,9 +53,21 @@ export function AiTraceViewer() {
     () => (selectedTrace ? groupTraceSteps(selectedTrace.steps) : []),
     [selectedTrace],
   );
+  const mainStepGroups = useMemo(
+    () => selectedStepGroups.filter((group) => group.placement === "main_flow"),
+    [selectedStepGroups],
+  );
+  const outOfFlowGroups = useMemo(
+    () => selectedStepGroups.filter((group) => group.placement === "out_of_flow"),
+    [selectedStepGroups],
+  );
+  const flowSwitchGroups = useMemo(
+    () => [...mainStepGroups, ...outOfFlowGroups],
+    [mainStepGroups, outOfFlowGroups],
+  );
   const selectedGroup = useMemo(
-    () => selectedStepGroups.find((group) => group.id === selectedGroupId) ?? selectedStepGroups[0] ?? null,
-    [selectedGroupId, selectedStepGroups],
+    () => flowSwitchGroups.find((group) => group.id === selectedGroupId) ?? flowSwitchGroups[0] ?? null,
+    [selectedGroupId, flowSwitchGroups],
   );
 
   const loadTraces = useCallback(async () => {
@@ -226,7 +239,7 @@ export function AiTraceViewer() {
           <div className="mx-auto max-w-[1600px] px-8 py-7">
             <TraceHero
               trace={selectedTrace}
-              groups={selectedStepGroups}
+              groups={mainStepGroups}
               isSaving={savingLogTarget === selectedTrace.id}
               onSaveLog={() => {
                 void saveTraceLog({
@@ -244,7 +257,7 @@ export function AiTraceViewer() {
             <div className="mt-5 min-w-0 space-y-5">
               <TraceOverview trace={selectedTrace} />
               <TraceFlowNavigator
-                groups={selectedStepGroups}
+                groups={flowSwitchGroups}
                 selectedGroupId={selectedGroup?.id ?? null}
                 onSelect={setSelectedGroupId}
               />
@@ -318,7 +331,7 @@ function TraceHero({
             <StatusBadge status={trace.status} />
           </div>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
-            这条链路从请求入口开始，依次展示意图理解、动作候选、模型生成、服务端校验和最终返回。优先看流程节点定位问题，再进入阶段详情看字段解释和原始数据。
+            这条链路从请求入口开始，依次展示意图理解、动作候选、模型生成、服务端校验和最终返回。会话记忆更新单独放在流程外，避免和本轮回复生成混在一起。
           </p>
         </div>
         <button
@@ -373,7 +386,7 @@ function TraceOverview({ trace }: { trace: AiTrace }) {
         title="请求概览"
         description="先确认这次请求的入口、状态、时间、token 和 trace metadata，避免直接陷入原始 JSON。"
       />
-      <div className="grid gap-3 border-t border-slate-100 p-4 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
+      <div className="grid auto-rows-fr gap-3 border-t border-slate-100 p-4 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
         {items.map((item) => (
           <FieldExplanationCard item={item} key={item.key} />
         ))}
@@ -405,46 +418,66 @@ function TraceFlowNavigator({
       <SectionHeader
         eyebrow="Flow"
         title="流程步骤"
-        description="按一次 AI 请求的主链路阅读：输入、意图、候选、生成、校验、返回。点击节点查看该阶段详情。"
+        description="按一次 AI 请求的主链路切换查看；会话记忆更新作为后处理模块，排在接口返回之后。"
       />
-      <div className="grid gap-3 border-t border-slate-100 p-4 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
+      <div className="space-y-3 border-t border-slate-100 p-4">
         {groups.map((group, index) => {
           const isSelected = group.id === selectedGroupId;
           const usage = getGroupTokenUsage(group);
+          const isOutOfFlow = group.placement === "out_of_flow";
+          const showOutOfFlowDivider = isOutOfFlow && groups[index - 1]?.placement !== "out_of_flow";
+          const mainFlowIndex = groups.slice(0, index + 1).filter((item) => item.placement === "main_flow").length;
 
           return (
-            <button
-              className={`min-w-0 rounded-xl border p-4 text-left transition ${
-                isSelected
-                  ? "border-blue-300 bg-blue-50 shadow-[0_8px_20px_rgba(36,89,230,0.10)]"
-                  : "border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50"
-              }`}
-              key={group.id}
-              type="button"
-              onClick={() => onSelect(group.id)}
-            >
-              <div className="flex items-center gap-3">
+            <div className="min-w-0" key={group.id}>
+              {showOutOfFlowDivider ? (
+                <div className="mb-3 flex items-center gap-4 pt-1">
+                  <div className="h-px flex-1 bg-slate-200" />
+                  <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-500">
+                    后处理模块
+                  </div>
+                  <div className="h-px flex-1 bg-slate-200" />
+                </div>
+              ) : null}
+              <button
+                className={`grid min-h-[92px] w-full min-w-0 grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-4 rounded-xl border px-4 py-3 text-left transition ${
+                  isSelected
+                    ? "border-blue-300 bg-blue-50"
+                    : "border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50"
+                }`}
+                type="button"
+                onClick={() => onSelect(group.id)}
+              >
                 <span
-                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
-                    isSelected ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600"
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                    isSelected
+                      ? "bg-blue-600 text-white"
+                      : isOutOfFlow
+                        ? "bg-blue-50 text-blue-700 ring-1 ring-blue-100"
+                        : "bg-slate-100 text-slate-600"
                   }`}
                 >
-                  {index + 1}
+                  {isOutOfFlow ? "后" : mainFlowIndex}
                 </span>
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="truncate text-sm font-semibold text-slate-950">{group.title}</span>
                     <StatusDot status={group.status} />
                   </div>
-                  <div className="mt-1 truncate text-xs text-slate-500">{group.description}</div>
+                  <div className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{group.description}</div>
+                  {isOutOfFlow ? (
+                    <span className="mt-2 inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 ring-1 ring-blue-100">
+                      后处理模块
+                    </span>
+                  ) : null}
                 </div>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-1.5 text-[11px] text-slate-500">
-                <Pill>{group.steps.length} 条事件</Pill>
-                <Pill>{formatDuration(group.durationMs)}</Pill>
-                <TokenUsageBadges usage={usage} compact />
-              </div>
-            </button>
+                <div className="flex max-w-[520px] flex-wrap justify-end gap-1.5 text-[11px] text-slate-500">
+                  <Pill>{group.steps.length} 条事件</Pill>
+                  <Pill>{formatDuration(group.durationMs)}</Pill>
+                  <TokenUsageBadges usage={usage} compact />
+                </div>
+              </button>
+            </div>
           );
         })}
       </div>
@@ -1193,6 +1226,16 @@ function getStepGroupDefinition(step: AiTraceStep) {
       id: "01_user_input",
       title: "用户输入",
       description: "本次请求的消息、开关和接口入参",
+      placement: "main_flow" as const,
+    };
+  }
+
+  if (isConversationMemoryStep(step)) {
+    return {
+      id: "80_conversation_memory",
+      title: "会话记忆更新",
+      description: "根据本轮对话更新下一轮可用的上下文摘要",
+      placement: "out_of_flow" as const,
     };
   }
 
@@ -1201,6 +1244,7 @@ function getStepGroupDefinition(step: AiTraceStep) {
       id: "02_intent",
       title: "意图理解",
       description: "识别目标、训练类型、限制条件和兜底结果",
+      placement: "main_flow" as const,
     };
   }
 
@@ -1209,6 +1253,7 @@ function getStepGroupDefinition(step: AiTraceStep) {
       id: "03_candidates",
       title: "动作候选",
       description: "读取动作库并按目标、器械、风险过滤候选",
+      placement: "main_flow" as const,
     };
   }
 
@@ -1217,6 +1262,7 @@ function getStepGroupDefinition(step: AiTraceStep) {
       id: "05_validation",
       title: "服务端校验",
       description: "校验计划结构、动作 ID、候选范围和训练规则",
+      placement: "main_flow" as const,
     };
   }
 
@@ -1225,6 +1271,7 @@ function getStepGroupDefinition(step: AiTraceStep) {
       id: "04_draft",
       title: "计划草稿生成",
       description: "调用模型生成结构化训练计划草稿",
+      placement: "main_flow" as const,
     };
   }
 
@@ -1233,6 +1280,7 @@ function getStepGroupDefinition(step: AiTraceStep) {
       id: "06_final_response",
       title: "接口返回",
       description: "返回给前端的最终结果",
+      placement: "main_flow" as const,
     };
   }
 
@@ -1241,6 +1289,7 @@ function getStepGroupDefinition(step: AiTraceStep) {
       id: "04_model_response",
       title: "回复生成",
       description: "生成聊天回复或模型中间输出",
+      placement: "main_flow" as const,
     };
   }
 
@@ -1248,7 +1297,12 @@ function getStepGroupDefinition(step: AiTraceStep) {
     id: step.type === "error" ? "99_error" : `90_${step.type}`,
     title: step.type === "error" ? "异常处理" : getStepTypeLabel(step.type),
     description: step.type === "error" ? "请求失败、模型失败或流式读取失败" : "其他调试事件",
+    placement: "main_flow" as const,
   };
+}
+
+function isConversationMemoryStep(step: AiTraceStep) {
+  return step.name.includes("聊天上下文总结");
 }
 
 function getStepTitle(step: AiTraceStep) {

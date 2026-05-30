@@ -40,3 +40,12 @@
 - **WHEN** trace, stage, step, input, output, metadata, or error contains fields without explicit explanation
 - **THEN** 页面 MUST 为这些值提供原始 JSON 入口
 - **AND** 现有保存 log 动作 MUST 继续支持全链路、阶段和单事件目标
+
+### Requirement: Conversation memory update is outside the main flow
+`/dev/ai-traces` SHALL 将会话记忆更新作为流程步骤切换区中的后处理模块展示，避免和本轮回复生成混在一起。
+
+#### Scenario: 查看会话记忆更新
+- **WHEN** trace 包含 `聊天上下文总结` 相关 step
+- **THEN** 页面 MUST 在主流程节点之后展示这些 step 的切换入口
+- **AND** 页面 MUST 在接口返回后的切换入口前通过分割线标记后处理模块
+- **AND** 该模块 MUST 继续支持查看字段解释、原始 JSON 和保存 log
