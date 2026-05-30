@@ -3,6 +3,7 @@ import { clientRequest } from "@/lib/client/http/client-request";
 import type { ConversationSummaryContext } from "@/lib/shared/chat/fitness-conversation-context";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
+import type { ReferenceResolution } from "@/lib/shared/reference-resolver/schema";
 import type { WorkoutPlanDraft, WorkoutRoutineDraft } from "@/lib/shared/workout-plans/draft-schema";
 
 type WorkoutPlanDraftResponse = {
@@ -82,6 +83,7 @@ export async function requestWorkoutPlanDraft(
   intent: unknown,
   conversationSummary: Pick<ConversationSummaryContext, "summary">,
   parentTraceId?: string,
+  referenceResolution?: Extract<ReferenceResolution, { status: "resolved" }>,
 ): Promise<WorkoutPlanDraftPayload> {
   const data = await clientRequest<WorkoutPlanDraftResponse>("/api/ai/workout-plan", {
     method: "POST",
@@ -91,6 +93,7 @@ export async function requestWorkoutPlanDraft(
       intent,
       conversationSummary: conversationSummary.summary,
       parentTraceId,
+      referenceResolution,
     },
   });
 

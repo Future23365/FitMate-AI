@@ -1,9 +1,11 @@
 import { z } from "zod";
 
 import { aiPromptConfig } from "@/lib/server/ai/prompt-config";
+import { getArtifactPayloadForCurrentUser } from "@/lib/server/conversation-artifacts/artifact-service";
 import type { AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import type { Exercise } from "@/lib/shared/exercises/types";
+import { referenceResolutionSchema } from "@/lib/shared/reference-resolver/schema";
 import {
   buildConversationSummaryContext,
   formatConversationSummaryContextForPrompt,
@@ -30,6 +32,10 @@ import {
   type WorkoutPlanValidationResult,
 } from "./workout-plan-validation-service";
 import {
+  buildPlanStrategyFromChatIntent,
+  expandDomainPlan,
+} from "./domain-plan-engine";
+import {
   classifyWorkoutPlanValidationFailure,
   type WorkoutPlanValidationRecovery,
 } from "./workout-plan-validation-recovery-service";
@@ -44,6 +50,7 @@ export const aiWorkoutPlanRequestSchema = z.object({
   conversationSummary: z.string().trim().max(2000).default(""),
   messages: z.array(aiWorkoutPlanChatMessageSchema).min(1).max(200).optional(),
   intent: workoutPlanIntentSchema.optional(),
+  referenceResolution: referenceResolutionSchema.optional(),
   parentTraceId: z.string().trim().min(1).max(120).optional(),
 });
 
@@ -201,6 +208,18 @@ export async function generateAiWorkoutPlanDraft(
       excludedCount: candidates.excluded.length,
     },
   });
+
+  const domainPlanResult = await maybeGenerateDomainPlanFromReference({
+    request,
+    intent: intentResult.intent,
+    candidates,
+    exercises,
+    trace,
+  });
+
+  if (domainPlanResult) {
+    return domainPlanResult;
+  }
 
   if (!candidates.isEnoughCandidates) {
     const failure = {
@@ -366,6 +385,157 @@ export async function generateAiWorkoutPlanDraft(
   });
 
   return success;
+}
+
+async function maybeGenerateDomainPlanFromReference(input: {
+  request: AiWorkoutPlanRequest;
+  intent: WorkoutPlanIntent;
+  candidates: ExerciseCandidateResult;
+  exercises: Exercise[];
+  trace?: AiTraceLogger;
+}): Promise<AiWorkoutPlanResult | null> {
+  if (
+    input.intent.intentType !== "plan" ||
+    input.request.referenceResolution?.status !== "resolved" ||
+    !["routine", "plan"].includes(input.request.referenceResolution.artifactKind)
+  ) {
+    return null;
+  }
+
+  const strategy = buildPlanStrategyFromChatIntent({
+    intent: input.intent,
+    latestUserMessage: input.request.latestUserMessage,
+    referenceResolution: input.request.referenceResolution,
+  });
+
+  input.trace?.addStep({
+    name: "PlanStrategy 生成结果",
+    type: "intent",
+    output: strategy,
+    metadata: {
+      sourceArtifactId: strategy.sourceArtifactId,
+      strategy: strategy.strategy,
+    },
+  });
+
+  const artifactPayloadResult = await getArtifactPayloadForCurrentUser({
+    artifactId: input.request.referenceResolution.artifactId,
+  });
+
+  if (!artifactPayloadResult.ok) {
+    const failure = {
+      ok: false,
+      code: "plan_validation_failed",
+      message: "无法读取被引用的训练内容，不能生成长期计划预览。",
+      recoverable: true,
+      guidanceMessage: "我没法安全读取你刚才引用的训练内容。请重新点明要复用的训练名称，或重新生成一套计划。",
+      suggestedReplies: ["重新生成一套计划", "我说一下要复用哪套训练"],
+      intent: input.intent,
+      candidates: input.candidates,
+      detail: artifactPayloadResult,
+    } satisfies AiWorkoutPlanFailure;
+
+    input.trace?.addStep({
+      name: "PlanStrategy 引用 artifact 读取失败",
+      type: "tool_call",
+      status: "failed",
+      input: input.request.referenceResolution,
+      output: artifactPayloadResult,
+    });
+
+    return failure;
+  }
+
+  const expanded = expandDomainPlan({
+    strategy,
+    sourceArtifact: {
+      artifactId: artifactPayloadResult.artifactId,
+      kind: artifactPayloadResult.kind as "routine" | "plan",
+      payload: artifactPayloadResult.payload,
+    },
+  });
+
+  input.trace?.addStep({
+    name: "DomainPlanEngine 展开结果",
+    type: "tool_call",
+    status: expanded.ok ? "success" : "failed",
+    input: {
+      strategy,
+      referenceResolution: input.request.referenceResolution,
+      sourceKind: artifactPayloadResult.kind,
+    },
+    output: expanded,
+  });
+
+  if (!expanded.ok) {
+    return {
+      ok: false,
+      code: "plan_validation_failed",
+      message: expanded.message,
+      recoverable: true,
+      guidanceMessage: "这次引用的训练内容还不能展开成长期计划。请换一个 routine 或补充你想按什么结构安排。",
+      suggestedReplies: ["按这套重新生成一周三练", "换成另一套训练"],
+      intent: input.intent,
+      candidates: input.candidates,
+      detail: expanded,
+    } satisfies AiWorkoutPlanFailure;
+  }
+
+  const candidateExerciseIds = [
+    ...new Set([
+      ...getCandidateExerciseIds(input.candidates),
+      ...expanded.sourceExerciseIds,
+    ]),
+  ];
+  const validationIntent = {
+    ...input.intent,
+    calendarHorizonDays: strategy.horizonDays,
+    weeklyFrequency: strategy.weeklyFrequency,
+    sessionMinutes: strategy.sessionMinutes,
+  };
+  const validation = validateWorkoutPlanDraft(expanded.draft, validationIntent, {
+    exercises: input.exercises,
+    candidateExerciseIds,
+  });
+
+  input.trace?.addStep({
+    name: "DomainPlanEngine 输出校验",
+    type: "validation",
+    status: validation.valid ? "success" : "failed",
+    input: {
+      draft: expanded.draft,
+      intent: validationIntent,
+      candidateExerciseIds,
+    },
+    output: validation,
+    metadata: {
+      sourceExerciseCount: expanded.sourceExerciseIds.length,
+      schedulePreviewCount: expanded.draft.schedulePreview?.length ?? 0,
+    },
+  });
+
+  if (!validation.valid) {
+    const recovery = classifyWorkoutPlanValidationFailure(validation, {
+      targetSessionMinutes: strategy.sessionMinutes,
+    });
+
+    return createPlanValidationFailure(
+      validationIntent,
+      input.candidates,
+      validation,
+      recovery,
+      expanded,
+    );
+  }
+
+  return {
+    ok: true,
+    kind: "plan",
+    intent: validationIntent,
+    draft: expanded.draft,
+    candidates: input.candidates,
+    validation,
+  };
 }
 
 function summarizePlanCycle(draft: WorkoutPlanDraft) {

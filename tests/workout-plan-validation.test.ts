@@ -347,4 +347,61 @@ describe("workout plan candidate and validation services", () => {
     expect(result.valid).toBe(false);
     expect(result.errors.map((issue) => issue.code)).toContain("section_exercise_mismatch");
   });
+
+  it("rejects consecutive high-load days with overlapping exercises", () => {
+    const intent = createWorkoutPlanIntent({
+      intentType: "plan",
+      weeklyFrequency: 7,
+      calendarHorizonDays: 2,
+    });
+    const highLoadDay = createValidationDay(["warmup", "push-up"]);
+    const draft = createWorkoutPlanDraft({
+      cycleLengthDays: 2,
+      weeklyFrequency: 7,
+      calendarHorizonDays: 2,
+      planStrategy: {
+        goal: "胸肌训练",
+        horizonDays: 2,
+        weeklyFrequency: 7,
+        sessionMinutes: 30,
+        strategy: "repeat_previous_routine",
+        progressionPolicy: "none",
+        intensityBias: "normal",
+        constraints: [],
+      },
+      days: [
+        {
+          ...highLoadDay,
+          cycleDayIndex: 1,
+          sections: highLoadDay.sections.map((section) => ({
+            ...section,
+            items: section.items.map((item) => ({
+              ...item,
+              sets: section.section === "training" ? 8 : item.sets,
+            })),
+          })),
+        },
+        {
+          ...highLoadDay,
+          cycleDayIndex: 2,
+          title: "Day 2",
+          sections: highLoadDay.sections.map((section) => ({
+            ...section,
+            items: section.items.map((item) => ({
+              ...item,
+              sets: section.section === "training" ? 8 : item.sets,
+            })),
+          })),
+        },
+      ],
+    });
+
+    const result = validateWorkoutPlanDraft(draft, intent, {
+      exercises,
+      candidateExerciseIds: ["warmup", "push-up", "stretch"],
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.map((issue) => issue.code)).toContain("consecutive_load_high");
+  });
 });

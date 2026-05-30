@@ -28,6 +28,27 @@ export {
 } from "@/lib/shared/workout-plans/draft-schema";
 
 export {
+  domainPlanSchedulePreviewEntrySchema,
+  planIntensityBiasSchema,
+  planProgressionPolicySchema,
+  planStrategySchema,
+  planStrategyTypeSchema,
+  type DomainPlanSchedulePreviewEntry,
+  type PlanIntensityBias,
+  type PlanProgressionPolicy,
+  type PlanStrategy,
+  type PlanStrategyType,
+} from "@/lib/shared/workout-plans/plan-strategy-schema";
+
+export {
+  buildPlanStrategyFromChatIntent,
+  expandDomainPlan,
+  getDraftExerciseIds,
+  type DomainPlanEngineInput,
+  type DomainPlanEngineResult,
+} from "./domain-plan-engine";
+
+export {
   getCandidateExerciseIds,
   selectExerciseCandidates,
   selectExerciseCandidatesFromStore,

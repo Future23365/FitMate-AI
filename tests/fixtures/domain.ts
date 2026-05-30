@@ -247,6 +247,14 @@ export function createWorkoutPlanDraft(overrides: Partial<WorkoutPlanDraft> = {}
     draft.calendarHorizonDays = overrides.calendarHorizonDays;
   }
 
+  if (overrides.planStrategy !== undefined) {
+    draft.planStrategy = overrides.planStrategy;
+  }
+
+  if (overrides.schedulePreview !== undefined) {
+    draft.schedulePreview = overrides.schedulePreview;
+  }
+
   return draft;
 }
 

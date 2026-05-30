@@ -28,6 +28,7 @@ export type WorkoutPlanValidationIssueCode =
   | "empty_candidate_set"
   | "cycle_structure_mismatch"
   | "day_similarity_high"
+  | "consecutive_load_high"
   | "weekly_frequency_mismatch"
   | "session_too_long"
   | "day_estimate_mismatch"
@@ -154,6 +155,27 @@ export function validateWorkoutPlanDraft(
     });
   }
 
+  if (intent.calendarHorizonDays) {
+    const expectedTrainingDays = calculateTrainingDayCountForHorizon(
+      intent.calendarHorizonDays,
+      intent.weeklyFrequency,
+    );
+
+    if (draft.cycleLengthDays !== intent.calendarHorizonDays) {
+      errors.push({
+        code: "cycle_structure_mismatch",
+        message: `计划周期为 ${draft.cycleLengthDays} 天，用户期望预览周期为 ${intent.calendarHorizonDays} 天。`,
+      });
+    }
+
+    if (draft.trainingDayCount !== expectedTrainingDays) {
+      errors.push({
+        code: "weekly_frequency_mismatch",
+        message: `计划包含 ${draft.trainingDayCount} 个训练日，但 ${intent.calendarHorizonDays} 天内每周 ${intent.weeklyFrequency} 练应安排 ${expectedTrainingDays} 个训练日。`,
+      });
+    }
+  }
+
   if (
     draft.weeklyFrequency &&
     draft.trainingDayCount !== draft.weeklyFrequency &&
@@ -200,6 +222,9 @@ export function validateWorkoutPlanDraft(
   }
 
   const trainingDaySignatures = new Map<string, number>();
+  const allowRepeatedTrainingSignature =
+    draft.planStrategy?.strategy === "repeat_previous_routine" ||
+    draft.planStrategy?.strategy === "repeat_same_routine_with_progression";
   for (const [dayIndex, day] of draft.days.entries()) {
     const dayItems = getWorkoutDayItems(day);
 
@@ -207,7 +232,7 @@ export function validateWorkoutPlanDraft(
       const signature = dayItems.map((item) => item.exerciseId).sort().join("|");
       const previousIndex = trainingDaySignatures.get(signature);
 
-      if (previousIndex !== undefined && signature) {
+      if (!allowRepeatedTrainingSignature && previousIndex !== undefined && signature) {
         errors.push({
           code: "day_similarity_high",
           dayIndex: dayIndex + 1,
@@ -216,6 +241,24 @@ export function validateWorkoutPlanDraft(
       }
 
       trainingDaySignatures.set(signature, dayIndex + 1);
+    }
+
+    const previousDay = draft.days[dayIndex - 1];
+    const previousEstimate = dayEstimates[dayIndex - 1];
+    const currentEstimate = dayEstimates[dayIndex];
+    if (
+      previousDay &&
+      !previousDay.isRestDay &&
+      !day.isRestDay &&
+      previousEstimate?.totalSets >= 10 &&
+      currentEstimate?.totalSets >= 10 &&
+      hasExerciseOverlap(getWorkoutDayItems(previousDay), dayItems)
+    ) {
+      errors.push({
+        code: "consecutive_load_high",
+        dayIndex: dayIndex + 1,
+        message: `训练日「${previousDay.title}」和「${day.title}」连续安排了高度重叠且偏高的训练量。`,
+      });
     }
 
     for (const item of dayItems) {
@@ -444,4 +487,36 @@ function estimateWorkoutDay(day: WorkoutDayDraft, fallbackDayIndex: number): Wor
 
 function getWorkoutDayItems(day: WorkoutDayDraft): WorkoutPlanItemDraft[] {
   return day.sections.flatMap((section) => section.items);
+}
+
+function hasExerciseOverlap(left: WorkoutPlanItemDraft[], right: WorkoutPlanItemDraft[]) {
+  const leftIds = new Set(left.map((item) => item.exerciseId));
+
+  return right.some((item) => leftIds.has(item.exerciseId));
+}
+
+function calculateTrainingDayCountForHorizon(horizonDays: number, weeklyFrequency: number) {
+  const pattern = getWeeklyPattern(weeklyFrequency);
+  let count = 0;
+
+  for (let weekStart = 1; weekStart <= horizonDays; weekStart += 7) {
+    const daysInWeek = Math.min(7, horizonDays - weekStart + 1);
+    count += pattern.filter((weekday) => weekday <= daysInWeek).length;
+  }
+
+  return count;
+}
+
+function getWeeklyPattern(weeklyFrequency: number) {
+  const patterns: Record<number, number[]> = {
+    1: [1],
+    2: [1, 4],
+    3: [1, 3, 5],
+    4: [1, 3, 5, 7],
+    5: [1, 2, 4, 5, 7],
+    6: [1, 2, 3, 4, 5, 6],
+    7: [1, 2, 3, 4, 5, 6, 7],
+  };
+
+  return patterns[weeklyFrequency] ?? patterns[3];
 }

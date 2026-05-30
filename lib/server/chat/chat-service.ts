@@ -1296,23 +1296,29 @@ export function createFallbackChatIntent(
   const isRecommendation =
     isRecommendationRefresh ||
     (/推荐|有哪些|动作/.test(latestUserMessage) && !/组|套|流程|安排|计划/.test(latestUserMessage));
+  const isLongTermPlan = /三周|四周|几周|一周|每周|周频率|长期|周期|计划/.test(latestUserMessage);
   const isRoutine = /今天|这次|现在|来一套|动作组|流程|安排|练|分钟/.test(latestUserMessage);
   const type = isRecommendation
     ? "exercise_recommendation"
-    : isRoutine
+    : isLongTermPlan
+      ? "workout_plan"
+      : isRoutine
       ? "routine"
     : "general_fitness_advice";
-  const workoutIntent = createFallbackWorkoutIntent(messages, type);
+  const workoutIntent = createFallbackWorkoutIntent(messages, type, conversationContext);
+  const resolvedWorkoutIntent =
+    isRecommendationRefresh && conversationContext.currentIntent
+      ? conversationContext.currentIntent
+      : isLongTermPlan
+        ? workoutIntent
+        : conversationContext.currentIntent ?? workoutIntent;
 
   return {
     type,
     needsExerciseContext: /动作|训练|计划|编排|替换|推荐|练|胸|背|腿|肩|核心|减脂|增肌/.test(
       `${latestUserMessage} ${conversationSummary}`,
     ),
-    workoutIntent:
-      isRecommendationRefresh && conversationContext.currentIntent
-        ? conversationContext.currentIntent
-        : conversationContext.currentIntent ?? workoutIntent,
+    workoutIntent: resolvedWorkoutIntent,
     canTriggerAction: false,
     missingActionFields: [],
     suggestedReplies: [],
@@ -1333,7 +1339,10 @@ function createFallbackWorkoutIntent(
     goal: (knownFacts?.goal ?? latestUserMessage.slice(0, 80)) || "综合体能提升",
     experience: knownFacts?.experience ?? "beginner",
     sessionMinutes: knownFacts?.sessionMinutes ?? 30,
-    weeklyFrequency: knownFacts?.weeklyFrequency ?? (intentType === "routine" ? 1 : 3),
+    weeklyFrequency: inferWeeklyFrequencyFromText(
+      latestUserMessage,
+      knownFacts?.weeklyFrequency ?? (intentType === "routine" ? 1 : 3),
+    ),
     calendarHorizonDays: knownFacts?.calendarHorizonDays,
     equipment: knownFacts?.equipment?.length ? knownFacts.equipment : [],
     injuryLimitations: [],
@@ -1369,4 +1378,30 @@ function getLatestUserMessage(messages: ChatMessage[]) {
 
 function extractByPattern(text: string, pattern: RegExp) {
   return pattern.test(text) ? [text.slice(0, 80)] : [];
+}
+
+function inferWeeklyFrequencyFromText(text: string, fallback: number) {
+  const normalized = text.replace(/\s+/g, "");
+  const match = normalized.match(/(?:一周|每周)([一二两三四五六七\d]+)(?:练|次|天)/);
+
+  return match ? parseSmallChineseNumber(match[1]) : fallback;
+}
+
+function parseSmallChineseNumber(value: string) {
+  if (/^\d+$/.test(value)) {
+    return Number(value);
+  }
+
+  const map: Record<string, number> = {
+    一: 1,
+    二: 2,
+    两: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+  };
+
+  return map[value] ?? 1;
 }

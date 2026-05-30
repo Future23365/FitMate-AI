@@ -30,6 +30,7 @@ import {
 } from "@/lib/shared/chat/fitness-conversation-context";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
+import type { ReferenceResolution } from "@/lib/shared/reference-resolver/schema";
 import type { WorkoutPlanDraft, WorkoutRoutineDraft } from "@/lib/shared/workout-plans/draft-schema";
 
 const chatRequestTimeoutMs = 45_000;
@@ -264,6 +265,7 @@ export function useChatController() {
     latestUserMessage: string,
     summaryContext: Pick<ConversationSummaryContext, "summary">,
     parentTraceId?: string,
+    referenceResolution?: Extract<ReferenceResolution, { status: "resolved" }>,
   ) {
     try {
       const planPayload = await requestWorkoutPlanDraft(
@@ -271,6 +273,7 @@ export function useChatController() {
         intent,
         summaryContext,
         parentTraceId,
+        referenceResolution,
       );
 
       if (planPayload.kind === "routine") {
@@ -632,6 +635,7 @@ export function useChatController() {
           text,
           { summary: updatedConversationSummary },
           chatTraceId,
+          assistantAction?.referenceResolution,
         );
       } else {
         const recommendationTrigger =

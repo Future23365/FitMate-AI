@@ -13,9 +13,13 @@ const exerciseServiceMocks = vi.hoisted(() => ({
 const serverRequestMocks = vi.hoisted(() => ({
   serverRequest: vi.fn(),
 }));
+const artifactServiceMocks = vi.hoisted(() => ({
+  getArtifactPayloadForCurrentUser: vi.fn(),
+}));
 
 vi.mock("@/lib/server/exercises/exercise-service", () => exerciseServiceMocks);
 vi.mock("@/lib/server/http/server-request", () => serverRequestMocks);
+vi.mock("@/lib/server/conversation-artifacts/artifact-service", () => artifactServiceMocks);
 
 const { aiWorkoutPlanRequestSchema, generateAiWorkoutPlanDraft } = await import(
   "@/lib/server/workout-plans/ai-workout-plan-service"
@@ -26,6 +30,7 @@ describe("AI workout plan orchestration boundaries", () => {
     vi.stubEnv("DEEPSEEK_API_KEY", "");
     exerciseServiceMocks.listAllExercises.mockResolvedValue([]);
     serverRequestMocks.serverRequest.mockReset();
+    artifactServiceMocks.getArtifactPayloadForCurrentUser.mockReset();
   });
 
   it("validates request schema and reports missing model configuration before external calls", async () => {
@@ -155,6 +160,49 @@ describe("AI workout plan orchestration boundaries", () => {
     });
     expect(routineModelPayload).not.toHaveProperty("recentMessages");
     expect(routineModelPayload).not.toHaveProperty("conversationContext");
+  });
+
+  it("uses DomainPlanEngine for referenced multi-week routine plans without draft generation model call", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
+    exerciseServiceMocks.listAllExercises.mockResolvedValue(createModelExercises());
+    artifactServiceMocks.getArtifactPayloadForCurrentUser.mockResolvedValue({
+      ok: true,
+      artifactId: "artifact-routine-1",
+      kind: "routine",
+      payload: createWorkoutRoutineDraft(),
+    });
+
+    const result = await generateAiWorkoutPlanDraft({
+      latestUserMessage: "三周都练这个，一周三练",
+      conversationSummary: "用户想复用刚才那套训练。",
+      intent: createWorkoutPlanIntent({
+        intentType: "plan",
+        goal: "胸肌训练",
+        sessionMinutes: 30,
+        weeklyFrequency: 3,
+      }),
+      referenceResolution: {
+        status: "resolved",
+        artifactId: "artifact-routine-1",
+        artifactKind: "routine",
+        confidence: "high",
+        reason: "命中最近 routine",
+        candidates: [],
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      kind: "plan",
+      draft: {
+        cycleLengthDays: 21,
+        trainingDayCount: 9,
+        planStrategy: {
+          strategy: "repeat_same_routine_with_progression",
+        },
+      },
+    });
+    expect(serverRequestMocks.serverRequest).not.toHaveBeenCalled();
   });
 
   it("repairs a session_too_long routine once and returns the repaired draft", async () => {

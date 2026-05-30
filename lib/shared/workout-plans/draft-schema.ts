@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+import {
+  domainPlanSchedulePreviewEntrySchema,
+  planStrategySchema,
+} from "./plan-strategy-schema";
+
 export const workoutModeSchema = z.enum(["reps", "duration"]);
 export const workoutDraftKindSchema = z.enum(["plan", "routine"]);
 
@@ -56,7 +61,7 @@ export const workoutPlanDaySectionDraftSchema = z.object({
 export const workoutDayDraftSchema = z.object({
   title: z.string().trim().min(1, "训练日标题不能为空").max(80),
   focus: z.string().trim().min(1, "训练重点不能为空").max(80),
-  cycleDayIndex: z.number().int().min(1).max(42),
+  cycleDayIndex: z.number().int().min(1).max(90),
   dayType: workoutPlanDayTypeSchema,
   isRestDay: z.boolean().default(false),
   estimatedMinutes: z.number().int().min(0).max(240),
@@ -83,7 +88,7 @@ export const workoutDayDraftSchema = z.object({
 
 // AI 长期计划的周期节奏摘要，供卡片和导入逻辑解释训练日与休息日顺序。
 export const workoutPlanSchedulePatternEntrySchema = z.object({
-  cycleDayIndex: z.number().int().min(1).max(42),
+  cycleDayIndex: z.number().int().min(1).max(90),
   title: z.string().trim().min(1).max(80),
   dayType: workoutPlanDayTypeSchema,
   focus: z.string().trim().min(1).max(80),
@@ -95,17 +100,19 @@ export const workoutPlanDraftSchema = z.object({
   title: z.string().trim().min(1, "训练计划标题不能为空").max(100),
   goal: z.string().trim().min(1, "训练目标不能为空").max(120),
   summary: z.string().trim().max(400).optional(),
-  cycleLengthDays: z.number().int().min(1).max(42),
-  trainingDayCount: z.number().int().min(0).max(42),
-  restDayCount: z.number().int().min(0).max(42),
+  cycleLengthDays: z.number().int().min(1).max(90),
+  trainingDayCount: z.number().int().min(0).max(90),
+  restDayCount: z.number().int().min(0).max(90),
   cycleRepeatable: z.boolean(),
   weeklyFrequency: z.number().int().min(1).max(7).optional(),
   calendarHorizonDays: z.number().int().min(1).max(90).optional(),
   estimatedSessionMinutes: z.number().int().min(5).max(240),
   progression: z.string().trim().min(1, "递进说明不能为空").max(400),
   recoveryStrategy: z.string().trim().min(1, "恢复策略不能为空").max(400),
-  schedulePattern: z.array(workoutPlanSchedulePatternEntrySchema).min(1).max(42),
-  days: z.array(workoutDayDraftSchema).min(1, "训练计划至少需要 1 个周期日").max(42),
+  schedulePattern: z.array(workoutPlanSchedulePatternEntrySchema).min(1).max(90),
+  planStrategy: planStrategySchema.optional(),
+  schedulePreview: z.array(domainPlanSchedulePreviewEntrySchema).max(90).optional(),
+  days: z.array(workoutDayDraftSchema).min(1, "训练计划至少需要 1 个周期日").max(90),
   safetyNotes: z.array(z.string().trim().min(1)).max(10).default([]),
 }).superRefine((draft, ctx) => {
   const trainingDayCount = draft.days.filter((day) => !day.isRestDay).length;

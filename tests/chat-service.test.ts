@@ -99,6 +99,23 @@ describe("AI chat service deterministic boundaries", () => {
     expect(resolveVisibleSuggestedReplies({ ...chatIntent, suggestedReplies: ["补充信息"] }, routineAction)).toEqual([]);
   });
 
+  it("treats multi-week repeat requests as workout plan actions", () => {
+    const fallbackIntent = createFallbackChatIntent(
+      [{ role: "user", content: "三周都练这个，一周三练" }],
+      conversationContext,
+    );
+
+    expect(fallbackIntent.type).toBe("workout_plan");
+    expect(fallbackIntent.workoutIntent?.intentType).toBe("plan");
+
+    const conservativePlanIntent = createFallbackChatIntent(
+      [{ role: "user", content: "改成一周四练但别太累" }],
+      conversationContext,
+    );
+    expect(conservativePlanIntent.type).toBe("workout_plan");
+    expect(conservativePlanIntent.workoutIntent?.weeklyFrequency).toBe(4);
+  });
+
   it("documents explicit exercise list routines can use default duration", () => {
     expect(aiPromptConfig.chatIntentResolution.system).toContain(
       "明确列出具体动作名称",

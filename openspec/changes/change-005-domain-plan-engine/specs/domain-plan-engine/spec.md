@@ -8,6 +8,7 @@
 - **AND** ReferenceResolver 已解析到当前 routine artifact
 - **THEN** 系统 MUST 生成引用该 artifact 的 `PlanStrategy`
 - **AND** strategy MUST 表达 horizonDays、weeklyFrequency、sessionMinutes、progressionPolicy 和 intensityBias
+- **AND** `/api/ai/workout-plan` MUST 通过受控 artifact payload 读取完整 routine
 - **AND** 系统 MUST NOT 让 LLM 直接自由生成完整长期日历
 
 #### Scenario: PlanStrategy 缺少核心字段
@@ -22,6 +23,7 @@
 - **WHEN** PlanStrategy 指定 `weeklyFrequency = 3` 且 `horizonDays = 21`
 - **THEN** DomainPlanEngine MUST 在 21 天内安排与每周 3 练匹配的训练日
 - **AND** 非训练日 MUST 标记为休息或恢复
+- **AND** 输出 MUST 包含 `schedulePreview`，表达每一天的训练或恢复安排
 - **AND** 计划结果 MUST 包含可解释的训练日分布摘要
 
 #### Scenario: 用户要求一周四练但别太累
@@ -47,3 +49,8 @@
 - **THEN** Validator MUST 校验训练日数量、连续负荷、动作 section、候选来源、时长和风险边界
 - **AND** 校验失败时系统 MUST 返回修复结果或继续对话引导
 - **AND** 系统 MUST NOT 保存未通过校验的计划
+
+#### Scenario: 引用 artifact 不可用
+- **WHEN** PlanStrategy 引用的 sourceArtifactId 不存在、不可访问或 payload 无法校验
+- **THEN** 系统 MUST 返回可恢复的继续对话引导
+- **AND** 系统 MUST NOT 从 conversationSummary 重建完整训练计划
