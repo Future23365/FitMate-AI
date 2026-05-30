@@ -89,6 +89,33 @@ function ChatThinkingIndicator() {
   );
 }
 
+// 聊天头像负责标记消息身份，避免用户和 AI 的对话在视觉上混在一起。
+function ChatMessageAvatar({ role }: { role: "assistant" | "user" }) {
+  if (role === "user") {
+    return (
+      <div
+        aria-label="用户头像"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-white shadow-[0_8px_18px_rgba(36,89,230,0.18)] ring-2 ring-white"
+        title="你"
+      >
+        <SymbolIcon className="text-[20px]" filled>
+          person
+        </SymbolIcon>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      aria-label="FitMate AI 头像"
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-primary/10 bg-primary-soft shadow-[0_8px_18px_rgba(36,89,230,0.12)]"
+      title="FitMate AI"
+    >
+      <LogoMark className="h-6 w-6" />
+    </div>
+  );
+}
+
 function HomeRightSidebar() {
   const completionOffset = useMemo(() => {
     const circumference = 364.4;
@@ -307,145 +334,160 @@ export function ChatPage() {
             </div>
           ) : (
             <div className="mx-auto flex max-w-4xl flex-col gap-md">
-              {messages.map((message) => (
-                <div
-                  className={message.role === "user" ? "flex justify-end" : "flex justify-start"}
-                  key={message.id}
-                >
+              {messages.map((message) => {
+                const isUserMessage = message.role === "user";
+
+                return (
                   <div
-                    className={`ai-chat-bubble max-w-[78%] rounded-xl p-lg ${
-                      message.role === "user"
-                        ? "rounded-tr-none bg-primary text-white"
-                        : "rounded-tl-none border border-line bg-white text-ink"
+                    className={`flex ${
+                      isUserMessage ? "justify-end" : "justify-start"
                     }`}
+                    key={message.id}
                   >
-                    {(() => {
-                      const trigger = extractWorkoutPlanTrigger(message.content);
-                      const routineTrigger = extractWorkoutRoutineTrigger(message.content);
-                      const recommendationTrigger = extractExerciseRecommendationTrigger(
-                        trigger || routineTrigger ? "" : message.content,
-                      );
-                      const suggestedReplyTrigger = extractSuggestedReplyTrigger(message.content);
-                      let cleanContent = message.content;
-                      for (const rawBlock of [
-                        trigger?.rawBlock,
-                        routineTrigger?.rawBlock,
-                        recommendationTrigger?.rawBlock,
-                        suggestedReplyTrigger?.rawBlock,
-                      ]) {
-                        if (rawBlock) {
-                          cleanContent = cleanContent.replace(rawBlock, "");
-                        }
-                      }
-                      cleanContent = cleanContent.trim();
-                      const suggestedReplies =
-                        message.suggestedReplies ??
-                        message.suggestedQuestions ??
-                        suggestedReplyTrigger?.suggestedReplies ??
-                        [];
+                    <div
+                      className={`flex max-w-[82%] items-start gap-sm ${
+                        isUserMessage ? "flex-row-reverse" : ""
+                      }`}
+                    >
+                      <div className="flex w-9 shrink-0 justify-center pt-[2px]">
+                        <ChatMessageAvatar role={isUserMessage ? "user" : "assistant"} />
+                      </div>
+                      <div
+                        className={`ai-chat-bubble min-w-0 rounded-2xl p-lg transition-shadow ${
+                          isUserMessage
+                            ? "rounded-tr-sm bg-primary text-white shadow-[0_12px_26px_rgba(36,89,230,0.16)]"
+                            : "rounded-tl-sm border border-line bg-white text-ink shadow-[0_12px_26px_rgba(16,24,40,0.06)]"
+                        }`}
+                      >
+                        {(() => {
+                          const trigger = extractWorkoutPlanTrigger(message.content);
+                          const routineTrigger = extractWorkoutRoutineTrigger(message.content);
+                          const recommendationTrigger = extractExerciseRecommendationTrigger(
+                            trigger || routineTrigger ? "" : message.content,
+                          );
+                          const suggestedReplyTrigger = extractSuggestedReplyTrigger(message.content);
+                          let cleanContent = message.content;
+                          for (const rawBlock of [
+                            trigger?.rawBlock,
+                            routineTrigger?.rawBlock,
+                            recommendationTrigger?.rawBlock,
+                            suggestedReplyTrigger?.rawBlock,
+                          ]) {
+                            if (rawBlock) {
+                              cleanContent = cleanContent.replace(rawBlock, "");
+                            }
+                          }
+                          cleanContent = cleanContent.trim();
+                          const suggestedReplies =
+                            message.suggestedReplies ??
+                            message.suggestedQuestions ??
+                            suggestedReplyTrigger?.suggestedReplies ??
+                            [];
 
-                      if (message.role === "assistant") {
-                        return (
-                          <>
-                            {cleanContent ? (
-                              <div className="markdown-answer">
-                                <MarkdownContent content={cleanContent} />
-                              </div>
-                            ) : (
-                              <ChatThinkingIndicator />
-                            )}
+                          if (message.role === "assistant") {
+                            return (
+                              <>
+                                {cleanContent ? (
+                                  <div className="markdown-answer">
+                                    <MarkdownContent content={cleanContent} />
+                                  </div>
+                                ) : (
+                                  <ChatThinkingIndicator />
+                                )}
 
-                            {suggestedReplies.length > 0 && (
-                              <div className="mt-md flex flex-wrap gap-sm">
-                                {suggestedReplies.map((reply) => (
-                                  <button
-                                    className="max-w-full break-words rounded-xl border border-primary/20 bg-primary-soft px-md py-sm text-left font-label-sm text-label-sm font-bold text-primary transition-colors hover:border-primary/40 hover:bg-[#dbe5ff] disabled:cursor-not-allowed disabled:opacity-60"
-                                    disabled={isLoading}
-                                    key={reply}
-                                    onClick={() => sendMessage(reply)}
-                                    type="button"
-                                  >
-                                    {reply}
-                                  </button>
-                                ))}
-                              </div>
-                            )}
+                                {suggestedReplies.length > 0 && (
+                                  <div className="mt-md flex flex-wrap gap-sm">
+                                    {suggestedReplies.map((reply) => (
+                                      <button
+                                        className="max-w-full break-words rounded-xl border border-primary/20 bg-primary-soft px-md py-sm text-left font-label-sm text-label-sm font-bold text-primary transition-colors hover:border-primary/40 hover:bg-[#dbe5ff] disabled:cursor-not-allowed disabled:opacity-60"
+                                        disabled={isLoading}
+                                        key={reply}
+                                        onClick={() => sendMessage(reply)}
+                                        type="button"
+                                      >
+                                        {reply}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
 
-                            {/* 1. 安全生成 Loading 动效 */}
-                            {autoPlanGenerating === message.id && (
-                              <div className="mt-md flex animate-pulse items-center gap-xs rounded-xl border border-primary/20 bg-primary/5 p-md font-label-sm text-label-sm text-primary shadow-sm">
-                                <SymbolIcon className="animate-spin text-[16px]">autorenew</SymbolIcon>
-                                <span>正在整理训练内容</span>
-                              </div>
-                            )}
+                                {/* 1. 安全生成 Loading 动效 */}
+                                {autoPlanGenerating === message.id && (
+                                  <div className="mt-md flex animate-pulse items-center gap-xs rounded-xl border border-primary/20 bg-primary/5 p-md font-label-sm text-label-sm text-primary shadow-sm">
+                                    <SymbolIcon className="animate-spin text-[16px]">autorenew</SymbolIcon>
+                                    <span>正在整理训练内容</span>
+                                  </div>
+                                )}
 
-                            {autoRecommendationGenerating === message.id && (
-                              <div className="mt-md flex items-center gap-xs rounded-xl border border-primary-container/20 bg-primary-container/5 p-md font-label-sm text-label-sm text-primary animate-pulse shadow-sm">
-                                <SymbolIcon className="animate-spin text-[16px]">autorenew</SymbolIcon>
-                                <span>FitMate 正在筛选合适动作...</span>
-                              </div>
-                            )}
+                                {autoRecommendationGenerating === message.id && (
+                                  <div className="mt-md flex items-center gap-xs rounded-xl border border-primary-container/20 bg-primary-container/5 p-md font-label-sm text-label-sm text-primary animate-pulse shadow-sm">
+                                    <SymbolIcon className="animate-spin text-[16px]">autorenew</SymbolIcon>
+                                    <span>FitMate 正在筛选合适动作...</span>
+                                  </div>
+                                )}
 
-                            {/* 2. 安全拦截或生成失败错误 */}
-                            {bubblePlanErrors[message.id] && (
-                              <div className="mt-md flex items-start gap-xs rounded-xl border border-error-container bg-error-container/20 p-md text-on-error-container shadow-sm">
-                                <SymbolIcon className="mt-[2px] shrink-0 text-[18px] text-error">warning</SymbolIcon>
-                                <div>
-                                  <p className="font-label-sm text-label-sm font-bold">FitMate 安全引擎已拦截</p>
-                                  <p className="mt-xs font-body-xs text-body-xs text-on-surface-variant">
-                                    {bubblePlanErrors[message.id]}
-                                  </p>
-                                </div>
-                              </div>
-                            )}
+                                {/* 2. 安全拦截或生成失败错误 */}
+                                {bubblePlanErrors[message.id] && (
+                                  <div className="mt-md flex items-start gap-xs rounded-xl border border-error-container bg-error-container/20 p-md text-on-error-container shadow-sm">
+                                    <SymbolIcon className="mt-[2px] shrink-0 text-[18px] text-error">warning</SymbolIcon>
+                                    <div>
+                                      <p className="font-label-sm text-label-sm font-bold">FitMate 安全引擎已拦截</p>
+                                      <p className="mt-xs font-body-xs text-body-xs text-on-surface-variant">
+                                        {bubblePlanErrors[message.id]}
+                                      </p>
+                                    </div>
+                                  </div>
+                                )}
 
-                            {/* 3. 完美的计划预览卡片 */}
-                            {bubblePlans[message.id] && (
-                              <div className="mt-md">
-                                <WorkoutPlanDraftCard
-                                  draft={bubblePlans[message.id]}
-                                  initialExercises={bubblePlanExercises[message.id]}
-                                />
-                              </div>
-                            )}
+                                {/* 3. 完美的计划预览卡片 */}
+                                {bubblePlans[message.id] && (
+                                  <div className="mt-md">
+                                    <WorkoutPlanDraftCard
+                                      draft={bubblePlans[message.id]}
+                                      initialExercises={bubblePlanExercises[message.id]}
+                                    />
+                                  </div>
+                                )}
 
-                            {bubbleRoutines[message.id] && (
-                              <div className="mt-md">
-                                <WorkoutRoutineDraftCard
-                                  draft={bubbleRoutines[message.id]}
-                                  initialExercises={bubblePlanExercises[message.id]}
-                                />
-                              </div>
-                            )}
+                                {bubbleRoutines[message.id] && (
+                                  <div className="mt-md">
+                                    <WorkoutRoutineDraftCard
+                                      draft={bubbleRoutines[message.id]}
+                                      initialExercises={bubblePlanExercises[message.id]}
+                                    />
+                                  </div>
+                                )}
 
-                            {bubbleExerciseRecommendations[message.id] && (
-                              <div className="mt-md">
-                                <ExerciseRecommendationCard
-                                  card={bubbleExerciseRecommendations[message.id]}
-                                  isRefreshing={autoRecommendationGenerating === message.id}
-                                  onCompose={() => composeExerciseRecommendations(message.id)}
-                                  onDislike={(exerciseId) =>
-                                    dislikeExerciseRecommendation(message.id, exerciseId)
-                                  }
-                                  onRefresh={() =>
-                                    refreshExerciseRecommendations(message.id, recommendationTrigger?.intent)
-                                  }
-                                />
-                              </div>
-                            )}
-                          </>
-                        );
-                      }
+                                {bubbleExerciseRecommendations[message.id] && (
+                                  <div className="mt-md">
+                                    <ExerciseRecommendationCard
+                                      card={bubbleExerciseRecommendations[message.id]}
+                                      isRefreshing={autoRecommendationGenerating === message.id}
+                                      onCompose={() => composeExerciseRecommendations(message.id)}
+                                      onDislike={(exerciseId) =>
+                                        dislikeExerciseRecommendation(message.id, exerciseId)
+                                      }
+                                      onRefresh={() =>
+                                        refreshExerciseRecommendations(message.id, recommendationTrigger?.intent)
+                                      }
+                                    />
+                                  </div>
+                                )}
+                              </>
+                            );
+                          }
 
-                      return (
-                        <p className="whitespace-pre-wrap font-body-md text-body-md">
-                          {message.content}
-                        </p>
-                      );
-                    })()}
+                          return (
+                            <p className="whitespace-pre-wrap font-body-md text-body-md">
+                              {message.content}
+                            </p>
+                          );
+                        })()}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
               {error ? (
                 <div className="rounded-xl border border-error-container bg-error-container/40 p-md text-label-md text-on-error-container">
                   {error}
