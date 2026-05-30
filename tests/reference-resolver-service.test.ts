@@ -53,6 +53,7 @@ describe("reference resolver service", () => {
   });
 
   it("resolves semantic references through bounded artifact search", async () => {
+    const trace = createTraceMock();
     artifactSearchMocks.searchArtifactsForCurrentUser.mockResolvedValue([
       createCandidate({ artifactId: "artifact-chest", kind: "routine", title: "胸肌单次训练" }),
     ]);
@@ -62,6 +63,7 @@ describe("reference resolver service", () => {
       sessionId: "chat-1",
       recentArtifacts: [],
       intentType: "routine",
+      trace,
     });
 
     expect(artifactSearchMocks.searchArtifactsForCurrentUser).toHaveBeenCalledWith(expect.objectContaining({
@@ -76,6 +78,18 @@ describe("reference resolver service", () => {
       artifactId: "artifact-chest",
       confidence: "medium",
     });
+    expect(trace.addStep).toHaveBeenCalledWith(expect.objectContaining({
+      type: "tool_call",
+      input: expect.objectContaining({ toolName: "searchArtifacts" }),
+      output: expect.objectContaining({ candidateCount: 1 }),
+    }));
+    expect(trace.addStep).toHaveBeenCalledWith(expect.objectContaining({
+      type: "reference_resolution",
+      output: expect.objectContaining({
+        status: "resolved",
+        artifactId: "artifact-chest",
+      }),
+    }));
   });
 
   it("resolves long term plan semantic references by kind", async () => {
@@ -126,5 +140,14 @@ function createCandidate(overrides: Partial<ReferenceArtifactCandidate> = {}): R
     weeklyFrequency: overrides.weeklyFrequency,
     trainingDayCount: overrides.trainingDayCount,
     updatedAt: overrides.updatedAt ?? "2026-05-30T08:00:00.000Z",
+  };
+}
+
+function createTraceMock() {
+  return {
+    id: "trace-1",
+    addStep: vi.fn(),
+    finish: vi.fn(),
+    update: vi.fn(),
   };
 }

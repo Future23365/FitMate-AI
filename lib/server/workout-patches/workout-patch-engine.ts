@@ -6,6 +6,11 @@ import {
   createConversationArtifactRevision,
   getArtifactPayload,
 } from "@/lib/server/conversation-artifacts/artifact-service";
+import type { AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
+import {
+  summarizeWorkoutPatchForTrace,
+  summarizeWorkoutPatchResultForTrace,
+} from "@/lib/server/dev/ai-run-trace";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import { getExerciseSuitability } from "@/lib/server/exercises/exercise-service";
 import {
@@ -42,6 +47,7 @@ type ApplyWorkoutPatchInput = {
   responseMessageId?: string;
   client?: WorkoutPatchClient;
   exercises?: Exercise[];
+  trace?: AiTraceLogger;
 };
 
 type LocatedDraftItem = {
@@ -68,14 +74,38 @@ export async function applyWorkoutPatch(input: ApplyWorkoutPatchInput): Promise<
   const parsedPatch = workoutPatchSchema.safeParse(input.rawPatch);
 
   if (!parsedPatch.success) {
-    return failure("validation_failed", "Patch 输入缺少必要字段或格式不正确。", [
+    const result = failure("validation_failed", "Patch 输入缺少必要字段或格式不正确。", [
       JSON.stringify(parsedPatch.error.flatten()),
     ]);
+    input.trace?.addStep({
+      name: "Patch 输入结构校验失败",
+      type: "validation",
+      status: "failed",
+      input: input.rawPatch,
+      output: summarizeWorkoutPatchResultForTrace(result),
+      error: parsedPatch.error.flatten(),
+      metadata: { code: "patch_schema_invalid" },
+    });
+    return result;
   }
 
   const patch = parsedPatch.data;
+  input.trace?.addStep({
+    name: "Patch 输入结构校验通过",
+    type: "validation",
+    input: summarizeWorkoutPatchForTrace(patch),
+    output: { valid: true },
+  });
   const scopeBlock = validatePatchScope(patch);
   if (scopeBlock) {
+    input.trace?.addStep({
+      name: "Patch scope 被阻断",
+      type: "validation",
+      status: "failed",
+      input: summarizeWorkoutPatchForTrace(patch),
+      output: summarizeWorkoutPatchResultForTrace(scopeBlock),
+      metadata: { code: scopeBlock.failureReasons[0] },
+    });
     return scopeBlock;
   }
 
@@ -84,24 +114,73 @@ export async function applyWorkoutPatch(input: ApplyWorkoutPatchInput): Promise<
     patch.target.artifactId !== operation.target.artifactId ||
     patch.target.artifactKind !== operation.target.artifactKind
   ) {
-    return failure("validation_failed", "Patch target 与 operation target 不一致。", [
+    const result = failure("validation_failed", "Patch target 与 operation target 不一致。", [
       "target_mismatch",
     ]);
+    input.trace?.addStep({
+      name: "Patch target 校验失败",
+      type: "validation",
+      status: "failed",
+      input: summarizeWorkoutPatchForTrace(patch),
+      output: summarizeWorkoutPatchResultForTrace(result),
+      metadata: { code: "target_mismatch" },
+    });
+    return result;
   }
 
+  const payloadStartedAt = new Date().toISOString();
   const artifact = await getArtifactPayload({
     userId: input.userId,
     artifactId: patch.target.artifactId,
   }, input.client);
+  input.trace?.addStep({
+    name: "getArtifactPayload 受控工具调用",
+    type: "tool_call",
+    status: artifact.ok ? "success" : "failed",
+    input: {
+      toolName: "getArtifactPayload",
+      artifactId: patch.target.artifactId,
+      userId: input.userId,
+    },
+    output: artifact.ok
+      ? {
+          ok: true,
+          artifactId: artifact.artifactId,
+          kind: artifact.kind,
+          payloadKind: isPatchablePayload(artifact.payload) ? artifact.payload.kind : "unsupported",
+        }
+      : artifact,
+    metadata: {
+      startedAt: payloadStartedAt,
+      toolName: "getArtifactPayload",
+      status: artifact.ok ? "success" : artifact.code,
+    },
+  });
 
   if (!artifact.ok) {
-    return failure("validation_failed", artifact.message, [artifact.code]);
+    const result = failure("validation_failed", artifact.message, [artifact.code]);
+    input.trace?.addStep({
+      name: "Patch artifact 权限或读取校验失败",
+      type: "validation",
+      status: "failed",
+      output: summarizeWorkoutPatchResultForTrace(result),
+      metadata: { code: artifact.code },
+    });
+    return result;
   }
 
   if (artifact.kind !== patch.target.artifactKind || !isPatchablePayload(artifact.payload)) {
-    return failure("validation_failed", "Patch 目标 artifact 类型与 payload 不匹配。", [
+    const result = failure("validation_failed", "Patch 目标 artifact 类型与 payload 不匹配。", [
       "artifact_kind_mismatch",
     ]);
+    input.trace?.addStep({
+      name: "Patch artifact 类型校验失败",
+      type: "validation",
+      status: "failed",
+      output: summarizeWorkoutPatchResultForTrace(result),
+      metadata: { code: "artifact_kind_mismatch" },
+    });
+    return result;
   }
 
   const exercises = input.exercises ?? await listAllExercises();
@@ -110,6 +189,13 @@ export async function applyWorkoutPatch(input: ApplyWorkoutPatchInput): Promise<
   const located = locateDraftItem(nextPayload, operation.target);
 
   if (located.status !== "found") {
+    input.trace?.addStep({
+      name: "Patch 目标定位校验失败",
+      type: "validation",
+      status: "failed",
+      output: summarizeWorkoutPatchResultForTrace(located),
+      metadata: { code: located.failureReasons[0] },
+    });
     return located;
   }
 
@@ -121,13 +207,36 @@ export async function applyWorkoutPatch(input: ApplyWorkoutPatchInput): Promise<
   });
 
   if (operationResult.status !== "applied") {
+    input.trace?.addStep({
+      name: "Patch operation 校验失败",
+      type: "validation",
+      status: "failed",
+      output: summarizeWorkoutPatchResultForTrace(operationResult),
+      metadata: { code: operationResult.failureReasons[0] },
+    });
     return operationResult;
   }
 
   const boundaryValidation = validatePatchBoundaries(sourcePayload, nextPayload, located.item.locator);
   if (boundaryValidation) {
+    input.trace?.addStep({
+      name: "Patch 边界校验失败",
+      type: "validation",
+      status: "failed",
+      output: summarizeWorkoutPatchResultForTrace(boundaryValidation),
+      metadata: { code: boundaryValidation.failureReasons[0] },
+    });
     return boundaryValidation;
   }
+  input.trace?.addStep({
+    name: "Patch 边界校验通过",
+    type: "validation",
+    output: {
+      valid: true,
+      target: located.item.locator,
+      diff: operationResult.diff,
+    },
+  });
 
   const revision = await createConversationArtifactRevision({
     userId: input.userId,
@@ -137,8 +246,26 @@ export async function applyWorkoutPatch(input: ApplyWorkoutPatchInput): Promise<
   }, input.client);
 
   if (!revision.ok) {
-    return failure("validation_failed", revision.message, [revision.code]);
+    const result = failure("validation_failed", revision.message, [revision.code]);
+    input.trace?.addStep({
+      name: "Patch revision 持久化失败",
+      type: "persistence",
+      status: "failed",
+      output: summarizeWorkoutPatchResultForTrace(result),
+      metadata: { code: revision.code },
+    });
+    return result;
   }
+  input.trace?.addStep({
+    name: "Patch revision 持久化成功",
+    type: "persistence",
+    output: {
+      sourceArtifactId: artifact.artifactId,
+      artifactId: revision.artifact.id,
+      artifactKind: artifact.kind,
+      revision: revision.artifact.revision,
+    },
+  });
 
   return {
     status: "applied",

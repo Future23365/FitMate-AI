@@ -1,4 +1,10 @@
 import { startAiTrace, summarizeLatestUserMessage } from "@/lib/server/dev/ai-trace-logger";
+import {
+  aiRunTraceModel,
+  aiRunTracePromptVersion,
+  aiRunTraceToolVersions,
+  summarizeRecentArtifactsForTrace,
+} from "@/lib/server/dev/ai-run-trace";
 import { jsonApiError } from "@/lib/server/http/api-error";
 import {
   chatRequestSchema,
@@ -6,6 +12,7 @@ import {
   prepareAiChatRequest,
 } from "@/lib/server/chat/chat-service";
 import { listRecentArtifactSummariesForCurrentUser } from "@/lib/server/conversation-artifacts/artifact-service";
+import { getCurrentUser } from "@/lib/server/users/current-user";
 
 export async function POST(request: Request) {
   const apiKey = process.env.DEEPSEEK_API_KEY;
@@ -31,6 +38,7 @@ export async function POST(request: Request) {
   }
 
   const preparedRequest = prepareAiChatRequest(parsedRequest.data);
+  const user = await getCurrentUser();
   preparedRequest.recentArtifactSummaries = await listRecentArtifactSummariesForCurrentUser(
     parsedRequest.data.conversationId,
   );
@@ -42,6 +50,16 @@ export async function POST(request: Request) {
   const trace = startAiTrace({
     route: "/api/chat",
     title: summarizeLatestUserMessage(preparedRequest.rawMessages),
+    userId: user.id,
+    sessionId: preparedRequest.conversationId,
+    messageId: preparedRequest.responseMessageId,
+    model: aiRunTraceModel,
+    promptVersion: aiRunTracePromptVersion,
+    toolVersions: aiRunTraceToolVersions,
+    input: {
+      latestUserMessage: parsedRequest.data.latestUserMessage,
+      recentArtifactSummaries: summarizeRecentArtifactsForTrace(preparedRequest.recentArtifactSummaries),
+    },
     metadata: {
       messageCount: preparedRequest.rawMessages.length,
       aiContextMessageCount: preparedRequest.messages.length,

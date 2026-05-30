@@ -53,6 +53,7 @@ describe("workout patch engine", () => {
 
   it("replaces a single exercise and preserves unnamed draft fields", async () => {
     const draft = createWorkoutRoutineDraft();
+    const trace = createTraceMock();
     mockReadableSourceArtifact(draft);
     const patch = createReplacePatch();
 
@@ -62,6 +63,7 @@ describe("workout patch engine", () => {
       responseMessageId: "assistant-1",
       client: prismaMock as never,
       exercises,
+      trace,
     });
 
     expect(result.status).toBe("applied");
@@ -109,6 +111,19 @@ describe("workout patch engine", () => {
         revisionOfArtifactId: "artifact-routine",
       }),
     }));
+    expect(trace.addStep).toHaveBeenCalledWith(expect.objectContaining({
+      type: "validation",
+      name: "Patch 输入结构校验通过",
+    }));
+    expect(trace.addStep).toHaveBeenCalledWith(expect.objectContaining({
+      type: "tool_call",
+      input: expect.objectContaining({ toolName: "getArtifactPayload" }),
+    }));
+    expect(trace.addStep).toHaveBeenCalledWith(expect.objectContaining({
+      type: "persistence",
+      name: "Patch revision 持久化成功",
+      output: expect.objectContaining({ artifactId: "artifact-new" }),
+    }));
   });
 
   it("returns ambiguous when the same exercise appears multiple times without occurrenceIndex", async () => {
@@ -141,6 +156,7 @@ describe("workout patch engine", () => {
   });
 
   it("rejects replacementExerciseId outside the server candidate set", async () => {
+    const trace = createTraceMock();
     mockReadableSourceArtifact(createWorkoutRoutineDraft());
 
     const result = await applyWorkoutPatch({
@@ -148,6 +164,7 @@ describe("workout patch engine", () => {
       rawPatch: createReplacePatch({ replacementExerciseId: "barbell-bench" }),
       client: prismaMock as never,
       exercises,
+      trace,
     });
 
     expect(result.status).toBe("validation_failed");
@@ -157,6 +174,11 @@ describe("workout patch engine", () => {
       "replacement_difficulty_too_high",
     ]));
     expect(prismaMock.conversationArtifact.create).not.toHaveBeenCalled();
+    expect(trace.addStep).toHaveBeenCalledWith(expect.objectContaining({
+      type: "validation",
+      status: "failed",
+      metadata: expect.objectContaining({ code: "replacement_outside_candidate_set" }),
+    }));
   });
 
   it("blocks non artifact-only scopes before touching history", async () => {
@@ -251,6 +273,15 @@ function mockReadableSourceArtifact(payload: ReturnType<typeof createWorkoutRout
       payloadSchemaVersion: 1,
       payload,
     });
+}
+
+function createTraceMock() {
+  return {
+    id: "trace-1",
+    addStep: vi.fn(),
+    finish: vi.fn(),
+    update: vi.fn(),
+  };
 }
 
 function createReplacePatch(

@@ -23,6 +23,16 @@ describe("AI trace store and HTTP request helpers", () => {
     const trace = createAiTrace({
       route: "/api/chat",
       title: "胸肌训练",
+      userId: "user-1",
+      sessionId: "chat-1",
+      messageId: "assistant-1",
+      model: "deepseek-v4-flash",
+      promptVersion: "prompt-v1",
+      toolVersions: { ReferenceResolver: "resolver-v1" },
+      input: {
+        latestUserMessage: "帮我把刚才那套改简单点",
+        authorization: "Bearer secret",
+      },
       metadata: { tokenUsage: { input: BigInt(10) } },
     });
     expect(trace?.id).toBeTruthy();
@@ -30,8 +40,13 @@ describe("AI trace store and HTTP request helpers", () => {
     addAiTraceStep(trace?.id, {
       name: "模型请求",
       type: "model_request",
-      input: { prompt: "x" },
+      input: { prompt: "x", apiKey: "secret-key" },
       error: new Error("boom"),
+    });
+    addAiTraceStep(trace?.id, {
+      name: "ReferenceResolver 解析结果",
+      type: "reference_resolution",
+      output: { status: "resolved", artifactId: "artifact-1" },
     });
     const continued = createAiTrace({
       route: "/api/ai/workout-plan",
@@ -39,19 +54,70 @@ describe("AI trace store and HTTP request helpers", () => {
       existingTraceId: trace?.id,
       metadata: { parentTraceId: trace?.id },
     });
-    finishAiTrace(trace?.id, "success");
+    finishAiTrace(trace?.id, "success", {
+      status: "success",
+      reason: "done",
+    });
 
     expect(continued?.id).toBe(trace?.id);
     expect(listAiTraces()[0]).toMatchObject({
       id: trace?.id,
+      runId: trace?.id,
       status: "success",
+      userId: "user-1",
+      sessionId: "chat-1",
+      messageId: "assistant-1",
+      model: "deepseek-v4-flash",
+      promptVersion: "prompt-v1",
+      toolVersions: { ReferenceResolver: "resolver-v1" },
+      input: {
+        latestUserMessage: "帮我把刚才那套改简单点",
+        authorization: "[REDACTED]",
+      },
+      finalDecision: {
+        status: "success",
+        reason: "done",
+      },
       metadata: {
         tokenUsage: { input: "10" },
         parentTraceId: trace?.id,
         continuedRoutes: ["/api/ai/workout-plan"],
       },
-      steps: [expect.objectContaining({ name: "模型请求", error: expect.objectContaining({ message: "boom" }) })],
+      steps: [
+        expect.objectContaining({
+          name: "模型请求",
+          input: { prompt: "x", apiKey: "[REDACTED]" },
+          error: expect.objectContaining({ message: "boom" }),
+        }),
+        expect.objectContaining({
+          type: "reference_resolution",
+          output: { status: "resolved", artifactId: "artifact-1" },
+        }),
+      ],
     });
+  });
+
+  it("truncates oversized trace fields without dropping diagnostic ids", () => {
+    const trace = createAiTrace({
+      route: "/api/chat",
+      title: "长 payload",
+      input: {
+        artifactId: "artifact-1",
+        payload: "x".repeat(10_000),
+      },
+    });
+
+    expect(listAiTraces()[0]).toMatchObject({
+      input: {
+        artifactId: "artifact-1",
+        payload: {
+          truncated: true,
+          originalLength: 10_000,
+          maxLength: 8_000,
+        },
+      },
+    });
+    expect(trace?.id).toBeTruthy();
   });
 
   it("serializes JSON requests and maps server-side error bodies", async () => {

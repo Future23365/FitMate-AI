@@ -30,6 +30,12 @@ import {
   type FitnessConversationContext,
 } from "@/lib/shared/chat/fitness-conversation-context";
 import type { AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
+import {
+  createFinalDecision,
+  summarizeRecentArtifactsForTrace,
+  summarizeReferenceResolutionForTrace,
+  summarizeWorkoutPatchResultForTrace,
+} from "@/lib/server/dev/ai-run-trace";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import { serverRequest } from "@/lib/server/http/server-request";
 import {
@@ -205,7 +211,7 @@ export async function createAiChatResponse({
       messages: rawMessages,
       latestUserMessage: conversationSummaryContext.latestUserMessage,
       conversationSummary: conversationSummaryContext.summary,
-      recentArtifactSummaries,
+      recentArtifactSummaries: summarizeRecentArtifactsForTrace(recentArtifactSummaries),
       aiContextMessages: messages,
       thinkingEnabled,
     },
@@ -228,15 +234,18 @@ export async function createAiChatResponse({
         sessionId: request.conversationId,
         recentArtifacts: recentArtifactSummaries,
         intentType: chatIntent.type,
+        trace,
       })
     : null;
 
   trace.addStep({
     name: "引用解析结果",
-    type: "candidate_selection",
-    output: referenceResolution,
+    type: "reference_resolution",
+    output: summarizeReferenceResolutionForTrace(referenceResolution),
     metadata: {
       skipped: !referenceResolution,
+      status: referenceResolution?.status,
+      reason: referenceResolution?.reason,
     },
   });
 
@@ -257,6 +266,20 @@ export async function createAiChatResponse({
       latestUserMessage: conversationSummaryContext.latestUserMessage,
       referenceResolution,
       responseMessageId: request.responseMessageId,
+      trace,
+    });
+
+    trace.addStep({
+      name: "聊天 Patch 编排结果",
+      type: "patch_proposal",
+      status: patchResult.handled && patchResult.result.status !== "applied" ? "failed" : "success",
+      output: patchResult.handled
+        ? summarizeWorkoutPatchResultForTrace(patchResult.result)
+        : patchResult,
+      metadata: {
+        handled: patchResult.handled,
+        resultStatus: patchResult.handled ? patchResult.result.status : undefined,
+      },
     });
 
     if (patchResult.handled) {
@@ -361,7 +384,12 @@ export async function createAiChatResponse({
       status: "failed",
       error,
     });
-    trace.finish("failed");
+    trace.finish("failed", createFinalDecision({
+      status: "hard_failure",
+      responseType: "error_response",
+      reason: "聊天模型请求失败。",
+      code: "deepseek_request_failed",
+    }));
     console.warn("[chat] deepseek_failed", {
       message:
         error instanceof DOMException && error.name === "AbortError"
@@ -393,7 +421,12 @@ export async function createAiChatResponse({
         detail: errorText,
       },
     });
-    trace.finish("failed");
+    trace.finish("failed", createFinalDecision({
+      status: "hard_failure",
+      responseType: "error_response",
+      reason: "聊天模型返回失败状态。",
+      code: "deepseek_response_failed",
+    }));
 
     console.warn("[chat] deepseek_failed", {
       status: response.status,
@@ -420,7 +453,12 @@ export async function createAiChatResponse({
         detail: "DeepSeek API returned an empty stream.",
       },
     });
-    trace.finish("failed");
+    trace.finish("failed", createFinalDecision({
+      status: "hard_failure",
+      responseType: "error_response",
+      reason: "聊天模型返回空流。",
+      code: "empty_stream",
+    }));
     console.warn("[chat] deepseek_failed", {
       status: 502,
       detail: "DeepSeek API returned an empty stream.",
@@ -467,7 +505,12 @@ export async function createAiChatResponse({
           status: "failed",
           output: "DeepSeek API returned an empty stream.",
         });
-        trace.finish("failed");
+        trace.finish("failed", createFinalDecision({
+          status: "hard_failure",
+          responseType: "stream_error",
+          reason: "聊天模型返回空流。",
+          code: "empty_stream",
+        }));
         controller.enqueue(encodeChatStreamEvent("error", "DeepSeek API returned an empty stream."));
         controller.close();
         return;
@@ -515,7 +558,20 @@ export async function createAiChatResponse({
                 internalActionSummary: summarizeAssistantAction(assistantAction),
                 trace,
               });
-              trace.finish("success");
+              trace.addStep({
+                name: "聊天回复写入完成",
+                type: "response_write",
+                output: {
+                  contentLength: contentText.length,
+                  reasoningLength: reasoningText.length,
+                  conversationSummarySource: summaryUpdate.source,
+                },
+              });
+              trace.finish("success", createFinalDecision({
+                status: "success",
+                responseType: assistantAction ? "assistant_action_stream" : "chat_stream",
+                reason: "聊天回复已流式输出并完成上下文总结更新。",
+              }));
               controller.enqueue(
                 encodeChatStreamEvent("done", "", {
                   traceId: trace.id,
@@ -567,7 +623,20 @@ export async function createAiChatResponse({
           internalActionSummary: summarizeAssistantAction(assistantAction),
           trace,
         });
-        trace.finish("success");
+        trace.addStep({
+          name: "聊天回复写入完成",
+          type: "response_write",
+          output: {
+            contentLength: contentText.length,
+            reasoningLength: reasoningText.length,
+            conversationSummarySource: summaryUpdate.source,
+          },
+        });
+        trace.finish("success", createFinalDecision({
+          status: "success",
+          responseType: assistantAction ? "assistant_action_stream" : "chat_stream",
+          reason: "聊天回复已流式输出并完成上下文总结更新。",
+        }));
         controller.enqueue(
           encodeChatStreamEvent("done", "", {
             traceId: trace.id,
@@ -583,7 +652,12 @@ export async function createAiChatResponse({
           status: "failed",
           error,
         });
-        trace.finish("failed");
+        trace.finish("failed", createFinalDecision({
+          status: "hard_failure",
+          responseType: "stream_error",
+          reason: "聊天流式读取失败。",
+          code: "stream_read_failed",
+        }));
         console.warn("[chat] deepseek_failed", {
           message:
             error instanceof DOMException && error.name === "AbortError"
@@ -650,7 +724,23 @@ function createDeterministicChatResponse(input: {
         internalActionSummary: input.internalActionSummary,
         trace: input.trace,
       });
-      input.trace.finish("success");
+      input.trace.addStep({
+        name: "确定性回复写入完成",
+        type: "response_write",
+        output: {
+          contentLength: input.assistantReply.length,
+          conversationSummarySource: summaryUpdate.source,
+          emittedWorkoutPatch: input.workoutPatchResult?.status === "applied",
+        },
+      });
+      input.trace.finish("success", createFinalDecision({
+        status: input.workoutPatchResult && input.workoutPatchResult.status !== "applied"
+          ? "recoverable_failure"
+          : "success",
+        responseType: input.workoutPatchResult ? "workout_patch_response" : "deterministic_chat_response",
+        reason: input.workoutPatchResult?.message ?? "服务端确定性回复已输出。",
+        code: input.workoutPatchResult?.failureReasons[0],
+      }));
       controller.enqueue(
         encodeChatStreamEvent("done", "", {
           traceId: input.trace.id,

@@ -4,6 +4,7 @@ import {
   finishAiTrace,
   updateAiTrace,
   type AiTrace,
+  type AiRunFinalDecision,
   type AiTraceStepType,
   type AiTraceStatus,
 } from "./ai-trace-store";
@@ -19,13 +20,21 @@ export type AiTraceLogger = {
     metadata?: Record<string, unknown>;
     error?: unknown;
   }) => void;
-  finish: (status: AiTraceStatus) => void;
+  finish: (status: AiTraceStatus, finalDecision?: AiRunFinalDecision) => void;
   update: (input: Partial<AiTrace>) => void;
 };
 
 export function startAiTrace(input: {
   route: string;
   title: string;
+  runId?: string;
+  userId?: string;
+  sessionId?: string;
+  messageId?: string;
+  model?: string;
+  promptVersion?: string;
+  toolVersions?: Record<string, string>;
+  input?: unknown;
   metadata?: Record<string, unknown>;
   existingTraceId?: string;
 }): AiTraceLogger {
@@ -34,16 +43,22 @@ export function startAiTrace(input: {
   return {
     id: trace?.id,
     addStep(stepInput) {
-      addAiTraceStep(trace?.id, {
-        ...stepInput,
-        endedAt: new Date().toISOString(),
+      protectTraceWrite("addStep", () => {
+        addAiTraceStep(trace?.id, {
+          ...stepInput,
+          endedAt: new Date().toISOString(),
+        });
       });
     },
-    finish(status) {
-      finishAiTrace(trace?.id, status);
+    finish(status, finalDecision) {
+      protectTraceWrite("finish", () => {
+        finishAiTrace(trace?.id, status, finalDecision);
+      });
     },
     update(updateInput) {
-      updateAiTrace(trace?.id, updateInput);
+      protectTraceWrite("update", () => {
+        updateAiTrace(trace?.id, updateInput);
+      });
     },
   };
 }
@@ -52,4 +67,15 @@ export function summarizeLatestUserMessage(messages: Array<{ role: string; conte
   const latest = [...messages].reverse().find((message) => message.role === "user")?.content ?? "";
 
   return latest.length > 60 ? `${latest.slice(0, 60)}...` : latest || "AI 请求";
+}
+
+function protectTraceWrite(action: string, writer: () => void) {
+  try {
+    writer();
+  } catch (error) {
+    console.warn("[ai-trace] write_failed", {
+      action,
+      detail: error instanceof Error ? error.message : error,
+    });
+  }
 }

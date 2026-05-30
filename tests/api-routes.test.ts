@@ -45,6 +45,12 @@ const chatHistoryMocks = vi.hoisted(() => ({
   listChatConversations: vi.fn(),
   saveChatConversation: vi.fn(),
 }));
+const artifactMocks = vi.hoisted(() => ({
+  listRecentArtifactSummariesForCurrentUser: vi.fn(),
+}));
+const currentUserMocks = vi.hoisted(() => ({
+  getCurrentUser: vi.fn(),
+}));
 
 vi.mock("@/lib/server/dev/ai-trace-logger", () => traceMocks);
 vi.mock("@/lib/server/chat/chat-service", async (importOriginal) => {
@@ -68,6 +74,8 @@ vi.mock("@/lib/server/exercise-recommendations/ai-exercise-recommendation-servic
 vi.mock("@/lib/server/exercises/exercise-service", () => exerciseServiceMocks);
 vi.mock("@/lib/server/workouts/workout-persistence-service", () => workoutPersistenceMocks);
 vi.mock("@/lib/server/chat/chat-history-service", () => chatHistoryMocks);
+vi.mock("@/lib/server/conversation-artifacts/artifact-service", () => artifactMocks);
+vi.mock("@/lib/server/users/current-user", () => currentUserMocks);
 
 const chatRoute = await import("@/app/api/chat/route");
 const workoutPlanRoute = await import("@/app/api/ai/workout-plan/route");
@@ -132,6 +140,8 @@ describe("API route boundaries", () => {
     chatHistoryMocks.listChatConversations.mockResolvedValue([createChatConversation()]);
     chatHistoryMocks.getChatConversationById.mockResolvedValue(createChatConversation({ id: "conversation-1" }));
     chatHistoryMocks.saveChatConversation.mockImplementation(async (conversation) => conversation);
+    artifactMocks.listRecentArtifactSummariesForCurrentUser.mockResolvedValue([]);
+    currentUserMocks.getCurrentUser.mockResolvedValue({ id: "user-1" });
   });
 
   it("validates /api/chat body and returns stream response for legal requests", async () => {
@@ -149,6 +159,12 @@ describe("API route boundaries", () => {
         request: expect.objectContaining({ rawMessages: [expect.objectContaining({ content: "练胸" })] }),
       }),
     );
+    expect(traceMocks.startAiTrace).toHaveBeenCalledWith(expect.objectContaining({
+      userId: "user-1",
+      model: "deepseek-v4-flash",
+      promptVersion: expect.any(String),
+      toolVersions: expect.objectContaining({ ReferenceResolver: expect.any(String) }),
+    }));
   });
 
   it("maps AI workout plan and recommendation request boundaries", async () => {

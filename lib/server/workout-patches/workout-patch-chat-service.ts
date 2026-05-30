@@ -1,6 +1,11 @@
 import "server-only";
 
 import { getArtifactPayload } from "@/lib/server/conversation-artifacts/artifact-service";
+import type { AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
+import {
+  summarizeWorkoutPatchForTrace,
+  summarizeWorkoutPatchResultForTrace,
+} from "@/lib/server/dev/ai-run-trace";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import { applyWorkoutPatch } from "@/lib/server/workout-patches/workout-patch-engine";
 import type { ReferenceResolution } from "@/lib/shared/reference-resolver/schema";
@@ -18,6 +23,7 @@ type BuildAndApplyWorkoutPatchInput = {
   latestUserMessage: string;
   referenceResolution: Extract<ReferenceResolution, { status: "resolved" }>;
   responseMessageId?: string;
+  trace?: AiTraceLogger;
 };
 
 type PatchableItem = {
@@ -41,21 +47,82 @@ export async function buildAndApplyWorkoutPatchFromChat(
   input: BuildAndApplyWorkoutPatchInput,
 ): Promise<WorkoutPatchChatResult> {
   if (!shouldAttemptWorkoutPatch(input.latestUserMessage, input.referenceResolution)) {
+    input.trace?.addStep({
+      name: "Patch 意图检查未命中",
+      type: "patch_proposal",
+      output: { handled: false, reason: "not_patch_intent" },
+      metadata: {
+        artifactId: input.referenceResolution.artifactId,
+        artifactKind: input.referenceResolution.artifactKind,
+      },
+    });
     return { handled: false, reason: "not_patch_intent" };
   }
 
+  const payloadStartedAt = new Date().toISOString();
   const artifact = await getArtifactPayload({
     userId: input.userId,
     artifactId: input.referenceResolution.artifactId,
   });
+  input.trace?.addStep({
+    name: "getArtifactPayload 受控工具调用",
+    type: "tool_call",
+    status: artifact.ok ? "success" : "failed",
+    input: {
+      toolName: "getArtifactPayload",
+      artifactId: input.referenceResolution.artifactId,
+      userId: input.userId,
+    },
+    output: artifact.ok
+      ? {
+          ok: true,
+          artifactId: artifact.artifactId,
+          kind: artifact.kind,
+          payloadKind: isWorkoutDraftPayload(artifact.payload) ? artifact.payload.kind : "unsupported",
+          title: isWorkoutDraftPayload(artifact.payload) ? artifact.payload.title : undefined,
+        }
+      : artifact,
+    metadata: {
+      startedAt: payloadStartedAt,
+      toolName: "getArtifactPayload",
+      status: artifact.ok ? "success" : artifact.code,
+    },
+  });
 
   if (!artifact.ok || (artifact.kind !== "routine" && artifact.kind !== "plan") || !isWorkoutDraftPayload(artifact.payload)) {
+    input.trace?.addStep({
+      name: "Patch 目标 artifact 不支持",
+      type: "patch_proposal",
+      status: "failed",
+      output: { handled: false, reason: "unsupported_artifact" },
+      metadata: {
+        artifactId: input.referenceResolution.artifactId,
+        artifactKind: input.referenceResolution.artifactKind,
+      },
+    });
     return { handled: false, reason: "unsupported_artifact" };
   }
 
   const exercises = await listAllExercises();
   const target = resolvePatchTarget(input.latestUserMessage, artifact.payload, exercises);
   if (!target) {
+    input.trace?.addStep({
+      name: "Patch 目标定位失败",
+      type: "patch_proposal",
+      status: "failed",
+      input: {
+        artifactId: artifact.artifactId,
+        artifactKind: artifact.kind,
+        latestUserMessage: input.latestUserMessage,
+      },
+      output: {
+        status: "ambiguous",
+        failureReasons: ["patch_target_not_found"],
+      },
+      metadata: {
+        code: "patch_target_not_found",
+      },
+    });
     return {
       handled: true,
       result: {
@@ -94,15 +161,43 @@ export async function buildAndApplyWorkoutPatchFromChat(
     ],
     reason: input.latestUserMessage,
   };
+  input.trace?.addStep({
+    name: "WorkoutPatch 提出",
+    type: "patch_proposal",
+    input: {
+      latestUserMessage: input.latestUserMessage,
+      referenceResolution: input.referenceResolution,
+    },
+    output: summarizeWorkoutPatchForTrace(patch),
+    metadata: {
+      scope: patch.scope,
+      operation: patch.operations[0]?.operation,
+      targetArtifactId: patch.target.artifactId,
+      targetArtifactKind: patch.target.artifactKind,
+    },
+  });
+
+  const result = await applyWorkoutPatch({
+    userId: input.userId,
+    rawPatch: patch,
+    responseMessageId: input.responseMessageId,
+    exercises,
+    trace: input.trace,
+  });
+  input.trace?.addStep({
+    name: "WorkoutPatch 应用结果",
+    type: "patch_proposal",
+    status: result.status === "applied" ? "success" : "failed",
+    output: summarizeWorkoutPatchResultForTrace(result),
+    metadata: {
+      resultStatus: result.status,
+      code: result.failureReasons[0],
+    },
+  });
 
   return {
     handled: true,
-    result: await applyWorkoutPatch({
-      userId: input.userId,
-      rawPatch: patch,
-      responseMessageId: input.responseMessageId,
-      exercises,
-    }),
+    result,
   };
 }
 

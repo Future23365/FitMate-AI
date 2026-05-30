@@ -610,11 +610,20 @@ function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) {
   return compactObject({
     title: trace.title,
     trace: compactObject({
+      runId: trace.runId,
       route: trace.route,
       status: trace.status,
       createdAt: trace.createdAt,
       endedAt: trace.endedAt,
       durationMs: trace.durationMs,
+      userId: trace.userId,
+      sessionId: trace.sessionId,
+      messageId: trace.messageId,
+      model: trace.model,
+      promptVersion: trace.promptVersion,
+      toolVersions: compactValue(trace.toolVersions),
+      input: compactValue(trace.input),
+      finalDecision: compactValue(trace.finalDecision),
       tokenUsage: getTraceTokenUsage(trace),
       metadata: compactValue(trace.metadata),
     }),
@@ -1188,7 +1197,7 @@ function isContentPayload(value: unknown): value is ContentPayload {
   return isRecord(value) && (typeof value.content === "string" || typeof value.reasoning === "string");
 }
 
-function groupTraceSteps(steps: AiTraceStep[]): TraceStepGroup[] {
+export function groupTraceSteps(steps: AiTraceStep[]): TraceStepGroup[] {
   const groupMap = new Map<string, TraceStepGroup>();
 
   for (const step of steps) {
@@ -1248,18 +1257,45 @@ function getStepGroupDefinition(step: AiTraceStep) {
     };
   }
 
+  if (step.type === "reference_resolution") {
+    return {
+      id: "03_reference_resolution",
+      title: "引用解析",
+      description: "将这套、刚才、上一个等自然语言引用收敛到当前用户可访问的 artifact",
+      placement: "main_flow" as const,
+    };
+  }
+
+  if (step.type === "tool_call") {
+    return {
+      id: "04_tool_call",
+      title: "受控工具调用",
+      description: "记录 searchArtifacts、getArtifactPayload 等服务端工具的输入摘要、输出摘要和失败原因",
+      placement: "main_flow" as const,
+    };
+  }
+
   if (step.type === "exercise_lookup" || step.type === "candidate_selection") {
     return {
-      id: "03_candidates",
+      id: "05_candidates",
       title: "动作候选",
       description: "读取动作库并按目标、器械、风险过滤候选",
       placement: "main_flow" as const,
     };
   }
 
+  if (step.type === "patch_proposal") {
+    return {
+      id: "06_patch",
+      title: "Patch 提出与应用",
+      description: "记录训练卡片局部修改的 scope、operation、目标摘要、diff 和失败原因",
+      placement: "main_flow" as const,
+    };
+  }
+
   if (step.type === "validation" || step.name.includes("校验")) {
     return {
-      id: "05_validation",
+      id: "07_validation",
       title: "服务端校验",
       description: "校验计划结构、动作 ID、候选范围和训练规则",
       placement: "main_flow" as const,
@@ -1268,16 +1304,34 @@ function getStepGroupDefinition(step: AiTraceStep) {
 
   if (getStepTask(step) === "draft_generation" || step.name.includes("草稿")) {
     return {
-      id: "04_draft",
+      id: "06_draft",
       title: "计划草稿生成",
       description: "调用模型生成结构化训练计划草稿",
       placement: "main_flow" as const,
     };
   }
 
+  if (step.type === "persistence") {
+    return {
+      id: "08_persistence",
+      title: "持久化",
+      description: "记录 artifact revision、训练草稿或上下文保存结果",
+      placement: "main_flow" as const,
+    };
+  }
+
+  if (step.type === "response_write") {
+    return {
+      id: "09_response_write",
+      title: "响应写入",
+      description: "记录流式响应、确定性回复、done 事件和上下文总结写入结果",
+      placement: "main_flow" as const,
+    };
+  }
+
   if (step.type === "final_response") {
     return {
-      id: "06_final_response",
+      id: "10_final_response",
       title: "接口返回",
       description: "返回给前端的最终结果",
       placement: "main_flow" as const,
@@ -1286,7 +1340,7 @@ function getStepGroupDefinition(step: AiTraceStep) {
 
   if (step.type === "model_request" || step.type === "model_response") {
     return {
-      id: "04_model_response",
+      id: "06_model_response",
       title: "回复生成",
       description: "生成聊天回复或模型中间输出",
       placement: "main_flow" as const,
@@ -1370,6 +1424,22 @@ function getStepSummaryItems(step: AiTraceStep, tokenUsage: TokenUsage | null) {
     items.push({ label: "HTTP 状态", value: String(metadata.status) });
   }
 
+  if (typeof metadata?.status === "string") {
+    items.push({ label: "状态", value: metadata.status });
+  }
+
+  if (typeof metadata?.toolName === "string") {
+    items.push({ label: "工具", value: metadata.toolName });
+  }
+
+  if (typeof metadata?.code === "string") {
+    items.push({ label: "错误码", value: metadata.code });
+  }
+
+  if (typeof metadata?.operation === "string") {
+    items.push({ label: "Patch 操作", value: metadata.operation });
+  }
+
   if (typeof metadata?.primaryCandidateCount === "number") {
     items.push({ label: "主候选", value: String(metadata.primaryCandidateCount) });
   }
@@ -1393,6 +1463,12 @@ function getStepSummaryItems(step: AiTraceStep, tokenUsage: TokenUsage | null) {
     addRecordItem(items, output, "isEnoughCandidates", "候选充足");
     addRecordItem(items, output, "ok", "结果");
     addRecordItem(items, output, "code", "错误码");
+    addRecordItem(items, output, "artifactId", "Artifact");
+    addRecordItem(items, output, "artifactKind", "Artifact 类型");
+    addRecordItem(items, output, "toolName", "工具");
+    addRecordItem(items, output, "status", "输出状态");
+    addRecordItem(items, output, "reason", "原因");
+    addRecordItem(items, output, "message", "消息");
 
     const content = output.content;
     if (typeof content === "string") {
@@ -1460,6 +1536,20 @@ function getTraceOverviewItems(trace: AiTrace): FieldExplanationItem[] {
   ];
 
   addKnownMetadataItem(items, metadata, "latestUserMessage", "最新用户消息", "本轮真正驱动 AI 判断的最新用户输入。");
+  addKnownMetadataItem(items, trace as unknown as Record<string, unknown>, "userId", "用户", "本次 trace 归属的用户边界，用于检查权限隔离。");
+  addKnownMetadataItem(items, trace as unknown as Record<string, unknown>, "sessionId", "会话", "本次 trace 关联的聊天会话或下游请求会话。");
+  addKnownMetadataItem(items, trace as unknown as Record<string, unknown>, "messageId", "消息", "本次 trace 关联的助手消息或响应消息。");
+  addKnownMetadataItem(items, trace as unknown as Record<string, unknown>, "model", "模型", "本次编排默认使用的模型名称。");
+  addKnownMetadataItem(items, trace as unknown as Record<string, unknown>, "promptVersion", "Prompt 版本", "本次编排使用的 prompt 版本，用于解释同输入不同行为。");
+  if (isRecord(trace.finalDecision)) {
+    addKnownMetadataItem(items, trace.finalDecision, "status", "最终决策", "本次编排最终归类为成功、可恢复失败或硬失败。");
+    addKnownMetadataItem(items, trace.finalDecision, "code", "最终错误码", "失败或降级路径的最终诊断 code。");
+    addKnownMetadataItem(items, trace.finalDecision, "reason", "最终原因", "最终决策的可读原因。");
+  }
+  addKnownMetadataItem(items, metadata, "userId", "用户", "本次 trace 归属的用户边界，用于检查权限隔离。");
+  addKnownMetadataItem(items, metadata, "sessionId", "会话", "本次 trace 关联的聊天会话或下游请求会话。");
+  addKnownMetadataItem(items, metadata, "messageId", "消息", "本次 trace 关联的助手消息或响应消息。");
+  addKnownMetadataItem(items, metadata, "promptVersion", "Prompt 版本", "本次编排使用的 prompt 版本，用于解释同输入不同行为。");
   addKnownMetadataItem(items, metadata, "parentTraceId", "父级 trace", "下游接口复用的上游 trace id，用于串起聊天和动作/计划生成。");
   addKnownMetadataItem(items, metadata, "continuedRoutes", "连续路由", "同一 trace 继续记录过的后续服务端入口。");
   addKnownMetadataItem(items, metadata, "thinkingEnabled", "推理开关", "本次聊天是否允许模型返回 reasoning 或开启 thinking 配置。");
@@ -1528,12 +1618,66 @@ function getStepExplanationItems(step: AiTraceStep, tokenUsage: TokenUsage | nul
     }
   }
 
+  if (step.type === "reference_resolution") {
+    const source = output ?? input ?? {};
+    addKnownMetadataItem(items, source, "status", "解析状态", "resolved 表示已安全定位，ambiguous 表示需要用户确认，not_found 表示没有找到可访问对象。");
+    addKnownMetadataItem(items, source, "artifactId", "命中 artifact", "服务端解析出的候选 artifact id，仅来自当前用户可访问集合。");
+    addKnownMetadataItem(items, source, "artifactKind", "artifact 类型", "引用对象类型，例如 routine、plan 或 exercise_recommendation。");
+    addKnownMetadataItem(items, source, "confidence", "置信度", "ReferenceResolver 对当前解析结果的信心。");
+    addKnownMetadataItem(items, source, "reason", "决策原因", "解析命中、歧义或未找到的直接原因。");
+    addKnownMetadataItem(items, source, "clarificationQuestion", "澄清问题", "歧义时服务端准备给用户的确认问题。");
+    if (Array.isArray(source.candidates)) {
+      items.push({
+        key: "candidates",
+        label: "候选数量",
+        value: `${source.candidates.length} 个`,
+        description: "用于解析引用的候选摘要数量，不包含完整 payload。",
+      });
+    }
+  }
+
+  if (step.type === "tool_call") {
+    const source = output ?? input ?? {};
+    addKnownMetadataItem(items, metadata ?? {}, "toolName", "工具名", "本次受控工具调用的服务端工具。");
+    addKnownMetadataItem(items, input ?? {}, "toolName", "输入工具名", "工具调用输入声明的工具名称。");
+    addKnownMetadataItem(items, source, "candidateCount", "候选数", "工具返回的候选摘要数量。");
+    addKnownMetadataItem(items, source, "artifactId", "artifact", "工具读取或返回的 artifact id。");
+    addKnownMetadataItem(items, source, "kind", "artifact 类型", "工具返回的 artifact 类型。");
+    addKnownMetadataItem(items, source, "status", "工具状态", "工具输出或 metadata 中记录的成功/失败状态。");
+    addKnownMetadataItem(items, source, "code", "错误码", "工具失败时用于诊断权限拒绝、未找到或 payload 校验失败。");
+  }
+
+  if (step.type === "patch_proposal") {
+    const source = output ?? input ?? {};
+    addKnownMetadataItem(items, source, "scope", "Patch scope", "本次 Patch 允许影响的范围，当前通常只能是 artifact_only。");
+    addKnownMetadataItem(items, metadata ?? {}, "operation", "Patch 操作", "replace_exercise、adjust_load 或 remove_exercise。");
+    addKnownMetadataItem(items, source, "status", "Patch 状态", "Patch 是否已应用、被阻断、歧义或校验失败。");
+    addKnownMetadataItem(items, source, "message", "Patch 说明", "返回给用户或用于诊断的可读结果。");
+    addKnownMetadataItem(items, source, "sourceArtifactId", "来源 artifact", "被修改的原始 artifact。");
+    addKnownMetadataItem(items, source, "artifactId", "新 artifact", "Patch 应用成功后生成的新 revision artifact。");
+    addKnownMetadataItem(items, source, "failureReasons", "失败原因", "Patch 未应用时的可诊断原因集合。");
+  }
+
   if (output && step.type === "validation") {
     addKnownMetadataItem(items, output, "valid", "校验通过", "服务端最终结构校验、动作 id 校验和规则校验是否通过。");
     addKnownMetadataItem(items, output, "ok", "结果状态", "服务端返回对象的成功标记。");
     addKnownMetadataItem(items, output, "code", "错误码", "失败时用于定位是哪类校验或生成问题。");
     addKnownMetadataItem(items, output, "message", "错误信息", "失败时给出的可读说明。");
     addKnownMetadataItem(items, output, "errors", "校验错误", "具体字段或动作规则不符合预期的列表。");
+  }
+
+  if (output && step.type === "persistence") {
+    addKnownMetadataItem(items, output, "artifactId", "新 artifact", "持久化成功后写入的新 artifact 或记录 id。");
+    addKnownMetadataItem(items, output, "sourceArtifactId", "来源 artifact", "持久化 revision 的来源 artifact。");
+    addKnownMetadataItem(items, output, "revision", "revision", "持久化后的 revision 序号。");
+    addKnownMetadataItem(items, output, "code", "错误码", "持久化失败时的诊断 code。");
+    addKnownMetadataItem(items, output, "message", "错误信息", "持久化失败时的可读说明。");
+  }
+
+  if (output && step.type === "response_write") {
+    addKnownMetadataItem(items, output, "contentLength", "回复长度", "本次写给用户的主要文本长度。");
+    addKnownMetadataItem(items, output, "conversationSummarySource", "总结来源", "上下文总结来自模型还是确定性 fallback。");
+    addKnownMetadataItem(items, output, "emittedWorkoutPatch", "发送 Patch 事件", "是否向前端发送 workout_patch 结构化事件。");
   }
 
   if (isModelPayload(step.input)) {
@@ -1619,6 +1763,31 @@ function getStepInterpretation(step: AiTraceStep) {
     return `候选状态为 ${status}，需要结合相关候选数和警告判断是否足够。`;
   }
 
+  if (step.type === "reference_resolution") {
+    const output = isRecord(step.output) ? step.output : {};
+    const status = stringifyValue(output.status ?? "未标注");
+    const reason = typeof output.reason === "string" ? output.reason : "没有记录原因。";
+
+    return `引用解析状态为 ${status}。${reason}`;
+  }
+
+  if (step.type === "tool_call") {
+    const metadata = isRecord(step.metadata) ? step.metadata : {};
+    const input = isRecord(step.input) ? step.input : {};
+    const toolName = stringifyValue(metadata.toolName ?? input.toolName ?? "未知工具");
+    const state = step.status === "failed" ? "失败" : "成功";
+
+    return `${toolName} 受控工具调用${state}，展开原始 JSON 可检查输入摘要、输出摘要、耗时和错误 code。`;
+  }
+
+  if (step.type === "patch_proposal") {
+    const output = isRecord(step.output) ? step.output : {};
+    const status = stringifyValue(output.status ?? output.resultStatus ?? step.status);
+    const code = Array.isArray(output.failureReasons) ? output.failureReasons.join("、") : "";
+
+    return `Patch 阶段状态为 ${status}。${code ? `失败原因：${code}。` : "如果已应用，应继续检查 diff 和持久化 step。"}`;
+  }
+
   if (step.type === "validation") {
     const output = isRecord(step.output) ? step.output : {};
     const valid = output.valid ?? output.ok;
@@ -1630,6 +1799,16 @@ function getStepInterpretation(step: AiTraceStep) {
     if (valid === false) {
       return "服务端校验失败，需要优先查看错误码、errors 和原始草稿，确认是模型输出结构问题还是动作候选不匹配。";
     }
+  }
+
+  if (step.type === "persistence") {
+    return step.status === "failed"
+      ? "持久化失败。优先查看错误码、来源 artifact 和权限边界。"
+      : "持久化成功。检查新记录 id、revision 和来源对象，确认没有越权写入。";
+  }
+
+  if (step.type === "response_write") {
+    return "响应写入阶段记录最终输出给前端的摘要，以及上下文总结是否来自模型或 fallback。";
   }
 
   if (step.type === "model_request") {
@@ -1829,6 +2008,18 @@ function getInputTitle(step: AiTraceStep) {
     return "筛选输入";
   }
 
+  if (step.type === "reference_resolution") {
+    return "引用解析输入";
+  }
+
+  if (step.type === "tool_call") {
+    return "工具调用输入";
+  }
+
+  if (step.type === "patch_proposal") {
+    return "Patch 输入";
+  }
+
   if (step.type === "validation") {
     return "校验输入";
   }
@@ -1849,12 +2040,32 @@ function getOutputTitle(step: AiTraceStep) {
     return "筛选结果";
   }
 
+  if (step.type === "reference_resolution") {
+    return "引用解析结果";
+  }
+
+  if (step.type === "tool_call") {
+    return "工具调用结果";
+  }
+
+  if (step.type === "patch_proposal") {
+    return "Patch 结果";
+  }
+
   if (step.type === "intent") {
     return "意图结果";
   }
 
   if (step.type === "validation") {
     return "校验结果";
+  }
+
+  if (step.type === "persistence") {
+    return "持久化结果";
+  }
+
+  if (step.type === "response_write") {
+    return "响应写入结果";
   }
 
   if (step.type === "final_response") {
@@ -2031,9 +2242,14 @@ function getStepTypeLabel(type: AiTraceStep["type"]) {
     model_request: "模型请求",
     model_response: "模型输出",
     intent: "意图",
+    reference_resolution: "引用解析",
+    tool_call: "工具调用",
+    patch_proposal: "Patch",
     exercise_lookup: "动作库",
     candidate_selection: "候选筛选",
     validation: "校验",
+    persistence: "持久化",
+    response_write: "响应写入",
     final_response: "最终返回",
     error: "错误",
   };

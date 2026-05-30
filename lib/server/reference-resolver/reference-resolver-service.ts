@@ -4,6 +4,8 @@ import {
   searchArtifactsForCurrentUser,
 } from "@/lib/server/conversation-artifacts/artifact-service";
 import type { ChatIntent } from "@/lib/server/chat/chat-service";
+import type { AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
+import { summarizeReferenceResolutionForTrace } from "@/lib/server/dev/ai-run-trace";
 import type {
   ReferenceArtifactCandidate,
   ReferenceResolution,
@@ -14,10 +16,12 @@ import type { ConversationArtifactKind } from "@/lib/shared/conversation-artifac
 
 type ResolveReferenceInput = ReferenceResolutionInput & {
   intentType?: ChatIntent["type"];
+  trace?: AiTraceLogger;
 };
 
 // ReferenceResolver 把自然语言引用收敛成候选内结果，后续编排不能再让模型凭空猜 artifactId。
 export async function resolveReference(input: ResolveReferenceInput): Promise<ReferenceResolution> {
+  const startedAt = new Date().toISOString();
   const parsedInput = referenceResolutionInputSchema.parse(input);
   const message = parsedInput.latestUserMessage;
   const inferredKind = inferArtifactKind(message, input.intentType);
@@ -36,19 +40,46 @@ export async function resolveReference(input: ResolveReferenceInput): Promise<Re
     });
 
     if (recentResult) {
+      input.trace?.addStep({
+        name: "ReferenceResolver 近指引用解析",
+        type: "reference_resolution",
+        output: summarizeReferenceResolutionForTrace(recentResult),
+        metadata: {
+          startedAt,
+          strategy: "recent_artifact",
+          inferredKind,
+          status: recentResult.status,
+          reason: recentResult.reason,
+        },
+      });
       return recentResult;
     }
   }
 
   const semanticQuery = buildSemanticQuery(message);
   if (hasRecentReference && !semanticQuery) {
-    return {
+    const result: ReferenceResolution = {
       status: "not_found",
       confidence: "low",
       reason: "当前会话没有可引用的 recent artifact，且用户消息缺少可用于语义检索的线索。",
       candidates: [],
     };
+    input.trace?.addStep({
+      name: "ReferenceResolver 解析失败",
+      type: "reference_resolution",
+      status: "failed",
+      output: summarizeReferenceResolutionForTrace(result),
+      metadata: {
+        startedAt,
+        strategy: "recent_artifact",
+        inferredKind,
+        status: result.status,
+        reason: result.reason,
+      },
+    });
+    return result;
   }
+  const searchStartedAt = new Date().toISOString();
   const candidates = await searchArtifactsForCurrentUser({
     sessionId: parsedInput.sessionId,
     sessionScope: "current_user",
@@ -56,27 +87,95 @@ export async function resolveReference(input: ResolveReferenceInput): Promise<Re
     query: semanticQuery,
     limit: 6,
   });
+  input.trace?.addStep({
+    name: "searchArtifacts 受控工具调用",
+    type: "tool_call",
+    input: {
+      toolName: "searchArtifacts",
+      sessionId: parsedInput.sessionId,
+      sessionScope: "current_user",
+      kind: inferredKind,
+      query: semanticQuery,
+      limit: 6,
+    },
+    output: {
+      candidateCount: candidates.length,
+      candidates: candidates.map((candidate) => ({
+        artifactId: candidate.artifactId,
+        kind: candidate.kind,
+        title: candidate.title,
+        summary: candidate.summary,
+        updatedAt: candidate.updatedAt,
+      })),
+    },
+    metadata: {
+      startedAt: searchStartedAt,
+      toolName: "searchArtifacts",
+      status: "success",
+    },
+  });
 
   if (candidates.length === 0) {
-    return {
+    const result: ReferenceResolution = {
       status: "not_found",
       confidence: "low",
       reason: "当前用户可访问的 artifact 索引中没有找到匹配的历史对象。",
       candidates: [],
     };
+    input.trace?.addStep({
+      name: "ReferenceResolver 语义检索未命中",
+      type: "reference_resolution",
+      status: "failed",
+      output: summarizeReferenceResolutionForTrace(result),
+      metadata: {
+        startedAt,
+        strategy: "semantic_search",
+        inferredKind,
+        status: result.status,
+        reason: result.reason,
+      },
+    });
+    return result;
   }
 
   if (candidates.length === 1) {
-    return toResolved(candidates[0], "语义检索只返回一个可访问候选。", "medium", candidates);
+    const result = toResolved(candidates[0], "语义检索只返回一个可访问候选。", "medium", candidates);
+    input.trace?.addStep({
+      name: "ReferenceResolver 语义检索命中",
+      type: "reference_resolution",
+      output: summarizeReferenceResolutionForTrace(result),
+      metadata: {
+        startedAt,
+        strategy: "semantic_search",
+        inferredKind,
+        status: result.status,
+        reason: result.reason,
+      },
+    });
+    return result;
   }
 
-  return {
+  const result: ReferenceResolution = {
     status: "ambiguous",
     confidence: "low",
     reason: "语义检索返回多个相近候选，无法在用户确认前安全选择。",
     candidates,
     clarificationQuestion: buildClarificationQuestion(candidates),
   };
+  input.trace?.addStep({
+    name: "ReferenceResolver 语义检索歧义",
+    type: "reference_resolution",
+    status: "failed",
+    output: summarizeReferenceResolutionForTrace(result),
+    metadata: {
+      startedAt,
+      strategy: "semantic_search",
+      inferredKind,
+      status: result.status,
+      reason: result.reason,
+    },
+  });
+  return result;
 }
 
 export function shouldAttemptReferenceResolution(message: string, intentType?: ChatIntent["type"]) {

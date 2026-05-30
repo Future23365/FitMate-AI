@@ -444,13 +444,20 @@ type ChatConversation = {
 意图判断请求参数
 第一次大模型回复：意图判断大模型回复
 意图判断结构化结果
+引用解析结果
+searchArtifacts 受控工具调用（仅语义检索时）
+getArtifactPayload 受控工具调用（仅 Patch 或 payload 读取时）
+WorkoutPatch 提出 / WorkoutPatch 应用结果（仅局部修改时）
 动作库获取与候选筛选
 服务端内部动作事件
 生成用户回复大模型调用参数
 生成用户回复大模型回答
 聊天上下文总结更新请求
 聊天上下文总结更新结果
+聊天回复写入完成 或 确定性回复写入完成
 ```
+
+Trace 顶层会保留 `runId`、`userId`、`sessionId`、`messageId`、`model`、`promptVersion`、`toolVersions`、本轮输入摘要和 `finalDecision`。其中 recent artifact 只记录摘要，不记录完整 payload；API key、Authorization、token、cookie 等敏感字段会被脱敏，超长字段会被截断。
 
 如果触发了计划或推荐，还会继续看到：
 
@@ -485,6 +492,14 @@ type ChatConversation = {
 - `/api/ai/exercise-recommendations`
 
 重点看候选是否不足、模型输出是否非法、Zod 校验是否失败、动作 ID 是否不在候选集合。
+
+如果问题发生在“这个”“刚才那套”等历史引用或局部修改场景，优先看：
+
+- `reference_resolution`：是否 `resolved`、`ambiguous` 或 `not_found`
+- `tool_call`：`searchArtifacts` / `getArtifactPayload` 是否只返回当前用户可访问对象
+- `patch_proposal`：Patch scope、operation、目标动作和 `failureReasons`
+- `validation`：Patch 或训练草稿是否被结构、候选或边界规则拦截
+- `persistence`：artifact revision 是否写入成功
 
 ## 15. 常见问题定位
 
@@ -579,4 +594,3 @@ type ChatConversation = {
 架构说明：
 
 - `docs/architecture.md`
-
