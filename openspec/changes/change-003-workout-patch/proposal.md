@@ -5,9 +5,9 @@
 ## What Changes
 
 - 新增 `WorkoutPatch` / `PlanPatch` 结构，明确修改目标、范围、操作类型、保留字段和原因。
-- 新增 `PatchEngine`，对 artifact 草稿、已保存 routine 或未来 schedule 应用局部修改。
+- 新增 `PatchEngine`，第一版只对聊天 artifact 草稿应用局部修改并创建新 revision。
 - 新增 Patch 专用校验，确保目标动作存在、未点名内容保持不变、替代动作满足 section / 器械 / 难度 / 风险约束。
-- artifact 修改默认创建新 revision；已完成训练历史默认不可被修改。
+- artifact 修改默认创建新 revision；已保存 routine、未来 schedule 和已完成训练历史默认不可被本 change 直接修改。
 - 第一版只覆盖单动作替换、难度降低、动作移除后的必要替换和未保存草稿修改，不实现复杂日历批量重排。
 
 ## Capabilities

@@ -81,7 +81,7 @@ describe("frontend API clients", () => {
     const summary = { summary: context.summary };
     const signal = new AbortController().signal;
 
-    await expect(requestChatStream("chat-1", messages[0].content, summary.summary, false, signal)).resolves.toBeInstanceOf(Response);
+    await expect(requestChatStream("chat-1", "assistant-1", messages[0].content, summary.summary, false, signal)).resolves.toBeInstanceOf(Response);
     await expect(requestWorkoutPlanDraft(messages[0].content, createWorkoutPlanIntent(), summary, "trace-1")).resolves.toMatchObject({
       kind: "plan",
       draft: {
@@ -115,6 +115,7 @@ describe("frontend API clients", () => {
     ).rejects.toThrow("推荐失败");
 
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({
+      responseMessageId: "assistant-1",
       thinkingEnabled: false,
       latestUserMessage: messages[0].content,
       conversationSummary: summary.summary,

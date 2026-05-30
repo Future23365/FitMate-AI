@@ -14,6 +14,11 @@ import {
   resolveReference,
   shouldAttemptReferenceResolution,
 } from "@/lib/server/reference-resolver/reference-resolver-service";
+import { getCurrentUser } from "@/lib/server/users/current-user";
+import {
+  buildAndApplyWorkoutPatchFromChat,
+  formatWorkoutPatchReply,
+} from "@/lib/server/workout-patches/workout-patch-chat-service";
 import {
   aiContextChatMessageSchema,
   buildFitnessConversationContext,
@@ -33,6 +38,7 @@ import {
   type WorkoutPlanIntent,
 } from "@/lib/server/workout-plans";
 import type { ReferenceResolution } from "@/lib/shared/reference-resolver/schema";
+import type { WorkoutPatchResult } from "@/lib/shared/workout-patches/schema";
 
 type ChatRole = "user" | "assistant";
 
@@ -95,6 +101,7 @@ export type ChatIntent = z.infer<typeof chatIntentSchema>;
 
 export const chatRequestSchema = z.object({
   conversationId: z.string().trim().min(1).max(120).optional(),
+  responseMessageId: z.string().trim().min(1).max(120).optional(),
   latestUserMessage: z.string().trim().min(1).max(4000),
   conversationSummary: z.string().trim().max(2000).default(""),
   messages: z.array(aiContextChatMessageSchema).min(1).max(200).optional(),
@@ -106,6 +113,7 @@ export type AiChatRequest = z.infer<typeof chatRequestSchema>;
 
 export type PreparedAiChatRequest = {
   conversationId?: string;
+  responseMessageId?: string;
   rawMessages: ChatMessage[];
   messages: ChatMessage[];
   conversationSummaryContext: ConversationSummaryContext;
@@ -156,6 +164,7 @@ export function prepareAiChatRequest(request: AiChatRequest): PreparedAiChatRequ
 
   return {
     conversationId: request.conversationId,
+    responseMessageId: request.responseMessageId,
     rawMessages,
     conversationSummaryContext,
     internalConversationContext:
@@ -239,6 +248,27 @@ export async function createAiChatResponse({
       assistantReply: buildReferenceResolutionReply(referenceResolution),
       internalActionSummary: JSON.stringify({ referenceResolution }),
     });
+  }
+
+  if (referenceResolution?.status === "resolved") {
+    const user = await getCurrentUser();
+    const patchResult = await buildAndApplyWorkoutPatchFromChat({
+      userId: user.id,
+      latestUserMessage: conversationSummaryContext.latestUserMessage,
+      referenceResolution,
+      responseMessageId: request.responseMessageId,
+    });
+
+    if (patchResult.handled) {
+      return createDeterministicChatResponse({
+        apiKey,
+        trace,
+        conversationSummaryContext,
+        assistantReply: formatWorkoutPatchReply(patchResult.result),
+        internalActionSummary: JSON.stringify({ referenceResolution, workoutPatch: patchResult.result }),
+        workoutPatchResult: patchResult.result,
+      });
+    }
   }
 
   const exerciseContext = chatIntent.needsExerciseContext
@@ -587,6 +617,7 @@ function createDeterministicChatResponse(input: {
   conversationSummaryContext: ConversationSummaryContext;
   assistantReply: string;
   internalActionSummary?: string;
+  workoutPatchResult?: WorkoutPatchResult;
 }) {
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -598,6 +629,17 @@ function createDeterministicChatResponse(input: {
           internalActionSummary: input.internalActionSummary,
         },
       });
+      if (input.workoutPatchResult?.status === "applied") {
+        controller.enqueue(
+          encodeChatStreamEvent("workout_patch", "", {
+            artifactKind: input.workoutPatchResult.artifactKind,
+            artifactId: input.workoutPatchResult.artifactId,
+            sourceArtifactId: input.workoutPatchResult.sourceArtifactId,
+            payload: input.workoutPatchResult.payload,
+            diff: input.workoutPatchResult.diff,
+          }),
+        );
+      }
       controller.enqueue(encodeChatStreamEvent("content", input.assistantReply));
 
       const summaryUpdate = await updateConversationSummary({

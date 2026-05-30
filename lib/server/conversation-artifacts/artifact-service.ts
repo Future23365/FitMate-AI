@@ -85,6 +85,13 @@ type CreateConversationArtifactInput = {
   payload: unknown;
 };
 
+type CreateArtifactRevisionInput = {
+  userId: string;
+  sourceArtifactId: string;
+  messageId?: string;
+  payload: unknown;
+};
+
 type LinkSourceEntityInput = {
   userId: string;
   messageId: string;
@@ -180,6 +187,87 @@ export async function createOrUpdateConversationArtifact(
     });
 
     return artifact;
+  });
+}
+
+// PatchEngine 通过来源 artifact 创建新 revision，保持旧 payload 可读并同步轻量索引状态。
+export async function createConversationArtifactRevision(
+  input: CreateArtifactRevisionInput,
+  client: ArtifactWritableClient = getPrismaClient(),
+) {
+  return runArtifactWrite(client, async (tx) => {
+    const source = await tx.conversationArtifact.findFirst({
+      where: {
+        id: input.sourceArtifactId,
+        userId: input.userId,
+        status: "active",
+      },
+      select: {
+        id: true,
+        userId: true,
+        sessionId: true,
+        kind: true,
+        scope: true,
+        revision: true,
+        payloadSchemaVersion: true,
+        payload: true,
+      },
+    });
+
+    if (!source) {
+      return {
+        ok: false as const,
+        code: "not_found" as const,
+        message: "Source artifact not found or not accessible.",
+      };
+    }
+
+    const payload = parseConversationArtifactPayload(
+      source.kind,
+      conversationArtifactPayloadSchemaVersion,
+      input.payload,
+    );
+
+    await tx.conversationArtifact.update({
+      where: { id: source.id },
+      data: { status: "superseded" },
+    });
+    await tx.artifactIndex.updateMany({
+      where: { artifactId: source.id, userId: input.userId },
+      data: { status: "superseded" },
+    });
+
+    const artifact = await tx.conversationArtifact.create({
+      data: {
+        userId: source.userId,
+        sessionId: source.sessionId,
+        messageId: input.messageId,
+        kind: source.kind,
+        scope: source.scope,
+        payloadSchemaVersion: conversationArtifactPayloadSchemaVersion,
+        payload: toJsonPayload(payload),
+        status: "active",
+        revision: source.revision + 1,
+        revisionOfArtifactId: source.id,
+      },
+    });
+
+    await upsertArtifactIndex(tx, {
+      artifactId: artifact.id,
+      userId: source.userId,
+      sessionId: source.sessionId,
+      kind: source.kind,
+      scope: source.scope,
+      status: "active",
+      sourceMessageId: input.messageId,
+      payload,
+    });
+
+    return {
+      ok: true as const,
+      artifact,
+      payload,
+    };
   });
 }
 

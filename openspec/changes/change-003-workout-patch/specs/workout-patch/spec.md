@@ -35,11 +35,17 @@
 系统 SHALL 将聊天草稿类修改保存为新的 artifact revision，不覆盖用户已经看到的旧 artifact。
 
 #### Scenario: 修改未保存聊天草稿
-- **WHEN** 用户修改 `scope = "chat_draft"` 的 artifact
+- **WHEN** 用户修改 `scope = "artifact_only"` 的 artifact
 - **THEN** 系统 MUST 创建新的 artifact version
 - **AND** 新 artifact MUST 记录来源 artifact
 - **AND** 原 artifact MUST 标记为 `superseded`
 - **AND** 原 artifact payload MUST 保持可读取
+
+#### Scenario: 修改已保存 routine 或未来 schedule
+- **WHEN** Patch scope 指向 saved routine 或 future schedule
+- **THEN** 系统 MUST 返回 blocked
+- **AND** 系统 MUST 说明该覆盖需要后续 confirmation change
+- **AND** 系统 MUST NOT 批量写入 routine 或 schedule
 
 #### Scenario: 修改已完成训练历史
 - **WHEN** Patch 目标包含已完成 schedule 或已完成训练记录

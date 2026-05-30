@@ -33,11 +33,11 @@
 
 这样比重新生成更可控，也能让用户和 trace 看到系统到底改了什么。
 
-### Decision 3: Patch 先作用于 artifact revision
+### Decision 3: Patch 只作用于 artifact revision
 
-聊天未保存草稿的修改默认产生新的 artifact revision。已保存 routine 或未来 schedule 的修改只有在后续 policy / confirmation 允许时才落到对应实体；本 change 先实现 artifact-only 和安全 new revision。
+聊天未保存草稿的修改默认产生新的 artifact revision。已保存 routine、未来 schedule 或已完成 schedule 的修改只有在后续 policy / confirmation 允许时才落到对应实体；本 change 先实现 `artifact_only` 和安全 new revision。
 
-这能最快验证 Patch 语义，同时降低误改用户已有训练数据的风险。
+这能最快验证 Patch 语义，同时降低误改用户已有训练数据的风险。PatchEngine 遇到非 `artifact_only` scope 时应返回 blocked，而不是降级为静默修改。
 
 ### Decision 4: 替代动作来自受控候选
 

@@ -473,6 +473,7 @@ export function useChatController() {
     try {
       const response = await requestChatStream(
         nextConversationId,
+        assistantMessage.id,
         requestSummaryContext.latestUserMessage,
         requestSummaryContext.summary,
         thinkingEnabled,
@@ -533,6 +534,23 @@ export function useChatController() {
               intent: streamEvent.intent,
               referenceResolution: streamEvent.referenceResolution,
             };
+            continue;
+          }
+
+          if (streamEvent.type === "workout_patch" && streamEvent.payload) {
+            if (streamEvent.artifactKind === "routine" && "sections" in streamEvent.payload) {
+              setBubbleRoutines((prev) => ({
+                ...prev,
+                [assistantMessage.id]: streamEvent.payload as WorkoutRoutineDraft,
+              }));
+            }
+
+            if (streamEvent.artifactKind === "plan" && "days" in streamEvent.payload) {
+              setBubblePlans((prev) => ({
+                ...prev,
+                [assistantMessage.id]: streamEvent.payload as WorkoutPlanDraft,
+              }));
+            }
             continue;
           }
 

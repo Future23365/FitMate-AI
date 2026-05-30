@@ -2,6 +2,7 @@ import type { WorkoutPlanDraft, WorkoutRoutineDraft } from "@/lib/shared/workout
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
 import type { ConversationSummaryContext, FitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
 import type { ReferenceResolution } from "@/lib/shared/reference-resolver/schema";
+import type { WorkoutPatchDiffEntry } from "@/lib/shared/workout-patches/schema";
 
 export type ChatMessage = {
   id: string;
@@ -33,12 +34,18 @@ export type ChatStreamEvent = {
     | "done"
     | "error"
     | "assistant_action"
+    | "workout_patch"
     | "suggested_replies"
     | "suggested_questions";
   delta?: string;
   action?: AssistantActionEvent["action"];
   intent?: unknown;
   referenceResolution?: AssistantActionEvent["referenceResolution"];
+  artifactKind?: "routine" | "plan";
+  artifactId?: string;
+  sourceArtifactId?: string;
+  payload?: WorkoutRoutineDraft | WorkoutPlanDraft;
+  diff?: WorkoutPatchDiffEntry[];
   suggestedReplies?: string[];
   /** @deprecated 旧流事件兼容字段；新事件使用 suggestedReplies */
   suggestedQuestions?: string[];
