@@ -211,6 +211,8 @@ Zod 用于在服务端再次校验模型输出，避免模型生成不可执行�
 
 用户反馈不再只依赖 `conversationSummary`。`UserFeedbackMemoryService` 会把“不喜欢某动作”“某动作太难”“今天不想练腿”和健康/不适信号写成 `UserMemory` / `UserExerciseFeedback`；Conversation State Builder 按“当前消息 > 当前 artifact > 显式用户画像 > 近期反馈 > 训练结果 > 默认值”合并上下文。动作候选、Patch、DomainPlanEngine 和 Validator 只读取当前 `userId` 下未过期的结构化记忆，长期强约束和健康信号在确认前保持 `pending_confirmation`，不能被当成已生效长期排除规则。
 
+动作推荐去重由服务端候选服务统一处理。`selectExerciseCandidates` 接收当前卡片、当前会话、近期推荐和未来计划等 `ExerciseExposureSource`，并结合结构化用户反馈、健康风险、器械和 section 约束生成排除集合。当前卡片、`dislike`、健康风险、器械不可用和 section 不合法是硬限制；近期曝光、未来过度使用和 `too_hard` 是候选不足时可放宽的软约束。每次推荐会输出 `RecommendationTrace`，记录 filters、excludedExerciseIds、excludeReasons、candidateCounts、relaxedConstraints、fallbackUsed 和 finalExerciseIds，供 AI trace 与测试复盘。
+
 LangGraph 可以作为后期选择，用于构建更复杂的 Agent 状态机和多步骤任务流，但不建议一开始就引入。
 
 ---

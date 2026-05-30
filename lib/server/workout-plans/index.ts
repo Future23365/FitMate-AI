@@ -57,7 +57,10 @@ export {
   type ExerciseCandidate,
   type ExerciseCandidateOptions,
   type ExerciseCandidateResult,
+  type ExerciseExposureSource,
   type ExcludedExercise,
+  type RecommendationRelaxationOption,
+  type RecommendationTrace,
   type WorkoutPlanExerciseIdValidationResult,
 } from "./exercise-candidate-service";
 

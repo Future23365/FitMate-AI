@@ -987,6 +987,7 @@ async function buildExerciseContext(
       primaryCandidates: candidates.primaryCandidates.slice(0, 20),
       supplementaryCandidates: candidates.supplementaryCandidates.slice(0, 20),
       excluded: candidates.excluded.slice(0, 40),
+      recommendationTrace: candidates.recommendationTrace,
     },
     metadata: {
       primaryCandidateCount: candidates.primaryCandidates.length,

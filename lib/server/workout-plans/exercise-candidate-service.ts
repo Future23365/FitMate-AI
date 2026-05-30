@@ -28,6 +28,9 @@ export type ExcludedExercise = {
   exerciseId: string;
   nameZh: string;
   reasons: string[];
+  /** 结构化排除原因，供 RecommendationTrace 和候选不足解释复用 */
+  reasonCodes: RecommendationExcludeReason[];
+  relaxable: boolean;
 };
 
 export type ExerciseCandidateShortage = {
@@ -61,6 +64,65 @@ export type ExerciseCandidateResult = {
   relevantCandidateCount: number;
   requiredRelevantCandidateCount: number;
   isEnoughCandidates: boolean;
+  recommendationTrace: RecommendationTrace;
+  relaxationOptions: RecommendationRelaxationOption[];
+};
+
+export type RecommendationExcludeReason =
+  | "current_card"
+  | "current_session_exposure"
+  | "recent_recommendation"
+  | "future_overuse"
+  | "user_dislike"
+  | "current_message_dislike"
+  | "too_hard"
+  | "health_risk"
+  | "avoidance"
+  | "unavailable_equipment"
+  | "invalid_section"
+  | "unpublished"
+  | "beginner_advanced"
+  | "memory_constraint";
+
+export type ExerciseExposureSource = {
+  exerciseIds: string[];
+  reason: Extract<
+    RecommendationExcludeReason,
+    "current_card" | "current_session_exposure" | "recent_recommendation" | "future_overuse"
+  >;
+  sourceId?: string;
+};
+
+export type RecommendationRelaxationOption = {
+  constraint: RecommendationExcludeReason;
+  label: string;
+  excludedExerciseIds: string[];
+};
+
+export type RecommendationTrace = {
+  goal: string;
+  filters: {
+    requestedEquipment: string[];
+    targetMuscles: string[];
+    section?: WorkoutRoutineSection;
+    visibility: "all" | "published";
+    requiredRelevantCandidateCount: number;
+    requiredTotalCandidateCount: number;
+  };
+  excludedExerciseIds: string[];
+  excludeReasons: Record<string, RecommendationExcludeReason[]>;
+  candidateCounts: {
+    totalExercises: number;
+    strictPrimary: number;
+    strictSupplementary: number;
+    finalPrimary: number;
+    finalSupplementary: number;
+    relevantFinal: number;
+  };
+  relaxedConstraints: RecommendationExcludeReason[];
+  fallbackUsed: boolean;
+  finalExerciseIds: string[];
+  relaxationOptions: RecommendationRelaxationOption[];
 };
 
 export type ExerciseCandidateOptions = {
@@ -73,6 +135,8 @@ export type ExerciseCandidateOptions = {
   originalExerciseId?: string;
   replacementDirection?: "regression" | "progression" | "substitution";
   memoryState?: ConversationMemoryState;
+  exposureSources?: ExerciseExposureSource[];
+  allowSoftConstraintRelaxation?: boolean;
 };
 
 export type WorkoutPlanExerciseIdValidationResult = {
@@ -101,82 +165,43 @@ export function selectExerciseCandidates(
   const goalTags = resolveGoalTags(intent);
   const targetMuscles = resolveTargetMuscles(intent);
   const candidateRequirement = resolveCandidateRequirement(intent, targetMuscles, options);
-  const excluded: ExcludedExercise[] = [];
-  const warnings = new Set<string>();
-
-  // 第一步：排除不合格动作并评分
-  const allScored = exercises
-    .flatMap((exercise) => {
-      const exclusionReasons = getExerciseExclusionReasons(exercise, intent, {
+  const exposureExclusions = buildExposureExclusions(options.exposureSources);
+  const strictSelection = runCandidateSelection({
+    intent,
+    exercises,
+    options,
+    requestedEquipment,
+    goalTags,
+    targetMuscles,
+    candidateRequirement,
+    exposureExclusions,
+    relaxedConstraints: new Set(),
+  });
+  const relaxableConstraints = resolveRelaxableConstraints(strictSelection.excluded);
+  const shouldRelax =
+    options.allowSoftConstraintRelaxation !== false &&
+    strictSelection.candidateStatus === "insufficient" &&
+    relaxableConstraints.length > 0;
+  const finalSelection = shouldRelax
+    ? runCandidateSelection({
+        intent,
+        exercises,
+        options,
         requestedEquipment,
-        visibility: options.visibility ?? "all",
-        section: options.section,
-        memoryState: options.memoryState,
-      });
+        goalTags,
+        targetMuscles,
+        candidateRequirement,
+        exposureExclusions,
+        relaxedConstraints: new Set(relaxableConstraints),
+      })
+    : strictSelection;
+  const warnings = new Set<string>(finalSelection.warnings);
 
-      if (exclusionReasons.length > 0) {
-        excluded.push({
-          exerciseId: exercise.id,
-          nameZh: exercise.nameZh,
-          reasons: exclusionReasons,
-        });
-        return [];
-      }
+  if (shouldRelax) {
+    warnings.add(`候选不足，已放宽非关键排除条件：${relaxableConstraints.map(formatRelaxationLabel).join("、")}。`);
+  }
 
-      return [
-        {
-          exercise,
-          ...scoreExercise(exercise, intent, {
-            requestedEquipment,
-            goalTags,
-            targetMuscles,
-            memoryState: options.memoryState,
-          }),
-        },
-      ];
-    })
-    .sort(compareCandidates);
-
-  // 第二步：基于分数阈值分层
-  const primaryCandidates: ExerciseCandidate[] = allScored
-    .filter((c) => c.score >= primaryScoreThreshold)
-    .slice(0, maxPrimaryCandidates)
-    .map((c) => ({ ...c, source: "primary" as const }));
-
-  const supplementaryCandidates: ExerciseCandidate[] = allScored
-    .filter((c) => c.score < primaryScoreThreshold)
-    .slice(0, maxSupplementaryCandidates)
-    .map((c) => ({ ...c, source: "supplementary" as const }));
-  const structuredSupplementaryCandidates = ["plan", "routine"].includes(intent.intentType)
-    ? mergeStructuredSectionCandidates(supplementaryCandidates, allScored, primaryCandidates)
-    : supplementaryCandidates;
-  const allCandidates = [
-    ...primaryCandidates,
-    ...structuredSupplementaryCandidates,
-  ];
-  const candidatePools = buildExerciseCandidatePools({
-    candidates: allCandidates,
-    originalExerciseId: options.originalExerciseId,
-    replacementDirection: options.replacementDirection ?? inferReplacementDirectionFromMemory(
-      options.originalExerciseId,
-      options.memoryState,
-    ),
-  });
-
-  const totalCandidates = primaryCandidates.length + structuredSupplementaryCandidates.length;
-  const relevantCandidateCount =
-    targetMuscles.size > 0
-      ? primaryCandidates.filter((candidate) => matchesTargetMuscles(candidate.exercise, targetMuscles))
-          .length
-      : primaryCandidates.length;
-  const candidateStatus = resolveCandidateStatus({
-    relevantCandidateCount,
-    requiredRelevantCandidateCount: candidateRequirement.requiredRelevantCandidateCount,
-    totalCandidates,
-    requiredTotalCandidateCount: candidateRequirement.requiredTotalCandidateCount,
-  });
-
-  if (requestedEquipment.size > 0 && candidateStatus === "insufficient") {
+  if (requestedEquipment.size > 0 && finalSelection.candidateStatus === "insufficient") {
     warnings.add("按当前器械限制筛选后没有足够相关动作，可能需要放宽器械条件。");
   }
 
@@ -184,31 +209,48 @@ export function selectExerciseCandidates(
     warnings.add(warning);
   }
 
-  if (candidateStatus === "limited_but_usable") {
+  if (finalSelection.candidateStatus === "limited_but_usable") {
     warnings.add("相关候选动作数量有限但可用，可通过动作变式、组数、次数和休息时间完成编排。");
   }
 
-  if (candidateStatus === "insufficient") {
+  if (finalSelection.candidateStatus === "insufficient") {
     warnings.add("相关候选动作不足，无法生成可靠的训练计划草稿。");
   }
 
-  const shortages = resolveCandidateShortages(candidatePools, intent);
+  const shortages = resolveCandidateShortages(finalSelection.candidatePools, intent);
   for (const shortage of shortages) {
     warnings.add(`${shortage.pool} 候选不足：需要 ${shortage.required} 个，当前 ${shortage.actual} 个。`);
   }
 
+  const relaxationOptions = buildRelaxationOptions(strictSelection.excluded, relaxableConstraints);
+  const recommendationTrace = buildRecommendationTrace({
+    intent,
+    exercises,
+    options,
+    requestedEquipment,
+    targetMuscles,
+    candidateRequirement,
+    strictSelection,
+    finalSelection,
+    relaxedConstraints: relaxableConstraints,
+    fallbackUsed: shouldRelax,
+    relaxationOptions,
+  });
+
   return {
     intent,
-    primaryCandidates,
-    supplementaryCandidates: structuredSupplementaryCandidates,
-    candidatePools,
-    excluded,
+    primaryCandidates: finalSelection.primaryCandidates,
+    supplementaryCandidates: finalSelection.supplementaryCandidates,
+    candidatePools: finalSelection.candidatePools,
+    excluded: finalSelection.excluded,
     shortages,
     warnings: [...warnings],
-    candidateStatus,
-    relevantCandidateCount,
+    candidateStatus: finalSelection.candidateStatus,
+    relevantCandidateCount: finalSelection.relevantCandidateCount,
     requiredRelevantCandidateCount: candidateRequirement.requiredRelevantCandidateCount,
-    isEnoughCandidates: candidateStatus !== "insufficient",
+    isEnoughCandidates: finalSelection.candidateStatus !== "insufficient",
+    recommendationTrace,
+    relaxationOptions,
   };
 }
 
@@ -293,6 +335,228 @@ export function getCandidateExerciseIds(result: ExerciseCandidateResult) {
   ];
 }
 
+type ExerciseExclusionReasonEntry = {
+  code: RecommendationExcludeReason;
+  message: string;
+  relaxable: boolean;
+};
+
+type CandidateSelectionSnapshot = {
+  primaryCandidates: ExerciseCandidate[];
+  supplementaryCandidates: ExerciseCandidate[];
+  candidatePools: ExerciseCandidatePools;
+  excluded: ExcludedExercise[];
+  warnings: string[];
+  candidateStatus: ExerciseCandidateResult["candidateStatus"];
+  relevantCandidateCount: number;
+};
+
+function runCandidateSelection(input: {
+  intent: WorkoutPlanIntent;
+  exercises: Exercise[];
+  options: Omit<ExerciseCandidateOptions, "exercises">;
+  requestedEquipment: Set<string>;
+  goalTags: Set<string>;
+  targetMuscles: Set<string>;
+  candidateRequirement: ReturnType<typeof resolveCandidateRequirement>;
+  exposureExclusions: Map<string, ExerciseExclusionReasonEntry[]>;
+  relaxedConstraints: Set<RecommendationExcludeReason>;
+}): CandidateSelectionSnapshot {
+  const excluded: ExcludedExercise[] = [];
+
+  // 候选服务统一处理硬排除和可放宽排除，调用方只提供目标和上下文。
+  const allScored = input.exercises
+    .flatMap((exercise) => {
+      const exclusionEntries = getExerciseExclusionReasons(exercise, input.intent, {
+        requestedEquipment: input.requestedEquipment,
+        visibility: input.options.visibility ?? "all",
+        section: input.options.section,
+        memoryState: input.options.memoryState,
+        exposureEntries: input.exposureExclusions.get(exercise.id) ?? [],
+        relaxedConstraints: input.relaxedConstraints,
+      });
+
+      if (exclusionEntries.length > 0) {
+        excluded.push({
+          exerciseId: exercise.id,
+          nameZh: exercise.nameZh,
+          reasons: uniqueStrings(exclusionEntries.map((entry) => entry.message)),
+          reasonCodes: uniqueReasonCodes(exclusionEntries.map((entry) => entry.code)),
+          relaxable: exclusionEntries.every((entry) => entry.relaxable),
+        });
+        return [];
+      }
+
+      return [
+        {
+          exercise,
+          ...scoreExercise(exercise, input.intent, {
+            requestedEquipment: input.requestedEquipment,
+            goalTags: input.goalTags,
+            targetMuscles: input.targetMuscles,
+            memoryState: input.options.memoryState,
+          }),
+        },
+      ];
+    })
+    .sort(compareCandidates);
+
+  const primaryCandidates: ExerciseCandidate[] = allScored
+    .filter((c) => c.score >= primaryScoreThreshold)
+    .slice(0, maxPrimaryCandidates)
+    .map((c) => ({ ...c, source: "primary" as const }));
+
+  const supplementaryCandidates: ExerciseCandidate[] = allScored
+    .filter((c) => c.score < primaryScoreThreshold)
+    .slice(0, maxSupplementaryCandidates)
+    .map((c) => ({ ...c, source: "supplementary" as const }));
+  const structuredSupplementaryCandidates = ["plan", "routine"].includes(input.intent.intentType)
+    ? mergeStructuredSectionCandidates(supplementaryCandidates, allScored, primaryCandidates)
+    : supplementaryCandidates;
+  const allCandidates = [
+    ...primaryCandidates,
+    ...structuredSupplementaryCandidates,
+  ];
+  const candidatePools = buildExerciseCandidatePools({
+    candidates: allCandidates,
+    originalExerciseId: input.options.originalExerciseId,
+    replacementDirection: input.options.replacementDirection ?? inferReplacementDirectionFromMemory(
+      input.options.originalExerciseId,
+      input.options.memoryState,
+    ),
+  });
+
+  const totalCandidates = primaryCandidates.length + structuredSupplementaryCandidates.length;
+  const relevantCandidateCount =
+    input.targetMuscles.size > 0
+      ? primaryCandidates.filter((candidate) => matchesTargetMuscles(candidate.exercise, input.targetMuscles))
+          .length
+      : primaryCandidates.length;
+  const candidateStatus = resolveCandidateStatus({
+    relevantCandidateCount,
+    requiredRelevantCandidateCount: input.candidateRequirement.requiredRelevantCandidateCount,
+    totalCandidates,
+    requiredTotalCandidateCount: input.candidateRequirement.requiredTotalCandidateCount,
+  });
+
+  return {
+    primaryCandidates,
+    supplementaryCandidates: structuredSupplementaryCandidates,
+    candidatePools,
+    excluded,
+    warnings: [],
+    candidateStatus,
+    relevantCandidateCount,
+  };
+}
+
+function buildExposureExclusions(sources: ExerciseExposureSource[] | undefined) {
+  const entriesById = new Map<string, ExerciseExclusionReasonEntry[]>();
+
+  for (const source of sources ?? []) {
+    for (const exerciseId of uniqueStrings(source.exerciseIds)) {
+      const entry = {
+        code: source.reason,
+        message: formatExposureReason(source.reason),
+        relaxable: isRelaxableReason(source.reason),
+      };
+      entriesById.set(exerciseId, [...(entriesById.get(exerciseId) ?? []), entry]);
+    }
+  }
+
+  return entriesById;
+}
+
+function resolveRelaxableConstraints(excluded: ExcludedExercise[]) {
+  const constraints = new Set<RecommendationExcludeReason>();
+
+  for (const item of excluded) {
+    if (!item.relaxable) {
+      continue;
+    }
+
+    for (const reason of item.reasonCodes) {
+      if (isRelaxableReason(reason)) {
+        constraints.add(reason);
+      }
+    }
+  }
+
+  return [...constraints];
+}
+
+function buildRelaxationOptions(
+  excluded: ExcludedExercise[],
+  relaxedConstraints: RecommendationExcludeReason[],
+): RecommendationRelaxationOption[] {
+  const options: RecommendationRelaxationOption[] = [];
+
+  for (const constraint of relaxedConstraints) {
+    options.push({
+      constraint,
+      label: formatRelaxationLabel(constraint),
+      excludedExerciseIds: excluded
+        .filter((item) => item.relaxable && item.reasonCodes.includes(constraint))
+        .map((item) => item.exerciseId),
+    });
+  }
+
+  return options.filter((option) => option.excludedExerciseIds.length > 0);
+}
+
+function buildRecommendationTrace(input: {
+  intent: WorkoutPlanIntent;
+  exercises: Exercise[];
+  options: Omit<ExerciseCandidateOptions, "exercises">;
+  requestedEquipment: Set<string>;
+  targetMuscles: Set<string>;
+  candidateRequirement: ReturnType<typeof resolveCandidateRequirement>;
+  strictSelection: CandidateSelectionSnapshot;
+  finalSelection: CandidateSelectionSnapshot;
+  relaxedConstraints: RecommendationExcludeReason[];
+  fallbackUsed: boolean;
+  relaxationOptions: RecommendationRelaxationOption[];
+}): RecommendationTrace {
+  const finalExerciseIds = getSelectionExerciseIds(input.finalSelection);
+
+  return {
+    goal: input.intent.goal,
+    filters: {
+      requestedEquipment: [...input.requestedEquipment],
+      targetMuscles: [...input.targetMuscles],
+      section: input.options.section,
+      visibility: input.options.visibility ?? "all",
+      requiredRelevantCandidateCount: input.candidateRequirement.requiredRelevantCandidateCount,
+      requiredTotalCandidateCount: input.candidateRequirement.requiredTotalCandidateCount,
+    },
+    excludedExerciseIds: input.finalSelection.excluded.map((item) => item.exerciseId),
+    excludeReasons: Object.fromEntries(
+      input.finalSelection.excluded.map((item) => [item.exerciseId, item.reasonCodes]),
+    ),
+    candidateCounts: {
+      totalExercises: input.exercises.length,
+      strictPrimary: input.strictSelection.primaryCandidates.length,
+      strictSupplementary: input.strictSelection.supplementaryCandidates.length,
+      finalPrimary: input.finalSelection.primaryCandidates.length,
+      finalSupplementary: input.finalSelection.supplementaryCandidates.length,
+      relevantFinal: input.finalSelection.relevantCandidateCount,
+    },
+    relaxedConstraints: input.relaxedConstraints,
+    fallbackUsed: input.fallbackUsed,
+    finalExerciseIds,
+    relaxationOptions: input.relaxationOptions,
+  };
+}
+
+function getSelectionExerciseIds(selection: Pick<CandidateSelectionSnapshot, "primaryCandidates" | "supplementaryCandidates">) {
+  return [
+    ...new Set([
+      ...selection.primaryCandidates.map((candidate) => candidate.exercise.id),
+      ...selection.supplementaryCandidates.map((candidate) => candidate.exercise.id),
+    ]),
+  ];
+}
+
 function getExerciseExclusionReasons(
   exercise: Exercise,
   intent: WorkoutPlanIntent,
@@ -301,38 +565,90 @@ function getExerciseExclusionReasons(
     visibility: "all" | "published";
     section?: WorkoutRoutineSection;
     memoryState?: ConversationMemoryState;
+    exposureEntries: ExerciseExclusionReasonEntry[];
+    relaxedConstraints: Set<RecommendationExcludeReason>;
   },
 ) {
-  const reasons: string[] = [];
+  const reasons: ExerciseExclusionReasonEntry[] = [];
   const metadata = normalizeExerciseMetadata(exercise);
 
   if (context.visibility === "published" && !exercise.isPublished) {
-    reasons.push("动作未发布");
+    reasons.push(createExclusionReason("unpublished", "动作未发布"));
   }
 
   if (intent.experience === "beginner" && metadata.difficulty === "advanced") {
-    reasons.push("新手用户排除 expert 动作");
+    reasons.push(createExclusionReason("beginner_advanced", "新手用户排除 expert 动作"));
   }
 
   if (context.section && !metadata.allowedSections.includes(context.section)) {
-    reasons.push(`不允许进入 ${context.section} 阶段`);
+    reasons.push(createExclusionReason("invalid_section", `不允许进入 ${context.section} 阶段`));
   }
 
   if (!matchesRequestedEquipment(exercise, context.requestedEquipment)) {
-    reasons.push("不符合用户可用器械");
+    reasons.push(createExclusionReason("unavailable_equipment", "不符合用户可用器械"));
   }
 
   if (matchesRiskLimit(exercise, intent.injuryLimitations)) {
-    reasons.push("命中用户伤病或疼痛限制");
+    reasons.push(createExclusionReason("health_risk", "命中用户伤病或疼痛限制"));
   }
 
   if (matchesAvoidance(exercise, intent.avoidances)) {
-    reasons.push("命中用户避开项");
+    reasons.push(createExclusionReason("avoidance", "命中用户避开项"));
   }
 
-  reasons.push(...getMemoryExclusionReasons(exercise, context.memoryState));
+  reasons.push(...context.exposureEntries, ...getMemoryExclusionReasons(exercise, context.memoryState));
 
-  return reasons;
+  return reasons.filter((reason) => !context.relaxedConstraints.has(reason.code));
+}
+
+function createExclusionReason(
+  code: RecommendationExcludeReason,
+  message: string,
+): ExerciseExclusionReasonEntry {
+  return {
+    code,
+    message,
+    relaxable: isRelaxableReason(code),
+  };
+}
+
+function isRelaxableReason(reason: RecommendationExcludeReason) {
+  return [
+    "current_session_exposure",
+    "recent_recommendation",
+    "future_overuse",
+    "too_hard",
+  ].includes(reason);
+}
+
+function formatExposureReason(reason: ExerciseExposureSource["reason"]) {
+  const labels: Record<ExerciseExposureSource["reason"], string> = {
+    current_card: "已在当前推荐卡片中曝光",
+    current_session_exposure: "已在当前会话中曝光",
+    recent_recommendation: "最近已推荐过",
+    future_overuse: "未来计划中出现频率较高",
+  };
+
+  return labels[reason];
+}
+
+function formatRelaxationLabel(reason: RecommendationExcludeReason) {
+  const labels: Partial<Record<RecommendationExcludeReason, string>> = {
+    current_session_exposure: "当前会话曝光",
+    recent_recommendation: "近期推荐曝光",
+    future_overuse: "未来计划高频动作",
+    too_hard: "动作太难反馈",
+  };
+
+  return labels[reason] ?? reason;
+}
+
+function uniqueStrings(values: string[]) {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function uniqueReasonCodes(values: RecommendationExcludeReason[]) {
+  return [...new Set(values)];
 }
 
 function scoreExercise(
@@ -421,17 +737,24 @@ function getMemoryExclusionReasons(
     return [];
   }
 
-  const reasons: string[] = [];
+  const reasons: ExerciseExclusionReasonEntry[] = [];
   const activeFeedback = memoryState.activeExerciseFeedback.filter(
     (feedback) => feedback.exerciseId === exercise.id && feedback.status === "active" && !feedback.requiresConfirmation,
   );
 
   if (activeFeedback.some((feedback) => feedback.kind === "dislike")) {
-    reasons.push("命中用户长期动作 dislike");
+    reasons.push(createExclusionReason("user_dislike", "命中用户长期动作 dislike"));
   }
 
   if (memoryState.currentMessage.dislikedExerciseIds.includes(exercise.id)) {
-    reasons.push("命中本轮动作 dislike");
+    reasons.push(createExclusionReason("current_message_dislike", "命中本轮动作 dislike"));
+  }
+
+  if (
+    activeFeedback.some((feedback) => feedback.kind === "too_hard") ||
+    memoryState.currentMessage.tooHardExerciseIds.includes(exercise.id)
+  ) {
+    reasons.push(createExclusionReason("too_hard", "用户反馈该动作太难"));
   }
 
   const avoidanceLabels = [
@@ -449,11 +772,19 @@ function getMemoryExclusionReasons(
 
   for (const label of avoidanceLabels) {
     if (label && matchesExerciseLabel(exercise, label)) {
-      reasons.push(`命中用户记忆约束：${label}`);
+      reasons.push(createExclusionReason("memory_constraint", `命中用户记忆约束：${label}`));
     }
   }
 
-  return [...new Set(reasons)];
+  const seen = new Set<string>();
+  return reasons.filter((reason) => {
+    const key = `${reason.code}:${reason.message}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
 }
 
 function scoreExerciseMemory(exercise: Exercise, memoryState?: ConversationMemoryState) {

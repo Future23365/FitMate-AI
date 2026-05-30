@@ -74,6 +74,7 @@ type ReplacementContext = {
   requestedReplacementId?: string;
   requireEasier?: boolean;
   memoryState?: ConversationMemoryState;
+  trace?: AiTraceLogger;
 };
 
 // PatchEngine 是训练草稿局部修改入口，负责读 artifact、应用单点修改、校验边界并写入新 revision。
@@ -212,6 +213,7 @@ export async function applyWorkoutPatch(input: ApplyWorkoutPatchInput): Promise<
     payload: nextPayload,
     exercises,
     memoryState: input.memoryState,
+    trace: input.trace,
   });
 
   if (operationResult.status !== "applied") {
@@ -310,6 +312,7 @@ function applyPatchOperation(input: {
   payload: WorkoutRoutineDraft | WorkoutPlanDraft;
   exercises: Exercise[];
   memoryState?: ConversationMemoryState;
+  trace?: AiTraceLogger;
 }): WorkoutPatchResult {
   const { operation, located, payload, exercises } = input;
   const originalItem = cloneItem(located.item);
@@ -361,6 +364,7 @@ function applyPatchOperation(input: {
     requestedReplacementId: operation.replacementExerciseId,
     requireEasier: operation.operation === "remove_exercise" || /简单|容易|轻松|太难|降低|难度/i.test(operation.reason ?? ""),
     memoryState: input.memoryState,
+    trace: input.trace,
   });
 
   if (!replacement.ok) {
@@ -400,6 +404,23 @@ function resolveReplacementExercise(context: ReplacementContext):
     originalExerciseId: originalExercise.id,
     replacementDirection: context.requireEasier ? "regression" : "substitution",
     memoryState: context.memoryState,
+  });
+  context.trace?.addStep({
+    name: "Patch 替代动作候选筛选",
+    type: "candidate_selection",
+    input: {
+      originalExerciseId: originalExercise.id,
+      section: context.section,
+      requireEasier: context.requireEasier,
+    },
+    output: {
+      recommendationTrace: candidates.recommendationTrace,
+      candidateStatus: candidates.candidateStatus,
+    },
+    metadata: {
+      primaryCandidateCount: candidates.primaryCandidates.length,
+      supplementaryCandidateCount: candidates.supplementaryCandidates.length,
+    },
   });
   const candidateIds = new Set(getCandidateExerciseIds(candidates));
   const requested = context.requestedReplacementId

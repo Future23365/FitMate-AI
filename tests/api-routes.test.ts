@@ -105,6 +105,31 @@ describe("API route boundaries", () => {
       requiredRelevantCandidateCount: 1,
       isEnoughCandidates: true,
       intent: createWorkoutPlanIntent(),
+      recommendationTrace: {
+        goal: "胸肌训练",
+        filters: {
+          requestedEquipment: ["自重"],
+          targetMuscles: ["胸部"],
+          visibility: "all",
+          requiredRelevantCandidateCount: 1,
+          requiredTotalCandidateCount: 1,
+        },
+        excludedExerciseIds: ["old"],
+        excludeReasons: { old: ["current_card"] },
+        candidateCounts: {
+          totalExercises: 1,
+          strictPrimary: 1,
+          strictSupplementary: 0,
+          finalPrimary: 1,
+          finalSupplementary: 0,
+          relevantFinal: 1,
+        },
+        relaxedConstraints: [],
+        fallbackUsed: false,
+        finalExerciseIds: ["push-up"],
+        relaxationOptions: [],
+      },
+      relaxationOptions: [],
     });
     recommendationMocks.generateAiExerciseRecommendations.mockResolvedValue({
       ok: true,
@@ -201,6 +226,13 @@ describe("API route boundaries", () => {
       expect.objectContaining({
         apiKey: "test-key",
         excludeExerciseIds: ["old"],
+      }),
+    );
+    expect(workoutPlanMocks.selectExerciseCandidates).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.any(Array),
+      expect.objectContaining({
+        exposureSources: [{ reason: "current_card", exerciseIds: ["old"] }],
       }),
     );
   });

@@ -165,6 +165,123 @@ describe("workout plan core logic", () => {
     );
   });
 
+  it("excludes current recommendation card exercises and records recommendation trace", () => {
+    const fixtureExercises = [
+      createExercise({ id: "push-up", nameZh: "俯卧撑" }),
+      createExercise({ id: "incline-push-up", nameZh: "上斜俯卧撑" }),
+    ];
+
+    const result = selectExerciseCandidates(
+      createWorkoutPlanIntent({ goal: "胸肌训练", equipment: ["自重"] }),
+      fixtureExercises,
+      {
+        minCandidates: 1,
+        exposureSources: [{ reason: "current_card", exerciseIds: ["push-up"] }],
+      },
+    );
+
+    expect(result.primaryCandidates.map((candidate) => candidate.exercise.id)).not.toContain("push-up");
+    expect(result.excluded.find((item) => item.exerciseId === "push-up")).toMatchObject({
+      reasonCodes: ["current_card"],
+      relaxable: false,
+    });
+    expect(result.recommendationTrace).toMatchObject({
+      goal: "胸肌训练",
+      excludedExerciseIds: ["push-up"],
+      excludeReasons: { "push-up": ["current_card"] },
+      fallbackUsed: false,
+    });
+    expect(result.recommendationTrace.finalExerciseIds).toContain("incline-push-up");
+  });
+
+  it("excludes dislike, too_hard, health risk, and current card reasons before recommending", () => {
+    const fixtureExercises = [
+      createExercise({ id: "push-up", nameZh: "俯卧撑" }),
+      createExercise({ id: "hard-push-up", nameZh: "高难俯卧撑" }),
+      createExercise({
+        id: "knee-jump",
+        nameZh: "膝主导跳跃",
+        riskTags: ["knee_pain"],
+        contraindications: ["膝痛"],
+      }),
+      createExercise({ id: "current-card-push-up", nameZh: "当前卡片俯卧撑" }),
+      createExercise({ id: "incline-push-up", nameZh: "上斜俯卧撑" }),
+      createExercise({ id: "wall-push-up", nameZh: "墙壁俯卧撑" }),
+      createExercise({ id: "wide-push-up", nameZh: "宽距俯卧撑" }),
+    ];
+
+    const result = selectExerciseCandidates(
+      createWorkoutPlanIntent({ goal: "胸肌训练", equipment: ["自重"], injuryLimitations: ["膝"] }),
+      fixtureExercises,
+      {
+        minCandidates: 1,
+        exposureSources: [{ reason: "current_card", exerciseIds: ["current-card-push-up"] }],
+        memoryState: {
+          currentMessage: {
+            requestedExerciseIds: [],
+            dislikedExerciseIds: [],
+            tooHardExerciseIds: ["hard-push-up"],
+            temporaryAvoidanceLabels: [],
+            healthSignalLabels: [],
+          },
+          activeExerciseFeedback: [
+            {
+              exerciseId: "push-up",
+              kind: "dislike",
+              confidence: 1,
+              requiresConfirmation: false,
+              status: "active",
+            },
+          ],
+          activeMemories: [],
+          recentWorkoutFeedback: [],
+        },
+      },
+    );
+
+    expect(result.candidateStatus).not.toBe("insufficient");
+    expect(result.recommendationTrace.excludeReasons).toMatchObject({
+      "push-up": ["user_dislike"],
+      "hard-push-up": ["too_hard"],
+      "knee-jump": ["health_risk"],
+      "current-card-push-up": ["current_card"],
+    });
+    expect(result.primaryCandidates.map((candidate) => candidate.exercise.id)).toEqual(
+      expect.arrayContaining(["incline-push-up", "wall-push-up", "wide-push-up"]),
+    );
+  });
+
+  it("relaxes non-critical exposure constraints before reporting candidate shortage", () => {
+    const fixtureExercises = [createExercise({ id: "push-up", nameZh: "俯卧撑" })];
+    const relaxed = selectExerciseCandidates(
+      createWorkoutPlanIntent({ goal: "综合训练", equipment: ["自重"] }),
+      fixtureExercises,
+      {
+        minCandidates: 1,
+        exposureSources: [{ reason: "recent_recommendation", exerciseIds: ["push-up"] }],
+      },
+    );
+
+    expect(relaxed.candidateStatus).toBe("enough");
+    expect(relaxed.recommendationTrace.fallbackUsed).toBe(true);
+    expect(relaxed.recommendationTrace.relaxedConstraints).toEqual(["recent_recommendation"]);
+    expect(relaxed.recommendationTrace.finalExerciseIds).toContain("push-up");
+
+    const blocked = selectExerciseCandidates(
+      createWorkoutPlanIntent({ goal: "综合训练", equipment: ["自重"] }),
+      fixtureExercises,
+      {
+        minCandidates: 1,
+        exposureSources: [{ reason: "current_card", exerciseIds: ["push-up"] }],
+      },
+    );
+
+    expect(blocked.candidateStatus).toBe("insufficient");
+    expect(blocked.recommendationTrace.fallbackUsed).toBe(false);
+    expect(blocked.relaxationOptions).toEqual([]);
+    expect(blocked.recommendationTrace.finalExerciseIds).toEqual([]);
+  });
+
   it("converts workout plan draft to saved workout and keeps image compatibility", () => {
     const candidates = selectExerciseCandidates(
       createWorkoutPlanIntent({

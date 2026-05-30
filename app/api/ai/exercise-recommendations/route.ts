@@ -6,6 +6,7 @@ import { generateAiExerciseRecommendations } from "@/lib/server/exercise-recomme
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import { selectExerciseCandidates } from "@/lib/server/workout-plans";
 import { exerciseRecommendationIntentSchema } from "@/lib/shared/exercise-recommendations/schema";
+import type { ExerciseExposureSource } from "@/lib/server/workout-plans";
 
 const exerciseRecommendationRequestSchema = z.object({
   latestUserMessage: z.string().trim().min(1).max(4000),
@@ -13,20 +14,40 @@ const exerciseRecommendationRequestSchema = z.object({
   intent: exerciseRecommendationIntentSchema,
   parentTraceId: z.string().trim().min(1).max(120).optional(),
   excludeExerciseIds: z.array(z.string().trim().min(1).max(120)).max(200).default([]),
+  currentSessionExerciseIds: z.array(z.string().trim().min(1).max(120)).max(200).default([]),
+  recentRecommendationExerciseIds: z.array(z.string().trim().min(1).max(120)).max(200).default([]),
+  futurePlanExerciseIds: z.array(z.string().trim().min(1).max(120)).max(200).default([]),
 });
 
 function selectRecommendationCandidates(
   candidates: ReturnType<typeof selectExerciseCandidates>,
-  excludeExerciseIds: Set<string>,
 ) {
-  const primaryCandidates = candidates.primaryCandidates.filter(
-    (candidate) => !excludeExerciseIds.has(candidate.exercise.id),
-  );
-  const supplementaryCandidates = candidates.supplementaryCandidates.filter(
-    (candidate) => !excludeExerciseIds.has(candidate.exercise.id),
-  );
+  const primaryCandidates = candidates.primaryCandidates;
+  const supplementaryCandidates = candidates.supplementaryCandidates;
 
   return [...primaryCandidates.slice(0, 16), ...supplementaryCandidates.slice(0, 8)].slice(0, 20);
+}
+
+function buildRecommendationExposureSources(input: z.infer<typeof exerciseRecommendationRequestSchema>) {
+  const sources: ExerciseExposureSource[] = [];
+
+  if (input.excludeExerciseIds.length > 0) {
+    sources.push({ reason: "current_card", exerciseIds: input.excludeExerciseIds });
+  }
+
+  if (input.currentSessionExerciseIds.length > 0) {
+    sources.push({ reason: "current_session_exposure", exerciseIds: input.currentSessionExerciseIds });
+  }
+
+  if (input.recentRecommendationExerciseIds.length > 0) {
+    sources.push({ reason: "recent_recommendation", exerciseIds: input.recentRecommendationExerciseIds });
+  }
+
+  if (input.futurePlanExerciseIds.length > 0) {
+    sources.push({ reason: "future_overuse", exerciseIds: input.futurePlanExerciseIds });
+  }
+
+  return sources;
 }
 
 export async function POST(request: Request) {
@@ -72,20 +93,13 @@ export async function POST(request: Request) {
     });
 
     const exercises = await listAllExercises();
-    const candidates = selectExerciseCandidates(parsedRequest.data.intent, exercises);
-    const excludeExerciseIds = new Set(parsedRequest.data.excludeExerciseIds);
-    const selectedCandidates = selectRecommendationCandidates(candidates, excludeExerciseIds);
-    const fallbackCandidates =
-      selectedCandidates.length === 0 && excludeExerciseIds.size > 0
-        ? selectRecommendationCandidates(candidates, new Set())
-        : [];
-    const finalCandidates = selectedCandidates.length > 0 ? selectedCandidates : fallbackCandidates;
-    const effectiveExcludeExerciseIds =
-      selectedCandidates.length > 0 ? parsedRequest.data.excludeExerciseIds : [];
-    const safetyNotes =
-      selectedCandidates.length === 0 && fallbackCandidates.length > 0
-        ? [...candidates.warnings, "当前条件下可替换动作不足，已回填部分高匹配动作。"]
-        : candidates.warnings;
+    const exposureSources = buildRecommendationExposureSources(parsedRequest.data);
+    const candidates = selectExerciseCandidates(parsedRequest.data.intent, exercises, {
+      exposureSources,
+    });
+    const finalCandidates = selectRecommendationCandidates(candidates);
+    const safetyNotes = candidates.warnings;
+    const effectiveExcludeExerciseIds = candidates.recommendationTrace.excludedExerciseIds;
 
     trace.addStep({
       name: "动作推荐候选筛选",
@@ -93,27 +107,31 @@ export async function POST(request: Request) {
       input: {
         intent: parsedRequest.data.intent,
         exerciseCount: exercises.length,
-        excludeExerciseIds: parsedRequest.data.excludeExerciseIds,
+        exposureSources,
       },
       output: {
         candidateStatus: candidates.candidateStatus,
         relevantCandidateCount: candidates.relevantCandidateCount,
         warnings: safetyNotes,
         selectedCandidates: finalCandidates,
+        recommendationTrace: candidates.recommendationTrace,
       },
       metadata: {
         primaryCandidateCount: candidates.primaryCandidates.length,
         supplementaryCandidateCount: candidates.supplementaryCandidates.length,
-        excludedRecommendationCount: excludeExerciseIds.size,
+        excludedRecommendationCount: candidates.recommendationTrace.excludedExerciseIds.length,
+        relaxedConstraints: candidates.recommendationTrace.relaxedConstraints,
       },
     });
 
-    if (finalCandidates.length === 0) {
+    if (finalCandidates.length === 0 || candidates.candidateStatus === "insufficient") {
       trace.finish("failed");
       return NextResponse.json(
         {
           ok: false,
-          message: "当前条件下没有找到可推荐的动作，请放宽目标、器械或限制条件后再试。",
+          message: "当前条件下没有找到足够可推荐的动作，请放宽目标、器械或限制条件后再试。",
+          recommendationTrace: candidates.recommendationTrace,
+          relaxationOptions: candidates.relaxationOptions,
         },
         { status: 422 },
       );

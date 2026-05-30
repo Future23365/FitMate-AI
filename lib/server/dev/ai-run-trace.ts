@@ -12,6 +12,7 @@ export const aiRunTraceToolVersions = {
   searchArtifacts: "2026-05-30.artifact-search-v1",
   getArtifactPayload: "2026-05-30.artifact-payload-v1",
   WorkoutPatchEngine: "2026-05-30.workout-patch-v1",
+  RecommendationDedup: "2026-05-30.recommendation-dedup-v1",
   ValidationService: "2026-05-30.workout-validation-v1",
   ResponseWriter: "2026-05-30.response-writer-v1",
 };
