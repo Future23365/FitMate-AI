@@ -9,6 +9,12 @@ import {
   type RecentArtifactSummary,
 } from "@/lib/server/conversation-artifacts/artifact-service";
 import {
+  buildReferenceResolutionReply,
+  formatReferenceResolutionForPrompt,
+  resolveReference,
+  shouldAttemptReferenceResolution,
+} from "@/lib/server/reference-resolver/reference-resolver-service";
+import {
   aiContextChatMessageSchema,
   buildFitnessConversationContext,
   buildConversationSummaryContext,
@@ -26,6 +32,7 @@ import {
   workoutPlanIntentSchema,
   type WorkoutPlanIntent,
 } from "@/lib/server/workout-plans";
+import type { ReferenceResolution } from "@/lib/shared/reference-resolver/schema";
 
 type ChatRole = "user" | "assistant";
 
@@ -98,6 +105,7 @@ export const chatRequestSchema = z.object({
 export type AiChatRequest = z.infer<typeof chatRequestSchema>;
 
 export type PreparedAiChatRequest = {
+  conversationId?: string;
   rawMessages: ChatMessage[];
   messages: ChatMessage[];
   conversationSummaryContext: ConversationSummaryContext;
@@ -110,6 +118,7 @@ export type PreparedAiChatRequest = {
 export type AssistantAction = {
   action: "exercise_recommendation" | "workout_routine" | "workout_plan";
   intent: WorkoutPlanIntent;
+  referenceResolution?: Extract<ReferenceResolution, { status: "resolved" }>;
 };
 
 export type ExerciseContext = {
@@ -146,6 +155,7 @@ export function prepareAiChatRequest(request: AiChatRequest): PreparedAiChatRequ
   });
 
   return {
+    conversationId: request.conversationId,
     rawMessages,
     conversationSummaryContext,
     internalConversationContext:
@@ -200,10 +210,45 @@ export async function createAiChatResponse({
     recentArtifactSummaries,
     trace,
   );
+  const referenceResolution = shouldAttemptReferenceResolution(
+    conversationSummaryContext.latestUserMessage,
+    chatIntent.type,
+  )
+    ? await resolveReference({
+        latestUserMessage: conversationSummaryContext.latestUserMessage,
+        sessionId: request.conversationId,
+        recentArtifacts: recentArtifactSummaries,
+        intentType: chatIntent.type,
+      })
+    : null;
+
+  trace.addStep({
+    name: "引用解析结果",
+    type: "candidate_selection",
+    output: referenceResolution,
+    metadata: {
+      skipped: !referenceResolution,
+    },
+  });
+
+  if (referenceResolution?.status === "ambiguous" || referenceResolution?.status === "not_found") {
+    return createDeterministicChatResponse({
+      apiKey,
+      trace,
+      conversationSummaryContext,
+      assistantReply: buildReferenceResolutionReply(referenceResolution),
+      internalActionSummary: JSON.stringify({ referenceResolution }),
+    });
+  }
+
   const exerciseContext = chatIntent.needsExerciseContext
     ? await buildExerciseContext(chatIntent, messages, internalConversationContext, trace)
     : null;
-  const assistantAction = resolveAssistantAction(chatIntent, exerciseContext);
+  const assistantAction = resolveAssistantAction(
+    chatIntent,
+    exerciseContext,
+    referenceResolution?.status === "resolved" ? referenceResolution : undefined,
+  );
   const visibleSuggestedReplies = resolveVisibleSuggestedReplies(chatIntent, assistantAction);
   trace.addStep({
     name: "服务端内部动作事件",
@@ -229,6 +274,7 @@ export async function createAiChatResponse({
     conversationSummaryContext,
     assistantAction,
     recentArtifactSummaries,
+    referenceResolution,
   );
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DEEPSEEK_REQUEST_TIMEOUT_MS);
@@ -370,6 +416,7 @@ export async function createAiChatResponse({
           encodeChatStreamEvent("assistant_action", "", {
             action: assistantAction.action,
             intent: assistantAction.intent,
+            referenceResolution: assistantAction.referenceResolution,
           }),
         );
       }
@@ -522,6 +569,53 @@ export async function createAiChatResponse({
         );
         controller.close();
       }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Cache-Control": "no-cache, no-transform",
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "X-Accel-Buffering": "no",
+    },
+  });
+}
+
+function createDeterministicChatResponse(input: {
+  apiKey: string;
+  trace: AiTraceLogger;
+  conversationSummaryContext: ConversationSummaryContext;
+  assistantReply: string;
+  internalActionSummary?: string;
+}) {
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      input.trace.addStep({
+        name: "服务端确定性回复",
+        type: "final_response",
+        output: {
+          content: input.assistantReply,
+          internalActionSummary: input.internalActionSummary,
+        },
+      });
+      controller.enqueue(encodeChatStreamEvent("content", input.assistantReply));
+
+      const summaryUpdate = await updateConversationSummary({
+        apiKey: input.apiKey,
+        previousSummary: input.conversationSummaryContext.summary,
+        latestUserMessage: input.conversationSummaryContext.latestUserMessage,
+        assistantReply: input.assistantReply,
+        internalActionSummary: input.internalActionSummary,
+        trace: input.trace,
+      });
+      input.trace.finish("success");
+      controller.enqueue(
+        encodeChatStreamEvent("done", "", {
+          traceId: input.trace.id,
+          conversationSummary: summaryUpdate.summary,
+        }),
+      );
+      controller.close();
     },
   });
 
@@ -722,6 +816,7 @@ async function buildExerciseContext(
 export function resolveAssistantAction(
   chatIntent: ChatIntent,
   exerciseContext: ExerciseContext | null,
+  referenceResolution?: Extract<ReferenceResolution, { status: "resolved" }>,
 ): AssistantAction | null {
   const canTriggerAction = canTriggerAssistantAction(chatIntent, exerciseContext);
 
@@ -739,6 +834,7 @@ export function resolveAssistantAction(
       return {
         action: "exercise_recommendation",
         intent: exerciseContext.intent,
+        referenceResolution,
       };
     case "routine":
       return {
@@ -748,6 +844,7 @@ export function resolveAssistantAction(
           intentType: "routine",
           weeklyFrequency: 1,
         },
+        referenceResolution,
       };
     case "workout_plan":
       return {
@@ -756,6 +853,7 @@ export function resolveAssistantAction(
           ...exerciseContext.intent,
           intentType: "plan",
         },
+        referenceResolution,
       };
     default:
       return null;
@@ -858,6 +956,7 @@ function summarizeAssistantAction(assistantAction: AssistantAction | null) {
   return JSON.stringify({
     action: assistantAction.action,
     intent: assistantAction.intent,
+    referenceResolution: assistantAction.referenceResolution,
   });
 }
 
@@ -867,12 +966,14 @@ function buildSystemPrompt(
   conversationSummaryContext: ConversationSummaryContext,
   assistantAction: AssistantAction | null,
   recentArtifactSummaries: RecentArtifactSummary[],
+  referenceResolution: ReferenceResolution | null = null,
 ) {
   const contextPrompt = formatConversationSummaryContextForPrompt(conversationSummaryContext);
   const artifactPrompt = formatRecentArtifactSummariesForPrompt(recentArtifactSummaries);
+  const referencePrompt = formatReferenceResolutionForPrompt(referenceResolution);
 
   if (!exerciseContext) {
-    return [aiPromptConfig.chatCompletion.system, contextPrompt, artifactPrompt].filter(Boolean).join("\n\n");
+    return [aiPromptConfig.chatCompletion.system, contextPrompt, artifactPrompt, referencePrompt].filter(Boolean).join("\n\n");
   }
 
   return [
@@ -880,6 +981,8 @@ function buildSystemPrompt(
     contextPrompt,
     "",
     artifactPrompt,
+    "",
+    referencePrompt,
     "",
     aiPromptConfig.chatCompletion.exerciseContext,
     "",

@@ -19,6 +19,7 @@ import {
   workoutPlanDraftSchema,
   workoutRoutineDraftSchema,
 } from "@/lib/shared/workout-plans/draft-schema";
+import type { ReferenceArtifactCandidate } from "@/lib/shared/reference-resolver/schema";
 
 type ArtifactClient = Pick<
   PrismaClient,
@@ -35,10 +36,44 @@ export type RecentArtifactSummary = {
   summary?: string;
   exerciseIds: string[];
   goals: string[];
+  muscles: string[];
+  equipment: string[];
   sessionMinutes?: number;
   weeklyFrequency?: number;
   trainingDayCount?: number;
   updatedAt: string;
+};
+
+type ArtifactSearchScope = "current_session" | "current_user";
+
+type SearchArtifactsInput = {
+  userId: string;
+  sessionId?: string;
+  sessionScope?: ArtifactSearchScope;
+  kind?: ConversationArtifactKind;
+  query?: string;
+  limit?: number;
+};
+
+type GetArtifactPayloadInput = {
+  userId: string;
+  artifactId: string;
+};
+
+type ArtifactIndexRow = {
+  artifactId: string;
+  sessionId: string;
+  kind: ConversationArtifactKind;
+  title: string;
+  summary: string | null;
+  exerciseIds: string[];
+  goals: string[];
+  muscles: string[];
+  equipment: string[];
+  sessionMinutes: number | null;
+  weeklyFrequency: number | null;
+  trainingDayCount: number | null;
+  updatedAt: Date;
 };
 
 type CreateConversationArtifactInput = {
@@ -176,11 +211,130 @@ export async function listRecentArtifactSummariesForCurrentUser(
     summary: index.summary ?? undefined,
     exerciseIds: index.exerciseIds,
     goals: index.goals,
+    muscles: index.muscles,
+    equipment: index.equipment,
     sessionMinutes: index.sessionMinutes ?? undefined,
     weeklyFrequency: index.weeklyFrequency ?? undefined,
     trainingDayCount: index.trainingDayCount ?? undefined,
     updatedAt: index.updatedAt.toISOString(),
   }));
+}
+
+// 语义检索工具只返回轻量候选摘要，完整 payload 读取必须走 getArtifactPayload。
+export async function searchArtifacts(
+  input: SearchArtifactsInput,
+  client: Pick<PrismaClient, "artifactIndex"> = getPrismaClient(),
+): Promise<ReferenceArtifactCandidate[]> {
+  const limit = clampLimit(input.limit);
+  const sessionScope = input.sessionScope ?? "current_session";
+  const rows = await client.artifactIndex.findMany({
+    where: {
+      userId: input.userId,
+      status: "active",
+      ...(input.kind ? { kind: input.kind } : {}),
+      ...(sessionScope === "current_session" && input.sessionId
+        ? { sessionId: input.sessionId }
+        : {}),
+    },
+    orderBy: { updatedAt: "desc" },
+    take: input.query?.trim() ? Math.max(limit * 4, 12) : limit,
+  });
+  const rankedRows = rows
+    .map((row) => ({
+      row: row as ArtifactIndexRow,
+      score: scoreArtifactIndex(row as ArtifactIndexRow, input.query, input.sessionId),
+    }))
+    .filter(({ score }) => !input.query?.trim() || score > 0)
+    .sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score;
+      }
+
+      return right.row.updatedAt.getTime() - left.row.updatedAt.getTime();
+    })
+    .slice(0, limit);
+
+  return rankedRows.map(({ row }) => artifactIndexRowToCandidate(row));
+}
+
+// 当前用户检索包装用于 /api/chat 编排，避免调用方重复处理用户隔离。
+export async function searchArtifactsForCurrentUser(
+  input: Omit<SearchArtifactsInput, "userId">,
+  client: Pick<PrismaClient, "artifactIndex"> = getPrismaClient(),
+) {
+  const user = await getCurrentUser();
+
+  return searchArtifacts({ ...input, userId: user.id }, client);
+}
+
+// 完整 payload 读取工具集中处理 userId、status 和 kind/version 校验。
+export async function getArtifactPayload(
+  input: GetArtifactPayloadInput,
+  client: Pick<PrismaClient, "conversationArtifact"> = getPrismaClient(),
+): Promise<
+  | {
+      ok: true;
+      artifactId: string;
+      kind: ConversationArtifactKind;
+      payload: ConversationArtifactPayload;
+    }
+  | {
+      ok: false;
+      code: "not_found" | "invalid_payload";
+      message: string;
+      detail?: unknown;
+    }
+> {
+  const artifact = await client.conversationArtifact.findFirst({
+    where: {
+      id: input.artifactId,
+      userId: input.userId,
+      status: "active",
+    },
+    select: {
+      id: true,
+      kind: true,
+      payloadSchemaVersion: true,
+      payload: true,
+    },
+  });
+
+  if (!artifact) {
+    return {
+      ok: false,
+      code: "not_found",
+      message: "Artifact not found or not accessible.",
+    };
+  }
+
+  try {
+    return {
+      ok: true,
+      artifactId: artifact.id,
+      kind: artifact.kind,
+      payload: parseConversationArtifactPayload(
+        artifact.kind,
+        artifact.payloadSchemaVersion,
+        artifact.payload,
+      ),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      code: "invalid_payload",
+      message: "Artifact payload validation failed.",
+      detail: error,
+    };
+  }
+}
+
+export async function getArtifactPayloadForCurrentUser(
+  input: Omit<GetArtifactPayloadInput, "userId">,
+  client: Pick<PrismaClient, "conversationArtifact"> = getPrismaClient(),
+) {
+  const user = await getCurrentUser();
+
+  return getArtifactPayload({ ...input, userId: user.id }, client);
 }
 
 // 保存 routine/schedule 后通过来源消息回写 artifact，不要求客户端持有 artifact id。
@@ -355,6 +509,97 @@ function toJsonPayload(payload: ConversationArtifactPayload) {
 function unique(values: Array<string | undefined>) {
   return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
 }
+
+function artifactIndexRowToCandidate(row: ArtifactIndexRow): ReferenceArtifactCandidate {
+  return {
+    artifactId: row.artifactId,
+    kind: row.kind,
+    title: row.title,
+    summary: row.summary ?? undefined,
+    exerciseIds: row.exerciseIds,
+    goals: row.goals,
+    muscles: row.muscles,
+    equipment: row.equipment,
+    sessionMinutes: row.sessionMinutes ?? undefined,
+    weeklyFrequency: row.weeklyFrequency ?? undefined,
+    trainingDayCount: row.trainingDayCount ?? undefined,
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function clampLimit(limit = 6) {
+  return Math.min(Math.max(Math.trunc(limit), 1), 12);
+}
+
+function scoreArtifactIndex(row: ArtifactIndexRow, query: string | undefined, sessionId: string | undefined) {
+  let score = sessionId && row.sessionId === sessionId ? 20 : 0;
+  const terms = expandSearchTerms(query);
+
+  if (terms.length === 0) {
+    return score;
+  }
+
+  const haystack = normalizeSearchText([
+    row.kind,
+    row.title,
+    row.summary ?? "",
+    ...row.goals,
+    ...row.muscles,
+    ...row.equipment,
+  ].join(" "));
+
+  for (const term of terms) {
+    if (haystack.includes(term)) {
+      score += term.length >= 2 ? 10 : 4;
+    }
+  }
+
+  return score;
+}
+
+function expandSearchTerms(query: string | undefined) {
+  const normalized = normalizeSearchText(query ?? "");
+
+  if (!normalized) {
+    return [];
+  }
+
+  const terms = new Set(
+    normalized
+      .split(/[\s,，。.!！？、;；:：]+/)
+      .map((term) => term.trim())
+      .filter((term) => term.length > 0 && !isGenericReferenceTerm(term)),
+  );
+
+  for (const [pattern, additions] of semanticSearchSynonyms) {
+    if (pattern.test(normalized)) {
+      additions.forEach((term) => terms.add(normalizeSearchText(term)));
+    }
+  }
+
+  return [...terms];
+}
+
+function normalizeSearchText(value: string) {
+  return value.toLowerCase().replace(/\s+/g, "");
+}
+
+function isGenericReferenceTerm(term: string) {
+  return /^(这个|这套|这批|那个|那套|之前|上次|刚才|刚刚|上一个|上一套|计划|训练|动作|推荐|帮我|按|把|改成|调整|说明)$/.test(
+    term,
+  );
+}
+
+const semanticSearchSynonyms: Array<[RegExp, string[]]> = [
+  [/练胸|胸肌|胸部/, ["胸", "胸肌", "胸部"]],
+  [/练腿|腿部|下肢/, ["腿", "腿部", "下肢"]],
+  [/背|背部/, ["背", "背部"]],
+  [/肩|肩部/, ["肩", "肩部"]],
+  [/核心|腹/, ["核心", "腹部"]],
+  [/自重|徒手|无器械/, ["自重", "徒手", "无器械"]],
+  [/长期|每周|周期|计划/, ["plan", "长期计划"]],
+  [/单次|这套|训练流程|编排/, ["routine", "单次训练"]],
+];
 
 function runArtifactWrite<T>(
   client: ArtifactWritableClient,

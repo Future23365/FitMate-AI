@@ -3,6 +3,13 @@
 ### Requirement: ReferenceResolver 必须输出受控解析结果
 系统 SHALL 使用 `ReferenceResolver` 将用户引用表达解析为明确 artifact、歧义候选或未找到结果。
 
+#### Scenario: 解析结果结构统一
+- **WHEN** ReferenceResolver 完成一次解析
+- **THEN** 结果 MUST 包含 `status`
+- **AND** `status` MUST 是 `resolved`、`ambiguous` 或 `not_found`
+- **AND** 结果 MUST 包含可解释的 `reason`
+- **AND** 结果 MUST NOT 包含完整 artifact payload
+
 #### Scenario: 高置信度解析成功
 - **WHEN** 用户消息引用当前会话中唯一匹配的 artifact
 - **THEN** ReferenceResolver MUST 返回 `status = "resolved"`
@@ -51,6 +58,22 @@
 - **THEN** 系统 MUST 拒绝该结果
 - **AND** ReferenceResolver MUST 返回 `ambiguous` 或 `not_found`
 
+### Requirement: searchArtifacts 必须只返回当前用户可访问候选
+系统 SHALL 通过 `searchArtifacts` 召回 artifact 候选摘要，作为语义引用解析的候选集合。
+
+#### Scenario: 按用户和会话范围检索候选
+- **WHEN** ReferenceResolver 需要根据语义引用检索 artifact
+- **THEN** `searchArtifacts` MUST 按当前 `userId` 过滤候选
+- **AND** `searchArtifacts` MUST 支持按 `sessionScope` 限制当前会话或当前用户可访问范围
+- **AND** `searchArtifacts` MUST 支持按 `kind`、`query` 和 `limit` 过滤候选
+- **AND** 返回结果 MUST 只包含候选摘要，不包含完整 payload
+
+#### Scenario: 检索结果排序
+- **WHEN** `searchArtifacts` 返回多个候选
+- **THEN** 当前会话 active artifact SHOULD 优先于跨会话候选
+- **AND** 标题、摘要、目标、肌群或器械匹配的候选 SHOULD 优先于仅时间匹配候选
+- **AND** 最近更新的候选 SHOULD 在同等匹配分数下优先返回
+
 ### Requirement: getArtifactPayload 必须执行权限校验
 系统 SHALL 通过受控工具读取 artifact 完整 payload，不得让 LLM 或客户端绕过权限过滤直接访问 artifact。
 
@@ -60,3 +83,26 @@
 - **AND** 工具 MUST 校验 artifact 归属于当前 `userId`
 - **AND** 工具 MUST 拒绝读取其他用户 artifact
 - **AND** 工具 MUST 返回服务端校验后的 payload 结构
+
+#### Scenario: payload 校验失败
+- **WHEN** artifact 存在但 payload 不符合对应 kind 和 schema version
+- **THEN** `getArtifactPayload` MUST 返回失败结果
+- **AND** 系统 MUST NOT 将未校验 payload 交给 AI 编排或客户端动作执行
+
+### Requirement: 聊天流程必须消费引用解析分支
+系统 SHALL 在 `/api/chat` 意图解析后消费 ReferenceResolver 结果，并据此决定继续执行、澄清或重新生成。
+
+#### Scenario: resolved 结果继续后续流程
+- **WHEN** ReferenceResolver 返回 `resolved`
+- **THEN** `/api/chat` MUST 将已解析 artifactId 传递给解释、重复生成或后续 Patch 流程
+- **AND** 后续流程需要完整内容时 MUST 通过 `getArtifactPayload` 读取
+
+#### Scenario: ambiguous 结果停止修改动作
+- **WHEN** ReferenceResolver 返回 `ambiguous`
+- **THEN** `/api/chat` MUST 返回面向用户的候选确认问题
+- **AND** 系统 MUST NOT 在用户确认前执行修改、替换或重复生成动作
+
+#### Scenario: not_found 结果不伪造历史对象
+- **WHEN** ReferenceResolver 返回 `not_found`
+- **THEN** `/api/chat` MUST 引导用户重新说明或进入新生成流程
+- **AND** 系统 MUST NOT 使用 `conversationSummary` 反向构造历史 artifact

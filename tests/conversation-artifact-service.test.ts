@@ -137,11 +137,14 @@ describe("conversation artifact service", () => {
     prismaMock.artifactIndex.findMany.mockResolvedValue([
       {
         artifactId: "artifact-1",
+        sessionId: "chat-1",
         kind: "plan",
         title: "四周增肌计划",
         summary: "每周三练",
         exerciseIds: ["push-up"],
         goals: ["增肌"],
+        muscles: ["胸部"],
+        equipment: ["自重"],
         sessionMinutes: 30,
         weeklyFrequency: 3,
         trainingDayCount: 3,
@@ -160,9 +163,112 @@ describe("conversation artifact service", () => {
       expect.objectContaining({
         artifactId: "artifact-1",
         kind: "plan",
+        muscles: ["胸部"],
+        equipment: ["自重"],
         updatedAt: "2026-05-30T08:00:00.000Z",
       }),
     ]);
+  });
+
+  it("searches artifacts within current user scope and returns lightweight candidates", async () => {
+    prismaMock.artifactIndex.findMany.mockResolvedValue([
+      {
+        artifactId: "artifact-chest",
+        sessionId: "chat-1",
+        kind: "routine",
+        title: "居家胸肌循环",
+        summary: "胸部自重训练。",
+        exerciseIds: ["push-up"],
+        goals: ["胸肌训练"],
+        muscles: ["胸部"],
+        equipment: ["自重"],
+        sessionMinutes: 30,
+        weeklyFrequency: null,
+        trainingDayCount: null,
+        updatedAt: new Date("2026-05-30T08:00:00.000Z"),
+      },
+      {
+        artifactId: "artifact-leg",
+        sessionId: "chat-2",
+        kind: "routine",
+        title: "腿部训练",
+        summary: "下肢力量。",
+        exerciseIds: ["squat"],
+        goals: ["腿部训练"],
+        muscles: ["腿部"],
+        equipment: ["自重"],
+        sessionMinutes: 20,
+        weeklyFrequency: null,
+        trainingDayCount: null,
+        updatedAt: new Date("2026-05-30T07:00:00.000Z"),
+      },
+    ]);
+
+    const candidates = await artifactService.searchArtifacts({
+      userId: "user-1",
+      sessionId: "chat-1",
+      sessionScope: "current_user",
+      kind: "routine",
+      query: "之前那套练胸的",
+      limit: 3,
+    });
+
+    expect(prismaMock.artifactIndex.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { userId: "user-1", status: "active", kind: "routine" },
+      take: 12,
+    }));
+    expect(candidates).toEqual([
+      expect.objectContaining({
+        artifactId: "artifact-chest",
+        title: "居家胸肌循环",
+        muscles: ["胸部"],
+      }),
+    ]);
+    expect(candidates[0]).not.toHaveProperty("payload");
+  });
+
+  it("reads artifact payload only after user and schema validation", async () => {
+    prismaMock.conversationArtifact.findFirst.mockResolvedValueOnce({
+      id: "artifact-routine",
+      kind: "routine",
+      payloadSchemaVersion: 1,
+      payload: createWorkoutRoutineDraft(),
+    });
+
+    await expect(
+      artifactService.getArtifactPayload({
+        userId: "user-1",
+        artifactId: "artifact-routine",
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      artifactId: "artifact-routine",
+      kind: "routine",
+    });
+    expect(prismaMock.conversationArtifact.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        id: "artifact-routine",
+        userId: "user-1",
+        status: "active",
+      },
+    }));
+
+    prismaMock.conversationArtifact.findFirst.mockResolvedValueOnce({
+      id: "artifact-invalid",
+      kind: "routine",
+      payloadSchemaVersion: 1,
+      payload: { title: "坏数据" },
+    });
+
+    await expect(
+      artifactService.getArtifactPayload({
+        userId: "user-1",
+        artifactId: "artifact-invalid",
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: "invalid_payload",
+    });
   });
 
   it("does not query artifacts when an old request has no conversation id", async () => {

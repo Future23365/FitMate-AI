@@ -531,6 +531,7 @@ export function useChatController() {
             assistantAction = {
               action: streamEvent.action,
               intent: streamEvent.intent,
+              referenceResolution: streamEvent.referenceResolution,
             };
             continue;
           }

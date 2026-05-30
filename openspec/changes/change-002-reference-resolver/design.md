@@ -27,11 +27,15 @@ ConversationArtifact 建立后，聊天编排需要在触发生成、修改或�
 
 这样可以避免 workout routine / plan 生成服务在不知道目标对象的情况下重新生成内容。
 
+ReferenceResolver 的输入只包含当前 `userId`、`sessionId`、最新用户消息、意图解析结果、当前会话 recent artifact summaries 和按需检索到的候选摘要。输出统一为 `resolved`、`ambiguous` 或 `not_found`，不返回完整 payload。
+
 ### Decision 2: 近指引用优先确定性规则
 
 “这个”“刚才那个”“上一个”优先从当前会话 recent artifacts 中按消息顺序和 UI 展示顺序解析。只有类型不明确或候选接近时才进入歧义结果。
 
 近指引用通常由 UI 上下文决定，直接让 LLM 判断反而容易引入幻觉。
+
+如果 recent artifacts 中存在多个同等可引用对象，例如同一轮同时推送 routine 和 plan，而用户只说“这个”，解析结果必须进入 `ambiguous`，并按 UI 展示顺序或 `updatedAt` 倒序返回候选。
 
 ### Decision 3: 语义引用使用候选约束
 
@@ -39,11 +43,21 @@ ConversationArtifact 建立后，聊天编排需要在触发生成、修改或�
 
 LLM 只能在候选内选择或返回歧义，不能生成不存在的 artifactId。
 
+第一版不引入向量数据库，`searchArtifacts` 使用数据库索引字段和大小写不敏感文本匹配召回候选。服务端会把 `status = active`、当前 `userId` 和可访问 `sessionScope` 作为硬过滤条件。
+
 ### Decision 4: payload 读取独立工具化
 
 ReferenceResolver 默认只返回 artifactId、置信度和候选摘要；完整 payload 必须通过 `getArtifactPayload` 读取。该工具统一检查 userId、status 和访问范围。
 
 这能控制模型上下文大小，也让敏感 payload 读取有明确 trace。
+
+`getArtifactPayload` 返回前必须按 artifact kind 和 payload schema version 做 Zod 校验。校验失败时返回工具失败结果并记录 trace，不把未校验 JSON 继续交给后续编排。
+
+### Decision 5: 失败结果由聊天层明确消费
+
+`ambiguous` 结果由 `/api/chat` 生成候选确认问题，并停止本轮修改或重复生成动作。`not_found` 结果返回重新说明或新生成引导，不允许从 `conversationSummary` 或自然语言历史摘要伪造历史卡片。
+
+这样可以把“找不到历史对象”和“需要生成新训练内容”区分开，避免模型在上下文不足时误改或重复生成。
 
 ## Risks / Trade-offs
 

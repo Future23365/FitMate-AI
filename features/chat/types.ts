@@ -1,6 +1,7 @@
 import type { WorkoutPlanDraft, WorkoutRoutineDraft } from "@/lib/shared/workout-plans/draft-schema";
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
 import type { ConversationSummaryContext, FitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
+import type { ReferenceResolution } from "@/lib/shared/reference-resolver/schema";
 
 export type ChatMessage = {
   id: string;
@@ -22,6 +23,7 @@ export type ApiChatMessage = Pick<ChatMessage, "role" | "content">;
 export type AssistantActionEvent = {
   action: "exercise_recommendation" | "workout_routine" | "workout_plan";
   intent: unknown;
+  referenceResolution?: Extract<ReferenceResolution, { status: "resolved" }>;
 };
 
 export type ChatStreamEvent = {
@@ -36,6 +38,7 @@ export type ChatStreamEvent = {
   delta?: string;
   action?: AssistantActionEvent["action"];
   intent?: unknown;
+  referenceResolution?: AssistantActionEvent["referenceResolution"];
   suggestedReplies?: string[];
   /** @deprecated 旧流事件兼容字段；新事件使用 suggestedReplies */
   suggestedQuestions?: string[];

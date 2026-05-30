@@ -207,6 +207,8 @@ Zod 用于在服务端再次校验模型输出，避免模型生成不可执行�
 
 当前聊天链路由服务端维护自然语言 `conversationSummary`。`/api/chat`、`/api/ai/workout-plan` 和 `/api/ai/exercise-recommendations` 的模型可见输入只包含 `conversationSummary` 与当前最新用户消息；完整历史消息窗口和旧结构化 `conversationContext` 不再传给模型。结构化 `assistant_action`、`workoutIntent`、候选动作和草稿校验仍保留在服务端内部，用于权限隔离、动作库约束和最终执行。
 
+聊天链路在意图解析后通过 `ReferenceResolver` 解析“这个”“刚才那套”“之前练胸那套”等历史引用。解析结果必须来自当前用户可访问的 recent artifact summaries 或 `ArtifactIndex` 候选集合；歧义和未找到会在 `/api/chat` 直接澄清，完整 artifact payload 只能通过服务端 `getArtifactPayload` 校验后读取。
+
 LangGraph 可以作为后期选择，用于构建更复杂的 Agent 状态机和多步骤任务流，但不建议一开始就引入。
 
 ---
