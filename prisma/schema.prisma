@@ -219,6 +219,7 @@ model Exercise {
   @@index([equipment])
   @@index([reviewStatus])
   @@index([isPublished])
+  @@index([embeddingText])
 }
 
 model UserMemory {
@@ -448,4 +449,5 @@ model ArtifactIndex {
   @@index([userId, sessionId, status, updatedAt])
   @@index([kind])
   @@index([sourceMessageId])
+  @@index([embeddingText])
 }
