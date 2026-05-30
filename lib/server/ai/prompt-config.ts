@@ -173,7 +173,8 @@ export const aiPromptConfig = {
       "你只会收到 conversationSummary 和 latestUserMessage 作为语言上下文，不会收到完整历史消息。",
       "1. primaryExercises（核心候选）：根据用户意图推断出的动作，你必须优先从这里选择，计划中的主要训练动作应来自此列表。",
       "2. supplementaryExercises（补充候选）：用户未明确提及的补充动作，你可以根据训练计划的完整性自主选用（如热身、拉伸、协同肌群训练等），但不必全部使用。",
-      "所有动作的 exerciseId 必须来自以上两组候选（包括 primaryExercises 和 supplementaryExercises），绝对禁止编造动作 ID！",
+      "你还会收到 warmupExercises、trainingExercises、stretchExercises 三个分池候选；对应 section 必须优先从对应分池选择。",
+      "所有动作的 exerciseId 必须来自服务端候选（primaryExercises、supplementaryExercises 或 section 分池），绝对禁止编造动作 ID！",
     ],
     routine:
       [
@@ -182,7 +183,7 @@ export const aiPromptConfig = {
         "trainingLoopRounds 表示主训练 section 循环轮数，必须是 1-6 的整数；trainingLoopRestSeconds 表示每轮主训练之间的休息秒数。",
         "主训练循环只重复 training section，warmup 和 stretch 不参与循环。",
         "每个动作 item 必须包含 section、exerciseId、mode、sets、target、setRestSeconds、transitionRestSeconds；item.section 必须与所属 section 一致。",
-        "热身和拉伸可以优先从 supplementaryExercises 中选择，但所有 exerciseId 都必须来自 primaryExercises 或 supplementaryExercises。",
+        "热身必须优先从 warmupExercises 中选择，主训练必须优先从 trainingExercises 中选择，拉伸必须优先从 stretchExercises 中选择。",
       ].join("\n"),
     plan:
       [
@@ -192,7 +193,7 @@ export const aiPromptConfig = {
         "每个非休息训练日都必须包含 warmup、training、stretch 三个 sections，且每个 section 至少 1 个动作；每个动作 item.section 必须与所属 section 一致。",
         "休息日必须 isRestDay=true，并提供 recoveryNotes；休息日不要生成训练动作 routine 所需的 sections。",
         "长期计划必须让多个训练日具备可区分的 dayType、focus 或动作组合，不能只是复制同一套动作改标题。",
-        "热身、拉伸和恢复类动作优先从 supplementaryExercises 选择；主训练动作优先从 primaryExercises 选择。",
+        "热身、主训练和拉伸动作必须分别优先从 warmupExercises、trainingExercises、stretchExercises 中选择。",
       ].join("\n"),
     schema: [
       "如果 intent.intentType 是 plan，输出的 JSON 对象必须严格符合以下 TypeScript 类型定义：",

@@ -1,4 +1,5 @@
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
+import { isExerciseAllowedInSection } from "@/lib/shared/exercises/metadata";
 import type { Exercise } from "@/lib/shared/exercises/types";
 
 import {
@@ -35,6 +36,7 @@ export type WorkoutPlanValidationIssueCode =
   | "rest_too_short"
   | "missing_safety_notes"
   | "missing_routine_section"
+  | "section_exercise_mismatch"
   | "high_risk_exercise";
 
 export type WorkoutPlanValidationIssue = {
@@ -96,6 +98,7 @@ export function validateWorkoutPlanDraft(
   );
   const errors: WorkoutPlanValidationIssue[] = [];
   const warnings: WorkoutPlanValidationIssue[] = [];
+  const exerciseById = new Map(options.exercises.map((exercise) => [exercise.id, exercise]));
   const dayEstimates = draft.days.map((day, index) => estimateWorkoutDay(day, index + 1));
   const maxEstimatedMinutes = Math.max(...dayEstimates.map((estimate) => estimate.estimatedMinutes));
   const totalWeeklySets = dayEstimates.reduce((total, estimate) => total + estimate.totalSets, 0);
@@ -216,6 +219,17 @@ export function validateWorkoutPlanDraft(
     }
 
     for (const item of dayItems) {
+      const exercise = exerciseById.get(item.exerciseId);
+
+      if (exercise && !isExerciseAllowedInSection(exercise, item.section)) {
+        errors.push({
+          code: "section_exercise_mismatch",
+          dayIndex: dayIndex + 1,
+          exerciseId: item.exerciseId,
+          message: `动作 ${item.exerciseId} 不允许进入 ${item.section} 阶段。`,
+        });
+      }
+
       if (item.sets >= 5 && intent.experience === "beginner") {
         warnings.push({
           code: "beginner_volume_high",
@@ -265,6 +279,7 @@ export function validateWorkoutRoutineDraft(
   );
   const errors: WorkoutPlanValidationIssue[] = [];
   const warnings: WorkoutPlanValidationIssue[] = [];
+  const exerciseById = new Map(options.exercises.map((exercise) => [exercise.id, exercise]));
   const allItems = draft.sections.flatMap((section) => section.items);
   const workoutItemsForEstimate: WorkoutItem[] = allItems.map((item) => ({
     id: item.exerciseId,
@@ -364,6 +379,17 @@ export function validateWorkoutRoutineDraft(
   }
 
   for (const item of allItems) {
+    const exercise = exerciseById.get(item.exerciseId);
+
+    if (exercise && !isExerciseAllowedInSection(exercise, item.section)) {
+      errors.push({
+        code: "section_exercise_mismatch",
+        dayIndex: 1,
+        exerciseId: item.exerciseId,
+        message: `动作 ${item.exerciseId} 不允许进入 ${item.section} 阶段。`,
+      });
+    }
+
     if (item.sets >= 5 && intent.experience === "beginner") {
       warnings.push({
         code: "beginner_volume_high",

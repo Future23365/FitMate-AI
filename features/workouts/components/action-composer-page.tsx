@@ -219,6 +219,7 @@ function toWorkoutItem(
 
 function toPreviewExercise(item: WorkoutItem, exerciseById: Map<string, Exercise>): Exercise {
   const matchedExercise = exerciseById.get(item.exerciseId);
+  const section = item.section ?? "training";
 
   if (matchedExercise) {
     return matchedExercise;
@@ -252,7 +253,15 @@ function toPreviewExercise(item: WorkoutItem, exerciseById: Map<string, Exercise
     instructionsZh: item.instructionsZh,
     images: [],
     imageUrls: item.imageUrls?.length ? item.imageUrls : [item.imageUrl || placeholderWorkoutImage],
+    allowedSections: [section],
+    intensityRole: section === "warmup" ? "activation" : section === "stretch" ? "recovery" : "strength",
+    movementPattern: section === "stretch" ? "stretch" : "other",
+    difficulty: "beginner",
     riskTags: [],
+    contraindications: [],
+    regressionExerciseIds: [],
+    progressionExerciseIds: [],
+    substitutionGroupId: null,
     goalTags: [],
     reviewStatus: "fallback",
     isPublished: true,

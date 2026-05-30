@@ -19,12 +19,58 @@ const prismaMock = vi.hoisted(() => ({
 }));
 
 const exercises = [
-  createExercise({ id: "push-up", nameZh: "俯卧撑", level: "beginner", equipmentZh: "自重" }),
-  createExercise({ id: "wall-push-up", nameZh: "墙壁俯卧撑", level: "beginner", equipmentZh: "自重" }),
-  createExercise({ id: "plank", nameZh: "平板支撑", level: "intermediate", equipmentZh: "自重" }),
-  createExercise({ id: "warmup", nameZh: "肩部动态热身", categoryZh: "热身", goalTags: ["warmup"] }),
-  createExercise({ id: "stretch", nameZh: "胸肩拉伸", categoryZh: "拉伸", goalTags: ["stretch"] }),
-  createExercise({ id: "barbell-bench", nameZh: "杠铃卧推", level: "intermediate", equipmentZh: "杠铃" }),
+  createExercise({
+    id: "push-up",
+    nameZh: "俯卧撑",
+    level: "intermediate",
+    difficulty: "intermediate",
+    equipmentZh: "自重",
+    substitutionGroupId: "push:chest",
+    regressionExerciseIds: ["wall-push-up"],
+  }),
+  createExercise({
+    id: "wall-push-up",
+    nameZh: "墙壁俯卧撑",
+    level: "beginner",
+    difficulty: "beginner",
+    equipmentZh: "自重",
+    substitutionGroupId: "push:chest",
+  }),
+  createExercise({
+    id: "plank",
+    nameZh: "平板支撑",
+    level: "intermediate",
+    difficulty: "intermediate",
+    equipmentZh: "自重",
+    movementPattern: "core",
+    substitutionGroupId: "core:abs",
+  }),
+  createExercise({
+    id: "warmup",
+    nameZh: "肩部动态热身",
+    categoryZh: "热身",
+    allowedSections: ["warmup"],
+    intensityRole: "activation",
+    movementPattern: "mobility",
+    goalTags: ["warmup"],
+  }),
+  createExercise({
+    id: "stretch",
+    nameZh: "胸肩拉伸",
+    categoryZh: "拉伸",
+    allowedSections: ["stretch"],
+    intensityRole: "recovery",
+    movementPattern: "stretch",
+    goalTags: ["stretch"],
+  }),
+  createExercise({
+    id: "barbell-bench",
+    nameZh: "杠铃卧推",
+    level: "expert",
+    difficulty: "advanced",
+    equipmentZh: "杠铃",
+    substitutionGroupId: "push:chest",
+  }),
 ];
 
 describe("workout patch engine", () => {

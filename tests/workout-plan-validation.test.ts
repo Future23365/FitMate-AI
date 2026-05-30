@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   selectExerciseCandidates,
+  sortReplacementCandidates,
   validateWorkoutPlanDraftExerciseIds,
   validateWorkoutRoutineDraftExerciseIds,
 } from "@/lib/server/workout-plans/exercise-candidate-service";
@@ -18,14 +19,34 @@ import {
 } from "./fixtures/domain";
 
 const exercises = [
-  createExercise({ id: "warmup", nameZh: "肩部动态热身", categoryZh: "热身", primaryMusclesZh: ["肩部"] }),
+  createExercise({
+    id: "warmup",
+    nameZh: "肩部动态热身",
+    categoryZh: "热身",
+    primaryMusclesZh: ["肩部"],
+    allowedSections: ["warmup"],
+    intensityRole: "activation",
+    movementPattern: "mobility",
+    goalTags: ["warmup", "mobility"],
+  }),
   createExercise({ id: "push-up", nameZh: "俯卧撑", primaryMusclesZh: ["胸部"], primaryMuscles: ["chest"] }),
-  createExercise({ id: "stretch", nameZh: "胸肩拉伸", categoryZh: "拉伸", primaryMusclesZh: ["胸部"] }),
+  createExercise({
+    id: "stretch",
+    nameZh: "胸肩拉伸",
+    categoryZh: "拉伸",
+    primaryMusclesZh: ["胸部"],
+    allowedSections: ["stretch"],
+    intensityRole: "recovery",
+    movementPattern: "stretch",
+    goalTags: ["mobility"],
+  }),
   createExercise({
     id: "jump-squat",
     nameZh: "跳跃深蹲",
     primaryMusclesZh: ["股四头肌"],
     primaryMuscles: ["quadriceps"],
+    allowedSections: ["training"],
+    movementPattern: "squat",
     riskTags: ["high_impact", "knee_attention"],
     goalTags: ["cardio"],
   }),
@@ -36,6 +57,7 @@ const exercises = [
     levelZh: "专家",
     equipment: "barbell",
     equipmentZh: "杠铃",
+    difficulty: "advanced",
     goalTags: ["strength"],
   }),
 ];
@@ -99,6 +121,9 @@ describe("workout plan candidate and validation services", () => {
     const chestResult = selectExerciseCandidates(createWorkoutPlanIntent({ goal: "胸肌增肌", equipment: ["自重"] }), exercises);
     expect(chestResult.primaryCandidates[0].exercise.id).toBe("push-up");
     expect(chestResult.candidateStatus).toBe("insufficient");
+    expect(chestResult.candidatePools.warmup.map((candidate) => candidate.exercise.id)).toContain("warmup");
+    expect(chestResult.candidatePools.training.map((candidate) => candidate.exercise.id)).toContain("push-up");
+    expect(chestResult.candidatePools.stretch.map((candidate) => candidate.exercise.id)).toContain("stretch");
 
     const avoidedResult = selectExerciseCandidates(
       createWorkoutPlanIntent({
@@ -112,6 +137,60 @@ describe("workout plan candidate and validation services", () => {
       expect.arrayContaining([expect.objectContaining({ exerciseId: "push-up" })]),
     );
     expect(avoidedResult.candidateStatus).toBe("insufficient");
+  });
+
+  it("returns structured shortage reasons when section pools are incomplete", () => {
+    const result = selectExerciseCandidates(
+      createWorkoutPlanIntent({ intentType: "routine", goal: "胸肌增肌" }),
+      [exercises[1]],
+    );
+
+    expect(result.shortages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ pool: "warmup", reasons: ["candidate_pool_below_required_minimum"] }),
+        expect.objectContaining({ pool: "stretch", reasons: ["candidate_pool_below_required_minimum"] }),
+      ]),
+    );
+  });
+
+  it("sorts replacements by explicit group and regression before same-muscle fallback", () => {
+    const original = createExercise({
+      id: "standard-push-up",
+      nameZh: "标准俯卧撑",
+      difficulty: "intermediate",
+      substitutionGroupId: "push:chest",
+      regressionExerciseIds: ["wall-push-up"],
+    });
+    const candidates = [
+      createExercise({
+        id: "plank",
+        nameZh: "平板支撑",
+        movementPattern: "core",
+        substitutionGroupId: "core:abs",
+      }),
+      createExercise({
+        id: "wall-push-up",
+        nameZh: "墙壁俯卧撑",
+        difficulty: "beginner",
+        substitutionGroupId: "push:chest",
+      }),
+      createExercise({
+        id: "incline-push-up",
+        nameZh: "上斜俯卧撑",
+        difficulty: "beginner",
+        substitutionGroupId: "push:chest",
+      }),
+    ].map((exercise, index) => ({
+      exercise,
+      score: 10 - index,
+      reasons: [],
+      source: "primary" as const,
+    }));
+
+    expect(sortReplacementCandidates(candidates, {
+      originalExercise: original,
+      direction: "regression",
+    })[0].exercise.id).toBe("wall-push-up");
   });
 
   it("validates exercise ids against store and candidate set", () => {
@@ -237,5 +316,35 @@ describe("workout plan candidate and validation services", () => {
 
     expect(outsideCandidateResult.valid).toBe(false);
     expect(outsideCandidateResult.errors.map((issue) => issue.code)).toContain("outside_candidate_exercise_id");
+  });
+
+  it("rejects exercises placed in illegal sections", () => {
+    const intent = createWorkoutPlanIntent({ intentType: "routine" });
+    const routineDraft = createWorkoutRoutineDraft({
+      sections: [
+        {
+          section: "warmup",
+          title: "热身",
+          items: [{
+            exerciseId: "push-up",
+            section: "warmup",
+            mode: "reps",
+            sets: 1,
+            target: 8,
+            setRestSeconds: 0,
+            transitionRestSeconds: 10,
+          }],
+        },
+        ...createWorkoutRoutineDraft().sections.slice(1),
+      ],
+    });
+
+    const result = validateWorkoutRoutineDraft(routineDraft, intent, {
+      exercises,
+      candidateExerciseIds: ["warmup", "push-up", "stretch"],
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.map((issue) => issue.code)).toContain("section_exercise_mismatch");
   });
 });

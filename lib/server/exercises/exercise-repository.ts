@@ -1,7 +1,29 @@
 import "server-only";
 
 import { getPrismaClient, isDatabaseConfigured } from "@/lib/server/db/prisma";
+import { normalizeExerciseMetadata } from "@/lib/shared/exercises/metadata";
 import type { Exercise } from "@/lib/shared/exercises/types";
+
+type ExerciseRecord = Omit<
+  Exercise,
+  | "allowedSections"
+  | "intensityRole"
+  | "movementPattern"
+  | "difficulty"
+  | "contraindications"
+  | "regressionExerciseIds"
+  | "progressionExerciseIds"
+  | "substitutionGroupId"
+> & {
+  allowedSections?: string[];
+  intensityRole?: string | null;
+  movementPattern?: string | null;
+  difficulty?: string | null;
+  contraindications?: string[];
+  regressionExerciseIds?: string[];
+  progressionExerciseIds?: string[];
+  substitutionGroupId?: string | null;
+};
 
 // The repository is the only place that reads exercise facts from PostgreSQL.
 export async function listExerciseRecords(): Promise<Exercise[]> {
@@ -30,7 +52,9 @@ export async function getExerciseRecordById(id: string): Promise<Exercise | null
   return exercise ? mapExerciseRecord(exercise) : null;
 }
 
-function mapExerciseRecord(exercise: Exercise): Exercise {
+function mapExerciseRecord(exercise: ExerciseRecord): Exercise {
+  const metadata = normalizeExerciseMetadata(exercise);
+
   return {
     id: exercise.id,
     source: exercise.source,
@@ -59,7 +83,15 @@ function mapExerciseRecord(exercise: Exercise): Exercise {
     instructionsZh: exercise.instructionsZh,
     images: exercise.images,
     imageUrls: exercise.imageUrls,
-    riskTags: exercise.riskTags,
+    allowedSections: metadata.allowedSections,
+    intensityRole: metadata.intensityRole,
+    movementPattern: metadata.movementPattern,
+    difficulty: metadata.difficulty,
+    riskTags: metadata.riskTags,
+    contraindications: metadata.contraindications,
+    regressionExerciseIds: metadata.regressionExerciseIds,
+    progressionExerciseIds: metadata.progressionExerciseIds,
+    substitutionGroupId: metadata.substitutionGroupId,
     goalTags: exercise.goalTags,
     reviewStatus: exercise.reviewStatus,
     isPublished: exercise.isPublished,

@@ -12,12 +12,16 @@ import {
   summarizeWorkoutPatchResultForTrace,
 } from "@/lib/server/dev/ai-run-trace";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
-import { getExerciseSuitability } from "@/lib/server/exercises/exercise-service";
 import {
   getCandidateExerciseIds,
   selectExerciseCandidates,
+  sortReplacementCandidates,
 } from "@/lib/server/workout-plans/exercise-candidate-service";
 import type { ConversationArtifactPayload } from "@/lib/shared/conversation-artifacts/schema";
+import {
+  isExerciseAllowedInSection,
+  normalizeExerciseMetadata,
+} from "@/lib/shared/exercises/metadata";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import {
   type ExerciseLocator,
@@ -386,7 +390,10 @@ function resolveReplacementExercise(context: ReplacementContext):
   }
 
   const intent = buildPatchCandidateIntent(context.payload, context.exercises);
-  const candidates = selectExerciseCandidates(intent, context.exercises);
+  const candidates = selectExerciseCandidates(intent, context.exercises, {
+    originalExerciseId: originalExercise.id,
+    replacementDirection: context.requireEasier ? "regression" : "substitution",
+  });
   const candidateIds = new Set(getCandidateExerciseIds(candidates));
   const requested = context.requestedReplacementId
     ? findExercise(context.exercises, context.requestedReplacementId)
@@ -420,10 +427,13 @@ function resolveReplacementExercise(context: ReplacementContext):
     return { ok: true, exercise: requested };
   }
 
-  const allCandidates = [
+  const allCandidates = sortReplacementCandidates([
     ...candidates.primaryCandidates,
     ...candidates.supplementaryCandidates,
-  ];
+  ], {
+    originalExercise,
+    direction: context.requireEasier ? "regression" : "substitution",
+  });
   const replacement = allCandidates.find((candidate) => {
     if (candidate.exercise.id === originalExercise.id) {
       return false;
@@ -462,7 +472,7 @@ function validateReplacementExercise(input: {
     reasons.push("replacement_outside_candidate_set");
   }
 
-  if (!getExerciseSuitability(input.replacement)[input.section]) {
+  if (!isExerciseAllowedInSection(input.replacement, input.section)) {
     reasons.push("replacement_section_mismatch");
   }
 
@@ -470,11 +480,11 @@ function validateReplacementExercise(input: {
     reasons.push("replacement_equipment_mismatch");
   }
 
-  if (levelRank(input.replacement.level) > levelRank(input.original.level)) {
+  if (levelRank(input.replacement) > levelRank(input.original)) {
     reasons.push("replacement_difficulty_too_high");
   }
 
-  if (input.requireEasier && levelRank(input.replacement.level) >= levelRank(input.original.level)) {
+  if (input.requireEasier && levelRank(input.replacement) >= levelRank(input.original)) {
     reasons.push("replacement_not_easier");
   }
 
@@ -828,16 +838,15 @@ function findExercise(exercises: Exercise[], exerciseId: string) {
   return exercises.find((exercise) => exercise.id === exerciseId);
 }
 
-function levelRank(level: string | null) {
-  if (level === "expert") {
-    return 3;
-  }
+function levelRank(exercise: Exercise) {
+  const difficulty = normalizeExerciseMetadata(exercise).difficulty;
+  const ranks: Record<string, number> = {
+    beginner: 1,
+    intermediate: 2,
+    advanced: 3,
+  };
 
-  if (level === "intermediate") {
-    return 2;
-  }
-
-  return 1;
+  return ranks[difficulty ?? ""] ?? 2;
 }
 
 function clonePayload<T extends WorkoutRoutineDraft | WorkoutPlanDraft>(payload: T): T {

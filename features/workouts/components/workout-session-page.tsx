@@ -250,6 +250,7 @@ async function getScheduleFromDatabase(scheduleId: string) {
 function mapWorkoutItemToExercise(item: WorkoutItem): Exercise {
   const imageUrls = getWorkoutItemImageUrls(item);
   const primaryMusclesZh = item.musclesZh.filter(Boolean);
+  const section = item.section ?? "training";
 
   return {
     id: item.exerciseId || item.id,
@@ -279,7 +280,15 @@ function mapWorkoutItemToExercise(item: WorkoutItem): Exercise {
     instructionsZh: item.instructionsZh,
     images: imageUrls,
     imageUrls,
+    allowedSections: [section],
+    intensityRole: section === "warmup" ? "activation" : section === "stretch" ? "recovery" : "strength",
+    movementPattern: section === "stretch" ? "stretch" : "other",
+    difficulty: "beginner",
     riskTags: [],
+    contraindications: [],
+    regressionExerciseIds: [],
+    progressionExerciseIds: [],
+    substitutionGroupId: null,
     goalTags: [],
     reviewStatus: "fallback",
     isPublished: true,

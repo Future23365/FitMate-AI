@@ -54,3 +54,8 @@
 - **WHEN** 训练草稿在 training section 中包含仅允许 stretch 的动作
 - **THEN** Validator MUST 拒绝该草稿或触发确定性修复
 - **AND** trace 或校验结果 MUST 记录失败原因
+
+#### Scenario: 模型返回候选外动作
+- **WHEN** 模型返回的训练草稿或 Patch 指定的 `exerciseId` 不属于本次服务端候选集合
+- **THEN** Validator MUST 拒绝该草稿或 Patch
+- **AND** 校验结果 MUST 记录候选外动作 ID

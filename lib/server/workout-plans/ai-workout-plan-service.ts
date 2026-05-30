@@ -187,6 +187,12 @@ export async function generateAiWorkoutPlanDraft(
       warnings: candidates.warnings,
       primaryCandidates: candidates.primaryCandidates.slice(0, 40),
       supplementaryCandidates: candidates.supplementaryCandidates.slice(0, 40),
+      candidatePools: {
+        warmup: candidates.candidatePools.warmup.slice(0, 20),
+        training: candidates.candidatePools.training.slice(0, 20),
+        stretch: candidates.candidatePools.stretch.slice(0, 20),
+      },
+      shortages: candidates.shortages,
       excluded: candidates.excluded.slice(0, 80),
     },
     metadata: {
@@ -522,6 +528,9 @@ async function generateWorkoutPlanDraft(
         latestUserMessage: conversationSummaryContext.latestUserMessage,
         primaryExercises: exercisePayload.primaryExercises,
         supplementaryExercises: exercisePayload.supplementaryExercises,
+        warmupExercises: exercisePayload.warmupExercises,
+        trainingExercises: exercisePayload.trainingExercises,
+        stretchExercises: exercisePayload.stretchExercises,
       }),
     },
   ];
@@ -609,6 +618,9 @@ async function repairWorkoutPlanDraft(
         originalDraft,
         primaryExercises: exercisePayload.primaryExercises,
         supplementaryExercises: exercisePayload.supplementaryExercises,
+        warmupExercises: exercisePayload.warmupExercises,
+        trainingExercises: exercisePayload.trainingExercises,
+        stretchExercises: exercisePayload.stretchExercises,
       }),
     },
   ];
@@ -677,19 +689,26 @@ async function repairWorkoutPlanDraft(
 
 function buildExercisePromptPayload(candidates: ExerciseCandidateResult) {
   const toPayload = ({ exercise }: { exercise: Exercise }) => ({
-    exerciseId: exercise.id,
-    nameZh: exercise.nameZh,
-    categoryZh: exercise.categoryZh,
-    level: exercise.level,
-    equipmentZh: exercise.equipmentZh,
-    primaryMusclesZh: exercise.primaryMusclesZh,
-    riskTags: exercise.riskTags,
-    goalTags: exercise.goalTags,
+      exerciseId: exercise.id,
+      nameZh: exercise.nameZh,
+      categoryZh: exercise.categoryZh,
+      level: exercise.level,
+      equipmentZh: exercise.equipmentZh,
+      primaryMusclesZh: exercise.primaryMusclesZh,
+      allowedSections: exercise.allowedSections,
+      intensityRole: exercise.intensityRole,
+      movementPattern: exercise.movementPattern,
+      difficulty: exercise.difficulty,
+      riskTags: exercise.riskTags,
+      goalTags: exercise.goalTags,
   });
 
   return {
     primaryExercises: candidates.primaryCandidates.slice(0, maxModelCandidates).map(toPayload),
     supplementaryExercises: candidates.supplementaryCandidates.slice(0, maxModelCandidates).map(toPayload),
+    warmupExercises: candidates.candidatePools.warmup.slice(0, maxModelCandidates).map(toPayload),
+    trainingExercises: candidates.candidatePools.training.slice(0, maxModelCandidates).map(toPayload),
+    stretchExercises: candidates.candidatePools.stretch.slice(0, maxModelCandidates).map(toPayload),
   };
 }
 

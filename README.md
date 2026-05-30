@@ -11,7 +11,7 @@ FitMate AI 是一个 AI 健身聊天助手原型。项目目标是通过自然�
 当前项目主要完成了以下原型能力：
 
 - 首页 AI 聊天界面，支持 DeepSeek 流式响应。
-- 聊天页可识别训练计划和单次训练编排意图，并在服务端生成经过候选动作与规则校验的结构化草稿。
+- 聊天页可识别训练计划和单次训练编排意图，并在服务端生成经过分池候选动作与规则校验的结构化草稿。
 - 动作库页面，基于 PostgreSQL/Prisma 动作 repository 展示、搜索、筛选动作。
 - 动作编排页面，支持从动作库添加动作、调整组数/次数/休息，并保存到数据库。
 - 训练日历页面，支持数据库持久化安排训练、设置休息日、标记完成/未完成。
@@ -141,7 +141,7 @@ lib/
     workouts/
 
 data/
-  exercises.zh.json        # 中文动作 seed 数据，开发期无数据库时作为回退数据源
+  exercises.zh.json        # 中文动作 seed 数据；运行时动作事实以 PostgreSQL 为准
 
 prisma/
   schema.prisma            # PostgreSQL/Prisma 数据模型
@@ -222,9 +222,9 @@ example/                   # 设计参考 HTML
 
 - [x] 新增训练计划和单次编排草稿类型与 Zod Schema，包括周期化三段式 `WorkoutPlanDraft`、`WorkoutDayDraft`、`WorkoutPlanItemDraft`、`WorkoutRoutineDraft`。
 - [x] 新增用户计划意图结构，包括目标、经验、每次可用时间、每周频率、器械、伤病限制、偏好和避开项。
-- [x] 新增动作候选服务，根据用户意图从动作库筛选候选动作。
+- [x] 新增动作候选服务，根据用户意图从动作库筛选候选动作，并按热身、主训练、拉伸和替代用途分池。
 - [x] 新增动作安全过滤逻辑，例如新手优先 beginner、疼痛或伤病用户排除高风险动作。
-- [x] 新增 `exerciseId` 校验逻辑，确保 AI 生成的动作都存在于动作库且来自候选集。
+- [x] 新增 `exerciseId` 和 section 校验逻辑，确保 AI 生成的动作都存在于动作库、来自候选集且允许进入对应训练阶段。
 - [x] 新增 AI 训练计划生成服务，要求模型只基于候选动作返回结构化 JSON；长期计划返回 `kind = "plan"`，单次编排返回 `kind = "routine"`。
 - [x] 新增训练计划和单次编排校验服务，校验动作 ID、训练时长、训练强度、组数、次数/时长、休息时间、三段式 section 和主训练循环配置。
 - [x] 新增 `POST /api/ai/workout-plan`，用于根据聊天上下文生成可保存的训练计划草稿或单次训练编排草稿。
@@ -237,7 +237,7 @@ example/                   # 设计参考 HTML
 
 ### 数据与后端
 
-- [x] 静态动作数据已包含发布状态、审核状态、风险标签、目标标签和来源许可证字段。
+- [x] 静态动作数据已包含发布状态、审核状态、风险标签、目标标签和来源许可证字段，seed 时会归一化训练阶段、角色、运动模式、难度和替代关系元数据。
 - [x] 建立 PostgreSQL / Prisma 数据层骨架。
 - [x] 引入 Prisma，建立 `User`、`Exercise`、`WorkoutRoutine`、`WorkoutSchedule`、`WorkoutSessionResult`、`ChatSession` 等核心模型。
 - [x] 将 `data/exercises.zh.json` 迁移为数据库 seed 数据。

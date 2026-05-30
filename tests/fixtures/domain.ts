@@ -10,6 +10,21 @@ import type { WorkoutRoutine, WorkoutSchedule, WorkoutItem } from "@/lib/shared/
 
 export function createExercise(overrides: Partial<Exercise> = {}): Exercise {
   const id = overrides.id ?? "push-up";
+  const allowedSections = overrides.allowedSections ?? inferFixtureAllowedSections({
+    id,
+    nameEn: overrides.nameEn ?? "Push Up",
+    nameZh: overrides.nameZh ?? "俯卧撑",
+    category: overrides.category ?? "strength",
+    categoryZh: overrides.categoryZh ?? "力量",
+    goalTags: overrides.goalTags ?? ["strength", "home_friendly", "beginner_friendly"],
+    riskTags: overrides.riskTags ?? [],
+  });
+  const defaultIntensityRole = allowedSections.includes("stretch")
+    ? "recovery"
+    : allowedSections.includes("warmup")
+      ? "activation"
+      : "strength";
+  const defaultMovementPattern = allowedSections.includes("stretch") ? "stretch" : "push";
 
   return {
     id,
@@ -39,11 +54,60 @@ export function createExercise(overrides: Partial<Exercise> = {}): Exercise {
     instructionsZh: overrides.instructionsZh ?? ["保持核心收紧。"],
     images: overrides.images ?? ["/fixture.png"],
     imageUrls: overrides.imageUrls ?? ["/fixture.png"],
+    allowedSections,
+    intensityRole: overrides.intensityRole ?? defaultIntensityRole,
+    movementPattern: overrides.movementPattern ?? defaultMovementPattern,
+    difficulty: overrides.difficulty ?? "beginner",
     riskTags: overrides.riskTags ?? [],
+    contraindications: overrides.contraindications ?? [],
+    regressionExerciseIds: overrides.regressionExerciseIds ?? [],
+    progressionExerciseIds: overrides.progressionExerciseIds ?? [],
+    substitutionGroupId: overrides.substitutionGroupId ?? "push:chest",
     goalTags: overrides.goalTags ?? ["strength", "home_friendly", "beginner_friendly"],
     reviewStatus: overrides.reviewStatus ?? "human_reviewed",
     isPublished: overrides.isPublished ?? true,
   };
+}
+
+function inferFixtureAllowedSections(input: {
+  id: string;
+  nameEn: string;
+  nameZh: string;
+  category: string | null;
+  categoryZh: string | null;
+  goalTags: string[];
+  riskTags: string[];
+}): Exercise["allowedSections"] {
+  const text = [
+    input.id,
+    input.nameEn,
+    input.nameZh,
+    input.category,
+    input.categoryZh,
+    ...input.goalTags,
+    ...input.riskTags,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase()
+    .replace(/\s+/g, "");
+  const sections: Exercise["allowedSections"] = [];
+  const isStretch = /拉伸|伸展|stretch|mobility/.test(text);
+  const isWarmup = /热身|激活|动态|warmup|activation|jumpingjack|开合跳/.test(text);
+
+  if (isWarmup && !/high_impact|高冲击/.test(text)) {
+    sections.push("warmup");
+  }
+
+  if (!isStretch) {
+    sections.push("training");
+  }
+
+  if (isStretch) {
+    sections.push("stretch");
+  }
+
+  return sections.length ? sections : ["training"];
 }
 
 export function createWorkoutItem(overrides: Partial<WorkoutItem> = {}): WorkoutItem {

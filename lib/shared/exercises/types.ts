@@ -1,9 +1,58 @@
+import { z } from "zod";
+
 export type ExerciseReviewStatus =
   | "machine_translated"
   | "machine_assisted"
   | "human_reviewed"
   | "rejected"
   | "fallback";
+
+export const exerciseAllowedSectionSchema = z.enum(["warmup", "training", "stretch"]);
+export const exerciseIntensityRoleSchema = z.enum([
+  "activation",
+  "mobility",
+  "skill",
+  "strength",
+  "hypertrophy",
+  "power",
+  "cardio",
+  "recovery",
+]);
+export const exerciseMovementPatternSchema = z.enum([
+  "push",
+  "pull",
+  "squat",
+  "hinge",
+  "lunge",
+  "carry",
+  "rotation",
+  "anti_rotation",
+  "gait",
+  "mobility",
+  "isolation",
+  "core",
+  "stretch",
+  "other",
+]);
+export const exerciseDifficultySchema = z.enum(["beginner", "intermediate", "advanced"]);
+
+export const exerciseMetadataSchema = z.object({
+  allowedSections: z.array(exerciseAllowedSectionSchema).default([]),
+  intensityRole: exerciseIntensityRoleSchema.nullable().default(null),
+  movementPattern: exerciseMovementPatternSchema.nullable().default(null),
+  difficulty: exerciseDifficultySchema.nullable().default(null),
+  riskTags: z.array(z.string().trim().min(1)).default([]),
+  contraindications: z.array(z.string().trim().min(1)).default([]),
+  regressionExerciseIds: z.array(z.string().trim().min(1)).default([]),
+  progressionExerciseIds: z.array(z.string().trim().min(1)).default([]),
+  substitutionGroupId: z.string().trim().min(1).nullable().default(null),
+});
+
+export type ExerciseAllowedSection = z.infer<typeof exerciseAllowedSectionSchema>;
+export type ExerciseIntensityRole = z.infer<typeof exerciseIntensityRoleSchema>;
+export type ExerciseMovementPattern = z.infer<typeof exerciseMovementPatternSchema>;
+export type ExerciseDifficulty = z.infer<typeof exerciseDifficultySchema>;
+export type ExerciseMetadata = z.infer<typeof exerciseMetadataSchema>;
 
 export type Exercise = {
   id: string;
@@ -33,7 +82,15 @@ export type Exercise = {
   instructionsZh: string[];
   images: string[];
   imageUrls: string[];
+  allowedSections: ExerciseAllowedSection[];
+  intensityRole: ExerciseIntensityRole | null;
+  movementPattern: ExerciseMovementPattern | null;
+  difficulty: ExerciseDifficulty | null;
   riskTags: string[];
+  contraindications: string[];
+  regressionExerciseIds: string[];
+  progressionExerciseIds: string[];
+  substitutionGroupId: string | null;
   goalTags: string[];
   reviewStatus: ExerciseReviewStatus;
   isPublished: boolean;

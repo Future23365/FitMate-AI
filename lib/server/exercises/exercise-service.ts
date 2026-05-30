@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getExerciseRecordById, listExerciseRecords } from "@/lib/server/exercises/exercise-repository";
+import { normalizeExerciseMetadata } from "@/lib/shared/exercises/metadata";
 import { getExerciseTagLabel } from "@/lib/shared/exercises/tag-labels";
 import type {
   Exercise,
@@ -138,6 +139,16 @@ function matchesExerciseQuery(exercise: Exercise, query: ExerciseListQuery) {
 
 // 根据现有动作元数据派生非互斥用途适配结果，供右侧动作库筛选和 facets 复用。
 export function getExerciseSuitability(exercise: Exercise): ExerciseSuitabilityFlags {
+  const metadata = normalizeExerciseMetadata(exercise);
+
+  if (metadata.allowedSections.length > 0) {
+    return {
+      warmup: metadata.allowedSections.includes("warmup"),
+      training: metadata.allowedSections.includes("training"),
+      stretch: metadata.allowedSections.includes("stretch"),
+    };
+  }
+
   const text = normalizeSearchText(
     [
       exercise.category,

@@ -150,7 +150,15 @@ model Exercise {
   instructionsZh     String[]             @default([])
   images             String[]             @default([])
   imageUrls          String[]             @default([])
+  allowedSections    String[]             @default([])
+  intensityRole      String?
+  movementPattern    String?
+  difficulty         String?
   riskTags           String[]             @default([])
+  contraindications  String[]             @default([])
+  regressionExerciseIds String[]          @default([])
+  progressionExerciseIds String[]         @default([])
+  substitutionGroupId String?
   goalTags           String[]             @default([])
   reviewStatus       ExerciseReviewStatus @default(machine_translated)
   isPublished        Boolean              @default(false)

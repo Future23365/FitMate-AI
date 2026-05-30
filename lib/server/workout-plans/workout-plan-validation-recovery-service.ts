@@ -18,6 +18,7 @@ const hardBoundaryIssueCodes = new Set<WorkoutPlanValidationIssueCode>([
   "outside_candidate_exercise_id",
   "empty_candidate_set",
   "missing_routine_section",
+  "section_exercise_mismatch",
   "cycle_structure_mismatch",
   "day_similarity_high",
 ]);

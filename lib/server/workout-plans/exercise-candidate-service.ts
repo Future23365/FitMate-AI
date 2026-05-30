@@ -1,4 +1,8 @@
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
+import {
+  isExerciseAllowedInSection,
+  normalizeExerciseMetadata,
+} from "@/lib/shared/exercises/metadata";
 import type { Exercise } from "@/lib/shared/exercises/types";
 
 import {
@@ -8,6 +12,7 @@ import {
   type WorkoutPlanDraft,
   type WorkoutPlanIntent,
   type WorkoutRoutineDraft,
+  type WorkoutRoutineSection,
 } from "@/lib/shared/workout-plans/draft-schema";
 
 export type ExerciseCandidate = {
@@ -24,13 +29,32 @@ export type ExcludedExercise = {
   reasons: string[];
 };
 
+export type ExerciseCandidateShortage = {
+  pool: keyof ExerciseCandidatePools;
+  required: number;
+  actual: number;
+  reasons: string[];
+};
+
+export type ExerciseCandidatePools = {
+  warmup: ExerciseCandidate[];
+  training: ExerciseCandidate[];
+  stretch: ExerciseCandidate[];
+  regression: ExerciseCandidate[];
+  progression: ExerciseCandidate[];
+  substitution: ExerciseCandidate[];
+};
+
 export type ExerciseCandidateResult = {
   intent: WorkoutPlanIntent;
   /** 用户意图直接推断出的候选动作（高优先级，AI 必须优先选用） */
   primaryCandidates: ExerciseCandidate[];
   /** 系统补充的候选动作（AI 自主决定是否选用） */
   supplementaryCandidates: ExerciseCandidate[];
+  /** 按训练阶段和替代用途拆分的服务端候选池，供计划生成和 Patch 校验使用 */
+  candidatePools: ExerciseCandidatePools;
   excluded: ExcludedExercise[];
+  shortages: ExerciseCandidateShortage[];
   warnings: string[];
   candidateStatus: "enough" | "limited_but_usable" | "insufficient";
   relevantCandidateCount: number;
@@ -42,6 +66,11 @@ export type ExerciseCandidateOptions = {
   exercises?: Exercise[];
   minCandidates?: number;
   maxCandidates?: number;
+  userId?: string;
+  visibility?: "all" | "published";
+  section?: WorkoutRoutineSection;
+  originalExerciseId?: string;
+  replacementDirection?: "regression" | "progression" | "substitution";
 };
 
 export type WorkoutPlanExerciseIdValidationResult = {
@@ -78,6 +107,8 @@ export function selectExerciseCandidates(
     .flatMap((exercise) => {
       const exclusionReasons = getExerciseExclusionReasons(exercise, intent, {
         requestedEquipment,
+        visibility: options.visibility ?? "all",
+        section: options.section,
       });
 
       if (exclusionReasons.length > 0) {
@@ -115,6 +146,15 @@ export function selectExerciseCandidates(
   const structuredSupplementaryCandidates = ["plan", "routine"].includes(intent.intentType)
     ? mergeStructuredSectionCandidates(supplementaryCandidates, allScored, primaryCandidates)
     : supplementaryCandidates;
+  const allCandidates = [
+    ...primaryCandidates,
+    ...structuredSupplementaryCandidates,
+  ];
+  const candidatePools = buildExerciseCandidatePools({
+    candidates: allCandidates,
+    originalExerciseId: options.originalExerciseId,
+    replacementDirection: options.replacementDirection,
+  });
 
   const totalCandidates = primaryCandidates.length + structuredSupplementaryCandidates.length;
   const relevantCandidateCount =
@@ -141,11 +181,18 @@ export function selectExerciseCandidates(
     warnings.add("相关候选动作不足，无法生成可靠的训练计划草稿。");
   }
 
+  const shortages = resolveCandidateShortages(candidatePools, intent);
+  for (const shortage of shortages) {
+    warnings.add(`${shortage.pool} 候选不足：需要 ${shortage.required} 个，当前 ${shortage.actual} 个。`);
+  }
+
   return {
     intent,
     primaryCandidates,
     supplementaryCandidates: structuredSupplementaryCandidates,
+    candidatePools,
     excluded,
+    shortages,
     warnings: [...warnings],
     candidateStatus,
     relevantCandidateCount,
@@ -227,8 +274,11 @@ export async function validateWorkoutPlanDraftExerciseIdsFromStore(
 /** 返回 primary + supplementary 的全部候选动作 ID 合集 */
 export function getCandidateExerciseIds(result: ExerciseCandidateResult) {
   return [
-    ...result.primaryCandidates.map((c) => c.exercise.id),
-    ...result.supplementaryCandidates.map((c) => c.exercise.id),
+    ...new Set([
+      ...result.primaryCandidates.map((c) => c.exercise.id),
+      ...result.supplementaryCandidates.map((c) => c.exercise.id),
+      ...Object.values(result.candidatePools).flatMap((pool) => pool.map((c) => c.exercise.id)),
+    ]),
   ];
 }
 
@@ -237,16 +287,31 @@ function getExerciseExclusionReasons(
   intent: WorkoutPlanIntent,
   context: {
     requestedEquipment: Set<string>;
+    visibility: "all" | "published";
+    section?: WorkoutRoutineSection;
   },
 ) {
   const reasons: string[] = [];
+  const metadata = normalizeExerciseMetadata(exercise);
 
-  if (intent.experience === "beginner" && exercise.level === "expert") {
+  if (context.visibility === "published" && !exercise.isPublished) {
+    reasons.push("动作未发布");
+  }
+
+  if (intent.experience === "beginner" && metadata.difficulty === "advanced") {
     reasons.push("新手用户排除 expert 动作");
+  }
+
+  if (context.section && !metadata.allowedSections.includes(context.section)) {
+    reasons.push(`不允许进入 ${context.section} 阶段`);
   }
 
   if (!matchesRequestedEquipment(exercise, context.requestedEquipment)) {
     reasons.push("不符合用户可用器械");
+  }
+
+  if (matchesRiskLimit(exercise, intent.injuryLimitations)) {
+    reasons.push("命中用户伤病或疼痛限制");
   }
 
   if (matchesAvoidance(exercise, intent.avoidances)) {
@@ -286,6 +351,12 @@ function scoreExercise(
   if (exercise.level === "beginner") {
     score += intent.experience === "beginner" ? 30 : 10;
     reasons.push("难度适合新手");
+  }
+
+  const metadata = normalizeExerciseMetadata(exercise);
+  if (metadata.intensityRole === "activation" || metadata.intensityRole === "recovery") {
+    score += 4;
+    reasons.push(`动作角色 ${metadata.intensityRole}`);
   }
 
   if (exercise.goalTags.includes("beginner_friendly")) {
@@ -421,9 +492,154 @@ function mergeStructuredSectionCandidates(
 }
 
 function isSectionStructureCandidate(exercise: Exercise) {
+  const metadata = normalizeExerciseMetadata(exercise);
+
+  if (metadata.allowedSections.some((section) => section === "warmup" || section === "stretch")) {
+    return true;
+  }
+
   const text = `${exercise.categoryZh ?? ""} ${exercise.nameZh} ${exercise.goalTags.join(" ")}`;
 
   return /(热身|激活|动态|拉伸|伸展|放松|恢复|mobility|stretch|warmup|recovery)/i.test(text);
+}
+
+// ExerciseCandidatePools 是计划生成和 Patch 的统一候选事实源，避免调用方自行猜测阶段用途。
+function buildExerciseCandidatePools(input: {
+  candidates: ExerciseCandidate[];
+  originalExerciseId?: string;
+  replacementDirection?: "regression" | "progression" | "substitution";
+}): ExerciseCandidatePools {
+  const warmup = input.candidates.filter((candidate) =>
+    isExerciseAllowedInSection(candidate.exercise, "warmup"),
+  );
+  const training = input.candidates.filter((candidate) =>
+    isExerciseAllowedInSection(candidate.exercise, "training"),
+  );
+  const stretch = input.candidates.filter((candidate) =>
+    isExerciseAllowedInSection(candidate.exercise, "stretch"),
+  );
+  const originalExercise = input.originalExerciseId
+    ? input.candidates.find((candidate) => candidate.exercise.id === input.originalExerciseId)?.exercise
+    : undefined;
+  const substitution = sortReplacementCandidates(input.candidates, {
+    originalExercise,
+    direction: input.replacementDirection ?? "substitution",
+  });
+
+  return {
+    warmup,
+    training,
+    stretch,
+    regression: sortReplacementCandidates(input.candidates, {
+      originalExercise,
+      direction: "regression",
+    }),
+    progression: sortReplacementCandidates(input.candidates, {
+      originalExercise,
+      direction: "progression",
+    }),
+    substitution,
+  };
+}
+
+export function sortReplacementCandidates(
+  candidates: ExerciseCandidate[],
+  context: {
+    originalExercise?: Exercise;
+    direction?: "regression" | "progression" | "substitution";
+  } = {},
+) {
+  if (!context.originalExercise) {
+    return [...candidates].sort(compareCandidates);
+  }
+
+  const originalExercise = context.originalExercise;
+  return [...candidates]
+    .filter((candidate) => candidate.exercise.id !== originalExercise.id)
+    .sort((left, right) =>
+      scoreReplacementCandidate(right.exercise, { ...context, originalExercise }) -
+        scoreReplacementCandidate(left.exercise, { ...context, originalExercise }) ||
+      compareCandidates(left, right),
+    );
+}
+
+function scoreReplacementCandidate(
+  exercise: Exercise,
+  context: {
+    originalExercise: Exercise;
+    direction?: "regression" | "progression" | "substitution";
+  },
+) {
+  const original = normalizeExerciseMetadata(context.originalExercise);
+  const replacement = normalizeExerciseMetadata(exercise);
+  let score = 0;
+
+  if (
+    context.originalExercise.substitutionGroupId &&
+    exercise.substitutionGroupId === context.originalExercise.substitutionGroupId
+  ) {
+    score += 100;
+  }
+
+  if (context.direction === "regression" && context.originalExercise.regressionExerciseIds.includes(exercise.id)) {
+    score += 120;
+  }
+
+  if (context.direction === "progression" && context.originalExercise.progressionExerciseIds.includes(exercise.id)) {
+    score += 120;
+  }
+
+  if (original.movementPattern && replacement.movementPattern === original.movementPattern) {
+    score += 50;
+  }
+
+  if (sharesPrimaryMuscle(exercise, context.originalExercise)) {
+    score += 30;
+  }
+
+  if (matchesOriginalEquipment(context.originalExercise, exercise)) {
+    score += 20;
+  }
+
+  if (hasOverlappingSections(context.originalExercise, exercise)) {
+    score += 20;
+  }
+
+  const difficultyDelta = difficultyRank(replacement.difficulty) - difficultyRank(original.difficulty);
+  if (context.direction === "regression") {
+    score += difficultyDelta < 0 ? 35 : -20;
+  } else if (context.direction === "progression") {
+    score += difficultyDelta > 0 ? 35 : -20;
+  } else {
+    score += difficultyDelta <= 0 ? 12 : -12;
+  }
+
+  return score;
+}
+
+function resolveCandidateShortages(
+  pools: ExerciseCandidatePools,
+  intent: WorkoutPlanIntent,
+): ExerciseCandidateShortage[] {
+  const requiredByPool: Partial<Record<keyof ExerciseCandidatePools, number>> = intent.intentType === "routine"
+    ? { warmup: 1, training: 1, stretch: 1 }
+    : { warmup: 1, training: Math.min(3, Math.max(1, intent.weeklyFrequency)), stretch: 1 };
+
+  return Object.entries(requiredByPool).flatMap(([pool, required]) => {
+    const key = pool as keyof ExerciseCandidatePools;
+    const actual = pools[key].length;
+
+    if (actual >= (required ?? 0)) {
+      return [];
+    }
+
+    return [{
+      pool: key,
+      required: required ?? 0,
+      actual,
+      reasons: ["candidate_pool_below_required_minimum"],
+    }];
+  });
 }
 
 function resolveRequestedEquipment(equipment: string[]) {
@@ -587,6 +803,63 @@ function matchesPreference(exercise: Exercise, preferences: string[]) {
 
 function matchesAvoidance(exercise: Exercise, avoidances: string[]) {
   return avoidances.some((avoidance) => matchesFreeText(exercise, avoidance));
+}
+
+function matchesRiskLimit(exercise: Exercise, injuryLimitations: string[]) {
+  if (injuryLimitations.length === 0) {
+    return false;
+  }
+
+  const metadata = normalizeExerciseMetadata(exercise);
+  const riskText = normalizeText([
+    ...metadata.riskTags,
+    ...metadata.contraindications,
+  ].join(" "));
+
+  return injuryLimitations.some((limitation) => {
+    const normalized = normalizeText(limitation);
+
+    return (
+      riskText.includes(normalized) ||
+      (/膝|knee/.test(normalized) && riskText.includes("kneepain")) ||
+      (/肩|shoulder/.test(normalized) && riskText.includes("shoulderpain")) ||
+      (/腰|下背|back/.test(normalized) && riskText.includes("lowbackpain"))
+    );
+  });
+}
+
+function matchesOriginalEquipment(original: Exercise, replacement: Exercise) {
+  const originalEquipment = original.equipmentZh ?? original.equipment;
+  const replacementEquipment = replacement.equipmentZh ?? replacement.equipment;
+
+  if (!originalEquipment || originalEquipment === "其他") {
+    return true;
+  }
+
+  return originalEquipment === replacementEquipment;
+}
+
+function sharesPrimaryMuscle(left: Exercise, right: Exercise) {
+  const rightMuscles = new Set([...right.primaryMuscles, ...right.primaryMusclesZh]);
+
+  return [...left.primaryMuscles, ...left.primaryMusclesZh].some((muscle) => rightMuscles.has(muscle));
+}
+
+function hasOverlappingSections(left: Exercise, right: Exercise) {
+  const rightSections = new Set(normalizeExerciseMetadata(right).allowedSections);
+
+  return normalizeExerciseMetadata(left).allowedSections.some((section) => rightSections.has(section));
+}
+
+function difficultyRank(difficulty?: string | null) {
+  const rank: Record<string, number> = {
+    beginner: 1,
+    intermediate: 2,
+    advanced: 3,
+    expert: 3,
+  };
+
+  return rank[difficulty ?? ""] ?? 2;
 }
 
 function matchesFreeText(exercise: Exercise, value: string) {
