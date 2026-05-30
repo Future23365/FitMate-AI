@@ -3,6 +3,7 @@ import "server-only";
 import type { Prisma, PrismaClient } from "@prisma/client";
 
 import { getPrismaClient } from "@/lib/server/db/prisma";
+import { evaluateUserMemoryPolicy } from "@/lib/server/policy-confirmation/policy-engine";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import {
   conversationMemoryStateSchema,
@@ -49,6 +50,11 @@ export async function recordUserFeedbackFromChat(input: {
     exercises: input.exercises,
     now: input.now ?? new Date(),
   });
+  const memoryPolicy = evaluateUserMemoryPolicy(signals.memories);
+
+  if (memoryPolicy.requiresConfirmation) {
+    applyMemoryConfirmationPolicy(signals, memoryPolicy.reasons.map((item) => item.code));
+  }
 
   for (const memory of signals.memories) {
     await upsertUserMemory(client, input.userId, memory);
@@ -341,6 +347,37 @@ export function extractUserFeedbackSignals(input: {
   }
 
   return signals;
+}
+
+function applyMemoryConfirmationPolicy(signals: FeedbackSignalBundle, reasonCodes: string[]) {
+  const shouldConfirmHealthSignals = reasonCodes.includes("health_signal_requires_confirmation");
+  const shouldConfirmLongTermSignals = reasonCodes.includes("long_term_memory_requires_confirmation");
+
+  signals.memories = signals.memories.map((memory) => {
+    if (
+      (memory.kind === "injury_or_pain_signal" && shouldConfirmHealthSignals) ||
+      (memory.requiresConfirmation && shouldConfirmLongTermSignals)
+    ) {
+      return {
+        ...memory,
+        requiresConfirmation: true,
+        status: "pending_confirmation",
+      };
+    }
+
+    return memory;
+  });
+  signals.exerciseFeedback = signals.exerciseFeedback.map((feedback) => {
+    if (feedback.requiresConfirmation && shouldConfirmLongTermSignals) {
+      return {
+        ...feedback,
+        requiresConfirmation: true,
+        status: "pending_confirmation",
+      };
+    }
+
+    return feedback;
+  });
 }
 
 function extractCurrentMessageSignals(text: string, exercises: Exercise[], now: Date) {

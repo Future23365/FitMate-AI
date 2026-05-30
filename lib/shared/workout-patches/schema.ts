@@ -8,6 +8,7 @@ import {
   workoutRoutineDraftSchema,
   workoutRoutineSectionSchema,
 } from "@/lib/shared/workout-plans/draft-schema";
+import { confirmationRequestSchema } from "@/lib/shared/policy-confirmation/schema";
 
 export const workoutPatchScopeSchema = z.enum([
   "artifact_only",
@@ -115,6 +116,7 @@ export const workoutPatchStatusSchema = z.enum([
   "applied",
   "blocked",
   "ambiguous",
+  "confirmation_required",
   "validation_failed",
 ]);
 
@@ -136,6 +138,7 @@ export const workoutPatchResultSchema = z.object({
   artifactKind: conversationArtifactKindSchema.extract(["routine", "plan"]).optional(),
   payload: z.union([workoutRoutineDraftSchema, workoutPlanDraftSchema]).optional(),
   diff: z.array(workoutPatchDiffEntrySchema).default([]),
+  confirmation: confirmationRequestSchema.optional(),
   suggestedReplies: z.array(z.string().trim().min(1).max(120)).max(3).default([]),
   failureReasons: z.array(z.string().trim().min(1)).default([]),
 });

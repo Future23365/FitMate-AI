@@ -2,6 +2,7 @@ import "server-only";
 
 import type { AiRunFinalDecision } from "@/lib/server/dev/ai-trace-store";
 import type { RecentArtifactSummary } from "@/lib/server/conversation-artifacts/artifact-service";
+import type { ConfirmationRequest, ConfirmationValidationResult, PolicyCheckResult } from "@/lib/shared/policy-confirmation/schema";
 import type { ReferenceResolution } from "@/lib/shared/reference-resolver/schema";
 import type { WorkoutPatch, WorkoutPatchResult } from "@/lib/shared/workout-patches/schema";
 
@@ -12,6 +13,8 @@ export const aiRunTraceToolVersions = {
   searchArtifacts: "2026-05-30.artifact-search-v1",
   getArtifactPayload: "2026-05-30.artifact-payload-v1",
   WorkoutPatchEngine: "2026-05-30.workout-patch-v1",
+  PolicyEngine: "2026-05-30.policy-engine-v1",
+  ConfirmationGate: "2026-05-30.confirmation-gate-v1",
   RecommendationDedup: "2026-05-30.recommendation-dedup-v1",
   ValidationService: "2026-05-30.workout-validation-v1",
   ResponseWriter: "2026-05-30.response-writer-v1",
@@ -80,9 +83,59 @@ export function summarizeWorkoutPatchResultForTrace(result: WorkoutPatchResult) 
     artifactId: result.artifactId,
     artifactKind: result.artifactKind,
     diff: result.diff,
+    confirmation: result.confirmation
+      ? summarizeConfirmationRequestForTrace(result.confirmation)
+      : undefined,
     failureReasons: result.failureReasons,
     suggestedReplies: result.suggestedReplies,
     hasPayload: Boolean(result.payload),
+  };
+}
+
+export function summarizePolicyCheckForTrace(result: PolicyCheckResult) {
+  return {
+    allowed: result.allowed,
+    requiresConfirmation: result.requiresConfirmation,
+    safeScope: result.safeScope,
+    reasons: result.reasons.map((item) => ({
+      code: item.code,
+      severity: item.severity,
+      message: item.message,
+    })),
+    blockedReasons: result.blockedReasons.map((item) => ({
+      code: item.code,
+      severity: item.severity,
+      message: item.message,
+    })),
+  };
+}
+
+export function summarizeConfirmationRequestForTrace(request: ConfirmationRequest) {
+  return {
+    targetIds: request.targetIds,
+    impactSummary: request.impactSummary,
+    diffSummary: request.diffSummary,
+    expiresAt: request.expiresAt,
+    reasons: request.reasons.map((item) => ({ code: item.code, severity: item.severity })),
+    hasToken: Boolean(request.token),
+  };
+}
+
+export function summarizeConfirmationValidationForTrace(result: ConfirmationValidationResult) {
+  if (result.ok) {
+    return {
+      ok: true,
+      targetIds: result.payload.targetIds,
+      scope: result.payload.scope,
+      operationType: result.payload.operationType,
+      expiresAt: result.payload.expiresAt,
+    };
+  }
+
+  return {
+    ok: false,
+    code: result.code,
+    message: result.message,
   };
 }
 

@@ -8,10 +8,20 @@ import {
 } from "@/lib/server/conversation-artifacts/artifact-service";
 import type { AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
 import {
+  summarizeConfirmationRequestForTrace,
+  summarizeConfirmationValidationForTrace,
+  summarizePolicyCheckForTrace,
   summarizeWorkoutPatchForTrace,
   summarizeWorkoutPatchResultForTrace,
 } from "@/lib/server/dev/ai-run-trace";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
+import {
+  createConfirmationRequest,
+  evaluateWorkoutPatchPolicy,
+  getWorkoutPatchOperationType,
+  summarizeWorkoutPatchDiffIntent,
+  validateConfirmationToken,
+} from "@/lib/server/policy-confirmation/policy-engine";
 import {
   getCandidateExerciseIds,
   selectExerciseCandidates,
@@ -53,6 +63,9 @@ type ApplyWorkoutPatchInput = {
   client?: WorkoutPatchClient;
   exercises?: Exercise[];
   memoryState?: ConversationMemoryState;
+  confirmationToken?: string;
+  confirmationSecret?: string;
+  now?: Date;
   trace?: AiTraceLogger;
 };
 
@@ -107,14 +120,145 @@ export async function applyWorkoutPatch(input: ApplyWorkoutPatchInput): Promise<
   const scopeBlock = validatePatchScope(patch);
   if (scopeBlock) {
     input.trace?.addStep({
-      name: "Patch scope 被阻断",
+      name: "policy_check",
+      type: "validation",
+      status: scopeBlock.status === "blocked" ? "failed" : "success",
+      input: summarizeWorkoutPatchForTrace(patch),
+      output: summarizeWorkoutPatchResultForTrace(scopeBlock),
+      metadata: { code: scopeBlock.failureReasons[0], toolName: "PolicyEngine" },
+    });
+    if (scopeBlock.confirmation) {
+      input.trace?.addStep({
+        name: "confirmation_gate",
+        type: "validation",
+        status: "success",
+        input: summarizeWorkoutPatchForTrace(patch),
+        output: summarizeConfirmationRequestForTrace(scopeBlock.confirmation),
+        metadata: { toolName: "ConfirmationGate", resultStatus: scopeBlock.status },
+      });
+    }
+
+    return scopeBlock;
+  }
+
+  const policyResult = evaluateWorkoutPatchPolicy({
+    userId: input.userId,
+    patch,
+    targetIds: [patch.target.artifactId],
+  });
+  input.trace?.addStep({
+    name: "policy_check",
+    type: "validation",
+    status: policyResult.allowed ? "success" : policyResult.requiresConfirmation ? "success" : "failed",
+    input: summarizeWorkoutPatchForTrace(patch),
+    output: summarizePolicyCheckForTrace(policyResult),
+    metadata: {
+      toolName: "PolicyEngine",
+      scope: patch.scope,
+      safeScope: policyResult.safeScope,
+      requiresConfirmation: policyResult.requiresConfirmation,
+    },
+  });
+
+  if (policyResult.blockedReasons.length > 0) {
+    const result = failure("blocked", "已完成训练历史不会被修改。你可以基于历史创建新的训练安排。", [
+      ...policyResult.blockedReasons.map((item) => item.code),
+      "non_artifact_scope_requires_confirmation",
+    ]);
+    input.trace?.addStep({
+      name: "Patch policy 被阻断",
       type: "validation",
       status: "failed",
       input: summarizeWorkoutPatchForTrace(patch),
-      output: summarizeWorkoutPatchResultForTrace(scopeBlock),
-      metadata: { code: scopeBlock.failureReasons[0] },
+      output: summarizeWorkoutPatchResultForTrace(result),
+      metadata: { code: result.failureReasons[0] },
     });
-    return scopeBlock;
+    return result;
+  }
+
+  if (policyResult.requiresConfirmation) {
+    const operationType = getWorkoutPatchOperationType(patch);
+    const diffSummary = summarizeWorkoutPatchDiffIntent(patch);
+    if (input.confirmationToken) {
+      const validation = validateConfirmationToken({
+        token: input.confirmationToken,
+        expected: {
+          userId: input.userId,
+          targetIds: [patch.target.artifactId],
+          scope: policyResult.safeScope,
+          operationType,
+          diffSummary,
+        },
+        now: input.now,
+        secret: input.confirmationSecret,
+      });
+      input.trace?.addStep({
+        name: "confirmation_gate",
+        type: "validation",
+        status: validation.ok ? "success" : "failed",
+        input: {
+          targetIds: [patch.target.artifactId],
+          scope: policyResult.safeScope,
+          operationType,
+        },
+        output: summarizeConfirmationValidationForTrace(validation),
+        metadata: { toolName: "ConfirmationGate", ok: validation.ok },
+      });
+
+      if (!validation.ok) {
+        const request = createConfirmationRequest({
+          userId: input.userId,
+          targetIds: [patch.target.artifactId],
+          scope: policyResult.safeScope,
+          operationType,
+          diffSummary,
+          policy: policyResult,
+          now: input.now,
+          secret: input.confirmationSecret,
+        });
+
+        return {
+          status: "confirmation_required",
+          message: validation.message,
+          sourceArtifactId: patch.target.artifactId,
+          artifactKind: patch.target.artifactKind,
+          diff: [],
+          confirmation: request,
+          suggestedReplies: ["确认执行", "只修改当前聊天卡片"],
+          failureReasons: [validation.code],
+        };
+      }
+    } else {
+      const request = createConfirmationRequest({
+        userId: input.userId,
+        targetIds: [patch.target.artifactId],
+        scope: policyResult.safeScope,
+        operationType,
+        diffSummary,
+        policy: policyResult,
+        now: input.now,
+        secret: input.confirmationSecret,
+      });
+      input.trace?.addStep({
+        name: "confirmation_gate",
+        type: "validation",
+        status: "success",
+        input: summarizePolicyCheckForTrace(policyResult),
+        output: summarizeConfirmationRequestForTrace(request),
+        metadata: { toolName: "ConfirmationGate", resultStatus: "confirmation_required" },
+      });
+
+      return {
+        status: "confirmation_required",
+        message: "这次修改会影响已保存训练或未来安排，需要你先确认影响范围。",
+        sourceArtifactId: patch.target.artifactId,
+        artifactKind: patch.target.artifactKind,
+        diff: [],
+        confirmation: request,
+        suggestedReplies: ["确认执行", "只修改当前聊天卡片"],
+        failureReasons: ["confirmation_required"],
+      };
+    }
   }
 
   const operation = patch.operations[0];
@@ -291,18 +435,18 @@ export async function applyWorkoutPatch(input: ApplyWorkoutPatchInput): Promise<
 }
 
 function validatePatchScope(patch: WorkoutPatch): WorkoutPatchResult | null {
-  if (patch.scope === "artifact_only") {
+  if (patch.scope !== "completed_history") {
     return null;
   }
 
   return {
     status: "blocked",
-    message: "这次修改需要覆盖已保存训练或日程，本版本先不直接写入，避免误改你的历史和未来安排。",
+    message: "已完成训练历史不会被修改。你可以基于历史创建新的训练安排。",
     sourceArtifactId: patch.target.artifactId,
     artifactKind: patch.target.artifactKind,
     diff: [],
-    suggestedReplies: ["只修改当前聊天卡片", "先告诉我具体要改哪一次训练"],
-    failureReasons: ["non_artifact_scope_requires_confirmation"],
+    suggestedReplies: ["创建新的训练安排", "只修改当前聊天卡片"],
+    failureReasons: ["completed_history_blocked", "non_artifact_scope_requires_confirmation"],
   };
 }
 

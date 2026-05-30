@@ -243,6 +243,28 @@ describe("workout patch engine", () => {
     expect(prismaMock.conversationArtifact.findFirst).not.toHaveBeenCalled();
   });
 
+  it("returns confirmation request before touching saved routine scope", async () => {
+    const result = await applyWorkoutPatch({
+      userId: "user-1",
+      rawPatch: {
+        ...createReplacePatch(),
+        scope: "saved_routine",
+      },
+      client: prismaMock as never,
+      exercises,
+      confirmationSecret: "test-secret",
+      now: new Date("2026-05-30T10:00:00.000Z"),
+    });
+
+    expect(result.status).toBe("confirmation_required");
+    expect(result.confirmation).toMatchObject({
+      targetIds: ["artifact-routine"],
+      impactSummary: "将影响 1 个目标对象。",
+    });
+    expect(result.failureReasons).toContain("confirmation_required");
+    expect(prismaMock.conversationArtifact.findFirst).not.toHaveBeenCalled();
+  });
+
   it("adjusts load only inside the located target", async () => {
     const draft = createWorkoutRoutineDraft();
     mockReadableSourceArtifact(draft);

@@ -232,6 +232,12 @@ export function formatWorkoutPatchReply(result: WorkoutPatchResult) {
     return result.message;
   }
 
+  if (result.status === "confirmation_required") {
+    return result.confirmation
+      ? `${result.message}\n\n${result.confirmation.question}\n${result.confirmation.impactSummary}\n${result.confirmation.diffSummary}`
+      : result.message;
+  }
+
   return `${result.message} 你可以换个动作名，或说明要改哪一个训练日/阶段。`;
 }
 

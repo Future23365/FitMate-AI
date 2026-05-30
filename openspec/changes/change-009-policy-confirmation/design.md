@@ -35,8 +35,17 @@ Validator 判断训练内容是否合理；PolicyEngine 判断当前用户是否
 
 当用户表达不明确时，PolicyEngine 应返回较窄 safeScope，例如 `artifact_only` 或 `new_revision`，而不是默认覆盖 saved routine 或 future schedules。
 
+### Decision 5: Confirmation token 先采用服务端签名状态
+
+当前 change 不新增数据库表。需要确认的写操作先生成服务端签名的 confirmation token，token payload 绑定 userId、目标 id、scope、operation、diff 摘要、issuedAt 和 expiresAt。确认后必须重新校验 token，再重新执行 Policy 和 Validator；校验失败、过期或 diff/scope 不一致时拒绝写入并重新确认。
+
+### Decision 6: trace 记录使用轻量摘要
+
+`policy_check` trace 只记录 target、scope、allowed、requiresConfirmation、reasons、safeScope 和阻断原因；`confirmation_gate` trace 只记录 token 摘要、确认状态、影响数量、diff 摘要和失败原因，不写入完整训练 payload。
+
 ## Risks / Trade-offs
 
 - [Risk] 确认步骤增加对话轮次。→ Mitigation: 只对高影响写操作确认，未保存草稿单动作修改可直接 revision。
 - [Risk] Policy 规则分散。→ Mitigation: 写操作入口统一调用 PolicyEngine，并在 trace 中记录结果。
 - [Risk] 用户确认内容与实际执行不一致。→ Mitigation: confirmation token 绑定 diff、scope、目标 id 和过期时间。
+- [Risk] 签名 token 无服务端撤销列表。→ Mitigation: token 有短有效期，且写入前重新执行 Policy 和 Validator；未来如果需要跨设备待确认队列，再升级为数据库状态。
