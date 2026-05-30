@@ -10,6 +10,7 @@ import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import { applyWorkoutPatch } from "@/lib/server/workout-patches/workout-patch-engine";
 import type { ReferenceResolution } from "@/lib/shared/reference-resolver/schema";
 import type { Exercise } from "@/lib/shared/exercises/types";
+import type { ConversationMemoryState } from "@/lib/shared/user-feedback-memory/schema";
 import type {
   WorkoutPlanDraft,
   WorkoutPlanItemDraft,
@@ -23,6 +24,7 @@ type BuildAndApplyWorkoutPatchInput = {
   latestUserMessage: string;
   referenceResolution: Extract<ReferenceResolution, { status: "resolved" }>;
   responseMessageId?: string;
+  memoryState?: ConversationMemoryState;
   trace?: AiTraceLogger;
 };
 
@@ -182,6 +184,7 @@ export async function buildAndApplyWorkoutPatchFromChat(
     rawPatch: patch,
     responseMessageId: input.responseMessageId,
     exercises,
+    memoryState: input.memoryState,
     trace: input.trace,
   });
   input.trace?.addStep({

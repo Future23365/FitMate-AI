@@ -4,6 +4,7 @@ import {
   normalizeExerciseMetadata,
 } from "@/lib/shared/exercises/metadata";
 import type { Exercise } from "@/lib/shared/exercises/types";
+import type { ConversationMemoryState } from "@/lib/shared/user-feedback-memory/schema";
 
 import {
   workoutPlanDraftSchema,
@@ -71,6 +72,7 @@ export type ExerciseCandidateOptions = {
   section?: WorkoutRoutineSection;
   originalExerciseId?: string;
   replacementDirection?: "regression" | "progression" | "substitution";
+  memoryState?: ConversationMemoryState;
 };
 
 export type WorkoutPlanExerciseIdValidationResult = {
@@ -109,6 +111,7 @@ export function selectExerciseCandidates(
         requestedEquipment,
         visibility: options.visibility ?? "all",
         section: options.section,
+        memoryState: options.memoryState,
       });
 
       if (exclusionReasons.length > 0) {
@@ -127,6 +130,7 @@ export function selectExerciseCandidates(
             requestedEquipment,
             goalTags,
             targetMuscles,
+            memoryState: options.memoryState,
           }),
         },
       ];
@@ -153,7 +157,10 @@ export function selectExerciseCandidates(
   const candidatePools = buildExerciseCandidatePools({
     candidates: allCandidates,
     originalExerciseId: options.originalExerciseId,
-    replacementDirection: options.replacementDirection,
+    replacementDirection: options.replacementDirection ?? inferReplacementDirectionFromMemory(
+      options.originalExerciseId,
+      options.memoryState,
+    ),
   });
 
   const totalCandidates = primaryCandidates.length + structuredSupplementaryCandidates.length;
@@ -171,6 +178,10 @@ export function selectExerciseCandidates(
 
   if (requestedEquipment.size > 0 && candidateStatus === "insufficient") {
     warnings.add("按当前器械限制筛选后没有足够相关动作，可能需要放宽器械条件。");
+  }
+
+  for (const warning of buildMemoryWarnings(options.memoryState)) {
+    warnings.add(warning);
   }
 
   if (candidateStatus === "limited_but_usable") {
@@ -289,6 +300,7 @@ function getExerciseExclusionReasons(
     requestedEquipment: Set<string>;
     visibility: "all" | "published";
     section?: WorkoutRoutineSection;
+    memoryState?: ConversationMemoryState;
   },
 ) {
   const reasons: string[] = [];
@@ -318,6 +330,8 @@ function getExerciseExclusionReasons(
     reasons.push("命中用户避开项");
   }
 
+  reasons.push(...getMemoryExclusionReasons(exercise, context.memoryState));
+
   return reasons;
 }
 
@@ -328,6 +342,7 @@ function scoreExercise(
     requestedEquipment: Set<string>;
     goalTags: Set<string>;
     targetMuscles: Set<string>;
+    memoryState?: ConversationMemoryState;
   },
 ) {
   let score = 0;
@@ -383,10 +398,163 @@ function scoreExercise(
     reasons.push("匹配用户偏好");
   }
 
+  const memoryAdjustment = scoreExerciseMemory(exercise, context.memoryState);
+  score += memoryAdjustment.score;
+  reasons.push(...memoryAdjustment.reasons);
+
   return {
     score,
     reasons,
   };
+}
+
+function getMemoryExclusionReasons(
+  exercise: Exercise,
+  memoryState?: ConversationMemoryState,
+) {
+  if (!memoryState) {
+    return [];
+  }
+
+  const requestedExerciseIds = new Set(memoryState.currentMessage.requestedExerciseIds);
+  if (requestedExerciseIds.has(exercise.id)) {
+    return [];
+  }
+
+  const reasons: string[] = [];
+  const activeFeedback = memoryState.activeExerciseFeedback.filter(
+    (feedback) => feedback.exerciseId === exercise.id && feedback.status === "active" && !feedback.requiresConfirmation,
+  );
+
+  if (activeFeedback.some((feedback) => feedback.kind === "dislike")) {
+    reasons.push("命中用户长期动作 dislike");
+  }
+
+  if (memoryState.currentMessage.dislikedExerciseIds.includes(exercise.id)) {
+    reasons.push("命中本轮动作 dislike");
+  }
+
+  const avoidanceLabels = [
+    ...memoryState.currentMessage.temporaryAvoidanceLabels,
+    ...memoryState.currentMessage.healthSignalLabels,
+    ...memoryState.activeMemories
+      .filter((memory) =>
+        memory.status === "active" &&
+        !memory.requiresConfirmation &&
+        ["constraint", "temporary_context", "injury_or_pain_signal"].includes(memory.kind),
+      )
+      .map((memory) => memory.subjectLabel)
+      .filter(Boolean),
+  ];
+
+  for (const label of avoidanceLabels) {
+    if (label && matchesExerciseLabel(exercise, label)) {
+      reasons.push(`命中用户记忆约束：${label}`);
+    }
+  }
+
+  return [...new Set(reasons)];
+}
+
+function scoreExerciseMemory(exercise: Exercise, memoryState?: ConversationMemoryState) {
+  if (!memoryState) {
+    return { score: 0, reasons: [] };
+  }
+
+  let score = 0;
+  const reasons: string[] = [];
+  const activeFeedback = memoryState.activeExerciseFeedback.filter(
+    (feedback) => feedback.exerciseId === exercise.id && feedback.status === "active" && !feedback.requiresConfirmation,
+  );
+
+  if (
+    activeFeedback.some((feedback) => feedback.kind === "too_hard") ||
+    memoryState.currentMessage.tooHardExerciseIds.includes(exercise.id)
+  ) {
+    score -= 35;
+    reasons.push("用户反馈该动作太难，降低排序");
+  }
+
+  if (activeFeedback.some((feedback) => feedback.kind === "too_easy")) {
+    score -= 8;
+    reasons.push("用户反馈该动作偏轻松，降低常规排序");
+  }
+
+  return { score, reasons };
+}
+
+function inferReplacementDirectionFromMemory(
+  originalExerciseId: string | undefined,
+  memoryState?: ConversationMemoryState,
+): "regression" | undefined {
+  if (!originalExerciseId || !memoryState) {
+    return undefined;
+  }
+
+  const isTooHard =
+    memoryState.currentMessage.tooHardExerciseIds.includes(originalExerciseId) ||
+    memoryState.activeExerciseFeedback.some(
+      (feedback) =>
+        feedback.exerciseId === originalExerciseId &&
+        feedback.kind === "too_hard" &&
+        feedback.status === "active" &&
+        !feedback.requiresConfirmation,
+    );
+
+  return isTooHard ? "regression" : undefined;
+}
+
+function buildMemoryWarnings(memoryState?: ConversationMemoryState) {
+  if (!memoryState) {
+    return [];
+  }
+
+  const warnings: string[] = [];
+  if (memoryState.currentMessage.temporaryAvoidanceLabels.length > 0) {
+    warnings.push(`已应用本轮临时约束：${memoryState.currentMessage.temporaryAvoidanceLabels.join("、")}。`);
+  }
+
+  if (memoryState.currentMessage.healthSignalLabels.length > 0) {
+    warnings.push(`已按本轮不适信号保守筛选：${memoryState.currentMessage.healthSignalLabels.join("、")}。`);
+  }
+
+  return warnings;
+}
+
+function matchesExerciseLabel(exercise: Exercise, label: string) {
+  const normalizedLabel = label.trim();
+  const text = [
+    exercise.nameZh,
+    exercise.nameEn,
+    exercise.categoryZh,
+    exercise.levelZh,
+    ...exercise.primaryMusclesZh,
+    ...exercise.secondaryMusclesZh,
+    ...exercise.riskTags,
+    ...exercise.contraindications,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  if (text.includes(normalizedLabel)) {
+    return true;
+  }
+
+  const aliases: Record<string, RegExp> = {
+    腿: /腿|股四头|腘绳|小腿|臀/,
+    胸: /胸/,
+    背: /背|背阔|斜方/,
+    肩: /肩|三角肌/,
+    核心: /核心|腹|腰/,
+    手臂: /手臂|肱二头|肱三头|前臂/,
+    臀: /臀/,
+    膝: /膝|腿|股四头|弓步|深蹲/,
+    腰: /腰|下背|核心/,
+    手腕: /手腕|俯卧撑|支撑/,
+    脚踝: /脚踝|跳|跑|弓步|深蹲/,
+  };
+
+  return aliases[normalizedLabel]?.test(text) ?? false;
 }
 
 function resolveCandidateRequirement(

@@ -23,6 +23,7 @@ import {
   normalizeExerciseMetadata,
 } from "@/lib/shared/exercises/metadata";
 import type { Exercise } from "@/lib/shared/exercises/types";
+import type { ConversationMemoryState } from "@/lib/shared/user-feedback-memory/schema";
 import {
   type ExerciseLocator,
   type WorkoutPatch,
@@ -51,6 +52,7 @@ type ApplyWorkoutPatchInput = {
   responseMessageId?: string;
   client?: WorkoutPatchClient;
   exercises?: Exercise[];
+  memoryState?: ConversationMemoryState;
   trace?: AiTraceLogger;
 };
 
@@ -71,6 +73,7 @@ type ReplacementContext = {
   exercises: Exercise[];
   requestedReplacementId?: string;
   requireEasier?: boolean;
+  memoryState?: ConversationMemoryState;
 };
 
 // PatchEngine 是训练草稿局部修改入口，负责读 artifact、应用单点修改、校验边界并写入新 revision。
@@ -208,6 +211,7 @@ export async function applyWorkoutPatch(input: ApplyWorkoutPatchInput): Promise<
     located: located.item,
     payload: nextPayload,
     exercises,
+    memoryState: input.memoryState,
   });
 
   if (operationResult.status !== "applied") {
@@ -305,6 +309,7 @@ function applyPatchOperation(input: {
   located: LocatedDraftItem;
   payload: WorkoutRoutineDraft | WorkoutPlanDraft;
   exercises: Exercise[];
+  memoryState?: ConversationMemoryState;
 }): WorkoutPatchResult {
   const { operation, located, payload, exercises } = input;
   const originalItem = cloneItem(located.item);
@@ -355,6 +360,7 @@ function applyPatchOperation(input: {
     exercises,
     requestedReplacementId: operation.replacementExerciseId,
     requireEasier: operation.operation === "remove_exercise" || /简单|容易|轻松|太难|降低|难度/i.test(operation.reason ?? ""),
+    memoryState: input.memoryState,
   });
 
   if (!replacement.ok) {
@@ -393,6 +399,7 @@ function resolveReplacementExercise(context: ReplacementContext):
   const candidates = selectExerciseCandidates(intent, context.exercises, {
     originalExerciseId: originalExercise.id,
     replacementDirection: context.requireEasier ? "regression" : "substitution",
+    memoryState: context.memoryState,
   });
   const candidateIds = new Set(getCandidateExerciseIds(candidates));
   const requested = context.requestedReplacementId

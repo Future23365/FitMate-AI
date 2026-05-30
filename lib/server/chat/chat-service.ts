@@ -39,11 +39,18 @@ import {
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import { serverRequest } from "@/lib/server/http/server-request";
 import {
+  buildConversationMemoryState,
+  formatMemoryStateForPrompt,
+  mergeMemoryStateIntoWorkoutIntent,
+  recordUserFeedbackFromChat,
+} from "@/lib/server/user-feedback-memory/user-feedback-memory-service";
+import {
   selectExerciseCandidates,
   workoutPlanIntentSchema,
   type WorkoutPlanIntent,
 } from "@/lib/server/workout-plans";
 import type { ReferenceResolution } from "@/lib/shared/reference-resolver/schema";
+import type { ConversationMemoryState } from "@/lib/shared/user-feedback-memory/schema";
 import type { WorkoutPatchResult } from "@/lib/shared/workout-patches/schema";
 
 type ChatRole = "user" | "assistant";
@@ -225,6 +232,32 @@ export async function createAiChatResponse({
     recentArtifactSummaries,
     trace,
   );
+  const user = await getCurrentUser();
+  const exercisesForMemory = chatIntent.needsExerciseContext || shouldInspectUserFeedback(conversationSummaryContext.latestUserMessage)
+    ? await listAllExercises()
+    : [];
+  const feedbackWrite = await recordUserFeedbackFromChat({
+    userId: user.id,
+    latestUserMessage: conversationSummaryContext.latestUserMessage,
+    exercises: exercisesForMemory,
+  });
+  const memoryState = await buildConversationMemoryState({
+    userId: user.id,
+    latestUserMessage: conversationSummaryContext.latestUserMessage,
+    exercises: exercisesForMemory,
+  });
+
+  trace.addStep({
+    name: "用户反馈记忆状态",
+    type: "persistence",
+    output: {
+      feedbackWrite,
+      currentMessage: memoryState.currentMessage,
+      activeMemoryCount: memoryState.activeMemories.length,
+      activeExerciseFeedbackCount: memoryState.activeExerciseFeedback.length,
+      recentWorkoutFeedbackCount: memoryState.recentWorkoutFeedback.length,
+    },
+  });
   const referenceResolution = shouldAttemptReferenceResolution(
     conversationSummaryContext.latestUserMessage,
     chatIntent.type,
@@ -260,12 +293,12 @@ export async function createAiChatResponse({
   }
 
   if (referenceResolution?.status === "resolved") {
-    const user = await getCurrentUser();
     const patchResult = await buildAndApplyWorkoutPatchFromChat({
       userId: user.id,
       latestUserMessage: conversationSummaryContext.latestUserMessage,
       referenceResolution,
       responseMessageId: request.responseMessageId,
+      memoryState,
       trace,
     });
 
@@ -295,7 +328,17 @@ export async function createAiChatResponse({
   }
 
   const exerciseContext = chatIntent.needsExerciseContext
-    ? await buildExerciseContext(chatIntent, messages, internalConversationContext, trace)
+    ? await buildExerciseContext(
+        chatIntent,
+        messages,
+        internalConversationContext,
+        {
+          userId: user.id,
+          exercises: exercisesForMemory,
+          memoryState,
+          trace,
+        },
+      )
     : null;
   const assistantAction = resolveAssistantAction(
     chatIntent,
@@ -328,6 +371,7 @@ export async function createAiChatResponse({
     assistantAction,
     recentArtifactSummaries,
     referenceResolution,
+    memoryState,
   );
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DEEPSEEK_REQUEST_TIMEOUT_MS);
@@ -861,14 +905,23 @@ async function buildExerciseContext(
   chatIntent: ChatIntent,
   messages: ChatMessage[],
   conversationContext: FitnessConversationContext,
-  trace?: AiTraceLogger,
+  options: {
+    userId: string;
+    exercises: Awaited<ReturnType<typeof listAllExercises>>;
+    memoryState: ConversationMemoryState;
+    trace?: AiTraceLogger;
+  },
 ): Promise<ExerciseContext> {
-  const exercises = await listAllExercises();
+  const exercises = options.exercises.length ? options.exercises : await listAllExercises();
   const intent =
     chatIntent.workoutIntent ??
     conversationContext.currentIntent ??
     createFallbackWorkoutIntent(messages, chatIntent.type, conversationContext);
-  const candidates = selectExerciseCandidates(intent, exercises);
+  const memoryAwareIntent = mergeMemoryStateIntoWorkoutIntent(intent, options.memoryState);
+  const candidates = selectExerciseCandidates(memoryAwareIntent, exercises, {
+    userId: options.userId,
+    memoryState: options.memoryState,
+  });
   const nameMatches = findExerciseNameMatches(exercises, chatIntent.requestedExerciseName);
   const seenIds = new Set<string>();
   const providedExercises: ExerciseContext["providedExercises"] = [];
@@ -913,7 +966,7 @@ async function buildExerciseContext(
   }
 
   const exerciseContext = {
-    intent,
+    intent: memoryAwareIntent,
     providedExercises,
     candidateStatus: candidates.candidateStatus,
     relevantCandidateCount: candidates.relevantCandidateCount,
@@ -921,11 +974,11 @@ async function buildExerciseContext(
     warnings: candidates.warnings,
   };
 
-  trace?.addStep({
+  options.trace?.addStep({
     name: "动作库获取与候选筛选",
     type: "exercise_lookup",
     input: {
-      intent,
+      intent: memoryAwareIntent,
       exerciseCount: exercises.length,
       requestedExerciseName: chatIntent.requestedExerciseName,
     },
@@ -1099,13 +1152,15 @@ function buildSystemPrompt(
   assistantAction: AssistantAction | null,
   recentArtifactSummaries: RecentArtifactSummary[],
   referenceResolution: ReferenceResolution | null = null,
+  memoryState: ConversationMemoryState | null = null,
 ) {
   const contextPrompt = formatConversationSummaryContextForPrompt(conversationSummaryContext);
   const artifactPrompt = formatRecentArtifactSummariesForPrompt(recentArtifactSummaries);
   const referencePrompt = formatReferenceResolutionForPrompt(referenceResolution);
+  const memoryPrompt = formatMemoryStateForPrompt(memoryState);
 
   if (!exerciseContext) {
-    return [aiPromptConfig.chatCompletion.system, contextPrompt, artifactPrompt, referencePrompt].filter(Boolean).join("\n\n");
+    return [aiPromptConfig.chatCompletion.system, contextPrompt, artifactPrompt, referencePrompt, memoryPrompt].filter(Boolean).join("\n\n");
   }
 
   return [
@@ -1115,6 +1170,8 @@ function buildSystemPrompt(
     artifactPrompt,
     "",
     referencePrompt,
+    "",
+    memoryPrompt,
     "",
     aiPromptConfig.chatCompletion.exerciseContext,
     "",
@@ -1162,6 +1219,12 @@ function buildSystemPrompt(
       2,
     ),
   ].join("\n");
+}
+
+function shouldInspectUserFeedback(message: string) {
+  return /不喜欢|讨厌|不想做|别安排|不要安排|太难|太轻松|做不了|吃力|今天不想|今天不要|这次不想|疼|痛|不舒服|不适|拉伤|扭伤|以后都不要|再也不要/.test(
+    message,
+  );
 }
 
 async function requestDeepSeekJson(

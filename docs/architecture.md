@@ -209,6 +209,8 @@ Zod 用于在服务端再次校验模型输出，避免模型生成不可执行�
 
 聊天链路在意图解析后通过 `ReferenceResolver` 解析“这个”“刚才那套”“之前练胸那套”等历史引用。解析结果必须来自当前用户可访问的 recent artifact summaries 或 `ArtifactIndex` 候选集合；歧义和未找到会在 `/api/chat` 直接澄清，完整 artifact payload 只能通过服务端 `getArtifactPayload` 校验后读取。
 
+用户反馈不再只依赖 `conversationSummary`。`UserFeedbackMemoryService` 会把“不喜欢某动作”“某动作太难”“今天不想练腿”和健康/不适信号写成 `UserMemory` / `UserExerciseFeedback`；Conversation State Builder 按“当前消息 > 当前 artifact > 显式用户画像 > 近期反馈 > 训练结果 > 默认值”合并上下文。动作候选、Patch、DomainPlanEngine 和 Validator 只读取当前 `userId` 下未过期的结构化记忆，长期强约束和健康信号在确认前保持 `pending_confirmation`，不能被当成已生效长期排除规则。
+
 LangGraph 可以作为后期选择，用于构建更复杂的 Agent 状态机和多步骤任务流，但不建议一开始就引入。
 
 ---
@@ -570,7 +572,7 @@ LLM 负责：
 - 保存动作事实数据
 - 保存计划结构
 - 保存训练记录
-- 保存用户反馈
+- 保存用户反馈和结构化记忆
 
 ---
 

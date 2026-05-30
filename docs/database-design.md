@@ -6,11 +6,12 @@
 
 ## 1. 设计概览
 
-当前数据库围绕 4 个核心业务域组织：
+当前数据库围绕 5 个核心业务域组织：
 
 | 业务域 | 相关表 | 说明 |
 |---|---|---|
 | 用户与身份 | `User`、`UserIdentity`、`UserProfile` | 保存用户主体、登录身份和健身画像。当前鉴权尚未正式接入，服务端会创建固定的本地演示用户。 |
+| 用户反馈记忆 | `UserMemory`、`UserExerciseFeedback` | 保存显式偏好、动作反馈、临时上下文、健康/不适信号和训练行为反馈。 |
 | 动作库 | `Exercise` | 保存训练动作的标准事实数据，包括来源、分类、肌群、器械、居家可做条件、图片、教学步骤和审核状态。 |
 | 训练编排、日历与结果 | `WorkoutRoutine`、`WorkoutRoutineItem`、`WorkoutSchedule`、`WorkoutSessionResult` | 保存用户可复用动作编排、编排项、日历安排和实际训练结果摘要。 |
 | 聊天历史 | `ChatSession`、`ChatMessage`、`ConversationArtifact`、`ArtifactIndex` | 保存用户和 AI 的对话历史、聊天结构化卡片事实源、轻量索引和自然语言上下文总结。 |
@@ -21,6 +22,8 @@
 User
   ├─ UserIdentity
   ├─ UserProfile
+  ├─ UserMemory
+  ├─ UserExerciseFeedback ── Exercise
   ├─ WorkoutRoutine
   │    ├─ WorkoutRoutineItem ── Exercise
   │    ├─ WorkoutSchedule
@@ -98,6 +101,43 @@ User
 |---|---|
 | `completed` | 已完成训练。 |
 | `abandoned` | 中途放弃或未完整完成。 |
+
+### UserMemoryKind
+
+用户结构化记忆类型。
+
+| 值 | 含义 |
+|---|---|
+| `explicit_preference` | 用户明确表达的长期偏好。 |
+| `exercise_feedback` | 用户对具体动作的反馈。 |
+| `constraint` | 需要后续计划尊重的约束。 |
+| `temporary_context` | 只在短期有效的上下文，例如“今天不想练腿”。 |
+| `injury_or_pain_signal` | 疼痛、伤病或不适信号，只作为训练保守约束。 |
+| `training_behavior` | 训练完成率、跳过动作、实际时长和疲劳等行为反馈。 |
+
+### UserMemoryStatus
+
+用户记忆生命周期状态。
+
+| 值 | 含义 |
+|---|---|
+| `active` | 已生效，可被候选、Patch 和计划引擎读取。 |
+| `pending_confirmation` | 需要用户确认，不能作为已生效长期强约束。 |
+| `dismissed` | 已被用户或系统放弃。 |
+| `expired` | 已过期，不再参与当前上下文。 |
+
+### UserExerciseFeedbackKind
+
+动作级反馈类型。
+
+| 值 | 含义 |
+|---|---|
+| `dislike` | 用户不喜欢或不想继续安排该动作。 |
+| `too_hard` | 用户反馈该动作太难，后续替换优先降阶。 |
+| `too_easy` | 用户反馈该动作太轻松。 |
+| `pain` | 该动作触发不适或疼痛反馈。 |
+| `skipped` | 用户在训练中跳过该动作。 |
+| `completed` | 用户完成该动作。 |
 
 ### ChatMessageRole
 
@@ -201,6 +241,44 @@ artifact 保存后的来源实体类型。
 | `avoidances` | `String[]` | 默认 `[]` | 用户希望避免的内容。 |
 | `createdAt` | `DateTime` | 默认 `now()` | 画像创建时间。 |
 | `updatedAt` | `DateTime` | `@updatedAt` | 画像最后更新时间。 |
+
+### UserMemory
+
+用户结构化记忆表，保存跨会话可复用的偏好、约束、临时上下文和健康/不适信号。所有读取都必须带 `userId`，并过滤 `status` 与 `expiresAt`。
+
+| 字段 | 类型 | 约束 / 默认值 | 作用 |
+|---|---|---|---|
+| `id` | `String` | 主键，默认 `cuid()` | 记忆唯一标识。 |
+| `userId` | `String` | 外键，关联 `User.id`，已建索引 | 所属用户，用于权限隔离。 |
+| `kind` | `UserMemoryKind` | 必填，已建索引 | 记忆类型。 |
+| `subjectType` | `UserMemorySubjectType` | 默认 `general` | 记忆主体类型，例如 exercise、body_part 或 health。 |
+| `subjectId` | `String?` | 可空 | 结构化主体 id，例如 `Exercise.id`。 |
+| `subjectLabel` | `String?` | 可空 | 用户可读主体标签，例如“腿”“俯卧撑”。 |
+| `value` | `Json` | 必填 | 结构化记忆内容和原始文本摘要。 |
+| `confidence` | `Float` | 默认 `1` | 写入置信度。 |
+| `source` | `UserMemorySource` | 必填 | 写入来源。 |
+| `expiresAt` | `DateTime?` | 可空，已建索引 | 临时上下文过期时间。为空表示长期或直到用户修改。 |
+| `requiresConfirmation` | `Boolean` | 默认 `false` | 是否需要 Confirmation Gate。 |
+| `status` | `UserMemoryStatus` | 默认 `active`，已建索引 | 生命周期状态。 |
+| `createdAt` / `updatedAt` | `DateTime` | 默认 `now()` / `@updatedAt` | 创建和更新时间。 |
+
+### UserExerciseFeedback
+
+动作级反馈表，便于候选服务按 `exerciseId` 快速读取 dislike、too_hard 等反馈，并影响过滤、排序和替代动作方向。
+
+| 字段 | 类型 | 约束 / 默认值 | 作用 |
+|---|---|---|---|
+| `id` | `String` | 主键，默认 `cuid()` | 反馈唯一标识。 |
+| `userId` | `String` | 外键，关联 `User.id`，已建索引 | 所属用户，用于权限隔离。 |
+| `exerciseId` | `String` | 外键，关联 `Exercise.id`，已建索引 | 反馈对应动作。 |
+| `kind` | `UserExerciseFeedbackKind` | 必填，已建索引 | 动作反馈类型。 |
+| `value` | `Json` | 必填 | 结构化反馈内容和原始文本摘要。 |
+| `confidence` | `Float` | 默认 `1` | 写入置信度。 |
+| `source` | `UserMemorySource` | 必填 | 写入来源。 |
+| `expiresAt` | `DateTime?` | 可空，已建索引 | 临时动作反馈过期时间。 |
+| `requiresConfirmation` | `Boolean` | 默认 `false` | 长期强约束是否待确认。 |
+| `status` | `UserMemoryStatus` | 默认 `active`，已建索引 | 生命周期状态。 |
+| `createdAt` / `updatedAt` | `DateTime` | 默认 `now()` / `@updatedAt` | 创建和更新时间。 |
 
 ### Exercise
 
@@ -309,7 +387,7 @@ artifact 保存后的来源实体类型。
 | `estimatedCalories` | `Int` | 必填 | 本次训练估算热量。 |
 | `actualCalories` | `Int?` | 可空 | 后续可接入设备或手动记录的实际热量。 |
 | `status` | `WorkoutSessionResultStatus` | 默认 `completed`，已建索引 | 训练结果状态。 |
-| `feedback` | `Json?` | 可空 | 后续扩展训练反馈。 |
+| `feedback` | `Json?` | 可空 | 训练完成反馈，当前保存 `completionRate`、`skippedExerciseIds`、`actualDurationSeconds` 和 `subjectiveFatigue`，供后续推荐和递进读取。 |
 | `createdAt` | `DateTime` | 默认 `now()` | 训练结果创建时间。 |
 | `updatedAt` | `DateTime` | `@updatedAt` | 训练结果最后更新时间。 |
 
@@ -391,6 +469,9 @@ artifact 轻量检索索引。聊天上下文和后续引用解析优先读取�
 |---|---|---|---|
 | `UserIdentity` | `User` | `Cascade` | 用户删除后登录身份不再有意义。 |
 | `UserProfile` | `User` | `Cascade` | 用户画像属于用户私有数据。 |
+| `UserMemory` | `User` | `Cascade` | 用户记忆属于用户私有数据。 |
+| `UserExerciseFeedback` | `User` | `Cascade` | 动作反馈属于用户私有数据。 |
+| `UserExerciseFeedback` | `Exercise` | `Cascade` | 动作删除后对应反馈不再可用。 |
 | `WorkoutRoutine` | `User` | `Cascade` | 训练编排属于用户私有数据。 |
 | `WorkoutRoutineItem` | `WorkoutRoutine` | `Cascade` | 动作编排项不能脱离 routine 存在。 |
 | `WorkoutRoutineItem` | `Exercise` | `Restrict` | 防止删除已被编排引用的动作，保证训练可执行。 |
@@ -413,5 +494,6 @@ artifact 轻量检索索引。聊天上下文和后续引用解析优先读取�
 - 训练编排动作通过 `WorkoutRoutineItem.exerciseId` 强制引用 `Exercise`，避免 AI 或客户端保存不存在的动作。
 - `WorkoutSchedule` 保存日历展示快照；routine 后续更新不会自动改写已存在日历安排的标题、分钟数和热量。
 - `WorkoutSessionResult` 保存训练完成摘要；`WorkoutSchedule.status = completed` 用于日历筛选、统计和徽标展示。
+- `UserMemory` 和 `UserExerciseFeedback` 只读取当前 `userId` 下 `active` 或待确认且未过期的数据；长期强约束在确认前不会作为已生效排除规则。
 - `ChatMessage.metadata` 是聊天上下文总结和卡片数据的落点；当前 `plan` 保存长期训练计划草稿，`routine` 保存单次训练编排草稿。如果某类数据变成稳定查询条件，应优先升级为显式字段。
 - 当前 `ChatSession` 不保存 `metadata`，模型可见上下文已迁移到 `ChatMessage.metadata.conversationSummary`；旧 `conversationContext` 只用于历史迁移。

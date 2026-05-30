@@ -49,3 +49,21 @@
 - **WHEN** Exercise Retrieval Service 构建候选过滤条件
 - **THEN** 系统 MUST 读取当前用户可访问的动作反馈和约束
 - **AND** 系统 MUST NOT 读取其他用户的记忆或训练结果
+
+### Requirement: 训练完成结果必须作为递进输入
+系统 SHALL 将训练完成率、跳过动作、实际时长和主观疲劳保存为可被后续推荐与计划递进读取的训练行为反馈。
+
+#### Scenario: 用户完成一次训练并提交反馈
+- **WHEN** 用户结束训练并提交完成结果
+- **THEN** 系统 MUST 保存完成率、跳过动作、实际时长和主观疲劳
+- **AND** 后续推荐、Patch 和 PlanEngine SHOULD 将这些训练行为反馈作为递进或降阶输入
+- **AND** 系统 MUST NOT 将一次训练结果直接写成永久偏好
+
+### Requirement: 长期强约束必须经过确认写入
+系统 SHALL 对“以后都不要”等长期强约束和高影响偏好使用 Confirmation Gate 或等价确认状态。
+
+#### Scenario: 用户要求以后都不要某动作
+- **WHEN** 用户说“以后都不要安排这个动作”
+- **THEN** 系统 SHOULD 将该写入标记 `requiresConfirmation = true`
+- **AND** 该记忆在确认前 MUST NOT 作为已生效的长期排除规则
+- **AND** 系统 SHOULD 在确认完成后才把状态更新为 active

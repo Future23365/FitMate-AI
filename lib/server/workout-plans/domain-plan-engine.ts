@@ -2,6 +2,8 @@ import "server-only";
 
 import type { ReferenceResolution } from "@/lib/shared/reference-resolver/schema";
 import type { ConversationArtifactPayload } from "@/lib/shared/conversation-artifacts/schema";
+import { shouldUseConservativeProgression } from "@/lib/server/user-feedback-memory/user-feedback-memory-service";
+import type { ConversationMemoryState } from "@/lib/shared/user-feedback-memory/schema";
 import {
   planStrategySchema,
   type PlanIntensityBias,
@@ -26,6 +28,7 @@ type SourceTrainingTemplate = {
 
 export type DomainPlanEngineInput = {
   strategy: PlanStrategy;
+  memoryState?: ConversationMemoryState;
   sourceArtifact?: {
     artifactId: string;
     kind: "routine" | "plan";
@@ -72,7 +75,18 @@ export function buildPlanStrategyFromChatIntent(input: {
 
 // DomainPlanEngine 将 PlanStrategy 和 artifact payload 展开成可解释 plan draft，不写入真实日历。
 export function expandDomainPlan(input: DomainPlanEngineInput): DomainPlanEngineResult {
-  const strategy = planStrategySchema.parse(input.strategy);
+  const parsedStrategy = planStrategySchema.parse(input.strategy);
+  const strategy = shouldUseConservativeProgression(input.memoryState)
+    ? planStrategySchema.parse({
+        ...parsedStrategy,
+        intensityBias: "conservative",
+        progressionPolicy: "none",
+        constraints: [
+          ...parsedStrategy.constraints,
+          "最近训练完成率或疲劳反馈提示需要保守递进",
+        ],
+      })
+    : parsedStrategy;
 
   if (strategy.sourceArtifactId && !input.sourceArtifact) {
     return {
@@ -121,6 +135,7 @@ export function expandDomainPlan(input: DomainPlanEngineInput): DomainPlanEngine
       trainingOrdinal,
       template,
       strategy,
+      memoryState: input.memoryState,
     }));
     trainingOrdinal += 1;
   }
@@ -159,7 +174,12 @@ export function expandDomainPlan(input: DomainPlanEngineInput): DomainPlanEngine
       recoveryNotes: day.recoveryNotes,
     })),
     days,
-    safetyNotes: ["计划为预览草稿，导入日历前仍需确认。"],
+    safetyNotes: [
+      "计划为预览草稿，导入日历前仍需确认。",
+      ...(shouldUseConservativeProgression(input.memoryState)
+        ? ["已根据近期训练完成率或疲劳反馈保守处理递进。"]
+        : []),
+    ],
   };
 
   return {
@@ -210,6 +230,7 @@ function createTrainingDay(input: {
   trainingOrdinal: number;
   template: SourceTrainingTemplate;
   strategy: PlanStrategy;
+  memoryState?: ConversationMemoryState;
 }): WorkoutDayDraft {
   const sections = applyProgressionAndIntensity(
     input.template.sections,
@@ -227,9 +248,14 @@ function createTrainingDay(input: {
     estimatedMinutes: Math.min(input.strategy.sessionMinutes, input.template.estimatedMinutes),
     recoveryNotes: buildTrainingRecoveryNotes(input.strategy),
     sections,
-    safetyNotes: input.strategy.intensityBias === "conservative"
-      ? ["本日按保守强度展开，优先保证恢复。"]
-      : ["保持动作质量，疲劳明显时降低训练量。"],
+    safetyNotes: [
+      ...(input.strategy.intensityBias === "conservative"
+        ? ["本日按保守强度展开，优先保证恢复。"]
+        : ["保持动作质量，疲劳明显时降低训练量。"]),
+      ...(shouldUseConservativeProgression(input.memoryState)
+        ? ["近期训练反馈显示可能需要降负荷，本日不主动增加训练量。"]
+        : []),
+    ],
   };
 }
 

@@ -1,6 +1,7 @@
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import { isExerciseAllowedInSection } from "@/lib/shared/exercises/metadata";
 import type { Exercise } from "@/lib/shared/exercises/types";
+import type { ConversationMemoryState } from "@/lib/shared/user-feedback-memory/schema";
 
 import {
   workoutPlanDraftSchema,
@@ -38,6 +39,7 @@ export type WorkoutPlanValidationIssueCode =
   | "missing_safety_notes"
   | "missing_routine_section"
   | "section_exercise_mismatch"
+  | "user_memory_constraint"
   | "high_risk_exercise";
 
 export type WorkoutPlanValidationIssue = {
@@ -71,6 +73,7 @@ export type WorkoutPlanValidationResult = {
 export type WorkoutPlanValidationOptions = {
   exercises: Exercise[];
   candidateExerciseIds: Iterable<string>;
+  memoryState?: ConversationMemoryState;
 };
 
 export async function validateWorkoutPlanDraftFromStore(
@@ -126,6 +129,8 @@ export function validateWorkoutPlanDraft(
       message: `动作 ID 不在本次候选集中：${exerciseId}`,
     });
   }
+
+  warnings.push(...validateMemoryConstraints(exerciseIdValidation.exerciseIds, exerciseById, options.memoryState));
 
   if (draft.cycleLengthDays !== draft.days.length) {
     errors.push({
@@ -306,6 +311,41 @@ export function validateWorkoutPlanDraft(
   };
 }
 
+function validateMemoryConstraints(
+  exerciseIds: string[],
+  exerciseById: Map<string, Exercise>,
+  memoryState?: ConversationMemoryState,
+): WorkoutPlanValidationIssue[] {
+  if (!memoryState) {
+    return [];
+  }
+
+  const issues: WorkoutPlanValidationIssue[] = [];
+  const currentRequestedIds = new Set(memoryState.currentMessage.requestedExerciseIds);
+  const dislikedIds = new Set([
+    ...memoryState.currentMessage.dislikedExerciseIds,
+    ...memoryState.activeExerciseFeedback
+      .filter((feedback) => feedback.kind === "dislike" && feedback.status === "active" && !feedback.requiresConfirmation)
+      .map((feedback) => feedback.exerciseId),
+  ]);
+
+  for (const exerciseId of exerciseIds) {
+    if (currentRequestedIds.has(exerciseId)) {
+      continue;
+    }
+
+    if (dislikedIds.has(exerciseId)) {
+      issues.push({
+        code: "user_memory_constraint",
+        exerciseId,
+        message: `动作 ${exerciseById.get(exerciseId)?.nameZh ?? exerciseId} 命中用户 dislike 记忆，建议替换或解释当前消息覆盖原因。`,
+      });
+    }
+  }
+
+  return issues;
+}
+
 // 校验聊天推送的三段式 routine 草稿，确保它能无损转换为 WorkoutRoutine。
 export function validateWorkoutRoutineDraft(
   rawDraft: WorkoutRoutineDraft,
@@ -451,6 +491,8 @@ export function validateWorkoutRoutineDraft(
       });
     }
   }
+
+  warnings.push(...validateMemoryConstraints(exerciseIdValidation.exerciseIds, exerciseById, options.memoryState));
 
   return {
     valid: errors.length === 0,

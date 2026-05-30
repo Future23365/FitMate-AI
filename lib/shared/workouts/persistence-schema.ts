@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { workoutCompletionFeedbackSchema } from "@/lib/shared/user-feedback-memory/schema";
+
 export const workoutModeSchema = z.enum(["duration", "reps"]);
 export const workoutSectionSchema = z.enum(["warmup", "training", "stretch"]);
 export const sourceArtifactKindSchema = z.enum(["routine", "plan"]);
@@ -75,6 +77,7 @@ export const workoutSessionResultSchema = z.object({
   estimatedCalories: z.number().int().min(0),
   actualCalories: z.number().int().min(0).optional(),
   status: z.enum(["completed", "abandoned"]),
+  feedback: workoutCompletionFeedbackSchema.optional(),
 });
 
 // 客户端提交训练完成时不传 result id，由服务端按 schedule 归属创建或更新。

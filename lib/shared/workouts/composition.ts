@@ -74,6 +74,13 @@ export type WorkoutSessionResult = {
   estimatedCalories: number;
   actualCalories?: number;
   status: "completed" | "abandoned";
+  // 训练完成反馈为后续推荐递进提供输入，不直接代表长期偏好。
+  feedback?: {
+    completionRate: number;
+    skippedExerciseIds: string[];
+    actualDurationSeconds: number;
+    subjectiveFatigue?: number;
+  };
 };
 
 export type WorkoutTimelineExerciseStep = {

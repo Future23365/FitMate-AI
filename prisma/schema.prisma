@@ -74,6 +74,48 @@ enum ConversationArtifactSourceEntityKind {
   workout_schedule
 }
 
+enum UserMemoryKind {
+  explicit_preference
+  exercise_feedback
+  constraint
+  temporary_context
+  injury_or_pain_signal
+  training_behavior
+}
+
+enum UserMemorySubjectType {
+  exercise
+  body_part
+  goal
+  equipment
+  schedule
+  health
+  general
+}
+
+enum UserMemorySource {
+  chat
+  workout_result
+  profile
+  system
+}
+
+enum UserMemoryStatus {
+  active
+  pending_confirmation
+  dismissed
+  expired
+}
+
+enum UserExerciseFeedbackKind {
+  dislike
+  too_hard
+  too_easy
+  pain
+  skipped
+  completed
+}
+
 model User {
   id              String                 @id @default(cuid())
   email           String?                @unique
@@ -88,6 +130,8 @@ model User {
   chatSessions    ChatSession[]
   artifacts       ConversationArtifact[]
   artifactIndexes ArtifactIndex[]
+  memories        UserMemory[]
+  exerciseFeedback UserExerciseFeedback[]
 }
 
 model UserIdentity {
@@ -165,6 +209,7 @@ model Exercise {
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
   workoutItems       WorkoutRoutineItem[]
+  userFeedback       UserExerciseFeedback[]
 
   @@unique([source, sourceId])
   @@index([category])
@@ -172,6 +217,52 @@ model Exercise {
   @@index([equipment])
   @@index([reviewStatus])
   @@index([isPublished])
+}
+
+model UserMemory {
+  id                   String                @id @default(cuid())
+  userId               String
+  kind                 UserMemoryKind
+  subjectType          UserMemorySubjectType @default(general)
+  subjectId            String?
+  subjectLabel         String?
+  value                Json
+  confidence           Float                 @default(1)
+  source               UserMemorySource
+  expiresAt            DateTime?
+  requiresConfirmation Boolean               @default(false)
+  status               UserMemoryStatus      @default(active)
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, kind])
+  @@index([userId, status])
+  @@index([userId, subjectType, subjectId])
+  @@index([expiresAt])
+}
+
+model UserExerciseFeedback {
+  id                   String                   @id @default(cuid())
+  userId               String
+  exerciseId           String
+  kind                 UserExerciseFeedbackKind
+  value                Json
+  confidence           Float                    @default(1)
+  source               UserMemorySource
+  expiresAt            DateTime?
+  requiresConfirmation Boolean                  @default(false)
+  status               UserMemoryStatus         @default(active)
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+  user                 User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exercise             Exercise                 @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+
+  @@index([userId, kind])
+  @@index([userId, status])
+  @@index([userId, exerciseId])
+  @@index([exerciseId])
+  @@index([expiresAt])
 }
 
 model WorkoutRoutine {

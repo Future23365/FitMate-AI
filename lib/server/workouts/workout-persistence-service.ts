@@ -12,6 +12,7 @@ import type {
   WorkoutScheduleStatus,
   WorkoutSessionResult,
 } from "@/lib/shared/workouts/composition";
+import { workoutCompletionFeedbackSchema } from "@/lib/shared/user-feedback-memory/schema";
 import {
   defaultTrainingLoopRestSeconds,
   estimateWorkoutCalories,
@@ -326,6 +327,14 @@ export async function saveWorkoutSessionResult(scheduleId: string, rawResult: un
   if (!schedule) {
     throw new Error(`Workout schedule not found: ${scheduleId}`);
   }
+  const feedback = workoutCompletionFeedbackSchema.parse({
+    completionRate: parsedResult.totalExerciseCount > 0
+      ? parsedResult.completedExerciseCount / parsedResult.totalExerciseCount
+      : 0,
+    skippedExerciseIds: parsedResult.feedback?.skippedExerciseIds ?? [],
+    actualDurationSeconds: parsedResult.durationSeconds,
+    subjectiveFatigue: parsedResult.feedback?.subjectiveFatigue,
+  });
 
   const result = await prisma.$transaction(async (tx) => {
     const savedResult = await tx.workoutSessionResult.upsert({
@@ -342,6 +351,7 @@ export async function saveWorkoutSessionResult(scheduleId: string, rawResult: un
         estimatedCalories: parsedResult.estimatedCalories,
         actualCalories: parsedResult.actualCalories,
         status: parsedResult.status ?? "completed",
+        feedback,
       },
       create: {
         userId: user.id,
@@ -357,6 +367,7 @@ export async function saveWorkoutSessionResult(scheduleId: string, rawResult: un
         estimatedCalories: parsedResult.estimatedCalories,
         actualCalories: parsedResult.actualCalories,
         status: parsedResult.status ?? "completed",
+        feedback,
       },
     });
 
@@ -452,6 +463,9 @@ function mapWorkoutSessionResultRecord(result: WorkoutSessionResultRecord): Work
     estimatedCalories: result.estimatedCalories,
     actualCalories: result.actualCalories ?? undefined,
     status: result.status,
+    feedback: workoutCompletionFeedbackSchema.safeParse(result.feedback).success
+      ? workoutCompletionFeedbackSchema.parse(result.feedback)
+      : undefined,
   };
 }
 
