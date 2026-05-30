@@ -156,4 +156,150 @@ describe("AI workout plan orchestration boundaries", () => {
     expect(routineModelPayload).not.toHaveProperty("recentMessages");
     expect(routineModelPayload).not.toHaveProperty("conversationContext");
   });
+
+  it("repairs a session_too_long routine once and returns the repaired draft", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
+    exerciseServiceMocks.listAllExercises.mockResolvedValue(createModelExercises());
+    const longDraft = createWorkoutRoutineDraft({
+      estimatedSessionMinutes: 30,
+      trainingLoopRounds: 12,
+      trainingLoopRestSeconds: 120,
+      sections: [
+        createWorkoutRoutineDraft().sections[0],
+        {
+          section: "training",
+          title: "过长主训练",
+          items: [
+            {
+              exerciseId: "push-up",
+              section: "training",
+              mode: "duration",
+              sets: 8,
+              target: 600,
+              setRestSeconds: 120,
+              transitionRestSeconds: 60,
+            },
+          ],
+        },
+        createWorkoutRoutineDraft().sections[2],
+      ],
+    });
+    const repairedDraft = createWorkoutRoutineDraft({
+      estimatedSessionMinutes: 30,
+      trainingLoopRounds: 2,
+      trainingLoopRestSeconds: 45,
+    });
+    serverRequestMocks.serverRequest
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(longDraft) } }] })),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(repairedDraft) } }] })),
+      );
+
+    const result = await generateAiWorkoutPlanDraft({
+      latestUserMessage: "今天在家自重练胸 30 分钟",
+      conversationSummary: "用户想在家自重练胸。",
+      intent: createWorkoutPlanIntent({
+        intentType: "routine",
+        goal: "胸肌训练",
+        sessionMinutes: 30,
+        weeklyFrequency: 1,
+      }),
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      kind: "routine",
+      draft: {
+        trainingLoopRounds: 2,
+      },
+    });
+    expect(serverRequestMocks.serverRequest).toHaveBeenCalledTimes(2);
+    const repairRequestBody = serverRequestMocks.serverRequest.mock.calls[1][1].body;
+    const repairPayload = JSON.parse(repairRequestBody.messages[1].content);
+    expect(repairRequestBody.messages[0].content).toContain("必须把训练压缩到用户目标时长附近");
+    expect(repairPayload).toMatchObject({
+      recovery: {
+        recoverable: true,
+        primaryIssueCode: "session_too_long",
+      },
+      validation: {
+        errors: [expect.objectContaining({ code: "session_too_long" })],
+      },
+      originalDraft: {
+        trainingLoopRounds: 12,
+      },
+    });
+  });
+
+  it("returns recoverable guidance when automatic repair still fails validation", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
+    exerciseServiceMocks.listAllExercises.mockResolvedValue(createModelExercises());
+    const longDraft = createWorkoutRoutineDraft({
+      estimatedSessionMinutes: 30,
+      trainingLoopRounds: 12,
+      trainingLoopRestSeconds: 120,
+      sections: [
+        createWorkoutRoutineDraft().sections[0],
+        {
+          section: "training",
+          title: "过长主训练",
+          items: [
+            {
+              exerciseId: "push-up",
+              section: "training",
+              mode: "duration",
+              sets: 8,
+              target: 600,
+              setRestSeconds: 120,
+              transitionRestSeconds: 60,
+            },
+          ],
+        },
+        createWorkoutRoutineDraft().sections[2],
+      ],
+    });
+    serverRequestMocks.serverRequest
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(longDraft) } }] })),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(longDraft) } }] })),
+      );
+
+    const result = await generateAiWorkoutPlanDraft({
+      latestUserMessage: "今天在家自重练胸 30 分钟",
+      conversationSummary: "用户想在家自重练胸。",
+      intent: createWorkoutPlanIntent({
+        intentType: "routine",
+        goal: "胸肌训练",
+        sessionMinutes: 30,
+        weeklyFrequency: 1,
+      }),
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: "plan_validation_failed",
+      recoverable: true,
+      guidanceMessage: expect.stringContaining("压缩到 30 分钟"),
+      suggestedReplies: expect.arrayContaining(["压缩到 30 分钟", "减少动作数量", "降低每个动作组数"]),
+      validation: {
+        errors: [expect.objectContaining({ code: "session_too_long" })],
+      },
+    });
+    expect(result).not.toHaveProperty("draft");
+  });
 });
+
+function createModelExercises() {
+  return [
+    createExercise({ id: "warmup", nameZh: "肩部动态热身", categoryZh: "热身", primaryMusclesZh: ["肩部"] }),
+    createExercise({ id: "push-up", nameZh: "俯卧撑", primaryMusclesZh: ["胸部"], primaryMuscles: ["chest"] }),
+    createExercise({ id: "wide-push-up", nameZh: "宽距俯卧撑", primaryMusclesZh: ["胸部"], primaryMuscles: ["chest"] }),
+    createExercise({ id: "incline-push-up", nameZh: "上斜俯卧撑", primaryMusclesZh: ["胸部"], primaryMuscles: ["chest"] }),
+    createExercise({ id: "knee-push-up", nameZh: "跪姿俯卧撑", primaryMusclesZh: ["胸部"], primaryMuscles: ["chest"] }),
+    createExercise({ id: "stretch", nameZh: "胸肩拉伸", categoryZh: "拉伸", primaryMusclesZh: ["胸部"] }),
+  ];
+}

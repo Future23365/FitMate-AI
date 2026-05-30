@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { requestChatStream, requestExerciseRecommendations, requestWorkoutPlanDraft } from "@/features/chat/api/chat-client";
+import {
+  requestChatStream,
+  requestExerciseRecommendations,
+  requestWorkoutPlanDraft,
+  WorkoutPlanGenerationRecoveryError,
+} from "@/features/chat/api/chat-client";
 import { saveChatConversation } from "@/features/chat/lib/chat-history";
 import {
   createWorkoutSchedule as createWorkoutScheduleRequest,
@@ -166,6 +171,38 @@ describe("frontend API clients", () => {
     })).resolves.toMatchObject({ id: "result-1" });
     await expect(saveWorkoutRoutine(workoutRoutine)).rejects.toBeInstanceOf(ClientRequestError);
     expect(window.dispatchEvent).toHaveBeenCalled();
+  });
+
+  it("preserves recoverable workout plan generation failures for chat guidance", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json(
+          {
+            ok: false,
+            code: "plan_validation_failed",
+            message: "AI 生成的单次训练编排没有通过服务端校验。",
+            recoverable: true,
+            guidanceMessage: "这版训练估算约 49 分钟，超过你原本的 30 分钟。",
+            suggestedReplies: ["压缩到 30 分钟", "保留完整训练量"],
+            validation: {
+              errors: [{ code: "session_too_long" }],
+              warnings: [],
+            },
+          },
+          { status: 422 },
+        ),
+      ),
+    );
+
+    await expect(
+      requestWorkoutPlanDraft("今天在家练胸", createWorkoutPlanIntent(), { summary: "" }, "trace-1"),
+    ).rejects.toMatchObject({
+      name: "WorkoutPlanGenerationRecoveryError",
+      recoverable: true,
+      guidanceMessage: "这版训练估算约 49 分钟，超过你原本的 30 分钟。",
+      suggestedReplies: ["压缩到 30 分钟", "保留完整训练量"],
+    } satisfies Partial<WorkoutPlanGenerationRecoveryError>);
   });
 
   it("preserves chat message timestamps when saving chat history", async () => {

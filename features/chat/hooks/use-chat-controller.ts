@@ -6,6 +6,7 @@ import {
   requestChatStream,
   requestExerciseRecommendations,
   requestWorkoutPlanDraft,
+  WorkoutPlanGenerationRecoveryError,
 } from "@/features/chat/api/chat-client";
 import { readChatConversation, saveChatConversation } from "@/features/chat/lib/chat-history";
 import {
@@ -34,6 +35,13 @@ import type { WorkoutPlanDraft, WorkoutRoutineDraft } from "@/lib/shared/workout
 const chatRequestTimeoutMs = 45_000;
 const thinkingEnabledStorageKey = "fitmate.chat.thinkingEnabled";
 const recommendationRefreshPattern = /(换一批|再换|换几个|换别的|再来一批|下一批|重新推荐|不要这些|别的动作)/;
+
+type BubblePlanError = {
+  message: string;
+  guidanceMessage?: string;
+  suggestedReplies: string[];
+  recoverable: boolean;
+};
 
 function createMessage(role: ChatMessage["role"], content: string): ChatMessage {
   return {
@@ -86,7 +94,7 @@ export function useChatController() {
   const [dislikedExerciseIdsByMessage, setDislikedExerciseIdsByMessage] = useState<
     Record<string, string[]>
   >({});
-  const [bubblePlanErrors, setBubblePlanErrors] = useState<Record<string, string>>({});
+  const [bubblePlanErrors, setBubblePlanErrors] = useState<Record<string, BubblePlanError>>({});
   const [conversationContext, setConversationContext] = useState<FitnessConversationContext>(() =>
     buildFitnessConversationContext([]),
   );
@@ -292,10 +300,30 @@ export function useChatController() {
       }));
     } catch (err: unknown) {
       console.error("[SilentPlanGeneration] Error:", err);
+      const planError =
+        err instanceof WorkoutPlanGenerationRecoveryError
+          ? {
+              message: err.message,
+              guidanceMessage: err.guidanceMessage,
+              suggestedReplies: err.suggestedReplies,
+              recoverable: err.recoverable,
+            }
+          : {
+              message: err instanceof Error ? err.message : "生成训练计划失败，请稍后重试。",
+              suggestedReplies: [],
+              recoverable: false,
+            };
+
       setBubblePlanErrors((prev) => ({
         ...prev,
-        [messageId]: err instanceof Error ? err.message : "生成训练计划失败，请稍后重试。",
+        [messageId]: planError,
       }));
+      if (planError.suggestedReplies.length > 0) {
+        updateAssistantMessage(messageId, (message) => ({
+          ...message,
+          suggestedReplies: planError.suggestedReplies,
+        }));
+      }
     } finally {
       setAutoPlanGenerating(null);
     }
@@ -327,7 +355,11 @@ export function useChatController() {
       console.error("[SilentExerciseRecommendation] Error:", err);
       setBubblePlanErrors((prev) => ({
         ...prev,
-        [messageId]: err instanceof Error ? err.message : "生成动作推荐失败，请稍后重试。",
+        [messageId]: {
+          message: err instanceof Error ? err.message : "生成动作推荐失败，请稍后重试。",
+          suggestedReplies: [],
+          recoverable: false,
+        },
       }));
     } finally {
       setAutoRecommendationGenerating(null);
@@ -340,7 +372,11 @@ export function useChatController() {
     if (!recommendationIntent) {
       setBubblePlanErrors((prev) => ({
         ...prev,
-        [messageId]: "缺少上一轮推荐意图，无法直接换一批。",
+        [messageId]: {
+          message: "缺少上一轮推荐意图，无法直接换一批。",
+          suggestedReplies: [],
+          recoverable: false,
+        },
       }));
       return;
     }
@@ -389,7 +425,11 @@ export function useChatController() {
     if (exerciseNames.length === 0) {
       setBubblePlanErrors((prev) => ({
         ...prev,
-        [messageId]: "当前没有可编排的推荐动作，请先换一批。",
+        [messageId]: {
+          message: "当前没有可编排的推荐动作，请先换一批。",
+          suggestedReplies: [],
+          recoverable: false,
+        },
       }));
       return;
     }

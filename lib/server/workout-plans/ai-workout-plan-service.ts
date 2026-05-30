@@ -29,6 +29,10 @@ import {
   validateWorkoutRoutineDraft,
   type WorkoutPlanValidationResult,
 } from "./workout-plan-validation-service";
+import {
+  classifyWorkoutPlanValidationFailure,
+  type WorkoutPlanValidationRecovery,
+} from "./workout-plan-validation-recovery-service";
 
 export const aiWorkoutPlanChatMessageSchema = z.object({
   role: z.enum(["user", "assistant"]),
@@ -60,6 +64,9 @@ export type AiWorkoutPlanFailure = {
   code: AiWorkoutPlanFailureCode;
   message: string;
   detail?: unknown;
+  recoverable?: boolean;
+  guidanceMessage?: string;
+  suggestedReplies?: string[];
   intent?: WorkoutPlanIntent;
   candidates?: ExerciseCandidateResult;
   validation?: WorkoutPlanValidationResult;
@@ -88,6 +95,15 @@ export type AiWorkoutPlanResult = AiWorkoutPlanSuccess | AiWorkoutPlanFailure;
 type AiWorkoutPlanGenerationOptions = {
   trace?: AiTraceLogger;
 };
+
+type WorkoutDraftGenerationResult =
+  | { ok: true; draft: WorkoutPlanDraft | WorkoutRoutineDraft }
+  | {
+      ok: false;
+      code: "ai_request_failed" | "invalid_json" | "invalid_ai_output";
+      message: string;
+      detail?: unknown;
+    };
 
 type DeepSeekChatResponse = {
   choices?: Array<{
@@ -212,16 +228,11 @@ export async function generateAiWorkoutPlanDraft(
     return failure;
   }
 
-  const validation =
-    intentResult.intent.intentType === "routine"
-      ? validateWorkoutRoutineDraft(draftResult.draft as WorkoutRoutineDraft, intentResult.intent, {
-          exercises,
-          candidateExerciseIds: getCandidateExerciseIds(candidates),
-        })
-      : validateWorkoutPlanDraft(draftResult.draft as WorkoutPlanDraft, intentResult.intent, {
-          exercises,
-          candidateExerciseIds: getCandidateExerciseIds(candidates),
-        });
+  const candidateExerciseIds = getCandidateExerciseIds(candidates);
+  const validation = validateGeneratedWorkoutDraft(draftResult.draft, intentResult.intent, {
+    exercises,
+    candidateExerciseIds,
+  });
   trace?.addStep({
     name: intentResult.intent.intentType === "routine" ? "单次训练编排草稿校验" : "训练计划草稿校验",
     type: "validation",
@@ -229,12 +240,12 @@ export async function generateAiWorkoutPlanDraft(
     input: {
       draft: draftResult.draft,
       intent: intentResult.intent,
-      candidateExerciseIds: getCandidateExerciseIds(candidates),
+      candidateExerciseIds,
     },
     output: validation,
     metadata: {
       kind: intentResult.intent.intentType,
-      candidateCount: getCandidateExerciseIds(candidates).length,
+      candidateCount: candidateExerciseIds.length,
       planCycle:
         intentResult.intent.intentType === "plan"
           ? summarizePlanCycle(draftResult.draft as WorkoutPlanDraft)
@@ -243,40 +254,97 @@ export async function generateAiWorkoutPlanDraft(
   });
 
   if (!validation.valid) {
-    const failure = {
-      ok: false,
-      code: "plan_validation_failed",
-      message:
-        intentResult.intent.intentType === "routine"
-          ? "AI 生成的单次训练编排没有通过服务端校验。"
-          : "AI 生成的训练计划没有通过服务端校验。",
-      intent: intentResult.intent,
+    const initialRecovery = classifyWorkoutPlanValidationFailure(validation, {
+      targetSessionMinutes: intentResult.intent.sessionMinutes,
+    });
+
+    trace?.addStep({
+      name: "训练草稿首次校验失败分类",
+      type: "validation",
+      status: "failed",
+      input: validation,
+      output: initialRecovery,
+    });
+
+    const repairResult = await repairWorkoutPlanDraft(
+      conversationSummaryContext,
+      intentResult.intent,
+      candidates,
+      draftResult.draft,
+      validation,
+      apiKey,
+      trace,
+    );
+
+    if (repairResult.ok) {
+      const repairedValidation = validateGeneratedWorkoutDraft(repairResult.draft, intentResult.intent, {
+        exercises,
+        candidateExerciseIds,
+      });
+
+      trace?.addStep({
+        name: intentResult.intent.intentType === "routine" ? "修复后单次训练编排校验" : "修复后训练计划校验",
+        type: "validation",
+        status: repairedValidation.valid ? "success" : "failed",
+        input: {
+          draft: repairResult.draft,
+          intent: intentResult.intent,
+          candidateExerciseIds,
+        },
+        output: repairedValidation,
+        metadata: {
+          kind: intentResult.intent.intentType,
+          candidateCount: candidateExerciseIds.length,
+          planCycle:
+            intentResult.intent.intentType === "plan"
+              ? summarizePlanCycle(repairResult.draft as WorkoutPlanDraft)
+              : undefined,
+        },
+      });
+
+      if (repairedValidation.valid) {
+        return createWorkoutPlanSuccess(intentResult.intent, repairResult.draft, candidates, repairedValidation);
+      }
+
+      const repairedRecovery = classifyWorkoutPlanValidationFailure(repairedValidation, {
+        targetSessionMinutes: intentResult.intent.sessionMinutes,
+      });
+      const failure = createPlanValidationFailure(
+        intentResult.intent,
+        candidates,
+        repairedValidation,
+        repairedRecovery,
+      );
+
+      trace?.addStep({
+        name: "训练草稿自动修复失败响应",
+        type: "final_response",
+        status: "failed",
+        output: failure,
+      });
+      logAiWorkoutPlanFailure("plan_validation_repair", failure);
+      return failure;
+    }
+
+    const failure = createPlanValidationFailure(
+      intentResult.intent,
       candidates,
       validation,
-    } satisfies AiWorkoutPlanFailure;
+      initialRecovery,
+      repairResult,
+    );
 
-    logAiWorkoutPlanFailure("plan_validation", failure);
+    trace?.addStep({
+      name: "训练草稿自动修复请求失败响应",
+      type: "final_response",
+      status: "failed",
+      output: failure,
+    });
+    logAiWorkoutPlanFailure("plan_validation_repair_request", failure);
     return failure;
   }
 
-  const success =
-    intentResult.intent.intentType === "routine"
-      ? ({
-          ok: true,
-          kind: "routine",
-          intent: intentResult.intent,
-          draft: draftResult.draft as WorkoutRoutineDraft,
-          candidates,
-          validation,
-        } satisfies AiWorkoutPlanSuccess)
-      : ({
-          ok: true,
-          kind: "plan",
-          intent: intentResult.intent,
-          draft: draftResult.draft as WorkoutPlanDraft,
-          candidates,
-          validation,
-        } satisfies AiWorkoutPlanSuccess);
+  const success = createWorkoutPlanSuccess(intentResult.intent, draftResult.draft, candidates, validation);
 
   console.info("[ai-workout-plan] completed", {
     title: success.draft.title,
@@ -304,6 +372,68 @@ function summarizePlanCycle(draft: WorkoutPlanDraft) {
     missingSectionDays: draft.days
       .filter((day) => !day.isRestDay && day.sections.length < 3)
       .map((day) => day.cycleDayIndex),
+  };
+}
+
+function validateGeneratedWorkoutDraft(
+  draft: WorkoutPlanDraft | WorkoutRoutineDraft,
+  intent: WorkoutPlanIntent,
+  options: {
+    exercises: Exercise[];
+    candidateExerciseIds: string[];
+  },
+) {
+  return intent.intentType === "routine"
+    ? validateWorkoutRoutineDraft(draft as WorkoutRoutineDraft, intent, options)
+    : validateWorkoutPlanDraft(draft as WorkoutPlanDraft, intent, options);
+}
+
+function createWorkoutPlanSuccess(
+  intent: WorkoutPlanIntent,
+  draft: WorkoutPlanDraft | WorkoutRoutineDraft,
+  candidates: ExerciseCandidateResult,
+  validation: WorkoutPlanValidationResult,
+): AiWorkoutPlanSuccess {
+  return intent.intentType === "routine"
+    ? ({
+        ok: true,
+        kind: "routine",
+        intent,
+        draft: draft as WorkoutRoutineDraft,
+        candidates,
+        validation,
+      } satisfies AiWorkoutPlanSuccess)
+    : ({
+        ok: true,
+        kind: "plan",
+        intent,
+        draft: draft as WorkoutPlanDraft,
+        candidates,
+        validation,
+      } satisfies AiWorkoutPlanSuccess);
+}
+
+function createPlanValidationFailure(
+  intent: WorkoutPlanIntent,
+  candidates: ExerciseCandidateResult,
+  validation: WorkoutPlanValidationResult,
+  recovery: WorkoutPlanValidationRecovery,
+  detail?: unknown,
+): AiWorkoutPlanFailure {
+  return {
+    ok: false,
+    code: "plan_validation_failed",
+    message:
+      intent.intentType === "routine"
+        ? "AI 生成的单次训练编排没有通过服务端校验。"
+        : "AI 生成的训练计划没有通过服务端校验。",
+    detail,
+    recoverable: recovery.recoverable,
+    guidanceMessage: recovery.guidanceMessage,
+    suggestedReplies: recovery.suggestedReplies,
+    intent,
+    candidates,
+    validation,
   };
 }
 
@@ -371,41 +501,8 @@ async function generateWorkoutPlanDraft(
   candidates: ExerciseCandidateResult,
   apiKey: string,
   trace?: AiTraceLogger,
-): Promise<
-  | { ok: true; draft: WorkoutPlanDraft | WorkoutRoutineDraft }
-  | {
-      ok: false;
-      code: "ai_request_failed" | "invalid_json" | "invalid_ai_output";
-      message: string;
-      detail?: unknown;
-    }
-> {
-  const primaryPayload = candidates.primaryCandidates
-    .slice(0, maxModelCandidates)
-    .map(({ exercise }) => ({
-      exerciseId: exercise.id,
-      nameZh: exercise.nameZh,
-      categoryZh: exercise.categoryZh,
-      level: exercise.level,
-      equipmentZh: exercise.equipmentZh,
-      primaryMusclesZh: exercise.primaryMusclesZh,
-      riskTags: exercise.riskTags,
-      goalTags: exercise.goalTags,
-    }));
-
-  const supplementaryPayload = candidates.supplementaryCandidates
-    .slice(0, maxModelCandidates)
-    .map(({ exercise }) => ({
-      exerciseId: exercise.id,
-      nameZh: exercise.nameZh,
-      categoryZh: exercise.categoryZh,
-      level: exercise.level,
-      equipmentZh: exercise.equipmentZh,
-      primaryMusclesZh: exercise.primaryMusclesZh,
-      riskTags: exercise.riskTags,
-      goalTags: exercise.goalTags,
-    }));
-
+): Promise<WorkoutDraftGenerationResult> {
+  const exercisePayload = buildExercisePromptPayload(candidates);
   const modelMessages: DeepSeekChatMessage[] = [
     {
       role: "system",
@@ -423,8 +520,8 @@ async function generateWorkoutPlanDraft(
         intent,
         conversationSummary: conversationSummaryContext.summary,
         latestUserMessage: conversationSummaryContext.latestUserMessage,
-        primaryExercises: primaryPayload,
-        supplementaryExercises: supplementaryPayload,
+        primaryExercises: exercisePayload.primaryExercises,
+        supplementaryExercises: exercisePayload.supplementaryExercises,
       }),
     },
   ];
@@ -469,6 +566,130 @@ async function generateWorkoutPlanDraft(
   return {
     ok: true,
     draft: parsedDraft.data,
+  };
+}
+
+async function repairWorkoutPlanDraft(
+  conversationSummaryContext: ConversationSummaryContext,
+  intent: WorkoutPlanIntent,
+  candidates: ExerciseCandidateResult,
+  originalDraft: WorkoutPlanDraft | WorkoutRoutineDraft,
+  validation: WorkoutPlanValidationResult,
+  apiKey: string,
+  trace?: AiTraceLogger,
+): Promise<WorkoutDraftGenerationResult> {
+  const exercisePayload = buildExercisePromptPayload(candidates);
+  const recovery = classifyWorkoutPlanValidationFailure(validation, {
+    targetSessionMinutes: intent.sessionMinutes,
+  });
+  const modelMessages: DeepSeekChatMessage[] = [
+    {
+      role: "system",
+      content: [
+        ...aiPromptConfig.workoutPlanDraftGeneration.base,
+        intent.intentType === "routine"
+          ? aiPromptConfig.workoutPlanDraftGeneration.routine
+          : aiPromptConfig.workoutPlanDraftGeneration.plan,
+        ...aiPromptConfig.workoutPlanDraftGeneration.schema,
+        "你正在修复一个未通过服务端校验的训练草稿。",
+        "你必须只返回修复后的 JSON 对象，不要输出 Markdown，不要解释。",
+        "必须保留原始 kind，并继续只使用候选动作中的 exerciseId。",
+        "如果错误包含 session_too_long，必须把训练压缩到用户目标时长附近，优先减少动作数量、组数、循环轮数或休息配置。",
+        "修复后仍必须满足三段式 routine 或长期 plan 的结构要求。",
+      ].join("\n"),
+    },
+    {
+      role: "user",
+      content: JSON.stringify({
+        intent,
+        conversationSummary: conversationSummaryContext.summary,
+        latestUserMessage: conversationSummaryContext.latestUserMessage,
+        recovery,
+        validation,
+        originalDraft,
+        primaryExercises: exercisePayload.primaryExercises,
+        supplementaryExercises: exercisePayload.supplementaryExercises,
+      }),
+    },
+  ];
+
+  trace?.addStep({
+    name: "训练草稿自动修复请求",
+    type: "model_request",
+    input: {
+      intent,
+      recovery,
+      validation,
+      originalDraft,
+      primaryExercises: exercisePayload.primaryExercises,
+      supplementaryExercises: exercisePayload.supplementaryExercises,
+    },
+  });
+
+  const content = await requestDeepSeekJson("draft_repair", apiKey, modelMessages, trace);
+
+  if (!content.ok) {
+    return content;
+  }
+
+  const parsedJson = parseJsonObject(content.content);
+
+  if (!parsedJson.ok) {
+    return parsedJson;
+  }
+
+  const parsedDraft =
+    intent.intentType === "routine"
+      ? workoutRoutineDraftSchema.safeParse(parsedJson.value)
+      : workoutPlanDraftSchema.safeParse(parsedJson.value);
+
+  if (!parsedDraft.success) {
+    trace?.addStep({
+      name: intent.intentType === "routine" ? "修复后单次训练编排结构校验失败" : "修复后训练计划草稿结构校验失败",
+      type: "validation",
+      status: "failed",
+      input: parsedJson.value,
+      error: parsedDraft.error.flatten(),
+    });
+
+    return {
+      ok: false,
+      code: "invalid_ai_output",
+      message:
+        intent.intentType === "routine"
+          ? "AI 修复后的单次训练编排未通过结构校验。"
+          : "AI 修复后的训练计划草稿未通过结构校验。",
+      detail: parsedDraft.error.flatten(),
+    };
+  }
+
+  trace?.addStep({
+    name: "训练草稿自动修复输出",
+    type: "model_response",
+    output: parsedDraft.data,
+  });
+
+  return {
+    ok: true,
+    draft: parsedDraft.data,
+  };
+}
+
+function buildExercisePromptPayload(candidates: ExerciseCandidateResult) {
+  const toPayload = ({ exercise }: { exercise: Exercise }) => ({
+    exerciseId: exercise.id,
+    nameZh: exercise.nameZh,
+    categoryZh: exercise.categoryZh,
+    level: exercise.level,
+    equipmentZh: exercise.equipmentZh,
+    primaryMusclesZh: exercise.primaryMusclesZh,
+    riskTags: exercise.riskTags,
+    goalTags: exercise.goalTags,
+  });
+
+  return {
+    primaryExercises: candidates.primaryCandidates.slice(0, maxModelCandidates).map(toPayload),
+    supplementaryExercises: candidates.supplementaryCandidates.slice(0, maxModelCandidates).map(toPayload),
   };
 }
 

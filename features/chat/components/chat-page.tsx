@@ -433,8 +433,23 @@ export function ChatPage() {
                                     <div>
                                       <p className="font-label-sm text-label-sm font-bold">计划生成失败</p>
                                       <p className="mt-xs font-body-xs text-body-xs text-on-surface-variant">
-                                        {bubblePlanErrors[message.id]}
+                                        {bubblePlanErrors[message.id].guidanceMessage ?? bubblePlanErrors[message.id].message}
                                       </p>
+                                      {bubblePlanErrors[message.id].suggestedReplies.length > 0 && (
+                                        <div className="mt-sm flex flex-wrap gap-xs">
+                                          {bubblePlanErrors[message.id].suggestedReplies.map((reply) => (
+                                            <button
+                                              className="max-w-full break-words rounded-lg border border-error/20 bg-white px-sm py-xs text-left font-label-sm text-label-sm font-bold text-error transition-colors hover:border-error/40 hover:bg-error-container/30 disabled:cursor-not-allowed disabled:opacity-60"
+                                              disabled={isLoading}
+                                              key={reply}
+                                              onClick={() => sendMessage(reply)}
+                                              type="button"
+                                            >
+                                              {reply}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      )}
                                     </div>
                                   </div>
                                 )}

@@ -9,6 +9,10 @@ type WorkoutPlanDraftResponse = {
   ok: boolean;
   kind?: "plan" | "routine";
   message?: string;
+  recoverable?: boolean;
+  guidanceMessage?: string;
+  suggestedReplies?: string[];
+  validation?: unknown;
   draft?: WorkoutPlanDraft | WorkoutRoutineDraft;
   candidates?: WorkoutPlanCandidateResponse;
 };
@@ -33,6 +37,22 @@ type ExerciseRecommendationResponse = {
 type ExerciseRecommendationRequestOptions = {
   excludeExerciseIds?: string[];
 };
+
+export class WorkoutPlanGenerationRecoveryError extends Error {
+  recoverable: boolean;
+  guidanceMessage?: string;
+  suggestedReplies: string[];
+  validation?: unknown;
+
+  constructor(response: WorkoutPlanDraftResponse) {
+    super(response.guidanceMessage || response.message || "FitMate 安全引擎在校验时发现问题，无法生成计划。");
+    this.name = "WorkoutPlanGenerationRecoveryError";
+    this.recoverable = Boolean(response.recoverable);
+    this.guidanceMessage = response.guidanceMessage;
+    this.suggestedReplies = response.suggestedReplies ?? [];
+    this.validation = response.validation;
+  }
+}
 
 export function requestChatStream(
   latestUserMessage: string,
@@ -61,6 +81,7 @@ export async function requestWorkoutPlanDraft(
 ): Promise<WorkoutPlanDraftPayload> {
   const data = await clientRequest<WorkoutPlanDraftResponse>("/api/ai/workout-plan", {
     method: "POST",
+    throwOnError: false,
     body: {
       latestUserMessage,
       intent,
@@ -70,6 +91,10 @@ export async function requestWorkoutPlanDraft(
   });
 
   if (!data.ok) {
+    if (data.recoverable !== undefined || data.guidanceMessage || data.suggestedReplies?.length) {
+      throw new WorkoutPlanGenerationRecoveryError(data);
+    }
+
     throw new Error(data.message || "FitMate 安全引擎在校验时发现问题，无法生成计划。");
   }
 

@@ -49,3 +49,9 @@ export {
   type WorkoutPlanValidationOptions,
   type WorkoutPlanValidationResult,
 } from "./workout-plan-validation-service";
+
+export {
+  classifyWorkoutPlanValidationFailure,
+  isRecoverableWorkoutPlanIssue,
+  type WorkoutPlanValidationRecovery,
+} from "./workout-plan-validation-recovery-service";

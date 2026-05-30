@@ -294,7 +294,7 @@ export function WorkoutPlanDraftCard({
 
       <div className="p-lg">
         {/* 卡片头部：标题、主要目标和时长 */}
-        <div className="flex flex-col gap-xs md:flex-row md:items-start md:justify-between">
+        <div className="flex flex-col gap-sm">
           <div>
             <span className="mb-xs inline-flex items-center rounded-lg bg-primary-soft px-sm py-xs font-label-xs text-label-xs font-bold text-primary">
               训练计划
@@ -309,16 +309,16 @@ export function WorkoutPlanDraftCard({
               {draft.summary}
             </p>
           </div>
-          <div className="mt-sm flex flex-wrap gap-xs md:mt-0">
-            <span className="inline-flex items-center gap-1 rounded-lg bg-panel-soft px-sm py-xs font-label-sm text-label-sm text-ink">
+          <div className="flex flex-wrap justify-start gap-xs">
+            <span className="flex w-fit max-w-full items-center justify-start gap-1 whitespace-nowrap rounded-lg bg-panel-soft px-sm py-xs text-left font-label-sm text-label-sm text-ink">
               <SymbolIcon className="text-[14px]">event_repeat</SymbolIcon>
               {draft.cycleLengthDays} 天周期
             </span>
-            <span className="inline-flex items-center gap-1 rounded-lg bg-panel-soft px-sm py-xs font-label-sm text-label-sm text-ink">
-              <SymbolIcon className="text-[14px]">exercise</SymbolIcon>
+            <span className="flex w-fit max-w-full items-center justify-start gap-1 whitespace-nowrap rounded-lg bg-panel-soft px-sm py-xs text-left font-label-sm text-label-sm text-ink">
+              <SymbolIcon className="text-[14px]">fitness_center</SymbolIcon>
               训练 {draft.trainingDayCount} 天 · 休息 {draft.restDayCount} 天
             </span>
-            <span className="inline-flex items-center gap-1 rounded-lg bg-primary-soft px-sm py-xs font-label-sm text-label-sm font-bold text-primary">
+            <span className="flex w-fit max-w-full items-center justify-start gap-1 whitespace-nowrap rounded-lg bg-primary-soft px-sm py-xs text-left font-label-sm text-label-sm font-bold text-primary">
               <SymbolIcon className="text-[14px]">schedule</SymbolIcon>
               单次 {draft.estimatedSessionMinutes} 分钟
             </span>
@@ -438,7 +438,7 @@ export function WorkoutPlanDraftCard({
             {/* 本训练日专属安全建议 */}
             {activeDay.safetyNotes && activeDay.safetyNotes.length > 0 && (
               <p className="rounded-lg bg-surface-container-low px-md py-sm font-label-xs text-label-xs text-on-surface-variant border-l-2 border-primary/50">
-                📌 <strong className="text-on-surface">防伤提示：</strong>
+                📌 <strong className="text-on-surface">小提示：</strong>
                 {activeDay.safetyNotes.join("；")}
               </p>
             )}
@@ -447,7 +447,7 @@ export function WorkoutPlanDraftCard({
 
         {/* 排班计划设置区域 */}
         <div className="mt-lg rounded-2xl border border-outline-variant bg-surface-container-low p-md transition-all duration-300">
-            <div className="flex flex-col gap-sm md:flex-row md:items-center md:justify-between">
+            <div className="space-y-sm">
               <div>
                 <h4 className="flex items-center gap-xs font-label-md text-label-md font-bold text-on-surface">
                   <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -459,10 +459,10 @@ export function WorkoutPlanDraftCard({
                   按 {draft.cycleLengthDays} 天周期重复铺排训练日和休息日。
                 </p>
               </div>
-              <div className="flex items-center gap-xs rounded-xl bg-surface px-xs py-xs shadow-sm border border-outline-variant/30 shrink-0">
+              <div className="grid gap-xs rounded-xl border border-outline-variant/30 bg-surface p-xs shadow-sm sm:grid-cols-2 lg:grid-cols-4">
                 {importOptions.map((option) => (
                   <button
-                    className={`rounded-lg px-md py-xs font-label-sm text-label-sm font-bold transition-all ${
+                    className={`min-h-9 rounded-lg px-md py-xs text-center font-label-sm text-label-sm font-bold transition-all ${
                       selectedImportOption.id === option.id
                         ? "bg-primary text-white shadow-sm"
                         : "text-on-surface-variant hover:bg-surface-container-low"

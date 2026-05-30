@@ -49,6 +49,8 @@ describe("WorkoutPlanDraftCard", () => {
     expect(html).toContain("训练");
     expect(html).toContain("拉伸");
     expect(html).toContain("查看俯卧撑动作详情");
+    expect(html).toContain("小提示");
+    expect(html).not.toContain("防伤提示");
     expect(html).toContain("导入本周期");
     expect(html).toContain("重复 2 个周期");
     expect(html).toContain("重复 4 个周期");
