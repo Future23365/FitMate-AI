@@ -1,7 +1,7 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -229,11 +229,17 @@ export function ChatPage() {
     thinkingEnabled,
   } = useChatController();
   const chatScrollRef = useAutoHideScrollbar<HTMLDivElement>();
+  const chatInputRef = useRef<HTMLInputElement>(null);
 
   const hasMessages = messages.length > 0;
+  const canSubmitMessage = input.trim().length > 0 && !isLoading;
   const latestMessageState = messages
     .map((message) => `${message.id}:${message.content.length}:${message.reasoningContent?.length ?? 0}`)
     .join("|");
+
+  useEffect(() => {
+    chatInputRef.current?.focus();
+  }, [isLoading]);
 
   useEffect(() => {
     const chatScroll = chatScrollRef.current;
@@ -251,6 +257,7 @@ export function ChatPage() {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     sendMessage();
+    window.requestAnimationFrame(() => chatInputRef.current?.focus());
   }
 
   return (
@@ -453,7 +460,7 @@ export function ChatPage() {
             <div className="relative flex items-center">
               <input
                 className="w-full rounded-xl border border-line bg-white py-md pl-md pr-[150px] font-body-md shadow-card outline-none transition-all placeholder:text-muted focus:border-primary focus:ring-4 focus:ring-primary/10 sm:pr-[210px]"
-                disabled={isLoading}
+                ref={chatInputRef}
                 onChange={(event) => setInput(event.target.value)}
                 placeholder="向 FitMate AI 提问..."
                 type="text"
@@ -483,7 +490,7 @@ export function ChatPage() {
               </button>
               <button
                 className="absolute right-xs flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-white shadow-card transition-all hover:bg-primary-deep hover:shadow-lift active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={isLoading}
+                disabled={!canSubmitMessage}
                 type="submit"
               >
                 <SymbolIcon>send</SymbolIcon>
