@@ -850,50 +850,210 @@ body.drawer-open {
   }
 }
 
-.workout-completion-confetti {
-  overflow: hidden;
+.workout-completion-celebration {
+  overflow: visible;
 }
 
-.workout-completion-confetti-piece {
+.workout-completion-aura,
+.workout-completion-orbit,
+.workout-completion-ray,
+.workout-completion-spark {
   position: absolute;
-  bottom: -18px;
   left: 50%;
-  width: var(--confetti-width);
-  height: var(--confetti-height);
-  border-radius: 2px;
-  background: var(--confetti-color);
-  box-shadow: 0 12px 24px rgba(17, 24, 39, 0.12);
-  opacity: 0;
-  transform: translate3d(var(--confetti-x-start), 0, 0) rotate(0deg);
-  animation: workout-confetti-burst var(--confetti-duration) cubic-bezier(0.16, 1, 0.3, 1) var(--confetti-delay) 2 both;
+  top: 50%;
 }
 
-.workout-completion-confetti-piece:nth-child(3n) {
+.workout-completion-aura {
+  aspect-ratio: 1;
   border-radius: 999px;
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.62);
 }
 
-.workout-completion-confetti-piece:nth-child(4n) {
-  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+.workout-completion-aura-primary {
+  width: 17rem;
+  background: radial-gradient(circle, rgba(36, 89, 230, 0.34) 0%, rgba(36, 89, 230, 0.16) 38%, rgba(36, 89, 230, 0) 72%);
+  animation: workout-completion-aura 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite both;
 }
 
-@keyframes workout-confetti-burst {
+.workout-completion-aura-secondary {
+  width: 11rem;
+  background: radial-gradient(circle, rgba(4, 120, 87, 0.32) 0%, rgba(4, 120, 87, 0.14) 42%, rgba(4, 120, 87, 0) 74%);
+  animation: workout-completion-aura 2.4s cubic-bezier(0.16, 1, 0.3, 1) 0.42s infinite both;
+}
+
+.workout-completion-orbit {
+  aspect-ratio: 1;
+  width: 12.5rem;
+  border-radius: 999px;
+  background: conic-gradient(from 80deg, transparent 0 18%, rgba(36, 89, 230, 0.7) 23%, transparent 31% 58%, rgba(4, 120, 87, 0.58) 64%, transparent 72% 100%);
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
+  opacity: 0;
+  transform: translate(-50%, -50%) rotate(-22deg) scale(0.72);
+  animation: workout-completion-orbit 2.8s cubic-bezier(0.16, 1, 0.3, 1) 0.08s infinite both;
+}
+
+.workout-completion-medal {
+  box-shadow:
+    0 18px 40px rgba(4, 120, 87, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  isolation: isolate;
+  animation:
+    workout-completion-medal-pop 0.72s cubic-bezier(0.16, 1, 0.3, 1) both,
+    workout-completion-medal-breathe 1.8s ease-in-out 0.72s infinite;
+}
+
+.workout-completion-medal::before,
+.workout-completion-medal::after {
+  position: absolute;
+  inset: -16px;
+  z-index: -1;
+  border-radius: 999px;
+  border: 2px solid rgba(36, 89, 230, 0.26);
+  content: "";
+  opacity: 0;
+  animation: workout-completion-medal-ring 2.1s ease-out infinite;
+}
+
+.workout-completion-medal::after {
+  inset: -28px;
+  border-color: rgba(4, 120, 87, 0.2);
+  animation-delay: 0.48s;
+}
+
+.workout-completion-ray {
+  width: var(--completion-ray-length);
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(36, 89, 230, 0), rgba(36, 89, 230, 0.78), rgba(4, 120, 87, 0));
+  opacity: 0;
+  transform: translateY(-50%) rotate(var(--completion-ray-angle)) translateX(58px) scaleX(0);
+  transform-origin: left center;
+  animation: workout-completion-ray 2.4s cubic-bezier(0.16, 1, 0.3, 1) var(--completion-ray-delay) infinite both;
+}
+
+.workout-completion-spark {
+  width: var(--completion-spark-size);
+  height: var(--completion-spark-size);
+  border-radius: 999px;
+  background: var(--completion-spark-color);
+  box-shadow: 0 10px 20px rgba(17, 24, 39, 0.12);
+  opacity: 0;
+  transform: translate(-50%, -50%) rotate(var(--completion-spark-angle)) translateX(0) scale(0.7);
+  animation: workout-completion-spark 2.4s cubic-bezier(0.16, 1, 0.3, 1) var(--completion-spark-delay) infinite both;
+}
+
+@keyframes workout-completion-medal-pop {
   0% {
     opacity: 0;
-    transform: translate3d(var(--confetti-x-start), 0, 0) rotate(0deg) scale(0.7);
+    transform: scale(0.74);
   }
 
-  12% {
+  58% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes workout-completion-aura {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.62);
+  }
+
+  22% {
     opacity: 1;
   }
 
-  56% {
+  72%,
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.55);
+  }
+}
+
+@keyframes workout-completion-orbit {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(-22deg) scale(0.72);
+  }
+
+  30% {
     opacity: 1;
-    transform: translate3d(var(--confetti-x-end), -58vh, 0) rotate(var(--confetti-rotate)) scale(1);
+  }
+
+  72%,
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(78deg) scale(1.18);
+  }
+}
+
+@keyframes workout-completion-ray {
+  0% {
+    opacity: 0;
+    transform: translateY(-50%) rotate(var(--completion-ray-angle)) translateX(42px) scaleX(0);
+  }
+
+  35% {
+    opacity: 1;
+    transform: translateY(-50%) rotate(var(--completion-ray-angle)) translateX(68px) scaleX(1);
+  }
+
+  64%,
+  100% {
+    opacity: 0;
+    transform: translateY(-50%) rotate(var(--completion-ray-angle)) translateX(104px) scaleX(0.25);
+  }
+}
+
+@keyframes workout-completion-spark {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(var(--completion-spark-angle)) translateX(0) scale(0.7);
+  }
+
+  18% {
+    opacity: 1;
+  }
+
+  58%,
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(var(--completion-spark-angle)) translateX(var(--completion-spark-distance)) scale(0.9);
+  }
+}
+
+@keyframes workout-completion-medal-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.06);
+  }
+}
+
+@keyframes workout-completion-medal-ring {
+  0% {
+    opacity: 0;
+    transform: scale(0.72);
+  }
+
+  18% {
+    opacity: 1;
   }
 
   100% {
     opacity: 0;
-    transform: translate3d(var(--confetti-x-end), -70vh, 0) rotate(var(--confetti-rotate)) scale(0.86);
+    transform: scale(1.22);
   }
 }
 
@@ -909,8 +1069,18 @@ body.drawer-open {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .workout-completion-confetti-piece {
+  .workout-completion-aura,
+  .workout-completion-orbit,
+  .workout-completion-ray,
+  .workout-completion-spark,
+  .workout-completion-medal {
     animation: none;
+  }
+
+  .workout-completion-aura,
+  .workout-completion-orbit,
+  .workout-completion-ray,
+  .workout-completion-spark {
     opacity: 0;
   }
 }
