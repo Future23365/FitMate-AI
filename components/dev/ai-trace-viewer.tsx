@@ -38,7 +38,6 @@ type TokenUsage = {
 export function AiTraceViewer() {
   const [traces, setTraces] = useState<AiTrace[]>([]);
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
-  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [savingLogTarget, setSavingLogTarget] = useState<string | null>(null);
@@ -65,11 +64,6 @@ export function AiTraceViewer() {
     () => [...mainStepGroups, ...outOfFlowGroups],
     [mainStepGroups, outOfFlowGroups],
   );
-  const selectedGroup = useMemo(
-    () => flowSwitchGroups.find((group) => group.id === selectedGroupId) ?? flowSwitchGroups[0] ?? null,
-    [selectedGroupId, flowSwitchGroups],
-  );
-
   const loadTraces = useCallback(async () => {
     setIsLoading(true);
     setError(null);
@@ -256,47 +250,12 @@ export function AiTraceViewer() {
 
             <div className="mt-5 min-w-0 space-y-5">
               <TraceOverview trace={selectedTrace} />
-              <TraceFlowNavigator
+              <TraceFlowTimeline
+                trace={selectedTrace}
                 groups={flowSwitchGroups}
-                selectedGroupId={selectedGroup?.id ?? null}
-                onSelect={setSelectedGroupId}
+                savingLogTarget={savingLogTarget}
+                saveTraceLog={saveTraceLog}
               />
-              {selectedGroup ? (
-                <StageInspector
-                  trace={selectedTrace}
-                  group={selectedGroup}
-                  isSavingGroup={savingLogTarget === selectedGroup.id}
-                  savingLogTarget={savingLogTarget}
-                  onSaveGroupLog={() => {
-                    void saveTraceLog({
-                      targetId: selectedGroup.id,
-                      target: {
-                        type: "step_group",
-                        traceId: selectedTrace.id,
-                        groupId: selectedGroup.id,
-                        title: selectedGroup.title,
-                      },
-                      payload: createGroupLogPayload(selectedTrace, selectedGroup),
-                    });
-                  }}
-                  onSaveStepLog={(step) => {
-                    void saveTraceLog({
-                      targetId: step.id,
-                      target: {
-                        type: "step_event",
-                        traceId: selectedTrace.id,
-                        stepId: step.id,
-                        title: getStepTitle(step),
-                      },
-                      payload: createStepLogPayload(selectedTrace, selectedGroup, step),
-                    });
-                  }}
-                />
-              ) : (
-                <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
-                  这条 Trace 还没有记录步骤。
-                </div>
-              )}
             </div>
           </div>
         ) : (
@@ -380,12 +339,21 @@ function TraceOverview({ trace }: { trace: AiTrace }) {
   const items = getTraceOverviewItems(trace);
 
   return (
-    <section className="rounded-xl border border-slate-200 bg-white">
-      <SectionHeader
-        eyebrow="Request"
-        title="请求概览"
-        description="先确认这次请求的入口、状态、时间、token 和 trace metadata，避免直接陷入原始 JSON。"
-      />
+    <details className="rounded-xl border border-slate-200 bg-white">
+      <summary className="cursor-pointer list-none p-5 hover:bg-slate-50">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">Request</div>
+            <h3 className="mt-1 text-base font-semibold text-slate-950">请求概览</h3>
+            <p className="mt-1 text-sm leading-6 text-slate-500">
+              默认收起。需要核对入口、状态、时间、token、metadata 和权限边界时再展开。
+            </p>
+          </div>
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+            展开查看字段说明
+          </span>
+        </div>
+      </summary>
       <div className="grid auto-rows-fr gap-3 border-t border-slate-100 p-4 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
         {items.map((item) => (
           <FieldExplanationCard item={item} key={item.key} />
@@ -396,21 +364,33 @@ function TraceOverview({ trace }: { trace: AiTrace }) {
           <TraceDataPanel title="原始 metadata" value={trace.metadata} defaultOpen={false} />
         </div>
       ) : null}
-    </section>
+    </details>
   );
 }
 
-function TraceFlowNavigator({
+type SaveTraceLog = (input: {
+  targetId: string;
+  target: Record<string, unknown>;
+  payload: Record<string, unknown>;
+}) => Promise<void>;
+
+function TraceFlowTimeline({
+  trace,
   groups,
-  selectedGroupId,
-  onSelect,
+  savingLogTarget,
+  saveTraceLog,
 }: {
+  trace: AiTrace;
   groups: TraceStepGroup[];
-  selectedGroupId: string | null;
-  onSelect: (groupId: string) => void;
+  savingLogTarget: string | null;
+  saveTraceLog: SaveTraceLog;
 }) {
   if (groups.length === 0) {
-    return null;
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
+        这条 Trace 还没有记录步骤。
+      </div>
+    );
   }
 
   return (
@@ -418,15 +398,14 @@ function TraceFlowNavigator({
       <SectionHeader
         eyebrow="Flow"
         title="流程步骤"
-        description="按一次 AI 请求的主链路切换查看；会话记忆更新作为后处理模块，排在接口返回之后。"
+        description="每个阶段下面直接显示对应事件、重点字段、模型 prompt、草稿摘要和 Raw JSON，按链路顺序从上到下排查。"
       />
-      <div className="space-y-3 border-t border-slate-100 p-4">
+      <div className="space-y-5 border-t border-slate-100 p-4">
         {groups.map((group, index) => {
-          const isSelected = group.id === selectedGroupId;
-          const usage = getGroupTokenUsage(group);
           const isOutOfFlow = group.placement === "out_of_flow";
           const showOutOfFlowDivider = isOutOfFlow && groups[index - 1]?.placement !== "out_of_flow";
           const mainFlowIndex = groups.slice(0, index + 1).filter((item) => item.placement === "main_flow").length;
+          const stageNumber = isOutOfFlow ? "后" : String(mainFlowIndex);
 
           return (
             <div className="min-w-0" key={group.id}>
@@ -439,44 +418,37 @@ function TraceFlowNavigator({
                   <div className="h-px flex-1 bg-slate-200" />
                 </div>
               ) : null}
-              <button
-                className={`grid min-h-[92px] w-full min-w-0 grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-4 rounded-xl border px-4 py-3 text-left transition ${
-                  isSelected
-                    ? "border-blue-300 bg-blue-50"
-                    : "border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50"
-                }`}
-                type="button"
-                onClick={() => onSelect(group.id)}
-              >
-                <span
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
-                    isSelected
-                      ? "bg-blue-600 text-white"
-                      : isOutOfFlow
-                        ? "bg-blue-50 text-blue-700 ring-1 ring-blue-100"
-                        : "bg-slate-100 text-slate-600"
-                  }`}
-                >
-                  {isOutOfFlow ? "后" : mainFlowIndex}
-                </span>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-sm font-semibold text-slate-950">{group.title}</span>
-                    <StatusDot status={group.status} />
-                  </div>
-                  <div className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{group.description}</div>
-                  {isOutOfFlow ? (
-                    <span className="mt-2 inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 ring-1 ring-blue-100">
-                      后处理模块
-                    </span>
-                  ) : null}
-                </div>
-                <div className="flex max-w-[520px] flex-wrap justify-end gap-1.5 text-[11px] text-slate-500">
-                  <Pill>{group.steps.length} 条事件</Pill>
-                  <Pill>{formatDuration(group.durationMs)}</Pill>
-                  <TokenUsageBadges usage={usage} compact />
-                </div>
-              </button>
+              <StageInspector
+                trace={trace}
+                group={group}
+                stageNumber={stageNumber}
+                isSavingGroup={savingLogTarget === group.id}
+                savingLogTarget={savingLogTarget}
+                onSaveGroupLog={() => {
+                  void saveTraceLog({
+                    targetId: group.id,
+                    target: {
+                      type: "step_group",
+                      traceId: trace.id,
+                      groupId: group.id,
+                      title: group.title,
+                    },
+                    payload: createGroupLogPayload(trace, group),
+                  });
+                }}
+                onSaveStepLog={(step) => {
+                  void saveTraceLog({
+                    targetId: step.id,
+                    target: {
+                      type: "step_event",
+                      traceId: trace.id,
+                      stepId: step.id,
+                      title: getStepTitle(step),
+                    },
+                    payload: createStepLogPayload(trace, group, step),
+                  });
+                }}
+              />
             </div>
           );
         })}
@@ -488,6 +460,7 @@ function TraceFlowNavigator({
 function StageInspector({
   trace,
   group,
+  stageNumber,
   isSavingGroup,
   savingLogTarget,
   onSaveGroupLog,
@@ -495,21 +468,43 @@ function StageInspector({
 }: {
   trace: AiTrace;
   group: TraceStepGroup;
+  stageNumber: string;
   isSavingGroup: boolean;
   savingLogTarget: string | null;
   onSaveGroupLog: () => void;
   onSaveStepLog: (step: AiTraceStep) => void;
 }) {
+  const isOutOfFlow = group.placement === "out_of_flow";
+  const usage = getGroupTokenUsage(group);
+
   return (
-    <section className="rounded-xl border border-slate-200 bg-white">
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
       <div className="flex flex-wrap items-start justify-between gap-3 p-5">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-lg font-semibold text-slate-950">{group.title}</h3>
-            <StatusBadge status={group.status} />
-            <Pill>{group.steps.length} 条事件</Pill>
+        <div className="grid min-w-0 flex-1 grid-cols-[44px_minmax(0,1fr)] gap-4">
+          <span
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+              isOutOfFlow
+                ? "bg-blue-50 text-blue-700 ring-1 ring-blue-100"
+                : "bg-blue-600 text-white"
+            }`}
+          >
+            {stageNumber}
+          </span>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-lg font-semibold text-slate-950">{group.title}</h3>
+              <StatusBadge status={group.status} />
+              <Pill>{group.steps.length} 条事件</Pill>
+              <Pill>{formatDuration(group.durationMs)}</Pill>
+              <TokenUsageBadges usage={usage} compact />
+            </div>
+            <p className="mt-2 text-sm leading-6 text-slate-500">{group.description}</p>
+            {isOutOfFlow ? (
+              <span className="mt-2 inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 ring-1 ring-blue-100">
+                后处理模块
+              </span>
+            ) : null}
           </div>
-          <p className="mt-2 text-sm leading-6 text-slate-500">{group.description}</p>
         </div>
         <button
           className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
@@ -527,7 +522,7 @@ function StageInspector({
         <MetricCard label="阶段状态" value={getStatusLabel(group.status)} description={getStatusDescription(group.status)} />
         <MetricCard
           label="Token 合计"
-          value={getGroupTokenUsage(group)?.total_tokens ? formatNumber(getGroupTokenUsage(group)?.total_tokens ?? 0) : "-"}
+          value={usage?.total_tokens ? formatNumber(usage.total_tokens) : "-"}
           description="该阶段内模型事件上报的 token 总量。"
         />
       </div>
@@ -811,9 +806,11 @@ function TraceStepDetail({
   const summary = getStepSummary(step);
   const debugMetadata = getDisplayableMetadata(step.metadata);
   const tokenUsage = getVisibleStepTokenUsage(steps, index);
+  const shouldOpen = shouldOpenStepByDefault(step, index);
+  const hasFocusPanel = Boolean(getModelPromptFocus(step) || getWorkoutDraftFocus(step));
 
   return (
-    <details className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+    <details className="overflow-hidden rounded-lg border border-slate-200 bg-white" open={shouldOpen}>
       <summary className="flex cursor-pointer items-start justify-between gap-4 bg-slate-50 px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -848,16 +845,17 @@ function TraceStepDetail({
       </summary>
       <div className="space-y-4 p-4">
         <StepSummaryCards step={step} tokenUsage={tokenUsage} />
+        <StepFocusPanel step={step} />
         <StepInterpretation step={step} tokenUsage={tokenUsage} />
         <div className="space-y-4">
           {!isEmptyValue(step.output) ? (
-            <TraceDataPanel title={getOutputTitle(step)} value={step.output} />
+            <TraceDataPanel title={getOutputTitle(step)} value={step.output} defaultOpen={!hasFocusPanel} />
           ) : null}
           {!isEmptyValue(step.error) ? (
             <TraceDataPanel title="错误详情" value={step.error} defaultOpen />
           ) : null}
           {!isEmptyValue(step.input) ? (
-            <TraceDataPanel title={getInputTitle(step)} value={step.input} />
+            <TraceDataPanel title={getInputTitle(step)} value={step.input} defaultOpen={!hasFocusPanel} />
           ) : null}
           {debugMetadata ? (
             <TraceDataPanel title="调试信息" value={debugMetadata} />
@@ -865,6 +863,162 @@ function TraceStepDetail({
         </div>
       </div>
     </details>
+  );
+}
+
+function shouldOpenStepByDefault(step: AiTraceStep, index: number) {
+  if (step.status === "failed" || step.type === "error") {
+    return true;
+  }
+
+  if (getStepTask(step) === "draft_generation") {
+    return true;
+  }
+
+  return index === 0;
+}
+
+function StepFocusPanel({ step }: { step: AiTraceStep }) {
+  const promptFocus = getModelPromptFocus(step);
+  const draftFocus = getWorkoutDraftFocus(step);
+
+  if (!promptFocus && !draftFocus) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-4 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+      <div>
+        <div className="text-sm font-semibold text-slate-950">重点调试信息</div>
+        <p className="mt-1 text-xs leading-5 text-slate-600">
+          这里把最容易影响结果的 prompt、候选摘要和计划草稿从 Raw JSON 中提出来，先看这里再看完整参数。
+        </p>
+      </div>
+      {promptFocus ? <PromptFocusBlock focus={promptFocus} /> : null}
+      {draftFocus ? <WorkoutDraftFocusBlock focus={draftFocus} /> : null}
+    </div>
+  );
+}
+
+type PromptFocus = {
+  configItems: FieldExplanationItem[];
+  messages: Array<{
+    role: string;
+    content: string;
+    parsedContent: Record<string, unknown> | null;
+  }>;
+};
+
+function PromptFocusBlock({ focus }: { focus: PromptFocus }) {
+  return (
+    <div className="space-y-3">
+      {focus.configItems.length > 0 ? (
+        <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
+          {focus.configItems.map((item) => (
+            <FieldExplanationCard item={item} key={`prompt-focus-${item.key}`} />
+          ))}
+        </div>
+      ) : null}
+      {focus.messages.map((message, index) => (
+        <div className="overflow-hidden rounded-xl border border-amber-200 bg-white" key={`${message.role}-${index}`}>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-100 bg-amber-50 px-4 py-2">
+            <div className="flex items-center gap-2">
+              <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-amber-700 ring-1 ring-amber-200">
+                {index + 1}
+              </span>
+              <span className="text-sm font-semibold text-slate-800">
+                {message.role} prompt
+              </span>
+            </div>
+            <span className="text-xs text-slate-500">{getMessageRoleDescription(message.role)}</span>
+          </div>
+          <div className="grid gap-3 p-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+            <TextBlock title="Prompt 正文" value={message.content} />
+            {message.parsedContent ? (
+              <PromptContentPreview value={message.parsedContent} />
+            ) : (
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-4 text-xs leading-6 text-slate-500">
+                这段内容不是 JSON 上下文，直接看左侧正文。
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PromptContentPreview({ value }: { value: Record<string, unknown> }) {
+  const items = getPromptContentPreviewItems(value);
+
+  return (
+    <div className="min-w-0 rounded-md border border-slate-200 bg-slate-50 p-4">
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Context preview</div>
+      {items.length > 0 ? (
+        <div className="mt-3 space-y-2">
+          {items.map((item) => (
+            <div className="rounded-lg bg-white p-3 ring-1 ring-slate-100" key={item.key}>
+              <div className="text-[11px] font-semibold text-slate-500">{item.label}</div>
+              <div className="mt-1 break-words text-sm leading-6 text-slate-800">{item.value}</div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-3 text-xs leading-6 text-slate-500">未识别到常用上下文字段，可在 Raw JSON 中查看完整内容。</div>
+      )}
+    </div>
+  );
+}
+
+type WorkoutDraftFocus = {
+  title: string;
+  kind: string;
+  metrics: Array<{ label: string; value: string }>;
+  sections: Array<{
+    title: string;
+    description: string;
+    items: string[];
+  }>;
+};
+
+function WorkoutDraftFocusBlock({ focus }: { focus: WorkoutDraftFocus }) {
+  return (
+    <div className="rounded-xl border border-amber-200 bg-white p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-slate-950">计划草稿重点</div>
+          <p className="mt-1 text-xs leading-5 text-slate-600">
+            {focus.title} · {focus.kind}
+          </p>
+        </div>
+        <div className="flex flex-wrap justify-end gap-2">
+          {focus.metrics.map((metric) => (
+            <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-800 ring-1 ring-amber-200" key={metric.label}>
+              {metric.label} {metric.value}
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="mt-4 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(260px,1fr))]">
+        {focus.sections.map((section) => (
+          <div className="rounded-lg border border-slate-100 bg-slate-50 p-3" key={section.title}>
+            <div className="text-sm font-semibold text-slate-800">{section.title}</div>
+            <div className="mt-1 text-xs leading-5 text-slate-500">{section.description}</div>
+            {section.items.length > 0 ? (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {section.items.map((item, itemIndex) => (
+                  <span className="rounded bg-white px-2 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200" key={`${item}-${itemIndex}`}>
+                    {item}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-3 text-xs text-slate-400">未记录动作明细。</div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1195,6 +1349,225 @@ function isModelPayload(value: unknown): value is ModelPayload {
 
 function isContentPayload(value: unknown): value is ContentPayload {
   return isRecord(value) && (typeof value.content === "string" || typeof value.reasoning === "string");
+}
+
+function getModelPromptFocus(step: AiTraceStep): PromptFocus | null {
+  if (!isModelPayload(step.input)) {
+    return null;
+  }
+
+  const config = Object.fromEntries(
+    Object.entries(step.input).filter(([key]) => key !== "messages"),
+  );
+
+  return {
+    configItems: getModelConfigItems(config),
+    messages: step.input.messages.map((message) => ({
+      role: message.role,
+      content: message.content,
+      parsedContent: parseJsonRecord(message.content),
+    })),
+  };
+}
+
+function getPromptContentPreviewItems(value: Record<string, unknown>) {
+  const items: Array<{ key: string; label: string; value: string }> = [];
+
+  addPreviewItem(items, value, "latestUserMessage", "最新用户消息");
+  addPreviewItem(items, value, "conversationSummary", "上下文总结");
+  addPreviewItem(items, value, "recovery", "修复策略");
+  addPreviewItem(items, value, "validation", "校验失败");
+  addPreviewItem(items, value, "intent", "训练意图");
+
+  for (const key of [
+    "primaryExercises",
+    "supplementaryExercises",
+    "warmupExercises",
+    "trainingExercises",
+    "stretchExercises",
+  ]) {
+    const valueForKey = value[key];
+
+    if (Array.isArray(valueForKey)) {
+      items.push({
+        key,
+        label: getPromptExercisePoolLabel(key),
+        value: `${valueForKey.length} 个：${valueForKey.slice(0, 8).map(getExerciseDisplayName).join("、") || "未记录名称"}`,
+      });
+    }
+  }
+
+  return items;
+}
+
+function addPreviewItem(
+  items: Array<{ key: string; label: string; value: string }>,
+  record: Record<string, unknown>,
+  key: string,
+  label: string,
+) {
+  if (!(key in record) || isEmptyValue(record[key])) {
+    return;
+  }
+
+  items.push({
+    key,
+    label,
+    value: stringifyValue(record[key]),
+  });
+}
+
+function getPromptExercisePoolLabel(key: string) {
+  const labels: Record<string, string> = {
+    primaryExercises: "主候选动作",
+    supplementaryExercises: "补充候选动作",
+    warmupExercises: "热身候选动作",
+    trainingExercises: "训练候选动作",
+    stretchExercises: "拉伸候选动作",
+  };
+
+  return labels[key] ?? key;
+}
+
+function getWorkoutDraftFocus(step: AiTraceStep): WorkoutDraftFocus | null {
+  const draft = getWorkoutDraftRecord(step);
+
+  if (!draft) {
+    return null;
+  }
+
+  return buildWorkoutDraftFocus(draft);
+}
+
+function getWorkoutDraftRecord(step: AiTraceStep): Record<string, unknown> | null {
+  const output = isRecord(step.output) ? step.output : null;
+
+  if (!output) {
+    return null;
+  }
+
+  if (looksLikeWorkoutDraft(output)) {
+    return output;
+  }
+
+  if (isRecord(output.draft) && looksLikeWorkoutDraft(output.draft)) {
+    return output.draft;
+  }
+
+  if (typeof output.content === "string") {
+    const parsed = parseJsonRecord(output.content);
+
+    if (parsed && looksLikeWorkoutDraft(parsed)) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+function looksLikeWorkoutDraft(value: Record<string, unknown>) {
+  return (
+    typeof value.title === "string" &&
+    (
+      Array.isArray(value.sections) ||
+      Array.isArray(value.days) ||
+      value.kind === "routine" ||
+      value.kind === "plan"
+    )
+  );
+}
+
+function buildWorkoutDraftFocus(draft: Record<string, unknown>): WorkoutDraftFocus {
+  const kind = typeof draft.kind === "string" ? draft.kind : Array.isArray(draft.days) ? "plan" : "routine";
+  const metrics: Array<{ label: string; value: string }> = [];
+
+  addDraftMetric(metrics, draft, "estimatedSessionMinutes", "单次时长");
+  addDraftMetric(metrics, draft, "trainingLoopRounds", "循环轮数");
+  addDraftMetric(metrics, draft, "cycleLengthDays", "周期天数");
+  addDraftMetric(metrics, draft, "trainingDayCount", "训练日");
+  addDraftMetric(metrics, draft, "restDayCount", "休息日");
+  addDraftMetric(metrics, draft, "weeklyFrequency", "周频率");
+
+  return {
+    title: typeof draft.title === "string" ? draft.title : "未命名训练草稿",
+    kind,
+    metrics,
+    sections: Array.isArray(draft.days)
+      ? buildPlanDaySections(draft.days)
+      : buildRoutineSections(Array.isArray(draft.sections) ? draft.sections : []),
+  };
+}
+
+function addDraftMetric(
+  metrics: Array<{ label: string; value: string }>,
+  draft: Record<string, unknown>,
+  key: string,
+  label: string,
+) {
+  const value = draft[key];
+
+  if (typeof value === "string" || typeof value === "number") {
+    metrics.push({ label, value: String(value) });
+  }
+}
+
+function buildRoutineSections(sections: unknown[]) {
+  return sections.slice(0, 8).map((section, index) => {
+    const record = isRecord(section) ? section : {};
+    const sectionName = stringifyValue(record.section ?? record.title ?? `section-${index + 1}`);
+    const items = Array.isArray(record.items) ? record.items : [];
+
+    return {
+      title: sectionName,
+      description: `${items.length} 个动作`,
+      items: items.slice(0, 10).map(getWorkoutItemDisplayName),
+    };
+  });
+}
+
+function buildPlanDaySections(days: unknown[]) {
+  return days.slice(0, 10).map((day, index) => {
+    const record = isRecord(day) ? day : {};
+    const dayTitle = stringifyValue(record.title ?? record.name ?? `第 ${index + 1} 天`);
+    const isRestDay = record.isRestDay === true;
+    const sections = Array.isArray(record.sections) ? record.sections : [];
+    const items = sections.flatMap((section) => {
+      if (!isRecord(section) || !Array.isArray(section.items)) {
+        return [];
+      }
+
+      return section.items.map(getWorkoutItemDisplayName);
+    });
+
+    return {
+      title: dayTitle,
+      description: isRestDay ? "休息日" : `${items.length} 个动作`,
+      items: items.slice(0, 12),
+    };
+  });
+}
+
+function getWorkoutItemDisplayName(item: unknown) {
+  if (!isRecord(item)) {
+    return stringifyValue(item);
+  }
+
+  return stringifyValue(
+    item.nameZh ??
+      item.exerciseName ??
+      item.exerciseId ??
+      item.id ??
+      item.title ??
+      "未命名动作",
+  );
+}
+
+function getExerciseDisplayName(item: unknown) {
+  if (!isRecord(item)) {
+    return stringifyValue(item);
+  }
+
+  return stringifyValue(item.nameZh ?? item.nameEn ?? item.exerciseId ?? item.id ?? "未命名动作");
 }
 
 export function groupTraceSteps(steps: AiTraceStep[]): TraceStepGroup[] {
@@ -2301,17 +2674,6 @@ function getGroupDuration(group: TraceStepGroup) {
 
   const totalDuration = group.steps.reduce((sum, step) => sum + (step.durationMs ?? 0), 0);
   return totalDuration > 0 ? totalDuration : group.durationMs;
-}
-
-function StatusDot({ status }: { status: AiTrace["status"] }) {
-  const className =
-    status === "success"
-      ? "bg-emerald-500"
-      : status === "failed"
-        ? "bg-red-500"
-        : "bg-amber-500";
-
-  return <span className={`h-2 w-2 shrink-0 rounded-full ${className}`} />;
 }
 
 function StatusBadge({ status }: { status: AiTrace["status"] }) {

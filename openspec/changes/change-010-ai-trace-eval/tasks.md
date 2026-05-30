@@ -39,3 +39,10 @@
 - [x] 6.1 在 `docs/方案变更历史` 新增方案变更记录，说明第一批 AI 编排 trace 能覆盖 artifact、引用解析、Patch 和校验链路。
 - [x] 6.2 如 trace 字段、log 保存方式或调试页使用方式变化，同步更新相关开发文档。
 - [x] 6.3 在 `docs/项目演变历程.md` 末尾追加本次核心 AI trace 链路改进记录。
+
+## 7. Trace 调试页收尾完善
+
+- [x] 7.1 补全 `/dev/ai-traces` 页面行为要求：请求概览默认收起、阶段节点和阶段内容就地绑定、失败和草稿生成事件优先展开。
+- [x] 7.2 将模型请求 prompt、JSON 上下文预览、候选池摘要和 routine/plan 草稿摘要从 Raw JSON 中提取为重点调试信息。
+- [x] 7.3 补充字段解释和排查顺序文档，明确 route、status、tokenUsage、finalDecision、toolName、candidate counts、validation errors 和 persistence revision 的含义。
+- [x] 7.4 运行相关测试和类型检查，确认调试页重构没有破坏 trace 分组和页面编译。
