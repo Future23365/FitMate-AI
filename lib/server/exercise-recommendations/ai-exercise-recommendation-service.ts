@@ -92,26 +92,7 @@ export async function generateAiExerciseRecommendations(
         conversationSummary: conversationSummaryContext.summary,
         latestUserMessage: conversationSummaryContext.latestUserMessage,
         excludedExerciseIds: request.excludeExerciseIds,
-        candidateExercises: request.candidates.map((candidate) => {
-          const exercise = candidate.exercise;
-
-          return {
-            exerciseId: exercise.id,
-            nameZh: exercise.nameZh,
-            nameEn: exercise.nameEn,
-            categoryZh: exercise.categoryZh,
-            level: exercise.level,
-            levelZh: exercise.levelZh,
-            equipmentZh: exercise.equipmentZh,
-            primaryMusclesZh: exercise.primaryMusclesZh,
-            secondaryMusclesZh: exercise.secondaryMusclesZh,
-            riskTags: exercise.riskTags,
-            goalTags: exercise.goalTags,
-            candidateSource: candidate.source,
-            candidateScore: candidate.score,
-            candidateReasons: candidate.reasons,
-          };
-        }),
+        candidateExercises: request.candidates.map(toModelCandidateExercise),
       }),
     },
   ];
@@ -197,6 +178,25 @@ export async function generateAiExerciseRecommendations(
   return {
     ok: true,
     card,
+  };
+}
+
+// 将服务端完整候选压缩成模型选择动作所需的最小字段，展示字段仍由服务端完整对象补齐。
+function toModelCandidateExercise(candidate: ExerciseCandidate) {
+  const exercise = candidate.exercise;
+
+  return {
+    exerciseId: exercise.id,
+    nameZh: exercise.nameZh,
+    categoryZh: exercise.categoryZh,
+    level: exercise.level,
+    equipmentZh: exercise.equipmentZh,
+    primaryMusclesZh: exercise.primaryMusclesZh,
+    secondaryMusclesZh: exercise.secondaryMusclesZh,
+    riskTags: exercise.riskTags,
+    goalTags: exercise.goalTags,
+    candidateSource: candidate.source,
+    candidateScore: candidate.score,
   };
 }
 

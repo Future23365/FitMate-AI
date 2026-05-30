@@ -182,6 +182,25 @@ describe("AI workout plan orchestration boundaries", () => {
     });
     expect(routineModelPayload).not.toHaveProperty("recentMessages");
     expect(routineModelPayload).not.toHaveProperty("conversationContext");
+    const pushUpModelExercise = routineModelPayload.primaryExercises.find(
+      (exercise: { exerciseId: string }) => exercise.exerciseId === "push-up",
+    );
+    expect(pushUpModelExercise).toMatchObject({
+      exerciseId: "push-up",
+      nameZh: "俯卧撑",
+      source: "primary",
+      score: expect.any(Number),
+    });
+    expect(pushUpModelExercise).not.toHaveProperty("imageUrl");
+    expect(pushUpModelExercise).not.toHaveProperty("imageUrls");
+    expect(pushUpModelExercise).not.toHaveProperty("images");
+    expect(pushUpModelExercise).not.toHaveProperty("nameEn");
+    expect(pushUpModelExercise).not.toHaveProperty("levelZh");
+    expect(pushUpModelExercise).not.toHaveProperty("allowedSections");
+    expect(pushUpModelExercise).not.toHaveProperty("movementPattern");
+    expect(pushUpModelExercise).not.toHaveProperty("difficulty");
+    expect(routineModelPayload.primaryExercises.length).toBeLessThanOrEqual(16);
+    expect(routineModelPayload.trainingExercises.length).toBeLessThanOrEqual(16);
   });
 
   it("uses DomainPlanEngine for referenced multi-week routine plans without draft generation model call", async () => {

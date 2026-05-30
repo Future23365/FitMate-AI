@@ -24,6 +24,7 @@ import {
 import {
   getCandidateExerciseIds,
   selectExerciseCandidates,
+  type ExerciseCandidate,
   type ExerciseCandidateResult,
 } from "./exercise-candidate-service";
 import {
@@ -133,7 +134,7 @@ type DeepSeekChatMessage = {
 };
 
 const model = "deepseek-v4-flash";
-const maxModelCandidates = 40;
+const maxModelCandidates = 16;
 const deepSeekRequestTimeoutMs = 45_000;
 
 export async function generateAiWorkoutPlanDraft(
@@ -879,28 +880,30 @@ async function repairWorkoutPlanDraft(
   };
 }
 
+// 训练草稿模型只需要候选动作的编排语义，图片、英文名和完整动作对象留在服务端校验与展示链路。
 function buildExercisePromptPayload(candidates: ExerciseCandidateResult) {
-  const toPayload = ({ exercise }: { exercise: Exercise }) => ({
-      exerciseId: exercise.id,
-      nameZh: exercise.nameZh,
-      categoryZh: exercise.categoryZh,
-      level: exercise.level,
-      equipmentZh: exercise.equipmentZh,
-      primaryMusclesZh: exercise.primaryMusclesZh,
-      allowedSections: exercise.allowedSections,
-      intensityRole: exercise.intensityRole,
-      movementPattern: exercise.movementPattern,
-      difficulty: exercise.difficulty,
-      riskTags: exercise.riskTags,
-      goalTags: exercise.goalTags,
-  });
-
   return {
-    primaryExercises: candidates.primaryCandidates.slice(0, maxModelCandidates).map(toPayload),
-    supplementaryExercises: candidates.supplementaryCandidates.slice(0, maxModelCandidates).map(toPayload),
-    warmupExercises: candidates.candidatePools.warmup.slice(0, maxModelCandidates).map(toPayload),
-    trainingExercises: candidates.candidatePools.training.slice(0, maxModelCandidates).map(toPayload),
-    stretchExercises: candidates.candidatePools.stretch.slice(0, maxModelCandidates).map(toPayload),
+    primaryExercises: candidates.primaryCandidates.slice(0, maxModelCandidates).map(toModelExerciseSummary),
+    supplementaryExercises: candidates.supplementaryCandidates.slice(0, maxModelCandidates).map(toModelExerciseSummary),
+    warmupExercises: candidates.candidatePools.warmup.slice(0, maxModelCandidates).map(toModelExerciseSummary),
+    trainingExercises: candidates.candidatePools.training.slice(0, maxModelCandidates).map(toModelExerciseSummary),
+    stretchExercises: candidates.candidatePools.stretch.slice(0, maxModelCandidates).map(toModelExerciseSummary),
+  };
+}
+
+// 模型候选摘要保留动作选择和安全边界字段，避免把 UI 展示字段混进 prompt。
+function toModelExerciseSummary({ exercise, score, source }: ExerciseCandidate) {
+  return {
+    exerciseId: exercise.id,
+    nameZh: exercise.nameZh,
+    categoryZh: exercise.categoryZh,
+    level: exercise.level,
+    equipmentZh: exercise.equipmentZh,
+    primaryMusclesZh: exercise.primaryMusclesZh,
+    riskTags: exercise.riskTags,
+    goalTags: exercise.goalTags,
+    source,
+    score,
   };
 }
 

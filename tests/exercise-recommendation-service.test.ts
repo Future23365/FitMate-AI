@@ -18,7 +18,13 @@ describe("AI exercise recommendation generation", () => {
   });
 
   it("sends only summary context, latest user message, intent, and candidate constraints to the model", async () => {
-    const exercise = createExercise({ id: "push-up", nameZh: "俯卧撑" });
+    const exercise = createExercise({
+      id: "push-up",
+      nameZh: "俯卧撑",
+      nameEn: "Push Up",
+      imageUrls: ["/push-up.png"],
+      levelZh: "新手",
+    });
     serverRequestMocks.serverRequest.mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -74,5 +80,20 @@ describe("AI exercise recommendation generation", () => {
     });
     expect(modelPayload).not.toHaveProperty("recentMessages");
     expect(modelPayload).not.toHaveProperty("conversationContext");
+    expect(modelPayload.candidateExercises).toEqual([
+      expect.objectContaining({
+        exerciseId: "push-up",
+        nameZh: "俯卧撑",
+        candidateSource: "primary",
+        candidateScore: 10,
+      }),
+    ]);
+    expect(modelPayload.candidateExercises[0]).not.toHaveProperty("imageUrl");
+    expect(modelPayload.candidateExercises[0]).not.toHaveProperty("imageUrls");
+    expect(modelPayload.candidateExercises[0]).not.toHaveProperty("images");
+    expect(modelPayload.candidateExercises[0]).not.toHaveProperty("nameEn");
+    expect(modelPayload.candidateExercises[0]).not.toHaveProperty("levelZh");
+    expect(modelPayload.candidateExercises[0]).not.toHaveProperty("candidateReasons");
+    expect(result.ok && result.card.items[0].imageUrl).toBe("/push-up.png");
   });
 });
