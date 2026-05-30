@@ -917,8 +917,10 @@ type PromptFocus = {
 };
 
 function PromptFocusBlock({ focus }: { focus: PromptFocus }) {
+  const previewMessages = focus.messages.filter((message) => message.parsedContent);
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {focus.configItems.length > 0 ? (
         <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
           {focus.configItems.map((item) => (
@@ -926,45 +928,65 @@ function PromptFocusBlock({ focus }: { focus: PromptFocus }) {
           ))}
         </div>
       ) : null}
-      {focus.messages.map((message, index) => (
-        <div className="overflow-hidden rounded-xl border border-amber-200 bg-white" key={`${message.role}-${index}`}>
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-100 bg-amber-50 px-4 py-2">
-            <div className="flex items-center gap-2">
-              <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-amber-700 ring-1 ring-amber-200">
-                {index + 1}
-              </span>
-              <span className="text-sm font-semibold text-slate-800">
-                {message.role} prompt
-              </span>
-            </div>
-            <span className="text-xs text-slate-500">{getMessageRoleDescription(message.role)}</span>
+
+      {previewMessages.length > 0 ? (
+        <div className="space-y-3 rounded-xl border border-amber-200 bg-white p-4">
+          <div>
+            <div className="text-sm font-semibold text-slate-950">结构化 preview</div>
+            <p className="mt-1 text-xs leading-5 text-slate-600">
+              从发给模型的 JSON content 中提取出来的可读摘要，用来先看用户输入、上下文、候选池和校验修复信息。
+            </p>
           </div>
-          <div className="grid gap-3 p-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-            <TextBlock title="Prompt 正文" value={message.content} />
-            {message.parsedContent ? (
-              <PromptContentPreview value={message.parsedContent} />
-            ) : (
-              <div className="rounded-md border border-slate-200 bg-slate-50 p-4 text-xs leading-6 text-slate-500">
-                这段内容不是 JSON 上下文，直接看左侧正文。
-              </div>
-            )}
-          </div>
+          {previewMessages.map((message, index) => (
+            <PromptContentPreview
+              key={`${message.role}-preview-${index}`}
+              title={`${index + 1}. ${message.role} content preview`}
+              value={message.parsedContent as Record<string, unknown>}
+            />
+          ))}
         </div>
-      ))}
+      ) : null}
+
+      <div className="space-y-3 rounded-xl border border-amber-200 bg-white p-4">
+        <div>
+          <div className="text-sm font-semibold text-slate-950">发给大模型的长文本 content</div>
+          <p className="mt-1 text-xs leading-5 text-slate-600">
+            每条 message.content 都按模型回复一样独立展示，避免在 JSON 里横向阅读长文本。
+          </p>
+        </div>
+        {focus.messages.map((message, index) => (
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white" key={`${message.role}-${index}`}>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3">
+              <div className="flex items-center gap-2">
+                <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-amber-700 ring-1 ring-amber-200">
+                  {index + 1}
+                </span>
+                <span className="text-sm font-semibold text-slate-800">
+                  {message.role} content
+                </span>
+              </div>
+              <span className="text-xs text-slate-500">{getMessageRoleDescription(message.role)}</span>
+            </div>
+            <div className="p-4">
+              <TextBlock title="" value={message.content || "（空）"} />
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
-function PromptContentPreview({ value }: { value: Record<string, unknown> }) {
+function PromptContentPreview({ title, value }: { title: string; value: Record<string, unknown> }) {
   const items = getPromptContentPreviewItems(value);
 
   return (
     <div className="min-w-0 rounded-md border border-slate-200 bg-slate-50 p-4">
-      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Context preview</div>
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</div>
       {items.length > 0 ? (
-        <div className="mt-3 space-y-2">
+        <div className="mt-3 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(260px,1fr))]">
           {items.map((item) => (
-            <div className="rounded-lg bg-white p-3 ring-1 ring-slate-100" key={item.key}>
+            <div className="min-w-0 rounded-lg bg-white p-3 ring-1 ring-slate-100" key={item.key}>
               <div className="text-[11px] font-semibold text-slate-500">{item.label}</div>
               <div className="mt-1 break-words text-sm leading-6 text-slate-800">{item.value}</div>
             </div>

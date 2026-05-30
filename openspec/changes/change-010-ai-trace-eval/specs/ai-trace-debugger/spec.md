@@ -20,6 +20,7 @@
 - **WHEN** trace 包含 `model_request` step
 - **THEN** 页面 MUST 在 Raw JSON 之外展示模型调用配置、system prompt、user prompt 和可识别 JSON 上下文预览
 - **AND** 上下文预览 SHOULD 突出 latestUserMessage、conversationSummary、intent、validation、recovery 和候选动作池数量
+- **AND** 每条发送给模型的 `message.content` MUST 像模型回复一样以独立纵向长文本块展示，不得只依赖 JSON 或与 preview 挤在同一横向卡片内
 - **WHEN** trace 包含训练 routine 或 plan 草稿输出
 - **THEN** 页面 MUST 在 Raw JSON 之外展示计划标题、kind、时长、周期、训练日/休息日、阶段和动作摘要
 

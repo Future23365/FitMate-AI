@@ -49,7 +49,7 @@ trace input 保存 `latestUserMessage`、`recentArtifactSummaries`、用户画�
 
 ### Decision 6: 计划草稿和 prompt 是一等调试信息
 
-计划草稿生成失败常见根因在 prompt 上下文、候选动作池、模型 JSON 草稿和服务端校验之间。调试页必须把模型请求中的 system/user prompt、候选池预览、最新用户消息、上下文总结、训练意图、校验修复信息，以及模型输出中的 routine/plan 草稿标题、时长、周期、训练日、阶段和动作摘要提到 Raw JSON 之外。
+计划草稿生成失败常见根因在 prompt 上下文、候选动作池、模型 JSON 草稿和服务端校验之间。调试页必须把模型请求中的 system/user prompt、候选池预览、最新用户消息、上下文总结、训练意图、校验修复信息，以及模型输出中的 routine/plan 草稿标题、时长、周期、训练日、阶段和动作摘要提到 Raw JSON 之外。所有发送给模型的 `message.content` 都按独立长文本块展示，结构化 preview 单独展示，避免长文本和摘要挤在同一个横向卡片里。
 
 Raw JSON 仍保留完整字段，但不作为理解计划草稿的唯一入口。
 
