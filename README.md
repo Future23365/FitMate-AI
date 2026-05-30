@@ -204,6 +204,20 @@ example/                   # 设计参考 HTML
 - [ ] 用户说“俯卧撑不喜欢，换一个”时，系统能否只替换该动作，并保持其他计划内容不变？
 - [ ] 用户在一周计划执行到第三天时反馈“俯卧撑太难”，系统能否自动处理后续训练安排中的同类动作？
 
+### 架构升级
+
+以下 TODO 记录从当前 AI 训练计划生成原型迁移到可引用、可修订、可验证、可追踪编排系统的大体方向。详细迁移方案见 [docs/AI上下文与训练计划架构改进方案.md](./docs/AI上下文与训练计划架构改进方案.md)。
+
+- [ ] 第一阶段：将聊天推送的动作推荐、routine 和 plan 卡片沉淀为 `ConversationArtifact` 与 `ArtifactIndex`，让 UI 卡片成为后续 AI 可引用的结构化事实源。
+- [ ] 第一阶段：增加 `ReferenceResolver`，支持“这个”“上一个”“刚才那套”“之前练胸的”这类引用定位，并在歧义时让用户确认。
+- [ ] 第一阶段：增加基础 `WorkoutPatch` / `PlanPatch` 流程，让“替换一个动作”“降低这个动作难度”等修改先走局部 Patch，而不是重生成整份计划。
+- [ ] 第一阶段：补齐基础 AI Trace，记录 artifact、引用解析、工具调用、Patch、校验和保存结果，方便复盘错误来源。
+- [ ] 第二阶段：完善动作元数据、分池检索和推荐去重，减少重复推荐，并在候选不足时给出明确反馈。
+- [ ] 第二阶段：建设服务端领域计划引擎，将长期计划展开、周期安排、训练日调整和未来 schedule 修改从 LLM 自由生成迁移到确定性服务。
+- [ ] 第二阶段：引入用户反馈与长期偏好记忆，区分临时偏好、明确 dislike、长期限制和训练历史。
+- [ ] 第三阶段：补充 Policy Engine 与 Confirmation Gate，对批量修改、覆盖已保存 routine、写入长期记忆和高风险调整做显式确认。
+- [ ] 第三阶段：按需增强 RAG / Hybrid Search、Replay 和 Eval Suite，让复杂引用、动作检索和 AI 编排回归具备持续验证能力。
+
 ### 最小可用 AI 闭环
 
 - [x] 新增训练计划和单次编排草稿类型与 Zod Schema，包括周期化三段式 `WorkoutPlanDraft`、`WorkoutDayDraft`、`WorkoutPlanItemDraft`、`WorkoutRoutineDraft`。
