@@ -7,7 +7,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ResponsiveRightSidebar } from "@/components/app/responsive-right-sidebar";
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { useAutoHideScrollbar } from "@/components/app/use-auto-hide-scrollbar";
-import { NumberStepper } from "@/components/ui/number-stepper";
 import {
   Select,
   SelectContent,
@@ -1643,6 +1642,154 @@ function LibraryFilterSelect({
   );
 }
 
+function clampPrescriptionValue(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+// CompactPrescriptionStepper 将动作处方里的数字编辑压缩为行内片段，避免动作卡片被表单控件挤换行。
+function CompactPrescriptionStepper({
+  ariaLabel,
+  className,
+  label,
+  max = 999,
+  min = 1,
+  onChange,
+  prefix = "",
+  suffix = "",
+  value,
+}: {
+  ariaLabel: string;
+  className: string;
+  label: string;
+  max?: number;
+  min?: number;
+  onChange: (value: number) => void;
+  prefix?: string;
+  suffix?: string;
+  value: number;
+}) {
+  const commitValue = (nextValue: number) => {
+    onChange(clampPrescriptionValue(nextValue, min, max));
+  };
+
+  return (
+    <div className={`flex h-11 shrink-0 flex-col justify-center gap-[3px] px-xs ${className}`}>
+      <span className="text-center text-[10px] font-semibold leading-none text-secondary">{label}</span>
+      <div className="grid h-6 grid-cols-[18px_1fr_18px] items-center gap-[2px]">
+        <button
+          aria-label={`减少${ariaLabel}`}
+          className="grid h-6 w-[18px] place-items-center rounded-[6px] text-outline transition-colors hover:bg-primary-soft hover:text-primary disabled:text-outline/30 disabled:hover:bg-transparent"
+          disabled={value <= min}
+          onClick={(event) => {
+            event.stopPropagation();
+            commitValue(value - 1);
+          }}
+          type="button"
+        >
+          <SymbolIcon className="text-[14px]">remove</SymbolIcon>
+        </button>
+        <div className="relative flex h-6 min-w-0 items-center justify-center">
+          <input
+            aria-label={ariaLabel}
+            className="h-full w-full min-w-0 rounded-[6px] border-0 bg-transparent px-0 text-center text-[13px] font-extrabold leading-6 text-ink outline-none transition-colors focus:bg-primary-soft focus:ring-2 focus:ring-primary/15"
+            inputMode="numeric"
+            onClick={(event) => event.stopPropagation()}
+            onChange={(event) => {
+              const numericValue = Number(event.target.value.replace(/\D/g, "")) || min;
+              commitValue(numericValue);
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+            value={`${prefix}${value}${suffix}`}
+          />
+        </div>
+        <button
+          aria-label={`增加${ariaLabel}`}
+          className="grid h-6 w-[18px] place-items-center rounded-[6px] text-outline transition-colors hover:bg-primary-soft hover:text-primary disabled:text-outline/30 disabled:hover:bg-transparent"
+          disabled={value >= max}
+          onClick={(event) => {
+            event.stopPropagation();
+            commitValue(value + 1);
+          }}
+          type="button"
+        >
+          <SymbolIcon className="text-[14px]">add</SymbolIcon>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// WorkoutPrescriptionControl 表达单个动作的目标、组数与组间休息，是动作行右侧的紧凑处方控制组。
+function WorkoutPrescriptionControl({
+  item,
+  onUpdate,
+}: {
+  item: WorkoutItem;
+  onUpdate: (updater: (item: WorkoutItem) => WorkoutItem) => void;
+}) {
+  const targetLabel = item.mode === "duration" ? "目标时长" : "目标次数";
+
+  return (
+    <div
+      className="flex h-[50px] shrink-0 items-center rounded-[10px] border border-line bg-white px-[5px] shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:ml-auto"
+      onClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+      title={`${targetLabel} ${item.target}${item.mode === "duration" ? "s" : ""} · ${item.sets}组 · 组间 ${item.setRestSeconds}s`}
+    >
+      <CompactPrescriptionStepper
+        ariaLabel={targetLabel}
+        className="w-[92px]"
+        label={targetLabel}
+        suffix={item.mode === "duration" ? "s" : ""}
+        value={item.target}
+        onChange={(nextValue) => onUpdate((current) => ({ ...current, target: nextValue }))}
+      />
+      <CompactPrescriptionStepper
+        ariaLabel="组数"
+        className="w-[74px]"
+        label="组数"
+        prefix="×"
+        value={item.sets}
+        onChange={(nextValue) => onUpdate((current) => ({ ...current, sets: nextValue }))}
+      />
+      <div className="flex h-11 w-[86px] shrink-0 flex-col justify-center gap-[3px] px-xs">
+        <span className={`text-center text-[10px] font-semibold leading-none ${item.sets > 1 ? "text-secondary" : "text-outline/60"}`}>
+          组间休息
+        </span>
+        {item.sets > 1 ? (
+          <Select
+            onValueChange={(nextValue: string) =>
+              onUpdate((current) => ({ ...current, setRestSeconds: Number(nextValue) }))
+            }
+            value={String(item.setRestSeconds)}
+          >
+            <SelectTrigger
+              aria-label="组间"
+              className="relative h-6 w-full justify-center rounded-[6px] border-0 bg-transparent px-2 pr-5 text-center text-[13px] font-extrabold leading-6 text-ink shadow-none hover:bg-primary-soft focus-visible:ring-2 focus-visible:ring-primary/15 [&>span]:min-w-0 [&>span]:text-center [&>svg]:absolute [&>svg]:right-1.5"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="min-w-[88px]">
+              {restOptions.map((option) => (
+                <SelectItem className="pr-3" key={option} value={String(option)}>
+                  {option}s
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <div
+            aria-label="组间，1组时不可选"
+            className="flex h-6 items-center justify-center rounded-[6px] text-[13px] font-extrabold leading-6 text-outline/60"
+          >
+            无
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function WorkoutExerciseRow({
   dragState,
   exercise,
@@ -1755,64 +1902,12 @@ function WorkoutExerciseRow({
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap items-end gap-sm rounded-xl border border-line bg-[#F8FAFC] px-sm py-xs md:ml-auto md:justify-end">
-          <NumberStepper
-            className="w-[96px]"
-            label={item.mode === "duration" ? "目标时长" : "目标次数"}
-            max={999}
-            min={1}
-            suffix={item.mode === "duration" ? "s" : ""}
-            value={item.target}
-            onValueChange={(nextValue) => onUpdate((current) => ({ ...current, target: nextValue }))}
-            stopPropagation
-          />
-          <NumberStepper
-            className="w-[82px]"
-            label="组数"
-            max={999}
-            min={1}
-            value={item.sets}
-            onValueChange={(nextValue) => onUpdate((current) => ({ ...current, sets: nextValue }))}
-            stopPropagation
-          />
-          <div
-            className="flex h-14 w-[82px] flex-col justify-center text-center"
-            onClick={(event) => event.stopPropagation()}
-            onPointerDown={(event) => event.stopPropagation()}
-          >
-            <p className={`mb-xs truncate text-[10px] font-medium leading-none ${item.sets > 1 ? "text-outline" : "text-outline/60"}`}>
-              组间
-            </p>
-            <Select
-              disabled={item.sets <= 1}
-              onValueChange={(nextValue) =>
-                onUpdate((current) => ({ ...current, setRestSeconds: Number(nextValue) }))
-              }
-              value={String(item.setRestSeconds)}
-            >
-              <SelectTrigger
-                aria-label={item.sets > 1 ? "组间" : "组间，1组时不可选"}
-                className={`relative h-8 w-full justify-center rounded-[10px] border-line bg-white px-2 pr-5 text-center font-label-md text-label-md font-semibold leading-8 text-ink shadow-[0_1px_2px_rgba(16,24,40,0.06),inset_0_1px_0_rgba(255,255,255,0.9)] hover:bg-primary-soft focus-visible:ring-0 [&>span]:min-w-0 [&>span]:text-center [&>svg]:absolute [&>svg]:right-1.5 ${
-                  item.sets > 1 ? "" : "bg-surface-container-low text-outline shadow-none hover:bg-surface-container-low"
-                }`}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="min-w-[88px]">
-                {restOptions.map((option) => (
-                  <SelectItem className="pr-3" key={option} value={String(option)}>
-                    {option}s
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
+        <WorkoutPrescriptionControl item={item} onUpdate={onUpdate} />
       </div>
-      <div className="flex gap-xs border-outline-variant md:border-l md:pl-md">
+      <div className="flex shrink-0 gap-[2px] md:pl-xs">
         <button
           aria-label={`查看动作详情：${item.nameZh}`}
-          className="rounded-lg p-sm text-outline transition-colors hover:bg-primary/5 hover:text-primary"
+          className="grid h-8 w-8 place-items-center rounded-lg text-outline transition-colors hover:bg-primary/5 hover:text-primary"
           onClick={(event) => {
             event.stopPropagation();
             onPreview();
@@ -1821,10 +1916,10 @@ function WorkoutExerciseRow({
         >
           <SymbolIcon>info</SymbolIcon>
         </button>
-        <button className="rounded-lg p-sm text-outline transition-colors hover:bg-primary/5 hover:text-primary" onClick={(event) => { event.stopPropagation(); onDuplicate(); }} type="button">
+        <button className="grid h-8 w-8 place-items-center rounded-lg text-outline transition-colors hover:bg-primary/5 hover:text-primary" onClick={(event) => { event.stopPropagation(); onDuplicate(); }} type="button">
           <SymbolIcon>content_copy</SymbolIcon>
         </button>
-        <button className="rounded-lg p-sm text-outline transition-colors hover:bg-error/5 hover:text-error" onClick={(event) => { event.stopPropagation(); onDelete(); }} type="button">
+        <button className="grid h-8 w-8 place-items-center rounded-lg text-outline transition-colors hover:bg-error/5 hover:text-error" onClick={(event) => { event.stopPropagation(); onDelete(); }} type="button">
           <SymbolIcon>delete</SymbolIcon>
         </button>
       </div>
