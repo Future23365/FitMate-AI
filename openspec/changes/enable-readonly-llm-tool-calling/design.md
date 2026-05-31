@@ -16,6 +16,7 @@
 - 对每次工具选择、参数校验、权限校验、执行结果、失败和回退写入 AI Trace。
 - 限制 tool loop 的最大步数、上下文预算和工具输出摘要，避免不可控循环或 prompt 膨胀。
 - 保留当前固定编排作为回退路径，确保工具调用失败不会让核心聊天流程中断。
+- 提供服务端 feature flag，允许在不回滚代码的情况下关闭只读 tool loop。
 
 **Non-Goals:**
 
@@ -56,6 +57,25 @@ type ControlledReadTool<Input, Output> = {
 - 工具内部继续执行用户隔离、status、kind、limit 等约束。
 - 工具返回先摘要化，再进入下一次模型上下文或最终回复。
 
+当 DeepSeek 当前接口未使用标准 `tools` / `tool_choice` 时，首版使用受控 JSON tool decision 协议：
+
+```ts
+type ReadonlyToolDecision =
+  | {
+      action: "call_tool";
+      toolName: "searchArtifacts" | "getArtifactPayload" | "getExerciseById" | "searchExercises";
+      input: unknown;
+      reason: string;
+    }
+  | {
+      action: "finish";
+      answerReadiness: "enough_context" | "needs_clarification" | "fallback";
+      reason: string;
+    };
+```
+
+模型每一步只能返回一个 decision。服务端必须拒绝非法 JSON、多工具请求、未知 `toolName`、缺失 `reason` 或不符合工具 Schema 的 `input`，并把拒绝结果作为可恢复失败写入 trace。
+
 这样可以让 LLM 补查上下文，但不能让模型绕过权限边界。
 
 ### 3. 只读 tool loop 作为聊天编排的可选阶段
@@ -67,6 +87,13 @@ type ControlledReadTool<Input, Output> = {
 - 当前 prompt 上下文不足以回答，但可以通过注册只读工具补查。
 
 tool loop 输出 `ReadonlyToolContextBundle`，供最终回复、解释、动作推荐或后续确定性服务端流程使用。若工具阶段失败、模型未选择工具或达到步数上限，系统回退到当前编排路径或澄清回复。
+
+接入点必须尊重当前 `/api/chat` 的确定性早返回：
+
+- `ReferenceResolver` 返回 `ambiguous` 或 `not_found` 时，继续走引用澄清，不进入 tool loop。
+- `WorkoutPatchEngine` 已处理并返回确定性结果时，不进入 tool loop。
+- 已由服务端动作讲解、artifact 生成或校验恢复完成的路径，不再让 tool loop 重新决定动作。
+- 只有进入最终回复模型请求之前仍存在只读上下文缺口时，才执行 `runReadonlyToolLoop`，并把 `ReadonlyToolContextBundle` 作为 `buildSystemPrompt` 的显式输入。
 
 ### 4. 首批工具严格限定为读工具
 
@@ -90,7 +117,15 @@ tool loop 输出 `ReadonlyToolContextBundle`，供最终回复、解释、动作
 - 是否达到 step 上限。
 - 最终哪些工具上下文进入回复生成。
 
-工具输出必须走摘要函数，避免完整 artifact payload、长文本或大候选集合直接进入 trace 或 prompt。
+默认预算使用集中配置，首版固定为：
+
+- `maxSteps = 3`。
+- `searchArtifacts` 默认 `limit = 6`，最大 `limit = 12`，沿用现有 artifact 检索边界。
+- `searchExercises` tool 默认 `limit = 8`，最大 `limit = 24`，避免把动作库大列表塞进 prompt。
+- 单个候选摘要的自由文本字段默认最长 300 字符。
+- 单轮 `ReadonlyToolContextBundle` 序列化后默认最长 6000 字符，超出时按工具结果优先级截断并记录 `truncated = true`。
+
+工具输出必须走摘要函数，避免完整 artifact payload、长文本或大候选集合直接进入 trace 或 prompt。`getArtifactPayload` 的模型摘要至少覆盖 `exercise_recommendation`、`routine`、`plan` 和 `patch` 四类 artifact：保留标题、kind、动作 id、训练结构、目标、时长、频率、关键替换或调整原因；不得包含完整原始 payload、未校验字段或与回答无关的长文本。
 
 ## Risks / Trade-offs
 
@@ -105,14 +140,16 @@ tool loop 输出 `ReadonlyToolContextBundle`，供最终回复、解释、动作
 1. 新增只读工具基础类型、registry、executor、trace helper 和单元测试。
 2. 将现有读能力包装成只读工具，不改变原服务函数语义。
 3. 在聊天编排中接入只读 tool loop，先只用于补查上下文，保留现有确定性路径。
-4. 扩展 AI Trace 数据和调试页展示，使工具决策和执行结果可复盘。
-5. 增加自动化测试覆盖工具注册、权限失败、Schema 失败、步数上限、trace 和聊天回退。
-6. 运行类型检查、相关测试和必要的构建验证。
+4. 增加服务端 feature flag，关闭时 `/api/chat` 跳过 `runReadonlyToolLoop` 并记录 skipped reason。
+5. 扩展 AI Trace 数据和调试页展示，使工具决策和执行结果可复盘。
+6. 增加自动化测试覆盖工具注册、权限失败、Schema 失败、步数上限、trace、摘要预算和聊天回退。
+7. 更新 `docs/方案变更历史/`，按需追加 `docs/项目演变历程.md`。
+8. 运行类型检查、相关测试和必要的构建验证。
 
 回滚策略：保留 feature flag 或服务端开关，关闭后 `/api/chat` 跳过 `runReadonlyToolLoop`，继续使用当前固定编排链路。
 
 ## Open Questions
 
 - DeepSeek 当前接口是否稳定支持标准 `tools` / `tool_choice`；如果不支持，需要使用受控 JSON tool decision 协议模拟一轮工具选择。
-- `getArtifactPayload` 给模型的摘要字段需要按 artifact kind 细化，避免过多 payload 进入模型上下文。
-- 只读 tool loop 的默认最大步数建议为 3，是否需要按 intent 类型调整为 1-5。
+- 首批四类 artifact 摘要之外，是否还需要继续细化 schedule、session result 等后续 artifact kind。
+- 默认最大步数固定为 3；是否需要在后续 change 中按 intent 类型调整为 1-5。

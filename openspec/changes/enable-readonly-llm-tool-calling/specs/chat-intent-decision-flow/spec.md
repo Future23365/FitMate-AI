@@ -13,6 +13,16 @@
 - **THEN** 系统 MAY 跳过只读 tool loop
 - **AND** 系统 MUST 保持现有确定性流程的行为边界
 
+#### Scenario: 引用解析需要用户澄清
+- **WHEN** ReferenceResolver 返回 `ambiguous` 或 `not_found`
+- **THEN** `/api/chat` MUST 继续返回引用澄清或新生成引导
+- **AND** 系统 MUST NOT 进入只读 tool loop 替用户选择候选或猜测 artifactId
+
+#### Scenario: 确定性写流程已处理请求
+- **WHEN** WorkoutPatchEngine、Validator、PolicyEngine、ConfirmationGate 或 artifact generator 已经产出确定性结果
+- **THEN** 系统 MUST 使用该结果继续回复、确认或失败恢复
+- **AND** 系统 MUST NOT 再通过只读 tool loop 重新判断是否触发同一动作
+
 ### Requirement: 只读 tool loop 不得绕过 resolved intent 门控
 系统 SHALL 将只读 tool loop 作为补查上下文阶段，而不是第二套动作触发决策来源。
 
@@ -33,6 +43,7 @@
 - **WHEN** 只读 tool loop 返回动作、artifact 或候选摘要
 - **THEN** 最终回复模型请求 MUST 包含摘要化后的 tool context bundle
 - **AND** 回复内容 MUST 与工具结果和 resolved intent 保持一致
+- **AND** trace MUST 能显示该 bundle 已进入最终回复模型请求
 
 #### Scenario: 工具上下文不可用
 - **WHEN** 只读 tool loop 未执行、失败或没有返回可用结果

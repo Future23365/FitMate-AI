@@ -5,14 +5,19 @@
 
 #### Scenario: LLM 请求只读工具
 - **WHEN** LLM 在 tool loop 中选择一个只读工具
-- **THEN** trace MUST 记录 `tool_decision` 或等价 step
+- **THEN** trace MUST 记录 `tool_decision` step
 - **AND** step MUST 包含 tool name、参数摘要、工具版本、当前 step index 和选择原因摘要
 - **AND** step MUST NOT 包含敏感认证信息或完整大 payload
 
 #### Scenario: LLM 未请求工具
 - **WHEN** tool loop 可用但 LLM 决定不调用工具
-- **THEN** trace MUST 记录未调用工具的决策摘要
+- **THEN** trace MUST 记录 `tool_decision` step，并写入未调用工具的决策摘要
 - **AND** trace MUST 能区分“未进入 tool loop”和“进入后未选择工具”
+
+#### Scenario: 只读 tool loop 被配置跳过
+- **WHEN** feature flag 关闭或当前路径不满足进入 tool loop 的条件
+- **THEN** trace MUST 记录 skipped reason
+- **AND** trace MUST 能区分 feature flag 关闭、确定性早返回、引用澄清和预算跳过
 
 ### Requirement: Trace 必须记录只读工具执行结果
 系统 SHALL 对每次只读工具执行记录标准化 `tool_call` step。
@@ -32,7 +37,12 @@
 
 #### Scenario: 达到工具步数上限
 - **WHEN** tool loop 达到最大步骤数
-- **THEN** trace MUST 记录 step limit、已执行工具列表和最终回退策略
+- **THEN** trace MUST 记录 step limit、已执行工具列表、已消耗 step 数和最终回退策略
+
+#### Scenario: 工具上下文被截断
+- **WHEN** tool context bundle 超过预算并发生截断
+- **THEN** trace MUST 记录截断前后大小、保留的 tool call id 和 `truncated = true`
+- **AND** trace MUST NOT 记录被截断移除的完整大 payload
 
 #### Scenario: 工具上下文进入最终回复
 - **WHEN** tool context bundle 被传入最终回复模型请求

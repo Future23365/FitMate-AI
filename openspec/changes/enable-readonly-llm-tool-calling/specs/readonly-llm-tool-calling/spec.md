@@ -15,6 +15,27 @@
 - **AND** 系统 MUST 记录可诊断错误
 - **AND** 系统 MUST NOT 将未知工具请求转发到任意服务端函数
 
+### Requirement: 系统必须支持受控 JSON tool decision 协议
+系统 SHALL 在标准模型 tool calling 不可用或未启用时，使用服务端校验的 JSON tool decision 协议表达 LLM 的只读工具选择。
+
+#### Scenario: LLM 请求调用一个只读工具
+- **WHEN** 模型返回 `action = "call_tool"` 的 JSON decision
+- **THEN** decision MUST 只包含一个 `toolName`、一个 `input` 和一个 `reason`
+- **AND** `toolName` MUST 属于只读 registry 中已注册工具
+- **AND** `input` MUST 继续经过对应工具 Schema 校验
+
+#### Scenario: LLM 决定停止调用工具
+- **WHEN** 模型返回 `action = "finish"` 的 JSON decision
+- **THEN** decision MUST 包含 `answerReadiness` 和 `reason`
+- **AND** 系统 MUST 停止继续执行工具
+- **AND** 系统 MUST 使用已聚合的 tool context bundle、当前上下文或澄清回退继续生成回复
+
+#### Scenario: tool decision 格式非法
+- **WHEN** 模型返回非法 JSON、多工具请求、未知 action、未知工具名或缺少 reason 的 decision
+- **THEN** 系统 MUST 拒绝执行工具
+- **AND** 系统 MUST 将该结果视为可恢复失败
+- **AND** trace MUST 记录标准化错误 code 和回退策略
+
 ### Requirement: 只读工具执行必须经过服务端校验
 系统 SHALL 在执行任何 LLM 选择的只读工具前完成服务端 Schema、权限和边界校验。
 
@@ -38,6 +59,14 @@
 ### Requirement: LLM 只读 tool loop 必须受步数和预算限制
 系统 SHALL 在聊天编排中使用受限 tool loop，让 LLM 最多执行配置允许的只读工具步骤。
 
+#### Scenario: 使用默认工具预算
+- **WHEN** `/api/chat` 启用只读 tool loop
+- **THEN** 默认最大工具步骤 MUST 为 3
+- **AND** `searchArtifacts` 默认返回 6 条、最多 12 条候选摘要
+- **AND** `searchExercises` 默认返回 8 条、最多 24 条候选摘要
+- **AND** 单个候选摘要的自由文本字段 MUST 默认限制为 300 字符以内
+- **AND** 单轮 tool context bundle 序列化后 MUST 默认限制为 6000 字符以内
+
 #### Scenario: 工具步骤在限制内完成
 - **WHEN** LLM 选择只读工具且步骤数未超过上限
 - **THEN** 系统 MUST 执行该工具并将摘要化结果加入 tool context bundle
@@ -55,13 +84,20 @@
 #### Scenario: 工具返回 artifact payload
 - **WHEN** `getArtifactPayload` 返回完整 artifact payload
 - **THEN** 系统 MUST 先按 artifact kind 生成模型可见摘要
-- **AND** 模型可见摘要 MUST 保留回答所需的标题、类型、训练结构、动作 id 和关键训练字段
+- **AND** 模型可见摘要 MUST 至少覆盖 `exercise_recommendation`、`routine`、`plan` 和 `patch`
+- **AND** 模型可见摘要 MUST 保留回答所需的标题、类型、训练结构、动作 id、目标、时长、频率、关键替换或调整原因
 - **AND** 模型可见摘要 MUST NOT 包含无关大 payload、其他用户数据或未校验原始字段
 
 #### Scenario: 工具返回候选列表
 - **WHEN** `searchArtifacts` 或 `searchExercises` 返回候选列表
 - **THEN** 系统 MUST 限制候选数量和单项字段长度
 - **AND** 模型可见内容 MUST 是候选摘要而不是数据库完整记录
+
+#### Scenario: 工具上下文超过预算
+- **WHEN** 聚合后的 tool context bundle 超过模型上下文预算
+- **THEN** 系统 MUST 按工具结果优先级截断摘要
+- **AND** 系统 MUST 在 trace 中记录 `truncated = true`、截断前后大小和保留的 tool call id
+- **AND** 系统 MUST NOT 将未截断的大 payload 传入下一次模型请求
 
 ### Requirement: 只读工具失败必须有确定性回退
 系统 SHALL 在只读工具调用失败时保持聊天主链路可恢复。
@@ -76,6 +112,15 @@
 - **WHEN** 当前场景允许工具调用但 LLM 未选择任何工具
 - **THEN** 系统 MUST 继续使用当前可用上下文生成回复
 - **AND** 系统 MUST NOT 因未选择工具而中断聊天请求
+
+### Requirement: 只读 tool loop 必须可由服务端开关关闭
+系统 SHALL 提供服务端 feature flag 控制只读 tool loop 是否参与 `/api/chat` 编排。
+
+#### Scenario: feature flag 关闭
+- **WHEN** 只读 tool loop feature flag 关闭
+- **THEN** `/api/chat` MUST 完全跳过 `runReadonlyToolLoop`
+- **AND** 系统 MUST 继续使用当前固定编排路径生成回复或执行确定性动作
+- **AND** trace MUST 记录 tool loop 被跳过及对应 skipped reason
 
 ### Requirement: 写能力不得通过只读 tool loop 暴露给 LLM
 系统 SHALL 保证只读 tool loop 不包含会修改训练计划、用户数据、数据库状态或 artifact revision 的工具。

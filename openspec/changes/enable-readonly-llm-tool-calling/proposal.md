@@ -14,9 +14,11 @@
   - `getExerciseById`：读取数据库中已存在动作的详情。
   - `searchExercises`：按受控条件查询动作候选摘要。
 - 聊天编排在明确需要补查上下文的场景中进入只读 tool loop，并限制最大工具步数。
+- DeepSeek 标准 tool calling 未启用时，使用受控 JSON tool decision 协议表达单步工具选择或停止原因。
+- 通过服务端 feature flag 控制只读 tool loop 是否参与 `/api/chat`，关闭时完整回退到当前固定编排链路。
 - 写操作仍由现有服务端流程、Validator、PolicyEngine、ConfirmationGate 和持久化服务控制；本 change 不开放 LLM 写工具。
 - 工具调用、参数、结果摘要、失败原因和回退路径进入 AI Trace。
-- 工具失败、越权、Schema 错误、步数超限或模型未选择工具时，必须回退到当前确定性编排或澄清回复。
+- 工具失败、越权、Schema 错误、预算截断、步数超限或模型未选择工具时，必须回退到当前确定性编排或澄清回复。
 
 ## Capabilities
 
@@ -36,5 +38,6 @@
 - 主要影响 `lib/server/chat/*`、`lib/server/ai/*`、`lib/server/dev/ai-run-trace.ts`、`lib/server/reference-resolver/*`、`lib/server/conversation-artifacts/*`、`lib/server/exercises/*`。
 - 需要新增只读 tool registry、tool executor、工具输入输出类型和测试。
 - 需要扩展 AI Trace 展示或 trace 数据结构，以区分模型请求、模型 tool decision、受控工具执行和回退。
+- 需要新增工具上下文预算、artifact kind 摘要策略和 feature flag 关闭路径。
 - 不引入 LangGraph，不开放写工具，不改变数据库 Schema。
 - 不允许客户端直接触发工具执行；所有工具执行必须在服务端按当前用户权限完成。
