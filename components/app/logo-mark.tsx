@@ -5,7 +5,7 @@ type LogoMarkProps = {
   animated?: boolean;
 };
 
-// FitMate 的品牌标识用 SVG 表达“训练器械 + AI 能量”，首页可开启轻量动效作为首屏视觉焦点。
+// FitMate 的品牌标识用 SVG 表达“FitMate 字母标识 + AI 轨道”，首页可开启轻量动效作为首屏视觉焦点。
 export function LogoMark({ className = "h-10 w-10", animated = false }: LogoMarkProps) {
   const rawId = useId().replace(/:/g, "");
   const backgroundGradientId = `fitmate-logo-bg-${rawId}`;
@@ -71,41 +71,48 @@ export function LogoMark({ className = "h-10 w-10", animated = false }: LogoMark
         ) : null}
       </circle>
 
-      <g>
+      <g transform="translate(26 24)">
         {animated ? (
           <animateTransform
             attributeName="transform"
-            dur="3.4s"
+            dur="3.8s"
             repeatCount="indefinite"
             type="translate"
-            values="0 0;0 -1.2;0 0"
+            values="26 24;26 22.8;26 24"
           />
         ) : null}
-        <g transform="rotate(-18 48 48)">
-          <line stroke="#FFFFFF" strokeLinecap="round" strokeWidth="6" x1="31" x2="65" y1="48" y2="48" />
-          <rect fill="#FFFFFF" height="24" rx="4" width="7" x="20" y="36" />
-          <rect fill="#FFFFFF" fillOpacity="0.82" height="18" rx="3" width="6" x="29" y="39" />
-          <rect fill="#FFFFFF" fillOpacity="0.82" height="18" rx="3" width="6" x="61" y="39" />
-          <rect fill="#FFFFFF" height="24" rx="4" width="7" x="69" y="36" />
-        </g>
-        <circle cx="31" cy="30" fill="#FFFFFF" fillOpacity="0.86" r="2.8">
-          {animated ? (
-            <animate attributeName="opacity" dur="2.7s" repeatCount="indefinite" values="0.55;1;0.55" />
-          ) : null}
-        </circle>
-        <circle cx="66" cy="66" fill="#FFFFFF" fillOpacity="0.64" r="2.2" />
+        <path
+          d="M11 2H37C41.4 2 45 5.6 45 10C45 14.4 41.4 18 37 18H24V25H34C38.1 25 41.5 28.4 41.5 32.5C41.5 36.6 38.1 40 34 40H24V49C24 52.9 20.9 56 17 56C13.1 56 10 52.9 10 49V18H8C3.6 18 0 14.4 0 10C0 5.6 3.6 2 8 2H11Z"
+          fill="#FFFFFF"
+          opacity="0.18"
+          transform="translate(3 3)"
+        />
+        <path
+          d="M11 2H37C41.4 2 45 5.6 45 10C45 14.4 41.4 18 37 18H24V25H34C38.1 25 41.5 28.4 41.5 32.5C41.5 36.6 38.1 40 34 40H24V49C24 52.9 20.9 56 17 56C13.1 56 10 52.9 10 49V18H8C3.6 18 0 14.4 0 10C0 5.6 3.6 2 8 2H11Z"
+          fill="#FFFFFF"
+        />
+        <path
+          d="M24 18H37C41.4 18 45 14.4 45 10C45 5.6 41.4 2 37 2H24V18Z"
+          fill="#DCE7FF"
+        />
+        <circle cx="17" cy="10" fill="#2459E6" r="3.5" />
+        <circle cx="34" cy="32.5" fill="#2459E6" fillOpacity="0.88" r="3" />
       </g>
 
       <g>
-        <circle cx="48" cy="48" fill="#FFFFFF" fillOpacity="0.2" r="14" />
-        <circle cx="48" cy="48" fill="#FFFFFF" r="5.5">
-          {animated ? (
-            <animate attributeName="r" dur="2.6s" repeatCount="indefinite" values="5.5;6.6;5.5" />
-          ) : null}
-        </circle>
         {animated ? (
-          <animate attributeName="opacity" dur="2.6s" repeatCount="indefinite" values="0.82;1;0.82" />
-        ) : null}
+          <circle cx="0" cy="0" fill="#FFFFFF" r="3.2">
+            <animateMotion
+              dur="5.8s"
+              path="M48 16A32 32 0 1 1 48 80A32 32 0 1 1 48 16"
+              repeatCount="indefinite"
+            />
+          </circle>
+        ) : (
+          <circle cx="48" cy="16" fill="#FFFFFF" r="3.2" />
+        )}
+        <circle cx="68" cy="28" fill="#FFFFFF" fillOpacity="0.5" r="2" />
+        <circle cx="27" cy="70" fill="#FFFFFF" fillOpacity="0.38" r="2.4" />
       </g>
 
       <rect height="83" rx="23.5" stroke="#FFFFFF" strokeOpacity="0.3" width="83" x="6.5" y="6.5" />
