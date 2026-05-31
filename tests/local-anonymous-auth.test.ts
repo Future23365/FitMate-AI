@@ -139,7 +139,8 @@ describe("local anonymous auth", () => {
     expect(response.headers.get("set-cookie")).toEqual(expect.stringContaining("Max-Age=0"));
     expect(prismaMock.$executeRaw).toHaveBeenCalledOnce();
     const softDeleteQuery = prismaMock.$executeRaw.mock.calls[0]?.[0] as { strings?: string[]; values?: unknown[] };
-    expect(softDeleteQuery.strings?.join("")).toContain("Asia/Shanghai");
+    expect(softDeleteQuery.strings?.join("")).toContain('SET "deletedAt" = CURRENT_TIMESTAMP');
+    expect(softDeleteQuery.strings?.join("")).not.toContain("AT TIME ZONE");
     expect(softDeleteQuery.values).toContain("anon-1");
     expect(prismaMock.user.create).not.toHaveBeenCalled();
   });

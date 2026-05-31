@@ -34,6 +34,7 @@ import {
 } from "@/lib/shared/exercises/metadata";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import type { ConversationMemoryState } from "@/lib/shared/user-feedback-memory/schema";
+import { toUtcISOString } from "@/lib/shared/time/utc-date-time";
 import {
   type ExerciseLocator,
   type WorkoutPatch,
@@ -280,7 +281,7 @@ export async function applyWorkoutPatch(input: ApplyWorkoutPatchInput): Promise<
     return result;
   }
 
-  const payloadStartedAt = new Date().toISOString();
+  const payloadStartedAt = toUtcISOString(new Date());
   const artifact = await getArtifactPayload({
     userId: input.userId,
     artifactId: patch.target.artifactId,

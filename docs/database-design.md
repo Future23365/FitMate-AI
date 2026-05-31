@@ -4,6 +4,12 @@
 
 本文档用于帮助开发者理解当前数据库设计、表关系和字段含义，不是未来数据库设计规范。后续数据库变更仍应以实际需求、OpenSpec 变更流程和 `prisma/schema.prisma` 为准。
 
+## 时间字段约定
+
+当前所有表示具体时间点的 Prisma `DateTime` 字段都显式映射为 PostgreSQL `@db.Timestamptz(3)`。历史 migration 保留项目演进记录，不回写旧 `TIMESTAMP(3)`；标准化迁移通过 forward migration 把既有值按 UTC+0 解释后转换为 `TIMESTAMPTZ(3)`。
+
+服务端边界统一用 ISO 8601 UTC `Z` 字符串表达数据库时间，例如 `2026-05-31T05:07:20.006Z`。`WorkoutSchedule.scheduledFor` 仍是日期型业务字段，但持久化为对应日期的 UTC 零点，页面和服务 DTO 中的 `YYYY-MM-DD` date key 从这个 UTC 值派生。
+
 ## 1. 设计概览
 
 当前数据库围绕 5 个核心业务域组织：

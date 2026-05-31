@@ -1,3 +1,5 @@
+import { parseUtcDateTimeInput, toUtcISOString } from "@/lib/shared/time/utc-date-time";
+
 export type AiTraceStatus = "running" | "success" | "failed";
 
 export type AiRunFinalDecision = {
@@ -156,7 +158,7 @@ export function createAiTrace(input: {
     route: input.route,
     title: input.title,
     status: "running",
-    createdAt: new Date().toISOString(),
+    createdAt: toUtcISOString(new Date()),
     userId: input.userId,
     sessionId: input.sessionId,
     messageId: input.messageId,
@@ -196,7 +198,7 @@ export function addAiTraceStep(
     name: input.name,
     type: input.type,
     status: input.status ?? "success",
-    startedAt: input.startedAt ?? new Date().toISOString(),
+    startedAt: input.startedAt ? toUtcISOString(parseUtcDateTimeInput(input.startedAt)) : toUtcISOString(new Date()),
     endedAt: input.endedAt,
     durationMs: input.durationMs ?? getDurationMs(input.startedAt, input.endedAt),
     input: sanitizeTraceValue(input.input),
@@ -239,11 +241,11 @@ export function finishAiTrace(
     return;
   }
 
-  const endedAt = new Date().toISOString();
+  const endedAt = toUtcISOString(new Date());
 
   trace.status = status;
   trace.endedAt = endedAt;
-  trace.durationMs = new Date(endedAt).getTime() - new Date(trace.createdAt).getTime();
+  trace.durationMs = parseUtcDateTimeInput(endedAt).getTime() - parseUtcDateTimeInput(trace.createdAt).getTime();
   trace.finalDecision = sanitizeTraceValue(finalDecision) as AiRunFinalDecision | undefined;
 }
 
@@ -274,7 +276,7 @@ function getDurationMs(startedAt?: string, endedAt?: string) {
     return undefined;
   }
 
-  return Math.max(0, new Date(endedAt).getTime() - new Date(startedAt).getTime());
+  return Math.max(0, parseUtcDateTimeInput(endedAt).getTime() - parseUtcDateTimeInput(startedAt).getTime());
 }
 
 function sanitizeTraceValue(value: unknown): unknown {

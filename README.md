@@ -72,6 +72,12 @@ npm run db:seed
 npm run db:refresh-embeddings
 ```
 
+数据库时间字段约定：
+
+- `prisma/schema.prisma` 中表示具体时间点的 `DateTime` 字段统一显式映射为 `@db.Timestamptz(3)`。
+- 已有无时区 timestamp 数据按 UTC+0 解释，通过新增 forward migration 转换，不改写历史 migration。
+- 服务端 DTO、API 响应、AI trace 和持久化 JSON 中的新具体时间点统一输出 ISO 8601 UTC `Z` 字符串；日期型训练日历 key 从 UTC 零点派生。
+
 启动开发服务：
 
 ```bash
@@ -148,7 +154,7 @@ data/
   exercises.zh.json        # 中文动作 seed 数据；运行时动作事实以 PostgreSQL 为准
 
 prisma/
-  schema.prisma            # PostgreSQL/Prisma 数据模型
+  schema.prisma            # PostgreSQL/Prisma 数据模型；DateTime 统一使用 timestamptz 语义
 
 scripts/                   # 动作数据清洗、翻译和修正脚本
 tests/                     # 当前项目内的逻辑测试脚本

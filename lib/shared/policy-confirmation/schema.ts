@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { utcDateTimeStringSchema } from "@/lib/shared/time/utc-date-time";
+
 export const policySafeScopeSchema = z.enum([
   "artifact_only",
   "new_revision",
@@ -62,8 +64,8 @@ export const confirmationTokenPayloadSchema = z.object({
   scope: policySafeScopeSchema,
   operationType: policyOperationTypeSchema,
   diffSummary: z.string().trim().min(1).max(1000),
-  issuedAt: z.string().datetime(),
-  expiresAt: z.string().datetime(),
+  issuedAt: utcDateTimeStringSchema,
+  expiresAt: utcDateTimeStringSchema,
   nonce: z.string().trim().min(12).max(120),
 });
 
@@ -73,7 +75,7 @@ export const confirmationRequestSchema = z.object({
   targetIds: z.array(z.string().trim().min(1)).min(1).max(80),
   impactSummary: z.string().trim().min(1).max(500),
   diffSummary: z.string().trim().min(1).max(1000),
-  expiresAt: z.string().datetime(),
+  expiresAt: utcDateTimeStringSchema,
   reasons: z.array(policyReasonSchema).default([]),
 });
 

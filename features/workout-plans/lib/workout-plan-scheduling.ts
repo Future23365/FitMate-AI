@@ -6,6 +6,7 @@ import {
   type WorkoutRoutine,
   type WorkoutSchedule,
 } from "@/lib/shared/workouts/composition";
+import { toUtcDateKey } from "@/lib/shared/time/utc-date-time";
 
 export type WorkoutPlanCycleRepeatCount = 1 | 2 | 4;
 
@@ -70,11 +71,11 @@ export function buildWorkoutPlanSchedules(
   const schedules: WorkoutSchedule[] = [];
 
   for (let offset = 0; offset < options.daysToImport; offset += 1) {
-    const targetDate = new Date(
-      options.startDate.getFullYear(),
-      options.startDate.getMonth(),
-      options.startDate.getDate() + offset,
-    );
+    const targetDate = new Date(Date.UTC(
+      options.startDate.getUTCFullYear(),
+      options.startDate.getUTCMonth(),
+      options.startDate.getUTCDate() + offset,
+    ));
     const dateKey = toWorkoutPlanDateKey(targetDate);
     const cycleDayIndex = (offset % draft.cycleLengthDays) + 1;
     const day = draft.days.find((candidate) => candidate.cycleDayIndex === cycleDayIndex);
@@ -133,11 +134,11 @@ export function selectWorkoutPlanSchedulesToReplace(
   },
 ) {
   const startRangeKey = toWorkoutPlanDateKey(options.startDate);
-  const endRangeDate = new Date(
-    options.startDate.getFullYear(),
-    options.startDate.getMonth(),
-    options.startDate.getDate() + options.daysToImport - 1,
-  );
+  const endRangeDate = new Date(Date.UTC(
+    options.startDate.getUTCFullYear(),
+    options.startDate.getUTCMonth(),
+    options.startDate.getUTCDate() + options.daysToImport - 1,
+  ));
   const endRangeKey = toWorkoutPlanDateKey(endRangeDate);
 
   return existingSchedules.filter((item) => {
@@ -154,9 +155,7 @@ export function getWorkoutPlanTrainingDays(draft: WorkoutPlanDraft): WorkoutDayD
 }
 
 export function toWorkoutPlanDateKey(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
-    date.getDate(),
-  ).padStart(2, "0")}`;
+  return toUtcDateKey(date);
 }
 
 function createScheduleId() {

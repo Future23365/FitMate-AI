@@ -1,5 +1,7 @@
 import "server-only";
 
+import { toUtcISOString } from "@/lib/shared/time/utc-date-time";
+
 export type AiTokenBudgetRoute =
   | "/api/chat"
   | "/api/ai/exercise-recommendations"
@@ -339,7 +341,7 @@ function createDecision(input: {
   return {
     decisionId: `budget_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
     route: input.route,
-    createdAt: new Date().toISOString(),
+    createdAt: toUtcISOString(new Date()),
     intentType: input.intentType,
     modelVisibleContext: input.modelVisibleContext,
     stages: input.stages,

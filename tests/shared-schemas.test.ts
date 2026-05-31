@@ -189,5 +189,38 @@ describe("shared schemas", () => {
       totalExerciseCount: 1,
       totalStepCount: 2,
     }).success).toBe(false);
+    expect(workoutSessionResultInputSchema.safeParse({
+      completedExerciseCount: 1,
+      completedStepCount: 2,
+      durationSeconds: 120,
+      endedAt: "2026-05-25T10:02:00",
+      estimatedCalories: 20,
+      startedAt: "2026-05-25T10:00:00.000Z",
+      totalExerciseCount: 1,
+      totalStepCount: 2,
+    }).success).toBe(false);
+    expect(workoutSessionResultInputSchema.safeParse({
+      completedExerciseCount: 1,
+      completedStepCount: 2,
+      durationSeconds: 120,
+      endedAt: "2026-05-25T18:02:00+08:00",
+      estimatedCalories: 20,
+      startedAt: "2026-05-25T10:00:00.000Z",
+      totalExerciseCount: 1,
+      totalStepCount: 2,
+    }).success).toBe(false);
+    expect(workoutSessionResultInputSchema.parse({
+      completedExerciseCount: 1,
+      completedStepCount: 2,
+      durationSeconds: 120,
+      endedAt: "2026-05-25T10:02:00+00:00",
+      estimatedCalories: 20,
+      startedAt: "2026-05-25T10:00:00+00:00",
+      totalExerciseCount: 1,
+      totalStepCount: 2,
+    })).toMatchObject({
+      endedAt: "2026-05-25T10:02:00.000Z",
+      startedAt: "2026-05-25T10:00:00.000Z",
+    });
   });
 });

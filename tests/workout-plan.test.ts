@@ -362,13 +362,13 @@ describe("workout plan core logic", () => {
       createId: () => "fixture-id",
       dayIndex: 1,
       id: "workout-1",
-      updatedAt: new Date("2026-05-25T10:30:00"),
+      updatedAt: new Date("2026-05-25T10:30:00.000Z"),
     });
 
     expect(workoutRoutine).toMatchObject({
       id: "workout-1",
       title: "Day 1 核心激活",
-      updatedAt: "2026-05-25 10:30",
+      updatedAt: "2026-05-25T10:30:00.000Z",
     });
     expect(workoutRoutine.items).toHaveLength(3);
     expect(workoutRoutine.items.map((item) => item.section)).toEqual(["warmup", "training", "stretch"]);
@@ -416,7 +416,7 @@ describe("workout plan core logic", () => {
         createId: () => `routine-${dayIndex}`,
         dayIndex,
         id: `routine-${dayIndex}`,
-        updatedAt: new Date("2026-05-25T10:30:00"),
+        updatedAt: new Date("2026-05-25T10:30:00.000Z"),
       }),
     );
 
@@ -445,7 +445,7 @@ describe("workout plan core logic", () => {
       { cycleDayIndex: 1, routine: { ...routine, id: "routine-1", title: "Day 1 上肢" } },
       { cycleDayIndex: 3, routine: { ...routine, id: "routine-3", title: "Day 3 下肢" } },
     ], {
-      startDate: new Date("2026-05-25T00:00:00"),
+      startDate: new Date("2026-05-25T00:00:00.000Z"),
       daysToImport: importOptions[1].daysToImport,
       createId: () => "id",
     });
@@ -466,7 +466,7 @@ describe("workout plan core logic", () => {
       { ...schedules[0], id: "other", sourceRoutineTitle: "其他计划" },
       { ...schedules[0], id: "outside", date: "2026-06-30" },
     ], draft, {
-      startDate: new Date("2026-05-25T00:00:00"),
+      startDate: new Date("2026-05-25T00:00:00.000Z"),
       daysToImport: 6,
     });
 
@@ -487,7 +487,7 @@ describe("workout plan core logic", () => {
     const routine = convertWorkoutRoutineDraftToWorkoutRoutine(routineDraft, routineExercises, {
       createId: () => "routine-item",
       id: "routine-1",
-      updatedAt: new Date("2026-05-25T10:30:00"),
+      updatedAt: new Date("2026-05-25T10:30:00.000Z"),
     });
 
     expect(routine).toMatchObject({

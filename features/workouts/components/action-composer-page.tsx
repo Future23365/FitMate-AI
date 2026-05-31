@@ -24,6 +24,7 @@ import {
 } from "@/features/workouts/api/workout-data-client";
 import { clientRequest } from "@/lib/client/http/client-request";
 import type { Exercise, ExerciseFacets, ExerciseSuitability } from "@/lib/shared/exercises/types";
+import { toUtcISOString } from "@/lib/shared/time/utc-date-time";
 import {
   clampLoopRounds,
   defaultTrainingToStretchRestSeconds,
@@ -269,11 +270,7 @@ function toPreviewExercise(item: WorkoutItem, exerciseById: Map<string, Exercise
 }
 
 function formatDateTime(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
-    date.getDate(),
-  ).padStart(2, "0")} ${String(date.getHours()).padStart(2, "0")}:${String(
-    date.getMinutes(),
-  ).padStart(2, "0")}`;
+  return toUtcISOString(date);
 }
 
 function hasFacetValue(options: ExerciseFacets["categories"], value: string) {

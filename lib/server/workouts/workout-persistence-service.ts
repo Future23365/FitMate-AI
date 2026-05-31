@@ -29,6 +29,12 @@ import {
   workoutScheduleStatusSchema,
   workoutSessionResultInputSchema,
 } from "@/lib/shared/workouts/persistence-schema";
+import {
+  parseUtcDateKeyToDate,
+  parseUtcDateTimeInput,
+  toUtcDateKey,
+  toUtcISOString,
+} from "@/lib/shared/time/utc-date-time";
 
 type WorkoutRoutineWithItems = Prisma.WorkoutRoutineGetPayload<{
   include: typeof workoutRoutineInclude;
@@ -206,7 +212,7 @@ export async function createWorkoutSchedule(rawSchedule: WorkoutSchedule, curren
         data: {
           id: parsedSchedule.id,
           userId: user.id,
-          scheduledFor: parseDateKey(parsedSchedule.date),
+          scheduledFor: parseUtcDateKeyToDate(parsedSchedule.date),
           status: "rest",
           titleSnapshot: parsedSchedule.title,
           estimatedMinutes: parsedSchedule.minutes,
@@ -263,7 +269,7 @@ export async function createWorkoutSchedule(rawSchedule: WorkoutSchedule, curren
         id: parsedSchedule.id,
         userId: user.id,
         routineId: routine.id,
-        scheduledFor: parseDateKey(parsedSchedule.date),
+        scheduledFor: parseUtcDateKeyToDate(parsedSchedule.date),
         status: parsedSchedule.status,
         titleSnapshot: workoutRoutine.title,
         estimatedMinutes: minutes,
@@ -350,8 +356,8 @@ export async function saveWorkoutSessionResult(
       where: { scheduleId },
       update: {
         routineId: schedule.routineId,
-        startedAt: new Date(parsedResult.startedAt),
-        endedAt: new Date(parsedResult.endedAt),
+        startedAt: parseUtcDateTimeInput(parsedResult.startedAt),
+        endedAt: parseUtcDateTimeInput(parsedResult.endedAt),
         durationSeconds: parsedResult.durationSeconds,
         completedStepCount: parsedResult.completedStepCount,
         totalStepCount: parsedResult.totalStepCount,
@@ -366,8 +372,8 @@ export async function saveWorkoutSessionResult(
         userId: user.id,
         scheduleId,
         routineId: schedule.routineId,
-        startedAt: new Date(parsedResult.startedAt),
-        endedAt: new Date(parsedResult.endedAt),
+        startedAt: parseUtcDateTimeInput(parsedResult.startedAt),
+        endedAt: parseUtcDateTimeInput(parsedResult.endedAt),
         durationSeconds: parsedResult.durationSeconds,
         completedStepCount: parsedResult.completedStepCount,
         totalStepCount: parsedResult.totalStepCount,
@@ -409,7 +415,7 @@ function mapWorkoutRoutineRecord(routine: WorkoutRoutineWithItems): WorkoutRouti
   return normalizeWorkoutRoutine({
     id: routine.id,
     title: routine.title,
-    updatedAt: formatDateTime(routine.updatedAt),
+    updatedAt: toUtcISOString(routine.updatedAt),
     trainingLoopRounds: routine.trainingLoopRounds ?? undefined,
     trainingLoopRestSeconds: routine.trainingLoopRestSeconds ?? undefined,
     warmupToTrainingRestSeconds: routine.warmupToTrainingRestSeconds ?? undefined,
@@ -419,7 +425,7 @@ function mapWorkoutRoutineRecord(routine: WorkoutRoutineWithItems): WorkoutRouti
 }
 
 function mapWorkoutScheduleRecord(schedule: WorkoutScheduleWithRoutine): WorkoutSchedule | null {
-  const date = toDateKey(schedule.scheduledFor);
+  const date = toUtcDateKey(schedule.scheduledFor);
 
   if (schedule.status === "rest") {
     return {
@@ -462,8 +468,8 @@ function mapWorkoutSessionResultRecord(result: WorkoutSessionResultRecord): Work
     id: result.id,
     scheduleId: result.scheduleId,
     routineId: result.routineId ?? undefined,
-    startedAt: result.startedAt.toISOString(),
-    endedAt: result.endedAt.toISOString(),
+    startedAt: toUtcISOString(result.startedAt),
+    endedAt: toUtcISOString(result.endedAt),
     durationSeconds: result.durationSeconds,
     completedStepCount: result.completedStepCount,
     totalStepCount: result.totalStepCount,
@@ -528,20 +534,4 @@ function mapScheduleStatus(status: string): WorkoutScheduleStatus {
   }
 
   return "planned";
-}
-
-function parseDateKey(dateKey: string) {
-  return new Date(`${dateKey}T00:00:00.000Z`);
-}
-
-function toDateKey(date: Date) {
-  return date.toISOString().slice(0, 10);
-}
-
-function formatDateTime(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
-    date.getDate(),
-  ).padStart(2, "0")} ${String(date.getHours()).padStart(2, "0")}:${String(
-    date.getMinutes(),
-  ).padStart(2, "0")}`;
 }

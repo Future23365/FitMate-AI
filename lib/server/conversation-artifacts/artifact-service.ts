@@ -5,6 +5,7 @@ import type { PrismaClient } from "@prisma/client";
 import { getPrismaClient } from "@/lib/server/db/prisma";
 import { getCurrentUser } from "@/lib/server/users/current-user";
 import type { CurrentUser } from "@/lib/server/users/current-user";
+import { toUtcISOString } from "@/lib/shared/time/utc-date-time";
 import { exerciseRecommendationCardSchema } from "@/lib/shared/exercise-recommendations/schema";
 import {
   conversationArtifactPayloadSchemaVersion,
@@ -368,7 +369,7 @@ export async function listRecentArtifactSummariesForCurrentUser(
     sessionMinutes: index.sessionMinutes ?? undefined,
     weeklyFrequency: index.weeklyFrequency ?? undefined,
     trainingDayCount: index.trainingDayCount ?? undefined,
-    updatedAt: index.updatedAt.toISOString(),
+    updatedAt: toUtcISOString(index.updatedAt),
   }));
 }
 
@@ -854,7 +855,7 @@ function artifactIndexRowToCandidate(row: ArtifactIndexRow): ReferenceArtifactCa
     sessionMinutes: row.sessionMinutes ?? undefined,
     weeklyFrequency: row.weeklyFrequency ?? undefined,
     trainingDayCount: row.trainingDayCount ?? undefined,
-    updatedAt: row.updatedAt.toISOString(),
+    updatedAt: toUtcISOString(row.updatedAt),
   };
 }
 

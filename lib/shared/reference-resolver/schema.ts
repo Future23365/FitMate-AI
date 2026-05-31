@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { conversationArtifactKindSchema } from "@/lib/shared/conversation-artifacts/schema";
+import { utcDateTimeStringSchema } from "@/lib/shared/time/utc-date-time";
 
 export const referenceResolutionConfidenceSchema = z.enum(["high", "medium", "low"]);
 
@@ -16,7 +17,7 @@ export const referenceArtifactCandidateSchema = z.object({
   sessionMinutes: z.number().int().min(0).optional(),
   weeklyFrequency: z.number().int().min(1).max(7).optional(),
   trainingDayCount: z.number().int().min(0).optional(),
-  updatedAt: z.string().trim().min(1),
+  updatedAt: utcDateTimeStringSchema,
 });
 
 export const referenceResolutionSchema = z.discriminatedUnion("status", [

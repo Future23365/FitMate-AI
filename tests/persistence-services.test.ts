@@ -106,6 +106,7 @@ describe("persistence services", () => {
     expect(workouts[0]).toMatchObject({
       id: "routine-1",
       title: "胸肌训练",
+      updatedAt: "2026-05-25T10:30:00.000Z",
       items: [expect.objectContaining({ exerciseId: "push-up", imageUrls: ["/push-up.png"] })],
     });
   });
@@ -193,6 +194,11 @@ describe("persistence services", () => {
     const trainingSchedule = await workoutPersistence.createWorkoutSchedule(createWorkoutSchedule({ id: "schedule-1" }));
 
     expect(prismaMock.workoutSchedule.create).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      data: expect.objectContaining({
+        scheduledFor: new Date("2026-05-25T00:00:00.000Z"),
+      }),
+    }));
+    expect(prismaMock.workoutSchedule.create).toHaveBeenNthCalledWith(1, expect.objectContaining({
       data: expect.not.objectContaining({ routineId: expect.any(String) }),
     }));
     expect(restSchedule).toMatchObject({ id: "rest-1", status: "rest", items: [] });
@@ -237,6 +243,10 @@ describe("persistence services", () => {
       data: { status: "completed" },
     });
     expect(result).toMatchObject({ id: "result-1", scheduleId: "schedule-1", status: "completed" });
+    expect(result).toMatchObject({
+      startedAt: "2026-05-25T10:00:00.000Z",
+      endedAt: "2026-05-25T10:02:00.000Z",
+    });
   });
 
   it("rejects invalid or unauthorized workout session results", async () => {
@@ -263,6 +273,17 @@ describe("persistence services", () => {
       totalExerciseCount: 1,
       totalStepCount: 2,
     })).rejects.toThrow("Workout schedule not found: missing-schedule");
+
+    await expect(workoutPersistence.saveWorkoutSessionResult("schedule-1", {
+      completedExerciseCount: 1,
+      completedStepCount: 2,
+      durationSeconds: 120,
+      endedAt: "2026-05-25T10:02:00",
+      estimatedCalories: 20,
+      startedAt: "2026-05-25T10:00:00.000Z",
+      totalExerciseCount: 1,
+      totalStepCount: 2,
+    })).rejects.toThrow();
   });
 
   it("maps chat history metadata and uses latest message time for history ordering", async () => {
@@ -392,6 +413,23 @@ describe("persistence services", () => {
     ]);
   });
 
+  it("rejects ambiguous chat message timestamps before persistence", async () => {
+    prismaMock.chatSession.findUnique.mockResolvedValue(null);
+
+    await expect(chatHistory.saveChatConversation(createChatConversation({
+      id: "chat-invalid-time",
+      messages: [
+        {
+          id: "m1",
+          role: "user",
+          content: "今天练胸",
+          createdAt: "2026-05-25T09:00:00",
+        },
+      ],
+    }))).rejects.toThrow();
+    expect(prismaMock.chatMessage.createMany).not.toHaveBeenCalled();
+  });
+
   it("creates artifacts for pushed chat cards when saving conversation history", async () => {
     prismaMock.chatSession.findUnique.mockResolvedValue(null);
     prismaMock.conversationArtifact.findFirst.mockResolvedValue(null);
@@ -507,7 +545,7 @@ function createWorkoutRoutineRecord() {
   return {
     id: "routine-1",
     title: "胸肌训练",
-    updatedAt: new Date("2026-05-25T10:30:00"),
+    updatedAt: new Date("2026-05-25T10:30:00.000Z"),
     trainingLoopRounds: 1,
     trainingLoopRestSeconds: 90,
     warmupToTrainingRestSeconds: 45,

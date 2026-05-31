@@ -14,6 +14,7 @@ import {
   type WorkoutPlanDraft,
   type WorkoutRoutineDraft,
 } from "@/lib/shared/workout-plans/draft-schema";
+import { toUtcISOString } from "@/lib/shared/time/utc-date-time";
 
 export type WorkoutRoutineMode = WorkoutMode;
 export type WorkoutRoutineSection = WorkoutSection;
@@ -54,7 +55,7 @@ export function convertWorkoutPlanDraftToWorkoutRoutine(
   return {
     id: options.id ?? createId(),
     title: day.title || parsedDraft.title,
-    updatedAt: formatLocalDateTime(options.updatedAt ?? new Date()),
+    updatedAt: toUtcISOString(options.updatedAt ?? new Date()),
     trainingLoopRounds: 1,
     trainingLoopRestSeconds: defaultTrainingLoopRestSeconds,
     items: orderedSections.flatMap((section) =>
@@ -106,7 +107,7 @@ export function convertWorkoutRoutineDraftToWorkoutRoutine(
   return {
     id: options.id ?? createId(),
     title: parsedDraft.title,
-    updatedAt: formatLocalDateTime(options.updatedAt ?? new Date()),
+    updatedAt: toUtcISOString(options.updatedAt ?? new Date()),
     trainingLoopRounds: parsedDraft.trainingLoopRounds,
     trainingLoopRestSeconds: parsedDraft.trainingLoopRestSeconds,
     items: orderedSections.flatMap((section) =>
@@ -154,14 +155,6 @@ function resolveDraftDay(draft: WorkoutPlanDraft, dayIndex?: number) {
   }
 
   return day;
-}
-
-function formatLocalDateTime(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
-    date.getDate(),
-  ).padStart(2, "0")} ${String(date.getHours()).padStart(2, "0")}:${String(
-    date.getMinutes(),
-  ).padStart(2, "0")}`;
 }
 
 function createLocalId() {

@@ -13,6 +13,7 @@ import {
   initializeConversationSummary,
 } from "@/lib/shared/chat/fitness-conversation-context";
 import { assistantSuggestionListSchema } from "@/lib/shared/chat/assistant-suggestions";
+import { parseUtcDateTimeInput, toUtcISOString } from "@/lib/shared/time/utc-date-time";
 
 type ChatSessionWithMessages = Prisma.ChatSessionGetPayload<{
   include: {
@@ -90,7 +91,7 @@ export async function saveChatConversation(rawConversation: ChatConversation, cu
       // 历史消息时间是侧边栏排序事实；旧消息保留原时间，新消息才按当前保存时刻补齐。
       data: conversation.messages.map((message, index) => {
         const fallbackCreatedAt = new Date(savedAtMs + index);
-        const createdAt = readDate(message.createdAt) ?? fallbackCreatedAt;
+        const createdAt = message.createdAt ? parseUtcDateTimeInput(message.createdAt) : fallbackCreatedAt;
         const isLastMessage = index === conversation.messages.length - 1;
 
         return {
@@ -195,7 +196,7 @@ function mapChatSessionToConversation(session: ChatSessionWithMessages): ChatCon
       id: dbMessage.id,
       role: dbMessage.role === "assistant" ? "assistant" : "user",
       content: dbMessage.content,
-      createdAt: dbMessage.createdAt.toISOString(),
+      createdAt: toUtcISOString(dbMessage.createdAt),
       assistantSuggestions: assistantSuggestions.success && assistantSuggestions.data.length
         ? assistantSuggestions.data
         : undefined,
@@ -235,7 +236,7 @@ function mapChatSessionToConversation(session: ChatSessionWithMessages): ChatCon
   return {
     id: session.id,
     title: session.title ?? createConversationTitle(messages),
-    updatedAt: getConversationDisplayTime(session).toISOString(),
+    updatedAt: toUtcISOString(getConversationDisplayTime(session)),
     messages,
     plans: Object.keys(plans).length ? plans : undefined,
     routines: Object.keys(routines).length ? routines : undefined,
@@ -319,7 +320,7 @@ function getConversationDisplayTime(session: ChatSessionWithMessages) {
 }
 
 function getTimeSafe(isoString: string | undefined | null): number {
-  const date = readDate(isoString);
+  const date = isoString ? parseUtcDateTimeInput(isoString) : null;
   return date?.getTime() ?? 0;
 }
 
@@ -352,13 +353,4 @@ function readObject(value: Prisma.JsonValue | null | undefined) {
 
 function readStringArray(value: unknown) {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-}
-
-function readDate(value: unknown) {
-  if (typeof value !== "string" && !(value instanceof Date)) {
-    return null;
-  }
-
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
 }

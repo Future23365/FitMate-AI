@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { utcDateTimeStringSchema } from "@/lib/shared/time/utc-date-time";
 import { workoutCompletionFeedbackSchema } from "@/lib/shared/user-feedback-memory/schema";
 
 export const workoutModeSchema = z.enum(["duration", "reps"]);
@@ -31,7 +32,7 @@ export const workoutItemSchema = z.object({
 export const workoutRoutineSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
-  updatedAt: z.string().min(1),
+  updatedAt: utcDateTimeStringSchema,
   sourceChatMessageId: z.string().min(1).optional(),
   sourceArtifactKind: sourceArtifactKindSchema.optional(),
   items: z.array(workoutItemSchema),
@@ -67,8 +68,8 @@ export const workoutSessionResultSchema = z.object({
   id: z.string().min(1),
   scheduleId: z.string().min(1),
   routineId: z.string().min(1).optional(),
-  startedAt: z.string().datetime(),
-  endedAt: z.string().datetime(),
+  startedAt: utcDateTimeStringSchema,
+  endedAt: utcDateTimeStringSchema,
   durationSeconds: z.number().int().min(0),
   completedStepCount: z.number().int().min(0),
   totalStepCount: z.number().int().min(0),

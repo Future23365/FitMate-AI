@@ -19,6 +19,7 @@ import {
   policyCheckResultSchema,
 } from "@/lib/shared/policy-confirmation/schema";
 import type { UserMemoryInput } from "@/lib/shared/user-feedback-memory/schema";
+import { parseUtcDateTimeInput, toUtcISOString } from "@/lib/shared/time/utc-date-time";
 import type { WorkoutPatch } from "@/lib/shared/workout-patches/schema";
 
 type ArtifactPolicyInput = {
@@ -288,8 +289,8 @@ export function createConfirmationRequest(input: ConfirmationInput): Confirmatio
     scope: input.scope,
     operationType: input.operationType,
     diffSummary: input.diffSummary,
-    issuedAt: now.toISOString(),
-    expiresAt: expiresAt.toISOString(),
+    issuedAt: toUtcISOString(now),
+    expiresAt: toUtcISOString(expiresAt),
     nonce: randomBytes(18).toString("base64url"),
   });
   const request = {
@@ -315,7 +316,7 @@ export function validateConfirmationToken(input: ConfirmationValidationInput): C
   const now = input.now ?? new Date();
   const payload = parsed.payload;
 
-  if (new Date(payload.expiresAt).getTime() <= now.getTime()) {
+  if (parseUtcDateTimeInput(payload.expiresAt).getTime() <= now.getTime()) {
     return invalid("token_expired", "确认已过期，需要重新确认。");
   }
 

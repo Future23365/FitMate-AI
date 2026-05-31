@@ -8,6 +8,7 @@ import {
   type AiTraceStepType,
   type AiTraceStatus,
 } from "./ai-trace-store";
+import { toUtcISOString } from "@/lib/shared/time/utc-date-time";
 
 export type AiTraceLogger = {
   id?: string;
@@ -46,7 +47,7 @@ export function startAiTrace(input: {
       protectTraceWrite("addStep", () => {
         addAiTraceStep(trace?.id, {
           ...stepInput,
-          endedAt: new Date().toISOString(),
+          endedAt: toUtcISOString(new Date()),
         });
       });
     },

@@ -327,7 +327,7 @@ export function createWorkoutRoutine(overrides: Partial<WorkoutRoutine> = {}): W
   return {
     id: overrides.id ?? "workout-routine-1",
     title: overrides.title ?? "居家训练",
-    updatedAt: overrides.updatedAt ?? "2026-05-25 10:00",
+    updatedAt: overrides.updatedAt ?? "2026-05-25T10:00:00.000Z",
     items: overrides.items ?? [createWorkoutItem()],
     trainingLoopRounds: overrides.trainingLoopRounds ?? 1,
     trainingLoopRestSeconds: overrides.trainingLoopRestSeconds ?? 90,

@@ -6,6 +6,7 @@ import { Prisma } from "@prisma/client";
 import { getPrismaClient } from "@/lib/server/db/prisma";
 import { jsonApiError } from "@/lib/server/http/api-error";
 import type { CurrentUser } from "@/lib/server/users/current-user";
+import { toUtcISOString } from "@/lib/shared/time/utc-date-time";
 
 export const localAnonymousAuthCookieName = "fitmate_local_anonymous";
 export const localAnonymousTokenVersion = 1;
@@ -108,7 +109,7 @@ export function signLocalAnonymousToken(
   return {
     token: `${payloadSegment}.${signatureSegment}`,
     payload,
-    expiresAt: new Date(payload.exp * 1000).toISOString(),
+    expiresAt: toUtcISOString(new Date(payload.exp * 1000)),
   };
 }
 
@@ -208,7 +209,7 @@ export async function restoreLocalAnonymousSession(token: string): Promise<Local
   return {
     token,
     user,
-    expiresAt: new Date(payload.exp * 1000).toISOString(),
+    expiresAt: toUtcISOString(new Date(payload.exp * 1000)),
   };
 }
 
@@ -237,7 +238,7 @@ export async function softDeleteLocalAnonymousUserForToken(token: string) {
 
   return prisma.$executeRaw(Prisma.sql`
     UPDATE "User" AS u
-    SET "deletedAt" = CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai'
+    SET "deletedAt" = CURRENT_TIMESTAMP
     WHERE u."deletedAt" IS NULL
       AND EXISTS (
         SELECT 1

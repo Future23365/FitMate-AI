@@ -10,6 +10,7 @@ import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import { applyWorkoutPatch } from "@/lib/server/workout-patches/workout-patch-engine";
 import type { ReferenceResolution } from "@/lib/shared/reference-resolver/schema";
 import type { Exercise } from "@/lib/shared/exercises/types";
+import { toUtcISOString } from "@/lib/shared/time/utc-date-time";
 import type { ConversationMemoryState } from "@/lib/shared/user-feedback-memory/schema";
 import type {
   WorkoutPlanDraft,
@@ -61,7 +62,7 @@ export async function buildAndApplyWorkoutPatchFromChat(
     return { handled: false, reason: "not_patch_intent" };
   }
 
-  const payloadStartedAt = new Date().toISOString();
+  const payloadStartedAt = toUtcISOString(new Date());
   const artifact = await getArtifactPayload({
     userId: input.userId,
     artifactId: input.referenceResolution.artifactId,

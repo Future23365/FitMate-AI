@@ -14,6 +14,7 @@ import type {
 } from "@/lib/shared/reference-resolver/schema";
 import { referenceResolutionInputSchema } from "@/lib/shared/reference-resolver/schema";
 import type { ConversationArtifactKind } from "@/lib/shared/conversation-artifacts/schema";
+import { toUtcISOString } from "@/lib/shared/time/utc-date-time";
 
 type ResolveReferenceInput = ReferenceResolutionInput & {
   intentType?: ChatIntent["type"];
@@ -23,7 +24,7 @@ type ResolveReferenceInput = ReferenceResolutionInput & {
 
 // ReferenceResolver 把自然语言引用收敛成候选内结果，后续编排不能再让模型凭空猜 artifactId。
 export async function resolveReference(input: ResolveReferenceInput): Promise<ReferenceResolution> {
-  const startedAt = new Date().toISOString();
+  const startedAt = toUtcISOString(new Date());
   const parsedInput = referenceResolutionInputSchema.parse(input);
   const message = parsedInput.latestUserMessage;
   const inferredKind = inferArtifactKind(message, input.intentType);
@@ -81,7 +82,7 @@ export async function resolveReference(input: ResolveReferenceInput): Promise<Re
     });
     return result;
   }
-  const searchStartedAt = new Date().toISOString();
+  const searchStartedAt = toUtcISOString(new Date());
   const searchInput = {
     sessionId: parsedInput.sessionId,
     sessionScope: "current_user",
