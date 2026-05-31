@@ -1,4 +1,6 @@
 import React from "react";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
@@ -28,8 +30,21 @@ describe("Dialog", () => {
 
     expect(html).toContain("data-slot=\"dialog-overlay\"");
     expect(html).toContain("fixed inset-0 z-[100]");
+    expect(html).toContain("bg-black/50");
     expect(html).toContain("data-[state=open]:animate-in");
     expect(html).toContain("data-[state=closed]:animate-out");
+  });
+
+  it("keeps shadcn default dialog content enter and exit motion classes", () => {
+    const source = readFileSync(
+      fileURLToPath(new URL("../components/ui/dialog.tsx", import.meta.url)),
+      "utf8",
+    );
+
+    expect(source).toContain("data-[state=open]:zoom-in-95");
+    expect(source).toContain("data-[state=closed]:zoom-out-95");
+    expect(source).toContain("data-[state=open]:slide-in-from-left-1/2");
+    expect(source).toContain("data-[state=closed]:slide-out-to-top-[48%]");
   });
 
   it("does not render dialog content when closed before hydration", () => {
