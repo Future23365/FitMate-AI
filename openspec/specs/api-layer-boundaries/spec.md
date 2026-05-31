@@ -137,3 +137,50 @@ Define the responsibilities and dependency direction for Next.js Route Handlers,
 - **AND** AI Trace MUST expose the final visible `assistantSuggestions`
 - **AND** AI Trace MUST expose why non-user-tone or non-executable suggestions were filtered
 
+### Requirement: 私有 API 通过 cookie 建立匿名用户上下文
+系统 SHALL 让私有 Route Handler 通过服务端 auth helper 从 HttpOnly cookie 建立当前匿名用户上下文，并保持 Route Handler 只承担 HTTP 边界适配职责。
+
+#### Scenario: 私有接口收到有效匿名 cookie
+- **WHEN** 私有 `app/api/*/route.ts` 收到包含有效匿名 auth cookie 的请求
+- **THEN** Route Handler MUST 调用服务端 auth helper 建立 request-level auth context
+- **AND** Route Handler MUST 将解析出的 `userId` 传递给服务层
+- **AND** Route Handler MUST NOT 直接在路由中复制 token 校验、签名解析或用户隔离业务逻辑
+
+#### Scenario: 私有接口缺少匿名 cookie
+- **WHEN** 私有 `app/api/*/route.ts` 收到缺少匿名 auth cookie 的请求
+- **THEN** 服务端 auth helper MUST 返回稳定的 unauthenticated 结果
+- **AND** Route Handler MUST 将该结果映射为 `401 unauthenticated`
+- **AND** 如果历史兼容路径暂时返回 `403`，响应体 MUST 明确表达这是未认证而不是权限不足
+
+#### Scenario: 私有接口收到无效匿名 cookie
+- **WHEN** 私有 `app/api/*/route.ts` 收到签名错误、过期或格式无效的匿名 auth cookie
+- **THEN** 系统 MUST 拒绝建立当前用户上下文
+- **AND** Route Handler MUST NOT 调用需要 `userId` 的服务层写入或读取私有数据
+- **AND** 响应 MUST 能被客户端请求层识别为需要登录
+
+#### Scenario: 已认证但无权访问资源
+- **WHEN** 请求包含有效匿名 cookie 但用户访问不属于自己的资源
+- **THEN** 服务层 MUST 继续基于 `userId` 做权限隔离
+- **AND** Route Handler MUST 返回 forbidden 或 not found 语义
+- **AND** 客户端请求层 MUST NOT 因该响应打开登录 Dialog，除非响应体明确表示未认证
+
+### Requirement: Route handlers establish authenticated request context
+系统 SHALL 由除匿名会话 bootstrap 之外的现有 API Route Handler 建立请求级鉴权上下文，再将经过校验的当前用户传递给服务层。
+
+#### Scenario: Existing API route receives authenticated request
+- **WHEN** 除 `app/api/auth/local-anonymous/route.ts` 之外的现有 `app/api/*/route.ts` 收到携带有效匿名凭证的请求
+- **THEN** Route Handler MUST 在调用业务服务前解析当前用户
+- **AND** Route Handler MUST 将 `CurrentUser`、`userId` 或等价的请求上下文传递给服务层
+- **AND** 服务层 MUST 基于该上下文执行用户私有数据查询或写入
+
+#### Scenario: Existing API route receives unauthenticated request
+- **WHEN** 除 `app/api/auth/local-anonymous/route.ts` 之外的现有 `app/api/*/route.ts` 收到缺少或无效匿名凭证的请求
+- **THEN** Route Handler MUST 返回统一 `401 unauthenticated` 响应
+- **AND** Route Handler MUST NOT 调用聊天编排、训练持久化、artifact、用户记忆或其他会读写用户私有数据的服务
+- **AND** Route Handler MUST NOT 通过固定开发用户继续执行请求
+
+#### Scenario: Anonymous session bootstrap route receives unauthenticated request
+- **WHEN** `app/api/auth/local-anonymous/route.ts` 收到没有匿名凭证的创建请求
+- **THEN** Route Handler MAY 创建新的匿名用户和匿名凭证
+- **AND** Route Handler MUST NOT 通过固定开发用户继续执行请求
+
