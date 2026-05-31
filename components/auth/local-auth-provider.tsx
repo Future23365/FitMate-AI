@@ -2,6 +2,16 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
+import { SymbolIcon } from "@/components/app/symbol-icon";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   clearLocalAnonymousCredential,
   readLocalAnonymousCredential,
@@ -146,29 +156,36 @@ function LocalAnonymousGate({
   onContinue: () => void;
 }) {
   return (
-    <main className="app-mesh-bg fixed inset-0 flex items-center justify-center px-lg text-ink">
-      <section
-        aria-modal="true"
-        className="w-full max-w-md rounded-xl border border-line/80 bg-white p-xl shadow-lift"
-        role="dialog"
-      >
-        <div className="mb-lg flex h-12 w-12 items-center justify-center rounded-xl bg-primary-soft text-xl font-extrabold text-primary">
-          FM
-        </div>
-        <p className="text-sm font-bold text-primary">本地匿名身份</p>
-        <h1 className="mt-2 text-2xl font-extrabold text-ink">继续使用 FitMate</h1>
-        <p className="mt-sm text-sm font-semibold leading-6 text-muted">
-          当前浏览器会自动创建并保存一个本地匿名用户，用于隔离聊天、训练编排和训练日历数据。
-        </p>
-        <button
-          className="mt-lg flex w-full items-center justify-center rounded-xl bg-primary px-5 py-3 text-sm font-extrabold text-white shadow-card transition-colors hover:bg-primary-deep disabled:cursor-not-allowed disabled:bg-muted"
-          disabled={isChecking || isAuthenticating}
-          onClick={onContinue}
-          type="button"
-        >
-          {isChecking ? "正在恢复..." : isAuthenticating ? "正在进入..." : "继续使用 FitMate"}
-        </button>
-      </section>
+    <main className="app-mesh-bg relative min-h-dvh text-ink">
+      <Dialog open>
+        <DialogContent className="max-w-md">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary-soft text-primary ring-1 ring-primary/10">
+            <SymbolIcon className="text-[28px]" filled>
+              person
+            </SymbolIcon>
+          </div>
+          <DialogHeader>
+            <p className="text-sm font-bold text-primary">本地匿名身份</p>
+            <DialogTitle className="text-2xl font-extrabold text-ink">
+              继续使用 FitMate
+            </DialogTitle>
+            <DialogDescription className="text-sm font-semibold leading-6 text-muted">
+              当前浏览器会自动创建并保存一个本地匿名用户，用于隔离聊天、训练编排和训练日历数据。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              className="w-full"
+              disabled={isChecking || isAuthenticating}
+              onClick={onContinue}
+              size="lg"
+              type="button"
+            >
+              {isChecking ? "正在恢复..." : isAuthenticating ? "正在进入..." : "继续使用 FitMate"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }

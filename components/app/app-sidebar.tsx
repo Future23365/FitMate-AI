@@ -190,7 +190,9 @@ function SidebarPanel({
       <div className="mt-4 shrink-0 border-t border-line pt-4">
         <div className="app-sidebar-user-card flex items-center gap-3 rounded-xl border border-line/80 bg-white/72 p-2.5 shadow-card backdrop-blur-xl">
           <div className="app-sidebar-user-avatar flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-soft text-sm font-extrabold text-primary ring-1 ring-primary/10">
-            {getUserInitials(userName)}
+            <SymbolIcon className="text-[22px]" filled>
+              person
+            </SymbolIcon>
           </div>
           <div className="app-sidebar-copy min-w-0 flex-1">
             <p className="truncate text-sm font-extrabold text-ink">{userName}</p>
@@ -429,14 +431,4 @@ export function AppSidebar() {
       ) : null}
     </>
   );
-}
-
-function getUserInitials(name: string) {
-  const trimmedName = name.trim();
-
-  if (!trimmedName) {
-    return "FM";
-  }
-
-  return trimmedName.slice(0, 2).toUpperCase();
 }

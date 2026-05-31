@@ -19,7 +19,9 @@ export default function SettingsPage() {
         <header className="rounded-2xl border border-line/70 bg-white/78 p-xl shadow-card backdrop-blur-2xl">
           <div className="flex items-center gap-md">
             <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-primary-soft text-xl font-extrabold text-primary ring-1 ring-primary/10">
-              FM
+              <SymbolIcon className="text-[34px]" filled>
+                person
+              </SymbolIcon>
             </div>
             <div>
               <p className="text-sm font-bold text-primary">用户设置</p>
