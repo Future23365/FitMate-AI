@@ -166,7 +166,7 @@ export async function runBlackboxPreflight(input: {
     const [artifactCount, artifactIndexCount, exerciseCount] = await Promise.all([
       prisma.conversationArtifact.count(),
       prisma.artifactIndex.count(),
-      prisma.exercise.count({ where: { isPublished: true } }),
+      prisma.exercise.count(),
     ]);
 
     return {
