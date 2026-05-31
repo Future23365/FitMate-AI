@@ -9,6 +9,7 @@
 - 增加服务端一致性门控：只校验结构化 intent 内部是否自洽，以及生成 artifact 是否符合 resolved intent，不让服务端替代 LLM 理解开放自然语言。
 - 增加一次 LLM repair 流程：当 `ResolvedChatIntent` 内部冲突时，把冲突原因反馈给 LLM 修复；修复后仍冲突则不触发卡片生成，只进入澄清回复。
 - 收敛卡片生成链路：训练推荐、routine、plan、patch、动作替换或动作讲解只能使用 `/api/chat` 的 resolved intent，不再从自然语言回复或专用生成接口里重新决策关键字段。
+- 将生成型 artifact 纳入服务端聊天主编排闭环：`/api/chat` 通过服务端 orchestrator 完成 intent、门控、引用解析、artifact 生成、校验和最终回复生成，前端只展示服务端返回的状态与结果，不再负责二次触发生成。
 - 清理旧 trigger 事实来源：聊天 hook、消息展示清理、上下文摘要和历史消息解析不得再把正文里的 trigger JSON 当成新决策来源。
 - 调整用户回复生成顺序：回复根据最终 resolved intent 和 artifact 生成结果产出；追问时不得生成卡片，生成时不得再问用户“要不要生成”。
 - 将“建议”与“阻断”分离：用户明确可执行需求应先完成，训练风险或更稳妥方案通过生成后的 `adjustmentReplies` 给用户选择，只有缺少必要字段、引用不可用或安全硬边界才阻断。
@@ -27,8 +28,9 @@
 ## Impact
 
 - 影响 `lib/server/chat/chat-service.ts` 的聊天意图解析、归一化、内部动作事件、回复生成和 trace 记录。
+- 影响聊天服务端编排边界：需要抽出或强化 server-side chat orchestrator，让 `/api/chat` 主链路调用 artifact generation service，而不是让前端成为第二个 orchestrator。
 - 影响 `lib/server/ai/prompt-config.ts` 的聊天意图解析、repair 和回复生成提示词。
-- 影响 `features/chat/hooks/use-chat-controller.ts`、`features/chat/components/chat-page.tsx`、`features/chat/lib/chat-client.ts` 和 `features/chat/lib/workout-plan-trigger.ts` 的卡片触发来源，前端应只信服务端 action，不再从回复正文提取 trigger。
+- 影响 `features/chat/hooks/use-chat-controller.ts`、`features/chat/components/chat-page.tsx`、`features/chat/lib/chat-client.ts` 和 `features/chat/lib/workout-plan-trigger.ts` 的卡片触发来源，前端应只消费服务端 artifact 事件和生成状态，不再从回复正文或 action 自行调用生成接口。
 - 影响 `lib/shared/chat/fitness-conversation-context.ts` 的历史 trigger 解析和上下文构建，旧 trigger 只能作为历史兼容展示数据，不得参与新一轮决策。
 - 影响 `app/api/ai/workout-plan/route.ts`、`lib/server/workout-plans/ai-workout-plan-service.ts` 和 `lib/server/workout-plans/domain-plan-engine.ts` 的计划生成入口与默认值处理。
 - 需要补充服务端单测、计划生成校验测试和必要的黑盒回归用例；不涉及数据库 schema 变更。

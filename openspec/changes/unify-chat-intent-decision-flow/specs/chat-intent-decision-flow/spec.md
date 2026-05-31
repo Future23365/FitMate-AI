@@ -98,6 +98,27 @@
 - **AND** `responseMode` MUST 为 `ask_clarification`
 - **AND** 系统 MUST NOT 触发任何卡片生成
 
+### Requirement: 生成型 artifact 必须由服务端聊天编排闭环生成
+系统 SHALL 在服务端聊天主链路中完成生成型 artifact 的触发、生成、校验和结果汇总，前端不得成为第二个编排器。
+
+#### Scenario: resolved intent 要求生成 artifact
+- **WHEN** 最终 resolved intent 的 `action.shouldTrigger` 为 `true`
+- **AND** `action.kind` 为 `exercise_recommendation`、`workout_routine`、`workout_plan`、`workout_patch` 或等价生成型动作
+- **THEN** 服务端 chat orchestrator MUST 调用对应 artifact generation service
+- **AND** 服务端 MUST 在同一轮 `/api/chat` 编排中校验 artifact 结果
+- **AND** 前端 MUST NOT 在 `/api/chat` 完成后再自行调用生成接口来补齐该 artifact
+
+#### Scenario: artifact 生成中需要展示进度
+- **WHEN** artifact 生成需要较长时间
+- **THEN** 服务端 MAY 通过流式事件返回 `intent_resolved`、`artifact_generating`、`artifact_validated`、`artifact_failed` 或等价状态
+- **AND** 这些事件 MUST 表达服务端编排状态，而不是要求前端发起生成的命令
+
+#### Scenario: 专用生成接口仍然存在
+- **WHEN** `/api/ai/workout-plan` 或等价专用生成接口仍保留
+- **THEN** 该接口 MAY 用于调试、兼容或服务端内部复用
+- **AND** 生产聊天主链路 MUST NOT 依赖前端调用该接口完成本轮 artifact 生成
+- **AND** 该接口 MUST NOT 重新判断本轮是否应该生成 artifact
+
 ### Requirement: 用户回复必须基于 resolved intent 和 artifact 结果生成
 系统 SHALL 使用最终 resolved intent 和 artifact 生成结果产出用户可见回复，避免回复内容与内部动作不一致。
 
@@ -113,6 +134,7 @@
 - **AND** artifact generator 返回失败或可恢复错误
 - **THEN** 用户回复 MUST 基于失败结果给出恢复引导或澄清选项
 - **AND** 用户回复 MUST NOT 承诺已经生成成功
+- **AND** 系统 MUST NOT 展示未通过校验的 artifact
 
 #### Scenario: resolved intent 要求澄清
 - **WHEN** resolved intent 的 `responseMode` 为 `ask_clarification`
@@ -120,16 +142,17 @@
 - **AND** 系统 MUST NOT 在同一轮返回训练卡片
 
 ### Requirement: 前端不得从自然语言回复正文二次提取卡片触发
-聊天前端 SHALL 只根据服务端返回的 resolved action 或等价结构化事件触发卡片生成。
+聊天前端 SHALL 只展示服务端返回的 resolved action、生成状态和 artifact 结果，不得自行触发 artifact 生成。
 
 #### Scenario: 回复正文包含类似生成承诺的文字
 - **WHEN** 服务端自然语言回复中出现“安排”、“整理”、“生成”或等价表达
 - **AND** 服务端 resolved action 未要求触发卡片
 - **THEN** 前端 MUST NOT 仅凭回复正文调用训练卡片生成接口
 
-#### Scenario: 服务端返回 resolved action
+#### Scenario: 服务端返回 resolved action 和生成状态
 - **WHEN** 服务端返回 `action.shouldTrigger = true`
-- **THEN** 前端 MUST 使用该 action、resolved intent 和 referenceResolution 调用对应生成流程
+- **THEN** 前端 MUST 展示服务端返回的生成状态或 artifact 结果
+- **AND** 前端 MUST NOT 使用该 action、resolved intent 或 referenceResolution 自行调用对应生成流程
 - **AND** 前端 MUST NOT 重新解析回复正文来决定 action 类型
 
 #### Scenario: 历史消息包含旧 trigger JSON

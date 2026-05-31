@@ -20,19 +20,20 @@
 - [ ] 3.3 在 repair 后仍失败时降级为 `action.shouldTrigger = false`、`responseMode = ask_clarification`，并禁止本轮触发卡片生成。
 - [ ] 3.4 校验 patch、替换和讲解类 action 的引用依赖；引用 `not_found` 或 `ambiguous` 时不得调用下游 artifact 修改或讲解流程。
 
-## 4. 卡片生成链路收敛
+## 4. 服务端 artifact 编排闭环
 
-- [ ] 4.1 调整服务端内部动作事件，只从最终 resolved intent 构造 `assistant_action`。
-- [ ] 4.2 调整 `features/chat/types.ts` 的 `AssistantActionEvent` 和 `ChatStreamEvent`，携带结构化 resolved action、workout intent、字段来源和引用解析结果。
-- [ ] 4.3 调整 `features/chat/hooks/use-chat-controller.ts`，让前端只根据信息化 action 触发推荐、routine、plan 或 patch 生成。
-- [ ] 4.4 移除或停用从自然语言回复正文提取 trigger 的旧路径，避免回复文本成为第二个触发来源。
-- [ ] 4.5 调整 `features/chat/components/chat-page.tsx`，旧 trigger block 只允许用于历史消息展示清理，不再参与 action 决策。
-- [ ] 4.6 调整 `lib/shared/chat/fitness-conversation-context.ts`，上下文摘要和历史消息解析不得再从正文 trigger JSON 派生最新训练 intent。
-- [ ] 4.7 调整 `/api/ai/workout-plan` 请求契约，确保关键训练意图来自 resolved intent，不在计划接口中重新决策是否生成 plan。
+- [ ] 4.1 在服务端 chat orchestrator 中接入 recommendation、routine、plan、patch、替换和讲解生成流程，使 `/api/chat` 主链路能按最终 resolved intent 生成并校验 artifact。
+- [ ] 4.2 调整服务端流事件，将 `assistant_action` 从“前端触发指令”收敛为服务端编排状态和结果事件，例如 `intent_resolved`、`artifact_generating`、`artifact_validated`、`artifact_failed`、`artifact` 或等价事件。
+- [ ] 4.3 调整 `features/chat/types.ts` 的 `AssistantActionEvent` 和 `ChatStreamEvent`，携带结构化 resolved action、workout intent、字段来源、引用解析结果、artifact payload 和失败恢复信息。
+- [ ] 4.4 调整 `features/chat/hooks/use-chat-controller.ts`，让前端只展示服务端返回的生成状态、artifact 结果和恢复选项，不再根据 action 自行调用推荐、routine、plan 或 patch 生成接口。
+- [ ] 4.5 移除或停用从自然语言回复正文提取 trigger 的旧路径，避免回复文本成为第二个触发来源。
+- [ ] 4.6 调整 `features/chat/components/chat-page.tsx`，旧 trigger block 只允许用于历史消息展示清理，不再参与 action 决策。
+- [ ] 4.7 调整 `lib/shared/chat/fitness-conversation-context.ts`，上下文摘要和历史消息解析不得再从正文 trigger JSON 派生最新训练 intent。
+- [ ] 4.8 调整 `/api/ai/workout-plan` 请求契约和使用边界：保留时只能作为调试、兼容或服务端内部复用入口，生产聊天主链路不得依赖前端调用它补齐计划卡片。
 
 ## 5. 计划生成与结果校验
 
-- [ ] 5.1 调整 `buildPlanStrategyFromChatIntent()` 或其调用方，使 `PlanStrategy` 从 resolved intent、referenceResolution 和字段来源派生。
+- [ ] 5.1 调整 `buildPlanStrategyFromChatIntent()` 或其调用方，使 `PlanStrategy` 从服务端 orchestrator 传入的 resolved intent、referenceResolution 和字段来源派生。
 - [ ] 5.2 控制 `DomainPlanEngine` 默认周期、周频率和时长来源，避免默认值静默覆盖 resolved intent 的明确约束。
 - [ ] 5.3 在 plan draft 返回前校验 `cycleLengthDays`、`calendarHorizonDays`、`weeklyFrequency`、`sourceArtifactId` 与 `PlanStrategy` 一致。
 - [ ] 5.4 计划结果与 resolved intent 冲突时进入现有自动修复或可继续对话恢复流程，不展示未通过契约校验的计划卡片。
@@ -43,18 +44,21 @@
 - [ ] 6.1 调整回复生成流程，使生成型请求在 artifact 校验成功或失败后再生成最终用户回复。
 - [ ] 6.2 确保 `responseMode = ask_clarification` 时只追问缺失信息或引用对象，不触发同轮卡片。
 - [ ] 6.3 确保生成成功时回复说明已按 resolved intent 处理，并把更稳妥方案放入用户可选择的调整建议，而不是私自改写用户需求。
+- [ ] 6.4 确保 artifact 生成失败时回复基于失败原因和恢复选项生成，不承诺已生成成功，不展示未通过校验的 artifact。
 
 ## 7. 自动化测试与验证
 
 - [ ] 7.1 在 `tests/chat-service.test.ts` 覆盖追问模式不得触发 action、生成模式不得携带缺信息澄清、type/action/workoutIntent 冲突进入 repair 或降级。
 - [ ] 7.2 在 `tests/chat-service.test.ts` 覆盖 patch、替换和讲解类 action 的引用 `not_found`、`ambiguous` 和 `resolved` 分支。
-- [ ] 7.3 在聊天或前端 hook 测试中覆盖前端不得从回复正文二次提取 plan/routine/recommendation trigger。
-- [ ] 7.4 在上下文构建测试中覆盖历史 trigger JSON 不再作为最新 intent 事实来源。
-- [ ] 7.5 在计划生成测试中覆盖 resolved intent 为 3 天、5 天、一周、每周 3 练等场景，确保周期和周频率不混淆。
-- [ ] 7.6 在 DomainPlanEngine 或 validation 测试中覆盖 `PlanStrategy.horizonDays` 与 draft `cycleLengthDays` 冲突时拒绝成功返回。
-- [ ] 7.7 在计划生成或回复测试中覆盖 `default` 来源字段必须产生用户可见假设说明。
-- [ ] 7.8 运行 `npm run test -- tests/chat-service.test.ts`。
-- [ ] 7.9 按实际改动范围运行相关计划生成、reference resolver 或前端 hook 测试。
-- [ ] 7.10 运行 `npm run typecheck`。
-- [ ] 7.11 运行 `openspec validate unify-chat-intent-decision-flow --strict`。
-- [ ] 7.12 如用户确认真实模型 token 成本，再运行相关 `npm run test:llm` 黑盒用例并刷新报告；否则在实现总结中说明未运行原因。
+- [ ] 7.3 在 `tests/chat-service.test.ts` 或等价编排测试中覆盖生成型请求由服务端 orchestrator 返回 artifact 成功结果，前端不需要二次调用生成接口。
+- [ ] 7.4 在 `tests/chat-service.test.ts` 或等价编排测试中覆盖 artifact 生成失败时返回恢复回复和失败 trace，不展示未通过校验的 artifact。
+- [ ] 7.5 在聊天或前端 hook 测试中覆盖前端不得从回复正文或 `assistant_action` 二次触发 plan/routine/recommendation 生成接口。
+- [ ] 7.6 在上下文构建测试中覆盖历史 trigger JSON 不再作为最新 intent 事实来源。
+- [ ] 7.7 在计划生成测试中覆盖 resolved intent 为 3 天、5 天、一周、每周 3 练等场景，确保周期和周频率不混淆。
+- [ ] 7.8 在 DomainPlanEngine 或 validation 测试中覆盖 `PlanStrategy.horizonDays` 与 draft `cycleLengthDays` 冲突时拒绝成功返回。
+- [ ] 7.9 在计划生成或回复测试中覆盖 `default` 来源字段必须产生用户可见假设说明。
+- [ ] 7.10 运行 `npm run test -- tests/chat-service.test.ts`。
+- [ ] 7.11 按实际改动范围运行相关计划生成、reference resolver 或前端 hook 测试。
+- [ ] 7.12 运行 `npm run typecheck`。
+- [ ] 7.13 运行 `openspec validate unify-chat-intent-decision-flow --strict`。
+- [ ] 7.14 如用户确认真实模型 token 成本，再运行相关 `npm run test:llm` 黑盒用例并刷新报告；否则在实现总结中说明未运行原因。

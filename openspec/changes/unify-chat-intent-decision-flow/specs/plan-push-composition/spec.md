@@ -10,12 +10,20 @@
 - **AND** 长期计划生成请求 MUST 接收关键字段来源和引用解析结果
 - **AND** 系统 MUST NOT 从用户回复正文重新提取 plan trigger
 - **AND** 系统 MUST NOT 在计划生成接口中重新判断本轮是否应该生成 plan
+- **AND** 生产聊天主链路 MUST 由服务端 chat orchestrator 发起长期计划生成
+- **AND** 前端 MUST NOT 在 `/api/chat` 完成后再调用长期计划生成接口补齐计划卡片
 
 #### Scenario: resolved intent 要求澄清
 - **WHEN** resolved intent 的 `responseMode` 为 `ask_clarification`
 - **OR** `action.shouldTrigger` 为 `false`
 - **THEN** 系统 MUST NOT 调用长期计划生成流程
 - **AND** 前端 MUST NOT 展示长期计划生成中的加载状态
+
+#### Scenario: 长期计划生成成功或失败
+- **WHEN** 服务端 chat orchestrator 调用长期计划生成流程
+- **THEN** `/api/chat` 的本轮响应 MUST 返回通过校验的计划 artifact 或可恢复失败信息
+- **AND** 用户回复 MUST 基于该成功或失败结果生成
+- **AND** 系统 MUST NOT 让前端在不知道生成结果的情况下提前展示成功承诺
 
 ### Requirement: 长期计划推送不得用默认周期覆盖 resolved intent 约束
 系统 SHALL 保证长期计划草稿的周期、日历范围和周频率符合 resolved intent 中的关键字段及其来源。
