@@ -18,6 +18,7 @@ import {
   resolveAssistantAction,
   resolveVisibleSuggestedReplies,
   shouldUseReferenceResolutionForChat,
+  toExerciseRecommendationCandidatesFromContext,
   validateResolvedIntentGate,
   type ChatIntent,
   type ExerciseContext,
@@ -34,6 +35,7 @@ function createExerciseContext(overrides: Partial<ExerciseContext> = {}): Exerci
     intent: overrides.intent ?? routineIntent,
     providedExercises: overrides.providedExercises ?? [
       {
+        exercise: createTestExercise(),
         exerciseId: "push-up",
         nameZh: "俯卧撑",
         categoryZh: "力量",
@@ -50,6 +52,55 @@ function createExerciseContext(overrides: Partial<ExerciseContext> = {}): Exerci
     relevantCandidateCount: overrides.relevantCandidateCount ?? 8,
     requiredRelevantCandidateCount: overrides.requiredRelevantCandidateCount ?? 4,
     warnings: overrides.warnings ?? [],
+  };
+}
+
+function createTestExercise(
+  overrides: Partial<ExerciseContext["providedExercises"][number]["exercise"]> = {},
+): ExerciseContext["providedExercises"][number]["exercise"] {
+  return {
+    id: "push-up",
+    source: "manual",
+    sourceUrl: "",
+    sourceId: "push-up",
+    license: "",
+    nameEn: "Push-up",
+    nameZh: "俯卧撑",
+    category: "strength",
+    categoryZh: "力量",
+    level: "beginner",
+    levelZh: "新手",
+    force: "",
+    forceZh: "",
+    mechanic: "",
+    mechanicZh: "",
+    equipment: "bodyweight",
+    equipmentZh: "自重",
+    homeRequirement: "",
+    homeRequirementZh: "",
+    primaryMuscles: ["chest"],
+    primaryMusclesZh: ["胸部"],
+    secondaryMuscles: ["triceps"],
+    secondaryMusclesZh: ["肱三头肌"],
+    instructionsEn: [],
+    instructionsZh: [],
+    images: [],
+    imageUrls: [],
+    allowedSections: ["training"],
+    intensityRole: "strength",
+    movementPattern: "push",
+    difficulty: "beginner",
+    riskTags: [],
+    contraindications: [],
+    regressionExerciseIds: [],
+    progressionExerciseIds: [],
+    substitutionGroupId: null,
+    goalTags: ["strength"],
+    embeddingText: null,
+    embedding: null,
+    reviewStatus: "human_reviewed",
+    isPublished: true,
+    ...overrides,
   };
 }
 
@@ -226,6 +277,39 @@ describe("AI chat service deterministic boundaries", () => {
     });
 
     expect(events.map((event) => event.type)).toEqual(["artifact_validated", "artifact"]);
+  });
+
+  it("keeps full exercise facts for exercise recommendation artifacts", () => {
+    const exerciseWithoutImage = createTestExercise({
+      id: "bodyweight-chest-press",
+      nameZh: "自重胸推",
+      imageUrls: [],
+    });
+    const exerciseContext = createExerciseContext({
+      providedExercises: [
+        {
+          exercise: exerciseWithoutImage,
+          exerciseId: exerciseWithoutImage.id,
+          nameZh: exerciseWithoutImage.nameZh,
+          categoryZh: exerciseWithoutImage.categoryZh ?? "训练",
+          level: exerciseWithoutImage.level ?? "beginner",
+          equipmentZh: exerciseWithoutImage.equipmentZh ?? "未标注器械",
+          primaryMusclesZh: exerciseWithoutImage.primaryMusclesZh,
+          secondaryMusclesZh: exerciseWithoutImage.secondaryMusclesZh,
+          riskTags: exerciseWithoutImage.riskTags,
+          goalTags: exerciseWithoutImage.goalTags,
+          matchingReasons: ["匹配胸部目标"],
+          source: "primary",
+        },
+      ],
+    });
+
+    const candidates = toExerciseRecommendationCandidatesFromContext(exerciseContext);
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].exercise).toBe(exerciseWithoutImage);
+    expect(candidates[0].exercise.imageUrls).toEqual([]);
+    expect(candidates[0].reasons).toEqual(["匹配胸部目标"]);
   });
 
   it("treats multi-week repeat requests as workout plan actions", () => {
@@ -711,6 +795,57 @@ describe("AI chat service deterministic boundaries", () => {
       missingActionFields: ["trainingGoal", "weeklyFrequency", "equipmentOrLocation"],
     });
     expect(normalized.suggestedReplies.length).toBeGreaterThan(0);
+    expect(resolveAssistantAction(normalized, createExerciseContext({ intent: normalized.workoutIntent! }))).toBeNull();
+  });
+
+  it("keeps cadence-only weekly plan follow-ups from triggering empty plans", () => {
+    const weeklyPlanContext = {
+      ...createEmptyConversationContext(),
+      summary: "用户想制定每周训练计划，但还没有说明训练目标和器械。",
+    };
+    const modelIntent: ChatIntent = {
+      type: "workout_plan",
+      needsExerciseContext: true,
+      workoutIntent: createWorkoutPlanIntent({
+        intentType: "plan",
+        goal: "每周训练计划",
+        sessionMinutes: 45,
+        weeklyFrequency: 4,
+      }),
+      requestedExerciseName: "",
+      canTriggerAction: true,
+      missingActionFields: [],
+      suggestedReplies: [],
+    };
+
+    const normalized = normalizeChatIntentForBlackboxFlows({
+      chatIntent: modelIntent,
+      fallbackIntent: createFallbackChatIntent(
+        [
+          { role: "user", content: "给我一个每周训练计划" },
+          { role: "assistant", content: "请补充训练目标和器械条件。" },
+          { role: "user", content: "每周4练，每次45分钟" },
+        ],
+        weeklyPlanContext,
+      ),
+      messages: [
+        { role: "user", content: "给我一个每周训练计划" },
+        { role: "assistant", content: "请补充训练目标和器械条件。" },
+        { role: "user", content: "每周4练，每次45分钟" },
+      ],
+      conversationSummaryContext: {
+        summary: "用户想制定每周训练计划，但还没有说明训练目标和器械。",
+        latestUserMessage: "每周4练，每次45分钟",
+      },
+      conversationContext: weeklyPlanContext,
+      recentArtifactSummaries: [],
+    });
+
+    expect(normalized).toMatchObject({
+      type: "workout_plan",
+      canTriggerAction: false,
+      missingActionFields: ["trainingGoal", "equipmentOrLocation"],
+    });
     expect(resolveAssistantAction(normalized, createExerciseContext({ intent: normalized.workoutIntent! }))).toBeNull();
   });
 

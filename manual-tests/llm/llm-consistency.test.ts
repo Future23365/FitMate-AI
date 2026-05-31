@@ -9,6 +9,7 @@ import {
   type BlackboxTurnResult,
 } from "./blackbox-runner";
 import { assertBlackboxTurnResult, previewText } from "./assertions";
+import { createFlowFailureSkipReason } from "./flow-runner-policy";
 import { blackboxFlowCases, type BlackboxFlowCase, type BlackboxFlowTurn } from "./flow-fixtures";
 
 type DeepSeekUsage = {
@@ -91,13 +92,13 @@ describeIfConfigured("manual LLM blackbox chat flows", () => {
 
   test.each(blackboxFlowCases)("$id - $name", async (flowCase) => {
     const state = createBlackboxConversationState(flowCase.id);
-    let firstTurnFailureReason: string | undefined;
+    let flowFailureReason: string | undefined;
 
     for (let turnIndex = 0; turnIndex < flowCase.turns.length; turnIndex += 1) {
       const turn = flowCase.turns[turnIndex];
 
-      if (firstTurnFailureReason) {
-        runRecords.push(createSkippedRecord(flowCase, turn, turnIndex + 1, state.conversationId, firstTurnFailureReason));
+      if (flowFailureReason) {
+        runRecords.push(createSkippedRecord(flowCase, turn, turnIndex + 1, state.conversationId, flowFailureReason));
         continue;
       }
 
@@ -119,18 +120,12 @@ describeIfConfigured("manual LLM blackbox chat flows", () => {
         const message = error instanceof Error ? error.message : String(error);
 
         runRecords.push(createTurnRecord(flowCase, turn, turnIndex + 1, result, "failed", message));
-
-        if (turnIndex === 0) {
-          firstTurnFailureReason = `首轮基础能力失败：${previewText(message, 220)}`;
-          continue;
-        }
-
-        throw error;
+        flowFailureReason = createFlowFailureSkipReason(turnIndex, message);
       }
     }
 
-    if (firstTurnFailureReason) {
-      throw new Error(firstTurnFailureReason);
+    if (flowFailureReason) {
+      throw new Error(flowFailureReason);
     }
   });
 });
@@ -179,7 +174,7 @@ function createSkippedRecord(
     expectationNote: turn.expectation.note,
     expectedCardTypes: turn.expectation.expectedCardTypes,
     actualCardTypes: [],
-    assistantPreview: "首轮失败后跳过，未请求模型。",
+    assistantPreview: "前序轮次失败后跳过，未请求模型。",
     status: "skipped",
     conversationId,
     skipReason,

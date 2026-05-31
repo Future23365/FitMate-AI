@@ -173,7 +173,7 @@ export async function generateAiExerciseRecommendations(
         equipmentZh: exercise.equipmentZh ?? "未标注器械",
         primaryMusclesZh: exercise.primaryMusclesZh,
         secondaryMusclesZh: exercise.secondaryMusclesZh,
-        imageUrl: exercise.imageUrls[0],
+        imageUrl: exercise.imageUrls?.[0],
         reasons: item.reasons.length > 0 ? item.reasons : candidate.reasons.slice(0, 4),
       };
     }),

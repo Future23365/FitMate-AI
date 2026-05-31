@@ -60,6 +60,7 @@ import {
   generateAiWorkoutPlanDraft,
   workoutPlanIntentSchema,
   type AiWorkoutPlanResult,
+  type ExerciseCandidate,
   type WorkoutPlanIntent,
 } from "@/lib/server/workout-plans";
 import { generateAiExerciseRecommendations } from "@/lib/server/exercise-recommendations/ai-exercise-recommendation-service";
@@ -203,18 +204,20 @@ export type ChatArtifactResult =
 export type ExerciseContext = {
   intent: WorkoutPlanIntent;
   providedExercises: Array<{
+    /** 服务端完整动作事实源，artifact 展示字段从这里补齐，不暴露给模型。 */
+    exercise: Exercise;
     exerciseId: string;
     nameZh: string;
     categoryZh: string;
     level: string;
     equipmentZh: string;
     primaryMusclesZh: string[];
-  secondaryMusclesZh: string[];
-  riskTags: string[];
-  goalTags: string[];
-  matchingReasons?: string[];
-  source: "primary" | "supplementary" | "name_match";
-}>;
+    secondaryMusclesZh: string[];
+    riskTags: string[];
+    goalTags: string[];
+    matchingReasons?: string[];
+    source: "primary" | "supplementary" | "name_match";
+  }>;
   candidateStatus: "enough" | "limited_but_usable" | "insufficient";
   relevantCandidateCount: number;
   requiredRelevantCandidateCount: number;
@@ -1324,6 +1327,7 @@ export function normalizeChatIntentForBlackboxFlows(input: {
       latestUserMessage,
       workoutIntent,
       hasPriorTrainingContext,
+      input.conversationContext,
     );
 
     return {
@@ -1651,6 +1655,7 @@ async function buildExerciseContext(
   for (const exercise of nameMatches) {
     seenIds.add(exercise.id);
     providedExercises.push({
+      exercise,
       exerciseId: exercise.id,
       nameZh: exercise.nameZh,
       categoryZh: exercise.categoryZh ?? "训练",
@@ -1675,6 +1680,7 @@ async function buildExerciseContext(
 
     seenIds.add(candidate.exercise.id);
     providedExercises.push({
+      exercise: candidate.exercise,
       exerciseId: candidate.exercise.id,
       nameZh: candidate.exercise.nameZh,
       categoryZh: candidate.exercise.categoryZh ?? "训练",
@@ -2307,32 +2313,7 @@ async function generateChatArtifact(input: {
       };
     }
 
-    const candidates = [
-      ...input.exerciseContext.providedExercises
-        .filter((candidate) => candidate.source !== "name_match")
-        .map((candidate) => {
-          const source: "primary" | "supplementary" =
-            candidate.source === "supplementary" ? "supplementary" : "primary";
-
-          return {
-            exercise: {
-              id: candidate.exerciseId,
-              nameZh: candidate.nameZh,
-              nameEn: "",
-              categoryZh: candidate.categoryZh,
-              level: candidate.level,
-              equipmentZh: candidate.equipmentZh,
-              primaryMusclesZh: candidate.primaryMusclesZh,
-              secondaryMusclesZh: candidate.secondaryMusclesZh,
-              riskTags: candidate.riskTags,
-              goalTags: candidate.goalTags,
-            } as Exercise,
-            score: 1,
-            reasons: candidate.matchingReasons ?? [],
-            source,
-          };
-        }),
-    ];
+    const candidates = toExerciseRecommendationCandidatesFromContext(input.exerciseContext);
     const tokenBudgetDecision = createExerciseRecommendationBudgetDecision({
       latestUserMessage: input.latestUserMessage,
       conversationSummary: input.conversationSummary,
@@ -2406,6 +2387,23 @@ async function generateChatArtifact(input: {
     recoverable: true,
     suggestedReplies: ["重新说明要调整哪套训练"],
   };
+}
+
+// 动作推荐 artifact 复用服务端完整 Exercise，避免把裁剪给模型的字段误当成展示事实源。
+export function toExerciseRecommendationCandidatesFromContext(exerciseContext: ExerciseContext): ExerciseCandidate[] {
+  return exerciseContext.providedExercises
+    .filter((candidate) => candidate.source !== "name_match")
+    .map((candidate) => {
+      const source: "primary" | "supplementary" =
+        candidate.source === "supplementary" ? "supplementary" : "primary";
+
+      return {
+        exercise: candidate.exercise,
+        score: 1,
+        reasons: candidate.matchingReasons ?? [],
+        source,
+      };
+    });
 }
 
 // 聊天回复 prompt 只暴露动作选择必要字段，完整动作对象继续留在服务端校验和下游生成链路。
@@ -2888,12 +2886,17 @@ function canTriggerLongTermPlanFromContext(
   message: string,
   intent: WorkoutPlanIntent,
   hasPriorTrainingContext: boolean,
+  conversationContext: FitnessConversationContext,
 ) {
   if (hasConcretePlanHorizonText(message)) {
     return true;
   }
 
-  if (hasPriorTrainingContext && (hasExplicitWeeklyFrequencyText(message) || hasDurationText(message))) {
+  if (
+    hasPriorTrainingContext &&
+    conversationContext.currentIntent?.intentType === "plan" &&
+    (hasExplicitWeeklyFrequencyText(message) || hasDurationText(message))
+  ) {
     return true;
   }
 
