@@ -5,7 +5,7 @@ TBD - created by archiving change recover-workout-plan-validation-failures. Upda
 ## Requirements
 ### Requirement: 训练草稿校验失败必须进入恢复流程
 
-当 AI 生成的训练草稿没有通过服务端校验时，系统 SHALL 根据校验问题类型进入自动修复或用户引导流程，而不是直接把所有校验失败作为终止型错误。
+当 AI 生成的训练草稿没有通过服务端确定性校验时，系统 SHALL 根据校验问题类型进入自动修复或用户引导流程，而不是直接把所有校验失败作为终止型错误。非确定性的动作 section 语义分歧 SHALL 不作为校验失败进入恢复流程。
 
 #### Scenario: 可恢复校验失败
 
@@ -20,6 +20,14 @@ TBD - created by archiving change recover-workout-plan-validation-failures. Upda
 - **THEN** 系统 MUST 继续阻止该草稿展示或保存
 - **AND** 系统 MAY 尝试一次结构修复
 - **AND** 修复后仍失败时系统 MUST 返回明确的失败提示
+
+#### Scenario: Section 语义分歧不进入失败恢复
+
+- **WHEN** 训练草稿中的动作真实存在且属于本轮候选集合
+- **AND** 草稿通过 Schema、必要结构、权限、用户限制、时长和训练量校验
+- **AND** 服务端本地 section 元数据与 AI 输出 section 不一致
+- **THEN** 系统 MUST NOT 将该分歧标记为 `plan_validation_failed`
+- **AND** 系统 MUST NOT 展示要求用户补充目标、器械或时长的失败恢复提示
 
 ### Requirement: 校验失败后必须自动修复一次
 

@@ -24,6 +24,7 @@ Define the responsibilities and dependency direction for Next.js Route Handlers,
 - **AND** the Route Handler MUST NOT duplicate the service-layer business decision logic inline
 
 ### Requirement: Chat orchestration lives in server modules
+
 系统 SHALL 将 `/api/chat` 的 AI 编排和确定性聊天业务规则放在 `lib/server/chat/*` 或等价的服务端模块中。
 
 #### Scenario: Chat intent is resolved
@@ -31,22 +32,29 @@ Define the responsibilities and dependency direction for Next.js Route Handlers,
 - **THEN** the intent schema, model JSON request, response parsing, fallback handling, and trace step recording MUST be owned by a server chat module
 - **AND** the implementation MUST preserve the current intent fields, including `type`, `needsExerciseContext`, `workoutIntent`, `requestedExerciseName`, `canTriggerAction`, `missingActionFields`, and `suggestedReplies`
 
-#### Scenario: Exercise context is needed
-- **WHEN** resolved chat intent requires exercise context
-- **THEN** the server chat module MUST retrieve exercises through the existing server exercise service
-- **AND** the server chat module MUST select candidates through the existing workout candidate service
-- **AND** the server chat module MUST expose only validated candidate context needed by the chat response prompt
+#### Scenario: Non-executable intent includes suggested replies without workout intent
+- **WHEN** the chat intent model returns `canTriggerAction=false`
+- **AND** the model returns valid `suggestedReplies`
+- **AND** the model returns `workoutIntent=null` or omits `workoutIntent`
+- **AND** the intent type or response mode does not require a training artifact to be generated
+- **THEN** the server chat module MUST normalize `workoutIntent` to an absent internal value
+- **AND** the server chat module MUST preserve the valid `suggestedReplies`
+- **AND** the response stream MUST include a `suggested_replies` event with those replies
+- **AND** the server chat module MUST NOT replace the whole intent with an empty fallback solely because `workoutIntent` is `null`
 
-#### Scenario: Assistant action is derived
-- **WHEN** the system derives an internal assistant action from chat intent and candidate context
-- **THEN** the deterministic action resolution MUST live in a testable server function
-- **AND** the function MUST preserve existing action types for exercise recommendation, workout routine, and workout plan
-- **AND** the function MUST ignore health, injury, pain, medical, or body-restriction fields when deciding whether missing fields block action triggering
+#### Scenario: Executable intent has invalid workout intent
+- **WHEN** the chat intent model indicates that an exercise recommendation, routine, workout plan, patch, replacement, or explanation should be generated
+- **AND** the required execution fields fail schema validation
+- **THEN** the server chat module MUST NOT trigger the internal action
+- **AND** the failure MUST be handled through clarification, recoverable fallback, or a traceable hard failure
+- **AND** the server chat module MUST NOT silently generate a training artifact from invalid execution fields
 
-#### Scenario: Chat response stream is generated
-- **WHEN** the system generates the user-visible chat response
-- **THEN** the server chat module MUST construct the model request using the existing conversation context, selected AI context messages, prompt config, thinking setting, and exercise context
-- **AND** the stream encoder MUST preserve existing event semantics, including content deltas, token usage when provided, errors, and final trace metadata
+#### Scenario: Suggested replies are invalid
+- **WHEN** the chat intent model returns `suggestedReplies`
+- **AND** one or more replies fail the server validation rules for user-visible quick replies
+- **THEN** the server chat module MUST drop or sanitize only the invalid quick replies
+- **AND** the server chat module MUST NOT use invalid quick replies to trigger an internal action
+- **AND** the trace MUST make the final visible suggested replies inspectable
 
 ### Requirement: AI prompt config belongs to server AI configuration
 系统 SHALL 将服务端模型调用使用的 prompt 配置放在服务端 AI 配置模块中，而不是放在 `app/api` 路由目录中。
@@ -103,4 +111,29 @@ Define the responsibilities and dependency direction for Next.js Route Handlers,
 - **THEN** the trace MUST still show the same major stages for user input, intent resolution, candidate selection when applicable, model request, model response, internal action, and completion
 - **AND** token usage semantics MUST remain compatible with the existing trace viewer
 - **AND** the trace MUST make the natural language summary context visible enough to verify that full history was not sent to the model
+
+### Requirement: Chat stream exposes unified assistant suggestions
+
+系统 SHALL 在 `/api/chat` 服务端编排层统一输出 AI 建议事件，并保持旧建议字段的兼容迁移路径。
+
+#### Scenario: Unified suggestions are streamed
+
+- **WHEN** `/api/chat` 本轮产生用户可见建议
+- **THEN** the server chat module MUST emit an `assistant_suggestions` stream event or equivalent unified event
+- **AND** the event MUST include normalized `assistantSuggestions`
+- **AND** the route handler MUST NOT assemble assistant suggestion business logic inline
+
+#### Scenario: Legacy suggested replies remain compatible
+
+- **WHEN** old clients still listen for `suggested_replies` or messages still contain `suggestedReplies`
+- **THEN** the server and frontend MAY continue compatibility handling during migration
+- **AND** duplicate suggestions MUST NOT be rendered twice
+- **AND** new implementation paths SHOULD prefer `assistantSuggestions` as the single user-visible suggestion model
+
+#### Scenario: Suggestions are traceable
+
+- **WHEN** assistant suggestions are generated, filtered, dropped, or deduplicated
+- **THEN** AI Trace MUST expose the original source fields or stage
+- **AND** AI Trace MUST expose the final visible `assistantSuggestions`
+- **AND** AI Trace MUST expose why non-user-tone or non-executable suggestions were filtered
 
