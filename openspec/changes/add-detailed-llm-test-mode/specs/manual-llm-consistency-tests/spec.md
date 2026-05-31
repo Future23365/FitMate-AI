@@ -57,3 +57,28 @@
 - **THEN** 系统 MUST 输出缺失配置名称
 - **AND** 系统 MUST 生成详细套件跳过报告
 - **AND** 系统 MUST 记录所有详细流程轮次被跳过
+
+### Requirement: 测试模式边界必须清晰可追踪
+
+系统 SHALL 明确区分默认基准测试、基础 LLM 黑盒测试和完整/详细 LLM 黑盒测试，避免开发者误读测试结果。
+
+#### Scenario: 基础测试结果不得代表完整回归
+
+- **WHEN** 开发者只执行 `npm run test:llm`
+- **THEN** 系统 MUST 只运行基础 LLM 首页聊天黑盒流程
+- **AND** 报告或说明文档 MUST NOT 表达为完整/详细套件已经通过
+- **AND** 开发者 MUST 能从文档中确认完整/详细套件需要通过 `npm run test --detail` 单独执行
+
+#### Scenario: 完整测试说明当前自动化边界
+
+- **WHEN** 开发者查看详细 LLM 测试说明或 OpenSpec change 文档
+- **THEN** 文档 MUST 说明详细套件覆盖 `LLM完整测试.md` 中的主要首页聊天能力域
+- **AND** 文档 MUST 说明详细套件首版不等于 `LLM完整测试.md` 的所有流程和人工 UI 验收项已经全部自动化
+- **AND** 文档 MUST 标出后续可继续补齐的方向，包括更真实的 HTTP/API runner、数据库 artifact 持久化链路和更细的语义断言
+
+#### Scenario: 报告结果必须带有套件语义
+
+- **WHEN** 任一手动 LLM 黑盒报告生成
+- **THEN** 报告 MUST 能区分基础套件和详细套件
+- **AND** 报告 MUST 让开发者看出该结果只代表最近一次运行
+- **AND** 报告 MUST 保留 token 预估和真实 token 汇总，便于判断真实模型成本

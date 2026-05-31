@@ -25,3 +25,9 @@
 - [x] 4.5 运行 `npm run typecheck`。
 - [x] 4.6 运行 `openspec validate add-detailed-llm-test-mode --strict`。
 - [x] 4.7 运行 `DEEPSEEK_API_KEY= npm run test --detail` 验证缺 key 详细套件跳过报告。
+
+## 5. 复审后文档补充
+
+- [x] 5.1 补充基础测试与完整/详细测试的边界，明确 `npm run test:llm` 只代表基础冒烟，`npm run test --detail` 才代表完整/详细回归。
+- [x] 5.2 补充详细套件首版覆盖边界，说明它覆盖 `LLM完整测试.md` 的主要能力域，但不等同于所有流程和人工 UI 验收项已经自动化。
+- [x] 5.3 记录后续改进方向：更贴近 `/api/chat` 的 HTTP/API runner、真实会话保存、数据库 artifact 索引读取、更细的语义断言和基于真实报告校准 token 预估。
