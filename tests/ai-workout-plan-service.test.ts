@@ -188,9 +188,12 @@ describe("AI workout plan orchestration boundaries", () => {
     expect(pushUpModelExercise).toMatchObject({
       exerciseId: "push-up",
       nameZh: "俯卧撑",
-      source: "primary",
-      score: expect.any(Number),
+      candidateSource: "primary",
+      matchingReasons: expect.arrayContaining([expect.any(String)]),
+      targetMusclesZh: expect.arrayContaining(["胸部"]),
     });
+    expect(pushUpModelExercise).not.toHaveProperty("score");
+    expect(pushUpModelExercise).not.toHaveProperty("source");
     expect(pushUpModelExercise).not.toHaveProperty("imageUrl");
     expect(pushUpModelExercise).not.toHaveProperty("imageUrls");
     expect(pushUpModelExercise).not.toHaveProperty("images");

@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import {
+  createCandidateTrimSummary,
+  createExerciseRecommendationBudgetDecision,
+} from "@/lib/server/ai/token-budget";
 import { startAiTrace } from "@/lib/server/dev/ai-trace-logger";
 import { generateAiExerciseRecommendations } from "@/lib/server/exercise-recommendations/ai-exercise-recommendation-service";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
@@ -98,8 +102,31 @@ export async function POST(request: Request) {
       exposureSources,
     });
     const finalCandidates = selectRecommendationCandidates(candidates);
+    const candidateTrim = createCandidateTrimSummary({
+      beforeCount: candidates.primaryCandidates.length + candidates.supplementaryCandidates.length,
+      afterCount: finalCandidates.length,
+      maxVisibleCount: 20,
+      reason: "动作推荐模型只接收排序后的 Top N 候选和白名单字段。",
+    });
+    const tokenBudgetDecision = createExerciseRecommendationBudgetDecision({
+      latestUserMessage: parsedRequest.data.latestUserMessage,
+      conversationSummary: parsedRequest.data.conversationSummary,
+      candidateTrim,
+    });
     const safetyNotes = candidates.warnings;
     const effectiveExcludeExerciseIds = candidates.recommendationTrace.excludedExerciseIds;
+
+    trace.addStep({
+      name: "Token 预算决策",
+      type: "token_budget",
+      output: tokenBudgetDecision,
+      metadata: {
+        aiStageStatus: "executed",
+        route: "/api/ai/exercise-recommendations",
+        promptModules: [...new Set(tokenBudgetDecision.stages.flatMap((stage) => stage.promptModules))],
+        candidateTrim,
+      },
+    });
 
     trace.addStep({
       name: "动作推荐候选筛选",
@@ -117,6 +144,9 @@ export async function POST(request: Request) {
         recommendationTrace: candidates.recommendationTrace,
       },
       metadata: {
+        aiStage: "exercise_candidate_selection",
+        aiStageStatus: "executed",
+        candidateTrim,
         primaryCandidateCount: candidates.primaryCandidates.length,
         supplementaryCandidateCount: candidates.supplementaryCandidates.length,
         excludedRecommendationCount: candidates.recommendationTrace.excludedExerciseIds.length,
@@ -145,6 +175,7 @@ export async function POST(request: Request) {
       candidates: finalCandidates,
       safetyNotes,
       excludeExerciseIds: effectiveExcludeExerciseIds,
+      tokenBudgetDecision,
       trace,
     });
 

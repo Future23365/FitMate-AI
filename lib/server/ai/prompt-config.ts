@@ -1,5 +1,7 @@
 import "server-only";
 
+import type { AiPromptModuleId } from "@/lib/server/ai/token-budget";
+
 // 每个顶层字段对应一次大模型调用，子字段只用于同一次调用内部的提示词拆分。
 export const aiPromptConfig = {
   // 模型调用：/api/chat 完成一轮回复后的自然语言上下文总结更新。
@@ -280,3 +282,42 @@ export const aiPromptConfig = {
     ],
   },
 } as const;
+
+// Prompt module registry 是 token budget 的可观测边界；模型请求只声明本轮实际启用的模块。
+export const aiPromptModuleRegistry: Record<AiPromptModuleId, string> = {
+  base_safety: [
+    "你是 FitMate AI，一个中文 AI 健身聊天助手。",
+    "不要提供医疗诊断或治疗建议；涉及疼痛、伤病或疾病时，只能给训练安全边界和就医提醒。",
+    "所有具体训练动作、训练计划和动作替换都必须遵守服务端提供的候选动作与结构化校验结果。",
+  ].join("\n"),
+  conversation_summary_context: [
+    "你只能根据 conversationSummary 和当前最新用户消息理解上下文；不要假设还能看到完整历史对话。",
+    "conversationSummary 是历史上下文唯一模型可见来源，当前最新 user message 优先级最高。",
+  ].join("\n"),
+  chat_intent_resolution: aiPromptConfig.chatIntentResolution.system,
+  chat_final_response: aiPromptConfig.chatCompletion.system,
+  exercise_candidate_constraints: aiPromptConfig.chatCompletion.exerciseContext,
+  reference_resolution_boundary: [
+    "如果本轮提供了 serverReferenceResolution，你必须把它当成唯一可信的历史引用解析结果。",
+    "不得根据 conversationSummary 或 recentConversationArtifacts 摘要自行编造 artifactId、完整训练内容或被修改对象。",
+  ].join("\n"),
+  user_feedback_memory: [
+    "如果本轮提供了 userFeedbackMemory，你必须把用户明确不喜欢、做不了、疼痛或限制作为当前动作选择边界。",
+  ].join("\n"),
+  exercise_recommendation_generation: aiPromptConfig.exerciseRecommendationGeneration.system,
+  workout_plan_intent_extraction: aiPromptConfig.workoutPlanIntentExtraction.system,
+  workout_plan_draft_base: aiPromptConfig.workoutPlanDraftGeneration.base.join("\n"),
+  workout_plan_draft_routine: aiPromptConfig.workoutPlanDraftGeneration.routine,
+  workout_plan_draft_plan: aiPromptConfig.workoutPlanDraftGeneration.plan,
+  workout_plan_draft_schema: aiPromptConfig.workoutPlanDraftGeneration.schema.join("\n"),
+  workout_plan_draft_repair: [
+    "你正在修复一个未通过服务端校验的训练草稿。",
+    "你必须只返回修复后的 JSON 对象，不要输出 Markdown，不要解释。",
+    "必须保留原始 kind，并继续只使用候选动作中的 exerciseId。",
+  ].join("\n"),
+  conversation_summary_update: aiPromptConfig.chatContextSummarization.system,
+};
+
+export function buildPromptFromModules(moduleIds: AiPromptModuleId[]) {
+  return moduleIds.map((moduleId) => aiPromptModuleRegistry[moduleId]).filter(Boolean).join("\n\n");
+}

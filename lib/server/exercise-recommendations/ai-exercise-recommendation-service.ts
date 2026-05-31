@@ -2,7 +2,11 @@ import "server-only";
 
 import { z } from "zod";
 
-import { aiPromptConfig } from "@/lib/server/ai/prompt-config";
+import { buildPromptFromModules } from "@/lib/server/ai/prompt-config";
+import {
+  getStageDecision,
+  type AiTokenBudgetDecision,
+} from "@/lib/server/ai/token-budget";
 import type { AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
 import { serverRequest } from "@/lib/server/http/server-request";
 import type { ExerciseCandidate } from "@/lib/server/workout-plans";
@@ -35,6 +39,7 @@ type GenerateAiExerciseRecommendationsRequest = {
   candidates: ExerciseCandidate[];
   safetyNotes: string[];
   excludeExerciseIds: string[];
+  tokenBudgetDecision?: AiTokenBudgetDecision;
   trace?: AiTraceLogger;
 };
 
@@ -83,7 +88,12 @@ export async function generateAiExerciseRecommendations(
   const messages: DeepSeekChatMessage[] = [
     {
       role: "system",
-      content: aiPromptConfig.exerciseRecommendationGeneration.system,
+      content: buildPromptFromModules([
+        "base_safety",
+        "conversation_summary_context",
+        "exercise_recommendation_generation",
+        "exercise_candidate_constraints",
+      ]),
     },
     {
       role: "user",
@@ -97,7 +107,12 @@ export async function generateAiExerciseRecommendations(
     },
   ];
 
-  const content = await requestDeepSeekRecommendationJson(request.apiKey, messages, request.trace);
+  const content = await requestDeepSeekRecommendationJson(
+    request.apiKey,
+    messages,
+    request.trace,
+    request.tokenBudgetDecision,
+  );
 
   if (!content.ok) {
     return content;
@@ -188,15 +203,13 @@ function toModelCandidateExercise(candidate: ExerciseCandidate) {
   return {
     exerciseId: exercise.id,
     nameZh: exercise.nameZh,
-    categoryZh: exercise.categoryZh,
+    targetMusclesZh: exercise.primaryMusclesZh,
+    equipmentOrLocation: exercise.equipmentZh,
     level: exercise.level,
-    equipmentZh: exercise.equipmentZh,
-    primaryMusclesZh: exercise.primaryMusclesZh,
-    secondaryMusclesZh: exercise.secondaryMusclesZh,
-    riskTags: exercise.riskTags,
-    goalTags: exercise.goalTags,
+    categoryZh: exercise.categoryZh,
+    matchingReasons: candidate.reasons.slice(0, 4),
+    necessaryRestrictions: exercise.riskTags,
     candidateSource: candidate.source,
-    candidateScore: candidate.score,
   };
 }
 
@@ -204,12 +217,14 @@ async function requestDeepSeekRecommendationJson(
   apiKey: string,
   messages: DeepSeekChatMessage[],
   trace?: AiTraceLogger,
+  tokenBudgetDecision?: AiTokenBudgetDecision,
 ): Promise<
   | { ok: true; content: string }
   | { ok: false; code: "ai_request_failed" | "empty_content"; message: string; detail?: unknown }
 > {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
+  const budgetStage = getStageDecision(tokenBudgetDecision, "exercise_recommendation_generation");
 
   try {
     trace?.addStep({
@@ -227,6 +242,11 @@ async function requestDeepSeekRecommendationJson(
         },
       },
       metadata: {
+        aiStage: "exercise_recommendation_generation",
+        aiStageStatus: "executed",
+        promptModules: budgetStage?.promptModules ?? ["exercise_recommendation_generation"],
+        tokenBudgetDecision,
+        candidateTrim: budgetStage?.candidateTrim,
         timeoutMs: requestTimeoutMs,
       },
     });

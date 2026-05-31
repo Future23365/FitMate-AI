@@ -2,7 +2,16 @@ import "server-only";
 
 import { z } from "zod";
 
-import { aiPromptConfig } from "@/lib/server/ai/prompt-config";
+import { aiPromptConfig, buildPromptFromModules } from "@/lib/server/ai/prompt-config";
+import {
+  createCandidateTrimSummary,
+  createChatTokenBudgetDecision,
+  getStageDecision,
+  shouldSkipConversationSummaryUpdate,
+  type AiPromptModuleId,
+  type AiTokenBudgetDecision,
+  type CandidateTrimSummary,
+} from "@/lib/server/ai/token-budget";
 import { updateConversationSummary } from "@/lib/server/chat/conversation-summary-service";
 import {
   formatRecentArtifactSummariesForPrompt,
@@ -154,12 +163,15 @@ export type ExerciseContext = {
     secondaryMusclesZh: string[];
     riskTags: string[];
     goalTags: string[];
+    matchingReasons?: string[];
+    necessaryRestrictions?: string[];
     source: "primary" | "supplementary" | "name_match";
   }>;
   candidateStatus: "enough" | "limited_but_usable" | "insufficient";
   relevantCandidateCount: number;
   requiredRelevantCandidateCount: number;
   warnings: string[];
+  candidateTrim?: CandidateTrimSummary;
 };
 
 const DEEPSEEK_REQUEST_TIMEOUT_MS = 45_000;
@@ -283,12 +295,29 @@ export async function createAiChatResponse({
   });
 
   if (referenceResolution?.status === "ambiguous" || referenceResolution?.status === "not_found") {
+    const assistantReply = buildReferenceResolutionReply(referenceResolution);
+    const tokenBudgetDecision = createChatTokenBudgetDecision({
+      intentType: chatIntent.type,
+      needsExerciseContext: false,
+      hasAssistantAction: false,
+      latestUserMessage: conversationSummaryContext.latestUserMessage,
+      conversationSummary: conversationSummaryContext.summary,
+      deterministicReplyReason: "引用解析需要用户澄清，服务端直接生成确定性回复。",
+      summarySkipReason: shouldSkipConversationSummaryUpdate({
+        previousSummary: conversationSummaryContext.summary,
+        latestUserMessage: conversationSummaryContext.latestUserMessage,
+        assistantReply,
+      }),
+    });
+    traceTokenBudgetDecision(trace, tokenBudgetDecision);
+
     return createDeterministicChatResponse({
       apiKey,
       trace,
       conversationSummaryContext,
-      assistantReply: buildReferenceResolutionReply(referenceResolution),
+      assistantReply,
       internalActionSummary: JSON.stringify({ referenceResolution }),
+      tokenBudgetDecision,
     });
   }
 
@@ -316,13 +345,31 @@ export async function createAiChatResponse({
     });
 
     if (patchResult.handled) {
+      const assistantReply = formatWorkoutPatchReply(patchResult.result);
+      const tokenBudgetDecision = createChatTokenBudgetDecision({
+        intentType: chatIntent.type,
+        needsExerciseContext: false,
+        hasAssistantAction: false,
+        latestUserMessage: conversationSummaryContext.latestUserMessage,
+        conversationSummary: conversationSummaryContext.summary,
+        deterministicReplyReason: "Workout Patch 链路已由服务端确定性回复完成。",
+        summarySkipReason: shouldSkipConversationSummaryUpdate({
+          previousSummary: conversationSummaryContext.summary,
+          latestUserMessage: conversationSummaryContext.latestUserMessage,
+          assistantReply,
+          internalActionSummary: JSON.stringify({ referenceResolution, workoutPatch: patchResult.result }),
+        }),
+      });
+      traceTokenBudgetDecision(trace, tokenBudgetDecision);
+
       return createDeterministicChatResponse({
         apiKey,
         trace,
         conversationSummaryContext,
-        assistantReply: formatWorkoutPatchReply(patchResult.result),
+        assistantReply,
         internalActionSummary: JSON.stringify({ referenceResolution, workoutPatch: patchResult.result }),
         workoutPatchResult: patchResult.result,
+        tokenBudgetDecision,
       });
     }
   }
@@ -364,6 +411,22 @@ export async function createAiChatResponse({
       skipped: !assistantAction,
     },
   });
+  const tokenBudgetDecision = createChatTokenBudgetDecision({
+    intentType: chatIntent.type,
+    needsExerciseContext: chatIntent.needsExerciseContext,
+    hasAssistantAction: Boolean(assistantAction),
+    latestUserMessage: conversationSummaryContext.latestUserMessage,
+    conversationSummary: conversationSummaryContext.summary,
+    candidateTrim: exerciseContext?.candidateTrim,
+    summarySkipReason: shouldSkipConversationSummaryUpdate({
+      previousSummary: conversationSummaryContext.summary,
+      latestUserMessage: conversationSummaryContext.latestUserMessage,
+      assistantReply: "",
+      internalActionSummary: summarizeAssistantAction(assistantAction),
+    }),
+  });
+  traceTokenBudgetDecision(trace, tokenBudgetDecision);
+
   const systemPrompt = buildSystemPrompt(
     chatIntent,
     exerciseContext,
@@ -372,7 +435,9 @@ export async function createAiChatResponse({
     recentArtifactSummaries,
     referenceResolution,
     memoryState,
+    tokenBudgetDecision,
   );
+  const finalResponseStage = getStageDecision(tokenBudgetDecision, "chat_final_response");
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DEEPSEEK_REQUEST_TIMEOUT_MS);
   let response: Response;
@@ -392,6 +457,11 @@ export async function createAiChatResponse({
       },
     },
     metadata: {
+      aiStage: "chat_final_response",
+      aiStageStatus: "executed",
+      promptModules: finalResponseStage?.promptModules ?? [],
+      tokenBudgetDecision,
+      candidateTrim: exerciseContext?.candidateTrim,
       intent: chatIntent.type,
       exerciseContextCount: exerciseContext?.providedExercises.length ?? 0,
       modelVisibleMessageCount: 2,
@@ -601,6 +671,7 @@ export async function createAiChatResponse({
                 assistantReply: contentText,
                 internalActionSummary: summarizeAssistantAction(assistantAction),
                 trace,
+                tokenBudgetDecision,
               });
               trace.addStep({
                 name: "聊天回复写入完成",
@@ -666,6 +737,7 @@ export async function createAiChatResponse({
           assistantReply: contentText,
           internalActionSummary: summarizeAssistantAction(assistantAction),
           trace,
+          tokenBudgetDecision,
         });
         trace.addStep({
           name: "聊天回复写入完成",
@@ -736,6 +808,7 @@ function createDeterministicChatResponse(input: {
   assistantReply: string;
   internalActionSummary?: string;
   workoutPatchResult?: WorkoutPatchResult;
+  tokenBudgetDecision: AiTokenBudgetDecision;
 }) {
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -766,6 +839,7 @@ function createDeterministicChatResponse(input: {
         latestUserMessage: input.conversationSummaryContext.latestUserMessage,
         assistantReply: input.assistantReply,
         internalActionSummary: input.internalActionSummary,
+        tokenBudgetDecision: input.tokenBudgetDecision,
         trace: input.trace,
       });
       input.trace.addStep({
@@ -815,12 +889,13 @@ async function resolveChatIntent(
   const fallbackIntent = createFallbackChatIntent(messages, internalConversationContext, conversationSummaryContext.summary);
   const contextPrompt = formatConversationSummaryContextForPrompt(conversationSummaryContext);
   const artifactPrompt = formatRecentArtifactSummariesForPrompt(recentArtifactSummaries);
+  const promptModules: AiPromptModuleId[] = ["base_safety", "conversation_summary_context", "chat_intent_resolution"];
 
   try {
     const modelMessages: DeepSeekChatMessage[] = [
       {
         role: "system",
-        content: [aiPromptConfig.chatIntentResolution.system, contextPrompt, artifactPrompt]
+        content: [buildPromptFromModules(promptModules), contextPrompt, artifactPrompt]
           .filter(Boolean)
           .join("\n\n"),
       },
@@ -836,6 +911,16 @@ async function resolveChatIntent(
         stream: false,
         response_format: {
           type: "json_object",
+        },
+      },
+      metadata: {
+        aiStage: "chat_intent_resolution",
+        aiStageStatus: "executed",
+        promptModules,
+        modelVisibleContext: {
+          usesConversationSummary: conversationSummaryContext.summary.trim().length > 0,
+          usesLatestUserMessage: true,
+          usesFullHistory: false,
         },
       },
     });
@@ -939,6 +1024,8 @@ async function buildExerciseContext(
       secondaryMusclesZh: exercise.secondaryMusclesZh,
       riskTags: exercise.riskTags,
       goalTags: exercise.goalTags,
+      matchingReasons: ["用户明确点名该动作。"],
+      necessaryRestrictions: exercise.riskTags,
       source: "name_match",
     });
   }
@@ -962,9 +1049,21 @@ async function buildExerciseContext(
       secondaryMusclesZh: candidate.exercise.secondaryMusclesZh,
       riskTags: candidate.exercise.riskTags,
       goalTags: candidate.exercise.goalTags,
+      matchingReasons: candidate.reasons.slice(0, 4),
+      necessaryRestrictions: candidate.exercise.riskTags,
       source: candidate.source,
     });
   }
+  const modelVisibleExercises = toModelVisibleChatExercises(providedExercises);
+  const candidateTrim = createCandidateTrimSummary({
+    beforeCount:
+      candidates.primaryCandidates.length +
+      candidates.supplementaryCandidates.length +
+      nameMatches.length,
+    afterCount: modelVisibleExercises.length,
+    maxVisibleCount: 20,
+    reason: "聊天回复只需要动作选择所需白名单字段，完整动作对象保留在服务端。",
+  });
 
   const exerciseContext = {
     intent: memoryAwareIntent,
@@ -973,6 +1072,7 @@ async function buildExerciseContext(
     relevantCandidateCount: candidates.relevantCandidateCount,
     requiredRelevantCandidateCount: candidates.requiredRelevantCandidateCount,
     warnings: candidates.warnings,
+    candidateTrim,
   };
 
   if (candidates.recommendationTrace.hybridSearch) {
@@ -1006,12 +1106,16 @@ async function buildExerciseContext(
     },
     output: {
       context: exerciseContext,
+      modelVisibleExercises,
       primaryCandidates: candidates.primaryCandidates.slice(0, 20),
       supplementaryCandidates: candidates.supplementaryCandidates.slice(0, 20),
       excluded: candidates.excluded.slice(0, 40),
       recommendationTrace: candidates.recommendationTrace,
     },
     metadata: {
+      aiStage: "exercise_candidate_selection",
+      aiStageStatus: "executed",
+      candidateTrim,
       primaryCandidateCount: candidates.primaryCandidates.length,
       supplementaryCandidateCount: candidates.supplementaryCandidates.length,
       excludedCount: candidates.excluded.length,
@@ -1176,6 +1280,39 @@ function summarizeAssistantAction(assistantAction: AssistantAction | null) {
   });
 }
 
+// 聊天回复 prompt 只暴露动作选择必要字段，完整动作对象继续留在服务端校验和下游生成链路。
+function toModelVisibleChatExercises(exercises: ExerciseContext["providedExercises"]) {
+  return exercises.map((exercise) => ({
+    exerciseId: exercise.exerciseId,
+    nameZh: exercise.nameZh,
+    targetMusclesZh: exercise.primaryMusclesZh,
+    equipmentOrLocation: exercise.equipmentZh,
+    level: exercise.level,
+    categoryZh: exercise.categoryZh,
+    matchingReasons: exercise.matchingReasons ?? [],
+    necessaryRestrictions: exercise.necessaryRestrictions ?? [],
+    candidateSource: exercise.source,
+  }));
+}
+
+function traceTokenBudgetDecision(trace: AiTraceLogger, decision: AiTokenBudgetDecision) {
+  trace.addStep({
+    name: "Token 预算决策",
+    type: "token_budget",
+    output: decision,
+    metadata: {
+      aiStageStatus: "executed",
+      route: decision.route,
+      intentType: decision.intentType,
+      skippedStages: decision.stages
+        .filter((stage) => stage.status === "skipped")
+        .map((stage) => ({ stage: stage.stage, reason: stage.skipReason })),
+      promptModules: [...new Set(decision.stages.flatMap((stage) => stage.promptModules))],
+      candidateTrim: decision.candidateTrim,
+    },
+  });
+}
+
 function buildSystemPrompt(
   chatIntent: ChatIntent,
   exerciseContext: ExerciseContext | null,
@@ -1184,18 +1321,23 @@ function buildSystemPrompt(
   recentArtifactSummaries: RecentArtifactSummary[],
   referenceResolution: ReferenceResolution | null = null,
   memoryState: ConversationMemoryState | null = null,
+  tokenBudgetDecision?: AiTokenBudgetDecision,
 ) {
   const contextPrompt = formatConversationSummaryContextForPrompt(conversationSummaryContext);
   const artifactPrompt = formatRecentArtifactSummariesForPrompt(recentArtifactSummaries);
   const referencePrompt = formatReferenceResolutionForPrompt(referenceResolution);
   const memoryPrompt = formatMemoryStateForPrompt(memoryState);
+  const promptModules = getStageDecision(tokenBudgetDecision, "chat_final_response")?.promptModules;
+  const basePrompt = promptModules?.length
+    ? buildPromptFromModules(promptModules)
+    : aiPromptConfig.chatCompletion.system;
 
   if (!exerciseContext) {
-    return [aiPromptConfig.chatCompletion.system, contextPrompt, artifactPrompt, referencePrompt, memoryPrompt].filter(Boolean).join("\n\n");
+    return [basePrompt, contextPrompt, artifactPrompt, referencePrompt, memoryPrompt].filter(Boolean).join("\n\n");
   }
 
   return [
-    aiPromptConfig.chatCompletion.system,
+    basePrompt,
     contextPrompt,
     "",
     artifactPrompt,
@@ -1203,8 +1345,6 @@ function buildSystemPrompt(
     referencePrompt,
     "",
     memoryPrompt,
-    "",
-    aiPromptConfig.chatCompletion.exerciseContext,
     "",
     "serverParsedIntent:",
     JSON.stringify(
@@ -1236,7 +1376,10 @@ function buildSystemPrompt(
     JSON.stringify(exerciseContext.intent, null, 2),
     "",
     "providedExercises:",
-    JSON.stringify(exerciseContext.providedExercises, null, 2),
+    JSON.stringify(toModelVisibleChatExercises(exerciseContext.providedExercises), null, 2),
+    "",
+    "candidateTrim:",
+    JSON.stringify(exerciseContext.candidateTrim, null, 2),
     "",
     "candidateState:",
     JSON.stringify(

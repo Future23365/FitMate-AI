@@ -1544,8 +1544,10 @@ function getPromptContentPreviewItems(value: Record<string, unknown>) {
   addPreviewItem(items, value, "recovery", "修复策略");
   addPreviewItem(items, value, "validation", "校验失败");
   addPreviewItem(items, value, "intent", "训练意图");
+  addPreviewItem(items, value, "candidateTrim", "候选裁剪");
 
   for (const key of [
+    "candidateExercises",
     "primaryExercises",
     "supplementaryExercises",
     "warmupExercises",
@@ -1585,6 +1587,7 @@ function addPreviewItem(
 
 function getPromptExercisePoolLabel(key: string) {
   const labels: Record<string, string> = {
+    candidateExercises: "模型可见候选动作",
     primaryExercises: "主候选动作",
     supplementaryExercises: "补充候选动作",
     warmupExercises: "热身候选动作",
@@ -1774,6 +1777,15 @@ function getStepGroupDefinition(step: AiTraceStep) {
       id: "01_user_input",
       title: "用户输入",
       description: "本次请求的消息、开关和接口入参",
+      placement: "main_flow" as const,
+    };
+  }
+
+  if (step.type === "token_budget") {
+    return {
+      id: "015_token_budget",
+      title: "Token 预算",
+      description: "记录本轮 AI 阶段是否执行、跳过原因、prompt module 和上下文裁剪摘要",
       placement: "main_flow" as const,
     };
   }
@@ -1995,6 +2007,23 @@ function getStepSummaryItems(step: AiTraceStep, tokenUsage: TokenUsage | null) {
     items.push({ label: "上下文动作", value: String(metadata.exerciseContextCount) });
   }
 
+  if (Array.isArray(metadata?.promptModules)) {
+    items.push({ label: "Prompt 模块", value: String(metadata.promptModules.length) });
+  }
+
+  if (Array.isArray(metadata?.skippedStages)) {
+    items.push({ label: "跳过阶段", value: String(metadata.skippedStages.length) });
+  }
+
+  if (isRecord(metadata?.candidateTrim)) {
+    const beforeCount = metadata.candidateTrim.beforeCount;
+    const afterCount = metadata.candidateTrim.afterCount;
+
+    if (typeof beforeCount === "number" && typeof afterCount === "number") {
+      items.push({ label: "候选裁剪", value: `${beforeCount} -> ${afterCount}` });
+    }
+  }
+
   if (output) {
     addRecordItem(items, output, "candidateStatus", "候选状态");
     addRecordItem(items, output, "relevantCandidateCount", "相关候选");
@@ -2122,6 +2151,36 @@ function getStepExplanationItems(step: AiTraceStep, tokenUsage: TokenUsage | nul
         value: `${input.aiContextMessages.length} 条`,
         description: "经过上下文选择后会进入 AI 判断链路的消息数量。",
       });
+    }
+  }
+
+  if (output && step.type === "token_budget") {
+    addKnownMetadataItem(items, output, "route", "接口路径", "本次预算决策对应的服务端入口。");
+    addKnownMetadataItem(items, output, "intentType", "意图类型", "预算层用于选择阶段和 prompt module 的意图类型。");
+    if (Array.isArray(output.stages)) {
+      const skippedStages = output.stages
+        .filter((stage) => isRecord(stage) && stage.status === "skipped")
+        .map((stage) => stringifyValue(isRecord(stage) ? stage.stage : stage));
+      items.push({
+        key: "stages",
+        label: "AI 阶段",
+        value: `${output.stages.length} 个`,
+        description: "本轮预算决策覆盖的 AI 阶段数量，包括执行、计划执行和跳过阶段。",
+      });
+      if (skippedStages.length > 0) {
+        items.push({
+          key: "stages.skipped",
+          label: "跳过阶段",
+          value: skippedStages.join("、"),
+          description: "经过预算决策明确跳过的阶段；这表示不是流程未命中，而是服务端主动省略该 LLM 调用。",
+        });
+      }
+    }
+    if (isRecord(output.candidateTrim)) {
+      addKnownMetadataItem(items, output.candidateTrim, "beforeCount", "裁剪前候选", "服务端筛选得到的候选动作数量。");
+      addKnownMetadataItem(items, output.candidateTrim, "afterCount", "模型可见候选", "真正进入模型 prompt 的候选动作数量。");
+      addKnownMetadataItem(items, output.candidateTrim, "visibleFields", "模型可见字段", "候选动作传给模型的字段白名单。");
+      addKnownMetadataItem(items, output.candidateTrim, "reason", "裁剪原因", "本轮裁剪候选数量和字段的服务端原因。");
     }
   }
 
@@ -2348,6 +2407,10 @@ function getStepInterpretation(step: AiTraceStep) {
 
   if (step.type === "response_write") {
     return "响应写入阶段记录最终输出给前端的摘要，以及上下文总结是否来自模型或 fallback。";
+  }
+
+  if (step.type === "token_budget") {
+    return "预算决策记录了本轮每个 AI 阶段的执行状态、跳过原因、prompt modules，以及候选动作裁剪摘要。";
   }
 
   if (step.type === "model_request") {
@@ -2778,6 +2841,7 @@ function getStepTask(step: AiTraceStep) {
 function getStepTypeLabel(type: AiTraceStep["type"]) {
   const labels: Record<AiTraceStep["type"], string> = {
     user_input: "用户输入",
+    token_budget: "Token 预算",
     model_request: "模型请求",
     model_response: "模型输出",
     intent: "意图",

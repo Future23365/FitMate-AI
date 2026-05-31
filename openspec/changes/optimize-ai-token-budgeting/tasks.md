@@ -1,32 +1,32 @@
 ## 1. 预算决策与上下文模型
 
-- [ ] 1.1 梳理现有聊天、动作推荐、训练计划和 summary 更新的 LLM 调用点，确认每个阶段当前输入、输出和 trace 事件
-- [ ] 1.2 新增 token budget 决策类型，表达阶段执行状态、跳过原因、prompt modules、模型可见上下文摘要和候选动作裁剪信息
-- [ ] 1.3 实现预算决策纯函数，覆盖普通问答、动作推荐、训练计划、澄清问题、确认/取消/换一批和 summary 更新场景
+- [x] 1.1 梳理现有聊天、动作推荐、训练计划和 summary 更新的 LLM 调用点，确认每个阶段当前输入、输出和 trace 事件
+- [x] 1.2 新增 token budget 决策类型，表达阶段执行状态、跳过原因、prompt modules、模型可见上下文摘要和候选动作裁剪信息
+- [x] 1.3 实现预算决策纯函数，覆盖普通问答、动作推荐、训练计划、澄清问题、确认/取消/换一批和 summary 更新场景
 
 ## 2. Prompt module 与模型输入裁剪
 
-- [ ] 2.1 将现有聊天和训练相关 prompt 整理为可组合的 prompt modules，并保留当前服务端安全边界和结构化输出约束
-- [ ] 2.2 将 `/api/chat` 编排改为根据预算决策选择 prompt modules，而不是每轮加载完整大 prompt
-- [ ] 2.3 定义候选动作模型可见字段白名单，保留 `exerciseId`、名称、目标肌群、器械或场地、难度、匹配原因和必要限制
-- [ ] 2.4 将动作推荐和训练计划生成的候选动作输入改为白名单 payload，并保留服务端完整数据用于校验和持久化
+- [x] 2.1 将现有聊天和训练相关 prompt 整理为可组合的 prompt modules，并保留当前服务端安全边界和结构化输出约束
+- [x] 2.2 将 `/api/chat` 编排改为根据预算决策选择 prompt modules，而不是每轮加载完整大 prompt
+- [x] 2.3 定义候选动作模型可见字段白名单，保留 `exerciseId`、名称、目标肌群、器械或场地、难度、匹配原因和必要限制
+- [x] 2.4 将动作推荐和训练计划生成的候选动作输入改为白名单 payload，并保留服务端完整数据用于校验和持久化
 
 ## 3. Summary 更新与跳过策略
 
-- [ ] 3.1 将 summary 读取、复用和更新接入预算决策，确保模型可见历史仍只来自 `conversationSummary`
-- [ ] 3.2 为无新长期事实的用户操作增加 summary 更新跳过路径，并记录跳过原因
-- [ ] 3.3 保留 summary 更新失败的确定性兜底，确保失败不阻断本轮用户可见回复
+- [x] 3.1 将 summary 读取、复用和更新接入预算决策，确保模型可见历史仍只来自 `conversationSummary`
+- [x] 3.2 为无新长期事实的用户操作增加 summary 更新跳过路径，并记录跳过原因
+- [x] 3.3 保留 summary 更新失败的确定性兜底，确保失败不阻断本轮用户可见回复
 
 ## 4. AI Trace 分账与开发者展示
 
-- [ ] 4.1 扩展 trace 事件结构，记录每个 AI 阶段的执行状态、跳过原因、模型名称、耗时、token usage 和 prompt modules
-- [ ] 4.2 在 trace 中记录候选动作裁剪前数量、裁剪后数量、模型可见字段摘要和裁剪原因
-- [ ] 4.3 更新 `/dev/ai-traces` 展示，按阶段显示 token 分账、跳过阶段和上下文裁剪摘要
+- [x] 4.1 扩展 trace 事件结构，记录每个 AI 阶段的执行状态、跳过原因、模型名称、耗时、token usage 和 prompt modules
+- [x] 4.2 在 trace 中记录候选动作裁剪前数量、裁剪后数量、模型可见字段摘要和裁剪原因
+- [x] 4.3 更新 `/dev/ai-traces` 展示，按阶段显示 token 分账、跳过阶段和上下文裁剪摘要
 
 ## 5. 质量边界与检查
 
-- [ ] 5.1 确认动作推荐和训练计划生成仍校验所有 `exerciseId` 来自服务端候选动作
-- [ ] 5.2 确认所有模型输出仍经过既有 Zod Schema 或 JSON Schema 校验
-- [ ] 5.3 运行 `npm run typecheck`
-- [ ] 5.4 如改动影响构建、路由或服务端/客户端模块边界，运行 `npm run build`
-- [ ] 5.5 不新增测试用例、测试 fixture 或真实 LLM 手测预算验收；本 change 不修改 `manual-llm-consistency-tests` 专用流程
+- [x] 5.1 确认动作推荐和训练计划生成仍校验所有 `exerciseId` 来自服务端候选动作
+- [x] 5.2 确认所有模型输出仍经过既有 Zod Schema 或 JSON Schema 校验
+- [x] 5.3 运行 `npm run typecheck`
+- [x] 5.4 如改动影响构建、路由或服务端/客户端模块边界，运行 `npm run build`
+- [x] 5.5 不新增测试用例、测试 fixture 或真实 LLM 手测预算验收；本 change 不修改 `manual-llm-consistency-tests` 专用流程

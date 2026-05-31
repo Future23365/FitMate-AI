@@ -9,6 +9,7 @@ export type AiRunFinalDecision = {
 
 export type AiTraceStepType =
   | "user_input"
+  | "token_budget"
   | "model_request"
   | "model_response"
   | "intent"

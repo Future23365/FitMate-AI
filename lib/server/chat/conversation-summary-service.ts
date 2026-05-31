@@ -3,6 +3,11 @@ import "server-only";
 import { z } from "zod";
 
 import { aiPromptConfig } from "@/lib/server/ai/prompt-config";
+import {
+  getStageDecision,
+  shouldSkipConversationSummaryUpdate,
+  type AiTokenBudgetDecision,
+} from "@/lib/server/ai/token-budget";
 import type { AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
 import { serverRequest } from "@/lib/server/http/server-request";
 import { conversationSummaryContextSchema } from "@/lib/shared/chat/fitness-conversation-context";
@@ -13,6 +18,7 @@ type SummaryUpdateInput = {
   latestUserMessage: string;
   assistantReply: string;
   internalActionSummary?: string;
+  tokenBudgetDecision?: AiTokenBudgetDecision;
   trace?: AiTraceLogger;
 };
 
@@ -34,16 +40,44 @@ const summaryModelOutputSchema = z.object({
 
 // Summary 更新是聊天长上下文的服务端边界；失败时必须兜底，不能影响用户可见回复。
 export async function updateConversationSummary(input: SummaryUpdateInput) {
-  const fallbackSummary = buildFallbackConversationSummary(input);
   const payload = {
     previousSummary: input.previousSummary,
     latestUserMessage: input.latestUserMessage,
     assistantReply: input.assistantReply,
     internalActionSummary: input.internalActionSummary ?? "",
   };
+  const budgetStage = getStageDecision(input.tokenBudgetDecision, "conversation_summary_update");
+  const skipReason = budgetStage?.skipReason ?? shouldSkipConversationSummaryUpdate(input);
+
+  if (skipReason) {
+    input.trace?.addStep({
+      name: "聊天上下文总结更新跳过",
+      type: "token_budget",
+      input: payload,
+      output: {
+        summary: input.previousSummary,
+        source: "skipped",
+        skipReason,
+      },
+      metadata: {
+        aiStage: "conversation_summary_update",
+        aiStageStatus: "skipped",
+        skipReason,
+        promptModules: budgetStage?.promptModules ?? [],
+      },
+    });
+
+    return {
+      summary: input.previousSummary,
+      source: "skipped" as const,
+      skipReason,
+    };
+  }
+
+  const fallbackSummary = buildFallbackConversationSummary(input);
 
   try {
-    const result = await requestSummaryModel(input.apiKey, payload, input.trace);
+    const result = await requestSummaryModel(input.apiKey, payload, input.trace, input.tokenBudgetDecision);
 
     if (!result.ok) {
       input.trace?.addStep({
@@ -119,6 +153,7 @@ async function requestSummaryModel(
     internalActionSummary: string;
   },
   trace?: AiTraceLogger,
+  tokenBudgetDecision?: AiTokenBudgetDecision,
 ):
   Promise<
     | { ok: true; summary: string; metadata: Record<string, unknown> }
@@ -126,6 +161,7 @@ async function requestSummaryModel(
   > {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
+  const budgetStage = getStageDecision(tokenBudgetDecision, "conversation_summary_update");
   const messages = [
     {
       role: "system" as const,
@@ -149,6 +185,9 @@ async function requestSummaryModel(
       },
     },
     metadata: {
+      aiStage: "conversation_summary_update",
+      aiStageStatus: "executed",
+      promptModules: budgetStage?.promptModules ?? ["conversation_summary_update"],
       timeoutMs: requestTimeoutMs,
       previousSummaryLength: payload.previousSummary.length,
       latestUserMessageLength: payload.latestUserMessage.length,

@@ -1,6 +1,13 @@
 import { z } from "zod";
 
-import { aiPromptConfig } from "@/lib/server/ai/prompt-config";
+import { buildPromptFromModules } from "@/lib/server/ai/prompt-config";
+import {
+  createCandidateTrimSummary,
+  createWorkoutPlanBudgetDecision,
+  getStageDecision,
+  type AiPromptModuleId,
+  type AiTokenBudgetDecision,
+} from "@/lib/server/ai/token-budget";
 import { getArtifactPayloadForCurrentUser } from "@/lib/server/conversation-artifacts/artifact-service";
 import type { AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
@@ -148,6 +155,12 @@ export async function generateAiWorkoutPlanDraft(
     summary: request.conversationSummary,
     latestUserMessage: request.latestUserMessage,
   });
+  let tokenBudgetDecision = createWorkoutPlanBudgetDecision({
+    latestUserMessage: conversationSummaryContext.latestUserMessage,
+    conversationSummary: conversationSummaryContext.summary,
+    intentType: request.intent?.intentType,
+    hasClientIntent: Boolean(request.intent),
+  });
 
   if (!apiKey) {
     return {
@@ -157,9 +170,11 @@ export async function generateAiWorkoutPlanDraft(
     };
   }
 
+  traceWorkoutPlanTokenBudget(trace, tokenBudgetDecision);
+
   const intentResult = request.intent
     ? { ok: true as const, intent: request.intent }
-    : await extractWorkoutPlanIntent(conversationSummaryContext, apiKey, trace);
+    : await extractWorkoutPlanIntent(conversationSummaryContext, apiKey, trace, tokenBudgetDecision);
 
   if (!intentResult.ok) {
     trace?.addStep({
@@ -182,6 +197,21 @@ export async function generateAiWorkoutPlanDraft(
   const candidates = selectExerciseCandidates(intentResult.intent, exercises, {
     hybridQuery: request.latestUserMessage,
   });
+  const candidateTrim = createCandidateTrimSummary({
+    beforeCount: candidates.primaryCandidates.length + candidates.supplementaryCandidates.length,
+    afterCount: Math.min(maxModelCandidates, candidates.primaryCandidates.length) +
+      Math.min(maxModelCandidates, candidates.supplementaryCandidates.length),
+    maxVisibleCount: maxModelCandidates,
+    reason: "训练计划生成按候选池裁剪为模型可见 Top N，并只保留编排必要字段。",
+  });
+  tokenBudgetDecision = createWorkoutPlanBudgetDecision({
+    latestUserMessage: conversationSummaryContext.latestUserMessage,
+    conversationSummary: conversationSummaryContext.summary,
+    intentType: intentResult.intent.intentType,
+    hasClientIntent: Boolean(request.intent),
+    candidateTrim,
+  });
+  traceWorkoutPlanTokenBudget(trace, tokenBudgetDecision);
   if (candidates.recommendationTrace.hybridSearch) {
     trace?.addStep({
       name: "训练计划动作 Hybrid Search 检索",
@@ -226,6 +256,9 @@ export async function generateAiWorkoutPlanDraft(
       excluded: candidates.excluded.slice(0, 80),
     },
     metadata: {
+      aiStage: "exercise_candidate_selection",
+      aiStageStatus: "executed",
+      candidateTrim,
       primaryCandidateCount: candidates.primaryCandidates.length,
       supplementaryCandidateCount: candidates.supplementaryCandidates.length,
       excludedCount: candidates.excluded.length,
@@ -263,6 +296,7 @@ export async function generateAiWorkoutPlanDraft(
     candidates,
     apiKey,
     trace,
+    tokenBudgetDecision,
   );
 
   if (!draftResult.ok) {
@@ -314,6 +348,16 @@ export async function generateAiWorkoutPlanDraft(
       output: initialRecovery,
     });
 
+    const repairBudgetDecision = createWorkoutPlanBudgetDecision({
+      latestUserMessage: conversationSummaryContext.latestUserMessage,
+      conversationSummary: conversationSummaryContext.summary,
+      intentType: intentResult.intent.intentType,
+      hasClientIntent: Boolean(request.intent),
+      candidateTrim,
+      needsRepair: true,
+    });
+    traceWorkoutPlanTokenBudget(trace, repairBudgetDecision);
+
     const repairResult = await repairWorkoutPlanDraft(
       conversationSummaryContext,
       intentResult.intent,
@@ -322,6 +366,7 @@ export async function generateAiWorkoutPlanDraft(
       validation,
       apiKey,
       trace,
+      repairBudgetDecision,
     );
 
     if (repairResult.ok) {
@@ -574,6 +619,35 @@ function summarizePlanCycle(draft: WorkoutPlanDraft) {
   };
 }
 
+function traceWorkoutPlanTokenBudget(trace: AiTraceLogger | undefined, decision: AiTokenBudgetDecision) {
+  trace?.addStep({
+    name: "Token 预算决策",
+    type: "token_budget",
+    output: decision,
+    metadata: {
+      aiStageStatus: "executed",
+      route: decision.route,
+      intentType: decision.intentType,
+      skippedStages: decision.stages
+        .filter((stage) => stage.status === "skipped")
+        .map((stage) => ({ stage: stage.stage, reason: stage.skipReason })),
+      promptModules: [...new Set(decision.stages.flatMap((stage) => stage.promptModules))],
+      candidateTrim: decision.candidateTrim,
+    },
+  });
+}
+
+function resolveWorkoutPlanBudgetStage(taskName: string, decision?: AiTokenBudgetDecision) {
+  const stageName =
+    taskName === "intent_extraction"
+      ? "workout_plan_intent_extraction"
+      : taskName === "draft_repair"
+        ? "workout_plan_draft_repair"
+        : "workout_plan_draft_generation";
+
+  return getStageDecision(decision, stageName);
+}
+
 function validateGeneratedWorkoutDraft(
   draft: WorkoutPlanDraft | WorkoutRoutineDraft,
   intent: WorkoutPlanIntent,
@@ -640,6 +714,7 @@ async function extractWorkoutPlanIntent(
   conversationSummaryContext: ConversationSummaryContext,
   apiKey: string,
   trace?: AiTraceLogger,
+  tokenBudgetDecision?: AiTokenBudgetDecision,
 ): Promise<
   | { ok: true; intent: WorkoutPlanIntent }
   | {
@@ -653,7 +728,7 @@ async function extractWorkoutPlanIntent(
     {
       role: "system",
       content: [
-        aiPromptConfig.workoutPlanIntentExtraction.system,
+        buildPromptFromModules(["base_safety", "conversation_summary_context", "workout_plan_intent_extraction"]),
         formatConversationSummaryContextForPrompt(conversationSummaryContext),
       ]
         .filter(Boolean)
@@ -665,7 +740,7 @@ async function extractWorkoutPlanIntent(
     },
   ];
 
-  const content = await requestDeepSeekJson("intent_extraction", apiKey, modelMessages, trace);
+  const content = await requestDeepSeekJson("intent_extraction", apiKey, modelMessages, trace, tokenBudgetDecision);
 
   if (!content.ok) {
     return content;
@@ -700,18 +775,21 @@ async function generateWorkoutPlanDraft(
   candidates: ExerciseCandidateResult,
   apiKey: string,
   trace?: AiTraceLogger,
+  tokenBudgetDecision?: AiTokenBudgetDecision,
 ): Promise<WorkoutDraftGenerationResult> {
   const exercisePayload = buildExercisePromptPayload(candidates);
+  const promptModules: AiPromptModuleId[] = [
+    "base_safety",
+    "conversation_summary_context",
+    "workout_plan_draft_base",
+    intent.intentType === "routine" ? "workout_plan_draft_routine" : "workout_plan_draft_plan",
+    "workout_plan_draft_schema",
+    "exercise_candidate_constraints",
+  ];
   const modelMessages: DeepSeekChatMessage[] = [
     {
       role: "system",
-      content: [
-        ...aiPromptConfig.workoutPlanDraftGeneration.base,
-        intent.intentType === "routine"
-          ? aiPromptConfig.workoutPlanDraftGeneration.routine
-          : aiPromptConfig.workoutPlanDraftGeneration.plan,
-        ...aiPromptConfig.workoutPlanDraftGeneration.schema,
-      ].join("\n"),
+      content: buildPromptFromModules(promptModules),
     },
     {
       role: "user",
@@ -728,7 +806,7 @@ async function generateWorkoutPlanDraft(
     },
   ];
 
-  const content = await requestDeepSeekJson("draft_generation", apiKey, modelMessages, trace);
+  const content = await requestDeepSeekJson("draft_generation", apiKey, modelMessages, trace, tokenBudgetDecision);
 
   if (!content.ok) {
     return content;
@@ -779,6 +857,7 @@ async function repairWorkoutPlanDraft(
   validation: WorkoutPlanValidationResult,
   apiKey: string,
   trace?: AiTraceLogger,
+  tokenBudgetDecision?: AiTokenBudgetDecision,
 ): Promise<WorkoutDraftGenerationResult> {
   const exercisePayload = buildExercisePromptPayload(candidates);
   const recovery = classifyWorkoutPlanValidationFailure(validation, {
@@ -788,11 +867,15 @@ async function repairWorkoutPlanDraft(
     {
       role: "system",
       content: [
-        ...aiPromptConfig.workoutPlanDraftGeneration.base,
-        intent.intentType === "routine"
-          ? aiPromptConfig.workoutPlanDraftGeneration.routine
-          : aiPromptConfig.workoutPlanDraftGeneration.plan,
-        ...aiPromptConfig.workoutPlanDraftGeneration.schema,
+        buildPromptFromModules([
+          "base_safety",
+          "conversation_summary_context",
+          "workout_plan_draft_base",
+          intent.intentType === "routine" ? "workout_plan_draft_routine" : "workout_plan_draft_plan",
+          "workout_plan_draft_schema",
+          "exercise_candidate_constraints",
+          "workout_plan_draft_repair",
+        ]),
         "你正在修复一个未通过服务端校验的训练草稿。",
         "你必须只返回修复后的 JSON 对象，不要输出 Markdown，不要解释。",
         "必须保留原始 kind，并继续只使用候选动作中的 exerciseId。",
@@ -833,7 +916,7 @@ async function repairWorkoutPlanDraft(
     },
   });
 
-  const content = await requestDeepSeekJson("draft_repair", apiKey, modelMessages, trace);
+  const content = await requestDeepSeekJson("draft_repair", apiKey, modelMessages, trace, tokenBudgetDecision);
 
   if (!content.ok) {
     return content;
@@ -894,18 +977,17 @@ function buildExercisePromptPayload(candidates: ExerciseCandidateResult) {
 }
 
 // 模型候选摘要保留动作选择和安全边界字段，避免把 UI 展示字段混进 prompt。
-function toModelExerciseSummary({ exercise, score, source }: ExerciseCandidate) {
+function toModelExerciseSummary({ exercise, source, reasons }: ExerciseCandidate) {
   return {
     exerciseId: exercise.id,
     nameZh: exercise.nameZh,
-    categoryZh: exercise.categoryZh,
+    targetMusclesZh: exercise.primaryMusclesZh,
+    equipmentOrLocation: exercise.equipmentZh,
     level: exercise.level,
-    equipmentZh: exercise.equipmentZh,
-    primaryMusclesZh: exercise.primaryMusclesZh,
-    riskTags: exercise.riskTags,
-    goalTags: exercise.goalTags,
-    source,
-    score,
+    categoryZh: exercise.categoryZh,
+    matchingReasons: reasons.slice(0, 4),
+    necessaryRestrictions: exercise.riskTags,
+    candidateSource: source,
   };
 }
 
@@ -914,12 +996,14 @@ async function requestDeepSeekJson(
   apiKey: string,
   messages: DeepSeekChatMessage[],
   trace?: AiTraceLogger,
+  tokenBudgetDecision?: AiTokenBudgetDecision,
 ): Promise<
   | { ok: true; content: string }
   | { ok: false; code: "ai_request_failed"; message: string; detail?: unknown }
 > {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), deepSeekRequestTimeoutMs);
+  const budgetStage = resolveWorkoutPlanBudgetStage(taskName, tokenBudgetDecision);
 
   try {
     trace?.addStep({
@@ -934,6 +1018,11 @@ async function requestDeepSeekJson(
         },
       },
       metadata: {
+        aiStage: budgetStage?.stage,
+        aiStageStatus: "executed",
+        promptModules: budgetStage?.promptModules ?? [],
+        tokenBudgetDecision,
+        candidateTrim: budgetStage?.candidateTrim,
         task: taskName,
         timeoutMs: deepSeekRequestTimeoutMs,
       },

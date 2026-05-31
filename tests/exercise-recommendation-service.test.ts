@@ -85,7 +85,8 @@ describe("AI exercise recommendation generation", () => {
         exerciseId: "push-up",
         nameZh: "俯卧撑",
         candidateSource: "primary",
-        candidateScore: 10,
+        matchingReasons: ["目标匹配"],
+        targetMusclesZh: ["胸部"],
       }),
     ]);
     expect(modelPayload.candidateExercises[0]).not.toHaveProperty("imageUrl");
@@ -94,6 +95,7 @@ describe("AI exercise recommendation generation", () => {
     expect(modelPayload.candidateExercises[0]).not.toHaveProperty("nameEn");
     expect(modelPayload.candidateExercises[0]).not.toHaveProperty("levelZh");
     expect(modelPayload.candidateExercises[0]).not.toHaveProperty("candidateReasons");
+    expect(modelPayload.candidateExercises[0]).not.toHaveProperty("candidateScore");
     expect(result.ok && result.card.items[0].imageUrl).toBe("/push-up.png");
   });
 });
