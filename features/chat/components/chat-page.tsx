@@ -75,20 +75,18 @@ function MarkdownContent({ content }: { content: string }) {
   );
 }
 
-function ChatThinkingIndicator({ isThinking }: { isThinking: boolean }) {
-  const icon = isThinking ? "psychology" : "chat_bubble";
-  const label = isThinking ? "正在思考" : "正在回复";
-  const toneClass = isThinking
+function ChatThinkingIndicator({ showThinkingIcon }: { showThinkingIcon: boolean }) {
+  const toneClass = showThinkingIcon
     ? "rounded-xl border border-primary/15 bg-primary-soft/70 px-md py-sm text-primary"
     : "px-xs py-[2px] text-muted";
-  const dotClass = isThinking ? "bg-primary" : "bg-outline-variant";
+  const dotClass = showThinkingIcon ? "bg-primary" : "bg-outline-variant";
 
   return (
     <div className={`flex items-center gap-sm ${toneClass}`}>
-      <SymbolIcon className={`${isThinking ? "animate-pulse" : ""} text-[18px]`}>
-        {icon}
-      </SymbolIcon>
-      <span className="font-body-md text-body-md">{label}</span>
+      {showThinkingIcon ? (
+        <SymbolIcon className="animate-pulse text-[18px]">psychology</SymbolIcon>
+      ) : null}
+      <span className="font-body-md text-body-md">正在思考</span>
       <span className="flex items-center gap-[3px]" aria-hidden="true">
         <span className={`h-1.5 w-1.5 animate-bounce rounded-full ${dotClass} [animation-delay:-0.2s]`} />
         <span className={`h-1.5 w-1.5 animate-bounce rounded-full ${dotClass} [animation-delay:-0.1s]`} />
@@ -401,7 +399,7 @@ export function ChatPage() {
                                     <MarkdownContent content={cleanContent} />
                                   </div>
                                 ) : (
-                                  <ChatThinkingIndicator isThinking={message.isReasoning === true} />
+                                  <ChatThinkingIndicator showThinkingIcon={thinkingEnabled || message.isReasoning === true} />
                                 )}
 
                                 {suggestedReplies.length > 0 && (
