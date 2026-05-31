@@ -4,8 +4,9 @@
 
 ## What Changes
 
-- 将详细 LLM 黑盒 runner 调整为更贴近真实首页 `/api/chat` 请求链路，而不是只在进程内直接调用聊天编排函数。
-- 在多轮流程中模拟真实会话保存和后续读取，使引用、修改和动作讲解类用例依赖真实 conversation artifact / artifact index，而不是手工伪造 `recentArtifactSummaries`。
+- 将详细 LLM 黑盒 runner 调整为真实首页请求形态，覆盖 `/api/chat` 请求、NDJSON stream 消费、会话保存和后续读取，而不是只在进程内直接调用聊天编排函数。
+- 在多轮流程中通过真实会话保存链路写入并读取 conversation artifact / artifact index，使引用、修改和动作讲解类用例不再依赖手工伪造 `recentArtifactSummaries`。
+- 增加测试专用用户、会话隔离和数据库 preflight，确保详细套件能明确区分环境缺失、鉴权失败、会话保存失败和真实语义回归。
 - 为完整/详细测试增加分级断言：保留卡片类型断言，同时对引用成功、动作讲解、条件覆盖、排除动作、安全边界和拒答恢复等关键语义目标做可维护校验。
 - 补齐 `LLM完整测试.md` 中未落入详细 fixture 的高价值流程，优先覆盖长期计划变化、多轮上下文、引用修改、安全边界和异常恢复。
 - 校准基础套件和完整/详细套件 token 预估，使运行前成本提示基于最近真实报告或可解释的统计口径。
@@ -25,5 +26,5 @@
 
 - 影响 `manual-tests/llm/**` 中的 runner、fixtures、assertions、report 生成和本地非真实模型测试。
 - 影响 `scripts/run-manual-llm-tests.mjs` 的 token 预估、报告路径摘要和详细模式输出。
-- 影响 `docs/manual-llm-consistency-tests.md`、`LLM完整测试.md` 或相关方案变更历史文档。
+- 影响 `docs/manual-llm-consistency-tests.md`、`LLM完整测试.md`、`docs/方案变更历史/**` 和 `docs/项目演变历程.md` 中的测试体系说明。
 - 可能需要新增测试专用的本地会话/用户隔离工具，但不改变生产 API 契约、数据库 schema 或默认 `npm run test` 的普通测试范围。

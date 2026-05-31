@@ -9,14 +9,22 @@
 - **WHEN** 开发者执行完整/详细 LLM 黑盒测试
 - **THEN** 系统 MUST 使用与首页聊天一致的请求字段执行每轮聊天
 - **AND** 每轮 MUST 使用 `conversationId`、`responseMessageId`、`latestUserMessage`、`conversationSummary` 和 `thinkingEnabled` 构造请求
+- **AND** 每轮 MUST 通过测试专用 current user 触发与首页一致的鉴权边界
 - **AND** 测试 MUST NOT 依赖手工注入完整历史 `conversationContext` 来通过真实页面无法通过的用例
 
 #### Scenario: 同一流程内保存并延续会话状态
 
 - **WHEN** 完整/详细 LLM 黑盒流程完成任一非失败轮次
-- **THEN** 系统 MUST 保存该轮产生的用户消息、assistant 回复、conversation summary 和可见训练卡片
+- **THEN** 系统 MUST 通过会话保存边界保存该轮产生的用户消息、assistant 回复、conversation summary、conversation context 和可见训练卡片
 - **AND** 后续轮次 MUST 基于保存后的同一 `conversationId` 继续执行
 - **AND** 不同流程用例之间 MUST 使用互相隔离的新会话
+
+#### Scenario: 环境 preflight 不满足时明确跳过或失败
+
+- **WHEN** 完整/详细 LLM 黑盒测试启动
+- **THEN** 系统 MUST 检查真实模型 key、测试用户、数据库连接、必要 migration、`ConversationArtifact` / `ArtifactIndex` 表和基础 seed 数据是否满足详细套件运行条件
+- **AND** 缺少真实模型 key 时 MUST 生成真实模型跳过摘要
+- **AND** 数据库或 schema 不满足时 MUST 生成环境失败或跳过摘要，且不得改用 mock、旧快照或手工 recent artifact
 
 ### Requirement: 引用类详细用例必须验证真实 artifact 链路
 
@@ -28,6 +36,13 @@
 - **THEN** 系统 MUST 通过会话保存链路写入对应的 conversation artifact
 - **AND** 后续轮次 MUST 能通过当前会话读取 recent artifact summary
 - **AND** 报告 MUST 记录该轮是否成功产生可引用 artifact
+
+#### Scenario: artifact 读取遵守测试用户隔离
+
+- **WHEN** 完整/详细 LLM 流程进入后续引用轮次
+- **THEN** 系统 MUST 只读取当前测试用户和当前会话可访问的 recent artifact
+- **AND** 不同流程用例之间 MUST NOT 共享 recent artifact summary 或 payload
+- **AND** 报告 MUST 能定位当前轮使用的 `conversationId` 和 artifact 诊断摘要
 
 #### Scenario: 序号动作讲解读取真实 payload
 
@@ -53,6 +68,14 @@
 - **THEN** 系统 MUST 继续执行语义断言
 - **AND** 语义断言失败时该轮 MUST 记录为 failed
 - **AND** 报告 MUST 同时显示卡片类型断言状态和语义断言状态
+
+#### Scenario: 最终状态和失败等级映射稳定
+
+- **WHEN** 完整/详细 LLM 测试汇总每轮结果
+- **THEN** 系统 MUST 使用 `passed`、`failed`、`skipped`、`needs_review` 之一作为最终状态
+- **AND** P0、P1、P2 自动断言失败 MUST 记录为 `failed`
+- **AND** 缺少模型 key、preflight 不满足或前序轮次失败导致未执行 MUST 记录为 `skipped`
+- **AND** 仅内容质量或自动断言无法稳定判断的 P3 问题 MAY 记录为 `needs_review`，且不得计入通过
 
 #### Scenario: 条件覆盖语义被校验
 
@@ -112,3 +135,10 @@
 - **THEN** 预估 MUST 使用可解释口径
 - **AND** 如果存在最近一次真实运行报告，预估 MUST 基于该报告的真实 token 均值或总量校准
 - **AND** 报告 MUST 同时记录预计 token、真实 token 和偏差摘要
+
+#### Scenario: token 预估在缺少真实报告时使用 fallback
+
+- **WHEN** 系统没有可用真实运行报告、最近报告是跳过报告或报告字段缺失
+- **THEN** 预估 MUST 基于 fixture 数量、轮次数和保守均值生成
+- **AND** 报告 MUST 标明本次 token 预估来源为 fallback
+- **AND** 系统 MUST NOT 把跳过报告的 `total_tokens=0` 当成真实成本均值
