@@ -12,6 +12,7 @@ import {
   getReferencedExerciseOrdinalIndex,
   isOrdinalExerciseExplanationMessage,
   normalizeChatIntentForBlackboxFlows,
+  parseChatIntentModelOutput,
   parseJsonObject,
   prepareAiChatRequest,
   resolveReferencedExerciseIdFromArtifactPayload,
@@ -158,6 +159,147 @@ describe("AI chat service deterministic boundaries", () => {
       ),
     ).toEqual(["我今天在家自重练 30 分钟"]);
     expect(resolveVisibleSuggestedReplies({ ...chatIntent, suggestedReplies: ["补充信息"] }, routineAction)).toEqual([]);
+  });
+
+  it("preserves suggested replies when a greeting intent returns workoutIntent null", () => {
+    const fallbackIntent = createFallbackChatIntent(
+      [{ role: "user", content: "你好" }],
+      createEmptyConversationContext(),
+    );
+    const parsed = parseChatIntentModelOutput(
+      {
+        type: "general_fitness_advice",
+        needsExerciseContext: false,
+        workoutIntent: null,
+        requestedExerciseName: "",
+        canTriggerAction: false,
+        missingActionFields: ["goal", "equipmentOrLocation"],
+        responseMode: "ask_clarification",
+        suggestedReplies: [
+          "我想减脂，在家自重练，每周3次每次30分钟",
+          "我想增肌，有健身房器械，每周4次",
+        ],
+        action: {
+          kind: "none",
+          shouldTrigger: false,
+          blockingMissingFields: ["goal", "equipmentOrLocation"],
+        },
+      },
+      fallbackIntent,
+    );
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) {
+      return;
+    }
+
+    expect(parsed.intent.workoutIntent).toBeUndefined();
+    expect(parsed.diagnostics.normalizedWorkoutIntentNull).toBe(true);
+    expect(parsed.intent.suggestedReplies).toEqual([
+      "我想减脂，在家自重练，每周3次每次30分钟",
+      "我想增肌，有健身房器械，每周4次",
+    ]);
+    expect(resolveAssistantAction(parsed.intent, null)).toBeNull();
+    expect(resolveVisibleSuggestedReplies(parsed.intent, null)).toEqual(parsed.intent.suggestedReplies);
+
+    const streamEvent = new TextDecoder().decode(
+      encodeChatStreamEvent("suggested_replies", "", {
+        suggestedReplies: resolveVisibleSuggestedReplies(parsed.intent, null),
+      }),
+    );
+    expect(streamEvent).toContain("\"type\":\"suggested_replies\"");
+    expect(streamEvent).toContain("我想减脂，在家自重练，每周3次每次30分钟");
+  });
+
+  it("blocks executable intents when workoutIntent is missing or invalid", () => {
+    const fallbackIntent = createFallbackChatIntent(
+      [{ role: "user", content: "给我安排一套训练" }],
+      createEmptyConversationContext(),
+    );
+    const parsed = parseChatIntentModelOutput(
+      {
+        type: "routine",
+        needsExerciseContext: true,
+        workoutIntent: null,
+        requestedExerciseName: "",
+        canTriggerAction: true,
+        missingActionFields: [],
+        responseMode: "generate_directly",
+        suggestedReplies: ["我在家自重练 30 分钟"],
+        action: {
+          kind: "workout_routine",
+          shouldTrigger: true,
+          blockingMissingFields: [],
+        },
+      },
+      fallbackIntent,
+    );
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) {
+      return;
+    }
+
+    expect(parsed.intent.canTriggerAction).toBe(false);
+    expect(parsed.intent.needsExerciseContext).toBe(false);
+    expect(parsed.intent.missingActionFields).toContain("workoutIntent");
+    expect(parsed.diagnostics.executionBlockedReason).toBe("executable_intent_missing_valid_workoutIntent");
+    expect(resolveAssistantAction(parsed.intent, createExerciseContext())).toBeNull();
+    expect(resolveVisibleSuggestedReplies(parsed.intent, null)).toEqual(["我在家自重练 30 分钟"]);
+  });
+
+  it("filters invalid structured suggested replies without deriving buttons from body text", () => {
+    const fallbackIntent = createFallbackChatIntent(
+      [{ role: "user", content: "你好" }],
+      createEmptyConversationContext(),
+    );
+    const parsed = parseChatIntentModelOutput(
+      {
+        type: "general_fitness_advice",
+        needsExerciseContext: false,
+        workoutIntent: null,
+        requestedExerciseName: "",
+        canTriggerAction: false,
+        missingActionFields: [],
+        responseMode: "answer_only",
+        suggestedReplies: [
+          "",
+          "这次大概多久？",
+          123,
+          "我想先在家自重练 20 分钟",
+          "x".repeat(121),
+        ],
+      },
+      fallbackIntent,
+    );
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) {
+      return;
+    }
+
+    expect(parsed.intent.suggestedReplies).toEqual(["我想先在家自重练 20 分钟"]);
+    expect(parsed.diagnostics.suggestedReplies.droppedCount).toBe(4);
+    expect(resolveAssistantAction(parsed.intent, null)).toBeNull();
+
+    const bodyOnlyIntent = parseChatIntentModelOutput(
+      {
+        type: "general_fitness_advice",
+        needsExerciseContext: false,
+        workoutIntent: null,
+        requestedExerciseName: "",
+        canTriggerAction: false,
+        missingActionFields: [],
+        responseMode: "answer_only",
+        suggestedReplies: [],
+      },
+      fallbackIntent,
+    );
+    expect(bodyOnlyIntent.ok).toBe(true);
+    if (!bodyOnlyIntent.ok) {
+      return;
+    }
+    expect(resolveVisibleSuggestedReplies(bodyOnlyIntent.intent, null)).toEqual([]);
   });
 
   it("derives a resolved intent contract and blocks clarification/action conflicts", () => {
@@ -1352,6 +1494,12 @@ describe("AI chat service deterministic boundaries", () => {
   });
 
   it("documents intent prompt must carry forward equipment and location facts", () => {
+    expect(aiPromptConfig.chatIntentResolution.system).toContain(
+      "非执行场景可以省略 workoutIntent，或返回 workoutIntent:null",
+    );
+    expect(aiPromptConfig.chatIntentResolution.system).toContain(
+      "needsExerciseContext 为 true 或 action.shouldTrigger=true 时必须给出合法结构",
+    );
     expect(aiPromptConfig.chatIntentResolution.system).toContain(
       "当前消息只补充其中一个字段时，必须把摘要中仍然有效的字段合并进 workoutIntent",
     );

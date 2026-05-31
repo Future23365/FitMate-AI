@@ -114,37 +114,288 @@ type DeepSeekChatResponse = {
   usage?: DeepSeekTokenUsage;
 };
 
+const chatIntentTypes = [
+  "general_fitness_advice",
+  "exercise_recommendation",
+  "workout_plan",
+  "routine",
+  "exercise_replacement",
+  "exercise_explanation",
+  "non_fitness",
+] as const;
+
+const chatIntentTypeSchema = z.enum(chatIntentTypes).default("general_fitness_advice");
+
+function normalizeSuggestedReplyList(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0 && item.length <= 120 && !/[?？]/.test(item))
+    .slice(0, 3);
+}
+
+const suggestedReplyListSchema = z.preprocess(
+  normalizeSuggestedReplyList,
+  z.array(z.string().trim().min(1).max(120)).max(3).default([]),
+);
+
+const optionalWorkoutIntentSchema = z.preprocess(
+  (value) => (value === null ? undefined : value),
+  workoutPlanIntentSchema.optional(),
+);
+
+const optionalActionSchema = resolvedChatIntentSchema.shape.action.optional().catch(undefined);
+const optionalResponseModeSchema = resolvedChatIntentSchema.shape.responseMode.optional().catch(undefined);
+const optionalFieldSourcesSchema = resolvedChatIntentSchema.shape.fieldSources.optional().catch(undefined);
+const optionalReferenceRequirementSchema = resolvedChatIntentSchema.shape.referenceRequirement.optional().catch(undefined);
+
+// 聊天意图 schema 是模型输出进入服务端的第一道边界，交互按钮独立过滤，执行意图保持结构化校验。
 export const chatIntentSchema = z.object({
-  type: z
-    .enum([
-      "general_fitness_advice",
-      "exercise_recommendation",
-      "workout_plan",
-      "routine",
-      "exercise_replacement",
-      "exercise_explanation",
-      "non_fitness",
-    ])
-    .default("general_fitness_advice"),
+  type: chatIntentTypeSchema,
   needsExerciseContext: z.boolean().default(false),
-  workoutIntent: workoutPlanIntentSchema.optional(),
+  workoutIntent: optionalWorkoutIntentSchema,
   requestedExerciseName: z.string().trim().max(80).optional(),
   canTriggerAction: z.boolean().default(false),
   missingActionFields: z.array(z.string().trim().min(1)).max(12).default([]),
-  suggestedReplies: z.array(z.string().trim().min(1).max(120)).max(3).default([]),
-  suggestedQuestions: z.array(z.string().trim().min(1).max(120)).max(3).default([]),
-  action: resolvedChatIntentSchema.shape.action.optional(),
-  responseMode: resolvedChatIntentSchema.shape.responseMode.optional(),
-  fieldSources: resolvedChatIntentSchema.shape.fieldSources.optional(),
-  referenceRequirement: resolvedChatIntentSchema.shape.referenceRequirement.optional(),
-  clarificationReplies: z.array(z.string().trim().min(1).max(120)).max(3).optional(),
-  adjustmentReplies: z.array(z.string().trim().min(1).max(120)).max(3).optional(),
+  suggestedReplies: suggestedReplyListSchema,
+  suggestedQuestions: suggestedReplyListSchema,
+  action: optionalActionSchema,
+  responseMode: optionalResponseModeSchema,
+  fieldSources: optionalFieldSourcesSchema,
+  referenceRequirement: optionalReferenceRequirementSchema,
+  clarificationReplies: suggestedReplyListSchema.optional(),
+  adjustmentReplies: suggestedReplyListSchema.optional(),
 }).transform(({ suggestedQuestions, ...data }) => ({
   ...data,
   suggestedReplies: data.suggestedReplies.length > 0 ? data.suggestedReplies : suggestedQuestions,
 }));
 
 export type ChatIntent = z.infer<typeof chatIntentSchema>;
+
+const recoverableChatIntentEnvelopeSchema = z.object({
+  type: chatIntentTypeSchema,
+  needsExerciseContext: z.boolean().default(false),
+  workoutIntent: z.unknown().optional().nullable(),
+  requestedExerciseName: z.string().trim().max(80).optional().catch(undefined),
+  canTriggerAction: z.boolean().default(false),
+  missingActionFields: z.array(z.string().trim().min(1)).max(12).default([]).catch([]),
+  suggestedReplies: suggestedReplyListSchema,
+  suggestedQuestions: suggestedReplyListSchema,
+  action: optionalActionSchema,
+  responseMode: optionalResponseModeSchema,
+  fieldSources: optionalFieldSourcesSchema,
+  referenceRequirement: optionalReferenceRequirementSchema,
+  clarificationReplies: suggestedReplyListSchema.optional(),
+  adjustmentReplies: suggestedReplyListSchema.optional(),
+}).transform(({ suggestedQuestions, ...data }) => ({
+  ...data,
+  suggestedReplies: data.suggestedReplies.length > 0 ? data.suggestedReplies : suggestedQuestions,
+}));
+
+type ChatIntentParseDiagnostics = {
+  parseMode: "schema" | "interaction_recovery";
+  normalizedWorkoutIntentNull: boolean;
+  workoutIntentValid: boolean;
+  executionBlockedReason?: string;
+  suggestedReplies: {
+    sourceField: "suggestedReplies" | "suggestedQuestions" | "none";
+    rawCount: number;
+    visibleCount: number;
+    droppedCount: number;
+    clearedReason?: string;
+  };
+};
+
+type ChatIntentParseResult =
+  | {
+      ok: true;
+      intent: ChatIntent;
+      diagnostics: ChatIntentParseDiagnostics;
+    }
+  | {
+      ok: false;
+      fallbackIntent: ChatIntent;
+      error: unknown;
+      diagnostics: ChatIntentParseDiagnostics;
+    };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function getRawSuggestedReplySource(value: unknown) {
+  const record = isRecord(value) ? value : {};
+  const rawSuggestedReplies = record.suggestedReplies;
+  const normalizedSuggestedReplies = normalizeSuggestedReplyList(rawSuggestedReplies);
+
+  if (normalizedSuggestedReplies.length > 0) {
+    return {
+      sourceField: "suggestedReplies" as const,
+      rawValue: rawSuggestedReplies,
+      normalized: normalizedSuggestedReplies,
+    };
+  }
+
+  const rawSuggestedQuestions = record.suggestedQuestions;
+  return {
+    sourceField: normalizeSuggestedReplyList(rawSuggestedQuestions).length > 0
+      ? "suggestedQuestions" as const
+      : "none" as const,
+    rawValue: rawSuggestedQuestions,
+    normalized: normalizeSuggestedReplyList(rawSuggestedQuestions),
+  };
+}
+
+function createSuggestedReplyDiagnostics(value: unknown, intent: Pick<ChatIntent, "suggestedReplies">) {
+  const source = getRawSuggestedReplySource(value);
+  const rawCount = Array.isArray(source.rawValue) ? source.rawValue.length : 0;
+  const visibleCount = intent.suggestedReplies.length;
+  const droppedCount = Math.max(0, rawCount - visibleCount);
+
+  return {
+    sourceField: source.sourceField,
+    rawCount,
+    visibleCount,
+    droppedCount,
+    clearedReason:
+      rawCount > 0 && visibleCount === 0
+        ? "all_suggested_replies_failed_validation"
+        : undefined,
+  };
+}
+
+function getRawWorkoutIntent(value: unknown) {
+  return isRecord(value) ? value.workoutIntent : undefined;
+}
+
+function shouldRequireValidWorkoutIntent(intent: Pick<ChatIntent, "type" | "needsExerciseContext" | "canTriggerAction" | "action">) {
+  const actionKind = intent.action?.kind;
+  const actionNeedsWorkoutIntent =
+    actionKind === "exercise_recommendation" ||
+    actionKind === "workout_routine" ||
+    actionKind === "workout_plan";
+
+  return (
+    intent.needsExerciseContext ||
+    intent.canTriggerAction ||
+    intent.action?.shouldTrigger ||
+    isActionType(intent.type) ||
+    actionNeedsWorkoutIntent
+  );
+}
+
+function blockExecutableIntentWithoutWorkoutIntent(intent: ChatIntent): {
+  intent: ChatIntent;
+  reason?: string;
+} {
+  if (!shouldRequireValidWorkoutIntent(intent) || intent.workoutIntent) {
+    return { intent };
+  }
+
+  const missingActionFields = uniqueStrings([...intent.missingActionFields, "workoutIntent"]);
+  return {
+    intent: chatIntentSchema.parse({
+      ...intent,
+      needsExerciseContext: false,
+      canTriggerAction: false,
+      missingActionFields,
+      action: intent.action
+        ? {
+            ...intent.action,
+            shouldTrigger: false,
+            blockingMissingFields: uniqueStrings([
+              ...intent.action.blockingMissingFields,
+              "workoutIntent",
+            ]),
+          }
+        : intent.action,
+      responseMode: intent.suggestedReplies.length > 0 ? "ask_clarification" : intent.responseMode,
+      clarificationReplies: intent.clarificationReplies ?? intent.suggestedReplies,
+    }),
+    reason: "executable_intent_missing_valid_workoutIntent",
+  };
+}
+
+function createChatIntentDiagnostics(input: {
+  rawValue: unknown;
+  intent: ChatIntent;
+  parseMode: ChatIntentParseDiagnostics["parseMode"];
+  workoutIntentValid: boolean;
+  executionBlockedReason?: string;
+}): ChatIntentParseDiagnostics {
+  return {
+    parseMode: input.parseMode,
+    normalizedWorkoutIntentNull: getRawWorkoutIntent(input.rawValue) === null && !input.intent.workoutIntent,
+    workoutIntentValid: input.workoutIntentValid,
+    executionBlockedReason: input.executionBlockedReason,
+    suggestedReplies: createSuggestedReplyDiagnostics(input.rawValue, input.intent),
+  };
+}
+
+// 模型输出可能只在执行层字段漂移；该函数保留合法交互按钮，同时阻止无效执行意图进入内部动作。
+export function parseChatIntentModelOutput(value: unknown, fallbackIntent: ChatIntent): ChatIntentParseResult {
+  const parsedIntent = chatIntentSchema.safeParse(value);
+
+  if (parsedIntent.success) {
+    const guarded = blockExecutableIntentWithoutWorkoutIntent(parsedIntent.data);
+    return {
+      ok: true,
+      intent: guarded.intent,
+      diagnostics: createChatIntentDiagnostics({
+        rawValue: value,
+        intent: guarded.intent,
+        parseMode: "schema",
+        workoutIntentValid: Boolean(guarded.intent.workoutIntent),
+        executionBlockedReason: guarded.reason,
+      }),
+    };
+  }
+
+  const recoveredEnvelope = recoverableChatIntentEnvelopeSchema.safeParse(value);
+
+  if (!recoveredEnvelope.success) {
+    return {
+      ok: false,
+      fallbackIntent,
+      error: parsedIntent.error.flatten(),
+      diagnostics: createChatIntentDiagnostics({
+        rawValue: value,
+        intent: fallbackIntent,
+        parseMode: "interaction_recovery",
+        workoutIntentValid: Boolean(fallbackIntent.workoutIntent),
+      }),
+    };
+  }
+
+  const rawWorkoutIntent = recoveredEnvelope.data.workoutIntent;
+  const recoveredWorkoutIntentResult = rawWorkoutIntent === null || rawWorkoutIntent === undefined
+    ? null
+    : workoutPlanIntentSchema.safeParse(rawWorkoutIntent);
+  const recoveredWorkoutIntent = recoveredWorkoutIntentResult?.success
+    ? recoveredWorkoutIntentResult.data
+    : undefined;
+  const recoveredIntent = chatIntentSchema.parse({
+    ...recoveredEnvelope.data,
+    workoutIntent: recoveredWorkoutIntent,
+  });
+  const guarded = blockExecutableIntentWithoutWorkoutIntent(recoveredIntent);
+
+  return {
+    ok: true,
+    intent: guarded.intent,
+    diagnostics: createChatIntentDiagnostics({
+      rawValue: value,
+      intent: guarded.intent,
+      parseMode: "interaction_recovery",
+      workoutIntentValid: Boolean(recoveredWorkoutIntent),
+      executionBlockedReason: guarded.reason,
+    }),
+  };
+}
 
 export const chatRequestSchema = z.object({
   conversationId: z.string().trim().min(1).max(120).optional(),
@@ -1127,28 +1378,38 @@ async function resolveChatIntent(
       return fallbackIntent;
     }
 
-    const parsedIntent = chatIntentSchema.safeParse(result.value);
+    const parsedIntent = parseChatIntentModelOutput(result.value, fallbackIntent);
 
-    if (!parsedIntent.success) {
+    if (!parsedIntent.ok) {
       trace?.addStep({
         name: "意图校验失败，使用兜底意图",
         type: "intent",
         status: "failed",
         output: fallbackIntent,
-        error: parsedIntent.error.flatten(),
+        error: parsedIntent.error,
+        metadata: parsedIntent.diagnostics,
       });
       console.warn("[chat] intent_validation_failed", {
-        detail: parsedIntent.error.flatten(),
+        detail: parsedIntent.error,
         value: result.value,
       });
       return fallbackIntent;
     }
 
-    const data = parsedIntent.data;
+    const data = parsedIntent.intent;
     trace?.addStep({
-      name: "意图判断结构化结果",
+      name: parsedIntent.diagnostics.parseMode === "interaction_recovery"
+        ? "意图判断结构化结果（部分恢复）"
+        : parsedIntent.diagnostics.normalizedWorkoutIntentNull
+          ? "意图判断结构化结果（归一化）"
+          : "意图判断结构化结果",
       type: "intent",
+      status: parsedIntent.diagnostics.executionBlockedReason ? "failed" : "success",
       output: data,
+      metadata: {
+        ...parsedIntent.diagnostics,
+        visibleSuggestedRepliesBeforeActionGate: resolveVisibleSuggestedReplies(data, null),
+      },
     });
 
     const normalizedIntent = normalizeChatIntentForBlackboxFlows({
