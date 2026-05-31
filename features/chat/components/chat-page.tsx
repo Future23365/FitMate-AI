@@ -76,16 +76,16 @@ function MarkdownContent({ content }: { content: string }) {
 }
 
 function ChatThinkingIndicator({ isThinking }: { isThinking: boolean }) {
-  const icon = isThinking ? "psychology" : "progress_activity";
+  const icon = isThinking ? "psychology" : "chat_bubble";
   const label = isThinking ? "正在思考" : "正在回复";
   const toneClass = isThinking
-    ? "border-primary/15 bg-primary-soft/70 text-primary"
-    : "border-line bg-surface-container-low text-on-surface-variant";
+    ? "rounded-xl border border-primary/15 bg-primary-soft/70 px-md py-sm text-primary"
+    : "px-xs py-[2px] text-muted";
   const dotClass = isThinking ? "bg-primary" : "bg-outline-variant";
 
   return (
-    <div className={`flex items-center gap-sm rounded-xl border px-md py-sm ${toneClass}`}>
-      <SymbolIcon className={`${isThinking ? "animate-pulse" : "animate-spin"} text-[18px]`}>
+    <div className={`flex items-center gap-sm ${toneClass}`}>
+      <SymbolIcon className={`${isThinking ? "animate-pulse" : ""} text-[18px]`}>
         {icon}
       </SymbolIcon>
       <span className="font-body-md text-body-md">{label}</span>
