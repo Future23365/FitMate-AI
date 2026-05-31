@@ -14,6 +14,7 @@ export type AiTraceStepType =
   | "model_response"
   | "intent"
   | "reference_resolution"
+  | "tool_decision"
   | "rag_query"
   | "tool_call"
   | "patch_proposal"

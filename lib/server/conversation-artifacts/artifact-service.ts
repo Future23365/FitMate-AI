@@ -55,7 +55,7 @@ export type RecentArtifactSummary = {
 
 type ArtifactSearchScope = "current_session" | "current_user";
 
-type SearchArtifactsInput = {
+export type SearchArtifactsInput = {
   userId: string;
   sessionId?: string;
   sessionScope?: ArtifactSearchScope;
@@ -83,19 +83,19 @@ export type ArtifactSearchDiagnostics = {
   failureReasons: string[];
 };
 
-type GetArtifactPayloadInput = {
+export type GetArtifactPayloadInput = {
   userId: string;
   artifactId: string;
 };
 
-type ArtifactPayloadSuccess = {
+export type ArtifactPayloadSuccess = {
   ok: true;
   artifactId: string;
   kind: ConversationArtifactKind;
   payload: ConversationArtifactPayload;
 };
 
-type ArtifactPayloadFailure = {
+export type ArtifactPayloadFailure = {
   ok: false;
   code: "not_found" | "invalid_payload";
   message: string;

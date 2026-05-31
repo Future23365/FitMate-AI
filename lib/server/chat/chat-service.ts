@@ -13,6 +13,12 @@ import {
   type AiTokenBudgetDecision,
   type CandidateTrimSummary,
 } from "@/lib/server/ai/token-budget";
+import {
+  decideReadonlyToolLoopEligibility,
+  formatReadonlyToolContextBundleForPrompt,
+  runReadonlyToolLoop,
+  type ReadonlyToolContextBundle,
+} from "@/lib/server/ai/tools";
 import { updateConversationSummary } from "@/lib/server/chat/conversation-summary-service";
 import {
   formatRecentArtifactSummariesForPrompt,
@@ -602,6 +608,10 @@ export async function createAiChatResponse({
   });
 
   if (referenceResolution?.status === "ambiguous" || referenceResolution?.status === "not_found") {
+    traceReadonlyToolLoopSkipped(trace, "引用解析需要澄清，确定性早返回不进入只读工具循环。", {
+      skippedReason: "reference_resolution_clarification",
+      referenceResolutionStatus: referenceResolution.status,
+    });
     const assistantReply = buildReferenceResolutionReply(referenceResolution);
     const tokenBudgetDecision = createChatTokenBudgetDecision({
       intentType: chatIntent.type,
@@ -652,6 +662,10 @@ export async function createAiChatResponse({
     });
 
     if (patchResult.handled) {
+      traceReadonlyToolLoopSkipped(trace, "Workout Patch 已由服务端确定性链路处理，不进入只读工具循环。", {
+        skippedReason: "patch_deterministic_handled",
+        patchStatus: patchResult.result.status,
+      });
       const assistantReply = formatWorkoutPatchReply(patchResult.result);
       const tokenBudgetDecision = createChatTokenBudgetDecision({
         intentType: chatIntent.type,
@@ -682,6 +696,9 @@ export async function createAiChatResponse({
   }
 
   if (referenceResolution?.status === "resolved" && chatIntent.type === "exercise_explanation") {
+    traceReadonlyToolLoopSkipped(trace, "动作序号讲解已由服务端确定性读取，不进入只读工具循环。", {
+      skippedReason: "exercise_explanation_deterministic_handled",
+    });
     const explanationResult = await buildReferencedExerciseExplanationFromChat({
       userId: user.id,
       latestUserMessage: conversationSummaryContext.latestUserMessage,
@@ -833,6 +850,23 @@ export async function createAiChatResponse({
         trace,
       })
     : null;
+  const readonlyToolEligibility = decideReadonlyToolLoopEligibility({
+    latestUserMessage: conversationSummaryContext.latestUserMessage,
+    resolvedIntent,
+    referenceResolution,
+    assistantActionExists: Boolean(assistantAction || artifactResult),
+  });
+  const readonlyToolContextBundle = await runReadonlyToolLoop({
+    apiKey,
+    userId: user.id,
+    sessionId: request.conversationId,
+    messages,
+    conversationSummaryContext,
+    resolvedIntent,
+    referenceResolution,
+    trace,
+    eligibility: readonlyToolEligibility,
+  });
   const tokenBudgetDecision = createChatTokenBudgetDecision({
     intentType: chatIntent.type,
     needsExerciseContext: chatIntent.needsExerciseContext,
@@ -860,6 +894,7 @@ export async function createAiChatResponse({
     referenceResolution,
     memoryState,
     tokenBudgetDecision,
+    readonlyToolContextBundle,
   );
   const finalResponseStage = getStageDecision(tokenBudgetDecision, "chat_final_response");
   const controller = new AbortController();
@@ -888,6 +923,13 @@ export async function createAiChatResponse({
       candidateTrim: exerciseContext?.candidateTrim,
       intent: chatIntent.type,
       exerciseContextCount: exerciseContext?.providedExercises.length ?? 0,
+      readonlyToolContext: {
+        available: readonlyToolContextBundle.available,
+        stopReason: readonlyToolContextBundle.stopReason,
+        decisionCallCount: readonlyToolContextBundle.decisionCallCount,
+        toolExecutionCount: readonlyToolContextBundle.toolExecutionCount,
+        truncated: readonlyToolContextBundle.truncated,
+      },
       modelVisibleMessageCount: 2,
       timeoutMs: DEEPSEEK_REQUEST_TIMEOUT_MS,
     },
@@ -2699,6 +2741,26 @@ function traceTokenBudgetDecision(trace: AiTraceLogger, decision: AiTokenBudgetD
   });
 }
 
+// 确定性早返回路径显式记录工具循环跳过原因，便于 trace 区分“未进入”和“进入后未选工具”。
+function traceReadonlyToolLoopSkipped(
+  trace: AiTraceLogger,
+  reason: string,
+  metadata: Record<string, unknown>,
+) {
+  trace.addStep({
+    name: "只读 Tool Loop 跳过",
+    type: "tool_decision",
+    output: {
+      available: false,
+      stopReason: "deterministic_skip",
+      reason,
+      decisionCallCount: 0,
+      toolExecutionCount: 0,
+    },
+    metadata,
+  });
+}
+
 function buildSystemPrompt(
   chatIntent: ChatIntent,
   exerciseContext: ExerciseContext | null,
@@ -2710,11 +2772,13 @@ function buildSystemPrompt(
   referenceResolution: ReferenceResolution | null = null,
   memoryState: ConversationMemoryState | null = null,
   tokenBudgetDecision?: AiTokenBudgetDecision,
+  readonlyToolContextBundle: ReadonlyToolContextBundle | null = null,
 ) {
   const contextPrompt = formatConversationSummaryContextForPrompt(conversationSummaryContext);
   const artifactPrompt = formatRecentArtifactSummariesForPrompt(recentArtifactSummaries);
   const referencePrompt = formatReferenceResolutionForPrompt(referenceResolution);
   const memoryPrompt = formatMemoryStateForPrompt(memoryState);
+  const readonlyToolPrompt = formatReadonlyToolContextBundleForPrompt(readonlyToolContextBundle);
   const promptModules = getStageDecision(tokenBudgetDecision, "chat_final_response")?.promptModules;
   const basePrompt = promptModules?.length
     ? buildPromptFromModules(promptModules)
@@ -2727,6 +2791,7 @@ function buildSystemPrompt(
       artifactPrompt,
       referencePrompt,
       memoryPrompt,
+      readonlyToolPrompt,
       "serverResolvedIntent:",
       JSON.stringify(resolvedIntent, null, 2),
       "serverArtifactResult:",
@@ -2743,6 +2808,8 @@ function buildSystemPrompt(
     referencePrompt,
     "",
     memoryPrompt,
+    "",
+    readonlyToolPrompt,
     "",
     "serverParsedIntent:",
     JSON.stringify(

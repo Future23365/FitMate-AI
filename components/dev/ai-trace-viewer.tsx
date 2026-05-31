@@ -2003,9 +2003,18 @@ function getStepGroupDefinition(step: AiTraceStep) {
     };
   }
 
+  if (step.type === "tool_decision") {
+    return {
+      id: "04_tool_decision",
+      title: "只读工具决策",
+      description: "记录 LLM 是否进入只读 tool loop、工具选择、停止原因和回退策略",
+      placement: "main_flow" as const,
+    };
+  }
+
   if (step.type === "tool_call") {
     return {
-      id: "04_tool_call",
+      id: "05_tool_call",
       title: "受控工具调用",
       description: "记录 searchArtifacts、getArtifactPayload 等服务端工具的输入摘要、输出摘要和失败原因",
       placement: "main_flow" as const,
@@ -2014,7 +2023,7 @@ function getStepGroupDefinition(step: AiTraceStep) {
 
   if (step.type === "exercise_lookup" || step.type === "candidate_selection") {
     return {
-      id: "05_candidates",
+      id: "06_candidates",
       title: "动作候选",
       description: "读取动作库并按目标、器械、风险过滤候选",
       placement: "main_flow" as const,
@@ -2023,7 +2032,7 @@ function getStepGroupDefinition(step: AiTraceStep) {
 
   if (step.type === "patch_proposal") {
     return {
-      id: "06_patch",
+      id: "07_patch",
       title: "Patch 提出与应用",
       description: "记录训练卡片局部修改的 scope、operation、目标摘要、diff 和失败原因",
       placement: "main_flow" as const,
@@ -2431,6 +2440,15 @@ function getStepExplanationItems(step: AiTraceStep, tokenUsage: TokenUsage | nul
     addKnownMetadataItem(items, source, "code", "错误码", "工具失败时用于诊断权限拒绝、未找到或 payload 校验失败。");
   }
 
+  if (step.type === "tool_decision") {
+    const source = output ?? input ?? {};
+    addKnownMetadataItem(items, source, "stopReason", "停止原因", "只读 tool loop 停止、跳过或回退的原因。");
+    addKnownMetadataItem(items, source, "decisionCallCount", "决策调用数", "本轮额外 tool decision 模型调用次数。");
+    addKnownMetadataItem(items, source, "toolExecutionCount", "工具执行数", "本轮实际执行的只读工具次数。");
+    addKnownMetadataItem(items, source, "truncated", "上下文截断", "只读工具上下文进入最终 prompt 前是否因预算被截断。");
+    addKnownMetadataItem(items, metadata ?? {}, "skippedReason", "跳过原因", "未进入 tool loop 的可诊断原因。");
+  }
+
   if (step.type === "patch_proposal") {
     const source = output ?? input ?? {};
     addKnownMetadataItem(items, source, "scope", "Patch scope", "本次 Patch 允许影响的范围，当前通常只能是 artifact_only。");
@@ -2562,6 +2580,14 @@ function getStepInterpretation(step: AiTraceStep) {
     const state = step.status === "failed" ? "失败" : "成功";
 
     return `${toolName} 受控工具调用${state}，展开原始 JSON 可检查输入摘要、输出摘要、耗时和错误 code。`;
+  }
+
+  if (step.type === "tool_decision") {
+    const output = isRecord(step.output) ? step.output : {};
+    const stopReason = stringifyValue(output.stopReason ?? "未标注");
+    const state = step.status === "failed" ? "失败" : "完成";
+
+    return `只读工具决策${state}，停止原因为 ${stopReason}。`;
   }
 
   if (step.type === "patch_proposal") {
@@ -3032,6 +3058,7 @@ function getStepTypeLabel(type: AiTraceStep["type"]) {
     model_response: "模型输出",
     intent: "意图",
     reference_resolution: "引用解析",
+    tool_decision: "工具决策",
     rag_query: "RAG 检索",
     tool_call: "工具调用",
     patch_proposal: "Patch",

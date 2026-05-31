@@ -7,6 +7,7 @@ describe("AI trace viewer step grouping", () => {
   it("groups architecture trace steps into readable stages and keeps unknown steps visible", () => {
     const groups = groupTraceSteps([
       createStep({ type: "reference_resolution", name: "ReferenceResolver 解析结果" }),
+      createStep({ type: "tool_decision", name: "只读工具决策" }),
       createStep({ type: "tool_call", name: "searchArtifacts 受控工具调用" }),
       createStep({ type: "patch_proposal", name: "WorkoutPatch 提出" }),
       createStep({ type: "validation", name: "Patch 边界校验通过" }),
@@ -17,6 +18,7 @@ describe("AI trace viewer step grouping", () => {
 
     expect(groups.map((group) => group.title)).toEqual([
       "引用解析",
+      "只读工具决策",
       "受控工具调用",
       "Patch 提出与应用",
       "服务端校验",
