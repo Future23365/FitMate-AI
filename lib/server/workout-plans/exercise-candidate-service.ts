@@ -81,7 +81,6 @@ export type RecommendationExcludeReason =
   | "user_dislike"
   | "current_message_dislike"
   | "too_hard"
-  | "health_risk"
   | "avoidance"
   | "unavailable_equipment"
   | "invalid_section"
@@ -653,10 +652,6 @@ function getExerciseExclusionReasons(
     reasons.push(createExclusionReason("unavailable_equipment", "不符合用户可用器械"));
   }
 
-  if (matchesRiskLimit(exercise, intent.injuryLimitations)) {
-    reasons.push(createExclusionReason("health_risk", "命中用户伤病或疼痛限制"));
-  }
-
   if (matchesAvoidance(exercise, intent.avoidances)) {
     reasons.push(createExclusionReason("avoidance", "命中用户避开项"));
   }
@@ -830,12 +825,11 @@ function getMemoryExclusionReasons(
 
   const avoidanceLabels = [
     ...memoryState.currentMessage.temporaryAvoidanceLabels,
-    ...memoryState.currentMessage.healthSignalLabels,
     ...memoryState.activeMemories
       .filter((memory) =>
         memory.status === "active" &&
         !memory.requiresConfirmation &&
-        ["constraint", "temporary_context", "injury_or_pain_signal"].includes(memory.kind),
+        ["constraint", "temporary_context"].includes(memory.kind),
       )
       .map((memory) => memory.subjectLabel)
       .filter(Boolean),
@@ -914,10 +908,6 @@ function buildMemoryWarnings(memoryState?: ConversationMemoryState) {
   const warnings: string[] = [];
   if (memoryState.currentMessage.temporaryAvoidanceLabels.length > 0) {
     warnings.push(`已应用本轮临时约束：${memoryState.currentMessage.temporaryAvoidanceLabels.join("、")}。`);
-  }
-
-  if (memoryState.currentMessage.healthSignalLabels.length > 0) {
-    warnings.push(`已按本轮不适信号保守筛选：${memoryState.currentMessage.healthSignalLabels.join("、")}。`);
   }
 
   return warnings;
@@ -1373,29 +1363,6 @@ function matchesPreference(exercise: Exercise, preferences: string[]) {
 
 function matchesAvoidance(exercise: Exercise, avoidances: string[]) {
   return avoidances.some((avoidance) => matchesFreeText(exercise, avoidance));
-}
-
-function matchesRiskLimit(exercise: Exercise, injuryLimitations: string[]) {
-  if (injuryLimitations.length === 0) {
-    return false;
-  }
-
-  const metadata = normalizeExerciseMetadata(exercise);
-  const riskText = normalizeText([
-    ...metadata.riskTags,
-    ...metadata.contraindications,
-  ].join(" "));
-
-  return injuryLimitations.some((limitation) => {
-    const normalized = normalizeText(limitation);
-
-    return (
-      riskText.includes(normalized) ||
-      (/膝|knee/.test(normalized) && riskText.includes("kneepain")) ||
-      (/肩|shoulder/.test(normalized) && riskText.includes("shoulderpain")) ||
-      (/腰|下背|back/.test(normalized) && riskText.includes("lowbackpain"))
-    );
-  });
 }
 
 function matchesOriginalEquipment(original: Exercise, replacement: Exercise) {

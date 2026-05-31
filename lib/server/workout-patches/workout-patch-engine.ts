@@ -660,10 +660,6 @@ function validateReplacementExercise(input: {
     reasons.push("replacement_not_easier");
   }
 
-  if (input.replacement.riskTags.some((tag) => /high|高风险|高冲击/.test(tag))) {
-    reasons.push("replacement_risk_too_high");
-  }
-
   return reasons;
 }
 

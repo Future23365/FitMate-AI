@@ -379,10 +379,6 @@ function matchesExerciseHardFilters(exercise: Exercise, input: ExerciseSearchInp
     return false;
   }
 
-  if (input.injuryLimitations?.length && matchesRiskLimit(exercise, input.injuryLimitations)) {
-    return false;
-  }
-
   return true;
 }
 
@@ -439,27 +435,6 @@ function matchesRequestedEquipment(exercise: Exercise, requestedEquipment: Set<s
   }
 
   return requestedEquipment.has("自重") && exercise.homeRequirementZh === "无器械";
-}
-
-function matchesRiskLimit(exercise: Exercise, injuryLimitations: string[]) {
-  if (injuryLimitations.length === 0) {
-    return false;
-  }
-
-  const normalizedLimits = injuryLimitations.map(normalizeSearchText);
-  const riskText = normalizeSearchText(
-    [
-      ...exercise.riskTags,
-      ...exercise.contraindications,
-      exercise.nameZh,
-      exercise.categoryZh,
-      exercise.movementPattern,
-    ]
-      .filter(Boolean)
-      .join(" "),
-  );
-
-  return normalizedLimits.some((limit) => limit && riskText.includes(limit));
 }
 
 function normalizeSearchText(value: string) {

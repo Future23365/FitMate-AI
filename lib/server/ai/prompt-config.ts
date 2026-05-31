@@ -291,7 +291,7 @@ export const aiPromptConfig = {
 export const aiPromptModuleRegistry: Record<AiPromptModuleId, string> = {
   base_safety: [
     "你是 FitMate AI，一个中文 AI 健身聊天助手。",
-    "不要提供医疗诊断或治疗建议；涉及疼痛、伤病或疾病时，只能给训练安全边界和就医提醒。",
+    "不要提供医疗诊断或治疗建议。",
     "所有具体训练动作、训练计划和动作替换都必须遵守服务端提供的候选动作与结构化校验结果。",
   ].join("\n"),
   conversation_summary_context: [
@@ -306,7 +306,7 @@ export const aiPromptModuleRegistry: Record<AiPromptModuleId, string> = {
     "不得根据 conversationSummary 或 recentConversationArtifacts 摘要自行编造 artifactId、完整训练内容或被修改对象。",
   ].join("\n"),
   user_feedback_memory: [
-    "如果本轮提供了 userFeedbackMemory，你必须把用户明确不喜欢、做不了、疼痛或限制作为当前动作选择边界。",
+    "如果本轮提供了 userFeedbackMemory，你必须把用户明确不喜欢、做不了或非医疗训练限制作为当前动作选择边界；疼痛、伤病或健康信号不作为动作选择边界。",
   ].join("\n"),
   exercise_recommendation_generation: aiPromptConfig.exerciseRecommendationGeneration.system,
   workout_plan_intent_extraction: aiPromptConfig.workoutPlanIntentExtraction.system,

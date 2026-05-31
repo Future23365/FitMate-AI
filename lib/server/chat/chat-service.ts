@@ -166,13 +166,12 @@ export type ExerciseContext = {
     level: string;
     equipmentZh: string;
     primaryMusclesZh: string[];
-    secondaryMusclesZh: string[];
-    riskTags: string[];
-    goalTags: string[];
-    matchingReasons?: string[];
-    necessaryRestrictions?: string[];
-    source: "primary" | "supplementary" | "name_match";
-  }>;
+  secondaryMusclesZh: string[];
+  riskTags: string[];
+  goalTags: string[];
+  matchingReasons?: string[];
+  source: "primary" | "supplementary" | "name_match";
+}>;
   candidateStatus: "enough" | "limited_but_usable" | "insufficient";
   relevantCandidateCount: number;
   requiredRelevantCandidateCount: number;
@@ -1074,8 +1073,8 @@ export function normalizeChatIntentForBlackboxFlows(input: {
     input.conversationContext.knownFacts.goal ||
     input.recentArtifactSummaries?.length,
   );
-  const hasPriorConditionContext = hasDurableConditionFacts(input.conversationContext);
-  const hasAnyPriorWorkoutContext = hasPriorTrainingContext || hasPriorConditionContext;
+  const hasAnyPriorWorkoutContext =
+    hasPriorTrainingContext || hasDurableConditionFacts(input.conversationContext);
 
   if (isStandaloneConditionMessage(latestUserMessage) && !hasPriorTrainingContext) {
     return {
@@ -1464,7 +1463,7 @@ export function formatReferencedExerciseExplanation(input: {
     return `${prefix}动作库当前没有完整分步说明；你可以先按动作详情里的图片或演示确认轨迹，训练时保持核心稳定、动作可控，主要关注${muscles}发力。`;
   }
 
-  return `${prefix}做法：${instructionText} 重点关注${muscles}发力，使用${equipment}，全程保持动作可控；如果出现疼痛或明显不适，先停止并降低难度。`;
+  return `${prefix}做法：${instructionText} 重点关注${muscles}发力，使用${equipment}，全程保持动作可控。`;
 }
 
 function collectArtifactExerciseIdsInDisplayOrder(payload: ConversationArtifactPayload) {
@@ -1525,7 +1524,6 @@ async function buildExerciseContext(
       riskTags: exercise.riskTags,
       goalTags: exercise.goalTags,
       matchingReasons: ["用户明确点名该动作。"],
-      necessaryRestrictions: exercise.riskTags,
       source: "name_match",
     });
   }
@@ -1550,7 +1548,6 @@ async function buildExerciseContext(
       riskTags: candidate.exercise.riskTags,
       goalTags: candidate.exercise.goalTags,
       matchingReasons: candidate.reasons.slice(0, 4),
-      necessaryRestrictions: candidate.exercise.riskTags,
       source: candidate.source,
     });
   }
@@ -1790,7 +1787,6 @@ function toModelVisibleChatExercises(exercises: ExerciseContext["providedExercis
     level: exercise.level,
     categoryZh: exercise.categoryZh,
     matchingReasons: exercise.matchingReasons ?? [],
-    necessaryRestrictions: exercise.necessaryRestrictions ?? [],
     candidateSource: exercise.source,
   }));
 }
@@ -1896,7 +1892,7 @@ function buildSystemPrompt(
 }
 
 function shouldInspectUserFeedback(message: string) {
-  return /不喜欢|讨厌|不想做|别安排|不要安排|太难|太轻松|做不了|吃力|今天不想|今天不要|这次不想|疼|痛|不舒服|不适|拉伤|扭伤|以后都不要|再也不要/.test(
+  return /不喜欢|讨厌|不想做|别安排|不要安排|太难|太轻松|做不了|吃力|今天不想|今天不要|这次不想|以后都不要|再也不要/.test(
     message,
   );
 }

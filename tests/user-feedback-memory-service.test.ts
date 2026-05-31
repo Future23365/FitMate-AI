@@ -79,7 +79,7 @@ describe("user feedback memory service", () => {
     prismaMock.workoutSessionResult.findMany.mockResolvedValue([]);
   });
 
-  it("writes explicit dislike, too_hard, temporary context, and health signals", async () => {
+  it("writes explicit dislike, too_hard, and temporary context without health decision memory", async () => {
     const result = await userFeedbackMemory.recordUserFeedbackFromChat({
       userId: "user-1",
       latestUserMessage: "我不喜欢俯卧撑，平板支撑太难，今天不想练腿，肩膀不舒服",
@@ -87,7 +87,7 @@ describe("user feedback memory service", () => {
       now: new Date("2026-05-30T10:00:00.000Z"),
     });
 
-    expect(result).toEqual({ memories: 4, exerciseFeedback: 2 });
+    expect(result).toEqual({ memories: 3, exerciseFeedback: 2 });
     expect(prismaMock.userExerciseFeedback.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         userId: "user-1",
@@ -109,12 +109,9 @@ describe("user feedback memory service", () => {
         expiresAt: new Date("2026-05-31T22:00:00.000Z"),
       }),
     }));
-    expect(prismaMock.userMemory.create).toHaveBeenCalledWith(expect.objectContaining({
+    expect(prismaMock.userMemory.create).not.toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         kind: "injury_or_pain_signal",
-        subjectLabel: "肩",
-        requiresConfirmation: true,
-        status: "pending_confirmation",
       }),
     }));
   });

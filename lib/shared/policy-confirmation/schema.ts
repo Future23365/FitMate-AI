@@ -34,7 +34,6 @@ export const policyReasonCodeSchema = z.enum([
   "completed_history_blocked",
   "session_result_blocked",
   "long_term_memory_requires_confirmation",
-  "health_signal_requires_confirmation",
   "weekly_frequency_requires_confirmation",
   "calendar_reorder_requires_confirmation",
   "large_intensity_change_requires_confirmation",

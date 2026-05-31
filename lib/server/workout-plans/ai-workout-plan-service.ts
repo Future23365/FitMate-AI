@@ -998,7 +998,7 @@ function buildExercisePromptPayload(candidates: ExerciseCandidateResult) {
   };
 }
 
-// 模型候选摘要保留动作选择和安全边界字段，避免把 UI 展示字段混进 prompt。
+// 模型候选摘要只保留动作编排字段，避免把 UI 展示字段或健康风险标签混进 prompt。
 function toModelExerciseSummary({ exercise, source, reasons }: ExerciseCandidate) {
   return {
     exerciseId: exercise.id,
@@ -1008,7 +1008,6 @@ function toModelExerciseSummary({ exercise, source, reasons }: ExerciseCandidate
     level: exercise.level,
     categoryZh: exercise.categoryZh,
     matchingReasons: reasons.slice(0, 4),
-    necessaryRestrictions: exercise.riskTags,
     candidateSource: source,
   };
 }

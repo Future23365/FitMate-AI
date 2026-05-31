@@ -115,7 +115,7 @@ describe("policy confirmation service", () => {
     ]));
   });
 
-  it("requires confirmation for long-term and health memory writes", () => {
+  it("requires confirmation for long-term memory writes but not health signals", () => {
     const result = evaluateUserMemoryPolicy([
       {
         kind: "constraint",
@@ -137,10 +137,23 @@ describe("policy confirmation service", () => {
 
     expect(result.allowed).toBe(false);
     expect(result.requiresConfirmation).toBe(true);
-    expect(result.reasons.map((item) => item.code)).toEqual(expect.arrayContaining([
-      "long_term_memory_requires_confirmation",
-      "health_signal_requires_confirmation",
-    ]));
+    expect(result.reasons.map((item) => item.code)).toEqual(["long_term_memory_requires_confirmation"]);
+  });
+
+  it("does not require confirmation for health signal memory alone", () => {
+    const result = evaluateUserMemoryPolicy([
+      {
+        kind: "injury_or_pain_signal",
+        subjectType: "health",
+        subjectLabel: "肩",
+        value: { rawText: "肩膀不舒服" },
+        source: "chat",
+      },
+    ]);
+
+    expect(result.allowed).toBe(true);
+    expect(result.requiresConfirmation).toBe(false);
+    expect(result.reasons).toEqual([]);
   });
 
   it("requires confirmation for weekly frequency, calendar, intensity, and multi-delete plan changes", () => {

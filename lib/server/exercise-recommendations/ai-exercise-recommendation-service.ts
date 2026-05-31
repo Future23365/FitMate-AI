@@ -208,7 +208,6 @@ function toModelCandidateExercise(candidate: ExerciseCandidate) {
     level: exercise.level,
     categoryZh: exercise.categoryZh,
     matchingReasons: candidate.reasons.slice(0, 4),
-    necessaryRestrictions: exercise.riskTags,
     candidateSource: candidate.source,
   };
 }

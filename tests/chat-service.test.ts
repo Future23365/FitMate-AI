@@ -329,6 +329,41 @@ describe("AI chat service deterministic boundaries", () => {
     expect(resolveAssistantAction(normalized, createExerciseContext({ intent: modelIntent.workoutIntent }))).toBeNull();
   });
 
+  it("does not downgrade standalone health text through deterministic normalization", () => {
+    const modelIntent: ChatIntent = {
+      type: "routine",
+      needsExerciseContext: true,
+      workoutIntent: createWorkoutPlanIntent({
+        intentType: "routine",
+        goal: "膝盖疼",
+        sessionMinutes: 30,
+        equipment: ["自重"],
+      }),
+      requestedExerciseName: "",
+      canTriggerAction: true,
+      missingActionFields: [],
+      suggestedReplies: [],
+    };
+
+    const normalized = normalizeChatIntentForBlackboxFlows({
+      chatIntent: modelIntent,
+      fallbackIntent: createFallbackChatIntent(
+        [{ role: "user", content: "膝盖疼" }],
+        createEmptyConversationContext(),
+      ),
+      messages: [{ role: "user", content: "膝盖疼" }],
+      conversationSummaryContext: { summary: "", latestUserMessage: "膝盖疼" },
+      conversationContext: createEmptyConversationContext(),
+      recentArtifactSummaries: [],
+    });
+
+    expect(normalized).toMatchObject({
+      type: "routine",
+      needsExerciseContext: true,
+      canTriggerAction: true,
+    });
+  });
+
   it("inherits recent routine facts when normalizing duration adjustments", () => {
     const currentRoutine = createWorkoutPlanIntent({
       intentType: "routine",
@@ -1042,7 +1077,6 @@ describe("AI chat service deterministic boundaries", () => {
     expect(promptText).not.toContain("膝盖不适");
     expect(promptText).not.toContain("高风险健康");
     expect(promptText).not.toContain("咨询医生");
-    expect(promptText).not.toContain("医疗诊断");
     expect(promptText).not.toContain("就医");
   });
 

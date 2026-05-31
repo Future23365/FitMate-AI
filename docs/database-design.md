@@ -11,7 +11,7 @@
 | 业务域 | 相关表 | 说明 |
 |---|---|---|
 | 用户与身份 | `User`、`UserIdentity`、`UserProfile` | 保存用户主体、登录身份和健身画像。当前鉴权尚未正式接入，服务端会创建固定的本地演示用户。 |
-| 用户反馈记忆 | `UserMemory`、`UserExerciseFeedback` | 保存显式偏好、动作反馈、临时上下文、健康/不适信号和训练行为反馈。 |
+| 用户反馈记忆 | `UserMemory`、`UserExerciseFeedback` | 保存显式偏好、动作反馈、临时上下文和训练行为反馈；健康/不适字段保留为历史兼容，不参与训练生成决策。 |
 | 动作库 | `Exercise` | 保存训练动作的标准事实数据，包括来源、分类、肌群、器械、居家可做条件、图片、教学步骤和审核状态。 |
 | 训练编排、日历与结果 | `WorkoutRoutine`、`WorkoutRoutineItem`、`WorkoutSchedule`、`WorkoutSessionResult` | 保存用户可复用动作编排、编排项、日历安排和实际训练结果摘要。 |
 | 聊天历史 | `ChatSession`、`ChatMessage`、`ConversationArtifact`、`ArtifactIndex` | 保存用户和 AI 的对话历史、聊天结构化卡片事实源、轻量索引和自然语言上下文总结。 |
@@ -112,7 +112,7 @@ User
 | `exercise_feedback` | 用户对具体动作的反馈。 |
 | `constraint` | 需要后续计划尊重的约束。 |
 | `temporary_context` | 只在短期有效的上下文，例如“今天不想练腿”。 |
-| `injury_or_pain_signal` | 疼痛、伤病或不适信号，只作为训练保守约束。 |
+| `injury_or_pain_signal` | 历史兼容值；当前不再写入为训练约束，也不参与候选排除、计划生成或 Patch 决策。 |
 | `training_behavior` | 训练完成率、跳过动作、实际时长和疲劳等行为反馈。 |
 
 ### UserMemoryStatus
@@ -236,7 +236,7 @@ artifact 保存后的来源实体类型。
 | `sessionMinutes` | `Int?` | 可空 | 单次训练期望时长，单位分钟。 |
 | `weeklyFrequency` | `Int?` | 可空 | 每周训练频率。 |
 | `equipment` | `String[]` | 默认 `[]` | 可用器械。 |
-| `injuryLimitations` | `String[]` | 默认 `[]` | 历史兼容字段；当前聊天触发链路不主动追问或依赖该字段。 |
+| `injuryLimitations` | `String[]` | 默认 `[]` | 历史兼容字段；当前聊天触发、候选筛选、计划生成和 Patch 决策均不依赖该字段。 |
 | `preferences` | `String[]` | 默认 `[]` | 用户偏好，例如训练形式、动作偏好。 |
 | `avoidances` | `String[]` | 默认 `[]` | 用户希望避免的内容。 |
 | `createdAt` | `DateTime` | 默认 `now()` | 画像创建时间。 |
@@ -244,7 +244,7 @@ artifact 保存后的来源实体类型。
 
 ### UserMemory
 
-用户结构化记忆表，保存跨会话可复用的偏好、约束、临时上下文和健康/不适信号。所有读取都必须带 `userId`，并过滤 `status` 与 `expiresAt`。
+用户结构化记忆表，保存跨会话可复用的偏好、约束和临时上下文。健康/不适类历史值不再作为训练生成决策依据。所有读取都必须带 `userId`，并过滤 `status` 与 `expiresAt`。
 
 | 字段 | 类型 | 约束 / 默认值 | 作用 |
 |---|---|---|---|

@@ -194,7 +194,7 @@ describe("workout plan core logic", () => {
     expect(result.recommendationTrace.finalExerciseIds).toContain("incline-push-up");
   });
 
-  it("excludes dislike, too_hard, health risk, and current card reasons before recommending", () => {
+  it("excludes non-medical feedback reasons while keeping health-risk tagged actions eligible", () => {
     const fixtureExercises = [
       createExercise({ id: "push-up", nameZh: "俯卧撑" }),
       createExercise({ id: "hard-push-up", nameZh: "高难俯卧撑" }),
@@ -243,9 +243,13 @@ describe("workout plan core logic", () => {
     expect(result.recommendationTrace.excludeReasons).toMatchObject({
       "push-up": ["user_dislike"],
       "hard-push-up": ["too_hard"],
-      "knee-jump": ["health_risk"],
       "current-card-push-up": ["current_card"],
     });
+    expect(result.recommendationTrace.excludeReasons["knee-jump"]).toBeUndefined();
+    expect([
+      ...result.primaryCandidates.map((candidate) => candidate.exercise.id),
+      ...result.supplementaryCandidates.map((candidate) => candidate.exercise.id),
+    ]).toContain("knee-jump");
     expect(result.primaryCandidates.map((candidate) => candidate.exercise.id)).toEqual(
       expect.arrayContaining(["incline-push-up", "wall-push-up", "wide-push-up"]),
     );

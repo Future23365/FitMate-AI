@@ -81,7 +81,6 @@ export const modelVisibleExerciseCandidateFields = [
   "level",
   "categoryZh",
   "matchingReasons",
-  "necessaryRestrictions",
   "candidateSource",
 ] as const;
 

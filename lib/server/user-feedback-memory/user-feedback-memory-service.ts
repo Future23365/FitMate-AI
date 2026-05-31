@@ -28,11 +28,11 @@ type FeedbackSignalBundle = {
 };
 
 const feedbackIntentPattern =
-  /不喜欢|讨厌|不想做|别安排|不要安排|太难|太轻松|做不了|吃力|今天不想|今天不要|这次不想|肩|膝|腰|手腕|脚踝|疼|痛|不舒服|不适|拉伤|扭伤|以后都不要|再也不要/;
+  /不喜欢|讨厌|不想做|别安排|不要安排|太难|太轻松|做不了|吃力|今天不想|今天不要|这次不想|以后都不要|再也不要/;
 
 const bodyPartLabels = ["腿", "胸", "背", "肩", "核心", "手臂", "臀", "膝", "腰", "手腕", "脚踝"];
 
-// 用户反馈写入入口，只处理明确表达的偏好、临时约束和健康信号。
+// 用户反馈写入入口只处理明确表达的训练偏好、动作反馈和临时上下文。
 export async function recordUserFeedbackFromChat(input: {
   userId: string;
   latestUserMessage: string;
@@ -112,9 +112,6 @@ export async function buildConversationMemoryState(input: {
   const profileMemories: UserMemoryInput[] = [
     ...(profile?.preferences ?? []).map((preference) => createProfileMemory("explicit_preference", preference)),
     ...(profile?.avoidances ?? []).map((avoidance) => createProfileMemory("constraint", avoidance)),
-    ...(profile?.injuryLimitations ?? []).map((limitation) =>
-      createProfileMemory("injury_or_pain_signal", limitation, "health"),
-    ),
   ];
 
   return conversationMemoryStateSchema.parse({
@@ -168,7 +165,6 @@ export function mergeMemoryStateIntoWorkoutIntent(
   const currentText = `${intent.goal} ${intent.preferences.join(" ")} ${intent.avoidances.join(" ")}`;
   const avoidances = new Set(intent.avoidances);
   const preferences = new Set(intent.preferences);
-  const injuryLimitations = new Set(intent.injuryLimitations);
 
   for (const label of memoryState.currentMessage.temporaryAvoidanceLabels) {
     if (!currentText.includes(label)) {
@@ -188,8 +184,6 @@ export function mergeMemoryStateIntoWorkoutIntent(
 
     if (memory.kind === "explicit_preference") {
       preferences.add(label);
-    } else if (memory.kind === "injury_or_pain_signal") {
-      injuryLimitations.add(label);
     } else if (memory.kind === "constraint" || memory.kind === "temporary_context") {
       avoidances.add(label);
     }
@@ -199,7 +193,6 @@ export function mergeMemoryStateIntoWorkoutIntent(
     ...intent,
     preferences: [...preferences],
     avoidances: [...avoidances],
-    injuryLimitations: [...injuryLimitations],
   };
 }
 
@@ -332,32 +325,14 @@ export function extractUserFeedbackSignals(input: {
     });
   }
 
-  const healthSignalLabels = extractHealthSignalLabels(text);
-  for (const label of healthSignalLabels) {
-    signals.memories.push({
-      kind: "injury_or_pain_signal",
-      subjectType: "health",
-      subjectLabel: label,
-      value: { signal: label, rawText: text },
-      confidence: 0.75,
-      source: "chat",
-      requiresConfirmation: true,
-      status: "pending_confirmation",
-    });
-  }
-
   return signals;
 }
 
 function applyMemoryConfirmationPolicy(signals: FeedbackSignalBundle, reasonCodes: string[]) {
-  const shouldConfirmHealthSignals = reasonCodes.includes("health_signal_requires_confirmation");
   const shouldConfirmLongTermSignals = reasonCodes.includes("long_term_memory_requires_confirmation");
 
   signals.memories = signals.memories.map((memory) => {
-    if (
-      (memory.kind === "injury_or_pain_signal" && shouldConfirmHealthSignals) ||
-      (memory.requiresConfirmation && shouldConfirmLongTermSignals)
-    ) {
+    if (memory.requiresConfirmation && shouldConfirmLongTermSignals) {
       return {
         ...memory,
         requiresConfirmation: true,
@@ -398,10 +373,7 @@ function extractCurrentMessageSignals(text: string, exercises: Exercise[], now: 
       .filter((memory) => memory.kind === "temporary_context")
       .map((memory) => memory.subjectLabel)
       .filter(Boolean),
-    healthSignalLabels: signals.memories
-      .filter((memory) => memory.kind === "injury_or_pain_signal")
-      .map((memory) => memory.subjectLabel)
-      .filter(Boolean),
+    healthSignalLabels: [],
   };
 }
 
@@ -507,19 +479,6 @@ function extractTemporaryAvoidanceLabels(text: string) {
   }
 
   return bodyPartLabels.filter((label) => temporaryClauses.some((clause) => clause.includes(label)));
-}
-
-function extractHealthSignalLabels(text: string) {
-  const healthClauses = text
-    .split(/[，,。；;！!？?\n]/)
-    .filter((clause) => /疼|痛|不舒服|不适|拉伤|扭伤|伤/.test(clause));
-  if (healthClauses.length === 0) {
-    return [];
-  }
-
-  const labels = bodyPartLabels.filter((label) => healthClauses.some((clause) => clause.includes(label)));
-
-  return labels.length ? labels : ["身体不适"];
 }
 
 function createProfileMemory(

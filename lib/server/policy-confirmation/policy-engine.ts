@@ -189,14 +189,12 @@ export function evaluateSchedulePolicy(input: SchedulePolicyInput): PolicyCheckR
   });
 }
 
-// 用户记忆策略把长期限制和健康/不适信号放入确认流，避免模型直接沉淀敏感偏好。
+// 用户记忆策略只处理会改变长期训练偏好的确认，不再把健康信号转成训练决策边界。
 export function evaluateUserMemoryPolicy(memories: UserMemoryInput[]): PolicyCheckResult {
   const reasons: PolicyReason[] = [];
 
   for (const memory of memories) {
-    if (memory.kind === "injury_or_pain_signal") {
-      reasons.push(reason("health_signal_requires_confirmation", "健康或不适信号写入长期记忆前需要确认。", "confirmation"));
-    } else if (memory.requiresConfirmation || memory.status === "pending_confirmation") {
+    if (memory.requiresConfirmation || memory.status === "pending_confirmation") {
       reasons.push(reason("long_term_memory_requires_confirmation", "长期偏好或限制写入前需要确认。", "confirmation"));
     }
   }
