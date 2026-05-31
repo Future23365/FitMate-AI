@@ -18,7 +18,7 @@ DEEPSEEK_API_KEY=你的真实 key npm run test --detail
 
 命令会自动读取项目根目录的 `.env*` 配置。缺少 `DEEPSEEK_API_KEY` 时，LLM 命令会明确输出缺失配置名称，生成跳过摘要，并说明不会使用 mock、旧快照或非真实模型结果。
 
-运行开始时会输出本次测试的粗略 token 预估，包括预计输入 token、预计输出 token 和预计总量。预估按首页聊天多轮流程粗略计算，最终以模型返回的 `usage` 为准。
+运行开始时会输出本次测试的 token 预估，包括预计输入 token、预计输出 token、预计总量和估算来源。优先使用最近一次真实运行报告的 token 均值校准；没有可用真实报告、最近报告是跳过报告或字段缺失时，才按 fixture 数量、轮次数和保守均值 fallback。
 
 运行结束后会输出流程用例数、轮次数、通过数、失败数、跳过数和真实 token 汇总，并生成最新验收报告：
 
@@ -32,7 +32,27 @@ docs/manual-llm-blackbox-flow-latest-report.md
 docs/manual-llm-blackbox-flow-detail-latest-report.md
 ```
 
-报告会按流程和轮次记录用户输入、期望结果、实际用户可见回复摘要、实际卡片类型、验证状态、token 汇总和失败排错信息。失败记录会包含 `conversationId`、`responseMessageId`、`traceId`、请求或 stream 错误摘要，方便判断是聊天链路错误、模型输出漂移、stream 解析失败还是卡片推送缺失。
+报告会按流程和轮次记录用户输入、期望结果、实际用户可见回复摘要、实际卡片类型、卡片类型断言状态、语义断言状态、最终状态、失败等级、token 汇总和失败排错信息。失败记录会包含 `conversationId`、`responseMessageId`、`traceId`、请求或 stream 错误摘要，以及 artifact 诊断摘要，方便判断是聊天链路错误、模型输出漂移、stream 解析失败、卡片推送缺失、会话保存失败还是引用 payload 读取失败。
+
+## runner 与 preflight
+
+详细套件使用 `api_route` runner。每轮按首页聊天字段构造 `/api/chat` 请求：
+
+```text
+conversationId
+responseMessageId
+latestUserMessage
+conversationSummary
+thinkingEnabled
+```
+
+runner 会创建测试专用匿名用户并通过同一个 HttpOnly cookie 形态的 current user 调用 `/api/chat` 和会话保存 Route Handler。每个流程使用独立的 `manual-llm-*` conversationId；同一流程内后续轮次沿用保存后的会话，引用类用例通过数据库中的 `ConversationArtifact` / `ArtifactIndex` recent summary 和 payload 继续。
+
+运行前会执行 preflight：
+
+- 缺少 `DEEPSEEK_API_KEY`：生成跳过报告，不请求模型，不使用 mock、旧快照或非真实模型结果。
+- 缺少 `DATABASE_URL`、数据库不可连、migration/schema 缺失、`ConversationArtifact` / `ArtifactIndex` 表不可用：报告为环境未满足。
+- 基础动作 seed 不可用：报告为环境未满足，避免把候选缺失误判为模型回归。
 
 ## 与默认测试的边界
 
@@ -63,16 +83,32 @@ docs/manual-llm-blackbox-flow-detail-latest-report.md
 - 计划频率修改、日程偏好和高频训练保守处理。
 - 临时限制、同轮条件覆盖、非健身插入后的上下文恢复。
 - 引用歧义、医疗诊断边界、极端减脂和内部字段泄漏。
+- `LLM完整测试.md` 中的高价值缺口：`P04`、`P07`、`C03`、`C05`、`C06`、`C08`、`M03`、`M04`、`M05`、`M07`、`M08`、`S03`、`S05`、`S06`、`Q04`。
+
+以下内容仍属于人工验收或后续自动化增强，不作为当前详细套件的稳定自动断言：
+
+- UI 输入焦点、滚动、截图和真实浏览器视觉验收。
+- 动作组数、训练容量和每个动作名称的逐字精确匹配。
+- 需要医疗专业判断的风险分级。
+- P3 文案质量复核，例如措辞自然度、说明详略和摘要完整度。
 
 ## 断言策略
 
-黑盒断言只检查用户最终可见结果：
+黑盒断言只检查用户最终可见结果，但现在分为卡片类型断言和语义断言两层：
 
 - assistant 用户可见文本必须非空。
 - 回复不得泄漏内部 trigger、JSON fenced block、raw payload 或后台流程字段。
 - 预期推送卡片时，只校验 `exercise_recommendation`、`workout_routine`、`workout_plan` 类型是否出现。
 - 预期追问、解释、建议问答或非健身回复时，不应推送训练卡片。
-- 第一版不校验动作 ID、组数、训练时长精确值或计划细节准确性。
+- 引用、动作讲解、局部修改等用例可声明 `expectedReferenceStatus` 和 `expectedArtifactPayloadReadable`，如果回复出现“没有安全读取到对应的动作详情”等引用失败语义，会按 P1 语义断言失败处理。
+- 排除动作、安全边界和条件覆盖通过 `mustIncludeAny` / `mustNotIncludeAny` 做可维护关键词断言，不做整段逐字匹配。
+
+最终状态枚举固定为：
+
+- `passed`：卡片类型断言和语义断言都通过。
+- `failed`：P0/P1/P2 自动断言失败。
+- `skipped`：缺少 key、preflight 未满足或前序轮次失败导致未执行。
+- `needs_review`：仅 P3 内容质量或自动断言无法稳定判断，需要人工复核，不计为通过。
 
 ## 维护规则
 
