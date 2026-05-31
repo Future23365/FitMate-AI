@@ -16,6 +16,13 @@
 - **THEN** migration SQL MUST 使用 `TIMESTAMPTZ(3)` 或等价的 UTC-aware PostgreSQL 类型保存具体时间点
 - **AND** migration SQL MUST NOT 为新增或调整后的数据库时间字段继续生成无时区 `TIMESTAMP(3)`
 
+#### Scenario: Existing timestamp columns are migrated
+
+- **WHEN** 本 change 将既有 `TIMESTAMP(3)` 列迁移到 `TIMESTAMPTZ(3)`
+- **THEN** 旧值 MUST 按 UTC+0 语义解释
+- **AND** migration MUST 使用 `AT TIME ZONE 'UTC'` 或等价 SQL 明确转换语义
+- **AND** 实现 MUST NOT 改写历史 migration 文件来隐藏本次 forward migration
+
 #### Scenario: Existing datetime fields are audited
 
 - **WHEN** 实现者盘点当前 schema 中的 `createdAt`、`updatedAt`、`deletedAt`、`expiresAt`、`scheduledFor`、`startedAt`、`endedAt`、`emailVerifiedAt` 和其他 `DateTime` 字段
@@ -53,7 +60,9 @@
 
 - **WHEN** API 或服务函数接收表示具体时间点的字符串字段
 - **THEN** 输入 MUST 通过明确的 ISO 8601 UTC 校验
-- **AND** 输入 MUST 包含 `Z` 或等价 UTC offset
+- **AND** 输入 MUST 包含 `Z` 或等价 UTC offset，例如 `+00:00`
+- **AND** 服务端 MUST 将等价 UTC offset 归一化为 ISO 8601 UTC `Z` 字符串
+- **AND** 服务端 MUST 拒绝非 UTC offset，除非未来单独引入用户时区能力
 - **AND** 服务端 MUST NOT 默默接受 `2026-05-25 10:30` 或 `2026-05-25T10:30:00` 这类无 offset 时间
 
 #### Scenario: Training schedule receives a date-backed datetime
@@ -68,6 +77,22 @@
 - **THEN** 实现 MUST 将其替换为 ISO 8601 UTC 字符串或明确记录迁移解释时区
 - **AND** 实现 MUST NOT 继续保留会被运行环境本地时区解释的时间样例
 
+### Requirement: Persisted JSON times use the same UTC contract
+
+系统 SHALL 约束新写入的持久化 JSON 具体时间点，避免数据库列已规范但 JSON payload 继续引入歧义时间。
+
+#### Scenario: Structured JSON stores a concrete instant
+
+- **WHEN** 服务端向 `ConversationArtifact.payload`、`ChatMessage.metadata`、`UserMemory.value`、`WorkoutSessionResult.feedback`、AI trace payload 或其他持久化 JSON 写入具体时间点
+- **THEN** 该时间 MUST 使用 ISO 8601 UTC `Z` 字符串
+- **AND** 写入逻辑 MUST NOT 保存无 offset 的日期时间字符串
+
+#### Scenario: Existing JSON data is encountered
+
+- **WHEN** 实现盘点发现历史 JSON 中存在时间字符串
+- **THEN** 实现 MUST NOT 批量递归重写历史 JSON
+- **AND** 只有当该 JSON 时间被服务端作为排序、过期、日期归属或训练执行事实读取时，才 SHOULD 做定向迁移或兼容处理
+
 ### Requirement: Time format regressions are automatically verified
 
 系统 SHALL 为数据库时间格式提供可重复的验证手段，防止新字段、fixture 或 migration 重新引入歧义时间。
@@ -81,11 +106,13 @@
 #### Scenario: Schema and migration are checked
 
 - **WHEN** 实现者运行本 change 的验证步骤
-- **THEN** 验证 MUST 检查 `prisma/schema.prisma` 和相关 migration SQL 中不再为具体时间点字段生成无时区 `TIMESTAMP(3)`
+- **THEN** 验证 MUST 检查 `prisma/schema.prisma` 和本 change 新增 migration SQL 中不再为具体时间点字段生成无时区 `TIMESTAMP(3)`
 - **AND** 验证 MUST 能暴露未来新增 `DateTime` 字段缺少 UTC-aware 映射的问题
+- **AND** 验证 MAY 允许历史 migration 文件保留旧 `TIMESTAMP(3)` 记录
 
 #### Scenario: Fixture data is reviewed
 
 - **WHEN** 测试 fixture、seed 数据或手写 mock 数据包含时间字段
 - **THEN** 时间样例 MUST 使用 ISO 8601 UTC 字符串或 `new Date("...Z")`
 - **AND** fixture MUST NOT 使用无 offset 的日期时间字符串构造具体时间点
+- **AND** 纯 date key MAY 继续用于日期标签，但 MUST NOT 被当作具体时间点写入数据库
