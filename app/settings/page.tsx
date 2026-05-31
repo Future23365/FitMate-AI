@@ -10,7 +10,7 @@ const profileItems = [
 ];
 
 export default function SettingsPage() {
-  const { user, resetLocalUser } = useLocalAuth();
+  const { status, user, resetLocalUser } = useLocalAuth();
   const userName = user?.displayName || "匿名用户";
 
   return (
@@ -84,10 +84,11 @@ export default function SettingsPage() {
             </div>
             <button
               className="shrink-0 rounded-xl border border-error/30 bg-error-container px-4 py-2 text-sm font-extrabold text-error transition-colors hover:bg-error-container/80"
+              disabled={status === "resetting"}
               onClick={resetLocalUser}
               type="button"
             >
-              重置本地用户
+              {status === "resetting" ? "正在重置..." : "重置本地用户"}
             </button>
           </div>
         </section>

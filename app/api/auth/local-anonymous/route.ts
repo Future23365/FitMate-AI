@@ -3,6 +3,10 @@ import { NextResponse } from "next/server";
 import {
   authErrorToApiResponse,
   createLocalAnonymousSession,
+  getClearLocalAnonymousAuthCookieOptions,
+  getLocalAnonymousAuthCookieOptions,
+  localAnonymousAuthCookieName,
+  LocalAnonymousAuthError,
   readAnonymousTokenFromRequest,
   restoreLocalAnonymousSession,
 } from "@/lib/server/auth/local-anonymous-auth";
@@ -14,13 +18,30 @@ export async function POST(request: Request) {
       ? await restoreLocalAnonymousSession(token)
       : await createLocalAnonymousSession();
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       ok: true,
-      token: session.token,
       expiresAt: session.expiresAt,
       user: session.user,
     });
+
+    response.cookies.set(localAnonymousAuthCookieName, session.token, getLocalAnonymousAuthCookieOptions());
+
+    return response;
   } catch (error) {
-    return authErrorToApiResponse(error);
+    const response = authErrorToApiResponse(error);
+
+    if (error instanceof LocalAnonymousAuthError && error.status === 401) {
+      response.cookies.set(localAnonymousAuthCookieName, "", getClearLocalAnonymousAuthCookieOptions());
+    }
+
+    return response;
   }
+}
+
+export async function DELETE() {
+  const response = NextResponse.json({ ok: true });
+
+  response.cookies.set(localAnonymousAuthCookieName, "", getClearLocalAnonymousAuthCookieOptions());
+
+  return response;
 }

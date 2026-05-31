@@ -158,40 +158,50 @@ describe("AI trace store and HTTP request helpers", () => {
     );
   });
 
-  it("injects local anonymous credentials and resets auth on raw unauthenticated responses", async () => {
-    const storage = createLocalStorageMock();
+  it("uses same-origin cookies and dispatches auth-required only for unauthenticated responses", async () => {
     const dispatchEvent = vi.fn();
-    const fetchMock = vi.fn().mockResolvedValue(
-      Response.json(
-        { ok: false, code: "unauthenticated", message: "Authentication is required." },
-        { status: 401 },
-      ),
-    );
-    storage.setItem("fitmate.localAuth.v1", JSON.stringify({
-      version: 1,
-      token: "token-1",
-    }));
-    vi.stubGlobal("window", { dispatchEvent, localStorage: storage });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json(
+          { ok: false, code: "unauthenticated", message: "Authentication is required." },
+          { status: 401 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        Response.json(
+          { ok: false, code: "unauthenticated", message: "Authentication is required." },
+          { status: 403 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        Response.json(
+          { ok: false, code: "forbidden", message: "权限不足" },
+          { status: 403 },
+        ),
+      );
+    vi.stubGlobal("window", { dispatchEvent });
     vi.stubGlobal("fetch", fetchMock);
 
     const response = await clientRequest("/api/private", {
       responseType: "raw",
       throwOnError: false,
     });
+    const legacyResponse = await clientRequest("/api/private", {
+      responseType: "raw",
+      throwOnError: false,
+    });
+    const forbiddenResponse = await clientRequest("/api/private", {
+      responseType: "raw",
+      throwOnError: false,
+    });
 
     expect(response.status).toBe(401);
-    expect((fetchMock.mock.calls[0][1].headers as Headers).get("Authorization")).toBe("Bearer token-1");
-    expect(storage.getItem("fitmate.localAuth.v1")).toBeNull();
+    expect(legacyResponse.status).toBe(403);
+    expect(forbiddenResponse.status).toBe(403);
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ credentials: "same-origin" });
+    expect((fetchMock.mock.calls[0][1].headers as Headers).get("Authorization")).toBeNull();
+    expect(dispatchEvent).toHaveBeenCalledTimes(2);
     expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "fitmate:auth-required" }));
   });
 });
-
-function createLocalStorageMock() {
-  const store = new Map<string, string>();
-
-  return {
-    getItem: vi.fn((key: string) => store.get(key) ?? null),
-    setItem: vi.fn((key: string, value: string) => store.set(key, value)),
-    removeItem: vi.fn((key: string) => store.delete(key)),
-  };
-}

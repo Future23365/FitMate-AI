@@ -3,10 +3,10 @@ import "server-only";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 
 import { getPrismaClient } from "@/lib/server/db/prisma";
-import { jsonApiError, jsonUnauthenticatedApiError } from "@/lib/server/http/api-error";
+import { jsonApiError } from "@/lib/server/http/api-error";
 import type { CurrentUser } from "@/lib/server/users/current-user";
 
-export const localAnonymousAuthHeader = "X-FitMate-Anonymous-Token";
+export const localAnonymousAuthCookieName = "fitmate_local_anonymous";
 export const localAnonymousTokenVersion = 1;
 export const localAnonymousTokenTtlSeconds = 180 * 24 * 60 * 60;
 
@@ -50,6 +50,15 @@ export class LocalAnonymousAuthError extends Error {
 type SecretResolutionInput = {
   env?: Partial<Pick<NodeJS.ProcessEnv, "FITMATE_LOCAL_AUTH_SECRET" | "NODE_ENV">>;
   nodeEnv?: string;
+};
+
+export type LocalAnonymousAuthCookieOptions = {
+  httpOnly: true;
+  sameSite: "lax";
+  path: "/";
+  secure: boolean;
+  maxAge: number;
+  expires?: Date;
 };
 
 // 匿名 token secret 在非生产本地可使用固定开发值，避免重启后浏览器身份随机失效。
@@ -99,6 +108,33 @@ export function signLocalAnonymousToken(
     token: `${payloadSegment}.${signatureSegment}`,
     payload,
     expiresAt: new Date(payload.exp * 1000).toISOString(),
+  };
+}
+
+// 匿名 auth cookie 统一定义浏览器会话边界，前端只能依赖浏览器同源自动携带。
+export function getLocalAnonymousAuthCookieOptions(
+  input: { env?: Partial<Pick<NodeJS.ProcessEnv, "NODE_ENV">>; nodeEnv?: string } = {},
+): LocalAnonymousAuthCookieOptions {
+  const env = input.env ?? process.env;
+  const nodeEnv = input.nodeEnv ?? env.NODE_ENV;
+
+  return {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    secure: nodeEnv === "production",
+    maxAge: localAnonymousTokenTtlSeconds,
+  };
+}
+
+// 清除 cookie 使用和写入相同的 path / secure 边界，保证浏览器能覆盖旧值。
+export function getClearLocalAnonymousAuthCookieOptions(
+  input: { env?: Partial<Pick<NodeJS.ProcessEnv, "NODE_ENV">>; nodeEnv?: string } = {},
+): LocalAnonymousAuthCookieOptions {
+  return {
+    ...getLocalAnonymousAuthCookieOptions(input),
+    maxAge: 0,
+    expires: new Date(0),
   };
 }
 
@@ -175,7 +211,7 @@ export async function restoreLocalAnonymousSession(token: string): Promise<Local
   };
 }
 
-// Route Handler 的统一入口：从请求凭证解析当前用户，失败时由调用方映射为 API 响应。
+// Route Handler 的统一入口：从请求 HttpOnly cookie 解析当前用户，失败时由调用方映射为 API 响应。
 export async function requireCurrentUser(request: Request): Promise<CurrentUser> {
   const token = readAnonymousTokenFromRequest(request);
 
@@ -194,10 +230,27 @@ export async function requireCurrentUser(request: Request): Promise<CurrentUser>
 }
 
 export function readAnonymousTokenFromRequest(request: Request) {
-  const authorization = request.headers.get("authorization") ?? "";
-  const bearerMatch = authorization.match(/^Bearer\s+(.+)$/i);
+  return readCookieValue(request.headers.get("cookie") ?? "", localAnonymousAuthCookieName);
+}
 
-  return bearerMatch?.[1]?.trim() || request.headers.get(localAnonymousAuthHeader)?.trim() || null;
+export function readCookieValue(cookieHeader: string, name: string) {
+  for (const part of cookieHeader.split(";")) {
+    const [rawName, ...rawValueParts] = part.trim().split("=");
+
+    if (rawName !== name) {
+      continue;
+    }
+
+    const value = rawValueParts.join("=");
+
+    try {
+      return decodeURIComponent(value).trim() || null;
+    } catch {
+      return value.trim() || null;
+    }
+  }
+
+  return null;
 }
 
 export function authErrorToApiResponse(error: unknown) {
@@ -206,7 +259,7 @@ export function authErrorToApiResponse(error: unknown) {
   }
 
   if (error.status === 401) {
-    return jsonUnauthenticatedApiError(error.message);
+    return jsonApiError("unauthenticated", error.message, 401, { authFailureCode: error.code });
   }
 
   return jsonApiError("missing_configuration", error.message, error.status);

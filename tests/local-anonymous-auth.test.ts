@@ -70,9 +70,22 @@ describe("local anonymous auth", () => {
     expect(() => auth.resolveLocalAnonymousAuthSecret({ env: { NODE_ENV: "production" } })).toThrow(
       "FITMATE_LOCAL_AUTH_SECRET is required for local anonymous auth.",
     );
+    expect(auth.resolveLocalAnonymousAuthSecret({ env: { NODE_ENV: "development" } })).toBe(
+      "fitmate-local-anonymous-auth-development-secret",
+    );
+    expect(auth.getLocalAnonymousAuthCookieOptions({ nodeEnv: "development" })).toMatchObject({
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/",
+      secure: false,
+      maxAge: auth.localAnonymousTokenTtlSeconds,
+    });
+    expect(auth.getLocalAnonymousAuthCookieOptions({ nodeEnv: "production" })).toMatchObject({
+      secure: true,
+    });
   });
 
-  it("creates and restores anonymous sessions through the API route", async () => {
+  it("creates and restores anonymous sessions through HttpOnly cookie route", async () => {
     prismaMock.user.create.mockResolvedValue({ id: "user-1", displayName: "匿名用户" });
     prismaMock.userIdentity.findUnique.mockResolvedValue({ user: { id: "user-1", displayName: "匿名用户" } });
 
@@ -81,6 +94,11 @@ describe("local anonymous auth", () => {
 
     expect(created.status).toBe(200);
     expect(createdBody).toMatchObject({ ok: true, user: { id: "user-1" } });
+    expect(createdBody.token).toBeUndefined();
+    expect(created.headers.get("set-cookie")).toEqual(expect.stringContaining(`${auth.localAnonymousAuthCookieName}=`));
+    expect(created.headers.get("set-cookie")).toEqual(expect.stringContaining("HttpOnly"));
+    expect(created.headers.get("set-cookie")).toMatch(/SameSite=Lax/i);
+    expect(created.headers.get("set-cookie")).toEqual(expect.stringContaining("Path=/"));
     expect(prismaMock.user.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         displayName: "匿名用户",
@@ -90,13 +108,16 @@ describe("local anonymous auth", () => {
       }),
     }));
 
+    const cookieHeader = extractCookiePair(created.headers.get("set-cookie"));
     const restored = await authRoute.POST(new Request("http://localhost/api/auth/local-anonymous", {
       method: "POST",
-      headers: { Authorization: `Bearer ${createdBody.token}` },
+      headers: { Cookie: cookieHeader },
     }));
 
     expect(restored.status).toBe(200);
-    await expect(restored.json()).resolves.toMatchObject({ ok: true, user: { id: "user-1" } });
+    const restoredBody = await restored.json();
+    expect(restoredBody).toMatchObject({ ok: true, user: { id: "user-1" } });
+    expect(restoredBody.token).toBeUndefined();
     expect(prismaMock.userIdentity.findUnique).toHaveBeenCalledWith(expect.objectContaining({
       where: {
         provider_providerAccountId: expect.objectContaining({
@@ -104,19 +125,45 @@ describe("local anonymous auth", () => {
         }),
       },
     }));
+
+    await expect(auth.requireCurrentUser(new Request("http://localhost/api/private", {
+      headers: { Cookie: cookieHeader },
+    }))).resolves.toMatchObject({ id: "user-1" });
   });
 
-  it("returns unauthenticated for invalid restore tokens without local-demo-user fallback", async () => {
+  it("clears anonymous cookie on reset without deleting server users", async () => {
+    const response = await authRoute.DELETE();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("set-cookie")).toEqual(expect.stringContaining(`${auth.localAnonymousAuthCookieName}=`));
+    expect(response.headers.get("set-cookie")).toEqual(expect.stringContaining("Max-Age=0"));
+    expect(prismaMock.user.create).not.toHaveBeenCalled();
+    expect(prismaMock.userIdentity.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("returns unauthenticated for invalid cookie tokens without local-demo-user fallback", async () => {
     const response = await authRoute.POST(new Request("http://localhost/api/auth/local-anonymous", {
       method: "POST",
-      headers: { Authorization: "Bearer invalid-token" },
+      headers: { Cookie: `${auth.localAnonymousAuthCookieName}=invalid-token` },
     }));
 
     expect(response.status).toBe(401);
-    await expect(response.json()).resolves.toMatchObject({ code: "unauthenticated" });
+    await expect(response.json()).resolves.toMatchObject({
+      code: "unauthenticated",
+      detail: { authFailureCode: "invalid_token" },
+    });
+    expect(response.headers.get("set-cookie")).toEqual(expect.stringContaining("Max-Age=0"));
     expect(prismaMock.user.create).not.toHaveBeenCalled();
   });
 });
+
+function extractCookiePair(setCookieHeader: string | null) {
+  if (!setCookieHeader) {
+    throw new Error("Missing Set-Cookie header.");
+  }
+
+  return setCookieHeader.split(";")[0];
+}
 
 function signPayload(payload: object, secret: string) {
   const payloadSegment = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
