@@ -7,12 +7,31 @@
 - **WHEN** 用户提出动作推荐、单次 routine、长期 plan 或已有 artifact 调整请求
 - **THEN** 系统 MUST 产出一个 resolved intent
 - **AND** resolved intent MUST 同时表达 `type`、`action.kind`、`action.shouldTrigger`、`responseMode`、训练意图字段、缺失字段和用户可见建议
+- **AND** resolved intent MUST 表达关键字段来源、引用需求和服务端引用解析结果
 - **AND** 后续回复生成和卡片生成 MUST 使用该 resolved intent
 
 #### Scenario: 系统存在旧版 intent 字段
 - **WHEN** 系统仍需要兼容旧的 `type`、`workoutIntent`、`canTriggerAction` 或 `suggestedReplies`
 - **THEN** 这些字段 MUST 从 resolved intent 派生
 - **AND** 系统 MUST NOT 让旧字段成为另一个可独立触发卡片的事实来源
+
+### Requirement: resolved intent 必须提供共享的结构化 action contract
+系统 SHALL 使用共享 schema 表达 resolved intent 和 assistant action 事件，避免服务端、前端和生成接口各自解释训练意图。
+
+#### Scenario: 服务端发送 assistant action 事件
+- **WHEN** `/api/chat` 决定本轮需要触发结构化动作
+- **THEN** assistant action 事件 MUST 携带 resolved action、可校验的 workout intent、字段来源和引用解析结果
+- **AND** assistant action 事件 MUST NOT 只携带无法校验的 `intent: unknown`
+
+#### Scenario: resolved action 覆盖用户可观察动作
+- **WHEN** 用户请求动作推荐、routine、plan、patch、动作替换、动作讲解或普通回答
+- **THEN** `action.kind` MUST 使用共享枚举表达对应动作
+- **AND** 枚举 MUST 至少覆盖 `exercise_recommendation`、`workout_routine`、`workout_plan`、`workout_patch`、`exercise_replacement`、`exercise_explanation` 和 `none`
+
+#### Scenario: action 不可执行
+- **WHEN** resolved action 因缺失信息、引用不可用或硬边界无法执行
+- **THEN** resolved intent MUST 记录 `action.blockingMissingFields` 或等价阻断原因
+- **AND** 用户回复和 trace MUST 使用该结构化原因解释本轮为什么不触发生成
 
 ### Requirement: resolved intent 必须区分澄清回复和生成后调整建议
 系统 SHALL 将缺信息澄清和生成后可选调整建议拆成不同语义，避免建议阻断用户明确可执行需求。
@@ -57,6 +76,11 @@
 - **AND** ReferenceResolver 返回 `not_found` 或 `ambiguous`
 - **THEN** 系统 MUST 将该结果视为不可执行
 - **AND** 系统 MUST 进入澄清回复或引用选择流程
+
+#### Scenario: patch、替换或讲解动作依赖历史内容
+- **WHEN** resolved intent 的 `action.kind` 为 `workout_patch`、`exercise_replacement` 或依赖 artifact 的 `exercise_explanation`
+- **THEN** resolved intent MUST 声明引用需求
+- **AND** 服务端 MUST 在调用下游修改或讲解流程前校验引用已解析为当前用户可访问 artifact
 
 ### Requirement: 冲突 resolved intent 必须经过一次 repair 或降级为澄清
 系统 SHALL 在 resolved intent 出现结构冲突时调用一次 LLM repair，并在 repair 失败后停止卡片生成。
@@ -107,3 +131,8 @@
 - **WHEN** 服务端返回 `action.shouldTrigger = true`
 - **THEN** 前端 MUST 使用该 action、resolved intent 和 referenceResolution 调用对应生成流程
 - **AND** 前端 MUST NOT 重新解析回复正文来决定 action 类型
+
+#### Scenario: 历史消息包含旧 trigger JSON
+- **WHEN** 历史 assistant 消息正文包含 `workout_plan_trigger`、`workout_routine_trigger`、`exercise_recommendation_trigger` 或等价旧 trigger JSON
+- **THEN** 展示层 MAY 清理这些旧 trigger block 以避免用户看到内部协议
+- **AND** 聊天 hook、上下文摘要和新一轮决策 MUST NOT 将这些正文 trigger JSON 当作最新训练意图事实来源

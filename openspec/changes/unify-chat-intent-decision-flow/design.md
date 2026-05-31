@@ -33,12 +33,16 @@
 
 - `type`：用户意图类型。
 - `action.kind` 与 `action.shouldTrigger`：系统本轮是否触发结构化卡片，以及触发哪类卡片。
+- `action.reason` 与 `action.blockingMissingFields`：触发或阻断的服务端可追踪原因，供回复生成、trace 和测试断言使用。
 - `responseMode`：`answer_only`、`ask_clarification`、`generate_directly` 或 `generate_with_suggestions`。
 - `workoutIntent`：训练目标、时长、周期、周频率、器械、偏好、避免项和限制。
 - `missingActionFields`：只有无法生成时才表达缺失字段。
 - `clarificationReplies`：补充缺失信息用，只在 `ask_clarification` 出现。
 - `adjustmentReplies`：生成后可选调整建议，不阻断当前需求。
 - `fieldSources`：关键字段来源，例如 `current_user_message`、`history`、`artifact`、`llm_inferred` 或 `default`。
+- `referenceRequirement` 与 `referenceResolution`：表达本轮是否依赖历史 artifact，以及引用是否已经被服务端解析为可执行对象。
+
+`ResolvedChatIntent` 需要放在共享类型或共享 schema 中，供服务端解析、流事件、前端 hook 和专用生成接口复用。前端流事件不应继续只传 `intent: unknown`；它应携带最终 resolved action、可校验的 workout intent、字段来源和引用解析结果。旧的 `type`、`workoutIntent`、`canTriggerAction` 和 `suggestedReplies` 只能由 resolved intent 派生，用于兼容旧调用点。
 
 这样避免再引入一个与 intent 并行的 `ChatDecision` 概念，同时把“用户表达什么”和“系统执行什么”放在同一个执行契约里。
 
@@ -52,6 +56,20 @@
 - 周期天数、周训练频率、单次时长和引用对象必须进入结构化字段，不能只写进自然语言回复。
 
 服务端门控只检查这些结构化字段是否自洽，不尝试判断所有自然语言含义。这样既保留 LLM 的理解能力，也避免一次 LLM 漏字段直接落到业务执行。
+
+### Decision 2.1: 明确 action 范围和不可执行引用
+
+`action.kind` 至少覆盖以下用户可观察动作：
+
+- `exercise_recommendation`：生成动作推荐。
+- `workout_routine`：生成单次训练编排。
+- `workout_plan`：生成长期或多天计划。
+- `workout_patch`：修改已有 routine 或 plan artifact。
+- `exercise_replacement`：替换已有训练中的动作。
+- `exercise_explanation`：讲解已有动作或训练内容。
+- `none`：只回答或只追问，不触发结构化生成。
+
+其中 `workout_patch`、`exercise_replacement` 和依赖历史内容的 `exercise_explanation` 必须声明 `referenceRequirement`。如果 ReferenceResolver 返回 `not_found` 或 `ambiguous`，resolved intent 必须进入 `ask_clarification` 或引用选择流程，不能让下游根据自然语言摘要自行猜测 artifact。
 
 ### Decision 3: 冲突时 repair 一次，失败后降级澄清
 
@@ -71,6 +89,12 @@
 
 这不是把所有生成放到一个 LLM call。完整训练卡片仍可以由专用生成器生成，因为它需要候选动作、artifact payload、Validator 和 repair；但生成器的输入契约必须来自同一个 resolved intent。
 
+旧 trigger 清理分三层处理：
+
+- 聊天 hook 不再调用正文 trigger 解析来决定是否生成 recommendation、routine 或 plan。
+- 消息展示层可以保留旧 trigger block 的清理能力，但清理结果只影响展示文本，不再产生新 action。
+- 上下文摘要和历史消息解析不再把正文中的 trigger JSON 当作最新 intent 事实；如需历史兼容，只能读取已持久化的结构化 message metadata 或 resolved intent 快照。
+
 ### Decision 5: 用户回复在 artifact 结果之后生成或修正
 
 回复不能提前承诺一个尚未通过校验的卡片。生成型请求应按顺序执行：
@@ -85,6 +109,16 @@
 ### Decision 6: 关键默认值必须可见且受控
 
 默认值仍可用于低风险字段或明确的兜底体验，但不能静默覆盖用户约束。对于计划周期、周频率、日历范围、引用对象这类会改变结果形态的字段，系统必须记录来源。若字段来源为 `default`，回复或调整建议必须让用户知道默认假设；若用户表达了明确约束，则生成结果必须与该约束一致。
+
+字段来源按以下规则使用：
+
+- `current_user_message`：当前消息明确给出的字段，优先级最高。
+- `history`：conversationSummary 或已持久化结构化上下文中仍然有效的字段。
+- `artifact`：ReferenceResolver 解析出的 artifact payload 或 metadata 中的字段。
+- `llm_inferred`：LLM 基于当前上下文合理推断的字段，必须可被 trace 追踪。
+- `default`：系统默认值，只能用于允许默认的字段，且不能覆盖前三类来源。
+
+允许默认但必须显式标记来源的字段包括 `experience`、低风险 `sessionMinutes` 估算和缺失周期时的计划兜底范围。会改变用户可见结果形态的 `calendarHorizonDays`、`weeklyFrequency`、`sourceArtifactId`、引用对象和明确训练目标不得被默认值静默覆盖。若这些字段只能使用默认值，用户回复或 `adjustmentReplies` 必须说明假设，并提供继续调整路径。
 
 ## Risks / Trade-offs
 

@@ -7,6 +7,7 @@
 - **WHEN** resolved intent 的 `action.kind` 为 `workout_plan`
 - **AND** `action.shouldTrigger` 为 `true`
 - **THEN** 长期计划生成请求 MUST 使用 resolved intent 中的 `workoutIntent`
+- **AND** 长期计划生成请求 MUST 接收关键字段来源和引用解析结果
 - **AND** 系统 MUST NOT 从用户回复正文重新提取 plan trigger
 - **AND** 系统 MUST NOT 在计划生成接口中重新判断本轮是否应该生成 plan
 
@@ -31,6 +32,11 @@
 - **THEN** 系统 MAY 使用默认周期生成计划
 - **AND** 用户回复或可见建议 MUST 说明本次使用的是默认周期假设
 - **AND** 系统 MUST 提供可继续调整周期的用户可见回复选项
+
+#### Scenario: 默认值来源缺失或不可追踪
+- **WHEN** 计划生成需要使用默认周期、默认周频率或默认单次时长
+- **THEN** resolved intent 或 PlanStrategy MUST 标记对应字段来源为 `default`
+- **AND** 系统 MUST NOT 将默认值伪装成用户已经明确表达的约束
 
 #### Scenario: 计划草稿与 resolved intent 不一致
 - **WHEN** 计划草稿的 `cycleLengthDays`、`calendarHorizonDays`、`weeklyFrequency` 或 `trainingDayCount` 与 resolved intent 约束冲突

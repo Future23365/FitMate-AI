@@ -9,6 +9,11 @@
 - **AND** `PlanStrategy` MUST 表达 `horizonDays`、`weeklyFrequency`、`sessionMinutes`、`strategy`、`sourceArtifactId` 和关键字段来源
 - **AND** DomainPlanEngine MUST NOT 从自然语言回复正文重新推断这些关键字段
 
+#### Scenario: PlanStrategy 接收字段来源
+- **WHEN** `PlanStrategy` 由 resolved intent 派生
+- **THEN** `PlanStrategy` MUST 保留周期、周频率、单次时长和引用来源的字段来源
+- **AND** 后续输出校验和用户回复 MUST 能区分用户明确约束、历史上下文、artifact 来源、LLM 推断和系统默认值
+
 #### Scenario: resolved intent 引用历史 routine
 - **WHEN** resolved intent 的长期计划请求基于历史 routine artifact
 - **AND** ReferenceResolver 已解析到可访问 artifact
@@ -24,6 +29,7 @@
 - **AND** 字段来源允许使用默认计划周期
 - **THEN** DomainPlanEngine MAY 使用默认 `horizonDays`
 - **AND** `PlanStrategy` MUST 标记该周期来源为 `default`
+- **AND** 调用方 MUST 在用户回复或可见建议中说明该默认周期假设
 
 #### Scenario: resolved intent 提供明确周期
 - **WHEN** resolved intent 或其字段来源表明用户已提供明确计划周期或日历范围
