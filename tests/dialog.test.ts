@@ -19,7 +19,7 @@ describe("Dialog", () => {
     expect(html).toBe("");
   });
 
-  it("keeps the shadcn/Radix overlay above sidebars with state-driven animations", () => {
+  it("keeps the shadcn/Radix overlay with state-driven animations", () => {
     const html = renderToStaticMarkup(
       React.createElement(
         Dialog,
@@ -29,22 +29,25 @@ describe("Dialog", () => {
     );
 
     expect(html).toContain("data-slot=\"dialog-overlay\"");
-    expect(html).toContain("fixed inset-0 z-[100]");
+    expect(html).toContain("fixed inset-0 z-50");
     expect(html).toContain("bg-black/50");
     expect(html).toContain("data-[state=open]:animate-in");
     expect(html).toContain("data-[state=closed]:animate-out");
   });
 
-  it("keeps shadcn default dialog content enter and exit motion classes", () => {
+  it("keeps the shadcn CLI generated Radix import and motion classes", () => {
     const source = readFileSync(
       fileURLToPath(new URL("../components/ui/dialog.tsx", import.meta.url)),
       "utf8",
     );
 
+    expect(source).toContain('import { Dialog as DialogPrimitive } from "radix-ui"');
+    expect(source).toContain("data-[state=open]:animate-in");
+    expect(source).toContain("data-[state=closed]:animate-out");
+    expect(source).toContain("data-[state=open]:fade-in-0");
+    expect(source).toContain("data-[state=closed]:fade-out-0");
     expect(source).toContain("data-[state=open]:zoom-in-95");
     expect(source).toContain("data-[state=closed]:zoom-out-95");
-    expect(source).toContain("data-[state=open]:slide-in-from-left-1/2");
-    expect(source).toContain("data-[state=closed]:slide-out-to-top-[48%]");
   });
 
   it("does not render dialog content when closed before hydration", () => {
