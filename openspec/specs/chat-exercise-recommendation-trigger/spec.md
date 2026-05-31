@@ -24,6 +24,14 @@ TBD - created by archiving change allow-goal-only-exercise-recommendation. Updat
 - **THEN** 系统 MUST 触发 `exercise_recommendation` 内部动作事件
 - **AND** 系统 MUST NOT 强制要求用户先提供单次训练时长
 
+#### Scenario: 推荐卡片生成不依赖必填图片字段
+
+- **WHEN** 系统已经触发 `exercise_recommendation`
+- **AND** 候选动作包含合法动作 ID、名称、肌群和器械信息
+- **AND** 候选动作没有可用图片 URL
+- **THEN** 系统 MUST 生成可展示的动作推荐卡片
+- **AND** 系统 MUST NOT 在 stream 前抛出运行时异常
+
 #### Scenario: 意图解析要求先追问
 
 - **WHEN** 意图解析结果使用顶层 `type = "exercise_recommendation"`

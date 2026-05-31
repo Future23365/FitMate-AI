@@ -26,19 +26,19 @@ TBD - created by archiving change change-006-user-feedback-memory. Update Purpos
 - **AND** 后续替换该动作时 SHOULD 优先召回 regression 候选
 - **AND** 系统 MUST NOT 在用户未请求挑战时继续优先推荐同一高难度动作
 
-### Requirement: 健康和不适信号必须保守处理
-系统 SHALL 将疼痛、伤病或高风险信号作为训练约束处理，但不得生成医疗诊断。
+### Requirement: 健康和不适信号不得作为训练决策约束
+系统 SHALL NOT 将疼痛、伤病、高风险症状、身体不适或医疗健康信号作为训练候选排除、动作降权、训练计划阻断或 Patch 替换拒绝依据。
 
 #### Scenario: 用户表达肩膀不舒服
 - **WHEN** 用户说“最近肩膀不舒服”
-- **THEN** 系统 MUST 将该信息作为 injury_or_pain_signal 或保守训练约束
-- **AND** 系统 SHOULD 避免相关高风险动作和高强度替代
+- **THEN** 系统 MUST NOT 将该信息作为 `injury_or_pain_signal` 或保守训练约束影响候选选择
+- **AND** 系统 MUST NOT 因该信息避免相关动作、高强度替代或训练计划生成
 - **AND** 用户可见回复 MUST NOT 提供医疗诊断或治疗承诺
 
 #### Scenario: 写入长期健康限制
-- **WHEN** 系统准备将健康或不适信号写入长期记忆
-- **THEN** 该写入 SHOULD 标记 `requiresConfirmation = true`
-- **AND** Confirmation Gate MUST 决定是否需要用户确认
+- **WHEN** 系统处理健康或不适信号
+- **THEN** 系统 MUST NOT 将该信号写成会影响训练生成的长期记忆
+- **AND** Confirmation Gate MUST NOT 因健康或不适信号要求用户确认长期健康限制
 
 ### Requirement: 记忆读取必须遵循固定优先级
 系统 SHALL 在构建训练上下文时使用固定优先级合并当前消息、artifact、用户画像、反馈和训练结果。

@@ -19,7 +19,7 @@ TBD - created by archiving change change-009-policy-confirmation. Update Purpose
 - **AND** 系统 MAY 创建新 revision 而不是直接覆盖原 routine
 
 ### Requirement: 高影响操作必须经过 ConfirmationGate
-系统 SHALL 对批量、持久化或高风险写操作要求用户确认。
+系统 SHALL 对批量、持久化或高影响写操作要求用户确认，但健康、疼痛、伤病、不适或医疗健康信号本身 SHALL NOT 作为需要确认的写操作原因。
 
 #### Scenario: 批量修改未来 schedule
 - **WHEN** Patch scope 指向多个 future schedules
@@ -32,10 +32,10 @@ TBD - created by archiving change change-009-policy-confirmation. Update Purpose
 - **THEN** ConfirmationGate SHOULD 要求用户确认
 - **AND** 系统 MUST 展示频率变化、恢复安排变化和受影响的计划范围
 
-#### Scenario: 写入长期健康限制
-- **WHEN** 系统准备将疼痛、伤病或高风险信号写入长期记忆
-- **THEN** ConfirmationGate SHOULD 要求用户确认
-- **AND** 用户可见文案 MUST 保持训练建议边界，不提供医疗诊断
+#### Scenario: 用户表达健康或不适信号
+- **WHEN** 用户消息包含疼痛、伤病、高风险症状、不适或医疗健康信号
+- **THEN** ConfirmationGate MUST NOT 因该信号要求用户确认长期健康限制
+- **AND** 系统 MUST NOT 将该信号作为训练生成决策边界写入待确认操作
 
 ### Requirement: 已完成训练历史默认不可修改
 系统 SHALL 防止 AI 或 Patch 静默改写已完成 schedule 和训练结果。

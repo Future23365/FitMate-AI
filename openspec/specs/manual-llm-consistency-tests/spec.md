@@ -118,6 +118,14 @@ TBD - created by archiving change add-manual-llm-consistency-tests. Update Purpo
 - **THEN** 测试失败报告 MUST 标出命中的禁止项
 - **AND** 测试失败报告 MUST 保留模型原始正文
 
+#### Scenario: Flow failure records downstream skipped turns
+
+- **WHEN** 多轮黑盒流程中的任意一轮失败
+- **AND** 同一 fixture 中仍有后续轮次
+- **THEN** 验收报告 MUST 将后续轮次记录为 skipped
+- **AND** skipped 记录 MUST 包含导致跳过的失败摘要
+- **AND** 本次运行的报告轮次数 MUST 等于 fixture 中定义的总轮次数
+
 #### Scenario: Manual run summary is emitted
 
 - **WHEN** 专用手动 LLM 测试命令结束
