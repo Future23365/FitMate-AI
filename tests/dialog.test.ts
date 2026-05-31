@@ -21,6 +21,7 @@ describe("Dialog", () => {
     );
 
     expect(html).toContain("data-state=\"open\"");
+    expect(html).toContain("fixed inset-0 z-[100]");
     expect(html).toContain("fitmate-dialog-overlay");
     expect(html).toContain("fitmate-dialog-content");
   });

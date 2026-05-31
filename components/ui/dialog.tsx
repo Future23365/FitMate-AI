@@ -11,7 +11,7 @@ type DialogContextValue = {
 
 const DialogContext = React.createContext<DialogContextValue | null>(null);
 
-// Dialog 是本项目的 shadcn 弹窗源码层实现，默认在当前容器内渲染，避免变成全局页面遮罩。
+// Dialog 是本项目的 shadcn 弹窗源码层实现，使用 viewport 级浮层覆盖左右侧栏。
 function Dialog({
   open,
   onOpenChange,
@@ -73,7 +73,7 @@ function DialogContent({
 
   return (
     <div
-      className="fitmate-dialog-root absolute inset-0 z-20 flex items-center justify-center px-lg py-xl"
+      className="fitmate-dialog-root fixed inset-0 z-[100] flex items-center justify-center px-lg py-xl"
       data-state="open"
     >
       <DialogOverlay
