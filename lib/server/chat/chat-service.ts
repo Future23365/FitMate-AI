@@ -157,6 +157,31 @@ const suggestedReplyListSchema = z.preprocess(
 );
 const assistantSuggestionInputListSchema = assistantSuggestionListSchema.catch([]);
 
+// 首轮问候 starter suggestions 用确定性协议补齐，避免把欢迎语 Markdown 示例当成按钮来源。
+const greetingStarterAssistantSuggestions: AssistantSuggestion[] = [
+  {
+    label: "肩膀徒手动作",
+    message: "我想练一练肩膀，居家徒手推荐几个动作",
+    kind: "next_action",
+    blocking: false,
+    source: "intent",
+  },
+  {
+    label: "20 分钟哑铃全身",
+    message: "今天有 20 分钟，家里有哑铃，来一次全身训练",
+    kind: "next_action",
+    blocking: false,
+    source: "intent",
+  },
+  {
+    label: "每周 4 天增肌计划",
+    message: "想制定一个每周练 4 天的增肌计划",
+    kind: "next_action",
+    blocking: false,
+    source: "intent",
+  },
+];
+
 const optionalWorkoutIntentSchema = z.preprocess(
   (value) => (value === null ? undefined : value),
   workoutPlanIntentSchema.optional(),
@@ -1575,6 +1600,18 @@ export function normalizeChatIntentForBlackboxFlows(input: {
   );
   const hasAnyPriorWorkoutContext =
     hasPriorTrainingContext || hasDurableConditionFacts(input.conversationContext);
+
+  if (shouldAttachGreetingStarterSuggestions(input)) {
+    return {
+      ...input.chatIntent,
+      type: "general_fitness_advice",
+      needsExerciseContext: false,
+      canTriggerAction: false,
+      missingActionFields: [],
+      suggestedReplies: [],
+      assistantSuggestions: buildGreetingStarterAssistantSuggestions(),
+    };
+  }
 
   if (isStandaloneConditionMessage(latestUserMessage) && !hasPriorTrainingContext) {
     return {
@@ -3553,6 +3590,43 @@ function isStandaloneConditionMessage(message: string) {
     !isLongTermPlanMessage(normalized) &&
     !/推荐|安排|编排|来一套|做成|变成|训练流程/.test(normalized)
   );
+}
+
+// 问候兜底只覆盖没有历史训练上下文的首轮轻量打招呼，不抢占真实训练意图。
+function shouldAttachGreetingStarterSuggestions(input: {
+  chatIntent: ChatIntent;
+  messages: ChatMessage[];
+  conversationSummaryContext: ConversationSummaryContext;
+  conversationContext: FitnessConversationContext;
+  recentArtifactSummaries?: RecentArtifactSummary[];
+}) {
+  if (
+    input.chatIntent.assistantSuggestions?.length ||
+    input.chatIntent.suggestedReplies.length > 0 ||
+    input.chatIntent.canTriggerAction ||
+    input.chatIntent.type !== "general_fitness_advice"
+  ) {
+    return false;
+  }
+
+  const hasPriorContext = Boolean(
+    input.conversationSummaryContext.summary.trim() ||
+      input.conversationContext.currentIntent ||
+      input.conversationContext.knownFacts.goal ||
+      input.conversationContext.unresolvedQuestions.length > 0 ||
+      input.recentArtifactSummaries?.length,
+  );
+
+  return !hasPriorContext && input.messages.length <= 1 && isGreetingOnlyMessage(input.conversationSummaryContext.latestUserMessage);
+}
+
+function isGreetingOnlyMessage(message: string) {
+  const normalized = message.replace(/[\s，。！？!?,.～~]/g, "");
+  return /^(你好|您好|哈喽|嗨|hello|hi|hey)$/i.test(normalized);
+}
+
+function buildGreetingStarterAssistantSuggestions() {
+  return greetingStarterAssistantSuggestions.map((suggestion) => ({ ...suggestion }));
 }
 
 function hasDurableConditionFacts(conversationContext: FitnessConversationContext) {

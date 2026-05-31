@@ -214,6 +214,52 @@ describe("AI chat service deterministic boundaries", () => {
     expect(streamEvent).toContain("我想减脂，在家自重练，每周3次每次30分钟");
   });
 
+  it("adds starter assistant suggestions for first-turn greetings when the model returns none", () => {
+    const modelIntent: ChatIntent = {
+      type: "general_fitness_advice",
+      needsExerciseContext: false,
+      requestedExerciseName: "",
+      canTriggerAction: false,
+      missingActionFields: [],
+      suggestedReplies: [],
+    };
+
+    const normalized = normalizeChatIntentForBlackboxFlows({
+      chatIntent: modelIntent,
+      fallbackIntent: createFallbackChatIntent(
+        [{ role: "user", content: "你好" }],
+        createEmptyConversationContext(),
+      ),
+      messages: [{ role: "user", content: "你好" }],
+      conversationSummaryContext: { summary: "", latestUserMessage: "你好" },
+      conversationContext: createEmptyConversationContext(),
+      recentArtifactSummaries: [],
+    });
+    const suggestions = resolveAssistantSuggestions({
+      chatIntent: normalized,
+      assistantAction: null,
+      artifactResult: null,
+    }).assistantSuggestions;
+
+    expect(suggestions).toEqual([
+      expect.objectContaining({
+        label: "肩膀徒手动作",
+        message: "我想练一练肩膀，居家徒手推荐几个动作",
+        kind: "next_action",
+        blocking: false,
+        source: "intent",
+      }),
+      expect.objectContaining({
+        label: "20 分钟哑铃全身",
+        message: "今天有 20 分钟，家里有哑铃，来一次全身训练",
+      }),
+      expect.objectContaining({
+        label: "每周 4 天增肌计划",
+        message: "想制定一个每周练 4 天的增肌计划",
+      }),
+    ]);
+  });
+
   it("normalizes legacy suggested replies into assistantSuggestions", () => {
     const normalized = normalizeAssistantSuggestions([
       {
