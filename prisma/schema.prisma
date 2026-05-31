@@ -120,6 +120,7 @@ model User {
   id              String                 @id @default(cuid())
   email           String?                @unique
   displayName     String?
+  deletedAt       DateTime?
   createdAt       DateTime               @default(now())
   updatedAt       DateTime               @updatedAt
   identities      UserIdentity[]
@@ -132,6 +133,8 @@ model User {
   artifactIndexes ArtifactIndex[]
   memories        UserMemory[]
   exerciseFeedback UserExerciseFeedback[]
+
+  @@index([deletedAt])
 }
 
 model UserIdentity {

@@ -1,4 +1,6 @@
 import React from "react";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
@@ -26,7 +28,22 @@ describe("LocalAuthProvider", () => {
     );
 
     expect(html).toContain("重置本地用户");
-    expect(html).toContain("不删除服务器上旧匿名用户的数据");
+    expect(html).toContain("标记为软删除");
     expect(html).not.toContain("继续使用 FitMate");
+  });
+
+  it("keeps reset behind a shadcn confirmation dialog instead of calling reset directly", () => {
+    const source = readFileSync(
+      fileURLToPath(new URL("../app/settings/page.tsx", import.meta.url)),
+      "utf8",
+    );
+
+    expect(source).toContain("DialogContent");
+    expect(source).toContain("setResetDialogOpen(true)");
+    expect(source).toContain("DialogClose asChild");
+    expect(source).toContain("confirmResetLocalUser");
+    expect(source).toContain("await resetLocalUser()");
+    expect(source).toContain("旧本地用户会被软删除");
+    expect(source).not.toContain("onClick={resetLocalUser}");
   });
 });

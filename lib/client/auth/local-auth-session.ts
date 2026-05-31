@@ -47,10 +47,14 @@ export async function requestLocalAnonymousSession(): Promise<LocalAnonymousSess
   };
 }
 
-// 重置本地用户只断开当前浏览器 cookie，不删除服务器上的匿名用户数据。
+// 重置本地用户会触发服务端软删除旧匿名身份，并清除当前浏览器 cookie。
 export async function resetLocalAnonymousSession() {
-  await fetch("/api/auth/local-anonymous", {
+  const response = await fetch("/api/auth/local-anonymous", {
     method: "DELETE",
     credentials: "same-origin",
   });
+
+  if (!response.ok) {
+    throw new Error("Failed to reset local anonymous user.");
+  }
 }

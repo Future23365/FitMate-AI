@@ -10,7 +10,7 @@
 
 | 业务域 | 相关表 | 说明 |
 |---|---|---|
-| 用户与身份 | `User`、`UserIdentity`、`UserProfile` | 保存用户主体、登录身份和健身画像。当前鉴权尚未正式接入，服务端会创建固定的本地演示用户。 |
+| 用户与身份 | `User`、`UserIdentity`、`UserProfile` | 保存用户主体、登录身份、软删除状态和健身画像。当前本地匿名鉴权通过浏览器 HttpOnly cookie 恢复当前用户。 |
 | 用户反馈记忆 | `UserMemory`、`UserExerciseFeedback` | 保存显式偏好、动作反馈、临时上下文和训练行为反馈；健康/不适字段保留为历史兼容，不参与训练生成决策。 |
 | 动作库 | `Exercise` | 保存训练动作的标准事实数据，包括来源、分类、肌群、器械、居家可做条件、图片、教学步骤和审核状态。 |
 | 训练编排、日历与结果 | `WorkoutRoutine`、`WorkoutRoutineItem`、`WorkoutSchedule`、`WorkoutSessionResult` | 保存用户可复用动作编排、编排项、日历安排和实际训练结果摘要。 |
@@ -48,7 +48,7 @@ User
 | `google` | Google 登录。 |
 | `github` | GitHub 登录。 |
 | `apple` | Apple 登录。 |
-| `anonymous` | 匿名或本地演示身份。当前本地演示用户使用该值。 |
+| `anonymous` | 本地匿名身份。当前浏览器匿名 auth cookie 会通过该身份恢复请求级 `CurrentUser`。 |
 
 ### ExerciseReviewStatus
 
@@ -194,6 +194,7 @@ artifact 保存后的来源实体类型。
 | `id` | `String` | 主键，默认 `cuid()` | 用户唯一标识。当前正常请求由浏览器本地匿名 auth cookie 解析得到当前用户。 |
 | `email` | `String?` | 唯一，可空 | 用户邮箱。正式鉴权接入后可用于账号识别。 |
 | `displayName` | `String?` | 可空 | 用户展示名称。 |
+| `deletedAt` | `DateTime?` | 可空，已建索引 | 用户级软删除时间。本地匿名用户重置会设置该字段，旧 cookie 不能再恢复该用户，但旧聊天、训练和 trace 数据不会被物理删除。 |
 | `createdAt` | `DateTime` | 默认 `now()` | 用户创建时间。 |
 | `updatedAt` | `DateTime` | `@updatedAt` | 用户最后更新时间。 |
 
@@ -490,7 +491,8 @@ artifact 轻量检索索引。聊天上下文和后续引用解析优先读取�
 
 - PostgreSQL 是业务事实数据来源，所有用户私有数据都应通过 `userId` 隔离。
 - 当前用户来源是浏览器本地匿名鉴权：服务端通过 HttpOnly cookie 保存匿名 token，Route Handler 通过 `UserIdentity(provider = "anonymous")` 解析请求级 `CurrentUser`。
-- 设置页“重置本地用户”只清除当前浏览器的匿名 auth cookie，不删除旧匿名用户、聊天记录、训练编排、训练日历或训练结果等服务器数据。
+- 设置页“重置本地用户”会清除当前浏览器的匿名 auth cookie，并将旧匿名 `User.deletedAt` 标记为软删除；旧聊天记录、训练编排、训练日历、训练结果、artifact、memory 和动作反馈等业务数据保留，不做物理删除。
+- `restoreLocalAnonymousSession()` 和 `requireCurrentUser()` 必须把 `deletedAt != null` 的用户视为未认证，防止旧 cookie 恢复旧身份或继续访问旧用户私有数据。
 - 动作库的 `equipment` 和 `homeRequirement` 是两个不同维度：前者表示器械，后者表示居家训练条件。
 - 训练编排动作通过 `WorkoutRoutineItem.exerciseId` 强制引用 `Exercise`，避免 AI 或客户端保存不存在的动作。
 - `WorkoutSchedule` 保存日历展示快照；routine 后续更新不会自动改写已存在日历安排的标题、分钟数和热量。

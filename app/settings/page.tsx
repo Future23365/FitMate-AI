@@ -1,7 +1,19 @@
 "use client";
 
+import { useState } from "react";
+
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { useLocalAuth } from "@/components/auth/local-auth-provider";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 const profileItems = [
   { label: "训练目标", value: "待完善", icon: "flag" },
@@ -11,7 +23,21 @@ const profileItems = [
 
 export default function SettingsPage() {
   const { status, user, resetLocalUser } = useLocalAuth();
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
   const userName = user?.displayName || "匿名用户";
+  const isResetting = status === "resetting";
+
+  async function confirmResetLocalUser() {
+    setResetError(null);
+
+    try {
+      await resetLocalUser();
+      setResetDialogOpen(false);
+    } catch {
+      setResetError("重置失败，请稍后重试。");
+    }
+  }
 
   return (
     <main className="app-mesh-bg fixed bottom-0 left-[var(--app-sidebar-offset)] right-0 top-0 overflow-y-auto px-lg py-xl text-ink xl:px-2xl">
@@ -72,27 +98,80 @@ export default function SettingsPage() {
         </section>
 
         <section className="rounded-2xl border border-line/70 bg-white/86 p-xl shadow-card backdrop-blur-xl">
-          <div className="flex items-center justify-between gap-lg">
+          <div className="flex flex-wrap items-start justify-between gap-lg">
             <div className="min-w-0">
               <div className="flex items-center gap-sm">
                 <SymbolIcon className="text-[22px] text-primary">person_cancel</SymbolIcon>
                 <h2 className="text-xl font-extrabold text-ink">本地用户</h2>
               </div>
               <p className="mt-sm text-sm font-semibold text-muted">
-                重置会当前浏览器保存的匿名凭证，并删除服务器上旧匿名用户的数据，无法恢复。
+                重置会退出当前浏览器保存的匿名用户，并将旧本地用户标记为软删除。
               </p>
             </div>
-            <button
-              className="shrink-0 rounded-xl border border-error/30 bg-error-container px-4 py-2 text-sm font-extrabold text-error transition-colors hover:bg-error-container/80"
-              disabled={status === "resetting"}
-              onClick={resetLocalUser}
+            <Button
+              className="shrink-0 border-error/30 bg-error-container text-error hover:bg-error-container/80"
+              disabled={isResetting}
+              onClick={() => {
+                setResetError(null);
+                setResetDialogOpen(true);
+              }}
               type="button"
+              variant="outline"
             >
-              {status === "resetting" ? "正在重置..." : "重置本地用户"}
-            </button>
+              {isResetting ? "正在重置..." : "重置本地用户"}
+            </Button>
           </div>
         </section>
       </div>
+
+      <Dialog
+        open={resetDialogOpen}
+        onOpenChange={(open) => {
+          if (isResetting) {
+            return;
+          }
+
+          setResetError(null);
+          setResetDialogOpen(open);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-error-container text-error ring-1 ring-error/10">
+            <SymbolIcon className="text-[28px]" filled>
+              person_cancel
+            </SymbolIcon>
+          </div>
+          <DialogHeader>
+            <p className="text-sm font-bold text-error">危险操作</p>
+            <DialogTitle className="text-2xl font-extrabold text-ink">
+              重置本地用户？
+            </DialogTitle>
+            <DialogDescription className="text-sm font-semibold leading-6 text-muted">
+              确认后，当前浏览器会退出旧本地用户并进入新的匿名登录流程。旧本地用户会被软删除，旧 cookie 不能再恢复该用户；历史数据会保留在服务器用于审计、调试和未来迁移。
+            </DialogDescription>
+          </DialogHeader>
+          {resetError ? (
+            <p className="rounded-lg border border-error/20 bg-error-container px-3 py-2 text-sm font-semibold text-error">
+              {resetError}
+            </p>
+          ) : null}
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button disabled={isResetting} type="button" variant="outline">
+                取消
+              </Button>
+            </DialogClose>
+            <Button
+              className="bg-error text-white hover:bg-error/90"
+              disabled={isResetting}
+              onClick={confirmResetLocalUser}
+              type="button"
+            >
+              {isResetting ? "正在重置..." : "确认重置"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const prismaMock = vi.hoisted(() => ({
   user: {
     create: vi.fn(),
+    updateMany: vi.fn(),
   },
   userIdentity: {
     findUnique: vi.fn(),
@@ -23,6 +24,7 @@ describe("local anonymous auth", () => {
     vi.stubEnv("FITMATE_LOCAL_AUTH_SECRET", "test-secret");
     vi.stubEnv("NODE_ENV", "test");
     prismaMock.user.create.mockReset();
+    prismaMock.user.updateMany.mockReset();
     prismaMock.userIdentity.findUnique.mockReset();
   });
 
@@ -87,7 +89,9 @@ describe("local anonymous auth", () => {
 
   it("creates and restores anonymous sessions through HttpOnly cookie route", async () => {
     prismaMock.user.create.mockResolvedValue({ id: "user-1", displayName: "匿名用户" });
-    prismaMock.userIdentity.findUnique.mockResolvedValue({ user: { id: "user-1", displayName: "匿名用户" } });
+    prismaMock.userIdentity.findUnique.mockResolvedValue({
+      user: { id: "user-1", displayName: "匿名用户", deletedAt: null },
+    });
 
     const created = await authRoute.POST(new Request("http://localhost/api/auth/local-anonymous", { method: "POST" }));
     const createdBody = await created.json();
@@ -131,14 +135,80 @@ describe("local anonymous auth", () => {
     }))).resolves.toMatchObject({ id: "user-1" });
   });
 
-  it("clears anonymous cookie on reset without deleting server users", async () => {
-    const response = await authRoute.DELETE();
+  it("soft deletes the current anonymous user and clears cookie on reset", async () => {
+    const signed = auth.signLocalAnonymousToken("anon-1", { secret: "test-secret" });
+    prismaMock.user.updateMany.mockResolvedValue({ count: 1 });
+
+    const response = await authRoute.DELETE(new Request("http://localhost/api/auth/local-anonymous", {
+      method: "DELETE",
+      headers: { Cookie: `${auth.localAnonymousAuthCookieName}=${signed.token}` },
+    }));
 
     expect(response.status).toBe(200);
     expect(response.headers.get("set-cookie")).toEqual(expect.stringContaining(`${auth.localAnonymousAuthCookieName}=`));
     expect(response.headers.get("set-cookie")).toEqual(expect.stringContaining("Max-Age=0"));
+    expect(prismaMock.user.updateMany).toHaveBeenCalledWith({
+      where: {
+        deletedAt: null,
+        identities: {
+          some: {
+            provider: "anonymous",
+            providerAccountId: "anon-1",
+          },
+        },
+      },
+      data: {
+        deletedAt: expect.any(Date),
+      },
+    });
     expect(prismaMock.user.create).not.toHaveBeenCalled();
+  });
+
+  it("does not create or soft delete users when reset has missing or invalid cookie", async () => {
+    const missingCookieResponse = await authRoute.DELETE(new Request("http://localhost/api/auth/local-anonymous?userId=other-user", {
+      method: "DELETE",
+    }));
+    const invalidCookieResponse = await authRoute.DELETE(new Request("http://localhost/api/auth/local-anonymous?userId=other-user", {
+      method: "DELETE",
+      headers: { Cookie: `${auth.localAnonymousAuthCookieName}=invalid-token` },
+    }));
+
+    expect(missingCookieResponse.status).toBe(200);
+    expect(invalidCookieResponse.status).toBe(200);
+    expect(missingCookieResponse.headers.get("set-cookie")).toEqual(expect.stringContaining("Max-Age=0"));
+    expect(invalidCookieResponse.headers.get("set-cookie")).toEqual(expect.stringContaining("Max-Age=0"));
+    expect(prismaMock.user.create).not.toHaveBeenCalled();
+    expect(prismaMock.user.updateMany).not.toHaveBeenCalled();
     expect(prismaMock.userIdentity.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("treats soft-deleted anonymous users as unauthenticated for restore and private APIs", async () => {
+    const signed = auth.signLocalAnonymousToken("anon-deleted", { secret: "test-secret" });
+    const cookieHeader = `${auth.localAnonymousAuthCookieName}=${signed.token}`;
+
+    prismaMock.userIdentity.findUnique.mockResolvedValue({
+      user: {
+        id: "user-deleted",
+        displayName: "匿名用户",
+        deletedAt: new Date("2026-05-31T00:00:00.000Z"),
+      },
+    });
+
+    const restored = await authRoute.POST(new Request("http://localhost/api/auth/local-anonymous", {
+      method: "POST",
+      headers: { Cookie: cookieHeader },
+    }));
+
+    expect(restored.status).toBe(401);
+    await expect(restored.json()).resolves.toMatchObject({
+      code: "unauthenticated",
+      detail: { authFailureCode: "user_not_found" },
+    });
+    expect(restored.headers.get("set-cookie")).toEqual(expect.stringContaining("Max-Age=0"));
+    await expect(auth.requireCurrentUser(new Request("http://localhost/api/private", {
+      headers: { Cookie: cookieHeader },
+    }))).rejects.toMatchObject({ code: "user_not_found" });
+    expect(prismaMock.user.create).not.toHaveBeenCalled();
   });
 
   it("returns unauthenticated for invalid cookie tokens without local-demo-user fallback", async () => {

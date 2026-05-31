@@ -75,15 +75,19 @@ export function LocalAuthProvider({ children }: { children: React.ReactNode }) {
     status: authState.status,
     user: authState.user,
     async resetLocalUser() {
-      setAuthState(localAuthResettingState);
+      const previousState = authState;
+
+      setAuthState(localAuthResettingState(previousState));
 
       try {
         await resetLocalAnonymousSession();
-      } finally {
         setAuthState(localAuthResetState());
+      } catch (error) {
+        setAuthState(previousState);
+        throw error;
       }
     },
-  }), [authState.status, authState.user]);
+  }), [authState]);
 
   async function createSession() {
     setAuthState(localAuthAuthenticatingState);

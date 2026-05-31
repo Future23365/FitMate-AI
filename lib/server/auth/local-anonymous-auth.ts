@@ -229,6 +229,27 @@ export async function requireCurrentUser(request: Request): Promise<CurrentUser>
   return user;
 }
 
+// 重置本地匿名用户只按已签名 cookie 定位当前身份，标记 User.deletedAt 后交由恢复链路拦截旧 cookie。
+export async function softDeleteLocalAnonymousUserForToken(token: string) {
+  const payload = verifyLocalAnonymousToken(token);
+  const prisma = getPrismaClient();
+
+  return prisma.user.updateMany({
+    where: {
+      deletedAt: null,
+      identities: {
+        some: {
+          provider: "anonymous",
+          providerAccountId: payload.sub,
+        },
+      },
+    },
+    data: {
+      deletedAt: new Date(),
+    },
+  });
+}
+
 export function readAnonymousTokenFromRequest(request: Request) {
   return readCookieValue(request.headers.get("cookie") ?? "", localAnonymousAuthCookieName);
 }
@@ -279,12 +300,20 @@ async function findAnonymousUserBySubject(providerAccountId: string): Promise<Cu
         select: {
           id: true,
           displayName: true,
+          deletedAt: true,
         },
       },
     },
   });
 
-  return identity?.user ?? null;
+  if (!identity?.user || identity.user.deletedAt) {
+    return null;
+  }
+
+  return {
+    id: identity.user.id,
+    displayName: identity.user.displayName,
+  };
 }
 
 function createSignature(payloadSegment: string, secret: string) {

@@ -34,7 +34,7 @@ describe("local auth client session requests", () => {
     });
   });
 
-  it("resets local user through the server cookie clearing endpoint", async () => {
+  it("resets local user through the server soft-delete endpoint", async () => {
     const fetchMock = vi.fn().mockResolvedValue(Response.json({ ok: true }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -44,5 +44,12 @@ describe("local auth client session requests", () => {
       method: "DELETE",
       credentials: "same-origin",
     });
+  });
+
+  it("surfaces reset failures so the page can recover its pending state", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ ok: false }, { status: 500 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(resetLocalAnonymousSession()).rejects.toThrow("Failed to reset local anonymous user.");
   });
 });
