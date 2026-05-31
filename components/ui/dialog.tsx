@@ -1,108 +1,75 @@
 "use client";
 
 import * as React from "react";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { XIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
-type DialogContextValue = {
-  open: boolean;
-  onOpenChange?: (open: boolean) => void;
-};
-
-const DialogContext = React.createContext<DialogContextValue | null>(null);
-
-// Dialog 是本项目的 shadcn 弹窗源码层实现，使用 viewport 级浮层覆盖左右侧栏。
-function Dialog({
-  open,
-  onOpenChange,
-  children,
-}: {
-  open: boolean;
-  onOpenChange?: (open: boolean) => void;
-  children: React.ReactNode;
-}) {
-  React.useEffect(() => {
-    const handleOpenChange = onOpenChange;
-
-    if (!open || !handleOpenChange) {
-      return;
-    }
-
-    const closeDialog = handleOpenChange;
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        closeDialog(false);
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [onOpenChange, open]);
-
-  return (
-    <DialogContext.Provider value={{ open, onOpenChange }}>
-      {children}
-    </DialogContext.Provider>
-  );
+// Dialog 是 shadcn/Radix 弹窗基线，负责焦点管理、Portal、关闭态动画和全局浮层层级。
+function Dialog(props: React.ComponentProps<typeof DialogPrimitive.Root>) {
+  return <DialogPrimitive.Root data-slot="dialog" {...props} />;
 }
 
-function useDialogContext() {
-  const context = React.useContext(DialogContext);
+function DialogTrigger(props: React.ComponentProps<typeof DialogPrimitive.Trigger>) {
+  return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />;
+}
 
-  if (!context) {
-    throw new Error("Dialog components must be used inside Dialog.");
-  }
+function DialogPortal(props: React.ComponentProps<typeof DialogPrimitive.Portal>) {
+  return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />;
+}
 
-  return context;
+function DialogClose(props: React.ComponentProps<typeof DialogPrimitive.Close>) {
+  return <DialogPrimitive.Close data-slot="dialog-close" {...props} />;
+}
+
+function DialogOverlay({
+  className,
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Overlay>) {
+  return (
+    <DialogPrimitive.Overlay
+      data-slot="dialog-overlay"
+      className={cn(
+        "fixed inset-0 z-[100] bg-white/70 backdrop-blur-sm data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0",
+        className,
+      )}
+      {...props}
+    />
+  );
 }
 
 function DialogContent({
   className,
   children,
+  showCloseButton = true,
   ...props
-}: React.ComponentProps<"section">) {
-  const { onOpenChange, open } = useDialogContext();
-
-  if (!open) {
-    return null;
-  }
-
+}: React.ComponentProps<typeof DialogPrimitive.Content> & {
+  showCloseButton?: boolean;
+}) {
   return (
-    <div
-      className="fitmate-dialog-root fixed inset-0 z-[100] flex items-center justify-center px-lg py-xl"
-      data-state="open"
-    >
-      <DialogOverlay
-        data-state="open"
-        onClick={() => onOpenChange?.(false)}
-      />
-      <section
-        aria-modal="true"
+    <DialogPortal>
+      <DialogOverlay />
+      <DialogPrimitive.Content
+        data-slot="dialog-content"
         className={cn(
-          "fitmate-dialog-content relative z-10 grid w-full max-w-lg gap-4 rounded-xl border border-border bg-card p-6 text-card-foreground shadow-lift outline-none",
+          "fixed left-1/2 top-1/2 z-[101] grid w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl border border-border bg-card p-6 text-card-foreground shadow-lift outline-none duration-200 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
           className,
         )}
-        data-state="open"
-        role="dialog"
         {...props}
       >
         {children}
-      </section>
-    </div>
-  );
-}
-
-function DialogOverlay({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      className={cn("fitmate-dialog-overlay absolute inset-0 bg-white/70 backdrop-blur-sm", className)}
-      data-slot="dialog-overlay"
-      {...props}
-    />
+        {showCloseButton ? (
+          <DialogPrimitive.Close
+            data-slot="dialog-close"
+            className="absolute right-4 top-4 rounded-xs text-muted opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none"
+          >
+            <XIcon className="size-4" />
+            <span className="sr-only">关闭</span>
+          </DialogPrimitive.Close>
+        ) : null}
+      </DialogPrimitive.Content>
+    </DialogPortal>
   );
 }
 
@@ -116,9 +83,12 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
-function DialogTitle({ className, ...props }: React.ComponentProps<"h2">) {
+function DialogTitle({
+  className,
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Title>) {
   return (
-    <h2
+    <DialogPrimitive.Title
       className={cn("text-title-lg font-semibold text-foreground", className)}
       data-slot="dialog-title"
       {...props}
@@ -126,9 +96,12 @@ function DialogTitle({ className, ...props }: React.ComponentProps<"h2">) {
   );
 }
 
-function DialogDescription({ className, ...props }: React.ComponentProps<"p">) {
+function DialogDescription({
+  className,
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Description>) {
   return (
-    <p
+    <DialogPrimitive.Description
       className={cn("text-body-sm text-muted-foreground", className)}
       data-slot="dialog-description"
       {...props}
@@ -148,9 +121,13 @@ function DialogFooter({ className, ...props }: React.ComponentProps<"div">) {
 
 export {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogOverlay,
+  DialogPortal,
   DialogTitle,
+  DialogTrigger,
 };
