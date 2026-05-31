@@ -5,9 +5,12 @@ import path from "node:path";
 import { clearAiTraces, isAiTraceEnabled, listAiTraces } from "@/lib/server/dev/ai-trace-store";
 
 type SaveAiTraceLogRequest = {
+  logType?: unknown;
   target?: unknown;
   payload?: unknown;
 };
+
+type AiTraceSavedLogType = "trace" | "prompt";
 
 export async function GET() {
   if (!isAiTraceEnabled()) {
@@ -79,11 +82,23 @@ export async function POST(request: Request) {
     );
   }
 
+  const logType = resolveSavedLogType(body.logType);
+
+  if (!logType) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "Invalid trace log type.",
+      },
+      { status: 400 },
+    );
+  }
+
   const logDir = path.join(process.cwd(), "codex_logs");
-  const logPath = path.join(logDir, "ai_trace_log.js");
+  const logPath = path.join(logDir, getLogFileName(logType));
   const savedAt = new Date().toISOString();
   const content = [
-    "// AI Trace saved from /dev/ai-traces for Codex debugging.",
+    getLogFileHeader(logType),
     `// Saved at: ${savedAt}`,
     "",
     "module.exports = ",
@@ -98,4 +113,27 @@ export async function POST(request: Request) {
     ok: true,
     path: logPath,
   });
+}
+
+// 保存类型只开放给开发态 trace 页面，用来区分完整链路日志和回归样本问答记录。
+function resolveSavedLogType(value: unknown): AiTraceSavedLogType | null {
+  if (value === undefined) {
+    return "trace";
+  }
+
+  if (value === "trace" || value === "prompt") {
+    return value;
+  }
+
+  return null;
+}
+
+function getLogFileName(logType: AiTraceSavedLogType) {
+  return logType === "prompt" ? "prompt.js" : "ai_trace_log.js";
+}
+
+function getLogFileHeader(logType: AiTraceSavedLogType) {
+  return logType === "prompt"
+    ? "// User question and answer record saved from /dev/ai-traces for Codex regression testing."
+    : "// AI Trace saved from /dev/ai-traces for Codex debugging.";
 }

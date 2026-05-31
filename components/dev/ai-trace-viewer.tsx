@@ -17,6 +17,8 @@ type SaveLogResponse = {
   error?: string;
 };
 
+type AiTraceLogType = "trace" | "prompt";
+
 type TraceStepGroup = {
   id: string;
   title: string;
@@ -107,6 +109,7 @@ export function AiTraceViewer() {
   }
 
   async function saveTraceLog(input: {
+    logType: AiTraceLogType;
     targetId: string;
     target: Record<string, unknown>;
     payload: Record<string, unknown>;
@@ -122,6 +125,7 @@ export function AiTraceViewer() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          logType: input.logType,
           target: input.target,
           payload: input.payload,
         }),
@@ -234,10 +238,24 @@ export function AiTraceViewer() {
             <TraceHero
               trace={selectedTrace}
               groups={mainStepGroups}
-              isSaving={savingLogTarget === selectedTrace.id}
+              isSavingPromptLog={savingLogTarget === `${selectedTrace.id}:prompt`}
+              isSavingTraceLog={savingLogTarget === `${selectedTrace.id}:trace`}
+              onSavePromptLog={() => {
+                void saveTraceLog({
+                  logType: "prompt",
+                  targetId: `${selectedTrace.id}:prompt`,
+                  target: {
+                    type: "prompt_record",
+                    traceId: selectedTrace.id,
+                    title: selectedTrace.title,
+                  },
+                  payload: createPromptLogPayload(selectedTrace),
+                });
+              }}
               onSaveLog={() => {
                 void saveTraceLog({
-                  targetId: selectedTrace.id,
+                  logType: "trace",
+                  targetId: `${selectedTrace.id}:trace`,
                   target: {
                     type: "full_trace",
                     traceId: selectedTrace.id,
@@ -271,12 +289,16 @@ export function AiTraceViewer() {
 function TraceHero({
   trace,
   groups,
-  isSaving,
+  isSavingPromptLog,
+  isSavingTraceLog,
+  onSavePromptLog,
   onSaveLog,
 }: {
   trace: AiTrace;
   groups: TraceStepGroup[];
-  isSaving: boolean;
+  isSavingPromptLog: boolean;
+  isSavingTraceLog: boolean;
+  onSavePromptLog: () => void;
   onSaveLog: () => void;
 }) {
   const tokenUsage = getTraceTokenUsage(trace);
@@ -293,14 +315,24 @@ function TraceHero({
             这条链路从请求入口开始，依次展示意图理解、动作候选、模型生成、服务端校验和最终返回。会话记忆更新单独放在流程外，避免和本轮回复生成混在一起。
           </p>
         </div>
-        <button
-          className="shrink-0 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
-          type="button"
-          disabled={isSaving}
-          onClick={onSaveLog}
-        >
-          {isSaving ? "保存中" : "保存全链路log"}
-        </button>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <button
+            className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            disabled={isSavingPromptLog}
+            onClick={onSavePromptLog}
+          >
+            {isSavingPromptLog ? "保存中" : "保存用户问答记录"}
+          </button>
+          <button
+            className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            disabled={isSavingTraceLog}
+            onClick={onSaveLog}
+          >
+            {isSavingTraceLog ? "保存中" : "保存全链路log"}
+          </button>
+        </div>
       </div>
 
       <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -369,6 +401,7 @@ function TraceOverview({ trace }: { trace: AiTrace }) {
 }
 
 type SaveTraceLog = (input: {
+  logType: AiTraceLogType;
   targetId: string;
   target: Record<string, unknown>;
   payload: Record<string, unknown>;
@@ -426,6 +459,7 @@ function TraceFlowTimeline({
                 savingLogTarget={savingLogTarget}
                 onSaveGroupLog={() => {
                   void saveTraceLog({
+                    logType: "trace",
                     targetId: group.id,
                     target: {
                       type: "step_group",
@@ -438,6 +472,7 @@ function TraceFlowTimeline({
                 }}
                 onSaveStepLog={(step) => {
                   void saveTraceLog({
+                    logType: "trace",
                     targetId: step.id,
                     target: {
                       type: "step_event",
@@ -633,6 +668,35 @@ function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) {
   });
 }
 
+// 用户问答记录是回归测试样本的窄格式，只保留用户问题和最终可见文本回答。
+function createPromptLogPayload(trace: AiTrace) {
+  const userQuestions = collectUserQuestions(trace);
+  const finalAnswer = getFinalUserVisibleAnswer(trace);
+
+  return compactObject({
+    title: "用户问答记录",
+    savedFrom: "/dev/ai-traces",
+    trace: compactObject({
+      traceId: trace.id,
+      runId: trace.runId,
+      route: trace.route,
+      traceTitle: trace.title,
+      status: trace.status,
+      createdAt: trace.createdAt,
+      endedAt: trace.endedAt,
+      durationMs: trace.durationMs,
+      sessionId: trace.sessionId,
+      messageId: trace.messageId,
+      promptVersion: trace.promptVersion,
+    }),
+    userQuestions: userQuestions.map((question, index) => ({
+      round: index + 1,
+      question,
+    })),
+    finalAnswer: finalAnswer ?? "",
+  });
+}
+
 function createGroupLogPayload(trace: AiTrace, group: TraceStepGroup) {
   return createStepsLogPayload({
     title: `${trace.title} - ${group.title}`,
@@ -703,6 +767,128 @@ function getDiagnosticMetadata(metadata: AiTraceStep["metadata"]) {
       Object.entries(metadata).filter(([key]) => !["task", "tokenUsage"].includes(key)),
     ),
   );
+}
+
+function collectUserQuestions(trace: AiTrace) {
+  const primaryMessages = trace.steps
+    .filter((step) => step.type === "user_input")
+    .flatMap((step) => getUserMessageContentsFromValue(step.input));
+
+  if (primaryMessages.length > 0) {
+    return primaryMessages;
+  }
+
+  const fallbackMessages = [
+    ...getUserMessageContentsFromValue(trace.input),
+    ...trace.steps.flatMap((step) => getUserMessageContentsFromValue(step.input)),
+  ];
+
+  return dedupeStableStrings(fallbackMessages);
+}
+
+function getUserMessageContentsFromValue(value: unknown) {
+  if (!isRecord(value)) {
+    return [];
+  }
+
+  const messages = getMessageArray(value.messages) ?? getMessageArray(value.rawMessages);
+
+  if (messages) {
+    return messages
+      .filter((message) => message.role === "user")
+      .map((message) => message.content.trim())
+      .filter((content) => content.length > 0);
+  }
+
+  if (typeof value.latestUserMessage === "string" && value.latestUserMessage.trim().length > 0) {
+    return [value.latestUserMessage.trim()];
+  }
+
+  return [];
+}
+
+function getMessageArray(value: unknown): Array<{ role: string; content: string }> | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const messages = value.filter(
+    (item): item is { role: string; content: string } =>
+      isRecord(item) && typeof item.role === "string" && typeof item.content === "string",
+  );
+
+  return messages.length > 0 ? messages : null;
+}
+
+function getFinalUserVisibleAnswer(trace: AiTrace) {
+  const preferredSteps = [...trace.steps].reverse().filter(isUserVisibleAnswerStep);
+
+  for (const step of preferredSteps) {
+    const answer = getAnswerTextFromValue(step.output);
+
+    if (answer) {
+      return answer;
+    }
+  }
+
+  const fallbackStep = [...trace.steps].reverse().find(
+    (step) => step.type === "model_response" && !isConversationMemoryStep(step),
+  );
+
+  return getAnswerTextFromValue(fallbackStep?.output);
+}
+
+function isUserVisibleAnswerStep(step: AiTraceStep) {
+  if (isConversationMemoryStep(step)) {
+    return false;
+  }
+
+  if (step.type === "final_response" || step.type === "response_write") {
+    return true;
+  }
+
+  return step.type === "model_response" && (
+    step.name.includes("生成用户回复") ||
+    step.metadata?.aiStage === "chat_final_response"
+  );
+}
+
+function getAnswerTextFromValue(value: unknown): string | null {
+  if (typeof value === "string") {
+    return value.trim() || null;
+  }
+
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  for (const key of ["content", "assistantReply", "reply", "message", "text", "finalAnswer"]) {
+    const text = getLongTextValue(value[key]);
+
+    if (text?.trim()) {
+      return text.trim();
+    }
+  }
+
+  return null;
+}
+
+function dedupeStableStrings(values: string[]) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const value of values) {
+    const normalized = value.trim();
+
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+
+    seen.add(normalized);
+    result.push(normalized);
+  }
+
+  return result;
 }
 
 function compactObject<T extends Record<string, unknown>>(value: T): Record<string, unknown> {
