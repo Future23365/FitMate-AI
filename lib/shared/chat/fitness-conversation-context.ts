@@ -288,12 +288,32 @@ function extractSessionMinutes(content: string) {
 }
 
 function extractWeeklyFrequency(content: string) {
+  // 周频是长期计划补齐的核心事实，用户常把“每周4次”说成“每周4练”。
   const match =
-    content.match(/(?:每周|一周)\s*(\d)\s*次/) ??
-    content.match(/(\d)\s*(?:次\/周|次每周|天每周)/);
-  const frequency = match ? Number(match[1]) : undefined;
+    content.match(/(?:每周|一周)\s*([一二两三四五六七\d])\s*(?:次|练|天)/) ??
+    content.match(/([一二两三四五六七\d])\s*(?:次|练|天)(?:\/周|每周|一周)/);
+  const frequency = match ? parseSmallChineseNumber(match[1]) : undefined;
 
   return frequency && frequency >= 1 && frequency <= 7 ? frequency : undefined;
+}
+
+function parseSmallChineseNumber(value: string) {
+  if (/^\d+$/.test(value)) {
+    return Number(value);
+  }
+
+  const map: Record<string, number> = {
+    一: 1,
+    二: 2,
+    两: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+  };
+
+  return map[value];
 }
 
 function extractCalendarHorizonDays(content: string) {

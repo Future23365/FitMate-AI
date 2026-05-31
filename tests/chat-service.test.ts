@@ -25,6 +25,7 @@ import {
   type ExerciseContext,
 } from "@/lib/server/chat/chat-service";
 import { aiPromptConfig } from "@/lib/server/ai/prompt-config";
+import { buildFitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
 
 import { createConversationContext, createWorkoutPlanIntent } from "./fixtures/domain";
 
@@ -1045,18 +1046,14 @@ describe("AI chat service deterministic boundaries", () => {
   });
 
   it("keeps weekly plan completion in plan context after frequency and duration are known", () => {
-    const weeklyFactsContext = {
-      ...createEmptyConversationContext(),
-      summary: "用户想制定每周训练计划，已补充每周4练，每次45分钟。",
-      knownFacts: {
-        ...createEmptyConversationContext().knownFacts,
-        sessionMinutes: 45,
-        weeklyFrequency: 4,
-        latestUserMessage: "每周4练，每次45分钟",
-      },
-    };
+    const weeklyFactsMessages = [
+      { role: "user" as const, content: "给我一个每周训练计划" },
+      { role: "assistant" as const, content: "请补充训练目标和器械条件。" },
+      { role: "user" as const, content: "每周4练，每次45分钟" },
+    ];
+    const weeklyFactsContext = buildFitnessConversationContext(weeklyFactsMessages);
     const modelIntent: ChatIntent = {
-      type: "routine",
+      type: "exercise_recommendation",
       needsExerciseContext: true,
       workoutIntent: createWorkoutPlanIntent({
         intentType: "routine",
@@ -1087,6 +1084,10 @@ describe("AI chat service deterministic boundaries", () => {
       recentArtifactSummaries: [],
     });
 
+    expect(weeklyFactsContext.knownFacts).toMatchObject({
+      sessionMinutes: 45,
+      weeklyFrequency: 4,
+    });
     expect(normalized).toMatchObject({
       type: "workout_plan",
       canTriggerAction: true,
@@ -1096,6 +1097,15 @@ describe("AI chat service deterministic boundaries", () => {
         sessionMinutes: 45,
         weeklyFrequency: 4,
         equipment: ["固定器械"],
+      },
+    });
+    expect(resolveAssistantAction(normalized, createExerciseContext({ intent: normalized.workoutIntent! }))).toMatchObject({
+      action: "workout_plan",
+      intent: {
+        intentType: "plan",
+        goal: "增肌，有健身房器械",
+        sessionMinutes: 45,
+        weeklyFrequency: 4,
       },
     });
   });
