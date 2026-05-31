@@ -9,6 +9,7 @@
 - 把“推荐条件细化”稳定识别为动作推荐刷新或过滤，不误触发 routine。
 - 让缺少目标的笼统长期计划请求先追问，不再用默认值生成空泛 plan。
 - 让器械、场地等 durable facts 可作为后续训练请求的可继承条件。
+- 让“第一个动作怎么做”这类最近训练动作讲解请求走受控 artifact payload 和动作库读取，不再触发新推荐卡片。
 - 用普通单测覆盖这三类失败，避免每次都依赖真实 LLM 黑盒成本。
 
 **Non-Goals:**
@@ -17,6 +18,7 @@
 - 不改变 `conversationSummary` 的持久化方式。
 - 不调整前端聊天 UI。
 - 不扩大手动 LLM 测试用例集合。
+- 不向 LLM 暴露任意数据库查询能力。
 
 ## Decisions
 
@@ -41,8 +43,15 @@
 
 “给我一个每周训练计划”只表达长期计划类型，缺少训练目标、实际频率、器械或场地。服务端应返回不可触发 plan 意图和建议回复。相比最小补丁只改提示词，这能保证真实模型即使给了默认值也不会越过门控。
 
+### Decision 4: 序号动作讲解走服务端受控读取链路
+
+“第一个动作怎么做”不是新的动作推荐请求，而是对最近训练内容中的动作做讲解。服务端应先把这类短句归一为 `exercise_explanation`，再让 ReferenceResolver 将“第 N 个动作”解析到当前会话最近的 active artifact。解析成功后，服务端读取完整 artifact payload，按卡片展示顺序取第 N 个 `exerciseId`，再通过动作库读取该动作详情并生成确定性讲解回复。
+
+这个方案比新增开放式 LLM function tool 更稳：LLM 不直接查询数据库，也不能自行构造 SQL 或任意读取动作；它最多看到服务端已经生成的自然语言回复。数据库读取范围由 artifact 的 userId/status 校验、payload schema 校验和 `exerciseId` 精确读取共同约束。
+
 ## Risks / Trade-offs
 
 - [Risk] 规则过窄会漏掉相似中文表达。→ Mitigation: 用小型文本 helper 聚合推荐细化、空泛 plan 和 durable facts 判断，后续可按报告继续扩展。
 - [Risk] 规则过宽会阻断“6天训练计划”等可生成计划。→ Mitigation: 明确保留具体周期天数、明确每周频率和已有目标上下文的 plan 触发。
 - [Risk] 与 LLM prompt 规则重复。→ Mitigation: prompt 是模型指导，服务端归一化是最终安全边界；两者职责不同。
+- [Risk] 序号动作可能指向推荐卡片或 routine 中的不同展示顺序。→ Mitigation: 优先使用最近 artifact 的 payload 顺序；最近 artifact 是 routine 时解释 routine 的第 N 个动作，没有 routine 时再解释最近推荐卡片的第 N 个动作。

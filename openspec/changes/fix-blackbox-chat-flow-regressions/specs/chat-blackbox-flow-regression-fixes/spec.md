@@ -62,3 +62,12 @@
 - **WHEN** 用户输入“给我一个6天训练计划”
 - **THEN** 系统 MUST 识别为 `workout_plan`
 - **AND** 系统 MUST NOT 因缺少器械或经验阻断计划生成
+
+#### Scenario: 最近训练里的第一个动作讲解
+
+- **WHEN** 会话最近已生成 `workout_routine` 或 `exercise_recommendation`
+- **AND** 用户输入“第一个动作怎么做”
+- **THEN** 系统 MUST 将本轮识别为 `exercise_explanation`
+- **AND** 系统 MUST 读取最近 artifact payload 中展示顺序的第一个 `exerciseId`
+- **AND** 系统 MUST 使用动作库中的动作详情生成讲解回复
+- **AND** 系统 MUST NOT 触发 `exercise_recommendation`、`workout_routine` 或 `workout_plan`

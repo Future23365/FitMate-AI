@@ -327,6 +327,10 @@ function inferArtifactKind(message: string, intentType?: ChatIntent["type"]): Co
   const normalized = normalizeText(message);
 
   if (intentType === "exercise_replacement" || intentType === "exercise_explanation") {
+    if (intentType === "exercise_explanation" && isOrdinalExerciseReference(normalized)) {
+      return undefined;
+    }
+
     return /动作|推荐|这批|几个/.test(normalized) ? "exercise_recommendation" : undefined;
   }
 
@@ -358,15 +362,19 @@ function buildSemanticQuery(message: string) {
 }
 
 function isRecentReference(message: string) {
-  return /这个|这套|这批|这些|那个|那套|刚才|刚刚|上一个|上一套|前一个|前一套|它|该/.test(message);
+  return /这个|这套|这批|这些|那个|那套|刚才|刚刚|上一个|上一套|前一个|前一套|它|该/.test(message) || isOrdinalExerciseReference(message);
 }
 
 function isLatestReference(message: string) {
-  return /刚才|刚刚|上一个|上一套|前一个|前一套/.test(message);
+  return /刚才|刚刚|上一个|上一套|前一个|前一套/.test(message) || isOrdinalExerciseReference(message);
 }
 
 function normalizeText(value: string) {
   return value.toLowerCase().replace(/\s+/g, "");
+}
+
+function isOrdinalExerciseReference(message: string) {
+  return /第([1-9]\d*|一|二|两|三|四|五|六|七|八|九|十)(个|项|组)?(动作|训练)?/.test(normalizeText(message));
 }
 
 const referenceMarkerTestRegex = /这个|这套|这批|这些|那个|那套|刚才|刚刚|上一个|上一套|前面|前一个|前一套|之前|上次|它|该/;

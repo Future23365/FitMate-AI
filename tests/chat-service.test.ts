@@ -4,10 +4,14 @@ import {
   chatRequestSchema,
   createFallbackChatIntent,
   encodeChatStreamEvent,
+  formatReferencedExerciseExplanation,
   getActionBlockingMissingFields,
+  getReferencedExerciseOrdinalIndex,
+  isOrdinalExerciseExplanationMessage,
   normalizeChatIntentForBlackboxFlows,
   parseJsonObject,
   prepareAiChatRequest,
+  resolveReferencedExerciseIdFromArtifactPayload,
   resolveAssistantAction,
   resolveVisibleSuggestedReplies,
   shouldUseReferenceResolutionForChat,
@@ -659,6 +663,198 @@ describe("AI chat service deterministic boundaries", () => {
         equipment: ["固定器械"],
       },
     });
+  });
+
+  it("normalizes ordinal exercise explanations without triggering new training cards", () => {
+    const modelIntent: ChatIntent = {
+      type: "exercise_recommendation",
+      needsExerciseContext: true,
+      workoutIntent: createWorkoutPlanIntent({
+        intentType: "routine",
+        goal: "练胸",
+        sessionMinutes: 20,
+        weeklyFrequency: 1,
+      }),
+      requestedExerciseName: "",
+      canTriggerAction: true,
+      missingActionFields: [],
+      suggestedReplies: [],
+    };
+
+    const normalized = normalizeChatIntentForBlackboxFlows({
+      chatIntent: modelIntent,
+      fallbackIntent: createFallbackChatIntent(
+        [{ role: "user", content: "第一个动作怎么做" }],
+        createConversationContext({
+          currentIntent: createWorkoutPlanIntent({
+            intentType: "routine",
+            goal: "练胸",
+            sessionMinutes: 20,
+            weeklyFrequency: 1,
+          }),
+        }),
+      ),
+      messages: [{ role: "user", content: "第一个动作怎么做" }],
+      conversationSummaryContext: {
+        summary: "用户刚生成了 20 分钟胸部 routine。",
+        latestUserMessage: "第一个动作怎么做",
+      },
+      conversationContext: createConversationContext({
+        currentIntent: createWorkoutPlanIntent({
+          intentType: "routine",
+          goal: "练胸",
+          sessionMinutes: 20,
+          weeklyFrequency: 1,
+        }),
+      }),
+      recentArtifactSummaries: [
+        {
+          artifactId: "routine-1",
+          kind: "routine",
+          title: "20分钟胸部训练",
+          exerciseIds: ["push-up"],
+          goals: ["练胸"],
+          muscles: ["胸部"],
+          equipment: ["自重"],
+          sessionMinutes: 20,
+          updatedAt: "2026-05-31T00:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(isOrdinalExerciseExplanationMessage("第一个动作怎么做")).toBe(true);
+    expect(normalized).toMatchObject({
+      type: "exercise_explanation",
+      needsExerciseContext: false,
+      canTriggerAction: false,
+      missingActionFields: [],
+      suggestedReplies: [],
+    });
+    expect(resolveAssistantAction(normalized, createExerciseContext({ intent: modelIntent.workoutIntent! }))).toBeNull();
+    expect(
+      shouldUseReferenceResolutionForChat({
+        latestUserMessage: "第一个动作怎么做",
+        chatIntent: normalized,
+        conversationContext: createEmptyConversationContext(),
+        recentArtifactSummaries: [],
+      }),
+    ).toBe(true);
+  });
+
+  it("reads the referenced exercise from artifact payload display order", () => {
+    const routinePayload = {
+      kind: "routine" as const,
+      title: "20分钟胸部训练",
+      goal: "练胸",
+      estimatedSessionMinutes: 20,
+      trainingLoopRounds: 2,
+      trainingLoopRestSeconds: 60,
+      sections: [
+        {
+          section: "warmup" as const,
+          title: "热身",
+          items: [
+            {
+              section: "warmup" as const,
+              exerciseId: "arm-circle",
+              mode: "duration" as const,
+              sets: 1,
+              target: 45,
+              setRestSeconds: 0,
+              transitionRestSeconds: 20,
+            },
+          ],
+        },
+        {
+          section: "training" as const,
+          title: "主训练",
+          items: [
+            {
+              section: "training" as const,
+              exerciseId: "push-up",
+              mode: "reps" as const,
+              sets: 3,
+              target: 10,
+              setRestSeconds: 60,
+              transitionRestSeconds: 30,
+            },
+          ],
+        },
+        {
+          section: "stretch" as const,
+          title: "拉伸",
+          items: [
+            {
+              section: "stretch" as const,
+              exerciseId: "chest-stretch",
+              mode: "duration" as const,
+              sets: 1,
+              target: 40,
+              setRestSeconds: 0,
+              transitionRestSeconds: 0,
+            },
+          ],
+        },
+      ],
+      safetyNotes: [],
+    };
+
+    expect(getReferencedExerciseOrdinalIndex("第2个动作怎么做")).toBe(1);
+    expect(
+      resolveReferencedExerciseIdFromArtifactPayload({
+        payload: routinePayload,
+        message: "第二个动作怎么做",
+      }),
+    ).toEqual({ exerciseId: "push-up", ordinalIndex: 1 });
+    expect(
+      formatReferencedExerciseExplanation({
+        exercise: {
+          id: "push-up",
+          source: "manual",
+          sourceUrl: "",
+          sourceId: "push-up",
+          license: "",
+          nameEn: "Push-up",
+          nameZh: "俯卧撑",
+          category: "strength",
+          categoryZh: "力量",
+          level: "beginner",
+          levelZh: "新手",
+          force: "",
+          forceZh: "",
+          mechanic: "",
+          mechanicZh: "",
+          equipment: "bodyweight",
+          equipmentZh: "自重",
+          homeRequirement: "",
+          homeRequirementZh: "",
+          primaryMuscles: ["chest"],
+          primaryMusclesZh: ["胸部"],
+          secondaryMuscles: [],
+          secondaryMusclesZh: [],
+          instructionsEn: [],
+          instructionsZh: ["双手撑地略宽于肩。", "身体保持一条直线。", "屈肘下降后推回起始位。"],
+          images: [],
+          imageUrls: [],
+          allowedSections: ["training"],
+          intensityRole: "strength",
+          movementPattern: "push",
+          difficulty: "beginner",
+          riskTags: [],
+          contraindications: [],
+          regressionExerciseIds: [],
+          progressionExerciseIds: [],
+          substitutionGroupId: null,
+          goalTags: [],
+          embeddingText: null,
+          embedding: null,
+          reviewStatus: "human_reviewed",
+          isPublished: true,
+        },
+        ordinalIndex: 1,
+        artifactKind: "routine",
+      }),
+    ).toContain("第 2 个动作是俯卧撑");
   });
 
   it("keeps clarification replies instead of triggering exercise recommendations", () => {

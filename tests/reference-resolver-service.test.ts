@@ -31,6 +31,26 @@ describe("reference resolver service", () => {
     expect(artifactSearchMocks.searchArtifactsForCurrentUserDetailed).not.toHaveBeenCalled();
   });
 
+  it("resolves ordinal exercise explanations to the latest recent artifact", async () => {
+    const result = await referenceResolver.resolveReference({
+      latestUserMessage: "第一个动作怎么做",
+      sessionId: "chat-1",
+      recentArtifacts: [
+        createCandidate({ artifactId: "artifact-routine", kind: "routine", title: "20分钟胸部训练" }),
+        createCandidate({ artifactId: "artifact-rec", kind: "exercise_recommendation", title: "胸部动作推荐" }),
+      ],
+      intentType: "exercise_explanation",
+    });
+
+    expect(result).toMatchObject({
+      status: "resolved",
+      artifactId: "artifact-routine",
+      artifactKind: "routine",
+      confidence: "high",
+    });
+    expect(artifactSearchMocks.searchArtifactsForCurrentUserDetailed).not.toHaveBeenCalled();
+  });
+
   it("returns ambiguous when a bare near reference can point to multiple recent artifacts", async () => {
     const result = await referenceResolver.resolveReference({
       latestUserMessage: "这个帮我调整一下",

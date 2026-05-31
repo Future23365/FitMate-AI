@@ -15,6 +15,7 @@ import {
 import { updateConversationSummary } from "@/lib/server/chat/conversation-summary-service";
 import {
   formatRecentArtifactSummariesForPrompt,
+  getArtifactPayload,
   type RecentArtifactSummary,
 } from "@/lib/server/conversation-artifacts/artifact-service";
 import {
@@ -45,7 +46,7 @@ import {
   summarizeReferenceResolutionForTrace,
   summarizeWorkoutPatchResultForTrace,
 } from "@/lib/server/dev/ai-run-trace";
-import { listAllExercises } from "@/lib/server/exercises/exercise-service";
+import { getExerciseById, listAllExercises } from "@/lib/server/exercises/exercise-service";
 import { serverRequest } from "@/lib/server/http/server-request";
 import {
   buildConversationMemoryState,
@@ -59,6 +60,11 @@ import {
   type WorkoutPlanIntent,
 } from "@/lib/server/workout-plans";
 import type { ReferenceResolution } from "@/lib/shared/reference-resolver/schema";
+import type {
+  ConversationArtifactKind,
+  ConversationArtifactPayload,
+} from "@/lib/shared/conversation-artifacts/schema";
+import type { Exercise } from "@/lib/shared/exercises/types";
 import type { ConversationMemoryState } from "@/lib/shared/user-feedback-memory/schema";
 import type { WorkoutPatchResult } from "@/lib/shared/workout-patches/schema";
 
@@ -377,6 +383,44 @@ export async function createAiChatResponse({
         tokenBudgetDecision,
       });
     }
+  }
+
+  if (referenceResolution?.status === "resolved" && chatIntent.type === "exercise_explanation") {
+    const explanationResult = await buildReferencedExerciseExplanationFromChat({
+      userId: user.id,
+      latestUserMessage: conversationSummaryContext.latestUserMessage,
+      referenceResolution,
+      trace,
+    });
+    const assistantReply = explanationResult.assistantReply;
+    const internalActionSummary = JSON.stringify({
+      referenceResolution,
+      exerciseExplanation: explanationResult.summary,
+    });
+    const tokenBudgetDecision = createChatTokenBudgetDecision({
+      intentType: chatIntent.type,
+      needsExerciseContext: false,
+      hasAssistantAction: false,
+      latestUserMessage: conversationSummaryContext.latestUserMessage,
+      conversationSummary: conversationSummaryContext.summary,
+      deterministicReplyReason: "动作序号讲解已由服务端读取 artifact 和动作库后确定性回复。",
+      summarySkipReason: shouldSkipConversationSummaryUpdate({
+        previousSummary: conversationSummaryContext.summary,
+        latestUserMessage: conversationSummaryContext.latestUserMessage,
+        assistantReply,
+        internalActionSummary,
+      }),
+    });
+    traceTokenBudgetDecision(trace, tokenBudgetDecision);
+
+    return createDeterministicChatResponse({
+      apiKey,
+      trace,
+      conversationSummaryContext,
+      assistantReply,
+      internalActionSummary,
+      tokenBudgetDecision,
+    });
   }
 
   const exerciseContext = chatIntent.needsExerciseContext
@@ -1044,6 +1088,17 @@ export function normalizeChatIntentForBlackboxFlows(input: {
     };
   }
 
+  if (isOrdinalExerciseExplanationMessage(latestUserMessage)) {
+    return {
+      type: "exercise_explanation",
+      needsExerciseContext: false,
+      requestedExerciseName: input.chatIntent.requestedExerciseName ?? "",
+      canTriggerAction: false,
+      missingActionFields: [],
+      suggestedReplies: [],
+    };
+  }
+
   if (
     hasRecentExerciseRecommendationContext(input.recentArtifactSummaries, input.conversationSummaryContext.summary) &&
     isRecommendationRefinementMessage(latestUserMessage)
@@ -1202,6 +1257,233 @@ export function shouldUseReferenceResolutionForChat(input: {
   }
 
   return true;
+}
+
+type ReferencedExerciseSummary = {
+  status: "resolved" | "not_found";
+  artifactId: string;
+  artifactKind: ConversationArtifactKind;
+  ordinalIndex: number | null;
+  exerciseId?: string;
+  exerciseName?: string;
+  reason?: string;
+};
+
+async function buildReferencedExerciseExplanationFromChat(input: {
+  userId: string;
+  latestUserMessage: string;
+  referenceResolution: Extract<ReferenceResolution, { status: "resolved" }>;
+  trace?: AiTraceLogger;
+}): Promise<{
+  assistantReply: string;
+  summary: ReferencedExerciseSummary;
+}> {
+  const artifactResult = await getArtifactPayload({
+    userId: input.userId,
+    artifactId: input.referenceResolution.artifactId,
+  });
+
+  input.trace?.addStep({
+    name: "动作讲解 artifact payload 读取",
+    type: "tool_call",
+    status: artifactResult.ok ? "success" : "failed",
+    input: {
+      toolName: "getArtifactPayload",
+      artifactId: input.referenceResolution.artifactId,
+      artifactKind: input.referenceResolution.artifactKind,
+    },
+    output: artifactResult.ok
+      ? {
+          artifactId: artifactResult.artifactId,
+          kind: artifactResult.kind,
+        }
+      : artifactResult,
+    metadata: {
+      toolName: "getArtifactPayload",
+    },
+  });
+
+  if (!artifactResult.ok) {
+    return {
+      assistantReply: "我找到了你引用的训练内容，但没有安全读取到对应的动作详情。你可以把动作名称再发我一次，我再按动作库内容给你讲解。",
+      summary: {
+        status: "not_found",
+        artifactId: input.referenceResolution.artifactId,
+        artifactKind: input.referenceResolution.artifactKind,
+        ordinalIndex: getReferencedExerciseOrdinalIndex(input.latestUserMessage),
+        reason: artifactResult.code,
+      },
+    };
+  }
+
+  const resolvedExercise = resolveReferencedExerciseIdFromArtifactPayload({
+    payload: artifactResult.payload,
+    message: input.latestUserMessage,
+  });
+
+  if (!resolvedExercise) {
+    return {
+      assistantReply: "我找到了你引用的训练内容，但里面没有可讲解的动作条目。你可以直接说动作名称，我再从动作库里读取做法。",
+      summary: {
+        status: "not_found",
+        artifactId: artifactResult.artifactId,
+        artifactKind: artifactResult.kind,
+        ordinalIndex: getReferencedExerciseOrdinalIndex(input.latestUserMessage),
+        reason: "exercise_not_in_artifact_payload",
+      },
+    };
+  }
+
+  const exercise = await getExerciseById(resolvedExercise.exerciseId);
+
+  input.trace?.addStep({
+    name: "动作讲解动作详情读取",
+    type: "tool_call",
+    status: exercise ? "success" : "failed",
+    input: {
+      toolName: "getExerciseById",
+      exerciseId: resolvedExercise.exerciseId,
+    },
+    output: exercise
+      ? {
+          exerciseId: exercise.id,
+          nameZh: exercise.nameZh,
+          primaryMusclesZh: exercise.primaryMusclesZh,
+        }
+      : {
+          exerciseId: resolvedExercise.exerciseId,
+          code: "exercise_not_found",
+        },
+    metadata: {
+      toolName: "getExerciseById",
+    },
+  });
+
+  if (!exercise) {
+    return {
+      assistantReply: "我找到了最近训练里的这个动作，但动作库没有读到对应详情。你可以把动作名称发我一次，我再重新确认并讲解。",
+      summary: {
+        status: "not_found",
+        artifactId: artifactResult.artifactId,
+        artifactKind: artifactResult.kind,
+        ordinalIndex: resolvedExercise.ordinalIndex,
+        exerciseId: resolvedExercise.exerciseId,
+        reason: "exercise_not_found",
+      },
+    };
+  }
+
+  return {
+    assistantReply: formatReferencedExerciseExplanation({
+      exercise,
+      ordinalIndex: resolvedExercise.ordinalIndex,
+      artifactKind: artifactResult.kind,
+    }),
+    summary: {
+      status: "resolved",
+      artifactId: artifactResult.artifactId,
+      artifactKind: artifactResult.kind,
+      ordinalIndex: resolvedExercise.ordinalIndex,
+      exerciseId: exercise.id,
+      exerciseName: exercise.nameZh,
+    },
+  };
+}
+
+// 序号动作讲解只用于读取最近 artifact 中已有动作，避免把“第一个动作怎么做”误当成新推荐。
+export function isOrdinalExerciseExplanationMessage(message: string) {
+  return (
+    getReferencedExerciseOrdinalIndex(message) !== null &&
+    /动作|训练/.test(message) &&
+    /怎么做|怎么练|如何做|如何练|讲解|解释|说明|做法|要领/.test(message)
+  );
+}
+
+// 将中文或数字序号转成 0-based 索引，供 artifact payload 顺序读取复用。
+export function getReferencedExerciseOrdinalIndex(message: string): number | null {
+  const normalized = message.replace(/\s+/g, "");
+  const numericMatch = normalized.match(/第([1-9]\d*)(个|项|组)?(动作|训练)?/);
+
+  if (numericMatch) {
+    return Number(numericMatch[1]) - 1;
+  }
+
+  const chineseMatch = normalized.match(/第(一|二|两|三|四|五|六|七|八|九|十)(个|项|组)?(动作|训练)?/);
+  if (!chineseMatch) {
+    return null;
+  }
+
+  const ordinalMap: Record<string, number> = {
+    一: 0,
+    二: 1,
+    两: 1,
+    三: 2,
+    四: 3,
+    五: 4,
+    六: 5,
+    七: 6,
+    八: 7,
+    九: 8,
+    十: 9,
+  };
+
+  return ordinalMap[chineseMatch[1]] ?? null;
+}
+
+// 从已校验的 artifact payload 中按用户序号读取 exerciseId，不从 summary 反推训练内容。
+export function resolveReferencedExerciseIdFromArtifactPayload(input: {
+  payload: ConversationArtifactPayload;
+  message: string;
+}): { exerciseId: string; ordinalIndex: number } | null {
+  const ordinalIndex = getReferencedExerciseOrdinalIndex(input.message) ?? 0;
+  const exerciseIds = collectArtifactExerciseIdsInDisplayOrder(input.payload);
+  const exerciseId = exerciseIds[ordinalIndex];
+
+  return exerciseId ? { exerciseId, ordinalIndex } : null;
+}
+
+// 动作讲解回复只使用动作库详情，避免自然语言 summary 编造成动作步骤。
+export function formatReferencedExerciseExplanation(input: {
+  exercise: Exercise;
+  ordinalIndex: number;
+  artifactKind: ConversationArtifactKind;
+}) {
+  const instructionText = input.exercise.instructionsZh
+    .filter(Boolean)
+    .slice(0, 5)
+    .map((instruction, index) => `${index + 1}. ${instruction}`)
+    .join(" ");
+  const muscles = input.exercise.primaryMusclesZh.length
+    ? input.exercise.primaryMusclesZh.join("、")
+    : "目标肌群";
+  const equipment = input.exercise.equipmentZh || "自重或标注器械";
+  const sourceLabel = input.artifactKind === "exercise_recommendation" ? "最近动作推荐" : "最近训练";
+  const prefix = `${sourceLabel}里的第 ${input.ordinalIndex + 1} 个动作是${input.exercise.nameZh}。`;
+
+  if (!instructionText) {
+    return `${prefix}动作库当前没有完整分步说明；你可以先按动作详情里的图片或演示确认轨迹，训练时保持核心稳定、动作可控，主要关注${muscles}发力。`;
+  }
+
+  return `${prefix}做法：${instructionText} 重点关注${muscles}发力，使用${equipment}，全程保持动作可控；如果出现疼痛或明显不适，先停止并降低难度。`;
+}
+
+function collectArtifactExerciseIdsInDisplayOrder(payload: ConversationArtifactPayload) {
+  if ("items" in payload) {
+    return payload.items.map((item) => item.exerciseId).filter(Boolean);
+  }
+
+  if (payload.kind === "routine") {
+    return payload.sections
+      .flatMap((section) => section.items)
+      .map((item) => item.exerciseId)
+      .filter(Boolean);
+  }
+
+  return payload.days
+    .filter((day) => !day.isRestDay)
+    .flatMap((day) => day.sections.flatMap((section) => section.items))
+    .map((item) => item.exerciseId)
+    .filter(Boolean);
 }
 
 async function buildExerciseContext(
