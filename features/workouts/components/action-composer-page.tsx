@@ -1455,7 +1455,7 @@ function WorkoutSectionBlock({
         <div className="flex min-h-[96px] items-center justify-center rounded-xl border border-dashed border-outline-variant bg-white/65 p-md text-center font-label-md text-label-md text-muted">
           <div>
             <SymbolIcon className={`mb-xs text-3xl ${visual.accentText}`}>{section.icon}</SymbolIcon>
-            <p>拖入{section.title}动作，或从右侧动作库添加到当前阶段。</p>
+            <p>请从右侧动作库添加</p>
           </div>
         </div>
       )}
