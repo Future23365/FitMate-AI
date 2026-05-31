@@ -15,7 +15,7 @@ TBD - created by archiving change add-shadcn-ui-baseline. Update Purpose after a
 - **THEN** 系统继续使用 `app/globals.css` 作为 Tailwind CSS 4 的主题入口
 
 ### Requirement: 基础组件可复用
-系统 SHALL 提供首批可复用的 shadcn 基础 UI 组件，并保持与项目浅色 MD3 token 一致。
+系统 SHALL 在 `components/ui` 中只保留基于 shadcn/ui 本地源码模式的基础 UI 组件，并保持与项目浅色 MD3 token 一致。
 
 #### Scenario: Button 组件可用
 - **WHEN** 页面或组件从 `@/components/ui/button` 引入 `Button`
@@ -29,24 +29,13 @@ TBD - created by archiving change add-shadcn-ui-baseline. Update Purpose after a
 - **WHEN** 页面或组件从 `@/components/ui/input` 引入 `Input`
 - **THEN** TypeScript 能识别组件类型，并且组件使用项目 border、focus ring、text token
 
-#### Scenario: NumberStepper 组件可用
-- **WHEN** 页面或组件从 `@/components/ui/number-stepper` 引入 `NumberStepper`
-- **THEN** TypeScript 能识别组件类型，并且组件通过 `Button` 与 `Input` 组合提供加减和直接输入能力
+#### Scenario: Dialog 组件可用
+- **WHEN** 页面或组件从 `@/components/ui/dialog` 引入 Dialog 相关组件
+- **THEN** TypeScript 能识别组件类型，并且组件通过 Radix Dialog primitive 提供焦点管理、Portal 和关闭交互
 
 #### Scenario: Select 组件可用
 - **WHEN** 页面或组件从 `@/components/ui/select` 引入 Select 相关组件
 - **THEN** TypeScript 能识别组件类型，并且组件提供触发器、浮层、选项和选中态
-
-### Requirement: 动作编排数字输入使用组件基线
-系统 SHALL 在动作编排页复用 `NumberStepper` 表达目标次数、目标时长和组数输入，不在页面内重复维护加减按钮与输入框组合逻辑。
-
-#### Scenario: 动作卡片数字输入可调整
-- **WHEN** 用户在 `/composer` 的动作卡片中点击目标值或组数的加减控件
-- **THEN** 系统更新对应字段，并保持数值在允许范围内
-
-#### Scenario: 动作卡片点击隔离
-- **WHEN** 用户点击目标值或组数的数字步进控件
-- **THEN** 系统不因为该点击触发动作卡片的其他点击行为
 
 ### Requirement: 动作条目组间间隔使用 Select 组件
 系统 SHALL 在动作编排页的动作条目中复用 `Select` 组件表达组间间隔设置，并保持动作条目的点击隔离。
@@ -76,4 +65,3 @@ TBD - created by archiving change add-shadcn-ui-baseline. Update Purpose after a
 #### Scenario: 静态检查通过
 - **WHEN** 运行项目类型检查和 lint
 - **THEN** 检查通过，且没有因为 shadcn 基线新增未处理错误
-
