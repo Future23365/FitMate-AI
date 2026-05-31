@@ -27,22 +27,18 @@ import type { WorkoutSchedule } from "@/lib/shared/workouts/composition";
 const quickPrompts = [
   {
     title: "动作推荐",
-    icon: "accessibility_new",
     prompt: "推荐几个适合新手的臀腿动作，我只有弹力带，不想做跳跃",
   },
   {
     title: "今日训练",
-    icon: "fitness_center",
     prompt: "今天想练上肢，30 分钟，有哑铃，肩膀最近不太舒服，帮我安排一套",
   },
   {
     title: "增肌计划",
-    icon: "calendar_month",
     prompt: "我想增肌，每周 3 练，每次 50 分钟，健身房训练，重点练胸背腿",
   },
   {
     title: "居家减脂",
-    icon: "home",
     prompt: "我想减脂，每周 4 练，每次 45 分钟，在家只有哑铃和弹力带",
   },
 ];
@@ -459,22 +455,20 @@ export function ChatPage() {
                 <div className="grid gap-md lg:grid-cols-2">
                   {quickPrompts.map((item) => (
                     <button
-                      className="group flex min-h-[132px] w-full items-start gap-md rounded-2xl border border-line bg-white px-lg py-md text-left shadow-[0_8px_24px_rgba(16,24,40,0.06)] transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[0_14px_32px_rgba(16,24,40,0.1)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/15 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+                      className="group flex min-h-[118px] w-full flex-col items-start rounded-2xl border border-line border-l-primary/35 bg-white px-lg py-md text-left shadow-[0_8px_24px_rgba(16,24,40,0.06)] transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[0_14px_32px_rgba(16,24,40,0.1)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/15 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
                       disabled={isLoading}
                       key={item.prompt}
                       onClick={() => sendMessage(item.prompt)}
                       type="button"
                     >
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary transition-colors group-hover:bg-primary group-hover:text-white">
-                        <SymbolIcon className="text-[22px]">{item.icon}</SymbolIcon>
+                      <span className="flex w-full items-center justify-between gap-md">
+                        <span className="font-label-md text-label-md font-bold text-primary">{item.title}</span>
+                        <span className="font-label-sm text-label-sm text-muted opacity-0 transition-opacity group-hover:opacity-100">
+                          点击提问
+                        </span>
                       </span>
-                      <span className="min-w-0">
-                        <span className="block font-label-md text-label-md font-bold text-primary">
-                          {item.title}
-                        </span>
-                        <span className="mt-xs block font-body-md text-body-md leading-relaxed text-ink">
-                          {item.prompt}
-                        </span>
+                      <span className="mt-sm block font-body-md text-body-md leading-relaxed text-ink">
+                        {item.prompt}
                       </span>
                     </button>
                   ))}
