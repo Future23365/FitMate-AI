@@ -16,7 +16,12 @@
 - **AND** 系统 MUST NOT 将未知工具请求转发到任意服务端函数
 
 ### Requirement: 系统必须支持受控 JSON tool decision 协议
-系统 SHALL 在标准模型 tool calling 不可用或未启用时，使用服务端校验的 JSON tool decision 协议表达 LLM 的只读工具选择。
+系统 SHALL 在首版实现中使用服务端校验的 JSON tool decision 协议表达 LLM 的只读工具选择。
+
+#### Scenario: 首版运行时选择
+- **WHEN** 只读 tool loop 请求模型决定下一步
+- **THEN** 系统 MUST 使用 JSON response 协议解析 `ReadonlyToolDecision`
+- **AND** 系统 MUST NOT 同时依赖标准 `tools` / `tool_choice` 作为首版运行时契约
 
 #### Scenario: LLM 请求调用一个只读工具
 - **WHEN** 模型返回 `action = "call_tool"` 的 JSON decision
@@ -66,6 +71,8 @@
 - **AND** `searchExercises` 默认返回 8 条、最多 24 条候选摘要
 - **AND** 单个候选摘要的自由文本字段 MUST 默认限制为 300 字符以内
 - **AND** 单轮 tool context bundle 序列化后 MUST 默认限制为 6000 字符以内
+- **AND** 单轮 tool loop 总耗时 MUST 默认限制为 8 秒以内
+- **AND** 单轮 tool loop MUST 最多产生 3 次额外 tool decision 模型调用
 
 #### Scenario: 工具步骤在限制内完成
 - **WHEN** LLM 选择只读工具且步骤数未超过上限
@@ -78,6 +85,12 @@
 - **AND** 系统 MUST 基于已有上下文生成回复、进入澄清或回退到原编排路径
 - **AND** trace MUST 记录 step limit 触发
 
+#### Scenario: tool loop 超过耗时限制
+- **WHEN** tool loop 总耗时达到 8 秒
+- **THEN** 系统 MUST 停止继续请求模型或执行新工具
+- **AND** 系统 MUST 使用已有上下文回复、澄清或回退到原编排路径
+- **AND** trace MUST 记录 timeout 和已完成的 tool decision / tool call 数量
+
 ### Requirement: 只读工具结果必须摘要化后再进入模型上下文
 系统 SHALL 对所有工具结果执行模型上下文摘要，避免完整大 payload 或无关私密字段进入下一次模型请求。
 
@@ -88,6 +101,26 @@
 - **AND** 模型可见摘要 MUST 保留回答所需的标题、类型、训练结构、动作 id、目标、时长、频率、关键替换或调整原因
 - **AND** 模型可见摘要 MUST NOT 包含无关大 payload、其他用户数据或未校验原始字段
 
+#### Scenario: 动作推荐 artifact 摘要
+- **WHEN** `getArtifactPayload` 返回 `exercise_recommendation`
+- **THEN** 模型可见摘要 MUST 包含 `artifactId`、`title`、`exerciseIds`、`exerciseNames`、`targetMuscles` 和 `reasons`
+- **AND** 摘要 MUST NOT 包含完整卡片 payload 或未校验原始字段
+
+#### Scenario: 单次 routine artifact 摘要
+- **WHEN** `getArtifactPayload` 返回 `routine`
+- **THEN** 模型可见摘要 MUST 包含 `artifactId`、`title`、`sessionMinutes`、`sections`、每个 section 的 `exerciseIds` 和可展示的 `setsReps`
+- **AND** 摘要 MUST NOT 包含完整 routine payload
+
+#### Scenario: 长期 plan artifact 摘要
+- **WHEN** `getArtifactPayload` 返回 `plan`
+- **THEN** 模型可见摘要 MUST 包含 `artifactId`、`title`、`weeklyFrequency`、`trainingDayCount`、`days` 和每个 day 的 `exerciseIds`
+- **AND** 摘要 MUST NOT 包含完整 plan payload
+
+#### Scenario: Patch artifact 摘要
+- **WHEN** `getArtifactPayload` 返回 `patch`
+- **THEN** 模型可见摘要 MUST 包含 `artifactId`、`sourceArtifactId`、`operations`、`changedExerciseIds`、`reason` 和 `status`
+- **AND** 摘要 MUST NOT 包含完整 diff payload 或确认 token
+
 #### Scenario: 工具返回候选列表
 - **WHEN** `searchArtifacts` 或 `searchExercises` 返回候选列表
 - **THEN** 系统 MUST 限制候选数量和单项字段长度
@@ -95,7 +128,7 @@
 
 #### Scenario: 工具上下文超过预算
 - **WHEN** 聚合后的 tool context bundle 超过模型上下文预算
-- **THEN** 系统 MUST 按工具结果优先级截断摘要
+- **THEN** 系统 MUST 按工具结果优先级截断摘要：已 resolved artifact、具体动作详情、当前问题相关训练结构、artifact 候选、exercise 候选
 - **AND** 系统 MUST 在 trace 中记录 `truncated = true`、截断前后大小和保留的 tool call id
 - **AND** 系统 MUST NOT 将未截断的大 payload 传入下一次模型请求
 
@@ -116,11 +149,20 @@
 ### Requirement: 只读 tool loop 必须可由服务端开关关闭
 系统 SHALL 提供服务端 feature flag 控制只读 tool loop 是否参与 `/api/chat` 编排。
 
+#### Scenario: feature flag 默认状态
+- **WHEN** `ENABLE_READONLY_LLM_TOOLS` 未设置或不等于 `true`
+- **THEN** 系统 MUST 将只读 tool loop 视为关闭
+
 #### Scenario: feature flag 关闭
 - **WHEN** 只读 tool loop feature flag 关闭
 - **THEN** `/api/chat` MUST 完全跳过 `runReadonlyToolLoop`
 - **AND** 系统 MUST 继续使用当前固定编排路径生成回复或执行确定性动作
 - **AND** trace MUST 记录 tool loop 被跳过及对应 skipped reason
+
+#### Scenario: feature flag 开启
+- **WHEN** `ENABLE_READONLY_LLM_TOOLS = "true"`
+- **THEN** `/api/chat` MAY 按触发矩阵进入 `runReadonlyToolLoop`
+- **AND** 系统 MUST 继续执行所有只读工具、预算、权限和回退约束
 
 ### Requirement: 写能力不得通过只读 tool loop 暴露给 LLM
 系统 SHALL 保证只读 tool loop 不包含会修改训练计划、用户数据、数据库状态或 artifact revision 的工具。

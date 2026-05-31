@@ -48,3 +48,17 @@
 - **WHEN** tool context bundle 被传入最终回复模型请求
 - **THEN** trace MUST 记录进入模型上下文的工具结果摘要
 - **AND** trace MUST 能关联这些摘要来自哪些 tool call step
+
+### Requirement: Trace 必须记录只读 tool loop 成本和延迟
+系统 SHALL 记录只读 tool loop 引入的额外模型调用、工具执行和耗时信息，便于评估成本是否可控。
+
+#### Scenario: tool loop 完成
+- **WHEN** 只读 tool loop 成功完成、失败回退或被跳过
+- **THEN** trace MUST 记录额外 tool decision 模型调用次数
+- **AND** trace MUST 记录实际工具执行次数
+- **AND** trace MUST 记录 tool loop 总耗时、是否达到 step limit、是否 timeout 和最终 stop reason
+
+#### Scenario: feature flag 未启用
+- **WHEN** `ENABLE_READONLY_LLM_TOOLS` 未设置或不等于 `true`
+- **THEN** trace MUST 表达本轮没有因只读 tool loop 增加模型调用
+- **AND** trace MUST 记录 skipped reason 为 feature flag disabled 或等价 code

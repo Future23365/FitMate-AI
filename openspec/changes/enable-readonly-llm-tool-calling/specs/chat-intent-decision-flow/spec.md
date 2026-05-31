@@ -6,12 +6,24 @@
 #### Scenario: 用户请求需要补查只读上下文
 - **WHEN** 用户询问历史计划细节、动作详情、推荐原因、训练卡片解释或其他需要数据库只读上下文的问题
 - **THEN** `/api/chat` MUST 允许进入只读 tool loop
-- **AND** tool loop 输出 MUST 作为最终回复或后续服务端确定性流程的只读上下文
+- **AND** 首版 tool loop 输出 MUST 只作为最终自然语言回复的只读上下文
+
+#### Scenario: 首版允许进入 tool loop 的场景
+- **WHEN** 用户请求属于历史 artifact 解释、动作详情补查、推荐理由解释或计划理由解释
+- **AND** 当前上下文不足以可靠回答
+- **AND** `ENABLE_READONLY_LLM_TOOLS = "true"`
+- **THEN** `/api/chat` MAY 进入只读 tool loop 补查上下文
+- **AND** tool loop 结果 MUST 只作为最终自然语言回复上下文
 
 #### Scenario: 用户请求可由现有确定性分支完成
 - **WHEN** resolved intent 已经能由现有引用解析、Patch、动作讲解或卡片生成流程确定性完成
 - **THEN** 系统 MAY 跳过只读 tool loop
 - **AND** 系统 MUST 保持现有确定性流程的行为边界
+
+#### Scenario: 生成型主流程不进入 tool loop
+- **WHEN** 用户请求触发 `workout_plan`、`routine`、`exercise_recommendation` 或 `workout_patch` 的生成、保存、替换或应用流程
+- **THEN** 系统 MUST 使用 resolved intent、ReferenceResolver、候选选择、Validator、PolicyEngine、ConfirmationGate 和对应 generator 决定执行路径
+- **AND** 系统 MUST NOT 让只读 tool loop 改变 `action.shouldTrigger` 或生成型 artifact 内容
 
 #### Scenario: 引用解析需要用户澄清
 - **WHEN** ReferenceResolver 返回 `ambiguous` 或 `not_found`
@@ -30,6 +42,7 @@
 - **WHEN** 只读 tool loop 成功返回 tool context bundle
 - **THEN** 系统 MUST 继续以最终 resolved intent 决定是否触发卡片、Patch 或澄清
 - **AND** tool context bundle MUST NOT 单独触发训练 artifact 生成
+- **AND** tool context bundle MUST NOT 直接传入 artifact generator 用于决定训练内容
 
 #### Scenario: tool loop 与 resolved intent 冲突
 - **WHEN** 工具结果暗示的动作类型与 resolved intent 的 `action.kind` 冲突
