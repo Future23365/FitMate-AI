@@ -206,6 +206,53 @@ describe("AI workout plan orchestration boundaries", () => {
     expect(routineModelPayload.trainingExercises.length).toBeLessThanOrEqual(16);
   });
 
+  it("accepts referenced dynamic joint actions in warmup without validation repair", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
+    exerciseServiceMocks.listAllExercises.mockResolvedValue(createJointMobilityExercises());
+    serverRequestMocks.serverRequest.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: JSON.stringify(createJointWarmupRoutineDraft()) } }],
+        }),
+      ),
+    );
+
+    const result = await generateAiWorkoutPlanDraft({
+      latestUserMessage: "30分钟，练这个",
+      conversationSummary: "用户刚才选中了膝关节和手腕活动动作，想生成单次训练。",
+      intent: createWorkoutPlanIntent({
+        intentType: "routine",
+        goal: "灵活性恢复",
+        sessionMinutes: 30,
+        weeklyFrequency: 1,
+        preferences: ["居家训练"],
+      }),
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      kind: "routine",
+      validation: {
+        valid: true,
+        warnings: expect.arrayContaining([
+          expect.objectContaining({
+            code: "section_exercise_mismatch",
+            exerciseId: "Knee_Circles",
+            section: "warmup",
+            metadataSections: ["stretch"],
+          }),
+          expect.objectContaining({
+            code: "section_exercise_mismatch",
+            exerciseId: "Wrist_Circles",
+            section: "warmup",
+            metadataSections: ["stretch"],
+          }),
+        ]),
+      },
+    });
+    expect(serverRequestMocks.serverRequest).toHaveBeenCalledTimes(1);
+  });
+
   it("uses DomainPlanEngine for referenced multi-week routine plans without draft generation model call", async () => {
     vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
     exerciseServiceMocks.listAllExercises.mockResolvedValue(createModelExercises());
@@ -478,13 +525,72 @@ function createModelExercises() {
   ];
 }
 
-function createThirtyMinuteRoutineDraft() {
+function createJointMobilityExercises() {
+  return [
+    createExercise({
+      id: "Knee_Circles",
+      nameZh: "膝关节环绕",
+      categoryZh: "灵活性",
+      primaryMusclesZh: ["股四头肌"],
+      allowedSections: ["stretch"],
+      intensityRole: "recovery",
+      movementPattern: "rotation",
+      goalTags: ["mobility"],
+    }),
+    createExercise({
+      id: "Wrist_Circles",
+      nameZh: "手腕环绕",
+      categoryZh: "灵活性",
+      primaryMusclesZh: ["前臂"],
+      allowedSections: ["stretch"],
+      intensityRole: "recovery",
+      movementPattern: "rotation",
+      goalTags: ["mobility"],
+    }),
+    createExercise({ id: "push-up", nameZh: "俯卧撑", primaryMusclesZh: ["胸部"], primaryMuscles: ["chest"] }),
+    createExercise({
+      id: "stretch",
+      nameZh: "全身放松拉伸",
+      categoryZh: "拉伸",
+      primaryMusclesZh: ["胸部"],
+      allowedSections: ["stretch"],
+      intensityRole: "recovery",
+      movementPattern: "stretch",
+      goalTags: ["mobility"],
+    }),
+  ];
+}
+
+function createJointWarmupRoutineDraft() {
+  return createThirtyMinuteRoutineDraft({
+    warmupExerciseIds: ["Knee_Circles", "Wrist_Circles"],
+    stretchExerciseId: "stretch",
+  });
+}
+
+function createThirtyMinuteRoutineDraft(options: {
+  warmupExerciseIds?: string[];
+  stretchExerciseId?: string;
+} = {}) {
+  const warmupExerciseIds = options.warmupExerciseIds ?? ["warmup"];
   return createWorkoutRoutineDraft({
     estimatedSessionMinutes: 30,
     trainingLoopRounds: 2,
     trainingLoopRestSeconds: 45,
     sections: [
-      createWorkoutRoutineDraft().sections[0],
+      {
+        section: "warmup",
+        title: "热身激活",
+        items: warmupExerciseIds.map((exerciseId) => ({
+          exerciseId,
+          section: "warmup" as const,
+          mode: "duration" as const,
+          sets: 1,
+          target: 45,
+          setRestSeconds: 0,
+          transitionRestSeconds: 20,
+        })),
+      },
       {
         section: "training",
         title: "主训练",
@@ -500,7 +606,13 @@ function createThirtyMinuteRoutineDraft() {
           },
         ],
       },
-      createWorkoutRoutineDraft().sections[2],
+      {
+        ...createWorkoutRoutineDraft().sections[2],
+        items: createWorkoutRoutineDraft().sections[2].items.map((item) => ({
+          ...item,
+          exerciseId: options.stretchExerciseId ?? item.exerciseId,
+        })),
+      },
     ],
   });
 }

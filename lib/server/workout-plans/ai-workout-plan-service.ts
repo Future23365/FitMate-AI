@@ -330,6 +330,7 @@ export async function generateAiWorkoutPlanDraft(
     metadata: {
       kind: intentResult.intent.intentType,
       candidateCount: candidateExerciseIds.length,
+      ...summarizeWorkoutValidationForTrace(validation),
       planCycle:
         intentResult.intent.intentType === "plan"
           ? summarizePlanCycle(draftResult.draft as WorkoutPlanDraft)
@@ -390,6 +391,7 @@ export async function generateAiWorkoutPlanDraft(
         metadata: {
           kind: intentResult.intent.intentType,
           candidateCount: candidateExerciseIds.length,
+          ...summarizeWorkoutValidationForTrace(repairedValidation),
           planCycle:
             intentResult.intent.intentType === "plan"
               ? summarizePlanCycle(repairResult.draft as WorkoutPlanDraft)
@@ -604,6 +606,7 @@ async function maybeGenerateDomainPlanFromReference(input: {
     metadata: {
       sourceExerciseCount: expanded.sourceExerciseIds.length,
       schedulePreviewCount: expanded.draft.schedulePreview?.length ?? 0,
+      ...summarizeWorkoutValidationForTrace(validation),
     },
   });
 
@@ -641,6 +644,24 @@ function summarizePlanCycle(draft: WorkoutPlanDraft) {
     missingSectionDays: draft.days
       .filter((day) => !day.isRestDay && day.sections.length < 3)
       .map((day) => day.cycleDayIndex),
+  };
+}
+
+// Trace metadata 单独标出 hard fail 与 section warning，避免排查时把语义分歧误认为终止型失败。
+function summarizeWorkoutValidationForTrace(validation: WorkoutPlanValidationResult) {
+  const sectionSemanticWarnings = validation.warnings
+    .filter((issue) => issue.code === "section_exercise_mismatch")
+    .map((issue) => ({
+      exerciseId: issue.exerciseId,
+      aiSection: issue.section,
+      metadataSections: issue.metadataSections,
+      dayIndex: issue.dayIndex,
+    }));
+
+  return {
+    deterministicHardFailCodes: [...new Set(validation.errors.map((issue) => issue.code))],
+    sectionSemanticWarnings,
+    sectionSemanticWarningCount: sectionSemanticWarnings.length,
   };
 }
 

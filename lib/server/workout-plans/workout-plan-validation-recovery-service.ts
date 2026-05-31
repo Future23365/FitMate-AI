@@ -14,12 +14,12 @@ const recoverableIssueCodes = new Set<WorkoutPlanValidationIssueCode>([
   "weekly_frequency_mismatch",
 ]);
 
+// 确定性硬边界会阻止自动展示；section 语义分歧只作为 validation warning 进入 trace。
 const hardBoundaryIssueCodes = new Set<WorkoutPlanValidationIssueCode>([
   "invalid_exercise_id",
   "outside_candidate_exercise_id",
   "empty_candidate_set",
   "missing_routine_section",
-  "section_exercise_mismatch",
   "cycle_structure_mismatch",
   "day_similarity_high",
 ]);

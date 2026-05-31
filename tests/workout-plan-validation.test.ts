@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  getCandidateExerciseIds,
   selectExerciseCandidates,
   sortReplacementCandidates,
   validateWorkoutPlanDraftExerciseIds,
@@ -38,6 +39,26 @@ const exercises = [
     allowedSections: ["stretch"],
     intensityRole: "recovery",
     movementPattern: "stretch",
+    goalTags: ["mobility"],
+  }),
+  createExercise({
+    id: "Knee_Circles",
+    nameZh: "膝关节环绕",
+    categoryZh: "灵活性",
+    primaryMusclesZh: ["股四头肌"],
+    allowedSections: ["stretch"],
+    intensityRole: "recovery",
+    movementPattern: "rotation",
+    goalTags: ["mobility"],
+  }),
+  createExercise({
+    id: "Wrist_Circles",
+    nameZh: "手腕环绕",
+    categoryZh: "灵活性",
+    primaryMusclesZh: ["前臂"],
+    allowedSections: ["stretch"],
+    intensityRole: "recovery",
+    movementPattern: "rotation",
     goalTags: ["mobility"],
   }),
   createExercise({
@@ -137,6 +158,24 @@ describe("workout plan candidate and validation services", () => {
       expect.arrayContaining([expect.objectContaining({ exerciseId: "push-up" })]),
     );
     expect(avoidedResult.candidateStatus).toBe("insufficient");
+  });
+
+  it("keeps legal total candidates available even when section pools differ from metadata", () => {
+    const result = selectExerciseCandidates(
+      createWorkoutPlanIntent({
+        intentType: "routine",
+        goal: "灵活性恢复",
+        preferences: ["居家训练"],
+      }),
+      exercises,
+    );
+
+    expect(result.candidatePools.warmup.map((candidate) => candidate.exercise.id)).not.toContain("Knee_Circles");
+    expect(result.candidatePools.warmup.map((candidate) => candidate.exercise.id)).not.toContain("Wrist_Circles");
+    expect(getCandidateExerciseIds(result)).toEqual(
+      expect.arrayContaining(["Knee_Circles", "Wrist_Circles"]),
+    );
+    expect(result.candidateStatus).not.toBe("insufficient");
   });
 
   it("returns structured shortage reasons when section pools are incomplete", () => {
@@ -359,22 +398,33 @@ describe("workout plan candidate and validation services", () => {
     expect(result.warnings.map((issue) => issue.code)).toContain("day_estimate_mismatch");
   });
 
-  it("rejects exercises placed in illegal sections", () => {
-    const intent = createWorkoutPlanIntent({ intentType: "routine" });
+  it("records section semantic mismatches as warnings without rejecting the routine", () => {
+    const intent = createWorkoutPlanIntent({ intentType: "routine", sessionMinutes: 12 });
     const routineDraft = createWorkoutRoutineDraft({
       sections: [
         {
           section: "warmup",
           title: "热身",
-          items: [{
-            exerciseId: "push-up",
-            section: "warmup",
-            mode: "reps",
-            sets: 1,
-            target: 8,
-            setRestSeconds: 0,
-            transitionRestSeconds: 10,
-          }],
+          items: [
+            {
+              exerciseId: "Knee_Circles",
+              section: "warmup",
+              mode: "duration",
+              sets: 1,
+              target: 30,
+              setRestSeconds: 0,
+              transitionRestSeconds: 10,
+            },
+            {
+              exerciseId: "Wrist_Circles",
+              section: "warmup",
+              mode: "duration",
+              sets: 1,
+              target: 30,
+              setRestSeconds: 0,
+              transitionRestSeconds: 10,
+            },
+          ],
         },
         ...createWorkoutRoutineDraft().sections.slice(1),
       ],
@@ -382,11 +432,102 @@ describe("workout plan candidate and validation services", () => {
 
     const result = validateWorkoutRoutineDraft(routineDraft, intent, {
       exercises,
+      candidateExerciseIds: ["Knee_Circles", "Wrist_Circles", "push-up", "stretch"],
+    });
+
+    expect(result.valid).toBe(true);
+    expect(result.errors.map((issue) => issue.code)).not.toContain("section_exercise_mismatch");
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "section_exercise_mismatch",
+          exerciseId: "Knee_Circles",
+          section: "warmup",
+          metadataSections: ["stretch"],
+        }),
+        expect.objectContaining({
+          code: "section_exercise_mismatch",
+          exerciseId: "Wrist_Circles",
+          section: "warmup",
+          metadataSections: ["stretch"],
+        }),
+      ]),
+    );
+  });
+
+  it("keeps deterministic validation failures for invalid ids, candidates, sections, schema, and duration", () => {
+    const intent = createWorkoutPlanIntent({ intentType: "routine", sessionMinutes: 40 });
+    const missingSectionDraft = createWorkoutRoutineDraft({
+      estimatedSessionMinutes: 40,
+      sections: [
+        createWorkoutRoutineDraft().sections[0],
+        createWorkoutRoutineDraft().sections[1],
+      ],
+    });
+    const shortDraft = createWorkoutRoutineDraft({
+      estimatedSessionMinutes: 40,
+      trainingLoopRounds: 1,
+    });
+    const invalidAndOutsideResult = validateWorkoutRoutineDraft(
+      createWorkoutRoutineDraft({
+        sections: [
+          createWorkoutRoutineDraft().sections[0],
+          {
+            section: "training",
+            title: "主训练",
+            items: [
+              {
+                exerciseId: "unknown",
+                section: "training",
+                mode: "reps",
+                sets: 3,
+                target: 12,
+                setRestSeconds: 45,
+                transitionRestSeconds: 30,
+              },
+              {
+                exerciseId: "jump-squat",
+                section: "training",
+                mode: "reps",
+                sets: 3,
+                target: 12,
+                setRestSeconds: 45,
+                transitionRestSeconds: 30,
+              },
+            ],
+          },
+          createWorkoutRoutineDraft().sections[2],
+        ],
+      }),
+      createWorkoutPlanIntent({ intentType: "routine", sessionMinutes: 12 }),
+      {
+        exercises,
+        candidateExerciseIds: ["warmup", "push-up", "stretch"],
+      },
+    );
+    const shortResult = validateWorkoutRoutineDraft(shortDraft, intent, {
+      exercises,
       candidateExerciseIds: ["warmup", "push-up", "stretch"],
     });
 
-    expect(result.valid).toBe(false);
-    expect(result.errors.map((issue) => issue.code)).toContain("section_exercise_mismatch");
+    expect(() =>
+      validateWorkoutRoutineDraft(missingSectionDraft, intent, {
+        exercises,
+        candidateExerciseIds: ["warmup", "push-up", "stretch"],
+      }),
+    ).toThrow();
+    expect(invalidAndOutsideResult.valid).toBe(false);
+    expect(invalidAndOutsideResult.errors.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining(["invalid_exercise_id", "outside_candidate_exercise_id"]),
+    );
+    expect(shortResult.valid).toBe(false);
+    expect(shortResult.errors.map((issue) => issue.code)).toContain("session_too_short");
+    expect(() =>
+      validateWorkoutRoutineDraft({ ...createWorkoutRoutineDraft(), sections: [] } as never, intent, {
+        exercises,
+        candidateExerciseIds: ["warmup", "push-up", "stretch"],
+      }),
+    ).toThrow();
   });
 
   it("rejects consecutive high-load days with overlapping exercises", () => {

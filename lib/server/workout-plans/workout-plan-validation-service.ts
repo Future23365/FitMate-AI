@@ -1,6 +1,6 @@
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
-import { isExerciseAllowedInSection } from "@/lib/shared/exercises/metadata";
-import type { Exercise } from "@/lib/shared/exercises/types";
+import { normalizeExerciseMetadata } from "@/lib/shared/exercises/metadata";
+import type { Exercise, ExerciseAllowedSection } from "@/lib/shared/exercises/types";
 import type { ConversationMemoryState } from "@/lib/shared/user-feedback-memory/schema";
 
 import {
@@ -12,6 +12,7 @@ import {
   type WorkoutPlanItemDraft,
   type WorkoutPlanDraft,
   type WorkoutPlanIntent,
+  type WorkoutRoutineSection,
 } from "@/lib/shared/workout-plans/draft-schema";
 import {
   defaultTrainingLoopRestSeconds,
@@ -48,6 +49,8 @@ export type WorkoutPlanValidationIssue = {
   message: string;
   dayIndex?: number;
   exerciseId?: string;
+  section?: WorkoutRoutineSection;
+  metadataSections?: ExerciseAllowedSection[];
 };
 
 export type WorkoutPlanDayEstimate = {
@@ -273,13 +276,9 @@ export function validateWorkoutPlanDraft(
     for (const item of dayItems) {
       const exercise = exerciseById.get(item.exerciseId);
 
-      if (exercise && !isExerciseAllowedInSection(exercise, item.section)) {
-        errors.push({
-          code: "section_exercise_mismatch",
-          dayIndex: dayIndex + 1,
-          exerciseId: item.exerciseId,
-          message: `动作 ${item.exerciseId} 不允许进入 ${item.section} 阶段。`,
-        });
+      const sectionWarning = createSectionSemanticWarning(exercise, item.section, dayIndex + 1, item.exerciseId);
+      if (sectionWarning) {
+        warnings.push(sectionWarning);
       }
 
       if (item.sets >= 5 && intent.experience === "beginner") {
@@ -476,13 +475,9 @@ export function validateWorkoutRoutineDraft(
   for (const item of allItems) {
     const exercise = exerciseById.get(item.exerciseId);
 
-    if (exercise && !isExerciseAllowedInSection(exercise, item.section)) {
-      errors.push({
-        code: "section_exercise_mismatch",
-        dayIndex: 1,
-        exerciseId: item.exerciseId,
-        message: `动作 ${item.exerciseId} 不允许进入 ${item.section} 阶段。`,
-      });
+    const sectionWarning = createSectionSemanticWarning(exercise, item.section, 1, item.exerciseId);
+    if (sectionWarning) {
+      warnings.push(sectionWarning);
     }
 
     if (item.sets >= 5 && intent.experience === "beginner") {
@@ -516,6 +511,32 @@ export function validateWorkoutRoutineDraft(
     dayEstimates,
     maxEstimatedMinutes: estimatedMinutes,
     totalWeeklySets: totalSets,
+  };
+}
+
+// Section 归属属于训练语义判断，服务端只记录本地元数据分歧，不阻断可执行草稿。
+function createSectionSemanticWarning(
+  exercise: Exercise | undefined,
+  section: WorkoutRoutineSection,
+  dayIndex: number,
+  exerciseId: string,
+): WorkoutPlanValidationIssue | null {
+  if (!exercise) {
+    return null;
+  }
+
+  const metadata = normalizeExerciseMetadata(exercise);
+  if (metadata.allowedSections.includes(section)) {
+    return null;
+  }
+
+  return {
+    code: "section_exercise_mismatch",
+    dayIndex,
+    exerciseId,
+    section,
+    metadataSections: metadata.allowedSections,
+    message: `动作 ${exerciseId} 的本地元数据偏向 ${metadata.allowedSections.join("、")}，AI 放入 ${section} 阶段。`,
   };
 }
 

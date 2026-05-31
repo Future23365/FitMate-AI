@@ -399,8 +399,9 @@ bubblePlans[messageId]
 - 新手训练量过高会产生 warning。
 - 训练日动作组合高度重复会报错。
 - 缺少必要 section 会报错。
+- 动作 section 与本地 `allowedSections` 元数据不一致只记录 warning，不作为 hard fail；例如动态关节活动可由 AI 编排到 `warmup`。
 
-校验失败时，接口返回失败，不会把无效草稿推送给用户。
+校验失败时，接口返回失败，不会把无效草稿推送给用户。排查时要区分两类结果：`errors` 是确定性 hard fail，会阻止卡片展示；`warnings` 是诊断或可调优信号，不会单独阻止草稿展示。
 
 ## 13. 聊天历史保存
 
@@ -491,7 +492,7 @@ Trace 顶层会保留 `runId`、`userId`、`sessionId`、`messageId`、`model`�
 - `/api/ai/workout-plan`
 - `/api/ai/exercise-recommendations`
 
-重点看候选是否不足、模型输出是否非法、Zod 校验是否失败、动作 ID 是否不在候选集合。
+重点看候选是否不足、模型输出是否非法、Zod 校验是否失败、动作 ID 是否不在候选集合。`section_exercise_mismatch` 出现在 `warnings` 或 `sectionSemanticWarnings` 时表示 AI section 与本地元数据分歧，只用于诊断，不等同于 `plan_validation_failed`。
 
 如果问题发生在“这个”“刚才那套”等历史引用或局部修改场景，优先看：
 
