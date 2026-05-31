@@ -2,7 +2,7 @@
 
 ### Requirement: 长期计划保存前必须经过 Validator
 
-系统 SHALL 在长期计划返回给用户或进入保存流程前执行服务端契约校验。Validator SHALL 校验训练日数量、动作来源、结构、字段来源、引用 artifact、权限和用户明确约束；连续负荷、训练日重复、section 语义、训练量高低和恢复安排合理性 SHALL 作为 warning 或 LLM 语义判断，不得单独阻止计划展示。
+系统 SHALL 在长期计划返回给用户或进入保存流程前执行服务端契约校验。Validator SHALL 校验训练日数量、动作来源、结构、字段来源、引用 artifact、权限和用户明确约束；连续负荷、训练日重复、section 语义、训练量高低和恢复安排合理性 SHALL 作为 warning 或 LLM 语义判断，不得单独阻止计划展示。历史和 artifact 字段只有在可追溯为用户明确确认的约束时，才 SHALL 作为 hard fail 依据。
 
 #### Scenario: 生成 schedule preview
 
@@ -18,7 +18,7 @@
 - **AND** PlanStrategy 使用 `repeat_previous_routine`、`repeat_same_routine_with_progression` 或等价重复策略
 - **THEN** Validator MUST 接受重复训练日作为符合用户意图的计划结构
 - **AND** Validator MUST NOT 返回 `day_similarity_high` 或 `consecutive_load_high` 作为 hard fail
-- **AND** 系统 MAY 在 trace 或草稿提示中记录连续训练 warning
+- **AND** 系统 MAY 在 validation warnings 或 trace 中记录连续训练 warning
 
 #### Scenario: 引用 artifact 不可用
 
@@ -29,7 +29,7 @@
 #### Scenario: 字段来源控制频率和时长契约
 
 - **WHEN** DomainPlanEngine 输出的训练日数量或单次时长与 PlanStrategy 不一致
-- **AND** 对应 PlanStrategy 字段来源是 `current_user_message`、`history` 或 `artifact`
+- **AND** 对应 PlanStrategy 字段来源是 `current_user_message`，或可追溯为用户明确确认约束的 `history` / `artifact`
 - **THEN** Validator MAY 将该不一致判定为契约失败
 - **AND** 系统 MUST 进入修复或恢复流程
 

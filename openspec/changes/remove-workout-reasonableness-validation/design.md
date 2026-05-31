@@ -33,17 +33,25 @@
 
 ### Decision 2: 字段来源决定目标时长和频率是否可 hard fail
 
-`session_too_long`、`session_too_short` 和 `weekly_frequency_mismatch` 只有在字段来源为 `current_user_message`、`history` 或 `artifact` 等明确用户上下文时，才可以进入 `errors`。
+`session_too_long`、`session_too_short` 和 `weekly_frequency_mismatch` 只有在字段来源可追溯为用户本轮明确表达、历史已确认约束或 artifact 中保留的用户确认约束时，才可以进入 `errors`。
 
 如果字段来源是 `default` 或 `llm_inferred`，服务端只能记录 warning。这样避免默认 30 分钟、默认每周 3 练或模型推断频率反过来阻止用户可见结果。
+
+如果字段来源是 `history` 或 `artifact`，实现必须区分“用户曾明确确认的约束”和“旧模型生成或系统默认留下的字段”。只有前者可以作为 hard fail 依据，后者必须降级为 warning。
 
 ### Decision 3: 显式重复训练是合法用户意图
 
 当 PlanStrategy 或 resolved intent 表达用户要重复历史 routine，例如 `repeat_previous_routine` 或 `repeat_same_routine_with_progression`，服务端必须允许重复训练日通过契约校验。
 
-如果连续重复、训练量或恢复间隔值得提醒，系统应在 warning、trace 或草稿 `safetyNotes` 中表达，而不是阻止卡片展示。
+如果连续重复、训练量或恢复间隔存在诊断价值，系统可以在 warning 或 trace 中记录，而不是阻止卡片展示。
 
-### Decision 4: 失败恢复只看 errors
+### Decision 4: 用户明确避免动作或禁忌仍是 hard boundary
+
+用户当前消息、已确认历史约束或用户确认 artifact 明确表达“不要某个动作”“避免某类动作”或具体训练禁忌时，服务端可以将违反这些约束的草稿判定为契约失败。
+
+伤病相关限制只有在用户主动提出或已确认进入约束上下文时，才可以成为 hard fail 依据。服务端不得因为推断、默认健康风险判断或未确认的伤病假设阻止草稿展示。
+
+### Decision 5: 失败恢复只看 errors
 
 恢复分类服务只根据 `validation.errors` 判断是否失败、是否可恢复、是否硬边界失败。`validation.warnings` 可以参与引导文案和 trace，但不能让未知 error 被误分类，也不能让 warning 单独触发 `plan_validation_failed`。
 
@@ -51,7 +59,7 @@
 
 ## Risks / Trade-offs
 
-- [Risk] LLM 生成的训练安排可能不够保守。→ Mitigation：保留 warning、trace 和自然语言提示，让 LLM 和用户共同处理合理性，而不是由服务端静默否决。
+- [Risk] LLM 生成的训练安排可能不够保守。→ Mitigation：保留 warning 和 trace 诊断，让调试链路可追踪合理性信号，而不是由服务端静默否决。
 - [Risk] 旧测试依赖合理性 hard fail。→ Mitigation：更新测试，将合理性断言改为 warning，并保留结构和动作来源 hard fail 覆盖。
 - [Risk] 字段来源缺失导致时长或频率不再 hard fail。→ Mitigation：实现时补齐 `PlanStrategy.fieldSources` 和 routine 生成链路的字段来源传递，缺来源时默认降级为 warning。
 - [Risk] 前端继续展示 warning 过多影响体验。→ Mitigation：前端不需要默认展示所有 warning，trace 和调试页保留完整诊断即可。
@@ -64,7 +72,3 @@
 4. 更新 DomainPlanEngine / AI workout plan service 调用处，传递必要字段来源。
 5. 更新单元测试和服务测试，覆盖重复三天同一套动作、字段来源默认值降级、warning 不触发失败恢复。
 6. 更新变更历史文档。
-
-## Open Questions
-
-- 是否需要在最终聊天回复中主动提炼部分 warning，例如“连续三天练同一套时注意疲劳”？本 change 只要求不阻止卡片展示，不强制前端展示 warning。
