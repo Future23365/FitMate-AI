@@ -72,3 +72,50 @@ TBD - created by archiving change summarize-ai-chat-context. Update Purpose afte
 - **AND** Trace MUST 展示服务端结构化 `workoutIntent` 和候选动作校验结果
 - **AND** Trace MUST NOT 把旧的历史消息窗口作为模型输入来源记录为成功路径
 
+### Requirement: 短指令必须沿用最近训练事实
+
+系统 SHALL 在不暴露完整历史消息给 LLM 的前提下，让依赖上下文的短指令沿用最近已校验训练事实，并使用当前最新消息覆盖对应字段。
+
+#### Scenario: 修改最近 routine 时长
+
+- **WHEN** `conversationSummary` 或服务端内部上下文表明最近生成了居家背部 30 分钟 `routine`
+- **AND** 用户输入“改成45分钟”
+- **THEN** 系统 MUST 沿用最近的训练目标和场地条件
+- **AND** 系统 MUST 将本次 `sessionMinutes` 更新为 45
+- **AND** 系统 MUST 触发 `workout_routine`
+
+#### Scenario: 动作推荐升级为 routine
+
+- **WHEN** `conversationSummary` 或服务端内部上下文表明最近生成了胸部动作推荐
+- **AND** 用户输入“把它变成20分钟训练”
+- **THEN** 系统 MUST 将“它”解析为最近动作推荐的训练目标
+- **AND** 系统 MUST 触发 `workout_routine`
+
+#### Scenario: 当前消息覆盖历史器械条件
+
+- **WHEN** 历史上下文记录用户有哑铃
+- **AND** 用户输入“但今天不用器械”
+- **THEN** 系统 MUST 使用当前消息覆盖历史器械条件
+- **AND** 本轮训练意图 MUST 表达自重或无器械条件
+
+### Requirement: Summary 必须参与预算化上下文选择
+系统 SHALL 将 `conversationSummary` 作为历史上下文的唯一模型可见来源，并且 MUST 由 token budget 决策层决定本轮是否需要读取、更新或仅复用 summary。
+
+#### Scenario: 构造聊天模型输入
+- **WHEN** 系统为聊天相关 LLM 调用构造模型输入
+- **THEN** 模型可见历史上下文 MUST 来自 `conversationSummary`
+- **AND** 模型请求 MUST 只包含当前最新用户消息作为本轮 user message
+- **AND** 模型请求 MUST NOT 为降低实现复杂度重新传入完整历史消息窗口
+
+#### Scenario: 复用已有 summary
+- **WHEN** 本轮预算决策判断用户消息不会改变长期上下文事实
+- **THEN** 系统 MUST 复用已有 `conversationSummary`
+- **AND** 系统 MUST NOT 发起仅用于重写同等内容 summary 的 LLM 调用
+- **AND** Trace MUST 记录 summary 更新被跳过的原因
+
+#### Scenario: 更新 summary
+- **WHEN** 本轮用户消息、助手回复或服务端动作摘要产生新的长期上下文事实
+- **THEN** 系统 MUST 更新 `conversationSummary`
+- **AND** 更新输入 MUST 只包含旧 summary、本轮最新用户消息、助手回复摘要和服务端动作摘要
+- **AND** 更新输入 MUST NOT 包含完整历史消息窗口
+
