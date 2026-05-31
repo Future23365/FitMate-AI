@@ -2,12 +2,10 @@ import { createHmac } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const prismaMock = vi.hoisted(() => ({
+  $executeRaw: vi.fn(),
+  $queryRaw: vi.fn(),
   user: {
     create: vi.fn(),
-    updateMany: vi.fn(),
-  },
-  userIdentity: {
-    findUnique: vi.fn(),
   },
 }));
 const dbMocks = vi.hoisted(() => ({
@@ -23,9 +21,9 @@ describe("local anonymous auth", () => {
   beforeEach(() => {
     vi.stubEnv("FITMATE_LOCAL_AUTH_SECRET", "test-secret");
     vi.stubEnv("NODE_ENV", "test");
+    prismaMock.$executeRaw.mockReset();
+    prismaMock.$queryRaw.mockReset();
     prismaMock.user.create.mockReset();
-    prismaMock.user.updateMany.mockReset();
-    prismaMock.userIdentity.findUnique.mockReset();
   });
 
   it("signs and verifies anonymous tokens", () => {
@@ -89,9 +87,7 @@ describe("local anonymous auth", () => {
 
   it("creates and restores anonymous sessions through HttpOnly cookie route", async () => {
     prismaMock.user.create.mockResolvedValue({ id: "user-1", displayName: "匿名用户" });
-    prismaMock.userIdentity.findUnique.mockResolvedValue({
-      user: { id: "user-1", displayName: "匿名用户", deletedAt: null },
-    });
+    prismaMock.$queryRaw.mockResolvedValue([{ id: "user-1", displayName: "匿名用户" }]);
 
     const created = await authRoute.POST(new Request("http://localhost/api/auth/local-anonymous", { method: "POST" }));
     const createdBody = await created.json();
@@ -122,13 +118,7 @@ describe("local anonymous auth", () => {
     const restoredBody = await restored.json();
     expect(restoredBody).toMatchObject({ ok: true, user: { id: "user-1" } });
     expect(restoredBody.token).toBeUndefined();
-    expect(prismaMock.userIdentity.findUnique).toHaveBeenCalledWith(expect.objectContaining({
-      where: {
-        provider_providerAccountId: expect.objectContaining({
-          provider: "anonymous",
-        }),
-      },
-    }));
+    expect(prismaMock.$queryRaw).toHaveBeenCalled();
 
     await expect(auth.requireCurrentUser(new Request("http://localhost/api/private", {
       headers: { Cookie: cookieHeader },
@@ -137,7 +127,7 @@ describe("local anonymous auth", () => {
 
   it("soft deletes the current anonymous user and clears cookie on reset", async () => {
     const signed = auth.signLocalAnonymousToken("anon-1", { secret: "test-secret" });
-    prismaMock.user.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.$executeRaw.mockResolvedValue(1);
 
     const response = await authRoute.DELETE(new Request("http://localhost/api/auth/local-anonymous", {
       method: "DELETE",
@@ -147,20 +137,10 @@ describe("local anonymous auth", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("set-cookie")).toEqual(expect.stringContaining(`${auth.localAnonymousAuthCookieName}=`));
     expect(response.headers.get("set-cookie")).toEqual(expect.stringContaining("Max-Age=0"));
-    expect(prismaMock.user.updateMany).toHaveBeenCalledWith({
-      where: {
-        deletedAt: null,
-        identities: {
-          some: {
-            provider: "anonymous",
-            providerAccountId: "anon-1",
-          },
-        },
-      },
-      data: {
-        deletedAt: expect.any(Date),
-      },
-    });
+    expect(prismaMock.$executeRaw).toHaveBeenCalledOnce();
+    const softDeleteQuery = prismaMock.$executeRaw.mock.calls[0]?.[0] as { strings?: string[]; values?: unknown[] };
+    expect(softDeleteQuery.strings?.join("")).toContain("Asia/Shanghai");
+    expect(softDeleteQuery.values).toContain("anon-1");
     expect(prismaMock.user.create).not.toHaveBeenCalled();
   });
 
@@ -178,21 +158,15 @@ describe("local anonymous auth", () => {
     expect(missingCookieResponse.headers.get("set-cookie")).toEqual(expect.stringContaining("Max-Age=0"));
     expect(invalidCookieResponse.headers.get("set-cookie")).toEqual(expect.stringContaining("Max-Age=0"));
     expect(prismaMock.user.create).not.toHaveBeenCalled();
-    expect(prismaMock.user.updateMany).not.toHaveBeenCalled();
-    expect(prismaMock.userIdentity.findUnique).not.toHaveBeenCalled();
+    expect(prismaMock.$executeRaw).not.toHaveBeenCalled();
+    expect(prismaMock.$queryRaw).not.toHaveBeenCalled();
   });
 
   it("treats soft-deleted anonymous users as unauthenticated for restore and private APIs", async () => {
     const signed = auth.signLocalAnonymousToken("anon-deleted", { secret: "test-secret" });
     const cookieHeader = `${auth.localAnonymousAuthCookieName}=${signed.token}`;
 
-    prismaMock.userIdentity.findUnique.mockResolvedValue({
-      user: {
-        id: "user-deleted",
-        displayName: "匿名用户",
-        deletedAt: new Date("2026-05-31T00:00:00.000Z"),
-      },
-    });
+    prismaMock.$queryRaw.mockResolvedValue([]);
 
     const restored = await authRoute.POST(new Request("http://localhost/api/auth/local-anonymous", {
       method: "POST",

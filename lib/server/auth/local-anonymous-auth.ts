@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { Prisma } from "@prisma/client";
 
 import { getPrismaClient } from "@/lib/server/db/prisma";
 import { jsonApiError } from "@/lib/server/http/api-error";
@@ -234,20 +235,18 @@ export async function softDeleteLocalAnonymousUserForToken(token: string) {
   const payload = verifyLocalAnonymousToken(token);
   const prisma = getPrismaClient();
 
-  return prisma.user.updateMany({
-    where: {
-      deletedAt: null,
-      identities: {
-        some: {
-          provider: "anonymous",
-          providerAccountId: payload.sub,
-        },
-      },
-    },
-    data: {
-      deletedAt: new Date(),
-    },
-  });
+  return prisma.$executeRaw(Prisma.sql`
+    UPDATE "User" AS u
+    SET "deletedAt" = CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai'
+    WHERE u."deletedAt" IS NULL
+      AND EXISTS (
+        SELECT 1
+        FROM "UserIdentity" AS i
+        WHERE i."userId" = u."id"
+          AND i."provider" = 'anonymous'::"AuthProvider"
+          AND i."providerAccountId" = ${payload.sub}
+      )
+  `);
 }
 
 export function readAnonymousTokenFromRequest(request: Request) {
@@ -288,31 +287,24 @@ export function authErrorToApiResponse(error: unknown) {
 
 async function findAnonymousUserBySubject(providerAccountId: string): Promise<CurrentUser | null> {
   const prisma = getPrismaClient();
-  const identity = await prisma.userIdentity.findUnique({
-    where: {
-      provider_providerAccountId: {
-        provider: "anonymous",
-        providerAccountId,
-      },
-    },
-    select: {
-      user: {
-        select: {
-          id: true,
-          displayName: true,
-          deletedAt: true,
-        },
-      },
-    },
-  });
+  const rows = await prisma.$queryRaw<CurrentUser[]>(Prisma.sql`
+    SELECT u."id", u."displayName"
+    FROM "UserIdentity" AS i
+    INNER JOIN "User" AS u ON u."id" = i."userId"
+    WHERE i."provider" = 'anonymous'::"AuthProvider"
+      AND i."providerAccountId" = ${providerAccountId}
+      AND u."deletedAt" IS NULL
+    LIMIT 1
+  `);
+  const user = rows[0];
 
-  if (!identity?.user || identity.user.deletedAt) {
+  if (!user) {
     return null;
   }
 
   return {
-    id: identity.user.id,
-    displayName: identity.user.displayName,
+    id: user.id,
+    displayName: user.displayName,
   };
 }
 

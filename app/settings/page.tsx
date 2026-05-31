@@ -101,7 +101,7 @@ export default function SettingsPage() {
           <div className="flex flex-wrap items-start justify-between gap-lg">
             <div className="min-w-0">
               <div className="flex items-center gap-sm">
-                <SymbolIcon className="text-[22px] text-primary">person_cancel</SymbolIcon>
+                <SymbolIcon className="text-[22px] text-primary">restart_alt</SymbolIcon>
                 <h2 className="text-xl font-extrabold text-ink">本地用户</h2>
               </div>
               <p className="mt-sm text-sm font-semibold text-muted">
@@ -137,8 +137,8 @@ export default function SettingsPage() {
       >
         <DialogContent className="max-w-md">
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-error-container text-error ring-1 ring-error/10">
-            <SymbolIcon className="text-[28px]" filled>
-              person_cancel
+            <SymbolIcon className="text-[28px]">
+              warning
             </SymbolIcon>
           </div>
           <DialogHeader>

@@ -44,6 +44,9 @@ describe("LocalAuthProvider", () => {
     expect(source).toContain("confirmResetLocalUser");
     expect(source).toContain("await resetLocalUser()");
     expect(source).toContain("旧本地用户会被软删除");
+    expect(source).toContain("restart_alt");
+    expect(source).toContain("warning");
+    expect(source).not.toContain("person_cancel");
     expect(source).not.toContain("onClick={resetLocalUser}");
   });
 });

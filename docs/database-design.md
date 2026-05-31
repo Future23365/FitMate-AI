@@ -194,7 +194,7 @@ artifact 保存后的来源实体类型。
 | `id` | `String` | 主键，默认 `cuid()` | 用户唯一标识。当前正常请求由浏览器本地匿名 auth cookie 解析得到当前用户。 |
 | `email` | `String?` | 唯一，可空 | 用户邮箱。正式鉴权接入后可用于账号识别。 |
 | `displayName` | `String?` | 可空 | 用户展示名称。 |
-| `deletedAt` | `DateTime?` | 可空，已建索引 | 用户级软删除时间。本地匿名用户重置会设置该字段，旧 cookie 不能再恢复该用户，但旧聊天、训练和 trace 数据不会被物理删除。 |
+| `deletedAt` | `DateTime?` | 可空，已建索引 | 用户级软删除时间。本地匿名用户重置会按数据库 `Asia/Shanghai` 当前时间写入该字段，旧 cookie 不能再恢复该用户，但旧聊天、训练和 trace 数据不会被物理删除。 |
 | `createdAt` | `DateTime` | 默认 `now()` | 用户创建时间。 |
 | `updatedAt` | `DateTime` | `@updatedAt` | 用户最后更新时间。 |
 
