@@ -75,15 +75,24 @@ function MarkdownContent({ content }: { content: string }) {
   );
 }
 
-function ChatThinkingIndicator() {
+function ChatThinkingIndicator({ isThinking }: { isThinking: boolean }) {
+  const icon = isThinking ? "psychology" : "progress_activity";
+  const label = isThinking ? "正在思考" : "正在回复";
+  const toneClass = isThinking
+    ? "border-primary/15 bg-primary-soft/70 text-primary"
+    : "border-line bg-surface-container-low text-on-surface-variant";
+  const dotClass = isThinking ? "bg-primary" : "bg-outline-variant";
+
   return (
-    <div className="flex items-center gap-sm rounded-xl border border-primary/15 bg-primary-soft/70 px-md py-sm text-primary">
-      <SymbolIcon className="animate-pulse text-[18px]">psychology</SymbolIcon>
-      <span className="font-body-md text-body-md">正在思考</span>
+    <div className={`flex items-center gap-sm rounded-xl border px-md py-sm ${toneClass}`}>
+      <SymbolIcon className={`${isThinking ? "animate-pulse" : "animate-spin"} text-[18px]`}>
+        {icon}
+      </SymbolIcon>
+      <span className="font-body-md text-body-md">{label}</span>
       <span className="flex items-center gap-[3px]" aria-hidden="true">
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary [animation-delay:-0.2s]" />
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary [animation-delay:-0.1s]" />
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" />
+        <span className={`h-1.5 w-1.5 animate-bounce rounded-full ${dotClass} [animation-delay:-0.2s]`} />
+        <span className={`h-1.5 w-1.5 animate-bounce rounded-full ${dotClass} [animation-delay:-0.1s]`} />
+        <span className={`h-1.5 w-1.5 animate-bounce rounded-full ${dotClass}`} />
       </span>
     </div>
   );
@@ -392,7 +401,7 @@ export function ChatPage() {
                                     <MarkdownContent content={cleanContent} />
                                   </div>
                                 ) : (
-                                  <ChatThinkingIndicator />
+                                  <ChatThinkingIndicator isThinking={message.isReasoning === true} />
                                 )}
 
                                 {suggestedReplies.length > 0 && (
