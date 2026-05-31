@@ -157,4 +157,41 @@ describe("AI trace store and HTTP request helpers", () => {
       new ClientRequestError("权限不足", 403, "权限不足"),
     );
   });
+
+  it("injects local anonymous credentials and resets auth on raw unauthenticated responses", async () => {
+    const storage = createLocalStorageMock();
+    const dispatchEvent = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json(
+        { ok: false, code: "unauthenticated", message: "Authentication is required." },
+        { status: 401 },
+      ),
+    );
+    storage.setItem("fitmate.localAuth.v1", JSON.stringify({
+      version: 1,
+      token: "token-1",
+    }));
+    vi.stubGlobal("window", { dispatchEvent, localStorage: storage });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await clientRequest("/api/private", {
+      responseType: "raw",
+      throwOnError: false,
+    });
+
+    expect(response.status).toBe(401);
+    expect((fetchMock.mock.calls[0][1].headers as Headers).get("Authorization")).toBe("Bearer token-1");
+    expect(storage.getItem("fitmate.localAuth.v1")).toBeNull();
+    expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "fitmate:auth-required" }));
+  });
 });
+
+function createLocalStorageMock() {
+  const store = new Map<string, string>();
+
+  return {
+    getItem: vi.fn((key: string) => store.get(key) ?? null),
+    setItem: vi.fn((key: string, value: string) => store.set(key, value)),
+    removeItem: vi.fn((key: string) => store.delete(key)),
+  };
+}

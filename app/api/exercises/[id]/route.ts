@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
+import { authErrorToApiResponse, requireCurrentUser } from "@/lib/server/auth/local-anonymous-auth";
 import { getExerciseById } from "@/lib/server/exercises/exercise-service";
+import { jsonApiError } from "@/lib/server/http/api-error";
 
 type RouteContext = {
   params: Promise<{
@@ -8,12 +10,18 @@ type RouteContext = {
   }>;
 };
 
-export async function GET(_request: Request, context: RouteContext) {
+export async function GET(request: Request, context: RouteContext) {
+  try {
+    await requireCurrentUser(request);
+  } catch (error) {
+    return authErrorToApiResponse(error);
+  }
+
   const { id } = await context.params;
   const exercise = await getExerciseById(decodeURIComponent(id));
 
   if (!exercise) {
-    return NextResponse.json({ error: "Exercise not found." }, { status: 404 });
+    return jsonApiError("bad_request", "Exercise not found.", 404);
   }
 
   return NextResponse.json({ item: exercise });

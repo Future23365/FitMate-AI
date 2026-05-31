@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { useLocalAuth } from "@/components/auth/local-auth-provider";
 import { deleteChatConversation, readChatHistory } from "@/features/chat/lib/chat-history";
 import { LogoMark } from "./logo-mark";
 import { SymbolIcon } from "./symbol-icon";
@@ -15,11 +16,6 @@ const navItems = [
   { label: "动作库", icon: "fitness_center", href: "/exercises" },
 ];
 
-const currentUser = {
-  name: "FitMate 用户",
-  initials: "FM",
-};
-
 type SidebarHistoryItem = {
   id: string;
   title: string;
@@ -30,6 +26,7 @@ type SidebarPanelProps = {
   historyItems: SidebarHistoryItem[];
   isSettingsActive: boolean;
   pathname: string;
+  userName: string;
   onDeleteConversation: (id: string) => void;
   onHistorySelect: (id: string) => void;
   onNavigate?: () => void;
@@ -78,6 +75,7 @@ function SidebarPanel({
   historyItems,
   isSettingsActive,
   pathname,
+  userName,
   onDeleteConversation,
   onHistorySelect,
   onNavigate,
@@ -192,11 +190,11 @@ function SidebarPanel({
       <div className="mt-4 shrink-0 border-t border-line pt-4">
         <div className="app-sidebar-user-card flex items-center gap-3 rounded-xl border border-line/80 bg-white/72 p-2.5 shadow-card backdrop-blur-xl">
           <div className="app-sidebar-user-avatar flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-soft text-sm font-extrabold text-primary ring-1 ring-primary/10">
-            {currentUser.initials}
+            {getUserInitials(userName)}
           </div>
           <div className="app-sidebar-copy min-w-0 flex-1">
-            <p className="truncate text-sm font-extrabold text-ink">{currentUser.name}</p>
-            <p className="text-xs font-semibold text-muted">个人账户</p>
+            <p className="truncate text-sm font-extrabold text-ink">{userName}</p>
+            <p className="text-xs font-semibold text-muted">本地匿名账户</p>
           </div>
           <Link
             aria-label="进入设置"
@@ -222,12 +220,14 @@ function SidebarPanel({
 export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const { user } = useLocalAuth();
   const [historyItems, setHistoryItems] = useState<SidebarHistoryItem[]>([]);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [isSidebarCollapseLocked, setIsSidebarCollapseLocked] = useState(false);
   const [isDesktopSidebarExpanded, setIsDesktopSidebarExpanded] = useState(false);
   const [isSidebarRailMode, setIsSidebarRailMode] = useState(false);
   const isSettingsActive = pathname.startsWith("/settings");
+  const userName = user?.displayName || "匿名用户";
 
   useEffect(() => {
     async function syncHistory() {
@@ -384,6 +384,7 @@ export function AppSidebar() {
           historyItems={historyItems}
           isSettingsActive={isSettingsActive}
           pathname={pathname}
+          userName={userName}
           onDeleteConversation={deleteConversation}
           onHistorySelect={handleHistorySelect}
           onNavigate={lockDesktopSidebarCollapse}
@@ -417,6 +418,7 @@ export function AppSidebar() {
               historyItems={historyItems}
               isSettingsActive={isSettingsActive}
               pathname={pathname}
+              userName={userName}
               titleId="mobile-app-navigation-title"
               onDeleteConversation={deleteConversation}
               onHistorySelect={handleHistorySelect}
@@ -427,4 +429,14 @@ export function AppSidebar() {
       ) : null}
     </>
   );
+}
+
+function getUserInitials(name: string) {
+  const trimmedName = name.trim();
+
+  if (!trimmedName) {
+    return "FM";
+  }
+
+  return trimmedName.slice(0, 2).toUpperCase();
 }

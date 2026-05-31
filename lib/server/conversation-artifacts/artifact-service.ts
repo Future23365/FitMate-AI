@@ -4,6 +4,7 @@ import type { PrismaClient } from "@prisma/client";
 
 import { getPrismaClient } from "@/lib/server/db/prisma";
 import { getCurrentUser } from "@/lib/server/users/current-user";
+import type { CurrentUser } from "@/lib/server/users/current-user";
 import { exerciseRecommendationCardSchema } from "@/lib/shared/exercise-recommendations/schema";
 import {
   conversationArtifactPayloadSchemaVersion,
@@ -337,12 +338,13 @@ export async function createConversationArtifactRevision(
 export async function listRecentArtifactSummariesForCurrentUser(
   sessionId: string | undefined,
   limit = 6,
+  currentUser?: CurrentUser,
 ): Promise<RecentArtifactSummary[]> {
   if (!sessionId) {
     return [];
   }
 
-  const user = await getCurrentUser();
+  const user = await getCurrentUser(currentUser);
   const prisma = getPrismaClient();
   const indexes = await prisma.artifactIndex.findMany({
     where: {
@@ -447,8 +449,9 @@ export async function searchArtifactsDetailed(
 export async function searchArtifactsForCurrentUser(
   input: Omit<SearchArtifactsInput, "userId">,
   client: Pick<PrismaClient, "artifactIndex"> = getPrismaClient(),
+  currentUser?: CurrentUser,
 ) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUser(currentUser);
 
   return searchArtifacts({ ...input, userId: user.id }, client);
 }
@@ -456,8 +459,9 @@ export async function searchArtifactsForCurrentUser(
 export async function searchArtifactsForCurrentUserDetailed(
   input: Omit<SearchArtifactsInput, "userId">,
   client: Pick<PrismaClient, "artifactIndex"> = getPrismaClient(),
+  currentUser?: CurrentUser,
 ) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUser(currentUser);
 
   return searchArtifactsDetailed({ ...input, userId: user.id }, client);
 }
@@ -495,8 +499,9 @@ export async function getArtifactPayload(
 export async function getArtifactPayloadForCurrentUser(
   input: Omit<GetArtifactPayloadInput, "userId">,
   client: Pick<PrismaClient, "conversationArtifact"> = getPrismaClient(),
+  currentUser?: CurrentUser,
 ) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUser(currentUser);
 
   return getArtifactPayload({ ...input, userId: user.id }, client);
 }
@@ -603,8 +608,9 @@ export async function getActiveArtifactPayload(
 export async function getActiveArtifactPayloadForCurrentUser(
   input: Omit<GetArtifactPayloadInput, "userId">,
   client: Pick<PrismaClient, "conversationArtifact"> = getPrismaClient(),
+  currentUser?: CurrentUser,
 ) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUser(currentUser);
 
   return getActiveArtifactPayload({ ...input, userId: user.id }, client);
 }

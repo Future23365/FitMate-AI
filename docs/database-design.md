@@ -191,7 +191,7 @@ artifact 保存后的来源实体类型。
 
 | 字段 | 类型 | 约束 / 默认值 | 作用 |
 |---|---|---|---|
-| `id` | `String` | 主键，默认 `cuid()` | 用户唯一标识。当前本地开发默认用户 id 为 `local-demo-user`。 |
+| `id` | `String` | 主键，默认 `cuid()` | 用户唯一标识。当前正常请求由浏览器本地匿名凭证解析得到当前用户。 |
 | `email` | `String?` | 唯一，可空 | 用户邮箱。正式鉴权接入后可用于账号识别。 |
 | `displayName` | `String?` | 可空 | 用户展示名称。 |
 | `createdAt` | `DateTime` | 默认 `now()` | 用户创建时间。 |
@@ -489,7 +489,7 @@ artifact 轻量检索索引。聊天上下文和后续引用解析优先读取�
 ## 5. 当前实现注意事项
 
 - PostgreSQL 是业务事实数据来源，所有用户私有数据都应通过 `userId` 隔离。
-- 当前正式鉴权尚未接入，`lib/server/users/current-user.ts` 会创建固定的本地演示用户 `local-demo-user`。
+- 当前用户来源是浏览器本地匿名鉴权：前端保存服务端签发的匿名 token，Route Handler 通过 `UserIdentity(provider = "anonymous")` 解析请求级 `CurrentUser`。
 - 动作库的 `equipment` 和 `homeRequirement` 是两个不同维度：前者表示器械，后者表示居家训练条件。
 - 训练编排动作通过 `WorkoutRoutineItem.exerciseId` 强制引用 `Exercise`，避免 AI 或客户端保存不存在的动作。
 - `WorkoutSchedule` 保存日历展示快照；routine 后续更新不会自动改写已存在日历安排的标题、分钟数和热量。

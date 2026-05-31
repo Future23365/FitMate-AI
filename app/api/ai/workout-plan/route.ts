@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
+import { authErrorToApiResponse, requireCurrentUser } from "@/lib/server/auth/local-anonymous-auth";
 import { startAiTrace } from "@/lib/server/dev/ai-trace-logger";
 import {
   aiWorkoutPlanRequestSchema,
@@ -8,6 +9,14 @@ import {
 } from "@/lib/server/workout-plans";
 
 export async function POST(request: Request) {
+  let currentUser;
+
+  try {
+    currentUser = await requireCurrentUser(request);
+  } catch (error) {
+    return authErrorToApiResponse(error);
+  }
+
   const body = await request.json().catch(() => null);
   const parsedRequest = aiWorkoutPlanRequestSchema.safeParse(body);
 
@@ -26,6 +35,7 @@ export async function POST(request: Request) {
     route: "/api/ai/workout-plan",
     title: parsedRequest.data.latestUserMessage,
     existingTraceId: parsedRequest.data.parentTraceId,
+    userId: currentUser.id,
     metadata: {
       messageCount: 1,
       hasClientIntent: Boolean(parsedRequest.data.intent),
@@ -41,7 +51,7 @@ export async function POST(request: Request) {
   });
 
   try {
-    const result = await generateAiWorkoutPlanDraft(parsedRequest.data, { trace });
+    const result = await generateAiWorkoutPlanDraft(parsedRequest.data, { trace, currentUser });
     trace.addStep({
       name: "训练计划接口结果",
       type: "final_response",

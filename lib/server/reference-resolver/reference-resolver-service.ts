@@ -6,6 +6,7 @@ import {
 import type { ChatIntent } from "@/lib/server/chat/chat-service";
 import type { AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
 import { summarizeReferenceResolutionForTrace } from "@/lib/server/dev/ai-run-trace";
+import type { CurrentUser } from "@/lib/server/users/current-user";
 import type {
   ReferenceArtifactCandidate,
   ReferenceResolution,
@@ -17,6 +18,7 @@ import type { ConversationArtifactKind } from "@/lib/shared/conversation-artifac
 type ResolveReferenceInput = ReferenceResolutionInput & {
   intentType?: ChatIntent["type"];
   trace?: AiTraceLogger;
+  currentUser?: CurrentUser;
 };
 
 // ReferenceResolver 把自然语言引用收敛成候选内结果，后续编排不能再让模型凭空猜 artifactId。
@@ -80,13 +82,16 @@ export async function resolveReference(input: ResolveReferenceInput): Promise<Re
     return result;
   }
   const searchStartedAt = new Date().toISOString();
-  const artifactSearch = await searchArtifactsForCurrentUserDetailed({
+  const searchInput = {
     sessionId: parsedInput.sessionId,
     sessionScope: "current_user",
     kind: inferredKind,
     query: semanticQuery,
     limit: 6,
-  });
+  } as const;
+  const artifactSearch = input.currentUser
+    ? await searchArtifactsForCurrentUserDetailed(searchInput, undefined, input.currentUser)
+    : await searchArtifactsForCurrentUserDetailed(searchInput);
   const candidates = artifactSearch.candidates;
   input.trace?.addStep({
     name: "Artifact Hybrid Search 检索",

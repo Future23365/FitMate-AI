@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z, ZodError } from "zod";
 
+import { authErrorToApiResponse, requireCurrentUser } from "@/lib/server/auth/local-anonymous-auth";
 import { jsonApiError } from "@/lib/server/http/api-error";
 import {
   deleteWorkoutSchedule,
@@ -17,9 +18,17 @@ const updateScheduleSchema = z.object({
   status: workoutScheduleStatusSchema,
 });
 
-export async function GET(_request: Request, context: RouteContext) {
+export async function GET(request: Request, context: RouteContext) {
+  let currentUser;
+
+  try {
+    currentUser = await requireCurrentUser(request);
+  } catch (error) {
+    return authErrorToApiResponse(error);
+  }
+
   const { id } = await context.params;
-  const item = await getWorkoutScheduleById(decodeURIComponent(id));
+  const item = await getWorkoutScheduleById(decodeURIComponent(id), currentUser);
 
   if (!item) {
     return jsonApiError("bad_request", "Workout schedule not found.", 404);
@@ -29,12 +38,20 @@ export async function GET(_request: Request, context: RouteContext) {
 }
 
 export async function PATCH(request: Request, context: RouteContext) {
+  let currentUser;
+
+  try {
+    currentUser = await requireCurrentUser(request);
+  } catch (error) {
+    return authErrorToApiResponse(error);
+  }
+
   const { id } = await context.params;
   const body = await request.json().catch(() => null);
 
   try {
     const payload = updateScheduleSchema.parse(body);
-    const item = await updateWorkoutScheduleStatus(decodeURIComponent(id), payload.status);
+    const item = await updateWorkoutScheduleStatus(decodeURIComponent(id), payload.status, currentUser);
     return NextResponse.json({ item });
   } catch (error) {
     if (error instanceof ZodError) {
@@ -45,9 +62,17 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 }
 
-export async function DELETE(_request: Request, context: RouteContext) {
+export async function DELETE(request: Request, context: RouteContext) {
+  let currentUser;
+
+  try {
+    currentUser = await requireCurrentUser(request);
+  } catch (error) {
+    return authErrorToApiResponse(error);
+  }
+
   const { id } = await context.params;
-  await deleteWorkoutSchedule(decodeURIComponent(id));
+  await deleteWorkoutSchedule(decodeURIComponent(id), currentUser);
 
   return new NextResponse(null, { status: 204 });
 }

@@ -155,6 +155,8 @@ Zod 用于校验所有客户端传入参数，避免非法数据进入业务层�
 
 Auth.js 或 Clerk 用于用户登录、会话管理和权限控制。
 
+当前阶段在正式注册登录系统前先使用本地匿名鉴权。`LocalAuthProvider` 会在应用挂载前恢复或创建浏览器本地匿名身份，前端统一请求层把匿名 token 放入 `Authorization: Bearer <token>`；除 `POST /api/auth/local-anonymous` 外，私有 API Route Handler 必须先调用 `requireCurrentUser(request)` 建立请求级 `CurrentUser`，再把 `userId` 传给服务层。匿名身份复用 `UserIdentity(provider = "anonymous")`，后续升级到邮箱、OAuth 或 Auth.js / Clerk 时，服务层仍只依赖经过鉴权的用户上下文，不需要重新信任客户端传入的裸 `userId`。
+
 ---
 
 ## 6. AI 编排层

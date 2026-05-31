@@ -1,5 +1,10 @@
 "use client";
 
+import {
+  clearLocalAnonymousCredential,
+  readLocalAnonymousCredential,
+} from "@/lib/client/auth/local-auth-storage";
+
 type ClientResponseType = "json" | "raw" | "text";
 
 type ClientRequestOptions = Omit<RequestInit, "body"> & {
@@ -58,6 +63,19 @@ function getErrorMessage(data: unknown, fallback: string) {
   return typeof data === "string" && data ? data : fallback;
 }
 
+async function handleUnauthenticatedResponse(response: Response) {
+  if (typeof window === "undefined" || response.status !== 401) {
+    return;
+  }
+
+  const data = await parseErrorBody(response.clone());
+
+  if (data && typeof data === "object" && (data as Record<string, unknown>).code === "unauthenticated") {
+    clearLocalAnonymousCredential();
+    window.dispatchEvent(new Event("fitmate:auth-required"));
+  }
+}
+
 export async function clientRequest<T = unknown>(
   input: RequestInfo | URL,
   options: ClientRequestOptions & { responseType: "raw" },
@@ -83,9 +101,14 @@ export async function clientRequest<T = unknown>(
   } = options;
   const headers = new Headers(init.headers);
   const shouldStringifyBody = isJsonBody(body);
+  const credential = readLocalAnonymousCredential();
 
   if (shouldStringifyBody && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
+  }
+
+  if (credential?.token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${credential.token}`);
   }
 
   const response = await fetch(input, {
@@ -93,6 +116,8 @@ export async function clientRequest<T = unknown>(
     headers,
     body: shouldStringifyBody ? JSON.stringify(body) : (body as BodyInit | null | undefined),
   });
+
+  await handleUnauthenticatedResponse(response);
 
   if (!response.ok && throwOnError) {
     const data = await parseErrorBody(response);

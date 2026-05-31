@@ -6,6 +6,7 @@ import type { ChatConversation, ChatMessage } from "@/features/chat/types";
 import { createOrUpdateConversationArtifact } from "@/lib/server/conversation-artifacts/artifact-service";
 import { getPrismaClient } from "@/lib/server/db/prisma";
 import { getCurrentUser } from "@/lib/server/users/current-user";
+import type { CurrentUser } from "@/lib/server/users/current-user";
 import type { ConversationArtifactKind } from "@/lib/shared/conversation-artifacts/schema";
 import {
   buildFitnessConversationContext,
@@ -20,9 +21,9 @@ type ChatSessionWithMessages = Prisma.ChatSessionGetPayload<{
   };
 }>;
 
-export async function listChatConversations() {
+export async function listChatConversations(currentUser?: CurrentUser) {
   const prisma = getPrismaClient();
-  const user = await getCurrentUser();
+  const user = await getCurrentUser(currentUser);
   const sessions = await prisma.chatSession.findMany({
     where: { userId: user.id },
     include: chatSessionInclude,
@@ -35,9 +36,9 @@ export async function listChatConversations() {
     .slice(0, 30);
 }
 
-export async function getChatConversationById(id: string) {
+export async function getChatConversationById(id: string, currentUser?: CurrentUser) {
   const prisma = getPrismaClient();
-  const user = await getCurrentUser();
+  const user = await getCurrentUser(currentUser);
   const session = await prisma.chatSession.findFirst({
     where: { id, userId: user.id },
     include: chatSessionInclude,
@@ -46,7 +47,7 @@ export async function getChatConversationById(id: string) {
   return session ? mapChatSessionToConversation(session) : null;
 }
 
-export async function saveChatConversation(rawConversation: ChatConversation) {
+export async function saveChatConversation(rawConversation: ChatConversation, currentUser?: CurrentUser) {
   const conversation = normalizeConversation(rawConversation);
 
   if (!conversation.messages.some((message) => message.role === "user")) {
@@ -54,7 +55,7 @@ export async function saveChatConversation(rawConversation: ChatConversation) {
   }
 
   const prisma = getPrismaClient();
-  const user = await getCurrentUser();
+  const user = await getCurrentUser(currentUser);
   const existingSession = await prisma.chatSession.findUnique({
     where: { id: conversation.id },
     select: { userId: true },
@@ -128,9 +129,9 @@ export async function saveChatConversation(rawConversation: ChatConversation) {
   });
 }
 
-export async function deleteChatConversation(id: string) {
+export async function deleteChatConversation(id: string, currentUser?: CurrentUser) {
   const prisma = getPrismaClient();
-  const user = await getCurrentUser();
+  const user = await getCurrentUser(currentUser);
   await prisma.chatSession.deleteMany({ where: { id, userId: user.id } });
 }
 

@@ -10,6 +10,7 @@ import {
 } from "@/lib/server/ai/token-budget";
 import { getActiveArtifactPayloadForCurrentUser } from "@/lib/server/conversation-artifacts/artifact-service";
 import type { AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
+import type { CurrentUser } from "@/lib/server/users/current-user";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import { referenceResolutionSchema } from "@/lib/shared/reference-resolver/schema";
@@ -111,6 +112,7 @@ export type AiWorkoutPlanResult = AiWorkoutPlanSuccess | AiWorkoutPlanFailure;
 
 type AiWorkoutPlanGenerationOptions = {
   trace?: AiTraceLogger;
+  currentUser?: CurrentUser;
 };
 
 type WorkoutDraftGenerationResult =
@@ -153,6 +155,7 @@ export async function generateAiWorkoutPlanDraft(
   const request = aiWorkoutPlanRequestSchema.parse(rawRequest);
   const apiKey = process.env.DEEPSEEK_API_KEY;
   const trace = options.trace;
+  const currentUser = options.currentUser;
   const conversationSummaryContext = buildConversationSummaryContext({
     summary: request.conversationSummary,
     latestUserMessage: request.latestUserMessage,
@@ -273,6 +276,7 @@ export async function generateAiWorkoutPlanDraft(
     candidates,
     exercises,
     trace,
+    currentUser,
   });
 
   if (domainPlanResult) {
@@ -463,6 +467,7 @@ async function maybeGenerateDomainPlanFromReference(input: {
   candidates: ExerciseCandidateResult;
   exercises: Exercise[];
   trace?: AiTraceLogger;
+  currentUser?: CurrentUser;
 }): Promise<AiWorkoutPlanResult | null> {
   if (
     input.intent.intentType !== "plan" ||
@@ -489,9 +494,12 @@ async function maybeGenerateDomainPlanFromReference(input: {
     },
   });
 
-  const artifactPayloadResult = await getActiveArtifactPayloadForCurrentUser({
+  const artifactPayloadInput = {
     artifactId: input.request.referenceResolution.artifactId,
-  });
+  };
+  const artifactPayloadResult = input.currentUser
+    ? await getActiveArtifactPayloadForCurrentUser(artifactPayloadInput, undefined, input.currentUser)
+    : await getActiveArtifactPayloadForCurrentUser(artifactPayloadInput);
 
   if (!artifactPayloadResult.ok) {
     const failure = {

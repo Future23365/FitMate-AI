@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { AppSidebar } from "@/components/app/app-sidebar";
 import { RouteTransition } from "@/components/app/route-transition";
+import { LocalAuthProvider } from "@/components/auth/local-auth-provider";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -16,10 +17,12 @@ export default function RootLayout({
   return (
     <html lang="zh-CN">
       <body>
-        <div id="app-content-wrapper">
-          <AppSidebar />
-          <RouteTransition>{children}</RouteTransition>
-        </div>
+        <LocalAuthProvider>
+          <div id="app-content-wrapper">
+            <AppSidebar />
+            <RouteTransition>{children}</RouteTransition>
+          </div>
+        </LocalAuthProvider>
       </body>
     </html>
   );
