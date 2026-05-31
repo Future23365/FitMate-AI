@@ -7,6 +7,7 @@ import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommend
 import type { ConversationSummaryContext, FitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
 import type { ReferenceResolution } from "@/lib/shared/reference-resolver/schema";
 import type { ResolvedAction, ResolvedChatIntent, ResolvedFieldSources } from "@/lib/shared/chat/resolved-intent";
+import type { AssistantSuggestion } from "@/lib/shared/chat/assistant-suggestions";
 import type { WorkoutPatchDiffEntry } from "@/lib/shared/workout-patches/schema";
 
 export type ChatMessage = {
@@ -20,6 +21,8 @@ export type ChatMessage = {
   isReasoning?: boolean;
   /** 模型显式给出的用户视角一键回复，点击后自动作为用户消息发送 */
   suggestedReplies?: string[];
+  /** 统一 AI 建议，label 用于展示，message 用于点击后发送 */
+  assistantSuggestions?: AssistantSuggestion[];
   /** @deprecated 旧历史兼容字段；新消息使用 suggestedReplies */
   suggestedQuestions?: string[];
 };
@@ -48,6 +51,7 @@ export type ChatStreamEvent = {
     | "artifact_failed"
     | "artifact"
     | "workout_patch"
+    | "assistant_suggestions"
     | "suggested_replies"
     | "suggested_questions";
   delta?: string;
@@ -65,6 +69,7 @@ export type ChatStreamEvent = {
   guidanceMessage?: string;
   recoverable?: boolean;
   diff?: WorkoutPatchDiffEntry[];
+  assistantSuggestions?: AssistantSuggestion[];
   suggestedReplies?: string[];
   /** @deprecated 旧流事件兼容字段；新事件使用 suggestedReplies */
   suggestedQuestions?: string[];

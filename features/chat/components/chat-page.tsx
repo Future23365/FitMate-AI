@@ -11,6 +11,7 @@ import { SymbolIcon } from "@/components/app/symbol-icon";
 import { useAutoHideScrollbar } from "@/components/app/use-auto-hide-scrollbar";
 import { ExerciseRecommendationCard } from "@/features/exercises/components/exercise-recommendation-card";
 import { useChatController } from "@/features/chat/hooks/use-chat-controller";
+import { getMessageAssistantSuggestions } from "@/features/chat/lib/assistant-suggestions";
 import {
   extractExerciseRecommendationTrigger,
   extractSuggestedReplyTrigger,
@@ -385,11 +386,10 @@ export function ChatPage() {
                             }
                           }
                           cleanContent = cleanContent.trim();
-                          const suggestedReplies =
-                            message.suggestedReplies ??
-                            message.suggestedQuestions ??
-                            suggestedReplyTrigger?.suggestedReplies ??
-                            [];
+                          const assistantSuggestions = getMessageAssistantSuggestions({
+                            ...message,
+                            suggestedReplies: message.suggestedReplies ?? suggestedReplyTrigger?.suggestedReplies,
+                          });
 
                           if (message.role === "assistant") {
                             return (
@@ -402,17 +402,17 @@ export function ChatPage() {
                                   <ChatThinkingIndicator showThinkingIcon={thinkingEnabled || message.isReasoning === true} />
                                 )}
 
-                                {suggestedReplies.length > 0 && (
+                                {assistantSuggestions.length > 0 && (
                                   <div className="mt-md flex flex-wrap gap-sm">
-                                    {suggestedReplies.map((reply) => (
+                                    {assistantSuggestions.map((suggestion) => (
                                       <button
                                         className="max-w-full break-words rounded-xl border border-primary/20 bg-primary-soft px-md py-sm text-left font-label-sm text-label-sm font-bold text-primary transition-colors hover:border-primary/40 hover:bg-[#dbe5ff] disabled:cursor-not-allowed disabled:opacity-60"
                                         disabled={isLoading}
-                                        key={reply}
-                                        onClick={() => sendMessage(reply)}
+                                        key={`${suggestion.kind}:${suggestion.message}`}
+                                        onClick={() => sendMessage(suggestion.message)}
                                         type="button"
                                       >
-                                        {reply}
+                                        {suggestion.label}
                                       </button>
                                     ))}
                                   </div>

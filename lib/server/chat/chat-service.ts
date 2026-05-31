@@ -78,6 +78,13 @@ import {
   type ResolvedFieldSource,
   type ResolvedFieldSources,
 } from "@/lib/shared/chat/resolved-intent";
+import {
+  assistantSuggestionListSchema,
+  assistantSuggestionSchema,
+  type AssistantSuggestion,
+  type AssistantSuggestionKind,
+  type AssistantSuggestionSource,
+} from "@/lib/shared/chat/assistant-suggestions";
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
 import type {
   ConversationArtifactKind,
@@ -148,6 +155,7 @@ const suggestedReplyListSchema = z.preprocess(
   normalizeSuggestedReplyList,
   z.array(z.string().trim().min(1).max(120)).max(3).default([]),
 );
+const assistantSuggestionInputListSchema = assistantSuggestionListSchema.catch([]);
 
 const optionalWorkoutIntentSchema = z.preprocess(
   (value) => (value === null ? undefined : value),
@@ -169,6 +177,7 @@ export const chatIntentSchema = z.object({
   missingActionFields: z.array(z.string().trim().min(1)).max(12).default([]),
   suggestedReplies: suggestedReplyListSchema,
   suggestedQuestions: suggestedReplyListSchema,
+  assistantSuggestions: assistantSuggestionInputListSchema,
   action: optionalActionSchema,
   responseMode: optionalResponseModeSchema,
   fieldSources: optionalFieldSourcesSchema,
@@ -180,7 +189,10 @@ export const chatIntentSchema = z.object({
   suggestedReplies: data.suggestedReplies.length > 0 ? data.suggestedReplies : suggestedQuestions,
 }));
 
-export type ChatIntent = z.infer<typeof chatIntentSchema>;
+type ParsedChatIntent = z.infer<typeof chatIntentSchema>;
+export type ChatIntent = Omit<ParsedChatIntent, "assistantSuggestions"> & {
+  assistantSuggestions?: AssistantSuggestion[];
+};
 
 const recoverableChatIntentEnvelopeSchema = z.object({
   type: chatIntentTypeSchema,
@@ -191,6 +203,7 @@ const recoverableChatIntentEnvelopeSchema = z.object({
   missingActionFields: z.array(z.string().trim().min(1)).max(12).default([]).catch([]),
   suggestedReplies: suggestedReplyListSchema,
   suggestedQuestions: suggestedReplyListSchema,
+  assistantSuggestions: assistantSuggestionInputListSchema,
   action: optionalActionSchema,
   responseMode: optionalResponseModeSchema,
   fieldSources: optionalFieldSourcesSchema,
@@ -440,6 +453,7 @@ export type ChatArtifactResult =
       kind: "exercise_recommendation";
       payload: ExerciseRecommendationCard;
       intent: WorkoutPlanIntent;
+      assistantSuggestions?: AssistantSuggestion[];
     }
   | {
       status: "success";
@@ -447,6 +461,7 @@ export type ChatArtifactResult =
       payload: Extract<AiWorkoutPlanResult, { ok: true }>["draft"];
       intent: WorkoutPlanIntent;
       candidates: Extract<AiWorkoutPlanResult, { ok: true }>["candidates"];
+      assistantSuggestions?: AssistantSuggestion[];
     }
   | {
       status: "failed";
@@ -634,6 +649,7 @@ export async function createAiChatResponse({
       conversationSummaryContext,
       assistantReply,
       internalActionSummary: JSON.stringify({ referenceResolution }),
+      assistantSuggestions: buildReferenceResolutionAssistantSuggestions(referenceResolution),
       tokenBudgetDecision,
     });
   }
@@ -690,6 +706,7 @@ export async function createAiChatResponse({
         assistantReply,
         internalActionSummary: JSON.stringify({ referenceResolution, workoutPatch: patchResult.result }),
         workoutPatchResult: patchResult.result,
+        assistantSuggestions: buildWorkoutPatchAssistantSuggestions(patchResult.result),
         tokenBudgetDecision,
       });
     }
@@ -850,6 +867,20 @@ export async function createAiChatResponse({
         trace,
       })
     : null;
+  const assistantSuggestionResult = resolveAssistantSuggestions({
+    chatIntent,
+    assistantAction,
+    artifactResult,
+  });
+  const assistantSuggestions = assistantSuggestionResult.assistantSuggestions;
+  trace.addStep({
+    name: "统一建议归一化结果",
+    type: "intent",
+    output: {
+      assistantSuggestions,
+    },
+    metadata: assistantSuggestionResult.diagnostics,
+  });
   const readonlyToolEligibility = decideReadonlyToolLoopEligibility({
     latestUserMessage: conversationSummaryContext.latestUserMessage,
     resolvedIntent,
@@ -1081,10 +1112,16 @@ export async function createAiChatResponse({
         );
       }
 
-      if (visibleSuggestedReplies.length > 0) {
+      if (assistantSuggestions.length > 0) {
+        const legacySuggestedReplies = assistantSuggestions.map((suggestion) => suggestion.message);
+        controller.enqueue(
+          encodeChatStreamEvent("assistant_suggestions", "", {
+            assistantSuggestions,
+          }),
+        );
         controller.enqueue(
           encodeChatStreamEvent("suggested_replies", "", {
-            suggestedReplies: visibleSuggestedReplies,
+            suggestedReplies: legacySuggestedReplies,
           }),
         );
       }
@@ -1289,6 +1326,7 @@ function createDeterministicChatResponse(input: {
   assistantReply: string;
   internalActionSummary?: string;
   workoutPatchResult?: WorkoutPatchResult;
+  assistantSuggestions?: AssistantSuggestion[];
   tokenBudgetDecision: AiTokenBudgetDecision;
 }) {
   const stream = new ReadableStream<Uint8Array>({
@@ -1309,6 +1347,25 @@ function createDeterministicChatResponse(input: {
             sourceArtifactId: input.workoutPatchResult.sourceArtifactId,
             payload: input.workoutPatchResult.payload,
             diff: input.workoutPatchResult.diff,
+          }),
+        );
+      }
+      if (input.assistantSuggestions?.length) {
+        input.trace.addStep({
+          name: "确定性回复统一建议",
+          type: "intent",
+          output: {
+            assistantSuggestions: input.assistantSuggestions,
+          },
+        });
+        controller.enqueue(
+          encodeChatStreamEvent("assistant_suggestions", "", {
+            assistantSuggestions: input.assistantSuggestions,
+          }),
+        );
+        controller.enqueue(
+          encodeChatStreamEvent("suggested_replies", "", {
+            suggestedReplies: input.assistantSuggestions.map((suggestion) => suggestion.message),
           }),
         );
       }
@@ -2211,6 +2268,328 @@ export function resolveVisibleSuggestedReplies(
   return chatIntent.suggestedReplies;
 }
 
+type AssistantSuggestionSourceInput = {
+  source: AssistantSuggestionSource;
+  sourceField: string;
+  kind: AssistantSuggestionKind;
+  blocking: boolean;
+  values?: unknown;
+  suggestions?: AssistantSuggestion[];
+};
+
+type AssistantSuggestionNormalizationDiagnostics = {
+  rawSources: Array<{
+    source: AssistantSuggestionSource;
+    sourceField: string;
+    rawCount: number;
+  }>;
+  filtered: Array<{
+    source: AssistantSuggestionSource;
+    sourceField: string;
+    label?: string;
+    message?: string;
+    reason: string;
+  }>;
+  finalCount: number;
+  blockingOnly: boolean;
+};
+
+export type AssistantSuggestionNormalizationResult = {
+  assistantSuggestions: AssistantSuggestion[];
+  diagnostics: AssistantSuggestionNormalizationDiagnostics;
+};
+
+// 建议归一化是服务端唯一出口，集中处理旧字段兼容、用户口吻、阻断优先级和 trace 诊断。
+export function normalizeAssistantSuggestions(
+  sources: AssistantSuggestionSourceInput[],
+  limit = 3,
+): AssistantSuggestionNormalizationResult {
+  const accepted: AssistantSuggestion[] = [];
+  const filtered: AssistantSuggestionNormalizationDiagnostics["filtered"] = [];
+  const rawSources: AssistantSuggestionNormalizationDiagnostics["rawSources"] = [];
+
+  for (const source of sources) {
+    const rawItems = collectAssistantSuggestionRawItems(source);
+    rawSources.push({
+      source: source.source,
+      sourceField: source.sourceField,
+      rawCount: rawItems.length,
+    });
+
+    for (const rawItem of rawItems) {
+      const candidate = coerceAssistantSuggestion(rawItem, source);
+
+      if (!candidate) {
+        filtered.push({
+          source: source.source,
+          sourceField: source.sourceField,
+          reason: "invalid_structure",
+        });
+        continue;
+      }
+
+      const toneReason = getNonUserToneReason(candidate.message);
+      if (toneReason) {
+        filtered.push({
+          source: source.source,
+          sourceField: source.sourceField,
+          label: candidate.label,
+          message: candidate.message,
+          reason: toneReason,
+        });
+        continue;
+      }
+
+      accepted.push(candidate);
+    }
+  }
+
+  const hasBlocking = accepted.some((suggestion) => suggestion.blocking);
+  const deduped = dedupeAssistantSuggestions(hasBlocking
+    ? accepted.filter((suggestion) => suggestion.blocking)
+    : accepted);
+  const assistantSuggestions = deduped
+    .sort(compareAssistantSuggestions)
+    .slice(0, limit);
+
+  return {
+    assistantSuggestions,
+    diagnostics: {
+      rawSources,
+      filtered,
+      finalCount: assistantSuggestions.length,
+      blockingOnly: hasBlocking,
+    },
+  };
+}
+
+export function resolveAssistantSuggestions(input: {
+  chatIntent: ChatIntent;
+  assistantAction: AssistantAction | null;
+  artifactResult?: ChatArtifactResult | null;
+}) {
+  const visibleSuggestedReplies = resolveVisibleSuggestedReplies(input.chatIntent, input.assistantAction);
+  const sources: AssistantSuggestionSourceInput[] = [];
+
+  if (input.chatIntent.assistantSuggestions?.length) {
+    sources.push({
+      source: "intent",
+      sourceField: "assistantSuggestions",
+      kind: input.chatIntent.responseMode === "generate_with_suggestions" ? "adjustment" : "clarification",
+      blocking: input.chatIntent.responseMode !== "generate_with_suggestions",
+      suggestions: input.chatIntent.assistantSuggestions,
+    });
+  }
+
+  if (visibleSuggestedReplies.length > 0) {
+    sources.push({
+      source: "intent",
+      sourceField: "suggestedReplies",
+      kind: "clarification",
+      blocking: true,
+      values: visibleSuggestedReplies,
+    });
+  }
+
+  if (!input.assistantAction && input.chatIntent.clarificationReplies?.length) {
+    sources.push({
+      source: "intent",
+      sourceField: "clarificationReplies",
+      kind: "clarification",
+      blocking: true,
+      values: input.chatIntent.clarificationReplies,
+    });
+  }
+
+  if (input.chatIntent.adjustmentReplies?.length) {
+    sources.push({
+      source: "intent",
+      sourceField: "adjustmentReplies",
+      kind: "adjustment",
+      blocking: false,
+      values: input.chatIntent.adjustmentReplies,
+    });
+  }
+
+  if (input.artifactResult?.status === "success" && input.artifactResult.assistantSuggestions?.length) {
+    sources.push({
+      source: input.artifactResult.kind === "exercise_recommendation"
+        ? "exercise_recommendation"
+        : "workout_generation",
+      sourceField: "artifact.assistantSuggestions",
+      kind: input.artifactResult.kind === "exercise_recommendation" ? "next_action" : "adjustment",
+      blocking: false,
+      suggestions: input.artifactResult.assistantSuggestions,
+    });
+  }
+
+  if (input.artifactResult?.status === "failed" && input.artifactResult.suggestedReplies.length > 0) {
+    sources.push({
+      source: "artifact_failure",
+      sourceField: "artifact.suggestedReplies",
+      kind: "retry",
+      blocking: true,
+      values: input.artifactResult.suggestedReplies,
+    });
+  }
+
+  return normalizeAssistantSuggestions(sources);
+}
+
+function collectAssistantSuggestionRawItems(source: AssistantSuggestionSourceInput) {
+  if (source.suggestions) {
+    return source.suggestions;
+  }
+
+  return Array.isArray(source.values) ? source.values : [];
+}
+
+function coerceAssistantSuggestion(
+  value: unknown,
+  source: AssistantSuggestionSourceInput,
+): AssistantSuggestion | null {
+  if (typeof value === "string") {
+    const message = value.trim();
+    const parsed = assistantSuggestionSchema.safeParse({
+      label: createSuggestionLabel(message),
+      message,
+      kind: source.kind,
+      blocking: source.blocking,
+      source: source.source,
+    });
+
+    return parsed.success ? parsed.data : null;
+  }
+
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const message = typeof value.message === "string" ? value.message.trim() : "";
+  const label = typeof value.label === "string" && value.label.trim().length > 0
+    ? createSuggestionLabel(value.label.trim())
+    : createSuggestionLabel(message);
+  const parsed = assistantSuggestionSchema.safeParse({
+    label,
+    message,
+    kind: value.kind ?? source.kind,
+    blocking: value.blocking ?? source.blocking,
+    source: value.source ?? source.source,
+  });
+
+  return parsed.success ? parsed.data : null;
+}
+
+function createSuggestionLabel(message: string) {
+  return message.length > 40 ? `${message.slice(0, 38)}…` : message;
+}
+
+function getNonUserToneReason(message: string) {
+  const text = message.trim();
+  if (!text) {
+    return "empty_message";
+  }
+
+  if (/[?？]/.test(text)) {
+    return "question_tone";
+  }
+
+  const normalized = text.replace(/\s+/g, "");
+  if (/^(请|请你|麻烦你|告诉我|告诉一下|需要你|建议你|你需要|你可以|你想|你要|你打算|你希望)/.test(normalized)) {
+    return "assistant_instruction_tone";
+  }
+
+  if (/(你的|你目前的|用户的)(训练目标|时间|器械条件|场地|经验|限制)/.test(normalized)) {
+    return "assistant_question_tone";
+  }
+
+  return undefined;
+}
+
+function dedupeAssistantSuggestions(suggestions: AssistantSuggestion[]) {
+  const seen = new Set<string>();
+  const result: AssistantSuggestion[] = [];
+
+  for (const suggestion of suggestions) {
+    const key = suggestion.message.trim().replace(/\s+/g, "").toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    result.push(suggestion);
+  }
+
+  return result;
+}
+
+function compareAssistantSuggestions(a: AssistantSuggestion, b: AssistantSuggestion) {
+  const blockingDelta = Number(b.blocking) - Number(a.blocking);
+  if (blockingDelta !== 0) {
+    return blockingDelta;
+  }
+
+  return getSuggestionKindPriority(a.kind) - getSuggestionKindPriority(b.kind);
+}
+
+function getSuggestionKindPriority(kind: AssistantSuggestionKind) {
+  switch (kind) {
+    case "clarification":
+      return 0;
+    case "confirmation":
+      return 1;
+    case "retry":
+      return 2;
+    case "next_action":
+      return 3;
+    case "adjustment":
+      return 4;
+  }
+}
+
+function buildReferenceResolutionAssistantSuggestions(
+  referenceResolution: Extract<ReferenceResolution, { status: "ambiguous" | "not_found" }>,
+) {
+  if (referenceResolution.status !== "ambiguous") {
+    return [];
+  }
+
+  return normalizeAssistantSuggestions([
+    {
+      source: "reference_resolution",
+      sourceField: "referenceResolution.candidates",
+      kind: "confirmation",
+      blocking: true,
+      suggestions: referenceResolution.candidates.slice(0, 3).map((candidate) => ({
+        label: candidate.title,
+        message: `我说的是${candidate.title}`,
+        kind: "confirmation",
+        blocking: true,
+        source: "reference_resolution",
+      })),
+    },
+  ]).assistantSuggestions;
+}
+
+function buildWorkoutPatchAssistantSuggestions(result: WorkoutPatchResult) {
+  const source: AssistantSuggestionSource =
+    result.status === "confirmation_required" ? "patch_confirmation" : "artifact_failure";
+  const kind: AssistantSuggestionKind =
+    result.status === "confirmation_required" || result.status === "ambiguous"
+      ? "confirmation"
+      : "retry";
+
+  return normalizeAssistantSuggestions([
+    {
+      source,
+      sourceField: "workoutPatch.suggestedReplies",
+      kind,
+      blocking: result.status !== "applied",
+      values: result.suggestedReplies,
+    },
+  ]).assistantSuggestions;
+}
+
 function summarizeAssistantAction(assistantAction: AssistantAction | null, artifactResult?: ChatArtifactResult | null) {
   if (!assistantAction) {
     return "";
@@ -2650,6 +3029,7 @@ async function generateChatArtifact(input: {
       kind: "exercise_recommendation",
       payload: recommendation.card,
       intent: input.assistantAction.intent,
+      assistantSuggestions: recommendation.assistantSuggestions,
     };
   }
 

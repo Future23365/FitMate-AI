@@ -11,6 +11,7 @@ import {
   buildFitnessConversationContext,
   initializeConversationSummary,
 } from "@/lib/shared/chat/fitness-conversation-context";
+import { assistantSuggestionListSchema } from "@/lib/shared/chat/assistant-suggestions";
 
 type ChatSessionWithMessages = Prisma.ChatSessionGetPayload<{
   include: {
@@ -98,6 +99,7 @@ export async function saveChatConversation(rawConversation: ChatConversation) {
           content: message.content,
           createdAt,
           metadata: {
+            assistantSuggestions: message.assistantSuggestions,
             suggestedReplies: message.suggestedReplies,
             plan: conversation.plans?.[message.id],
             routine: conversation.routines?.[message.id],
@@ -186,12 +188,16 @@ function mapChatSessionToConversation(session: ChatSessionWithMessages): ChatCon
 
   for (const dbMessage of session.messages) {
     const metadata = readObject(dbMessage.metadata);
+    const assistantSuggestions = assistantSuggestionListSchema.safeParse(metadata?.assistantSuggestions);
     const suggestedReplies = readStringArray(metadata?.suggestedReplies);
     const message: ChatMessage = {
       id: dbMessage.id,
       role: dbMessage.role === "assistant" ? "assistant" : "user",
       content: dbMessage.content,
       createdAt: dbMessage.createdAt.toISOString(),
+      assistantSuggestions: assistantSuggestions.success && assistantSuggestions.data.length
+        ? assistantSuggestions.data
+        : undefined,
       suggestedReplies: suggestedReplies.length ? suggestedReplies : undefined,
     };
 

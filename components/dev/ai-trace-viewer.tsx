@@ -2387,6 +2387,7 @@ function getStepExplanationItems(step: AiTraceStep, tokenUsage: TokenUsage | nul
     addKnownMetadataItem(items, intent, "canTriggerAction", "可触发动作", "模型判断当前信息是否足够推送动作推荐或训练计划。");
     addKnownMetadataItem(items, intent, "missingActionFields", "缺失字段", "仍需要追问的关键信息；为空通常表示可以继续执行内部动作。");
     addKnownMetadataItem(items, intent, "suggestedReplies", "建议回复", "模型建议前端展示给用户的快捷追问或选项。");
+    addKnownMetadataItem(items, intent, "assistantSuggestions", "统一建议", "归一化后的用户可点击建议，label 用于展示，message 用于下一轮发送。");
     addKnownMetadataItem(items, workoutIntent, "intentType", "训练意图类型", "routine 表示单次训练编排，plan 表示多日计划，exercise_recommendation 表示动作推荐。");
     addKnownMetadataItem(items, workoutIntent, "goal", "训练目标", "用户表达的目标，如增肌、减脂、练腿或提升体能。");
     addKnownMetadataItem(items, workoutIntent, "targetMuscles", "目标肌群", "模型识别出的主要训练部位。");

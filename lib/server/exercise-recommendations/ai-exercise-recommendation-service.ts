@@ -15,6 +15,10 @@ import {
   type ExerciseRecommendationCard,
   type ExerciseRecommendationIntent,
 } from "@/lib/shared/exercise-recommendations/schema";
+import {
+  assistantSuggestionListSchema,
+  type AssistantSuggestion,
+} from "@/lib/shared/chat/assistant-suggestions";
 import { buildConversationSummaryContext } from "@/lib/shared/chat/fitness-conversation-context";
 
 type DeepSeekChatMessage = {
@@ -47,6 +51,7 @@ type GenerateAiExerciseRecommendationsResult =
   | {
       ok: true;
       card: ExerciseRecommendationCard;
+      assistantSuggestions: AssistantSuggestion[];
     }
   | {
       ok: false;
@@ -72,6 +77,7 @@ const modelOutputSchema = z.object({
     .min(1)
     .max(10),
   safetyNotes: z.array(z.string().trim().min(1).max(160)).max(8).default([]),
+  assistantSuggestions: assistantSuggestionListSchema.catch([]),
 });
 
 export async function generateAiExerciseRecommendations(
@@ -193,6 +199,7 @@ export async function generateAiExerciseRecommendations(
   return {
     ok: true,
     card,
+    assistantSuggestions: parsedOutput.data.assistantSuggestions,
   };
 }
 

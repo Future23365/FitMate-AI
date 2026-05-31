@@ -69,9 +69,11 @@ export async function saveChatConversation(
       isReasoning: _isReasoning,
       reasoningContent: _reasoningContent,
       suggestedQuestions,
+      assistantSuggestions,
       ...message
     }) => ({
       ...message,
+      assistantSuggestions,
       suggestedReplies: message.suggestedReplies ?? suggestedQuestions,
     }),
   );

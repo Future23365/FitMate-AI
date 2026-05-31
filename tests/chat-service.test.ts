@@ -11,12 +11,14 @@ import {
   getActionBlockingMissingFields,
   getReferencedExerciseOrdinalIndex,
   isOrdinalExerciseExplanationMessage,
+  normalizeAssistantSuggestions,
   normalizeChatIntentForBlackboxFlows,
   parseChatIntentModelOutput,
   parseJsonObject,
   prepareAiChatRequest,
   resolveReferencedExerciseIdFromArtifactPayload,
   resolveAssistantAction,
+  resolveAssistantSuggestions,
   resolveVisibleSuggestedReplies,
   shouldUseReferenceResolutionForChat,
   toExerciseRecommendationCandidatesFromContext,
@@ -210,6 +212,132 @@ describe("AI chat service deterministic boundaries", () => {
     );
     expect(streamEvent).toContain("\"type\":\"suggested_replies\"");
     expect(streamEvent).toContain("我想减脂，在家自重练，每周3次每次30分钟");
+  });
+
+  it("normalizes legacy suggested replies into assistantSuggestions", () => {
+    const normalized = normalizeAssistantSuggestions([
+      {
+        source: "intent",
+        sourceField: "suggestedReplies",
+        kind: "clarification",
+        blocking: true,
+        values: ["我在家自重练 30 分钟", "我在家自重练 30 分钟"],
+      },
+    ]);
+
+    expect(normalized.assistantSuggestions).toEqual([
+      {
+        label: "我在家自重练 30 分钟",
+        message: "我在家自重练 30 分钟",
+        kind: "clarification",
+        blocking: true,
+        source: "intent",
+      },
+    ]);
+    expect(normalized.diagnostics.finalCount).toBe(1);
+  });
+
+  it("filters assistant-tone suggestions before they become visible chips", () => {
+    const normalized = normalizeAssistantSuggestions([
+      {
+        source: "intent",
+        sourceField: "assistantSuggestions",
+        kind: "clarification",
+        blocking: true,
+        values: ["请重新说明你的训练目标、时间和器械条件", "我在家自重练 30 分钟全身"],
+      },
+    ]);
+
+    expect(normalized.assistantSuggestions.map((suggestion) => suggestion.message)).toEqual([
+      "我在家自重练 30 分钟全身",
+    ]);
+    expect(normalized.diagnostics.filtered).toEqual([
+      expect.objectContaining({
+        message: "请重新说明你的训练目标、时间和器械条件",
+        reason: "assistant_instruction_tone",
+      }),
+    ]);
+  });
+
+  it("emits unified assistant_suggestions events while preserving legacy suggested_replies payloads", () => {
+    const assistantSuggestions = normalizeAssistantSuggestions([
+      {
+        source: "intent",
+        sourceField: "suggestedReplies",
+        kind: "clarification",
+        blocking: true,
+        values: ["我想先在家自重练 20 分钟"],
+      },
+    ]).assistantSuggestions;
+    const unifiedEvent = new TextDecoder().decode(
+      encodeChatStreamEvent("assistant_suggestions", "", { assistantSuggestions }),
+    );
+    const legacyEvent = new TextDecoder().decode(
+      encodeChatStreamEvent("suggested_replies", "", {
+        suggestedReplies: assistantSuggestions.map((suggestion) => suggestion.message),
+      }),
+    );
+
+    expect(unifiedEvent).toContain("\"type\":\"assistant_suggestions\"");
+    expect(unifiedEvent).toContain("\"assistantSuggestions\"");
+    expect(legacyEvent).toContain("\"type\":\"suggested_replies\"");
+    expect(legacyEvent).toContain("我想先在家自重练 20 分钟");
+  });
+
+  it("returns next action suggestions after successful exercise recommendations", () => {
+    const chatIntent: ChatIntent = {
+      type: "exercise_recommendation",
+      needsExerciseContext: true,
+      workoutIntent: routineIntent,
+      requestedExerciseName: "",
+      canTriggerAction: true,
+      missingActionFields: [],
+      suggestedReplies: [],
+    };
+    const normalized = resolveAssistantSuggestions({
+      chatIntent,
+      assistantAction: resolveAssistantAction(chatIntent, createExerciseContext()),
+      artifactResult: {
+        status: "success",
+        kind: "exercise_recommendation",
+        payload: {
+          title: "练胸动作推荐",
+          goal: "练胸",
+          items: [
+            {
+              exerciseId: "push-up",
+              nameZh: "俯卧撑",
+              categoryZh: "力量",
+              levelZh: "新手",
+              equipmentZh: "自重",
+              primaryMusclesZh: ["胸部"],
+              secondaryMusclesZh: ["肱三头肌"],
+              reasons: ["匹配胸部推类训练"],
+            },
+          ],
+          safetyNotes: [],
+        },
+        intent: routineIntent,
+        assistantSuggestions: [
+          {
+            label: "生成训练",
+            message: "按这些动作生成 30 分钟训练",
+            kind: "next_action",
+            blocking: false,
+            source: "exercise_recommendation",
+          },
+        ],
+      },
+    });
+
+    expect(normalized.assistantSuggestions).toEqual([
+      expect.objectContaining({
+        message: "按这些动作生成 30 分钟训练",
+        kind: "next_action",
+        blocking: false,
+        source: "exercise_recommendation",
+      }),
+    ]);
   });
 
   it("blocks executable intents when workoutIntent is missing or invalid", () => {

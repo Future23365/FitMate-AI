@@ -42,7 +42,7 @@ export const aiPromptConfig = {
       "如果只是饮食、习惯或一般训练原则，needsExerciseContext 为 false。",
       "如果用户问题与健身、训练、动作、饮食、运动习惯无关，type 必须是 non_fitness，needsExerciseContext 必须是 false。",
       "general_fitness_advice、non_fitness、answer_only 或 ask_clarification 等非执行场景可以省略 workoutIntent，或返回 workoutIntent:null；requestedExerciseName 使用空字符串。",
-      "JSON 字段必须是：type, needsExerciseContext, workoutIntent, requestedExerciseName, canTriggerAction, missingActionFields, suggestedReplies。",
+      "JSON 字段必须是：type, needsExerciseContext, workoutIntent, requestedExerciseName, canTriggerAction, missingActionFields, suggestedReplies, assistantSuggestions。",
       "同时必须输出 resolved intent 相关字段：action, responseMode, fieldSources, referenceRequirement, clarificationReplies, adjustmentReplies。",
       "action.kind 只能是 exercise_recommendation、workout_routine、workout_plan、workout_patch、exercise_replacement、exercise_explanation、none；action.shouldTrigger 必须和 canTriggerAction 一致。",
       "responseMode 只能是 answer_only、ask_clarification、generate_directly、generate_with_suggestions。ask_clarification 与 action.shouldTrigger=true 互斥。",
@@ -67,6 +67,8 @@ export const aiPromptConfig = {
       "suggestedReplies 只用于 canTriggerAction=false 时给用户可点击发送的补充信息回复，最多 3 条；canTriggerAction=true 时必须返回空数组。",
       "suggestedReplies 必须使用用户第一人称口吻，表示用户点击后会直接发出的消息；禁止写成 AI 问用户的问题，禁止疑问句。",
       "suggestedReplies 应该是完整可发送的用户回答，例如“我今天想练 20 分钟”“我在家自重练”“我去健身房练 45 分钟”，不要写“这次大概多久？”“在家还是去健身房练？”。",
+      "assistantSuggestions 是新的统一建议候选，最多 3 条；缺信息时 kind=clarification、blocking=true、source=intent；生成后调整建议 kind=adjustment、blocking=false、source=intent。",
+      "assistantSuggestions 每项必须包含 label、message、kind、blocking、source；message 必须是用户可直接发送的完整表达，不得是“请重新说明...”或“你想...”这类助手口吻。",
       "必须区分时间语义：用户说“6 天计划/安排 6 天动作”是计划周期，不要因此把 weeklyFrequency 设为 6；用户说“每周 6 练/一周练 6 天”才是 weeklyFrequency=6；用户说“未来 6 天每天练”才设置 calendarHorizonDays=6。",
       "信息不足时为了满足 JSON Schema 可以使用占位默认值：goal 使用用户问题的核心目标，experience=beginner，sessionMinutes=30，weeklyFrequency=3，数组字段默认 []。这些默认值只用于结构化解析，不代表可以直接生成训练计划。",
       "必须返回非空 JSON。示例：",
@@ -87,7 +89,16 @@ export const aiPromptConfig = {
   "requestedExerciseName": "",
   "canTriggerAction": false,
   "missingActionFields": ["goal", "equipmentOrLocation"],
-  "suggestedReplies": ["我今天在家自重练 30 分钟核心", "我想先练 20 分钟全身", "我去健身房练 45 分钟"]
+  "suggestedReplies": ["我今天在家自重练 30 分钟核心", "我想先练 20 分钟全身", "我去健身房练 45 分钟"],
+  "assistantSuggestions": [
+    {
+      "label": "居家核心 30 分钟",
+      "message": "我今天在家自重练 30 分钟核心",
+      "kind": "clarification",
+      "blocking": true,
+      "source": "intent"
+    }
+  ]
 }
 
 非健身问题示例：
@@ -97,7 +108,8 @@ export const aiPromptConfig = {
   "requestedExerciseName": "",
   "canTriggerAction": false,
   "missingActionFields": [],
-  "suggestedReplies": []
+  "suggestedReplies": [],
+  "assistantSuggestions": []
 }`,
     ].join("\n"),
   },
@@ -171,7 +183,9 @@ export const aiPromptConfig = {
       "    reasons: string[]; // 1-4 条推荐理由",
       "  }>;",
       "  safetyNotes: string[]; // 训练备注，最多 8 条，可为空",
+      "  assistantSuggestions: Array<{ label: string; message: string; kind: \"next_action\"; blocking: false; source: \"exercise_recommendation\" }>; // 基于本次推荐结果的下一步建议，最多 3 条，可为空",
       "}",
+      "assistantSuggestions.message 必须是用户口吻、可直接发送的完整表达，例如“按这些动作生成 30 分钟训练”“换一批更简单的动作”“我想调整成居家自重版本”；不要写成“你想继续生成训练吗？”。",
       "items 数量建议 4-8 个；如果候选不足，可以少于 4 个但必须至少 1 个。",
     ].join("\n"),
   },

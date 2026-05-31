@@ -7,6 +7,7 @@ import {
   requestExerciseRecommendations,
 } from "@/features/chat/api/chat-client";
 import { readChatConversation, saveChatConversation } from "@/features/chat/lib/chat-history";
+import { readAssistantSuggestionsFromStreamEvent } from "@/features/chat/lib/assistant-suggestions";
 import {
   extractSuggestedReplyTrigger,
 } from "@/features/chat/lib/workout-plan-trigger";
@@ -535,23 +536,20 @@ export function useChatController() {
             continue;
           }
 
-          if (streamEvent.type === "suggested_replies" || streamEvent.type === "suggested_questions") {
-            const rawReplies =
-              streamEvent.type === "suggested_replies"
-                ? streamEvent.suggestedReplies
-                : streamEvent.suggestedQuestions;
-            const suggestedReplies = Array.isArray(rawReplies)
-              ? rawReplies
-                  .filter((reply): reply is string => typeof reply === "string")
-                  .map((reply) => reply.trim())
-                  .filter(Boolean)
-                  .slice(0, 3)
-              : [];
+          if (
+            streamEvent.type === "assistant_suggestions" ||
+            streamEvent.type === "suggested_replies" ||
+            streamEvent.type === "suggested_questions"
+          ) {
+            const assistantSuggestions = readAssistantSuggestionsFromStreamEvent(streamEvent);
 
-            if (suggestedReplies.length > 0) {
+            if (assistantSuggestions.length > 0) {
               updateAssistantMessage(assistantMessage.id, (message) => ({
                 ...message,
-                suggestedReplies,
+                assistantSuggestions: message.assistantSuggestions?.length
+                  ? message.assistantSuggestions
+                  : assistantSuggestions,
+                suggestedReplies: message.suggestedReplies ?? assistantSuggestions.map((suggestion) => suggestion.message),
               }));
             }
             continue;
@@ -584,7 +582,9 @@ export function useChatController() {
       if (suggestedReplyTrigger) {
         updateAssistantMessage(assistantMessage.id, (message) => ({
           ...message,
-          suggestedReplies: suggestedReplyTrigger.suggestedReplies,
+          suggestedReplies: message.assistantSuggestions?.length
+            ? message.suggestedReplies
+            : suggestedReplyTrigger.suggestedReplies,
         }));
       }
 
