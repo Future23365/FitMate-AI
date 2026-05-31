@@ -1,6 +1,6 @@
-# 手动 LLM 输入输出一致性测试
+# 手动 LLM 首页聊天黑盒流程测试
 
-这组测试用于在修改 LLM prompt、AI 编排、模型参数或输出结构后，手动检查关键输入样例是否仍然得到符合预期的输出。它会调用真实 DeepSeek 模型，因此不会包含在 `npm run test` 中。
+这组测试用于在修改 LLM prompt、AI 编排、模型参数或输出结构后，手动检查首页聊天真实用户流程是否仍然可用。它会调用真实 DeepSeek 模型，并复用服务端聊天编排链路，因此不会包含在 `npm run test` 中。
 
 ## 运行方式
 
@@ -8,72 +8,51 @@
 DEEPSEEK_API_KEY=你的真实 key npm run test:llm
 ```
 
-命令会自动读取项目根目录的 `.env*` 配置。缺少 `DEEPSEEK_API_KEY` 时，命令会明确报错，并说明不会使用 mock、旧快照或非真实模型结果。
+命令会自动读取项目根目录的 `.env*` 配置。缺少 `DEEPSEEK_API_KEY` 时，命令会明确输出缺失配置名称，生成跳过摘要，并说明不会使用 mock、旧快照或非真实模型结果。
 
-运行开始时会输出本次测试的粗略 token 预估，包括预计 prompt tokens、预计 completion tokens 和预计总量。预估按当前用例规模粗略计算，最终以模型返回的 `usage` 为准。
+运行开始时会输出本次测试的粗略 token 预估，包括预计输入 token、预计输出 token 和预计总量。预估按首页聊天多轮流程粗略计算，最终以模型返回的 `usage` 为准。
 
-运行结束后会输出真实 token 汇总，并生成验收报告：
+运行结束后会输出流程用例数、轮次数、通过数、失败数、跳过数和真实 token 汇总，并生成最新验收报告：
 
 ```text
-docs/manual-llm-consistency-latest-report.md
+docs/manual-llm-blackbox-flow-latest-report.md
 ```
 
-验收报告会记录用例通过/失败数量、总 token 消耗，以及类似“用户提问 / 大模型回答 / 本地意图解析结果”的简要结果，方便人工快速判断模型输出是否仍符合预期。命令结束后也会在终端打印报告摘要和部分样例结果，不需要打开完整报告就能做粗验收。
+报告会按流程和轮次记录用户输入、期望结果、实际用户可见回复摘要、实际卡片类型、验证状态、token 汇总和失败排错信息。失败记录会包含 `conversationId`、`responseMessageId`、`traceId`、请求或 stream 错误摘要，方便判断是聊天链路错误、模型输出漂移、stream 解析失败还是卡片推送缺失。
 
 ## 与默认测试的边界
 
-- `npm run test` 仍只运行 `vitest.config.ts` 中的 `tests/**/*.test.ts`。
+- `npm run test` 仍只运行默认 Vitest 配置，不运行真实模型黑盒流程。
 - 手动 LLM 测试位于 `manual-tests/llm/`，由 `vitest.llm.config.ts` 单独收集。
-- 这组测试依赖外部模型、网络和账户额度，结果可能因为模型波动出现偶发失败。
-- 失败时应先看失败报告里的调用点、用例名、输入摘要、实际输出和失败原因，再判断是 prompt 需要调整，还是 fixture 预期需要更新。
-- 每次真实运行都会覆盖 `docs/manual-llm-consistency-latest-report.md`，该文件用于人工验收最新一次结果。
+- 这组测试依赖外部模型、网络、账户额度和本地服务端依赖，结果可能因为模型波动出现偶发失败。
+- 每次运行都会覆盖 `docs/manual-llm-blackbox-flow-latest-report.md`，该文件用于人工验收最新一次结果。
 
 ## 覆盖范围
 
-当前测试矩阵覆盖以下 LLM 调用点：
+第一版流程冒烟集覆盖以下首页聊天链路：
 
-- `chatIntentResolution`：聊天意图解析。
-- `chatCompletion`：用户可见自然语言回复。
-- `exerciseRecommendationGeneration`：动作推荐选择。
-- `workoutPlanIntentExtraction`：训练计划意图抽取。
-- `workoutPlanDraftGeneration`：长期计划和单次 routine 草稿生成。
-
-当前测试矩阵覆盖以下主要分支：
-
-- `general_fitness_advice`
-- `exercise_recommendation`
-- `workout_plan`
-- `routine`
-- `exercise_replacement`
-- `exercise_explanation`
-- `non_fitness`
-- `canTriggerAction=true`
-- `canTriggerAction=false`
-- 信息不足追问和第一人称 `suggestedReplies`
-- 显式动作列表默认时长
-- 换一批基于 `conversationSummary` 和服务端结构化 intent 复用上一轮目标
-- 训练强度偏好自然回复
-- 候选充足、候选有限可用、候选不足表达
-- 动作推荐普通推荐和 `excludedExerciseIds` 排除
-- `WorkoutPlanIntent` 的 `plan`、`routine` 和默认值补齐
-- `WorkoutPlanDraft` 与 `WorkoutRoutineDraft`
-- “6 天计划”“每周 6 练”“未来 6 天每天练”的周期语义、周频率和日历范围区分
-- 长期计划非休息训练日必须包含 `warmup`、`training`、`stretch` 三段式 `sections`
+- 动作推荐到刷新推荐。
+- 动作推荐升级为单次 routine。
+- 信息不足时追问，补齐后生成 routine。
+- routine 生成后调整时长和难度。
+- 长期 plan 逐步补齐目标、频率、时长和器械。
+- 6 天计划、每周 6 练、未来 6 天每天练的长期计划语义区分。
+- 当前消息覆盖历史器械条件。
+- 非健身话题不触发训练流程，切回健身后重新进入推荐和 routine。
+- 明确引用最近卡片并升级为 routine。
 
 ## 断言策略
 
-结构化输出会做 JSON 解析和 Zod Schema 校验，并检查关键字段、候选动作 ID、排除动作、routine 分段和长期 plan 的周期化三段式训练日。
+黑盒断言只检查用户最终可见结果：
 
-自然语言输出不做全文快照匹配，只检查稳定语义和禁止项，例如：
-
-- 不输出内部 Trigger。
-- 不输出 JSON fenced block。
-- 不提及 `卡片`、`下方`、`后台生成` 等 UI 或系统流程字样。
-- 训练强度偏好不应触发内部 Trigger 或泄漏系统流程。
+- assistant 用户可见文本必须非空。
+- 回复不得泄漏内部 trigger、JSON fenced block、raw payload 或后台流程字段。
+- 预期推送卡片时，只校验 `exercise_recommendation`、`workout_routine`、`workout_plan` 类型是否出现。
+- 预期追问、解释、建议问答或非健身回复时，不应推送训练卡片。
+- 第一版不校验动作 ID、组数、训练时长精确值或计划细节准确性。
 
 ## 维护规则
 
-- 新增 LLM 调用点时，必须在 `manual-tests/llm/fixtures.ts` 中新增对应用例。
-- 新增 prompt 分支时，必须补充最小覆盖 fixture。
+- 新增黑盒流程时，优先在 `manual-tests/llm/flow-fixtures.ts` 增加 3 轮流程用例。
 - 如果只是模型措辞变化，不应把自然语言断言改成逐字匹配。
-- 如果模型稳定输出已经合理变化，应同步更新 fixture 中的期望分支和断言。
+- 如果产品验收目标变化，应同步更新 `测试情况预览.md`、OpenSpec change 和本说明文档。

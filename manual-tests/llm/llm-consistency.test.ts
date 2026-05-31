@@ -1,23 +1,15 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, test } from "vitest";
 
-import { aiPromptConfig } from "@/lib/server/ai/prompt-config";
-import { formatFitnessConversationContextForPrompt } from "@/lib/shared/chat/fitness-conversation-context";
-
-import { assertCaseOutput } from "./assertions";
-import { manualLlmCandidateExercises, manualLlmCases, type ManualLlmCase } from "./fixtures";
-
-type DeepSeekMessage = {
-  role: "system" | "user" | "assistant";
-  content: string;
-};
-
-type DeepSeekChatResponse = {
-  choices?: Array<{ message?: { content?: string | null } }>;
-  usage?: DeepSeekUsage;
-};
+import {
+  createBlackboxConversationState,
+  runBlackboxChatTurn,
+  type BlackboxTurnResult,
+} from "./blackbox-runner";
+import { assertBlackboxTurnResult, previewText } from "./assertions";
+import { blackboxFlowCases, type BlackboxFlowCase, type BlackboxFlowTurn } from "./flow-fixtures";
 
 type DeepSeekUsage = {
   prompt_tokens?: number;
@@ -25,314 +17,183 @@ type DeepSeekUsage = {
   total_tokens?: number;
 };
 
-type ManualLlmRunResult = {
-  content: string;
-  usage?: DeepSeekUsage;
-};
-
-type ManualLlmRunRecord = {
-  caseName: string;
-  callSite: ManualLlmCase["callSite"];
-  userQuestion: string;
-  answerPreview: string;
-  localResult: string;
-  status: "passed" | "failed";
+type ManualLlmTurnRecord = {
+  flowId: string;
+  flowName: string;
+  turnIndex: number;
+  turnName: string;
+  userInput: string;
+  expectationNote: string;
+  expectedCardTypes: string[];
+  actualCardTypes: string[];
+  assistantPreview: string;
+  status: "passed" | "failed" | "skipped";
+  conversationId: string;
+  responseMessageId?: string;
+  traceId?: string;
   error?: string;
+  streamError?: string;
+  skipReason?: string;
   usage?: DeepSeekUsage;
 };
 
 const model = "deepseek-v4-flash";
 const configuredApiKey = process.env.DEEPSEEK_API_KEY?.trim();
 const describeIfConfigured = configuredApiKey ? describe : describe.skip;
-const reportPath = path.join(process.cwd(), "docs", "manual-llm-consistency-latest-report.md");
-const runRecords: ManualLlmRunRecord[] = [];
+const reportPath = path.join(process.cwd(), "docs", "manual-llm-blackbox-flow-latest-report.md");
+const runRecords: ManualLlmTurnRecord[] = [];
+const estimatedTokenUsage = estimateTokenUsage();
 
 if (!configuredApiKey) {
   console.warn(
     [
       "Missing DEEPSEEK_API_KEY.",
-      "手动 LLM 一致性测试必须调用真实模型；请设置 DEEPSEEK_API_KEY 后重新运行 `npm run test:llm`。",
+      "手动 LLM 黑盒流程测试必须调用真实模型；请设置 DEEPSEEK_API_KEY 后重新运行 `npm run test:llm`。",
       "该测试不会使用 mock、旧快照或非真实模型结果。",
     ].join("\n"),
   );
 }
 
-describeIfConfigured("manual LLM consistency", () => {
+describeIfConfigured("manual LLM blackbox chat flows", () => {
   beforeAll(() => {
-    const estimate = estimateTokenUsage();
-
-    console.log("手动 LLM 一致性测试 token 预估：");
-    console.log(`预估输入token：${estimate.promptTokens}`);
-    console.log(`预估输出token：${estimate.completionTokens}`);
-    console.log(`预估总token：${estimate.totalTokens}`);
-    console.log("说明：这是按请求文本长度粗略估算，最终以模型返回 usage 为准。");
+    console.log("手动 LLM 黑盒流程测试 token 预估：");
+    console.log(`预估输入token：${estimatedTokenUsage.promptTokens}`);
+    console.log(`预估输出token：${estimatedTokenUsage.completionTokens}`);
+    console.log(`预估总token：${estimatedTokenUsage.totalTokens}`);
+    console.log("说明：这是按首页聊天多轮流程粗略估算，最终以模型返回 usage 为准。");
   });
 
   afterAll(async () => {
-    const summary = summarizeUsage(runRecords);
+    const summary = summarizeRunRecords(runRecords);
 
     console.log(
       [
-        "Manual LLM consistency actual token usage:",
-        `prompt_tokens=${summary.promptTokens}`,
-        `completion_tokens=${summary.completionTokens}`,
-        `total_tokens=${summary.totalTokens}`,
+        "Manual LLM blackbox flow summary:",
+        `flows=${blackboxFlowCases.length}`,
+        `turns=${summary.total}`,
+        `passed=${summary.passed}`,
+        `failed=${summary.failed}`,
+        `skipped=${summary.skipped}`,
+      ].join(" "),
+    );
+    console.log(
+      [
+        "Manual LLM blackbox actual token usage:",
+        `prompt_tokens=${summary.usage.prompt_tokens}`,
+        `completion_tokens=${summary.usage.completion_tokens}`,
+        `total_tokens=${summary.usage.total_tokens}`,
       ].join(" "),
     );
 
     await writeAcceptanceReport(runRecords, summary);
-    console.log(`Manual LLM acceptance report: ${reportPath}`);
+    console.log(`Manual LLM blackbox acceptance report: ${reportPath}`);
   });
 
-  test.each(manualLlmCases)("$callSite - $name", async (testCase) => {
-    let result: ManualLlmRunResult | undefined;
+  test.each(blackboxFlowCases)("$id - $name", async (flowCase) => {
+    const state = createBlackboxConversationState(flowCase.id);
+    let firstTurnFailureReason: string | undefined;
 
-    try {
-      result = await runManualLlmCase(testCase);
-      expect(result.content.trim().length).toBeGreaterThan(0);
-      assertCaseOutput(testCase, result.content);
-      runRecords.push(createRunRecord(testCase, result, "passed"));
-    } catch (error) {
-      runRecords.push(
-        createRunRecord(testCase, result, "failed", error instanceof Error ? error.message : String(error)),
-      );
-      throw error;
+    for (let turnIndex = 0; turnIndex < flowCase.turns.length; turnIndex += 1) {
+      const turn = flowCase.turns[turnIndex];
+
+      if (firstTurnFailureReason) {
+        runRecords.push(createSkippedRecord(flowCase, turn, turnIndex + 1, state.conversationId, firstTurnFailureReason));
+        continue;
+      }
+
+      const result = await runBlackboxChatTurn({
+        apiKey: configuredApiKey,
+        state,
+        userInput: turn.userInput,
+      });
+
+      try {
+        assertBlackboxTurnResult({
+          flowCase,
+          turn,
+          turnIndex: turnIndex + 1,
+          result,
+        });
+        runRecords.push(createTurnRecord(flowCase, turn, turnIndex + 1, result, "passed"));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+
+        runRecords.push(createTurnRecord(flowCase, turn, turnIndex + 1, result, "failed", message));
+
+        if (turnIndex === 0) {
+          firstTurnFailureReason = `首轮基础能力失败：${previewText(message, 220)}`;
+          continue;
+        }
+
+        throw error;
+      }
+    }
+
+    if (firstTurnFailureReason) {
+      throw new Error(firstTurnFailureReason);
     }
   });
 });
 
-async function runManualLlmCase(testCase: ManualLlmCase): Promise<ManualLlmRunResult> {
-  const apiKey = getRequiredApiKey();
-  const messages = buildMessages(testCase);
-  const jsonMode =
-    testCase.callSite === "chatIntentResolution" ||
-    testCase.callSite === "exerciseRecommendationGeneration";
-
-  return requestDeepSeek(apiKey, messages, { jsonMode });
-}
-
-function getRequiredApiKey() {
-  if (!configuredApiKey) {
-    throw new Error(
-      [
-        "Missing DEEPSEEK_API_KEY.",
-        "手动 LLM 一致性测试必须调用真实模型；请设置 DEEPSEEK_API_KEY 后重新运行 `npm run test:llm`。",
-        "该测试不会使用 mock、旧快照或非真实模型结果。",
-      ].join("\n"),
-    );
-  }
-
-  return configuredApiKey;
-}
-
-function buildMessages(testCase: ManualLlmCase): DeepSeekMessage[] {
-  const conversationContextPrompt = formatFitnessConversationContextForPrompt(testCase.conversationContext);
-
-  switch (testCase.callSite) {
-    case "chatIntentResolution":
-      return [
-        {
-          role: "system",
-          content: [aiPromptConfig.chatIntentResolution.system, conversationContextPrompt].filter(Boolean).join("\n\n"),
-        },
-        ...(testCase.messages ?? []),
-      ];
-    case "chatCompletion":
-      return [
-        {
-          role: "system",
-          content: buildChatCompletionSystemPrompt(testCase, conversationContextPrompt),
-        },
-        ...(testCase.messages ?? []),
-      ];
-    case "exerciseRecommendationGeneration":
-      return [
-        {
-          role: "system",
-          content: aiPromptConfig.exerciseRecommendationGeneration.system,
-        },
-        {
-          role: "user",
-          content: JSON.stringify({
-            intent: testCase.intent,
-            conversationContext: testCase.conversationContext,
-            excludedExerciseIds: testCase.excludedExerciseIds ?? [],
-            candidateExercises: manualLlmCandidateExercises.map((exercise, index) => ({
-              exerciseId: exercise.id,
-              nameZh: exercise.nameZh,
-              nameEn: exercise.nameEn,
-              categoryZh: exercise.categoryZh,
-              level: exercise.level,
-              levelZh: exercise.levelZh,
-              equipmentZh: exercise.equipmentZh,
-              primaryMusclesZh: exercise.primaryMusclesZh,
-              secondaryMusclesZh: exercise.secondaryMusclesZh,
-              riskTags: exercise.riskTags,
-              goalTags: exercise.goalTags,
-              candidateSource: index < 4 ? "primary" : "supplementary",
-              candidateScore: 50 - index,
-              candidateReasons: ["匹配用户目标", "适合当前器械条件"],
-            })),
-            recentMessages: testCase.messages,
-          }),
-        },
-      ];
-    case "workoutPlanIntentExtraction":
-      return [
-        {
-          role: "system",
-          content: [
-            aiPromptConfig.workoutPlanIntentExtraction.system,
-            conversationContextPrompt,
-          ].filter(Boolean).join("\n\n"),
-        },
-        ...(testCase.messages ?? []),
-      ];
-    case "workoutPlanDraftGeneration":
-      return [
-        {
-          role: "system",
-          content: [
-            ...aiPromptConfig.workoutPlanDraftGeneration.base,
-            testCase.intent?.intentType === "routine"
-              ? aiPromptConfig.workoutPlanDraftGeneration.routine
-              : aiPromptConfig.workoutPlanDraftGeneration.plan,
-            ...aiPromptConfig.workoutPlanDraftGeneration.schema,
-          ].join("\n"),
-        },
-        {
-          role: "user",
-          content: JSON.stringify({
-            intent: testCase.intent,
-            conversationContext: testCase.conversationContext,
-            primaryExercises: manualLlmCandidateExercises.slice(0, 4).map(toDraftExercisePayload),
-            supplementaryExercises: manualLlmCandidateExercises.slice(4).map(toDraftExercisePayload),
-            recentMessages: testCase.messages,
-          }),
-        },
-      ];
-  }
-}
-
-function buildChatCompletionSystemPrompt(testCase: ManualLlmCase, conversationContextPrompt: string) {
-  if (!testCase.intent) {
-    return [aiPromptConfig.chatCompletion.system, conversationContextPrompt].filter(Boolean).join("\n\n");
-  }
-
-  return [
-    aiPromptConfig.chatCompletion.system,
-    conversationContextPrompt,
-    "",
-    aiPromptConfig.chatCompletion.exerciseContext,
-    "",
-    "serverParsedIntent:",
-    JSON.stringify(
-      {
-        type: testCase.intent.intentType === "plan" ? "workout_plan" : "routine",
-        needsExerciseContext: true,
-        requestedExerciseName: "",
-        canTriggerAction: testCase.candidateStatus !== "insufficient",
-        missingActionFields: [],
-      },
-      null,
-      2,
-    ),
-    "",
-    "serverWorkoutIntent:",
-    JSON.stringify(testCase.intent, null, 2),
-    "",
-    "providedExercises:",
-    JSON.stringify(manualLlmCandidateExercises.map(toProvidedExercisePayload), null, 2),
-    "",
-    "candidateState:",
-    JSON.stringify(
-      {
-        status: testCase.candidateStatus ?? "enough",
-        relevantCandidateCount: testCase.candidateStatus === "insufficient" ? 1 : 6,
-        requiredRelevantCandidateCount: 4,
-        warnings: testCase.candidateStatus === "insufficient" ? ["当前条件下匹配动作不足。"] : [],
-      },
-      null,
-      2,
-    ),
-  ].join("\n");
-}
-
-function toProvidedExercisePayload(exercise: (typeof manualLlmCandidateExercises)[number]) {
+function createTurnRecord(
+  flowCase: BlackboxFlowCase,
+  turn: BlackboxFlowTurn,
+  turnIndex: number,
+  result: BlackboxTurnResult,
+  status: "passed" | "failed",
+  error?: string,
+): ManualLlmTurnRecord {
   return {
-    exerciseId: exercise.id,
-    nameZh: exercise.nameZh,
-    categoryZh: exercise.categoryZh ?? "训练",
-    level: exercise.level ?? "beginner",
-    equipmentZh: exercise.equipmentZh ?? "未标注器械",
-    primaryMusclesZh: exercise.primaryMusclesZh,
-    secondaryMusclesZh: exercise.secondaryMusclesZh,
-    riskTags: exercise.riskTags,
-    goalTags: exercise.goalTags,
-    source: "primary",
+    flowId: flowCase.id,
+    flowName: flowCase.name,
+    turnIndex,
+    turnName: turn.name,
+    userInput: turn.userInput,
+    expectationNote: turn.expectation.note,
+    expectedCardTypes: turn.expectation.expectedCardTypes,
+    actualCardTypes: result.actionTypes,
+    assistantPreview: previewText(result.assistantText || "未获得可展示回复", 220),
+    status,
+    conversationId: result.conversationId,
+    responseMessageId: result.responseMessageId,
+    traceId: result.traceId,
+    error: error ? previewText(error, 500) : undefined,
+    streamError: result.error ? `${result.error.code}: ${result.error.message}` : undefined,
+    usage: result.usage,
   };
 }
 
-function toDraftExercisePayload(exercise: (typeof manualLlmCandidateExercises)[number]) {
+function createSkippedRecord(
+  flowCase: BlackboxFlowCase,
+  turn: BlackboxFlowTurn,
+  turnIndex: number,
+  conversationId: string,
+  skipReason: string,
+): ManualLlmTurnRecord {
   return {
-    exerciseId: exercise.id,
-    nameZh: exercise.nameZh,
-    categoryZh: exercise.categoryZh,
-    level: exercise.level,
-    equipmentZh: exercise.equipmentZh,
-    primaryMusclesZh: exercise.primaryMusclesZh,
-    riskTags: exercise.riskTags,
-    goalTags: exercise.goalTags,
-  };
-}
-
-async function requestDeepSeek(
-  apiKey: string,
-  messages: DeepSeekMessage[],
-  options: { jsonMode: boolean },
-): Promise<ManualLlmRunResult> {
-  const response = await fetch("https://api.deepseek.com/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      stream: false,
-      ...(options.jsonMode ? { response_format: { type: "json_object" } } : {}),
-      thinking: {
-        type: "disabled",
-      },
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`DeepSeek API request failed: ${response.status} ${await response.text()}`);
-  }
-
-  const data = (await response.json()) as DeepSeekChatResponse;
-  const content = data.choices?.[0]?.message?.content?.trim();
-
-  if (!content) {
-    throw new Error("DeepSeek API returned empty content.");
-  }
-
-  return {
-    content,
-    usage: data.usage,
+    flowId: flowCase.id,
+    flowName: flowCase.name,
+    turnIndex,
+    turnName: turn.name,
+    userInput: turn.userInput,
+    expectationNote: turn.expectation.note,
+    expectedCardTypes: turn.expectation.expectedCardTypes,
+    actualCardTypes: [],
+    assistantPreview: "首轮失败后跳过，未请求模型。",
+    status: "skipped",
+    conversationId,
+    skipReason,
   };
 }
 
 function estimateTokenUsage() {
-  const promptTokens = manualLlmCases.reduce((total, testCase) => {
-    const messages = buildMessages(testCase);
-    const charCount = messages.reduce((messageTotal, message) => messageTotal + message.content.length, 0);
-
-    return total + Math.ceil(charCount / 2);
-  }, 0);
-  const completionTokens = manualLlmCases.length * 600;
+  const charCount = blackboxFlowCases.reduce(
+    (flowTotal, flowCase) =>
+      flowTotal + flowCase.turns.reduce((turnTotal, turn) => turnTotal + turn.userInput.length + turn.expectation.note.length, 0),
+    0,
+  );
+  const promptTokens = Math.ceil(charCount / 2) + blackboxFlowCases.length * 3 * 2_200;
+  const completionTokens = blackboxFlowCases.length * 3 * 700;
 
   return {
     promptTokens,
@@ -341,101 +202,52 @@ function estimateTokenUsage() {
   };
 }
 
-function summarizeUsage(records: ManualLlmRunRecord[]) {
-  return records.reduce(
+function summarizeRunRecords(records: ManualLlmTurnRecord[]) {
+  const usage = records.reduce(
     (summary, record) => ({
-      promptTokens: summary.promptTokens + (record.usage?.prompt_tokens ?? 0),
-      completionTokens: summary.completionTokens + (record.usage?.completion_tokens ?? 0),
-      totalTokens: summary.totalTokens + (record.usage?.total_tokens ?? 0),
+      prompt_tokens: summary.prompt_tokens + (record.usage?.prompt_tokens ?? 0),
+      completion_tokens: summary.completion_tokens + (record.usage?.completion_tokens ?? 0),
+      total_tokens: summary.total_tokens + (record.usage?.total_tokens ?? 0),
     }),
-    { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+    { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
   );
-}
 
-function createRunRecord(
-  testCase: ManualLlmCase,
-  result: ManualLlmRunResult | undefined,
-  status: ManualLlmRunRecord["status"],
-  error?: string,
-): ManualLlmRunRecord {
   return {
-    caseName: testCase.name,
-    callSite: testCase.callSite,
-    userQuestion: summarizeUserQuestion(testCase),
-    answerPreview: previewText(result?.content ?? "未获得模型回答", 180),
-    localResult: result ? describeLocalResult(testCase, result.content) : "请求失败，未进入本地断言。",
-    status,
-    error: error ? previewText(error, 260) : undefined,
-    usage: result?.usage,
+    total: records.length,
+    flowCount: blackboxFlowCases.length,
+    passed: records.filter((record) => record.status === "passed").length,
+    failed: records.filter((record) => record.status === "failed").length,
+    skipped: records.filter((record) => record.status === "skipped").length,
+    usage,
   };
 }
 
-function summarizeUserQuestion(testCase: ManualLlmCase) {
-  const latestUserMessage = [...(testCase.messages ?? [])].reverse().find((message) => message.role === "user");
-
-  return previewText(latestUserMessage?.content ?? testCase.inputSummary, 100);
-}
-
-function describeLocalResult(testCase: ManualLlmCase, content: string) {
-  if (!testCase.expectation.outputSchema) {
-    return "自然语言回复已检查禁止项和关键语义。";
-  }
-
-  try {
-    const parsed = JSON.parse(stripJsonFence(content)) as Record<string, unknown>;
-    const workoutIntent = typeof parsed.workoutIntent === "object" && parsed.workoutIntent !== null
-      ? parsed.workoutIntent as Record<string, unknown>
-      : undefined;
-    const type = parsed.type ? `type=${String(parsed.type)}` : "";
-    const intentType = parsed.intentType ?? workoutIntent?.intentType;
-    const canTriggerAction =
-      typeof parsed.canTriggerAction === "boolean" ? `canTriggerAction=${String(parsed.canTriggerAction)}` : "";
-    const items = Array.isArray(parsed.items) ? `items=${parsed.items.length}` : "";
-    const days = Array.isArray(parsed.days) ? `days=${parsed.days.length}` : "";
-    const sections = Array.isArray(parsed.sections) ? `sections=${parsed.sections.length}` : "";
-    const planSections = Array.isArray(parsed.days)
-      ? `planSections=${parsed.days.reduce((total, day) => {
-          const dayRecord = typeof day === "object" && day !== null ? day as Record<string, unknown> : {};
-
-          return total + (Array.isArray(dayRecord.sections) ? dayRecord.sections.length : 0);
-        }, 0)}`
-      : "";
-
-    return [type, intentType ? `intentType=${String(intentType)}` : "", canTriggerAction, items, days, sections, planSections]
-      .filter(Boolean)
-      .join("，") || "结构化输出已通过本地解析。";
-  } catch {
-    return "模型回答不是可解析 JSON，本地解析失败。";
-  }
-}
-
-function stripJsonFence(content: string) {
-  const normalized = content.trim();
-
-  return normalized.startsWith("```")
-    ? normalized.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")
-    : normalized;
-}
-
-async function writeAcceptanceReport(records: ManualLlmRunRecord[], usage: ReturnType<typeof summarizeUsage>) {
+async function writeAcceptanceReport(
+  records: ManualLlmTurnRecord[],
+  summary: ReturnType<typeof summarizeRunRecords>,
+) {
   const generatedAt = new Date().toISOString();
-  const passed = records.filter((record) => record.status === "passed").length;
-  const failed = records.filter((record) => record.status === "failed").length;
   const reportLines = [
-    "# 手动 LLM 一致性测试验收报告",
+    "# 手动 LLM 首页聊天黑盒流程测试报告",
     "",
     `生成时间：${generatedAt}`,
+    `模型：${model}`,
     "",
     "## 汇总",
     "",
-    `- 用例总数：${records.length}`,
-    `- 通过：${passed}`,
-    `- 失败：${failed}`,
-    `- prompt_tokens：${usage.promptTokens}`,
-    `- completion_tokens：${usage.completionTokens}`,
-    `- total_tokens：${usage.totalTokens}`,
+    `- 流程用例数：${summary.flowCount}`,
+    `- 轮次数：${summary.total}`,
+    `- 通过：${summary.passed}`,
+    `- 失败：${summary.failed}`,
+    `- 跳过：${summary.skipped}`,
+    `- 预计输入 token：${estimatedTokenUsage.promptTokens}`,
+    `- 预计输出 token：${estimatedTokenUsage.completionTokens}`,
+    `- 预计总 token：${estimatedTokenUsage.totalTokens}`,
+    `- prompt_tokens：${summary.usage.prompt_tokens}`,
+    `- completion_tokens：${summary.usage.completion_tokens}`,
+    `- total_tokens：${summary.usage.total_tokens}`,
     "",
-    "## 样例验收结果",
+    "## 流程轮次结果",
     "",
     ...records.map(formatRunRecord),
     "",
@@ -445,15 +257,29 @@ async function writeAcceptanceReport(records: ManualLlmRunRecord[], usage: Retur
   await writeFile(reportPath, reportLines.join("\n"), "utf8");
 }
 
-function formatRunRecord(record: ManualLlmRunRecord) {
-  const usageText = record.usage?.total_tokens ? `，token=${record.usage.total_tokens}` : "";
-  const errorText = record.error ? `，失败原因：${record.error}` : "";
+function formatRunRecord(record: ManualLlmTurnRecord) {
+  const statusLabel = record.status === "passed" ? "通过" : record.status === "failed" ? "失败" : "跳过";
+  const expected = record.expectedCardTypes.length ? record.expectedCardTypes.join(", ") : "无训练卡片";
+  const actual = record.actualCardTypes.length ? record.actualCardTypes.join(", ") : "无训练卡片";
+  const diagnostics = [
+    record.error ? `失败原因：${record.error}` : "",
+    record.streamError ? `请求/stream 错误摘要：${record.streamError}` : "",
+    record.skipReason ? `跳过原因：${record.skipReason}` : "",
+    record.responseMessageId ? `responseMessageId：${record.responseMessageId}` : "",
+    record.traceId ? `traceId：${record.traceId}` : "",
+    `conversationId：${record.conversationId}`,
+  ].filter(Boolean);
 
-  return `- ${record.status === "passed" ? "通过" : "失败"}：用户提问：${record.userQuestion}，大模型回答：${record.answerPreview}。本地意图解析结果：${record.localResult}${usageText}${errorText}`;
-}
-
-function previewText(content: string, maxLength: number) {
-  const normalized = content.trim().replace(/\s+/g, " ");
-
-  return normalized.length > maxLength ? `${normalized.slice(0, maxLength)}...` : normalized;
+  return [
+    `### ${record.flowId} ${record.flowName} / 第 ${record.turnIndex} 轮：${record.turnName}`,
+    "",
+    `- 状态：${statusLabel}`,
+    `- 用户输入：${record.userInput}`,
+    `- 期望结果：${record.expectationNote}`,
+    `- 期望卡片类型：${expected}`,
+    `- 实际卡片类型：${actual}`,
+    `- assistant 摘要：${record.assistantPreview}`,
+    ...diagnostics.map((line) => `- ${line}`),
+    "",
+  ].join("\n");
 }
