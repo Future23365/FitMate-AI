@@ -5,7 +5,7 @@ type LogoMarkProps = {
   animated?: boolean;
 };
 
-// FitMate 的品牌标识用 SVG 表达“训练节奏 + AI 能量”，首页可开启轻量动效作为首屏视觉焦点。
+// FitMate 的品牌标识用 SVG 表达“训练器械 + AI 能量”，首页可开启轻量动效作为首屏视觉焦点。
 export function LogoMark({ className = "h-10 w-10", animated = false }: LogoMarkProps) {
   const rawId = useId().replace(/:/g, "");
   const backgroundGradientId = `fitmate-logo-bg-${rawId}`;
@@ -72,32 +72,28 @@ export function LogoMark({ className = "h-10 w-10", animated = false }: LogoMark
       </circle>
 
       <g>
-        <path
-          d="M24 53H34.5L40.5 40L49 63L55.5 48H72"
-          pathLength="100"
-          stroke="#FFFFFF"
-          strokeDasharray="100"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth="5.5"
-        >
-          {animated ? (
-            <animate
-              attributeName="stroke-dashoffset"
-              dur="2.6s"
-              repeatCount="indefinite"
-              values="100;0;0"
-            />
-          ) : null}
-        </path>
         {animated ? (
-          <animate
-            attributeName="opacity"
-            dur="2.6s"
+          <animateTransform
+            attributeName="transform"
+            dur="3.4s"
             repeatCount="indefinite"
-            values="0.74;1;0.74"
+            type="translate"
+            values="0 0;0 -1.2;0 0"
           />
         ) : null}
+        <g transform="rotate(-18 48 48)">
+          <line stroke="#FFFFFF" strokeLinecap="round" strokeWidth="6" x1="31" x2="65" y1="48" y2="48" />
+          <rect fill="#FFFFFF" height="24" rx="4" width="7" x="20" y="36" />
+          <rect fill="#FFFFFF" fillOpacity="0.82" height="18" rx="3" width="6" x="29" y="39" />
+          <rect fill="#FFFFFF" fillOpacity="0.82" height="18" rx="3" width="6" x="61" y="39" />
+          <rect fill="#FFFFFF" height="24" rx="4" width="7" x="69" y="36" />
+        </g>
+        <circle cx="31" cy="30" fill="#FFFFFF" fillOpacity="0.86" r="2.8">
+          {animated ? (
+            <animate attributeName="opacity" dur="2.7s" repeatCount="indefinite" values="0.55;1;0.55" />
+          ) : null}
+        </circle>
+        <circle cx="66" cy="66" fill="#FFFFFF" fillOpacity="0.64" r="2.2" />
       </g>
 
       <g>
