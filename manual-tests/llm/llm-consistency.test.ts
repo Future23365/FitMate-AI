@@ -10,7 +10,7 @@ import {
 } from "./blackbox-runner";
 import { assertBlackboxTurnResult, previewText } from "./assertions";
 import { createFlowFailureSkipReason } from "./flow-runner-policy";
-import { blackboxFlowCases, type BlackboxFlowCase, type BlackboxFlowTurn } from "./flow-fixtures";
+import { getBlackboxFlowCases, type BlackboxFlowCase, type BlackboxFlowSuiteName, type BlackboxFlowTurn } from "./flow-fixtures";
 
 type DeepSeekUsage = {
   prompt_tokens?: number;
@@ -41,7 +41,11 @@ type ManualLlmTurnRecord = {
 const model = "deepseek-v4-flash";
 const configuredApiKey = process.env.DEEPSEEK_API_KEY?.trim();
 const describeIfConfigured = configuredApiKey ? describe : describe.skip;
-const reportPath = path.join(process.cwd(), "docs", "manual-llm-blackbox-flow-latest-report.md");
+const flowSuiteName: BlackboxFlowSuiteName = process.env.MANUAL_LLM_FLOW_SUITE === "detail" ? "detail" : "basic";
+const blackboxFlowCases = getBlackboxFlowCases(flowSuiteName);
+const reportPath = process.env.MANUAL_LLM_REPORT_PATH?.trim()
+  ? path.resolve(process.env.MANUAL_LLM_REPORT_PATH)
+  : path.join(process.cwd(), "docs", "manual-llm-blackbox-flow-latest-report.md");
 const runRecords: ManualLlmTurnRecord[] = [];
 const estimatedTokenUsage = estimateTokenUsage();
 
@@ -227,6 +231,7 @@ async function writeAcceptanceReport(
     "",
     `生成时间：${generatedAt}`,
     `模型：${model}`,
+    `套件：${flowSuiteName === "detail" ? "详细" : "基础"}`,
     "",
     "## 汇总",
     "",

@@ -5,12 +5,30 @@ import path from "node:path";
 
 import nextEnv from "@next/env";
 
-const manualLlmFlowCount = 9;
-const manualLlmTurnCount = 27;
-const estimatedPromptTokens = 60_000;
-const estimatedCompletionTokens = 18_900;
-const reportPath = path.join(process.cwd(), "docs", "manual-llm-blackbox-flow-latest-report.md");
 const { loadEnvConfig } = nextEnv;
+const args = process.argv.slice(2);
+const suiteName = args.includes("--detail") || process.env.npm_config_detail === "true" ? "detail" : "basic";
+const suiteLabel = suiteName === "detail" ? "详细" : "基础";
+const suiteMetrics = suiteName === "detail"
+  ? {
+      flowCount: 38,
+      turnCount: 114,
+      estimatedPromptTokens: 255_000,
+      estimatedCompletionTokens: 79_800,
+      reportFileName: "manual-llm-blackbox-flow-detail-latest-report.md",
+    }
+  : {
+      flowCount: 9,
+      turnCount: 27,
+      estimatedPromptTokens: 60_000,
+      estimatedCompletionTokens: 18_900,
+      reportFileName: "manual-llm-blackbox-flow-latest-report.md",
+    };
+const manualLlmFlowCount = suiteMetrics.flowCount;
+const manualLlmTurnCount = suiteMetrics.turnCount;
+const estimatedPromptTokens = suiteMetrics.estimatedPromptTokens;
+const estimatedCompletionTokens = suiteMetrics.estimatedCompletionTokens;
+const reportPath = path.join(process.cwd(), "docs", suiteMetrics.reportFileName);
 
 loadEnvConfig(process.cwd());
 
@@ -18,7 +36,7 @@ const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
 
 if (!apiKey) {
   console.log("Missing DEEPSEEK_API_KEY.");
-  console.log("手动 LLM 黑盒流程测试必须调用真实模型；请设置 DEEPSEEK_API_KEY 后重新运行 `npm run test:llm`。");
+  console.log("手动 LLM 黑盒流程测试必须调用真实模型；请设置 DEEPSEEK_API_KEY 后重新运行 `npm run test:llm` 或 `npm run test --detail`。");
   console.log("该测试不会使用 mock、旧快照或非真实模型结果。");
   writeSkippedReport();
   console.log(`Manual LLM blackbox flow summary: flows=${manualLlmFlowCount}, turns=${manualLlmTurnCount}, passed=0, failed=0, skipped=${manualLlmTurnCount}`);
@@ -26,7 +44,7 @@ if (!apiKey) {
   process.exit(0);
 }
 
-console.log("手动 LLM 首页聊天黑盒流程测试 token 预估：");
+console.log(`手动 LLM 首页聊天黑盒流程测试 token 预估（${suiteLabel}套件）：`);
 console.log(`预估输入token：${estimatedPromptTokens}`);
 console.log(`预估输出token：${estimatedCompletionTokens}`);
 console.log(`预估总token：${estimatedPromptTokens + estimatedCompletionTokens}`);
@@ -37,7 +55,11 @@ console.log("说明：这是按首页聊天多轮流程粗略估算，最终以�
 const vitestBin = fileURLToPath(new URL("../node_modules/.bin/vitest", import.meta.url));
 const result = spawnSync(vitestBin, ["run", "--config", "vitest.llm.config.ts"], {
   stdio: "inherit",
-  env: process.env,
+  env: {
+    ...process.env,
+    MANUAL_LLM_FLOW_SUITE: suiteName,
+    MANUAL_LLM_REPORT_PATH: reportPath,
+  },
 });
 
 printAcceptanceReportSummary();
@@ -78,6 +100,7 @@ function writeSkippedReport() {
     "",
     `生成时间：${new Date().toISOString()}`,
     "模型：deepseek-v4-flash",
+    `套件：${suiteLabel}`,
     "",
     "## 汇总",
     "",
