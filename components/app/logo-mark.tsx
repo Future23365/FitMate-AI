@@ -5,7 +5,7 @@ type LogoMarkProps = {
   animated?: boolean;
 };
 
-// FitMate 的品牌标识用 SVG 表达“FitMate 字母标识 + AI 轨道”，首页可开启轻量动效作为首屏视觉焦点。
+// FitMate 的品牌标识用 SVG 表达“品牌化哑铃 + AI 轨道”，首页可开启轻量动效作为首屏视觉焦点。
 export function LogoMark({ className = "h-10 w-10", animated = false }: LogoMarkProps) {
   const rawId = useId().replace(/:/g, "");
   const backgroundGradientId = `fitmate-logo-bg-${rawId}`;
@@ -71,32 +71,27 @@ export function LogoMark({ className = "h-10 w-10", animated = false }: LogoMark
         ) : null}
       </circle>
 
-      <g transform="translate(26 24)">
+      <g transform="translate(16 32)">
         {animated ? (
           <animateTransform
             attributeName="transform"
             dur="3.8s"
             repeatCount="indefinite"
             type="translate"
-            values="26 24;26 22.8;26 24"
+            values="16 32;16 30.8;16 32"
           />
         ) : null}
-        <path
-          d="M11 2H37C41.4 2 45 5.6 45 10C45 14.4 41.4 18 37 18H24V25H34C38.1 25 41.5 28.4 41.5 32.5C41.5 36.6 38.1 40 34 40H24V49C24 52.9 20.9 56 17 56C13.1 56 10 52.9 10 49V18H8C3.6 18 0 14.4 0 10C0 5.6 3.6 2 8 2H11Z"
-          fill="#FFFFFF"
-          opacity="0.18"
-          transform="translate(3 3)"
-        />
-        <path
-          d="M11 2H37C41.4 2 45 5.6 45 10C45 14.4 41.4 18 37 18H24V25H34C38.1 25 41.5 28.4 41.5 32.5C41.5 36.6 38.1 40 34 40H24V49C24 52.9 20.9 56 17 56C13.1 56 10 52.9 10 49V18H8C3.6 18 0 14.4 0 10C0 5.6 3.6 2 8 2H11Z"
-          fill="#FFFFFF"
-        />
-        <path
-          d="M24 18H37C41.4 18 45 14.4 45 10C45 5.6 41.4 2 37 2H24V18Z"
-          fill="#DCE7FF"
-        />
-        <circle cx="17" cy="10" fill="#2459E6" r="3.5" />
-        <circle cx="34" cy="32.5" fill="#2459E6" fillOpacity="0.88" r="3" />
+        <g transform="rotate(-8 32 16)">
+          <rect fill="#FFFFFF" fillOpacity="0.2" height="20" rx="6" transform="translate(3 4)" width="58" x="3" y="5" />
+          <rect fill="#FFFFFF" height="28" rx="6" width="9" x="0" y="2" />
+          <rect fill="#FFFFFF" fillOpacity="0.86" height="22" rx="5" width="8" x="11" y="5" />
+          <rect fill="#FFFFFF" fillOpacity="0.96" height="8" rx="4" width="28" x="18" y="12" />
+          <rect fill="#DCE7FF" height="14" rx="5" width="14" x="25" y="9" />
+          <rect fill="#FFFFFF" fillOpacity="0.86" height="22" rx="5" width="8" x="45" y="5" />
+          <rect fill="#FFFFFF" height="28" rx="6" width="9" x="55" y="2" />
+          <path d="M27 12.5H37" stroke="#2459E6" strokeLinecap="round" strokeOpacity="0.72" strokeWidth="2.4" />
+          <path d="M4 8H7M57 8H60" stroke="#DCE7FF" strokeLinecap="round" strokeOpacity="0.7" strokeWidth="2" />
+        </g>
       </g>
 
       <g>
