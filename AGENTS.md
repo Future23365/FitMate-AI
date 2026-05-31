@@ -231,6 +231,14 @@ OpenSpec 生成或修改的说明性文档应使用中文，便于人工 review�
 - Zod
 - OpenAI SDK / Vercel AI SDK / DeepSeek AI SDK
 
+## 前端 UI 规范
+
+默认使用 `shadcn/ui` 作为基础组件库。新增或修改前端 UI 时，必须优先使用 `shadcn/ui` 组件，不要手写重复的 Button、Input、Dialog、Drawer、Sheet、Form、Select、Table、Dropdown、Toast、Skeleton、Badge、Card 等通用组件。
+
+开发前先检查项目中已有的 `components/ui`、`components`、`shared`、`common` 等目录，优先复用现有封装。只有在 `shadcn/ui` 或项目已有组件无法满足需求时，才允许新增自定义组件，并保持样式、交互、命名和目录结构一致。
+
+涉及异步请求的 UI 必须提供 loading / pending / submitting 状态，请求期间禁用相关操作，避免重复提交；请求成功、失败或取消后必须清理 loading。数据加载场景需区分 loading、empty、error、success 状态，优先使用 `shadcn/ui` 的 `Skeleton`、`Button` loading 状态或项目已有加载组件。
+
 ## 架构规则
 
 - 保持 UI 层、API 层、AI 编排层、领域服务层和数据访问层之间的职责分离。
