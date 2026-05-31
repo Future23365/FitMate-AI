@@ -409,6 +409,8 @@ describe("workout plan candidate and validation services", () => {
         progressionPolicy: "none",
         intensityBias: "normal",
         constraints: [],
+        fieldSources: {},
+        defaultAssumptions: [],
       },
       days: [
         {

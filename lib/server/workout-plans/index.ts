@@ -44,6 +44,7 @@ export {
   buildPlanStrategyFromChatIntent,
   expandDomainPlan,
   getDraftExerciseIds,
+  validatePlanDraftAgainstStrategy,
   type DomainPlanEngineInput,
   type DomainPlanEngineResult,
 } from "./domain-plan-engine";

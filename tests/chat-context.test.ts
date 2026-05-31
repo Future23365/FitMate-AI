@@ -12,7 +12,7 @@ import {
 import { createWorkoutPlanIntent } from "./fixtures/domain";
 
 describe("fitness conversation context", () => {
-  it("keeps first message, recent window, durable facts, and trigger intent in long conversations", () => {
+  it("keeps first message, recent window, and durable facts without using legacy trigger intent", () => {
     const triggerIntent = createWorkoutPlanIntent({
       goal: "胸肌增肌",
       sessionMinutes: 35,
@@ -46,17 +46,13 @@ describe("fitness conversation context", () => {
     expect(selected[0].content).toContain("我想减脂");
     expect(selected.some((message) => message.content.includes("跳跃"))).toBe(true);
     expect(selected.at(-1)?.content).toBe("换一批动作");
-    expect(context.currentIntent).toMatchObject({
-      goal: "胸肌增肌",
-      sessionMinutes: 35,
-      weeklyFrequency: 1,
-    });
+    expect(context.currentIntent).toBeUndefined();
     expect(context.knownFacts.injuryLimitations).toEqual([]);
     expect(context.knownFacts.avoidances).toContain("我不想做跳跃动作。");
     expect(prompt).toContain("conversationSummary:");
     expect(prompt).not.toContain("knownFacts");
     expect(summaryPrompt).toContain("conversationSummary:");
-    expect(prompt).toContain("胸肌增肌");
+    expect(prompt).not.toContain("胸肌增肌");
   });
 
   it("initializes natural language summary from legacy conversation context", () => {

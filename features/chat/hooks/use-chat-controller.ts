@@ -5,15 +5,10 @@ import { useEffect, useRef, useState } from "react";
 import {
   requestChatStream,
   requestExerciseRecommendations,
-  requestWorkoutPlanDraft,
-  WorkoutPlanGenerationRecoveryError,
 } from "@/features/chat/api/chat-client";
 import { readChatConversation, saveChatConversation } from "@/features/chat/lib/chat-history";
 import {
-  extractExerciseRecommendationTrigger,
   extractSuggestedReplyTrigger,
-  extractWorkoutPlanTrigger,
-  extractWorkoutRoutineTrigger,
 } from "@/features/chat/lib/workout-plan-trigger";
 import type {
   ApiChatMessage,
@@ -30,7 +25,6 @@ import {
 } from "@/lib/shared/chat/fitness-conversation-context";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
-import type { ReferenceResolution } from "@/lib/shared/reference-resolver/schema";
 import {
   workoutPlanIntentSchema,
   type WorkoutPlanDraft,
@@ -40,7 +34,6 @@ import {
 
 const chatRequestTimeoutMs = 45_000;
 const thinkingEnabledStorageKey = "fitmate.chat.thinkingEnabled";
-const recommendationRefreshPattern = /(换一批|再换|换几个|换别的|再来一批|下一批|重新推荐|不要这些|别的动作)/;
 
 type BubblePlanError = {
   message: string;
@@ -64,10 +57,6 @@ function getRecommendationExerciseIds(card?: ExerciseRecommendationCard) {
 
 function uniqueExerciseIds(ids: string[]) {
   return [...new Set(ids.filter((id) => id.trim().length > 0))];
-}
-
-function isRecommendationRefreshRequest(text: string) {
-  return recommendationRefreshPattern.test(text);
 }
 
 function parseRecommendationIntent(intent: unknown): WorkoutPlanIntent | null {
@@ -255,98 +244,6 @@ export function useChatController() {
     );
   }
 
-  function collectLatestRecommendationExerciseIds(
-    currentMessages: ChatMessage[] = messages,
-    currentRecommendations: Record<string, ExerciseRecommendationCard> = bubbleExerciseRecommendations,
-  ) {
-    for (const message of [...currentMessages].reverse()) {
-      const ids = getRecommendationExerciseIds(currentRecommendations[message.id]);
-
-      if (ids.length > 0) {
-        return ids;
-      }
-    }
-
-    return [];
-  }
-
-  function collectDislikedExerciseIds() {
-    return uniqueExerciseIds(Object.values(dislikedExerciseIdsByMessage).flat());
-  }
-
-  async function generateWorkoutPlanForBubble(
-    messageId: string,
-    intent: unknown,
-    latestUserMessage: string,
-    summaryContext: Pick<ConversationSummaryContext, "summary">,
-    parentTraceId?: string,
-    referenceResolution?: Extract<ReferenceResolution, { status: "resolved" }>,
-  ) {
-    try {
-      const planPayload = await requestWorkoutPlanDraft(
-        latestUserMessage,
-        intent,
-        summaryContext,
-        parentTraceId,
-        referenceResolution,
-      );
-
-      if (planPayload.kind === "routine") {
-        setBubbleRoutines((prev) => ({
-          ...prev,
-          [messageId]: planPayload.draft as WorkoutRoutineDraft,
-        }));
-        setBubblePlans((prev) => {
-          const next = { ...prev };
-          delete next[messageId];
-          return next;
-        });
-      } else {
-        setBubblePlans((prev) => ({
-          ...prev,
-          [messageId]: planPayload.draft as WorkoutPlanDraft,
-        }));
-        setBubbleRoutines((prev) => {
-          const next = { ...prev };
-          delete next[messageId];
-          return next;
-        });
-      }
-      setBubblePlanExercises((prev) => ({
-        ...prev,
-        [messageId]: planPayload.exercises,
-      }));
-    } catch (err: unknown) {
-      console.error("[SilentPlanGeneration] Error:", err);
-      const planError =
-        err instanceof WorkoutPlanGenerationRecoveryError
-          ? {
-              message: err.message,
-              guidanceMessage: err.guidanceMessage,
-              suggestedReplies: err.suggestedReplies,
-              recoverable: err.recoverable,
-            }
-          : {
-              message: err instanceof Error ? err.message : "生成训练计划失败，请稍后重试。",
-              suggestedReplies: [],
-              recoverable: false,
-            };
-
-      setBubblePlanErrors((prev) => ({
-        ...prev,
-        [messageId]: planError,
-      }));
-      if (planError.suggestedReplies.length > 0) {
-        updateAssistantMessage(messageId, (message) => ({
-          ...message,
-          suggestedReplies: planError.suggestedReplies,
-        }));
-      }
-    } finally {
-      setAutoPlanGenerating(null);
-    }
-  }
-
   async function generateExerciseRecommendationsForBubble(
     messageId: string,
     intent: unknown,
@@ -519,8 +416,6 @@ export function useChatController() {
       const decoder = new TextDecoder();
       let buffer = "";
       let fullContent = "";
-      let chatTraceId: string | undefined;
-      let assistantAction: AssistantActionEvent | null = null;
       let updatedConversationSummary = requestSummaryContext.summary;
 
       while (true) {
@@ -542,7 +437,6 @@ export function useChatController() {
           const streamEvent = JSON.parse(line) as ChatStreamEvent;
 
           if (streamEvent.type === "done") {
-            chatTraceId = streamEvent.traceId;
             if (typeof streamEvent.conversationSummary === "string") {
               updatedConversationSummary = streamEvent.conversationSummary;
               setConversationSummary({ summary: updatedConversationSummary });
@@ -554,12 +448,73 @@ export function useChatController() {
             throw new Error(streamEvent.delta || "聊天请求失败，请稍后重试。");
           }
 
-          if (streamEvent.type === "assistant_action" && streamEvent.action) {
-            assistantAction = {
+          if ((streamEvent.type === "assistant_action" || streamEvent.type === "intent_resolved") && streamEvent.action) {
+            const assistantAction: AssistantActionEvent = {
               action: streamEvent.action,
               intent: streamEvent.intent,
+              resolvedIntent: streamEvent.resolvedIntent,
+              resolvedAction: streamEvent.resolvedAction,
+              fieldSources: streamEvent.fieldSources,
               referenceResolution: streamEvent.referenceResolution,
             };
+            continue;
+          }
+
+          if (streamEvent.type === "artifact_generating") {
+            if (streamEvent.artifactKind === "exercise_recommendation") {
+              setAutoRecommendationGenerating(assistantMessage.id);
+            } else {
+              setAutoPlanGenerating(assistantMessage.id);
+            }
+            continue;
+          }
+
+          if ((streamEvent.type === "artifact" || streamEvent.type === "artifact_validated") && streamEvent.payload) {
+            if (streamEvent.artifactKind === "exercise_recommendation" && "items" in streamEvent.payload) {
+              setBubbleExerciseRecommendations((prev) => ({
+                ...prev,
+                [assistantMessage.id]: streamEvent.payload as ExerciseRecommendationCard,
+              }));
+              const parsedIntent = parseRecommendationIntent(streamEvent.intent);
+              if (parsedIntent) {
+                setBubbleRecommendationIntents((prev) => ({
+                  ...prev,
+                  [assistantMessage.id]: parsedIntent,
+                }));
+              }
+              setAutoRecommendationGenerating(null);
+            }
+
+            if (streamEvent.artifactKind === "routine" && "sections" in streamEvent.payload) {
+              setBubbleRoutines((prev) => ({
+                ...prev,
+                [assistantMessage.id]: streamEvent.payload as WorkoutRoutineDraft,
+              }));
+              setAutoPlanGenerating(null);
+            }
+
+            if (streamEvent.artifactKind === "plan" && "days" in streamEvent.payload) {
+              setBubblePlans((prev) => ({
+                ...prev,
+                [assistantMessage.id]: streamEvent.payload as WorkoutPlanDraft,
+              }));
+              setAutoPlanGenerating(null);
+            }
+            continue;
+          }
+
+          if (streamEvent.type === "artifact_failed") {
+            setBubblePlanErrors((prev) => ({
+              ...prev,
+              [assistantMessage.id]: {
+                message: streamEvent.guidanceMessage || streamEvent.errorCode || "生成训练内容失败，请补充条件后重试。",
+                guidanceMessage: streamEvent.guidanceMessage,
+                suggestedReplies: streamEvent.suggestedReplies ?? [],
+                recoverable: Boolean(streamEvent.recoverable),
+              },
+            }));
+            setAutoPlanGenerating(null);
+            setAutoRecommendationGenerating(null);
             continue;
           }
 
@@ -625,8 +580,6 @@ export function useChatController() {
         isReasoning: false,
       }));
 
-      const trigger = extractWorkoutPlanTrigger(fullContent);
-      const routineTrigger = extractWorkoutRoutineTrigger(fullContent);
       const suggestedReplyTrigger = extractSuggestedReplyTrigger(fullContent);
       if (suggestedReplyTrigger) {
         updateAssistantMessage(assistantMessage.id, (message) => ({
@@ -635,61 +588,10 @@ export function useChatController() {
         }));
       }
 
-      const workoutDraftTrigger = trigger ?? routineTrigger;
-      const actionIntent = assistantAction?.intent ?? workoutDraftTrigger?.intent;
-      const actionType =
-        assistantAction?.action ??
-        (trigger ? "workout_plan" : routineTrigger ? "workout_routine" : undefined);
-
-      if (
-        actionIntent &&
-        (actionType === "workout_plan" || actionType === "workout_routine")
-      ) {
-        const messageId = assistantMessage.id;
-        const contextWithAssistant = buildFitnessConversationContext([
-          ...requestMessages,
-          { role: "assistant", content: fullContent },
-        ]);
-        setConversationContext(contextWithAssistant);
-        setAutoPlanGenerating(messageId);
-        generateWorkoutPlanForBubble(
-          messageId,
-          actionIntent,
-          text,
-          { summary: updatedConversationSummary },
-          chatTraceId,
-          assistantAction?.referenceResolution,
-        );
-      } else {
-        const recommendationTrigger =
-          assistantAction?.action === "exercise_recommendation"
-            ? { intent: assistantAction.intent }
-            : extractExerciseRecommendationTrigger(fullContent);
-
-        if (recommendationTrigger?.intent) {
-          const messageId = assistantMessage.id;
-          const contextWithAssistant = buildFitnessConversationContext([
-            ...requestMessages,
-            { role: "assistant", content: fullContent },
-          ]);
-          const excludeExerciseIds = isRecommendationRefreshRequest(text)
-            ? uniqueExerciseIds([
-                ...collectLatestRecommendationExerciseIds(messages, bubbleExerciseRecommendations),
-                ...collectDislikedExerciseIds(),
-              ])
-            : [];
-          setConversationContext(contextWithAssistant);
-          setAutoRecommendationGenerating(messageId);
-          generateExerciseRecommendationsForBubble(
-            messageId,
-            recommendationTrigger.intent,
-            text,
-            { summary: updatedConversationSummary },
-            chatTraceId,
-            excludeExerciseIds,
-          );
-        }
-      }
+      setConversationContext(buildFitnessConversationContext([
+        ...requestMessages,
+        { role: "assistant", content: fullContent },
+      ]));
     } catch (requestError) {
       const isAbortError =
         requestError instanceof DOMException && requestError.name === "AbortError";

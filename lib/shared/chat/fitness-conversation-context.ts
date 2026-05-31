@@ -49,9 +49,6 @@ export type FitnessConversationContext = z.infer<typeof fitnessConversationConte
 const durableFactPattern =
   /目标|减脂|增肌|塑形|力量|心肺|体能|胸|背|腿|肩|核心|臀|手臂|分钟|min|小时|每周|一周|次|自重|徒手|哑铃|杠铃|壶铃|弹力带|瑜伽垫|健身房|居家|家里|新手|初学|进阶|高级|避免|不要|不想/;
 
-const triggerPattern =
-  /```json\s*(\{[\s\S]*?"type"\s*:\s*"(?:workout_plan_trigger|workout_routine_trigger|exercise_recommendation_trigger)"[\s\S]*?\})\s*```/g;
-
 export function normalizeAiContextMessages(messages: unknown[]): AiContextChatMessage[] {
   const normalizedMessages: AiContextChatMessage[] = [];
 
@@ -81,13 +78,7 @@ export function buildFitnessConversationContext(
 
   for (const message of messages) {
     if (message.role === "assistant") {
-      const intent = extractLatestTriggerIntent(message.content);
-
-      if (intent) {
-        currentIntent = intent;
-        mergeIntentIntoFacts(intent, knownFacts, arrayFacts);
-      }
-
+      // 历史 assistant 正文里的旧 trigger JSON 只允许展示层清理，不能再作为新一轮意图事实来源。
       continue;
     }
 
@@ -145,7 +136,7 @@ export function selectMessagesForLegacyContextMigration(
     }
 
     const message = messages[index];
-    if (durableFactPattern.test(message.content) || extractLatestTriggerIntent(message.content)) {
+    if (durableFactPattern.test(message.content)) {
       selected.set(index, message);
     }
   }
@@ -204,45 +195,6 @@ export function formatFitnessConversationContextForPrompt(
   }
 
   return formatConversationSummaryContextForPrompt(context);
-}
-
-function extractLatestTriggerIntent(content: string) {
-  let matchedIntent: WorkoutPlanIntent | undefined;
-
-  for (const match of content.matchAll(triggerPattern)) {
-    try {
-      const parsed = JSON.parse(match[1]) as { intent?: unknown };
-      const parsedIntent = workoutPlanIntentSchema.safeParse(parsed.intent);
-
-      if (parsedIntent.success) {
-        matchedIntent = parsedIntent.data;
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  return matchedIntent;
-}
-
-function mergeIntentIntoFacts(
-  intent: WorkoutPlanIntent,
-  knownFacts: Partial<FitnessConversationKnownFacts>,
-  arrayFacts: {
-    equipment: Set<string>;
-    injuryLimitations: Set<string>;
-    preferences: Set<string>;
-    avoidances: Set<string>;
-  },
-) {
-  knownFacts.goal = intent.goal;
-  knownFacts.experience = intent.experience;
-  knownFacts.sessionMinutes = intent.sessionMinutes;
-  knownFacts.weeklyFrequency = intent.weeklyFrequency;
-  knownFacts.calendarHorizonDays = intent.calendarHorizonDays;
-  intent.equipment.forEach((item) => arrayFacts.equipment.add(item));
-  intent.preferences.forEach((item) => arrayFacts.preferences.add(item));
-  intent.avoidances.forEach((item) => arrayFacts.avoidances.add(item));
 }
 
 function mergeUserMessageFacts(

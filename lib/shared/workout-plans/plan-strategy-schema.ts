@@ -1,5 +1,26 @@
 import { z } from "zod";
 
+const planStrategyFieldSourceSchema = z.enum([
+  "current_user_message",
+  "history",
+  "artifact",
+  "llm_inferred",
+  "default",
+]);
+
+const planStrategyFieldSourcesSchema = z.object({
+  goal: planStrategyFieldSourceSchema.optional(),
+  experience: planStrategyFieldSourceSchema.optional(),
+  sessionMinutes: planStrategyFieldSourceSchema.optional(),
+  weeklyFrequency: planStrategyFieldSourceSchema.optional(),
+  calendarHorizonDays: planStrategyFieldSourceSchema.optional(),
+  equipment: planStrategyFieldSourceSchema.optional(),
+  injuryLimitations: planStrategyFieldSourceSchema.optional(),
+  preferences: planStrategyFieldSourceSchema.optional(),
+  avoidances: planStrategyFieldSourceSchema.optional(),
+  sourceArtifactId: planStrategyFieldSourceSchema.optional(),
+}).default({});
+
 export const planStrategyTypeSchema = z.enum([
   "repeat_previous_routine",
   "repeat_same_routine_with_progression",
@@ -31,6 +52,8 @@ export const planStrategySchema = z.object({
   progressionPolicy: planProgressionPolicySchema,
   intensityBias: planIntensityBiasSchema,
   constraints: z.array(z.string().trim().min(1).max(120)).max(12).default([]),
+  fieldSources: planStrategyFieldSourcesSchema,
+  defaultAssumptions: z.array(z.string().trim().min(1).max(160)).max(8).default([]),
 });
 
 // schedulePreview 只表达可解释的预览安排，实际写入 WorkoutSchedule 必须经过后续确认和持久化校验。

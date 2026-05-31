@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   chatRequestSchema,
+  createResolvedChatIntent,
   createFallbackChatIntent,
+  deriveChatIntentFromResolvedIntent,
   encodeChatStreamEvent,
   formatReferencedExerciseExplanation,
   getActionBlockingMissingFields,
@@ -15,6 +17,7 @@ import {
   resolveAssistantAction,
   resolveVisibleSuggestedReplies,
   shouldUseReferenceResolutionForChat,
+  validateResolvedIntentGate,
   type ChatIntent,
   type ExerciseContext,
 } from "@/lib/server/chat/chat-service";
@@ -103,6 +106,97 @@ describe("AI chat service deterministic boundaries", () => {
       ),
     ).toEqual(["我今天在家自重练 30 分钟"]);
     expect(resolveVisibleSuggestedReplies({ ...chatIntent, suggestedReplies: ["补充信息"] }, routineAction)).toEqual([]);
+  });
+
+  it("derives a resolved intent contract and blocks clarification/action conflicts", () => {
+    const chatIntent: ChatIntent = {
+      type: "workout_plan",
+      needsExerciseContext: true,
+      workoutIntent: createWorkoutPlanIntent({ intentType: "plan", weeklyFrequency: 3 }),
+      requestedExerciseName: "",
+      canTriggerAction: true,
+      missingActionFields: [],
+      suggestedReplies: [],
+    };
+    const action = resolveAssistantAction(
+      chatIntent,
+      createExerciseContext({ intent: chatIntent.workoutIntent }),
+    );
+    const resolved = createResolvedChatIntent({
+      chatIntent,
+      exerciseContext: createExerciseContext({ intent: chatIntent.workoutIntent }),
+      assistantAction: action,
+      referenceResolution: null,
+    });
+
+    expect(resolved).toMatchObject({
+      type: "workout_plan",
+      action: { kind: "workout_plan", shouldTrigger: true },
+      responseMode: "generate_directly",
+      workoutIntent: { intentType: "plan", weeklyFrequency: 3 },
+    });
+    expect(validateResolvedIntentGate(resolved)).toEqual({ valid: true, violations: [] });
+
+    const conflicting = {
+      ...resolved,
+      responseMode: "ask_clarification" as const,
+      missingActionFields: ["goal"],
+    };
+    expect(validateResolvedIntentGate(conflicting)).toMatchObject({
+      valid: false,
+      violations: expect.arrayContaining([
+        "responseMode=ask_clarification conflicts with action.shouldTrigger=true",
+        "missingActionFields must be empty when action.shouldTrigger=true",
+      ]),
+    });
+    expect(deriveChatIntentFromResolvedIntent(chatIntent, {
+      ...resolved,
+      action: { kind: "none", shouldTrigger: false, blockingMissingFields: ["goal"] },
+      responseMode: "ask_clarification",
+      missingActionFields: ["goal"],
+      clarificationReplies: ["我想增肌，每周 3 练"],
+    })).toMatchObject({
+      canTriggerAction: false,
+      missingActionFields: ["goal"],
+      suggestedReplies: ["我想增肌，每周 3 练"],
+    });
+  });
+
+  it("blocks reference-dependent actions when reference resolution is unavailable", () => {
+    const chatIntent: ChatIntent = {
+      type: "exercise_explanation",
+      needsExerciseContext: false,
+      requestedExerciseName: "",
+      canTriggerAction: true,
+      missingActionFields: [],
+      suggestedReplies: [],
+      action: {
+        kind: "exercise_explanation",
+        shouldTrigger: true,
+        blockingMissingFields: [],
+      },
+    };
+    const resolved = createResolvedChatIntent({
+      chatIntent,
+      exerciseContext: null,
+      assistantAction: {
+        action: "exercise_explanation",
+        intent: createWorkoutPlanIntent(),
+      },
+      referenceResolution: {
+        status: "not_found",
+        confidence: "low",
+        reason: "没有可用历史训练",
+        candidates: [],
+      },
+    });
+
+    expect(validateResolvedIntentGate(resolved)).toMatchObject({
+      valid: false,
+      violations: expect.arrayContaining([
+        "referenceRequirement is required but referenceResolution is not_found",
+      ]),
+    });
   });
 
   it("treats multi-week repeat requests as workout plan actions", () => {

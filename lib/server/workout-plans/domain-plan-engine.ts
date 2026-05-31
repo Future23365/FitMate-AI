@@ -2,6 +2,7 @@ import "server-only";
 
 import type { ReferenceResolution } from "@/lib/shared/reference-resolver/schema";
 import type { ConversationArtifactPayload } from "@/lib/shared/conversation-artifacts/schema";
+import type { ResolvedFieldSources } from "@/lib/shared/chat/resolved-intent";
 import { shouldUseConservativeProgression } from "@/lib/server/user-feedback-memory/user-feedback-memory-service";
 import type { ConversationMemoryState } from "@/lib/shared/user-feedback-memory/schema";
 import {
@@ -45,7 +46,7 @@ export type DomainPlanEngineResult =
     }
   | {
       ok: false;
-      code: "missing_source_artifact" | "unsupported_source_artifact" | "empty_source_training_days";
+      code: "missing_source_artifact" | "unsupported_source_artifact" | "empty_source_training_days" | "strategy_draft_conflict";
       message: string;
       strategy: PlanStrategy;
     };
@@ -55,6 +56,7 @@ export function buildPlanStrategyFromChatIntent(input: {
   intent: WorkoutPlanIntent;
   latestUserMessage: string;
   referenceResolution?: Extract<ReferenceResolution, { status: "resolved" }>;
+  fieldSources?: ResolvedFieldSources;
 }): PlanStrategy {
   const intensityBias = inferIntensityBias(input.latestUserMessage);
   const strategy = inferStrategy(input.latestUserMessage, input.referenceResolution?.artifactKind);
@@ -62,14 +64,22 @@ export function buildPlanStrategyFromChatIntent(input: {
 
   return planStrategySchema.parse({
     goal: input.intent.goal,
-    horizonDays: inferHorizonDays(input.latestUserMessage, input.intent.calendarHorizonDays),
-    weeklyFrequency: inferWeeklyFrequency(input.latestUserMessage, input.intent.weeklyFrequency),
+    horizonDays: resolveStrategyHorizonDays(input),
+    weeklyFrequency: resolveStrategyWeeklyFrequency(input),
     sessionMinutes: input.intent.sessionMinutes,
     strategy,
     sourceArtifactId: input.referenceResolution?.artifactId,
     progressionPolicy,
     intensityBias,
     constraints: inferConstraints(input.latestUserMessage),
+    fieldSources: {
+      ...input.fieldSources,
+      calendarHorizonDays: input.fieldSources?.calendarHorizonDays ?? (input.intent.calendarHorizonDays ? "llm_inferred" : "default"),
+      weeklyFrequency: input.fieldSources?.weeklyFrequency ?? "llm_inferred",
+      sessionMinutes: input.fieldSources?.sessionMinutes ?? "llm_inferred",
+      sourceArtifactId: input.referenceResolution?.artifactId ? "artifact" : input.fieldSources?.sourceArtifactId,
+    },
+    defaultAssumptions: buildDefaultAssumptions(input),
   });
 }
 
@@ -182,12 +192,93 @@ export function expandDomainPlan(input: DomainPlanEngineInput): DomainPlanEngine
     ],
   };
 
+  const consistency = validatePlanDraftAgainstStrategy(draft, strategy);
+  if (!consistency.valid) {
+    return {
+      ok: false,
+      code: "strategy_draft_conflict",
+      message: `DomainPlanEngine 输出与 PlanStrategy 冲突：${consistency.issues.join("；")}`,
+      strategy,
+    };
+  }
+
   return {
     ok: true,
     strategy,
     draft,
     sourceExerciseIds: getDraftExerciseIds(draft),
   };
+}
+
+function resolveStrategyHorizonDays(input: {
+  intent: WorkoutPlanIntent;
+  latestUserMessage: string;
+  fieldSources?: ResolvedFieldSources;
+}) {
+  if (input.intent.calendarHorizonDays && input.fieldSources?.calendarHorizonDays !== "default") {
+    return input.intent.calendarHorizonDays;
+  }
+
+  return inferHorizonDays(input.latestUserMessage, input.intent.calendarHorizonDays);
+}
+
+function resolveStrategyWeeklyFrequency(input: {
+  intent: WorkoutPlanIntent;
+  latestUserMessage: string;
+  fieldSources?: ResolvedFieldSources;
+}) {
+  if (input.fieldSources?.weeklyFrequency && input.fieldSources.weeklyFrequency !== "default") {
+    return input.intent.weeklyFrequency;
+  }
+
+  return inferWeeklyFrequency(input.latestUserMessage, input.intent.weeklyFrequency);
+}
+
+function buildDefaultAssumptions(input: {
+  intent: WorkoutPlanIntent;
+  fieldSources?: ResolvedFieldSources;
+}) {
+  const assumptions: string[] = [];
+
+  if (!input.intent.calendarHorizonDays || input.fieldSources?.calendarHorizonDays === "default") {
+    assumptions.push("未明确计划周期时，默认按 21 天预览生成。");
+  }
+
+  if (input.fieldSources?.weeklyFrequency === "default") {
+    assumptions.push(`未明确周频率时，默认按每周 ${input.intent.weeklyFrequency} 练生成。`);
+  }
+
+  if (input.fieldSources?.sessionMinutes === "default") {
+    assumptions.push(`未明确单次时长时，默认按 ${input.intent.sessionMinutes} 分钟生成。`);
+  }
+
+  return assumptions;
+}
+
+// 输出契约校验保证 DomainPlanEngine 不把与 PlanStrategy 冲突的草稿当作成功结果。
+export function validatePlanDraftAgainstStrategy(draft: WorkoutPlanDraft, strategy: PlanStrategy) {
+  const issues: string[] = [];
+
+  if (draft.cycleLengthDays !== strategy.horizonDays) {
+    issues.push(`cycleLengthDays=${draft.cycleLengthDays} 与 horizonDays=${strategy.horizonDays} 不一致`);
+  }
+
+  if (draft.calendarHorizonDays && draft.calendarHorizonDays !== strategy.horizonDays) {
+    issues.push(`calendarHorizonDays=${draft.calendarHorizonDays} 与 horizonDays=${strategy.horizonDays} 不一致`);
+  }
+
+  if (draft.weeklyFrequency && draft.weeklyFrequency !== strategy.weeklyFrequency) {
+    issues.push(`weeklyFrequency=${draft.weeklyFrequency} 与 strategy.weeklyFrequency=${strategy.weeklyFrequency} 不一致`);
+  }
+
+  const wrongSource = draft.schedulePreview?.find(
+    (entry) => strategy.sourceArtifactId && entry.sourceArtifactId !== strategy.sourceArtifactId,
+  );
+  if (wrongSource) {
+    issues.push(`schedulePreview 引用 ${wrongSource.sourceArtifactId ?? "empty"}，预期 ${strategy.sourceArtifactId}`);
+  }
+
+  return { valid: issues.length === 0, issues };
 }
 
 export function getDraftExerciseIds(draft: WorkoutPlanDraft) {

@@ -43,6 +43,13 @@ export const aiPromptConfig = {
       "如果用户问题与健身、训练、动作、饮食、运动习惯无关，type 必须是 non_fitness，needsExerciseContext 必须是 false。",
       "non_fitness 场景不要返回 workoutIntent；requestedExerciseName 使用空字符串。",
       "JSON 字段必须是：type, needsExerciseContext, workoutIntent, requestedExerciseName, canTriggerAction, missingActionFields, suggestedReplies。",
+      "同时必须输出 resolved intent 相关字段：action, responseMode, fieldSources, referenceRequirement, clarificationReplies, adjustmentReplies。",
+      "action.kind 只能是 exercise_recommendation、workout_routine、workout_plan、workout_patch、exercise_replacement、exercise_explanation、none；action.shouldTrigger 必须和 canTriggerAction 一致。",
+      "responseMode 只能是 answer_only、ask_clarification、generate_directly、generate_with_suggestions。ask_clarification 与 action.shouldTrigger=true 互斥。",
+      "clarificationReplies 只用于缺信息或引用对象不可执行时的阻断追问；adjustmentReplies 只用于已经生成后的可选调整建议。",
+      "action.shouldTrigger=true 时 missingActionFields、action.blockingMissingFields、clarificationReplies 必须为空；用户明确可执行需求不要用 clarificationReplies 阻断。",
+      "关键字段必须进入 workoutIntent 和 fieldSources，尤其是 calendarHorizonDays、weeklyFrequency、sessionMinutes、sourceArtifactId、引用对象和字段来源。",
+      "fieldSources 的值只能是 current_user_message、history、artifact、llm_inferred、default；默认值必须标为 default，不能伪装成用户明确提供。",
       "type 只能是 general_fitness_advice、exercise_recommendation、workout_plan、routine、exercise_replacement、exercise_explanation、non_fitness。",
       "workoutIntent 字段在 needsExerciseContext 为 true 时必须给出，字段为 intentType, goal, experience, sessionMinutes, weeklyFrequency, calendarHorizonDays, equipment, injuryLimitations, preferences, avoidances。",
       "workoutIntent.intentType 只能是 plan 或 routine；exercise_recommendation 场景只能用于纯动作推荐过滤条件，不代表生成本次训练编排；experience 只能是 beginner、intermediate、advanced。",
@@ -106,6 +113,7 @@ export const aiPromptConfig = {
 当 serverReferenceResolution.status 是 ambiguous 或 not_found 时，服务端会直接生成澄清回复，你不应继续承诺修改、替换或重复生成历史训练。
 禁止输出任何内部 Trigger、JSON、代码块或 Markdown fenced block；不要把 workout_plan_trigger、workout_routine_trigger、exercise_recommendation_trigger、suggested_reply_trigger、suggested_question_trigger 写进正文。
 只有 serverAssistantAction.triggered 为 true 时，才可以说会按当前条件整理动作推荐、单次编排或长期计划；正文只做一句自然过渡，不要直接列一套具体动作清单，避免和后续结果冲突。
+如果本轮提供了 serverArtifactResult，你必须以它为准：success 时说明已经按 resolved intent 完成；failed 时说明恢复路径，不要承诺生成成功。
 如果 serverAssistantAction.triggered 为 false，你必须根据 serverAssistantAction.blockingMissingFields 自然追问仍然缺失的信息，不要承诺会整理或生成训练结果。
 如果 serverWorkoutIntent 中已有 sessionMinutes，你需要按该时长自然描述本次训练，例如“我先按 20 分钟整理这次训练”。
 如果用户给出了明确动作列表并要求编成单次训练，但 serverWorkoutIntent 中没有明确 sessionMinutes，你可以自然说明会先按估算时长整理，并提示用户后续可以补充时长调整；不要使用固定模板句。
@@ -125,6 +133,21 @@ export const aiPromptConfig = {
       "3. 如果 candidateStatus 为 enough 或 limited_but_usable，禁止说动作库没有匹配动作、无法推荐动作或需要用户放宽条件。",
       "4. 对 workout_plan 或 routine 场景，自然语言正文只做目标说明和自然过渡，不要另写一套和后续结果冲突的动作清单；不要提及卡片、下方、马上生成或后台生成。",
       "5. 对 exercise_recommendation 场景，自然语言正文只做简短说明，不要直接列具体动作；不要提及卡片、下方、马上生成或后台生成。",
+    ].join("\n"),
+  },
+
+  // 模型调用：/api/chat 的 resolved intent 一致性修复请求。
+  resolvedIntentRepair: {
+    system: [
+      "你是 FitMate AI 的 resolved intent 修复器。",
+      "请只返回一个合法 JSON 对象，不要输出 Markdown，不要解释。",
+      "你会收到 latestUserMessage、originalResolvedIntent 和服务端 gate violations。",
+      "你的任务只允许修复 resolved intent 的结构冲突，不允许生成自然语言回复或训练计划。",
+      "必须保留用户真实意图；如果无法安全触发，设置 action.shouldTrigger=false 且 responseMode=ask_clarification。",
+      "ask_clarification 与 action.shouldTrigger=true 互斥；action.shouldTrigger=true 时 missingActionFields、action.blockingMissingFields、clarificationReplies 必须为空。",
+      "type、action.kind 和 workoutIntent.intentType 必须一致：workout_plan 对 plan，workout_routine 对 routine，exercise_recommendation 只用于动作推荐。",
+      "依赖历史 artifact 的 workout_patch、exercise_replacement、exercise_explanation 必须有 referenceRequirement.required=true；引用不可用时不得触发。",
+      "输出 JSON 必须符合 ResolvedChatIntent：type, action, responseMode, workoutIntent, missingActionFields, clarificationReplies, adjustmentReplies, fieldSources, referenceRequirement, referenceResolution。",
     ].join("\n"),
   },
 

@@ -6,6 +6,7 @@ import type {
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
 import type { ConversationSummaryContext, FitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
 import type { ReferenceResolution } from "@/lib/shared/reference-resolver/schema";
+import type { ResolvedAction, ResolvedChatIntent, ResolvedFieldSources } from "@/lib/shared/chat/resolved-intent";
 import type { WorkoutPatchDiffEntry } from "@/lib/shared/workout-patches/schema";
 
 export type ChatMessage = {
@@ -26,8 +27,11 @@ export type ChatMessage = {
 export type ApiChatMessage = Pick<ChatMessage, "role" | "content">;
 
 export type AssistantActionEvent = {
-  action: "exercise_recommendation" | "workout_routine" | "workout_plan";
+  action: ResolvedAction["kind"];
   intent: unknown;
+  resolvedIntent?: ResolvedChatIntent;
+  resolvedAction?: ResolvedAction;
+  fieldSources?: ResolvedFieldSources;
   referenceResolution?: Extract<ReferenceResolution, { status: "resolved" }>;
 };
 
@@ -38,17 +42,28 @@ export type ChatStreamEvent = {
     | "done"
     | "error"
     | "assistant_action"
+    | "intent_resolved"
+    | "artifact_generating"
+    | "artifact_validated"
+    | "artifact_failed"
+    | "artifact"
     | "workout_patch"
     | "suggested_replies"
     | "suggested_questions";
   delta?: string;
   action?: AssistantActionEvent["action"];
   intent?: unknown;
+  resolvedIntent?: ResolvedChatIntent;
+  resolvedAction?: ResolvedAction;
+  fieldSources?: ResolvedFieldSources;
   referenceResolution?: AssistantActionEvent["referenceResolution"];
-  artifactKind?: "routine" | "plan";
+  artifactKind?: "exercise_recommendation" | "routine" | "plan";
   artifactId?: string;
   sourceArtifactId?: string;
-  payload?: WorkoutRoutineDraft | WorkoutPlanDraft;
+  payload?: ExerciseRecommendationCard | WorkoutRoutineDraft | WorkoutPlanDraft;
+  errorCode?: string;
+  guidanceMessage?: string;
+  recoverable?: boolean;
   diff?: WorkoutPatchDiffEntry[];
   suggestedReplies?: string[];
   /** @deprecated 旧流事件兼容字段；新事件使用 suggestedReplies */

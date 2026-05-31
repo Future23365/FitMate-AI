@@ -13,6 +13,7 @@ import type { AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import { referenceResolutionSchema } from "@/lib/shared/reference-resolver/schema";
+import { resolvedFieldSourcesSchema } from "@/lib/shared/chat/resolved-intent";
 import {
   buildConversationSummaryContext,
   formatConversationSummaryContextForPrompt,
@@ -58,6 +59,7 @@ export const aiWorkoutPlanRequestSchema = z.object({
   conversationSummary: z.string().trim().max(2000).default(""),
   messages: z.array(aiWorkoutPlanChatMessageSchema).min(1).max(200).optional(),
   intent: workoutPlanIntentSchema.optional(),
+  fieldSources: resolvedFieldSourcesSchema.optional(),
   referenceResolution: referenceResolutionSchema.optional(),
   parentTraceId: z.string().trim().min(1).max(120).optional(),
 });
@@ -474,6 +476,7 @@ async function maybeGenerateDomainPlanFromReference(input: {
     intent: input.intent,
     latestUserMessage: input.request.latestUserMessage,
     referenceResolution: input.request.referenceResolution,
+    fieldSources: input.request.fieldSources,
   });
 
   input.trace?.addStep({

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { aiPromptConfig, buildPromptFromModules } from "@/lib/server/ai/prompt-config";
 import {
   createCandidateTrimSummary,
+  createExerciseRecommendationBudgetDecision,
   createChatTokenBudgetDecision,
   getStageDecision,
   shouldSkipConversationSummaryUpdate,
@@ -56,10 +57,21 @@ import {
 } from "@/lib/server/user-feedback-memory/user-feedback-memory-service";
 import {
   selectExerciseCandidates,
+  generateAiWorkoutPlanDraft,
   workoutPlanIntentSchema,
+  type AiWorkoutPlanResult,
   type WorkoutPlanIntent,
 } from "@/lib/server/workout-plans";
+import { generateAiExerciseRecommendations } from "@/lib/server/exercise-recommendations/ai-exercise-recommendation-service";
 import type { ReferenceResolution } from "@/lib/shared/reference-resolver/schema";
+import {
+  resolvedChatIntentSchema,
+  type ResolvedActionKind,
+  type ResolvedChatIntent,
+  type ResolvedFieldSource,
+  type ResolvedFieldSources,
+} from "@/lib/shared/chat/resolved-intent";
+import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
 import type {
   ConversationArtifactKind,
   ConversationArtifactPayload,
@@ -120,6 +132,12 @@ export const chatIntentSchema = z.object({
   missingActionFields: z.array(z.string().trim().min(1)).max(12).default([]),
   suggestedReplies: z.array(z.string().trim().min(1).max(120)).max(3).default([]),
   suggestedQuestions: z.array(z.string().trim().min(1).max(120)).max(3).default([]),
+  action: resolvedChatIntentSchema.shape.action.optional(),
+  responseMode: resolvedChatIntentSchema.shape.responseMode.optional(),
+  fieldSources: resolvedChatIntentSchema.shape.fieldSources.optional(),
+  referenceRequirement: resolvedChatIntentSchema.shape.referenceRequirement.optional(),
+  clarificationReplies: z.array(z.string().trim().min(1).max(120)).max(3).optional(),
+  adjustmentReplies: z.array(z.string().trim().min(1).max(120)).max(3).optional(),
 }).transform(({ suggestedQuestions, ...data }) => ({
   ...data,
   suggestedReplies: data.suggestedReplies.length > 0 ? data.suggestedReplies : suggestedQuestions,
@@ -152,10 +170,35 @@ export type PreparedAiChatRequest = {
 };
 
 export type AssistantAction = {
-  action: "exercise_recommendation" | "workout_routine" | "workout_plan";
+  action: Exclude<ResolvedActionKind, "none">;
   intent: WorkoutPlanIntent;
+  resolvedIntent?: ResolvedChatIntent;
   referenceResolution?: Extract<ReferenceResolution, { status: "resolved" }>;
 };
+
+type ChatArtifactResult =
+  | {
+      status: "success";
+      kind: "exercise_recommendation";
+      payload: ExerciseRecommendationCard;
+      intent: WorkoutPlanIntent;
+    }
+  | {
+      status: "success";
+      kind: "routine" | "plan";
+      payload: Extract<AiWorkoutPlanResult, { ok: true }>["draft"];
+      intent: WorkoutPlanIntent;
+      candidates: Extract<AiWorkoutPlanResult, { ok: true }>["candidates"];
+    }
+  | {
+      status: "failed";
+      kind: "exercise_recommendation" | "routine" | "plan";
+      message: string;
+      recoverable: boolean;
+      guidanceMessage?: string;
+      suggestedReplies: string[];
+      detail?: unknown;
+    };
 
 export type ExerciseContext = {
   intent: WorkoutPlanIntent;
@@ -241,7 +284,7 @@ export async function createAiChatResponse({
     },
   });
 
-  const chatIntent = await resolveChatIntent(
+  let chatIntent = await resolveChatIntent(
     apiKey,
     messages,
     conversationSummaryContext,
@@ -422,7 +465,7 @@ export async function createAiChatResponse({
     });
   }
 
-  const exerciseContext = chatIntent.needsExerciseContext
+  let exerciseContext = chatIntent.needsExerciseContext
     ? await buildExerciseContext(
         chatIntent,
         messages,
@@ -435,17 +478,82 @@ export async function createAiChatResponse({
         },
       )
     : null;
-  const assistantAction = resolveAssistantAction(
+  let assistantAction = resolveAssistantAction(
     chatIntent,
     exerciseContext,
     referenceResolution?.status === "resolved" ? referenceResolution : undefined,
   );
+  let resolvedIntent = createResolvedChatIntent({
+    chatIntent,
+    exerciseContext,
+    assistantAction,
+    referenceResolution,
+  });
+  let gate = validateResolvedIntentGate(resolvedIntent);
+
+  if (!gate.valid) {
+    const repair = await repairResolvedIntent({
+      apiKey,
+      messages,
+      conversationSummaryContext,
+      originalIntent: resolvedIntent,
+      violations: gate.violations,
+      trace,
+    });
+
+    if (repair.valid) {
+      resolvedIntent = repair.intent;
+      chatIntent = deriveChatIntentFromResolvedIntent(chatIntent, resolvedIntent);
+      exerciseContext = chatIntent.needsExerciseContext
+        ? await buildExerciseContext(
+            chatIntent,
+            messages,
+            internalConversationContext,
+            {
+              userId: user.id,
+              exercises: exercisesForMemory,
+              memoryState,
+              trace,
+            },
+          )
+        : null;
+      assistantAction = resolveAssistantAction(
+        chatIntent,
+        exerciseContext,
+        referenceResolution?.status === "resolved" ? referenceResolution : undefined,
+      );
+      resolvedIntent = createResolvedChatIntent({
+        chatIntent,
+        exerciseContext,
+        assistantAction,
+        referenceResolution,
+        preferredResolvedIntent: resolvedIntent,
+      });
+      gate = validateResolvedIntentGate(resolvedIntent);
+    }
+
+    if (!gate.valid) {
+      resolvedIntent = createClarificationResolvedIntent(resolvedIntent, gate.violations);
+      chatIntent = deriveChatIntentFromResolvedIntent(chatIntent, resolvedIntent);
+      assistantAction = null;
+    }
+  }
+
   const visibleSuggestedReplies = resolveVisibleSuggestedReplies(chatIntent, assistantAction);
+  if (assistantAction) {
+    assistantAction = {
+      ...assistantAction,
+      resolvedIntent,
+    };
+  }
   trace.addStep({
-    name: "服务端内部动作事件",
+    name: "Resolved intent 门控结果",
     type: "intent",
-    status: "success",
+    status: gate.valid ? "success" : "failed",
     output: {
+      rawIntent: chatIntent,
+      resolvedIntent,
+      gate,
       assistantAction,
       canTriggerAction: chatIntent.canTriggerAction,
       missingActionFields: chatIntent.missingActionFields,
@@ -457,8 +565,20 @@ export async function createAiChatResponse({
     },
     metadata: {
       skipped: !assistantAction,
+      responseMode: resolvedIntent.responseMode,
+      actionKind: resolvedIntent.action.kind,
     },
   });
+  const artifactResult = assistantAction
+    ? await generateChatArtifact({
+        apiKey,
+        latestUserMessage: conversationSummaryContext.latestUserMessage,
+        conversationSummary: conversationSummaryContext.summary,
+        assistantAction,
+        exerciseContext,
+        trace,
+      })
+    : null;
   const tokenBudgetDecision = createChatTokenBudgetDecision({
     intentType: chatIntent.type,
     needsExerciseContext: chatIntent.needsExerciseContext,
@@ -470,7 +590,7 @@ export async function createAiChatResponse({
       previousSummary: conversationSummaryContext.summary,
       latestUserMessage: conversationSummaryContext.latestUserMessage,
       assistantReply: "",
-      internalActionSummary: summarizeAssistantAction(assistantAction),
+      internalActionSummary: summarizeAssistantAction(assistantAction, artifactResult),
     }),
   });
   traceTokenBudgetDecision(trace, tokenBudgetDecision);
@@ -480,6 +600,8 @@ export async function createAiChatResponse({
     exerciseContext,
     conversationSummaryContext,
     assistantAction,
+    resolvedIntent,
+    artifactResult,
     recentArtifactSummaries,
     referenceResolution,
     memoryState,
@@ -643,10 +765,51 @@ export async function createAiChatResponse({
 
       if (assistantAction) {
         controller.enqueue(
+          encodeChatStreamEvent("intent_resolved", "", {
+            resolvedIntent,
+            action: assistantAction.action,
+            intent: assistantAction.intent,
+            fieldSources: resolvedIntent.fieldSources,
+            referenceResolution: assistantAction.referenceResolution,
+          }),
+        );
+        controller.enqueue(
           encodeChatStreamEvent("assistant_action", "", {
             action: assistantAction.action,
             intent: assistantAction.intent,
+            resolvedIntent,
+            resolvedAction: resolvedIntent.action,
+            fieldSources: resolvedIntent.fieldSources,
             referenceResolution: assistantAction.referenceResolution,
+          }),
+        );
+      }
+
+      if (artifactResult?.status === "success") {
+        controller.enqueue(
+          encodeChatStreamEvent("artifact_validated", "", {
+            artifactKind: artifactResult.kind,
+            payload: artifactResult.payload,
+            intent: artifactResult.intent,
+          }),
+        );
+        controller.enqueue(
+          encodeChatStreamEvent("artifact", "", {
+            artifactKind: artifactResult.kind,
+            payload: artifactResult.payload,
+            intent: artifactResult.intent,
+          }),
+        );
+      }
+
+      if (artifactResult?.status === "failed") {
+        controller.enqueue(
+          encodeChatStreamEvent("artifact_failed", "", {
+            artifactKind: artifactResult.kind,
+            errorCode: artifactResult.message,
+            guidanceMessage: artifactResult.guidanceMessage,
+            recoverable: artifactResult.recoverable,
+            suggestedReplies: artifactResult.suggestedReplies,
           }),
         );
       }
@@ -717,7 +880,7 @@ export async function createAiChatResponse({
                 previousSummary: conversationSummaryContext.summary,
                 latestUserMessage: conversationSummaryContext.latestUserMessage,
                 assistantReply: contentText,
-                internalActionSummary: summarizeAssistantAction(assistantAction),
+                internalActionSummary: summarizeAssistantAction(assistantAction, artifactResult),
                 trace,
                 tokenBudgetDecision,
               });
@@ -783,7 +946,7 @@ export async function createAiChatResponse({
           previousSummary: conversationSummaryContext.summary,
           latestUserMessage: conversationSummaryContext.latestUserMessage,
           assistantReply: contentText,
-          internalActionSummary: summarizeAssistantAction(assistantAction),
+          internalActionSummary: summarizeAssistantAction(assistantAction, artifactResult),
           trace,
           tokenBudgetDecision,
         });
@@ -1765,7 +1928,7 @@ export function resolveVisibleSuggestedReplies(
   return chatIntent.suggestedReplies;
 }
 
-function summarizeAssistantAction(assistantAction: AssistantAction | null) {
+function summarizeAssistantAction(assistantAction: AssistantAction | null, artifactResult?: ChatArtifactResult | null) {
   if (!assistantAction) {
     return "";
   }
@@ -1773,8 +1936,461 @@ function summarizeAssistantAction(assistantAction: AssistantAction | null) {
   return JSON.stringify({
     action: assistantAction.action,
     intent: assistantAction.intent,
+    resolvedIntent: assistantAction.resolvedIntent,
     referenceResolution: assistantAction.referenceResolution,
+    artifactResult: summarizeChatArtifactForPrompt(artifactResult ?? null),
   });
+}
+
+function summarizeChatArtifactForPrompt(artifactResult: ChatArtifactResult | null) {
+  if (!artifactResult) {
+    return { status: "not_requested" };
+  }
+
+  if (artifactResult.status === "failed") {
+    return {
+      status: "failed",
+      kind: artifactResult.kind,
+      message: artifactResult.message,
+      recoverable: artifactResult.recoverable,
+      guidanceMessage: artifactResult.guidanceMessage,
+      suggestedReplies: artifactResult.suggestedReplies,
+    };
+  }
+
+  return {
+    status: "success",
+    kind: artifactResult.kind,
+    intent: artifactResult.intent,
+    title: "title" in artifactResult.payload ? artifactResult.payload.title : undefined,
+    itemCount:
+      artifactResult.kind === "exercise_recommendation"
+        ? artifactResult.payload.items.length
+        : "sections" in artifactResult.payload
+          ? artifactResult.payload.sections.reduce((total, section) => total + section.items.length, 0)
+          : artifactResult.payload.days.filter((day) => !day.isRestDay).length,
+  };
+}
+
+export function createResolvedChatIntent(input: {
+  chatIntent: ChatIntent;
+  exerciseContext: ExerciseContext | null;
+  assistantAction: AssistantAction | null;
+  referenceResolution: ReferenceResolution | null;
+  preferredResolvedIntent?: ResolvedChatIntent;
+}): ResolvedChatIntent {
+  const workoutIntent = input.exerciseContext?.intent ?? input.chatIntent.workoutIntent;
+  const blockingMissingFields = workoutIntent
+    ? getActionBlockingMissingFields(input.chatIntent.missingActionFields, workoutIntent)
+    : input.chatIntent.missingActionFields;
+  const inferredActionKind = input.assistantAction?.action ?? inferActionKindFromIntentType(input.chatIntent.type);
+  const shouldTrigger = Boolean(input.assistantAction) && blockingMissingFields.length === 0;
+  const hasClarification =
+    blockingMissingFields.length > 0 ||
+    (!shouldTrigger && (input.chatIntent.clarificationReplies?.length || input.chatIntent.suggestedReplies.length));
+  const responseMode = input.chatIntent.responseMode ??
+    (shouldTrigger
+      ? input.chatIntent.adjustmentReplies?.length
+        ? "generate_with_suggestions"
+        : "generate_directly"
+      : hasClarification
+        ? "ask_clarification"
+        : "answer_only");
+  const clarificationReplies = responseMode === "ask_clarification"
+    ? input.chatIntent.clarificationReplies ?? input.chatIntent.suggestedReplies
+    : [];
+  const adjustmentReplies = responseMode === "generate_with_suggestions"
+    ? input.chatIntent.adjustmentReplies ?? input.chatIntent.suggestedReplies
+    : input.chatIntent.adjustmentReplies ?? [];
+  const referenceRequirement = input.chatIntent.referenceRequirement ?? inferReferenceRequirement(inferredActionKind);
+
+  return resolvedChatIntentSchema.parse({
+    ...input.preferredResolvedIntent,
+    type: input.chatIntent.type,
+    action: {
+      kind: shouldTrigger ? inferredActionKind : input.chatIntent.action?.kind ?? inferredActionKind,
+      shouldTrigger,
+      reason: input.chatIntent.action?.reason,
+      blockingMissingFields,
+    },
+    responseMode,
+    workoutIntent,
+    missingActionFields: blockingMissingFields,
+    clarificationReplies,
+    adjustmentReplies,
+    fieldSources: {
+      ...inferFieldSources(workoutIntent),
+      ...input.chatIntent.fieldSources,
+      sourceArtifactId: input.referenceResolution?.status === "resolved" ? "artifact" : input.chatIntent.fieldSources?.sourceArtifactId,
+    },
+    referenceRequirement,
+    referenceResolution: input.referenceResolution ?? undefined,
+  });
+}
+
+export function deriveChatIntentFromResolvedIntent(base: ChatIntent, resolvedIntent: ResolvedChatIntent): ChatIntent {
+  return chatIntentSchema.parse({
+    ...base,
+    type: resolvedIntent.type,
+    needsExerciseContext: Boolean(resolvedIntent.workoutIntent) || resolvedIntent.action.shouldTrigger,
+    workoutIntent: resolvedIntent.workoutIntent,
+    canTriggerAction: resolvedIntent.action.shouldTrigger,
+    missingActionFields: resolvedIntent.action.blockingMissingFields,
+    suggestedReplies:
+      resolvedIntent.responseMode === "ask_clarification"
+        ? resolvedIntent.clarificationReplies
+        : resolvedIntent.adjustmentReplies,
+    action: resolvedIntent.action,
+    responseMode: resolvedIntent.responseMode,
+    fieldSources: resolvedIntent.fieldSources,
+    referenceRequirement: resolvedIntent.referenceRequirement,
+    clarificationReplies: resolvedIntent.clarificationReplies,
+    adjustmentReplies: resolvedIntent.adjustmentReplies,
+  });
+}
+
+export function validateResolvedIntentGate(intent: ResolvedChatIntent): { valid: true; violations: [] } | { valid: false; violations: string[] } {
+  const violations: string[] = [];
+
+  if (intent.responseMode === "ask_clarification" && intent.action.shouldTrigger) {
+    violations.push("responseMode=ask_clarification conflicts with action.shouldTrigger=true");
+  }
+
+  if (intent.missingActionFields.length > 0 && intent.action.shouldTrigger) {
+    violations.push("missingActionFields must be empty when action.shouldTrigger=true");
+  }
+
+  if (intent.action.shouldTrigger && intent.action.kind === "none") {
+    violations.push("action.kind=none cannot trigger an artifact");
+  }
+
+  if (intent.workoutIntent && !isActionCompatibleWithWorkoutIntent(intent.action.kind, intent.type, intent.workoutIntent.intentType)) {
+    violations.push("type/action.kind/workoutIntent.intentType are inconsistent");
+  }
+
+  if (
+    intent.referenceRequirement.required &&
+    intent.referenceResolution?.status !== "resolved"
+  ) {
+    violations.push(`referenceRequirement is required but referenceResolution is ${intent.referenceResolution?.status ?? "missing"}`);
+  }
+
+  if (intent.responseMode === "ask_clarification" && intent.clarificationReplies.length === 0 && intent.missingActionFields.length === 0) {
+    violations.push("ask_clarification requires clarificationReplies or missingActionFields");
+  }
+
+  return violations.length === 0 ? { valid: true, violations: [] } : { valid: false, violations };
+}
+
+async function repairResolvedIntent(input: {
+  apiKey: string;
+  messages: ChatMessage[];
+  conversationSummaryContext: ConversationSummaryContext;
+  originalIntent: ResolvedChatIntent;
+  violations: string[];
+  trace: AiTraceLogger;
+}): Promise<{ valid: true; intent: ResolvedChatIntent } | { valid: false; intent: ResolvedChatIntent | null; violations: string[] }> {
+  const modelMessages: DeepSeekChatMessage[] = [
+    {
+      role: "system",
+      content: [
+        aiPromptConfig.resolvedIntentRepair.system,
+        formatConversationSummaryContextForPrompt(input.conversationSummaryContext),
+      ].join("\n\n"),
+    },
+    {
+      role: "user",
+      content: JSON.stringify({
+        latestUserMessage: input.conversationSummaryContext.latestUserMessage,
+        originalResolvedIntent: input.originalIntent,
+        violations: input.violations,
+      }),
+    },
+  ];
+
+  input.trace.addStep({
+    name: "Resolved intent repair 请求",
+    type: "model_request",
+    input: {
+      model: "deepseek-v4-flash",
+      messages: modelMessages,
+      response_format: { type: "json_object" },
+    },
+    metadata: {
+      aiStage: "chat_intent_resolution",
+      aiStageStatus: "executed",
+      violations: input.violations,
+    },
+  });
+
+  const result = await requestDeepSeekJson(input.apiKey, modelMessages, input.trace);
+  if (!result.ok) {
+    input.trace.addStep({
+      name: "Resolved intent repair 失败",
+      type: "intent",
+      status: "failed",
+      error: result,
+    });
+    return { valid: false, intent: null, violations: input.violations };
+  }
+
+  const parsed = resolvedChatIntentSchema.safeParse(result.value);
+  if (!parsed.success) {
+    input.trace.addStep({
+      name: "Resolved intent repair 校验失败",
+      type: "intent",
+      status: "failed",
+      output: result.value,
+      error: parsed.error.flatten(),
+    });
+    return { valid: false, intent: null, violations: input.violations };
+  }
+
+  const gate = validateResolvedIntentGate(parsed.data);
+  input.trace.addStep({
+    name: "Resolved intent repair 结果",
+    type: "intent",
+    status: gate.valid ? "success" : "failed",
+    output: {
+      repairedIntent: parsed.data,
+      gate,
+    },
+  });
+
+  return gate.valid ? { valid: true, intent: parsed.data } : { valid: false, intent: parsed.data, violations: gate.violations };
+}
+
+function createClarificationResolvedIntent(intent: ResolvedChatIntent, violations: string[]): ResolvedChatIntent {
+  return resolvedChatIntentSchema.parse({
+    ...intent,
+    action: {
+      kind: "none",
+      shouldTrigger: false,
+      reason: "resolved_intent_gate_failed",
+      blockingMissingFields: intent.action.blockingMissingFields.length > 0
+        ? intent.action.blockingMissingFields
+        : ["resolvedIntentConflict"],
+    },
+    responseMode: "ask_clarification",
+    missingActionFields: intent.missingActionFields.length > 0
+      ? intent.missingActionFields
+      : ["resolvedIntentConflict"],
+    clarificationReplies: intent.clarificationReplies.length > 0
+      ? intent.clarificationReplies
+      : ["请重新说明你的训练目标、时间和器械条件"],
+    adjustmentReplies: [],
+    fieldSources: intent.fieldSources,
+    referenceRequirement: intent.referenceRequirement,
+    referenceResolution: intent.referenceResolution,
+  });
+}
+
+function inferActionKindFromIntentType(type: ChatIntent["type"]): ResolvedActionKind {
+  switch (type) {
+    case "exercise_recommendation":
+      return "exercise_recommendation";
+    case "routine":
+      return "workout_routine";
+    case "workout_plan":
+      return "workout_plan";
+    case "exercise_replacement":
+      return "exercise_replacement";
+    case "exercise_explanation":
+      return "exercise_explanation";
+    default:
+      return "none";
+  }
+}
+
+function inferReferenceRequirement(actionKind: ResolvedActionKind) {
+  if (actionKind === "workout_patch" || actionKind === "exercise_replacement" || actionKind === "exercise_explanation") {
+    return {
+      required: true,
+      reason: "该动作需要先解析历史训练 artifact。",
+      allowedArtifactKinds: ["exercise_recommendation", "routine", "plan"],
+    };
+  }
+
+  return {
+    required: false,
+    allowedArtifactKinds: [],
+  };
+}
+
+function inferFieldSources(intent: WorkoutPlanIntent | undefined): ResolvedFieldSources {
+  if (!intent) {
+    return {};
+  }
+
+  const sources: ResolvedFieldSources = {
+    goal: intent.goal ? "llm_inferred" : undefined,
+    experience: "default",
+    sessionMinutes: intent.sessionMinutes > 0 ? "llm_inferred" : undefined,
+    weeklyFrequency: intent.weeklyFrequency > 0 ? "llm_inferred" : undefined,
+    equipment: intent.equipment.length > 0 ? "llm_inferred" : undefined,
+    injuryLimitations: intent.injuryLimitations.length > 0 ? "llm_inferred" : undefined,
+    preferences: intent.preferences.length > 0 ? "llm_inferred" : undefined,
+    avoidances: intent.avoidances.length > 0 ? "llm_inferred" : undefined,
+  };
+
+  if (intent.calendarHorizonDays) {
+    sources.calendarHorizonDays = "llm_inferred";
+  }
+
+  return sources;
+}
+
+function isActionCompatibleWithWorkoutIntent(
+  actionKind: ResolvedActionKind,
+  type: ChatIntent["type"],
+  intentType: WorkoutPlanIntent["intentType"],
+) {
+  if (actionKind === "workout_plan") {
+    return type === "workout_plan" && intentType === "plan";
+  }
+
+  if (actionKind === "workout_routine") {
+    return type === "routine" && intentType === "routine";
+  }
+
+  if (actionKind === "exercise_recommendation") {
+    return type === "exercise_recommendation";
+  }
+
+  return true;
+}
+
+async function generateChatArtifact(input: {
+  apiKey: string;
+  latestUserMessage: string;
+  conversationSummary: string;
+  assistantAction: AssistantAction;
+  exerciseContext: ExerciseContext | null;
+  trace: AiTraceLogger;
+}): Promise<ChatArtifactResult> {
+  input.trace.addStep({
+    name: "服务端 artifact 生成开始",
+    type: "tool_call",
+    input: {
+      action: input.assistantAction.action,
+      intent: input.assistantAction.intent,
+      resolvedIntent: input.assistantAction.resolvedIntent,
+    },
+    metadata: {
+      actionKind: input.assistantAction.action,
+    },
+  });
+
+  if (input.assistantAction.action === "exercise_recommendation") {
+    if (!input.exerciseContext) {
+      return {
+        status: "failed",
+        kind: "exercise_recommendation",
+        message: "缺少动作候选上下文，无法生成动作推荐。",
+        recoverable: true,
+        suggestedReplies: ["我补充一下训练目标和器械条件"],
+      };
+    }
+
+    const candidates = [
+      ...input.exerciseContext.providedExercises
+        .filter((candidate) => candidate.source !== "name_match")
+        .map((candidate) => {
+          const source: "primary" | "supplementary" =
+            candidate.source === "supplementary" ? "supplementary" : "primary";
+
+          return {
+            exercise: {
+              id: candidate.exerciseId,
+              nameZh: candidate.nameZh,
+              nameEn: "",
+              categoryZh: candidate.categoryZh,
+              level: candidate.level,
+              equipmentZh: candidate.equipmentZh,
+              primaryMusclesZh: candidate.primaryMusclesZh,
+              secondaryMusclesZh: candidate.secondaryMusclesZh,
+              riskTags: candidate.riskTags,
+              goalTags: candidate.goalTags,
+            } as Exercise,
+            score: 1,
+            reasons: candidate.matchingReasons ?? [],
+            source,
+          };
+        }),
+    ];
+    const tokenBudgetDecision = createExerciseRecommendationBudgetDecision({
+      latestUserMessage: input.latestUserMessage,
+      conversationSummary: input.conversationSummary,
+      candidateTrim: input.exerciseContext.candidateTrim!,
+    });
+    const recommendation = await generateAiExerciseRecommendations({
+      apiKey: input.apiKey,
+      intent: input.assistantAction.intent,
+      latestUserMessage: input.latestUserMessage,
+      conversationSummary: input.conversationSummary,
+      candidates,
+      safetyNotes: input.exerciseContext.warnings,
+      excludeExerciseIds: [],
+      tokenBudgetDecision,
+      trace: input.trace,
+    });
+
+    if (!recommendation.ok) {
+      return {
+        status: "failed",
+        kind: "exercise_recommendation",
+        message: recommendation.message,
+        recoverable: true,
+        detail: recommendation.detail,
+        suggestedReplies: ["放宽器械限制再推荐", "换一个训练目标推荐"],
+      };
+    }
+
+    return {
+      status: "success",
+      kind: "exercise_recommendation",
+      payload: recommendation.card,
+      intent: input.assistantAction.intent,
+    };
+  }
+
+  if (input.assistantAction.action === "workout_plan" || input.assistantAction.action === "workout_routine") {
+    const plan = await generateAiWorkoutPlanDraft({
+      latestUserMessage: input.latestUserMessage,
+      conversationSummary: input.conversationSummary,
+      intent: input.assistantAction.intent,
+      fieldSources: input.assistantAction.resolvedIntent?.fieldSources,
+      referenceResolution: input.assistantAction.referenceResolution,
+    }, { trace: input.trace });
+
+    if (!plan.ok) {
+      return {
+        status: "failed",
+        kind: input.assistantAction.action === "workout_plan" ? "plan" : "routine",
+        message: plan.message,
+        recoverable: Boolean(plan.recoverable),
+        guidanceMessage: plan.guidanceMessage,
+        suggestedReplies: plan.suggestedReplies ?? [],
+        detail: plan.detail,
+      };
+    }
+
+    return {
+      status: "success",
+      kind: plan.kind,
+      payload: plan.draft,
+      intent: plan.intent,
+      candidates: plan.candidates,
+    };
+  }
+
+  return {
+    status: "failed",
+    kind: "routine",
+    message: `当前动作 ${input.assistantAction.action} 尚未接入 artifact 生成器。`,
+    recoverable: true,
+    suggestedReplies: ["重新说明要调整哪套训练"],
+  };
 }
 
 // 聊天回复 prompt 只暴露动作选择必要字段，完整动作对象继续留在服务端校验和下游生成链路。
@@ -1814,6 +2430,8 @@ function buildSystemPrompt(
   exerciseContext: ExerciseContext | null,
   conversationSummaryContext: ConversationSummaryContext,
   assistantAction: AssistantAction | null,
+  resolvedIntent: ResolvedChatIntent,
+  artifactResult: ChatArtifactResult | null,
   recentArtifactSummaries: RecentArtifactSummary[],
   referenceResolution: ReferenceResolution | null = null,
   memoryState: ConversationMemoryState | null = null,
@@ -1829,7 +2447,17 @@ function buildSystemPrompt(
     : aiPromptConfig.chatCompletion.system;
 
   if (!exerciseContext) {
-    return [basePrompt, contextPrompt, artifactPrompt, referencePrompt, memoryPrompt].filter(Boolean).join("\n\n");
+    return [
+      basePrompt,
+      contextPrompt,
+      artifactPrompt,
+      referencePrompt,
+      memoryPrompt,
+      "serverResolvedIntent:",
+      JSON.stringify(resolvedIntent, null, 2),
+      "serverArtifactResult:",
+      JSON.stringify(summarizeChatArtifactForPrompt(artifactResult), null, 2),
+    ].filter(Boolean).join("\n\n");
   }
 
   return [
@@ -1867,6 +2495,12 @@ function buildSystemPrompt(
       null,
       2,
     ),
+    "",
+    "serverResolvedIntent:",
+    JSON.stringify(resolvedIntent, null, 2),
+    "",
+    "serverArtifactResult:",
+    JSON.stringify(summarizeChatArtifactForPrompt(artifactResult), null, 2),
     "",
     "serverWorkoutIntent:",
     JSON.stringify(exerciseContext.intent, null, 2),

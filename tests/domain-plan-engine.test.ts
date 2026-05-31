@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildPlanStrategyFromChatIntent,
   expandDomainPlan,
+  validatePlanDraftAgainstStrategy,
 } from "@/lib/server/workout-plans/domain-plan-engine";
 
 import {
@@ -158,5 +159,90 @@ describe("DomainPlanEngine", () => {
     expect(trainingTitles[0]).toContain("Day 1");
     expect(trainingTitles[1]).toContain("Day 2");
     expect(trainingTitles[2]).toContain("Day 1");
+  });
+
+  it("keeps explicit resolved horizon separate from weekly frequency", () => {
+    const strategy = buildPlanStrategyFromChatIntent({
+      intent: createWorkoutPlanIntent({
+        intentType: "plan",
+        calendarHorizonDays: 5,
+        weeklyFrequency: 3,
+      }),
+      latestUserMessage: "未来 5 天一周三练",
+      fieldSources: {
+        calendarHorizonDays: "current_user_message",
+        weeklyFrequency: "current_user_message",
+      },
+      referenceResolution: {
+        status: "resolved",
+        artifactId: "artifact-routine-5",
+        artifactKind: "routine",
+        confidence: "high",
+        reason: "命中最近 routine",
+        candidates: [],
+      },
+    });
+
+    expect(strategy).toMatchObject({
+      horizonDays: 5,
+      weeklyFrequency: 3,
+      fieldSources: {
+        calendarHorizonDays: "current_user_message",
+        weeklyFrequency: "current_user_message",
+      },
+    });
+  });
+
+  it("marks default plan horizon as a user-visible assumption", () => {
+    const strategy = buildPlanStrategyFromChatIntent({
+      intent: createWorkoutPlanIntent({
+        intentType: "plan",
+        calendarHorizonDays: undefined,
+        weeklyFrequency: 3,
+      }),
+      latestUserMessage: "按这个继续做成计划",
+      fieldSources: {
+        calendarHorizonDays: "default",
+      },
+      referenceResolution: {
+        status: "resolved",
+        artifactId: "artifact-routine-default",
+        artifactKind: "routine",
+        confidence: "high",
+        reason: "命中最近 routine",
+        candidates: [],
+      },
+    });
+
+    expect(strategy.horizonDays).toBe(21);
+    expect(strategy.defaultAssumptions).toContain("未明确计划周期时，默认按 21 天预览生成。");
+  });
+
+  it("rejects drafts that conflict with the resolved PlanStrategy horizon", () => {
+    const strategy = buildPlanStrategyFromChatIntent({
+      intent: createWorkoutPlanIntent({
+        intentType: "plan",
+        calendarHorizonDays: 5,
+        weeklyFrequency: 3,
+      }),
+      latestUserMessage: "未来 5 天每周 3 练",
+      fieldSources: {
+        calendarHorizonDays: "current_user_message",
+        weeklyFrequency: "current_user_message",
+      },
+    });
+    const draft = createWorkoutPlanDraft({
+      cycleLengthDays: 21,
+      calendarHorizonDays: 21,
+      weeklyFrequency: 3,
+    });
+
+    expect(validatePlanDraftAgainstStrategy(draft, strategy)).toMatchObject({
+      valid: false,
+      issues: expect.arrayContaining([
+        "cycleLengthDays=21 与 horizonDays=5 不一致",
+        "calendarHorizonDays=21 与 horizonDays=5 不一致",
+      ]),
+    });
   });
 });

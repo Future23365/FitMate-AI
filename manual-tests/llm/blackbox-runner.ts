@@ -236,7 +236,7 @@ async function consumeChatStream(response: Response) {
           continue;
         }
 
-        if (streamEvent.type === "assistant_action" && streamEvent.action) {
+        if (streamEvent.type === "assistant_action" && streamEvent.action && streamEvent.action !== "none") {
           actions.push({
             action: streamEvent.action,
             intent: streamEvent.intent as WorkoutPlanIntent,
