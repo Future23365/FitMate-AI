@@ -130,7 +130,13 @@ function LocalAnonymousDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md" showCloseButton={false}>
+      <DialogContent
+        className="max-w-md"
+        onPointerDownOutside={(event) => {
+          event.preventDefault();
+        }}
+        showCloseButton={false}
+      >
         <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary-soft text-primary ring-1 ring-primary/10">
           <SymbolIcon className="text-[28px]" filled>
             person
