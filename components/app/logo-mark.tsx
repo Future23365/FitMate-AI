@@ -3,7 +3,7 @@ type LogoMarkProps = {
   animated?: boolean;
 };
 
-// FitMate 的品牌标识使用极简哑铃与勾选负空间，保持小尺寸下的清晰识别。
+// FitMate 的品牌标识使用极简哑铃主形，保持小尺寸下的清晰识别。
 export function LogoMark({ className = "h-10 w-10", animated = false }: LogoMarkProps) {
   return (
     <svg
@@ -11,59 +11,80 @@ export function LogoMark({ className = "h-10 w-10", animated = false }: LogoMark
       className={`${className} shrink-0 overflow-visible`}
       fill="none"
       role="img"
-      viewBox="0 0 96 96"
+      viewBox="0 0 240 240"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <rect fill="#FFFFFF" height="84" rx="24" width="84" x="6" y="6" />
-      <rect height="83" rx="23.5" stroke="#D7E3FF" width="83" x="6.5" y="6.5" />
+      {animated ? (
+        <style>
+          {`
+            .fitmate-dumbbell-pop {
+              transform-box: view-box;
+              transform-origin: 122px 120px;
+              animation: fitmate-dumbbell-pop 720ms cubic-bezier(0.2, 0.92, 0.18, 1.12) both;
+            }
+
+            @keyframes fitmate-dumbbell-pop {
+              0% {
+                opacity: 0;
+                transform: scale(0.12);
+              }
+              54% {
+                opacity: 1;
+                transform: scale(1.14);
+              }
+              78% {
+                transform: scale(0.94);
+              }
+              100% {
+                opacity: 1;
+                transform: scale(1);
+              }
+            }
+          `}
+        </style>
+      ) : null}
+
+      <rect fill="#FFFFFF" height="210" rx="60" width="210" x="15" y="15" />
+      <rect height="207" rx="58.5" stroke="#D7E3FF" strokeWidth="2.5" width="207" x="16.5" y="16.5" />
       <path
-        d="M24 70C35 75 57 75 72 62"
+        d="M60 175C87.5 187.5 142.5 187.5 180 155"
         stroke="#DCE7FF"
         strokeLinecap="round"
-        strokeWidth="5"
+        strokeWidth="12.5"
       >
         {animated ? (
           <animate attributeName="opacity" dur="3.2s" repeatCount="indefinite" values="0.35;0.75;0.35" />
         ) : null}
       </path>
 
-      <g transform="translate(14 30)">
-        {animated ? (
-          <animateTransform
-            additive="sum"
-            attributeName="transform"
-            dur="2.4s"
-            repeatCount="indefinite"
-            type="translate"
-            values="0 0;0 -1.8;0 0"
-          />
-        ) : null}
-        <rect fill="#2459E6" height="36" rx="10" width="12" x="0" y="0" />
-        <rect fill="#2459E6" height="30" rx="9" width="11" x="13" y="3" />
-        <rect fill="#2459E6" height="12" rx="6" width="26" x="22" y="12" />
-        <rect fill="#2459E6" height="30" rx="9" width="11" x="46" y="3" />
-        <rect fill="#2459E6" height="36" rx="10" width="12" x="58" y="0" />
-        <path
-          d="M29 16L34 21L43 11"
-          pathLength="1"
-          stroke="#FFFFFF"
-          strokeDasharray="1"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth="4.5"
-        >
+      <g className={animated ? "fitmate-dumbbell-pop" : undefined}>
+        <g transform="translate(35 75)">
           {animated ? (
-            <animate attributeName="stroke-dashoffset" dur="2.4s" repeatCount="indefinite" values="1;0;0;1" />
+            <animateTransform
+              additive="sum"
+              attributeName="transform"
+              dur="2.4s"
+              repeatCount="indefinite"
+              type="translate"
+              values="0 0;0 -4.5;0 0"
+            />
           ) : null}
-        </path>
-        <path d="M5 7H8M62 7H65" stroke="#DCE7FF" strokeLinecap="round" strokeWidth="2.5" />
+          <g transform="rotate(-10 87.5 45)">
+            <rect fill="#2459E6" height="90" rx="25" width="30" x="0" y="0" />
+            <rect fill="#2459E6" height="75" rx="22.5" width="27.5" x="32.5" y="7.5" />
+            <rect fill="#2459E6" height="30" rx="15" width="65" x="55" y="30" />
+            <rect fill="#2459E6" height="75" rx="22.5" width="27.5" x="115" y="7.5" />
+            <rect fill="#2459E6" height="90" rx="25" width="30" x="145" y="0" />
+            <path d="M12.5 17.5H20M155 17.5H162.5" stroke="#DCE7FF" strokeLinecap="round" strokeWidth="6.25" />
+          </g>
+        </g>
       </g>
 
       <path
-        d="M25 27C34 22 62 22 71 30"
+        d="M62.5 67.5C85 55 155 55 177.5 75"
         stroke="#DCE7FF"
         strokeLinecap="round"
-        strokeWidth="3"
+        strokeWidth="7.5"
       >
         {animated ? (
           <animate attributeName="opacity" dur="2.4s" repeatCount="indefinite" values="0.35;0.9;0.35" />
