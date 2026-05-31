@@ -21,17 +21,21 @@ export function LogoMark({ className = "h-10 w-10", animated = false }: LogoMark
         stroke="#DCE7FF"
         strokeLinecap="round"
         strokeWidth="5"
-      />
+      >
+        {animated ? (
+          <animate attributeName="opacity" dur="3.2s" repeatCount="indefinite" values="0.35;0.75;0.35" />
+        ) : null}
+      </path>
 
       <g transform="translate(14 30)">
         {animated ? (
           <animateTransform
             additive="sum"
             attributeName="transform"
-            dur="2.8s"
+            dur="2.4s"
             repeatCount="indefinite"
             type="translate"
-            values="0 0;0 -1.2;0 0"
+            values="0 0;0 -1.8;0 0"
           />
         ) : null}
         <rect fill="#2459E6" height="36" rx="10" width="12" x="0" y="0" />
@@ -39,7 +43,19 @@ export function LogoMark({ className = "h-10 w-10", animated = false }: LogoMark
         <rect fill="#2459E6" height="12" rx="6" width="26" x="22" y="12" />
         <rect fill="#2459E6" height="30" rx="9" width="11" x="46" y="3" />
         <rect fill="#2459E6" height="36" rx="10" width="12" x="58" y="0" />
-        <path d="M29 16L34 21L43 11" stroke="#FFFFFF" strokeLinecap="round" strokeLinejoin="round" strokeWidth="4.5" />
+        <path
+          d="M29 16L34 21L43 11"
+          pathLength="1"
+          stroke="#FFFFFF"
+          strokeDasharray="1"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="4.5"
+        >
+          {animated ? (
+            <animate attributeName="stroke-dashoffset" dur="2.4s" repeatCount="indefinite" values="1;0;0;1" />
+          ) : null}
+        </path>
         <path d="M5 7H8M62 7H65" stroke="#DCE7FF" strokeLinecap="round" strokeWidth="2.5" />
       </g>
 
@@ -50,7 +66,7 @@ export function LogoMark({ className = "h-10 w-10", animated = false }: LogoMark
         strokeWidth="3"
       >
         {animated ? (
-          <animate attributeName="opacity" dur="2.8s" repeatCount="indefinite" values="0.35;0.85;0.35" />
+          <animate attributeName="opacity" dur="2.4s" repeatCount="indefinite" values="0.35;0.9;0.35" />
         ) : null}
       </path>
     </svg>
