@@ -14,7 +14,7 @@ import type { CurrentUser } from "@/lib/server/users/current-user";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import { referenceResolutionSchema } from "@/lib/shared/reference-resolver/schema";
-import { resolvedFieldSourcesSchema } from "@/lib/shared/chat/resolved-intent";
+import { resolvedFieldSourcesSchema, type ResolvedFieldSources } from "@/lib/shared/chat/resolved-intent";
 import {
   buildConversationSummaryContext,
   formatConversationSummaryContextForPrompt,
@@ -320,6 +320,7 @@ export async function generateAiWorkoutPlanDraft(
   const validation = validateGeneratedWorkoutDraft(draftResult.draft, intentResult.intent, {
     exercises,
     candidateExerciseIds,
+    fieldSources: request.fieldSources,
   });
   trace?.addStep({
     name: intentResult.intent.intentType === "routine" ? "单次训练编排草稿校验" : "训练计划草稿校验",
@@ -380,6 +381,7 @@ export async function generateAiWorkoutPlanDraft(
       const repairedValidation = validateGeneratedWorkoutDraft(repairResult.draft, intentResult.intent, {
         exercises,
         candidateExerciseIds,
+        fieldSources: request.fieldSources,
       });
 
       trace?.addStep({
@@ -599,6 +601,7 @@ async function maybeGenerateDomainPlanFromReference(input: {
   const validation = validateWorkoutPlanDraft(expanded.draft, validationIntent, {
     exercises: input.exercises,
     candidateExerciseIds,
+    fieldSources: strategy.fieldSources,
   });
 
   input.trace?.addStep({
@@ -708,6 +711,7 @@ function validateGeneratedWorkoutDraft(
   options: {
     exercises: Exercise[];
     candidateExerciseIds: string[];
+    fieldSources?: ResolvedFieldSources;
   },
 ) {
   return intent.intentType === "routine"
@@ -933,9 +937,9 @@ async function repairWorkoutPlanDraft(
         "你正在修复一个未通过服务端校验的训练草稿。",
         "你必须只返回修复后的 JSON 对象，不要输出 Markdown，不要解释。",
         "必须保留原始 kind，并继续只使用候选动作中的 exerciseId。",
+        "只修复 validation.errors 中的契约失败；validation.warnings 仅作诊断参考，不要求为了 warning 改写训练合理性。",
         "如果错误包含 session_too_long，必须把训练压缩到用户目标时长附近，优先减少动作数量、组数、循环轮数或休息配置。",
         "如果错误包含 session_too_short，必须把训练补足到用户目标时长附近，优先增加主训练循环轮数、主训练动作组数、合理次数、合适训练动作或合理休息配置；禁止只修改 estimatedSessionMinutes。",
-        "如果错误包含 day_estimate_mismatch，必须先根据 validation.dayEstimates 判断实际估算和声明时长的方向，再通过动作参数、循环轮数或休息配置修复真实估算。",
         "修复后仍必须满足三段式 routine 或长期 plan 的结构要求。",
       ].join("\n"),
     },

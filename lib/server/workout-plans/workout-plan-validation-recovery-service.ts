@@ -7,21 +7,16 @@ import type {
 const recoverableIssueCodes = new Set<WorkoutPlanValidationIssueCode>([
   "session_too_long",
   "session_too_short",
-  "day_estimate_mismatch",
-  "too_many_daily_sets",
-  "beginner_volume_high",
-  "rest_too_short",
   "weekly_frequency_mismatch",
 ]);
 
-// 确定性硬边界会阻止自动展示；section 语义分歧只作为 validation warning 进入 trace。
+// 确定性硬边界会阻止自动展示；训练合理性 warning 不参与恢复分类。
 const hardBoundaryIssueCodes = new Set<WorkoutPlanValidationIssueCode>([
   "invalid_exercise_id",
   "outside_candidate_exercise_id",
   "empty_candidate_set",
   "missing_routine_section",
   "cycle_structure_mismatch",
-  "day_similarity_high",
 ]);
 
 export type WorkoutPlanValidationRecovery = {
@@ -36,9 +31,8 @@ export function classifyWorkoutPlanValidationFailure(
   validation: WorkoutPlanValidationResult,
   options: { targetSessionMinutes?: number } = {},
 ): WorkoutPlanValidationRecovery {
-  const issues = [...validation.errors, ...validation.warnings];
-  const primaryIssue = validation.errors[0] ?? validation.warnings[0];
-  const hasRecoverableIssue = issues.some((issue) => recoverableIssueCodes.has(issue.code));
+  const primaryIssue = validation.errors[0];
+  const hasRecoverableIssue = validation.errors.some((issue) => recoverableIssueCodes.has(issue.code));
   const hasHardBoundaryIssue = validation.errors.some((issue) => hardBoundaryIssueCodes.has(issue.code));
   const recoverable = hasRecoverableIssue && !hasHardBoundaryIssue;
 

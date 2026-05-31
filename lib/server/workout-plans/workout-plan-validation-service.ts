@@ -2,6 +2,7 @@ import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import { normalizeExerciseMetadata } from "@/lib/shared/exercises/metadata";
 import type { Exercise, ExerciseAllowedSection } from "@/lib/shared/exercises/types";
 import type { ConversationMemoryState } from "@/lib/shared/user-feedback-memory/schema";
+import type { ResolvedFieldSource, ResolvedFieldSources } from "@/lib/shared/chat/resolved-intent";
 
 import {
   workoutPlanDraftSchema,
@@ -78,10 +79,72 @@ export type WorkoutPlanValidationOptions = {
   exercises: Exercise[];
   candidateExerciseIds: Iterable<string>;
   memoryState?: ConversationMemoryState;
+  fieldSources?: ResolvedFieldSources;
+  confirmedConstraintFields?: Iterable<WorkoutPlanExplicitConstraintField>;
 };
 
 const sessionDurationToleranceMinutes = 10;
 const minimumTargetMinutesForShortSessionCheck = 20;
+
+export type WorkoutPlanExplicitConstraintField =
+  | "sessionMinutes"
+  | "weeklyFrequency"
+  | "calendarHorizonDays"
+  | "avoidances"
+  | "injuryLimitations";
+
+const userExplicitFieldSources = new Set<ResolvedFieldSource>(["current_user_message"]);
+const confirmableFieldSources = new Set<ResolvedFieldSource>(["history", "artifact"]);
+
+// 字段来源决定哪些用户约束可以成为 hard fail，避免默认值或旧模型字段反向阻止卡片展示。
+function getValidationFieldSources(
+  options: WorkoutPlanValidationOptions,
+  draftFieldSources: ResolvedFieldSources | undefined = undefined,
+): ResolvedFieldSources {
+  return {
+    ...draftFieldSources,
+    ...options.fieldSources,
+  };
+}
+
+function shouldUseUserConstraintAsHardFail(
+  field: WorkoutPlanExplicitConstraintField,
+  fieldSources: ResolvedFieldSources,
+  options: WorkoutPlanValidationOptions,
+) {
+  const source = fieldSources[field];
+  if (!source) {
+    return false;
+  }
+
+  if (userExplicitFieldSources.has(source)) {
+    return true;
+  }
+
+  const confirmedFields = new Set(options.confirmedConstraintFields ?? []);
+  return confirmableFieldSources.has(source) && confirmedFields.has(field);
+}
+
+function pushFieldSourcedIssue(
+  errors: WorkoutPlanValidationIssue[],
+  warnings: WorkoutPlanValidationIssue[],
+  field: WorkoutPlanExplicitConstraintField,
+  fieldSources: ResolvedFieldSources,
+  options: WorkoutPlanValidationOptions,
+  issue: WorkoutPlanValidationIssue,
+) {
+  const target = shouldUseUserConstraintAsHardFail(field, fieldSources, options) ? errors : warnings;
+  target.push(issue);
+}
+
+function pushIssues(
+  defaultTarget: WorkoutPlanValidationIssue[],
+  hardTarget: WorkoutPlanValidationIssue[],
+  issues: WorkoutPlanValidationIssue[],
+  hard: boolean,
+) {
+  (hard ? hardTarget : defaultTarget).push(...issues);
+}
 
 export async function validateWorkoutPlanDraftFromStore(
   rawDraft: WorkoutPlanDraft,
@@ -110,6 +173,7 @@ export function validateWorkoutPlanDraft(
   const errors: WorkoutPlanValidationIssue[] = [];
   const warnings: WorkoutPlanValidationIssue[] = [];
   const exerciseById = new Map(options.exercises.map((exercise) => [exercise.id, exercise]));
+  const fieldSources = getValidationFieldSources(options, draft.planStrategy?.fieldSources);
   const dayEstimates = draft.days.map((day, index) => estimateWorkoutDay(day, index + 1));
   const maxEstimatedMinutes = Math.max(...dayEstimates.map((estimate) => estimate.estimatedMinutes));
   const totalWeeklySets = dayEstimates.reduce((total, estimate) => total + estimate.totalSets, 0);
@@ -137,7 +201,26 @@ export function validateWorkoutPlanDraft(
     });
   }
 
-  warnings.push(...validateMemoryConstraints(exerciseIdValidation.exerciseIds, exerciseById, options.memoryState));
+  pushIssues(
+    warnings,
+    errors,
+    validateMemoryConstraints(exerciseIdValidation.exerciseIds, exerciseById, options.memoryState),
+    shouldUseUserConstraintAsHardFail("avoidances", fieldSources, options),
+  );
+  pushAvoidanceIssues({
+    target: shouldUseUserConstraintAsHardFail("avoidances", fieldSources, options) ? errors : warnings,
+    exerciseIds: exerciseIdValidation.exerciseIds,
+    exerciseById,
+    avoidances: intent.avoidances,
+    sourceLabel: "用户明确避免动作",
+  });
+  pushAvoidanceIssues({
+    target: shouldUseUserConstraintAsHardFail("injuryLimitations", fieldSources, options) ? errors : warnings,
+    exerciseIds: exerciseIdValidation.exerciseIds,
+    exerciseById,
+    avoidances: intent.injuryLimitations,
+    sourceLabel: "用户明确训练禁忌",
+  });
 
   if (draft.cycleLengthDays !== draft.days.length) {
     errors.push({
@@ -161,7 +244,7 @@ export function validateWorkoutPlanDraft(
   }
 
   if (draft.weeklyFrequency && draft.weeklyFrequency !== intent.weeklyFrequency) {
-    warnings.push({
+    pushFieldSourcedIssue(errors, warnings, "weeklyFrequency", fieldSources, options, {
       code: "weekly_frequency_mismatch",
       message: `计划周频率为 ${draft.weeklyFrequency}，用户意图为 ${intent.weeklyFrequency}。`,
     });
@@ -174,14 +257,14 @@ export function validateWorkoutPlanDraft(
     );
 
     if (draft.cycleLengthDays !== intent.calendarHorizonDays) {
-      errors.push({
+      pushFieldSourcedIssue(errors, warnings, "calendarHorizonDays", fieldSources, options, {
         code: "cycle_structure_mismatch",
         message: `计划周期为 ${draft.cycleLengthDays} 天，用户期望预览周期为 ${intent.calendarHorizonDays} 天。`,
       });
     }
 
     if (draft.trainingDayCount !== expectedTrainingDays) {
-      errors.push({
+      pushFieldSourcedIssue(errors, warnings, "weeklyFrequency", fieldSources, options, {
         code: "weekly_frequency_mismatch",
         message: `计划包含 ${draft.trainingDayCount} 个训练日，但 ${intent.calendarHorizonDays} 天内每周 ${intent.weeklyFrequency} 练应安排 ${expectedTrainingDays} 个训练日。`,
       });
@@ -193,7 +276,7 @@ export function validateWorkoutPlanDraft(
     draft.trainingDayCount !== draft.weeklyFrequency &&
     !intent.calendarHorizonDays
   ) {
-    warnings.push({
+    pushFieldSourcedIssue(errors, warnings, "weeklyFrequency", fieldSources, options, {
       code: "weekly_frequency_mismatch",
       message: `计划周期包含 ${draft.trainingDayCount} 个训练日，用户期望每周 ${intent.weeklyFrequency} 次。`,
     });
@@ -201,10 +284,18 @@ export function validateWorkoutPlanDraft(
 
   for (const estimate of dayEstimates) {
     if (estimate.estimatedMinutes > intent.sessionMinutes + 15) {
-      errors.push({
+      pushFieldSourcedIssue(errors, warnings, "sessionMinutes", fieldSources, options, {
         code: "session_too_long",
         dayIndex: estimate.dayIndex,
         message: `训练日「${estimate.title}」估算 ${estimate.estimatedMinutes} 分钟，明显超过用户每次 ${intent.sessionMinutes} 分钟。`,
+      });
+    }
+
+    if (isSessionTooShortForTarget(estimate.estimatedMinutes, intent.sessionMinutes)) {
+      pushFieldSourcedIssue(errors, warnings, "sessionMinutes", fieldSources, options, {
+        code: "session_too_short",
+        dayIndex: estimate.dayIndex,
+        message: `训练日「${estimate.title}」估算 ${estimate.estimatedMinutes} 分钟，明显低于用户每次 ${intent.sessionMinutes} 分钟。`,
       });
     }
 
@@ -234,9 +325,6 @@ export function validateWorkoutPlanDraft(
   }
 
   const trainingDaySignatures = new Map<string, number>();
-  const allowRepeatedTrainingSignature =
-    draft.planStrategy?.strategy === "repeat_previous_routine" ||
-    draft.planStrategy?.strategy === "repeat_same_routine_with_progression";
   for (const [dayIndex, day] of draft.days.entries()) {
     const dayItems = getWorkoutDayItems(day);
 
@@ -244,8 +332,8 @@ export function validateWorkoutPlanDraft(
       const signature = dayItems.map((item) => item.exerciseId).sort().join("|");
       const previousIndex = trainingDaySignatures.get(signature);
 
-      if (!allowRepeatedTrainingSignature && previousIndex !== undefined && signature) {
-        errors.push({
+      if (previousIndex !== undefined && signature) {
+        warnings.push({
           code: "day_similarity_high",
           dayIndex: dayIndex + 1,
           message: `训练日「${day.title}」与第 ${previousIndex} 天动作组合高度重复。`,
@@ -266,7 +354,7 @@ export function validateWorkoutPlanDraft(
       currentEstimate?.totalSets >= 10 &&
       hasExerciseOverlap(getWorkoutDayItems(previousDay), dayItems)
     ) {
-      errors.push({
+      warnings.push({
         code: "consecutive_load_high",
         dayIndex: dayIndex + 1,
         message: `训练日「${previousDay.title}」和「${day.title}」连续安排了高度重叠且偏高的训练量。`,
@@ -349,6 +437,56 @@ function validateMemoryConstraints(
   return issues;
 }
 
+function pushAvoidanceIssues(input: {
+  target: WorkoutPlanValidationIssue[];
+  exerciseIds: string[];
+  exerciseById: Map<string, Exercise>;
+  avoidances: string[];
+  sourceLabel: string;
+}) {
+  const normalizedAvoidances = input.avoidances
+    .map((item) => normalizeConstraintText(item))
+    .filter(Boolean);
+  if (normalizedAvoidances.length === 0) {
+    return;
+  }
+
+  for (const exerciseId of input.exerciseIds) {
+    const exercise = input.exerciseById.get(exerciseId);
+    if (!exercise) {
+      continue;
+    }
+
+    const exerciseTokens = [
+      exercise.id,
+      exercise.nameZh,
+      exercise.nameEn,
+      exercise.categoryZh,
+      exercise.category,
+      ...exercise.primaryMusclesZh,
+      ...exercise.primaryMuscles,
+      ...exercise.riskTags,
+      ...exercise.contraindications,
+    ].flatMap((item) => item ? [normalizeConstraintText(item)] : []).filter(Boolean);
+    const exerciseText = exerciseTokens.join(" ");
+    const matchedAvoidance = normalizedAvoidances.find((avoidance) =>
+      exerciseText.includes(avoidance) || exerciseTokens.some((token) => avoidance.includes(token)),
+    );
+
+    if (matchedAvoidance) {
+      input.target.push({
+        code: "user_memory_constraint",
+        exerciseId,
+        message: `${input.sourceLabel}命中动作 ${exercise.nameZh ?? exerciseId}，需要替换或重新生成。`,
+      });
+    }
+  }
+}
+
+function normalizeConstraintText(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, "");
+}
+
 // 校验聊天推送的三段式 routine 草稿，确保它能无损转换为 WorkoutRoutine。
 export function validateWorkoutRoutineDraft(
   rawDraft: WorkoutRoutineDraft,
@@ -366,6 +504,7 @@ export function validateWorkoutRoutineDraft(
   const errors: WorkoutPlanValidationIssue[] = [];
   const warnings: WorkoutPlanValidationIssue[] = [];
   const exerciseById = new Map(options.exercises.map((exercise) => [exercise.id, exercise]));
+  const fieldSources = getValidationFieldSources(options);
   const allItems = draft.sections.flatMap((section) => section.items);
   const workoutItemsForEstimate: WorkoutItem[] = allItems.map((item) => ({
     id: item.exerciseId,
@@ -433,7 +572,7 @@ export function validateWorkoutRoutineDraft(
   }
 
   if (estimatedMinutes > intent.sessionMinutes + 15) {
-    errors.push({
+    pushFieldSourcedIssue(errors, warnings, "sessionMinutes", fieldSources, options, {
       code: "session_too_long",
       dayIndex: 1,
       message: `单次训练编排估算 ${estimatedMinutes} 分钟，明显超过用户每次 ${intent.sessionMinutes} 分钟。`,
@@ -441,7 +580,7 @@ export function validateWorkoutRoutineDraft(
   }
 
   if (isSessionTooShortForTarget(estimatedMinutes, intent.sessionMinutes)) {
-    errors.push({
+    pushFieldSourcedIssue(errors, warnings, "sessionMinutes", fieldSources, options, {
       code: "session_too_short",
       dayIndex: 1,
       message: `单次训练编排估算 ${estimatedMinutes} 分钟，明显低于用户每次 ${intent.sessionMinutes} 分钟。`,
@@ -499,7 +638,26 @@ export function validateWorkoutRoutineDraft(
     }
   }
 
-  warnings.push(...validateMemoryConstraints(exerciseIdValidation.exerciseIds, exerciseById, options.memoryState));
+  pushIssues(
+    warnings,
+    errors,
+    validateMemoryConstraints(exerciseIdValidation.exerciseIds, exerciseById, options.memoryState),
+    shouldUseUserConstraintAsHardFail("avoidances", fieldSources, options),
+  );
+  pushAvoidanceIssues({
+    target: shouldUseUserConstraintAsHardFail("avoidances", fieldSources, options) ? errors : warnings,
+    exerciseIds: exerciseIdValidation.exerciseIds,
+    exerciseById,
+    avoidances: intent.avoidances,
+    sourceLabel: "用户明确避免动作",
+  });
+  pushAvoidanceIssues({
+    target: shouldUseUserConstraintAsHardFail("injuryLimitations", fieldSources, options) ? errors : warnings,
+    exerciseIds: exerciseIdValidation.exerciseIds,
+    exerciseById,
+    avoidances: intent.injuryLimitations,
+    sourceLabel: "用户明确训练禁忌",
+  });
 
   return {
     valid: errors.length === 0,

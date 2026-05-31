@@ -313,6 +313,9 @@ describe("workout plan candidate and validation services", () => {
     const result = validateWorkoutPlanDraft(draft, intent, {
       exercises,
       candidateExerciseIds: ["warmup", "jump-squat", "stretch"],
+      fieldSources: {
+        sessionMinutes: "current_user_message",
+      },
     });
 
     expect(result.valid).toBe(false);
@@ -339,6 +342,9 @@ describe("workout plan candidate and validation services", () => {
     const result = validateWorkoutRoutineDraft(routineDraft, intent, {
       exercises,
       candidateExerciseIds: ["warmup", "push-up", "stretch"],
+      fieldSources: {
+        sessionMinutes: "current_user_message",
+      },
     });
 
     expect(result.valid).toBe(true);
@@ -390,12 +396,125 @@ describe("workout plan candidate and validation services", () => {
     const result = validateWorkoutRoutineDraft(routineDraft, intent, {
       exercises,
       candidateExerciseIds: ["warmup", "push-up", "stretch"],
+      fieldSources: {
+        sessionMinutes: "current_user_message",
+      },
     });
 
     expect(result.valid).toBe(false);
     expect(result.dayEstimates[0].estimatedMinutes).toBeLessThan(30);
     expect(result.errors.map((issue) => issue.code)).toContain("session_too_short");
     expect(result.warnings.map((issue) => issue.code)).toContain("day_estimate_mismatch");
+  });
+
+  it("downgrades default or LLM-inferred duration and frequency mismatches to warnings", () => {
+    const intent = createWorkoutPlanIntent({
+      intentType: "plan",
+      sessionMinutes: 40,
+      weeklyFrequency: 3,
+    });
+    const draft = createWorkoutPlanDraft({
+      weeklyFrequency: 2,
+      days: [createValidationDay(["warmup", "push-up"])],
+    });
+    const routineDraft = createWorkoutRoutineDraft({
+      estimatedSessionMinutes: 40,
+      trainingLoopRounds: 1,
+    });
+
+    const planResult = validateWorkoutPlanDraft(draft, intent, {
+      exercises,
+      candidateExerciseIds: ["warmup", "push-up", "stretch"],
+      fieldSources: {
+        sessionMinutes: "llm_inferred",
+        weeklyFrequency: "default",
+      },
+    });
+    const routineResult = validateWorkoutRoutineDraft(routineDraft, {
+      ...intent,
+      intentType: "routine",
+    }, {
+      exercises,
+      candidateExerciseIds: ["warmup", "push-up", "stretch"],
+      fieldSources: {
+        sessionMinutes: "default",
+      },
+    });
+
+    expect(planResult.valid).toBe(true);
+    expect(planResult.errors.map((issue) => issue.code)).not.toContain("weekly_frequency_mismatch");
+    expect(planResult.warnings.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining(["weekly_frequency_mismatch", "session_too_short"]),
+    );
+    expect(routineResult.valid).toBe(true);
+    expect(routineResult.errors.map((issue) => issue.code)).not.toContain("session_too_short");
+    expect(routineResult.warnings.map((issue) => issue.code)).toContain("session_too_short");
+  });
+
+  it("uses confirmed history or artifact constraints for hard duration failures only when explicitly confirmed", () => {
+    const intent = createWorkoutPlanIntent({
+      intentType: "routine",
+      sessionMinutes: 40,
+    });
+    const routineDraft = createWorkoutRoutineDraft({
+      estimatedSessionMinutes: 40,
+      trainingLoopRounds: 1,
+    });
+
+    const unconfirmedHistoryResult = validateWorkoutRoutineDraft(routineDraft, intent, {
+      exercises,
+      candidateExerciseIds: ["warmup", "push-up", "stretch"],
+      fieldSources: {
+        sessionMinutes: "history",
+      },
+    });
+    const confirmedArtifactResult = validateWorkoutRoutineDraft(routineDraft, intent, {
+      exercises,
+      candidateExerciseIds: ["warmup", "push-up", "stretch"],
+      fieldSources: {
+        sessionMinutes: "artifact",
+      },
+      confirmedConstraintFields: ["sessionMinutes"],
+    });
+
+    expect(unconfirmedHistoryResult.valid).toBe(true);
+    expect(unconfirmedHistoryResult.errors.map((issue) => issue.code)).not.toContain("session_too_short");
+    expect(unconfirmedHistoryResult.warnings.map((issue) => issue.code)).toContain("session_too_short");
+    expect(confirmedArtifactResult.valid).toBe(false);
+    expect(confirmedArtifactResult.errors.map((issue) => issue.code)).toContain("session_too_short");
+  });
+
+  it("keeps explicit avoidances hard while unconfirmed injury limitations stay warnings", () => {
+    const routineDraft = createWorkoutRoutineDraft();
+    const avoidanceIntent = createWorkoutPlanIntent({
+      intentType: "routine",
+      avoidances: ["不要俯卧撑"],
+    });
+    const injuryIntent = createWorkoutPlanIntent({
+      intentType: "routine",
+      injuryLimitations: ["不要俯卧撑"],
+    });
+
+    const avoidanceResult = validateWorkoutRoutineDraft(routineDraft, avoidanceIntent, {
+      exercises,
+      candidateExerciseIds: ["warmup", "push-up", "stretch"],
+      fieldSources: {
+        avoidances: "current_user_message",
+      },
+    });
+    const unconfirmedInjuryResult = validateWorkoutRoutineDraft(routineDraft, injuryIntent, {
+      exercises,
+      candidateExerciseIds: ["warmup", "push-up", "stretch"],
+      fieldSources: {
+        injuryLimitations: "llm_inferred",
+      },
+    });
+
+    expect(avoidanceResult.valid).toBe(false);
+    expect(avoidanceResult.errors.map((issue) => issue.code)).toContain("user_memory_constraint");
+    expect(unconfirmedInjuryResult.valid).toBe(true);
+    expect(unconfirmedInjuryResult.errors.map((issue) => issue.code)).not.toContain("user_memory_constraint");
+    expect(unconfirmedInjuryResult.warnings.map((issue) => issue.code)).toContain("user_memory_constraint");
   });
 
   it("records section semantic mismatches as warnings without rejecting the routine", () => {
@@ -508,6 +627,9 @@ describe("workout plan candidate and validation services", () => {
     const shortResult = validateWorkoutRoutineDraft(shortDraft, intent, {
       exercises,
       candidateExerciseIds: ["warmup", "push-up", "stretch"],
+      fieldSources: {
+        sessionMinutes: "current_user_message",
+      },
     });
 
     expect(() =>
@@ -530,7 +652,7 @@ describe("workout plan candidate and validation services", () => {
     ).toThrow();
   });
 
-  it("rejects consecutive high-load days with overlapping exercises", () => {
+  it("records repeated and consecutive high-load days as warnings", () => {
     const intent = createWorkoutPlanIntent({
       intentType: "plan",
       weeklyFrequency: 7,
@@ -585,7 +707,11 @@ describe("workout plan candidate and validation services", () => {
       candidateExerciseIds: ["warmup", "push-up", "stretch"],
     });
 
-    expect(result.valid).toBe(false);
-    expect(result.errors.map((issue) => issue.code)).toContain("consecutive_load_high");
+    expect(result.valid).toBe(true);
+    expect(result.errors.map((issue) => issue.code)).not.toContain("day_similarity_high");
+    expect(result.errors.map((issue) => issue.code)).not.toContain("consecutive_load_high");
+    expect(result.warnings.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining(["day_similarity_high", "consecutive_load_high"]),
+    );
   });
 });

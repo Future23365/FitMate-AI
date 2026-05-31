@@ -45,6 +45,9 @@ vi.mock("@/lib/server/conversation-artifacts/artifact-service", () => artifactSe
 const { aiWorkoutPlanRequestSchema, generateAiWorkoutPlanDraft } = await import(
   "@/lib/server/workout-plans/ai-workout-plan-service"
 );
+const { classifyWorkoutPlanValidationFailure } = await import(
+  "@/lib/server/workout-plans/workout-plan-validation-recovery-service"
+);
 
 describe("AI workout plan orchestration boundaries", () => {
   beforeEach(() => {
@@ -253,6 +256,64 @@ describe("AI workout plan orchestration boundaries", () => {
     expect(serverRequestMocks.serverRequest).toHaveBeenCalledTimes(1);
   });
 
+  it("does not repair or fail when validation only records duration warnings", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
+    exerciseServiceMocks.listAllExercises.mockResolvedValue(createModelExercises());
+    const shortDraft = createWorkoutRoutineDraft({
+      estimatedSessionMinutes: 30,
+      trainingLoopRounds: 1,
+      trainingLoopRestSeconds: 45,
+    });
+    serverRequestMocks.serverRequest.mockResolvedValueOnce(
+      new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(shortDraft) } }] })),
+    );
+
+    const result = await generateAiWorkoutPlanDraft({
+      latestUserMessage: "今天在家自重练胸",
+      conversationSummary: "用户想在家自重练胸。",
+      intent: createWorkoutPlanIntent({
+        intentType: "routine",
+        goal: "胸肌训练",
+        sessionMinutes: 30,
+        weeklyFrequency: 1,
+      }),
+      fieldSources: {
+        sessionMinutes: "llm_inferred",
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      kind: "routine",
+      validation: {
+        valid: true,
+        warnings: expect.arrayContaining([
+          expect.objectContaining({ code: "session_too_short" }),
+        ]),
+      },
+    });
+    expect(serverRequestMocks.serverRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("classifies unknown errors from errors instead of recoverable warnings", () => {
+    const recovery = classifyWorkoutPlanValidationFailure({
+      valid: false,
+      errors: [{ code: "high_risk_exercise", message: "未知硬边界" }],
+      warnings: [{ code: "session_too_short", message: "warning 不应参与恢复分类" }],
+      exerciseIds: [],
+      invalidExerciseIds: [],
+      outsideCandidateExerciseIds: [],
+      dayEstimates: [],
+      maxEstimatedMinutes: 0,
+      totalWeeklySets: 0,
+    });
+
+    expect(recovery).toMatchObject({
+      recoverable: false,
+      primaryIssueCode: "high_risk_exercise",
+    });
+  });
+
   it("uses DomainPlanEngine for referenced multi-week routine plans without draft generation model call", async () => {
     vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
     exerciseServiceMocks.listAllExercises.mockResolvedValue(createModelExercises());
@@ -305,6 +366,67 @@ describe("AI workout plan orchestration boundaries", () => {
     expect(serverRequestMocks.serverRequest).not.toHaveBeenCalled();
   });
 
+  it("returns a plan card when the user asks to repeat the current routine for today tomorrow and the day after", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
+    exerciseServiceMocks.listAllExercises.mockResolvedValue(createModelExercises());
+    artifactServiceMocks.getActiveArtifactPayloadForCurrentUser.mockResolvedValue({
+      ok: true,
+      artifactId: "artifact-routine-active",
+      kind: "routine",
+      payload: createWorkoutRoutineDraft(),
+      requestedArtifactId: "artifact-routine-old",
+      revisionResolution: {
+        status: "resolved_to_active",
+        requestedArtifactId: "artifact-routine-old",
+        activeArtifactId: "artifact-routine-active",
+      },
+    });
+
+    const result = await generateAiWorkoutPlanDraft({
+      latestUserMessage: "今天明天后天都练这个",
+      conversationSummary: "用户想复用刚才那套训练。",
+      intent: createWorkoutPlanIntent({
+        intentType: "plan",
+        goal: "胸肌训练",
+        sessionMinutes: 30,
+        weeklyFrequency: 7,
+        calendarHorizonDays: 3,
+      }),
+      fieldSources: {
+        calendarHorizonDays: "current_user_message",
+        weeklyFrequency: "current_user_message",
+        sourceArtifactId: "artifact",
+      },
+      referenceResolution: {
+        status: "resolved",
+        artifactId: "artifact-routine-old",
+        artifactKind: "routine",
+        confidence: "high",
+        reason: "命中最近 routine",
+        candidates: [],
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      kind: "plan",
+      draft: {
+        cycleLengthDays: 3,
+        trainingDayCount: 3,
+        planStrategy: {
+          strategy: "repeat_same_routine_with_progression",
+        },
+      },
+      validation: {
+        valid: true,
+        warnings: expect.arrayContaining([
+          expect.objectContaining({ code: "day_similarity_high" }),
+        ]),
+      },
+    });
+    expect(serverRequestMocks.serverRequest).not.toHaveBeenCalled();
+  });
+
   it("repairs a session_too_long routine once and returns the repaired draft", async () => {
     vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
     exerciseServiceMocks.listAllExercises.mockResolvedValue(createModelExercises());
@@ -350,6 +472,9 @@ describe("AI workout plan orchestration boundaries", () => {
         sessionMinutes: 30,
         weeklyFrequency: 1,
       }),
+      fieldSources: {
+        sessionMinutes: "current_user_message",
+      },
     });
 
     expect(result).toMatchObject({
@@ -426,6 +551,9 @@ describe("AI workout plan orchestration boundaries", () => {
         sessionMinutes: 30,
         weeklyFrequency: 1,
       }),
+      fieldSources: {
+        sessionMinutes: "current_user_message",
+      },
     });
 
     expect(result).toMatchObject({
@@ -498,6 +626,9 @@ describe("AI workout plan orchestration boundaries", () => {
         sessionMinutes: 30,
         weeklyFrequency: 1,
       }),
+      fieldSources: {
+        sessionMinutes: "current_user_message",
+      },
     });
 
     expect(result).toMatchObject({
