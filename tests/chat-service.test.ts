@@ -450,6 +450,217 @@ describe("AI chat service deterministic boundaries", () => {
     expect(normalizedPlan.workoutIntent?.weeklyFrequency).toBe(3);
   });
 
+  it("keeps recommendation refinements as exercise recommendations", () => {
+    const chestRecommendationIntent = createWorkoutPlanIntent({
+      intentType: "routine",
+      goal: "练胸",
+      sessionMinutes: 30,
+      equipment: ["哑铃"],
+    });
+    const currentContext = createConversationContext({ currentIntent: chestRecommendationIntent });
+    const modelIntent: ChatIntent = {
+      type: "routine",
+      needsExerciseContext: true,
+      workoutIntent: createWorkoutPlanIntent({
+        intentType: "routine",
+        goal: "练胸",
+        sessionMinutes: 30,
+        equipment: [],
+      }),
+      requestedExerciseName: "",
+      canTriggerAction: true,
+      missingActionFields: [],
+      suggestedReplies: [],
+    };
+
+    const normalized = normalizeChatIntentForBlackboxFlows({
+      chatIntent: modelIntent,
+      fallbackIntent: createFallbackChatIntent(
+        [{ role: "user", content: "推荐几个不用器械的" }],
+        currentContext,
+      ),
+      messages: [{ role: "user", content: "推荐几个不用器械的" }],
+      conversationSummaryContext: {
+        summary: "用户最近已生成胸部动作推荐。",
+        latestUserMessage: "推荐几个不用器械的",
+      },
+      conversationContext: currentContext,
+      recentArtifactSummaries: [
+        {
+          artifactId: "rec-1",
+          kind: "exercise_recommendation",
+          title: "胸部动作推荐",
+          exerciseIds: [],
+          goals: ["练胸"],
+          muscles: ["胸部"],
+          equipment: ["哑铃"],
+          updatedAt: "2026-05-31T00:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(normalized).toMatchObject({
+      type: "exercise_recommendation",
+      canTriggerAction: true,
+      missingActionFields: [],
+      workoutIntent: {
+        goal: "练胸",
+        equipment: ["自重"],
+        preferences: expect.arrayContaining(["无器械"]),
+      },
+    });
+    expect(resolveAssistantAction(normalized, createExerciseContext({ intent: normalized.workoutIntent! }))).toMatchObject({
+      action: "exercise_recommendation",
+      intent: { goal: "练胸" },
+    });
+  });
+
+  it("blocks under-specified weekly plans until core facts are provided", () => {
+    const modelIntent: ChatIntent = {
+      type: "workout_plan",
+      needsExerciseContext: true,
+      workoutIntent: createWorkoutPlanIntent({
+        intentType: "plan",
+        goal: "每周训练计划",
+        sessionMinutes: 30,
+        weeklyFrequency: 3,
+      }),
+      requestedExerciseName: "",
+      canTriggerAction: true,
+      missingActionFields: [],
+      suggestedReplies: [],
+    };
+
+    const normalized = normalizeChatIntentForBlackboxFlows({
+      chatIntent: modelIntent,
+      fallbackIntent: createFallbackChatIntent(
+        [{ role: "user", content: "给我一个每周训练计划" }],
+        createEmptyConversationContext(),
+      ),
+      messages: [{ role: "user", content: "给我一个每周训练计划" }],
+      conversationSummaryContext: { summary: "", latestUserMessage: "给我一个每周训练计划" },
+      conversationContext: createEmptyConversationContext(),
+      recentArtifactSummaries: [],
+    });
+
+    expect(normalized).toMatchObject({
+      type: "workout_plan",
+      canTriggerAction: false,
+      missingActionFields: ["trainingGoal", "weeklyFrequency", "equipmentOrLocation"],
+    });
+    expect(normalized.suggestedReplies.length).toBeGreaterThan(0);
+    expect(resolveAssistantAction(normalized, createExerciseContext({ intent: normalized.workoutIntent! }))).toBeNull();
+  });
+
+  it("inherits standalone equipment facts for the next complete routine request", () => {
+    const equipmentOnlyContext = {
+      ...createEmptyConversationContext(),
+      summary: "用户有哑铃。",
+      knownFacts: {
+        ...createEmptyConversationContext().knownFacts,
+        equipment: ["哑铃"],
+        latestUserMessage: "我有哑铃",
+      },
+    };
+    const modelIntent: ChatIntent = {
+      type: "routine",
+      needsExerciseContext: true,
+      workoutIntent: createWorkoutPlanIntent({
+        intentType: "routine",
+        goal: "练胸",
+        sessionMinutes: 30,
+        equipment: [],
+      }),
+      requestedExerciseName: "",
+      canTriggerAction: false,
+      missingActionFields: ["equipmentOrLocation"],
+      suggestedReplies: ["我有哑铃"],
+    };
+
+    const normalized = normalizeChatIntentForBlackboxFlows({
+      chatIntent: modelIntent,
+      fallbackIntent: createFallbackChatIntent(
+        [{ role: "user", content: "今天练胸30分钟" }],
+        equipmentOnlyContext,
+      ),
+      messages: [{ role: "user", content: "今天练胸30分钟" }],
+      conversationSummaryContext: { summary: "用户有哑铃。", latestUserMessage: "今天练胸30分钟" },
+      conversationContext: equipmentOnlyContext,
+      recentArtifactSummaries: [],
+    });
+
+    expect(normalized).toMatchObject({
+      type: "routine",
+      canTriggerAction: true,
+      missingActionFields: [],
+      workoutIntent: {
+        goal: "练胸",
+        sessionMinutes: 30,
+        equipment: ["哑铃"],
+      },
+    });
+    expect(resolveAssistantAction(normalized, createExerciseContext({ intent: normalized.workoutIntent! }))).toMatchObject({
+      action: "workout_routine",
+      intent: { goal: "练胸", equipment: ["哑铃"] },
+    });
+  });
+
+  it("keeps weekly plan completion in plan context after frequency and duration are known", () => {
+    const weeklyFactsContext = {
+      ...createEmptyConversationContext(),
+      summary: "用户想制定每周训练计划，已补充每周4练，每次45分钟。",
+      knownFacts: {
+        ...createEmptyConversationContext().knownFacts,
+        sessionMinutes: 45,
+        weeklyFrequency: 4,
+        latestUserMessage: "每周4练，每次45分钟",
+      },
+    };
+    const modelIntent: ChatIntent = {
+      type: "routine",
+      needsExerciseContext: true,
+      workoutIntent: createWorkoutPlanIntent({
+        intentType: "routine",
+        goal: "增肌",
+        sessionMinutes: 30,
+        weeklyFrequency: 1,
+        equipment: ["固定器械"],
+        preferences: ["健身房训练"],
+      }),
+      requestedExerciseName: "",
+      canTriggerAction: false,
+      missingActionFields: ["goal"],
+      suggestedReplies: ["我想增肌"],
+    };
+
+    const normalized = normalizeChatIntentForBlackboxFlows({
+      chatIntent: modelIntent,
+      fallbackIntent: createFallbackChatIntent(
+        [{ role: "user", content: "增肌，有健身房器械" }],
+        weeklyFactsContext,
+      ),
+      messages: [{ role: "user", content: "增肌，有健身房器械" }],
+      conversationSummaryContext: {
+        summary: "用户想制定每周训练计划，已补充每周4练，每次45分钟。",
+        latestUserMessage: "增肌，有健身房器械",
+      },
+      conversationContext: weeklyFactsContext,
+      recentArtifactSummaries: [],
+    });
+
+    expect(normalized).toMatchObject({
+      type: "workout_plan",
+      canTriggerAction: true,
+      workoutIntent: {
+        intentType: "plan",
+        goal: "增肌，有健身房器械",
+        sessionMinutes: 45,
+        weeklyFrequency: 4,
+        equipment: ["固定器械"],
+      },
+    });
+  });
+
   it("keeps clarification replies instead of triggering exercise recommendations", () => {
     const muscleGainIntent = createWorkoutPlanIntent({
       intentType: "routine",
