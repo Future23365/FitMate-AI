@@ -8,7 +8,7 @@ import {
   type AiPromptModuleId,
   type AiTokenBudgetDecision,
 } from "@/lib/server/ai/token-budget";
-import { getArtifactPayloadForCurrentUser } from "@/lib/server/conversation-artifacts/artifact-service";
+import { getActiveArtifactPayloadForCurrentUser } from "@/lib/server/conversation-artifacts/artifact-service";
 import type { AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import type { Exercise } from "@/lib/shared/exercises/types";
@@ -486,7 +486,7 @@ async function maybeGenerateDomainPlanFromReference(input: {
     },
   });
 
-  const artifactPayloadResult = await getArtifactPayloadForCurrentUser({
+  const artifactPayloadResult = await getActiveArtifactPayloadForCurrentUser({
     artifactId: input.request.referenceResolution.artifactId,
   });
 
@@ -509,10 +509,32 @@ async function maybeGenerateDomainPlanFromReference(input: {
       status: "failed",
       input: input.request.referenceResolution,
       output: artifactPayloadResult,
+      metadata: {
+        requestedArtifactId: input.request.referenceResolution.artifactId,
+      },
     });
 
     return failure;
   }
+
+  input.trace?.addStep({
+    name: "PlanStrategy 引用 artifact 读取结果",
+    type: "tool_call",
+    status: "success",
+    input: input.request.referenceResolution,
+    output: {
+      ok: true,
+      requestedArtifactId: artifactPayloadResult.requestedArtifactId,
+      activeArtifactId: artifactPayloadResult.artifactId,
+      artifactKind: artifactPayloadResult.kind,
+      revisionResolution: artifactPayloadResult.revisionResolution,
+    },
+    metadata: {
+      requestedArtifactId: artifactPayloadResult.requestedArtifactId,
+      activeArtifactId: artifactPayloadResult.artifactId,
+      revisionResolutionStatus: artifactPayloadResult.revisionResolution.status,
+    },
+  });
 
   const expanded = expandDomainPlan({
     strategy,

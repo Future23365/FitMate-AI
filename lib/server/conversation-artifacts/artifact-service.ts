@@ -88,6 +88,36 @@ type GetArtifactPayloadInput = {
   artifactId: string;
 };
 
+type ArtifactPayloadSuccess = {
+  ok: true;
+  artifactId: string;
+  kind: ConversationArtifactKind;
+  payload: ConversationArtifactPayload;
+};
+
+type ArtifactPayloadFailure = {
+  ok: false;
+  code: "not_found" | "invalid_payload";
+  message: string;
+  detail?: unknown;
+};
+
+type ActiveArtifactPayloadSuccess = ArtifactPayloadSuccess & {
+  requestedArtifactId: string;
+  revisionResolution: {
+    status: "direct" | "resolved_to_active";
+    requestedArtifactId: string;
+    activeArtifactId: string;
+  };
+};
+
+type ArtifactPayloadRecord = {
+  id: string;
+  kind: ConversationArtifactKind;
+  payloadSchemaVersion: number;
+  payload: unknown;
+};
+
 type ArtifactIndexRow = {
   artifactId: string;
   sessionId: string;
@@ -436,20 +466,7 @@ export async function searchArtifactsForCurrentUserDetailed(
 export async function getArtifactPayload(
   input: GetArtifactPayloadInput,
   client: Pick<PrismaClient, "conversationArtifact"> = getPrismaClient(),
-): Promise<
-  | {
-      ok: true;
-      artifactId: string;
-      kind: ConversationArtifactKind;
-      payload: ConversationArtifactPayload;
-    }
-  | {
-      ok: false;
-      code: "not_found" | "invalid_payload";
-      message: string;
-      detail?: unknown;
-    }
-> {
+): Promise<ArtifactPayloadSuccess | ArtifactPayloadFailure> {
   const artifact = await client.conversationArtifact.findFirst({
     where: {
       id: input.artifactId,
@@ -472,25 +489,7 @@ export async function getArtifactPayload(
     };
   }
 
-  try {
-    return {
-      ok: true,
-      artifactId: artifact.id,
-      kind: artifact.kind,
-      payload: parseConversationArtifactPayload(
-        artifact.kind,
-        artifact.payloadSchemaVersion,
-        artifact.payload,
-      ),
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      code: "invalid_payload",
-      message: "Artifact payload validation failed.",
-      detail: error,
-    };
-  }
+  return parseArtifactPayloadRecord(artifact);
 }
 
 export async function getArtifactPayloadForCurrentUser(
@@ -500,6 +499,114 @@ export async function getArtifactPayloadForCurrentUser(
   const user = await getCurrentUser();
 
   return getArtifactPayload({ ...input, userId: user.id }, client);
+}
+
+// 长期计划等跨请求流程使用这个读取入口，把同一 revision 链路上的旧 id 收敛到当前 active artifact。
+export async function getActiveArtifactPayload(
+  input: GetArtifactPayloadInput,
+  client: Pick<PrismaClient, "conversationArtifact"> = getPrismaClient(),
+): Promise<ActiveArtifactPayloadSuccess | ArtifactPayloadFailure> {
+  const requestedArtifact = await client.conversationArtifact.findFirst({
+    where: {
+      id: input.artifactId,
+      userId: input.userId,
+    },
+    select: {
+      id: true,
+      userId: true,
+      sessionId: true,
+      kind: true,
+      status: true,
+      revisionOfArtifactId: true,
+      payloadSchemaVersion: true,
+      payload: true,
+    },
+  });
+
+  if (!requestedArtifact || requestedArtifact.status === "archived") {
+    return {
+      ok: false,
+      code: "not_found",
+      message: "Artifact not found or not accessible.",
+    };
+  }
+
+  if (requestedArtifact.status === "active") {
+    const parsed = parseArtifactPayloadRecord(requestedArtifact);
+
+    if (!parsed.ok) {
+      return parsed;
+    }
+
+    return {
+      ...parsed,
+      requestedArtifactId: input.artifactId,
+      revisionResolution: {
+        status: "direct",
+        requestedArtifactId: input.artifactId,
+        activeArtifactId: parsed.artifactId,
+      },
+    };
+  }
+
+  const lineageArtifacts = await client.conversationArtifact.findMany({
+    where: {
+      userId: input.userId,
+      sessionId: requestedArtifact.sessionId,
+      kind: requestedArtifact.kind,
+    },
+    select: {
+      id: true,
+      status: true,
+      revision: true,
+      revisionOfArtifactId: true,
+      kind: true,
+      payloadSchemaVersion: true,
+      payload: true,
+    },
+  });
+  const lineageById = new Map(lineageArtifacts.map((artifact) => [artifact.id, artifact]));
+  const activeArtifact = lineageArtifacts
+    .filter((artifact) => artifact.status === "active")
+    .filter((artifact) => isDescendantRevision(artifact.id, requestedArtifact.id, lineageById))
+    .sort((left, right) => right.revision - left.revision)[0];
+
+  if (!activeArtifact) {
+    return {
+      ok: false,
+      code: "not_found",
+      message: "Active artifact revision not found or not accessible.",
+      detail: {
+        requestedArtifactId: input.artifactId,
+        requestedStatus: requestedArtifact.status,
+      },
+    };
+  }
+
+  const parsed = parseArtifactPayloadRecord(activeArtifact);
+
+  if (!parsed.ok) {
+    return parsed;
+  }
+
+  return {
+    ...parsed,
+    requestedArtifactId: input.artifactId,
+    revisionResolution: {
+      status: "resolved_to_active",
+      requestedArtifactId: input.artifactId,
+      activeArtifactId: parsed.artifactId,
+    },
+  };
+}
+
+export async function getActiveArtifactPayloadForCurrentUser(
+  input: Omit<GetArtifactPayloadInput, "userId">,
+  client: Pick<PrismaClient, "conversationArtifact"> = getPrismaClient(),
+) {
+  const user = await getCurrentUser();
+
+  return getActiveArtifactPayload({ ...input, userId: user.id }, client);
 }
 
 // 保存 routine/schedule 后通过来源消息回写 artifact，不要求客户端持有 artifact id。
@@ -670,6 +777,54 @@ export function buildArtifactIndex(input: {
 
 function stableJsonEquals(left: unknown, right: unknown) {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function parseArtifactPayloadRecord(
+  artifact: ArtifactPayloadRecord,
+): ArtifactPayloadSuccess | ArtifactPayloadFailure {
+  try {
+    return {
+      ok: true,
+      artifactId: artifact.id,
+      kind: artifact.kind,
+      payload: parseConversationArtifactPayload(
+        artifact.kind,
+        artifact.payloadSchemaVersion,
+        artifact.payload,
+      ),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      code: "invalid_payload",
+      message: "Artifact payload validation failed.",
+      detail: error,
+    };
+  }
+}
+
+function isDescendantRevision(
+  artifactId: string,
+  ancestorArtifactId: string,
+  lineageById: Map<string, { id: string; revisionOfArtifactId: string | null }>,
+) {
+  const visited = new Set<string>();
+  let currentId: string | null | undefined = artifactId;
+
+  while (currentId) {
+    if (currentId === ancestorArtifactId) {
+      return true;
+    }
+
+    if (visited.has(currentId)) {
+      return false;
+    }
+
+    visited.add(currentId);
+    currentId = lineageById.get(currentId)?.revisionOfArtifactId;
+  }
+
+  return false;
 }
 
 function toJsonPayload(payload: ConversationArtifactPayload) {

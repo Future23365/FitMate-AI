@@ -35,7 +35,7 @@ const serverRequestMocks = vi.hoisted(() => ({
   serverRequest: vi.fn(),
 }));
 const artifactServiceMocks = vi.hoisted(() => ({
-  getArtifactPayloadForCurrentUser: vi.fn(),
+  getActiveArtifactPayloadForCurrentUser: vi.fn(),
 }));
 
 vi.mock("@/lib/server/exercises/exercise-service", () => exerciseServiceMocks);
@@ -52,7 +52,7 @@ describe("AI workout plan orchestration boundaries", () => {
     exerciseServiceMocks.listAllExercises.mockResolvedValue([]);
     exerciseServiceMocks.searchExercisesInMemory.mockClear();
     serverRequestMocks.serverRequest.mockReset();
-    artifactServiceMocks.getArtifactPayloadForCurrentUser.mockReset();
+    artifactServiceMocks.getActiveArtifactPayloadForCurrentUser.mockReset();
   });
 
   it("validates request schema and reports missing model configuration before external calls", async () => {
@@ -209,11 +209,17 @@ describe("AI workout plan orchestration boundaries", () => {
   it("uses DomainPlanEngine for referenced multi-week routine plans without draft generation model call", async () => {
     vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
     exerciseServiceMocks.listAllExercises.mockResolvedValue(createModelExercises());
-    artifactServiceMocks.getArtifactPayloadForCurrentUser.mockResolvedValue({
+    artifactServiceMocks.getActiveArtifactPayloadForCurrentUser.mockResolvedValue({
       ok: true,
-      artifactId: "artifact-routine-1",
+      artifactId: "artifact-routine-active",
       kind: "routine",
       payload: createWorkoutRoutineDraft(),
+      requestedArtifactId: "artifact-routine-old",
+      revisionResolution: {
+        status: "resolved_to_active",
+        requestedArtifactId: "artifact-routine-old",
+        activeArtifactId: "artifact-routine-active",
+      },
     });
 
     const result = await generateAiWorkoutPlanDraft({
@@ -227,7 +233,7 @@ describe("AI workout plan orchestration boundaries", () => {
       }),
       referenceResolution: {
         status: "resolved",
-        artifactId: "artifact-routine-1",
+        artifactId: "artifact-routine-old",
         artifactKind: "routine",
         confidence: "high",
         reason: "命中最近 routine",
@@ -245,6 +251,9 @@ describe("AI workout plan orchestration boundaries", () => {
           strategy: "repeat_same_routine_with_progression",
         },
       },
+    });
+    expect(artifactServiceMocks.getActiveArtifactPayloadForCurrentUser).toHaveBeenCalledWith({
+      artifactId: "artifact-routine-old",
     });
     expect(serverRequestMocks.serverRequest).not.toHaveBeenCalled();
   });

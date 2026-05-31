@@ -13,6 +13,7 @@ const prismaMock = vi.hoisted(() => ({
   },
   conversationArtifact: {
     create: vi.fn(),
+    findMany: vi.fn(),
     findFirst: vi.fn(),
     update: vi.fn(),
   },
@@ -318,6 +319,167 @@ describe("conversation artifact service", () => {
     ).resolves.toMatchObject({
       ok: false,
       code: "invalid_payload",
+    });
+  });
+
+  it("reads active artifact payload directly without switching revisions", async () => {
+    prismaMock.conversationArtifact.findFirst.mockResolvedValueOnce({
+      id: "artifact-active",
+      userId: "user-1",
+      sessionId: "chat-1",
+      kind: "routine",
+      status: "active",
+      revisionOfArtifactId: null,
+      payloadSchemaVersion: 1,
+      payload: createWorkoutRoutineDraft(),
+    });
+
+    await expect(
+      artifactService.getActiveArtifactPayload({
+        userId: "user-1",
+        artifactId: "artifact-active",
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      artifactId: "artifact-active",
+      requestedArtifactId: "artifact-active",
+      revisionResolution: {
+        status: "direct",
+        activeArtifactId: "artifact-active",
+      },
+    });
+    expect(prismaMock.conversationArtifact.findMany).not.toHaveBeenCalled();
+  });
+
+  it("resolves a superseded artifact to the current active revision in the same lineage", async () => {
+    prismaMock.conversationArtifact.findFirst.mockResolvedValueOnce({
+      id: "artifact-old",
+      userId: "user-1",
+      sessionId: "chat-1",
+      kind: "routine",
+      status: "superseded",
+      revisionOfArtifactId: null,
+      payloadSchemaVersion: 1,
+      payload: createWorkoutRoutineDraft({ title: "旧训练" }),
+    });
+    prismaMock.conversationArtifact.findMany.mockResolvedValueOnce([
+      {
+        id: "artifact-old",
+        kind: "routine",
+        status: "superseded",
+        revision: 1,
+        revisionOfArtifactId: null,
+        payloadSchemaVersion: 1,
+        payload: createWorkoutRoutineDraft({ title: "旧训练" }),
+      },
+      {
+        id: "artifact-middle",
+        kind: "routine",
+        status: "superseded",
+        revision: 2,
+        revisionOfArtifactId: "artifact-old",
+        payloadSchemaVersion: 1,
+        payload: createWorkoutRoutineDraft({ title: "中间训练" }),
+      },
+      {
+        id: "artifact-active",
+        kind: "routine",
+        status: "active",
+        revision: 3,
+        revisionOfArtifactId: "artifact-middle",
+        payloadSchemaVersion: 1,
+        payload: createWorkoutRoutineDraft({ title: "当前训练" }),
+      },
+      {
+        id: "artifact-other-active",
+        kind: "routine",
+        status: "active",
+        revision: 1,
+        revisionOfArtifactId: null,
+        payloadSchemaVersion: 1,
+        payload: createWorkoutRoutineDraft({ title: "无关训练" }),
+      },
+    ]);
+
+    await expect(
+      artifactService.getActiveArtifactPayload({
+        userId: "user-1",
+        artifactId: "artifact-old",
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      artifactId: "artifact-active",
+      requestedArtifactId: "artifact-old",
+      payload: {
+        title: "当前训练",
+      },
+      revisionResolution: {
+        status: "resolved_to_active",
+        requestedArtifactId: "artifact-old",
+        activeArtifactId: "artifact-active",
+      },
+    });
+    expect(prismaMock.conversationArtifact.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        userId: "user-1",
+        sessionId: "chat-1",
+        kind: "routine",
+      },
+    }));
+  });
+
+  it("fails instead of reading unrelated or archived artifact revisions", async () => {
+    prismaMock.conversationArtifact.findFirst.mockResolvedValueOnce({
+      id: "artifact-old",
+      userId: "user-1",
+      sessionId: "chat-1",
+      kind: "routine",
+      status: "superseded",
+      revisionOfArtifactId: null,
+      payloadSchemaVersion: 1,
+      payload: createWorkoutRoutineDraft(),
+    });
+    prismaMock.conversationArtifact.findMany.mockResolvedValueOnce([
+      {
+        id: "artifact-other-active",
+        kind: "routine",
+        status: "active",
+        revision: 1,
+        revisionOfArtifactId: null,
+        payloadSchemaVersion: 1,
+        payload: createWorkoutRoutineDraft({ title: "无关训练" }),
+      },
+    ]);
+
+    await expect(
+      artifactService.getActiveArtifactPayload({
+        userId: "user-1",
+        artifactId: "artifact-old",
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: "not_found",
+    });
+
+    prismaMock.conversationArtifact.findFirst.mockResolvedValueOnce({
+      id: "artifact-archived",
+      userId: "user-1",
+      sessionId: "chat-1",
+      kind: "routine",
+      status: "archived",
+      revisionOfArtifactId: null,
+      payloadSchemaVersion: 1,
+      payload: createWorkoutRoutineDraft(),
+    });
+
+    await expect(
+      artifactService.getActiveArtifactPayload({
+        userId: "user-1",
+        artifactId: "artifact-archived",
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: "not_found",
     });
   });
 
