@@ -31,6 +31,7 @@ describe("Dialog", () => {
     expect(html).toContain("data-slot=\"dialog-overlay\"");
     expect(html).toContain("fixed inset-0 z-50");
     expect(html).toContain("bg-black/50");
+    expect(html).toContain("backdrop-blur-sm");
     expect(html).toContain("data-[state=open]:animate-in");
     expect(html).toContain("data-[state=closed]:animate-out");
   });
