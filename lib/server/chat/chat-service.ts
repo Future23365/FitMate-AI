@@ -32,6 +32,7 @@ import {
   shouldAttemptReferenceResolution,
 } from "@/lib/server/reference-resolver/reference-resolver-service";
 import { getCurrentUser } from "@/lib/server/users/current-user";
+import type { CurrentUser } from "@/lib/server/users/current-user";
 import {
   buildAndApplyWorkoutPatchFromChat,
   formatWorkoutPatchReply,
@@ -557,10 +558,12 @@ export async function createAiChatResponse({
   apiKey,
   request,
   trace,
+  currentUser,
 }: {
   apiKey: string;
   request: PreparedAiChatRequest;
   trace: AiTraceLogger;
+  currentUser: CurrentUser;
 }): Promise<Response> {
   const {
     rawMessages,
@@ -592,7 +595,7 @@ export async function createAiChatResponse({
     recentArtifactSummaries,
     trace,
   );
-  const user = await getCurrentUser();
+  const user = await getCurrentUser(currentUser);
   const exercisesForMemory = chatIntent.needsExerciseContext || shouldInspectUserFeedback(conversationSummaryContext.latestUserMessage)
     ? await listAllExercises()
     : [];
@@ -630,10 +633,11 @@ export async function createAiChatResponse({
     ? await resolveReference({
         latestUserMessage: conversationSummaryContext.latestUserMessage,
         sessionId: request.conversationId,
-        recentArtifacts: recentArtifactSummaries,
-        intentType: chatIntent.type,
-        trace,
-      })
+      recentArtifacts: recentArtifactSummaries,
+      intentType: chatIntent.type,
+      trace,
+      currentUser: user,
+    })
     : null;
 
   trace.addStep({
@@ -885,12 +889,13 @@ export async function createAiChatResponse({
   const artifactResult = assistantAction
     ? await generateChatArtifact({
         apiKey,
-        latestUserMessage: conversationSummaryContext.latestUserMessage,
-        conversationSummary: conversationSummaryContext.summary,
-        assistantAction,
-        exerciseContext,
-        trace,
-      })
+      latestUserMessage: conversationSummaryContext.latestUserMessage,
+      conversationSummary: conversationSummaryContext.summary,
+      assistantAction,
+      exerciseContext,
+      trace,
+      currentUser: user,
+    })
     : null;
   const assistantSuggestionResult = resolveAssistantSuggestions({
     chatIntent,
@@ -3025,6 +3030,7 @@ async function generateChatArtifact(input: {
   assistantAction: AssistantAction;
   exerciseContext: ExerciseContext | null;
   trace: AiTraceLogger;
+  currentUser: CurrentUser;
 }): Promise<ChatArtifactResult> {
   input.trace.addStep({
     name: "服务端 artifact 生成开始",
@@ -3095,7 +3101,7 @@ async function generateChatArtifact(input: {
       intent: input.assistantAction.intent,
       fieldSources: input.assistantAction.resolvedIntent?.fieldSources,
       referenceResolution: input.assistantAction.referenceResolution,
-    }, { trace: input.trace });
+    }, { trace: input.trace, currentUser: input.currentUser });
 
     if (!plan.ok) {
       return {

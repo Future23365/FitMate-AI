@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { clearAiTraces, isAiTraceEnabled, listAiTraces } from "@/lib/server/dev/ai-trace-store";
+import { authErrorToApiResponse, requireCurrentUser } from "@/lib/server/auth/local-anonymous-auth";
+import { clearAiTraces, isAiTraceEnabled, listAiTracesForUser } from "@/lib/server/dev/ai-trace-store";
 
 type SaveAiTraceLogRequest = {
   logType?: unknown;
@@ -12,7 +13,15 @@ type SaveAiTraceLogRequest = {
 
 type AiTraceSavedLogType = "trace" | "prompt";
 
-export async function GET() {
+export async function GET(request: Request) {
+  let currentUser;
+
+  try {
+    currentUser = await requireCurrentUser(request);
+  } catch (error) {
+    return authErrorToApiResponse(error);
+  }
+
   if (!isAiTraceEnabled()) {
     return NextResponse.json(
       {
@@ -25,11 +34,19 @@ export async function GET() {
 
   return NextResponse.json({
     ok: true,
-    traces: listAiTraces(),
+    traces: listAiTracesForUser(currentUser.id),
   });
 }
 
-export async function DELETE() {
+export async function DELETE(request: Request) {
+  let currentUser;
+
+  try {
+    currentUser = await requireCurrentUser(request);
+  } catch (error) {
+    return authErrorToApiResponse(error);
+  }
+
   if (!isAiTraceEnabled()) {
     return NextResponse.json(
       {
@@ -40,7 +57,7 @@ export async function DELETE() {
     );
   }
 
-  clearAiTraces();
+  clearAiTraces(currentUser.id);
 
   return NextResponse.json({
     ok: true,
@@ -48,6 +65,12 @@ export async function DELETE() {
 }
 
 export async function POST(request: Request) {
+  try {
+    await requireCurrentUser(request);
+  } catch (error) {
+    return authErrorToApiResponse(error);
+  }
+
   if (!isAiTraceEnabled()) {
     return NextResponse.json(
       {

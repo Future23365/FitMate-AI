@@ -109,6 +109,7 @@ export async function runBlackboxChatTurn(input: {
       apiKey: input.apiKey,
       request: preparedRequest,
       trace,
+      currentUser: { id: "manual-llm-user", displayName: "手动测试用户" },
     });
   } catch (error) {
     return createFailedResult(input.state, responseMessageId, {

@@ -155,6 +155,8 @@ Zod 用于校验所有客户端传入参数，避免非法数据进入业务层�
 
 Auth.js 或 Clerk 用于用户登录、会话管理和权限控制。
 
+当前阶段在正式注册登录系统前先使用本地匿名鉴权。匿名 token 由 `POST /api/auth/local-anonymous` 通过 HttpOnly cookie 写入浏览器，前端不读取、不保存、不拼接 token；同源私有 API 请求依赖浏览器自动携带 cookie。除匿名会话接口外，私有 API Route Handler 必须先调用 `requireCurrentUser(request)` 从 cookie 建立请求级 `CurrentUser`，再把 `userId` 传给服务层。`LocalAuthProvider` 不在应用挂载时自动创建匿名用户，而是在统一客户端请求层收到 `401 unauthenticated` 或明确未认证语义的历史 `403` 后，打开当前布局内的 shadcn/ui Dialog 引导用户创建或恢复匿名会话。匿名身份复用 `UserIdentity(provider = "anonymous")`，设置页“重置本地用户”会通过 `DELETE /api/auth/local-anonymous` 清除当前 cookie 并标记旧 `User.deletedAt`，旧 cookie 后续只能得到未认证响应，旧用户关联业务数据保留用于审计、调试和未来迁移。后续升级到邮箱、OAuth 或 Auth.js / Clerk 时，服务层仍只依赖经过鉴权的用户上下文，不需要重新信任客户端传入的裸 `userId`。
+
 ---
 
 ## 6. AI 编排层

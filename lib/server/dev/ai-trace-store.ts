@@ -89,12 +89,18 @@ export function listAiTraces() {
   return getStore().traces;
 }
 
-export function clearAiTraces() {
+export function listAiTracesForUser(userId: string) {
+  return listAiTraces().filter((trace) => trace.userId === userId);
+}
+
+export function clearAiTraces(userId?: string) {
   if (!isAiTraceEnabled()) {
     return;
   }
 
-  getStore().traces = [];
+  getStore().traces = userId
+    ? getStore().traces.filter((trace) => trace.userId !== userId)
+    : [];
 }
 
 export function createAiTrace(input: {

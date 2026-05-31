@@ -5,6 +5,7 @@ import type { Prisma } from "@prisma/client";
 import { linkArtifactSourceEntityFromMessage } from "@/lib/server/conversation-artifacts/artifact-service";
 import { getPrismaClient } from "@/lib/server/db/prisma";
 import { getCurrentUser } from "@/lib/server/users/current-user";
+import type { CurrentUser } from "@/lib/server/users/current-user";
 import type {
   WorkoutItem,
   WorkoutRoutine,
@@ -40,9 +41,9 @@ type WorkoutScheduleWithRoutine = Prisma.WorkoutScheduleGetPayload<{
 type WorkoutSessionResultRecord = Prisma.WorkoutSessionResultGetPayload<Record<string, never>>;
 
 // Routine 查询只返回当前用户未归档的可复用动作编排。
-export async function listWorkoutRoutines() {
+export async function listWorkoutRoutines(currentUser?: CurrentUser) {
   const prisma = getPrismaClient();
-  const user = await getCurrentUser();
+  const user = await getCurrentUser(currentUser);
   const routines = await prisma.workoutRoutine.findMany({
     where: { userId: user.id, status: "active" },
     include: workoutRoutineInclude,
@@ -53,9 +54,9 @@ export async function listWorkoutRoutines() {
 }
 
 // Routine 详情用于编排编辑和训练日历选择，始终带 userId 隔离。
-export async function getWorkoutRoutineById(id: string) {
+export async function getWorkoutRoutineById(id: string, currentUser?: CurrentUser) {
   const prisma = getPrismaClient();
-  const user = await getCurrentUser();
+  const user = await getCurrentUser(currentUser);
   const routine = await prisma.workoutRoutine.findFirst({
     where: { id, userId: user.id, status: "active" },
     include: workoutRoutineInclude,
@@ -65,10 +66,10 @@ export async function getWorkoutRoutineById(id: string) {
 }
 
 // 保存 routine 时先校验动作库 id，再整体替换 item 顺序，避免旧计划日中间层残留。
-export async function saveWorkoutRoutine(rawRoutine: WorkoutRoutine) {
+export async function saveWorkoutRoutine(rawRoutine: WorkoutRoutine, currentUser?: CurrentUser) {
   const parsedRoutine = normalizeWorkoutRoutine(workoutRoutineSchema.parse(rawRoutine));
   const prisma = getPrismaClient();
-  const user = await getCurrentUser();
+  const user = await getCurrentUser(currentUser);
   const timingConfig = getWorkoutTimingConfig(parsedRoutine);
   const estimatedMinutes = estimateWorkoutMinutes(parsedRoutine.items, timingConfig);
   const estimatedCalories = estimateWorkoutCalories(parsedRoutine.items, {
@@ -159,9 +160,9 @@ export async function saveWorkoutRoutine(rawRoutine: WorkoutRoutine) {
 }
 
 // 归档 routine，保留已存在 schedule 的展示快照和历史 result。
-export async function deleteWorkoutRoutine(id: string) {
+export async function deleteWorkoutRoutine(id: string, currentUser?: CurrentUser) {
   const prisma = getPrismaClient();
-  const user = await getCurrentUser();
+  const user = await getCurrentUser(currentUser);
   await prisma.workoutRoutine.updateMany({
     where: { id, userId: user.id },
     data: { status: "archived" },
@@ -169,9 +170,9 @@ export async function deleteWorkoutRoutine(id: string) {
 }
 
 // Schedule 查询返回日历可展示快照，以及训练执行需要的 routine items。
-export async function listWorkoutSchedules() {
+export async function listWorkoutSchedules(currentUser?: CurrentUser) {
   const prisma = getPrismaClient();
-  const user = await getCurrentUser();
+  const user = await getCurrentUser(currentUser);
   const schedules = await prisma.workoutSchedule.findMany({
     where: { userId: user.id, status: { not: "cancelled" } },
     include: workoutScheduleInclude,
@@ -182,9 +183,9 @@ export async function listWorkoutSchedules() {
 }
 
 // Schedule 详情用于训练执行页按 scheduleId 加载当前安排。
-export async function getWorkoutScheduleById(id: string) {
+export async function getWorkoutScheduleById(id: string, currentUser?: CurrentUser) {
   const prisma = getPrismaClient();
-  const user = await getCurrentUser();
+  const user = await getCurrentUser(currentUser);
   const schedule = await prisma.workoutSchedule.findFirst({
     where: { id, userId: user.id, status: { not: "cancelled" } },
     include: workoutScheduleInclude,
@@ -194,10 +195,10 @@ export async function getWorkoutScheduleById(id: string) {
 }
 
 // 创建日历安排时保存展示快照，休息日不创建空 routine。
-export async function createWorkoutSchedule(rawSchedule: WorkoutSchedule) {
+export async function createWorkoutSchedule(rawSchedule: WorkoutSchedule, currentUser?: CurrentUser) {
   const parsedSchedule = workoutScheduleSchema.parse(rawSchedule);
   const prisma = getPrismaClient();
-  const user = await getCurrentUser();
+  const user = await getCurrentUser(currentUser);
 
   if (parsedSchedule.status === "rest") {
     const schedule = await prisma.$transaction(async (tx) => {
@@ -291,10 +292,14 @@ export async function createWorkoutSchedule(rawSchedule: WorkoutSchedule) {
 }
 
 // 更新 schedule 状态只作用于当前用户自己的日历安排。
-export async function updateWorkoutScheduleStatus(id: string, rawStatus: WorkoutScheduleStatus) {
+export async function updateWorkoutScheduleStatus(
+  id: string,
+  rawStatus: WorkoutScheduleStatus,
+  currentUser?: CurrentUser,
+) {
   const status = workoutScheduleStatusSchema.parse(rawStatus);
   const prisma = getPrismaClient();
-  const user = await getCurrentUser();
+  const user = await getCurrentUser(currentUser);
   const schedule = await prisma.workoutSchedule.update({
     where: { id, userId: user.id },
     data: { status },
@@ -305,9 +310,9 @@ export async function updateWorkoutScheduleStatus(id: string, rawStatus: Workout
 }
 
 // 删除 schedule 使用取消状态，保留 result 与未来审计空间。
-export async function deleteWorkoutSchedule(id: string) {
+export async function deleteWorkoutSchedule(id: string, currentUser?: CurrentUser) {
   const prisma = getPrismaClient();
-  const user = await getCurrentUser();
+  const user = await getCurrentUser(currentUser);
   await prisma.workoutSchedule.updateMany({
     where: { id, userId: user.id },
     data: { status: "cancelled" },
@@ -315,10 +320,14 @@ export async function deleteWorkoutSchedule(id: string) {
 }
 
 // 保存训练完成结果时在事务内维护 result 和 schedule completed 状态。
-export async function saveWorkoutSessionResult(scheduleId: string, rawResult: unknown) {
+export async function saveWorkoutSessionResult(
+  scheduleId: string,
+  rawResult: unknown,
+  currentUser?: CurrentUser,
+) {
   const parsedResult = workoutSessionResultInputSchema.parse(rawResult);
   const prisma = getPrismaClient();
-  const user = await getCurrentUser();
+  const user = await getCurrentUser(currentUser);
   const schedule = await prisma.workoutSchedule.findFirst({
     where: { id: scheduleId, userId: user.id, status: { not: "cancelled" } },
     select: { id: true, routineId: true },

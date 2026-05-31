@@ -5,6 +5,7 @@ import {
   createCandidateTrimSummary,
   createExerciseRecommendationBudgetDecision,
 } from "@/lib/server/ai/token-budget";
+import { authErrorToApiResponse, requireCurrentUser } from "@/lib/server/auth/local-anonymous-auth";
 import { startAiTrace } from "@/lib/server/dev/ai-trace-logger";
 import { generateAiExerciseRecommendations } from "@/lib/server/exercise-recommendations/ai-exercise-recommendation-service";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
@@ -55,6 +56,14 @@ function buildRecommendationExposureSources(input: z.infer<typeof exerciseRecomm
 }
 
 export async function POST(request: Request) {
+  let currentUser;
+
+  try {
+    currentUser = await requireCurrentUser(request);
+  } catch (error) {
+    return authErrorToApiResponse(error);
+  }
+
   const apiKey = process.env.DEEPSEEK_API_KEY;
 
   if (!apiKey) {
@@ -82,6 +91,7 @@ export async function POST(request: Request) {
     route: "/api/ai/exercise-recommendations",
     title: parsedRequest.data.latestUserMessage,
     existingTraceId: parsedRequest.data.parentTraceId,
+    userId: currentUser.id,
     metadata: {
       messageCount: 1,
       hasConversationSummary: parsedRequest.data.conversationSummary.trim().length > 0,

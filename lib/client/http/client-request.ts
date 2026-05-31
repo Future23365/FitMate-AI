@@ -1,5 +1,11 @@
 "use client";
 
+import {
+  dispatchLocalAuthRequired,
+  getLocalAuthRequiredReason,
+  isLocalAuthRequiredResponse,
+} from "@/lib/client/auth/local-auth-events";
+
 type ClientResponseType = "json" | "raw" | "text";
 
 type ClientRequestOptions = Omit<RequestInit, "body"> & {
@@ -58,6 +64,21 @@ function getErrorMessage(data: unknown, fallback: string) {
   return typeof data === "string" && data ? data : fallback;
 }
 
+async function handleUnauthenticatedResponse(response: Response) {
+  if (typeof window === "undefined" || (response.status !== 401 && response.status !== 403)) {
+    return;
+  }
+
+  const data = await parseErrorBody(response.clone());
+
+  if (isLocalAuthRequiredResponse(response.status, data)) {
+    dispatchLocalAuthRequired({
+      reason: getLocalAuthRequiredReason(data),
+      status: response.status,
+    });
+  }
+}
+
 export async function clientRequest<T = unknown>(
   input: RequestInfo | URL,
   options: ClientRequestOptions & { responseType: "raw" },
@@ -90,9 +111,12 @@ export async function clientRequest<T = unknown>(
 
   const response = await fetch(input, {
     ...init,
+    credentials: init.credentials ?? "same-origin",
     headers,
     body: shouldStringifyBody ? JSON.stringify(body) : (body as BodyInit | null | undefined),
   });
+
+  await handleUnauthenticatedResponse(response);
 
   if (!response.ok && throwOnError) {
     const data = await parseErrorBody(response);

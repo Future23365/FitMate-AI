@@ -5,6 +5,7 @@ import {
   aiRunTraceToolVersions,
   summarizeRecentArtifactsForTrace,
 } from "@/lib/server/dev/ai-run-trace";
+import { authErrorToApiResponse, requireCurrentUser } from "@/lib/server/auth/local-anonymous-auth";
 import { jsonApiError } from "@/lib/server/http/api-error";
 import {
   chatRequestSchema,
@@ -12,9 +13,16 @@ import {
   prepareAiChatRequest,
 } from "@/lib/server/chat/chat-service";
 import { listRecentArtifactSummariesForCurrentUser } from "@/lib/server/conversation-artifacts/artifact-service";
-import { getCurrentUser } from "@/lib/server/users/current-user";
 
 export async function POST(request: Request) {
+  let user;
+
+  try {
+    user = await requireCurrentUser(request);
+  } catch (error) {
+    return authErrorToApiResponse(error);
+  }
+
   const apiKey = process.env.DEEPSEEK_API_KEY;
 
   if (!apiKey) {
@@ -38,9 +46,10 @@ export async function POST(request: Request) {
   }
 
   const preparedRequest = prepareAiChatRequest(parsedRequest.data);
-  const user = await getCurrentUser();
   preparedRequest.recentArtifactSummaries = await listRecentArtifactSummariesForCurrentUser(
     parsedRequest.data.conversationId,
+    undefined,
+    user,
   );
 
   if (preparedRequest.rawMessages.length === 0) {
@@ -73,5 +82,6 @@ export async function POST(request: Request) {
     apiKey,
     request: preparedRequest,
     trace,
+    currentUser: user,
   });
 }

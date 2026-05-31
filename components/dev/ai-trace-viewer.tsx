@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
+import { clientRequest } from "@/lib/client/http/client-request";
 import type { AiTrace, AiTraceStep } from "@/lib/server/dev/ai-trace-store";
 
 type TraceResponse = {
@@ -71,12 +72,12 @@ export function AiTraceViewer() {
     setError(null);
 
     try {
-      const response = await fetch("/api/dev/ai-traces", {
+      const data = await clientRequest<TraceResponse>("/api/dev/ai-traces", {
         cache: "no-store",
+        errorMessage: "Failed to load AI traces.",
       });
-      const data = (await response.json()) as TraceResponse;
 
-      if (!response.ok || !data.ok) {
+      if (!data.ok) {
         throw new Error(data.error || "Failed to load AI traces.");
       }
 
@@ -101,8 +102,10 @@ export function AiTraceViewer() {
   }, [loadTraces]);
 
   async function clearTraces() {
-    await fetch("/api/dev/ai-traces", {
+    await clientRequest("/api/dev/ai-traces", {
       method: "DELETE",
+      responseType: "raw",
+      errorMessage: "Failed to clear AI traces.",
     });
     setTraces([]);
     setSelectedTraceId(null);
@@ -119,20 +122,17 @@ export function AiTraceViewer() {
     setError(null);
 
     try {
-      const response = await fetch("/api/dev/ai-traces", {
+      const data = await clientRequest<SaveLogResponse>("/api/dev/ai-traces", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+        body: {
           logType: input.logType,
           target: input.target,
           payload: input.payload,
-        }),
+        },
+        errorMessage: "Failed to save AI trace log.",
       });
-      const data = (await response.json()) as SaveLogResponse;
 
-      if (!response.ok || !data.ok) {
+      if (!data.ok) {
         throw new Error(data.error || "Failed to save AI trace log.");
       }
 

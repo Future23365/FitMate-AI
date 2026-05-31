@@ -52,7 +52,10 @@ cp .env.example .env.local
 ```bash
 DEEPSEEK_API_KEY=
 DATABASE_URL="postgresql://fitmate:fitmate@localhost:5432/fitmate?schema=public"
+FITMATE_LOCAL_AUTH_SECRET=
 ```
+
+`FITMATE_LOCAL_AUTH_SECRET` 用于签发和校验本地匿名 auth cookie。生产环境必须显式配置；本地开发未配置时会使用固定开发 fallback，方便重启后继续验证同一浏览器匿名会话。
 
 启动本地 PostgreSQL：
 

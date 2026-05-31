@@ -51,6 +51,13 @@ const artifactMocks = vi.hoisted(() => ({
 const currentUserMocks = vi.hoisted(() => ({
   getCurrentUser: vi.fn(),
 }));
+const authMocks = vi.hoisted(() => ({
+  authErrorToApiResponse: vi.fn(() => Response.json(
+    { ok: false, code: "unauthenticated", error: "Authentication is required.", message: "Authentication is required." },
+    { status: 401 },
+  )),
+  requireCurrentUser: vi.fn(async () => ({ id: "user-1", displayName: "匿名用户" })),
+}));
 
 vi.mock("@/lib/server/dev/ai-trace-logger", () => traceMocks);
 vi.mock("@/lib/server/chat/chat-service", async (importOriginal) => {
@@ -76,6 +83,7 @@ vi.mock("@/lib/server/workouts/workout-persistence-service", () => workoutPersis
 vi.mock("@/lib/server/chat/chat-history-service", () => chatHistoryMocks);
 vi.mock("@/lib/server/conversation-artifacts/artifact-service", () => artifactMocks);
 vi.mock("@/lib/server/users/current-user", () => currentUserMocks);
+vi.mock("@/lib/server/auth/local-anonymous-auth", () => authMocks);
 
 const chatRoute = await import("@/app/api/chat/route");
 const workoutPlanRoute = await import("@/app/api/ai/workout-plan/route");
@@ -92,6 +100,7 @@ const conversationDetailRoute = await import("@/app/api/chat/conversations/[id]/
 
 describe("API route boundaries", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
     chatServiceMocks.createAiChatResponse.mockResolvedValue(new Response("stream", { status: 200 }));
     workoutPlanMocks.generateAiWorkoutPlanDraft.mockResolvedValue({ ok: true, draft: { title: "计划" } });
@@ -167,6 +176,7 @@ describe("API route boundaries", () => {
     chatHistoryMocks.saveChatConversation.mockImplementation(async (conversation) => conversation);
     artifactMocks.listRecentArtifactSummariesForCurrentUser.mockResolvedValue([]);
     currentUserMocks.getCurrentUser.mockResolvedValue({ id: "user-1" });
+    authMocks.requireCurrentUser.mockResolvedValue({ id: "user-1", displayName: "匿名用户" });
   });
 
   it("validates /api/chat body and returns stream response for legal requests", async () => {
@@ -181,6 +191,7 @@ describe("API route boundaries", () => {
     expect(chatServiceMocks.createAiChatResponse).toHaveBeenCalledWith(
       expect.objectContaining({
         apiKey: "test-key",
+        currentUser: expect.objectContaining({ id: "user-1" }),
         request: expect.objectContaining({ rawMessages: [expect.objectContaining({ content: "练胸" })] }),
       }),
     );
@@ -255,7 +266,7 @@ describe("API route boundaries", () => {
   });
 
   it("handles workout and workout session resource routes", async () => {
-    await expect((await workoutRoutinesRoute.GET()).json()).resolves.toMatchObject({ items: [expect.any(Object)] });
+    await expect((await workoutRoutinesRoute.GET(new Request("http://localhost/api/workout-routines"))).json()).resolves.toMatchObject({ items: [expect.any(Object)] });
     await expect((await workoutRoutinesRoute.POST(jsonRequest("/api/workout-routines", createWorkoutRoutine()))).json()).resolves.toMatchObject({
       item: { id: "workout-routine-1" },
     });
@@ -263,10 +274,13 @@ describe("API route boundaries", () => {
       item: { id: "workout-1" },
     });
     await workoutRoutineDetailRoute.PUT(jsonRequest("/api/workout-routines/workout-1", createWorkoutRoutine({ id: "ignored" })), params("workout-1"));
-    expect(workoutPersistenceMocks.saveWorkoutRoutine).toHaveBeenCalledWith(expect.objectContaining({ id: "workout-1" }));
+    expect(workoutPersistenceMocks.saveWorkoutRoutine).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "workout-1" }),
+      expect.objectContaining({ id: "user-1" }),
+    );
     expect((await workoutRoutineDetailRoute.DELETE(new Request("http://localhost"), params("workout-1"))).status).toBe(204);
 
-    await expect((await workoutSchedulesRoute.GET()).json()).resolves.toMatchObject({ items: [expect.any(Object)] });
+    await expect((await workoutSchedulesRoute.GET(new Request("http://localhost/api/workout-schedules"))).json()).resolves.toMatchObject({ items: [expect.any(Object)] });
     await expect((await workoutSchedulesRoute.POST(jsonRequest("/api/workout-schedules", createWorkoutSchedule()))).json()).resolves.toMatchObject({
       item: { id: "schedule-1" },
     });
@@ -289,7 +303,7 @@ describe("API route boundaries", () => {
   });
 
   it("handles chat conversation resource routes", async () => {
-    await expect((await conversationsRoute.GET()).json()).resolves.toMatchObject({ items: [expect.any(Object)] });
+    await expect((await conversationsRoute.GET(new Request("http://localhost/api/chat/conversations"))).json()).resolves.toMatchObject({ items: [expect.any(Object)] });
     await expect((await conversationsRoute.POST(jsonRequest("/api/chat/conversations", createChatConversation()))).json()).resolves.toMatchObject({
       item: { id: "conversation-1" },
     });
@@ -300,8 +314,21 @@ describe("API route boundaries", () => {
       jsonRequest("/api/chat/conversations/conversation-1", createChatConversation({ id: "ignored" })),
       params("conversation-1"),
     );
-    expect(chatHistoryMocks.saveChatConversation).toHaveBeenCalledWith(expect.objectContaining({ id: "conversation-1" }));
+    expect(chatHistoryMocks.saveChatConversation).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "conversation-1" }),
+      expect.objectContaining({ id: "user-1" }),
+    );
     expect((await conversationDetailRoute.DELETE(new Request("http://localhost"), params("conversation-1"))).status).toBe(204);
+  });
+
+  it("rejects private API routes before calling business services when unauthenticated", async () => {
+    authMocks.requireCurrentUser.mockRejectedValueOnce(new Error("Authentication is required."));
+
+    const response = await conversationsRoute.GET(new Request("http://localhost/api/chat/conversations"));
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toMatchObject({ code: "unauthenticated" });
+    expect(chatHistoryMocks.listChatConversations).not.toHaveBeenCalled();
   });
 });
 

@@ -157,4 +157,51 @@ describe("AI trace store and HTTP request helpers", () => {
       new ClientRequestError("权限不足", 403, "权限不足"),
     );
   });
+
+  it("uses same-origin cookies and dispatches auth-required only for unauthenticated responses", async () => {
+    const dispatchEvent = vi.fn();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json(
+          { ok: false, code: "unauthenticated", message: "Authentication is required." },
+          { status: 401 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        Response.json(
+          { ok: false, code: "unauthenticated", message: "Authentication is required." },
+          { status: 403 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        Response.json(
+          { ok: false, code: "forbidden", message: "权限不足" },
+          { status: 403 },
+        ),
+      );
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await clientRequest("/api/private", {
+      responseType: "raw",
+      throwOnError: false,
+    });
+    const legacyResponse = await clientRequest("/api/private", {
+      responseType: "raw",
+      throwOnError: false,
+    });
+    const forbiddenResponse = await clientRequest("/api/private", {
+      responseType: "raw",
+      throwOnError: false,
+    });
+
+    expect(response.status).toBe(401);
+    expect(legacyResponse.status).toBe(403);
+    expect(forbiddenResponse.status).toBe(403);
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ credentials: "same-origin" });
+    expect((fetchMock.mock.calls[0][1].headers as Headers).get("Authorization")).toBeNull();
+    expect(dispatchEvent).toHaveBeenCalledTimes(2);
+    expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "fitmate:auth-required" }));
+  });
 });

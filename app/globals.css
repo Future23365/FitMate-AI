@@ -6,6 +6,7 @@ layer(base);
 layer(base);
 
 @import "tailwindcss";
+@import "tw-animate-css";
 
 @theme {
   /* Tailwind 4 的 CSS-first 配置入口；保留当前项目 PC-only 的断点基线。 */
