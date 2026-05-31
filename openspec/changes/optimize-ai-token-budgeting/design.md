@@ -16,7 +16,7 @@
 
 **Non-Goals:**
 
-- 不引入真实 LLM 手测预算验收，不修改 `manual-llm-consistency-tests` 的测试命令、报告或 token 预算输出。
+- 不新增测试用例、测试 fixture 或真实 LLM 手测预算验收，不修改 `manual-llm-consistency-tests` 的测试命令、报告或 token 预算输出。
 - 不更换模型供应商，不新增外部依赖。
 - 不改变前端 `/api/chat` 的公开请求契约。
 - 不把 token 优化做成用户可配置项；本阶段只做服务端策略和开发者可观测性。
@@ -57,19 +57,19 @@
 
 ## Risks / Trade-offs
 
-- [Risk] 预算决策层过于激进，导致应调用 LLM 的场景被跳过 → Mitigation：默认只跳过确定性场景；所有跳过路径必须写入 trace，并覆盖自动化测试。
+- [Risk] 预算决策层过于激进，导致应调用 LLM 的场景被跳过 → Mitigation：默认只跳过确定性场景；所有跳过路径必须写入 trace，并在实现 review 中逐项核对。
 - [Risk] 候选字段裁剪过度，导致模型缺少解释动作选择的依据 → Mitigation：字段白名单保留匹配原因、限制和服务端评分摘要；先从推荐链路最小必要字段开始。
 - [Risk] Prompt module 拆分后规则分散，后续维护者难以判断完整约束 → Mitigation：集中维护模块注册表，并在预算决策 trace 中展示本轮启用的模块。
 - [Risk] trace 字段增加导致开发期日志更大 → Mitigation：只记录摘要、计数、字段名和必要 token usage，不默认记录完整模型响应正文。
-- [Risk] token 成本降低但质量回归不易察觉 → Mitigation：使用现有普通自动化测试、结构化校验测试和 trace fixture 校验关键质量边界；本 change 不要求真实 LLM 手测预算验收。
+- [Risk] token 成本降低但质量回归不易察觉 → Mitigation：保留既有结构化校验、服务端候选动作约束和 trace 可观测性；本 change 暂不新增测试或真实 LLM 手测预算验收。
 
 ## Migration Plan
 
-1. 先补预算决策层、prompt module 注册和候选字段白名单的纯函数测试。
+1. 先落地预算决策层、prompt module 注册和候选字段白名单。
 2. 将 `/api/chat` 编排迁移为读取预算决策结果，再执行必要 AI 阶段。
 3. 为动作推荐和训练计划生成接入瘦身后的候选动作模型输入。
 4. 扩展 AI Trace 事件结构和 `/dev/ai-traces` 展示，使分账和跳过原因可见。
-5. 运行相关自动化测试、类型检查和构建检查；不执行真实 LLM 手测预算验收。
+5. 运行类型检查和必要构建检查；不新增测试，不执行真实 LLM 手测预算验收。
 
 ## Open Questions
 
