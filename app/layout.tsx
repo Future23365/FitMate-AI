@@ -7,6 +7,10 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "FitMate AI",
   description: "AI 健身聊天助手",
+  icons: {
+    icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
+    shortcut: "/favicon.svg",
+  },
 };
 
 export default function RootLayout({
