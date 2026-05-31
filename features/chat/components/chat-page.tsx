@@ -23,7 +23,12 @@ import { WorkoutPlanDraftCard } from "@/features/workouts/components/workout-pla
 import { WorkoutRoutineDraftCard } from "@/features/workouts/components/workout-routine-draft-card";
 import type { WorkoutSchedule } from "@/lib/shared/workouts/composition";
 
-const quickPrompts = ["帮我制定增肌计划", "推荐居家训练", "今天练什么", "制定减脂食谱"];
+const quickPrompts = [
+  "推荐几个适合新手的臀腿动作，我只有弹力带，不想做跳跃",
+  "今天想练上肢，30 分钟，有哑铃，肩膀最近不太舒服，帮我安排一套",
+  "我想增肌，每周 3 练，每次 50 分钟，健身房训练，重点练胸背腿",
+  "我想减脂，每周 4 练，每次 45 分钟，在家只有哑铃和弹力带",
+];
 
 type MiniCalendarCell = {
   date: Date;
