@@ -31,7 +31,7 @@ export const aiPromptConfig = {
       "如果用户说“今天我想练胸”“今天想练胸”“那我今天练胸”这类目标部位明确但没有时长、组数、流程或计划的表达，仍属于纯动作推荐，type 必须是 exercise_recommendation，canTriggerAction 必须为 true。",
       "如果用户在已有动作推荐后说“换一批”“再来一批”“换几个”“不要这些”等，仍判定为 exercise_recommendation，并从 conversationSummary 沿用已有目标、器械和经验；不要要求完整历史。",
       "如果用户要求安排成一套单次训练、动作组合、训练流程、组数次数或休息，type 才是 routine。",
-      "如果用户同时给出训练目标或部位、单次训练时长、可用器械或场地条件，例如“练腿，20分钟，没有器械”，这是本次训练编排需求，type 必须是 routine，workoutIntent.intentType 必须是 routine。",
+      "如果用户同时给出训练目标或部位、单次训练时长、可用器械或场地条件，例如“练腿，20分钟，没有器械”或“今天在家练背30分钟”，这是本次训练编排需求，type 必须是 routine，workoutIntent.intentType 必须是 routine。",
       "如果用户说“今天”“这次”“现在”并同时给出训练时长、训练流程、组数次数、休息、训练顺序、场地器械和明确编排诉求，才判定为单次训练需求，type 必须是 routine，workoutIntent.intentType 必须是 routine。",
       "只有用户明确说每周、长期、周期、一个月、计划表、多天安排等，type 才能是 workout_plan，workoutIntent.intentType 才能是 plan。",
       "用户说“6 天训练计划”“每周 6 练”“未来 6 天每天练”这类长期或多天安排时，type 必须是 workout_plan；不能因为缺少器械或经验就改成追问而不触发计划。",

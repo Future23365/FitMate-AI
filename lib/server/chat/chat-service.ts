@@ -1655,6 +1655,24 @@ export function normalizeChatIntentForBlackboxFlows(input: {
     };
   }
 
+  if (isCompleteSingleSessionRoutineMessage(latestUserMessage)) {
+    const workoutIntent = applyCurrentMessageOverrides(
+      contextualIntent ?? input.chatIntent.workoutIntent ?? input.fallbackIntent.workoutIntent,
+      latestUserMessage,
+      "routine",
+    );
+
+    return {
+      ...input.chatIntent,
+      type: "routine",
+      needsExerciseContext: true,
+      workoutIntent,
+      canTriggerAction: true,
+      missingActionFields: [],
+      suggestedReplies: [],
+    };
+  }
+
   if (isUnderSpecifiedLongTermPlanRequest(latestUserMessage, input.conversationContext)) {
     const workoutIntent = applyCurrentMessageOverrides(
       contextualIntent ?? input.chatIntent.workoutIntent ?? input.fallbackIntent.workoutIntent,
@@ -3485,6 +3503,22 @@ function isPureTargetRecommendationMessage(message: string) {
     !hasDurationText(normalized) &&
     !isLongTermPlanMessage(normalized) &&
     !/一套|安排|编排|流程|组数|次数|休息|训练计划|计划表|做成|变成/.test(normalized)
+  );
+}
+
+// 首轮已给齐目标、时长和场地/器械时，服务端直接收敛为本次训练编排。
+function isCompleteSingleSessionRoutineMessage(message: string) {
+  const normalized = message.replace(/\s+/g, "");
+  const isActionRecommendationOnly =
+    /推荐|有哪些|动作示例/.test(normalized) &&
+    !/一套|安排|编排|流程|训练/.test(normalized);
+
+  return (
+    hasTrainingTarget(normalized) &&
+    hasDurationText(normalized) &&
+    hasConditionFact(normalized) &&
+    !isLongTermPlanMessage(normalized) &&
+    !isActionRecommendationOnly
   );
 }
 

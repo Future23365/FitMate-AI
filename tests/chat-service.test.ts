@@ -656,6 +656,9 @@ describe("AI chat service deterministic boundaries", () => {
       "练腿，20分钟，没有器械",
     );
     expect(aiPromptConfig.chatIntentResolution.system).toContain(
+      "今天在家练背30分钟",
+    );
+    expect(aiPromptConfig.chatIntentResolution.system).toContain(
       "不得返回 exercise_recommendation",
     );
 
@@ -683,6 +686,56 @@ describe("AI chat service deterministic boundaries", () => {
         goal: "练腿",
         sessionMinutes: 20,
         weeklyFrequency: 1,
+      },
+    });
+  });
+
+  it("normalizes complete first-turn home duration requests to routine composition", () => {
+    const modelIntent: ChatIntent = {
+      type: "exercise_recommendation",
+      needsExerciseContext: true,
+      workoutIntent: createWorkoutPlanIntent({
+        intentType: "routine",
+        goal: "练背",
+        sessionMinutes: 30,
+        equipment: [],
+        preferences: ["居家训练"],
+      }),
+      requestedExerciseName: "",
+      canTriggerAction: false,
+      missingActionFields: ["equipmentOrLocation"],
+      suggestedReplies: ["我在家练背 30 分钟"],
+    };
+
+    const normalized = normalizeChatIntentForBlackboxFlows({
+      chatIntent: modelIntent,
+      fallbackIntent: createFallbackChatIntent(
+        [{ role: "user", content: "今天在家练背30分钟" }],
+        createEmptyConversationContext(),
+      ),
+      messages: [{ role: "user", content: "今天在家练背30分钟" }],
+      conversationSummaryContext: { summary: "", latestUserMessage: "今天在家练背30分钟" },
+      conversationContext: createEmptyConversationContext(),
+      recentArtifactSummaries: [],
+    });
+
+    expect(normalized).toMatchObject({
+      type: "routine",
+      canTriggerAction: true,
+      missingActionFields: [],
+      suggestedReplies: [],
+      workoutIntent: {
+        goal: "练背",
+        sessionMinutes: 30,
+        preferences: expect.arrayContaining(["居家训练"]),
+      },
+    });
+    expect(resolveAssistantAction(normalized, createExerciseContext({ intent: normalized.workoutIntent! }))).toMatchObject({
+      action: "workout_routine",
+      intent: {
+        intentType: "routine",
+        goal: "练背",
+        sessionMinutes: 30,
       },
     });
   });
