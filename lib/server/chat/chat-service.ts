@@ -273,7 +273,12 @@ export async function createAiChatResponse({
   const referenceResolution = shouldAttemptReferenceResolution(
     conversationSummaryContext.latestUserMessage,
     chatIntent.type,
-  )
+  ) && shouldUseReferenceResolutionForChat({
+    latestUserMessage: conversationSummaryContext.latestUserMessage,
+    chatIntent,
+    conversationContext: internalConversationContext,
+    recentArtifactSummaries,
+  })
     ? await resolveReference({
         latestUserMessage: conversationSummaryContext.latestUserMessage,
         sessionId: request.conversationId,
@@ -963,14 +968,35 @@ async function resolveChatIntent(
       output: data,
     });
 
-    if (data.needsExerciseContext && !data.workoutIntent) {
+    const normalizedIntent = normalizeChatIntentForBlackboxFlows({
+      chatIntent: data,
+      fallbackIntent,
+      messages,
+      conversationSummaryContext,
+      conversationContext: internalConversationContext,
+      recentArtifactSummaries,
+    });
+
+    if (normalizedIntent !== data) {
+      trace?.addStep({
+        name: "意图归一化结果",
+        type: "intent",
+        output: normalizedIntent,
+        metadata: {
+          sourceType: data.type,
+          normalizedType: normalizedIntent.type,
+        },
+      });
+    }
+
+    if (normalizedIntent.needsExerciseContext && !normalizedIntent.workoutIntent) {
       return {
-        ...data,
+        ...normalizedIntent,
         workoutIntent: fallbackIntent.workoutIntent,
       };
     }
 
-    return data;
+    return normalizedIntent;
   } catch (error) {
     trace?.addStep({
       name: "意图解析异常，使用兜底意图",
@@ -984,6 +1010,117 @@ async function resolveChatIntent(
     });
     return fallbackIntent;
   }
+}
+
+// 真实模型输出可能在高频短句上漂移；这里把黑盒主路径收敛为服务端可测试边界。
+export function normalizeChatIntentForBlackboxFlows(input: {
+  chatIntent: ChatIntent;
+  fallbackIntent: ChatIntent;
+  messages: ChatMessage[];
+  conversationSummaryContext: ConversationSummaryContext;
+  conversationContext: FitnessConversationContext;
+  recentArtifactSummaries?: RecentArtifactSummary[];
+}): ChatIntent {
+  const latestUserMessage = getLatestUserMessage(input.messages);
+  const contextualIntent = resolveContextualWorkoutIntent(input);
+  const priorContextIntent =
+    input.conversationContext.currentIntent ?? buildWorkoutIntentFromRecentArtifact(input.recentArtifactSummaries?.[0]);
+  const hasPriorTrainingContext = Boolean(
+    priorContextIntent ||
+    input.conversationContext.knownFacts.goal ||
+    input.recentArtifactSummaries?.length,
+  );
+
+  if (isStandaloneConditionMessage(latestUserMessage) && !hasPriorTrainingContext) {
+    return {
+      type: "general_fitness_advice",
+      needsExerciseContext: false,
+      requestedExerciseName: input.chatIntent.requestedExerciseName ?? "",
+      canTriggerAction: false,
+      missingActionFields: [],
+      suggestedReplies: [],
+    };
+  }
+
+  if (isPureTargetRecommendationMessage(latestUserMessage)) {
+    const workoutIntent = applyCurrentMessageOverrides(
+      contextualIntent ?? input.chatIntent.workoutIntent ?? input.fallbackIntent.workoutIntent,
+      latestUserMessage,
+      "routine",
+    );
+
+    return {
+      ...input.chatIntent,
+      type: "exercise_recommendation",
+      needsExerciseContext: true,
+      workoutIntent,
+      canTriggerAction: true,
+      missingActionFields: [],
+      suggestedReplies: [],
+    };
+  }
+
+  if (isLongTermPlanMessage(latestUserMessage)) {
+    const workoutIntent = applyCurrentMessageOverrides(
+      contextualIntent ?? input.chatIntent.workoutIntent ?? input.fallbackIntent.workoutIntent,
+      latestUserMessage,
+      "plan",
+    );
+
+    return {
+      ...input.chatIntent,
+      type: "workout_plan",
+      needsExerciseContext: true,
+      workoutIntent,
+      canTriggerAction: true,
+      missingActionFields: input.chatIntent.missingActionFields.filter(
+        (field) => !isPlanDefaultableMissingField(field, workoutIntent),
+      ),
+      suggestedReplies: [],
+    };
+  }
+
+  if (hasPriorTrainingContext && isContextualWorkoutAdjustment(latestUserMessage)) {
+    const intentType = inferContextualIntentType(latestUserMessage, input.chatIntent, contextualIntent);
+    const workoutIntent = applyCurrentMessageOverrides(
+      contextualIntent ?? input.chatIntent.workoutIntent ?? input.fallbackIntent.workoutIntent,
+      latestUserMessage,
+      intentType,
+    );
+
+    return {
+      ...input.chatIntent,
+      type: intentType === "plan" ? "workout_plan" : "routine",
+      needsExerciseContext: true,
+      workoutIntent,
+      canTriggerAction: true,
+      missingActionFields: [],
+      suggestedReplies: [],
+    };
+  }
+
+  return input.chatIntent;
+}
+
+export function shouldUseReferenceResolutionForChat(input: {
+  latestUserMessage: string;
+  chatIntent: ChatIntent;
+  conversationContext: FitnessConversationContext;
+  recentArtifactSummaries: RecentArtifactSummary[];
+}) {
+  if (hasExplicitReferenceMarker(input.latestUserMessage)) {
+    return true;
+  }
+
+  if (
+    isContextualWorkoutAdjustment(input.latestUserMessage) &&
+    (input.conversationContext.currentIntent || input.recentArtifactSummaries.length > 0) &&
+    (input.chatIntent.type === "routine" || input.chatIntent.type === "workout_plan")
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 async function buildExerciseContext(
@@ -1519,6 +1656,232 @@ export function parseJsonObject(content: string):
       detail: error instanceof Error ? error.message : error,
     };
   }
+}
+
+function resolveContextualWorkoutIntent(input: {
+  chatIntent: ChatIntent;
+  fallbackIntent: ChatIntent;
+  conversationContext: FitnessConversationContext;
+  recentArtifactSummaries?: RecentArtifactSummary[];
+}) {
+  return (
+    input.conversationContext.currentIntent ??
+    input.chatIntent.workoutIntent ??
+    buildWorkoutIntentFromRecentArtifact(input.recentArtifactSummaries?.[0]) ??
+    input.fallbackIntent.workoutIntent
+  );
+}
+
+function buildWorkoutIntentFromRecentArtifact(artifact?: RecentArtifactSummary): WorkoutPlanIntent | undefined {
+  if (!artifact) {
+    return undefined;
+  }
+
+  return workoutPlanIntentSchema.parse({
+    intentType: artifact.kind === "plan" ? "plan" : "routine",
+    goal: artifact.goals[0] ?? artifact.title,
+    experience: "beginner",
+    sessionMinutes: artifact.sessionMinutes ?? 30,
+    weeklyFrequency: artifact.weeklyFrequency ?? artifact.trainingDayCount ?? (artifact.kind === "plan" ? 3 : 1),
+    equipment: artifact.equipment,
+    injuryLimitations: [],
+    preferences: [],
+    avoidances: [],
+  });
+}
+
+function applyCurrentMessageOverrides(
+  baseIntent: WorkoutPlanIntent | undefined,
+  latestUserMessage: string,
+  intentType: WorkoutPlanIntent["intentType"],
+): WorkoutPlanIntent {
+  const fallback = workoutPlanIntentSchema.parse({
+    intentType,
+    goal: extractTargetGoal(latestUserMessage) ?? "综合体能提升",
+    experience: "beginner",
+    sessionMinutes: 30,
+    weeklyFrequency: intentType === "plan" ? 3 : 1,
+    equipment: [],
+    injuryLimitations: [],
+    preferences: [],
+    avoidances: [],
+  });
+  const sessionMinutes = inferSessionMinutesFromText(latestUserMessage);
+  const weeklyFrequency = inferWeeklyFrequencyFromText(
+    latestUserMessage,
+    baseIntent?.weeklyFrequency ?? fallback.weeklyFrequency,
+  );
+  const calendarHorizonDays = inferCalendarHorizonDaysFromText(latestUserMessage) ?? baseIntent?.calendarHorizonDays;
+  const currentEquipment = inferEquipmentFromText(latestUserMessage);
+  const noEquipment = hasNoEquipmentText(latestUserMessage);
+  const currentPreferences = inferPreferencesFromText(latestUserMessage);
+  const currentAvoidances = inferAvoidancesFromText(latestUserMessage);
+
+  return workoutPlanIntentSchema.parse({
+    ...(baseIntent ?? fallback),
+    intentType,
+    goal: extractTargetGoal(latestUserMessage) ?? baseIntent?.goal ?? fallback.goal,
+    sessionMinutes: sessionMinutes ?? baseIntent?.sessionMinutes ?? fallback.sessionMinutes,
+    weeklyFrequency,
+    calendarHorizonDays,
+    equipment: noEquipment
+      ? ["自重"]
+      : currentEquipment.length > 0
+        ? currentEquipment
+        : baseIntent?.equipment ?? fallback.equipment,
+    preferences: uniqueStrings([
+      ...(noEquipment ? ["无器械"] : []),
+      ...currentPreferences,
+      ...(baseIntent?.preferences ?? fallback.preferences),
+    ]),
+    avoidances: uniqueStrings([...currentAvoidances, ...(baseIntent?.avoidances ?? fallback.avoidances)]),
+  });
+}
+
+function isPureTargetRecommendationMessage(message: string) {
+  const normalized = message.replace(/\s+/g, "");
+
+  return (
+    hasTrainingTarget(normalized) &&
+    !hasDurationText(normalized) &&
+    !isLongTermPlanMessage(normalized) &&
+    !/一套|安排|编排|流程|组数|次数|休息|训练计划|计划表|做成|变成/.test(normalized)
+  );
+}
+
+function isStandaloneConditionMessage(message: string) {
+  const normalized = message.replace(/\s+/g, "");
+
+  return (
+    hasConditionFact(normalized) &&
+    !hasTrainingTarget(normalized) &&
+    !hasDurationText(normalized) &&
+    !isLongTermPlanMessage(normalized) &&
+    !/推荐|安排|编排|来一套|做成|变成|训练流程/.test(normalized)
+  );
+}
+
+function isContextualWorkoutAdjustment(message: string) {
+  const normalized = message.replace(/\s+/g, "");
+
+  return (
+    hasDurationText(normalized) ||
+    hasNoEquipmentText(normalized) ||
+    hasConditionFact(normalized) ||
+    /改成|换成|调整|降低|难|简单|轻松|太累|太强|太弱|做成|变成|每周|一周|未来\d{1,2}天/.test(normalized)
+  );
+}
+
+function isLongTermPlanMessage(message: string) {
+  return /每周|一周|长期|周期|计划表|周计划|月计划|未来\s*\d{1,2}\s*天|[一二两三四五六七八九十\d]{1,2}\s*天训练计划|[一二两三四五六七八九十\d]{1,2}\s*天计划/.test(
+    message,
+  );
+}
+
+function inferContextualIntentType(
+  message: string,
+  chatIntent: ChatIntent,
+  contextualIntent: WorkoutPlanIntent | undefined,
+): WorkoutPlanIntent["intentType"] {
+  if (isLongTermPlanMessage(message) || chatIntent.type === "workout_plan" || contextualIntent?.intentType === "plan") {
+    return "plan";
+  }
+
+  return "routine";
+}
+
+function isPlanDefaultableMissingField(field: string, intent: WorkoutPlanIntent) {
+  return isHealthRelatedMissingField(field) || isMissingFieldSatisfiedByIntent(field, intent) || /equipment|location|experience/i.test(field);
+}
+
+function hasTrainingTarget(message: string) {
+  return /练(胸|背|腿|肩|臀|核心|腹|手臂)|胸部|背部|腿部|肩部|臀部|核心|腹肌|减脂|增肌|塑形|力量|心肺|体能/.test(
+    message,
+  );
+}
+
+function extractTargetGoal(message: string) {
+  const normalized = message.replace(/\s+/g, "");
+  const target = normalized.match(/练(胸|背|腿|肩|臀|核心|腹|手臂)/)?.[1];
+
+  if (target) {
+    return `练${target}`;
+  }
+
+  if (hasTrainingTarget(normalized)) {
+    return normalized.slice(0, 80);
+  }
+
+  return undefined;
+}
+
+function hasConditionFact(message: string) {
+  return /哑铃|杠铃|壶铃|弹力带|瑜伽垫|跑步机|龙门架|绳索|固定器械|健身房|在家|家里|居家|自重|徒手|无器械|不用器械|没有器械|新手|初学|进阶|高级/.test(
+    message,
+  );
+}
+
+function inferSessionMinutesFromText(text: string) {
+  const match = text.match(/(\d{1,3})\s*(?:分钟|min)/i);
+  const minutes = match ? Number(match[1]) : undefined;
+
+  return minutes && minutes >= 1 && minutes <= 240 ? minutes : undefined;
+}
+
+function hasDurationText(text: string) {
+  return inferSessionMinutesFromText(text) !== undefined;
+}
+
+function inferCalendarHorizonDaysFromText(text: string) {
+  const match = text.match(/未来\s*(\d{1,2})\s*天/);
+  const days = match ? Number(match[1]) : undefined;
+
+  return days && days >= 1 && days <= 90 ? days : undefined;
+}
+
+function inferEquipmentFromText(text: string) {
+  const equipment: string[] = [];
+
+  if (/哑铃/.test(text)) equipment.push("哑铃");
+  if (/杠铃/.test(text)) equipment.push("杠铃");
+  if (/壶铃/.test(text)) equipment.push("壶铃");
+  if (/弹力带/.test(text)) equipment.push("弹力带");
+  if (/瑜伽垫/.test(text)) equipment.push("瑜伽垫");
+  if (/跑步机/.test(text)) equipment.push("跑步机");
+  if (/龙门架|绳索/.test(text)) equipment.push("龙门架");
+  if (/固定器械|器械区/.test(text)) equipment.push("固定器械");
+  if (hasNoEquipmentText(text) || /自重|徒手/.test(text)) equipment.push("自重");
+
+  return uniqueStrings(equipment);
+}
+
+function hasNoEquipmentText(text: string) {
+  return /无器械|不用器械|没有器械|不使用器械|徒手|自重/.test(text);
+}
+
+function inferPreferencesFromText(text: string) {
+  const preferences: string[] = [];
+
+  if (/居家|家里|在家/.test(text)) preferences.push("居家训练");
+  if (/健身房/.test(text)) preferences.push("健身房训练");
+  if (/降低|简单|轻松|太难|太累|低强度/.test(text)) preferences.push("降低难度");
+  if (/高强度|冲刺|燃脂/.test(text)) preferences.push("高强度");
+
+  return preferences;
+}
+
+function inferAvoidancesFromText(text: string) {
+  return /不要|避免|不想|别|不用器械|没有器械/.test(text) ? [text.trim().slice(0, 120)] : [];
+}
+
+function hasExplicitReferenceMarker(text: string) {
+  return /这个|这套|这批|这些|那个|那套|刚才|刚刚|上一个|上一套|前面|前一个|前一套|之前|上次|它|该/.test(
+    text,
+  );
+}
+
+function uniqueStrings(items: string[]) {
+  return [...new Set(items.map((item) => item.trim()).filter(Boolean))];
 }
 
 export function createFallbackChatIntent(
