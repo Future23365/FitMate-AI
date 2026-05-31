@@ -23,11 +23,28 @@ import { WorkoutPlanDraftCard } from "@/features/workouts/components/workout-pla
 import { WorkoutRoutineDraftCard } from "@/features/workouts/components/workout-routine-draft-card";
 import type { WorkoutSchedule } from "@/lib/shared/workouts/composition";
 
+// 首页示例保留完整 prompt，让新用户能直接理解第一句话应该提供哪些训练条件。
 const quickPrompts = [
-  "推荐几个适合新手的臀腿动作，我只有弹力带，不想做跳跃",
-  "今天想练上肢，30 分钟，有哑铃，肩膀最近不太舒服，帮我安排一套",
-  "我想增肌，每周 3 练，每次 50 分钟，健身房训练，重点练胸背腿",
-  "我想减脂，每周 4 练，每次 45 分钟，在家只有哑铃和弹力带",
+  {
+    title: "动作推荐",
+    icon: "accessibility_new",
+    prompt: "推荐几个适合新手的臀腿动作，我只有弹力带，不想做跳跃",
+  },
+  {
+    title: "今日训练",
+    icon: "fitness_center",
+    prompt: "今天想练上肢，30 分钟，有哑铃，肩膀最近不太舒服，帮我安排一套",
+  },
+  {
+    title: "增肌计划",
+    icon: "calendar_month",
+    prompt: "我想增肌，每周 3 练，每次 50 分钟，健身房训练，重点练胸背腿",
+  },
+  {
+    title: "居家减脂",
+    icon: "home",
+    prompt: "我想减脂，每周 4 练，每次 45 分钟，在家只有哑铃和弹力带",
+  },
 ];
 
 type MiniCalendarCell = {
@@ -414,29 +431,55 @@ export function ChatPage() {
           ref={chatScrollRef}
         >
           {!hasMessages ? (
-            <div className="flex h-full flex-col items-center justify-center space-y-xl px-lg text-center">
-              <div className="flex flex-col items-center gap-md">
-                <LogoMark className="mb-lg h-24 w-24 animate-pulse rounded-[20px] shadow-blue-500/20 drop-shadow-[0_18px_28px_rgba(36,89,230,0.18)]" />
-                <h2 className="mt-xs font-display-lg text-display-lg font-extrabold tracking-[-0.03em] text-ink">
-                  你好！我是你的 AI 健身助手
-                </h2>
-                <p className="max-w-lg font-body-lg text-body-lg text-muted">
-                  我可以为你制定减脂、增肌或保持健康的专业计划。试着告诉我你的目标吧！
-                </p>
+            <div className="flex min-h-full flex-col items-center justify-center px-lg py-xl text-center">
+              <div className="flex max-w-3xl flex-col items-center gap-md">
+                <LogoMark className="h-20 w-20 animate-pulse rounded-[18px] shadow-blue-500/20 drop-shadow-[0_16px_24px_rgba(36,89,230,0.16)]" />
+                <div className="space-y-sm">
+                  <h2 className="font-headline-lg text-headline-lg font-extrabold text-ink">
+                    你的 AI 健身计划助手
+                  </h2>
+                  <p className="mx-auto max-w-2xl font-body-lg text-body-lg text-muted">
+                    告诉我你的目标、时间、器械和身体限制，我会帮你生成训练计划、推荐动作或安排今天的训练。
+                  </p>
+                </div>
               </div>
-              <div className="flex max-w-2xl flex-wrap justify-center gap-sm">
-                {quickPrompts.map((prompt) => (
-                  <button
-                    className="whitespace-nowrap rounded-xl bg-white px-lg py-sm text-label-md font-bold shadow-[0_8px_22px_rgba(16,24,40,0.08)] transition-all hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_14px_32px_rgba(16,24,40,0.12)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
-                    disabled={isLoading}
-                    key={prompt}
-                    onClick={() => sendMessage(prompt)}
-                    type="button"
-                  >
-                    {prompt}
-                  </button>
-                ))}
-              </div>
+
+              <section className="mt-xl w-full max-w-4xl text-left" aria-label="可以提问的示例">
+                <div className="mb-md flex items-end justify-between gap-md">
+                  <div>
+                    <h3 className="font-title-lg text-title-lg font-extrabold text-ink">
+                      可以这样提问
+                    </h3>
+                    <p className="mt-1 font-body-md text-body-md text-muted">
+                      信息越具体，生成结果越贴合你的训练条件。
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid gap-md lg:grid-cols-2">
+                  {quickPrompts.map((item) => (
+                    <button
+                      className="group flex min-h-[132px] w-full items-start gap-md rounded-2xl border border-line bg-white px-lg py-md text-left shadow-[0_8px_24px_rgba(16,24,40,0.06)] transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[0_14px_32px_rgba(16,24,40,0.1)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/15 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+                      disabled={isLoading}
+                      key={item.prompt}
+                      onClick={() => sendMessage(item.prompt)}
+                      type="button"
+                    >
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary transition-colors group-hover:bg-primary group-hover:text-white">
+                        <SymbolIcon className="text-[22px]">{item.icon}</SymbolIcon>
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block font-label-md text-label-md font-bold text-primary">
+                          {item.title}
+                        </span>
+                        <span className="mt-xs block font-body-md text-body-md leading-relaxed text-ink">
+                          {item.prompt}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </section>
             </div>
           ) : (
             <div className="mx-auto flex max-w-4xl flex-col gap-md">
