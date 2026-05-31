@@ -46,19 +46,24 @@
 - **AND** 系统 MUST NOT 回退到 `local-demo-user`
 
 ### Requirement: Authenticated private API requests
-系统 SHALL 要求用户私有 API 从请求中的匿名凭证解析当前用户，并拒绝没有有效凭证的请求。
+系统 SHALL 要求除匿名会话 bootstrap 之外的现有 API 从请求中的匿名凭证解析当前用户，并拒绝没有有效凭证的请求。
 
 #### Scenario: Private API request with valid credential
-- **WHEN** 聊天、训练编排、训练日历、训练结果、conversation artifact、用户记忆或动作反馈接口收到有效匿名凭证
+- **WHEN** 聊天、训练编排、训练日历、训练结果、conversation artifact、用户记忆、动作反馈、动作库、AI 生成或开发 trace 接口收到有效匿名凭证
 - **THEN** 系统 MUST 解析出当前 `userId`
 - **AND** 后续所有用户私有数据查询和写入 MUST 使用该 `userId` 进行权限隔离
 - **AND** 系统 MUST NOT 使用固定 `local-demo-user` 作为当前用户
 
 #### Scenario: Private API request without credential
-- **WHEN** 用户私有 API 收到没有匿名凭证的请求
+- **WHEN** 除 `POST /api/auth/local-anonymous` 之外的现有 API 收到没有匿名凭证的请求
 - **THEN** 系统 MUST 返回 `401`
 - **AND** 响应错误码 MUST 为 `unauthenticated`
 - **AND** 系统 MUST NOT 读取、写入或创建任何用户私有业务数据
+
+#### Scenario: Anonymous session bootstrap without credential
+- **WHEN** `POST /api/auth/local-anonymous` 收到没有匿名凭证的创建请求
+- **THEN** 系统 MUST 允许该请求创建新的匿名用户和匿名凭证
+- **AND** 该接口 MUST NOT 从缺失凭证推断 `local-demo-user`
 
 #### Scenario: Private API request with another user's resource id
 - **WHEN** 已认证匿名用户请求读取或修改不属于当前 `userId` 的聊天、训练、日程、结果、artifact 或记忆资源
@@ -78,6 +83,21 @@
 - **THEN** 系统 MUST 清理本地失效匿名凭证
 - **AND** 系统 MUST 将应用 auth 状态切换为未认证
 - **AND** 系统 MUST 重新展示匿名登录弹窗
+
+#### Scenario: Client receives unauthenticated raw response
+- **WHEN** 前端请求使用 `throwOnError: false` 或 `responseType: "raw"` 且收到 `401 unauthenticated`
+- **THEN** 系统 MUST 仍然清理本地失效匿名凭证
+- **AND** 系统 MUST 通知 auth provider 重新进入匿名登录流程
+
+### Requirement: Local anonymous identity reset
+系统 SHALL 在设置页提供重置当前浏览器本地匿名用户的入口。
+
+#### Scenario: User resets local anonymous identity
+- **WHEN** 用户在设置页触发“重置本地用户”
+- **THEN** 系统 MUST 清理当前浏览器保存的匿名凭证
+- **AND** 系统 MUST 将 auth 状态切换为未认证
+- **AND** 系统 MUST 重新展示匿名登录弹窗
+- **AND** 系统 MUST NOT 删除服务器上旧匿名用户的数据
 
 ### Requirement: Local anonymous auth documentation
 系统 SHALL 记录本地匿名鉴权的边界、数据隔离和后续升级路径。
