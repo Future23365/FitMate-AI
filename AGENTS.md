@@ -239,6 +239,12 @@ OpenSpec 生成或修改的说明性文档应使用中文，便于人工 review�
 
 涉及异步请求的 UI 必须提供 loading / pending / submitting 状态，请求期间禁用相关操作，避免重复提交；请求成功、失败或取消后必须清理 loading。数据加载场景需区分 loading、empty、error、success 状态，优先使用 `shadcn/ui` 的 `Skeleton`、`Button` loading 状态或项目已有加载组件。
 
+## 数据库时间规范
+
+数据库时间字段必须使用无歧义时间格式。
+时间字段优先使用 `timestamptz`，写入值可以使用 ISO 8601 UTC 格式，例如 `2026-05-31T05:07:20.006Z`。
+
+
 ## 架构规则
 
 - 保持 UI 层、API 层、AI 编排层、领域服务层和数据访问层之间的职责分离。
