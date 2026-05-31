@@ -243,6 +243,7 @@ OpenSpec 生成或修改的说明性文档应使用中文，便于人工 review�
 
 - 模型生成的数据必须使用 Structured Outputs、Zod Schema 或 JSON Schema 进行结构约束。
 - 所有模型输出在保存或执行前都必须经过服务端校验。
+  - 服务端只校验确定性边界。非确定性边界以模型输出结果为准。
 - Tool Calling 必须通过服务端函数执行。
 - AI 不能直接写入未经校验的训练计划。
 - AI 选择或生成的 exerciseId 必须经过数据库校验。
