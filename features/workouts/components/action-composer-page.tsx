@@ -1892,9 +1892,9 @@ function WorkoutExerciseRow({
             />
           </button>
           <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-xs">
-              <p className="truncate font-title-sm text-title-sm font-extrabold text-ink">{item.nameZh}</p>
-              <span className={`hidden rounded-full border px-xs py-[1px] text-[10px] font-bold md:inline-flex ${visual.chip}`}>
+            <div className="flex min-w-0 flex-wrap items-center gap-xs">
+              <p className="min-w-0 flex-1 truncate font-title-sm text-title-sm font-extrabold text-ink">{item.nameZh}</p>
+              <span className={`hidden min-w-[34px] shrink-0 items-center justify-center whitespace-nowrap rounded-full border px-xs py-[1px] text-center text-[10px] font-bold leading-none md:inline-flex ${visual.chip}`}>
                 {item.mode === "duration" ? "计时" : "次数"}
               </span>
             </div>
