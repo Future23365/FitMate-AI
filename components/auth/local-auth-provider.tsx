@@ -126,7 +126,7 @@ function LocalAnonymousDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md" showCloseButton={false}>
         <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary-soft text-primary ring-1 ring-primary/10">
           <SymbolIcon className="text-[28px]" filled>
             person
@@ -135,7 +135,7 @@ function LocalAnonymousDialog({
         <DialogHeader>
           <p className="text-sm font-bold text-primary">本地匿名身份</p>
           <DialogTitle className="text-2xl font-extrabold text-ink">
-            继续使用 FitMate
+            注册登录使用 FitMate
           </DialogTitle>
           <DialogDescription className="text-sm font-semibold leading-6 text-muted">
             {getLocalAnonymousDialogDescription(authRequiredReason)}
@@ -144,18 +144,10 @@ function LocalAnonymousDialog({
         <DialogFooter>
           <Button
             disabled={isAuthenticating}
-            onClick={() => onOpenChange(false)}
-            type="button"
-            variant="secondary"
-          >
-            暂不登录
-          </Button>
-          <Button
-            disabled={isAuthenticating}
             onClick={onContinue}
             type="button"
           >
-            {isAuthenticating ? "正在进入..." : "继续使用 FitMate"}
+            {isAuthenticating ? "登录中。。。" : "匿名注册并登录 FitMate"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -165,8 +157,8 @@ function LocalAnonymousDialog({
 
 function getLocalAnonymousDialogDescription(reason: LocalAuthRequiredReason | null) {
   if (reason === "expired_token" || reason === "invalid_token" || reason === "user_not_found") {
-    return "当前浏览器的本地匿名会话已失效。继续后会重新建立一个本地匿名用户，用于隔离聊天、训练编排和训练日历数据。";
+    return "当前操作需要登录。可以匿名注册账户登录使用";
   }
 
-  return "当前操作需要本地匿名用户。继续后会在当前浏览器建立一个本地匿名会话，用于隔离聊天、训练编排和训练日历数据。";
+  return "当前操作需要登录。可以匿名注册账户登录使用";
 }
