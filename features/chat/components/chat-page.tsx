@@ -1,7 +1,7 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -18,20 +18,48 @@ import {
   extractWorkoutPlanTrigger,
   extractWorkoutRoutineTrigger,
 } from "@/features/chat/lib/workout-plan-trigger";
+import { listWorkoutSchedules } from "@/features/workouts/api/workout-data-client";
 import { WorkoutPlanDraftCard } from "@/features/workouts/components/workout-plan-draft-card";
 import { WorkoutRoutineDraftCard } from "@/features/workouts/components/workout-routine-draft-card";
+import type { WorkoutSchedule } from "@/lib/shared/workouts/composition";
 
 const quickPrompts = ["帮我制定增肌计划", "推荐居家训练", "今天练什么", "制定减脂食谱"];
 
-const weekDays = [
-  { label: "一", done: true },
-  { label: "二", done: true },
-  { label: "三", done: false },
-  { label: "四", done: true },
-  { label: "五", done: false },
-  { label: "六", current: true },
-  { label: "日", done: false },
-];
+type MiniCalendarCell = {
+  date: Date;
+  dateKey: string;
+  isCurrentMonth: boolean;
+};
+
+const miniCalendarWeekdays = ["一", "二", "三", "四", "五", "六", "日"];
+
+function toDateKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+    date.getDate(),
+  ).padStart(2, "0")}`;
+}
+
+function formatMonthLabel(date: Date) {
+  return `${date.getFullYear()}年${date.getMonth() + 1}月`;
+}
+
+function getMiniCalendarCells(monthDate: Date): MiniCalendarCell[] {
+  const firstDay = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+  const mondayOffset = (firstDay.getDay() + 6) % 7;
+  const startDate = new Date(firstDay);
+  startDate.setDate(firstDay.getDate() - mondayOffset);
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(startDate);
+    date.setDate(startDate.getDate() + index);
+
+    return {
+      date,
+      dateKey: toDateKey(date),
+      isCurrentMonth: date.getMonth() === monthDate.getMonth(),
+    };
+  });
+}
 
 function MarkdownContent({ content }: { content: string }) {
   return (
@@ -124,89 +152,168 @@ function ChatMessageAvatar({ role }: { role: "assistant" | "user" }) {
   );
 }
 
-function HomeRightSidebar() {
-  const completionOffset = useMemo(() => {
-    const circumference = 364.4;
-    return circumference - circumference * 0;
+// 首页训练日历只呈现已完成训练，避免把计划建议和 AI 编排逻辑塞进聊天侧栏。
+function MonthlyTrainingCalendar() {
+  const today = useMemo(() => new Date(), []);
+  const todayKey = toDateKey(today);
+  const monthDate = useMemo(() => new Date(today.getFullYear(), today.getMonth(), 1), [today]);
+  const [schedule, setSchedule] = useState<WorkoutSchedule[]>([]);
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
+
+  useEffect(() => {
+    async function syncSchedule() {
+      try {
+        setLoadState("loading");
+        setSchedule(await listWorkoutSchedules());
+        setLoadState("ready");
+      } catch {
+        setLoadState("error");
+      }
+    }
+
+    void syncSchedule();
+    window.addEventListener("fitmate:training-schedule-updated", syncSchedule);
+
+    return () => {
+      window.removeEventListener("fitmate:training-schedule-updated", syncSchedule);
+    };
   }, []);
 
+  const monthPrefix = `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, "0")}`;
+  const cells = useMemo(() => getMiniCalendarCells(monthDate), [monthDate]);
+  const completedByDate = useMemo(() => {
+    const grouped = new Map<string, number>();
+
+    for (const item of schedule) {
+      if (item.status !== "completed" || !item.date.startsWith(monthPrefix)) {
+        continue;
+      }
+
+      grouped.set(item.date, (grouped.get(item.date) ?? 0) + 1);
+    }
+
+    return grouped;
+  }, [monthPrefix, schedule]);
+  const completedCount = Array.from(completedByDate.values()).reduce((total, count) => total + count, 0);
+  const completedDayCount = completedByDate.size;
+  const hasCompletedToday = completedByDate.has(todayKey);
+
+  return (
+    <section className="space-y-md">
+      <div className="flex items-start justify-between gap-md">
+        <div>
+          <h3 className="font-title-lg text-title-lg">本月训练</h3>
+          <p className="mt-1 font-label-sm text-label-sm text-muted">
+            {formatMonthLabel(monthDate)} · 已完成 {completedCount} 次
+          </p>
+        </div>
+        <div className="rounded-full border border-primary/15 bg-primary-soft px-sm py-xs text-primary">
+          <span className="font-label-sm text-label-sm font-bold">{completedDayCount} 天</span>
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-[20px] border border-line bg-white shadow-card">
+        <div className="border-b border-line/70 bg-gradient-to-br from-primary-soft via-white to-surface-container-low px-md py-md">
+          <div className="flex items-center justify-between gap-md">
+            <div className="flex items-center gap-sm">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-primary shadow-[0_10px_24px_rgba(36,89,230,0.14)]">
+                <SymbolIcon className="text-[22px]">calendar_month</SymbolIcon>
+              </div>
+              <div>
+                <p className="font-label-md text-label-md font-bold text-ink">坚持记录</p>
+                <p className="font-label-sm text-label-sm text-muted">
+                  {loadState === "error"
+                    ? "训练记录暂时不可用"
+                    : hasCompletedToday
+                      ? "今天已完成训练"
+                      : "完成训练后会自动点亮日期"}
+                </p>
+              </div>
+            </div>
+            <div className="text-right">
+              <p className="font-headline-sm text-headline-sm font-extrabold text-primary">
+                {completedCount}
+              </p>
+              <p className="font-label-sm text-label-sm text-muted">次</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-md">
+          <div className="mb-xs grid grid-cols-7 gap-xs">
+            {miniCalendarWeekdays.map((weekday) => (
+              <div
+                className="flex h-7 items-center justify-center font-label-sm text-label-sm font-bold text-muted"
+                key={weekday}
+              >
+                {weekday}
+              </div>
+            ))}
+          </div>
+
+          <div aria-busy={loadState === "loading"} className="grid grid-cols-7 gap-xs">
+            {cells.map((cell) => {
+              const completedTimes = completedByDate.get(cell.dateKey) ?? 0;
+              const isToday = cell.dateKey === todayKey;
+              const isCompleted = completedTimes > 0;
+
+              return (
+                <div
+                  aria-label={
+                    cell.isCurrentMonth
+                      ? `${cell.date.getDate()}日${isCompleted ? `，已完成 ${completedTimes} 次训练` : ""}${
+                          isToday ? "，今天" : ""
+                        }`
+                      : undefined
+                  }
+                  className={`relative flex aspect-square items-center justify-center rounded-xl font-label-sm text-label-sm transition-colors ${
+                    !cell.isCurrentMonth
+                      ? "text-transparent"
+                      : isCompleted
+                        ? "bg-primary text-white shadow-[0_8px_18px_rgba(36,89,230,0.18)]"
+                        : isToday
+                          ? "border border-primary/45 bg-primary-soft text-primary"
+                          : "bg-surface-container-low text-on-surface-variant"
+                  } ${loadState === "loading" ? "animate-pulse" : ""}`}
+                  key={cell.dateKey}
+                >
+                  {cell.isCurrentMonth ? cell.date.getDate() : null}
+                  {isCompleted && completedTimes > 1 ? (
+                    <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-white bg-ink px-[3px] text-[9px] font-bold leading-none text-white">
+                      {completedTimes}
+                    </span>
+                  ) : null}
+                  {isToday && !isCompleted ? (
+                    <span className="absolute bottom-1 h-1 w-1 rounded-full bg-primary" />
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mt-md flex items-center justify-between rounded-2xl bg-panel-soft px-md py-sm">
+            <div className="flex items-center gap-xs text-muted">
+              <span className="h-2.5 w-2.5 rounded-full bg-primary" />
+              <span className="font-label-sm text-label-sm">有训练记录</span>
+            </div>
+            <div className="flex items-center gap-xs text-muted">
+              <span className="h-2.5 w-2.5 rounded-full border border-primary/45 bg-primary-soft" />
+              <span className="font-label-sm text-label-sm">今天</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function HomeRightSidebar() {
   return (
     <ResponsiveRightSidebar
       className="gap-lg p-lg"
       label="首页训练侧边栏"
     >
-      <section className="space-y-md">
-        <h3 className="font-title-lg text-title-lg">今日训练概览</h3>
-        <div className="flex flex-col items-center gap-md rounded-[20px] border border-line bg-white p-lg shadow-card">
-          <div className="relative flex h-32 w-32 items-center justify-center">
-            <svg className="h-full w-full -rotate-90">
-              <circle
-                className="text-outline-variant"
-                cx="64"
-                cy="64"
-                fill="transparent"
-                r="58"
-                stroke="currentColor"
-                strokeWidth="8"
-              />
-              <circle
-                className="text-primary-container"
-                cx="64"
-                cy="64"
-                fill="transparent"
-                r="58"
-                stroke="currentColor"
-                strokeDasharray="364.4"
-                strokeDashoffset={completionOffset}
-                strokeWidth="8"
-              />
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="font-headline-md text-headline-md font-bold text-outline-variant">
-                0%
-              </span>
-            </div>
-          </div>
-
-          <div className="grid w-full grid-cols-2 gap-sm">
-            <div className="rounded-xl bg-panel-soft p-sm text-center opacity-70">
-              <p className="text-label-sm text-muted">用时</p>
-              <p className="font-label-md text-label-md font-bold">-- min</p>
-            </div>
-            <div className="rounded-xl bg-panel-soft p-sm text-center opacity-70">
-              <p className="text-label-sm text-muted">消耗</p>
-              <p className="font-label-md text-label-md font-bold">-- kcal</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="space-y-sm">
-        <div className="flex items-center justify-between">
-          <h3 className="font-label-md text-label-md font-bold">本周计划</h3>
-          <span className="text-label-sm text-primary">3/4 次完成</span>
-        </div>
-        <div className="flex justify-between gap-xs px-xs">
-          {weekDays.map((day) => (
-            <div
-              className={`flex h-8 w-8 items-center justify-center rounded-full text-label-sm ${
-                day.done
-                  ? "bg-primary-container text-white"
-                  : day.current
-                    ? "border-2 border-primary-container bg-surface-container-high font-bold text-primary-container"
-                    : "bg-surface-container-high text-on-surface-variant"
-              }`}
-              key={day.label}
-            >
-              {day.done ? (
-                <SymbolIcon className="text-[16px]">check</SymbolIcon>
-              ) : (
-                day.label
-              )}
-            </div>
-          ))}
-        </div>
-      </section>
+      <MonthlyTrainingCalendar />
 
       <section className="flex-1 space-y-sm">
         <h3 className="font-label-md text-label-md font-bold">动作推荐</h3>
