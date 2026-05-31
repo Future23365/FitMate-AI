@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   chatRequestSchema,
+  buildChatArtifactStreamEvents,
   createResolvedChatIntent,
   createFallbackChatIntent,
   deriveChatIntentFromResolvedIntent,
@@ -197,6 +198,34 @@ describe("AI chat service deterministic boundaries", () => {
         "referenceRequirement is required but referenceResolution is not_found",
       ]),
     });
+  });
+
+  it("builds artifact stream events without sending card payload before final reply completion", () => {
+    const intent = createWorkoutPlanIntent({ intentType: "routine" });
+    const events = buildChatArtifactStreamEvents({
+      status: "success",
+      kind: "exercise_recommendation",
+      payload: {
+        title: "动作推荐",
+        goal: "练胸",
+        items: [
+          {
+            exerciseId: "push-up",
+            nameZh: "俯卧撑",
+            categoryZh: "力量",
+            levelZh: "新手",
+            equipmentZh: "自重",
+            primaryMusclesZh: ["胸部"],
+            secondaryMusclesZh: ["肱三头肌"],
+            reasons: ["匹配目标"],
+          },
+        ],
+        safetyNotes: [],
+      },
+      intent,
+    });
+
+    expect(events.map((event) => event.type)).toEqual(["artifact_validated", "artifact"]);
   });
 
   it("treats multi-week repeat requests as workout plan actions", () => {

@@ -176,7 +176,7 @@ export type AssistantAction = {
   referenceResolution?: Extract<ReferenceResolution, { status: "resolved" }>;
 };
 
-type ChatArtifactResult =
+export type ChatArtifactResult =
   | {
       status: "success";
       kind: "exercise_recommendation";
@@ -785,35 +785,6 @@ export async function createAiChatResponse({
         );
       }
 
-      if (artifactResult?.status === "success") {
-        controller.enqueue(
-          encodeChatStreamEvent("artifact_validated", "", {
-            artifactKind: artifactResult.kind,
-            payload: artifactResult.payload,
-            intent: artifactResult.intent,
-          }),
-        );
-        controller.enqueue(
-          encodeChatStreamEvent("artifact", "", {
-            artifactKind: artifactResult.kind,
-            payload: artifactResult.payload,
-            intent: artifactResult.intent,
-          }),
-        );
-      }
-
-      if (artifactResult?.status === "failed") {
-        controller.enqueue(
-          encodeChatStreamEvent("artifact_failed", "", {
-            artifactKind: artifactResult.kind,
-            errorCode: artifactResult.message,
-            guidanceMessage: artifactResult.guidanceMessage,
-            recoverable: artifactResult.recoverable,
-            suggestedReplies: artifactResult.suggestedReplies,
-          }),
-        );
-      }
-
       if (visibleSuggestedReplies.length > 0) {
         controller.enqueue(
           encodeChatStreamEvent("suggested_replies", "", {
@@ -893,6 +864,9 @@ export async function createAiChatResponse({
                   conversationSummarySource: summaryUpdate.source,
                 },
               });
+              for (const artifactEvent of buildChatArtifactStreamEvents(artifactResult)) {
+                controller.enqueue(encodeChatStreamEvent(artifactEvent.type, "", artifactEvent.metadata));
+              }
               trace.finish("success", createFinalDecision({
                 status: "success",
                 responseType: assistantAction ? "assistant_action_stream" : "chat_stream",
@@ -1940,6 +1914,47 @@ function summarizeAssistantAction(assistantAction: AssistantAction | null, artif
     referenceResolution: assistantAction.referenceResolution,
     artifactResult: summarizeChatArtifactForPrompt(artifactResult ?? null),
   });
+}
+
+// 卡片事件必须在自然语言回复完成后再发，保证用户先看到对话，再看到卡片。
+export function buildChatArtifactStreamEvents(artifactResult: ChatArtifactResult | null) {
+  if (!artifactResult) {
+    return [];
+  }
+
+  if (artifactResult.status === "failed") {
+    return [
+      {
+        type: "artifact_failed",
+        metadata: {
+          artifactKind: artifactResult.kind,
+          errorCode: artifactResult.message,
+          guidanceMessage: artifactResult.guidanceMessage,
+          recoverable: artifactResult.recoverable,
+          suggestedReplies: artifactResult.suggestedReplies,
+        },
+      },
+    ];
+  }
+
+  return [
+    {
+      type: "artifact_validated",
+      metadata: {
+        artifactKind: artifactResult.kind,
+        payload: artifactResult.payload,
+        intent: artifactResult.intent,
+      },
+    },
+    {
+      type: "artifact",
+      metadata: {
+        artifactKind: artifactResult.kind,
+        payload: artifactResult.payload,
+        intent: artifactResult.intent,
+      },
+    },
+  ];
 }
 
 function summarizeChatArtifactForPrompt(artifactResult: ChatArtifactResult | null) {
