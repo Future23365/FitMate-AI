@@ -79,7 +79,7 @@ export default function SettingsPage() {
                 <h2 className="text-xl font-extrabold text-ink">本地用户</h2>
               </div>
               <p className="mt-sm text-sm font-semibold text-muted">
-                重置会当前浏览器保存的匿名凭证，并删除服务器上旧匿名用户的数据，无法回复。
+                重置会当前浏览器保存的匿名凭证，并删除服务器上旧匿名用户的数据，无法恢复。
               </p>
             </div>
             <button
