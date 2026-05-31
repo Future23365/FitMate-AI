@@ -429,7 +429,10 @@ export function ChatPage() {
           {!hasMessages ? (
             <div className="flex min-h-full flex-col items-center justify-center px-lg py-xl text-center">
               <div className="flex max-w-3xl flex-col items-center gap-md">
-                <LogoMark className="h-20 w-20 animate-pulse rounded-[18px] shadow-blue-500/20 drop-shadow-[0_16px_24px_rgba(36,89,230,0.16)]" />
+                <LogoMark
+                  animated
+                  className="h-20 w-20 drop-shadow-[0_16px_24px_rgba(36,89,230,0.18)]"
+                />
                 <div className="space-y-sm">
                   <h2 className="font-headline-lg text-headline-lg font-extrabold text-ink">
                     你的 AI 健身计划助手
