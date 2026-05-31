@@ -787,6 +787,48 @@ body.drawer-open {
   }
 }
 
+.fitmate-dialog-overlay[data-state="open"] {
+  animation: fitmate-dialog-overlay-in 0.16s ease-out both;
+}
+
+.fitmate-dialog-content {
+  transform-origin: center;
+  will-change: opacity, transform;
+}
+
+.fitmate-dialog-content[data-state="open"] {
+  animation: fitmate-dialog-content-in 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fitmate-dialog-overlay[data-state],
+  .fitmate-dialog-content[data-state] {
+    animation: none;
+  }
+}
+
+@keyframes fitmate-dialog-overlay-in {
+  0% {
+    opacity: 0;
+  }
+
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes fitmate-dialog-content-in {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 .training-side-panel-enter {
   animation: training-side-panel-enter 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
 }

@@ -21,6 +21,28 @@ function Dialog({
   onOpenChange?: (open: boolean) => void;
   children: React.ReactNode;
 }) {
+  React.useEffect(() => {
+    const handleOpenChange = onOpenChange;
+
+    if (!open || !handleOpenChange) {
+      return;
+    }
+
+    const closeDialog = handleOpenChange;
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        closeDialog(false);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onOpenChange, open]);
+
   return (
     <DialogContext.Provider value={{ open, onOpenChange }}>
       {children}
@@ -43,21 +65,28 @@ function DialogContent({
   children,
   ...props
 }: React.ComponentProps<"section">) {
-  const { open } = useDialogContext();
+  const { onOpenChange, open } = useDialogContext();
 
   if (!open) {
     return null;
   }
 
   return (
-    <div className="absolute inset-0 z-20 flex items-center justify-center px-lg py-xl">
-      <DialogOverlay />
+    <div
+      className="fitmate-dialog-root absolute inset-0 z-20 flex items-center justify-center px-lg py-xl"
+      data-state="open"
+    >
+      <DialogOverlay
+        data-state="open"
+        onClick={() => onOpenChange?.(false)}
+      />
       <section
         aria-modal="true"
         className={cn(
-          "relative z-10 grid w-full max-w-lg gap-4 rounded-xl border border-border bg-card p-6 text-card-foreground shadow-lift outline-none",
+          "fitmate-dialog-content relative z-10 grid w-full max-w-lg gap-4 rounded-xl border border-border bg-card p-6 text-card-foreground shadow-lift outline-none",
           className,
         )}
+        data-state="open"
         role="dialog"
         {...props}
       >
@@ -70,7 +99,7 @@ function DialogContent({
 function DialogOverlay({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
-      className={cn("absolute inset-0 bg-white/70 backdrop-blur-sm", className)}
+      className={cn("fitmate-dialog-overlay absolute inset-0 bg-white/70 backdrop-blur-sm", className)}
       data-slot="dialog-overlay"
       {...props}
     />
