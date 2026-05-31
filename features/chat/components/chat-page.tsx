@@ -208,20 +208,6 @@ function HomeRightSidebar() {
         </div>
       </section>
 
-      <section className="flex-1 space-y-sm">
-        <h3 className="font-label-md text-label-md font-bold">动作推荐</h3>
-        <div className="space-y-sm">
-          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-line bg-white p-xl text-center opacity-70">
-            <SymbolIcon className="mb-sm text-4xl">model_training</SymbolIcon>
-            <p className="text-label-sm">
-              开始对话以获取
-              <br />
-              个性化动作推荐
-            </p>
-          </div>
-        </div>
-      </section>
-
       <section className="mt-auto">
         <div className="relative rounded-[20px] border border-primary/10 bg-primary-soft p-md text-ink shadow-card">
           <div className="mb-xs flex items-center gap-xs text-primary">
