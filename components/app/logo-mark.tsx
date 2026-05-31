@@ -46,16 +46,6 @@ export function LogoMark({ className = "h-10 w-10", animated = false }: LogoMark
 
       <rect fill="#FFFFFF" height="210" rx="60" width="210" x="15" y="15" />
       <rect height="207" rx="58.5" stroke="#D7E3FF" strokeWidth="2.5" width="207" x="16.5" y="16.5" />
-      <path
-        d="M60 175C87.5 187.5 142.5 187.5 180 155"
-        stroke="#DCE7FF"
-        strokeLinecap="round"
-        strokeWidth="12.5"
-      >
-        {animated ? (
-          <animate attributeName="opacity" dur="3.2s" repeatCount="indefinite" values="0.35;0.75;0.35" />
-        ) : null}
-      </path>
 
       <g className={animated ? "fitmate-dumbbell-pop" : undefined}>
         <g transform="translate(35 75)">
@@ -80,16 +70,6 @@ export function LogoMark({ className = "h-10 w-10", animated = false }: LogoMark
         </g>
       </g>
 
-      <path
-        d="M62.5 67.5C85 55 155 55 177.5 75"
-        stroke="#DCE7FF"
-        strokeLinecap="round"
-        strokeWidth="7.5"
-      >
-        {animated ? (
-          <animate attributeName="opacity" dur="2.4s" repeatCount="indefinite" values="0.35;0.9;0.35" />
-        ) : null}
-      </path>
     </svg>
   );
 }
