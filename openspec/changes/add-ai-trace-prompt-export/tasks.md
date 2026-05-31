@@ -12,8 +12,9 @@
 ## 3. 保存接口实现
 
 - [x] 3.1 扩展 `POST /api/dev/ai-traces` 请求体，支持 `logType: "trace" | "prompt"`。
-- [x] 3.2 当 `logType` 为 `prompt` 时写入 `codex_logs/prompt.js`，并使用清晰的 CommonJS 导出对象格式。
+- [x] 3.2 当 `logType` 为 `prompt` 时追加写入 `codex_logs/prompt.js`，并使用清晰的 CommonJS 记录列表格式。
 - [x] 3.3 保持默认或 `trace` 类型继续写入 `codex_logs/ai_trace_log.js`。
+- [x] 3.4 保存文档顶部时间使用本地时区格式。
 
 ## 4. 验证
 
