@@ -8,6 +8,7 @@ import {
 } from "./fixtures/domain";
 
 const exerciseServiceMocks = vi.hoisted(() => ({
+  exerciseBodyRegionValues: ["upper_body", "lower_body", "core", "full_body"],
   listAllExercises: vi.fn(),
   searchExercisesInMemory: vi.fn((exercises: Array<{ id: string }>, input: { query?: string } = {}) => ({
     candidates: exercises,

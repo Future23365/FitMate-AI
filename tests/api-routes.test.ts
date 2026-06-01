@@ -22,6 +22,7 @@ const recommendationMocks = vi.hoisted(() => ({
   generateAiExerciseRecommendations: vi.fn(),
 }));
 const exerciseServiceMocks = vi.hoisted(() => ({
+  exerciseBodyRegionValues: ["upper_body", "lower_body", "core", "full_body"],
   getExerciseById: vi.fn(),
   getExerciseFacets: vi.fn(),
   listAllExercises: vi.fn(),

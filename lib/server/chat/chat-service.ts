@@ -651,8 +651,14 @@ function summarizeModelSummaryForDecision(result: AgentToolResultRecord) {
         filters: diagnostics.filters,
         recalledCount: diagnostics.recalledCount,
         filteredCount: diagnostics.filteredCount,
+        expandedTargetMuscles: diagnostics.expandedTargetMuscles,
         finalExerciseIds: diagnostics.finalExerciseIds,
         failureReasons: diagnostics.failureReasons,
+        unmatchedTargetMuscles: diagnostics.unmatchedTargetMuscles,
+        unmatchedEquipment: diagnostics.unmatchedEquipment,
+        suggestedTargetMuscles: diagnostics.suggestedTargetMuscles,
+        suggestedEquipment: diagnostics.suggestedEquipment,
+        retryable: diagnostics.retryable,
       })
       : undefined,
   });
@@ -684,6 +690,8 @@ function summarizeErrorDetail(detail: unknown) {
   return compactObject({
     candidateSetId: record.candidateSetId,
     failureReasons: record.failureReasons,
+    retryable: record.retryable,
+    diagnostics: record.diagnostics,
   });
 }
 

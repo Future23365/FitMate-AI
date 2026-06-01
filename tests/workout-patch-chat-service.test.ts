@@ -6,6 +6,7 @@ const artifactMocks = vi.hoisted(() => ({
   getArtifactPayload: vi.fn(),
 }));
 const exerciseMocks = vi.hoisted(() => ({
+  exerciseBodyRegionValues: ["upper_body", "lower_body", "core", "full_body"],
   listAllExercises: vi.fn(),
   searchExercisesInMemory: vi.fn(),
 }));

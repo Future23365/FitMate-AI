@@ -27,6 +27,7 @@ const artifactMocks = vi.hoisted(() => ({
   searchArtifactsDetailed: vi.fn(),
 }));
 const exerciseMocks = vi.hoisted(() => ({
+  exerciseBodyRegionValues: ["upper_body", "lower_body", "core", "full_body"],
   getExerciseById: vi.fn(),
   listAllExercises: vi.fn(),
   searchExercises: vi.fn(),
@@ -511,6 +512,90 @@ describe("agent orchestrator phase 2 readonly tools", () => {
         candidateSetId: expect.stringMatching(/^candidate_set_/),
       }),
     });
+  });
+
+  it("recovers searchExercises once when structured facet diagnostics provide retry suggestions", async () => {
+    const exercise = createExercise({
+      id: "dumbbell-curl",
+      nameZh: "哑铃弯举",
+      equipment: "dumbbell",
+      equipmentZh: "哑铃",
+      primaryMusclesZh: ["肱二头肌"],
+    });
+    exerciseMocks.searchExercises
+      .mockResolvedValueOnce({
+        candidates: [],
+        diagnostics: {
+          query: undefined,
+          filters: {
+            visibility: "published",
+            candidateUse: "routine",
+            targetMuscles: ["upper body"],
+            equipment: ["dumbbell"],
+          },
+          expandedTargetMuscles: [],
+          recalledCount: 0,
+          filteredCount: 1,
+          rerank: [],
+          finalExerciseIds: [],
+          failureReasons: ["no_exercise_after_filters", "unknown_target_muscle"],
+          unmatchedTargetMuscles: ["upper body"],
+          unmatchedEquipment: [],
+          suggestedTargetMuscles: ["肱二头肌"],
+          suggestedEquipment: [],
+          retryable: true,
+        },
+      })
+      .mockResolvedValueOnce({
+        candidates: [exercise],
+        diagnostics: {
+          query: undefined,
+          filters: {
+            visibility: "published",
+            candidateUse: "routine",
+            targetMuscles: ["肱二头肌"],
+            equipment: ["dumbbell"],
+          },
+          expandedTargetMuscles: [],
+          recalledCount: 1,
+          filteredCount: 0,
+          rerank: [],
+          finalExerciseIds: ["dumbbell-curl"],
+          failureReasons: [],
+          unmatchedTargetMuscles: [],
+          unmatchedEquipment: [],
+          suggestedTargetMuscles: [],
+          suggestedEquipment: [],
+          retryable: false,
+        },
+      });
+    const registry = createReadonlyAgentToolRegistry();
+
+    await expect(registry.get("searchExercises")?.execute(
+      {
+        candidateUse: "routine",
+        targetMuscles: ["upper body"],
+        equipment: ["dumbbell"],
+        visibility: "published",
+        limit: 8,
+      },
+      createToolExecutionContext(),
+    )).resolves.toMatchObject({
+      ok: true,
+      output: {
+        candidates: [expect.objectContaining({ id: "dumbbell-curl" })],
+        diagnostics: expect.objectContaining({
+          recoveredFrom: expect.objectContaining({
+            unmatchedTargetMuscles: ["upper body"],
+          }),
+        }),
+      },
+    });
+    expect(exerciseMocks.searchExercises).toHaveBeenCalledTimes(2);
+    expect(exerciseMocks.searchExercises).toHaveBeenLastCalledWith(expect.objectContaining({
+      targetMuscles: ["肱二头肌"],
+      equipment: ["dumbbell"],
+    }));
   });
 
   it("reads user memory through current user scope without using conversation summary", async () => {

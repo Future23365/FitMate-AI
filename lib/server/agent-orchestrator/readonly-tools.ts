@@ -13,7 +13,13 @@ import {
   type ArtifactPayloadSuccess,
 } from "@/lib/server/conversation-artifacts/artifact-service";
 import { getPrismaClient } from "@/lib/server/db/prisma";
-import { getExerciseById, searchExercises, type ExerciseSearchResult } from "@/lib/server/exercises/exercise-service";
+import {
+  exerciseBodyRegionValues,
+  getExerciseById,
+  searchExercises,
+  type ExerciseSearchInput,
+  type ExerciseSearchResult,
+} from "@/lib/server/exercises/exercise-service";
 import { summarizeArtifactCandidatesForModel, summarizeArtifactPayloadForModel, summarizeExerciseCandidatesForModel, summarizeExerciseForModel } from "@/lib/server/ai/tools/summaries";
 import { conversationArtifactKindSchema } from "@/lib/shared/conversation-artifacts/schema";
 import { exerciseAllowedSectionSchema, type Exercise } from "@/lib/shared/exercises/types";
@@ -65,6 +71,7 @@ export const searchExercisesAgentToolInputSchema = z.object({
   limit: z.number().int().min(1).max(24).default(defaultSearchExercisesLimit),
   visibility: z.enum(["all", "published"]).default("published"),
   allowedSections: z.array(exerciseAllowedSectionSchema).max(3).optional(),
+  bodyRegions: z.array(z.enum(exerciseBodyRegionValues)).max(4).optional(),
   goal: z.string().trim().max(120).optional(),
   targetMuscles: z.array(z.string().trim().min(1).max(60)).max(16).optional(),
   equipmentRequired: z.array(z.string().trim().min(1).max(60)).max(12).optional(),
@@ -336,7 +343,11 @@ function createGetExerciseByIdTool(): AgentToolDefinition<GetExerciseByIdAgentTo
 function createSearchExercisesTool(): AgentToolDefinition<SearchExercisesAgentToolInput, AgentExerciseSearchOutput> {
   return {
     name: "searchExercises",
-    description: "按受控条件检索动作库候选摘要。",
+    description: [
+      "按受控条件检索动作库候选摘要。",
+      "targetMuscles/equipment 必须使用动作库真实 facet；上肢、下肢、核心、全身等范围目标必须用 bodyRegions=upper_body/lower_body/core/full_body。",
+      "如果工具返回 retryable unknown facet 诊断，应基于 suggestedTargetMuscles/suggestedEquipment 重新检索后再决定 blocked。",
+    ].join(" "),
     accessLevel: "read",
     inputSchema: searchExercisesAgentToolInputSchema,
     dependencies: [],
@@ -361,15 +372,20 @@ function createSearchExercisesTool(): AgentToolDefinition<SearchExercisesAgentTo
 
       try {
         const result = await searchExercises(parsedInput);
+        const recoveredResult = result.candidates.length === 0
+          ? await recoverSearchExercisesFromDiagnostics(parsedInput, result)
+          : null;
+        const finalResult = recoveredResult ?? result;
         const candidateSetId = createStructuredResultId(context, "candidate_set", "searchExercises", parsedInput);
-        const output = { ...result, candidateSetId };
+        const output = { ...finalResult, candidateSetId };
         const summary = this.summarizeOutput(output);
 
-        if (result.candidates.length === 0) {
+        if (finalResult.candidates.length === 0) {
           return createFailure("not_found", "No exercise candidates found.", {
             candidateSetId,
-            failureReasons: result.diagnostics.failureReasons,
-          });
+            failureReasons: finalResult.diagnostics.failureReasons,
+            diagnostics: finalResult.diagnostics,
+          }, finalResult.diagnostics.retryable);
         }
 
         return createSuccess(context, "searchExercises", parsedInput, output, summary, summary);
@@ -487,14 +503,58 @@ function createSuccess<Output>(
   };
 }
 
+// searchExercises 恢复只读取工具结构化 diagnostics，不读取用户原文，避免把服务端变成自然语言理解层。
+async function recoverSearchExercisesFromDiagnostics(
+  input: SearchExercisesAgentToolInput,
+  result: ExerciseSearchResult,
+): Promise<ExerciseSearchResult | null> {
+  if (!result.diagnostics.retryable) {
+    return null;
+  }
+
+  const recoveryInput: ExerciseSearchInput = {
+    ...input,
+    targetMuscles: mergeUniqueStrings([
+      ...(input.targetMuscles ?? []).filter((muscle) => !result.diagnostics.unmatchedTargetMuscles.includes(muscle)),
+      ...result.diagnostics.suggestedTargetMuscles,
+    ]),
+    equipment: mergeUniqueStrings([
+      ...(input.equipment ?? []).filter((equipment) => !result.diagnostics.unmatchedEquipment.includes(equipment)),
+      ...result.diagnostics.suggestedEquipment,
+    ]),
+    equipmentRequired: mergeUniqueStrings(
+      (input.equipmentRequired ?? []).filter((equipment) => !result.diagnostics.unmatchedEquipment.includes(equipment)),
+    ),
+  };
+
+  if (
+    arraysEqual(input.targetMuscles ?? [], recoveryInput.targetMuscles ?? []) &&
+    arraysEqual(input.equipment ?? [], recoveryInput.equipment ?? []) &&
+    arraysEqual(input.equipmentRequired ?? [], recoveryInput.equipmentRequired ?? [])
+  ) {
+    return null;
+  }
+
+  const recovered = await searchExercises(recoveryInput);
+
+  return {
+    ...recovered,
+    diagnostics: {
+      ...recovered.diagnostics,
+      recoveredFrom: result.diagnostics,
+    },
+  };
+}
+
 function createFailure(
   code: AgentToolError["code"],
   message: string,
   detail?: unknown,
+  retryable = code === "tool_execution_failed" || code === "timeout",
 ): AgentToolExecutionResult<never> {
   return {
     ok: false,
-    error: { code, message, detail, retryable: code === "tool_execution_failed" || code === "timeout" },
+    error: { code, message, detail, retryable },
     traceSummary: { code, message, detail: detail instanceof Error ? detail.message : detail },
   };
 }
@@ -549,6 +609,16 @@ function uniqueStrings(values: Array<string | undefined>) {
   return Array.from(new Set(values.map((value) => value?.trim()).filter(Boolean) as string[]));
 }
 
+function mergeUniqueStrings(values: string[]) {
+  const merged = uniqueStrings(values);
+
+  return merged.length > 0 ? merged : undefined;
+}
+
+function arraysEqual(left: string[], right: string[]) {
+  return left.length === right.length && left.every((item, index) => item === right[index]);
+}
+
 function requiresStructuredExecutableCandidateSet(input: SearchExercisesAgentToolInput) {
   return input.candidateUse !== "answer_only";
 }
@@ -561,6 +631,7 @@ function hasStructuredExerciseFilters(input: SearchExercisesAgentToolInput) {
   return Boolean(
     input.goal ||
     input.targetMuscles?.length ||
+    input.bodyRegions?.length ||
     input.equipmentRequired?.length ||
     input.equipmentAvoided?.length ||
     input.equipment?.length ||

@@ -23,6 +23,18 @@ import type {
 
 const DEFAULT_LIMIT = 24;
 const MAX_LIMIT = 100;
+export const exerciseBodyRegionValues = ["upper_body", "lower_body", "core", "full_body"] as const;
+
+export type ExerciseBodyRegion = (typeof exerciseBodyRegionValues)[number];
+
+// bodyRegions 是 Agent 已结构化后的身体区域合同，服务端只做枚举到动作库 facet 的确定性展开。
+export const exerciseBodyRegionTargetMuscles: Record<ExerciseBodyRegion, string[]> = {
+  upper_body: ["肩部", "胸部", "背阔肌", "中背部", "背部", "肱二头肌", "肱三头肌", "前臂"],
+  lower_body: ["臀部", "股四头肌", "腘绳肌", "小腿", "髋部", "内收肌", "外展肌"],
+  core: ["核心", "腹肌", "下背部"],
+  full_body: [],
+};
+
 const DEFAULT_SORT: ExerciseSort = "name_asc";
 const levelRank: Record<string, number> = {
   beginner: 1,
@@ -37,6 +49,7 @@ export type ExerciseSearchInput = {
   limit?: number;
   visibility?: "all" | "published";
   allowedSections?: ExerciseSuitability[];
+  bodyRegions?: ExerciseBodyRegion[];
   goal?: string;
   targetMuscles?: string[];
   equipmentRequired?: string[];
@@ -54,6 +67,7 @@ export type ExerciseSearchInput = {
 export type ExerciseSearchDiagnostics = {
   query?: string;
   filters: Omit<ExerciseSearchInput, "query" | "limit">;
+  expandedTargetMuscles: string[];
   recalledCount: number;
   filteredCount: number;
   rerank: Array<{
@@ -62,6 +76,12 @@ export type ExerciseSearchDiagnostics = {
   }>;
   finalExerciseIds: string[];
   failureReasons: string[];
+  unmatchedTargetMuscles: string[];
+  unmatchedEquipment: string[];
+  suggestedTargetMuscles: string[];
+  suggestedEquipment: string[];
+  retryable: boolean;
+  recoveredFrom?: ExerciseSearchDiagnostics;
 };
 
 export type ExerciseSearchResult = {
@@ -106,7 +126,8 @@ export async function searchExercises(input: ExerciseSearchInput = {}): Promise<
 export function searchExercisesInMemory(exercises: Exercise[], input: ExerciseSearchInput = {}): ExerciseSearchResult {
   const query = input.query?.trim();
   const limit = clampLimit(input.limit);
-  const filtered = exercises.filter((exercise) => matchesExerciseHardFilters(exercise, input));
+  const normalized = normalizeExerciseSearchInput(exercises, input);
+  const filtered = exercises.filter((exercise) => matchesExerciseHardFilters(exercise, normalized.effectiveInput));
   const ranked = filtered
     .map((exercise) => ({
       exercise,
@@ -130,6 +151,7 @@ export function searchExercisesInMemory(exercises: Exercise[], input: ExerciseSe
       filters: {
         visibility: input.visibility,
         allowedSections: input.allowedSections,
+        bodyRegions: input.bodyRegions,
         goal: input.goal,
         targetMuscles: input.targetMuscles,
         equipmentRequired: input.equipmentRequired,
@@ -143,6 +165,7 @@ export function searchExercisesInMemory(exercises: Exercise[], input: ExerciseSe
         excludedRiskTags: input.excludedRiskTags,
         injuryLimitations: input.injuryLimitations,
       },
+      expandedTargetMuscles: normalized.expandedTargetMuscles,
       recalledCount: filtered.length,
       filteredCount: Math.max(exercises.length - filtered.length, 0),
       rerank: ranked.map(({ exercise, score }) => ({
@@ -150,7 +173,14 @@ export function searchExercisesInMemory(exercises: Exercise[], input: ExerciseSe
         score,
       })),
       finalExerciseIds: candidates.map((exercise) => exercise.id),
-      failureReasons: candidates.length > 0 ? [] : [query ? "no_hybrid_match" : "no_exercise_after_filters"],
+      failureReasons: candidates.length > 0
+        ? []
+        : buildExerciseSearchFailureReasons(query, normalized),
+      unmatchedTargetMuscles: normalized.unmatchedTargetMuscles,
+      unmatchedEquipment: normalized.unmatchedEquipment,
+      suggestedTargetMuscles: normalized.suggestedTargetMuscles,
+      suggestedEquipment: normalized.suggestedEquipment,
+      retryable: candidates.length === 0 && isRetryableSearchMiss(normalized),
     },
   };
 }
@@ -412,6 +442,123 @@ function matchesExerciseHardFilters(exercise: Exercise, input: ExerciseSearchInp
   }
 
   return true;
+}
+
+type NormalizedExerciseSearchInput = {
+  effectiveInput: ExerciseSearchInput;
+  expandedTargetMuscles: string[];
+  unmatchedTargetMuscles: string[];
+  unmatchedEquipment: string[];
+  suggestedTargetMuscles: string[];
+  suggestedEquipment: string[];
+};
+
+function normalizeExerciseSearchInput(exercises: Exercise[], input: ExerciseSearchInput): NormalizedExerciseSearchInput {
+  const availableTargetMuscles = collectAvailableTargetMuscles(exercises);
+  const availableEquipment = collectAvailableEquipment(exercises);
+  const expandedTargetMuscles = expandBodyRegionTargetMuscles(input.bodyRegions ?? [], availableTargetMuscles);
+  const requestedTargetMuscles = uniqueStrings(input.targetMuscles ?? []);
+  const requestedEquipment = uniqueStrings([...(input.equipment ?? []), ...(input.equipmentRequired ?? [])]);
+  const unmatchedTargetMuscles = requestedTargetMuscles.filter((muscle) => !availableTargetMuscles.has(muscle));
+  const unmatchedEquipment = requestedEquipment.filter((equipment) => !availableEquipment.has(equipment));
+  const suggestedTargetMuscles = uniqueStrings(
+    unmatchedTargetMuscles.flatMap((muscle) => suggestTargetMusclesForUnknownFacet(muscle, availableTargetMuscles)),
+  );
+  const suggestedEquipment = uniqueStrings(
+    unmatchedEquipment.flatMap((equipment) => suggestEquipmentForUnknownFacet(equipment, availableEquipment)),
+  );
+  const effectiveTargetMuscles = uniqueStrings([
+    ...requestedTargetMuscles.filter((muscle) => availableTargetMuscles.has(muscle)),
+    ...expandedTargetMuscles,
+  ]);
+
+  return {
+    effectiveInput: {
+      ...input,
+      targetMuscles: effectiveTargetMuscles.length > 0 ? effectiveTargetMuscles : input.targetMuscles,
+    },
+    expandedTargetMuscles,
+    unmatchedTargetMuscles,
+    unmatchedEquipment,
+    suggestedTargetMuscles,
+    suggestedEquipment,
+  };
+}
+
+function expandBodyRegionTargetMuscles(bodyRegions: ExerciseBodyRegion[], availableTargetMuscles: Set<string>) {
+  return uniqueStrings(
+    bodyRegions.flatMap((region) => exerciseBodyRegionTargetMuscles[region] ?? []),
+  ).filter((muscle) => availableTargetMuscles.has(muscle));
+}
+
+function collectAvailableTargetMuscles(exercises: Exercise[]) {
+  return new Set(
+    exercises.flatMap((exercise) => [
+      ...exercise.primaryMuscles,
+      ...exercise.primaryMusclesZh,
+      ...exercise.secondaryMuscles,
+      ...exercise.secondaryMusclesZh,
+    ]).filter(Boolean),
+  );
+}
+
+function collectAvailableEquipment(exercises: Exercise[]) {
+  return new Set(
+    exercises.flatMap((exercise) => [
+      exercise.equipment,
+      exercise.equipmentZh,
+      exercise.homeRequirement,
+      exercise.homeRequirementZh,
+    ]).filter(Boolean) as string[],
+  );
+}
+
+function suggestTargetMusclesForUnknownFacet(value: string, availableTargetMuscles: Set<string>) {
+  const normalized = normalizeSearchText(value).replace(/\s+/g, "_");
+  const region =
+    normalized === "upper_body" || normalized === "upperbody" || normalized === "上肢" || normalized === "上半身"
+      ? "upper_body"
+      : normalized === "lower_body" || normalized === "lowerbody" || normalized === "下肢" || normalized === "下半身" || normalized === "腿部"
+        ? "lower_body"
+        : normalized === "core" || normalized === "核心" || normalized === "腹部" || normalized === "腹肌"
+          ? "core"
+          : normalized === "full_body" || normalized === "fullbody" || normalized === "全身"
+            ? "full_body"
+            : undefined;
+
+  return region ? expandBodyRegionTargetMuscles([region], availableTargetMuscles) : [];
+}
+
+function suggestEquipmentForUnknownFacet(value: string, availableEquipment: Set<string>) {
+  const normalized = normalizeSearchText(value).replace(/\s+/g, "");
+  const candidates =
+    normalized === "dumbbells" || normalized === "dumbbell" || normalized === "哑铃"
+      ? ["dumbbell", "哑铃"]
+      : normalized === "bodyweight" || normalized === "noequipment" || normalized === "自重" || normalized === "无器械"
+        ? ["bodyweight", "自重", "no_equipment", "无器械"]
+        : normalized === "resistanceband" || normalized === "band" || normalized === "弹力带"
+          ? ["resistance_band", "弹力带"]
+          : [];
+
+  return candidates.filter((item) => availableEquipment.has(item));
+}
+
+function buildExerciseSearchFailureReasons(query: string | undefined, normalized: NormalizedExerciseSearchInput) {
+  const reasons = query ? ["no_hybrid_match"] : ["no_exercise_after_filters"];
+
+  if (normalized.unmatchedTargetMuscles.length > 0) {
+    reasons.push("unknown_target_muscle");
+  }
+
+  if (normalized.unmatchedEquipment.length > 0) {
+    reasons.push("unknown_equipment");
+  }
+
+  return reasons;
+}
+
+function isRetryableSearchMiss(normalized: NormalizedExerciseSearchInput) {
+  return normalized.suggestedTargetMuscles.length > 0 || normalized.suggestedEquipment.length > 0;
 }
 
 function scoreExerciseHybridSearch(exercise: Exercise, query: string | undefined): HybridSearchScore {

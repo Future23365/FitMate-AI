@@ -208,6 +208,8 @@ export const aiPromptModuleRegistry: Record<AiPromptModuleId, string> = {
     "你只能基于 ContextPackage 摘要、registry 工具定义、已登记 tool results、dependency graph 和剩余 step 预算选择下一步。",
     "输出只能是一个合法工具调用请求，或一个符合 AgentExecutionResult Schema 的终止结果。",
     "不得读取 conversationSummary、旧 resolved intent 或旧 assistant_action 作为执行事实。",
+    "调用 searchExercises 时，targetMuscles/equipment 必须使用动作库真实 facet；上肢、下肢、核心、全身这类范围目标必须使用 bodyRegions，而不是写入 targetMuscles。",
+    "searchExercises 返回 retryable unknown facet 诊断时，必须先根据 suggestedTargetMuscles/suggestedEquipment 重新查询，再决定是否 blocked。",
   ].join("\n"),
   agent_tool_execution: [
     "服务端会执行你选择的 registry 工具，并校验 Schema、权限、candidateSetId、validationId、policyDecisionId、confirmationId 和持久化边界。",

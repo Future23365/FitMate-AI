@@ -351,4 +351,42 @@ describe("exercise service", () => {
       }),
     });
   });
+
+  it("expands structured body regions into real muscle facets", async () => {
+    await expect(
+      searchExercises({
+        visibility: "all",
+        bodyRegions: ["upper_body"],
+        equipment: ["哑铃"],
+        allowedSections: ["training"],
+        limit: 8,
+      }),
+    ).resolves.toMatchObject({
+      candidates: expect.arrayContaining([expect.objectContaining({ id: "dumbbell-row" })]),
+      diagnostics: expect.objectContaining({
+        expandedTargetMuscles: expect.arrayContaining(["背阔肌"]),
+        finalExerciseIds: expect.arrayContaining(["dumbbell-row"]),
+      }),
+    });
+  });
+
+  it("reports retryable diagnostics for unknown target muscle facets", async () => {
+    await expect(
+      searchExercises({
+        visibility: "all",
+        targetMuscles: ["upper body"],
+        equipment: ["哑铃"],
+        allowedSections: ["training"],
+        limit: 8,
+      }),
+    ).resolves.toMatchObject({
+      candidates: [],
+      diagnostics: expect.objectContaining({
+        failureReasons: expect.arrayContaining(["unknown_target_muscle"]),
+        unmatchedTargetMuscles: ["upper body"],
+        suggestedTargetMuscles: expect.arrayContaining(["背阔肌"]),
+        retryable: true,
+      }),
+    });
+  });
 });
