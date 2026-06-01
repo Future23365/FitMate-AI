@@ -22,6 +22,26 @@
 - **AND** 最终回复、流事件、artifact 推送和 trace MUST 基于该结果
 - **AND** 系统 MUST NOT 仅凭自然语言回复正文表达执行成功
 
+### Requirement: AgentContextBuilder 必须成为 Agent 唯一上下文入口
+
+系统 SHALL 通过 `AgentContextBuilder` 构造 `ContextPackage`，并将其作为 Agent 执行的唯一上下文入口。上下文选择、截断、来源和可信级别 MUST 可测试、可 trace、可复盘。
+
+#### Scenario: 构造 ContextPackage
+- **WHEN** `/api/chat` 准备进入 AgentOrchestrator
+- **THEN** 系统 MUST 构造 `ContextPackage`
+- **AND** `ContextPackage` MUST 包含 latestUserMessage、真实 recent messages、recent artifact 摘要、用户记忆摘要、pending confirmation 状态和 provenance
+- **AND** `ContextPackage` MUST 记录每段上下文的来源 id、更新时间、截断策略和可信级别
+
+#### Scenario: 上下文冲突
+- **WHEN** recent messages、artifact 摘要、用户记忆或可选 ContextSnapshot 存在冲突
+- **THEN** Agent MUST 优先通过工具读取结构化事实
+- **AND** 系统 MUST NOT 让自然语言摘要覆盖 artifact payload、数据库 exercise 或已校验 tool result
+
+#### Scenario: 需要完整事实
+- **WHEN** Agent 需要 artifact payload、exerciseId、Patch target、训练参数或保存 payload
+- **THEN** Agent MUST 调用对应工具读取结构化事实
+- **AND** 系统 MUST NOT 从 recent message、summary、ContextSnapshot 或最终回复正文反向构造可写 payload
+
 ### Requirement: Agent 主链不得依赖 conversationSummary
 
 系统 SHALL 从 `/api/chat` 主链移除对 `conversationSummary` 的必需依赖。Agent 的历史上下文 SHALL 来自真实 recent messages、recent artifacts、用户记忆和工具结果。
@@ -34,13 +54,34 @@
 
 #### Scenario: Summary 存在
 - **WHEN** 会话中存在 `conversationSummary` 或可选后台摘要
-- **THEN** Agent MAY 将其作为辅助阅读材料
-- **AND** Agent MUST NOT 将其作为 artifact、exercise、训练参数或执行决策的事实源
+- **THEN** Agent MUST NOT 直接将 `conversationSummary` 放入执行上下文
+- **AND** 如确需长会话压缩，系统 MAY 将其转换为带 provenance 的 `ContextSnapshot`
+- **AND** Agent MUST NOT 将 summary 或 ContextSnapshot 作为 artifact、exercise、训练参数或执行决策的事实源
 
 #### Scenario: Summary 不存在
 - **WHEN** 会话没有 `conversationSummary`
 - **THEN** `/api/chat` MUST 仍能通过 recent messages 和工具完成正常 Agent 编排
 - **AND** 系统 MUST NOT 因 summary 缺失而跳过工具查询或降级到旧 intent-first 主链
+
+### Requirement: Agent 工具结果必须形成依赖图
+
+系统 SHALL 为每个工具调用和工具结果登记稳定 id，并用 `AgentDependencyGraph` 连接读结果、候选集合、草稿、校验、Policy、确认和写入。
+
+#### Scenario: 工具返回候选集合
+- **WHEN** Agent 调用动作或 artifact 检索工具
+- **THEN** 工具 MUST 返回 `candidateSetId` 或等价结构化结果 id
+- **AND** 后续 Patch、draft 或保存工具 MUST 通过 id 引用该候选集合
+- **AND** 系统 MUST NOT 接受模型自由文本声明“候选已查询”作为前置条件
+
+#### Scenario: 工具返回校验结果
+- **WHEN** Validator、Policy 或 Confirmation 工具执行完成
+- **THEN** 工具 MUST 返回 `validationId`、`policyDecisionId` 或 `confirmationId`
+- **AND** 写工具 MUST 校验这些 id 属于当前 run、当前 userId、当前目标资源和未过期状态
+
+#### Scenario: 重放 Agent run
+- **WHEN** 开发者或测试读取 trace/replay fixture
+- **THEN** 系统 MUST 能按 dependency graph 关联最终回复、artifact 事件、写入结果和所使用工具结果
+- **AND** 系统 MUST 能证明写入不是由旧 intent 字段、summary 或模型正文触发
 
 ### Requirement: Agent 工具必须由服务端受控执行
 
@@ -61,12 +102,19 @@
 #### Scenario: 写工具被调用
 - **WHEN** LLM 请求保存 artifact、应用 Patch 或持久化训练变更
 - **THEN** 写工具 MUST 校验前置读结果、候选集合、Validator、Policy 和 Confirmation 状态
+- **AND** 写工具输入 MUST 引用已登记的 tool result id，不得只接受自然语言说明
 - **AND** 写工具 MUST 创建安全 revision 或返回明确失败
 - **AND** LLM MUST NOT 直接写数据库或执行任意 SQL
 
 ### Requirement: Agent 必须支持训练生成、Patch、重新生成和澄清
 
 系统 SHALL 让 Agent 基于工具结果选择回答、澄清、生成、局部 Patch 或整套重新生成，而不是让服务端关键词规则选择执行策略。
+
+#### Scenario: Agent 先提出 WorkoutEditPlan
+- **WHEN** 用户请求调整已有训练内容
+- **THEN** Agent MUST 在 Patch 或 Regenerate 前提出结构化 `WorkoutEditPlan`
+- **AND** `WorkoutEditPlan` MUST 描述目标 artifact、保留项、变更项、影响范围、候选集合依赖和确认级别
+- **AND** 服务端 MUST 校验该 edit plan 引用的 artifact payload 和 candidateSetId
 
 #### Scenario: 局部修改已有 artifact
 - **WHEN** LLM 读取目标 artifact payload 后判断用户只要求修改局部内容
@@ -103,3 +151,23 @@
 - **WHEN** 回复中出现具体动作、训练结构、器械、时长或 artifact 信息
 - **THEN** 这些内容 MUST 来自本轮 tool result、已保存 artifact 或服务端校验结果
 - **AND** 回复 MUST NOT 编造数据库不存在的 exerciseId 或未读取的 artifact 内容
+
+#### Scenario: Response Writer 使用模型润色
+- **WHEN** 系统使用 LLM 生成最终自然语言措辞
+- **THEN** 模型输入 MUST 是 `AgentExecutionResult` 的只读投影
+- **AND** 输出 MUST 经过事实引用校验，确保具体事实可映射到 usedToolResultIds、revisionId、validationId 或 policyDecisionId
+- **AND** Response Writer MUST NOT 重新调用语义决策、候选搜索、Patch、生成或写入工具
+
+### Requirement: 旧兼容字段必须单向派生并具备退出条件
+
+系统 SHALL 通过 `LegacyChatEventAdapter` 从 `AgentExecutionResult` 单向派生旧字段。旧 intent-first 字段 MUST NOT 参与 Agent 执行、工具选择、卡片生成、写入或测试核心验收。
+
+#### Scenario: 前端仍需要旧事件
+- **WHEN** 前端迁移期间仍消费 `assistant_action`、resolved intent 或 suggestedReplies 旧事件
+- **THEN** 这些事件 MUST 由 `AgentExecutionResult` 和 tool results 派生
+- **AND** 系统 MUST NOT 保留旧 resolved intent 独立触发卡片的路径
+
+#### Scenario: 兼容期结束
+- **WHEN** 前端、黑盒报告和开发 trace 已支持 `AgentExecutionResult`
+- **THEN** 旧兼容事件 MUST 从生产主流事件中删除或降级为调试信息
+- **AND** 自动化测试 MUST 断言删除旧事件不会影响 artifact、patch、suggestion 或 done metadata

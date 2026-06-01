@@ -7,14 +7,20 @@
 ## What Changes
 
 - **BREAKING**：`/api/chat` 的生产主链从 intent-first orchestrator 切换为 Tool-first `AgentOrchestrator`；旧 `normalizeChatIntentForBlackboxFlows`、关键词 gating、服务端自然语言语义纠偏和只读-only tool loop 不再作为主决策路径。
-- 新增 `tool-first-agent-orchestrator` 能力，定义 Agent 状态、工具协议、执行循环、最终 `ExecutionResult`、失败恢复和 Response Writer 边界。
+- 新增 `tool-first-agent-orchestrator` 能力，定义 `AgentContextBuilder`、`ContextPackage`、Agent 状态、工具协议、执行循环、最终 `AgentExecutionResult`、失败恢复和 Response Writer 边界。
+- 将 `AgentExecutionResult` 设为 `/api/chat` 唯一执行合同；旧 `type`、`workoutIntent`、resolved intent 和 `assistant_action` 只能由兼容适配器从 Agent 结果派生，并必须有删除条件。
 - 将现有只读工具升级为统一 Agent Tool Registry，允许 LLM 在受控边界内调用读工具和写前置工具；写入仍由服务端工具执行并经过 Validator / Policy / Confirmation / Persistence。
-- 移除 `/api/chat` 主链对 `conversationSummary` 的必需依赖；Agent 输入优先使用真实 recent messages、recent artifacts、用户记忆和 tool results，功能正确性优先于 token 成本。
+- Agent 工具结果必须通过 `toolResultId`、`candidateSetId`、`validationId`、`policyDecisionId` 和 `revisionId` 等结构化引用串联，写工具不得消费模型自由文本伪造的前置结果。
+- 移除 `/api/chat` 主链对 `conversationSummary` 的必需依赖；Agent 执行输入优先使用真实 recent messages、recent artifacts、用户记忆和 tool results，功能正确性优先于 token 成本。
+- 如需长会话压缩，只能通过带 provenance 的 `ContextSnapshot` 进入 Agent；旧 `conversationSummary` 不得直接进入执行决策或作为事实源。
 - 让 LLM 通过工具主动读取 `ConversationArtifact`、`ArtifactIndex`、动作库、用户记忆和历史 payload，而不是让服务端从 summary 或用户原句反推事实。
 - 将训练调整统一为 Agent 决策：LLM 基于工具结果选择 `patch`、`regenerate`、`clarify` 或 `answer`，服务端不再用关键词判断“换一个”“不用哑铃”“简单点”等语义。
+- 新增统一 `WorkoutEditPlan` / `WorkoutEditIntent` 边界，先表达编辑目标、保留项、变更项、影响范围和确认级别，再进入 Patch、Regenerate 或 Clarify。
 - 动作查询必须通过结构化工具参数表达 `equipmentRequired`、`equipmentAvoided`、`muscles`、`level`、`duration`、`preferences` 和 `avoidances`，避免 RAG 裸搜用户原句。
+- Routine/plan 生成工具必须复用领域服务、Validator、Policy 和候选集合，不得退化成“LLM 自由生成整份训练再让服务端兜底修补”的大工具。
 - Patch、routine/plan 生成、校验、保存 artifact revision 和最终回复都必须基于工具执行结果，不能由自然语言正文承诺替代真实执行。
-- 更新 trace、黑盒测试和文档，覆盖多轮工具调用、真实动作库查询、否定约束、artifact 调整、失败恢复和用户可见回复一致性。
+- Response Writer 必须是 `AgentExecutionResult` 的投影层，不能重新解释用户语义、不能重新决定是否生成/保存、不能承诺未发生的写操作。
+- 更新 trace、黑盒测试、架构级断言和文档，覆盖多轮工具调用、真实动作库查询、否定约束、artifact 调整、失败恢复、旧路径未被调用和用户可见回复一致性。
 
 ## Capabilities
 
@@ -37,7 +43,8 @@
 ## Impact
 
 - 影响 `/api/chat`、`lib/server/chat/chat-service.ts`、`lib/server/ai/tools/*`、动作查询服务、ConversationArtifact 服务、WorkoutPatch 服务、routine/plan 生成服务、Validator、Policy、Trace 和 Response Writer。
-- 可能新增 `lib/server/agent-orchestrator/*`、统一 `AgentToolRegistry`、`AgentExecutionState`、`AgentExecutionResult`、Agent tool schema 和对应测试夹具。
+- 可能新增 `lib/server/agent-orchestrator/*`、`AgentContextBuilder`、`ContextPackage`、统一 `AgentToolRegistry`、`AgentExecutionState`、`AgentExecutionResult`、`WorkoutEditPlan`、Agent tool schema 和对应测试夹具。
 - 需要调整或废弃旧的 intent normalize、ReferenceResolver-first 触发矩阵、只读-only tool loop 和基于自然语言关键词的服务端语义分流。
-- 需要调整或废弃 `conversationSummary` 作为模型唯一历史上下文的旧契约；如果保留 summary 生成，只能作为可选后台任务。
-- 不要求首版引入 LangGraph；如未来接入 LangGraph，只能作为可替换 runtime，不能改变本 change 定义的工具 schema、权限、Validator、Policy 和 Persistence 边界。
+- 需要调整或废弃 `conversationSummary` 作为模型唯一历史上下文的旧契约；如果保留 summary 生成，只能作为可选后台任务或生成带 provenance 的 `ContextSnapshot`。
+- 需要为旧兼容事件建立单向 `LegacyChatEventAdapter`，并在测试中断言旧 intent-first 分支不会反向触发卡片、工具或写入。
+- 不要求首版引入 LangGraph；如未来接入 LangGraph，只能作为可替换 runtime，不能改变本 change 定义的 Context、工具 schema、权限、Validator、Policy、Persistence 和 replay 边界。

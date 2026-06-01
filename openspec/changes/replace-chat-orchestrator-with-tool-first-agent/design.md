@@ -11,12 +11,16 @@
 **Goals:**
 
 - 用 `AgentOrchestrator` 替换 `/api/chat` 的 intent-first 主链。
-- 提供统一 `AgentToolRegistry`，覆盖读工具、生成草稿工具、Patch 工具、校验工具、保存 revision 工具和澄清工具。
+- 提供 `AgentContextBuilder` 和 `ContextPackage`，用可测试的上下文合同替代 summary-only 和分散上下文拼装。
+- 提供统一 `AgentToolRegistry`，覆盖读工具、编辑计划工具、生成草稿工具、Patch 工具、校验工具、保存 revision 工具和澄清工具。
+- 提供工具结果依赖图，所有写工具必须引用已登记的 `toolResultId`、`candidateSetId`、`validationId`、`policyDecisionId` 或 `confirmationId`。
+- 提供统一 `WorkoutEditPlan`，让已有训练调整先表达目标、保留项、变更项、影响范围和确认级别，再进入 Patch 或 Regenerate。
 - 让 LLM 基于真实数据库和 artifact payload 决定 `answer`、`clarify`、`patch`、`regenerate` 或 `generate`。
 - 让动作查询以结构化工具参数执行，确保器械、肌群、难度、偏好和避免项先经过数据库过滤，再语义排序。
 - 让所有写入都通过服务端工具校验：Schema、权限、candidate set、Validator、Policy、Confirmation、Persistence。
 - 移除 `/api/chat` 主链对 `conversationSummary` 的必需依赖，Agent 可以使用真实 recent messages 和工具结果获取上下文。
 - 删除或废弃旧主链中服务端语义 normalize、关键词 gate 和裸自然语言 RAG 决策。
+- 让 Response Writer 成为 `AgentExecutionResult` 的投影层，不重新解释用户语义或重新决定执行动作。
 - 用黑盒测试验证用户可见结果、卡片推送和多轮调整，而不是只验证旧 intent 字段。
 
 **Non-Goals:**
@@ -25,83 +29,142 @@
 - 不允许 LLM 直接写数据库、执行任意 SQL 或绕过服务端工具。
 - 不让前端参与 Agent 编排；前端只消费服务端流事件、artifact 和 `assistantSuggestions`。
 - 不用 token 成本驱动裁剪功能。预算只用于防止无限循环和异常请求，不作为跳过必要工具查询的理由。
-- 不把 `conversationSummary` 作为 `/api/chat` 的必要输入、模型唯一历史上下文或任何执行事实源。
-- 不保留旧 intent-first 主链作为长期并行路径。旧字段只作为兼容输出、日志或测试迁移期间的诊断信息。
+- 不把 `conversationSummary` 作为 `/api/chat` 的必要输入、模型唯一历史上下文、Agent 执行输入或任何执行事实源。
+- 不把生成 routine/plan 的 Agent 工具设计成无边界大模型外包；工具必须复用领域服务、候选集合、Validator 和 Policy。
+- 不让 Response Writer 通过自由模型调用重新决定是否生成、修改、保存或澄清。
+- 不保留旧 intent-first 主链作为长期并行路径。旧字段只作为单向兼容输出、日志或测试迁移期间的诊断信息，并必须有退出条件。
 
 ## Decisions
 
-### 1. AgentExecutionState 是主执行状态
+### 1. AgentContextBuilder 是唯一上下文入口
+
+新增 `AgentContextBuilder`，负责从请求、保存会话、recent messages、recent artifacts、用户记忆、pending confirmation 和可选压缩快照构造 `ContextPackage`：
+
+```ts
+type ContextPackage = {
+  latestUserMessage: string;
+  recentMessages: ChatMessageSummary[];
+  recentArtifacts: ArtifactSummary[];
+  memorySnapshot: UserMemorySnapshot;
+  pendingConfirmation?: AgentConfirmation;
+  optionalContextSnapshot?: ContextSnapshot;
+  provenance: ContextProvenance[];
+  limits: ContextLimits;
+};
+```
+
+`ContextPackage` 是 Agent 的唯一上下文入口。它必须记录每段上下文的来源、时间、资源 id、截断策略和可信级别。`conversationSummary` 不得直接进入 Agent 执行输入；如果长会话确实需要压缩，只能先转换为带 provenance 的 `ContextSnapshot`，并标注它不是 artifact payload、exerciseId 或训练参数事实源。
+
+上下文选择策略必须可测试：当前消息优先，其次是真实 recent messages、最近 artifact 摘要、用户记忆、pending confirmation 和按需工具读取结果。任何 artifact payload、exerciseId、Patch target 或保存 payload 都必须通过工具读取结构化事实，不能从 `ContextSnapshot` 或自然语言摘要反推。
+
+### 2. AgentExecutionState 是唯一执行状态
 
 新增 `AgentExecutionState`，用于保存本轮 Agent 的全部结构化状态：
 
 ```ts
 type AgentExecutionState = {
+  runId: string;
   userId: string;
   sessionId: string;
-  latestUserMessage: string;
-  recentMessages: ChatMessageSummary[];
-  recentArtifacts: ArtifactSummary[];
-  optionalSummary?: string;
+  context: ContextPackage;
   toolCalls: AgentToolCallRecord[];
   toolResults: AgentToolResultRecord[];
+  dependencyGraph: AgentDependencyGraph;
   pendingConfirmation?: AgentConfirmation;
   candidateSets: Record<string, CandidateSet>;
+  editPlan?: WorkoutEditPlan;
   draft?: RoutineDraft | PlanDraft;
   patch?: WorkoutPatch;
   finalResult?: AgentExecutionResult;
 };
 ```
 
-旧 resolved intent 不再是主执行状态。它可以由 Agent 的最终 plan 派生出来，用于兼容前端事件或 trace，但不能反过来驱动工具选择。
+旧 resolved intent 不再是主执行状态。它只能由 `LegacyChatEventAdapter` 从 `AgentExecutionResult` 派生，用于短期兼容前端事件、旧报告或 trace 展示；它不能反过来驱动工具选择、artifact 生成、Patch、Response Writer 或测试通过条件。
 
-`optionalSummary` 只用于会话标题、调试摘要或长会话辅助阅读，不参与执行决策。Agent 需要事实时必须读取 `recentMessages`、recent artifacts 或调用工具。
+旧 `type`、`workoutIntent`、`canTriggerAction`、`assistant_action` 和 resolved intent 字段必须有删除条件：当前端和黑盒报告都改为消费 `AgentExecutionResult` 后，这些字段应从生产流事件中移除或只保留在调试 trace 中。
 
-### 2. 统一 AgentToolRegistry 替代只读-only tool loop
+### 3. 统一 AgentToolRegistry 替代只读-only tool loop
 
 `AgentToolRegistry` 注册所有 LLM 可请求的工具。工具分为：
 
 - 读工具：`listRecentArtifacts`、`searchArtifacts`、`getArtifactPayload`、`searchExercises`、`getExerciseById`、`getUserMemory`。
-- 规划工具：`proposeRoutineDraft`、`proposePlanDraft`、`proposeWorkoutPatch`、`askClarification`。
+- 编辑计划工具：`proposeWorkoutEditPlan`、`askClarification`。
+- 生成工具：`generateRoutineDraft`、`generatePlanDraft`。
+- Patch 工具：`proposeWorkoutPatch`、`applyWorkoutPatch`。
 - 校验工具：`validateRoutineDraft`、`validatePlanDraft`、`validateWorkoutPatch`、`evaluatePolicy`。
 - 写工具：`saveConversationArtifactRevision`、`persistPatchResult`。
 
-LLM 可以选择工具，但工具由服务端执行。每个工具都有 Zod Schema、权限上下文、输出摘要、trace 摘要和可执行边界。写工具必须验证前置 tool result，不能只凭模型参数直接写入。
+LLM 可以选择工具，但工具由服务端执行。每个工具都有 Zod Schema、权限上下文、输出摘要、trace 摘要、幂等 key、前置依赖声明和可执行边界。工具输出必须登记为结构化结果，例如 `toolResultId`、`candidateSetId`、`artifactPayloadId`、`validationId`、`policyDecisionId`、`confirmationId` 和 `revisionId`。
 
-### 3. 工具循环使用显式完成条件
+写工具必须验证前置 tool result，不能只凭模型参数直接写入。比如保存 routine revision 必须引用通过校验的 `draftId`、`validationId`、`policyDecisionId` 和可写 scope；Patch 写入必须引用 `artifactPayloadId`、`candidateSetId`、`patchId`、`validationId` 和必要的 `confirmationId`。
+
+### 4. 工具循环使用显式完成条件
 
 Agent loop 的停止条件不是“模型回答了文本”，而是产生一个结构化 `AgentExecutionResult`：
 
 ```ts
 type AgentExecutionResult =
-  | { status: "answered"; replyContext: ToolContextBundle }
-  | { status: "needs_clarification"; question: string; assistantSuggestions: AssistantSuggestion[] }
-  | { status: "generated"; artifact: ConversationArtifactSummary }
-  | { status: "patched"; patchResult: WorkoutPatchResult; artifact: ConversationArtifactSummary }
+  | { status: "answered"; replyContext: ToolContextBundle; usedToolResultIds: string[] }
+  | { status: "needs_clarification"; question: string; assistantSuggestions: AssistantSuggestion[]; blockingReasons: string[] }
+  | { status: "generated"; artifact: ConversationArtifactSummary; revisionId: string; validationId: string }
+  | { status: "patched"; patchResult: WorkoutPatchResult; artifact: ConversationArtifactSummary; revisionId: string; validationId: string }
+  | { status: "blocked"; blockReason: string; policyDecisionId?: string; recoverySuggestions: AssistantSuggestion[] }
   | { status: "failed"; failureCode: string; recoverySuggestions: AssistantSuggestion[] };
 ```
 
 最终用户回复只消费 `AgentExecutionResult` 和 tool results，不再凭 prompt 承诺“已生成/已更新”。
 
-### 4. 结构化查询先于 RAG
+### 5. 结构化查询先于 RAG
 
 动作和 artifact 搜索工具必须让 LLM 传入结构化字段，例如 `equipmentAvoided: ["哑铃"]`、`targetMuscles: ["肩", "背"]`、`sessionMinutes: 30`。服务端工具先做结构化硬过滤，再做全文/向量召回和 rerank。用户原始消息可以作为辅助 query，但不能作为唯一检索输入。
 
 这解决“不要哑铃”被当成“哑铃正向匹配”的架构问题。
 
-### 5. Patch 与 Regenerate 都由 Agent 选择，但服务端校验执行
+### 6. WorkoutEditPlan 先于 Patch / Regenerate
 
-LLM 通过工具读取 artifact payload 后，决定用户请求是局部 Patch 还是整套重新生成：
+LLM 通过工具读取 artifact payload 后，必须先提出 `WorkoutEditPlan`：
 
-- 局部 Patch：替换某个动作、改组数、改休息、删除一项。
+```ts
+type WorkoutEditPlan = {
+  targetArtifactId: string;
+  sourceArtifactPayloadId: string;
+  requestedChangeSummary: string;
+  preserve: WorkoutPreserveConstraint[];
+  changes: WorkoutChangeConstraint[];
+  scope: "single_item" | "section" | "whole_routine" | "whole_plan";
+  strategy: "patch" | "regenerate" | "clarify";
+  requiredCandidateSetIds: string[];
+  confirmationLevel: "none" | "low" | "high";
+};
+```
+
+局部 Patch 和整套 Regenerate 都是 `WorkoutEditPlan` 的执行策略：
+
+- Patch：替换某个动作、改组数、改休息、删除一项。
 - Regenerate：器械变化、场地变化、整体难度变化、时长大幅变化、目标变化。
+- Clarify：目标 artifact、目标动作、训练条件或保留项不足。
 
 服务端不通过关键词选择策略；服务端只校验 LLM 提出的 Patch 或 draft 是否符合 schema、candidate set、Validator、Policy 和 artifact revision 规则。
 
-### 6. 不引入 LangGraph 作为首版依赖
+### 7. 生成工具必须是领域服务工具，不是无边界大模型外包
+
+`generateRoutineDraft` 和 `generatePlanDraft` 不应只是把自然语言、候选动作和历史摘要转交给 LLM 生成整份训练。它们必须以结构化 intent / edit plan、候选集合、用户记忆和领域默认值为输入，复用现有 DomainPlanEngine、Validator、validation recovery、Policy 和 artifact revision 规则。
+
+LLM 可参与非确定性选择、排序、说明、局部草稿提案和修复建议；确定性的训练结构展开、候选集合边界、时长估算、保存权限和高影响写入策略必须留在领域服务和服务端工具中。
+
+### 8. Response Writer 是投影层
+
+Response Writer 只消费 `AgentExecutionResult`、已登记 tool results、artifact summary、policy/validation 结果和 assistant suggestions。它可以生成自然语言表达，但不得重新解释用户意图、不得重新决定是否生成/修改/保存、不得引用未登记工具结果、不得承诺未执行的写操作。
+
+如果使用 LLM 生成最终措辞，输入必须是 `AgentExecutionResult` 的只读投影，并且输出必须经过事实引用校验：回复中的具体动作、器械、训练结构、artifact 状态和保存结果必须能映射到 `usedToolResultIds`、`revisionId` 或服务端校验结果。
+
+### 9. 不引入 LangGraph 作为首版依赖，但补足 runtime 合同
 
 首版使用自定义 orchestrator，因为当前主要复杂度在领域工具边界，而不是通用图运行时。LangGraph 的 checkpoint、human-in-the-loop 和 durable graph 适合未来更长任务，但不应成为本次替换聊天主链的必要依赖。
 
-### 7. 旧主链必须显式废弃
+自定义 orchestrator 仍必须具备基础 runtime 合同：step id、step replay 数据、dependency graph、checkpoint/resume、confirmation resume、幂等写入、trace correlation 和 deterministic replay fixture。否则只是把旧 `chat-service.ts` 大分支换成新的大循环函数，后续仍会重构。
+
+### 10. 旧主链必须显式废弃
 
 实现完成后，以下旧路径应删除或降级为仅测试/诊断：
 
@@ -111,12 +174,23 @@ LLM 通过工具读取 artifact payload 后，决定用户请求是局部 Patch 
 - 只读 tool loop 只能补查、不能决定写动作的限制。
 - RAG 裸搜最新用户原句后由服务端选择候选。
 - `conversationSummary` 作为模型唯一历史上下文或短指令事实来源的限制。
+- `createFallbackWorkoutIntent`、pending replacement 字符串匹配、`hasExplicitReferenceMarker`、`shouldUseReferenceResolutionForChat` 等服务端语义分流只能被删除、迁入工具硬边界或改为 Agent 可读状态，不能继续在 Agent 前改写执行路径。
 
-### 8. conversationSummary 从主链移除
+### 11. conversationSummary 从主链移除
 
-主聊天 Agent 的模型输入应包含当前最新用户消息、必要的真实 recent messages、recent artifact 摘要和工具结果。系统可以保留可选 summary 生成，用于会话列表标题、后台摘要、调试显示或长会话辅助阅读，但 summary 不再是 `/api/chat` 必需输入，也不作为任何执行路径的事实来源。
+主聊天 Agent 的模型输入应来自 `ContextPackage`、工具结果和 explicit snapshots。系统可以保留可选 summary 生成，用于会话列表标题、后台摘要、调试显示或长会话辅助阅读，但 summary 不再是 `/api/chat` 必需输入，也不作为任何执行路径的事实来源。
 
 替代方案是继续保留 summary 作为历史上下文入口，同时强调“不要当事实源”。这个边界容易被后续实现误用，且 summary 的最初目的主要是节省 token；当前架构明确功能正确性优先，因此不采用。
+
+### 12. Token 成本策略从裁剪事实改为按需读取和缓存
+
+本 change 不忽略成本，但成本策略必须服务于正确性。新的成本模型是：
+
+- 初始 `ContextPackage` 保持小而真实，只包含必要 recent messages、artifact 摘要和用户记忆摘要。
+- 需要完整事实时通过工具读取 payload，并把结果登记为可复用 tool result。
+- 同一 run 内相同读工具参数应复用缓存结果；跨 run 可以复用安全的 artifact summary 或 embedding index，但不得复用过期权限或过期 confirmation。
+- payload 摘要必须分层：列表摘要、候选摘要、payload 摘要和完整结构化 payload 分开，模型只看当前步骤必要层级。
+- step limit、timeout 和最大 token 只防异常循环；不得作为跳过必要 artifact 读取、动作查询或校验的理由。
 
 ## Risks / Trade-offs
 
@@ -125,16 +199,20 @@ LLM 通过工具读取 artifact payload 后，决定用户请求是局部 Patch 
 - [Risk] Agent 可能循环过多。→ Mitigation: 保留最大 step、超时和硬失败回退；这些限制只防异常，不用于跳过必要工具查询。
 - [Risk] 新工具协议不稳定会影响前端。→ Mitigation: 前端仍消费稳定流事件和 artifact 结果；Agent 内部 tool detail 只进入 trace。
 - [Risk] 删除旧 normalize 和 summary 依赖后短期回归。→ Mitigation: 用真实黑盒多轮 flow 覆盖主要用户场景，断言用户可见输出、recent message 使用、tool result 和 artifact 事件，而不是旧 intent 字段或 summary 内容。
+- [Risk] 兼容字段被再次当成事实源。→ Mitigation: 兼容字段只能由 `LegacyChatEventAdapter` 单向派生，架构测试断言旧字段不触发工具、卡片或写入。
+- [Risk] 自定义 orchestrator 退化成新的大函数。→ Mitigation: 强制 step、dependency graph、checkpoint、replay fixture 和 trace correlation 合同。
 
 ## Migration Plan
 
-1. 新增 AgentOrchestrator、AgentExecutionState、AgentExecutionResult 和 AgentToolRegistry 类型。
-2. 将现有只读工具迁入统一 registry，并新增受控写前置工具和写工具。
-3. 实现 Agent loop：模型 tool decision、工具执行、结果摘要、下一步决策和最终 result。
-4. 将 routine / plan / patch / clarification 路径接入 Agent tools。
-5. 将 `/api/chat` 主链切换到 AgentOrchestrator，并使用真实 recent messages 替代 summary-only 历史上下文。
-6. 删除或废弃旧语义 normalize、关键词 gate、ReferenceResolver-first 主路径和 summary 必需输入。
-7. 更新 trace、黑盒测试、单元测试和架构文档。
+1. 新增 `AgentContextBuilder`、`ContextPackage`、Context provenance 和上下文选择测试。
+2. 新增 AgentOrchestrator、AgentExecutionState、AgentExecutionResult、AgentDependencyGraph 和 AgentToolRegistry 类型。
+3. 将现有只读工具迁入统一 registry，并新增编辑计划、生成、校验、Policy、确认和写工具。
+4. 实现 Agent loop：模型 tool decision、工具执行、工具结果登记、依赖图、下一步决策、checkpoint 和最终 result。
+5. 将 routine / plan / patch / regenerate / clarification 路径接入 Agent tools，并引入 `WorkoutEditPlan`。
+6. 将 Response Writer 改为基于 `AgentExecutionResult` 的投影层，旧流事件由兼容适配器单向派生。
+7. 将 `/api/chat` 主链切换到 AgentOrchestrator，并使用 `ContextPackage` 替代 summary-only 历史上下文。
+8. 删除或废弃旧语义 normalize、关键词 gate、ReferenceResolver-first 主路径、只读 tool loop 触发矩阵和 summary 必需输入。
+9. 更新 trace、黑盒测试、架构级防回归测试、单元测试和架构文档。
 
 ## Open Questions
 
