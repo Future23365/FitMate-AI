@@ -18,10 +18,10 @@
 - **THEN** 黑盒 runner MUST 校验存在对应 `AgentExecutionResult`、tool result、validation / policy / revision 或 artifact / patch 事件
 - **AND** 仅有自然语言承诺 MUST 判定为失败
 
-#### Scenario: Agent-native fallback 可见
+#### Scenario: Agent-only failure handling 可见
 - **WHEN** 真实多轮流程中出现工具失败、候选不足、引用不可解析、validation 失败或 policy blocked
 - **THEN** 黑盒 runner MUST 从 `AgentExecutionResult.status`、blocking reason、tool evidence metadata 和用户可见回复判断该轮结果
-- **AND** runner MUST NOT 因缺少旧 intent fallback、`assistant_action` 或旧 trigger JSON 而把 recovery 判为失败
+- **AND** runner MUST NOT 因缺少旧 intent 架构、`assistant_action` 或旧 trigger JSON 而把 failure handling 判为失败
 
 #### Scenario: 核心流程验收矩阵
 - **WHEN** 基础或详细黑盒套件覆盖 routine、长期计划、动作推荐、局部 Patch、序号动作讲解和短指令调整

@@ -16,7 +16,7 @@
 #### Scenario: 计划草稿与 Agent 输入冲突
 - **WHEN** 计划草稿的周期、周频、训练日数量、时长或器械条件与 Agent 结构化输入冲突
 - **THEN** 系统 MUST 拒绝将该草稿作为成功计划返回
-- **AND** 系统 MUST 进入 Agent recovery、重新校验、重新生成或澄清路径
+- **AND** 系统 MUST 进入 Agent failure handling、重新校验、重新生成或澄清路径
 
 ## REMOVED Requirements
 

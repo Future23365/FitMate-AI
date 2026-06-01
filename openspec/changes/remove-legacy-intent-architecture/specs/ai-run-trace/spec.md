@@ -13,10 +13,10 @@
 - **THEN** trace MUST 记录旧 intent resolution、resolved intent repair、`runReadonlyToolLoop`、旧 ReferenceResolver-first 主路径和旧 `assistant_action` 生产输出均未参与执行
 - **AND** 旧路径缺席证据 MUST 可被自动化测试读取
 
-#### Scenario: Agent-native recovery 发生
-- **WHEN** Agent 进入 repair、tool retry、clarification、blocked、failed、validation / policy recovery 或用户确认路径
-- **THEN** trace MUST 记录 recovery 来源、失败边界、使用的 tool result 或 blocking reason
-- **AND** trace MUST 记录本次 recovery 没有调用旧 intent-first fallback、旧只读 tool loop 或 summary-only payload reconstruction
+#### Scenario: Agent-only failure handling 发生
+- **WHEN** Agent 进入 repair、tool retry、clarification、blocked、failed、validation / policy failure handling 或用户确认路径
+- **THEN** trace MUST 记录失败来源、失败边界、使用的 tool result 或 blocking reason
+- **AND** trace MUST 记录本次失败处理没有调用旧 intent-first 架构、旧只读 tool loop 或 summary-only payload reconstruction
 
 ## MODIFIED Requirements
 
@@ -57,9 +57,9 @@
 
 ### Requirement: Trace 必须记录只读 tool loop 回退
 
-**Reason**: 旧只读 loop fallback 会回到已废弃的固定编排路径。
+**Reason**: 旧只读 loop 的失败处理会调用已废弃的固定编排路径。
 
-**Migration**: Agent 工具失败、预算耗尽和解析失败统一记录为 Agent blocked、failed、needs_clarification 或 recovery result。
+**Migration**: Agent 工具失败、预算耗尽和解析失败统一记录为 Agent blocked、failed、needs_clarification 或 failure handling result。
 
 ### Requirement: Trace 必须记录只读 tool loop 成本和延迟
 

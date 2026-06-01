@@ -31,9 +31,9 @@
 - **THEN** Agent MUST 通过工具读取真实 recent messages、artifact payload、动作候选和用户记忆后决定执行结果
 - **AND** 服务端 MUST NOT 通过旧关键词规则或 resolved intent 归一化预先改写高层语义
 
-#### Scenario: Agent 主链需要回退或恢复
+#### Scenario: Agent 主链需要处理失败
 - **WHEN** Agent decision、工具调用、候选检索、引用读取、validation、policy、persistence 或 Response Writer 失败
-- **THEN** 系统 MUST 使用 Agent repair、tool retry、`needs_clarification`、`blocked`、`failed`、validation / policy recovery 或用户确认表达恢复路径
+- **THEN** 系统 MUST 使用 Agent repair、tool retry、`needs_clarification`、`blocked`、`failed`、validation / policy failure handling 或用户确认表达失败处理结果
 - **AND** 系统 MUST NOT 调用旧 intent resolution、resolved intent repair、旧 action gate、旧只读 tool loop、旧 trigger parser 或 summary-only payload reconstruction
 
 ## REMOVED Requirements

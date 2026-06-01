@@ -26,7 +26,7 @@
 
 **Reason**: “推荐事件”已删除。
 
-**Migration**: 候选不足必须作为 Agent tool result、blocking reason 或 recovery suggestion 进入最终结果。
+**Migration**: 候选不足必须作为 Agent tool result、blocking reason 或 failure handling suggestion 进入最终结果。
 
 ### Requirement: 动作推荐不得升级为单次训练编排
 

@@ -17,7 +17,7 @@
 #### Scenario: 旧只读工具测试迁移
 - **WHEN** 自动化测试覆盖读工具
 - **THEN** 测试 MUST 断言工具在 Agent registry 中注册并经过 Schema、权限和摘要边界
-- **AND** 测试 MUST NOT 继续断言独立只读 loop 的触发矩阵、stop reason 或 fallback 到旧固定编排路径
+- **AND** 测试 MUST NOT 继续断言独立只读 loop 的触发矩阵、stop reason 或旧固定编排路径
 
 ## REMOVED Requirements
 
@@ -53,7 +53,7 @@
 
 ### Requirement: 只读工具失败必须有确定性回退
 
-**Reason**: 独立只读 loop fallback 会回到旧固定编排路径。
+**Reason**: 独立只读 loop 的失败处理会调用旧固定编排路径。
 
 **Migration**: 读工具失败进入 Agent `blocked`、`failed`、`needs_clarification` 或继续使用已登记 tool results 的路径。
 

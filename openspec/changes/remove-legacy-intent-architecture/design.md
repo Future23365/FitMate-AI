@@ -9,7 +9,7 @@
 - `plan-push-composition`、`domain-plan-engine`、`chat-routine-composition`、`chat-exercise-recommendation-trigger` 等能力仍把 resolved intent、`workoutIntent` 或内部推荐事件作为下游执行事实源。
 - 测试和文档中仍存在 `assistant_action`、`workoutIntent`、`conversationSummary`、`ENABLE_READONLY_LLM_TOOLS`、`runReadonlyToolLoop`、旧 trigger JSON 等迁移期字段。
 
-这类遗留合同如果继续存在，后续实现会自然倾向于保留双主链：Agent 负责新结果，旧 intent 负责兼容、诊断、测试或兜底。长期看这会重新制造语义冲突：服务端旧规则和 Agent 工具结果可能同时声称自己能触发卡片、Patch 或 plan。
+这类遗留合同如果继续存在，后续实现会自然倾向于保留双主链：Agent 负责新结果，旧 intent 负责兼容、诊断或测试。长期看这会重新制造语义冲突：服务端旧规则和 Agent 工具结果可能同时声称自己能触发卡片、Patch 或 plan。
 
 本 change 是实现型架构清理 change：目标是在后续 apply 阶段删除旧 intent-first 执行链路、旧只读 tool loop、旧流事件、旧测试口径和旧规格合同。当前用户要求“只写文档”，因此本轮只产出 OpenSpec proposal / design / specs / tasks，不改业务代码。
 
@@ -73,13 +73,13 @@
 
 选择：旧 `ResolvedChatIntent`、`ChatIntent`、`workoutIntent`、`LegacyChatEventAdapter`、`assistant_action`、`intent_resolved`、旧 trigger JSON、`runReadonlyToolLoop` 和 `ENABLE_READONLY_LLM_TOOLS` 默认都应删除。实现阶段如发现无法立即删除的旧解析代码，必须把它移动或隔离到离线迁移、历史展示兼容或测试 fixture，并通过命名、目录、导出边界和自动化测试证明生产链路不能导入。
 
-原因：只说“不能作为事实源”仍可能留下隐式 fallback。deny-by-default 能让后续实现先证明保留的必要性，再证明它不会被 `/api/chat`、Agent runtime、Response Writer、前端新流解析、领域服务或黑盒 runner 的新断言消费。
+原因：只说“不能作为事实源”仍可能留下隐式第二执行路径。deny-by-default 能让后续实现先证明保留的必要性，再证明它不会被 `/api/chat`、Agent runtime、Response Writer、前端新流解析、领域服务或黑盒 runner 的新断言消费。
 
-### 7. 所有回退都必须是 Agent-native
+### 7. 所有失败处理都必须是 Agent-only
 
-选择：Agent 失败、工具失败、校验失败、候选不足、策略阻断、引用不可解析或 Response Writer 解析失败时，只允许进入 Agent repair、tool retry、`needs_clarification`、`blocked`、`failed`、validation / policy recovery 或用户确认。不得调用旧 intent resolution、resolved intent repair、旧 action gate、旧只读 tool loop、旧 trigger parser，也不得从 `conversationSummary` 反向重建可写 payload。
+选择：Agent 失败、工具失败、校验失败、候选不足、策略阻断、引用不可解析或 Response Writer 解析失败时，只允许进入 Agent repair、tool retry、`needs_clarification`、`blocked`、`failed`、validation / policy failure handling 或用户确认。不得调用旧 intent resolution、resolved intent repair、旧 action gate、旧只读 tool loop、旧 trigger parser，也不得从 `conversationSummary` 反向重建可写 payload。
 
-原因：旧架构最容易以“兜底”“兼容”“诊断补充”的形式重新进入生产主链。回退路径如果没有单独声明，删除主路径后仍会保留双主链风险。
+原因：旧架构最容易以“兼容”“诊断补充”的形式重新进入生产主链。失败处理边界如果没有单独声明，删除主路径后仍会保留双主链风险。
 
 ### 8. 新 stream 合同必须先于旧事件删除完成
 
@@ -101,4 +101,4 @@
 - [Risk] 删除只读 tool loop 后可能丢失已有工具权限和摘要测试 → Mitigation：把这些测试迁移到统一 Agent registry，而不是删除工具边界测试。
 - [Risk] 同时清理多个 spec 可能影响归档可读性 → Mitigation：每个 spec delta 只写和旧架构直接相关的删除/替换要求，不顺手重写无关训练领域规则。
 - [Risk] 旧事件删除后前端和黑盒 runner 缺少判断依据 → Mitigation：先落定 `agent_execution_result`、artifact / patch / suggestion、tool evidence 和 done metadata 的新合同，再删除旧事件输出。
-- [Risk] 回退路径继续调用旧 intent-first 逻辑 → Mitigation：任务和测试必须覆盖 Agent-native fallback，发现旧 fallback 被调用时视为架构清理失败。
+- [Risk] 失败处理继续调用旧 intent-first 逻辑 → Mitigation：任务和测试必须覆盖 Agent-only failure handling，发现旧架构被调用时视为架构清理失败。

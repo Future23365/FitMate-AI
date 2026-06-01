@@ -13,11 +13,11 @@
 - **THEN** 回归测试 MUST 失败
 - **AND** 报告 MUST 标出被调用的旧路径名称
 
-#### Scenario: 旧回退路径被调用
-- **WHEN** routine、长期计划、动作推荐、Patch、动作讲解或短指令流程发生失败、阻断或恢复
-- **AND** 测试发现系统调用旧 intent-first fallback、resolved intent repair、旧 action gate、旧只读 tool loop 或 summary-only payload reconstruction
+#### Scenario: 旧架构路径被调用
+- **WHEN** routine、长期计划、动作推荐、Patch、动作讲解或短指令流程发生失败或阻断
+- **AND** 测试发现系统调用旧 intent-first 架构、resolved intent repair、旧 action gate、旧只读 tool loop 或 summary-only payload reconstruction
 - **THEN** 回归测试 MUST 失败
-- **AND** 报告 MUST 标出旧回退路径名称和触发流程
+- **AND** 报告 MUST 标出旧架构路径名称和触发流程
 
 #### Scenario: 新 stream 合同覆盖用户可见结果
 - **WHEN** `/api/chat` 返回卡片、Patch、建议、澄清、阻断、失败或保存完成状态
@@ -28,13 +28,13 @@
 
 ### Requirement: 黑盒失败样例必须被自动化回归覆盖
 
-**Reason**: 该 requirement 中的 `workoutIntent=null`、兜底意图和旧意图模型失败样例属于旧架构补丁。
+**Reason**: 该 requirement 中的 `workoutIntent=null`、默认意图和旧意图模型失败样例属于旧架构补丁。
 
 **Migration**: 将失败样例迁移为 Agent 多轮工具执行、用户可见闭环、候选集合、validation / policy / revision 和旧路径缺席断言。
 
 ### Requirement: AI 建议回复必须有自动化回归覆盖
 
-**Reason**: 建议回复仍需测试，但不应绑定旧意图恢复和 `workoutIntent` 校验。
+**Reason**: 建议回复仍需测试，但不应绑定旧意图修补和 `workoutIntent` 校验。
 
 **Migration**: 建议回复从 `AgentExecutionResult` 和 `assistantSuggestions` 验证。
 
