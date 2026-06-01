@@ -18,6 +18,7 @@ const trainingCardTypes = new Set<BlackboxCardType>([
   "exercise_recommendation",
   "workout_routine",
   "workout_plan",
+  "workout_patch",
 ]);
 
 const internalLeakPatterns = [

@@ -329,8 +329,14 @@ export const detailedBlackboxFlowCases: BlackboxFlowCase[] = [
     goal: "验证局部替换后能继续基于修改后的 routine 降低难度。",
     turns: [
       turn("第 1 轮：胸部无器械 routine", "给我一套胸部20分钟无器械训练", ["workout_routine"], "应生成胸部 20 分钟无器械 routine。"),
-      turn("第 2 轮：替换俯卧撑", "把俯卧撑换掉", ["workout_routine"], "应只替换目标动作，其他内容尽量保持。"),
-      turn("第 3 轮：调简单点", "再把它调简单点", ["workout_routine"], "应基于修改后的 routine 降低难度。"),
+      turn("第 2 轮：替换俯卧撑", "把俯卧撑换掉", ["workout_patch"], "应只替换目标动作，其他内容尽量保持。", {
+        expectedReferenceStatus: "resolved",
+        expectedArtifactPayloadReadable: true,
+      }),
+      turn("第 3 轮：调简单点", "再把它调简单点", ["workout_patch"], "应基于修改后的 routine 降低难度。", {
+        expectedReferenceStatus: "resolved",
+        expectedArtifactPayloadReadable: true,
+      }),
     ],
   },
   {
@@ -389,7 +395,7 @@ export const detailedBlackboxFlowCases: BlackboxFlowCase[] = [
         mustIncludeAny: ["安排", "恢复", "分配", "原因"],
         semanticFailureLevel: "P2",
       }),
-      turn("第 3 轮：第二天降低难度", "把第二天换简单点", ["workout_plan"], "应定位计划第 2 天并调整难度，保持其他天结构。", {
+      turn("第 3 轮：第二天降低难度", "把第二天换简单点", ["workout_patch"], "应定位计划第 2 天并调整难度，保持其他天结构。", {
         expectedReferenceStatus: "resolved",
         expectedArtifactPayloadReadable: true,
       }),
@@ -470,7 +476,7 @@ export const detailedBlackboxFlowCases: BlackboxFlowCase[] = [
     turns: [
       turn("第 1 轮：胸部 20 分钟", "今天练胸20分钟", ["workout_routine"], "应生成胸部 routine。"),
       noCardTurn("第 2 轮：插入时间问题", "顺便问一下，北京几点了", "非健身问题不应破坏训练上下文。"),
-      turn("第 3 轮：回到刚才 routine", "刚才那套改简单点", ["workout_routine"], "应回到最近 routine 并降低难度。"),
+      noCardTurn("第 3 轮：回到刚才 routine", "刚才那套改简单点", "引用到了最近 routine，但没有明确目标动作时应澄清要调哪个动作，不应重生成整套。"),
     ],
   },
   {
@@ -505,11 +511,11 @@ export const detailedBlackboxFlowCases: BlackboxFlowCase[] = [
     goal: "验证 routine 局部替换和后续降级都依赖真实 artifact。",
     turns: [
       turn("第 1 轮：胸部无器械 routine", "给我一套胸部20分钟无器械训练", ["workout_routine"], "应生成胸部 20 分钟无器械 routine。"),
-      turn("第 2 轮：替换俯卧撑", "把俯卧撑换掉", ["workout_routine"], "应只替换目标动作，其他内容尽量保持。", {
+      turn("第 2 轮：替换俯卧撑", "把俯卧撑换掉", ["workout_patch"], "应只替换目标动作，其他内容尽量保持。", {
         expectedReferenceStatus: "resolved",
         expectedArtifactPayloadReadable: true,
       }),
-      turn("第 3 轮：调简单点", "再把它调简单点", ["workout_routine"], "应基于修改后的 routine 降低难度。", {
+      turn("第 3 轮：调简单点", "再把它调简单点", ["workout_patch"], "应基于修改后的 routine 降低难度。", {
         expectedReferenceStatus: "resolved",
         expectedArtifactPayloadReadable: true,
       }),
@@ -525,8 +531,7 @@ export const detailedBlackboxFlowCases: BlackboxFlowCase[] = [
         mustIncludeAny: ["哪一次", "全部", "都换", "范围"],
         semanticFailureLevel: "P2",
       }),
-      turn("第 3 轮：全部替换", "全部换掉", ["workout_routine"], "用户确认后替换所有出现位置，保留其他内容。", {
-        expectedArtifactPayloadReadable: true,
+      noCardTurn("第 3 轮：全部替换", "全部换掉", "当前 Patch 入口不支持用自然语言确认批量替换范围，应继续澄清而不是重生成整套。", {
         semanticFailureLevel: "P2",
       }),
     ],
@@ -537,11 +542,11 @@ export const detailedBlackboxFlowCases: BlackboxFlowCase[] = [
     goal: "验证长期 plan 的第 N 天可以连续局部调轻。",
     turns: [
       turn("第 1 轮：每周 4 练增肌计划", "给我一个每周4练增肌计划", ["workout_plan"], "应生成长期 plan。"),
-      turn("第 2 轮：第二天太累", "第二天太累了", ["workout_plan"], "应定位计划第 2 天，降低强度或容量。", {
+      turn("第 2 轮：第二天太累", "第二天太累了", ["workout_patch"], "应定位计划第 2 天，降低强度或容量。", {
         expectedReferenceStatus: "resolved",
         expectedArtifactPayloadReadable: true,
       }),
-      turn("第 3 轮：第三天也调轻", "第三天也轻一点", ["workout_plan"], "继续定位第 3 天调整，不重置整个 plan。", {
+      turn("第 3 轮：第三天也调轻", "第三天也轻一点", ["workout_patch"], "继续定位第 3 天调整，不重置整个 plan。", {
         expectedReferenceStatus: "resolved",
         expectedArtifactPayloadReadable: true,
       }),
@@ -554,7 +559,10 @@ export const detailedBlackboxFlowCases: BlackboxFlowCase[] = [
     turns: [
       turn("第 1 轮：核心 20 分钟", "给我一套核心20分钟训练", ["workout_routine"], "应生成核心 routine。"),
       noCardTurn("第 2 轮：解释安排", "为什么安排这些动作", "应解释当前 routine 结构和动作目的，不重生成卡片。"),
-      turn("第 3 轮：替换最后一个", "那把最后一个换简单点", ["workout_routine"], "应定位最后一个动作并替换或降级。"),
+      turn("第 3 轮：替换最后一个", "那把最后一个换简单点", ["workout_patch"], "应定位最后一个动作并替换或降级。", {
+        expectedReferenceStatus: "resolved",
+        expectedArtifactPayloadReadable: true,
+      }),
     ],
   },
   {
@@ -564,10 +572,7 @@ export const detailedBlackboxFlowCases: BlackboxFlowCase[] = [
     turns: [
       turn("第 1 轮：胸部推荐", "推荐几个胸部动作", ["exercise_recommendation"], "应生成胸部推荐。"),
       turn("第 2 轮：换一批", "换一批", ["exercise_recommendation"], "应刷新同类推荐。"),
-      turn("第 3 轮：替换第一个", "把第一个换掉", ["exercise_recommendation"], "应只替换当前推荐里的第一个动作，不再整批刷新。", {
-        expectedReferenceStatus: "resolved",
-        expectedArtifactPayloadReadable: true,
-      }),
+      noCardTurn("第 3 轮：替换第一个", "把第一个换掉", "当前推荐卡片不是可 patch artifact，应澄清需要修改哪套 routine 或 plan，不应整批刷新。"),
     ],
   },
   {
@@ -671,8 +676,14 @@ export const detailedBlackboxFlowCases: BlackboxFlowCase[] = [
     goal: "验证多轮 routine 调整全过程不泄漏内部字段。",
     turns: [
       turn("第 1 轮：胸部 20 分钟", "今天练胸20分钟", ["workout_routine"], "回复和卡片中不得展示 raw JSON、trigger 字段、prompt 或内部工具名。"),
-      turn("第 2 轮：改 30 分钟", "改成30分钟", ["workout_routine"], "继续无内部泄漏。"),
-      turn("第 3 轮：换简单点", "换简单点", ["workout_routine"], "继续无内部泄漏。"),
+      turn("第 2 轮：改 30 分钟", "改成30分钟", ["workout_patch"], "继续无内部泄漏。", {
+        expectedReferenceStatus: "resolved",
+        expectedArtifactPayloadReadable: true,
+      }),
+      turn("第 3 轮：换简单点", "换简单点", ["workout_patch"], "继续无内部泄漏。", {
+        expectedReferenceStatus: "resolved",
+        expectedArtifactPayloadReadable: true,
+      }),
     ],
   },
   {

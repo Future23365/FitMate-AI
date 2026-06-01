@@ -105,6 +105,7 @@ export type BlackboxConversationState = {
 type ConsumedChatStream = {
   assistantText: string;
   actions: AssistantAction[];
+  actionTypes: AssistantAction["action"][];
   referenceDiagnostics: NonNullable<ChatStreamEvent["referenceDiagnostic"]>[];
   traceId?: string;
   conversationSummary?: string;
@@ -262,7 +263,10 @@ export async function runBlackboxChatTurn(input: {
     conversationId: input.state.conversationId,
     responseMessageId,
     assistantText: streamResult.assistantText,
-    actionTypes: streamResult.actions.map((action) => action.action),
+    actionTypes: uniqueActionTypes([
+      ...streamResult.actions.map((action) => action.action),
+      ...streamResult.actionTypes,
+    ]),
     assistantActions: streamResult.actions,
     traceId: streamResult.traceId,
     conversationSummary: streamResult.conversationSummary ?? input.state.conversationSummary,
@@ -358,6 +362,7 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
   const reader = response.body?.getReader();
   const decoder = new TextDecoder();
   const actions: AssistantAction[] = [];
+  const actionTypes: AssistantAction["action"][] = [];
   const referenceDiagnostics: ConsumedChatStream["referenceDiagnostics"] = [];
   const artifacts: ConsumedChatStream["artifacts"] = [];
   let buffer = "";
@@ -369,6 +374,7 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
     return {
       assistantText,
       actions,
+      actionTypes,
       referenceDiagnostics,
       artifacts,
       error: {
@@ -405,6 +411,7 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
           return {
             assistantText,
             actions,
+            actionTypes,
             referenceDiagnostics,
             artifacts,
             traceId,
@@ -454,6 +461,9 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
             intent: streamEvent.intent,
             sourceArtifactId: streamEvent.sourceArtifactId,
           });
+          if (streamEvent.type === "workout_patch") {
+            actionTypes.push("workout_patch");
+          }
           continue;
         }
 
@@ -470,6 +480,7 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
           return {
             assistantText,
             actions,
+            actionTypes,
             referenceDiagnostics,
             artifacts,
             traceId,
@@ -486,6 +497,7 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
     return {
       assistantText,
       actions,
+      actionTypes,
       referenceDiagnostics,
       artifacts,
       traceId,
@@ -500,11 +512,16 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
   return {
     assistantText,
     actions,
+    actionTypes,
     referenceDiagnostics,
     artifacts,
     traceId,
     conversationSummary,
   };
+}
+
+function uniqueActionTypes(actionTypes: AssistantAction["action"][]) {
+  return [...new Set(actionTypes)];
 }
 
 function normalizeArtifactKind(kind: NonNullable<ChatStreamEvent["artifactKind"]>): ConversationArtifactKind {
@@ -662,9 +679,12 @@ async function collectArtifactDiagnostics(input: {
 }): Promise<BlackboxArtifactDiagnostics> {
   const latestAction = input.actions.at(-1);
   const referenceDiagnostic = input.referenceDiagnostics.at(-1);
+  const patchSourceArtifact = input.producedArtifacts.find((artifact) => artifact.sourceArtifactId);
   const referenceResolutionStatus = referenceDiagnostic?.referenceResolutionStatus ?? (latestAction?.referenceResolution
     ? "resolved"
-    : latestAction
+    : patchSourceArtifact
+      ? "resolved"
+      : latestAction
       ? "not_applicable"
       : "not_applicable");
   const empty = createEmptyArtifactDiagnostics(input.actions);
@@ -691,12 +711,12 @@ async function collectArtifactDiagnostics(input: {
       recentSummaryCount: summaries.length,
       producedArtifact: input.producedArtifacts.length > 0,
       artifactKind: referenceDiagnostic?.artifactKind ?? producedKind,
-      artifactId: referenceDiagnostic?.artifactId,
+      artifactId: referenceDiagnostic?.artifactId ?? patchSourceArtifact?.sourceArtifactId,
       payloadReadable: referenceDiagnostic?.payloadReadStatus === "readable",
       payloadReadStatus: referenceDiagnostic?.payloadReadStatus ??
         (input.producedArtifacts.length > 0 ? "missing" : "not_applicable"),
       referenceResolutionStatus,
-      referenceResolutionSummary: summarizeReferenceResolution(latestAction, referenceDiagnostic),
+      referenceResolutionSummary: summarizeReferenceResolution(latestAction, referenceDiagnostic, patchSourceArtifact?.sourceArtifactId),
     };
   }
 
@@ -715,7 +735,7 @@ async function collectArtifactDiagnostics(input: {
     payloadReadable: payloadReadStatus === "readable",
     payloadReadStatus,
     referenceResolutionStatus,
-    referenceResolutionSummary: summarizeReferenceResolution(latestAction, referenceDiagnostic),
+    referenceResolutionSummary: summarizeReferenceResolution(latestAction, referenceDiagnostic, patchSourceArtifact?.sourceArtifactId),
   };
 }
 
@@ -746,6 +766,7 @@ function createEmptyArtifactDiagnostics(actions: AssistantAction[]): BlackboxArt
 function summarizeReferenceResolution(
   action: AssistantAction | undefined,
   diagnostic?: NonNullable<ChatStreamEvent["referenceDiagnostic"]>,
+  patchSourceArtifactId?: string,
 ) {
   if (diagnostic) {
     return [
@@ -760,7 +781,7 @@ function summarizeReferenceResolution(
   const resolution = action?.referenceResolution;
 
   if (!resolution) {
-    return undefined;
+    return patchSourceArtifactId ? `sourceArtifactId=${patchSourceArtifactId}` : undefined;
   }
 
   return [
