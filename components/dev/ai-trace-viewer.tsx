@@ -64,13 +64,23 @@ export function AiTraceViewer() {
     () => (selectedTrace ? buildAgentTraceViewModel(selectedTrace) : null),
     [selectedTrace],
   );
+  const selectedDetailStepGroups = useMemo(
+    () => {
+      if (selectedAgentTraceViewModel?.hasAgentStages) {
+        return mapAgentPhaseGroupsToTraceStepGroups(selectedAgentTraceViewModel);
+      }
+
+      return selectedStepGroups;
+    },
+    [selectedAgentTraceViewModel, selectedStepGroups],
+  );
   const mainStepGroups = useMemo(
-    () => selectedStepGroups.filter((group) => group.placement === "main_flow"),
-    [selectedStepGroups],
+    () => selectedDetailStepGroups.filter((group) => group.placement === "main_flow"),
+    [selectedDetailStepGroups],
   );
   const outOfFlowGroups = useMemo(
-    () => selectedStepGroups.filter((group) => group.placement === "out_of_flow"),
-    [selectedStepGroups],
+    () => selectedDetailStepGroups.filter((group) => group.placement === "out_of_flow"),
+    [selectedDetailStepGroups],
   );
   const flowSwitchGroups = useMemo(
     () => [...mainStepGroups, ...outOfFlowGroups],
@@ -271,7 +281,7 @@ export function AiTraceViewer() {
                     traceId: selectedTrace.id,
                     title: selectedTrace.title,
                   },
-                  payload: createTraceLogPayload(selectedTrace, selectedStepGroups),
+                  payload: createTraceLogPayload(selectedTrace, selectedDetailStepGroups),
                 });
               }}
             />
@@ -284,6 +294,7 @@ export function AiTraceViewer() {
               <TraceFlowTimeline
                 trace={selectedTrace}
                 groups={flowSwitchGroups}
+                isAgentTrace={Boolean(selectedAgentTraceViewModel?.hasAgentStages)}
                 savingLogTarget={savingLogTarget}
                 saveTraceLog={saveTraceLog}
               />
@@ -807,14 +818,41 @@ type SaveTraceLog = (input: {
   payload: Record<string, unknown>;
 }) => Promise<void>;
 
+// Agent trace 明细复用现有 StageInspector，但分组顺序必须来自 AgentTraceViewModel，避免回到旧 intent-first 排查路径。
+function mapAgentPhaseGroupsToTraceStepGroups(viewModel: AgentTraceViewModel): TraceStepGroup[] {
+  return viewModel.phaseGroups
+    .filter((group) => group.steps.length > 0)
+    .map((group): TraceStepGroup => ({
+      id: `agent_${group.id}`,
+      title: group.title,
+      description: group.description,
+      placement: group.id === "post_processing" || group.id === "legacy_compatibility"
+        ? "out_of_flow"
+        : "main_flow",
+      status: group.status,
+      steps: group.steps,
+      startedAt: group.steps.reduce<string | undefined>(
+        (current, step) => minIsoTime(current, step.startedAt),
+        undefined,
+      ),
+      endedAt: group.steps.reduce<string | undefined>(
+        (current, step) => maxIsoTime(current, step.endedAt),
+        undefined,
+      ),
+      durationMs: group.durationMs,
+    }));
+}
+
 function TraceFlowTimeline({
   trace,
   groups,
+  isAgentTrace,
   savingLogTarget,
   saveTraceLog,
 }: {
   trace: AiTrace;
   groups: TraceStepGroup[];
+  isAgentTrace: boolean;
   savingLogTarget: string | null;
   saveTraceLog: SaveTraceLog;
 }) {
@@ -830,8 +868,10 @@ function TraceFlowTimeline({
     <section className="rounded-xl border border-slate-200 bg-white">
       <SectionHeader
         eyebrow="Flow（流程）"
-        title="流程步骤"
-        description="阶段默认收起，先按模块顺序定位问题；展开某个阶段后，再查看事件、重点字段、模型 prompt、草稿摘要和 Raw JSON。"
+        title={isAgentTrace ? "Agent 阶段事件明细" : "流程步骤（旧链路）"}
+        description={isAgentTrace
+          ? "Agent trace 按 ContextPackage、Tool decision、Tool execution、Domain gate、Persistence、Response Writer 和后处理顺序展示原始事件；展开阶段后仍可保存阶段 log、单 step log 和查看 Raw JSON。"
+          : "legacy trace 按旧链路顺序展示；阶段默认收起，展开某个阶段后，再查看事件、重点字段、模型 prompt、草稿摘要和 Raw JSON。"}
       />
       <div className="space-y-5 border-t border-slate-100 p-4">
         {groups.map((group, index) => {
