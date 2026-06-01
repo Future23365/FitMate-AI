@@ -43,6 +43,50 @@ export function createAgentTraceFixture(overrides: Partial<AiTrace> = {}): AiTra
         },
       }),
       createTraceStep({
+        id: "step-request-0",
+        name: "Agent tool decision 请求参数",
+        type: "model_request",
+        input: createAgentModelRequestInput({
+          latestUserMessage: "帮我生成一个背部训练",
+          registeredTools: ["searchExercises"],
+          toolResults: [],
+          remainingSteps: 4,
+        }),
+        metadata: createAgentModelMetadata({
+          loopTurnId: "loop-turn-0",
+          loopTurnIndex: 0,
+          modelCallId: "model-call-0",
+          visibleToolResultIds: [],
+          remainingSteps: 4,
+        }),
+      }),
+      createTraceStep({
+        id: "step-response-0",
+        name: "Agent tool decision 大模型回复",
+        type: "model_response",
+        output: {
+          content: "{\"action\":\"call_tool\",\"toolName\":\"searchExercises\",\"input\":{\"goal\":\"背部增肌\"},\"reason\":\"需要动作候选。\"}",
+          rawResponse: "{\"choices\":[{\"message\":{\"content\":\"...\"}}]}",
+          parsedDecision: {
+            action: "call_tool",
+            toolName: "searchExercises",
+            input: { goal: "背部增肌" },
+            reason: "需要动作候选。",
+          },
+        },
+        metadata: {
+          ...createAgentModelMetadata({
+            loopTurnId: "loop-turn-0",
+            loopTurnIndex: 0,
+            modelCallId: "model-call-0",
+            visibleToolResultIds: [],
+            remainingSteps: 4,
+          }),
+          parseStatus: "success",
+          tokenUsage: { prompt_tokens: 1200, completion_tokens: 80, total_tokens: 1280 },
+        },
+      }),
+      createTraceStep({
         id: "step-decision-0",
         name: "agent_tool_decision",
         type: "agent_tool_decision",
@@ -58,6 +102,11 @@ export function createAgentTraceFixture(overrides: Partial<AiTrace> = {}): AiTra
         metadata: {
           stepIndex: 0,
           aiStage: "agent_tool_decision",
+          loopTurnId: "loop-turn-0",
+          loopTurnIndex: 0,
+          modelCallId: "model-call-0",
+          toolCallId: "tool-call-1",
+          visibleToolResultIds: [],
         },
       }),
       createTraceStep({
@@ -71,8 +120,56 @@ export function createAgentTraceFixture(overrides: Partial<AiTrace> = {}): AiTra
         },
         metadata: {
           stepIndex: 0,
+          aiStage: "agent_tool_execution",
+          loopTurnId: "loop-turn-0",
+          loopTurnIndex: 0,
+          modelCallId: "model-call-0",
+          toolCallId: "tool-call-1",
           toolResultId: "tool-result-1",
           candidateSetId: "candidate-set-1",
+        },
+      }),
+      createTraceStep({
+        id: "step-request-1",
+        name: "Agent tool decision 请求参数",
+        type: "model_request",
+        input: createAgentModelRequestInput({
+          latestUserMessage: "帮我生成一个背部训练",
+          registeredTools: ["validateRoutineDraft"],
+          toolResults: [{ toolResultId: "tool-result-1", candidateSetId: "candidate-set-1" }],
+          remainingSteps: 3,
+        }),
+        metadata: createAgentModelMetadata({
+          loopTurnId: "loop-turn-1",
+          loopTurnIndex: 1,
+          modelCallId: "model-call-1",
+          visibleToolResultIds: ["tool-result-1"],
+          remainingSteps: 3,
+        }),
+      }),
+      createTraceStep({
+        id: "step-response-1",
+        name: "Agent tool decision 大模型回复",
+        type: "model_response",
+        output: {
+          content: "{\"action\":\"call_tool\",\"toolName\":\"validateRoutineDraft\",\"input\":{\"candidateSetId\":\"candidate-set-1\",\"draftId\":\"draft-1\"},\"reason\":\"写入前校验计划草稿。\"}",
+          parsedDecision: {
+            action: "call_tool",
+            toolName: "validateRoutineDraft",
+            input: { candidateSetId: "candidate-set-1", draftId: "draft-1" },
+            reason: "写入前校验计划草稿。",
+          },
+        },
+        metadata: {
+          ...createAgentModelMetadata({
+            loopTurnId: "loop-turn-1",
+            loopTurnIndex: 1,
+            modelCallId: "model-call-1",
+            visibleToolResultIds: ["tool-result-1"],
+            remainingSteps: 3,
+          }),
+          parseStatus: "success",
+          tokenUsage: { prompt_tokens: 900, completion_tokens: 70, total_tokens: 970 },
         },
       }),
       createTraceStep({
@@ -91,6 +188,12 @@ export function createAgentTraceFixture(overrides: Partial<AiTrace> = {}): AiTra
         metadata: {
           stepIndex: 1,
           aiStage: "agent_tool_decision",
+          loopTurnId: "loop-turn-1",
+          loopTurnIndex: 1,
+          modelCallId: "model-call-1",
+          toolCallId: "tool-call-2",
+          visibleToolResultIds: ["tool-result-1"],
+          usedToolResultIds: ["tool-result-1"],
         },
       }),
       createTraceStep({
@@ -105,6 +208,11 @@ export function createAgentTraceFixture(overrides: Partial<AiTrace> = {}): AiTra
         },
         metadata: {
           stepIndex: 1,
+          aiStage: "agent_tool_execution",
+          loopTurnId: "loop-turn-1",
+          loopTurnIndex: 1,
+          modelCallId: "model-call-1",
+          toolCallId: "tool-call-2",
           toolResultId: "tool-result-2",
           candidateSetId: "candidate-set-1",
           validationId: "validation-1",
@@ -123,6 +231,10 @@ export function createAgentTraceFixture(overrides: Partial<AiTrace> = {}): AiTra
             title: "背部训练",
           },
         },
+        metadata: {
+          visibleToolResultIds: ["tool-result-1", "tool-result-2"],
+          usedToolResultIds: ["tool-result-1", "tool-result-2"],
+        },
       }),
       createTraceStep({
         id: "step-response",
@@ -137,6 +249,11 @@ export function createAgentTraceFixture(overrides: Partial<AiTrace> = {}): AiTra
         },
         metadata: {
           aiStage: "agent_response_writer",
+          visibleToolResultIds: ["tool-result-1", "tool-result-2"],
+          usedToolResultIds: ["tool-result-1", "tool-result-2"],
+          resourceIds: [
+            { toolResultId: "tool-result-2", validationId: "validation-1", revisionId: "revision-1" },
+          ],
         },
       }),
     ],
@@ -429,6 +546,152 @@ export function createAgentResponseWriterMismatchTraceFixture(overrides: Partial
     ],
     ...overrides,
   });
+}
+
+// createAgentOrphanedToolResultTraceFixture 覆盖 tool result 已产生但没有进入下一轮 prompt 或 final result 的场景。
+export function createAgentOrphanedToolResultTraceFixture(overrides: Partial<AiTrace> = {}): AiTrace {
+  return createAgentTraceFixture({
+    id: "trace-agent-orphaned-tool-result",
+    title: "Agent 工具结果未消费",
+    steps: [
+      createTraceStep({ id: "orphan-context", name: "agent_run_started", type: "agent_context" }),
+      createTraceStep({
+        id: "orphan-result",
+        name: "agent_tool_result",
+        type: "agent_tool_result",
+        output: {
+          status: "success",
+          summary: "产生了一个候选集合，但后续没有引用。",
+        },
+        metadata: {
+          aiStage: "agent_tool_execution",
+          loopTurnId: "loop-turn-orphan",
+          loopTurnIndex: 0,
+          modelCallId: "model-call-orphan",
+          toolCallId: "tool-call-orphan",
+          toolResultId: "tool-result-orphan",
+          candidateSetId: "candidate-set-orphan",
+        },
+      }),
+      createTraceStep({
+        id: "orphan-final",
+        name: "agent_final_result",
+        type: "agent_final_result",
+        output: {
+          status: "answered",
+          replyContext: { reply: "我先解释一下训练思路。" },
+          usedToolResultIds: [],
+        },
+      }),
+    ],
+    ...overrides,
+  });
+}
+
+// createAgentToolFailureTraceFixture 覆盖工具执行失败但链路字段仍完整的场景。
+export function createAgentToolFailureTraceFixture(overrides: Partial<AiTrace> = {}): AiTrace {
+  return createAgentTraceFixture({
+    id: "trace-agent-tool-failure",
+    title: "Agent 工具执行失败",
+    status: "failed",
+    steps: [
+      createTraceStep({ id: "tool-failure-context", name: "agent_run_started", type: "agent_context" }),
+      createTraceStep({
+        id: "tool-failure-decision",
+        name: "agent_tool_decision",
+        type: "agent_tool_decision",
+        input: {
+          action: "call_tool",
+          toolName: "validateRoutineDraft",
+          input: { candidateSetId: "missing-candidate-set" },
+          reason: "校验计划草稿。",
+        },
+        metadata: {
+          aiStage: "agent_tool_decision",
+          loopTurnId: "loop-turn-failure",
+          loopTurnIndex: 0,
+          modelCallId: "model-call-failure",
+          toolCallId: "tool-call-failure",
+          stepIndex: 0,
+        },
+      }),
+      createTraceStep({
+        id: "tool-failure-result",
+        name: "agent_tool_result",
+        type: "agent_tool_result",
+        status: "failed",
+        output: {
+          status: "failed",
+          validationId: "validation-failure",
+          message: "候选集合缺失。",
+        },
+        error: {
+          code: "invalid_dependency",
+          message: "Agent tool input referenced dependencies that are missing from the current run.",
+        },
+        metadata: {
+          aiStage: "agent_tool_execution",
+          loopTurnId: "loop-turn-failure",
+          loopTurnIndex: 0,
+          modelCallId: "model-call-failure",
+          toolCallId: "tool-call-failure",
+          toolResultId: "tool-result-failure",
+          validationId: "validation-failure",
+          failureCode: "invalid_dependency",
+          durationMs: 12,
+          stepIndex: 0,
+        },
+      }),
+    ],
+    ...overrides,
+  });
+}
+
+function createAgentModelRequestInput(input: {
+  latestUserMessage: string;
+  registeredTools: string[];
+  toolResults: Array<Record<string, unknown>>;
+  remainingSteps: number;
+}) {
+  return {
+    model: "deepseek-v4-flash",
+    messages: [
+      { role: "system", content: "你是 Tool-first Agent。" },
+      {
+        role: "user",
+        content: JSON.stringify({
+          contextPackage: { latestUserMessage: input.latestUserMessage },
+          registeredTools: input.registeredTools.map((name) => ({ name })),
+          toolResults: input.toolResults,
+          dependencyGraph: { nodes: input.toolResults.map((result) => ({ id: result.toolResultId })), edges: [] },
+          remainingSteps: input.remainingSteps,
+        }),
+      },
+    ],
+    response_format: { type: "json_object" },
+    thinking: { type: "disabled" },
+  };
+}
+
+function createAgentModelMetadata(input: {
+  loopTurnId: string;
+  loopTurnIndex: number;
+  modelCallId: string;
+  visibleToolResultIds: string[];
+  remainingSteps: number;
+}) {
+  return {
+    aiStage: "agent_tool_decision",
+    loopTurnId: input.loopTurnId,
+    loopTurnIndex: input.loopTurnIndex,
+    modelCallId: input.modelCallId,
+    visibleToolResultIds: input.visibleToolResultIds,
+    promptModules: ["base_safety", "agent_tool_decision"],
+    remainingSteps: input.remainingSteps,
+    contextPackage: { recentMessageCount: 1, recentArtifactCount: 0 },
+    registeredTools: [{ name: "searchExercises", accessLevel: "read" }],
+    dependencyGraph: { nodeCount: input.visibleToolResultIds.length, edgeCount: input.visibleToolResultIds.length },
+  };
 }
 
 // createTraceStep 让 fixture 只覆盖与测试相关的字段，其余字段保持稳定默认值。

@@ -31,6 +31,10 @@ export type AgentDecisionProviderInput = {
   state: AgentExecutionState;
   registry: ReturnType<AgentToolRegistry["listModelDefinitions"]>;
   remainingSteps: number;
+  loopTurnId: string;
+  loopTurnIndex: number;
+  modelCallId: string;
+  visibleToolResultIds: string[];
 };
 
 export type AgentDecisionProvider = (
@@ -115,10 +119,17 @@ export async function runAgentOrchestrator(
       break;
     }
 
+    const loopTurnId = createAgentId("loop_turn");
+    const modelCallId = createAgentId("model_call");
+    const visibleToolResultIds = state.toolResults.map((toolResult) => toolResult.toolResultId);
     const rawDecision = await input.decideNext({
       state,
       registry: input.registry.listModelDefinitions(),
       remainingSteps: limits.maxSteps - stepIndex,
+      loopTurnId,
+      loopTurnIndex: stepIndex,
+      modelCallId,
+      visibleToolResultIds,
     });
     const parsedDecision = parseDecisionValue(rawDecision, input.registry);
 
@@ -129,13 +140,26 @@ export async function runAgentOrchestrator(
         status: "failed",
         input: { rawDecision: summarizeUnknown(rawDecision) },
         error: parsedDecision,
-        metadata: { stepIndex, failureCode: parsedDecision.code },
+        metadata: {
+          aiStage: "agent_tool_decision",
+          loopTurnId,
+          loopTurnIndex: stepIndex,
+          modelCallId,
+          visibleToolResultIds,
+          stepIndex,
+          failureCode: parsedDecision.code,
+          parsingFailure: {
+            code: parsedDecision.code,
+            message: parsedDecision.message,
+          },
+        },
       });
       state = finishWithResult(state, createFailedResult("model_output_invalid"), input.trace, parsedDecision.message);
       break;
     }
 
     const decision = parsedDecision.decision;
+    const toolCallId = decision.action === "call_tool" ? createAgentId("tool_call") : undefined;
     toolDecisions.push({
       stepIndex,
       action: decision.action,
@@ -146,7 +170,17 @@ export async function runAgentOrchestrator(
       name: "agent_tool_decision",
       type: "agent_tool_decision",
       input: summarizeDecisionForTrace(decision),
-      metadata: { stepIndex, remainingSteps: limits.maxSteps - stepIndex - 1 },
+      metadata: {
+        aiStage: "agent_tool_decision",
+        loopTurnId,
+        loopTurnIndex: stepIndex,
+        modelCallId,
+        toolCallId,
+        visibleToolResultIds,
+        usedToolResultIds: getDecisionUsedToolResultIds(decision),
+        stepIndex,
+        remainingSteps: limits.maxSteps - stepIndex - 1,
+      },
     });
 
     if (decision.action === "final_result") {
@@ -156,24 +190,50 @@ export async function runAgentOrchestrator(
         referenceValidation.ok ? decision.result : createFailedResult("model_output_invalid"),
         input.trace,
         referenceValidation.ok ? decision.reason : referenceValidation.message,
+        {
+          loopTurnId,
+          loopTurnIndex: stepIndex,
+          modelCallId,
+          visibleToolResultIds,
+          usedToolResultIds: getDecisionUsedToolResultIds(decision),
+        },
       );
       state = maybeCheckpoint(state, limits, stepIndex);
       break;
     }
 
+    const toolCallIdForExecution = toolCallId as string;
     const tool = input.registry.get(decision.toolName);
 
     if (!tool) {
-      state = recordSyntheticToolFailure(state, decision, stepIndex, "unknown_tool");
+      state = recordSyntheticToolFailure(state, decision, stepIndex, "unknown_tool", toolCallIdForExecution);
+      const failedRecord = state.toolResults.at(-1);
+      input.trace?.addStep({
+        name: "agent_tool_result",
+        type: "agent_tool_result",
+        status: "failed",
+        input: summarizeDecisionForTrace(decision),
+        output: failedRecord?.traceSummary,
+        error: failedRecord?.error,
+        metadata: createToolResultTraceMetadata({
+          stepIndex,
+          loopTurnId,
+          loopTurnIndex: stepIndex,
+          modelCallId,
+          toolCallId: toolCallIdForExecution,
+          resultRecord: failedRecord,
+          durationMs: 0,
+          failureCode: failedRecord?.error?.code,
+        }),
+      });
       state = maybeCheckpoint(state, limits, stepIndex);
       continue;
     }
 
     const parsedInput = tool.inputSchema.safeParse(decision.input);
-    const toolCallId = createAgentId("tool_call");
     const startedAt = toUtcISOString(new Date());
     const callRecord: AgentToolCallRecord = {
-      id: toolCallId,
+      id: toolCallIdForExecution,
       toolName: decision.toolName,
       input: parsedInput.success ? parsedInput.data : decision.input,
       status: parsedInput.success ? "pending" : "failed",
@@ -184,7 +244,7 @@ export async function runAgentOrchestrator(
 
     if (!parsedInput.success) {
       const failedRecord = createToolResultRecord({
-        toolCallId,
+        toolCallId: toolCallIdForExecution,
         toolName: decision.toolName,
         result: {
           ok: false,
@@ -199,7 +259,7 @@ export async function runAgentOrchestrator(
           })),
         },
       });
-      state = completeToolCall(state, toolCallId, "failed", failedRecord);
+      state = completeToolCall(state, toolCallIdForExecution, "failed", failedRecord);
       input.trace?.addStep({
         name: "agent_tool_result",
         type: "agent_tool_result",
@@ -207,7 +267,16 @@ export async function runAgentOrchestrator(
         input: summarizeDecisionForTrace(decision),
         output: failedRecord.traceSummary,
         error: failedRecord.error,
-        metadata: { stepIndex, toolResultId: failedRecord.toolResultId },
+        metadata: createToolResultTraceMetadata({
+          stepIndex,
+          loopTurnId,
+          loopTurnIndex: stepIndex,
+          modelCallId,
+          toolCallId: toolCallIdForExecution,
+          resultRecord: failedRecord,
+          durationMs: 0,
+          failureCode: failedRecord.error?.code,
+        }),
       });
       state = maybeCheckpoint(state, limits, stepIndex);
       continue;
@@ -216,11 +285,11 @@ export async function runAgentOrchestrator(
     const dependencyFailure = validateToolDependencies(tool, parsedInput.data, state);
     if (dependencyFailure) {
       const failedRecord = createToolResultRecord({
-        toolCallId,
+        toolCallId: toolCallIdForExecution,
         toolName: decision.toolName,
         result: dependencyFailure,
       });
-      state = completeToolCall(state, toolCallId, "failed", failedRecord);
+      state = completeToolCall(state, toolCallIdForExecution, "failed", failedRecord);
       input.trace?.addStep({
         name: "agent_tool_result",
         type: "agent_tool_result",
@@ -228,12 +297,22 @@ export async function runAgentOrchestrator(
         input: summarizeDecisionForTrace(decision),
         output: failedRecord.traceSummary,
         error: failedRecord.error,
-        metadata: { stepIndex, toolResultId: failedRecord.toolResultId },
+        metadata: createToolResultTraceMetadata({
+          stepIndex,
+          loopTurnId,
+          loopTurnIndex: stepIndex,
+          modelCallId,
+          toolCallId: toolCallIdForExecution,
+          resultRecord: failedRecord,
+          durationMs: 0,
+          failureCode: failedRecord.error?.code,
+        }),
       });
       state = maybeCheckpoint(state, limits, stepIndex);
       continue;
     }
 
+    const executionStartedAt = Date.now();
     const result = await tool.execute(parsedInput.data, {
       runId,
       userId: input.userId,
@@ -242,11 +321,11 @@ export async function runAgentOrchestrator(
       deadlineAt,
     });
     const resultRecord = createToolResultRecord({
-      toolCallId,
+      toolCallId: toolCallIdForExecution,
       toolName: decision.toolName,
       result,
     });
-    state = completeToolCall(state, toolCallId, result.ok ? "success" : "failed", resultRecord);
+    state = completeToolCall(state, toolCallIdForExecution, result.ok ? "success" : "failed", resultRecord);
     input.trace?.addStep({
       name: "agent_tool_result",
       type: "agent_tool_result",
@@ -254,22 +333,25 @@ export async function runAgentOrchestrator(
       input: summarizeDecisionForTrace(decision),
       output: resultRecord.traceSummary,
       error: result.ok ? undefined : result.error,
-      metadata: {
+      metadata: createToolResultTraceMetadata({
         stepIndex,
-        toolResultId: resultRecord.toolResultId,
-        candidateSetId: resultRecord.candidateSetId,
-        artifactPayloadId: resultRecord.artifactPayloadId,
-        validationId: resultRecord.validationId,
-        policyDecisionId: resultRecord.policyDecisionId,
-        confirmationId: resultRecord.confirmationId,
-        revisionId: resultRecord.revisionId,
-      },
+        loopTurnId,
+        loopTurnIndex: stepIndex,
+        modelCallId,
+        toolCallId: toolCallIdForExecution,
+        resultRecord,
+        durationMs: Date.now() - executionStartedAt,
+        failureCode: result.ok ? undefined : result.error.code,
+      }),
     });
     state = maybeCheckpoint(state, limits, stepIndex);
   }
 
   if (!state.finalResult) {
-    state = finishWithResult(state, createFailedResult("step_limit_exceeded"), input.trace, "Agent loop reached step limit.");
+    state = finishWithResult(state, createFailedResult("step_limit_exceeded"), input.trace, "Agent loop reached step limit.", {
+      visibleToolResultIds: state.toolResults.map((toolResult) => toolResult.toolResultId),
+      usedToolResultIds: [],
+    });
   }
   const finalResult = state.finalResult;
 
@@ -359,8 +441,8 @@ function recordSyntheticToolFailure(
   decision: AgentToolDecision & { action: "call_tool" },
   stepIndex: number,
   code: "unknown_tool",
+  toolCallId = createAgentId("tool_call"),
 ) {
-  const toolCallId = createAgentId("tool_call");
   const result = createToolResultRecord({
     toolCallId,
     toolName: decision.toolName,
@@ -456,6 +538,13 @@ function finishWithResult(
   result: AgentExecutionResult,
   trace: AiTraceLogger | undefined,
   reason: string,
+  linkage: {
+    loopTurnId?: string;
+    loopTurnIndex?: number;
+    modelCallId?: string;
+    visibleToolResultIds?: string[];
+    usedToolResultIds?: string[];
+  } = {},
 ): AgentExecutionState {
   const finalResultId = createAgentId("final_result");
   const usedToolResultIds = "usedToolResultIds" in result ? result.usedToolResultIds : [];
@@ -485,13 +574,58 @@ function finishWithResult(
     metadata: {
       reason,
       status: result.status,
-      usedToolResultIds,
+      loopTurnId: linkage.loopTurnId,
+      loopTurnIndex: linkage.loopTurnIndex,
+      modelCallId: linkage.modelCallId,
+      visibleToolResultIds: linkage.visibleToolResultIds,
+      usedToolResultIds: linkage.usedToolResultIds ?? usedToolResultIds,
       dependencyGraphNodeCount: finalState.dependencyGraph.nodes.length,
       legacyPathSkip: createLegacyPathSkip(),
     },
   });
 
   return finalState;
+}
+
+// createToolResultTraceMetadata 统一写入 Agent loop 的结构化关联字段，页面和导出只依赖这些 id 建链。
+function createToolResultTraceMetadata(input: {
+  stepIndex: number;
+  loopTurnId: string;
+  loopTurnIndex: number;
+  modelCallId: string;
+  toolCallId: string;
+  resultRecord: AgentToolResultRecord | undefined;
+  durationMs: number;
+  failureCode?: string;
+}) {
+  return {
+    aiStage: "agent_tool_execution",
+    loopTurnId: input.loopTurnId,
+    loopTurnIndex: input.loopTurnIndex,
+    modelCallId: input.modelCallId,
+    toolCallId: input.toolCallId,
+    toolResultId: input.resultRecord?.toolResultId,
+    toolName: input.resultRecord?.toolName,
+    status: input.resultRecord?.status,
+    failureCode: input.failureCode,
+    durationMs: input.durationMs,
+    stepIndex: input.stepIndex,
+    candidateSetId: input.resultRecord?.candidateSetId,
+    artifactPayloadId: input.resultRecord?.artifactPayloadId,
+    validationId: input.resultRecord?.validationId,
+    policyDecisionId: input.resultRecord?.policyDecisionId,
+    confirmationId: input.resultRecord?.confirmationId,
+    revisionId: input.resultRecord?.revisionId,
+    operationResultId: input.resultRecord?.operationResultId,
+  };
+}
+
+function getDecisionUsedToolResultIds(decision: AgentToolDecision) {
+  if (decision.action === "final_result") {
+    return "usedToolResultIds" in decision.result ? decision.result.usedToolResultIds : [];
+  }
+
+  return collectDependencyIdsFromInput(decision.input, "tool_result");
 }
 
 function maybeCheckpoint(

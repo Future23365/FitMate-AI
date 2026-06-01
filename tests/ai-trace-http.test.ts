@@ -10,9 +10,25 @@ import {
 import { ServerRequestError, serverRequest } from "@/lib/server/http/server-request";
 import { ClientRequestError, clientRequest } from "@/lib/client/http/client-request";
 
+const fsMocks = vi.hoisted(() => ({
+  appendFile: vi.fn(),
+  mkdir: vi.fn(),
+  writeFile: vi.fn(),
+}));
+const authMocks = vi.hoisted(() => ({
+  authErrorToApiResponse: vi.fn(() => Response.json({ ok: false, error: "Authentication is required." }, { status: 401 })),
+  requireCurrentUser: vi.fn(async () => ({ id: "user-1", displayName: "匿名用户" })),
+}));
+
+vi.mock("node:fs/promises", () => fsMocks);
+vi.mock("@/lib/server/auth/local-anonymous-auth", () => authMocks);
+
+const devTraceRoute = await import("@/app/api/dev/ai-traces/route");
+
 describe("AI trace store and HTTP request helpers", () => {
   beforeEach(() => {
     clearAiTraces();
+    vi.clearAllMocks();
   });
 
   afterEach(() => {
@@ -204,4 +220,70 @@ describe("AI trace store and HTTP request helpers", () => {
     expect(dispatchEvent).toHaveBeenCalledTimes(2);
     expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "fitmate:auth-required" }));
   });
+
+  it("saves full trace logs with Agent loop payload intact", async () => {
+    const response = await devTraceRoute.POST(jsonRequest("/api/dev/ai-traces", {
+      logType: "trace",
+      payload: {
+        title: "完整链路",
+        agentDiagnosis: {
+          agentLoopTimeline: {
+            loopTurns: [{ loopTurnId: "loop-turn-1" }],
+            diagnosticFindings: [],
+          },
+        },
+      },
+    }));
+
+    await expect(response.json()).resolves.toMatchObject({ ok: true });
+    expect(fsMocks.writeFile).toHaveBeenCalledWith(
+      expect.stringContaining("ai_trace_log.js"),
+      expect.stringContaining("agentLoopTimeline"),
+      "utf8",
+    );
+    expect(fsMocks.appendFile).not.toHaveBeenCalled();
+  });
+
+  it("normalizes prompt records to narrow user question and answer fields", async () => {
+    const response = await devTraceRoute.POST(jsonRequest("/api/dev/ai-traces", {
+      logType: "prompt",
+      payload: {
+        title: "用户问答记录",
+        trace: {
+          traceId: "trace-1",
+          runId: "run-1",
+          route: "/api/chat",
+          traceTitle: "聊天",
+          status: "success",
+          createdAt: "2026-06-01T08:00:00.000Z",
+          sessionId: "session-1",
+          promptVersion: "prompt-v1",
+          messages: [{ role: "system", content: "不要保存" }],
+        },
+        userQuestions: [{ round: 1, question: "帮我练背" }],
+        finalAnswer: "可以。",
+        prompt: "不要保存完整 prompt",
+        toolPayload: { secret: "不要保存" },
+        workoutCard: { title: "不要保存卡片" },
+      },
+    }));
+
+    await expect(response.json()).resolves.toMatchObject({ ok: true });
+    const savedContent = String(fsMocks.appendFile.mock.calls[0]?.[1] ?? "");
+
+    expect(savedContent).toContain("帮我练背");
+    expect(savedContent).toContain("可以。");
+    expect(savedContent).not.toContain("不要保存完整 prompt");
+    expect(savedContent).not.toContain("toolPayload");
+    expect(savedContent).not.toContain("workoutCard");
+    expect(fsMocks.writeFile).not.toHaveBeenCalled();
+  });
 });
+
+function jsonRequest(url: string, body: unknown) {
+  return new Request(`http://localhost${url}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}

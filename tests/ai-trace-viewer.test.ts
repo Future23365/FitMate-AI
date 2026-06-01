@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { buildAgentTraceViewModel } from "@/components/dev/agent-trace-view-model";
+import { buildAgentTraceViewModel, createAgentTraceDiagnosisLogEntry } from "@/components/dev/agent-trace-view-model";
 import { groupTraceSteps } from "@/components/dev/ai-trace-viewer";
 import type { AiTraceStep } from "@/lib/server/dev/ai-trace-store";
 import {
+  createAgentOrphanedToolResultTraceFixture,
   createAgentTraceFixture,
   createAgentResponseWriterMismatchTraceFixture,
+  createAgentToolFailureTraceFixture,
   createAgentToolParseFailureTraceFixture,
   createLegacyTraceFixture,
   createTraceStep,
@@ -53,6 +55,26 @@ describe("Agent trace view model", () => {
       ["searchExercises", "success"],
       ["validateRoutineDraft", "success"],
     ]);
+    expect(viewModel.agentLoop.loopTurns).toHaveLength(2);
+    expect(viewModel.agentLoop.loopTurns[0]).toMatchObject({
+      loopTurnId: "loop-turn-0",
+      modelCallId: "model-call-0",
+      modelRequest: expect.objectContaining({
+        visibleToolResultIds: [],
+      }),
+      modelResponse: expect.objectContaining({
+        tokenUsage: {
+          prompt_tokens: 1200,
+          completion_tokens: 80,
+          total_tokens: 1280,
+        },
+      }),
+      parsedDecision: expect.objectContaining({
+        action: "call_tool",
+        toolName: "searchExercises",
+      }),
+    });
+    expect(viewModel.agentLoop.loopTurns[0].nextPromptLinkage.visibleInNextPromptIds).toEqual(["tool-result-1"]);
     expect(viewModel.resourceLinks.some((link) => (
       link.kind === "candidateSetId" &&
       link.id === "candidate-set-1" &&
@@ -107,7 +129,7 @@ describe("Agent trace view model", () => {
       "missing_decision",
     ]);
     expect(viewModel.diagnosticFindings.map((finding) => finding.code)).toEqual(
-      expect.arrayContaining(["missing_result", "missing_decision", "orphaned_resource"]),
+      expect.arrayContaining(["missing_result", "missing_decision", "unlinked_resource_id", "orphaned_tool_result"]),
     );
   });
 
@@ -149,6 +171,26 @@ describe("Agent trace view model", () => {
     );
   });
 
+  it("diagnoses orphaned tool results and keeps tool failures linked by ids", () => {
+    const orphaned = buildAgentTraceViewModel(createAgentOrphanedToolResultTraceFixture());
+    const failed = buildAgentTraceViewModel(createAgentToolFailureTraceFixture());
+
+    expect(orphaned.diagnosticFindings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "orphaned_tool_result",
+          boundary: "tool_execution",
+        }),
+      ]),
+    );
+    expect(failed.agentLoop.loopTurns[0].toolResults[0]).toMatchObject({
+      toolCallId: "tool-call-failure",
+      toolResultId: "tool-result-failure",
+      failureCode: "invalid_dependency",
+      status: "failed",
+    });
+  });
+
   it("keeps Agent model responses with aiStage in tool decision instead of legacy compatibility", () => {
     const viewModel = buildAgentTraceViewModel(createAgentTraceFixture({
       steps: [
@@ -186,6 +228,33 @@ describe("Agent trace view model", () => {
       total_tokens: 1280,
     });
     expect(legacy?.steps).toEqual([]);
+  });
+
+  it("exports readable Agent loop timeline fields for full log payloads", () => {
+    const entry = createAgentTraceDiagnosisLogEntry(buildAgentTraceViewModel(createAgentTraceFixture()));
+
+    expect(entry).toMatchObject({
+      agentLoopTimeline: {
+        runOverview: expect.objectContaining({ finalResultStatus: "generated" }),
+        loopTurns: [
+          expect.objectContaining({
+            modelRequest: expect.objectContaining({
+              visibleToolResultIds: [],
+            }),
+            modelResponse: expect.objectContaining({
+              rawContentPreview: expect.any(String),
+            }),
+            parsedDecision: expect.objectContaining({
+              toolName: "searchExercises",
+            }),
+            nextPromptLinkage: expect.objectContaining({
+              visibleInNextPromptIds: ["tool-result-1"],
+            }),
+          }),
+          expect.any(Object),
+        ],
+      },
+    });
   });
 });
 

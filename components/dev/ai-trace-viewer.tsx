@@ -8,6 +8,7 @@ import {
   createAgentTraceDiagnosisLogEntry,
   type AgentTraceViewModel,
 } from "@/components/dev/agent-trace-view-model";
+import { AgentLoopTimelinePanel } from "@/components/dev/agent-loop-trace-timeline";
 import { clientRequest } from "@/lib/client/http/client-request";
 import type { AiTrace, AiTraceStep } from "@/lib/server/dev/ai-trace-store";
 
@@ -288,7 +289,10 @@ export function AiTraceViewer() {
 
             <div className="mt-5 min-w-0 space-y-5">
               {selectedAgentTraceViewModel ? (
-                <AgentRunDiagnosisPanel viewModel={selectedAgentTraceViewModel} />
+                <>
+                  <AgentLoopTimelinePanel agentLoop={selectedAgentTraceViewModel.agentLoop} />
+                  <AgentRunDiagnosisPanel viewModel={selectedAgentTraceViewModel} />
+                </>
               ) : null}
               <TraceOverview trace={selectedTrace} />
               <TraceFlowTimeline

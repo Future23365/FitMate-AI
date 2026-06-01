@@ -115,11 +115,119 @@ export type AgentTraceTokenUsage = {
 export type AgentTraceViewModel = {
   hasAgentStages: boolean;
   runSummary: AgentTraceRunSummary;
+  agentLoop: AgentLoopTraceViewModel;
   phaseGroups: AgentTracePhaseGroup[];
   toolTimeline: AgentToolTimelineItem[];
   resourceLinks: AgentResourceLink[];
   diagnosticFindings: AgentDiagnosticFinding[];
   legacyCompatibility: AgentLegacyCompatibility;
+};
+
+export type AgentLoopTraceViewModel = {
+  runOverview: AgentTraceRunSummary;
+  loopTurns: AgentLoopTurnViewModel[];
+  finalization: AgentLoopFinalizationViewModel;
+  diagnostics: AgentDiagnosticFinding[];
+  rawLinks: AgentTraceStepReference[];
+  legacyCompatibility: AgentLegacyCompatibility;
+};
+
+export type AgentLoopTurnViewModel = {
+  id: string;
+  title: string;
+  loopTurnId?: string;
+  loopTurnIndex: number;
+  aiStage?: string;
+  modelCallId?: string;
+  modelRequest?: AgentLoopModelRequestViewModel;
+  modelResponse?: AgentLoopModelResponseViewModel;
+  parsedDecision?: AgentLoopParsedDecisionViewModel;
+  toolResults: AgentLoopToolResultViewModel[];
+  nextPromptLinkage: AgentLoopNextPromptLinkage;
+  metrics: AgentLoopMetricExplanation[];
+  rawLinks: AgentTraceStepReference[];
+};
+
+export type AgentLoopModelRequestViewModel = {
+  step: AgentTraceStepReference;
+  model?: string;
+  responseFormat?: unknown;
+  thinking?: unknown;
+  promptModules: string[];
+  remainingSteps?: number;
+  visibleToolResultIds: string[];
+  contextSummary?: unknown;
+  registeredToolsSummary?: unknown;
+  dependencyGraphSummary?: unknown;
+  messages: AgentLoopMessageViewModel[];
+};
+
+export type AgentLoopMessageViewModel = {
+  role: string;
+  content: string;
+};
+
+export type AgentLoopModelResponseViewModel = {
+  step: AgentTraceStepReference;
+  rawContent?: string;
+  rawResponse?: string;
+  tokenUsage: AgentTraceTokenUsage | null;
+  status: AiTraceStatus;
+  parsingFailure?: { code?: string; message?: string };
+};
+
+export type AgentLoopParsedDecisionViewModel = {
+  action?: string;
+  toolName?: string;
+  reason?: string;
+  toolCallId?: string;
+  toolInputSummary?: string;
+  finalStatus?: string;
+  usedToolResultIds: string[];
+  raw?: unknown;
+};
+
+export type AgentLoopToolResultViewModel = {
+  step: AgentTraceStepReference;
+  toolName: string;
+  status: AgentToolTimelineStatus;
+  toolCallId?: string;
+  toolResultId?: string;
+  durationMs?: number;
+  failureCode?: string;
+  inputSummary: string;
+  outputSummary: string;
+  resourceIds: Partial<Record<AgentResourceKind, string>>;
+  consumedBy: string[];
+};
+
+export type AgentLoopNextPromptLinkage = {
+  nextLoopTurnId?: string;
+  producedToolResultIds: string[];
+  nextVisibleToolResultIds: string[];
+  visibleInNextPromptIds: string[];
+  missingFromNextPromptIds: string[];
+  explanation: string;
+};
+
+export type AgentLoopMetricExplanation = {
+  key: string;
+  label: string;
+  value: string;
+  explanation: string;
+};
+
+export type AgentLoopFinalizationViewModel = {
+  finalResult?: unknown;
+  responseWriter?: {
+    step: AgentTraceStepReference;
+    userVisibleReply?: string;
+    inputSummary?: unknown;
+    outputSummary?: unknown;
+    usedToolResultIds: string[];
+  };
+  artifactEvents: AgentResourceLink[];
+  rawLinks: AgentTraceStepReference[];
 };
 
 type PhaseDefinition = Omit<AgentTracePhaseGroup, "status" | "steps" | "durationMs" | "tokenUsage">;
@@ -190,6 +298,7 @@ export function buildAgentTraceViewModel(trace: AiTrace): AgentTraceViewModel {
   return {
     hasAgentStages,
     runSummary,
+    agentLoop: buildAgentLoopTraceViewModel(trace, runSummary, resourceLinks, diagnosticFindings, hasAgentStages),
     phaseGroups: buildPhaseGroups(trace, hasAgentStages),
     toolTimeline,
     resourceLinks,
@@ -202,6 +311,45 @@ export function buildAgentTraceViewModel(trace: AiTrace): AgentTraceViewModel {
 export function createAgentTraceDiagnosisLogEntry(viewModel: AgentTraceViewModel) {
   return compactObject({
     runSummary: viewModel.runSummary,
+    agentLoopTimeline: {
+      runOverview: viewModel.agentLoop.runOverview,
+      loopTurns: viewModel.agentLoop.loopTurns.map((turn) => ({
+        id: turn.id,
+        title: turn.title,
+        loopTurnId: turn.loopTurnId,
+        loopTurnIndex: turn.loopTurnIndex,
+        aiStage: turn.aiStage,
+        modelCallId: turn.modelCallId,
+        modelRequest: turn.modelRequest
+          ? {
+              model: turn.modelRequest.model,
+              promptModules: turn.modelRequest.promptModules,
+              remainingSteps: turn.modelRequest.remainingSteps,
+              visibleToolResultIds: turn.modelRequest.visibleToolResultIds,
+              contextSummary: turn.modelRequest.contextSummary,
+              registeredToolsSummary: turn.modelRequest.registeredToolsSummary,
+              dependencyGraphSummary: turn.modelRequest.dependencyGraphSummary,
+              messageCount: turn.modelRequest.messages.length,
+            }
+          : undefined,
+        modelResponse: turn.modelResponse
+          ? {
+              status: turn.modelResponse.status,
+              tokenUsage: turn.modelResponse.tokenUsage,
+              parsingFailure: turn.modelResponse.parsingFailure,
+              rawContentPreview: turn.modelResponse.rawContent?.slice(0, 800),
+            }
+          : undefined,
+        parsedDecision: turn.parsedDecision,
+        toolResults: turn.toolResults,
+        nextPromptLinkage: turn.nextPromptLinkage,
+        metrics: turn.metrics,
+        rawLinks: turn.rawLinks,
+      })),
+      finalization: viewModel.agentLoop.finalization,
+      diagnosticFindings: viewModel.agentLoop.diagnostics,
+      rawLinks: viewModel.agentLoop.rawLinks,
+    },
     phaseGroups: viewModel.phaseGroups.map((group) => ({
       id: group.id,
       title: group.title,
@@ -448,20 +596,60 @@ function buildDiagnosticFindings(
   }
 
   for (const link of resourceLinks) {
-    if (link.producers.length === 0 || link.consumers.length > 0 || link.kind === "toolResultId") {
+    if (link.producers.length === 0 || link.consumers.length > 0) {
       continue;
     }
 
     findings.push({
-      id: `resource:${link.kind}:${link.id}:orphaned`,
+      id: `resource:${link.kind}:${link.id}:${link.kind === "toolResultId" ? "orphaned_tool_result" : "unlinked_resource_id"}`,
       boundary: getResourceBoundary(link.kind),
       severity: "warning",
-      code: "orphaned_resource",
-      reason: `${link.kind}=${link.id} 已产生，但没有被 final result、domain gate、persistence 或 Response Writer 消费。`,
+      code: link.kind === "toolResultId" ? "orphaned_tool_result" : "unlinked_resource_id",
+      reason: `${link.kind}=${link.id} 已产生，但没有被后续 model request、final result、domain gate、persistence 或 Response Writer 消费。`,
       step: link.producers[0],
       recoveryPath: "从资源关联区进入对应 step 的 Raw JSON，确认下游是否遗漏引用。",
     });
   }
+
+  trace.steps.forEach((step, index) => {
+    if (step.type === "model_request" && isAgentLoopModelStep(step)) {
+      const hasResponse = trace.steps.some((candidate, candidateIndex) => (
+        candidateIndex > index &&
+        candidate.type === "model_response" &&
+        (
+          (getModelCallId(step) && getModelCallId(candidate) === getModelCallId(step)) ||
+          (getLoopTurnId(step) && getLoopTurnId(candidate) === getLoopTurnId(step)) ||
+          (getLoopTurnIndex(candidate) ?? getStepIndex(candidate)) === (getLoopTurnIndex(step) ?? getStepIndex(step))
+        )
+      ));
+
+      if (!hasResponse) {
+        findings.push({
+          id: `model_response:${step.id}:missing`,
+          boundary: "tool_decision",
+          severity: "warning",
+          code: "missing_model_response",
+          reason: "本轮 Agent model_request 没有匹配的 model_response，无法复盘模型输出。",
+          step: toStepReference(step, index, "input"),
+          recoveryPath: "检查模型请求是否中断，或 modelCallId / loopTurnId 是否没有写入 response step。",
+        });
+      }
+    }
+
+    const metadata = isRecord(step.metadata) ? step.metadata : {};
+
+    if (step.type === "model_response" && isRecord(metadata.parsingFailure)) {
+      findings.push({
+        id: `model_response:${step.id}:parsing_failure`,
+        boundary: "tool_decision",
+        severity: "error",
+        code: getString(metadata.parsingFailure.code) ?? "parsing_failure",
+        reason: getString(metadata.parsingFailure.message) ?? "模型输出解析失败。",
+        step: toStepReference(step, index, "output"),
+        recoveryPath: "查看本轮 LLM 原始输出和 parsed decision，判断是 JSON 格式、Schema 还是截断问题。",
+      });
+    }
+  });
 
   const finalResult = getFinalResult(trace);
   const missingFinalReferences = getFinalResultResourceIds(finalResult)
@@ -513,6 +701,342 @@ function buildLegacyCompatibility(trace: AiTrace, hasAgentStages: boolean): Agen
       ? "Agent run 已记录 legacy path skip 信号，旧 intent-first 路径只作为兼容信息保留。"
       : "Agent run 已记录；未发现明确 legacy path skip 字段。",
     skippedPaths,
+  };
+}
+
+// buildAgentLoopTraceViewModel 将模型输入、模型输出、工具结果和最终写回复按 loop turn 串成因果链。
+function buildAgentLoopTraceViewModel(
+  trace: AiTrace,
+  runOverview: AgentTraceRunSummary,
+  resourceLinks: AgentResourceLink[],
+  diagnostics: AgentDiagnosticFinding[],
+  hasAgentStages: boolean,
+): AgentLoopTraceViewModel {
+  const rawStepReferences = trace.steps.map((step, index) => toStepReference(step, index, "trace"));
+  const legacyCompatibility = buildLegacyCompatibility(trace, hasAgentStages);
+
+  if (!hasAgentStages) {
+    return {
+      runOverview,
+      loopTurns: [],
+      finalization: buildAgentLoopFinalization(trace, resourceLinks),
+      diagnostics,
+      rawLinks: rawStepReferences,
+      legacyCompatibility,
+    };
+  }
+
+  const loopTurns = buildLoopTurns(trace, resourceLinks);
+
+  return {
+    runOverview,
+    loopTurns,
+    finalization: buildAgentLoopFinalization(trace, resourceLinks),
+    diagnostics,
+    rawLinks: rawStepReferences,
+    legacyCompatibility,
+  };
+}
+
+function buildLoopTurns(trace: AiTrace, resourceLinks: AgentResourceLink[]): AgentLoopTurnViewModel[] {
+  const indexedSteps = trace.steps.map((step, index) => ({ step, index }));
+  const modelRequests = indexedSteps.filter(({ step }) => step.type === "model_request" && isAgentLoopModelStep(step));
+  const modelResponses = indexedSteps.filter(({ step }) => step.type === "model_response" && isAgentLoopModelStep(step));
+  const decisions = indexedSteps.filter(({ step }) => step.type === "agent_tool_decision");
+  const toolResults = indexedSteps.filter(({ step }) => step.type === "agent_tool_result");
+  const usedResponses = new Set<string>();
+  const usedDecisions = new Set<string>();
+  const usedToolResults = new Set<string>();
+  const requestAnchors = modelRequests.length > 0 ? modelRequests : decisions;
+
+  const turns = requestAnchors.map(({ step, index }, anchorIndex) => {
+    const loopTurnIndex = getLoopTurnIndex(step) ?? getStepIndex(step) ?? anchorIndex;
+    const loopTurnId = getLoopTurnId(step) ?? `loop_turn_${loopTurnIndex}`;
+    const modelCallId = getModelCallId(step);
+    const aiStage = getAiStage(step);
+    const modelResponse = findMatchingStep(modelResponses, usedResponses, {
+      loopTurnId,
+      loopTurnIndex,
+      modelCallId,
+      aiStage,
+      afterIndex: index,
+    });
+    const decision = findMatchingStep(decisions, usedDecisions, {
+      loopTurnId,
+      loopTurnIndex,
+      modelCallId,
+      aiStage: "agent_tool_decision",
+      afterIndex: index,
+    });
+    const matchedToolResults = findMatchingToolResults(toolResults, usedToolResults, {
+      loopTurnId,
+      loopTurnIndex,
+      modelCallId,
+      toolCallId: getToolCallId(decision?.step) ?? getToolCallId(modelResponse?.step),
+    });
+    const request = step.type === "model_request" ? createModelRequestView(step, index) : undefined;
+    const response = modelResponse ? createModelResponseView(modelResponse.step, modelResponse.index) : undefined;
+    const parsedDecision = createParsedDecisionView(decision?.step ?? modelResponse?.step);
+    const nextRequest = findNextModelRequest(modelRequests, index);
+    const toolResultViews = matchedToolResults.map(({ step: resultStep, index: resultIndex }) => (
+      createToolResultView(resultStep, resultIndex, resourceLinks)
+    ));
+
+    return {
+      id: loopTurnId,
+      title: `Loop ${loopTurnIndex + 1}`,
+      loopTurnId,
+      loopTurnIndex,
+      aiStage,
+      modelCallId,
+      modelRequest: request,
+      modelResponse: response,
+      parsedDecision,
+      toolResults: toolResultViews,
+      nextPromptLinkage: createNextPromptLinkage(toolResultViews, nextRequest?.step),
+      metrics: createLoopMetricExplanations({ request: step, response: modelResponse?.step, toolResults: matchedToolResults.map((item) => item.step) }),
+      rawLinks: [
+        toStepReference(step, index, "trace"),
+        ...(modelResponse ? [toStepReference(modelResponse.step, modelResponse.index, "trace")] : []),
+        ...(decision ? [toStepReference(decision.step, decision.index, "trace")] : []),
+        ...matchedToolResults.map((item) => toStepReference(item.step, item.index, "trace")),
+      ],
+    };
+  });
+
+  for (const result of toolResults) {
+    if (usedToolResults.has(result.step.id)) {
+      continue;
+    }
+
+    turns.push({
+      id: getLoopTurnId(result.step) ?? `unlinked_tool_result_${result.step.id}`,
+      title: "未关联工具结果",
+      loopTurnId: getLoopTurnId(result.step) ?? `unlinked_tool_result_${result.step.id}`,
+      loopTurnIndex: getLoopTurnIndex(result.step) ?? getStepIndex(result.step) ?? turns.length,
+      aiStage: getAiStage(result.step),
+      modelCallId: getModelCallId(result.step),
+      modelRequest: undefined,
+      modelResponse: undefined,
+      parsedDecision: undefined,
+      toolResults: [createToolResultView(result.step, result.index, resourceLinks)],
+      nextPromptLinkage: createNextPromptLinkage([createToolResultView(result.step, result.index, resourceLinks)], undefined),
+      metrics: createLoopMetricExplanations({ toolResults: [result.step] }),
+      rawLinks: [toStepReference(result.step, result.index, "trace")],
+    });
+  }
+
+  return turns.sort((left, right) => left.loopTurnIndex - right.loopTurnIndex);
+}
+
+function createModelRequestView(step: AiTraceStep, index: number): AgentLoopModelRequestViewModel {
+  const input = isRecord(step.input) ? step.input : {};
+  const metadata = isRecord(step.metadata) ? step.metadata : {};
+  const messages = Array.isArray(input.messages) ? input.messages : [];
+
+  return {
+    step: toStepReference(step, index, "input"),
+    model: getString(input.model),
+    responseFormat: input.response_format,
+    thinking: input.thinking,
+    promptModules: getStringArray(metadata.promptModules),
+    remainingSteps: getNumber(metadata.remainingSteps),
+    visibleToolResultIds: getStringArray(metadata.visibleToolResultIds),
+    contextSummary: metadata.contextPackage,
+    registeredToolsSummary: metadata.registeredTools,
+    dependencyGraphSummary: metadata.dependencyGraph,
+    messages: messages
+      .filter((message): message is Record<string, unknown> => isRecord(message))
+      .map((message) => ({
+        role: getString(message.role) ?? "unknown",
+        content: getLongText(message.content) ?? "",
+      })),
+  };
+}
+
+function createModelResponseView(step: AiTraceStep, index: number): AgentLoopModelResponseViewModel {
+  const output = isRecord(step.output) ? step.output : {};
+  const metadata = isRecord(step.metadata) ? step.metadata : {};
+  const parsingFailure = isRecord(metadata.parsingFailure)
+    ? {
+        code: getString(metadata.parsingFailure.code),
+        message: getString(metadata.parsingFailure.message),
+      }
+    : isRecord(step.error)
+      ? {
+          code: getString(step.error.code),
+          message: getString(step.error.message),
+        }
+      : undefined;
+
+  return {
+    step: toStepReference(step, index, "output"),
+    rawContent: getLongText(output.content),
+    rawResponse: getLongText(output.rawResponse),
+    tokenUsage: getTokenUsage(step),
+    status: step.status,
+    parsingFailure,
+  };
+}
+
+function createParsedDecisionView(step: AiTraceStep | undefined): AgentLoopParsedDecisionViewModel | undefined {
+  if (!step) {
+    return undefined;
+  }
+
+  const input = isRecord(step.input) ? step.input : {};
+  const output = isRecord(step.output) ? step.output : {};
+  const metadata = isRecord(step.metadata) ? step.metadata : {};
+  const parsed = isRecord(output.parsedDecision)
+    ? output.parsedDecision
+    : isRecord(input)
+      ? input
+      : {};
+  const result = isRecord(parsed.result) ? parsed.result : {};
+  const toolInput = isRecord(parsed.input) ? parsed.input : undefined;
+
+  return {
+    action: getString(parsed.action) ?? getString(metadata.parsedAction),
+    toolName: getString(parsed.toolName) ?? getString(metadata.toolName),
+    reason: getString(parsed.reason),
+    toolCallId: getToolCallId(step),
+    toolInputSummary: toolInput ? summarizeRecordFields(toolInput) : undefined,
+    finalStatus: getString(result.status),
+    usedToolResultIds: getStringArray(metadata.usedToolResultIds).length > 0
+      ? getStringArray(metadata.usedToolResultIds)
+      : getStringArray(result.usedToolResultIds),
+    raw: isEmptyRecord(parsed) ? undefined : parsed,
+  };
+}
+
+function createToolResultView(
+  step: AiTraceStep,
+  index: number,
+  resourceLinks: AgentResourceLink[],
+): AgentLoopToolResultViewModel {
+  const resourceIds = Object.fromEntries(
+    resourceKeys
+      .map((key) => [key, getResourceValue(step, key)])
+      .filter((entry): entry is [AgentResourceKind, string] => typeof entry[1] === "string" && entry[1].length > 0),
+  ) as Partial<Record<AgentResourceKind, string>>;
+  const producedIds = Object.values(resourceIds);
+
+  return {
+    step: toStepReference(step, index, "output"),
+    toolName: getToolName(step) ?? "unknown_tool",
+    status: step.status === "failed" ? "failed" : getToolTimelineStatus(undefined, step),
+    toolCallId: getToolCallId(step),
+    toolResultId: getResourceValue(step, "toolResultId"),
+    durationMs: step.durationMs ?? getNumber(isRecord(step.metadata) ? step.metadata.durationMs : undefined),
+    failureCode: getFailureCode(step),
+    inputSummary: summarizeToolParameters(step),
+    outputSummary: summarizeToolOutput(step),
+    resourceIds,
+    consumedBy: getDownstreamUsage(producedIds, resourceLinks, step.id),
+  };
+}
+
+function createNextPromptLinkage(
+  toolResults: AgentLoopToolResultViewModel[],
+  nextRequest: AiTraceStep | undefined,
+): AgentLoopNextPromptLinkage {
+  const producedToolResultIds = toolResults
+    .map((result) => result.toolResultId)
+    .filter(isString);
+  const nextVisibleToolResultIds = nextRequest ? getStringArray(nextRequest.metadata?.visibleToolResultIds) : [];
+  const visibleInNextPromptIds = producedToolResultIds.filter((id) => nextVisibleToolResultIds.includes(id));
+  const missingFromNextPromptIds = producedToolResultIds.filter((id) => !nextVisibleToolResultIds.includes(id));
+
+  return {
+    nextLoopTurnId: nextRequest ? getLoopTurnId(nextRequest) : undefined,
+    producedToolResultIds,
+    nextVisibleToolResultIds,
+    visibleInNextPromptIds,
+    missingFromNextPromptIds,
+    explanation: nextRequest
+      ? "通过下一轮 model_request.metadata.visibleToolResultIds 判断工具结果是否进入模型输入。"
+      : "没有后续 model_request；如果最终结果引用了这些 toolResultId，可通过 final result 的 usedToolResultIds 判断消费路径。",
+  };
+}
+
+function createLoopMetricExplanations(input: {
+  request?: AiTraceStep;
+  response?: AiTraceStep;
+  toolResults?: AiTraceStep[];
+}): AgentLoopMetricExplanation[] {
+  const metrics: AgentLoopMetricExplanation[] = [];
+  const responseUsage = input.response ? getTokenUsage(input.response) : null;
+  const toolDuration = input.toolResults?.reduce((sum, step) => sum + (step.durationMs ?? getNumber(step.metadata?.durationMs) ?? 0), 0) ?? 0;
+  const promptModules = getStringArray(input.request?.metadata?.promptModules);
+  const remainingSteps = getNumber(input.request?.metadata?.remainingSteps);
+
+  if (responseUsage?.total_tokens !== undefined) {
+    metrics.push({
+      key: "tokenUsage.total_tokens",
+      label: "Token（模型用量）",
+      value: String(responseUsage.total_tokens),
+      explanation: "用于判断是哪一轮 LLM 调用消耗异常。",
+    });
+  }
+
+  if (toolDuration > 0) {
+    metrics.push({
+      key: "tool.durationMs",
+      label: "Tool duration（工具耗时）",
+      value: `${toolDuration}ms`,
+      explanation: "用于区分慢在模型调用还是工具执行。",
+    });
+  }
+
+  if (promptModules.length > 0) {
+    metrics.push({
+      key: "promptModules",
+      label: "Prompt modules（提示词模块）",
+      value: promptModules.join(", "),
+      explanation: "用于确认本轮模型输入由哪些提示词模块组成。",
+    });
+  }
+
+  if (remainingSteps !== undefined) {
+    metrics.push({
+      key: "remainingSteps",
+      label: "remainingSteps（剩余步骤）",
+      value: String(remainingSteps),
+      explanation: "用于判断 Agent loop 是否接近步骤上限。",
+    });
+  }
+
+  return metrics;
+}
+
+function buildAgentLoopFinalization(trace: AiTrace, resourceLinks: AgentResourceLink[]): AgentLoopFinalizationViewModel {
+  const finalStep = [...trace.steps].map((step, index) => ({ step, index })).reverse().find(({ step }) => step.type === "agent_final_result");
+  const responseWriterStep = [...trace.steps].map((step, index) => ({ step, index })).reverse().find(({ step }) => (
+    step.type === "response_write" && getAiStage(step) === "agent_response_writer"
+  ));
+  const responseWriterOutput = isRecord(responseWriterStep?.step.output) ? responseWriterStep?.step.output : {};
+
+  return {
+    finalResult: finalStep?.step.output,
+    responseWriter: responseWriterStep
+      ? {
+          step: toStepReference(responseWriterStep.step, responseWriterStep.index, "output"),
+          userVisibleReply: getAnswerTextFromValue(responseWriterStep.step.output),
+          inputSummary: responseWriterStep.step.input,
+          outputSummary: responseWriterOutput,
+          usedToolResultIds: getStringArray(responseWriterStep.step.metadata?.usedToolResultIds),
+        }
+      : undefined,
+    artifactEvents: resourceLinks.filter((link) => (
+      link.kind === "revisionId" ||
+      link.kind === "artifactPayloadId" ||
+      link.kind === "artifactEventId" ||
+      link.kind === "operationResultId"
+    )),
+    rawLinks: [
+      ...(finalStep ? [toStepReference(finalStep.step, finalStep.index, "trace")] : []),
+      ...(responseWriterStep ? [toStepReference(responseWriterStep.step, responseWriterStep.index, "trace")] : []),
+    ],
   };
 }
 
@@ -569,6 +1093,89 @@ function isAgentStep(step: AiTraceStep) {
     step.type === "agent_final_result" ||
     getAiStage(step)?.startsWith("agent_") === true
   );
+}
+
+function isAgentLoopModelStep(step: AiTraceStep) {
+  const aiStage = getAiStage(step);
+
+  return (
+    aiStage === "agent_tool_decision" ||
+    aiStage === "agent_final_result" ||
+    aiStage === "agent_response_writer" ||
+    aiStage?.startsWith("agent_") === true
+  );
+}
+
+function findMatchingStep(
+  steps: Array<{ step: AiTraceStep; index: number }>,
+  usedStepIds: Set<string>,
+  criteria: {
+    loopTurnId?: string;
+    loopTurnIndex: number;
+    modelCallId?: string;
+    aiStage?: string;
+    afterIndex: number;
+  },
+) {
+  const match = steps.find(({ step, index }) => {
+    if (usedStepIds.has(step.id) || index < criteria.afterIndex) {
+      return false;
+    }
+
+    const stepModelCallId = getModelCallId(step);
+    const stepLoopTurnId = getLoopTurnId(step);
+    const stepLoopTurnIndex = getLoopTurnIndex(step) ?? getStepIndex(step);
+    const stepStage = getAiStage(step);
+
+    return (
+      (criteria.modelCallId && stepModelCallId === criteria.modelCallId) ||
+      (criteria.loopTurnId && stepLoopTurnId === criteria.loopTurnId) ||
+      (stepLoopTurnIndex === criteria.loopTurnIndex && (!criteria.aiStage || stepStage === criteria.aiStage))
+    );
+  });
+
+  if (match) {
+    usedStepIds.add(match.step.id);
+  }
+
+  return match;
+}
+
+function findMatchingToolResults(
+  steps: Array<{ step: AiTraceStep; index: number }>,
+  usedStepIds: Set<string>,
+  criteria: {
+    loopTurnId?: string;
+    loopTurnIndex: number;
+    modelCallId?: string;
+    toolCallId?: string;
+  },
+) {
+  const matched = steps.filter(({ step }) => {
+    if (usedStepIds.has(step.id)) {
+      return false;
+    }
+
+    const stepLoopTurnIndex = getLoopTurnIndex(step) ?? getStepIndex(step);
+
+    return (
+      (criteria.toolCallId && getToolCallId(step) === criteria.toolCallId) ||
+      (criteria.modelCallId && getModelCallId(step) === criteria.modelCallId) ||
+      (criteria.loopTurnId && getLoopTurnId(step) === criteria.loopTurnId) ||
+      stepLoopTurnIndex === criteria.loopTurnIndex
+    );
+  });
+
+  matched.forEach(({ step }) => usedStepIds.add(step.id));
+
+  return matched;
+}
+
+function findNextModelRequest(
+  requests: Array<{ step: AiTraceStep; index: number }>,
+  currentIndex: number,
+) {
+  return requests.find(({ index }) => index > currentIndex);
 }
 
 function getToolTimelineStatus(decision: AiTraceStep | undefined, result: AiTraceStep | undefined): AgentToolTimelineStatus {
@@ -629,6 +1236,14 @@ function collectResourcesFromValue(value: unknown, source: AgentTraceStepReferen
         occurrences.push({ kind: key, id: child.trim(), source });
       }
 
+      if ((key === "visibleToolResultIds" || key === "usedToolResultIds" || key === "toolResultIds") && Array.isArray(child)) {
+        for (const id of child) {
+          if (typeof id === "string" && id.trim()) {
+            occurrences.push({ kind: "toolResultId", id: id.trim(), source });
+          }
+        }
+      }
+
       if (Array.isArray(child) || isRecord(child)) {
         visit(child);
       }
@@ -646,6 +1261,8 @@ function getResourceOccurrenceRole(
 ): "producer" | "consumer" {
   if (
     source === "input" ||
+    step.type === "model_request" ||
+    step.type === "agent_tool_decision" ||
     step.type === "agent_final_result" ||
     step.type === "response_write" ||
     step.type === "final_response"
@@ -843,6 +1460,36 @@ function getStepIndex(step: AiTraceStep) {
   const index = metadata.stepIndex ?? input.stepIndex;
 
   return typeof index === "number" && Number.isInteger(index) ? index : null;
+}
+
+function getLoopTurnId(step: AiTraceStep | undefined) {
+  const metadata = isRecord(step?.metadata) ? step.metadata : {};
+  const input = isRecord(step?.input) ? step.input : {};
+
+  return getString(metadata.loopTurnId) ?? getString(input.loopTurnId);
+}
+
+function getLoopTurnIndex(step: AiTraceStep | undefined) {
+  const metadata = isRecord(step?.metadata) ? step.metadata : {};
+  const input = isRecord(step?.input) ? step.input : {};
+
+  return getNumber(metadata.loopTurnIndex) ?? getNumber(input.loopTurnIndex);
+}
+
+function getModelCallId(step: AiTraceStep | undefined) {
+  const metadata = isRecord(step?.metadata) ? step.metadata : {};
+  const input = isRecord(step?.input) ? step.input : {};
+  const output = isRecord(step?.output) ? step.output : {};
+
+  return getString(metadata.modelCallId) ?? getString(input.modelCallId) ?? getString(output.modelCallId);
+}
+
+function getToolCallId(step: AiTraceStep | undefined) {
+  const metadata = isRecord(step?.metadata) ? step.metadata : {};
+  const input = isRecord(step?.input) ? step.input : {};
+  const output = isRecord(step?.output) ? step.output : {};
+
+  return getString(metadata.toolCallId) ?? getString(input.toolCallId) ?? getString(output.toolCallId);
 }
 
 function getAiStage(step: AiTraceStep | undefined) {
@@ -1082,6 +1729,42 @@ function isString(value: unknown): value is string {
 
 function getString(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function getNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function getStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter(isString);
+}
+
+function getLongText(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (isRecord(value) && typeof value.preview === "string") {
+    return value.preview;
+  }
+
+  return undefined;
+}
+
+function summarizeRecordFields(value: Record<string, unknown>) {
+  const entries = Object.entries(value)
+    .slice(0, 8)
+    .map(([key, item]) => `${key}=${summarizeValue(item)}`);
+
+  return entries.length > 0 ? entries.join("；") : "无可读字段。";
+}
+
+function isEmptyRecord(value: Record<string, unknown>) {
+  return Object.keys(value).length === 0;
 }
 
 function summarizeValue(value: unknown) {
