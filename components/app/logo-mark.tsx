@@ -5,9 +5,11 @@ type LogoMarkProps = {
   animated?: boolean;
 };
 
-// FitMate 的 Web 品牌标识使用对称哑铃轮廓，保持与站点主色一致并适配导航小尺寸展示。
+// FitMate 的品牌标识使用主题蓝 app 外壳和 46 度倾斜哑铃，统一 Web 与 icon 入口的识别形态。
 export function LogoMark({ className = "h-10 w-10", animated = false }: LogoMarkProps) {
   const rawId = useId().replace(/:/g, "");
+  const shellGradientId = `fitmate-logo-shell-${rawId}`;
+  const fieldGradientId = `fitmate-logo-field-${rawId}`;
   const primaryGradientId = `fitmate-logo-primary-${rawId}`;
   const plateGradientId = `fitmate-logo-plate-${rawId}`;
   const gripGradientId = `fitmate-logo-grip-${rawId}`;
@@ -53,6 +55,14 @@ export function LogoMark({ className = "h-10 w-10", animated = false }: LogoMark
       ) : null}
 
       <defs>
+        <linearGradient id={shellGradientId} x1="38" x2="202" y1="18" y2="222">
+          <stop stopColor="#FFFFFF" />
+          <stop offset="1" stopColor="#F2F6FF" />
+        </linearGradient>
+        <linearGradient id={fieldGradientId} x1="58" x2="184" y1="52" y2="190">
+          <stop stopColor="#F7FAFF" />
+          <stop offset="1" stopColor="#E6ECFF" />
+        </linearGradient>
         <linearGradient id={primaryGradientId} x1="70" x2="170" y1="92" y2="148">
           <stop stopColor="#2459E6" />
           <stop offset="1" stopColor="#163FAF" />
@@ -66,15 +76,18 @@ export function LogoMark({ className = "h-10 w-10", animated = false }: LogoMark
           <stop stopColor="#FFFFFF" />
           <stop offset="1" stopColor="#E6ECFF" />
         </linearGradient>
-        <filter colorInterpolationFilters="sRGB" filterUnits="userSpaceOnUse" height="120" id={shadowId} width="214" x="13" y="70">
-          <feDropShadow dx="0" dy="10" floodColor="#163FAF" floodOpacity="0.16" stdDeviation="8" />
+        <filter colorInterpolationFilters="sRGB" filterUnits="userSpaceOnUse" height="188" id={shadowId} width="188" x="26" y="26">
+          <feDropShadow dx="0" dy="10" floodColor="#163FAF" floodOpacity="0.18" stdDeviation="8" />
         </filter>
       </defs>
 
-      <ellipse cx="120" cy="120" fill="#E6ECFF" opacity="0.72" rx="92" ry="58" />
+      <rect fill={`url(#${shellGradientId})`} height="214" rx="58" width="214" x="13" y="13" />
+      <rect height="211" rx="56.5" stroke="#C9D8F4" strokeWidth="2.5" width="211" x="14.5" y="14.5" />
+      <rect fill={`url(#${fieldGradientId})`} height="156" rx="44" width="156" x="42" y="42" />
+      <rect height="152" rx="42" stroke="#FFFFFF" strokeOpacity="0.86" strokeWidth="4" width="152" x="44" y="44" />
 
       <g className={animated ? "fitmate-dumbbell-pop" : undefined}>
-        <g filter={`url(#${shadowId})`}>
+        <g filter={`url(#${shadowId})`} transform="rotate(46 120 120)">
           {animated ? (
             <animateTransform
               additive="sum"
