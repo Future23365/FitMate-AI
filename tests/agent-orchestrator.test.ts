@@ -1718,6 +1718,164 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
     });
   });
 
+  it("completes generated final result resources from the saved artifact revision", async () => {
+    const warmup = createExercise({
+      id: "warmup",
+      nameZh: "肩部绕环",
+      categoryZh: "热身",
+      allowedSections: ["warmup"],
+    });
+    const pushUp = createExercise({
+      id: "push-up",
+      nameZh: "俯卧撑",
+      allowedSections: ["training"],
+    });
+    const stretch = createExercise({
+      id: "stretch",
+      nameZh: "胸肩拉伸",
+      categoryZh: "拉伸",
+      allowedSections: ["stretch"],
+    });
+    exerciseMocks.searchExercises.mockResolvedValue({
+      candidates: [warmup, pushUp, stretch],
+      diagnostics: {
+        query: "上肢",
+        filters: { visibility: "published" },
+        recalledCount: 3,
+        filteredCount: 0,
+        rerank: [],
+        finalExerciseIds: ["warmup", "push-up", "stretch"],
+        failureReasons: [],
+      },
+    });
+    exerciseMocks.listAllExercises.mockResolvedValue([warmup, pushUp, stretch]);
+    artifactMocks.createOrUpdateConversationArtifact.mockResolvedValue({
+      id: "artifact-new",
+      revision: 1,
+    });
+    const registry = createToolFirstAgentToolRegistry();
+    const intent = createWorkoutPlanIntent({ intentType: "routine", goal: "上肢力量", sessionMinutes: 12 });
+
+    const output = await runAgentOrchestrator({
+      runId: "agent-run-generated-final-contract",
+      userId: "user-1",
+      sessionId: "chat-1",
+      context: createTestContextPackage(),
+      registry,
+      limits: { maxSteps: 7 },
+      decideNext: ({ state }) => {
+        if (state.toolResults.length === 0) {
+          return {
+            action: "call_tool",
+            toolName: "searchExercises",
+            input: {
+              query: "上肢",
+              candidateUse: "routine",
+              goal: "上肢力量",
+              limit: 6,
+            },
+            reason: "先查询上肢候选动作。",
+          };
+        }
+
+        const candidateSetId = state.toolResults[0].candidateSetId!;
+        if (state.toolResults.length === 1) {
+          return {
+            action: "call_tool",
+            toolName: "generateRoutineDraft",
+            input: {
+              intent,
+              candidateSetId,
+              candidateExerciseIds: ["warmup", "push-up", "stretch"],
+              title: "上肢训练",
+            },
+            reason: "使用候选集合生成 routine 草稿。",
+          };
+        }
+
+        const generatedDraft = state.toolResults[1].modelSummary as { draftId: string };
+        if (state.toolResults.length === 2) {
+          return {
+            action: "call_tool",
+            toolName: "validateRoutineDraft",
+            input: {
+              draftId: generatedDraft.draftId,
+              candidateSetId,
+              candidateExerciseIds: ["warmup", "push-up", "stretch"],
+              intent,
+            },
+            reason: "保存前校验 routine 草稿。",
+          };
+        }
+
+        const validationId = state.toolResults[2].validationId!;
+        if (state.toolResults.length === 3) {
+          return {
+            action: "call_tool",
+            toolName: "evaluatePolicy",
+            input: {
+              policyTarget: "new_artifact",
+              artifactKind: "routine",
+              draftId: generatedDraft.draftId,
+            },
+            reason: "保存新 artifact 前执行策略校验。",
+          };
+        }
+
+        const policyDecisionId = state.toolResults[3].policyDecisionId!;
+        if (state.toolResults.length === 4) {
+          return {
+            action: "call_tool",
+            toolName: "saveConversationArtifactRevision",
+            input: {
+              artifactKind: "routine",
+              draftId: generatedDraft.draftId,
+              candidateSetId,
+              validationId,
+              policyDecisionId,
+              validationPassed: true,
+              policyAllowed: true,
+            },
+            reason: "所有前置结果齐备后保存 artifact。",
+          };
+        }
+
+        return {
+          action: "final_result",
+          result: {
+            status: "generated",
+            replyContext: { reply: "已生成并保存上肢训练。" },
+            usedToolResultIds: state.toolResults.map((result) => result.toolResultId),
+          },
+          reason: "保存已完成，但模型遗漏了 generated 必需资源字段。",
+        };
+      },
+    });
+
+    const saved = output.state.toolResults.at(-1)!;
+
+    expect(output.state.toolResults.map((result) => result.toolName)).toEqual([
+      "searchExercises",
+      "generateRoutineDraft",
+      "validateRoutineDraft",
+      "evaluatePolicy",
+      "saveConversationArtifactRevision",
+    ]);
+    expect(output.result).toMatchObject({
+      status: "generated",
+      artifact: {
+        artifactId: "artifact-new",
+        revisionId: "artifact-new",
+        kind: "routine",
+        title: "上肢训练",
+      },
+      revisionId: "artifact-new",
+      validationId: expect.any(String),
+      policyDecisionId: expect.any(String),
+      usedToolResultIds: expect.arrayContaining([saved.toolResultId]),
+    });
+  });
+
   it("projects Response Writer replies only from AgentExecutionResult and validates tool references", () => {
     const projection = projectAgentExecutionResultToResponse({
       result: {
@@ -1957,6 +2115,8 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
       .toContain("failed 必须返回");
     expect(buildPromptFromModules(["agent_final_result"]))
       .toContain("没有成功的 saveConversationArtifactRevision tool result 和 revisionId 时，禁止返回 generated 或 patched");
+    expect(buildPromptFromModules(["agent_final_result"]))
+      .toContain("generated 必须返回");
   });
 });
 

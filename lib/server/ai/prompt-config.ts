@@ -226,6 +226,7 @@ export const aiPromptModuleRegistry: Record<AiPromptModuleId, string> = {
     "你必须只返回 AgentExecutionResult 结构化终止结果。",
     "generated、patched、completed_operation 必须引用本轮已登记的 tool result、validation、policy、revision、operationResultId 或明确 blockReason。",
     "没有成功的 saveConversationArtifactRevision tool result 和 revisionId 时，禁止返回 generated 或 patched；若已有 draftId、validationId、policyDecisionId，应继续调用 saveConversationArtifactRevision。",
+    "generated 必须返回 {\"status\":\"generated\",\"artifact\":{\"artifactId\":\"...\",\"revisionId\":\"...\",\"kind\":\"routine\",\"title\":\"...\",\"summary\":\"...\"},\"revisionId\":\"...\",\"validationId\":\"...\",\"policyDecisionId\":\"...\",\"usedToolResultIds\":[\"...\"]}，不得把生成成功说明放入 replyContext。",
     "动作推荐如果以 answered 结束，usedToolResultIds 必须引用本轮 searchExercises(candidateUse=\"recommendation\") 的 toolResultId。",
     "blocked 必须返回 {\"status\":\"blocked\",\"blockReason\":\"...\",\"usedToolResultIds\":[\"...\"]}，不得把阻塞说明放入 replyContext。",
     "failed 必须返回 {\"status\":\"failed\",\"failureCode\":\"tool_execution_failed\",\"usedToolResultIds\":[\"...\"]}，不得把失败说明放入 replyContext。",

@@ -186,6 +186,33 @@ export async function runAgentOrchestrator(
         continue;
       }
 
+      const completedSavedFinalResult = createGeneratedFinalResultFromSavedArtifactParseFailure({
+        state,
+        rawDecision,
+        parseFailure: parsedDecision,
+      });
+
+      if (completedSavedFinalResult) {
+        const referenceValidation = validateFinalResultReferences(state, completedSavedFinalResult);
+        state = finishWithResult(
+          state,
+          referenceValidation.ok ? completedSavedFinalResult : createFailedResult("model_output_invalid"),
+          input.trace,
+          referenceValidation.ok
+            ? "模型 final_result 缺少已登记保存资源，runtime 从 saveConversationArtifactRevision 结果补齐 generated 合同。"
+            : referenceValidation.message,
+          {
+            loopTurnId,
+            loopTurnIndex: stepIndex,
+            modelCallId,
+            visibleToolResultIds,
+            usedToolResultIds: completedSavedFinalResult.usedToolResultIds,
+          },
+        );
+        state = maybeCheckpoint(state, limits, stepIndex);
+        break;
+      }
+
       state = finishWithResult(state, createFailedResult("model_output_invalid"), input.trace, parsedDecision.message);
       break;
     }
@@ -602,6 +629,60 @@ function createRecoverablePrematureFinalResultFeedback(input: {
   };
 }
 
+// createGeneratedFinalResultFromSavedArtifactParseFailure 只补齐“保存已成功但模型 final_result 少填资源字段”的结构合同。
+function createGeneratedFinalResultFromSavedArtifactParseFailure(input: {
+  state: AgentExecutionState;
+  rawDecision: unknown;
+  parseFailure: Extract<AgentToolDecisionParseResult, { ok: false }>;
+}): (AgentExecutionResult & { status: "generated" }) | null {
+  if (
+    input.parseFailure.code !== "invalid_decision"
+    || readRawFinalResultStatus(input.rawDecision) !== "generated"
+    || !hasGeneratedResourceContractIssue(input.parseFailure)
+  ) {
+    return null;
+  }
+
+  const saved = findLatestSuccessfulArtifactSaveResult(input.state);
+
+  if (!saved) {
+    return null;
+  }
+
+  const artifactId = readStringField(saved.output, "artifactId") ?? saved.revisionId;
+  const revisionId = saved.revisionId ?? readStringField(saved.output, "revisionId");
+  const validationId = saved.validationId ?? readStringField(saved.output, "validationId");
+  const policyDecisionId = saved.policyDecisionId ?? readStringField(saved.output, "policyDecisionId");
+  const artifactKind = readStringField(saved.output, "artifactKind");
+  const title = readStringField(saved.output, "title");
+  const summary = readStringField(saved.output, "summary");
+
+  if (!artifactId || !revisionId || !validationId || !isArtifactKind(artifactKind) || !title) {
+    return null;
+  }
+
+  const rawResult = readRawFinalResultObject(input.rawDecision);
+  const usedToolResultIds = uniqueStringIds([
+    ...flattenStringIds(rawResult?.usedToolResultIds),
+    saved.toolResultId,
+  ]);
+
+  return {
+    status: "generated",
+    artifact: {
+      artifactId,
+      revisionId,
+      kind: artifactKind,
+      title,
+      ...(summary ? { summary } : {}),
+    },
+    revisionId,
+    validationId,
+    ...(policyDecisionId ? { policyDecisionId } : {}),
+    usedToolResultIds,
+  };
+}
+
 function recordSyntheticDecisionFeedback(
   state: AgentExecutionState,
   feedback: RecoverableDecisionFeedback,
@@ -980,13 +1061,19 @@ function readNestedString(value: unknown, key: string) {
 
 function readRawFinalResultStatus(value: unknown) {
   const decision = readDecisionObject(value);
-  const result = decision && typeof decision.result === "object" && decision.result !== null
-    ? decision.result as Record<string, unknown>
-    : null;
+  const result = readRawFinalResultObject(value);
 
   return decision?.action === "final_result" && typeof result?.status === "string"
     ? result.status
     : undefined;
+}
+
+function readRawFinalResultObject(value: unknown): Record<string, unknown> | null {
+  const decision = readDecisionObject(value);
+
+  return decision && typeof decision.result === "object" && decision.result !== null
+    ? decision.result as Record<string, unknown>
+    : null;
 }
 
 function readDecisionObject(value: unknown): Record<string, unknown> | null {
@@ -1000,6 +1087,34 @@ function readDecisionObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
+}
+
+function readStringField(value: unknown, key: string) {
+  return asString(readNestedString(value, key));
+}
+
+function hasGeneratedResourceContractIssue(parseFailure: Extract<AgentToolDecisionParseResult, { ok: false }>) {
+  if (!Array.isArray(parseFailure.detail)) {
+    return false;
+  }
+
+  const resourcePaths = new Set(["result.artifact", "result.revisionId", "result.validationId"]);
+
+  return parseFailure.detail.some((issue) => (
+    issue
+    && typeof issue === "object"
+    && resourcePaths.has(String((issue as Record<string, unknown>).path))
+  ));
+}
+
+function findLatestSuccessfulArtifactSaveResult(state: AgentExecutionState) {
+  return [...state.toolResults]
+    .reverse()
+    .find((result) => (
+      result.status === "success"
+      && result.toolName === "saveConversationArtifactRevision"
+      && Boolean(result.revisionId)
+    ));
 }
 
 function findLatestToolResultWith(
@@ -1020,6 +1135,10 @@ function flattenStringIds(value: unknown): string[] {
     return value.flatMap(flattenStringIds);
   }
   return typeof value === "string" && value.trim() ? [value] : [];
+}
+
+function uniqueStringIds(values: string[]) {
+  return [...new Set(values.filter((value) => value.trim()))];
 }
 
 function asString(value: unknown) {
