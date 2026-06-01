@@ -15,16 +15,12 @@ export type AiTokenBudgetStage =
   | "agent_final_result"
   | "agent_response_writer"
   | "agent_summary_update"
-  | "chat_intent_resolution"
-  | "reference_resolution"
   | "exercise_candidate_selection"
-  | "chat_final_response"
   | "conversation_summary_update"
   | "exercise_recommendation_generation"
   | "workout_plan_intent_extraction"
   | "workout_plan_draft_generation"
-  | "workout_plan_draft_repair"
-  | "deterministic_response";
+  | "workout_plan_draft_repair";
 
 export type AiTokenBudgetStageStatus = "planned" | "executed" | "skipped";
 
@@ -37,10 +33,7 @@ export type AiPromptModuleId =
   | "agent_response_writer"
   | "agent_summary_update"
   | "conversation_summary_context"
-  | "chat_intent_resolution"
-  | "chat_final_response"
   | "exercise_candidate_constraints"
-  | "reference_resolution_boundary"
   | "user_feedback_memory"
   | "exercise_recommendation_generation"
   | "workout_plan_intent_extraction"
@@ -118,8 +111,8 @@ export function createModelVisibleContextSummary(input: {
     latestUserMessageChars: input.latestUserMessage.trim().length,
     usesFullHistory: false,
     notes: [
-      "历史上下文只允许来自 conversationSummary。",
-      "本轮模型输入只包含最新用户消息。",
+      "独立 AI API 的兼容上下文只允许来自 conversationSummary。",
+      "本轮模型输入只包含最新用户消息和服务端传入的结构化材料。",
       ...(input.notes ?? []),
     ],
   };
@@ -169,71 +162,6 @@ export function createCandidateTrimSummary(input: {
     visibleFields: [...(input.visibleFields ?? modelVisibleExerciseCandidateFields)],
     reason: input.reason,
   };
-}
-
-export function createChatTokenBudgetDecision(input: {
-  intentType?: string;
-  needsExerciseContext: boolean;
-  hasAssistantAction: boolean;
-  latestUserMessage: string;
-  conversationSummary: string;
-  candidateTrim?: CandidateTrimSummary;
-  deterministicReplyReason?: string;
-  summarySkipReason?: string | null;
-}): AiTokenBudgetDecision {
-  const context = createModelVisibleContextSummary({
-    conversationSummary: input.conversationSummary,
-    latestUserMessage: input.latestUserMessage,
-  });
-  const isDeterministic = Boolean(input.deterministicReplyReason);
-
-  return createDecision({
-    route: "/api/chat",
-    intentType: input.intentType,
-    modelVisibleContext: context,
-    candidateTrim: input.candidateTrim,
-    stages: [
-      stage("chat_intent_resolution", "executed", context, {
-        model: "deepseek-v4-flash",
-        promptModules: ["base_safety", "conversation_summary_context", "chat_intent_resolution"],
-      }),
-      stage("reference_resolution", "executed", context, {
-        promptModules: ["reference_resolution_boundary"],
-      }),
-      stage(
-        "exercise_candidate_selection",
-        input.needsExerciseContext ? "executed" : "skipped",
-        context,
-        {
-          skipReason: input.needsExerciseContext ? undefined : "本轮意图不需要动作库 grounding。",
-          promptModules: input.needsExerciseContext ? ["exercise_candidate_constraints"] : [],
-          candidateTrim: input.candidateTrim,
-        },
-      ),
-      stage("chat_final_response", isDeterministic ? "skipped" : "planned", context, {
-        model: isDeterministic ? undefined : "deepseek-v4-flash",
-        skipReason: input.deterministicReplyReason,
-        promptModules: isDeterministic
-          ? []
-          : resolveChatCompletionPromptModules(input.needsExerciseContext),
-        candidateTrim: input.candidateTrim,
-      }),
-      stage("deterministic_response", isDeterministic ? "executed" : "skipped", context, {
-        skipReason: isDeterministic ? undefined : "本轮需要模型生成自然语言回复。",
-        promptModules: [],
-      }),
-      stage(
-        "conversation_summary_update",
-        input.summarySkipReason ? "skipped" : "planned",
-        context,
-        {
-          model: input.summarySkipReason ? undefined : "deepseek-v4-flash",
-          skipReason: input.summarySkipReason ?? undefined,
-          promptModules: input.summarySkipReason ? [] : ["conversation_summary_update"],
-        },
-      ),
-    ],
-  });
 }
 
 export function createAgentChatTokenBudgetDecision(input: {
@@ -405,22 +333,6 @@ export function getStageDecision(
   stageName: AiTokenBudgetStage,
 ) {
   return decision?.stages.find((item) => item.stage === stageName);
-}
-
-function resolveChatCompletionPromptModules(needsExerciseContext: boolean): AiPromptModuleId[] {
-  const modules: AiPromptModuleId[] = [
-    "base_safety",
-    "conversation_summary_context",
-    "chat_final_response",
-    "reference_resolution_boundary",
-    "user_feedback_memory",
-  ];
-
-  if (needsExerciseContext) {
-    modules.push("exercise_candidate_constraints");
-  }
-
-  return modules;
 }
 
 function createDecision(input: {

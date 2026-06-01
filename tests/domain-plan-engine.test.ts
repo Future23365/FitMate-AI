@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  buildPlanStrategyFromChatIntent,
+  buildPlanStrategyFromWorkoutIntent,
   expandDomainPlan,
   validatePlanDraftAgainstStrategy,
 } from "@/lib/server/workout-plans/domain-plan-engine";
@@ -14,7 +14,7 @@ import {
 
 describe("DomainPlanEngine", () => {
   it("expands a referenced routine into a three-week schedule preview", () => {
-    const strategy = buildPlanStrategyFromChatIntent({
+    const strategy = buildPlanStrategyFromWorkoutIntent({
       intent: createWorkoutPlanIntent({
         intentType: "plan",
         weeklyFrequency: 3,
@@ -62,7 +62,7 @@ describe("DomainPlanEngine", () => {
   });
 
   it("uses conservative intensity for four sessions per week without increasing volume", () => {
-    const strategy = buildPlanStrategyFromChatIntent({
+    const strategy = buildPlanStrategyFromWorkoutIntent({
       intent: createWorkoutPlanIntent({
         intentType: "plan",
         weeklyFrequency: 4,
@@ -114,7 +114,7 @@ describe("DomainPlanEngine", () => {
       focus: "背部",
       cycleDayIndex: 2,
     };
-    const strategy = buildPlanStrategyFromChatIntent({
+    const strategy = buildPlanStrategyFromWorkoutIntent({
       intent: createWorkoutPlanIntent({
         intentType: "plan",
         weeklyFrequency: 2,
@@ -162,7 +162,7 @@ describe("DomainPlanEngine", () => {
   });
 
   it("keeps explicit resolved horizon separate from weekly frequency", () => {
-    const strategy = buildPlanStrategyFromChatIntent({
+    const strategy = buildPlanStrategyFromWorkoutIntent({
       intent: createWorkoutPlanIntent({
         intentType: "plan",
         calendarHorizonDays: 5,
@@ -194,7 +194,7 @@ describe("DomainPlanEngine", () => {
   });
 
   it("marks default plan horizon as a user-visible assumption", () => {
-    const strategy = buildPlanStrategyFromChatIntent({
+    const strategy = buildPlanStrategyFromWorkoutIntent({
       intent: createWorkoutPlanIntent({
         intentType: "plan",
         calendarHorizonDays: undefined,
@@ -219,7 +219,7 @@ describe("DomainPlanEngine", () => {
   });
 
   it("rejects drafts that conflict with the resolved PlanStrategy horizon", () => {
-    const strategy = buildPlanStrategyFromChatIntent({
+    const strategy = buildPlanStrategyFromWorkoutIntent({
       intent: createWorkoutPlanIntent({
         intentType: "plan",
         calendarHorizonDays: 5,

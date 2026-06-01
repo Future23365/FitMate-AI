@@ -124,53 +124,6 @@
 - **THEN** 系统 MAY 不恢复该旧草稿卡片
 - **AND** 系统 MUST NOT 为旧草稿新增兼容转换层
 
-### Requirement: 明确时长的本次训练请求必须触发 routine
-
-当用户提供训练目标、单次训练时长，并说明器械或场地条件时，聊天意图解析 SHALL 将该请求表达为单次训练编排 `routine`，不得把顶层 `type` 表达为 `exercise_recommendation`。
-
-#### Scenario: 用户提供目标时长和器械条件
-
-- **WHEN** 用户输入“练腿，20分钟，没有器械”
-- **THEN** 意图解析结果 MUST 使用顶层 `type = "routine"`
-- **AND** `workoutIntent.intentType` MUST 为 `routine`
-- **AND** `canTriggerAction` MUST 为 `true`
-- **AND** 系统 MUST 触发 `workout_routine` 内部动作事件
-
-#### Scenario: 动作推荐请求没有本次训练编排语义
-
-- **WHEN** 用户只要求推荐某类动作，例如“推荐几个练腿动作”
-- **THEN** 意图解析结果 MAY 使用顶层 `type = "exercise_recommendation"`
-- **AND** 系统 MUST NOT 因为目标部位存在而强制触发 `workout_routine`
-
-### Requirement: 聊天意图解析不得返回互相冲突的动作类型
-
-聊天意图解析 SHALL 让顶层 `type` 与 `workoutIntent.intentType` 表达一致的用户意图，避免同一次回复同时表达动作推荐和单次训练编排。
-
-#### Scenario: 顶层类型和训练意图冲突
-
-- **WHEN** 用户请求已经满足单次训练编排条件
-- **THEN** 意图解析结果 MUST NOT 返回顶层 `type = "exercise_recommendation"` 且 `workoutIntent.intentType = "routine"` 的混合语义作为最终意图
-
-### Requirement: 经验未明确时 routine 必须默认推送简单编排
-
-当用户提出单次训练编排需求，并且目标、单次时长、器械或场地条件已经足够时，系统 SHALL 在经验未明确时默认按简单/新手友好的方式触发 `workout_routine`。
-
-#### Scenario: 用户补充无器械但没有说明经验
-
-- **WHEN** 对话上下文已经包含训练目标和单次训练时长
-- **AND** 用户补充“我没有器械”或等价的无器械条件
-- **AND** 意图解析结果为 `routine`
-- **AND** `missingActionFields` 包含 `experience`
-- **AND** 动作候选状态为 `enough` 或 `limited_but_usable`
-- **THEN** 系统 MUST 触发 `workout_routine` 内部动作事件
-- **AND** 生成结果 MUST 使用简单/新手友好的训练强度和动作选择
-
-#### Scenario: 经验缺失不得覆盖候选不足阻断
-
-- **WHEN** 意图解析结果为 `routine`
-- **AND** 动作候选状态为 `insufficient`
-- **THEN** 系统 MUST NOT 因默认经验策略强行触发 `workout_routine`
-
 ### Requirement: Routine 校验失败必须可恢复
 
 聊天推送单次 routine 时，系统 SHALL 将违反用户明确约束的可调整契约失败转成自动修复或继续对话引导。训练合理性 warning 不得触发失败恢复。
@@ -216,4 +169,19 @@
 - **AND** routine 草稿实际估算与该值不一致
 - **THEN** 系统 MUST NOT 因该不一致阻止卡片展示
 - **AND** 系统 MAY 在 trace 中记录 warning
+
+### Requirement: Routine 生成必须由 Agent draft 工具触发
+系统 SHALL 让聊天 routine 生成从 Agent routine draft / validation / policy / persistence 工具链触发，而不是从旧聊天意图、内部动作事件或 `workoutIntent` 触发。
+
+#### Scenario: 用户请求单次训练
+- **WHEN** Agent 判断用户请求应生成单次 routine
+- **THEN** Agent MUST 通过 routine draft 工具、候选集合、Validator 和 Policy 形成可展示结果
+- **AND** `AgentExecutionResult` MUST 引用对应 tool result、validationId、policyDecisionId 或 revisionId
+- **AND** 系统 MUST NOT 通过旧 `workout_routine` intent 字段独立触发 routine 卡片
+
+#### Scenario: 明确时长
+- **WHEN** 用户给出明确训练时长
+- **THEN** Agent routine 输入 MUST 保留该时长和字段来源
+- **AND** routine 校验 MUST 验证草稿接近目标可执行时长
+- **AND** 系统 MUST NOT 从旧 `workoutIntent.sessionMinutes` 读取该字段作为生产事实源
 

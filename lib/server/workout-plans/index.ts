@@ -41,7 +41,7 @@ export {
 } from "@/lib/shared/workout-plans/plan-strategy-schema";
 
 export {
-  buildPlanStrategyFromChatIntent,
+  buildPlanStrategyFromWorkoutIntent,
   expandDomainPlan,
   getDraftExerciseIds,
   validatePlanDraftAgainstStrategy,

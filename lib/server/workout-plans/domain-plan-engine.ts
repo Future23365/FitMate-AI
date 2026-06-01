@@ -51,8 +51,8 @@ export type DomainPlanEngineResult =
       strategy: PlanStrategy;
     };
 
-// 从聊天意图和引用解析结果生成 PlanStrategy，确保后续长期计划只由领域引擎展开。
-export function buildPlanStrategyFromChatIntent(input: {
+// 从结构化训练意图和引用解析结果生成 PlanStrategy，确保后续长期计划只由领域引擎展开。
+export function buildPlanStrategyFromWorkoutIntent(input: {
   intent: WorkoutPlanIntent;
   latestUserMessage: string;
   referenceResolution?: Extract<ReferenceResolution, { status: "resolved" }>;

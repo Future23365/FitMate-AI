@@ -3,61 +3,17 @@
 ## Purpose
 TBD - created by archiving change allow-goal-only-exercise-recommendation. Update Purpose after archive.
 ## Requirements
-### Requirement: 目标明确的动作推荐必须触发内部推荐事件
+### Requirement: 动作推荐必须由 Agent 执行结果触发
+系统 SHALL 让动作推荐卡片由 Agent 工具调用和 `AgentExecutionResult` 触发，而不是由旧内部推荐事件、resolved intent 或 `workoutIntent` 触发。
 
-当用户请求某个训练目标、身体部位或动作类别的纯动作推荐，且意图解析没有要求先展示建议追问时，系统 SHALL 在动作候选可用时触发 `exercise_recommendation` 内部动作事件，即使用户没有说明器械、场地或训练时长。
+#### Scenario: 用户请求动作推荐
+- **WHEN** Agent 判断本轮应返回动作推荐
+- **THEN** Agent MUST 调用动作检索工具获得 candidateSetId 或等价候选集合
+- **AND** `AgentExecutionResult` MUST 表达推荐结果或阻断原因
+- **AND** 系统 MUST NOT 使用旧 `exercise_recommendation` intent 字段独立触发推荐卡片
 
-#### Scenario: 用户只说明训练部位
-
-- **WHEN** 用户输入“我想练腿”
-- **AND** 意图解析结果使用顶层 `type = "exercise_recommendation"`
-- **AND** 意图解析结果没有返回需要用户补充信息的 `suggestedReplies`
-- **AND** 动作候选状态为 `enough` 或 `limited_but_usable`
-- **THEN** 系统 MUST 触发 `exercise_recommendation` 内部动作事件
-- **AND** 系统 MUST NOT 因为缺少 `equipmentOrLocation` 阻断动作推荐
-
-#### Scenario: 用户只要求推荐动作
-
-- **WHEN** 用户输入“推荐几个练腿动作”
-- **AND** 意图解析结果没有返回需要用户补充信息的 `suggestedReplies`
-- **AND** 动作候选状态为 `enough` 或 `limited_but_usable`
-- **THEN** 系统 MUST 触发 `exercise_recommendation` 内部动作事件
-- **AND** 系统 MUST NOT 强制要求用户先提供单次训练时长
-
-#### Scenario: 推荐卡片生成不依赖必填图片字段
-
-- **WHEN** 系统已经触发 `exercise_recommendation`
-- **AND** 候选动作包含合法动作 ID、名称、肌群和器械信息
-- **AND** 候选动作没有可用图片 URL
-- **THEN** 系统 MUST 生成可展示的动作推荐卡片
-- **AND** 系统 MUST NOT 在 stream 前抛出运行时异常
-
-#### Scenario: 意图解析要求先追问
-
-- **WHEN** 意图解析结果使用顶层 `type = "exercise_recommendation"`
-- **AND** 意图解析结果返回 `canTriggerAction = false`
-- **AND** 意图解析结果返回非空 `suggestedReplies`
-- **THEN** 系统 MUST NOT 触发 `exercise_recommendation` 内部动作事件
-- **AND** 系统 MUST 向用户保留这些建议回复
-
-### Requirement: 动作候选不足时不得触发推荐事件
-
-当动作候选状态不足以支撑推荐时，系统 SHALL 继续阻断 `exercise_recommendation` 内部动作事件，避免前端推送空结果或误导性结果。
-
-#### Scenario: 动作候选不足
-
-- **WHEN** 意图解析结果使用顶层 `type = "exercise_recommendation"`
-- **AND** 动作候选状态为 `insufficient`
-- **THEN** 系统 MUST NOT 触发 `exercise_recommendation` 内部动作事件
-
-### Requirement: 动作推荐不得升级为单次训练编排
-
-当用户只请求动作推荐且没有提出训练流程、组数次数、休息、顺序或本次训练安排时，系统 SHALL 保持 `exercise_recommendation` 语义，不得因为目标部位明确而触发 `workout_routine`。
-
-#### Scenario: 纯动作推荐保持推荐语义
-
-- **WHEN** 用户输入“我想练腿”
-- **AND** 用户没有提供本次训练编排语义
-- **THEN** 系统 MUST 使用 `exercise_recommendation` 内部动作事件
-- **AND** 系统 MUST NOT 触发 `workout_routine` 内部动作事件
+#### Scenario: 候选不足
+- **WHEN** 动作检索工具返回候选不足或无法满足约束
+- **THEN** Agent MUST 返回澄清、blocked、failed 或可恢复建议
+- **AND** 系统 MUST NOT 通过旧推荐事件展示未通过候选边界的卡片
 

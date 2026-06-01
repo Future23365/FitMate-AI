@@ -42,7 +42,7 @@ import {
   type WorkoutPlanValidationResult,
 } from "./workout-plan-validation-service";
 import {
-  buildPlanStrategyFromChatIntent,
+  buildPlanStrategyFromWorkoutIntent,
   expandDomainPlan,
 } from "./domain-plan-engine";
 import {
@@ -481,7 +481,7 @@ async function maybeGenerateDomainPlanFromReference(input: {
     return null;
   }
 
-  const strategy = buildPlanStrategyFromChatIntent({
+  const strategy = buildPlanStrategyFromWorkoutIntent({
     intent: input.intent,
     latestUserMessage: input.request.latestUserMessage,
     referenceResolution: input.request.referenceResolution,
