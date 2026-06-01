@@ -38,6 +38,10 @@ import {
   type ConversationSummaryContext,
   type FitnessConversationContext,
 } from "@/lib/shared/chat/fitness-conversation-context";
+import type {
+  AgentActivityStage,
+  AgentActivityStatus,
+} from "@/lib/shared/chat/agent-activity";
 import type { AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
 import {
   createFinalDecision,
@@ -263,6 +267,63 @@ export function encodeChatStreamEvent(type: string, delta = "", metadata?: Recor
   return new TextEncoder().encode(`${JSON.stringify({ type, delta, ...metadata })}\n`);
 }
 
+type AgentStreamEvent = {
+  type: string;
+  metadata: Record<string, unknown>;
+};
+
+export type AgentActivityStreamEventInput = {
+  stage: AgentActivityStage;
+  status?: AgentActivityStatus;
+  messageKey?: AgentActivityStage;
+  sequence: number;
+};
+
+// createAgentActivityStreamEvent 是生产聊天流的唯一 activity payload 构造点，只输出 UI 安全白名单字段。
+export function createAgentActivityStreamEvent(input: AgentActivityStreamEventInput): AgentStreamEvent {
+  const metadata: Record<string, unknown> = {
+    stage: input.stage,
+    status: input.status ?? "active",
+    sequence: input.sequence,
+  };
+
+  if (input.messageKey) {
+    metadata.messageKey = input.messageKey;
+  }
+
+  return {
+    type: "agent_activity",
+    metadata,
+  };
+}
+
+function createAgentActivityStreamWriter(controller: ReadableStreamDefaultController<Uint8Array>) {
+  let sequence = 0;
+  function reserveSequence() {
+    sequence += 1;
+    return sequence;
+  }
+
+  return {
+    emit(stage: AgentActivityStage, status: AgentActivityStatus = "active") {
+      const event = createAgentActivityStreamEvent({
+        stage,
+        status,
+        messageKey: stage,
+        sequence: reserveSequence(),
+      });
+      controller.enqueue(encodeChatStreamEvent(event.type, "", event.metadata));
+    },
+    reserveSequence,
+  };
+}
+
+function createChatStreamErrorMessage(error: unknown) {
+  return error instanceof Error && error.message.trim()
+    ? error.message
+    : "聊天请求失败，请稍后重试。";
+}
+
 export async function createAiChatResponse({
   apiKey,
   request,
@@ -327,103 +388,17 @@ export async function createAiChatResponse({
   });
 }
 
-async function createAgentOrchestratedChatResponse(input: {
+function createAgentOrchestratedChatResponse(input: {
   apiKey: string;
   request: PreparedAiChatRequest;
   trace: AiTraceLogger;
   currentUser: CurrentUser;
 }) {
-  const user = await getCurrentUser(input.currentUser);
-  const memoryState = await buildConversationMemoryState({
-    userId: user.id,
-    latestUserMessage: input.request.conversationSummaryContext.latestUserMessage,
-  });
-  const context = buildAgentContextPackage(input.request, memoryState);
-  const tokenBudgetDecision = createAgentChatTokenBudgetDecision({
-    context,
-    summaryUpdateSkipped: true,
-    summarySkipReason: "Agent 主链不依赖 conversationSummary，本轮 summary 更新降级为可选后台材料。",
-  });
-  const registry = createToolFirstAgentToolRegistry();
-
-  traceTokenBudgetDecision(input.trace, tokenBudgetDecision);
-
-  const agentRun = await runAgentOrchestrator({
-    userId: user.id,
-    sessionId: input.request.conversationId ?? "default-chat-session",
-    context,
-    registry,
-    decideNext: createDeepSeekAgentDecisionProvider({
-      apiKey: input.apiKey,
-      trace: input.trace,
-    }),
-    trace: input.trace,
-  });
-  let agentResult = agentRun.result;
-  let projection = projectAgentExecutionResultToResponse({
-    result: agentResult,
-    toolResults: agentRun.state.toolResults,
-  });
-  let projectionValidation = validateAgentResponseProjection({
-    result: agentResult,
-    toolResults: agentRun.state.toolResults,
-  });
-
-  if (!projectionValidation.ok) {
-    agentResult = {
-      status: "failed",
-      failureCode: "runtime_contract_violation",
-      recoverySuggestions: [],
-      usedToolResultIds: [],
-    };
-    projection = projectAgentExecutionResultToResponse({
-      result: agentResult,
-      toolResults: agentRun.state.toolResults,
-    });
-    projectionValidation = validateAgentResponseProjection({
-      result: agentResult,
-      toolResults: agentRun.state.toolResults,
-    });
-  }
-
-  input.trace.addStep({
-    name: "Agent Response Writer 投影结果",
-    type: "response_write",
-    status: projectionValidation.ok ? "success" : "failed",
-    input: {
-      agentExecutionResult: agentResult,
-      toolResultIds: agentRun.state.toolResults.map((toolResult) => toolResult.toolResultId),
-      resourceIds: agentRun.state.toolResults.map((toolResult) => summarizeToolResultResourceIds(toolResult)),
-    },
-    output: {
-      projection,
-      projectionValidation,
-    },
-    metadata: {
-      aiStage: "agent_response_writer",
-      aiStageStatus: "executed",
-      promptModules: ["agent_response_writer"],
-      visibleToolResultIds: agentRun.state.toolResults.map((toolResult) => toolResult.toolResultId),
-      usedToolResultIds: "usedToolResultIds" in agentResult ? agentResult.usedToolResultIds : [],
-      responseWriterInput: {
-        agentStatus: agentResult.status,
-        projectionStatus: projectionValidation.ok ? "valid" : "invalid",
-        replyChars: projection.reply.length,
-      },
-    },
-  });
-
   return createAgentResponseStream({
     apiKey: input.apiKey,
     request: input.request,
     trace: input.trace,
-    userId: user.id,
-    agentResult,
-    toolResults: agentRun.state.toolResults,
-    projection,
-    context,
-    tokenBudgetDecision,
-    replayFixture: agentRun.replayFixture,
+    currentUser: input.currentUser,
   });
 }
 
@@ -857,103 +832,200 @@ function createAgentResponseStream(input: {
   apiKey: string;
   request: PreparedAiChatRequest;
   trace: AiTraceLogger;
-  userId: string;
-  agentResult: AgentExecutionResult;
-  toolResults: AgentToolResultRecord[];
-  projection: AgentResponseProjection;
-  context: ContextPackage;
-  tokenBudgetDecision: AiTokenBudgetDecision;
-  replayFixture: AgentReplayFixture;
+  currentUser: CurrentUser;
 }) {
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      for (const event of buildAgentStreamEvents({
-        agentResult: input.agentResult,
-        projection: input.projection,
-        replayFixture: input.replayFixture,
-      })) {
-        controller.enqueue(encodeChatStreamEvent(event.type, "", event.metadata));
-      }
+      const activity = createAgentActivityStreamWriter(controller);
 
-      if (input.projection.assistantSuggestions.length > 0) {
+      try {
+        activity.emit("preparing_context");
+        const user = await getCurrentUser(input.currentUser);
+        const memoryState = await buildConversationMemoryState({
+          userId: user.id,
+          latestUserMessage: input.request.conversationSummaryContext.latestUserMessage,
+        });
+        const context = buildAgentContextPackage(input.request, memoryState);
+        const tokenBudgetDecision = createAgentChatTokenBudgetDecision({
+          context,
+          summaryUpdateSkipped: true,
+          summarySkipReason: "Agent 主链不依赖 conversationSummary，本轮 summary 更新降级为可选后台材料。",
+        });
+        const registry = createToolFirstAgentToolRegistry();
+
+        traceTokenBudgetDecision(input.trace, tokenBudgetDecision);
+
+        const agentRun = await runAgentOrchestrator({
+          userId: user.id,
+          sessionId: input.request.conversationId ?? "default-chat-session",
+          context,
+          registry,
+          decideNext: createDeepSeekAgentDecisionProvider({
+            apiKey: input.apiKey,
+            trace: input.trace,
+          }),
+          onActivity: ({ stage, status }) => activity.emit(stage, status),
+          trace: input.trace,
+        });
+        let agentResult = agentRun.result;
+        let projection = projectAgentExecutionResultToResponse({
+          result: agentResult,
+          toolResults: agentRun.state.toolResults,
+        });
+        let projectionValidation = validateAgentResponseProjection({
+          result: agentResult,
+          toolResults: agentRun.state.toolResults,
+        });
+
+        if (!projectionValidation.ok) {
+          activity.emit("validating_result");
+          agentResult = {
+            status: "failed",
+            failureCode: "runtime_contract_violation",
+            recoverySuggestions: [],
+            usedToolResultIds: [],
+          };
+          projection = projectAgentExecutionResultToResponse({
+            result: agentResult,
+            toolResults: agentRun.state.toolResults,
+          });
+          projectionValidation = validateAgentResponseProjection({
+            result: agentResult,
+            toolResults: agentRun.state.toolResults,
+          });
+        }
+
+        input.trace.addStep({
+          name: "Agent Response Writer 投影结果",
+          type: "response_write",
+          status: projectionValidation.ok ? "success" : "failed",
+          input: {
+            agentExecutionResult: agentResult,
+            toolResultIds: agentRun.state.toolResults.map((toolResult) => toolResult.toolResultId),
+            resourceIds: agentRun.state.toolResults.map((toolResult) => summarizeToolResultResourceIds(toolResult)),
+          },
+          output: {
+            projection,
+            projectionValidation,
+          },
+          metadata: {
+            aiStage: "agent_response_writer",
+            aiStageStatus: "executed",
+            promptModules: ["agent_response_writer"],
+            visibleToolResultIds: agentRun.state.toolResults.map((toolResult) => toolResult.toolResultId),
+            usedToolResultIds: "usedToolResultIds" in agentResult ? agentResult.usedToolResultIds : [],
+            responseWriterInput: {
+              agentStatus: agentResult.status,
+              projectionStatus: projectionValidation.ok ? "valid" : "invalid",
+              replyChars: projection.reply.length,
+            },
+          },
+        });
+
+        for (const event of buildAgentStreamEvents({
+          agentResult,
+          projection,
+          replayFixture: agentRun.replayFixture,
+          activitySequence: activity.reserveSequence(),
+        })) {
+          controller.enqueue(encodeChatStreamEvent(event.type, "", event.metadata));
+        }
+
+        if (projection.assistantSuggestions.length > 0) {
+          controller.enqueue(
+            encodeChatStreamEvent("assistant_suggestions", "", {
+              assistantSuggestions: projection.assistantSuggestions,
+            }),
+          );
+          controller.enqueue(
+            encodeChatStreamEvent("suggested_replies", "", {
+              suggestedReplies: projection.assistantSuggestions.map((suggestion) => suggestion.message),
+            }),
+          );
+        }
+
+        controller.enqueue(encodeChatStreamEvent("content", projection.reply));
+
+        for (const artifactEvent of await buildAgentArtifactStreamEvents({
+          userId: user.id,
+          result: agentResult,
+          toolResults: agentRun.state.toolResults,
+          projection,
+          context,
+        })) {
+          controller.enqueue(encodeChatStreamEvent(artifactEvent.type, "", artifactEvent.metadata));
+        }
+
+        activity.emit("finalizing");
+        const summaryUpdate = await updateConversationSummary({
+          apiKey: input.apiKey,
+          previousSummary: input.request.conversationSummaryContext.summary,
+          latestUserMessage: input.request.conversationSummaryContext.latestUserMessage,
+          assistantReply: projection.reply,
+          internalActionSummary: JSON.stringify({
+            agentExecutionResult: agentResult,
+            responseProjection: projection,
+          }),
+          trace: input.trace,
+          tokenBudgetDecision,
+        });
+
+        input.trace.addStep({
+          name: "Agent 聊天回复写入完成",
+          type: "response_write",
+          input: {
+            agentExecutionResult: agentResult,
+            responseProjection: projection,
+            usedToolResultIds: "usedToolResultIds" in agentResult ? agentResult.usedToolResultIds : [],
+          },
+          output: {
+            content: projection.reply,
+            contentLength: projection.reply.length,
+            conversationSummarySource: summaryUpdate.source,
+            agentStatus: agentResult.status,
+          },
+          metadata: {
+            aiStage: "agent_response_writer",
+            aiStageStatus: "executed",
+            visibleToolResultIds: agentRun.state.toolResults.map((toolResult) => toolResult.toolResultId),
+            usedToolResultIds: "usedToolResultIds" in agentResult ? agentResult.usedToolResultIds : [],
+            resourceIds: agentRun.state.toolResults.map((toolResult) => summarizeToolResultResourceIds(toolResult)),
+          },
+        });
+        input.trace.finish("success", createFinalDecision({
+          status: agentResult.status === "failed" ? "recoverable_failure" : "success",
+          responseType: "agent_execution_result_stream",
+          reason: "Tool-first AgentOrchestrator 已完成聊天主链执行。",
+          code: agentResult.status === "failed" ? agentResult.failureCode : undefined,
+        }));
         controller.enqueue(
-          encodeChatStreamEvent("assistant_suggestions", "", {
-            assistantSuggestions: input.projection.assistantSuggestions,
+          encodeChatStreamEvent("done", "", {
+            traceId: input.trace.id,
+            conversationSummary: summaryUpdate.summary,
+            agentRunId: agentRun.replayFixture.runId,
+            agentStatus: agentResult.status,
+            agentExecutionResult: agentResult,
+            responseProjection: projection,
+            dependencyGraph: agentRun.replayFixture.dependencyGraph,
+            legacyPathSkip: agentRun.replayFixture.legacyPathSkip,
           }),
         );
+      } catch (error) {
+        input.trace.finish("failed", createFinalDecision({
+          status: "recoverable_failure",
+          responseType: "agent_execution_result_stream",
+          reason: "Tool-first AgentOrchestrator 聊天主链执行失败。",
+          code: "agent_stream_failed",
+        }));
         controller.enqueue(
-          encodeChatStreamEvent("suggested_replies", "", {
-            suggestedReplies: input.projection.assistantSuggestions.map((suggestion) => suggestion.message),
+          encodeChatStreamEvent("error", createChatStreamErrorMessage(error), {
+            errorCode: "agent_stream_failed",
+            recoverable: true,
           }),
         );
+      } finally {
+        controller.close();
       }
-
-      controller.enqueue(encodeChatStreamEvent("content", input.projection.reply));
-
-      for (const artifactEvent of await buildAgentArtifactStreamEvents({
-        userId: input.userId,
-        result: input.agentResult,
-        toolResults: input.toolResults,
-        projection: input.projection,
-        context: input.context,
-      })) {
-        controller.enqueue(encodeChatStreamEvent(artifactEvent.type, "", artifactEvent.metadata));
-      }
-
-      const summaryUpdate = await updateConversationSummary({
-        apiKey: input.apiKey,
-        previousSummary: input.request.conversationSummaryContext.summary,
-        latestUserMessage: input.request.conversationSummaryContext.latestUserMessage,
-        assistantReply: input.projection.reply,
-        internalActionSummary: JSON.stringify({
-          agentExecutionResult: input.agentResult,
-          responseProjection: input.projection,
-        }),
-        trace: input.trace,
-        tokenBudgetDecision: input.tokenBudgetDecision,
-      });
-
-      input.trace.addStep({
-        name: "Agent 聊天回复写入完成",
-        type: "response_write",
-        input: {
-          agentExecutionResult: input.agentResult,
-          responseProjection: input.projection,
-          usedToolResultIds: "usedToolResultIds" in input.agentResult ? input.agentResult.usedToolResultIds : [],
-        },
-        output: {
-          content: input.projection.reply,
-          contentLength: input.projection.reply.length,
-          conversationSummarySource: summaryUpdate.source,
-          agentStatus: input.agentResult.status,
-        },
-        metadata: {
-          aiStage: "agent_response_writer",
-          aiStageStatus: "executed",
-          visibleToolResultIds: input.toolResults.map((toolResult) => toolResult.toolResultId),
-          usedToolResultIds: "usedToolResultIds" in input.agentResult ? input.agentResult.usedToolResultIds : [],
-          resourceIds: input.toolResults.map((toolResult) => summarizeToolResultResourceIds(toolResult)),
-        },
-      });
-      input.trace.finish("success", createFinalDecision({
-        status: input.agentResult.status === "failed" ? "recoverable_failure" : "success",
-        responseType: "agent_execution_result_stream",
-        reason: "Tool-first AgentOrchestrator 已完成聊天主链执行。",
-        code: input.agentResult.status === "failed" ? input.agentResult.failureCode : undefined,
-      }));
-      controller.enqueue(
-        encodeChatStreamEvent("done", "", {
-          traceId: input.trace.id,
-          conversationSummary: summaryUpdate.summary,
-          agentRunId: input.replayFixture.runId,
-          agentStatus: input.agentResult.status,
-          agentExecutionResult: input.agentResult,
-          responseProjection: input.projection,
-          dependencyGraph: input.replayFixture.dependencyGraph,
-          legacyPathSkip: input.replayFixture.legacyPathSkip,
-        }),
-      );
-      controller.close();
     },
   });
 
@@ -966,13 +1038,20 @@ function createAgentResponseStream(input: {
   });
 }
 
-// buildAgentStreamEvents 是生产聊天流的唯一执行结果入口，不再派生 assistant_action 或 intent_resolved。
+// buildAgentStreamEvents 是生产聊天流的执行结果入口，activity 只暴露粗粒度 UI 阶段。
 export function buildAgentStreamEvents(input: {
   agentResult: AgentExecutionResult;
   projection: AgentResponseProjection;
   replayFixture: AgentReplayFixture;
-}): Array<{ type: string; metadata: Record<string, unknown> }> {
+  activitySequence?: number;
+}): AgentStreamEvent[] {
   return [
+    createAgentActivityStreamEvent({
+      stage: "writing_reply",
+      status: "active",
+      messageKey: "writing_reply",
+      sequence: input.activitySequence ?? 1,
+    }),
     {
       type: "agent_execution_result",
       metadata: {

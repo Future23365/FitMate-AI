@@ -10,6 +10,7 @@ import { ResponsiveRightSidebar } from "@/components/app/responsive-right-sideba
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { useAutoHideScrollbar } from "@/components/app/use-auto-hide-scrollbar";
 import { ExerciseRecommendationCard } from "@/features/exercises/components/exercise-recommendation-card";
+import { AgentActivityIndicator } from "@/features/chat/components/agent-activity-indicator";
 import { useChatController } from "@/features/chat/hooks/use-chat-controller";
 import { getMessageAssistantSuggestions } from "@/features/chat/lib/assistant-suggestions";
 import {
@@ -119,27 +120,6 @@ function MarkdownContent({ content }: { content: string }) {
     >
       {content}
     </ReactMarkdown>
-  );
-}
-
-function ChatThinkingIndicator({ showThinkingIcon }: { showThinkingIcon: boolean }) {
-  const toneClass = showThinkingIcon
-    ? "rounded-xl border border-primary/15 bg-primary-soft/70 px-md py-sm text-primary"
-    : "px-xs py-[2px] text-muted";
-  const dotClass = showThinkingIcon ? "bg-primary" : "bg-outline-variant";
-
-  return (
-    <div className={`flex items-center gap-sm ${toneClass}`}>
-      {showThinkingIcon ? (
-        <SymbolIcon className="animate-pulse text-[18px]">psychology</SymbolIcon>
-      ) : null}
-      <span className="font-body-md text-body-md">正在思考</span>
-      <span className="flex items-center gap-[3px]" aria-hidden="true">
-        <span className={`h-1.5 w-1.5 animate-bounce rounded-full ${dotClass} [animation-delay:-0.2s]`} />
-        <span className={`h-1.5 w-1.5 animate-bounce rounded-full ${dotClass} [animation-delay:-0.1s]`} />
-        <span className={`h-1.5 w-1.5 animate-bounce rounded-full ${dotClass}`} />
-      </span>
-    </div>
   );
 }
 
@@ -356,6 +336,7 @@ function HomeRightSidebar() {
 export function ChatPage() {
   const {
     autoRecommendationGenerating,
+    agentActivity,
     autoPlanGenerating,
     bubbleExerciseRecommendations,
     bubblePlanExercises,
@@ -482,6 +463,17 @@ export function ChatPage() {
             <div className="mx-auto flex max-w-4xl flex-col gap-md">
               {messages.map((message) => {
                 const isUserMessage = message.role === "user";
+                const isPendingAssistantPlaceholder =
+                  message.role === "assistant" &&
+                  message.content.trim().length === 0 &&
+                  !bubblePlans[message.id] &&
+                  !bubbleRoutines[message.id] &&
+                  !bubbleExerciseRecommendations[message.id] &&
+                  !bubblePlanErrors[message.id];
+
+                if (isPendingAssistantPlaceholder) {
+                  return null;
+                }
 
                 return (
                   <div
@@ -536,9 +528,7 @@ export function ChatPage() {
                                   <div className="markdown-answer">
                                     <MarkdownContent content={cleanContent} />
                                   </div>
-                                ) : (
-                                  <ChatThinkingIndicator showThinkingIcon={thinkingEnabled || message.isReasoning === true} />
-                                )}
+                                ) : null}
 
                                 {assistantSuggestions.length > 0 && (
                                   <div className="mt-md flex flex-wrap gap-sm">
@@ -660,47 +650,50 @@ export function ChatPage() {
         </div>
 
         <div className="app-shell-glass-soft border-t border-line/60 p-lg xl:p-xl">
-          <form className="mx-auto max-w-[850px]" onSubmit={handleSubmit}>
-            <div className="relative flex items-center">
-              <input
-                className="w-full rounded-xl border border-line bg-white py-md pl-md pr-[150px] font-body-md shadow-card outline-none transition-all placeholder:text-muted focus:border-primary focus:ring-4 focus:ring-primary/10 sm:pr-[210px]"
-                ref={chatInputRef}
-                onChange={(event) => setInput(event.target.value)}
-                placeholder="向 FitMate AI 提问..."
-                type="text"
-                value={input}
-              />
-              <button
-                aria-pressed={thinkingEnabled}
-                aria-label={thinkingEnabled ? "关闭思考模式" : "开启思考模式"}
-                className={`absolute right-[52px] flex h-9 items-center gap-xs rounded-full border px-sm font-label-sm text-label-sm shadow-sm transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 ${
-                  thinkingEnabled
-                    ? "border-primary/30 bg-primary-soft text-primary"
-                    : "border-line bg-white/90 text-muted hover:border-primary/30 hover:bg-panel-soft"
-                }`}
-                disabled={isLoading}
-                onClick={() => setThinkingEnabled((enabled) => !enabled)}
-                type="button"
-              >
-                <SymbolIcon className="text-[18px]">
-                  {thinkingEnabled ? "psychology" : "psychology_alt"}
-                </SymbolIcon>
-                <span className="hidden sm:inline">思考</span>
-                <span
-                  className={`h-1.5 w-1.5 rounded-full ${
-                    thinkingEnabled ? "bg-primary" : "bg-outline-variant"
-                  }`}
+          <div className="mx-auto max-w-[850px] space-y-sm">
+            <AgentActivityIndicator activity={agentActivity} />
+            <form onSubmit={handleSubmit}>
+              <div className="relative flex items-center">
+                <input
+                  className="w-full rounded-xl border border-line bg-white py-md pl-md pr-[150px] font-body-md shadow-card outline-none transition-all placeholder:text-muted focus:border-primary focus:ring-4 focus:ring-primary/10 sm:pr-[210px]"
+                  ref={chatInputRef}
+                  onChange={(event) => setInput(event.target.value)}
+                  placeholder="向 FitMate AI 提问..."
+                  type="text"
+                  value={input}
                 />
-              </button>
-              <button
-                className="absolute right-xs flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-white shadow-card transition-all hover:bg-primary-deep hover:shadow-lift active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={!canSubmitMessage}
-                type="submit"
-              >
-                <SymbolIcon>send</SymbolIcon>
-              </button>
-            </div>
-          </form>
+                <button
+                  aria-pressed={thinkingEnabled}
+                  aria-label={thinkingEnabled ? "关闭思考模式" : "开启思考模式"}
+                  className={`absolute right-[52px] flex h-9 items-center gap-xs rounded-full border px-sm font-label-sm text-label-sm shadow-sm transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 ${
+                    thinkingEnabled
+                      ? "border-primary/30 bg-primary-soft text-primary"
+                      : "border-line bg-white/90 text-muted hover:border-primary/30 hover:bg-panel-soft"
+                  }`}
+                  disabled={isLoading}
+                  onClick={() => setThinkingEnabled((enabled) => !enabled)}
+                  type="button"
+                >
+                  <SymbolIcon className="text-[18px]">
+                    {thinkingEnabled ? "psychology" : "psychology_alt"}
+                  </SymbolIcon>
+                  <span className="hidden sm:inline">思考</span>
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      thinkingEnabled ? "bg-primary" : "bg-outline-variant"
+                    }`}
+                  />
+                </button>
+                <button
+                  className="absolute right-xs flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-white shadow-card transition-all hover:bg-primary-deep hover:shadow-lift active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={!canSubmitMessage}
+                  type="submit"
+                >
+                  <SymbolIcon>send</SymbolIcon>
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       </main>
       <HomeRightSidebar />

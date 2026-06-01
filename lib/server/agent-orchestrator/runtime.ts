@@ -1,6 +1,10 @@
 import "server-only";
 
 import type { AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
+import type {
+  AgentActivityStage,
+  AgentActivityStatus,
+} from "@/lib/shared/chat/agent-activity";
 import { toUtcISOString } from "@/lib/shared/time/utc-date-time";
 
 import {
@@ -12,6 +16,7 @@ import {
   type AgentExecutionState,
   type AgentHardFailureCode,
   type AgentRuntimeLimits,
+  type AgentToolAccessLevel,
   type AgentToolCallRecord,
   type AgentToolDecision,
   type AgentToolDependencyKind,
@@ -42,6 +47,11 @@ export type AgentDecisionProvider = (
   input: AgentDecisionProviderInput,
 ) => Promise<unknown> | unknown;
 
+export type AgentRuntimeActivity = {
+  stage: AgentActivityStage;
+  status?: AgentActivityStatus;
+};
+
 export type RunAgentOrchestratorInput = {
   runId?: string;
   userId: string;
@@ -49,6 +59,8 @@ export type RunAgentOrchestratorInput = {
   context: ContextPackage;
   registry: AgentToolRegistry;
   decideNext: AgentDecisionProvider;
+  /** 面向聊天流的粗粒度活动回调，只允许输出用户安全的阶段枚举。 */
+  onActivity?: (activity: AgentRuntimeActivity) => void;
   limits?: Partial<AgentRuntimeLimits>;
   trace?: AiTraceLogger;
 };
@@ -123,6 +135,7 @@ export async function runAgentOrchestrator(
     const loopTurnId = createAgentId("loop_turn");
     const modelCallId = createAgentId("model_call");
     const visibleToolResultIds = state.toolResults.map((toolResult) => toolResult.toolResultId);
+    emitAgentRuntimeActivity(input, "analyzing_request");
     const rawDecision = await input.decideNext({
       state,
       registry: input.registry.listModelDefinitions(),
@@ -289,6 +302,7 @@ export async function runAgentOrchestrator(
       continue;
     }
 
+    emitAgentRuntimeActivity(input, mapToolToActivityStage(decision.toolName, tool.accessLevel));
     const parsedInput = tool.inputSchema.safeParse(decision.input);
     const startedAt = toUtcISOString(new Date());
     const callRecord: AgentToolCallRecord = {
@@ -444,6 +458,68 @@ export function createAgentReplayFixture(
     finalResult: state.finalResult,
     legacyPathSkip: createLegacyPathSkip(),
   };
+}
+
+// mapToolToActivityStage 将内部工具名压缩成用户可见的粗粒度活动阶段，避免生产流泄漏 toolName。
+function mapToolToActivityStage(
+  toolName: string,
+  accessLevel: AgentToolAccessLevel,
+): AgentActivityStage {
+  if (toolName === "searchExercises" || toolName === "getExerciseById") {
+    return "querying_exercises";
+  }
+
+  if (
+    toolName === "listRecentArtifacts" ||
+    toolName === "searchArtifacts" ||
+    toolName === "getArtifactPayload"
+  ) {
+    return "reading_artifacts";
+  }
+
+  if (
+    toolName === "generateRoutineDraft" ||
+    toolName === "generatePlanDraft" ||
+    toolName === "proposeWorkoutEditPlan" ||
+    toolName === "proposeWorkoutPatch"
+  ) {
+    return "generating_workout";
+  }
+
+  if (
+    toolName === "validateRoutineDraft" ||
+    toolName === "validatePlanDraft" ||
+    toolName === "validateWorkoutPatch" ||
+    toolName === "evaluatePolicy"
+  ) {
+    return "validating_result";
+  }
+
+  if (toolName === "saveConversationArtifactRevision") {
+    return "saving_result";
+  }
+
+  if (accessLevel === "generate" || accessLevel === "plan") {
+    return "generating_workout";
+  }
+
+  if (accessLevel === "validate") {
+    return "validating_result";
+  }
+
+  if (accessLevel === "write") {
+    return "saving_result";
+  }
+
+  return "analyzing_request";
+}
+
+function emitAgentRuntimeActivity(
+  input: RunAgentOrchestratorInput,
+  stage: AgentActivityStage,
+  status: AgentActivityStatus = "active",
+) {
+  input.onActivity?.({ stage, status });
 }
 
 function parseDecisionValue(value: unknown, registry: AgentToolRegistry) {

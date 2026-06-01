@@ -6,6 +6,7 @@ import {
   buildAgentDecisionModelInput,
   buildAgentStreamEvents,
   chatRequestSchema,
+  createAgentActivityStreamEvent,
   encodeChatStreamEvent,
   parseJsonObject,
   prepareAiChatRequest,
@@ -54,7 +55,7 @@ describe("chat service Agent-only contract", () => {
     expect(prepared).not.toHaveProperty("resolvedIntent");
   });
 
-  it("emits only Agent stream contract events without assistant_action or intent_resolved", () => {
+  it("emits Agent stream contract events without assistant_action or intent_resolved", () => {
     const events = buildAgentStreamEvents({
       agentResult: {
         status: "answered",
@@ -92,16 +93,51 @@ describe("chat service Agent-only contract", () => {
           assistantActionEvent: true,
         },
       },
+      activitySequence: 7,
     });
 
-    expect(events.map((event) => event.type)).toEqual(["agent_execution_result"]);
+    expect(events.map((event) => event.type)).toEqual(["agent_activity", "agent_execution_result"]);
     expect(events.map((event) => event.type)).not.toContain("assistant_action");
     expect(events.map((event) => event.type)).not.toContain("intent_resolved");
-    expect(events[0].metadata.legacyPathSkip).toMatchObject({
+    expect(events[0].metadata).toEqual({
+      stage: "writing_reply",
+      status: "active",
+      messageKey: "writing_reply",
+      sequence: 7,
+    });
+    expect(events[1].metadata.legacyPathSkip).toMatchObject({
       intentFirst: true,
       readonlyToolLoop: true,
       assistantActionEvent: true,
     });
+  });
+
+  it("builds user-safe activity events before user-visible content", () => {
+    const activity = createAgentActivityStreamEvent({
+      stage: "querying_exercises",
+      status: "active",
+      messageKey: "querying_exercises",
+      sequence: 1,
+      toolName: "searchExercises",
+      prompt: "hidden prompt",
+      resourceId: "candidate-set-1",
+      toolPayload: { query: "胸部" },
+    } as Parameters<typeof createAgentActivityStreamEvent>[0] & Record<string, unknown>);
+    const content = { type: "content", metadata: { delta: "hi" } };
+    const events = [activity, content];
+
+    expect(events.findIndex((event) => event.type === "agent_activity"))
+      .toBeLessThan(events.findIndex((event) => event.type === "content"));
+    expect(activity.metadata).toEqual({
+      stage: "querying_exercises",
+      status: "active",
+      messageKey: "querying_exercises",
+      sequence: 1,
+    });
+    expect(activity.metadata).not.toHaveProperty("toolName");
+    expect(activity.metadata).not.toHaveProperty("prompt");
+    expect(activity.metadata).not.toHaveProperty("resourceId");
+    expect(activity.metadata).not.toHaveProperty("toolPayload");
   });
 
   it("encodes ndjson stream events and parses fenced JSON", () => {

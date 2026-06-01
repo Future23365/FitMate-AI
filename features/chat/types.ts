@@ -7,6 +7,16 @@ import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommend
 import type { ConversationArtifactKind } from "@/lib/shared/conversation-artifacts/schema";
 import type { ConversationSummaryContext, FitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
 import type { AssistantSuggestion } from "@/lib/shared/chat/assistant-suggestions";
+import type {
+  AgentActivityPayload,
+  AgentActivityStage,
+  AgentActivityStatus,
+} from "@/lib/shared/chat/agent-activity";
+export type {
+  AgentActivityPayload,
+  AgentActivityStage,
+  AgentActivityStatus,
+} from "@/lib/shared/chat/agent-activity";
 import type { WorkoutPatchDiffEntry } from "@/lib/shared/workout-patches/schema";
 
 export type ChatMessage = {
@@ -37,12 +47,17 @@ export type ReferenceResolutionDiagnostic = {
   reason?: string;
 };
 
+export type ChatAgentActivityStreamEvent = AgentActivityPayload & {
+  type: "agent_activity";
+};
+
 export type ChatStreamEvent = {
   type:
     | "reasoning"
     | "content"
     | "done"
     | "error"
+    | "agent_activity"
     | "agent_execution_result"
     | "artifact_generating"
     | "artifact_validated"
@@ -69,6 +84,11 @@ export type ChatStreamEvent = {
   suggestedReplies?: string[];
   /** @deprecated 旧流事件兼容字段；新事件使用 suggestedReplies */
   suggestedQuestions?: string[];
+  /** Agent 活动状态只服务当前请求 UI，不进入消息、上下文或 artifact payload。 */
+  stage?: AgentActivityStage | (string & {});
+  status?: AgentActivityStatus;
+  messageKey?: AgentActivityStage;
+  sequence?: number;
   /** 服务端 Trace ID，用于把后续自动计划生成追加到同一条开发日志 */
   traceId?: string;
   /** 服务端更新后的自然语言聊天总结，是下一轮模型可见历史上下文 */
