@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
+import {
+  buildAgentTraceViewModel,
+  createAgentTraceDiagnosisLogEntry,
+  type AgentTraceViewModel,
+} from "@/components/dev/agent-trace-view-model";
 import { clientRequest } from "@/lib/client/http/client-request";
 import type { AiTrace, AiTraceStep } from "@/lib/server/dev/ai-trace-store";
 
@@ -53,6 +58,10 @@ export function AiTraceViewer() {
   );
   const selectedStepGroups = useMemo(
     () => (selectedTrace ? groupTraceSteps(selectedTrace.steps) : []),
+    [selectedTrace],
+  );
+  const selectedAgentTraceViewModel = useMemo(
+    () => (selectedTrace ? buildAgentTraceViewModel(selectedTrace) : null),
     [selectedTrace],
   );
   const mainStepGroups = useMemo(
@@ -238,6 +247,7 @@ export function AiTraceViewer() {
             <TraceHero
               trace={selectedTrace}
               groups={mainStepGroups}
+              agentViewModel={selectedAgentTraceViewModel}
               isSavingPromptLog={savingLogTarget === `${selectedTrace.id}:prompt`}
               isSavingTraceLog={savingLogTarget === `${selectedTrace.id}:trace`}
               onSavePromptLog={() => {
@@ -267,6 +277,9 @@ export function AiTraceViewer() {
             />
 
             <div className="mt-5 min-w-0 space-y-5">
+              {selectedAgentTraceViewModel ? (
+                <AgentRunDiagnosisPanel viewModel={selectedAgentTraceViewModel} />
+              ) : null}
               <TraceOverview trace={selectedTrace} />
               <TraceFlowTimeline
                 trace={selectedTrace}
@@ -289,6 +302,7 @@ export function AiTraceViewer() {
 function TraceHero({
   trace,
   groups,
+  agentViewModel,
   isSavingPromptLog,
   isSavingTraceLog,
   onSavePromptLog,
@@ -296,6 +310,7 @@ function TraceHero({
 }: {
   trace: AiTrace;
   groups: TraceStepGroup[];
+  agentViewModel: AgentTraceViewModel | null;
   isSavingPromptLog: boolean;
   isSavingTraceLog: boolean;
   onSavePromptLog: () => void;
@@ -312,7 +327,9 @@ function TraceHero({
             <StatusBadge status={trace.status} />
           </div>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
-            这条链路从请求入口开始，依次展示意图理解、动作候选、模型生成、服务端校验和最终返回。会话记忆更新单独放在流程外，避免和本轮回复生成混在一起。
+            {agentViewModel?.hasAgentStages
+              ? "这条链路按 Tool-first Agent run 组织，先看最终结果、工具链路、资源关联和失败入口，再展开 Raw JSON 复核。"
+              : "这条链路未记录 Agent stages，页面保留旧流程展示，并明确标记它不是 Agent run 诊断缺失导致的业务失败。"}
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -365,6 +382,329 @@ function MetricCard({
       <div className="mt-1 text-xs leading-5 text-slate-500">{description}</div>
     </div>
   );
+}
+
+function AgentRunDiagnosisPanel({ viewModel }: { viewModel: AgentTraceViewModel }) {
+  const summary = viewModel.runSummary;
+
+  if (!viewModel.hasAgentStages) {
+    return (
+      <section className="rounded-xl border border-amber-200 bg-amber-50/70">
+        <SectionHeader
+          eyebrow="Agent"
+          title="未记录 Agent run 诊断信息"
+          description={viewModel.legacyCompatibility.message}
+        />
+        <div className="border-t border-amber-100 p-4">
+          <div className="rounded-lg border border-amber-200 bg-white p-4 text-sm leading-6 text-slate-700">
+            这条 trace 会继续使用 legacy 流程步骤展示。缺少 Agent stages 只说明记录格式较旧或链路不属于 Agent 主链，不能直接判定为业务失败。
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="space-y-5">
+      <div className="rounded-xl border border-slate-200 bg-white">
+        <SectionHeader
+          eyebrow="Agent"
+          title="Agent run 总览"
+          description="默认入口展示最终结果、用户可见回复、工具调用、失败 code、token / latency 和 legacy path 信号。"
+        />
+        <div className="grid gap-3 border-t border-slate-100 p-4 md:grid-cols-2 xl:grid-cols-4">
+          <MetricCard label="最终结果" value={summary.finalResultStatus} description={`结果类型：${getAgentResultKindLabel(summary.resultKind)}`} />
+          <MetricCard label="工具调用" value={`${summary.toolCallCount} 次`} description="按 decision/result 配对后的 Agent 工具链路数量。" />
+          <MetricCard label="Agent 耗时" value={formatDuration(summary.durationMs)} description="trace 从创建到结束的总耗时。" />
+          <MetricCard
+            label="Token"
+            value={summary.tokenUsage?.total_tokens ? formatNumber(summary.tokenUsage.total_tokens) : "-"}
+            description="Agent 相关模型输入输出 token 合计。"
+          />
+        </div>
+        <div className="grid gap-4 border-t border-slate-100 p-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+          <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+            <div className="text-sm font-semibold text-slate-950">用户可见回复摘要</div>
+            <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
+              {summary.userVisibleReply || "未记录用户可见回复。"}
+            </p>
+          </div>
+          <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+            <div className="text-sm font-semibold text-slate-950">诊断信号</div>
+            <div className="mt-3 flex flex-wrap gap-2 text-xs">
+              <Pill>{summary.legacyPathStatus}</Pill>
+              <Pill>{summary.finalResultCode ?? "无最终错误码"}</Pill>
+              {summary.failureCodes.length > 0 ? (
+                summary.failureCodes.map((code) => <Pill key={code}>{code}</Pill>)
+              ) : (
+                <Pill>未聚合到失败 code</Pill>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <AgentPhaseFlow viewModel={viewModel} />
+      <AgentToolTimeline viewModel={viewModel} />
+      <AgentResourceLinks viewModel={viewModel} />
+      <AgentDiagnosticFindings viewModel={viewModel} />
+    </section>
+  );
+}
+
+function AgentPhaseFlow({ viewModel }: { viewModel: AgentTraceViewModel }) {
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white">
+      <SectionHeader
+        eyebrow="Agent Flow"
+        title="Agent phase flow"
+        description="按 Tool-first Agent 架构边界组织 ContextPackage、tool loop、domain gate、persistence、Response Writer、post-processing 和 legacy compatibility。"
+      />
+      <div className="grid gap-3 border-t border-slate-100 p-4 md:grid-cols-2 xl:grid-cols-4">
+        {viewModel.phaseGroups.map((group) => (
+          <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50 p-4" key={group.id}>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-semibold text-slate-950">{group.title}</span>
+              <StatusBadge status={group.status} />
+            </div>
+            <p className="mt-2 text-xs leading-5 text-slate-500">{group.description}</p>
+            <div className="mt-3 flex flex-wrap gap-1.5 text-[11px]">
+              <Pill>{group.steps.length} 条事件</Pill>
+              <Pill>{formatDuration(group.durationMs)}</Pill>
+              {group.tokenUsage?.total_tokens ? <Pill>token {formatNumber(group.tokenUsage.total_tokens)}</Pill> : null}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AgentToolTimeline({ viewModel }: { viewModel: AgentTraceViewModel }) {
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white">
+      <SectionHeader
+        eyebrow="Tools"
+        title="Tool timeline"
+        description="将同一轮工具决策和执行结果配对展示，并标记缺失 result、缺失 decision、失败 code 和下游使用位置。"
+      />
+      <div className="space-y-3 border-t border-slate-100 p-4">
+        {viewModel.toolTimeline.length === 0 ? (
+          <div className="rounded-lg border border-slate-100 bg-slate-50 p-4 text-sm text-slate-500">未记录 Agent tool loop。</div>
+        ) : (
+          viewModel.toolTimeline.map((item) => (
+            <div className="rounded-xl border border-slate-100 bg-slate-50 p-4" key={item.id}>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-slate-950">{item.toolName}</span>
+                    <span className={getToolTimelineStatusClassName(item.status)}>{getToolTimelineStatusLabel(item.status)}</span>
+                    {item.toolResultId ? <Pill>{item.toolResultId}</Pill> : null}
+                  </div>
+                  <div className="mt-2 text-xs leading-5 text-slate-500">
+                    stepIndex {item.stepIndex ?? "未记录"} · {formatDuration(item.durationMs)} · {item.modelStage ?? "未记录模型阶段"}
+                  </div>
+                </div>
+                {item.failureCode ? (
+                  <span className="rounded-full bg-red-50 px-2.5 py-1 text-[11px] font-medium text-red-700 ring-1 ring-red-100">
+                    {item.failureCode}
+                  </span>
+                ) : null}
+              </div>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <div className="rounded-lg bg-white p-3 ring-1 ring-slate-100">
+                  <div className="text-[11px] font-semibold text-slate-500">参数摘要</div>
+                  <div className="mt-1 break-words text-sm leading-6 text-slate-700">{item.parameterSummary}</div>
+                </div>
+                <div className="rounded-lg bg-white p-3 ring-1 ring-slate-100">
+                  <div className="text-[11px] font-semibold text-slate-500">输出摘要</div>
+                  <div className="mt-1 break-words text-sm leading-6 text-slate-700">{item.outputSummary}</div>
+                </div>
+              </div>
+              {item.downstreamUsage.length > 0 ? (
+                <div className="mt-3 flex flex-wrap gap-1.5 text-[11px] text-slate-600">
+                  {item.downstreamUsage.map((usage) => <Pill key={usage}>{usage}</Pill>)}
+                </div>
+              ) : null}
+            </div>
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
+function AgentResourceLinks({ viewModel }: { viewModel: AgentTraceViewModel }) {
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white">
+      <SectionHeader
+        eyebrow="Resources"
+        title="Resource links"
+        description="只从结构化字段索引关键 id，展示 candidateSetId、artifactPayloadId、validationId、policyDecisionId、confirmationId、revisionId 和 toolResultId 的产生与消费。"
+      />
+      <div className="border-t border-slate-100 p-4">
+        {viewModel.resourceLinks.length === 0 ? (
+          <div className="rounded-lg border border-slate-100 bg-slate-50 p-4 text-sm text-slate-500">未记录关键资源 id。</div>
+        ) : (
+          <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">
+            {viewModel.resourceLinks.map((link) => (
+              <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50 p-4" key={`${link.kind}:${link.id}`}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-semibold text-slate-950">{link.kind}</span>
+                  <code className="max-w-full break-words rounded bg-white px-2 py-1 text-[11px] text-slate-600 ring-1 ring-slate-200">
+                    {link.id}
+                  </code>
+                </div>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <ResourceReferenceList title="产生位置" references={link.producers} />
+                  <ResourceReferenceList title="消费位置" references={link.consumers} />
+                </div>
+                {link.toolNames.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-1.5 text-[11px]">
+                    {link.toolNames.map((toolName) => <Pill key={toolName}>{toolName}</Pill>)}
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ResourceReferenceList({
+  title,
+  references,
+}: {
+  title: string;
+  references: AgentTraceViewModel["resourceLinks"][number]["producers"];
+}) {
+  return (
+    <div className="rounded-lg bg-white p-3 ring-1 ring-slate-100">
+      <div className="text-[11px] font-semibold text-slate-500">{title}</div>
+      {references.length > 0 ? (
+        <div className="mt-2 space-y-1">
+          {references.map((reference) => (
+            <div className="break-words text-xs leading-5 text-slate-700" key={`${reference.stepId}:${reference.source}`}>
+              {reference.index + 1}. {reference.stepName} · {reference.stepType} · {reference.source}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-2 text-xs text-slate-400">未记录</div>
+      )}
+    </div>
+  );
+}
+
+function AgentDiagnosticFindings({ viewModel }: { viewModel: AgentTraceViewModel }) {
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white">
+      <SectionHeader
+        eyebrow="Diagnostics"
+        title="Diagnostic findings"
+        description="按 context、tool decision、tool execution、domain gate、persistence、response writer、post-processing 和 legacy compatibility 聚合失败入口。"
+      />
+      <div className="space-y-3 border-t border-slate-100 p-4">
+        {viewModel.diagnosticFindings.length === 0 ? (
+          <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-700">
+            未聚合到失败或孤立资源。
+          </div>
+        ) : (
+          viewModel.diagnosticFindings.map((finding) => (
+            <div className="rounded-xl border border-slate-100 bg-slate-50 p-4" key={finding.id}>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={getFindingSeverityClassName(finding.severity)}>{finding.severity}</span>
+                <span className="text-sm font-semibold text-slate-950">{finding.code}</span>
+                <Pill>{getFindingBoundaryLabel(finding.boundary)}</Pill>
+              </div>
+              <p className="mt-2 text-sm leading-6 text-slate-700">{finding.reason}</p>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <div className="rounded-lg bg-white p-3 text-xs leading-5 text-slate-600 ring-1 ring-slate-100">
+                  <div className="font-semibold text-slate-700">相关 step</div>
+                  <div className="mt-1">
+                    {finding.step ? `${finding.step.index + 1}. ${finding.step.stepName} (${finding.step.stepType})` : "未定位到具体 step"}
+                  </div>
+                </div>
+                <div className="rounded-lg bg-white p-3 text-xs leading-5 text-slate-600 ring-1 ring-slate-100">
+                  <div className="font-semibold text-slate-700">恢复路径</div>
+                  <div className="mt-1">{finding.recoveryPath ?? finding.blockingReason ?? "查看 Raw JSON 继续定位。"}</div>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
+function getAgentResultKindLabel(kind: AgentTraceViewModel["runSummary"]["resultKind"]) {
+  const labels: Record<AgentTraceViewModel["runSummary"]["resultKind"], string> = {
+    artifact: "生成 artifact",
+    patch: "修改 patch",
+    clarification: "需要澄清",
+    blocked: "领域阻断",
+    failed: "执行失败",
+    answered: "普通回答",
+    operation: "已完成操作",
+    unknown: "未识别",
+  };
+
+  return labels[kind];
+}
+
+function getToolTimelineStatusLabel(status: AgentTraceViewModel["toolTimeline"][number]["status"]) {
+  const labels: Record<AgentTraceViewModel["toolTimeline"][number]["status"], string> = {
+    success: "success",
+    failed: "failed",
+    skipped: "skipped",
+    missing_result: "missing_result",
+    missing_decision: "missing_decision",
+    unlinked_result: "unlinked_result",
+  };
+
+  return labels[status];
+}
+
+function getToolTimelineStatusClassName(status: AgentTraceViewModel["toolTimeline"][number]["status"]) {
+  if (status === "success") {
+    return "rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700 ring-1 ring-emerald-100";
+  }
+
+  if (status === "failed") {
+    return "rounded-full bg-red-50 px-2.5 py-1 text-[11px] font-medium text-red-700 ring-1 ring-red-100";
+  }
+
+  return "rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-700 ring-1 ring-amber-100";
+}
+
+function getFindingSeverityClassName(severity: AgentTraceViewModel["diagnosticFindings"][number]["severity"]) {
+  if (severity === "error") {
+    return "rounded-full bg-red-50 px-2.5 py-1 text-[11px] font-medium text-red-700 ring-1 ring-red-100";
+  }
+
+  if (severity === "warning") {
+    return "rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-700 ring-1 ring-amber-100";
+  }
+
+  return "rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-700 ring-1 ring-blue-100";
+}
+
+function getFindingBoundaryLabel(boundary: AgentTraceViewModel["diagnosticFindings"][number]["boundary"]) {
+  const labels: Record<AgentTraceViewModel["diagnosticFindings"][number]["boundary"], string> = {
+    context: "context",
+    tool_decision: "tool decision",
+    tool_execution: "tool execution",
+    domain_gate: "domain gate",
+    persistence: "persistence",
+    response_writer: "response writer",
+    post_processing: "post-processing",
+    legacy_compatibility: "legacy compatibility",
+  };
+
+  return labels[boundary];
 }
 
 function TraceOverview({ trace }: { trace: AiTrace }) {
@@ -644,6 +984,8 @@ function Pill({ children }: { children: ReactNode }) {
 }
 
 function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) {
+  const agentDiagnosis = createAgentTraceDiagnosisLogEntry(buildAgentTraceViewModel(trace));
+
   return compactObject({
     title: trace.title,
     trace: compactObject({
@@ -664,6 +1006,7 @@ function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) {
       tokenUsage: getTraceTokenUsage(trace),
       metadata: compactValue(trace.metadata),
     }),
+    agentDiagnosis,
     stages: groups.map((group, index) => createStageLogEntry(group, index)),
   });
 }
@@ -2486,6 +2829,58 @@ function getStepExplanationItems(step: AiTraceStep, tokenUsage: TokenUsage | nul
     addKnownMetadataItem(items, metadata ?? {}, "skippedReason", "跳过原因", "未进入 tool loop 的可诊断原因。");
   }
 
+  if (step.type === "agent_context") {
+    const source = input ?? output ?? {};
+    addKnownMetadataItem(items, source, "latestUserMessage", "最新用户消息", "进入 ContextPackage 的本轮用户原文。");
+    addKnownMetadataItem(items, source, "recentMessages", "近期消息", "Agent 可见的近期聊天摘要数量和内容。");
+    addKnownMetadataItem(items, source, "recentArtifacts", "近期 Artifact", "Agent 可访问的结构化训练事实摘要。");
+    addKnownMetadataItem(items, source, "memorySnapshot", "用户记忆快照", "服务端提供给 Agent 的结构化用户偏好、限制和避免项。");
+    addKnownMetadataItem(items, source, "provenance", "上下文来源", "每条可见事实的来源、信任级别和截断状态。");
+    addKnownMetadataItem(items, metadata ?? {}, "legacyPathSkip", "旧路径跳过", "Tool-first Agent 运行时明确跳过的旧 intent-first 路径。");
+  }
+
+  if (step.type === "agent_tool_decision") {
+    const source = input ?? output ?? {};
+    addKnownMetadataItem(items, source, "action", "Agent 动作", "call_tool 表示继续执行工具，final_result 表示结束本轮 Agent run。");
+    addKnownMetadataItem(items, source, "toolName", "目标工具", "Agent 在受控 registry 中选择的工具名称。");
+    addKnownMetadataItem(items, source, "reason", "决策原因", "模型给出的工具选择或终止原因。");
+    addKnownMetadataItem(items, source, "result", "终止结果", "action 为 final_result 时的 AgentExecutionResult。");
+    addKnownMetadataItem(items, metadata ?? {}, "stepIndex", "Agent stepIndex", "decision/result 配对使用的结构化序号。");
+    addKnownMetadataItem(items, metadata ?? {}, "remainingSteps", "剩余步数", "Agent runtime 本轮还允许执行的工具循环次数。");
+  }
+
+  if (step.type === "agent_tool_result") {
+    const source = output ?? input ?? {};
+    addKnownMetadataItem(items, metadata ?? {}, "toolResultId", "toolResultId", "本次工具执行结果的结构化 id，用于 final result 和 Response Writer 引用。");
+    addKnownMetadataItem(items, metadata ?? {}, "candidateSetId", "candidateSetId", "工具产生或消费的候选集合 id。");
+    addKnownMetadataItem(items, metadata ?? {}, "artifactPayloadId", "artifactPayloadId", "工具读取到的 artifact payload 摘要 id。");
+    addKnownMetadataItem(items, metadata ?? {}, "validationId", "validationId", "Validator 产生的结构化校验 id。");
+    addKnownMetadataItem(items, metadata ?? {}, "policyDecisionId", "policyDecisionId", "PolicyEngine 产生的写入边界决策 id。");
+    addKnownMetadataItem(items, metadata ?? {}, "confirmationId", "confirmationId", "需要用户确认时产生的 confirmation id。");
+    addKnownMetadataItem(items, metadata ?? {}, "revisionId", "revisionId", "持久化成功后产生的新 revision id。");
+    addKnownMetadataItem(items, source, "status", "工具结果状态", "工具执行是否成功、失败、阻断或跳过。");
+    addKnownMetadataItem(items, source, "summary", "工具输出摘要", "工具暴露给 Agent 和调试页的安全摘要。");
+  }
+
+  if (step.type === "agent_final_result") {
+    const source = output ?? input ?? {};
+    addKnownMetadataItem(items, source, "status", "AgentExecutionResult", "本轮 Agent run 的唯一终止合同。");
+    addKnownMetadataItem(items, source, "usedToolResultIds", "使用的工具结果", "final result 明确消费的 toolResultId 列表。");
+    addKnownMetadataItem(items, source, "revisionId", "revisionId", "生成、修改或完成写操作后可追踪的新 revision id。");
+    addKnownMetadataItem(items, source, "validationId", "validationId", "支撑该结果的校验 id。");
+    addKnownMetadataItem(items, source, "policyDecisionId", "policyDecisionId", "支撑该结果的 policy 决策 id。");
+    addKnownMetadataItem(items, source, "failureCode", "失败 code", "failed 结果的结构化失败原因。");
+    addKnownMetadataItem(items, source, "blockReason", "阻断原因", "blocked 结果的用户可恢复阻断说明。");
+  }
+
+  if (step.type === "response_write" && metadata?.aiStage === "agent_response_writer") {
+    const source = output ?? input ?? {};
+    addKnownMetadataItem(items, source, "content", "用户可见回复", "Response Writer 最终投影给用户的文本。");
+    addKnownMetadataItem(items, source, "references", "回复引用", "用户可见回复关联的 tool result、revision、validation 或 policy id。");
+    addKnownMetadataItem(items, source, "promisedWrite", "承诺写入", "回复是否承诺已执行生成、修改、保存或确认结果。");
+    addKnownMetadataItem(items, source, "hasExecutedWrite", "已执行写入", "Response Writer 认为本轮是否已有对应写操作完成。");
+  }
+
   if (step.type === "patch_proposal") {
     const source = output ?? input ?? {};
     addKnownMetadataItem(items, source, "scope", "Patch scope", "本次 Patch 允许影响的范围，当前通常只能是 artifact_only。");
@@ -2625,6 +3020,37 @@ function getStepInterpretation(step: AiTraceStep) {
     const state = step.status === "failed" ? "失败" : "完成";
 
     return `只读工具决策${state}，停止原因为 ${stopReason}。`;
+  }
+
+  if (step.type === "agent_context") {
+    return "ContextPackage 是 Tool-first Agent 的事实入口；排查上下文缺失时优先看 latestUserMessage、recentArtifacts、memorySnapshot 和 provenance。";
+  }
+
+  if (step.type === "agent_tool_decision") {
+    const input = isRecord(step.input) ? step.input : {};
+    const action = stringifyValue(input.action ?? "未标注");
+    const toolName = stringifyValue(input.toolName ?? "无工具");
+
+    return `Agent 决策动作为 ${action}，目标工具为 ${toolName}。decision/result 依赖 metadata.stepIndex 配对。`;
+  }
+
+  if (step.type === "agent_tool_result") {
+    const metadata = isRecord(step.metadata) ? step.metadata : {};
+    const toolResultId = stringifyValue(metadata.toolResultId ?? "未记录");
+    const state = step.status === "failed" ? "失败" : "完成";
+
+    return `Agent 工具结果${state}，toolResultId 为 ${toolResultId}。如果下游没有引用该 id，需要看资源关联区是否出现 orphaned resource。`;
+  }
+
+  if (step.type === "agent_final_result") {
+    const output = isRecord(step.output) ? step.output : {};
+    const status = stringifyValue(output.status ?? "未标注");
+
+    return `AgentExecutionResult 状态为 ${status}。Response Writer 只能基于这个终止合同投影用户回复，不能重新解释用户语义。`;
+  }
+
+  if (step.type === "response_write" && step.metadata?.aiStage === "agent_response_writer") {
+    return "Response Writer 负责把 AgentExecutionResult 投影成用户可见回复；如果回复承诺了未执行写入，应在诊断区归为 response writer boundary failure。";
   }
 
   if (step.type === "patch_proposal") {
