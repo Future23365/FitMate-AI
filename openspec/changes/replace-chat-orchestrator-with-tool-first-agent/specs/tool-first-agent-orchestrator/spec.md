@@ -158,6 +158,32 @@
 - **AND** 输出 MUST 经过事实引用校验，确保具体事实可映射到 usedToolResultIds、revisionId、validationId 或 policyDecisionId
 - **AND** Response Writer MUST NOT 重新调用语义决策、候选搜索、Patch、生成或写入工具
 
+### Requirement: Agent 模型调用必须使用新的 Prompt 与输出协议
+
+系统 SHALL 将 `/api/chat` 生产主链的模型调用迁移为 Agent tool decision、Agent final result 和 Response Writer 三类协议。旧 intent-first prompt module 不得继续驱动执行决策。
+
+#### Scenario: Agent tool decision 调用
+- **WHEN** Agent loop 请求 LLM 决定下一步
+- **THEN** 模型输入 MUST 包含 `ContextPackage` 摘要、registry 工具定义、已登记 tool results、dependency graph 和本轮预算
+- **AND** 模型输出 MUST 只允许合法工具调用请求或合法终止结果
+- **AND** 模型 MUST NOT 读取 `conversationSummary`、旧 resolved intent 或旧 `assistant_action` 作为执行事实
+
+#### Scenario: Agent final result 调用
+- **WHEN** Agent 准备结束本轮执行
+- **THEN** 模型输出 MUST 通过 `AgentExecutionResult` Schema 校验
+- **AND** 生成、Patch、阻断或失败结果 MUST 引用本轮已登记的 tool result、validation、policy、revision 或 blocking reason
+- **AND** 系统 MUST NOT 将自由文本回答当作执行成功信号
+
+#### Scenario: 旧 prompt module 不再驱动主链
+- **WHEN** `/api/chat` 进入 Tool-first Agent 主链
+- **THEN** 系统 MUST NOT 使用 `chat_intent_resolution`、`chat_final_response`、`conversation_summary_context` 或 `reference_resolution_boundary` 作为生产执行决策入口
+- **AND** 如保留这些 module，MUST 仅用于兼容诊断、后台 summary 或已明确降级的非执行场景
+
+#### Scenario: 模型输出解析失败
+- **WHEN** Agent decision、final result 或 Response Writer 输出为空、无法解析、Schema 不合法、请求未知工具或请求非法多工具调用
+- **THEN** 系统 MUST 进入可诊断失败、repair 或 blocked 路径
+- **AND** trace MUST 记录失败 code、模型阶段、输入摘要和恢复结果
+
 ### Requirement: 旧兼容字段必须单向派生并具备退出条件
 
 系统 SHALL 通过 `LegacyChatEventAdapter` 从 `AgentExecutionResult` 单向派生旧字段。旧 intent-first 字段 MUST NOT 参与 Agent 执行、工具选择、卡片生成、写入或测试核心验收。

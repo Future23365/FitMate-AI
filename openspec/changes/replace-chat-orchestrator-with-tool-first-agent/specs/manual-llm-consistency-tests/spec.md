@@ -27,6 +27,12 @@
 - **AND** 报告 MUST 断言没有由旧 intent-first 分支、summary-only 上下文、旧 normalize 或裸 query RAG 直接触发卡片
 - **AND** 报告 MUST 展示关键 toolResultId、candidateSetId、validationId、revisionId 或阻断原因
 
+#### Scenario: Prompt 与 token budget 防回归断言
+- **WHEN** 黑盒流程进入 `/api/chat` Tool-first Agent 主链
+- **THEN** 报告 MUST 展示 Agent prompt module、Agent stage、ContextPackage 可见性摘要和关键 tool result 引用
+- **AND** 报告 MUST NOT 把旧 `chat_intent_resolution`、`chat_final_response` 或 `conversation_summary_context` 作为主链执行依据
+- **AND** 如果 summary 更新存在，报告 MUST 标注其为后台或调试材料，而不是执行事实源
+
 #### Scenario: 兼容字段退出验证
 - **WHEN** 前端和报告已经支持 AgentExecutionResult
 - **THEN** 测试 MUST 覆盖关闭旧 `assistant_action` / resolved intent 兼容事件后的主流程

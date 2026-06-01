@@ -158,13 +158,38 @@ Response Writer 只消费 `AgentExecutionResult`、已登记 tool results、arti
 
 如果使用 LLM 生成最终措辞，输入必须是 `AgentExecutionResult` 的只读投影，并且输出必须经过事实引用校验：回复中的具体动作、器械、训练结构、artifact 状态和保存结果必须能映射到 `usedToolResultIds`、`revisionId` 或服务端校验结果。
 
-### 9. 不引入 LangGraph 作为首版依赖，但补足 runtime 合同
+### 9. 模型调用与提示词协议必须随主链迁移
+
+本 change 不是在旧 prompt 上增加几条规则，而是替换 `/api/chat` 的模型调用协议。旧 `chat_intent_resolution`、`chat_final_response`、`conversation_summary_context`、`reference_resolution_boundary` 只能作为迁移期间的兼容诊断或后台辅助，不得继续驱动生产执行决策。
+
+Agent 至少需要三类新的模型输入边界：
+
+- Agent tool decision：输入是 `ContextPackage` 摘要、工具 registry 定义、已登记 tool results、dependency graph 和本轮预算；输出只能是合法工具调用请求或终止结果。
+- Agent final result：输入是当前 `AgentExecutionState`、关键 tool results、validator/policy/persistence 结果；输出只能是 `AgentExecutionResult`。
+- Response Writer：输入是 `AgentExecutionResult` 的只读投影和必要 tool result 摘要；输出只负责用户可见措辞，不得再做语义决策、候选搜索、Patch、生成或写入。
+
+下游模型调用也必须迁移输入协议。动作推荐、routine/plan draft、修复和 summary 更新不得继续声明“只会收到 `conversationSummary + latestUserMessage`”。它们应接收 Agent 已确定的结构化 intent/edit plan、candidateSetId、ContextPackage 摘要、tool result 或 `AgentExecutionResult`，并继续遵守候选集合、Validator 和 Policy 边界。
+
+Structured Outputs 的核心要求是“模型输出必须先被结构校验，再被工具执行或投影”。无论底层供应商是否支持原生 tool calling，运行时都必须做到：
+
+- 工具选择只能引用 registry 中的工具名和对应输入 Schema。
+- `AgentExecutionResult` 必须通过 Zod / JSON Schema 校验。
+- 解析失败、空响应、未知工具、非法参数、非法多工具请求和 repair 失败必须进入可诊断失败路径。
+- Response Writer 的事实引用必须能映射到 `usedToolResultIds`、`revisionId`、`validationId`、`policyDecisionId` 或明确 blocking reason。
+
+### 10. Token Budget 从 summary-only 观测迁移为 Agent stage 观测
+
+现有 token budget 和 prompt module registry 是可观测边界，不能在 Agent 主链中继续描述为 summary-only。`/api/chat` 的观测阶段应改为 Agent 语义，例如 `agent_context_build`、`agent_tool_decision`、`agent_tool_execution`、`agent_response_writer`、`agent_summary_update` 或等价阶段。
+
+`ModelVisibleContextSummary` 或等价调试摘要必须记录模型实际可见的 `ContextPackage` 组成：recent messages、recent artifacts、用户记忆、ContextSnapshot、tool result 摘要、截断策略和限制原因。预算可以限制 step 数、超时、单步输入大小和结果摘要大小，但不得作为跳过必要 artifact payload 读取、动作查询、validator、policy 或 persistence 的理由。
+
+### 11. 不引入 LangGraph 作为首版依赖，但补足 runtime 合同
 
 首版使用自定义 orchestrator，因为当前主要复杂度在领域工具边界，而不是通用图运行时。LangGraph 的 checkpoint、human-in-the-loop 和 durable graph 适合未来更长任务，但不应成为本次替换聊天主链的必要依赖。
 
 自定义 orchestrator 仍必须具备基础 runtime 合同：step id、step replay 数据、dependency graph、checkpoint/resume、confirmation resume、幂等写入、trace correlation 和 deterministic replay fixture。否则只是把旧 `chat-service.ts` 大分支换成新的大循环函数，后续仍会重构。
 
-### 10. 旧主链必须显式废弃
+### 12. 旧主链必须显式废弃
 
 实现完成后，以下旧路径应删除或降级为仅测试/诊断：
 
@@ -175,14 +200,15 @@ Response Writer 只消费 `AgentExecutionResult`、已登记 tool results、arti
 - RAG 裸搜最新用户原句后由服务端选择候选。
 - `conversationSummary` 作为模型唯一历史上下文或短指令事实来源的限制。
 - `createFallbackWorkoutIntent`、pending replacement 字符串匹配、`hasExplicitReferenceMarker`、`shouldUseReferenceResolutionForChat` 等服务端语义分流只能被删除、迁入工具硬边界或改为 Agent 可读状态，不能继续在 Agent 前改写执行路径。
+- `chat_intent_resolution`、`chat_final_response` 和依赖 `conversation_summary_context` 的旧 prompt module 只能作为兼容诊断或已降级后台任务存在，不能继续参与生产执行决策。
 
-### 11. conversationSummary 从主链移除
+### 13. conversationSummary 从主链移除
 
 主聊天 Agent 的模型输入应来自 `ContextPackage`、工具结果和 explicit snapshots。系统可以保留可选 summary 生成，用于会话列表标题、后台摘要、调试显示或长会话辅助阅读，但 summary 不再是 `/api/chat` 必需输入，也不作为任何执行路径的事实来源。
 
 替代方案是继续保留 summary 作为历史上下文入口，同时强调“不要当事实源”。这个边界容易被后续实现误用，且 summary 的最初目的主要是节省 token；当前架构明确功能正确性优先，因此不采用。
 
-### 12. Token 成本策略从裁剪事实改为按需读取和缓存
+### 14. Token 成本策略从裁剪事实改为按需读取和缓存
 
 本 change 不忽略成本，但成本策略必须服务于正确性。新的成本模型是：
 
@@ -209,10 +235,11 @@ Response Writer 只消费 `AgentExecutionResult`、已登记 tool results、arti
 3. 将现有只读工具迁入统一 registry，并新增编辑计划、生成、校验、Policy、确认和写工具。
 4. 实现 Agent loop：模型 tool decision、工具执行、工具结果登记、依赖图、下一步决策、checkpoint 和最终 result。
 5. 将 routine / plan / patch / regenerate / clarification 路径接入 Agent tools，并引入 `WorkoutEditPlan`。
-6. 将 Response Writer 改为基于 `AgentExecutionResult` 的投影层，旧流事件由兼容适配器单向派生。
-7. 将 `/api/chat` 主链切换到 AgentOrchestrator，并使用 `ContextPackage` 替代 summary-only 历史上下文。
-8. 删除或废弃旧语义 normalize、关键词 gate、ReferenceResolver-first 主路径、只读 tool loop 触发矩阵和 summary 必需输入。
-9. 更新 trace、黑盒测试、架构级防回归测试、单元测试和架构文档。
+6. 新增 Agent tool decision、Agent final result 和 Response Writer prompt modules，并迁移 token budget stage 与模型可见上下文摘要。
+7. 将 Response Writer 改为基于 `AgentExecutionResult` 的投影层，旧流事件由兼容适配器单向派生。
+8. 将 `/api/chat` 主链切换到 AgentOrchestrator，并使用 `ContextPackage` 替代 summary-only 历史上下文。
+9. 删除或废弃旧语义 normalize、关键词 gate、ReferenceResolver-first 主路径、只读 tool loop 触发矩阵、旧 prompt module 主链依赖和 summary 必需输入。
+10. 更新 trace、黑盒测试、架构级防回归测试、单元测试和架构文档。
 
 ## Open Questions
 

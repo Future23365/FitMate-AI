@@ -28,6 +28,17 @@
 - **AND** finalDecision MUST 能区分 answered、needs_clarification、generated、patched、failed 和 blocked
 - **AND** trace MUST 能关联最终回复使用了哪些 tool result
 
+#### Scenario: Agent 模型调用与预算观测
+- **WHEN** `/api/chat` 执行 Agent 主链中的模型调用
+- **THEN** trace MUST 记录 Agent prompt module、模型阶段、ContextPackage 可见性摘要、tool result 可见性摘要、截断策略和 token 使用
+- **AND** 阶段名称 MUST 能表达 `agent_context_build`、`agent_tool_decision`、`agent_tool_execution`、`agent_response_writer`、`agent_summary_update` 或等价 Agent 阶段
+- **AND** trace MUST NOT 将 `/api/chat` 主链描述为 summary-only、intent-first 或旧只读 tool loop 决策链
+
+#### Scenario: Agent 输出解析失败
+- **WHEN** Agent decision、final result 或 Response Writer 的模型输出解析失败、Schema 失败、未知工具、非法参数或 repair 失败
+- **THEN** trace MUST 记录失败 code、模型阶段、输入摘要、输出摘要和恢复路径
+- **AND** trace MUST 能区分失败后进入 blocked、failed、needs_clarification 或 retry/repair
+
 #### Scenario: 旧路径防回归
 - **WHEN** 本轮 Agent 执行完成
 - **THEN** trace MUST 能标识是否调用了旧 intent-first 分支、旧 normalize、旧只读 trigger matrix、summary-only 上下文或 ReferenceResolver-first 主路径

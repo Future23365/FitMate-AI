@@ -45,23 +45,36 @@
 - [ ] 5.5 更新 `/dev/ai-traces` 展示或摘要逻辑，使 Agent steps 可读并能关联最终回复使用的 ContextPackage、tool results、candidateSetId、validationId、revisionId 和 artifact events。
 - [ ] 5.6 生成 Agent replay fixture，支持复盘上下文、工具决策、依赖图、最终回复和旧路径未参与执行。
 
-## 6. 测试与回归验证
+## 6. 模型调用、Prompt 与 Token Budget 迁移
 
-- [ ] 6.1 增加 Agent context builder 单元测试，覆盖 recent messages、recent artifacts、用户记忆、ContextSnapshot、截断和 provenance。
-- [ ] 6.2 增加 Agent tool registry 单元测试，覆盖未知工具、非法参数、越权 artifact、候选外 exerciseId、tool result id 不匹配和写工具前置校验缺失。
-- [ ] 6.3 增加 `/api/chat` Agent 主链测试，覆盖动作推荐、routine 生成、plan 生成、WorkoutEditPlan、局部 Patch、整套重新生成和澄清。
-- [ ] 6.4 增加多轮黑盒 flow：先生成哑铃上肢 routine，再输入“`不用哑铃了，换一个`”，断言读取最近 artifact、查询无哑铃动作并返回一致结果。
-- [ ] 6.5 增加“太难了”“不要跳跃动作”“改成在家练”“第二个动作换掉”等多轮调整测试，验证不依赖服务端关键词纠偏。
-- [ ] 6.6 更新 manual LLM 报告断言，优先检查 Agent tool trace、ExecutionResult、用户可见回复和 artifact 事件，而不是旧 `assistant_action` 字段。
-- [ ] 6.7 增加架构级防回归测试，断言旧 intent-first 分支、旧 normalize、summary-only 上下文、旧只读触发矩阵和裸 query RAG 不会触发执行结果。
-- [ ] 6.8 增加 Response Writer 事实引用测试，断言回复中动作、器械、artifact 状态和保存结果可映射到 tool result、validation 或 revision。
+- [ ] 6.1 新增 Agent tool decision prompt module，明确模型只能基于 `ContextPackage`、registry 工具定义、已登记 tool results 和 dependency graph 选择下一步，不得读取 `conversationSummary` 或旧 resolved intent 作为执行事实。
+- [ ] 6.2 新增 Agent final result prompt module，要求模型只能返回 `AgentExecutionResult` 结构化终止结果，并用 `usedToolResultIds`、`revisionId`、`validationId`、`policyDecisionId` 或 blocking reason 解释结果来源。
+- [ ] 6.3 新增 Response Writer prompt module；如使用 LLM 润色最终回复，输入只能是 `AgentExecutionResult` 的只读投影、必要 tool result 摘要和 artifact summary，输出不得重新选择工具、重新解释语义或承诺未执行写入。
+- [ ] 6.4 从 `/api/chat` 生产路径移除 `chat_intent_resolution`、`chat_final_response`、`conversation_summary_context`、`reference_resolution_boundary` 等旧 prompt module 对执行决策的依赖；保留时只能用于兼容诊断、后台 summary 或已明确降级的非执行场景。
+- [ ] 6.5 更新 `aiPromptModuleRegistry` 和 token budget stage，新增 `agent_context_build`、`agent_tool_decision`、`agent_tool_execution`、`agent_response_writer`、`agent_summary_update` 或等价阶段，替换旧 `chat_intent_resolution` / `reference_resolution` / `chat_final_response` 作为 `/api/chat` 主链观测合同。
+- [ ] 6.6 将 `ModelVisibleContextSummary` 或等价调试摘要从 summary-only 语义改为 `ContextPackage` 可见性摘要，记录 recent messages、recent artifacts、用户记忆、tool result、ContextSnapshot 和截断策略。
+- [ ] 6.7 更新 `exerciseRecommendationGeneration`、`workoutPlanIntentExtraction`、`workoutPlanDraftGeneration` 等下游模型提示词和调用输入，使其接收 Agent 传入的结构化 intent/edit plan、candidateSetId、ContextPackage 摘要或 tool result，而不是继续声明只依赖 `conversationSummary + latestUserMessage`。
+- [ ] 6.8 为 Agent decision / final result / Response Writer 的解析失败、Schema 失败、空响应、未知工具、非法多工具请求和 retry/repair 结果补充 trace 与单元测试。
 
-## 7. 文档、清理与验证命令
+## 7. 测试与回归验证
 
-- [ ] 7.1 更新 `docs/architecture.md` 和 `docs/chat-push-flow.md`，把 `/api/chat` 主链改为 Tool-first AgentOrchestrator。
-- [ ] 7.2 在 `docs/方案变更历史` 新增架构变更记录，并追加 `docs/项目演变历程.md`。
-- [ ] 7.3 删除或明确废弃旧 intent-first 主链中的服务端语义 normalize、关键词 gate、只读-only tool loop、ReferenceResolver-first 主路径、pending replacement 字符串改写和 summary-only 上下文文档描述。
-- [ ] 7.4 运行 `npm run test -- tests/chat-service.test.ts tests/readonly-tools.test.ts tests/workout-patch-chat-service.test.ts tests/conversation-artifact-service.test.ts` 或对应更新后的测试集合。
-- [ ] 7.5 运行 `npm run typecheck`。
-- [ ] 7.6 运行 `openspec validate replace-chat-orchestrator-with-tool-first-agent --strict`。
-- [ ] 7.7 如执行真实模型黑盒测试，生成最新报告；如不执行，说明成本、环境和替代验证范围。
+- [ ] 7.1 增加 Agent context builder 单元测试，覆盖 recent messages、recent artifacts、用户记忆、ContextSnapshot、截断和 provenance。
+- [ ] 7.2 增加 Agent tool registry 单元测试，覆盖未知工具、非法参数、越权 artifact、候选外 exerciseId、tool result id 不匹配和写工具前置校验缺失。
+- [ ] 7.3 增加 `/api/chat` Agent 主链测试，覆盖动作推荐、routine 生成、plan 生成、WorkoutEditPlan、局部 Patch、整套重新生成和澄清。
+- [ ] 7.4 增加多轮黑盒 flow：先生成哑铃上肢 routine，再输入“`不用哑铃了，换一个`”，断言读取最近 artifact、查询无哑铃动作并返回一致结果。
+- [ ] 7.5 增加“太难了”“不要跳跃动作”“改成在家练”“第二个动作换掉”等多轮调整测试，验证不依赖服务端关键词纠偏。
+- [ ] 7.6 更新 manual LLM 报告断言，优先检查 Agent tool trace、ExecutionResult、用户可见回复和 artifact 事件，而不是旧 `assistant_action` 字段。
+- [ ] 7.7 增加架构级防回归测试，断言旧 intent-first 分支、旧 normalize、summary-only 上下文、旧只读触发矩阵和裸 query RAG 不会触发执行结果。
+- [ ] 7.8 增加 Response Writer 事实引用测试，断言回复中动作、器械、artifact 状态和保存结果可映射到 tool result、validation 或 revision。
+- [ ] 7.9 增加 prompt / token budget 防回归测试，断言 `/api/chat` 主链不再启用旧 summary-only prompt modules，且 Agent stages、ContextPackage 可见性摘要和 tool result 引用可被 trace 复盘。
+- [ ] 7.10 增加流事件兼容测试，断言新 `AgentExecutionResult` 事件或 done metadata 可独立表达 artifact、patch、clarification、blocked 和 failed 状态，关闭旧 `assistant_action` / resolved intent 后前端消费路径仍可工作。
+
+## 8. 文档、清理与验证命令
+
+- [ ] 8.1 更新 `docs/architecture.md` 和 `docs/chat-push-flow.md`，把 `/api/chat` 主链改为 Tool-first AgentOrchestrator。
+- [ ] 8.2 在 `docs/方案变更历史` 新增架构变更记录，并追加 `docs/项目演变历程.md`。
+- [ ] 8.3 删除或明确废弃旧 intent-first 主链中的服务端语义 normalize、关键词 gate、只读-only tool loop、ReferenceResolver-first 主路径、pending replacement 字符串改写、旧 prompt module 和 summary-only 上下文文档描述。
+- [ ] 8.4 运行 `npm run test -- tests/chat-service.test.ts tests/readonly-tools.test.ts tests/workout-patch-chat-service.test.ts tests/conversation-artifact-service.test.ts` 或对应更新后的测试集合。
+- [ ] 8.5 运行 `npm run typecheck`。
+- [ ] 8.6 运行 `openspec validate replace-chat-orchestrator-with-tool-first-agent --strict`。
+- [ ] 8.7 如执行真实模型黑盒测试，生成最新报告；如不执行，说明成本、环境和替代验证范围。
