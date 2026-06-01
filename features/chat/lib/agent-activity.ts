@@ -23,7 +23,7 @@ const agentActivityDisplayByStage: Record<AgentActivityStage, AgentActivityDispl
     toneClass: "text-primary",
   },
   analyzing_request: {
-    label: "正在理解训练需求...",
+    label: "正在理解需求...",
     icon: "psychology",
     toneClass: "text-primary",
   },
