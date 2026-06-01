@@ -90,6 +90,24 @@ function AgentLoopTurnCard({ turn }: { turn: AgentLoopTurnViewModel }) {
             <span className="text-sm font-semibold text-slate-950">{turn.title}</span>
             <SmallPill>{turn.aiStage ?? "未记录 aiStage"}</SmallPill>
             {turn.loopTurnId ? <SmallPill>{turn.loopTurnId}</SmallPill> : null}
+            
+            {/* 直接标记本轮调用的工具/行为 */}
+            {turn.toolResults.length > 0 ? (
+              turn.toolResults.map((result) => (
+                <span key={result.toolResultId ?? result.step.stepId} className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-100">
+                  🛠️ 工具: {result.toolName}
+                </span>
+              ))
+            ) : turn.parsedDecision?.toolName ? (
+              <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-700 ring-1 ring-amber-100">
+                ⚙️ 决策调用: {turn.parsedDecision.toolName}
+              </span>
+            ) : turn.parsedDecision?.action === "final_result" || turn.aiStage === "agent_final_result" ? (
+              <span className="rounded-full bg-blue-50 px-2.5 py-0.5 text-[11px] font-semibold text-blue-700 ring-1 ring-blue-100">
+                💬 答复用户
+              </span>
+            ) : null}
+
             {tokenUsage ? (
               <span className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-[11px] font-semibold text-indigo-700 ring-1 ring-indigo-100/50">
                 Token: 输入 {tokenUsage.prompt_tokens?.toLocaleString() ?? "-"} · 输出 {tokenUsage.completion_tokens?.toLocaleString() ?? "-"} (共 {tokenUsage.total_tokens?.toLocaleString() ?? "-"})
