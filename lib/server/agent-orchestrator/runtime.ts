@@ -24,6 +24,7 @@ import {
   parseAgentJsonObject,
   parseAgentToolDecision,
   type AgentToolDefinition,
+  type AgentToolDecisionParseResult,
   type AgentToolExecutionResult,
 } from "./tool-registry";
 
@@ -154,6 +155,37 @@ export async function runAgentOrchestrator(
           },
         },
       });
+      const recoverableFeedback = createRecoverablePrematureFinalResultFeedback({
+        state,
+        rawDecision,
+        parseFailure: parsedDecision,
+        stepIndex,
+      });
+
+      if (recoverableFeedback && stepIndex + 1 < limits.maxSteps) {
+        state = recordSyntheticDecisionFeedback(state, recoverableFeedback);
+        input.trace?.addStep({
+          name: "agent_tool_result",
+          type: "agent_tool_result",
+          status: "failed",
+          input: { rawDecision: summarizeUnknown(rawDecision) },
+          output: recoverableFeedback.result.modelSummary,
+          error: recoverableFeedback.result.error,
+          metadata: createToolResultTraceMetadata({
+            loopTurnId,
+            loopTurnIndex: stepIndex,
+            modelCallId,
+            toolCallId: recoverableFeedback.toolCall.id,
+            resultRecord: recoverableFeedback.result,
+            stepIndex,
+            durationMs: 0,
+            failureCode: recoverableFeedback.result.error?.code,
+          }),
+        });
+        state = maybeCheckpoint(state, limits, stepIndex);
+        continue;
+      }
+
       state = finishWithResult(state, createFailedResult("model_output_invalid"), input.trace, parsedDecision.message);
       break;
     }
@@ -468,6 +500,115 @@ function recordSyntheticToolFailure(
   });
 
   return completeToolCall(withCall, toolCallId, "failed", result);
+}
+
+type RecoverableDecisionFeedback = {
+  toolCall: AgentToolCallRecord;
+  result: AgentToolResultRecord;
+};
+
+// createRecoverablePrematureFinalResultFeedback 只恢复“已可保存但模型提前 final”的窄场景，避免把非法终止伪装成成功。
+function createRecoverablePrematureFinalResultFeedback(input: {
+  state: AgentExecutionState;
+  rawDecision: unknown;
+  parseFailure: Extract<AgentToolDecisionParseResult, { ok: false }>;
+  stepIndex: number;
+}): RecoverableDecisionFeedback | null {
+  const finalStatus = readRawFinalResultStatus(input.rawDecision);
+
+  if (
+    input.parseFailure.code !== "invalid_decision"
+    || (finalStatus !== "generated" && finalStatus !== "patched")
+    || input.state.toolResults.some((result) => result.revisionId)
+  ) {
+    return null;
+  }
+
+  const draft = findLatestToolResultWith(input.state, "draftId");
+  const validation = findLatestToolResultWith(input.state, "validationId");
+  const policy = findLatestToolResultWith(input.state, "policyDecisionId");
+  const draftId = draft?.draftId;
+  const validationId = validation?.validationId;
+  const policyDecisionId = policy?.policyDecisionId;
+  const candidateSetId = validation?.candidateSetId ?? draft?.candidateSetId;
+  const artifactKind = readNestedString(policy?.output, "artifactKind")
+    ?? readNestedString(draft?.output, "draftKind");
+
+  if (!draftId || !validationId || !policyDecisionId || !candidateSetId || !isArtifactKind(artifactKind)) {
+    return null;
+  }
+
+  const toolCallId = createAgentId("tool_call");
+  const recommendedInput = {
+    artifactKind,
+    draftId,
+    candidateSetId,
+    validationId,
+    policyDecisionId,
+    validationPassed: true,
+    policyAllowed: true,
+  };
+  const modelSummary = {
+    code: "premature_final_result_before_save",
+    message: "generated/patched 必须在 saveConversationArtifactRevision 成功返回 revisionId 后才能作为 final_result。",
+    recommendedToolName: "saveConversationArtifactRevision",
+    recommendedInput,
+  };
+
+  return {
+    toolCall: {
+      id: toolCallId,
+      toolName: "agentDecisionFeedback",
+      input: { rawDecision: summarizeUnknown(input.rawDecision) },
+      status: "failed",
+      startedAt: toUtcISOString(new Date()),
+      finishedAt: toUtcISOString(new Date()),
+      reason: "模型在保存 artifact 前提前返回非法 final_result，runtime 要求继续调用保存工具。",
+    },
+    result: {
+      toolResultId: createAgentId("tool_result"),
+      toolCallId,
+      toolName: "agentDecisionFeedback",
+      status: "failed",
+      candidateSetId,
+      draftId,
+      validationId,
+      policyDecisionId,
+      modelSummary,
+      traceSummary: {
+        ...modelSummary,
+        stepIndex: input.stepIndex,
+        parseFailure: {
+          code: input.parseFailure.code,
+          message: input.parseFailure.message,
+          detail: input.parseFailure.detail,
+        },
+      },
+      error: {
+        code: "model_output_invalid",
+        message: "Agent returned final_result before saving the generated artifact.",
+        retryable: true,
+        detail: {
+          parseFailure: {
+            code: input.parseFailure.code,
+            message: input.parseFailure.message,
+            detail: input.parseFailure.detail,
+          },
+          recommendedToolName: "saveConversationArtifactRevision",
+          recommendedInput,
+        },
+      },
+    },
+  };
+}
+
+function recordSyntheticDecisionFeedback(
+  state: AgentExecutionState,
+  feedback: RecoverableDecisionFeedback,
+) {
+  const withCall = addToolCall(state, feedback.toolCall);
+
+  return completeToolCall(withCall, feedback.toolCall.id, "failed", feedback.result);
 }
 
 function createToolResultRecord(input: {
@@ -835,6 +976,43 @@ function stateHasDependencyId(state: AgentExecutionState, kind: AgentToolDepende
 
 function readNestedString(value: unknown, key: string) {
   return value && typeof value === "object" ? (value as Record<string, unknown>)[key] : undefined;
+}
+
+function readRawFinalResultStatus(value: unknown) {
+  const decision = readDecisionObject(value);
+  const result = decision && typeof decision.result === "object" && decision.result !== null
+    ? decision.result as Record<string, unknown>
+    : null;
+
+  return decision?.action === "final_result" && typeof result?.status === "string"
+    ? result.status
+    : undefined;
+}
+
+function readDecisionObject(value: unknown): Record<string, unknown> | null {
+  if (typeof value === "string") {
+    const parsedJson = parseAgentJsonObject(value);
+    return parsedJson.ok && parsedJson.value && typeof parsedJson.value === "object" && !Array.isArray(parsedJson.value)
+      ? parsedJson.value as Record<string, unknown>
+      : null;
+  }
+
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function findLatestToolResultWith(
+  state: AgentExecutionState,
+  key: "draftId" | "validationId" | "policyDecisionId",
+) {
+  return [...state.toolResults]
+    .reverse()
+    .find((result) => result.status === "success" && Boolean(result[key]));
+}
+
+function isArtifactKind(value: unknown): value is "routine" | "plan" {
+  return value === "routine" || value === "plan";
 }
 
 function flattenStringIds(value: unknown): string[] {
