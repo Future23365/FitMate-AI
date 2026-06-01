@@ -133,12 +133,12 @@
 
 - [x] 2.1 将现有 `searchArtifacts`、`getArtifactPayload`、`getExerciseById`、`searchExercises` 迁入统一 Agent registry。
 - [x] 2.2 新增 `listRecentArtifacts`、`getUserMemory` 或等价读工具，支持 Agent 主动查询当前会话事实。
-- [ ] 2.3 新增 `proposeWorkoutEditPlan`、`generateRoutineDraft`、`generatePlanDraft`、`proposeWorkoutPatch` 和 `askClarification` 工具，保持输出 Schema 可校验。
-- [ ] 2.4 新增 `validateRoutineDraft`、`validatePlanDraft`、`validateWorkoutPatch` 和 `evaluatePolicy` 工具，复用现有 Validator / Policy。
-- [ ] 2.5 新增 `saveConversationArtifactRevision` 或等价写工具，要求引用 draftId/patchId、candidateSetId、validationId、policyDecisionId 和必要 confirmationId 后才能保存。
-- [ ] 2.6 为所有工具补充 userId/sessionId 权限隔离、候选集合边界、tool result id 依赖、失败返回和 trace 摘要测试。
-- [ ] 2.7 确保生成工具复用 DomainPlanEngine、候选集合、时长估算、Validator、Policy 和 validation recovery，不退化为 summary + 用户原文的大模型自由生成。
-- [ ] 2.8 为 AgentToolRegistry 增加领域能力合同校验，要求新增写工具声明 OpenSpec 归属、可写资源、字段白名单、Schema、权限、确认、持久化、幂等 key、trace 摘要和 Response Writer 安全摘要。
+- [x] 2.3 新增 `proposeWorkoutEditPlan`、`generateRoutineDraft`、`generatePlanDraft`、`proposeWorkoutPatch` 和 `askClarification` 工具，保持输出 Schema 可校验。
+- [x] 2.4 新增 `validateRoutineDraft`、`validatePlanDraft`、`validateWorkoutPatch` 和 `evaluatePolicy` 工具，复用现有 Validator / Policy。
+- [x] 2.5 新增 `saveConversationArtifactRevision` 或等价写工具，要求引用 draftId/patchId、candidateSetId、validationId、policyDecisionId 和必要 confirmationId 后才能保存。
+- [x] 2.6 为所有工具补充 userId/sessionId 权限隔离、候选集合边界、tool result id 依赖、失败返回和 trace 摘要测试。
+- [x] 2.7 确保生成工具复用 DomainPlanEngine、候选集合、时长估算、Validator、Policy 和 validation recovery，不退化为 summary + 用户原文的大模型自由生成。
+- [x] 2.8 为 AgentToolRegistry 增加领域能力合同校验，要求新增写工具声明 OpenSpec 归属、可写资源、字段白名单、Schema、权限、确认、持久化、幂等 key、trace 摘要和 Response Writer 安全摘要。
 
 ## 3. Agent Loop 与 /api/chat 主链替换
 
@@ -151,13 +151,13 @@
 
 ## 4. 动作查询、生成、Patch 与保存闭环
 
-- [ ] 4.1 调整动作查询工具，支持 `equipmentRequired`、`equipmentAvoided`、`targetMuscles`、`level`、`sessionMinutes`、`preferences` 和 `avoidances` 结构化过滤。
-- [ ] 4.2 调整 artifact 搜索工具，支持 kind、sessionScope、目标、器械正负约束、时长和辅助 query。
-- [ ] 4.3 让 Agent 基于真实 artifact payload 先提出 `WorkoutEditPlan`，再决定局部 Patch、整套重新生成或澄清，不再由服务端关键词选择策略。
-- [ ] 4.4 确保 Patch 中的 replacementExerciseId 来自当前 run 的 candidateSetId 和数据库，Patch target 来自真实 artifact payload。
-- [ ] 4.5 确保 routine/plan draft 展示或保存前通过 Validator 和 Policy，失败后由 Agent 选择修复、重新查候选、澄清或失败恢复。
-- [ ] 4.6 确保所有生成或修订结果通过写工具保存为 `ConversationArtifact` revision，并保留来源关系、candidateSetId、validationId、policyDecisionId 和旧 artifact 可读性。
-- [ ] 4.7 拒绝裸用户原句 query 作为可执行候选集合来源；必要时要求 Agent 补结构化字段、读取更多上下文或澄清。
+- [x] 4.1 调整动作查询工具，支持 `equipmentRequired`、`equipmentAvoided`、`targetMuscles`、`level`、`sessionMinutes`、`preferences` 和 `avoidances` 结构化过滤。
+- [x] 4.2 调整 artifact 搜索工具，支持 kind、sessionScope、目标、器械正负约束、时长和辅助 query。
+- [x] 4.3 让 Agent 基于真实 artifact payload 先提出 `WorkoutEditPlan`，再决定局部 Patch、整套重新生成或澄清，不再由服务端关键词选择策略。
+- [x] 4.4 确保 Patch 中的 replacementExerciseId 来自当前 run 的 candidateSetId 和数据库，Patch target 来自真实 artifact payload。
+- [x] 4.5 确保 routine/plan draft 展示或保存前通过 Validator 和 Policy，失败后由 Agent 选择修复、重新查候选、澄清或失败恢复。
+- [x] 4.6 确保所有生成或修订结果通过写工具保存为 `ConversationArtifact` revision，并保留来源关系、candidateSetId、validationId、policyDecisionId 和旧 artifact 可读性。
+- [x] 4.7 拒绝裸用户原句 query 作为可执行候选集合来源；必要时要求 Agent 补结构化字段、读取更多上下文或澄清。
 
 ## 5. Response Writer、上下文与 Trace
 

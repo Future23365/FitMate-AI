@@ -3,3 +3,4 @@ export * from "./contracts";
 export * from "./legacy-chat-event-adapter";
 export * from "./readonly-tools";
 export * from "./tool-registry";
+export * from "./workout-tools";

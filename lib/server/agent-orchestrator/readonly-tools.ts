@@ -40,8 +40,13 @@ export const listRecentArtifactsAgentToolInputSchema = z.object({
 
 export const searchArtifactsAgentToolInputSchema = z.object({
   query: z.string().trim().max(240).optional(),
+  candidateUse: z.enum(["answer_only", "edit_plan", "patch", "regenerate"]).default("answer_only"),
   sessionScope: z.enum(["current_session", "current_user"]).default("current_session"),
   kind: conversationArtifactKindSchema.optional(),
+  targetGoal: z.string().trim().max(120).optional(),
+  equipmentRequired: z.array(z.string().trim().min(1).max(60)).max(12).optional(),
+  equipmentAvoided: z.array(z.string().trim().min(1).max(60)).max(12).optional(),
+  sessionMinutes: z.number().int().min(5).max(240).optional(),
   limit: z.number().int().min(1).max(12).default(defaultSearchArtifactsLimit),
 });
 
@@ -56,11 +61,20 @@ export const getExerciseByIdAgentToolInputSchema = z.object({
 
 export const searchExercisesAgentToolInputSchema = z.object({
   query: z.string().trim().max(240).optional(),
+  candidateUse: z.enum(["answer_only", "recommendation", "routine", "plan", "patch"]).default("answer_only"),
   limit: z.number().int().min(1).max(24).default(defaultSearchExercisesLimit),
   visibility: z.enum(["all", "published"]).default("published"),
   allowedSections: z.array(exerciseAllowedSectionSchema).max(3).optional(),
+  goal: z.string().trim().max(120).optional(),
+  targetMuscles: z.array(z.string().trim().min(1).max(60)).max(16).optional(),
+  equipmentRequired: z.array(z.string().trim().min(1).max(60)).max(12).optional(),
+  equipmentAvoided: z.array(z.string().trim().min(1).max(60)).max(12).optional(),
   equipment: z.array(z.string().trim().min(1).max(60)).max(12).optional(),
+  location: z.string().trim().max(80).optional(),
   level: z.string().trim().max(60).optional(),
+  sessionMinutes: z.number().int().min(5).max(240).optional(),
+  preferences: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
+  avoidances: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
   excludedRiskTags: z.array(z.string().trim().min(1).max(60)).max(12).optional(),
   injuryLimitations: z.array(z.string().trim().min(1).max(80)).max(12).optional(),
 });
@@ -193,12 +207,22 @@ function createSearchArtifactsTool(): AgentToolDefinition<SearchArtifactsAgentTo
     },
     async execute(input, context) {
       const parsedInput = searchArtifactsAgentToolInputSchema.parse(input);
+      if (requiresStructuredExecutableArtifactSet(parsedInput) && !hasStructuredArtifactFilters(parsedInput)) {
+        return createFailure("schema_validation_failed", "Executable artifact candidate sets require structured filters, not a bare query.", {
+          candidateUse: parsedInput.candidateUse,
+        });
+      }
+
       try {
         const result = await searchArtifactsDetailed({
           userId: context.userId,
           sessionId: context.sessionId,
           sessionScope: parsedInput.sessionScope,
           kind: parsedInput.kind,
+          targetGoal: parsedInput.targetGoal,
+          equipmentRequired: parsedInput.equipmentRequired,
+          equipmentAvoided: parsedInput.equipmentAvoided,
+          sessionMinutes: parsedInput.sessionMinutes,
           query: parsedInput.query,
           limit: parsedInput.limit,
         });
@@ -329,6 +353,12 @@ function createSearchExercisesTool(): AgentToolDefinition<SearchExercisesAgentTo
     },
     async execute(input, context) {
       const parsedInput = searchExercisesAgentToolInputSchema.parse(input);
+      if (requiresStructuredExecutableCandidateSet(parsedInput) && !hasStructuredExerciseFilters(parsedInput)) {
+        return createFailure("schema_validation_failed", "Executable exercise candidate sets require structured filters, not a bare query.", {
+          candidateUse: parsedInput.candidateUse,
+        });
+      }
+
       try {
         const result = await searchExercises(parsedInput);
         const candidateSetId = createStructuredResultId(context, "candidate_set", "searchExercises", parsedInput);
@@ -517,4 +547,38 @@ function truncateText(value: string | undefined) {
 
 function uniqueStrings(values: Array<string | undefined>) {
   return Array.from(new Set(values.map((value) => value?.trim()).filter(Boolean) as string[]));
+}
+
+function requiresStructuredExecutableCandidateSet(input: SearchExercisesAgentToolInput) {
+  return input.candidateUse !== "answer_only";
+}
+
+function requiresStructuredExecutableArtifactSet(input: SearchArtifactsAgentToolInput) {
+  return input.candidateUse !== "answer_only";
+}
+
+function hasStructuredExerciseFilters(input: SearchExercisesAgentToolInput) {
+  return Boolean(
+    input.goal ||
+    input.targetMuscles?.length ||
+    input.equipmentRequired?.length ||
+    input.equipmentAvoided?.length ||
+    input.equipment?.length ||
+    input.allowedSections?.length ||
+    input.level ||
+    input.sessionMinutes ||
+    input.preferences?.length ||
+    input.avoidances?.length ||
+    input.injuryLimitations?.length,
+  );
+}
+
+function hasStructuredArtifactFilters(input: SearchArtifactsAgentToolInput) {
+  return Boolean(
+    input.kind ||
+    input.targetGoal ||
+    input.equipmentRequired?.length ||
+    input.equipmentAvoided?.length ||
+    input.sessionMinutes,
+  );
 }

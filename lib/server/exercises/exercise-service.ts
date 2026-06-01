@@ -37,8 +37,16 @@ export type ExerciseSearchInput = {
   limit?: number;
   visibility?: "all" | "published";
   allowedSections?: ExerciseSuitability[];
+  goal?: string;
+  targetMuscles?: string[];
+  equipmentRequired?: string[];
+  equipmentAvoided?: string[];
   equipment?: string[];
+  location?: string;
   level?: string;
+  sessionMinutes?: number;
+  preferences?: string[];
+  avoidances?: string[];
   excludedRiskTags?: string[];
   injuryLimitations?: string[];
 };
@@ -122,8 +130,16 @@ export function searchExercisesInMemory(exercises: Exercise[], input: ExerciseSe
       filters: {
         visibility: input.visibility,
         allowedSections: input.allowedSections,
+        goal: input.goal,
+        targetMuscles: input.targetMuscles,
+        equipmentRequired: input.equipmentRequired,
+        equipmentAvoided: input.equipmentAvoided,
         equipment: input.equipment,
+        location: input.location,
         level: input.level,
+        sessionMinutes: input.sessionMinutes,
+        preferences: input.preferences,
+        avoidances: input.avoidances,
         excludedRiskTags: input.excludedRiskTags,
         injuryLimitations: input.injuryLimitations,
       },
@@ -371,7 +387,23 @@ function matchesExerciseHardFilters(exercise: Exercise, input: ExerciseSearchInp
     return false;
   }
 
-  if (input.equipment?.length && !matchesRequestedEquipment(exercise, new Set(input.equipment))) {
+  const requiredEquipment = uniqueStrings([
+    ...(input.equipment ?? []),
+    ...(input.equipmentRequired ?? []),
+  ]);
+  if (requiredEquipment.length && !matchesRequestedEquipment(exercise, new Set(requiredEquipment))) {
+    return false;
+  }
+
+  if (input.equipmentAvoided?.length && matchesAnyEquipment(exercise, new Set(input.equipmentAvoided))) {
+    return false;
+  }
+
+  if (input.targetMuscles?.length && !input.targetMuscles.some((muscle) => matchesMuscle(exercise, muscle))) {
+    return false;
+  }
+
+  if (input.avoidances?.length && matchesAnyStructuredText(exercise, input.avoidances)) {
     return false;
   }
 
@@ -437,8 +469,52 @@ function matchesRequestedEquipment(exercise: Exercise, requestedEquipment: Set<s
   return requestedEquipment.has("自重") && exercise.homeRequirementZh === "无器械";
 }
 
+function matchesAnyEquipment(exercise: Exercise, avoidedEquipment: Set<string>) {
+  if (avoidedEquipment.size === 0) {
+    return false;
+  }
+
+  const exerciseEquipment = [exercise.equipment, exercise.equipmentZh, exercise.homeRequirement, exercise.homeRequirementZh]
+    .filter(Boolean)
+    .map((value) => value?.trim());
+
+  return exerciseEquipment.some((value) => value && avoidedEquipment.has(value));
+}
+
+function matchesAnyStructuredText(exercise: Exercise, values: string[]) {
+  const haystack = normalizeSearchText([
+    exercise.id,
+    exercise.nameEn,
+    exercise.nameZh,
+    exercise.category,
+    exercise.categoryZh,
+    exercise.equipment,
+    exercise.equipmentZh,
+    exercise.homeRequirement,
+    exercise.homeRequirementZh,
+    exercise.level,
+    exercise.levelZh,
+    ...exercise.primaryMuscles,
+    ...exercise.primaryMusclesZh,
+    ...exercise.secondaryMuscles,
+    ...exercise.secondaryMusclesZh,
+    ...exercise.goalTags,
+    ...exercise.riskTags,
+    ...exercise.contraindications,
+  ].filter(Boolean).join(" "));
+
+  return values
+    .map((value) => normalizeSearchText(value))
+    .filter(Boolean)
+    .some((value) => haystack.includes(value));
+}
+
 function normalizeSearchText(value: string) {
   return value.trim().toLowerCase();
+}
+
+function uniqueStrings(values: string[]) {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
 }
 
 function clampLimit(limit?: number) {

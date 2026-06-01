@@ -62,6 +62,10 @@ export type SearchArtifactsInput = {
   sessionId?: string;
   sessionScope?: ArtifactSearchScope;
   kind?: ConversationArtifactKind;
+  targetGoal?: string;
+  equipmentRequired?: string[];
+  equipmentAvoided?: string[];
+  sessionMinutes?: number;
   query?: string;
   limit?: number;
 };
@@ -81,6 +85,10 @@ export type ArtifactSearchDiagnostics = {
     sessionId?: string;
     sessionScope: ArtifactSearchScope;
     kind?: ConversationArtifactKind;
+    targetGoal?: string;
+    equipmentRequired?: string[];
+    equipmentAvoided?: string[];
+    sessionMinutes?: number;
     status: ConversationArtifactStatus;
   };
   recalledCount: number;
@@ -424,7 +432,8 @@ export async function searchArtifactsDetailed(
     take,
   });
 
-  const rankedRows = rows
+  const hardFilteredRows = rows.filter((row) => matchesArtifactStructuredFilters(row as ArtifactIndexRow, input));
+  const rankedRows = hardFilteredRows
     .map((row) => ({
       row: row as ArtifactIndexRow,
       score: scoreArtifactIndex(row as ArtifactIndexRow, query, input.sessionId),
@@ -447,10 +456,14 @@ export async function searchArtifactsDetailed(
       sessionId: input.sessionId,
       sessionScope,
       kind: input.kind,
+      targetGoal: input.targetGoal,
+      equipmentRequired: input.equipmentRequired,
+      equipmentAvoided: input.equipmentAvoided,
+      sessionMinutes: input.sessionMinutes,
       status: "active",
     },
     recalledCount: rows.length,
-    filteredCount: Math.max(rows.length - rankedRows.length, 0),
+    filteredCount: Math.max(rows.length - hardFilteredRows.length, 0),
     rerank: rankedRows.map(({ row, score }) => ({
       artifactId: row.artifactId,
       score,
@@ -890,6 +903,43 @@ function artifactIndexRowToRecentSummary(row: ArtifactIndexRow): RecentArtifactS
     trainingDayCount: row.trainingDayCount ?? undefined,
     updatedAt: toUtcISOString(row.updatedAt),
   };
+}
+
+function matchesArtifactStructuredFilters(row: ArtifactIndexRow, input: SearchArtifactsInput) {
+  if (input.targetGoal && !matchesAnyText(row.goals, input.targetGoal)) {
+    return false;
+  }
+
+  if (input.equipmentRequired?.length && !input.equipmentRequired.every((item) => matchesAnyText(row.equipment, item))) {
+    return false;
+  }
+
+  if (input.equipmentAvoided?.length && input.equipmentAvoided.some((item) => matchesAnyText(row.equipment, item))) {
+    return false;
+  }
+
+  if (
+    input.sessionMinutes !== undefined &&
+    row.sessionMinutes !== null &&
+    Math.abs(row.sessionMinutes - input.sessionMinutes) > 15
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function matchesAnyText(values: string[], target: string) {
+  const normalizedTarget = normalizeFilterText(target);
+
+  return values.some((value) => {
+    const normalizedValue = normalizeFilterText(value);
+    return normalizedValue.includes(normalizedTarget) || normalizedTarget.includes(normalizedValue);
+  });
+}
+
+function normalizeFilterText(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, "");
 }
 
 function clampLimit(limit = 6) {
