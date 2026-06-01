@@ -7,6 +7,7 @@ import type { ChatIntent } from "@/lib/server/chat/chat-service";
 import type { AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
 import { summarizeReferenceResolutionForTrace } from "@/lib/server/dev/ai-run-trace";
 import type { CurrentUser } from "@/lib/server/users/current-user";
+import type { ResolvedActionKind, ResolvedReferenceRequirement } from "@/lib/shared/chat/resolved-intent";
 import type {
   ReferenceArtifactCandidate,
   ReferenceResolution,
@@ -204,12 +205,24 @@ export async function resolveReference(input: ResolveReferenceInput): Promise<Re
   return result;
 }
 
-export function shouldAttemptReferenceResolution(message: string, intentType?: ChatIntent["type"]) {
-  if (intentType === "exercise_replacement" || intentType === "exercise_explanation") {
+export function shouldAttemptReferenceResolution(
+  message: string,
+  intentType?: ChatIntent["type"],
+  actionKind?: ResolvedActionKind,
+  referenceRequirement?: ResolvedReferenceRequirement,
+) {
+  if (
+    referenceRequirement?.required ||
+    actionKind === "workout_patch" ||
+    actionKind === "exercise_replacement" ||
+    actionKind === "exercise_explanation" ||
+    intentType === "exercise_replacement" ||
+    intentType === "exercise_explanation"
+  ) {
     return true;
   }
 
-  return referenceMarkerTestRegex.test(message) || modificationIntentTestRegex.test(message);
+  return referenceMarkerTestRegex.test(message);
 }
 
 // 受控候选选择器用于接住未来 LLM 选择结果；非法 artifactId 一律降级为歧义或未找到。

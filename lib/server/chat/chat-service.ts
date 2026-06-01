@@ -320,16 +320,14 @@ function getRawWorkoutIntent(value: unknown) {
 
 function shouldRequireValidWorkoutIntent(intent: Pick<ChatIntent, "type" | "needsExerciseContext" | "canTriggerAction" | "action">) {
   const actionKind = intent.action?.kind;
-  const actionNeedsWorkoutIntent =
-    actionKind === "exercise_recommendation" ||
-    actionKind === "workout_routine" ||
-    actionKind === "workout_plan";
+  const actionNeedsWorkoutIntent = actionKind ? isGeneratingActionKind(actionKind) : false;
+  const typeNeedsWorkoutIntent = isActionType(intent.type);
 
   return (
-    intent.needsExerciseContext ||
-    intent.canTriggerAction ||
-    intent.action?.shouldTrigger ||
-    isActionType(intent.type) ||
+    (intent.needsExerciseContext && typeNeedsWorkoutIntent) ||
+    (intent.canTriggerAction && (typeNeedsWorkoutIntent || actionNeedsWorkoutIntent)) ||
+    (intent.action?.shouldTrigger && actionNeedsWorkoutIntent) ||
+    typeNeedsWorkoutIntent ||
     actionNeedsWorkoutIntent
   );
 }
@@ -783,9 +781,12 @@ export async function createAiChatResponse({
       recentWorkoutFeedbackCount: memoryState.recentWorkoutFeedback.length,
     },
   });
+  const resolvedActionKind = getChatIntentActionKind(chatIntent);
   const referenceResolution = shouldAttemptReferenceResolution(
     conversationSummaryContext.latestUserMessage,
     chatIntent.type,
+    resolvedActionKind,
+    chatIntent.referenceRequirement,
   ) && shouldUseReferenceResolutionForChat({
     latestUserMessage: conversationSummaryContext.latestUserMessage,
     chatIntent,
@@ -849,6 +850,7 @@ export async function createAiChatResponse({
     const patchResult = await buildAndApplyWorkoutPatchFromChat({
       userId: user.id,
       latestUserMessage: conversationSummaryContext.latestUserMessage,
+      actionKind: resolvedActionKind,
       referenceResolution,
       responseMessageId: request.responseMessageId,
       memoryState,
@@ -1724,35 +1726,38 @@ async function resolveChatIntent(
       },
     });
 
-    const normalizedIntent = normalizeChatIntentForBlackboxFlows({
+    const contractIntent = applyChatIntentContractNormalization({
       chatIntent: data,
-      fallbackIntent,
       messages,
       conversationSummaryContext,
       conversationContext: internalConversationContext,
       recentArtifactSummaries,
     });
 
-    if (normalizedIntent !== data) {
+    if (contractIntent !== data) {
       trace?.addStep({
-        name: "意图归一化结果",
+        name: "意图契约处理结果",
         type: "intent",
-        output: normalizedIntent,
+        output: contractIntent,
         metadata: {
           sourceType: data.type,
-          normalizedType: normalizedIntent.type,
+          finalType: contractIntent.type,
         },
       });
     }
 
-    if (normalizedIntent.needsExerciseContext && !normalizedIntent.workoutIntent) {
+    if (
+      shouldRequireValidWorkoutIntent(contractIntent) &&
+      contractIntent.needsExerciseContext &&
+      !contractIntent.workoutIntent
+    ) {
       return {
-        ...normalizedIntent,
+        ...contractIntent,
         workoutIntent: fallbackIntent.workoutIntent,
       };
     }
 
-    return normalizedIntent;
+    return contractIntent;
   } catch (error) {
     trace?.addStep({
       name: "意图解析异常，使用兜底意图",
@@ -1768,27 +1773,14 @@ async function resolveChatIntent(
   }
 }
 
-// 真实模型输出可能在高频短句上漂移；这里把黑盒主路径收敛为服务端可测试边界。
-export function normalizeChatIntentForBlackboxFlows(input: {
+// 意图契约处理只做非语义出口整理，不根据用户原文重写 LLM 已给出的高层 action。
+export function applyChatIntentContractNormalization(input: {
   chatIntent: ChatIntent;
-  fallbackIntent: ChatIntent;
   messages: ChatMessage[];
   conversationSummaryContext: ConversationSummaryContext;
   conversationContext: FitnessConversationContext;
   recentArtifactSummaries?: RecentArtifactSummary[];
 }): ChatIntent {
-  const latestUserMessage = getLatestUserMessage(input.messages);
-  const contextualIntent = resolveContextualWorkoutIntent(input);
-  const priorContextIntent =
-    input.conversationContext.currentIntent ?? buildWorkoutIntentFromRecentArtifact(input.recentArtifactSummaries?.[0]);
-  const hasPriorTrainingContext = Boolean(
-    priorContextIntent ||
-    input.conversationContext.knownFacts.goal ||
-    input.recentArtifactSummaries?.length,
-  );
-  const hasAnyPriorWorkoutContext =
-    hasPriorTrainingContext || hasDurableConditionFacts(input.conversationContext);
-
   if (shouldAttachGreetingStarterSuggestions(input)) {
     return {
       ...input.chatIntent,
@@ -1801,183 +1793,6 @@ export function normalizeChatIntentForBlackboxFlows(input: {
     };
   }
 
-  if (isStandaloneConditionMessage(latestUserMessage) && !hasPriorTrainingContext) {
-    return {
-      type: "general_fitness_advice",
-      needsExerciseContext: false,
-      requestedExerciseName: input.chatIntent.requestedExerciseName ?? "",
-      canTriggerAction: false,
-      missingActionFields: [],
-      suggestedReplies: [],
-    };
-  }
-
-  if (isOrdinalExerciseExplanationMessage(latestUserMessage)) {
-    return {
-      type: "exercise_explanation",
-      needsExerciseContext: false,
-      requestedExerciseName: input.chatIntent.requestedExerciseName ?? "",
-      canTriggerAction: false,
-      missingActionFields: [],
-      suggestedReplies: [],
-    };
-  }
-
-  if (
-    hasRecentExerciseRecommendationContext(input.recentArtifactSummaries, input.conversationSummaryContext.summary) &&
-    isRecommendationRefinementMessage(latestUserMessage)
-  ) {
-    const workoutIntent = applyCurrentMessageOverrides(
-      contextualIntent ?? input.chatIntent.workoutIntent ?? input.fallbackIntent.workoutIntent,
-      latestUserMessage,
-      "routine",
-    );
-
-    return {
-      ...input.chatIntent,
-      type: "exercise_recommendation",
-      needsExerciseContext: true,
-      workoutIntent,
-      canTriggerAction: true,
-      missingActionFields: [],
-      suggestedReplies: [],
-    };
-  }
-
-  if (hasPriorPlanCadenceContext(input.conversationContext) && isPlanCompletionMessage(latestUserMessage)) {
-    const workoutIntent = applyCurrentMessageOverrides(
-      contextualIntent ?? input.chatIntent.workoutIntent ?? input.fallbackIntent.workoutIntent,
-      latestUserMessage,
-      "plan",
-    );
-
-    return {
-      ...input.chatIntent,
-      type: "workout_plan",
-      needsExerciseContext: true,
-      workoutIntent,
-      canTriggerAction: true,
-      missingActionFields: [],
-      suggestedReplies: [],
-    };
-  }
-
-  if (isPureTargetRecommendationMessage(latestUserMessage)) {
-    const workoutIntent = applyCurrentMessageOverrides(
-      contextualIntent ?? input.chatIntent.workoutIntent ?? input.fallbackIntent.workoutIntent,
-      latestUserMessage,
-      "routine",
-    );
-
-    return {
-      ...input.chatIntent,
-      type: "exercise_recommendation",
-      needsExerciseContext: true,
-      workoutIntent,
-      canTriggerAction: true,
-      missingActionFields: [],
-      suggestedReplies: [],
-    };
-  }
-
-  if (isCompleteSingleSessionRoutineMessage(latestUserMessage)) {
-    const workoutIntent = applyCurrentMessageOverrides(
-      contextualIntent ?? input.chatIntent.workoutIntent ?? input.fallbackIntent.workoutIntent,
-      latestUserMessage,
-      "routine",
-    );
-
-    return {
-      ...input.chatIntent,
-      type: "routine",
-      needsExerciseContext: true,
-      workoutIntent,
-      canTriggerAction: true,
-      missingActionFields: [],
-      suggestedReplies: [],
-    };
-  }
-
-  if (isUnderSpecifiedLongTermPlanRequest(latestUserMessage, input.conversationContext)) {
-    const workoutIntent = applyCurrentMessageOverrides(
-      contextualIntent ?? input.chatIntent.workoutIntent ?? input.fallbackIntent.workoutIntent,
-      latestUserMessage,
-      "plan",
-    );
-
-    return {
-      ...input.chatIntent,
-      type: "workout_plan",
-      needsExerciseContext: true,
-      workoutIntent,
-      canTriggerAction: false,
-      missingActionFields: ["trainingGoal", "weeklyFrequency", "equipmentOrLocation"],
-      suggestedReplies: [
-        "我想增肌，每周4练，每次45分钟，有健身房器械",
-        "我想减脂，每周3练，每次30分钟，在家自重",
-        "我想提升体能，每周5练，每次40分钟",
-      ],
-    };
-  }
-
-  if (isLongTermPlanMessage(latestUserMessage)) {
-    const workoutIntent = applyCurrentMessageOverrides(
-      contextualIntent ?? input.chatIntent.workoutIntent ?? input.fallbackIntent.workoutIntent,
-      latestUserMessage,
-      "plan",
-    );
-    const canTriggerPlan = canTriggerLongTermPlanFromContext(
-      latestUserMessage,
-      workoutIntent,
-      hasPriorTrainingContext,
-      input.conversationContext,
-    );
-
-    return {
-      ...input.chatIntent,
-      type: "workout_plan",
-      needsExerciseContext: true,
-      workoutIntent,
-      canTriggerAction: canTriggerPlan,
-      missingActionFields: canTriggerPlan
-        ? input.chatIntent.missingActionFields.filter(
-            (field) => !isPlanDefaultableMissingField(field, workoutIntent),
-          )
-        : ["trainingGoal", "equipmentOrLocation"],
-      suggestedReplies: canTriggerPlan
-        ? []
-        : [
-            "我的目标是增肌，有健身房器械",
-            "我的目标是减脂，在家自重",
-            "我想提升体能，没有特殊器械",
-          ],
-    };
-  }
-
-  if (hasAnyPriorWorkoutContext && isContextualWorkoutAdjustment(latestUserMessage)) {
-    const intentType = inferContextualIntentType(
-      latestUserMessage,
-      input.chatIntent,
-      contextualIntent,
-      input.conversationContext,
-    );
-    const workoutIntent = applyCurrentMessageOverrides(
-      contextualIntent ?? input.chatIntent.workoutIntent ?? input.fallbackIntent.workoutIntent,
-      latestUserMessage,
-      intentType,
-    );
-
-    return {
-      ...input.chatIntent,
-      type: intentType === "plan" ? "workout_plan" : "routine",
-      needsExerciseContext: true,
-      workoutIntent,
-      canTriggerAction: true,
-      missingActionFields: [],
-      suggestedReplies: [],
-    };
-  }
-
   return input.chatIntent;
 }
 
@@ -1987,19 +1802,16 @@ export function shouldUseReferenceResolutionForChat(input: {
   conversationContext: FitnessConversationContext;
   recentArtifactSummaries: RecentArtifactSummary[];
 }) {
+  const actionKind = getChatIntentActionKind(input.chatIntent);
+  if (isReferenceActionKind(actionKind) || input.chatIntent.referenceRequirement?.required) {
+    return true;
+  }
+
   if (hasExplicitReferenceMarker(input.latestUserMessage)) {
     return true;
   }
 
-  if (
-    isContextualWorkoutAdjustment(input.latestUserMessage) &&
-    (input.conversationContext.currentIntent || input.recentArtifactSummaries.length > 0) &&
-    (input.chatIntent.type === "routine" || input.chatIntent.type === "workout_plan")
-  ) {
-    return false;
-  }
-
-  return true;
+  return false;
 }
 
 type ReferencedExerciseSummary = {
@@ -3175,6 +2987,22 @@ function inferActionKindFromIntentType(type: ChatIntent["type"]): ResolvedAction
   }
 }
 
+function getChatIntentActionKind(intent: Pick<ChatIntent, "type" | "action">): ResolvedActionKind {
+  return intent.action?.kind ?? inferActionKindFromIntentType(intent.type);
+}
+
+function isGeneratingActionKind(actionKind: ResolvedActionKind) {
+  return actionKind === "exercise_recommendation" ||
+    actionKind === "workout_routine" ||
+    actionKind === "workout_plan";
+}
+
+function isReferenceActionKind(actionKind: ResolvedActionKind) {
+  return actionKind === "workout_patch" ||
+    actionKind === "exercise_replacement" ||
+    actionKind === "exercise_explanation";
+}
+
 function inferReferenceRequirement(actionKind: ResolvedActionKind) {
   if (actionKind === "workout_patch" || actionKind === "exercise_replacement" || actionKind === "exercise_explanation") {
     return {
@@ -4071,39 +3899,21 @@ export function createFallbackChatIntent(
   conversationContext: FitnessConversationContext,
   conversationSummary = conversationContext.summary,
 ): ChatIntent {
-  const latestUserMessage = getLatestUserMessage(messages);
-  const isRecommendationRefresh = /换一批|再换|换几个|换别的|再来一批|下一批|重新推荐|不要这些|别的动作/.test(
-    latestUserMessage,
-  );
-  const isRecommendation =
-    isRecommendationRefresh ||
-    (/推荐|有哪些|动作/.test(latestUserMessage) && !/组|套|流程|安排|计划/.test(latestUserMessage));
-  const isLongTermPlan = /三周|四周|几周|一周|每周|周频率|长期|周期|计划/.test(latestUserMessage);
-  const isRoutine = /今天|这次|现在|来一套|动作组|流程|安排|练|分钟/.test(latestUserMessage);
-  const type = isRecommendation
-    ? "exercise_recommendation"
-    : isLongTermPlan
-      ? "workout_plan"
-      : isRoutine
-      ? "routine"
-    : "general_fitness_advice";
-  const workoutIntent = createFallbackWorkoutIntent(messages, type, conversationContext);
-  const resolvedWorkoutIntent =
-    isRecommendationRefresh && conversationContext.currentIntent
-      ? conversationContext.currentIntent
-      : isLongTermPlan
-        ? workoutIntent
-        : conversationContext.currentIntent ?? workoutIntent;
-
+  void messages;
+  void conversationContext;
+  void conversationSummary;
   return {
-    type,
-    needsExerciseContext: /动作|训练|计划|编排|替换|推荐|练|胸|背|腿|肩|核心|减脂|增肌/.test(
-      `${latestUserMessage} ${conversationSummary}`,
-    ),
-    workoutIntent: resolvedWorkoutIntent,
+    type: "general_fitness_advice",
+    needsExerciseContext: false,
     canTriggerAction: false,
     missingActionFields: [],
     suggestedReplies: [],
+    action: {
+      kind: "none",
+      shouldTrigger: false,
+      blockingMissingFields: [],
+    },
+    responseMode: "answer_only",
   };
 }
 

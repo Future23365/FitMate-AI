@@ -52,6 +52,7 @@ describe("workout patch chat service", () => {
     const result = await patchChatService.buildAndApplyWorkoutPatchFromChat({
       userId: "user-1",
       latestUserMessage: "把这套里的俯卧撑换掉",
+      actionKind: "exercise_replacement",
       responseMessageId: "assistant-1",
       referenceResolution: {
         status: "resolved",
@@ -97,6 +98,7 @@ describe("workout patch chat service", () => {
     const result = await patchChatService.buildAndApplyWorkoutPatchFromChat({
       userId: "user-1",
       latestUserMessage: "把深蹲换掉",
+      actionKind: "exercise_replacement",
       referenceResolution: {
         status: "resolved",
         artifactId: "artifact-routine",

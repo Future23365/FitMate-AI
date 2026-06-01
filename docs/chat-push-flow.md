@@ -119,6 +119,15 @@ resolveAssistantAction 决定是否触发推送事件
 - `workout_plan`
 
 如果意图解析失败，服务端会使用 `createFallbackChatIntent` 做兜底，不会直接让本轮聊天失败。
+该兜底只产生安全的非执行意图，不会根据用户原文关键词推断 `exercise_recommendation`、`routine` 或 `workout_plan`。
+
+服务端只负责契约校验和确定性执行边界：
+
+1. LLM 负责判断 `type`、`action.kind`、`workoutIntent.intentType` 等高层语义。
+2. 服务端可以规范化 `null`、旧字段和建议按钮结构，并校验字段一致性。
+3. 服务端不得用关键词、短句模板或历史摘要把 LLM 输出的高层 action 改写成另一种 action。
+4. 结构冲突或缺少可执行字段时，进入 repair、澄清或安全拒绝，而不是改写语义。
+5. `exercise_replacement`、`workout_patch`、依赖 artifact 的 `exercise_explanation` 按引用型契约校验，不要求具备新生成训练所需的 `workoutIntent`。
 
 ## 6. 动作候选上下文
 

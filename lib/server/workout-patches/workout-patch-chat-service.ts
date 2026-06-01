@@ -10,6 +10,7 @@ import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import { applyWorkoutPatch } from "@/lib/server/workout-patches/workout-patch-engine";
 import type { ReferenceResolution } from "@/lib/shared/reference-resolver/schema";
 import type { Exercise } from "@/lib/shared/exercises/types";
+import type { ResolvedActionKind } from "@/lib/shared/chat/resolved-intent";
 import { toUtcISOString } from "@/lib/shared/time/utc-date-time";
 import type { ConversationMemoryState } from "@/lib/shared/user-feedback-memory/schema";
 import type {
@@ -23,6 +24,7 @@ import type { WorkoutPatch, WorkoutPatchResult } from "@/lib/shared/workout-patc
 type BuildAndApplyWorkoutPatchInput = {
   userId: string;
   latestUserMessage: string;
+  actionKind: ResolvedActionKind;
   referenceResolution: Extract<ReferenceResolution, { status: "resolved" }>;
   responseMessageId?: string;
   memoryState?: ConversationMemoryState;
@@ -49,7 +51,7 @@ export type WorkoutPatchChatResult =
 export async function buildAndApplyWorkoutPatchFromChat(
   input: BuildAndApplyWorkoutPatchInput,
 ): Promise<WorkoutPatchChatResult> {
-  if (!shouldAttemptWorkoutPatch(input.latestUserMessage, input.referenceResolution)) {
+  if (!shouldAttemptWorkoutPatch(input.latestUserMessage, input.referenceResolution, input.actionKind)) {
     input.trace?.addStep({
       name: "Patch 意图检查未命中",
       type: "patch_proposal",
@@ -208,7 +210,12 @@ export async function buildAndApplyWorkoutPatchFromChat(
 export function shouldAttemptWorkoutPatch(
   message: string,
   resolution: ReferenceResolution | null,
+  actionKind: ResolvedActionKind,
 ) {
+  if (actionKind !== "workout_patch" && actionKind !== "exercise_replacement") {
+    return false;
+  }
+
   if (resolution?.status !== "resolved") {
     return false;
   }
