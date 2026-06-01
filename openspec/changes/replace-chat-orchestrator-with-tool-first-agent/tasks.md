@@ -6,6 +6,7 @@
 - [ ] 1.4 定义 `WorkoutEditPlan` / `WorkoutEditIntent`，覆盖目标 artifact、保留项、变更项、影响范围、策略、候选集合依赖和确认级别。
 - [ ] 1.5 定义工具错误码、step limit、timeout、checkpoint/resume、失败恢复、blocked 状态和硬失败分类。
 - [ ] 1.6 定义 `LegacyChatEventAdapter` 单向兼容层和旧 `assistant_action` / resolved intent 退出条件。
+- [ ] 1.7 定义通用 `completed_operation` AgentExecutionResult 分支，用于表达非训练 artifact 的受控写操作结果，并约束 operation 摘要、operationResultId、policyDecisionId、confirmationId 和 Response Writer 可见字段。
 
 ## 2. 工具注册与服务端硬边界
 
@@ -16,6 +17,7 @@
 - [ ] 2.5 新增 `saveConversationArtifactRevision` 或等价写工具，要求引用 draftId/patchId、candidateSetId、validationId、policyDecisionId 和必要 confirmationId 后才能保存。
 - [ ] 2.6 为所有工具补充 userId/sessionId 权限隔离、候选集合边界、tool result id 依赖、失败返回和 trace 摘要测试。
 - [ ] 2.7 确保生成工具复用 DomainPlanEngine、候选集合、时长估算、Validator、Policy 和 validation recovery，不退化为 summary + 用户原文的大模型自由生成。
+- [ ] 2.8 为 AgentToolRegistry 增加领域能力合同校验，要求新增写工具声明 OpenSpec 归属、可写资源、字段白名单、Schema、权限、确认、持久化、幂等 key、trace 摘要和 Response Writer 安全摘要。
 
 ## 3. Agent Loop 与 /api/chat 主链替换
 
@@ -39,6 +41,7 @@
 ## 5. Response Writer、上下文与 Trace
 
 - [ ] 5.1 实现基于 `AgentExecutionResult` 的 Response Writer 投影层，禁止未执行写操作时承诺已生成或已更新。
+- [ ] 5.1.1 让 Response Writer 支持 `completed_operation` 投影，只能描述已登记 `operationResultId` 的安全摘要，不得伪造成 artifact、patch 或旧 intent 结果。
 - [ ] 5.2 移除 `/api/chat` 对 `conversationSummary` 的必需依赖，Agent 输入改为 `ContextPackage`、真实 recent messages、recent artifacts、用户记忆和 tool results。
 - [ ] 5.3 如保留 summary 生成，将其降级为可选后台摘要、会话标题或调试信息；如需长会话压缩，生成带 provenance 的 `ContextSnapshot`，不参与事实决策。
 - [ ] 5.4 扩展 AiRunTrace，记录 agent run、ContextPackage、tool decision、tool result id、dependency graph、validator gate、policy gate、persistence、legacy path skip 和 final result。
@@ -60,6 +63,7 @@
 
 - [ ] 7.1 增加 Agent context builder 单元测试，覆盖 recent messages、recent artifacts、用户记忆、ContextSnapshot、截断和 provenance。
 - [ ] 7.2 增加 Agent tool registry 单元测试，覆盖未知工具、非法参数、越权 artifact、候选外 exerciseId、tool result id 不匹配和写工具前置校验缺失。
+- [ ] 7.2.1 增加 Agent tool 扩展边界测试，断言缺少领域能力合同、字段白名单、权限上下文、确认策略、持久化服务或安全摘要的写工具无法注册。
 - [ ] 7.3 增加 `/api/chat` Agent 主链测试，覆盖动作推荐、routine 生成、plan 生成、WorkoutEditPlan、局部 Patch、整套重新生成和澄清。
 - [ ] 7.4 增加多轮黑盒 flow：先生成哑铃上肢 routine，再输入“`不用哑铃了，换一个`”，断言读取最近 artifact、查询无哑铃动作并返回一致结果。
 - [ ] 7.5 增加“太难了”“不要跳跃动作”“改成在家练”“第二个动作换掉”等多轮调整测试，验证不依赖服务端关键词纠偏。
@@ -68,6 +72,7 @@
 - [ ] 7.8 增加 Response Writer 事实引用测试，断言回复中动作、器械、artifact 状态和保存结果可映射到 tool result、validation 或 revision。
 - [ ] 7.9 增加 prompt / token budget 防回归测试，断言 `/api/chat` 主链不再启用旧 summary-only prompt modules，且 Agent stages、ContextPackage 可见性摘要和 tool result 引用可被 trace 复盘。
 - [ ] 7.10 增加流事件兼容测试，断言新 `AgentExecutionResult` 事件或 done metadata 可独立表达 artifact、patch、clarification、blocked 和 failed 状态，关闭旧 `assistant_action` / resolved intent 后前端消费路径仍可工作。
+- [ ] 7.11 增加通用受控写操作测试夹具，例如模拟 `updateUserProfile` 工具成功、需要确认和被拒绝三种结果，断言 Agent runtime 无需改动主链即可通过 `completed_operation`、Policy/Confirmation 和 Response Writer 表达结果。
 
 ## 8. 文档、清理与验证命令
 

@@ -106,6 +106,18 @@
 - **AND** 写工具 MUST 创建安全 revision 或返回明确失败
 - **AND** LLM MUST NOT 直接写数据库或执行任意 SQL
 
+#### Scenario: 注册新的领域写工具
+- **WHEN** 系统新增 `updateUserProfile`、`updateNotificationSettings`、`writeUserMemory` 或等价非训练 artifact 写工具
+- **THEN** 该工具 MUST 绑定明确领域能力合同
+- **AND** 该合同 MUST 声明可写资源、字段白名单、输入 Schema、权限上下文、确认策略、持久化服务、幂等 key、trace 摘要和 Response Writer 摘要
+- **AND** 系统 MUST NOT 注册缺少领域服务、权限隔离、确认边界或持久化边界的任意写工具
+
+#### Scenario: 新工具需要新的数据或用户流程边界
+- **WHEN** 新 Agent tool 需要新增数据库字段、API 契约、权限模型、用户可见状态或用户流程
+- **THEN** 系统 MUST 先通过对应 OpenSpec change 定义该领域能力
+- **AND** Agent registry MUST 只在领域合同明确后接入该工具
+- **AND** 系统 MUST NOT 把新增 tool 当成绕过 OpenSpec 和数据模型设计的插件入口
+
 ### Requirement: Agent 必须支持训练生成、Patch、重新生成和澄清
 
 系统 SHALL 让 Agent 基于工具结果选择回答、澄清、生成、局部 Patch 或整套重新生成，而不是让服务端关键词规则选择执行策略。
@@ -142,6 +154,13 @@
 - **THEN** 回复 MUST 描述真实完成的训练结果
 - **AND** 聊天流 MUST 返回对应 artifact、patch 或 revision 事件
 
+#### Scenario: 非训练 artifact 的受控写操作已完成
+- **WHEN** `AgentExecutionResult` 表示 `completed_operation`
+- **THEN** 回复 MUST 只描述对应 `operationResultId` 已完成的真实写入结果
+- **AND** 回复中的字段和值 MUST 来自已登记 tool result 的安全摘要
+- **AND** 聊天流或 done metadata MUST 能表达该操作的类型、结果 id、是否需要后续确认和用户可见状态
+- **AND** 系统 MUST NOT 为该操作伪造 artifact revision、patch result 或旧 resolved intent
+
 #### Scenario: 未执行写操作
 - **WHEN** `AgentExecutionResult` 表示需要澄清、工具失败、校验失败或 policy blocked
 - **THEN** 回复 MUST 说明当前阻断原因或下一步
@@ -172,6 +191,7 @@
 - **WHEN** Agent 准备结束本轮执行
 - **THEN** 模型输出 MUST 通过 `AgentExecutionResult` Schema 校验
 - **AND** 生成、Patch、阻断或失败结果 MUST 引用本轮已登记的 tool result、validation、policy、revision 或 blocking reason
+- **AND** 通用受控写操作结果 MUST 使用 `completed_operation` 并引用 `operationResultId`、`usedToolResultIds` 和必要的 policy/confirmation id
 - **AND** 系统 MUST NOT 将自由文本回答当作执行成功信号
 
 #### Scenario: 旧 prompt module 不再驱动主链

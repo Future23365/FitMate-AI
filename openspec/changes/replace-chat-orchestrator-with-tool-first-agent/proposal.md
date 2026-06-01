@@ -11,6 +11,8 @@
 - 将 `AgentExecutionResult` 设为 `/api/chat` 唯一执行合同；旧 `type`、`workoutIntent`、resolved intent 和 `assistant_action` 只能由兼容适配器从 Agent 结果派生，并必须有删除条件。
 - 将现有只读工具升级为统一 Agent Tool Registry，允许 LLM 在受控边界内调用读工具和写前置工具；写入仍由服务端工具执行并经过 Validator / Policy / Confirmation / Persistence。
 - Agent 工具结果必须通过 `toolResultId`、`candidateSetId`、`validationId`、`policyDecisionId` 和 `revisionId` 等结构化引用串联，写工具不得消费模型自由文本伪造的前置结果。
+- 明确 Agent tool 是后续流程能力扩展点，但每个写工具必须绑定一个已定义的领域能力合同；不得把 registry 当成任意业务函数、任意数据库写入或绕过 OpenSpec 的插件入口。
+- 将 `AgentExecutionResult` 扩展为可表达通用受控写操作结果，避免后续新增“修改用户资料”“保存通知设置”等非训练 artifact 工具时反复改动 Agent 主链结构。
 - 移除 `/api/chat` 主链对 `conversationSummary` 的必需依赖；Agent 执行输入优先使用真实 recent messages、recent artifacts、用户记忆和 tool results，功能正确性优先于 token 成本。
 - 如需长会话压缩，只能通过带 provenance 的 `ContextSnapshot` 进入 Agent；旧 `conversationSummary` 不得直接进入执行决策或作为事实源。
 - 让 LLM 通过工具主动读取 `ConversationArtifact`、`ArtifactIndex`、动作库、用户记忆和历史 payload，而不是让服务端从 summary 或用户原句反推事实。
@@ -44,6 +46,7 @@
 
 - 影响 `/api/chat`、`lib/server/chat/chat-service.ts`、`lib/server/ai/tools/*`、动作查询服务、ConversationArtifact 服务、WorkoutPatch 服务、routine/plan 生成服务、Validator、Policy、Trace 和 Response Writer。
 - 可能新增 `lib/server/agent-orchestrator/*`、`AgentContextBuilder`、`ContextPackage`、统一 `AgentToolRegistry`、`AgentExecutionState`、`AgentExecutionResult`、`WorkoutEditPlan`、Agent tool schema 和对应测试夹具。
+- 后续新增非训练领域工具时，原则上应复用 Agent runtime、tool registry、dependency graph、Policy/Confirmation 和 Response Writer 投影合同；若新增数据模型、API 契约、权限边界或用户可见流程，仍必须走对应 OpenSpec change。
 - 需要调整或废弃旧的 intent normalize、ReferenceResolver-first 触发矩阵、只读-only tool loop 和基于自然语言关键词的服务端语义分流。
 - 需要调整或废弃 `conversationSummary` 作为模型唯一历史上下文的旧契约；如果保留 summary 生成，只能作为可选后台任务或生成带 provenance 的 `ContextSnapshot`。
 - 需要为旧兼容事件建立单向 `LegacyChatEventAdapter`，并在测试中断言旧 intent-first 分支不会反向触发卡片、工具或写入。
