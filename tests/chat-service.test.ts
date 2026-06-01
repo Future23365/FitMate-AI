@@ -354,5 +354,81 @@ describe("chat service Agent-only contract", () => {
     expect(serialized).toContain("stretch");
     expect(serialized).not.toContain("rerank");
     expect(serialized).not.toContain("instructionsZh");
+    expect(serialized).not.toContain("\"variant\"");
+  });
+
+  it("keeps evaluatePolicy union branch fields visible after model input slimming", () => {
+    const input = buildAgentDecisionModelInput({
+      contextPackage: {
+        latestUserMessage: "给我生成一套 30 分钟上肢训练",
+        recentMessages: [],
+        recentArtifacts: [],
+        memorySnapshot: { snapshotId: "memory-1", facts: [], preferences: [], avoidances: [] },
+        provenance: [],
+        limits: {
+          maxRecentMessages: 12,
+          maxRecentArtifacts: 8,
+          maxMessageChars: 1200,
+          maxArtifactSummaryChars: 700,
+        },
+      },
+      registeredTools: [{
+        name: "evaluatePolicy",
+        description: "评估训练 artifact 写入策略",
+        accessLevel: "write",
+        inputJsonSchemaHint: {
+          oneOf: [
+            {
+              type: "object",
+              required: ["policyTarget", "artifactKind", "draftId"],
+              properties: {
+                policyTarget: { type: "string", const: "new_artifact" },
+                artifactKind: { type: "string", enum: ["routine", "plan"] },
+                draftId: { type: "string" },
+              },
+            },
+            {
+              type: "object",
+              required: ["policyTarget", "sourceArtifactId", "patchId"],
+              properties: {
+                policyTarget: { type: "string", const: "existing_artifact" },
+                sourceArtifactId: { type: "string" },
+                patchId: { type: "string" },
+              },
+            },
+          ],
+        },
+        dependencies: [],
+      }],
+      toolResults: [],
+      dependencyGraph: { nodes: [], edges: [] },
+      remainingSteps: 6,
+    });
+
+    const [toolSummary] = input.input.registeredTools;
+    const inputFields = toolSummary?.inputFields;
+
+    expect(Array.isArray(inputFields)).toBe(true);
+
+    const variants = inputFields as Array<{ fields?: Array<Record<string, unknown>> }>;
+    const newArtifactFields = variants
+      .find((variant) => variant.fields?.some((field) => field.name === "policyTarget" && field.const === "new_artifact"))
+      ?.fields;
+
+    expect(newArtifactFields).toBeDefined();
+    expect(newArtifactFields).toContainEqual(expect.objectContaining({
+      name: "policyTarget",
+      required: true,
+      const: "new_artifact",
+    }));
+    expect(newArtifactFields).toContainEqual(expect.objectContaining({
+      name: "artifactKind",
+      required: true,
+      enum: ["routine", "plan"],
+    }));
+    expect(newArtifactFields).toContainEqual(expect.objectContaining({
+      name: "draftId",
+      required: true,
+    }));
   });
 });

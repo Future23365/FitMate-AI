@@ -543,11 +543,39 @@ function summarizeToolDefinitionForModel(tool: Record<string, unknown>) {
   });
 }
 
+// summarizeJsonSchemaFields 保留模型调用工具所需的轻量 Schema 契约，尤其是 union 工具的分支边界。
 function summarizeJsonSchemaFields(schema: unknown) {
-  if (!schema || typeof schema !== "object") {
+  const record = asRecord(schema);
+
+  if (!record) {
     return [];
   }
-  const record = schema as Record<string, unknown>;
+
+  const variants = readJsonSchemaVariants(record);
+  if (variants.length > 0) {
+    return variants.map((variant, index) => compactObject({
+      variant: index + 1,
+      fields: summarizeJsonSchemaObjectFields(variant),
+    }));
+  }
+
+  return summarizeJsonSchemaObjectFields(record);
+}
+
+// readJsonSchemaVariants 识别 discriminated union 转换后的 oneOf/anyOf 分支，避免判别字段被瘦身掉。
+function readJsonSchemaVariants(schema: Record<string, unknown>) {
+  const rawVariants = Array.isArray(schema.oneOf)
+    ? schema.oneOf
+    : Array.isArray(schema.anyOf)
+      ? schema.anyOf
+      : [];
+
+  return rawVariants
+    .map(asRecord)
+    .filter((variant): variant is Record<string, unknown> => Boolean(variant));
+}
+
+function summarizeJsonSchemaObjectFields(record: Record<string, unknown>) {
   const properties = record.properties;
   const required = new Set(Array.isArray(record.required) ? record.required.filter((item): item is string => typeof item === "string") : []);
 
@@ -563,6 +591,7 @@ function summarizeJsonSchemaFields(schema: unknown) {
       required: required.has(name),
       type: fieldRecord.type,
       enum: Array.isArray(fieldRecord.enum) ? fieldRecord.enum : undefined,
+      const: fieldRecord.const,
       items: summarizeJsonSchemaArrayItems(fieldRecord.items),
       default: fieldRecord.default,
       min: fieldRecord.minimum,

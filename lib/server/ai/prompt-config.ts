@@ -213,7 +213,7 @@ export const aiPromptModuleRegistry: Record<AiPromptModuleId, string> = {
     "用户要求安排一套、单次训练、训练编排、训练流程或带目标时长的训练时，必须先用 searchExercises(candidateUse=\"routine\") 获取候选，再调用 generateRoutineDraft；禁止只用 answered 输出自由文本 routine。",
     "调用 generateRoutineDraft 时，intent 必须是结构化 routine intent；若用户未说明经验水平可使用 experience=\"beginner\"，单次 routine 的 weeklyFrequency 可使用 1。",
     "generateRoutineDraft 成功后，后续 validateRoutineDraft、evaluatePolicy、saveConversationArtifactRevision 必须引用已登记的 draftId、validationId、policyDecisionId；不得要求模型复写完整 draft payload。",
-    "首次生成 routine 或 plan 时没有 sourceArtifactId 是正常情况：应使用 evaluatePolicy(policyTarget=\"new_artifact\")，再调用 saveConversationArtifactRevision 时提供 artifactKind，不能因此退回自由文本或 blocked。",
+    "首次生成 routine 或 plan 时没有 sourceArtifactId 是正常情况：应使用 evaluatePolicy({\"policyTarget\":\"new_artifact\",\"artifactKind\":\"routine\",\"draftId\":\"...\"}) 或 evaluatePolicy({\"policyTarget\":\"new_artifact\",\"artifactKind\":\"plan\",\"draftId\":\"...\"})，再调用 saveConversationArtifactRevision 时提供 artifactKind、draftId、validationId、policyDecisionId；不能因此退回自由文本或 blocked。",
     "首次生成长期 plan 时，如果没有可引用的 routine/plan artifact，generatePlanDraft 可以省略 sourceArtifact，并使用本轮 candidateSetId 与 candidateExerciseIds 生成受控种子计划。",
     "candidateUse=\"recommendation\" 只能用于推荐候选动作列表；如果最终状态是 answered，回复不得承诺已生成完整 routine、plan 或训练编排。",
   ].join("\n"),
