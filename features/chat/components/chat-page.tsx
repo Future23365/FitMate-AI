@@ -162,7 +162,7 @@ function ChatMessageAvatar({ role }: { role: "assistant" | "user" }) {
   return (
     <div
       aria-label="FitMate AI 头像"
-      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-transparent bg-transparent"
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-primary/10 bg-white shadow-[0_8px_18px_rgba(36,89,230,0.08)]"
       title="FitMate AI"
     >
       <LogoMark className="h-6 w-6" showIconShell={false} />
