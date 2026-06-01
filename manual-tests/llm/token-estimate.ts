@@ -36,7 +36,7 @@ export async function estimateTokenUsageForReports(input: {
 }
 
 export function estimateFallbackTokenUsage(flowCases: BlackboxFlowCase[]): TokenEstimate {
-  const turnCount = countTurns(flowCases);
+  const turnCount = countBlackboxFlowTurns(flowCases);
   const charCount = flowCases.reduce(
     (flowTotal, flowCase) =>
       flowTotal + flowCase.turns.reduce((turnTotal, turn) => turnTotal + turn.userInput.length + turn.expectation.note.length, 0),
@@ -67,7 +67,7 @@ async function estimateFromRecentReport(
     return null;
   }
 
-  const currentTurnCount = countTurns(flowCases);
+  const currentTurnCount = countBlackboxFlowTurns(flowCases);
   const promptPerTurn = latest.promptTokens / latest.turnCount;
   const completionPerTurn = latest.completionTokens / latest.turnCount;
   const promptTokens = Math.ceil(promptPerTurn * currentTurnCount);
@@ -116,7 +116,7 @@ function isUsableRealReport(report: ReportTokenStats | null): report is ReportTo
   );
 }
 
-function countTurns(flowCases: BlackboxFlowCase[]) {
+export function countBlackboxFlowTurns(flowCases: BlackboxFlowCase[]) {
   return flowCases.reduce((sum, flowCase) => sum + flowCase.turns.length, 0);
 }
 

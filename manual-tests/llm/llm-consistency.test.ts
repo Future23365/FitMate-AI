@@ -20,8 +20,15 @@ import {
   type AssertionStatus,
 } from "./assertions";
 import { createFlowFailureSkipReason } from "./flow-runner-policy";
+import { runFlowQueue } from "./flow-execution";
+import { inspectBlackboxFlowGovernance, type FlowGovernanceSummary } from "./flow-governance";
+import {
+  formatSelectionConditions,
+  selectBlackboxFlowCases,
+  type FlowSelectionResult,
+} from "./flow-selection";
 import { getBlackboxFlowCases, type BlackboxFlowCase, type BlackboxFlowSuiteName, type BlackboxFlowTurn } from "./flow-fixtures";
-import { estimateTokenUsageForReports, type TokenEstimate } from "./token-estimate";
+import { countBlackboxFlowTurns, estimateTokenUsageForReports, type TokenEstimate } from "./token-estimate";
 
 type DeepSeekUsage = {
   prompt_tokens?: number;
@@ -54,37 +61,66 @@ type ManualLlmTurnRecord = {
   artifactDiagnostics?: BlackboxArtifactDiagnostics;
 };
 
+type RunSummary = ReturnType<typeof summarizeRunRecords>;
+
 const model = "deepseek-v4-flash";
 const configuredApiKey = process.env.DEEPSEEK_API_KEY?.trim();
-const describeIfConfigured = configuredApiKey ? describe : describe.skip;
 const flowSuiteName: BlackboxFlowSuiteName = process.env.MANUAL_LLM_FLOW_SUITE === "detail" ? "detail" : "basic";
 const suiteLabel = flowSuiteName === "detail" ? "详细" : "基础";
 const runnerMode: BlackboxRunnerMode = "api_route";
-const runCommand = flowSuiteName === "detail" ? "npm run test --detail" : "npm run test:llm";
-const blackboxFlowCases = getBlackboxFlowCases(flowSuiteName);
+const runCommand = process.env.MANUAL_LLM_RUN_COMMAND?.trim() || (flowSuiteName === "detail" ? "npm run test --detail" : "npm run test:llm");
+const allFlowCases = getBlackboxFlowCases(flowSuiteName);
 const reportPath = process.env.MANUAL_LLM_REPORT_PATH?.trim()
   ? path.resolve(process.env.MANUAL_LLM_REPORT_PATH)
-  : path.join(process.cwd(), "docs", "manual-llm-blackbox-flow-latest-report.md");
+  : path.join(process.cwd(), "docs", flowSuiteName === "detail" ? "manual-llm-blackbox-flow-detail-latest-report.md" : "manual-llm-blackbox-flow-latest-report.md");
+const concurrency = readConcurrency();
 const runRecords: ManualLlmTurnRecord[] = [];
+let selectedFlowCases: BlackboxFlowCase[] = [];
+let selectionResult: FlowSelectionResult | undefined;
+let governanceSummary: FlowGovernanceSummary | undefined;
 let preflightResult: BlackboxPreflightResult | undefined;
-let estimatedTokenUsage: TokenEstimate;
+let estimatedTokenUsage: TokenEstimate = {
+  promptTokens: 0,
+  completionTokens: 0,
+  totalTokens: 0,
+  source: "fallback",
+  calibrationSummary: "尚未执行 token 预估。",
+};
 
 if (!configuredApiKey) {
   console.warn(
     [
       "Missing DEEPSEEK_API_KEY.",
-      "手动 LLM 黑盒流程测试必须调用真实模型；请设置 DEEPSEEK_API_KEY 后重新运行 `npm run test:llm`。",
+      "手动 LLM 黑盒流程测试必须调用真实模型；缺少 key 时只生成跳过摘要。",
       "该测试不会使用 mock、旧快照或非真实模型结果。",
     ].join("\n"),
   );
 }
 
-describeIfConfigured("manual LLM blackbox chat flows", () => {
+describe("manual LLM blackbox chat flows", () => {
   beforeAll(async () => {
+    selectionResult = await selectBlackboxFlowCases(allFlowCases, {
+      ids: readListEnv("MANUAL_LLM_FLOW_IDS"),
+      groups: readListEnv("MANUAL_LLM_FLOW_GROUPS"),
+      suites: readListEnv("MANUAL_LLM_RUN_SUITES"),
+      failedFromReportPath: process.env.MANUAL_LLM_FAILED_FROM_REPORT?.trim() || undefined,
+    });
+    selectedFlowCases = selectionResult.selectedFlowCases;
+    governanceSummary = inspectBlackboxFlowGovernance(allFlowCases);
     estimatedTokenUsage = await estimateTokenUsage();
+
+    if (selectionResult.errors.length > 0) {
+      throw new Error(selectionResult.errors.join("\n"));
+    }
+
     preflightResult = await runBlackboxPreflight({ apiKey: configuredApiKey });
 
     console.log(`手动 LLM 黑盒流程测试 token 预估（${suiteLabel}套件）：`);
+    console.log(`筛选条件：${formatSelectionConditions(selectionResult.conditions)}`);
+    console.log(`完整流程用例数：${allFlowCases.length}`);
+    console.log(`本次流程用例数：${selectedFlowCases.length}`);
+    console.log(`本次轮次数：${countBlackboxFlowTurns(selectedFlowCases)}`);
+    console.log(`并发数：${concurrency}`);
     console.log(`预估输入token：${estimatedTokenUsage.promptTokens}`);
     console.log(`预估输出token：${estimatedTokenUsage.completionTokens}`);
     console.log(`预估总token：${estimatedTokenUsage.totalTokens}`);
@@ -99,12 +135,13 @@ describeIfConfigured("manual LLM blackbox chat flows", () => {
     console.log(
       [
         "Manual LLM blackbox flow summary:",
-        `flows=${blackboxFlowCases.length}`,
+        `flows=${summary.flowCount}`,
         `turns=${summary.total}`,
         `passed=${summary.passed}`,
         `failed=${summary.failed}`,
         `skipped=${summary.skipped}`,
         `needs_review=${summary.needsReview}`,
+        `concurrency=${concurrency}`,
       ].join(" "),
     );
     console.log(
@@ -120,63 +157,83 @@ describeIfConfigured("manual LLM blackbox chat flows", () => {
     console.log(`Manual LLM blackbox acceptance report: ${reportPath}`);
   });
 
-  test.each(blackboxFlowCases)("$id - $name", async (flowCase) => {
-    const state = createBlackboxConversationState(flowCase.id);
-    let flowFailureReason: string | undefined;
-
-    if (preflightResult?.status !== "ready") {
-      for (let turnIndex = 0; turnIndex < flowCase.turns.length; turnIndex += 1) {
-        runRecords.push(createSkippedRecord(
-          flowCase,
-          flowCase.turns[turnIndex],
-          turnIndex + 1,
-          state.conversationId,
-          preflightResult?.reason ?? "preflight 未满足详细套件运行条件。",
-        ));
-      }
+  test("runs selected homepage chat flows", async () => {
+    if (selectionResult?.emptyReason === "no_failed_flows") {
       return;
     }
 
+    const results = await runFlowQueue<BlackboxFlowCase, ManualLlmTurnRecord>(selectedFlowCases, concurrency, async (flowCase) => runFlowCase(flowCase));
+    runRecords.push(...results.flatMap((result) => result.records));
+    const workerErrors = results
+      .filter((result) => result.error)
+      .map((result) => `${result.item.id} ${result.item.name}: ${result.error?.message}`);
+    const failedFlows = [...new Set(runRecords.filter((record) => record.status === "failed").map((record) => record.flowId))];
+    const errors = [
+      ...workerErrors,
+      ...failedFlows.map((flowId) => `${flowId} flow assertion failed`),
+    ];
+
+    if (errors.length > 0) {
+      throw new Error(errors.join("\n"));
+    }
+  }, 60 * 60 * 1000);
+});
+
+async function runFlowCase(flowCase: BlackboxFlowCase): Promise<ManualLlmTurnRecord[]> {
+  const records: ManualLlmTurnRecord[] = [];
+  const state = createBlackboxConversationState(flowCase.id);
+  let flowFailureReason: string | undefined;
+
+  if (preflightResult?.status !== "ready") {
     for (let turnIndex = 0; turnIndex < flowCase.turns.length; turnIndex += 1) {
-      const turn = flowCase.turns[turnIndex];
+      records.push(createSkippedRecord(
+        flowCase,
+        flowCase.turns[turnIndex],
+        turnIndex + 1,
+        state.conversationId,
+        preflightResult?.reason ?? "preflight 未满足详细套件运行条件。",
+      ));
+    }
+    return records;
+  }
 
-      if (flowFailureReason) {
-        runRecords.push(createSkippedRecord(flowCase, turn, turnIndex + 1, state.conversationId, flowFailureReason));
-        continue;
-      }
+  for (let turnIndex = 0; turnIndex < flowCase.turns.length; turnIndex += 1) {
+    const turn = flowCase.turns[turnIndex];
 
-      const result = await runBlackboxChatTurn({
-        apiKey: configuredApiKey,
-        state,
-        userInput: turn.userInput,
-      });
-      const assertion = evaluateBlackboxTurnResult({
+    if (flowFailureReason) {
+      records.push(createSkippedRecord(flowCase, turn, turnIndex + 1, state.conversationId, flowFailureReason));
+      continue;
+    }
+
+    const result = await runBlackboxChatTurn({
+      apiKey: configuredApiKey,
+      state,
+      userInput: turn.userInput,
+    });
+    const assertion = evaluateBlackboxTurnResult({
+      flowCase,
+      turn,
+      turnIndex: turnIndex + 1,
+      result,
+    });
+
+    records.push(createTurnRecord(flowCase, turn, turnIndex + 1, result, assertion));
+
+    try {
+      assertBlackboxTurnResult({
         flowCase,
         turn,
         turnIndex: turnIndex + 1,
         result,
       });
-
-      runRecords.push(createTurnRecord(flowCase, turn, turnIndex + 1, result, assertion));
-
-      try {
-        assertBlackboxTurnResult({
-          flowCase,
-          turn,
-          turnIndex: turnIndex + 1,
-          result,
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        flowFailureReason = createFlowFailureSkipReason(turnIndex, message);
-      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      flowFailureReason = createFlowFailureSkipReason(turnIndex, message);
     }
+  }
 
-    if (flowFailureReason) {
-      throw new Error(flowFailureReason);
-    }
-  });
-});
+  return records;
+}
 
 function createTurnRecord(
   flowCase: BlackboxFlowCase,
@@ -243,7 +300,7 @@ async function estimateTokenUsage(): Promise<TokenEstimate> {
   ];
 
   return estimateTokenUsageForReports({
-    flowCases: blackboxFlowCases,
+    flowCases: selectedFlowCases,
     reportPaths: candidateReports,
   });
 }
@@ -260,7 +317,7 @@ function summarizeRunRecords(records: ManualLlmTurnRecord[]) {
 
   return {
     total: records.length,
-    flowCount: blackboxFlowCases.length,
+    flowCount: selectedFlowCases.length,
     passed: records.filter((record) => record.status === "passed").length,
     failed: records.filter((record) => record.status === "failed").length,
     skipped: records.filter((record) => record.status === "skipped").length,
@@ -271,10 +328,13 @@ function summarizeRunRecords(records: ManualLlmTurnRecord[]) {
 
 async function writeAcceptanceReport(
   records: ManualLlmTurnRecord[],
-  summary: ReturnType<typeof summarizeRunRecords>,
+  summary: RunSummary,
 ) {
   const generatedAt = new Date().toISOString();
   const tokenDeviation = summarizeTokenDeviation(summary.usage, estimatedTokenUsage);
+  const selectionConditions = selectionResult
+    ? formatSelectionConditions(selectionResult.conditions)
+    : "selection=not_initialized";
   const reportLines = [
     "# 手动 LLM 首页聊天黑盒流程测试报告",
     "",
@@ -303,6 +363,18 @@ async function writeAcceptanceReport(
     `- total_tokens：${summary.usage.total_tokens}`,
     `- token 偏差摘要：${tokenDeviation}`,
     "",
+    "## 运行范围",
+    "",
+    `- 完整 fixture flow 数：${allFlowCases.length}`,
+    `- 完整 fixture turn 数：${countBlackboxFlowTurns(allFlowCases)}`,
+    `- 本次筛选 flow 数：${selectedFlowCases.length}`,
+    `- 本次筛选 turn 数：${countBlackboxFlowTurns(selectedFlowCases)}`,
+    `- 筛选条件：${selectionConditions}`,
+    `- 未运行 flow 数：${selectionResult?.excludedFlowCases.length ?? 0}`,
+    `- 未运行原因：${formatUnrunReason()}`,
+    `- 并发数：${concurrency}`,
+    `- 去重检查：${formatGovernanceSummary(governanceSummary)}`,
+    "",
     "## Preflight",
     "",
     `- 状态：${preflightResult?.status ?? "not_run"}`,
@@ -322,7 +394,9 @@ async function writeAcceptanceReport(
     "",
     "## 流程轮次结果",
     "",
-    ...records.map(formatRunRecord),
+    records.length > 0
+      ? records.map(formatRunRecord).join("\n")
+      : "- 本次没有需要重跑的失败 flow，未请求真实模型。",
     "",
   ].filter((line) => line !== "");
 
@@ -393,4 +467,45 @@ function formatArtifactDiagnostics(diagnostics: BlackboxArtifactDiagnostics | un
     diagnostics.referenceResolutionStatus ? `reference=${diagnostics.referenceResolutionStatus}` : undefined,
     diagnostics.referenceResolutionSummary,
   ].filter(Boolean).join("；");
+}
+
+function formatUnrunReason() {
+  if (selectionResult?.emptyReason === "no_failed_flows") {
+    return "failed-from-report 中没有失败 flow，本次无需重跑。";
+  }
+  if ((selectionResult?.excludedFlowCases.length ?? 0) > 0) {
+    return "被 suite/group/id/failed-from-report 筛选条件排除。";
+  }
+  if (preflightResult?.status !== "ready") {
+    return preflightResult?.reason ?? "preflight 未满足。";
+  }
+  return "完整运行，无筛选排除。";
+}
+
+function formatGovernanceSummary(summary: FlowGovernanceSummary | undefined) {
+  if (!summary) {
+    return "not_run";
+  }
+
+  const unhandledStrictDuplicates = summary.strictDuplicateGroups.filter((group) => !group.allowed);
+
+  return [
+    `strictDuplicateGroups=${summary.strictDuplicateGroups.length}`,
+    `unhandledStrictDuplicates=${unhandledStrictDuplicates.length}`,
+    `repeatedStartGroups=${summary.repeatedStartGroups.length}`,
+    `highOverlapGroups=${summary.highOverlapGroups.length}`,
+    `missingMetadata=${summary.missingMetadataFlowIds.length}`,
+  ].join("；");
+}
+
+function readConcurrency() {
+  const value = Number(process.env.MANUAL_LLM_CONCURRENCY ?? "1");
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 1;
+}
+
+function readListEnv(name: string) {
+  return (process.env[name] ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }

@@ -14,11 +14,41 @@ DEEPSEEK_API_KEY=你的真实 key npm run test:llm
 DEEPSEEK_API_KEY=你的真实 key npm run test --detail
 ```
 
+详细套件支持按子集运行，常用参数如下：
+
+```bash
+DEEPSEEK_API_KEY=你的真实 key npm run test --detail -- --ids F01,C03
+DEEPSEEK_API_KEY=你的真实 key npm run test --detail -- --group reference
+DEEPSEEK_API_KEY=你的真实 key npm run test --detail -- --suite detail-core
+DEEPSEEK_API_KEY=你的真实 key npm run test --detail -- --failed-from-report docs/manual-llm-blackbox-flow-detail-latest-report.md
+DEEPSEEK_API_KEY=你的真实 key npm run test --detail -- --group reference --concurrency 2
+```
+
+支持的 suite 层级：
+
+- `basic`：基础冒烟流程，覆盖首页聊天最关键的推荐、routine、plan、上下文和引用链路。
+- `detail-core`：详细核心回归，覆盖日常排查最常用的能力域。
+- `detail-extended`：详细扩展和高风险边界，覆盖安全、质量、复杂引用和低频异常场景。
+
+支持的 group：
+
+- `recommendation`
+- `routine`
+- `plan`
+- `context`
+- `reference`
+- `safety`
+- `quality`
+
+多个筛选条件会取交集。未知 `ids`、未知 `group`、未知 `suite` 或普通筛选结果为空时，runner 会在真实模型调用前失败，并输出可用 flow id、suite 和 group。`--failed-from-report` 会从报告中提取最终状态为失败的 flow id；如果报告没有失败 flow，会生成“无需重跑”的空运行摘要，不请求真实模型。
+
+并发只作用于 flow 级别，同一个 flow 内三轮对话始终串行执行。默认并发数为 1；只有显式传入 `--concurrency` 或 `MANUAL_LLM_CONCURRENCY` 时才会并发运行不同 flow。报告仍按 fixture 定义顺序输出，不按完成时间排序。
+
 不带参数的 `npm run test` 仍运行原有普通 Vitest 基准测试，不会请求真实模型。
 
 命令会自动读取项目根目录的 `.env*` 配置。缺少 `DEEPSEEK_API_KEY` 时，LLM 命令会明确输出缺失配置名称，生成跳过摘要，并说明不会使用 mock、旧快照或非真实模型结果。
 
-运行开始时会输出本次测试的 token 预估，包括预计输入 token、预计输出 token、预计总量和估算来源。优先使用最近一次真实运行报告的 token 均值校准；没有可用真实报告、最近报告是跳过报告或字段缺失时，才按 fixture 数量、轮次数和保守均值 fallback。
+运行开始时会输出本次测试的 token 预估，包括预计输入 token、预计输出 token、预计总量和估算来源。预估基于本次筛选后的实际运行集合计算；优先使用最近一次真实运行报告的 token 均值校准；没有可用真实报告、最近报告是跳过报告或字段缺失时，才按 fixture 数量、轮次数和保守均值 fallback。
 
 运行结束后会输出流程用例数、轮次数、通过数、失败数、跳过数和真实 token 汇总，并生成最新验收报告：
 
@@ -32,7 +62,7 @@ docs/manual-llm-blackbox-flow-latest-report.md
 docs/manual-llm-blackbox-flow-detail-latest-report.md
 ```
 
-报告会按流程和轮次记录用户输入、期望结果、实际用户可见回复摘要、实际卡片类型、卡片类型断言状态、语义断言状态、最终状态、失败等级、token 汇总和失败排错信息。失败记录会包含 `conversationId`、`responseMessageId`、`traceId`、请求或 stream 错误摘要，以及 artifact 诊断摘要，方便判断是聊天链路错误、模型输出漂移、stream 解析失败、卡片推送缺失、会话保存失败还是引用 payload 读取失败。
+报告会按流程和轮次记录用户输入、期望结果、实际用户可见回复摘要、实际卡片类型、卡片类型断言状态、语义断言状态、最终状态、失败等级、token 汇总和失败排错信息。报告还会记录完整 fixture 数、本次筛选数、筛选条件、未运行原因、并发数和 fixture 去重检查摘要。失败记录会包含 `conversationId`、`responseMessageId`、`traceId`、请求或 stream 错误摘要，以及 artifact 诊断摘要，方便判断是聊天链路错误、模型输出漂移、stream 解析失败、卡片推送缺失、会话保存失败还是引用 payload 读取失败。
 
 ## runner 与 preflight
 
@@ -114,5 +144,7 @@ runner 会创建测试专用匿名用户并通过同一个 HttpOnly cookie 形�
 
 - 新增基础黑盒流程时，优先在 `manual-tests/llm/flow-fixtures.ts` 的 `basicBlackboxFlowCases` 增加 3 轮流程用例。
 - 新增详细黑盒流程时，优先在 `detailedBlackboxFlowCases` 增加 3 轮流程用例，并保持详细套件包含基础套件。
+- 每个 flow 必须声明 `suite`、至少一个 `group`、`riskLevel` 和覆盖说明；元数据缺失会被不调用真实模型的测试拒绝。
+- 严格重复的三轮用户输入序列必须删除、合并或改写。确需保留高重叠 setup 时，应在重复矩阵和覆盖说明中解释差异。
 - 如果只是模型措辞变化，不应把自然语言断言改成逐字匹配。
 - 如果产品验收目标变化，应同步更新 `测试情况预览.md`、OpenSpec change 和本说明文档。
