@@ -1,16 +1,43 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
+import { createExercise } from "./fixtures/domain";
 import {
   AgentToolRegistry,
   AgentToolRegistryContractError,
   agentExecutionResultSchema,
   createAgentContextBuilder,
   createLegacyChatEventAdapter,
+  createReadonlyAgentToolRegistry,
   parseAgentJsonObject,
   parseAgentToolDecision,
   type AgentToolDefinition,
+  type AgentToolExecutionContext,
 } from "@/lib/server/agent-orchestrator";
+
+const artifactMocks = vi.hoisted(() => ({
+  getArtifactPayload: vi.fn(),
+  listRecentArtifacts: vi.fn(),
+  searchArtifactsDetailed: vi.fn(),
+}));
+const exerciseMocks = vi.hoisted(() => ({
+  getExerciseById: vi.fn(),
+  searchExercises: vi.fn(),
+}));
+const prismaMocks = vi.hoisted(() => ({
+  userProfile: {
+    findUnique: vi.fn(),
+  },
+  userMemory: {
+    findMany: vi.fn(),
+  },
+}));
+
+vi.mock("@/lib/server/conversation-artifacts/artifact-service", () => artifactMocks);
+vi.mock("@/lib/server/exercises/exercise-service", () => exerciseMocks);
+vi.mock("@/lib/server/db/prisma", () => ({
+  getPrismaClient: () => prismaMocks,
+}));
 
 describe("agent orchestrator phase 1 contracts", () => {
   it("builds a ContextPackage from real messages, artifacts, memory and provenance", () => {
@@ -184,6 +211,225 @@ describe("agent orchestrator phase 1 contracts", () => {
   });
 });
 
+describe("agent orchestrator phase 2 readonly tools", () => {
+  beforeEach(() => {
+    artifactMocks.getArtifactPayload.mockReset();
+    artifactMocks.listRecentArtifacts.mockReset();
+    artifactMocks.searchArtifactsDetailed.mockReset();
+    exerciseMocks.getExerciseById.mockReset();
+    exerciseMocks.searchExercises.mockReset();
+    prismaMocks.userProfile.findUnique.mockReset();
+    prismaMocks.userMemory.findMany.mockReset();
+  });
+
+  it("registers readonly Agent tools in the unified registry without writable tools", () => {
+    const registry = createReadonlyAgentToolRegistry();
+    const names = registry.list().map((tool) => tool.name).sort();
+
+    expect(names).toEqual([
+      "getArtifactPayload",
+      "getExerciseById",
+      "getUserMemory",
+      "listRecentArtifacts",
+      "searchArtifacts",
+      "searchExercises",
+    ]);
+    expect(names).not.toContain("saveConversationArtifactRevision");
+    expect(registry.listModelDefinitions()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "searchArtifacts",
+        accessLevel: "read",
+        dependencies: [],
+      }),
+      expect.objectContaining({
+        name: "getUserMemory",
+        accessLevel: "read",
+        dependencies: [],
+      }),
+    ]));
+  });
+
+  it("executes artifact tools with user/session isolation and stable tool result ids", async () => {
+    artifactMocks.searchArtifactsDetailed.mockResolvedValue({
+      candidates: [{
+        artifactId: "artifact-1",
+        kind: "routine",
+        title: "上肢训练",
+        exerciseIds: ["push-up"],
+        goals: ["增肌"],
+        muscles: ["胸"],
+        equipment: ["自重"],
+        updatedAt: "2026-06-01T01:00:00.000Z",
+      }],
+      diagnostics: {
+        query: "上肢",
+        filters: { userId: "user-1", sessionId: "chat-1", sessionScope: "current_session", status: "active" },
+        recalledCount: 1,
+        filteredCount: 0,
+        rerank: [],
+        finalCandidateIds: ["artifact-1"],
+        failureReasons: [],
+      },
+    });
+    const registry = createReadonlyAgentToolRegistry();
+    const tool = registry.get("searchArtifacts");
+
+    const result = await tool?.execute({ query: "上肢", limit: 2 }, createToolExecutionContext());
+
+    expect(artifactMocks.searchArtifactsDetailed).toHaveBeenCalledWith(expect.objectContaining({
+      userId: "user-1",
+      sessionId: "chat-1",
+      sessionScope: "current_session",
+      query: "上肢",
+      limit: 2,
+    }));
+    expect(result).toMatchObject({
+      ok: true,
+      toolResultId: expect.stringMatching(/^tool_result_/),
+      output: {
+        candidateSetId: expect.stringMatching(/^candidate_set_/),
+        candidates: [expect.objectContaining({ artifactId: "artifact-1" })],
+      },
+      modelSummary: expect.objectContaining({
+        candidateSetId: expect.stringMatching(/^candidate_set_/),
+      }),
+    });
+  });
+
+  it("lists recent artifacts and rejects payload reads outside the allowed artifact boundary", async () => {
+    artifactMocks.listRecentArtifacts.mockResolvedValue([
+      {
+        artifactId: "artifact-1",
+        kind: "routine",
+        title: "最近训练",
+        exerciseIds: ["push-up"],
+        goals: [],
+        muscles: [],
+        equipment: [],
+        updatedAt: "2026-06-01T01:00:00.000Z",
+      },
+    ]);
+    const registry = createReadonlyAgentToolRegistry();
+    const listTool = registry.get("listRecentArtifacts");
+    const payloadTool = registry.get("getArtifactPayload");
+
+    await expect(listTool?.execute({ limit: 1 }, createToolExecutionContext())).resolves.toMatchObject({
+      ok: true,
+      output: {
+        candidateSetId: expect.stringMatching(/^candidate_set_/),
+        artifacts: [expect.objectContaining({ artifactId: "artifact-1" })],
+      },
+    });
+    expect(artifactMocks.listRecentArtifacts).toHaveBeenCalledWith(expect.objectContaining({
+      userId: "user-1",
+      sessionId: "chat-1",
+      sessionScope: "current_session",
+    }));
+
+    await expect(payloadTool?.execute({
+      artifactId: "artifact-2",
+      allowedArtifactIds: ["artifact-1"],
+    }, createToolExecutionContext())).resolves.toMatchObject({
+      ok: false,
+      error: { code: "forbidden" },
+    });
+    expect(artifactMocks.getArtifactPayload).not.toHaveBeenCalled();
+  });
+
+  it("executes exercise tools through database-backed services and returns candidate set ids", async () => {
+    const exercise = createExercise({ id: "push-up", nameZh: "俯卧撑" });
+    exerciseMocks.getExerciseById.mockResolvedValue(exercise);
+    exerciseMocks.searchExercises.mockResolvedValue({
+      candidates: [exercise],
+      diagnostics: {
+        query: "胸",
+        filters: { visibility: "published" },
+        recalledCount: 1,
+        filteredCount: 0,
+        rerank: [],
+        finalExerciseIds: ["push-up"],
+        failureReasons: [],
+      },
+    });
+    const registry = createReadonlyAgentToolRegistry();
+
+    await expect(registry.get("getExerciseById")?.execute(
+      { exerciseId: "push-up" },
+      createToolExecutionContext(),
+    )).resolves.toMatchObject({
+      ok: true,
+      output: { exercise: expect.objectContaining({ id: "push-up" }) },
+      modelSummary: expect.objectContaining({ exerciseId: "push-up" }),
+    });
+    await expect(registry.get("searchExercises")?.execute(
+      { query: "胸", limit: 3 },
+      createToolExecutionContext(),
+    )).resolves.toMatchObject({
+      ok: true,
+      output: { candidateSetId: expect.stringMatching(/^candidate_set_/) },
+      modelSummary: expect.objectContaining({
+        candidateSetId: expect.stringMatching(/^candidate_set_/),
+      }),
+    });
+  });
+
+  it("reads user memory through current user scope without using conversation summary", async () => {
+    prismaMocks.userProfile.findUnique.mockResolvedValue({
+      userId: "user-1",
+      goal: "增肌",
+      experience: "beginner",
+      sessionMinutes: 30,
+      weeklyFrequency: 3,
+      preferences: ["居家训练"],
+      avoidances: ["跳跃动作"],
+      injuryLimitations: ["膝盖不适"],
+      updatedAt: new Date("2026-06-01T01:00:00.000Z"),
+    });
+    prismaMocks.userMemory.findMany.mockResolvedValue([
+      {
+        kind: "explicit_preference",
+        subjectType: "equipment",
+        subjectId: null,
+        subjectLabel: "自重",
+        requiresConfirmation: false,
+        updatedAt: new Date("2026-06-01T02:00:00.000Z"),
+      },
+      {
+        kind: "constraint",
+        subjectType: "equipment",
+        subjectId: null,
+        subjectLabel: "哑铃",
+        requiresConfirmation: false,
+        updatedAt: new Date("2026-06-01T01:30:00.000Z"),
+      },
+    ]);
+    const registry = createReadonlyAgentToolRegistry();
+
+    await expect(registry.get("getUserMemory")?.execute(
+      { includePending: false, limit: 12 },
+      createToolExecutionContext(),
+    )).resolves.toMatchObject({
+      ok: true,
+      output: {
+        snapshotId: expect.stringMatching(/^user_memory_/),
+        facts: expect.arrayContaining(["goal:增肌", "sessionMinutes:30"]),
+        preferences: expect.arrayContaining(["居家训练", "explicit_preference:自重"]),
+        avoidances: expect.arrayContaining(["跳跃动作", "injury:膝盖不适", "constraint:哑铃"]),
+      },
+      traceSummary: expect.objectContaining({
+        preferences: 2,
+        avoidances: 3,
+      }),
+    });
+    expect(prismaMocks.userMemory.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        userId: "user-1",
+        status: "active",
+      }),
+    }));
+  });
+});
+
 function createReadTool(): AgentToolDefinition<{ scope: "current_user" }, { facts: string[] }> {
   return {
     name: "getUserMemory",
@@ -253,5 +499,15 @@ function createWriteTool(): AgentToolDefinition<{ validationId: string }, { revi
         traceSummary: { revisionId: "rev-1" },
       };
     },
+  };
+}
+
+function createToolExecutionContext(overrides: Partial<AgentToolExecutionContext> = {}): AgentToolExecutionContext {
+  return {
+    runId: "run-1",
+    userId: "user-1",
+    sessionId: "chat-1",
+    traceId: "trace-1",
+    ...overrides,
   };
 }

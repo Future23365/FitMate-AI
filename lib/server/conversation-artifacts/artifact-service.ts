@@ -66,6 +66,14 @@ export type SearchArtifactsInput = {
   limit?: number;
 };
 
+export type ListRecentArtifactsInput = {
+  userId: string;
+  sessionId: string;
+  sessionScope?: ArtifactSearchScope;
+  kind?: ConversationArtifactKind;
+  limit?: number;
+};
+
 export type ArtifactSearchDiagnostics = {
   query?: string;
   filters: {
@@ -357,20 +365,28 @@ export async function listRecentArtifactSummariesForCurrentUser(
     take: limit,
   });
 
-  return indexes.map((index) => ({
-    artifactId: index.artifactId,
-    kind: index.kind,
-    title: index.title,
-    summary: index.summary ?? undefined,
-    exerciseIds: index.exerciseIds,
-    goals: index.goals,
-    muscles: index.muscles,
-    equipment: index.equipment,
-    sessionMinutes: index.sessionMinutes ?? undefined,
-    weeklyFrequency: index.weeklyFrequency ?? undefined,
-    trainingDayCount: index.trainingDayCount ?? undefined,
-    updatedAt: toUtcISOString(index.updatedAt),
-  }));
+  return indexes.map((index) => artifactIndexRowToRecentSummary(index as ArtifactIndexRow));
+}
+
+// Agent recent artifact tool 使用显式 userId/sessionId 读取轻量索引，避免从 summary 重建训练事实。
+export async function listRecentArtifacts(
+  input: ListRecentArtifactsInput,
+  client: Pick<PrismaClient, "artifactIndex"> = getPrismaClient(),
+): Promise<RecentArtifactSummary[]> {
+  const limit = clampLimit(input.limit);
+  const sessionScope = input.sessionScope ?? "current_session";
+  const rows = await client.artifactIndex.findMany({
+    where: {
+      userId: input.userId,
+      status: "active",
+      ...(input.kind ? { kind: input.kind } : {}),
+      ...(sessionScope === "current_session" ? { sessionId: input.sessionId } : {}),
+    },
+    orderBy: { updatedAt: "desc" },
+    take: limit,
+  });
+
+  return rows.map(artifactIndexRowToRecentSummary);
 }
 
 // 语义检索工具只返回轻量候选摘要，完整 payload 读取必须走 getArtifactPayload。
@@ -843,6 +859,23 @@ function unique(values: Array<string | undefined>) {
 }
 
 function artifactIndexRowToCandidate(row: ArtifactIndexRow): ReferenceArtifactCandidate {
+  return {
+    artifactId: row.artifactId,
+    kind: row.kind,
+    title: row.title,
+    summary: row.summary ?? undefined,
+    exerciseIds: row.exerciseIds,
+    goals: row.goals,
+    muscles: row.muscles,
+    equipment: row.equipment,
+    sessionMinutes: row.sessionMinutes ?? undefined,
+    weeklyFrequency: row.weeklyFrequency ?? undefined,
+    trainingDayCount: row.trainingDayCount ?? undefined,
+    updatedAt: toUtcISOString(row.updatedAt),
+  };
+}
+
+function artifactIndexRowToRecentSummary(row: ArtifactIndexRow): RecentArtifactSummary {
   return {
     artifactId: row.artifactId,
     kind: row.kind,
