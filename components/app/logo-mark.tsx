@@ -9,10 +9,11 @@ type LogoMarkProps = {
 export function LogoMark({ className = "h-10 w-10", animated = false }: LogoMarkProps) {
   const rawId = useId().replace(/:/g, "");
   const shellGradientId = `fitmate-shell-${rawId}`;
-  const badgeGradientId = `fitmate-badge-${rawId}`;
-  const rimGradientId = `fitmate-rim-${rawId}`;
+  const fieldGradientId = `fitmate-field-${rawId}`;
   const dumbbellGradientId = `fitmate-dumbbell-${rawId}`;
-  const highlightGradientId = `fitmate-highlight-${rawId}`;
+  const plateGradientId = `fitmate-plate-${rawId}`;
+  const gripGradientId = `fitmate-grip-${rawId}`;
+  const glowGradientId = `fitmate-glow-${rawId}`;
 
   return (
     <svg
@@ -28,7 +29,7 @@ export function LogoMark({ className = "h-10 w-10", animated = false }: LogoMark
           {`
             .fitmate-dumbbell-pop {
               transform-box: view-box;
-              transform-origin: 122px 120px;
+              transform-origin: 120px 120px;
               animation: fitmate-dumbbell-pop 680ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
             }
 
@@ -58,59 +59,60 @@ export function LogoMark({ className = "h-10 w-10", animated = false }: LogoMark
           <stop stopColor="#FFFFFF" />
           <stop offset="1" stopColor="#F2F6FF" />
         </linearGradient>
-        <linearGradient id={badgeGradientId} x1="66" x2="178" y1="48" y2="194">
+        <linearGradient id={fieldGradientId} x1="54" x2="189" y1="43" y2="195">
+          <stop stopColor="#F8FCFF" />
+          <stop offset="0.44" stopColor="#E6F3FF" />
+          <stop offset="1" stopColor="#DCE8FF" />
+        </linearGradient>
+        <linearGradient id={plateGradientId} x1="34" x2="198" y1="76" y2="161">
           <stop stopColor="#19D3F4" />
-          <stop offset="0.48" stopColor="#2459E6" />
-          <stop offset="1" stopColor="#102A83" />
+          <stop offset="0.34" stopColor="#2459E6" />
+          <stop offset="1" stopColor="#081C5C" />
         </linearGradient>
-        <linearGradient id={rimGradientId} x1="48" x2="196" y1="55" y2="185">
-          <stop stopColor="#E7F7FF" stopOpacity="0.94" />
-          <stop offset="0.5" stopColor="#9DBAFF" stopOpacity="0.44" />
-          <stop offset="1" stopColor="#0C2B87" stopOpacity="0.58" />
+        <linearGradient id={dumbbellGradientId} x1="69" x2="171" y1="94" y2="146">
+          <stop stopColor="#0B1F5F" />
+          <stop offset="0.52" stopColor="#123CBA" />
+          <stop offset="1" stopColor="#06143F" />
         </linearGradient>
-        <linearGradient id={dumbbellGradientId} x1="66" x2="176" y1="80" y2="152">
+        <linearGradient id={gripGradientId} x1="103" x2="139" y1="98" y2="143">
           <stop stopColor="#FFFFFF" />
-          <stop offset="0.58" stopColor="#F3F8FF" />
-          <stop offset="1" stopColor="#D7E7FF" />
+          <stop offset="0.42" stopColor="#E9F3FF" />
+          <stop offset="1" stopColor="#B8D0FF" />
         </linearGradient>
         <radialGradient
           cx="0"
           cy="0"
-          gradientTransform="translate(82 64) rotate(50) scale(118)"
+          gradientTransform="translate(125 116) rotate(28) scale(110 72)"
           gradientUnits="userSpaceOnUse"
-          id={highlightGradientId}
+          id={glowGradientId}
           r="1"
         >
-          <stop stopColor="#FFFFFF" stopOpacity="0.7" />
-          <stop offset="0.42" stopColor="#FFFFFF" stopOpacity="0.16" />
-          <stop offset="1" stopColor="#FFFFFF" stopOpacity="0" />
+          <stop stopColor="#2EE8FF" stopOpacity="0.48" />
+          <stop offset="0.55" stopColor="#2459E6" stopOpacity="0.12" />
+          <stop offset="1" stopColor="#2459E6" stopOpacity="0" />
         </radialGradient>
-        <filter colorInterpolationFilters="sRGB" filterUnits="userSpaceOnUse" height="72" id={`fitmate-soft-shadow-${rawId}`} width="146" x="47" y="111">
-          <feDropShadow dx="0" dy="12" floodColor="#071C63" floodOpacity="0.22" stdDeviation="8" />
+        <filter colorInterpolationFilters="sRGB" filterUnits="userSpaceOnUse" height="122" id={`fitmate-soft-shadow-${rawId}`} width="210" x="15" y="73">
+          <feDropShadow dx="0" dy="15" floodColor="#06143F" floodOpacity="0.2" stdDeviation="9" />
         </filter>
       </defs>
 
       <rect fill={`url(#${shellGradientId})`} height="214" rx="58" width="214" x="13" y="13" />
       <rect height="211" rx="56.5" stroke="#C9D8F4" strokeWidth="2.5" width="211" x="14.5" y="14.5" />
       <path
-        d="M120 36C153.5 36 184.5 51.5 199.5 79.5C214.5 107.5 210 143 188.5 169.5C167.5 195.5 134.5 205 103 196.5C72 188 47.5 162.5 40.5 130C33.5 97 45.5 64 71.5 47.5C85.5 39 101.5 36 120 36Z"
-        fill={`url(#${badgeGradientId})`}
+        d="M120 35C160 35 194 58 204 93C214 128 199 166 167 187C135 208 92 202 64 176C36 149 31 106 52 73C67 49 91 35 120 35Z"
+        fill={`url(#${fieldGradientId})`}
       />
       <path
-        d="M120 36C153.5 36 184.5 51.5 199.5 79.5C214.5 107.5 210 143 188.5 169.5C167.5 195.5 134.5 205 103 196.5C72 188 47.5 162.5 40.5 130C33.5 97 45.5 64 71.5 47.5C85.5 39 101.5 36 120 36Z"
-        stroke={`url(#${rimGradientId})`}
-        strokeWidth="5"
+        d="M120 35C160 35 194 58 204 93C214 128 199 166 167 187C135 208 92 202 64 176C36 149 31 106 52 73C67 49 91 35 120 35Z"
+        stroke="#FFFFFF"
+        strokeOpacity="0.88"
+        strokeWidth="6"
       />
-      <path
-        d="M59 75C79 54 118 47 151 56C173 62 189 76 198 94"
-        stroke={`url(#${highlightGradientId})`}
-        strokeLinecap="round"
-        strokeWidth="29"
-      />
-      <path d="M74 166C101 181 145 181 171 161" stroke="#061C62" strokeLinecap="round" strokeOpacity="0.13" strokeWidth="18" />
+      <path d="M47 151C69 189 124 205 168 178" stroke="#2459E6" strokeLinecap="round" strokeOpacity="0.13" strokeWidth="18" />
+      <ellipse cx="121" cy="120" fill={`url(#${glowGradientId})`} rx="82" ry="58" transform="rotate(-19 121 120)" />
 
       <g className={animated ? "fitmate-dumbbell-pop" : undefined}>
-        <g filter={`url(#fitmate-soft-shadow-${rawId})`} transform="rotate(-14 120 120)">
+        <g filter={`url(#fitmate-soft-shadow-${rawId})`} transform="rotate(-18 120 120)">
           {animated ? (
             <animateTransform
               additive="sum"
@@ -121,26 +123,16 @@ export function LogoMark({ className = "h-10 w-10", animated = false }: LogoMark
               values="0 0;0 -4;0 0"
             />
           ) : null}
-          <path
-            d="M55 87C55 81.5 59.5 77 65 77H76C81.5 77 86 81.5 86 87V153C86 158.5 81.5 163 76 163H65C59.5 163 55 158.5 55 153V87Z"
-            fill={`url(#${dumbbellGradientId})`}
-          />
-          <path
-            d="M87 94C87 88.5 91.5 84 97 84H104C109.5 84 114 88.5 114 94V146C114 151.5 109.5 156 104 156H97C91.5 156 87 151.5 87 146V94Z"
-            fill="#E8F2FF"
-          />
-          <rect fill={`url(#${dumbbellGradientId})`} height="22" rx="11" width="48" x="96" y="109" />
-          <path d="M104 120H136" stroke="#7EA4FF" strokeLinecap="round" strokeOpacity="0.42" strokeWidth="4" />
-          <path
-            d="M126 94C126 88.5 130.5 84 136 84H143C148.5 84 153 88.5 153 94V146C153 151.5 148.5 156 143 156H136C130.5 156 126 151.5 126 146V94Z"
-            fill="#E8F2FF"
-          />
-          <path
-            d="M154 87C154 81.5 158.5 77 164 77H175C180.5 77 185 81.5 185 87V153C185 158.5 180.5 163 175 163H164C158.5 163 154 158.5 154 153V87Z"
-            fill={`url(#${dumbbellGradientId})`}
-          />
-          <path d="M65 92H76M164 92H175" stroke="#FFFFFF" strokeLinecap="round" strokeOpacity="0.82" strokeWidth="5" />
-          <path d="M65 148H76M164 148H175" stroke="#AFC8FF" strokeLinecap="round" strokeOpacity="0.44" strokeWidth="5" />
+          <path d="M69 102H171V138H69Z" fill={`url(#${dumbbellGradientId})`} />
+          <path d="M28 95L42 76H72L88 96V144L72 164H42L28 145Z" fill={`url(#${plateGradientId})`} />
+          <path d="M67 88H94C101 88 106 93 106 100V140C106 147 101 152 94 152H67Z" fill={`url(#${dumbbellGradientId})`} />
+          <rect fill={`url(#${gripGradientId})`} height="50" rx="16" width="38" x="101" y="95" />
+          <path d="M109 106V134M120 104V136M131 106V134" stroke="#2459E6" strokeLinecap="round" strokeOpacity="0.34" strokeWidth="4" />
+          <path d="M146 88H173V152H146C139 152 134 147 134 140V100C134 93 139 88 146 88Z" fill={`url(#${dumbbellGradientId})`} />
+          <path d="M152 96L168 76H198L212 95V145L198 164H168L152 144Z" fill={`url(#${plateGradientId})`} />
+          <path d="M43 91H65M44 148H65M175 91H197M175 148H196" stroke="#FFFFFF" strokeLinecap="round" strokeOpacity="0.52" strokeWidth="5" />
+          <path d="M28 120H84M156 120H212" stroke="#06143F" strokeLinecap="round" strokeOpacity="0.18" strokeWidth="5" />
+          <path d="M33 101L46 84H70M170 84H194L207 101" stroke="#7DEBFF" strokeLinecap="round" strokeOpacity="0.64" strokeWidth="4" />
         </g>
       </g>
     </svg>
