@@ -10,11 +10,16 @@ import {
   createLegacyChatEventAdapter,
   createReadonlyAgentToolRegistry,
   createToolFirstAgentToolRegistry,
+  projectAgentExecutionResultToResponse,
   parseAgentJsonObject,
   parseAgentToolDecision,
+  runAgentOrchestrator,
+  validateAgentResponseProjection,
   type AgentToolDefinition,
   type AgentToolExecutionContext,
 } from "@/lib/server/agent-orchestrator";
+import { buildPromptFromModules } from "@/lib/server/ai/prompt-config";
+import { createAgentChatTokenBudgetDecision } from "@/lib/server/ai/token-budget";
 
 const artifactMocks = vi.hoisted(() => ({
   createConversationArtifactRevision: vi.fn(),
@@ -607,6 +612,174 @@ describe("agent orchestrator phase 3 workout tools", () => {
   });
 });
 
+describe("agent orchestrator phase 4 runtime, response writer and prompt budget", () => {
+  it("runs tool decisions, records dependency graph, checkpoints and final result", async () => {
+    const registry = new AgentToolRegistry([createReadTool()]);
+    const context = createTestContextPackage();
+    const decisions = [
+      {
+        action: "call_tool",
+        toolName: "getUserMemory",
+        input: { scope: "current_user" },
+        reason: "需要读取用户偏好。",
+      },
+      {
+        action: "final_result",
+        result: {
+          status: "answered",
+          replyContext: { reply: "用户偏好在家训练。" },
+          usedToolResultIds: ["tool-result-1"],
+        },
+        reason: "已经取得用户记忆，可以回答。",
+      },
+    ];
+
+    const output = await runAgentOrchestrator({
+      runId: "agent-run-1",
+      userId: "user-1",
+      sessionId: "chat-1",
+      context,
+      registry,
+      limits: { maxSteps: 4, checkpointEverySteps: 1 },
+      decideNext: vi.fn()
+        .mockResolvedValueOnce(decisions[0])
+        .mockResolvedValueOnce(decisions[1]),
+    });
+
+    expect(output.result).toMatchObject({
+      status: "answered",
+      usedToolResultIds: ["tool-result-1"],
+    });
+    expect(output.state.toolCalls).toEqual([
+      expect.objectContaining({ toolName: "getUserMemory", status: "success" }),
+    ]);
+    expect(output.state.toolResults).toEqual([
+      expect.objectContaining({
+        toolResultId: "tool-result-1",
+        toolName: "getUserMemory",
+        status: "success",
+      }),
+    ]);
+    expect(output.state.dependencyGraph.edges).toEqual(expect.arrayContaining([
+      expect.objectContaining({ from: expect.stringMatching(/^tool_call_/), to: "tool-result-1", relation: "produces" }),
+      expect.objectContaining({ from: "tool-result-1", relation: "projects" }),
+    ]));
+    expect(output.state.checkpoints.length).toBeGreaterThanOrEqual(1);
+    expect(output.replayFixture.legacyPathSkip).toEqual({
+      intentFirst: true,
+      normalize: true,
+      summaryOnlyContext: true,
+      referenceResolverFirst: true,
+    });
+  });
+
+  it("turns invalid model decisions into a diagnosable failed final result", async () => {
+    const output = await runAgentOrchestrator({
+      runId: "agent-run-parse-failed",
+      userId: "user-1",
+      sessionId: "chat-1",
+      context: createTestContextPackage(),
+      registry: new AgentToolRegistry([createReadTool()]),
+      decideNext: () => "{broken",
+    });
+
+    expect(output.result).toMatchObject({
+      status: "failed",
+      failureCode: "model_output_invalid",
+    });
+    expect(output.replayFixture.finalResult).toMatchObject({
+      status: "failed",
+      failureCode: "model_output_invalid",
+    });
+  });
+
+  it("projects Response Writer replies only from AgentExecutionResult and validates tool references", () => {
+    const projection = projectAgentExecutionResultToResponse({
+      result: {
+        status: "completed_operation",
+        operationResultId: "operation-result-1",
+        usedToolResultIds: ["tool-result-1"],
+        policyDecisionId: "policy-1",
+        operation: {
+          operationType: "updateUserProfile",
+          resourceType: "UserProfile",
+          title: "已更新训练偏好",
+          summary: "训练偏好已保存。",
+          visibleFields: [{ key: "location", label: "训练地点", value: "在家" }],
+          sensitiveFieldsOmitted: true,
+        },
+      },
+      toolResults: [{
+        toolResultId: "tool-result-1",
+        toolCallId: "tool-call-1",
+        toolName: "updateUserProfile",
+        status: "success",
+      }],
+    });
+
+    expect(projection).toMatchObject({
+      reply: "已更新训练偏好：训练偏好已保存。（训练地点：在家）",
+      metadata: {
+        promisedWrite: true,
+        hasExecutedWrite: true,
+        safeOperationOnly: true,
+      },
+      references: expect.arrayContaining([
+        { kind: "tool_result", id: "tool-result-1" },
+        { kind: "operation_result", id: "operation-result-1" },
+      ]),
+    });
+    expect(validateAgentResponseProjection({
+      result: {
+        status: "generated",
+        artifact: { artifactId: "artifact-1", kind: "routine", title: "居家训练" },
+        revisionId: "revision-1",
+        validationId: "validation-1",
+        usedToolResultIds: ["missing-tool-result"],
+      },
+      toolResults: [],
+    })).toEqual({
+      ok: false,
+      missingToolResultIds: ["missing-tool-result"],
+    });
+  });
+
+  it("exposes Agent prompt modules and token budget stages without summary-only execution context", () => {
+    const context = createTestContextPackage();
+    const budget = createAgentChatTokenBudgetDecision({
+      context,
+      toolResultCount: 2,
+      summaryUpdateSkipped: true,
+      summarySkipReason: "本轮不需要后台摘要更新。",
+    });
+
+    expect(budget.modelVisibleContext).toMatchObject({
+      usesConversationSummary: false,
+      usesContextPackage: true,
+      recentMessagesCount: 1,
+      recentArtifactsCount: 1,
+      toolResultCount: 2,
+    });
+    expect(budget.stages.map((stage) => stage.stage)).toEqual([
+      "agent_context_build",
+      "agent_tool_decision",
+      "agent_tool_execution",
+      "agent_final_result",
+      "agent_response_writer",
+      "agent_summary_update",
+    ]);
+    expect(budget.stages.flatMap((stage) => stage.promptModules)).toEqual(expect.arrayContaining([
+      "agent_context_build",
+      "agent_tool_decision",
+      "agent_tool_execution",
+      "agent_final_result",
+      "agent_response_writer",
+    ]));
+    expect(buildPromptFromModules(["agent_tool_decision", "agent_response_writer"]))
+      .toContain("不得读取 conversationSummary、旧 resolved intent 或旧 assistant_action 作为执行事实");
+  });
+});
+
 function createReadTool(): AgentToolDefinition<{ scope: "current_user" }, { facts: string[] }> {
   return {
     name: "getUserMemory",
@@ -687,4 +860,31 @@ function createToolExecutionContext(overrides: Partial<AgentToolExecutionContext
     traceId: "trace-1",
     ...overrides,
   };
+}
+
+function createTestContextPackage() {
+  const builder = createAgentContextBuilder();
+
+  return builder.build({
+    latestUserMessage: "不用哑铃了，换一个",
+    recentMessages: [
+      { id: "m1", role: "user", content: "我想在家练上肢", createdAt: "2026-06-01T01:00:00.000Z" },
+    ],
+    recentArtifacts: [
+      {
+        artifactId: "artifact-1",
+        revisionId: "revision-1",
+        kind: "routine",
+        title: "30 分钟哑铃上肢训练",
+        summary: "包含哑铃动作。",
+        updatedAt: "2026-06-01T01:01:00.000Z",
+      },
+    ],
+    memorySnapshot: {
+      snapshotId: "memory-1",
+      facts: ["用户在家训练"],
+      preferences: ["低冲击"],
+      avoidances: ["跳跃"],
+    },
+  });
 }

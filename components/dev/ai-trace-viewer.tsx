@@ -1976,6 +1976,42 @@ function getStepGroupDefinition(step: AiTraceStep) {
     };
   }
 
+  if (step.type === "agent_context") {
+    return {
+      id: "016_agent_context",
+      title: "Agent 上下文",
+      description: "记录 ContextPackage、上下文来源、截断策略和旧路径跳过状态",
+      placement: "main_flow" as const,
+    };
+  }
+
+  if (step.type === "agent_tool_decision") {
+    return {
+      id: "017_agent_tool_decision",
+      title: "Agent 工具决策",
+      description: "记录 Agent tool decision、终止决策、解析失败和本轮预算状态",
+      placement: "main_flow" as const,
+    };
+  }
+
+  if (step.type === "agent_tool_result") {
+    return {
+      id: "018_agent_tool_result",
+      title: "Agent 工具结果",
+      description: "记录 toolResultId、候选集合、校验、Policy、持久化和失败摘要",
+      placement: "main_flow" as const,
+    };
+  }
+
+  if (step.type === "agent_final_result") {
+    return {
+      id: "019_agent_final_result",
+      title: "Agent 最终结果",
+      description: "记录 AgentExecutionResult、使用的 tool result 和依赖图摘要",
+      placement: "main_flow" as const,
+    };
+  }
+
   if (isConversationMemoryStep(step)) {
     return {
       id: "80_conversation_memory",
@@ -3054,6 +3090,10 @@ function getStepTask(step: AiTraceStep) {
 function getStepTypeLabel(type: AiTraceStep["type"]) {
   const labels: Record<AiTraceStep["type"], string> = {
     user_input: "用户输入",
+    agent_context: "Agent 上下文",
+    agent_tool_decision: "Agent 工具决策",
+    agent_tool_result: "Agent 工具结果",
+    agent_final_result: "Agent 最终结果",
     token_budget: "Token 预算",
     model_request: "模型请求",
     model_response: "模型输出",

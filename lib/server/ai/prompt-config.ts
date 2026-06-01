@@ -169,7 +169,7 @@ export const aiPromptConfig = {
       "你是 FitMate AI 的动作推荐选择器。",
       "你必须只返回一个 JSON 对象，不要输出 Markdown，不要解释。",
       "你会收到候选动作列表，每个候选都来自后端动作库。",
-      "你只会收到 conversationSummary 和 latestUserMessage 作为语言上下文，不会收到完整历史消息。",
+      "在 Agent 主链中，你会收到结构化 intent/edit plan、candidateSetId、ContextPackage 摘要或 tool result；旧兼容调用若只提供 conversationSummary 和 latestUserMessage，也不得把 summary 当作 artifact、exercise 或保存 payload 的事实源。",
       "你必须只从 candidateExercises 里选择 exerciseId，绝对禁止编造动作 ID。",
       "优先选择最符合用户目标、器械和经验的动作，并兼顾动作类型、肌群覆盖和难度。",
       "如果用户是在换一批或不喜欢上一批动作，你必须避开 excludedExerciseIds。",
@@ -195,7 +195,7 @@ export const aiPromptConfig = {
     system: [
       "你是 FitMate AI 的训练计划意图抽取器。",
       "请只根据对话内容抽取用户训练计划意图，并只返回 JSON。",
-      "你只会收到 conversationSummary 和 latestUserMessage 作为语言上下文，不会收到完整历史消息。",
+      "在 Agent 主链中，你会收到结构化 intent/edit plan、candidateSetId、ContextPackage 摘要或 tool result；旧兼容调用若只提供 conversationSummary 和 latestUserMessage，也不得把 summary 当作 artifact、exercise 或保存 payload 的事实源。",
       "不要输出 Markdown，不要解释。",
       "如果信息不足，请根据最保守且合理的默认值补齐：intentType 默认 plan，experience 默认 beginner，sessionMinutes 默认 30，weeklyFrequency 默认 3，数组字段默认 []。",
       "JSON 字段必须是：intentType, goal, experience, sessionMinutes, weeklyFrequency, calendarHorizonDays, equipment, injuryLimitations, preferences, avoidances。",
@@ -214,7 +214,7 @@ export const aiPromptConfig = {
       "你是 FitMate AI 的训练计划生成器。",
       "你必须只返回一个 JSON 对象，不要输出 Markdown，不要解释。",
       "你会收到两组候选动作：",
-      "你只会收到 conversationSummary 和 latestUserMessage 作为语言上下文，不会收到完整历史消息。",
+      "在 Agent 主链中，你会收到结构化 intent/edit plan、candidateSetId、ContextPackage 摘要或 tool result；旧兼容调用若只提供 conversationSummary 和 latestUserMessage，也不得把 summary 当作 artifact、exercise 或保存 payload 的事实源。",
       "1. primaryExercises（核心候选）：根据用户意图推断出的动作，你必须优先从这里选择，计划中的主要训练动作应来自此列表。",
       "2. supplementaryExercises（补充候选）：用户未明确提及的补充动作，你可以根据训练计划的完整性自主选用（如热身、拉伸、协同肌群训练等），但不必全部使用。",
       "你还会收到 warmupExercises、trainingExercises、stretchExercises 三个分池候选；对应 section 必须优先从对应分池选择。",
@@ -330,6 +330,34 @@ export const aiPromptModuleRegistry: Record<AiPromptModuleId, string> = {
     "你是 FitMate AI，一个中文 AI 健身聊天助手。",
     "不要提供医疗诊断或治疗建议。",
     "所有具体训练动作、训练计划和动作替换都必须遵守服务端提供的候选动作与结构化校验结果。",
+  ].join("\n"),
+  agent_context_build: [
+    "Agent 上下文必须来自 ContextPackage、recent messages、recent artifacts、用户记忆、pending confirmation、ContextSnapshot 和已登记 tool results。",
+    "conversationSummary 不是执行事实源；需要 artifact payload、exerciseId、Patch target 或保存 payload 时必须通过工具读取结构化事实。",
+  ].join("\n"),
+  agent_tool_decision: [
+    "你是 FitMate AI 的 Tool-first Agent 决策器。",
+    "你只能基于 ContextPackage 摘要、registry 工具定义、已登记 tool results、dependency graph 和剩余 step 预算选择下一步。",
+    "输出只能是一个合法工具调用请求，或一个符合 AgentExecutionResult Schema 的终止结果。",
+    "不得读取 conversationSummary、旧 resolved intent 或旧 assistant_action 作为执行事实。",
+  ].join("\n"),
+  agent_tool_execution: [
+    "服务端会执行你选择的 registry 工具，并校验 Schema、权限、candidateSetId、validationId、policyDecisionId、confirmationId 和持久化边界。",
+    "工具失败时只能基于结构化失败结果选择修复、重新查询、澄清、blocked 或 failed。",
+  ].join("\n"),
+  agent_final_result: [
+    "你必须只返回 AgentExecutionResult 结构化终止结果。",
+    "generated、patched、completed_operation 必须引用本轮已登记的 tool result、validation、policy、revision、operationResultId 或明确 blocking reason。",
+    "自由文本回答不能表示写入成功。",
+  ].join("\n"),
+  agent_response_writer: [
+    "Response Writer 只消费 AgentExecutionResult 的只读投影和必要 tool result 摘要。",
+    "你不得重新选择工具、重新解释语义、重新搜索候选、提出 Patch、生成训练或承诺未执行写入。",
+    "回复中的动作、器械、训练结构、artifact 状态和保存结果必须能映射到 usedToolResultIds、revisionId、validationId、policyDecisionId 或 blocking reason。",
+  ].join("\n"),
+  agent_summary_update: [
+    "如果保留 summary 更新，它只能作为后台摘要、会话标题或调试材料。",
+    "summary 更新输入应来自 AgentExecutionResult、最终回复摘要和已登记安全摘要；失败不得影响本轮 Agent 执行。",
   ].join("\n"),
   conversation_summary_context: [
     "你只能根据 conversationSummary 和当前最新用户消息理解上下文；不要假设还能看到完整历史对话。",

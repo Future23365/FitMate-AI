@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { ContextPackage } from "@/lib/server/agent-orchestrator/contracts";
 import { toUtcISOString } from "@/lib/shared/time/utc-date-time";
 
 export type AiTokenBudgetRoute =
@@ -8,6 +9,12 @@ export type AiTokenBudgetRoute =
   | "/api/ai/workout-plan";
 
 export type AiTokenBudgetStage =
+  | "agent_context_build"
+  | "agent_tool_decision"
+  | "agent_tool_execution"
+  | "agent_final_result"
+  | "agent_response_writer"
+  | "agent_summary_update"
   | "chat_intent_resolution"
   | "reference_resolution"
   | "exercise_candidate_selection"
@@ -23,6 +30,12 @@ export type AiTokenBudgetStageStatus = "planned" | "executed" | "skipped";
 
 export type AiPromptModuleId =
   | "base_safety"
+  | "agent_context_build"
+  | "agent_tool_decision"
+  | "agent_tool_execution"
+  | "agent_final_result"
+  | "agent_response_writer"
+  | "agent_summary_update"
   | "conversation_summary_context"
   | "chat_intent_resolution"
   | "chat_final_response"
@@ -52,6 +65,13 @@ export type ModelVisibleContextSummary = {
   usesLatestUserMessage: boolean;
   latestUserMessageChars: number;
   usesFullHistory: false;
+  usesContextPackage?: boolean;
+  recentMessagesCount?: number;
+  recentArtifactsCount?: number;
+  memoryFactCount?: number;
+  toolResultCount?: number;
+  contextSnapshotChars?: number;
+  provenanceCount?: number;
   notes: string[];
 };
 
@@ -100,6 +120,36 @@ export function createModelVisibleContextSummary(input: {
     notes: [
       "历史上下文只允许来自 conversationSummary。",
       "本轮模型输入只包含最新用户消息。",
+      ...(input.notes ?? []),
+    ],
+  };
+}
+
+// Agent 可见上下文摘要记录 ContextPackage，而不是 summary-only 历史协议。
+export function createAgentModelVisibleContextSummary(input: {
+  context: ContextPackage;
+  toolResultCount?: number;
+  notes?: string[];
+}): ModelVisibleContextSummary {
+  return {
+    usesConversationSummary: false,
+    conversationSummaryChars: 0,
+    usesLatestUserMessage: true,
+    latestUserMessageChars: input.context.latestUserMessage.trim().length,
+    usesFullHistory: false,
+    usesContextPackage: true,
+    recentMessagesCount: input.context.recentMessages.length,
+    recentArtifactsCount: input.context.recentArtifacts.length,
+    memoryFactCount:
+      (input.context.memorySnapshot?.facts.length ?? 0) +
+      (input.context.memorySnapshot?.preferences.length ?? 0) +
+      (input.context.memorySnapshot?.avoidances.length ?? 0),
+    toolResultCount: input.toolResultCount ?? 0,
+    contextSnapshotChars: input.context.optionalContextSnapshot?.summary.length ?? 0,
+    provenanceCount: input.context.provenance.length,
+    notes: [
+      "Agent 主链使用 ContextPackage、recent messages、recent artifacts、用户记忆和 tool results。",
+      "conversationSummary 只能作为后台摘要、标题或调试材料，不作为执行事实源。",
       ...(input.notes ?? []),
     ],
   };
@@ -182,6 +232,48 @@ export function createChatTokenBudgetDecision(input: {
           promptModules: input.summarySkipReason ? [] : ["conversation_summary_update"],
         },
       ),
+    ],
+  });
+}
+
+export function createAgentChatTokenBudgetDecision(input: {
+  context: ContextPackage;
+  toolResultCount?: number;
+  summaryUpdateSkipped?: boolean;
+  summarySkipReason?: string;
+}): AiTokenBudgetDecision {
+  const context = createAgentModelVisibleContextSummary({
+    context: input.context,
+    toolResultCount: input.toolResultCount,
+  });
+
+  return createDecision({
+    route: "/api/chat",
+    modelVisibleContext: context,
+    stages: [
+      stage("agent_context_build", "executed", context, {
+        promptModules: ["agent_context_build"],
+      }),
+      stage("agent_tool_decision", "planned", context, {
+        model: "deepseek-v4-flash",
+        promptModules: ["base_safety", "agent_tool_decision"],
+      }),
+      stage("agent_tool_execution", "planned", context, {
+        promptModules: ["agent_tool_execution"],
+      }),
+      stage("agent_final_result", "planned", context, {
+        model: "deepseek-v4-flash",
+        promptModules: ["agent_final_result"],
+      }),
+      stage("agent_response_writer", "planned", context, {
+        model: "deepseek-v4-flash",
+        promptModules: ["agent_response_writer"],
+      }),
+      stage("agent_summary_update", input.summaryUpdateSkipped ? "skipped" : "planned", context, {
+        model: input.summaryUpdateSkipped ? undefined : "deepseek-v4-flash",
+        skipReason: input.summarySkipReason,
+        promptModules: input.summaryUpdateSkipped ? [] : ["agent_summary_update"],
+      }),
     ],
   });
 }
