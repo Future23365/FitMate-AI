@@ -1,3 +1,124 @@
+## 分阶段执行约定
+
+本 change 保持单一 OpenSpec 架构合同，不拆成多个独立 change。实现可以按多个 Codex 窗口分阶段推进，每个阶段必须完成对应代码、测试、`tasks.md` 状态更新和一次独立 commit。
+
+任一阶段都不得长期保留新旧双主链。兼容字段只能由 `LegacyChatEventAdapter` 从 `AgentExecutionResult` 单向派生，不得继续参与工具选择、artifact 生成、patch、保存或最终回复决策。
+
+切换 `/api/chat` 生产主链前，必须已完成 Agent 契约、tool registry、关键读写工具、Agent loop、Response Writer 和基础回归测试。切换后应尽快删除或废弃旧 intent-first 主路径，避免双主链成为新的长期架构。
+
+## 分阶段边界与验收
+
+### Phase 1：契约与运行时骨架
+
+目标：建立 Agent 主链的类型、上下文、结果、工具注册和错误边界，不切换 `/api/chat` 生产主链。
+
+范围：完成 1.x，并为 7.1、7.2、7.2.1 中与契约、context builder、registry 基础边界相关的测试打底。
+
+完成标准：
+
+- `AgentContextBuilder`、`ContextPackage`、`AgentExecutionState`、`AgentExecutionResult`、`AgentDependencyGraph`、`AgentToolRegistry` 和错误/blocked/checkpoint 合同已定义。
+- `LegacyChatEventAdapter` 只声明单向兼容边界和退出条件，不反向驱动任何执行决策。
+- Agent contract、context builder、registry 基础测试可运行。
+- `openspec validate replace-chat-orchestrator-with-tool-first-agent --strict` 通过。
+
+禁止事项：
+
+- 不得删除旧 intent-first 主链。
+- 不得让 `/api/chat` 生产路径依赖半成品 Agent 结果。
+- 不得新增基于用户原始文本的服务端语义纠偏。
+
+### Phase 2：只读工具与 registry 边界
+
+目标：先把只读工具纳入统一 registry，稳定工具注册、权限、Schema、tool result id、失败返回和 trace 摘要边界。
+
+范围：完成 2.1、2.2、2.6 中只读工具相关部分，以及 2.8 的 registry 合同校验基础。
+
+完成标准：
+
+- `searchArtifacts`、`getArtifactPayload`、`getExerciseById`、`searchExercises`、`listRecentArtifacts`、`getUserMemory` 或等价只读工具已通过统一 registry 暴露。
+- 每个只读工具都有 userId/sessionId 权限隔离、Zod 输入 Schema、输出摘要、失败码和 trace 摘要。
+- registry 测试覆盖未知工具、非法参数、越权 artifact、tool result id 登记和工具注册合同缺失。
+
+禁止事项：
+
+- 不得在本阶段新增可持久化写工具。
+- 不得让只读工具直接触发 artifact、patch 或回复承诺。
+
+### Phase 3：训练生成、Patch 与写入前置工具
+
+目标：把训练生成、Patch、Validator、Policy 和 artifact revision 保存串成受控工具闭环。
+
+范围：完成 2.3 至 2.7、2.8 中写工具合同部分，以及 4.x。
+
+完成标准：
+
+- `proposeWorkoutEditPlan`、`generateRoutineDraft`、`generatePlanDraft`、`proposeWorkoutPatch`、`askClarification`、`validateRoutineDraft`、`validatePlanDraft`、`validateWorkoutPatch`、`evaluatePolicy` 和 `saveConversationArtifactRevision` 或等价工具已接入 registry。
+- 写工具必须引用合法 `draftId` / `patchId`、`candidateSetId`、`validationId`、`policyDecisionId` 和必要 `confirmationId` 后才能保存。
+- routine / plan / patch 生成复用 DomainPlanEngine、候选集合、时长估算、Validator、Policy 和 validation recovery。
+- Patch replacementExerciseId 来自当前 run 的 candidateSetId 和数据库，Patch target 来自真实 artifact payload。
+
+禁止事项：
+
+- 不得把 summary + 用户原文交给大模型自由生成可保存训练。
+- 不得允许裸用户原句 query 作为可执行候选集合来源。
+- 不得绕过候选集合、Validator、Policy 或权限隔离保存 revision。
+
+### Phase 4：Agent loop、Response Writer、Trace 与 Prompt 迁移
+
+目标：形成可测试的新 Agent 主链能力，但暂不急于切换 `/api/chat` 生产入口。
+
+范围：完成 3.1、3.2、5.x、6.x，并补齐 7.x 中与 loop、Response Writer、trace、prompt/token budget 相关的自动化测试。
+
+完成标准：
+
+- `runAgentOrchestrator` 可执行 tool decision、工具调用、tool result 登记、dependency graph 更新、checkpoint/replay 和终止结果生成。
+- Response Writer 只基于 `AgentExecutionResult` 投影回复，不重新解释用户语义，不承诺未执行写操作。
+- AiRunTrace 可记录 ContextPackage、tool decision、tool result id、dependency graph、validator gate、policy gate、persistence、legacy path skip 和 final result。
+- Agent tool decision、final result、Response Writer prompt module 和 token budget stage 已迁移到新观测合同。
+
+禁止事项：
+
+- 不得让 `conversationSummary`、旧 resolved intent 或旧 prompt module 继续作为执行事实源。
+- 不得让 Response Writer 重新决定是否生成、patch、保存或澄清。
+
+### Phase 5：切换 `/api/chat` 生产主链
+
+目标：将 `/api/chat` 生产主链从 intent-first orchestrator 切换为 AgentOrchestrator，并保持前端消费合同稳定。
+
+范围：完成 3.3、3.5、3.6，并覆盖 7.3、7.10、7.17 中与生产主链和流事件兼容相关的测试。
+
+完成标准：
+
+- `/api/chat` 生产主链由 AgentOrchestrator 驱动。
+- 前端仍可消费稳定 stream event、artifact、patch、`assistantSuggestions` 和 done metadata。
+- `assistant_action`、resolved intent、`workoutIntent` 只能由兼容 adapter 派生。
+- 关闭旧兼容字段的测试路径仍能表达 artifact、patch、clarification、blocked 和 failed。
+- 已运行 chat service、readonly tools、workout patch、conversation artifact 相关测试；如未执行真实模型黑盒测试，必须说明成本、环境和替代验证范围。
+
+禁止事项：
+
+- 不得让旧 intent-first 分支继续触发工具、卡片、artifact 生成、patch 或写入。
+- 不得为了兼容前端而让旧字段重新成为事实源。
+
+### Phase 6：旧路径清理、黑盒迁移与文档收尾
+
+目标：删除或明确废弃旧 intent-first 主路径，迁移黑盒诊断和文档，完成 change 收尾。
+
+范围：完成 3.4、7.4 至 7.16、8.x。
+
+完成标准：
+
+- 旧服务端高层语义 normalize、关键词 gate、ReferenceResolver-first 主路径、只读 tool loop 触发矩阵、pending replacement 字符串改写、旧 prompt module 主链依赖和 summary-only 上下文文档描述已删除或明确废弃。
+- manual LLM 黑盒 runner、fixture expectation 和报告格式已改为优先记录用户可见闭环、AgentExecutionResult、tool dependency graph、artifact/patch/suggestion 事件和 legacy path skip。
+- `docs/architecture.md`、`docs/chat-push-flow.md`、`docs/方案变更历史` 和 `docs/项目演变历程.md` 已同步记录 Tool-first AgentOrchestrator 主链。
+- `npm run test -- tests/chat-service.test.ts tests/readonly-tools.test.ts tests/workout-patch-chat-service.test.ts tests/conversation-artifact-service.test.ts` 或对应更新后的测试集合通过。
+- `npm run typecheck` 和 `openspec validate replace-chat-orchestrator-with-tool-first-agent --strict` 通过。
+
+禁止事项：
+
+- 不得为适配新诊断结构重写历史黑盒业务 flow 的用户输入和业务期望。
+- 不得把兼容字段当作新黑盒验收的核心事实源。
+
 ## 1. 契约与模块边界
 
 - [ ] 1.1 新增 `lib/server/agent-orchestrator` 模块，定义 `AgentContextBuilder`、`ContextPackage`、`ContextProvenance`、`AgentExecutionState`、`AgentExecutionResult`、`AgentDependencyGraph` 和核心类型注释。
