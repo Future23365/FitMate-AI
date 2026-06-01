@@ -104,6 +104,7 @@ export type AgentArtifactSearchOutput = Awaited<ReturnType<typeof searchArtifact
 
 export type AgentExerciseSearchOutput = ExerciseSearchResult & {
   candidateSetId: string;
+  candidateUse: SearchExercisesAgentToolInput["candidateUse"];
 };
 
 export type AgentArtifactPayloadOutput = ArtifactPayloadSuccess & {
@@ -347,6 +348,8 @@ function createSearchExercisesTool(): AgentToolDefinition<SearchExercisesAgentTo
       "按受控条件检索动作库候选摘要。",
       "targetMuscles/equipment 必须使用动作库真实 facet；上肢、下肢、核心、全身等范围目标必须用 bodyRegions=upper_body/lower_body/core/full_body。",
       "如果工具返回 retryable unknown facet 诊断，应基于 suggestedTargetMuscles/suggestedEquipment 重新检索后再决定 blocked。",
+      "用户要求安排一套、单次训练、训练编排或带目标时长的训练流程时，candidateUse 必须是 routine；候选成功后必须继续调用 generateRoutineDraft，不能以 answered 自由文本输出训练编排。",
+      "candidateUse=recommendation 只用于推荐单个动作或候选动作列表，不能表示已生成完整训练编排。",
     ].join(" "),
     accessLevel: "read",
     inputSchema: searchExercisesAgentToolInputSchema,
@@ -355,6 +358,7 @@ function createSearchExercisesTool(): AgentToolDefinition<SearchExercisesAgentTo
     summarizeOutput(output) {
       return {
         candidateSetId: output.candidateSetId,
+        candidateUse: output.candidateUse,
         candidates: summarizeExerciseCandidatesForModel(output.candidates, summaryMaxChars),
         diagnostics: output.diagnostics,
       };
@@ -377,7 +381,7 @@ function createSearchExercisesTool(): AgentToolDefinition<SearchExercisesAgentTo
           : null;
         const finalResult = recoveredResult ?? result;
         const candidateSetId = createStructuredResultId(context, "candidate_set", "searchExercises", parsedInput);
-        const output = { ...finalResult, candidateSetId };
+        const output = { ...finalResult, candidateSetId, candidateUse: parsedInput.candidateUse };
         const summary = this.summarizeOutput(output);
 
         if (finalResult.candidates.length === 0) {

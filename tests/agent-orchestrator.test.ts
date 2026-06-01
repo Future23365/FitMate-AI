@@ -1212,6 +1212,9 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
         toolName: "searchExercises",
         status: "success",
         candidateSetId: "candidate-set-rec",
+        modelSummary: {
+          candidateUse: "recommendation",
+        },
       }],
     });
 
@@ -1233,6 +1236,32 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
         source: "exercise_recommendation",
       }),
     ]));
+
+    expect(projectAgentExecutionResultToResponse({
+      result: {
+        status: "answered",
+        replyContext: { reply: "以下是一套30分钟上肢训练计划。" },
+        usedToolResultIds: ["tool-result-routine"],
+      },
+      toolResults: [{
+        toolResultId: "tool-result-routine",
+        toolCallId: "tool-call-routine",
+        toolName: "searchExercises",
+        status: "success",
+        candidateSetId: "candidate-set-routine",
+        modelSummary: {
+          candidateUse: "routine",
+        },
+      }],
+    }).assistantSuggestions).toEqual([]);
+  });
+
+  it("tells the Agent to use routine generation tools for single-session composition", () => {
+    const prompt = buildPromptFromModules(["agent_tool_decision"]);
+
+    expect(prompt).toContain("candidateUse=\"routine\"");
+    expect(prompt).toContain("generateRoutineDraft");
+    expect(prompt).toContain("禁止只用 answered 输出自由文本 routine");
   });
 
   it("runs controlled operation fixtures through completed_operation, confirmation and policy blocked results", async () => {

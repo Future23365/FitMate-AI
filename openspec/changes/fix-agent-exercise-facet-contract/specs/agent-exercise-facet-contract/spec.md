@@ -72,3 +72,17 @@ Agent 在生成 routine、plan 或 patch 所需候选时，系统 SHALL 对可�
 - **WHEN** Agent 重查 `searchExercises` 后获得候选集合
 - **THEN** Agent MUST 继续调用 routine 或 plan 生成工具
 - **AND** 后续 draft MUST 引用本轮成功的 `candidateSetId`
+
+### Requirement: Routine 请求必须进入生成工具链
+用户请求安排单次训练、训练编排或一套训练时，Agent SHALL 通过 routine 生成工具链产生结构化结果，不得用动作推荐候选加自由文本回答冒充 routine。
+
+#### Scenario: 用户请求安排一套单次训练
+- **WHEN** 用户请求“安排一套”“帮我练 30 分钟”或等价单次训练编排
+- **THEN** Agent MUST 使用 `searchExercises` 的 `candidateUse = "routine"` 检索候选
+- **AND** Agent MUST 在候选成功后调用 `generateRoutineDraft`
+- **AND** Agent MUST NOT 仅引用 `searchExercises` 结果并以 `answered` 输出自由文本训练编排
+
+#### Scenario: Agent 只完成动作推荐
+- **WHEN** Agent 使用 `candidateUse = "recommendation"` 并以 `answered` 结束
+- **THEN** 用户可见结果 MUST 表达动作推荐或候选动作
+- **AND** 用户可见结果 MUST NOT 承诺已生成完整 routine、plan 或训练编排

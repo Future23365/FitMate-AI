@@ -642,6 +642,7 @@ function summarizeModelSummaryForDecision(result: AgentToolResultRecord) {
 
   return compactObject({
     candidateSetId: summary?.candidateSetId,
+    candidateUse: summary?.candidateUse,
     candidates: Array.isArray(summary?.candidates)
       ? summary.candidates.slice(0, 8).map(summarizeExerciseCandidateForDecision)
       : [],
@@ -1042,6 +1043,7 @@ function buildExerciseRecommendationArtifactEvent(input: {
     usedToolResultIds.has(toolResult.toolResultId) &&
     toolResult.toolName === "searchExercises" &&
     toolResult.status === "success" &&
+    readToolResultCandidateUse(toolResult) === "recommendation" &&
     Boolean(toolResult.candidateSetId)
   ));
 
@@ -1089,7 +1091,7 @@ function buildRecommendationCardFromToolResult(input: {
   const card: ExerciseRecommendationCard = {
     title: "为你推荐的动作",
     goal,
-    summary: truncatePlainText(input.reply ?? `已根据你的条件筛选出 ${items.length} 个动作。`, 240),
+    summary: `已根据你的条件筛选出 ${items.length} 个动作。`,
     items: items.slice(0, 10),
     safetyNotes: [
       "训练前先热身，动作过程中如有疼痛请停止。",
@@ -1097,6 +1099,13 @@ function buildRecommendationCardFromToolResult(input: {
   };
 
   return card;
+}
+
+function readToolResultCandidateUse(toolResult: AgentToolResultRecord) {
+  const summary = asRecord(toolResult.modelSummary);
+  const candidateUse = summary?.candidateUse;
+
+  return typeof candidateUse === "string" ? candidateUse : undefined;
 }
 
 function toRecommendationItem(candidate: unknown): ExerciseRecommendationCard["items"][number] | null {

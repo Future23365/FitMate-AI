@@ -154,6 +154,7 @@ describe("chat service Agent-only contract", () => {
         candidateSetId: "candidate-set-rec",
         modelSummary: {
           candidateSetId: "candidate-set-rec",
+          candidateUse: "recommendation",
           candidates: [
             {
               exerciseId: "Band_Good_Morning",
@@ -177,6 +178,7 @@ describe("chat service Agent-only contract", () => {
       artifactId: "recommendation_candidate-set-rec",
       payload: {
         title: "为你推荐的动作",
+        summary: "已根据你的条件筛选出 1 个动作。",
         items: [
           expect.objectContaining({
             exerciseId: "Band_Good_Morning",
@@ -185,6 +187,42 @@ describe("chat service Agent-only contract", () => {
         ],
       },
     });
+  });
+
+  it("does not project routine candidate sets into exercise recommendation cards", async () => {
+    const events = await buildAgentArtifactStreamEvents({
+      userId: "user-1",
+      result: {
+        status: "answered",
+        replyContext: { reply: "以下是一套30分钟上肢训练计划。" },
+        usedToolResultIds: ["tool-result-routine"],
+      },
+      projection: {
+        status: "answered",
+        reply: "以下是一套30分钟上肢训练计划。",
+        assistantSuggestions: [],
+        references: [{ kind: "tool_result", id: "tool-result-routine" }],
+        metadata: {
+          promisedWrite: false,
+          hasExecutedWrite: false,
+          safeOperationOnly: false,
+        },
+      },
+      toolResults: [{
+        toolResultId: "tool-result-routine",
+        toolCallId: "tool-call-routine",
+        toolName: "searchExercises",
+        status: "success",
+        candidateSetId: "candidate-set-routine",
+        modelSummary: {
+          candidateSetId: "candidate-set-routine",
+          candidateUse: "routine",
+          candidates: [{ exerciseId: "e1", nameZh: "动作" }],
+        },
+      }],
+    });
+
+    expect(events).toEqual([]);
   });
 
   it("slims Agent decision model input and removes verbose search diagnostics", () => {

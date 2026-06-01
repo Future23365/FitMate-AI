@@ -13,3 +13,17 @@
 - **WHEN** Agent 根据 `searchExercises` 可恢复诊断重查后获得候选
 - **THEN** routine draft MUST 引用成功候选集合的 `candidateSetId`
 - **AND** 用户可见回复 MUST NOT 声称动作库没有匹配动作
+
+### Requirement: Routine 请求不得投影为动作推荐卡
+聊天 routine 生成请求 SHALL 只展示 routine、artifact、失败或澄清结果，不得把中间动作候选投影为动作推荐卡。
+
+#### Scenario: Agent 只引用 searchExercises 并输出 answered
+- **WHEN** 用户请求生成单次训练编排
+- **AND** Agent 结果只引用 `searchExercises` 工具结果
+- **THEN** 系统 MUST NOT 投影 `exercise_recommendation` 卡片作为最终训练结果
+- **AND** 系统 MUST 通过 Agent 决策约束促使下一轮使用 `generateRoutineDraft`
+
+#### Scenario: 动作推荐卡 summary
+- **WHEN** 系统确实投影 `exercise_recommendation` 卡片
+- **THEN** 卡片 summary MUST 使用推荐卡摘要
+- **AND** 卡片 summary MUST NOT 复制整段聊天正文

@@ -29,3 +29,16 @@
 ## 结果
 
 局部验证中，`exercise-service.test.ts` 和 `agent-orchestrator.test.ts` 共 39 个测试通过。按当前本地动作库统计，`dumbbell / 哑铃` 有 123 个动作，精确 `upper body` 为 0；把上肢区域展开为真实肌群后，存在可用哑铃上肢候选。
+
+## 二次修复：候选恢复后仍投成动作卡
+
+时间：2026-06-01 22:32:35 +0800
+
+最新 trace 显示 facet 问题解决后，Agent 仍把“安排一套 30 分钟上肢训练”误走成 `candidateUse: "recommendation"`，第二轮直接以 `answered` 输出自由文本编排，没有调用 `generateRoutineDraft`。Response Writer 看到 `answered + searchExercises` 后又把候选投影成 `exercise_recommendation` 卡片，导致正文像训练编排、卡片却是动作推荐，且卡片 summary 复制了整段正文。
+
+这次补了两层边界：
+
+- Agent prompt 和 `searchExercises` 工具摘要明确：安排一套、单次训练、训练编排或带目标时长的训练流程必须使用 `candidateUse: "routine"`，并在候选成功后继续调用 `generateRoutineDraft`，不能用 `answered` 输出自由文本 routine。
+- Response Writer 只允许 `candidateUse: "recommendation"` 的 `answered` 结果投影动作推荐卡；routine 候选集合不会再被误投成动作卡。推荐卡 summary 改为独立摘要，不再复制聊天正文。
+
+局部验证中，`chat-service.test.ts`、`agent-orchestrator.test.ts`、`readonly-tools.test.ts` 相关测试共 45 个通过。

@@ -210,6 +210,7 @@ function buildAnsweredSuggestions(
     usedToolResultIds.has(toolResult.toolResultId) &&
     toolResult.toolName === "searchExercises" &&
     toolResult.status === "success" &&
+    readToolResultCandidateUse(toolResult) === "recommendation" &&
     Boolean(toolResult.candidateSetId)
   ));
 
@@ -233,6 +234,18 @@ function buildAnsweredSuggestions(
       source: "exercise_recommendation",
     },
   ]);
+}
+
+function readToolResultCandidateUse(toolResult: AgentToolResultRecord) {
+  const summary = toolResult.modelSummary;
+
+  if (!summary || typeof summary !== "object") {
+    return undefined;
+  }
+
+  const candidateUse = (summary as Record<string, unknown>).candidateUse;
+
+  return typeof candidateUse === "string" ? candidateUse : undefined;
 }
 
 function readReplyAssistantSuggestions(replyContext: Record<string, unknown>): AgentAssistantSuggestion[] {

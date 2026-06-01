@@ -21,3 +21,11 @@
 - [x] 4.1 在 `docs/方案变更历史` 新增本次 AI 动作 facet 契约修复记录。
 - [x] 4.2 在 `docs/项目演变历程.md` 追加本次核心链路修复摘要。
 - [x] 4.3 根据验证结果更新本 change 的任务状态并提交本次改动。
+
+## 5. Routine 与推荐卡投影修复
+
+- [x] 5.1 收紧 Agent prompt 和 `searchExercises` 工具摘要，要求单次训练编排请求使用 `candidateUse = "routine"` 并继续调用 `generateRoutineDraft`。
+- [x] 5.2 在 `searchExercises` 工具结果摘要中保留 `candidateUse`，使 Response Writer 能区分推荐候选和 routine 候选。
+- [x] 5.3 收窄动作推荐卡投影：只有 `candidateUse = "recommendation"` 的 `answered` 结果才投影推荐卡，且卡片 summary 不复制完整正文。
+- [x] 5.4 补充测试覆盖 routine 请求不被投影成动作推荐卡、推荐卡 summary 不重复正文、Agent prompt 包含 routine 工具链约束。
+- [x] 5.5 运行 `openspec validate fix-agent-exercise-facet-contract --strict`、`npm test` 和 `npm run typecheck`。
