@@ -409,6 +409,28 @@ describe("exercise service", () => {
     });
   });
 
+  it("does not let generic recommendation query clear structured lower-body band candidates", async () => {
+    await expect(
+      searchExercises({
+        query: "完全不相关的泛化描述",
+        candidateUse: "recommendation",
+        visibility: "published",
+        bodyRegions: ["lower_body"],
+        equipmentRequired: ["弹力带"],
+        level: "beginner",
+        avoidances: ["跳跃"],
+        limit: 8,
+      }),
+    ).resolves.toMatchObject({
+      candidates: [expect.objectContaining({ id: "band-squat" })],
+      diagnostics: expect.objectContaining({
+        query: "完全不相关的泛化描述",
+        failureReasons: [],
+        finalExerciseIds: ["band-squat"],
+      }),
+    });
+  });
+
   it("reports retryable diagnostics for unknown target muscle facets", async () => {
     await expect(
       searchExercises({

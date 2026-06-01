@@ -588,17 +588,21 @@ function isRetryableSearchMiss(normalized: NormalizedExerciseSearchInput) {
   return normalized.suggestedTargetMuscles.length > 0 || normalized.suggestedEquipment.length > 0;
 }
 
-// routine / plan 已有结构化候选边界时，query 只是排序提示，不能把可执行候选硬清零。
+// recommendation / routine / plan 已有结构化候选边界时，query 只是排序提示，不能把可执行候选硬清零。
 function shouldUseQueryAsHybridRecallGate(query: string | undefined, input: ExerciseSearchInput) {
   if (!query) {
     return false;
   }
 
-  if ((input.candidateUse === "routine" || input.candidateUse === "plan") && hasStructuredExecutableSearchBoundary(input)) {
+  if (usesStructuredExecutableCandidateSet(input) && hasStructuredExecutableSearchBoundary(input)) {
     return false;
   }
 
   return true;
+}
+
+function usesStructuredExecutableCandidateSet(input: ExerciseSearchInput) {
+  return input.candidateUse === "recommendation" || input.candidateUse === "routine" || input.candidateUse === "plan";
 }
 
 function hasStructuredExecutableSearchBoundary(input: ExerciseSearchInput) {

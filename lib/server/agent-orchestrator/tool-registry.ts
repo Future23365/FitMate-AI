@@ -3,6 +3,7 @@ import "server-only";
 import { ZodError, z, type ZodType } from "zod";
 
 import {
+  agentExecutionResultSchema,
   agentToolDecisionSchema,
   agentToolDomainCapabilityContractSchema,
   type AgentToolAccessLevel,
@@ -217,7 +218,7 @@ export function parseAgentToolDecision(
   registry: Pick<AgentToolRegistry, "has">,
 ): AgentToolDecisionParseResult {
   const normalizedValue = normalizeToolNameActionDecision(
-    normalizeLegacyFinalResult(value),
+    normalizeMissingFinalResultReason(normalizeLegacyFinalResult(value)),
     registry,
   );
 
@@ -311,6 +312,28 @@ function normalizeLegacyFinalResult(value: unknown) {
       ...result,
       failureCode: "tool_execution_failed",
     },
+  };
+}
+
+// normalizeMissingFinalResultReason 只补齐非语义诊断字段，result 必须先满足 AgentExecutionResult 合同。
+function normalizeMissingFinalResultReason(value: unknown) {
+  if (!isPlainObject(value) || value.action !== "final_result" || !isPlainObject(value.result)) {
+    return value;
+  }
+
+  if (typeof value.reason === "string" && value.reason.trim()) {
+    return value;
+  }
+
+  const parsedResult = agentExecutionResultSchema.safeParse(value.result);
+  if (!parsedResult.success) {
+    return value;
+  }
+
+  return {
+    ...value,
+    result: parsedResult.data,
+    reason: "模型返回了合法终止结果但缺少 reason，runtime 已补齐诊断原因。",
   };
 }
 

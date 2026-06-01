@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createToolFirstAgentToolRegistry } from "@/lib/server/agent-orchestrator";
+import { createToolFirstAgentToolRegistry, parseAgentToolDecision } from "@/lib/server/agent-orchestrator";
 import {
   buildAgentArtifactStreamEvents,
   buildAgentDecisionModelInput,
@@ -184,6 +184,76 @@ describe("chat service Agent-only contract", () => {
           expect.objectContaining({
             exerciseId: "Band_Good_Morning",
             nameZh: "弹力带早安式",
+          }),
+        ],
+      },
+    });
+  });
+
+  it("projects recommendation cards after normalizing a final_result that omitted reason", async () => {
+    const parsed = parseAgentToolDecision({
+      action: "final_result",
+      result: {
+        status: "answered",
+        replyContext: { reply: "给你几个弹力带臀腿动作。" },
+        usedToolResultIds: ["tool-result-rec"],
+      },
+    }, createToolFirstAgentToolRegistry());
+
+    if (!parsed.ok || parsed.decision.action !== "final_result") {
+      throw new Error("Expected normalized final_result decision.");
+    }
+
+    const events = await buildAgentArtifactStreamEvents({
+      userId: "user-1",
+      result: parsed.decision.result,
+      context: {
+        latestUserMessage: "推荐几个适合新手的臀腿动作，我只有弹力带，不想做跳跃",
+        recentMessages: [],
+        recentArtifacts: [],
+        memorySnapshot: { snapshotId: "memory-1", facts: [], preferences: [], avoidances: [] },
+        provenance: [],
+        limits: {
+          maxRecentMessages: 12,
+          maxRecentArtifacts: 8,
+          maxMessageChars: 1200,
+          maxArtifactSummaryChars: 700,
+        },
+      },
+      toolResults: [{
+        toolResultId: "tool-result-rec",
+        toolCallId: "tool-call-rec",
+        toolName: "searchExercises",
+        status: "success",
+        candidateSetId: "candidate-set-rec",
+        modelSummary: {
+          candidateSetId: "candidate-set-rec",
+          candidateUse: "recommendation",
+          candidates: [
+            {
+              exerciseId: "Squats_-_With_Bands",
+              nameZh: "弹力带深蹲",
+              categoryZh: "力量训练",
+              levelZh: "初级",
+              equipmentZh: "弹力带",
+              primaryMusclesZh: ["股四头肌"],
+              secondaryMusclesZh: ["臀部", "腘绳肌"],
+              goalTags: ["beginner_friendly"],
+            },
+          ],
+        },
+      }],
+    });
+
+    expect(parsed.decision.reason).toContain("缺少 reason");
+    expect(events.map((event) => event.type)).toEqual(["artifact_validated", "artifact"]);
+    expect(events[0].metadata).toMatchObject({
+      artifactKind: "exercise_recommendation",
+      payload: {
+        items: [
+          expect.objectContaining({
+            exerciseId: "Squats_-_With_Bands",
+            nameZh: "弹力带深蹲",
           }),
         ],
       },

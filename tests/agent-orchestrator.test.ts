@@ -324,6 +324,40 @@ describe("agent orchestrator phase 1 contracts", () => {
     });
   });
 
+  it("normalizes missing final_result reason only when the result contract is already valid", () => {
+    const registry = new AgentToolRegistry([createReadTool()]);
+
+    expect(parseAgentToolDecision({
+      action: "final_result",
+      result: {
+        status: "answered",
+        replyContext: { reply: "给你几个弹力带臀腿动作。" },
+        usedToolResultIds: ["tool-result-rec"],
+      },
+    }, registry)).toMatchObject({
+      ok: true,
+      decision: {
+        action: "final_result",
+        reason: "模型返回了合法终止结果但缺少 reason，runtime 已补齐诊断原因。",
+        result: {
+          status: "answered",
+          usedToolResultIds: ["tool-result-rec"],
+        },
+      },
+    });
+
+    expect(parseAgentToolDecision({
+      action: "final_result",
+      result: {
+        status: "generated",
+        replyContext: { reply: "已生成训练。" },
+      },
+    }, registry)).toMatchObject({
+      ok: false,
+      code: "invalid_decision",
+    });
+  });
+
   it("blocks write tools that lack a domain capability contract or safe projection", () => {
     expect(() => new AgentToolRegistry([{
       ...createReadTool(),
@@ -540,6 +574,16 @@ describe("agent orchestrator phase 2 readonly tools", () => {
         candidateSetId: expect.stringMatching(/^candidate_set_/),
       }),
     });
+  });
+
+  it("exposes controlled exercise facets in the searchExercises tool definition", () => {
+    const registry = createReadonlyAgentToolRegistry();
+    const searchTool = registry.listModelDefinitions().find((tool) => tool.name === "searchExercises");
+
+    expect(searchTool?.description).toContain("bodyRegions 可用 upper_body/lower_body/core/full_body");
+    expect(searchTool?.description).toContain("allowedSections 可用 warmup/training/stretch");
+    expect(searchTool?.description).toContain("弹力带");
+    expect(searchTool?.description).toContain("臀部、股四头肌、腘绳肌");
   });
 
   it("recovers searchExercises once when structured facet diagnostics provide retry suggestions", async () => {

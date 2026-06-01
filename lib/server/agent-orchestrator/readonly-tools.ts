@@ -347,6 +347,7 @@ function createSearchExercisesTool(): AgentToolDefinition<SearchExercisesAgentTo
     description: [
       "按受控条件检索动作库候选摘要。",
       "targetMuscles/equipment 必须使用动作库真实 facet；上肢、下肢、核心、全身等范围目标必须用 bodyRegions=upper_body/lower_body/core/full_body。",
+      "优先传结构化字段：bodyRegions 可用 upper_body/lower_body/core/full_body；allowedSections 可用 warmup/training/stretch；level 可用 beginner/intermediate/expert；常用 equipment/equipmentRequired 示例：自重、bodyweight、无器械、弹力带、resistance_band、哑铃、dumbbell；下肢 targetMuscles 示例：臀部、股四头肌、腘绳肌、小腿、髋部。",
       "如果工具返回 retryable unknown facet 诊断，应基于 suggestedTargetMuscles/suggestedEquipment 重新检索后再决定 blocked。",
       "用户要求安排一套、单次训练、训练编排或带目标时长的训练流程时，candidateUse 必须是 routine；候选成功后必须继续调用 generateRoutineDraft，不能以 answered 自由文本输出训练编排。",
       "candidateUse=recommendation 只用于推荐单个动作或候选动作列表，不能表示已生成完整训练编排。",
