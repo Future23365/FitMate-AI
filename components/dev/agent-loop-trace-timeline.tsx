@@ -62,7 +62,13 @@ function AgentLoopTurnCard({ turn }: { turn: AgentLoopTurnViewModel }) {
             <span className="text-sm font-semibold text-slate-950">{turn.title}</span>
             <SmallPill>{turn.aiStage ?? "未记录 aiStage"}</SmallPill>
             {turn.loopTurnId ? <SmallPill>{turn.loopTurnId}</SmallPill> : null}
-            <SmallPill>{formatTokenUsage(tokenUsage)}</SmallPill>
+            {tokenUsage ? (
+              <span className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-[11px] font-semibold text-indigo-700 ring-1 ring-indigo-100/50">
+                Token: 输入 {tokenUsage.prompt_tokens?.toLocaleString() ?? "-"} · 输出 {tokenUsage.completion_tokens?.toLocaleString() ?? "-"} (共 {tokenUsage.total_tokens?.toLocaleString() ?? "-"})
+              </span>
+            ) : (
+              <SmallPill>无 Token 记录</SmallPill>
+            )}
           </div>
           <p className="mt-2 text-xs leading-5 text-slate-500">
             modelCallId: {turn.modelCallId ?? "未记录"}；Raw JSON 入口：{turn.rawLinks.map((link) => `${link.index + 1}.${link.stepName}`).join(" / ") || "未记录"}
@@ -77,6 +83,14 @@ function AgentLoopTurnCard({ turn }: { turn: AgentLoopTurnViewModel }) {
         <InfoBlock title="LLM 输入" help="用于确认模型本轮实际看到的 system prompt、user payload、ContextPackage、toolResults 和剩余步骤。">
           {turn.modelRequest ? (
             <div className="space-y-3">
+              {tokenUsage?.prompt_tokens ? (
+                <div className="rounded-lg bg-indigo-50/30 border border-indigo-100/50 px-3 py-2 flex items-center justify-between text-xs text-slate-600 shadow-[0_1px_2px_rgba(0,0,0,0.01)]">
+                  <span className="font-medium text-slate-700 flex items-center gap-1.5">
+                    <span>📥</span> Prompt Token (大模型输入)
+                  </span>
+                  <span className="font-bold text-indigo-700">{tokenUsage.prompt_tokens.toLocaleString()} tokens</span>
+                </div>
+              ) : null}
               <KeyValue label="model" value={turn.modelRequest.model ?? "未记录"} />
               <KeyValue label="promptModules" value={turn.modelRequest.promptModules.join(", ") || "未记录"} />
               <KeyValue label="visibleToolResultIds" value={turn.modelRequest.visibleToolResultIds.join(", ") || "无"} />
@@ -107,6 +121,22 @@ function AgentLoopTurnCard({ turn }: { turn: AgentLoopTurnViewModel }) {
         <InfoBlock title="LLM 输出解析" help="用于同时核对原始输出、JSON 解析结果、action / toolName / final result 和解析失败。">
           {turn.modelResponse ? (
             <div className="space-y-3">
+              {tokenUsage ? (
+                <div className="rounded-xl bg-slate-50 border border-slate-100 p-3 flex items-center justify-between gap-3 text-xs text-slate-600 shadow-[0_1px_2px_rgba(0,0,0,0.01)]">
+                  <div className="flex-1 flex flex-col gap-1 items-center bg-white rounded-lg py-2 px-1 border border-slate-100">
+                    <span className="text-[10px] text-slate-500 font-medium flex items-center gap-1">📤 输出 (Completion)</span>
+                    <span className="font-bold text-blue-600 text-sm">{tokenUsage.completion_tokens?.toLocaleString() ?? "-"}</span>
+                  </div>
+                  <div className="flex-1 flex flex-col gap-1 items-center bg-white rounded-lg py-2 px-1 border border-slate-100">
+                    <span className="text-[10px] text-slate-500 font-medium flex items-center gap-1">📥 输入 (Prompt)</span>
+                    <span className="font-bold text-indigo-600 text-sm">{tokenUsage.prompt_tokens?.toLocaleString() ?? "-"}</span>
+                  </div>
+                  <div className="flex-1 flex flex-col gap-1 items-center bg-white rounded-lg py-2 px-1 border border-slate-100">
+                    <span className="text-[10px] text-slate-500 font-medium flex items-center gap-1">⚖️ 总消耗 (Total)</span>
+                    <span className="font-bold text-slate-800 text-sm">{tokenUsage.total_tokens?.toLocaleString() ?? "-"}</span>
+                  </div>
+                </div>
+              ) : null}
               <KeyValue label="status" value={turn.modelResponse.status} />
               <KeyValue label="tokenUsage" value={formatTokenUsage(turn.modelResponse?.tokenUsage)} />
               {turn.modelResponse.parsingFailure ? (
