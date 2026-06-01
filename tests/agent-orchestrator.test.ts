@@ -823,6 +823,132 @@ describe("agent orchestrator phase 3 workout tools", () => {
     });
   });
 
+  it("keeps every specified routine candidate and supplements missing routine sections", async () => {
+    exerciseMocks.listAllExercises.mockResolvedValue([
+      createExercise({
+        id: "Band_Warmup",
+        nameZh: "弹力带动态热身",
+        equipment: "bands",
+        equipmentZh: "弹力带",
+        allowedSections: ["warmup"],
+        intensityRole: "activation",
+      }),
+      createExercise({ id: "Hip_Lift_with_Band", nameZh: "弹力带髋部抬起", equipment: "bands", equipmentZh: "弹力带", allowedSections: ["training"] }),
+      createExercise({ id: "Hip_Flexion_with_Band", nameZh: "弹力带髋屈曲", equipment: "bands", equipmentZh: "弹力带", allowedSections: ["training"] }),
+      createExercise({ id: "Squats_-_With_Bands", nameZh: "弹力带深蹲", equipment: "bands", equipmentZh: "弹力带", allowedSections: ["training"] }),
+      createExercise({ id: "Calf_Raises_-_With_Bands", nameZh: "弹力带提踵", equipment: "bands", equipmentZh: "弹力带", allowedSections: ["training"] }),
+      createExercise({ id: "Band_Good_Morning", nameZh: "弹力带早安式", equipment: "bands", equipmentZh: "弹力带", allowedSections: ["training"] }),
+      createExercise({ id: "Band_Good_Morning_Pull_Through", nameZh: "弹力带早安式（拉穿）", equipment: "bands", equipmentZh: "弹力带", allowedSections: ["training"] }),
+      createExercise({ id: "Hip_Extension_with_Bands", nameZh: "弹力带髋伸展", equipment: "bands", equipmentZh: "弹力带", allowedSections: ["training"] }),
+      createExercise({
+        id: "Hamstring_Stretch",
+        nameZh: "腘绳肌拉伸",
+        equipment: "bands",
+        equipmentZh: "弹力带",
+        allowedSections: ["stretch"],
+        intensityRole: "recovery",
+      }),
+    ]);
+
+    const specifiedIds = [
+      "Hip_Lift_with_Band",
+      "Hip_Flexion_with_Band",
+      "Squats_-_With_Bands",
+      "Calf_Raises_-_With_Bands",
+      "Band_Good_Morning",
+      "Band_Good_Morning_Pull_Through",
+      "Hip_Extension_with_Bands",
+      "Hamstring_Stretch",
+    ];
+    const registry = createToolFirstAgentToolRegistry();
+    const result = await registry.get("generateRoutineDraft")?.execute({
+      intent: createWorkoutPlanIntent({
+        intentType: "routine",
+        equipment: ["弹力带"],
+        sessionMinutes: 30,
+      }),
+      candidateSetId: "candidate-set-1",
+      candidateExerciseIds: specifiedIds,
+      title: "弹力带臀腿训练",
+    }, createToolExecutionContext());
+
+    expect(result).toMatchObject({
+      ok: true,
+      output: {
+        draftKind: "routine",
+        validation: { valid: true },
+        candidateExerciseIds: expect.arrayContaining(["Band_Warmup", ...specifiedIds]),
+      },
+    });
+
+    if (!result?.ok) {
+      throw new Error("expected generateRoutineDraft to succeed");
+    }
+
+    const draftOutput = result.output as Extract<AgentWorkoutDraftOutput, { draftKind: "routine" }>;
+    const trainingExerciseIds = draftOutput.draft.sections
+      .find((section) => section.section === "training")
+      ?.items.map((item) => item.exerciseId);
+    const warmupExerciseIds = draftOutput.draft.sections
+      .find((section) => section.section === "warmup")
+      ?.items.map((item) => item.exerciseId);
+    const stretchExerciseIds = draftOutput.draft.sections
+      .find((section) => section.section === "stretch")
+      ?.items.map((item) => item.exerciseId);
+
+    expect(trainingExerciseIds).toEqual(expect.arrayContaining(specifiedIds.slice(0, 7)));
+    expect(warmupExerciseIds).toEqual(["Band_Warmup"]);
+    expect(stretchExerciseIds).toEqual(["Hamstring_Stretch"]);
+  });
+
+  it("supplements warmup and stretch when a routine only has training candidates", async () => {
+    exerciseMocks.listAllExercises.mockResolvedValue([
+      createExercise({
+        id: "Band_Warmup",
+        nameZh: "弹力带动态热身",
+        equipment: "bands",
+        equipmentZh: "弹力带",
+        allowedSections: ["warmup"],
+        intensityRole: "activation",
+      }),
+      createExercise({ id: "Squats_-_With_Bands", nameZh: "弹力带深蹲", equipment: "bands", equipmentZh: "弹力带", allowedSections: ["training"] }),
+      createExercise({
+        id: "Band_Stretch",
+        nameZh: "弹力带臀腿拉伸",
+        equipment: "bands",
+        equipmentZh: "弹力带",
+        allowedSections: ["stretch"],
+        intensityRole: "recovery",
+      }),
+    ]);
+
+    const registry = createToolFirstAgentToolRegistry();
+    const result = await registry.get("generateRoutineDraft")?.execute({
+      intent: createWorkoutPlanIntent({
+        intentType: "routine",
+        equipment: ["弹力带"],
+        sessionMinutes: 15,
+      }),
+      candidateSetId: "candidate-set-1",
+      candidateExerciseIds: ["Squats_-_With_Bands"],
+    }, createToolExecutionContext());
+
+    expect(result).toMatchObject({
+      ok: true,
+      output: {
+        draftKind: "routine",
+        candidateExerciseIds: expect.arrayContaining(["Band_Warmup", "Squats_-_With_Bands", "Band_Stretch"]),
+        draft: {
+          sections: [
+            expect.objectContaining({ section: "warmup" }),
+            expect.objectContaining({ section: "training" }),
+            expect.objectContaining({ section: "stretch" }),
+          ],
+        },
+      },
+    });
+  });
+
   it("ignores partial model draft payloads when validating generated routine resources", async () => {
     exerciseMocks.listAllExercises.mockResolvedValue([
       createExercise({

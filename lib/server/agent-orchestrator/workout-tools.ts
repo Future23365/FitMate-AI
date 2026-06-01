@@ -9,7 +9,7 @@ import {
   createOrUpdateConversationArtifact,
 } from "@/lib/server/conversation-artifacts/artifact-service";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
-import { isExerciseAllowedInSection } from "@/lib/shared/exercises/metadata";
+import { isExerciseAllowedInSection, normalizeExerciseMetadata } from "@/lib/shared/exercises/metadata";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import { evaluateArtifactPolicy, evaluateWorkoutPatchPolicy } from "@/lib/server/policy-confirmation/policy-engine";
 import { expandDomainPlan } from "@/lib/server/workout-plans/domain-plan-engine";
@@ -365,10 +365,10 @@ function createGenerateRoutineDraftTool(): AgentToolDefinition<GenerateRoutineDr
       const parsedInput = generateRoutineDraftAgentToolInputSchema.parse(input);
       try {
         const exercises = await listAllExercises();
-        const draft = buildRoutineDraftFromCandidates(parsedInput.intent, parsedInput.candidateExerciseIds, exercises, parsedInput.title);
-        const validation = validateWorkoutRoutineDraft(draft, parsedInput.intent, {
+        const buildResult = buildRoutineDraftFromCandidates(parsedInput.intent, parsedInput.candidateExerciseIds, exercises, parsedInput.title);
+        const validation = validateWorkoutRoutineDraft(buildResult.draft, parsedInput.intent, {
           exercises,
-          candidateExerciseIds: parsedInput.candidateExerciseIds,
+          candidateExerciseIds: buildResult.candidateExerciseIds,
         });
         const recovery = createValidationRecovery(validation, {
           targetSessionMinutes: parsedInput.intent.sessionMinutes,
@@ -386,8 +386,8 @@ function createGenerateRoutineDraftTool(): AgentToolDefinition<GenerateRoutineDr
           draftKind: "routine",
           draftId: createStructuredResultId(context, "draft", "generateRoutineDraft", parsedInput),
           candidateSetId: parsedInput.candidateSetId,
-          candidateExerciseIds: parsedInput.candidateExerciseIds,
-          draft,
+          candidateExerciseIds: buildResult.candidateExerciseIds,
+          draft: buildResult.draft,
           validation,
           recovery,
         };
@@ -1137,7 +1137,7 @@ function createSeedRoutineSourceArtifact(input: {
         input.candidateExerciseIds,
         input.exercises,
         `${input.intent.goal}计划种子训练`,
-      ),
+      ).draft,
       input.intent.sessionMinutes,
     ),
   };
@@ -1194,39 +1194,142 @@ function buildRoutineDraftFromCandidates(
   candidateExerciseIds: string[],
   exercises: Exercise[],
   title: string | undefined,
-): WorkoutRoutineDraft {
-  const candidateSet = new Set(candidateExerciseIds);
-  const candidates = exercises.filter((exercise) => candidateSet.has(exercise.id));
+): { draft: WorkoutRoutineDraft; candidateExerciseIds: string[] } {
+  const routineBuckets = buildRoutineSectionBuckets(intent, candidateExerciseIds, exercises);
   const sections = (["warmup", "training", "stretch"] as const).map((section) => {
-    const sectionExercise = pickExerciseForSection(candidates, section);
-    if (!sectionExercise) {
-      throw new Error(`candidate_set_missing_${section}`);
-    }
+    const sectionExercises = routineBuckets.sections[section];
 
     return {
       section,
       title: formatSectionTitle(section),
-      items: [buildRoutineItem(sectionExercise, section, intent)],
+      items: sectionExercises.map((exercise) => buildRoutineItem(exercise, section, intent)),
     };
   });
 
-  return workoutRoutineDraftSchema.parse({
-    kind: "routine",
-    title: title ?? `${intent.goal}单次训练`,
-    goal: intent.goal,
-    summary: `基于 ${candidateExerciseIds.length} 个受控候选动作生成，展示或保存前仍需 Validator 与 Policy 结果。`,
-    estimatedSessionMinutes: intent.sessionMinutes,
-    trainingLoopRounds: intent.experience === "beginner" ? 2 : 3,
-    trainingLoopRestSeconds: intent.experience === "beginner" ? 90 : 75,
-    sections,
-    safetyNotes: [
-      "动作均来自当前候选集合；如出现疼痛或明显不适，请停止并调整。",
-    ],
-  });
+  return {
+    draft: workoutRoutineDraftSchema.parse({
+      kind: "routine",
+      title: title ?? `${intent.goal}单次训练`,
+      goal: intent.goal,
+      summary: `基于 ${routineBuckets.candidateExerciseIds.length} 个受控候选动作生成，展示或保存前仍需 Validator 与 Policy 结果。`,
+      estimatedSessionMinutes: intent.sessionMinutes,
+      trainingLoopRounds: intent.experience === "beginner" ? 2 : 3,
+      trainingLoopRestSeconds: intent.experience === "beginner" ? 90 : 75,
+      sections,
+      safetyNotes: [
+        "动作均来自当前候选集合；如出现疼痛或明显不适，请停止并调整。",
+      ],
+    }),
+    candidateExerciseIds: routineBuckets.candidateExerciseIds,
+  };
 }
 
-function pickExerciseForSection(exercises: Exercise[], section: WorkoutRoutineSection) {
-  return exercises.find((exercise) => isExerciseAllowedInSection(exercise, section)) ?? exercises[0];
+// Routine 生成器以模型传入候选为必须保留集合，缺失阶段才从动作库做受控补齐。
+function buildRoutineSectionBuckets(
+  intent: WorkoutPlanIntent,
+  candidateExerciseIds: string[],
+  exercises: Exercise[],
+) {
+  const exerciseById = new Map(exercises.map((exercise) => [exercise.id, exercise]));
+  const uniqueCandidateIds = uniqueStrings(candidateExerciseIds);
+  const selectedExerciseIds = new Set<string>();
+  const sections: Record<WorkoutRoutineSection, Exercise[]> = {
+    warmup: [],
+    training: [],
+    stretch: [],
+  };
+
+  for (const exerciseId of uniqueCandidateIds) {
+    const exercise = exerciseById.get(exerciseId);
+
+    if (!exercise) {
+      throw new Error(`candidate_set_missing_exercise:${exerciseId}`);
+    }
+
+    const section = selectRoutineSectionForRequiredExercise(exercise);
+    sections[section].push(exercise);
+    selectedExerciseIds.add(exercise.id);
+  }
+
+  for (const section of ["warmup", "training", "stretch"] as const) {
+    if (sections[section].length > 0) {
+      continue;
+    }
+
+    const supplementalExercise = pickSupplementalExerciseForSection(exercises, selectedExerciseIds, section, intent);
+    if (!supplementalExercise) {
+      throw new Error(`candidate_set_missing_${section}`);
+    }
+
+    sections[section].push(supplementalExercise);
+    selectedExerciseIds.add(supplementalExercise.id);
+  }
+
+  return {
+    sections,
+    candidateExerciseIds: Array.from(selectedExerciseIds),
+  };
+}
+
+function selectRoutineSectionForRequiredExercise(exercise: Exercise): WorkoutRoutineSection {
+  const metadata = normalizeExerciseMetadata(exercise);
+
+  if (metadata.intensityRole === "recovery" && metadata.allowedSections.includes("stretch")) {
+    return "stretch";
+  }
+
+  if (metadata.intensityRole === "activation" && metadata.allowedSections.includes("warmup")) {
+    return "warmup";
+  }
+
+  if (metadata.allowedSections.includes("training")) {
+    return "training";
+  }
+
+  if (metadata.allowedSections.includes("warmup")) {
+    return "warmup";
+  }
+
+  if (metadata.allowedSections.includes("stretch")) {
+    return "stretch";
+  }
+
+  return "training";
+}
+
+function pickSupplementalExerciseForSection(
+  exercises: Exercise[],
+  selectedExerciseIds: Set<string>,
+  section: WorkoutRoutineSection,
+  intent: WorkoutPlanIntent,
+) {
+  const eligibleExercises = exercises
+    .filter((exercise) => !selectedExerciseIds.has(exercise.id))
+    .filter((exercise) => isExerciseAllowedInSection(exercise, section));
+
+  const equipmentMatched = eligibleExercises.find((exercise) => exerciseMatchesIntentEquipment(exercise, intent));
+  return equipmentMatched ?? eligibleExercises[0];
+}
+
+function exerciseMatchesIntentEquipment(exercise: Exercise, intent: WorkoutPlanIntent) {
+  if (intent.equipment.length === 0) {
+    return true;
+  }
+
+  const exerciseEquipment = normalizeComparableText([
+    exercise.equipment,
+    exercise.equipmentZh,
+  ].filter(Boolean).join(" "));
+
+  return intent.equipment.some((equipment) => exerciseEquipment.includes(normalizeComparableText(equipment)));
+}
+
+function uniqueStrings(values: string[]) {
+  return Array.from(new Set(values));
+}
+
+function normalizeComparableText(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, "");
 }
 
 function buildRoutineItem(exercise: Exercise, section: WorkoutRoutineSection, intent: WorkoutPlanIntent) {

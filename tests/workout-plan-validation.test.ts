@@ -11,6 +11,7 @@ import {
   validateWorkoutPlanDraft,
   validateWorkoutRoutineDraft,
 } from "@/lib/server/workout-plans/workout-plan-validation-service";
+import { normalizeExerciseMetadata } from "@/lib/shared/exercises/metadata";
 
 import {
   createExercise,
@@ -83,6 +84,39 @@ const exercises = [
     goalTags: ["strength"],
   }),
 ];
+
+describe("exercise metadata inference", () => {
+  it("keeps hip extension as training while preserving explicit stretches", () => {
+    const hipExtension = normalizeExerciseMetadata({
+      id: "Hip_Extension_with_Bands",
+      nameEn: "Hip Extension with Bands",
+      nameZh: "弹力带髋伸展",
+      category: "strength",
+      categoryZh: "力量训练",
+      equipment: "bands",
+      equipmentZh: "弹力带",
+      primaryMuscles: ["glutes"],
+      primaryMusclesZh: ["臀部"],
+      goalTags: ["beginner_friendly", "strength"],
+    });
+    const hamstringStretch = normalizeExerciseMetadata({
+      id: "Hamstring_Stretch",
+      nameEn: "Hamstring Stretch",
+      nameZh: "腘绳肌拉伸",
+      category: "stretching",
+      categoryZh: "拉伸",
+      equipment: "bands",
+      equipmentZh: "弹力带",
+      primaryMuscles: ["hamstrings"],
+      primaryMusclesZh: ["腘绳肌"],
+      goalTags: ["beginner_friendly", "mobility"],
+    });
+
+    expect(hipExtension.allowedSections).toContain("training");
+    expect(hipExtension.allowedSections).not.toContain("stretch");
+    expect(hamstringStretch.allowedSections).toEqual(["stretch"]);
+  });
+});
 
 function createValidationDay(exerciseIds: string[]) {
   return {
