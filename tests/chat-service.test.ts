@@ -1512,6 +1512,103 @@ describe("AI chat service deterministic boundaries", () => {
       },
     });
   });
+
+  it("projects Agent main-chain statuses into stream metadata without legacy events", () => {
+    const replayFixture = {
+      runId: "agent-run-1",
+      contextSummary: {},
+      toolDecisions: [],
+      toolResults: [],
+      dependencyGraph: { nodes: [], edges: [] },
+      finalResult: {
+        status: "failed" as const,
+        failureCode: "model_output_invalid" as const,
+        recoverySuggestions: [],
+        usedToolResultIds: [],
+      },
+      legacyPathSkip: {
+        intentFirst: true,
+        normalize: true,
+        summaryOnlyContext: true,
+        referenceResolverFirst: true,
+      } as const,
+    };
+    const clarificationResult = {
+      status: "needs_clarification" as const,
+      question: "这次训练想练多久？",
+      assistantSuggestions: [
+        { label: "20 分钟", message: "我今天练 20 分钟", kind: "clarification" as const, blocking: true, source: "intent" as const },
+      ],
+      blockingReasons: ["缺少训练时长"],
+    };
+    const results = [
+      {
+        status: "generated" as const,
+        artifact: { artifactId: "artifact-routine", kind: "routine" as const, title: "单次训练" },
+        revisionId: "revision-routine",
+        validationId: "validation-routine",
+        usedToolResultIds: ["tool-result-routine"],
+      },
+      {
+        status: "patched" as const,
+        artifact: { artifactId: "artifact-patched", kind: "routine" as const, title: "更新后训练" },
+        patchResult: {
+          patchId: "patch-1",
+          sourceArtifactId: "artifact-source",
+          targetArtifactId: "artifact-patched",
+          changedExerciseIds: ["push-up"],
+          summary: "已替换动作。",
+        },
+        revisionId: "revision-patched",
+        validationId: "validation-patched",
+        usedToolResultIds: ["tool-result-patched"],
+      },
+      clarificationResult,
+      {
+        status: "blocked" as const,
+        blockReason: "policy_blocked",
+        recoverySuggestions: [],
+        usedToolResultIds: ["tool-result-blocked"],
+      },
+      {
+        status: "failed" as const,
+        failureCode: "model_output_invalid" as const,
+        recoverySuggestions: [],
+        usedToolResultIds: [],
+      },
+    ];
+
+    for (const result of results) {
+      const events = buildAgentCompatibilityStreamEvents({
+        agentResult: result,
+        toolResults: [],
+        projection: {
+          status: result.status,
+          reply: "Agent 主链投影。",
+          assistantSuggestions: "assistantSuggestions" in result ? result.assistantSuggestions : [],
+          references: [],
+          metadata: {
+            promisedWrite: result.status === "generated" || result.status === "patched",
+            hasExecutedWrite: result.status === "generated" || result.status === "patched",
+            safeOperationOnly: false,
+          },
+        },
+        replayFixture: {
+          ...replayFixture,
+          finalResult: result,
+        },
+        emitLegacyEvents: false,
+      });
+
+      expect(events).toHaveLength(1);
+      expect(events[0].type).toBe("agent_execution_result");
+      expect(events[0].metadata).toMatchObject({
+        agentExecutionResult: { status: result.status },
+        dependencyGraph: replayFixture.dependencyGraph,
+        legacyPathSkip: replayFixture.legacyPathSkip,
+      });
+    }
+  });
 });
 
 function createEmptyConversationContext() {

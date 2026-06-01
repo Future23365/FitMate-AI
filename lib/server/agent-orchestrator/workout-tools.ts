@@ -10,7 +10,7 @@ import {
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import { isExerciseAllowedInSection } from "@/lib/shared/exercises/metadata";
 import type { Exercise } from "@/lib/shared/exercises/types";
-import { evaluateWorkoutPatchPolicy } from "@/lib/server/policy-confirmation/policy-engine";
+import { evaluateArtifactPolicy, evaluateWorkoutPatchPolicy } from "@/lib/server/policy-confirmation/policy-engine";
 import { expandDomainPlan } from "@/lib/server/workout-plans/domain-plan-engine";
 import {
   validateWorkoutPlanDraft,
@@ -118,11 +118,28 @@ export const validateWorkoutPatchAgentToolInputSchema = z.object({
   patch: workoutPatchSchema,
 });
 
-export const evaluatePolicyAgentToolInputSchema = z.object({
-  policyTarget: z.literal("workout_patch"),
-  patchId: z.string().trim().min(1),
-  patch: workoutPatchSchema,
-});
+export const evaluatePolicyAgentToolInputSchema = z.discriminatedUnion("policyTarget", [
+  z.object({
+    policyTarget: z.literal("workout_patch"),
+    patchId: z.string().trim().min(1),
+    patch: workoutPatchSchema,
+  }),
+  z.object({
+    policyTarget: z.literal("artifact_revision"),
+    sourceArtifactId: z.string().trim().min(1),
+    artifactPayloadId: z.string().trim().min(1).optional(),
+    draftId: z.string().trim().min(1).optional(),
+    patchId: z.string().trim().min(1).optional(),
+  }).superRefine((input, ctx) => {
+    if (!input.draftId && !input.patchId) {
+      ctx.addIssue({
+        code: "custom",
+        message: "artifact revision policy 必须引用 draftId 或 patchId。",
+        path: ["draftId"],
+      });
+    }
+  }),
+]);
 
 export const saveConversationArtifactRevisionAgentToolInputSchema = z.object({
   sourceArtifactId: z.string().trim().min(1),
@@ -555,11 +572,13 @@ function createValidateWorkoutPatchTool(): AgentToolDefinition<z.infer<typeof va
 function createEvaluatePolicyTool(): AgentToolDefinition<z.infer<typeof evaluatePolicyAgentToolInputSchema>, AgentPolicyEvaluationOutput> {
   return {
     name: "evaluatePolicy",
-    description: "对训练 Patch 写入前置执行 PolicyEngine，并返回 policyDecisionId。",
+    description: "对训练 Patch 或 artifact revision 写入前置执行 PolicyEngine，并返回 policyDecisionId。",
     accessLevel: "validate",
     inputSchema: evaluatePolicyAgentToolInputSchema,
     dependencies: [
-      { kind: "patch", required: true, description: "必须引用已登记 Patch。" },
+      { kind: "patch", required: false, description: "Patch policy 必须引用已登记 Patch。" },
+      { kind: "draft", required: false, description: "生成结果保存前可引用已登记 draft。" },
+      { kind: "artifact_payload", required: false, description: "修订已有 artifact 时可引用已读取 payload。" },
     ],
     getIdempotencyKey: createIdempotencyKey,
     summarizeOutput(output) {
@@ -576,11 +595,21 @@ function createEvaluatePolicyTool(): AgentToolDefinition<z.infer<typeof evaluate
     },
     async execute(input, context) {
       const parsedInput = evaluatePolicyAgentToolInputSchema.parse(input);
-      const policy = evaluateWorkoutPatchPolicy({
-        userId: context.userId,
-        patch: parsedInput.patch,
-        targetIds: [parsedInput.patch.target.artifactId],
-      });
+      const policy = parsedInput.policyTarget === "workout_patch"
+        ? evaluateWorkoutPatchPolicy({
+            userId: context.userId,
+            patch: parsedInput.patch,
+            targetIds: [parsedInput.patch.target.artifactId],
+          })
+        : evaluateArtifactPolicy({
+            userId: context.userId,
+            artifact: {
+              id: parsedInput.sourceArtifactId,
+              userId: context.userId,
+              status: "active",
+              revision: 1,
+            },
+          });
       const output = {
         policyDecisionId: createStructuredResultId(context, "policy_decision", "evaluatePolicy", parsedInput),
         policy,

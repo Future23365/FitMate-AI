@@ -262,10 +262,14 @@ export const agentToolResultRecordSchema = z.object({
   error: agentToolErrorSchema.optional(),
   candidateSetId: z.string().trim().min(1).optional(),
   artifactPayloadId: z.string().trim().min(1).optional(),
+  editPlanId: z.string().trim().min(1).optional(),
+  draftId: z.string().trim().min(1).optional(),
+  patchId: z.string().trim().min(1).optional(),
   validationId: z.string().trim().min(1).optional(),
   policyDecisionId: z.string().trim().min(1).optional(),
   confirmationId: z.string().trim().min(1).optional(),
   revisionId: z.string().trim().min(1).optional(),
+  operationResultId: z.string().trim().min(1).optional(),
 });
 
 export type AgentToolResultRecord = z.infer<typeof agentToolResultRecordSchema>;

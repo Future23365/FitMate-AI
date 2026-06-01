@@ -809,14 +809,32 @@ async function createAgentOrchestratedChatResponse(input: {
     }),
     trace: input.trace,
   });
-  const projection = projectAgentExecutionResultToResponse({
-    result: agentRun.result,
+  let agentResult = agentRun.result;
+  let projection = projectAgentExecutionResultToResponse({
+    result: agentResult,
     toolResults: agentRun.state.toolResults,
   });
-  const projectionValidation = validateAgentResponseProjection({
-    result: agentRun.result,
+  let projectionValidation = validateAgentResponseProjection({
+    result: agentResult,
     toolResults: agentRun.state.toolResults,
   });
+
+  if (!projectionValidation.ok) {
+    agentResult = {
+      status: "failed",
+      failureCode: "runtime_contract_violation",
+      recoverySuggestions: [],
+      usedToolResultIds: [],
+    };
+    projection = projectAgentExecutionResultToResponse({
+      result: agentResult,
+      toolResults: agentRun.state.toolResults,
+    });
+    projectionValidation = validateAgentResponseProjection({
+      result: agentResult,
+      toolResults: agentRun.state.toolResults,
+    });
+  }
 
   input.trace.addStep({
     name: "Agent Response Writer 投影结果",
@@ -838,7 +856,7 @@ async function createAgentOrchestratedChatResponse(input: {
     request: input.request,
     trace: input.trace,
     userId: user.id,
-    agentResult: agentRun.result,
+    agentResult,
     toolResults: agentRun.state.toolResults,
     projection,
     context,

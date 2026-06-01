@@ -14,6 +14,7 @@ import {
   type AgentRuntimeLimits,
   type AgentToolCallRecord,
   type AgentToolDecision,
+  type AgentToolDependencyKind,
   type AgentToolErrorCode,
   type AgentToolResultRecord,
   type ContextPackage,
@@ -22,6 +23,7 @@ import {
   AgentToolRegistry,
   parseAgentJsonObject,
   parseAgentToolDecision,
+  type AgentToolDefinition,
   type AgentToolExecutionResult,
 } from "./tool-registry";
 
@@ -146,7 +148,13 @@ export async function runAgentOrchestrator(
     });
 
     if (decision.action === "final_result") {
-      state = finishWithResult(state, decision.result, input.trace, decision.reason);
+      const referenceValidation = validateFinalResultReferences(state, decision.result);
+      state = finishWithResult(
+        state,
+        referenceValidation.ok ? decision.result : createFailedResult("model_output_invalid"),
+        input.trace,
+        referenceValidation.ok ? decision.reason : referenceValidation.message,
+      );
       state = maybeCheckpoint(state, limits, stepIndex);
       break;
     }
@@ -188,6 +196,27 @@ export async function runAgentOrchestrator(
             message: issue.message,
           })),
         },
+      });
+      state = completeToolCall(state, toolCallId, "failed", failedRecord);
+      input.trace?.addStep({
+        name: "agent_tool_result",
+        type: "agent_tool_result",
+        status: "failed",
+        input: summarizeDecisionForTrace(decision),
+        output: failedRecord.traceSummary,
+        error: failedRecord.error,
+        metadata: { stepIndex, toolResultId: failedRecord.toolResultId },
+      });
+      state = maybeCheckpoint(state, limits, stepIndex);
+      continue;
+    }
+
+    const dependencyFailure = validateToolDependencies(tool, parsedInput.data, state);
+    if (dependencyFailure) {
+      const failedRecord = createToolResultRecord({
+        toolCallId,
+        toolName: decision.toolName,
+        result: dependencyFailure,
       });
       state = completeToolCall(state, toolCallId, "failed", failedRecord);
       input.trace?.addStep({
@@ -401,6 +430,9 @@ function addToolResultToGraph(
     result.validationId ? { id: result.validationId, kind: "validation" as const, label: "validation" } : null,
     result.policyDecisionId ? { id: result.policyDecisionId, kind: "policy_decision" as const, label: "policyDecision" } : null,
     result.confirmationId ? { id: result.confirmationId, kind: "confirmation" as const, label: "confirmation" } : null,
+    result.editPlanId ? { id: result.editPlanId, kind: "workout_edit_plan" as const, label: "workoutEditPlan" } : null,
+    result.draftId ? { id: result.draftId, kind: "draft" as const, label: "draft" } : null,
+    result.patchId ? { id: result.patchId, kind: "patch" as const, label: "patch" } : null,
   ].filter((node): node is NonNullable<typeof node> => Boolean(node));
 
   return {
@@ -493,7 +525,7 @@ function createFailedResult(failureCode: AgentToolErrorCode | AgentHardFailureCo
   };
 }
 
-function relationForDependencyKind(kind: "candidate_set" | "artifact_payload" | "validation" | "policy_decision" | "confirmation") {
+function relationForDependencyKind(kind: AgentToolDependencyKind) {
   if (kind === "validation") {
     return "validates" as const;
   }
@@ -515,11 +547,163 @@ function extractStructuredIds(output: unknown) {
   return {
     candidateSetId: asString(record.candidateSetId),
     artifactPayloadId: asString(record.artifactPayloadId),
+    editPlanId: asString(record.editPlanId),
+    draftId: asString(record.draftId),
+    patchId: asString(record.patchId),
     validationId: asString(record.validationId),
     policyDecisionId: asString(record.policyDecisionId),
     confirmationId: asString(record.confirmationId),
     revisionId: asString(record.revisionId),
+    operationResultId: asString(record.operationResultId),
   };
+}
+
+// validateToolDependencies makes declared dependencies executable: ids must come from this run's tool results.
+function validateToolDependencies(
+  tool: AgentToolDefinition<unknown, unknown>,
+  input: unknown,
+  state: AgentExecutionState,
+): AgentToolExecutionResult<never> | null {
+  const issues: Array<{ kind: AgentToolDependencyKind; id?: string; reason: string }> = [];
+
+  for (const dependency of tool.dependencies) {
+    const ids = collectDependencyIdsFromInput(input, dependency.kind);
+    if (dependency.required && ids.length === 0) {
+      issues.push({ kind: dependency.kind, reason: "missing_required_dependency" });
+      continue;
+    }
+
+    for (const id of ids) {
+      if (!stateHasDependencyId(state, dependency.kind, id)) {
+        issues.push({ kind: dependency.kind, id, reason: "dependency_not_registered_in_current_run" });
+      }
+    }
+  }
+
+  if (issues.length === 0) {
+    return null;
+  }
+
+  return {
+    ok: false,
+    error: {
+      code: "invalid_dependency",
+      message: "Agent tool input referenced dependencies that are missing from the current run.",
+      retryable: true,
+      detail: { toolName: tool.name, issues },
+    },
+    traceSummary: { toolName: tool.name, issues },
+  };
+}
+
+function validateFinalResultReferences(
+  state: AgentExecutionState,
+  result: AgentExecutionResult,
+): { ok: true } | { ok: false; message: string } {
+  const missing: Array<{ kind: AgentToolDependencyKind | "operation_result" | "revision"; id: string }> = [];
+  const usedToolResultIds = "usedToolResultIds" in result ? result.usedToolResultIds : [];
+
+  for (const toolResultId of usedToolResultIds) {
+    if (!stateHasDependencyId(state, "tool_result", toolResultId)) {
+      missing.push({ kind: "tool_result", id: toolResultId });
+    }
+  }
+
+  if ("validationId" in result && result.validationId && !stateHasDependencyId(state, "validation", result.validationId)) {
+    missing.push({ kind: "validation", id: result.validationId });
+  }
+
+  if ("policyDecisionId" in result && result.policyDecisionId && !stateHasDependencyId(state, "policy_decision", result.policyDecisionId)) {
+    missing.push({ kind: "policy_decision", id: result.policyDecisionId });
+  }
+
+  if ("revisionId" in result && result.revisionId && !state.toolResults.some((toolResult) => toolResult.revisionId === result.revisionId)) {
+    missing.push({ kind: "revision", id: result.revisionId });
+  }
+
+  if (result.status === "completed_operation" && !state.toolResults.some((toolResult) => toolResult.operationResultId === result.operationResultId)) {
+    missing.push({ kind: "operation_result", id: result.operationResultId });
+  }
+
+  return missing.length === 0
+    ? { ok: true }
+    : {
+        ok: false,
+        message: `Agent final result referenced unregistered dependencies: ${missing.map((item) => `${item.kind}:${item.id}`).join(", ")}`,
+      };
+}
+
+function collectDependencyIdsFromInput(input: unknown, kind: AgentToolDependencyKind): string[] {
+  const record = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const ids: unknown[] = [];
+
+  switch (kind) {
+    case "tool_result":
+      ids.push(record.toolResultId, record.toolResultIds, record.usedToolResultIds);
+      break;
+    case "candidate_set":
+      ids.push(record.candidateSetId, record.requiredCandidateSetIds);
+      break;
+    case "artifact_payload":
+      ids.push(record.artifactPayloadId, record.sourceArtifactPayloadId);
+      break;
+    case "workout_edit_plan":
+      ids.push(record.editPlanId, record.sourceEditPlanId, readNestedString(record.editPlan, "editPlanId"));
+      break;
+    case "draft":
+      ids.push(record.draftId, record.sourceDraftId);
+      break;
+    case "patch":
+      ids.push(record.patchId, readNestedString(record.patch, "patchId"));
+      break;
+    case "validation":
+      ids.push(record.validationId);
+      break;
+    case "policy_decision":
+      ids.push(record.policyDecisionId);
+      break;
+    case "confirmation":
+      ids.push(record.confirmationId);
+      break;
+  }
+
+  return ids.flatMap(flattenStringIds);
+}
+
+function stateHasDependencyId(state: AgentExecutionState, kind: AgentToolDependencyKind, id: string) {
+  return state.toolResults.some((result) => {
+    switch (kind) {
+      case "tool_result":
+        return result.toolResultId === id;
+      case "candidate_set":
+        return result.candidateSetId === id;
+      case "artifact_payload":
+        return result.artifactPayloadId === id;
+      case "workout_edit_plan":
+        return result.editPlanId === id;
+      case "draft":
+        return result.draftId === id;
+      case "patch":
+        return result.patchId === id;
+      case "validation":
+        return result.validationId === id;
+      case "policy_decision":
+        return result.policyDecisionId === id;
+      case "confirmation":
+        return result.confirmationId === id;
+    }
+  });
+}
+
+function readNestedString(value: unknown, key: string) {
+  return value && typeof value === "object" ? (value as Record<string, unknown>)[key] : undefined;
+}
+
+function flattenStringIds(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap(flattenStringIds);
+  }
+  return typeof value === "string" && value.trim() ? [value] : [];
 }
 
 function asString(value: unknown) {

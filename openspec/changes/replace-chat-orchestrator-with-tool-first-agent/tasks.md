@@ -182,10 +182,10 @@
 
 ## 7. 测试与回归验证
 
-- [ ] 7.1 增加 Agent context builder 单元测试，覆盖 recent messages、recent artifacts、用户记忆、ContextSnapshot、截断和 provenance。
-- [ ] 7.2 增加 Agent tool registry 单元测试，覆盖未知工具、非法参数、越权 artifact、候选外 exerciseId、tool result id 不匹配和写工具前置校验缺失。
-- [ ] 7.2.1 增加 Agent tool 扩展边界测试，断言缺少领域能力合同、字段白名单、权限上下文、确认策略、持久化服务或安全摘要的写工具无法注册。
-- [ ] 7.3 增加 `/api/chat` Agent 主链测试，覆盖动作推荐、routine 生成、plan 生成、WorkoutEditPlan、局部 Patch、整套重新生成和澄清。
+- [x] 7.1 增加 Agent context builder 单元测试，覆盖 recent messages、recent artifacts、用户记忆、ContextSnapshot、截断和 provenance。
+- [x] 7.2 增加 Agent tool registry 单元测试，覆盖未知工具、非法参数、越权 artifact、候选外 exerciseId、tool result id 不匹配和写工具前置校验缺失。
+- [x] 7.2.1 增加 Agent tool 扩展边界测试，断言缺少领域能力合同、字段白名单、权限上下文、确认策略、持久化服务或安全摘要的写工具无法注册。
+- [x] 7.3 增加 `/api/chat` Agent 主链测试，覆盖动作推荐、routine 生成、plan 生成、WorkoutEditPlan、局部 Patch、整套重新生成和澄清。
 - [x] 7.4 增加多轮黑盒 flow：先生成哑铃上肢 routine，再输入“`不用哑铃了，换一个`”，断言读取最近 artifact、查询无哑铃动作并返回一致结果。
 - [x] 7.5 增加“太难了”“不要跳跃动作”“改成在家练”“第二个动作换掉”等多轮调整测试，验证不依赖服务端关键词纠偏。
 - [x] 7.6 更新 manual LLM 报告断言，优先检查 Agent tool trace、ExecutionResult、用户可见回复和 artifact 事件，而不是旧 `assistant_action` 字段。

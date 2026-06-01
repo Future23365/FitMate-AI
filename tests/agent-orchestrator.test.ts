@@ -91,6 +91,72 @@ describe("agent orchestrator phase 1 contracts", () => {
     expect(context).not.toHaveProperty("conversationSummary");
   });
 
+  it("tracks truncation, pending confirmation and ContextSnapshot provenance", () => {
+    const builder = createAgentContextBuilder();
+    const context = builder.build({
+      latestUserMessage: "  ".concat("今天训练安排需要调整".repeat(20)),
+      recentMessages: [
+        { id: "m-old", role: "user", content: "旧消息不会进入上下文", createdAt: "2026-06-01T00:00:00.000Z" },
+        { id: "m-new", role: "assistant", content: "上轮已经生成了一套训练".repeat(20), createdAt: "2026-06-01T00:01:00.000Z" },
+      ],
+      recentArtifacts: [
+        {
+          artifactId: "artifact-1",
+          revisionId: "rev-1",
+          kind: "routine",
+          title: "上肢训练",
+          summary: "哑铃动作较多".repeat(20),
+          updatedAt: "2026-06-01T00:02:00.000Z",
+        },
+      ],
+      memorySnapshot: {
+        snapshotId: "memory-1",
+        facts: ["用户常在家训练"],
+        preferences: ["低冲击"],
+        avoidances: ["跳跃"],
+        updatedAt: "2026-06-01T00:03:00.000Z",
+      },
+      pendingConfirmation: {
+        confirmationId: "confirmation-1",
+        status: "pending",
+        resourceType: "ConversationArtifact",
+        summary: "是否保存为新 revision",
+      },
+      optionalContextSnapshot: {
+        snapshotId: "snapshot-1",
+        summary: "长会话摘要，仅供阅读，不作为事实源。",
+        sourceMessageIds: ["m-old"],
+        trustLevel: "derived_summary",
+        factSourceWarning: "snapshot_not_fact_source",
+      },
+      limits: {
+        maxRecentMessages: 1,
+        maxRecentArtifacts: 1,
+        maxMessageChars: 80,
+        maxArtifactSummaryChars: 80,
+      },
+    });
+
+    expect(context.latestUserMessage.length).toBe(80);
+    expect(context.recentMessages).toEqual([
+      expect.objectContaining({ id: "m-new", content: expect.stringMatching(/^上轮已经/) }),
+    ]);
+    expect(context.recentMessages[0].content.length).toBe(80);
+    expect(context.recentArtifacts[0].summary?.length).toBe(80);
+    expect(context.pendingConfirmation?.confirmationId).toBe("confirmation-1");
+    expect(context.optionalContextSnapshot).toMatchObject({
+      snapshotId: "snapshot-1",
+      factSourceWarning: "snapshot_not_fact_source",
+    });
+    expect(context.provenance).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceKind: "latest_user_message", truncationReason: "max_chars" }),
+      expect.objectContaining({ sourceKind: "recent_message", sourceId: "m-new", truncationReason: "max_chars" }),
+      expect.objectContaining({ sourceKind: "recent_artifact", sourceId: "artifact-1", truncationReason: "max_chars" }),
+      expect.objectContaining({ sourceKind: "pending_confirmation", sourceId: "confirmation-1" }),
+      expect.objectContaining({ sourceKind: "context_snapshot", sourceId: "snapshot-1", trustLevel: "derived_summary" }),
+    ]));
+  });
+
   it("keeps AgentExecutionResult as the terminal schema including completed_operation", () => {
     expect(agentExecutionResultSchema.parse({
       status: "completed_operation",
@@ -170,6 +236,32 @@ describe("agent orchestrator phase 1 contracts", () => {
         openspecChange: "replace-chat-orchestrator-with-tool-first-agent",
       }),
     });
+  });
+
+  it("rejects write tools with incomplete field whitelist or permission contracts", () => {
+    expect(() => new AgentToolRegistry([{
+      ...createWriteTool(),
+      domainCapability: {
+        ...createWriteTool().domainCapability!,
+        fieldWhitelist: [],
+      },
+    }])).toThrow(AgentToolRegistryContractError);
+
+    try {
+      new AgentToolRegistry([{
+        ...createWriteTool(),
+        domainCapability: {
+          ...createWriteTool().domainCapability!,
+          permissionScope: "",
+        },
+      }]);
+      throw new Error("expected registry contract error");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AgentToolRegistryContractError);
+      expect((error as AgentToolRegistryContractError).issues).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: "invalid_write_contract" }),
+      ]));
+    }
   });
 
   it("derives legacy chat events only from AgentExecutionResult", () => {
@@ -693,6 +785,233 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
     });
   });
 
+  it("rejects tool calls whose required dependencies were not registered in the current run", async () => {
+    const output = await runAgentOrchestrator({
+      runId: "agent-run-invalid-dependency",
+      userId: "user-1",
+      sessionId: "chat-1",
+      context: createTestContextPackage(),
+      registry: new AgentToolRegistry([createWriteTool()]),
+      limits: { maxSteps: 1 },
+      decideNext: () => ({
+        action: "call_tool",
+        toolName: "saveConversationArtifactRevision",
+        input: { validationId: "validation-from-another-run" },
+        reason: "尝试引用伪造 validation 保存。",
+      }),
+    });
+
+    expect(output.state.toolResults[0]).toMatchObject({
+      status: "failed",
+      error: {
+        code: "invalid_dependency",
+      },
+    });
+    expect(output.result).toMatchObject({
+      status: "failed",
+      failureCode: "step_limit_exceeded",
+    });
+  });
+
+  it("rejects final results that cite missing tool results", async () => {
+    const output = await runAgentOrchestrator({
+      runId: "agent-run-missing-result",
+      userId: "user-1",
+      sessionId: "chat-1",
+      context: createTestContextPackage(),
+      registry: new AgentToolRegistry([createReadTool()]),
+      decideNext: () => ({
+        action: "final_result",
+        result: {
+          status: "answered",
+          replyContext: { reply: "这条回复引用了不存在的工具结果。" },
+          usedToolResultIds: ["missing-tool-result"],
+        },
+        reason: "模型错误引用了不存在的 tool result。",
+      }),
+    });
+
+    expect(output.result).toMatchObject({
+      status: "failed",
+      failureCode: "model_output_invalid",
+    });
+  });
+
+  it("runs a routine generation chain through candidate, draft, validation, policy and revision dependencies", async () => {
+    const warmup = createExercise({
+      id: "warmup",
+      nameZh: "肩部绕环",
+      categoryZh: "热身",
+      allowedSections: ["warmup"],
+    });
+    const pushUp = createExercise({
+      id: "push-up",
+      nameZh: "俯卧撑",
+      allowedSections: ["training"],
+    });
+    const stretch = createExercise({
+      id: "stretch",
+      nameZh: "胸肩拉伸",
+      categoryZh: "拉伸",
+      allowedSections: ["stretch"],
+    });
+    exerciseMocks.searchExercises.mockResolvedValue({
+      candidates: [warmup, pushUp, stretch],
+      diagnostics: {
+        query: "上肢",
+        filters: { visibility: "published" },
+        recalledCount: 3,
+        filteredCount: 0,
+        rerank: [],
+        finalExerciseIds: ["warmup", "push-up", "stretch"],
+        failureReasons: [],
+      },
+    });
+    exerciseMocks.listAllExercises.mockResolvedValue([warmup, pushUp, stretch]);
+    artifactMocks.createConversationArtifactRevision.mockResolvedValue({
+      ok: true,
+      artifact: { id: "artifact-new", revision: 2 },
+      payload: createWorkoutRoutineDraft(),
+    });
+    const registry = createToolFirstAgentToolRegistry();
+    const intent = createWorkoutPlanIntent({ intentType: "routine", goal: "上肢力量", sessionMinutes: 12 });
+
+    const output = await runAgentOrchestrator({
+      runId: "agent-run-routine-chain",
+      userId: "user-1",
+      sessionId: "chat-1",
+      context: createTestContextPackage(),
+      registry,
+      limits: { maxSteps: 8 },
+      decideNext: ({ state }) => {
+        if (state.toolResults.length === 0) {
+          return {
+            action: "call_tool",
+            toolName: "searchExercises",
+            input: {
+              query: "上肢",
+              candidateUse: "routine",
+              goal: "上肢力量",
+              equipmentAvoided: ["哑铃"],
+              limit: 6,
+            },
+            reason: "先查询无哑铃候选动作。",
+          };
+        }
+
+        const candidateSetId = state.toolResults[0].candidateSetId!;
+        if (state.toolResults.length === 1) {
+          return {
+            action: "call_tool",
+            toolName: "generateRoutineDraft",
+            input: {
+              intent,
+              candidateSetId,
+              candidateExerciseIds: ["warmup", "push-up", "stretch"],
+              title: "无哑铃上肢训练",
+            },
+            reason: "使用候选集合生成 routine 草稿。",
+          };
+        }
+
+        const generatedDraft = state.toolResults[1].modelSummary as { draftId: string };
+        if (state.toolResults.length === 2) {
+          const draft = createWorkoutRoutineDraft({
+            title: "无哑铃上肢训练",
+            goal: "上肢力量",
+          });
+
+          return {
+            action: "call_tool",
+            toolName: "validateRoutineDraft",
+            input: {
+              draftId: generatedDraft.draftId,
+              candidateSetId,
+              candidateExerciseIds: ["warmup", "push-up", "stretch"],
+              intent,
+              draft,
+            },
+            reason: "保存前校验 routine 草稿。",
+          };
+        }
+
+        const validationId = state.toolResults[2].validationId!;
+        if (state.toolResults.length === 3) {
+          return {
+            action: "call_tool",
+            toolName: "evaluatePolicy",
+            input: {
+              policyTarget: "artifact_revision",
+              sourceArtifactId: "artifact-1",
+              draftId: generatedDraft.draftId,
+            },
+            reason: "保存 artifact revision 前执行策略校验。",
+          };
+        }
+
+        const policyDecisionId = state.toolResults[3].policyDecisionId!;
+        if (state.toolResults.length === 4) {
+          const payload = createWorkoutRoutineDraft({
+            title: "无哑铃上肢训练",
+            goal: "上肢力量",
+          });
+
+          return {
+            action: "call_tool",
+            toolName: "saveConversationArtifactRevision",
+            input: {
+              sourceArtifactId: "artifact-1",
+              payload,
+              draftId: generatedDraft.draftId,
+              candidateSetId,
+              validationId,
+              policyDecisionId,
+              validationPassed: true,
+              policyAllowed: true,
+            },
+            reason: "所有前置结果齐备后保存 revision。",
+          };
+        }
+
+        const saved = state.toolResults[4];
+        return {
+          action: "final_result",
+          result: {
+            status: "generated",
+            artifact: {
+              artifactId: "artifact-new",
+              kind: "routine",
+              title: "无哑铃上肢训练",
+            },
+            revisionId: saved.revisionId!,
+            validationId,
+            policyDecisionId,
+            usedToolResultIds: [saved.toolResultId],
+          },
+          reason: "revision 已保存，返回生成结果。",
+        };
+      },
+    });
+
+    expect(output.result).toMatchObject({
+      status: "generated",
+      revisionId: "artifact-new",
+    });
+    expect(output.state.toolResults.map((result) => result.toolName)).toEqual([
+      "searchExercises",
+      "generateRoutineDraft",
+      "validateRoutineDraft",
+      "evaluatePolicy",
+      "saveConversationArtifactRevision",
+    ]);
+    expect(output.state.dependencyGraph.nodes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "candidate_set" }),
+      expect.objectContaining({ kind: "draft" }),
+      expect.objectContaining({ kind: "validation" }),
+      expect.objectContaining({ kind: "policy_decision" }),
+    ]));
+  });
+
   it("projects Response Writer replies only from AgentExecutionResult and validates tool references", () => {
     const projection = projectAgentExecutionResultToResponse({
       result: {
@@ -745,7 +1064,7 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
   });
 
   it("runs controlled operation fixtures through completed_operation, confirmation and policy blocked results", async () => {
-    const registry = new AgentToolRegistry([createUserProfileWriteTool()]);
+    const registry = new AgentToolRegistry([createUserProfilePolicyTool(), createUserProfileWriteTool()]);
     const success = await runAgentOrchestrator({
       runId: "agent-run-operation-success",
       userId: "user-1",
@@ -755,8 +1074,14 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
       decideNext: vi.fn()
         .mockResolvedValueOnce({
           action: "call_tool",
+          toolName: "evaluateUserProfilePolicy",
+          input: { location: "在家" },
+          reason: "先评估用户资料写入策略。",
+        })
+        .mockResolvedValueOnce({
+          action: "call_tool",
           toolName: "updateUserProfile",
-          input: { location: "在家", mode: "success" },
+          input: { location: "在家", mode: "success", policyDecisionId: "policy-user-profile-success" },
           reason: "保存训练地点偏好。",
         })
         .mockResolvedValueOnce({
@@ -765,6 +1090,7 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
             status: "completed_operation",
             operationResultId: "operation-result-success",
             usedToolResultIds: ["operation-tool-success"],
+            policyDecisionId: "policy-user-profile-success",
             operation: {
               operationType: "updateUserProfile",
               resourceType: "UserProfile",
@@ -777,11 +1103,11 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
         }),
     });
     const confirmationRequired = await registry.get("updateUserProfile")?.execute(
-      { location: "健身房", mode: "confirmation_required" },
+      { location: "健身房", mode: "confirmation_required", policyDecisionId: "policy-user-profile-success" },
       createToolExecutionContext(),
     );
     const blocked = await registry.get("updateUserProfile")?.execute(
-      { location: "危险高强度", mode: "policy_blocked" },
+      { location: "危险高强度", mode: "policy_blocked", policyDecisionId: "policy-user-profile-success" },
       createToolExecutionContext(),
     );
 
@@ -916,8 +1242,41 @@ function createWriteTool(): AgentToolDefinition<{ validationId: string }, { revi
   };
 }
 
+function createUserProfilePolicyTool(): AgentToolDefinition<
+  { location: string },
+  { policyDecisionId: string }
+> {
+  return {
+    name: "evaluateUserProfilePolicy",
+    description: "评估当前用户资料写入策略。",
+    accessLevel: "validate",
+    inputSchema: z.object({
+      location: z.string().min(1),
+    }),
+    dependencies: [],
+    getIdempotencyKey(input, context) {
+      return `${context.runId}:policy:${input.location}`;
+    },
+    summarizeOutput(output) {
+      return output;
+    },
+    summarizeTrace(result) {
+      return result.ok ? result.traceSummary : result.error;
+    },
+    async execute() {
+      return {
+        ok: true,
+        output: { policyDecisionId: "policy-user-profile-success" },
+        toolResultId: "policy-tool-user-profile",
+        modelSummary: { policyDecisionId: "policy-user-profile-success" },
+        traceSummary: { policyDecisionId: "policy-user-profile-success" },
+      };
+    },
+  };
+}
+
 function createUserProfileWriteTool(): AgentToolDefinition<
-  { location: string; mode: "success" | "confirmation_required" | "policy_blocked" },
+  { location: string; mode: "success" | "confirmation_required" | "policy_blocked"; policyDecisionId: string },
   { operationResultId: string; policyDecisionId?: string; confirmationId?: string }
 > {
   return {
@@ -927,6 +1286,7 @@ function createUserProfileWriteTool(): AgentToolDefinition<
     inputSchema: z.object({
       location: z.string().min(1),
       mode: z.enum(["success", "confirmation_required", "policy_blocked"]),
+      policyDecisionId: z.string().min(1),
     }),
     dependencies: [
       { kind: "policy_decision", required: true, description: "必须经过用户资料写入策略评估。" },
@@ -980,10 +1340,10 @@ function createUserProfileWriteTool(): AgentToolDefinition<
 
       return {
         ok: true,
-        output: { operationResultId: "operation-result-success", policyDecisionId: "policy-success" },
+        output: { operationResultId: "operation-result-success", policyDecisionId: input.policyDecisionId },
         toolResultId: "operation-tool-success",
         modelSummary: { title: "已更新训练偏好", location: input.location },
-        traceSummary: { operationResultId: "operation-result-success", location: input.location },
+        traceSummary: { operationResultId: "operation-result-success", policyDecisionId: input.policyDecisionId, location: input.location },
       };
     },
   };
