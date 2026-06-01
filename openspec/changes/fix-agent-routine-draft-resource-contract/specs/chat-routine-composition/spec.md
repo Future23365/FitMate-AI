@@ -11,6 +11,14 @@
 - **AND** 服务端 MUST 使用解析出的 draft 执行 routine 校验
 - **AND** 系统 MUST NOT 要求模型在 `validateRoutineDraft` 输入中提交完整 `draft` 对象
 
+#### Scenario: 模型误传局部 draft payload
+- **WHEN** `generateRoutineDraft` 成功返回 `draftId` 和完整 routine draft
+- **AND** 模型调用 `validateRoutineDraft` 时提供同一 `draftId`
+- **AND** 模型额外提交了不完整或字段形状不匹配的 `draft` 对象
+- **THEN** 服务端 MUST NOT 使用该模型提交的 `draft` 作为校验事实源
+- **AND** 服务端 MUST 继续从本轮 Agent tool results 中解析完整 draft
+- **AND** 系统 MUST NOT 因模型误传的 partial `draft` 字段返回 `schema_validation_failed`
+
 #### Scenario: Draft 资源不存在
 - **WHEN** 模型调用 `validateRoutineDraft`、`evaluatePolicy` 或 `saveConversationArtifactRevision` 时引用不存在的 `draftId`
 - **THEN** 服务端 MUST 返回结构化工具失败

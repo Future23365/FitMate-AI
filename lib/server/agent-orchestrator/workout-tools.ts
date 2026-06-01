@@ -102,12 +102,12 @@ export const askClarificationAgentToolInputSchema = z.object({
   assistantSuggestions: z.array(assistantSuggestionSchema).max(4).default([]),
 });
 
+// Validation 工具只接收资源引用；完整 draft 必须来自本轮服务端 tool result。
 export const validateRoutineDraftAgentToolInputSchema = z.object({
   draftId: z.string().trim().min(1),
   candidateSetId: z.string().trim().min(1),
   candidateExerciseIds: z.array(z.string().trim().min(1)).min(1).max(120).optional(),
   intent: agentRoutineIntentSchema,
-  draft: workoutRoutineDraftSchema.optional(),
 });
 
 export const validatePlanDraftAgentToolInputSchema = z.object({
@@ -115,7 +115,6 @@ export const validatePlanDraftAgentToolInputSchema = z.object({
   candidateSetId: z.string().trim().min(1),
   candidateExerciseIds: z.array(z.string().trim().min(1)).min(1).max(160),
   intent: workoutPlanIntentSchema.extend({ intentType: z.literal("plan").default("plan") }),
-  draft: workoutPlanDraftSchema.optional(),
 });
 
 export const validateWorkoutPatchAgentToolInputSchema = z.object({

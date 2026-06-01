@@ -14,6 +14,7 @@ import {
   parseAgentToolDecision,
   runAgentOrchestrator,
   validateAgentResponseProjection,
+  type AgentWorkoutDraftOutput,
   type AgentToolDefinition,
   type AgentToolExecutionContext,
 } from "@/lib/server/agent-orchestrator";
@@ -773,6 +774,95 @@ describe("agent orchestrator phase 3 workout tools", () => {
             expect.objectContaining({ section: "stretch" }),
           ],
         },
+      },
+    });
+  });
+
+  it("ignores partial model draft payloads when validating generated routine resources", async () => {
+    exerciseMocks.listAllExercises.mockResolvedValue([
+      createExercise({
+        id: "warmup",
+        nameZh: "肩部绕环",
+        categoryZh: "热身",
+        allowedSections: ["warmup"],
+      }),
+      createExercise({
+        id: "push-up",
+        nameZh: "俯卧撑",
+        allowedSections: ["training"],
+      }),
+      createExercise({
+        id: "stretch",
+        nameZh: "胸肩拉伸",
+        categoryZh: "拉伸",
+        allowedSections: ["stretch"],
+      }),
+    ]);
+    const registry = createToolFirstAgentToolRegistry();
+    const intent = createWorkoutPlanIntent({ intentType: "routine", sessionMinutes: 12 });
+    const generation = await registry.get("generateRoutineDraft")?.execute({
+      intent,
+      candidateSetId: "candidate-set-1",
+      candidateExerciseIds: ["warmup", "push-up", "stretch"],
+      title: "上肢哑铃训练",
+    }, createToolExecutionContext());
+
+    expect(generation).toMatchObject({
+      ok: true,
+      output: {
+        draftKind: "routine",
+        validation: { valid: true },
+      },
+    });
+
+    if (!generation?.ok) {
+      throw new Error("expected generateRoutineDraft to succeed");
+    }
+
+    const draftOutput = generation.output as Extract<AgentWorkoutDraftOutput, { draftKind: "routine" }>;
+    const validation = await registry.get("validateRoutineDraft")?.execute({
+      draftId: draftOutput.draftId,
+      candidateSetId: draftOutput.candidateSetId,
+      candidateExerciseIds: ["push-up"],
+      intent,
+      draft: {
+        title: "上肢哑铃训练",
+        sections: [
+          { sectionType: "warmup" },
+          {
+            sectionType: "training",
+            exercises: [
+              {
+                exerciseId: "push-up",
+                sets: 3,
+                reps: 12,
+                restSeconds: 60,
+              },
+            ],
+          },
+          { sectionType: "stretch" },
+        ],
+      },
+    }, createToolExecutionContext({
+      toolResults: [
+        {
+          toolResultId: generation.toolResultId,
+          toolCallId: "tool-call-generate-routine",
+          toolName: "generateRoutineDraft",
+          status: "success",
+          draftId: draftOutput.draftId,
+          candidateSetId: draftOutput.candidateSetId,
+          output: draftOutput,
+        },
+      ],
+    }));
+
+    expect(validation).toMatchObject({
+      ok: true,
+      output: {
+        valid: true,
+        draftId: draftOutput.draftId,
+        candidateSetId: draftOutput.candidateSetId,
       },
     });
   });
