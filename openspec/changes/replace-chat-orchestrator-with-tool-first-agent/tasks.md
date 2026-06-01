@@ -1,0 +1,57 @@
+## 1. 契约与模块边界
+
+- [ ] 1.1 新增 `lib/server/agent-orchestrator` 模块，定义 `AgentExecutionState`、`AgentExecutionResult`、`AgentToolCallRecord`、`AgentToolResultRecord` 和核心类型注释。
+- [ ] 1.2 定义统一 `AgentToolRegistry` 接口，覆盖工具名称、描述、读写级别、Zod 输入 Schema、输出摘要、trace 摘要和执行函数。
+- [ ] 1.3 定义 Agent tool decision / final result 的 Structured Outputs Schema，确保模型只能选择注册工具或返回合法终止结果。
+- [ ] 1.4 定义工具错误码、step limit、timeout、失败恢复和硬失败分类。
+
+## 2. 工具注册与服务端硬边界
+
+- [ ] 2.1 将现有 `searchArtifacts`、`getArtifactPayload`、`getExerciseById`、`searchExercises` 迁入统一 Agent registry。
+- [ ] 2.2 新增 `listRecentArtifacts`、`getUserMemory` 或等价读工具，支持 Agent 主动查询当前会话事实。
+- [ ] 2.3 新增 `generateRoutineDraft`、`generatePlanDraft`、`proposeWorkoutPatch` 和 `askClarification` 工具，保持输出 Schema 可校验。
+- [ ] 2.4 新增 `validateRoutineDraft`、`validatePlanDraft`、`validateWorkoutPatch` 和 `evaluatePolicy` 工具，复用现有 Validator / Policy。
+- [ ] 2.5 新增 `saveConversationArtifactRevision` 或等价写工具，要求前置校验结果通过后才能保存。
+- [ ] 2.6 为所有工具补充 userId/sessionId 权限隔离、候选集合边界、失败返回和 trace 摘要测试。
+
+## 3. Agent Loop 与 /api/chat 主链替换
+
+- [ ] 3.1 实现 `runAgentOrchestrator`，循环执行模型 tool decision、工具调用、工具结果摘要和下一步决策。
+- [ ] 3.2 实现 Agent loop 的完成条件：answered、needs_clarification、generated、patched、failed、blocked。
+- [ ] 3.3 将 `/api/chat` 生产主链切换到 AgentOrchestrator，旧 resolved intent 只从 Agent 结果派生兼容事件。
+- [ ] 3.4 删除或废弃旧服务端高层语义 normalize、关键词 gate、ReferenceResolver-first 触发矩阵和黑盒补丁型 intent 纠偏。
+- [ ] 3.5 确保前端继续消费稳定流事件、artifact、patch、`assistantSuggestions` 和 done metadata，不参与 Agent 决策。
+
+## 4. 动作查询、生成、Patch 与保存闭环
+
+- [ ] 4.1 调整动作查询工具，支持 `equipmentRequired`、`equipmentAvoided`、`targetMuscles`、`level`、`sessionMinutes`、`preferences` 和 `avoidances` 结构化过滤。
+- [ ] 4.2 调整 artifact 搜索工具，支持 kind、sessionScope、目标、器械正负约束、时长和辅助 query。
+- [ ] 4.3 让 Agent 基于真实 artifact payload 决定局部 Patch 或整套重新生成，不再由服务端关键词选择策略。
+- [ ] 4.4 确保 Patch 中的 replacementExerciseId 来自工具候选集合和数据库，Patch target 来自真实 artifact payload。
+- [ ] 4.5 确保 routine/plan draft 展示或保存前通过 Validator，失败后由 Agent 选择修复、重新查候选、澄清或失败恢复。
+- [ ] 4.6 确保所有生成或修订结果保存为 `ConversationArtifact` revision，并保留来源关系和旧 artifact 可读性。
+
+## 5. Response Writer、Summary 与 Trace
+
+- [ ] 5.1 实现基于 `AgentExecutionResult` 的 Response Writer，禁止未执行写操作时承诺已生成或已更新。
+- [ ] 5.2 调整 summary 更新输入，使其消费 Agent final result 和服务端动作摘要，而不是旧 intent 分支。
+- [ ] 5.3 扩展 AiRunTrace，记录 agent run、tool decision、tool result、validator gate、persistence 和 final result。
+- [ ] 5.4 更新 `/dev/ai-traces` 展示或摘要逻辑，使 Agent steps 可读并能关联最终回复使用的 tool results。
+
+## 6. 测试与回归验证
+
+- [ ] 6.1 增加 Agent tool registry 单元测试，覆盖未知工具、非法参数、越权 artifact、候选外 exerciseId 和写工具前置校验缺失。
+- [ ] 6.2 增加 `/api/chat` Agent 主链测试，覆盖动作推荐、routine 生成、plan 生成、局部 Patch、整套重新生成和澄清。
+- [ ] 6.3 增加多轮黑盒 flow：先生成哑铃上肢 routine，再输入“`不用哑铃了，换一个`”，断言读取最近 artifact、查询无哑铃动作并返回一致结果。
+- [ ] 6.4 增加“太难了”“不要跳跃动作”“改成在家练”“第二个动作换掉”等多轮调整测试，验证不依赖服务端关键词纠偏。
+- [ ] 6.5 更新 manual LLM 报告断言，优先检查 Agent tool trace、ExecutionResult、用户可见回复和 artifact 事件，而不是旧 `assistant_action` 字段。
+
+## 7. 文档、清理与验证命令
+
+- [ ] 7.1 更新 `docs/architecture.md` 和 `docs/chat-push-flow.md`，把 `/api/chat` 主链改为 Tool-first AgentOrchestrator。
+- [ ] 7.2 在 `docs/方案变更历史` 新增架构变更记录，并追加 `docs/项目演变历程.md`。
+- [ ] 7.3 删除或明确废弃旧 intent-first 主链中的服务端语义 normalize、关键词 gate 和只读-only tool loop 文档描述。
+- [ ] 7.4 运行 `npm run test -- tests/chat-service.test.ts tests/readonly-tools.test.ts tests/workout-patch-chat-service.test.ts tests/conversation-artifact-service.test.ts` 或对应更新后的测试集合。
+- [ ] 7.5 运行 `npm run typecheck`。
+- [ ] 7.6 运行 `openspec validate replace-chat-orchestrator-with-tool-first-agent --strict`。
+- [ ] 7.7 如执行真实模型黑盒测试，生成最新报告；如不执行，说明成本、环境和替代验证范围。
