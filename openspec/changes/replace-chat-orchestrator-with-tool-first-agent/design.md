@@ -15,6 +15,7 @@
 - 让 LLM 基于真实数据库和 artifact payload 决定 `answer`、`clarify`、`patch`、`regenerate` 或 `generate`。
 - 让动作查询以结构化工具参数执行，确保器械、肌群、难度、偏好和避免项先经过数据库过滤，再语义排序。
 - 让所有写入都通过服务端工具校验：Schema、权限、candidate set、Validator、Policy、Confirmation、Persistence。
+- 移除 `/api/chat` 主链对 `conversationSummary` 的必需依赖，Agent 可以使用真实 recent messages 和工具结果获取上下文。
 - 删除或废弃旧主链中服务端语义 normalize、关键词 gate 和裸自然语言 RAG 决策。
 - 用黑盒测试验证用户可见结果、卡片推送和多轮调整，而不是只验证旧 intent 字段。
 
@@ -24,6 +25,7 @@
 - 不允许 LLM 直接写数据库、执行任意 SQL 或绕过服务端工具。
 - 不让前端参与 Agent 编排；前端只消费服务端流事件、artifact 和 `assistantSuggestions`。
 - 不用 token 成本驱动裁剪功能。预算只用于防止无限循环和异常请求，不作为跳过必要工具查询的理由。
+- 不把 `conversationSummary` 作为 `/api/chat` 的必要输入、模型唯一历史上下文或任何执行事实源。
 - 不保留旧 intent-first 主链作为长期并行路径。旧字段只作为兼容输出、日志或测试迁移期间的诊断信息。
 
 ## Decisions
@@ -37,8 +39,9 @@ type AgentExecutionState = {
   userId: string;
   sessionId: string;
   latestUserMessage: string;
-  conversationSummary: string;
+  recentMessages: ChatMessageSummary[];
   recentArtifacts: ArtifactSummary[];
+  optionalSummary?: string;
   toolCalls: AgentToolCallRecord[];
   toolResults: AgentToolResultRecord[];
   pendingConfirmation?: AgentConfirmation;
@@ -50,6 +53,8 @@ type AgentExecutionState = {
 ```
 
 旧 resolved intent 不再是主执行状态。它可以由 Agent 的最终 plan 派生出来，用于兼容前端事件或 trace，但不能反过来驱动工具选择。
+
+`optionalSummary` 只用于会话标题、调试摘要或长会话辅助阅读，不参与执行决策。Agent 需要事实时必须读取 `recentMessages`、recent artifacts 或调用工具。
 
 ### 2. 统一 AgentToolRegistry 替代只读-only tool loop
 
@@ -105,6 +110,13 @@ LLM 通过工具读取 artifact payload 后，决定用户请求是局部 Patch 
 - ReferenceResolver-first 的自然语言搜索主路径。
 - 只读 tool loop 只能补查、不能决定写动作的限制。
 - RAG 裸搜最新用户原句后由服务端选择候选。
+- `conversationSummary` 作为模型唯一历史上下文或短指令事实来源的限制。
+
+### 8. conversationSummary 从主链移除
+
+主聊天 Agent 的模型输入应包含当前最新用户消息、必要的真实 recent messages、recent artifact 摘要和工具结果。系统可以保留可选 summary 生成，用于会话列表标题、后台摘要、调试显示或长会话辅助阅读，但 summary 不再是 `/api/chat` 必需输入，也不作为任何执行路径的事实来源。
+
+替代方案是继续保留 summary 作为历史上下文入口，同时强调“不要当事实源”。这个边界容易被后续实现误用，且 summary 的最初目的主要是节省 token；当前架构明确功能正确性优先，因此不采用。
 
 ## Risks / Trade-offs
 
@@ -112,7 +124,7 @@ LLM 通过工具读取 artifact payload 后，决定用户请求是局部 Patch 
 - [Risk] LLM 工具循环可能越界请求写入。→ Mitigation: 写工具必须校验前置读/候选/validator/policy result；未知工具和非法参数一律拒绝。
 - [Risk] Agent 可能循环过多。→ Mitigation: 保留最大 step、超时和硬失败回退；这些限制只防异常，不用于跳过必要工具查询。
 - [Risk] 新工具协议不稳定会影响前端。→ Mitigation: 前端仍消费稳定流事件和 artifact 结果；Agent 内部 tool detail 只进入 trace。
-- [Risk] 删除旧 normalize 后短期回归。→ Mitigation: 用真实黑盒多轮 flow 覆盖主要用户场景，断言用户可见输出和 artifact 事件，而不是旧 intent 字段。
+- [Risk] 删除旧 normalize 和 summary 依赖后短期回归。→ Mitigation: 用真实黑盒多轮 flow 覆盖主要用户场景，断言用户可见输出、recent message 使用、tool result 和 artifact 事件，而不是旧 intent 字段或 summary 内容。
 
 ## Migration Plan
 
@@ -120,8 +132,8 @@ LLM 通过工具读取 artifact payload 后，决定用户请求是局部 Patch 
 2. 将现有只读工具迁入统一 registry，并新增受控写前置工具和写工具。
 3. 实现 Agent loop：模型 tool decision、工具执行、结果摘要、下一步决策和最终 result。
 4. 将 routine / plan / patch / clarification 路径接入 Agent tools。
-5. 将 `/api/chat` 主链切换到 AgentOrchestrator，旧 intent-first 输出只保留兼容事件。
-6. 删除或废弃旧语义 normalize、关键词 gate 和 ReferenceResolver-first 主路径。
+5. 将 `/api/chat` 主链切换到 AgentOrchestrator，并使用真实 recent messages 替代 summary-only 历史上下文。
+6. 删除或废弃旧语义 normalize、关键词 gate、ReferenceResolver-first 主路径和 summary 必需输入。
 7. 更新 trace、黑盒测试、单元测试和架构文档。
 
 ## Open Questions

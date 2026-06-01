@@ -24,7 +24,7 @@
 
 #### Scenario: 用户发送短指令
 - **WHEN** 用户发送“换一个”“不用哑铃”“简单点”“改成在家练”或等价短指令
-- **THEN** 服务端 MUST 将原始用户消息、summary 和 recent artifact 摘要交给 Agent
+- **THEN** 服务端 MUST 将原始用户消息、真实 recent messages 和 recent artifact 摘要交给 Agent
 - **AND** LLM MUST 通过工具读取事实并决定含义
 - **AND** 服务端 MUST NOT 在 Agent 前把该消息改写成 `exercise_replacement`、`routine`、`workout_patch` 或其他高层 action
 
@@ -32,4 +32,3 @@
 - **WHEN** Agent 的工具计划与旧 intent normalize 或关键词 gate 结果不一致
 - **THEN** 系统 MUST 以 Agent tool result 和服务端硬校验为准
 - **AND** 旧规则 MUST NOT 覆盖 Agent 决策
-

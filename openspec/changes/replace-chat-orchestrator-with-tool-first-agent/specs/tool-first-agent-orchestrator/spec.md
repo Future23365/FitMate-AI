@@ -7,19 +7,40 @@
 #### Scenario: 聊天请求进入 Agent 主链
 - **WHEN** 用户向 `/api/chat` 发送消息
 - **THEN** 系统 MUST 构建 `AgentExecutionState`
+- **AND** `AgentExecutionState` MUST 包含最新用户消息、真实 recent messages、recent artifact 摘要和可用用户记忆
 - **AND** 系统 MUST 让 LLM 通过 Agent tool loop 决定下一步
 - **AND** 系统 MUST NOT 先通过服务端关键词、正则、自然语言模板或旧 normalize 改写用户高层语义
 
 #### Scenario: Agent 需要查询当前会话事实
 - **WHEN** 用户消息依赖最近训练卡片、历史计划、动作库或用户记忆
 - **THEN** LLM MUST 通过工具读取 `ConversationArtifact`、`ArtifactIndex`、动作库或用户记忆摘要
-- **AND** 服务端 MUST NOT 从 `conversationSummary` 反向构造完整训练事实
+- **AND** 服务端 MUST NOT 从 summary 反向构造完整训练事实
 
 #### Scenario: Agent 完成本轮执行
 - **WHEN** Agent loop 结束
 - **THEN** 系统 MUST 产出一个 `AgentExecutionResult`
 - **AND** 最终回复、流事件、artifact 推送和 trace MUST 基于该结果
 - **AND** 系统 MUST NOT 仅凭自然语言回复正文表达执行成功
+
+### Requirement: Agent 主链不得依赖 conversationSummary
+
+系统 SHALL 从 `/api/chat` 主链移除对 `conversationSummary` 的必需依赖。Agent 的历史上下文 SHALL 来自真实 recent messages、recent artifacts、用户记忆和工具结果。
+
+#### Scenario: 构造 Agent 输入
+- **WHEN** 系统为 Agent 构造本轮输入
+- **THEN** 输入 MUST 包含当前最新用户消息和受限数量的真实 recent messages
+- **AND** 输入 MAY 包含 recent artifact 摘要和用户记忆摘要
+- **AND** 输入 MUST NOT 要求存在 `conversationSummary`
+
+#### Scenario: Summary 存在
+- **WHEN** 会话中存在 `conversationSummary` 或可选后台摘要
+- **THEN** Agent MAY 将其作为辅助阅读材料
+- **AND** Agent MUST NOT 将其作为 artifact、exercise、训练参数或执行决策的事实源
+
+#### Scenario: Summary 不存在
+- **WHEN** 会话没有 `conversationSummary`
+- **THEN** `/api/chat` MUST 仍能通过 recent messages 和工具完成正常 Agent 编排
+- **AND** 系统 MUST NOT 因 summary 缺失而跳过工具查询或降级到旧 intent-first 主链
 
 ### Requirement: Agent 工具必须由服务端受控执行
 
@@ -82,4 +103,3 @@
 - **WHEN** 回复中出现具体动作、训练结构、器械、时长或 artifact 信息
 - **THEN** 这些内容 MUST 来自本轮 tool result、已保存 artifact 或服务端校验结果
 - **AND** 回复 MUST NOT 编造数据库不存在的 exerciseId 或未读取的 artifact 内容
-

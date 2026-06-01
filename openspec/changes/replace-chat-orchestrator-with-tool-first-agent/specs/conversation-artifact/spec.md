@@ -2,7 +2,7 @@
 
 ### Requirement: Agent 必须通过工具读取和修订 ConversationArtifact
 
-系统 SHALL 让 Agent 通过受控工具读取、摘要、修订和保存 `ConversationArtifact`，不得通过 summary、候选摘要或模型记忆重建完整 artifact。
+系统 SHALL 让 Agent 通过受控工具读取、摘要、修订和保存 `ConversationArtifact`，不得通过 summary、候选摘要、recent messages 或模型记忆重建完整 artifact。
 
 #### Scenario: Agent 读取最近训练卡片
 - **WHEN** 用户请求解释、调整、替换或继续已有训练内容
@@ -19,5 +19,4 @@
 #### Scenario: Summary 不是事实源
 - **WHEN** Agent 需要动作列表、训练 section、exerciseId、时长或 artifactId
 - **THEN** Agent MUST 通过工具读取结构化事实
-- **AND** 系统 MUST NOT 允许 LLM 或服务端从 `conversationSummary` 反向构造可保存 payload
-
+- **AND** 系统 MUST NOT 允许 LLM 或服务端从 summary、recent messages 或自然语言回复正文反向构造可保存 payload

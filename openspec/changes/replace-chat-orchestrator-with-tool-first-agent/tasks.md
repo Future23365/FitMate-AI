@@ -31,12 +31,13 @@
 - [ ] 4.5 确保 routine/plan draft 展示或保存前通过 Validator，失败后由 Agent 选择修复、重新查候选、澄清或失败恢复。
 - [ ] 4.6 确保所有生成或修订结果保存为 `ConversationArtifact` revision，并保留来源关系和旧 artifact 可读性。
 
-## 5. Response Writer、Summary 与 Trace
+## 5. Response Writer、上下文与 Trace
 
 - [ ] 5.1 实现基于 `AgentExecutionResult` 的 Response Writer，禁止未执行写操作时承诺已生成或已更新。
-- [ ] 5.2 调整 summary 更新输入，使其消费 Agent final result 和服务端动作摘要，而不是旧 intent 分支。
-- [ ] 5.3 扩展 AiRunTrace，记录 agent run、tool decision、tool result、validator gate、persistence 和 final result。
-- [ ] 5.4 更新 `/dev/ai-traces` 展示或摘要逻辑，使 Agent steps 可读并能关联最终回复使用的 tool results。
+- [ ] 5.2 移除 `/api/chat` 对 `conversationSummary` 的必需依赖，Agent 输入改为最新消息、真实 recent messages、recent artifacts、用户记忆和 tool results。
+- [ ] 5.3 如保留 summary 生成，将其降级为可选后台摘要、会话标题或调试信息，不参与 Agent 执行决策。
+- [ ] 5.4 扩展 AiRunTrace，记录 agent run、recent messages 使用、tool decision、tool result、validator gate、persistence 和 final result。
+- [ ] 5.5 更新 `/dev/ai-traces` 展示或摘要逻辑，使 Agent steps 可读并能关联最终回复使用的 recent messages 和 tool results。
 
 ## 6. 测试与回归验证
 
@@ -50,7 +51,7 @@
 
 - [ ] 7.1 更新 `docs/architecture.md` 和 `docs/chat-push-flow.md`，把 `/api/chat` 主链改为 Tool-first AgentOrchestrator。
 - [ ] 7.2 在 `docs/方案变更历史` 新增架构变更记录，并追加 `docs/项目演变历程.md`。
-- [ ] 7.3 删除或明确废弃旧 intent-first 主链中的服务端语义 normalize、关键词 gate 和只读-only tool loop 文档描述。
+- [ ] 7.3 删除或明确废弃旧 intent-first 主链中的服务端语义 normalize、关键词 gate、只读-only tool loop 和 summary-only 上下文文档描述。
 - [ ] 7.4 运行 `npm run test -- tests/chat-service.test.ts tests/readonly-tools.test.ts tests/workout-patch-chat-service.test.ts tests/conversation-artifact-service.test.ts` 或对应更新后的测试集合。
 - [ ] 7.5 运行 `npm run typecheck`。
 - [ ] 7.6 运行 `openspec validate replace-chat-orchestrator-with-tool-first-agent --strict`。
