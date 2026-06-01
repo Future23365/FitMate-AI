@@ -152,19 +152,24 @@ export const evaluatePolicyAgentToolInputSchema = z.discriminatedUnion("policyTa
   }),
 ]);
 
+// optionalAgentInputField 将模型显式输出的 null 视为 absence；必填字段仍由外层 Schema 严格校验。
+function optionalAgentInputField<T extends z.ZodType>(schema: T) {
+  return z.preprocess((value) => value === null ? undefined : value, schema.optional());
+}
+
 export const saveConversationArtifactRevisionAgentToolInputSchema = z.object({
-  sourceArtifactId: z.string().trim().min(1).optional(),
-  artifactKind: conversationArtifactKindSchema.extract(["routine", "plan"]).optional(),
-  payload: conversationArtifactPayloadSchema.optional(),
+  sourceArtifactId: optionalAgentInputField(z.string().trim().min(1)),
+  artifactKind: optionalAgentInputField(conversationArtifactKindSchema.extract(["routine", "plan"])),
+  payload: optionalAgentInputField(conversationArtifactPayloadSchema),
   candidateSetId: z.string().trim().min(1),
   validationId: z.string().trim().min(1),
   policyDecisionId: z.string().trim().min(1),
-  confirmationId: z.string().trim().min(1).optional(),
-  draftId: z.string().trim().min(1).optional(),
-  patchId: z.string().trim().min(1).optional(),
+  confirmationId: optionalAgentInputField(z.string().trim().min(1)),
+  draftId: optionalAgentInputField(z.string().trim().min(1)),
+  patchId: optionalAgentInputField(z.string().trim().min(1)),
   validationPassed: z.literal(true),
   policyAllowed: z.literal(true),
-  responseMessageId: z.string().trim().min(1).optional(),
+  responseMessageId: optionalAgentInputField(z.string().trim().min(1)),
 }).superRefine((input, ctx) => {
   if (!input.draftId && !input.patchId) {
     ctx.addIssue({

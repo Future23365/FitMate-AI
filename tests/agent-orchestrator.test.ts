@@ -13,6 +13,7 @@ import {
   parseAgentJsonObject,
   parseAgentToolDecision,
   runAgentOrchestrator,
+  saveConversationArtifactRevisionAgentToolInputSchema,
   validateAgentResponseProjection,
   type AgentWorkoutDraftOutput,
   type AgentToolDefinition,
@@ -1130,15 +1131,19 @@ describe("agent orchestrator phase 3 workout tools", () => {
     const registry = createToolFirstAgentToolRegistry();
     const draft = createWorkoutRoutineDraft();
     const result = await registry.get("saveConversationArtifactRevision")?.execute({
+      sourceArtifactId: null,
       artifactKind: "routine",
+      payload: null,
+      confirmationId: null,
       draftId: "draft-1",
+      patchId: null,
       candidateSetId: "candidate-set-1",
       validationId: "validation-1",
       policyDecisionId: "policy-1",
       validationPassed: true,
       policyAllowed: true,
       responseMessageId: "assistant-1",
-    }, createToolExecutionContext({
+    } as never, createToolExecutionContext({
       toolResults: [
         {
           toolResultId: "tool-result-draft",
@@ -1214,6 +1219,28 @@ describe("agent orchestrator phase 3 workout tools", () => {
         candidateSetId: "candidate-set-1",
       },
     });
+  });
+
+  it("still rejects save requests without draft or payload after null absence normalization", () => {
+    const result = saveConversationArtifactRevisionAgentToolInputSchema.safeParse({
+      sourceArtifactId: null,
+      artifactKind: "routine",
+      payload: null,
+      candidateSetId: "candidate-set-1",
+      validationId: "validation-1",
+      policyDecisionId: "policy-1",
+      validationPassed: true,
+      policyAllowed: true,
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) {
+      throw new Error("Expected saveConversationArtifactRevision schema to reject missing draft and payload.");
+    }
+    expect(result.error.issues.map((issue) => issue.message)).toEqual(expect.arrayContaining([
+      "保存 revision 必须引用 draftId 或 patchId。",
+      "Patch revision 保存必须提交 payload。",
+    ]));
   });
 });
 
