@@ -755,6 +755,26 @@ export async function createAiChatResponse({
     recentArtifactSummaries,
     trace,
   );
+  const pendingReplacementSelection = resolvePendingReplacementSelectionForMessage(
+    internalConversationContext,
+    conversationSummaryContext.latestUserMessage,
+  );
+  if (pendingReplacementSelection) {
+    chatIntent = restorePendingReplacementChatIntent(chatIntent);
+    trace.addStep({
+      name: "Pending 替换候选命中",
+      type: "intent",
+      output: {
+        pendingReplacementSelection,
+      },
+      metadata: {
+        artifactId: pendingReplacementSelection.artifactId,
+        artifactKind: pendingReplacementSelection.artifactKind,
+        sourceExerciseId: pendingReplacementSelection.sourceExerciseId,
+        candidateCount: pendingReplacementSelection.candidateExerciseIds.length,
+      },
+    });
+  }
   const user = await getCurrentUser(currentUser);
   const exercisesForMemory = chatIntent.needsExerciseContext || shouldInspectUserFeedback(conversationSummaryContext.latestUserMessage)
     ? await listAllExercises()
@@ -782,26 +802,35 @@ export async function createAiChatResponse({
     },
   });
   const resolvedActionKind = getChatIntentActionKind(chatIntent);
-  const referenceResolution = shouldAttemptReferenceResolution(
-    conversationSummaryContext.latestUserMessage,
-    chatIntent.type,
-    resolvedActionKind,
-    chatIntent.referenceRequirement,
-  ) && shouldUseReferenceResolutionForChat({
-    latestUserMessage: conversationSummaryContext.latestUserMessage,
-    chatIntent,
-    conversationContext: internalConversationContext,
-    recentArtifactSummaries,
-  })
-    ? await resolveReference({
-        latestUserMessage: conversationSummaryContext.latestUserMessage,
-        sessionId: request.conversationId,
-      recentArtifacts: recentArtifactSummaries,
-      intentType: chatIntent.type,
-      trace,
-      currentUser: user,
+  const referenceResolution = pendingReplacementSelection
+    ? {
+        status: "resolved" as const,
+        artifactId: pendingReplacementSelection.artifactId,
+        artifactKind: pendingReplacementSelection.artifactKind,
+        confidence: "high" as const,
+        reason: "上一轮 pending replacement selection 已确定目标 artifact。",
+        candidates: [],
+      }
+    : shouldAttemptReferenceResolution(
+      conversationSummaryContext.latestUserMessage,
+      chatIntent.type,
+      resolvedActionKind,
+      chatIntent.referenceRequirement,
+    ) && shouldUseReferenceResolutionForChat({
+      latestUserMessage: conversationSummaryContext.latestUserMessage,
+      chatIntent,
+      conversationContext: internalConversationContext,
+      recentArtifactSummaries,
     })
-    : null;
+      ? await resolveReference({
+          latestUserMessage: conversationSummaryContext.latestUserMessage,
+          sessionId: request.conversationId,
+          recentArtifacts: recentArtifactSummaries,
+          intentType: chatIntent.type,
+          trace,
+          currentUser: user,
+        })
+      : null;
 
   trace.addStep({
     name: "引用解析结果",
@@ -854,6 +883,7 @@ export async function createAiChatResponse({
       referenceResolution,
       responseMessageId: request.responseMessageId,
       memoryState,
+      pendingReplacementSelection: pendingReplacementSelection ?? undefined,
       trace,
     });
 
@@ -900,6 +930,10 @@ export async function createAiChatResponse({
         internalActionSummary: JSON.stringify({ referenceResolution, workoutPatch: patchResult.result }),
         workoutPatchResult: patchResult.result,
         assistantSuggestions: buildWorkoutPatchAssistantSuggestions(patchResult.result),
+        conversationContext: updateConversationContextAfterWorkoutPatch(
+          internalConversationContext,
+          patchResult.result,
+        ),
         tokenBudgetDecision,
       });
     }
@@ -1534,6 +1568,7 @@ function createDeterministicChatResponse(input: {
   referenceDiagnostic?: ReferenceResolutionDiagnostic;
   workoutPatchResult?: WorkoutPatchResult;
   assistantSuggestions?: AssistantSuggestion[];
+  conversationContext?: FitnessConversationContext;
   tokenBudgetDecision: AiTokenBudgetDecision;
 }) {
   const stream = new ReadableStream<Uint8Array>({
@@ -1616,6 +1651,7 @@ function createDeterministicChatResponse(input: {
           traceId: input.trace.id,
           conversationSummary: summaryUpdate.summary,
           referenceDiagnostic: input.referenceDiagnostic,
+          conversationContext: input.conversationContext,
         }),
       );
       controller.close();
@@ -2654,6 +2690,18 @@ function buildReferenceResolutionAssistantSuggestions(
 }
 
 function buildWorkoutPatchAssistantSuggestions(result: WorkoutPatchResult) {
+  if (result.assistantSuggestions?.length) {
+    return normalizeAssistantSuggestions([
+      {
+        source: "workout_patch",
+        sourceField: "workoutPatch.assistantSuggestions",
+        kind: "confirmation",
+        blocking: result.status !== "applied",
+        suggestions: result.assistantSuggestions,
+      },
+    ]).assistantSuggestions;
+  }
+
   const source: AssistantSuggestionSource =
     result.status === "confirmation_required" ? "patch_confirmation" : "artifact_failure";
   const kind: AssistantSuggestionKind =
@@ -2768,12 +2816,18 @@ export function createResolvedChatIntent(input: {
   const blockingMissingFields = workoutIntent
     ? getActionBlockingMissingFields(input.chatIntent.missingActionFields, workoutIntent)
     : input.chatIntent.missingActionFields;
-  const inferredActionKind = input.assistantAction?.action ?? inferActionKindFromIntentType(input.chatIntent.type);
+  const inferredActionKind = input.assistantAction?.action ?? getChatIntentActionKind(input.chatIntent);
   const shouldTrigger = Boolean(input.assistantAction) && blockingMissingFields.length === 0;
+  const referenceRequirement = input.chatIntent.referenceRequirement ?? inferReferenceRequirement(inferredActionKind);
+  const needsReferenceClarification =
+    referenceRequirement.required && input.referenceResolution?.status !== "resolved";
   const hasClarification =
+    needsReferenceClarification ||
     blockingMissingFields.length > 0 ||
     (!shouldTrigger && (input.chatIntent.clarificationReplies?.length || input.chatIntent.suggestedReplies.length));
-  const responseMode = input.chatIntent.responseMode ??
+  const responseMode = needsReferenceClarification
+    ? "ask_clarification"
+    : input.chatIntent.responseMode ??
     (shouldTrigger
       ? input.chatIntent.adjustmentReplies?.length
         ? "generate_with_suggestions"
@@ -2781,19 +2835,20 @@ export function createResolvedChatIntent(input: {
       : hasClarification
         ? "ask_clarification"
         : "answer_only");
+  const fallbackClarificationReplies = input.chatIntent.suggestedReplies.length > 0
+    ? input.chatIntent.suggestedReplies
+    : ["请说明要修改哪一张训练卡片或哪一个动作"];
   const clarificationReplies = responseMode === "ask_clarification"
-    ? input.chatIntent.clarificationReplies ?? input.chatIntent.suggestedReplies
+    ? input.chatIntent.clarificationReplies ?? fallbackClarificationReplies
     : [];
   const adjustmentReplies = responseMode === "generate_with_suggestions"
     ? input.chatIntent.adjustmentReplies ?? input.chatIntent.suggestedReplies
     : input.chatIntent.adjustmentReplies ?? [];
-  const referenceRequirement = input.chatIntent.referenceRequirement ?? inferReferenceRequirement(inferredActionKind);
-
   return resolvedChatIntentSchema.parse({
     ...input.preferredResolvedIntent,
     type: input.chatIntent.type,
     action: {
-      kind: shouldTrigger ? inferredActionKind : input.chatIntent.action?.kind ?? inferredActionKind,
+      kind: shouldTrigger ? inferredActionKind : getChatIntentActionKind(input.chatIntent),
       shouldTrigger,
       reason: input.chatIntent.action?.reason,
       blockingMissingFields,
@@ -2988,6 +3043,10 @@ function inferActionKindFromIntentType(type: ChatIntent["type"]): ResolvedAction
 }
 
 function getChatIntentActionKind(intent: Pick<ChatIntent, "type" | "action">): ResolvedActionKind {
+  if (intent.type === "exercise_replacement" && (!intent.action || intent.action.kind === "none")) {
+    return "exercise_replacement";
+  }
+
   return intent.action?.kind ?? inferActionKindFromIntentType(intent.type);
 }
 
@@ -3016,6 +3075,59 @@ function inferReferenceRequirement(actionKind: ResolvedActionKind) {
     required: false,
     allowedArtifactKinds: [],
   };
+}
+
+function restorePendingReplacementChatIntent(chatIntent: ChatIntent): ChatIntent {
+  return chatIntentSchema.parse({
+    ...chatIntent,
+    type: "exercise_replacement",
+    needsExerciseContext: false,
+    canTriggerAction: true,
+    missingActionFields: [],
+    suggestedReplies: [],
+    action: {
+      kind: "exercise_replacement",
+      shouldTrigger: true,
+      blockingMissingFields: [],
+      reason: "pending_replacement_selection",
+    },
+    responseMode: "generate_directly",
+    referenceRequirement: inferReferenceRequirement("exercise_replacement"),
+  });
+}
+
+function resolvePendingReplacementSelectionForMessage(
+  conversationContext: FitnessConversationContext,
+  latestUserMessage: string,
+) {
+  const pending = conversationContext.pendingReplacementSelection;
+  if (!pending || Date.parse(pending.expiresAt) <= Date.now()) {
+    return null;
+  }
+
+  const normalizedMessage = normalizeChatComparableText(latestUserMessage);
+  const matched = pending.candidateExerciseIds.some((candidateId, index) =>
+    [candidateId, pending.candidateExerciseNames[index]]
+      .filter((value): value is string => Boolean(value))
+      .some((value) => normalizedMessage.includes(normalizeChatComparableText(value))),
+  );
+
+  return matched ? pending : null;
+}
+
+function updateConversationContextAfterWorkoutPatch(
+  conversationContext: FitnessConversationContext,
+  result: WorkoutPatchResult,
+): FitnessConversationContext {
+  return fitnessConversationContextSchema.parse({
+    ...conversationContext,
+    pendingReplacementSelection: result.pendingReplacementSelection ??
+      (result.status === "applied" ? undefined : conversationContext.pendingReplacementSelection),
+  });
+}
+
+function normalizeChatComparableText(value: string) {
+  return value.toLowerCase().replace(/\s+/g, "");
 }
 
 function inferFieldSources(intent: WorkoutPlanIntent | undefined): ResolvedFieldSources {

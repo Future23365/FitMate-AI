@@ -81,7 +81,9 @@ describe("frontend API clients", () => {
     const summary = { summary: context.summary };
     const signal = new AbortController().signal;
 
-    await expect(requestChatStream("chat-1", "assistant-1", messages[0].content, summary.summary, false, signal)).resolves.toBeInstanceOf(Response);
+    await expect(
+      requestChatStream("chat-1", "assistant-1", messages[0].content, summary.summary, context, false, signal),
+    ).resolves.toBeInstanceOf(Response);
     await expect(requestWorkoutPlanDraft(messages[0].content, createWorkoutPlanIntent(), summary, "trace-1")).resolves.toMatchObject({
       kind: "plan",
       draft: {

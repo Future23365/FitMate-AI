@@ -14,6 +14,7 @@ export const assistantSuggestionSourceSchema = z.enum([
   "workout_generation",
   "artifact_failure",
   "reference_resolution",
+  "workout_patch",
   "patch_confirmation",
   "legacy",
 ]);
