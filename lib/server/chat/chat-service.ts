@@ -5,6 +5,7 @@ import { z } from "zod";
 import { aiPromptConfig, buildPromptFromModules } from "@/lib/server/ai/prompt-config";
 import {
   createCandidateTrimSummary,
+  createAgentChatTokenBudgetDecision,
   createExerciseRecommendationBudgetDecision,
   createChatTokenBudgetDecision,
   getStageDecision,
@@ -37,6 +38,23 @@ import {
   buildAndApplyWorkoutPatchFromChat,
   formatWorkoutPatchReply,
 } from "@/lib/server/workout-patches/workout-patch-chat-service";
+import {
+  createAgentContextBuilder,
+  createLegacyChatEventAdapter,
+  createToolFirstAgentToolRegistry,
+  projectAgentExecutionResultToResponse,
+  runAgentOrchestrator,
+  validateAgentResponseProjection,
+  type AgentArtifactSummary,
+  type AgentDecisionProvider,
+  type AgentExecutionResult,
+  type AgentReplayFixture,
+  type AgentResponseProjection,
+  type AgentToolResultRecord,
+  type ChatMessageSummary,
+  type ContextPackage,
+  type UserMemorySnapshot,
+} from "@/lib/server/agent-orchestrator";
 import {
   aiContextChatMessageSchema,
   buildFitnessConversationContext,
@@ -448,6 +466,7 @@ export const chatRequestSchema = z.object({
   conversationSummary: z.string().trim().max(2000).default(""),
   messages: z.array(aiContextChatMessageSchema).min(1).max(200).optional(),
   conversationContext: fitnessConversationContextSchema.optional(),
+  emitLegacyEvents: z.boolean().optional(),
   thinkingEnabled: z.boolean().optional(),
 });
 
@@ -464,6 +483,7 @@ export type PreparedAiChatRequest = {
   hydration: ChatHistoryHydrationMetadata;
   thinkingEnabled: boolean;
   hasClientConversationSummary: boolean;
+  emitLegacyEvents: boolean;
 };
 
 export type ChatHistoryHydrationMetadata = {
@@ -596,6 +616,7 @@ export function prepareAiChatRequest(
     messages,
     thinkingEnabled: request.thinkingEnabled !== false,
     hasClientConversationSummary: request.conversationSummary.trim().length > 0,
+    emitLegacyEvents: request.emitLegacyEvents !== false,
   };
 }
 
@@ -691,6 +712,11 @@ export function encodeChatStreamEvent(type: string, delta = "", metadata?: Recor
   return new TextEncoder().encode(`${JSON.stringify({ type, delta, ...metadata })}\n`);
 }
 
+// Phase 5 明确把 `/api/chat` 生产入口切到 Tool-first Agent；函数保留为运行时边界，避免旧主链参与类型窄化或执行决策。
+function isToolFirstAgentProductionChainEnabled() {
+  return true;
+}
+
 export async function createAiChatResponse({
   apiKey,
   request,
@@ -746,6 +772,15 @@ export async function createAiChatResponse({
       recentArtifactCount: recentArtifactSummaries.length,
     },
   });
+
+  if (isToolFirstAgentProductionChainEnabled()) {
+    return createAgentOrchestratedChatResponse({
+      apiKey,
+      request,
+      trace,
+      currentUser,
+    });
+  }
 
   let chatIntent = await resolveChatIntent(
     apiKey,
@@ -1557,6 +1592,434 @@ export async function createAiChatResponse({
       "X-Accel-Buffering": "no",
     },
   });
+}
+
+async function createAgentOrchestratedChatResponse(input: {
+  apiKey: string;
+  request: PreparedAiChatRequest;
+  trace: AiTraceLogger;
+  currentUser: CurrentUser;
+}) {
+  const user = await getCurrentUser(input.currentUser);
+  const memoryState = await buildConversationMemoryState({
+    userId: user.id,
+    latestUserMessage: input.request.conversationSummaryContext.latestUserMessage,
+  });
+  const context = buildAgentContextPackage(input.request, memoryState);
+  const tokenBudgetDecision = createAgentChatTokenBudgetDecision({
+    context,
+    summaryUpdateSkipped: true,
+    summarySkipReason: "Agent 主链不依赖 conversationSummary，本轮 summary 更新降级为可选后台材料。",
+  });
+  const registry = createToolFirstAgentToolRegistry();
+
+  traceTokenBudgetDecision(input.trace, tokenBudgetDecision);
+
+  const agentRun = await runAgentOrchestrator({
+    userId: user.id,
+    sessionId: input.request.conversationId ?? "default-chat-session",
+    context,
+    registry,
+    decideNext: createDeepSeekAgentDecisionProvider({
+      apiKey: input.apiKey,
+      trace: input.trace,
+    }),
+    trace: input.trace,
+  });
+  const projection = projectAgentExecutionResultToResponse({
+    result: agentRun.result,
+    toolResults: agentRun.state.toolResults,
+  });
+  const projectionValidation = validateAgentResponseProjection({
+    result: agentRun.result,
+    toolResults: agentRun.state.toolResults,
+  });
+
+  input.trace.addStep({
+    name: "Agent Response Writer 投影结果",
+    type: "response_write",
+    status: projectionValidation.ok ? "success" : "failed",
+    output: {
+      projection,
+      projectionValidation,
+    },
+    metadata: {
+      aiStage: "agent_response_writer",
+      aiStageStatus: "executed",
+      promptModules: ["agent_response_writer"],
+    },
+  });
+
+  return createAgentResponseStream({
+    apiKey: input.apiKey,
+    request: input.request,
+    trace: input.trace,
+    userId: user.id,
+    agentResult: agentRun.result,
+    toolResults: agentRun.state.toolResults,
+    projection,
+    context,
+    tokenBudgetDecision,
+    replayFixture: agentRun.replayFixture,
+  });
+}
+
+function buildAgentContextPackage(
+  request: PreparedAiChatRequest,
+  memoryState: ConversationMemoryState,
+): ContextPackage {
+  const builder = createAgentContextBuilder();
+
+  return builder.build({
+    latestUserMessage: request.conversationSummaryContext.latestUserMessage,
+    recentMessages: request.rawMessages.map(toAgentChatMessageSummary),
+    recentArtifacts: request.recentArtifactSummaries.map(toAgentArtifactSummary),
+    memorySnapshot: toAgentUserMemorySnapshot(memoryState),
+  });
+}
+
+function toAgentChatMessageSummary(message: ChatMessage, index: number): ChatMessageSummary {
+  return {
+    id: `message_${index}`,
+    role: message.role,
+    content: message.content,
+  };
+}
+
+function toAgentArtifactSummary(artifact: RecentArtifactSummary): AgentArtifactSummary {
+  return {
+    artifactId: artifact.artifactId,
+    kind: artifact.kind,
+    title: artifact.title,
+    summary: artifact.summary,
+    updatedAt: artifact.updatedAt,
+  };
+}
+
+function toAgentUserMemorySnapshot(memoryState: ConversationMemoryState): UserMemorySnapshot {
+  const activeMemoryLabels = memoryState.activeMemories
+    .map((memory) => memory.subjectLabel ?? memory.subjectId)
+    .filter((value): value is string => Boolean(value));
+  const preferences = memoryState.activeMemories
+    .filter((memory) => memory.kind === "explicit_preference")
+    .map((memory) => memory.subjectLabel ?? memory.subjectId)
+    .filter((value): value is string => Boolean(value));
+  const avoidances = [
+    ...memoryState.currentMessage.temporaryAvoidanceLabels,
+    ...memoryState.activeMemories
+      .filter((memory) => memory.kind === "constraint")
+      .map((memory) => memory.subjectLabel ?? memory.subjectId)
+      .filter((value): value is string => Boolean(value)),
+  ];
+
+  return {
+    snapshotId: `memory_${Date.now().toString(36)}`,
+    facts: uniqueStrings(activeMemoryLabels).slice(0, 24),
+    preferences: uniqueStrings(preferences).slice(0, 24),
+    avoidances: uniqueStrings(avoidances).slice(0, 24),
+  };
+}
+
+function createDeepSeekAgentDecisionProvider(input: {
+  apiKey: string;
+  trace: AiTraceLogger;
+}): AgentDecisionProvider {
+  return async ({ state, registry, remainingSteps }) => {
+    const modelMessages: DeepSeekChatMessage[] = [
+      {
+        role: "system",
+        content: [
+          buildPromptFromModules([
+            "base_safety",
+            "agent_context_build",
+            "agent_tool_decision",
+            "agent_tool_execution",
+            "agent_final_result",
+          ]),
+          "必须只返回一个 JSON 对象，不要输出 Markdown。工具调用格式：{\"action\":\"call_tool\",\"toolName\":\"searchExercises\",\"input\":{},\"reason\":\"...\"}。终止格式：{\"action\":\"final_result\",\"result\":{\"status\":\"answered\",\"replyContext\":{\"reply\":\"...\"},\"usedToolResultIds\":[]},\"reason\":\"...\"}。",
+        ].join("\n\n"),
+      },
+      {
+        role: "user",
+        content: JSON.stringify({
+          contextPackage: state.context,
+          registeredTools: registry,
+          toolResults: state.toolResults,
+          dependencyGraph: state.dependencyGraph,
+          remainingSteps,
+        }),
+      },
+    ];
+
+    input.trace.addStep({
+      name: "Agent tool decision 请求参数",
+      type: "model_request",
+      input: {
+        model: "deepseek-v4-flash",
+        messages: modelMessages,
+        response_format: { type: "json_object" },
+      },
+      metadata: {
+        aiStage: "agent_tool_decision",
+        aiStageStatus: "executed",
+        promptModules: [
+          "base_safety",
+          "agent_context_build",
+          "agent_tool_decision",
+          "agent_tool_execution",
+          "agent_final_result",
+        ],
+        remainingSteps,
+      },
+    });
+
+    const result = await requestDeepSeekJson(input.apiKey, modelMessages, input.trace);
+
+    if (result.ok) {
+      return result.value;
+    }
+
+    input.trace.addStep({
+      name: "Agent tool decision 请求失败",
+      type: "agent_tool_decision",
+      status: "failed",
+      error: result,
+      metadata: {
+        aiStage: "agent_tool_decision",
+        failureCode: result.code,
+      },
+    });
+
+    return {
+      action: "final_result",
+      result: {
+        status: "failed",
+        failureCode: "model_output_invalid",
+        recoverySuggestions: [],
+        usedToolResultIds: [],
+      },
+      reason: result.message,
+    };
+  };
+}
+
+function createAgentResponseStream(input: {
+  apiKey: string;
+  request: PreparedAiChatRequest;
+  trace: AiTraceLogger;
+  userId: string;
+  agentResult: AgentExecutionResult;
+  toolResults: AgentToolResultRecord[];
+  projection: AgentResponseProjection;
+  context: ContextPackage;
+  tokenBudgetDecision: AiTokenBudgetDecision;
+  replayFixture: AgentReplayFixture;
+}) {
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      for (const event of buildAgentCompatibilityStreamEvents({
+        agentResult: input.agentResult,
+        toolResults: input.toolResults,
+        projection: input.projection,
+        replayFixture: input.replayFixture,
+        emitLegacyEvents: input.request.emitLegacyEvents,
+      })) {
+        controller.enqueue(
+          encodeChatStreamEvent(event.type, "", event.metadata),
+        );
+      }
+
+      if (input.projection.assistantSuggestions.length > 0) {
+        controller.enqueue(
+          encodeChatStreamEvent("assistant_suggestions", "", {
+            assistantSuggestions: input.projection.assistantSuggestions,
+          }),
+        );
+        controller.enqueue(
+          encodeChatStreamEvent("suggested_replies", "", {
+            suggestedReplies: input.projection.assistantSuggestions.map((suggestion) => suggestion.message),
+          }),
+        );
+      }
+
+      controller.enqueue(encodeChatStreamEvent("content", input.projection.reply));
+
+      for (const artifactEvent of await buildAgentArtifactStreamEvents({
+        userId: input.userId,
+        result: input.agentResult,
+      })) {
+        controller.enqueue(encodeChatStreamEvent(artifactEvent.type, "", artifactEvent.metadata));
+      }
+
+      const summaryUpdate = await updateConversationSummary({
+        apiKey: input.apiKey,
+        previousSummary: input.request.conversationSummaryContext.summary,
+        latestUserMessage: input.request.conversationSummaryContext.latestUserMessage,
+        assistantReply: input.projection.reply,
+        internalActionSummary: JSON.stringify({
+          agentExecutionResult: input.agentResult,
+          responseProjection: input.projection,
+        }),
+        trace: input.trace,
+        tokenBudgetDecision: input.tokenBudgetDecision,
+      });
+
+      input.trace.addStep({
+        name: "Agent 聊天回复写入完成",
+        type: "response_write",
+        output: {
+          contentLength: input.projection.reply.length,
+          conversationSummarySource: summaryUpdate.source,
+          emittedLegacyEvents: input.request.emitLegacyEvents,
+          agentStatus: input.agentResult.status,
+        },
+        metadata: {
+          aiStage: "agent_response_writer",
+          aiStageStatus: "executed",
+        },
+      });
+      input.trace.finish("success", createFinalDecision({
+        status: input.agentResult.status === "failed" ? "recoverable_failure" : "success",
+        responseType: "agent_execution_result_stream",
+        reason: "Tool-first AgentOrchestrator 已完成聊天主链执行。",
+        code: input.agentResult.status === "failed" ? input.agentResult.failureCode : undefined,
+      }));
+      controller.enqueue(
+        encodeChatStreamEvent("done", "", {
+          traceId: input.trace.id,
+          conversationSummary: summaryUpdate.summary,
+          agentRunId: input.replayFixture.runId,
+          agentStatus: input.agentResult.status,
+          agentExecutionResult: input.agentResult,
+          responseProjection: input.projection,
+          legacyPathSkip: input.replayFixture.legacyPathSkip,
+          legacyEventsEmitted: input.request.emitLegacyEvents,
+        }),
+      );
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Cache-Control": "no-cache, no-transform",
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "X-Accel-Buffering": "no",
+    },
+  });
+}
+
+// buildAgentCompatibilityStreamEvents 集中控制 Agent 新事件和旧兼容事件，测试可关闭旧字段验证前端迁移路径。
+export function buildAgentCompatibilityStreamEvents(input: {
+  agentResult: AgentExecutionResult;
+  toolResults: AgentToolResultRecord[];
+  projection: AgentResponseProjection;
+  replayFixture: AgentReplayFixture;
+  emitLegacyEvents: boolean;
+}): Array<{ type: string; metadata: Record<string, unknown> }> {
+  const events: Array<{ type: string; metadata: Record<string, unknown> }> = [
+    {
+      type: "agent_execution_result",
+      metadata: {
+        agentExecutionResult: input.agentResult,
+        responseProjection: input.projection,
+        dependencyGraph: input.replayFixture.dependencyGraph,
+        legacyPathSkip: input.replayFixture.legacyPathSkip,
+      },
+    },
+  ];
+
+  if (!input.emitLegacyEvents) {
+    return events;
+  }
+
+  const legacyProjection = createLegacyChatEventAdapter().project({
+    result: input.agentResult,
+    toolResults: input.toolResults,
+  });
+  events.push(
+    {
+      type: "intent_resolved",
+      metadata: {
+        action: legacyProjection.assistantAction.action,
+        resolvedIntent: legacyProjection.resolvedIntent,
+        legacyProjection,
+      },
+    },
+    {
+      type: "assistant_action",
+      metadata: {
+        action: legacyProjection.assistantAction.action,
+        resolvedIntent: legacyProjection.resolvedIntent,
+        legacyProjection,
+      },
+    },
+  );
+
+  return events;
+}
+
+async function buildAgentArtifactStreamEvents(input: {
+  userId: string;
+  result: AgentExecutionResult;
+}): Promise<Array<{ type: string; metadata: Record<string, unknown> }>> {
+  if (input.result.status !== "generated" && input.result.status !== "patched") {
+    return [];
+  }
+
+  const payloadResult = await getArtifactPayload({
+    userId: input.userId,
+    artifactId: input.result.artifact.artifactId,
+  });
+
+  if (!payloadResult.ok) {
+    return [
+      {
+        type: "artifact_failed",
+        metadata: {
+          artifactKind: input.result.artifact.kind,
+          artifactId: input.result.artifact.artifactId,
+          errorCode: payloadResult.code,
+          guidanceMessage: "训练结果已由 Agent 完成，但本轮流事件没有读取到可展示 payload。",
+          recoverable: true,
+          suggestedReplies: [],
+        },
+      },
+    ];
+  }
+
+  if (input.result.status === "patched") {
+    return [
+      {
+        type: "workout_patch",
+        metadata: {
+          artifactKind: payloadResult.kind,
+          artifactId: payloadResult.artifactId,
+          sourceArtifactId: input.result.patchResult.sourceArtifactId,
+          payload: payloadResult.payload,
+        },
+      },
+    ];
+  }
+
+  return [
+    {
+      type: "artifact_validated",
+      metadata: {
+        artifactKind: payloadResult.kind,
+        artifactId: payloadResult.artifactId,
+        payload: payloadResult.payload,
+      },
+    },
+    {
+      type: "artifact",
+      metadata: {
+        artifactKind: payloadResult.kind,
+        artifactId: payloadResult.artifactId,
+        payload: payloadResult.payload,
+      },
+    },
+  ];
 }
 
 function createDeterministicChatResponse(input: {

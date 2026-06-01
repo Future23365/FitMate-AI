@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   chatRequestSchema,
   buildChatArtifactStreamEvents,
+  buildAgentCompatibilityStreamEvents,
   createResolvedChatIntent,
   createFallbackChatIntent,
   deriveChatIntentFromResolvedIntent,
@@ -1402,6 +1403,58 @@ describe("AI chat service deterministic boundaries", () => {
 
     expect(parsedJson).toMatchObject({ ok: true, value: { ok: true } });
     expect(streamEvent).toBe("{\"type\":\"done\",\"delta\":\"\",\"traceId\":\"trace-1\"}\n");
+  });
+
+  it("keeps AgentExecutionResult stream usable when legacy compatibility events are disabled", () => {
+    const agentResult = {
+      status: "needs_clarification" as const,
+      question: "这次训练想练多久？",
+      assistantSuggestions: [
+        { label: "20 分钟", message: "我今天练 20 分钟", kind: "clarification" as const, blocking: true, source: "intent" as const },
+      ],
+      blockingReasons: ["缺少训练时长"],
+    };
+    const events = buildAgentCompatibilityStreamEvents({
+      agentResult,
+      toolResults: [],
+      projection: {
+        status: "needs_clarification",
+        reply: "这次训练想练多久？",
+        assistantSuggestions: agentResult.assistantSuggestions,
+        references: [],
+        metadata: {
+          promisedWrite: false,
+          hasExecutedWrite: false,
+          safeOperationOnly: false,
+        },
+      },
+      replayFixture: {
+        runId: "agent-run-1",
+        contextSummary: {},
+        toolDecisions: [],
+        toolResults: [],
+        dependencyGraph: { nodes: [], edges: [] },
+        finalResult: agentResult,
+        legacyPathSkip: {
+          intentFirst: true,
+          normalize: true,
+          summaryOnlyContext: true,
+          referenceResolverFirst: true,
+        },
+      },
+      emitLegacyEvents: false,
+    });
+
+    expect(events.map((event) => event.type)).toEqual(["agent_execution_result"]);
+    expect(events[0].metadata).toMatchObject({
+      agentExecutionResult: agentResult,
+      legacyPathSkip: {
+        intentFirst: true,
+        normalize: true,
+        summaryOnlyContext: true,
+        referenceResolverFirst: true,
+      },
+    });
   });
 });
 

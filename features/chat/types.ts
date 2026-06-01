@@ -54,6 +54,7 @@ export type ChatStreamEvent = {
     | "content"
     | "done"
     | "error"
+    | "agent_execution_result"
     | "assistant_action"
     | "intent_resolved"
     | "artifact_generating"
@@ -92,6 +93,16 @@ export type ChatStreamEvent = {
   conversationSummary?: string;
   /** 服务端更新后的结构化短期上下文，只用于确定性多轮状态。 */
   conversationContext?: FitnessConversationContext;
+  /** Tool-first Agent 主链的最终执行结果，供新前端和黑盒报告消费。 */
+  agentExecutionResult?: unknown;
+  /** Agent Response Writer 只读投影，描述本轮用户可见回复的事实来源。 */
+  responseProjection?: unknown;
+  /** Agent dependency graph 和旧路径跳过诊断只用于 trace / 测试。 */
+  dependencyGraph?: unknown;
+  legacyPathSkip?: unknown;
+  agentRunId?: string;
+  agentStatus?: string;
+  legacyEventsEmitted?: boolean;
 };
 
 export type ChatConversation = {

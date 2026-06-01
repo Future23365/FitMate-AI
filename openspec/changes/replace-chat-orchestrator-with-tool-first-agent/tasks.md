@@ -144,10 +144,10 @@
 
 - [x] 3.1 实现 `runAgentOrchestrator`，循环执行模型 tool decision、工具调用、工具结果登记、依赖图更新和下一步决策。
 - [x] 3.2 实现 Agent loop 的完成条件：answered、needs_clarification、generated、patched、failed、blocked，并保存 checkpoint/replay 摘要。
-- [ ] 3.3 将 `/api/chat` 生产主链切换到 AgentOrchestrator，旧 resolved intent、`assistant_action` 和 `workoutIntent` 只从 Agent 结果派生兼容事件。
+- [x] 3.3 将 `/api/chat` 生产主链切换到 AgentOrchestrator，旧 resolved intent、`assistant_action` 和 `workoutIntent` 只从 Agent 结果派生兼容事件。
 - [ ] 3.4 删除或废弃旧服务端高层语义 normalize、关键词 gate、ReferenceResolver-first 触发矩阵、只读 tool loop 触发矩阵、pending replacement 字符串改写和黑盒补丁型 intent 纠偏。
-- [ ] 3.5 确保前端继续消费稳定流事件、artifact、patch、`assistantSuggestions` 和 done metadata，不参与 Agent 决策。
-- [ ] 3.6 为旧兼容事件提供关闭开关或测试路径，验证移除旧字段后主链仍通过。
+- [x] 3.5 确保前端继续消费稳定流事件、artifact、patch、`assistantSuggestions` 和 done metadata，不参与 Agent 决策。
+- [x] 3.6 为旧兼容事件提供关闭开关或测试路径，验证移除旧字段后主链仍通过。
 
 ## 4. 动作查询、生成、Patch 与保存闭环
 
@@ -163,8 +163,8 @@
 
 - [x] 5.1 实现基于 `AgentExecutionResult` 的 Response Writer 投影层，禁止未执行写操作时承诺已生成或已更新。
 - [x] 5.1.1 让 Response Writer 支持 `completed_operation` 投影，只能描述已登记 `operationResultId` 的安全摘要，不得伪造成 artifact、patch 或旧 intent 结果。
-- [ ] 5.2 移除 `/api/chat` 对 `conversationSummary` 的必需依赖，Agent 输入改为 `ContextPackage`、真实 recent messages、recent artifacts、用户记忆和 tool results。
-- [ ] 5.3 如保留 summary 生成，将其降级为可选后台摘要、会话标题或调试信息；如需长会话压缩，生成带 provenance 的 `ContextSnapshot`，不参与事实决策。
+- [x] 5.2 移除 `/api/chat` 对 `conversationSummary` 的必需依赖，Agent 输入改为 `ContextPackage`、真实 recent messages、recent artifacts、用户记忆和 tool results。
+- [x] 5.3 如保留 summary 生成，将其降级为可选后台摘要、会话标题或调试信息；如需长会话压缩，生成带 provenance 的 `ContextSnapshot`，不参与事实决策。
 - [x] 5.4 扩展 AiRunTrace，记录 agent run、ContextPackage、tool decision、tool result id、dependency graph、validator gate、policy gate、persistence、legacy path skip 和 final result。
 - [x] 5.5 更新 `/dev/ai-traces` 展示或摘要逻辑，使 Agent steps 可读并能关联最终回复使用的 ContextPackage、tool results、candidateSetId、validationId、revisionId 和 artifact events。
 - [x] 5.6 生成 Agent replay fixture，支持复盘上下文、工具决策、依赖图、最终回复和旧路径未参与执行。
@@ -174,7 +174,7 @@
 - [x] 6.1 新增 Agent tool decision prompt module，明确模型只能基于 `ContextPackage`、registry 工具定义、已登记 tool results 和 dependency graph 选择下一步，不得读取 `conversationSummary` 或旧 resolved intent 作为执行事实。
 - [x] 6.2 新增 Agent final result prompt module，要求模型只能返回 `AgentExecutionResult` 结构化终止结果，并用 `usedToolResultIds`、`revisionId`、`validationId`、`policyDecisionId` 或 blocking reason 解释结果来源。
 - [x] 6.3 新增 Response Writer prompt module；如使用 LLM 润色最终回复，输入只能是 `AgentExecutionResult` 的只读投影、必要 tool result 摘要和 artifact summary，输出不得重新选择工具、重新解释语义或承诺未执行写入。
-- [ ] 6.4 从 `/api/chat` 生产路径移除 `chat_intent_resolution`、`chat_final_response`、`conversation_summary_context`、`reference_resolution_boundary` 等旧 prompt module 对执行决策的依赖；保留时只能用于兼容诊断、后台 summary 或已明确降级的非执行场景。
+- [x] 6.4 从 `/api/chat` 生产路径移除 `chat_intent_resolution`、`chat_final_response`、`conversation_summary_context`、`reference_resolution_boundary` 等旧 prompt module 对执行决策的依赖；保留时只能用于兼容诊断、后台 summary 或已明确降级的非执行场景。
 - [x] 6.5 更新 `aiPromptModuleRegistry` 和 token budget stage，新增 `agent_context_build`、`agent_tool_decision`、`agent_tool_execution`、`agent_response_writer`、`agent_summary_update` 或等价阶段，替换旧 `chat_intent_resolution` / `reference_resolution` / `chat_final_response` 作为 `/api/chat` 主链观测合同。
 - [x] 6.6 将 `ModelVisibleContextSummary` 或等价调试摘要从 summary-only 语义改为 `ContextPackage` 可见性摘要，记录 recent messages、recent artifacts、用户记忆、tool result、ContextSnapshot 和截断策略。
 - [x] 6.7 更新 `exerciseRecommendationGeneration`、`workoutPlanIntentExtraction`、`workoutPlanDraftGeneration` 等下游模型提示词和调用输入，使其接收 Agent 传入的结构化 intent/edit plan、candidateSetId、ContextPackage 摘要或 tool result，而不是继续声明只依赖 `conversationSummary + latestUserMessage`。
