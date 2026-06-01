@@ -211,7 +211,12 @@ describe("chat service Agent-only contract", () => {
           required: ["candidateUse"],
           properties: {
             candidateUse: { type: "string", enum: ["answer_only", "recommendation"] },
-            targetMuscles: { type: "array", maxItems: 16 },
+            allowedSections: {
+              type: "array",
+              maxItems: 3,
+              items: { type: "string", enum: ["warmup", "training", "stretch"] },
+            },
+            targetMuscles: { type: "array", maxItems: 16, items: { type: "string" } },
           },
         },
         dependencies: [],
@@ -242,6 +247,9 @@ describe("chat service Agent-only contract", () => {
 
     expect(input.budget.slimmedChars).toBeLessThan(input.budget.originalChars);
     expect(serialized).toContain("inputFields");
+    expect(serialized).toContain("warmup");
+    expect(serialized).toContain("training");
+    expect(serialized).toContain("stretch");
     expect(serialized).not.toContain("rerank");
     expect(serialized).not.toContain("instructionsZh");
   });

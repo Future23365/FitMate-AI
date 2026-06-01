@@ -214,7 +214,10 @@ export function parseAgentToolDecision(
   value: unknown,
   registry: Pick<AgentToolRegistry, "has">,
 ): AgentToolDecisionParseResult {
-  const normalizedValue = normalizeLegacyBlockedFinalResult(value);
+  const normalizedValue = normalizeToolNameActionDecision(
+    normalizeLegacyBlockedFinalResult(value),
+    registry,
+  );
 
   if (Array.isArray(normalizedValue)) {
     return {
@@ -244,6 +247,33 @@ export function parseAgentToolDecision(
   }
 
   return { ok: true, decision: parsed.data };
+}
+
+// normalizeToolNameActionDecision 只把“action 直接写成已注册工具名”的模型输出转回合法 call_tool 形态。
+function normalizeToolNameActionDecision(
+  value: unknown,
+  registry: Pick<AgentToolRegistry, "has">,
+) {
+  if (!isPlainObject(value) || typeof value.action !== "string") {
+    return value;
+  }
+
+  if (value.action === "call_tool" || value.action === "final_result" || !registry.has(value.action)) {
+    return value;
+  }
+
+  if (!("input" in value)) {
+    return value;
+  }
+
+  return {
+    action: "call_tool",
+    toolName: value.action,
+    input: value.input,
+    reason: typeof value.reason === "string" && value.reason.trim()
+      ? value.reason
+      : `调用 ${value.action} 工具。`,
+  };
 }
 
 // 只修正模型旧形态 blocked 字段位置，不改写状态、引用或用户语义。

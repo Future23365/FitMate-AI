@@ -390,6 +390,11 @@ async function createAgentOrchestratedChatResponse(input: {
     name: "Agent Response Writer 投影结果",
     type: "response_write",
     status: projectionValidation.ok ? "success" : "failed",
+    input: {
+      agentExecutionResult: agentResult,
+      toolResultIds: agentRun.state.toolResults.map((toolResult) => toolResult.toolResultId),
+      resourceIds: agentRun.state.toolResults.map((toolResult) => summarizeToolResultResourceIds(toolResult)),
+    },
     output: {
       projection,
       projectionValidation,
@@ -398,6 +403,13 @@ async function createAgentOrchestratedChatResponse(input: {
       aiStage: "agent_response_writer",
       aiStageStatus: "executed",
       promptModules: ["agent_response_writer"],
+      visibleToolResultIds: agentRun.state.toolResults.map((toolResult) => toolResult.toolResultId),
+      usedToolResultIds: "usedToolResultIds" in agentResult ? agentResult.usedToolResultIds : [],
+      responseWriterInput: {
+        agentStatus: agentResult.status,
+        projectionStatus: projectionValidation.ok ? "valid" : "invalid",
+        replyChars: projection.reply.length,
+      },
     },
   });
 
@@ -551,11 +563,27 @@ function summarizeJsonSchemaFields(schema: unknown) {
       required: required.has(name),
       type: fieldRecord.type,
       enum: Array.isArray(fieldRecord.enum) ? fieldRecord.enum : undefined,
+      items: summarizeJsonSchemaArrayItems(fieldRecord.items),
       default: fieldRecord.default,
       min: fieldRecord.minimum,
       max: fieldRecord.maximum,
       maxItems: fieldRecord.maxItems,
     });
+  });
+}
+
+function summarizeJsonSchemaArrayItems(items: unknown) {
+  const itemRecord = asRecord(items);
+
+  if (!itemRecord) {
+    return undefined;
+  }
+
+  return compactObject({
+    type: itemRecord.type,
+    enum: Array.isArray(itemRecord.enum) ? itemRecord.enum : undefined,
+    min: itemRecord.minimum,
+    max: itemRecord.maximum,
   });
 }
 
@@ -583,6 +611,25 @@ function summarizeToolResultForModel(result: AgentToolResultRecord) {
         detail: summarizeErrorDetail(result.error.detail),
       })
       : undefined,
+  });
+}
+
+// summarizeToolResultResourceIds 给 Response Writer trace 提供资源索引，避免页面从大 payload 里猜资源关系。
+function summarizeToolResultResourceIds(result: AgentToolResultRecord) {
+  return compactObject({
+    toolResultId: result.toolResultId,
+    toolCallId: result.toolCallId,
+    toolName: result.toolName,
+    candidateSetId: result.candidateSetId,
+    artifactPayloadId: result.artifactPayloadId,
+    editPlanId: result.editPlanId,
+    draftId: result.draftId,
+    patchId: result.patchId,
+    validationId: result.validationId,
+    policyDecisionId: result.policyDecisionId,
+    confirmationId: result.confirmationId,
+    revisionId: result.revisionId,
+    operationResultId: result.operationResultId,
   });
 }
 
@@ -653,7 +700,7 @@ function createDeepSeekAgentDecisionProvider(input: {
   apiKey: string;
   trace: AiTraceLogger;
 }): AgentDecisionProvider {
-  return async ({ state, registry, remainingSteps }) => {
+  return async ({ state, registry, remainingSteps, loopTurnId, loopTurnIndex, modelCallId, visibleToolResultIds }) => {
     const modelInput = buildAgentDecisionModelInput({
       contextPackage: state.context,
       registeredTools: registry,
@@ -693,6 +740,10 @@ function createDeepSeekAgentDecisionProvider(input: {
       metadata: {
         aiStage: "agent_tool_decision",
         aiStageStatus: "executed",
+        loopTurnId,
+        loopTurnIndex,
+        modelCallId,
+        visibleToolResultIds,
         promptModules: [
           "base_safety",
           "agent_context_build",
@@ -702,11 +753,27 @@ function createDeepSeekAgentDecisionProvider(input: {
         ],
         remainingSteps,
         modelInputBudget: modelInput.budget,
+        contextPackage: {
+          latestUserMessageChars: state.context.latestUserMessage.length,
+          recentMessageCount: state.context.recentMessages.length,
+          recentArtifactCount: state.context.recentArtifacts.length,
+          memoryFactCount: state.context.memorySnapshot?.facts.length ?? 0,
+        },
+        registeredTools: registry.map((tool) => ({
+          name: tool.name,
+          accessLevel: tool.accessLevel,
+          dependencyCount: tool.dependencies.length,
+        })),
+        dependencyGraph: summarizeDependencyGraphForModel(state.dependencyGraph),
       },
     });
 
     const result = await requestDeepSeekJson(input.apiKey, modelMessages, input.trace, {
       aiStage: "agent_tool_decision",
+      loopTurnId,
+      loopTurnIndex,
+      modelCallId,
+      visibleToolResultIds,
       promptModules: [
         "base_safety",
         "agent_context_build",
@@ -727,6 +794,10 @@ function createDeepSeekAgentDecisionProvider(input: {
       error: result,
       metadata: {
         aiStage: "agent_tool_decision",
+        loopTurnId,
+        loopTurnIndex,
+        modelCallId,
+        visibleToolResultIds,
         failureCode: result.code,
       },
     });
@@ -807,7 +878,13 @@ function createAgentResponseStream(input: {
       input.trace.addStep({
         name: "Agent 聊天回复写入完成",
         type: "response_write",
+        input: {
+          agentExecutionResult: input.agentResult,
+          responseProjection: input.projection,
+          usedToolResultIds: "usedToolResultIds" in input.agentResult ? input.agentResult.usedToolResultIds : [],
+        },
         output: {
+          content: input.projection.reply,
           contentLength: input.projection.reply.length,
           conversationSummarySource: summaryUpdate.source,
           agentStatus: input.agentResult.status,
@@ -815,6 +892,9 @@ function createAgentResponseStream(input: {
         metadata: {
           aiStage: "agent_response_writer",
           aiStageStatus: "executed",
+          visibleToolResultIds: input.toolResults.map((toolResult) => toolResult.toolResultId),
+          usedToolResultIds: "usedToolResultIds" in input.agentResult ? input.agentResult.usedToolResultIds : [],
+          resourceIds: input.toolResults.map((toolResult) => summarizeToolResultResourceIds(toolResult)),
         },
       });
       input.trace.finish("success", createFinalDecision({
@@ -1098,22 +1178,27 @@ async function requestDeepSeekJson(
     const rawResponseText = await response.text();
     const body = JSON.parse(rawResponseText) as DeepSeekChatResponse;
     const content = body.choices?.[0]?.message?.content?.trim() ?? "";
-    trace?.addStep({
-      name: "Agent tool decision 大模型回复",
-      type: "model_response",
-      output: {
-        content,
-        rawResponse: rawResponseText,
-      },
-      metadata: {
-        status: response.status,
-        tokenUsage: body.usage,
-        emptyContent: !content,
-        ...traceMetadata,
-      },
-    });
 
     if (!content) {
+      trace?.addStep({
+        name: "Agent tool decision 大模型回复",
+        type: "model_response",
+        status: "failed",
+        output: {
+          content,
+          rawResponse: rawResponseText,
+        },
+        metadata: {
+          status: response.status,
+          tokenUsage: body.usage,
+          emptyContent: true,
+          parsingFailure: {
+            code: "empty_content",
+            message: "DeepSeek agent request returned empty content.",
+          },
+          ...traceMetadata,
+        },
+      });
       return {
         ok: false,
         code: "empty_content",
@@ -1124,8 +1209,53 @@ async function requestDeepSeekJson(
     const parsed = parseJsonObject(content);
 
     if (!parsed.ok) {
+      trace?.addStep({
+        name: "Agent tool decision 大模型回复",
+        type: "model_response",
+        status: "failed",
+        output: {
+          content,
+          rawResponse: rawResponseText,
+        },
+        error: parsed,
+        metadata: {
+          status: response.status,
+          tokenUsage: body.usage,
+          parsingFailure: {
+            code: parsed.code,
+            message: parsed.message,
+          },
+          ...traceMetadata,
+        },
+      });
       return parsed;
     }
+
+    const parsedDecision = asRecord(parsed.value);
+    const parsedResult = asRecord(parsedDecision?.result);
+    const usedToolResultIds = Array.isArray(parsedResult?.usedToolResultIds)
+      ? parsedResult.usedToolResultIds.filter((id): id is string => typeof id === "string")
+      : undefined;
+
+    trace?.addStep({
+      name: "Agent tool decision 大模型回复",
+      type: "model_response",
+      output: {
+        content,
+        rawResponse: rawResponseText,
+        parsedDecision: parsed.value,
+      },
+      metadata: {
+        status: response.status,
+        tokenUsage: body.usage,
+        emptyContent: false,
+        parseStatus: "success",
+        parsedAction: parsedDecision?.action,
+        toolName: parsedDecision?.toolName,
+        usedToolResultIds,
+        ...traceMetadata,
+      },
+    });
 
     return {
       ok: true,

@@ -219,6 +219,37 @@ describe("agent orchestrator phase 1 contracts", () => {
     ], registry)).toMatchObject({ ok: false, code: "invalid_decision" });
   });
 
+  it("normalizes registered tool names used as action into call_tool decisions", () => {
+    const registry = createToolFirstAgentToolRegistry();
+
+    expect(parseAgentToolDecision({
+      action: "askClarification",
+      input: {
+        question: "你想重点练胸、背、肩还是手臂？",
+        blockingReasons: ["target_missing"],
+        assistantSuggestions: [
+          { label: "练背", message: "我想重点练背" },
+        ],
+      },
+      reason: "需要澄清目标肌群。",
+    }, registry)).toMatchObject({
+      ok: true,
+      decision: {
+        action: "call_tool",
+        toolName: "askClarification",
+        input: {
+          question: "你想重点练胸、背、肩还是手臂？",
+        },
+      },
+    });
+
+    expect(parseAgentToolDecision({
+      action: "notRegisteredTool",
+      input: {},
+      reason: "非法工具。",
+    }, registry)).toMatchObject({ ok: false, code: "invalid_decision" });
+  });
+
   it("normalizes legacy blocked final results into the AgentExecutionResult contract", () => {
     const registry = new AgentToolRegistry([createReadTool()]);
     const parsed = parseAgentToolDecision({
