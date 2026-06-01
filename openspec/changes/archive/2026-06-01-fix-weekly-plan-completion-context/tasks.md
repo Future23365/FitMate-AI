@@ -15,4 +15,4 @@
 - [x] 3.3 运行 `npm run test -- tests/chat-service.test.ts`。
 - [x] 3.4 运行 `npm run typecheck`。
 - [x] 3.5 运行 `openspec validate fix-weekly-plan-completion-context --strict`。
-- [ ] 3.6 真实 `npm run test:llm` 需要用户确认 token 成本后再运行；若未运行，在总结中说明。
+- [x] 3.6 真实 `npm run test:llm` 需要用户确认 token 成本后再运行；若未运行，在总结中说明。

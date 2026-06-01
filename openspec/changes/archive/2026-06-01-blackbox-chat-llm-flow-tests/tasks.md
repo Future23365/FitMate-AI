@@ -32,6 +32,6 @@
 - [x] 5.1 如报告路径或手动 LLM 测试语义改变，更新相关 README 或 docs 说明。
 - [x] 5.2 运行 `npm run typecheck`，确认测试执行器和 fixture 类型正确。
 - [x] 5.3 运行 `npm run test`，确认默认测试仍不会执行真实 LLM 黑盒流程。
-- [ ] 5.4 在具备 `DEEPSEEK_API_KEY` 时运行 `npm run test:llm`，验证真实黑盒流程、token 预估和报告生成。
+- [x] 5.4 在具备 `DEEPSEEK_API_KEY` 时运行 `npm run test:llm`，验证真实黑盒流程、token 预估和报告生成。
 - [x] 5.5 如果因缺少模型配置或网络限制无法运行 `npm run test:llm`，必须记录未运行原因，并至少验证缺配置时命令输出清晰跳过摘要。
 - [x] 5.6 运行 `openspec validate blackbox-chat-llm-flow-tests --strict`，确认 proposal、specs 和 tasks 通过 OpenSpec 校验。

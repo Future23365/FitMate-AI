@@ -53,4 +53,4 @@
 - [x] 7.5 运行 `npm run typecheck`。
 - [x] 7.6 运行 `openspec validate harden-detailed-llm-blackbox-tests --strict`。
 - [x] 7.7 在缺少 `DEEPSEEK_API_KEY` 时运行详细套件跳过路径，确认不会使用 mock、旧快照或非真实模型结果。
-- [ ] 7.8 在用户明确确认 token 成本后运行真实 `npm run test:llm` 和 `npm run test --detail`，刷新基础与详细报告并记录失败排查摘要。
+- [x] 7.8 在用户明确确认 token 成本后运行真实 `npm run test:llm` 和 `npm run test --detail`，刷新基础与详细报告并记录失败排查摘要。
