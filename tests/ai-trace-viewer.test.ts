@@ -234,8 +234,8 @@ describe("Agent trace view model", () => {
     const entry = createAgentTraceDiagnosisLogEntry(buildAgentTraceViewModel(createAgentTraceFixture()));
 
     expect(entry).toMatchObject({
+      runSummary: expect.objectContaining({ finalResultStatus: "generated" }),
       agentLoopTimeline: {
-        runOverview: expect.objectContaining({ finalResultStatus: "generated" }),
         loopTurns: [
           expect.objectContaining({
             modelRequest: expect.objectContaining({

@@ -310,10 +310,16 @@ export function buildAgentTraceViewModel(trace: AiTrace): AgentTraceViewModel {
 // createAgentTraceDiagnosisLogEntry 输出可复制到日志文件的窄诊断摘要，不替代原始 trace payload。
 // 此函数专为 AI 诊断链路设计，已极致精简：剥离了冗长的已注册工具 Schema、依赖拓扑图、重复的静态解释文案和 rawLinks 数组，使生成的日志体积和 Token 消耗降低 70%+。
 export function createAgentTraceDiagnosisLogEntry(viewModel: AgentTraceViewModel) {
+  const simplifyConsumedBy = (consumed: string[]): string[] => {
+    return consumed.map((c) => {
+      const match = c.match(/\(([^)]+)\)/);
+      return match ? match[1] : c;
+    });
+  };
+
   return compactObject({
     runSummary: viewModel.runSummary,
     agentLoopTimeline: {
-      runOverview: viewModel.agentLoop.runOverview,
       loopTurns: viewModel.agentLoop.loopTurns.map((turn) => ({
         id: turn.id,
         title: turn.title,
@@ -340,7 +346,22 @@ export function createAgentTraceDiagnosisLogEntry(viewModel: AgentTraceViewModel
             }
           : undefined,
         parsedDecision: turn.parsedDecision,
-        toolResults: turn.toolResults,
+        toolResults: turn.toolResults.map((result) => ({
+          step: {
+            stepId: result.step.stepId,
+            index: result.step.index,
+          },
+          toolName: result.toolName,
+          status: result.status,
+          toolCallId: result.toolCallId,
+          toolResultId: result.toolResultId,
+          durationMs: result.durationMs,
+          failureCode: result.failureCode,
+          inputSummary: result.inputSummary,
+          outputSummary: result.outputSummary,
+          resourceIds: result.resourceIds,
+          consumedBy: simplifyConsumedBy(result.consumedBy),
+        })),
         nextPromptLinkage: turn.nextPromptLinkage
           ? {
               nextLoopTurnId: turn.nextPromptLinkage.nextLoopTurnId,
@@ -357,7 +378,6 @@ export function createAgentTraceDiagnosisLogEntry(viewModel: AgentTraceViewModel
         })),
       })),
       finalization: viewModel.agentLoop.finalization,
-      diagnosticFindings: viewModel.agentLoop.diagnostics,
     },
     phaseGroups: viewModel.phaseGroups.map((group) => ({
       id: group.id,
@@ -368,9 +388,44 @@ export function createAgentTraceDiagnosisLogEntry(viewModel: AgentTraceViewModel
       tokenUsage: group.tokenUsage,
       stepIds: group.steps.map((step) => step.id),
     })),
-    toolTimeline: viewModel.toolTimeline,
-    resourceLinks: viewModel.resourceLinks,
-    diagnosticFindings: viewModel.diagnosticFindings,
+    toolTimeline: viewModel.toolTimeline.map((item) => ({
+      id: item.id,
+      stepIndex: item.stepIndex,
+      toolName: item.toolName,
+      status: item.status,
+      durationMs: item.durationMs,
+      parameterSummary: item.parameterSummary,
+      outputSummary: item.outputSummary,
+      failureCode: item.failureCode,
+      toolResultId: item.toolResultId,
+      modelStage: item.modelStage,
+      decisionStep: item.decisionStep ? {
+        stepId: item.decisionStep.stepId,
+        index: item.decisionStep.index,
+      } : undefined,
+      resultStep: item.resultStep ? {
+        stepId: item.resultStep.stepId,
+        index: item.resultStep.index,
+      } : undefined,
+      downstreamUsage: simplifyConsumedBy(item.downstreamUsage),
+    })),
+    resourceLinks: viewModel.resourceLinks.map((link) => ({
+      kind: link.kind,
+      id: link.id,
+      producers: link.producers.map((p) => ({ stepId: p.stepId, index: p.index })),
+      consumers: link.consumers.map((c) => ({ stepId: c.stepId, index: c.index })),
+      toolNames: link.toolNames,
+    })),
+    diagnosticFindings: viewModel.diagnosticFindings.map((finding) => ({
+      id: finding.id,
+      boundary: finding.boundary,
+      severity: finding.severity,
+      code: finding.code,
+      reason: finding.reason,
+      step: finding.step ? { stepId: finding.step.stepId, index: finding.step.index } : undefined,
+      recoveryPath: finding.recoveryPath,
+      blockingReason: finding.blockingReason,
+    })),
     legacyCompatibility: viewModel.legacyCompatibility,
   });
 }
