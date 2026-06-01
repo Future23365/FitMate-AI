@@ -10,6 +10,7 @@ import {
   type AgentToolDependency,
   type AgentToolDomainCapabilityContract,
   type AgentToolError,
+  type AgentToolResultRecord,
 } from "./contracts";
 
 export type AgentToolExecutionContext = {
@@ -18,6 +19,7 @@ export type AgentToolExecutionContext = {
   sessionId: string;
   traceId?: string;
   deadlineAt?: number;
+  toolResults?: AgentToolResultRecord[];
 };
 
 export type AgentToolExecutionResult<Output> =

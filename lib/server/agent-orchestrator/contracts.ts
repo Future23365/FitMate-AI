@@ -257,6 +257,7 @@ export const agentToolResultRecordSchema = z.object({
   toolCallId: z.string().trim().min(1),
   toolName: z.string().trim().min(1),
   status: z.enum(["success", "failed", "blocked"]),
+  output: z.unknown().optional(),
   modelSummary: z.unknown().optional(),
   traceSummary: z.unknown().optional(),
   error: agentToolErrorSchema.optional(),

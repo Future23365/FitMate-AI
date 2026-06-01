@@ -879,14 +879,71 @@ describe("agent orchestrator phase 3 workout tools", () => {
     const draft = createWorkoutRoutineDraft();
     const result = await registry.get("saveConversationArtifactRevision")?.execute({
       sourceArtifactId: "artifact-1",
-      payload: draft,
       draftId: "draft-1",
       candidateSetId: "candidate-set-1",
       validationId: "validation-1",
       policyDecisionId: "policy-1",
       validationPassed: true,
       policyAllowed: true,
-    }, createToolExecutionContext());
+    }, createToolExecutionContext({
+      toolResults: [
+        {
+          toolResultId: "tool-result-draft",
+          toolCallId: "tool-call-draft",
+          toolName: "generateRoutineDraft",
+          status: "success",
+          draftId: "draft-1",
+          candidateSetId: "candidate-set-1",
+          output: {
+            draftKind: "routine",
+            draftId: "draft-1",
+            candidateSetId: "candidate-set-1",
+            candidateExerciseIds: ["push-up"],
+            draft,
+            validation: { valid: true, errors: [], warnings: [], exerciseIds: ["push-up"] },
+            recovery: { recoverable: false, guidanceMessage: "校验通过", suggestedReplies: [] },
+          },
+        },
+        {
+          toolResultId: "tool-result-validation",
+          toolCallId: "tool-call-validation",
+          toolName: "validateRoutineDraft",
+          status: "success",
+          validationId: "validation-1",
+          draftId: "draft-1",
+          candidateSetId: "candidate-set-1",
+          output: {
+            validationId: "validation-1",
+            draftId: "draft-1",
+            candidateSetId: "candidate-set-1",
+            valid: true,
+            errors: [],
+            warnings: [],
+            exerciseIds: ["push-up"],
+          },
+        },
+        {
+          toolResultId: "tool-result-policy",
+          toolCallId: "tool-call-policy",
+          toolName: "evaluatePolicy",
+          status: "success",
+          policyDecisionId: "policy-1",
+          draftId: "draft-1",
+          output: {
+            policyDecisionId: "policy-1",
+            sourceArtifactId: "artifact-1",
+            draftId: "draft-1",
+            policy: {
+              allowed: true,
+              requiresConfirmation: false,
+              safeScope: "new_revision",
+              reasons: [],
+              blockedReasons: [],
+            },
+          },
+        },
+      ],
+    }));
 
     expect(artifactMocks.createConversationArtifactRevision).toHaveBeenCalledWith(expect.objectContaining({
       userId: "user-1",
@@ -1119,11 +1176,6 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
 
         const generatedDraft = state.toolResults[1].modelSummary as { draftId: string };
         if (state.toolResults.length === 2) {
-          const draft = createWorkoutRoutineDraft({
-            title: "无哑铃上肢训练",
-            goal: "上肢力量",
-          });
-
           return {
             action: "call_tool",
             toolName: "validateRoutineDraft",
@@ -1132,7 +1184,6 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
               candidateSetId,
               candidateExerciseIds: ["warmup", "push-up", "stretch"],
               intent,
-              draft,
             },
             reason: "保存前校验 routine 草稿。",
           };
@@ -1154,17 +1205,11 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
 
         const policyDecisionId = state.toolResults[3].policyDecisionId!;
         if (state.toolResults.length === 4) {
-          const payload = createWorkoutRoutineDraft({
-            title: "无哑铃上肢训练",
-            goal: "上肢力量",
-          });
-
           return {
             action: "call_tool",
             toolName: "saveConversationArtifactRevision",
             input: {
               sourceArtifactId: "artifact-1",
-              payload,
               draftId: generatedDraft.draftId,
               candidateSetId,
               validationId,

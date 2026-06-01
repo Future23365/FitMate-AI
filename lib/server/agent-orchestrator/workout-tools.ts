@@ -104,9 +104,9 @@ export const askClarificationAgentToolInputSchema = z.object({
 export const validateRoutineDraftAgentToolInputSchema = z.object({
   draftId: z.string().trim().min(1),
   candidateSetId: z.string().trim().min(1),
-  candidateExerciseIds: z.array(z.string().trim().min(1)).min(1).max(120),
+  candidateExerciseIds: z.array(z.string().trim().min(1)).min(1).max(120).optional(),
   intent: agentRoutineIntentSchema,
-  draft: workoutRoutineDraftSchema,
+  draft: workoutRoutineDraftSchema.optional(),
 });
 
 export const validatePlanDraftAgentToolInputSchema = z.object({
@@ -149,7 +149,7 @@ export const evaluatePolicyAgentToolInputSchema = z.discriminatedUnion("policyTa
 
 export const saveConversationArtifactRevisionAgentToolInputSchema = z.object({
   sourceArtifactId: z.string().trim().min(1),
-  payload: conversationArtifactPayloadSchema,
+  payload: conversationArtifactPayloadSchema.optional(),
   candidateSetId: z.string().trim().min(1),
   validationId: z.string().trim().min(1),
   policyDecisionId: z.string().trim().min(1),
@@ -167,6 +167,13 @@ export const saveConversationArtifactRevisionAgentToolInputSchema = z.object({
       path: ["draftId"],
     });
   }
+  if (!input.draftId && !input.payload) {
+    ctx.addIssue({
+      code: "custom",
+      message: "Patch revision 保存必须提交 payload。",
+      path: ["payload"],
+    });
+  }
 });
 
 export type GenerateRoutineDraftAgentToolInput = z.infer<typeof generateRoutineDraftAgentToolInputSchema>;
@@ -178,6 +185,7 @@ export type AgentWorkoutDraftOutput =
       draftKind: "routine";
       draftId: string;
       candidateSetId: string;
+      candidateExerciseIds: string[];
       draft: WorkoutRoutineDraft;
       validation: WorkoutPlanValidationResult;
       recovery: WorkoutPlanValidationRecovery;
@@ -186,6 +194,7 @@ export type AgentWorkoutDraftOutput =
       draftKind: "plan";
       draftId: string;
       candidateSetId: string;
+      candidateExerciseIds: string[];
       draft: WorkoutPlanDraft;
       validation: WorkoutPlanValidationResult;
       recovery: WorkoutPlanValidationRecovery;
@@ -201,6 +210,9 @@ export type AgentWorkoutPatchOutput = {
 export type AgentPolicyEvaluationOutput = {
   policyDecisionId: string;
   policy: z.infer<typeof policyCheckResultSchema>;
+  sourceArtifactId?: string;
+  draftId?: string;
+  patchId?: string;
 };
 
 export type AgentArtifactRevisionOutput = {
@@ -347,6 +359,7 @@ function createGenerateRoutineDraftTool(): AgentToolDefinition<GenerateRoutineDr
           draftKind: "routine",
           draftId: createStructuredResultId(context, "draft", "generateRoutineDraft", parsedInput),
           candidateSetId: parsedInput.candidateSetId,
+          candidateExerciseIds: parsedInput.candidateExerciseIds,
           draft,
           validation,
           recovery,
@@ -412,6 +425,7 @@ function createGeneratePlanDraftTool(): AgentToolDefinition<z.infer<typeof gener
           draftKind: "plan",
           draftId: createStructuredResultId(context, "draft", "generatePlanDraft", parsedInput),
           candidateSetId: parsedInput.candidateSetId,
+          candidateExerciseIds: parsedInput.candidateExerciseIds,
           draft: expanded.draft,
           validation,
           recovery,
@@ -500,14 +514,30 @@ function createValidateRoutineDraftTool(): AgentToolDefinition<z.infer<typeof va
     },
     async execute(input, context) {
       const parsedInput = validateRoutineDraftAgentToolInputSchema.parse(input);
+      const draftResource = resolveRoutineDraftResource(context, parsedInput.draftId);
+
+      if (!draftResource.ok) {
+        return draftResource;
+      }
+
+      if (draftResource.output.candidateSetId !== parsedInput.candidateSetId) {
+        return createFailure("invalid_dependency", "Routine draft candidateSetId does not match validation input.", {
+          draftId: parsedInput.draftId,
+          draftCandidateSetId: draftResource.output.candidateSetId,
+          inputCandidateSetId: parsedInput.candidateSetId,
+        });
+      }
+
       const exercises = await listAllExercises();
-      const validation = validateWorkoutRoutineDraft(parsedInput.draft, parsedInput.intent, {
+      const validation = validateWorkoutRoutineDraft(draftResource.output.draft, parsedInput.intent, {
         exercises,
-        candidateExerciseIds: parsedInput.candidateExerciseIds,
+        candidateExerciseIds: draftResource.output.candidateExerciseIds,
       });
       const output = {
         ...validation,
         validationId: createStructuredResultId(context, "validation", "validateRoutineDraft", parsedInput),
+        draftId: parsedInput.draftId,
+        candidateSetId: parsedInput.candidateSetId,
         recovery: createValidationRecovery(validation, {
           targetSessionMinutes: parsedInput.intent.sessionMinutes,
         }),
@@ -638,6 +668,9 @@ function createEvaluatePolicyTool(): AgentToolDefinition<z.infer<typeof evaluate
       const output = {
         policyDecisionId: createStructuredResultId(context, "policy_decision", "evaluatePolicy", parsedInput),
         policy,
+        sourceArtifactId: "sourceArtifactId" in parsedInput ? parsedInput.sourceArtifactId : undefined,
+        draftId: "draftId" in parsedInput ? parsedInput.draftId : undefined,
+        patchId: "patchId" in parsedInput ? parsedInput.patchId : undefined,
       };
       const summary = this.summarizeOutput(output);
 
@@ -688,18 +721,24 @@ function createSaveConversationArtifactRevisionTool(): AgentToolDefinition<z.inf
     async execute(input, context) {
       const parsedInput = saveConversationArtifactRevisionAgentToolInputSchema.parse(input);
       try {
+        const payloadResult = resolveArtifactRevisionPayload(context, parsedInput);
+
+        if (!payloadResult.ok) {
+          return payloadResult;
+        }
+
         const revision = await createConversationArtifactRevision({
           userId: context.userId,
           sourceArtifactId: parsedInput.sourceArtifactId,
           messageId: parsedInput.responseMessageId,
-          payload: parsedInput.payload,
+          payload: payloadResult.payload,
         });
 
         if (!revision.ok) {
           return createFailure("persistence_failed", revision.message, revision);
         }
 
-        const payloadSummary = summarizeArtifactPayload(parsedInput.payload);
+        const payloadSummary = summarizeArtifactPayload(payloadResult.payload);
         const output: AgentArtifactRevisionOutput = {
           revisionId: revision.artifact.id,
           artifactId: revision.artifact.id,
@@ -720,6 +759,228 @@ function createSaveConversationArtifactRevisionTool(): AgentToolDefinition<z.inf
       }
     },
   };
+}
+
+type SaveConversationArtifactRevisionAgentToolInput = z.infer<typeof saveConversationArtifactRevisionAgentToolInputSchema>;
+type AgentToolFailure = {
+  ok: false;
+  error: AgentToolError;
+  traceSummary?: unknown;
+};
+type AgentValidationResourceOutput = WorkoutPlanValidationResult & {
+  validationId: string;
+  recovery?: WorkoutPlanValidationRecovery;
+  draftId?: string;
+  candidateSetId?: string;
+};
+
+// Agent 后续工具只拿资源 id；完整 draft / validation / policy 必须从本轮服务端 tool result 中解析。
+function resolveArtifactRevisionPayload(
+  context: AgentToolExecutionContext,
+  input: SaveConversationArtifactRevisionAgentToolInput,
+): { ok: true; payload: z.infer<typeof conversationArtifactPayloadSchema> } | AgentToolFailure {
+  let payload = input.payload;
+
+  if (input.draftId) {
+    const draftResource = resolveDraftResource(context, input.draftId);
+
+    if (!draftResource.ok) {
+      return draftResource;
+    }
+
+    if (draftResource.output.candidateSetId !== input.candidateSetId) {
+      return createFailure("invalid_dependency", "Draft candidateSetId does not match artifact revision input.", {
+        draftId: input.draftId,
+        draftCandidateSetId: draftResource.output.candidateSetId,
+        inputCandidateSetId: input.candidateSetId,
+      });
+    }
+
+    payload = draftResource.output.draft;
+  }
+
+  if (!payload) {
+    return createFailure("schema_validation_failed", "Artifact revision payload is required when no draftId can provide one.", {
+      draftId: input.draftId,
+      patchId: input.patchId,
+    });
+  }
+
+  const validationResource = resolveValidationResource(context, input.validationId);
+
+  if (!validationResource.ok) {
+    return validationResource;
+  }
+
+  if (!validationResource.output.valid) {
+    return createFailure("invalid_dependency", "Artifact revision cannot be saved with a failed validation result.", {
+      validationId: input.validationId,
+      errors: validationResource.output.errors.map((issue) => issue.code),
+    });
+  }
+
+  if (validationResource.output.candidateSetId && validationResource.output.candidateSetId !== input.candidateSetId) {
+    return createFailure("invalid_dependency", "Validation candidateSetId does not match artifact revision input.", {
+      validationId: input.validationId,
+      validationCandidateSetId: validationResource.output.candidateSetId,
+      inputCandidateSetId: input.candidateSetId,
+    });
+  }
+
+  if (input.draftId && validationResource.output.draftId && validationResource.output.draftId !== input.draftId) {
+    return createFailure("invalid_dependency", "Validation draftId does not match artifact revision input.", {
+      validationId: input.validationId,
+      validationDraftId: validationResource.output.draftId,
+      inputDraftId: input.draftId,
+    });
+  }
+
+  const policyResource = resolvePolicyResource(context, input.policyDecisionId);
+
+  if (!policyResource.ok) {
+    return policyResource;
+  }
+
+  if (!policyResource.output.policy.allowed) {
+    return createFailure("policy_blocked", "Policy decision does not allow artifact revision persistence.", {
+      policyDecisionId: input.policyDecisionId,
+      blockedReasons: policyResource.output.policy.blockedReasons,
+    });
+  }
+
+  if (policyResource.output.sourceArtifactId && policyResource.output.sourceArtifactId !== input.sourceArtifactId) {
+    return createFailure("invalid_dependency", "Policy sourceArtifactId does not match artifact revision input.", {
+      policyDecisionId: input.policyDecisionId,
+      policySourceArtifactId: policyResource.output.sourceArtifactId,
+      inputSourceArtifactId: input.sourceArtifactId,
+    });
+  }
+
+  if (input.draftId && policyResource.output.draftId && policyResource.output.draftId !== input.draftId) {
+    return createFailure("invalid_dependency", "Policy draftId does not match artifact revision input.", {
+      policyDecisionId: input.policyDecisionId,
+      policyDraftId: policyResource.output.draftId,
+      inputDraftId: input.draftId,
+    });
+  }
+
+  return { ok: true, payload };
+}
+
+function resolveRoutineDraftResource(
+  context: AgentToolExecutionContext,
+  draftId: string,
+): { ok: true; output: Extract<AgentWorkoutDraftOutput, { draftKind: "routine" }> } | AgentToolFailure {
+  const draftResource = resolveDraftResource(context, draftId);
+
+  if (!draftResource.ok) {
+    return draftResource;
+  }
+
+  if (draftResource.output.draftKind !== "routine") {
+    return createFailure("invalid_dependency", "Referenced draft is not a routine draft.", {
+      draftId,
+      draftKind: draftResource.output.draftKind,
+    });
+  }
+
+  return { ok: true, output: draftResource.output };
+}
+
+function resolveDraftResource(
+  context: AgentToolExecutionContext,
+  draftId: string,
+): { ok: true; output: AgentWorkoutDraftOutput } | AgentToolFailure {
+  const result = context.toolResults?.find((toolResult) => toolResult.draftId === draftId);
+
+  if (!result) {
+    return createFailure("invalid_dependency", "Referenced draftId was not produced in this Agent run.", { draftId });
+  }
+
+  if (!isAgentWorkoutDraftOutput(result.output) || result.output.draftId !== draftId) {
+    return createFailure("invalid_dependency", "Referenced draftId does not resolve to a draft tool output.", {
+      draftId,
+      toolName: result.toolName,
+    });
+  }
+
+  return { ok: true, output: result.output };
+}
+
+function resolveValidationResource(
+  context: AgentToolExecutionContext,
+  validationId: string,
+): { ok: true; output: AgentValidationResourceOutput } | AgentToolFailure {
+  const result = context.toolResults?.find((toolResult) => toolResult.validationId === validationId);
+
+  if (!result) {
+    return createFailure("invalid_dependency", "Referenced validationId was not produced in this Agent run.", { validationId });
+  }
+
+  if (!isValidationResourceOutput(result.output) || result.output.validationId !== validationId) {
+    return createFailure("invalid_dependency", "Referenced validationId does not resolve to a validation tool output.", {
+      validationId,
+      toolName: result.toolName,
+    });
+  }
+
+  return { ok: true, output: result.output };
+}
+
+function resolvePolicyResource(
+  context: AgentToolExecutionContext,
+  policyDecisionId: string,
+): { ok: true; output: AgentPolicyEvaluationOutput } | AgentToolFailure {
+  const result = context.toolResults?.find((toolResult) => toolResult.policyDecisionId === policyDecisionId);
+
+  if (!result) {
+    return createFailure("invalid_dependency", "Referenced policyDecisionId was not produced in this Agent run.", { policyDecisionId });
+  }
+
+  if (!isPolicyEvaluationOutput(result.output) || result.output.policyDecisionId !== policyDecisionId) {
+    return createFailure("invalid_dependency", "Referenced policyDecisionId does not resolve to a policy tool output.", {
+      policyDecisionId,
+      toolName: result.toolName,
+    });
+  }
+
+  return { ok: true, output: result.output };
+}
+
+function isAgentWorkoutDraftOutput(output: unknown): output is AgentWorkoutDraftOutput {
+  if (!isRecord(output) || typeof output.draftId !== "string" || typeof output.candidateSetId !== "string" || !Array.isArray(output.candidateExerciseIds)) {
+    return false;
+  }
+
+  if (output.draftKind === "routine") {
+    return workoutRoutineDraftSchema.safeParse(output.draft).success;
+  }
+
+  if (output.draftKind === "plan") {
+    return workoutPlanDraftSchema.safeParse(output.draft).success;
+  }
+
+  return false;
+}
+
+function isValidationResourceOutput(output: unknown): output is AgentValidationResourceOutput {
+  if (!isRecord(output) || typeof output.validationId !== "string" || typeof output.valid !== "boolean") {
+    return false;
+  }
+
+  return Array.isArray(output.errors) && Array.isArray(output.warnings) && Array.isArray(output.exerciseIds);
+}
+
+function isPolicyEvaluationOutput(output: unknown): output is AgentPolicyEvaluationOutput {
+  if (!isRecord(output) || typeof output.policyDecisionId !== "string") {
+    return false;
+  }
+
+  return policyCheckResultSchema.safeParse(output.policy).success;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function buildRoutineDraftFromCandidates(
@@ -917,7 +1178,7 @@ function createFailure(
   code: AgentToolError["code"],
   message: string,
   detail?: unknown,
-): AgentToolExecutionResult<never> {
+): AgentToolFailure {
   return {
     ok: false,
     error: { code, message, detail, retryable: code === "tool_execution_failed" || code === "timeout" },

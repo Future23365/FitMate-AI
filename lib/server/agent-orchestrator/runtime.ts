@@ -319,6 +319,7 @@ export async function runAgentOrchestrator(
       sessionId: input.sessionId,
       traceId: input.trace?.id,
       deadlineAt,
+      toolResults: state.toolResults,
     });
     const resultRecord = createToolResultRecord({
       toolCallId: toolCallIdForExecution,
@@ -492,6 +493,7 @@ function createToolResultRecord(input: {
     toolCallId: input.toolCallId,
     toolName: input.toolName,
     status: "success",
+    output: input.result.output,
     modelSummary: input.result.modelSummary,
     traceSummary: input.result.traceSummary,
     ...ids,
