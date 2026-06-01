@@ -121,13 +121,13 @@
 
 ## 1. 契约与模块边界
 
-- [ ] 1.1 新增 `lib/server/agent-orchestrator` 模块，定义 `AgentContextBuilder`、`ContextPackage`、`ContextProvenance`、`AgentExecutionState`、`AgentExecutionResult`、`AgentDependencyGraph` 和核心类型注释。
-- [ ] 1.2 定义统一 `AgentToolRegistry` 接口，覆盖工具名称、描述、读写级别、Zod 输入 Schema、输出摘要、trace 摘要、幂等 key、前置依赖和执行函数。
-- [ ] 1.3 定义 Agent tool decision / final result 的 Structured Outputs Schema，确保模型只能选择注册工具或返回合法终止结果。
-- [ ] 1.4 定义 `WorkoutEditPlan` / `WorkoutEditIntent`，覆盖目标 artifact、保留项、变更项、影响范围、策略、候选集合依赖和确认级别。
-- [ ] 1.5 定义工具错误码、step limit、timeout、checkpoint/resume、失败恢复、blocked 状态和硬失败分类。
-- [ ] 1.6 定义 `LegacyChatEventAdapter` 单向兼容层和旧 `assistant_action` / resolved intent 退出条件。
-- [ ] 1.7 定义通用 `completed_operation` AgentExecutionResult 分支，用于表达非训练 artifact 的受控写操作结果，并约束 operation 摘要、operationResultId、policyDecisionId、confirmationId 和 Response Writer 可见字段。
+- [x] 1.1 新增 `lib/server/agent-orchestrator` 模块，定义 `AgentContextBuilder`、`ContextPackage`、`ContextProvenance`、`AgentExecutionState`、`AgentExecutionResult`、`AgentDependencyGraph` 和核心类型注释。
+- [x] 1.2 定义统一 `AgentToolRegistry` 接口，覆盖工具名称、描述、读写级别、Zod 输入 Schema、输出摘要、trace 摘要、幂等 key、前置依赖和执行函数。
+- [x] 1.3 定义 Agent tool decision / final result 的 Structured Outputs Schema，确保模型只能选择注册工具或返回合法终止结果。
+- [x] 1.4 定义 `WorkoutEditPlan` / `WorkoutEditIntent`，覆盖目标 artifact、保留项、变更项、影响范围、策略、候选集合依赖和确认级别。
+- [x] 1.5 定义工具错误码、step limit、timeout、checkpoint/resume、失败恢复、blocked 状态和硬失败分类。
+- [x] 1.6 定义 `LegacyChatEventAdapter` 单向兼容层和旧 `assistant_action` / resolved intent 退出条件。
+- [x] 1.7 定义通用 `completed_operation` AgentExecutionResult 分支，用于表达非训练 artifact 的受控写操作结果，并约束 operation 摘要、operationResultId、policyDecisionId、confirmationId 和 Response Writer 可见字段。
 
 ## 2. 工具注册与服务端硬边界
 

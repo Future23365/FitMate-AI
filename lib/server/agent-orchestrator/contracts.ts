@@ -1,0 +1,479 @@
+import { z } from "zod";
+
+import { conversationArtifactKindSchema } from "@/lib/shared/conversation-artifacts/schema";
+
+export const agentContextSourceKindSchema = z.enum([
+  "latest_user_message",
+  "recent_message",
+  "recent_artifact",
+  "user_memory",
+  "pending_confirmation",
+  "context_snapshot",
+  "tool_result",
+]);
+
+export const agentContextTrustLevelSchema = z.enum([
+  "structured_fact",
+  "database_summary",
+  "user_supplied",
+  "derived_summary",
+  "diagnostic_only",
+]);
+
+export const agentTruncationReasonSchema = z.enum([
+  "none",
+  "max_messages",
+  "max_artifacts",
+  "max_chars",
+  "budget",
+]);
+
+// Agent context provenance records where each visible fact came from and whether it was truncated.
+export const contextProvenanceSchema = z.object({
+  sourceKind: agentContextSourceKindSchema,
+  sourceId: z.string().trim().min(1),
+  sourceUpdatedAt: z.string().trim().min(1).optional(),
+  trustLevel: agentContextTrustLevelSchema,
+  truncationReason: agentTruncationReasonSchema.default("none"),
+  visibleCharCount: z.number().int().min(0),
+});
+
+export type ContextProvenance = z.infer<typeof contextProvenanceSchema>;
+
+export const chatMessageSummarySchema = z.object({
+  id: z.string().trim().min(1).optional(),
+  role: z.enum(["system", "user", "assistant"]),
+  content: z.string().trim().min(1),
+  createdAt: z.string().trim().min(1).optional(),
+});
+
+export type ChatMessageSummary = z.infer<typeof chatMessageSummarySchema>;
+
+export const agentArtifactSummarySchema = z.object({
+  artifactId: z.string().trim().min(1),
+  revisionId: z.string().trim().min(1).optional(),
+  lineageId: z.string().trim().min(1).optional(),
+  kind: conversationArtifactKindSchema,
+  title: z.string().trim().min(1).max(160),
+  summary: z.string().trim().max(600).optional(),
+  sessionId: z.string().trim().min(1).optional(),
+  status: z.enum(["active", "superseded", "archived"]).optional(),
+  updatedAt: z.string().trim().min(1).optional(),
+});
+
+export type AgentArtifactSummary = z.infer<typeof agentArtifactSummarySchema>;
+
+export const userMemorySnapshotSchema = z.object({
+  snapshotId: z.string().trim().min(1),
+  facts: z.array(z.string().trim().min(1).max(240)).max(24).default([]),
+  preferences: z.array(z.string().trim().min(1).max(240)).max(24).default([]),
+  avoidances: z.array(z.string().trim().min(1).max(240)).max(24).default([]),
+  updatedAt: z.string().trim().min(1).optional(),
+});
+
+export type UserMemorySnapshot = z.infer<typeof userMemorySnapshotSchema>;
+
+export const agentConfirmationSchema = z.object({
+  confirmationId: z.string().trim().min(1),
+  status: z.enum(["pending", "accepted", "rejected", "expired"]),
+  resourceType: z.string().trim().min(1).max(80),
+  summary: z.string().trim().min(1).max(500),
+  expiresAt: z.string().trim().min(1).optional(),
+});
+
+export type AgentConfirmation = z.infer<typeof agentConfirmationSchema>;
+
+export const contextSnapshotSchema = z.object({
+  snapshotId: z.string().trim().min(1),
+  summary: z.string().trim().min(1).max(2400),
+  sourceMessageIds: z.array(z.string().trim().min(1)).max(80).default([]),
+  createdAt: z.string().trim().min(1).optional(),
+  trustLevel: z.literal("derived_summary").default("derived_summary"),
+  factSourceWarning: z
+    .literal("snapshot_not_fact_source")
+    .default("snapshot_not_fact_source"),
+});
+
+export type ContextSnapshot = z.infer<typeof contextSnapshotSchema>;
+
+export const contextLimitsSchema = z.object({
+  maxRecentMessages: z.number().int().min(1).max(40).default(12),
+  maxRecentArtifacts: z.number().int().min(0).max(20).default(8),
+  maxMessageChars: z.number().int().min(80).max(4000).default(1200),
+  maxArtifactSummaryChars: z.number().int().min(80).max(2000).default(700),
+});
+
+export type ContextLimits = z.infer<typeof contextLimitsSchema>;
+
+// ContextPackage is the single execution context handed to the Agent runtime.
+export const contextPackageSchema = z.object({
+  latestUserMessage: z.string().trim().min(1),
+  recentMessages: z.array(chatMessageSummarySchema),
+  recentArtifacts: z.array(agentArtifactSummarySchema),
+  memorySnapshot: userMemorySnapshotSchema.optional(),
+  pendingConfirmation: agentConfirmationSchema.optional(),
+  optionalContextSnapshot: contextSnapshotSchema.optional(),
+  provenance: z.array(contextProvenanceSchema),
+  limits: contextLimitsSchema,
+});
+
+export type ContextPackage = z.infer<typeof contextPackageSchema>;
+
+export const agentToolAccessLevelSchema = z.enum([
+  "read",
+  "plan",
+  "generate",
+  "validate",
+  "write",
+  "clarify",
+]);
+
+export type AgentToolAccessLevel = z.infer<typeof agentToolAccessLevelSchema>;
+
+export const agentToolDependencyKindSchema = z.enum([
+  "tool_result",
+  "candidate_set",
+  "artifact_payload",
+  "workout_edit_plan",
+  "draft",
+  "patch",
+  "validation",
+  "policy_decision",
+  "confirmation",
+]);
+
+export type AgentToolDependencyKind = z.infer<typeof agentToolDependencyKindSchema>;
+
+export const agentToolDependencySchema = z.object({
+  kind: agentToolDependencyKindSchema,
+  required: z.boolean().default(true),
+  description: z.string().trim().min(1).max(240),
+});
+
+export type AgentToolDependency = z.infer<typeof agentToolDependencySchema>;
+
+export const agentToolDomainCapabilityContractSchema = z.object({
+  openspecChange: z.string().trim().min(1),
+  capabilityId: z.string().trim().min(1),
+  writableResources: z.array(z.string().trim().min(1)).min(1),
+  fieldWhitelist: z.array(z.string().trim().min(1)).min(1),
+  permissionScope: z.string().trim().min(1),
+  confirmationPolicy: z.enum(["none", "low_risk", "required", "policy_driven"]),
+  persistenceService: z.string().trim().min(1),
+  responseWriterSafeSummary: z.string().trim().min(1).max(500),
+});
+
+export type AgentToolDomainCapabilityContract = z.infer<
+  typeof agentToolDomainCapabilityContractSchema
+>;
+
+export const agentToolErrorCodeSchema = z.enum([
+  "unknown_tool",
+  "schema_validation_failed",
+  "forbidden",
+  "not_found",
+  "invalid_dependency",
+  "candidate_set_mismatch",
+  "validation_failed",
+  "policy_blocked",
+  "confirmation_required",
+  "timeout",
+  "step_limit_exceeded",
+  "checkpoint_not_found",
+  "resume_conflict",
+  "model_output_invalid",
+  "tool_execution_failed",
+  "persistence_failed",
+  "hard_failure",
+]);
+
+export type AgentToolErrorCode = z.infer<typeof agentToolErrorCodeSchema>;
+
+export const agentToolErrorSchema = z.object({
+  code: agentToolErrorCodeSchema,
+  message: z.string().trim().min(1).max(600),
+  detail: z.unknown().optional(),
+  retryable: z.boolean().default(false),
+});
+
+export type AgentToolError = z.infer<typeof agentToolErrorSchema>;
+
+export const agentRuntimeLimitsSchema = z.object({
+  maxSteps: z.number().int().min(1).max(40).default(12),
+  maxDecisionCalls: z.number().int().min(1).max(30).default(10),
+  timeoutMs: z.number().int().min(500).max(120000).default(30000),
+  checkpointEverySteps: z.number().int().min(1).max(10).default(1),
+  maxToolResultSummaryChars: z.number().int().min(200).max(10000).default(2400),
+});
+
+export type AgentRuntimeLimits = z.infer<typeof agentRuntimeLimitsSchema>;
+
+export const defaultAgentRuntimeLimits: AgentRuntimeLimits = agentRuntimeLimitsSchema.parse({});
+
+export const agentHardFailureCodeSchema = z.enum([
+  "runtime_contract_violation",
+  "unsafe_write_attempt",
+  "dependency_graph_corrupt",
+  "unrecoverable_tool_error",
+  "persistence_boundary_violation",
+]);
+
+export type AgentHardFailureCode = z.infer<typeof agentHardFailureCodeSchema>;
+
+export const agentBlockedStateSchema = z.object({
+  blockReason: z.string().trim().min(1).max(600),
+  toolResultIds: z.array(z.string().trim().min(1)).default([]),
+  policyDecisionId: z.string().trim().min(1).optional(),
+  recoverySuggestions: z.array(z.string().trim().min(1).max(160)).default([]),
+});
+
+export type AgentBlockedState = z.infer<typeof agentBlockedStateSchema>;
+
+export const agentCheckpointSchema = z.object({
+  checkpointId: z.string().trim().min(1),
+  runId: z.string().trim().min(1),
+  stepIndex: z.number().int().min(0),
+  createdAt: z.string().trim().min(1),
+  resumeToken: z.string().trim().min(1),
+  summary: z.string().trim().min(1).max(1200),
+});
+
+export type AgentCheckpoint = z.infer<typeof agentCheckpointSchema>;
+
+export const agentToolCallRecordSchema = z.object({
+  id: z.string().trim().min(1),
+  toolName: z.string().trim().min(1),
+  input: z.unknown(),
+  status: z.enum(["pending", "success", "failed", "skipped"]),
+  startedAt: z.string().trim().min(1).optional(),
+  finishedAt: z.string().trim().min(1).optional(),
+  reason: z.string().trim().max(400).optional(),
+});
+
+export type AgentToolCallRecord = z.infer<typeof agentToolCallRecordSchema>;
+
+export const agentToolResultRecordSchema = z.object({
+  toolResultId: z.string().trim().min(1),
+  toolCallId: z.string().trim().min(1),
+  toolName: z.string().trim().min(1),
+  status: z.enum(["success", "failed", "blocked"]),
+  modelSummary: z.unknown().optional(),
+  traceSummary: z.unknown().optional(),
+  error: agentToolErrorSchema.optional(),
+  candidateSetId: z.string().trim().min(1).optional(),
+  artifactPayloadId: z.string().trim().min(1).optional(),
+  validationId: z.string().trim().min(1).optional(),
+  policyDecisionId: z.string().trim().min(1).optional(),
+  confirmationId: z.string().trim().min(1).optional(),
+  revisionId: z.string().trim().min(1).optional(),
+});
+
+export type AgentToolResultRecord = z.infer<typeof agentToolResultRecordSchema>;
+
+export const agentDependencyNodeSchema = z.object({
+  id: z.string().trim().min(1),
+  kind: agentToolDependencyKindSchema.or(z.enum(["tool_call", "final_result"])),
+  label: z.string().trim().min(1).max(160),
+  resourceId: z.string().trim().min(1).optional(),
+});
+
+export type AgentDependencyNode = z.infer<typeof agentDependencyNodeSchema>;
+
+export const agentDependencyEdgeSchema = z.object({
+  from: z.string().trim().min(1),
+  to: z.string().trim().min(1),
+  relation: z.enum(["produces", "depends_on", "validates", "authorizes", "persists", "projects"]),
+});
+
+export type AgentDependencyEdge = z.infer<typeof agentDependencyEdgeSchema>;
+
+// AgentDependencyGraph connects tool results, candidate sets, validation, policy and final projection.
+export const agentDependencyGraphSchema = z.object({
+  nodes: z.array(agentDependencyNodeSchema).default([]),
+  edges: z.array(agentDependencyEdgeSchema).default([]),
+});
+
+export type AgentDependencyGraph = z.infer<typeof agentDependencyGraphSchema>;
+
+export const workoutEditIntentSchema = z.object({
+  intentId: z.string().trim().min(1),
+  targetArtifactId: z.string().trim().min(1).optional(),
+  requestedChangeSummary: z.string().trim().min(1).max(600),
+  constraints: z.array(z.string().trim().min(1).max(240)).default([]),
+  sourceToolResultIds: z.array(z.string().trim().min(1)).default([]),
+});
+
+export type WorkoutEditIntent = z.infer<typeof workoutEditIntentSchema>;
+
+export const workoutEditConstraintSchema = z.object({
+  kind: z.enum(["exercise", "equipment", "muscle", "difficulty", "duration", "location", "schedule", "preference", "other"]),
+  targetId: z.string().trim().min(1).optional(),
+  summary: z.string().trim().min(1).max(240),
+});
+
+export type WorkoutEditConstraint = z.infer<typeof workoutEditConstraintSchema>;
+
+// WorkoutEditPlan is the required planning boundary before patch or regenerate tools run.
+export const workoutEditPlanSchema = z.object({
+  editPlanId: z.string().trim().min(1),
+  targetArtifactId: z.string().trim().min(1),
+  sourceArtifactPayloadId: z.string().trim().min(1),
+  requestedChangeSummary: z.string().trim().min(1).max(600),
+  preserve: z.array(workoutEditConstraintSchema).default([]),
+  changes: z.array(workoutEditConstraintSchema).min(1),
+  scope: z.enum(["single_item", "section", "whole_routine", "whole_plan"]),
+  strategy: z.enum(["patch", "regenerate", "clarify"]),
+  requiredCandidateSetIds: z.array(z.string().trim().min(1)).default([]),
+  confirmationLevel: z.enum(["none", "low", "high"]),
+});
+
+export type WorkoutEditPlan = z.infer<typeof workoutEditPlanSchema>;
+
+export const assistantSuggestionSchema = z.object({
+  label: z.string().trim().min(1).max(80),
+  message: z.string().trim().min(1).max(240),
+});
+
+export type AgentAssistantSuggestion = z.infer<typeof assistantSuggestionSchema>;
+
+export const conversationArtifactSummarySchema = z.object({
+  artifactId: z.string().trim().min(1),
+  revisionId: z.string().trim().min(1).optional(),
+  kind: conversationArtifactKindSchema,
+  title: z.string().trim().min(1).max(160),
+  summary: z.string().trim().max(700).optional(),
+});
+
+export type AgentConversationArtifactSummary = z.infer<
+  typeof conversationArtifactSummarySchema
+>;
+
+export const workoutPatchResultSummarySchema = z.object({
+  patchId: z.string().trim().min(1),
+  sourceArtifactId: z.string().trim().min(1),
+  targetArtifactId: z.string().trim().min(1).optional(),
+  changedExerciseIds: z.array(z.string().trim().min(1)).default([]),
+  summary: z.string().trim().min(1).max(700),
+});
+
+export type AgentWorkoutPatchResultSummary = z.infer<
+  typeof workoutPatchResultSummarySchema
+>;
+
+export const agentOperationVisibleFieldSchema = z.object({
+  key: z.string().trim().min(1).max(80),
+  label: z.string().trim().min(1).max(120),
+  value: z.union([z.string(), z.number(), z.boolean()]),
+});
+
+export type AgentOperationVisibleField = z.infer<
+  typeof agentOperationVisibleFieldSchema
+>;
+
+// Operation summaries are deliberately small so Response Writer cannot expose unsafe write payloads.
+export const agentOperationSummarySchema = z.object({
+  operationType: z.string().trim().min(1).max(120),
+  resourceType: z.string().trim().min(1).max(120),
+  title: z.string().trim().min(1).max(160),
+  summary: z.string().trim().min(1).max(700),
+  visibleFields: z.array(agentOperationVisibleFieldSchema).max(12).default([]),
+  sensitiveFieldsOmitted: z.literal(true).default(true),
+});
+
+export type AgentOperationSummary = z.infer<typeof agentOperationSummarySchema>;
+
+// AgentExecutionResult is the only terminal execution contract for chat orchestration.
+export const agentExecutionResultSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("answered"),
+    replyContext: z.record(z.string(), z.unknown()).default({}),
+    usedToolResultIds: z.array(z.string().trim().min(1)).default([]),
+  }),
+  z.object({
+    status: z.literal("needs_clarification"),
+    question: z.string().trim().min(1).max(700),
+    assistantSuggestions: z.array(assistantSuggestionSchema).default([]),
+    blockingReasons: z.array(z.string().trim().min(1).max(240)).default([]),
+  }),
+  z.object({
+    status: z.literal("generated"),
+    artifact: conversationArtifactSummarySchema,
+    revisionId: z.string().trim().min(1),
+    validationId: z.string().trim().min(1),
+    policyDecisionId: z.string().trim().min(1).optional(),
+    usedToolResultIds: z.array(z.string().trim().min(1)).default([]),
+  }),
+  z.object({
+    status: z.literal("patched"),
+    patchResult: workoutPatchResultSummarySchema,
+    artifact: conversationArtifactSummarySchema,
+    revisionId: z.string().trim().min(1),
+    validationId: z.string().trim().min(1),
+    policyDecisionId: z.string().trim().min(1).optional(),
+    usedToolResultIds: z.array(z.string().trim().min(1)).default([]),
+  }),
+  z.object({
+    status: z.literal("completed_operation"),
+    operation: agentOperationSummarySchema,
+    operationResultId: z.string().trim().min(1),
+    usedToolResultIds: z.array(z.string().trim().min(1)).min(1),
+    policyDecisionId: z.string().trim().min(1).optional(),
+    confirmationId: z.string().trim().min(1).optional(),
+  }),
+  z.object({
+    status: z.literal("blocked"),
+    blockReason: z.string().trim().min(1).max(700),
+    policyDecisionId: z.string().trim().min(1).optional(),
+    recoverySuggestions: z.array(assistantSuggestionSchema).default([]),
+    usedToolResultIds: z.array(z.string().trim().min(1)).default([]),
+  }),
+  z.object({
+    status: z.literal("failed"),
+    failureCode: agentToolErrorCodeSchema.or(agentHardFailureCodeSchema),
+    recoverySuggestions: z.array(assistantSuggestionSchema).default([]),
+    usedToolResultIds: z.array(z.string().trim().min(1)).default([]),
+  }),
+]);
+
+export type AgentExecutionResult = z.infer<typeof agentExecutionResultSchema>;
+
+export const agentExecutionStateSchema = z.object({
+  runId: z.string().trim().min(1),
+  userId: z.string().trim().min(1),
+  sessionId: z.string().trim().min(1),
+  context: contextPackageSchema,
+  toolCalls: z.array(agentToolCallRecordSchema).default([]),
+  toolResults: z.array(agentToolResultRecordSchema).default([]),
+  dependencyGraph: agentDependencyGraphSchema.default({ nodes: [], edges: [] }),
+  pendingConfirmation: agentConfirmationSchema.optional(),
+  candidateSets: z.record(z.string(), z.unknown()).default({}),
+  editPlan: workoutEditPlanSchema.optional(),
+  draft: z.unknown().optional(),
+  patch: z.unknown().optional(),
+  checkpoints: z.array(agentCheckpointSchema).default([]),
+  blockedState: agentBlockedStateSchema.optional(),
+  finalResult: agentExecutionResultSchema.optional(),
+});
+
+export type AgentExecutionState = z.infer<typeof agentExecutionStateSchema>;
+
+export const agentToolCallDecisionSchema = z.object({
+  action: z.literal("call_tool"),
+  toolName: z.string().trim().min(1),
+  input: z.unknown(),
+  reason: z.string().trim().min(1).max(500),
+});
+
+export const agentFinalDecisionSchema = z.object({
+  action: z.literal("final_result"),
+  result: agentExecutionResultSchema,
+  reason: z.string().trim().min(1).max(500),
+});
+
+// Agent tool decision output is either one registered tool call or one validated final result.
+export const agentToolDecisionSchema = z.discriminatedUnion("action", [
+  agentToolCallDecisionSchema,
+  agentFinalDecisionSchema,
+]);
+
+export type AgentToolDecision = z.infer<typeof agentToolDecisionSchema>;
