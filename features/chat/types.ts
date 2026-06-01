@@ -6,8 +6,6 @@ import type {
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
 import type { ConversationArtifactKind } from "@/lib/shared/conversation-artifacts/schema";
 import type { ConversationSummaryContext, FitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
-import type { ReferenceResolution } from "@/lib/shared/reference-resolver/schema";
-import type { ResolvedAction, ResolvedChatIntent, ResolvedFieldSources } from "@/lib/shared/chat/resolved-intent";
 import type { AssistantSuggestion } from "@/lib/shared/chat/assistant-suggestions";
 import type { WorkoutPatchDiffEntry } from "@/lib/shared/workout-patches/schema";
 
@@ -30,15 +28,6 @@ export type ChatMessage = {
 
 export type ApiChatMessage = Pick<ChatMessage, "role" | "content">;
 
-export type AssistantActionEvent = {
-  action: ResolvedAction["kind"];
-  intent: unknown;
-  resolvedIntent?: ResolvedChatIntent;
-  resolvedAction?: ResolvedAction;
-  fieldSources?: ResolvedFieldSources;
-  referenceResolution?: Extract<ReferenceResolution, { status: "resolved" }>;
-};
-
 export type ReferenceResolutionDiagnostic = {
   referenceResolutionStatus: "resolved" | "unresolved" | "not_applicable";
   artifactId?: string;
@@ -55,8 +44,6 @@ export type ChatStreamEvent = {
     | "done"
     | "error"
     | "agent_execution_result"
-    | "assistant_action"
-    | "intent_resolved"
     | "artifact_generating"
     | "artifact_validated"
     | "artifact_failed"
@@ -67,12 +54,7 @@ export type ChatStreamEvent = {
     | "suggested_replies"
     | "suggested_questions";
   delta?: string;
-  action?: AssistantActionEvent["action"];
   intent?: unknown;
-  resolvedIntent?: ResolvedChatIntent;
-  resolvedAction?: ResolvedAction;
-  fieldSources?: ResolvedFieldSources;
-  referenceResolution?: AssistantActionEvent["referenceResolution"];
   /** 确定性引用讲解路径的诊断信息，供测试和 trace 消费，不渲染为用户内容。 */
   referenceDiagnostic?: ReferenceResolutionDiagnostic;
   artifactKind?: "exercise_recommendation" | "routine" | "plan";
@@ -102,7 +84,6 @@ export type ChatStreamEvent = {
   legacyPathSkip?: unknown;
   agentRunId?: string;
   agentStatus?: string;
-  legacyEventsEmitted?: boolean;
 };
 
 export type ChatConversation = {

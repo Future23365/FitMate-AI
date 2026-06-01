@@ -3,7 +3,6 @@ import "server-only";
 import {
   searchArtifactsForCurrentUserDetailed,
 } from "@/lib/server/conversation-artifacts/artifact-service";
-import type { ChatIntent } from "@/lib/server/chat/chat-service";
 import type { AiTraceLogger } from "@/lib/server/dev/ai-trace-logger";
 import { summarizeReferenceResolutionForTrace } from "@/lib/server/dev/ai-run-trace";
 import type { CurrentUser } from "@/lib/server/users/current-user";
@@ -17,8 +16,17 @@ import { referenceResolutionInputSchema } from "@/lib/shared/reference-resolver/
 import type { ConversationArtifactKind } from "@/lib/shared/conversation-artifacts/schema";
 import { toUtcISOString } from "@/lib/shared/time/utc-date-time";
 
+type LegacyReferenceIntentType =
+  | "general_fitness_advice"
+  | "exercise_recommendation"
+  | "workout_plan"
+  | "routine"
+  | "exercise_replacement"
+  | "exercise_explanation"
+  | "non_fitness";
+
 type ResolveReferenceInput = ReferenceResolutionInput & {
-  intentType?: ChatIntent["type"];
+  intentType?: LegacyReferenceIntentType;
   trace?: AiTraceLogger;
   currentUser?: CurrentUser;
 };
@@ -207,7 +215,7 @@ export async function resolveReference(input: ResolveReferenceInput): Promise<Re
 
 export function shouldAttemptReferenceResolution(
   message: string,
-  intentType?: ChatIntent["type"],
+  intentType?: LegacyReferenceIntentType,
   actionKind?: ResolvedActionKind,
   referenceRequirement?: ResolvedReferenceRequirement,
 ) {
@@ -342,7 +350,7 @@ function buildClarificationQuestion(candidates: ReferenceArtifactCandidate[]) {
   return `我找到了几个可能对应的训练内容，请确认你指的是哪一个：${options}`;
 }
 
-function inferArtifactKind(message: string, intentType?: ChatIntent["type"]): ConversationArtifactKind | undefined {
+function inferArtifactKind(message: string, intentType?: LegacyReferenceIntentType): ConversationArtifactKind | undefined {
   const normalized = normalizeText(message);
 
   if (intentType === "exercise_replacement" || intentType === "exercise_explanation") {

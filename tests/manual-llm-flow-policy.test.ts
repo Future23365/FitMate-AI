@@ -273,7 +273,6 @@ describe("manual LLM blackbox flow runner policy", () => {
             summaryOnlyContext: true,
             referenceResolverFirst: true,
           },
-          legacyEventsEmitted: false,
         },
       }),
     });

@@ -13,7 +13,6 @@ import {
 } from "@/features/chat/lib/workout-plan-trigger";
 import type {
   ApiChatMessage,
-  AssistantActionEvent,
   ChatMessage,
   ChatStreamEvent,
 } from "@/features/chat/types";
@@ -453,18 +452,6 @@ export function useChatController() {
 
           if (streamEvent.type === "error") {
             throw new Error(streamEvent.delta || "聊天请求失败，请稍后重试。");
-          }
-
-          if ((streamEvent.type === "assistant_action" || streamEvent.type === "intent_resolved") && streamEvent.action) {
-            const assistantAction: AssistantActionEvent = {
-              action: streamEvent.action,
-              intent: streamEvent.intent,
-              resolvedIntent: streamEvent.resolvedIntent,
-              resolvedAction: streamEvent.resolvedAction,
-              fieldSources: streamEvent.fieldSources,
-              referenceResolution: streamEvent.referenceResolution,
-            };
-            continue;
           }
 
           if (streamEvent.type === "artifact_generating") {

@@ -209,7 +209,7 @@ Zod 用于在服务端再次校验模型输出，避免模型生成不可执行�
 
 当前 `/api/chat` 主链已经切换为 Tool-first `AgentOrchestrator`。服务端先构造 `ContextPackage`，其中包含最新用户消息、真实 recent messages、recent artifact 摘要、用户记忆和 provenance；LLM 只能通过统一 `AgentToolRegistry` 调用受控工具读取 artifact payload、查询动作、提出 `WorkoutEditPlan`、生成 draft、校验、评估 Policy 和保存 revision。`conversationSummary` 降级为后台摘要、标题或调试材料，不再是 Agent 执行事实源。
 
-聊天链路不再由旧 `ResolvedChatIntent`、`assistant_action` 或 ReferenceResolver-first 分支独立触发卡片。生产执行合同是 `AgentExecutionResult`，最终回复、artifact / patch 流事件、trace 和黑盒报告都从该结果、tool results 和 dependency graph 投影。兼容期内的 `assistant_action` / resolved intent 只能由 `LegacyChatEventAdapter` 从 Agent 结果单向派生，不能反向驱动工具选择、Patch、生成或写入。
+聊天链路不再由旧 `ResolvedChatIntent`、`assistant_action` 或 ReferenceResolver-first 分支独立触发卡片。生产执行合同是 `AgentExecutionResult`，最终回复、artifact / patch 流事件、trace 和黑盒报告都从该结果、tool results 和 dependency graph 投影。新运行不再输出 `assistant_action` / `intent_resolved`，旧事件解析只允许作为历史报告或测试夹具存在，不能反向驱动工具选择、Patch、生成或写入。
 
 用户反馈不再只依赖 `conversationSummary`。`UserFeedbackMemoryService` 会把“不喜欢某动作”“某动作太难”“今天不想练腿”等训练偏好、动作反馈和临时上下文写成 `UserMemory` / `UserExerciseFeedback`；Agent context builder 负责把可见记忆摘要放入 `ContextPackage`，需要完整结构化事实时必须继续通过工具读取数据库或 artifact payload。健康、疼痛、伤病或身体不适信号不再写入为训练决策约束，也不参与候选排除、计划生成或 Patch 替换拒绝；系统只保留不提供医疗诊断或治疗承诺的回复边界。
 

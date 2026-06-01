@@ -513,7 +513,6 @@ function formatAgentDiagnostics(diagnostics: BlackboxAgentDiagnostics | undefine
     diagnostics.revisionIds.length ? `revisionIds=${diagnostics.revisionIds.join(",")}` : undefined,
     `dependencyGraph=${diagnostics.dependencyGraphPresent}`,
     `legacyPathSkip=${JSON.stringify(diagnostics.legacyPathSkip)}`,
-    typeof diagnostics.legacyEventsEmitted === "boolean" ? `legacyEventsEmitted=${diagnostics.legacyEventsEmitted}` : undefined,
   ].filter(Boolean).join("；");
 }
 

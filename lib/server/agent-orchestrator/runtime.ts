@@ -71,6 +71,8 @@ export type AgentReplayFixture = {
     normalize: true;
     summaryOnlyContext: true;
     referenceResolverFirst: true;
+    readonlyToolLoop: true;
+    assistantActionEvent: true;
   };
 };
 
@@ -781,6 +783,8 @@ function createLegacyPathSkip() {
     normalize: true,
     summaryOnlyContext: true,
     referenceResolverFirst: true,
+    readonlyToolLoop: true,
+    assistantActionEvent: true,
   } as const;
 }
 

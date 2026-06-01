@@ -7,7 +7,6 @@ import {
   AgentToolRegistryContractError,
   agentExecutionResultSchema,
   createAgentContextBuilder,
-  createLegacyChatEventAdapter,
   createReadonlyAgentToolRegistry,
   createToolFirstAgentToolRegistry,
   projectAgentExecutionResultToResponse,
@@ -308,44 +307,6 @@ describe("agent orchestrator phase 1 contracts", () => {
         expect.objectContaining({ code: "invalid_write_contract" }),
       ]));
     }
-  });
-
-  it("derives legacy chat events only from AgentExecutionResult", () => {
-    const adapter = createLegacyChatEventAdapter();
-    const projection = adapter.project({
-      result: {
-        status: "patched",
-        artifact: {
-          artifactId: "artifact-2",
-          kind: "routine",
-          title: "无哑铃上肢训练",
-        },
-        patchResult: {
-          patchId: "patch-1",
-          sourceArtifactId: "artifact-1",
-          targetArtifactId: "artifact-2",
-          changedExerciseIds: ["dumbbell-row", "bodyweight-row"],
-          summary: "已替换哑铃动作。",
-        },
-        revisionId: "rev-2",
-        validationId: "validation-1",
-        usedToolResultIds: ["tool-result-1"],
-      },
-    });
-
-    expect(projection).toMatchObject({
-      derived: true,
-      assistantAction: {
-        action: "workout_patched",
-        artifactId: "artifact-2",
-        revisionId: "rev-2",
-      },
-      resolvedIntent: {
-        source: "agent_execution_result",
-        status: "patched",
-        usedToolResultIds: ["tool-result-1"],
-      },
-    });
   });
 
   it("parses fenced JSON model output for structured-output fallback providers", () => {
@@ -808,6 +769,8 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
       normalize: true,
       summaryOnlyContext: true,
       referenceResolverFirst: true,
+      readonlyToolLoop: true,
+      assistantActionEvent: true,
     });
   });
 

@@ -88,7 +88,7 @@ runAgentOrchestrator 执行 tool decision / tool result / dependency graph
 Response Writer 投影 content、assistant_suggestions、artifact / workout_patch、agent_execution_result、done
 ```
 
-旧 `resolveChatIntent`、`ResolvedChatIntent`、ReferenceResolver-first 主路径、只读-only tool loop 和基于关键词的服务端语义归一化只保留为已废弃迁移期代码或测试夹具，不参与生产 `/api/chat` 执行。
+旧 `resolveChatIntent`、`ResolvedChatIntent`、ReferenceResolver-first 主路径、只读-only tool loop 和基于关键词的服务端语义归一化已从生产 `/api/chat` 移除。历史报告或测试夹具可以识别旧字段，但生产 Agent runtime、Response Writer、前端新流解析和领域服务不能导入旧路径。
 
 ## 5. Agent 决策协议
 
@@ -124,7 +124,7 @@ Agent 可通过工具执行以下受控能力：
 - `answered`：只回答问题，不推送训练卡片。
 - `blocked` / `failed`：Policy、校验或工具执行失败，不能承诺已生成或已修改。
 
-兼容期内如仍输出 `assistant_action` 或 `intent_resolved`，它们必须来自 `LegacyChatEventAdapter` 对 `AgentExecutionResult` 的单向投影，只能作为前端迁移和报告诊断字段。
+生产聊天流不再输出 `assistant_action` 或 `intent_resolved`。前端和黑盒 runner 只能从 `agent_execution_result`、artifact / patch / suggestion 事件、tool evidence metadata 和 `done` metadata 判断用户可见结果。
 
 ## 8. `/api/chat` 流式事件协议
 
@@ -140,7 +140,7 @@ Agent 可通过工具执行以下受控能力：
 - `content`：用户可见自然语言回复。
 - `done`：本轮完成，包含 `traceId`、`agentExecutionResult`、`agentStatus`、`legacyPathSkip` 和更新后的后台 `conversationSummary`。
 - `error`：流式读取或模型请求失败。
-- `assistant_action` / `intent_resolved`：兼容期派生事件，可关闭；不再作为主执行事实源。
+- `agent_execution_result`：Agent-only 主执行结果，包含状态、可见投影、依赖图和旧路径缺席证据。
 
 类型定义在 `features/chat/types.ts`：
 
@@ -178,7 +178,7 @@ type ChatStreamEvent = {
 };
 ```
 
-服务端会在聊天正文前先发送 `agent_execution_result`，并在内容后发送 artifact / patch 事件。旧 `assistant_action` 只在兼容开关开启时派发，黑盒报告不再把它作为核心验收字段。
+服务端会在聊天正文前先发送 `agent_execution_result`，并在内容后发送 artifact / patch 事件。新运行不会派发旧 `assistant_action` 或 `intent_resolved`，黑盒报告必须把旧字段出现标记为 legacy field leakage。
 
 ## 9. 前端接收事件后的分发
 

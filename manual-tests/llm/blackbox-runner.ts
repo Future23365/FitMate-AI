@@ -24,7 +24,6 @@ import type { ConversationArtifactKind } from "@/lib/shared/conversation-artifac
 import type { AgentExecutionResult } from "@/lib/server/agent-orchestrator";
 import { toUtcISOString } from "@/lib/shared/time/utc-date-time";
 import { workoutPlanIntentSchema, type WorkoutPlanIntent } from "@/lib/shared/workout-plans/draft-schema";
-import type { AssistantAction } from "@/lib/server/chat/chat-service";
 import type { BlackboxCardType } from "./flow-fixtures";
 
 type DeepSeekUsage = {
@@ -97,8 +96,9 @@ export type BlackboxAgentDiagnostics = {
     normalize?: boolean;
     summaryOnlyContext?: boolean;
     referenceResolverFirst?: boolean;
+    readonlyToolLoop?: boolean;
+    assistantActionEvent?: boolean;
   };
-  legacyEventsEmitted?: boolean;
 };
 
 export type BlackboxTurnResult = {
@@ -106,7 +106,7 @@ export type BlackboxTurnResult = {
   responseMessageId: string;
   assistantText: string;
   actionTypes: BlackboxCardType[];
-  assistantActions: AssistantAction[];
+  assistantActions: never[];
   traceId?: string;
   conversationSummary: string;
   usage: DeepSeekUsage;
@@ -126,7 +126,6 @@ export type BlackboxConversationState = {
 
 type ConsumedChatStream = {
   assistantText: string;
-  actions: AssistantAction[];
   actionTypes: BlackboxCardType[];
   referenceDiagnostics: NonNullable<ChatStreamEvent["referenceDiagnostic"]>[];
   traceId?: string;
@@ -134,7 +133,6 @@ type ConsumedChatStream = {
   agentExecutionResult?: AgentExecutionResult;
   dependencyGraph?: unknown;
   legacyPathSkip?: BlackboxAgentDiagnostics["legacyPathSkip"];
-  legacyEventsEmitted?: boolean;
   artifacts: Array<{
     kind: ConversationArtifactKind;
     payload: unknown;
@@ -260,7 +258,6 @@ export async function runBlackboxChatTurn(input: {
       latestUserMessage: input.userInput,
       conversationSummary: input.state.conversationSummary,
       thinkingEnabled: false,
-      emitLegacyEvents: process.env.MANUAL_LLM_DISABLE_LEGACY_EVENTS === "1" ? false : undefined,
     }),
   });
 
@@ -293,14 +290,13 @@ export async function runBlackboxChatTurn(input: {
     actionTypes: uniqueActionTypes([
       ...deriveCardTypesFromAgentExecutionResult(streamResult.agentExecutionResult),
       ...deriveCardTypesFromArtifacts(streamResult.artifacts),
-      ...streamResult.actions.map((action) => mapLegacyAssistantActionToCardType(action.action)),
       ...streamResult.actionTypes,
     ].filter((actionType): actionType is BlackboxCardType => Boolean(actionType))),
-    assistantActions: streamResult.actions,
+    assistantActions: [],
     traceId: streamResult.traceId,
     conversationSummary: streamResult.conversationSummary ?? input.state.conversationSummary,
     usage: summarizeTraceUsage(streamResult.traceId),
-    artifactDiagnostics: createEmptyArtifactDiagnostics(streamResult.actions),
+    artifactDiagnostics: createEmptyArtifactDiagnostics(),
     agentDiagnostics: createAgentDiagnostics(streamResult),
     error: streamResult.error,
   };
@@ -329,7 +325,6 @@ export async function runBlackboxChatTurn(input: {
 
   result.artifactDiagnostics = await collectArtifactDiagnostics({
     state: input.state,
-    actions: streamResult.actions,
     referenceDiagnostics: streamResult.referenceDiagnostics,
     producedArtifacts: streamResult.artifacts,
     responseMessageId,
@@ -383,7 +378,7 @@ function createFailedResult(
     assistantActions: [],
     conversationSummary: state.conversationSummary,
     usage: {},
-    artifactDiagnostics: createEmptyArtifactDiagnostics([]),
+    artifactDiagnostics: createEmptyArtifactDiagnostics(),
     agentDiagnostics: createEmptyAgentDiagnostics(),
     error,
   };
@@ -406,7 +401,6 @@ function createEmptyAgentDiagnostics(): BlackboxAgentDiagnostics {
 async function consumeChatStream(response: Response): Promise<ConsumedChatStream> {
   const reader = response.body?.getReader();
   const decoder = new TextDecoder();
-  const actions: AssistantAction[] = [];
   const actionTypes: BlackboxCardType[] = [];
   const referenceDiagnostics: ConsumedChatStream["referenceDiagnostics"] = [];
   const artifacts: ConsumedChatStream["artifacts"] = [];
@@ -417,12 +411,10 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
   let agentExecutionResult: AgentExecutionResult | undefined;
   let dependencyGraph: unknown;
   let legacyPathSkip: BlackboxAgentDiagnostics["legacyPathSkip"] | undefined;
-  let legacyEventsEmitted: boolean | undefined;
 
   if (!reader) {
     return {
       assistantText,
-      actions,
       actionTypes,
       referenceDiagnostics,
       artifacts,
@@ -459,14 +451,12 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
         } catch (error) {
           return {
             assistantText,
-            actions,
             actionTypes,
             referenceDiagnostics,
             artifacts,
             agentExecutionResult,
             dependencyGraph,
             legacyPathSkip,
-            legacyEventsEmitted,
             traceId,
             conversationSummary,
             error: {
@@ -487,19 +477,6 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
           agentExecutionResult = parseAgentExecutionResult(streamEvent.agentExecutionResult) ?? agentExecutionResult;
           dependencyGraph = streamEvent.dependencyGraph ?? dependencyGraph;
           legacyPathSkip = normalizeLegacyPathSkip(streamEvent.legacyPathSkip) ?? legacyPathSkip;
-          continue;
-        }
-
-        if (streamEvent.type === "assistant_action" && streamEvent.action && streamEvent.action !== "none") {
-          const parsedIntent = workoutPlanIntentSchema.safeParse(streamEvent.intent);
-          if (parsedIntent.success) {
-            actions.push({
-              action: streamEvent.action as AssistantAction["action"],
-              intent: parsedIntent.data,
-              resolvedIntent: streamEvent.resolvedIntent,
-              referenceResolution: streamEvent.referenceResolution,
-            });
-          }
           continue;
         }
 
@@ -533,7 +510,6 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
           agentExecutionResult = parseAgentExecutionResult(streamEvent.agentExecutionResult) ?? agentExecutionResult;
           dependencyGraph = streamEvent.dependencyGraph ?? dependencyGraph;
           legacyPathSkip = normalizeLegacyPathSkip(streamEvent.legacyPathSkip) ?? legacyPathSkip;
-          legacyEventsEmitted = streamEvent.legacyEventsEmitted;
           if (streamEvent.referenceDiagnostic) {
             referenceDiagnostics.push(streamEvent.referenceDiagnostic);
           }
@@ -543,7 +519,6 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
         if (streamEvent.type === "error") {
           return {
             assistantText,
-            actions,
             actionTypes,
             referenceDiagnostics,
             artifacts,
@@ -560,14 +535,12 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
   } catch (error) {
     return {
       assistantText,
-      actions,
       actionTypes,
       referenceDiagnostics,
       artifacts,
       agentExecutionResult,
       dependencyGraph,
       legacyPathSkip,
-      legacyEventsEmitted,
       traceId,
       conversationSummary,
       error: {
@@ -579,14 +552,12 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
 
   return {
     assistantText,
-    actions,
     actionTypes,
     referenceDiagnostics,
     artifacts,
     agentExecutionResult,
     dependencyGraph,
     legacyPathSkip,
-    legacyEventsEmitted,
     traceId,
     conversationSummary,
   };
@@ -646,22 +617,6 @@ function deriveCardTypesFromArtifacts(artifacts: ConsumedChatStream["artifacts"]
   });
 }
 
-function mapLegacyAssistantActionToCardType(action: AssistantAction["action"]): BlackboxCardType | undefined {
-  if (action === "exercise_recommendation" || action === "workout_routine" || action === "workout_plan") {
-    return action;
-  }
-
-  if (action === "workout_patch" || action === "exercise_replacement") {
-    return "workout_patch";
-  }
-
-  if (action === "exercise_explanation") {
-    return "answer";
-  }
-
-  return undefined;
-}
-
 function createAgentDiagnostics(streamResult: ConsumedChatStream): BlackboxAgentDiagnostics {
   const toolResultIds = collectToolResultIds(streamResult.agentExecutionResult);
   const graph = typeof streamResult.dependencyGraph === "object" && streamResult.dependencyGraph !== null
@@ -683,7 +638,6 @@ function createAgentDiagnostics(streamResult: ConsumedChatStream): BlackboxAgent
     revisionIds: collectRevisionIds(streamResult.agentExecutionResult),
     dependencyGraphPresent: Boolean(streamResult.dependencyGraph),
     legacyPathSkip: streamResult.legacyPathSkip ?? {},
-    legacyEventsEmitted: streamResult.legacyEventsEmitted,
   };
 }
 
@@ -742,8 +696,7 @@ function applyStreamArtifactsToState(
     }
   }
 
-  const latestIntent = streamResult.artifacts.map((artifact) => artifact.intent).find(Boolean)
-    ?? streamResult.actions.at(-1)?.intent;
+  const latestIntent = streamResult.artifacts.map((artifact) => artifact.intent).find(Boolean);
   const parsedIntent = workoutPlanIntentSchema.safeParse(latestIntent);
 
   if (parsedIntent.success) {
@@ -760,38 +713,7 @@ function applyMessagesToState(
 ) {
   state.messages = [...state.messages, userMessage, assistantMessage];
   state.conversationSummary = result.conversationSummary;
-  state.conversationContext = mergeLatestActionIntoContext(
-    buildFitnessConversationContext(state.messages),
-    result.assistantActions.at(-1),
-  );
-}
-
-function mergeLatestActionIntoContext(
-  context: FitnessConversationContext,
-  action: AssistantAction | undefined,
-): FitnessConversationContext {
-  const parsedIntent = workoutPlanIntentSchema.safeParse(action?.intent);
-
-  if (!parsedIntent.success) {
-    return context;
-  }
-
-  return {
-    ...context,
-    currentIntent: parsedIntent.data,
-    knownFacts: {
-      ...context.knownFacts,
-      goal: parsedIntent.data.goal,
-      experience: parsedIntent.data.experience,
-      sessionMinutes: parsedIntent.data.sessionMinutes,
-      weeklyFrequency: parsedIntent.data.weeklyFrequency,
-      calendarHorizonDays: parsedIntent.data.calendarHorizonDays,
-      equipment: parsedIntent.data.equipment,
-      injuryLimitations: parsedIntent.data.injuryLimitations,
-      preferences: parsedIntent.data.preferences,
-      avoidances: parsedIntent.data.avoidances,
-    },
-  };
+  state.conversationContext = buildFitnessConversationContext(state.messages);
 }
 
 async function saveConversationState(state: BlackboxConversationState): Promise<BlackboxRunnerError | undefined> {
@@ -856,22 +778,16 @@ async function saveConversationState(state: BlackboxConversationState): Promise<
 
 async function collectArtifactDiagnostics(input: {
   state: BlackboxConversationState;
-  actions: AssistantAction[];
   referenceDiagnostics: ConsumedChatStream["referenceDiagnostics"];
   producedArtifacts: ConsumedChatStream["artifacts"];
   responseMessageId: string;
 }): Promise<BlackboxArtifactDiagnostics> {
-  const latestAction = input.actions.at(-1);
   const referenceDiagnostic = input.referenceDiagnostics.at(-1);
   const patchSourceArtifact = input.producedArtifacts.find((artifact) => artifact.sourceArtifactId);
-  const referenceResolutionStatus = referenceDiagnostic?.referenceResolutionStatus ?? (latestAction?.referenceResolution
-    ? "resolved"
-    : patchSourceArtifact
+  const referenceResolutionStatus = referenceDiagnostic?.referenceResolutionStatus ?? (patchSourceArtifact
       ? "resolved"
-      : latestAction
-      ? "not_applicable"
       : "not_applicable");
-  const empty = createEmptyArtifactDiagnostics(input.actions);
+  const empty = createEmptyArtifactDiagnostics();
 
   if (!input.state.authSession) {
     return empty;
@@ -900,7 +816,7 @@ async function collectArtifactDiagnostics(input: {
       payloadReadStatus: referenceDiagnostic?.payloadReadStatus ??
         (input.producedArtifacts.length > 0 ? "missing" : "not_applicable"),
       referenceResolutionStatus,
-      referenceResolutionSummary: summarizeReferenceResolution(latestAction, referenceDiagnostic, patchSourceArtifact?.sourceArtifactId),
+      referenceResolutionSummary: summarizeReferenceResolution(referenceDiagnostic, patchSourceArtifact?.sourceArtifactId),
     };
   }
 
@@ -919,7 +835,7 @@ async function collectArtifactDiagnostics(input: {
     payloadReadable: payloadReadStatus === "readable",
     payloadReadStatus,
     referenceResolutionStatus,
-    referenceResolutionSummary: summarizeReferenceResolution(latestAction, referenceDiagnostic, patchSourceArtifact?.sourceArtifactId),
+    referenceResolutionSummary: summarizeReferenceResolution(referenceDiagnostic, patchSourceArtifact?.sourceArtifactId),
   };
 }
 
@@ -936,19 +852,18 @@ async function getArtifactPayloadReadStatus(
   return payloadResult.ok ? "readable" : payloadResult.code === "invalid_payload" ? "invalid" : "missing";
 }
 
-function createEmptyArtifactDiagnostics(actions: AssistantAction[]): BlackboxArtifactDiagnostics {
+function createEmptyArtifactDiagnostics(): BlackboxArtifactDiagnostics {
   return {
     recentSummaryCount: 0,
     producedArtifact: false,
     payloadReadable: false,
     payloadReadStatus: "not_applicable",
-    referenceResolutionStatus: actions.at(-1)?.referenceResolution ? "resolved" : "not_applicable",
-    referenceResolutionSummary: summarizeReferenceResolution(actions.at(-1)),
+    referenceResolutionStatus: "not_applicable",
+    referenceResolutionSummary: undefined,
   };
 }
 
 function summarizeReferenceResolution(
-  action: AssistantAction | undefined,
   diagnostic?: NonNullable<ChatStreamEvent["referenceDiagnostic"]>,
   patchSourceArtifactId?: string,
 ) {
@@ -962,16 +877,7 @@ function summarizeReferenceResolution(
     ].filter(Boolean).join(" ");
   }
 
-  const resolution = action?.referenceResolution;
-
-  if (!resolution) {
-    return patchSourceArtifactId ? `sourceArtifactId=${patchSourceArtifactId}` : undefined;
-  }
-
-  return [
-    `artifactId=${resolution.artifactId}`,
-    `kind=${resolution.artifactKind}`,
-  ].filter(Boolean).join(" ");
+  return patchSourceArtifactId ? `sourceArtifactId=${patchSourceArtifactId}` : undefined;
 }
 
 function summarizeTraceUsage(traceId: string | undefined): DeepSeekUsage {
