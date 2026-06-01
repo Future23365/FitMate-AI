@@ -71,6 +71,18 @@ const exercises = [
     equipmentZh: "杠铃",
     substitutionGroupId: "push:chest",
   }),
+  createExercise({
+    id: "Rope_Jumping",
+    nameZh: "跳绳",
+    categoryZh: "力量",
+    level: "intermediate",
+    difficulty: "intermediate",
+    equipmentZh: "自重",
+    substitutionGroupId: "push:chest",
+    regressionExerciseIds: ["wall-push-up"],
+    primaryMusclesZh: ["胸部"],
+    goalTags: ["strength"],
+  }),
 ];
 
 describe("workout patch engine", () => {
@@ -170,6 +182,96 @@ describe("workout patch engine", () => {
       name: "Patch revision 持久化成功",
       output: expect.objectContaining({ artifactId: "artifact-new" }),
     }));
+  });
+
+  it("only replaces Rope_Jumping and keeps the rest of the routine structure unchanged", async () => {
+    const draft = createWorkoutRoutineDraft({
+      sections: [
+        createWorkoutRoutineDraft().sections[0],
+        {
+          section: "training",
+          title: "主训练",
+          items: [
+            {
+              section: "training",
+              exerciseId: "Rope_Jumping",
+              mode: "duration",
+              sets: 3,
+              target: 60,
+              setRestSeconds: 30,
+              transitionRestSeconds: 20,
+            },
+            {
+              section: "training",
+              exerciseId: "plank",
+              mode: "duration",
+              sets: 2,
+              target: 45,
+              setRestSeconds: 30,
+              transitionRestSeconds: 20,
+            },
+          ],
+        },
+        createWorkoutRoutineDraft().sections[2],
+      ],
+    });
+    mockReadableSourceArtifact(draft);
+
+    const result = await applyWorkoutPatch({
+      userId: "user-1",
+      rawPatch: createReplacePatch({
+        target: {
+          artifactId: "artifact-routine",
+          artifactKind: "routine",
+          section: "training",
+          exerciseId: "Rope_Jumping",
+        },
+        replacementExerciseId: "wall-push-up",
+      }),
+      responseMessageId: "assistant-1",
+      client: prismaMock as never,
+      exercises,
+    });
+
+    expect(result.status).toBe("applied");
+    expect(result.payload).toMatchObject({
+      sections: [
+        expect.objectContaining({
+          section: "warmup",
+          items: [expect.objectContaining({ exerciseId: "warmup" })],
+        }),
+        expect.objectContaining({
+          section: "training",
+          items: [
+            expect.objectContaining({
+              exerciseId: "wall-push-up",
+              sets: 3,
+              target: 60,
+              setRestSeconds: 30,
+              transitionRestSeconds: 20,
+            }),
+            expect.objectContaining({
+              exerciseId: "plank",
+              sets: 2,
+              target: 45,
+              setRestSeconds: 30,
+              transitionRestSeconds: 20,
+            }),
+          ],
+        }),
+        expect.objectContaining({
+          section: "stretch",
+          items: [expect.objectContaining({ exerciseId: "stretch" })],
+        }),
+      ],
+    });
+    expect(result.diff).toEqual([
+      expect.objectContaining({
+        operation: "replace_exercise",
+        originalExerciseId: "Rope_Jumping",
+        replacementExerciseId: "wall-push-up",
+      }),
+    ]);
   });
 
   it("returns ambiguous when the same exercise appears multiple times without occurrenceIndex", async () => {

@@ -94,6 +94,7 @@ import type {
 import type { Exercise } from "@/lib/shared/exercises/types";
 import type { ConversationMemoryState } from "@/lib/shared/user-feedback-memory/schema";
 import type { WorkoutPatchResult } from "@/lib/shared/workout-patches/schema";
+import type { ChatConversation } from "@/features/chat/types";
 
 type ChatRole = "user" | "assistant";
 
@@ -319,16 +320,14 @@ function getRawWorkoutIntent(value: unknown) {
 
 function shouldRequireValidWorkoutIntent(intent: Pick<ChatIntent, "type" | "needsExerciseContext" | "canTriggerAction" | "action">) {
   const actionKind = intent.action?.kind;
-  const actionNeedsWorkoutIntent =
-    actionKind === "exercise_recommendation" ||
-    actionKind === "workout_routine" ||
-    actionKind === "workout_plan";
+  const actionNeedsWorkoutIntent = actionKind ? isGeneratingActionKind(actionKind) : false;
+  const typeNeedsWorkoutIntent = isActionType(intent.type);
 
   return (
-    intent.needsExerciseContext ||
-    intent.canTriggerAction ||
-    intent.action?.shouldTrigger ||
-    isActionType(intent.type) ||
+    (intent.needsExerciseContext && typeNeedsWorkoutIntent) ||
+    (intent.canTriggerAction && (typeNeedsWorkoutIntent || actionNeedsWorkoutIntent)) ||
+    (intent.action?.shouldTrigger && actionNeedsWorkoutIntent) ||
+    typeNeedsWorkoutIntent ||
     actionNeedsWorkoutIntent
   );
 }
@@ -462,8 +461,24 @@ export type PreparedAiChatRequest = {
   conversationSummaryContext: ConversationSummaryContext;
   internalConversationContext: FitnessConversationContext;
   recentArtifactSummaries: RecentArtifactSummary[];
+  hydration: ChatHistoryHydrationMetadata;
   thinkingEnabled: boolean;
   hasClientConversationSummary: boolean;
+};
+
+export type ChatHistoryHydrationMetadata = {
+  source: "server_saved" | "client_fallback" | "latest_message";
+  savedConversationFound: boolean;
+  restoredMessageCount: number;
+  hasSavedConversationContext: boolean;
+  hasClientConversationContext: boolean;
+  recommendationIntentCount: number;
+  recentArtifactCount: number;
+};
+
+export type ChatHistoryHydrationInput = {
+  savedConversation?: ChatConversation | null;
+  recentArtifactSummaries?: RecentArtifactSummary[];
 };
 
 export type AssistantAction = {
@@ -471,6 +486,15 @@ export type AssistantAction = {
   intent: WorkoutPlanIntent;
   resolvedIntent?: ResolvedChatIntent;
   referenceResolution?: Extract<ReferenceResolution, { status: "resolved" }>;
+};
+
+export type ReferenceResolutionDiagnostic = {
+  referenceResolutionStatus: "resolved" | "unresolved" | "not_applicable";
+  artifactId?: string;
+  artifactKind?: ConversationArtifactKind;
+  payloadReadStatus: "not_applicable" | "readable" | "missing" | "invalid";
+  exerciseId?: string;
+  reason?: string;
 };
 
 export type ChatArtifactResult =
@@ -526,14 +550,39 @@ export type ExerciseContext = {
 const DEEPSEEK_REQUEST_TIMEOUT_MS = 45_000;
 const INTENT_REQUEST_TIMEOUT_MS = 12_000;
 
-export function prepareAiChatRequest(request: AiChatRequest): PreparedAiChatRequest {
-  const rawMessages = normalizeAiContextMessages(
-    request.messages ?? [{ role: "user", content: request.latestUserMessage }],
-  );
+export function prepareAiChatRequest(
+  request: AiChatRequest,
+  hydrationInput: ChatHistoryHydrationInput = {},
+): PreparedAiChatRequest {
+  const savedConversation = hydrationInput.savedConversation ?? null;
+  const savedMessages = savedConversation
+    ? appendLatestUserMessageIfMissing(savedConversation.messages, request.latestUserMessage)
+    : [];
+  const rawMessages = savedMessages.length > 0
+    ? normalizeAiContextMessages(savedMessages)
+    : normalizeAiContextMessages(request.messages ?? [{ role: "user", content: request.latestUserMessage }]);
   const messages = [{ role: "user" as const, content: request.latestUserMessage }];
+  const savedSummary = savedConversation?.conversationSummary?.summary;
   const conversationSummaryContext = buildConversationSummaryContext({
-    summary: request.conversationSummary,
+    summary: savedSummary ?? request.conversationSummary,
     latestUserMessage: request.latestUserMessage,
+  });
+  const savedConversationContext = savedConversation
+    ? buildHydratedConversationContext(savedConversation, rawMessages)
+    : undefined;
+  const internalConversationContext =
+    savedConversationContext ?? request.conversationContext ?? buildFitnessConversationContext(rawMessages);
+  const hydration = createChatHistoryHydrationMetadata({
+    source: savedConversationContext || savedMessages.length > 0
+      ? "server_saved"
+      : request.conversationContext || request.messages?.length
+        ? "client_fallback"
+        : "latest_message",
+    savedConversation,
+    request,
+    recentArtifactSummaries: hydrationInput.recentArtifactSummaries ?? [],
+    restoredMessageCount: savedMessages.length,
+    hasSavedConversationContext: Boolean(savedConversationContext),
   });
 
   return {
@@ -541,12 +590,100 @@ export function prepareAiChatRequest(request: AiChatRequest): PreparedAiChatRequ
     responseMessageId: request.responseMessageId,
     rawMessages,
     conversationSummaryContext,
-    internalConversationContext:
-      request.conversationContext ?? buildFitnessConversationContext(rawMessages),
-    recentArtifactSummaries: [],
+    internalConversationContext,
+    recentArtifactSummaries: hydrationInput.recentArtifactSummaries ?? [],
+    hydration,
     messages,
     thinkingEnabled: request.thinkingEnabled !== false,
     hasClientConversationSummary: request.conversationSummary.trim().length > 0,
+  };
+}
+
+// 服务端 hydration 是 action gate 的可信事实入口；客户端上下文只在没有已保存会话时兜底。
+function buildHydratedConversationContext(
+  conversation: ChatConversation,
+  rawMessages: ChatMessage[],
+): FitnessConversationContext | undefined {
+  const latestRecommendationIntent = getLatestRecommendationIntent(conversation);
+  const baseContext = conversation.conversationContext ?? buildFitnessConversationContext(rawMessages);
+  const currentIntent = baseContext.currentIntent ?? latestRecommendationIntent;
+
+  return fitnessConversationContextSchema.parse({
+    ...baseContext,
+    currentIntent,
+    knownFacts: currentIntent
+      ? {
+          ...baseContext.knownFacts,
+          goal: baseContext.knownFacts.goal ?? currentIntent.goal,
+          experience: baseContext.knownFacts.experience ?? currentIntent.experience,
+          sessionMinutes: baseContext.knownFacts.sessionMinutes ?? currentIntent.sessionMinutes,
+          weeklyFrequency: baseContext.knownFacts.weeklyFrequency ?? currentIntent.weeklyFrequency,
+          calendarHorizonDays: baseContext.knownFacts.calendarHorizonDays ?? currentIntent.calendarHorizonDays,
+          equipment: baseContext.knownFacts.equipment.length > 0
+            ? baseContext.knownFacts.equipment
+            : currentIntent.equipment,
+          injuryLimitations: baseContext.knownFacts.injuryLimitations.length > 0
+            ? baseContext.knownFacts.injuryLimitations
+            : currentIntent.injuryLimitations,
+          preferences: baseContext.knownFacts.preferences.length > 0
+            ? baseContext.knownFacts.preferences
+            : currentIntent.preferences,
+          avoidances: baseContext.knownFacts.avoidances.length > 0
+            ? baseContext.knownFacts.avoidances
+            : currentIntent.avoidances,
+        }
+      : baseContext.knownFacts,
+  });
+}
+
+function appendLatestUserMessageIfMissing(
+  savedMessages: Array<Pick<ChatMessage, "role" | "content">>,
+  latestUserMessage: string,
+) {
+  const normalizedLatest = latestUserMessage.trim();
+  const latestSavedUserMessage = [...savedMessages].reverse().find((message) => message.role === "user")?.content.trim();
+
+  if (latestSavedUserMessage === normalizedLatest) {
+    return savedMessages;
+  }
+
+  return [...savedMessages, { role: "user" as const, content: normalizedLatest }];
+}
+
+function getLatestRecommendationIntent(conversation: ChatConversation) {
+  const intentByMessageId = conversation.recommendationIntents;
+
+  if (!intentByMessageId) {
+    return undefined;
+  }
+
+  for (const message of [...conversation.messages].reverse()) {
+    const intent = intentByMessageId[message.id];
+
+    if (intent) {
+      return intent;
+    }
+  }
+
+  return Object.values(intentByMessageId).at(-1);
+}
+
+function createChatHistoryHydrationMetadata(input: {
+  source: ChatHistoryHydrationMetadata["source"];
+  savedConversation: ChatConversation | null;
+  request: AiChatRequest;
+  recentArtifactSummaries: RecentArtifactSummary[];
+  restoredMessageCount: number;
+  hasSavedConversationContext: boolean;
+}): ChatHistoryHydrationMetadata {
+  return {
+    source: input.source,
+    savedConversationFound: Boolean(input.savedConversation),
+    restoredMessageCount: input.restoredMessageCount,
+    hasSavedConversationContext: input.hasSavedConversationContext,
+    hasClientConversationContext: Boolean(input.request.conversationContext || input.request.messages?.length),
+    recommendationIntentCount: Object.keys(input.savedConversation?.recommendationIntents ?? {}).length,
+    recentArtifactCount: input.recentArtifactSummaries.length,
   };
 }
 
@@ -585,6 +722,29 @@ export async function createAiChatResponse({
       aiContextMessages: messages,
       thinkingEnabled,
     },
+    metadata: {
+      hydration: request.hydration,
+    },
+  });
+  trace.addStep({
+    name: "服务端会话 Hydration",
+    type: "persistence",
+    output: {
+      hydration: request.hydration,
+      knownFacts: {
+        goal: internalConversationContext.knownFacts.goal,
+        weeklyFrequency: internalConversationContext.knownFacts.weeklyFrequency,
+        sessionMinutes: internalConversationContext.knownFacts.sessionMinutes,
+        equipmentCount: internalConversationContext.knownFacts.equipment.length,
+        currentIntentType: internalConversationContext.currentIntent?.intentType,
+      },
+      recentArtifactKinds: recentArtifactSummaries.map((artifact) => artifact.kind),
+    },
+    metadata: {
+      hydrationSource: request.hydration.source,
+      savedConversationFound: request.hydration.savedConversationFound,
+      recentArtifactCount: recentArtifactSummaries.length,
+    },
   });
 
   let chatIntent = await resolveChatIntent(
@@ -621,9 +781,12 @@ export async function createAiChatResponse({
       recentWorkoutFeedbackCount: memoryState.recentWorkoutFeedback.length,
     },
   });
+  const resolvedActionKind = getChatIntentActionKind(chatIntent);
   const referenceResolution = shouldAttemptReferenceResolution(
     conversationSummaryContext.latestUserMessage,
     chatIntent.type,
+    resolvedActionKind,
+    chatIntent.referenceRequirement,
   ) && shouldUseReferenceResolutionForChat({
     latestUserMessage: conversationSummaryContext.latestUserMessage,
     chatIntent,
@@ -687,6 +850,7 @@ export async function createAiChatResponse({
     const patchResult = await buildAndApplyWorkoutPatchFromChat({
       userId: user.id,
       latestUserMessage: conversationSummaryContext.latestUserMessage,
+      actionKind: resolvedActionKind,
       referenceResolution,
       responseMessageId: request.responseMessageId,
       memoryState,
@@ -778,6 +942,7 @@ export async function createAiChatResponse({
       conversationSummaryContext,
       assistantReply,
       internalActionSummary,
+      referenceDiagnostic: createReferenceResolutionDiagnostic(referenceResolution, explanationResult.summary),
       tokenBudgetDecision,
     });
   }
@@ -879,11 +1044,22 @@ export async function createAiChatResponse({
         (reply) => !visibleSuggestedReplies.includes(reply),
       ),
       candidateStatus: exerciseContext?.candidateStatus,
+      planGateFacts: {
+        weeklyFrequency: internalConversationContext.knownFacts.weeklyFrequency,
+        sessionMinutes: internalConversationContext.knownFacts.sessionMinutes,
+        currentIntentType: internalConversationContext.currentIntent?.intentType,
+        latestRecentArtifactKind: recentArtifactSummaries[0]?.kind,
+        hydrationSource: request.hydration.source,
+      },
     },
     metadata: {
       skipped: !assistantAction,
       responseMode: resolvedIntent.responseMode,
       actionKind: resolvedIntent.action.kind,
+      hydrationSource: request.hydration.source,
+      weeklyFrequency: internalConversationContext.knownFacts.weeklyFrequency,
+      sessionMinutes: internalConversationContext.knownFacts.sessionMinutes,
+      recentArtifactKind: recentArtifactSummaries[0]?.kind,
     },
   });
   const artifactResult = assistantAction
@@ -1355,6 +1531,7 @@ function createDeterministicChatResponse(input: {
   conversationSummaryContext: ConversationSummaryContext;
   assistantReply: string;
   internalActionSummary?: string;
+  referenceDiagnostic?: ReferenceResolutionDiagnostic;
   workoutPatchResult?: WorkoutPatchResult;
   assistantSuggestions?: AssistantSuggestion[];
   tokenBudgetDecision: AiTokenBudgetDecision;
@@ -1399,6 +1576,13 @@ function createDeterministicChatResponse(input: {
           }),
         );
       }
+      if (input.referenceDiagnostic) {
+        controller.enqueue(
+          encodeChatStreamEvent("reference_diagnostic", "", {
+            referenceDiagnostic: input.referenceDiagnostic,
+          }),
+        );
+      }
       controller.enqueue(encodeChatStreamEvent("content", input.assistantReply));
 
       const summaryUpdate = await updateConversationSummary({
@@ -1431,6 +1615,7 @@ function createDeterministicChatResponse(input: {
         encodeChatStreamEvent("done", "", {
           traceId: input.trace.id,
           conversationSummary: summaryUpdate.summary,
+          referenceDiagnostic: input.referenceDiagnostic,
         }),
       );
       controller.close();
@@ -1541,35 +1726,38 @@ async function resolveChatIntent(
       },
     });
 
-    const normalizedIntent = normalizeChatIntentForBlackboxFlows({
+    const contractIntent = applyChatIntentContractNormalization({
       chatIntent: data,
-      fallbackIntent,
       messages,
       conversationSummaryContext,
       conversationContext: internalConversationContext,
       recentArtifactSummaries,
     });
 
-    if (normalizedIntent !== data) {
+    if (contractIntent !== data) {
       trace?.addStep({
-        name: "意图归一化结果",
+        name: "意图契约处理结果",
         type: "intent",
-        output: normalizedIntent,
+        output: contractIntent,
         metadata: {
           sourceType: data.type,
-          normalizedType: normalizedIntent.type,
+          finalType: contractIntent.type,
         },
       });
     }
 
-    if (normalizedIntent.needsExerciseContext && !normalizedIntent.workoutIntent) {
+    if (
+      shouldRequireValidWorkoutIntent(contractIntent) &&
+      contractIntent.needsExerciseContext &&
+      !contractIntent.workoutIntent
+    ) {
       return {
-        ...normalizedIntent,
+        ...contractIntent,
         workoutIntent: fallbackIntent.workoutIntent,
       };
     }
 
-    return normalizedIntent;
+    return contractIntent;
   } catch (error) {
     trace?.addStep({
       name: "意图解析异常，使用兜底意图",
@@ -1585,27 +1773,14 @@ async function resolveChatIntent(
   }
 }
 
-// 真实模型输出可能在高频短句上漂移；这里把黑盒主路径收敛为服务端可测试边界。
-export function normalizeChatIntentForBlackboxFlows(input: {
+// 意图契约处理只做非语义出口整理，不根据用户原文重写 LLM 已给出的高层 action。
+export function applyChatIntentContractNormalization(input: {
   chatIntent: ChatIntent;
-  fallbackIntent: ChatIntent;
   messages: ChatMessage[];
   conversationSummaryContext: ConversationSummaryContext;
   conversationContext: FitnessConversationContext;
   recentArtifactSummaries?: RecentArtifactSummary[];
 }): ChatIntent {
-  const latestUserMessage = getLatestUserMessage(input.messages);
-  const contextualIntent = resolveContextualWorkoutIntent(input);
-  const priorContextIntent =
-    input.conversationContext.currentIntent ?? buildWorkoutIntentFromRecentArtifact(input.recentArtifactSummaries?.[0]);
-  const hasPriorTrainingContext = Boolean(
-    priorContextIntent ||
-    input.conversationContext.knownFacts.goal ||
-    input.recentArtifactSummaries?.length,
-  );
-  const hasAnyPriorWorkoutContext =
-    hasPriorTrainingContext || hasDurableConditionFacts(input.conversationContext);
-
   if (shouldAttachGreetingStarterSuggestions(input)) {
     return {
       ...input.chatIntent,
@@ -1618,183 +1793,6 @@ export function normalizeChatIntentForBlackboxFlows(input: {
     };
   }
 
-  if (isStandaloneConditionMessage(latestUserMessage) && !hasPriorTrainingContext) {
-    return {
-      type: "general_fitness_advice",
-      needsExerciseContext: false,
-      requestedExerciseName: input.chatIntent.requestedExerciseName ?? "",
-      canTriggerAction: false,
-      missingActionFields: [],
-      suggestedReplies: [],
-    };
-  }
-
-  if (isOrdinalExerciseExplanationMessage(latestUserMessage)) {
-    return {
-      type: "exercise_explanation",
-      needsExerciseContext: false,
-      requestedExerciseName: input.chatIntent.requestedExerciseName ?? "",
-      canTriggerAction: false,
-      missingActionFields: [],
-      suggestedReplies: [],
-    };
-  }
-
-  if (
-    hasRecentExerciseRecommendationContext(input.recentArtifactSummaries, input.conversationSummaryContext.summary) &&
-    isRecommendationRefinementMessage(latestUserMessage)
-  ) {
-    const workoutIntent = applyCurrentMessageOverrides(
-      contextualIntent ?? input.chatIntent.workoutIntent ?? input.fallbackIntent.workoutIntent,
-      latestUserMessage,
-      "routine",
-    );
-
-    return {
-      ...input.chatIntent,
-      type: "exercise_recommendation",
-      needsExerciseContext: true,
-      workoutIntent,
-      canTriggerAction: true,
-      missingActionFields: [],
-      suggestedReplies: [],
-    };
-  }
-
-  if (hasPriorPlanCadenceContext(input.conversationContext) && isPlanCompletionMessage(latestUserMessage)) {
-    const workoutIntent = applyCurrentMessageOverrides(
-      contextualIntent ?? input.chatIntent.workoutIntent ?? input.fallbackIntent.workoutIntent,
-      latestUserMessage,
-      "plan",
-    );
-
-    return {
-      ...input.chatIntent,
-      type: "workout_plan",
-      needsExerciseContext: true,
-      workoutIntent,
-      canTriggerAction: true,
-      missingActionFields: [],
-      suggestedReplies: [],
-    };
-  }
-
-  if (isPureTargetRecommendationMessage(latestUserMessage)) {
-    const workoutIntent = applyCurrentMessageOverrides(
-      contextualIntent ?? input.chatIntent.workoutIntent ?? input.fallbackIntent.workoutIntent,
-      latestUserMessage,
-      "routine",
-    );
-
-    return {
-      ...input.chatIntent,
-      type: "exercise_recommendation",
-      needsExerciseContext: true,
-      workoutIntent,
-      canTriggerAction: true,
-      missingActionFields: [],
-      suggestedReplies: [],
-    };
-  }
-
-  if (isCompleteSingleSessionRoutineMessage(latestUserMessage)) {
-    const workoutIntent = applyCurrentMessageOverrides(
-      contextualIntent ?? input.chatIntent.workoutIntent ?? input.fallbackIntent.workoutIntent,
-      latestUserMessage,
-      "routine",
-    );
-
-    return {
-      ...input.chatIntent,
-      type: "routine",
-      needsExerciseContext: true,
-      workoutIntent,
-      canTriggerAction: true,
-      missingActionFields: [],
-      suggestedReplies: [],
-    };
-  }
-
-  if (isUnderSpecifiedLongTermPlanRequest(latestUserMessage, input.conversationContext)) {
-    const workoutIntent = applyCurrentMessageOverrides(
-      contextualIntent ?? input.chatIntent.workoutIntent ?? input.fallbackIntent.workoutIntent,
-      latestUserMessage,
-      "plan",
-    );
-
-    return {
-      ...input.chatIntent,
-      type: "workout_plan",
-      needsExerciseContext: true,
-      workoutIntent,
-      canTriggerAction: false,
-      missingActionFields: ["trainingGoal", "weeklyFrequency", "equipmentOrLocation"],
-      suggestedReplies: [
-        "我想增肌，每周4练，每次45分钟，有健身房器械",
-        "我想减脂，每周3练，每次30分钟，在家自重",
-        "我想提升体能，每周5练，每次40分钟",
-      ],
-    };
-  }
-
-  if (isLongTermPlanMessage(latestUserMessage)) {
-    const workoutIntent = applyCurrentMessageOverrides(
-      contextualIntent ?? input.chatIntent.workoutIntent ?? input.fallbackIntent.workoutIntent,
-      latestUserMessage,
-      "plan",
-    );
-    const canTriggerPlan = canTriggerLongTermPlanFromContext(
-      latestUserMessage,
-      workoutIntent,
-      hasPriorTrainingContext,
-      input.conversationContext,
-    );
-
-    return {
-      ...input.chatIntent,
-      type: "workout_plan",
-      needsExerciseContext: true,
-      workoutIntent,
-      canTriggerAction: canTriggerPlan,
-      missingActionFields: canTriggerPlan
-        ? input.chatIntent.missingActionFields.filter(
-            (field) => !isPlanDefaultableMissingField(field, workoutIntent),
-          )
-        : ["trainingGoal", "equipmentOrLocation"],
-      suggestedReplies: canTriggerPlan
-        ? []
-        : [
-            "我的目标是增肌，有健身房器械",
-            "我的目标是减脂，在家自重",
-            "我想提升体能，没有特殊器械",
-          ],
-    };
-  }
-
-  if (hasAnyPriorWorkoutContext && isContextualWorkoutAdjustment(latestUserMessage)) {
-    const intentType = inferContextualIntentType(
-      latestUserMessage,
-      input.chatIntent,
-      contextualIntent,
-      input.conversationContext,
-    );
-    const workoutIntent = applyCurrentMessageOverrides(
-      contextualIntent ?? input.chatIntent.workoutIntent ?? input.fallbackIntent.workoutIntent,
-      latestUserMessage,
-      intentType,
-    );
-
-    return {
-      ...input.chatIntent,
-      type: intentType === "plan" ? "workout_plan" : "routine",
-      needsExerciseContext: true,
-      workoutIntent,
-      canTriggerAction: true,
-      missingActionFields: [],
-      suggestedReplies: [],
-    };
-  }
-
   return input.chatIntent;
 }
 
@@ -1804,25 +1802,23 @@ export function shouldUseReferenceResolutionForChat(input: {
   conversationContext: FitnessConversationContext;
   recentArtifactSummaries: RecentArtifactSummary[];
 }) {
+  const actionKind = getChatIntentActionKind(input.chatIntent);
+  if (isReferenceActionKind(actionKind) || input.chatIntent.referenceRequirement?.required) {
+    return true;
+  }
+
   if (hasExplicitReferenceMarker(input.latestUserMessage)) {
     return true;
   }
 
-  if (
-    isContextualWorkoutAdjustment(input.latestUserMessage) &&
-    (input.conversationContext.currentIntent || input.recentArtifactSummaries.length > 0) &&
-    (input.chatIntent.type === "routine" || input.chatIntent.type === "workout_plan")
-  ) {
-    return false;
-  }
-
-  return true;
+  return false;
 }
 
 type ReferencedExerciseSummary = {
   status: "resolved" | "not_found";
   artifactId: string;
   artifactKind: ConversationArtifactKind;
+  payloadReadStatus: ReferenceResolutionDiagnostic["payloadReadStatus"];
   ordinalIndex: number | null;
   exerciseId?: string;
   exerciseName?: string;
@@ -1870,6 +1866,7 @@ async function buildReferencedExerciseExplanationFromChat(input: {
         status: "not_found",
         artifactId: input.referenceResolution.artifactId,
         artifactKind: input.referenceResolution.artifactKind,
+        payloadReadStatus: artifactResult.code === "invalid_payload" ? "invalid" : "missing",
         ordinalIndex: getReferencedExerciseOrdinalIndex(input.latestUserMessage),
         reason: artifactResult.code,
       },
@@ -1888,6 +1885,7 @@ async function buildReferencedExerciseExplanationFromChat(input: {
         status: "not_found",
         artifactId: artifactResult.artifactId,
         artifactKind: artifactResult.kind,
+        payloadReadStatus: "readable",
         ordinalIndex: getReferencedExerciseOrdinalIndex(input.latestUserMessage),
         reason: "exercise_not_in_artifact_payload",
       },
@@ -1926,6 +1924,7 @@ async function buildReferencedExerciseExplanationFromChat(input: {
         status: "not_found",
         artifactId: artifactResult.artifactId,
         artifactKind: artifactResult.kind,
+        payloadReadStatus: "readable",
         ordinalIndex: resolvedExercise.ordinalIndex,
         exerciseId: resolvedExercise.exerciseId,
         reason: "exercise_not_found",
@@ -1943,10 +1942,25 @@ async function buildReferencedExerciseExplanationFromChat(input: {
       status: "resolved",
       artifactId: artifactResult.artifactId,
       artifactKind: artifactResult.kind,
+      payloadReadStatus: "readable",
       ordinalIndex: resolvedExercise.ordinalIndex,
       exerciseId: exercise.id,
       exerciseName: exercise.nameZh,
     },
+  };
+}
+
+function createReferenceResolutionDiagnostic(
+  referenceResolution: Extract<ReferenceResolution, { status: "resolved" }>,
+  summary: ReferencedExerciseSummary,
+): ReferenceResolutionDiagnostic {
+  return {
+    referenceResolutionStatus: referenceResolution.status,
+    artifactId: summary.artifactId,
+    artifactKind: summary.artifactKind,
+    payloadReadStatus: summary.payloadReadStatus,
+    exerciseId: summary.exerciseId,
+    reason: summary.reason,
   };
 }
 
@@ -2287,6 +2301,10 @@ function isHealthRelatedMissingField(field: string) {
 function isMissingFieldSatisfiedByIntent(field: string, intent: WorkoutPlanIntent) {
   const normalizedField = field.trim().toLowerCase();
 
+  if (normalizedField === "traininggoal" || normalizedField === "target") {
+    return hasSpecificPlanGoal(intent.goal);
+  }
+
   if (normalizedField === "goal") {
     return intent.goal.trim().length > 0;
   }
@@ -2303,6 +2321,10 @@ function isMissingFieldSatisfiedByIntent(field: string, intent: WorkoutPlanInten
 
   if (normalizedField === "sessionminutes" || normalizedField === "duration") {
     return intent.sessionMinutes > 0;
+  }
+
+  if (normalizedField === "weeklyfrequency" || normalizedField === "frequency") {
+    return intent.weeklyFrequency > 0;
   }
 
   if (normalizedField === "equipmentorlocation" || normalizedField === "equipment" || normalizedField === "location") {
@@ -2963,6 +2985,22 @@ function inferActionKindFromIntentType(type: ChatIntent["type"]): ResolvedAction
     default:
       return "none";
   }
+}
+
+function getChatIntentActionKind(intent: Pick<ChatIntent, "type" | "action">): ResolvedActionKind {
+  return intent.action?.kind ?? inferActionKindFromIntentType(intent.type);
+}
+
+function isGeneratingActionKind(actionKind: ResolvedActionKind) {
+  return actionKind === "exercise_recommendation" ||
+    actionKind === "workout_routine" ||
+    actionKind === "workout_plan";
+}
+
+function isReferenceActionKind(actionKind: ResolvedActionKind) {
+  return actionKind === "workout_patch" ||
+    actionKind === "exercise_replacement" ||
+    actionKind === "exercise_explanation";
 }
 
 function inferReferenceRequirement(actionKind: ResolvedActionKind) {
@@ -3861,39 +3899,21 @@ export function createFallbackChatIntent(
   conversationContext: FitnessConversationContext,
   conversationSummary = conversationContext.summary,
 ): ChatIntent {
-  const latestUserMessage = getLatestUserMessage(messages);
-  const isRecommendationRefresh = /换一批|再换|换几个|换别的|再来一批|下一批|重新推荐|不要这些|别的动作/.test(
-    latestUserMessage,
-  );
-  const isRecommendation =
-    isRecommendationRefresh ||
-    (/推荐|有哪些|动作/.test(latestUserMessage) && !/组|套|流程|安排|计划/.test(latestUserMessage));
-  const isLongTermPlan = /三周|四周|几周|一周|每周|周频率|长期|周期|计划/.test(latestUserMessage);
-  const isRoutine = /今天|这次|现在|来一套|动作组|流程|安排|练|分钟/.test(latestUserMessage);
-  const type = isRecommendation
-    ? "exercise_recommendation"
-    : isLongTermPlan
-      ? "workout_plan"
-      : isRoutine
-      ? "routine"
-    : "general_fitness_advice";
-  const workoutIntent = createFallbackWorkoutIntent(messages, type, conversationContext);
-  const resolvedWorkoutIntent =
-    isRecommendationRefresh && conversationContext.currentIntent
-      ? conversationContext.currentIntent
-      : isLongTermPlan
-        ? workoutIntent
-        : conversationContext.currentIntent ?? workoutIntent;
-
+  void messages;
+  void conversationContext;
+  void conversationSummary;
   return {
-    type,
-    needsExerciseContext: /动作|训练|计划|编排|替换|推荐|练|胸|背|腿|肩|核心|减脂|增肌/.test(
-      `${latestUserMessage} ${conversationSummary}`,
-    ),
-    workoutIntent: resolvedWorkoutIntent,
+    type: "general_fitness_advice",
+    needsExerciseContext: false,
     canTriggerAction: false,
     missingActionFields: [],
     suggestedReplies: [],
+    action: {
+      kind: "none",
+      shouldTrigger: false,
+      blockingMissingFields: [],
+    },
+    responseMode: "answer_only",
   };
 }
 

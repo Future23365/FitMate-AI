@@ -4,6 +4,7 @@ import type {
   WorkoutRoutineDraft,
 } from "@/lib/shared/workout-plans/draft-schema";
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
+import type { ConversationArtifactKind } from "@/lib/shared/conversation-artifacts/schema";
 import type { ConversationSummaryContext, FitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
 import type { ReferenceResolution } from "@/lib/shared/reference-resolver/schema";
 import type { ResolvedAction, ResolvedChatIntent, ResolvedFieldSources } from "@/lib/shared/chat/resolved-intent";
@@ -38,6 +39,15 @@ export type AssistantActionEvent = {
   referenceResolution?: Extract<ReferenceResolution, { status: "resolved" }>;
 };
 
+export type ReferenceResolutionDiagnostic = {
+  referenceResolutionStatus: "resolved" | "unresolved" | "not_applicable";
+  artifactId?: string;
+  artifactKind?: ConversationArtifactKind;
+  payloadReadStatus: "not_applicable" | "readable" | "missing" | "invalid";
+  exerciseId?: string;
+  reason?: string;
+};
+
 export type ChatStreamEvent = {
   type:
     | "reasoning"
@@ -51,6 +61,7 @@ export type ChatStreamEvent = {
     | "artifact_failed"
     | "artifact"
     | "workout_patch"
+    | "reference_diagnostic"
     | "assistant_suggestions"
     | "suggested_replies"
     | "suggested_questions";
@@ -61,6 +72,8 @@ export type ChatStreamEvent = {
   resolvedAction?: ResolvedAction;
   fieldSources?: ResolvedFieldSources;
   referenceResolution?: AssistantActionEvent["referenceResolution"];
+  /** 确定性引用讲解路径的诊断信息，供测试和 trace 消费，不渲染为用户内容。 */
+  referenceDiagnostic?: ReferenceResolutionDiagnostic;
   artifactKind?: "exercise_recommendation" | "routine" | "plan";
   artifactId?: string;
   sourceArtifactId?: string;
