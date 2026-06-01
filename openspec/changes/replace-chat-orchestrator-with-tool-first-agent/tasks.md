@@ -73,6 +73,12 @@
 - [ ] 7.9 增加 prompt / token budget 防回归测试，断言 `/api/chat` 主链不再启用旧 summary-only prompt modules，且 Agent stages、ContextPackage 可见性摘要和 tool result 引用可被 trace 复盘。
 - [ ] 7.10 增加流事件兼容测试，断言新 `AgentExecutionResult` 事件或 done metadata 可独立表达 artifact、patch、clarification、blocked 和 failed 状态，关闭旧 `assistant_action` / resolved intent 后前端消费路径仍可工作。
 - [ ] 7.11 增加通用受控写操作测试夹具，例如模拟 `updateUserProfile` 工具成功、需要确认和被拒绝三种结果，断言 Agent runtime 无需改动主链即可通过 `completed_operation`、Policy/Confirmation 和 Response Writer 表达结果。
+- [ ] 7.12 保留现有 basic/detail 黑盒 flow 的用户输入序列和业务期望，只在必要时补充 Agent 期望字段，不把业务 flow 重写成工具级白盒测试。
+- [ ] 7.13 扩展 `BlackboxTurnResult` 和 stream parser，记录 `AgentExecutionResult`、Agent stage、tool calls、tool results、dependency graph 摘要、legacy path skip、关键 tool/result id 和兼容字段状态。
+- [ ] 7.14 将 `BlackboxCardType` 从 `AssistantAction["action"]` 解耦为测试稳定枚举，并从 `AgentExecutionResult`、artifact/patch/suggestion 事件和 done metadata 推导实际结果类型。
+- [ ] 7.15 扩展 fixture expectation，支持预期 Agent status、必需工具、禁用工具、必需 candidateSetId、validationId、revisionId、引用解析和 legacy path 禁用断言。
+- [ ] 7.16 更新 manual LLM 报告格式，分层展示用户可见闭环、artifact/patch/suggestion 事件、Agent execution result、tool dependency graph、legacy path 是否未参与执行和失败分级。
+- [ ] 7.17 增加关闭旧 `assistant_action` / resolved intent 兼容字段的黑盒运行模式，验证用户可见回复、artifact 事件、assistantSuggestions 和 done metadata 仍能独立通过。
 
 ## 8. 文档、清理与验证命令
 

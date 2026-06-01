@@ -241,6 +241,27 @@ Structured Outputs 的核心要求是“模型输出必须先被结构校验，�
 - payload 摘要必须分层：列表摘要、候选摘要、payload 摘要和完整结构化 payload 分开，模型只看当前步骤必要层级。
 - step limit、timeout 和最大 token 只防异常循环；不得作为跳过必要 artifact 读取、动作查询或校验的理由。
 
+### 16. 黑盒测试迁移保留业务 flow，替换执行证据
+
+现有手动 LLM 黑盒套件中的多轮 flow 是产品行为验收资产，应默认保留用户输入序列、业务目标和用户可见期望。Agent 主链迁移不应把这些 flow 重写成内部工具调用测试，也不应因为旧 `assistant_action` 或 resolved intent 字段退出而删除业务用例。
+
+需要迁移的是 runner、诊断和断言口径：
+
+- runner 继续通过真实 `/api/chat` Route Handler、NDJSON stream、会话保存和 artifact 回读执行黑盒流程。
+- `BlackboxCardType` 应从旧 `AssistantAction["action"]` 解耦为测试稳定枚举，再由 `AgentExecutionResult`、artifact/patch/suggestion 事件和 done metadata 推导。
+- `BlackboxTurnResult` 应记录 `AgentExecutionResult`、Agent stage、tool calls、tool results、dependency graph 摘要、关键 `toolResultId`、`candidateSetId`、`validationId`、`policyDecisionId`、`revisionId`、legacy path skip 和兼容字段状态。
+- fixture 可以增加 Agent 期望字段，例如预期 `status`、必需工具、禁用工具、是否需要候选集合、校验、revision、引用解析和 legacy path 禁用断言，但原有用户输入 flow 不应为适配内部实现而重写。
+- 报告必须分层展示用户可见闭环、artifact/patch/suggestion 事件、Agent 执行证据、工具依赖图和旧路径未参与执行证据。
+
+失败分级也应随主链迁移：
+
+- P0：用户可见闭环失败，例如空回复、应出卡未出卡、不应出卡却出卡、请求/stream 崩溃、回复承诺与 artifact 事件不一致。
+- P1：Agent 执行证据失败，例如缺少 `AgentExecutionResult`、生成/patch 缺少 revision 或 validation、写入缺少前置 tool result、旧 intent-first 路径仍触发卡片。
+- P2：语义质量或约束不稳定，例如器械排除未生效、目标继承错误、引用对象错误、该澄清时擅自猜测。
+- P3：人工复核项，例如措辞质量、推荐排序或非关键表达问题。
+
+兼容期内可以同时记录旧 `assistant_action` / resolved intent，但它们只能作为 derived/diagnostic 信息。验收必须包含关闭旧兼容字段后的黑盒路径，证明前端、报告和用户可见结果都能只依赖 `AgentExecutionResult`、artifact/patch/suggestion 事件和 done metadata。
+
 ## Risks / Trade-offs
 
 - [Risk] 一次替换 `/api/chat` 主链范围大。→ Mitigation: 在同一个 change 内完成新主链、测试和旧路径删除；实现任务可顺序推进，但不能长期保留双主链。
@@ -249,6 +270,7 @@ Structured Outputs 的核心要求是“模型输出必须先被结构校验，�
 - [Risk] Agent 可能循环过多。→ Mitigation: 保留最大 step、超时和硬失败回退；这些限制只防异常，不用于跳过必要工具查询。
 - [Risk] 新工具协议不稳定会影响前端。→ Mitigation: 前端仍消费稳定流事件和 artifact 结果；Agent 内部 tool detail 只进入 trace。
 - [Risk] 删除旧 normalize 和 summary 依赖后短期回归。→ Mitigation: 用真实黑盒多轮 flow 覆盖主要用户场景，断言用户可见输出、recent message 使用、tool result 和 artifact 事件，而不是旧 intent 字段或 summary 内容。
+- [Risk] 黑盒套件迁移时重写业务 flow，导致历史回归样本丢失。→ Mitigation: 保留现有 basic/detail flow 的用户输入和业务期望，只扩展 runner、诊断、Agent 断言和报告字段。
 - [Risk] 兼容字段被再次当成事实源。→ Mitigation: 兼容字段只能由 `LegacyChatEventAdapter` 单向派生，架构测试断言旧字段不触发工具、卡片或写入。
 - [Risk] 自定义 orchestrator 退化成新的大函数。→ Mitigation: 强制 step、dependency graph、checkpoint、replay fixture 和 trace correlation 合同。
 
