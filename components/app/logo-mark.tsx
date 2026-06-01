@@ -3,10 +3,11 @@ import { useId } from "react";
 type LogoMarkProps = {
   className?: string;
   animated?: boolean;
+  showIconShell?: boolean;
 };
 
 // FitMate 的品牌标识使用主题蓝 app 外壳和 46 度倾斜哑铃，统一 Web 与 icon 入口的识别形态。
-export function LogoMark({ className = "h-10 w-10", animated = false }: LogoMarkProps) {
+export function LogoMark({ className = "h-10 w-10", animated = false, showIconShell = true }: LogoMarkProps) {
   const rawId = useId().replace(/:/g, "");
   const shellGradientId = `fitmate-logo-shell-${rawId}`;
   const fieldGradientId = `fitmate-logo-field-${rawId}`;
@@ -81,10 +82,14 @@ export function LogoMark({ className = "h-10 w-10", animated = false }: LogoMark
         </filter>
       </defs>
 
-      <rect fill={`url(#${shellGradientId})`} height="214" rx="58" width="214" x="13" y="13" />
-      <rect height="211" rx="56.5" stroke="#C9D8F4" strokeWidth="2.5" width="211" x="14.5" y="14.5" />
-      <rect fill={`url(#${fieldGradientId})`} height="156" rx="44" width="156" x="42" y="42" />
-      <rect height="152" rx="42" stroke="#FFFFFF" strokeOpacity="0.86" strokeWidth="4" width="152" x="44" y="44" />
+      {showIconShell ? (
+        <>
+          <rect fill={`url(#${shellGradientId})`} height="214" rx="58" width="214" x="13" y="13" />
+          <rect height="211" rx="56.5" stroke="#C9D8F4" strokeWidth="2.5" width="211" x="14.5" y="14.5" />
+          <rect fill={`url(#${fieldGradientId})`} height="156" rx="44" width="156" x="42" y="42" />
+          <rect height="152" rx="42" stroke="#FFFFFF" strokeOpacity="0.86" strokeWidth="4" width="152" x="44" y="44" />
+        </>
+      ) : null}
 
       <g className={animated ? "fitmate-dumbbell-pop" : undefined}>
         <g filter={`url(#${shadowId})`} transform="rotate(46 120 120)">
