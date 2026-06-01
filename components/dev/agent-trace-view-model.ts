@@ -127,42 +127,42 @@ type PhaseDefinition = Omit<AgentTracePhaseGroup, "status" | "steps" | "duration
 const phaseDefinitions: PhaseDefinition[] = [
   {
     id: "context",
-    title: "ContextPackage",
+    title: "ContextPackage（上下文包）",
     description: "上下文构建、事实来源、截断策略和 Agent 可见输入。",
   },
   {
     id: "tool_decision",
-    title: "Tool decision",
+    title: "Tool decision（工具决策）",
     description: "模型工具决策、解析失败、repair 和终止决策。",
   },
   {
     id: "tool_execution",
-    title: "Tool execution",
+    title: "Tool execution（工具执行）",
     description: "工具执行结果、toolResultId、候选池、payload 和工具错误。",
   },
   {
     id: "domain_gate",
-    title: "Validator / Policy gate",
+    title: "Validator / Policy gate（校验与策略门）",
     description: "validation、policy、confirmation 等领域边界检查。",
   },
   {
     id: "persistence",
-    title: "Persistence",
+    title: "Persistence（持久化）",
     description: "revision、artifact event 和写入结果。",
   },
   {
     id: "response_writer",
-    title: "Response Writer",
+    title: "Response Writer（回复写入器）",
     description: "AgentExecutionResult 到用户可见回复的投影与引用检查。",
   },
   {
     id: "post_processing",
-    title: "Post-processing",
+    title: "Post-processing（后处理）",
     description: "summary update、后处理和后台步骤。",
   },
   {
     id: "legacy_compatibility",
-    title: "Legacy compatibility",
+    title: "Legacy compatibility（旧链路兼容）",
     description: "旧 intent-first 路径、兼容事件和未记录 Agent run 的提示。",
   },
 ];
@@ -245,7 +245,9 @@ function buildRunSummary(
     userVisibleReply: getFinalUserVisibleAnswer(trace),
     failureCodes,
     toolCallCount: toolTimeline.filter((item) => item.status !== "missing_decision").length,
-    legacyPathStatus: hasAgentStages ? "legacy path skipped or isolated" : "legacy trace without Agent stages",
+    legacyPathStatus: hasAgentStages
+      ? "legacy path（旧链路）已跳过或隔离"
+      : "legacy trace（旧格式链路）未记录 Agent stages（智能体阶段）",
     resultKind: getResultKind(finalStatus),
   };
 }
