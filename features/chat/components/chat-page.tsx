@@ -504,53 +504,55 @@ export function ChatPage() {
                       <div className="flex w-9 shrink-0 justify-center pt-[2px]">
                         <ChatMessageAvatar role={isUserMessage ? "user" : "assistant"} />
                       </div>
-                      <div
-                        className={`ai-chat-bubble min-w-0 rounded-2xl p-lg transition-shadow ${
-                          isUserMessage
-                            ? "rounded-tr-sm bg-primary text-white shadow-[0_12px_26px_rgba(36,89,230,0.16)]"
-                            : "rounded-tl-sm border border-line bg-white text-ink shadow-[0_12px_26px_rgba(16,24,40,0.06)]"
-                        }`}
-                      >
-                        {(() => {
-                          const trigger = extractWorkoutPlanTrigger(message.content);
-                          const routineTrigger = extractWorkoutRoutineTrigger(message.content);
-                          const recommendationTrigger = extractExerciseRecommendationTrigger(
-                            trigger || routineTrigger ? "" : message.content,
-                          );
-                          const suggestedReplyTrigger = extractSuggestedReplyTrigger(message.content);
-                          let cleanContent = message.content;
-                          for (const rawBlock of [
-                            trigger?.rawBlock,
-                            routineTrigger?.rawBlock,
-                            recommendationTrigger?.rawBlock,
-                            suggestedReplyTrigger?.rawBlock,
-                          ]) {
-                            if (rawBlock) {
-                              cleanContent = cleanContent.replace(rawBlock, "");
+                      <div className="flex flex-1 flex-col gap-xs min-w-0">
+                        {message.role === "assistant" && (
+                          <AgentActivityIndicator
+                            activity={isActiveAssistantMessage ? agentActivity : null}
+                          />
+                        )}
+                        <div
+                          className={`ai-chat-bubble min-w-0 rounded-2xl p-lg transition-shadow ${
+                            isUserMessage
+                              ? "rounded-tr-sm bg-primary text-white shadow-[0_12px_26px_rgba(36,89,230,0.16)]"
+                              : "rounded-tl-sm border border-line bg-white text-ink shadow-[0_12px_26px_rgba(16,24,40,0.06)]"
+                          }`}
+                        >
+                          {(() => {
+                            const trigger = extractWorkoutPlanTrigger(message.content);
+                            const routineTrigger = extractWorkoutRoutineTrigger(message.content);
+                            const recommendationTrigger = extractExerciseRecommendationTrigger(
+                              trigger || routineTrigger ? "" : message.content,
+                            );
+                            const suggestedReplyTrigger = extractSuggestedReplyTrigger(message.content);
+                            let cleanContent = message.content;
+                            for (const rawBlock of [
+                              trigger?.rawBlock,
+                              routineTrigger?.rawBlock,
+                              recommendationTrigger?.rawBlock,
+                              suggestedReplyTrigger?.rawBlock,
+                            ]) {
+                              if (rawBlock) {
+                                cleanContent = cleanContent.replace(rawBlock, "");
+                              }
                             }
-                          }
-                          cleanContent = cleanContent.trim();
-                          const assistantSuggestions = getMessageAssistantSuggestions({
-                            ...message,
-                            suggestedReplies: message.suggestedReplies ?? suggestedReplyTrigger?.suggestedReplies,
-                          });
+                            cleanContent = cleanContent.trim();
+                            const assistantSuggestions = getMessageAssistantSuggestions({
+                              ...message,
+                              suggestedReplies: message.suggestedReplies ?? suggestedReplyTrigger?.suggestedReplies,
+                            });
 
-                          if (message.role === "assistant") {
-                            return (
-                              <>
-                                <AgentActivityIndicator
-                                  activity={isActiveAssistantMessage ? agentActivity : null}
-                                />
-
-                                {cleanContent ? (
-                                  <div className={isActiveAssistantMessage ? "markdown-answer mt-md" : "markdown-answer"}>
-                                    <MarkdownContent content={cleanContent} />
-                                  </div>
-                                ) : (
-                                  <div className={isActiveAssistantMessage ? "mt-md" : ""}>
-                                    <ChatThinkingIndicator showThinkingIcon={thinkingEnabled || message.isReasoning === true} />
-                                  </div>
-                                )}
+                            if (message.role === "assistant") {
+                              return (
+                                <>
+                                  {cleanContent ? (
+                                    <div className="markdown-answer">
+                                      <MarkdownContent content={cleanContent} />
+                                    </div>
+                                  ) : (
+                                    <div>
+                                      <ChatThinkingIndicator showThinkingIcon={thinkingEnabled || message.isReasoning === true} />
+                                    </div>
+                                  )}
 
                                 {assistantSuggestions.length > 0 && (
                                   <div className="mt-md flex flex-wrap gap-sm">
@@ -660,6 +662,7 @@ export function ChatPage() {
                       </div>
                     </div>
                   </div>
+                </div>
                 );
               })}
               {error ? (
