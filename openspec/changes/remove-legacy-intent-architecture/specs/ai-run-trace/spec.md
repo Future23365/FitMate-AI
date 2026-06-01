@@ -13,6 +13,11 @@
 - **THEN** trace MUST 记录旧 intent resolution、resolved intent repair、`runReadonlyToolLoop`、旧 ReferenceResolver-first 主路径和旧 `assistant_action` 生产输出均未参与执行
 - **AND** 旧路径缺席证据 MUST 可被自动化测试读取
 
+#### Scenario: Agent-native recovery 发生
+- **WHEN** Agent 进入 repair、tool retry、clarification、blocked、failed、validation / policy recovery 或用户确认路径
+- **THEN** trace MUST 记录 recovery 来源、失败边界、使用的 tool result 或 blocking reason
+- **AND** trace MUST 记录本次 recovery 没有调用旧 intent-first fallback、旧只读 tool loop 或 summary-only payload reconstruction
+
 ## MODIFIED Requirements
 
 ### Requirement: AI 编排必须记录基础 AiRunTrace

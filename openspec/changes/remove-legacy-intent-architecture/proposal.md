@@ -12,6 +12,9 @@ Tool-first `AgentOrchestrator` 已经成为 `/api/chat` 的生产主链，但当
 - **BREAKING**：删除旧只读-only LLM tool loop 规格；`ENABLE_READONLY_LLM_TOOLS`、`runReadonlyToolLoop`、`ReadonlyToolDecision` 和旧只读触发矩阵不得继续作为生产编排能力。读工具必须迁入统一 `AgentToolRegistry`。
 - **BREAKING**：删除 `conversationSummary + latestUserMessage` 作为模型历史上下文协议的残留要求；`conversationSummary` 只能作为后台摘要、标题、历史迁移或调试材料，不能进入 Agent 执行事实源。
 - 将长期计划、routine、动作推荐、Patch、动作讲解和普通回复的执行合同统一收敛到 `AgentExecutionResult`，下游领域服务只能消费 Agent 已登记的结构化输入、tool result、candidateSetId、validationId、policyDecisionId、revisionId 或明确 blocking reason。
+- 增加 legacy allowlist：旧架构代码、类型、事件解析和报告兼容默认不得保留；确需保留时必须位于离线迁移、历史展示兼容或测试 fixture 边界，并且不能被生产 `/api/chat`、Agent runtime、Response Writer、前端新流解析或领域服务导入。
+- 明确 Agent-native fallback：新架构需要回退、修复或恢复时，只能使用 Agent repair、`needs_clarification`、`blocked`、`failed`、tool retry、validation / policy recovery 或用户确认，不能回退到旧 intent resolution、旧 action gate、旧只读 tool loop、旧 trigger parser 或 `conversationSummary` 重建。
+- 明确新 stream 合同：新运行只能用 `agent_execution_result`、artifact / patch / suggestion 事件、tool evidence metadata 和 done metadata 表达用户可见结果；旧 `assistant_action`、`intent_resolved`、trigger JSON 和 `workoutIntent` 不得作为新生产流事件输出。
 - 更新 AI Trace 规格，删除旧 intent resolution、ReferenceResolver-first、只读 tool loop 回退等阶段作为主链 trace 的要求，改为强制记录 Agent context、tool decision、tool result、dependency graph、Response Writer 和 legacy path absence。
 - 更新手动 LLM 黑盒规格，禁止继续把旧 `assistant_action`、resolved intent、`workoutIntent` 或 trigger JSON 作为核心断言或失败依据。
 - 增加清理验收：实现时必须删除或隔离旧源码、旧 prompt module、旧测试 helper、旧文档段落和旧诊断字段，并用架构级测试证明旧路径无法触发生产执行。
@@ -38,4 +41,4 @@ Tool-first `AgentOrchestrator` 已经成为 `/api/chat` 的生产主链，但当
 
 - 影响 OpenSpec 主规格和后续实现范围：`/api/chat`、`lib/server/chat/chat-service.ts`、`lib/shared/chat/*intent*`、`lib/server/ai/tools/*`、`lib/server/agent-orchestrator/*`、`lib/server/workout-plans/*`、`manual-tests/llm/*`、`tests/*chat*`、`tests/readonly-tools.test.ts`、`docs/chat-push-flow.md`、`docs/architecture.md` 和相关方案历史文档。
 - 后续实现应删除旧 intent-first 源码、测试、流事件和诊断字段，而不是把它们继续保留为生产兼容路径。
-- 当前阶段只写 OpenSpec 文档，不修改业务代码、不迁移测试、不运行真实模型黑盒；后续进入 apply 时应按 `tasks.md` 执行代码、测试和文档同步。
+- 当前阶段只写 OpenSpec change 文档，不修改业务代码、不迁移测试、不修改或删除 `docs/`、不运行真实模型黑盒；后续进入 apply 时应按 `tasks.md` 执行代码、测试和文档同步。历史方案文档默认保留为演进记录，除非用户另行确认，不以删除历史文档作为清理手段。

@@ -4,6 +4,7 @@
 - [ ] 1.2 审计 `lib/server/ai/tools/*` 中独立只读-only tool loop、`ENABLE_READONLY_LLM_TOOLS`、`ReadonlyToolDecision`、`runReadonlyToolLoop` 和旧触发矩阵的生产引用。
 - [ ] 1.3 审计 `conversationSummary` 在 Agent context、prompt、下游生成服务、trace 和黑盒 runner 中的使用，区分后台摘要、标题、调试材料和非法执行事实源。
 - [ ] 1.4 审计 docs、OpenSpec 主规格和方案历史中仍描述旧 intent-first、summary-only、只读-only tool loop 或前端 `assistant_action` 二次触发的段落。
+- [ ] 1.5 建立 legacy allowlist：逐项标记仍需保留的旧解析代码、旧类型、旧报告兼容和旧 fixture 的合法边界；未进入 allowlist 的旧架构代码必须删除，进入 allowlist 的代码必须证明生产 `/api/chat`、Agent runtime、Response Writer、前端新流解析和领域服务均不可导入。
 
 ## 2. 删除旧聊天意图主链
 
@@ -12,6 +13,8 @@
 - [ ] 2.3 删除 `LegacyChatEventAdapter` 在生产流事件中的输出，确保新运行不再输出 `assistant_action`、`intent_resolved` 或旧 trigger JSON。
 - [ ] 2.4 确保前端只消费 `agent_execution_result`、artifact / patch / suggestion 事件和 done metadata，不再依赖旧 action 事件触发训练卡片。
 - [ ] 2.5 删除服务端基于关键词、正则、短句模板或历史摘要推断用户高层语义的旧补丁逻辑，确保短指令只由 Agent 通过工具读取事实后决策。
+- [ ] 2.6 删除所有回退到旧 intent-first 的路径；Agent 失败、工具失败、候选不足、引用不可解析、校验失败或 Response Writer 失败时，只能进入 Agent repair、tool retry、`needs_clarification`、`blocked`、`failed`、validation / policy recovery 或用户确认。
+- [ ] 2.7 删除旧 prompt module 和 repair prompt 中面向 `ResolvedChatIntent`、`ChatIntent`、`workoutIntent`、旧 action contract 或 `conversationSummary + latestUserMessage` 执行协议的生产调用；如 prompt 文本仅用于历史 fixture，必须移出生产 prompt 配置边界。
 
 ## 3. 迁移只读工具与上下文边界
 
@@ -19,6 +22,7 @@
 - [ ] 3.2 删除 `runReadonlyToolLoop`、只读 decision prompt、只读 context bundle formatter、只读 feature flag 触发矩阵和旧 fallback 到固定编排的路径。
 - [ ] 3.3 确保 Agent context 不包含 `conversationSummary` 作为执行事实源；需要 artifact payload、exerciseId、Patch target 或训练参数时必须通过工具读取。
 - [ ] 3.4 保留 `conversationSummary` 的后台摘要、标题、历史迁移和调试用途，并在代码注释和 trace 摘要中明确它不是执行事实源。
+- [ ] 3.5 检查 token budget、context formatter 和 trace formatter，确保它们只处理 Agent `ContextPackage`、tool result 摘要和 Response Writer 输入，不再构造旧只读 context bundle 或 summary-only prompt。
 
 ## 4. 下游领域服务输入迁移
 
@@ -36,6 +40,9 @@
 - [ ] 5.4 迁移只读工具测试到 Agent registry，覆盖未知工具、非法参数、越权 artifact、摘要截断、tool result id 和 trace 摘要。
 - [ ] 5.5 更新 plan、routine、动作推荐、Patch 和动作讲解相关测试，断言执行事实来自 `AgentExecutionResult` 和 tool dependency graph。
 - [ ] 5.6 更新手动 LLM 黑盒 fixture expectation，保留用户输入和业务期望，但把执行证据字段迁移为 Agent status、必需工具、candidateSetId、validationId、revisionId 和 legacy path absence。
+- [ ] 5.7 增加生产 stream contract 测试，覆盖 `agent_execution_result`、artifact / patch / suggestion 事件、tool evidence metadata 和 done metadata；断言新运行不输出 `assistant_action`、`intent_resolved`、旧 trigger JSON 或可作为执行事实源的 `workoutIntent`。
+- [ ] 5.8 增加 Agent-native fallback 矩阵测试，覆盖 routine、plan、动作推荐、Patch、动作讲解和短指令场景中的工具失败、候选不足、引用失败、validation 失败和 policy blocked，断言不会调用旧 intent-first fallback。
+- [ ] 5.9 增加 legacy allowlist 防回归测试，扫描生产入口或模块依赖，确保 allowlist 外的旧架构模块不可被 `/api/chat`、Agent runtime、Response Writer、前端新流解析和领域服务引用。
 
 ## 6. 架构文档同步与 OpenSpec 收尾
 
@@ -43,6 +50,7 @@
 - [ ] 6.2 在 `docs/方案变更历史` 新增一份上海时间精确到秒的架构清理记录，说明旧架构为什么不合适、清理思路、关键改动和验证结果。
 - [ ] 6.3 在 `docs/项目演变历程.md` 末尾追加本次旧架构清理记录，说明从双主链迁移到 Agent-only 主链的原因和结果。
 - [ ] 6.4 实现完成后更新本 change 的 `tasks.md` 勾选状态，并运行 `openspec validate remove-legacy-intent-architecture --strict`。
+- [ ] 6.5 历史方案文档和归档 change 默认只作为演进记录保留；除非用户明确要求，清理工作不得通过删除历史文档来替代当前生产合同、主规格、测试和代码的迁移。
 
 ## 7. 验证命令
 

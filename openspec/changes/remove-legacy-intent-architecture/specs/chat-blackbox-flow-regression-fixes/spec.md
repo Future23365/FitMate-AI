@@ -13,6 +13,17 @@
 - **THEN** 回归测试 MUST 失败
 - **AND** 报告 MUST 标出被调用的旧路径名称
 
+#### Scenario: 旧回退路径被调用
+- **WHEN** routine、长期计划、动作推荐、Patch、动作讲解或短指令流程发生失败、阻断或恢复
+- **AND** 测试发现系统调用旧 intent-first fallback、resolved intent repair、旧 action gate、旧只读 tool loop 或 summary-only payload reconstruction
+- **THEN** 回归测试 MUST 失败
+- **AND** 报告 MUST 标出旧回退路径名称和触发流程
+
+#### Scenario: 新 stream 合同覆盖用户可见结果
+- **WHEN** `/api/chat` 返回卡片、Patch、建议、澄清、阻断、失败或保存完成状态
+- **THEN** 回归测试 MUST 从 `agent_execution_result`、artifact / patch / suggestion 事件、tool evidence metadata 和 done metadata 验证结果
+- **AND** 回归测试 MUST NOT 依赖 `assistant_action`、`intent_resolved`、旧 trigger JSON 或 `workoutIntent`
+
 ## REMOVED Requirements
 
 ### Requirement: 黑盒失败样例必须被自动化回归覆盖

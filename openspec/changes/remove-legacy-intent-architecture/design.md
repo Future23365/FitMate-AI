@@ -31,6 +31,7 @@
 - 本 change 不要求删除 `conversationSummary` 存储本身；它可以继续用于后台摘要、标题、历史迁移和调试。
 - 本 change 不要求删除所有历史报告中的旧字段；历史报告可以保留，但新运行和新验收不得依赖旧字段。
 - 本 change 不引入新的外部依赖、数据库表或 API 路由。
+- 本轮文档补充只修改本 change 目录内的 OpenSpec 文档，不修改或删除 `docs/`、主规格或业务代码。
 
 ## Decisions
 
@@ -68,6 +69,30 @@
 
 原因：旧架构残留同时存在于代码、测试、手动黑盒 runner、架构说明和演变历史中。只改源码会留下错误协作信号，只改文档会留下可运行旧路径。tasks 必须把两者作为同一个验收闭环。
 
+### 6. Legacy 保留边界改为 deny-by-default
+
+选择：旧 `ResolvedChatIntent`、`ChatIntent`、`workoutIntent`、`LegacyChatEventAdapter`、`assistant_action`、`intent_resolved`、旧 trigger JSON、`runReadonlyToolLoop` 和 `ENABLE_READONLY_LLM_TOOLS` 默认都应删除。实现阶段如发现无法立即删除的旧解析代码，必须把它移动或隔离到离线迁移、历史展示兼容或测试 fixture，并通过命名、目录、导出边界和自动化测试证明生产链路不能导入。
+
+原因：只说“不能作为事实源”仍可能留下隐式 fallback。deny-by-default 能让后续实现先证明保留的必要性，再证明它不会被 `/api/chat`、Agent runtime、Response Writer、前端新流解析、领域服务或黑盒 runner 的新断言消费。
+
+### 7. 所有回退都必须是 Agent-native
+
+选择：Agent 失败、工具失败、校验失败、候选不足、策略阻断、引用不可解析或 Response Writer 解析失败时，只允许进入 Agent repair、tool retry、`needs_clarification`、`blocked`、`failed`、validation / policy recovery 或用户确认。不得调用旧 intent resolution、resolved intent repair、旧 action gate、旧只读 tool loop、旧 trigger parser，也不得从 `conversationSummary` 反向重建可写 payload。
+
+原因：旧架构最容易以“兜底”“兼容”“诊断补充”的形式重新进入生产主链。回退路径如果没有单独声明，删除主路径后仍会保留双主链风险。
+
+### 8. 新 stream 合同必须先于旧事件删除完成
+
+选择：删除 `assistant_action` 和 `intent_resolved` 前，必须明确新生产流只输出 `agent_execution_result`、artifact / patch / suggestion 事件、tool evidence metadata 和 done metadata。前端、黑盒 runner 和报告只能用这些事件判断卡片类型、澄清、阻断、失败、Patch、动作讲解和保存状态。
+
+原因：旧事件过去承担了前端卡片触发和黑盒诊断职责。没有新 stream 合同，代码实现容易为了避免前端或报告回归而继续输出旧事件。
+
+### 9. 历史文档保留，当前合同改写
+
+选择：实现阶段应更新当前架构文档和主规格中的有效合同，但不把删除历史方案文档作为必要清理手段。`docs/方案变更历史` 和归档 OpenSpec change 可以保留旧方案作为历史记录；如果需要避免误导，应通过新增当前方案说明或主规格归档结果表达废弃状态。
+
+原因：历史文档记录项目演进，不等同于生产合同。粗暴删除历史文档会损失决策背景；真正需要删除的是生产代码、当前规格、当前测试和新运行输出中的旧架构入口。
+
 ## Risks / Trade-offs
 
 - [Risk] 删除旧兼容字段可能影响尚未迁移的前端或报告消费方 → Mitigation：实现阶段先用测试确认前端只依赖 `agent_execution_result`、artifact / patch / suggestion 事件和 done metadata；历史报告解析保留在离线脚本或测试夹具中。
@@ -75,3 +100,5 @@
 - [Risk] `conversationSummary` 存储仍存在，容易被误认为执行上下文 → Mitigation：规格明确允许存储但禁止执行使用；测试必须断言 Agent context 不包含 summary-only 事实源。
 - [Risk] 删除只读 tool loop 后可能丢失已有工具权限和摘要测试 → Mitigation：把这些测试迁移到统一 Agent registry，而不是删除工具边界测试。
 - [Risk] 同时清理多个 spec 可能影响归档可读性 → Mitigation：每个 spec delta 只写和旧架构直接相关的删除/替换要求，不顺手重写无关训练领域规则。
+- [Risk] 旧事件删除后前端和黑盒 runner 缺少判断依据 → Mitigation：先落定 `agent_execution_result`、artifact / patch / suggestion、tool evidence 和 done metadata 的新合同，再删除旧事件输出。
+- [Risk] 回退路径继续调用旧 intent-first 逻辑 → Mitigation：任务和测试必须覆盖 Agent-native fallback，发现旧 fallback 被调用时视为架构清理失败。
