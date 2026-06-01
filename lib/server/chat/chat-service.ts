@@ -937,7 +937,7 @@ function createDeepSeekAgentDecisionProvider(input: {
             "agent_tool_execution",
             "agent_final_result",
           ]),
-          "必须只返回一个 JSON 对象，不要输出 Markdown。工具调用格式：{\"action\":\"call_tool\",\"toolName\":\"searchExercises\",\"input\":{},\"reason\":\"...\"}。终止格式：{\"action\":\"final_result\",\"result\":{\"status\":\"answered\",\"replyContext\":{\"reply\":\"...\"},\"usedToolResultIds\":[]},\"reason\":\"...\"}。",
+          "必须只返回一个 JSON 对象，不要输出 Markdown。工具调用格式：{\"action\":\"call_tool\",\"toolName\":\"searchExercises\",\"input\":{},\"reason\":\"...\"}。终止格式：{\"action\":\"final_result\",\"result\":{\"status\":\"answered\",\"replyContext\":{\"reply\":\"...\"},\"usedToolResultIds\":[]},\"reason\":\"...\"}。blocked 终止格式：{\"action\":\"final_result\",\"result\":{\"status\":\"blocked\",\"blockReason\":\"...\",\"usedToolResultIds\":[]},\"reason\":\"...\"}。",
         ].join("\n\n"),
       },
       {

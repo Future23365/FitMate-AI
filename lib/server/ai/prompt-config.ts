@@ -347,7 +347,8 @@ export const aiPromptModuleRegistry: Record<AiPromptModuleId, string> = {
   ].join("\n"),
   agent_final_result: [
     "你必须只返回 AgentExecutionResult 结构化终止结果。",
-    "generated、patched、completed_operation 必须引用本轮已登记的 tool result、validation、policy、revision、operationResultId 或明确 blocking reason。",
+    "generated、patched、completed_operation 必须引用本轮已登记的 tool result、validation、policy、revision、operationResultId 或明确 blockReason。",
+    "blocked 必须返回 {\"status\":\"blocked\",\"blockReason\":\"...\",\"usedToolResultIds\":[\"...\"]}，不得把阻塞说明放入 replyContext。",
     "自由文本回答不能表示写入成功。",
   ].join("\n"),
   agent_response_writer: [

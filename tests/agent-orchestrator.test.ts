@@ -220,6 +220,52 @@ describe("agent orchestrator phase 1 contracts", () => {
     ], registry)).toMatchObject({ ok: false, code: "invalid_decision" });
   });
 
+  it("normalizes legacy blocked final results into the AgentExecutionResult contract", () => {
+    const registry = new AgentToolRegistry([createReadTool()]);
+    const parsed = parseAgentToolDecision({
+      action: "final_result",
+      result: {
+        status: "blocked",
+        replyContext: { reply: "没有找到符合条件的动作候选。" },
+        usedToolResultIds: ["tool-result-empty"],
+      },
+      reason: "候选为空，停止执行。",
+    }, registry);
+
+    expect(parsed).toMatchObject({
+      ok: true,
+      decision: {
+        action: "final_result",
+        result: {
+          status: "blocked",
+          blockReason: "没有找到符合条件的动作候选。",
+          usedToolResultIds: ["tool-result-empty"],
+        },
+      },
+    });
+
+    if (!parsed.ok || parsed.decision.action !== "final_result") {
+      throw new Error("Expected normalized final_result.");
+    }
+
+    expect(projectAgentExecutionResultToResponse({
+      result: parsed.decision.result,
+      toolResults: [{
+        toolResultId: "tool-result-empty",
+        toolCallId: "tool-call-empty",
+        toolName: "searchExercises",
+        status: "failed",
+      }],
+    })).toMatchObject({
+      status: "blocked",
+      reply: "没有找到符合条件的动作候选。",
+      references: expect.arrayContaining([
+        { kind: "tool_result", id: "tool-result-empty" },
+        { kind: "blocking_reason", id: "没有找到符合条件的动作候选。" },
+      ]),
+    });
+  });
+
   it("blocks write tools that lack a domain capability contract or safe projection", () => {
     expect(() => new AgentToolRegistry([{
       ...createReadTool(),
@@ -1167,6 +1213,8 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
     ]));
     expect(buildPromptFromModules(["agent_tool_decision", "agent_response_writer"]))
       .toContain("不得读取 conversationSummary、旧 resolved intent 或旧 assistant_action 作为执行事实");
+    expect(buildPromptFromModules(["agent_final_result"]))
+      .toContain("blocked 必须返回");
   });
 });
 

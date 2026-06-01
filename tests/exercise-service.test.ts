@@ -81,6 +81,24 @@ describe("exercise service", () => {
         goalTags: ["mobility"],
       }),
       createExercise({
+        id: "band-squat",
+        nameZh: "弹力带深蹲",
+        category: "strength",
+        categoryZh: "力量",
+        level: "beginner",
+        levelZh: "新手",
+        equipment: "resistance_band",
+        equipmentZh: "弹力带",
+        homeRequirement: "equipment",
+        homeRequirementZh: "需要器械",
+        primaryMuscles: ["quadriceps"],
+        primaryMusclesZh: ["股四头肌"],
+        secondaryMuscles: ["glutes", "hamstrings"],
+        secondaryMusclesZh: ["臀部", "腘绳肌"],
+        movementPattern: "squat",
+        goalTags: ["strength", "beginner_friendly"],
+      }),
+      createExercise({
         id: "jump-squat",
         nameZh: "跳跃深蹲",
         category: "cardio",
@@ -180,8 +198,8 @@ describe("exercise service", () => {
     expect(paged).toMatchObject({
       page: 2,
       pageSize: 1,
-      total: 9,
-      totalPages: 9,
+      total: 10,
+      totalPages: 10,
       hasNextPage: true,
       hasPreviousPage: true,
     });
@@ -203,9 +221,10 @@ describe("exercise service", () => {
       total: 3,
     });
     await expect(listExercises({ suitability: "training" })).resolves.toMatchObject({
-      total: 6,
+      total: 7,
       items: expect.arrayContaining([
         expect.objectContaining({ id: "push-up" }),
+        expect.objectContaining({ id: "band-squat" }),
         expect.objectContaining({ id: "jump-squat" }),
         expect.objectContaining({ id: "jumping-jack" }),
         expect.objectContaining({ id: "dumbbell-row" }),
@@ -244,7 +263,7 @@ describe("exercise service", () => {
     const facets = await getExerciseFacets();
     expect(facets.categories).toEqual(
       expect.arrayContaining([
-        { value: "strength", label: "力量", count: 4 },
+        { value: "strength", label: "力量", count: 5 },
         { value: "cardio", label: "有氧训练", count: 2 },
       ]),
     );
@@ -263,7 +282,7 @@ describe("exercise service", () => {
     expect(facets.goalTags).toEqual(
       expect.arrayContaining([
         { value: "home_friendly", label: "居家友好", count: 1 },
-        { value: "strength", label: "力量训练", count: 3 },
+        { value: "strength", label: "力量训练", count: 4 },
       ]),
     );
     expect(facets.riskTags).toEqual(expect.arrayContaining([{ value: "high_impact", label: "高冲击", count: 1 }]));
@@ -311,6 +330,24 @@ describe("exercise service", () => {
       candidates: expect.not.arrayContaining([expect.objectContaining({ id: "band-pull-apart" })]),
       diagnostics: expect.objectContaining({
         finalExerciseIds: expect.not.arrayContaining(["band-pull-apart"]),
+      }),
+    });
+  });
+
+  it("returns published beginner band lower-body candidates", async () => {
+    await expect(
+      searchExercises({
+        visibility: "published",
+        equipmentRequired: ["弹力带"],
+        level: "beginner",
+        targetMuscles: ["股四头肌", "腘绳肌"],
+        avoidances: ["跳跃"],
+        limit: 8,
+      }),
+    ).resolves.toMatchObject({
+      candidates: expect.arrayContaining([expect.objectContaining({ id: "band-squat" })]),
+      diagnostics: expect.objectContaining({
+        finalExerciseIds: expect.arrayContaining(["band-squat"]),
       }),
     });
   });

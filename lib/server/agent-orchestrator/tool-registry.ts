@@ -214,7 +214,9 @@ export function parseAgentToolDecision(
   value: unknown,
   registry: Pick<AgentToolRegistry, "has">,
 ): AgentToolDecisionParseResult {
-  if (Array.isArray(value)) {
+  const normalizedValue = normalizeLegacyBlockedFinalResult(value);
+
+  if (Array.isArray(normalizedValue)) {
     return {
       ok: false,
       code: "invalid_decision",
@@ -222,7 +224,7 @@ export function parseAgentToolDecision(
     };
   }
 
-  const parsed = agentToolDecisionSchema.safeParse(value);
+  const parsed = agentToolDecisionSchema.safeParse(normalizedValue);
   if (!parsed.success) {
     return {
       ok: false,
@@ -242,6 +244,36 @@ export function parseAgentToolDecision(
   }
 
   return { ok: true, decision: parsed.data };
+}
+
+// 只修正模型旧形态 blocked 字段位置，不改写状态、引用或用户语义。
+function normalizeLegacyBlockedFinalResult(value: unknown) {
+  if (!isPlainObject(value) || value.action !== "final_result" || !isPlainObject(value.result)) {
+    return value;
+  }
+
+  const result = value.result;
+  if (result.status !== "blocked" || typeof result.blockReason === "string") {
+    return value;
+  }
+
+  const replyContext = isPlainObject(result.replyContext) ? result.replyContext : undefined;
+  const legacyReply = typeof replyContext?.reply === "string" ? replyContext.reply.trim() : "";
+  if (!legacyReply) {
+    return value;
+  }
+
+  return {
+    ...value,
+    result: {
+      ...result,
+      blockReason: legacyReply,
+    },
+  };
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 // parseAgentJsonObject accepts plain JSON or fenced JSON from structured-output fallback providers.
