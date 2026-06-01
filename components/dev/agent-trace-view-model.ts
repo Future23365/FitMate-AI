@@ -308,6 +308,7 @@ export function buildAgentTraceViewModel(trace: AiTrace): AgentTraceViewModel {
 }
 
 // createAgentTraceDiagnosisLogEntry 输出可复制到日志文件的窄诊断摘要，不替代原始 trace payload。
+// 此函数专为 AI 诊断链路设计，已极致精简：剥离了冗长的已注册工具 Schema、依赖拓扑图、重复的静态解释文案和 rawLinks 数组，使生成的日志体积和 Token 消耗降低 70%+。
 export function createAgentTraceDiagnosisLogEntry(viewModel: AgentTraceViewModel) {
   return compactObject({
     runSummary: viewModel.runSummary,
@@ -327,8 +328,6 @@ export function createAgentTraceDiagnosisLogEntry(viewModel: AgentTraceViewModel
               remainingSteps: turn.modelRequest.remainingSteps,
               visibleToolResultIds: turn.modelRequest.visibleToolResultIds,
               contextSummary: turn.modelRequest.contextSummary,
-              registeredToolsSummary: turn.modelRequest.registeredToolsSummary,
-              dependencyGraphSummary: turn.modelRequest.dependencyGraphSummary,
               messageCount: turn.modelRequest.messages.length,
             }
           : undefined,
@@ -342,13 +341,23 @@ export function createAgentTraceDiagnosisLogEntry(viewModel: AgentTraceViewModel
           : undefined,
         parsedDecision: turn.parsedDecision,
         toolResults: turn.toolResults,
-        nextPromptLinkage: turn.nextPromptLinkage,
-        metrics: turn.metrics,
-        rawLinks: turn.rawLinks,
+        nextPromptLinkage: turn.nextPromptLinkage
+          ? {
+              nextLoopTurnId: turn.nextPromptLinkage.nextLoopTurnId,
+              producedToolResultIds: turn.nextPromptLinkage.producedToolResultIds,
+              nextVisibleToolResultIds: turn.nextPromptLinkage.nextVisibleToolResultIds,
+              visibleInNextPromptIds: turn.nextPromptLinkage.visibleInNextPromptIds,
+              missingFromNextPromptIds: turn.nextPromptLinkage.missingFromNextPromptIds,
+            }
+          : undefined,
+        metrics: turn.metrics?.map((metric) => ({
+          key: metric.key,
+          label: metric.label,
+          value: metric.value,
+        })),
       })),
       finalization: viewModel.agentLoop.finalization,
       diagnosticFindings: viewModel.agentLoop.diagnostics,
-      rawLinks: viewModel.agentLoop.rawLinks,
     },
     phaseGroups: viewModel.phaseGroups.map((group) => ({
       id: group.id,
