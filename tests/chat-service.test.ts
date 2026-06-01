@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { createToolFirstAgentToolRegistry } from "@/lib/server/agent-orchestrator";
 import {
   buildAgentArtifactStreamEvents,
   buildAgentDecisionModelInput,
@@ -372,40 +373,13 @@ describe("chat service Agent-only contract", () => {
           maxArtifactSummaryChars: 700,
         },
       },
-      registeredTools: [{
-        name: "evaluatePolicy",
-        description: "评估训练 artifact 写入策略",
-        accessLevel: "write",
-        inputJsonSchemaHint: {
-          oneOf: [
-            {
-              type: "object",
-              required: ["policyTarget", "artifactKind", "draftId"],
-              properties: {
-                policyTarget: { type: "string", const: "new_artifact" },
-                artifactKind: { type: "string", enum: ["routine", "plan"] },
-                draftId: { type: "string" },
-              },
-            },
-            {
-              type: "object",
-              required: ["policyTarget", "sourceArtifactId", "patchId"],
-              properties: {
-                policyTarget: { type: "string", const: "existing_artifact" },
-                sourceArtifactId: { type: "string" },
-                patchId: { type: "string" },
-              },
-            },
-          ],
-        },
-        dependencies: [],
-      }],
+      registeredTools: createToolFirstAgentToolRegistry().listModelDefinitions(),
       toolResults: [],
       dependencyGraph: { nodes: [], edges: [] },
       remainingSteps: 6,
     });
 
-    const [toolSummary] = input.input.registeredTools;
+    const toolSummary = input.input.registeredTools.find((tool) => tool.name === "evaluatePolicy");
     const inputFields = toolSummary?.inputFields;
 
     expect(Array.isArray(inputFields)).toBe(true);
