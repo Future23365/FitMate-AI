@@ -21,9 +21,11 @@ import {
   type FitnessConversationContext,
 } from "@/lib/shared/chat/fitness-conversation-context";
 import type { ConversationArtifactKind } from "@/lib/shared/conversation-artifacts/schema";
+import type { AgentExecutionResult } from "@/lib/server/agent-orchestrator";
 import { toUtcISOString } from "@/lib/shared/time/utc-date-time";
 import { workoutPlanIntentSchema, type WorkoutPlanIntent } from "@/lib/shared/workout-plans/draft-schema";
 import type { AssistantAction } from "@/lib/server/chat/chat-service";
+import type { BlackboxCardType } from "./flow-fixtures";
 
 type DeepSeekUsage = {
   prompt_tokens?: number;
@@ -80,16 +82,36 @@ export type BlackboxArtifactDiagnostics = {
   referenceResolutionSummary?: string;
 };
 
+export type BlackboxAgentDiagnostics = {
+  executionResultPresent: boolean;
+  status?: AgentExecutionResult["status"];
+  toolNames: string[];
+  toolResultIds: string[];
+  candidateSetIds: string[];
+  validationIds: string[];
+  policyDecisionIds: string[];
+  revisionIds: string[];
+  dependencyGraphPresent: boolean;
+  legacyPathSkip: {
+    intentFirst?: boolean;
+    normalize?: boolean;
+    summaryOnlyContext?: boolean;
+    referenceResolverFirst?: boolean;
+  };
+  legacyEventsEmitted?: boolean;
+};
+
 export type BlackboxTurnResult = {
   conversationId: string;
   responseMessageId: string;
   assistantText: string;
-  actionTypes: AssistantAction["action"][];
+  actionTypes: BlackboxCardType[];
   assistantActions: AssistantAction[];
   traceId?: string;
   conversationSummary: string;
   usage: DeepSeekUsage;
   artifactDiagnostics: BlackboxArtifactDiagnostics;
+  agentDiagnostics: BlackboxAgentDiagnostics;
   error?: BlackboxRunnerError;
 };
 
@@ -105,10 +127,14 @@ export type BlackboxConversationState = {
 type ConsumedChatStream = {
   assistantText: string;
   actions: AssistantAction[];
-  actionTypes: AssistantAction["action"][];
+  actionTypes: BlackboxCardType[];
   referenceDiagnostics: NonNullable<ChatStreamEvent["referenceDiagnostic"]>[];
   traceId?: string;
   conversationSummary?: string;
+  agentExecutionResult?: AgentExecutionResult;
+  dependencyGraph?: unknown;
+  legacyPathSkip?: BlackboxAgentDiagnostics["legacyPathSkip"];
+  legacyEventsEmitted?: boolean;
   artifacts: Array<{
     kind: ConversationArtifactKind;
     payload: unknown;
@@ -234,6 +260,7 @@ export async function runBlackboxChatTurn(input: {
       latestUserMessage: input.userInput,
       conversationSummary: input.state.conversationSummary,
       thinkingEnabled: false,
+      emitLegacyEvents: process.env.MANUAL_LLM_DISABLE_LEGACY_EVENTS === "1" ? false : undefined,
     }),
   });
 
@@ -264,14 +291,17 @@ export async function runBlackboxChatTurn(input: {
     responseMessageId,
     assistantText: streamResult.assistantText,
     actionTypes: uniqueActionTypes([
-      ...streamResult.actions.map((action) => action.action),
+      ...deriveCardTypesFromAgentExecutionResult(streamResult.agentExecutionResult),
+      ...deriveCardTypesFromArtifacts(streamResult.artifacts),
+      ...streamResult.actions.map((action) => mapLegacyAssistantActionToCardType(action.action)),
       ...streamResult.actionTypes,
-    ]),
+    ].filter((actionType): actionType is BlackboxCardType => Boolean(actionType))),
     assistantActions: streamResult.actions,
     traceId: streamResult.traceId,
     conversationSummary: streamResult.conversationSummary ?? input.state.conversationSummary,
     usage: summarizeTraceUsage(streamResult.traceId),
     artifactDiagnostics: createEmptyArtifactDiagnostics(streamResult.actions),
+    agentDiagnostics: createAgentDiagnostics(streamResult),
     error: streamResult.error,
   };
 
@@ -354,7 +384,22 @@ function createFailedResult(
     conversationSummary: state.conversationSummary,
     usage: {},
     artifactDiagnostics: createEmptyArtifactDiagnostics([]),
+    agentDiagnostics: createEmptyAgentDiagnostics(),
     error,
+  };
+}
+
+function createEmptyAgentDiagnostics(): BlackboxAgentDiagnostics {
+  return {
+    executionResultPresent: false,
+    toolNames: [],
+    toolResultIds: [],
+    candidateSetIds: [],
+    validationIds: [],
+    policyDecisionIds: [],
+    revisionIds: [],
+    dependencyGraphPresent: false,
+    legacyPathSkip: {},
   };
 }
 
@@ -362,13 +407,17 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
   const reader = response.body?.getReader();
   const decoder = new TextDecoder();
   const actions: AssistantAction[] = [];
-  const actionTypes: AssistantAction["action"][] = [];
+  const actionTypes: BlackboxCardType[] = [];
   const referenceDiagnostics: ConsumedChatStream["referenceDiagnostics"] = [];
   const artifacts: ConsumedChatStream["artifacts"] = [];
   let buffer = "";
   let assistantText = "";
   let traceId: string | undefined;
   let conversationSummary: string | undefined;
+  let agentExecutionResult: AgentExecutionResult | undefined;
+  let dependencyGraph: unknown;
+  let legacyPathSkip: BlackboxAgentDiagnostics["legacyPathSkip"] | undefined;
+  let legacyEventsEmitted: boolean | undefined;
 
   if (!reader) {
     return {
@@ -414,6 +463,10 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
             actionTypes,
             referenceDiagnostics,
             artifacts,
+            agentExecutionResult,
+            dependencyGraph,
+            legacyPathSkip,
+            legacyEventsEmitted,
             traceId,
             conversationSummary,
             error: {
@@ -427,6 +480,13 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
 
         if (streamEvent.type === "content") {
           assistantText += streamEvent.delta ?? "";
+          continue;
+        }
+
+        if (streamEvent.type === "agent_execution_result") {
+          agentExecutionResult = parseAgentExecutionResult(streamEvent.agentExecutionResult) ?? agentExecutionResult;
+          dependencyGraph = streamEvent.dependencyGraph ?? dependencyGraph;
+          legacyPathSkip = normalizeLegacyPathSkip(streamEvent.legacyPathSkip) ?? legacyPathSkip;
           continue;
         }
 
@@ -470,6 +530,10 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
         if (streamEvent.type === "done") {
           traceId = streamEvent.traceId;
           conversationSummary = streamEvent.conversationSummary;
+          agentExecutionResult = parseAgentExecutionResult(streamEvent.agentExecutionResult) ?? agentExecutionResult;
+          dependencyGraph = streamEvent.dependencyGraph ?? dependencyGraph;
+          legacyPathSkip = normalizeLegacyPathSkip(streamEvent.legacyPathSkip) ?? legacyPathSkip;
+          legacyEventsEmitted = streamEvent.legacyEventsEmitted;
           if (streamEvent.referenceDiagnostic) {
             referenceDiagnostics.push(streamEvent.referenceDiagnostic);
           }
@@ -500,6 +564,10 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
       actionTypes,
       referenceDiagnostics,
       artifacts,
+      agentExecutionResult,
+      dependencyGraph,
+      legacyPathSkip,
+      legacyEventsEmitted,
       traceId,
       conversationSummary,
       error: {
@@ -515,13 +583,129 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
     actionTypes,
     referenceDiagnostics,
     artifacts,
+    agentExecutionResult,
+    dependencyGraph,
+    legacyPathSkip,
+    legacyEventsEmitted,
     traceId,
     conversationSummary,
   };
 }
 
-function uniqueActionTypes(actionTypes: AssistantAction["action"][]) {
+function uniqueActionTypes(actionTypes: BlackboxCardType[]) {
   return [...new Set(actionTypes)];
+}
+
+function parseAgentExecutionResult(value: unknown): AgentExecutionResult | undefined {
+  if (!value || typeof value !== "object" || !("status" in value)) {
+    return undefined;
+  }
+
+  return value as AgentExecutionResult;
+}
+
+function normalizeLegacyPathSkip(value: unknown): BlackboxAgentDiagnostics["legacyPathSkip"] | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  return {
+    intentFirst: record.intentFirst === true,
+    normalize: record.normalize === true,
+    summaryOnlyContext: record.summaryOnlyContext === true,
+    referenceResolverFirst: record.referenceResolverFirst === true,
+  };
+}
+
+function deriveCardTypesFromAgentExecutionResult(result: AgentExecutionResult | undefined): BlackboxCardType[] {
+  if (!result) {
+    return [];
+  }
+
+  if (result.status === "generated") {
+    if (result.artifact.kind === "routine") return ["workout_routine"];
+    if (result.artifact.kind === "plan") return ["workout_plan"];
+    return ["exercise_recommendation"];
+  }
+
+  if (result.status === "patched") return ["workout_patch"];
+  if (result.status === "needs_clarification") return ["clarification"];
+  if (result.status === "answered") return ["answer"];
+  if (result.status === "completed_operation") return ["completed_operation"];
+  if (result.status === "blocked") return ["blocked"];
+  return ["failed"];
+}
+
+function deriveCardTypesFromArtifacts(artifacts: ConsumedChatStream["artifacts"]): BlackboxCardType[] {
+  return artifacts.map((artifact) => {
+    if (artifact.sourceArtifactId) return "workout_patch";
+    if (artifact.kind === "routine") return "workout_routine";
+    if (artifact.kind === "plan") return "workout_plan";
+    return "exercise_recommendation";
+  });
+}
+
+function mapLegacyAssistantActionToCardType(action: AssistantAction["action"]): BlackboxCardType | undefined {
+  if (action === "exercise_recommendation" || action === "workout_routine" || action === "workout_plan") {
+    return action;
+  }
+
+  if (action === "workout_patch" || action === "exercise_replacement") {
+    return "workout_patch";
+  }
+
+  if (action === "exercise_explanation") {
+    return "answer";
+  }
+
+  return undefined;
+}
+
+function createAgentDiagnostics(streamResult: ConsumedChatStream): BlackboxAgentDiagnostics {
+  const toolResultIds = collectToolResultIds(streamResult.agentExecutionResult);
+  const graph = typeof streamResult.dependencyGraph === "object" && streamResult.dependencyGraph !== null
+    ? streamResult.dependencyGraph as { nodes?: Array<{ id?: unknown; kind?: unknown; label?: unknown }> }
+    : undefined;
+  const nodes = graph?.nodes ?? [];
+
+  return {
+    executionResultPresent: Boolean(streamResult.agentExecutionResult),
+    status: streamResult.agentExecutionResult?.status,
+    toolNames: uniqueStrings(nodes
+      .filter((node) => node.kind === "tool_call" || node.kind === "tool_result")
+      .map((node) => typeof node.label === "string" ? node.label : undefined)
+      .filter((value): value is string => Boolean(value))),
+    toolResultIds,
+    candidateSetIds: collectGraphIds(nodes, "candidate_set"),
+    validationIds: collectGraphIds(nodes, "validation"),
+    policyDecisionIds: collectGraphIds(nodes, "policy_decision"),
+    revisionIds: collectRevisionIds(streamResult.agentExecutionResult),
+    dependencyGraphPresent: Boolean(streamResult.dependencyGraph),
+    legacyPathSkip: streamResult.legacyPathSkip ?? {},
+    legacyEventsEmitted: streamResult.legacyEventsEmitted,
+  };
+}
+
+function collectToolResultIds(result: AgentExecutionResult | undefined) {
+  return result && "usedToolResultIds" in result ? result.usedToolResultIds : [];
+}
+
+function collectRevisionIds(result: AgentExecutionResult | undefined) {
+  if (!result) return [];
+  if (result.status === "generated" || result.status === "patched") return [result.revisionId];
+  return [];
+}
+
+function collectGraphIds(nodes: Array<{ id?: unknown; kind?: unknown }>, kind: string) {
+  return uniqueStrings(nodes
+    .filter((node) => node.kind === kind)
+    .map((node) => typeof node.id === "string" ? node.id : undefined)
+    .filter((value): value is string => Boolean(value)));
+}
+
+function uniqueStrings(values: string[]) {
+  return [...new Set(values)];
 }
 
 function normalizeArtifactKind(kind: NonNullable<ChatStreamEvent["artifactKind"]>): ConversationArtifactKind {

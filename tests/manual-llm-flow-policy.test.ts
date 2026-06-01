@@ -23,12 +23,13 @@ describe("manual LLM blackbox flow runner policy", () => {
     const detailCases = getBlackboxFlowCases("detail");
 
     expect(basicCases).toHaveLength(9);
-    expect(detailCases).toHaveLength(53);
+    expect(detailCases).toHaveLength(54);
     expect(detailCases.map((flowCase) => flowCase.id)).toEqual(
       expect.arrayContaining([
         "H01",
         "R03",
         "W08",
+        "W09",
         "P04",
         "P07",
         "C03",
@@ -221,6 +222,65 @@ describe("manual LLM blackbox flow runner policy", () => {
     expect(assertion.finalStatus).toBe("passed");
   });
 
+  it("requires Agent evidence for migrated blackbox expectations", () => {
+    const flowCase = getBlackboxFlowCases("detail").find((item) => item.id === "W09");
+    const turn = flowCase?.turns[1];
+
+    expect(flowCase).toBeDefined();
+    expect(turn).toBeDefined();
+
+    const missingEvidence = evaluateBlackboxTurnResult({
+      flowCase: flowCase!,
+      turn: turn!,
+      turnIndex: 2,
+      result: createResult({
+        assistantText: "已经帮你换成无器械动作。",
+        actionTypes: ["workout_patch"],
+      }),
+    });
+    expect(missingEvidence.finalStatus).toBe("failed");
+    expect(missingEvidence.failureReasons.join("\n")).toContain("AgentExecutionResult");
+
+    const passed = evaluateBlackboxTurnResult({
+      flowCase: flowCase!,
+      turn: turn!,
+      turnIndex: 2,
+      result: createResult({
+        assistantText: "已把哑铃动作换成自重划船。",
+        actionTypes: ["workout_patch"],
+        artifactDiagnostics: {
+          recentSummaryCount: 1,
+          producedArtifact: true,
+          artifactKind: "routine",
+          artifactId: "routine-2",
+          payloadReadable: true,
+          payloadReadStatus: "readable",
+          referenceResolutionStatus: "resolved",
+        },
+        agentDiagnostics: {
+          executionResultPresent: true,
+          status: "patched",
+          toolNames: ["listRecentArtifacts", "getArtifactPayload", "searchExercises"],
+          toolResultIds: ["tool-result-1"],
+          candidateSetIds: ["candidate-set-1"],
+          validationIds: ["validation-1"],
+          policyDecisionIds: ["policy-1"],
+          revisionIds: ["revision-1"],
+          dependencyGraphPresent: true,
+          legacyPathSkip: {
+            intentFirst: true,
+            normalize: true,
+            summaryOnlyContext: true,
+            referenceResolverFirst: true,
+          },
+          legacyEventsEmitted: false,
+        },
+      }),
+    });
+
+    expect(passed.finalStatus).toBe("passed");
+  });
+
   it("calibrates token estimates from recent real reports and ignores skipped or incomplete reports", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "manual-llm-token-"));
 
@@ -291,6 +351,17 @@ function createResult(overrides: Partial<BlackboxTurnResult> = {}): BlackboxTurn
       payloadReadable: false,
       payloadReadStatus: "not_applicable",
       referenceResolutionStatus: "not_applicable",
+    },
+    agentDiagnostics: {
+      executionResultPresent: false,
+      toolNames: [],
+      toolResultIds: [],
+      candidateSetIds: [],
+      validationIds: [],
+      policyDecisionIds: [],
+      revisionIds: [],
+      dependencyGraphPresent: false,
+      legacyPathSkip: {},
     },
     ...overrides,
   };

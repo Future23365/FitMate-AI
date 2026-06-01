@@ -7,6 +7,7 @@ import {
   createBlackboxConversationState,
   runBlackboxChatTurn,
   runBlackboxPreflight,
+  type BlackboxAgentDiagnostics,
   type BlackboxArtifactDiagnostics,
   type BlackboxPreflightResult,
   type BlackboxRunnerMode,
@@ -45,6 +46,8 @@ type ManualLlmTurnRecord = {
   expectationNote: string;
   expectedCardTypes: string[];
   actualCardTypes: string[];
+  expectedAgentStatus?: string;
+  actualAgentStatus?: string;
   assistantPreview: string;
   cardStatus: AssertionStatus;
   semanticStatus: AssertionStatus;
@@ -59,6 +62,7 @@ type ManualLlmTurnRecord = {
   skipReason?: string;
   usage?: DeepSeekUsage;
   artifactDiagnostics?: BlackboxArtifactDiagnostics;
+  agentDiagnostics?: BlackboxAgentDiagnostics;
 };
 
 type RunSummary = ReturnType<typeof summarizeRunRecords>;
@@ -68,6 +72,7 @@ const configuredApiKey = process.env.DEEPSEEK_API_KEY?.trim();
 const flowSuiteName: BlackboxFlowSuiteName = process.env.MANUAL_LLM_FLOW_SUITE === "detail" ? "detail" : "basic";
 const suiteLabel = flowSuiteName === "detail" ? "详细" : "基础";
 const runnerMode: BlackboxRunnerMode = "api_route";
+const legacyEventsDisabled = process.env.MANUAL_LLM_DISABLE_LEGACY_EVENTS === "1";
 const runCommand = process.env.MANUAL_LLM_RUN_COMMAND?.trim() || (flowSuiteName === "detail" ? "npm run test --detail" : "npm run test:llm");
 const allFlowCases = getBlackboxFlowCases(flowSuiteName);
 const reportPath = process.env.MANUAL_LLM_REPORT_PATH?.trim()
@@ -251,6 +256,8 @@ function createTurnRecord(
     expectationNote: turn.expectation.note,
     expectedCardTypes: turn.expectation.expectedCardTypes,
     actualCardTypes: result.actionTypes,
+    expectedAgentStatus: turn.expectation.expectedAgentStatus,
+    actualAgentStatus: result.agentDiagnostics.status,
     assistantPreview: previewText(result.assistantText || "未获得可展示回复", 220),
     cardStatus: assertion.cardStatus,
     semanticStatus: assertion.semanticStatus,
@@ -264,6 +271,7 @@ function createTurnRecord(
     streamError: result.error ? `${result.error.code}: ${result.error.message}` : undefined,
     usage: result.usage,
     artifactDiagnostics: result.artifactDiagnostics,
+    agentDiagnostics: result.agentDiagnostics,
   };
 }
 
@@ -343,6 +351,7 @@ async function writeAcceptanceReport(
     `套件：${suiteLabel}`,
     `运行命令：${runCommand}`,
     `runner 类型：${runnerMode}`,
+    `旧兼容事件：${legacyEventsDisabled ? "关闭" : "开启"}`,
     `真实/跳过状态：${preflightResult?.status === "ready" ? "真实模型已运行" : "跳过或环境未满足"}`,
     "",
     "## 汇总",
@@ -392,6 +401,13 @@ async function writeAcceptanceReport(
     "- `skipped`：缺少 key、preflight 未满足或前序轮次失败导致未执行。",
     "- `needs_review`：仅 P3 内容质量或自动断言无法稳定判断，需要人工复核，不计为通过。",
     "",
+    "## 断言分层",
+    "",
+    "- 用户可见闭环：回复非空、训练卡片类型、artifact/patch/suggestion 事件与用户可见结果一致。",
+    "- Agent 执行证据：`AgentExecutionResult`、tool dependency graph、candidateSetId、validationId、revisionId 和 legacy path skip。",
+    "- 语义质量：目标继承、器械排除、引用解析和澄清边界。",
+    "- 人工复核：措辞质量、排序和非关键表达稳定性。",
+    "",
     "## 流程轮次结果",
     "",
     records.length > 0
@@ -434,6 +450,7 @@ function formatRunRecord(record: ManualLlmTurnRecord) {
   const expected = record.expectedCardTypes.length ? record.expectedCardTypes.join(", ") : "无训练卡片";
   const actual = record.actualCardTypes.length ? record.actualCardTypes.join(", ") : "无训练卡片";
   const artifactDiagnostics = formatArtifactDiagnostics(record.artifactDiagnostics);
+  const agentDiagnostics = formatAgentDiagnostics(record.agentDiagnostics);
   const diagnostics = [
     `卡片类型断言：${record.cardStatus}`,
     `语义断言：${record.semanticStatus}`,
@@ -442,6 +459,7 @@ function formatRunRecord(record: ManualLlmTurnRecord) {
     record.streamError ? `请求/stream 错误摘要：${record.streamError}` : "",
     record.skipReason ? `跳过原因：${record.skipReason}` : "",
     artifactDiagnostics ? `artifact 诊断：${artifactDiagnostics}` : "",
+    agentDiagnostics ? `Agent 诊断：${agentDiagnostics}` : "",
     record.responseMessageId ? `responseMessageId：${record.responseMessageId}` : "",
     record.traceId ? `traceId：${record.traceId}` : "",
     `conversationId：${record.conversationId}`,
@@ -455,6 +473,8 @@ function formatRunRecord(record: ManualLlmTurnRecord) {
     `- 期望结果：${record.expectationNote}`,
     `- 期望卡片类型：${expected}`,
     `- 实际卡片类型：${actual}`,
+    record.expectedAgentStatus ? `- 期望 Agent status：${record.expectedAgentStatus}` : "",
+    record.actualAgentStatus ? `- 实际 Agent status：${record.actualAgentStatus}` : "",
     `- assistant 摘要：${record.assistantPreview}`,
     ...diagnostics.map((line) => `- ${line}`),
     "",
@@ -474,6 +494,26 @@ function formatArtifactDiagnostics(diagnostics: BlackboxArtifactDiagnostics | un
     `payload=${diagnostics.payloadReadStatus}`,
     diagnostics.referenceResolutionStatus ? `reference=${diagnostics.referenceResolutionStatus}` : undefined,
     diagnostics.referenceResolutionSummary,
+  ].filter(Boolean).join("；");
+}
+
+function formatAgentDiagnostics(diagnostics: BlackboxAgentDiagnostics | undefined) {
+  if (!diagnostics) {
+    return "";
+  }
+
+  return [
+    `executionResult=${diagnostics.executionResultPresent}`,
+    diagnostics.status ? `status=${diagnostics.status}` : undefined,
+    diagnostics.toolNames.length ? `tools=${diagnostics.toolNames.join(",")}` : undefined,
+    diagnostics.toolResultIds.length ? `toolResults=${diagnostics.toolResultIds.join(",")}` : undefined,
+    diagnostics.candidateSetIds.length ? `candidateSetIds=${diagnostics.candidateSetIds.join(",")}` : undefined,
+    diagnostics.validationIds.length ? `validationIds=${diagnostics.validationIds.join(",")}` : undefined,
+    diagnostics.policyDecisionIds.length ? `policyDecisionIds=${diagnostics.policyDecisionIds.join(",")}` : undefined,
+    diagnostics.revisionIds.length ? `revisionIds=${diagnostics.revisionIds.join(",")}` : undefined,
+    `dependencyGraph=${diagnostics.dependencyGraphPresent}`,
+    `legacyPathSkip=${JSON.stringify(diagnostics.legacyPathSkip)}`,
+    typeof diagnostics.legacyEventsEmitted === "boolean" ? `legacyEventsEmitted=${diagnostics.legacyEventsEmitted}` : undefined,
   ].filter(Boolean).join("；");
 }
 

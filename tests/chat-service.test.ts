@@ -419,6 +419,62 @@ describe("AI chat service deterministic boundaries", () => {
     expect(legacyEvent).toContain("我想先在家自重练 20 分钟");
   });
 
+  it("emits AgentExecutionResult without legacy assistant_action when compatibility is disabled", () => {
+    const events = buildAgentCompatibilityStreamEvents({
+      emitLegacyEvents: false,
+      agentResult: {
+        status: "blocked",
+        blockReason: "policy_blocked",
+        recoverySuggestions: [
+          { label: "降低强度", message: "换成低强度训练" },
+        ],
+        usedToolResultIds: ["tool-result-1"],
+      },
+      toolResults: [],
+      projection: {
+        status: "blocked",
+        reply: "当前需要先降低强度再继续。",
+        assistantSuggestions: [],
+        metadata: {
+          promisedWrite: false,
+          hasExecutedWrite: false,
+          safeOperationOnly: false,
+        },
+        references: [{ kind: "tool_result", id: "tool-result-1" }],
+      },
+      replayFixture: {
+        runId: "agent-run-1",
+        contextSummary: {},
+        toolDecisions: [],
+        toolResults: [],
+        dependencyGraph: { nodes: [], edges: [] },
+        finalResult: {
+          status: "blocked",
+          blockReason: "policy_blocked",
+          recoverySuggestions: [],
+          usedToolResultIds: ["tool-result-1"],
+        },
+        legacyPathSkip: {
+          intentFirst: true,
+          normalize: true,
+          summaryOnlyContext: true,
+          referenceResolverFirst: true,
+        },
+      },
+    });
+
+    expect(events.map((event) => event.type)).toEqual(["agent_execution_result"]);
+    expect(events[0].metadata).toMatchObject({
+      agentExecutionResult: { status: "blocked" },
+      legacyPathSkip: {
+        intentFirst: true,
+        normalize: true,
+        summaryOnlyContext: true,
+        referenceResolverFirst: true,
+      },
+    });
+  });
+
   it("returns next action suggestions after successful exercise recommendations", () => {
     const chatIntent: ChatIntent = {
       type: "exercise_recommendation",

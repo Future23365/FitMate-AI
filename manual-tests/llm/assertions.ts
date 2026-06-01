@@ -69,6 +69,7 @@ export function evaluateBlackboxTurnResult(input: {
   }
 
   failures.push(...evaluateCardTypes(turn, result));
+  failures.push(...evaluateAgentEvidence(turn, result));
   failures.push(...evaluateSemanticExpectations(turn, result));
 
   const cardFailures = failures.filter((failure) => failure.layer === "card");
@@ -115,10 +116,81 @@ export function assertBlackboxTurnResult(input: {
     runnerError: input.result.error,
     assistantPreview: previewText(input.result.assistantText, 240),
     artifactDiagnostics: input.result.artifactDiagnostics,
+    agentDiagnostics: input.result.agentDiagnostics,
     assertion,
   };
 
   expect(assertion.finalStatus, JSON.stringify(assertionContext, null, 2)).toBe("passed");
+}
+
+function evaluateAgentEvidence(
+  turn: BlackboxFlowTurn,
+  result: BlackboxTurnResult,
+): Array<{ level: AssertionFailureLevel; reason: string; layer: "semantic" }> {
+  const failures: Array<{ level: AssertionFailureLevel; reason: string; layer: "semantic" }> = [];
+  const expectation = turn.expectation;
+  const hasTrainingCard = result.actionTypes.some((cardType) => trainingCardTypes.has(cardType));
+
+  if (hasTrainingCard && !result.agentDiagnostics.executionResultPresent) {
+    failures.push({
+      level: "P1",
+      layer: "semantic",
+      reason: "训练卡片缺少 AgentExecutionResult 执行证据。",
+    });
+  }
+
+  if (expectation.expectedAgentStatus && result.agentDiagnostics.status !== expectation.expectedAgentStatus) {
+    failures.push({
+      level: "P1",
+      layer: "semantic",
+      reason: `Agent status 不匹配：期望 ${expectation.expectedAgentStatus}，实际 ${result.agentDiagnostics.status ?? "missing"}`,
+    });
+  }
+
+  for (const toolName of expectation.requiredAgentTools ?? []) {
+    if (!result.agentDiagnostics.toolNames.includes(toolName)) {
+      failures.push({
+        level: "P1",
+        layer: "semantic",
+        reason: `缺少必需 Agent tool 证据：${toolName}`,
+      });
+    }
+  }
+
+  for (const toolName of expectation.forbiddenAgentTools ?? []) {
+    if (result.agentDiagnostics.toolNames.includes(toolName)) {
+      failures.push({
+        level: "P1",
+        layer: "semantic",
+        reason: `出现禁用 Agent tool 或旧路径证据：${toolName}`,
+      });
+    }
+  }
+
+  if (expectation.requireCandidateSetId && result.agentDiagnostics.candidateSetIds.length === 0) {
+    failures.push({ level: "P1", layer: "semantic", reason: "缺少 candidateSetId 证据。" });
+  }
+
+  if (expectation.requireValidationId && result.agentDiagnostics.validationIds.length === 0) {
+    failures.push({ level: "P1", layer: "semantic", reason: "缺少 validationId 证据。" });
+  }
+
+  if (expectation.requireRevisionId && result.agentDiagnostics.revisionIds.length === 0) {
+    failures.push({ level: "P1", layer: "semantic", reason: "缺少 revisionId 证据。" });
+  }
+
+  if (expectation.requireLegacyPathDisabled) {
+    const skip = result.agentDiagnostics.legacyPathSkip;
+    if (!skip.intentFirst || !skip.normalize || !skip.summaryOnlyContext || !skip.referenceResolverFirst) {
+      failures.push({
+        level: "P1",
+        layer: "semantic",
+        reason: "legacy path skip 未证明旧 intent-first / normalize / summary-only / ReferenceResolver-first 主路径均未参与执行。",
+      });
+    }
+  }
+
+  return failures;
 }
 
 function evaluateCardTypes(

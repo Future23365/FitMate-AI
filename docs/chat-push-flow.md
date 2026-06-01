@@ -12,23 +12,23 @@
 
 ## 2. 总体链路
 
-当前推送不是由聊天模型直接生成卡片，而是分成两段：
+当前推送由 `/api/chat` 内的 Tool-first `AgentOrchestrator` 统一完成，不再由前端在收到旧 `assistant_action` 后二次调用生成接口：
 
 ```txt
 用户消息
   ↓
-/api/chat 解析意图、筛动作候选、决定是否触发 assistant_action
+/api/chat 构造 ContextPackage
   ↓
-前端收到 assistant_action
+Agent tool decision 选择受控工具
   ↓
-前端再调用具体生成接口
-  ├─ /api/ai/exercise-recommendations
-  └─ /api/ai/workout-plan
+读取 artifact / 查询动作 / 生成 draft 或 patch / Validator / Policy / 保存 revision
   ↓
-结果挂到当前 assistant 消息气泡里
+产出 AgentExecutionResult
+  ↓
+Response Writer 投影用户回复和 artifact / patch / suggestion 事件
 ```
 
-核心设计是：聊天模型只负责自然语言回复；服务端结构化意图和候选动作决定是否真的推送。这样可以避免“自然语言回复承诺会生成，但内部没有触发生成”的不一致。
+核心设计是：LLM 负责语义编排，但只能通过服务端注册工具执行事实读取和写入；服务端只做 Schema、权限、候选集合、Validator、Policy、Persistence 等硬边界。用户可见回复只描述 `AgentExecutionResult` 中已经发生或被阻断的真实执行结果。
 
 ## 3. 前端发送聊天消息
 
@@ -38,7 +38,7 @@
 
 1. 创建一条 `user` 消息。
 2. 创建一条空的 `assistant` 消息，用于承接流式回复。
-3. 构造当前轮 `conversationSummary` 和 `latestUserMessage`。
+3. 构造当前轮 `latestUserMessage`，并带上会话 id 与本地已有消息作为保存/兼容输入。
 4. 调用 `requestChatStream` 请求 `/api/chat`。
 
 请求体主要包含：
@@ -53,11 +53,11 @@
 - `features/chat/api/chat-client.ts`
 - `app/api/chat/route.ts`
 
-当前模型可见上下文主要是 `conversationSummary + 当前最新用户消息`，不是完整历史消息窗口。
+`conversationSummary` 仍可随请求传入，但只作为后台摘要或历史兼容材料。生产 Agent 模型可见上下文来自服务端构造的 `ContextPackage`，而不是 `conversationSummary + 当前最新用户消息` 的 summary-only 协议。
 
 ## 4. `/api/chat` 服务端职责
 
-`/api/chat` 是推送决策的第一段入口。
+`/api/chat` 是 Tool-first Agent 主链入口。
 
 它负责：
 
@@ -77,114 +77,54 @@
 ```txt
 记录用户输入
   ↓
-resolveChatIntent：调用模型解析结构化意图
+构造 Agent ContextPackage
   ↓
-如果需要动作上下文，buildExerciseContext 查询动作库并筛候选
+runAgentOrchestrator 执行 tool decision / tool result / dependency graph
   ↓
-resolveAssistantAction 决定是否触发推送事件
+工具执行读取 artifact、查询候选、生成 draft/patch、校验、Policy、保存 revision
   ↓
-构造聊天回复 prompt
+产出 AgentExecutionResult
   ↓
-流式返回 assistant_action / suggested_replies / reasoning / content / done
+Response Writer 投影 content、assistant_suggestions、artifact / workout_patch、agent_execution_result、done
 ```
 
-## 5. 意图解析
+旧 `resolveChatIntent`、`ResolvedChatIntent`、ReferenceResolver-first 主路径、只读-only tool loop 和基于关键词的服务端语义归一化只保留为已废弃迁移期代码或测试夹具，不参与生产 `/api/chat` 执行。
 
-意图解析由 `resolveChatIntent` 完成。
+## 5. Agent 决策协议
 
-模型需要返回结构化 JSON，核心字段包括：
+生产链路不再先解析旧 `ChatIntent`。Agent tool decision prompt 的输入是 `ContextPackage` 摘要、registry 工具定义、已登记 tool results、dependency graph 和本轮预算。模型输出只能是一个合法工具调用或一个合法 `AgentExecutionResult`。
 
-- `type`
-- `needsExerciseContext`
-- `workoutIntent`
-- `requestedExerciseName`
-- `canTriggerAction`
-- `missingActionFields`
-- `suggestedReplies`
+Agent 可通过工具执行以下受控能力：
 
-当前支持的顶层 `type` 包括：
+- 读取最近 artifact：`listRecentArtifacts`、`searchArtifacts`、`getArtifactPayload`
+- 查询动作库：`searchExercises`、`getExerciseById`
+- 读取用户记忆：`getUserMemory`
+- 提出训练编辑计划：`proposeWorkoutEditPlan`
+- 生成 routine / plan 草稿：`generateRoutineDraft`、`generatePlanDraft`
+- 提出并校验 Patch：`proposeWorkoutPatch`、`validateWorkoutPatch`
+- 校验和策略评估：`validateRoutineDraft`、`validatePlanDraft`、`evaluatePolicy`
+- 保存 revision：`saveConversationArtifactRevision`
+- 澄清：`askClarification`
 
-- `general_fitness_advice`
-- `exercise_recommendation`
-- `workout_plan`
-- `routine`
-- `exercise_replacement`
-- `exercise_explanation`
-- `non_fitness`
+工具输入必须通过 Zod Schema，写工具必须引用本轮已登记的 `toolResultId`、`candidateSetId`、`validationId`、`policyDecisionId`、`confirmationId` 或 `revisionId`。用户原始消息可以作为辅助 query，但不能作为唯一检索输入触发可执行候选集合。
 
-其中，只有以下类型可能触发推送：
+## 6. 动作候选与 artifact 事实源
 
-- `exercise_recommendation`
-- `routine`
-- `workout_plan`
+动作候选由 Agent 调用结构化检索工具产生。`searchExercises` 必须接收目标、肌群、器械正负约束、场地、难度、时长、偏好和避免项等结构化字段；服务端先做结构化硬过滤，再做全文或语义排序，并返回 `candidateSetId`。
 
-如果意图解析失败，服务端会使用 `createFallbackChatIntent` 做兜底，不会直接让本轮聊天失败。
-该兜底只产生安全的非执行意图，不会根据用户原文关键词推断 `exercise_recommendation`、`routine` 或 `workout_plan`。
-
-服务端只负责契约校验和确定性执行边界：
-
-1. LLM 负责判断 `type`、`action.kind`、`workoutIntent.intentType` 等高层语义。
-2. 服务端可以规范化 `null`、旧字段和建议按钮结构，并校验字段一致性。
-3. 服务端不得用关键词、短句模板或历史摘要把 LLM 输出的高层 action 改写成另一种 action。
-4. 结构冲突或缺少可执行字段时，进入 repair、澄清或安全拒绝，而不是改写语义。
-5. `exercise_replacement`、`workout_patch`、依赖 artifact 的 `exercise_explanation` 按引用型契约校验，不要求具备新生成训练所需的 `workoutIntent`。
-
-## 6. 动作候选上下文
-
-当 `needsExerciseContext = true` 时，服务端会执行 `buildExerciseContext`。
-
-它会：
-
-1. 读取动作库。
-2. 根据 `workoutIntent` 调用 `selectExerciseCandidates`。
-3. 如果用户点名某个动作，再做名称匹配。
-4. 组装给聊天模型可见的 `providedExercises`。
-5. 生成候选状态。
-
-候选状态包括：
-
-- `enough`
-- `limited_but_usable`
-- `insufficient`
-
-如果候选状态是 `insufficient`，服务端不会触发结构化推送。
+已有训练内容由 Agent 通过 artifact 工具读取。`recentArtifactSummaries` 只用于帮助模型决定是否需要读取 payload；完整动作列表、section、exerciseId、Patch target 和保存 payload 必须来自 `getArtifactPayload` 或写工具结果，不能从 `conversationSummary`、recent message 或自然语言回复正文反推。
 
 ## 7. 推送触发规则
 
-推送由 `resolveAssistantAction` 决定，输出三种内部动作：
+推送不再由 `resolveAssistantAction` 独立决定。训练卡片、Patch、澄清和失败恢复都由 `AgentExecutionResult` 表达：
 
-- `exercise_recommendation`
-- `workout_routine`
-- `workout_plan`
+- `generated`：已生成并保存 exercise recommendation、routine 或 plan artifact。
+- `patched`：已基于真实 artifact payload 和候选集合完成局部修改并保存 revision。
+- `needs_clarification`：信息不足或目标不明确，需要用户补充。
+- `answered`：只回答问题，不推送训练卡片。
+- `blocked` / `failed`：Policy、校验或工具执行失败，不能承诺已生成或已修改。
 
-核心判断由 `canTriggerAssistantAction` 完成。
-
-当前规则：
-
-- 没有动作上下文时不推送。
-- 动作候选状态为 `insufficient` 时不推送。
-- 如果模型返回 `canTriggerAction = true`，服务端允许触发，但仍要求候选可用。
-- 动作推荐只要求训练目标或点名动作明确。
-- 单次编排和长期计划需要核心字段满足。
-- 缺少健康、伤病、疼痛、身体限制等字段不再默认阻断。
-- 缺少经验字段时，当前会按 `beginner` / 简单训练策略默认处理，不再仅因为经验未明确而阻断推送。
-
-`routine` 会被转成：
-
-```txt
-assistant_action.action = workout_routine
-intent.intentType = routine
-weeklyFrequency = 1
-```
-
-`workout_plan` 会被转成：
-
-```txt
-assistant_action.action = workout_plan
-intent.intentType = plan
-```
-
-聊天模型本身不负责真正创建卡片；真正触发计划或推荐由服务端结构化意图转成内部事件。
+兼容期内如仍输出 `assistant_action` 或 `intent_resolved`，它们必须来自 `LegacyChatEventAdapter` 对 `AgentExecutionResult` 的单向投影，只能作为前端迁移和报告诊断字段。
 
 ## 8. `/api/chat` 流式事件协议
 
@@ -192,12 +132,15 @@ intent.intentType = plan
 
 当前重要事件包括：
 
-- `assistant_action`：服务端确认本轮需要触发哪类推送。
-- `suggested_replies`：信息不足时给用户的一键补充回复。
+- `agent_execution_result`：Agent 主链的结构化终止结果、Response Writer 投影、dependency graph 和 legacy path skip。
+- `assistant_suggestions` / `suggested_replies`：澄清、下一步建议或旧前端兼容按钮。
+- `artifact` / `artifact_validated`：已保存并可展示的推荐、routine 或 plan。
+- `workout_patch`：已保存的局部修改结果。
 - `reasoning`：推理加载态。
 - `content`：用户可见自然语言回复。
-- `done`：本轮完成，包含 `traceId` 和更新后的 `conversationSummary`。
+- `done`：本轮完成，包含 `traceId`、`agentExecutionResult`、`agentStatus`、`legacyPathSkip` 和更新后的后台 `conversationSummary`。
 - `error`：流式读取或模型请求失败。
+- `assistant_action` / `intent_resolved`：兼容期派生事件，可关闭；不再作为主执行事实源。
 
 类型定义在 `features/chat/types.ts`：
 
@@ -208,19 +151,34 @@ type ChatStreamEvent = {
     | "content"
     | "done"
     | "error"
+    | "agent_execution_result"
     | "assistant_action"
+    | "intent_resolved"
+    | "artifact_validated"
+    | "artifact"
+    | "workout_patch"
+    | "assistant_suggestions"
     | "suggested_replies"
     | "suggested_questions";
   delta?: string;
-  action?: "exercise_recommendation" | "workout_routine" | "workout_plan";
+  agentExecutionResult?: unknown;
+  responseProjection?: unknown;
+  dependencyGraph?: unknown;
+  legacyPathSkip?: unknown;
+  action?: string;
   intent?: unknown;
+  artifactKind?: "exercise_recommendation" | "routine" | "plan";
+  payload?: unknown;
+  assistantSuggestions?: AssistantSuggestion[];
   suggestedReplies?: string[];
   traceId?: string;
+  agentRunId?: string;
+  agentStatus?: string;
   conversationSummary?: string;
 };
 ```
 
-服务端会在聊天正文前先发送 `assistant_action`，这样前端能在聊天结束后使用确定性的服务端决策触发后续生成。
+服务端会在聊天正文前先发送 `agent_execution_result`，并在内容后发送 artifact / patch 事件。旧 `assistant_action` 只在兼容开关开启时派发，黑盒报告不再把它作为核心验收字段。
 
 ## 9. 前端接收事件后的分发
 
@@ -228,30 +186,18 @@ type ChatStreamEvent = {
 
 - `content`：逐段追加到当前 assistant 消息。
 - `reasoning`：设置消息加载态。
-- `suggested_replies`：写入当前 assistant 消息的一键回复。
-- `assistant_action`：暂存本轮结构化动作。
-- `done`：保存 `traceId`，并更新 `conversationSummary`。
+- `agent_execution_result`：记录本轮 Agent 执行状态和依赖图诊断。
+- `assistant_suggestions` / `suggested_replies`：写入当前 assistant 消息的一键回复。
+- `artifact` / `artifact_validated`：把推荐、routine 或 plan 挂到当前 assistant 消息。
+- `workout_patch`：把修改后的训练卡片挂到当前 assistant 消息。
+- `done`：保存 `traceId`，并更新后台 `conversationSummary`。
 - `error`：展示错误文案。
 
-聊天流结束后，前端再根据本轮 action 决定是否调用具体生成接口：
-
-```txt
-assistant_action = workout_plan 或 workout_routine
-  ↓
-generateWorkoutPlanForBubble
-  ↓
-/api/ai/workout-plan
-
-assistant_action = exercise_recommendation
-  ↓
-generateExerciseRecommendationsForBubble
-  ↓
-/api/ai/exercise-recommendations
-```
-
-代码里仍保留了正文 JSON trigger 解析作为旧兼容兜底，但当前主路径应以 `assistant_action` 为准。
+聊天流结束后，前端不再根据本轮 action 二次调用生成接口。生成、Patch、校验和保存已经在 `/api/chat` 的 Agent 工具链内完成。
 
 ## 10. 动作推荐推送流程
+
+以下接口仍可作为独立 API 或旧兼容入口存在，但首页聊天主链不再依赖前端收到 `assistant_action` 后调用它生成卡片。
 
 动作推荐推送走 `/api/ai/exercise-recommendations`。
 
@@ -301,6 +247,8 @@ excludeExerciseIds = 当前卡片动作 + 用户不喜欢的动作
 ```
 
 ## 11. 单次编排和长期计划推送流程
+
+以下接口仍可作为独立 API 或旧兼容入口存在，但首页聊天主链优先由 Agent 工具在 `/api/chat` 内完成 draft、校验和 revision 保存。
 
 单次编排和长期计划共用 `/api/ai/workout-plan`。
 

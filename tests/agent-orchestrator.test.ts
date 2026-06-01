@@ -744,6 +744,70 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
     });
   });
 
+  it("runs controlled operation fixtures through completed_operation, confirmation and policy blocked results", async () => {
+    const registry = new AgentToolRegistry([createUserProfileWriteTool()]);
+    const success = await runAgentOrchestrator({
+      runId: "agent-run-operation-success",
+      userId: "user-1",
+      sessionId: "chat-1",
+      context: createTestContextPackage(),
+      registry,
+      decideNext: vi.fn()
+        .mockResolvedValueOnce({
+          action: "call_tool",
+          toolName: "updateUserProfile",
+          input: { location: "在家", mode: "success" },
+          reason: "保存训练地点偏好。",
+        })
+        .mockResolvedValueOnce({
+          action: "final_result",
+          result: {
+            status: "completed_operation",
+            operationResultId: "operation-result-success",
+            usedToolResultIds: ["operation-tool-success"],
+            operation: {
+              operationType: "updateUserProfile",
+              resourceType: "UserProfile",
+              title: "已更新训练偏好",
+              summary: "训练地点已保存为在家。",
+              visibleFields: [{ key: "location", label: "训练地点", value: "在家" }],
+            },
+          },
+          reason: "写工具已完成。",
+        }),
+    });
+    const confirmationRequired = await registry.get("updateUserProfile")?.execute(
+      { location: "健身房", mode: "confirmation_required" },
+      createToolExecutionContext(),
+    );
+    const blocked = await registry.get("updateUserProfile")?.execute(
+      { location: "危险高强度", mode: "policy_blocked" },
+      createToolExecutionContext(),
+    );
+
+    expect(success.result).toMatchObject({
+      status: "completed_operation",
+      operationResultId: "operation-result-success",
+    });
+    expect(projectAgentExecutionResultToResponse({
+      result: success.result,
+      toolResults: success.state.toolResults,
+    })).toMatchObject({
+      metadata: { promisedWrite: true, hasExecutedWrite: true, safeOperationOnly: true },
+      references: expect.arrayContaining([
+        { kind: "operation_result", id: "operation-result-success" },
+      ]),
+    });
+    expect(confirmationRequired).toMatchObject({
+      ok: false,
+      error: { code: "confirmation_required" },
+    });
+    expect(blocked).toMatchObject({
+      ok: false,
+      error: { code: "policy_blocked" },
+    });
+  });
+
   it("exposes Agent prompt modules and token budget stages without summary-only execution context", () => {
     const context = createTestContextPackage();
     const budget = createAgentChatTokenBudgetDecision({
@@ -847,6 +911,79 @@ function createWriteTool(): AgentToolDefinition<{ validationId: string }, { revi
         toolResultId: "tool-result-write-1",
         modelSummary: { revisionId: "rev-1" },
         traceSummary: { revisionId: "rev-1" },
+      };
+    },
+  };
+}
+
+function createUserProfileWriteTool(): AgentToolDefinition<
+  { location: string; mode: "success" | "confirmation_required" | "policy_blocked" },
+  { operationResultId: string; policyDecisionId?: string; confirmationId?: string }
+> {
+  return {
+    name: "updateUserProfile",
+    description: "更新当前用户训练偏好。",
+    accessLevel: "write",
+    inputSchema: z.object({
+      location: z.string().min(1),
+      mode: z.enum(["success", "confirmation_required", "policy_blocked"]),
+    }),
+    dependencies: [
+      { kind: "policy_decision", required: true, description: "必须经过用户资料写入策略评估。" },
+    ],
+    domainCapability: {
+      openspecChange: "replace-chat-orchestrator-with-tool-first-agent",
+      capabilityId: "user-profile-write",
+      writableResources: ["UserProfile"],
+      fieldWhitelist: ["location"],
+      permissionScope: "current_user",
+      confirmationPolicy: "policy_driven",
+      persistenceService: "UserProfileService",
+      responseWriterSafeSummary: "只暴露用户可见偏好字段。",
+    },
+    getIdempotencyKey(input, context) {
+      return `${context.runId}:${input.location}:${input.mode}`;
+    },
+    summarizeOutput(output) {
+      return output;
+    },
+    summarizeTrace(result) {
+      return result.ok ? result.traceSummary : result.error;
+    },
+    summarizeForResponseWriter(output) {
+      return output;
+    },
+    async execute(input) {
+      if (input.mode === "confirmation_required") {
+        return {
+          ok: false,
+          error: {
+            code: "confirmation_required",
+            message: "该资料写入需要用户确认。",
+            retryable: true,
+          },
+          traceSummary: { field: "location" },
+        };
+      }
+
+      if (input.mode === "policy_blocked") {
+        return {
+          ok: false,
+          error: {
+            code: "policy_blocked",
+            message: "策略拒绝该用户资料写入。",
+            retryable: false,
+          },
+          traceSummary: { field: "location" },
+        };
+      }
+
+      return {
+        ok: true,
+        output: { operationResultId: "operation-result-success", policyDecisionId: "policy-success" },
+        toolResultId: "operation-tool-success",
+        modelSummary: { title: "已更新训练偏好", location: input.location },
+        traceSummary: { operationResultId: "operation-result-success", location: input.location },
       };
     },
   };
