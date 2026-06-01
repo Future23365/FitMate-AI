@@ -4,7 +4,7 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 
 import { evaluateBlackboxTurnResult } from "@/manual-tests/llm/assertions";
-import { runBlackboxPreflight, type BlackboxTurnResult } from "@/manual-tests/llm/blackbox-runner";
+import { normalizeVisibleActionTypes, runBlackboxPreflight, type BlackboxTurnResult } from "@/manual-tests/llm/blackbox-runner";
 import { runFlowQueue } from "@/manual-tests/llm/flow-execution";
 import { inspectBlackboxFlowGovernance } from "@/manual-tests/llm/flow-governance";
 import { getBlackboxFlowCases } from "@/manual-tests/llm/flow-fixtures";
@@ -278,6 +278,11 @@ describe("manual LLM blackbox flow runner policy", () => {
     });
 
     expect(passed.finalStatus).toBe("passed");
+  });
+
+  it("does not report answer as an extra card when a training card is visible", () => {
+    expect(normalizeVisibleActionTypes(["answer", "exercise_recommendation"])).toEqual(["exercise_recommendation"]);
+    expect(normalizeVisibleActionTypes(["answer"])).toEqual(["answer"]);
   });
 
   it("calibrates token estimates from recent real reports and ignores skipped or incomplete reports", async () => {

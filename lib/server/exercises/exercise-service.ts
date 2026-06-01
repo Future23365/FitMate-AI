@@ -461,6 +461,9 @@ function normalizeExerciseSearchInput(exercises: Exercise[], input: ExerciseSear
   const requestedEquipment = uniqueStrings([...(input.equipment ?? []), ...(input.equipmentRequired ?? [])]);
   const unmatchedTargetMuscles = requestedTargetMuscles.filter((muscle) => !availableTargetMuscles.has(muscle));
   const unmatchedEquipment = requestedEquipment.filter((equipment) => !availableEquipment.has(equipment));
+  const canonicalTargetMuscles = uniqueStrings(
+    unmatchedTargetMuscles.flatMap((muscle) => canonicalTargetMusclesForUnknownFacet(muscle, availableTargetMuscles)),
+  );
   const suggestedTargetMuscles = uniqueStrings(
     unmatchedTargetMuscles.flatMap((muscle) => suggestTargetMusclesForUnknownFacet(muscle, availableTargetMuscles)),
   );
@@ -469,6 +472,7 @@ function normalizeExerciseSearchInput(exercises: Exercise[], input: ExerciseSear
   );
   const effectiveTargetMuscles = uniqueStrings([
     ...requestedTargetMuscles.filter((muscle) => availableTargetMuscles.has(muscle)),
+    ...canonicalTargetMuscles,
     ...expandedTargetMuscles,
   ]);
 
@@ -514,11 +518,16 @@ function collectAvailableEquipment(exercises: Exercise[]) {
 }
 
 function suggestTargetMusclesForUnknownFacet(value: string, availableTargetMuscles: Set<string>) {
+  const canonical = canonicalTargetMusclesForUnknownFacet(value, availableTargetMuscles);
+  if (canonical.length > 0) {
+    return canonical;
+  }
+
   const normalized = normalizeSearchText(value).replace(/\s+/g, "_");
   const region =
     normalized === "upper_body" || normalized === "upperbody" || normalized === "上肢" || normalized === "上半身"
       ? "upper_body"
-      : normalized === "lower_body" || normalized === "lowerbody" || normalized === "下肢" || normalized === "下半身" || normalized === "腿部"
+      : normalized === "lower_body" || normalized === "lowerbody" || normalized === "下肢" || normalized === "下半身" || normalized === "腿" || normalized === "腿部"
         ? "lower_body"
         : normalized === "core" || normalized === "核心" || normalized === "腹部" || normalized === "腹肌"
           ? "core"
@@ -527,6 +536,20 @@ function suggestTargetMusclesForUnknownFacet(value: string, availableTargetMuscl
             : undefined;
 
   return region ? expandBodyRegionTargetMuscles([region], availableTargetMuscles) : [];
+}
+
+function canonicalTargetMusclesForUnknownFacet(value: string, availableTargetMuscles: Set<string>) {
+  const normalized = normalizeSearchText(value).replace(/\s+/g, "_");
+  const directAliases =
+    normalized === "胸" || normalized === "胸肌" || normalized === "胸部肌群" || normalized === "胸大肌" || normalized === "pectoralis" || normalized === "pectorals"
+      ? ["胸部", "chest"]
+      : normalized === "背" || normalized === "背部肌群"
+        ? ["背部", "背阔肌", "中背部", "lats", "middle_back"]
+        : normalized === "肩" || normalized === "肩膀"
+          ? ["肩部", "shoulders"]
+          : [];
+
+  return directAliases.filter((muscle) => availableTargetMuscles.has(muscle));
 }
 
 function suggestEquipmentForUnknownFacet(value: string, availableEquipment: Set<string>) {

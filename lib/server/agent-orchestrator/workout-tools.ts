@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import {
   createConversationArtifactRevision,
+  createOrUpdateConversationArtifact,
 } from "@/lib/server/conversation-artifacts/artifact-service";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import { isExerciseAllowedInSection } from "@/lib/shared/exercises/metadata";
@@ -84,7 +85,7 @@ export const generatePlanDraftAgentToolInputSchema = z.object({
     artifactId: z.string().trim().min(1),
     kind: conversationArtifactKindSchema.extract(["routine", "plan"]),
     payload: conversationArtifactPayloadSchema,
-  }),
+  }).optional(),
   sourceEditPlanId: z.string().trim().min(1).optional(),
 });
 
@@ -114,7 +115,7 @@ export const validatePlanDraftAgentToolInputSchema = z.object({
   candidateSetId: z.string().trim().min(1),
   candidateExerciseIds: z.array(z.string().trim().min(1)).min(1).max(160),
   intent: workoutPlanIntentSchema.extend({ intentType: z.literal("plan").default("plan") }),
-  draft: workoutPlanDraftSchema,
+  draft: workoutPlanDraftSchema.optional(),
 });
 
 export const validateWorkoutPatchAgentToolInputSchema = z.object({
@@ -129,6 +130,11 @@ export const evaluatePolicyAgentToolInputSchema = z.discriminatedUnion("policyTa
     policyTarget: z.literal("workout_patch"),
     patchId: z.string().trim().min(1),
     patch: workoutPatchSchema,
+  }),
+  z.object({
+    policyTarget: z.literal("new_artifact"),
+    artifactKind: conversationArtifactKindSchema.extract(["routine", "plan"]),
+    draftId: z.string().trim().min(1),
   }),
   z.object({
     policyTarget: z.literal("artifact_revision"),
@@ -148,7 +154,8 @@ export const evaluatePolicyAgentToolInputSchema = z.discriminatedUnion("policyTa
 ]);
 
 export const saveConversationArtifactRevisionAgentToolInputSchema = z.object({
-  sourceArtifactId: z.string().trim().min(1),
+  sourceArtifactId: z.string().trim().min(1).optional(),
+  artifactKind: conversationArtifactKindSchema.extract(["routine", "plan"]).optional(),
   payload: conversationArtifactPayloadSchema.optional(),
   candidateSetId: z.string().trim().min(1),
   validationId: z.string().trim().min(1),
@@ -172,6 +179,20 @@ export const saveConversationArtifactRevisionAgentToolInputSchema = z.object({
       code: "custom",
       message: "Patch revision 保存必须提交 payload。",
       path: ["payload"],
+    });
+  }
+  if (!input.sourceArtifactId && !input.artifactKind) {
+    ctx.addIssue({
+      code: "custom",
+      message: "首次创建 artifact 必须提供 artifactKind。",
+      path: ["artifactKind"],
+    });
+  }
+  if (!input.sourceArtifactId && input.patchId) {
+    ctx.addIssue({
+      code: "custom",
+      message: "Patch 保存必须引用 sourceArtifactId。",
+      path: ["sourceArtifactId"],
     });
   }
 });
@@ -211,6 +232,7 @@ export type AgentPolicyEvaluationOutput = {
   policyDecisionId: string;
   policy: z.infer<typeof policyCheckResultSchema>;
   sourceArtifactId?: string;
+  artifactKind?: "routine" | "plan";
   draftId?: string;
   patchId?: string;
 };
@@ -218,7 +240,8 @@ export type AgentPolicyEvaluationOutput = {
 export type AgentArtifactRevisionOutput = {
   revisionId: string;
   artifactId: string;
-  sourceArtifactId: string;
+  sourceArtifactId?: string;
+  artifactKind: "routine" | "plan";
   candidateSetId: string;
   validationId: string;
   policyDecisionId: string;
@@ -377,12 +400,12 @@ function createGenerateRoutineDraftTool(): AgentToolDefinition<GenerateRoutineDr
 function createGeneratePlanDraftTool(): AgentToolDefinition<z.infer<typeof generatePlanDraftAgentToolInputSchema>, AgentWorkoutDraftOutput> {
   return {
     name: "generatePlanDraft",
-    description: "使用 DomainPlanEngine 从结构化策略和来源 artifact 展开长期 plan 草稿。",
+    description: "使用 DomainPlanEngine 从结构化策略和来源 artifact 或本轮候选集合展开长期 plan 草稿。",
     accessLevel: "generate",
     inputSchema: generatePlanDraftAgentToolInputSchema,
     dependencies: [
       { kind: "candidate_set", required: true, description: "必须引用当前 run 的动作候选集合。" },
-      { kind: "artifact_payload", required: true, description: "必须引用真实 artifact payload 作为 plan 展开来源。" },
+      { kind: "artifact_payload", required: false, description: "基于已有训练生成计划时应引用真实 artifact payload；首次生成可省略。" },
     ],
     getIdempotencyKey: createIdempotencyKey,
     summarizeOutput: summarizeDraftOutput,
@@ -392,9 +415,16 @@ function createGeneratePlanDraftTool(): AgentToolDefinition<z.infer<typeof gener
     async execute(input, context) {
       const parsedInput = generatePlanDraftAgentToolInputSchema.parse(input);
       try {
+        const exercises = await listAllExercises();
+        const sourceArtifact = parsedInput.sourceArtifact ?? createSeedRoutineSourceArtifact({
+          intent: parsedInput.intent,
+          candidateSetId: parsedInput.candidateSetId,
+          candidateExerciseIds: parsedInput.candidateExerciseIds,
+          exercises,
+        });
         const expanded = expandDomainPlan({
           strategy: parsedInput.strategy,
-          sourceArtifact: parsedInput.sourceArtifact,
+          sourceArtifact,
         });
 
         if (!expanded.ok) {
@@ -404,7 +434,6 @@ function createGeneratePlanDraftTool(): AgentToolDefinition<z.infer<typeof gener
           });
         }
 
-        const exercises = await listAllExercises();
         const validation = validateWorkoutPlanDraft(expanded.draft, parsedInput.intent, {
           exercises,
           candidateExerciseIds: parsedInput.candidateExerciseIds,
@@ -566,14 +595,30 @@ function createValidatePlanDraftTool(): AgentToolDefinition<z.infer<typeof valid
     },
     async execute(input, context) {
       const parsedInput = validatePlanDraftAgentToolInputSchema.parse(input);
+      const draftResource = resolvePlanDraftResource(context, parsedInput.draftId);
+
+      if (!draftResource.ok) {
+        return draftResource;
+      }
+
+      if (draftResource.output.candidateSetId !== parsedInput.candidateSetId) {
+        return createFailure("invalid_dependency", "Plan draft candidateSetId does not match validation input.", {
+          draftId: parsedInput.draftId,
+          draftCandidateSetId: draftResource.output.candidateSetId,
+          inputCandidateSetId: parsedInput.candidateSetId,
+        });
+      }
+
       const exercises = await listAllExercises();
-      const validation = validateWorkoutPlanDraft(parsedInput.draft, parsedInput.intent, {
+      const validation = validateWorkoutPlanDraft(draftResource.output.draft, parsedInput.intent, {
         exercises,
-        candidateExerciseIds: parsedInput.candidateExerciseIds,
+        candidateExerciseIds: draftResource.output.candidateExerciseIds,
       });
       const output = {
         ...validation,
         validationId: createStructuredResultId(context, "validation", "validatePlanDraft", parsedInput),
+        draftId: parsedInput.draftId,
+        candidateSetId: parsedInput.candidateSetId,
         recovery: createValidationRecovery(validation, {
           targetSessionMinutes: parsedInput.intent.sessionMinutes,
         }),
@@ -656,7 +701,17 @@ function createEvaluatePolicyTool(): AgentToolDefinition<z.infer<typeof evaluate
             patch: parsedInput.patch,
             targetIds: [parsedInput.patch.target.artifactId],
           })
-        : evaluateArtifactPolicy({
+        : parsedInput.policyTarget === "new_artifact"
+          ? evaluateArtifactPolicy({
+              userId: context.userId,
+              artifact: {
+                id: parsedInput.draftId,
+                userId: context.userId,
+                status: "active",
+                revision: 1,
+              },
+            })
+          : evaluateArtifactPolicy({
             userId: context.userId,
             artifact: {
               id: parsedInput.sourceArtifactId,
@@ -669,6 +724,7 @@ function createEvaluatePolicyTool(): AgentToolDefinition<z.infer<typeof evaluate
         policyDecisionId: createStructuredResultId(context, "policy_decision", "evaluatePolicy", parsedInput),
         policy,
         sourceArtifactId: "sourceArtifactId" in parsedInput ? parsedInput.sourceArtifactId : undefined,
+        artifactKind: "artifactKind" in parsedInput ? parsedInput.artifactKind : undefined,
         draftId: "draftId" in parsedInput ? parsedInput.draftId : undefined,
         patchId: "patchId" in parsedInput ? parsedInput.patchId : undefined,
       };
@@ -682,7 +738,7 @@ function createEvaluatePolicyTool(): AgentToolDefinition<z.infer<typeof evaluate
 function createSaveConversationArtifactRevisionTool(): AgentToolDefinition<z.infer<typeof saveConversationArtifactRevisionAgentToolInputSchema>, AgentArtifactRevisionOutput> {
   return {
     name: "saveConversationArtifactRevision",
-    description: "保存已通过 Validator 和 Policy 的 ConversationArtifact revision。",
+    description: "保存已通过 Validator 和 Policy 的新 ConversationArtifact 或 artifact revision。",
     accessLevel: "write",
     inputSchema: saveConversationArtifactRevisionAgentToolInputSchema,
     dependencies: [
@@ -727,30 +783,62 @@ function createSaveConversationArtifactRevisionTool(): AgentToolDefinition<z.inf
           return payloadResult;
         }
 
-        const revision = await createConversationArtifactRevision({
-          userId: context.userId,
-          sourceArtifactId: parsedInput.sourceArtifactId,
-          messageId: parsedInput.responseMessageId,
-          payload: payloadResult.payload,
-        });
+        const payloadSummary = summarizeArtifactPayload(payloadResult.payload);
+        const artifactKind = resolveArtifactKindForSave(parsedInput, payloadResult.payload);
 
-        if (!revision.ok) {
-          return createFailure("persistence_failed", revision.message, revision);
+        if (!artifactKind.ok) {
+          return artifactKind;
         }
 
-        const payloadSummary = summarizeArtifactPayload(payloadResult.payload);
-        const output: AgentArtifactRevisionOutput = {
-          revisionId: revision.artifact.id,
-          artifactId: revision.artifact.id,
-          sourceArtifactId: parsedInput.sourceArtifactId,
-          candidateSetId: parsedInput.candidateSetId,
-          validationId: parsedInput.validationId,
-          policyDecisionId: parsedInput.policyDecisionId,
-          draftId: parsedInput.draftId,
-          patchId: parsedInput.patchId,
-          title: payloadSummary.title,
-          summary: payloadSummary.summary,
-        };
+        let output: AgentArtifactRevisionOutput;
+
+        if (parsedInput.sourceArtifactId) {
+          const revision = await createConversationArtifactRevision({
+            userId: context.userId,
+            sourceArtifactId: parsedInput.sourceArtifactId,
+            messageId: parsedInput.responseMessageId,
+            payload: payloadResult.payload,
+          });
+
+          if (!revision.ok) {
+            return createFailure("persistence_failed", revision.message, revision);
+          }
+
+          output = {
+            revisionId: revision.artifact.id,
+            artifactId: revision.artifact.id,
+            sourceArtifactId: parsedInput.sourceArtifactId,
+            artifactKind: artifactKind.kind,
+            candidateSetId: parsedInput.candidateSetId,
+            validationId: parsedInput.validationId,
+            policyDecisionId: parsedInput.policyDecisionId,
+            draftId: parsedInput.draftId,
+            patchId: parsedInput.patchId,
+            title: payloadSummary.title,
+            summary: payloadSummary.summary,
+          };
+        } else {
+          const artifact = await createOrUpdateConversationArtifact({
+            userId: context.userId,
+            sessionId: context.sessionId,
+            messageId: parsedInput.responseMessageId,
+            kind: artifactKind.kind,
+            payload: payloadResult.payload,
+          });
+
+          output = {
+            revisionId: artifact.id,
+            artifactId: artifact.id,
+            artifactKind: artifactKind.kind,
+            candidateSetId: parsedInput.candidateSetId,
+            validationId: parsedInput.validationId,
+            policyDecisionId: parsedInput.policyDecisionId,
+            draftId: parsedInput.draftId,
+            patchId: parsedInput.patchId,
+            title: payloadSummary.title,
+            summary: payloadSummary.summary,
+          };
+        }
         const summary = this.summarizeOutput(output);
 
         return createSuccess(context, "saveConversationArtifactRevision", parsedInput, output, summary, summary);
@@ -867,6 +955,29 @@ function resolveArtifactRevisionPayload(
   return { ok: true, payload };
 }
 
+function resolveArtifactKindForSave(
+  input: SaveConversationArtifactRevisionAgentToolInput,
+  payload: z.infer<typeof conversationArtifactPayloadSchema>,
+): { ok: true; kind: "routine" | "plan" } | AgentToolFailure {
+  const payloadKind = "kind" in payload && (payload.kind === "routine" || payload.kind === "plan") ? payload.kind : undefined;
+  const artifactKind = input.artifactKind ?? payloadKind;
+
+  if (!artifactKind) {
+    return createFailure("schema_validation_failed", "Artifact kind is required for non-routine and non-plan payloads.", {
+      payloadKind,
+    });
+  }
+
+  if (payloadKind && payloadKind !== artifactKind) {
+    return createFailure("schema_validation_failed", "Artifact kind does not match payload kind.", {
+      artifactKind,
+      payloadKind,
+    });
+  }
+
+  return { ok: true, kind: artifactKind };
+}
+
 function resolveRoutineDraftResource(
   context: AgentToolExecutionContext,
   draftId: string,
@@ -879,6 +990,26 @@ function resolveRoutineDraftResource(
 
   if (draftResource.output.draftKind !== "routine") {
     return createFailure("invalid_dependency", "Referenced draft is not a routine draft.", {
+      draftId,
+      draftKind: draftResource.output.draftKind,
+    });
+  }
+
+  return { ok: true, output: draftResource.output };
+}
+
+function resolvePlanDraftResource(
+  context: AgentToolExecutionContext,
+  draftId: string,
+): { ok: true; output: Extract<AgentWorkoutDraftOutput, { draftKind: "plan" }> } | AgentToolFailure {
+  const draftResource = resolveDraftResource(context, draftId);
+
+  if (!draftResource.ok) {
+    return draftResource;
+  }
+
+  if (draftResource.output.draftKind !== "plan") {
+    return createFailure("invalid_dependency", "Referenced draft is not a plan draft.", {
       draftId,
       draftKind: draftResource.output.draftKind,
     });
@@ -981,6 +1112,77 @@ function isPolicyEvaluationOutput(output: unknown): output is AgentPolicyEvaluat
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function createSeedRoutineSourceArtifact(input: {
+  intent: WorkoutPlanIntent;
+  candidateSetId: string;
+  candidateExerciseIds: string[];
+  exercises: Exercise[];
+}): {
+  artifactId: string;
+  kind: "routine";
+  payload: WorkoutRoutineDraft;
+} {
+  return {
+    artifactId: `candidate_seed_${input.candidateSetId}`,
+    kind: "routine",
+    payload: scaleSeedRoutineDraftToSessionMinutes(
+      buildRoutineDraftFromCandidates(
+        { ...input.intent, intentType: "routine" },
+        input.candidateExerciseIds,
+        input.exercises,
+        `${input.intent.goal}计划种子训练`,
+      ),
+      input.intent.sessionMinutes,
+    ),
+  };
+}
+
+function scaleSeedRoutineDraftToSessionMinutes(
+  draft: WorkoutRoutineDraft,
+  sessionMinutes: number,
+): WorkoutRoutineDraft {
+  const warmupSeconds = Math.min(Math.max(Math.round(sessionMinutes * 60 * 0.12), 90), 240);
+  const stretchSeconds = Math.min(Math.max(Math.round(sessionMinutes * 60 * 0.1), 90), 240);
+  const trainingItems = draft.sections.find((section) => section.section === "training")?.items.length ?? 1;
+  const trainingSets = sessionMinutes >= 45 ? 4 : 3;
+  const trainingRestSeconds = sessionMinutes >= 30 ? 60 : 45;
+  const transitionSeconds = 30;
+  const nonTrainingSeconds = warmupSeconds + stretchSeconds + transitionSeconds * 2;
+  const availableTrainingSeconds = Math.max(sessionMinutes * 60 - nonTrainingSeconds, trainingItems * trainingSets * 30);
+  const targetSeconds = Math.min(600, Math.max(30, Math.round(availableTrainingSeconds / Math.max(1, trainingItems * trainingSets))));
+
+  return workoutRoutineDraftSchema.parse({
+    ...draft,
+    sections: draft.sections.map((section) => {
+      if (section.section === "warmup" || section.section === "stretch") {
+        return {
+          ...section,
+          items: section.items.map((item) => ({
+            ...item,
+            mode: "duration" as const,
+            sets: 1,
+            target: section.section === "warmup" ? warmupSeconds : stretchSeconds,
+            setRestSeconds: 0,
+            transitionRestSeconds: section.section === "warmup" ? transitionSeconds : 0,
+          })),
+        };
+      }
+
+      return {
+        ...section,
+        items: section.items.map((item) => ({
+          ...item,
+          mode: "duration" as const,
+          sets: trainingSets,
+          target: targetSeconds,
+          setRestSeconds: trainingRestSeconds,
+          transitionRestSeconds: transitionSeconds,
+        })),
+      };
+    }),
+  });
 }
 
 function buildRoutineDraftFromCandidates(

@@ -389,4 +389,23 @@ describe("exercise service", () => {
       }),
     });
   });
+
+  it("recovers common short muscle aliases to real exercise facets", async () => {
+    await expect(
+      searchExercises({
+        visibility: "all",
+        targetMuscles: ["胸"],
+        equipment: ["自重"],
+        allowedSections: ["training"],
+        limit: 8,
+      }),
+    ).resolves.toMatchObject({
+      candidates: expect.arrayContaining([expect.objectContaining({ id: "push-up" })]),
+      diagnostics: expect.objectContaining({
+        unmatchedTargetMuscles: ["胸"],
+        suggestedTargetMuscles: expect.arrayContaining(["胸部"]),
+        finalExerciseIds: expect.arrayContaining(["push-up"]),
+      }),
+    });
+  });
 });

@@ -287,7 +287,7 @@ export async function runBlackboxChatTurn(input: {
     conversationId: input.state.conversationId,
     responseMessageId,
     assistantText: streamResult.assistantText,
-    actionTypes: uniqueActionTypes([
+    actionTypes: normalizeVisibleActionTypes([
       ...deriveCardTypesFromAgentExecutionResult(streamResult.agentExecutionResult),
       ...deriveCardTypesFromArtifacts(streamResult.artifacts),
       ...streamResult.actionTypes,
@@ -606,6 +606,18 @@ function deriveCardTypesFromAgentExecutionResult(result: AgentExecutionResult | 
   if (result.status === "completed_operation") return ["completed_operation"];
   if (result.status === "blocked") return ["blocked"];
   return ["failed"];
+}
+
+export function normalizeVisibleActionTypes(actionTypes: BlackboxCardType[]): BlackboxCardType[] {
+  const uniqueTypes = uniqueActionTypes(actionTypes);
+  const hasTrainingCard = uniqueTypes.some((cardType) => (
+    cardType === "exercise_recommendation" ||
+    cardType === "workout_routine" ||
+    cardType === "workout_plan" ||
+    cardType === "workout_patch"
+  ));
+
+  return hasTrainingCard ? uniqueTypes.filter((cardType) => cardType !== "answer") : uniqueTypes;
 }
 
 function deriveCardTypesFromArtifacts(artifacts: ConsumedChatStream["artifacts"]): BlackboxCardType[] {

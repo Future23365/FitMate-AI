@@ -282,7 +282,14 @@ export function validateWorkoutPlanDraft(
     });
   }
 
-  for (const estimate of dayEstimates) {
+  for (const [estimateIndex, estimate] of dayEstimates.entries()) {
+    const day = draft.days[estimateIndex];
+
+    // 休息日不承诺达到单次训练时长；训练时长硬约束只适用于真实训练日。
+    if (day?.isRestDay) {
+      continue;
+    }
+
     if (estimate.estimatedMinutes > intent.sessionMinutes + 15) {
       pushFieldSourcedIssue(errors, warnings, "sessionMinutes", fieldSources, options, {
         code: "session_too_long",

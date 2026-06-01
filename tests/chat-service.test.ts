@@ -189,6 +189,70 @@ describe("chat service Agent-only contract", () => {
     });
   });
 
+  it("projects recommendation card events from successful recommendation tool results when final result omits references", async () => {
+    const events = await buildAgentArtifactStreamEvents({
+      userId: "user-1",
+      result: {
+        status: "answered",
+        replyContext: { reply: "给你几个胸部动作。" },
+        usedToolResultIds: [],
+      },
+      projection: {
+        status: "answered",
+        reply: "给你几个胸部动作。",
+        assistantSuggestions: [],
+        references: [],
+        metadata: {
+          promisedWrite: false,
+          hasExecutedWrite: false,
+          safeOperationOnly: false,
+        },
+      },
+      context: {
+        latestUserMessage: "今天我想练胸",
+        recentMessages: [],
+        recentArtifacts: [],
+        memorySnapshot: { snapshotId: "memory-1", facts: [], preferences: [], avoidances: [] },
+        provenance: [],
+        limits: {
+          maxRecentMessages: 12,
+          maxRecentArtifacts: 8,
+          maxMessageChars: 1200,
+          maxArtifactSummaryChars: 700,
+        },
+      },
+      toolResults: [{
+        toolResultId: "tool-result-rec",
+        toolCallId: "tool-call-rec",
+        toolName: "searchExercises",
+        status: "success",
+        candidateSetId: "candidate-set-rec",
+        modelSummary: {
+          candidateSetId: "candidate-set-rec",
+          candidateUse: "recommendation",
+          candidates: [
+            {
+              exerciseId: "Push_Up",
+              nameZh: "俯卧撑",
+              nameEn: "Push Up",
+              categoryZh: "力量训练",
+              levelZh: "初级",
+              equipmentZh: "自重",
+              primaryMusclesZh: ["胸部"],
+              secondaryMusclesZh: ["肱三头肌"],
+            },
+          ],
+        },
+      }],
+    });
+
+    expect(events.map((event) => event.type)).toEqual(["artifact_validated", "artifact"]);
+    expect(events[0].metadata).toMatchObject({
+      artifactKind: "exercise_recommendation",
+      artifactId: "recommendation_candidate-set-rec",
+    });
+  });
+
   it("does not project routine candidate sets into exercise recommendation cards", async () => {
     const events = await buildAgentArtifactStreamEvents({
       userId: "user-1",

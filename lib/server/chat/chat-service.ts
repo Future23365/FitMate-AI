@@ -1039,13 +1039,23 @@ function buildExerciseRecommendationArtifactEvent(input: {
     return null;
   }
   const usedToolResultIds = new Set(input.result.usedToolResultIds);
-  const source = input.toolResults?.find((toolResult) => (
+  const referencedSource = input.toolResults?.find((toolResult) => (
     usedToolResultIds.has(toolResult.toolResultId) &&
     toolResult.toolName === "searchExercises" &&
     toolResult.status === "success" &&
     readToolResultCandidateUse(toolResult) === "recommendation" &&
     Boolean(toolResult.candidateSetId)
   ));
+  const fallbackSource = input.toolResults
+    ?.filter((toolResult) => (
+      toolResult.toolName === "searchExercises" &&
+      toolResult.status === "success" &&
+      readToolResultCandidateUse(toolResult) === "recommendation" &&
+      Boolean(toolResult.candidateSetId)
+    ))
+    .at(-1);
+  // 推荐卡片只从本轮 Agent 已选择的 recommendation 候选工具结果投影；不从用户原文或旧 intent 推断。
+  const source = referencedSource ?? fallbackSource;
 
   if (!source) {
     return null;

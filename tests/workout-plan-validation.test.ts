@@ -18,6 +18,7 @@ import {
   createWorkoutPlanIntent,
   createWorkoutRoutineDraft,
 } from "./fixtures/domain";
+import type { WorkoutDayDraft } from "@/lib/shared/workout-plans/draft-schema";
 
 const exercises = [
   createExercise({
@@ -482,6 +483,100 @@ describe("workout plan candidate and validation services", () => {
     expect(unconfirmedHistoryResult.warnings.map((issue) => issue.code)).toContain("session_too_short");
     expect(confirmedArtifactResult.valid).toBe(false);
     expect(confirmedArtifactResult.errors.map((issue) => issue.code)).toContain("session_too_short");
+  });
+
+  it("does not apply explicit session duration checks to rest days", () => {
+    const intent = createWorkoutPlanIntent({
+      intentType: "plan",
+      sessionMinutes: 30,
+      weeklyFrequency: 1,
+      calendarHorizonDays: 2,
+    });
+    const trainingDay: WorkoutDayDraft = {
+      title: "Day 1 胸肌训练",
+      focus: "胸部",
+      cycleDayIndex: 1,
+      dayType: "strength",
+      isRestDay: false,
+      estimatedMinutes: 30,
+      recoveryNotes: [],
+      safetyNotes: [],
+      sections: [
+        {
+          section: "warmup",
+          title: "热身",
+          items: [{
+            exerciseId: "warmup",
+            section: "warmup",
+            mode: "duration",
+            sets: 1,
+            target: 240,
+            setRestSeconds: 0,
+            transitionRestSeconds: 30,
+          }],
+        },
+        {
+          section: "training",
+          title: "主训练",
+          items: [{
+            exerciseId: "push-up",
+            section: "training",
+            mode: "duration",
+            sets: 3,
+            target: 420,
+            setRestSeconds: 90,
+            transitionRestSeconds: 60,
+          }],
+        },
+        {
+          section: "stretch",
+          title: "拉伸",
+          items: [{
+            exerciseId: "stretch",
+            section: "stretch",
+            mode: "duration",
+            sets: 1,
+            target: 180,
+            setRestSeconds: 0,
+            transitionRestSeconds: 0,
+          }],
+        },
+      ],
+    };
+    const draft = createWorkoutPlanDraft({
+      cycleLengthDays: 2,
+      trainingDayCount: 1,
+      restDayCount: 1,
+      weeklyFrequency: 1,
+      calendarHorizonDays: 2,
+      days: [
+        trainingDay,
+        {
+          title: "Day 2 恢复日",
+          focus: "恢复",
+          cycleDayIndex: 2,
+          dayType: "rest",
+          isRestDay: true,
+          estimatedMinutes: 0,
+          recoveryNotes: ["完整休息。"],
+          safetyNotes: [],
+          sections: [],
+        },
+      ],
+    });
+
+    const result = validateWorkoutPlanDraft(draft, intent, {
+      exercises,
+      candidateExerciseIds: ["warmup", "push-up", "stretch"],
+      fieldSources: {
+        sessionMinutes: "current_user_message",
+        weeklyFrequency: "current_user_message",
+        calendarHorizonDays: "current_user_message",
+      },
+    });
+
+    expect(result.errors.map((issue) => issue.code)).not.toContain("session_too_short");
+    expect(result.errors.map((issue) => issue.code)).not.toContain("session_too_long");
   });
 
   it("keeps explicit avoidances hard while unconfirmed injury limitations stay warnings", () => {
