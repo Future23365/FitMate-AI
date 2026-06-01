@@ -330,7 +330,7 @@ async function writeAcceptanceReport(
   records: ManualLlmTurnRecord[],
   summary: RunSummary,
 ) {
-  const generatedAt = new Date().toISOString();
+  const generatedAt = formatShanghaiReportGeneratedAt();
   const tokenDeviation = summarizeTokenDeviation(summary.usage, estimatedTokenUsage);
   const selectionConditions = selectionResult
     ? formatSelectionConditions(selectionResult.conditions)
@@ -402,6 +402,14 @@ async function writeAcceptanceReport(
 
   await mkdir(path.dirname(reportPath), { recursive: true });
   await writeFile(reportPath, reportLines.join("\n"), "utf8");
+}
+
+// 手动验收报告面向本地排查，生成时间使用带 offset 的上海时间，同时保持 Date.parse 可解析。
+function formatShanghaiReportGeneratedAt(date = new Date()) {
+  const shanghaiOffsetMinutes = 8 * 60;
+  const shanghaiTime = new Date(date.getTime() + shanghaiOffsetMinutes * 60_000);
+
+  return shanghaiTime.toISOString().replace("Z", "+08:00");
 }
 
 function summarizeTokenDeviation(actual: Required<DeepSeekUsage>, estimate: TokenEstimate) {
