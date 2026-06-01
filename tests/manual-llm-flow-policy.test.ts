@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { tmpdir } from "node:os";
 
 import { evaluateBlackboxTurnResult } from "@/manual-tests/llm/assertions";
 import { runBlackboxPreflight, type BlackboxTurnResult } from "@/manual-tests/llm/blackbox-runner";
 import { getBlackboxFlowCases } from "@/manual-tests/llm/flow-fixtures";
 import { createFlowFailureSkipReason } from "@/manual-tests/llm/flow-runner-policy";
+import { estimateTokenUsageForReports } from "@/manual-tests/llm/token-estimate";
 
 describe("manual LLM blackbox flow runner policy", () => {
   it("labels first-turn and mid-flow failures before downstream skips", () => {
@@ -71,6 +75,82 @@ describe("manual LLM blackbox flow runner policy", () => {
     expect(assertion.semanticStatus).toBe("failed");
     expect(assertion.finalStatus).toBe("failed");
     expect(assertion.failureLevel).toBe("P1");
+  });
+
+  it("passes F15 semantic assertions when deterministic reference diagnostics are resolved", () => {
+    const flowCase = getBlackboxFlowCases("basic").find((item) => item.id === "F15");
+    const turn = flowCase?.turns[2];
+
+    expect(flowCase).toBeDefined();
+    expect(turn).toBeDefined();
+
+    const result = createResult({
+      assistantText: "最近训练里的第 1 个动作是俯卧撑。做法：保持核心收紧。",
+      actionTypes: [],
+      artifactDiagnostics: {
+        recentSummaryCount: 1,
+        producedArtifact: false,
+        artifactKind: "routine",
+        artifactId: "routine-1",
+        payloadReadable: true,
+        payloadReadStatus: "readable",
+        referenceResolutionStatus: "resolved",
+        referenceResolutionSummary: "artifactId=routine-1 kind=routine payload=readable exerciseId=push-up",
+      },
+    });
+    const assertion = evaluateBlackboxTurnResult({
+      flowCase: flowCase!,
+      turn: turn!,
+      turnIndex: 3,
+      result,
+    });
+
+    expect(assertion.finalStatus).toBe("passed");
+  });
+
+  it("calibrates token estimates from recent real reports and ignores skipped or incomplete reports", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "manual-llm-token-"));
+
+    try {
+      const skippedReport = path.join(dir, "skipped.md");
+      const incompleteReport = path.join(dir, "incomplete.md");
+      const realReport = path.join(dir, "real.md");
+      await writeFile(skippedReport, [
+        "生成时间：2026-06-01T08:00:00.000Z",
+        "真实/跳过状态：跳过或环境未满足",
+        "- 轮次数：3",
+        "- prompt_tokens：0",
+        "- completion_tokens：0",
+        "- total_tokens：0",
+      ].join("\n"), "utf8");
+      await writeFile(incompleteReport, [
+        "生成时间：2026-06-01T09:00:00.000Z",
+        "真实/跳过状态：真实模型已运行",
+        "- 轮次数：3",
+        "- prompt_tokens：0",
+        "- completion_tokens：1200",
+        "- total_tokens：1200",
+      ].join("\n"), "utf8");
+      await writeFile(realReport, [
+        "生成时间：2026-06-01T07:00:00.000Z",
+        "真实/跳过状态：真实模型已运行",
+        "- 轮次数：3",
+        "- prompt_tokens：3000",
+        "- completion_tokens：900",
+        "- total_tokens：3900",
+      ].join("\n"), "utf8");
+
+      const estimate = await estimateTokenUsageForReports({
+        flowCases: getBlackboxFlowCases("basic").slice(0, 1),
+        reportPaths: [skippedReport, incompleteReport, realReport],
+      });
+
+      expect(estimate.source).toBe("recent_real_report");
+      expect(estimate.calibrationSummary).toContain("real.md");
+      expect(estimate.totalTokens).toBeGreaterThan(0);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("preflight skips cleanly before touching the database when the model key is missing", async () => {

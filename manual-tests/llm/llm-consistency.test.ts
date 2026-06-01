@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { afterAll, beforeAll, describe, test } from "vitest";
@@ -21,6 +21,7 @@ import {
 } from "./assertions";
 import { createFlowFailureSkipReason } from "./flow-runner-policy";
 import { getBlackboxFlowCases, type BlackboxFlowCase, type BlackboxFlowSuiteName, type BlackboxFlowTurn } from "./flow-fixtures";
+import { estimateTokenUsageForReports, type TokenEstimate } from "./token-estimate";
 
 type DeepSeekUsage = {
   prompt_tokens?: number;
@@ -51,14 +52,6 @@ type ManualLlmTurnRecord = {
   skipReason?: string;
   usage?: DeepSeekUsage;
   artifactDiagnostics?: BlackboxArtifactDiagnostics;
-};
-
-type TokenEstimate = {
-  promptTokens: number;
-  completionTokens: number;
-  totalTokens: number;
-  source: "recent_real_report" | "fallback";
-  calibrationSummary: string;
 };
 
 const model = "deepseek-v4-flash";
@@ -244,88 +237,15 @@ function createSkippedRecord(
 }
 
 async function estimateTokenUsage(): Promise<TokenEstimate> {
-  const reportEstimate = await estimateFromRecentReport();
-
-  if (reportEstimate) {
-    return reportEstimate;
-  }
-
-  const turnCount = blackboxFlowCases.reduce((sum, flowCase) => sum + flowCase.turns.length, 0);
-  const charCount = blackboxFlowCases.reduce(
-    (flowTotal, flowCase) =>
-      flowTotal + flowCase.turns.reduce((turnTotal, turn) => turnTotal + turn.userInput.length + turn.expectation.note.length, 0),
-    0,
-  );
-  const promptTokens = Math.ceil(charCount / 2) + turnCount * 2_400;
-  const completionTokens = turnCount * 760;
-
-  return {
-    promptTokens,
-    completionTokens,
-    totalTokens: promptTokens + completionTokens,
-    source: "fallback",
-    calibrationSummary: `未找到可用真实运行报告，按 ${blackboxFlowCases.length} 个 fixture、${turnCount} 轮和保守均值估算。`,
-  };
-}
-
-async function estimateFromRecentReport(): Promise<TokenEstimate | null> {
   const candidateReports = [
     path.join(process.cwd(), "docs", "manual-llm-blackbox-flow-latest-report.md"),
     path.join(process.cwd(), "docs", "manual-llm-blackbox-flow-detail-latest-report.md"),
   ];
-  const reports = await Promise.all(candidateReports.map(readReportTokenStats));
-  const realReports = reports.filter((report): report is NonNullable<typeof report> =>
-    Boolean(report && report.totalTokens > 0 && !report.isSkipped),
-  ).sort((left, right) => right.generatedAtMs - left.generatedAtMs);
-  const latest = realReports[0];
 
-  if (!latest) {
-    return null;
-  }
-
-  const currentTurnCount = blackboxFlowCases.reduce((sum, flowCase) => sum + flowCase.turns.length, 0);
-  const promptPerTurn = latest.promptTokens / Math.max(latest.turnCount, 1);
-  const completionPerTurn = latest.completionTokens / Math.max(latest.turnCount, 1);
-  const promptTokens = Math.ceil(promptPerTurn * currentTurnCount);
-  const completionTokens = Math.ceil(completionPerTurn * currentTurnCount);
-
-  return {
-    promptTokens,
-    completionTokens,
-    totalTokens: promptTokens + completionTokens,
-    source: "recent_real_report",
-    calibrationSummary: `基于 ${latest.fileName} 的真实 token 均值校准：${latest.turnCount} 轮、total_tokens=${latest.totalTokens}。`,
-  };
-}
-
-async function readReportTokenStats(filePath: string) {
-  try {
-    const content = await readFile(filePath, "utf8");
-    const promptTokens = readNumberLine(content, "prompt_tokens");
-    const completionTokens = readNumberLine(content, "completion_tokens");
-    const totalTokens = readNumberLine(content, "total_tokens");
-    const turnCount = readNumberLine(content, "轮次数");
-    const generatedAt = content.match(/生成时间：(.+)/)?.[1]?.trim();
-
-    return {
-      fileName: path.basename(filePath),
-      promptTokens,
-      completionTokens,
-      totalTokens,
-      turnCount,
-      isSkipped: /真实模型.*未运行|跳过报告|缺少 DEEPSEEK_API_KEY/.test(content),
-      generatedAtMs: generatedAt ? Date.parse(generatedAt) || 0 : 0,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function readNumberLine(content: string, label: string) {
-  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = content.match(new RegExp(`${escaped}[：:]\\s*(\\d+)`));
-
-  return match ? Number(match[1]) : 0;
+  return estimateTokenUsageForReports({
+    flowCases: blackboxFlowCases,
+    reportPaths: candidateReports,
+  });
 }
 
 function summarizeRunRecords(records: ManualLlmTurnRecord[]) {

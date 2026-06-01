@@ -12,6 +12,7 @@ import {
   createAiChatResponse,
   prepareAiChatRequest,
 } from "@/lib/server/chat/chat-service";
+import { getChatConversationById } from "@/lib/server/chat/chat-history-service";
 import { listRecentArtifactSummariesForCurrentUser } from "@/lib/server/conversation-artifacts/artifact-service";
 
 export async function POST(request: Request) {
@@ -45,12 +46,16 @@ export async function POST(request: Request) {
     );
   }
 
-  const preparedRequest = prepareAiChatRequest(parsedRequest.data);
-  preparedRequest.recentArtifactSummaries = await listRecentArtifactSummariesForCurrentUser(
-    parsedRequest.data.conversationId,
-    undefined,
-    user,
-  );
+  const [savedConversation, recentArtifactSummaries] = await Promise.all([
+    parsedRequest.data.conversationId
+      ? getChatConversationById(parsedRequest.data.conversationId, user)
+      : Promise.resolve(null),
+    listRecentArtifactSummariesForCurrentUser(parsedRequest.data.conversationId, undefined, user),
+  ]);
+  const preparedRequest = prepareAiChatRequest(parsedRequest.data, {
+    savedConversation,
+    recentArtifactSummaries,
+  });
 
   if (preparedRequest.rawMessages.length === 0) {
     return jsonApiError("validation_failed", "At least one valid message is required.", 400);
@@ -73,6 +78,11 @@ export async function POST(request: Request) {
       messageCount: preparedRequest.rawMessages.length,
       aiContextMessageCount: preparedRequest.messages.length,
       recentArtifactCount: preparedRequest.recentArtifactSummaries.length,
+      hydrationSource: preparedRequest.hydration.source,
+      savedConversationFound: preparedRequest.hydration.savedConversationFound,
+      restoredMessageCount: preparedRequest.hydration.restoredMessageCount,
+      hasSavedConversationContext: preparedRequest.hydration.hasSavedConversationContext,
+      recommendationIntentCount: preparedRequest.hydration.recommendationIntentCount,
       hasClientConversationSummary: preparedRequest.hasClientConversationSummary,
       thinkingEnabled: preparedRequest.thinkingEnabled,
     },

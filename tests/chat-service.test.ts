@@ -29,7 +29,7 @@ import {
 import { aiPromptConfig } from "@/lib/server/ai/prompt-config";
 import { buildFitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
 
-import { createConversationContext, createWorkoutPlanIntent } from "./fixtures/domain";
+import { createChatConversation, createConversationContext, createWorkoutPlanIntent } from "./fixtures/domain";
 
 const routineIntent = createWorkoutPlanIntent();
 const conversationContext = createConversationContext({ currentIntent: routineIntent });
@@ -127,6 +127,90 @@ describe("AI chat service deterministic boundaries", () => {
     expect(preparedRequest.conversationSummaryContext.summary).toBe("用户想在家练胸肌。");
     expect(preparedRequest.thinkingEnabled).toBe(false);
     expect(preparedRequest.hasClientConversationSummary).toBe(true);
+  });
+
+  it("hydrates saved conversation context before client fallback context", () => {
+    const savedIntent = createWorkoutPlanIntent({
+      intentType: "plan",
+      goal: "增肌",
+      sessionMinutes: 45,
+      weeklyFrequency: 4,
+      equipment: ["固定器械"],
+      preferences: ["健身房训练"],
+    });
+    const clientIntent = createWorkoutPlanIntent({
+      intentType: "routine",
+      goal: "练胸",
+      sessionMinutes: 20,
+      weeklyFrequency: 1,
+      equipment: ["自重"],
+    });
+    const savedConversation = createChatConversation({
+      id: "conversation-1",
+      messages: [
+        { id: "u1", role: "user", content: "给我一个每周训练计划" },
+        { id: "a1", role: "assistant", content: "请补充周频、时长、目标和器械。" },
+        { id: "u2", role: "user", content: "每周4练，每次45分钟" },
+      ],
+      conversationContext: createConversationContext({
+        currentIntent: savedIntent,
+        knownFacts: {
+          goal: "增肌",
+          experience: "beginner",
+          sessionMinutes: 45,
+          weeklyFrequency: 4,
+          equipment: ["固定器械"],
+          injuryLimitations: [],
+          preferences: ["健身房训练"],
+          avoidances: [],
+        },
+      }),
+      recommendationIntents: { a1: savedIntent },
+      conversationSummary: { summary: "用户要每周4练，每次45分钟的增肌计划。" },
+    });
+
+    const preparedRequest = prepareAiChatRequest(
+      {
+        conversationId: "conversation-1",
+        latestUserMessage: "增肌，有健身房器械",
+        conversationSummary: "客户端空摘要不可信。",
+        conversationContext: createConversationContext({ currentIntent: clientIntent }),
+      },
+      {
+        savedConversation,
+        recentArtifactSummaries: [
+          {
+            artifactId: "plan-1",
+            kind: "plan",
+            title: "增肌计划",
+            exerciseIds: ["push-up"],
+            goals: ["增肌"],
+            muscles: ["胸部"],
+            equipment: ["固定器械"],
+            sessionMinutes: 45,
+            weeklyFrequency: 4,
+            updatedAt: "2026-06-01T00:00:00.000Z",
+          },
+        ],
+      },
+    );
+
+    expect(preparedRequest.hydration).toMatchObject({
+      source: "server_saved",
+      savedConversationFound: true,
+      restoredMessageCount: 4,
+      hasSavedConversationContext: true,
+      hasClientConversationContext: true,
+      recommendationIntentCount: 1,
+      recentArtifactCount: 1,
+    });
+    expect(preparedRequest.rawMessages.at(-1)).toEqual({ role: "user", content: "增肌，有健身房器械" });
+    expect(preparedRequest.conversationSummaryContext.summary).toBe("用户要每周4练，每次45分钟的增肌计划。");
+    expect(preparedRequest.internalConversationContext.currentIntent).toMatchObject({
+      intentType: "plan",
+      weeklyFrequency: 4,
+      sessionMinutes: 45,
+    });
   });
 
   it("resolves fallback intent, assistant action, and visible suggested replies", () => {
@@ -1333,6 +1417,73 @@ describe("AI chat service deterministic boundaries", () => {
         goal: "增肌，有健身房器械",
         sessionMinutes: 45,
         weeklyFrequency: 4,
+      },
+    });
+  });
+
+  it("keeps short frequency edits in workout_plan context when a recent plan exists", () => {
+    const planIntent = createWorkoutPlanIntent({
+      intentType: "plan",
+      goal: "增肌",
+      sessionMinutes: 45,
+      weeklyFrequency: 4,
+      equipment: ["固定器械"],
+    });
+    const planContext = createConversationContext({ currentIntent: planIntent });
+    const modelIntent: ChatIntent = {
+      type: "general_fitness_advice",
+      needsExerciseContext: false,
+      workoutIntent: undefined,
+      requestedExerciseName: "",
+      canTriggerAction: false,
+      missingActionFields: ["trainingGoal", "equipmentOrLocation"],
+      suggestedReplies: ["请重新说明目标和器械"],
+    };
+
+    const normalized = normalizeChatIntentForBlackboxFlows({
+      chatIntent: modelIntent,
+      fallbackIntent: createFallbackChatIntent(
+        [{ role: "user", content: "改成每周6练" }],
+        planContext,
+      ),
+      messages: [{ role: "user", content: "改成每周6练" }],
+      conversationSummaryContext: {
+        summary: "用户已有一个每周4练的增肌计划。",
+        latestUserMessage: "改成每周6练",
+      },
+      conversationContext: planContext,
+      recentArtifactSummaries: [
+        {
+          artifactId: "plan-1",
+          kind: "plan",
+          title: "每周增肌计划",
+          exerciseIds: ["push-up"],
+          goals: ["增肌"],
+          muscles: ["胸部"],
+          equipment: ["固定器械"],
+          sessionMinutes: 45,
+          weeklyFrequency: 4,
+          updatedAt: "2026-06-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(normalized).toMatchObject({
+      type: "workout_plan",
+      canTriggerAction: true,
+      missingActionFields: [],
+      workoutIntent: {
+        intentType: "plan",
+        goal: "增肌",
+        weeklyFrequency: 6,
+        sessionMinutes: 45,
+      },
+    });
+    expect(resolveAssistantAction(normalized, createExerciseContext({ intent: normalized.workoutIntent! }))).toMatchObject({
+      action: "workout_plan",
+      intent: {
+        intentType: "plan",
+        weeklyFrequency: 6,
       },
     });
   });

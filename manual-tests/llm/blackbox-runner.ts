@@ -105,6 +105,7 @@ export type BlackboxConversationState = {
 type ConsumedChatStream = {
   assistantText: string;
   actions: AssistantAction[];
+  referenceDiagnostics: NonNullable<ChatStreamEvent["referenceDiagnostic"]>[];
   traceId?: string;
   conversationSummary?: string;
   artifacts: Array<{
@@ -295,6 +296,7 @@ export async function runBlackboxChatTurn(input: {
   result.artifactDiagnostics = await collectArtifactDiagnostics({
     state: input.state,
     actions: streamResult.actions,
+    referenceDiagnostics: streamResult.referenceDiagnostics,
     producedArtifacts: streamResult.artifacts,
     responseMessageId,
   });
@@ -356,6 +358,7 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
   const reader = response.body?.getReader();
   const decoder = new TextDecoder();
   const actions: AssistantAction[] = [];
+  const referenceDiagnostics: ConsumedChatStream["referenceDiagnostics"] = [];
   const artifacts: ConsumedChatStream["artifacts"] = [];
   let buffer = "";
   let assistantText = "";
@@ -366,6 +369,7 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
     return {
       assistantText,
       actions,
+      referenceDiagnostics,
       artifacts,
       error: {
         code: "request_failed",
@@ -401,6 +405,7 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
           return {
             assistantText,
             actions,
+            referenceDiagnostics,
             artifacts,
             traceId,
             conversationSummary,
@@ -431,6 +436,11 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
           continue;
         }
 
+        if (streamEvent.type === "reference_diagnostic" && streamEvent.referenceDiagnostic) {
+          referenceDiagnostics.push(streamEvent.referenceDiagnostic);
+          continue;
+        }
+
         if (
           (streamEvent.type === "artifact" ||
             streamEvent.type === "artifact_validated" ||
@@ -450,6 +460,9 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
         if (streamEvent.type === "done") {
           traceId = streamEvent.traceId;
           conversationSummary = streamEvent.conversationSummary;
+          if (streamEvent.referenceDiagnostic) {
+            referenceDiagnostics.push(streamEvent.referenceDiagnostic);
+          }
           continue;
         }
 
@@ -457,6 +470,7 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
           return {
             assistantText,
             actions,
+            referenceDiagnostics,
             artifacts,
             traceId,
             conversationSummary,
@@ -472,6 +486,7 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
     return {
       assistantText,
       actions,
+      referenceDiagnostics,
       artifacts,
       traceId,
       conversationSummary,
@@ -485,6 +500,7 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
   return {
     assistantText,
     actions,
+    referenceDiagnostics,
     artifacts,
     traceId,
     conversationSummary,
@@ -640,15 +656,17 @@ async function saveConversationState(state: BlackboxConversationState): Promise<
 async function collectArtifactDiagnostics(input: {
   state: BlackboxConversationState;
   actions: AssistantAction[];
+  referenceDiagnostics: ConsumedChatStream["referenceDiagnostics"];
   producedArtifacts: ConsumedChatStream["artifacts"];
   responseMessageId: string;
 }): Promise<BlackboxArtifactDiagnostics> {
   const latestAction = input.actions.at(-1);
-  const referenceResolutionStatus = latestAction?.referenceResolution
+  const referenceDiagnostic = input.referenceDiagnostics.at(-1);
+  const referenceResolutionStatus = referenceDiagnostic?.referenceResolutionStatus ?? (latestAction?.referenceResolution
     ? "resolved"
     : latestAction
       ? "not_applicable"
-      : "not_applicable";
+      : "not_applicable");
   const empty = createEmptyArtifactDiagnostics(input.actions);
 
   if (!input.state.authSession) {
@@ -672,30 +690,46 @@ async function collectArtifactDiagnostics(input: {
       ...empty,
       recentSummaryCount: summaries.length,
       producedArtifact: input.producedArtifacts.length > 0,
-      artifactKind: producedKind,
-      payloadReadStatus: input.producedArtifacts.length > 0 ? "missing" : "not_applicable",
+      artifactKind: referenceDiagnostic?.artifactKind ?? producedKind,
+      artifactId: referenceDiagnostic?.artifactId,
+      payloadReadable: referenceDiagnostic?.payloadReadStatus === "readable",
+      payloadReadStatus: referenceDiagnostic?.payloadReadStatus ??
+        (input.producedArtifacts.length > 0 ? "missing" : "not_applicable"),
       referenceResolutionStatus,
-      referenceResolutionSummary: summarizeReferenceResolution(latestAction),
+      referenceResolutionSummary: summarizeReferenceResolution(latestAction, referenceDiagnostic),
     };
   }
 
-  const payloadResult = await getArtifactPayloadForCurrentUser(
-    { artifactId: summary.artifactId },
-    undefined,
+  const artifactId = referenceDiagnostic?.artifactId ?? summary.artifactId;
+  const payloadReadStatus = referenceDiagnostic?.payloadReadStatus ?? await getArtifactPayloadReadStatus(
+    artifactId,
     input.state.authSession.user,
   );
 
   return {
     recentSummaryCount: summaries.length,
     producedArtifact: input.producedArtifacts.length > 0,
-    artifactKind: summary.kind,
-    artifactId: summary.artifactId,
+    artifactKind: referenceDiagnostic?.artifactKind ?? summary.kind,
+    artifactId,
     sourceMessageId: input.responseMessageId,
-    payloadReadable: payloadResult.ok,
-    payloadReadStatus: payloadResult.ok ? "readable" : payloadResult.code === "invalid_payload" ? "invalid" : "missing",
+    payloadReadable: payloadReadStatus === "readable",
+    payloadReadStatus,
     referenceResolutionStatus,
-    referenceResolutionSummary: summarizeReferenceResolution(latestAction),
+    referenceResolutionSummary: summarizeReferenceResolution(latestAction, referenceDiagnostic),
   };
+}
+
+async function getArtifactPayloadReadStatus(
+  artifactId: string,
+  currentUser: CurrentUser,
+): Promise<BlackboxArtifactDiagnostics["payloadReadStatus"]> {
+  const payloadResult = await getArtifactPayloadForCurrentUser(
+    { artifactId },
+    undefined,
+    currentUser,
+  );
+
+  return payloadResult.ok ? "readable" : payloadResult.code === "invalid_payload" ? "invalid" : "missing";
 }
 
 function createEmptyArtifactDiagnostics(actions: AssistantAction[]): BlackboxArtifactDiagnostics {
@@ -709,7 +743,20 @@ function createEmptyArtifactDiagnostics(actions: AssistantAction[]): BlackboxArt
   };
 }
 
-function summarizeReferenceResolution(action: AssistantAction | undefined) {
+function summarizeReferenceResolution(
+  action: AssistantAction | undefined,
+  diagnostic?: NonNullable<ChatStreamEvent["referenceDiagnostic"]>,
+) {
+  if (diagnostic) {
+    return [
+      diagnostic.artifactId ? `artifactId=${diagnostic.artifactId}` : undefined,
+      diagnostic.artifactKind ? `kind=${diagnostic.artifactKind}` : undefined,
+      `payload=${diagnostic.payloadReadStatus}`,
+      diagnostic.exerciseId ? `exerciseId=${diagnostic.exerciseId}` : undefined,
+      diagnostic.reason ? `reason=${diagnostic.reason}` : undefined,
+    ].filter(Boolean).join(" ");
+  }
+
   const resolution = action?.referenceResolution;
 
   if (!resolution) {
