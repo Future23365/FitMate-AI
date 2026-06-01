@@ -11,7 +11,7 @@
 
 这类遗留合同如果继续存在，后续实现会自然倾向于保留双主链：Agent 负责新结果，旧 intent 负责兼容、诊断、测试或兜底。长期看这会重新制造语义冲突：服务端旧规则和 Agent 工具结果可能同时声称自己能触发卡片、Patch 或 plan。
 
-本 change 是文档型清理 change：先把 OpenSpec 合同改成“旧架构必须删除”，后续再按 tasks 实现代码和测试清理。
+本 change 是实现型架构清理 change：目标是在后续 apply 阶段删除旧 intent-first 执行链路、旧只读 tool loop、旧流事件、旧测试口径和旧规格合同。当前用户要求“只写文档”，因此本轮只产出 OpenSpec proposal / design / specs / tasks，不改业务代码。
 
 ## Goals / Non-Goals
 
@@ -21,24 +21,24 @@
 - 明确 `AgentExecutionResult` 是 `/api/chat` 唯一生产执行合同。
 - 明确旧 `ResolvedChatIntent`、`ChatIntent`、`workoutIntent`、`assistant_action`、`intent_resolved`、只读-only tool loop 和 summary-only 上下文只能作为历史迁移或测试夹具存在。
 - 让长期计划、routine、动作推荐、Patch、动作讲解和普通回复都从 Agent tool result 和执行结果进入下游领域服务。
-- 为后续实现提供可检查的清理任务、测试任务和文档收尾任务。
+- 为后续实现提供可检查的代码删除任务、测试迁移任务、trace/黑盒迁移任务和文档同步任务。
 - 防止新增兼容层把旧路径包装成 Agent 工具或 trace 字段继续参与生产执行。
 
 **Non-Goals:**
 
 - 本 change 不重新设计 AgentOrchestrator；它以现有 Tool-first 架构为前提。
-- 本 change 不修改业务代码、不删除文件、不迁移测试，只写 OpenSpec 文档。
+- 本轮提案阶段不修改业务代码、不删除文件、不迁移测试，只写 OpenSpec 文档；后续 apply 阶段需要按任务执行代码清理。
 - 本 change 不要求删除 `conversationSummary` 存储本身；它可以继续用于后台摘要、标题、历史迁移和调试。
 - 本 change 不要求删除所有历史报告中的旧字段；历史报告可以保留，但新运行和新验收不得依赖旧字段。
 - 本 change 不引入新的外部依赖、数据库表或 API 路由。
 
 ## Decisions
 
-### 1. 删除旧架构合同，而不是继续兼容降级
+### 1. 删除旧架构实现链路，而不是继续兼容降级
 
 选择：把旧 intent-first requirement 放入 `REMOVED Requirements`，并新增少量 Agent-only 防回归 requirement。
 
-原因：上一轮 Agent change 已经把 resolved intent 降级为兼容字段，但主规格仍有大量旧 requirement。继续“兼容降级”会让旧字段持续存在，后续实现很难判断哪些代码可删。删除合同能让归档后的规格直接表达最终目标：生产主链只认 Agent。
+原因：上一轮 Agent change 已经把 resolved intent 降级为兼容字段，但主规格和源码仍有大量旧路径。继续“兼容降级”会让旧字段持续存在，后续实现很难判断哪些代码可删。删除旧实现链路和对应合同能让归档后的规格直接表达最终目标：生产主链只认 Agent。
 
 替代方案是保留 `LegacyChatEventAdapter` 和旧字段一段时间。这个方案对前端平滑迁移有价值，但现在用户明确要求“把所有旧架构的东西都去掉”，因此不作为本 change 的目标。
 
@@ -62,9 +62,9 @@
 
 原因：测试如果继续断言 `assistant_action`、`workoutIntent` 或旧 trigger JSON，就会反向要求生产流继续输出旧字段。更合理的证据是：用户可见闭环成功、Agent result 存在、工具依赖图完整、写入引用了合法 tool result、旧路径未触发。
 
-### 5. 文档清理和代码清理分开提交，但必须同属一个实现收尾
+### 5. 代码清理是主体，文档同步是收尾
 
-选择：本 change 只定义文档；后续实现必须同时处理源码、测试和架构文档，不能只删 OpenSpec。
+选择：当前阶段只定义文档；后续实现必须以源码、测试、trace、黑盒和流事件清理为主体，并同步更新架构文档，不能只删 OpenSpec。
 
 原因：旧架构残留同时存在于代码、测试、手动黑盒 runner、架构说明和演变历史中。只改源码会留下错误协作信号，只改文档会留下可运行旧路径。tasks 必须把两者作为同一个验收闭环。
 

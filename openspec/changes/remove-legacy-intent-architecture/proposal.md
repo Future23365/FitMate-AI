@@ -2,7 +2,7 @@
 
 Tool-first `AgentOrchestrator` 已经成为 `/api/chat` 的生产主链，但当前代码、测试和 OpenSpec 主规格仍保留旧 intent-first 架构的合同与命名，例如 `ResolvedChatIntent`、`workoutIntent`、`assistant_action`、只读-only tool loop、`conversationSummary + latestUserMessage` 协议和 resolved intent 驱动的 plan/routine 生成要求。
 
-这些遗留内容会让后续开发继续误以为系统存在“双主链”：一套 Agent 工具闭环，一套旧意图解析/门控/生成闭环。本 change 用文档先明确旧架构的删除边界、迁移验收和防回归要求，后续实现必须以删除旧执行合同为目标，而不是继续增加兼容层。
+这些遗留内容会让后续开发继续误以为系统存在“双主链”：一套 Agent 工具闭环，一套旧意图解析/门控/生成闭环。本 change 是后续实现旧架构移除的架构清理 change；当前阶段只先写 OpenSpec 文档，明确要删除哪些旧代码路径、旧测试口径、旧流事件和旧规格合同，后续 apply 时必须以删除旧执行链路为目标，而不是继续增加兼容层。
 
 ## What Changes
 
@@ -20,7 +20,7 @@ Tool-first `AgentOrchestrator` 已经成为 `/api/chat` 的生产主链，但当
 
 ### New Capabilities
 
-- 无。本 change 不引入新架构能力，只清理 Tool-first AgentOrchestrator 迁移完成后的旧架构合同。
+- 无。本 change 不引入新的运行时架构能力；它定义 Tool-first AgentOrchestrator 迁移完成后，后续实现必须移除的旧 intent-first 架构代码路径和验收边界。
 
 ### Modified Capabilities
 
@@ -37,5 +37,5 @@ Tool-first `AgentOrchestrator` 已经成为 `/api/chat` 的生产主链，但当
 ## Impact
 
 - 影响 OpenSpec 主规格和后续实现范围：`/api/chat`、`lib/server/chat/chat-service.ts`、`lib/shared/chat/*intent*`、`lib/server/ai/tools/*`、`lib/server/agent-orchestrator/*`、`lib/server/workout-plans/*`、`manual-tests/llm/*`、`tests/*chat*`、`tests/readonly-tools.test.ts`、`docs/chat-push-flow.md`、`docs/architecture.md` 和相关方案历史文档。
-- 后续实现应删除旧 intent-first 源码和测试，而不是把它们继续保留为生产兼容路径。
-- 本 change 本身只写 OpenSpec 文档，不修改业务代码、不迁移测试、不运行真实模型黑盒。
+- 后续实现应删除旧 intent-first 源码、测试、流事件和诊断字段，而不是把它们继续保留为生产兼容路径。
+- 当前阶段只写 OpenSpec 文档，不修改业务代码、不迁移测试、不运行真实模型黑盒；后续进入 apply 时应按 `tasks.md` 执行代码、测试和文档同步。

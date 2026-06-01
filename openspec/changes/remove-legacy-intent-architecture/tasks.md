@@ -37,7 +37,7 @@
 - [ ] 5.5 更新 plan、routine、动作推荐、Patch 和动作讲解相关测试，断言执行事实来自 `AgentExecutionResult` 和 tool dependency graph。
 - [ ] 5.6 更新手动 LLM 黑盒 fixture expectation，保留用户输入和业务期望，但把执行证据字段迁移为 Agent status、必需工具、candidateSetId、validationId、revisionId 和 legacy path absence。
 
-## 6. 文档与 OpenSpec 收尾
+## 6. 架构文档同步与 OpenSpec 收尾
 
 - [ ] 6.1 更新 `docs/architecture.md`、`docs/chat-push-flow.md`、`docs/manual-llm-consistency-tests.md` 和相关调试文档，删除旧 intent-first、summary-only、只读-only tool loop 和 `assistant_action` 二次触发描述。
 - [ ] 6.2 在 `docs/方案变更历史` 新增一份上海时间精确到秒的架构清理记录，说明旧架构为什么不合适、清理思路、关键改动和验证结果。
