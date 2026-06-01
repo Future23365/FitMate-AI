@@ -189,6 +189,16 @@ describe("chat service Agent-only contract", () => {
         toolName: "searchExercises",
         status: "success",
         candidateSetId: "candidate-set-rec",
+        output: {
+          candidateSetId: "candidate-set-rec",
+          candidateUse: "recommendation",
+          candidates: [
+            {
+              id: "Band_Good_Morning",
+              imageUrls: ["/band-good-morning.png"],
+            },
+          ],
+        },
         modelSummary: {
           candidateSetId: "candidate-set-rec",
           candidateUse: "recommendation",
@@ -220,6 +230,7 @@ describe("chat service Agent-only contract", () => {
           expect.objectContaining({
             exerciseId: "Band_Good_Morning",
             nameZh: "弹力带早安式",
+            imageUrl: "/band-good-morning.png",
           }),
         ],
       },

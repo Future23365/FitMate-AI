@@ -1199,7 +1199,10 @@ function buildRecommendationCardFromToolResult(input: {
 }): ExerciseRecommendationCard | null {
   const summary = asRecord(input.toolResult.modelSummary);
   const candidates = Array.isArray(summary?.candidates) ? summary.candidates : [];
-  const items = candidates.map(toRecommendationItem).filter((item): item is ExerciseRecommendationCard["items"][number] => Boolean(item));
+  const displayFactsByExerciseId = buildExerciseDisplayFactMap(input.toolResult);
+  const items = candidates
+    .map((candidate) => toRecommendationItem(candidate, displayFactsByExerciseId))
+    .filter((item): item is ExerciseRecommendationCard["items"][number] => Boolean(item));
 
   if (items.length === 0) {
     return null;
@@ -1226,12 +1229,16 @@ function readToolResultCandidateUse(toolResult: AgentToolResultRecord) {
   return typeof candidateUse === "string" ? candidateUse : undefined;
 }
 
-function toRecommendationItem(candidate: unknown): ExerciseRecommendationCard["items"][number] | null {
+function toRecommendationItem(
+  candidate: unknown,
+  displayFactsByExerciseId: Map<string, ExerciseDisplayFact>,
+): ExerciseRecommendationCard["items"][number] | null {
   const record = asRecord(candidate);
 
   if (!record || typeof record.exerciseId !== "string" || typeof record.nameZh !== "string") {
     return null;
   }
+  const displayFact = displayFactsByExerciseId.get(record.exerciseId);
 
   return {
     exerciseId: record.exerciseId,
@@ -1242,9 +1249,51 @@ function toRecommendationItem(candidate: unknown): ExerciseRecommendationCard["i
     equipmentZh: typeof record.equipmentZh === "string" ? record.equipmentZh : "未标注",
     primaryMusclesZh: readStringArray(record.primaryMusclesZh),
     secondaryMusclesZh: readStringArray(record.secondaryMusclesZh),
-    imageUrl: typeof record.imageUrl === "string" ? record.imageUrl : undefined,
+    imageUrl: readImageUrl(record) ?? displayFact?.imageUrl,
     reasons: readStringArray(record.goalTags).slice(0, 3),
   };
+}
+
+type ExerciseDisplayFact = {
+  imageUrl?: string;
+};
+
+// Agent 模型摘要不携带展示图片；推荐卡展示字段必须从工具完整输出回填。
+function buildExerciseDisplayFactMap(toolResult: AgentToolResultRecord) {
+  const output = asRecord(toolResult.output);
+  const candidates = Array.isArray(output?.candidates) ? output.candidates : [];
+  const byExerciseId = new Map<string, ExerciseDisplayFact>();
+
+  for (const candidate of candidates) {
+    const record = asRecord(candidate);
+    if (!record) {
+      continue;
+    }
+    const exerciseId = typeof record?.id === "string"
+      ? record.id
+      : typeof record?.exerciseId === "string"
+        ? record.exerciseId
+        : undefined;
+
+    if (!exerciseId) {
+      continue;
+    }
+
+    byExerciseId.set(exerciseId, {
+      imageUrl: readImageUrl(record),
+    });
+  }
+
+  return byExerciseId;
+}
+
+function readImageUrl(record: Record<string, unknown>) {
+  if (typeof record.imageUrl === "string" && record.imageUrl.trim()) {
+    return record.imageUrl;
+  }
+  const firstImageUrl = readStringArray(record.imageUrls)[0];
+
+  return firstImageUrl;
 }
 
 function traceTokenBudgetDecision(trace: AiTraceLogger, decision: AiTokenBudgetDecision) {
