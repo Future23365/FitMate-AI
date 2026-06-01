@@ -55,6 +55,12 @@ import { createReadonlyAgentToolDefinitions } from "./readonly-tools";
 const defaultCandidatePreviewLimit = 12;
 const phaseChangeId = "replace-chat-orchestrator-with-tool-first-agent";
 
+// Agent routine 工具复用 WorkoutPlanIntent，但单次编排不应因缺少长期计划字段而中断。
+const agentRoutineIntentSchema = z.preprocess(
+  applyRoutineIntentContractDefaults,
+  workoutPlanIntentSchema.extend({ intentType: z.literal("routine").default("routine") }),
+);
+
 export const proposeWorkoutEditPlanAgentToolInputSchema = workoutEditPlanSchema.omit({
   editPlanId: true,
 }).extend({
@@ -62,7 +68,7 @@ export const proposeWorkoutEditPlanAgentToolInputSchema = workoutEditPlanSchema.
 });
 
 export const generateRoutineDraftAgentToolInputSchema = z.object({
-  intent: workoutPlanIntentSchema.extend({ intentType: z.literal("routine").default("routine") }),
+  intent: agentRoutineIntentSchema,
   candidateSetId: z.string().trim().min(1),
   candidateExerciseIds: z.array(z.string().trim().min(1)).min(1).max(80),
   title: z.string().trim().min(1).max(100).optional(),
@@ -99,7 +105,7 @@ export const validateRoutineDraftAgentToolInputSchema = z.object({
   draftId: z.string().trim().min(1),
   candidateSetId: z.string().trim().min(1),
   candidateExerciseIds: z.array(z.string().trim().min(1)).min(1).max(120),
-  intent: workoutPlanIntentSchema.extend({ intentType: z.literal("routine").default("routine") }),
+  intent: agentRoutineIntentSchema,
   draft: workoutRoutineDraftSchema,
 });
 
@@ -236,6 +242,25 @@ export function createWorkoutAgentToolDefinitions(): AgentToolDefinition<unknown
     createEvaluatePolicyTool(),
     createSaveConversationArtifactRevisionTool(),
   ] as AgentToolDefinition<unknown, unknown>[];
+}
+
+function applyRoutineIntentContractDefaults(value: unknown) {
+  if (!isPlainObject(value)) {
+    return value;
+  }
+
+  return {
+    // routine intent 只需要单次编排上下文；缺失 experience 时采用保守 beginner 参数。
+    experience: "beginner",
+    // weeklyFrequency 属于长期计划合同字段，routine 链路保留默认值用于复用校验模型。
+    weeklyFrequency: 1,
+    ...value,
+    intentType: "routine",
+  };
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 // createToolFirstAgentToolRegistry 组合只读工具和 Phase 3 受控训练写入前置工具。

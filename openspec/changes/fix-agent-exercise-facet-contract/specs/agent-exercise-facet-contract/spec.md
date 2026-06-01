@@ -86,3 +86,19 @@ Agent 在生成 routine、plan 或 patch 所需候选时，系统 SHALL 对可�
 - **WHEN** Agent 使用 `candidateUse = "recommendation"` 并以 `answered` 结束
 - **THEN** 用户可见结果 MUST 表达动作推荐或候选动作
 - **AND** 用户可见结果 MUST NOT 承诺已生成完整 routine、plan 或训练编排
+
+### Requirement: Routine 生成工具必须容忍单次编排合同默认字段缺失
+用户请求单次训练编排时，系统 SHALL 在 routine 工具边界为仅服务于结构校验的默认字段提供稳定默认值，避免模型已给出目标、时长和候选集合后仍因长期计划字段缺失而中断。
+
+#### Scenario: generateRoutineDraft 缺少 experience 和 weeklyFrequency
+- **WHEN** Agent 调用 `generateRoutineDraft`，并提供 `goal`、`sessionMinutes`、`candidateSetId` 和 `candidateExerciseIds`
+- **AND** `intent` 缺少 `experience` 或 `weeklyFrequency`
+- **THEN** routine 工具 MUST 以保守默认 `experience = "beginner"` 补齐单次编排参数
+- **AND** routine 工具 MUST 以 `weeklyFrequency = 1` 补齐复用校验模型所需的长期计划字段
+- **AND** 系统 MUST NOT 读取用户原文或用关键词重解释用户语义
+
+#### Scenario: failed 终止结果使用旧式 replyContext
+- **WHEN** Agent 返回 `status = "failed"` 且缺少 `failureCode`
+- **AND** 结果包含旧式 `replyContext.reply`
+- **THEN** 解析层 MUST 将结果归一为合法 `failed` 合同
+- **AND** 系统 MUST NOT 因终止结果字段位置错误把原始工具失败二次覆盖为 `model_output_invalid`

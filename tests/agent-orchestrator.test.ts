@@ -297,6 +297,30 @@ describe("agent orchestrator phase 1 contracts", () => {
     });
   });
 
+  it("normalizes legacy failed final results into the AgentExecutionResult contract", () => {
+    const registry = new AgentToolRegistry([createReadTool()]);
+
+    expect(parseAgentToolDecision({
+      action: "final_result",
+      result: {
+        status: "failed",
+        replyContext: { reply: "生成训练计划时发生错误：输入验证失败。" },
+        usedToolResultIds: ["tool-result-invalid"],
+      },
+      reason: "工具执行失败，停止执行。",
+    }, registry)).toMatchObject({
+      ok: true,
+      decision: {
+        action: "final_result",
+        result: {
+          status: "failed",
+          failureCode: "tool_execution_failed",
+          usedToolResultIds: ["tool-result-invalid"],
+        },
+      },
+    });
+  });
+
   it("blocks write tools that lack a domain capability contract or safe projection", () => {
     expect(() => new AgentToolRegistry([{
       ...createReadTool(),
@@ -745,6 +769,60 @@ describe("agent orchestrator phase 3 workout tools", () => {
             expect.objectContaining({ section: "training" }),
             expect.objectContaining({ section: "stretch" }),
           ],
+        },
+      },
+    });
+  });
+
+  it("defaults routine-only intent contract fields before generating routine drafts", async () => {
+    exerciseMocks.listAllExercises.mockResolvedValue([
+      createExercise({
+        id: "warmup",
+        nameZh: "肩部绕环",
+        categoryZh: "热身",
+        equipment: "dumbbell",
+        equipmentZh: "哑铃",
+        allowedSections: ["warmup"],
+      }),
+      createExercise({
+        id: "dumbbell-row",
+        nameZh: "哑铃划船",
+        equipment: "dumbbell",
+        equipmentZh: "哑铃",
+        allowedSections: ["training"],
+      }),
+      createExercise({
+        id: "stretch",
+        nameZh: "胸肩拉伸",
+        categoryZh: "拉伸",
+        equipment: "dumbbell",
+        equipmentZh: "哑铃",
+        allowedSections: ["stretch"],
+      }),
+    ]);
+    const registry = createToolFirstAgentToolRegistry();
+    const result = await registry.get("generateRoutineDraft")?.execute({
+      intent: {
+        goal: "strength",
+        bodyRegions: ["upper_body"],
+        sessionMinutes: 30,
+        equipment: ["dumbbell"],
+        sections: ["warmup", "training", "stretch"],
+      },
+      candidateSetId: "candidate-set-upper-body",
+      candidateExerciseIds: ["warmup", "dumbbell-row", "stretch"],
+      title: "上肢训练 30 分钟 - 哑铃",
+    }, createToolExecutionContext());
+
+    expect(result).toMatchObject({
+      ok: true,
+      output: {
+        draftKind: "routine",
+        validation: { valid: true },
+        draft: {
+          title: "上肢训练 30 分钟 - 哑铃",
+          estimatedSessionMinutes: 30,
+          trainingLoopRounds: 2,
         },
       },
     });
@@ -1262,6 +1340,8 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
     expect(prompt).toContain("candidateUse=\"routine\"");
     expect(prompt).toContain("generateRoutineDraft");
     expect(prompt).toContain("禁止只用 answered 输出自由文本 routine");
+    expect(prompt).toContain("experience=\"beginner\"");
+    expect(prompt).toContain("weeklyFrequency 可使用 1");
   });
 
   it("runs controlled operation fixtures through completed_operation, confirmation and policy blocked results", async () => {
@@ -1370,6 +1450,8 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
       .toContain("不得读取 conversationSummary、旧 resolved intent 或旧 assistant_action 作为执行事实");
     expect(buildPromptFromModules(["agent_final_result"]))
       .toContain("blocked 必须返回");
+    expect(buildPromptFromModules(["agent_final_result"]))
+      .toContain("failed 必须返回");
   });
 });
 

@@ -211,6 +211,7 @@ export const aiPromptModuleRegistry: Record<AiPromptModuleId, string> = {
     "调用 searchExercises 时，targetMuscles/equipment 必须使用动作库真实 facet；上肢、下肢、核心、全身这类范围目标必须使用 bodyRegions，而不是写入 targetMuscles。",
     "searchExercises 返回 retryable unknown facet 诊断时，必须先根据 suggestedTargetMuscles/suggestedEquipment 重新查询，再决定是否 blocked。",
     "用户要求安排一套、单次训练、训练编排、训练流程或带目标时长的训练时，必须先用 searchExercises(candidateUse=\"routine\") 获取候选，再调用 generateRoutineDraft；禁止只用 answered 输出自由文本 routine。",
+    "调用 generateRoutineDraft 时，intent 必须是结构化 routine intent；若用户未说明经验水平可使用 experience=\"beginner\"，单次 routine 的 weeklyFrequency 可使用 1。",
     "candidateUse=\"recommendation\" 只能用于推荐候选动作列表；如果最终状态是 answered，回复不得承诺已生成完整 routine、plan 或训练编排。",
   ].join("\n"),
   agent_tool_execution: [
@@ -221,6 +222,7 @@ export const aiPromptModuleRegistry: Record<AiPromptModuleId, string> = {
     "你必须只返回 AgentExecutionResult 结构化终止结果。",
     "generated、patched、completed_operation 必须引用本轮已登记的 tool result、validation、policy、revision、operationResultId 或明确 blockReason。",
     "blocked 必须返回 {\"status\":\"blocked\",\"blockReason\":\"...\",\"usedToolResultIds\":[\"...\"]}，不得把阻塞说明放入 replyContext。",
+    "failed 必须返回 {\"status\":\"failed\",\"failureCode\":\"tool_execution_failed\",\"usedToolResultIds\":[\"...\"]}，不得把失败说明放入 replyContext。",
     "自由文本回答不能表示写入成功。",
   ].join("\n"),
   agent_response_writer: [

@@ -29,3 +29,11 @@
 - [x] 5.3 收窄动作推荐卡投影：只有 `candidateUse = "recommendation"` 的 `answered` 结果才投影推荐卡，且卡片 summary 不复制完整正文。
 - [x] 5.4 补充测试覆盖 routine 请求不被投影成动作推荐卡、推荐卡 summary 不重复正文、Agent prompt 包含 routine 工具链约束。
 - [x] 5.5 运行 `openspec validate fix-agent-exercise-facet-contract --strict`、`npm test` 和 `npm run typecheck`。
+
+## 6. Routine 工具 intent 合同与失败结果兜底
+
+- [x] 6.1 为 `generateRoutineDraft` / `validateRoutineDraft` 的 routine intent 增加结构合同默认值，缺失 `experience` 时默认 `beginner`，缺失 `weeklyFrequency` 时默认 `1`。
+- [x] 6.2 更新 Agent prompt，说明 routine intent 缺省字段的合法默认值以及 `failed.failureCode` 终止合同。
+- [x] 6.3 在 Agent final result 解析层兼容旧式 `failed.replyContext.reply`，避免失败结果字段位置错误被二次降级为 `model_output_invalid`。
+- [x] 6.4 补充测试覆盖缺省字段仍可生成 routine draft、旧式 failed 结果可归一化、prompt 包含 routine 默认字段和 failed 合同。
+- [x] 6.5 运行 `openspec validate fix-agent-exercise-facet-contract --strict`、`npm test` 和 `npm run typecheck`。

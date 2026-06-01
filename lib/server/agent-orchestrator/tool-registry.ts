@@ -215,7 +215,7 @@ export function parseAgentToolDecision(
   registry: Pick<AgentToolRegistry, "has">,
 ): AgentToolDecisionParseResult {
   const normalizedValue = normalizeToolNameActionDecision(
-    normalizeLegacyBlockedFinalResult(value),
+    normalizeLegacyFinalResult(value),
     registry,
   );
 
@@ -276,20 +276,30 @@ function normalizeToolNameActionDecision(
   };
 }
 
-// 只修正模型旧形态 blocked 字段位置，不改写状态、引用或用户语义。
-function normalizeLegacyBlockedFinalResult(value: unknown) {
+// 只修正模型旧形态 final_result 字段位置，不改写状态、引用或用户语义。
+function normalizeLegacyFinalResult(value: unknown) {
   if (!isPlainObject(value) || value.action !== "final_result" || !isPlainObject(value.result)) {
     return value;
   }
 
   const result = value.result;
-  if (result.status !== "blocked" || typeof result.blockReason === "string") {
-    return value;
+  if (result.status === "blocked" && typeof result.blockReason !== "string") {
+    const replyContext = isPlainObject(result.replyContext) ? result.replyContext : undefined;
+    const legacyReply = typeof replyContext?.reply === "string" ? replyContext.reply.trim() : "";
+    if (!legacyReply) {
+      return value;
+    }
+
+    return {
+      ...value,
+      result: {
+        ...result,
+        blockReason: legacyReply,
+      },
+    };
   }
 
-  const replyContext = isPlainObject(result.replyContext) ? result.replyContext : undefined;
-  const legacyReply = typeof replyContext?.reply === "string" ? replyContext.reply.trim() : "";
-  if (!legacyReply) {
+  if (result.status !== "failed" || typeof result.failureCode === "string") {
     return value;
   }
 
@@ -297,7 +307,7 @@ function normalizeLegacyBlockedFinalResult(value: unknown) {
     ...value,
     result: {
       ...result,
-      blockReason: legacyReply,
+      failureCode: "tool_execution_failed",
     },
   };
 }
