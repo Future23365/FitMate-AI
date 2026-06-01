@@ -1295,6 +1295,41 @@ function createStepLogEntry(step: AiTraceStep) {
   const tokenUsage = getTokenUsage(step);
   const diagnosticMetadata = getDiagnosticMetadata(step.metadata);
 
+  // 对特定步骤的庞大入参/出参字段做精细化窄化和截断，防止将上万字的历史消息、系统提示词和模型响应全部塞进日志。
+  let stepInput = step.input;
+  let stepOutput = step.output;
+
+  if (step.type === "model_request" && isRecord(stepInput)) {
+    stepInput = compactObject({
+      model: stepInput.model,
+      promptModules: stepInput.promptModules,
+      remainingSteps: stepInput.remainingSteps,
+      visibleToolResultIds: stepInput.visibleToolResultIds,
+      contextSummary: stepInput.contextSummary,
+      messageCount: Array.isArray(stepInput.messages) ? stepInput.messages.length : undefined,
+      latestUserMessage: typeof stepInput.latestUserMessage === "string" ? stepInput.latestUserMessage : undefined,
+    });
+  }
+
+  if (step.type === "model_response" && isRecord(stepOutput)) {
+    stepOutput = compactObject({
+      status: stepOutput.status,
+      tokenUsage: stepOutput.tokenUsage,
+      rawContentPreview: typeof stepOutput.rawContent === "string"
+        ? stepOutput.rawContent.slice(0, 800)
+        : (typeof stepOutput.rawContentPreview === "string" ? stepOutput.rawContentPreview : undefined),
+    });
+  }
+
+  if (step.type === "agent_context" && isRecord(stepInput)) {
+    stepInput = compactObject({
+      latestUserMessage: stepInput.latestUserMessage,
+      messageCount: Array.isArray(stepInput.recentMessages) ? stepInput.recentMessages.length : undefined,
+      hydrationSource: stepInput.hydrationSource,
+      hasSavedConversationContext: stepInput.hasSavedConversationContext,
+    });
+  }
+
   return compactObject({
     step: getStepTitle(step),
     type: step.type,
@@ -1305,10 +1340,10 @@ function createStepLogEntry(step: AiTraceStep) {
     durationMs: step.durationMs,
     task,
     tokenUsage,
-    inputTitle: isEmptyValue(step.input) ? undefined : getInputTitle(step),
-    input: compactValue(step.input),
-    outputTitle: isEmptyValue(step.output) ? undefined : getOutputTitle(step),
-    output: compactValue(step.output),
+    inputTitle: isEmptyValue(stepInput) ? undefined : getInputTitle(step),
+    input: compactValue(stepInput),
+    outputTitle: isEmptyValue(stepOutput) ? undefined : getOutputTitle(step),
+    output: compactValue(stepOutput),
     error: compactValue(step.error),
     metadata: diagnosticMetadata,
   });
