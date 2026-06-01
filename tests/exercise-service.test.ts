@@ -370,6 +370,45 @@ describe("exercise service", () => {
     });
   });
 
+  it("does not let generic routine query clear structured upper-body dumbbell candidates", async () => {
+    repositoryMocks.listExerciseRecords.mockResolvedValueOnce([
+      createExercise({
+        id: "dumbbell-row",
+        nameZh: "哑铃划船",
+        category: "strength",
+        categoryZh: "力量",
+        level: "beginner",
+        levelZh: "新手",
+        equipment: "dumbbell",
+        equipmentZh: "哑铃",
+        primaryMuscles: ["back"],
+        primaryMusclesZh: ["背阔肌"],
+        goalTags: ["strength"],
+        isPublished: true,
+      }),
+    ]);
+
+    await expect(
+      searchExercises({
+        query: "上肢训练",
+        candidateUse: "routine",
+        visibility: "published",
+        bodyRegions: ["upper_body"],
+        equipmentRequired: ["dumbbell"],
+        allowedSections: ["training"],
+        sessionMinutes: 30,
+        limit: 8,
+      }),
+    ).resolves.toMatchObject({
+      candidates: [expect.objectContaining({ id: "dumbbell-row" })],
+      diagnostics: expect.objectContaining({
+        query: "上肢训练",
+        failureReasons: [],
+        finalExerciseIds: ["dumbbell-row"],
+      }),
+    });
+  });
+
   it("reports retryable diagnostics for unknown target muscle facets", async () => {
     await expect(
       searchExercises({

@@ -46,6 +46,7 @@ export type ExerciseSuitabilityFlags = Record<ExerciseSuitability, boolean>;
 
 export type ExerciseSearchInput = {
   query?: string;
+  candidateUse?: "answer_only" | "recommendation" | "routine" | "plan" | "patch";
   limit?: number;
   visibility?: "all" | "published";
   allowedSections?: ExerciseSuitability[];
@@ -127,13 +128,15 @@ export function searchExercisesInMemory(exercises: Exercise[], input: ExerciseSe
   const query = input.query?.trim();
   const limit = clampLimit(input.limit);
   const normalized = normalizeExerciseSearchInput(exercises, input);
+  const queryRequiresHybridMatch = shouldUseQueryAsHybridRecallGate(query, normalized.effectiveInput);
+  const scoringQuery = queryRequiresHybridMatch ? query : undefined;
   const filtered = exercises.filter((exercise) => matchesExerciseHardFilters(exercise, normalized.effectiveInput));
   const ranked = filtered
     .map((exercise) => ({
       exercise,
-      score: scoreExerciseHybridSearch(exercise, query),
+      score: scoreExerciseHybridSearch(exercise, scoringQuery),
     }))
-    .filter(({ score }) => !query || score.totalScore > 0)
+    .filter(({ score }) => !queryRequiresHybridMatch || score.totalScore > 0)
     .sort((left, right) => {
       if (right.score.totalScore !== left.score.totalScore) {
         return right.score.totalScore - left.score.totalScore;
@@ -150,6 +153,7 @@ export function searchExercisesInMemory(exercises: Exercise[], input: ExerciseSe
       query,
       filters: {
         visibility: input.visibility,
+        candidateUse: input.candidateUse,
         allowedSections: input.allowedSections,
         bodyRegions: input.bodyRegions,
         goal: input.goal,
@@ -175,7 +179,7 @@ export function searchExercisesInMemory(exercises: Exercise[], input: ExerciseSe
       finalExerciseIds: candidates.map((exercise) => exercise.id),
       failureReasons: candidates.length > 0
         ? []
-        : buildExerciseSearchFailureReasons(query, normalized),
+        : buildExerciseSearchFailureReasons(queryRequiresHybridMatch ? query : undefined, normalized),
       unmatchedTargetMuscles: normalized.unmatchedTargetMuscles,
       unmatchedEquipment: normalized.unmatchedEquipment,
       suggestedTargetMuscles: normalized.suggestedTargetMuscles,
@@ -582,6 +586,31 @@ function buildExerciseSearchFailureReasons(query: string | undefined, normalized
 
 function isRetryableSearchMiss(normalized: NormalizedExerciseSearchInput) {
   return normalized.suggestedTargetMuscles.length > 0 || normalized.suggestedEquipment.length > 0;
+}
+
+// routine / plan 已有结构化候选边界时，query 只是排序提示，不能把可执行候选硬清零。
+function shouldUseQueryAsHybridRecallGate(query: string | undefined, input: ExerciseSearchInput) {
+  if (!query) {
+    return false;
+  }
+
+  if ((input.candidateUse === "routine" || input.candidateUse === "plan") && hasStructuredExecutableSearchBoundary(input)) {
+    return false;
+  }
+
+  return true;
+}
+
+function hasStructuredExecutableSearchBoundary(input: ExerciseSearchInput) {
+  return Boolean(
+    input.allowedSections?.length ||
+    input.bodyRegions?.length ||
+    input.targetMuscles?.length ||
+    input.equipmentRequired?.length ||
+    input.equipment?.length ||
+    input.goal ||
+    input.sessionMinutes,
+  );
 }
 
 function scoreExerciseHybridSearch(exercise: Exercise, query: string | undefined): HybridSearchScore {
