@@ -47,6 +47,7 @@ import { serverRequest } from "@/lib/server/http/server-request";
 import { buildConversationMemoryState } from "@/lib/server/user-feedback-memory/user-feedback-memory-service";
 import type { ConversationMemoryState } from "@/lib/shared/user-feedback-memory/schema";
 import type { ChatConversation } from "@/features/chat/types";
+import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
 
 type ChatRole = "user" | "assistant";
 
@@ -69,6 +70,14 @@ type DeepSeekTokenUsage = {
 type DeepSeekChatResponse = {
   choices?: Array<{ message?: { content?: string | null } }>;
   usage?: DeepSeekTokenUsage;
+};
+
+type AgentDecisionModelInput = {
+  contextPackage: ContextPackage;
+  registeredTools: Array<Record<string, unknown>>;
+  toolResults: Array<Record<string, unknown>>;
+  dependencyGraph: Record<string, unknown>;
+  remainingSteps: number;
 };
 
 export const chatRequestSchema = z.object({
@@ -462,11 +471,197 @@ function toAgentUserMemorySnapshot(memoryState: ConversationMemoryState): UserMe
   };
 }
 
+// buildAgentDecisionModelInput 构造模型可见的 Agent 状态视图，避免每轮重复发送完整 registry 和诊断 payload。
+export function buildAgentDecisionModelInput(input: {
+  contextPackage: ContextPackage;
+  registeredTools: Array<Record<string, unknown>>;
+  toolResults: AgentToolResultRecord[];
+  dependencyGraph: { nodes: unknown[]; edges: unknown[] };
+  remainingSteps: number;
+}): {
+  input: AgentDecisionModelInput;
+  budget: {
+    originalChars: number;
+    slimmedChars: number;
+    savedChars: number;
+    toolResultCount: number;
+  };
+} {
+  const original = {
+    contextPackage: input.contextPackage,
+    registeredTools: input.registeredTools,
+    toolResults: input.toolResults,
+    dependencyGraph: input.dependencyGraph,
+    remainingSteps: input.remainingSteps,
+  };
+  const slimmed: AgentDecisionModelInput = {
+    contextPackage: input.contextPackage,
+    registeredTools: input.registeredTools.map(summarizeToolDefinitionForModel),
+    toolResults: input.toolResults.map(summarizeToolResultForModel),
+    dependencyGraph: summarizeDependencyGraphForModel(input.dependencyGraph),
+    remainingSteps: input.remainingSteps,
+  };
+  const originalChars = JSON.stringify(original).length;
+  const slimmedChars = JSON.stringify(slimmed).length;
+
+  return {
+    input: slimmed,
+    budget: {
+      originalChars,
+      slimmedChars,
+      savedChars: Math.max(0, originalChars - slimmedChars),
+      toolResultCount: input.toolResults.length,
+    },
+  };
+}
+
+function summarizeToolDefinitionForModel(tool: Record<string, unknown>) {
+  return compactObject({
+    name: tool.name,
+    description: tool.description,
+    accessLevel: tool.accessLevel,
+    inputFields: summarizeJsonSchemaFields(tool.inputJsonSchemaHint),
+    dependencies: Array.isArray(tool.dependencies)
+      ? tool.dependencies.map((dependency) => compactObject({
+        kind: readRecordString(dependency, "kind"),
+        required: readRecordBoolean(dependency, "required"),
+      }))
+      : [],
+    writableResources: tool.writableResources,
+  });
+}
+
+function summarizeJsonSchemaFields(schema: unknown) {
+  if (!schema || typeof schema !== "object") {
+    return [];
+  }
+  const record = schema as Record<string, unknown>;
+  const properties = record.properties;
+  const required = new Set(Array.isArray(record.required) ? record.required.filter((item): item is string => typeof item === "string") : []);
+
+  if (!properties || typeof properties !== "object") {
+    return [];
+  }
+
+  return Object.entries(properties as Record<string, unknown>).map(([name, field]) => {
+    const fieldRecord = field && typeof field === "object" ? field as Record<string, unknown> : {};
+
+    return compactObject({
+      name,
+      required: required.has(name),
+      type: fieldRecord.type,
+      enum: Array.isArray(fieldRecord.enum) ? fieldRecord.enum : undefined,
+      default: fieldRecord.default,
+      min: fieldRecord.minimum,
+      max: fieldRecord.maximum,
+      maxItems: fieldRecord.maxItems,
+    });
+  });
+}
+
+function summarizeToolResultForModel(result: AgentToolResultRecord) {
+  return compactObject({
+    toolResultId: result.toolResultId,
+    toolName: result.toolName,
+    status: result.status,
+    candidateSetId: result.candidateSetId,
+    artifactPayloadId: result.artifactPayloadId,
+    editPlanId: result.editPlanId,
+    draftId: result.draftId,
+    patchId: result.patchId,
+    validationId: result.validationId,
+    policyDecisionId: result.policyDecisionId,
+    confirmationId: result.confirmationId,
+    revisionId: result.revisionId,
+    operationResultId: result.operationResultId,
+    modelSummary: summarizeModelSummaryForDecision(result),
+    error: result.error
+      ? compactObject({
+        code: result.error.code,
+        message: result.error.message,
+        retryable: result.error.retryable,
+        detail: summarizeErrorDetail(result.error.detail),
+      })
+      : undefined,
+  });
+}
+
+function summarizeModelSummaryForDecision(result: AgentToolResultRecord) {
+  if (result.toolName !== "searchExercises") {
+    return result.modelSummary;
+  }
+  const summary = asRecord(result.modelSummary);
+  const diagnostics = asRecord(summary?.diagnostics);
+
+  return compactObject({
+    candidateSetId: summary?.candidateSetId,
+    candidates: Array.isArray(summary?.candidates)
+      ? summary.candidates.slice(0, 8).map(summarizeExerciseCandidateForDecision)
+      : [],
+    diagnostics: diagnostics
+      ? compactObject({
+        query: diagnostics.query,
+        filters: diagnostics.filters,
+        recalledCount: diagnostics.recalledCount,
+        filteredCount: diagnostics.filteredCount,
+        finalExerciseIds: diagnostics.finalExerciseIds,
+        failureReasons: diagnostics.failureReasons,
+      })
+      : undefined,
+  });
+}
+
+function summarizeExerciseCandidateForDecision(candidate: unknown) {
+  const record = asRecord(candidate);
+
+  return compactObject({
+    exerciseId: record?.exerciseId,
+    nameZh: record?.nameZh,
+    categoryZh: record?.categoryZh,
+    levelZh: record?.levelZh,
+    equipmentZh: record?.equipmentZh,
+    primaryMusclesZh: record?.primaryMusclesZh,
+    secondaryMusclesZh: record?.secondaryMusclesZh,
+    riskTags: record?.riskTags,
+    goalTags: record?.goalTags,
+  });
+}
+
+function summarizeErrorDetail(detail: unknown) {
+  const record = asRecord(detail);
+
+  if (!record) {
+    return detail;
+  }
+
+  return compactObject({
+    candidateSetId: record.candidateSetId,
+    failureReasons: record.failureReasons,
+  });
+}
+
+function summarizeDependencyGraphForModel(graph: { nodes: unknown[]; edges: unknown[] }) {
+  return {
+    nodeCount: graph.nodes.length,
+    edgeCount: graph.edges.length,
+    recentNodes: graph.nodes.slice(-12),
+    recentEdges: graph.edges.slice(-16),
+  };
+}
+
 function createDeepSeekAgentDecisionProvider(input: {
   apiKey: string;
   trace: AiTraceLogger;
 }): AgentDecisionProvider {
   return async ({ state, registry, remainingSteps }) => {
+    const modelInput = buildAgentDecisionModelInput({
+      contextPackage: state.context,
+      registeredTools: registry,
+      toolResults: state.toolResults,
+      dependencyGraph: state.dependencyGraph,
+      remainingSteps,
+    });
+    const modelInputContent = JSON.stringify(modelInput.input);
     const modelMessages: DeepSeekChatMessage[] = [
       {
         role: "system",
@@ -483,13 +678,7 @@ function createDeepSeekAgentDecisionProvider(input: {
       },
       {
         role: "user",
-        content: JSON.stringify({
-          contextPackage: state.context,
-          registeredTools: registry,
-          toolResults: state.toolResults,
-          dependencyGraph: state.dependencyGraph,
-          remainingSteps,
-        }),
+        content: modelInputContent,
       },
     ];
 
@@ -512,10 +701,20 @@ function createDeepSeekAgentDecisionProvider(input: {
           "agent_final_result",
         ],
         remainingSteps,
+        modelInputBudget: modelInput.budget,
       },
     });
 
-    const result = await requestDeepSeekJson(input.apiKey, modelMessages, input.trace);
+    const result = await requestDeepSeekJson(input.apiKey, modelMessages, input.trace, {
+      aiStage: "agent_tool_decision",
+      promptModules: [
+        "base_safety",
+        "agent_context_build",
+        "agent_tool_decision",
+        "agent_tool_execution",
+        "agent_final_result",
+      ],
+    });
 
     if (result.ok) {
       return result.value;
@@ -585,6 +784,9 @@ function createAgentResponseStream(input: {
       for (const artifactEvent of await buildAgentArtifactStreamEvents({
         userId: input.userId,
         result: input.agentResult,
+        toolResults: input.toolResults,
+        projection: input.projection,
+        context: input.context,
       })) {
         controller.enqueue(encodeChatStreamEvent(artifactEvent.type, "", artifactEvent.metadata));
       }
@@ -665,10 +867,19 @@ export function buildAgentStreamEvents(input: {
   ];
 }
 
-async function buildAgentArtifactStreamEvents(input: {
+export async function buildAgentArtifactStreamEvents(input: {
   userId: string;
   result: AgentExecutionResult;
+  toolResults?: AgentToolResultRecord[];
+  projection?: AgentResponseProjection;
+  context?: ContextPackage;
 }): Promise<Array<{ type: string; metadata: Record<string, unknown> }>> {
+  const recommendationEvent = buildExerciseRecommendationArtifactEvent(input);
+
+  if (recommendationEvent) {
+    return recommendationEvent;
+  }
+
   if (input.result.status !== "generated" && input.result.status !== "patched") {
     return [];
   }
@@ -728,6 +939,99 @@ async function buildAgentArtifactStreamEvents(input: {
   ];
 }
 
+// buildExerciseRecommendationArtifactEvent 将已引用的动作检索结果投影为推荐卡片事件，避免恢复旧 intent 触发链。
+function buildExerciseRecommendationArtifactEvent(input: {
+  result: AgentExecutionResult;
+  toolResults?: AgentToolResultRecord[];
+  projection?: AgentResponseProjection;
+  context?: ContextPackage;
+}): Array<{ type: string; metadata: Record<string, unknown> }> | null {
+  if (input.result.status !== "answered" || !("usedToolResultIds" in input.result)) {
+    return null;
+  }
+  const usedToolResultIds = new Set(input.result.usedToolResultIds);
+  const source = input.toolResults?.find((toolResult) => (
+    usedToolResultIds.has(toolResult.toolResultId) &&
+    toolResult.toolName === "searchExercises" &&
+    toolResult.status === "success" &&
+    Boolean(toolResult.candidateSetId)
+  ));
+
+  if (!source) {
+    return null;
+  }
+
+  const card = buildRecommendationCardFromToolResult({
+    toolResult: source,
+    context: input.context,
+    reply: input.projection?.reply,
+  });
+
+  if (!card) {
+    return null;
+  }
+
+  const artifactId = `recommendation_${source.candidateSetId ?? source.toolResultId}`;
+  const metadata = {
+    artifactKind: "exercise_recommendation",
+    artifactId,
+    payload: card,
+  };
+
+  return [
+    { type: "artifact_validated", metadata },
+    { type: "artifact", metadata },
+  ];
+}
+
+function buildRecommendationCardFromToolResult(input: {
+  toolResult: AgentToolResultRecord;
+  context?: ContextPackage;
+  reply?: string;
+}): ExerciseRecommendationCard | null {
+  const summary = asRecord(input.toolResult.modelSummary);
+  const candidates = Array.isArray(summary?.candidates) ? summary.candidates : [];
+  const items = candidates.map(toRecommendationItem).filter((item): item is ExerciseRecommendationCard["items"][number] => Boolean(item));
+
+  if (items.length === 0) {
+    return null;
+  }
+
+  const goal = truncatePlainText(input.context?.latestUserMessage ?? "动作推荐", 120);
+  const card: ExerciseRecommendationCard = {
+    title: "为你推荐的动作",
+    goal,
+    summary: truncatePlainText(input.reply ?? `已根据你的条件筛选出 ${items.length} 个动作。`, 240),
+    items: items.slice(0, 10),
+    safetyNotes: [
+      "训练前先热身，动作过程中如有疼痛请停止。",
+    ],
+  };
+
+  return card;
+}
+
+function toRecommendationItem(candidate: unknown): ExerciseRecommendationCard["items"][number] | null {
+  const record = asRecord(candidate);
+
+  if (!record || typeof record.exerciseId !== "string" || typeof record.nameZh !== "string") {
+    return null;
+  }
+
+  return {
+    exerciseId: record.exerciseId,
+    nameZh: record.nameZh,
+    nameEn: typeof record.nameEn === "string" ? record.nameEn : undefined,
+    categoryZh: typeof record.categoryZh === "string" ? record.categoryZh : "训练动作",
+    levelZh: typeof record.levelZh === "string" ? record.levelZh : "未标注",
+    equipmentZh: typeof record.equipmentZh === "string" ? record.equipmentZh : "未标注",
+    primaryMusclesZh: readStringArray(record.primaryMusclesZh),
+    secondaryMusclesZh: readStringArray(record.secondaryMusclesZh),
+    imageUrl: typeof record.imageUrl === "string" ? record.imageUrl : undefined,
+    reasons: readStringArray(record.goalTags).slice(0, 3),
+  };
+}
+
 function traceTokenBudgetDecision(trace: AiTraceLogger, decision: AiTokenBudgetDecision) {
   const summaryStage = decision.stages.find((stage) => stage.stage === "agent_summary_update");
   trace.addStep({
@@ -747,6 +1051,7 @@ async function requestDeepSeekJson(
   apiKey: string,
   messages: DeepSeekChatMessage[],
   trace?: AiTraceLogger,
+  traceMetadata: Record<string, unknown> = {},
 ): Promise<
   | { ok: true; value: unknown }
   | {
@@ -804,6 +1109,7 @@ async function requestDeepSeekJson(
         status: response.status,
         tokenUsage: body.usage,
         emptyContent: !content,
+        ...traceMetadata,
       },
     });
 
@@ -861,6 +1167,44 @@ export function parseJsonObject(content: string):
       detail: error instanceof Error ? error.message : error,
     };
   }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function readStringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
+    : [];
+}
+
+function readRecordString(value: unknown, key: string) {
+  const record = asRecord(value);
+  const item = record?.[key];
+
+  return typeof item === "string" ? item : undefined;
+}
+
+function readRecordBoolean(value: unknown, key: string) {
+  const record = asRecord(value);
+  const item = record?.[key];
+
+  return typeof item === "boolean" ? item : undefined;
+}
+
+function truncatePlainText(value: string, maxLength: number) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+
+  return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1)}…` : normalized;
+}
+
+function compactObject<T extends Record<string, unknown>>(value: T) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, item]) => item !== undefined),
+  );
 }
 
 function uniqueStrings(items: string[]) {

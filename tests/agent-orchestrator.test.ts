@@ -1072,6 +1072,53 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
     });
   });
 
+  it("normalizes Agent suggestions into the front-end assistantSuggestions contract", () => {
+    const clarification = projectAgentExecutionResultToResponse({
+      result: {
+        status: "needs_clarification",
+        question: "你想练上背还是下背？",
+        assistantSuggestions: [
+          { label: "练上背", message: "我想练上背" },
+        ],
+        blockingReasons: ["target_missing"],
+      },
+      toolResults: [],
+    });
+    const recommendation = projectAgentExecutionResultToResponse({
+      result: {
+        status: "answered",
+        replyContext: { reply: "给你几个动作。" },
+        usedToolResultIds: ["tool-result-rec"],
+      },
+      toolResults: [{
+        toolResultId: "tool-result-rec",
+        toolCallId: "tool-call-rec",
+        toolName: "searchExercises",
+        status: "success",
+        candidateSetId: "candidate-set-rec",
+      }],
+    });
+
+    expect(clarification.assistantSuggestions).toEqual([
+      {
+        label: "练上背",
+        message: "我想练上背",
+        kind: "clarification",
+        blocking: true,
+        source: "intent",
+      },
+    ]);
+    expect(recommendation.assistantSuggestions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        label: "生成训练",
+        message: "按这些动作生成一套适合我的训练",
+        kind: "next_action",
+        blocking: false,
+        source: "exercise_recommendation",
+      }),
+    ]));
+  });
+
   it("runs controlled operation fixtures through completed_operation, confirmation and policy blocked results", async () => {
     const registry = new AgentToolRegistry([createUserProfilePolicyTool(), createUserProfileWriteTool()]);
     const success = await runAgentOrchestrator({

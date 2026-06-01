@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildAgentArtifactStreamEvents,
+  buildAgentDecisionModelInput,
   buildAgentStreamEvents,
   chatRequestSchema,
   encodeChatStreamEvent,
@@ -110,5 +112,137 @@ describe("chat service Agent-only contract", () => {
       value: { action: "final_result" },
     });
     expect(parseJsonObject("{broken")).toMatchObject({ ok: false, code: "invalid_json" });
+  });
+
+  it("projects referenced searchExercises results into recommendation card events", async () => {
+    const events = await buildAgentArtifactStreamEvents({
+      userId: "user-1",
+      result: {
+        status: "answered",
+        replyContext: { reply: "给你 2 个弹力带臀腿动作。" },
+        usedToolResultIds: ["tool-result-rec"],
+      },
+      projection: {
+        status: "answered",
+        reply: "给你 2 个弹力带臀腿动作。",
+        assistantSuggestions: [],
+        references: [{ kind: "tool_result", id: "tool-result-rec" }],
+        metadata: {
+          promisedWrite: false,
+          hasExecutedWrite: false,
+          safeOperationOnly: false,
+        },
+      },
+      context: {
+        latestUserMessage: "推荐几个适合新手的臀腿动作，我只有弹力带",
+        recentMessages: [],
+        recentArtifacts: [],
+        memorySnapshot: { snapshotId: "memory-1", facts: [], preferences: [], avoidances: [] },
+        provenance: [],
+        limits: {
+          maxRecentMessages: 12,
+          maxRecentArtifacts: 8,
+          maxMessageChars: 1200,
+          maxArtifactSummaryChars: 700,
+        },
+      },
+      toolResults: [{
+        toolResultId: "tool-result-rec",
+        toolCallId: "tool-call-rec",
+        toolName: "searchExercises",
+        status: "success",
+        candidateSetId: "candidate-set-rec",
+        modelSummary: {
+          candidateSetId: "candidate-set-rec",
+          candidates: [
+            {
+              exerciseId: "Band_Good_Morning",
+              nameZh: "弹力带早安式",
+              nameEn: "Band Good Morning",
+              categoryZh: "力量训练",
+              levelZh: "初级",
+              equipmentZh: "弹力带",
+              primaryMusclesZh: ["腘绳肌"],
+              secondaryMusclesZh: ["臀部"],
+              goalTags: ["beginner_friendly"],
+            },
+          ],
+        },
+      }],
+    });
+
+    expect(events.map((event) => event.type)).toEqual(["artifact_validated", "artifact"]);
+    expect(events[0].metadata).toMatchObject({
+      artifactKind: "exercise_recommendation",
+      artifactId: "recommendation_candidate-set-rec",
+      payload: {
+        title: "为你推荐的动作",
+        items: [
+          expect.objectContaining({
+            exerciseId: "Band_Good_Morning",
+            nameZh: "弹力带早安式",
+          }),
+        ],
+      },
+    });
+  });
+
+  it("slims Agent decision model input and removes verbose search diagnostics", () => {
+    const input = buildAgentDecisionModelInput({
+      contextPackage: {
+        latestUserMessage: "推荐几个动作",
+        recentMessages: [],
+        recentArtifacts: [],
+        memorySnapshot: { snapshotId: "memory-1", facts: [], preferences: [], avoidances: [] },
+        provenance: [],
+        limits: {
+          maxRecentMessages: 12,
+          maxRecentArtifacts: 8,
+          maxMessageChars: 1200,
+          maxArtifactSummaryChars: 700,
+        },
+      },
+      registeredTools: [{
+        name: "searchExercises",
+        description: "检索动作",
+        accessLevel: "read",
+        inputJsonSchemaHint: {
+          type: "object",
+          required: ["candidateUse"],
+          properties: {
+            candidateUse: { type: "string", enum: ["answer_only", "recommendation"] },
+            targetMuscles: { type: "array", maxItems: 16 },
+          },
+        },
+        dependencies: [],
+      }],
+      toolResults: [{
+        toolResultId: "tool-result-rec",
+        toolCallId: "tool-call-rec",
+        toolName: "searchExercises",
+        status: "success",
+        candidateSetId: "candidate-set-rec",
+        modelSummary: {
+          candidates: [{ exerciseId: "e1", nameZh: "动作", instructionsZh: ["很长的说明"] }],
+          diagnostics: {
+            query: "臀腿",
+            recalledCount: 1,
+            rerank: [{ exerciseId: "e1", score: { totalScore: 99 } }],
+          },
+        },
+      }],
+      dependencyGraph: {
+        nodes: [{ id: "tool-call-rec", kind: "tool_call", label: "searchExercises" }],
+        edges: [],
+      },
+      remainingSteps: 9,
+    });
+
+    const serialized = JSON.stringify(input.input);
+
+    expect(input.budget.slimmedChars).toBeLessThan(input.budget.originalChars);
+    expect(serialized).toContain("inputFields");
+    expect(serialized).not.toContain("rerank");
+    expect(serialized).not.toContain("instructionsZh");
   });
 });

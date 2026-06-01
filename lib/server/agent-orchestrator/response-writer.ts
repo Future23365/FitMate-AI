@@ -6,6 +6,10 @@ import type {
   AgentOperationSummary,
   AgentToolResultRecord,
 } from "./contracts";
+import {
+  assistantSuggestionListSchema,
+  type AssistantSuggestion,
+} from "@/lib/shared/chat/assistant-suggestions";
 
 export type AgentResponseProjectionReference = {
   kind:
@@ -21,7 +25,7 @@ export type AgentResponseProjectionReference = {
 export type AgentResponseProjection = {
   status: AgentExecutionResult["status"];
   reply: string;
-  assistantSuggestions: AgentAssistantSuggestion[];
+  assistantSuggestions: AssistantSuggestion[];
   references: AgentResponseProjectionReference[];
   metadata: {
     promisedWrite: boolean;
@@ -47,7 +51,7 @@ export function projectAgentExecutionResultToResponse(
       return {
         status: input.result.status,
         reply: resolveAnsweredReply(input.result.replyContext),
-        assistantSuggestions: [],
+        assistantSuggestions: buildAnsweredSuggestions(input.result, input.toolResults ?? []),
         references,
         metadata: {
           promisedWrite: false,
@@ -59,7 +63,11 @@ export function projectAgentExecutionResultToResponse(
       return {
         status: input.result.status,
         reply: input.result.question,
-        assistantSuggestions: input.result.assistantSuggestions,
+        assistantSuggestions: normalizeAssistantSuggestions(input.result.assistantSuggestions, {
+          kind: "clarification",
+          blocking: true,
+          source: "intent",
+        }),
         references,
         metadata: {
           promisedWrite: false,
@@ -107,7 +115,11 @@ export function projectAgentExecutionResultToResponse(
       return {
         status: input.result.status,
         reply: input.result.blockReason,
-        assistantSuggestions: input.result.recoverySuggestions,
+        assistantSuggestions: normalizeAssistantSuggestions(input.result.recoverySuggestions, {
+          kind: "retry",
+          blocking: true,
+          source: "workout_generation",
+        }),
         references,
         metadata: {
           promisedWrite: false,
@@ -119,7 +131,11 @@ export function projectAgentExecutionResultToResponse(
       return {
         status: input.result.status,
         reply: "这次执行没有完成，我没有生成或修改训练结果。",
-        assistantSuggestions: input.result.recoverySuggestions,
+        assistantSuggestions: normalizeAssistantSuggestions(input.result.recoverySuggestions, {
+          kind: "retry",
+          blocking: true,
+          source: "workout_generation",
+        }),
         references,
         metadata: {
           promisedWrite: false,
@@ -155,6 +171,87 @@ function resolveAnsweredReply(replyContext: Record<string, unknown>) {
   }
 
   return "我已经根据本轮可用的上下文完成回答。";
+}
+
+// normalizeAssistantSuggestions 是 Agent 宽松建议合同到前端统一建议协议的唯一出口。
+function normalizeAssistantSuggestions(
+  suggestions: AgentAssistantSuggestion[],
+  defaults: Pick<AssistantSuggestion, "kind" | "blocking" | "source">,
+) {
+  const normalized = suggestions.map((suggestion) => ({
+    label: suggestion.label,
+    message: suggestion.message,
+    kind: defaults.kind,
+    blocking: defaults.blocking,
+    source: defaults.source,
+  }));
+  const parsed = assistantSuggestionListSchema.safeParse(normalized);
+
+  return parsed.success ? parsed.data : [];
+}
+
+// buildAnsweredSuggestions 为已完成的只读推荐结果补充下一步建议，不重新解释用户自然语言。
+function buildAnsweredSuggestions(
+  result: AgentExecutionResult & { status: "answered" },
+  toolResults: AgentToolResultRecord[],
+) {
+  const explicitSuggestions = normalizeAssistantSuggestions(readReplyAssistantSuggestions(result.replyContext), {
+    kind: "next_action",
+    blocking: false,
+    source: "exercise_recommendation",
+  });
+
+  if (explicitSuggestions.length > 0) {
+    return explicitSuggestions;
+  }
+
+  const usedToolResultIds = new Set(result.usedToolResultIds);
+  const hasRecommendationSource = toolResults.some((toolResult) => (
+    usedToolResultIds.has(toolResult.toolResultId) &&
+    toolResult.toolName === "searchExercises" &&
+    toolResult.status === "success" &&
+    Boolean(toolResult.candidateSetId)
+  ));
+
+  if (!hasRecommendationSource) {
+    return [];
+  }
+
+  return assistantSuggestionListSchema.parse([
+    {
+      label: "生成训练",
+      message: "按这些动作生成一套适合我的训练",
+      kind: "next_action",
+      blocking: false,
+      source: "exercise_recommendation",
+    },
+    {
+      label: "换一批",
+      message: "换一批更简单的动作",
+      kind: "adjustment",
+      blocking: false,
+      source: "exercise_recommendation",
+    },
+  ]);
+}
+
+function readReplyAssistantSuggestions(replyContext: Record<string, unknown>): AgentAssistantSuggestion[] {
+  const raw = replyContext.assistantSuggestions;
+
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  return raw.flatMap((item) => {
+    if (!item || typeof item !== "object") {
+      return [];
+    }
+    const record = item as Record<string, unknown>;
+
+    return typeof record.label === "string" && typeof record.message === "string"
+      ? [{ label: record.label, message: record.message }]
+      : [];
+  });
 }
 
 function buildCompletedOperationReply(operation: AgentOperationSummary) {

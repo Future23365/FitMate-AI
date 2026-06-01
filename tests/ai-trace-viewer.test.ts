@@ -148,6 +148,45 @@ describe("Agent trace view model", () => {
       ]),
     );
   });
+
+  it("keeps Agent model responses with aiStage in tool decision instead of legacy compatibility", () => {
+    const viewModel = buildAgentTraceViewModel(createAgentTraceFixture({
+      steps: [
+        createTraceStep({ id: "context", name: "agent_run_started", type: "agent_context" }),
+        createTraceStep({
+          id: "decision-request",
+          name: "Agent tool decision 请求参数",
+          type: "model_request",
+          metadata: {
+            aiStage: "agent_tool_decision",
+          },
+        }),
+        createTraceStep({
+          id: "decision-response",
+          name: "Agent tool decision 大模型回复",
+          type: "model_response",
+          metadata: {
+            aiStage: "agent_tool_decision",
+            tokenUsage: {
+              prompt_tokens: 1200,
+              completion_tokens: 80,
+              total_tokens: 1280,
+            },
+          },
+        }),
+      ],
+    }));
+    const toolDecision = viewModel.phaseGroups.find((group) => group.id === "tool_decision");
+    const legacy = viewModel.phaseGroups.find((group) => group.id === "legacy_compatibility");
+
+    expect(toolDecision?.steps.map((step) => step.id)).toEqual(["decision-request", "decision-response"]);
+    expect(toolDecision?.tokenUsage).toEqual({
+      prompt_tokens: 1200,
+      completion_tokens: 80,
+      total_tokens: 1280,
+    });
+    expect(legacy?.steps).toEqual([]);
+  });
 });
 
 function createStep(overrides: Pick<AiTraceStep, "type" | "name">): AiTraceStep {
