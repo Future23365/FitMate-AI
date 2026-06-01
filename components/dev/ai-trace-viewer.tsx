@@ -51,6 +51,7 @@ export function AiTraceViewer() {
   const [isLoading, setIsLoading] = useState(false);
   const [savingLogTarget, setSavingLogTarget] = useState<string | null>(null);
   const [saveLogMessage, setSaveLogMessage] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"loop" | "diagnosis" | "legacy" | "request">("loop");
   const lastAutoRefreshAtRef = useRef(0);
 
   const selectedTrace = useMemo(
@@ -287,21 +288,130 @@ export function AiTraceViewer() {
               }}
             />
 
-            <div className="mt-5 min-w-0 space-y-5">
-              {selectedAgentTraceViewModel ? (
-                <>
-                  <AgentLoopTimelinePanel agentLoop={selectedAgentTraceViewModel.agentLoop} />
-                  <AgentRunDiagnosisPanel viewModel={selectedAgentTraceViewModel} />
-                </>
-              ) : null}
-              <TraceOverview trace={selectedTrace} />
-              <TraceFlowTimeline
-                trace={selectedTrace}
-                groups={flowSwitchGroups}
-                isAgentTrace={Boolean(selectedAgentTraceViewModel?.hasAgentStages)}
-                savingLogTarget={savingLogTarget}
-                saveTraceLog={saveTraceLog}
-              />
+            {/* Material Design 3 风格的调试标签页 (Tabs) */}
+            <div className="mt-6 flex border-b border-slate-200 bg-white px-2 rounded-t-xl shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+              <button
+                className={`relative flex items-center gap-2 px-5 py-3.5 text-sm font-medium transition-all ${
+                  activeTab === "loop"
+                    ? "text-blue-600 border-b-2 border-blue-600 font-semibold"
+                    : "text-slate-500 hover:text-slate-700 hover:bg-slate-50/50 border-b-2 border-transparent"
+                }`}
+                type="button"
+                onClick={() => setActiveTab("loop")}
+              >
+                <span>⚡️ 智能体决策流 (Agent Loop)</span>
+                {selectedAgentTraceViewModel?.hasAgentStages ? (
+                  <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 ring-1 ring-blue-100">
+                    {selectedAgentTraceViewModel.agentLoop.loopTurns.length} 轮
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-100">
+                    旧格式
+                  </span>
+                )}
+              </button>
+
+              <button
+                className={`relative flex items-center gap-2 px-5 py-3.5 text-sm font-medium transition-all ${
+                  activeTab === "diagnosis"
+                    ? "text-blue-600 border-b-2 border-blue-600 font-semibold"
+                    : "text-slate-500 hover:text-slate-700 hover:bg-slate-50/50 border-b-2 border-transparent"
+                }`}
+                type="button"
+                onClick={() => setActiveTab("diagnosis")}
+              >
+                <span>📊 智能体诊断与指标 (Agent Diagnosis)</span>
+                {selectedAgentTraceViewModel?.diagnosticFindings && selectedAgentTraceViewModel.diagnosticFindings.length > 0 ? (
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${
+                    selectedAgentTraceViewModel.diagnosticFindings.some(f => f.severity === "error")
+                      ? "bg-red-50 text-red-700 ring-red-100 animate-pulse"
+                      : "bg-amber-50 text-amber-700 ring-amber-100"
+                  }`}>
+                    {selectedAgentTraceViewModel.diagnosticFindings.length} 警告
+                  </span>
+                ) : null}
+              </button>
+
+              <button
+                className={`relative flex items-center gap-2 px-5 py-3.5 text-sm font-medium transition-all ${
+                  activeTab === "legacy"
+                    ? "text-blue-600 border-b-2 border-blue-600 font-semibold"
+                    : "text-slate-500 hover:text-slate-700 hover:bg-slate-50/50 border-b-2 border-transparent"
+                }`}
+                type="button"
+                onClick={() => setActiveTab("legacy")}
+              >
+                <span>📋 Raw 步骤事件流 (Raw Flow)</span>
+                <span className="rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-600 ring-1 ring-slate-200">
+                  {selectedTrace.steps.length} 步
+                </span>
+              </button>
+
+              <button
+                className={`relative flex items-center gap-2 px-5 py-3.5 text-sm font-medium transition-all ${
+                  activeTab === "request"
+                    ? "text-blue-600 border-b-2 border-blue-600 font-semibold"
+                    : "text-slate-500 hover:text-slate-700 hover:bg-slate-50/50 border-b-2 border-transparent"
+                }`}
+                type="button"
+                onClick={() => setActiveTab("request")}
+              >
+                <span>🌐 请求概览 (Request Overview)</span>
+              </button>
+            </div>
+
+            <div className="mt-5 min-w-0">
+              {activeTab === "loop" && (
+                <div className="space-y-5">
+                  {selectedAgentTraceViewModel ? (
+                    <AgentLoopTimelinePanel agentLoop={selectedAgentTraceViewModel.agentLoop} />
+                  ) : (
+                    <div className="rounded-xl border border-slate-200 bg-white p-12 text-center shadow-[0_4px_12px_rgba(0,0,0,0.02)]">
+                      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-amber-50 text-xl text-amber-600">
+                        ⚡️
+                      </div>
+                      <h3 className="mt-4 text-base font-semibold text-slate-900">未检测到智能体运行步骤</h3>
+                      <p className="mt-2 text-sm text-slate-500 max-w-md mx-auto leading-6">
+                        此 Trace 不属于 Agent loop，或由于数据格式较旧未记录 Stages。
+                        你可以切换到 <strong className="text-blue-600">Raw 步骤事件流</strong> 标签页查看底层事件。
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeTab === "diagnosis" && (
+                <div className="space-y-5">
+                  {selectedAgentTraceViewModel ? (
+                    <AgentRunDiagnosisPanel viewModel={selectedAgentTraceViewModel} />
+                  ) : (
+                    <div className="rounded-xl border border-slate-200 bg-white p-12 text-center shadow-[0_4px_12px_rgba(0,0,0,0.02)]">
+                      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-amber-50 text-xl text-amber-600">
+                        📊
+                      </div>
+                      <h3 className="mt-4 text-base font-semibold text-slate-900">未检测到智能体诊断数据</h3>
+                      <p className="mt-2 text-sm text-slate-500 max-w-md mx-auto leading-6">
+                        此 Trace 无关联的 Agent stages 诊断信息。
+                        你可以前往 <strong className="text-blue-600">Raw 步骤事件流</strong> 标签页核对底层事件链。
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeTab === "legacy" && (
+                <TraceFlowTimeline
+                  trace={selectedTrace}
+                  groups={flowSwitchGroups}
+                  isAgentTrace={Boolean(selectedAgentTraceViewModel?.hasAgentStages)}
+                  savingLogTarget={savingLogTarget}
+                  saveTraceLog={saveTraceLog}
+                />
+              )}
+
+              {activeTab === "request" && (
+                <TraceOverview trace={selectedTrace} />
+              )}
             </div>
           </div>
         ) : (
