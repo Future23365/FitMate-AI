@@ -366,7 +366,7 @@ export function WorkoutRoutineDraftCard({
             type="button"
           >
             <SymbolIcon className={isSaving ? "animate-spin" : ""}>
-              {saveSuccess ? "check_circle" : isSaving ? "autorenew" : "save_alt"}
+              {saveSuccess ? "check_circle" : isSaving ? "autorenew" : "save"}
             </SymbolIcon>
             {saveSuccess ? "已保存" : isSaving ? "保存中" : "保存本次编排"}
           </button>

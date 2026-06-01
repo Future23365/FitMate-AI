@@ -525,7 +525,7 @@ export function WorkoutPlanDraftCard({
               </>
             ) : (
               <>
-                <SymbolIcon>save_alt</SymbolIcon>
+                <SymbolIcon>save</SymbolIcon>
                 确认并导入此计划
               </>
             )}
