@@ -123,6 +123,27 @@ function MarkdownContent({ content }: { content: string }) {
   );
 }
 
+function ChatThinkingIndicator({ showThinkingIcon }: { showThinkingIcon: boolean }) {
+  const toneClass = showThinkingIcon
+    ? "rounded-xl border border-primary/15 bg-primary-soft/70 px-md py-sm text-primary"
+    : "px-xs py-[2px] text-muted";
+  const dotClass = showThinkingIcon ? "bg-primary" : "bg-outline-variant";
+
+  return (
+    <div className={`flex items-center gap-sm ${toneClass}`}>
+      {showThinkingIcon ? (
+        <SymbolIcon className="animate-pulse text-[18px]">psychology</SymbolIcon>
+      ) : null}
+      <span className="font-body-md text-body-md">正在思考</span>
+      <span className="flex items-center gap-[3px]" aria-hidden="true">
+        <span className={`h-1.5 w-1.5 animate-bounce rounded-full ${dotClass} [animation-delay:-0.2s]`} />
+        <span className={`h-1.5 w-1.5 animate-bounce rounded-full ${dotClass} [animation-delay:-0.1s]`} />
+        <span className={`h-1.5 w-1.5 animate-bounce rounded-full ${dotClass}`} />
+      </span>
+    </div>
+  );
+}
+
 // 聊天头像负责标记消息身份，避免用户和 AI 的对话在视觉上混在一起。
 function ChatMessageAvatar({ role }: { role: "assistant" | "user" }) {
   if (role === "user") {
@@ -363,6 +384,9 @@ export function ChatPage() {
   const latestMessageState = messages
     .map((message) => `${message.id}:${message.content.length}:${message.reasoningContent?.length ?? 0}`)
     .join("|");
+  const activeAssistantMessageId = isLoading
+    ? [...messages].reverse().find((message) => message.role === "assistant")?.id
+    : undefined;
 
   useEffect(() => {
     chatInputRef.current?.focus();
@@ -463,17 +487,7 @@ export function ChatPage() {
             <div className="mx-auto flex max-w-4xl flex-col gap-md">
               {messages.map((message) => {
                 const isUserMessage = message.role === "user";
-                const isPendingAssistantPlaceholder =
-                  message.role === "assistant" &&
-                  message.content.trim().length === 0 &&
-                  !bubblePlans[message.id] &&
-                  !bubbleRoutines[message.id] &&
-                  !bubbleExerciseRecommendations[message.id] &&
-                  !bubblePlanErrors[message.id];
-
-                if (isPendingAssistantPlaceholder) {
-                  return null;
-                }
+                const isActiveAssistantMessage = message.id === activeAssistantMessageId;
 
                 return (
                   <div
@@ -524,11 +538,19 @@ export function ChatPage() {
                           if (message.role === "assistant") {
                             return (
                               <>
+                                <AgentActivityIndicator
+                                  activity={isActiveAssistantMessage ? agentActivity : null}
+                                />
+
                                 {cleanContent ? (
-                                  <div className="markdown-answer">
+                                  <div className={isActiveAssistantMessage ? "markdown-answer mt-md" : "markdown-answer"}>
                                     <MarkdownContent content={cleanContent} />
                                   </div>
-                                ) : null}
+                                ) : (
+                                  <div className={isActiveAssistantMessage ? "mt-md" : ""}>
+                                    <ChatThinkingIndicator showThinkingIcon={thinkingEnabled || message.isReasoning === true} />
+                                  </div>
+                                )}
 
                                 {assistantSuggestions.length > 0 && (
                                   <div className="mt-md flex flex-wrap gap-sm">
@@ -651,7 +673,6 @@ export function ChatPage() {
 
         <div className="app-shell-glass-soft border-t border-line/60 p-lg xl:p-xl">
           <div className="mx-auto max-w-[850px] space-y-sm">
-            <AgentActivityIndicator activity={agentActivity} />
             <form onSubmit={handleSubmit}>
               <div className="relative flex items-center">
                 <input

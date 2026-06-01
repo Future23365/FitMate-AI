@@ -16,7 +16,7 @@ export function AgentActivityIndicator({
   return (
     <div
       aria-live="polite"
-      className="agent-activity-indicator overflow-hidden rounded-xl border border-primary/15 bg-white/90 px-md py-sm text-on-surface shadow-[0_10px_28px_rgba(16,24,40,0.08)] backdrop-blur"
+      className="agent-activity-indicator overflow-hidden rounded-xl border border-primary/15 bg-primary-soft/45 px-md py-sm text-on-surface"
       role="status"
     >
       <div className="flex min-h-8 items-center gap-sm">

@@ -1,4 +1,6 @@
 import { createElement } from "react";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
@@ -88,6 +90,24 @@ describe("AgentActivityIndicator", () => {
 
     expect(html).toContain(fallbackAgentActivityLabel);
     expect(html).not.toContain("raw_internal_tool_name");
+  });
+});
+
+describe("ChatPage activity placement", () => {
+  it("renders Agent activity at the top of the active answer bubble while keeping the thinking indicator", () => {
+    const source = readFileSync(
+      fileURLToPath(new URL("../features/chat/components/chat-page.tsx", import.meta.url)),
+      "utf8",
+    );
+    const assistantBranchIndex = source.indexOf('if (message.role === "assistant")');
+    const activityIndex = source.lastIndexOf("<AgentActivityIndicator");
+    const thinkingIndex = source.indexOf("<ChatThinkingIndicator");
+    const inputShellIndex = source.indexOf('className="app-shell-glass-soft border-t border-line/60');
+    const inputShellSource = source.slice(inputShellIndex);
+
+    expect(activityIndex).toBeGreaterThan(assistantBranchIndex);
+    expect(thinkingIndex).toBeGreaterThan(activityIndex);
+    expect(inputShellSource).not.toContain("<AgentActivityIndicator");
   });
 });
 

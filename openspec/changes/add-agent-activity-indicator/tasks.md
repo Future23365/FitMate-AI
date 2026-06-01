@@ -14,9 +14,9 @@
 
 ## 3. Chat UI
 
-- [x] 3.1 新增或重构 `AgentActivityIndicator` 组件，放在聊天输入框上方展示当前 Agent 活动状态。
+- [x] 3.1 新增或重构 `AgentActivityIndicator` 组件，放在当前 AI 回答框顶部展示当前 Agent 活动状态。
 - [x] 3.2 建立 `AgentActivityStage` 到中文短文案、图标和视觉状态的白名单映射，未知 stage 使用不泄漏内部信息的兜底文案。
-- [x] 3.3 将现有 `ChatThinkingIndicator` 并入新状态条或降级为兜底，避免同一请求期间出现两个 loading 提示。
+- [x] 3.3 保留现有 `ChatThinkingIndicator` 回答加载态，并将 Agent 活动状态显示在它上方。
 - [x] 3.4 为状态条增加克制的编排感动效，并支持 `aria-live="polite"` 与 `prefers-reduced-motion`。
 - [x] 3.5 确保状态条不会遮挡消息列表、输入框、发送按钮、推荐卡片或训练计划卡片操作。
 

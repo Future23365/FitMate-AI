@@ -23,12 +23,14 @@
 - **THEN** 事件 payload MUST 只包含稳定枚举、状态、可选文案键和可选顺序号等 UI 安全字段
 - **AND** 事件 payload MUST NOT 包含 prompt、raw model output、toolName、tool input、tool output、resource id、token usage、权限信息、数据库 payload 或开发 trace 详情
 
-### Requirement: Chat page displays the current Agent activity above the input box
-聊天页 SHALL 在当前聊天请求处理中，将 Agent 活动状态展示在输入框上方，并使用中文短文案说明当前大致阶段。
+### Requirement: Chat page displays the current Agent activity in the active answer box
+聊天页 SHALL 在当前聊天请求处理中，将 Agent 活动状态展示在正在生成的 AI 回答框顶部，并使用中文短文案说明当前大致阶段。
 
 #### Scenario: 请求处理中展示状态条
 - **WHEN** 用户发送消息后请求仍在处理中
-- **THEN** 聊天页 MUST 在输入框上方展示 Agent 活动状态条
+- **THEN** 聊天页 MUST 在当前 AI 回答框顶部展示 Agent 活动状态条
+- **AND** 原有回答框加载态 MUST 继续在状态条下方展示“正在思考”
+- **AND** 输入框上方 MUST NOT 单独展示 Agent 活动状态条
 - **AND** 状态条 MUST 不遮挡消息列表、输入框、发送按钮或已有卡片操作
 
 #### Scenario: 状态条展示中文短文案

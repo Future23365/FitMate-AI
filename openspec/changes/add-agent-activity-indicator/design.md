@@ -10,7 +10,7 @@ Agent loop 模式后，首个用户可见文本到达前可能会经历更多内
 
 **Goals:**
 
-- 在聊天输入框上方展示当前 Agent 大致活动，让用户知道系统正在推进。
+- 在当前 AI 回答框顶部展示当前 Agent 大致活动，让用户知道系统正在推进。
 - 使用中文短文案表达阶段，例如“正在理解训练需求...”“正在查询动作库...”“正在校验训练内容...”。
 - 让服务端通过稳定枚举提供活动阶段，前端负责文案、图标和动效映射。
 - 保持 activity 状态短生命周期：只服务于当前请求，不保存到聊天历史。
@@ -62,9 +62,9 @@ activity 应绑定到 Agent 主链的稳定边界，而不是逐条 trace step �
 
 `agentActivity` 不进入 `ChatMessage`，不写入 `saveChatConversation`，不参与 conversation summary，也不用于测试最终用户可见回复内容是否合格。
 
-### 4. 状态条放在输入框上方，并替代现有通用 thinking 提示
+### 4. 状态条放在当前 AI 回答框顶部，并保留原有 thinking 提示
 
-展示组件建议命名为 `AgentActivityIndicator` 或等价名称，放在聊天输入区域上方、消息列表下方。它应使用现有 `SymbolIcon` 和项目 token，形成轻量 surface：
+展示组件建议命名为 `AgentActivityIndicator` 或等价名称，放在当前正在生成的 AI 回答框顶部，位于原有“正在思考”加载提示或首段回复内容上方。它应使用现有 `SymbolIcon` 和项目 token，形成轻量 surface：
 
 - 左侧动态图标或环形脉冲，表示 Agent 正在执行。
 - 中间展示短文案，最多一行，长文本截断或自适应。
@@ -72,7 +72,7 @@ activity 应绑定到 Agent 主链的稳定边界，而不是逐条 trace step �
 - 使用 `aria-live="polite"`，让辅助技术能感知状态变化。
 - `prefers-reduced-motion` 下禁用或弱化循环动画。
 
-现有 `ChatThinkingIndicator` 可被复用、重命名或拆分，但最终页面不应同时出现“正在思考”和新的 activity 状态，避免 loading 信息重复。
+现有 `ChatThinkingIndicator` 继续作为回答框加载态兜底；当 activity 可见时，它显示在 activity 下方，表示回答仍在生成。activity 不应显示在输入框上方，避免用户把进度误读为输入区状态。
 
 ### 5. 文案由前端白名单映射
 
@@ -103,7 +103,7 @@ activity 应绑定到 Agent 主链的稳定边界，而不是逐条 trace step �
 1. 扩展聊天 stream 类型，新增 `agent_activity` 事件和 `AgentActivityStage` 类型。
 2. 在 `/api/chat` Agent 主链的稳定边界发出 activity 事件，先覆盖上下文准备、需求分析、动作库查询、训练生成、校验、保存、回复整理和收尾。
 3. 在 `useChatController` 中新增 `agentActivity` 状态，处理 stream 更新、请求完成清理、失败清理、超时清理和会话切换清理。
-4. 在聊天输入区上方新增 activity 展示组件，并替换或整合现有 `ChatThinkingIndicator`。
+4. 在当前 AI 回答框顶部新增 activity 展示组件，并保留现有 `ChatThinkingIndicator` 作为回答加载提示。
 5. 补充相关测试：stream event 类型/解析、hook 状态生命周期、组件文案/动效 class、未知 stage 兜底和内部字段不泄漏。
 6. 运行 `openspec validate add-agent-activity-indicator --strict`、相关测试和 `npm run typecheck`。
 
