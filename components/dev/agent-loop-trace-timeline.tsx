@@ -28,6 +28,34 @@ export function AgentLoopTimelinePanel({ agentLoop }: { agentLoop: AgentLoopTrac
         description="按 LLM 输入、LLM 输出解析、tool 执行结果、下一轮 LLM 输入和最终回复的顺序展示。所有关联只使用 loopTurnId、modelCallId、toolCallId、toolResultId 和 resource id。"
       />
       <div className="border-t border-slate-100 p-4">
+        {agentLoop.runOverview.tokenUsage ? (
+          <div className="mb-4 rounded-xl border border-indigo-100 bg-indigo-50/20 px-4 py-3.5 flex flex-wrap items-center justify-between gap-4 shadow-[0_1px_2px_rgba(0,0,0,0.01)]">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">⚖️</span>
+              <div>
+                <h4 className="text-xs font-semibold text-indigo-900">智能体大模型运行总消耗 (Total Usage)</h4>
+                <p className="text-[11px] text-slate-500 mt-0.5 font-normal">本条 Trace 下包含的所有模型调用（含工具决策与回复生成）的总 Token 统计。</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-6">
+              <div className="text-right">
+                <span className="block text-[10px] text-slate-500 font-medium">总输入 (Prompt)</span>
+                <span className="text-sm font-bold text-indigo-700">{(agentLoop.runOverview.tokenUsage.prompt_tokens ?? 0).toLocaleString()}</span>
+              </div>
+              <div className="h-6 w-px bg-indigo-100" />
+              <div className="text-right">
+                <span className="block text-[10px] text-slate-500 font-medium">总输出 (Completion)</span>
+                <span className="text-sm font-bold text-blue-600">{(agentLoop.runOverview.tokenUsage.completion_tokens ?? 0).toLocaleString()}</span>
+              </div>
+              <div className="h-6 w-px bg-indigo-100" />
+              <div className="text-right">
+                <span className="block text-[10px] text-slate-500 font-medium">总计消耗 (Total)</span>
+                <span className="text-sm font-bold text-slate-800">{(agentLoop.runOverview.tokenUsage.total_tokens ?? 0).toLocaleString()}</span>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <MetricTile label="Agent 状态" value={agentLoop.runOverview.finalResultStatus} help="判断本轮最终是生成、修改、澄清、阻断、失败还是普通回答。" />
           <MetricTile label="用户可见回复" value={agentLoop.runOverview.userVisibleReply ? "已记录" : "未记录"} help="用于核对 Response Writer 是否真的输出了最终文本。" />
