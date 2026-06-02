@@ -26,6 +26,13 @@
 - **AND** 投影结果 MUST 继续通过当前 run 引用校验
 - **AND** runtime MUST NOT 从模型自由文本或 `conversationSummary` 重建 artifact payload
 
+#### Scenario: patched 结果必须同时引用 patch 和保存事实
+- **WHEN** 模型返回 `final_result.patched`
+- **THEN** `patchResult.patchId`、`patchResult.sourceArtifactId`、`patchResult.changedExerciseIds` 和 patch summary MUST 来自当前 run 已登记的 patch 工具结果或等价结构化 patch 结果
+- **AND** `artifact`、`revisionId`、`validationId` 和 `policyDecisionId` MUST 来自当前 run 已登记的保存、校验和策略结果
+- **AND** runtime MUST NOT 只凭保存结果、模型自由文本或旧 artifact summary 猜测 patch 摘要
+- **AND** Response Writer MUST 只展示通过该组合引用校验的 patched 结果
+
 #### Scenario: 多个写工具结果无法唯一确定
 - **WHEN** 当前 run 中存在多个可能匹配的写工具结果
 - **AND** 模型 final result 没有足够引用来唯一确定使用哪一个保存结果

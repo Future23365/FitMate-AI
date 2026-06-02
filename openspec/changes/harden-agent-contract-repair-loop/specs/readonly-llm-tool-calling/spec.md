@@ -3,6 +3,13 @@
 ### Requirement: Agent 工具必须声明依赖、产出和修复元数据
 统一 `AgentToolRegistry` 中的工具定义 SHALL 声明其执行所需资源、成功产出资源、可恢复失败类型和推荐修复路径，使 runtime 能基于结构化合同生成 `AgentDecisionFeedback`。
 
+#### Scenario: 工具定义规范化为资源合同
+- **WHEN** Agent registry 注册工具定义
+- **THEN** 系统 MUST 将现有依赖字段和新增元数据规范化为单一 `resourceContract` 或等价结构
+- **AND** 该合同 MUST 包含 `requires`、`produces`、`recoverableFailures`、`nextOnSuccess` 和 final result 要求
+- **AND** runtime、模型可见工具摘要、dependency graph 和 trace MUST 基于同一份规范化合同
+- **AND** 系统 MUST NOT 从工具名、prompt 文案或手写流程说明隐式推断依赖关系
+
 #### Scenario: 工具定义参与模型决策
 - **WHEN** Agent registry 向模型暴露工具摘要
 - **THEN** 模型可见摘要 MUST 包含工具可调用输入边界
@@ -27,8 +34,15 @@
 #### Scenario: 可恢复工具失败
 - **WHEN** 工具输入 Schema、依赖引用或可修正参数导致失败
 - **AND** 工具定义标记该 failure code 可恢复
+- **AND** runtime 分类确认该失败未触碰权限、用户隔离、Policy 或不可访问资源边界
 - **THEN** runtime MUST 生成 feedback
 - **AND** feedback MUST 包含稳定 failure code、简短原因、可用资源和推荐修复路径
+
+#### Scenario: retryable 字段不能单独放行修复
+- **WHEN** 工具结果包含 `retryable: true`
+- **AND** 工具 `resourceContract.recoverableFailures` 未声明该 failure code 可恢复
+- **THEN** runtime MUST NOT 仅凭 `retryable` 进入模型修复循环
+- **AND** 系统 MUST 按严格失败、blocked 或需要澄清处理该边界
 
 #### Scenario: 不可恢复工具失败
 - **WHEN** 工具失败属于权限、跨用户数据、Policy 拒绝或无法访问当前用户资源

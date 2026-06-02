@@ -16,9 +16,16 @@
 #### Scenario: 工具输入缺少可恢复依赖
 - **WHEN** 模型调用工具时缺少该工具声明的必需资源 id
 - **AND** 当前 run 中存在可用于补齐下一步的上游资源
+- **AND** 工具资源合同声明该缺失依赖属于可恢复失败
 - **THEN** 系统 MUST 生成结构化 feedback
 - **AND** feedback MUST 包含缺失依赖、可用资源和推荐下一步工具
 - **AND** 系统 MUST 允许模型在剩余预算内重新决策
+
+#### Scenario: 可恢复性必须由合同和 runtime 共同判定
+- **WHEN** 模型决策或工具结果出现 `schema_validation_failed`、`invalid_dependency` 或 `model_output_invalid`
+- **THEN** 系统 MUST 同时检查 runtime 错误分类、工具资源合同、hard boundary 状态和修复预算
+- **AND** 系统 MUST NOT 仅凭 `AgentToolError.retryable`、错误码名称或 prompt 文案判定该错误可恢复
+- **AND** 如果缺少任一可恢复条件，系统 MUST 返回 blocked 或 failed，而不是继续调用模型猜测
 
 #### Scenario: 不可恢复边界失败
 - **WHEN** 工具失败原因属于权限拒绝、跨用户数据、Policy 拒绝、不可访问资源或不可重试 hard boundary
@@ -58,6 +65,19 @@
 - **THEN** runtime MAY 从已登记保存结果投影合法 `AgentExecutionResult.generated`
 - **AND** 投影结果 MUST 继续通过 final result 引用校验
 - **AND** runtime MUST NOT 从用户自然语言或模型自由文本推断 artifact 事实
+
+#### Scenario: completed operation 必须引用真实写工具结果
+- **WHEN** 模型返回 `final_result.completed_operation`
+- **THEN** `operationResultId` MUST 来自当前 run 已登记的非 artifact 写工具成功结果
+- **AND** `policyDecisionId` 和 `confirmationId` 如存在，MUST 来自当前 run 已登记资源
+- **AND** operation 的可见字段 MUST 来自写工具的安全摘要或 runtime 可验证投影
+- **AND** 系统 MUST NOT 允许模型只凭自由文本声明用户资料、偏好或其他写操作成功
+
+#### Scenario: 多个候选事实无法唯一投影
+- **WHEN** 当前 run 中存在多个可能匹配的 draft、patch、save 或 operation 写结果
+- **AND** 模型 final result 没有足够引用来唯一确定使用哪一个结果
+- **THEN** runtime MUST NOT 猜测选择业务事实
+- **AND** 系统 MUST 生成可恢复 feedback 或返回 failed 结果
 
 #### Scenario: 模型声明成功但没有保存事实
 - **WHEN** 模型返回 `generated` 或 `patched`

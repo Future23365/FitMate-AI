@@ -55,6 +55,8 @@
 - `recoverableFailures`: 哪些失败码可以反馈给模型修复。
 - `nextOnSuccess`: 常见成功路径的下一步工具建议，仅用于生成 feedback 和 trace，不强迫模型按固定流程。
 
+现有 `dependencies` 字段只作为过渡期输入来源；实现时应收敛为规范化后的 `resourceContract` 或等价结构，runtime、模型可见工具摘要、dependency graph 和 trace 都读取同一份规范化合同。规范化合同至少包含 `requires`、`produces`、`recoverableFailures`、`nextOnSuccess` 和 `finalResultRequirements`。如果某个核心工具缺少合同，runtime 必须按严格失败处理，不能从 prompt 文案或工具名隐式推断依赖关系。
+
 例如 routine 生成链可以声明为：
 
 ```text
@@ -67,6 +69,8 @@ final_result.generated requires revisionId
 ```
 
 这个选择把确定性执行合同留在服务端，避免在 prompt 中反复复制流程说明却无法保证模型遵守。
+
+`AgentToolError.retryable` 不能单独决定是否进入修复循环。它只能作为工具执行结果的一个信号；最终可恢复性必须同时满足 runtime 错误分类、工具 `recoverableFailures` 声明、未触碰 hard boundary、仍有修复预算，以及当前 run 中存在可验证的下一步资源。`schema_validation_failed`、`invalid_dependency` 这类错误需要按上下文区分：字段缺失或引用可补齐时可恢复，跨用户、跨 session、Policy 拒绝、不可访问资源或资源事实不唯一时不可恢复。
 
 ### 3. 保存前和保存后的 final result 都走统一引用修复
 
@@ -102,6 +106,14 @@ runtime 为同一 Agent run 维护修复预算：
 
 长期看，这能减少“最后一步复制字段又错”的概率；即使模型最终输出不完整，只要保存结果唯一且引用可验证，runtime 也能产生合法最终结果。
 
+`generated`、`patched` 和 `completed_operation` 的收口规则需要分开处理：
+
+- `generated`: 结构化事实主要来自唯一成功的 `saveConversationArtifactRevision` 或等价 artifact 写工具结果。
+- `patched`: 结构化事实必须同时来自 patch 工具结果与保存工具结果，例如 `patchId`、`sourceArtifactId`、`changedExerciseIds`、patch summary、`revisionId`、`validationId` 和 `policyDecisionId`，runtime 不得只凭保存结果猜测 patch 摘要。
+- `completed_operation`: `operationResultId`、`policyDecisionId`、`confirmationId` 和可见字段必须来自当前 run 已登记的非 artifact 写工具结果；模型不能自行声明用户资料、偏好或其他写操作成功。
+
+如果当前 run 中存在多个可能匹配的 draft、patch、save 或 operation 写结果，而模型 final result 没有足够引用来唯一确定使用哪一个结果，runtime 必须生成可恢复 feedback 或返回 failed，不能替模型选择业务事实。
+
 ## Risks / Trade-offs
 
 - [Risk] 反馈协议过宽可能掩盖真实 hard failure。→ Mitigation: 只有工具元数据和 runtime 分类明确标记为 `retryable` 的错误才能继续；权限、Policy、跨用户数据和不可访问资源必须终止。
@@ -117,7 +129,7 @@ runtime 为同一 Agent run 维护修复预算：
 3. 将现有分散恢复逻辑迁移到统一 feedback 分支，保留现有测试作为回归。
 4. 实现 final result 引用失败的可恢复分类，覆盖未登记 `revisionId`、保存前提前 final、保存后缺字段。
 5. 增加修复预算、重复失败熔断和上下文压缩。
-6. 更新 trace、黑盒 runner 和相关单测，验证错误反馈、自修复、熔断和最终投影。
+6. 更新 trace、黑盒 runner 和相关单测，验证错误反馈、自修复、熔断和最终投影；诊断字段至少覆盖 `repairFeedbackCodes`、`repairTurnCount`、`finalProjectionSourceToolResultId`、`unregisteredResourceReferences`、`fusedFailureCount` 和 `repairBudgetExhaustedReason`。
 7. 若新机制导致异常恢复率升高但 token 成本不可控，可通过配置降低 repair turn 上限并回退到严格失败。
 
 ## Open Questions
