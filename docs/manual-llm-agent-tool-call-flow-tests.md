@@ -1,133 +1,144 @@
 # 单次 LLM 到 Agent Tool 调用流程测试方案
 
-生成时间：2026-06-02 18:43:49 +0800
+生成时间：2026-06-02 19:21:13 +0800
 
 ## 目标
 
-本文基于根目录 `测试情况预览.md` 和现有首页聊天黑盒测试，定义一套只验证单次 `LLM -> Agent tool` 调用链路的测试流程。
+本文基于根目录 `测试情况预览.md` 和当前 Agent tool registry，定义一套只验证“单次 `LLM -> Agent tool` 调用”的手动黑盒测试流程。
 
-这里的“单次”指一次用户输入触发一次 `/api/chat` Agent run。一次 Agent run 内可以有多个 tool decision 和 tool result，但测试不继续执行第 2 轮、第 3 轮对话，也不以多轮用户体验为主要验收目标。
+这里的“单次”只指一次模型决策：
 
-核心问题只有一个：LLM 在当前输入和可用上下文下，是否选择了符合预期的 Agent tool、传入了符合契约的参数，并产出了可被后续响应投影和持久化使用的结构化结果。
+1. 测试脚本为目标 tool 准备必要资源。
+2. LLM 只请求一次，必须返回一个 JSON `call_tool` decision。
+3. 该 decision 只能选择当前 case 的 `targetTool`。
+4. 测试脚本只执行这个目标 tool 一次。
+5. 报告只判断本次模型决策、目标 tool 入参 schema、目标 tool 执行结果和输出合同。
+
+本流程的目的不是验证一次 Agent run 能否串起多个 tool，而是逐个验证已有 Agent tool 本身是否可被 LLM 正确调用、是否能用真实服务端上下文正常执行。
 
 ## 不覆盖范围
 
-- 不验证 3 轮多轮会话连续性。
+- 不走 `/api/chat` Route Handler。
+- 不执行完整 `runAgentOrchestrator()` 循环。
+- 不验证一次 Agent run 的多 tool 依赖编排。
+- 不验证多轮会话连续性。
 - 不验证前端渲染、按钮交互或真实页面视觉效果。
-- 不验证训练动作排序、文案质量、训练强度是否最优。
-- 不通过服务端关键词规则判断用户自然语言语义是否正确。
+- 不评价训练方案质量、动作排序或回复文案自然度。
 - 不把本流程合入普通 `npm run test`；真实模型测试仍保持独立入口。
 
 ## 与现有黑盒测试的关系
 
-现有 `测试情况预览.md` 把每个用例设计成 3 轮流程：
+现有 `测试情况预览.md` 面向首页聊天真实用户流程，每个 flow 通常包含多轮对话和完整 `/api/chat` Agent run。它适合回答“用户体验链路是否符合预期”。
 
-- 第 1 轮验证单轮基础能力。
-- 第 2 轮验证上下文继承、补齐或升级。
-- 第 3 轮验证继续修改、引用或边界收束。
+本流程只回答一个更窄的问题：
 
-本流程只抽取其中适合验证 tool 调用的单轮输入，必要时通过固定的 `stateFixture` 准备最近 artifact、会话摘要或用户记忆，而不是继续跑前序自然语言轮次。
+> 对某一个已注册 Agent tool，LLM 能不能产出符合该 tool 契约的单个 `call_tool`，并且这个 tool 在真实服务端上下文中能不能执行成功。
 
-现有 `manual-tests/llm/blackbox-runner.ts` 已经走真实 `/api/chat` Route Handler，并能从 stream 中收集：
-
-- `AgentExecutionResult`
-- `dependencyGraph`
-- `toolNames`
-- `toolResultIds`
-- `candidateSetIds`
-- `validationIds`
-- `policyDecisionIds`
-- `revisionIds`
-- `legacyPathSkip`
-
-因此首版实现应复用现有 runner 的真实执行面，新增独立 fixture、筛选参数和报告路径。
+因此本流程不会复用 `manual-tests/llm/blackbox-runner.ts`。它直接使用 `createToolFirstAgentToolRegistry()` 获取当前真实 registry，按 case 创建隔离用户、会话和依赖资源，再调用目标 tool 的 `inputSchema` 和 `execute()`。
 
 ## 测试执行流程
 
-1. 读取单次 tool flow fixture。
-2. 根据用例的 `stateFixture` 初始化会话状态。
-3. 使用现有 local anonymous auth 创建隔离用户。
-4. 通过 `/api/chat` Route Handler 发起一次真实请求。
-5. 消费 NDJSON stream，收集 assistant 文本、Agent 执行结果和依赖图。
-6. 只针对本轮执行做断言。
-7. 生成独立报告，不覆盖现有多轮黑盒报告。
+1. 读取 `manual-tests/llm/agent-tool-fixtures.ts` 中的单工具 fixture。
+2. 按 `--ids`、`--group`、`--tool` 或 `--failed-from-report` 筛选 case。
+3. 执行 preflight：检查 `DEEPSEEK_API_KEY`、数据库配置、artifact 表和 Exercise seed 数据。
+4. 为每个 case 创建隔离用户、`sessionId`、`runId` 和 `AgentToolRegistry`。
+5. 按 case 的 `setup` 列表执行 deterministic setup，得到目标 tool 所需资源。
+6. 组装一次 LLM 请求，要求模型只返回一个 JSON `call_tool`。
+7. 使用 `parseAgentJsonObject()` 和 `parseAgentToolDecision()` 解析模型输出。
+8. 用目标 tool 的 `inputSchema.safeParse()` 校验 LLM 输出的 `input`。
+9. 只有当 `toolName` 等于目标 tool 且 schema 通过时，执行目标 tool 一次。
+10. 断言输出合同并写入 `docs/manual-llm-agent-tool-call-latest-report.md`。
+
+## setup 与 targetTool 的边界
+
+`setupTools` 是测试脚本为了让目标 tool 可执行而准备资源的确定性步骤，不属于本 case 的 LLM 调用结果。
+
+例如 `validateRoutineDraft` 需要一个已存在的 `draftId`，脚本会先直接执行 `searchExercises` 和 `generateRoutineDraft` 得到资源。case 真正要测试的是：
+
+- LLM 是否调用 `validateRoutineDraft`。
+- LLM 是否传入正确的 `draftId`、`candidateSetId`、`candidateExerciseIds` 和 `intent`。
+- `validateRoutineDraft` 是否执行成功并输出 `validationId`。
+
+报告中会分别展示：
+
+- `setupTools`：脚本预置资源时执行过的 tool。
+- `targetTool`：本 case 要求 LLM 调用且脚本实际执行一次的 tool。
 
 ## 用例结构
 
-建议新增独立 fixture 类型，不复用三轮 `BlackboxFlowCase` 结构：
-
 ```ts
-type AgentToolCallCase = {
+type AgentSingleToolCase = {
   id: string;
-  name: string;
-  group: "recommendation" | "routine" | "plan" | "clarification" | "reference" | "patch" | "non_fitness" | "safety";
-  userInput: string;
-  stateFixture?: "empty" | "recent_recommendation" | "recent_routine" | "recent_plan" | "user_memory";
-  expectation: {
-    expectedAgentStatus: "answered" | "needs_clarification" | "generated" | "patched" | "completed_operation" | "blocked" | "failed";
-    expectedCardTypes: string[];
-    requiredAgentTools: string[];
-    forbiddenAgentTools?: string[];
-    requireCandidateSetId?: boolean;
-    requireValidationId?: boolean;
-    requirePolicyDecisionId?: boolean;
-    requireRevisionId?: boolean;
-    requireDependencyGraph?: boolean;
-    requireLegacyPathDisabled?: boolean;
-    maxRepairTurnCount?: number;
-    note: string;
-  };
+  toolName: string;
+  group:
+    | "readonly"
+    | "planning"
+    | "generation"
+    | "validation"
+    | "policy"
+    | "persistence"
+    | "clarification";
+  scenario: string;
+  setup: string[];
+  expectedOutputFields: string[];
+  buildExpectedInput(resources: AgentSingleToolResources): unknown;
+  note: string;
 };
 ```
 
-## 首版用例集
+## 当前用例覆盖
 
-| ID | 来源 | 输入 / 状态 | 期望 Agent 结果 | 必需 tool 证据 | 禁止 tool 证据 |
-|---|---|---|---|---|---|
-| AT01 | F01 第 1 轮 | `今天我想练胸` / `empty` | `generated`，产出 `exercise_recommendation` | `searchExercises`，`saveConversationArtifactRevision`，`candidateSetId`，`revisionId` | `generateRoutineDraft`，`generatePlanDraft` |
-| AT02 | F04 第 1 轮 | `今天在家练背30分钟` / `empty` | `generated`，产出 `workout_routine` | `searchExercises`，`generateRoutineDraft`，`validateRoutineDraft`，`saveConversationArtifactRevision`，`candidateSetId`，`validationId`，`revisionId` | `generatePlanDraft` |
-| AT03 | F19 第 1 轮 | `给我一个每周4练增肌计划` / `empty` | `generated`，产出 `workout_plan` | `searchExercises`，`generatePlanDraft`，`validatePlanDraft`，`saveConversationArtifactRevision`，`candidateSetId`，`validationId`，`revisionId` | `generateRoutineDraft` |
-| AT04 | F03 第 1 轮 | `给我一套训练` / `empty` | `needs_clarification` 或 `answered`，不产出训练卡片 | `askClarification` 或无写入 tool | `generateRoutineDraft`，`generatePlanDraft`，`saveConversationArtifactRevision` |
-| AT05 | F13 第 1 轮 | `明天天气怎么样？` / `empty` | `answered`，不产出训练卡片 | 可无 tool，或只允许只读上下文 tool | `searchExercises`，`generateRoutineDraft`，`generatePlanDraft`，`saveConversationArtifactRevision` |
-| AT06 | F23 第 1 轮 | `我想练你们库里没有的超级飞鸟跳` / `empty` | `needs_clarification`、`answered` 或 `blocked`，不编造卡片 | 可有 `searchExercises`，但不得产生可执行 artifact | `saveConversationArtifactRevision` |
-| AT07 | F15 第 3 轮 | `第一个动作怎么做` / `recent_recommendation` | `answered`，解释既有动作，不刷新卡片 | `getArtifactPayload` | `searchExercises`，`generateRoutineDraft`，`generatePlanDraft` |
-| AT08 | W09 第 2 轮 | `不用哑铃了，换一个` / `recent_routine` | `patched`，产出 `workout_patch` | `listRecentArtifacts`，`getArtifactPayload`，`searchExercises`，`proposeWorkoutPatch`，`validateWorkoutPatch`，`saveConversationArtifactRevision` | `legacyIntentNormalize`，`runReadonlyToolLoop` |
+当前 fixture 覆盖 `createToolFirstAgentToolRegistry()` 中已注册的 18 个 Agent tool。
+
+| ID | targetTool | group | setup | 主要验收 |
+|---|---|---|---|---|
+| TOOL01 | `listRecentArtifacts` | readonly | `artifact` | 能列出当前会话 artifact，并返回 `candidateSetId`。 |
+| TOOL02 | `searchArtifacts` | readonly | `artifact` | 能按结构化条件检索当前用户当前会话 artifact。 |
+| TOOL03 | `resolveArtifactReference` | readonly | `artifact` | 能解析唯一 artifact 引用并输出 `artifactReferenceId`。 |
+| TOOL04 | `getArtifactPayload` | readonly | `artifact` | 能读取允许范围内的 artifact payload。 |
+| TOOL05 | `getExerciseById` | readonly | `exercise` | 能读取真实动作库记录。 |
+| TOOL06 | `searchExercises` | readonly | 无 | 能用结构化条件生成动作候选集合。 |
+| TOOL07 | `getUserMemory` | readonly | `memory` | 能读取当前用户画像和记忆快照。 |
+| TOOL08 | `queryUserMemory` | readonly | `memory` | 能按确定性字段查询用户记忆。 |
+| TOOL09 | `proposeWorkoutEditPlan` | planning | `artifactPayload` | 能基于 artifact payload 生成 edit plan。 |
+| TOOL10 | `generateRoutineDraft` | generation | `candidateSet` | 能用候选集合生成 routine draft。 |
+| TOOL11 | `generatePlanDraft` | generation | `candidateSet` | 能用候选集合和 strategy 生成 plan draft。 |
+| TOOL12 | `proposeWorkoutPatch` | planning | `editPlan,candidateSet` | 能基于 edit plan 和候选集合生成 patch。 |
+| TOOL13 | `askClarification` | clarification | 无 | 能输出结构化澄清问题。 |
+| TOOL14 | `validateRoutineDraft` | validation | `routineDraft` | 能校验 routine draft 并输出 `validationId`。 |
+| TOOL15 | `validatePlanDraft` | validation | `planDraft` | 能校验 plan draft 并输出 `validationId`。 |
+| TOOL16 | `validateWorkoutPatch` | validation | `patch` | 能校验 patch 并输出 `validationId`。 |
+| TOOL17 | `evaluatePolicy` | policy | `routineDraft` | 能对 draft 写入行为输出 policy decision。 |
+| TOOL18 | `saveConversationArtifactRevision` | persistence | `routineValidation,policyDecision` | 能保存已校验且 policy 允许的 revision。 |
 
 ## 断言分层
 
-### P0：执行基础
+### P0：LLM 决策
 
-- `/api/chat` 返回成功 stream。
-- assistant 用户可见回复非空。
-- stream 中存在 `AgentExecutionResult`。
-- `dependencyGraph` 可读取。
-- 不泄漏内部 JSON、tool 原始参数或调试字段。
+- LLM 输出非空。
+- LLM 输出能解析为 `AgentToolDecision`。
+- `action` 必须是 `call_tool`。
+- `toolName` 必须等于当前 case 的 `targetTool`。
+- 不允许返回 `final_result`。
+- 不允许调用其他 tool。
 
-### P1：tool 选择
+### P1：输入 Schema 与目标执行
 
-- `expectedAgentStatus` 与实际 `AgentExecutionResult.status` 一致。
-- `requiredAgentTools` 全部出现在 `dependencyGraph` 中。
-- `forbiddenAgentTools` 不出现在 `dependencyGraph` 中。
-- 训练生成类用例必须有 `candidateSetId`。
-- routine / plan / patch 类用例必须有 `validationId`。
-- 写入类用例必须有 `revisionId`。
-- `legacyPathSkip` 证明旧 intent-first / normalize / summary-only / ReferenceResolver-first 主路径未参与。
+- LLM 输出的 `input` 必须通过目标 tool 的 `inputSchema`。
+- schema 通过且 toolName 正确后，只执行目标 tool 一次。
+- 目标 tool 执行结果必须 `ok=true`。
 
-### P2：tool 参数和结果契约
+### P2：输出合同
 
-- `searchExercises` 的结构化过滤边界与输入目标一致，例如目标部位、器械、场景和用途。
-- `generateRoutineDraft` / `generatePlanDraft` 只引用当前 run 的候选集合。
-- `validateRoutineDraft` / `validatePlanDraft` / `validateWorkoutPatch` 输出可被最终结果引用。
-- `saveConversationArtifactRevision` 只能保存已校验的 artifact 或 patch。
-- `AgentExecutionResult.usedToolResultIds` 必须能回连到本轮 tool result。
+- 成功结果必须包含 `toolResultId`。
+- 成功结果必须包含 `modelSummary`。
+- 成功结果必须包含 fixture 声明的 `expectedOutputFields`。
+- 报告必须展示目标 tool 产出的关键资源 id。
 
 ### P3：人工复核
 
-- 回复措辞是否自然。
-- 推荐动作排序是否符合经验。
-- 训练容量是否更优。
-
-P3 不让测试失败，只进入报告的 `needs_review`。
+- 仅用于后续人工判断 prompt 是否过度喂答案。
+- P3 不让测试失败。
 
 ## 报告要求
 
@@ -140,12 +151,13 @@ P3 不让测试失败，只进入报告的 `needs_review`。
 - 生成时间，使用上海时间 ISO `+08:00`。
 - 模型名称。
 - 运行命令。
-- 本次参数。
+- `dryRun` 状态。
+- 本次筛选参数。
 - preflight 状态。
-- 用例总数、通过、失败、跳过、需复核。
+- 用例总数、单次 LLM 请求数、目标 tool 执行数、通过、失败、跳过、需复核。
 - 预计 token 和实际 token。
-- 每个用例的 userInput、stateFixture、期望 tool、实际 tool、Agent status、关键 id。
-- 失败分类：`tool_missing`、`unexpected_tool`、`tool_input_invalid`、`dependency_invalid`、`result_contract_invalid`、`legacy_path_used`、`persistence_failed`。
+- 每个 case 的 `setupTools`、`targetTool`、`expectedInput` 摘要、模型原始输出摘要、解析后的 action/toolName、schema 断言、执行断言和输出合同断言。
+- 失败分类：`llm_decision_invalid`、`wrong_tool`、`input_schema_invalid`、`tool_execution_failed`、`output_contract_invalid`、`setup_failed`。
 
 ## 脚本参数
 
@@ -161,75 +173,78 @@ P3 不让测试失败，只进入报告的 `needs_review`。
 
 | 参数 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
-| `--ids` | CSV | `all` | 只运行指定用例，例如 `AT01,AT02`。 |
-| `--group` | CSV | `all` | 按用例 group 过滤。 |
-| `--tool` | CSV | `all` | 只运行期望包含指定 tool 的用例。 |
-| `--status` | CSV | `all` | 只运行期望 Agent status 的用例。 |
-| `--state` | CSV | `all` | 只运行指定 `stateFixture` 的用例。 |
-| `--failed-from-report` | path | `none` | 从上一份报告中提取失败用例重跑。 |
+| `--ids` | CSV | `all` | 只运行指定单工具 case，例如 `TOOL01,TOOL06`。 |
+| `--group` | CSV | `all` | 按 case group 过滤，例如 `readonly,validation`。 |
+| `--tool` | CSV | `all` | 只运行指定 Agent tool，例如 `searchExercises`。 |
+| `--failed-from-report` | path | `none` | 从上一份报告中提取失败 case 重跑。 |
 | `--concurrency` | integer | `1` | 并发数；真实模型和数据库写入测试默认保持 1。 |
 | `--report` | path | `docs/manual-llm-agent-tool-call-latest-report.md` | 输出报告路径。 |
-| `--disable-legacy-events` | boolean | `true` | 关闭旧兼容事件，确保报告依赖 Agent 证据。 |
-| `--no-disable-legacy-events` | boolean | `false` | 调试时显式允许旧兼容事件。 |
-| `--dry-run` | boolean | `false` | 只输出筛选后的用例和 token 预估，不请求真实模型。 |
+| `--dry-run` | boolean | `false` | 只输出筛选后的 case 和 token 预估，不请求真实模型、不执行 targetTool。 |
 
-对应环境变量建议：
+对应环境变量：
 
 | 环境变量 | 对应参数 |
 |---|---|
 | `MANUAL_LLM_AGENT_TOOL_IDS` | `--ids` |
 | `MANUAL_LLM_AGENT_TOOL_GROUPS` | `--group` |
 | `MANUAL_LLM_AGENT_TOOL_NAMES` | `--tool` |
-| `MANUAL_LLM_AGENT_TOOL_STATUSES` | `--status` |
-| `MANUAL_LLM_AGENT_TOOL_STATES` | `--state` |
 | `MANUAL_LLM_AGENT_TOOL_FAILED_FROM_REPORT` | `--failed-from-report` |
 | `MANUAL_LLM_AGENT_TOOL_CONCURRENCY` | `--concurrency` |
 | `MANUAL_LLM_AGENT_TOOL_REPORT_PATH` | `--report` |
-| `MANUAL_LLM_DISABLE_LEGACY_EVENTS` | `--disable-legacy-events` |
+| `MANUAL_LLM_AGENT_TOOL_DRY_RUN` | `--dry-run` |
 
 ## 当前参数
 
-首轮建议只跑最小闭环，先验证 tool 选择和结构化 id 是否稳定：
+当前实现默认覆盖全部已注册 Agent tool。为了避免误耗费真实模型 token，本次验证优先使用 dry-run 生成完整覆盖报告。
 
 | 项 | 当前值 |
 |---|---|
-| 用例 | `AT01,AT02,AT04,AT05` |
+| ids | `all` |
 | group | `all` |
 | tool | `all` |
-| status | `all` |
-| state | `empty` |
 | failed-from-report | `none` |
 | concurrency | `1` |
 | report | `docs/manual-llm-agent-tool-call-latest-report.md` |
-| disable-legacy-events | `true` |
-| dry-run | `false` |
+| dry-run | `true` |
 
-建议首轮命令：
+当前验证命令：
 
 ```bash
-npm run test:llm:agent-tool -- --ids=AT01,AT02,AT04,AT05 --state=empty --concurrency=1 --report=docs/manual-llm-agent-tool-call-latest-report.md --disable-legacy-events
+npm run test:llm:agent-tool -- --dry-run --concurrency=1 --report=docs/manual-llm-agent-tool-call-latest-report.md
 ```
 
-首轮通过后，再扩展到带状态 fixture 的读取和 patch 场景：
+真实模型执行全量 18 个 tool 时使用：
 
 ```bash
-npm run test:llm:agent-tool -- --ids=AT07,AT08 --state=recent_recommendation,recent_routine --concurrency=1 --report=docs/manual-llm-agent-tool-call-latest-report.md --disable-legacy-events
+npm run test:llm:agent-tool -- --concurrency=1 --report=docs/manual-llm-agent-tool-call-latest-report.md
+```
+
+单独验证某个 tool 时使用：
+
+```bash
+npm run test:llm:agent-tool -- --tool=searchExercises --concurrency=1
+```
+
+只重跑上一份报告中的失败 case 时使用：
+
+```bash
+npm run test:llm:agent-tool -- --failed-from-report=docs/manual-llm-agent-tool-call-latest-report.md --concurrency=1
 ```
 
 ## 当前实现落点
 
-1. `manual-tests/llm/agent-tool-fixtures.ts`：单轮 Agent tool 用例。
-2. `manual-tests/llm/agent-tool-selection.ts`：`id/group/tool/status/state/failed-from-report` 筛选。
-3. `manual-tests/llm/agent-tool-assertions.ts`：tool 选择、关键 id、legacy skip 和结果合同断言。
+1. `manual-tests/llm/agent-tool-fixtures.ts`：18 个单工具 case。
+2. `manual-tests/llm/agent-tool-selection.ts`：`id/group/tool/failed-from-report` 筛选。
+3. `manual-tests/llm/agent-tool-assertions.ts`：LLM 决策、schema、目标 tool 执行和输出合同断言。
 4. `manual-tests/llm/agent-tool-call.test.ts`：独立 Vitest 执行与报告生成。
 5. `scripts/run-manual-agent-tool-tests.mjs`：命令行入口。
 6. `vitest.llm-agent-tool.config.ts`：只匹配单次 Agent tool 测试。
-7. `vitest.llm.config.ts`：收窄为原来的 `llm-consistency.test.ts`，避免旧 `test:llm` 混跑新套件。
 
 ## 验收标准
 
-- 不影响现有 `npm run test:llm` 和 `npm run test --detail`。
-- 缺少 `DEEPSEEK_API_KEY` 时生成跳过报告，不请求 mock。
-- 每个用例只执行一次 `/api/chat` Agent run。
-- 报告能清楚区分“LLM 选错 tool”“tool 参数不满足 schema”“tool 输出无法回连最终结果”和“保存失败”。
-- 失败报告必须包含 `conversationId`、`responseMessageId`、`traceId`、实际 tool 列表和关键资源 id。
+- 不影响现有 `npm run test:llm` 和普通自动化测试。
+- 缺少 `DEEPSEEK_API_KEY` 时生成跳过报告，不使用 mock。
+- 每个 case 最多请求一次 LLM。
+- 每个 case 最多执行一次 `targetTool`。
+- 报告明确区分 `setupTools` 和 `targetTool`。
+- 报告能定位“LLM 输出无效”“LLM 调错 tool”“input schema 不合法”“目标 tool 执行失败”“目标 tool 输出合同不完整”和“setup 失败”。

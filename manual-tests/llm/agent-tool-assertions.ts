@@ -1,92 +1,105 @@
 import { expect } from "vitest";
 
-import type { BlackboxTurnResult } from "./blackbox-runner";
-import type { AgentToolCallCase } from "./agent-tool-fixtures";
-import type { BlackboxCardType } from "./flow-fixtures";
+import type { AgentToolExecutionResult } from "@/lib/server/agent-orchestrator";
+import type { AgentToolDecisionParseResult } from "@/lib/server/agent-orchestrator/tool-registry";
 
-export type AgentToolAssertionStatus = "passed" | "failed" | "skipped" | "needs_review";
-export type AgentToolAssertionFailureLevel = "P0" | "P1" | "P2" | "P3";
+import type { AgentSingleToolCase } from "./agent-tool-fixtures";
 
-export type AgentToolAssertionResult = {
-  executionStatus: AgentToolAssertionStatus;
-  toolStatus: AgentToolAssertionStatus;
-  contractStatus: AgentToolAssertionStatus;
-  finalStatus: AgentToolAssertionStatus;
-  failureLevel?: AgentToolAssertionFailureLevel;
+export type AgentSingleToolAssertionStatus = "passed" | "failed" | "skipped" | "needs_review";
+export type AgentSingleToolFailureLevel = "P0" | "P1" | "P2" | "P3";
+
+export type AgentSingleToolRunResult = {
+  rawModelOutput?: string;
+  parsedDecision?: unknown;
+  parseResult?: AgentToolDecisionParseResult;
+  schemaValid: boolean;
+  schemaError?: unknown;
+  executionResult?: AgentToolExecutionResult<unknown>;
+};
+
+export type AgentSingleToolAssertionResult = {
+  decisionStatus: AgentSingleToolAssertionStatus;
+  schemaStatus: AgentSingleToolAssertionStatus;
+  executionStatus: AgentSingleToolAssertionStatus;
+  contractStatus: AgentSingleToolAssertionStatus;
+  finalStatus: AgentSingleToolAssertionStatus;
+  failureLevel?: AgentSingleToolFailureLevel;
   failureReasons: string[];
 };
 
-const trainingCardTypes = new Set<BlackboxCardType>([
-  "exercise_recommendation",
-  "workout_routine",
-  "workout_plan",
-  "workout_patch",
-]);
-
-const internalLeakPatterns = [
-  /```(?:json)?/i,
-  /assistant_action/i,
-  /serverParsedIntent/i,
-  /serverWorkoutIntent/i,
-  /canTriggerAction/i,
-  /raw\s+payload/i,
-  /后台流程/,
-];
-
-// Agent tool 断言只关心单次 run 的工具选择、资源 id 和结果合同，不评判自然语言语义优劣。
-export function evaluateAgentToolCallResult(input: {
-  testCase: AgentToolCallCase;
-  result: BlackboxTurnResult;
-}): AgentToolAssertionResult {
-  const { testCase, result } = input;
+// 单工具断言把 LLM 决策格式和 tool 执行结果分层，方便定位是模型调用错还是工具本身错。
+export function evaluateAgentSingleToolResult(input: {
+  testCase: AgentSingleToolCase;
+  result: AgentSingleToolRunResult;
+}): AgentSingleToolAssertionResult {
   const failures: Array<{
-    level: AgentToolAssertionFailureLevel;
+    level: AgentSingleToolFailureLevel;
     reason: string;
-    layer: "execution" | "tool" | "contract";
+    layer: "decision" | "schema" | "execution" | "contract";
   }> = [];
-  const expectation = testCase.expectation;
-  const assistantText = result.assistantText.trim();
+  const { testCase, result } = input;
 
-  if (result.error) {
+  if (!result.rawModelOutput?.trim()) {
+    failures.push({ level: "P0", layer: "decision", reason: "LLM 输出为空。" });
+  }
+
+  if (!result.parseResult?.ok) {
     failures.push({
       level: "P0",
-      layer: "execution",
-      reason: `${result.error.code}: ${result.error.message}`,
+      layer: "decision",
+      reason: `LLM 输出无法解析为 AgentToolDecision：${result.parseResult?.message ?? "missing_parse_result"}`,
     });
   }
 
-  if (!assistantText) {
-    failures.push({ level: "P0", layer: "execution", reason: "assistant 用户可见回复为空。" });
-  }
+  if (result.parseResult?.ok) {
+    const decision = result.parseResult.decision;
 
-  if (!result.agentDiagnostics.executionResultPresent) {
-    failures.push({ level: "P0", layer: "execution", reason: "缺少 AgentExecutionResult。" });
-  }
-
-  if (expectation.requireDependencyGraph && !result.agentDiagnostics.dependencyGraphPresent) {
-    failures.push({ level: "P0", layer: "execution", reason: "缺少 Agent dependencyGraph。" });
-  }
-
-  for (const pattern of internalLeakPatterns) {
-    if (pattern.test(result.assistantText)) {
-      failures.push({ level: "P0", layer: "execution", reason: `assistant 回复泄漏内部字段：${pattern.toString()}` });
+    if (decision.action !== "call_tool") {
+      failures.push({ level: "P0", layer: "decision", reason: `LLM 没有返回 call_tool，实际 action=${decision.action}` });
+    } else if (decision.toolName !== testCase.toolName) {
+      failures.push({
+        level: "P0",
+        layer: "decision",
+        reason: `LLM 调用了错误 tool：期望 ${testCase.toolName}，实际 ${decision.toolName}`,
+      });
     }
   }
 
-  if (
-    result.agentDiagnostics.status &&
-    !expectation.expectedAgentStatuses.includes(result.agentDiagnostics.status)
-  ) {
+  if (!result.schemaValid) {
     failures.push({
       level: "P1",
-      layer: "tool",
-      reason: `Agent status 不匹配：期望 ${expectation.expectedAgentStatuses.join(" 或 ")}，实际 ${result.agentDiagnostics.status}`,
+      layer: "schema",
+      reason: `LLM tool input 未通过目标 tool schema：${summarizeUnknown(result.schemaError)}`,
     });
   }
 
-  failures.push(...evaluateCardTypes(testCase, result));
-  failures.push(...evaluateToolEvidence(testCase, result));
-  failures.push(...evaluateResultContract(testCase, result));
+  if (!result.executionResult) {
+    failures.push({ level: "P1", layer: "execution", reason: "目标 tool 未执行。" });
+  } else if (!result.executionResult.ok) {
+    failures.push({
+      level: "P1",
+      layer: "execution",
+      reason: `目标 tool 执行失败：${result.executionResult.error.code}: ${result.executionResult.error.message}`,
+    });
+  } else {
+    for (const field of testCase.expectedOutputFields) {
+      if (!hasNestedValue(result.executionResult.output, field.split("."))) {
+        failures.push({
+          level: "P2",
+          layer: "contract",
+          reason: `目标 tool 输出缺少期望字段：${field}`,
+        });
+      }
+    }
+
+    if (!result.executionResult.toolResultId?.trim()) {
+      failures.push({ level: "P2", layer: "contract", reason: "目标 tool 成功结果缺少 toolResultId。" });
+    }
+
+    if (typeof result.executionResult.modelSummary === "undefined") {
+      failures.push({ level: "P2", layer: "contract", reason: "目标 tool 成功结果缺少 modelSummary。" });
+    }
+  }
 
   const failureLevel = rankFailureLevel(failures.map((failure) => failure.level));
   const finalStatus = failureLevel
@@ -96,8 +109,9 @@ export function evaluateAgentToolCallResult(input: {
     : "passed";
 
   return {
+    decisionStatus: failures.some((failure) => failure.layer === "decision") ? "failed" : "passed",
+    schemaStatus: failures.some((failure) => failure.layer === "schema") ? "failed" : "passed",
     executionStatus: failures.some((failure) => failure.layer === "execution") ? "failed" : "passed",
-    toolStatus: failures.some((failure) => failure.layer === "tool") ? "failed" : "passed",
     contractStatus: failures.some((failure) => failure.layer === "contract") ? "failed" : "passed",
     finalStatus,
     failureLevel,
@@ -105,28 +119,19 @@ export function evaluateAgentToolCallResult(input: {
   };
 }
 
-export function assertAgentToolCallResult(input: {
-  testCase: AgentToolCallCase;
-  result: BlackboxTurnResult;
+export function assertAgentSingleToolResult(input: {
+  testCase: AgentSingleToolCase;
+  result: AgentSingleToolRunResult;
 }) {
-  const assertion = evaluateAgentToolCallResult(input);
+  const assertion = evaluateAgentSingleToolResult(input);
   const context = {
     id: input.testCase.id,
-    name: input.testCase.name,
-    userInput: input.testCase.userInput,
-    stateFixture: input.testCase.stateFixture,
-    expectedAgentStatuses: input.testCase.expectation.expectedAgentStatuses,
-    actualAgentStatus: input.result.agentDiagnostics.status,
-    expectedCardTypes: input.testCase.expectation.expectedCardTypes,
-    actualCardTypes: input.result.actionTypes,
-    requiredAgentTools: input.testCase.expectation.requiredAgentTools,
-    forbiddenAgentTools: input.testCase.expectation.forbiddenAgentTools,
-    actualAgentTools: input.result.agentDiagnostics.toolNames,
-    conversationId: input.result.conversationId,
-    responseMessageId: input.result.responseMessageId,
-    traceId: input.result.traceId,
-    runnerError: input.result.error,
-    agentDiagnostics: input.result.agentDiagnostics,
+    toolName: input.testCase.toolName,
+    parsedDecision: input.result.parsedDecision,
+    parseResult: input.result.parseResult,
+    schemaValid: input.result.schemaValid,
+    schemaError: input.result.schemaError,
+    executionResult: input.result.executionResult,
     assertion,
   };
 
@@ -139,155 +144,32 @@ export function previewAgentToolText(value: string, maxLength: number) {
   return normalized.length > maxLength ? `${normalized.slice(0, maxLength)}...` : normalized;
 }
 
-function evaluateCardTypes(
-  testCase: AgentToolCallCase,
-  result: BlackboxTurnResult,
-): Array<{ level: AgentToolAssertionFailureLevel; reason: string; layer: "tool" }> {
-  const failures: Array<{ level: AgentToolAssertionFailureLevel; reason: string; layer: "tool" }> = [];
-  const expectation = testCase.expectation;
-  const actualSet = new Set(result.actionTypes);
-  const allowedSet = new Set([
-    ...expectation.expectedCardTypes,
-    ...(expectation.allowedCardTypes ?? []),
-  ]);
+function hasNestedValue(value: unknown, path: string[]) {
+  let current = value;
 
-  for (const expectedCardType of expectation.expectedCardTypes) {
-    if (!actualSet.has(expectedCardType)) {
-      failures.push({
-        level: "P1",
-        layer: "tool",
-        reason: `缺少期望卡片类型：${expectedCardType}`,
-      });
+  for (const key of path) {
+    if (!current || typeof current !== "object" || !(key in current)) {
+      return false;
     }
+    current = (current as Record<string, unknown>)[key];
   }
 
-  if (allowedSet.size > 0) {
-    const unexpectedCardTypes = result.actionTypes.filter((cardType) => !allowedSet.has(cardType));
-    if (unexpectedCardTypes.length > 0) {
-      failures.push({
-        level: "P1",
-        layer: "tool",
-        reason: `出现未允许的卡片类型：${unexpectedCardTypes.join(", ")}`,
-      });
-    }
+  if (Array.isArray(current)) {
+    return current.length > 0;
   }
 
-  if (expectation.forbidTrainingCards) {
-    const pushedTrainingCards = result.actionTypes.filter((cardType) => trainingCardTypes.has(cardType));
-    if (pushedTrainingCards.length > 0) {
-      failures.push({
-        level: "P1",
-        layer: "tool",
-        reason: `预期无训练卡片，但出现：${pushedTrainingCards.join(", ")}`,
-      });
-    }
-  }
-
-  return failures;
+  return typeof current !== "undefined" && current !== null;
 }
 
-function evaluateToolEvidence(
-  testCase: AgentToolCallCase,
-  result: BlackboxTurnResult,
-): Array<{ level: AgentToolAssertionFailureLevel; reason: string; layer: "tool" }> {
-  const failures: Array<{ level: AgentToolAssertionFailureLevel; reason: string; layer: "tool" }> = [];
-  const expectation = testCase.expectation;
-
-  for (const toolName of expectation.requiredAgentTools) {
-    if (!result.agentDiagnostics.toolNames.includes(toolName)) {
-      failures.push({
-        level: "P1",
-        layer: "tool",
-        reason: `缺少必需 Agent tool 证据：${toolName}`,
-      });
-    }
+function summarizeUnknown(value: unknown) {
+  try {
+    return JSON.stringify(value).slice(0, 600);
+  } catch {
+    return String(value);
   }
-
-  for (const toolName of expectation.forbiddenAgentTools) {
-    if (result.agentDiagnostics.toolNames.includes(toolName)) {
-      failures.push({
-        level: "P1",
-        layer: "tool",
-        reason: `出现禁用 Agent tool 或旧路径证据：${toolName}`,
-      });
-    }
-  }
-
-  if (expectation.requireLegacyPathDisabled) {
-    const skip = result.agentDiagnostics.legacyPathSkip;
-    if (!skip.intentFirst || !skip.normalize || !skip.summaryOnlyContext || !skip.referenceResolverFirst) {
-      failures.push({
-        level: "P1",
-        layer: "tool",
-        reason: "legacy path skip 未证明旧 intent-first / normalize / summary-only / ReferenceResolver-first 主路径均未参与执行。",
-      });
-    }
-  }
-
-  return failures;
 }
 
-function evaluateResultContract(
-  testCase: AgentToolCallCase,
-  result: BlackboxTurnResult,
-): Array<{ level: AgentToolAssertionFailureLevel; reason: string; layer: "contract" }> {
-  const failures: Array<{ level: AgentToolAssertionFailureLevel; reason: string; layer: "contract" }> = [];
-  const expectation = testCase.expectation;
-
-  if (expectation.requireCandidateSetId && result.agentDiagnostics.candidateSetIds.length === 0) {
-    failures.push({ level: "P2", layer: "contract", reason: "缺少 candidateSetId 证据。" });
-  }
-
-  if (expectation.requireValidationId && result.agentDiagnostics.validationIds.length === 0) {
-    failures.push({ level: "P2", layer: "contract", reason: "缺少 validationId 证据。" });
-  }
-
-  if (expectation.requirePolicyDecisionId && result.agentDiagnostics.policyDecisionIds.length === 0) {
-    failures.push({ level: "P2", layer: "contract", reason: "缺少 policyDecisionId 证据。" });
-  }
-
-  if (expectation.requireRevisionId && result.agentDiagnostics.revisionIds.length === 0) {
-    failures.push({ level: "P2", layer: "contract", reason: "缺少 revisionId 证据。" });
-  }
-
-  if (
-    (result.agentDiagnostics.status === "generated" || result.agentDiagnostics.status === "patched") &&
-    result.agentDiagnostics.toolResultIds.length === 0
-  ) {
-    failures.push({ level: "P2", layer: "contract", reason: "generated/patched 结果缺少 usedToolResultIds 回连证据。" });
-  }
-
-  if (
-    typeof expectation.maxRepairTurnCount === "number" &&
-    result.agentDiagnostics.repairTurnCount > expectation.maxRepairTurnCount
-  ) {
-    failures.push({
-      level: "P2",
-      layer: "contract",
-      reason: `repairTurnCount 超过上限：期望 <= ${expectation.maxRepairTurnCount}，实际 ${result.agentDiagnostics.repairTurnCount}`,
-    });
-  }
-
-  if (result.agentDiagnostics.unregisteredResourceReferences.length > 0) {
-    failures.push({
-      level: "P2",
-      layer: "contract",
-      reason: `存在未注册资源引用：${result.agentDiagnostics.unregisteredResourceReferences.join(", ")}`,
-    });
-  }
-
-  if (result.agentDiagnostics.fusedFailureCount > 0) {
-    failures.push({
-      level: "P2",
-      layer: "contract",
-      reason: `存在 fused failure：${result.agentDiagnostics.fusedFailureCount}`,
-    });
-  }
-
-  return failures;
-}
-
-function rankFailureLevel(levels: AgentToolAssertionFailureLevel[]) {
+function rankFailureLevel(levels: AgentSingleToolFailureLevel[]) {
   if (levels.includes("P0")) return "P0";
   if (levels.includes("P1")) return "P1";
   if (levels.includes("P2")) return "P2";

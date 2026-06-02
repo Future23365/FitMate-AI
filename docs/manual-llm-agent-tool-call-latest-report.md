@@ -1,34 +1,41 @@
-# 手动 LLM 单次 Agent Tool 调用流程测试报告
-生成时间：2026-06-02T18:59:23.789+08:00
+# 手动 LLM 单次 Agent Tool 调用测试报告
+生成时间：2026-06-02T19:24:06.924+08:00
 模型：deepseek-v4-flash
-运行命令：npm run test:llm:agent-tool --disable-legacy-events --dry-run
-runner 类型：api_route
+运行命令：npm run test:llm:agent-tool --report=docs/manual-llm-agent-tool-call-latest-report.md --dry-run
 dryRun：true
-旧兼容事件：关闭
 真实/跳过状态：跳过或环境未满足
 ## 汇总
-- 用例数：8
-- 轮次数：8
+- 用例数：18
+- 单次 LLM 请求数：0
+- 目标 tool 执行数：0
 - 通过：0
 - 失败：0
-- 跳过：8
+- 跳过：18
 - 需复核：0
-- 预计输入 token：19412
-- 预计输出 token：6080
-- 预计总 token：25492
+- 预计输入 token：33245
+- 预计输出 token：4680
+- 预计总 token：37925
 - 估算来源：fallback
-- 估算口径：按 8 个单次 Agent tool case 和保守均值估算。
+- 估算口径：按 18 个单工具 case、每个 case 一次 LLM JSON decision 和保守均值估算。
 - prompt_tokens：0
 - completion_tokens：0
 - total_tokens：0
 - token 偏差摘要：本次没有真实 token usage，通常表示 dry-run、跳过或运行失败。
 ## 运行范围
-- 完整 fixture case 数：8
-- 本次筛选 case 数：8
-- 筛选条件：ids=all; groups=all; tools=all; statuses=all; states=all
+- 完整 fixture case 数：18
+- 本次筛选 case 数：18
+- 筛选条件：ids=all; groups=all; tools=all
 - 未运行 case 数：0
 - 未运行原因：--dry-run 开启。
 - 并发数：1
+## 当前参数
+- ids：all
+- group：all
+- tool：all
+- failed-from-report：none
+- concurrency：1
+- report：/Users/liusongbai/study/AITest/docs/manual-llm-agent-tool-call-latest-report.md
+- dry-run：true
 ## Preflight
 - 状态：skipped
 - 模型 key：可用
@@ -36,190 +43,354 @@ dryRun：true
 - artifact 表：不可用
 - seed 数据：不可用
 - 原因：--dry-run 已开启，只生成筛选、预估和跳过报告，不请求真实模型。
-## 最终状态枚举
-- `passed`：执行基础、tool 选择和结果合同断言都通过。
-- `failed`：P0/P1/P2 自动断言失败。
-- `skipped`：缺少 key、dry-run、preflight 未满足或 failed-from-report 没有失败用例。
-- `needs_review`：仅 P3 内容质量需要人工复核，不计为通过。
 ## 断言分层
-- 执行基础：stream 成功、回复非空、`AgentExecutionResult` 和 `dependencyGraph` 存在。
-- tool 选择：Agent status、必需 tool、禁用 tool、训练卡片类型和 legacy path skip。
-- 结果合同：candidateSetId、validationId、revisionId、usedToolResultIds、repair 和未注册资源引用。
+- LLM 决策：一次模型请求必须只返回一个 `call_tool`，且 `toolName` 等于目标 tool。
+- 输入 Schema：LLM 输出的 `input` 必须通过目标 tool 的 `inputSchema`。
+- Tool 执行：只执行目标 tool 一次，执行结果必须 `ok=true`。
+- 结果合同：成功结果必须有 `toolResultId`、`modelSummary` 和 fixture 声明的关键输出字段。
+- setupTools：只用于预置依赖资源，不属于本 case 的 LLM tool 调用。
 ## 失败分类摘要
 - 本次没有失败用例。
 ## 用例结果
-### AT01 胸部动作推荐
-
+### TOOL01 listRecentArtifacts
 - 状态：跳过
-- 来源：F01 第 1 轮
-- group：recommendation
-- stateFixture：empty
-- 用户输入：今天我想练胸
-- 期望结果：LLM 应选择动作检索和受控保存工具，生成动作推荐 artifact，不升级 routine 或 plan。
-- 期望 Agent status：generated
-- 实际 Agent status：missing
-- 期望卡片类型：exercise_recommendation
-- 实际卡片类型：无卡片
-- 必需 tool：searchExercises, saveConversationArtifactRevision
-- 禁止 tool：generateRoutineDraft, generatePlanDraft
-- 实际 tool：无
-- assistant 摘要：未请求真实模型。
-- 执行基础断言：skipped
-- tool 选择断言：skipped
-- 结果合同断言：skipped
+- group：readonly
+- 场景：列出当前会话最近 artifact 摘要。
+- 说明：验证 listRecentArtifacts 能读取真实 ArtifactIndex 并返回候选集合 id。
+- plannedSetup：artifact
+- setupTools：无
+- targetTool：listRecentArtifacts
+- expectedInput 摘要：无
+- rawModelOutput 摘要：未请求真实模型。
+- parsed action：missing
+- parsed toolName：missing
+- LLM 决策断言：skipped
+- input schema 断言：skipped
+- tool 执行断言：skipped
+- 输出合同断言：skipped
 - 跳过原因：--dry-run 已开启，只生成筛选、预估和跳过报告，不请求真实模型。
-- conversationId：manual-llm-AT01-mpwiz8y3-17pfsb
-
-### AT02 居家背部 routine
-
+- runId：manual-agent-tool-run_mpwjv1cb_u5b1vpj1
+- sessionId：manual-agent-tool-session_mpwjv1cb_amahqq59
+### TOOL02 searchArtifacts
 - 状态：跳过
-- 来源：F04 第 1 轮
-- group：routine
-- stateFixture：empty
-- 用户输入：今天在家练背30分钟
-- 期望结果：LLM 应围绕单次 routine 调用检索、生成、校验和保存工具，不应误生成长期 plan。
-- 期望 Agent status：generated
-- 实际 Agent status：missing
-- 期望卡片类型：workout_routine
-- 实际卡片类型：无卡片
-- 必需 tool：searchExercises, generateRoutineDraft, validateRoutineDraft, saveConversationArtifactRevision
-- 禁止 tool：generatePlanDraft
-- 实际 tool：无
-- assistant 摘要：未请求真实模型。
-- 执行基础断言：skipped
-- tool 选择断言：skipped
-- 结果合同断言：skipped
+- group：readonly
+- 场景：按结构化条件检索最近 routine artifact。
+- 说明：验证 searchArtifacts 的结构化 artifact 检索能命中当前用户当前会话数据。
+- plannedSetup：artifact
+- setupTools：无
+- targetTool：searchArtifacts
+- expectedInput 摘要：无
+- rawModelOutput 摘要：未请求真实模型。
+- parsed action：missing
+- parsed toolName：missing
+- LLM 决策断言：skipped
+- input schema 断言：skipped
+- tool 执行断言：skipped
+- 输出合同断言：skipped
 - 跳过原因：--dry-run 已开启，只生成筛选、预估和跳过报告，不请求真实模型。
-- conversationId：manual-llm-AT02-mpwiz8y4-0j6ijk
-
-### AT03 每周 4 练增肌计划
-
+- runId：manual-agent-tool-run_mpwjv1cb_1t8a8tkw
+- sessionId：manual-agent-tool-session_mpwjv1cb_mr2ap1sc
+### TOOL03 resolveArtifactReference
 - 状态：跳过
-- 来源：F19 第 1 轮
-- group：plan
-- stateFixture：empty
-- 用户输入：给我一个每周4练增肌计划
-- 期望结果：LLM 应保持长期 plan 语义，调用 plan 生成和校验工具。
-- 期望 Agent status：generated
-- 实际 Agent status：missing
-- 期望卡片类型：workout_plan
-- 实际卡片类型：无卡片
-- 必需 tool：searchExercises, generatePlanDraft, validatePlanDraft, saveConversationArtifactRevision
-- 禁止 tool：generateRoutineDraft
-- 实际 tool：无
-- assistant 摘要：未请求真实模型。
-- 执行基础断言：skipped
-- tool 选择断言：skipped
-- 结果合同断言：skipped
+- group：readonly
+- 场景：解析当前会话唯一的 routine 引用。
+- 说明：验证 resolveArtifactReference 在唯一匹配时能产出 artifactReferenceId 和 artifactId。
+- plannedSetup：artifact
+- setupTools：无
+- targetTool：resolveArtifactReference
+- expectedInput 摘要：无
+- rawModelOutput 摘要：未请求真实模型。
+- parsed action：missing
+- parsed toolName：missing
+- LLM 决策断言：skipped
+- input schema 断言：skipped
+- tool 执行断言：skipped
+- 输出合同断言：skipped
 - 跳过原因：--dry-run 已开启，只生成筛选、预估和跳过报告，不请求真实模型。
-- conversationId：manual-llm-AT03-mpwiz8y4-6rgpiw
-
-### AT04 笼统训练请求先澄清
-
+- runId：manual-agent-tool-run_mpwjv1cb_clidnkjr
+- sessionId：manual-agent-tool-session_mpwjv1cb_2dvphdku
+### TOOL04 getArtifactPayload
 - 状态：跳过
-- 来源：F03 第 1 轮
+- group：readonly
+- 场景：读取指定 routine artifact 的完整 payload。
+- 说明：验证 getArtifactPayload 能读取当前用户可访问 artifact，并生成 payload 资源 id。
+- plannedSetup：artifact
+- setupTools：无
+- targetTool：getArtifactPayload
+- expectedInput 摘要：无
+- rawModelOutput 摘要：未请求真实模型。
+- parsed action：missing
+- parsed toolName：missing
+- LLM 决策断言：skipped
+- input schema 断言：skipped
+- tool 执行断言：skipped
+- 输出合同断言：skipped
+- 跳过原因：--dry-run 已开启，只生成筛选、预估和跳过报告，不请求真实模型。
+- runId：manual-agent-tool-run_mpwjv1cb_qu0m3jpm
+- sessionId：manual-agent-tool-session_mpwjv1cb_vd552w29
+### TOOL05 getExerciseById
+- 状态：跳过
+- group：readonly
+- 场景：读取动作库中指定 exerciseId 的动作详情。
+- 说明：验证 getExerciseById 能读取真实动作库记录。
+- plannedSetup：exercise
+- setupTools：无
+- targetTool：getExerciseById
+- expectedInput 摘要：无
+- rawModelOutput 摘要：未请求真实模型。
+- parsed action：missing
+- parsed toolName：missing
+- LLM 决策断言：skipped
+- input schema 断言：skipped
+- tool 执行断言：skipped
+- 输出合同断言：skipped
+- 跳过原因：--dry-run 已开启，只生成筛选、预估和跳过报告，不请求真实模型。
+- runId：manual-agent-tool-run_mpwjv1cb_26jpws2e
+- sessionId：manual-agent-tool-session_mpwjv1cb_s9c3suq2
+### TOOL06 searchExercises
+- 状态：跳过
+- group：readonly
+- 场景：按上肢 routine 用途构建动作候选集合。
+- 说明：验证 searchExercises 能用结构化过滤生成可执行 candidateSetId。
+- plannedSetup：无
+- setupTools：无
+- targetTool：searchExercises
+- expectedInput 摘要：无
+- rawModelOutput 摘要：未请求真实模型。
+- parsed action：missing
+- parsed toolName：missing
+- LLM 决策断言：skipped
+- input schema 断言：skipped
+- tool 执行断言：skipped
+- 输出合同断言：skipped
+- 跳过原因：--dry-run 已开启，只生成筛选、预估和跳过报告，不请求真实模型。
+- runId：manual-agent-tool-run_mpwjv1cb_g1se6tca
+- sessionId：manual-agent-tool-session_mpwjv1cb_ebmz90br
+### TOOL07 getUserMemory
+- 状态：跳过
+- group：readonly
+- 场景：读取当前用户画像和已确认记忆摘要。
+- 说明：验证 getUserMemory 能读取当前用户结构化记忆快照。
+- plannedSetup：memory
+- setupTools：无
+- targetTool：getUserMemory
+- expectedInput 摘要：无
+- rawModelOutput 摘要：未请求真实模型。
+- parsed action：missing
+- parsed toolName：missing
+- LLM 决策断言：skipped
+- input schema 断言：skipped
+- tool 执行断言：skipped
+- 输出合同断言：skipped
+- 跳过原因：--dry-run 已开启，只生成筛选、预估和跳过报告，不请求真实模型。
+- runId：manual-agent-tool-run_mpwjv1cb_jyp4ahy5
+- sessionId：manual-agent-tool-session_mpwjv1cb_8w61twhl
+### TOOL08 queryUserMemory
+- 状态：跳过
+- group：readonly
+- 场景：按结构化过滤查询当前用户器械偏好记忆。
+- 说明：验证 queryUserMemory 能按确定性字段命中当前用户记忆。
+- plannedSetup：memory
+- setupTools：无
+- targetTool：queryUserMemory
+- expectedInput 摘要：无
+- rawModelOutput 摘要：未请求真实模型。
+- parsed action：missing
+- parsed toolName：missing
+- LLM 决策断言：skipped
+- input schema 断言：skipped
+- tool 执行断言：skipped
+- 输出合同断言：skipped
+- 跳过原因：--dry-run 已开启，只生成筛选、预估和跳过报告，不请求真实模型。
+- runId：manual-agent-tool-run_mpwjv1cb_9lofsm80
+- sessionId：manual-agent-tool-session_mpwjv1cb_98cxlxh2
+### TOOL09 proposeWorkoutEditPlan
+- 状态：跳过
+- group：planning
+- 场景：基于已读取 routine payload 编译替换哑铃动作的 edit plan。
+- 说明：验证 proposeWorkoutEditPlan 能把已读 payload 和修改要求编译成 editPlanId。
+- plannedSetup：artifactPayload
+- setupTools：无
+- targetTool：proposeWorkoutEditPlan
+- expectedInput 摘要：无
+- rawModelOutput 摘要：未请求真实模型。
+- parsed action：missing
+- parsed toolName：missing
+- LLM 决策断言：skipped
+- input schema 断言：skipped
+- tool 执行断言：skipped
+- 输出合同断言：skipped
+- 跳过原因：--dry-run 已开启，只生成筛选、预估和跳过报告，不请求真实模型。
+- runId：manual-agent-tool-run_mpwjv1cb_llsd9xyk
+- sessionId：manual-agent-tool-session_mpwjv1cb_2q8lte32
+### TOOL10 generateRoutineDraft
+- 状态：跳过
+- group：generation
+- 场景：用候选集合生成单次 routine draft。
+- 说明：验证 generateRoutineDraft 只能消费当前 run 的候选集合并产出 draftId。
+- plannedSetup：candidateSet
+- setupTools：无
+- targetTool：generateRoutineDraft
+- expectedInput 摘要：无
+- rawModelOutput 摘要：未请求真实模型。
+- parsed action：missing
+- parsed toolName：missing
+- LLM 决策断言：skipped
+- input schema 断言：skipped
+- tool 执行断言：skipped
+- 输出合同断言：skipped
+- 跳过原因：--dry-run 已开启，只生成筛选、预估和跳过报告，不请求真实模型。
+- runId：manual-agent-tool-run_mpwjv1cb_222t94ak
+- sessionId：manual-agent-tool-session_mpwjv1cb_aph57t5y
+### TOOL11 generatePlanDraft
+- 状态：跳过
+- group：generation
+- 场景：用候选集合和 PlanStrategy 生成长期 plan draft。
+- 说明：验证 generatePlanDraft 能从策略和候选集合展开 plan draft。
+- plannedSetup：candidateSet
+- setupTools：无
+- targetTool：generatePlanDraft
+- expectedInput 摘要：无
+- rawModelOutput 摘要：未请求真实模型。
+- parsed action：missing
+- parsed toolName：missing
+- LLM 决策断言：skipped
+- input schema 断言：skipped
+- tool 执行断言：skipped
+- 输出合同断言：skipped
+- 跳过原因：--dry-run 已开启，只生成筛选、预估和跳过报告，不请求真实模型。
+- runId：manual-agent-tool-run_mpwjv1cb_zpt7git6
+- sessionId：manual-agent-tool-session_mpwjv1cb_711xzif0
+### TOOL12 proposeWorkoutPatch
+- 状态：跳过
+- group：planning
+- 场景：基于 edit plan 和候选集合编译 WorkoutPatch。
+- 说明：验证 proposeWorkoutPatch 能校验 editPlan、候选集合和 patch 结构。
+- plannedSetup：editPlan, candidateSet
+- setupTools：无
+- targetTool：proposeWorkoutPatch
+- expectedInput 摘要：无
+- rawModelOutput 摘要：未请求真实模型。
+- parsed action：missing
+- parsed toolName：missing
+- LLM 决策断言：skipped
+- input schema 断言：skipped
+- tool 执行断言：skipped
+- 输出合同断言：skipped
+- 跳过原因：--dry-run 已开启，只生成筛选、预估和跳过报告，不请求真实模型。
+- runId：manual-agent-tool-run_mpwjv1cb_cjl0yt3f
+- sessionId：manual-agent-tool-session_mpwjv1cb_zag1otnt
+### TOOL13 askClarification
+- 状态：跳过
 - group：clarification
-- stateFixture：empty
-- 用户输入：给我一套训练
-- 期望结果：信息不足时应澄清或说明需要补充条件，不应调用生成和保存工具产出随机训练卡片。
-- 期望 Agent status：needs_clarification 或 answered
-- 实际 Agent status：missing
-- 期望卡片类型：无固定卡片类型
-- 实际卡片类型：无卡片
-- 必需 tool：无
-- 禁止 tool：generateRoutineDraft, generatePlanDraft, proposeWorkoutPatch, validateRoutineDraft, validatePlanDraft, validateWorkoutPatch, saveConversationArtifactRevision
-- 实际 tool：无
-- assistant 摘要：未请求真实模型。
-- 执行基础断言：skipped
-- tool 选择断言：skipped
-- 结果合同断言：skipped
+- 场景：生成缺少训练条件时的澄清问题。
+- 说明：验证 askClarification 能返回结构化澄清问题而不读写数据。
+- plannedSetup：无
+- setupTools：无
+- targetTool：askClarification
+- expectedInput 摘要：无
+- rawModelOutput 摘要：未请求真实模型。
+- parsed action：missing
+- parsed toolName：missing
+- LLM 决策断言：skipped
+- input schema 断言：skipped
+- tool 执行断言：skipped
+- 输出合同断言：skipped
 - 跳过原因：--dry-run 已开启，只生成筛选、预估和跳过报告，不请求真实模型。
-- conversationId：manual-llm-AT04-mpwiz8y4-9f10ge
-
-### AT05 非健身问题不进训练工具
-
+- runId：manual-agent-tool-run_mpwjv1cb_9gnq3d0k
+- sessionId：manual-agent-tool-session_mpwjv1cb_o7q61gck
+### TOOL14 validateRoutineDraft
 - 状态：跳过
-- 来源：F13 第 1 轮
-- group：non_fitness
-- stateFixture：empty
-- 用户输入：明天天气怎么样？
-- 期望结果：非健身输入不应触发动作检索、训练生成或 artifact 保存工具。
-- 期望 Agent status：answered 或 blocked
-- 实际 Agent status：missing
-- 期望卡片类型：无固定卡片类型
-- 实际卡片类型：无卡片
-- 必需 tool：无
-- 禁止 tool：searchExercises, generateRoutineDraft, generatePlanDraft, proposeWorkoutPatch, validateRoutineDraft, validatePlanDraft, validateWorkoutPatch, saveConversationArtifactRevision
-- 实际 tool：无
-- assistant 摘要：未请求真实模型。
-- 执行基础断言：skipped
-- tool 选择断言：skipped
-- 结果合同断言：skipped
+- group：validation
+- 场景：校验已登记 routine draft。
+- 说明：验证 validateRoutineDraft 只能读取本轮已登记 draft 和 candidateSet。
+- plannedSetup：routineDraft
+- setupTools：无
+- targetTool：validateRoutineDraft
+- expectedInput 摘要：无
+- rawModelOutput 摘要：未请求真实模型。
+- parsed action：missing
+- parsed toolName：missing
+- LLM 决策断言：skipped
+- input schema 断言：skipped
+- tool 执行断言：skipped
+- 输出合同断言：skipped
 - 跳过原因：--dry-run 已开启，只生成筛选、预估和跳过报告，不请求真实模型。
-- conversationId：manual-llm-AT05-mpwiz8y4-5yv3qp
-
-### AT06 不存在动作不编造 artifact
-
+- runId：manual-agent-tool-run_mpwjv1cb_wyv0j7lt
+- sessionId：manual-agent-tool-session_mpwjv1cb_zedd00wn
+### TOOL15 validatePlanDraft
 - 状态：跳过
-- 来源：F23 第 1 轮
-- group：safety
-- stateFixture：empty
-- 用户输入：我想练你们库里没有的超级飞鸟跳
-- 期望结果：点名不存在动作时可以检索或解释，但不能保存编造出来的训练 artifact。
-- 期望 Agent status：needs_clarification 或 answered 或 blocked
-- 实际 Agent status：missing
-- 期望卡片类型：无固定卡片类型
-- 实际卡片类型：无卡片
-- 必需 tool：无
-- 禁止 tool：saveConversationArtifactRevision
-- 实际 tool：无
-- assistant 摘要：未请求真实模型。
-- 执行基础断言：skipped
-- tool 选择断言：skipped
-- 结果合同断言：skipped
+- group：validation
+- 场景：校验已登记 plan draft。
+- 说明：验证 validatePlanDraft 只能读取本轮已登记 plan draft 和 candidateSet。
+- plannedSetup：planDraft
+- setupTools：无
+- targetTool：validatePlanDraft
+- expectedInput 摘要：无
+- rawModelOutput 摘要：未请求真实模型。
+- parsed action：missing
+- parsed toolName：missing
+- LLM 决策断言：skipped
+- input schema 断言：skipped
+- tool 执行断言：skipped
+- 输出合同断言：skipped
 - 跳过原因：--dry-run 已开启，只生成筛选、预估和跳过报告，不请求真实模型。
-- conversationId：manual-llm-AT06-mpwiz8y4-6grqau
-
-### AT07 解释最近推荐第一个动作
-
+- runId：manual-agent-tool-run_mpwjv1cb_3i645ebg
+- sessionId：manual-agent-tool-session_mpwjv1cb_f75x3qy3
+### TOOL16 validateWorkoutPatch
 - 状态：跳过
-- 来源：F15 第 3 轮
-- group：reference
-- stateFixture：recent_recommendation
-- 用户输入：第一个动作怎么做
-- 期望结果：已有最近推荐卡片时，应读取 artifact payload 解释动作，不应刷新推荐或生成训练。
-- 期望 Agent status：answered
-- 实际 Agent status：missing
-- 期望卡片类型：无固定卡片类型
-- 实际卡片类型：无卡片
-- 必需 tool：getArtifactPayload
-- 禁止 tool：searchExercises, generateRoutineDraft, generatePlanDraft, proposeWorkoutPatch, validateRoutineDraft, validatePlanDraft, validateWorkoutPatch, saveConversationArtifactRevision
-- 实际 tool：无
-- assistant 摘要：未请求真实模型。
-- 执行基础断言：skipped
-- tool 选择断言：skipped
-- 结果合同断言：skipped
+- group：validation
+- 场景：校验已登记 WorkoutPatch。
+- 说明：验证 validateWorkoutPatch 能校验 patch 目标和 replacement 候选边界。
+- plannedSetup：patch
+- setupTools：无
+- targetTool：validateWorkoutPatch
+- expectedInput 摘要：无
+- rawModelOutput 摘要：未请求真实模型。
+- parsed action：missing
+- parsed toolName：missing
+- LLM 决策断言：skipped
+- input schema 断言：skipped
+- tool 执行断言：skipped
+- 输出合同断言：skipped
 - 跳过原因：--dry-run 已开启，只生成筛选、预估和跳过报告，不请求真实模型。
-- conversationId：manual-llm-AT07-mpwiz8y4-y7pben
-
-### AT08 最近 routine 排除哑铃后 patch
-
+- runId：manual-agent-tool-run_mpwjv1cb_0a426xdz
+- sessionId：manual-agent-tool-session_mpwjv1cb_2u8pix3a
+### TOOL17 evaluatePolicy
 - 状态：跳过
-- 来源：W09 第 2 轮
-- group：patch
-- stateFixture：recent_routine
-- 用户输入：不用哑铃了，换一个
-- 期望结果：已有 routine 时，应读取 payload、检索替代候选、生成 patch、校验并保存新 revision。
-- 期望 Agent status：patched
-- 实际 Agent status：missing
-- 期望卡片类型：workout_patch
-- 实际卡片类型：无卡片
-- 必需 tool：getArtifactPayload, searchExercises, proposeWorkoutPatch, validateWorkoutPatch, saveConversationArtifactRevision
-- 禁止 tool：legacyIntentNormalize, runReadonlyToolLoop
-- 实际 tool：无
-- assistant 摘要：未请求真实模型。
-- 执行基础断言：skipped
-- tool 选择断言：skipped
-- 结果合同断言：skipped
+- group：policy
+- 场景：评估新 routine artifact 写入 policy。
+- 说明：验证 evaluatePolicy 能对已登记 draft 产出 policyDecisionId。
+- plannedSetup：routineDraft
+- setupTools：无
+- targetTool：evaluatePolicy
+- expectedInput 摘要：无
+- rawModelOutput 摘要：未请求真实模型。
+- parsed action：missing
+- parsed toolName：missing
+- LLM 决策断言：skipped
+- input schema 断言：skipped
+- tool 执行断言：skipped
+- 输出合同断言：skipped
 - 跳过原因：--dry-run 已开启，只生成筛选、预估和跳过报告，不请求真实模型。
-- conversationId：manual-llm-AT08-mpwiz8y4-caxaqr
+- runId：manual-agent-tool-run_mpwjv1cb_odfiu9m7
+- sessionId：manual-agent-tool-session_mpwjv1cb_y6v5rry1
+### TOOL18 saveConversationArtifactRevision
+- 状态：跳过
+- group：persistence
+- 场景：保存已校验并通过 policy 的 routine draft。
+- 说明：验证 saveConversationArtifactRevision 只保存已校验且 policy 允许的 draft。
+- plannedSetup：routineValidation, policyDecision
+- setupTools：无
+- targetTool：saveConversationArtifactRevision
+- expectedInput 摘要：无
+- rawModelOutput 摘要：未请求真实模型。
+- parsed action：missing
+- parsed toolName：missing
+- LLM 决策断言：skipped
+- input schema 断言：skipped
+- tool 执行断言：skipped
+- 输出合同断言：skipped
+- 跳过原因：--dry-run 已开启，只生成筛选、预估和跳过报告，不请求真实模型。
+- runId：manual-agent-tool-run_mpwjv1cb_7264gxdw
+- sessionId：manual-agent-tool-session_mpwjv1cb_5rzgplhy

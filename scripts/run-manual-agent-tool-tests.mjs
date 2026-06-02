@@ -38,13 +38,10 @@ const result = spawnSync(vitestBin, ["run", "--config", "vitest.llm-agent-tool.c
     MANUAL_LLM_AGENT_TOOL_IDS: options.ids.join(","),
     MANUAL_LLM_AGENT_TOOL_GROUPS: options.groups.join(","),
     MANUAL_LLM_AGENT_TOOL_NAMES: options.tools.join(","),
-    MANUAL_LLM_AGENT_TOOL_STATUSES: options.statuses.join(","),
-    MANUAL_LLM_AGENT_TOOL_STATES: options.states.join(","),
     MANUAL_LLM_AGENT_TOOL_FAILED_FROM_REPORT: options.failedFromReport ?? "",
     MANUAL_LLM_AGENT_TOOL_CONCURRENCY: String(options.concurrency),
     MANUAL_LLM_AGENT_TOOL_REPORT_PATH: reportPath,
     MANUAL_LLM_AGENT_TOOL_DRY_RUN: options.dryRun ? "1" : "",
-    MANUAL_LLM_DISABLE_LEGACY_EVENTS: options.disableLegacyEvents ? "1" : process.env.MANUAL_LLM_DISABLE_LEGACY_EVENTS ?? "",
     MANUAL_LLM_AGENT_TOOL_RUN_COMMAND: buildRunCommand(options),
   },
 });
@@ -58,12 +55,9 @@ function parseArgs(rawArgs) {
     ids: [],
     groups: [],
     tools: [],
-    statuses: [],
-    states: [],
     failedFromReport: undefined,
     concurrency: readPositiveInteger(process.env.MANUAL_LLM_AGENT_TOOL_CONCURRENCY, 1),
     report: undefined,
-    disableLegacyEvents: true,
     dryRun: false,
     errors: [],
   };
@@ -71,18 +65,8 @@ function parseArgs(rawArgs) {
   for (let index = 0; index < rawArgs.length; index += 1) {
     const arg = rawArgs[index];
 
-    if (arg === "--disable-legacy-events") {
-      parsed.disableLegacyEvents = true;
-      continue;
-    }
-
     if (arg === "--dry-run") {
       parsed.dryRun = true;
-      continue;
-    }
-
-    if (arg === "--no-disable-legacy-events") {
-      parsed.disableLegacyEvents = false;
       continue;
     }
 
@@ -90,8 +74,6 @@ function parseArgs(rawArgs) {
       arg === "--ids" ||
       arg === "--group" ||
       arg === "--tool" ||
-      arg === "--status" ||
-      arg === "--state" ||
       arg === "--failed-from-report" ||
       arg === "--concurrency" ||
       arg === "--report"
@@ -110,8 +92,6 @@ function parseArgs(rawArgs) {
       arg.startsWith("--ids=") ||
       arg.startsWith("--group=") ||
       arg.startsWith("--tool=") ||
-      arg.startsWith("--status=") ||
-      arg.startsWith("--state=") ||
       arg.startsWith("--failed-from-report=") ||
       arg.startsWith("--concurrency=") ||
       arg.startsWith("--report=")
@@ -138,14 +118,6 @@ function applyOption(parsed, name, value) {
   }
   if (name === "--tool") {
     parsed.tools.push(...splitCsv(value));
-    return;
-  }
-  if (name === "--status") {
-    parsed.statuses.push(...splitCsv(value));
-    return;
-  }
-  if (name === "--state") {
-    parsed.states.push(...splitCsv(value));
     return;
   }
   if (name === "--failed-from-report") {
@@ -175,8 +147,6 @@ function formatCliSelection(options) {
     `ids=${options.ids.length ? options.ids.join(",") : "all"}`,
     `groups=${options.groups.length ? options.groups.join(",") : "all"}`,
     `tools=${options.tools.length ? options.tools.join(",") : "all"}`,
-    `statuses=${options.statuses.length ? options.statuses.join(",") : "all"}`,
-    `states=${options.states.length ? options.states.join(",") : "all"}`,
     `failedFromReport=${options.failedFromReport ?? "none"}`,
   ].join("; ");
 }
@@ -187,12 +157,9 @@ function buildRunCommand(options) {
   if (options.ids.length > 0) command.push(`--ids=${options.ids.join(",")}`);
   if (options.groups.length > 0) command.push(`--group=${options.groups.join(",")}`);
   if (options.tools.length > 0) command.push(`--tool=${options.tools.join(",")}`);
-  if (options.statuses.length > 0) command.push(`--status=${options.statuses.join(",")}`);
-  if (options.states.length > 0) command.push(`--state=${options.states.join(",")}`);
   if (options.failedFromReport) command.push(`--failed-from-report=${options.failedFromReport}`);
   if (options.concurrency !== 1) command.push(`--concurrency=${options.concurrency}`);
   if (options.report) command.push(`--report=${options.report}`);
-  if (options.disableLegacyEvents) command.push("--disable-legacy-events");
   if (options.dryRun) command.push("--dry-run");
 
   return command.join(" ");
