@@ -27,6 +27,12 @@
 - **AND** 系统 MUST NOT 仅凭 `AgentToolError.retryable`、错误码名称或 prompt 文案判定该错误可恢复
 - **AND** 如果缺少任一可恢复条件，系统 MUST 返回 blocked 或 failed，而不是继续调用模型猜测
 
+#### Scenario: prompt 引导不能替代 runtime 合同校验
+- **WHEN** prompt 指示模型基于 `AgentDecisionFeedback` 修复上一轮决策
+- **THEN** runtime MUST 仍然校验下一轮模型输出的 Schema、资源 producer、用户隔离、Policy、预算和 final result 引用
+- **AND** runtime MUST NOT 因 prompt 已写明规则而跳过任何确定性合同校验
+- **AND** prompt MUST NOT 被视为 artifact、revision、policy、validation、operation 或用户权限事实来源
+
 #### Scenario: 不可恢复边界失败
 - **WHEN** 工具失败原因属于权限拒绝、跨用户数据、Policy 拒绝、不可访问资源或不可重试 hard boundary
 - **THEN** 系统 MUST NOT 要求模型继续猜测修复

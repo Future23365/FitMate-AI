@@ -41,18 +41,28 @@
 - [ ] 5.4 补充 token/context 单测，覆盖重复 feedback 压缩、不同输入不合并和预算耗尽终止。
 - [ ] 5.5 在模型请求预算与 trace metadata 中记录 `repairTurnCount`、剩余 repair 预算和压缩前后 feedback 数量。
 
-## 6. Trace、黑盒与文档
+## 6. Prompt 合同与模型输入
 
-- [ ] 6.1 在 AiRunTrace 中记录 feedback code、retryable、推荐工具、关键资源、预算和熔断字段。
-- [ ] 6.2 更新 `/dev/ai-traces` view model 或诊断摘要，使合同修复循环、最终投影来源和熔断原因可读。
-- [ ] 6.3 更新手动 LLM 黑盒报告字段，至少记录 `repairFeedbackCodes`、`repairTurnCount`、`finalProjectionSourceToolResultId`、`unregisteredResourceReferences`、`fusedFailureCount` 和 `repairBudgetExhaustedReason`。
-- [ ] 6.4 在 `docs/方案变更历史` 新增本次方案变更记录，并按需更新 `docs/项目演变历程.md`。
-- [ ] 6.5 补充 trace viewer / 黑盒 fixture 测试，区分 recovered、fused、unrecoverable 和 projected 四类结果。
+- [ ] 6.1 更新 `agent_tool_decision` prompt module，说明模型必须优先消费 `AgentDecisionFeedback` 的错误码、可用资源、缺失资源、推荐工具、推荐输入和 hard boundary。
+- [ ] 6.2 更新 `agent_tool_execution` prompt module，说明工具失败只能基于结构化 feedback、tool result、dependency graph 和资源合同修复，`retryable: true` 不是盲目重试依据。
+- [ ] 6.3 更新 `agent_final_result` prompt module，强化 generated、patched、completed_operation 只能引用当前 run 已登记 tool result，且多候选事实不能猜测。
+- [ ] 6.4 补充 prompt 单测，确认 prompt 不引入关键词分流、同义词匹配、权限判断、Policy 判断或基于自由文本补造资源 id。
+- [ ] 6.5 补充模型输入构造测试，确认 feedback 摘要在下一轮可见且被压缩，完整 raw decision / raw payload 不进入模型上下文。
+- [ ] 6.6 补充 runtime 回归测试，确认 prompt 已更新时仍不会跳过 Schema、资源 producer、用户隔离、Policy、预算和 final result 引用校验。
 
-## 7. 验证
+## 7. Trace、黑盒与文档
 
-- [ ] 7.1 运行 Agent runtime / orchestrator 相关单测，覆盖本 change 新增修复循环场景。
-- [ ] 7.2 运行 chat-service / Response Writer 相关测试，确认卡片投影和失败投影一致。
-- [ ] 7.3 运行 `npm run typecheck`，确认新增合同类型不会破坏服务端 / 前端类型边界。
-- [ ] 7.4 运行 `openspec validate harden-agent-contract-repair-loop --strict`。
-- [ ] 7.5 根据需要运行不触发真实模型费用的黑盒 fixture / runner 子集，验证报告能读取修复证据。
+- [ ] 7.1 在 AiRunTrace 中记录 feedback code、retryable、推荐工具、关键资源、预算和熔断字段。
+- [ ] 7.2 更新 `/dev/ai-traces` view model 或诊断摘要，使合同修复循环、最终投影来源和熔断原因可读。
+- [ ] 7.3 更新手动 LLM 黑盒报告字段，至少记录 `repairFeedbackCodes`、`repairTurnCount`、`finalProjectionSourceToolResultId`、`unregisteredResourceReferences`、`fusedFailureCount` 和 `repairBudgetExhaustedReason`。
+- [ ] 7.4 在 `docs/方案变更历史` 新增本次方案变更记录，并按需更新 `docs/项目演变历程.md`。
+- [ ] 7.5 补充 trace viewer / 黑盒 fixture 测试，区分 recovered、fused、unrecoverable 和 projected 四类结果。
+
+## 8. 验证
+
+- [ ] 8.1 运行 Agent runtime / orchestrator 相关单测，覆盖本 change 新增修复循环场景。
+- [ ] 8.2 运行 chat-service / Response Writer 相关测试，确认卡片投影和失败投影一致。
+- [ ] 8.3 运行 prompt / token-budget 相关测试，确认 prompt module 和模型可见 feedback 摘要符合本 change。
+- [ ] 8.4 运行 `npm run typecheck`，确认新增合同类型不会破坏服务端 / 前端类型边界。
+- [ ] 8.5 运行 `openspec validate harden-agent-contract-repair-loop --strict`。
+- [ ] 8.6 根据需要运行不触发真实模型费用的黑盒 fixture / runner 子集，验证报告能读取修复证据。

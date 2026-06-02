@@ -28,3 +28,30 @@
 - **WHEN** 模型修改工具输入后再次失败
 - **THEN** 系统 MUST 将其视为新的尝试
 - **AND** token 压缩 MUST NOT 合并不同 normalized input 的失败事实
+
+### Requirement: Agent prompt modules 必须指导模型消费修复反馈
+系统 SHALL 更新 Agent prompt modules，使模型能识别 `AgentDecisionFeedback` 并基于结构化反馈继续决策，同时不得把 prompt 作为执行合同、权限或事实来源。
+
+#### Scenario: agent_tool_decision 读取 feedback
+- **WHEN** 模型请求包含 `AgentDecisionFeedback` 或 `agentDecisionFeedback` tool result
+- **THEN** `agent_tool_decision` prompt MUST 指示模型优先读取 feedback 的 `code`、`availableResources`、`missingResources`、`recommendedNextTool`、`recommendedInput`、`hardBoundary` 和重复失败摘要
+- **AND** 如果 `recommendedNextTool` 存在且不违反当前上下文，模型 SHOULD 优先调用该工具
+- **AND** prompt MUST 明确禁止伪造 `revisionId`、`validationId`、`policyDecisionId`、`operationResultId` 或其他未登记资源
+
+#### Scenario: agent_tool_execution 不允许盲目重试
+- **WHEN** 工具结果包含失败、重复失败或 feedback 摘要
+- **THEN** `agent_tool_execution` prompt MUST 指示模型只能基于结构化 tool result、feedback、dependency graph 和资源合同修复
+- **AND** prompt MUST 明确 `retryable: true` 不是继续重试的充分条件
+- **AND** prompt MUST 明确模型不得从用户自然语言、自由文本回复或 `conversationSummary` 补造资源 id
+
+#### Scenario: agent_final_result 强化终止引用合同
+- **WHEN** 模型准备返回 final result
+- **THEN** `agent_final_result` prompt MUST 明确 generated、patched 和 completed_operation 只能引用当前 run 已登记 tool result
+- **AND** prompt MUST 明确 `patched` 必须同时引用 patch 工具结果和保存结果
+- **AND** prompt MUST 明确 `completed_operation` 必须引用真实写工具产生的 `operationResultId`
+- **AND** prompt MUST 明确多候选事实无法唯一确定时不得猜测成功结果
+
+#### Scenario: prompt 不承担服务端合同判定
+- **WHEN** prompt module 描述 feedback 消费方式
+- **THEN** prompt MUST NOT 引入自然语言关键词分流、同义词匹配、权限判断、Policy 判断或用户数据归属判断
+- **AND** runtime MUST 继续执行可恢复性、资源引用、熔断和 final projection 的确定性校验

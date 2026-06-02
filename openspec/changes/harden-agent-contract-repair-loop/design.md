@@ -114,6 +114,23 @@ runtime 为同一 Agent run 维护修复预算：
 
 如果当前 run 中存在多个可能匹配的 draft、patch、save 或 operation 写结果，而模型 final result 没有足够引用来唯一确定使用哪一个结果，runtime 必须生成可恢复 feedback 或返回 failed，不能替模型选择业务事实。
 
+### 7. Prompt 只指导模型消费 feedback，不承担合同判定
+
+本 change 需要同步调整 Agent prompt modules，但 prompt 的职责仅限于让模型理解和响应 `AgentDecisionFeedback`。runtime 仍是唯一的合同判定、权限隔离、Policy、预算熔断和事实投影执行者。
+
+需要调整的 prompt modules：
+
+- `agent_tool_decision`: 告诉模型如果 `toolResults` 中存在 `AgentDecisionFeedback` 或 `agentDecisionFeedback` 工具结果，应优先读取 `code`、`availableResources`、`missingResources`、`recommendedNextTool`、`recommendedInput`、`hardBoundary` 和重复失败摘要；如果推荐工具存在且不违反当前上下文，应优先调用该工具。模型不得重复调用已熔断的同一 `toolName + normalizedInput + failureCode`，不得伪造 `revisionId`、`validationId`、`policyDecisionId` 或 `operationResultId`。
+- `agent_tool_execution`: 告诉模型工具失败只能基于结构化 tool result、feedback、dependency graph 和资源合同修复；`retryable: true` 不是继续重试的充分条件，必须看 feedback 或 resource contract 的推荐路径。模型不得从用户自然语言或自由文本补造资源 id。
+- `agent_final_result`: 强化 generated、patched、completed_operation 的终止条件：所有结构化资源必须来自当前 run 已登记 tool result；`patched` 必须同时引用 patch 工具结果和保存结果；`completed_operation` 必须引用真实写工具产生的 `operationResultId`；多候选事实无法唯一确定时不得猜测。
+
+不应做的 prompt 调整：
+
+- 不把完整工具流程硬编码成长 prompt。
+- 不让提示词承担权限、Policy、资源归属或跨用户数据判断。
+- 不新增自然语言关键词分流、同义词匹配或基于用户原文的服务端语义纠偏。
+- 不允许模型根据自由文本推断某个资源 id 应该存在。
+
 ## Risks / Trade-offs
 
 - [Risk] 反馈协议过宽可能掩盖真实 hard failure。→ Mitigation: 只有工具元数据和 runtime 分类明确标记为 `retryable` 的错误才能继续；权限、Policy、跨用户数据和不可访问资源必须终止。
@@ -121,6 +138,7 @@ runtime 为同一 Agent run 维护修复预算：
 - [Risk] 工具元数据维护成本增加。→ Mitigation: 先覆盖核心 Agent 工具和 artifact 写链路，元数据缺失时按当前严格失败处理，不隐式推断。
 - [Risk] runtime 投影 final result 可能被误解为服务端替模型做语义决策。→ Mitigation: 只从已成功执行的写工具结果复制结构化事实，不改变模型选择的任务状态和用户语义。
 - [Risk] 修复循环增加 token。→ Mitigation: repair turn 有预算，重复失败上下文压缩，trace 记录 token 增量，黑盒报告统计恢复前后成本。
+- [Risk] prompt 调整被误当成可靠性来源。→ Mitigation: prompt 只描述如何消费 feedback；所有可恢复性、资源引用、熔断和 final projection 仍由 runtime 强制校验。
 
 ## Migration Plan
 
@@ -128,9 +146,10 @@ runtime 为同一 Agent run 维护修复预算：
 2. 扩展核心 Agent tool definition 元数据，先覆盖 artifact/routine/plan 生成、validation、policy、保存和常见读工具。
 3. 将现有分散恢复逻辑迁移到统一 feedback 分支，保留现有测试作为回归。
 4. 实现 final result 引用失败的可恢复分类，覆盖未登记 `revisionId`、保存前提前 final、保存后缺字段。
-5. 增加修复预算、重复失败熔断和上下文压缩。
-6. 更新 trace、黑盒 runner 和相关单测，验证错误反馈、自修复、熔断和最终投影；诊断字段至少覆盖 `repairFeedbackCodes`、`repairTurnCount`、`finalProjectionSourceToolResultId`、`unregisteredResourceReferences`、`fusedFailureCount` 和 `repairBudgetExhaustedReason`。
-7. 若新机制导致异常恢复率升高但 token 成本不可控，可通过配置降低 repair turn 上限并回退到严格失败。
+5. 调整 `agent_tool_decision`、`agent_tool_execution` 和 `agent_final_result` prompt modules，使模型能基于 feedback 进行下一轮结构化决策。
+6. 增加修复预算、重复失败熔断和上下文压缩。
+7. 更新 trace、黑盒 runner 和相关单测，验证错误反馈、自修复、熔断和最终投影；诊断字段至少覆盖 `repairFeedbackCodes`、`repairTurnCount`、`finalProjectionSourceToolResultId`、`unregisteredResourceReferences`、`fusedFailureCount` 和 `repairBudgetExhaustedReason`。
+8. 若新机制导致异常恢复率升高但 token 成本不可控，可通过配置降低 repair turn 上限并回退到严格失败。
 
 ## Open Questions
 
