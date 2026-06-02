@@ -4,7 +4,6 @@ out
 dist
 coverage
 codex_logs
-exercises_picture
 tsconfig.tsbuildinfo
 .env
 .env*.local
