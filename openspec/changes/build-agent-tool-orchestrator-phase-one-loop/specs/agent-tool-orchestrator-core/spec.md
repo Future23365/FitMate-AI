@@ -1,24 +1,24 @@
 ## ADDED Requirements
 
-### Requirement: 第一阶段必须交付完整闭环
-系统 SHALL 在第一阶段完整交付 Agent Tool 编排器闭环。该闭环 MUST 覆盖 `defineTool`、`ToolRegistry`、tool manifest 序列化、input/output schema 校验、resource contract 校验、Planner 输出 `AgentAction`、多轮 tool call、`maxSteps` / timeout 防死循环、`consumable` / `diagnostic` 资源角色、Policy Guard、confirmation action hash、Response Adapter、trace / replay fixture、`/api/chat` NDJSON 接入，以及动作推荐、读取 artifact、保存 artifact 三类基础工具端到端闭环。
+### Requirement: 第一阶段必须交付通用完整闭环
+系统 SHALL 在第一阶段完整交付通用 Agent Tool 编排器闭环。该闭环 MUST 覆盖 `defineTool`、`ToolRegistry`、tool manifest 序列化、input/output schema 校验、resource contract 校验、Planner 输出 `AgentAction`、多轮 tool call、`maxSteps` / timeout 防死循环、`consumable` / `diagnostic` 资源角色、Policy Guard、confirmation action hash、Response Adapter、trace / replay fixture、`/api/chat` NDJSON 接入，以及无业务 fixture tools 的端到端验证。
 
-#### Scenario: 15 项闭环能力全部存在
+#### Scenario: 15 项通用闭环能力全部存在
 - **WHEN** 第一阶段实现完成并运行验收测试
-- **THEN** 测试 MUST 逐项证明 15 项闭环能力已经实现
+- **THEN** 测试 MUST 逐项证明 15 项通用闭环能力已经实现
 - **AND** 任一核心能力缺失 MUST 使验收失败
 
-#### Scenario: 三类基础工具不是范围缩水
-- **WHEN** 文档或实现声明三类基础工具已跑通
-- **THEN** 该声明 MUST 仅表示完整 core 的验收样例已通过
-- **AND** 系统 MUST 仍证明后续 tool 可以只通过注册 tool bundle 扩展
+#### Scenario: 不提前实现业务工具
+- **WHEN** 第一阶段实现 tool 相关能力
+- **THEN** 实现 MUST 只提供通用 tool bundle 合同、registry 和无业务 fixture tools
+- **AND** 实现 MUST NOT 提前实现具体业务 tool
 
 ### Requirement: Agent core 必须只依赖通用工具合同
 系统 SHALL 建立新的 Agent core。Agent core MUST NOT 依赖具体业务 tool name、旧 `AgentOrchestrator`、旧 `AgentExecutionResult`、旧 response writer、旧 intent-first 路径或旧 readonly loop。业务能力扩展 MUST 通过注册 tool bundle 完成。
 
 #### Scenario: 新增工具不修改核心循环
 - **WHEN** 开发者新增一个合法 tool bundle 并注册到 `ToolRegistry`
-- **THEN** orchestrator runtime、planner loop、executor、policy guard、resource contract validator 和 `/api/chat` 接入层 MUST 不需要新增业务分支
+- **THEN** orchestrator runtime、planner loop、executor、policy guard、resource contract validator、Response Adapter 主流程和 `/api/chat` 接入层 MUST 不需要新增业务分支
 - **AND** 新 tool MUST 能通过 manifest 暴露给 Planner
 
 #### Scenario: 旧实现残留冲突
@@ -46,7 +46,7 @@
 - **WHEN** Agent run 开始并根据当前 user/session/context 查询可用 tools
 - **THEN** registry MUST 返回已授权且启用的 tool manifests
 - **AND** manifest MUST 包含 tool name、description、input schema 摘要、output 摘要、resource contract、risk metadata 和 examples
-- **AND** manifest MUST NOT 包含 handler、数据库对象、完整 artifact payload 或用户敏感原始数据
+- **AND** manifest MUST NOT 包含 handler、数据库对象、完整 payload 或用户敏感原始数据
 
 #### Scenario: 重复注册 tool
 - **WHEN** 两个 tool 使用相同 `name` 注册
@@ -113,11 +113,11 @@
 - **AND** confirmation action hash MUST 由服务端根据稳定 action payload、userId、conversationId、toolName、resource refs 和过期时间生成
 
 ### Requirement: Response Adapter 必须只投影真实执行结果
-系统 SHALL 提供通用 Response Adapter，将 terminal action、tool results 和 registered tool response adapters 转成 `/api/chat` NDJSON 事件。Response Adapter MUST NOT 编造 tool 未产生的 artifact、建议或执行结果。
+系统 SHALL 提供通用 Response Adapter，将 terminal action、tool results 和 registered tool response adapters 转成 `/api/chat` NDJSON 事件。Response Adapter MUST NOT 编造 tool 未产生的用户可见结果。
 
 #### Scenario: final answer 引用 tool result
 - **WHEN** terminal action 引用当前 run 的 tool results
-- **THEN** Response Adapter MUST 从已登记 tool results 和对应 tool response adapter 生成 `content`、artifact、assistant suggestions、confirmation 或 `done` 事件
+- **THEN** Response Adapter MUST 从已登记 tool results 和对应 tool response adapter 生成 `content`、`tool_result`、`assistant_suggestions`、`confirmation_request`、`error` 或 `done` 事件
 - **AND** Response Adapter MUST 校验被引用资源存在且角色允许投影
 
 #### Scenario: final answer 引用不存在资源
@@ -151,29 +151,24 @@
 - **THEN** runtime MUST 能在不调用真实模型的情况下重放 tool loop、resource validation、policy guard 和 response adapter
 - **AND** replay 结果 MUST 可用于断言 NDJSON 事件和 resource contract
 
-### Requirement: 第一阶段必须跑通三类基础工具
-系统 SHALL 在第一阶段提供三类基础 tools 作为完整闭环验收样例：动作候选检索、读取 conversation artifact payload、保存 conversation artifact。三类 tools MUST 通过同一个 registry、runtime、policy guard、resource contract、response adapter、trace 和 `/api/chat` NDJSON 链路执行。
+### Requirement: 无业务 fixture tools 必须证明完整闭环
+系统 SHALL 在第一阶段提供无业务 fixture tools 验证完整闭环。Fixture tools MUST 覆盖只读调用、资源生产、资源消费、需要确认的写调用、诊断失败和 response projection。
 
-#### Scenario: 动作推荐工具闭环
-- **WHEN** 用户请求动作推荐
-- **THEN** Planner MUST 能调用动作候选检索 tool
-- **AND** tool MUST 返回可消费的 exercise candidate set
-- **AND** Response Adapter MUST 能输出用户可见推荐内容或 artifact 事件
-- **AND** `/api/chat` NDJSON stream MUST 能端到端返回该结果并以 `done` 收口
+#### Scenario: fixture tool 端到端调用
+- **WHEN** replay fixture 或 `/api/chat` 测试注册无业务 fixture tools
+- **THEN** Planner manifest MUST 能发现这些 tools
+- **AND** runtime MUST 能执行 tool call、校验 input/output schema、登记 tool results、生成 observation 并继续多轮调用
+- **AND** Response Adapter MUST 能输出 NDJSON events 并以 `done` 收口
 
-#### Scenario: 读取 artifact 工具闭环
-- **WHEN** 用户请求查看或解释当前用户可访问的 conversation artifact
-- **THEN** Planner MUST 能调用读取 artifact payload tool
-- **AND** tool MUST 校验 user/session 权限并返回可消费 payload resource
-- **AND** Response Adapter MUST 能基于真实 payload 输出回答或卡片重投影
-- **AND** trace/replay MUST 能复现该读取路径
+#### Scenario: fixture resource 被消费
+- **WHEN** resource producer fixture 产生 consumable resource
+- **THEN** resource consumer fixture MUST 能通过 `consumes` 引用该 resource
+- **AND** resource validator MUST 拒绝不存在、跨 run 或 diagnostic-only resource
 
-#### Scenario: 保存 artifact 工具闭环
-- **WHEN** Planner 请求保存经过校验的 conversation artifact
-- **THEN** Policy Guard MUST 校验写权限和确认边界
-- **AND** tool MUST 保存 artifact 或 revision 并返回可消费 persisted artifact resource
-- **AND** Response Adapter MUST 能输出保存成功的用户可见结果
-- **AND** `/api/chat` NDJSON stream MUST 能表达确认、保存结果和 `done` 收口
+#### Scenario: fixture 写操作需要确认
+- **WHEN** confirmation write fixture 未携带有效 confirmation
+- **THEN** Policy Guard MUST 阻止 handler 执行
+- **AND** runtime MUST 输出 confirmation request 和 action hash
 
 ### Requirement: 后续功能必须能通过只注册 tool 扩展
 系统 SHALL 提供扩展验收，证明新增业务能力只需新增并注册 tool bundle。Tool bundle MUST 自带 manifest、schema、resource contract、policy metadata、handler、trace projection 和 response adapter。
@@ -186,6 +181,6 @@
 - **AND** orchestrator 主循环代码 MUST 不发生修改
 
 #### Scenario: tool 试图要求 orchestrator 特殊分支
-- **WHEN** 新 tool 只能通过修改 orchestrator、executor、policy guard 或 `/api/chat` 主链才能工作
+- **WHEN** 新 tool 只能通过修改 orchestrator、executor、policy guard、response adapter 主流程或 `/api/chat` 主链才能工作
 - **THEN** 该 tool 扩展 MUST 被视为不合格
 - **AND** 实现 MUST 将缺失能力补入 tool bundle 合同或通用 core 合同
