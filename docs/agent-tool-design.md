@@ -122,36 +122,29 @@ type AgentToolDiagnostic = {
 
 ### 功能
 
-`searchExerciseResources` 根据 LLM 提供的结构化约束检索数据库动作，返回可被后续 draft 校验消费的候选集合。
+`searchExerciseResources` 根据 LLM 提供的结构化动作条件检索数据库动作，返回可被后续 draft 校验消费的候选集合。
 
 这个 tool 只做检索和资源登记：
 
-- 根据 `hardConstraints` 执行确定性过滤。
-- 根据 `softPreferences` 做排序、加权或多样性处理。
+- 根据 `filters` 执行确定性过滤。
+- 根据 `rankingHints` 做排序、加权或多样性处理。
 - 返回 `candidateSetId`，服务端保存完整候选动作 payload。
-- 给 LLM 返回精简候选摘要，供 LLM 写动作卡片或编排卡片草稿。
+- 给 LLM 返回精简候选摘要，供 LLM 在后续草稿中引用。
 
 这个 tool 不做：
 
 - 不判断用户到底是不是想练胸、减脂、康复或增肌。
 - 不替 LLM 决定最终推荐哪些动作。
 - 不生成卡片标题、推荐理由或训练编排。
+- 不区分后续要生成动作卡片、编排卡片、替换动作还是其它消费场景。
 - 不把泛化 `query` 当作唯一 hard filter 清空候选。
 
 ### 入参
 
 ```ts
 type SearchExerciseResourcesInput = {
-  purpose: "exercise_card" | "routine_card";
-  candidateUse:
-    | "exercise_recommendation"
-    | "routine_warmup"
-    | "routine_main"
-    | "routine_accessory"
-    | "routine_cooldown"
-    | "routine_any";
-  hardConstraints?: ExerciseHardConstraints;
-  softPreferences?: ExerciseSoftPreferences;
+  filters?: ExerciseSearchFilters;
+  rankingHints?: ExerciseRankingHints;
   resultRequirements: ExerciseSearchResultRequirements;
 };
 ```
@@ -160,21 +153,20 @@ type SearchExerciseResourcesInput = {
 
 | 参数 | 类型 | 必填 | 含义 |
 | --- | --- | --- | --- |
-| `purpose` | `"exercise_card" \| "routine_card"` | 是 | 本次检索服务于动作卡片还是编排卡片。它影响结果摘要形态和后续可消费场景，不代表 Tool 判断用户意图 |
-| `candidateUse` | 枚举 | 是 | 候选集合用途。编排卡片可以按 warmup/main/cooldown 分多次检索 |
-| `hardConstraints` | object | 否 | 必须严格满足的结构化条件。Tool 可以据此过滤数据库 |
-| `softPreferences` | object | 否 | 偏好条件。Tool 可以用于排序、加权、多样性，不应作为硬拒绝依据 |
-| `resultRequirements` | object | 是 | LLM 对候选数量、投影字段和多样性的要求 |
+| `filters` | object | 否 | 必须严格满足的动作库过滤条件。Tool 可以据此过滤数据库 |
+| `rankingHints` | object | 否 | 动作排序、召回和多样性提示。Tool 可以用于排序、加权、多样性，不应作为硬拒绝依据 |
+| `resultRequirements` | object | 是 | LLM 对候选数量和候选摘要字段的要求 |
 
-#### `ExerciseHardConstraints`
+#### `ExerciseSearchFilters`
 
 ```ts
-type ExerciseHardConstraints = {
+type ExerciseSearchFilters = {
   bodyRegions?: BodyRegion[];
   primaryMuscles?: string[];
   equipment?: string[];
   environment?: "home" | "gym" | "outdoor" | "any";
   level?: "beginner" | "intermediate" | "advanced";
+  movementPatterns?: string[];
   allowedExerciseIds?: string[];
   excludedExerciseIds?: string[];
   injuryLimitations?: string[];
@@ -189,17 +181,20 @@ type ExerciseHardConstraints = {
 | `equipment` | `string[]` | 否 | 允许使用的器械集合。Tool 应按数据库器械字段过滤 |
 | `environment` | `"home" \| "gym" \| "outdoor" \| "any"` | 否 | 训练环境约束。`any` 表示不按环境过滤 |
 | `level` | `"beginner" \| "intermediate" \| "advanced"` | 否 | 动作难度上限或目标难度。具体实现应定义为确定性枚举匹配或等级范围 |
+| `movementPatterns` | `string[]` | 否 | 必须命中的动作模式，例如 squat、hinge、push、pull、rotation、mobility |
 | `allowedExerciseIds` | `string[]` | 否 | 候选必须限制在这些动作 id 内，常用于后续引用已有候选池 |
 | `excludedExerciseIds` | `string[]` | 否 | 必须排除的动作 id |
 | `injuryLimitations` | `string[]` | 否 | LLM 结构化提取的限制标签。Tool 只能按已有动作禁忌或限制元数据过滤，不生成医疗建议 |
 | `requiresNoEquipment` | `boolean` | 否 | 是否强制徒手动作。为 `true` 时应与 `equipment` 做字段自洽校验 |
 
-#### `ExerciseSoftPreferences`
+#### `ExerciseRankingHints`
 
 ```ts
-type ExerciseSoftPreferences = {
+type ExerciseRankingHints = {
   goals?: TrainingGoal[];
   movementPatterns?: string[];
+  intensity?: "low" | "moderate" | "high";
+  durationFit?: "short" | "standard" | "long";
   preferredEquipment?: string[];
   avoidRecentlyUsed?: boolean;
   diversity?: {
@@ -214,13 +209,15 @@ type ExerciseSoftPreferences = {
 | 参数 | 类型 | 必填 | 含义 |
 | --- | --- | --- | --- |
 | `goals` | `TrainingGoal[]` | 否 | 训练目标偏好，例如 strength、hypertrophy、fat_loss、mobility。用于排序，不直接决定最终卡片内容 |
-| `movementPatterns` | `string[]` | 否 | 偏好的动作模式，例如 squat、hinge、push、pull、carry、rotation |
-| `preferredEquipment` | `string[]` | 否 | 偏好器械。区别于 `hardConstraints.equipment`，这里不应该硬过滤 |
+| `movementPatterns` | `string[]` | 否 | 偏好的动作模式，例如 squat、hinge、push、pull、carry、rotation、activation、mobility |
+| `intensity` | `"low" \| "moderate" \| "high"` | 否 | 期望动作强度，用于排序。例如热身检索可以偏向 `low`，主训练检索可以偏向 `moderate` 或 `high` |
+| `durationFit` | `"short" \| "standard" \| "long"` | 否 | 期望动作耗时区间，用于排序 |
+| `preferredEquipment` | `string[]` | 否 | 偏好器械。区别于 `filters.equipment`，这里不应该硬过滤 |
 | `avoidRecentlyUsed` | `boolean` | 否 | 是否降低近期已推荐或已训练动作的排序权重 |
 | `diversity.byBodyRegion` | `boolean` | 否 | 是否尽量让返回结果覆盖不同身体区域 |
 | `diversity.byMovementPattern` | `boolean` | 否 | 是否尽量覆盖不同动作模式 |
 | `diversity.byEquipment` | `boolean` | 否 | 是否尽量覆盖不同器械 |
-| `query` | `string` | 否 | LLM 给出的自然语言检索提示，只能用于文本召回或排序，不能覆盖结构化 hard constraints |
+| `query` | `string` | 否 | LLM 给出的自然语言检索提示，只能用于文本召回或排序，不能覆盖结构化 `filters` |
 
 #### `ExerciseSearchResultRequirements`
 
@@ -228,7 +225,7 @@ type ExerciseSoftPreferences = {
 type ExerciseSearchResultRequirements = {
   minCandidates?: number;
   maxCandidates: number;
-  projection: "model_summary" | "card_ready_summary";
+  projection: "model_summary" | "detailed_summary";
   includeAlternatives?: boolean;
 };
 ```
@@ -237,22 +234,20 @@ type ExerciseSearchResultRequirements = {
 | --- | --- | --- | --- |
 | `minCandidates` | `number` | 否 | LLM 期望的最少候选数量。无法满足时 Tool 返回 `satisfied = false` 和 diagnostics |
 | `maxCandidates` | `number` | 是 | 返回给 LLM 的最大候选数量。服务端可设置上限防止 token 膨胀 |
-| `projection` | `"model_summary" \| "card_ready_summary"` | 是 | 返回字段投影。`model_summary` 更瘦；`card_ready_summary` 可包含更多卡片展示所需摘要 |
-| `includeAlternatives` | `boolean` | 否 | 是否要求候选中包含替代动作，供 LLM 在草稿中自行选择 |
+| `projection` | `"model_summary" \| "detailed_summary"` | 是 | 返回字段投影。`model_summary` 更瘦；`detailed_summary` 可包含更多动作元数据摘要 |
+| `includeAlternatives` | `boolean` | 否 | 是否希望候选中保留替代动作，供后续草稿自行选择 |
 
 ### 出参
 
 ```ts
 type SearchExerciseResourcesOutput = {
   candidateSetId: string;
-  purpose: "exercise_card" | "routine_card";
-  candidateUse: SearchExerciseResourcesInput["candidateUse"];
   totalMatched: number;
   returnedCount: number;
   candidates: ExerciseCandidateSummary[];
-  appliedFilters: {
-    hardConstraints: string[];
-    softPreferences: string[];
+  executionSummary: {
+    filters: string[];
+    rankingHints: string[];
   };
 };
 ```
@@ -262,13 +257,11 @@ type SearchExerciseResourcesOutput = {
 | 字段 | 含义 |
 | --- | --- |
 | `candidateSetId` | 服务端登记的候选集合 id。后续 validate tool 必须通过它校验 `exerciseId` 来源 |
-| `purpose` | 回显本次候选集合服务的卡片类型 |
-| `candidateUse` | 回显候选用途，用于防止 warmup 候选被误消费为 main 候选等场景 |
-| `totalMatched` | 应用 hard constraints 后数据库命中的总数量 |
+| `totalMatched` | 应用 `filters` 后数据库命中的总数量 |
 | `returnedCount` | 返回给 LLM 的候选数量 |
 | `candidates` | 给 LLM 的候选摘要，不包含完整数据库 payload |
-| `appliedFilters.hardConstraints` | 实际执行的硬过滤说明 |
-| `appliedFilters.softPreferences` | 实际参与排序或加权的软偏好说明 |
+| `executionSummary.filters` | 实际执行的过滤说明 |
+| `executionSummary.rankingHints` | 实际参与排序或加权的排序提示说明 |
 
 #### `ExerciseCandidateSummary`
 
@@ -306,7 +299,7 @@ type ExerciseCandidateSummary = {
 
 这个 tool 只做：
 
-- 校验 `candidateSetId` 存在、属于当前用户/会话/Agent run，并且用途允许生成动作卡片。
+- 校验 `candidateSetId` 存在，并且属于当前用户、会话和 Agent run 可消费资源。
 - 校验每个 `exerciseId` 存在且来自候选集合。
 - 校验卡片标题、推荐理由、处方字段、排序字段等结构合法。
 - 登记 `exerciseCardDraftId` 和 `validationId`，用于 trace、幂等和后续引用。
@@ -504,7 +497,7 @@ type ValidateRoutineCardDraftInput = {
 
 | 参数 | 类型 | 必填 | 含义 |
 | --- | --- | --- | --- |
-| `candidateSetIds` | `string[]` | 是 | 本编排草稿允许消费的候选集合 id。可以包含 warmup/main/cooldown 多次检索结果 |
+| `candidateSetIds` | `string[]` | 是 | 本编排草稿允许消费的候选集合 id。可以包含多次按不同动作条件检索得到的结果 |
 | `routine` | `RoutineCardDraft` | 是 | LLM 写出的训练编排草稿 |
 | `validationOptions` | object | 否 | 校验选项，只影响确定性结构校验 |
 
@@ -686,8 +679,9 @@ type ConversationCardResponseEvent = {
 
 ```text
 1. LLM 调用 searchExerciseResources
-   purpose = "exercise_card"
-   candidateUse = "exercise_recommendation"
+   filters = { bodyRegions: ["legs"], requiresNoEquipment: true }
+   rankingHints = { goals: ["strength"], diversity: { byMovementPattern: true } }
+   resultRequirements = { maxCandidates: 8, projection: "model_summary" }
 
 2. LLM 基于 candidates 写 ExerciseCardDraft
 
@@ -702,16 +696,19 @@ type ConversationCardResponseEvent = {
 
 ```text
 1. LLM 调用 searchExerciseResources
-   purpose = "routine_card"
-   candidateUse = "routine_warmup"
+   filters = { requiresNoEquipment: true }
+   rankingHints = { movementPatterns: ["mobility", "activation"], intensity: "low" }
+   resultRequirements = { maxCandidates: 6, projection: "model_summary" }
 
 2. LLM 调用 searchExerciseResources
-   purpose = "routine_card"
-   candidateUse = "routine_main"
+   filters = { bodyRegions: ["legs"], requiresNoEquipment: true }
+   rankingHints = { goals: ["strength"], intensity: "moderate" }
+   resultRequirements = { maxCandidates: 10, projection: "model_summary" }
 
 3. LLM 调用 searchExerciseResources
-   purpose = "routine_card"
-   candidateUse = "routine_cooldown"
+   filters = { requiresNoEquipment: true }
+   rankingHints = { movementPatterns: ["stretch", "mobility"], intensity: "low" }
+   resultRequirements = { maxCandidates: 6, projection: "model_summary" }
 
 4. LLM 基于多个 candidateSetId 写 RoutineCardDraft
 
