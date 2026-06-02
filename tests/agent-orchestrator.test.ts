@@ -1198,6 +1198,14 @@ describe("agent orchestrator phase 3 workout tools", () => {
         },
       },
     });
+
+    if (!result?.ok) {
+      throw new Error("expected generateRoutineDraft to succeed");
+    }
+
+    const draftOutput = result.output as Extract<AgentWorkoutDraftOutput, { draftKind: "routine" }>;
+    expect(draftOutput.draft.summary).toBe("围绕胸肌训练安排了热身、主训练和拉伸，适合约 12 分钟完成。");
+    expect(draftOutput.draft.summary).not.toMatch(/受控候选|Validator|Policy|展示或保存前/);
   });
 
   it("rejects partial candidate sets before routine draft generation", async () => {
@@ -3381,6 +3389,23 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
         { kind: "operation_result", id: "operation-result-1" },
       ]),
     });
+    const generatedProjection = projectAgentExecutionResultToResponse({
+      result: {
+        status: "generated",
+        artifact: { artifactId: "artifact-1", kind: "routine", title: "居家训练" },
+        revisionId: "revision-1",
+        validationId: "validation-1",
+        usedToolResultIds: ["tool-result-generated"],
+      },
+      toolResults: [{
+        toolResultId: "tool-result-generated",
+        toolCallId: "tool-call-generated",
+        toolName: "saveConversationArtifactRevision",
+        status: "success",
+      }],
+    });
+    expect(generatedProjection.reply).toBe("已为你生成「居家训练」，可以在下方卡片查看训练内容。");
+    expect(generatedProjection.reply).not.toMatch(/结构校验|Validator|Policy/);
     expect(validateAgentResponseProjection({
       result: {
         status: "generated",

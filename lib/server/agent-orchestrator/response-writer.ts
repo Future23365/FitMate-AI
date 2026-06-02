@@ -81,7 +81,7 @@ export function projectAgentExecutionResultToResponse(
     case "generated":
       return {
         status: input.result.status,
-        reply: `已生成「${input.result.artifact.title}」，并通过训练结构校验。`,
+        reply: `已为你生成「${input.result.artifact.title}」，可以在下方卡片查看训练内容。`,
         assistantSuggestions: [],
         references,
         metadata: {

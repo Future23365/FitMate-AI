@@ -1678,7 +1678,7 @@ function buildRoutineDraftFromCandidates(
       kind: "routine",
       title: title ?? `${intent.goal}单次训练`,
       goal: intent.goal,
-      summary: `基于 ${routineBuckets.candidateExerciseIds.length} 个受控候选动作生成，展示或保存前仍需 Validator 与 Policy 结果。`,
+      summary: buildRoutineUserSummary(intent),
       estimatedSessionMinutes: intent.sessionMinutes,
       trainingLoopRounds: intent.experience === "beginner" ? 2 : 3,
       trainingLoopRestSeconds: intent.experience === "beginner" ? 90 : 75,
@@ -1689,6 +1689,11 @@ function buildRoutineDraftFromCandidates(
     }),
     candidateExerciseIds: routineBuckets.candidateExerciseIds,
   };
+}
+
+// buildRoutineUserSummary 只生成卡片可见说明，内部候选和校验细节留在 tool result 与 trace 中。
+function buildRoutineUserSummary(intent: WorkoutPlanIntent) {
+  return `围绕${intent.goal}安排了热身、主训练和拉伸，适合约 ${intent.sessionMinutes} 分钟完成。`;
 }
 
 // Routine 生成器以模型传入候选为必须保留集合，缺失阶段才从动作库做受控补齐。
