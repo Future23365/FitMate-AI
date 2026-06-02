@@ -1,760 +1,272 @@
-# Agent Tool 基础设计：动作卡片与编排卡片
+# Agent Tool 设计：`searchExerciseResources`
 
-本文只描述基础闭环：用户通过聊天让系统推送动作卡片或训练编排卡片。设计不依赖当前已有实现，目标是重新固定 Agent tool 的职责边界：
+本文只保留一个 Agent tool：`searchExerciseResources`。
 
-> LLM 产出语义草稿，Tool 只做检索、校验、资源登记和卡片生效。
+这个 tool 的唯一职责是：根据当前动作数据库和动作列表查询接口已经支持的筛选字段，筛选并返回动作数据。
 
-## 设计结论
+## 设计原则
 
-基础能力需要 3 个 tool：
+1. `searchExerciseResources` 只查动作库，不生成动作卡片、不生成训练编排、不校验草稿、不保存 artifact。
+2. LLM 负责把用户自然语言理解成结构化查询参数；服务端只执行这些参数对应的确定性数据库筛选。
+3. Tool 入参只包含当前动作查询已支持的字段，不引入候选裁剪、历史排除、伤病语义判断、卡片用途或编排用途。
+4. Tool 失败只返回结构化查询错误；不建议下一个 tool，也不替 LLM 决定后续流程。
 
-| Tool | 类型 | 核心职责 |
+## 当前支持的筛选字段来源
+
+本设计以当前代码中的动作列表查询合同为准：
+
+- `lib/shared/exercises/query-schema.ts`
+- `prisma/schema.prisma` 中的 `Exercise` 模型字段
+
+当前可用于 `searchExerciseResources` 的查询字段包括：
+
+| 字段 | 来源 | 说明 |
 | --- | --- | --- |
-| `searchExerciseResources` | 检索 | 根据 LLM 给出的结构化条件检索数据库动作，登记 `candidateSetId` |
-| `validateExerciseCardDraft` | 校验 + 生效 | 校验 LLM 写出的动作卡片草稿；通过后直接生成会话卡片 artifact/revision 和 `responseEvent` |
-| `validateRoutineCardDraft` | 校验 + 生效 | 校验 LLM 写出的编排卡片草稿；通过后直接生成会话卡片 artifact/revision 和 `responseEvent` |
+| `q` | `exerciseListQuerySchema.q` | 文本搜索 |
+| `category` | `Exercise.category/categoryZh` | 动作分类 |
+| `suitability` | `Exercise.allowedSections` | 动作用途适配度 |
+| `level` | `Exercise.level/levelZh` | 难度 |
+| `force` | `Exercise.force/forceZh` | 发力类型 |
+| `mechanic` | `Exercise.mechanic/mechanicZh` | 动作机制 |
+| `equipment` | `Exercise.equipment/equipmentZh` | 器械 |
+| `homeRequirement` | `Exercise.homeRequirement/homeRequirementZh` | 居家条件 |
+| `muscle` | `Exercise.primaryMuscles/secondaryMuscles` 及中文字段 | 肌群 |
+| `goalTag` | `Exercise.goalTags` | 目标标签 |
+| `riskTag` | `Exercise.riskTags` | 风险标签 |
+| `published` | `Exercise.isPublished` | 是否已发布 |
+| `sort` | `exerciseSortSchema` | 排序 |
+| `limit` / `offset` | `exerciseListQuerySchema` | 数量与偏移 |
 
-不建议把动作卡片和编排卡片的校验合并成一个 tool。动作卡片校验重点是候选动作、推荐理由和单项处方；编排卡片校验重点是 section、训练顺序、处方结构、总时长和动作覆盖。合并后 schema 会过宽，LLM 更容易把字段写错层级。
-
-## 总体链路
-
-```text
-用户自然语言
-  ↓
-LLM 理解语义，决定需要动作卡片或编排卡片
-  ↓
-searchExerciseResources
-  ↓
-LLM 基于候选动作写语义草稿
-  ↓
-validateExerciseCardDraft / validateRoutineCardDraft
-  ↓
-Response Writer 推送动作卡片 / 编排卡片
-```
-
-## 边界原则
-
-1. LLM 是语义来源。用户目标、训练偏好、调整方向、卡片标题、推荐理由、编排意图都由 LLM 产出。
-2. Tool 不读取用户原文做关键词判断，不根据自然语言改写 LLM 的高层语义。
-3. Tool 只执行结构化入参表达的确定性操作，包括检索、存在性校验、权限校验、候选集合校验、结构校验、资源登记和卡片生效。
-4. 校验 tool 成功后直接生成用户可见卡片 artifact/revision，不再拆出额外写入步骤，也不要求 LLM 重放大 JSON。
-5. Tool 失败时返回结构化 diagnostics，LLM 可以据此重新检索、重写草稿或向用户澄清；Tool 不自动修复语义草稿。
-
-## 隐式上下文
-
-以下字段由服务端运行时注入，不允许 LLM 在 tool 入参中提供：
-
-| 字段 | 含义 |
-| --- | --- |
-| `userId` | 当前用户 id，用于动作可见性、会话数据和 artifact 权限隔离 |
-| `conversationId` | 当前会话 id，用于绑定本轮生成的卡片 artifact |
-| `agentRunId` | 当前 Agent run id，用于约束资源只能在本轮或允许的会话上下文中消费 |
-| `traceId` | 当前 AI trace id，用于记录 tool decision、tool result 和后续消费关系 |
-| `locale` | 当前默认展示语言；LLM 可以在入参中要求输出语言，但最终权限和环境上下文来自服务端 |
-| `now` | 服务端当前时间，用于 artifact revision、trace 和幂等判断 |
-
-这些字段必须进入权限校验和 trace，但不应该进入 LLM 可写 schema。
-
-## 通用 Tool Result 外壳
-
-每个 tool 都应该返回统一外壳，便于 Agent runtime 判断结果是否可被后续步骤消费。
-
-```ts
-type AgentToolResultEnvelope<TOutput> = {
-  toolResultId: string;
-  toolName: string;
-  status: "success" | "failed";
-  satisfied: boolean;
-  output?: TOutput;
-  diagnostics?: AgentToolDiagnostic[];
-  evidence: AgentToolEvidence;
-  modelSummary: string;
-  traceSummary: AgentToolTraceSummary;
-};
-```
-
-### 通用出参字段说明
-
-| 字段 | 含义 |
-| --- | --- |
-| `toolResultId` | 本次 tool 执行结果 id。后续 tool 可以通过具体资源 id 消费结果，但 trace 仍应保留 `toolResultId` |
-| `toolName` | 执行的 tool 名称 |
-| `status` | 执行状态。`success` 表示 schema、权限和确定性执行通过；`failed` 表示本次结果不可直接作为写入依据 |
-| `satisfied` | 本次 tool 是否满足 LLM 在入参中表达的结构化请求。`status = "success"` 但 `satisfied = false` 时，结果只能用于解释或澄清，不能触发卡片生效 |
-| `output` | tool 成功时的结构化输出 |
-| `diagnostics` | tool 失败或部分满足时的结构化诊断信息 |
-| `evidence` | 执行证据，例如应用了哪些 hard filters、校验了哪些 resource id、生成了哪个 revision |
-| `modelSummary` | 给下一轮 LLM 看的短摘要，只包含决策必要信息，不包含完整 payload |
-| `traceSummary` | 给 trace/debug UI 使用的摘要，可以包含更多工程调试字段，但必须脱敏 |
-
-### 通用 Diagnostic
-
-```ts
-type AgentToolDiagnostic = {
-  path?: string;
-  code:
-    | "invalid_input"
-    | "candidate_set_not_found"
-    | "candidate_set_unsatisfied"
-    | "exercise_not_found"
-    | "exercise_not_in_candidate_set"
-    | "draft_invalid"
-    | "draft_not_found"
-    | "validation_not_found"
-    | "permission_denied"
-    | "publish_failed"
-    | "needs_more_candidates";
-  message: string;
-  recoverable: boolean;
-  recoveryHints?: AgentToolRecoveryHints;
-};
-
-type AgentToolRecoveryHints = {
-  canRetrySameTool?: boolean;
-  canSearchMoreCandidates?: boolean;
-  mustRewriteDraft?: boolean;
-  mustAskUser?: boolean;
-};
-```
-
-| 字段 | 含义 |
-| --- | --- |
-| `path` | 出错字段路径，例如 `items[0].exerciseId` 或 `routine.sections[1].exercises[2].prescription.sets` |
-| `code` | 机器可读错误码 |
-| `message` | 给 LLM 和 trace 使用的简短错误说明，不直接等同于用户可见文案 |
-| `recoverable` | 是否可以通过修改结构化入参、重新检索、重写草稿或补字段在同一轮 Agent loop 内恢复 |
-| `recoveryHints` | 可选结构化恢复提示。它只描述错误恢复边界，不替 LLM 选择下一个 tool |
-
-#### `AgentToolRecoveryHints`
-
-| 字段 | 含义 |
-| --- | --- |
-| `canRetrySameTool` | LLM 修改当前 tool 入参后，可以重试同一个 tool，例如补齐缺失字段或修正枚举 |
-| `canSearchMoreCandidates` | 当前错误可以通过重新检索或扩大候选集合恢复，例如候选不足或草稿引用了候选外动作 |
-| `mustRewriteDraft` | 当前 draft 结构或引用不合法，LLM 必须重写草稿后再提交校验 |
-| `mustAskUser` | 当前结构化信息不足以恢复，LLM 应向用户澄清，而不是继续猜测 |
-
-`recoveryHints` 不能包含具体 tool 名。Agent runtime 和 LLM 可以根据 diagnostics 自行决定下一步，但服务端不能把确定性错误诊断升级成语义流程指令。
-
-## Tool 1：`searchExerciseResources`
+## Tool：`searchExerciseResources`
 
 ### 功能
 
-`searchExerciseResources` 根据 LLM 提供的结构化动作条件检索数据库动作，返回可被后续 draft 校验消费的候选集合。
+`searchExerciseResources` 接收结构化动作查询参数，按当前动作库支持的字段查询 `Exercise` 数据，并返回动作列表。
 
-这个 tool 只做检索和资源登记：
+这个 tool 只做：
 
-- 根据 `filters` 执行确定性过滤。
-- 根据 `rankingHints` 做排序、加权或多样性处理。
-- 返回 `candidateSetId`，服务端保存完整候选动作 payload。
-- 给 LLM 返回精简候选摘要，供 LLM 在后续草稿中引用。
+- 校验查询参数结构、枚举值、分页数量。
+- 根据查询参数筛选动作数据。
+- 返回动作数据和本次查询摘要。
 
 这个 tool 不做：
 
-- 不判断用户到底是不是想练胸、减脂、康复或增肌。
-- 不替 LLM 决定最终推荐哪些动作。
-- 不生成卡片标题、推荐理由或训练编排。
-- 不区分后续要生成动作卡片、编排卡片、替换动作还是其它消费场景。
-- 不把泛化 `query` 当作唯一 hard filter 清空候选。
+- 不判断用户真实训练意图。
+- 不区分动作卡片、编排卡片、替换动作或计划生成。
+- 不接收 `allowedExerciseIds` / `excludedExerciseIds` 这类候选消费约束。
+- 不接收 `injuryLimitations` 这类自然语言风险语义字段。
+- 不接收 `requiresNoEquipment` 这类重复语义字段；徒手或无器械应通过 `equipment` 或 `homeRequirement` 表达。
+- 不生成 `candidateSetId`。
+- 不保存、发布或登记任何会话 artifact。
 
 ### 入参
 
 ```ts
 type SearchExerciseResourcesInput = {
-  filters?: ExerciseSearchFilters;
-  rankingHints?: ExerciseRankingHints;
-  resultRequirements: ExerciseSearchResultRequirements;
+  q?: string;
+  category?: string;
+  suitability?: "warmup" | "training" | "stretch";
+  level?: string;
+  force?: string;
+  mechanic?: string;
+  equipment?: string;
+  homeRequirement?: string;
+  muscle?: string;
+  goalTag?: string;
+  riskTag?: string;
+  published?: boolean;
+  sort?: "name_asc" | "name_desc" | "level_asc" | "level_desc" | "category_asc" | "category_desc";
+  limit?: number;
+  offset?: number;
 };
 ```
 
-#### 顶层参数说明
+### 入参字段说明
 
 | 参数 | 类型 | 必填 | 含义 |
 | --- | --- | --- | --- |
-| `filters` | object | 否 | 必须严格满足的动作库过滤条件。Tool 可以据此过滤数据库 |
-| `rankingHints` | object | 否 | 动作排序、召回和多样性提示。Tool 可以用于排序、加权、多样性，不应作为硬拒绝依据 |
-| `resultRequirements` | object | 是 | LLM 对候选数量和候选摘要字段的要求 |
-
-#### `ExerciseSearchFilters`
-
-```ts
-type ExerciseSearchFilters = {
-  bodyRegions?: BodyRegion[];
-  primaryMuscles?: string[];
-  equipment?: string[];
-  environment?: "home" | "gym" | "outdoor" | "any";
-  level?: "beginner" | "intermediate" | "advanced";
-  movementPatterns?: string[];
-  allowedExerciseIds?: string[];
-  excludedExerciseIds?: string[];
-  injuryLimitations?: string[];
-  requiresNoEquipment?: boolean;
-};
-```
-
-| 参数 | 类型 | 必填 | 含义 |
-| --- | --- | --- | --- |
-| `bodyRegions` | `BodyRegion[]` | 否 | 必须覆盖的身体区域，例如 `chest`、`back`、`legs`。Tool 只按动作元数据过滤，不判断用户语义是否正确 |
-| `primaryMuscles` | `string[]` | 否 | 必须命中的主训练肌群。值应来自系统动作库肌群标识 |
-| `equipment` | `string[]` | 否 | 允许使用的器械集合。Tool 应按数据库器械字段过滤 |
-| `environment` | `"home" \| "gym" \| "outdoor" \| "any"` | 否 | 训练环境约束。`any` 表示不按环境过滤 |
-| `level` | `"beginner" \| "intermediate" \| "advanced"` | 否 | 动作难度上限或目标难度。具体实现应定义为确定性枚举匹配或等级范围 |
-| `movementPatterns` | `string[]` | 否 | 必须命中的动作模式，例如 squat、hinge、push、pull、rotation、mobility |
-| `allowedExerciseIds` | `string[]` | 否 | 候选必须限制在这些动作 id 内，常用于后续引用已有候选池 |
-| `excludedExerciseIds` | `string[]` | 否 | 必须排除的动作 id |
-| `injuryLimitations` | `string[]` | 否 | LLM 结构化提取的限制标签。Tool 只能按已有动作禁忌或限制元数据过滤，不生成医疗建议 |
-| `requiresNoEquipment` | `boolean` | 否 | 是否强制徒手动作。为 `true` 时应与 `equipment` 做字段自洽校验 |
-
-#### `ExerciseRankingHints`
-
-```ts
-type ExerciseRankingHints = {
-  goals?: TrainingGoal[];
-  movementPatterns?: string[];
-  intensity?: "low" | "moderate" | "high";
-  durationFit?: "short" | "standard" | "long";
-  preferredEquipment?: string[];
-  avoidRecentlyUsed?: boolean;
-  diversity?: {
-    byBodyRegion?: boolean;
-    byMovementPattern?: boolean;
-    byEquipment?: boolean;
-  };
-  query?: string;
-};
-```
-
-| 参数 | 类型 | 必填 | 含义 |
-| --- | --- | --- | --- |
-| `goals` | `TrainingGoal[]` | 否 | 训练目标偏好，例如 strength、hypertrophy、fat_loss、mobility。用于排序，不直接决定最终卡片内容 |
-| `movementPatterns` | `string[]` | 否 | 偏好的动作模式，例如 squat、hinge、push、pull、carry、rotation、activation、mobility |
-| `intensity` | `"low" \| "moderate" \| "high"` | 否 | 期望动作强度，用于排序。例如热身检索可以偏向 `low`，主训练检索可以偏向 `moderate` 或 `high` |
-| `durationFit` | `"short" \| "standard" \| "long"` | 否 | 期望动作耗时区间，用于排序 |
-| `preferredEquipment` | `string[]` | 否 | 偏好器械。区别于 `filters.equipment`，这里不应该硬过滤 |
-| `avoidRecentlyUsed` | `boolean` | 否 | 是否降低近期已推荐或已训练动作的排序权重 |
-| `diversity.byBodyRegion` | `boolean` | 否 | 是否尽量让返回结果覆盖不同身体区域 |
-| `diversity.byMovementPattern` | `boolean` | 否 | 是否尽量覆盖不同动作模式 |
-| `diversity.byEquipment` | `boolean` | 否 | 是否尽量覆盖不同器械 |
-| `query` | `string` | 否 | LLM 给出的自然语言检索提示，只能用于文本召回或排序，不能覆盖结构化 `filters` |
-
-#### `ExerciseSearchResultRequirements`
-
-```ts
-type ExerciseSearchResultRequirements = {
-  minCandidates?: number;
-  maxCandidates: number;
-  projection: "model_summary" | "detailed_summary";
-  includeAlternatives?: boolean;
-};
-```
-
-| 参数 | 类型 | 必填 | 含义 |
-| --- | --- | --- | --- |
-| `minCandidates` | `number` | 否 | LLM 期望的最少候选数量。无法满足时 Tool 返回 `satisfied = false` 和 diagnostics |
-| `maxCandidates` | `number` | 是 | 返回给 LLM 的最大候选数量。服务端可设置上限防止 token 膨胀 |
-| `projection` | `"model_summary" \| "detailed_summary"` | 是 | 返回字段投影。`model_summary` 更瘦；`detailed_summary` 可包含更多动作元数据摘要 |
-| `includeAlternatives` | `boolean` | 否 | 是否希望候选中保留替代动作，供后续草稿自行选择 |
+| `q` | `string` | 否 | 文本搜索关键字。可匹配动作名称、分类、肌群、器械、说明或可检索文本 |
+| `category` | `string` | 否 | 动作分类筛选，对应 `Exercise.category` 或 `Exercise.categoryZh` |
+| `suitability` | `"warmup" \| "training" \| "stretch"` | 否 | 动作用途适配度筛选，对应 `Exercise.allowedSections` |
+| `level` | `string` | 否 | 难度筛选，对应 `Exercise.level` 或 `Exercise.levelZh` |
+| `force` | `string` | 否 | 发力类型筛选，对应 `Exercise.force` 或 `Exercise.forceZh` |
+| `mechanic` | `string` | 否 | 动作机制筛选，对应 `Exercise.mechanic` 或 `Exercise.mechanicZh` |
+| `equipment` | `string` | 否 | 器械筛选，对应 `Exercise.equipment` 或 `Exercise.equipmentZh` |
+| `homeRequirement` | `string` | 否 | 居家条件筛选，对应 `Exercise.homeRequirement` 或 `Exercise.homeRequirementZh` |
+| `muscle` | `string` | 否 | 肌群筛选，对应 `primaryMuscles`、`primaryMusclesZh`、`secondaryMuscles`、`secondaryMusclesZh` |
+| `goalTag` | `string` | 否 | 目标标签筛选，对应 `Exercise.goalTags` |
+| `riskTag` | `string` | 否 | 风险标签筛选，对应 `Exercise.riskTags` |
+| `published` | `boolean` | 否 | 是否只返回已发布动作，对应 `Exercise.isPublished` |
+| `sort` | 枚举 | 否 | 排序方式。缺省由服务端使用默认排序 |
+| `limit` | `number` | 否 | 返回数量上限。服务端必须设置最大值保护 |
+| `offset` | `number` | 否 | 查询偏移量，用于分页 |
 
 ### 出参
 
 ```ts
 type SearchExerciseResourcesOutput = {
-  candidateSetId: string;
-  totalMatched: number;
+  total: number;
   returnedCount: number;
-  candidates: ExerciseCandidateSummary[];
-  executionSummary: {
-    filters: string[];
-    rankingHints: string[];
-  };
+  limit: number;
+  offset: number;
+  sort: "name_asc" | "name_desc" | "level_asc" | "level_desc" | "category_asc" | "category_desc";
+  appliedFilters: SearchExerciseAppliedFilter[];
+  exercises: SearchExerciseResource[];
 };
 ```
 
-#### 出参字段说明
+### 出参字段说明
 
 | 字段 | 含义 |
 | --- | --- |
-| `candidateSetId` | 服务端登记的候选集合 id。后续 validate tool 必须通过它校验 `exerciseId` 来源 |
-| `totalMatched` | 应用 `filters` 后数据库命中的总数量 |
-| `returnedCount` | 返回给 LLM 的候选数量 |
-| `candidates` | 给 LLM 的候选摘要，不包含完整数据库 payload |
-| `executionSummary.filters` | 实际执行的过滤说明 |
-| `executionSummary.rankingHints` | 实际参与排序或加权的排序提示说明 |
+| `total` | 满足筛选条件的动作总数 |
+| `returnedCount` | 本次实际返回的动作数量 |
+| `limit` | 本次实际使用的返回数量上限 |
+| `offset` | 本次实际使用的偏移量 |
+| `sort` | 本次实际使用的排序方式 |
+| `appliedFilters` | 服务端实际执行的筛选条件摘要 |
+| `exercises` | 动作数据列表 |
 
-#### `ExerciseCandidateSummary`
+#### `SearchExerciseAppliedFilter`
 
 ```ts
-type ExerciseCandidateSummary = {
-  exerciseId: string;
-  name: string;
-  bodyRegions: BodyRegion[];
+type SearchExerciseAppliedFilter = {
+  field: keyof SearchExerciseResourcesInput;
+  value: string | boolean | number;
+};
+```
+
+| 字段 | 含义 |
+| --- | --- |
+| `field` | 被执行的查询字段 |
+| `value` | 被执行的查询值 |
+
+#### `SearchExerciseResource`
+
+```ts
+type SearchExerciseResource = {
+  id: string;
+  nameZh: string;
+  nameEn: string;
+  category?: string | null;
+  categoryZh?: string | null;
+  level?: string | null;
+  levelZh?: string | null;
+  force?: string | null;
+  forceZh?: string | null;
+  mechanic?: string | null;
+  mechanicZh?: string | null;
+  equipment?: string | null;
+  equipmentZh?: string | null;
+  homeRequirement: string;
+  homeRequirementZh: string;
   primaryMuscles: string[];
-  equipment: string[];
-  level: "beginner" | "intermediate" | "advanced";
-  movementPatterns: string[];
-  estimatedMinutes?: number;
-  matchEvidence: string[];
+  primaryMusclesZh: string[];
+  secondaryMuscles: string[];
+  secondaryMusclesZh: string[];
+  allowedSections: string[];
+  goalTags: string[];
+  riskTags: string[];
+  imageUrls: string[];
+  isPublished: boolean;
+};
+```
+
+### 动作字段说明
+
+| 字段 | 含义 |
+| --- | --- |
+| `id` | 动作 id |
+| `nameZh` | 中文动作名 |
+| `nameEn` | 英文动作名 |
+| `category` / `categoryZh` | 动作分类 |
+| `level` / `levelZh` | 动作难度 |
+| `force` / `forceZh` | 发力类型 |
+| `mechanic` / `mechanicZh` | 动作机制 |
+| `equipment` / `equipmentZh` | 器械 |
+| `homeRequirement` / `homeRequirementZh` | 居家条件 |
+| `primaryMuscles` / `primaryMusclesZh` | 主肌群 |
+| `secondaryMuscles` / `secondaryMusclesZh` | 辅助肌群 |
+| `allowedSections` | 动作用途适配度，例如 warmup、training、stretch |
+| `goalTags` | 目标标签 |
+| `riskTags` | 风险标签 |
+| `imageUrls` | 动作图片 URL |
+| `isPublished` | 是否已发布 |
+
+## 错误返回
+
+```ts
+type SearchExerciseResourcesError = {
+  status: "failed";
+  code: "invalid_input" | "invalid_enum" | "invalid_pagination" | "database_unavailable";
+  field?: keyof SearchExerciseResourcesInput;
+  message: string;
 };
 ```
 
 | 字段 | 含义 |
 | --- | --- |
-| `exerciseId` | 数据库动作 id。LLM 写草稿时只能引用这个 id |
-| `name` | 动作名称，用于 LLM 组织卡片文案 |
-| `bodyRegions` | 动作覆盖身体区域 |
-| `primaryMuscles` | 主训练肌群 |
-| `equipment` | 动作所需器械 |
-| `level` | 动作难度 |
-| `movementPatterns` | 动作模式标签 |
-| `estimatedMinutes` | 单个动作常规耗时估计，主要服务编排草稿 |
-| `matchEvidence` | 为什么这个动作进入候选集合的确定性证据摘要，不是推荐理由 |
+| `status` | 固定为 `failed` |
+| `code` | 机器可读错误码 |
+| `field` | 出错字段 |
+| `message` | 错误说明 |
 
-## Tool 2：`validateExerciseCardDraft`
+## 示例
 
-### 功能
-
-`validateExerciseCardDraft` 校验 LLM 写出的动作卡片草稿。校验通过后，Tool 立即把这份草稿生效为当前会话中的动作卡片 artifact/revision，并返回 Response Writer 可以直接推送的 `responseEvent`。
-
-这个 tool 只做：
-
-- 校验 `candidateSetId` 存在，并且属于当前用户、会话和 Agent run 可消费资源。
-- 校验每个 `exerciseId` 存在且来自候选集合。
-- 校验卡片标题、推荐理由、处方字段、排序字段等结构合法。
-- 登记 `exerciseCardDraftId` 和 `validationId`，用于 trace、幂等和后续引用。
-- 生成动作卡片 `artifactId`、`revisionId` 和 `responseEvent`，让本轮回复可以直接推送卡片。
-
-这个 tool 不做：
-
-- 不替 LLM 选择动作。
-- 不判断推荐理由是否“语义正确”。
-- 不根据用户原文重写卡片标题、理由或处方。
-- 不把候选外动作静默替换成候选内动作。
-- 不等待额外写入步骤；校验通过就是卡片生效边界。
-
-### 入参
+### 查询徒手腿部训练动作
 
 ```ts
-type ValidateExerciseCardDraftInput = {
-  candidateSetId: string;
-  card: ExerciseCardDraft;
-  validationOptions?: ExerciseCardValidationOptions;
-};
+{
+  "q": "腿部",
+  "equipment": "徒手",
+  "level": "beginner",
+  "published": true,
+  "sort": "name_asc",
+  "limit": 12,
+  "offset": 0
+}
 ```
 
-#### 顶层参数说明
-
-| 参数 | 类型 | 必填 | 含义 |
-| --- | --- | --- | --- |
-| `candidateSetId` | `string` | 是 | `searchExerciseResources` 返回的候选集合 id |
-| `card` | `ExerciseCardDraft` | 是 | LLM 写出的动作卡片草稿 |
-| `validationOptions` | object | 否 | 校验选项，只能影响确定性校验严格度，不影响语义选择 |
-
-#### `ExerciseCardDraft`
+### 查询适合热身的动作
 
 ```ts
-type ExerciseCardDraft = {
-  title: string;
-  summary?: string;
-  selectionMode: "single" | "multiple";
-  items: ExerciseCardDraftItem[];
-};
+{
+  "suitability": "warmup",
+  "homeRequirement": "居家",
+  "published": true,
+  "limit": 10
+}
 ```
 
-| 参数 | 类型 | 必填 | 含义 |
-| --- | --- | --- | --- |
-| `title` | `string` | 是 | 卡片标题，由 LLM 根据用户目标生成 |
-| `summary` | `string` | 否 | 卡片摘要，用于解释本组动作的整体用途 |
-| `selectionMode` | `"single" \| "multiple"` | 是 | 卡片是单动作推荐还是多动作推荐 |
-| `items` | `ExerciseCardDraftItem[]` | 是 | 动作卡片条目。每个条目必须引用候选集合内的 `exerciseId` |
-
-#### `ExerciseCardDraftItem`
+### 查询带风险标签的动作
 
 ```ts
-type ExerciseCardDraftItem = {
-  exerciseId: string;
-  displayName?: string;
-  role: "primary" | "alternative" | "supplemental";
-  reason: string;
-  prescription?: ExercisePrescription;
-  priority: number;
-  cautions?: string[];
-};
+{
+  "riskTag": "knee",
+  "published": true,
+  "limit": 20
+}
 ```
 
-| 参数 | 类型 | 必填 | 含义 |
-| --- | --- | --- | --- |
-| `exerciseId` | `string` | 是 | 被推荐动作 id，必须来自 `candidateSetId` |
-| `displayName` | `string` | 否 | LLM 想展示的动作名。Tool 可校验长度，但不把它当数据库事实 |
-| `role` | `"primary" \| "alternative" \| "supplemental"` | 是 | 条目在动作卡片中的角色。`primary` 是主推荐，`alternative` 是替代动作，`supplemental` 是补充动作 |
-| `reason` | `string` | 是 | LLM 生成的推荐理由。Tool 只校验存在、长度和安全边界，不判断语义准确性 |
-| `prescription` | `ExercisePrescription` | 否 | 可选动作处方，例如组数、次数、时长、休息 |
-| `priority` | `number` | 是 | 展示排序，数值越小越靠前 |
-| `cautions` | `string[]` | 否 | LLM 生成的注意事项。Tool 只做长度、安全和禁止医疗诊断边界校验 |
+## 不支持的入参
 
-#### `ExercisePrescription`
+以下字段不属于当前 `searchExerciseResources` 设计：
 
-```ts
-type ExercisePrescription = {
-  sets?: number;
-  reps?: {
-    min?: number;
-    max?: number;
-    text?: string;
-  };
-  durationSeconds?: number;
-  restSeconds?: number;
-  tempo?: string;
-  intensity?: {
-    rpe?: number;
-    text?: string;
-  };
-};
-```
-
-| 参数 | 类型 | 必填 | 含义 |
-| --- | --- | --- | --- |
-| `sets` | `number` | 否 | 建议组数 |
-| `reps.min` | `number` | 否 | 最少次数 |
-| `reps.max` | `number` | 否 | 最多次数 |
-| `reps.text` | `string` | 否 | LLM 需要表达非数字次数时使用，例如 `尽量保持动作质量` |
-| `durationSeconds` | `number` | 否 | 单组或单次持续秒数，适合平板支撑、拉伸等动作 |
-| `restSeconds` | `number` | 否 | 组间休息秒数 |
-| `tempo` | `string` | 否 | 节奏说明，例如 `3-1-1` |
-| `intensity.rpe` | `number` | 否 | RPE 强度，必须在确定范围内 |
-| `intensity.text` | `string` | 否 | 强度文字说明 |
-
-#### `ExerciseCardValidationOptions`
-
-```ts
-type ExerciseCardValidationOptions = {
-  allowAlternatives?: boolean;
-  maxItems?: number;
-  requirePrescription?: boolean;
-};
-```
-
-| 参数 | 类型 | 必填 | 含义 |
-| --- | --- | --- | --- |
-| `allowAlternatives` | `boolean` | 否 | 是否允许 `role = "alternative"` 的条目 |
-| `maxItems` | `number` | 否 | 最大条目数，防止卡片过长 |
-| `requirePrescription` | `boolean` | 否 | 是否要求每个条目都包含 `prescription` |
-
-### 出参
-
-```ts
-type ValidateExerciseCardDraftOutput = {
-  exerciseCardDraftId: string;
-  validationId: string;
-  candidateSetId: string;
-  artifactId: string;
-  revisionId: string;
-  responseEvent: ConversationCardResponseEvent;
-  acceptedExerciseIds: string[];
-  rejectedExerciseIds: string[];
-  cardSummary: {
-    title: string;
-    itemCount: number;
-    primaryExerciseIds: string[];
-  };
-  warnings: AgentToolDiagnostic[];
-};
-```
-
-#### 出参字段说明
-
-| 字段 | 含义 |
+| 字段 | 不支持原因 |
 | --- | --- |
-| `exerciseCardDraftId` | 服务端登记的动作卡片草稿 id，用于 trace、幂等和后续引用 |
-| `validationId` | 本次校验 id，用于证明 artifact/revision 来自已校验草稿 |
-| `candidateSetId` | 本草稿消费的候选集合 id |
-| `artifactId` | 校验通过后生成的会话卡片 artifact id |
-| `revisionId` | 校验通过后生成的 artifact revision id。前端渲染和后续引用应以它为稳定版本事实 |
-| `responseEvent` | Response Writer 可以推送给前端的安全卡片事件 |
-| `acceptedExerciseIds` | 校验通过并进入草稿资源的动作 id |
-| `rejectedExerciseIds` | 因不存在、越权或不在候选集合中被拒绝的动作 id |
-| `cardSummary.title` | 校验通过后的卡片标题 |
-| `cardSummary.itemCount` | 卡片条目数量 |
-| `cardSummary.primaryExerciseIds` | 主推荐动作 id |
-| `warnings` | 不阻止卡片生效的结构化警告，例如缺少可选处方、替代动作过多 |
-
-## Tool 3：`validateRoutineCardDraft`
-
-### 功能
-
-`validateRoutineCardDraft` 校验 LLM 写出的训练编排卡片草稿。校验通过后，Tool 立即把这份草稿生效为当前会话中的编排卡片 artifact/revision，并返回 Response Writer 可以直接推送的 `responseEvent`。
-
-这个 tool 只做：
-
-- 校验 `candidateSetIds` 存在、可访问，且属于当前 Agent run 可消费资源。
-- 校验所有 `exerciseId` 存在并来自允许的候选集合。
-- 校验 section 结构、动作顺序、处方字段、预计时长和重复动作边界。
-- 登记 `routineCardDraftId` 和 `validationId`，用于 trace、幂等和后续引用。
-- 生成编排卡片 `artifactId`、`revisionId` 和 `responseEvent`，让本轮回复可以直接推送卡片。
-
-这个 tool 不做：
-
-- 不根据用户原文补 warmup、main 或 cooldown。
-- 不替换不合适动作。
-- 不根据关键词判断用户是不是要减脂、增肌或康复。
-- 不把动作编排成另一套语义目标。
-- 不等待额外写入步骤；校验通过就是卡片生效边界。
-
-如果校验发现动作不足或 section 缺失，Tool 应返回 diagnostics，LLM 决定是重新检索、重写草稿，还是向用户澄清。
-
-### 入参
-
-```ts
-type ValidateRoutineCardDraftInput = {
-  candidateSetIds: string[];
-  routine: RoutineCardDraft;
-  validationOptions?: RoutineCardValidationOptions;
-};
-```
-
-#### 顶层参数说明
-
-| 参数 | 类型 | 必填 | 含义 |
-| --- | --- | --- | --- |
-| `candidateSetIds` | `string[]` | 是 | 本编排草稿允许消费的候选集合 id。可以包含多次按不同动作条件检索得到的结果 |
-| `routine` | `RoutineCardDraft` | 是 | LLM 写出的训练编排草稿 |
-| `validationOptions` | object | 否 | 校验选项，只影响确定性结构校验 |
-
-#### `RoutineCardDraft`
-
-```ts
-type RoutineCardDraft = {
-  title: string;
-  goalSummary: string;
-  estimatedSessionMinutes?: number;
-  sections: RoutineSectionDraft[];
-  notes?: string[];
-};
-```
-
-| 参数 | 类型 | 必填 | 含义 |
-| --- | --- | --- | --- |
-| `title` | `string` | 是 | 编排卡片标题，由 LLM 生成 |
-| `goalSummary` | `string` | 是 | 本套训练编排的目标摘要，由 LLM 生成 |
-| `estimatedSessionMinutes` | `number` | 否 | LLM 估计的整套训练时长。Tool 可与处方估算时长做确定性一致性检查 |
-| `sections` | `RoutineSectionDraft[]` | 是 | 训练段落，例如热身、主训练、放松 |
-| `notes` | `string[]` | 否 | LLM 生成的整体注意事项。Tool 只做安全边界和长度校验 |
-
-#### `RoutineSectionDraft`
-
-```ts
-type RoutineSectionDraft = {
-  sectionId: string;
-  kind: "warmup" | "main" | "accessory" | "cooldown" | "mobility" | "stretch";
-  title: string;
-  intent: string;
-  order: number;
-  exercises: RoutineExerciseDraft[];
-};
-```
-
-| 参数 | 类型 | 必填 | 含义 |
-| --- | --- | --- | --- |
-| `sectionId` | `string` | 是 | LLM 生成的段落本地 id，用于 diagnostics 定位 |
-| `kind` | 枚举 | 是 | 段落类型。Tool 只校验枚举合法性和结构边界 |
-| `title` | `string` | 是 | 段落标题 |
-| `intent` | `string` | 是 | 段落训练意图说明，由 LLM 生成 |
-| `order` | `number` | 是 | 段落排序 |
-| `exercises` | `RoutineExerciseDraft[]` | 是 | 本段落中的动作列表 |
-
-#### `RoutineExerciseDraft`
-
-```ts
-type RoutineExerciseDraft = {
-  exerciseId: string;
-  sourceCandidateSetId?: string;
-  role: "warmup" | "primary" | "secondary" | "accessory" | "cooldown" | "stretch";
-  order: number;
-  prescription: ExercisePrescription;
-  coachingNote?: string;
-};
-```
-
-| 参数 | 类型 | 必填 | 含义 |
-| --- | --- | --- | --- |
-| `exerciseId` | `string` | 是 | 编排中使用的数据库动作 id，必须来自 `candidateSetIds` 中的某个候选集合 |
-| `sourceCandidateSetId` | `string` | 否 | LLM 声明该动作来自哪个候选集合。缺省时 Tool 可在 `candidateSetIds` 中查找，但不能跨越未声明资源 |
-| `role` | 枚举 | 是 | 动作在编排中的角色。它是草稿结构，不是 Tool 对用户语义的判断 |
-| `order` | `number` | 是 | 动作在当前 section 内的排序 |
-| `prescription` | `ExercisePrescription` | 是 | 动作处方。编排卡片中应必填，方便估算时长和渲染卡片 |
-| `coachingNote` | `string` | 否 | LLM 生成的执行提示 |
-
-#### `RoutineCardValidationOptions`
-
-```ts
-type RoutineCardValidationOptions = {
-  targetMinutes?: number;
-  allowedSectionKinds?: RoutineSectionDraft["kind"][];
-  allowDuplicateExercises?: boolean;
-  requireWarmup?: boolean;
-  requireCooldown?: boolean;
-};
-```
-
-| 参数 | 类型 | 必填 | 含义 |
-| --- | --- | --- | --- |
-| `targetMinutes` | `number` | 否 | 目标训练时长。Tool 可以用确定性估算检查偏差，但不能据此重写编排 |
-| `allowedSectionKinds` | `RoutineSectionDraft["kind"][]` | 否 | 本次允许出现的 section 类型 |
-| `allowDuplicateExercises` | `boolean` | 否 | 是否允许同一 `exerciseId` 在不同 section 重复出现 |
-| `requireWarmup` | `boolean` | 否 | 是否要求包含 warmup section |
-| `requireCooldown` | `boolean` | 否 | 是否要求包含 cooldown、mobility 或 stretch 收尾 section |
-
-### 出参
-
-```ts
-type ValidateRoutineCardDraftOutput = {
-  routineCardDraftId: string;
-  validationId: string;
-  candidateSetIds: string[];
-  artifactId: string;
-  revisionId: string;
-  responseEvent: ConversationCardResponseEvent;
-  acceptedExerciseIds: string[];
-  rejectedExerciseIds: string[];
-  routineSummary: {
-    title: string;
-    sectionCount: number;
-    exerciseCount: number;
-    estimatedMinutes: number;
-    sectionSummaries: RoutineSectionSummary[];
-  };
-  warnings: AgentToolDiagnostic[];
-};
-```
-
-#### 出参字段说明
-
-| 字段 | 含义 |
-| --- | --- |
-| `routineCardDraftId` | 服务端登记的编排卡片草稿 id，用于 trace、幂等和后续引用 |
-| `validationId` | 本次校验 id，用于证明 artifact/revision 来自已校验草稿 |
-| `candidateSetIds` | 本草稿消费的候选集合 id 列表 |
-| `artifactId` | 校验通过后生成的会话卡片 artifact id |
-| `revisionId` | 校验通过后生成的 artifact revision id。前端渲染和后续引用应以它为稳定版本事实 |
-| `responseEvent` | Response Writer 可以推送给前端的安全卡片事件 |
-| `acceptedExerciseIds` | 校验通过并进入编排草稿的动作 id |
-| `rejectedExerciseIds` | 因不存在、越权或不在候选集合中被拒绝的动作 id |
-| `routineSummary.title` | 编排卡片标题 |
-| `routineSummary.sectionCount` | 训练段落数量 |
-| `routineSummary.exerciseCount` | 动作数量 |
-| `routineSummary.estimatedMinutes` | Tool 根据处方确定性估算的训练时长 |
-| `routineSummary.sectionSummaries` | 每个 section 的结构摘要 |
-| `warnings` | 不阻止卡片生效的结构化警告，例如时长偏差、重复动作、缺少可选 notes |
-
-#### `RoutineSectionSummary`
-
-```ts
-type RoutineSectionSummary = {
-  sectionId: string;
-  kind: RoutineSectionDraft["kind"];
-  title: string;
-  exerciseCount: number;
-  exerciseIds: string[];
-  estimatedMinutes: number;
-};
-```
-
-| 字段 | 含义 |
-| --- | --- |
-| `sectionId` | 对应草稿 section id |
-| `kind` | section 类型 |
-| `title` | section 标题 |
-| `exerciseCount` | section 内动作数量 |
-| `exerciseIds` | section 内动作 id 列表 |
-| `estimatedMinutes` | section 的确定性估算时长 |
-
-## 用户可见卡片事件
-
-`validateExerciseCardDraft` 和 `validateRoutineCardDraft` 校验通过后都必须返回 `ConversationCardResponseEvent`。Response Writer 只消费这个事件和 artifact/revision 引用来推送卡片，不读取 LLM 原始草稿。
-
-```ts
-type ConversationCardResponseEvent = {
-  type: "conversation_card";
-  cardKind: "exercise_card" | "routine_card";
-  artifactId: string;
-  revisionId: string;
-  title: string;
-  renderResourceId: string;
-};
-```
-
-| 字段 | 含义 |
-| --- | --- |
-| `type` | 前端事件类型。基础闭环固定为 `conversation_card` |
-| `cardKind` | 前端需要渲染的卡片类型 |
-| `artifactId` | 会话 artifact id |
-| `revisionId` | artifact revision id |
-| `title` | 用户可见卡片标题 |
-| `renderResourceId` | 前端读取卡片渲染数据的资源 id。它应指向服务端生效后的安全投影，而不是 LLM 原始输出 |
-
-## 典型调用示例
-
-### 推送动作卡片
-
-```text
-1. LLM 调用 searchExerciseResources
-   filters = { bodyRegions: ["legs"], requiresNoEquipment: true }
-   rankingHints = { goals: ["strength"], diversity: { byMovementPattern: true } }
-   resultRequirements = { maxCandidates: 8, projection: "model_summary" }
-
-2. LLM 基于 candidates 写 ExerciseCardDraft
-
-3. LLM 调用 validateExerciseCardDraft
-   candidateSetId = 上一步返回的 candidateSetId
-   校验通过后直接返回 artifactId / revisionId / responseEvent
-
-4. Response Writer 根据 validateExerciseCardDraft.output.responseEvent 推送动作卡片
-```
-
-### 推送编排卡片
-
-```text
-1. LLM 调用 searchExerciseResources
-   filters = { requiresNoEquipment: true }
-   rankingHints = { movementPatterns: ["mobility", "activation"], intensity: "low" }
-   resultRequirements = { maxCandidates: 6, projection: "model_summary" }
-
-2. LLM 调用 searchExerciseResources
-   filters = { bodyRegions: ["legs"], requiresNoEquipment: true }
-   rankingHints = { goals: ["strength"], intensity: "moderate" }
-   resultRequirements = { maxCandidates: 10, projection: "model_summary" }
-
-3. LLM 调用 searchExerciseResources
-   filters = { requiresNoEquipment: true }
-   rankingHints = { movementPatterns: ["stretch", "mobility"], intensity: "low" }
-   resultRequirements = { maxCandidates: 6, projection: "model_summary" }
-
-4. LLM 基于多个 candidateSetId 写 RoutineCardDraft
-
-5. LLM 调用 validateRoutineCardDraft
-   candidateSetIds = [warmupCandidateSetId, mainCandidateSetId, cooldownCandidateSetId]
-   校验通过后直接返回 artifactId / revisionId / responseEvent
-
-6. Response Writer 根据 validateRoutineCardDraft.output.responseEvent 推送编排卡片
-```
-
-## 不纳入基础闭环的 Tool
-
-以下能力后续可以加，但不应该混进“推送动作卡片和编排卡片”的基础 tool：
-
-| Tool | 暂不纳入原因 |
-| --- | --- |
-| `generateRoutineDraft` | 名称和职责暗示 Tool 生成语义草稿，容易违背“LLM 产出语义草稿” |
-| `recommendExercises` | 名称暗示 Tool 决定推荐结果，应该拆成检索和 LLM 草稿 |
-| `repairRoutineDraft` | 修复语义草稿应由 LLM 根据 diagnostics 重写，Tool 不做语义修复 |
-| `resolveExistingCardReference` | 用于修改上一张卡片或引用历史卡片，不是首次推送基础闭环 |
-| `validateCardPatchDraft` | 用于修改已有卡片，不是首次生成 |
-| `evaluatePolicy` | 用户确认、风险策略、长期计划保存等高影响写入再引入；当前仅推送会话卡片可以先不纳入 |
+| `purpose` | 这是后续消费场景，不是动作数据库筛选字段 |
+| `candidateUse` | 这是后续消费场景，不是动作数据库筛选字段 |
+| `allowedExerciseIds` | 这是候选裁剪或引用约束，不是基础动作库筛选字段 |
+| `excludedExerciseIds` | 这是消费侧排除逻辑，不是基础动作库筛选字段 |
+| `injuryLimitations` | 这是自然语言风险语义，不应由检索 tool 判断 |
+| `requiresNoEquipment` | 与 `equipment` / `homeRequirement` 重复，应使用已有筛选字段表达 |
+| `movementPatterns` | 当前动作列表查询 schema 未暴露该筛选字段，基础 tool 不先设计 |
+| `rankingHints` | 当前目标是按数据库支持字段筛选，不设计额外排序提示 |
 
 ## 最小可验收标准
 
-1. LLM 可以通过 `searchExerciseResources` 拿到数据库动作候选。
-2. 动作卡片只能引用候选集合中的 `exerciseId`。
-3. 编排卡片所有动作都必须来自已声明的 `candidateSetIds`。
-4. 通过 validate 的草稿必须直接生效为会话卡片 artifact/revision，并返回 draft id、validation id 和 `responseEvent`。
-5. Response Writer 只消费 validate tool 返回的 `responseEvent` 和 artifact/revision 引用，不读取 LLM 原始草稿。
-6. 任一 tool 失败时必须返回结构化 diagnostics，不能生成 artifact/revision，也不能推送卡片事件。
+1. 系统只注册 `searchExerciseResources` 这一个 Agent tool。
+2. Tool 入参只包含当前动作查询支持的筛选、排序和分页字段。
+3. Tool 不返回 `candidateSetId`，只返回筛选得到的动作数据。
+4. Tool 不生成卡片、不校验草稿、不保存 artifact、不输出 `responseEvent`。
+5. Tool 对未知字段、非法枚举和非法分页返回结构化错误。
