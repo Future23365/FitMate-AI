@@ -16,6 +16,7 @@ import {
   saveConversationArtifactRevisionAgentToolInputSchema,
   validateAgentResponseProjection,
   type AgentWorkoutDraftOutput,
+  type AgentToolCapabilityContract,
   type AgentToolDefinition,
   type AgentToolExecutionContext,
 } from "@/lib/server/agent-orchestrator";
@@ -32,6 +33,7 @@ const artifactMocks = vi.hoisted(() => ({
 }));
 const exerciseMocks = vi.hoisted(() => ({
   exerciseBodyRegionValues: ["upper_body", "lower_body", "core", "full_body"],
+  exerciseMatchesCandidateSetFilters: vi.fn(() => true),
   getExerciseById: vi.fn(),
   listAllExercises: vi.fn(),
   searchExercises: vi.fn(),
@@ -469,6 +471,8 @@ describe("agent orchestrator phase 2 readonly tools", () => {
     artifactMocks.listRecentArtifacts.mockReset();
     artifactMocks.searchArtifactsDetailed.mockReset();
     exerciseMocks.getExerciseById.mockReset();
+    exerciseMocks.exerciseMatchesCandidateSetFilters.mockReset();
+    exerciseMocks.exerciseMatchesCandidateSetFilters.mockReturnValue(true);
     exerciseMocks.listAllExercises.mockReset();
     exerciseMocks.searchExercises.mockReset();
     prismaMocks.userProfile.findUnique.mockReset();
@@ -484,6 +488,8 @@ describe("agent orchestrator phase 2 readonly tools", () => {
       "getExerciseById",
       "getUserMemory",
       "listRecentArtifacts",
+      "queryUserMemory",
+      "resolveArtifactReference",
       "searchArtifacts",
       "searchExercises",
     ]);
@@ -683,6 +689,25 @@ describe("agent orchestrator phase 2 readonly tools", () => {
     expect(searchTool?.description).toContain("allowedSections 可用 warmup/training/stretch");
     expect(searchTool?.description).toContain("弹力带");
     expect(searchTool?.description).toContain("臀部、股四头肌、腘绳肌");
+    expect(searchTool?.capabilityContract).toMatchObject({
+      operationKind: "structured_search",
+      supportedOperations: ["build_exercise_candidate_set"],
+      inputContract: expect.objectContaining({
+        requiredFields: expect.arrayContaining([
+          "operation for executable candidateUse",
+          "filters for executable candidateUse",
+          "resultRequirements for routine/plan/patch",
+        ]),
+        hardConstraintFields: expect.arrayContaining(["filters.bodyRegions", "filters.equipment", "filters.allowedSections"]),
+        resultRequirementFields: expect.arrayContaining(["minCandidates", "sectionCoverage", "requireProof"]),
+      }),
+    });
+    expect(searchTool?.toolRequestContractSummary).toMatchObject({
+      supportedOperations: ["build_exercise_candidate_set"],
+      hardConstraints: expect.arrayContaining(["filters.bodyRegions", "filters.equipment", "filters.allowedSections"]),
+      resultRequirements: expect.arrayContaining(["minCandidates", "sectionCoverage", "requireProof"]),
+      projection: expect.any(Array),
+    });
   });
 
   it("recovers searchExercises once when structured facet diagnostics provide retry suggestions", async () => {
@@ -700,7 +725,7 @@ describe("agent orchestrator phase 2 readonly tools", () => {
           query: undefined,
           filters: {
             visibility: "published",
-            candidateUse: "routine",
+            candidateUse: "answer_only",
             targetMuscles: ["upper body"],
             equipment: ["dumbbell"],
           },
@@ -723,7 +748,7 @@ describe("agent orchestrator phase 2 readonly tools", () => {
           query: undefined,
           filters: {
             visibility: "published",
-            candidateUse: "routine",
+            candidateUse: "answer_only",
             targetMuscles: ["肱二头肌"],
             equipment: ["dumbbell"],
           },
@@ -744,7 +769,7 @@ describe("agent orchestrator phase 2 readonly tools", () => {
 
     await expect(registry.get("searchExercises")?.execute(
       {
-        candidateUse: "routine",
+        candidateUse: "answer_only",
         targetMuscles: ["upper body"],
         equipment: ["dumbbell"],
         visibility: "published",
@@ -824,6 +849,90 @@ describe("agent orchestrator phase 2 readonly tools", () => {
       }),
     }));
   });
+
+  it("returns structured ambiguity when resolving an artifact reference is not unique", async () => {
+    artifactMocks.searchArtifactsDetailed.mockResolvedValue({
+      candidates: [
+        {
+          artifactId: "artifact-1",
+          kind: "routine",
+          title: "上肢训练 A",
+          exerciseIds: [],
+          goals: [],
+          muscles: [],
+          equipment: [],
+          updatedAt: "2026-06-01T01:00:00.000Z",
+        },
+        {
+          artifactId: "artifact-2",
+          kind: "routine",
+          title: "上肢训练 B",
+          exerciseIds: [],
+          goals: [],
+          muscles: [],
+          equipment: [],
+          updatedAt: "2026-06-01T02:00:00.000Z",
+        },
+      ],
+      diagnostics: {
+        query: undefined,
+        filters: { userId: "user-1", sessionId: "chat-1", kind: "routine" },
+        recalledCount: 2,
+        filteredCount: 0,
+        rerank: [],
+        finalCandidateIds: ["artifact-1", "artifact-2"],
+        failureReasons: [],
+      },
+    });
+    const registry = createReadonlyAgentToolRegistry();
+
+    await expect(registry.get("resolveArtifactReference")?.execute(
+      {
+        operation: "resolve_artifact_reference",
+        referenceKind: "latest",
+        kind: "routine",
+        requireUnique: true,
+      },
+      createToolExecutionContext(),
+    )).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "ambiguous_resource",
+        detail: expect.objectContaining({
+          ambiguousCandidateIds: ["artifact-1", "artifact-2"],
+        }),
+      },
+    });
+  });
+
+  it("returns unverifiable_result when structured user memory query has no coverage", async () => {
+    prismaMocks.userMemory.findMany.mockResolvedValue([]);
+    const registry = createReadonlyAgentToolRegistry();
+
+    await expect(registry.get("queryUserMemory")?.execute(
+      {
+        operation: "query_user_memory",
+        filters: {
+          kind: ["constraint"],
+          subjectType: ["equipment"],
+          confirmed: true,
+        },
+        limit: 5,
+      },
+      createToolExecutionContext(),
+    )).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "unverifiable_result",
+        detail: expect.objectContaining({
+          coverageDiagnostics: expect.objectContaining({
+            matchedCount: 0,
+            unverifiable: true,
+          }),
+        }),
+      },
+    });
+  });
 });
 
 describe("agent orchestrator phase 3 workout tools", () => {
@@ -874,7 +983,7 @@ describe("agent orchestrator phase 3 workout tools", () => {
       createToolExecutionContext(),
     )).resolves.toMatchObject({
       ok: false,
-      error: { code: "schema_validation_failed" },
+      error: { code: "missing_required_parameter" },
     });
     expect(exerciseMocks.searchExercises).not.toHaveBeenCalled();
   });
@@ -904,7 +1013,7 @@ describe("agent orchestrator phase 3 workout tools", () => {
       intent: createWorkoutPlanIntent({ intentType: "routine", sessionMinutes: 12 }),
       candidateSetId: "candidate-set-1",
       candidateExerciseIds: ["warmup", "push-up", "stretch"],
-    }, createToolExecutionContext());
+    }, createCandidateSetContext("candidate-set-1", ["warmup", "push-up", "stretch"]));
 
     expect(result).toMatchObject({
       ok: true,
@@ -970,7 +1079,7 @@ describe("agent orchestrator phase 3 workout tools", () => {
       candidateSetId: "candidate-set-1",
       candidateExerciseIds: specifiedIds,
       title: "弹力带臀腿训练",
-    }, createToolExecutionContext());
+    }, createCandidateSetContext("candidate-set-1", ["Band_Warmup", ...specifiedIds]));
 
     expect(result).toMatchObject({
       ok: true,
@@ -1053,11 +1162,11 @@ describe("agent orchestrator phase 3 workout tools", () => {
         sessionMinutes: 30,
       }),
       candidateSetId: "candidate-set-artifact-1",
-      candidateExerciseIds: ["Otis-Up"],
+      candidateExerciseIds: requiredIds,
       sourceArtifactId: "artifact-rec-1",
       requiredExerciseIds: requiredIds,
       title: "臀腿训练 30分钟",
-    }, createToolExecutionContext());
+    }, createCandidateSetContext("candidate-set-artifact-1", ["Warmup_March", ...requiredIds, "Cooldown_Stretch"]));
 
     expect(artifactMocks.getActiveArtifactPayload).toHaveBeenCalledWith({
       userId: "user-1",
@@ -1089,7 +1198,6 @@ describe("agent orchestrator phase 3 workout tools", () => {
     const allDraftExerciseIds = draftOutput.draft.sections.flatMap((section) => section.items.map((item) => item.exerciseId));
 
     expect(allDraftExerciseIds).toEqual(expect.arrayContaining(requiredIds));
-    expect(allDraftExerciseIds).not.toContain("Otis-Up");
   });
 
   it("rejects artifact-bound routine required exercises outside the source artifact", async () => {
@@ -1118,7 +1226,7 @@ describe("agent orchestrator phase 3 workout tools", () => {
       sourceArtifactId: "artifact-rec-1",
       requiredExerciseIds: ["Side_Standing_Long_Jump", "Otis-Up"],
       title: "臀腿训练 30分钟",
-    }, createToolExecutionContext());
+    }, createCandidateSetContext("candidate-set-artifact-1", ["Side_Standing_Long_Jump", "Otis-Up"]));
 
     expect(result).toMatchObject({
       ok: false,
@@ -1133,7 +1241,7 @@ describe("agent orchestrator phase 3 workout tools", () => {
     expect(exerciseMocks.listAllExercises).not.toHaveBeenCalled();
   });
 
-  it("supplements warmup and stretch when a routine only has training candidates", async () => {
+  it("fails when a routine candidate set cannot cover required warmup and stretch sections", async () => {
     exerciseMocks.listAllExercises.mockResolvedValue([
       createExercise({
         id: "Band_Warmup",
@@ -1163,20 +1271,12 @@ describe("agent orchestrator phase 3 workout tools", () => {
       }),
       candidateSetId: "candidate-set-1",
       candidateExerciseIds: ["Squats_-_With_Bands"],
-    }, createToolExecutionContext());
+    }, createCandidateSetContext("candidate-set-1", ["Squats_-_With_Bands"]));
 
     expect(result).toMatchObject({
-      ok: true,
-      output: {
-        draftKind: "routine",
-        candidateExerciseIds: expect.arrayContaining(["Band_Warmup", "Squats_-_With_Bands", "Band_Stretch"]),
-        draft: {
-          sections: [
-            expect.objectContaining({ section: "warmup" }),
-            expect.objectContaining({ section: "training" }),
-            expect.objectContaining({ section: "stretch" }),
-          ],
-        },
+      ok: false,
+      error: {
+        code: "result_requirement_unmet",
       },
     });
   });
@@ -1208,7 +1308,7 @@ describe("agent orchestrator phase 3 workout tools", () => {
       candidateSetId: "candidate-set-1",
       candidateExerciseIds: ["warmup", "push-up", "stretch"],
       title: "上肢哑铃训练",
-    }, createToolExecutionContext());
+    }, createCandidateSetContext("candidate-set-1", ["warmup", "push-up", "stretch"]));
 
     expect(generation).toMatchObject({
       ok: true,
@@ -1226,7 +1326,7 @@ describe("agent orchestrator phase 3 workout tools", () => {
     const validation = await registry.get("validateRoutineDraft")?.execute({
       draftId: draftOutput.draftId,
       candidateSetId: draftOutput.candidateSetId,
-      candidateExerciseIds: ["push-up"],
+      candidateExerciseIds: ["warmup", "push-up", "stretch"],
       intent,
       draft: {
         title: "上肢哑铃训练",
@@ -1248,6 +1348,7 @@ describe("agent orchestrator phase 3 workout tools", () => {
       },
     }, createToolExecutionContext({
       toolResults: [
+        createCandidateSetToolResult(draftOutput.candidateSetId, ["warmup", "push-up", "stretch"]),
         {
           toolResultId: generation.toolResultId,
           toolCallId: "tool-call-generate-routine",
@@ -1308,7 +1409,7 @@ describe("agent orchestrator phase 3 workout tools", () => {
       candidateSetId: "candidate-set-upper-body",
       candidateExerciseIds: ["warmup", "dumbbell-row", "stretch"],
       title: "上肢训练 30 分钟 - 哑铃",
-    }, createToolExecutionContext());
+    }, createCandidateSetContext("candidate-set-upper-body", ["warmup", "dumbbell-row", "stretch"]));
 
     expect(result).toMatchObject({
       ok: true,
@@ -1373,7 +1474,7 @@ describe("agent orchestrator phase 3 workout tools", () => {
         },
         defaultAssumptions: [],
       },
-    }, createToolExecutionContext());
+    }, createCandidateSetContext("candidate-set-plan", ["warmup", "push-up", "stretch"], {}, "plan"));
 
     expect(result).toMatchObject({
       ok: true,
@@ -1424,7 +1525,7 @@ describe("agent orchestrator phase 3 workout tools", () => {
         }],
         reason: "不用哑铃，换一个",
       },
-    }, createToolExecutionContext());
+    }, createCandidateSetContext("candidate-set-1", ["bodyweight-row"], {}, "patch"));
 
     expect(result).toMatchObject({
       ok: false,
@@ -1774,6 +1875,14 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
       accessLevel: "read",
       inputSchema: z.object({ artifactId: z.string().min(1) }),
       dependencies: [],
+      capabilityContract: createTestCapabilityContract({
+        operationKind: "exact_read",
+        supportedOperations: ["get_artifact_payload"],
+        inputContract: { requiredFields: ["artifactId"] },
+        produces: ["artifact_payload"],
+        evidence: ["artifactId"],
+        failureCodes: ["not_found", "tool_execution_failed"],
+      }),
       getIdempotencyKey(input, context) {
         return `${context.runId}:${input.artifactId}`;
       },
@@ -1859,6 +1968,14 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
       accessLevel: "read",
       inputSchema: z.object({ artifactId: z.string().min(1) }),
       dependencies: [],
+      capabilityContract: createTestCapabilityContract({
+        operationKind: "exact_read",
+        supportedOperations: ["get_artifact_payload"],
+        inputContract: { requiredFields: ["artifactId"] },
+        produces: ["artifact_payload"],
+        evidence: ["artifactId"],
+        failureCodes: ["not_found", "tool_execution_failed"],
+      }),
       getIdempotencyKey(input, context) {
         return `${context.runId}:${input.artifactId}`;
       },
@@ -1904,6 +2021,14 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
       accessLevel: "read",
       inputSchema: z.object({ artifactId: z.string().min(1) }),
       dependencies: [],
+      capabilityContract: createTestCapabilityContract({
+        operationKind: "exact_read",
+        supportedOperations: ["get_artifact_payload"],
+        inputContract: { requiredFields: ["artifactId"] },
+        produces: ["artifact_payload"],
+        evidence: ["artifactPayloadId", "revisionResolution"],
+        failureCodes: ["not_found", "tool_execution_failed"],
+      }),
       getIdempotencyKey(input, context) {
         return `${context.runId}:${input.artifactId}`;
       },
@@ -2052,8 +2177,22 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
             action: "call_tool",
             toolName: "searchExercises",
             input: {
+              operation: "build_exercise_candidate_set",
               query: "上肢",
               candidateUse: "routine",
+              filters: {
+                equipment: { notIn: ["哑铃"] },
+                visibility: "published",
+              },
+              resultRequirements: {
+                minCandidates: 3,
+                sectionCoverage: {
+                  warmup: { min: 1 },
+                  training: { min: 1 },
+                  stretch: { min: 1 },
+                },
+                requireProof: true,
+              },
               goal: "上肢力量",
               equipmentAvoided: ["哑铃"],
               limit: 6,
@@ -2214,8 +2353,21 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
             action: "call_tool",
             toolName: "searchExercises",
             input: {
+              operation: "build_exercise_candidate_set",
               query: "上肢",
               candidateUse: "routine",
+              filters: {
+                visibility: "published",
+              },
+              resultRequirements: {
+                minCandidates: 3,
+                sectionCoverage: {
+                  warmup: { min: 1 },
+                  training: { min: 1 },
+                  stretch: { min: 1 },
+                },
+                requireProof: true,
+              },
               goal: "上肢力量",
               limit: 6,
             },
@@ -2390,8 +2542,21 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
             action: "call_tool",
             toolName: "searchExercises",
             input: {
+              operation: "build_exercise_candidate_set",
               query: "上肢",
               candidateUse: "routine",
+              filters: {
+                visibility: "published",
+              },
+              resultRequirements: {
+                minCandidates: 3,
+                sectionCoverage: {
+                  warmup: { min: 1 },
+                  training: { min: 1 },
+                  stretch: { min: 1 },
+                },
+                requireProof: true,
+              },
               goal: "上肢力量",
               limit: 6,
             },
@@ -2644,6 +2809,10 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
     expect(prompt).toContain("candidateUse=\"routine\"");
     expect(prompt).toContain("generateRoutineDraft");
     expect(prompt).toContain("禁止只用 answered 输出自由文本 routine");
+    expect(prompt).toContain("operation=\"build_exercise_candidate_set\"");
+    expect(prompt).toContain("filters");
+    expect(prompt).toContain("resultRequirements");
+    expect(prompt).toContain("query 只能作为召回或排序提示，不是 hard constraint");
     expect(prompt).toContain("experience=\"beginner\"");
     expect(prompt).toContain("weeklyFrequency 可使用 1");
   });
@@ -2770,6 +2939,12 @@ function createReadTool(): AgentToolDefinition<{ scope: "current_user" }, { fact
     accessLevel: "read",
     inputSchema: z.object({ scope: z.literal("current_user") }),
     dependencies: [],
+    capabilityContract: createTestCapabilityContract({
+      operationKind: "memory_snapshot",
+      supportedOperations: ["read_memory_snapshot"],
+      produces: ["memory_snapshot"],
+      evidence: ["facts"],
+    }),
     getIdempotencyKey(input, context) {
       return `${context.runId}:${input.scope}`;
     },
@@ -2801,6 +2976,20 @@ function createWriteTool(): AgentToolDefinition<{ validationId: string }, { revi
       { kind: "validation", required: true, description: "必须引用当前 run 的 validationId。" },
       { kind: "policy_decision", required: true, description: "必须引用当前 run 的 policyDecisionId。" },
     ],
+    capabilityContract: createTestCapabilityContract({
+      operationKind: "persistence",
+      supportedOperations: ["save_revision"],
+      inputContract: {
+        resourceRefs: ["validationId", "policyDecisionId"],
+      },
+      executionContract: {
+        writes: ["ConversationArtifact"],
+        strictness: "validated_compile",
+      },
+      produces: ["revision"],
+      evidence: ["revisionId"],
+      failureCodes: ["invalid_dependency", "persistence_failed"],
+    }),
     domainCapability: {
       openspecChange: "replace-chat-orchestrator-with-tool-first-agent",
       capabilityId: "conversation-artifact-revision-write",
@@ -2847,6 +3036,13 @@ function createUserProfilePolicyTool(): AgentToolDefinition<
       location: z.string().min(1),
     }),
     dependencies: [],
+    capabilityContract: createTestCapabilityContract({
+      operationKind: "policy",
+      supportedOperations: ["evaluate_user_profile_policy"],
+      produces: ["policy_decision"],
+      evidence: ["policyDecisionId"],
+      failureCodes: ["policy_blocked", "tool_execution_failed"],
+    }),
     getIdempotencyKey(input, context) {
       return `${context.runId}:policy:${input.location}`;
     },
@@ -2884,6 +3080,21 @@ function createUserProfileWriteTool(): AgentToolDefinition<
     dependencies: [
       { kind: "policy_decision", required: true, description: "必须经过用户资料写入策略评估。" },
     ],
+    capabilityContract: createTestCapabilityContract({
+      operationKind: "persistence",
+      supportedOperations: ["update_user_profile"],
+      inputContract: {
+        requiredFields: ["location", "mode", "policyDecisionId"],
+        resourceRefs: ["policyDecisionId"],
+      },
+      executionContract: {
+        writes: ["UserProfile"],
+        strictness: "validated_compile",
+      },
+      produces: ["operation_result", "confirmation"],
+      evidence: ["operationResultId", "policyDecisionId", "confirmationId"],
+      failureCodes: ["confirmation_required", "policy_blocked", "tool_execution_failed"],
+    }),
     domainCapability: {
       openspecChange: "replace-chat-orchestrator-with-tool-first-agent",
       capabilityId: "user-profile-write",
@@ -2940,6 +3151,145 @@ function createUserProfileWriteTool(): AgentToolDefinition<
       };
     },
   };
+}
+
+type TestCapabilityContractOverrides = Omit<
+  Partial<AgentToolCapabilityContract>,
+  "inputContract" | "executionContract"
+> & {
+  inputContract?: Partial<AgentToolCapabilityContract["inputContract"]>;
+  executionContract?: Partial<AgentToolCapabilityContract["executionContract"]>;
+};
+
+function createTestCapabilityContract(
+  overrides: TestCapabilityContractOverrides = {},
+): AgentToolCapabilityContract {
+  const base: AgentToolCapabilityContract = {
+    operationKind: "exact_read",
+    supportedOperations: ["test_operation"],
+    inputContract: {
+      requiredFields: [],
+      optionalFields: [],
+      acceptedFilters: [],
+      acceptedEnums: {},
+      resourceRefs: [],
+      hardConstraintFields: [],
+      softPreferenceFields: [],
+      resultRequirementFields: [],
+      projectionFields: [],
+    },
+    executionContract: {
+      reads: ["test_resource"],
+      writes: [],
+      mustNotRead: [],
+      strictness: "exact",
+    },
+    refusesWhen: ["test contract cannot be satisfied"],
+    produces: ["tool_result"],
+    evidence: ["test output"],
+    failureCodes: ["tool_execution_failed"],
+    unsupportedOperations: [],
+  };
+
+  return {
+    ...base,
+    ...overrides,
+    inputContract: {
+      ...base.inputContract,
+      ...overrides.inputContract,
+    },
+    executionContract: {
+      ...base.executionContract,
+      ...overrides.executionContract,
+    },
+  };
+}
+
+function createCandidateSetToolResult(
+  candidateSetId: string,
+  exerciseIds: string[],
+  candidateUse: "routine" | "plan" | "patch" | "recommendation" | "answer_only" = "routine",
+): NonNullable<AgentToolExecutionContext["toolResults"]>[number] {
+  const candidates = exerciseIds.map((exerciseId) => createExercise({ id: exerciseId, nameZh: exerciseId }));
+  const candidateSetEvidence = {
+    normalizedQueryInput: {
+      candidateUse,
+      filters: {},
+      resultRequirements: {},
+      softPreferences: {},
+      projection: {},
+    },
+    appliedFilters: {},
+    invalidFilters: [],
+    constraintProof: exerciseIds.map((exerciseId) => ({ exerciseId, matchedFilters: [] })),
+    resultRequirementProof: {},
+    diagnostics: {
+      queryMode: "none" as const,
+      failureReasons: [],
+      unmetResultRequirements: [],
+      finalExerciseIds: exerciseIds,
+    },
+    satisfied: true,
+    exerciseIds,
+  };
+
+  return {
+    toolResultId: `tool-result-${candidateSetId}`,
+    toolCallId: `tool-call-${candidateSetId}`,
+    toolName: "searchExercises",
+    status: "success",
+    candidateSetId,
+    output: {
+      candidateSetId,
+      candidateUse,
+      candidates,
+      diagnostics: {
+        queryMode: "none",
+        failureReasons: [],
+        unmetResultRequirements: [],
+        finalExerciseIds: exerciseIds,
+      },
+      satisfied: true,
+      candidateSetEvidence,
+    },
+    modelSummary: {
+      candidateSetId,
+      candidateUse,
+      candidateIds: exerciseIds,
+    },
+    traceSummary: {
+      candidateSetId,
+      candidateUse,
+      finalExerciseIds: exerciseIds,
+    },
+    fulfillment: {
+      operationKind: "structured_search",
+      operation: "build_exercise_candidate_set",
+      satisfied: true,
+      producedResources: [{ type: "candidate_set", id: candidateSetId }],
+      appliedHardConstraints: {},
+      unmetResultRequirements: [],
+      evidence: candidateSetEvidence,
+      diagnostics: {
+        finalExerciseIds: exerciseIds,
+      },
+    },
+  };
+}
+
+function createCandidateSetContext(
+  candidateSetId: string,
+  exerciseIds: string[],
+  overrides: Partial<AgentToolExecutionContext> = {},
+  candidateUse: "routine" | "plan" | "patch" | "recommendation" | "answer_only" = "routine",
+): AgentToolExecutionContext {
+  return createToolExecutionContext({
+    ...overrides,
+    toolResults: [
+      createCandidateSetToolResult(candidateSetId, exerciseIds, candidateUse),
+      ...(overrides.toolResults ?? []),
+    ],
+  });
 }
 
 function createToolExecutionContext(overrides: Partial<AgentToolExecutionContext> = {}): AgentToolExecutionContext {

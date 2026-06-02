@@ -66,7 +66,7 @@ TBD - created by archiving change improve-plan-push-composition. Update Purpose 
 - **THEN** 系统 MUST 使用 Zod schema 校验草稿结构
 - **AND** 系统 MUST 校验所有 `exerciseId` 存在于数据库动作库
 - **AND** 系统 MUST 校验所有 `exerciseId` 来自本次 Agent tool result、candidateSetId、`primaryExercises` 或 `supplementaryExercises`
-- **AND** 系统 MUST NOT 通过旧 `/api/ai/workout-plan` route 生成聊天计划草稿
+- **AND** 系统 MUST NOT 通过旧 workout-plan AI route 生成聊天计划草稿
 
 #### Scenario: AI 编造动作 ID
 - **WHEN** 长期计划草稿包含不存在或不在候选集合中的 `exerciseId`
@@ -227,15 +227,14 @@ TBD - created by archiving change improve-plan-push-composition. Update Purpose 
 - **AND** Validator MUST 继续对非休息训练日执行用户明确时长约束
 
 ### Requirement: 旧计划草稿接口不得作为聊天入口
-系统 SHALL 删除旧 `/api/ai/workout-plan` 聊天计划草稿入口。聊天中的长期计划 MUST 来自 Agent plan draft / validation / policy / persistence 工具链和 `AgentExecutionResult`。
+系统 SHALL 删除旧 workout-plan AI route 聊天计划草稿入口。聊天中的长期计划 MUST 来自 Agent plan draft / validation / policy / persistence 工具链和 `AgentExecutionResult`。
 
 #### Scenario: 聊天请求长期计划
 - **WHEN** 用户在聊天中请求长期计划、周期计划或每周安排
 - **THEN** 系统 MUST 通过 `/api/chat` Agent-first 主链生成、澄清或阻断
-- **AND** 系统 MUST NOT 从前端调用 `/api/ai/workout-plan`
+- **AND** 系统 MUST NOT 从前端调用旧 workout-plan AI route
 
 #### Scenario: 旧 plan trigger 出现在 assistant 文本
 - **WHEN** assistant 文本中出现 `workout_plan_trigger` 或历史遗留 plan trigger JSON
 - **THEN** 前端新流 MUST NOT 解析该文本来触发长期计划卡片
 - **AND** 长期计划卡片 MUST 只由 Agent stream/result 合同触发
-

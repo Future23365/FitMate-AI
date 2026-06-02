@@ -431,6 +431,110 @@ describe("exercise service", () => {
     });
   });
 
+  it("builds a structured no-equipment candidate set with hard filter proof", async () => {
+    await expect(
+      searchExercises({
+        operation: "build_exercise_candidate_set",
+        candidateUse: "routine",
+        query: "不用器械，练胸",
+        filters: {
+          homeRequirements: ["no_equipment"],
+          allowedSections: ["training"],
+          visibility: "published",
+        },
+        resultRequirements: {
+          minCandidates: 1,
+          requireProof: true,
+        },
+        limit: 8,
+      }),
+    ).resolves.toMatchObject({
+      candidates: expect.arrayContaining([expect.objectContaining({ id: "push-up" })]),
+      diagnostics: expect.objectContaining({
+        queryMode: "ranking_signal",
+        satisfied: true,
+        appliedFilters: expect.objectContaining({
+          homeRequirements: ["no_equipment"],
+          allowedSections: ["training"],
+        }),
+        constraintProof: expect.arrayContaining([
+          expect.objectContaining({
+            exerciseId: "push-up",
+            matchedFilters: expect.arrayContaining(["homeRequirements", "allowedSections"]),
+          }),
+        ]),
+      }),
+    });
+  });
+
+  it("reports invalid executable candidate facets instead of silently dropping them", async () => {
+    await expect(
+      searchExercises({
+        operation: "build_exercise_candidate_set",
+        candidateUse: "routine",
+        filters: {
+          equipment: { in: ["不存在器械"] },
+          visibility: "published",
+        },
+        resultRequirements: {
+          minCandidates: 1,
+          requireProof: true,
+        },
+        limit: 8,
+      }),
+    ).resolves.toMatchObject({
+      candidates: [],
+      diagnostics: expect.objectContaining({
+        satisfied: false,
+        invalidFilters: expect.arrayContaining([
+          expect.objectContaining({
+            field: "equipmentRequired",
+            value: "不存在器械",
+            reason: "unknown_facet",
+          }),
+        ]),
+        failureReasons: expect.arrayContaining(["invalid_parameter"]),
+      }),
+    });
+  });
+
+  it("marks routine section coverage requirements as unmet when the candidate set misses a section", async () => {
+    await expect(
+      searchExercises({
+        operation: "build_exercise_candidate_set",
+        candidateUse: "routine",
+        filters: {
+          allowedSections: ["training"],
+          visibility: "published",
+        },
+        resultRequirements: {
+          minCandidates: 1,
+          sectionCoverage: {
+            warmup: { min: 1 },
+            training: { min: 1 },
+            stretch: { min: 1 },
+          },
+          requireProof: true,
+        },
+        limit: 8,
+      }),
+    ).resolves.toMatchObject({
+      diagnostics: expect.objectContaining({
+        satisfied: false,
+        unmetResultRequirements: expect.arrayContaining([
+          "result_requirement_unmet:sectionCoverage.stretch",
+        ]),
+        resultRequirementProof: expect.objectContaining({
+          sectionCoverage: expect.objectContaining({
+            warmup: expect.objectContaining({ satisfied: true }),
+            training: expect.objectContaining({ satisfied: true }),
+            stretch: expect.objectContaining({ satisfied: false }),
+          }),
+        }),
+      }),
+    });
+  });
+
   it("reports retryable diagnostics for unknown target muscle facets", async () => {
     await expect(
       searchExercises({

@@ -635,6 +635,18 @@ function completeToolCall(
     toolCalls: updatedCalls,
     toolResults: [...state.toolResults, result],
     dependencyGraph: graph,
+    candidateSets: result.candidateSetId
+      ? {
+          ...state.candidateSets,
+          [result.candidateSetId]: {
+            toolResultId: result.toolResultId,
+            toolName: result.toolName,
+            satisfied: result.fulfillment?.satisfied,
+            fulfillment: result.fulfillment,
+            output: result.output,
+          },
+        }
+      : state.candidateSets,
   });
 }
 
@@ -905,6 +917,7 @@ function createToolResultRecord(input: {
     output: input.result.output,
     modelSummary: input.result.modelSummary,
     traceSummary: input.result.traceSummary,
+    fulfillment: input.result.fulfillment,
     ...ids,
   };
 }
@@ -1028,6 +1041,12 @@ function createToolResultTraceMetadata(input: {
     confirmationId: input.resultRecord?.confirmationId,
     revisionId: input.resultRecord?.revisionId,
     operationResultId: input.resultRecord?.operationResultId,
+    operationKind: input.resultRecord?.fulfillment?.operationKind,
+    operation: input.resultRecord?.fulfillment?.operation,
+    satisfied: input.resultRecord?.fulfillment?.satisfied,
+    producedResources: input.resultRecord?.fulfillment?.producedResources,
+    evidence: input.resultRecord?.fulfillment?.evidence,
+    unmetResultRequirements: input.resultRecord?.fulfillment?.unmetResultRequirements,
     artifactRevisionResolution: summarizeArtifactRevisionResolutionForTrace(input.resultRecord),
     duplicateToolFailure: summarizeDuplicateToolFailureForTrace(input.resultRecord),
   };
@@ -1263,6 +1282,10 @@ function collectDependencyIdsFromInput(input: unknown, kind: AgentToolDependency
 
 function stateHasDependencyId(state: AgentExecutionState, kind: AgentToolDependencyKind, id: string) {
   return state.toolResults.some((result) => {
+    if (result.status !== "success" || result.fulfillment?.satisfied === false) {
+      return false;
+    }
+
     switch (kind) {
       case "tool_result":
         return result.toolResultId === id;

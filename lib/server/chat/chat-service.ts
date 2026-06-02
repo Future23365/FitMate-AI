@@ -518,6 +518,7 @@ function summarizeToolDefinitionForModel(tool: Record<string, unknown>) {
         required: readRecordBoolean(dependency, "required"),
       }))
       : [],
+    toolRequestContract: tool.toolRequestContractSummary,
     writableResources: tool.writableResources,
   });
 }

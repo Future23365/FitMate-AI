@@ -398,6 +398,69 @@ describe("workout plan candidate and validation services", () => {
     expect(outsideCandidateResult.errors.map((issue) => issue.code)).toContain("outside_candidate_exercise_id");
   });
 
+  it("hard fails when candidate set evidence does not prove routine exercises satisfy the query boundary", () => {
+    const intent = createWorkoutPlanIntent({
+      intentType: "routine",
+      sessionMinutes: 12,
+    });
+    const routineDraft = createWorkoutRoutineDraft();
+    const missingEvidence = validateWorkoutRoutineDraft(routineDraft, intent, {
+      exercises,
+      candidateExerciseIds: ["warmup", "push-up", "stretch"],
+      candidateSetEvidence: {
+        normalizedQueryInput: {
+          candidateUse: "routine",
+          filters: {},
+          resultRequirements: {},
+          softPreferences: {},
+          projection: {},
+        },
+        appliedFilters: {},
+        invalidFilters: [],
+        constraintProof: [],
+        resultRequirementProof: {},
+        diagnostics: {
+          queryMode: "none",
+          failureReasons: [],
+          unmetResultRequirements: [],
+          finalExerciseIds: ["warmup", "push-up"],
+        },
+        satisfied: true,
+        exerciseIds: ["warmup", "push-up"],
+      },
+    });
+    const boundaryMismatch = validateWorkoutRoutineDraft(routineDraft, intent, {
+      exercises,
+      candidateExerciseIds: ["warmup", "push-up", "stretch"],
+      candidateSetEvidence: {
+        normalizedQueryInput: {
+          candidateUse: "routine",
+          filters: { homeRequirements: ["equipment_available"] },
+          resultRequirements: {},
+          softPreferences: {},
+          projection: {},
+        },
+        appliedFilters: { homeRequirements: ["equipment_available"] },
+        invalidFilters: [],
+        constraintProof: [],
+        resultRequirementProof: {},
+        diagnostics: {
+          queryMode: "none",
+          failureReasons: [],
+          unmetResultRequirements: [],
+          finalExerciseIds: ["warmup", "push-up", "stretch"],
+        },
+        satisfied: true,
+        exerciseIds: ["warmup", "push-up", "stretch"],
+      },
+    });
+
+    expect(missingEvidence.valid).toBe(false);
+    expect(missingEvidence.errors.map((issue) => issue.code)).toContain("candidate_query_boundary_mismatch");
+    expect(boundaryMismatch.valid).toBe(false);
+    expect(boundaryMismatch.errors.map((issue) => issue.code)).toContain("candidate_query_boundary_mismatch");
+  });
+
   it("rejects routine drafts that are materially shorter than the target session duration", () => {
     const intent = createWorkoutPlanIntent({
       intentType: "routine",

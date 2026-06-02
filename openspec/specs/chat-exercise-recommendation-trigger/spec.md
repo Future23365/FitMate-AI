@@ -67,12 +67,12 @@ TBD - created by archiving change allow-goal-only-exercise-recommendation. Updat
 - **THEN** 前端 MUST 继续在消息正文下方展示这些建议
 
 ### Requirement: 推荐刷新必须使用 Agent-first 合同
-系统 SHALL 将聊天中的动作推荐刷新、换一批和重新生成推荐收敛到 Agent-first 合同。推荐刷新 MUST NOT 调用旧 `/api/ai/exercise-recommendations`，也不得通过服务端自然语言规则重新解释用户本轮意图。
+系统 SHALL 将聊天中的动作推荐刷新、换一批和重新生成推荐收敛到 Agent-first 合同。推荐刷新 MUST NOT 调用旧 exercise recommendation AI route，也不得通过服务端自然语言规则重新解释用户本轮意图。
 
 #### Scenario: 用户点击换一批推荐
 - **WHEN** 用户在聊天推荐卡片中请求换一批或刷新推荐
 - **THEN** 系统 MUST 通过 `/api/chat` 发起可见的 Agent-first 请求，或对已存在 Agent result 执行确定性分页、去重、排除已反馈动作等 result-level 操作
-- **AND** 系统 MUST NOT 调用 `/api/ai/exercise-recommendations`
+- **AND** 系统 MUST NOT 调用旧 exercise recommendation AI route
 
 #### Scenario: 刷新需要理解用户新约束
 - **WHEN** 用户刷新推荐时输入新的自然语言约束
@@ -83,4 +83,3 @@ TBD - created by archiving change allow-goal-only-exercise-recommendation. Updat
 - **WHEN** Agent-first 推荐刷新无法获得足够候选
 - **THEN** 系统 MUST 返回澄清、blocked、failed 或可恢复建议
 - **AND** 系统 MUST NOT 回退到旧推荐 route 或旧内部推荐事件展示卡片
-

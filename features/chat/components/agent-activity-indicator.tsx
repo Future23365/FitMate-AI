@@ -19,6 +19,9 @@ export function AgentActivityIndicator({
       className={`agent-activity-indicator flex items-center gap-xs px-xs py-[2px] font-label-sm text-label-sm font-bold ${toneClass} motion-safe:animate-pulse motion-reduce:animate-none`}
       role="status"
     >
+      <span aria-hidden="true" className="material-symbols-outlined text-base leading-none">
+        {display.icon}
+      </span>
       <span>{display.label}</span>
     </div>
   );

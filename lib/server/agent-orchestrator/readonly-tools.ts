@@ -17,6 +17,7 @@ import {
   exerciseBodyRegionValues,
   getExerciseById,
   searchExercises,
+  type ExerciseCandidateSetEvidence,
   type ExerciseSearchInput,
   type ExerciseSearchResult,
 } from "@/lib/server/exercises/exercise-service";
@@ -25,12 +26,24 @@ import { conversationArtifactKindSchema } from "@/lib/shared/conversation-artifa
 import { exerciseAllowedSectionSchema, type Exercise } from "@/lib/shared/exercises/types";
 import { toUtcISOString } from "@/lib/shared/time/utc-date-time";
 import {
+  userMemoryKindSchema,
+  userMemorySourceSchema,
+  userMemoryStatusSchema,
+  userMemorySubjectTypeSchema,
+} from "@/lib/shared/user-feedback-memory/schema";
+import {
   createAgentToolRegistry,
   type AgentToolDefinition,
   type AgentToolExecutionContext,
   type AgentToolExecutionResult,
 } from "./tool-registry";
-import type { AgentToolError, UserMemorySnapshot } from "./contracts";
+import {
+  agentToolCapabilityContractSchema,
+  type AgentToolCapabilityContract,
+  type AgentToolError,
+  type AgentToolResultFulfillment,
+  type UserMemorySnapshot,
+} from "./contracts";
 
 const summaryMaxChars = 300;
 const defaultSearchArtifactsLimit = 6;
@@ -56,6 +69,19 @@ export const searchArtifactsAgentToolInputSchema = z.object({
   limit: z.number().int().min(1).max(12).default(defaultSearchArtifactsLimit),
 });
 
+export const resolveArtifactReferenceAgentToolInputSchema = z.object({
+  operation: z.literal("resolve_artifact_reference"),
+  referenceKind: z.enum(["latest", "previous", "recent_saved", "recent_generated", "explicit_filters"]).default("latest"),
+  sessionScope: z.enum(["current_session", "current_user"]).default("current_session"),
+  kind: conversationArtifactKindSchema.optional(),
+  targetGoal: z.string().trim().max(120).optional(),
+  equipmentRequired: z.array(z.string().trim().min(1).max(60)).max(12).optional(),
+  equipmentAvoided: z.array(z.string().trim().min(1).max(60)).max(12).optional(),
+  sessionMinutes: z.number().int().min(5).max(240).optional(),
+  requireUnique: z.boolean().default(true),
+  limit: z.number().int().min(1).max(8).default(4),
+}).strict();
+
 export const getArtifactPayloadAgentToolInputSchema = z.object({
   artifactId: z.string().trim().min(1).max(120),
   allowedArtifactIds: z.array(z.string().trim().min(1).max(120)).max(24).optional(),
@@ -65,11 +91,55 @@ export const getExerciseByIdAgentToolInputSchema = z.object({
   exerciseId: z.string().trim().min(1).max(120),
 });
 
+const searchExerciseFiltersSchema = z.object({
+  bodyRegions: z.array(z.enum(exerciseBodyRegionValues)).max(4).optional(),
+  allowedSections: z.array(exerciseAllowedSectionSchema).max(3).optional(),
+  targetMuscles: z.array(z.string().trim().min(1).max(60)).max(16).optional(),
+  equipment: z.object({
+    in: z.array(z.string().trim().min(1).max(60)).max(12).optional(),
+    notIn: z.array(z.string().trim().min(1).max(60)).max(12).optional(),
+  }).strict().optional(),
+  homeRequirements: z.array(z.string().trim().min(1).max(60)).max(8).optional(),
+  levels: z.array(z.string().trim().min(1).max(60)).max(4).optional(),
+  difficulty: z.array(z.string().trim().min(1).max(60)).max(4).optional(),
+  riskTagsNotIn: z.array(z.string().trim().min(1).max(60)).max(12).optional(),
+  goalTags: z.array(z.string().trim().min(1).max(60)).max(12).optional(),
+  movementPatterns: z.array(z.string().trim().min(1).max(60)).max(12).optional(),
+  intensityRoles: z.array(z.string().trim().min(1).max(60)).max(8).optional(),
+  visibility: z.enum(["all", "published"]).optional(),
+}).strict();
+
+const searchExerciseResultRequirementsSchema = z.object({
+  minCandidates: z.number().int().min(1).max(100).optional(),
+  sectionCoverage: z.record(exerciseAllowedSectionSchema, z.object({
+    min: z.number().int().min(1).max(40),
+  }).strict()).optional(),
+  mustBeUsableFor: z.enum(["answer", "routine", "plan", "patch"]).optional(),
+  requireProof: z.boolean().optional(),
+  requireUnique: z.boolean().optional(),
+}).strict();
+
+const searchExerciseSoftPreferencesSchema = z.object({
+  preferredEquipment: z.array(z.string().trim().min(1).max(60)).max(12).optional(),
+  preferredMuscles: z.array(z.string().trim().min(1).max(60)).max(16).optional(),
+  preferredDifficulty: z.array(z.string().trim().min(1).max(60)).max(4).optional(),
+}).strict();
+
+const searchExerciseProjectionSchema = z.object({
+  fields: z.array(z.string().trim().min(1).max(80)).max(20).optional(),
+  maxCandidatesForModel: z.number().int().min(1).max(24).optional(),
+}).strict();
+
 export const searchExercisesAgentToolInputSchema = z.object({
+  operation: z.literal("build_exercise_candidate_set").optional(),
   query: z.string().trim().max(240).optional(),
   candidateUse: z.enum(["answer_only", "recommendation", "routine", "plan", "patch"]).default("answer_only"),
   limit: z.number().int().min(1).max(24).default(defaultSearchExercisesLimit),
   visibility: z.enum(["all", "published"]).default("published"),
+  filters: searchExerciseFiltersSchema.optional(),
+  resultRequirements: searchExerciseResultRequirementsSchema.optional(),
+  softPreferences: searchExerciseSoftPreferencesSchema.optional(),
+  projection: searchExerciseProjectionSchema.optional(),
   allowedSections: z.array(exerciseAllowedSectionSchema).max(3).optional(),
   bodyRegions: z.array(z.enum(exerciseBodyRegionValues)).max(4).optional(),
   goal: z.string().trim().max(120).optional(),
@@ -91,20 +161,58 @@ export const getUserMemoryAgentToolInputSchema = z.object({
   limit: z.number().int().min(1).max(24).default(12),
 });
 
+const queryUserMemoryFiltersSchema = z.object({
+  kind: z.array(userMemoryKindSchema).max(8).optional(),
+  subjectType: z.array(userMemorySubjectTypeSchema).max(8).optional(),
+  status: z.array(userMemoryStatusSchema).max(4).optional(),
+  confirmed: z.boolean().optional(),
+  source: z.array(userMemorySourceSchema).max(4).optional(),
+}).strict();
+
+export const queryUserMemoryAgentToolInputSchema = z.object({
+  operation: z.literal("query_user_memory"),
+  filters: queryUserMemoryFiltersSchema.default({}),
+  limit: z.number().int().min(1).max(24).default(12),
+  projection: z.object({
+    includeValue: z.boolean().default(false),
+    fields: z.array(z.string().trim().min(1).max(80)).max(20).optional(),
+  }).strict().default({ includeValue: false }),
+}).strict();
+
 export type ListRecentArtifactsAgentToolInput = z.infer<typeof listRecentArtifactsAgentToolInputSchema>;
 export type SearchArtifactsAgentToolInput = z.infer<typeof searchArtifactsAgentToolInputSchema>;
+export type ResolveArtifactReferenceAgentToolInput = z.infer<typeof resolveArtifactReferenceAgentToolInputSchema>;
 export type GetArtifactPayloadAgentToolInput = z.infer<typeof getArtifactPayloadAgentToolInputSchema>;
 export type GetExerciseByIdAgentToolInput = z.infer<typeof getExerciseByIdAgentToolInputSchema>;
 export type SearchExercisesAgentToolInput = z.infer<typeof searchExercisesAgentToolInputSchema>;
 export type GetUserMemoryAgentToolInput = z.infer<typeof getUserMemoryAgentToolInputSchema>;
+export type QueryUserMemoryAgentToolInput = z.infer<typeof queryUserMemoryAgentToolInputSchema>;
 
 export type AgentArtifactSearchOutput = Awaited<ReturnType<typeof searchArtifactsDetailed>> & {
   candidateSetId: string;
 };
 
+export type AgentArtifactReferenceResolutionOutput = {
+  artifactReferenceId: string;
+  artifactId?: string;
+  candidates: AgentArtifactSearchOutput["candidates"];
+  evidence: {
+    operation: "resolve_artifact_reference";
+    matchedConstraints: Record<string, unknown>;
+    requireUnique: boolean;
+    candidateCount: number;
+  };
+  diagnostics: AgentArtifactSearchOutput["diagnostics"] & {
+    ambiguousCandidateIds?: string[];
+    unsupportedReference?: boolean;
+  };
+};
+
 export type AgentExerciseSearchOutput = ExerciseSearchResult & {
   candidateSetId: string;
   candidateUse: SearchExercisesAgentToolInput["candidateUse"];
+  satisfied: boolean;
+  candidateSetEvidence: ExerciseCandidateSetEvidence;
 };
 
 export type AgentArtifactPayloadOutput = ActiveArtifactPayloadSuccess & {
@@ -120,23 +228,265 @@ export type AgentRecentArtifactsOutput = {
   artifacts: Awaited<ReturnType<typeof listRecentArtifacts>>;
 };
 
+export type AgentUserMemoryQueryOutput = {
+  memoryQueryId: string;
+  matchedMemories: Array<{
+    memoryId: string;
+    kind: string;
+    subjectType: string;
+    subjectId?: string;
+    subjectLabel?: string;
+    status: string;
+    source: string;
+    confirmed: boolean;
+    updatedAt?: string;
+    value?: unknown;
+  }>;
+  matchedFilters: QueryUserMemoryAgentToolInput["filters"];
+  coverageDiagnostics: {
+    matchedCount: number;
+    limit: number;
+    unverifiable: boolean;
+    snapshotFreshness?: string;
+  };
+};
+
 export type AgentReadonlyToolName =
   | "listRecentArtifacts"
   | "searchArtifacts"
+  | "resolveArtifactReference"
   | "getArtifactPayload"
   | "getExerciseById"
   | "searchExercises"
-  | "getUserMemory";
+  | "getUserMemory"
+  | "queryUserMemory";
+
+const rawReadonlyToolCapabilityContracts = {
+  listRecentArtifacts: {
+    operationKind: "list",
+    supportedOperations: ["list_recent_artifacts"],
+    inputContract: {
+      requiredFields: [],
+      optionalFields: ["sessionScope", "kind", "limit"],
+      acceptedFilters: ["sessionScope", "kind", "limit"],
+      acceptedEnums: {
+        sessionScope: ["current_session", "current_user"],
+        kind: ["routine", "plan", "exercise_recommendation"],
+      },
+      hardConstraintFields: ["sessionScope", "kind"],
+      projectionFields: ["limit"],
+    },
+    executionContract: {
+      reads: ["ConversationArtifact", "ArtifactIndex"],
+      writes: [],
+      mustNotRead: ["artifact payload", "user natural language"],
+      strictness: "exact",
+    },
+    refusesWhen: ["no recent artifacts exist for the requested scope"],
+    produces: ["candidate_set"],
+    evidence: ["candidateSetId", "artifact summaries", "session scope"],
+    failureCodes: ["not_found", "tool_execution_failed"],
+    unsupportedOperations: ["semantic artifact reference resolution", "payload read"],
+  },
+  searchArtifacts: {
+    operationKind: "structured_search",
+    supportedOperations: ["search_artifact_candidates"],
+    inputContract: {
+      requiredFields: [],
+      optionalFields: ["query", "candidateUse", "sessionScope", "kind", "targetGoal", "equipmentRequired", "equipmentAvoided", "sessionMinutes", "limit"],
+      acceptedFilters: ["sessionScope", "kind", "targetGoal", "equipmentRequired", "equipmentAvoided", "sessionMinutes"],
+      acceptedEnums: {
+        candidateUse: ["answer_only", "edit_plan", "patch", "regenerate"],
+        sessionScope: ["current_session", "current_user"],
+      },
+      hardConstraintFields: ["sessionScope", "kind", "targetGoal", "equipmentRequired", "equipmentAvoided", "sessionMinutes"],
+      softPreferenceFields: ["query"],
+      projectionFields: ["limit"],
+    },
+    executionContract: {
+      reads: ["ArtifactIndex"],
+      writes: [],
+      mustNotRead: ["artifact payload"],
+      strictness: "hard_filter",
+    },
+    refusesWhen: ["executable candidateUse lacks structured filters", "no artifact candidate found", "reference result would be ambiguous"],
+    produces: ["candidate_set"],
+    evidence: ["candidateSetId", "artifact search diagnostics", "finalCandidateIds"],
+    failureCodes: ["missing_required_parameter", "not_found", "ambiguous_resource", "tool_execution_failed"],
+    unsupportedOperations: ["unique reference resolution", "payload read", "saving artifacts"],
+  },
+  resolveArtifactReference: {
+    operationKind: "reference_resolution",
+    supportedOperations: ["resolve_artifact_reference"],
+    inputContract: {
+      requiredFields: ["operation"],
+      optionalFields: ["referenceKind", "sessionScope", "kind", "targetGoal", "equipmentRequired", "equipmentAvoided", "sessionMinutes", "requireUnique", "limit"],
+      acceptedFilters: ["referenceKind", "sessionScope", "kind", "targetGoal", "equipmentRequired", "equipmentAvoided", "sessionMinutes"],
+      acceptedEnums: {
+        operation: ["resolve_artifact_reference"],
+        referenceKind: ["latest", "previous", "recent_saved", "recent_generated", "explicit_filters"],
+        sessionScope: ["current_session", "current_user"],
+      },
+      hardConstraintFields: ["referenceKind", "sessionScope", "kind", "targetGoal", "equipmentRequired", "equipmentAvoided", "sessionMinutes", "requireUnique"],
+      resultRequirementFields: ["requireUnique"],
+      projectionFields: ["limit"],
+    },
+    executionContract: {
+      reads: ["ArtifactIndex"],
+      writes: [],
+      mustNotRead: ["artifact payload", "user natural language"],
+      strictness: "hard_filter",
+    },
+    refusesWhen: ["reference cannot be expressed by structured filters", "no candidate found", "multiple candidates match while requireUnique=true"],
+    produces: ["artifact_reference"],
+    evidence: ["artifactReferenceId", "matchedConstraints", "candidate ids", "ambiguity diagnostics"],
+    failureCodes: ["unsupported_operation", "not_found", "ambiguous_resource", "tool_execution_failed"],
+    unsupportedOperations: ["payload read", "implicit semantic selection"],
+  },
+  getArtifactPayload: {
+    operationKind: "exact_read",
+    supportedOperations: ["read_artifact_payload"],
+    inputContract: {
+      requiredFields: ["artifactId"],
+      optionalFields: ["allowedArtifactIds"],
+      resourceRefs: ["artifactId", "allowedArtifactIds"],
+      hardConstraintFields: ["artifactId", "allowedArtifactIds"],
+    },
+    executionContract: {
+      reads: ["ConversationArtifact"],
+      writes: [],
+      mustNotRead: ["ArtifactIndex semantic search"],
+      strictness: "exact",
+    },
+    refusesWhen: ["artifactId is inaccessible", "artifactId is outside allowedArtifactIds", "payload is invalid"],
+    produces: ["artifact_payload"],
+    evidence: ["artifactPayloadId", "requestedArtifactId", "activeArtifactId", "revisionResolution"],
+    failureCodes: ["forbidden", "not_found", "validation_failed", "tool_execution_failed"],
+    unsupportedOperations: ["artifact search", "reference resolution"],
+  },
+  getExerciseById: {
+    operationKind: "exact_read",
+    supportedOperations: ["read_exercise_by_id"],
+    inputContract: {
+      requiredFields: ["exerciseId"],
+      optionalFields: [],
+      resourceRefs: ["exerciseId"],
+      hardConstraintFields: ["exerciseId"],
+    },
+    executionContract: {
+      reads: ["Exercise"],
+      writes: [],
+      mustNotRead: ["natural language query"],
+      strictness: "exact",
+    },
+    refusesWhen: ["exerciseId does not exist"],
+    produces: ["exercise_detail"],
+    evidence: ["exerciseId", "exercise summary"],
+    failureCodes: ["not_found", "tool_execution_failed"],
+    unsupportedOperations: ["exercise search", "candidate set generation"],
+  },
+  searchExercises: {
+    operationKind: "structured_search",
+    supportedOperations: ["build_exercise_candidate_set"],
+    inputContract: {
+      requiredFields: ["operation for executable candidateUse", "filters for executable candidateUse", "resultRequirements for routine/plan/patch"],
+      optionalFields: ["candidateUse", "filters", "resultRequirements", "softPreferences", "projection", "query", "limit", "legacy structured fields"],
+      acceptedFilters: ["bodyRegions", "allowedSections", "targetMuscles", "equipment.in", "equipment.notIn", "homeRequirements", "levels", "difficulty", "riskTagsNotIn", "goalTags", "movementPatterns", "intensityRoles", "visibility"],
+      acceptedEnums: {
+        operation: ["build_exercise_candidate_set"],
+        candidateUse: ["answer_only", "recommendation", "routine", "plan", "patch"],
+        bodyRegions: ["upper_body", "lower_body", "core", "full_body"],
+        allowedSections: ["warmup", "training", "stretch"],
+        visibility: ["all", "published"],
+      },
+      hardConstraintFields: ["filters.bodyRegions", "filters.allowedSections", "filters.targetMuscles", "filters.equipment", "filters.homeRequirements", "filters.levels", "filters.difficulty", "filters.riskTagsNotIn", "filters.goalTags", "filters.movementPatterns", "filters.intensityRoles", "filters.visibility"],
+      softPreferenceFields: ["query", "softPreferences"],
+      resultRequirementFields: ["minCandidates", "sectionCoverage", "mustBeUsableFor", "requireProof", "requireUnique"],
+      projectionFields: ["projection", "limit"],
+    },
+    executionContract: {
+      reads: ["Exercise"],
+      writes: [],
+      mustNotRead: ["latest user message", "conversationSummary"],
+      strictness: "hard_filter",
+    },
+    refusesWhen: ["executable candidateUse lacks operation", "executable candidateUse lacks structured filters", "routine/plan/patch lacks resultRequirements", "invalid facet", "insufficient candidates", "result requirement unmet"],
+    produces: ["candidate_set"],
+    evidence: ["candidateSetId", "normalizedQueryInput", "appliedFilters", "constraintProof", "resultRequirementProof", "satisfied"],
+    failureCodes: ["missing_required_parameter", "invalid_parameter", "insufficient_candidates", "result_requirement_unmet", "tool_execution_failed"],
+    unsupportedOperations: ["using query as hard constraint", "auto-relaxing hard filters", "generating routine"],
+  },
+  getUserMemory: {
+    operationKind: "memory_snapshot",
+    supportedOperations: ["read_user_memory_snapshot"],
+    inputContract: {
+      requiredFields: [],
+      optionalFields: ["includePending", "limit"],
+      acceptedFilters: ["includePending", "limit"],
+      hardConstraintFields: ["includePending"],
+      projectionFields: ["limit"],
+    },
+    executionContract: {
+      reads: ["UserProfile", "UserMemory"],
+      writes: [],
+      mustNotRead: ["natural language query"],
+      strictness: "exact",
+    },
+    refusesWhen: ["memory snapshot cannot prove a structured memory query"],
+    produces: ["memory_snapshot"],
+    evidence: ["snapshotId", "snapshot counts", "updatedAt"],
+    failureCodes: ["unsupported_operation", "tool_execution_failed"],
+    unsupportedOperations: ["precise memory query by kind/subject/status/source"],
+  },
+  queryUserMemory: {
+    operationKind: "memory_query",
+    supportedOperations: ["query_user_memory"],
+    inputContract: {
+      requiredFields: ["operation"],
+      optionalFields: ["filters", "limit", "projection"],
+      acceptedFilters: ["kind", "subjectType", "status", "confirmed", "source"],
+      acceptedEnums: {
+        operation: ["query_user_memory"],
+        kind: ["explicit_preference", "exercise_feedback", "constraint", "temporary_context", "injury_or_pain_signal", "training_behavior"],
+        subjectType: ["exercise", "body_part", "goal", "equipment", "schedule", "health", "general"],
+        status: ["active", "pending_confirmation", "dismissed", "expired"],
+        source: ["chat", "workout_result", "profile", "system"],
+      },
+      hardConstraintFields: ["filters.kind", "filters.subjectType", "filters.status", "filters.confirmed", "filters.source"],
+      projectionFields: ["projection", "limit"],
+    },
+    executionContract: {
+      reads: ["UserMemory"],
+      writes: [],
+      mustNotRead: ["UserProfile snapshot as proof"],
+      strictness: "hard_filter",
+    },
+    refusesWhen: ["query filters cannot prove coverage", "no memory matches the requested filters"],
+    produces: ["memory_query_result"],
+    evidence: ["memoryQueryId", "matchedFilters", "coverageDiagnostics", "matched memory ids"],
+    failureCodes: ["not_found", "unverifiable_result", "tool_execution_failed"],
+    unsupportedOperations: ["querying arbitrary natural language memory text"],
+  },
+};
+
+const readonlyToolCapabilityContracts = Object.fromEntries(
+  Object.entries(rawReadonlyToolCapabilityContracts).map(([toolName, contract]) => [
+    toolName,
+    agentToolCapabilityContractSchema.parse(contract),
+  ]),
+) as Record<AgentReadonlyToolName, AgentToolCapabilityContract>;
 
 // 只读 Agent tools 是 Tool-first 主链读取事实的白名单，不产生 artifact、patch 或回复承诺。
 export function createReadonlyAgentToolDefinitions(): AgentToolDefinition<unknown, unknown>[] {
   return [
     createListRecentArtifactsTool(),
     createSearchArtifactsTool(),
+    createResolveArtifactReferenceTool(),
     createGetArtifactPayloadTool(),
     createGetExerciseByIdTool(),
     createSearchExercisesTool(),
     createGetUserMemoryTool(),
+    createQueryUserMemoryTool(),
   ] as AgentToolDefinition<unknown, unknown>[];
 }
 
@@ -152,6 +502,7 @@ function createListRecentArtifactsTool(): AgentToolDefinition<ListRecentArtifact
     accessLevel: "read",
     inputSchema: listRecentArtifactsAgentToolInputSchema,
     dependencies: [],
+    capabilityContract: readonlyToolCapabilityContracts.listRecentArtifacts,
     getIdempotencyKey: createIdempotencyKey,
     summarizeOutput(output) {
       return {
@@ -202,6 +553,7 @@ function createSearchArtifactsTool(): AgentToolDefinition<SearchArtifactsAgentTo
     accessLevel: "read",
     inputSchema: searchArtifactsAgentToolInputSchema,
     dependencies: [],
+    capabilityContract: readonlyToolCapabilityContracts.searchArtifacts,
     getIdempotencyKey: createIdempotencyKey,
     summarizeOutput(output) {
       return {
@@ -253,6 +605,95 @@ function createSearchArtifactsTool(): AgentToolDefinition<SearchArtifactsAgentTo
   };
 }
 
+function createResolveArtifactReferenceTool(): AgentToolDefinition<ResolveArtifactReferenceAgentToolInput, AgentArtifactReferenceResolutionOutput> {
+  return {
+    name: "resolveArtifactReference",
+    description: "按结构化引用条件解析唯一 ConversationArtifact；结果不唯一时返回歧义，不静默选择。",
+    accessLevel: "read",
+    inputSchema: resolveArtifactReferenceAgentToolInputSchema,
+    dependencies: [],
+    capabilityContract: readonlyToolCapabilityContracts.resolveArtifactReference,
+    getIdempotencyKey: createIdempotencyKey,
+    summarizeOutput(output) {
+      return {
+        artifactReferenceId: output.artifactReferenceId,
+        artifactId: output.artifactId,
+        candidates: summarizeArtifactCandidatesForModel(output.candidates, summaryMaxChars),
+        evidence: output.evidence,
+        diagnostics: output.diagnostics,
+      };
+    },
+    summarizeTrace(result) {
+      return result.ok ? result.traceSummary : result.error;
+    },
+    async execute(input, context) {
+      const parsedInput = resolveArtifactReferenceAgentToolInputSchema.parse(input);
+      try {
+        const result = await searchArtifactsDetailed({
+          userId: context.userId,
+          sessionId: context.sessionId,
+          sessionScope: parsedInput.sessionScope,
+          kind: parsedInput.kind,
+          targetGoal: parsedInput.targetGoal,
+          equipmentRequired: parsedInput.equipmentRequired,
+          equipmentAvoided: parsedInput.equipmentAvoided,
+          sessionMinutes: parsedInput.sessionMinutes,
+          limit: parsedInput.limit,
+        });
+        const artifactReferenceId = createStructuredResultId(context, "artifact_reference", "resolveArtifactReference", parsedInput);
+        const output: AgentArtifactReferenceResolutionOutput = {
+          artifactReferenceId,
+          artifactId: result.candidates.length === 1 ? result.candidates[0]?.artifactId : undefined,
+          candidates: result.candidates,
+          evidence: {
+            operation: "resolve_artifact_reference",
+            matchedConstraints: {
+              referenceKind: parsedInput.referenceKind,
+              sessionScope: parsedInput.sessionScope,
+              kind: parsedInput.kind,
+              targetGoal: parsedInput.targetGoal,
+              equipmentRequired: parsedInput.equipmentRequired,
+              equipmentAvoided: parsedInput.equipmentAvoided,
+              sessionMinutes: parsedInput.sessionMinutes,
+            },
+            requireUnique: parsedInput.requireUnique,
+            candidateCount: result.candidates.length,
+          },
+          diagnostics: {
+            ...result.diagnostics,
+            ambiguousCandidateIds: result.candidates.length > 1 ? result.candidates.map((candidate) => candidate.artifactId) : undefined,
+          },
+        };
+        const summary = this.summarizeOutput(output);
+
+        if (result.candidates.length === 0) {
+          return createFailure("not_found", "No artifact matched the structured reference.", {
+            artifactReferenceId,
+            diagnostics: output.diagnostics,
+          }, true);
+        }
+
+        if (parsedInput.requireUnique && result.candidates.length !== 1) {
+          return createFailure("ambiguous_resource", "Artifact reference matched multiple candidates.", {
+            artifactReferenceId,
+            ambiguousCandidateIds: result.candidates.map((candidate) => candidate.artifactId),
+            diagnostics: output.diagnostics,
+          }, true);
+        }
+
+        return createSuccess(context, "resolveArtifactReference", parsedInput, output, summary, summary, {
+          producedResources: output.artifactId ? [{ type: "artifact_reference", id: artifactReferenceId }] : [],
+          appliedHardConstraints: output.evidence.matchedConstraints,
+          evidence: output.evidence,
+          diagnostics: output.diagnostics,
+        });
+      } catch (error) {
+        return createFailure("tool_execution_failed", "Failed to resolve artifact reference.", error);
+      }
+    },
+  };
+}
+
 function createGetArtifactPayloadTool(): AgentToolDefinition<GetArtifactPayloadAgentToolInput, AgentArtifactPayloadOutput> {
   return {
     name: "getArtifactPayload",
@@ -260,6 +701,7 @@ function createGetArtifactPayloadTool(): AgentToolDefinition<GetArtifactPayloadA
     accessLevel: "read",
     inputSchema: getArtifactPayloadAgentToolInputSchema,
     dependencies: [],
+    capabilityContract: readonlyToolCapabilityContracts.getArtifactPayload,
     getIdempotencyKey: createIdempotencyKey,
     summarizeOutput(output) {
       return {
@@ -323,6 +765,7 @@ function createGetExerciseByIdTool(): AgentToolDefinition<GetExerciseByIdAgentTo
     accessLevel: "read",
     inputSchema: getExerciseByIdAgentToolInputSchema,
     dependencies: [],
+    capabilityContract: readonlyToolCapabilityContracts.getExerciseById,
     getIdempotencyKey: createIdempotencyKey,
     summarizeOutput(output) {
       return summarizeExerciseForModel(output.exercise, summaryMaxChars);
@@ -364,6 +807,7 @@ function createSearchExercisesTool(): AgentToolDefinition<SearchExercisesAgentTo
     accessLevel: "read",
     inputSchema: searchExercisesAgentToolInputSchema,
     dependencies: [],
+    capabilityContract: readonlyToolCapabilityContracts.searchExercises,
     getIdempotencyKey: createIdempotencyKey,
     summarizeOutput(output) {
       return {
@@ -377,32 +821,94 @@ function createSearchExercisesTool(): AgentToolDefinition<SearchExercisesAgentTo
       return result.ok ? result.traceSummary : result.error;
     },
     async execute(input, context) {
-      const parsedInput = searchExercisesAgentToolInputSchema.parse(input);
+      const parsed = searchExercisesAgentToolInputSchema.safeParse(input);
+      if (!parsed.success) {
+        return createFailure("invalid_parameter", "searchExercises input contains invalid fields or enum values.", {
+          issues: parsed.error.issues.map((issue) => ({
+            path: issue.path.join("."),
+            message: issue.message,
+          })),
+        }, true);
+      }
+      const parsedInput = parsed.data;
       if (requiresStructuredExecutableCandidateSet(parsedInput) && !hasStructuredExerciseFilters(parsedInput)) {
-        return createFailure("schema_validation_failed", "Executable exercise candidate sets require structured filters, not a bare query.", {
+        return createFailure("missing_required_parameter", "Executable exercise candidate sets require structured filters, not a bare query.", {
           candidateUse: parsedInput.candidateUse,
-        });
+          missing: ["filters"],
+        }, true);
+      }
+      if (requiresStructuredExecutableCandidateSet(parsedInput) && parsedInput.operation !== "build_exercise_candidate_set") {
+        return createFailure("missing_required_parameter", "Executable exercise candidate sets require operation=build_exercise_candidate_set.", {
+          candidateUse: parsedInput.candidateUse,
+          operation: parsedInput.operation,
+          missing: ["operation"],
+        }, true);
+      }
+      if (requiresRoutineResultRequirements(parsedInput) && !hasResultRequirements(parsedInput)) {
+        return createFailure("missing_required_parameter", "Routine, plan and patch candidate sets require resultRequirements.", {
+          candidateUse: parsedInput.candidateUse,
+          missing: ["resultRequirements"],
+        }, true);
       }
 
       try {
-        const result = await searchExercises(parsedInput);
-        const recoveredResult = result.candidates.length === 0
+        const normalizedInput = normalizeAgentSearchExercisesInput(parsedInput);
+        const result = await searchExercises(normalizedInput);
+        const invalidFilters = result.diagnostics.invalidFilters ?? [];
+        if (invalidFilters.length > 0) {
+          return createFailure("invalid_parameter", "searchExercises received invalid structured filters.", {
+            candidateSetId: createStructuredResultId(context, "candidate_set", "searchExercises", normalizedInput),
+            invalidFilters,
+            diagnostics: result.diagnostics,
+          }, true);
+        }
+
+        const recoveredResult = parsedInput.candidateUse === "answer_only" && result.candidates.length === 0
           ? await recoverSearchExercisesFromDiagnostics(parsedInput, result)
           : null;
         const finalResult = recoveredResult ?? result;
-        const candidateSetId = createStructuredResultId(context, "candidate_set", "searchExercises", parsedInput);
-        const output = { ...finalResult, candidateSetId, candidateUse: parsedInput.candidateUse };
+        const candidateSetId = createStructuredResultId(context, "candidate_set", "searchExercises", normalizedInput);
+        const candidateSetEvidence = createExerciseCandidateSetEvidence(finalResult);
+        const output = {
+          ...finalResult,
+          candidateSetId,
+          candidateUse: parsedInput.candidateUse,
+          satisfied: candidateSetEvidence.satisfied,
+          candidateSetEvidence,
+        };
         const summary = this.summarizeOutput(output);
 
         if (finalResult.candidates.length === 0) {
-          return createFailure("not_found", "No exercise candidates found.", {
+          const unmetResultRequirements = finalResult.diagnostics.unmetResultRequirements ?? [];
+          const failureCode = unmetResultRequirements.includes("insufficient_candidates")
+            ? "insufficient_candidates"
+            : "not_found";
+          return createFailure(failureCode, "No exercise candidates found.", {
             candidateSetId,
-            failureReasons: finalResult.diagnostics.failureReasons,
+            failureReasons: finalResult.diagnostics.failureReasons ?? [],
             diagnostics: finalResult.diagnostics,
           }, finalResult.diagnostics.retryable);
         }
 
-        return createSuccess(context, "searchExercises", parsedInput, output, summary, summary);
+        if (candidateSetEvidence.satisfied === false) {
+          return createFailure("result_requirement_unmet", "Exercise candidate set does not satisfy resultRequirements.", {
+            candidateSetId,
+            unmetResultRequirements: finalResult.diagnostics.unmetResultRequirements ?? [],
+            diagnostics: finalResult.diagnostics,
+          }, true);
+        }
+
+        return createSuccess(context, "searchExercises", normalizedInput, output, summary, summary, {
+          producedResources: [{ type: "candidate_set", id: candidateSetId }],
+          appliedHardConstraints: finalResult.diagnostics.appliedFilters,
+          evidence: candidateSetEvidence,
+          diagnostics: {
+            queryMode: finalResult.diagnostics.queryMode,
+            finalExerciseIds: finalResult.diagnostics.finalExerciseIds,
+            failureReasons: finalResult.diagnostics.failureReasons,
+            unmetResultRequirements: finalResult.diagnostics.unmetResultRequirements,
+          },
+        });
       } catch (error) {
         return createFailure("tool_execution_failed", "Failed to search exercises.", error);
       }
@@ -417,6 +923,7 @@ function createGetUserMemoryTool(): AgentToolDefinition<GetUserMemoryAgentToolIn
     accessLevel: "read",
     inputSchema: getUserMemoryAgentToolInputSchema,
     dependencies: [],
+    capabilityContract: readonlyToolCapabilityContracts.getUserMemory,
     getIdempotencyKey: createIdempotencyKey,
     summarizeOutput(output) {
       return output;
@@ -443,6 +950,72 @@ function createGetUserMemoryTool(): AgentToolDefinition<GetUserMemoryAgentToolIn
         });
       } catch (error) {
         return createFailure("tool_execution_failed", "Failed to read user memory.", error);
+      }
+    },
+  };
+}
+
+function createQueryUserMemoryTool(): AgentToolDefinition<QueryUserMemoryAgentToolInput, AgentUserMemoryQueryOutput> {
+  return {
+    name: "queryUserMemory",
+    description: "按 kind、subjectType、status、confirmed、source 等结构化字段查询当前用户记忆，并返回覆盖诊断。",
+    accessLevel: "read",
+    inputSchema: queryUserMemoryAgentToolInputSchema,
+    dependencies: [],
+    capabilityContract: readonlyToolCapabilityContracts.queryUserMemory,
+    getIdempotencyKey: createIdempotencyKey,
+    summarizeOutput(output) {
+      return {
+        memoryQueryId: output.memoryQueryId,
+        matchedFilters: output.matchedFilters,
+        coverageDiagnostics: output.coverageDiagnostics,
+        matchedMemories: output.matchedMemories.map((memory) => ({
+          memoryId: memory.memoryId,
+          kind: memory.kind,
+          subjectType: memory.subjectType,
+          subjectId: memory.subjectId,
+          subjectLabel: memory.subjectLabel,
+          status: memory.status,
+          source: memory.source,
+          confirmed: memory.confirmed,
+          updatedAt: memory.updatedAt,
+        })),
+      };
+    },
+    summarizeTrace(result) {
+      return result.ok ? result.traceSummary : result.error;
+    },
+    async execute(input, context) {
+      const parsedInput = queryUserMemoryAgentToolInputSchema.parse(input);
+      try {
+        const output = await queryAgentUserMemory({
+          userId: context.userId,
+          filters: parsedInput.filters,
+          limit: parsedInput.limit,
+          includeValue: parsedInput.projection.includeValue,
+          memoryQueryId: createStructuredResultId(context, "memory_query", "queryUserMemory", parsedInput),
+        });
+        const summary = this.summarizeOutput(output);
+
+        if (output.matchedMemories.length === 0) {
+          return createFailure("unverifiable_result", "No user memory rows matched the structured query.", {
+            memoryQueryId: output.memoryQueryId,
+            matchedFilters: output.matchedFilters,
+            coverageDiagnostics: output.coverageDiagnostics,
+          }, true);
+        }
+
+        return createSuccess(context, "queryUserMemory", parsedInput, output, summary, summary, {
+          producedResources: [{ type: "memory_query_result", id: output.memoryQueryId }],
+          appliedHardConstraints: output.matchedFilters,
+          evidence: {
+            memoryQueryId: output.memoryQueryId,
+            matchedMemoryIds: output.matchedMemories.map((memory) => memory.memoryId),
+          },
+          diagnostics: output.coverageDiagnostics,
+        });
+      } catch (error) {
+        return createFailure("tool_execution_failed", "Failed to query user memory.", error);
       }
     },
   };
@@ -500,6 +1073,67 @@ async function getAgentUserMemorySnapshot(input: {
   };
 }
 
+// queryAgentUserMemory 是精确 memory query 工具的执行层，只消费结构化 filters，不把 snapshot 当作覆盖证明。
+async function queryAgentUserMemory(input: {
+  userId: string;
+  filters: QueryUserMemoryAgentToolInput["filters"];
+  limit: number;
+  includeValue: boolean;
+  memoryQueryId: string;
+  client?: UserMemoryClient;
+}): Promise<AgentUserMemoryQueryOutput> {
+  const client = input.client ?? getPrismaClient();
+  const now = new Date();
+  const where: Record<string, unknown> = {
+    userId: input.userId,
+    status: input.filters.status?.length ? { in: input.filters.status } : "active",
+    OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+  };
+
+  if (input.filters.kind?.length) {
+    where.kind = { in: input.filters.kind };
+  }
+  if (input.filters.subjectType?.length) {
+    where.subjectType = { in: input.filters.subjectType };
+  }
+  if (input.filters.source?.length) {
+    where.source = { in: input.filters.source };
+  }
+  if (input.filters.confirmed !== undefined) {
+    where.requiresConfirmation = !input.filters.confirmed;
+  }
+
+  const rows = await client.userMemory.findMany({
+    where,
+    orderBy: [{ requiresConfirmation: "asc" }, { updatedAt: "desc" }],
+    take: input.limit,
+  });
+  const latestMemoryUpdate = rows[0]?.updatedAt;
+
+  return {
+    memoryQueryId: input.memoryQueryId,
+    matchedFilters: input.filters,
+    matchedMemories: rows.map((memory) => ({
+      memoryId: memory.id,
+      kind: memory.kind,
+      subjectType: memory.subjectType,
+      subjectId: memory.subjectId ?? undefined,
+      subjectLabel: memory.subjectLabel ?? undefined,
+      status: memory.status,
+      source: memory.source,
+      confirmed: !memory.requiresConfirmation,
+      updatedAt: memory.updatedAt ? toUtcISOString(memory.updatedAt) : undefined,
+      value: input.includeValue ? memory.value : undefined,
+    })),
+    coverageDiagnostics: {
+      matchedCount: rows.length,
+      limit: input.limit,
+      unverifiable: rows.length === 0,
+      snapshotFreshness: latestMemoryUpdate ? toUtcISOString(latestMemoryUpdate) : undefined,
+    },
+  };
+}
+
 function createSuccess<Output>(
   context: AgentToolExecutionContext,
   toolName: AgentReadonlyToolName,
@@ -507,6 +1141,7 @@ function createSuccess<Output>(
   output: Output,
   modelSummary: unknown,
   traceSummary: unknown,
+  fulfillment?: Partial<AgentToolResultFulfillment>,
 ): AgentToolExecutionResult<Output> {
   return {
     ok: true,
@@ -514,6 +1149,7 @@ function createSuccess<Output>(
     toolResultId: createStructuredResultId(context, "tool_result", toolName, input),
     modelSummary,
     traceSummary,
+    fulfillment: createToolFulfillment(toolName, output, fulfillment),
   };
 }
 
@@ -560,6 +1196,64 @@ async function recoverSearchExercisesFromDiagnostics(
   };
 }
 
+function normalizeAgentSearchExercisesInput(input: SearchExercisesAgentToolInput): ExerciseSearchInput {
+  return {
+    operation: input.operation,
+    query: input.query,
+    candidateUse: input.candidateUse,
+    limit: input.limit,
+    visibility: input.filters?.visibility ?? input.visibility,
+    filters: input.filters,
+    resultRequirements: input.resultRequirements,
+    softPreferences: input.softPreferences,
+    projection: input.projection,
+    allowedSections: input.filters?.allowedSections ?? input.allowedSections,
+    bodyRegions: input.filters?.bodyRegions ?? input.bodyRegions,
+    goal: input.goal,
+    targetMuscles: input.filters?.targetMuscles ?? input.targetMuscles,
+    equipmentRequired: input.filters?.equipment?.in ?? input.equipmentRequired ?? input.equipment,
+    equipmentAvoided: input.filters?.equipment?.notIn ?? input.equipmentAvoided,
+    homeRequirements: input.filters?.homeRequirements,
+    levels: input.filters?.levels ?? (input.level ? [input.level] : undefined),
+    difficulty: input.filters?.difficulty,
+    riskTagsNotIn: input.filters?.riskTagsNotIn ?? input.excludedRiskTags,
+    goalTags: input.filters?.goalTags,
+    movementPatterns: input.filters?.movementPatterns,
+    intensityRoles: input.filters?.intensityRoles,
+    location: input.location,
+    level: input.level,
+    sessionMinutes: input.sessionMinutes,
+    preferences: input.preferences,
+    avoidances: input.avoidances,
+    excludedRiskTags: input.excludedRiskTags,
+    injuryLimitations: input.injuryLimitations,
+  };
+}
+
+function createExerciseCandidateSetEvidence(result: ExerciseSearchResult): AgentExerciseSearchOutput["candidateSetEvidence"] {
+  return {
+    normalizedQueryInput: result.diagnostics.normalizedQueryInput ?? {
+      candidateUse: "answer_only",
+      filters: {},
+      resultRequirements: {},
+      softPreferences: {},
+      projection: {},
+    },
+    appliedFilters: result.diagnostics.appliedFilters ?? {},
+    invalidFilters: result.diagnostics.invalidFilters ?? [],
+    constraintProof: result.diagnostics.constraintProof ?? [],
+    resultRequirementProof: result.diagnostics.resultRequirementProof ?? {},
+    diagnostics: {
+      queryMode: result.diagnostics.queryMode ?? "none",
+      failureReasons: result.diagnostics.failureReasons ?? [],
+      unmetResultRequirements: result.diagnostics.unmetResultRequirements ?? [],
+      finalExerciseIds: result.diagnostics.finalExerciseIds ?? result.candidates.map((exercise) => exercise.id),
+    },
+    satisfied: result.diagnostics.satisfied ?? result.candidates.length > 0,
+    exerciseIds: result.diagnostics.finalExerciseIds ?? result.candidates.map((exercise) => exercise.id),
+  };
+}
+
 function createFailure(
   code: AgentToolError["code"],
   message: string,
@@ -571,6 +1265,69 @@ function createFailure(
     error: { code, message, detail, retryable },
     traceSummary: { code, message, detail: detail instanceof Error ? detail.message : detail },
   };
+}
+
+function createToolFulfillment(
+  toolName: AgentReadonlyToolName,
+  output: unknown,
+  override: Partial<AgentToolResultFulfillment> = {},
+): AgentToolResultFulfillment {
+  const contract = readonlyToolCapabilityContracts[toolName];
+  const producedResources = override.producedResources ?? inferProducedResources(output);
+
+  return {
+    operationKind: contract.operationKind,
+    operation: override.operation ?? contract.supportedOperations[0],
+    satisfied: override.satisfied ?? true,
+    producedResources,
+    appliedHardConstraints: override.appliedHardConstraints ?? {},
+    unmetResultRequirements: override.unmetResultRequirements ?? [],
+    evidence: override.evidence ?? inferFulfillmentEvidence(output),
+    diagnostics: override.diagnostics ?? {},
+  };
+}
+
+function inferProducedResources(output: unknown): AgentToolResultFulfillment["producedResources"] {
+  const record = isRecord(output) ? output : {};
+  const resources: AgentToolResultFulfillment["producedResources"] = [];
+
+  pushResource(resources, "candidate_set", record.candidateSetId);
+  pushResource(resources, "artifact_payload", record.artifactPayloadId);
+  pushResource(resources, "artifact_reference", record.artifactReferenceId);
+  pushResource(resources, "memory_query_result", record.memoryQueryId);
+  pushResource(resources, "memory_snapshot", record.snapshotId);
+
+  if (isRecord(record.exercise) && typeof record.exercise.id === "string") {
+    pushResource(resources, "exercise_detail", record.exercise.id);
+  }
+
+  return resources;
+}
+
+function pushResource(
+  resources: AgentToolResultFulfillment["producedResources"],
+  type: string,
+  value: unknown,
+) {
+  if (typeof value === "string" && value.trim()) {
+    resources.push({ type, id: value });
+  }
+}
+
+function inferFulfillmentEvidence(output: unknown) {
+  if (!isRecord(output)) {
+    return {};
+  }
+
+  return compactObject({
+    candidateSetId: output.candidateSetId,
+    artifactPayloadId: output.artifactPayloadId,
+    artifactReferenceId: output.artifactReferenceId,
+    memoryQueryId: output.memoryQueryId,
+    snapshotId: output.snapshotId,
+    candidateSetEvidence: output.candidateSetEvidence,
+    evidence: output.evidence,
+  });
 }
 
 function createIdempotencyKey<Input>(input: Input, context: AgentToolExecutionContext) {
@@ -633,6 +1390,16 @@ function arraysEqual(left: string[], right: string[]) {
   return left.length === right.length && left.every((item, index) => item === right[index]);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function compactObject<T extends Record<string, unknown>>(value: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entryValue]) => entryValue !== undefined),
+  ) as Partial<T>;
+}
+
 function requiresStructuredExecutableCandidateSet(input: SearchExercisesAgentToolInput) {
   return input.candidateUse !== "answer_only";
 }
@@ -642,7 +1409,21 @@ function requiresStructuredExecutableArtifactSet(input: SearchArtifactsAgentTool
 }
 
 function hasStructuredExerciseFilters(input: SearchExercisesAgentToolInput) {
+  const filters = input.filters;
   return Boolean(
+    filters?.bodyRegions?.length ||
+    filters?.allowedSections?.length ||
+    filters?.targetMuscles?.length ||
+    filters?.equipment?.in?.length ||
+    filters?.equipment?.notIn?.length ||
+    filters?.homeRequirements?.length ||
+    filters?.levels?.length ||
+    filters?.difficulty?.length ||
+    filters?.riskTagsNotIn?.length ||
+    filters?.goalTags?.length ||
+    filters?.movementPatterns?.length ||
+    filters?.intensityRoles?.length ||
+    filters?.visibility ||
     input.goal ||
     input.targetMuscles?.length ||
     input.bodyRegions?.length ||
@@ -655,6 +1436,21 @@ function hasStructuredExerciseFilters(input: SearchExercisesAgentToolInput) {
     input.preferences?.length ||
     input.avoidances?.length ||
     input.injuryLimitations?.length,
+  );
+}
+
+function requiresRoutineResultRequirements(input: SearchExercisesAgentToolInput) {
+  return input.candidateUse === "routine" || input.candidateUse === "plan" || input.candidateUse === "patch";
+}
+
+function hasResultRequirements(input: SearchExercisesAgentToolInput) {
+  const requirements = input.resultRequirements;
+  return Boolean(
+    requirements?.minCandidates ||
+    requirements?.mustBeUsableFor ||
+    requirements?.requireProof ||
+    requirements?.requireUnique ||
+    Object.keys(requirements?.sectionCoverage ?? {}).length > 0,
   );
 }
 

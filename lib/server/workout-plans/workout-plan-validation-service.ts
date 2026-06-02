@@ -1,4 +1,8 @@
-import { listAllExercises } from "@/lib/server/exercises/exercise-service";
+import {
+  exerciseMatchesCandidateSetFilters,
+  listAllExercises,
+  type ExerciseCandidateSetEvidence,
+} from "@/lib/server/exercises/exercise-service";
 import { normalizeExerciseMetadata } from "@/lib/shared/exercises/metadata";
 import type { Exercise, ExerciseAllowedSection } from "@/lib/shared/exercises/types";
 import type { ConversationMemoryState } from "@/lib/shared/user-feedback-memory/schema";
@@ -28,6 +32,8 @@ import {
 export type WorkoutPlanValidationIssueCode =
   | "invalid_exercise_id"
   | "outside_candidate_exercise_id"
+  | "candidate_query_boundary_mismatch"
+  | "result_requirement_unmet"
   | "empty_candidate_set"
   | "cycle_structure_mismatch"
   | "day_similarity_high"
@@ -78,6 +84,7 @@ export type WorkoutPlanValidationResult = {
 export type WorkoutPlanValidationOptions = {
   exercises: Exercise[];
   candidateExerciseIds: Iterable<string>;
+  candidateSetEvidence?: ExerciseCandidateSetEvidence;
   memoryState?: ConversationMemoryState;
   fieldSources?: ResolvedFieldSources;
   confirmedConstraintFields?: Iterable<WorkoutPlanExplicitConstraintField>;
@@ -200,6 +207,12 @@ export function validateWorkoutPlanDraft(
       message: `动作 ID 不在本次候选集中：${exerciseId}`,
     });
   }
+
+  errors.push(...validateCandidateSetEvidenceBoundary(
+    exerciseIdValidation.exerciseIds,
+    exerciseById,
+    options.candidateSetEvidence,
+  ));
 
   pushIssues(
     warnings,
@@ -409,6 +422,57 @@ export function validateWorkoutPlanDraft(
   };
 }
 
+// candidate set 查询证据是服务端确定性事实；Validator 只复核结构化 filters 和 result requirements。
+function validateCandidateSetEvidenceBoundary(
+  exerciseIds: string[],
+  exerciseById: Map<string, Exercise>,
+  evidence: ExerciseCandidateSetEvidence | undefined,
+): WorkoutPlanValidationIssue[] {
+  if (!evidence) {
+    return [];
+  }
+
+  const issues: WorkoutPlanValidationIssue[] = [];
+  const evidenceExerciseIds = new Set(evidence.exerciseIds);
+
+  if (!evidence.satisfied) {
+    issues.push({
+      code: "result_requirement_unmet",
+      message: "上游 candidate set 未证明满足 ToolRequest，不能作为训练生成事实源。",
+    });
+  }
+
+  for (const unmetRequirement of evidence.diagnostics.unmetResultRequirements) {
+    issues.push({
+      code: "result_requirement_unmet",
+      message: `候选集合未满足结果要求：${unmetRequirement}`,
+    });
+  }
+
+  for (const exerciseId of exerciseIds) {
+    const exercise = exerciseById.get(exerciseId);
+
+    if (!evidenceExerciseIds.has(exerciseId)) {
+      issues.push({
+        code: "candidate_query_boundary_mismatch",
+        exerciseId,
+        message: `动作 ID 不在 candidate set 查询证据中：${exerciseId}`,
+      });
+      continue;
+    }
+
+    if (exercise && !exerciseMatchesCandidateSetFilters(exercise, evidence.appliedFilters)) {
+      issues.push({
+        code: "candidate_query_boundary_mismatch",
+        exerciseId,
+        message: `动作 ${exerciseId} 不满足 candidate set 已执行的结构化查询边界。`,
+      });
+    }
+  }
+
+  return issues;
+}
+
 function validateMemoryConstraints(
   exerciseIds: string[],
   exerciseById: Map<string, Exercise>,
@@ -577,6 +641,12 @@ export function validateWorkoutRoutineDraft(
       message: `动作 ID 不在本次候选集中：${exerciseId}`,
     });
   }
+
+  errors.push(...validateCandidateSetEvidenceBoundary(
+    exerciseIdValidation.exerciseIds,
+    exerciseById,
+    options.candidateSetEvidence,
+  ));
 
   if (estimatedMinutes > intent.sessionMinutes + 15) {
     pushFieldSourcedIssue(errors, warnings, "sessionMinutes", fieldSources, options, {

@@ -4,13 +4,16 @@ import { ZodError, z, type ZodType } from "zod";
 
 import {
   agentExecutionResultSchema,
+  agentToolCapabilityContractSchema,
   agentToolDecisionSchema,
   agentToolDomainCapabilityContractSchema,
   type AgentToolAccessLevel,
+  type AgentToolCapabilityContract,
   type AgentToolDecision,
   type AgentToolDependency,
   type AgentToolDomainCapabilityContract,
   type AgentToolError,
+  type AgentToolResultFulfillment,
   type AgentToolResultRecord,
 } from "./contracts";
 
@@ -30,6 +33,7 @@ export type AgentToolExecutionResult<Output> =
       toolResultId: string;
       modelSummary: unknown;
       traceSummary: unknown;
+      fulfillment?: AgentToolResultFulfillment;
     }
   | {
       ok: false;
@@ -43,6 +47,7 @@ export type AgentToolDefinition<Input, Output> = {
   accessLevel: AgentToolAccessLevel;
   inputSchema: ZodType<Input>;
   dependencies: AgentToolDependency[];
+  capabilityContract?: AgentToolCapabilityContract;
   domainCapability?: AgentToolDomainCapabilityContract;
   getIdempotencyKey(input: Input, context: AgentToolExecutionContext): string;
   summarizeOutput(output: Output): unknown;
@@ -57,6 +62,8 @@ export type AgentToolDefinitionSummary = {
   accessLevel: AgentToolAccessLevel;
   inputJsonSchemaHint: unknown;
   dependencies: AgentToolDependency[];
+  capabilityContract: AgentToolCapabilityContract;
+  toolRequestContractSummary: unknown;
   writableResources?: string[];
 };
 
@@ -66,6 +73,8 @@ export type AgentToolRegistrationIssue = {
     | "invalid_name"
     | "duplicate_tool"
     | "missing_description"
+    | "missing_capability_contract"
+    | "invalid_capability_contract"
     | "missing_dependency"
     | "missing_write_contract"
     | "invalid_write_contract"
@@ -105,14 +114,20 @@ export class AgentToolRegistry {
   }
 
   listModelDefinitions(): AgentToolDefinitionSummary[] {
-    return this.list().map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      accessLevel: tool.accessLevel,
-      inputJsonSchemaHint: z.toJSONSchema(tool.inputSchema),
-      dependencies: tool.dependencies,
-      writableResources: tool.domainCapability?.writableResources,
-    }));
+    return this.list().map((tool) => {
+      const capabilityContract = tool.capabilityContract as AgentToolCapabilityContract;
+
+      return {
+        name: tool.name,
+        description: tool.description,
+        accessLevel: tool.accessLevel,
+        inputJsonSchemaHint: z.toJSONSchema(tool.inputSchema),
+        dependencies: tool.dependencies,
+        capabilityContract,
+        toolRequestContractSummary: summarizeToolRequestContract(capabilityContract),
+        writableResources: tool.domainCapability?.writableResources,
+      };
+    });
   }
 }
 
@@ -163,6 +178,24 @@ export function validateAgentToolDefinition<Input, Output>(
     });
   }
 
+  if (!definition.capabilityContract) {
+    issues.push({
+      toolName,
+      code: "missing_capability_contract",
+      message: "Agent tools must declare a capability contract before they are model-visible.",
+    });
+  } else {
+    const parsedCapability = agentToolCapabilityContractSchema.safeParse(definition.capabilityContract);
+    if (!parsedCapability.success) {
+      issues.push({
+        toolName,
+        code: "invalid_capability_contract",
+        message: "Agent tool capability contract is invalid.",
+        detail: summarizeZodIssues(parsedCapability.error),
+      });
+    }
+  }
+
   if (definition.accessLevel === "write" && definition.dependencies.length === 0) {
     issues.push({
       toolName,
@@ -200,6 +233,24 @@ export function validateAgentToolDefinition<Input, Output>(
   }
 
   return issues;
+}
+
+// summarizeToolRequestContract 是模型可见摘要的单一来源，避免 prompt 和 trace 各写一套工具边界。
+function summarizeToolRequestContract(contract: AgentToolCapabilityContract) {
+  return {
+    operationKind: contract.operationKind,
+    supportedOperations: contract.supportedOperations,
+    hardConstraints: contract.inputContract.hardConstraintFields,
+    softPreferences: contract.inputContract.softPreferenceFields,
+    resultRequirements: contract.inputContract.resultRequirementFields,
+    projection: contract.inputContract.projectionFields,
+    acceptedFilters: contract.inputContract.acceptedFilters,
+    acceptedEnums: contract.inputContract.acceptedEnums,
+    refusesWhen: contract.refusesWhen,
+    unsupportedOperations: contract.unsupportedOperations,
+    failureCodes: contract.failureCodes,
+    evidence: contract.evidence,
+  };
 }
 
 export type AgentToolDecisionParseResult =

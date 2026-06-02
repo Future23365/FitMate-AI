@@ -5,6 +5,8 @@ import type {
 } from "./workout-plan-validation-service";
 
 const recoverableIssueCodes = new Set<WorkoutPlanValidationIssueCode>([
+  "candidate_query_boundary_mismatch",
+  "result_requirement_unmet",
   "session_too_long",
   "session_too_short",
   "weekly_frequency_mismatch",
@@ -76,6 +78,14 @@ function buildGuidanceMessage(
     }
   }
 
+  if (primaryIssue?.code === "candidate_query_boundary_mismatch") {
+    return "这版训练越过了上游动作查询边界，需要用合法结构化 filters 重新检索候选后再生成。";
+  }
+
+  if (primaryIssue?.code === "result_requirement_unmet") {
+    return "上游候选集合没有满足本次训练生成的结果要求，需要带上 section 覆盖和候选数量要求重新查询。";
+  }
+
   if (recoverable) {
     return "这版训练的时长、训练量或频率还需要调整。你可以选择压缩时长、减少动作数量或降低每个动作组数。";
   }
@@ -90,6 +100,10 @@ function buildSuggestedReplies(
 ) {
   if (!recoverable) {
     return ["重新生成一版", "补充可用器械", "调整训练目标"];
+  }
+
+  if (primaryIssueCode === "candidate_query_boundary_mismatch" || primaryIssueCode === "result_requirement_unmet") {
+    return ["按原约束重查候选", "补足热身和拉伸候选", "放宽候选数量要求", "改为先澄清"];
   }
 
   if (primaryIssueCode === "session_too_long") {

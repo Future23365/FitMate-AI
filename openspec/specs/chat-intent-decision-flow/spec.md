@@ -90,7 +90,7 @@ TBD - created by archiving change unify-chat-intent-decision-flow. Update Purpos
 系统 SHALL 将旧 intent 架构删除边界扩展到 active Route Handler、前端新流解析和生产目录 legacy 模块。生产 `/api/chat` 不走旧主链不足以完成清理；任何仍可被聊天体验触发的旧 AI 接口或旧 trigger 面都 MUST 删除或隔离。
 
 #### Scenario: 旧 API route 仍存在
-- **WHEN** 代码库仍存在 `/api/ai/workout-plan`、`/api/ai/exercise-recommendations` 或等价旧聊天 AI route
+- **WHEN** 代码库仍存在旧 workout-plan AI route、旧 exercise recommendation AI route 或等价旧聊天 AI route
 - **THEN** 系统 MUST 将其视为旧 intent 架构残留
 - **AND** 实现 MUST 删除该 route 或证明它只属于非生产离线迁移边界
 
@@ -123,4 +123,3 @@ TBD - created by archiving change unify-chat-intent-decision-flow. Update Purpos
 - **WHEN** 旧 `createFallbackWorkoutIntent`、pending replacement 字符串匹配、显式引用关键词或其他服务端文本规则仍存在于代码库
 - **THEN** 它们 MUST NOT 在 Agent 前改写 `AgentExecutionState`、`WorkoutEditPlan`、tool decision 或 `AgentExecutionResult`
 - **AND** 若仍需保留，MUST 迁移为 Agent 可读状态、工具硬边界或仅测试夹具
-

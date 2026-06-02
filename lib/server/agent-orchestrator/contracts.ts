@@ -132,6 +132,25 @@ export const agentToolAccessLevelSchema = z.enum([
 
 export type AgentToolAccessLevel = z.infer<typeof agentToolAccessLevelSchema>;
 
+// AgentToolOperationKind 描述工具在 Agent 链路中的能力类型，供 registry、prompt 和 trace 共用。
+export const agentToolOperationKindSchema = z.enum([
+  "exact_read",
+  "list",
+  "structured_search",
+  "reference_resolution",
+  "memory_snapshot",
+  "memory_query",
+  "candidate_to_draft",
+  "edit_plan_compile",
+  "patch_compile",
+  "validation",
+  "policy",
+  "persistence",
+  "clarification",
+]);
+
+export type AgentToolOperationKind = z.infer<typeof agentToolOperationKindSchema>;
+
 export const agentToolDependencyKindSchema = z.enum([
   "tool_result",
   "candidate_set",
@@ -172,10 +191,18 @@ export type AgentToolDomainCapabilityContract = z.infer<
 export const agentToolErrorCodeSchema = z.enum([
   "unknown_tool",
   "schema_validation_failed",
+  "missing_required_parameter",
+  "invalid_parameter",
+  "unsupported_operation",
+  "ambiguous_resource",
+  "insufficient_candidates",
+  "result_requirement_unmet",
+  "unverifiable_result",
   "forbidden",
   "not_found",
   "invalid_dependency",
   "candidate_set_mismatch",
+  "candidate_query_boundary_mismatch",
   "validation_failed",
   "policy_blocked",
   "confirmation_required",
@@ -192,6 +219,47 @@ export const agentToolErrorCodeSchema = z.enum([
 
 export type AgentToolErrorCode = z.infer<typeof agentToolErrorCodeSchema>;
 
+// AgentToolRequestContract 统一表达模型提交的 operation、硬约束、偏好、结果要求和投影边界。
+export const agentToolRequestContractSchema = z.object({
+  operation: z.string().trim().min(1),
+  hardConstraints: z.record(z.string(), z.unknown()).default({}),
+  softPreferences: z.record(z.string(), z.unknown()).default({}),
+  resultRequirements: z.record(z.string(), z.unknown()).default({}),
+  projection: z.record(z.string(), z.unknown()).default({}),
+});
+
+export type AgentToolRequestContract = z.infer<typeof agentToolRequestContractSchema>;
+
+// AgentToolCapabilityContract 是模型可见工具摘要和运行时注册校验的单一事实源。
+export const agentToolCapabilityContractSchema = z.object({
+  operationKind: agentToolOperationKindSchema,
+  supportedOperations: z.array(z.string().trim().min(1)).min(1),
+  inputContract: z.object({
+    requiredFields: z.array(z.string().trim().min(1)).default([]),
+    optionalFields: z.array(z.string().trim().min(1)).default([]),
+    acceptedFilters: z.array(z.string().trim().min(1)).default([]),
+    acceptedEnums: z.record(z.string(), z.array(z.string().trim().min(1))).default({}),
+    resourceRefs: z.array(z.string().trim().min(1)).default([]),
+    hardConstraintFields: z.array(z.string().trim().min(1)).default([]),
+    softPreferenceFields: z.array(z.string().trim().min(1)).default([]),
+    resultRequirementFields: z.array(z.string().trim().min(1)).default([]),
+    projectionFields: z.array(z.string().trim().min(1)).default([]),
+  }),
+  executionContract: z.object({
+    reads: z.array(z.string().trim().min(1)).default([]),
+    writes: z.array(z.string().trim().min(1)).default([]),
+    mustNotRead: z.array(z.string().trim().min(1)).default([]),
+    strictness: z.enum(["exact", "hard_filter", "validated_compile", "policy_check"]),
+  }),
+  refusesWhen: z.array(z.string().trim().min(1)).min(1),
+  produces: z.array(z.string().trim().min(1)).default([]),
+  evidence: z.array(z.string().trim().min(1)).min(1),
+  failureCodes: z.array(agentToolErrorCodeSchema).min(1),
+  unsupportedOperations: z.array(z.string().trim().min(1)).default([]),
+});
+
+export type AgentToolCapabilityContract = z.infer<typeof agentToolCapabilityContractSchema>;
+
 export const agentToolErrorSchema = z.object({
   code: agentToolErrorCodeSchema,
   message: z.string().trim().min(1).max(600),
@@ -200,6 +268,26 @@ export const agentToolErrorSchema = z.object({
 });
 
 export type AgentToolError = z.infer<typeof agentToolErrorSchema>;
+
+// AgentToolProducedResource 记录工具成功产出的可引用资源 id，供后续依赖图消费。
+export const agentToolProducedResourceSchema = z.object({
+  type: z.string().trim().min(1),
+  id: z.string().trim().min(1),
+});
+
+// AgentToolResultFulfillment 记录工具是否真实满足 ToolRequest，后续工具只能消费 satisfied=true 的资源。
+export const agentToolResultFulfillmentSchema = z.object({
+  operationKind: agentToolOperationKindSchema,
+  operation: z.string().trim().min(1),
+  satisfied: z.boolean(),
+  producedResources: z.array(agentToolProducedResourceSchema).default([]),
+  appliedHardConstraints: z.record(z.string(), z.unknown()).default({}),
+  unmetResultRequirements: z.array(z.string().trim().min(1)).default([]),
+  evidence: z.record(z.string(), z.unknown()).default({}),
+  diagnostics: z.record(z.string(), z.unknown()).default({}),
+});
+
+export type AgentToolResultFulfillment = z.infer<typeof agentToolResultFulfillmentSchema>;
 
 export const agentRuntimeLimitsSchema = z.object({
   maxSteps: z.number().int().min(1).max(40).default(12),
@@ -255,6 +343,7 @@ export const agentToolCallRecordSchema = z.object({
 
 export type AgentToolCallRecord = z.infer<typeof agentToolCallRecordSchema>;
 
+// AgentToolResultRecord 是 Agent runtime 登记工具执行结果和资源依赖的统一结构。
 export const agentToolResultRecordSchema = z.object({
   toolResultId: z.string().trim().min(1),
   toolCallId: z.string().trim().min(1),
@@ -274,6 +363,7 @@ export const agentToolResultRecordSchema = z.object({
   confirmationId: z.string().trim().min(1).optional(),
   revisionId: z.string().trim().min(1).optional(),
   operationResultId: z.string().trim().min(1).optional(),
+  fulfillment: agentToolResultFulfillmentSchema.optional(),
 });
 
 export type AgentToolResultRecord = z.infer<typeof agentToolResultRecordSchema>;

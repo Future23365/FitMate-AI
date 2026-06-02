@@ -51,9 +51,11 @@ import {
   assistantSuggestionSchema,
   workoutEditPlanSchema,
   type AgentToolError,
+  type AgentToolCapabilityContract,
+  type AgentToolResultFulfillment,
   type WorkoutEditPlan,
 } from "./contracts";
-import { createReadonlyAgentToolDefinitions } from "./readonly-tools";
+import { createReadonlyAgentToolDefinitions, type AgentExerciseSearchOutput } from "./readonly-tools";
 
 const defaultCandidatePreviewLimit = 12;
 const phaseChangeId = "replace-chat-orchestrator-with-tool-first-agent";
@@ -294,6 +296,130 @@ export type AgentWorkoutToolName =
   | "evaluatePolicy"
   | "saveConversationArtifactRevision";
 
+const workoutToolCapabilityContracts = {
+  proposeWorkoutEditPlan: createWorkoutToolCapabilityContract({
+    operationKind: "edit_plan_compile",
+    supportedOperations: ["compile_workout_edit_plan"],
+    requiredFields: ["sourceArtifactPayloadId", "targetArtifactId", "changes", "scope", "strategy"],
+    resourceRefs: ["sourceArtifactPayloadId", "allowedArtifactPayloadIds", "requiredCandidateSetIds"],
+    hardConstraintFields: ["sourceArtifactPayloadId", "targetArtifactId", "changes", "scope", "strategy"],
+    strictness: "validated_compile",
+    produces: ["workout_edit_plan"],
+    evidence: ["editPlanId", "targetArtifactId", "requiredCandidateSetIds"],
+    failureCodes: ["schema_validation_failed", "invalid_dependency"],
+    unsupportedOperations: ["derive patch semantics from user natural language"],
+  }),
+  generateRoutineDraft: createWorkoutToolCapabilityContract({
+    operationKind: "candidate_to_draft",
+    supportedOperations: ["compile_routine_draft"],
+    requiredFields: ["intent", "candidateSetId", "candidateExerciseIds"],
+    resourceRefs: ["candidateSetId", "sourceArtifactId", "requiredExerciseIds"],
+    hardConstraintFields: ["candidateSetId", "candidateExerciseIds", "requiredExerciseIds"],
+    resultRequirementFields: ["candidate set resultRequirements"],
+    strictness: "validated_compile",
+    produces: ["draft"],
+    evidence: ["draftId", "candidateSetId", "candidateSetEvidence", "validation"],
+    failureCodes: ["invalid_dependency", "candidate_set_mismatch", "result_requirement_unmet", "validation_failed", "tool_execution_failed"],
+    unsupportedOperations: ["supplement exercises from the full exercise library without candidate set proof"],
+  }),
+  generatePlanDraft: createWorkoutToolCapabilityContract({
+    operationKind: "candidate_to_draft",
+    supportedOperations: ["compile_plan_draft"],
+    requiredFields: ["intent", "candidateSetId", "candidateExerciseIds", "strategy"],
+    resourceRefs: ["candidateSetId", "sourceArtifact"],
+    hardConstraintFields: ["candidateSetId", "candidateExerciseIds", "strategy"],
+    resultRequirementFields: ["candidate set resultRequirements"],
+    strictness: "validated_compile",
+    produces: ["draft"],
+    evidence: ["draftId", "candidateSetId", "candidateSetEvidence", "validation"],
+    failureCodes: ["invalid_dependency", "candidate_set_mismatch", "result_requirement_unmet", "validation_failed", "tool_execution_failed"],
+    unsupportedOperations: ["plan expansion with exercises outside candidate set proof"],
+  }),
+  proposeWorkoutPatch: createWorkoutToolCapabilityContract({
+    operationKind: "patch_compile",
+    supportedOperations: ["compile_workout_patch"],
+    requiredFields: ["editPlan", "candidateSetId", "candidateExerciseIds", "patch"],
+    resourceRefs: ["editPlanId", "candidateSetId"],
+    hardConstraintFields: ["editPlan", "candidateSetId", "candidateExerciseIds", "patch"],
+    strictness: "validated_compile",
+    produces: ["patch"],
+    evidence: ["patchId", "candidateSetId", "editPlanId", "replacement proof"],
+    failureCodes: ["invalid_dependency", "candidate_set_mismatch", "candidate_query_boundary_mismatch"],
+    unsupportedOperations: ["infer patch operations from natural language"],
+  }),
+  askClarification: createWorkoutToolCapabilityContract({
+    operationKind: "clarification",
+    supportedOperations: ["ask_clarification"],
+    requiredFields: ["question"],
+    hardConstraintFields: ["question"],
+    strictness: "exact",
+    produces: ["clarification"],
+    evidence: ["question", "blockingReasons"],
+    failureCodes: ["schema_validation_failed"],
+    unsupportedOperations: ["read data", "write data", "generate workout"],
+  }),
+  validateRoutineDraft: createWorkoutToolCapabilityContract({
+    operationKind: "validation",
+    supportedOperations: ["validate_registered_routine_draft"],
+    requiredFields: ["draftId", "candidateSetId", "intent"],
+    resourceRefs: ["draftId", "candidateSetId"],
+    hardConstraintFields: ["draftId", "candidateSetId", "candidateSetEvidence"],
+    strictness: "policy_check",
+    produces: ["validation"],
+    evidence: ["validationId", "errors", "warnings", "candidate boundary checks"],
+    failureCodes: ["invalid_dependency", "candidate_query_boundary_mismatch", "result_requirement_unmet", "validation_failed"],
+    unsupportedOperations: ["validate raw model payload from input"],
+  }),
+  validatePlanDraft: createWorkoutToolCapabilityContract({
+    operationKind: "validation",
+    supportedOperations: ["validate_registered_plan_draft"],
+    requiredFields: ["draftId", "candidateSetId", "candidateExerciseIds", "intent"],
+    resourceRefs: ["draftId", "candidateSetId"],
+    hardConstraintFields: ["draftId", "candidateSetId", "candidateSetEvidence"],
+    strictness: "policy_check",
+    produces: ["validation"],
+    evidence: ["validationId", "errors", "warnings", "candidate boundary checks"],
+    failureCodes: ["invalid_dependency", "candidate_query_boundary_mismatch", "result_requirement_unmet", "validation_failed"],
+    unsupportedOperations: ["validate raw model payload from input"],
+  }),
+  validateWorkoutPatch: createWorkoutToolCapabilityContract({
+    operationKind: "validation",
+    supportedOperations: ["validate_registered_workout_patch"],
+    requiredFields: ["patchId", "candidateSetId", "candidateExerciseIds", "patch"],
+    resourceRefs: ["patchId", "candidateSetId"],
+    hardConstraintFields: ["patchId", "candidateSetId", "candidateSetEvidence"],
+    strictness: "policy_check",
+    produces: ["validation"],
+    evidence: ["validationId", "errors", "candidate boundary checks"],
+    failureCodes: ["candidate_set_mismatch", "candidate_query_boundary_mismatch", "validation_failed"],
+    unsupportedOperations: ["save patch"],
+  }),
+  evaluatePolicy: createWorkoutToolCapabilityContract({
+    operationKind: "policy",
+    supportedOperations: ["evaluate_registered_resource_policy"],
+    requiredFields: ["policyTarget"],
+    resourceRefs: ["draftId", "patchId", "artifactPayloadId", "sourceArtifactId"],
+    hardConstraintFields: ["policyTarget", "draftId", "patchId", "sourceArtifactId"],
+    strictness: "policy_check",
+    produces: ["policy_decision"],
+    evidence: ["policyDecisionId", "allowed", "requiresConfirmation", "blockedReasons"],
+    failureCodes: ["invalid_dependency", "policy_blocked"],
+    unsupportedOperations: ["complete draft", "save artifact", "validate candidate boundary"],
+  }),
+  saveConversationArtifactRevision: createWorkoutToolCapabilityContract({
+    operationKind: "persistence",
+    supportedOperations: ["save_validated_artifact_revision"],
+    requiredFields: ["candidateSetId", "validationId", "policyDecisionId", "validationPassed", "policyAllowed"],
+    resourceRefs: ["candidateSetId", "validationId", "policyDecisionId", "draftId", "patchId", "confirmationId"],
+    hardConstraintFields: ["candidateSetId", "validationId", "policyDecisionId", "draftId", "patchId"],
+    strictness: "validated_compile",
+    produces: ["ConversationArtifact"],
+    evidence: ["revisionId", "artifactId", "validationId", "policyDecisionId"],
+    failureCodes: ["invalid_dependency", "policy_blocked", "persistence_failed", "schema_validation_failed"],
+    unsupportedOperations: ["save unvalidated payload", "infer policy result"],
+  }),
+} satisfies Record<AgentWorkoutToolName, AgentToolCapabilityContract>;
+
 // Phase 3 tools 把训练生成、Patch、校验、Policy 和 revision 保存接入统一 registry，但不切换聊天主链。
 export function createWorkoutAgentToolDefinitions(): AgentToolDefinition<unknown, unknown>[] {
   return [
@@ -347,6 +473,7 @@ function createProposeWorkoutEditPlanTool(): AgentToolDefinition<z.infer<typeof 
       { kind: "artifact_payload", required: true, description: "必须引用 getArtifactPayload 返回的 sourceArtifactPayloadId。" },
       { kind: "candidate_set", required: false, description: "Patch 或 regenerate 前可引用已查询候选集合。" },
     ],
+    capabilityContract: workoutToolCapabilityContracts.proposeWorkoutEditPlan,
     getIdempotencyKey: createIdempotencyKey,
     summarizeOutput: summarizeEditPlan,
     summarizeTrace(result) {
@@ -384,6 +511,7 @@ function createGenerateRoutineDraftTool(): AgentToolDefinition<GenerateRoutineDr
       { kind: "candidate_set", required: true, description: "必须引用当前 run 的动作候选集合。" },
       { kind: "artifact_payload", required: false, description: "基于已有推荐 artifact 生成时必须绑定可访问的推荐 artifact。" },
     ],
+    capabilityContract: workoutToolCapabilityContracts.generateRoutineDraft,
     getIdempotencyKey: createIdempotencyKey,
     summarizeOutput: summarizeDraftOutput,
     summarizeTrace(result) {
@@ -392,15 +520,32 @@ function createGenerateRoutineDraftTool(): AgentToolDefinition<GenerateRoutineDr
     async execute(input, context) {
       const parsedInput = generateRoutineDraftAgentToolInputSchema.parse(input);
       try {
+        const candidateSet = resolveCandidateSetResource(context, parsedInput.candidateSetId);
+        if (!candidateSet.ok) {
+          return candidateSet;
+        }
+        const candidateBoundaryError = validateCandidateExerciseIdsWithinCandidateSet(candidateSet, parsedInput.candidateExerciseIds);
+        if (candidateBoundaryError) {
+          return candidateBoundaryError;
+        }
+
         const requiredBoundary = await resolveRoutineRequiredExerciseBoundary(parsedInput, context);
 
         if (!requiredBoundary.ok) {
           return requiredBoundary;
         }
 
+        if (requiredBoundary.requiredExerciseIds) {
+          const requiredBoundaryError = validateCandidateExerciseIdsWithinCandidateSet(candidateSet, requiredBoundary.requiredExerciseIds);
+          if (requiredBoundaryError) {
+            return requiredBoundaryError;
+          }
+        }
+
         const exercises = await listAllExercises();
+        const candidateSetExercises = exercises.filter((exercise) => candidateSet.exerciseIds.has(exercise.id));
         const draftCandidateExerciseIds = requiredBoundary.requiredExerciseIds ?? parsedInput.candidateExerciseIds;
-        const buildResult = buildRoutineDraftFromCandidates(parsedInput.intent, draftCandidateExerciseIds, exercises, parsedInput.title);
+        const buildResult = buildRoutineDraftFromCandidates(parsedInput.intent, draftCandidateExerciseIds, candidateSetExercises, parsedInput.title);
         const requiredCoverageError = validateRequiredRoutineExerciseCoverage(
           buildResult.candidateExerciseIds,
           requiredBoundary.requiredExerciseIds,
@@ -414,6 +559,7 @@ function createGenerateRoutineDraftTool(): AgentToolDefinition<GenerateRoutineDr
         const validation = validateWorkoutRoutineDraft(buildResult.draft, parsedInput.intent, {
           exercises,
           candidateExerciseIds: buildResult.candidateExerciseIds,
+          candidateSetEvidence: candidateSet.output.candidateSetEvidence,
         });
         const recovery = createValidationRecovery(validation, {
           targetSessionMinutes: parsedInput.intent.sessionMinutes,
@@ -444,6 +590,10 @@ function createGenerateRoutineDraftTool(): AgentToolDefinition<GenerateRoutineDr
 
         return createSuccess(context, "generateRoutineDraft", parsedInput, output, summary, summary);
       } catch (error) {
+        const candidateSetFailure = createCandidateSetBuildFailure(error, parsedInput.candidateSetId);
+        if (candidateSetFailure) {
+          return candidateSetFailure;
+        }
         return createFailure("tool_execution_failed", "Failed to generate routine draft.", error);
       }
     },
@@ -460,6 +610,7 @@ function createGeneratePlanDraftTool(): AgentToolDefinition<z.infer<typeof gener
       { kind: "candidate_set", required: true, description: "必须引用当前 run 的动作候选集合。" },
       { kind: "artifact_payload", required: false, description: "基于已有训练生成计划时应引用真实 artifact payload；首次生成可省略。" },
     ],
+    capabilityContract: workoutToolCapabilityContracts.generatePlanDraft,
     getIdempotencyKey: createIdempotencyKey,
     summarizeOutput: summarizeDraftOutput,
     summarizeTrace(result) {
@@ -468,12 +619,22 @@ function createGeneratePlanDraftTool(): AgentToolDefinition<z.infer<typeof gener
     async execute(input, context) {
       const parsedInput = generatePlanDraftAgentToolInputSchema.parse(input);
       try {
+        const candidateSet = resolveCandidateSetResource(context, parsedInput.candidateSetId);
+        if (!candidateSet.ok) {
+          return candidateSet;
+        }
+        const candidateBoundaryError = validateCandidateExerciseIdsWithinCandidateSet(candidateSet, parsedInput.candidateExerciseIds);
+        if (candidateBoundaryError) {
+          return candidateBoundaryError;
+        }
+
         const exercises = await listAllExercises();
+        const candidateSetExercises = exercises.filter((exercise) => candidateSet.exerciseIds.has(exercise.id));
         const sourceArtifact = parsedInput.sourceArtifact ?? createSeedRoutineSourceArtifact({
           intent: parsedInput.intent,
           candidateSetId: parsedInput.candidateSetId,
           candidateExerciseIds: parsedInput.candidateExerciseIds,
-          exercises,
+          exercises: candidateSetExercises,
         });
         const expanded = expandDomainPlan({
           strategy: parsedInput.strategy,
@@ -490,6 +651,7 @@ function createGeneratePlanDraftTool(): AgentToolDefinition<z.infer<typeof gener
         const validation = validateWorkoutPlanDraft(expanded.draft, parsedInput.intent, {
           exercises,
           candidateExerciseIds: parsedInput.candidateExerciseIds,
+          candidateSetEvidence: candidateSet.output.candidateSetEvidence,
         });
         const recovery = createValidationRecovery(validation, {
           targetSessionMinutes: parsedInput.intent.sessionMinutes,
@@ -516,6 +678,10 @@ function createGeneratePlanDraftTool(): AgentToolDefinition<z.infer<typeof gener
 
         return createSuccess(context, "generatePlanDraft", parsedInput, output, summary, summary);
       } catch (error) {
+        const candidateSetFailure = createCandidateSetBuildFailure(error, parsedInput.candidateSetId);
+        if (candidateSetFailure) {
+          return candidateSetFailure;
+        }
         return createFailure("tool_execution_failed", "Failed to generate plan draft.", error);
       }
     },
@@ -532,6 +698,7 @@ function createProposeWorkoutPatchTool(): AgentToolDefinition<ProposeWorkoutPatc
       { kind: "workout_edit_plan", required: true, description: "Patch 必须引用已登记 WorkoutEditPlan。" },
       { kind: "candidate_set", required: true, description: "replacementExerciseId 必须来自当前候选集合。" },
     ],
+    capabilityContract: workoutToolCapabilityContracts.proposeWorkoutPatch,
     getIdempotencyKey: createIdempotencyKey,
     summarizeOutput: summarizePatchOutput,
     summarizeTrace(result) {
@@ -539,6 +706,14 @@ function createProposeWorkoutPatchTool(): AgentToolDefinition<ProposeWorkoutPatc
     },
     async execute(input, context) {
       const parsedInput = proposeWorkoutPatchAgentToolInputSchema.parse(input);
+      const candidateSet = resolveCandidateSetResource(context, parsedInput.candidateSetId);
+      if (!candidateSet.ok) {
+        return candidateSet;
+      }
+      const candidateBoundaryError = validateCandidateExerciseIdsWithinCandidateSet(candidateSet, parsedInput.candidateExerciseIds);
+      if (candidateBoundaryError) {
+        return candidateBoundaryError;
+      }
       const dependencyError = validatePatchDependencies(parsedInput);
       if (dependencyError) {
         return dependencyError;
@@ -564,6 +739,7 @@ function createAskClarificationTool(): AgentToolDefinition<z.infer<typeof askCla
     accessLevel: "clarify",
     inputSchema: askClarificationAgentToolInputSchema,
     dependencies: [],
+    capabilityContract: workoutToolCapabilityContracts.askClarification,
     getIdempotencyKey: createIdempotencyKey,
     summarizeOutput(output) {
       return output;
@@ -589,6 +765,7 @@ function createValidateRoutineDraftTool(): AgentToolDefinition<z.infer<typeof va
       { kind: "draft", required: true, description: "必须引用已生成 routine draft。" },
       { kind: "candidate_set", required: true, description: "必须引用生成 draft 使用的候选集合。" },
     ],
+    capabilityContract: workoutToolCapabilityContracts.validateRoutineDraft,
     getIdempotencyKey: createIdempotencyKey,
     summarizeOutput: summarizeValidationOutput,
     summarizeTrace(result) {
@@ -596,6 +773,10 @@ function createValidateRoutineDraftTool(): AgentToolDefinition<z.infer<typeof va
     },
     async execute(input, context) {
       const parsedInput = validateRoutineDraftAgentToolInputSchema.parse(input);
+      const candidateSet = resolveCandidateSetResource(context, parsedInput.candidateSetId);
+      if (!candidateSet.ok) {
+        return candidateSet;
+      }
       const draftResource = resolveRoutineDraftResource(context, parsedInput.draftId);
 
       if (!draftResource.ok) {
@@ -614,6 +795,7 @@ function createValidateRoutineDraftTool(): AgentToolDefinition<z.infer<typeof va
       const validation = validateWorkoutRoutineDraft(draftResource.output.draft, parsedInput.intent, {
         exercises,
         candidateExerciseIds: draftResource.output.candidateExerciseIds,
+        candidateSetEvidence: candidateSet.output.candidateSetEvidence,
       });
       const output = {
         ...validation,
@@ -641,6 +823,7 @@ function createValidatePlanDraftTool(): AgentToolDefinition<z.infer<typeof valid
       { kind: "draft", required: true, description: "必须引用已生成 plan draft。" },
       { kind: "candidate_set", required: true, description: "必须引用生成 draft 使用的候选集合。" },
     ],
+    capabilityContract: workoutToolCapabilityContracts.validatePlanDraft,
     getIdempotencyKey: createIdempotencyKey,
     summarizeOutput: summarizeValidationOutput,
     summarizeTrace(result) {
@@ -648,6 +831,10 @@ function createValidatePlanDraftTool(): AgentToolDefinition<z.infer<typeof valid
     },
     async execute(input, context) {
       const parsedInput = validatePlanDraftAgentToolInputSchema.parse(input);
+      const candidateSet = resolveCandidateSetResource(context, parsedInput.candidateSetId);
+      if (!candidateSet.ok) {
+        return candidateSet;
+      }
       const draftResource = resolvePlanDraftResource(context, parsedInput.draftId);
 
       if (!draftResource.ok) {
@@ -666,6 +853,7 @@ function createValidatePlanDraftTool(): AgentToolDefinition<z.infer<typeof valid
       const validation = validateWorkoutPlanDraft(draftResource.output.draft, parsedInput.intent, {
         exercises,
         candidateExerciseIds: draftResource.output.candidateExerciseIds,
+        candidateSetEvidence: candidateSet.output.candidateSetEvidence,
       });
       const output = {
         ...validation,
@@ -699,6 +887,7 @@ function createValidateWorkoutPatchTool(): AgentToolDefinition<z.infer<typeof va
       { kind: "patch", required: true, description: "必须引用已登记 Patch。" },
       { kind: "candidate_set", required: true, description: "replacementExerciseId 必须来自候选集合。" },
     ],
+    capabilityContract: workoutToolCapabilityContracts.validateWorkoutPatch,
     getIdempotencyKey: createIdempotencyKey,
     summarizeOutput(output) {
       return output;
@@ -708,6 +897,14 @@ function createValidateWorkoutPatchTool(): AgentToolDefinition<z.infer<typeof va
     },
     async execute(input, context) {
       const parsedInput = validateWorkoutPatchAgentToolInputSchema.parse(input);
+      const candidateSet = resolveCandidateSetResource(context, parsedInput.candidateSetId);
+      if (!candidateSet.ok) {
+        return candidateSet;
+      }
+      const candidateBoundaryError = validateCandidateExerciseIdsWithinCandidateSet(candidateSet, parsedInput.candidateExerciseIds);
+      if (candidateBoundaryError) {
+        return candidateBoundaryError;
+      }
       const errors = collectPatchCandidateErrors(parsedInput.patch, parsedInput.candidateExerciseIds);
       const output = {
         validationId: createStructuredResultId(context, "validation", "validateWorkoutPatch", parsedInput),
@@ -733,6 +930,7 @@ function createEvaluatePolicyTool(): AgentToolDefinition<z.infer<typeof evaluate
       { kind: "draft", required: false, description: "生成结果保存前可引用已登记 draft。" },
       { kind: "artifact_payload", required: false, description: "修订已有 artifact 时可引用已读取 payload。" },
     ],
+    capabilityContract: workoutToolCapabilityContracts.evaluatePolicy,
     getIdempotencyKey: createIdempotencyKey,
     summarizeOutput(output) {
       return {
@@ -812,6 +1010,7 @@ function createSaveConversationArtifactRevisionTool(): AgentToolDefinition<z.inf
       persistenceService: "ConversationArtifactService.createConversationArtifactRevision",
       responseWriterSafeSummary: "只暴露 revisionId、artifactId、标题、摘要和必要 tool result id。",
     },
+    capabilityContract: workoutToolCapabilityContracts.saveConversationArtifactRevision,
     getIdempotencyKey: createIdempotencyKey,
     summarizeOutput(output) {
       return output;
@@ -929,6 +1128,74 @@ type RoutineRequiredExerciseBoundary =
     }
   | AgentToolFailure;
 
+type AgentCandidateSetResource =
+  | {
+      ok: true;
+      output: AgentExerciseSearchOutput;
+      exerciseIds: Set<string>;
+    }
+  | AgentToolFailure;
+
+// resolveCandidateSetResource 只接受本轮 searchExercises 成功且 satisfied=true 的候选集合。
+function resolveCandidateSetResource(
+  context: AgentToolExecutionContext,
+  candidateSetId: string,
+): AgentCandidateSetResource {
+  const result = context.toolResults?.find((toolResult) => toolResult.candidateSetId === candidateSetId);
+
+  if (!result) {
+    return createFailure("invalid_dependency", "Referenced candidateSetId was not produced in this Agent run.", { candidateSetId });
+  }
+
+  if (result.status !== "success" || result.fulfillment?.satisfied === false) {
+    return createFailure("invalid_dependency", "Referenced candidateSetId is not a satisfied upstream tool result.", {
+      candidateSetId,
+      toolResultId: result.toolResultId,
+      status: result.status,
+      satisfied: result.fulfillment?.satisfied,
+    });
+  }
+
+  if (!isAgentExerciseSearchOutput(result.output) || result.output.candidateSetId !== candidateSetId) {
+    return createFailure("invalid_dependency", "Referenced candidateSetId does not resolve to searchExercises output.", {
+      candidateSetId,
+      toolName: result.toolName,
+    });
+  }
+
+  return {
+    ok: true,
+    output: result.output,
+    exerciseIds: new Set(result.output.candidateSetEvidence.exerciseIds),
+  };
+}
+
+function isAgentExerciseSearchOutput(output: unknown): output is AgentExerciseSearchOutput {
+  return isRecord(output)
+    && typeof output.candidateSetId === "string"
+    && Array.isArray(output.candidates)
+    && isRecord(output.candidateSetEvidence)
+    && Array.isArray(output.candidateSetEvidence.exerciseIds)
+    && output.satisfied === true;
+}
+
+function validateCandidateExerciseIdsWithinCandidateSet(
+  candidateSet: AgentCandidateSetResource & { ok: true },
+  candidateExerciseIds: string[],
+): AgentToolFailure | null {
+  const outsideCandidateSetIds = uniqueStrings(candidateExerciseIds).filter((exerciseId) => !candidateSet.exerciseIds.has(exerciseId));
+
+  if (outsideCandidateSetIds.length === 0) {
+    return null;
+  }
+
+  return createFailure("candidate_set_mismatch", "Tool input referenced exercise ids outside the satisfied candidate set.", {
+    candidateSetId: candidateSet.output.candidateSetId,
+    outsideCandidateSetIds,
+    candidateExerciseIds: candidateSet.output.candidateSetEvidence.exerciseIds,
+  });
+}
+
 // Artifact-bound routine 生成只接受结构化 artifact 来源；这里不读取用户原文做语义判断。
 async function resolveRoutineRequiredExerciseBoundary(
   input: GenerateRoutineDraftAgentToolInput,
@@ -1006,6 +1273,23 @@ function validateRequiredRoutineExerciseCoverage(
   return createFailure("invalid_dependency", "Routine draft did not preserve all required exercises from the source artifact.", {
     sourceArtifactId,
     missingRequiredExerciseIds,
+  });
+}
+
+function createCandidateSetBuildFailure(error: unknown, candidateSetId: string): AgentToolFailure | null {
+  const message = error instanceof Error ? error.message : "";
+
+  if (!message.startsWith("candidate_set_missing_")) {
+    return null;
+  }
+
+  return createFailure("result_requirement_unmet", "Candidate set cannot satisfy routine section coverage without a new structured search.", {
+    candidateSetId,
+    failure: message,
+    recovery: {
+      recommendedToolName: "searchExercises",
+      guidance: "用同一 hard filters 显式重新调用 searchExercises，并在 resultRequirements.sectionCoverage 中补足缺失 section。",
+    },
   });
 }
 
@@ -1175,6 +1459,14 @@ function resolveDraftResource(
     return createFailure("invalid_dependency", "Referenced draftId was not produced in this Agent run.", { draftId });
   }
 
+  if (result.status !== "success" || result.fulfillment?.satisfied === false) {
+    return createFailure("invalid_dependency", "Referenced draftId is not a satisfied upstream tool result.", {
+      draftId,
+      status: result.status,
+      satisfied: result.fulfillment?.satisfied,
+    });
+  }
+
   if (!isAgentWorkoutDraftOutput(result.output) || result.output.draftId !== draftId) {
     return createFailure("invalid_dependency", "Referenced draftId does not resolve to a draft tool output.", {
       draftId,
@@ -1195,6 +1487,14 @@ function resolveValidationResource(
     return createFailure("invalid_dependency", "Referenced validationId was not produced in this Agent run.", { validationId });
   }
 
+  if (result.status !== "success" || result.fulfillment?.satisfied === false) {
+    return createFailure("invalid_dependency", "Referenced validationId is not a satisfied upstream tool result.", {
+      validationId,
+      status: result.status,
+      satisfied: result.fulfillment?.satisfied,
+    });
+  }
+
   if (!isValidationResourceOutput(result.output) || result.output.validationId !== validationId) {
     return createFailure("invalid_dependency", "Referenced validationId does not resolve to a validation tool output.", {
       validationId,
@@ -1213,6 +1513,14 @@ function resolvePolicyResource(
 
   if (!result) {
     return createFailure("invalid_dependency", "Referenced policyDecisionId was not produced in this Agent run.", { policyDecisionId });
+  }
+
+  if (result.status !== "success" || result.fulfillment?.satisfied === false) {
+    return createFailure("invalid_dependency", "Referenced policyDecisionId is not a satisfied upstream tool result.", {
+      policyDecisionId,
+      status: result.status,
+      satisfied: result.fulfillment?.satisfied,
+    });
   }
 
   if (!isPolicyEvaluationOutput(result.output) || result.output.policyDecisionId !== policyDecisionId) {
@@ -1259,6 +1567,12 @@ function isPolicyEvaluationOutput(output: unknown): output is AgentPolicyEvaluat
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function compactObject(value: Record<string, unknown>) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entryValue]) => entryValue !== undefined),
+  );
 }
 
 function createSeedRoutineSourceArtifact(input: {
@@ -1613,6 +1927,48 @@ function summarizeArtifactPayload(payload: z.infer<typeof conversationArtifactPa
   return {};
 }
 
+function createWorkoutToolCapabilityContract(input: {
+  operationKind: AgentToolCapabilityContract["operationKind"];
+  supportedOperations: string[];
+  requiredFields: string[];
+  optionalFields?: string[];
+  resourceRefs?: string[];
+  hardConstraintFields?: string[];
+  resultRequirementFields?: string[];
+  strictness: AgentToolCapabilityContract["executionContract"]["strictness"];
+  produces: string[];
+  evidence: string[];
+  failureCodes: AgentToolError["code"][];
+  unsupportedOperations: string[];
+}): AgentToolCapabilityContract {
+  return {
+    operationKind: input.operationKind,
+    supportedOperations: input.supportedOperations,
+    inputContract: {
+      requiredFields: input.requiredFields,
+      optionalFields: input.optionalFields ?? [],
+      acceptedFilters: input.hardConstraintFields ?? [],
+      acceptedEnums: {},
+      resourceRefs: input.resourceRefs ?? [],
+      hardConstraintFields: input.hardConstraintFields ?? [],
+      softPreferenceFields: [],
+      resultRequirementFields: input.resultRequirementFields ?? [],
+      projectionFields: [],
+    },
+    executionContract: {
+      reads: ["Agent tool result registry", "Exercise", "ConversationArtifact"],
+      writes: input.operationKind === "persistence" ? ["ConversationArtifact"] : [],
+      mustNotRead: ["latest user message for semantic reinterpretation"],
+      strictness: input.strictness,
+    },
+    refusesWhen: input.failureCodes.map((code) => `returns ${code} when the structured contract cannot be satisfied`),
+    produces: input.produces,
+    evidence: input.evidence,
+    failureCodes: input.failureCodes,
+    unsupportedOperations: input.unsupportedOperations,
+  };
+}
+
 function createSuccess<Output>(
   context: AgentToolExecutionContext,
   toolName: AgentWorkoutToolName,
@@ -1620,6 +1976,7 @@ function createSuccess<Output>(
   output: Output,
   modelSummary: unknown,
   traceSummary: unknown,
+  fulfillment?: Partial<AgentToolResultFulfillment>,
 ): AgentToolExecutionResult<Output> {
   return {
     ok: true,
@@ -1627,7 +1984,119 @@ function createSuccess<Output>(
     toolResultId: createStructuredResultId(context, "tool_result", toolName, input),
     modelSummary,
     traceSummary,
+    fulfillment: createWorkoutToolFulfillment(toolName, output, fulfillment),
   };
+}
+
+function createWorkoutToolFulfillment(
+  toolName: AgentWorkoutToolName,
+  output: unknown,
+  override: Partial<AgentToolResultFulfillment> = {},
+): AgentToolResultFulfillment {
+  const contract = workoutToolCapabilityContracts[toolName];
+
+  return {
+    operationKind: contract.operationKind,
+    operation: override.operation ?? contract.supportedOperations[0],
+    satisfied: override.satisfied ?? inferWorkoutToolSatisfied(output),
+    producedResources: override.producedResources ?? inferWorkoutProducedResources(output),
+    appliedHardConstraints: override.appliedHardConstraints ?? inferWorkoutAppliedConstraints(output),
+    unmetResultRequirements: override.unmetResultRequirements ?? [],
+    evidence: override.evidence ?? inferWorkoutEvidence(output),
+    diagnostics: override.diagnostics ?? inferWorkoutDiagnostics(output),
+  };
+}
+
+function inferWorkoutToolSatisfied(output: unknown) {
+  if (!isRecord(output)) {
+    return true;
+  }
+
+  if (isRecord(output.validation) && typeof output.validation.valid === "boolean") {
+    return output.validation.valid;
+  }
+
+  if (typeof output.valid === "boolean") {
+    return output.valid;
+  }
+
+  if (isRecord(output.policy) && typeof output.policy.allowed === "boolean") {
+    return output.policy.allowed;
+  }
+
+  return true;
+}
+
+function inferWorkoutProducedResources(output: unknown): AgentToolResultFulfillment["producedResources"] {
+  if (!isRecord(output)) {
+    return [];
+  }
+
+  const resources: AgentToolResultFulfillment["producedResources"] = [];
+  pushFulfillmentResource(resources, "workout_edit_plan", output.editPlanId);
+  pushFulfillmentResource(resources, "draft", output.draftId);
+  pushFulfillmentResource(resources, "patch", output.patchId);
+  pushFulfillmentResource(resources, "validation", output.validationId);
+  pushFulfillmentResource(resources, "policy_decision", output.policyDecisionId);
+  pushFulfillmentResource(resources, "ConversationArtifact", output.revisionId ?? output.artifactId);
+
+  return resources;
+}
+
+function pushFulfillmentResource(
+  resources: AgentToolResultFulfillment["producedResources"],
+  type: string,
+  value: unknown,
+) {
+  if (typeof value === "string" && value.trim()) {
+    resources.push({ type, id: value });
+  }
+}
+
+function inferWorkoutAppliedConstraints(output: unknown) {
+  if (!isRecord(output)) {
+    return {};
+  }
+
+  return compactObject({
+    candidateSetId: output.candidateSetId,
+    candidateExerciseIds: output.candidateExerciseIds,
+    validationId: output.validationId,
+    policyDecisionId: output.policyDecisionId,
+    draftId: output.draftId,
+    patchId: output.patchId,
+  });
+}
+
+function inferWorkoutEvidence(output: unknown) {
+  if (!isRecord(output)) {
+    return {};
+  }
+
+  return compactObject({
+    editPlanId: output.editPlanId,
+    draftId: output.draftId,
+    patchId: output.patchId,
+    validationId: output.validationId,
+    policyDecisionId: output.policyDecisionId,
+    revisionId: output.revisionId,
+    candidateSetId: output.candidateSetId,
+    validation: output.validation,
+    recovery: output.recovery,
+    policy: output.policy,
+  });
+}
+
+function inferWorkoutDiagnostics(output: unknown) {
+  if (!isRecord(output)) {
+    return {};
+  }
+
+  return compactObject({
+    errors: output.errors,
+    warnings: output.warnings,
+    recovery: output.recovery,
+  });
 }
 
 function createFailure(
@@ -1637,7 +2106,17 @@ function createFailure(
 ): AgentToolFailure {
   return {
     ok: false,
-    error: { code, message, detail, retryable: code === "tool_execution_failed" || code === "timeout" },
+    error: {
+      code,
+      message,
+      detail,
+      retryable: code === "tool_execution_failed"
+        || code === "timeout"
+        || code === "result_requirement_unmet"
+        || code === "candidate_set_mismatch"
+        || code === "candidate_query_boundary_mismatch"
+        || code === "invalid_dependency",
+    },
     traceSummary: { code, message, detail: detail instanceof Error ? detail.message : detail },
   };
 }

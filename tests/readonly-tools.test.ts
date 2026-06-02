@@ -51,9 +51,12 @@ describe("Agent registry readonly tools", () => {
       "getExerciseById",
       "getUserMemory",
       "listRecentArtifacts",
+      "queryUserMemory",
+      "resolveArtifactReference",
       "searchArtifacts",
       "searchExercises",
     ]);
+    expect(registry.list().every((tool) => tool.capabilityContract)).toBe(true);
     expect(names).not.toContain("runReadonlyToolLoop");
     expect(names).not.toContain("legacyIntentNormalize");
   });

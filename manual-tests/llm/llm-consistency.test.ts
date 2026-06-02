@@ -408,6 +408,10 @@ async function writeAcceptanceReport(
     "- 语义质量：目标继承、器械排除、引用解析和澄清边界。",
     "- 人工复核：措辞质量、排序和非关键表达稳定性。",
     "",
+    "## 失败分类摘要",
+    "",
+    ...formatFailureCategorySummary(records),
+    "",
     "## 流程轮次结果",
     "",
     records.length > 0
@@ -418,6 +422,74 @@ async function writeAcceptanceReport(
 
   await mkdir(path.dirname(reportPath), { recursive: true });
   await writeFile(reportPath, reportLines.join("\n"), "utf8");
+}
+
+function formatFailureCategorySummary(records: ManualLlmTurnRecord[]) {
+  const categories = summarizeFailureCategories(records);
+  const entries = Object.entries(categories);
+
+  if (entries.every(([, value]) => value.count === 0)) {
+    return ["- 本次没有失败轮次。"];
+  }
+
+  return entries.map(([label, value]) => (
+    value.count > 0
+      ? `- ${label}：${value.count}（${value.flowTurns.join("；")}）`
+      : `- ${label}：0`
+  ));
+}
+
+function summarizeFailureCategories(records: ManualLlmTurnRecord[]) {
+  const categories: Record<string, { count: number; flowTurns: string[] }> = {
+    "LLM 参数错误": { count: 0, flowTurns: [] },
+    "tool 能力不足": { count: 0, flowTurns: [] },
+    "候选不足": { count: 0, flowTurns: [] },
+    "result requirement 未满足": { count: 0, flowTurns: [] },
+    "hard boundary 失败": { count: 0, flowTurns: [] },
+    "保存失败": { count: 0, flowTurns: [] },
+  };
+
+  for (const record of records.filter((item) => item.status === "failed")) {
+    const text = [
+      record.error,
+      record.streamError,
+      ...record.failureReasons,
+      record.agentDiagnostics?.toolNames.join(","),
+    ].filter(Boolean).join("\n");
+    const flowTurn = `${record.flowId}#${record.turnIndex}`;
+
+    for (const label of classifyFailureText(text)) {
+      categories[label].count += 1;
+      categories[label].flowTurns.push(flowTurn);
+    }
+  }
+
+  return categories;
+}
+
+function classifyFailureText(text: string) {
+  const labels = new Set<string>();
+
+  if (/schema_validation_failed|missing_required_parameter|invalid_parameter|model_output_invalid/.test(text)) {
+    labels.add("LLM 参数错误");
+  }
+  if (/unsupported_operation|ambiguous_resource|unverifiable_result/.test(text)) {
+    labels.add("tool 能力不足");
+  }
+  if (/insufficient_candidates|no_exercise_after_filters|no_hybrid_match|候选不足/.test(text)) {
+    labels.add("候选不足");
+  }
+  if (/result_requirement_unmet/.test(text)) {
+    labels.add("result requirement 未满足");
+  }
+  if (/candidate_query_boundary_mismatch|candidate_set_mismatch|outside_candidate|invalid_dependency|forbidden/.test(text)) {
+    labels.add("hard boundary 失败");
+  }
+  if (/saveConversationArtifactRevision|persistence_failed|保存失败|revisionId|保存 artifact/.test(text)) {
+    labels.add("保存失败");
+  }
+
+  return [...labels];
 }
 
 // 手动验收报告面向本地排查，生成时间使用带 offset 的上海时间，同时保持 Date.parse 可解析。

@@ -50,8 +50,13 @@ export const aiPromptModuleRegistry: Record<AiPromptModuleId, string> = {
     "你只能基于 ContextPackage 摘要、registry 工具定义、已登记 tool results、dependency graph 和剩余 step 预算选择下一步。",
     "输出只能是一个合法工具调用请求，或一个符合 AgentExecutionResult Schema 的终止结果。",
     "不得读取 conversationSummary、旧 resolved intent 或旧 assistant_action 作为执行事实。",
+    "所有复杂工具调用必须按 registry 的 toolRequestContract 组织输入：明确 operation、结构化 hard filters、softPreferences、resultRequirements 和 projection；不能只靠工具名或 query 表达执行目标。",
     "调用 searchExercises 时，targetMuscles/equipment 必须使用动作库真实 facet；上肢、下肢、核心、全身这类范围目标必须使用 bodyRegions，而不是写入 targetMuscles。",
+    "调用执行型 searchExercises(candidateUse=\"recommendation\"|\"routine\"|\"plan\"|\"patch\") 时，必须传 operation=\"build_exercise_candidate_set\"，并把用户明确的身体区域、section、器械、居家条件、难度、风险排除、目标标签等边界写入 filters；query 只能作为召回或排序提示，不是 hard constraint。",
+    "调用 routine/plan/patch 用途的 searchExercises 时，必须传 resultRequirements，例如 minCandidates、sectionCoverage、mustBeUsableFor 和 requireProof；候选不足或 resultRequirements 未满足时只能 retry、repair、clarification、blocked 或 failed。",
     "searchExercises 返回 retryable unknown facet 诊断时，必须先根据 suggestedTargetMuscles/suggestedEquipment 重新查询，再决定是否 blocked。",
+    "searchArtifacts 只搜索 artifact 候选，不负责唯一引用解析；要解析“上一套”“刚才那版”“最近保存的计划”等引用时必须调用 resolveArtifactReference。",
+    "getUserMemory 只返回用户记忆快照；要按 kind、subjectType、status、confirmed、source 查询记忆时必须调用 queryUserMemory。",
     "用户要求基于已有推荐 artifact 的动作生成 routine 时，必须使用 recent artifact 或 getArtifactPayload 提供的 exerciseIds，并在 generateRoutineDraft 中传 sourceArtifactId 和 requiredExerciseIds；不得用重新裸搜的候选替代该 artifact 动作集合。",
     "用户要求从零安排一套、单次训练、训练编排、训练流程或带目标时长的训练，且没有可绑定的推荐 artifact 时，必须先用 searchExercises(candidateUse=\"routine\") 获取候选，再调用 generateRoutineDraft；禁止只用 answered 输出自由文本 routine。",
     "调用 generateRoutineDraft 时，intent 必须是结构化 routine intent；若用户未说明经验水平可使用 experience=\"beginner\"，单次 routine 的 weeklyFrequency 可使用 1；若绑定 sourceArtifactId，requiredExerciseIds 必须来自该 artifact。",
@@ -63,7 +68,8 @@ export const aiPromptModuleRegistry: Record<AiPromptModuleId, string> = {
   ].join("\n"),
   agent_tool_execution: [
     "服务端会执行你选择的 registry 工具，并校验 Schema、权限、candidateSetId、validationId、policyDecisionId、confirmationId 和持久化边界。",
-    "工具失败时只能基于结构化失败结果选择修复、重新查询、澄清、blocked 或 failed。",
+    "工具失败或返回 satisfied=false 时只能基于结构化失败结果、toolRequestContract、dependency graph 和已登记资源选择 repair、retry、clarification、blocked 或 failed，不能继续消费该资源。",
+    "如果失败码是 missing_required_parameter、invalid_parameter、unsupported_operation、insufficient_candidates、result_requirement_unmet、unverifiable_result 或 candidate_query_boundary_mismatch，下一步必须补结构化参数、改用正确工具、用合法 filters 重查或向用户澄清。",
   ].join("\n"),
   agent_final_result: [
     "你必须只返回 AgentExecutionResult 结构化终止结果。",
@@ -79,6 +85,7 @@ export const aiPromptModuleRegistry: Record<AiPromptModuleId, string> = {
     "Response Writer 只消费 AgentExecutionResult 的只读投影和必要 tool result 摘要。",
     "你不得重新选择工具、重新解释语义、重新搜索候选、提出 Patch、生成训练或承诺未执行写入。",
     "回复中的动作、器械、训练结构、artifact 状态和保存结果必须能映射到 usedToolResultIds、revisionId、validationId、policyDecisionId 或 blocking reason。",
+    "如果相关 tool result 没有 satisfied=true 或缺少 evidence，回复不得声称已经满足无器械、指定器械、section 覆盖、风险排除、难度、保存成功等约束。",
   ].join("\n"),
   agent_summary_update: [
     "如果保留 summary 更新，它只能作为后台摘要、会话标题或调试材料。",

@@ -60,7 +60,7 @@ TBD - created by archiving change expand-test-coverage. Update Purpose after arc
 #### Scenario: Legacy AI route boundaries are absent
 
 - **WHEN** 测试套件运行
-- **THEN** 测试 MUST 断言 `/api/ai/workout-plan` 和 `/api/ai/exercise-recommendations` 不再作为 active Route Handler 暴露给聊天流程
+- **THEN** 测试 MUST 断言旧 workout-plan AI route 和旧 exercise recommendation AI route 不再作为 active Route Handler 暴露给聊天流程
 - **AND** 测试 MUST NOT 要求旧 AI route 覆盖请求校验失败、服务失败码映射、成功响应结构或 `parentTraceId` 传递
 
 #### Scenario: Resource route boundaries are tested
@@ -76,7 +76,7 @@ TBD - created by archiving change expand-test-coverage. Update Purpose after arc
 
 - **WHEN** 测试套件运行
 - **THEN** 聊天前端逻辑测试 MUST 覆盖 NDJSON 流事件处理、推荐动作 id 去重、不喜欢动作排除、Agent-first 推荐刷新或 result-level 换一批参数传递
-- **AND** 测试 MUST 断言聊天前端不会调用 `/api/ai/workout-plan` 或 `/api/ai/exercise-recommendations`
+- **AND** 测试 MUST 断言聊天前端不会调用旧 workout-plan AI route 或旧 exercise recommendation AI route
 - **AND** 测试 MUST 断言训练卡片不会由旧 trigger JSON parser 触发
 
 #### Scenario: Workout client logic is tested
@@ -256,10 +256,9 @@ TBD - created by archiving change expand-test-coverage. Update Purpose after arc
 #### Scenario: Legacy route and client scan passes
 - **WHEN** 旧接口清理测试运行
 - **THEN** 测试 MUST 扫描 active Route Handler 和聊天前端 client/hook
-- **AND** 测试 MUST 证明 `/api/ai/workout-plan`、`/api/ai/exercise-recommendations`、`requestWorkoutPlanDraft` 和 `requestExerciseRecommendations` 不再参与生产聊天流程
+- **AND** 测试 MUST 证明旧 workout-plan AI route、旧 exercise recommendation AI route、旧 workout plan request helper 和旧 exercise recommendation request helper 不再参与生产聊天流程
 
 #### Scenario: Legacy allowlist scan passes
 - **WHEN** 旧接口清理测试运行
 - **THEN** 测试 MUST 扫描生产 `/api/chat`、Agent runtime、Response Writer、前端新流解析、领域服务和当前 OpenSpec 主规格
 - **AND** 测试 MUST 证明 allowlist 外旧 intent、旧 trigger、旧 route 和旧语义解析模块不可被生产路径导入或要求
-

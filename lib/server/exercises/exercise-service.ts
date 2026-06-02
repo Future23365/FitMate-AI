@@ -45,10 +45,15 @@ const levelRank: Record<string, number> = {
 export type ExerciseSuitabilityFlags = Record<ExerciseSuitability, boolean>;
 
 export type ExerciseSearchInput = {
+  operation?: "build_exercise_candidate_set";
   query?: string;
   candidateUse?: "answer_only" | "recommendation" | "routine" | "plan" | "patch";
   limit?: number;
   visibility?: "all" | "published";
+  filters?: ExerciseSearchFilters;
+  resultRequirements?: ExerciseSearchResultRequirements;
+  softPreferences?: ExerciseSearchSoftPreferences;
+  projection?: ExerciseSearchProjection;
   allowedSections?: ExerciseSuitability[];
   bodyRegions?: ExerciseBodyRegion[];
   goal?: string;
@@ -56,6 +61,13 @@ export type ExerciseSearchInput = {
   equipmentRequired?: string[];
   equipmentAvoided?: string[];
   equipment?: string[];
+  homeRequirements?: string[];
+  levels?: string[];
+  difficulty?: string[];
+  riskTagsNotIn?: string[];
+  goalTags?: string[];
+  movementPatterns?: string[];
+  intensityRoles?: string[];
   location?: string;
   level?: string;
   sessionMinutes?: number;
@@ -65,9 +77,89 @@ export type ExerciseSearchInput = {
   injuryLimitations?: string[];
 };
 
+// ExerciseSearchFilters 是 searchExercises 可执行候选集合的硬过滤合同，不能从 query 隐式推导。
+export type ExerciseSearchFilters = {
+  bodyRegions?: ExerciseBodyRegion[];
+  allowedSections?: ExerciseSuitability[];
+  targetMuscles?: string[];
+  equipment?: {
+    in?: string[];
+    notIn?: string[];
+  };
+  homeRequirements?: string[];
+  levels?: string[];
+  difficulty?: string[];
+  riskTagsNotIn?: string[];
+  goalTags?: string[];
+  movementPatterns?: string[];
+  intensityRoles?: string[];
+  visibility?: "all" | "published";
+};
+
+// ExerciseSearchResultRequirements 描述候选集合必须证明满足的数量、阶段覆盖和 proof 要求。
+export type ExerciseSearchResultRequirements = {
+  minCandidates?: number;
+  sectionCoverage?: Partial<Record<ExerciseSuitability, { min: number }>>;
+  mustBeUsableFor?: "answer" | "routine" | "plan" | "patch";
+  requireProof?: boolean;
+  requireUnique?: boolean;
+};
+
+// ExerciseSearchSoftPreferences 只影响排序或偏好展示，不会绕过硬过滤边界。
+export type ExerciseSearchSoftPreferences = {
+  preferredEquipment?: string[];
+  preferredMuscles?: string[];
+  preferredDifficulty?: string[];
+};
+
+// ExerciseSearchProjection 控制返回给模型的字段范围，避免投影影响搜索事实。
+export type ExerciseSearchProjection = {
+  fields?: string[];
+  maxCandidatesForModel?: number;
+};
+
+// ExerciseSearchInvalidFilter 记录不可执行的结构化 facet，供工具返回可恢复失败。
+export type ExerciseSearchInvalidFilter = {
+  field: string;
+  value?: string;
+  reason: "unknown_field" | "invalid_enum" | "unknown_facet";
+  allowedValues?: string[];
+};
+
+// ExerciseCandidateConstraintProof 证明单个动作命中了哪些已执行 hard filters。
+export type ExerciseCandidateConstraintProof = {
+  exerciseId: string;
+  matchedFilters: string[];
+};
+
+// ExerciseSearchResultRequirementProof 记录候选集合对 resultRequirements 的逐项履约状态。
+export type ExerciseSearchResultRequirementProof = {
+  minCandidates?: { required: number; actual: number; satisfied: boolean };
+  sectionCoverage?: Partial<Record<ExerciseSuitability, { required: number; actual: number; satisfied: boolean }>>;
+  mustBeUsableFor?: { requirement: string; satisfied: boolean };
+  requireProof?: { required: boolean; satisfied: boolean };
+  requireUnique?: { required: boolean; actual: number; satisfied: boolean };
+};
+
 export type ExerciseSearchDiagnostics = {
   query?: string;
   filters: Omit<ExerciseSearchInput, "query" | "limit">;
+  normalizedQueryInput: {
+    operation?: ExerciseSearchInput["operation"];
+    candidateUse: NonNullable<ExerciseSearchInput["candidateUse"]>;
+    query?: string;
+    filters: Record<string, unknown>;
+    resultRequirements: ExerciseSearchResultRequirements;
+    softPreferences: ExerciseSearchSoftPreferences;
+    projection: ExerciseSearchProjection;
+  };
+  appliedFilters: Record<string, unknown>;
+  invalidFilters: ExerciseSearchInvalidFilter[];
+  constraintProof: ExerciseCandidateConstraintProof[];
+  resultRequirementProof: ExerciseSearchResultRequirementProof;
+  satisfied: boolean;
+  queryMode: "none" | "hard_recall" | "ranking_signal";
+  unmetResultRequirements: string[];
   expandedTargetMuscles: string[];
   recalledCount: number;
   filteredCount: number;
@@ -88,6 +180,18 @@ export type ExerciseSearchDiagnostics = {
 export type ExerciseSearchResult = {
   candidates: Exercise[];
   diagnostics: ExerciseSearchDiagnostics;
+};
+
+// ExerciseCandidateSetEvidence 是下游生成、校验和保存链路消费候选集合的证据包。
+export type ExerciseCandidateSetEvidence = {
+  normalizedQueryInput: ExerciseSearchDiagnostics["normalizedQueryInput"];
+  appliedFilters: ExerciseSearchDiagnostics["appliedFilters"];
+  invalidFilters: ExerciseSearchDiagnostics["invalidFilters"];
+  constraintProof: ExerciseSearchDiagnostics["constraintProof"];
+  resultRequirementProof: ExerciseSearchDiagnostics["resultRequirementProof"];
+  diagnostics: Pick<ExerciseSearchDiagnostics, "queryMode" | "failureReasons" | "unmetResultRequirements" | "finalExerciseIds">;
+  satisfied: boolean;
+  exerciseIds: string[];
 };
 
 export async function listAllExercises(): Promise<Exercise[]> {
@@ -127,7 +231,29 @@ export async function searchExercises(input: ExerciseSearchInput = {}): Promise<
 export function searchExercisesInMemory(exercises: Exercise[], input: ExerciseSearchInput = {}): ExerciseSearchResult {
   const query = input.query?.trim();
   const limit = clampLimit(input.limit);
-  const normalized = normalizeExerciseSearchInput(exercises, input);
+  const request = normalizeExerciseSearchToolRequest(input);
+  const invalidFilters = usesStructuredExecutableCandidateSet(request.effectiveInput)
+    ? collectInvalidExerciseSearchFilters(exercises, request.effectiveInput)
+    : [];
+  const normalized = normalizeExerciseSearchInput(exercises, request.effectiveInput);
+  if (invalidFilters.length > 0) {
+    return {
+      candidates: [],
+      diagnostics: buildExerciseSearchDiagnostics({
+        input,
+        request,
+        normalized,
+        ranked: [],
+        candidates: [],
+        query,
+        queryMode: "none",
+        invalidFilters,
+        filteredCount: 0,
+        failureReasons: uniqueStrings(["invalid_parameter", ...invalidFilters.map((filter) => `${filter.field}:unknown_facet`)]),
+        retryable: true,
+      }),
+    };
+  }
   const queryRequiresHybridMatch = shouldUseQueryAsHybridRecallGate(query, normalized.effectiveInput);
   const scoringQuery = queryRequiresHybridMatch ? query : undefined;
   const filtered = exercises.filter((exercise) => matchesExerciseHardFilters(exercise, normalized.effectiveInput));
@@ -146,46 +272,26 @@ export function searchExercisesInMemory(exercises: Exercise[], input: ExerciseSe
     })
     .slice(0, limit);
   const candidates = ranked.map(({ exercise }) => exercise);
+  const queryMode = queryRequiresHybridMatch ? "hard_recall" : query ? "ranking_signal" : "none";
+  const failureReasons = candidates.length > 0
+    ? []
+    : buildExerciseSearchFailureReasons(queryRequiresHybridMatch ? query : undefined, normalized);
 
   return {
     candidates,
-    diagnostics: {
+    diagnostics: buildExerciseSearchDiagnostics({
+      input,
+      request,
+      normalized,
+      ranked,
+      candidates,
       query,
-      filters: {
-        visibility: input.visibility,
-        candidateUse: input.candidateUse,
-        allowedSections: input.allowedSections,
-        bodyRegions: input.bodyRegions,
-        goal: input.goal,
-        targetMuscles: input.targetMuscles,
-        equipmentRequired: input.equipmentRequired,
-        equipmentAvoided: input.equipmentAvoided,
-        equipment: input.equipment,
-        location: input.location,
-        level: input.level,
-        sessionMinutes: input.sessionMinutes,
-        preferences: input.preferences,
-        avoidances: input.avoidances,
-        excludedRiskTags: input.excludedRiskTags,
-        injuryLimitations: input.injuryLimitations,
-      },
-      expandedTargetMuscles: normalized.expandedTargetMuscles,
-      recalledCount: filtered.length,
+      queryMode,
+      invalidFilters,
       filteredCount: Math.max(exercises.length - filtered.length, 0),
-      rerank: ranked.map(({ exercise, score }) => ({
-        exerciseId: exercise.id,
-        score,
-      })),
-      finalExerciseIds: candidates.map((exercise) => exercise.id),
-      failureReasons: candidates.length > 0
-        ? []
-        : buildExerciseSearchFailureReasons(queryRequiresHybridMatch ? query : undefined, normalized),
-      unmatchedTargetMuscles: normalized.unmatchedTargetMuscles,
-      unmatchedEquipment: normalized.unmatchedEquipment,
-      suggestedTargetMuscles: normalized.suggestedTargetMuscles,
-      suggestedEquipment: normalized.suggestedEquipment,
+      failureReasons,
       retryable: candidates.length === 0 && isRetryableSearchMiss(normalized),
-    },
+    }),
   };
 }
 
@@ -413,7 +519,8 @@ function matchesExerciseHardFilters(exercise: Exercise, input: ExerciseSearchInp
     return false;
   }
 
-  if (input.level && exercise.level !== input.level && exercise.levelZh !== input.level) {
+  const levels = uniqueStrings([...(input.levels ?? []), ...(input.level ? [input.level] : [])]);
+  if (levels.length && !levels.some((level) => exercise.level === level || exercise.levelZh === level)) {
     return false;
   }
 
@@ -433,7 +540,19 @@ function matchesExerciseHardFilters(exercise: Exercise, input: ExerciseSearchInp
     return false;
   }
 
+  if (input.homeRequirements?.length && !matchesAnyHomeRequirement(exercise, new Set(input.homeRequirements))) {
+    return false;
+  }
+
   if (input.targetMuscles?.length && !input.targetMuscles.some((muscle) => matchesMuscle(exercise, muscle))) {
+    return false;
+  }
+
+  if (input.difficulty?.length && (!metadata.difficulty || !input.difficulty.includes(metadata.difficulty))) {
+    return false;
+  }
+
+  if (input.riskTagsNotIn?.some((risk) => exercise.riskTags.includes(risk))) {
     return false;
   }
 
@@ -445,7 +564,41 @@ function matchesExerciseHardFilters(exercise: Exercise, input: ExerciseSearchInp
     return false;
   }
 
+  if (input.goalTags?.length && !input.goalTags.some((tag) => exercise.goalTags.includes(tag))) {
+    return false;
+  }
+
+  if (input.movementPatterns?.length && (!metadata.movementPattern || !input.movementPatterns.includes(metadata.movementPattern))) {
+    return false;
+  }
+
+  if (input.intensityRoles?.length && (!metadata.intensityRole || !input.intensityRoles.includes(metadata.intensityRole))) {
+    return false;
+  }
+
   return true;
+}
+
+// exerciseMatchesCandidateSetFilters 供 Validator 用已登记查询证据复核最终 draft / patch 动作边界。
+export function exerciseMatchesCandidateSetFilters(exercise: Exercise, filters: Record<string, unknown>) {
+  return matchesExerciseHardFilters(exercise, {
+    visibility: readString(filters.visibility) === "published" ? "published" : readString(filters.visibility) === "all" ? "all" : undefined,
+    allowedSections: readStringArray(filters.allowedSections).filter(isExerciseSuitability),
+    bodyRegions: readStringArray(filters.bodyRegions).filter(isExerciseBodyRegion),
+    targetMuscles: readStringArray(filters.targetMuscles),
+    equipmentRequired: readStringArray(filters.equipmentRequired),
+    equipmentAvoided: readStringArray(filters.equipmentAvoided),
+    equipment: readStringArray(filters.equipment),
+    homeRequirements: readStringArray(filters.homeRequirements),
+    levels: readStringArray(filters.levels),
+    level: readString(filters.level),
+    difficulty: readStringArray(filters.difficulty),
+    riskTagsNotIn: readStringArray(filters.riskTagsNotIn),
+    excludedRiskTags: readStringArray(filters.excludedRiskTags),
+    goalTags: readStringArray(filters.goalTags),
+    movementPatterns: readStringArray(filters.movementPatterns),
+    intensityRoles: readStringArray(filters.intensityRoles),
+  });
 }
 
 type NormalizedExerciseSearchInput = {
@@ -456,6 +609,101 @@ type NormalizedExerciseSearchInput = {
   suggestedTargetMuscles: string[];
   suggestedEquipment: string[];
 };
+
+type NormalizedExerciseSearchToolRequest = {
+  effectiveInput: ExerciseSearchInput;
+  normalizedQueryInput: ExerciseSearchDiagnostics["normalizedQueryInput"];
+  appliedFilters: Record<string, unknown>;
+  resultRequirements: ExerciseSearchResultRequirements;
+  softPreferences: ExerciseSearchSoftPreferences;
+  projection: ExerciseSearchProjection;
+};
+
+function normalizeExerciseSearchToolRequest(input: ExerciseSearchInput): NormalizedExerciseSearchToolRequest {
+  const filters = input.filters ?? {};
+  const equipmentRequired = uniqueStrings([
+    ...(filters.equipment?.in ?? []),
+    ...(input.equipmentRequired ?? []),
+    ...(input.equipment ?? []),
+  ]);
+  const equipmentAvoided = uniqueStrings([
+    ...(filters.equipment?.notIn ?? []),
+    ...(input.equipmentAvoided ?? []),
+  ]);
+  const allowedSections = uniqueStrings([
+    ...(filters.allowedSections ?? []),
+    ...(input.allowedSections ?? []),
+  ]).filter(isExerciseSuitability);
+  const bodyRegions = uniqueStrings([
+    ...(filters.bodyRegions ?? []),
+    ...(input.bodyRegions ?? []),
+  ]).filter(isExerciseBodyRegion);
+  const levels = uniqueStrings([
+    ...(filters.levels ?? []),
+    ...(input.levels ?? []),
+    ...(input.level ? [input.level] : []),
+  ]);
+  const riskTagsNotIn = uniqueStrings([
+    ...(filters.riskTagsNotIn ?? []),
+    ...(input.riskTagsNotIn ?? []),
+    ...(input.excludedRiskTags ?? []),
+  ]);
+  const effectiveInput: ExerciseSearchInput = {
+    ...input,
+    operation: input.operation,
+    candidateUse: input.candidateUse ?? "answer_only",
+    visibility: filters.visibility ?? input.visibility ?? "published",
+    allowedSections: allowedSections.length > 0 ? allowedSections : undefined,
+    bodyRegions: bodyRegions.length > 0 ? bodyRegions : undefined,
+    targetMuscles: uniqueStrings([...(filters.targetMuscles ?? []), ...(input.targetMuscles ?? [])]),
+    equipmentRequired: equipmentRequired.length > 0 ? equipmentRequired : undefined,
+    equipmentAvoided: equipmentAvoided.length > 0 ? equipmentAvoided : undefined,
+    equipment: undefined,
+    homeRequirements: uniqueStrings([...(filters.homeRequirements ?? []), ...(input.homeRequirements ?? [])]),
+    levels: levels.length > 0 ? levels : undefined,
+    level: levels[0] ?? input.level,
+    difficulty: uniqueStrings([...(filters.difficulty ?? []), ...(input.difficulty ?? [])]),
+    riskTagsNotIn: riskTagsNotIn.length > 0 ? riskTagsNotIn : undefined,
+    goalTags: uniqueStrings([...(filters.goalTags ?? []), ...(input.goalTags ?? [])]),
+    movementPatterns: uniqueStrings([...(filters.movementPatterns ?? []), ...(input.movementPatterns ?? [])]),
+    intensityRoles: uniqueStrings([...(filters.intensityRoles ?? []), ...(input.intensityRoles ?? [])]),
+  };
+  const appliedFilters = compactFilterRecord({
+    visibility: effectiveInput.visibility,
+    allowedSections: effectiveInput.allowedSections,
+    bodyRegions: effectiveInput.bodyRegions,
+    targetMuscles: effectiveInput.targetMuscles,
+    equipmentRequired: effectiveInput.equipmentRequired,
+    equipmentAvoided: effectiveInput.equipmentAvoided,
+    homeRequirements: effectiveInput.homeRequirements,
+    levels: effectiveInput.levels,
+    difficulty: effectiveInput.difficulty,
+    riskTagsNotIn: effectiveInput.riskTagsNotIn,
+    goalTags: effectiveInput.goalTags,
+    movementPatterns: effectiveInput.movementPatterns,
+    intensityRoles: effectiveInput.intensityRoles,
+  });
+  const resultRequirements = input.resultRequirements ?? {};
+  const softPreferences = input.softPreferences ?? {};
+  const projection = input.projection ?? {};
+
+  return {
+    effectiveInput,
+    appliedFilters,
+    resultRequirements,
+    softPreferences,
+    projection,
+    normalizedQueryInput: {
+      operation: input.operation,
+      candidateUse: effectiveInput.candidateUse ?? "answer_only",
+      query: input.query?.trim() || undefined,
+      filters: appliedFilters,
+      resultRequirements,
+      softPreferences,
+      projection,
+    },
+  };
+}
 
 function normalizeExerciseSearchInput(exercises: Exercise[], input: ExerciseSearchInput): NormalizedExerciseSearchInput {
   const availableTargetMuscles = collectAvailableTargetMuscles(exercises);
@@ -493,6 +741,209 @@ function normalizeExerciseSearchInput(exercises: Exercise[], input: ExerciseSear
   };
 }
 
+function buildExerciseSearchDiagnostics(input: {
+  input: ExerciseSearchInput;
+  request: NormalizedExerciseSearchToolRequest;
+  normalized: NormalizedExerciseSearchInput;
+  ranked: Array<{ exercise: Exercise; score: HybridSearchScore }>;
+  candidates: Exercise[];
+  query: string | undefined;
+  queryMode: ExerciseSearchDiagnostics["queryMode"];
+  invalidFilters: ExerciseSearchInvalidFilter[];
+  filteredCount: number;
+  failureReasons: string[];
+  retryable: boolean;
+}): ExerciseSearchDiagnostics {
+  const requirementProof = evaluateExerciseResultRequirements(input.candidates, input.request.resultRequirements);
+  const unmetResultRequirements = collectUnmetResultRequirements(requirementProof);
+  const failureReasons = uniqueStrings([
+    ...input.failureReasons,
+    ...(unmetResultRequirements.length > 0 ? unmetResultRequirements : []),
+  ]);
+  const satisfied =
+    input.invalidFilters.length === 0
+    && input.candidates.length > 0
+    && unmetResultRequirements.length === 0;
+
+  return {
+    query: input.query,
+    filters: {
+      operation: input.input.operation,
+      visibility: input.request.effectiveInput.visibility,
+      candidateUse: input.request.effectiveInput.candidateUse,
+      filters: input.input.filters,
+      resultRequirements: input.input.resultRequirements,
+      softPreferences: input.input.softPreferences,
+      projection: input.input.projection,
+      allowedSections: input.request.effectiveInput.allowedSections,
+      bodyRegions: input.request.effectiveInput.bodyRegions,
+      goal: input.request.effectiveInput.goal,
+      targetMuscles: input.request.effectiveInput.targetMuscles,
+      equipmentRequired: input.request.effectiveInput.equipmentRequired,
+      equipmentAvoided: input.request.effectiveInput.equipmentAvoided,
+      homeRequirements: input.request.effectiveInput.homeRequirements,
+      levels: input.request.effectiveInput.levels,
+      difficulty: input.request.effectiveInput.difficulty,
+      riskTagsNotIn: input.request.effectiveInput.riskTagsNotIn,
+      goalTags: input.request.effectiveInput.goalTags,
+      movementPatterns: input.request.effectiveInput.movementPatterns,
+      intensityRoles: input.request.effectiveInput.intensityRoles,
+      location: input.request.effectiveInput.location,
+      level: input.request.effectiveInput.level,
+      sessionMinutes: input.request.effectiveInput.sessionMinutes,
+      preferences: input.request.effectiveInput.preferences,
+      avoidances: input.request.effectiveInput.avoidances,
+      excludedRiskTags: input.request.effectiveInput.excludedRiskTags,
+      injuryLimitations: input.request.effectiveInput.injuryLimitations,
+    },
+    normalizedQueryInput: input.request.normalizedQueryInput,
+    appliedFilters: input.request.appliedFilters,
+    invalidFilters: input.invalidFilters,
+    constraintProof: input.candidates.map((exercise) => buildCandidateConstraintProof(exercise, input.request.appliedFilters)),
+    resultRequirementProof: requirementProof,
+    satisfied,
+    queryMode: input.queryMode,
+    unmetResultRequirements,
+    expandedTargetMuscles: input.normalized.expandedTargetMuscles,
+    recalledCount: input.ranked.length > 0 ? input.ranked.length : input.candidates.length,
+    filteredCount: input.filteredCount,
+    rerank: input.ranked.map(({ exercise, score }) => ({
+      exerciseId: exercise.id,
+      score,
+    })),
+    finalExerciseIds: input.candidates.map((exercise) => exercise.id),
+    failureReasons,
+    unmatchedTargetMuscles: input.normalized.unmatchedTargetMuscles,
+    unmatchedEquipment: input.normalized.unmatchedEquipment,
+    suggestedTargetMuscles: input.normalized.suggestedTargetMuscles,
+    suggestedEquipment: input.normalized.suggestedEquipment,
+    retryable: input.retryable || input.invalidFilters.length > 0 || unmetResultRequirements.length > 0,
+  };
+}
+
+function evaluateExerciseResultRequirements(
+  candidates: Exercise[],
+  requirements: ExerciseSearchResultRequirements,
+): ExerciseSearchResultRequirementProof {
+  const sectionCoverage: ExerciseSearchResultRequirementProof["sectionCoverage"] = {};
+
+  for (const [section, requirement] of Object.entries(requirements.sectionCoverage ?? {})) {
+    if (!isExerciseSuitability(section) || !requirement) {
+      continue;
+    }
+    const actual = candidates.filter((exercise) => normalizeExerciseMetadata(exercise).allowedSections.includes(section)).length;
+    sectionCoverage[section] = {
+      required: requirement.min,
+      actual,
+      satisfied: actual >= requirement.min,
+    };
+  }
+
+  return {
+    minCandidates: requirements.minCandidates !== undefined
+      ? {
+          required: requirements.minCandidates,
+          actual: candidates.length,
+          satisfied: candidates.length >= requirements.minCandidates,
+        }
+      : undefined,
+    sectionCoverage: Object.keys(sectionCoverage).length > 0 ? sectionCoverage : undefined,
+    mustBeUsableFor: requirements.mustBeUsableFor
+      ? {
+          requirement: requirements.mustBeUsableFor,
+          satisfied: candidates.length > 0,
+        }
+      : undefined,
+    requireProof: requirements.requireProof !== undefined
+      ? {
+          required: requirements.requireProof,
+          satisfied: true,
+        }
+      : undefined,
+    requireUnique: requirements.requireUnique !== undefined
+      ? {
+          required: requirements.requireUnique,
+          actual: candidates.length,
+          satisfied: !requirements.requireUnique || candidates.length === 1,
+        }
+      : undefined,
+  };
+}
+
+function collectUnmetResultRequirements(proof: ExerciseSearchResultRequirementProof) {
+  const unmet: string[] = [];
+
+  if (proof.minCandidates && !proof.minCandidates.satisfied) {
+    unmet.push(proof.minCandidates.actual === 0 ? "insufficient_candidates" : "result_requirement_unmet:minCandidates");
+  }
+
+  for (const [section, coverage] of Object.entries(proof.sectionCoverage ?? {})) {
+    if (coverage && !coverage.satisfied) {
+      unmet.push(`result_requirement_unmet:sectionCoverage.${section}`);
+    }
+  }
+
+  if (proof.mustBeUsableFor && !proof.mustBeUsableFor.satisfied) {
+    unmet.push("result_requirement_unmet:mustBeUsableFor");
+  }
+
+  if (proof.requireUnique && !proof.requireUnique.satisfied) {
+    unmet.push("ambiguous_resource");
+  }
+
+  return unmet;
+}
+
+function buildCandidateConstraintProof(exercise: Exercise, filters: Record<string, unknown>): ExerciseCandidateConstraintProof {
+  const metadata = normalizeExerciseMetadata(exercise);
+  const matchedFilters: string[] = [];
+
+  for (const key of Object.keys(filters)) {
+    if (key === "allowedSections" && readStringArray(filters[key]).some((section) => metadata.allowedSections.includes(section as ExerciseSuitability))) {
+      matchedFilters.push(key);
+      continue;
+    }
+    if (key === "visibility" && (!filters[key] || filters[key] === "all" || exercise.isPublished)) {
+      matchedFilters.push(key);
+      continue;
+    }
+    if (key !== "allowedSections" && key !== "visibility" && exerciseMatchesCandidateSetFilters(exercise, { [key]: filters[key] })) {
+      matchedFilters.push(key);
+    }
+  }
+
+  return {
+    exerciseId: exercise.id,
+    matchedFilters,
+  };
+}
+
+function collectInvalidExerciseSearchFilters(exercises: Exercise[], input: ExerciseSearchInput) {
+  const availableTargetMuscles = collectAvailableTargetMuscles(exercises);
+  const availableEquipment = collectAvailableEquipment(exercises);
+  const availableHomeRequirements = collectAvailableHomeRequirements(exercises);
+  const availableLevels = collectAvailableLevels(exercises);
+  const availableDifficulty = collectAvailableMetadataValues(exercises, "difficulty");
+  const availableRiskTags = new Set(exercises.flatMap((exercise) => exercise.riskTags));
+  const availableGoalTags = new Set(exercises.flatMap((exercise) => exercise.goalTags));
+  const availableMovementPatterns = collectAvailableMetadataValues(exercises, "movementPattern");
+  const availableIntensityRoles = collectAvailableMetadataValues(exercises, "intensityRole");
+  const invalid: ExerciseSearchInvalidFilter[] = [];
+
+  pushUnknownFacetIssues(invalid, "targetMuscles", input.targetMuscles, availableTargetMuscles);
+  pushUnknownFacetIssues(invalid, "equipmentRequired", input.equipmentRequired, availableEquipment);
+  pushUnknownFacetIssues(invalid, "equipmentAvoided", input.equipmentAvoided, availableEquipment);
+  pushUnknownFacetIssues(invalid, "homeRequirements", input.homeRequirements, availableHomeRequirements);
+  pushUnknownFacetIssues(invalid, "levels", input.levels, availableLevels);
+  pushUnknownFacetIssues(invalid, "difficulty", input.difficulty, availableDifficulty);
+  pushUnknownFacetIssues(invalid, "riskTagsNotIn", input.riskTagsNotIn, availableRiskTags);
+  pushUnknownFacetIssues(invalid, "goalTags", input.goalTags, availableGoalTags);
+  pushUnknownFacetIssues(invalid, "movementPatterns", input.movementPatterns, availableMovementPatterns);
+  pushUnknownFacetIssues(invalid, "intensityRoles", input.intensityRoles, availableIntensityRoles);
+
+  return invalid;
+}
+
 function expandBodyRegionTargetMuscles(bodyRegions: ExerciseBodyRegion[], availableTargetMuscles: Set<string>) {
   return uniqueStrings(
     bodyRegions.flatMap((region) => exerciseBodyRegionTargetMuscles[region] ?? []),
@@ -518,6 +969,66 @@ function collectAvailableEquipment(exercises: Exercise[]) {
       exercise.homeRequirement,
       exercise.homeRequirementZh,
     ]).filter(Boolean) as string[],
+  );
+}
+
+function collectAvailableHomeRequirements(exercises: Exercise[]) {
+  return new Set(
+    exercises.flatMap((exercise) => [
+      exercise.homeRequirement,
+      exercise.homeRequirementZh,
+    ]).filter(Boolean) as string[],
+  );
+}
+
+function collectAvailableLevels(exercises: Exercise[]) {
+  return new Set(
+    exercises.flatMap((exercise) => [
+      exercise.level,
+      exercise.levelZh,
+    ]).filter(Boolean) as string[],
+  );
+}
+
+function collectAvailableMetadataValues(exercises: Exercise[], key: "difficulty" | "movementPattern" | "intensityRole") {
+  const values = new Set<string>();
+
+  for (const exercise of exercises) {
+    const value = normalizeExerciseMetadata(exercise)[key];
+    if (typeof value === "string" && value.trim()) {
+      values.add(value);
+    }
+  }
+
+  return values;
+}
+
+function pushUnknownFacetIssues(
+  issues: ExerciseSearchInvalidFilter[],
+  field: string,
+  values: string[] | undefined,
+  allowedValues: Set<string>,
+) {
+  for (const value of values ?? []) {
+    if (!allowedValues.has(value)) {
+      issues.push({
+        field,
+        value,
+        reason: "unknown_facet",
+        allowedValues: Array.from(allowedValues).slice(0, 40),
+      });
+    }
+  }
+}
+
+function compactFilterRecord(filters: Record<string, unknown>) {
+  return Object.fromEntries(
+    Object.entries(filters).filter(([, value]) => {
+      if (Array.isArray(value)) {
+        return value.length > 0;
+      }
+      return value !== undefined && value !== null && value !== "";
+    }),
   );
 }
 
@@ -602,7 +1113,7 @@ function shouldUseQueryAsHybridRecallGate(query: string | undefined, input: Exer
 }
 
 function usesStructuredExecutableCandidateSet(input: ExerciseSearchInput) {
-  return input.candidateUse === "recommendation" || input.candidateUse === "routine" || input.candidateUse === "plan";
+  return input.candidateUse === "recommendation" || input.candidateUse === "routine" || input.candidateUse === "plan" || input.candidateUse === "patch";
 }
 
 function hasStructuredExecutableSearchBoundary(input: ExerciseSearchInput) {
@@ -684,6 +1195,18 @@ function matchesAnyEquipment(exercise: Exercise, avoidedEquipment: Set<string>) 
   return exerciseEquipment.some((value) => value && avoidedEquipment.has(value));
 }
 
+function matchesAnyHomeRequirement(exercise: Exercise, homeRequirements: Set<string>) {
+  if (homeRequirements.size === 0) {
+    return true;
+  }
+
+  const exerciseHomeRequirements = [exercise.homeRequirement, exercise.homeRequirementZh]
+    .filter(Boolean)
+    .map((value) => value?.trim());
+
+  return exerciseHomeRequirements.some((value) => value && homeRequirements.has(value));
+}
+
 function matchesAnyStructuredText(exercise: Exercise, values: string[]) {
   const haystack = normalizeSearchText([
     exercise.id,
@@ -718,6 +1241,24 @@ function normalizeSearchText(value: string) {
 
 function uniqueStrings(values: string[]) {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+function isExerciseSuitability(value: string): value is ExerciseSuitability {
+  return value === "warmup" || value === "training" || value === "stretch";
+}
+
+function isExerciseBodyRegion(value: string): value is ExerciseBodyRegion {
+  return (exerciseBodyRegionValues as readonly string[]).includes(value);
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function readStringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
+    : [];
 }
 
 function clampLimit(limit?: number) {

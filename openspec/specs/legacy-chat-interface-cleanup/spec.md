@@ -4,17 +4,17 @@
 TBD - created by archiving change remove-legacy-chat-ai-interfaces. Update Purpose after archive.
 ## Requirements
 ### Requirement: 旧聊天 AI 独立接口必须删除
-系统 SHALL 删除聊天主链遗留的独立 AI Route Handler。`/api/ai/workout-plan` 和 `/api/ai/exercise-recommendations` MUST NOT 继续作为聊天计划、routine、动作推荐或推荐刷新的生产入口。
+系统 SHALL 删除聊天主链遗留的独立 AI Route Handler。旧 workout-plan AI route 和旧 exercise recommendation AI route MUST NOT 继续作为聊天计划、routine、动作推荐或推荐刷新的生产入口。
 
 #### Scenario: 代码库暴露 API route
 - **WHEN** 实现完成后扫描 `app/api`
-- **THEN** 系统 MUST NOT 存在 active `/api/ai/workout-plan` Route Handler
-- **AND** 系统 MUST NOT 存在 active `/api/ai/exercise-recommendations` Route Handler
+- **THEN** 系统 MUST NOT 存在 active 旧 workout-plan AI Route Handler
+- **AND** 系统 MUST NOT 存在 active 旧 exercise recommendation AI Route Handler
 
 #### Scenario: 前端请求聊天 AI 结果
 - **WHEN** 聊天页面需要生成计划、routine、动作推荐或刷新推荐
 - **THEN** 前端 MUST 使用 `/api/chat` 的 Agent-first 合同或已存在 Agent result 的确定性操作
-- **AND** 前端 MUST NOT 调用 `/api/ai/workout-plan` 或 `/api/ai/exercise-recommendations`
+- **AND** 前端 MUST NOT 调用旧 workout-plan AI route 或旧 exercise recommendation AI route
 
 ### Requirement: 旧 trigger JSON 不得参与新聊天流
 系统 SHALL 删除前端新聊天流中的旧 trigger JSON 解析和执行路径。新运行 MUST NOT 从 assistant 文本中解析 `workout_plan_trigger`、`exercise_recommendation_trigger` 或等价旧 trigger JSON 来触发训练卡片。
@@ -47,10 +47,9 @@ TBD - created by archiving change remove-legacy-chat-ai-interfaces. Update Purpo
 
 #### Scenario: OpenSpec 主规格被扫描
 - **WHEN** 实现完成后扫描 `openspec/specs`
-- **THEN** 当前主规格 MUST NOT 要求 `/api/ai/workout-plan` 或 `/api/ai/exercise-recommendations` 继续存在
+- **THEN** 当前主规格 MUST NOT 要求旧 workout-plan AI route 或旧 exercise recommendation AI route 继续存在
 - **AND** 当前主规格 MUST NOT 要求前端新聊天流测试旧 trigger parser 的成功解析
 
 #### Scenario: Legacy 防回归测试运行
 - **WHEN** 测试套件运行旧接口清理相关测试
 - **THEN** 测试 MUST 覆盖旧 route 缺席、旧前端调用缺席、旧 trigger parser 不参与新流和 allowlist 外 legacy 模块不可被生产路径导入
-
