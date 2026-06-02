@@ -71,7 +71,7 @@ const agentActivityDisplayByStage: Record<AgentActivityStage, AgentActivityDispl
     toneClass: "text-primary",
   },
   saving_result: {
-    label: "正在保存训练结果...",
+    label: "正在完善训练结果...",
     icon: "save",
     toneClass: "text-primary",
   },
