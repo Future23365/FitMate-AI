@@ -189,6 +189,8 @@ export type AgentToolDomainCapabilityContract = z.infer<
 >;
 
 export const agentToolErrorCodeSchema = z.enum([
+  "invalid_json",
+  "invalid_decision",
   "unknown_tool",
   "schema_validation_failed",
   "missing_required_parameter",
@@ -212,6 +214,9 @@ export const agentToolErrorCodeSchema = z.enum([
   "resume_conflict",
   "duplicate_tool_failure",
   "model_output_invalid",
+  "unregistered_resource_reference",
+  "premature_final_result_before_save",
+  "repair_budget_exhausted",
   "tool_execution_failed",
   "persistence_failed",
   "hard_failure",
@@ -269,6 +274,139 @@ export const agentToolErrorSchema = z.object({
 
 export type AgentToolError = z.infer<typeof agentToolErrorSchema>;
 
+export const agentDecisionFeedbackCodeSchema = z.enum([
+  "invalid_json",
+  "invalid_decision",
+  "schema_validation_failed",
+  "invalid_dependency",
+  "unregistered_resource_reference",
+  "premature_final_result_before_save",
+  "tool_failed",
+  "tool_result_unsatisfied",
+  "duplicate_tool_failure",
+  "ambiguous_resource",
+  "hard_boundary_failure",
+  "repair_budget_exhausted",
+]);
+
+export type AgentDecisionFeedbackCode = z.infer<typeof agentDecisionFeedbackCodeSchema>;
+
+export const agentDecisionFeedbackResourceKindSchema = z.enum([
+  "tool_result",
+  "candidate_set",
+  "artifact_payload",
+  "workout_edit_plan",
+  "draft",
+  "patch",
+  "validation",
+  "policy_decision",
+  "confirmation",
+  "revision",
+  "operation_result",
+]);
+
+export type AgentDecisionFeedbackResourceKind = z.infer<
+  typeof agentDecisionFeedbackResourceKindSchema
+>;
+
+export const agentDecisionFeedbackResourceReferenceSchema = z.object({
+  kind: agentDecisionFeedbackResourceKindSchema,
+  id: z.string().trim().min(1).optional(),
+  reason: z.string().trim().min(1).max(240).optional(),
+});
+
+export type AgentDecisionFeedbackResourceReference = z.infer<
+  typeof agentDecisionFeedbackResourceReferenceSchema
+>;
+
+export const agentDecisionFeedbackAvailableResourcesSchema = z.object({
+  toolResultIds: z.array(z.string().trim().min(1)).default([]),
+  candidateSetIds: z.array(z.string().trim().min(1)).default([]),
+  artifactPayloadIds: z.array(z.string().trim().min(1)).default([]),
+  editPlanIds: z.array(z.string().trim().min(1)).default([]),
+  draftIds: z.array(z.string().trim().min(1)).default([]),
+  patchIds: z.array(z.string().trim().min(1)).default([]),
+  validationIds: z.array(z.string().trim().min(1)).default([]),
+  policyDecisionIds: z.array(z.string().trim().min(1)).default([]),
+  confirmationIds: z.array(z.string().trim().min(1)).default([]),
+  revisionIds: z.array(z.string().trim().min(1)).default([]),
+  operationResultIds: z.array(z.string().trim().min(1)).default([]),
+});
+
+const emptyAgentDecisionFeedbackAvailableResources = {
+  toolResultIds: [],
+  candidateSetIds: [],
+  artifactPayloadIds: [],
+  editPlanIds: [],
+  draftIds: [],
+  patchIds: [],
+  validationIds: [],
+  policyDecisionIds: [],
+  confirmationIds: [],
+  revisionIds: [],
+  operationResultIds: [],
+};
+
+export type AgentDecisionFeedbackAvailableResources = z.infer<
+  typeof agentDecisionFeedbackAvailableResourcesSchema
+>;
+
+export const agentDecisionFeedbackBudgetSchema = z.object({
+  repairTurnCount: z.number().int().min(0).default(0),
+  maxRepairTurns: z.number().int().min(0).default(0),
+  remainingRepairTurns: z.number().int().min(0).default(0),
+  sameCodeCount: z.number().int().min(0).default(0),
+  maxSameCodePerRun: z.number().int().min(1).default(1),
+  remainingSteps: z.number().int().min(0).default(0),
+});
+
+export type AgentDecisionFeedbackBudget = z.infer<typeof agentDecisionFeedbackBudgetSchema>;
+
+// AgentDecisionFeedback 描述 runtime 拒绝模型决策的结构化原因，不新增业务事实或 tool 能力。
+export const agentDecisionFeedbackSchema = z.object({
+  code: agentDecisionFeedbackCodeSchema,
+  message: z.string().trim().min(1).max(700),
+  failedAction: z.string().trim().min(1).max(120).optional(),
+  retryable: z.boolean().default(false),
+  hardBoundary: z.boolean().default(false),
+  availableResources: agentDecisionFeedbackAvailableResourcesSchema.default(emptyAgentDecisionFeedbackAvailableResources),
+  missingResources: z.array(agentDecisionFeedbackResourceReferenceSchema).default([]),
+  unregisteredReferences: z.array(agentDecisionFeedbackResourceReferenceSchema).default([]),
+  recommendedNextTool: z.string().trim().min(1).max(120).optional(),
+  recommendedInput: z.unknown().optional(),
+  sanitizedReason: z.string().trim().min(1).max(500).optional(),
+  repeat: z.object({
+    failureKey: z.string().trim().min(1).optional(),
+    originalFailureCode: agentToolErrorCodeSchema.optional(),
+    repeatCount: z.number().int().min(1),
+    firstToolResultId: z.string().trim().min(1).optional(),
+    latestToolResultId: z.string().trim().min(1).optional(),
+    recommendedAlternative: z.string().trim().min(1).max(240).optional(),
+  }).optional(),
+  budget: agentDecisionFeedbackBudgetSchema.optional(),
+});
+
+export type AgentDecisionFeedback = z.infer<typeof agentDecisionFeedbackSchema>;
+
+// AgentDecisionFeedbackSummary 是唯一进入模型上下文的反馈摘要，避免暴露 raw decision 或大 payload。
+export const agentDecisionFeedbackSummarySchema = agentDecisionFeedbackSchema.pick({
+  code: true,
+  message: true,
+  failedAction: true,
+  retryable: true,
+  hardBoundary: true,
+  availableResources: true,
+  missingResources: true,
+  unregisteredReferences: true,
+  recommendedNextTool: true,
+  recommendedInput: true,
+  sanitizedReason: true,
+  repeat: true,
+  budget: true,
+});
+
+export type AgentDecisionFeedbackSummary = z.infer<typeof agentDecisionFeedbackSummarySchema>;
+
 // AgentToolProducedResource 记录工具成功产出的可引用资源 id，供后续依赖图消费。
 export const agentToolProducedResourceSchema = z.object({
   type: z.string().trim().min(1),
@@ -295,6 +433,8 @@ export const agentRuntimeLimitsSchema = z.object({
   timeoutMs: z.number().int().min(500).max(120000).default(30000),
   checkpointEverySteps: z.number().int().min(1).max(10).default(1),
   maxToolResultSummaryChars: z.number().int().min(200).max(10000).default(2400),
+  maxRepairTurns: z.number().int().min(0).max(8).default(3),
+  maxSameFeedbackCodePerRun: z.number().int().min(1).max(6).default(2),
 });
 
 export type AgentRuntimeLimits = z.infer<typeof agentRuntimeLimitsSchema>;
@@ -364,9 +504,32 @@ export const agentToolResultRecordSchema = z.object({
   revisionId: z.string().trim().min(1).optional(),
   operationResultId: z.string().trim().min(1).optional(),
   fulfillment: agentToolResultFulfillmentSchema.optional(),
+  decisionFeedback: agentDecisionFeedbackSchema.optional(),
 });
 
 export type AgentToolResultRecord = z.infer<typeof agentToolResultRecordSchema>;
+
+export const agentRepairSummarySchema = z.object({
+  repairTurnCount: z.number().int().min(0).default(0),
+  repairFeedbackCodes: z.array(agentDecisionFeedbackCodeSchema).default([]),
+  finalProjectionSourceToolResultId: z.string().trim().min(1).optional(),
+  unregisteredResourceReferences: z.array(agentDecisionFeedbackResourceReferenceSchema).default([]),
+  fusedFailureCount: z.number().int().min(0).default(0),
+  repairBudgetExhaustedReason: z.string().trim().min(1).max(240).optional(),
+  compressedFeedbackCount: z.number().int().min(0).default(0),
+  rawFeedbackCount: z.number().int().min(0).default(0),
+});
+
+const emptyAgentRepairSummary = {
+  repairTurnCount: 0,
+  repairFeedbackCodes: [],
+  unregisteredResourceReferences: [],
+  fusedFailureCount: 0,
+  compressedFeedbackCount: 0,
+  rawFeedbackCount: 0,
+};
+
+export type AgentRepairSummary = z.infer<typeof agentRepairSummarySchema>;
 
 export const agentDependencyNodeSchema = z.object({
   id: z.string().trim().min(1),
@@ -551,6 +714,7 @@ export const agentExecutionStateSchema = z.object({
   checkpoints: z.array(agentCheckpointSchema).default([]),
   blockedState: agentBlockedStateSchema.optional(),
   finalResult: agentExecutionResultSchema.optional(),
+  repairSummary: agentRepairSummarySchema.default(emptyAgentRepairSummary),
 });
 
 export type AgentExecutionState = z.infer<typeof agentExecutionStateSchema>;

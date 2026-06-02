@@ -1822,11 +1822,15 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
 
     expect(output.result).toMatchObject({
       status: "failed",
-      failureCode: "model_output_invalid",
+      failureCode: "repair_budget_exhausted",
     });
     expect(output.replayFixture.finalResult).toMatchObject({
       status: "failed",
-      failureCode: "model_output_invalid",
+      failureCode: "repair_budget_exhausted",
+    });
+    expect(output.state.repairSummary).toMatchObject({
+      repairFeedbackCodes: expect.arrayContaining(["invalid_json"]),
+      repairBudgetExhaustedReason: expect.stringContaining("repair_budget_exhausted"),
     });
   });
 
@@ -2476,8 +2480,14 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
     expect(output.state.toolResults[4]).toMatchObject({
       status: "failed",
       error: {
-        code: "model_output_invalid",
+        code: "premature_final_result_before_save",
         retryable: true,
+      },
+      decisionFeedback: {
+        code: "premature_final_result_before_save",
+        missingResources: expect.arrayContaining([
+          expect.objectContaining({ kind: "revision" }),
+        ]),
       },
       modelSummary: {
         recommendedToolName: "saveConversationArtifactRevision",
@@ -2888,6 +2898,52 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
     });
   });
 
+  it("rejects completed_operation when the operation result producer is not consumed", async () => {
+    const registry = new AgentToolRegistry([createUserProfilePolicyTool(), createUserProfileWriteTool()]);
+    const output = await runAgentOrchestrator({
+      runId: "agent-run-operation-missing-producer",
+      userId: "user-1",
+      sessionId: "chat-1",
+      context: createTestContextPackage(),
+      registry,
+      decideNext: vi.fn()
+        .mockResolvedValueOnce({
+          action: "call_tool",
+          toolName: "evaluateUserProfilePolicy",
+          input: { location: "在家" },
+          reason: "先评估用户资料写入策略。",
+        })
+        .mockResolvedValueOnce({
+          action: "call_tool",
+          toolName: "updateUserProfile",
+          input: { location: "在家", mode: "success", policyDecisionId: "policy-user-profile-success" },
+          reason: "保存训练地点偏好。",
+        })
+        .mockResolvedValueOnce({
+          action: "final_result",
+          result: {
+            status: "completed_operation",
+            operationResultId: "operation-result-success",
+            usedToolResultIds: ["policy-tool-user-profile"],
+            policyDecisionId: "policy-user-profile-success",
+            operation: {
+              operationType: "updateUserProfile",
+              resourceType: "UserProfile",
+              title: "已更新训练偏好",
+              summary: "训练地点已保存为在家。",
+              visibleFields: [{ key: "location", label: "训练地点", value: "在家" }],
+            },
+          },
+          reason: "错误地没有引用写工具结果。",
+        }),
+    });
+
+    expect(output.result).toMatchObject({
+      status: "failed",
+      failureCode: "model_output_invalid",
+    });
+  });
+
   it("exposes Agent prompt modules and token budget stages without summary-only execution context", () => {
     const context = createTestContextPackage();
     const budget = createAgentChatTokenBudgetDecision({
@@ -2929,6 +2985,16 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
       .toContain("没有成功的 saveConversationArtifactRevision tool result 和 revisionId 时，禁止返回 generated 或 patched");
     expect(buildPromptFromModules(["agent_final_result"]))
       .toContain("generated 必须返回");
+    expect(buildPromptFromModules(["agent_tool_decision"]))
+      .toContain("AgentDecisionFeedback");
+    expect(buildPromptFromModules(["agent_tool_execution"]))
+      .toContain("retryable: true 不是继续重试的充分条件");
+    expect(buildPromptFromModules(["agent_final_result"]))
+      .toContain("多个可能匹配的 draft、patch、save 或 operation 写结果");
+    expect(buildPromptFromModules(["agent_tool_decision", "agent_tool_execution", "agent_final_result"]))
+      .not.toContain("关键词分流");
+    expect(buildPromptFromModules(["agent_tool_decision", "agent_tool_execution", "agent_final_result"]))
+      .not.toContain("同义词匹配");
   });
 });
 

@@ -195,6 +195,9 @@ export type AgentLoopToolResultViewModel = {
   toolResultId?: string;
   durationMs?: number;
   failureCode?: string;
+  repairFeedbackCode?: string;
+  decisionFeedback?: unknown;
+  repairBudget?: unknown;
   inputSummary: string;
   outputSummary: string;
   resourceIds: Partial<Record<AgentResourceKind, string>>;
@@ -993,6 +996,9 @@ function createToolResultView(
     toolResultId: getResourceValue(step, "toolResultId"),
     durationMs: step.durationMs ?? getNumber(isRecord(step.metadata) ? step.metadata.durationMs : undefined),
     failureCode: getFailureCode(step),
+    repairFeedbackCode: getString(step.metadata?.repairFeedbackCode),
+    decisionFeedback: isRecord(step.metadata?.agentDecisionFeedback) ? step.metadata?.agentDecisionFeedback : undefined,
+    repairBudget: isRecord(step.metadata?.repairBudget) ? step.metadata?.repairBudget : undefined,
     inputSummary: summarizeToolParameters(step),
     outputSummary: summarizeToolOutput(step),
     resourceIds,

@@ -11,10 +11,16 @@ import {
   agentExecutionStateSchema,
   defaultAgentRuntimeLimits,
   type AgentCheckpoint,
+  type AgentDecisionFeedback,
+  type AgentDecisionFeedbackAvailableResources,
+  type AgentDecisionFeedbackCode,
+  type AgentDecisionFeedbackResourceKind,
+  type AgentDecisionFeedbackResourceReference,
   type AgentDependencyGraph,
   type AgentExecutionResult,
   type AgentExecutionState,
   type AgentHardFailureCode,
+  type AgentRepairSummary,
   type AgentRuntimeLimits,
   type AgentToolAccessLevel,
   type AgentToolCallRecord,
@@ -83,6 +89,7 @@ export type AgentReplayFixture = {
   toolResults: AgentToolResultRecord[];
   dependencyGraph: AgentDependencyGraph;
   finalResult: AgentExecutionResult;
+  repairSummary: AgentRepairSummary;
   legacyPathSkip: {
     intentFirst: true;
     normalize: true;
@@ -113,6 +120,7 @@ export async function runAgentOrchestrator(
     dependencyGraph: { nodes: [], edges: [] },
     candidateSets: {},
     checkpoints: [],
+    repairSummary: {},
   });
 
   input.trace?.addStep({
@@ -137,6 +145,7 @@ export async function runAgentOrchestrator(
     const loopTurnId = createAgentId("loop_turn");
     const modelCallId = createAgentId("model_call");
     const visibleToolResultIds = state.toolResults.map((toolResult) => toolResult.toolResultId);
+    const repairBudget = createRepairBudgetSnapshot(state, limits, stepIndex);
     emitAgentRuntimeActivity(input, "analyzing_request");
     const rawDecision = await input.decideNext({
       state,
@@ -163,6 +172,11 @@ export async function runAgentOrchestrator(
           modelCallId,
           visibleToolResultIds,
           stepIndex,
+          repairTurnCount: state.repairSummary.repairTurnCount,
+          remainingRepairTurns: repairBudget.remainingRepairTurns,
+          repairFeedbackCodes: state.repairSummary.repairFeedbackCodes,
+          fusedFailureCount: state.repairSummary.fusedFailureCount,
+          repairBudgetExhaustedReason: state.repairSummary.repairBudgetExhaustedReason,
           failureCode: parsedDecision.code,
           parsingFailure: {
             code: parsedDecision.code,
@@ -170,15 +184,64 @@ export async function runAgentOrchestrator(
           },
         },
       });
-      const recoverableFeedback = createRecoverablePrematureFinalResultFeedback({
+      const projectedResult = projectFinalResultFromRegisteredFacts({
+        state,
+        rawDecision,
+        parseFailure: parsedDecision,
+      });
+
+      if (projectedResult) {
+        const referenceValidation = validateFinalResultReferences(state, projectedResult.result);
+        state = finishWithResult(
+          recordFinalProjection(state, projectedResult.sourceToolResultId),
+          referenceValidation.ok ? projectedResult.result : createFailedResult("model_output_invalid"),
+          input.trace,
+          referenceValidation.ok ? projectedResult.reason : referenceValidation.message,
+          {
+            loopTurnId,
+            loopTurnIndex: stepIndex,
+            modelCallId,
+            visibleToolResultIds,
+            usedToolResultIds: getResultUsedToolResultIds(projectedResult.result),
+            finalProjectionSourceToolResultId: projectedResult.sourceToolResultId,
+          },
+        );
+        state = maybeCheckpoint(state, limits, stepIndex);
+        break;
+      }
+
+      const recoverableFeedback = createFeedbackForParseFailure({
         state,
         rawDecision,
         parseFailure: parsedDecision,
         stepIndex,
+        remainingSteps: limits.maxSteps - stepIndex - 1,
+        limits,
       });
 
-      if (recoverableFeedback && stepIndex + 1 < limits.maxSteps) {
-        state = recordSyntheticDecisionFeedback(state, recoverableFeedback);
+      if (recoverableFeedback) {
+        const budget = evaluateRepairBudget(state, recoverableFeedback.result.decisionFeedback, limits, stepIndex);
+
+        if (!budget.ok) {
+          state = finishWithResult(
+            recordRepairBudgetExhaustion(state, budget.reason),
+            createFailedResult("repair_budget_exhausted"),
+            input.trace,
+            budget.reason,
+            {
+              loopTurnId,
+              loopTurnIndex: stepIndex,
+              modelCallId,
+              visibleToolResultIds,
+              usedToolResultIds: [],
+              repairBudgetExhaustedReason: budget.reason,
+            },
+          );
+          state = maybeCheckpoint(state, limits, stepIndex);
+          break;
+        }
+
+        state = recordSyntheticDecisionFeedback(state, recoverableFeedback, limits);
         input.trace?.addStep({
           name: "agent_tool_result",
           type: "agent_tool_result",
@@ -195,37 +258,11 @@ export async function runAgentOrchestrator(
             stepIndex,
             durationMs: 0,
             failureCode: recoverableFeedback.result.error?.code,
+            repairSummary: state.repairSummary,
           }),
         });
         state = maybeCheckpoint(state, limits, stepIndex);
         continue;
-      }
-
-      const completedSavedFinalResult = createGeneratedFinalResultFromSavedArtifactParseFailure({
-        state,
-        rawDecision,
-        parseFailure: parsedDecision,
-      });
-
-      if (completedSavedFinalResult) {
-        const referenceValidation = validateFinalResultReferences(state, completedSavedFinalResult);
-        state = finishWithResult(
-          state,
-          referenceValidation.ok ? completedSavedFinalResult : createFailedResult("model_output_invalid"),
-          input.trace,
-          referenceValidation.ok
-            ? "模型 final_result 缺少已登记保存资源，runtime 从 saveConversationArtifactRevision 结果补齐 generated 合同。"
-            : referenceValidation.message,
-          {
-            loopTurnId,
-            loopTurnIndex: stepIndex,
-            modelCallId,
-            visibleToolResultIds,
-            usedToolResultIds: completedSavedFinalResult.usedToolResultIds,
-          },
-        );
-        state = maybeCheckpoint(state, limits, stepIndex);
-        break;
       }
 
       state = finishWithResult(state, createFailedResult("model_output_invalid"), input.trace, parsedDecision.message);
@@ -254,11 +291,99 @@ export async function runAgentOrchestrator(
         usedToolResultIds: getDecisionUsedToolResultIds(decision),
         stepIndex,
         remainingSteps: limits.maxSteps - stepIndex - 1,
+        repairTurnCount: state.repairSummary.repairTurnCount,
+        remainingRepairTurns: createRepairBudgetSnapshot(state, limits, stepIndex).remainingRepairTurns,
+        repairFeedbackCodes: state.repairSummary.repairFeedbackCodes,
+        fusedFailureCount: state.repairSummary.fusedFailureCount,
+        repairBudgetExhaustedReason: state.repairSummary.repairBudgetExhaustedReason,
       },
     });
 
     if (decision.action === "final_result") {
       const referenceValidation = validateFinalResultReferences(state, decision.result);
+      const projectedResult = referenceValidation.ok ? null : projectFinalResultFromRegisteredFacts({
+        state,
+        rawDecision: decision,
+        referenceValidation,
+      });
+
+      if (projectedResult) {
+        const projectedValidation = validateFinalResultReferences(state, projectedResult.result);
+        state = finishWithResult(
+          recordFinalProjection(state, projectedResult.sourceToolResultId),
+          projectedValidation.ok ? projectedResult.result : createFailedResult("model_output_invalid"),
+          input.trace,
+          projectedValidation.ok ? projectedResult.reason : projectedValidation.message,
+          {
+            loopTurnId,
+            loopTurnIndex: stepIndex,
+            modelCallId,
+            visibleToolResultIds,
+            usedToolResultIds: getResultUsedToolResultIds(projectedResult.result),
+            finalProjectionSourceToolResultId: projectedResult.sourceToolResultId,
+          },
+        );
+        state = maybeCheckpoint(state, limits, stepIndex);
+        break;
+      }
+
+      if (!referenceValidation.ok) {
+        const recoverableFeedback = createFeedbackForFinalResultReferenceFailure({
+          state,
+          decision,
+          referenceValidation,
+          stepIndex,
+          remainingSteps: limits.maxSteps - stepIndex - 1,
+          limits,
+        });
+
+        if (recoverableFeedback) {
+          const budget = evaluateRepairBudget(state, recoverableFeedback.result.decisionFeedback, limits, stepIndex);
+
+          if (!budget.ok) {
+            state = finishWithResult(
+              recordRepairBudgetExhaustion(state, budget.reason),
+              createFailedResult("repair_budget_exhausted"),
+              input.trace,
+              budget.reason,
+              {
+                loopTurnId,
+                loopTurnIndex: stepIndex,
+                modelCallId,
+                visibleToolResultIds,
+                usedToolResultIds: [],
+                repairBudgetExhaustedReason: budget.reason,
+              },
+            );
+            state = maybeCheckpoint(state, limits, stepIndex);
+            break;
+          }
+
+          state = recordSyntheticDecisionFeedback(state, recoverableFeedback, limits);
+          input.trace?.addStep({
+            name: "agent_tool_result",
+            type: "agent_tool_result",
+            status: "failed",
+            input: summarizeDecisionForTrace(decision),
+            output: recoverableFeedback.result.modelSummary,
+            error: recoverableFeedback.result.error,
+            metadata: createToolResultTraceMetadata({
+              loopTurnId,
+              loopTurnIndex: stepIndex,
+              modelCallId,
+              toolCallId: recoverableFeedback.toolCall.id,
+              resultRecord: recoverableFeedback.result,
+              stepIndex,
+              durationMs: 0,
+              failureCode: recoverableFeedback.result.error?.code,
+              repairSummary: state.repairSummary,
+            }),
+          });
+          state = maybeCheckpoint(state, limits, stepIndex);
+          continue;
+        }
+      }
+
       state = finishWithResult(
         state,
         referenceValidation.ok ? decision.result : createFailedResult("model_output_invalid"),
@@ -333,6 +458,16 @@ export async function runAgentOrchestrator(
             message: issue.message,
           })),
         },
+        decisionFeedback: createToolInputSchemaFeedback({
+          state,
+          toolName: decision.toolName,
+          issues: parsedInput.error.issues.map((issue) => ({
+            path: issue.path.join("."),
+            message: issue.message,
+          })),
+          limits,
+          stepIndex,
+        }),
       });
       state = completeToolCall(state, toolCallIdForExecution, "failed", failedRecord);
       input.trace?.addStep({
@@ -351,6 +486,7 @@ export async function runAgentOrchestrator(
           resultRecord: failedRecord,
           durationMs: 0,
           failureCode: failedRecord.error?.code,
+          repairSummary: state.repairSummary,
         }),
       });
       state = maybeCheckpoint(state, limits, stepIndex);
@@ -363,6 +499,13 @@ export async function runAgentOrchestrator(
         toolCallId: toolCallIdForExecution,
         toolName: decision.toolName,
         result: dependencyFailure,
+        decisionFeedback: createToolDependencyFeedback({
+          state,
+          toolName: decision.toolName,
+          dependencyFailure,
+          limits,
+          stepIndex,
+        }),
       });
       state = completeToolCall(state, toolCallIdForExecution, "failed", failedRecord);
       input.trace?.addStep({
@@ -381,6 +524,7 @@ export async function runAgentOrchestrator(
           resultRecord: failedRecord,
           durationMs: 0,
           failureCode: failedRecord.error?.code,
+          repairSummary: state.repairSummary,
         }),
       });
       state = maybeCheckpoint(state, limits, stepIndex);
@@ -397,6 +541,9 @@ export async function runAgentOrchestrator(
         toolName: decision.toolName,
         duplicateFailureKey,
         duplicateFailure,
+        state,
+        limits,
+        stepIndex,
       });
       duplicateFailure.latestToolResultId = failedRecord.toolResultId;
       state = completeToolCall(state, toolCallIdForExecution, "failed", failedRecord);
@@ -416,6 +563,7 @@ export async function runAgentOrchestrator(
           resultRecord: failedRecord,
           durationMs: 0,
           failureCode: failedRecord.error?.code,
+          repairSummary: state.repairSummary,
         }),
       });
       state = maybeCheckpoint(state, limits, stepIndex);
@@ -435,6 +583,13 @@ export async function runAgentOrchestrator(
       toolCallId: toolCallIdForExecution,
       toolName: decision.toolName,
       result,
+      decisionFeedback: createToolResultFeedback({
+        state,
+        toolName: decision.toolName,
+        result,
+        limits,
+        stepIndex,
+      }),
     });
     if (!result.ok && !result.error.retryable) {
       nonRetryableToolFailures.set(duplicateFailureKey, {
@@ -446,14 +601,14 @@ export async function runAgentOrchestrator(
         repeatCount: 0,
       });
     }
-    state = completeToolCall(state, toolCallIdForExecution, result.ok ? "success" : "failed", resultRecord);
+    state = completeToolCall(state, toolCallIdForExecution, resultRecord.status === "success" ? "success" : "failed", resultRecord);
     input.trace?.addStep({
       name: "agent_tool_result",
       type: "agent_tool_result",
-      status: result.ok ? "success" : "failed",
+      status: resultRecord.status === "success" ? "success" : "failed",
       input: summarizeDecisionForTrace(decision),
       output: resultRecord.traceSummary,
-      error: result.ok ? undefined : result.error,
+      error: resultRecord.error,
       metadata: createToolResultTraceMetadata({
         stepIndex,
         loopTurnId,
@@ -462,9 +617,27 @@ export async function runAgentOrchestrator(
         toolCallId: toolCallIdForExecution,
         resultRecord,
         durationMs: Date.now() - executionStartedAt,
-        failureCode: result.ok ? undefined : result.error.code,
+        failureCode: result.ok ? resultRecord.error?.code : result.error.code,
+        repairSummary: state.repairSummary,
       }),
     });
+    if (shouldTerminateAfterToolResult(resultRecord)) {
+      state = finishWithResult(
+        state,
+        createFailedResult(resultRecord.error?.code ?? "unrecoverable_tool_error"),
+        input.trace,
+        resultRecord.error?.message ?? "Agent tool hit an unrecoverable hard boundary.",
+        {
+          loopTurnId,
+          loopTurnIndex: stepIndex,
+          modelCallId,
+          visibleToolResultIds: state.toolResults.map((toolResult) => toolResult.toolResultId),
+          usedToolResultIds: [],
+        },
+      );
+      state = maybeCheckpoint(state, limits, stepIndex);
+      break;
+    }
     state = maybeCheckpoint(state, limits, stepIndex);
   }
 
@@ -503,6 +676,7 @@ export function createAgentReplayFixture(
     toolResults: state.toolResults,
     dependencyGraph: state.dependencyGraph,
     finalResult: state.finalResult,
+    repairSummary: state.repairSummary,
     legacyPathSkip: createLegacyPathSkip(),
   };
 }
@@ -629,13 +803,17 @@ function completeToolCall(
       : call
   ));
   const graph = addToolResultToGraph(state.dependencyGraph, toolCallId, result);
+  const canProduceResources = result.status === "success" && result.fulfillment?.satisfied !== false && !result.decisionFeedback;
 
   return agentExecutionStateSchema.parse({
     ...state,
     toolCalls: updatedCalls,
     toolResults: [...state.toolResults, result],
     dependencyGraph: graph,
-    candidateSets: result.candidateSetId
+    repairSummary: result.decisionFeedback
+      ? recordFeedbackInRepairSummary(state.repairSummary, result.decisionFeedback)
+      : state.repairSummary,
+    candidateSets: canProduceResources && result.candidateSetId
       ? {
           ...state.candidateSets,
           [result.candidateSetId]: {
@@ -702,6 +880,9 @@ function createDuplicateToolFailureResultRecord(input: {
   toolName: string;
   duplicateFailureKey: string;
   duplicateFailure: DuplicateToolFailureEntry;
+  state: AgentExecutionState;
+  limits: AgentRuntimeLimits;
+  stepIndex: number;
 }): AgentToolResultRecord {
   const toolResultId = createAgentId("tool_result");
   const detail = {
@@ -730,42 +911,498 @@ function createDuplicateToolFailureResultRecord(input: {
       retryable: false,
       detail,
     },
+    decisionFeedback: createDuplicateToolFailureFeedback({
+      state: input.state,
+      toolName: input.toolName,
+      duplicateFailureKey: input.duplicateFailureKey,
+      duplicateFailure: input.duplicateFailure,
+      latestToolResultId: toolResultId,
+      limits: input.limits,
+      stepIndex: input.stepIndex,
+    }),
   };
 }
 
-// createRecoverablePrematureFinalResultFeedback 只恢复“已可保存但模型提前 final”的窄场景，避免把非法终止伪装成成功。
-function createRecoverablePrematureFinalResultFeedback(input: {
+function createFeedbackForParseFailure(input: {
   state: AgentExecutionState;
   rawDecision: unknown;
   parseFailure: Extract<AgentToolDecisionParseResult, { ok: false }>;
   stepIndex: number;
+  remainingSteps: number;
+  limits: AgentRuntimeLimits;
 }): RecoverableDecisionFeedback | null {
   const finalStatus = readRawFinalResultStatus(input.rawDecision);
 
   if (
-    input.parseFailure.code !== "invalid_decision"
-    || (finalStatus !== "generated" && finalStatus !== "patched")
-    || input.state.toolResults.some((result) => result.revisionId)
+    input.parseFailure.code === "invalid_decision"
+    && (finalStatus === "generated" || finalStatus === "patched")
+    && !input.state.toolResults.some((result) => result.revisionId)
   ) {
+    const saveInput = createRecommendedArtifactSaveInput(input.state);
+
+    if (saveInput) {
+      return createSyntheticDecisionFeedback({
+        state: input.state,
+        rawInput: { rawDecision: summarizeUnknown(input.rawDecision) },
+        code: "premature_final_result_before_save",
+        errorCode: "premature_final_result_before_save",
+        message: "generated/patched 必须在 saveConversationArtifactRevision 成功返回 revisionId 后才能作为 final_result。",
+        failedAction: `final_result.${finalStatus}`,
+        retryable: true,
+        missingResources: [{ kind: "revision", reason: "final_result 缺少当前 run 已登记的 revisionId producer。" }],
+        recommendedNextTool: "saveConversationArtifactRevision",
+        recommendedInput: saveInput,
+        sanitizedReason: "模型在保存 artifact 前提前返回非法 final_result，runtime 要求继续调用保存工具。",
+        traceExtra: {
+          stepIndex: input.stepIndex,
+          parseFailure: summarizeParseFailure(input.parseFailure),
+        },
+        limits: input.limits,
+        stepIndex: input.stepIndex,
+        remainingSteps: input.remainingSteps,
+      });
+    }
+  }
+
+  const code: AgentDecisionFeedbackCode = input.parseFailure.code === "invalid_json"
+    ? "invalid_json"
+    : input.parseFailure.code === "unknown_tool"
+      ? "invalid_decision"
+      : "invalid_decision";
+  const retryable = input.parseFailure.code !== "unknown_tool";
+
+  if (!retryable) {
     return null;
   }
 
-  const draft = findLatestToolResultWith(input.state, "draftId");
-  const validation = findLatestToolResultWith(input.state, "validationId");
-  const policy = findLatestToolResultWith(input.state, "policyDecisionId");
+  return createSyntheticDecisionFeedback({
+    state: input.state,
+    rawInput: { rawDecision: summarizeUnknown(input.rawDecision) },
+    code,
+    errorCode: input.parseFailure.code,
+    message: input.parseFailure.message,
+    failedAction: "agent_tool_decision",
+    retryable,
+    missingResources: [],
+    recommendedNextTool: undefined,
+    recommendedInput: undefined,
+    sanitizedReason: "模型输出没有通过 Agent decision JSON/Schema 合同，下一轮必须只返回合法 JSON 对象。",
+    traceExtra: {
+      stepIndex: input.stepIndex,
+      parseFailure: summarizeParseFailure(input.parseFailure),
+    },
+    limits: input.limits,
+    stepIndex: input.stepIndex,
+    remainingSteps: input.remainingSteps,
+  });
+}
+
+function createFeedbackForFinalResultReferenceFailure(input: {
+  state: AgentExecutionState;
+  decision: AgentToolDecision & { action: "final_result" };
+  referenceValidation: Extract<FinalResultReferenceValidation, { ok: false }>;
+  stepIndex: number;
+  remainingSteps: number;
+  limits: AgentRuntimeLimits;
+}): RecoverableDecisionFeedback | null {
+  const saveInput = input.referenceValidation.missing.some((item) => item.kind === "revision")
+    ? createRecommendedArtifactSaveInput(input.state)
+    : null;
+
+  if (!saveInput) {
+    return null;
+  }
+
+  return createSyntheticDecisionFeedback({
+    state: input.state,
+    rawInput: summarizeDecisionForTrace(input.decision),
+    code: "unregistered_resource_reference",
+    errorCode: "unregistered_resource_reference",
+    message: input.referenceValidation.message,
+    failedAction: `final_result.${input.decision.result.status}`,
+    retryable: true,
+    missingResources: input.referenceValidation.missing.map((item) => ({
+      kind: item.kind,
+      id: item.id,
+      reason: "final result 引用了当前 run 中没有 producer 的资源。",
+    })),
+    unregisteredReferences: input.referenceValidation.missing.map((item) => ({
+      kind: item.kind,
+      id: item.id,
+      reason: "missing_producer",
+    })),
+    recommendedNextTool: "saveConversationArtifactRevision",
+    recommendedInput: saveInput,
+    sanitizedReason: "模型 final_result 引用了未登记资源，runtime 拒绝该成功结果并推荐保存工具。",
+    traceExtra: {
+      stepIndex: input.stepIndex,
+      finalStatus: input.decision.result.status,
+      missing: input.referenceValidation.missing,
+    },
+    limits: input.limits,
+    stepIndex: input.stepIndex,
+    remainingSteps: input.remainingSteps,
+  });
+}
+
+function projectFinalResultFromRegisteredFacts(input: {
+  state: AgentExecutionState;
+  rawDecision: unknown;
+  parseFailure?: Extract<AgentToolDecisionParseResult, { ok: false }>;
+  referenceValidation?: FinalResultReferenceValidation;
+}): { result: AgentExecutionResult; sourceToolResultId: string; reason: string } | null {
+  const rawStatus = readRawFinalResultStatus(input.rawDecision);
+  const rawResult = readRawFinalResultObject(input.rawDecision);
+
+  if (
+    rawStatus === "generated"
+    && (
+      !input.parseFailure
+      || (
+        input.parseFailure.code === "invalid_decision"
+        && hasGeneratedResourceContractIssue(input.parseFailure)
+      )
+      || input.referenceValidation?.missing.some((item) => item.kind === "revision")
+    )
+  ) {
+    const saved = findUniqueSuccessfulArtifactSaveResult(input.state);
+
+    if (!saved) {
+      return null;
+    }
+
+    const generated = projectGeneratedResultFromSave(saved, rawResult);
+
+    return generated
+      ? {
+          result: generated,
+          sourceToolResultId: saved.toolResultId,
+          reason: "模型 final_result 缺少或引用错误的已登记保存资源，runtime 从 saveConversationArtifactRevision 结果投影 generated 合同。",
+        }
+      : null;
+  }
+
+  if (
+    rawStatus === "patched"
+    && (
+      !input.parseFailure
+      || input.referenceValidation?.missing.some((item) => item.kind === "revision")
+    )
+  ) {
+    const saved = findUniqueSuccessfulArtifactSaveResult(input.state);
+    const patch = findUniqueSuccessfulPatchResult(input.state);
+
+    if (!saved || !patch) {
+      return null;
+    }
+
+    const patched = projectPatchedResultFromSaveAndPatch(saved, patch, rawResult);
+
+    return patched
+      ? {
+          result: patched,
+          sourceToolResultId: saved.toolResultId,
+          reason: "模型 final_result 缺少或引用错误的已登记保存资源，runtime 从 patch 与 save 工具结果投影 patched 合同。",
+        }
+      : null;
+  }
+
+  return null;
+}
+
+function recordSyntheticDecisionFeedback(
+  state: AgentExecutionState,
+  feedback: RecoverableDecisionFeedback,
+  _limits: AgentRuntimeLimits,
+) {
+  const withCall = addToolCall(state, feedback.toolCall);
+
+  return completeToolCall(withCall, feedback.toolCall.id, "failed", feedback.result);
+}
+
+function createSyntheticDecisionFeedback(input: {
+  state: AgentExecutionState;
+  rawInput: unknown;
+  code: AgentDecisionFeedbackCode;
+  errorCode: AgentToolErrorCode;
+  message: string;
+  failedAction?: string;
+  retryable: boolean;
+  hardBoundary?: boolean;
+  missingResources?: AgentDecisionFeedbackResourceReference[];
+  unregisteredReferences?: AgentDecisionFeedbackResourceReference[];
+  recommendedNextTool?: string;
+  recommendedInput?: unknown;
+  sanitizedReason?: string;
+  repeat?: AgentDecisionFeedback["repeat"];
+  traceExtra?: Record<string, unknown>;
+  limits: AgentRuntimeLimits;
+  stepIndex: number;
+  remainingSteps: number;
+}): RecoverableDecisionFeedback {
+  const toolCallId = createAgentId("tool_call");
+  const feedback = createDecisionFeedback({
+    state: input.state,
+    code: input.code,
+    message: input.message,
+    failedAction: input.failedAction,
+    retryable: input.retryable,
+    hardBoundary: input.hardBoundary,
+    missingResources: input.missingResources,
+    unregisteredReferences: input.unregisteredReferences,
+    recommendedNextTool: input.recommendedNextTool,
+    recommendedInput: input.recommendedInput,
+    sanitizedReason: input.sanitizedReason,
+    repeat: input.repeat,
+    limits: input.limits,
+    stepIndex: input.stepIndex,
+    remainingSteps: input.remainingSteps,
+  });
+
+  return {
+    toolCall: {
+      id: toolCallId,
+      toolName: "agentDecisionFeedback",
+      input: input.rawInput,
+      status: "failed",
+      startedAt: toUtcISOString(new Date()),
+      finishedAt: toUtcISOString(new Date()),
+      reason: input.sanitizedReason ?? input.message,
+    },
+    result: {
+      toolResultId: createAgentId("tool_result"),
+      toolCallId,
+      toolName: "agentDecisionFeedback",
+      status: "failed",
+      modelSummary: createFeedbackModelSummary(feedback),
+      traceSummary: {
+        ...createFeedbackModelSummary(feedback),
+        ...input.traceExtra,
+      },
+      error: {
+        code: input.errorCode,
+        message: input.message,
+        retryable: input.retryable,
+        detail: createFeedbackModelSummary(feedback),
+      },
+      decisionFeedback: feedback,
+    },
+  };
+}
+
+function createDecisionFeedback(input: {
+  state: AgentExecutionState;
+  code: AgentDecisionFeedbackCode;
+  message: string;
+  failedAction?: string;
+  retryable: boolean;
+  hardBoundary?: boolean;
+  missingResources?: AgentDecisionFeedbackResourceReference[];
+  unregisteredReferences?: AgentDecisionFeedbackResourceReference[];
+  recommendedNextTool?: string;
+  recommendedInput?: unknown;
+  sanitizedReason?: string;
+  repeat?: AgentDecisionFeedback["repeat"];
+  limits: AgentRuntimeLimits;
+  stepIndex: number;
+  remainingSteps: number;
+}): AgentDecisionFeedback {
+  const sameCodeCount = input.state.repairSummary.repairFeedbackCodes.filter((code) => code === input.code).length;
+  const budget = {
+    ...createRepairBudgetSnapshot(input.state, input.limits, input.stepIndex),
+    sameCodeCount,
+  };
+
+  return {
+    code: input.code,
+    message: input.message,
+    failedAction: input.failedAction,
+    retryable: input.retryable,
+    hardBoundary: input.hardBoundary ?? false,
+    availableResources: collectAvailableResources(input.state),
+    missingResources: input.missingResources ?? [],
+    unregisteredReferences: input.unregisteredReferences ?? [],
+    recommendedNextTool: input.recommendedNextTool,
+    recommendedInput: input.recommendedInput,
+    sanitizedReason: input.sanitizedReason,
+    repeat: input.repeat,
+    budget: {
+      ...budget,
+      remainingSteps: input.remainingSteps,
+    },
+  };
+}
+
+function createFeedbackModelSummary(feedback: AgentDecisionFeedback) {
+  return {
+    code: feedback.code,
+    message: feedback.message,
+    failedAction: feedback.failedAction,
+    retryable: feedback.retryable,
+    hardBoundary: feedback.hardBoundary,
+    availableResources: feedback.availableResources,
+    missingResources: feedback.missingResources,
+    unregisteredReferences: feedback.unregisteredReferences,
+    recommendedToolName: feedback.recommendedNextTool,
+    recommendedNextTool: feedback.recommendedNextTool,
+    recommendedInput: feedback.recommendedInput,
+    sanitizedReason: feedback.sanitizedReason,
+    repeat: feedback.repeat,
+    budget: feedback.budget,
+  };
+}
+
+function createToolInputSchemaFeedback(input: {
+  state: AgentExecutionState;
+  toolName: string;
+  issues: Array<{ path: string; message: string }>;
+  limits: AgentRuntimeLimits;
+  stepIndex: number;
+}): AgentDecisionFeedback {
+  return createDecisionFeedback({
+    state: input.state,
+    code: "schema_validation_failed",
+    message: "Agent tool input did not match tool schema.",
+    failedAction: input.toolName,
+    retryable: true,
+    missingResources: input.issues.map((issue) => ({
+      kind: "tool_result",
+      reason: issue.path ? `${issue.path}: ${issue.message}` : issue.message,
+    })),
+    sanitizedReason: "工具输入不满足 Schema，模型必须基于 registry inputFields 和已登记资源重新构造输入。",
+    limits: input.limits,
+    stepIndex: input.stepIndex,
+    remainingSteps: input.limits.maxSteps - input.stepIndex - 1,
+  });
+}
+
+function createToolDependencyFeedback(input: {
+  state: AgentExecutionState;
+  toolName: string;
+  dependencyFailure: AgentToolExecutionResult<never>;
+  limits: AgentRuntimeLimits;
+  stepIndex: number;
+}): AgentDecisionFeedback | undefined {
+  if (input.dependencyFailure.ok) {
+    return undefined;
+  }
+
+  const issues = readDependencyIssues(input.dependencyFailure.error.detail);
+  const missingResources = issues.map((issue) => ({
+    kind: issue.kind,
+    id: issue.id,
+    reason: issue.reason,
+  }));
+
+  return createDecisionFeedback({
+    state: input.state,
+    code: "invalid_dependency",
+    message: input.dependencyFailure.error.message,
+    failedAction: input.toolName,
+    retryable: hasUsefulResourceForRepair(input.state) && !isHardBoundaryToolErrorCode(input.dependencyFailure.error.code),
+    hardBoundary: isHardBoundaryToolErrorCode(input.dependencyFailure.error.code),
+    missingResources,
+    recommendedNextTool: recommendToolForMissingDependencies(missingResources),
+    sanitizedReason: "工具输入引用了当前 run 中没有登记或不可消费的资源；下一轮只能使用 availableResources 中的 id。",
+    limits: input.limits,
+    stepIndex: input.stepIndex,
+    remainingSteps: input.limits.maxSteps - input.stepIndex - 1,
+  });
+}
+
+function createToolResultFeedback(input: {
+  state: AgentExecutionState;
+  toolName: string;
+  result: AgentToolExecutionResult<unknown>;
+  limits: AgentRuntimeLimits;
+  stepIndex: number;
+}): AgentDecisionFeedback | undefined {
+  if (input.result.ok && input.result.fulfillment?.satisfied !== false) {
+    return undefined;
+  }
+
+  if (!input.result.ok) {
+    const hardBoundary = isHardBoundaryToolErrorCode(input.result.error.code);
+
+    return createDecisionFeedback({
+      state: input.state,
+      code: hardBoundary ? "hard_boundary_failure" : "tool_failed",
+      message: input.result.error.message,
+      failedAction: input.toolName,
+      retryable: !hardBoundary && input.result.error.retryable,
+      hardBoundary,
+      sanitizedReason: hardBoundary
+        ? "工具失败触及权限、Policy 或不可恢复边界，runtime 不要求模型继续猜测。"
+        : "工具返回结构化失败，模型只能基于该失败、dependency graph 和已登记资源重新决策。",
+      limits: input.limits,
+      stepIndex: input.stepIndex,
+      remainingSteps: input.limits.maxSteps - input.stepIndex - 1,
+    });
+  }
+
+  return createDecisionFeedback({
+    state: input.state,
+    code: "tool_result_unsatisfied",
+    message: "Tool result did not satisfy its result requirements.",
+    failedAction: input.toolName,
+    retryable: true,
+    missingResources: (input.result.fulfillment?.unmetResultRequirements ?? []).map((reason) => ({
+      kind: "tool_result",
+      reason,
+    })),
+    sanitizedReason: "工具返回 satisfied=false，只能作为失败事实和摘要进入下一轮，不能被后续工具消费。",
+    limits: input.limits,
+    stepIndex: input.stepIndex,
+    remainingSteps: input.limits.maxSteps - input.stepIndex - 1,
+  });
+}
+
+function createDuplicateToolFailureFeedback(input: {
+  state: AgentExecutionState;
+  toolName: string;
+  duplicateFailureKey: string;
+  duplicateFailure: DuplicateToolFailureEntry;
+  latestToolResultId: string;
+  limits: AgentRuntimeLimits;
+  stepIndex: number;
+}): AgentDecisionFeedback {
+  return createDecisionFeedback({
+    state: input.state,
+    code: "duplicate_tool_failure",
+    message: "同一工具、同一输入和相同失败码已经失败，runtime 已熔断该路径。",
+    failedAction: input.toolName,
+    retryable: true,
+    repeat: {
+      failureKey: input.duplicateFailureKey,
+      originalFailureCode: input.duplicateFailure.originalFailureCode,
+      repeatCount: input.duplicateFailure.repeatCount,
+      firstToolResultId: input.duplicateFailure.firstToolResultId,
+      latestToolResultId: input.latestToolResultId,
+      recommendedAlternative: "改用其他已登记资源、调整结构化输入，或返回 blocked/failed。",
+    },
+    sanitizedReason: "重复不可重试工具失败已被熔断，下一轮不能继续执行同一输入。",
+    limits: input.limits,
+    stepIndex: input.stepIndex,
+    remainingSteps: input.limits.maxSteps - input.stepIndex - 1,
+  });
+}
+
+function createRecommendedArtifactSaveInput(state: AgentExecutionState) {
+  const draft = findLatestToolResultWith(state, "draftId");
+  const validation = findLatestToolResultWith(state, "validationId");
+  const policy = findLatestToolResultWith(state, "policyDecisionId");
   const draftId = draft?.draftId;
   const validationId = validation?.validationId;
   const policyDecisionId = policy?.policyDecisionId;
   const candidateSetId = validation?.candidateSetId ?? draft?.candidateSetId;
-  const artifactKind = readNestedString(policy?.output, "artifactKind")
-    ?? readNestedString(draft?.output, "draftKind");
+  const artifactKind = readStringField(policy?.output, "artifactKind")
+    ?? readStringField(draft?.output, "draftKind");
 
   if (!draftId || !validationId || !policyDecisionId || !candidateSetId || !isArtifactKind(artifactKind)) {
     return null;
   }
 
-  const toolCallId = createAgentId("tool_call");
-  const recommendedInput = {
+  return {
     artifactKind,
     draftId,
     candidateSetId,
@@ -774,80 +1411,239 @@ function createRecoverablePrematureFinalResultFeedback(input: {
     validationPassed: true,
     policyAllowed: true,
   };
-  const modelSummary = {
-    code: "premature_final_result_before_save",
-    message: "generated/patched 必须在 saveConversationArtifactRevision 成功返回 revisionId 后才能作为 final_result。",
-    recommendedToolName: "saveConversationArtifactRevision",
-    recommendedInput,
+}
+
+function collectAvailableResources(state: AgentExecutionState): AgentDecisionFeedbackAvailableResources {
+  const available: AgentDecisionFeedbackAvailableResources = {
+    toolResultIds: [],
+    candidateSetIds: [],
+    artifactPayloadIds: [],
+    editPlanIds: [],
+    draftIds: [],
+    patchIds: [],
+    validationIds: [],
+    policyDecisionIds: [],
+    confirmationIds: [],
+    revisionIds: [],
+    operationResultIds: [],
   };
 
+  for (const result of state.toolResults) {
+    if (result.status !== "success" || result.fulfillment?.satisfied === false || result.decisionFeedback) {
+      continue;
+    }
+
+    pushUnique(available.toolResultIds, result.toolResultId);
+    pushUnique(available.candidateSetIds, result.candidateSetId);
+    pushUnique(available.artifactPayloadIds, result.artifactPayloadId);
+    pushUnique(available.editPlanIds, result.editPlanId);
+    pushUnique(available.draftIds, result.draftId);
+    pushUnique(available.patchIds, result.patchId);
+    pushUnique(available.validationIds, result.validationId);
+    pushUnique(available.policyDecisionIds, result.policyDecisionId);
+    pushUnique(available.confirmationIds, result.confirmationId);
+    pushUnique(available.revisionIds, result.revisionId);
+    pushUnique(available.operationResultIds, result.operationResultId);
+  }
+
+  return available;
+}
+
+function createRepairBudgetSnapshot(
+  state: AgentExecutionState,
+  limits: AgentRuntimeLimits,
+  stepIndex: number,
+) {
   return {
-    toolCall: {
-      id: toolCallId,
-      toolName: "agentDecisionFeedback",
-      input: { rawDecision: summarizeUnknown(input.rawDecision) },
-      status: "failed",
-      startedAt: toUtcISOString(new Date()),
-      finishedAt: toUtcISOString(new Date()),
-      reason: "模型在保存 artifact 前提前返回非法 final_result，runtime 要求继续调用保存工具。",
-    },
-    result: {
-      toolResultId: createAgentId("tool_result"),
-      toolCallId,
-      toolName: "agentDecisionFeedback",
-      status: "failed",
-      candidateSetId,
-      draftId,
-      validationId,
-      policyDecisionId,
-      modelSummary,
-      traceSummary: {
-        ...modelSummary,
-        stepIndex: input.stepIndex,
-        parseFailure: {
-          code: input.parseFailure.code,
-          message: input.parseFailure.message,
-          detail: input.parseFailure.detail,
-        },
-      },
-      error: {
-        code: "model_output_invalid",
-        message: "Agent returned final_result before saving the generated artifact.",
-        retryable: true,
-        detail: {
-          parseFailure: {
-            code: input.parseFailure.code,
-            message: input.parseFailure.message,
-            detail: input.parseFailure.detail,
-          },
-          recommendedToolName: "saveConversationArtifactRevision",
-          recommendedInput,
-        },
-      },
-    },
+    repairTurnCount: state.repairSummary.repairTurnCount,
+    maxRepairTurns: limits.maxRepairTurns,
+    remainingRepairTurns: Math.max(0, limits.maxRepairTurns - state.repairSummary.repairTurnCount),
+    sameCodeCount: 0,
+    maxSameCodePerRun: limits.maxSameFeedbackCodePerRun,
+    remainingSteps: Math.max(0, limits.maxSteps - stepIndex - 1),
   };
 }
 
-// createGeneratedFinalResultFromSavedArtifactParseFailure 只补齐“保存已成功但模型 final_result 少填资源字段”的结构合同。
-function createGeneratedFinalResultFromSavedArtifactParseFailure(input: {
-  state: AgentExecutionState;
-  rawDecision: unknown;
-  parseFailure: Extract<AgentToolDecisionParseResult, { ok: false }>;
-}): (AgentExecutionResult & { status: "generated" }) | null {
+function evaluateRepairBudget(
+  state: AgentExecutionState,
+  feedback: AgentDecisionFeedback | undefined,
+  limits: AgentRuntimeLimits,
+  stepIndex: number,
+): { ok: true } | { ok: false; reason: string } {
+  if (!feedback || feedback.hardBoundary || !feedback.retryable) {
+    return { ok: false, reason: "feedback is not retryable or crosses a hard boundary." };
+  }
+
+  if (stepIndex + 1 >= limits.maxSteps) {
+    return { ok: false, reason: "repair_budget_exhausted:max_steps" };
+  }
+
+  if (state.repairSummary.repairTurnCount >= limits.maxRepairTurns) {
+    return { ok: false, reason: "repair_budget_exhausted:max_repair_turns" };
+  }
+
+  const sameCodeCount = state.repairSummary.repairFeedbackCodes.filter((code) => code === feedback.code).length;
+
+  if (sameCodeCount >= limits.maxSameFeedbackCodePerRun) {
+    return { ok: false, reason: `repair_budget_exhausted:same_code:${feedback.code}` };
+  }
+
+  return { ok: true };
+}
+
+function recordFeedbackInRepairSummary(
+  summary: AgentRepairSummary,
+  feedback: AgentDecisionFeedback,
+): AgentRepairSummary {
+  return {
+    ...summary,
+    repairTurnCount: summary.repairTurnCount + (feedback.retryable && !feedback.hardBoundary ? 1 : 0),
+    repairFeedbackCodes: [...summary.repairFeedbackCodes, feedback.code],
+    unregisteredResourceReferences: uniqueFeedbackReferences([
+      ...summary.unregisteredResourceReferences,
+      ...feedback.unregisteredReferences,
+    ]),
+    fusedFailureCount: summary.fusedFailureCount + (feedback.code === "duplicate_tool_failure" ? 1 : 0),
+    rawFeedbackCount: summary.rawFeedbackCount + 1,
+  };
+}
+
+function recordRepairBudgetExhaustion(
+  state: AgentExecutionState,
+  reason: string,
+): AgentExecutionState {
+  return agentExecutionStateSchema.parse({
+    ...state,
+    repairSummary: {
+      ...state.repairSummary,
+      repairBudgetExhaustedReason: reason,
+    },
+  });
+}
+
+function recordFinalProjection(
+  state: AgentExecutionState,
+  sourceToolResultId: string,
+): AgentExecutionState {
+  return agentExecutionStateSchema.parse({
+    ...state,
+    repairSummary: {
+      ...state.repairSummary,
+      finalProjectionSourceToolResultId: sourceToolResultId,
+    },
+  });
+}
+
+function pushUnique(values: string[], value: string | undefined) {
+  if (value && !values.includes(value)) {
+    values.push(value);
+  }
+}
+
+function uniqueFeedbackReferences(
+  references: AgentDecisionFeedbackResourceReference[],
+) {
+  const seen = new Set<string>();
+  return references.filter((reference) => {
+    const key = `${reference.kind}:${reference.id ?? ""}:${reference.reason ?? ""}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function hasUsefulResourceForRepair(state: AgentExecutionState) {
+  const available = collectAvailableResources(state);
+  return Object.values(available).some((ids) => ids.length > 0);
+}
+
+function recommendToolForMissingDependencies(
+  missing: AgentDecisionFeedbackResourceReference[],
+) {
+  const kinds = new Set(missing.map((item) => item.kind));
+
+  if (kinds.has("revision") || (kinds.has("validation") && kinds.has("policy_decision"))) {
+    return "saveConversationArtifactRevision";
+  }
+
+  if (kinds.has("validation")) {
+    return "validateRoutineDraft";
+  }
+
+  if (kinds.has("policy_decision")) {
+    return "evaluatePolicy";
+  }
+
+  if (kinds.has("draft")) {
+    return "generateRoutineDraft";
+  }
+
+  return undefined;
+}
+
+function readDependencyIssues(detail: unknown): AgentDecisionFeedbackResourceReference[] {
+  const record = detail && typeof detail === "object" ? detail as Record<string, unknown> : {};
+  const issues = Array.isArray(record.issues) ? record.issues : [];
+
+  return issues.flatMap((issue) => {
+    const issueRecord = issue && typeof issue === "object" ? issue as Record<string, unknown> : {};
+    const kind = normalizeFeedbackResourceKind(issueRecord.kind);
+
+    return kind
+      ? [{
+          kind,
+          id: asString(issueRecord.id),
+          reason: asString(issueRecord.reason) ?? "missing_required_dependency",
+        }]
+      : [];
+  });
+}
+
+function normalizeFeedbackResourceKind(value: unknown): AgentDecisionFeedbackResourceKind | undefined {
   if (
-    input.parseFailure.code !== "invalid_decision"
-    || readRawFinalResultStatus(input.rawDecision) !== "generated"
-    || !hasGeneratedResourceContractIssue(input.parseFailure)
+    value === "tool_result" ||
+    value === "candidate_set" ||
+    value === "artifact_payload" ||
+    value === "workout_edit_plan" ||
+    value === "draft" ||
+    value === "patch" ||
+    value === "validation" ||
+    value === "policy_decision" ||
+    value === "confirmation" ||
+    value === "revision" ||
+    value === "operation_result"
   ) {
-    return null;
+    return value;
   }
 
-  const saved = findLatestSuccessfulArtifactSaveResult(input.state);
+  return undefined;
+}
 
-  if (!saved) {
-    return null;
-  }
+function isHardBoundaryToolErrorCode(code: AgentToolErrorCode) {
+  return code === "forbidden" ||
+    code === "policy_blocked" ||
+    code === "hard_failure" ||
+    code === "persistence_failed";
+}
 
+function shouldTerminateAfterToolResult(result: AgentToolResultRecord) {
+  return Boolean(result.error && isHardBoundaryToolErrorCode(result.error.code));
+}
+
+function summarizeParseFailure(parseFailure: Extract<AgentToolDecisionParseResult, { ok: false }>) {
+  return {
+    code: parseFailure.code,
+    message: parseFailure.message,
+    detail: parseFailure.detail,
+  };
+}
+
+function projectGeneratedResultFromSave(
+  saved: AgentToolResultRecord,
+  rawResult: Record<string, unknown> | null,
+): (AgentExecutionResult & { status: "generated" }) | null {
   const artifactId = readStringField(saved.output, "artifactId") ?? saved.revisionId;
   const revisionId = saved.revisionId ?? readStringField(saved.output, "revisionId");
   const validationId = saved.validationId ?? readStringField(saved.output, "validationId");
@@ -859,12 +1655,6 @@ function createGeneratedFinalResultFromSavedArtifactParseFailure(input: {
   if (!artifactId || !revisionId || !validationId || !isArtifactKind(artifactKind) || !title) {
     return null;
   }
-
-  const rawResult = readRawFinalResultObject(input.rawDecision);
-  const usedToolResultIds = uniqueStringIds([
-    ...flattenStringIds(rawResult?.usedToolResultIds),
-    saved.toolResultId,
-  ]);
 
   return {
     status: "generated",
@@ -878,23 +1668,79 @@ function createGeneratedFinalResultFromSavedArtifactParseFailure(input: {
     revisionId,
     validationId,
     ...(policyDecisionId ? { policyDecisionId } : {}),
-    usedToolResultIds,
+    usedToolResultIds: uniqueStringIds([
+      ...flattenStringIds(rawResult?.usedToolResultIds),
+      saved.toolResultId,
+    ]),
   };
 }
 
-function recordSyntheticDecisionFeedback(
-  state: AgentExecutionState,
-  feedback: RecoverableDecisionFeedback,
-) {
-  const withCall = addToolCall(state, feedback.toolCall);
+function projectPatchedResultFromSaveAndPatch(
+  saved: AgentToolResultRecord,
+  patch: AgentToolResultRecord,
+  rawResult: Record<string, unknown> | null,
+): (AgentExecutionResult & { status: "patched" }) | null {
+  const artifactId = readStringField(saved.output, "artifactId") ?? saved.revisionId;
+  const revisionId = saved.revisionId ?? readStringField(saved.output, "revisionId");
+  const validationId = saved.validationId ?? readStringField(saved.output, "validationId");
+  const policyDecisionId = saved.policyDecisionId ?? readStringField(saved.output, "policyDecisionId");
+  const artifactKind = readStringField(saved.output, "artifactKind");
+  const title = readStringField(saved.output, "title");
+  const summary = readStringField(saved.output, "summary");
+  const patchId = patch.patchId ?? readStringField(patch.output, "patchId");
+  const sourceArtifactId = readStringField(patch.modelSummary, "targetArtifactId")
+    ?? readNestedPatchTargetArtifactId(patch.output);
+  const changedExerciseIds = flattenStringIds(readNestedValue(patch.output, ["patch", "operations"]))
+    .filter(Boolean);
 
-  return completeToolCall(withCall, feedback.toolCall.id, "failed", feedback.result);
+  if (!artifactId || !revisionId || !validationId || !isArtifactKind(artifactKind) || !title || !patchId || !sourceArtifactId) {
+    return null;
+  }
+
+  return {
+    status: "patched",
+    patchResult: {
+      patchId,
+      sourceArtifactId,
+      changedExerciseIds,
+      summary: readStringField(rawResult?.patchResult, "summary")
+        ?? readStringField(patch.modelSummary, "summary")
+        ?? "训练内容已按结构化 patch 更新。",
+    },
+    artifact: {
+      artifactId,
+      revisionId,
+      kind: artifactKind,
+      title,
+      ...(summary ? { summary } : {}),
+    },
+    revisionId,
+    validationId,
+    ...(policyDecisionId ? { policyDecisionId } : {}),
+    usedToolResultIds: uniqueStringIds([
+      ...flattenStringIds(rawResult?.usedToolResultIds),
+      patch.toolResultId,
+      saved.toolResultId,
+    ]),
+  };
+}
+
+function readNestedPatchTargetArtifactId(value: unknown) {
+  const target = readNestedValue(value, ["patch", "target"]);
+  return readStringField(target, "artifactId");
+}
+
+function readNestedValue(value: unknown, path: string[]): unknown {
+  return path.reduce((current, key) => (
+    current && typeof current === "object" ? (current as Record<string, unknown>)[key] : undefined
+  ), value);
 }
 
 function createToolResultRecord(input: {
   toolCallId: string;
   toolName: string;
   result: AgentToolExecutionResult<unknown>;
+  decisionFeedback?: AgentDecisionFeedback;
 }): AgentToolResultRecord {
   if (!input.result.ok) {
     return {
@@ -902,22 +1748,34 @@ function createToolResultRecord(input: {
       toolCallId: input.toolCallId,
       toolName: input.toolName,
       status: input.result.error.code === "policy_blocked" ? "blocked" : "failed",
+      modelSummary: input.decisionFeedback ? createFeedbackModelSummary(input.decisionFeedback) : undefined,
       traceSummary: input.result.traceSummary,
       error: input.result.error,
+      decisionFeedback: input.decisionFeedback,
     };
   }
 
   const ids = extractStructuredIds(input.result.output);
+  const satisfied = input.result.fulfillment?.satisfied !== false;
+  const decisionFeedback = input.decisionFeedback;
 
   return {
     toolResultId: input.result.toolResultId,
     toolCallId: input.toolCallId,
     toolName: input.toolName,
-    status: "success",
+    status: satisfied && !decisionFeedback ? "success" : "failed",
     output: input.result.output,
-    modelSummary: input.result.modelSummary,
+    modelSummary: decisionFeedback ? createFeedbackModelSummary(decisionFeedback) : input.result.modelSummary,
     traceSummary: input.result.traceSummary,
+    error: decisionFeedback
+      ? {
+          code: decisionFeedback.code === "tool_result_unsatisfied" ? "unverifiable_result" : "tool_execution_failed",
+          message: decisionFeedback.message,
+          retryable: decisionFeedback.retryable,
+        }
+      : undefined,
     fulfillment: input.result.fulfillment,
+    decisionFeedback,
     ...ids,
   };
 }
@@ -932,16 +1790,19 @@ function addToolResultToGraph(
     kind: "tool_result" as const,
     label: result.toolName,
   };
-  const resourceNodes = [
-    result.candidateSetId ? { id: result.candidateSetId, kind: "candidate_set" as const, label: "candidateSet" } : null,
-    result.artifactPayloadId ? { id: result.artifactPayloadId, kind: "artifact_payload" as const, label: "artifactPayload" } : null,
-    result.validationId ? { id: result.validationId, kind: "validation" as const, label: "validation" } : null,
-    result.policyDecisionId ? { id: result.policyDecisionId, kind: "policy_decision" as const, label: "policyDecision" } : null,
-    result.confirmationId ? { id: result.confirmationId, kind: "confirmation" as const, label: "confirmation" } : null,
-    result.editPlanId ? { id: result.editPlanId, kind: "workout_edit_plan" as const, label: "workoutEditPlan" } : null,
-    result.draftId ? { id: result.draftId, kind: "draft" as const, label: "draft" } : null,
-    result.patchId ? { id: result.patchId, kind: "patch" as const, label: "patch" } : null,
-  ].filter((node): node is NonNullable<typeof node> => Boolean(node));
+  const canProduceResources = result.status === "success" && result.fulfillment?.satisfied !== false && !result.decisionFeedback;
+  const resourceNodes = canProduceResources
+    ? [
+        result.candidateSetId ? { id: result.candidateSetId, kind: "candidate_set" as const, label: "candidateSet" } : null,
+        result.artifactPayloadId ? { id: result.artifactPayloadId, kind: "artifact_payload" as const, label: "artifactPayload" } : null,
+        result.validationId ? { id: result.validationId, kind: "validation" as const, label: "validation" } : null,
+        result.policyDecisionId ? { id: result.policyDecisionId, kind: "policy_decision" as const, label: "policyDecision" } : null,
+        result.confirmationId ? { id: result.confirmationId, kind: "confirmation" as const, label: "confirmation" } : null,
+        result.editPlanId ? { id: result.editPlanId, kind: "workout_edit_plan" as const, label: "workoutEditPlan" } : null,
+        result.draftId ? { id: result.draftId, kind: "draft" as const, label: "draft" } : null,
+        result.patchId ? { id: result.patchId, kind: "patch" as const, label: "patch" } : null,
+      ].filter((node): node is NonNullable<typeof node> => Boolean(node))
+    : [];
 
   return {
     nodes: [...graph.nodes, resultNode, ...resourceNodes],
@@ -968,6 +1829,8 @@ function finishWithResult(
     modelCallId?: string;
     visibleToolResultIds?: string[];
     usedToolResultIds?: string[];
+    finalProjectionSourceToolResultId?: string;
+    repairBudgetExhaustedReason?: string;
   } = {},
 ): AgentExecutionState {
   const finalResultId = createAgentId("final_result");
@@ -1003,6 +1866,14 @@ function finishWithResult(
       modelCallId: linkage.modelCallId,
       visibleToolResultIds: linkage.visibleToolResultIds,
       usedToolResultIds: linkage.usedToolResultIds ?? usedToolResultIds,
+      repairFeedbackCodes: finalState.repairSummary.repairFeedbackCodes,
+      repairTurnCount: finalState.repairSummary.repairTurnCount,
+      finalProjectionSourceToolResultId: linkage.finalProjectionSourceToolResultId
+        ?? finalState.repairSummary.finalProjectionSourceToolResultId,
+      unregisteredResourceReferences: finalState.repairSummary.unregisteredResourceReferences,
+      fusedFailureCount: finalState.repairSummary.fusedFailureCount,
+      repairBudgetExhaustedReason: linkage.repairBudgetExhaustedReason
+        ?? finalState.repairSummary.repairBudgetExhaustedReason,
       dependencyGraphNodeCount: finalState.dependencyGraph.nodes.length,
       legacyPathSkip: createLegacyPathSkip(),
     },
@@ -1021,7 +1892,9 @@ function createToolResultTraceMetadata(input: {
   resultRecord: AgentToolResultRecord | undefined;
   durationMs: number;
   failureCode?: string;
+  repairSummary?: AgentRepairSummary;
 }) {
+  const feedback = input.resultRecord?.decisionFeedback;
   return {
     aiStage: "agent_tool_execution",
     loopTurnId: input.loopTurnId,
@@ -1047,6 +1920,17 @@ function createToolResultTraceMetadata(input: {
     producedResources: input.resultRecord?.fulfillment?.producedResources,
     evidence: input.resultRecord?.fulfillment?.evidence,
     unmetResultRequirements: input.resultRecord?.fulfillment?.unmetResultRequirements,
+    agentDecisionFeedback: feedback ? createFeedbackModelSummary(feedback) : undefined,
+    repairFeedbackCode: feedback?.code,
+    repairFeedbackRetryable: feedback?.retryable,
+    repairRecommendedNextTool: feedback?.recommendedNextTool,
+    repairKeyResources: feedback?.availableResources,
+    repairBudget: feedback?.budget,
+    repairTurnCount: input.repairSummary?.repairTurnCount,
+    remainingRepairTurns: feedback?.budget?.remainingRepairTurns,
+    repairFeedbackCodes: input.repairSummary?.repairFeedbackCodes,
+    fusedFailureCount: input.repairSummary?.fusedFailureCount,
+    repairBudgetExhaustedReason: input.repairSummary?.repairBudgetExhaustedReason,
     artifactRevisionResolution: summarizeArtifactRevisionResolutionForTrace(input.resultRecord),
     duplicateToolFailure: summarizeDuplicateToolFailureForTrace(input.resultRecord),
   };
@@ -1096,10 +1980,14 @@ function summarizeDuplicateToolFailureForTrace(result: AgentToolResultRecord | u
 
 function getDecisionUsedToolResultIds(decision: AgentToolDecision) {
   if (decision.action === "final_result") {
-    return "usedToolResultIds" in decision.result ? decision.result.usedToolResultIds : [];
+    return getResultUsedToolResultIds(decision.result);
   }
 
   return collectDependencyIdsFromInput(decision.input, "tool_result");
+}
+
+function getResultUsedToolResultIds(result: AgentExecutionResult) {
+  return "usedToolResultIds" in result ? result.usedToolResultIds : [];
 }
 
 function maybeCheckpoint(
@@ -1206,11 +2094,19 @@ function validateToolDependencies(
   };
 }
 
+type FinalResultReferenceValidation =
+  | { ok: true; missing: [] }
+  | {
+      ok: false;
+      message: string;
+      missing: Array<{ kind: AgentDecisionFeedbackResourceKind; id: string; reason?: string }>;
+    };
+
 function validateFinalResultReferences(
   state: AgentExecutionState,
   result: AgentExecutionResult,
-): { ok: true } | { ok: false; message: string } {
-  const missing: Array<{ kind: AgentToolDependencyKind | "operation_result" | "revision"; id: string }> = [];
+): FinalResultReferenceValidation {
+  const missing: Array<{ kind: AgentDecisionFeedbackResourceKind; id: string; reason?: string }> = [];
   const usedToolResultIds = "usedToolResultIds" in result ? result.usedToolResultIds : [];
 
   for (const toolResultId of usedToolResultIds) {
@@ -1228,19 +2124,45 @@ function validateFinalResultReferences(
   }
 
   if ("revisionId" in result && result.revisionId && !state.toolResults.some((toolResult) => toolResult.revisionId === result.revisionId)) {
-    missing.push({ kind: "revision", id: result.revisionId });
+    missing.push({ kind: "revision", id: result.revisionId, reason: "revision_not_produced_in_current_run" });
   }
 
-  if (result.status === "completed_operation" && !state.toolResults.some((toolResult) => toolResult.operationResultId === result.operationResultId)) {
-    missing.push({ kind: "operation_result", id: result.operationResultId });
+  if ("revisionId" in result && result.revisionId && !findSuccessfulProducer(state, "revisionId", result.revisionId, usedToolResultIds)) {
+    missing.push({ kind: "revision", id: result.revisionId, reason: "revision_producer_not_successful_or_not_used" });
+  }
+
+  if (result.status === "patched" && !stateHasDependencyId(state, "patch", result.patchResult.patchId)) {
+    missing.push({ kind: "patch", id: result.patchResult.patchId, reason: "patch_result_not_registered_in_current_run" });
+  }
+
+  if (result.status === "completed_operation") {
+    const operationProducer = findSuccessfulProducer(state, "operationResultId", result.operationResultId, usedToolResultIds);
+    if (!operationProducer) {
+      missing.push({ kind: "operation_result", id: result.operationResultId, reason: "operation_result_not_produced_or_not_used" });
+    }
   }
 
   return missing.length === 0
-    ? { ok: true }
+    ? { ok: true, missing: [] }
     : {
         ok: false,
         message: `Agent final result referenced unregistered dependencies: ${missing.map((item) => `${item.kind}:${item.id}`).join(", ")}`,
+        missing,
       };
+}
+
+function findSuccessfulProducer(
+  state: AgentExecutionState,
+  key: "revisionId" | "operationResultId",
+  id: string,
+  usedToolResultIds: string[],
+) {
+  return state.toolResults.find((toolResult) => (
+    toolResult.status === "success"
+    && toolResult.fulfillment?.satisfied !== false
+    && toolResult[key] === id
+    && usedToolResultIds.includes(toolResult.toolResultId)
+  ));
 }
 
 function collectDependencyIdsFromInput(input: unknown, kind: AgentToolDependencyKind): string[] {
@@ -1282,7 +2204,7 @@ function collectDependencyIdsFromInput(input: unknown, kind: AgentToolDependency
 
 function stateHasDependencyId(state: AgentExecutionState, kind: AgentToolDependencyKind, id: string) {
   return state.toolResults.some((result) => {
-    if (result.status !== "success" || result.fulfillment?.satisfied === false) {
+    if (result.status !== "success" || result.fulfillment?.satisfied === false || result.decisionFeedback) {
       return false;
     }
 
@@ -1361,14 +2283,25 @@ function hasGeneratedResourceContractIssue(parseFailure: Extract<AgentToolDecisi
   ));
 }
 
-function findLatestSuccessfulArtifactSaveResult(state: AgentExecutionState) {
-  return [...state.toolResults]
-    .reverse()
-    .find((result) => (
-      result.status === "success"
-      && result.toolName === "saveConversationArtifactRevision"
-      && Boolean(result.revisionId)
-    ));
+function findUniqueSuccessfulArtifactSaveResult(state: AgentExecutionState) {
+  const matches = state.toolResults.filter((result) => (
+    result.status === "success"
+    && result.fulfillment?.satisfied !== false
+    && result.toolName === "saveConversationArtifactRevision"
+    && Boolean(result.revisionId)
+  ));
+
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function findUniqueSuccessfulPatchResult(state: AgentExecutionState) {
+  const matches = state.toolResults.filter((result) => (
+    result.status === "success"
+    && result.fulfillment?.satisfied !== false
+    && Boolean(result.patchId)
+  ));
+
+  return matches.length === 1 ? matches[0] : null;
 }
 
 function findLatestToolResultWith(

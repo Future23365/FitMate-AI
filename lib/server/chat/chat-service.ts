@@ -476,6 +476,8 @@ export function buildAgentDecisionModelInput(input: {
     slimmedChars: number;
     savedChars: number;
     toolResultCount: number;
+    rawFeedbackCount: number;
+    compressedFeedbackCount: number;
   };
 } {
   const original = {
@@ -485,10 +487,13 @@ export function buildAgentDecisionModelInput(input: {
     dependencyGraph: input.dependencyGraph,
     remainingSteps: input.remainingSteps,
   };
+  const summarizedToolResults = summarizeToolResultsForModel(input.toolResults, input.toolCalls ?? []);
+  const rawFeedbackCount = input.toolResults.filter((result) => Boolean(result.decisionFeedback)).length;
+  const compressedFeedbackCount = summarizedToolResults.filter((result) => Boolean(result.agentDecisionFeedback)).length;
   const slimmed: AgentDecisionModelInput = {
     contextPackage: input.contextPackage,
     registeredTools: input.registeredTools.map(summarizeToolDefinitionForModel),
-    toolResults: summarizeToolResultsForModel(input.toolResults, input.toolCalls ?? []),
+    toolResults: summarizedToolResults,
     dependencyGraph: summarizeDependencyGraphForModel(input.dependencyGraph),
     remainingSteps: input.remainingSteps,
   };
@@ -502,6 +507,8 @@ export function buildAgentDecisionModelInput(input: {
       slimmedChars,
       savedChars: Math.max(0, originalChars - slimmedChars),
       toolResultCount: input.toolResults.length,
+      rawFeedbackCount,
+      compressedFeedbackCount,
     },
   };
 }
@@ -683,6 +690,9 @@ function summarizeToolResultForModel(result: AgentToolResultRecord) {
     revisionId: result.revisionId,
     operationResultId: result.operationResultId,
     modelSummary: summarizeModelSummaryForDecision(result),
+    agentDecisionFeedback: result.decisionFeedback
+      ? summarizeAgentDecisionFeedbackForModel(result.decisionFeedback)
+      : undefined,
     error: result.error
       ? compactObject({
         code: result.error.code,
@@ -695,6 +705,24 @@ function summarizeToolResultForModel(result: AgentToolResultRecord) {
         detail: summarizeErrorDetail(result.error.detail),
       })
       : undefined,
+  });
+}
+
+function summarizeAgentDecisionFeedbackForModel(feedback: NonNullable<AgentToolResultRecord["decisionFeedback"]>) {
+  return compactObject({
+    code: feedback.code,
+    message: feedback.message,
+    failedAction: feedback.failedAction,
+    retryable: feedback.retryable,
+    hardBoundary: feedback.hardBoundary,
+    availableResources: feedback.availableResources,
+    missingResources: feedback.missingResources,
+    unregisteredReferences: feedback.unregisteredReferences,
+    recommendedNextTool: feedback.recommendedNextTool,
+    recommendedInput: feedback.recommendedInput,
+    sanitizedReason: feedback.sanitizedReason,
+    repeat: feedback.repeat,
+    budget: feedback.budget,
   });
 }
 
@@ -773,6 +801,13 @@ function summarizeErrorDetail(detail: unknown) {
   }
 
   return compactObject({
+    code: record.code,
+    recommendedNextTool: record.recommendedNextTool,
+    recommendedToolName: record.recommendedToolName,
+    missingResources: record.missingResources,
+    unregisteredReferences: record.unregisteredReferences,
+    repeat: record.repeat,
+    budget: record.budget,
     candidateSetId: record.candidateSetId,
     failureReasons: record.failureReasons,
     retryable: record.retryable,
@@ -821,6 +856,9 @@ function createDeepSeekAgentDecisionProvider(input: {
       dependencyGraph: state.dependencyGraph,
       remainingSteps,
     });
+    const latestFeedbackBudget = [...state.toolResults].reverse()
+      .find((toolResult) => toolResult.decisionFeedback?.budget)
+      ?.decisionFeedback?.budget;
     const modelInputContent = JSON.stringify(modelInput.input);
     const modelMessages: DeepSeekChatMessage[] = [
       {
@@ -866,6 +904,13 @@ function createDeepSeekAgentDecisionProvider(input: {
         ],
         remainingSteps,
         modelInputBudget: modelInput.budget,
+        repairTurnCount: state.repairSummary.repairTurnCount,
+        remainingRepairTurns: latestFeedbackBudget?.remainingRepairTurns,
+        repairFeedbackCodes: state.repairSummary.repairFeedbackCodes,
+        finalProjectionSourceToolResultId: state.repairSummary.finalProjectionSourceToolResultId,
+        unregisteredResourceReferences: state.repairSummary.unregisteredResourceReferences,
+        fusedFailureCount: state.repairSummary.fusedFailureCount,
+        repairBudgetExhaustedReason: state.repairSummary.repairBudgetExhaustedReason,
         contextPackage: {
           latestUserMessageChars: state.context.latestUserMessage.length,
           recentMessageCount: state.context.recentMessages.length,
@@ -1014,6 +1059,7 @@ function createAgentResponseStream(input: {
             promptModules: ["agent_response_writer"],
             visibleToolResultIds: agentRun.state.toolResults.map((toolResult) => toolResult.toolResultId),
             usedToolResultIds: "usedToolResultIds" in agentResult ? agentResult.usedToolResultIds : [],
+            repairSummary: agentRun.state.repairSummary,
             responseWriterInput: {
               agentStatus: agentResult.status,
               projectionStatus: projectionValidation.ok ? "valid" : "invalid",
@@ -1090,6 +1136,7 @@ function createAgentResponseStream(input: {
             visibleToolResultIds: agentRun.state.toolResults.map((toolResult) => toolResult.toolResultId),
             usedToolResultIds: "usedToolResultIds" in agentResult ? agentResult.usedToolResultIds : [],
             resourceIds: agentRun.state.toolResults.map((toolResult) => summarizeToolResultResourceIds(toolResult)),
+            repairSummary: agentRun.state.repairSummary,
           },
         });
         input.trace.finish("success", createFinalDecision({
@@ -1107,6 +1154,7 @@ function createAgentResponseStream(input: {
             agentExecutionResult: agentResult,
             responseProjection: projection,
             dependencyGraph: agentRun.replayFixture.dependencyGraph,
+            agentRepairSummary: agentRun.replayFixture.repairSummary,
             legacyPathSkip: agentRun.replayFixture.legacyPathSkip,
           }),
         );
@@ -1158,6 +1206,7 @@ export function buildAgentStreamEvents(input: {
         agentExecutionResult: input.agentResult,
         responseProjection: input.projection,
         dependencyGraph: input.replayFixture.dependencyGraph,
+        agentRepairSummary: input.replayFixture.repairSummary,
         legacyPathSkip: input.replayFixture.legacyPathSkip,
       },
     },

@@ -90,6 +90,12 @@ export type BlackboxAgentDiagnostics = {
   validationIds: string[];
   policyDecisionIds: string[];
   revisionIds: string[];
+  repairFeedbackCodes: string[];
+  repairTurnCount: number;
+  finalProjectionSourceToolResultId?: string;
+  unregisteredResourceReferences: string[];
+  fusedFailureCount: number;
+  repairBudgetExhaustedReason?: string;
   dependencyGraphPresent: boolean;
   legacyPathSkip: {
     intentFirst?: boolean;
@@ -132,6 +138,7 @@ type ConsumedChatStream = {
   conversationSummary?: string;
   agentExecutionResult?: AgentExecutionResult;
   dependencyGraph?: unknown;
+  agentRepairSummary?: unknown;
   legacyPathSkip?: BlackboxAgentDiagnostics["legacyPathSkip"];
   artifacts: Array<{
     kind: ConversationArtifactKind;
@@ -393,6 +400,10 @@ function createEmptyAgentDiagnostics(): BlackboxAgentDiagnostics {
     validationIds: [],
     policyDecisionIds: [],
     revisionIds: [],
+    repairFeedbackCodes: [],
+    repairTurnCount: 0,
+    unregisteredResourceReferences: [],
+    fusedFailureCount: 0,
     dependencyGraphPresent: false,
     legacyPathSkip: {},
   };
@@ -410,6 +421,7 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
   let conversationSummary: string | undefined;
   let agentExecutionResult: AgentExecutionResult | undefined;
   let dependencyGraph: unknown;
+  let agentRepairSummary: unknown;
   let legacyPathSkip: BlackboxAgentDiagnostics["legacyPathSkip"] | undefined;
 
   if (!reader) {
@@ -456,6 +468,7 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
             artifacts,
             agentExecutionResult,
             dependencyGraph,
+            agentRepairSummary,
             legacyPathSkip,
             traceId,
             conversationSummary,
@@ -476,6 +489,7 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
         if (streamEvent.type === "agent_execution_result") {
           agentExecutionResult = parseAgentExecutionResult(streamEvent.agentExecutionResult) ?? agentExecutionResult;
           dependencyGraph = streamEvent.dependencyGraph ?? dependencyGraph;
+          agentRepairSummary = streamEvent.agentRepairSummary ?? agentRepairSummary;
           legacyPathSkip = normalizeLegacyPathSkip(streamEvent.legacyPathSkip) ?? legacyPathSkip;
           continue;
         }
@@ -509,6 +523,7 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
           conversationSummary = streamEvent.conversationSummary;
           agentExecutionResult = parseAgentExecutionResult(streamEvent.agentExecutionResult) ?? agentExecutionResult;
           dependencyGraph = streamEvent.dependencyGraph ?? dependencyGraph;
+          agentRepairSummary = streamEvent.agentRepairSummary ?? agentRepairSummary;
           legacyPathSkip = normalizeLegacyPathSkip(streamEvent.legacyPathSkip) ?? legacyPathSkip;
           if (streamEvent.referenceDiagnostic) {
             referenceDiagnostics.push(streamEvent.referenceDiagnostic);
@@ -522,6 +537,10 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
             actionTypes,
             referenceDiagnostics,
             artifacts,
+            agentExecutionResult,
+            dependencyGraph,
+            agentRepairSummary,
+            legacyPathSkip,
             traceId,
             conversationSummary,
             error: {
@@ -540,6 +559,7 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
       artifacts,
       agentExecutionResult,
       dependencyGraph,
+      agentRepairSummary,
       legacyPathSkip,
       traceId,
       conversationSummary,
@@ -557,6 +577,7 @@ async function consumeChatStream(response: Response): Promise<ConsumedChatStream
     artifacts,
     agentExecutionResult,
     dependencyGraph,
+    agentRepairSummary,
     legacyPathSkip,
     traceId,
     conversationSummary,
@@ -635,6 +656,7 @@ function createAgentDiagnostics(streamResult: ConsumedChatStream): BlackboxAgent
     ? streamResult.dependencyGraph as { nodes?: Array<{ id?: unknown; kind?: unknown; label?: unknown }> }
     : undefined;
   const nodes = graph?.nodes ?? [];
+  const repair = normalizeAgentRepairSummary(streamResult.agentRepairSummary);
 
   return {
     executionResultPresent: Boolean(streamResult.agentExecutionResult),
@@ -648,9 +670,49 @@ function createAgentDiagnostics(streamResult: ConsumedChatStream): BlackboxAgent
     validationIds: collectGraphIds(nodes, "validation"),
     policyDecisionIds: collectGraphIds(nodes, "policy_decision"),
     revisionIds: collectRevisionIds(streamResult.agentExecutionResult),
+    repairFeedbackCodes: repair.repairFeedbackCodes,
+    repairTurnCount: repair.repairTurnCount,
+    finalProjectionSourceToolResultId: repair.finalProjectionSourceToolResultId,
+    unregisteredResourceReferences: repair.unregisteredResourceReferences,
+    fusedFailureCount: repair.fusedFailureCount,
+    repairBudgetExhaustedReason: repair.repairBudgetExhaustedReason,
     dependencyGraphPresent: Boolean(streamResult.dependencyGraph),
     legacyPathSkip: streamResult.legacyPathSkip ?? {},
   };
+}
+
+function normalizeAgentRepairSummary(value: unknown) {
+  const record = value && typeof value === "object" ? value as Record<string, unknown> : {};
+
+  return {
+    repairFeedbackCodes: Array.isArray(record.repairFeedbackCodes)
+      ? record.repairFeedbackCodes.filter((item): item is string => typeof item === "string")
+      : [],
+    repairTurnCount: typeof record.repairTurnCount === "number" ? record.repairTurnCount : 0,
+    finalProjectionSourceToolResultId: typeof record.finalProjectionSourceToolResultId === "string"
+      ? record.finalProjectionSourceToolResultId
+      : undefined,
+    unregisteredResourceReferences: Array.isArray(record.unregisteredResourceReferences)
+      ? record.unregisteredResourceReferences.map(formatRepairReference).filter(Boolean)
+      : [],
+    fusedFailureCount: typeof record.fusedFailureCount === "number" ? record.fusedFailureCount : 0,
+    repairBudgetExhaustedReason: typeof record.repairBudgetExhaustedReason === "string"
+      ? record.repairBudgetExhaustedReason
+      : undefined,
+  };
+}
+
+function formatRepairReference(value: unknown) {
+  if (!value || typeof value !== "object") {
+    return "";
+  }
+
+  const record = value as Record<string, unknown>;
+  const kind = typeof record.kind === "string" ? record.kind : "unknown";
+  const id = typeof record.id === "string" ? record.id : "";
+  const reason = typeof record.reason === "string" ? record.reason : "";
+
+  return [kind, id, reason].filter(Boolean).join(":");
 }
 
 function collectToolResultIds(result: AgentExecutionResult | undefined) {

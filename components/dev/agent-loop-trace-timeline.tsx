@@ -214,6 +214,7 @@ function AgentLoopTurnCard({ turn }: { turn: AgentLoopTurnViewModel }) {
                     <span className="text-sm font-semibold text-slate-900">{result.toolName}</span>
                     <SmallPill>{result.status}</SmallPill>
                     {result.failureCode ? <SmallPill>{result.failureCode}</SmallPill> : null}
+                    {result.repairFeedbackCode ? <SmallPill>feedback:{result.repairFeedbackCode}</SmallPill> : null}
                   </div>
                   <div className="mt-2 grid gap-2 text-xs leading-5 text-slate-600 md:grid-cols-2">
                     <KeyValue label="toolCallId" value={result.toolCallId ?? "未记录"} />
@@ -222,6 +223,8 @@ function AgentLoopTurnCard({ turn }: { turn: AgentLoopTurnViewModel }) {
                     <KeyValue label="consumedBy" value={result.consumedBy.join(" / ") || "未记录下游消费"} />
                   </div>
                   <JsonDetails title="resource ids" value={result.resourceIds} />
+                  {result.decisionFeedback ? <JsonDetails title="AgentDecisionFeedback" value={result.decisionFeedback} /> : null}
+                  {result.repairBudget ? <JsonDetails title="repair budget" value={result.repairBudget} /> : null}
                   <p className="mt-2 text-xs leading-5 text-slate-600">输入：{result.inputSummary}</p>
                   <p className="mt-1 text-xs leading-5 text-slate-600">输出：{result.outputSummary}</p>
                 </div>

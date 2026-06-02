@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { ContextPackage } from "@/lib/server/agent-orchestrator/contracts";
+import type { AgentRepairSummary, ContextPackage } from "@/lib/server/agent-orchestrator/contracts";
 import { toUtcISOString } from "@/lib/shared/time/utc-date-time";
 
 export type AiTokenBudgetRoute = "/api/chat";
@@ -48,6 +48,11 @@ export type ModelVisibleContextSummary = {
   recentArtifactsCount?: number;
   memoryFactCount?: number;
   toolResultCount?: number;
+  repairTurnCount?: number;
+  repairFeedbackCount?: number;
+  remainingRepairTurns?: number;
+  fusedFailureCount?: number;
+  repairBudgetExhaustedReason?: string;
   contextSnapshotChars?: number;
   provenanceCount?: number;
   notes: string[];
@@ -88,6 +93,8 @@ export const modelVisibleExerciseCandidateFields = [
 export function createAgentModelVisibleContextSummary(input: {
   context: ContextPackage;
   toolResultCount?: number;
+  repairSummary?: AgentRepairSummary;
+  remainingRepairTurns?: number;
   notes?: string[];
 }): ModelVisibleContextSummary {
   return {
@@ -104,6 +111,11 @@ export function createAgentModelVisibleContextSummary(input: {
       (input.context.memorySnapshot?.preferences.length ?? 0) +
       (input.context.memorySnapshot?.avoidances.length ?? 0),
     toolResultCount: input.toolResultCount ?? 0,
+    repairTurnCount: input.repairSummary?.repairTurnCount ?? 0,
+    repairFeedbackCount: input.repairSummary?.repairFeedbackCodes.length ?? 0,
+    remainingRepairTurns: input.remainingRepairTurns,
+    fusedFailureCount: input.repairSummary?.fusedFailureCount ?? 0,
+    repairBudgetExhaustedReason: input.repairSummary?.repairBudgetExhaustedReason,
     contextSnapshotChars: input.context.optionalContextSnapshot?.summary.length ?? 0,
     provenanceCount: input.context.provenance.length,
     notes: [
@@ -133,12 +145,16 @@ export function createCandidateTrimSummary(input: {
 export function createAgentChatTokenBudgetDecision(input: {
   context: ContextPackage;
   toolResultCount?: number;
+  repairSummary?: AgentRepairSummary;
+  remainingRepairTurns?: number;
   summaryUpdateSkipped?: boolean;
   summarySkipReason?: string;
 }): AiTokenBudgetDecision {
   const context = createAgentModelVisibleContextSummary({
     context: input.context,
     toolResultCount: input.toolResultCount,
+    repairSummary: input.repairSummary,
+    remainingRepairTurns: input.remainingRepairTurns,
   });
 
   return createDecision({

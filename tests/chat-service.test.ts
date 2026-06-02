@@ -84,6 +84,14 @@ describe("chat service Agent-only contract", () => {
           replyContext: { reply: "可以，改成徒手训练。" },
           usedToolResultIds: ["tool-result-1"],
         },
+        repairSummary: {
+          repairTurnCount: 0,
+          repairFeedbackCodes: [],
+          unregisteredResourceReferences: [],
+          fusedFailureCount: 0,
+          compressedFeedbackCount: 0,
+          rawFeedbackCount: 0,
+        },
         legacyPathSkip: {
           intentFirst: true,
           normalize: true,
@@ -624,6 +632,95 @@ describe("chat service Agent-only contract", () => {
         repeatCount: 2,
         latestToolResultId: "tool-result-2",
       },
+    });
+  });
+
+  it("exposes compressed AgentDecisionFeedback without raw rejected decisions", () => {
+    const input = buildAgentDecisionModelInput({
+      contextPackage: {
+        latestUserMessage: "帮我生成一套训练",
+        recentMessages: [],
+        recentArtifacts: [],
+        memorySnapshot: { snapshotId: "memory-1", facts: [], preferences: [], avoidances: [] },
+        provenance: [],
+        limits: {
+          maxRecentMessages: 12,
+          maxRecentArtifacts: 8,
+          maxMessageChars: 1200,
+          maxArtifactSummaryChars: 700,
+        },
+      },
+      registeredTools: createToolFirstAgentToolRegistry().listModelDefinitions(),
+      toolCalls: [{
+        id: "tool-call-feedback",
+        toolName: "agentDecisionFeedback",
+        input: { rawDecision: { hidden: "raw payload must stay out" } },
+        status: "failed",
+        reason: "模型提前 final。",
+      }],
+      toolResults: [{
+        toolResultId: "tool-result-feedback",
+        toolCallId: "tool-call-feedback",
+        toolName: "agentDecisionFeedback",
+        status: "failed",
+        modelSummary: {
+          code: "premature_final_result_before_save",
+          recommendedToolName: "saveConversationArtifactRevision",
+        },
+        error: {
+          code: "premature_final_result_before_save",
+          message: "必须先保存 revision。",
+          retryable: true,
+        },
+        decisionFeedback: {
+          code: "premature_final_result_before_save",
+          message: "必须先保存 revision。",
+          failedAction: "final_result.generated",
+          retryable: true,
+          hardBoundary: false,
+          availableResources: {
+            toolResultIds: ["tool-result-draft"],
+            candidateSetIds: ["candidate-set-1"],
+            artifactPayloadIds: [],
+            editPlanIds: [],
+            draftIds: ["draft-1"],
+            patchIds: [],
+            validationIds: ["validation-1"],
+            policyDecisionIds: ["policy-1"],
+            confirmationIds: [],
+            revisionIds: [],
+            operationResultIds: [],
+          },
+          missingResources: [{ kind: "revision", reason: "missing producer" }],
+          unregisteredReferences: [],
+          recommendedNextTool: "saveConversationArtifactRevision",
+          recommendedInput: { draftId: "draft-1", validationId: "validation-1", policyDecisionId: "policy-1" },
+          sanitizedReason: "保存前不能返回 generated。",
+          budget: {
+            repairTurnCount: 0,
+            maxRepairTurns: 3,
+            remainingRepairTurns: 3,
+            sameCodeCount: 0,
+            maxSameCodePerRun: 2,
+            remainingSteps: 4,
+          },
+        },
+      }],
+      dependencyGraph: { nodes: [], edges: [] },
+      remainingSteps: 4,
+    });
+
+    expect(input.input.toolResults[0]).toMatchObject({
+      agentDecisionFeedback: {
+        code: "premature_final_result_before_save",
+        recommendedNextTool: "saveConversationArtifactRevision",
+        missingResources: [{ kind: "revision", reason: "missing producer" }],
+      },
+    });
+    expect(JSON.stringify(input.input)).not.toContain("raw payload must stay out");
+    expect(input.budget).toMatchObject({
+      rawFeedbackCount: 1,
+      compressedFeedbackCount: 1,
     });
   });
 });

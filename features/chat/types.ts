@@ -101,6 +101,8 @@ export type ChatStreamEvent = {
   responseProjection?: unknown;
   /** Agent dependency graph 和旧路径跳过诊断只用于 trace / 测试。 */
   dependencyGraph?: unknown;
+  /** Agent 合同修复循环摘要，只用于 trace / 黑盒报告。 */
+  agentRepairSummary?: unknown;
   legacyPathSkip?: unknown;
   agentRunId?: string;
   agentStatus?: string;

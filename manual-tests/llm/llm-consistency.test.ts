@@ -583,6 +583,12 @@ function formatAgentDiagnostics(diagnostics: BlackboxAgentDiagnostics | undefine
     diagnostics.validationIds.length ? `validationIds=${diagnostics.validationIds.join(",")}` : undefined,
     diagnostics.policyDecisionIds.length ? `policyDecisionIds=${diagnostics.policyDecisionIds.join(",")}` : undefined,
     diagnostics.revisionIds.length ? `revisionIds=${diagnostics.revisionIds.join(",")}` : undefined,
+    diagnostics.repairFeedbackCodes.length ? `repairFeedbackCodes=${diagnostics.repairFeedbackCodes.join(",")}` : undefined,
+    `repairTurnCount=${diagnostics.repairTurnCount}`,
+    diagnostics.finalProjectionSourceToolResultId ? `finalProjectionSourceToolResultId=${diagnostics.finalProjectionSourceToolResultId}` : undefined,
+    diagnostics.unregisteredResourceReferences.length ? `unregisteredResourceReferences=${diagnostics.unregisteredResourceReferences.join(",")}` : undefined,
+    `fusedFailureCount=${diagnostics.fusedFailureCount}`,
+    diagnostics.repairBudgetExhaustedReason ? `repairBudgetExhaustedReason=${diagnostics.repairBudgetExhaustedReason}` : undefined,
     `dependencyGraph=${diagnostics.dependencyGraphPresent}`,
     `legacyPathSkip=${JSON.stringify(diagnostics.legacyPathSkip)}`,
   ].filter(Boolean).join("；");
