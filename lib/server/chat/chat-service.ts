@@ -17,6 +17,7 @@ import {
   createAgentContextBuilder,
   createToolFirstAgentToolRegistry,
   projectAgentExecutionResultToResponse,
+  parseJsonObjectWithRecovery,
   runAgentOrchestrator,
   validateAgentResponseProjection,
   type AgentArtifactSummary,
@@ -1433,7 +1434,9 @@ async function requestDeepSeekJson(
         status: response.status,
         tokenUsage: body.usage,
         emptyContent: false,
-        parseStatus: "success",
+        ...(parsed.recovery
+          ? { parseStatus: "recovered", jsonRecovery: parsed.recovery }
+          : { parseStatus: "success" }),
         parsedAction: parsedDecision?.action,
         toolName: parsedDecision?.toolName,
         usedToolResultIds,
@@ -1461,26 +1464,8 @@ async function requestDeepSeekJson(
 }
 
 export function parseJsonObject(content: string):
-  | { ok: true; value: unknown }
-  | { ok: false; code: "invalid_json"; message: string; detail?: unknown } {
-  const normalized = content.trim();
-  const jsonText = normalized.startsWith("```")
-    ? normalized.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")
-    : normalized;
-
-  try {
-    return {
-      ok: true,
-      value: JSON.parse(jsonText),
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      code: "invalid_json",
-      message: "AI returned invalid JSON.",
-      detail: error instanceof Error ? error.message : error,
-    };
-  }
+  ReturnType<typeof parseJsonObjectWithRecovery> {
+  return parseJsonObjectWithRecovery(content, "AI returned invalid JSON.");
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

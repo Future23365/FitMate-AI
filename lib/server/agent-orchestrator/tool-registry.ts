@@ -212,6 +212,22 @@ export type AgentToolDecisionParseResult =
       rawContent?: string;
     };
 
+export type AgentJsonParseRecovery = {
+  strategy: "balanced_json_object";
+  strictFailure: {
+    code: "invalid_json";
+    message: string;
+    detail?: unknown;
+  };
+  discardedLeadingChars: number;
+  discardedTrailingChars: number;
+  recoveredTextLength: number;
+};
+
+export type AgentJsonObjectParseResult =
+  | { ok: true; value: unknown; recovery?: AgentJsonParseRecovery }
+  | { ok: false; code: "invalid_json"; message: string; detail?: unknown };
+
 // parseAgentToolDecision validates structured model output and rejects tools outside the registry.
 export function parseAgentToolDecision(
   value: unknown,
@@ -341,10 +357,13 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-// parseAgentJsonObject accepts plain JSON or fenced JSON from structured-output fallback providers.
-export function parseAgentJsonObject(content: string):
-  | { ok: true; value: unknown }
-  | { ok: false; code: "invalid_json"; message: string; detail?: unknown } {
+// parseAgentJsonObject accepts model JSON and only repairs non-semantic object boundary noise.
+export function parseAgentJsonObject(content: string): AgentJsonObjectParseResult {
+  return parseJsonObjectWithRecovery(content, "Agent model output is not valid JSON.");
+}
+
+// parseJsonObjectWithRecovery 只恢复 JSON 文本边界，不合成或改写任何 Agent 语义字段。
+export function parseJsonObjectWithRecovery(content: string, message: string): AgentJsonObjectParseResult {
   const normalized = content.trim();
   const jsonText = normalized.startsWith("```")
     ? normalized.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")
@@ -353,11 +372,22 @@ export function parseAgentJsonObject(content: string):
   try {
     return { ok: true, value: JSON.parse(jsonText) };
   } catch (error) {
+    const detail = error instanceof Error ? error.message : error;
+    const recovered = recoverJsonObjectBoundary(jsonText, {
+      code: "invalid_json",
+      message,
+      detail,
+    });
+
+    if (recovered) {
+      return recovered;
+    }
+
     return {
       ok: false,
       code: "invalid_json",
-      message: "Agent model output is not valid JSON.",
-      detail: error instanceof Error ? error.message : error,
+      message,
+      detail,
     };
   }
 }
@@ -367,4 +397,106 @@ function summarizeZodIssues(error: ZodError) {
     path: issue.path.join("."),
     message: issue.message,
   }));
+}
+
+function recoverJsonObjectBoundary(
+  text: string,
+  strictFailure: AgentJsonParseRecovery["strictFailure"],
+): Extract<AgentJsonObjectParseResult, { ok: true }> | null {
+  const candidates: Array<{
+    jsonText: string;
+    start: number;
+    end: number;
+    value: unknown;
+  }> = [];
+
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] !== "{") {
+      continue;
+    }
+
+    const end = findBalancedJsonObjectEnd(text, index);
+    if (end === null) {
+      continue;
+    }
+
+    const jsonText = text.slice(index, end);
+    try {
+      const value = JSON.parse(jsonText);
+      if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+        candidates.push({ jsonText, start: index, end, value });
+      }
+    } catch {
+      // 非候选 JSON 片段继续扫描，避免解释文本中的花括号影响真正对象。
+    }
+  }
+
+  const outermostCandidates = candidates.filter((candidate) => (
+    !candidates.some((other) => other.start < candidate.start && other.end >= candidate.end)
+  ));
+
+  if (outermostCandidates.length !== 1) {
+    return null;
+  }
+
+  const [candidate] = outermostCandidates;
+
+  return {
+    ok: true,
+    value: candidate.value,
+    recovery: {
+      strategy: "balanced_json_object",
+      strictFailure,
+      discardedLeadingChars: candidate.start,
+      discardedTrailingChars: text.length - candidate.end,
+      recoveredTextLength: candidate.jsonText.length,
+    },
+  };
+}
+
+function findBalancedJsonObjectEnd(text: string, start: number) {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+
+    if (char === "{") {
+      depth += 1;
+      continue;
+    }
+
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return index + 1;
+      }
+      if (depth < 0) {
+        return null;
+      }
+    }
+  }
+
+  return null;
 }

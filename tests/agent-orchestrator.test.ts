@@ -409,6 +409,51 @@ describe("agent orchestrator phase 1 contracts", () => {
     });
     expect(parseAgentJsonObject("{broken")).toMatchObject({ ok: false, code: "invalid_json" });
   });
+
+  it("recovers agent decision JSON with trailing object delimiters without bypassing schema", () => {
+    const parsedJson = parseAgentJsonObject("{\"action\":\"call_tool\",\"toolName\":\"validateRoutineDraft\",\"input\":{\"draftId\":\"draft_1\",\"candidateSetId\":\"candidate_set_1\",\"candidateExerciseIds\":[\"Push_Up\"],\"intent\":{\"goal\":\"strength\",\"bodyRegions\":[\"upper_body\"],\"durationMinutes\":30,\"equipment\":[\"哑铃\"],\"experience\":\"beginner\",\"sessionType\":\"single\"}},\"reason\":\"生成 draft 成功，需要校验。\"}}");
+
+    expect(parsedJson).toMatchObject({
+      ok: true,
+      value: {
+        action: "call_tool",
+        toolName: "validateRoutineDraft",
+      },
+      recovery: {
+        strategy: "balanced_json_object",
+        discardedTrailingChars: 1,
+      },
+    });
+
+    if (!parsedJson.ok) {
+      throw new Error("Expected recovered JSON.");
+    }
+
+    expect(parseAgentToolDecision(parsedJson.value, createToolFirstAgentToolRegistry())).toMatchObject({
+      ok: true,
+      decision: {
+        action: "call_tool",
+        toolName: "validateRoutineDraft",
+      },
+    });
+  });
+
+  it("does not recover ambiguous JSON objects or bypass unknown tool validation", () => {
+    expect(parseAgentJsonObject("{\"action\":\"final_result\"}{\"action\":\"call_tool\"}")).toMatchObject({
+      ok: false,
+      code: "invalid_json",
+    });
+
+    const parsedJson = parseAgentJsonObject("{\"action\":\"call_tool\",\"toolName\":\"unknownTool\",\"input\":{},\"reason\":\"尝试调用未知工具\"}}");
+    if (!parsedJson.ok) {
+      throw new Error("Expected boundary recovery before schema validation.");
+    }
+
+    expect(parseAgentToolDecision(parsedJson.value, createToolFirstAgentToolRegistry())).toMatchObject({
+      ok: false,
+      code: "unknown_tool",
+    });
+  });
 });
 
 describe("agent orchestrator phase 2 readonly tools", () => {

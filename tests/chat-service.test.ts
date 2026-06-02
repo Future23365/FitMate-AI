@@ -151,6 +151,27 @@ describe("chat service Agent-only contract", () => {
     expect(parseJsonObject("{broken")).toMatchObject({ ok: false, code: "invalid_json" });
   });
 
+  it("recovers wrapped Agent JSON while preserving parse recovery diagnostics", () => {
+    const parsed = parseJsonObject("模型回复如下：\n{\"action\":\"call_tool\",\"toolName\":\"validateRoutineDraft\",\"input\":{\"draftId\":\"draft_1\"},\"reason\":\"继续校验\"}}\n请执行。");
+
+    expect(parsed).toMatchObject({
+      ok: true,
+      value: {
+        action: "call_tool",
+        toolName: "validateRoutineDraft",
+      },
+      recovery: {
+        strategy: "balanced_json_object",
+        strictFailure: {
+          code: "invalid_json",
+          message: "AI returned invalid JSON.",
+        },
+        discardedTrailingChars: expect.any(Number),
+        recoveredTextLength: expect.any(Number),
+      },
+    });
+  });
+
   it("projects referenced searchExercises results into recommendation card events", async () => {
     const events = await buildAgentArtifactStreamEvents({
       userId: "user-1",
