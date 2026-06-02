@@ -14,7 +14,30 @@ export type AgentActivityDisplay = {
   toneClass: string;
 };
 
+export type VisibleAgentActivity = AgentActivityPayload & {
+  visibleSinceMs: number;
+  holdUntilMs: number;
+  lastSequence: number;
+};
+
 export const fallbackAgentActivityLabel = "正在推进 Agent 编排...";
+export const visibleAgentActivityMinimumMs = 1_000;
+export const genericAgentActivityCooldownMs = 2_500;
+
+const specificAgentActivityStages = new Set<string>([
+  "querying_exercises",
+  "reading_artifacts",
+  "generating_workout",
+  "validating_result",
+  "saving_result",
+  "writing_reply",
+  "finalizing",
+]);
+
+const genericAgentActivityStages = new Set<string>([
+  "preparing_context",
+  "analyzing_request",
+]);
 
 const agentActivityDisplayByStage: Record<AgentActivityStage, AgentActivityDisplay> = {
   preparing_context: {
@@ -23,7 +46,7 @@ const agentActivityDisplayByStage: Record<AgentActivityStage, AgentActivityDispl
     toneClass: "text-primary",
   },
   analyzing_request: {
-    label: "正在分析...",
+    label: "正在规划下一步...",
     icon: "psychology",
     toneClass: "text-primary",
   },
@@ -74,6 +97,15 @@ export function createInitialAgentActivity(): AgentActivityPayload {
   };
 }
 
+export function createInitialVisibleAgentActivity(nowMs = Date.now()): VisibleAgentActivity {
+  return createVisibleAgentActivity(
+    createInitialAgentActivity(),
+    nowMs,
+    visibleAgentActivityMinimumMs,
+    0,
+  );
+}
+
 // readAgentActivityFromStreamEvent 只读取 stream 白名单字段，忽略任何额外内部诊断字段。
 export function readAgentActivityFromStreamEvent(
   event: ChatStreamEvent,
@@ -100,32 +132,121 @@ export function readAgentActivityFromStreamEvent(
   };
 }
 
-// reduceAgentActivity 使用 sequence 防止乱序 stream 事件把 UI 倒退到旧阶段。
+export type AgentActivityReductionOptions = {
+  nowMs?: number;
+  minimumSpecificStageMs?: number;
+  genericCooldownMs?: number;
+};
+
+export function isSpecificAgentActivityStage(stage: string) {
+  return specificAgentActivityStages.has(stage);
+}
+
+function isGenericAgentActivityStage(stage: string) {
+  return genericAgentActivityStages.has(stage);
+}
+
+function createVisibleAgentActivity(
+  activity: AgentActivityPayload,
+  nowMs: number,
+  minimumSpecificStageMs: number,
+  lastSequence: number,
+): VisibleAgentActivity {
+  const holdUntilMs = isSpecificAgentActivityStage(activity.stage)
+    ? nowMs + minimumSpecificStageMs
+    : nowMs;
+
+  return {
+    ...activity,
+    visibleSinceMs: nowMs,
+    holdUntilMs,
+    lastSequence,
+  };
+}
+
+function rememberIgnoredSequence(
+  current: VisibleAgentActivity,
+  lastSequence: number,
+): VisibleAgentActivity {
+  return current.lastSequence === lastSequence
+    ? current
+    : {
+      ...current,
+      lastSequence,
+    };
+}
+
+// reduceVisibleAgentActivity 是生产聊天页的展示仲裁器，只折叠用户可见文案，不推断 Agent 业务流程。
+export function reduceVisibleAgentActivity(
+  current: VisibleAgentActivity | null,
+  next: AgentActivityPayload,
+  options: AgentActivityReductionOptions = {},
+): VisibleAgentActivity | null {
+  const nowMs = options.nowMs ?? Date.now();
+  const minimumSpecificStageMs = options.minimumSpecificStageMs ?? visibleAgentActivityMinimumMs;
+  const genericCooldownMs = options.genericCooldownMs ?? genericAgentActivityCooldownMs;
+  const lastSequence = Math.max(current?.lastSequence ?? -1, next.sequence);
+
+  if (current && next.sequence < current.lastSequence) {
+    return current;
+  }
+
+  if (current && !isKnownAgentActivityStage(next.stage)) {
+    return rememberIgnoredSequence(current, lastSequence);
+  }
+
+  if (
+    current &&
+    isSpecificAgentActivityStage(current.stage) &&
+    isGenericAgentActivityStage(next.stage)
+  ) {
+    const genericBlockedUntilMs = Math.max(
+      current.holdUntilMs,
+      current.visibleSinceMs + genericCooldownMs,
+    );
+
+    if (nowMs < genericBlockedUntilMs) {
+      return rememberIgnoredSequence(current, lastSequence);
+    }
+  }
+
+  if (
+    current &&
+    current.stage === next.stage &&
+    current.status === next.status &&
+    current.messageKey === next.messageKey
+  ) {
+    return rememberIgnoredSequence(current, lastSequence);
+  }
+
+  return createVisibleAgentActivity(next, nowMs, minimumSpecificStageMs, lastSequence);
+}
+
+// reduceAgentActivity 使用 sequence 和展示权重防止动态 Agent loop 把 UI 倒退到低信息量阶段。
 export function reduceAgentActivity(
-  current: AgentActivityPayload | null,
+  current: VisibleAgentActivity | null,
   event: ChatStreamEvent,
-): AgentActivityPayload | null {
+  options: AgentActivityReductionOptions = {},
+): VisibleAgentActivity | null {
   const next = readAgentActivityFromStreamEvent(event);
 
   if (!next) {
     return current;
   }
 
-  if (current && next.sequence < current.sequence) {
-    return current;
-  }
-
-  return next;
+  return reduceVisibleAgentActivity(current, next, options);
 }
 
 export function createWritingReplyAgentActivity(
-  current: AgentActivityPayload | null,
+  current: Pick<AgentActivityPayload, "sequence"> & { lastSequence?: number } | null,
 ): AgentActivityPayload {
+  const previousSequence = Math.max(current?.sequence ?? 0, current?.lastSequence ?? 0);
+
   return {
     stage: "writing_reply",
     status: "active",
     messageKey: "writing_reply",
-    sequence: (current?.sequence ?? 0) + 1,
+    sequence: previousSequence + 1,
   };
 }
 

@@ -4,16 +4,17 @@ import { useEffect, useRef, useState } from "react";
 
 import { requestChatStream } from "@/features/chat/api/chat-client";
 import {
-  createInitialAgentActivity,
+  createInitialVisibleAgentActivity,
   createWritingReplyAgentActivity,
   reduceAgentActivity,
+  reduceVisibleAgentActivity,
   shouldClearAgentActivityForStreamEvent,
+  type VisibleAgentActivity,
 } from "@/features/chat/lib/agent-activity";
 import { readChatConversation, saveChatConversation } from "@/features/chat/lib/chat-history";
 import { readAssistantSuggestionsFromStreamEvent } from "@/features/chat/lib/assistant-suggestions";
 import type {
   ApiChatMessage,
-  AgentActivityPayload,
   ChatMessage,
   ChatStreamEvent,
 } from "@/features/chat/types";
@@ -74,7 +75,7 @@ export function useChatController() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [agentActivity, setAgentActivity] = useState<AgentActivityPayload | null>(null);
+  const [agentActivity, setAgentActivity] = useState<VisibleAgentActivity | null>(null);
   const [error, setError] = useState("");
   const [thinkingEnabled, setThinkingEnabled] = useState(readThinkingEnabledPreference);
   const [autoPlanGenerating, setAutoPlanGenerating] = useState<string | null>(null);
@@ -272,7 +273,7 @@ export function useChatController() {
     setInput("");
     setError("");
     setIsLoading(true);
-    setAgentActivity(createInitialAgentActivity());
+    setAgentActivity(createInitialVisibleAgentActivity());
 
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), chatRequestTimeoutMs);
@@ -453,9 +454,7 @@ export function useChatController() {
           if (streamEvent.type === "content") {
             fullContent += streamEvent.delta ?? "";
             setAgentActivity((current) =>
-              current?.stage === "writing_reply"
-                ? current
-                : createWritingReplyAgentActivity(current),
+              reduceVisibleAgentActivity(current, createWritingReplyAgentActivity(current)),
             );
             updateAssistantMessage(assistantMessage.id, (message) => ({
               ...message,

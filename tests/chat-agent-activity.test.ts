@@ -6,9 +6,11 @@ import { describe, expect, it } from "vitest";
 
 import { AgentActivityIndicator } from "@/features/chat/components/agent-activity-indicator";
 import {
+  createWritingReplyAgentActivity,
   fallbackAgentActivityLabel,
   getAgentActivityDisplay,
   reduceAgentActivity,
+  reduceVisibleAgentActivity,
   shouldClearAgentActivityForStreamEvent,
 } from "@/features/chat/lib/agent-activity";
 import { createChatConversationSavePayload } from "@/features/chat/lib/chat-history";
@@ -46,6 +48,76 @@ describe("Agent activity UI state", () => {
     expect(stale).toBe(current);
     expect(fallback.label).toBe(fallbackAgentActivityLabel);
     expect(fallback.label).not.toContain("internal_tool_stage");
+  });
+
+  it("keeps informative tool stages when dynamic loop emits generic analyzing events", () => {
+    const querying = reduceAgentActivity(null, {
+      type: "agent_activity",
+      stage: "querying_exercises",
+      status: "active",
+      messageKey: "querying_exercises",
+      sequence: 1,
+    }, { nowMs: 0 });
+
+    const genericLoopTurn = reduceAgentActivity(querying, {
+      type: "agent_activity",
+      stage: "analyzing_request",
+      status: "active",
+      messageKey: "analyzing_request",
+      sequence: 2,
+    }, { nowMs: 500 });
+
+    const unknownStage = reduceAgentActivity(genericLoopTurn, {
+      type: "agent_activity",
+      stage: "raw_internal_tool_name",
+      status: "active",
+      sequence: 3,
+    }, { nowMs: 700 });
+
+    const afterCooldown = reduceAgentActivity(unknownStage, {
+      type: "agent_activity",
+      stage: "analyzing_request",
+      status: "active",
+      messageKey: "analyzing_request",
+      sequence: 4,
+    }, { nowMs: 3_000 });
+
+    expect(querying?.stage).toBe("querying_exercises");
+    expect(genericLoopTurn?.stage).toBe("querying_exercises");
+    expect(genericLoopTurn?.lastSequence).toBe(2);
+    expect(unknownStage?.stage).toBe("querying_exercises");
+    expect(unknownStage?.lastSequence).toBe(3);
+    expect(afterCooldown?.stage).toBe("analyzing_request");
+    expect(getAgentActivityDisplay(afterCooldown!).label).toBe("正在规划下一步...");
+  });
+
+  it("accepts specific stages in a dynamic order without requiring a fixed workflow", () => {
+    const reading = reduceAgentActivity(null, {
+      type: "agent_activity",
+      stage: "reading_artifacts",
+      status: "active",
+      messageKey: "reading_artifacts",
+      sequence: 1,
+    }, { nowMs: 0 });
+
+    const saving = reduceAgentActivity(reading, {
+      type: "agent_activity",
+      stage: "saving_result",
+      status: "active",
+      messageKey: "saving_result",
+      sequence: 2,
+    }, { nowMs: 300 });
+
+    const writing = reduceVisibleAgentActivity(
+      saving,
+      createWritingReplyAgentActivity(saving),
+      { nowMs: 600 },
+    );
+
+    expect(reading?.stage).toBe("reading_artifacts");
+    expect(saving?.stage).toBe("saving_result");
+    expect(writing?.stage).toBe("writing_reply");
+    expect(writing?.sequence).toBe(3);
   });
 
   it("marks done and error stream events as lifecycle cleanup boundaries", () => {
