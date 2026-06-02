@@ -18,23 +18,23 @@ import { WorkoutPlanDraftCard } from "@/features/workouts/components/workout-pla
 import { WorkoutRoutineDraftCard } from "@/features/workouts/components/workout-routine-draft-card";
 import type { WorkoutSchedule } from "@/lib/shared/workouts/composition";
 
-// 首页示例保留完整 prompt，让新用户能直接理解第一句话应该提供哪些训练条件。
+// 首页示例面向居家新手，优先暴露徒手、短时和低冲击这类真实高频训练条件。
 const quickPrompts = [
   {
-    title: "动作推荐",
-    prompt: "推荐几个适合新手的臀腿动作，我只有弹力带，不想做跳跃",
-  },
-  {
-    title: "今日训练",
-    prompt: "今天想练上肢，30 分钟，有哑铃，帮我安排一套",
-  },
-  {
-    title: "增肌计划",
-    prompt: "我想增肌，每周 3 练，每次 50 分钟，健身房训练，重点练胸背腿",
+    title: "新手入门",
+    prompt: "我是新手，想在家练，没有器械，每次 20 分钟，帮我安排一套不跳跃的全身训练",
   },
   {
     title: "居家减脂",
-    prompt: "我想减脂，每周 4 练，每次 45 分钟，在家只有哑铃和弹力带",
+    prompt: "我想在家减脂，没有器械，每周 3 练，每次 25 分钟，动作简单一点",
+  },
+  {
+    title: "久坐放松",
+    prompt: "我久坐肩颈和腰背容易紧，想在家做 15 分钟拉伸和激活，不需要器械",
+  },
+  {
+    title: "腿臀塑形",
+    prompt: "想练腿臀但膝盖不太舒服，在家徒手训练 20 分钟，避免跳跃和深蹲太多",
   },
 ];
 
