@@ -71,6 +71,8 @@ export const userMemorySnapshotSchema = z.object({
   facts: z.array(z.string().trim().min(1).max(240)).max(24).default([]),
   preferences: z.array(z.string().trim().min(1).max(240)).max(24).default([]),
   avoidances: z.array(z.string().trim().min(1).max(240)).max(24).default([]),
+  // equipment 只承载已确认的结构化器械记忆，供 Agent 工具判断是否可以取消默认无器械。
+  equipment: z.array(z.string().trim().min(1).max(120)).max(24).optional(),
   updatedAt: z.string().trim().min(1).optional(),
 });
 

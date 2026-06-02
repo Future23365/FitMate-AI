@@ -460,6 +460,15 @@ function toAgentUserMemorySnapshot(memoryState: ConversationMemoryState): UserMe
     .filter((memory) => memory.kind === "explicit_preference")
     .map((memory) => memory.subjectLabel ?? memory.subjectId)
     .filter((value): value is string => Boolean(value));
+  const equipment = memoryState.activeMemories
+    .filter((memory) =>
+      memory.status === "active" &&
+      !memory.requiresConfirmation &&
+      memory.subjectType === "equipment" &&
+      memory.kind !== "constraint"
+    )
+    .map((memory) => memory.subjectLabel ?? memory.subjectId)
+    .filter((value): value is string => Boolean(value));
   const avoidances = [
     ...memoryState.currentMessage.temporaryAvoidanceLabels,
     ...memoryState.activeMemories
@@ -473,6 +482,7 @@ function toAgentUserMemorySnapshot(memoryState: ConversationMemoryState): UserMe
     facts: uniqueStrings(activeMemoryLabels).slice(0, 24),
     preferences: uniqueStrings(preferences).slice(0, 24),
     avoidances: uniqueStrings(avoidances).slice(0, 24),
+    equipment: uniqueStrings(equipment).slice(0, 24),
   };
 }
 

@@ -41,6 +41,7 @@ import {
   agentToolCapabilityContractSchema,
   type AgentToolCapabilityContract,
   type AgentToolError,
+  type AgentToolResultRecord,
   type AgentToolResultFulfillment,
   type UserMemorySnapshot,
 } from "./contracts";
@@ -48,6 +49,7 @@ import {
 const summaryMaxChars = 300;
 const defaultSearchArtifactsLimit = 6;
 const defaultSearchExercisesLimit = 8;
+const defaultNoEquipmentHomeRequirement = "no_equipment";
 
 type UserMemoryClient = Pick<PrismaClient, "userProfile" | "userMemory">;
 
@@ -419,7 +421,7 @@ const rawReadonlyToolCapabilityContracts = {
     produces: ["candidate_set"],
     evidence: ["candidateSetId", "normalizedQueryInput", "appliedFilters", "constraintProof", "resultRequirementProof", "satisfied"],
     failureCodes: ["missing_required_parameter", "invalid_parameter", "insufficient_candidates", "result_requirement_unmet", "tool_execution_failed"],
-    unsupportedOperations: ["using query as hard constraint", "auto-relaxing hard filters", "generating routine"],
+    unsupportedOperations: ["using query as hard constraint", "auto-relaxing hard filters", "generating routine", "expressing default no-equipment only in free text"],
   },
   getUserMemory: {
     operationKind: "memory_snapshot",
@@ -805,6 +807,7 @@ function createSearchExercisesTool(): AgentToolDefinition<SearchExercisesAgentTo
       "按受控条件检索动作库候选摘要。",
       "targetMuscles/equipment 必须使用动作库真实 facet；上肢、下肢、核心、全身等范围目标必须用 bodyRegions=upper_body/lower_body/core/full_body。",
       "优先传结构化字段：bodyRegions 可用 upper_body/lower_body/core/full_body；allowedSections 可用 warmup/training/stretch；level 可用 beginner/intermediate/expert；常用 equipment/equipmentRequired 示例：自重、bodyweight、无器械、弹力带、resistance_band、哑铃、dumbbell；下肢 targetMuscles 示例：臀部、股四头肌、腘绳肌、小腿、髋部。",
+      "执行型 candidateUse=recommendation/routine/plan/patch 且没有明确可用器械、居家条件或已确认器械事实时，必须把默认无器械写入 filters.homeRequirements=[\"no_equipment\"]；不能只在回复文本里说无器械。",
       "如果工具返回 retryable unknown facet 诊断，应基于 suggestedTargetMuscles/suggestedEquipment 重新检索后再决定 blocked。",
       "用户要求安排一套、单次训练、训练编排或带目标时长的训练流程时，candidateUse 必须是 routine；候选成功后必须继续调用 generateRoutineDraft，不能以 answered 自由文本输出训练编排。",
       "routine 中用户只表达可用器械时，默认只作为 training 主训练边界；warmup/stretch 默认允许无器械或自重受控补充，除非用户明确要求全程同器械。",
@@ -863,7 +866,7 @@ function createSearchExercisesTool(): AgentToolDefinition<SearchExercisesAgentTo
       }
 
       try {
-        const normalizedInput = normalizeAgentSearchExercisesInput(parsedInput);
+        const normalizedInput = normalizeAgentSearchExercisesInput(parsedInput, context);
         const result = await searchExercises(normalizedInput);
         const invalidFilters = result.diagnostics.invalidFilters ?? [];
         if (invalidFilters.length > 0) {
@@ -1081,6 +1084,15 @@ async function getAgentUserMemorySnapshot(input: {
     ...(profile?.preferences ?? []),
     ...memories.filter((memory) => memory.kind === "explicit_preference").map(formatMemoryLabel),
   ]).slice(0, 24);
+  const equipment = uniqueStrings(
+    memories
+      .filter((memory) =>
+        memory.subjectType === "equipment" &&
+        !memory.requiresConfirmation &&
+        memory.kind !== "constraint"
+      )
+      .map((memory) => memory.subjectLabel ?? memory.subjectId ?? undefined),
+  ).slice(0, 24);
   const avoidances = uniqueStrings([
     ...(profile?.avoidances ?? []),
     ...(profile?.injuryLimitations ?? []).map((item) => `injury:${item}`),
@@ -1094,6 +1106,7 @@ async function getAgentUserMemorySnapshot(input: {
     facts,
     preferences,
     avoidances,
+    equipment,
     updatedAt: updatedAt ? toUtcISOString(updatedAt) : undefined,
   };
 }
@@ -1221,38 +1234,147 @@ async function recoverSearchExercisesFromDiagnostics(
   };
 }
 
-function normalizeAgentSearchExercisesInput(input: SearchExercisesAgentToolInput): ExerciseSearchInput {
+function normalizeAgentSearchExercisesInput(
+  input: SearchExercisesAgentToolInput,
+  context?: AgentToolExecutionContext,
+): ExerciseSearchInput {
+  const normalizedAgentInput = applyDefaultNoEquipmentBoundary(input, context);
+
   return {
-    operation: input.operation,
-    query: input.query,
-    candidateUse: input.candidateUse,
-    limit: input.limit,
-    visibility: input.filters?.visibility ?? input.visibility,
-    filters: input.filters,
-    resultRequirements: input.resultRequirements,
-    softPreferences: input.softPreferences,
-    projection: input.projection,
-    allowedSections: input.filters?.allowedSections ?? input.allowedSections,
-    bodyRegions: input.filters?.bodyRegions ?? input.bodyRegions,
-    goal: input.goal,
-    targetMuscles: input.filters?.targetMuscles ?? input.targetMuscles,
-    equipmentRequired: input.filters?.equipment?.in ?? input.equipmentRequired ?? input.equipment,
-    equipmentAvoided: input.filters?.equipment?.notIn ?? input.equipmentAvoided,
-    homeRequirements: input.filters?.homeRequirements,
-    levels: input.filters?.levels ?? (input.level ? [input.level] : undefined),
-    difficulty: input.filters?.difficulty,
-    riskTagsNotIn: input.filters?.riskTagsNotIn ?? input.excludedRiskTags,
-    goalTags: input.filters?.goalTags,
-    movementPatterns: input.filters?.movementPatterns,
-    intensityRoles: input.filters?.intensityRoles,
-    location: input.location,
-    level: input.level,
-    sessionMinutes: input.sessionMinutes,
-    preferences: input.preferences,
-    avoidances: input.avoidances,
-    excludedRiskTags: input.excludedRiskTags,
-    injuryLimitations: input.injuryLimitations,
+    operation: normalizedAgentInput.operation,
+    query: normalizedAgentInput.query,
+    candidateUse: normalizedAgentInput.candidateUse,
+    limit: normalizedAgentInput.limit,
+    visibility: normalizedAgentInput.filters?.visibility ?? normalizedAgentInput.visibility,
+    filters: normalizedAgentInput.filters,
+    resultRequirements: normalizedAgentInput.resultRequirements,
+    softPreferences: normalizedAgentInput.softPreferences,
+    projection: normalizedAgentInput.projection,
+    allowedSections: normalizedAgentInput.filters?.allowedSections ?? normalizedAgentInput.allowedSections,
+    bodyRegions: normalizedAgentInput.filters?.bodyRegions ?? normalizedAgentInput.bodyRegions,
+    goal: normalizedAgentInput.goal,
+    targetMuscles: normalizedAgentInput.filters?.targetMuscles ?? normalizedAgentInput.targetMuscles,
+    equipmentRequired: normalizedAgentInput.filters?.equipment?.in ?? normalizedAgentInput.equipmentRequired ?? normalizedAgentInput.equipment,
+    equipmentAvoided: normalizedAgentInput.filters?.equipment?.notIn ?? normalizedAgentInput.equipmentAvoided,
+    homeRequirements: normalizedAgentInput.filters?.homeRequirements,
+    levels: normalizedAgentInput.filters?.levels ?? (normalizedAgentInput.level ? [normalizedAgentInput.level] : undefined),
+    difficulty: normalizedAgentInput.filters?.difficulty,
+    riskTagsNotIn: normalizedAgentInput.filters?.riskTagsNotIn ?? normalizedAgentInput.excludedRiskTags,
+    goalTags: normalizedAgentInput.filters?.goalTags,
+    movementPatterns: normalizedAgentInput.filters?.movementPatterns,
+    intensityRoles: normalizedAgentInput.filters?.intensityRoles,
+    location: normalizedAgentInput.location,
+    level: normalizedAgentInput.level,
+    sessionMinutes: normalizedAgentInput.sessionMinutes,
+    preferences: normalizedAgentInput.preferences,
+    avoidances: normalizedAgentInput.avoidances,
+    excludedRiskTags: normalizedAgentInput.excludedRiskTags,
+    injuryLimitations: normalizedAgentInput.injuryLimitations,
   };
+}
+
+function applyDefaultNoEquipmentBoundary(
+  input: SearchExercisesAgentToolInput,
+  context?: AgentToolExecutionContext,
+): SearchExercisesAgentToolInput {
+  if (input.candidateUse === "answer_only" || hasExplicitAvailableEquipmentBoundary(input, context)) {
+    return input;
+  }
+
+  const filters = input.filters ?? {};
+  const homeRequirements = mergeUniqueStrings([
+    ...(filters.homeRequirements ?? []),
+    defaultNoEquipmentHomeRequirement,
+  ]);
+
+  return {
+    ...input,
+    filters: {
+      ...filters,
+      homeRequirements,
+    },
+  };
+}
+
+// 默认无器械只读取结构化工具输入、记忆快照和已登记 tool result，不读取用户原文。
+function hasExplicitAvailableEquipmentBoundary(
+  input: SearchExercisesAgentToolInput,
+  context?: AgentToolExecutionContext,
+) {
+  return Boolean(
+    hasPositiveEquipmentInput(input) ||
+    input.filters?.homeRequirements?.length ||
+    hasPositiveEquipmentInContextPackage(context) ||
+    hasPositiveEquipmentInToolResults(context?.toolResults ?? []),
+  );
+}
+
+function hasPositiveEquipmentInput(input: SearchExercisesAgentToolInput) {
+  return Boolean(
+    input.filters?.equipment?.in?.length ||
+    input.equipmentRequired?.length ||
+    input.equipment?.length,
+  );
+}
+
+function hasPositiveEquipmentInContextPackage(context?: AgentToolExecutionContext) {
+  return Boolean(
+    context?.contextPackage?.memorySnapshot?.equipment?.some((item) => !isNoEquipmentBoundaryText(item)),
+  );
+}
+
+function hasPositiveEquipmentInToolResults(toolResults: AgentToolResultRecord[]) {
+  return toolResults.some((result) => {
+    if (result.toolName === "getUserMemory" && isRecord(result.output)) {
+      return readStringArrayFromUnknown(result.output.equipment).some((item) => !isNoEquipmentBoundaryText(item));
+    }
+
+    if (result.toolName === "queryUserMemory" && isRecord(result.output)) {
+      return readPositiveEquipmentMemoryMatches(result.output.matchedMemories).length > 0;
+    }
+
+    if (result.toolName !== "searchExercises" || !isRecord(result.output)) {
+      return false;
+    }
+
+    const evidence = isRecord(result.output.candidateSetEvidence) ? result.output.candidateSetEvidence : undefined;
+    const appliedFilters = isRecord(evidence?.appliedFilters) ? evidence.appliedFilters : undefined;
+
+    return readStringArrayFromUnknown(appliedFilters?.equipmentRequired).some((item) => !isNoEquipmentBoundaryText(item)) ||
+      readStringArrayFromUnknown(appliedFilters?.homeRequirements)
+        .some((value) => !isNoEquipmentBoundaryText(value));
+  });
+}
+
+function readPositiveEquipmentMemoryMatches(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((item) => {
+    if (!isRecord(item)) {
+      return false;
+    }
+    return item.subjectType === "equipment" &&
+      item.kind !== "constraint" &&
+      item.confirmed === true &&
+      typeof item.subjectLabel === "string" &&
+      item.subjectLabel.trim().length > 0 &&
+      !isNoEquipmentBoundaryText(item.subjectLabel);
+  });
+}
+
+function readStringArrayFromUnknown(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
+function isNoEquipmentBoundaryText(value: string) {
+  const normalized = value.trim().toLowerCase().replace(/[\s_-]+/g, "");
+  return ["noequipment", "bodyweight", "none", "自重", "无器械", "徒手"].some((marker) => normalized.includes(marker));
 }
 
 function createExerciseCandidateSetEvidence(result: ExerciseSearchResult): AgentExerciseSearchOutput["candidateSetEvidence"] {

@@ -15,6 +15,7 @@ import {
   type AgentToolError,
   type AgentToolResultFulfillment,
   type AgentToolResultRecord,
+  type ContextPackage,
 } from "./contracts";
 
 export type AgentToolExecutionContext = {
@@ -25,6 +26,8 @@ export type AgentToolExecutionContext = {
   responseMessageId?: string;
   traceId?: string;
   deadlineAt?: number;
+  /** 原始 ContextPackage 只作为结构化事实边界传入工具，工具不得读取自然语言原文重解释语义。 */
+  contextPackage?: ContextPackage;
   toolResults?: AgentToolResultRecord[];
 };
 

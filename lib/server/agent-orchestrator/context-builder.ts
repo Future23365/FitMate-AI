@@ -135,5 +135,5 @@ function truncateText(value: string, maxChars: number) {
 }
 
 function estimateMemorySnapshotChars(snapshot: UserMemorySnapshot) {
-  return [...snapshot.facts, ...snapshot.preferences, ...snapshot.avoidances].join("").length;
+  return [...snapshot.facts, ...snapshot.preferences, ...snapshot.avoidances, ...(snapshot.equipment ?? [])].join("").length;
 }

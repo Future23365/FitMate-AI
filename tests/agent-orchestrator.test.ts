@@ -687,6 +687,7 @@ describe("agent orchestrator phase 2 readonly tools", () => {
 
     expect(searchTool?.description).toContain("bodyRegions 可用 upper_body/lower_body/core/full_body");
     expect(searchTool?.description).toContain("allowedSections 可用 warmup/training/stretch");
+    expect(searchTool?.description).toContain("filters.homeRequirements=[\"no_equipment\"]");
     expect(searchTool?.description).toContain("弹力带");
     expect(searchTool?.description).toContain("臀部、股四头肌、腘绳肌");
     expect(searchTool?.capabilityContract).toMatchObject({
@@ -708,6 +709,202 @@ describe("agent orchestrator phase 2 readonly tools", () => {
       resultRequirements: expect.arrayContaining(["minCandidates", "sectionCoverage", "requireProof"]),
       projection: expect.any(Array),
     });
+  });
+
+  it("defaults executable recommendation search to no-equipment when equipment is unspecified", async () => {
+    const pushUp = createExercise({ id: "push-up", nameZh: "俯卧撑" });
+    exerciseMocks.searchExercises.mockResolvedValue(createMockExerciseSearchResult({
+      candidates: [pushUp],
+      candidateUse: "recommendation",
+      appliedFilters: {
+        visibility: "published",
+        bodyRegions: ["upper_body"],
+        homeRequirements: ["no_equipment"],
+      },
+    }));
+    const registry = createReadonlyAgentToolRegistry();
+
+    await expect(registry.get("searchExercises")?.execute(
+      {
+        operation: "build_exercise_candidate_set",
+        candidateUse: "recommendation",
+        filters: {
+          bodyRegions: ["upper_body"],
+          visibility: "published",
+        },
+        limit: 6,
+      },
+      createToolExecutionContext(),
+    )).resolves.toMatchObject({
+      ok: true,
+      output: {
+        candidateUse: "recommendation",
+        candidates: [expect.objectContaining({ id: "push-up" })],
+        candidateSetEvidence: expect.objectContaining({
+          appliedFilters: expect.objectContaining({
+            homeRequirements: ["no_equipment"],
+          }),
+        }),
+      },
+    });
+    expect(exerciseMocks.searchExercises).toHaveBeenCalledWith(expect.objectContaining({
+      candidateUse: "recommendation",
+      filters: expect.objectContaining({
+        homeRequirements: ["no_equipment"],
+      }),
+      homeRequirements: ["no_equipment"],
+    }));
+  });
+
+  it("does not overwrite explicit available equipment with the no-equipment default", async () => {
+    const dumbbellRow = createExercise({
+      id: "dumbbell-row",
+      nameZh: "哑铃划船",
+      equipment: "dumbbell",
+      equipmentZh: "哑铃",
+    });
+    exerciseMocks.searchExercises.mockResolvedValue(createMockExerciseSearchResult({
+      candidates: [dumbbellRow],
+      candidateUse: "routine",
+      appliedFilters: {
+        visibility: "published",
+        bodyRegions: ["upper_body"],
+        equipmentRequired: ["dumbbell"],
+      },
+    }));
+    const registry = createReadonlyAgentToolRegistry();
+
+    await expect(registry.get("searchExercises")?.execute(
+      {
+        operation: "build_exercise_candidate_set",
+        candidateUse: "routine",
+        filters: {
+          bodyRegions: ["upper_body"],
+          equipment: { in: ["dumbbell"] },
+          visibility: "published",
+        },
+        resultRequirements: {
+          minCandidates: 1,
+          requireProof: true,
+        },
+        limit: 6,
+      },
+      createToolExecutionContext(),
+    )).resolves.toMatchObject({ ok: true });
+    expect(exerciseMocks.searchExercises).toHaveBeenCalledWith(expect.objectContaining({
+      equipmentRequired: ["dumbbell"],
+      filters: expect.objectContaining({
+        equipment: { in: ["dumbbell"] },
+      }),
+    }));
+    expect(exerciseMocks.searchExercises).not.toHaveBeenCalledWith(expect.objectContaining({
+      homeRequirements: ["no_equipment"],
+    }));
+  });
+
+  it("lets current structured no-equipment input override confirmed equipment memory", async () => {
+    const pushUp = createExercise({ id: "push-up", nameZh: "俯卧撑" });
+    exerciseMocks.searchExercises.mockResolvedValue(createMockExerciseSearchResult({
+      candidates: [pushUp],
+      candidateUse: "routine",
+      appliedFilters: {
+        visibility: "published",
+        bodyRegions: ["upper_body"],
+        homeRequirements: ["no_equipment"],
+      },
+    }));
+    const registry = createReadonlyAgentToolRegistry();
+
+    await expect(registry.get("searchExercises")?.execute(
+      {
+        operation: "build_exercise_candidate_set",
+        candidateUse: "routine",
+        filters: {
+          bodyRegions: ["upper_body"],
+          homeRequirements: ["no_equipment"],
+          visibility: "published",
+        },
+        resultRequirements: {
+          minCandidates: 1,
+          requireProof: true,
+        },
+      },
+      createToolExecutionContext({
+        contextPackage: createTestContextPackage({
+          memorySnapshot: {
+            snapshotId: "memory-equipment",
+            facts: [],
+            preferences: [],
+            avoidances: [],
+            equipment: ["哑铃"],
+          },
+        }),
+      }),
+    )).resolves.toMatchObject({
+      ok: true,
+      output: {
+        candidateSetEvidence: expect.objectContaining({
+          appliedFilters: expect.objectContaining({
+            homeRequirements: ["no_equipment"],
+          }),
+        }),
+      },
+    });
+    expect(exerciseMocks.searchExercises).toHaveBeenCalledWith(expect.objectContaining({
+      homeRequirements: ["no_equipment"],
+    }));
+  });
+
+  it("preserves confirmed available equipment context instead of applying the no-equipment default", async () => {
+    const dumbbellRow = createExercise({
+      id: "dumbbell-row",
+      nameZh: "哑铃划船",
+      equipment: "dumbbell",
+      equipmentZh: "哑铃",
+    });
+    exerciseMocks.searchExercises.mockResolvedValue(createMockExerciseSearchResult({
+      candidates: [dumbbellRow],
+      candidateUse: "routine",
+      appliedFilters: {
+        visibility: "published",
+        bodyRegions: ["upper_body"],
+      },
+    }));
+    const registry = createReadonlyAgentToolRegistry();
+
+    await expect(registry.get("searchExercises")?.execute(
+      {
+        operation: "build_exercise_candidate_set",
+        candidateUse: "routine",
+        filters: {
+          bodyRegions: ["upper_body"],
+          visibility: "published",
+        },
+        resultRequirements: {
+          minCandidates: 1,
+          requireProof: true,
+        },
+      },
+      createToolExecutionContext({
+        contextPackage: createTestContextPackage({
+          memorySnapshot: {
+            snapshotId: "memory-equipment",
+            facts: [],
+            preferences: [],
+            avoidances: [],
+            equipment: ["哑铃"],
+          },
+        }),
+      }),
+    )).resolves.toMatchObject({ ok: true });
+    expect(exerciseMocks.searchExercises).toHaveBeenCalledWith(expect.objectContaining({
+      filters: expect.not.objectContaining({
+        homeRequirements: ["no_equipment"],
+      }),
+    }));
+    expect(exerciseMocks.searchExercises).not.toHaveBeenCalledWith(expect.objectContaining({
+      homeRequirements: ["no_equipment"],
+    }));
   });
 
   it("recovers searchExercises once when structured facet diagnostics provide retry suggestions", async () => {
@@ -836,6 +1033,7 @@ describe("agent orchestrator phase 2 readonly tools", () => {
         facts: expect.arrayContaining(["goal:增肌", "sessionMinutes:30"]),
         preferences: expect.arrayContaining(["居家训练", "explicit_preference:自重"]),
         avoidances: expect.arrayContaining(["跳跃动作", "injury:膝盖不适", "constraint:哑铃"]),
+        equipment: ["自重"],
       },
       traceSummary: expect.objectContaining({
         preferences: 2,
@@ -1204,8 +1402,52 @@ describe("agent orchestrator phase 3 workout tools", () => {
     }
 
     const draftOutput = result.output as Extract<AgentWorkoutDraftOutput, { draftKind: "routine" }>;
-    expect(draftOutput.draft.summary).toBe("围绕胸肌训练安排了热身、主训练和拉伸，适合约 12 分钟完成。");
+    expect(draftOutput.draft.summary).toBe("围绕胸肌训练安排了热身、主训练和拉伸，器械按自重处理，适合约 12 分钟完成。");
     expect(draftOutput.draft.summary).not.toMatch(/受控候选|Validator|Policy|展示或保存前/);
+  });
+
+  it("defaults unspecified routine intent equipment to no-equipment when candidates prove that boundary", async () => {
+    exerciseMocks.listAllExercises.mockResolvedValue([
+      createExercise({
+        id: "warmup",
+        nameZh: "肩部绕环",
+        categoryZh: "热身",
+        allowedSections: ["warmup"],
+      }),
+      createExercise({
+        id: "push-up",
+        nameZh: "俯卧撑",
+        allowedSections: ["training"],
+      }),
+      createExercise({
+        id: "stretch",
+        nameZh: "胸肩拉伸",
+        categoryZh: "拉伸",
+        allowedSections: ["stretch"],
+      }),
+    ]);
+    const registry = createToolFirstAgentToolRegistry();
+    const result = await registry.get("generateRoutineDraft")?.execute({
+      intent: createWorkoutPlanIntent({ intentType: "routine", sessionMinutes: 30, equipment: [] }),
+      candidateSetId: "candidate-set-no-equipment-routine",
+      candidateExerciseIds: ["warmup", "push-up", "stretch"],
+    }, createCandidateSetContext(
+      "candidate-set-no-equipment-routine",
+      ["warmup", "push-up", "stretch"],
+      {},
+      "routine",
+    ));
+
+    expect(result).toMatchObject({
+      ok: true,
+      output: {
+        draftKind: "routine",
+        validation: { valid: true },
+        draft: {
+          summary: expect.stringContaining("器械按自重处理"),
+        },
+      },
+    });
   });
 
   it("rejects partial candidate sets before routine draft generation", async () => {
@@ -1884,6 +2126,79 @@ describe("agent orchestrator phase 3 workout tools", () => {
           cycleLengthDays: 6,
           weeklyFrequency: 3,
           days: expect.any(Array),
+        },
+      },
+    });
+  });
+
+  it("defaults unspecified plan equipment to no-equipment instead of requiring an equipment clarification", async () => {
+    exerciseMocks.listAllExercises.mockResolvedValue([
+      createExercise({
+        id: "warmup",
+        nameZh: "肩部绕环",
+        categoryZh: "热身",
+        allowedSections: ["warmup"],
+      }),
+      createExercise({
+        id: "push-up",
+        nameZh: "俯卧撑",
+        allowedSections: ["training"],
+      }),
+      createExercise({
+        id: "stretch",
+        nameZh: "胸肩拉伸",
+        categoryZh: "拉伸",
+        allowedSections: ["stretch"],
+      }),
+    ]);
+    const registry = createToolFirstAgentToolRegistry();
+    const intent = createWorkoutPlanIntent({
+      intentType: "plan",
+      goal: "胸肌训练",
+      sessionMinutes: 30,
+      weeklyFrequency: 3,
+      calendarHorizonDays: 6,
+      equipment: [],
+    });
+    const result = await registry.get("generatePlanDraft")?.execute({
+      intent,
+      candidateSetId: "candidate-set-no-equipment-plan",
+      candidateExerciseIds: ["warmup", "push-up", "stretch"],
+      strategy: {
+        goal: "胸肌训练",
+        horizonDays: 6,
+        weeklyFrequency: 3,
+        sessionMinutes: 30,
+        strategy: "custom",
+        progressionPolicy: "none",
+        intensityBias: "normal",
+        constraints: [],
+        fieldSources: {
+          goal: "current_user_message",
+          calendarHorizonDays: "current_user_message",
+          weeklyFrequency: "current_user_message",
+          sessionMinutes: "current_user_message",
+        },
+        defaultAssumptions: [],
+      },
+    }, createCandidateSetContext(
+      "candidate-set-no-equipment-plan",
+      ["warmup", "push-up", "stretch"],
+      {},
+      "plan",
+    ));
+
+    expect(result).toMatchObject({
+      ok: true,
+      output: {
+        draftKind: "plan",
+        validation: { valid: true },
+        draft: {
+          planStrategy: expect.objectContaining({
+            constraints: expect.arrayContaining(["器械：无器械 / 自重"]),
+            fieldSources: expect.objectContaining({ equipment: "default" }),
+            defaultAssumptions: expect.arrayContaining(["未指定可用器械，按无器械 / 自重训练生成。"]),
+          }),
         },
       },
     });
@@ -3579,6 +3894,7 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
     expect(prompt).toContain("禁止只用 answered 输出自由文本 routine");
     expect(prompt).toContain("operation=\"build_exercise_candidate_set\"");
     expect(prompt).toContain("filters");
+    expect(prompt).toContain("homeRequirements=[\"no_equipment\"]");
     expect(prompt).toContain("resultRequirements");
     expect(prompt).toContain("query 只能作为召回或排序提示，不是 hard constraint");
     expect(prompt).toContain("experience=\"beginner\"");
@@ -3586,6 +3902,7 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
     expect(prompt).toContain("resourceRole");
     expect(prompt).toContain("candidateSetStatus=\"partial\"");
     expect(prompt).toContain("默认把器械作为 training 主训练候选边界");
+    expect(prompt).toContain("缺少器械或场地本身不能阻断生成");
   });
 
   it("runs controlled operation fixtures through completed_operation, confirmation and policy blocked results", async () => {
@@ -4328,6 +4645,53 @@ function createPlanDraftToolResult(input: {
   };
 }
 
+function createMockExerciseSearchResult(input: {
+  candidates: ReturnType<typeof createExercise>[];
+  candidateUse: "routine" | "plan" | "patch" | "recommendation" | "answer_only";
+  appliedFilters: Record<string, unknown>;
+}) {
+  const exerciseIds = input.candidates.map((exercise) => exercise.id);
+
+  return {
+    candidates: input.candidates,
+    diagnostics: {
+      filters: {
+        candidateUse: input.candidateUse,
+        ...input.appliedFilters,
+      },
+      normalizedQueryInput: {
+        operation: "build_exercise_candidate_set",
+        candidateUse: input.candidateUse,
+        filters: input.appliedFilters,
+        resultRequirements: {},
+        softPreferences: {},
+        projection: {},
+      },
+      appliedFilters: input.appliedFilters,
+      invalidFilters: [],
+      constraintProof: exerciseIds.map((exerciseId) => ({
+        exerciseId,
+        matchedFilters: Object.keys(input.appliedFilters),
+      })),
+      resultRequirementProof: {},
+      satisfied: true,
+      queryMode: "none",
+      unmetResultRequirements: [],
+      expandedTargetMuscles: [],
+      recalledCount: input.candidates.length,
+      filteredCount: 0,
+      rerank: [],
+      finalExerciseIds: exerciseIds,
+      failureReasons: [],
+      unmatchedTargetMuscles: [],
+      unmatchedEquipment: [],
+      suggestedTargetMuscles: [],
+      suggestedEquipment: [],
+      retryable: false,
+    },
+  };
+}
+
 function createCandidateSetContext(
   candidateSetId: string,
   exerciseIds: string[],
@@ -4392,7 +4756,9 @@ function createWorkoutPatchFixture(input: {
   };
 }
 
-function createTestContextPackage() {
+function createTestContextPackage(
+  overrides: Partial<Parameters<ReturnType<typeof createAgentContextBuilder>["build"]>[0]> = {},
+) {
   const builder = createAgentContextBuilder();
 
   return builder.build({
@@ -4416,7 +4782,9 @@ function createTestContextPackage() {
       facts: ["用户在家训练"],
       preferences: ["低冲击"],
       avoidances: ["跳跃"],
+      equipment: [],
     },
+    ...overrides,
   });
 }
 

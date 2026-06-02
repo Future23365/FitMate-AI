@@ -362,7 +362,7 @@ describe("chat service Agent-only contract", () => {
         latestUserMessage: "今天我想练胸",
         recentMessages: [],
         recentArtifacts: [],
-        memorySnapshot: { snapshotId: "memory-1", facts: [], preferences: [], avoidances: [] },
+        memorySnapshot: { snapshotId: "memory-1", facts: [], preferences: [], avoidances: [], equipment: [] },
         provenance: [],
         limits: {
           maxRecentMessages: 12,
@@ -377,6 +377,13 @@ describe("chat service Agent-only contract", () => {
         toolName: "searchExercises",
         status: "success",
         candidateSetId: "candidate-set-rec",
+        output: {
+          candidateSetId: "candidate-set-rec",
+          candidateUse: "recommendation",
+          candidateSetEvidence: {
+            appliedFilters: { homeRequirements: ["no_equipment"] },
+          },
+        },
         modelSummary: {
           candidateSetId: "candidate-set-rec",
           candidateUse: "recommendation",
@@ -400,6 +407,12 @@ describe("chat service Agent-only contract", () => {
     expect(events[0].metadata).toMatchObject({
       artifactKind: "exercise_recommendation",
       artifactId: "recommendation_candidate-set-rec",
+      payload: {
+        items: [expect.objectContaining({
+          exerciseId: "Push_Up",
+          equipmentZh: "自重",
+        })],
+      },
     });
   });
 

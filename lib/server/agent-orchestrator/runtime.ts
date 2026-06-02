@@ -610,6 +610,7 @@ export async function runAgentOrchestrator(
       responseMessageId: input.responseMessageId,
       traceId: input.trace?.id,
       deadlineAt,
+      contextPackage: input.context,
       toolResults: state.toolResults,
     });
     const resultRecord = createToolResultRecord({

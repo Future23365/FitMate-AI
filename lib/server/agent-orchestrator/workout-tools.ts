@@ -60,6 +60,8 @@ import { createReadonlyAgentToolDefinitions, type AgentExerciseSearchOutput } fr
 
 const defaultCandidatePreviewLimit = 12;
 const phaseChangeId = "replace-chat-orchestrator-with-tool-first-agent";
+const defaultNoEquipmentIntentEquipment = "自重";
+const defaultNoEquipmentPlanAssumption = "未指定可用器械，按无器械 / 自重训练生成。";
 
 // Agent routine 工具复用 WorkoutPlanIntent，但单次编排不应因缺少长期计划字段而中断。
 const agentRoutineIntentSchema = z.preprocess(
@@ -456,6 +458,93 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function normalizeGenerateRoutineDraftInput(
+  input: GenerateRoutineDraftAgentToolInput,
+  candidateSetEvidence: ExerciseCandidateSetEvidence | undefined,
+  candidateSetExercises: Exercise[],
+): GenerateRoutineDraftAgentToolInput {
+  const intent = applyDefaultNoEquipmentToIntent(input.intent, candidateSetEvidence, candidateSetExercises);
+
+  return intent === input.intent ? input : { ...input, intent };
+}
+
+function normalizeGeneratePlanDraftInput(
+  input: GeneratePlanDraftAgentToolInput,
+  candidateSetEvidence: ExerciseCandidateSetEvidence | undefined,
+  candidateSetExercises: Exercise[],
+): GeneratePlanDraftAgentToolInput {
+  const intent = applyDefaultNoEquipmentToIntent(input.intent, candidateSetEvidence, candidateSetExercises);
+  const strategy = intent === input.intent
+    ? input.strategy
+    : applyDefaultNoEquipmentToPlanStrategy(input.strategy);
+
+  return intent === input.intent && strategy === input.strategy ? input : { ...input, intent, strategy };
+}
+
+// draft intent 默认只由候选集合证据或动作元数据触发，不从用户原文推断器械语义。
+function applyDefaultNoEquipmentToIntent<TIntent extends WorkoutPlanIntent>(
+  intent: TIntent,
+  candidateSetEvidence: ExerciseCandidateSetEvidence | undefined,
+  candidateSetExercises: Exercise[],
+): TIntent {
+  if (intent.equipment.length > 0 || candidateSetEvidenceHasNonDefaultEquipment(candidateSetEvidence)) {
+    return intent;
+  }
+
+  const evidenceRequiresNoEquipment = candidateSetEvidenceHasNoEquipmentBoundary(candidateSetEvidence);
+  const allCandidatesAreNoEquipment = candidateSetExercises.length > 0 &&
+    candidateSetExercises.every(isNoEquipmentOrBodyweightExercise);
+
+  if (!evidenceRequiresNoEquipment && !allCandidatesAreNoEquipment) {
+    return intent;
+  }
+
+  return workoutPlanIntentSchema.parse({
+    ...intent,
+    equipment: [defaultNoEquipmentIntentEquipment],
+  }) as TIntent;
+}
+
+function applyDefaultNoEquipmentToPlanStrategy(
+  strategy: GeneratePlanDraftAgentToolInput["strategy"],
+): GeneratePlanDraftAgentToolInput["strategy"] {
+  return planStrategySchema.parse({
+    ...strategy,
+    constraints: uniqueStrings([
+      ...strategy.constraints,
+      "器械：无器械 / 自重",
+    ]),
+    fieldSources: {
+      ...strategy.fieldSources,
+      equipment: strategy.fieldSources.equipment ?? "default",
+    },
+    defaultAssumptions: uniqueStrings([
+      ...strategy.defaultAssumptions,
+      defaultNoEquipmentPlanAssumption,
+    ]),
+  });
+}
+
+function candidateSetEvidenceHasNoEquipmentBoundary(candidateSetEvidence: ExerciseCandidateSetEvidence | undefined) {
+  const appliedFilters = candidateSetEvidence?.appliedFilters;
+
+  return readStringArray(appliedFilters?.homeRequirements).some(isNoEquipmentText) ||
+    readStringArray(appliedFilters?.equipmentRequired).some(isNoEquipmentText);
+}
+
+function candidateSetEvidenceHasNonDefaultEquipment(candidateSetEvidence: ExerciseCandidateSetEvidence | undefined) {
+  const appliedFilters = candidateSetEvidence?.appliedFilters;
+
+  return readStringArray(appliedFilters?.equipmentRequired).some((item) => !isNoEquipmentText(item)) ||
+    readStringArray(appliedFilters?.homeRequirements).some((item) => !isNoEquipmentText(item));
+}
+
+function readStringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+}
+
 // createToolFirstAgentToolRegistry 组合只读工具和 Phase 3 受控训练写入前置工具。
 export function createToolFirstAgentToolRegistry() {
   return createAgentToolRegistry([
@@ -545,31 +634,36 @@ function createGenerateRoutineDraftTool(): AgentToolDefinition<GenerateRoutineDr
 
         const exercises = await listAllExercises();
         const candidateSetExercises = exercises.filter((exercise) => candidateSet.exerciseIds.has(exercise.id));
-        const draftCandidateExerciseIds = requiredBoundary.requiredExerciseIds ?? parsedInput.candidateExerciseIds;
+        const normalizedInput = normalizeGenerateRoutineDraftInput(
+          parsedInput,
+          candidateSet.output.candidateSetEvidence,
+          candidateSetExercises,
+        );
+        const draftCandidateExerciseIds = requiredBoundary.requiredExerciseIds ?? normalizedInput.candidateExerciseIds;
         const buildResult = buildRoutineDraftFromCandidates(
-          parsedInput.intent,
+          normalizedInput.intent,
           draftCandidateExerciseIds,
           candidateSetExercises,
-          parsedInput.title,
+          normalizedInput.title,
           candidateSet.output.candidateSetEvidence,
         );
         const requiredCoverageError = validateRequiredRoutineExerciseCoverage(
           buildResult.candidateExerciseIds,
           requiredBoundary.requiredExerciseIds,
-          parsedInput.sourceArtifactId,
+          normalizedInput.sourceArtifactId,
         );
 
         if (requiredCoverageError) {
           return requiredCoverageError;
         }
 
-        const validation = validateWorkoutRoutineDraft(buildResult.draft, parsedInput.intent, {
+        const validation = validateWorkoutRoutineDraft(buildResult.draft, normalizedInput.intent, {
           exercises,
           candidateExerciseIds: buildResult.candidateExerciseIds,
           candidateSetEvidence: candidateSet.output.candidateSetEvidence,
         });
         const recovery = createValidationRecovery(validation, {
-          targetSessionMinutes: parsedInput.intent.sessionMinutes,
+          targetSessionMinutes: normalizedInput.intent.sessionMinutes,
         });
 
         if (!validation.valid) {
@@ -582,8 +676,8 @@ function createGenerateRoutineDraftTool(): AgentToolDefinition<GenerateRoutineDr
 
         const output: AgentWorkoutDraftOutput = {
           draftKind: "routine",
-          draftId: createStructuredResultId(context, "draft", "generateRoutineDraft", parsedInput),
-          candidateSetId: parsedInput.candidateSetId,
+          draftId: createStructuredResultId(context, "draft", "generateRoutineDraft", normalizedInput),
+          candidateSetId: normalizedInput.candidateSetId,
           candidateExerciseIds: buildResult.candidateExerciseIds,
           sourceArtifactId: requiredBoundary.sourceArtifactId,
           activeSourceArtifactId: requiredBoundary.activeSourceArtifactId,
@@ -595,7 +689,7 @@ function createGenerateRoutineDraftTool(): AgentToolDefinition<GenerateRoutineDr
         };
         const summary = summarizeDraftOutput(output);
 
-        return createSuccess(context, "generateRoutineDraft", parsedInput, output, summary, summary);
+        return createSuccess(context, "generateRoutineDraft", normalizedInput, output, summary, summary);
       } catch (error) {
         const candidateSetFailure = createCandidateSetBuildFailure(error, parsedInput.candidateSetId);
         if (candidateSetFailure) {
@@ -637,14 +731,19 @@ function createGeneratePlanDraftTool(): AgentToolDefinition<z.infer<typeof gener
 
         const exercises = await listAllExercises();
         const candidateSetExercises = exercises.filter((exercise) => candidateSet.exerciseIds.has(exercise.id));
-        const sourceArtifact = parsedInput.sourceArtifact ?? createSeedRoutineSourceArtifact({
-          intent: parsedInput.intent,
-          candidateSetId: parsedInput.candidateSetId,
-          candidateExerciseIds: parsedInput.candidateExerciseIds,
+        const normalizedInput = normalizeGeneratePlanDraftInput(
+          parsedInput,
+          candidateSet.output.candidateSetEvidence,
+          candidateSetExercises,
+        );
+        const sourceArtifact = normalizedInput.sourceArtifact ?? createSeedRoutineSourceArtifact({
+          intent: normalizedInput.intent,
+          candidateSetId: normalizedInput.candidateSetId,
+          candidateExerciseIds: normalizedInput.candidateExerciseIds,
           exercises: candidateSetExercises,
         });
         const expanded = expandDomainPlan({
-          strategy: parsedInput.strategy,
+          strategy: normalizedInput.strategy,
           sourceArtifact,
         });
 
@@ -655,13 +754,13 @@ function createGeneratePlanDraftTool(): AgentToolDefinition<z.infer<typeof gener
           });
         }
 
-        const validation = validateWorkoutPlanDraft(expanded.draft, parsedInput.intent, {
+        const validation = validateWorkoutPlanDraft(expanded.draft, normalizedInput.intent, {
           exercises,
-          candidateExerciseIds: parsedInput.candidateExerciseIds,
+          candidateExerciseIds: normalizedInput.candidateExerciseIds,
           candidateSetEvidence: candidateSet.output.candidateSetEvidence,
         });
         const recovery = createValidationRecovery(validation, {
-          targetSessionMinutes: parsedInput.intent.sessionMinutes,
+          targetSessionMinutes: normalizedInput.intent.sessionMinutes,
         });
 
         if (!validation.valid) {
@@ -674,16 +773,16 @@ function createGeneratePlanDraftTool(): AgentToolDefinition<z.infer<typeof gener
 
         const output: AgentWorkoutDraftOutput = {
           draftKind: "plan",
-          draftId: createStructuredResultId(context, "draft", "generatePlanDraft", parsedInput),
-          candidateSetId: parsedInput.candidateSetId,
-          candidateExerciseIds: parsedInput.candidateExerciseIds,
+          draftId: createStructuredResultId(context, "draft", "generatePlanDraft", normalizedInput),
+          candidateSetId: normalizedInput.candidateSetId,
+          candidateExerciseIds: normalizedInput.candidateExerciseIds,
           draft: expanded.draft,
           validation,
           recovery,
         };
         const summary = summarizeDraftOutput(output);
 
-        return createSuccess(context, "generatePlanDraft", parsedInput, output, summary, summary);
+        return createSuccess(context, "generatePlanDraft", normalizedInput, output, summary, summary);
       } catch (error) {
         const candidateSetFailure = createCandidateSetBuildFailure(error, parsedInput.candidateSetId);
         if (candidateSetFailure) {
@@ -1710,7 +1809,9 @@ function buildRoutineDraftFromCandidates(
 
 // buildRoutineUserSummary 只生成卡片可见说明，内部候选和校验细节留在 tool result 与 trace 中。
 function buildRoutineUserSummary(intent: WorkoutPlanIntent) {
-  return `围绕${intent.goal}安排了热身、主训练和拉伸，适合约 ${intent.sessionMinutes} 分钟完成。`;
+  const equipment = intent.equipment.length > 0 ? `器械按${intent.equipment.join("、")}处理，` : "";
+
+  return `围绕${intent.goal}安排了热身、主训练和拉伸，${equipment}适合约 ${intent.sessionMinutes} 分钟完成。`;
 }
 
 // Routine 生成器以模型传入候选为必须保留集合，缺失阶段才从动作库做受控补齐。
