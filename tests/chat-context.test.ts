@@ -66,4 +66,24 @@ describe("fitness conversation context", () => {
       latestUserMessage: "今天在家练胸 30 分钟",
     });
   });
+
+  it("does not extract operational requests or short replies into knownFacts.goal", () => {
+    for (const content of ["保存刚才生成的训练", "查看刚才生成的训练", "好的", "没有", "取消吧"]) {
+      const context = buildFitnessConversationContext([{ role: "user", content }]);
+
+      expect(context.knownFacts.goal).toBeUndefined();
+      expect(context.knownFacts.latestUserMessage).toBe(content);
+    }
+  });
+
+  it("keeps low-ambiguity facts without inferring a high-level goal", () => {
+    const context = buildFitnessConversationContext([
+      { role: "user", content: "我有哑铃，每周 3 次，每次 30 分钟。" },
+    ]);
+
+    expect(context.knownFacts.goal).toBeUndefined();
+    expect(context.knownFacts.sessionMinutes).toBe(30);
+    expect(context.knownFacts.weeklyFrequency).toBe(3);
+    expect(context.knownFacts.equipment).toEqual(["哑铃"]);
+  });
 });

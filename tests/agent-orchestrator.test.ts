@@ -2219,8 +2219,9 @@ describe("agent orchestrator phase 3 workout tools", () => {
       policyDecisionId: "policy-1",
       validationPassed: true,
       policyAllowed: true,
-      responseMessageId: "assistant-1",
+      responseMessageId: "assistant-from-model",
     } as never, createToolExecutionContext({
+      responseMessageId: "assistant-from-context",
       toolResults: [
         {
           toolResultId: "tool-result-draft",
@@ -2283,12 +2284,19 @@ describe("agent orchestrator phase 3 workout tools", () => {
     expect(artifactMocks.createOrUpdateConversationArtifact).toHaveBeenCalledWith(expect.objectContaining({
       userId: "user-1",
       sessionId: "chat-1",
-      messageId: "assistant-1",
+      messageId: "assistant-from-context",
       kind: "routine",
       payload: draft,
     }));
     expect(result).toMatchObject({
       ok: true,
+      traceSummary: {
+        responseMessageBinding: {
+          responseMessageId: "assistant-from-context",
+          source: "server_context",
+          modelProvidedResponseMessageId: "assistant-from-model",
+        },
+      },
       output: {
         revisionId: "artifact-new",
         artifactId: "artifact-new",
@@ -2382,6 +2390,57 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
       readonlyToolLoop: true,
       assistantActionEvent: true,
     });
+  });
+
+  it("does not call generation, policy or save tools when the model ends with answered or clarification", async () => {
+    const answeredWriteTool = createWriteTool();
+    const answeredExecute = vi.spyOn(answeredWriteTool, "execute");
+    const answeredRun = await runAgentOrchestrator({
+      runId: "agent-run-short-answered",
+      userId: "user-1",
+      sessionId: "chat-1",
+      context: createTestContextPackage(),
+      registry: new AgentToolRegistry([answeredWriteTool]),
+      decideNext: vi.fn().mockResolvedValueOnce({
+        action: "final_result",
+        result: {
+          status: "answered",
+          replyContext: { reply: "好的，这次先不调整训练。" },
+          usedToolResultIds: [],
+        },
+        reason: "模型将短回复处理为普通回答。",
+      }),
+    });
+
+    const clarificationWriteTool = createWriteTool();
+    const clarificationExecute = vi.spyOn(clarificationWriteTool, "execute");
+    const clarificationRun = await runAgentOrchestrator({
+      runId: "agent-run-short-clarification",
+      userId: "user-1",
+      sessionId: "chat-1",
+      context: createTestContextPackage(),
+      registry: new AgentToolRegistry([clarificationWriteTool]),
+      decideNext: vi.fn().mockResolvedValueOnce({
+        action: "final_result",
+        result: {
+          status: "needs_clarification",
+          question: "你想查看刚才的训练，还是继续调整它？",
+          assistantSuggestions: [
+            { label: "查看训练", message: "查看刚才生成的训练", targetOperation: "view_artifact" },
+          ],
+          blockingReasons: ["目标不明确"],
+          usedToolResultIds: [],
+        },
+        reason: "模型选择澄清而不是执行写链。",
+      }),
+    });
+
+    expect(answeredRun.result).toMatchObject({ status: "answered" });
+    expect(answeredRun.state.toolCalls).toEqual([]);
+    expect(answeredExecute).not.toHaveBeenCalled();
+    expect(clarificationRun.result).toMatchObject({ status: "needs_clarification" });
+    expect(clarificationRun.state.toolCalls).toEqual([]);
+    expect(clarificationExecute).not.toHaveBeenCalled();
   });
 
   it("turns invalid model decisions into a diagnosable failed final result", async () => {

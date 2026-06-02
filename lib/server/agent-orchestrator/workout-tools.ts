@@ -1049,13 +1049,14 @@ function createSaveConversationArtifactRevisionTool(): AgentToolDefinition<z.inf
           return artifactKind;
         }
 
+        const responseMessageBinding = resolveResponseMessageBinding(context, parsedInput);
         let output: AgentArtifactRevisionOutput;
 
         if (parsedInput.sourceArtifactId) {
           const revision = await createConversationArtifactRevision({
             userId: context.userId,
             sourceArtifactId: parsedInput.sourceArtifactId,
-            messageId: parsedInput.responseMessageId,
+            messageId: responseMessageBinding.responseMessageId,
             payload: payloadResult.payload,
           });
 
@@ -1080,7 +1081,7 @@ function createSaveConversationArtifactRevisionTool(): AgentToolDefinition<z.inf
           const artifact = await createOrUpdateConversationArtifact({
             userId: context.userId,
             sessionId: context.sessionId,
-            messageId: parsedInput.responseMessageId,
+            messageId: responseMessageBinding.responseMessageId,
             kind: artifactKind.kind,
             payload: payloadResult.payload,
           });
@@ -1099,8 +1100,12 @@ function createSaveConversationArtifactRevisionTool(): AgentToolDefinition<z.inf
           };
         }
         const summary = this.summarizeOutput(output);
+        const traceSummary = {
+          artifactRevision: summary,
+          responseMessageBinding,
+        };
 
-        return createSuccess(context, "saveConversationArtifactRevision", parsedInput, output, summary, summary);
+        return createSuccess(context, "saveConversationArtifactRevision", parsedInput, output, summary, traceSummary);
       } catch (error) {
         return createFailure("persistence_failed", "Failed to save conversation artifact revision.", error);
       }
@@ -1109,6 +1114,18 @@ function createSaveConversationArtifactRevisionTool(): AgentToolDefinition<z.inf
 }
 
 type SaveConversationArtifactRevisionAgentToolInput = z.infer<typeof saveConversationArtifactRevisionAgentToolInputSchema>;
+
+function resolveResponseMessageBinding(
+  context: AgentToolExecutionContext,
+  input: SaveConversationArtifactRevisionAgentToolInput,
+) {
+  return {
+    responseMessageId: context.responseMessageId ?? input.responseMessageId,
+    source: context.responseMessageId ? "server_context" as const : "model_input_compat" as const,
+    modelProvidedResponseMessageId: input.responseMessageId,
+  };
+}
+
 type AgentToolFailure = {
   ok: false;
   error: AgentToolError;

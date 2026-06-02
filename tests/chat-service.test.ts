@@ -11,7 +11,7 @@ import {
   parseJsonObject,
   prepareAiChatRequest,
 } from "@/lib/server/chat/chat-service";
-import { createChatConversation } from "./fixtures/domain";
+import { createChatConversation, createWorkoutPlanDraft, createWorkoutRoutineDraft } from "./fixtures/domain";
 
 describe("chat service Agent-only contract", () => {
   it("accepts current chat request shape and ignores removed legacy event toggles", () => {
@@ -71,6 +71,7 @@ describe("chat service Agent-only contract", () => {
           promisedWrite: false,
           hasExecutedWrite: false,
           safeOperationOnly: true,
+          filteredSuggestions: [],
         },
       },
       replayFixture: {
@@ -197,6 +198,7 @@ describe("chat service Agent-only contract", () => {
           promisedWrite: false,
           hasExecutedWrite: false,
           safeOperationOnly: false,
+          filteredSuggestions: [],
         },
       },
       context: {
@@ -353,6 +355,7 @@ describe("chat service Agent-only contract", () => {
           promisedWrite: false,
           hasExecutedWrite: false,
           safeOperationOnly: false,
+          filteredSuggestions: [],
         },
       },
       context: {
@@ -417,6 +420,7 @@ describe("chat service Agent-only contract", () => {
           promisedWrite: false,
           hasExecutedWrite: false,
           safeOperationOnly: false,
+          filteredSuggestions: [],
         },
       },
       toolResults: [{
@@ -434,6 +438,109 @@ describe("chat service Agent-only contract", () => {
     });
 
     expect(events).toEqual([]);
+  });
+
+  it("projects answered getArtifactPayload routine results into current chat card events", async () => {
+    const routine = createWorkoutRoutineDraft({ title: "只读查看训练" });
+    const events = await buildAgentArtifactStreamEvents({
+      userId: "user-1",
+      result: {
+        status: "answered",
+        replyContext: { reply: "这是刚才生成的训练。" },
+        usedToolResultIds: ["tool-result-payload"],
+      },
+      toolResults: [{
+        toolResultId: "tool-result-payload",
+        toolCallId: "tool-call-payload",
+        toolName: "getArtifactPayload",
+        status: "success",
+        output: {
+          artifactPayloadId: "artifact-payload-1",
+          artifactId: "artifact-routine",
+          requestedArtifactId: "artifact-old",
+          kind: "routine",
+          payload: routine,
+        },
+        modelSummary: {},
+      }],
+    });
+
+    expect(events.map((event) => event.type)).toEqual(["artifact_validated", "artifact"]);
+    expect(events[0].metadata).toMatchObject({
+      artifactKind: "routine",
+      artifactId: "artifact-routine",
+      requestedArtifactId: "artifact-old",
+      artifactEventSource: "read_only_artifact_payload",
+      sourceToolResultId: "tool-result-payload",
+      payload: routine,
+    });
+  });
+
+  it("projects answered getArtifactPayload plan results into current chat card events", async () => {
+    const plan = createWorkoutPlanDraft({ title: "只读查看计划" });
+    const events = await buildAgentArtifactStreamEvents({
+      userId: "user-1",
+      result: {
+        status: "answered",
+        replyContext: { reply: "这是刚才生成的计划。" },
+        usedToolResultIds: ["tool-result-plan-payload"],
+      },
+      toolResults: [{
+        toolResultId: "tool-result-plan-payload",
+        toolCallId: "tool-call-plan-payload",
+        toolName: "getArtifactPayload",
+        status: "success",
+        output: {
+          artifactPayloadId: "artifact-payload-plan",
+          artifactId: "artifact-plan",
+          kind: "plan",
+          payload: plan,
+        },
+        modelSummary: {},
+      }],
+    });
+
+    expect(events.map((event) => event.type)).toEqual(["artifact_validated", "artifact"]);
+    expect(events[1].metadata).toMatchObject({
+      artifactKind: "plan",
+      artifactId: "artifact-plan",
+      artifactEventSource: "read_only_artifact_payload",
+      payload: plan,
+    });
+  });
+
+  it("does not rebuild routine or plan cards from recent artifact summaries or reply text", async () => {
+    await expect(buildAgentArtifactStreamEvents({
+      userId: "user-1",
+      result: {
+        status: "answered",
+        replyContext: {
+          reply: "你刚才生成的是一套 30 分钟训练。",
+          summary: "最近有 routine artifact。",
+        },
+        usedToolResultIds: [],
+      },
+      context: {
+        latestUserMessage: "查看刚才生成的训练",
+        recentMessages: [],
+        recentArtifacts: [{
+          artifactId: "artifact-summary-only",
+          kind: "routine",
+          title: "摘要里的训练",
+          summary: "只有轻量摘要，没有 payload。",
+          exerciseIds: ["push-up"],
+          updatedAt: "2026-06-02T00:00:00.000Z",
+        }],
+        memorySnapshot: { snapshotId: "memory-1", facts: [], preferences: [], avoidances: [] },
+        provenance: [],
+        limits: {
+          maxRecentMessages: 12,
+          maxRecentArtifacts: 8,
+          maxMessageChars: 1200,
+          maxArtifactSummaryChars: 700,
+        },
+      },
+    })).resolves.toEqual([]);
   });
 
   it("slims Agent decision model input and removes verbose search diagnostics", () => {

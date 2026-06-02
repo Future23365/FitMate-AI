@@ -10,7 +10,12 @@ import type {
 import { resolveAgentToolResultResourceRole } from "./contracts";
 import {
   assistantSuggestionListSchema,
+  assistantSuggestionSchema,
+  assistantSuggestionTargetOperationSchema,
   type AssistantSuggestion,
+  type AssistantSuggestionKind,
+  type AssistantSuggestionSource,
+  type AssistantSuggestionTargetOperation,
 } from "@/lib/shared/chat/assistant-suggestions";
 
 export type AgentResponseProjectionReference = {
@@ -34,12 +39,24 @@ export type AgentResponseProjection = {
     promisedWrite: boolean;
     hasExecutedWrite: boolean;
     safeOperationOnly: boolean;
+    filteredSuggestions: AgentFilteredSuggestionSummary[];
   };
 };
 
 export type AgentResponseProjectionInput = {
   result: AgentExecutionResult;
   toolResults?: AgentToolResultRecord[];
+};
+
+export type AgentFilteredSuggestionSummary = {
+  label: string;
+  kind: AssistantSuggestionKind;
+  source: AssistantSuggestionSource;
+  targetOperation?: AssistantSuggestionTargetOperation;
+  reason:
+    | "unsupported_write_operation"
+    | "missing_structured_operation_for_risky_source"
+    | "invalid_suggestion_contract";
 };
 
 // Response Writer 只投影 AgentExecutionResult，避免重新解释用户语义或承诺未执行写入。
@@ -50,34 +67,40 @@ export function projectAgentExecutionResultToResponse(
   const references = collectResultReferences(input.result, toolResultById);
 
   switch (input.result.status) {
-    case "answered":
+    case "answered": {
+      const suggestionGate = buildAnsweredSuggestions(input.result);
       return {
         status: input.result.status,
         reply: resolveAnsweredReply(input.result.replyContext),
-        assistantSuggestions: buildAnsweredSuggestions(input.result),
+        assistantSuggestions: suggestionGate.visible,
         references,
         metadata: {
           promisedWrite: false,
           hasExecutedWrite: false,
           safeOperationOnly: false,
+          filteredSuggestions: suggestionGate.filtered,
         },
       };
-    case "needs_clarification":
+    }
+    case "needs_clarification": {
+      const suggestionGate = normalizeAssistantSuggestions(input.result.assistantSuggestions, {
+        kind: "clarification",
+        blocking: true,
+        source: "intent",
+      });
       return {
         status: input.result.status,
         reply: input.result.question,
-        assistantSuggestions: normalizeAssistantSuggestions(input.result.assistantSuggestions, {
-          kind: "clarification",
-          blocking: true,
-          source: "intent",
-        }),
+        assistantSuggestions: suggestionGate.visible,
         references,
         metadata: {
           promisedWrite: false,
           hasExecutedWrite: false,
           safeOperationOnly: false,
+          filteredSuggestions: suggestionGate.filtered,
         },
       };
+    }
     case "generated":
       return {
         status: input.result.status,
@@ -88,6 +111,7 @@ export function projectAgentExecutionResultToResponse(
           promisedWrite: true,
           hasExecutedWrite: true,
           safeOperationOnly: false,
+          filteredSuggestions: [],
         },
       };
     case "patched":
@@ -100,6 +124,7 @@ export function projectAgentExecutionResultToResponse(
           promisedWrite: true,
           hasExecutedWrite: true,
           safeOperationOnly: false,
+          filteredSuggestions: [],
         },
       };
     case "completed_operation":
@@ -112,40 +137,47 @@ export function projectAgentExecutionResultToResponse(
           promisedWrite: true,
           hasExecutedWrite: true,
           safeOperationOnly: true,
+          filteredSuggestions: [],
         },
       };
-    case "blocked":
+    case "blocked": {
+      const suggestionGate = normalizeAssistantSuggestions(input.result.recoverySuggestions, {
+        kind: "retry",
+        blocking: true,
+        source: "workout_generation",
+      });
       return {
         status: input.result.status,
         reply: input.result.blockReason,
-        assistantSuggestions: normalizeAssistantSuggestions(input.result.recoverySuggestions, {
-          kind: "retry",
-          blocking: true,
-          source: "workout_generation",
-        }),
+        assistantSuggestions: suggestionGate.visible,
         references,
         metadata: {
           promisedWrite: false,
           hasExecutedWrite: false,
           safeOperationOnly: false,
+          filteredSuggestions: suggestionGate.filtered,
         },
       };
-    case "failed":
+    }
+    case "failed": {
+      const suggestionGate = normalizeAssistantSuggestions(input.result.recoverySuggestions, {
+        kind: "retry",
+        blocking: true,
+        source: "workout_generation",
+      });
       return {
         status: input.result.status,
         reply: "这次执行没有完成，我没有生成或修改训练结果。",
-        assistantSuggestions: normalizeAssistantSuggestions(input.result.recoverySuggestions, {
-          kind: "retry",
-          blocking: true,
-          source: "workout_generation",
-        }),
+        assistantSuggestions: suggestionGate.visible,
         references,
         metadata: {
           promisedWrite: false,
           hasExecutedWrite: false,
           safeOperationOnly: false,
+          filteredSuggestions: suggestionGate.filtered,
         },
       };
+    }
   }
 }
 
@@ -181,16 +213,52 @@ function normalizeAssistantSuggestions(
   suggestions: AgentAssistantSuggestion[],
   defaults: Pick<AssistantSuggestion, "kind" | "blocking" | "source">,
 ) {
-  const normalized = suggestions.map((suggestion) => ({
-    label: suggestion.label,
-    message: suggestion.message,
-    kind: defaults.kind,
-    blocking: defaults.blocking,
-    source: defaults.source,
-  }));
-  const parsed = assistantSuggestionListSchema.safeParse(normalized);
+  const visible: AssistantSuggestion[] = [];
+  const filtered: AgentFilteredSuggestionSummary[] = [];
 
-  return parsed.success ? parsed.data : [];
+  for (const suggestion of suggestions) {
+    const candidate = {
+      label: suggestion.label,
+      message: suggestion.message,
+      kind: defaults.kind,
+      blocking: defaults.blocking,
+      source: defaults.source,
+      targetOperation: suggestion.targetOperation,
+    };
+    const parsed = assistantSuggestionSchema.safeParse(candidate);
+
+    if (!parsed.success) {
+      filtered.push({
+        label: suggestion.label,
+        kind: defaults.kind,
+        source: defaults.source,
+        targetOperation: suggestion.targetOperation,
+        reason: "invalid_suggestion_contract",
+      });
+      continue;
+    }
+
+    const gate = evaluateSuggestionCapability(parsed.data);
+    if (!gate.visible) {
+      filtered.push({
+        label: parsed.data.label,
+        kind: parsed.data.kind,
+        source: parsed.data.source,
+        targetOperation: parsed.data.targetOperation,
+        reason: gate.reason,
+      });
+      continue;
+    }
+
+    visible.push(parsed.data);
+  }
+
+  const parsedList = assistantSuggestionListSchema.safeParse(visible);
+
+  return {
+    visible: parsedList.success ? parsedList.data : [],
+    filtered,
+  };
 }
 
 // buildAnsweredSuggestions 只投影 Agent 显式给出的建议，避免 Response Writer 注入固定快捷按钮。
@@ -217,10 +285,59 @@ function readReplyAssistantSuggestions(replyContext: Record<string, unknown>): A
     }
     const record = item as Record<string, unknown>;
 
+    const targetOperation = parseAgentSuggestionTargetOperation(record.targetOperation);
+
     return typeof record.label === "string" && typeof record.message === "string"
-      ? [{ label: record.label, message: record.message }]
+      ? [{ label: record.label, message: record.message, targetOperation }]
       : [];
   });
+}
+
+function parseAgentSuggestionTargetOperation(value: unknown): AgentAssistantSuggestion["targetOperation"] {
+  const parsed = assistantSuggestionTargetOperationSchema.safeParse(value);
+
+  return parsed.success ? parsed.data : undefined;
+}
+
+function evaluateSuggestionCapability(suggestion: AssistantSuggestion):
+  | { visible: true }
+  | { visible: false; reason: AgentFilteredSuggestionSummary["reason"] } {
+  if (suggestion.targetOperation) {
+    return unsupportedSuggestionOperations.has(suggestion.targetOperation)
+      ? { visible: false, reason: "unsupported_write_operation" }
+      : { visible: true };
+  }
+
+  return isSafeLegacySuggestionSource(suggestion)
+    ? { visible: true }
+    : { visible: false, reason: "missing_structured_operation_for_risky_source" };
+}
+
+const unsupportedSuggestionOperations = new Set<AssistantSuggestionTargetOperation>([
+  "unsupported_write",
+  "save_artifact",
+  "validate_and_save",
+  "write_artifact",
+]);
+
+function isSafeLegacySuggestionSource(suggestion: AssistantSuggestion) {
+  if (suggestion.kind === "clarification" && suggestion.source === "intent") {
+    return true;
+  }
+
+  if (suggestion.source === "exercise_recommendation" && suggestion.kind === "next_action") {
+    return true;
+  }
+
+  if (suggestion.source === "reference_resolution" && suggestion.kind === "clarification") {
+    return true;
+  }
+
+  if (suggestion.source === "workout_patch" && suggestion.kind === "adjustment") {
+    return true;
+  }
+
+  return false;
 }
 
 function buildCompletedOperationReply(operation: AgentOperationSummary) {

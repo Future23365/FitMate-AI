@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { assistantSuggestionTargetOperationSchema } from "@/lib/shared/chat/assistant-suggestions";
 import { conversationArtifactKindSchema } from "@/lib/shared/conversation-artifacts/schema";
 
 export const agentContextSourceKindSchema = z.enum([
@@ -714,6 +715,7 @@ export type WorkoutEditPlan = z.infer<typeof workoutEditPlanSchema>;
 export const assistantSuggestionSchema = z.object({
   label: z.string().trim().min(1).max(80),
   message: z.string().trim().min(1).max(240),
+  targetOperation: assistantSuggestionTargetOperationSchema.optional(),
 });
 
 export type AgentAssistantSuggestion = z.infer<typeof assistantSuggestionSchema>;

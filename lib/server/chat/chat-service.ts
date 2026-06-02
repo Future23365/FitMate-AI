@@ -12,6 +12,10 @@ import {
   getArtifactPayload,
   type RecentArtifactSummary,
 } from "@/lib/server/conversation-artifacts/artifact-service";
+import {
+  conversationArtifactPayloadSchemaVersion,
+  parseConversationArtifactPayload,
+} from "@/lib/shared/conversation-artifacts/schema";
 import { getCurrentUser, type CurrentUser } from "@/lib/server/users/current-user";
 import {
   createAgentContextBuilder,
@@ -377,10 +381,12 @@ export async function createAiChatResponse({
       hydration: request.hydration,
       knownFacts: {
         goal: internalConversationContext.knownFacts.goal,
+        goalSource: internalConversationContext.knownFacts.goal ? "structured_context_or_memory" : "not_extracted_from_raw_text",
         weeklyFrequency: internalConversationContext.knownFacts.weeklyFrequency,
         sessionMinutes: internalConversationContext.knownFacts.sessionMinutes,
         equipmentCount: internalConversationContext.knownFacts.equipment.length,
         currentIntentType: internalConversationContext.currentIntent?.intentType,
+        factSourceBoundary: "deterministic_low_ambiguity_facts_not_user_intent",
       },
       recentArtifactKinds: recentArtifactSummaries.map((artifact) => artifact.kind),
     },
@@ -1143,6 +1149,7 @@ function createAgentResponseStream(input: {
         const agentRun = await runAgentOrchestrator({
           userId: user.id,
           sessionId: input.request.conversationId ?? "default-chat-session",
+          responseMessageId: input.request.responseMessageId,
           context,
           registry,
           decideNext: createDeepSeekAgentDecisionProvider({
@@ -1180,6 +1187,14 @@ function createAgentResponseStream(input: {
           });
         }
 
+        const artifactStreamEvents = await buildAgentArtifactStreamEvents({
+          userId: user.id,
+          result: agentResult,
+          toolResults: agentRun.state.toolResults,
+          projection,
+          context,
+        });
+
         input.trace.addStep({
           name: "Agent Response Writer 投影结果",
           type: "response_write",
@@ -1192,6 +1207,7 @@ function createAgentResponseStream(input: {
           output: {
             projection,
             projectionValidation,
+            artifactStreamEvents: summarizeArtifactStreamEventsForTrace(artifactStreamEvents),
           },
           metadata: {
             aiStage: "agent_response_writer",
@@ -1232,13 +1248,7 @@ function createAgentResponseStream(input: {
 
         controller.enqueue(encodeChatStreamEvent("content", projection.reply));
 
-        for (const artifactEvent of await buildAgentArtifactStreamEvents({
-          userId: user.id,
-          result: agentResult,
-          toolResults: agentRun.state.toolResults,
-          projection,
-          context,
-        })) {
+        for (const artifactEvent of artifactStreamEvents) {
           controller.enqueue(encodeChatStreamEvent(artifactEvent.type, "", artifactEvent.metadata));
         }
 
@@ -1297,6 +1307,7 @@ function createAgentResponseStream(input: {
             agentRepairSummary: agentRun.replayFixture.repairSummary,
             legacyPathSkip: agentRun.replayFixture.legacyPathSkip,
             agentResourceDiagnostics: summarizeAgentResourceDiagnostics(agentRun.replayFixture.toolResults),
+            agentArtifactStreamEvents: summarizeArtifactStreamEventsForTrace(artifactStreamEvents),
           }),
         );
       } catch (error) {
@@ -1382,6 +1393,12 @@ export async function buildAgentArtifactStreamEvents(input: {
     return recommendationEvent;
   }
 
+  const readOnlyArtifactEvents = buildReadOnlyArtifactPayloadStreamEvents(input);
+
+  if (readOnlyArtifactEvents.length > 0) {
+    return readOnlyArtifactEvents;
+  }
+
   if (input.result.status !== "generated" && input.result.status !== "patched") {
     return [];
   }
@@ -1414,6 +1431,7 @@ export async function buildAgentArtifactStreamEvents(input: {
         metadata: {
           artifactKind: payloadResult.kind,
           artifactId: payloadResult.artifactId,
+          artifactEventSource: "generated_or_patched_artifact",
           sourceArtifactId: input.result.patchResult.sourceArtifactId,
           payload: payloadResult.payload,
         },
@@ -1427,6 +1445,7 @@ export async function buildAgentArtifactStreamEvents(input: {
       metadata: {
         artifactKind: payloadResult.kind,
         artifactId: payloadResult.artifactId,
+        artifactEventSource: "generated_or_patched_artifact",
         payload: payloadResult.payload,
       },
     },
@@ -1435,10 +1454,109 @@ export async function buildAgentArtifactStreamEvents(input: {
       metadata: {
         artifactKind: payloadResult.kind,
         artifactId: payloadResult.artifactId,
+        artifactEventSource: "generated_or_patched_artifact",
         payload: payloadResult.payload,
       },
     },
   ];
+}
+
+function buildReadOnlyArtifactPayloadStreamEvents(input: {
+  result: AgentExecutionResult;
+  toolResults?: AgentToolResultRecord[];
+}): Array<{ type: string; metadata: Record<string, unknown> }> {
+  if (input.result.status !== "answered") {
+    return [];
+  }
+
+  const usedToolResultIds = new Set(input.result.usedToolResultIds);
+  if (usedToolResultIds.size === 0) {
+    return [];
+  }
+
+  return (input.toolResults ?? []).flatMap((toolResult) => {
+    if (
+      !usedToolResultIds.has(toolResult.toolResultId) ||
+      toolResult.status !== "success" ||
+      toolResult.toolName !== "getArtifactPayload"
+    ) {
+      return [];
+    }
+
+    const artifactPayload = parseReadOnlyArtifactPayloadOutput(toolResult.output);
+
+    if (!artifactPayload) {
+      return [];
+    }
+
+    return [
+      {
+        type: "artifact_validated",
+        metadata: {
+          artifactKind: artifactPayload.kind,
+          artifactId: artifactPayload.artifactId,
+          requestedArtifactId: artifactPayload.requestedArtifactId,
+          artifactEventSource: "read_only_artifact_payload",
+          sourceToolResultId: toolResult.toolResultId,
+          payload: artifactPayload.payload,
+        },
+      },
+      {
+        type: "artifact",
+        metadata: {
+          artifactKind: artifactPayload.kind,
+          artifactId: artifactPayload.artifactId,
+          requestedArtifactId: artifactPayload.requestedArtifactId,
+          artifactEventSource: "read_only_artifact_payload",
+          sourceToolResultId: toolResult.toolResultId,
+          payload: artifactPayload.payload,
+        },
+      },
+    ];
+  });
+}
+
+function parseReadOnlyArtifactPayloadOutput(output: unknown) {
+  if (!output || typeof output !== "object") {
+    return null;
+  }
+
+  const record = output as Record<string, unknown>;
+
+  if (record.kind !== "routine" && record.kind !== "plan") {
+    return null;
+  }
+  if (typeof record.artifactId !== "string" || !record.payload) {
+    return null;
+  }
+
+  let payload;
+  try {
+    payload = parseConversationArtifactPayload(
+      record.kind,
+      conversationArtifactPayloadSchemaVersion,
+      record.payload,
+    );
+  } catch {
+    return null;
+  }
+
+  return {
+    artifactId: record.artifactId,
+    requestedArtifactId: typeof record.requestedArtifactId === "string" ? record.requestedArtifactId : undefined,
+    kind: record.kind,
+    payload,
+  };
+}
+
+function summarizeArtifactStreamEventsForTrace(events: Array<{ type: string; metadata: Record<string, unknown> }>) {
+  return events.map((event) => ({
+    type: event.type,
+    artifactKind: event.metadata.artifactKind,
+    artifactId: event.metadata.artifactId,
+    artifactEventSource: event.metadata.artifactEventSource,
+    sourceToolResultId: event.metadata.sourceToolResultId,
+  }));
 }
 
 // buildExerciseRecommendationArtifactEvent 将已引用的动作检索结果投影为推荐卡片事件，避免恢复旧 intent 触发链。

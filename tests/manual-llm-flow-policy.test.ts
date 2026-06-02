@@ -23,13 +23,15 @@ describe("manual LLM blackbox flow runner policy", () => {
     const detailCases = getBlackboxFlowCases("detail");
 
     expect(basicCases).toHaveLength(9);
-    expect(detailCases).toHaveLength(54);
+    expect(detailCases).toHaveLength(56);
     expect(detailCases.map((flowCase) => flowCase.id)).toEqual(
       expect.arrayContaining([
         "H01",
         "R03",
         "W08",
         "W09",
+        "W10",
+        "W11",
         "P04",
         "P07",
         "C03",

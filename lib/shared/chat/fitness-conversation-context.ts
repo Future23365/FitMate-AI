@@ -229,7 +229,6 @@ function mergeUserMessageFacts(
   const weeklyFrequency = extractWeeklyFrequency(content);
   const calendarHorizonDays = extractCalendarHorizonDays(content);
   const experience = extractExperience(content);
-  const goal = extractGoal(content);
 
   if (minutes) {
     knownFacts.sessionMinutes = minutes;
@@ -245,10 +244,6 @@ function mergeUserMessageFacts(
 
   if (experience) {
     knownFacts.experience = experience;
-  }
-
-  if (goal) {
-    knownFacts.goal = goal;
   }
 
   extractEquipment(content).forEach((item) => arrayFacts.equipment.add(item));
@@ -352,17 +347,6 @@ function extractExperience(content: string) {
 
   if (/高级|资深|老手|专业/.test(content)) {
     return "advanced" as const;
-  }
-
-  return undefined;
-}
-
-function extractGoal(content: string) {
-  if (
-    /目标|想|练|减脂|增肌|塑形|力量|心肺|体能|胸|背|腿|肩|核心|臀|手臂/.test(content) &&
-    !/换成|改成|不要|避免/.test(content)
-  ) {
-    return previewText(content, 80);
   }
 
   return undefined;

@@ -68,6 +68,8 @@ export type RunAgentOrchestratorInput = {
   runId?: string;
   userId: string;
   sessionId: string;
+  /** 服务端创建的当前 assistant message id，写工具只能用它绑定 ConversationArtifact。 */
+  responseMessageId?: string;
   context: ContextPackage;
   registry: AgentToolRegistry;
   decideNext: AgentDecisionProvider;
@@ -138,6 +140,7 @@ export async function runAgentOrchestrator(
       userId: input.userId,
       sessionId: input.sessionId,
       registeredTools: input.registry.list().map((tool) => tool.name),
+      responseMessageId: input.responseMessageId,
       legacyPathSkip: createLegacyPathSkip(),
     },
   });
@@ -604,6 +607,7 @@ export async function runAgentOrchestrator(
       runId,
       userId: input.userId,
       sessionId: input.sessionId,
+      responseMessageId: input.responseMessageId,
       traceId: input.trace?.id,
       deadlineAt,
       toolResults: state.toolResults,

@@ -406,6 +406,58 @@ const detailedBlackboxFlowCaseDefinitions: BlackboxFlowCaseDefinition[] = [
     ],
   },
   {
+    id: "W10",
+    name: "短确认后查看刚才 routine",
+    goal: "验证 routine 生成后的“好的”不会触发写链，随后查看刚才训练会走只读 artifact payload 并重新推送卡片。",
+    turns: [
+      turn("第 1 轮：徒手胸部 20 分钟", "安排一个20分钟徒手胸部训练", ["workout_routine"], "应生成胸部 20 分钟徒手 routine。", {
+        expectedAgentStatus: "generated",
+        requiredAgentTools: ["searchExercises", "generateRoutineDraft", "saveConversationArtifactRevision"],
+        requireCandidateSetId: true,
+        requireValidationId: true,
+        requireRevisionId: true,
+        requireLegacyPathDisabled: true,
+      }),
+      noCardTurn("第 2 轮：短确认", "好的", "短确认应由模型结构化为普通回答或澄清，不应额外触发训练生成、验证、Policy 或保存工具。", {
+        forbiddenAgentTools: ["searchExercises", "generateRoutineDraft", "validateRoutineDraft", "evaluatePolicy", "saveConversationArtifactRevision"],
+        requireLegacyPathDisabled: true,
+      }),
+      turn("第 3 轮：查看刚才训练", "查看刚才生成的训练", ["workout_routine"], "应通过 getArtifactPayload 读取完整 routine payload，并在当前 assistant bubble 重新推送 routine 卡片。", {
+        expectedAgentStatus: "answered",
+        requiredAgentTools: ["getArtifactPayload"],
+        forbiddenAgentTools: ["generateRoutineDraft", "validateRoutineDraft", "evaluatePolicy", "saveConversationArtifactRevision"],
+        expectedReferenceStatus: "resolved",
+        expectedArtifactPayloadReadable: true,
+        requireLegacyPathDisabled: true,
+      }),
+    ],
+  },
+  {
+    id: "W11",
+    name: "短否定和建议点击生成 routine",
+    goal: "验证“没有”等短否定不被 raw text goal 污染，并覆盖点击模型建议后使用同一推荐动作集合生成训练、数量保持一致的路径。",
+    turns: [
+      turn("第 1 轮：推荐核心动作", "推荐几个适合新手的核心动作", ["exercise_recommendation"], "应返回核心动作推荐卡片，并给出可生成训练的安全建议。", {
+        expectedAgentStatus: "answered",
+        requiredAgentTools: ["searchExercises"],
+        requireCandidateSetId: true,
+        requireLegacyPathDisabled: true,
+      }),
+      noCardTurn("第 2 轮：短否定", "没有", "短否定不应被服务端 raw text 提取成训练目标，也不应触发 routine/plan/save 写链。", {
+        forbiddenAgentTools: ["generateRoutineDraft", "generatePlanDraft", "validateRoutineDraft", "evaluatePolicy", "saveConversationArtifactRevision"],
+        requireLegacyPathDisabled: true,
+      }),
+      turn("第 3 轮：模拟点击生成训练建议", "按这些动作生成20分钟训练", ["workout_routine"], "应基于上一张推荐卡片的动作集合生成 routine，推荐动作数量与生成训练引用的动作集合保持一致。", {
+        expectedAgentStatus: "generated",
+        requiredAgentTools: ["getArtifactPayload", "generateRoutineDraft", "saveConversationArtifactRevision"],
+        requireCandidateSetId: true,
+        requireValidationId: true,
+        requireRevisionId: true,
+        requireLegacyPathDisabled: true,
+      }),
+    ],
+  },
+  {
     id: "P03",
     name: "计划频率修改",
     goal: "验证长期计划频率和单次时长调整保持 plan 语义。",
@@ -824,6 +876,8 @@ const flowMetadataById: Record<string, BlackboxFlowMetadata> = {
   W07: { suite: "detail_extended", groups: ["routine", "safety"], riskLevel: "edge", coverageNote: "极短时长热身边界。" },
   W08: { suite: "detail_core", groups: ["routine", "reference"], riskLevel: "core", coverageNote: "局部 patch 后继续基于修改版降级；已改写输入避免与 M03 严格重复。" },
   W09: { suite: "detail_core", groups: ["routine", "reference", "context"], riskLevel: "core", coverageNote: "哑铃上肢 routine 后排除哑铃，验证 Agent tool trace、候选集合和旧路径禁用。" },
+  W10: { suite: "detail_core", groups: ["routine", "reference", "context"], riskLevel: "core", coverageNote: "短确认不触发写链，查看刚才 routine 通过只读 payload 重投影卡片。" },
+  W11: { suite: "detail_core", groups: ["recommendation", "routine", "context"], riskLevel: "core", coverageNote: "短否定不污染 goal，模拟点击生成训练建议后沿推荐动作集合生成 routine。" },
   P03: { suite: "detail_core", groups: ["plan", "context"], riskLevel: "core", coverageNote: "每周 4 练增肌计划的频率和单次时长调整。" },
   P04: { suite: "detail_core", groups: ["plan", "context"], riskLevel: "core", coverageNote: "同起点计划切换目标和训练场景；区别于 P03 的频率调整。" },
   P05: { suite: "detail_extended", groups: ["plan", "safety"], riskLevel: "edge", coverageNote: "新手高频计划保守收束。" },

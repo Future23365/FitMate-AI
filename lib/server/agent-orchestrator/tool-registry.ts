@@ -21,6 +21,8 @@ export type AgentToolExecutionContext = {
   runId: string;
   userId: string;
   sessionId: string;
+  /** 当前 assistant response message id 来自服务端聊天流，用于写工具绑定 artifact 气泡。 */
+  responseMessageId?: string;
   traceId?: string;
   deadlineAt?: number;
   toolResults?: AgentToolResultRecord[];
