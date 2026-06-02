@@ -1,14 +1,14 @@
-# Agent Tool 设计：`searchExerciseResources`
+# Agent Tool 设计：支持结构化查询的 `searchExerciseResources`
 
 本文只保留一个 Agent tool：`searchExerciseResources`。
 
-这个 tool 的唯一职责是：根据当前动作数据库和动作列表查询接口已经支持的筛选字段，筛选并返回动作数据。
+这个 tool 的唯一职责是：接收 LLM 传入的结构化筛选条件，根据当前动作数据库支持的字段筛选并返回动作列表。
 
 ## 设计原则
 
 1. `searchExerciseResources` 只查动作库，不生成动作卡片、不生成训练编排、不校验草稿、不保存 artifact。
 2. LLM 负责把用户自然语言理解成结构化查询参数；服务端只执行这些参数对应的确定性数据库筛选。
-3. Tool 入参只包含当前动作查询已支持的字段，不引入候选裁剪、历史排除、伤病语义判断、卡片用途或编排用途。
+3. Tool 入参只包含当前动作查询已支持的结构化筛选字段，不引入候选裁剪、历史排除、伤病语义判断、卡片用途、编排用途或分页控制。
 4. Tool 失败只返回结构化查询错误；不建议下一个 tool，也不替 LLM 决定后续流程。
 
 ## 当前支持的筛选字段来源
@@ -35,17 +35,16 @@
 | `riskTag` | `Exercise.riskTags` | 风险标签 |
 | `published` | `Exercise.isPublished` | 是否已发布 |
 | `sort` | `exerciseSortSchema` | 排序 |
-| `limit` / `offset` | `exerciseListQuerySchema` | 数量与偏移 |
 
 ## Tool：`searchExerciseResources`
 
 ### 功能
 
-`searchExerciseResources` 接收结构化动作查询参数，按当前动作库支持的字段查询 `Exercise` 数据，并返回动作列表。
+`searchExerciseResources` 接收结构化动作筛选参数，按当前动作库支持的字段查询 `Exercise` 数据，并返回动作列表。
 
 这个 tool 只做：
 
-- 校验查询参数结构、枚举值、分页数量。
+- 校验查询参数结构和枚举值。
 - 根据查询参数筛选动作数据。
 - 返回动作数据和本次查询摘要。
 
@@ -58,6 +57,7 @@
 - 不接收 `requiresNoEquipment` 这类重复语义字段；徒手或无器械应通过 `equipment` 或 `homeRequirement` 表达。
 - 不生成 `candidateSetId`。
 - 不保存、发布或登记任何会话 artifact。
+- 不接收 `limit`、`offset`、`page`、`pageSize` 等分页或数量控制参数。服务端可以在内部设置最大返回数量保护，但这不是 LLM 可写入参。
 
 ### 入参
 
@@ -76,8 +76,6 @@ type SearchExerciseResourcesInput = {
   riskTag?: string;
   published?: boolean;
   sort?: "name_asc" | "name_desc" | "level_asc" | "level_desc" | "category_asc" | "category_desc";
-  limit?: number;
-  offset?: number;
 };
 ```
 
@@ -98,17 +96,11 @@ type SearchExerciseResourcesInput = {
 | `riskTag` | `string` | 否 | 风险标签筛选，对应 `Exercise.riskTags` |
 | `published` | `boolean` | 否 | 是否只返回已发布动作，对应 `Exercise.isPublished` |
 | `sort` | 枚举 | 否 | 排序方式。缺省由服务端使用默认排序 |
-| `limit` | `number` | 否 | 返回数量上限。服务端必须设置最大值保护 |
-| `offset` | `number` | 否 | 查询偏移量，用于分页 |
 
 ### 出参
 
 ```ts
 type SearchExerciseResourcesOutput = {
-  total: number;
-  returnedCount: number;
-  limit: number;
-  offset: number;
   sort: "name_asc" | "name_desc" | "level_asc" | "level_desc" | "category_asc" | "category_desc";
   appliedFilters: SearchExerciseAppliedFilter[];
   exercises: SearchExerciseResource[];
@@ -119,10 +111,6 @@ type SearchExerciseResourcesOutput = {
 
 | 字段 | 含义 |
 | --- | --- |
-| `total` | 满足筛选条件的动作总数 |
-| `returnedCount` | 本次实际返回的动作数量 |
-| `limit` | 本次实际使用的返回数量上限 |
-| `offset` | 本次实际使用的偏移量 |
 | `sort` | 本次实际使用的排序方式 |
 | `appliedFilters` | 服务端实际执行的筛选条件摘要 |
 | `exercises` | 动作数据列表 |
@@ -198,7 +186,7 @@ type SearchExerciseResource = {
 ```ts
 type SearchExerciseResourcesError = {
   status: "failed";
-  code: "invalid_input" | "invalid_enum" | "invalid_pagination" | "database_unavailable";
+  code: "invalid_input" | "invalid_enum" | "database_unavailable";
   field?: keyof SearchExerciseResourcesInput;
   message: string;
 };
@@ -221,9 +209,7 @@ type SearchExerciseResourcesError = {
   "equipment": "徒手",
   "level": "beginner",
   "published": true,
-  "sort": "name_asc",
-  "limit": 12,
-  "offset": 0
+  "sort": "name_asc"
 }
 ```
 
@@ -233,8 +219,7 @@ type SearchExerciseResourcesError = {
 {
   "suitability": "warmup",
   "homeRequirement": "居家",
-  "published": true,
-  "limit": 10
+  "published": true
 }
 ```
 
@@ -243,8 +228,7 @@ type SearchExerciseResourcesError = {
 ```ts
 {
   "riskTag": "knee",
-  "published": true,
-  "limit": 20
+  "published": true
 }
 ```
 
@@ -262,11 +246,12 @@ type SearchExerciseResourcesError = {
 | `requiresNoEquipment` | 与 `equipment` / `homeRequirement` 重复，应使用已有筛选字段表达 |
 | `movementPatterns` | 当前动作列表查询 schema 未暴露该筛选字段，基础 tool 不先设计 |
 | `rankingHints` | 当前目标是按数据库支持字段筛选，不设计额外排序提示 |
+| `limit` / `offset` / `page` / `pageSize` | 分页和数量控制不暴露给 LLM；服务端内部自行保护最大返回量 |
 
 ## 最小可验收标准
 
 1. 系统只注册 `searchExerciseResources` 这一个 Agent tool。
-2. Tool 入参只包含当前动作查询支持的筛选、排序和分页字段。
+2. Tool 入参只包含当前动作查询支持的结构化筛选字段和排序字段。
 3. Tool 不返回 `candidateSetId`，只返回筛选得到的动作数据。
 4. Tool 不生成卡片、不校验草稿、不保存 artifact、不输出 `responseEvent`。
-5. Tool 对未知字段、非法枚举和非法分页返回结构化错误。
+5. Tool 对未知字段和非法枚举返回结构化错误。
