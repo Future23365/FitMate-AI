@@ -46,7 +46,9 @@ export async function updateConversationSummary(input: SummaryUpdateInput) {
     assistantReply: input.assistantReply,
     internalActionSummary: input.internalActionSummary ?? "",
   };
-  const budgetStage = getStageDecision(input.tokenBudgetDecision, "conversation_summary_update");
+  const budgetStage =
+    getStageDecision(input.tokenBudgetDecision, "conversation_summary_update") ??
+    getStageDecision(input.tokenBudgetDecision, "agent_summary_update");
   const skipReason = budgetStage?.skipReason ?? shouldSkipConversationSummaryUpdate(input);
 
   if (skipReason) {

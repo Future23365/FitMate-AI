@@ -101,10 +101,10 @@ Define the responsibilities and dependency direction for Next.js Route Handlers,
 - **AND** the request schema MAY replace model-visible structured conversation context and selected history messages with a natural language `conversationSummary` plus latest user message contract
 - **AND** the refactor MUST NOT add or remove user-visible stream event types for the same user request
 
-#### Scenario: Downstream AI routes continue to run
-- **WHEN** `/api/ai/workout-plan` or `/api/ai/exercise-recommendations` uses AI prompt config after the move
-- **THEN** the route behavior, model output validation, candidate exercise validation, and `parentTraceId` behavior MUST remain unchanged
-- **AND** the route MUST use natural language `conversationSummary` and the latest relevant user request as model-visible conversation context instead of selected history messages
+#### Scenario: Legacy downstream AI routes are absent
+- **WHEN** chat plan, routine, patch or recommendation generation needs AI orchestration after the move
+- **THEN** the implementation MUST use `/api/chat` Agent-first stream/result contracts, Agent registry tools, or deterministic result-level operations
+- **AND** the implementation MUST NOT keep a separate downstream chat AI route as a compatibility execution surface
 
 #### Scenario: AI trace is inspected
 - **WHEN** a developer inspects the AI trace for a chat request after the refactor
@@ -183,4 +183,3 @@ Define the responsibilities and dependency direction for Next.js Route Handlers,
 - **WHEN** `app/api/auth/local-anonymous/route.ts` 收到没有匿名凭证的创建请求
 - **THEN** Route Handler MAY 创建新的匿名用户和匿名凭证
 - **AND** Route Handler MUST NOT 通过固定开发用户继续执行请求
-

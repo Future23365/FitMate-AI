@@ -21,7 +21,7 @@ TBD - created by archiving change change-008-rag-hybrid-search. Update Purpose a
 系统 SHALL 在全文和向量召回前后执行结构化硬过滤，确保 RAG 不绕过权限和训练规则。
 
 #### Scenario: 搜索 artifact
-- **WHEN** ReferenceResolver 使用 hybrid search 搜索 artifact
+- **WHEN** Agent 通过 `searchArtifacts` 使用 hybrid search 搜索 artifact
 - **THEN** 搜索 MUST 限制为当前 userId 可访问的 artifact
 - **AND** 搜索 MUST 遵守 kind、scope、status 和 sessionScope 过滤
 - **AND** LLM MUST NOT 选择候选集合之外的 artifactId
@@ -76,6 +76,14 @@ TBD - created by archiving change change-008-rag-hybrid-search. Update Purpose a
 - **THEN** 回复 MUST 只引用工具结果中的真实动作
 - **AND** 系统 MUST NOT 生成不存在于数据库的 exerciseId
 
+#### Scenario: 推荐检索已有结构化候选边界
+- **WHEN** `searchExercises` 使用 `candidateUse="recommendation"` 执行动作检索
+- **AND** 请求包含 `bodyRegions`、`targetMuscles`、`equipmentRequired`、`equipment`、`allowedSections`、`goal` 或 `sessionMinutes` 等结构化候选边界
+- **THEN** 系统 MUST 先执行结构化 hard filters
+- **AND** `query` MUST 只作为候选排序提示
+- **AND** `query` MUST NOT 作为硬召回条件清空已满足结构化边界的候选
+- **AND** 若仍无候选，诊断原因 MUST 指向结构化过滤结果或 facet 问题，而不是误报为单纯 `no_hybrid_match`
+
 ### Requirement: LLM 工具检索必须进入 RAG Trace
 系统 SHALL 对由 LLM 触发的 artifact 或 exercise 检索记录 RAG 诊断摘要。
 
@@ -84,4 +92,38 @@ TBD - created by archiving change change-008-rag-hybrid-search. Update Purpose a
 - **THEN** AiRunTrace MUST 记录 `rag_query` 或等价 step
 - **AND** step MUST 包含 query、过滤条件、召回数量、过滤数量、rerank 摘要和最终候选 id
 - **AND** step MUST 能关联对应的 `tool_call` step
+
+### Requirement: Agent 检索工具必须使用结构化过滤参数
+
+系统 SHALL 要求 Agent 通过结构化参数调用 artifact 和 exercise 检索工具。用户原始消息 MAY 作为辅助语义 query，但 MUST NOT 成为唯一检索输入。
+
+#### Scenario: 搜索动作
+- **WHEN** Agent 调用 `searchExercises` 或等价动作检索工具
+- **THEN** 工具输入 MUST 支持 `goal`、`targetMuscles`、`equipmentRequired`、`equipmentAvoided`、`location`、`level`、`sessionMinutes`、`preferences` 和 `avoidances` 等结构化字段
+- **AND** 服务端 MUST 先执行结构化硬过滤，再执行全文、向量或语义 rerank
+- **AND** 返回给 LLM 的 exerciseId MUST 来自数据库
+- **AND** 工具 MUST 返回 `candidateSetId`，供后续 draft、Patch 或保存工具引用
+
+#### Scenario: 搜索 artifact
+- **WHEN** Agent 调用 `searchArtifacts`
+- **THEN** 工具输入 MUST 支持 `kind`、`sessionScope`、`targetGoal`、`equipmentRequired`、`equipmentAvoided`、`sessionMinutes` 和 `query` 等结构化字段
+- **AND** 搜索 MUST 按当前 `userId`、status、scope 和 session 边界过滤
+- **AND** LLM MUST NOT 选择候选集合之外的 artifactId
+- **AND** 工具 MUST 返回 `candidateSetId` 或等价结果 id，供后续 payload 读取和 edit plan 引用
+
+#### Scenario: 用户表达否定约束
+- **WHEN** 用户表达不用某器械、不要某动作类型、避免某偏好或等价否定条件
+- **THEN** Agent MUST 将该条件传入结构化 `equipmentAvoided`、`avoidances` 或等价字段
+- **AND** 搜索工具 MUST NOT 把被否定词作为正向匹配加分依据
+
+#### Scenario: 只有原始自然语言 query
+- **WHEN** Agent 调用检索工具时只提供用户原始消息或裸 query
+- **THEN** 工具 MUST 拒绝用于可执行动作推荐、Patch、routine 或 plan 的候选集合
+- **AND** Agent MUST 补充结构化字段、读取更多上下文或进入澄清
+- **AND** 系统 MUST NOT 用裸 query 检索结果触发写入或训练卡片
+
+#### Scenario: 候选集合过期或不匹配
+- **WHEN** 后续工具引用 candidateSetId
+- **THEN** 系统 MUST 校验 candidateSetId 属于当前 run、当前 userId、当前目标和未过期状态
+- **AND** 系统 MUST 拒绝候选集合外的 exerciseId 或 artifactId
 

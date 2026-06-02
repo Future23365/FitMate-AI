@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  buildPlanStrategyFromChatIntent,
+  buildPlanStrategyFromWorkoutIntent,
   expandDomainPlan,
   validatePlanDraftAgainstStrategy,
 } from "@/lib/server/workout-plans/domain-plan-engine";
@@ -14,20 +14,16 @@ import {
 
 describe("DomainPlanEngine", () => {
   it("expands a referenced routine into a three-week schedule preview", () => {
-    const strategy = buildPlanStrategyFromChatIntent({
+    const strategy = buildPlanStrategyFromWorkoutIntent({
       intent: createWorkoutPlanIntent({
         intentType: "plan",
         weeklyFrequency: 3,
         sessionMinutes: 30,
       }),
       latestUserMessage: "三周都练这个，一周三练",
-      referenceResolution: {
-        status: "resolved",
+      sourceArtifact: {
         artifactId: "artifact-routine-1",
-        artifactKind: "routine",
-        confidence: "high",
-        reason: "命中最近 routine",
-        candidates: [],
+        kind: "routine",
       },
     });
 
@@ -62,20 +58,16 @@ describe("DomainPlanEngine", () => {
   });
 
   it("uses conservative intensity for four sessions per week without increasing volume", () => {
-    const strategy = buildPlanStrategyFromChatIntent({
+    const strategy = buildPlanStrategyFromWorkoutIntent({
       intent: createWorkoutPlanIntent({
         intentType: "plan",
         weeklyFrequency: 4,
         sessionMinutes: 30,
       }),
       latestUserMessage: "改成一周四练但别太累",
-      referenceResolution: {
-        status: "resolved",
+      sourceArtifact: {
         artifactId: "artifact-plan-1",
-        artifactKind: "plan",
-        confidence: "high",
-        reason: "命中最近 plan",
-        candidates: [],
+        kind: "plan",
       },
     });
 
@@ -114,19 +106,15 @@ describe("DomainPlanEngine", () => {
       focus: "背部",
       cycleDayIndex: 2,
     };
-    const strategy = buildPlanStrategyFromChatIntent({
+    const strategy = buildPlanStrategyFromWorkoutIntent({
       intent: createWorkoutPlanIntent({
         intentType: "plan",
         weeklyFrequency: 2,
       }),
       latestUserMessage: "按 AB 交替练三周",
-      referenceResolution: {
-        status: "resolved",
+      sourceArtifact: {
         artifactId: "artifact-plan-2",
-        artifactKind: "plan",
-        confidence: "high",
-        reason: "命中最近 plan",
-        candidates: [],
+        kind: "plan",
       },
     });
 
@@ -162,7 +150,7 @@ describe("DomainPlanEngine", () => {
   });
 
   it("keeps explicit resolved horizon separate from weekly frequency", () => {
-    const strategy = buildPlanStrategyFromChatIntent({
+    const strategy = buildPlanStrategyFromWorkoutIntent({
       intent: createWorkoutPlanIntent({
         intentType: "plan",
         calendarHorizonDays: 5,
@@ -173,13 +161,9 @@ describe("DomainPlanEngine", () => {
         calendarHorizonDays: "current_user_message",
         weeklyFrequency: "current_user_message",
       },
-      referenceResolution: {
-        status: "resolved",
+      sourceArtifact: {
         artifactId: "artifact-routine-5",
-        artifactKind: "routine",
-        confidence: "high",
-        reason: "命中最近 routine",
-        candidates: [],
+        kind: "routine",
       },
     });
 
@@ -194,7 +178,7 @@ describe("DomainPlanEngine", () => {
   });
 
   it("marks default plan horizon as a user-visible assumption", () => {
-    const strategy = buildPlanStrategyFromChatIntent({
+    const strategy = buildPlanStrategyFromWorkoutIntent({
       intent: createWorkoutPlanIntent({
         intentType: "plan",
         calendarHorizonDays: undefined,
@@ -204,13 +188,9 @@ describe("DomainPlanEngine", () => {
       fieldSources: {
         calendarHorizonDays: "default",
       },
-      referenceResolution: {
-        status: "resolved",
+      sourceArtifact: {
         artifactId: "artifact-routine-default",
-        artifactKind: "routine",
-        confidence: "high",
-        reason: "命中最近 routine",
-        candidates: [],
+        kind: "routine",
       },
     });
 
@@ -219,7 +199,7 @@ describe("DomainPlanEngine", () => {
   });
 
   it("rejects drafts that conflict with the resolved PlanStrategy horizon", () => {
-    const strategy = buildPlanStrategyFromChatIntent({
+    const strategy = buildPlanStrategyFromWorkoutIntent({
       intent: createWorkoutPlanIntent({
         intentType: "plan",
         calendarHorizonDays: 5,

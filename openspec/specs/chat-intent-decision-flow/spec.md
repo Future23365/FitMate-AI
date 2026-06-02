@@ -3,369 +3,123 @@
 ## Purpose
 TBD - created by archiving change unify-chat-intent-decision-flow. Update Purpose after archive.
 ## Requirements
-### Requirement: 聊天主链路必须产出唯一 resolved intent
-系统 SHALL 在每轮 `/api/chat` 请求中产出一个唯一的 resolved intent，作为用户回复、内部动作事件、卡片生成、trace 和持久化的共同执行契约。
-
-#### Scenario: 用户请求可执行训练结果
-- **WHEN** 用户提出动作推荐、单次 routine、长期 plan 或已有 artifact 调整请求
-- **THEN** 系统 MUST 产出一个 resolved intent
-- **AND** resolved intent MUST 同时表达 `type`、`action.kind`、`action.shouldTrigger`、`responseMode`、训练意图字段、缺失字段和用户可见建议
-- **AND** resolved intent MUST 表达关键字段来源、引用需求和服务端引用解析结果
-- **AND** 后续回复生成和卡片生成 MUST 使用该 resolved intent
-
-#### Scenario: 系统存在旧版 intent 字段
-- **WHEN** 系统仍需要兼容旧的 `type`、`workoutIntent`、`canTriggerAction` 或 `suggestedReplies`
-- **THEN** 这些字段 MUST 从 resolved intent 派生
-- **AND** 系统 MUST NOT 让旧字段成为另一个可独立触发卡片的事实来源
-
-### Requirement: resolved intent 必须提供共享的结构化 action contract
-系统 SHALL 使用共享 schema 表达 resolved intent 和 assistant action 事件，避免服务端、前端和生成接口各自解释训练意图。
-
-#### Scenario: 服务端发送 assistant action 事件
-- **WHEN** `/api/chat` 决定本轮需要触发结构化动作
-- **THEN** assistant action 事件 MUST 携带 resolved action、可校验的 workout intent、字段来源和引用解析结果
-- **AND** assistant action 事件 MUST NOT 只携带无法校验的 `intent: unknown`
-
-#### Scenario: resolved action 覆盖用户可观察动作
-- **WHEN** 用户请求动作推荐、routine、plan、patch、动作替换、动作讲解或普通回答
-- **THEN** `action.kind` MUST 使用共享枚举表达对应动作
-- **AND** 枚举 MUST 至少覆盖 `exercise_recommendation`、`workout_routine`、`workout_plan`、`workout_patch`、`exercise_replacement`、`exercise_explanation` 和 `none`
-
-#### Scenario: action 不可执行
-- **WHEN** resolved action 因缺失信息、引用不可用或硬边界无法执行
-- **THEN** resolved intent MUST 记录 `action.blockingMissingFields` 或等价阻断原因
-- **AND** 用户回复和 trace MUST 使用该结构化原因解释本轮为什么不触发生成
-
-### Requirement: resolved intent 必须区分澄清回复和生成后调整建议
-系统 SHALL 将缺信息澄清和生成后可选调整建议拆成不同语义，避免建议阻断用户明确可执行需求。
-
-#### Scenario: 用户请求可执行计划且条件足够
-- **WHEN** 用户明确请求可执行训练结果
-- **AND** resolved intent 具备生成所需核心字段
-- **THEN** `action.shouldTrigger` MUST 为 `true`
-- **AND** `responseMode` MUST 为 `generate_directly` 或 `generate_with_suggestions`
-- **AND** 系统 MUST 使用 `adjustmentReplies` 或等价字段表达生成后的可选调整建议
-- **AND** 系统 MUST NOT 使用澄清回复阻断本次生成
-
-#### Scenario: 用户请求缺少必要信息
-- **WHEN** 用户请求训练结果但缺少目标、引用对象、器械/场地、时长、频率或其他当前动作必需字段
-- **THEN** `action.shouldTrigger` MUST 为 `false`
-- **AND** `responseMode` MUST 为 `ask_clarification`
-- **AND** 系统 MUST 使用 `clarificationReplies` 或等价字段给出用户可直接发送的补充选项
-- **AND** 系统 MUST NOT 同时触发训练卡片生成
-
-### Requirement: 服务端必须校验 resolved intent 内部一致性
-系统 SHALL 在触发任何内部动作前校验 resolved intent 的结构化字段是否自洽。
-
-#### Scenario: 回复模式和触发状态冲突
-- **WHEN** resolved intent 的 `responseMode` 为 `ask_clarification`
-- **AND** `action.shouldTrigger` 为 `true`
-- **THEN** 系统 MUST 判定该 resolved intent 存在冲突
-- **AND** 系统 MUST NOT 直接触发任何卡片生成
-
-#### Scenario: 缺失字段和触发状态冲突
-- **WHEN** resolved intent 的 `missingActionFields` 非空
-- **AND** `action.shouldTrigger` 为 `true`
-- **THEN** 系统 MUST 判定该 resolved intent 存在冲突
-- **AND** 系统 MUST NOT 直接触发任何卡片生成
-
-#### Scenario: 意图类型和动作类型冲突
-- **WHEN** resolved intent 的 `type`、`workoutIntent.intentType` 和 `action.kind` 表达不同训练结果类型
-- **THEN** 系统 MUST 判定该 resolved intent 存在冲突
-- **AND** 系统 MUST NOT 在冲突修复前调用下游 artifact generator
-
-#### Scenario: 引用对象不可用但动作依赖引用
-- **WHEN** resolved intent 的 action 需要基于历史 artifact 生成、修改或讲解
-- **AND** ReferenceResolver 返回 `not_found` 或 `ambiguous`
-- **THEN** 系统 MUST 将该结果视为不可执行
-- **AND** 系统 MUST 进入澄清回复或引用选择流程
-
-#### Scenario: patch、替换或讲解动作依赖历史内容
-- **WHEN** resolved intent 的 `action.kind` 为 `workout_patch`、`exercise_replacement` 或依赖 artifact 的 `exercise_explanation`
-- **THEN** resolved intent MUST 声明引用需求
-- **AND** 服务端 MUST 在调用下游修改或讲解流程前校验引用已解析为当前用户可访问 artifact
-
-### Requirement: 冲突 resolved intent 必须经过一次 repair 或降级为澄清
-系统 SHALL 在 resolved intent 出现结构冲突时调用一次 LLM repair，并在 repair 失败后停止卡片生成。
-
-#### Scenario: repair 后 resolved intent 通过门控
-- **WHEN** 初始 resolved intent 未通过一致性门控
-- **AND** LLM repair 返回的 resolved intent 通过一致性门控
-- **THEN** 系统 MUST 使用 repair 后的 resolved intent 继续执行
-- **AND** trace MUST 记录原始冲突、repair 请求和 repair 结果
-
-#### Scenario: repair 后仍冲突
-- **WHEN** 初始 resolved intent 未通过一致性门控
-- **AND** LLM repair 返回的 resolved intent 仍未通过一致性门控
-- **THEN** 系统 MUST 将本轮降级为 `action.shouldTrigger = false`
-- **AND** `responseMode` MUST 为 `ask_clarification`
-- **AND** 系统 MUST NOT 触发任何卡片生成
-
-### Requirement: 生成型 artifact 必须由服务端聊天编排闭环生成
-系统 SHALL 在服务端聊天主链路中完成生成型 artifact 的触发、生成、校验和结果汇总，前端不得成为第二个编排器。
-
-#### Scenario: resolved intent 要求生成 artifact
-- **WHEN** 最终 resolved intent 的 `action.shouldTrigger` 为 `true`
-- **AND** `action.kind` 为 `exercise_recommendation`、`workout_routine`、`workout_plan`、`workout_patch` 或等价生成型动作
-- **THEN** 服务端 chat orchestrator MUST 调用对应 artifact generation service
-- **AND** 服务端 MUST 在同一轮 `/api/chat` 编排中校验 artifact 结果
-- **AND** 前端 MUST NOT 在 `/api/chat` 完成后再自行调用生成接口来补齐该 artifact
-
-#### Scenario: artifact 生成中需要展示进度
-- **WHEN** artifact 生成需要较长时间
-- **THEN** 服务端 MAY 通过流式事件返回 `intent_resolved`、`artifact_generating`、`artifact_validated`、`artifact_failed` 或等价状态
-- **AND** 这些事件 MUST 表达服务端编排状态，而不是要求前端发起生成的命令
-
-#### Scenario: 专用生成接口仍然存在
-- **WHEN** `/api/ai/workout-plan` 或等价专用生成接口仍保留
-- **THEN** 该接口 MAY 用于调试、兼容或服务端内部复用
-- **AND** 生产聊天主链路 MUST NOT 依赖前端调用该接口完成本轮 artifact 生成
-- **AND** 该接口 MUST NOT 重新判断本轮是否应该生成 artifact
-
-### Requirement: 用户回复必须基于 resolved intent 和 artifact 结果生成
-系统 SHALL 使用最终 resolved intent 和 artifact 生成结果产出用户可见回复，避免回复内容与内部动作不一致。
-
-#### Scenario: artifact 生成成功
-- **WHEN** resolved intent 要求触发卡片生成
-- **AND** artifact generator 返回通过校验的推荐、routine、plan 或 patch 结果
-- **THEN** 用户回复 MUST 描述已经按 resolved intent 处理的结果
-- **AND** 用户回复 MAY 提供 `adjustmentReplies` 对应的可选调整方向
-- **AND** 用户回复 MUST NOT 再询问用户是否要生成同一个结果
-
-#### Scenario: artifact 生成失败
-- **WHEN** resolved intent 要求触发卡片生成
-- **AND** artifact generator 返回失败或可恢复错误
-- **THEN** 用户回复 MUST 基于失败结果给出恢复引导或澄清选项
-- **AND** 用户回复 MUST NOT 承诺已经生成成功
-- **AND** 系统 MUST NOT 展示未通过校验的 artifact
-
-#### Scenario: resolved intent 要求澄清
-- **WHEN** resolved intent 的 `responseMode` 为 `ask_clarification`
-- **THEN** 用户回复 MUST 只追问缺失信息或引用对象
-- **AND** 系统 MUST NOT 在同一轮返回训练卡片
-
-### Requirement: 前端不得从自然语言回复正文二次提取卡片触发
-聊天前端 SHALL 只展示服务端返回的 resolved action、生成状态和 artifact 结果，不得自行触发 artifact 生成。
-
-#### Scenario: 回复正文包含类似生成承诺的文字
-- **WHEN** 服务端自然语言回复中出现“安排”、“整理”、“生成”或等价表达
-- **AND** 服务端 resolved action 未要求触发卡片
-- **THEN** 前端 MUST NOT 仅凭回复正文调用训练卡片生成接口
-
-#### Scenario: 服务端返回 resolved action 和生成状态
-- **WHEN** 服务端返回 `action.shouldTrigger = true`
-- **THEN** 前端 MUST 展示服务端返回的生成状态或 artifact 结果
-- **AND** 前端 MUST NOT 使用该 action、resolved intent 或 referenceResolution 自行调用对应生成流程
-- **AND** 前端 MUST NOT 重新解析回复正文来决定 action 类型
-
-#### Scenario: 历史消息包含旧 trigger JSON
-- **WHEN** 历史 assistant 消息正文包含 `workout_plan_trigger`、`workout_routine_trigger`、`exercise_recommendation_trigger` 或等价旧 trigger JSON
-- **THEN** 展示层 MAY 清理这些旧 trigger block 以避免用户看到内部协议
-- **AND** 聊天 hook、上下文摘要和新一轮决策 MUST NOT 将这些正文 trigger JSON 当作最新训练意图事实来源
-
-### Requirement: 聊天编排必须在适用场景进入只读 tool loop
-系统 SHALL 在聊天意图解析、用户记忆构建和引用解析之后，按 resolved intent 和上下文缺口决定是否进入只读 LLM tool loop。
-
-#### Scenario: 用户请求需要补查只读上下文
-- **WHEN** 用户询问历史计划细节、动作详情、推荐原因、训练卡片解释或其他需要数据库只读上下文的问题
-- **THEN** `/api/chat` MUST 允许进入只读 tool loop
-- **AND** 首版 tool loop 输出 MUST 只作为最终自然语言回复的只读上下文
-
-#### Scenario: 首版允许进入 tool loop 的场景
-- **WHEN** 用户请求属于历史 artifact 解释、动作详情补查、推荐理由解释或计划理由解释
-- **AND** 当前上下文不足以可靠回答
-- **AND** `ENABLE_READONLY_LLM_TOOLS = "true"`
-- **THEN** `/api/chat` MAY 进入只读 tool loop 补查上下文
-- **AND** tool loop 结果 MUST 只作为最终自然语言回复上下文
-
-#### Scenario: 用户请求可由现有确定性分支完成
-- **WHEN** resolved intent 已经能由现有引用解析、Patch、动作讲解或卡片生成流程确定性完成
-- **THEN** 系统 MAY 跳过只读 tool loop
-- **AND** 系统 MUST 保持现有确定性流程的行为边界
-
-#### Scenario: 生成型主流程不进入 tool loop
-- **WHEN** 用户请求触发 `workout_plan`、`routine`、`exercise_recommendation` 或 `workout_patch` 的生成、保存、替换或应用流程
-- **THEN** 系统 MUST 使用 resolved intent、ReferenceResolver、候选选择、Validator、PolicyEngine、ConfirmationGate 和对应 generator 决定执行路径
-- **AND** 系统 MUST NOT 让只读 tool loop 改变 `action.shouldTrigger` 或生成型 artifact 内容
-
-#### Scenario: 引用解析需要用户澄清
-- **WHEN** ReferenceResolver 返回 `ambiguous` 或 `not_found`
-- **THEN** `/api/chat` MUST 继续返回引用澄清或新生成引导
-- **AND** 系统 MUST NOT 进入只读 tool loop 替用户选择候选或猜测 artifactId
-
-#### Scenario: 确定性写流程已处理请求
-- **WHEN** WorkoutPatchEngine、Validator、PolicyEngine、ConfirmationGate 或 artifact generator 已经产出确定性结果
-- **THEN** 系统 MUST 使用该结果继续回复、确认或失败恢复
-- **AND** 系统 MUST NOT 再通过只读 tool loop 重新判断是否触发同一动作
-
-### Requirement: 只读 tool loop 不得绕过 resolved intent 门控
-系统 SHALL 将只读 tool loop 作为补查上下文阶段，而不是第二套动作触发决策来源。
-
-#### Scenario: tool loop 返回可用上下文
-- **WHEN** 只读 tool loop 成功返回 tool context bundle
-- **THEN** 系统 MUST 继续以最终 resolved intent 决定是否触发卡片、Patch 或澄清
-- **AND** tool context bundle MUST NOT 单独触发训练 artifact 生成
-- **AND** tool context bundle MUST NOT 直接传入 artifact generator 用于决定训练内容
-
-#### Scenario: tool loop 与 resolved intent 冲突
-- **WHEN** 工具结果暗示的动作类型与 resolved intent 的 `action.kind` 冲突
-- **THEN** 系统 MUST 以 resolved intent 门控为准
-- **AND** 必要时 MUST 进入澄清、repair 或确定性回退
-
-### Requirement: 聊天回复必须显式消费只读工具上下文
-系统 SHALL 在最终回复生成时把本轮可用的只读工具摘要作为受控上下文，而不是让模型凭空引用数据库内容。
-
-#### Scenario: 工具上下文用于最终回复
-- **WHEN** 只读 tool loop 返回动作、artifact 或候选摘要
-- **THEN** 最终回复模型请求 MUST 包含摘要化后的 tool context bundle
-- **AND** 回复内容 MUST 与工具结果和 resolved intent 保持一致
-- **AND** trace MUST 能显示该 bundle 已进入最终回复模型请求
-
-#### Scenario: 工具上下文不可用
-- **WHEN** 只读 tool loop 未执行、失败或没有返回可用结果
-- **THEN** 最终回复 MUST 只基于当前 prompt、conversationSummary、recent artifact summary 和现有服务端上下文
-- **AND** 回复 MUST NOT 声称已经读取未成功读取的数据库内容
-
-### Requirement: 服务端不得语义重写 LLM 的高层意图
-系统 SHALL 将 LLM 输出的高层语义意图作为自然语言理解结果，只允许服务端做确定性契约校验和执行门控。服务端 MUST NOT 使用关键词、正则、短句模板、历史摘要推断或其他写死自然语言条件来判断 LLM 的高层意图是否准确，也 MUST NOT 因这些规则改写 `type`、`action.kind` 或 `workoutIntent.intentType`。
-
-#### Scenario: LLM 输出引用型替换意图
-- **WHEN** LLM 输出的 resolved intent 表达 `exercise_replacement` 或 `workout_patch`
-- **AND** 用户文本包含“换成”、“改成”、“调整”或其他可能被旧规则命中的词
-- **THEN** 服务端 MUST NOT 将该意图改写为 `routine`、`workout_plan` 或 `exercise_recommendation`
-- **AND** 服务端 MUST 按引用型动作的契约校验引用需求、目标 artifact、目标动作和 patch 范围
-
-#### Scenario: LLM 输出生成型意图
-- **WHEN** LLM 输出的 resolved intent 表达 `exercise_recommendation`、`workout_routine` 或 `workout_plan`
-- **THEN** 服务端 MUST NOT 根据当前用户消息中的写死关键词重新判断该意图是否应该变成另一个高层动作
-- **AND** 服务端 MAY 校验该意图是否具备当前 action 所需的确定性字段
-- **AND** 确定性字段缺失时，服务端 MUST 进入 repair、澄清或拒绝执行
-
-#### Scenario: LLM 输出和契约字段冲突
-- **WHEN** LLM 输出的 `type`、`action.kind`、`responseMode`、`workoutIntent.intentType` 或 `referenceRequirement` 存在结构冲突
-- **THEN** 服务端 MUST 记录契约冲突
-- **AND** 服务端 MUST 使用 repair、澄清或拒绝执行处理该冲突
-- **AND** 服务端 MUST NOT 通过写死自然语言规则把该 intent 改写成另一个高层 action 作为修复
-
-#### Scenario: LLM 输出解析失败
-- **WHEN** LLM 意图输出无法通过 JSON、schema 或 resolved intent 契约校验
-- **THEN** 服务端 MAY 使用 fallback 构造安全回复、澄清或保留非执行建议
-- **AND** fallback MUST NOT 基于用户文本关键词生成可执行的 `exercise_recommendation`、`routine` 或 `workout_plan`
-- **AND** fallback MUST NOT 将 `canTriggerAction` 或 `action.shouldTrigger` 设置为 true
-
-### Requirement: 服务端契约归一化只能处理确定性边界
-系统 SHALL 保留服务端契约归一化，但该归一化只能处理不依赖自然语言语义判断的确定性边界，包括 schema 解析、空值规范化、枚举合法性、字段一致性、引用需求、权限隔离、数据库存在性、候选动作来源、patch 范围和 artifact 校验。
-
-#### Scenario: 服务端处理结构化空值和默认值
-- **WHEN** LLM 输出包含 `null`、缺省数组、缺省字段或可规范化的旧字段
-- **THEN** 服务端 MAY 将其规范化为 schema 允许的结构
-- **AND** 服务端 MUST NOT 因该规范化改变 LLM 输出的高层语义动作类型
-
-#### Scenario: 服务端校验生成型 action
-- **WHEN** resolved intent 的 action 需要生成动作推荐、routine 或 plan
-- **THEN** 服务端 MUST 校验生成所需的确定性字段、候选动作来源和 artifact generator 输出
-- **AND** 服务端 MUST NOT 使用自然语言关键词判断该生成型 action 是否语义正确
-
-#### Scenario: 服务端校验引用型 action
-- **WHEN** resolved intent 的 action 需要读取、替换或 patch 历史 artifact
-- **THEN** 服务端 MUST 校验当前用户是否可访问目标 artifact
-- **AND** 服务端 MUST 校验目标动作或目标 item 是否存在于 artifact payload
-- **AND** 服务端 MUST 校验最终 patch 只影响目标范围
-- **AND** 服务端 MUST NOT 要求该类 action 必须具备新生成 routine 或 plan 所需的 `workoutIntent`
-
-#### Scenario: 服务端补齐生成字段
-- **WHEN** LLM 已经输出生成型 action
-- **AND** 服务端拥有来自历史 artifact、结构化会话事实或 schema default 的确定性字段
-- **THEN** 服务端 MAY 补齐该 action 执行所需字段
-- **AND** 服务端 MUST NOT 使用这些字段反推或改写高层 action 类型
-
-#### Scenario: 服务端处理引用型 artifact kind
-- **WHEN** resolved intent 的 action 是 `exercise_replacement` 或 `workout_patch`
-- **THEN** 服务端 MUST 只允许可 patch 的 `routine` 或 `plan` artifact
-- **AND** 服务端 MUST 在 artifact kind 不支持时进入澄清或失败恢复
-- **WHEN** resolved intent 的 action 是 `exercise_explanation`
-- **THEN** 服务端 MAY 读取 `exercise_recommendation`、`routine` 或 `plan` 中的目标动作
-
-### Requirement: 局部替换不得退化为整套重新生成
-系统 SHALL 将明确指向已有 artifact 中单个动作或局部内容的替换请求执行为引用型 patch 流程，而不是重新生成整个 routine 或 plan。
-
-#### Scenario: 用户只要求替换一个动作
-- **WHEN** resolved intent 表达用户要替换已有 artifact 中的一个动作
-- **AND** ReferenceResolver 能解析到当前用户可访问的目标 artifact
-- **AND** 目标动作存在于 artifact payload
-- **THEN** 系统 MUST 调用对应 patch 或替换流程
-- **AND** 输出 patch MUST 保持非目标动作、非目标 section 和原训练结构不变
-- **AND** 系统 MUST NOT 调用 routine 或 plan 生成器重新生成整套训练
-
-#### Scenario: 替换目标不明确
-- **WHEN** resolved intent 表达替换请求
-- **AND** 引用对象、目标动作或目标位置无法确定
-- **THEN** 系统 MUST 进入澄清或引用选择流程
-- **AND** 系统 MUST NOT 根据历史摘要或关键词自行选择要修改的 artifact 或动作
-
-#### Scenario: 关键词不能单独触发 Patch
-- **WHEN** resolved intent 表达生成型 action 或普通回答
-- **AND** 用户文本包含“换成”、“改成”、“调整”、“删除”等可能被旧规则命中的词
-- **THEN** 系统 MUST NOT 仅因为这些关键词进入 `workout_patch` 或 `exercise_replacement` 执行流程
-- **AND** 系统 MAY 在最终回复中澄清用户是否要修改已有训练内容
-
-### Requirement: `/api/chat` 必须从服务端会话恢复结构化历史事实
-
-系统 SHALL 在每轮 `/api/chat` 意图决策前，根据当前用户和 `conversationId` 恢复已保存会话中的结构化上下文，并将其作为 action gate 的可信事实来源。
-
-#### Scenario: 已保存会话优先于最新消息构造的空上下文
-
-- **WHEN** 当前用户发送 `/api/chat` 请求
-- **AND** 请求包含已保存会话的 `conversationId`
-- **AND** 已保存会话包含历史 `messages`、`conversationContext`、训练卡片或 `recommendationIntents`
-- **THEN** 系统 MUST 从已保存会话构造 `internalConversationContext`
-- **AND** 系统 MUST 使用该上下文执行 `workout_plan`、`workout_routine`、`exercise_recommendation` 和引用类 action gate
-- **AND** 系统 MUST NOT 只用最新一条 `latestUserMessage` 构造的空上下文覆盖已保存结构化事实
-
-#### Scenario: 客户端上下文只能作为 fallback
-
-- **WHEN** `/api/chat` 请求同时携带客户端提交的 `messages` 或 `conversationContext`
-- **AND** 服务端能够读取当前用户的已保存会话
-- **THEN** 系统 MUST 优先使用服务端读取到的会话事实
-- **AND** 系统 MUST NOT 将客户端提交的上下文作为唯一可信事实源
-- **AND** 客户端提交的上下文若被用于 fallback，MUST 先通过服务端 schema 校验
-
-#### Scenario: hydrated context 进入 trace
-
-- **WHEN** `/api/chat` 完成历史事实恢复
-- **THEN** trace MUST 记录 hydration source
-- **AND** trace MUST 记录是否读取到已保存会话、结构化上下文和 recent artifact summaries
-- **AND** trace MUST NOT 保存完整 prompt、完整候选池或未裁剪的敏感 payload
-
-### Requirement: 长期计划短指令必须使用 hydrated plan 上下文
-
-系统 SHALL 在长期计划补齐或调整场景中使用 hydrated context 判断 plan 语义，避免把后续短指令误降级为动作推荐、routine 或澄清。
-
-#### Scenario: 长期计划补齐后触发 plan
-
-- **WHEN** 同一会话中用户先输入“给我一个每周训练计划”
-- **AND** 后续输入“每周4练，每次45分钟”
-- **AND** 再输入“增肌，有健身房器械”
-- **THEN** 系统 MUST 使用历史结构化事实识别已存在长期计划上下文
-- **AND** 系统 MUST 触发 `workout_plan`
-- **AND** 生成 intent MUST 保留 `weeklyFrequency = 4`
-- **AND** 生成 intent MUST 保留 `sessionMinutes = 45`
-- **AND** 系统 MUST NOT 触发 `exercise_recommendation`
-
-#### Scenario: 已有 plan 后调整周频
-
-- **WHEN** 同一会话中最近已生成 `workout_plan`
-- **AND** 用户输入“改成每周6练”
-- **THEN** 系统 MUST 将本轮识别为长期计划调整
-- **AND** 系统 MUST 触发 `workout_plan`
-- **AND** 生成 intent MUST 表达 `weeklyFrequency = 6`
-- **AND** 系统 MUST NOT 因缺少重新声明目标或器械而静默无卡片或重新追问
-
-#### Scenario: 笼统长期计划仍需追问
-
-- **WHEN** 用户只输入“给我一个每周训练计划”
-- **AND** 当前会话没有训练目标、周频、单次时长、器械或场地等核心事实
-- **THEN** 系统 MUST 返回澄清回复
-- **AND** 系统 MUST NOT 生成 `workout_plan`
-- **AND** 系统 MUST NOT 生成空泛训练卡片
+### Requirement: 旧聊天意图架构必须从生产主链移除
+系统 SHALL 从生产 `/api/chat` 主链移除旧 intent-first 架构。`ResolvedChatIntent`、`ChatIntent`、`workoutIntent`、`action.shouldTrigger`、`responseMode`、`assistant_action` 和 `intent_resolved` MUST NOT 作为生产执行合同、卡片触发事实源、Patch 决策、计划生成输入或最终回复依据。
+
+#### Scenario: 聊天请求进入生产主链
+- **WHEN** 用户向 `/api/chat` 发送消息
+- **THEN** 系统 MUST 进入 Tool-first `AgentOrchestrator`
+- **AND** 系统 MUST 以 `AgentExecutionResult` 作为本轮唯一生产执行合同
+- **AND** 系统 MUST NOT 先运行旧 intent resolution、resolved intent repair、旧 action gate 或旧只读 tool loop 触发矩阵
+
+#### Scenario: 旧 intent 字段仍存在于代码库
+- **WHEN** 代码库中仍保留 `ResolvedChatIntent`、`ChatIntent`、`workoutIntent` 或旧 action 字段类型
+- **THEN** 这些类型 MUST 只能用于历史数据迁移、离线报告解析或测试夹具
+- **AND** 生产 `/api/chat` MUST NOT 导入这些类型来决定工具选择、生成、Patch、保存或回复
+- **AND** allowlist 外的旧类型、旧 helper、旧 prompt module 和旧 adapter MUST 被删除
+
+#### Scenario: 旧兼容事件仍存在
+- **WHEN** 系统仍需要解析历史 `assistant_action`、`intent_resolved` 或 trigger JSON
+- **THEN** 解析逻辑 MUST 位于离线迁移、历史展示兼容或测试 fixture 中
+- **AND** 生产聊天流 MUST NOT 输出这些事件作为新运行结果
+- **AND** 前端 MUST NOT 依赖这些事件触发训练卡片
+
+#### Scenario: 生产流输出用户可见结果
+- **WHEN** 新运行需要向前端表达卡片、Patch、建议、澄清、阻断、失败或保存状态
+- **THEN** 系统 MUST 通过 `agent_execution_result`、artifact / patch / suggestion 事件、tool evidence metadata 或 done metadata 表达
+- **AND** 系统 MUST NOT 输出 `assistant_action`、`intent_resolved`、旧 trigger JSON 或可作为执行事实源的 `workoutIntent`
+
+#### Scenario: 用户发送短指令
+- **WHEN** 用户发送“换一个”“不用哑铃”“简单点”“改成在家练”或等价短指令
+- **THEN** Agent MUST 通过工具读取真实 recent messages、artifact payload、动作候选和用户记忆后决定执行结果
+- **AND** 服务端 MUST NOT 通过旧关键词规则或 resolved intent 归一化预先改写高层语义
+
+#### Scenario: Agent 主链需要处理失败
+- **WHEN** Agent decision、工具调用、候选检索、引用读取、validation、policy、persistence 或 Response Writer 失败
+- **THEN** 系统 MUST 使用 Agent repair、tool retry、`needs_clarification`、`blocked`、`failed`、validation / policy failure handling 或用户确认表达失败处理结果
+- **AND** 系统 MUST NOT 调用旧 intent resolution、resolved intent repair、旧 action gate、旧只读 tool loop、旧 trigger parser 或 summary-only payload reconstruction
+
+### Requirement: Agent 阻塞终止结果必须符合结构化合同
+系统 SHALL 将候选为空、工具不可恢复失败或策略阻断等可解释停止状态表达为合法 `AgentExecutionResult`。
+
+#### Scenario: 候选为空后返回 blocked
+- **WHEN** Agent 已调用必要工具但没有得到可执行候选集合
+- **THEN** Agent 终止结果 MUST 使用 `status: "blocked"`
+- **AND** 终止结果 MUST 包含非空 `blockReason`
+- **AND** 终止结果 MUST 保留相关 `usedToolResultIds`
+- **AND** 系统 MUST NOT 将该场景投影为 `model_output_invalid`
+
+#### Scenario: 模型返回旧形态 blocked
+- **WHEN** 模型返回 `status: "blocked"` 且阻塞说明位于 `replyContext.reply`
+- **THEN** 服务端 MAY 将该说明规范化为 `blockReason`
+- **AND** 该规范化 MUST NOT 改写 `status`、工具结果引用、策略结果或用户语义
+- **AND** 其他缺少必要字段的非法终止结果 MUST 继续被拒绝
+
+#### Scenario: 阻塞结果写入用户回复
+- **WHEN** Response Writer 接收到合法 `blocked` Agent 终止结果
+- **THEN** 用户可见回复 MUST 基于 `blockReason`
+- **AND** 回复 MUST NOT 承诺已经生成或修改训练结果
+
+### Requirement: Agent decision JSON 格式失败必须先尝试非语义恢复
+系统 SHALL 在 Agent decision 模型输出严格 JSON 解析失败时，先尝试非语义 JSON 格式恢复。恢复逻辑 MUST 只处理 JSON 文本边界问题，并且恢复后的对象 MUST 继续通过 `AgentToolDecision` Schema、registry 工具名和工具输入 Schema 校验。
+
+#### Scenario: 模型输出尾随多余对象结束符
+- **WHEN** Agent decision 模型返回一个可闭合 JSON object，但末尾额外多出一个或多个 `}` 导致严格解析失败
+- **THEN** 系统 MUST 尝试提取第一个完整 JSON object
+- **AND** 提取出的对象 MUST 通过 `JSON.parse`
+- **AND** 系统 MUST 使用现有 `AgentToolDecision` 校验恢复后的对象
+- **AND** 系统 MUST NOT 基于用户原文、关键词、同义词或规则评分生成替代 action、toolName、intent 或工具输入
+
+#### Scenario: 模型输出包含 fenced JSON 或包裹文本
+- **WHEN** Agent decision 模型响应包含 fenced JSON 或 JSON object 前后存在非 JSON 文本
+- **THEN** 系统 MAY 提取唯一可解析的 JSON object
+- **AND** 恢复后的对象 MUST 通过同一套 Agent decision 合同校验后才能执行工具
+- **AND** 系统 MUST NOT 将包裹文本中的自然语言说明作为执行事实源
+
+#### Scenario: 恢复后仍不满足 Agent decision 合同
+- **WHEN** JSON 格式恢复成功，但恢复后的对象请求未知工具、非法多工具调用、非法参数或不合法 `AgentExecutionResult`
+- **THEN** 系统 MUST 按现有可诊断失败路径处理
+- **AND** 系统 MUST NOT 回退到旧 intent-first、旧 `assistant_action`、旧 resolved intent repair 或 summary-only payload reconstruction
+
+#### Scenario: 无法唯一恢复 JSON object
+- **WHEN** 模型输出截断、括号不平衡、包含多个候选 JSON object 或无法提取唯一完整对象
+- **THEN** 系统 MUST 保持 `invalid_json` 或等价可诊断失败
+- **AND** 系统 MUST NOT 猜测模型原本想调用的工具
+
+### Requirement: 旧聊天接口面必须纳入 intent 架构删除边界
+系统 SHALL 将旧 intent 架构删除边界扩展到 active Route Handler、前端新流解析和生产目录 legacy 模块。生产 `/api/chat` 不走旧主链不足以完成清理；任何仍可被聊天体验触发的旧 AI 接口或旧 trigger 面都 MUST 删除或隔离。
+
+#### Scenario: 旧 API route 仍存在
+- **WHEN** 代码库仍存在旧 workout-plan AI route、旧 exercise recommendation AI route 或等价旧聊天 AI route
+- **THEN** 系统 MUST 将其视为旧 intent 架构残留
+- **AND** 实现 MUST 删除该 route 或证明它只属于非生产离线迁移边界
+
+#### Scenario: 前端新流仍解析旧 trigger
+- **WHEN** 前端聊天页面、hook、client 或 message parser 仍解析旧 trigger JSON 或调用旧 AI route
+- **THEN** 系统 MUST 将其视为旧 intent 架构残留
+- **AND** 实现 MUST 迁移到 Agent-first stream/result 合同
+
+#### Scenario: 服务端清理旧接口
+- **WHEN** 实现旧接口清理
+- **THEN** 服务端 MUST NOT 使用关键词、正则、短句模板、同义词表或用户原文规则替 LLM 判断高层语义
+- **AND** 清理后的执行选择 MUST 继续来自 Agent 结构化输出、tool result、repair、澄清或阻断合同
+
+### Requirement: 服务端不得在 Agent 前执行高层语义纠偏
 
+系统 SHALL 禁止 `/api/chat` 在 Agent tool loop 前使用服务端关键词、正则、短句模板或历史摘要推断改写用户高层语义。
+
+#### Scenario: 用户发送短指令
+- **WHEN** 用户发送“换一个”“不用哑铃”“简单点”“改成在家练”或等价短指令
+- **THEN** 服务端 MUST 将原始用户消息、真实 recent messages 和 recent artifact 摘要交给 Agent
+- **AND** LLM MUST 通过工具读取事实并决定含义
+- **AND** 服务端 MUST NOT 在 Agent 前把该消息改写成 `exercise_replacement`、`routine`、`workout_patch` 或其他高层 action
+
+#### Scenario: LLM 工具计划和服务端旧规则冲突
+- **WHEN** Agent 的工具计划与旧 intent normalize 或关键词 gate 结果不一致
+- **THEN** 系统 MUST 以 Agent tool result 和服务端硬校验为准
+- **AND** 旧规则 MUST NOT 覆盖 Agent 决策
+
+#### Scenario: 旧 fallback 逻辑存在
+- **WHEN** 旧 `createFallbackWorkoutIntent`、pending replacement 字符串匹配、显式引用关键词或其他服务端文本规则仍存在于代码库
+- **THEN** 它们 MUST NOT 在 Agent 前改写 `AgentExecutionState`、`WorkoutEditPlan`、tool decision 或 `AgentExecutionResult`
+- **AND** 若仍需保留，MUST 迁移为 Agent 可读状态、工具硬边界或仅测试夹具

@@ -1,11 +1,11 @@
 import { z } from "zod";
 
+import type { ArtifactReferenceCandidate } from "@/lib/shared/conversation-artifacts/reference-candidates";
 import type { ConversationArtifactKind, ConversationArtifactPayload } from "@/lib/shared/conversation-artifacts/schema";
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import type { WorkoutPatchResult } from "@/lib/shared/workout-patches/schema";
 import type { WorkoutPlanDraft, WorkoutRoutineDraft } from "@/lib/shared/workout-plans/draft-schema";
-import type { ReferenceArtifactCandidate } from "@/lib/shared/reference-resolver/schema";
 
 export const exerciseRecommendationToolSummarySchema = z.object({
   kind: z.literal("exercise_recommendation"),
@@ -148,7 +148,7 @@ export function summarizePatchResultForModel(input: {
   });
 }
 
-export function summarizeArtifactCandidatesForModel(candidates: ReferenceArtifactCandidate[], maxTextChars: number) {
+export function summarizeArtifactCandidatesForModel(candidates: ArtifactReferenceCandidate[], maxTextChars: number) {
   return candidates.map((candidate) => ({
     artifactId: candidate.artifactId,
     kind: candidate.kind,

@@ -1,6 +1,13 @@
-import type { AssistantAction } from "@/lib/server/chat/chat-service";
-
-export type BlackboxCardType = AssistantAction["action"];
+export type BlackboxCardType =
+  | "exercise_recommendation"
+  | "workout_routine"
+  | "workout_plan"
+  | "workout_patch"
+  | "clarification"
+  | "answer"
+  | "completed_operation"
+  | "blocked"
+  | "failed";
 
 export type BlackboxFlowTurnExpectation = {
   expectedCardTypes: BlackboxCardType[];
@@ -11,6 +18,13 @@ export type BlackboxFlowTurnExpectation = {
   mustNotIncludeAny?: string[];
   expectedReferenceStatus?: "resolved" | "clarify" | "not_applicable";
   expectedArtifactPayloadReadable?: boolean;
+  expectedAgentStatus?: "answered" | "needs_clarification" | "generated" | "patched" | "completed_operation" | "blocked" | "failed";
+  requiredAgentTools?: string[];
+  forbiddenAgentTools?: string[];
+  requireCandidateSetId?: boolean;
+  requireValidationId?: boolean;
+  requireRevisionId?: boolean;
+  requireLegacyPathDisabled?: boolean;
   semanticFailureLevel?: "P0" | "P1" | "P2" | "P3";
   note: string;
 };
@@ -356,6 +370,38 @@ const detailedBlackboxFlowCaseDefinitions: BlackboxFlowCaseDefinition[] = [
       turn("第 3 轮：调简单点", "再把刚才替换后的版本整体降低难度", ["workout_patch"], "应基于修改后的 routine 降低难度。", {
         expectedReferenceStatus: "resolved",
         expectedArtifactPayloadReadable: true,
+      }),
+    ],
+  },
+  {
+    id: "W09",
+    name: "哑铃上肢 routine 后排除哑铃",
+    goal: "验证 Agent 读取最近 routine payload 后，将“不用哑铃了，换一个”作为结构化器械排除和 patch/regenerate 请求处理。",
+    turns: [
+      turn("第 1 轮：哑铃上肢 30 分钟", "帮我安排一个30分钟哑铃上肢训练", ["workout_routine"], "应生成 30 分钟哑铃上肢 routine。", {
+        expectedAgentStatus: "generated",
+        requiredAgentTools: ["searchExercises", "generateRoutineDraft", "saveConversationArtifactRevision"],
+        requireCandidateSetId: true,
+        requireValidationId: true,
+        requireRevisionId: true,
+        requireLegacyPathDisabled: true,
+      }),
+      turn("第 2 轮：排除哑铃并替换", "不用哑铃了，换一个", ["workout_patch"], "应读取最近 routine，查询无哑铃候选，并返回与 patch/artifact 事件一致的结果。", {
+        expectedAgentStatus: "patched",
+        requiredAgentTools: ["listRecentArtifacts", "getArtifactPayload", "searchExercises"],
+        forbiddenAgentTools: ["legacyIntentNormalize", "runReadonlyToolLoop"],
+        expectedArtifactPayloadReadable: true,
+        requireCandidateSetId: true,
+        requireValidationId: true,
+        requireRevisionId: true,
+        requireLegacyPathDisabled: true,
+        mustNotIncludeAny: ["继续用哑铃", "哑铃训练作为首选"],
+        semanticFailureLevel: "P1",
+      }),
+      noCardTurn("第 3 轮：解释替换理由", "为什么这样换", "应解释刚才替换后的安排，不重新触发旧 intent-first 生成。", {
+        expectedAgentStatus: "answered",
+        requiredAgentTools: ["getArtifactPayload"],
+        requireLegacyPathDisabled: true,
       }),
     ],
   },
@@ -777,6 +823,7 @@ const flowMetadataById: Record<string, BlackboxFlowMetadata> = {
   W06: { suite: "detail_core", groups: ["routine", "safety"], riskLevel: "core", coverageNote: "新手条件下高强度核心请求降级。" },
   W07: { suite: "detail_extended", groups: ["routine", "safety"], riskLevel: "edge", coverageNote: "极短时长热身边界。" },
   W08: { suite: "detail_core", groups: ["routine", "reference"], riskLevel: "core", coverageNote: "局部 patch 后继续基于修改版降级；已改写输入避免与 M03 严格重复。" },
+  W09: { suite: "detail_core", groups: ["routine", "reference", "context"], riskLevel: "core", coverageNote: "哑铃上肢 routine 后排除哑铃，验证 Agent tool trace、候选集合和旧路径禁用。" },
   P03: { suite: "detail_core", groups: ["plan", "context"], riskLevel: "core", coverageNote: "每周 4 练增肌计划的频率和单次时长调整。" },
   P04: { suite: "detail_core", groups: ["plan", "context"], riskLevel: "core", coverageNote: "同起点计划切换目标和训练场景；区别于 P03 的频率调整。" },
   P05: { suite: "detail_extended", groups: ["plan", "safety"], riskLevel: "edge", coverageNote: "新手高频计划保守收束。" },

@@ -17,11 +17,11 @@ import {
   type ConversationArtifactSourceEntityKind,
   type ConversationArtifactStatus,
 } from "@/lib/shared/conversation-artifacts/schema";
+import type { ArtifactReferenceCandidate } from "@/lib/shared/conversation-artifacts/reference-candidates";
 import {
   workoutPlanDraftSchema,
   workoutRoutineDraftSchema,
 } from "@/lib/shared/workout-plans/draft-schema";
-import type { ReferenceArtifactCandidate } from "@/lib/shared/reference-resolver/schema";
 import {
   buildEmbeddingText,
   cosineSimilarity,
@@ -62,7 +62,19 @@ export type SearchArtifactsInput = {
   sessionId?: string;
   sessionScope?: ArtifactSearchScope;
   kind?: ConversationArtifactKind;
+  targetGoal?: string;
+  equipmentRequired?: string[];
+  equipmentAvoided?: string[];
+  sessionMinutes?: number;
   query?: string;
+  limit?: number;
+};
+
+export type ListRecentArtifactsInput = {
+  userId: string;
+  sessionId: string;
+  sessionScope?: ArtifactSearchScope;
+  kind?: ConversationArtifactKind;
   limit?: number;
 };
 
@@ -73,6 +85,10 @@ export type ArtifactSearchDiagnostics = {
     sessionId?: string;
     sessionScope: ArtifactSearchScope;
     kind?: ConversationArtifactKind;
+    targetGoal?: string;
+    equipmentRequired?: string[];
+    equipmentAvoided?: string[];
+    sessionMinutes?: number;
     status: ConversationArtifactStatus;
   };
   recalledCount: number;
@@ -104,7 +120,7 @@ export type ArtifactPayloadFailure = {
   detail?: unknown;
 };
 
-type ActiveArtifactPayloadSuccess = ArtifactPayloadSuccess & {
+export type ActiveArtifactPayloadSuccess = ArtifactPayloadSuccess & {
   requestedArtifactId: string;
   revisionResolution: {
     status: "direct" | "resolved_to_active";
@@ -357,27 +373,35 @@ export async function listRecentArtifactSummariesForCurrentUser(
     take: limit,
   });
 
-  return indexes.map((index) => ({
-    artifactId: index.artifactId,
-    kind: index.kind,
-    title: index.title,
-    summary: index.summary ?? undefined,
-    exerciseIds: index.exerciseIds,
-    goals: index.goals,
-    muscles: index.muscles,
-    equipment: index.equipment,
-    sessionMinutes: index.sessionMinutes ?? undefined,
-    weeklyFrequency: index.weeklyFrequency ?? undefined,
-    trainingDayCount: index.trainingDayCount ?? undefined,
-    updatedAt: toUtcISOString(index.updatedAt),
-  }));
+  return indexes.map((index) => artifactIndexRowToRecentSummary(index as ArtifactIndexRow));
+}
+
+// Agent recent artifact tool 使用显式 userId/sessionId 读取轻量索引，避免从 summary 重建训练事实。
+export async function listRecentArtifacts(
+  input: ListRecentArtifactsInput,
+  client: Pick<PrismaClient, "artifactIndex"> = getPrismaClient(),
+): Promise<RecentArtifactSummary[]> {
+  const limit = clampLimit(input.limit);
+  const sessionScope = input.sessionScope ?? "current_session";
+  const rows = await client.artifactIndex.findMany({
+    where: {
+      userId: input.userId,
+      status: "active",
+      ...(input.kind ? { kind: input.kind } : {}),
+      ...(sessionScope === "current_session" ? { sessionId: input.sessionId } : {}),
+    },
+    orderBy: { updatedAt: "desc" },
+    take: limit,
+  });
+
+  return rows.map(artifactIndexRowToRecentSummary);
 }
 
 // 语义检索工具只返回轻量候选摘要，完整 payload 读取必须走 getArtifactPayload。
 export async function searchArtifacts(
   input: SearchArtifactsInput,
   client: Pick<PrismaClient, "artifactIndex"> = getPrismaClient(),
-): Promise<ReferenceArtifactCandidate[]> {
+): Promise<ArtifactReferenceCandidate[]> {
   const result = await searchArtifactsDetailed(input, client);
 
   return result.candidates;
@@ -388,7 +412,7 @@ export async function searchArtifactsDetailed(
   input: SearchArtifactsInput,
   client: Pick<PrismaClient, "artifactIndex"> = getPrismaClient(),
 ): Promise<{
-  candidates: ReferenceArtifactCandidate[];
+  candidates: ArtifactReferenceCandidate[];
   diagnostics: ArtifactSearchDiagnostics;
 }> {
   const limit = clampLimit(input.limit);
@@ -408,7 +432,8 @@ export async function searchArtifactsDetailed(
     take,
   });
 
-  const rankedRows = rows
+  const hardFilteredRows = rows.filter((row) => matchesArtifactStructuredFilters(row as ArtifactIndexRow, input));
+  const rankedRows = hardFilteredRows
     .map((row) => ({
       row: row as ArtifactIndexRow,
       score: scoreArtifactIndex(row as ArtifactIndexRow, query, input.sessionId),
@@ -431,10 +456,14 @@ export async function searchArtifactsDetailed(
       sessionId: input.sessionId,
       sessionScope,
       kind: input.kind,
+      targetGoal: input.targetGoal,
+      equipmentRequired: input.equipmentRequired,
+      equipmentAvoided: input.equipmentAvoided,
+      sessionMinutes: input.sessionMinutes,
       status: "active",
     },
     recalledCount: rows.length,
-    filteredCount: Math.max(rows.length - rankedRows.length, 0),
+    filteredCount: Math.max(rows.length - hardFilteredRows.length, 0),
     rerank: rankedRows.map(({ row, score }) => ({
       artifactId: row.artifactId,
       score,
@@ -842,7 +871,7 @@ function unique(values: Array<string | undefined>) {
   return uniqueStrings(values);
 }
 
-function artifactIndexRowToCandidate(row: ArtifactIndexRow): ReferenceArtifactCandidate {
+function artifactIndexRowToCandidate(row: ArtifactIndexRow): ArtifactReferenceCandidate {
   return {
     artifactId: row.artifactId,
     kind: row.kind,
@@ -857,6 +886,60 @@ function artifactIndexRowToCandidate(row: ArtifactIndexRow): ReferenceArtifactCa
     trainingDayCount: row.trainingDayCount ?? undefined,
     updatedAt: toUtcISOString(row.updatedAt),
   };
+}
+
+function artifactIndexRowToRecentSummary(row: ArtifactIndexRow): RecentArtifactSummary {
+  return {
+    artifactId: row.artifactId,
+    kind: row.kind,
+    title: row.title,
+    summary: row.summary ?? undefined,
+    exerciseIds: row.exerciseIds,
+    goals: row.goals,
+    muscles: row.muscles,
+    equipment: row.equipment,
+    sessionMinutes: row.sessionMinutes ?? undefined,
+    weeklyFrequency: row.weeklyFrequency ?? undefined,
+    trainingDayCount: row.trainingDayCount ?? undefined,
+    updatedAt: toUtcISOString(row.updatedAt),
+  };
+}
+
+function matchesArtifactStructuredFilters(row: ArtifactIndexRow, input: SearchArtifactsInput) {
+  if (input.targetGoal && !matchesAnyText(row.goals, input.targetGoal)) {
+    return false;
+  }
+
+  if (input.equipmentRequired?.length && !input.equipmentRequired.every((item) => matchesAnyText(row.equipment, item))) {
+    return false;
+  }
+
+  if (input.equipmentAvoided?.length && input.equipmentAvoided.some((item) => matchesAnyText(row.equipment, item))) {
+    return false;
+  }
+
+  if (
+    input.sessionMinutes !== undefined &&
+    row.sessionMinutes !== null &&
+    Math.abs(row.sessionMinutes - input.sessionMinutes) > 15
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function matchesAnyText(values: string[], target: string) {
+  const normalizedTarget = normalizeFilterText(target);
+
+  return values.some((value) => {
+    const normalizedValue = normalizeFilterText(value);
+    return normalizedValue.includes(normalizedTarget) || normalizedTarget.includes(normalizedValue);
+  });
+}
+
+function normalizeFilterText(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, "");
 }
 
 function clampLimit(limit = 6) {

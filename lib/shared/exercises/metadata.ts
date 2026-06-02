@@ -80,7 +80,8 @@ function inferExerciseMetadata(exercise: ExerciseMetadataInput) {
     ...(exercise.goalTags ?? []),
     ...(exercise.riskTags ?? []),
   ].filter(Boolean).join(" "));
-  const isStretch = /拉伸|伸展|放松|stretch|stretching|mobility/.test(text);
+  const isStrengthExtension = /髋部?伸展|hip[_-]?extension|leg[_-]?extension|back[_-]?extension|triceps[_-]?extension/.test(text);
+  const isStretch = /拉伸|放松|stretch|stretching|mobility/.test(text) || (/伸展|extension/.test(text) && !isStrengthExtension);
   const isWarmup = /热身|激活|动态|warmup|warm-up|activation|dynamic|开合跳|jumpingjack|跑步|running|步行|walk|跳绳|rope|单车|bike|treadmill/.test(text);
   const highWarmupRisk = /高冲击|high_impact|高风险|high_risk|奥林匹克|olympic|大力士|strongman|力量举|powerlifting|advanced|expert/.test(text);
   const allowedSections: ExerciseAllowedSection[] = [];

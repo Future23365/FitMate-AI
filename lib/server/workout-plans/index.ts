@@ -1,18 +1,6 @@
 import "server-only";
 
 export {
-  aiWorkoutPlanChatMessageSchema,
-  aiWorkoutPlanRequestSchema,
-  generateAiWorkoutPlanDraft,
-  type AiWorkoutPlanChatMessage,
-  type AiWorkoutPlanFailure,
-  type AiWorkoutPlanFailureCode,
-  type AiWorkoutPlanRequest,
-  type AiWorkoutPlanResult,
-  type AiWorkoutPlanSuccess,
-} from "./ai-workout-plan-service";
-
-export {
   workoutDayDraftSchema,
   workoutExperienceSchema,
   workoutModeSchema,
@@ -41,7 +29,7 @@ export {
 } from "@/lib/shared/workout-plans/plan-strategy-schema";
 
 export {
-  buildPlanStrategyFromChatIntent,
+  buildPlanStrategyFromWorkoutIntent,
   expandDomainPlan,
   getDraftExerciseIds,
   validatePlanDraftAgainstStrategy,

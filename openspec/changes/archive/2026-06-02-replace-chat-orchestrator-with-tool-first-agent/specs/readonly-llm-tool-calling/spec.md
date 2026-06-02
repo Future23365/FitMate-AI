@@ -1,0 +1,40 @@
+## ADDED Requirements
+
+### Requirement: 写能力不得通过只读 tool loop 暴露给 LLM
+
+系统 SHALL 废弃“只读 tool loop 不能参与写决策”的主链限制。写能力 MAY 通过统一 Agent tool loop 暴露给 LLM，但 MUST 以受控写工具形式执行，并且每次写入都必须经过 Schema、权限、候选集合、Validator、Policy、Confirmation 和 Persistence 边界。
+
+#### Scenario: LLM 请求执行写操作
+- **WHEN** LLM 通过 Agent 工具请求创建 draft、应用 Patch、保存 artifact revision、记录训练变更或修改未来安排
+- **THEN** 对应写工具 MUST 校验其输入和前置 tool result
+- **AND** 写工具输入 MUST 引用当前 run 内已登记的 `toolResultId`、`candidateSetId`、`validationId`、`policyDecisionId` 或 `confirmationId`
+- **AND** 写工具 MUST 拒绝越权、候选外、未校验、未确认或超出 scope 的写入
+- **AND** 写工具 MUST 返回结构化成功、失败或需要确认结果
+
+#### Scenario: 工具 registry 被测试检查
+- **WHEN** 自动化测试枚举 Agent registry
+- **THEN** 测试 MUST 断言每个写工具都有 Schema、权限上下文、前置校验声明、tool result id 依赖、trace 摘要和失败路径
+- **AND** 测试 MUST 断言不存在任意 SQL、任意函数调用或绕过 Validator/Policy 的写工具
+
+### Requirement: Agent 工具不得退化为旧服务端补丁入口
+
+系统 SHALL 禁止把旧 intent normalize、ReferenceResolver-first 触发矩阵、summary-only 上下文、只读触发矩阵或服务端关键词规则包装成 Agent 工具后继续驱动主链。
+
+#### Scenario: 工具实现复用旧服务
+- **WHEN** Agent 工具复用现有服务端函数
+- **THEN** 工具 MUST 只复用权限、数据库读取、候选过滤、Validator、Policy、Persistence 等硬边界
+- **AND** 工具 MUST NOT 复用旧服务端自然语言关键词分流、intent normalize 或 summary 反推逻辑
+
+#### Scenario: 生成工具实现
+- **WHEN** `generateRoutineDraft` 或 `generatePlanDraft` 被注册为 Agent 工具
+- **THEN** 工具 MUST 接收结构化 intent/edit plan、candidateSetId 和 ContextPackage 摘要
+- **AND** 工具 MUST NOT 只接收用户原文和 summary 后让 LLM 自由生成完整训练
+
+### Requirement: Agent tool loop 不得因旧只读预算跳过必要查询
+
+系统 SHALL 保留最大步骤、超时和异常回退，但不得因为 token 成本或旧只读工具触发矩阵跳过完成用户请求所必需的事实查询。
+
+#### Scenario: 多轮调整需要读取 artifact
+- **WHEN** 用户请求调整已有训练内容
+- **THEN** Agent MUST 能调用 recent artifact 和 payload 读取工具
+- **AND** 系统 MUST NOT 因旧只读 tool loop 关闭、旧触发矩阵不匹配或 token 裁剪策略跳过必要查询

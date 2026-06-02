@@ -11,6 +11,7 @@ import {
   validateWorkoutPlanDraft,
   validateWorkoutRoutineDraft,
 } from "@/lib/server/workout-plans/workout-plan-validation-service";
+import { normalizeExerciseMetadata } from "@/lib/shared/exercises/metadata";
 
 import {
   createExercise,
@@ -18,6 +19,7 @@ import {
   createWorkoutPlanIntent,
   createWorkoutRoutineDraft,
 } from "./fixtures/domain";
+import type { WorkoutDayDraft } from "@/lib/shared/workout-plans/draft-schema";
 
 const exercises = [
   createExercise({
@@ -82,6 +84,39 @@ const exercises = [
     goalTags: ["strength"],
   }),
 ];
+
+describe("exercise metadata inference", () => {
+  it("keeps hip extension as training while preserving explicit stretches", () => {
+    const hipExtension = normalizeExerciseMetadata({
+      id: "Hip_Extension_with_Bands",
+      nameEn: "Hip Extension with Bands",
+      nameZh: "弹力带髋伸展",
+      category: "strength",
+      categoryZh: "力量训练",
+      equipment: "bands",
+      equipmentZh: "弹力带",
+      primaryMuscles: ["glutes"],
+      primaryMusclesZh: ["臀部"],
+      goalTags: ["beginner_friendly", "strength"],
+    });
+    const hamstringStretch = normalizeExerciseMetadata({
+      id: "Hamstring_Stretch",
+      nameEn: "Hamstring Stretch",
+      nameZh: "腘绳肌拉伸",
+      category: "stretching",
+      categoryZh: "拉伸",
+      equipment: "bands",
+      equipmentZh: "弹力带",
+      primaryMuscles: ["hamstrings"],
+      primaryMusclesZh: ["腘绳肌"],
+      goalTags: ["beginner_friendly", "mobility"],
+    });
+
+    expect(hipExtension.allowedSections).toContain("training");
+    expect(hipExtension.allowedSections).not.toContain("stretch");
+    expect(hamstringStretch.allowedSections).toEqual(["stretch"]);
+  });
+});
 
 function createValidationDay(exerciseIds: string[]) {
   return {
@@ -363,6 +398,69 @@ describe("workout plan candidate and validation services", () => {
     expect(outsideCandidateResult.errors.map((issue) => issue.code)).toContain("outside_candidate_exercise_id");
   });
 
+  it("hard fails when candidate set evidence does not prove routine exercises satisfy the query boundary", () => {
+    const intent = createWorkoutPlanIntent({
+      intentType: "routine",
+      sessionMinutes: 12,
+    });
+    const routineDraft = createWorkoutRoutineDraft();
+    const missingEvidence = validateWorkoutRoutineDraft(routineDraft, intent, {
+      exercises,
+      candidateExerciseIds: ["warmup", "push-up", "stretch"],
+      candidateSetEvidence: {
+        normalizedQueryInput: {
+          candidateUse: "routine",
+          filters: {},
+          resultRequirements: {},
+          softPreferences: {},
+          projection: {},
+        },
+        appliedFilters: {},
+        invalidFilters: [],
+        constraintProof: [],
+        resultRequirementProof: {},
+        diagnostics: {
+          queryMode: "none",
+          failureReasons: [],
+          unmetResultRequirements: [],
+          finalExerciseIds: ["warmup", "push-up"],
+        },
+        satisfied: true,
+        exerciseIds: ["warmup", "push-up"],
+      },
+    });
+    const boundaryMismatch = validateWorkoutRoutineDraft(routineDraft, intent, {
+      exercises,
+      candidateExerciseIds: ["warmup", "push-up", "stretch"],
+      candidateSetEvidence: {
+        normalizedQueryInput: {
+          candidateUse: "routine",
+          filters: { homeRequirements: ["equipment_available"] },
+          resultRequirements: {},
+          softPreferences: {},
+          projection: {},
+        },
+        appliedFilters: { homeRequirements: ["equipment_available"] },
+        invalidFilters: [],
+        constraintProof: [],
+        resultRequirementProof: {},
+        diagnostics: {
+          queryMode: "none",
+          failureReasons: [],
+          unmetResultRequirements: [],
+          finalExerciseIds: ["warmup", "push-up", "stretch"],
+        },
+        satisfied: true,
+        exerciseIds: ["warmup", "push-up", "stretch"],
+      },
+    });
+
+    expect(missingEvidence.valid).toBe(false);
+    expect(missingEvidence.errors.map((issue) => issue.code)).toContain("candidate_query_boundary_mismatch");
+    expect(boundaryMismatch.valid).toBe(false);
+    expect(boundaryMismatch.errors.map((issue) => issue.code)).toContain("candidate_query_boundary_mismatch");
+  });
+
   it("rejects routine drafts that are materially shorter than the target session duration", () => {
     const intent = createWorkoutPlanIntent({
       intentType: "routine",
@@ -482,6 +580,100 @@ describe("workout plan candidate and validation services", () => {
     expect(unconfirmedHistoryResult.warnings.map((issue) => issue.code)).toContain("session_too_short");
     expect(confirmedArtifactResult.valid).toBe(false);
     expect(confirmedArtifactResult.errors.map((issue) => issue.code)).toContain("session_too_short");
+  });
+
+  it("does not apply explicit session duration checks to rest days", () => {
+    const intent = createWorkoutPlanIntent({
+      intentType: "plan",
+      sessionMinutes: 30,
+      weeklyFrequency: 1,
+      calendarHorizonDays: 2,
+    });
+    const trainingDay: WorkoutDayDraft = {
+      title: "Day 1 胸肌训练",
+      focus: "胸部",
+      cycleDayIndex: 1,
+      dayType: "strength",
+      isRestDay: false,
+      estimatedMinutes: 30,
+      recoveryNotes: [],
+      safetyNotes: [],
+      sections: [
+        {
+          section: "warmup",
+          title: "热身",
+          items: [{
+            exerciseId: "warmup",
+            section: "warmup",
+            mode: "duration",
+            sets: 1,
+            target: 240,
+            setRestSeconds: 0,
+            transitionRestSeconds: 30,
+          }],
+        },
+        {
+          section: "training",
+          title: "主训练",
+          items: [{
+            exerciseId: "push-up",
+            section: "training",
+            mode: "duration",
+            sets: 3,
+            target: 420,
+            setRestSeconds: 90,
+            transitionRestSeconds: 60,
+          }],
+        },
+        {
+          section: "stretch",
+          title: "拉伸",
+          items: [{
+            exerciseId: "stretch",
+            section: "stretch",
+            mode: "duration",
+            sets: 1,
+            target: 180,
+            setRestSeconds: 0,
+            transitionRestSeconds: 0,
+          }],
+        },
+      ],
+    };
+    const draft = createWorkoutPlanDraft({
+      cycleLengthDays: 2,
+      trainingDayCount: 1,
+      restDayCount: 1,
+      weeklyFrequency: 1,
+      calendarHorizonDays: 2,
+      days: [
+        trainingDay,
+        {
+          title: "Day 2 恢复日",
+          focus: "恢复",
+          cycleDayIndex: 2,
+          dayType: "rest",
+          isRestDay: true,
+          estimatedMinutes: 0,
+          recoveryNotes: ["完整休息。"],
+          safetyNotes: [],
+          sections: [],
+        },
+      ],
+    });
+
+    const result = validateWorkoutPlanDraft(draft, intent, {
+      exercises,
+      candidateExerciseIds: ["warmup", "push-up", "stretch"],
+      fieldSources: {
+        sessionMinutes: "current_user_message",
+        weeklyFrequency: "current_user_message",
+        calendarHorizonDays: "current_user_message",
+      },
+    });
+
+    expect(result.errors.map((issue) => issue.code)).not.toContain("session_too_short");
+    expect(result.errors.map((issue) => issue.code)).not.toContain("session_too_long");
   });
 
   it("keeps explicit avoidances hard while unconfirmed injury limitations stay warnings", () => {

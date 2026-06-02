@@ -1,41 +1,32 @@
 import "server-only";
 
+import type { AgentRepairSummary, ContextPackage } from "@/lib/server/agent-orchestrator/contracts";
 import { toUtcISOString } from "@/lib/shared/time/utc-date-time";
 
-export type AiTokenBudgetRoute =
-  | "/api/chat"
-  | "/api/ai/exercise-recommendations"
-  | "/api/ai/workout-plan";
+export type AiTokenBudgetRoute = "/api/chat";
 
 export type AiTokenBudgetStage =
-  | "chat_intent_resolution"
-  | "reference_resolution"
+  | "agent_context_build"
+  | "agent_tool_decision"
+  | "agent_tool_execution"
+  | "agent_final_result"
+  | "agent_response_writer"
+  | "agent_summary_update"
   | "exercise_candidate_selection"
-  | "chat_final_response"
-  | "conversation_summary_update"
-  | "exercise_recommendation_generation"
-  | "workout_plan_intent_extraction"
-  | "workout_plan_draft_generation"
-  | "workout_plan_draft_repair"
-  | "deterministic_response";
+  | "conversation_summary_update";
 
 export type AiTokenBudgetStageStatus = "planned" | "executed" | "skipped";
 
 export type AiPromptModuleId =
   | "base_safety"
-  | "conversation_summary_context"
-  | "chat_intent_resolution"
-  | "chat_final_response"
+  | "agent_context_build"
+  | "agent_tool_decision"
+  | "agent_tool_execution"
+  | "agent_final_result"
+  | "agent_response_writer"
+  | "agent_summary_update"
   | "exercise_candidate_constraints"
-  | "reference_resolution_boundary"
   | "user_feedback_memory"
-  | "exercise_recommendation_generation"
-  | "workout_plan_intent_extraction"
-  | "workout_plan_draft_base"
-  | "workout_plan_draft_routine"
-  | "workout_plan_draft_plan"
-  | "workout_plan_draft_schema"
-  | "workout_plan_draft_repair"
   | "conversation_summary_update";
 
 export type CandidateTrimSummary = {
@@ -52,6 +43,18 @@ export type ModelVisibleContextSummary = {
   usesLatestUserMessage: boolean;
   latestUserMessageChars: number;
   usesFullHistory: false;
+  usesContextPackage?: boolean;
+  recentMessagesCount?: number;
+  recentArtifactsCount?: number;
+  memoryFactCount?: number;
+  toolResultCount?: number;
+  repairTurnCount?: number;
+  repairFeedbackCount?: number;
+  remainingRepairTurns?: number;
+  fusedFailureCount?: number;
+  repairBudgetExhaustedReason?: string;
+  contextSnapshotChars?: number;
+  provenanceCount?: number;
   notes: string[];
 };
 
@@ -86,20 +89,38 @@ export const modelVisibleExerciseCandidateFields = [
   "candidateSource",
 ] as const;
 
-export function createModelVisibleContextSummary(input: {
-  conversationSummary?: string;
-  latestUserMessage: string;
+// Agent 可见上下文摘要记录 ContextPackage，而不是 summary-only 历史协议。
+export function createAgentModelVisibleContextSummary(input: {
+  context: ContextPackage;
+  toolResultCount?: number;
+  repairSummary?: AgentRepairSummary;
+  remainingRepairTurns?: number;
   notes?: string[];
 }): ModelVisibleContextSummary {
   return {
-    usesConversationSummary: Boolean(input.conversationSummary?.trim()),
-    conversationSummaryChars: input.conversationSummary?.trim().length ?? 0,
+    usesConversationSummary: false,
+    conversationSummaryChars: 0,
     usesLatestUserMessage: true,
-    latestUserMessageChars: input.latestUserMessage.trim().length,
+    latestUserMessageChars: input.context.latestUserMessage.trim().length,
     usesFullHistory: false,
+    usesContextPackage: true,
+    recentMessagesCount: input.context.recentMessages.length,
+    recentArtifactsCount: input.context.recentArtifacts.length,
+    memoryFactCount:
+      (input.context.memorySnapshot?.facts.length ?? 0) +
+      (input.context.memorySnapshot?.preferences.length ?? 0) +
+      (input.context.memorySnapshot?.avoidances.length ?? 0),
+    toolResultCount: input.toolResultCount ?? 0,
+    repairTurnCount: input.repairSummary?.repairTurnCount ?? 0,
+    repairFeedbackCount: input.repairSummary?.repairFeedbackCodes.length ?? 0,
+    remainingRepairTurns: input.remainingRepairTurns,
+    fusedFailureCount: input.repairSummary?.fusedFailureCount ?? 0,
+    repairBudgetExhaustedReason: input.repairSummary?.repairBudgetExhaustedReason,
+    contextSnapshotChars: input.context.optionalContextSnapshot?.summary.length ?? 0,
+    provenanceCount: input.context.provenance.length,
     notes: [
-      "历史上下文只允许来自 conversationSummary。",
-      "本轮模型输入只包含最新用户消息。",
+      "Agent 主链使用 ContextPackage、recent messages、recent artifacts、用户记忆和 tool results。",
+      "conversationSummary 只能作为后台摘要、标题或调试材料，不作为执行事实源。",
       ...(input.notes ?? []),
     ],
   };
@@ -121,159 +142,47 @@ export function createCandidateTrimSummary(input: {
   };
 }
 
-export function createChatTokenBudgetDecision(input: {
-  intentType?: string;
-  needsExerciseContext: boolean;
-  hasAssistantAction: boolean;
-  latestUserMessage: string;
-  conversationSummary: string;
-  candidateTrim?: CandidateTrimSummary;
-  deterministicReplyReason?: string;
-  summarySkipReason?: string | null;
+export function createAgentChatTokenBudgetDecision(input: {
+  context: ContextPackage;
+  toolResultCount?: number;
+  repairSummary?: AgentRepairSummary;
+  remainingRepairTurns?: number;
+  summaryUpdateSkipped?: boolean;
+  summarySkipReason?: string;
 }): AiTokenBudgetDecision {
-  const context = createModelVisibleContextSummary({
-    conversationSummary: input.conversationSummary,
-    latestUserMessage: input.latestUserMessage,
+  const context = createAgentModelVisibleContextSummary({
+    context: input.context,
+    toolResultCount: input.toolResultCount,
+    repairSummary: input.repairSummary,
+    remainingRepairTurns: input.remainingRepairTurns,
   });
-  const isDeterministic = Boolean(input.deterministicReplyReason);
 
   return createDecision({
     route: "/api/chat",
-    intentType: input.intentType,
     modelVisibleContext: context,
-    candidateTrim: input.candidateTrim,
     stages: [
-      stage("chat_intent_resolution", "executed", context, {
+      stage("agent_context_build", "executed", context, {
+        promptModules: ["agent_context_build"],
+      }),
+      stage("agent_tool_decision", "planned", context, {
         model: "deepseek-v4-flash",
-        promptModules: ["base_safety", "conversation_summary_context", "chat_intent_resolution"],
+        promptModules: ["base_safety", "agent_tool_decision"],
       }),
-      stage("reference_resolution", "executed", context, {
-        promptModules: ["reference_resolution_boundary"],
+      stage("agent_tool_execution", "planned", context, {
+        promptModules: ["agent_tool_execution"],
       }),
-      stage(
-        "exercise_candidate_selection",
-        input.needsExerciseContext ? "executed" : "skipped",
-        context,
-        {
-          skipReason: input.needsExerciseContext ? undefined : "本轮意图不需要动作库 grounding。",
-          promptModules: input.needsExerciseContext ? ["exercise_candidate_constraints"] : [],
-          candidateTrim: input.candidateTrim,
-        },
-      ),
-      stage("chat_final_response", isDeterministic ? "skipped" : "planned", context, {
-        model: isDeterministic ? undefined : "deepseek-v4-flash",
-        skipReason: input.deterministicReplyReason,
-        promptModules: isDeterministic
-          ? []
-          : resolveChatCompletionPromptModules(input.needsExerciseContext),
-        candidateTrim: input.candidateTrim,
-      }),
-      stage("deterministic_response", isDeterministic ? "executed" : "skipped", context, {
-        skipReason: isDeterministic ? undefined : "本轮需要模型生成自然语言回复。",
-        promptModules: [],
-      }),
-      stage(
-        "conversation_summary_update",
-        input.summarySkipReason ? "skipped" : "planned",
-        context,
-        {
-          model: input.summarySkipReason ? undefined : "deepseek-v4-flash",
-          skipReason: input.summarySkipReason ?? undefined,
-          promptModules: input.summarySkipReason ? [] : ["conversation_summary_update"],
-        },
-      ),
-    ],
-  });
-}
-
-export function createExerciseRecommendationBudgetDecision(input: {
-  latestUserMessage: string;
-  conversationSummary: string;
-  candidateTrim: CandidateTrimSummary;
-}): AiTokenBudgetDecision {
-  const context = createModelVisibleContextSummary({
-    conversationSummary: input.conversationSummary,
-    latestUserMessage: input.latestUserMessage,
-  });
-
-  return createDecision({
-    route: "/api/ai/exercise-recommendations",
-    intentType: "exercise_recommendation",
-    modelVisibleContext: context,
-    candidateTrim: input.candidateTrim,
-    stages: [
-      stage("exercise_candidate_selection", "executed", context, {
-        promptModules: ["exercise_candidate_constraints"],
-        candidateTrim: input.candidateTrim,
-      }),
-      stage("exercise_recommendation_generation", "planned", context, {
+      stage("agent_final_result", "planned", context, {
         model: "deepseek-v4-flash",
-        promptModules: [
-          "base_safety",
-          "conversation_summary_context",
-          "exercise_recommendation_generation",
-          "exercise_candidate_constraints",
-        ],
-        candidateTrim: input.candidateTrim,
+        promptModules: ["agent_final_result"],
       }),
-    ],
-  });
-}
-
-export function createWorkoutPlanBudgetDecision(input: {
-  latestUserMessage: string;
-  conversationSummary: string;
-  intentType?: "plan" | "routine";
-  hasClientIntent: boolean;
-  candidateTrim?: CandidateTrimSummary;
-  needsRepair?: boolean;
-}): AiTokenBudgetDecision {
-  const context = createModelVisibleContextSummary({
-    conversationSummary: input.conversationSummary,
-    latestUserMessage: input.latestUserMessage,
-  });
-  const draftModules: AiPromptModuleId[] = [
-    "base_safety",
-    "conversation_summary_context",
-    "workout_plan_draft_base",
-    input.intentType === "routine" ? "workout_plan_draft_routine" : "workout_plan_draft_plan",
-    "workout_plan_draft_schema",
-    "exercise_candidate_constraints",
-  ];
-
-  return createDecision({
-    route: "/api/ai/workout-plan",
-    intentType: input.intentType,
-    modelVisibleContext: context,
-    candidateTrim: input.candidateTrim,
-    stages: [
-      stage(
-        "workout_plan_intent_extraction",
-        input.hasClientIntent ? "skipped" : "planned",
-        context,
-        {
-          model: input.hasClientIntent ? undefined : "deepseek-v4-flash",
-          skipReason: input.hasClientIntent ? "上游 `/api/chat` 已提供结构化意图。" : undefined,
-          promptModules: input.hasClientIntent
-            ? []
-            : ["base_safety", "conversation_summary_context", "workout_plan_intent_extraction"],
-        },
-      ),
-      stage("exercise_candidate_selection", input.candidateTrim ? "executed" : "planned", context, {
-        promptModules: ["exercise_candidate_constraints"],
-        candidateTrim: input.candidateTrim,
+      stage("agent_response_writer", "planned", context, {
+        model: "deepseek-v4-flash",
+        promptModules: ["agent_response_writer"],
       }),
-      stage("workout_plan_draft_generation", input.candidateTrim ? "planned" : "skipped", context, {
-        model: input.candidateTrim ? "deepseek-v4-flash" : undefined,
-        skipReason: input.candidateTrim ? undefined : "候选动作尚未生成或候选不足。",
-        promptModules: input.candidateTrim ? draftModules : [],
-        candidateTrim: input.candidateTrim,
-      }),
-      stage("workout_plan_draft_repair", input.needsRepair ? "planned" : "skipped", context, {
-        model: input.needsRepair ? "deepseek-v4-flash" : undefined,
-        skipReason: input.needsRepair ? undefined : "首轮草稿校验通过或尚未进入修复流程。",
-        promptModules: input.needsRepair ? [...draftModules, "workout_plan_draft_repair"] : [],
-        candidateTrim: input.candidateTrim,
+      stage("agent_summary_update", input.summaryUpdateSkipped ? "skipped" : "planned", context, {
+        model: input.summaryUpdateSkipped ? undefined : "deepseek-v4-flash",
+        skipReason: input.summarySkipReason,
+        promptModules: input.summaryUpdateSkipped ? [] : ["agent_summary_update"],
       }),
     ],
   });
@@ -313,22 +222,6 @@ export function getStageDecision(
   stageName: AiTokenBudgetStage,
 ) {
   return decision?.stages.find((item) => item.stage === stageName);
-}
-
-function resolveChatCompletionPromptModules(needsExerciseContext: boolean): AiPromptModuleId[] {
-  const modules: AiPromptModuleId[] = [
-    "base_safety",
-    "conversation_summary_context",
-    "chat_final_response",
-    "reference_resolution_boundary",
-    "user_feedback_memory",
-  ];
-
-  if (needsExerciseContext) {
-    modules.push("exercise_candidate_constraints");
-  }
-
-  return modules;
 }
 
 function createDecision(input: {

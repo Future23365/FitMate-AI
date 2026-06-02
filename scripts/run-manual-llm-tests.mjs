@@ -167,7 +167,12 @@ function printAcceptanceReportSummary(currentReportPath) {
   const preflightStart = lines.findIndex((line) => line === "## Preflight");
   const summaryLines = lines.slice(summaryStart >= 0 ? summaryStart + 1 : 0, scopeStart >= 0 ? scopeStart : 25);
   const scopeLines = lines.slice(scopeStart >= 0 ? scopeStart + 1 : 0, preflightStart >= 0 ? preflightStart : 45);
+  const categoryStart = lines.findIndex((line) => line === "## 失败分类摘要");
   const resultStart = lines.findIndex((line) => line === "## 流程轮次结果");
+  const categoryLines = lines.slice(
+    categoryStart >= 0 ? categoryStart + 1 : 0,
+    resultStart >= 0 ? resultStart : categoryStart + 8,
+  ).filter((line) => line.startsWith("- "));
   const resultLines = lines
     .slice(resultStart >= 0 ? resultStart + 1 : 0)
     .filter((line) => line.startsWith("### ") || line.startsWith("- 状态：") || line.startsWith("- 失败原因：") || line.startsWith("- 本次没有"))
@@ -181,6 +186,11 @@ function printAcceptanceReportSummary(currentReportPath) {
   console.log("");
   console.log("Manual LLM blackbox run scope:");
   for (const line of scopeLines) {
+    console.log(line);
+  }
+  console.log("");
+  console.log("Manual LLM blackbox failure categories:");
+  for (const line of categoryLines) {
     console.log(line);
   }
   console.log("");

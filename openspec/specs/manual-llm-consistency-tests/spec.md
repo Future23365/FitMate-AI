@@ -183,21 +183,21 @@ TBD - created by archiving change add-manual-llm-consistency-tests. Update Purpo
 
 ### Requirement: 黑盒报告必须记录确定性引用讲解诊断
 
-系统 SHALL 让手动 LLM 黑盒 runner 记录确定性引用讲解路径的引用解析状态，避免用户可见回复正确但报告因缺少 `assistant_action` 而误判。
+系统 SHALL 让手动 LLM 黑盒 runner 记录 Agent 引用讲解路径的工具读取状态，避免用户可见回复正确但报告缺少执行证据。
 
 #### Scenario: 序号动作讲解 resolved 状态可见
 
 - **WHEN** 用户在同一会话中基于最近训练卡片输入“第一个动作怎么做”
-- **AND** 服务端通过确定性路径读取 recent artifact 和动作库生成讲解
-- **THEN** 黑盒 runner MUST 记录 `referenceResolutionStatus = resolved`
-- **AND** 报告 MUST 记录 artifactId、artifactKind 和 payload 读取状态
-- **AND** 该轮 MUST NOT 仅因为没有 `assistant_action` 事件而判定引用解析失败
+- **AND** Agent 通过工具读取 recent artifact 和动作库生成讲解
+- **THEN** 黑盒 runner MUST 记录 artifact tool result、artifactId、artifactKind、payload 读取状态和目标 exerciseId
+- **AND** 报告 MUST 记录这些证据来自 Agent tool results
+- **AND** 该轮 MUST NOT 依赖 `assistant_action` 或旧 resolved intent 判断引用解析是否成功
 
 #### Scenario: 确定性引用失败仍然失败
 
 - **WHEN** 用户请求序号动作讲解
-- **AND** 服务端无法读取当前用户可访问的 artifact payload 或无法定位具体 `exerciseId`
-- **THEN** 黑盒 runner MUST 将该轮记录为语义断言失败
+- **AND** Agent 无法读取当前用户可访问的 artifact payload 或无法定位具体 `exerciseId`
+- **THEN** 黑盒 runner MUST 将该轮记录为语义断言失败或需要澄清
 - **AND** 报告 MUST 记录失败原因
 - **AND** 系统 MUST NOT 把无训练卡片当作该轮通过的充分条件
 
@@ -312,14 +312,15 @@ TBD - created by archiving change add-manual-llm-consistency-tests. Update Purpo
 
 - **WHEN** 开发者执行完整/详细 LLM 黑盒测试
 - **THEN** 系统 MUST 使用与首页聊天一致的请求字段执行每轮聊天
-- **AND** 每轮 MUST 使用 `conversationId`、`responseMessageId`、`latestUserMessage`、`conversationSummary` 和 `thinkingEnabled` 构造请求
+- **AND** 每轮 MUST 使用 `conversationId`、`responseMessageId`、`latestUserMessage` 和 `thinkingEnabled` 构造请求
+- **AND** `conversationSummary` MAY 随历史兼容请求传入，但 MUST NOT 作为测试通过所需的执行事实源
 - **AND** 每轮 MUST 通过测试专用 current user 触发与首页一致的鉴权边界
 - **AND** 测试 MUST NOT 依赖手工注入完整历史 `conversationContext` 来通过真实页面无法通过的用例
 
 #### Scenario: 同一流程内保存并延续会话状态
 
 - **WHEN** 完整/详细 LLM 黑盒流程完成任一非失败轮次
-- **THEN** 系统 MUST 通过会话保存边界保存该轮产生的用户消息、assistant 回复、conversation summary、conversation context 和可见训练卡片
+- **THEN** 系统 MUST 通过会话保存边界保存该轮产生的用户消息、assistant 回复、后台 conversation summary、Agent metadata 和可见训练卡片
 - **AND** 后续轮次 MUST 基于保存后的同一 `conversationId` 继续执行
 - **AND** 不同流程用例之间 MUST 使用互相隔离的新会话
 
@@ -328,7 +329,6 @@ TBD - created by archiving change add-manual-llm-consistency-tests. Update Purpo
 - **WHEN** 完整/详细 LLM 黑盒测试启动
 - **THEN** 系统 MUST 检查真实模型 key、测试用户、数据库连接、必要 migration、`ConversationArtifact` / `ArtifactIndex` 表和基础 seed 数据是否满足详细套件运行条件
 - **AND** 缺少真实模型 key 时 MUST 生成真实模型跳过摘要
-- **AND** 数据库或 schema 不满足时 MUST 生成环境失败或跳过摘要，且不得改用 mock、旧快照或手工 recent artifact
 
 ### Requirement: 引用类详细用例必须验证真实 artifact 链路
 
@@ -446,4 +446,101 @@ TBD - created by archiving change add-manual-llm-consistency-tests. Update Purpo
 - **THEN** 预估 MUST 基于 fixture 数量、轮次数和保守均值生成
 - **AND** 报告 MUST 标明本次 token 预估来源为 fallback
 - **AND** 系统 MUST NOT 把跳过报告的 `total_tokens=0` 当成真实成本均值
+
+### Requirement: 黑盒测试不得依赖旧 intent 事件
+系统 SHALL 让手动 LLM 黑盒 runner 和报告以用户可见闭环、`AgentExecutionResult`、Agent tool dependency graph、artifact / patch / suggestion 事件和 done metadata 作为验收事实源。
+
+#### Scenario: 旧事件缺失
+- **WHEN** `/api/chat` 响应不包含 `assistant_action`、`intent_resolved`、旧 resolved intent、`workoutIntent` 或 trigger JSON
+- **THEN** 黑盒 runner MUST NOT 因这些旧字段缺失而判失败
+- **AND** runner MUST 从 `AgentExecutionResult` 和可见事件推导卡片类型、澄清、失败或阻断状态
+
+#### Scenario: 旧事件仍被输出
+- **WHEN** 测试环境中仍出现 `assistant_action`、`intent_resolved` 或旧 trigger JSON
+- **THEN** 报告 MUST 标记为 legacy field leakage
+- **AND** 除历史兼容测试外，新黑盒用例 MUST 将其视为架构清理失败
+
+#### Scenario: 执行证据缺失
+- **WHEN** 用户可见回复声称已经生成、修改或保存训练内容
+- **THEN** 黑盒 runner MUST 校验存在对应 `AgentExecutionResult`、tool result、validation / policy / revision 或 artifact / patch 事件
+- **AND** 仅有自然语言承诺 MUST 判定为失败
+
+#### Scenario: Agent-only failure handling 可见
+- **WHEN** 真实多轮流程中出现工具失败、候选不足、引用不可解析、validation 失败或 policy blocked
+- **THEN** 黑盒 runner MUST 从 `AgentExecutionResult.status`、blocking reason、tool evidence metadata 和用户可见回复判断该轮结果
+- **AND** runner MUST NOT 因缺少旧 intent 架构、`assistant_action` 或旧 trigger JSON 而把 failure handling 判为失败
+
+#### Scenario: 核心流程验收矩阵
+- **WHEN** 基础或详细黑盒套件覆盖 routine、长期计划、动作推荐、局部 Patch、序号动作讲解和短指令调整
+- **THEN** 每类流程 MUST 校验用户可见结果与 `AgentExecutionResult`、tool dependency graph、artifact / patch / suggestion 事件或 done metadata 一致
+- **AND** 每类流程 MUST 校验 legacy path absence
+
+### Requirement: 黑盒测试必须验证 Tool-first Agent 用户可见闭环
+
+系统 SHALL 用真实 `/api/chat` 多轮黑盒流程验证 Tool-first Agent 主链，重点断言用户可见回复、工具执行结果和 artifact 事件一致。
+
+#### Scenario: 保留现有业务 flow
+- **WHEN** 系统迁移到 Tool-first Agent 主链
+- **THEN** 现有 basic/detail 黑盒 flow 的用户输入序列和业务期望 MUST 默认保留
+- **AND** 测试 MUST NOT 为适配内部 Agent 实现而重写成工具级白盒用例
+- **AND** 如确需调整某个 flow，MUST 说明是业务期望变化、报告诊断变化还是旧兼容字段退出导致
+
+#### Scenario: 多轮器械调整
+- **WHEN** 黑盒流程先生成一套 30 分钟哑铃上肢 routine
+- **AND** 用户随后输入“`不用哑铃了，换一个`”
+- **THEN** 测试 MUST 断言系统读取最近 artifact
+- **AND** 测试 MUST 断言最终结果不再推荐哑铃训练作为首选执行结果
+- **AND** 测试 MUST 断言用户可见回复与 artifact、patch 或澄清事件一致
+
+#### Scenario: 动作库真实查询
+- **WHEN** 用户请求具体动作推荐、routine 或替代动作
+- **THEN** 黑盒报告 MUST 记录是否发生动作库工具查询
+- **AND** 用户可见具体动作 MUST 来自工具候选或已保存 artifact
+
+#### Scenario: 旧 intent 字段不是验收核心
+- **WHEN** Tool-first Agent 已返回正确用户可见结果和 artifact 事件
+- **THEN** 测试 MUST NOT 仅因为缺少旧 `assistant_action`、旧 resolved intent 字段或旧 trigger JSON 判失败
+- **AND** 报告 MUST 优先展示 Agent tool trace、ExecutionResult 和用户可见断言
+
+#### Scenario: 黑盒 runner 采集 Agent 执行证据
+- **WHEN** runner 消费 `/api/chat` NDJSON stream 并保存会话
+- **THEN** runner MUST 采集 `AgentExecutionResult` 或等价 done metadata
+- **AND** runner MUST 采集 Agent stage、tool call、tool result、dependency graph 摘要和 legacy path skip 诊断
+- **AND** runner MUST 记录关键 `toolResultId`、`candidateSetId`、`validationId`、`policyDecisionId`、`confirmationId`、`revisionId` 或明确 blocking reason
+- **AND** runner MUST 继续回读 artifact payload 和 recent artifact summaries，用于验证用户可见结果与持久化结果一致
+
+#### Scenario: 卡片类型从 Agent 结果推导
+- **WHEN** 黑盒断言需要判断动作推荐、routine、plan、patch 或澄清结果
+- **THEN** 测试 MUST 优先从 `AgentExecutionResult`、artifact/patch/suggestion 事件和 done metadata 推导稳定结果类型
+- **AND** 测试 MUST NOT 把旧 `AssistantAction["action"]` 作为唯一卡片类型来源
+- **AND** 如果兼容期仍输出 `assistant_action`，测试 MAY 记录它为 derived/diagnostic 字段
+
+#### Scenario: 架构级防回归断言
+- **WHEN** 黑盒流程触发动作推荐、routine、plan、Patch 或 Regenerate
+- **THEN** 报告 MUST 断言执行结果来自 `AgentExecutionResult`
+- **AND** 报告 MUST 断言没有由旧 intent-first 分支、summary-only 上下文、旧 normalize 或裸 query RAG 直接触发卡片
+- **AND** 报告 MUST 展示关键 toolResultId、candidateSetId、validationId、revisionId 或阻断原因
+
+#### Scenario: Prompt 与 token budget 防回归断言
+- **WHEN** 黑盒流程进入 `/api/chat` Tool-first Agent 主链
+- **THEN** 报告 MUST 展示 Agent prompt module、Agent stage、ContextPackage 可见性摘要和关键 tool result 引用
+- **AND** 报告 MUST NOT 把旧 `chat_intent_resolution`、`chat_final_response` 或 `conversation_summary_context` 作为主链执行依据
+- **AND** 如果 summary 更新存在，报告 MUST 标注其为后台或调试材料，而不是执行事实源
+
+#### Scenario: 黑盒报告分层展示失败原因
+- **WHEN** 黑盒流程失败或需要复核
+- **THEN** 报告 MUST 区分用户可见闭环失败、Agent 执行证据失败、语义质量失败和人工复核项
+- **AND** 用户可见闭环失败 MUST 包含空回复、卡片缺失、意外卡片、请求/stream 错误或回复承诺与 artifact 事件不一致
+- **AND** Agent 执行证据失败 MUST 包含缺少 `AgentExecutionResult`、缺少必需 tool result id、写入缺少 validation/revision、旧路径触发执行或 trace 无法复盘
+- **AND** 语义质量失败 MUST 包含目标继承错误、器械/动作排除未生效、引用对象错误或应澄清时擅自猜测
+
+#### Scenario: fixture 增加 Agent 期望字段
+- **WHEN** 某个 flow 需要验证 Agent 行为而不只验证用户可见文本
+- **THEN** fixture MAY 声明预期 Agent status、必需工具、禁用工具、必需候选集合、必需校验、必需 revision、引用解析和 legacy path 禁用断言
+- **AND** 这些字段 MUST 只描述可观测执行证据，不得锁定模型 prompt 文案、内部思考文本或非合同化的工具排序细节
+
+#### Scenario: 兼容字段退出验证
+- **WHEN** 前端和报告已经支持 AgentExecutionResult
+- **THEN** 测试 MUST 覆盖关闭旧 `assistant_action` / resolved intent 兼容事件后的主流程
+- **AND** 用户可见回复、artifact 事件、assistantSuggestions 和 done metadata MUST 仍然通过
 

@@ -123,10 +123,12 @@ export async function POST(request: Request) {
 
   await mkdir(logDir, { recursive: true });
 
+  const payload = normalizeSavedLogPayload(logType, body.payload);
+
   if (logType === "prompt") {
-    await appendFile(logPath, createPromptLogEntryContent(body.payload, savedAt), "utf8");
+    await appendFile(logPath, createPromptLogEntryContent(payload, savedAt), "utf8");
   } else {
-    await writeFile(logPath, createTraceLogContent(body.payload, savedAt), "utf8");
+    await writeFile(logPath, createTraceLogContent(payload, savedAt), "utf8");
   }
 
   return NextResponse.json({
@@ -156,6 +158,45 @@ function getLogFileHeader(logType: AiTraceSavedLogType) {
   return logType === "prompt"
     ? "// User question and answer record saved from /dev/ai-traces for Codex regression testing."
     : "// AI Trace saved from /dev/ai-traces for Codex debugging.";
+}
+
+// normalizeSavedLogPayload 在开发态保存入口兜底约束日志形状，避免窄问答记录混入 prompt 或 tool payload。
+export function normalizeSavedLogPayload(logType: AiTraceSavedLogType, payload: object) {
+  if (logType === "trace") {
+    return payload;
+  }
+
+  const record = payload as Record<string, unknown>;
+  const trace = isRecord(record.trace) ? record.trace : {};
+  const userQuestions = Array.isArray(record.userQuestions)
+    ? record.userQuestions
+        .filter((item): item is Record<string, unknown> => isRecord(item))
+        .map((item, index) => ({
+          round: typeof item.round === "number" ? item.round : index + 1,
+          question: typeof item.question === "string" ? item.question : "",
+        }))
+        .filter((item) => item.question.trim().length > 0)
+    : [];
+
+  return {
+    title: typeof record.title === "string" ? record.title : "用户问答记录",
+    savedFrom: "/dev/ai-traces",
+    trace: {
+      traceId: getString(trace.traceId),
+      runId: getString(trace.runId),
+      route: getString(trace.route),
+      traceTitle: getString(trace.traceTitle),
+      status: getString(trace.status),
+      createdAt: getString(trace.createdAt),
+      endedAt: getString(trace.endedAt),
+      durationMs: typeof trace.durationMs === "number" ? trace.durationMs : undefined,
+      sessionId: getString(trace.sessionId),
+      messageId: getString(trace.messageId),
+      promptVersion: getString(trace.promptVersion),
+    },
+    userQuestions,
+    finalAnswer: typeof record.finalAnswer === "string" ? record.finalAnswer : "",
+  };
 }
 
 function createTraceLogContent(payload: object, savedAt: string) {
@@ -197,4 +238,12 @@ function formatLocalSavedAt(date: Date) {
 
 function padDatePart(value: number) {
   return String(value).padStart(2, "0");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function getString(value: unknown) {
+  return typeof value === "string" ? value : undefined;
 }

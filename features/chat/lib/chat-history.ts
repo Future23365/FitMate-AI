@@ -54,7 +54,8 @@ export function createConversationTitle(nextMessages: ChatMessage[]) {
   return title.length > 24 ? `${title.slice(0, 24)}...` : title;
 }
 
-export async function saveChatConversation(
+// createChatConversationSavePayload 显式白名单持久化字段，避免请求态 UI 字段进入聊天历史。
+export function createChatConversationSavePayload(
   conversationId: string,
   messages: ChatMessage[],
   bubblePlans: Record<string, WorkoutPlanDraft>,
@@ -64,19 +65,14 @@ export async function saveChatConversation(
   conversationSummary?: Pick<ConversationSummaryContext, "summary">,
   conversationContext?: FitnessConversationContext,
 ) {
-  const messagesToSave = messages.map(
-    ({
-      isReasoning: _isReasoning,
-      reasoningContent: _reasoningContent,
-      suggestedQuestions,
-      assistantSuggestions,
-      ...message
-    }) => ({
-      ...message,
-      assistantSuggestions,
-      suggestedReplies: message.suggestedReplies ?? suggestedQuestions,
-    }),
-  );
+  const messagesToSave = messages.map((message) => ({
+    id: message.id,
+    role: message.role,
+    content: message.content,
+    createdAt: message.createdAt,
+    assistantSuggestions: message.assistantSuggestions,
+    suggestedReplies: message.suggestedReplies ?? message.suggestedQuestions,
+  }));
 
   if (!messagesToSave.some((message) => message.role === "user")) {
     return null;
@@ -108,29 +104,57 @@ export async function saveChatConversation(
     }
   }
 
+  return {
+    id: conversationId,
+    title: createConversationTitle(messagesToSave),
+    updatedAt: new Date().toISOString(),
+    messages: messagesToSave,
+    plans: Object.keys(plansToSave).length > 0 ? plansToSave : undefined,
+    routines: Object.keys(routinesToSave).length > 0 ? routinesToSave : undefined,
+    exerciseRecommendations:
+      Object.keys(exerciseRecommendationsToSave).length > 0
+        ? exerciseRecommendationsToSave
+        : undefined,
+    recommendationIntents:
+      Object.keys(recommendationIntentsToSave).length > 0
+        ? recommendationIntentsToSave
+        : undefined,
+    conversationSummary,
+    conversationContext,
+  };
+}
+
+export async function saveChatConversation(
+  conversationId: string,
+  messages: ChatMessage[],
+  bubblePlans: Record<string, WorkoutPlanDraft>,
+  bubbleRoutines: Record<string, WorkoutRoutineDraft> = {},
+  bubbleExerciseRecommendations: Record<string, ExerciseRecommendationCard> = {},
+  bubbleRecommendationIntents: Record<string, WorkoutPlanIntent> = {},
+  conversationSummary?: Pick<ConversationSummaryContext, "summary">,
+  conversationContext?: FitnessConversationContext,
+) {
+  const payload = createChatConversationSavePayload(
+    conversationId,
+    messages,
+    bubblePlans,
+    bubbleRoutines,
+    bubbleExerciseRecommendations,
+    bubbleRecommendationIntents,
+    conversationSummary,
+    conversationContext,
+  );
+
+  if (!payload) {
+    return null;
+  }
+
   const data = await clientRequest<ChatConversationResponse>(
     `/api/chat/conversations/${encodeURIComponent(conversationId)}`,
     {
       method: "PUT",
       errorMessage: "保存对话失败",
-      body: {
-        id: conversationId,
-        title: createConversationTitle(messagesToSave),
-        updatedAt: new Date().toISOString(),
-        messages: messagesToSave,
-        plans: Object.keys(plansToSave).length > 0 ? plansToSave : undefined,
-        routines: Object.keys(routinesToSave).length > 0 ? routinesToSave : undefined,
-        exerciseRecommendations:
-          Object.keys(exerciseRecommendationsToSave).length > 0
-            ? exerciseRecommendationsToSave
-            : undefined,
-        recommendationIntents:
-          Object.keys(recommendationIntentsToSave).length > 0
-            ? recommendationIntentsToSave
-            : undefined,
-        conversationSummary,
-        conversationContext,
-      },
+      body: payload,
     },
   );
 

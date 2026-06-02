@@ -2,18 +2,19 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { requestChatStream } from "@/features/chat/api/chat-client";
 import {
-  requestChatStream,
-  requestExerciseRecommendations,
-} from "@/features/chat/api/chat-client";
+  createInitialVisibleAgentActivity,
+  createWritingReplyAgentActivity,
+  reduceAgentActivity,
+  reduceVisibleAgentActivity,
+  shouldClearAgentActivityForStreamEvent,
+  type VisibleAgentActivity,
+} from "@/features/chat/lib/agent-activity";
 import { readChatConversation, saveChatConversation } from "@/features/chat/lib/chat-history";
 import { readAssistantSuggestionsFromStreamEvent } from "@/features/chat/lib/assistant-suggestions";
-import {
-  extractSuggestedReplyTrigger,
-} from "@/features/chat/lib/workout-plan-trigger";
 import type {
   ApiChatMessage,
-  AssistantActionEvent,
   ChatMessage,
   ChatStreamEvent,
 } from "@/features/chat/types";
@@ -52,14 +53,6 @@ function createMessage(role: ChatMessage["role"], content: string): ChatMessage 
   };
 }
 
-function getRecommendationExerciseIds(card?: ExerciseRecommendationCard) {
-  return card?.items.map((item) => item.exerciseId) ?? [];
-}
-
-function uniqueExerciseIds(ids: string[]) {
-  return [...new Set(ids.filter((id) => id.trim().length > 0))];
-}
-
 function parseRecommendationIntent(intent: unknown): WorkoutPlanIntent | null {
   const parsed = workoutPlanIntentSchema.safeParse(intent);
   return parsed.success ? parsed.data : null;
@@ -82,6 +75,7 @@ export function useChatController() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [agentActivity, setAgentActivity] = useState<VisibleAgentActivity | null>(null);
   const [error, setError] = useState("");
   const [thinkingEnabled, setThinkingEnabled] = useState(readThinkingEnabledPreference);
   const [autoPlanGenerating, setAutoPlanGenerating] = useState<string | null>(null);
@@ -93,9 +87,6 @@ export function useChatController() {
     Record<string, ExerciseRecommendationCard>
   >({});
   const [bubbleRecommendationIntents, setBubbleRecommendationIntents] = useState<Record<string, WorkoutPlanIntent>>({});
-  const [dislikedExerciseIdsByMessage, setDislikedExerciseIdsByMessage] = useState<
-    Record<string, string[]>
-  >({});
   const [bubblePlanErrors, setBubblePlanErrors] = useState<Record<string, BubblePlanError>>({});
   const [conversationContext, setConversationContext] = useState<FitnessConversationContext>(() =>
     buildFitnessConversationContext([]),
@@ -104,6 +95,10 @@ export function useChatController() {
     summary: "",
   });
   const skipNextAutoSaveRef = useRef(false);
+
+  function clearAgentActivity() {
+    setAgentActivity(null);
+  }
 
   useEffect(() => {
     try {
@@ -119,6 +114,7 @@ export function useChatController() {
         return;
       }
 
+      clearAgentActivity();
       const matchedConversation = await readChatConversation(id);
 
       if (!matchedConversation) {
@@ -133,7 +129,6 @@ export function useChatController() {
       setBubblePlanExercises({});
       setBubbleExerciseRecommendations(matchedConversation.exerciseRecommendations ?? {});
       setBubbleRecommendationIntents(matchedConversation.recommendationIntents ?? {});
-      setDislikedExerciseIdsByMessage({});
       setConversationContext(
         matchedConversation.conversationContext ??
           buildFitnessConversationContext(matchedConversation.messages),
@@ -154,6 +149,10 @@ export function useChatController() {
 
     function handleHashChange() {
       const id = window.location.hash.replace(/^#/, "");
+      if (!id) {
+        clearAgentActivity();
+        return;
+      }
       void loadConversation(id);
     }
 
@@ -166,6 +165,7 @@ export function useChatController() {
 
     function startNewConversation() {
       window.history.replaceState(null, "", window.location.pathname);
+      clearAgentActivity();
       setConversationId(null);
       setMessages([]);
       setBubblePlans({});
@@ -173,7 +173,6 @@ export function useChatController() {
       setBubblePlanExercises({});
       setBubbleExerciseRecommendations({});
       setBubbleRecommendationIntents({});
-      setDislikedExerciseIdsByMessage({});
       setConversationContext(buildFitnessConversationContext([]));
       setConversationSummary({ summary: "" });
       setBubblePlanErrors({});
@@ -245,122 +244,6 @@ export function useChatController() {
     );
   }
 
-  async function generateExerciseRecommendationsForBubble(
-    messageId: string,
-    intent: unknown,
-    latestUserMessage: string,
-    summaryContext: Pick<ConversationSummaryContext, "summary">,
-    parentTraceId?: string,
-    excludeExerciseIds: string[] = [],
-  ) {
-    try {
-      const card = await requestExerciseRecommendations(latestUserMessage, intent, summaryContext, parentTraceId, {
-        excludeExerciseIds,
-      });
-
-      setBubbleExerciseRecommendations((prev) => ({
-        ...prev,
-        [messageId]: card,
-      }));
-      const parsedIntent = parseRecommendationIntent(intent);
-      if (parsedIntent) {
-        setBubbleRecommendationIntents((prev) => ({
-          ...prev,
-          [messageId]: parsedIntent,
-        }));
-      }
-      setBubblePlanErrors((prev) => {
-        const next = { ...prev };
-        delete next[messageId];
-        return next;
-      });
-    } catch (err: unknown) {
-      console.error("[SilentExerciseRecommendation] Error:", err);
-      setBubblePlanErrors((prev) => ({
-        ...prev,
-        [messageId]: {
-          message: err instanceof Error ? err.message : "生成动作推荐失败，请稍后重试。",
-          suggestedReplies: [],
-          recoverable: false,
-        },
-      }));
-    } finally {
-      setAutoRecommendationGenerating(null);
-    }
-  }
-
-  async function refreshExerciseRecommendations(messageId: string, intent?: unknown) {
-    const recommendationIntent =
-      intent ?? bubbleRecommendationIntents[messageId] ?? conversationContext.currentIntent;
-
-    if (!recommendationIntent) {
-      setBubblePlanErrors((prev) => ({
-        ...prev,
-        [messageId]: {
-          message: "缺少上一轮推荐意图，无法直接换一批。",
-          suggestedReplies: [],
-          recoverable: false,
-        },
-      }));
-      return;
-    }
-
-    const excludeExerciseIds = uniqueExerciseIds([
-      ...getRecommendationExerciseIds(bubbleExerciseRecommendations[messageId]),
-      ...(dislikedExerciseIdsByMessage[messageId] ?? []),
-    ]);
-    setAutoRecommendationGenerating(messageId);
-    await generateExerciseRecommendationsForBubble(
-      messageId,
-      recommendationIntent,
-      "换一批动作",
-      conversationSummary,
-      undefined,
-      excludeExerciseIds,
-    );
-  }
-
-  function dislikeExerciseRecommendation(messageId: string, exerciseId: string) {
-    setDislikedExerciseIdsByMessage((prev) => ({
-      ...prev,
-      [messageId]: uniqueExerciseIds([...(prev[messageId] ?? []), exerciseId]),
-    }));
-    setBubbleExerciseRecommendations((prev) => {
-      const card = prev[messageId];
-
-      if (!card) {
-        return prev;
-      }
-
-      return {
-        ...prev,
-        [messageId]: {
-          ...card,
-          items: card.items.filter((item) => item.exerciseId !== exerciseId),
-        },
-      };
-    });
-  }
-
-  function composeExerciseRecommendations(messageId: string) {
-    const card = bubbleExerciseRecommendations[messageId];
-    const exerciseNames = card?.items.map((item) => item.nameZh).filter(Boolean) ?? [];
-
-    if (exerciseNames.length === 0) {
-      setBubblePlanErrors((prev) => ({
-        ...prev,
-        [messageId]: {
-          message: "当前没有可编排的推荐动作，请先换一批。",
-          suggestedReplies: [],
-          recoverable: false,
-        },
-      }));
-      return;
-    }
-
-    sendMessage(`把这批动作编成一套训练：${exerciseNames.join("、")}`);
-  }
-
   async function sendMessage(nextText?: string) {
     const text = (nextText ?? input).trim();
 
@@ -390,6 +273,7 @@ export function useChatController() {
     setInput("");
     setError("");
     setIsLoading(true);
+    setAgentActivity(createInitialVisibleAgentActivity());
 
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), chatRequestTimeoutMs);
@@ -439,6 +323,11 @@ export function useChatController() {
 
           const streamEvent = JSON.parse(line) as ChatStreamEvent;
 
+          if (streamEvent.type === "agent_activity") {
+            setAgentActivity((current) => reduceAgentActivity(current, streamEvent));
+            continue;
+          }
+
           if (streamEvent.type === "done") {
             if (typeof streamEvent.conversationSummary === "string") {
               updatedConversationSummary = streamEvent.conversationSummary;
@@ -448,23 +337,17 @@ export function useChatController() {
               updatedConversationContext = streamEvent.conversationContext;
               setConversationContext(streamEvent.conversationContext);
             }
+            if (shouldClearAgentActivityForStreamEvent(streamEvent)) {
+              clearAgentActivity();
+            }
             continue;
           }
 
           if (streamEvent.type === "error") {
+            if (shouldClearAgentActivityForStreamEvent(streamEvent)) {
+              clearAgentActivity();
+            }
             throw new Error(streamEvent.delta || "聊天请求失败，请稍后重试。");
-          }
-
-          if ((streamEvent.type === "assistant_action" || streamEvent.type === "intent_resolved") && streamEvent.action) {
-            const assistantAction: AssistantActionEvent = {
-              action: streamEvent.action,
-              intent: streamEvent.intent,
-              resolvedIntent: streamEvent.resolvedIntent,
-              resolvedAction: streamEvent.resolvedAction,
-              fieldSources: streamEvent.fieldSources,
-              referenceResolution: streamEvent.referenceResolution,
-            };
-            continue;
           }
 
           if (streamEvent.type === "artifact_generating") {
@@ -570,6 +453,9 @@ export function useChatController() {
 
           if (streamEvent.type === "content") {
             fullContent += streamEvent.delta ?? "";
+            setAgentActivity((current) =>
+              reduceVisibleAgentActivity(current, createWritingReplyAgentActivity(current)),
+            );
             updateAssistantMessage(assistantMessage.id, (message) => ({
               ...message,
               content: `${message.content}${streamEvent.delta ?? ""}`,
@@ -583,16 +469,6 @@ export function useChatController() {
         ...message,
         isReasoning: false,
       }));
-
-      const suggestedReplyTrigger = extractSuggestedReplyTrigger(fullContent);
-      if (suggestedReplyTrigger) {
-        updateAssistantMessage(assistantMessage.id, (message) => ({
-          ...message,
-          suggestedReplies: message.assistantSuggestions?.length
-            ? message.suggestedReplies
-            : suggestedReplyTrigger.suggestedReplies,
-        }));
-      }
 
       setConversationContext(
         updatedConversationContext ??
@@ -620,24 +496,23 @@ export function useChatController() {
     } finally {
       window.clearTimeout(timeout);
       setIsLoading(false);
+      clearAgentActivity();
     }
   }
 
   return {
     autoRecommendationGenerating,
+    agentActivity,
     autoPlanGenerating,
     bubbleExerciseRecommendations,
     bubblePlanExercises,
     bubblePlanErrors,
     bubblePlans,
     bubbleRoutines,
-    composeExerciseRecommendations,
-    dislikeExerciseRecommendation,
     error,
     input,
     isLoading,
     messages,
-    refreshExerciseRecommendations,
     sendMessage,
     setInput,
     setThinkingEnabled,

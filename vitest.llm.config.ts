@@ -12,7 +12,7 @@ export default defineConfig({
   test: {
     clearMocks: true,
     environment: "node",
-    include: ["manual-tests/llm/**/*.test.ts"],
+    include: ["manual-tests/llm/llm-consistency.test.ts"],
     restoreMocks: true,
     testTimeout: 180_000,
   },

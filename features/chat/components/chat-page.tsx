@@ -10,14 +10,9 @@ import { ResponsiveRightSidebar } from "@/components/app/responsive-right-sideba
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { useAutoHideScrollbar } from "@/components/app/use-auto-hide-scrollbar";
 import { ExerciseRecommendationCard } from "@/features/exercises/components/exercise-recommendation-card";
+import { AgentActivityIndicator } from "@/features/chat/components/agent-activity-indicator";
 import { useChatController } from "@/features/chat/hooks/use-chat-controller";
 import { getMessageAssistantSuggestions } from "@/features/chat/lib/assistant-suggestions";
-import {
-  extractExerciseRecommendationTrigger,
-  extractSuggestedReplyTrigger,
-  extractWorkoutPlanTrigger,
-  extractWorkoutRoutineTrigger,
-} from "@/features/chat/lib/workout-plan-trigger";
 import { listWorkoutSchedules } from "@/features/workouts/api/workout-data-client";
 import { WorkoutPlanDraftCard } from "@/features/workouts/components/workout-plan-draft-card";
 import { WorkoutRoutineDraftCard } from "@/features/workouts/components/workout-routine-draft-card";
@@ -120,6 +115,91 @@ function MarkdownContent({ content }: { content: string }) {
       {content}
     </ReactMarkdown>
   );
+}
+
+// 历史消息可能含旧 trigger JSON；这里只做纯展示清理，不再解析 intent 或触发任何训练卡片。
+function stripHistoricalLegacyTriggerBlocks(content: string) {
+  const legacyTriggerTypes = [
+    "workout_plan_trigger",
+    "workout_routine_trigger",
+    "exercise_recommendation_trigger",
+    "suggested_reply_trigger",
+    "suggested_question_trigger",
+  ];
+  let cleanContent = content;
+
+  for (const rawBlock of collectHistoricalJsonLikeBlocks(content)) {
+    if (legacyTriggerTypes.some((type) => rawBlock.includes(`"type"`) && rawBlock.includes(type))) {
+      cleanContent = cleanContent.replace(rawBlock, "");
+    }
+  }
+
+  return cleanContent.trim();
+}
+
+function collectHistoricalJsonLikeBlocks(content: string) {
+  const blocks: string[] = [];
+  const fencedRegex = /```json\s*[\s\S]*?\s*```/g;
+
+  for (const match of content.matchAll(fencedRegex)) {
+    blocks.push(match[0]);
+  }
+
+  for (const rawBlock of collectBalancedJsonObjects(content)) {
+    if (!blocks.includes(rawBlock)) {
+      blocks.push(rawBlock);
+    }
+  }
+
+  return blocks;
+}
+
+function collectBalancedJsonObjects(content: string) {
+  const blocks: string[] = [];
+
+  for (let start = content.indexOf("{"); start >= 0; start = content.indexOf("{", start + 1)) {
+    let depth = 0;
+    let inString = false;
+    let isEscaped = false;
+
+    for (let index = start; index < content.length; index += 1) {
+      const char = content[index];
+
+      if (isEscaped) {
+        isEscaped = false;
+        continue;
+      }
+
+      if (char === "\\") {
+        isEscaped = true;
+        continue;
+      }
+
+      if (char === "\"") {
+        inString = !inString;
+        continue;
+      }
+
+      if (inString) {
+        continue;
+      }
+
+      if (char === "{") {
+        depth += 1;
+      }
+
+      if (char === "}") {
+        depth -= 1;
+      }
+
+      if (depth === 0) {
+        blocks.push(content.slice(start, index + 1));
+        break;
+      }
+    }
+  }
+
+  return blocks;
 }
 
 function ChatThinkingIndicator({ showThinkingIcon }: { showThinkingIcon: boolean }) {
@@ -356,19 +436,17 @@ function HomeRightSidebar() {
 export function ChatPage() {
   const {
     autoRecommendationGenerating,
+    agentActivity,
     autoPlanGenerating,
     bubbleExerciseRecommendations,
     bubblePlanExercises,
     bubblePlanErrors,
     bubblePlans,
     bubbleRoutines,
-    composeExerciseRecommendations,
-    dislikeExerciseRecommendation,
     error,
     input,
     isLoading,
     messages,
-    refreshExerciseRecommendations,
     sendMessage,
     setInput,
     setThinkingEnabled,
@@ -382,6 +460,9 @@ export function ChatPage() {
   const latestMessageState = messages
     .map((message) => `${message.id}:${message.content.length}:${message.reasoningContent?.length ?? 0}`)
     .join("|");
+  const activeAssistantMessageId = isLoading
+    ? [...messages].reverse().find((message) => message.role === "assistant")?.id
+    : undefined;
 
   useEffect(() => {
     chatInputRef.current?.focus();
@@ -482,6 +563,7 @@ export function ChatPage() {
             <div className="mx-auto flex max-w-4xl flex-col gap-md">
               {messages.map((message) => {
                 const isUserMessage = message.role === "user";
+                const isActiveAssistantMessage = message.id === activeAssistantMessageId;
 
                 return (
                   <div
@@ -498,49 +580,40 @@ export function ChatPage() {
                       <div className="flex w-9 shrink-0 justify-center pt-[2px]">
                         <ChatMessageAvatar role={isUserMessage ? "user" : "assistant"} />
                       </div>
-                      <div
-                        className={`ai-chat-bubble min-w-0 rounded-2xl p-lg transition-shadow ${
-                          isUserMessage
-                            ? "rounded-tr-sm bg-primary text-white shadow-[0_12px_26px_rgba(36,89,230,0.16)]"
-                            : "rounded-tl-sm border border-line bg-white text-ink shadow-[0_12px_26px_rgba(16,24,40,0.06)]"
-                        }`}
-                      >
-                        {(() => {
-                          const trigger = extractWorkoutPlanTrigger(message.content);
-                          const routineTrigger = extractWorkoutRoutineTrigger(message.content);
-                          const recommendationTrigger = extractExerciseRecommendationTrigger(
-                            trigger || routineTrigger ? "" : message.content,
-                          );
-                          const suggestedReplyTrigger = extractSuggestedReplyTrigger(message.content);
-                          let cleanContent = message.content;
-                          for (const rawBlock of [
-                            trigger?.rawBlock,
-                            routineTrigger?.rawBlock,
-                            recommendationTrigger?.rawBlock,
-                            suggestedReplyTrigger?.rawBlock,
-                          ]) {
-                            if (rawBlock) {
-                              cleanContent = cleanContent.replace(rawBlock, "");
-                            }
-                          }
-                          cleanContent = cleanContent.trim();
-                          const assistantSuggestions = getMessageAssistantSuggestions({
-                            ...message,
-                            suggestedReplies: message.suggestedReplies ?? suggestedReplyTrigger?.suggestedReplies,
-                          });
+                      <div className="flex flex-1 flex-col gap-xs min-w-0">
+                        {message.role === "assistant" && (
+                          <AgentActivityIndicator
+                            activity={isActiveAssistantMessage ? agentActivity : null}
+                          />
+                        )}
+                        <div
+                          className={`ai-chat-bubble min-w-0 rounded-2xl p-lg transition-shadow ${
+                            isUserMessage
+                              ? "rounded-tr-sm bg-primary text-white shadow-[0_12px_26px_rgba(36,89,230,0.16)]"
+                              : "rounded-tl-sm border border-line bg-white text-ink shadow-[0_12px_26px_rgba(16,24,40,0.06)]"
+                          }`}
+                        >
+                          {(() => {
+                            const cleanContent = stripHistoricalLegacyTriggerBlocks(message.content);
+                            const assistantSuggestions = getMessageAssistantSuggestions({
+                              ...message,
+                            });
+                            const recommendationCard = bubbleExerciseRecommendations[message.id];
 
-                          if (message.role === "assistant") {
-                            return (
-                              <>
-                                {cleanContent ? (
-                                  <div className="markdown-answer">
-                                    <MarkdownContent content={cleanContent} />
-                                  </div>
-                                ) : (
-                                  <ChatThinkingIndicator showThinkingIcon={thinkingEnabled || message.isReasoning === true} />
-                                )}
+                            if (message.role === "assistant") {
+                              return (
+                                <>
+                                  {cleanContent ? (
+                                    <div className="markdown-answer">
+                                      <MarkdownContent content={cleanContent} />
+                                    </div>
+                                  ) : (
+                                    <div>
+                                      <ChatThinkingIndicator showThinkingIcon={thinkingEnabled || message.isReasoning === true} />
+                                    </div>
+                                  )}
 
-                                {assistantSuggestions.length > 0 && (
+                                {assistantSuggestions.length > 0 && !recommendationCard && (
                                   <div className="mt-md flex flex-wrap gap-sm">
                                     {assistantSuggestions.map((suggestion) => (
                                       <button
@@ -620,18 +693,13 @@ export function ChatPage() {
                                   </div>
                                 )}
 
-                                {bubbleExerciseRecommendations[message.id] && (
+                                {recommendationCard && (
                                   <div className="mt-md">
                                     <ExerciseRecommendationCard
-                                      card={bubbleExerciseRecommendations[message.id]}
-                                      isRefreshing={autoRecommendationGenerating === message.id}
-                                      onCompose={() => composeExerciseRecommendations(message.id)}
-                                      onDislike={(exerciseId) =>
-                                        dislikeExerciseRecommendation(message.id, exerciseId)
-                                      }
-                                      onRefresh={() =>
-                                        refreshExerciseRecommendations(message.id, recommendationTrigger?.intent)
-                                      }
+                                      assistantSuggestions={assistantSuggestions}
+                                      card={recommendationCard}
+                                      isSuggestionDisabled={isLoading}
+                                      onSuggestionClick={sendMessage}
                                     />
                                   </div>
                                 )}
@@ -648,6 +716,7 @@ export function ChatPage() {
                       </div>
                     </div>
                   </div>
+                </div>
                 );
               })}
               {error ? (
@@ -660,47 +729,49 @@ export function ChatPage() {
         </div>
 
         <div className="app-shell-glass-soft border-t border-line/60 p-lg xl:p-xl">
-          <form className="mx-auto max-w-[850px]" onSubmit={handleSubmit}>
-            <div className="relative flex items-center">
-              <input
-                className="w-full rounded-xl border border-line bg-white py-md pl-md pr-[150px] font-body-md shadow-card outline-none transition-all placeholder:text-muted focus:border-primary focus:ring-4 focus:ring-primary/10 sm:pr-[210px]"
-                ref={chatInputRef}
-                onChange={(event) => setInput(event.target.value)}
-                placeholder="向 FitMate AI 提问..."
-                type="text"
-                value={input}
-              />
-              <button
-                aria-pressed={thinkingEnabled}
-                aria-label={thinkingEnabled ? "关闭思考模式" : "开启思考模式"}
-                className={`absolute right-[52px] flex h-9 items-center gap-xs rounded-full border px-sm font-label-sm text-label-sm shadow-sm transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 ${
-                  thinkingEnabled
-                    ? "border-primary/30 bg-primary-soft text-primary"
-                    : "border-line bg-white/90 text-muted hover:border-primary/30 hover:bg-panel-soft"
-                }`}
-                disabled={isLoading}
-                onClick={() => setThinkingEnabled((enabled) => !enabled)}
-                type="button"
-              >
-                <SymbolIcon className="text-[18px]">
-                  {thinkingEnabled ? "psychology" : "psychology_alt"}
-                </SymbolIcon>
-                <span className="hidden sm:inline">思考</span>
-                <span
-                  className={`h-1.5 w-1.5 rounded-full ${
-                    thinkingEnabled ? "bg-primary" : "bg-outline-variant"
-                  }`}
+          <div className="mx-auto max-w-[850px] space-y-sm">
+            <form onSubmit={handleSubmit}>
+              <div className="relative flex items-center">
+                <input
+                  className="w-full rounded-xl border border-line bg-white py-md pl-md pr-[150px] font-body-md shadow-card outline-none transition-all placeholder:text-muted focus:border-primary focus:ring-4 focus:ring-primary/10 sm:pr-[210px]"
+                  ref={chatInputRef}
+                  onChange={(event) => setInput(event.target.value)}
+                  placeholder="向 FitMate AI 提问..."
+                  type="text"
+                  value={input}
                 />
-              </button>
-              <button
-                className="absolute right-xs flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-white shadow-card transition-all hover:bg-primary-deep hover:shadow-lift active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={!canSubmitMessage}
-                type="submit"
-              >
-                <SymbolIcon>send</SymbolIcon>
-              </button>
-            </div>
-          </form>
+                <button
+                  aria-pressed={thinkingEnabled}
+                  aria-label={thinkingEnabled ? "关闭思考模式" : "开启思考模式"}
+                  className={`absolute right-[52px] flex h-9 items-center gap-xs rounded-full border px-sm font-label-sm text-label-sm shadow-sm transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 ${
+                    thinkingEnabled
+                      ? "border-primary/30 bg-primary-soft text-primary"
+                      : "border-line bg-white/90 text-muted hover:border-primary/30 hover:bg-panel-soft"
+                  }`}
+                  disabled={isLoading}
+                  onClick={() => setThinkingEnabled((enabled) => !enabled)}
+                  type="button"
+                >
+                  <SymbolIcon className="text-[18px]">
+                    {thinkingEnabled ? "psychology" : "psychology_alt"}
+                  </SymbolIcon>
+                  <span className="hidden sm:inline">思考</span>
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      thinkingEnabled ? "bg-primary" : "bg-outline-variant"
+                    }`}
+                  />
+                </button>
+                <button
+                  className="absolute right-xs flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-white shadow-card transition-all hover:bg-primary-deep hover:shadow-lift active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={!canSubmitMessage}
+                  type="submit"
+                >
+                  <SymbolIcon>send</SymbolIcon>
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       </main>
       <HomeRightSidebar />

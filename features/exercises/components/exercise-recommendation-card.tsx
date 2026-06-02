@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { ExerciseDetailIconButton } from "@/features/exercises/components/exercise-detail-icon-button";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
+import type { AssistantSuggestion } from "@/lib/shared/chat/assistant-suggestions";
 import type {
   ExerciseRecommendationCard as ExerciseRecommendationCardData,
   ExerciseRecommendationItem,
@@ -15,10 +16,9 @@ import { clientRequest } from "@/lib/client/http/client-request";
 
 type ExerciseRecommendationCardProps = {
   card: ExerciseRecommendationCardData;
-  isRefreshing?: boolean;
-  onCompose?: () => void;
-  onDislike?: (exerciseId: string) => void;
-  onRefresh?: () => void;
+  assistantSuggestions?: AssistantSuggestion[];
+  isSuggestionDisabled?: boolean;
+  onSuggestionClick?: (message: string) => void;
 };
 
 const placeholderImage = "/images/exercise-placeholder.svg";
@@ -71,11 +71,12 @@ function toPreviewFallbackExercise(item: ExerciseRecommendationItem): Exercise {
   };
 }
 
+// ExerciseRecommendationCard 承载聊天气泡里的动作推荐结果，底部只展示本轮 AI 明确给出的下一步建议。
 export function ExerciseRecommendationCard({
+  assistantSuggestions = [],
   card,
-  isRefreshing = false,
-  onCompose,
-  onRefresh,
+  isSuggestionDisabled = false,
+  onSuggestionClick,
 }: ExerciseRecommendationCardProps) {
   const [activePreviewExercise, setActivePreviewExercise] = useState<Exercise | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -149,7 +150,7 @@ export function ExerciseRecommendationCard({
         {card.items.length === 0 ? (
           <div className="mt-sm rounded-xl border border-dashed border-line bg-panel-soft p-md text-center">
             <p className="font-label-md text-label-md font-bold text-ink">当前推荐动作已全部移除</p>
-            <p className="mt-xs font-body-sm text-body-sm text-muted">可以点击“换一批”继续探索其他动作。</p>
+            <p className="mt-xs font-body-sm text-body-sm text-muted">可以继续告诉 FitMate 你想调整的方向。</p>
           </div>
         ) : null}
 
@@ -202,32 +203,20 @@ export function ExerciseRecommendationCard({
           ))}
         </div>
 
-        {onRefresh || onCompose ? (
+        {assistantSuggestions.length > 0 ? (
           <div className="mt-sm flex flex-wrap justify-end gap-xs border-t border-line/70 pt-sm">
-            {onRefresh ? (
+            {assistantSuggestions.map((suggestion) => (
               <button
-                className="inline-flex items-center gap-xs rounded-lg border border-primary/20 bg-primary-soft px-sm py-xs font-label-sm text-label-sm font-bold text-primary transition-colors hover:border-primary/40 hover:bg-[#dbe5ff] disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={isRefreshing}
-                onClick={onRefresh}
+                className="inline-flex max-w-full items-center gap-xs rounded-lg border border-primary/20 bg-primary-soft px-sm py-xs text-left font-label-sm text-label-sm font-bold text-primary transition-colors hover:border-primary/40 hover:bg-[#dbe5ff] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isSuggestionDisabled || !onSuggestionClick}
+                key={`${suggestion.kind}:${suggestion.message}`}
+                onClick={() => onSuggestionClick?.(suggestion.message)}
                 type="button"
               >
-                <SymbolIcon className={`text-[15px] ${isRefreshing ? "animate-spin" : ""}`}>
-                  autorenew
-                </SymbolIcon>
-                换一批
+                <SymbolIcon className="shrink-0 text-[15px]">arrow_forward</SymbolIcon>
+                <span className="min-w-0 break-words">{suggestion.label}</span>
               </button>
-            ) : null}
-            {onCompose ? (
-              <button
-                className="inline-flex items-center gap-xs rounded-lg border border-line bg-white px-sm py-xs font-label-sm text-label-sm font-bold text-ink transition-colors hover:border-primary/30 hover:bg-panel-soft disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={isRefreshing || card.items.length === 0}
-                onClick={onCompose}
-                type="button"
-              >
-                <SymbolIcon className="text-[15px]">playlist_add</SymbolIcon>
-                编成训练
-              </button>
-            ) : null}
+            ))}
           </div>
         ) : null}
       </div>

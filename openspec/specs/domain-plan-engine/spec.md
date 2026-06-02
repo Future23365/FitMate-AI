@@ -8,10 +8,10 @@ TBD - created by archiving change change-005-domain-plan-engine. Update Purpose 
 
 #### Scenario: 用户请求基于当前 routine 重复训练
 - **WHEN** 用户说“三周都练这个”
-- **AND** ReferenceResolver 已解析到当前 routine artifact
+- **AND** Agent 已通过 `listRecentArtifacts`、`searchArtifacts` 或 `getArtifactPayload` 定位并校验当前 routine artifact
 - **THEN** 系统 MUST 生成引用该 artifact 的 `PlanStrategy`
 - **AND** strategy MUST 表达 horizonDays、weeklyFrequency、sessionMinutes、progressionPolicy 和 intensityBias
-- **AND** `/api/ai/workout-plan` MUST 通过受控 artifact payload 读取完整 routine
+- **AND** Agent plan draft 工具 MUST 通过受控 artifact payload 读取完整 routine
 - **AND** 系统 MUST NOT 让 LLM 直接自由生成完整长期日历
 
 #### Scenario: PlanStrategy 缺少核心字段
@@ -84,27 +84,6 @@ TBD - created by archiving change change-005-domain-plan-engine. Update Purpose 
 - **THEN** Validator MUST NOT 将该不一致作为 hard fail
 - **AND** 系统 MAY 记录 warning 并允许计划展示
 
-### Requirement: PlanStrategy 必须从 resolved intent 派生
-系统 SHALL 由最终 resolved intent 派生 `PlanStrategy`，并保留关键字段来源，避免 DomainPlanEngine 自行重解释用户请求。
-
-#### Scenario: resolved intent 包含计划约束
-- **WHEN** resolved intent 要求生成 `workout_plan`
-- **THEN** `PlanStrategy` MUST 从 resolved intent 的 `workoutIntent`、referenceResolution 和字段来源派生
-- **AND** `PlanStrategy` MUST 表达 `horizonDays`、`weeklyFrequency`、`sessionMinutes`、`strategy`、`sourceArtifactId` 和关键字段来源
-- **AND** DomainPlanEngine MUST NOT 从自然语言回复正文重新推断这些关键字段
-
-#### Scenario: PlanStrategy 接收字段来源
-- **WHEN** `PlanStrategy` 由 resolved intent 派生
-- **THEN** `PlanStrategy` MUST 保留周期、周频率、单次时长和引用来源的字段来源
-- **AND** 后续输出校验和用户回复 MUST 能区分用户明确约束、历史上下文、artifact 来源、LLM 推断和系统默认值
-
-#### Scenario: resolved intent 引用历史 routine
-- **WHEN** resolved intent 的长期计划请求基于历史 routine artifact
-- **AND** ReferenceResolver 已解析到可访问 artifact
-- **THEN** `PlanStrategy.sourceArtifactId` MUST 使用该 artifact
-- **AND** DomainPlanEngine MUST 通过受控 artifact payload 展开计划
-- **AND** DomainPlanEngine MUST NOT 从 conversationSummary 重建完整 routine
-
 ### Requirement: DomainPlanEngine 默认值必须受字段来源约束
 系统 SHALL 控制 DomainPlanEngine 对周期、频率和时长默认值的使用，避免默认值静默覆盖 resolved intent。
 
@@ -153,12 +132,25 @@ TBD - created by archiving change change-005-domain-plan-engine. Update Purpose 
 #### Scenario: 引用的 sourceArtifactId 已被新 revision 替换
 - **WHEN** PlanStrategy 的 `sourceArtifactId` 指向当前用户可访问的旧 revision
 - **AND** artifact service 能解析到同一 lineage 的当前 active revision
-- **THEN** `/api/ai/workout-plan` MUST 使用当前 active revision 的 payload 调用 DomainPlanEngine
+- **THEN** Agent plan draft 工具 MUST 使用当前 active revision 的 payload 调用 DomainPlanEngine
 - **AND** 系统 MUST NOT 回退到 LLM 自由生成完整长期日历
 
 #### Scenario: 引用无法解析到可用 payload
 - **WHEN** PlanStrategy 的 `sourceArtifactId` 无法读取、不可访问或 payload 校验失败
-- **THEN** `/api/ai/workout-plan` MUST 返回可恢复失败
+- **THEN** Agent plan draft 工具 MUST 返回可恢复失败
 - **AND** 用户可见引导 MUST 要求重新点明训练内容或重新生成
 - **AND** 系统 MUST NOT 从 conversationSummary 重建完整训练计划
 
+### Requirement: PlanStrategy 必须从 Agent 结构化输入派生
+系统 SHALL 从 Agent 已登记的结构化计划输入、`WorkoutEditPlan`、tool results、candidateSetId、字段来源和用户约束派生 `PlanStrategy`，而不是从旧 resolved intent 派生。
+
+#### Scenario: Agent 请求生成长期计划
+- **WHEN** Agent 通过工具请求生成长期计划草稿
+- **THEN** `DomainPlanEngine` MUST 接收 Agent 提供的结构化计划输入和字段来源
+- **AND** `PlanStrategy` MUST 记录这些字段来源
+- **AND** `DomainPlanEngine` MUST NOT 读取旧 `ResolvedChatIntent`、`workoutIntent` 或 `referenceResolution`
+
+#### Scenario: Agent 请求基于历史 artifact 生成计划
+- **WHEN** Agent 的计划输入引用历史 routine 或 plan artifact
+- **THEN** `DomainPlanEngine` MUST 使用 Agent tool result 中已读取并校验的 active artifact payload
+- **AND** `DomainPlanEngine` MUST NOT 从 `conversationSummary` 或旧 referenceResolution 重建完整训练内容

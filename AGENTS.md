@@ -178,7 +178,6 @@ OpenSpec 生成或修改的说明性文档应使用中文，便于人工 review�
 ## 调试与日志规则
 
 - 当我说“看一下 log”、“看一下日志”时，先读取项目根目录下的 `codex_logs/ai_trace_log.js`，这个文件是从 dev log 保存下来的 AI Trace 步骤内容，用于分析 AI 调用链路与预期不符的原因。
-- 当我明确提出看一下“错误日志”或者当问题表现为终端报错、编译失败、启动失败或运行时报错时，同时读取 `codex_logs/error_log.js`。`npm run dev` 会通过 `scripts/dev-with-error-log.mjs` 自动把终端错误输出保存到该文件。
 
 ## Git 提交规则
 

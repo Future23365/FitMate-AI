@@ -52,7 +52,7 @@ function toExerciseRecord(exercise) {
     embeddingText,
     embedding: createSearchEmbedding(embeddingText),
     reviewStatus: exercise.reviewStatus ?? "machine_translated",
-    isPublished: exercise.isPublished ?? false,
+    isPublished: exercise.isPublished ?? true,
   };
 }
 

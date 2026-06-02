@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "test": "node scripts/run-tests.mjs",
     "test:llm": "node scripts/run-manual-llm-tests.mjs",
+    "test:llm:agent-tool": "node scripts/run-manual-agent-tool-tests.mjs",
     "typecheck": "tsc --noEmit",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",

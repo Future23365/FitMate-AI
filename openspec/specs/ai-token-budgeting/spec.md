@@ -18,6 +18,14 @@ TBD - created by archiving change optimize-ai-token-budgeting. Update Purpose af
 - **AND** 预算决策 MUST 记录稳定的中文跳过原因
 - **AND** 服务端 MUST NOT 为该阶段发起 LLM 请求
 
+#### Scenario: Agent decision 输入使用瘦身上下文
+- **WHEN** Tool-first Agent 发起 tool decision 模型请求
+- **THEN** 模型可见输入 MUST 使用专用瘦身视图
+- **AND** 工具定义 MUST 只包含模型决策需要的名称、描述、输入字段摘要、枚举和依赖摘要
+- **AND** 已登记 tool result MUST 只包含 `toolResultId`、状态、结构化资源 id、候选摘要、失败码和必要计数
+- **AND** 模型可见输入 MUST NOT 包含完整 registry JSON、完整 diagnostics/rerank、完整数据库记录或仅用于展示的冗长字段
+- **AND** Trace MUST 记录裁剪前后字符数或等价预算摘要
+
 ### Requirement: Prompt modules 必须按任务选择
 系统 SHALL 将模型指令拆分为按任务复用的 prompt modules，并且 MUST 只为本轮意图加载必要模块。
 
@@ -76,4 +84,18 @@ TBD - created by archiving change optimize-ai-token-budgeting. Update Purpose af
 - **WHEN** 模型返回训练计划或单次训练草稿
 - **THEN** 服务端 MUST 继续执行既有 Zod Schema 或 JSON Schema 校验
 - **AND** 服务端 MUST 继续基于 `userId`、动作候选和领域规则完成最终约束
+
+### Requirement: Agent tool loop 必须压缩重复失败上下文
+系统 SHALL 在构造下一轮模型可见 Agent tool result 上下文时压缩同一工具、同一归一化输入、同一失败码的重复失败结果。
+
+#### Scenario: 多次相同工具失败进入模型上下文
+- **WHEN** 单次 Agent run 内出现多个相同工具、相同归一化输入、相同失败码的失败结果
+- **THEN** 模型可见上下文 MUST 只包含一条合并后的失败摘要或等价压缩表示
+- **AND** 摘要 MUST 包含失败码、失败原因、首次失败 tool result id、最新失败 tool result id 和重复次数
+- **AND** trace MUST 继续保留原始工具决策和执行证据
+
+#### Scenario: 不同失败不能错误合并
+- **WHEN** 工具失败的工具名、归一化输入或失败码不同
+- **THEN** 系统 MUST NOT 将这些失败合并成同一条模型可见摘要
+- **AND** 模型上下文 MUST 保留足够信息区分不同恢复路径
 

@@ -207,11 +207,15 @@ Zod 用于在服务端再次校验模型输出，避免模型生成不可执行�
 理解用户 → 查询动作 → 生成计划 → 校验计划 → 保存计划
 ```
 
-当前聊天链路由服务端维护自然语言 `conversationSummary`。`/api/chat`、`/api/ai/workout-plan` 和 `/api/ai/exercise-recommendations` 的模型可见输入只包含 `conversationSummary` 与当前最新用户消息；完整历史消息窗口和旧结构化 `conversationContext` 不再传给模型。结构化 `assistant_action`、`workoutIntent`、候选动作和草稿校验仍保留在服务端内部，用于权限隔离、动作库约束和最终执行。
+当前 `/api/chat` 主链已经切换为 Tool-first `AgentOrchestrator`。服务端先构造 `ContextPackage`，其中包含最新用户消息、真实 recent messages、recent artifact 摘要、用户记忆和 provenance；LLM 只能通过统一 `AgentToolRegistry` 调用受控工具读取 artifact payload、查询动作、提出 `WorkoutEditPlan`、生成 draft、校验、评估 Policy 和保存 revision。`conversationSummary` 降级为后台摘要、标题或调试材料，不再是 Agent 执行事实源。
 
-聊天链路在意图解析后通过 `ReferenceResolver` 解析“这个”“刚才那套”“之前练胸那套”等历史引用。解析结果必须来自当前用户可访问的 recent artifact summaries 或 `ArtifactIndex` 候选集合；歧义和未找到会在 `/api/chat` 直接澄清，完整 artifact payload 只能通过服务端 `getArtifactPayload` 校验后读取。
+聊天链路不再由旧 `ResolvedChatIntent`、`assistant_action` 或 ReferenceResolver-first 分支独立触发卡片。生产执行合同是 `AgentExecutionResult`，最终回复、artifact / patch 流事件、trace 和黑盒报告都从该结果、tool results 和 dependency graph 投影。新运行不再输出 `assistant_action` / `intent_resolved`，旧事件解析只允许作为历史报告或测试夹具存在，不能反向驱动工具选择、Patch、生成或写入。
 
-用户反馈不再只依赖 `conversationSummary`。`UserFeedbackMemoryService` 会把“不喜欢某动作”“某动作太难”“今天不想练腿”等训练偏好、动作反馈和临时上下文写成 `UserMemory` / `UserExerciseFeedback`；Conversation State Builder 按“当前消息 > 当前 artifact > 显式用户画像 > 近期反馈 > 训练结果 > 默认值”合并上下文。健康、疼痛、伤病或身体不适信号不再写入为训练决策约束，也不参与候选排除、计划生成或 Patch 替换拒绝；系统只保留不提供医疗诊断或治疗承诺的回复边界。
+旧聊天 AI 独立接口已经从 active Route Handler 和前端 client 中移除。计划、routine、动作推荐和推荐刷新只能通过 `/api/chat` Agent-first stream / result 合同，或基于已存在 Agent result 的确定性分页、去重、排除已反馈动作等操作表达。
+
+旧 `reference-resolver-service`、旧 `workout-patch-chat-service` 和旧 shared `referenceResolution` schema 也不再作为生产导出存在。artifact 引用定位和 payload 读取通过 Agent 的 `listRecentArtifacts`、`searchArtifacts`、`getArtifactPayload` 工具完成；Patch 由 `WorkoutEditPlan`、`proposeWorkoutPatch`、`validateWorkoutPatch` 和 `workout-patch-engine` 承接。
+
+用户反馈不再只依赖 `conversationSummary`。`UserFeedbackMemoryService` 会把“不喜欢某动作”“某动作太难”“今天不想练腿”等训练偏好、动作反馈和临时上下文写成 `UserMemory` / `UserExerciseFeedback`；Agent context builder 负责把可见记忆摘要放入 `ContextPackage`，需要完整结构化事实时必须继续通过工具读取数据库或 artifact payload。健康、疼痛、伤病或身体不适信号不再写入为训练决策约束，也不参与候选排除、计划生成或 Patch 替换拒绝；系统只保留不提供医疗诊断或治疗承诺的回复边界。
 
 动作推荐去重由服务端候选服务统一处理。`selectExerciseCandidates` 接收当前卡片、当前会话、近期推荐和未来计划等 `ExerciseExposureSource`，并结合结构化用户反馈、器械和 section 约束生成排除集合。当前卡片、`dislike`、器械不可用和 section 不合法是硬限制；近期曝光、未来过度使用和 `too_hard` 是候选不足时可放宽的软约束。健康风险、动作 `riskTags` 和 `contraindications` 不再作为排除或降级原因。每次推荐会输出 `RecommendationTrace`，记录 filters、excludedExerciseIds、excludeReasons、candidateCounts、relaxedConstraints、fallbackUsed 和 finalExerciseIds，供 AI trace 与测试复盘。
 
