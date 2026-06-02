@@ -600,6 +600,60 @@ describe("exercise service", () => {
     });
   });
 
+  it("supplements warmup and stretch when routine search uses all sections with training equipment", async () => {
+    await expect(
+      searchExercises({
+        operation: "build_exercise_candidate_set",
+        candidateUse: "routine",
+        query: "上肢训练",
+        visibility: "all",
+        filters: {
+          bodyRegions: ["upper_body"],
+          equipment: { in: ["dumbbell"] },
+          allowedSections: ["warmup", "training", "stretch"],
+          visibility: "all",
+        },
+        resultRequirements: {
+          minCandidates: 3,
+          sectionCoverage: {
+            warmup: { min: 1 },
+            training: { min: 1 },
+            stretch: { min: 1 },
+          },
+          requireProof: true,
+        },
+        limit: 8,
+      }),
+    ).resolves.toMatchObject({
+      candidates: expect.arrayContaining([
+        expect.objectContaining({ id: "dumbbell-row" }),
+        expect.objectContaining({ id: "jumping-jack" }),
+        expect.objectContaining({ id: "hamstring-stretch" }),
+      ]),
+      diagnostics: expect.objectContaining({
+        satisfied: true,
+        unmetResultRequirements: [],
+        resultRequirementProof: expect.objectContaining({
+          sectionCoverage: expect.objectContaining({
+            warmup: expect.objectContaining({ satisfied: true }),
+            training: expect.objectContaining({ satisfied: true }),
+            stretch: expect.objectContaining({ satisfied: true }),
+          }),
+        }),
+        controlledSupplementalCandidates: expect.arrayContaining([
+          expect.objectContaining({
+            section: "warmup",
+            reason: "section_coverage_supplement",
+          }),
+          expect.objectContaining({
+            section: "stretch",
+            reason: "section_coverage_supplement",
+          }),
+        ]),
+      }),
+    });
+  });
+
   it("reports retryable diagnostics for unknown target muscle facets", async () => {
     await expect(
       searchExercises({

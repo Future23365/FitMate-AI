@@ -1223,6 +1223,204 @@ describe("agent orchestrator phase 3 workout tools", () => {
     });
   });
 
+  it("uses controlled supplemental section evidence when building routine drafts", async () => {
+    exerciseMocks.listAllExercises.mockResolvedValue([
+      createExercise({
+        id: "Dumbbell_Row",
+        nameZh: "哑铃划船",
+        equipment: "dumbbell",
+        equipmentZh: "哑铃",
+        allowedSections: ["training"],
+      }),
+      createExercise({
+        id: "Dynamic_Back_Stretch",
+        nameZh: "动态背部拉伸",
+        categoryZh: "拉伸",
+        equipment: "bodyweight",
+        equipmentZh: "自重",
+        allowedSections: ["warmup", "stretch"],
+        intensityRole: "recovery",
+      }),
+      createExercise({
+        id: "Dynamic_Chest_Stretch",
+        nameZh: "动态胸部拉伸",
+        categoryZh: "拉伸",
+        equipment: "bodyweight",
+        equipmentZh: "自重",
+        allowedSections: ["warmup", "stretch"],
+        intensityRole: "recovery",
+      }),
+      createExercise({
+        id: "Triceps_Stretch",
+        nameZh: "三头肌拉伸",
+        categoryZh: "拉伸",
+        equipment: "bodyweight",
+        equipmentZh: "自重",
+        allowedSections: ["stretch"],
+        intensityRole: "recovery",
+      }),
+    ]);
+    const candidateExerciseIds = [
+      "Dumbbell_Row",
+      "Dynamic_Back_Stretch",
+      "Dynamic_Chest_Stretch",
+      "Triceps_Stretch",
+    ];
+    const registry = createToolFirstAgentToolRegistry();
+    const result = await registry.get("generateRoutineDraft")?.execute({
+      intent: createWorkoutPlanIntent({
+        intentType: "routine",
+        goal: "上肢训练",
+        equipment: ["dumbbell"],
+        sessionMinutes: 30,
+      }),
+      candidateSetId: "candidate-set-upper-dumbbell",
+      candidateExerciseIds,
+      title: "上肢哑铃训练",
+    }, createToolExecutionContext({
+      toolResults: [
+        createCandidateSetToolResult(
+          "candidate-set-upper-dumbbell",
+          candidateExerciseIds,
+          "routine",
+          {
+            controlledSupplementalCandidates: [
+              {
+                exerciseId: "Dynamic_Back_Stretch",
+                section: "warmup",
+                appliedFilters: { allowedSections: ["warmup"], equipmentAvoided: ["dumbbell"] },
+                reason: "section_coverage_supplement",
+              },
+              {
+                exerciseId: "Dynamic_Chest_Stretch",
+                section: "warmup",
+                appliedFilters: { allowedSections: ["warmup"], equipmentAvoided: ["dumbbell"] },
+                reason: "section_coverage_supplement",
+              },
+              {
+                exerciseId: "Triceps_Stretch",
+                section: "stretch",
+                appliedFilters: { allowedSections: ["stretch"], equipmentAvoided: ["dumbbell"] },
+                reason: "section_coverage_supplement",
+              },
+            ],
+          },
+        ),
+      ],
+    }));
+
+    expect(result).toMatchObject({
+      ok: true,
+      output: {
+        draftKind: "routine",
+        validation: { valid: true },
+      },
+    });
+
+    if (!result?.ok) {
+      throw new Error("expected generateRoutineDraft to succeed");
+    }
+
+    const draftOutput = result.output as Extract<AgentWorkoutDraftOutput, { draftKind: "routine" }>;
+    expect(draftOutput.draft.sections.find((section) => section.section === "warmup")?.items.map((item) => item.exerciseId)).toEqual([
+      "Dynamic_Back_Stretch",
+      "Dynamic_Chest_Stretch",
+    ]);
+    expect(draftOutput.draft.sections.find((section) => section.section === "training")?.items.map((item) => item.exerciseId)).toEqual([
+      "Dumbbell_Row",
+    ]);
+    expect(draftOutput.draft.sections.find((section) => section.section === "stretch")?.items.map((item) => item.exerciseId)).toEqual([
+      "Triceps_Stretch",
+    ]);
+  });
+
+  it("prefers no-equipment warmup and stretch supplements over routine intent equipment", async () => {
+    exerciseMocks.listAllExercises.mockResolvedValue([
+      createExercise({
+        id: "Dumbbell_Row",
+        nameZh: "哑铃划船",
+        equipment: "dumbbell",
+        equipmentZh: "哑铃",
+        allowedSections: ["training"],
+      }),
+      createExercise({
+        id: "Dumbbell_Warmup",
+        nameZh: "哑铃热身绕环",
+        equipment: "dumbbell",
+        equipmentZh: "哑铃",
+        allowedSections: ["warmup"],
+        intensityRole: "activation",
+      }),
+      createExercise({
+        id: "Bodyweight_Warmup",
+        nameZh: "肩部环绕",
+        equipment: "bodyweight",
+        equipmentZh: "自重",
+        homeRequirement: "no_equipment",
+        homeRequirementZh: "无器械",
+        allowedSections: ["warmup"],
+        intensityRole: "activation",
+      }),
+      createExercise({
+        id: "Dumbbell_Stretch",
+        nameZh: "哑铃辅助胸部拉伸",
+        equipment: "dumbbell",
+        equipmentZh: "哑铃",
+        allowedSections: ["stretch"],
+        intensityRole: "recovery",
+      }),
+      createExercise({
+        id: "Bodyweight_Stretch",
+        nameZh: "胸大肌拉伸",
+        equipment: "bodyweight",
+        equipmentZh: "自重",
+        homeRequirement: "no_equipment",
+        homeRequirementZh: "无器械",
+        allowedSections: ["stretch"],
+        intensityRole: "recovery",
+      }),
+    ]);
+    const registry = createToolFirstAgentToolRegistry();
+    const candidateSetExerciseIds = [
+      "Dumbbell_Row",
+      "Dumbbell_Warmup",
+      "Bodyweight_Warmup",
+      "Dumbbell_Stretch",
+      "Bodyweight_Stretch",
+    ];
+    const result = await registry.get("generateRoutineDraft")?.execute({
+      intent: createWorkoutPlanIntent({
+        intentType: "routine",
+        goal: "上肢训练",
+        equipment: ["dumbbell"],
+        sessionMinutes: 30,
+      }),
+      candidateSetId: "candidate-set-section-equipment",
+      candidateExerciseIds: ["Dumbbell_Row"],
+      title: "上肢哑铃训练",
+    }, createCandidateSetContext("candidate-set-section-equipment", candidateSetExerciseIds));
+
+    expect(result).toMatchObject({
+      ok: true,
+      output: {
+        draftKind: "routine",
+        validation: { valid: true },
+      },
+    });
+
+    if (!result?.ok) {
+      throw new Error("expected generateRoutineDraft to succeed");
+    }
+
+    const draftOutput = result.output as Extract<AgentWorkoutDraftOutput, { draftKind: "routine" }>;
+    expect(draftOutput.draft.sections.find((section) => section.section === "warmup")?.items.map((item) => item.exerciseId)).toEqual([
+      "Bodyweight_Warmup",
+    ]);
+    expect(draftOutput.draft.sections.find((section) => section.section === "stretch")?.items.map((item) => item.exerciseId)).toEqual([
+      "Bodyweight_Stretch",
+    ]);
+  });
+
   it("keeps every specified routine candidate and supplements missing routine sections", async () => {
     exerciseMocks.listAllExercises.mockResolvedValue([
       createExercise({
@@ -3878,6 +4076,7 @@ function createCandidateSetToolResult(
   candidateSetId: string,
   exerciseIds: string[],
   candidateUse: "routine" | "plan" | "patch" | "recommendation" | "answer_only" = "routine",
+  candidateSetEvidenceOverrides: Record<string, unknown> = {},
 ): NonNullable<AgentToolExecutionContext["toolResults"]>[number] {
   const candidates = exerciseIds.map((exerciseId) => createExercise({ id: exerciseId, nameZh: exerciseId }));
   const candidateSetEvidence = {
@@ -3900,6 +4099,7 @@ function createCandidateSetToolResult(
     },
     satisfied: true,
     exerciseIds,
+    ...candidateSetEvidenceOverrides,
   };
 
   return {

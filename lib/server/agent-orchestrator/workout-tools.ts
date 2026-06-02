@@ -9,7 +9,7 @@ import {
   createOrUpdateConversationArtifact,
   getActiveArtifactPayload,
 } from "@/lib/server/conversation-artifacts/artifact-service";
-import { listAllExercises } from "@/lib/server/exercises/exercise-service";
+import { listAllExercises, type ExerciseCandidateSetEvidence } from "@/lib/server/exercises/exercise-service";
 import { isExerciseAllowedInSection, normalizeExerciseMetadata } from "@/lib/shared/exercises/metadata";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import { exerciseRecommendationCardSchema } from "@/lib/shared/exercise-recommendations/schema";
@@ -546,7 +546,13 @@ function createGenerateRoutineDraftTool(): AgentToolDefinition<GenerateRoutineDr
         const exercises = await listAllExercises();
         const candidateSetExercises = exercises.filter((exercise) => candidateSet.exerciseIds.has(exercise.id));
         const draftCandidateExerciseIds = requiredBoundary.requiredExerciseIds ?? parsedInput.candidateExerciseIds;
-        const buildResult = buildRoutineDraftFromCandidates(parsedInput.intent, draftCandidateExerciseIds, candidateSetExercises, parsedInput.title);
+        const buildResult = buildRoutineDraftFromCandidates(
+          parsedInput.intent,
+          draftCandidateExerciseIds,
+          candidateSetExercises,
+          parsedInput.title,
+          candidateSet.output.candidateSetEvidence,
+        );
         const requiredCoverageError = validateRequiredRoutineExerciseCoverage(
           buildResult.candidateExerciseIds,
           requiredBoundary.requiredExerciseIds,
@@ -1654,8 +1660,9 @@ function buildRoutineDraftFromCandidates(
   candidateExerciseIds: string[],
   exercises: Exercise[],
   title: string | undefined,
+  candidateSetEvidence?: ExerciseCandidateSetEvidence,
 ): { draft: WorkoutRoutineDraft; candidateExerciseIds: string[] } {
-  const routineBuckets = buildRoutineSectionBuckets(intent, candidateExerciseIds, exercises);
+  const routineBuckets = buildRoutineSectionBuckets(intent, candidateExerciseIds, exercises, candidateSetEvidence);
   const sections = (["warmup", "training", "stretch"] as const).map((section) => {
     const sectionExercises = routineBuckets.sections[section];
 
@@ -1689,8 +1696,10 @@ function buildRoutineSectionBuckets(
   intent: WorkoutPlanIntent,
   candidateExerciseIds: string[],
   exercises: Exercise[],
+  candidateSetEvidence?: ExerciseCandidateSetEvidence,
 ) {
   const exerciseById = new Map(exercises.map((exercise) => [exercise.id, exercise]));
+  const supplementalSectionByExerciseId = createControlledSupplementalSectionMap(candidateSetEvidence);
   const uniqueCandidateIds = uniqueStrings(candidateExerciseIds);
   const selectedExerciseIds = new Set<string>();
   const sections: Record<WorkoutRoutineSection, Exercise[]> = {
@@ -1706,7 +1715,7 @@ function buildRoutineSectionBuckets(
       throw new Error(`candidate_set_missing_exercise:${exerciseId}`);
     }
 
-    const section = selectRoutineSectionForRequiredExercise(exercise);
+    const section = supplementalSectionByExerciseId.get(exercise.id) ?? selectRoutineSectionForRequiredExercise(exercise);
     sections[section].push(exercise);
     selectedExerciseIds.add(exercise.id);
   }
@@ -1757,6 +1766,23 @@ function selectRoutineSectionForRequiredExercise(exercise: Exercise): WorkoutRou
   return "training";
 }
 
+// 受控补充 evidence 来自本轮 searchExercises 结构化结果，用于保持补齐 section 与 draft 分段一致。
+function createControlledSupplementalSectionMap(candidateSetEvidence: ExerciseCandidateSetEvidence | undefined) {
+  const sectionByExerciseId = new Map<string, WorkoutRoutineSection>();
+
+  for (const candidate of candidateSetEvidence?.controlledSupplementalCandidates ?? []) {
+    if (isWorkoutRoutineSection(candidate.section)) {
+      sectionByExerciseId.set(candidate.exerciseId, candidate.section);
+    }
+  }
+
+  return sectionByExerciseId;
+}
+
+function isWorkoutRoutineSection(value: string): value is WorkoutRoutineSection {
+  return workoutRoutineSectionSchema.safeParse(value).success;
+}
+
 function pickSupplementalExerciseForSection(
   exercises: Exercise[],
   selectedExerciseIds: Set<string>,
@@ -1767,8 +1793,34 @@ function pickSupplementalExerciseForSection(
     .filter((exercise) => !selectedExerciseIds.has(exercise.id))
     .filter((exercise) => isExerciseAllowedInSection(exercise, section));
 
+  if (section === "warmup" || section === "stretch") {
+    const noEquipmentExercise = eligibleExercises.find(isNoEquipmentOrBodyweightExercise);
+    return noEquipmentExercise ?? eligibleExercises[0];
+  }
+
   const equipmentMatched = eligibleExercises.find((exercise) => exerciseMatchesIntentEquipment(exercise, intent));
   return equipmentMatched ?? eligibleExercises[0];
+}
+
+function isNoEquipmentOrBodyweightExercise(exercise: Exercise) {
+  const equipmentText = normalizeComparableText([
+    exercise.equipment,
+    exercise.equipmentZh,
+  ].filter(Boolean).join(" "));
+  const homeRequirementText = normalizeComparableText([
+    exercise.homeRequirement,
+    exercise.homeRequirementZh,
+  ].filter(Boolean).join(" "));
+
+  if (equipmentText) {
+    return isNoEquipmentText(equipmentText);
+  }
+
+  return isNoEquipmentText(homeRequirementText);
+}
+
+function isNoEquipmentText(value: string) {
+  return ["bodyweight", "自重", "no_equipment", "noequipment", "无器械"].some((marker) => value.includes(marker));
 }
 
 function exerciseMatchesIntentEquipment(exercise: Exercise, intent: WorkoutPlanIntent) {
