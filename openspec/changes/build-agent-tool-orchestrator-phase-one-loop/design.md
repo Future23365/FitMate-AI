@@ -2,7 +2,7 @@
 
 `remove-current-agent-core-layer` 已经把当前旧 Agent core 定义为 delete-only。新 core 不能继续沿用旧 `AgentOrchestrator` 的实现细节，也不能为了兼容旧 tool name、旧 final result、旧 response writer 或旧 trace event 增加适配层。
 
-本 change 的目标是按 `docs/agent-tool-orchestrator-design.md` 重建第一阶段完整闭环。第一阶段必须能真实接入 `/api/chat`，完成 LLM planner、多轮 tool call、tool contract 校验、policy/confirmation、response adapter 和 NDJSON 输出，并至少跑通动作推荐、读取 artifact、保存 artifact 三类基础工具。
+本 change 的目标是按 `docs/agent-tool-orchestrator-design.md` 重建第一阶段完整闭环。第一阶段必须能真实接入 `/api/chat`，完整实现第 28 节列出的 15 项能力，并以动作推荐、读取 artifact、保存 artifact 三类基础工具证明闭环可运行。三类基础工具是验收样例，不是范围缩水；交付结果必须支持后续只注册 tool bundle 就扩展业务能力。
 
 ## Goals / Non-Goals
 
@@ -14,6 +14,8 @@
 - 让 Planner 只看到序列化后的安全 tool manifest，并输出结构化 `AgentAction`。
 - 让 runtime 支持多轮 tool call、observation、`maxSteps`、timeout、防重复失败和结构化终止。
 - 让 Response Adapter 只根据真实 tool results 和 final action 生成 `/api/chat` NDJSON 事件。
+- 完整实现 `docs/agent-tool-orchestrator-design.md` 第 28 节的 15 项闭环能力，不把其中任何一项推迟到后续阶段。
+- 让三类基础 tools 跑通完整 `/api/chat` 端到端链路，覆盖读、写、资源消费、确认、投影和 trace/replay。
 - 增加架构级测试，证明新增 tool 不需要改 orchestrator、executor、policy guard 或 `/api/chat` 主链。
 
 **Non-Goals:**
@@ -22,7 +24,31 @@
 - 不新增独立向量库、任意 SQL tool 或任意函数调用。
 - 不保留旧 Agent core 兼容层。
 - 不让服务端关键词、正则、同义词表或规则评分重新解释用户自然语言。
-- 不把所有未来业务 tool 一次性实现完；第一阶段只要求三类基础工具和扩展机制可验证。
+- 不一次性实现所有未来业务 tool 实例；但第一阶段必须实现完整编排器能力、完整扩展机制和完整 `/api/chat` 闭环，不能留下需要后续补齐的核心环节。
+
+## 完整闭环交付清单
+
+第一阶段交付必须逐项覆盖以下 15 项，任何一项缺失都不算完成：
+
+```txt
+1. defineTool
+2. ToolRegistry
+3. Tool manifest 序列化
+4. inputSchema / outputSchema 校验
+5. resourceContract 校验
+6. Planner 输出 AgentAction
+7. 多轮 tool call
+8. maxSteps / timeout 防死循环
+9. consumable / diagnostic 资源角色
+10. Policy Guard
+11. confirmation action hash
+12. Response Adapter
+13. Trace / replay fixture
+14. `/api/chat` NDJSON 接入
+15. 动作推荐、读取 artifact、保存 artifact 三类基础工具端到端闭环
+```
+
+这 15 项是同一阶段的完整交付，不允许拆成“先做 core 骨架、后续再补 `/api/chat` / Response Adapter / trace / 保存工具”的半成品。
 
 ## Decisions
 
@@ -68,7 +94,7 @@ lib/server/agent-tools/
 - `traceProjection`
 - `examples`
 
-这样后续新增业务能力时，只新增并注册 tool bundle。Orchestrator 不需要新增 `if (toolName === "...")`。
+这样后续新增业务能力时，只新增并注册 tool bundle。Orchestrator 不需要新增 `if (toolName === "...")`。如果一个新能力必须修改 runtime 主循环才能工作，说明 tool bundle 合同或通用 core 合同不完整，本阶段必须补 core 合同，而不是为该 tool 写特殊分支。
 
 ### 3. Registry 只负责注册、筛选和 manifest 序列化
 
@@ -136,11 +162,11 @@ LLM 不能直接绕过确认写入；tool handler 也不能自己决定确认已
 
 Response Adapter 接收 `AgentRunResult`、terminal action 和当前 run 的 tool results。用户可见 `content`、artifact、assistant suggestions、confirmation 和 `done` 事件只能来自真实执行结果。
 
-具体业务卡片投影由 tool bundle 的 `responseAdapter` 或注册式 adapter 提供。新增 tool 需要新增自己的 adapter，但不得修改通用 response adapter 主流程。
+具体业务卡片投影由 tool bundle 的 `responseAdapter` 或注册式 adapter 提供。新增 tool 需要随 tool bundle 提供自己的 adapter，但不得修改通用 response adapter 主流程。三类基础工具必须各自通过注册式 adapter 证明该机制可运行。
 
 ### 9. `/api/chat` 只接入新 core
 
-`/api/chat` 保留认证、请求校验、服务端 hydration、NDJSON stream 和 trace id 输出；聊天服务调用新 runtime。实现阶段不得把旧 Agent core 作为 fallback，也不得在新 core 失败时切回旧 intent-first 或旧 readonly loop。
+`/api/chat` 保留认证、请求校验、服务端 hydration、NDJSON stream 和 trace id 输出；聊天服务调用新 runtime。实现阶段不得把旧 Agent core 作为 fallback，也不得在新 core 失败时切回旧 intent-first 或旧 readonly loop。第一阶段完成时，`/api/chat` 必须能用新 core 跑通动作推荐、读取 artifact 和保存 artifact 三类基础请求，而不是只返回“新 core 未接入”或服务不可用。
 
 ### 10. Trace / replay fixture 是第一阶段验收的一部分
 
@@ -148,22 +174,21 @@ Response Adapter 接收 `AgentRunResult`、terminal action 和当前 run 的 too
 
 ## Risks / Trade-offs
 
-- [Risk] 第一阶段范围较大。→ Mitigation：只实现三类基础工具，但 core 合同必须完整，避免留下占位循环。
+- [Risk] 第一阶段范围较大。→ Mitigation：不缩减 15 项核心闭环能力；三类基础工具只作为验收样例，所有通用 core 能力必须在本阶段完成。
 - [Risk] 新 tool 的 response adapter 仍可能变成隐性业务分支。→ Mitigation：adapter 随 tool 注册，通用 adapter 只按注册结果调度，不按 tool name 写分支。
 - [Risk] 旧 open changes 与新 core 规格冲突。→ Mitigation：实现以本 change、`remove-current-agent-core-layer` 和 `docs/agent-tool-orchestrator-design.md` 为准，旧实现只作为反例或经验。
 - [Risk] LLM structured action 不稳定。→ Mitigation：Action Validator、repair feedback、`maxSteps` 和 replay fixture 同步覆盖；服务端只修结构问题，不改写语义。
-- [Risk] `/api/chat` 在新 core 接入初期出现功能空窗。→ Mitigation：按任务顺序先建立 core 与三类工具闭环，再切入 `/api/chat`；切入后不回退旧 core。
+- [Risk] `/api/chat` 接入后基础业务无法闭环。→ Mitigation：切入前必须用 replay fixture 和集成测试跑通三类基础工具；切入后不回退旧 core，也不以服务不可用作为第一阶段完成状态。
 
 ## Migration Plan
 
 1. 先完成 `remove-current-agent-core-layer` 或至少确保生产路径不再依赖旧 core。
 2. 新建 `agent-core` contracts、registry、manifest、planner、runtime、policy、response adapter 和 trace/replay 模块。
-3. 新建三类基础 tools，并通过 registry 注册。
-4. 用 replay fixture 跑通动作推荐、读取 artifact、保存 artifact 三类路径。
-5. 将 `/api/chat` 接入新 runtime 和新 Response Adapter。
+3. 新建三类基础 tools，并通过 registry 注册，三类 tools 必须各自包含完整 manifest、schema、resource contract、policy metadata、handler、trace projection 和 response adapter。
+4. 用 replay fixture 跑通动作推荐、读取 artifact、保存 artifact 三类路径，并覆盖多轮 tool call、资源消费、确认、失败收口和 NDJSON 投影。
+5. 将 `/api/chat` 接入新 runtime 和新 Response Adapter，确认三类基础请求可以端到端完成。
 6. 增加架构扫描，确认新增 tool 扩展不需要修改 orchestrator 主流程，且旧 core 不在生产路径。
 
 ## Open Questions
 
-- 第一阶段使用的 planner 模型沿用当前模型配置还是单独增加配置项，实施时可按现有 AI 配置模式决定。
-- confirmation 的用户确认入口是否沿用当前前端交互事件，还是先只输出 NDJSON 确认事件，实施时按现有聊天 UI 能力决定。
+- 无。第一阶段必须完整闭环；模型配置和确认入口实现可以按现有项目模式选择，但不得影响 15 项能力完整交付。

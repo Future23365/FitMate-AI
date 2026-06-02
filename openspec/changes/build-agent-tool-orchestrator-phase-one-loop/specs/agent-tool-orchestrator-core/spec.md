@@ -1,5 +1,18 @@
 ## ADDED Requirements
 
+### Requirement: 第一阶段必须交付完整闭环
+系统 SHALL 在第一阶段完整交付 Agent Tool 编排器闭环。该闭环 MUST 覆盖 `defineTool`、`ToolRegistry`、tool manifest 序列化、input/output schema 校验、resource contract 校验、Planner 输出 `AgentAction`、多轮 tool call、`maxSteps` / timeout 防死循环、`consumable` / `diagnostic` 资源角色、Policy Guard、confirmation action hash、Response Adapter、trace / replay fixture、`/api/chat` NDJSON 接入，以及动作推荐、读取 artifact、保存 artifact 三类基础工具端到端闭环。
+
+#### Scenario: 15 项闭环能力全部存在
+- **WHEN** 第一阶段实现完成并运行验收测试
+- **THEN** 测试 MUST 逐项证明 15 项闭环能力已经实现
+- **AND** 任一核心能力缺失 MUST 使验收失败
+
+#### Scenario: 三类基础工具不是范围缩水
+- **WHEN** 文档或实现声明三类基础工具已跑通
+- **THEN** 该声明 MUST 仅表示完整 core 的验收样例已通过
+- **AND** 系统 MUST 仍证明后续 tool 可以只通过注册 tool bundle 扩展
+
 ### Requirement: Agent core 必须只依赖通用工具合同
 系统 SHALL 建立新的 Agent core。Agent core MUST NOT 依赖具体业务 tool name、旧 `AgentOrchestrator`、旧 `AgentExecutionResult`、旧 response writer、旧 intent-first 路径或旧 readonly loop。业务能力扩展 MUST 通过注册 tool bundle 完成。
 
@@ -139,25 +152,28 @@
 - **AND** replay 结果 MUST 可用于断言 NDJSON 事件和 resource contract
 
 ### Requirement: 第一阶段必须跑通三类基础工具
-系统 SHALL 在第一阶段至少提供三类基础 tools：动作候选检索、读取 conversation artifact payload、保存 conversation artifact。三类 tools MUST 通过同一个 registry、runtime、policy guard、resource contract 和 response adapter 执行。
+系统 SHALL 在第一阶段提供三类基础 tools 作为完整闭环验收样例：动作候选检索、读取 conversation artifact payload、保存 conversation artifact。三类 tools MUST 通过同一个 registry、runtime、policy guard、resource contract、response adapter、trace 和 `/api/chat` NDJSON 链路执行。
 
 #### Scenario: 动作推荐工具闭环
 - **WHEN** 用户请求动作推荐
 - **THEN** Planner MUST 能调用动作候选检索 tool
 - **AND** tool MUST 返回可消费的 exercise candidate set
 - **AND** Response Adapter MUST 能输出用户可见推荐内容或 artifact 事件
+- **AND** `/api/chat` NDJSON stream MUST 能端到端返回该结果并以 `done` 收口
 
 #### Scenario: 读取 artifact 工具闭环
 - **WHEN** 用户请求查看或解释当前用户可访问的 conversation artifact
 - **THEN** Planner MUST 能调用读取 artifact payload tool
 - **AND** tool MUST 校验 user/session 权限并返回可消费 payload resource
 - **AND** Response Adapter MUST 能基于真实 payload 输出回答或卡片重投影
+- **AND** trace/replay MUST 能复现该读取路径
 
 #### Scenario: 保存 artifact 工具闭环
 - **WHEN** Planner 请求保存经过校验的 conversation artifact
 - **THEN** Policy Guard MUST 校验写权限和确认边界
 - **AND** tool MUST 保存 artifact 或 revision 并返回可消费 persisted artifact resource
 - **AND** Response Adapter MUST 能输出保存成功的用户可见结果
+- **AND** `/api/chat` NDJSON stream MUST 能表达确认、保存结果和 `done` 收口
 
 ### Requirement: 后续功能必须能通过只注册 tool 扩展
 系统 SHALL 提供扩展验收，证明新增业务能力只需新增并注册 tool bundle。Tool bundle MUST 自带 manifest、schema、resource contract、policy metadata、handler、trace projection 和 response adapter。

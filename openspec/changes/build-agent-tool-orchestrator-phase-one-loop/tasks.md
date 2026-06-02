@@ -1,9 +1,10 @@
 ## 1. 边界确认与旧实现隔离
 
-- [ ] 1.1 确认 `remove-current-agent-core-layer` 已完成或生产路径已不再依赖旧 Agent core。
+- [ ] 1.1 确认 `remove-current-agent-core-layer` 已完成，或在本 change 实现中先完成旧 core 生产路径隔离；第一阶段完成状态不得依赖旧 Agent core。
 - [ ] 1.2 扫描 `/api/chat`、聊天服务、stream response 和服务端 AI 入口，列出旧 `runAgentOrchestrator()`、旧 `AgentExecutionResult`、旧 response writer、旧 readonly loop 和旧 intent-first 导入点。
 - [ ] 1.3 标记可复用底层服务，包括动作检索、conversation artifact、policy/confirmation、user memory、trace storage 和权限隔离服务。
 - [ ] 1.4 建立旧实现隔离规则：新 core 不导入 `lib/server/agent-orchestrator/**`，旧 open changes 与新设计冲突时按本 change 执行。
+- [ ] 1.5 建立 15 项完整闭环验收清单，并在测试中逐项覆盖 `docs/agent-tool-orchestrator-design.md` 第 28 节列出的所有能力。
 
 ## 2. Agent core 合同与注册系统
 
@@ -21,24 +22,27 @@
 - [ ] 3.4 实现 input/output schema 校验和 resource contract validator，区分 `consumable` 与 `diagnostic` 资源角色。
 - [ ] 3.5 实现 Policy Guard，覆盖权限、risk level、side effect、confirmation state 和 confirmation action hash。
 - [ ] 3.6 增加 runtime、resource contract、policy、confirmation 和非法 action 的单元测试。
+- [ ] 3.7 增加端到端 replay 测试，覆盖 Planner 连续多轮 tool call、资源消费、terminal action、Response Adapter 投影和结构化错误收口。
 
 ## 4. 三类基础 Tool 闭环
 
-- [ ] 4.1 实现动作候选检索 tool，复用底层动作检索服务，返回 `exercise_candidate_set` consumable resource 和诊断摘要。
-- [ ] 4.2 实现读取 conversation artifact payload tool，校验 user/session 权限并返回 artifact payload consumable resource。
-- [ ] 4.3 实现保存 conversation artifact tool，经过 Policy Guard 后保存 artifact 或 revision，并返回 persisted artifact consumable resource。
+- [ ] 4.1 实现动作候选检索 tool，复用底层动作检索服务，返回 `exercise_candidate_set` consumable resource、diagnostic 失败摘要、trace projection 和 response adapter。
+- [ ] 4.2 实现读取 conversation artifact payload tool，校验 user/session 权限并返回 artifact payload consumable resource、diagnostic 失败摘要、trace projection 和 response adapter。
+- [ ] 4.3 实现保存 conversation artifact tool，经过 Policy Guard 和 confirmation action hash 后保存 artifact 或 revision，并返回 persisted artifact consumable resource、trace projection 和 response adapter。
 - [ ] 4.4 为三类基础 tool 注册 response adapter 和 trace projection，确保通用 Response Adapter 不写 toolName 分支。
 - [ ] 4.5 建立 `lib/server/agent-tools/index.ts` 或等价注册入口，只通过 registry 注册基础 tools。
 - [ ] 4.6 为三类基础 tools 增加 tool contract、resource role、policy 和 response adapter 测试。
+- [ ] 4.7 通过 replay fixture 跑通三类基础 tools 的完整闭环，覆盖成功、diagnostic、权限失败、schema 失败和 resource contract 失败。
 
 ## 5. Response Adapter、Trace Replay 与 `/api/chat` 接入
 
 - [ ] 5.1 实现通用 Response Adapter，从 terminal action、tool results 和 tool response adapters 生成 `content`、artifact、assistant suggestions、confirmation、error 和 `done` NDJSON 事件。
 - [ ] 5.2 实现 Agent run trace，记录 context 摘要、manifest 摘要、planner action、policy decision、tool input/output 摘要、resource refs、terminal action 和 response events。
 - [ ] 5.3 实现 replay fixture，使测试可以在不调用真实模型的情况下重放 planner actions、tool loop、resource validation、policy 和 response adapter。
-- [ ] 5.4 调整聊天服务和 `/api/chat`，接入新 Agent runtime、Response Adapter、NDJSON stream 和 trace id 输出。
-- [ ] 5.5 确保 `/api/chat` 新链路失败时返回结构化可恢复错误，不回退旧 Agent core、旧 intent-first 或旧 readonly loop。
-- [ ] 5.6 增加 `/api/chat` NDJSON 集成测试，覆盖动作推荐、读取 artifact、保存 artifact 和结构化错误收口。
+- [ ] 5.4 调整聊天服务和 `/api/chat`，接入新 Agent runtime、Response Adapter、NDJSON stream 和 trace id 输出，并用新 core 支撑基础聊天业务。
+- [ ] 5.5 确保 `/api/chat` 新链路失败时返回结构化可恢复错误，不回退旧 Agent core、旧 intent-first 或旧 readonly loop，也不得把“服务不可用”作为第一阶段完成状态。
+- [ ] 5.6 增加 `/api/chat` NDJSON 集成测试，覆盖动作推荐、读取 artifact、保存 artifact、confirmation、trace id、结构化错误收口和 `done` 事件。
+- [ ] 5.7 增加真实聊天服务层测试，证明三类基础请求可以从 request hydration 到 NDJSON 输出端到端完成。
 
 ## 6. 只注册 Tool 即可扩展的验收
 
@@ -47,6 +51,7 @@
 - [ ] 6.3 增加架构扫描，证明扩展 tool 不需要修改 orchestrator runtime、planner loop、executor、policy guard、resource validator、Response Adapter 主流程或 `/api/chat` 接入层。
 - [ ] 6.4 增加架构扫描，证明生产路径不导入旧 `runAgentOrchestrator()`、旧 `AgentExecutionResult`、旧 response writer、旧 intent-first 或旧 readonly loop。
 - [ ] 6.5 扫描新 core 代码，禁止出现按具体 toolName 编写业务分支的 orchestrator 主流程逻辑。
+- [ ] 6.6 增加反向测试：如果新 tool 需要修改 orchestrator 主流程才能工作，测试必须失败，并要求把缺失能力补入 tool bundle 合同或通用 core 合同。
 
 ## 7. 文档与验证
 
@@ -54,6 +59,7 @@
 - [ ] 7.2 运行 `npm run typecheck`。
 - [ ] 7.3 运行相关自动化测试，至少覆盖 agent-core、agent-tools、chat service、resource contract、policy、response adapter 和 replay fixture。
 - [ ] 7.4 运行 `npm run build`，验证 `/api/chat`、服务端模块边界和 Next.js 构建。
-- [ ] 7.5 按实际架构调整结果，在 `docs/方案变更历史/` 新增本次变更记录。
-- [ ] 7.6 按实际架构调整结果，在 `docs/项目演变历程.md` 末尾追加简要演进记录。
-- [ ] 7.7 不主动启动 dev server；如实现阶段确需浏览器验证，先说明原因并等待确认，只复用已启动的 `http://localhost:3000`。
+- [ ] 7.5 运行完整闭环验收，逐项证明 15 项能力全部完成；任一项缺失不得标记本 change complete。
+- [ ] 7.6 按实际架构调整结果，在 `docs/方案变更历史/` 新增本次变更记录。
+- [ ] 7.7 按实际架构调整结果，在 `docs/项目演变历程.md` 末尾追加简要演进记录。
+- [ ] 7.8 不主动启动 dev server；如实现阶段确需浏览器验证，先说明原因并等待确认，只复用已启动的 `http://localhost:3000`。
