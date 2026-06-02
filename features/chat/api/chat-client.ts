@@ -1,6 +1,9 @@
 import { clientRequest } from "@/lib/client/http/client-request";
 
-import type { ConversationSummaryContext } from "@/lib/shared/chat/fitness-conversation-context";
+import type {
+  ConversationSummaryContext,
+  FitnessConversationContext,
+} from "@/lib/shared/chat/fitness-conversation-context";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
 import type { ReferenceResolution } from "@/lib/shared/reference-resolver/schema";
@@ -60,6 +63,7 @@ export function requestChatStream(
   responseMessageId: string,
   latestUserMessage: string,
   conversationSummary: string,
+  conversationContext: FitnessConversationContext,
   thinkingEnabled: boolean,
   signal: AbortSignal,
 ) {
@@ -73,6 +77,7 @@ export function requestChatStream(
       responseMessageId,
       latestUserMessage,
       conversationSummary,
+      conversationContext,
       thinkingEnabled,
     },
   });

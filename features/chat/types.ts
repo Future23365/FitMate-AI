@@ -90,6 +90,8 @@ export type ChatStreamEvent = {
   traceId?: string;
   /** 服务端更新后的自然语言聊天总结，是下一轮模型可见历史上下文 */
   conversationSummary?: string;
+  /** 服务端更新后的结构化短期上下文，只用于确定性多轮状态。 */
+  conversationContext?: FitnessConversationContext;
 };
 
 export type ChatConversation = {

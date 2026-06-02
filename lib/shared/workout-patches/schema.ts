@@ -3,6 +3,8 @@ import { z } from "zod";
 import {
   conversationArtifactKindSchema,
 } from "@/lib/shared/conversation-artifacts/schema";
+import { assistantSuggestionListSchema } from "@/lib/shared/chat/assistant-suggestions";
+import { pendingReplacementSelectionSchema } from "@/lib/shared/chat/fitness-conversation-context";
 import {
   workoutPlanDraftSchema,
   workoutRoutineDraftSchema,
@@ -139,6 +141,8 @@ export const workoutPatchResultSchema = z.object({
   payload: z.union([workoutRoutineDraftSchema, workoutPlanDraftSchema]).optional(),
   diff: z.array(workoutPatchDiffEntrySchema).default([]),
   confirmation: confirmationRequestSchema.optional(),
+  assistantSuggestions: assistantSuggestionListSchema.optional(),
+  pendingReplacementSelection: pendingReplacementSelectionSchema.optional(),
   suggestedReplies: z.array(z.string().trim().min(1).max(120)).max(3).default([]),
   failureReasons: z.array(z.string().trim().min(1)).default([]),
 });

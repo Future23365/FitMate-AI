@@ -5,6 +5,7 @@ import {
   workoutPlanIntentSchema,
   type WorkoutPlanIntent,
 } from "@/lib/shared/workout-plans/draft-schema";
+import { conversationArtifactKindSchema } from "@/lib/shared/conversation-artifacts/schema";
 
 export const aiContextChatMessageSchema = z.object({
   role: z.enum(["user", "assistant"]),
@@ -29,6 +30,21 @@ export const fitnessConversationKnownFactsSchema = z.object({
   latestUserMessage: z.string().trim().min(1).max(400).optional(),
 });
 
+// PendingReplacementSelection 保存动作替换候选的短期服务端状态，下一轮只能在该候选集合内确定替代动作。
+export const pendingReplacementSelectionSchema = z.object({
+  artifactId: z.string().trim().min(1),
+  artifactKind: conversationArtifactKindSchema.extract(["routine", "plan"]),
+  sourceExerciseId: z.string().trim().min(1),
+  sourceExerciseName: z.string().trim().min(1).max(120),
+  candidateExerciseIds: z.array(z.string().trim().min(1)).min(1).max(8),
+  candidateExerciseNames: z.array(z.string().trim().min(1).max(120)).min(1).max(8),
+  createdAt: z.string().trim().min(1),
+  expiresAt: z.string().trim().min(1),
+}).refine(
+  (selection) => selection.candidateExerciseIds.length === selection.candidateExerciseNames.length,
+  "candidateExerciseIds 和 candidateExerciseNames 必须一一对应",
+);
+
 export const fitnessConversationContextSchema = z.object({
   summary: z.string().trim().max(2000).default(""),
   currentIntent: workoutPlanIntentSchema.optional(),
@@ -39,11 +55,13 @@ export const fitnessConversationContextSchema = z.object({
     avoidances: [],
   }),
   unresolvedQuestions: z.array(z.string().trim().min(1).max(160)).max(12).default([]),
+  pendingReplacementSelection: pendingReplacementSelectionSchema.optional(),
 });
 
 export type AiContextChatMessage = z.infer<typeof aiContextChatMessageSchema>;
 export type ConversationSummaryContext = z.infer<typeof conversationSummaryContextSchema>;
 export type FitnessConversationKnownFacts = z.infer<typeof fitnessConversationKnownFactsSchema>;
+export type PendingReplacementSelection = z.infer<typeof pendingReplacementSelectionSchema>;
 export type FitnessConversationContext = z.infer<typeof fitnessConversationContextSchema>;
 
 const durableFactPattern =

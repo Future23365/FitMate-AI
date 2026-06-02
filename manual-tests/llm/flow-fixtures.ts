@@ -21,13 +21,33 @@ export type BlackboxFlowTurn = {
   expectation: BlackboxFlowTurnExpectation;
 };
 
-export type BlackboxFlowCase = {
+export type BlackboxFlowRunSuite = "basic" | "detail_core" | "detail_extended";
+export type BlackboxFlowGroup =
+  | "recommendation"
+  | "routine"
+  | "plan"
+  | "context"
+  | "reference"
+  | "safety"
+  | "quality";
+export type BlackboxFlowRiskLevel = "smoke" | "core" | "edge";
+
+export type BlackboxFlowMetadata = {
+  suite: BlackboxFlowRunSuite;
+  groups: [BlackboxFlowGroup, ...BlackboxFlowGroup[]];
+  riskLevel: BlackboxFlowRiskLevel;
+  coverageNote: string;
+  allowDuplicateSequence?: boolean;
+};
+
+type BlackboxFlowCaseDefinition = {
   id: string;
   name: string;
   goal: string;
   turns: [BlackboxFlowTurn, BlackboxFlowTurn, BlackboxFlowTurn];
 };
 
+export type BlackboxFlowCase = BlackboxFlowCaseDefinition & BlackboxFlowMetadata;
 export type BlackboxFlowSuiteName = "basic" | "detail";
 
 const noCard = {
@@ -37,7 +57,7 @@ const noCard = {
 } satisfies Omit<BlackboxFlowTurnExpectation, "note">;
 
 // 首页聊天黑盒流程 fixture，只声明用户可见期望，不锁定内部 prompt 分支或训练细节。
-export const basicBlackboxFlowCases: BlackboxFlowCase[] = [
+const basicBlackboxFlowCaseDefinitions: BlackboxFlowCaseDefinition[] = [
   {
     id: "F01",
     name: "纯动作推荐到刷新推荐",
@@ -184,8 +204,8 @@ export const basicBlackboxFlowCases: BlackboxFlowCase[] = [
   },
 ];
 
-export const detailedBlackboxFlowCases: BlackboxFlowCase[] = [
-  ...basicBlackboxFlowCases,
+const detailedBlackboxFlowCaseDefinitions: BlackboxFlowCaseDefinition[] = [
+  ...basicBlackboxFlowCaseDefinitions,
   {
     id: "H01",
     name: "普通训练建议不直接出卡",
@@ -328,12 +348,12 @@ export const detailedBlackboxFlowCases: BlackboxFlowCase[] = [
     name: "训练后继续修改",
     goal: "验证局部替换后能继续基于修改后的 routine 降低难度。",
     turns: [
-      turn("第 1 轮：胸部无器械 routine", "给我一套胸部20分钟无器械训练", ["workout_routine"], "应生成胸部 20 分钟无器械 routine。"),
-      turn("第 2 轮：替换俯卧撑", "把俯卧撑换掉", ["workout_patch"], "应只替换目标动作，其他内容尽量保持。", {
+      turn("第 1 轮：胸部无器械 routine", "安排一个20分钟徒手胸部训练，动作尽量简单", ["workout_routine"], "应生成胸部 20 分钟无器械 routine。"),
+      turn("第 2 轮：替换俯卧撑", "把里面最难的俯卧撑换掉", ["workout_patch"], "应只替换目标动作，其他内容尽量保持。", {
         expectedReferenceStatus: "resolved",
         expectedArtifactPayloadReadable: true,
       }),
-      turn("第 3 轮：调简单点", "再把它调简单点", ["workout_patch"], "应基于修改后的 routine 降低难度。", {
+      turn("第 3 轮：调简单点", "再把刚才替换后的版本整体降低难度", ["workout_patch"], "应基于修改后的 routine 降低难度。", {
         expectedReferenceStatus: "resolved",
         expectedArtifactPayloadReadable: true,
       }),
@@ -458,12 +478,12 @@ export const detailedBlackboxFlowCases: BlackboxFlowCase[] = [
     name: "条件缺口不重复追问",
     goal: "验证补齐目标和时长后，后续只追问缺口或直接生成，不重复追问已提供条件。",
     turns: [
-      noCardTurn("第 1 轮：笼统训练", "给我一套训练", "应追问目标、时长或器械。"),
-      optionalTrainingCardTurn("第 2 轮：补齐目标和时长", "练胸，20分钟", ["workout_routine"], "不应重复追问目标和时长，只补齐缺口或生成。", {
+      noCardTurn("第 1 轮：笼统训练", "想练一下，但先别直接给太复杂", "应追问目标、时长或器械。"),
+      optionalTrainingCardTurn("第 2 轮：补齐目标和时长", "胸部，20分钟", ["workout_routine"], "不应重复追问目标和时长，只补齐缺口或生成。", {
         mustNotIncludeAny: ["你想练哪个部位", "训练多长时间"],
         semanticFailureLevel: "P2",
       }),
-      turn("第 3 轮：补齐器械", "没有器械", ["workout_routine"], "不重复追问已给条件，生成或调整 routine。", {
+      turn("第 3 轮：补齐器械", "只用自重", ["workout_routine"], "不重复追问已给条件，生成或调整 routine。", {
         mustNotIncludeAny: ["你想练哪个部位", "训练多长时间"],
         semanticFailureLevel: "P2",
       }),
@@ -733,10 +753,127 @@ export const detailedBlackboxFlowCases: BlackboxFlowCase[] = [
   },
 ];
 
+const flowMetadataById: Record<string, BlackboxFlowMetadata> = {
+  F01: { suite: "basic", groups: ["recommendation", "context"], riskLevel: "smoke", coverageNote: "基础动作推荐、刷新和器械条件补充。" },
+  F02: { suite: "basic", groups: ["recommendation", "routine", "context"], riskLevel: "smoke", coverageNote: "动作推荐升级为单次训练，并继续继承目标。" },
+  F03: { suite: "basic", groups: ["routine", "context"], riskLevel: "smoke", coverageNote: "基础信息补齐链路，保留允许追问或生成的宽松断言。" },
+  F04: { suite: "basic", groups: ["routine", "context"], riskLevel: "smoke", coverageNote: "routine 生成后的时长和难度调整。" },
+  F05: { suite: "basic", groups: ["plan", "context"], riskLevel: "smoke", coverageNote: "长期计划关键条件逐步补齐。" },
+  F06: { suite: "basic", groups: ["plan"], riskLevel: "smoke", coverageNote: "6 天、每周 6 练和未来 6 天的长期计划语义区分。" },
+  F07: { suite: "basic", groups: ["context", "routine"], riskLevel: "smoke", coverageNote: "当前消息覆盖历史器械条件。" },
+  F13: { suite: "basic", groups: ["context", "quality"], riskLevel: "smoke", coverageNote: "天气类非健身问题后切回训练流程。" },
+  F15: { suite: "basic", groups: ["reference", "routine"], riskLevel: "smoke", coverageNote: "最近卡片引用、升级和动作解释。" },
+  H01: { suite: "detail_core", groups: ["plan", "context"], riskLevel: "core", coverageNote: "建议问答升级为长期计划。" },
+  H02: { suite: "detail_core", groups: ["quality", "context"], riskLevel: "core", coverageNote: "寒暄和健身入门不误触发训练卡片。" },
+  H03: { suite: "detail_core", groups: ["context", "recommendation"], riskLevel: "core", coverageNote: "股票类非健身边界；区别于 F13 的天气类轻量切回。" },
+  H04: { suite: "detail_core", groups: ["quality", "routine"], riskLevel: "core", coverageNote: "无意义输入逐步收束到明确短时核心目标。" },
+  R02: { suite: "detail_core", groups: ["recommendation", "context"], riskLevel: "core", coverageNote: "器械条件先行并影响后续推荐。" },
+  R03: { suite: "detail_core", groups: ["recommendation", "quality"], riskLevel: "core", coverageNote: "目标不清时不随机推荐。" },
+  R04: { suite: "detail_core", groups: ["recommendation", "quality"], riskLevel: "core", coverageNote: "不存在动作不被编造成数据库卡片。" },
+  R05: { suite: "detail_core", groups: ["recommendation", "context"], riskLevel: "core", coverageNote: "部位、场地、排除动作和难度连续过滤。" },
+  R06: { suite: "detail_core", groups: ["recommendation", "reference"], riskLevel: "core", coverageNote: "动作解释不误刷新，后续可降低推荐难度。" },
+  W04: { suite: "detail_core", groups: ["routine", "context"], riskLevel: "core", coverageNote: "多目标短时冲突先收束再生成。" },
+  W05: { suite: "detail_core", groups: ["routine", "context"], riskLevel: "core", coverageNote: "目标切换后生成腿部 routine；区别于 C03 的刷新推荐断言。" },
+  W06: { suite: "detail_core", groups: ["routine", "safety"], riskLevel: "core", coverageNote: "新手条件下高强度核心请求降级。" },
+  W07: { suite: "detail_extended", groups: ["routine", "safety"], riskLevel: "edge", coverageNote: "极短时长热身边界。" },
+  W08: { suite: "detail_core", groups: ["routine", "reference"], riskLevel: "core", coverageNote: "局部 patch 后继续基于修改版降级；已改写输入避免与 M03 严格重复。" },
+  P03: { suite: "detail_core", groups: ["plan", "context"], riskLevel: "core", coverageNote: "每周 4 练增肌计划的频率和单次时长调整。" },
+  P04: { suite: "detail_core", groups: ["plan", "context"], riskLevel: "core", coverageNote: "同起点计划切换目标和训练场景；区别于 P03 的频率调整。" },
+  P05: { suite: "detail_extended", groups: ["plan", "safety"], riskLevel: "edge", coverageNote: "新手高频计划保守收束。" },
+  P06: { suite: "detail_core", groups: ["plan", "context"], riskLevel: "core", coverageNote: "长期计划训练日偏好和局部轻量化。" },
+  P07: { suite: "detail_extended", groups: ["plan", "reference"], riskLevel: "edge", coverageNote: "解释长期计划并定位第 2 天局部降级。" },
+  C02: { suite: "detail_core", groups: ["context", "recommendation"], riskLevel: "core", coverageNote: "临时不练腿不变永久偏好。" },
+  C03: { suite: "detail_core", groups: ["context", "recommendation"], riskLevel: "core", coverageNote: "目标切换后刷新腿部推荐；区别于 W05 的 routine 升级。" },
+  C04: { suite: "detail_core", groups: ["context", "recommendation"], riskLevel: "core", coverageNote: "同轮内更具体约束覆盖旧条件。" },
+  C05: { suite: "detail_core", groups: ["context", "routine"], riskLevel: "core", coverageNote: "目标切换时保留 30 分钟时长。" },
+  C06: { suite: "detail_core", groups: ["context", "routine", "quality"], riskLevel: "core", coverageNote: "不重复追问已给目标和时长；已改写输入避免与 F03 严格重复。" },
+  C07: { suite: "detail_extended", groups: ["context", "reference"], riskLevel: "edge", coverageNote: "非健身插入后仍能引用最近 routine。" },
+  C08: { suite: "detail_core", groups: ["context", "recommendation"], riskLevel: "core", coverageNote: "用户否定前一轮目标后按肩部继续。" },
+  M02: { suite: "detail_extended", groups: ["reference", "routine"], riskLevel: "edge", coverageNote: "多个候选卡片时含糊引用必须澄清。" },
+  M03: { suite: "detail_core", groups: ["reference", "routine"], riskLevel: "core", coverageNote: "标准局部替换和后续降级链路。" },
+  M04: { suite: "detail_extended", groups: ["reference", "routine"], riskLevel: "edge", coverageNote: "重复动作替换范围不明确时先澄清。" },
+  M05: { suite: "detail_extended", groups: ["reference", "plan"], riskLevel: "edge", coverageNote: "长期计划第 N 天连续局部调轻；区别于 P03/P04 的整计划调整。" },
+  M06: { suite: "detail_core", groups: ["reference", "routine"], riskLevel: "core", coverageNote: "解释当前 routine 后定位最后一个动作替换。" },
+  M07: { suite: "detail_core", groups: ["reference", "recommendation"], riskLevel: "core", coverageNote: "刷新推荐和局部修改语义区分。" },
+  M08: { suite: "detail_extended", groups: ["plan", "quality"], riskLevel: "edge", coverageNote: "缺时长长期计划在确认后生成。" },
+  S01: { suite: "detail_extended", groups: ["safety", "routine"], riskLevel: "edge", coverageNote: "膝盖不适场景保守处理。" },
+  S02: { suite: "detail_extended", groups: ["safety", "quality"], riskLevel: "edge", coverageNote: "医疗诊断边界不触发训练卡片。" },
+  S03: { suite: "detail_extended", groups: ["safety", "routine"], riskLevel: "edge", coverageNote: "专业健美请求在新手条件下降级。" },
+  S04: { suite: "detail_extended", groups: ["safety", "plan"], riskLevel: "edge", coverageNote: "极端减脂目标收束到合理计划。" },
+  S05: { suite: "detail_extended", groups: ["safety", "recommendation"], riskLevel: "edge", coverageNote: "训练中疼痛后调整为更保守动作。" },
+  S06: { suite: "detail_extended", groups: ["safety", "routine"], riskLevel: "edge", coverageNote: "老年人训练请求保守处理。" },
+  Q01: { suite: "detail_core", groups: ["quality", "reference"], riskLevel: "core", coverageNote: "多轮 patch 不泄漏内部字段。" },
+  Q02: { suite: "detail_core", groups: ["quality", "plan", "routine"], riskLevel: "core", coverageNote: "动作推荐、routine、plan 卡片类型稳定升级。" },
+  Q03: { suite: "detail_core", groups: ["quality", "plan"], riskLevel: "core", coverageNote: "追问具体可回答，条件足够后生成计划。" },
+  Q04: { suite: "detail_extended", groups: ["quality", "routine"], riskLevel: "edge", coverageNote: "普通健身请求不应无故拒答，异常后可恢复。" },
+  Q05: { suite: "detail_core", groups: ["quality", "recommendation", "routine"], riskLevel: "core", coverageNote: "回复非空、不机械重复，并可升级核心 routine。" },
+};
+
+export type BlackboxFlowOverlapGroup = {
+  kind: "strict_duplicate" | "shared_start" | "high_overlap_setup";
+  flowIds: string[];
+  note: string;
+};
+
+// 详细套件重复矩阵是人工治理入口，保留高重叠原因，严格重复应由检测测试兜底。
+export const detailedBlackboxFlowOverlapMatrix: BlackboxFlowOverlapGroup[] = [
+  {
+    kind: "strict_duplicate",
+    flowIds: ["F03", "C06"],
+    note: "历史严格重复；C06 已改写为“不重复追问”语义断言专用输入。",
+  },
+  {
+    kind: "strict_duplicate",
+    flowIds: ["W08", "M03"],
+    note: "历史严格重复；W08 已改写为修改后版本继续降级，M03 保留标准 patch 链路。",
+  },
+  {
+    kind: "high_overlap_setup",
+    flowIds: ["W05", "C03"],
+    note: "同为胸部切腿部；W05 验证 routine 升级，C03 验证后续刷新仍保持腿部。",
+  },
+  {
+    kind: "shared_start",
+    flowIds: ["F13", "H03"],
+    note: "同为非健身后切回；F13 覆盖天气类轻量问题，H03 覆盖股票类边界问题。",
+  },
+  {
+    kind: "shared_start",
+    flowIds: ["P03", "P04", "M05"],
+    note: "同为每周 4 练增肌起点；分别覆盖频率时长调整、目标场景覆盖、计划某天 patch。",
+  },
+];
+
+export const basicBlackboxFlowCases = attachFlowMetadata(basicBlackboxFlowCaseDefinitions);
+export const detailedBlackboxFlowCases = attachFlowMetadata(detailedBlackboxFlowCaseDefinitions);
+
 export const blackboxFlowCases = basicBlackboxFlowCases;
 
 export function getBlackboxFlowCases(suiteName: BlackboxFlowSuiteName) {
   return suiteName === "detail" ? detailedBlackboxFlowCases : basicBlackboxFlowCases;
+}
+
+export function getKnownBlackboxFlowSuites(): BlackboxFlowRunSuite[] {
+  return ["basic", "detail_core", "detail_extended"];
+}
+
+export function getKnownBlackboxFlowGroups(): BlackboxFlowGroup[] {
+  return ["recommendation", "routine", "plan", "context", "reference", "safety", "quality"];
+}
+
+function attachFlowMetadata(flowCases: BlackboxFlowCaseDefinition[]): BlackboxFlowCase[] {
+  return flowCases.map((flowCase) => {
+    const metadata = flowMetadataById[flowCase.id];
+
+    if (!metadata) {
+      throw new Error(`Missing blackbox flow metadata: ${flowCase.id}`);
+    }
+
+    return {
+      ...flowCase,
+      ...metadata,
+    };
+  });
 }
 
 function turn(

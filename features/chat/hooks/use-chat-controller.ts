@@ -400,6 +400,7 @@ export function useChatController() {
         assistantMessage.id,
         requestSummaryContext.latestUserMessage,
         requestSummaryContext.summary,
+        conversationContext,
         thinkingEnabled,
         controller.signal,
       );
@@ -418,6 +419,7 @@ export function useChatController() {
       let buffer = "";
       let fullContent = "";
       let updatedConversationSummary = requestSummaryContext.summary;
+      let updatedConversationContext: FitnessConversationContext | null = null;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -441,6 +443,10 @@ export function useChatController() {
             if (typeof streamEvent.conversationSummary === "string") {
               updatedConversationSummary = streamEvent.conversationSummary;
               setConversationSummary({ summary: updatedConversationSummary });
+            }
+            if (streamEvent.conversationContext) {
+              updatedConversationContext = streamEvent.conversationContext;
+              setConversationContext(streamEvent.conversationContext);
             }
             continue;
           }
@@ -588,10 +594,13 @@ export function useChatController() {
         }));
       }
 
-      setConversationContext(buildFitnessConversationContext([
-        ...requestMessages,
-        { role: "assistant", content: fullContent },
-      ]));
+      setConversationContext(
+        updatedConversationContext ??
+          buildFitnessConversationContext([
+            ...requestMessages,
+            { role: "assistant", content: fullContent },
+          ]),
+      );
     } catch (requestError) {
       const isAbortError =
         requestError instanceof DOMException && requestError.name === "AbortError";

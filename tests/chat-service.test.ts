@@ -656,6 +656,51 @@ describe("AI chat service deterministic boundaries", () => {
     });
   });
 
+  it("restores exercise_replacement action kind and reference requirement from a conflicting model action", () => {
+    const chatIntent: ChatIntent = {
+      type: "exercise_replacement",
+      needsExerciseContext: false,
+      requestedExerciseName: "俯卧撑",
+      canTriggerAction: true,
+      missingActionFields: [],
+      suggestedReplies: [],
+      action: {
+        kind: "none",
+        shouldTrigger: false,
+        blockingMissingFields: [],
+      },
+      responseMode: "answer_only",
+    };
+
+    const resolved = createResolvedChatIntent({
+      chatIntent,
+      exerciseContext: null,
+      assistantAction: null,
+      referenceResolution: null,
+    });
+
+    expect(resolved).toMatchObject({
+      type: "exercise_replacement",
+      action: { kind: "exercise_replacement" },
+      responseMode: "ask_clarification",
+      referenceRequirement: {
+        required: true,
+        allowedArtifactKinds: ["exercise_recommendation", "routine", "plan"],
+      },
+    });
+    expect(validateResolvedIntentGate(resolved)).toMatchObject({
+      valid: false,
+      violations: expect.arrayContaining([
+        "referenceRequirement is required but referenceResolution is missing",
+      ]),
+    });
+    expect(deriveChatIntentFromResolvedIntent(chatIntent, resolved)).toMatchObject({
+      type: "exercise_replacement",
+      action: { kind: "exercise_replacement" },
+      responseMode: "ask_clarification",
+    });
+  });
+
   it("builds artifact stream events without sending card payload before final reply completion", () => {
     const intent = createWorkoutPlanIntent({ intentType: "routine" });
     const events = buildChatArtifactStreamEvents({
