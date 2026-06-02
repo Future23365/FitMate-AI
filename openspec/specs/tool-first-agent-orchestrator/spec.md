@@ -221,3 +221,108 @@ TBD - created by archiving change replace-chat-orchestrator-with-tool-first-agen
 - **THEN** 旧兼容事件 MUST 从生产主流事件中删除或降级为调试信息
 - **AND** 自动化测试 MUST 断言删除旧事件不会影响 artifact、patch、suggestion 或 done metadata
 
+### Requirement: Agent 不得用服务端自然语言规则改写非写入对话语义
+
+系统 SHALL 由 LLM 结合 `ContextPackage`、recent messages、recent artifacts 和 tool results 通过结构化 Agent decision 判断本轮是普通回答、澄清、artifact 查看、训练生成、训练修改还是写入请求。服务端 MAY 校验工具调用、资源引用、产品能力和 final result 合同，但 MUST NOT 使用关键词、正则、短句模板、同义词表或评分规则判断用户自然语言是否属于确认、否定、取消、闲聊、查看或保存。
+
+#### Scenario: 模型将短回复处理为普通回答
+- **WHEN** LLM 基于上下文返回 `final_result.answered` 或等价普通回答结果
+- **THEN** 系统 MUST 按该结构化结果投影用户可见回复
+- **AND** 系统 MUST NOT 因用户原文是短回复而额外调用 `searchExercises`、`generateRoutineDraft`、`evaluatePolicy` 或 `saveConversationArtifactRevision`
+- **AND** 系统 MUST NOT 用服务端短语规则把该结果改写成生成、修改、保存或取消意图
+
+#### Scenario: 模型请求执行工具
+- **WHEN** LLM 请求调用训练生成、训练修改、artifact 读取或写入工具
+- **THEN** 服务端 MUST 只校验该工具输入是否满足 Schema、当前 run 资源依赖、权限、Policy、Validator 和产品能力边界
+- **AND** 服务端 MUST NOT 因用户原文看起来像或不像某类意图而替模型改选另一个 toolName 或 final result status
+
+#### Scenario: 模型输出缺少执行证据
+- **WHEN** LLM 返回生成、修改或写入成功结果
+- **AND** 当前 run 没有对应已登记 tool result、validationId、policyDecisionId、revisionId 或 operationResultId
+- **THEN** 系统 MUST 拒绝该成功投影并进入既有 repair、clarification、blocked 或 failed 路径
+- **AND** 系统 MUST NOT 通过读取用户原文补造缺失资源
+
+### Requirement: Agent artifact 查看必须是只读工具链
+
+系统 SHALL 支持 LLM 使用只读 artifact 工具回答查看类请求，并在读取到可展示 payload 后以 `answered` 结束本轮。artifact 查看 MUST NOT 被当成重新生成、验证、Policy 或保存流程。
+
+#### Scenario: 查看最近 routine artifact
+- **WHEN** 用户请求查看最近生成或刚才生成的训练
+- **AND** LLM 通过 `listRecentArtifacts`、`resolveArtifactReference`、`searchArtifacts` 或 `getArtifactPayload` 读取到当前用户可访问的 routine payload
+- **AND** LLM 返回引用该读取结果的 `final_result.answered`
+- **THEN** 系统 MUST 允许该结果作为只读查看回复
+- **AND** 系统 MUST NOT 要求该路径存在 `draftId`、`validationId`、`policyDecisionId` 或 `revisionId`
+- **AND** 系统 MUST NOT 调用 `saveConversationArtifactRevision`
+
+#### Scenario: 查看目标不明确
+- **WHEN** LLM 通过 artifact 工具发现有多个可访问候选且无法唯一确定目标
+- **THEN** 系统 MUST 允许 LLM 返回 `needs_clarification`
+- **AND** 澄清建议 MUST 只帮助用户选择查看或调整目标
+- **AND** 系统 MUST NOT 替模型按标题、摘要或用户原文猜测 artifactId
+
+### Requirement: 写工具 message 绑定必须来自服务端执行上下文
+
+系统 SHALL 将当前 assistant response message id 作为 Agent runtime 执行上下文的一部分传给 artifact 写工具。LLM MUST NOT 成为 artifact 与聊天气泡绑定关系的事实来源。
+
+#### Scenario: Agent 保存新 artifact
+- **WHEN** `saveConversationArtifactRevision` 在本轮 Agent run 中创建新的 routine 或 plan artifact
+- **THEN** 写工具 MUST 使用服务端 `AgentToolExecutionContext.responseMessageId` 或等价 context 字段作为 artifact `messageId`
+- **AND** 系统 MUST NOT 依赖 LLM 输入中的 `responseMessageId` 决定 artifact 绑定的 assistant message
+
+#### Scenario: 模型提供 responseMessageId
+- **WHEN** LLM 在写工具输入中提供 `responseMessageId`
+- **THEN** 系统 MAY 记录该值用于 trace 诊断
+- **AND** 系统 MUST 使用服务端执行上下文中的当前 response message id 作为持久化事实
+- **AND** 系统 MUST NOT 让模型值覆盖服务端 message 绑定
+
+### Requirement: Agent 终止结果必须使用资源角色校验
+AgentOrchestrator SHALL 在结束本轮执行前按资源角色校验 `AgentExecutionResult`。系统 MUST NOT 因诊断资源被用于澄清或阻断说明而返回 `model_output_invalid`，也 MUST NOT 让诊断资源冒充成功写入、生成或校验依赖。
+
+#### Scenario: 澄清结果引用失败搜索诊断
+- **WHEN** `searchExercises` 返回 failed 或 partial 诊断结果
+- **AND** Agent 随后通过 `askClarification` 请求用户确认
+- **THEN** 最终 `needs_clarification` MAY 引用该搜索诊断
+- **AND** 系统 MUST 输出澄清问题
+- **AND** 系统 MUST NOT 将该结果降级为 `model_output_invalid`
+
+#### Scenario: 生成结果引用失败搜索诊断
+- **WHEN** Agent 返回 `generated`
+- **AND** `usedToolResultIds` 中包含 failed 或 partial 的 `searchExercises` 结果
+- **THEN** runtime MUST reject 该 generated 结果
+- **AND** 系统 MUST NOT 生成、保存或推送 routine / plan artifact
+
+### Requirement: Agent 必须把 askClarification 作为澄清终止路径
+系统 SHALL 让 `askClarification` 工具结果通过 `AgentExecutionResult.status = "needs_clarification"` 到达 Response Writer。Agent MUST NOT 只用普通 `answered` 表达等待用户补充信息。
+
+#### Scenario: 工具返回澄清问题
+- **WHEN** Agent 成功执行 `askClarification`
+- **THEN** Response Writer MUST 输出澄清问题
+- **AND** Response Writer MUST 输出工具提供的 `assistantSuggestions`
+- **AND** done metadata 或 trace MUST 表达 Agent status 为 `needs_clarification`
+
+#### Scenario: 澄清不产生训练 artifact
+- **WHEN** Agent status 为 `needs_clarification`
+- **THEN** 聊天流 MUST NOT 推送 routine、plan、patch 或 recommendation artifact 事件
+- **AND** 用户可见回复 MUST NOT 承诺已经生成或保存训练结果
+
+### Requirement: Agent 执行型生成链不得退化为普通 answered
+当 Agent 本轮已经进入 routine、plan 或 patch 的执行型工具链时，系统 SHALL 禁止模型用普通 `answered` 自由文本作为生成成功或半成功结果。
+
+#### Scenario: Routine draft 已生成
+- **WHEN** 本轮已经成功执行 `generateRoutineDraft`
+- **AND** 模型返回 `answered` 并声称已经生成训练安排
+- **THEN** runtime MUST reject 或 repair 该终止结果
+- **AND** Agent MUST 继续进入 validation / policy / save，或返回 `needs_clarification`、`blocked`、`failed`
+
+#### Scenario: Routine candidate 已开始但未生成 draft
+- **WHEN** 本轮已经调用 `searchExercises(candidateUse = "routine")`
+- **AND** 搜索结果不足以生成 routine
+- **THEN** Agent MUST 返回 `needs_clarification`、`blocked` 或 `failed`
+- **AND** Agent MUST NOT 用 `answered` 输出自由文本训练编排冒充 routine
+
+#### Scenario: 普通知识回答不受防逃逸限制
+- **WHEN** 本轮没有进入 routine、plan 或 patch 执行型工具链
+- **AND** 用户只是询问动作说明、训练建议或非写入问题
+- **THEN** Agent MAY 使用 `answered`
+- **AND** 系统 MUST 仍按引用校验确保具体事实来自 tool result 或已知上下文
+

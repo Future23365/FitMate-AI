@@ -46,37 +46,29 @@
 
 ### Requirement: Routine 生成必须基于动作库候选并经过服务端校验
 
-聊天推送的 routine 草稿 SHALL 只使用后端动作库中存在、属于本轮候选集合或服务端受控补充候选集合的动作，并且 SHALL 在保存或展示前通过服务端确定性结构校验。用户或 Agent 明确传入 routine draft 工具的 `candidateExerciseIds` SHALL 被视为必须保留动作，系统不得在生成三段式 routine 时静默丢弃。服务端校验不得仅因训练合理性判断、动作 section 与本地推导元数据不一致、训练量偏高、休息偏短或目标时长来自默认推断而拒绝草稿。用户当前消息、历史已确认约束或用户确认 artifact 明确表达的避免动作、禁忌和时长要求仍可作为 hard fail 依据；未主动提出或未确认的伤病限制不得作为 hard fail 依据。
+聊天推送的 routine 草稿 SHALL 只使用后端动作库中存在、属于本轮候选集合且满足本轮候选集合查询边界的动作，并且 SHALL 在保存或展示前通过服务端确定性结构校验。服务端校验不得仅因训练合理性判断、动作 section 与本地推导元数据不一致、训练量偏高、休息偏短或目标时长来自默认推断而拒绝草稿。用户当前消息、历史已确认约束、用户确认 artifact 或本轮 candidate set 查询证据明确表达的避免动作、禁忌、器械、风险、难度、section 和时长要求仍可作为 hard fail 依据；未主动提出或未确认的伤病限制不得作为 hard fail 依据。
 
 #### Scenario: AI 选择候选动作
 
 - **WHEN** 系统调用 AI 生成 routine 草稿
 - **THEN** 提示词 MUST 要求 AI 只能选择候选动作中的 `exerciseId`
 - **AND** 服务端 MUST 校验草稿中每个 `exerciseId` 存在于数据库动作库
-- **AND** 服务端 MUST 校验草稿中每个 `exerciseId` 属于本轮候选集合或服务端受控补充候选集合
-- **AND** 系统 MUST NOT 持久化模型编造、客户端伪造或候选边界外的动作 id
+- **AND** 服务端 MUST 校验草稿中每个 `exerciseId` 属于本轮候选集合
+- **AND** 服务端 MUST 校验草稿中每个 `exerciseId` 满足本轮候选集合查询边界
+- **AND** 系统 MUST NOT 持久化模型编造、客户端伪造、候选集合外或查询边界外的动作 id
 
-#### Scenario: 指定动作必须保留
+#### Scenario: 候选动作不足
 
-- **WHEN** 用户要求把一批指定动作编成 routine
-- **AND** Agent 调用 `generateRoutineDraft` 时传入这些动作的 `candidateExerciseIds`
-- **THEN** 生成的 routine 草稿 MUST 包含这些 `candidateExerciseIds` 中每一个数据库存在的动作
-- **AND** 系统 MUST NOT 仅因三段式 section 选择逻辑而丢弃指定动作
-- **AND** 若指定动作不适合作为 warmup 或 stretch，系统 MUST 将其保留在 `training` 或更合适的非补充 section 中
-
-#### Scenario: 候选动作不足时受控补齐
-
-- **WHEN** 指定动作不足以生成包含热身、训练、拉伸的 routine
-- **THEN** 系统 MUST 从后端动作库中选择受控补充动作补齐缺失 section
-- **AND** 补充动作 MUST 纳入本次 routine 的候选边界并在后续 `validateRoutineDraft` 中可校验
-- **AND** 补充动作 MUST 优先满足用户明确器械、权限、候选用途和动作来源约束
-- **AND** 系统 MUST NOT 让 AI 使用数据库不存在或未纳入候选边界的动作补足 section
-
-#### Scenario: 受控补齐仍不足
-
-- **WHEN** 指定动作和受控补充动作仍无法覆盖 `warmup`、`training`、`stretch`
+- **WHEN** 动作库候选不足以生成包含热身、训练、拉伸的 routine
 - **THEN** 系统 MUST 返回可识别的失败结果
-- **AND** 系统 MUST NOT 将缺少必要 section 的草稿发送给聊天卡片保存
+- **AND** 系统 MUST NOT 让 AI 用候选列表之外的动作补足 section
+
+#### Scenario: 补动作继承查询边界
+
+- **WHEN** routine 生成需要补足 `warmup`、`training` 或 `stretch` section
+- **THEN** 系统 MUST 优先从同一 candidate set 中选择满足该 section 的动作
+- **AND** 若同一 candidate set 中缺少该 section 候选，系统 MUST 使用同一结构化查询边界重新补查或返回可恢复失败
+- **AND** 系统 MUST NOT 从全量动作库补入没有通过本轮查询边界的动作
 
 #### Scenario: AI 输出结构无效
 
@@ -87,14 +79,14 @@
 
 #### Scenario: AI section 语义判断优先
 
-- **WHEN** AI 将真实存在且属于本轮候选集合的动态活动、灵活性或拉伸动作放入 `warmup` 或 `stretch`
+- **WHEN** AI 将真实存在、属于本轮候选集合且满足本轮查询边界的动态活动、灵活性或拉伸动作放入 `warmup` 或 `stretch`
 - **AND** 该动作不违反用户明确器械、权限或动作来源约束
 - **THEN** 服务端 MUST 接受 AI 的 section 选择
 - **AND** 服务端 MUST NOT 仅因 `allowedSections` 或等价本地推导元数据不匹配而拒绝草稿
 
 #### Scenario: Routine 合理性 warning 不阻止展示
 
-- **WHEN** routine 草稿通过 Schema、候选动作和必要 section 校验
+- **WHEN** routine 草稿通过 Schema、候选动作、查询边界和必要 section 校验
 - **AND** 服务端发现训练量偏高、新手训练量偏高、休息偏短、section 语义分歧或用户历史偏好冲突
 - **THEN** 服务端 MUST 将这些问题记录为 warning
 - **AND** 聊天卡片 MUST 继续展示该 routine 草稿
@@ -362,4 +354,150 @@
 - **AND** 输入的 `requiredExerciseIds` 中存在不属于该 payload 的动作 id
 - **THEN** 服务端 MUST 返回结构化 `invalid_dependency` 或等价失败
 - **AND** 系统 MUST NOT 用裸搜候选替代用户指定 artifact 动作集合
+
+### Requirement: Routine draft 必须使用受控补充 section evidence
+
+聊天 routine 生成 SHALL 将 `searchExercises` 返回的 `controlledSupplementalCandidates.section` 视为本轮候选集合的结构化分段证据。`generateRoutineDraft` 构造三段式 routine 时，MUST 优先使用该 evidence 放置受控补充动作，而不得仅用动作通用元数据重新分段导致必要 section 缺失。
+
+#### Scenario: 受控补充动作被用于 warmup
+- **WHEN** `searchExercises(candidateUse = "routine")` 返回 `candidateSetEvidence.controlledSupplementalCandidates`，其中某个数据库动作的 `section = "warmup"`
+- **AND** Agent 调用 `generateRoutineDraft` 并引用同一 `candidateSetId`
+- **THEN** routine draft MUST 将该动作作为 `warmup` 候选使用
+- **AND** 系统 MUST NOT 因该动作通用元数据同时偏向 `stretch` 而返回 `candidate_set_missing_warmup`
+
+#### Scenario: 受控补充动作被用于 stretch
+- **WHEN** `searchExercises(candidateUse = "routine")` 返回 `candidateSetEvidence.controlledSupplementalCandidates`，其中某个数据库动作的 `section = "stretch"`
+- **AND** Agent 调用 `generateRoutineDraft` 并引用同一 `candidateSetId`
+- **THEN** routine draft MUST 将该动作作为 `stretch` 候选使用
+- **AND** 后续 `validateRoutineDraft` MUST 能通过 `candidateSetEvidence` 证明该动作属于本轮受控补充边界
+
+### Requirement: Routine 热身和拉伸默认不继承主训练器械要求
+
+当用户只表达可用器械或主训练器械偏好时，聊天 routine 生成 SHALL 默认把该器械用于 `training` 主训练候选边界。`warmup` 和 `stretch` SHALL 默认允许无器械或自重受控补充动作，系统不得要求用户再次确认热身和拉伸是否也使用主训练器械。
+
+#### Scenario: 用户有哑铃但未要求全程哑铃
+- **WHEN** 用户请求“上肢 30 分钟，有哑铃，帮我安排一套”或等价 routine
+- **THEN** 系统 MUST 优先为 `training` 选择哑铃候选动作
+- **AND** 系统 MUST 默认允许 `warmup` 和 `stretch` 使用无器械或自重动作
+- **AND** 系统 MUST NOT 仅因为动作库缺少哑铃热身或哑铃拉伸动作而再次询问用户是否接受无器械热身/拉伸
+
+#### Scenario: 用户明确指定热身和拉伸无器械
+- **WHEN** 用户已回答“热身用无器械，拉伸用无器械，训练阶段全部用哑铃动作”或等价表达
+- **THEN** Agent MUST 继续生成 routine draft、validation、policy 或 artifact 保存链路
+- **AND** 系统 MUST NOT 继续发起同类澄清
+- **AND** 系统 MUST NOT 因 `candidate_set_missing_warmup` 或等价 section coverage 错误终止为通用失败
+
+#### Scenario: 用户明确要求全程同器械
+- **WHEN** 用户明确要求热身、主训练和拉伸全部使用同一器械
+- **THEN** 系统 MAY 将该器械作为所有 section 的 hard constraint
+- **AND** 若动作库无法满足该边界，系统 MUST 返回 `needs_clarification`、`blocked` 或 `failed`
+- **AND** 系统 MUST NOT 静默放宽用户明确的全程器械要求
+
+### Requirement: Routine 生成必须使用可消费候选集合
+聊天 routine 生成 SHALL 只使用 runtime 登记为可消费的 candidate set。Partial、failed、diagnostic 或 feedback 型候选结果 MAY 用于解释和澄清，但 MUST NOT 进入 routine draft、validation、policy 或 persistence 链路。
+
+#### Scenario: 使用可消费 candidate set 生成 routine
+- **WHEN** `searchExercises(candidateUse = "routine")` 返回可消费 candidate set
+- **THEN** `generateRoutineDraft` MAY 引用该 `candidateSetId`
+- **AND** routine draft MUST 继续通过 validation、policy 和 save 工具链形成可展示 artifact
+
+#### Scenario: 使用 partial candidate set 生成 routine
+- **WHEN** `searchExercises(candidateUse = "routine")` 返回 partial candidate set
+- **AND** Agent 调用 `generateRoutineDraft` 引用该 `candidateSetId`
+- **THEN** 系统 MUST 返回结构化依赖失败
+- **AND** 聊天页面 MUST NOT 展示 routine 卡片
+
+#### Scenario: Partial candidate 转澄清
+- **WHEN** routine candidate set 因缺少 warmup 或 stretch 覆盖而 partial
+- **THEN** Agent MAY 返回 `needs_clarification`
+- **AND** 回复 MUST 给出用户可选择的下一步，例如允许无器械热身/拉伸、用户指定动作或调整要求
+
+### Requirement: Routine 主训练器械约束不得错误压到所有 section
+当用户表达可用器械时，聊天 routine 生成 SHALL 默认把该器械作为主训练优先或硬约束，不得默认要求 warmup 和 stretch 也必须使用该器械。除非用户明确要求全程同器械，系统应允许无器械或受控补充动作满足热身和拉伸 section。
+
+#### Scenario: 上肢哑铃 routine 请求
+- **WHEN** 用户发送“今天想练上肢，30 分钟，有哑铃，帮我安排一套”或等价请求
+- **THEN** 系统 MUST 能找到上肢哑铃主训练候选
+- **AND** 系统 MUST 尝试用无器械或受控补充候选补足 warmup 和 stretch
+- **AND** 最终结果 MUST 是 routine artifact、`needs_clarification`、`blocked` 或 `failed`
+- **AND** 最终结果 MUST NOT 是 `model_output_invalid`
+
+#### Scenario: 动作库缺少哑铃热身拉伸动作
+- **WHEN** 主训练候选满足哑铃上肢要求
+- **AND** 动作库缺少满足哑铃器械约束的 warmup 或 stretch 候选
+- **THEN** 系统 MUST NOT 直接判定整个 routine 搜索不可用
+- **AND** 系统 MUST 使用 section-aware 补齐或返回可理解澄清
+
+#### Scenario: 用户要求全程使用哑铃
+- **WHEN** 用户明确要求所有 section 都使用哑铃
+- **AND** 动作库无法满足 warmup 或 stretch
+- **THEN** 系统 MUST 返回 `needs_clarification` 或 `blocked`
+- **AND** 回复 MUST 说明缺失的是全程哑铃热身或拉伸候选
+
+### Requirement: Routine 执行链不得以自由文本 answered 逃逸
+聊天 routine 生成链路 SHALL 在进入候选、draft、validation、policy 或 save 后保持结构化收口。系统 MUST NOT 允许模型通过普通 `answered` 文本宣称训练已生成、正在生成或稍后展示。
+
+#### Scenario: Draft 已生成但未保存
+- **WHEN** 本轮已经成功执行 `generateRoutineDraft`
+- **AND** 模型返回 `answered`，正文声称训练已生成或请用户查看
+- **THEN** runtime MUST 拒绝该终止结果或生成可恢复 feedback
+- **AND** Agent MUST 继续执行 validation / policy / save，或返回 `needs_clarification`、`blocked`、`failed`
+
+#### Scenario: Policy 已通过但未保存
+- **WHEN** routine draft 已通过 validation 和 policy
+- **AND** 当前 run 尚无 `saveConversationArtifactRevision` 成功结果
+- **THEN** Agent MUST 继续调用保存工具
+- **AND** Agent MUST NOT 用 `answered` 文本承诺已生成 routine 卡片
+
+#### Scenario: 候选不足需要用户决定
+- **WHEN** routine 候选或 section 覆盖不足
+- **THEN** Agent MUST 使用 `needs_clarification`、`blocked` 或 `failed`
+- **AND** Agent MUST NOT 输出自由文本训练编排作为替代 routine
+
+### Requirement: Routine partial 和澄清结果必须有用户可继续操作的建议
+当 routine 生成因 partial candidate、section 覆盖不足或用户约束冲突无法继续时，系统 SHALL 返回可继续对话的 `assistantSuggestions`，避免用户只看到通用失败。
+
+#### Scenario: 缺少 warmup 和 stretch 覆盖
+- **WHEN** routine 候选缺少 warmup 或 stretch
+- **THEN** `needs_clarification` 或 `blocked` 结果 MUST 包含至少一个用户可点击或可发送的建议
+- **AND** 建议 MUST 对应当前阻断原因，例如允许无器械补齐、提供热身/拉伸动作或调整器械要求
+
+#### Scenario: 无可恢复建议
+- **WHEN** 系统无法提供安全、明确的继续操作建议
+- **THEN** 结果 MUST 返回 `blocked` 或 `failed`
+- **AND** 回复 MUST 说明无法继续的确定性原因
+- **AND** 系统 MUST NOT 伪造可执行训练内容
+
+### Requirement: Agent routine draft 工具必须绑定 candidate set 查询证据
+系统 SHALL 要求 `generateRoutineDraft` 引用本轮已登记的 candidate set 查询证据，并将该证据传递给后续 validation、policy 和保存链路。
+
+#### Scenario: 生成 routine draft
+- **WHEN** Agent 调用 `generateRoutineDraft`
+- **THEN** 输入 MUST 引用当前 run 中已登记的 `candidateSetId`
+- **AND** 服务端 MUST 验证传入 `candidateExerciseIds` 来自该 candidate set
+- **AND** 服务端 MUST 读取该 candidate set 的查询证据作为生成边界
+- **AND** 服务端 MUST 验证该 candidate set 的 ToolResult 已满足对应 ToolRequest，例如 `satisfied=true` 或等价状态
+- **AND** 如果 candidate set 的 result requirements 未满足，`generateRoutineDraft` MUST 返回可恢复失败
+
+#### Scenario: 查询证据传递到 validation
+- **WHEN** `generateRoutineDraft` 成功生成 draft
+- **THEN** draft tool result MUST 保留 `candidateSetId` 和查询证据引用
+- **AND** `validateRoutineDraft` MUST 使用同一查询证据校验最终动作
+
+#### Scenario: Routine result requirements 继承
+- **WHEN** `searchExercises` 的 candidate set 包含 section 覆盖、最少候选数量、器械、风险、难度或可用于 routine 的 result requirements
+- **THEN** `generateRoutineDraft` MUST 继承这些 result requirements 作为 draft 生成边界
+- **AND** draft result MUST 记录使用了哪些 candidateSetIds、哪些 section 由哪些候选覆盖、哪些 soft preferences 未满足
+- **AND** 系统 MUST NOT 因 LLM 重新提交较宽的 `candidateExerciseIds` 而覆盖上游 result requirements
+
+#### Scenario: 补查仍由 LLM 显式发起
+- **WHEN** 同一 candidate set 缺少某个必要 section 或候选数量不足
+- **THEN** `generateRoutineDraft` MUST 返回结构化失败或要求 Agent 用同一 hard constraints 和新的 result requirements 重新调用 `searchExercises`
+- **AND** 自动补查如果发生在服务端内部，MUST 使用同一 normalized query input 和同一 hard filters，并把新 candidate set proof 登记到 trace
+- **AND** 系统 MUST NOT 在没有 proof 的情况下从全量动作库补动作
+
+#### Scenario: Draft 不能通过文案伪装满足约束
+- **WHEN** draft 动作不满足 candidate set 的 hard constraints 或 result requirements
+- **THEN** 系统 MUST 返回生成失败或 validation hard fail
+- **AND** draft title、summary、coach notes 或 response writer MUST NOT 声称该 routine 满足未被 proof 证明的约束
 

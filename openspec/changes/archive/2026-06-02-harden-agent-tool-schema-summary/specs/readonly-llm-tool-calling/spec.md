@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Agent registry 必须暴露模型可执行的工具输入摘要
 
