@@ -101,6 +101,8 @@ export async function runAgentOrchestrator(
   const runId = input.runId ?? createAgentId("agent_run");
   const deadlineAt = Date.now() + limits.timeoutMs;
   const toolDecisions: AgentReplayFixture["toolDecisions"] = [];
+  // 本轮失败索引用于阻止模型重复执行同一不可重试工具调用，避免失败循环吞掉 token 预算。
+  const nonRetryableToolFailures = new Map<string, DuplicateToolFailureEntry>();
   let state = agentExecutionStateSchema.parse({
     runId,
     userId: input.userId,
@@ -385,6 +387,41 @@ export async function runAgentOrchestrator(
       continue;
     }
 
+    const duplicateFailureKey = createToolFailureKey(decision.toolName, parsedInput.data);
+    const duplicateFailure = nonRetryableToolFailures.get(duplicateFailureKey);
+
+    if (duplicateFailure) {
+      duplicateFailure.repeatCount += 1;
+      const failedRecord = createDuplicateToolFailureResultRecord({
+        toolCallId: toolCallIdForExecution,
+        toolName: decision.toolName,
+        duplicateFailureKey,
+        duplicateFailure,
+      });
+      duplicateFailure.latestToolResultId = failedRecord.toolResultId;
+      state = completeToolCall(state, toolCallIdForExecution, "failed", failedRecord);
+      input.trace?.addStep({
+        name: "agent_tool_result",
+        type: "agent_tool_result",
+        status: "failed",
+        input: summarizeDecisionForTrace(decision),
+        output: failedRecord.traceSummary,
+        error: failedRecord.error,
+        metadata: createToolResultTraceMetadata({
+          stepIndex,
+          loopTurnId,
+          loopTurnIndex: stepIndex,
+          modelCallId,
+          toolCallId: toolCallIdForExecution,
+          resultRecord: failedRecord,
+          durationMs: 0,
+          failureCode: failedRecord.error?.code,
+        }),
+      });
+      state = maybeCheckpoint(state, limits, stepIndex);
+      continue;
+    }
+
     const executionStartedAt = Date.now();
     const result = await tool.execute(parsedInput.data, {
       runId,
@@ -399,6 +436,16 @@ export async function runAgentOrchestrator(
       toolName: decision.toolName,
       result,
     });
+    if (!result.ok && !result.error.retryable) {
+      nonRetryableToolFailures.set(duplicateFailureKey, {
+        toolName: decision.toolName,
+        originalFailureCode: result.error.code,
+        originalMessage: result.error.message,
+        firstToolResultId: resultRecord.toolResultId,
+        latestToolResultId: resultRecord.toolResultId,
+        repeatCount: 0,
+      });
+    }
     state = completeToolCall(state, toolCallIdForExecution, result.ok ? "success" : "failed", resultRecord);
     input.trace?.addStep({
       name: "agent_tool_result",
@@ -536,6 +583,25 @@ function parseDecisionValue(value: unknown, registry: AgentToolRegistry) {
   return parseAgentToolDecision(value, registry);
 }
 
+function createToolFailureKey(toolName: string, input: unknown) {
+  return `${toolName}:${stableStringify(input)}`;
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+
+  return `{${Object.entries(value as Record<string, unknown>)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, entryValue]) => `${JSON.stringify(key)}:${stableStringify(entryValue)}`)
+    .join(",")}}`;
+}
+
 function addToolCall(state: AgentExecutionState, call: AgentToolCallRecord): AgentExecutionState {
   return agentExecutionStateSchema.parse({
     ...state,
@@ -609,6 +675,51 @@ type RecoverableDecisionFeedback = {
   toolCall: AgentToolCallRecord;
   result: AgentToolResultRecord;
 };
+
+type DuplicateToolFailureEntry = {
+  toolName: string;
+  originalFailureCode: AgentToolErrorCode;
+  originalMessage: string;
+  firstToolResultId: string;
+  latestToolResultId: string;
+  repeatCount: number;
+};
+
+function createDuplicateToolFailureResultRecord(input: {
+  toolCallId: string;
+  toolName: string;
+  duplicateFailureKey: string;
+  duplicateFailure: DuplicateToolFailureEntry;
+}): AgentToolResultRecord {
+  const toolResultId = createAgentId("tool_result");
+  const detail = {
+    duplicateFailureKey: input.duplicateFailureKey,
+    originalFailureCode: input.duplicateFailure.originalFailureCode,
+    originalMessage: input.duplicateFailure.originalMessage,
+    firstToolResultId: input.duplicateFailure.firstToolResultId,
+    latestToolResultId: toolResultId,
+    repeatCount: input.duplicateFailure.repeatCount,
+  };
+
+  return {
+    toolResultId,
+    toolCallId: input.toolCallId,
+    toolName: input.toolName,
+    status: "failed",
+    modelSummary: detail,
+    traceSummary: {
+      code: "duplicate_tool_failure",
+      message: "同一工具和同一输入已经产生不可重试失败，runtime 已阻止重复执行底层工具。",
+      ...detail,
+    },
+    error: {
+      code: "duplicate_tool_failure",
+      message: "Duplicate non-retryable tool failure was suppressed by Agent runtime.",
+      retryable: false,
+      detail,
+    },
+  };
+}
 
 // createRecoverablePrematureFinalResultFeedback 只恢复“已可保存但模型提前 final”的窄场景，避免把非法终止伪装成成功。
 function createRecoverablePrematureFinalResultFeedback(input: {
@@ -917,6 +1028,50 @@ function createToolResultTraceMetadata(input: {
     confirmationId: input.resultRecord?.confirmationId,
     revisionId: input.resultRecord?.revisionId,
     operationResultId: input.resultRecord?.operationResultId,
+    artifactRevisionResolution: summarizeArtifactRevisionResolutionForTrace(input.resultRecord),
+    duplicateToolFailure: summarizeDuplicateToolFailureForTrace(input.resultRecord),
+  };
+}
+
+function summarizeArtifactRevisionResolutionForTrace(result: AgentToolResultRecord | undefined) {
+  const output = result?.output && typeof result.output === "object" ? result.output as Record<string, unknown> : undefined;
+  const revisionResolution = output?.revisionResolution && typeof output.revisionResolution === "object"
+    ? output.revisionResolution as Record<string, unknown>
+    : output?.sourceArtifactRevisionResolution && typeof output.sourceArtifactRevisionResolution === "object"
+      ? output.sourceArtifactRevisionResolution as Record<string, unknown>
+      : undefined;
+  const requestedArtifactId = asString(output?.requestedArtifactId)
+    ?? asString(output?.sourceArtifactId)
+    ?? asString(revisionResolution?.requestedArtifactId);
+  const activeArtifactId = asString(revisionResolution?.activeArtifactId)
+    ?? asString(output?.activeSourceArtifactId);
+
+  if (!revisionResolution || !requestedArtifactId || !activeArtifactId) {
+    return undefined;
+  }
+
+  return {
+    status: asString(revisionResolution.status),
+    requestedArtifactId,
+    activeArtifactId,
+  };
+}
+
+function summarizeDuplicateToolFailureForTrace(result: AgentToolResultRecord | undefined) {
+  if (result?.error?.code !== "duplicate_tool_failure") {
+    return undefined;
+  }
+
+  const detail = result.error.detail && typeof result.error.detail === "object"
+    ? result.error.detail as Record<string, unknown>
+    : {};
+
+  return {
+    duplicateFailureKey: asString(detail.duplicateFailureKey),
+    originalFailureCode: asString(detail.originalFailureCode),
+    firstToolResultId: asString(detail.firstToolResultId),
+    latestToolResultId: asString(detail.latestToolResultId),
+    repeatCount: typeof detail.repeatCount === "number" ? detail.repeatCount : undefined,
   };
 }
 

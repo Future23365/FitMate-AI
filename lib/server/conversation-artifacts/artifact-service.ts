@@ -120,7 +120,7 @@ export type ArtifactPayloadFailure = {
   detail?: unknown;
 };
 
-type ActiveArtifactPayloadSuccess = ArtifactPayloadSuccess & {
+export type ActiveArtifactPayloadSuccess = ArtifactPayloadSuccess & {
   requestedArtifactId: string;
   revisionResolution: {
     status: "direct" | "resolved_to_active";

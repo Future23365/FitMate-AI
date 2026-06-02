@@ -543,4 +543,87 @@ describe("chat service Agent-only contract", () => {
       required: true,
     }));
   });
+
+  it("compacts duplicate non-retryable tool failures in Agent decision model input", () => {
+    const input = buildAgentDecisionModelInput({
+      contextPackage: {
+        latestUserMessage: "这8个动作做成一套训练",
+        recentMessages: [],
+        recentArtifacts: [],
+        memorySnapshot: { snapshotId: "memory-1", facts: [], preferences: [], avoidances: [] },
+        provenance: [],
+        limits: {
+          maxRecentMessages: 12,
+          maxRecentArtifacts: 8,
+          maxMessageChars: 1200,
+          maxArtifactSummaryChars: 700,
+        },
+      },
+      registeredTools: createToolFirstAgentToolRegistry().listModelDefinitions(),
+      toolCalls: [
+        {
+          id: "tool-call-1",
+          toolName: "getArtifactPayload",
+          input: { artifactId: "artifact-old" },
+          status: "failed",
+          reason: "读取推荐 artifact。",
+        },
+        {
+          id: "tool-call-2",
+          toolName: "getArtifactPayload",
+          input: { artifactId: "artifact-old" },
+          status: "failed",
+          reason: "重复读取推荐 artifact。",
+        },
+      ],
+      toolResults: [
+        {
+          toolResultId: "tool-result-1",
+          toolCallId: "tool-call-1",
+          toolName: "getArtifactPayload",
+          status: "failed",
+          error: {
+            code: "not_found",
+            message: "Artifact not found or not accessible.",
+            retryable: false,
+          },
+        },
+        {
+          toolResultId: "tool-result-2",
+          toolCallId: "tool-call-2",
+          toolName: "getArtifactPayload",
+          status: "failed",
+          error: {
+            code: "duplicate_tool_failure",
+            message: "Duplicate non-retryable tool failure was suppressed by Agent runtime.",
+            retryable: false,
+            detail: {
+              duplicateFailureKey: "getArtifactPayload:{\"artifactId\":\"artifact-old\"}",
+              originalFailureCode: "not_found",
+              firstToolResultId: "tool-result-1",
+              latestToolResultId: "tool-result-2",
+              repeatCount: 1,
+            },
+          },
+        },
+      ],
+      dependencyGraph: {
+        nodes: [],
+        edges: [],
+      },
+      remainingSteps: 8,
+    });
+
+    expect(input.input.toolResults).toHaveLength(1);
+    expect(input.input.toolResults[0]).toMatchObject({
+      toolResultId: "tool-result-1",
+      latestToolResultId: "tool-result-2",
+      repeatCount: 2,
+      error: {
+        code: "not_found",
+        repeatCount: 2,
+        latestToolResultId: "tool-result-2",
+      },
+    });
+  });
 });

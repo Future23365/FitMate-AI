@@ -25,6 +25,7 @@ import {
   type AgentExecutionResult,
   type AgentReplayFixture,
   type AgentResponseProjection,
+  type AgentToolCallRecord,
   type AgentToolResultRecord,
   type ChatMessageSummary,
   type ContextPackage,
@@ -464,6 +465,7 @@ function toAgentUserMemorySnapshot(memoryState: ConversationMemoryState): UserMe
 export function buildAgentDecisionModelInput(input: {
   contextPackage: ContextPackage;
   registeredTools: Array<Record<string, unknown>>;
+  toolCalls?: AgentToolCallRecord[];
   toolResults: AgentToolResultRecord[];
   dependencyGraph: { nodes: unknown[]; edges: unknown[] };
   remainingSteps: number;
@@ -486,7 +488,7 @@ export function buildAgentDecisionModelInput(input: {
   const slimmed: AgentDecisionModelInput = {
     contextPackage: input.contextPackage,
     registeredTools: input.registeredTools.map(summarizeToolDefinitionForModel),
-    toolResults: input.toolResults.map(summarizeToolResultForModel),
+    toolResults: summarizeToolResultsForModel(input.toolResults, input.toolCalls ?? []),
     dependencyGraph: summarizeDependencyGraphForModel(input.dependencyGraph),
     remainingSteps: input.remainingSteps,
   };
@@ -593,9 +595,80 @@ function summarizeJsonSchemaArrayItems(items: unknown) {
   });
 }
 
+function summarizeToolResultsForModel(
+  results: AgentToolResultRecord[],
+  calls: AgentToolCallRecord[],
+) {
+  const callById = new Map(calls.map((call) => [call.id, call]));
+  const compacted: Array<Record<string, unknown>> = [];
+  const compactedFailureByKey = new Map<string, {
+    summary: Record<string, unknown>;
+    repeatCount: number;
+  }>();
+
+  for (const result of results) {
+    const failureKey = createToolFailureCompactionKey(result, callById);
+
+    if (!failureKey) {
+      compacted.push(summarizeToolResultForModel(result));
+      continue;
+    }
+
+    const existing = compactedFailureByKey.get(failureKey);
+
+    if (!existing) {
+      const summary = summarizeToolResultForModel(result);
+      compactedFailureByKey.set(failureKey, { summary, repeatCount: 1 });
+      compacted.push(summary);
+      continue;
+    }
+
+    existing.repeatCount += 1;
+    existing.summary.latestToolResultId = result.toolResultId;
+    existing.summary.repeatCount = existing.repeatCount;
+    const existingError = asRecord(existing.summary.error);
+    existing.summary.error = compactObject({
+      ...(existingError ?? {}),
+      repeatCount: existing.repeatCount,
+      latestToolResultId: result.toolResultId,
+    });
+  }
+
+  return compacted;
+}
+
+function createToolFailureCompactionKey(
+  result: AgentToolResultRecord,
+  callById: Map<string, AgentToolCallRecord>,
+) {
+  if (!result.error || result.status === "success") {
+    return null;
+  }
+
+  const call = callById.get(result.toolCallId);
+  const errorDetail = asRecord(result.error.detail);
+  const originalFailureCode = result.error.code === "duplicate_tool_failure"
+    ? readRecordString(errorDetail, "originalFailureCode") ?? result.error.code
+    : result.error.code;
+  const duplicateKey = result.error.code === "duplicate_tool_failure"
+    ? readRecordString(errorDetail, "duplicateFailureKey")
+    : undefined;
+
+  return duplicateKey
+    ? `${duplicateKey}:${originalFailureCode}`
+    : `${result.toolName}:${stableStringify(call?.input)}:${originalFailureCode}`;
+}
+
 function summarizeToolResultForModel(result: AgentToolResultRecord) {
+  const duplicateDetail = result.error?.code === "duplicate_tool_failure"
+    ? asRecord(result.error.detail)
+    : null;
+
   return compactObject({
     toolResultId: result.toolResultId,
+    firstToolResultId: readRecordString(duplicateDetail, "firstToolResultId") ?? result.toolResultId,
+    latestToolResultId: readRecordString(duplicateDetail, "latestToolResultId"),
+    repeatCount: typeof duplicateDetail?.repeatCount === "number" ? duplicateDetail.repeatCount : undefined,
     toolName: result.toolName,
     status: result.status,
     candidateSetId: result.candidateSetId,
@@ -614,6 +687,10 @@ function summarizeToolResultForModel(result: AgentToolResultRecord) {
         code: result.error.code,
         message: result.error.message,
         retryable: result.error.retryable,
+        originalFailureCode: readRecordString(duplicateDetail, "originalFailureCode"),
+        firstToolResultId: readRecordString(duplicateDetail, "firstToolResultId"),
+        latestToolResultId: readRecordString(duplicateDetail, "latestToolResultId"),
+        repeatCount: typeof duplicateDetail?.repeatCount === "number" ? duplicateDetail.repeatCount : undefined,
         detail: summarizeErrorDetail(result.error.detail),
       })
       : undefined,
@@ -702,6 +779,25 @@ function summarizeErrorDetail(detail: unknown) {
   });
 }
 
+function stableStringify(value: unknown): string {
+  if (typeof value === "undefined") {
+    return "undefined";
+  }
+
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+
+  return `{${Object.entries(value as Record<string, unknown>)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, entryValue]) => `${JSON.stringify(key)}:${stableStringify(entryValue)}`)
+    .join(",")}}`;
+}
+
 function summarizeDependencyGraphForModel(graph: { nodes: unknown[]; edges: unknown[] }) {
   return {
     nodeCount: graph.nodes.length,
@@ -719,6 +815,7 @@ function createDeepSeekAgentDecisionProvider(input: {
     const modelInput = buildAgentDecisionModelInput({
       contextPackage: state.context,
       registeredTools: registry,
+      toolCalls: state.toolCalls,
       toolResults: state.toolResults,
       dependencyGraph: state.dependencyGraph,
       remainingSteps,

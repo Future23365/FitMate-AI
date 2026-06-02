@@ -13,6 +13,7 @@ import {
 const artifactMocks = vi.hoisted(() => ({
   listRecentArtifacts: vi.fn(),
   searchArtifactsDetailed: vi.fn(),
+  getActiveArtifactPayload: vi.fn(),
   getArtifactPayload: vi.fn(),
 }));
 const exerciseMocks = vi.hoisted(() => ({
@@ -33,6 +34,7 @@ describe("Agent registry readonly tools", () => {
   beforeEach(() => {
     artifactMocks.listRecentArtifacts.mockReset();
     artifactMocks.searchArtifactsDetailed.mockReset();
+    artifactMocks.getActiveArtifactPayload.mockReset();
     artifactMocks.getArtifactPayload.mockReset();
     exerciseMocks.getExerciseById.mockReset();
     exerciseMocks.searchExercises.mockReset();

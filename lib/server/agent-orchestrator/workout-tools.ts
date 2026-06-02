@@ -7,7 +7,7 @@ import { z } from "zod";
 import {
   createConversationArtifactRevision,
   createOrUpdateConversationArtifact,
-  getArtifactPayload,
+  getActiveArtifactPayload,
 } from "@/lib/server/conversation-artifacts/artifact-service";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import { isExerciseAllowedInSection, normalizeExerciseMetadata } from "@/lib/shared/exercises/metadata";
@@ -231,6 +231,12 @@ export type AgentWorkoutDraftOutput =
       candidateSetId: string;
       candidateExerciseIds: string[];
       sourceArtifactId?: string;
+      activeSourceArtifactId?: string;
+      sourceArtifactRevisionResolution?: {
+        status: "direct" | "resolved_to_active";
+        requestedArtifactId: string;
+        activeArtifactId: string;
+      };
       requiredExerciseIds?: string[];
       draft: WorkoutRoutineDraft;
       validation: WorkoutPlanValidationResult;
@@ -427,6 +433,8 @@ function createGenerateRoutineDraftTool(): AgentToolDefinition<GenerateRoutineDr
           candidateSetId: parsedInput.candidateSetId,
           candidateExerciseIds: buildResult.candidateExerciseIds,
           sourceArtifactId: requiredBoundary.sourceArtifactId,
+          activeSourceArtifactId: requiredBoundary.activeSourceArtifactId,
+          sourceArtifactRevisionResolution: requiredBoundary.sourceArtifactRevisionResolution,
           requiredExerciseIds: requiredBoundary.requiredExerciseIds,
           draft: buildResult.draft,
           validation,
@@ -911,6 +919,12 @@ type RoutineRequiredExerciseBoundary =
   | {
       ok: true;
       sourceArtifactId?: string;
+      activeSourceArtifactId?: string;
+      sourceArtifactRevisionResolution?: {
+        status: "direct" | "resolved_to_active";
+        requestedArtifactId: string;
+        activeArtifactId: string;
+      };
       requiredExerciseIds?: string[];
     }
   | AgentToolFailure;
@@ -931,7 +945,7 @@ async function resolveRoutineRequiredExerciseBoundary(
     });
   }
 
-  const payloadResult = await getArtifactPayload({
+  const payloadResult = await getActiveArtifactPayload({
     userId: context.userId,
     artifactId: input.sourceArtifactId,
   });
@@ -966,6 +980,8 @@ async function resolveRoutineRequiredExerciseBoundary(
   return {
     ok: true,
     sourceArtifactId: input.sourceArtifactId,
+    activeSourceArtifactId: payloadResult.revisionResolution.activeArtifactId,
+    sourceArtifactRevisionResolution: payloadResult.revisionResolution,
     requiredExerciseIds,
   };
 }
@@ -1538,6 +1554,8 @@ function summarizeDraftOutput(output: AgentWorkoutDraftOutput) {
     draftId: output.draftId,
     candidateSetId: output.candidateSetId,
     sourceArtifactId: "sourceArtifactId" in output ? output.sourceArtifactId : undefined,
+    activeSourceArtifactId: "activeSourceArtifactId" in output ? output.activeSourceArtifactId : undefined,
+    sourceArtifactRevisionResolution: "sourceArtifactRevisionResolution" in output ? output.sourceArtifactRevisionResolution : undefined,
     requiredExerciseIds: "requiredExerciseIds" in output ? output.requiredExerciseIds?.slice(0, defaultCandidatePreviewLimit) : undefined,
     title: output.draft.title,
     valid: output.validation.valid,

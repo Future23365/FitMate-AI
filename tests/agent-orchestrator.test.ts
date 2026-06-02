@@ -25,6 +25,7 @@ import { createAgentChatTokenBudgetDecision } from "@/lib/server/ai/token-budget
 const artifactMocks = vi.hoisted(() => ({
   createConversationArtifactRevision: vi.fn(),
   createOrUpdateConversationArtifact: vi.fn(),
+  getActiveArtifactPayload: vi.fn(),
   getArtifactPayload: vi.fn(),
   listRecentArtifacts: vi.fn(),
   searchArtifactsDetailed: vi.fn(),
@@ -462,6 +463,7 @@ describe("agent orchestrator phase 1 contracts", () => {
 describe("agent orchestrator phase 2 readonly tools", () => {
   beforeEach(() => {
     artifactMocks.getArtifactPayload.mockReset();
+    artifactMocks.getActiveArtifactPayload.mockReset();
     artifactMocks.createConversationArtifactRevision.mockReset();
     artifactMocks.createOrUpdateConversationArtifact.mockReset();
     artifactMocks.listRecentArtifacts.mockReset();
@@ -585,6 +587,55 @@ describe("agent orchestrator phase 2 readonly tools", () => {
       error: { code: "forbidden" },
     });
     expect(artifactMocks.getArtifactPayload).not.toHaveBeenCalled();
+    expect(artifactMocks.getActiveArtifactPayload).not.toHaveBeenCalled();
+  });
+
+  it("reads artifact payload through active revision resolution and exposes revision summary", async () => {
+    artifactMocks.getActiveArtifactPayload.mockResolvedValue({
+      ok: true,
+      artifactId: "artifact-active",
+      requestedArtifactId: "artifact-old",
+      revisionResolution: {
+        status: "resolved_to_active",
+        requestedArtifactId: "artifact-old",
+        activeArtifactId: "artifact-active",
+      },
+      kind: "exercise_recommendation",
+      payload: createRecommendationArtifactPayload(["push-up"]),
+    });
+    const registry = createReadonlyAgentToolRegistry();
+    const payloadTool = registry.get("getArtifactPayload");
+
+    const result = await payloadTool?.execute({ artifactId: "artifact-old" }, createToolExecutionContext());
+
+    expect(artifactMocks.getActiveArtifactPayload).toHaveBeenCalledWith({
+      userId: "user-1",
+      artifactId: "artifact-old",
+    });
+    expect(artifactMocks.getArtifactPayload).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      ok: true,
+      output: {
+        artifactId: "artifact-active",
+        requestedArtifactId: "artifact-old",
+        revisionResolution: {
+          status: "resolved_to_active",
+          activeArtifactId: "artifact-active",
+        },
+      },
+      modelSummary: {
+        requestedArtifactId: "artifact-old",
+        activeArtifactId: "artifact-active",
+        revisionResolution: "resolved_to_active",
+      },
+      traceSummary: {
+        revisionResolution: {
+          status: "resolved_to_active",
+          requestedArtifactId: "artifact-old",
+          activeArtifactId: "artifact-active",
+        },
+      },
+    });
   });
 
   it("executes exercise tools through database-backed services and returns candidate set ids", async () => {
@@ -780,6 +831,7 @@ describe("agent orchestrator phase 3 workout tools", () => {
     artifactMocks.createConversationArtifactRevision.mockReset();
     artifactMocks.createOrUpdateConversationArtifact.mockReset();
     artifactMocks.getArtifactPayload.mockReset();
+    artifactMocks.getActiveArtifactPayload.mockReset();
     artifactMocks.listRecentArtifacts.mockReset();
     artifactMocks.searchArtifactsDetailed.mockReset();
     exerciseMocks.getExerciseById.mockReset();
@@ -960,9 +1012,15 @@ describe("agent orchestrator phase 3 workout tools", () => {
       "Sledgehammer_Swings",
       "Thigh_Adductor",
     ];
-    artifactMocks.getArtifactPayload.mockResolvedValue({
+    artifactMocks.getActiveArtifactPayload.mockResolvedValue({
       ok: true,
-      artifactId: "artifact-rec-1",
+      artifactId: "artifact-rec-active",
+      requestedArtifactId: "artifact-rec-1",
+      revisionResolution: {
+        status: "resolved_to_active",
+        requestedArtifactId: "artifact-rec-1",
+        activeArtifactId: "artifact-rec-active",
+      },
       kind: "exercise_recommendation",
       payload: createRecommendationArtifactPayload(requiredIds),
     });
@@ -1001,15 +1059,22 @@ describe("agent orchestrator phase 3 workout tools", () => {
       title: "臀腿训练 30分钟",
     }, createToolExecutionContext());
 
-    expect(artifactMocks.getArtifactPayload).toHaveBeenCalledWith({
+    expect(artifactMocks.getActiveArtifactPayload).toHaveBeenCalledWith({
       userId: "user-1",
       artifactId: "artifact-rec-1",
     });
+    expect(artifactMocks.getArtifactPayload).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       ok: true,
       output: {
         draftKind: "routine",
         sourceArtifactId: "artifact-rec-1",
+        activeSourceArtifactId: "artifact-rec-active",
+        sourceArtifactRevisionResolution: {
+          status: "resolved_to_active",
+          requestedArtifactId: "artifact-rec-1",
+          activeArtifactId: "artifact-rec-active",
+        },
         requiredExerciseIds: requiredIds,
         candidateExerciseIds: expect.arrayContaining(["Warmup_March", ...requiredIds, "Cooldown_Stretch"]),
         validation: { valid: true },
@@ -1028,9 +1093,15 @@ describe("agent orchestrator phase 3 workout tools", () => {
   });
 
   it("rejects artifact-bound routine required exercises outside the source artifact", async () => {
-    artifactMocks.getArtifactPayload.mockResolvedValue({
+    artifactMocks.getActiveArtifactPayload.mockResolvedValue({
       ok: true,
       artifactId: "artifact-rec-1",
+      requestedArtifactId: "artifact-rec-1",
+      revisionResolution: {
+        status: "direct",
+        requestedArtifactId: "artifact-rec-1",
+        activeArtifactId: "artifact-rec-1",
+      },
       kind: "exercise_recommendation",
       payload: createRecommendationArtifactPayload(["Side_Standing_Long_Jump"]),
     });
@@ -1684,6 +1755,225 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
       status: "failed",
       failureCode: "step_limit_exceeded",
     });
+  });
+
+  it("suppresses repeated non-retryable tool failures with the same normalized input", async () => {
+    const trace = { id: "trace-duplicate", addStep: vi.fn() };
+    const execute = vi.fn().mockResolvedValue({
+      ok: false,
+      error: {
+        code: "not_found",
+        message: "Artifact not found or not accessible.",
+        retryable: false,
+      },
+      traceSummary: { artifactId: "artifact-old" },
+    });
+    const registry = new AgentToolRegistry([{
+      name: "getArtifactPayload",
+      description: "读取 artifact payload。",
+      accessLevel: "read",
+      inputSchema: z.object({ artifactId: z.string().min(1) }),
+      dependencies: [],
+      getIdempotencyKey(input, context) {
+        return `${context.runId}:${input.artifactId}`;
+      },
+      summarizeOutput(output) {
+        return output;
+      },
+      summarizeTrace(result) {
+        return result.ok ? result.traceSummary : result.error;
+      },
+      execute,
+    } satisfies AgentToolDefinition<{ artifactId: string }, { artifactId: string }>]);
+
+    const output = await runAgentOrchestrator({
+      runId: "agent-run-duplicate-failure",
+      userId: "user-1",
+      sessionId: "chat-1",
+      context: createTestContextPackage(),
+      registry,
+      limits: { maxSteps: 2 },
+      trace: trace as never,
+      decideNext: vi.fn()
+        .mockResolvedValueOnce({
+          action: "call_tool",
+          toolName: "getArtifactPayload",
+          input: { artifactId: "artifact-old" },
+          reason: "首次读取 artifact。",
+        })
+        .mockResolvedValueOnce({
+          action: "call_tool",
+          toolName: "getArtifactPayload",
+          input: { artifactId: "artifact-old" },
+          reason: "重复读取 artifact。",
+        }),
+    });
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(output.state.toolResults).toHaveLength(2);
+    expect(output.state.toolResults[0]).toMatchObject({
+      status: "failed",
+      error: { code: "not_found" },
+    });
+    expect(output.state.toolResults[1]).toMatchObject({
+      status: "failed",
+      error: {
+        code: "duplicate_tool_failure",
+        detail: {
+          originalFailureCode: "not_found",
+          firstToolResultId: output.state.toolResults[0].toolResultId,
+          repeatCount: 1,
+        },
+      },
+      traceSummary: {
+        code: "duplicate_tool_failure",
+        firstToolResultId: output.state.toolResults[0].toolResultId,
+        repeatCount: 1,
+      },
+    });
+    expect(trace.addStep).toHaveBeenCalledWith(expect.objectContaining({
+      name: "agent_tool_result",
+      metadata: expect.objectContaining({
+        duplicateToolFailure: expect.objectContaining({
+          originalFailureCode: "not_found",
+          firstToolResultId: output.state.toolResults[0].toolResultId,
+          repeatCount: 1,
+        }),
+      }),
+    }));
+  });
+
+  it("does not suppress non-retryable failures when the normalized input changes", async () => {
+    const execute = vi.fn().mockResolvedValue({
+      ok: false,
+      error: {
+        code: "not_found",
+        message: "Artifact not found or not accessible.",
+        retryable: false,
+      },
+      traceSummary: { reason: "not_found" },
+    });
+    const registry = new AgentToolRegistry([{
+      name: "getArtifactPayload",
+      description: "读取 artifact payload。",
+      accessLevel: "read",
+      inputSchema: z.object({ artifactId: z.string().min(1) }),
+      dependencies: [],
+      getIdempotencyKey(input, context) {
+        return `${context.runId}:${input.artifactId}`;
+      },
+      summarizeOutput(output) {
+        return output;
+      },
+      summarizeTrace(result) {
+        return result.ok ? result.traceSummary : result.error;
+      },
+      execute,
+    } satisfies AgentToolDefinition<{ artifactId: string }, { artifactId: string }>]);
+
+    await runAgentOrchestrator({
+      runId: "agent-run-different-failure-input",
+      userId: "user-1",
+      sessionId: "chat-1",
+      context: createTestContextPackage(),
+      registry,
+      limits: { maxSteps: 2 },
+      decideNext: vi.fn()
+        .mockResolvedValueOnce({
+          action: "call_tool",
+          toolName: "getArtifactPayload",
+          input: { artifactId: "artifact-old-1" },
+          reason: "读取第一个 artifact。",
+        })
+        .mockResolvedValueOnce({
+          action: "call_tool",
+          toolName: "getArtifactPayload",
+          input: { artifactId: "artifact-old-2" },
+          reason: "读取第二个 artifact。",
+        }),
+    });
+
+    expect(execute).toHaveBeenCalledTimes(2);
+  });
+
+  it("records artifact revision resolution in tool result trace metadata", async () => {
+    const trace = { id: "trace-revision", addStep: vi.fn() };
+    const registry = new AgentToolRegistry([{
+      name: "getArtifactPayload",
+      description: "读取 artifact payload。",
+      accessLevel: "read",
+      inputSchema: z.object({ artifactId: z.string().min(1) }),
+      dependencies: [],
+      getIdempotencyKey(input, context) {
+        return `${context.runId}:${input.artifactId}`;
+      },
+      summarizeOutput(output) {
+        return output;
+      },
+      summarizeTrace(result) {
+        return result.ok ? result.traceSummary : result.error;
+      },
+      async execute() {
+        return {
+          ok: true,
+          output: {
+            artifactPayloadId: "artifact-payload-1",
+            artifactId: "artifact-active",
+            requestedArtifactId: "artifact-old",
+            revisionResolution: {
+              status: "resolved_to_active",
+              requestedArtifactId: "artifact-old",
+              activeArtifactId: "artifact-active",
+            },
+          },
+          toolResultId: "tool-result-revision",
+          modelSummary: {
+            artifactPayloadId: "artifact-payload-1",
+            requestedArtifactId: "artifact-old",
+            activeArtifactId: "artifact-active",
+          },
+          traceSummary: {
+            revisionResolution: {
+              status: "resolved_to_active",
+              requestedArtifactId: "artifact-old",
+              activeArtifactId: "artifact-active",
+            },
+          },
+        };
+      },
+    } satisfies AgentToolDefinition<{ artifactId: string }, {
+      artifactPayloadId: string;
+      artifactId: string;
+      requestedArtifactId: string;
+      revisionResolution: { status: "resolved_to_active"; requestedArtifactId: string; activeArtifactId: string };
+    }>]);
+
+    await runAgentOrchestrator({
+      runId: "agent-run-revision-trace",
+      userId: "user-1",
+      sessionId: "chat-1",
+      context: createTestContextPackage(),
+      registry,
+      limits: { maxSteps: 1 },
+      trace: trace as never,
+      decideNext: () => ({
+        action: "call_tool",
+        toolName: "getArtifactPayload",
+        input: { artifactId: "artifact-old" },
+        reason: "读取旧 revision。",
+      }),
+    });
+
+    expect(trace.addStep).toHaveBeenCalledWith(expect.objectContaining({
+      name: "agent_tool_result",
+      metadata: expect.objectContaining({
+        artifactRevisionResolution: {
+          status: "resolved_to_active",
+          requestedArtifactId: "artifact-old",
+          activeArtifactId: "artifact-active",
+        },
+      }),
+    }));
   });
 
   it("rejects final results that cite missing tool results", async () => {

@@ -183,6 +183,7 @@ export const agentToolErrorCodeSchema = z.enum([
   "step_limit_exceeded",
   "checkpoint_not_found",
   "resume_conflict",
+  "duplicate_tool_failure",
   "model_output_invalid",
   "tool_execution_failed",
   "persistence_failed",

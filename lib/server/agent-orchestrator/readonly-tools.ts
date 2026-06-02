@@ -6,11 +6,11 @@ import type { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 
 import {
-  getArtifactPayload,
+  getActiveArtifactPayload,
   listRecentArtifacts,
   searchArtifactsDetailed,
+  type ActiveArtifactPayloadSuccess,
   type ArtifactPayloadFailure,
-  type ArtifactPayloadSuccess,
 } from "@/lib/server/conversation-artifacts/artifact-service";
 import { getPrismaClient } from "@/lib/server/db/prisma";
 import {
@@ -107,7 +107,7 @@ export type AgentExerciseSearchOutput = ExerciseSearchResult & {
   candidateUse: SearchExercisesAgentToolInput["candidateUse"];
 };
 
-export type AgentArtifactPayloadOutput = ArtifactPayloadSuccess & {
+export type AgentArtifactPayloadOutput = ActiveArtifactPayloadSuccess & {
   artifactPayloadId: string;
 };
 
@@ -264,6 +264,9 @@ function createGetArtifactPayloadTool(): AgentToolDefinition<GetArtifactPayloadA
     summarizeOutput(output) {
       return {
         artifactPayloadId: output.artifactPayloadId,
+        requestedArtifactId: output.requestedArtifactId,
+        activeArtifactId: output.revisionResolution.activeArtifactId,
+        revisionResolution: output.revisionResolution.status,
         payload: summarizeArtifactPayloadForModel({
           artifactId: output.artifactId,
           kind: output.kind,
@@ -284,7 +287,7 @@ function createGetArtifactPayloadTool(): AgentToolDefinition<GetArtifactPayloadA
       }
 
       try {
-        const result = await getArtifactPayload({
+        const result = await getActiveArtifactPayload({
           userId: context.userId,
           artifactId: parsedInput.artifactId,
         });
@@ -298,8 +301,14 @@ function createGetArtifactPayloadTool(): AgentToolDefinition<GetArtifactPayloadA
           artifactPayloadId: createStructuredResultId(context, "artifact_payload", "getArtifactPayload", parsedInput),
         };
         const summary = this.summarizeOutput(output);
+        const traceSummary = {
+          modelSummary: summary,
+          requestedArtifactId: output.requestedArtifactId,
+          activeArtifactId: output.revisionResolution.activeArtifactId,
+          revisionResolution: output.revisionResolution,
+        };
 
-        return createSuccess(context, "getArtifactPayload", parsedInput, output, summary, summary);
+        return createSuccess(context, "getArtifactPayload", parsedInput, output, summary, traceSummary);
       } catch (error) {
         return createFailure("tool_execution_failed", "Failed to read artifact payload.", error);
       }
