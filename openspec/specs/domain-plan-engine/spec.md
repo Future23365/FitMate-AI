@@ -8,10 +8,10 @@ TBD - created by archiving change change-005-domain-plan-engine. Update Purpose 
 
 #### Scenario: 用户请求基于当前 routine 重复训练
 - **WHEN** 用户说“三周都练这个”
-- **AND** ReferenceResolver 已解析到当前 routine artifact
+- **AND** Agent 已通过 `listRecentArtifacts`、`searchArtifacts` 或 `getArtifactPayload` 定位并校验当前 routine artifact
 - **THEN** 系统 MUST 生成引用该 artifact 的 `PlanStrategy`
 - **AND** strategy MUST 表达 horizonDays、weeklyFrequency、sessionMinutes、progressionPolicy 和 intensityBias
-- **AND** `/api/ai/workout-plan` MUST 通过受控 artifact payload 读取完整 routine
+- **AND** Agent plan draft 工具 MUST 通过受控 artifact payload 读取完整 routine
 - **AND** 系统 MUST NOT 让 LLM 直接自由生成完整长期日历
 
 #### Scenario: PlanStrategy 缺少核心字段
@@ -132,12 +132,12 @@ TBD - created by archiving change change-005-domain-plan-engine. Update Purpose 
 #### Scenario: 引用的 sourceArtifactId 已被新 revision 替换
 - **WHEN** PlanStrategy 的 `sourceArtifactId` 指向当前用户可访问的旧 revision
 - **AND** artifact service 能解析到同一 lineage 的当前 active revision
-- **THEN** `/api/ai/workout-plan` MUST 使用当前 active revision 的 payload 调用 DomainPlanEngine
+- **THEN** Agent plan draft 工具 MUST 使用当前 active revision 的 payload 调用 DomainPlanEngine
 - **AND** 系统 MUST NOT 回退到 LLM 自由生成完整长期日历
 
 #### Scenario: 引用无法解析到可用 payload
 - **WHEN** PlanStrategy 的 `sourceArtifactId` 无法读取、不可访问或 payload 校验失败
-- **THEN** `/api/ai/workout-plan` MUST 返回可恢复失败
+- **THEN** Agent plan draft 工具 MUST 返回可恢复失败
 - **AND** 用户可见引导 MUST 要求重新点明训练内容或重新生成
 - **AND** 系统 MUST NOT 从 conversationSummary 重建完整训练计划
 
@@ -154,4 +154,3 @@ TBD - created by archiving change change-005-domain-plan-engine. Update Purpose 
 - **WHEN** Agent 的计划输入引用历史 routine 或 plan artifact
 - **THEN** `DomainPlanEngine` MUST 使用 Agent tool result 中已读取并校验的 active artifact payload
 - **AND** `DomainPlanEngine` MUST NOT 从 `conversationSummary` 或旧 referenceResolution 重建完整训练内容
-

@@ -99,10 +99,10 @@ describe("ChatPage activity placement", () => {
       fileURLToPath(new URL("../features/chat/components/chat-page.tsx", import.meta.url)),
       "utf8",
     );
-    const assistantBranchIndex = source.indexOf('if (message.role === "assistant")');
-    const activityIndex = source.lastIndexOf("<AgentActivityIndicator");
-    const thinkingIndex = source.indexOf("<ChatThinkingIndicator");
     const inputShellIndex = source.indexOf('className="app-shell-glass-soft border-t border-line/60');
+    const activityIndex = source.lastIndexOf("<AgentActivityIndicator", inputShellIndex);
+    const assistantBranchIndex = source.lastIndexOf('message.role === "assistant"', activityIndex);
+    const thinkingIndex = source.indexOf("<ChatThinkingIndicator", activityIndex);
     const inputShellSource = source.slice(inputShellIndex);
 
     expect(activityIndex).toBeGreaterThan(assistantBranchIndex);

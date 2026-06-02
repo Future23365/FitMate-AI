@@ -1,6 +1,5 @@
 import "server-only";
 
-import type { ReferenceResolution } from "@/lib/shared/reference-resolver/schema";
 import type { ConversationArtifactPayload } from "@/lib/shared/conversation-artifacts/schema";
 import type { ResolvedFieldSources } from "@/lib/shared/chat/resolved-intent";
 import { shouldUseConservativeProgression } from "@/lib/server/user-feedback-memory/user-feedback-memory-service";
@@ -27,6 +26,11 @@ type SourceTrainingTemplate = {
   sections: WorkoutPlanDaySectionDraft[];
 };
 
+type PlanStrategySourceArtifact = {
+  artifactId: string;
+  kind: "routine" | "plan";
+};
+
 export type DomainPlanEngineInput = {
   strategy: PlanStrategy;
   memoryState?: ConversationMemoryState;
@@ -51,15 +55,15 @@ export type DomainPlanEngineResult =
       strategy: PlanStrategy;
     };
 
-// 从结构化训练意图和引用解析结果生成 PlanStrategy，确保后续长期计划只由领域引擎展开。
+// 从 Agent 结构化计划输入和已校验来源 artifact 生成 PlanStrategy，确保后续长期计划只由领域引擎展开。
 export function buildPlanStrategyFromWorkoutIntent(input: {
   intent: WorkoutPlanIntent;
   latestUserMessage: string;
-  referenceResolution?: Extract<ReferenceResolution, { status: "resolved" }>;
+  sourceArtifact?: PlanStrategySourceArtifact;
   fieldSources?: ResolvedFieldSources;
 }): PlanStrategy {
   const intensityBias = inferIntensityBias(input.latestUserMessage);
-  const strategy = inferStrategy(input.latestUserMessage, input.referenceResolution?.artifactKind);
+  const strategy = inferStrategy(input.latestUserMessage, input.sourceArtifact?.kind);
   const progressionPolicy = inferProgressionPolicy(input.latestUserMessage, strategy, intensityBias);
 
   return planStrategySchema.parse({
@@ -68,7 +72,7 @@ export function buildPlanStrategyFromWorkoutIntent(input: {
     weeklyFrequency: resolveStrategyWeeklyFrequency(input),
     sessionMinutes: input.intent.sessionMinutes,
     strategy,
-    sourceArtifactId: input.referenceResolution?.artifactId,
+    sourceArtifactId: input.sourceArtifact?.artifactId,
     progressionPolicy,
     intensityBias,
     constraints: inferConstraints(input.latestUserMessage),
@@ -77,7 +81,7 @@ export function buildPlanStrategyFromWorkoutIntent(input: {
       calendarHorizonDays: input.fieldSources?.calendarHorizonDays ?? (input.intent.calendarHorizonDays ? "llm_inferred" : "default"),
       weeklyFrequency: input.fieldSources?.weeklyFrequency ?? "llm_inferred",
       sessionMinutes: input.fieldSources?.sessionMinutes ?? "llm_inferred",
-      sourceArtifactId: input.referenceResolution?.artifactId ? "artifact" : input.fieldSources?.sourceArtifactId,
+      sourceArtifactId: input.sourceArtifact?.artifactId ? "artifact" : input.fieldSources?.sourceArtifactId,
     },
     defaultAssumptions: buildDefaultAssumptions(input),
   });

@@ -8,7 +8,7 @@ TBD - created by archiving change change-003-workout-patch. Update Purpose after
 
 #### Scenario: 替换当前卡片中的单个动作
 - **WHEN** 用户要求“把这个计划里的俯卧撑换一个”
-- **AND** ReferenceResolver 已解析到目标 artifact
+- **AND** Agent 已通过 `listRecentArtifacts`、`searchArtifacts` 或 `getArtifactPayload` 定位并校验目标 artifact
 - **THEN** 系统 MUST 生成包含 `replace_exercise` operation 的 Patch
 - **AND** operation target MUST 包含 artifactId、section、exerciseId 和必要的 occurrenceIndex
 - **AND** Patch scope MUST 默认为 `artifact_only`
@@ -78,4 +78,3 @@ TBD - created by archiving change change-003-workout-patch. Update Purpose after
 - **WHEN** Patch 后 routine 或 plan 的预估时长明显偏离用户目标
 - **THEN** PatchValidator MUST 返回校验失败或修复建议
 - **AND** 系统 MUST NOT 展示可保存的错误草稿
-

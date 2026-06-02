@@ -11,9 +11,6 @@ import {
 } from "@/features/chat/lib/agent-activity";
 import { readChatConversation, saveChatConversation } from "@/features/chat/lib/chat-history";
 import { readAssistantSuggestionsFromStreamEvent } from "@/features/chat/lib/assistant-suggestions";
-import {
-  extractSuggestedReplyTrigger,
-} from "@/features/chat/lib/workout-plan-trigger";
 import type {
   ApiChatMessage,
   AgentActivityPayload,
@@ -473,16 +470,6 @@ export function useChatController() {
         ...message,
         isReasoning: false,
       }));
-
-      const suggestedReplyTrigger = extractSuggestedReplyTrigger(fullContent);
-      if (suggestedReplyTrigger) {
-        updateAssistantMessage(assistantMessage.id, (message) => ({
-          ...message,
-          suggestedReplies: message.assistantSuggestions?.length
-            ? message.suggestedReplies
-            : suggestedReplyTrigger.suggestedReplies,
-        }));
-      }
 
       setConversationContext(
         updatedConversationContext ??

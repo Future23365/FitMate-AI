@@ -61,11 +61,12 @@ TBD - created by archiving change improve-plan-push-composition. Update Purpose 
 ### Requirement: 长期计划动作必须来自服务端候选集合
 系统 SHALL 对长期计划草稿中的所有动作 ID 进行服务端校验，确保 AI 只能使用本次候选集合中的动作。
 
-#### Scenario: AI 返回计划草稿
-- **WHEN** `/api/ai/workout-plan` 收到 AI 返回的长期计划草稿
+#### Scenario: Agent 返回计划草稿
+- **WHEN** Agent plan draft 工具或等价 Agent-first 计划生成结果返回长期计划草稿
 - **THEN** 系统 MUST 使用 Zod schema 校验草稿结构
 - **AND** 系统 MUST 校验所有 `exerciseId` 存在于数据库动作库
-- **AND** 系统 MUST 校验所有 `exerciseId` 来自本次 `primaryExercises` 或 `supplementaryExercises`
+- **AND** 系统 MUST 校验所有 `exerciseId` 来自本次 Agent tool result、candidateSetId、`primaryExercises` 或 `supplementaryExercises`
+- **AND** 系统 MUST NOT 通过旧聊天 AI 独立 route 生成聊天计划草稿
 
 #### Scenario: AI 编造动作 ID
 - **WHEN** 长期计划草稿包含不存在或不在候选集合中的 `exerciseId`
@@ -210,4 +211,3 @@ TBD - created by archiving change improve-plan-push-composition. Update Purpose 
 - **WHEN** 计划草稿的周期、周频、训练日数量、时长或器械条件与 Agent 结构化输入冲突
 - **THEN** 系统 MUST 拒绝将该草稿作为成功计划返回
 - **AND** 系统 MUST 进入 Agent failure handling、重新校验、重新生成或澄清路径
-

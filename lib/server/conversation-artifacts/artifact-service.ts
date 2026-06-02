@@ -17,11 +17,11 @@ import {
   type ConversationArtifactSourceEntityKind,
   type ConversationArtifactStatus,
 } from "@/lib/shared/conversation-artifacts/schema";
+import type { ArtifactReferenceCandidate } from "@/lib/shared/conversation-artifacts/reference-candidates";
 import {
   workoutPlanDraftSchema,
   workoutRoutineDraftSchema,
 } from "@/lib/shared/workout-plans/draft-schema";
-import type { ReferenceArtifactCandidate } from "@/lib/shared/reference-resolver/schema";
 import {
   buildEmbeddingText,
   cosineSimilarity,
@@ -401,7 +401,7 @@ export async function listRecentArtifacts(
 export async function searchArtifacts(
   input: SearchArtifactsInput,
   client: Pick<PrismaClient, "artifactIndex"> = getPrismaClient(),
-): Promise<ReferenceArtifactCandidate[]> {
+): Promise<ArtifactReferenceCandidate[]> {
   const result = await searchArtifactsDetailed(input, client);
 
   return result.candidates;
@@ -412,7 +412,7 @@ export async function searchArtifactsDetailed(
   input: SearchArtifactsInput,
   client: Pick<PrismaClient, "artifactIndex"> = getPrismaClient(),
 ): Promise<{
-  candidates: ReferenceArtifactCandidate[];
+  candidates: ArtifactReferenceCandidate[];
   diagnostics: ArtifactSearchDiagnostics;
 }> {
   const limit = clampLimit(input.limit);
@@ -871,7 +871,7 @@ function unique(values: Array<string | undefined>) {
   return uniqueStrings(values);
 }
 
-function artifactIndexRowToCandidate(row: ArtifactIndexRow): ReferenceArtifactCandidate {
+function artifactIndexRowToCandidate(row: ArtifactIndexRow): ArtifactReferenceCandidate {
   return {
     artifactId: row.artifactId,
     kind: row.kind,

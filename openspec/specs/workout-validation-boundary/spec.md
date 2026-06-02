@@ -24,7 +24,7 @@ TBD - created by archiving change limit-workout-validation-to-deterministic-fact
 #### Scenario: 用户明确重复训练同一套动作
 
 - **WHEN** 用户明确要求连续多天或多个训练日重复当前 routine
-- **AND** ReferenceResolver 已解析到可访问的 routine artifact
+- **AND** Agent 已通过受控 artifact tool 读取到可访问的 routine artifact payload
 - **AND** DomainPlanEngine 基于该 artifact 展开重复训练计划
 - **THEN** 服务端 MUST 接受重复训练日作为合法用户意图
 - **AND** 服务端 MUST NOT 返回 `day_similarity_high` 或 `consecutive_load_high` 作为 hard fail
@@ -89,4 +89,3 @@ TBD - created by archiving change limit-workout-validation-to-deterministic-fact
 - **WHEN** AI 输出的 section 与服务端元数据偏好不一致
 - **THEN** 系统 MAY 记录包含 `exerciseId`、AI section、元数据 section 和原因的 trace warning
 - **AND** 该 warning MUST NOT 单独导致聊天卡片生成失败
-

@@ -21,13 +21,9 @@ describe("DomainPlanEngine", () => {
         sessionMinutes: 30,
       }),
       latestUserMessage: "三周都练这个，一周三练",
-      referenceResolution: {
-        status: "resolved",
+      sourceArtifact: {
         artifactId: "artifact-routine-1",
-        artifactKind: "routine",
-        confidence: "high",
-        reason: "命中最近 routine",
-        candidates: [],
+        kind: "routine",
       },
     });
 
@@ -69,13 +65,9 @@ describe("DomainPlanEngine", () => {
         sessionMinutes: 30,
       }),
       latestUserMessage: "改成一周四练但别太累",
-      referenceResolution: {
-        status: "resolved",
+      sourceArtifact: {
         artifactId: "artifact-plan-1",
-        artifactKind: "plan",
-        confidence: "high",
-        reason: "命中最近 plan",
-        candidates: [],
+        kind: "plan",
       },
     });
 
@@ -120,13 +112,9 @@ describe("DomainPlanEngine", () => {
         weeklyFrequency: 2,
       }),
       latestUserMessage: "按 AB 交替练三周",
-      referenceResolution: {
-        status: "resolved",
+      sourceArtifact: {
         artifactId: "artifact-plan-2",
-        artifactKind: "plan",
-        confidence: "high",
-        reason: "命中最近 plan",
-        candidates: [],
+        kind: "plan",
       },
     });
 
@@ -173,13 +161,9 @@ describe("DomainPlanEngine", () => {
         calendarHorizonDays: "current_user_message",
         weeklyFrequency: "current_user_message",
       },
-      referenceResolution: {
-        status: "resolved",
+      sourceArtifact: {
         artifactId: "artifact-routine-5",
-        artifactKind: "routine",
-        confidence: "high",
-        reason: "命中最近 routine",
-        candidates: [],
+        kind: "routine",
       },
     });
 
@@ -204,13 +188,9 @@ describe("DomainPlanEngine", () => {
       fieldSources: {
         calendarHorizonDays: "default",
       },
-      referenceResolution: {
-        status: "resolved",
+      sourceArtifact: {
         artifactId: "artifact-routine-default",
-        artifactKind: "routine",
-        confidence: "high",
-        reason: "命中最近 routine",
-        candidates: [],
+        kind: "routine",
       },
     });
 

@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 
+import { SymbolIcon } from "@/components/app/symbol-icon";
 import { getAgentActivityDisplay } from "@/features/chat/lib/agent-activity";
 import type { AgentActivityPayload } from "@/features/chat/types";
 
@@ -76,15 +77,16 @@ export function AgentActivityIndicator({
   }
 
   const display = getAgentActivityDisplay(displayedActivity);
+  const toneClass = display.toneClass === "text-error" ? "text-error" : "text-primary/80";
 
   return (
     <div
       aria-live="polite"
-      className="agent-activity-indicator px-xs py-[2px] font-label-sm text-label-sm font-bold text-primary/80 motion-safe:animate-pulse"
+      className={`agent-activity-indicator flex items-center gap-xs px-xs py-[2px] font-label-sm text-label-sm font-bold ${toneClass} motion-safe:animate-pulse motion-reduce:animate-none`}
       role="status"
     >
-      {display.label}
+      <SymbolIcon aria-hidden className="text-[16px]">{display.icon}</SymbolIcon>
+      <span>{display.label}</span>
     </div>
   );
 }
-

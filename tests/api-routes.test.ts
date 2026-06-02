@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createChatConversation, createExercise, createWorkoutRoutine, createWorkoutSchedule, createWorkoutPlanIntent } from "./fixtures/domain";
+import { createChatConversation, createExercise, createWorkoutRoutine, createWorkoutSchedule } from "./fixtures/domain";
 
 const traceMocks = vi.hoisted(() => ({
   startAiTrace: vi.fn(() => ({
@@ -13,13 +13,6 @@ const traceMocks = vi.hoisted(() => ({
 }));
 const chatServiceMocks = vi.hoisted(() => ({
   createAiChatResponse: vi.fn(),
-}));
-const workoutPlanMocks = vi.hoisted(() => ({
-  generateAiWorkoutPlanDraft: vi.fn(),
-  selectExerciseCandidates: vi.fn(),
-}));
-const recommendationMocks = vi.hoisted(() => ({
-  generateAiExerciseRecommendations: vi.fn(),
 }));
 const exerciseServiceMocks = vi.hoisted(() => ({
   exerciseBodyRegionValues: ["upper_body", "lower_body", "core", "full_body"],
@@ -69,16 +62,6 @@ vi.mock("@/lib/server/chat/chat-service", async (importOriginal) => {
     createAiChatResponse: chatServiceMocks.createAiChatResponse,
   };
 });
-vi.mock("@/lib/server/workout-plans", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/server/workout-plans")>();
-
-  return {
-    ...actual,
-    generateAiWorkoutPlanDraft: workoutPlanMocks.generateAiWorkoutPlanDraft,
-    selectExerciseCandidates: workoutPlanMocks.selectExerciseCandidates,
-  };
-});
-vi.mock("@/lib/server/exercise-recommendations/ai-exercise-recommendation-service", () => recommendationMocks);
 vi.mock("@/lib/server/exercises/exercise-service", () => exerciseServiceMocks);
 vi.mock("@/lib/server/workouts/workout-persistence-service", () => workoutPersistenceMocks);
 vi.mock("@/lib/server/chat/chat-history-service", () => chatHistoryMocks);
@@ -87,8 +70,6 @@ vi.mock("@/lib/server/users/current-user", () => currentUserMocks);
 vi.mock("@/lib/server/auth/local-anonymous-auth", () => authMocks);
 
 const chatRoute = await import("@/app/api/chat/route");
-const workoutPlanRoute = await import("@/app/api/ai/workout-plan/route");
-const exerciseRecommendationRoute = await import("@/app/api/ai/exercise-recommendations/route");
 const exercisesRoute = await import("@/app/api/exercises/route");
 const exerciseDetailRoute = await import("@/app/api/exercises/[id]/route");
 const workoutRoutinesRoute = await import("@/app/api/workout-routines/route");
@@ -104,62 +85,6 @@ describe("API route boundaries", () => {
     vi.clearAllMocks();
     vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
     chatServiceMocks.createAiChatResponse.mockResolvedValue(new Response("stream", { status: 200 }));
-    workoutPlanMocks.generateAiWorkoutPlanDraft.mockResolvedValue({ ok: true, draft: { title: "计划" } });
-    workoutPlanMocks.selectExerciseCandidates.mockReturnValue({
-      primaryCandidates: [{ exercise: createExercise({ id: "push-up" }), score: 90, reasons: [], source: "primary" }],
-      supplementaryCandidates: [],
-      excluded: [],
-      warnings: [],
-      candidateStatus: "enough",
-      relevantCandidateCount: 1,
-      requiredRelevantCandidateCount: 1,
-      isEnoughCandidates: true,
-      intent: createWorkoutPlanIntent(),
-      recommendationTrace: {
-        goal: "胸肌训练",
-        filters: {
-          requestedEquipment: ["自重"],
-          targetMuscles: ["胸部"],
-          visibility: "all",
-          requiredRelevantCandidateCount: 1,
-          requiredTotalCandidateCount: 1,
-        },
-        excludedExerciseIds: ["old"],
-        excludeReasons: { old: ["current_card"] },
-        candidateCounts: {
-          totalExercises: 1,
-          strictPrimary: 1,
-          strictSupplementary: 0,
-          finalPrimary: 1,
-          finalSupplementary: 0,
-          relevantFinal: 1,
-        },
-        relaxedConstraints: [],
-        fallbackUsed: false,
-        finalExerciseIds: ["push-up"],
-        relaxationOptions: [],
-      },
-      relaxationOptions: [],
-    });
-    recommendationMocks.generateAiExerciseRecommendations.mockResolvedValue({
-      ok: true,
-      card: {
-        title: "推荐动作",
-        goal: "胸肌",
-        items: [
-          {
-            exerciseId: "push-up",
-            nameZh: "俯卧撑",
-            categoryZh: "力量",
-            levelZh: "新手",
-            equipmentZh: "自重",
-            primaryMusclesZh: ["胸部"],
-            secondaryMusclesZh: [],
-            reasons: ["匹配目标"],
-          },
-        ],
-      },
-    });
     exerciseServiceMocks.listAllExercises.mockResolvedValue([createExercise({ id: "push-up" })]);
     exerciseServiceMocks.listExercises.mockResolvedValue({ items: [], total: 0 });
     exerciseServiceMocks.getExerciseFacets.mockResolvedValue({ categories: [] });
@@ -202,51 +127,6 @@ describe("API route boundaries", () => {
       promptVersion: expect.any(String),
       toolVersions: expect.objectContaining({ ReferenceResolver: expect.any(String) }),
     }));
-  });
-
-  it("maps AI workout plan and recommendation request boundaries", async () => {
-    const badPlan = await workoutPlanRoute.POST(jsonRequest("/api/ai/workout-plan", { latestUserMessage: "" }));
-    expect(badPlan.status).toBe(400);
-
-    workoutPlanMocks.generateAiWorkoutPlanDraft.mockResolvedValueOnce({
-      ok: false,
-      code: "candidate_actions_insufficient",
-      message: "候选不足",
-    });
-    const failedPlan = await workoutPlanRoute.POST(
-      jsonRequest("/api/ai/workout-plan", {
-        latestUserMessage: "练胸",
-        conversationSummary: "用户想练胸。",
-        intent: createWorkoutPlanIntent(),
-        parentTraceId: "trace-parent",
-      }),
-    );
-    expect(failedPlan.status).toBe(422);
-    expect(traceMocks.startAiTrace).toHaveBeenCalledWith(expect.objectContaining({ existingTraceId: "trace-parent" }));
-
-    const recommendation = await exerciseRecommendationRoute.POST(
-      jsonRequest("/api/ai/exercise-recommendations", {
-        latestUserMessage: "推荐动作",
-        conversationSummary: "用户想练胸。",
-        intent: createWorkoutPlanIntent(),
-        parentTraceId: "trace-parent",
-        excludeExerciseIds: ["old"],
-      }),
-    );
-    await expect(recommendation.json()).resolves.toMatchObject({ ok: true, card: { title: "推荐动作" } });
-    expect(recommendationMocks.generateAiExerciseRecommendations).toHaveBeenCalledWith(
-      expect.objectContaining({
-        apiKey: "test-key",
-        excludeExerciseIds: ["old"],
-      }),
-    );
-    expect(workoutPlanMocks.selectExerciseCandidates).toHaveBeenCalledWith(
-      expect.any(Object),
-      expect.any(Array),
-      expect.objectContaining({
-        exposureSources: [{ reason: "current_card", exerciseIds: ["old"] }],
-      }),
-    );
   });
 
   it("handles exercise resource routes", async () => {

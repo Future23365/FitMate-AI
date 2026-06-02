@@ -21,7 +21,7 @@ TBD - created by archiving change change-008-rag-hybrid-search. Update Purpose a
 系统 SHALL 在全文和向量召回前后执行结构化硬过滤，确保 RAG 不绕过权限和训练规则。
 
 #### Scenario: 搜索 artifact
-- **WHEN** ReferenceResolver 使用 hybrid search 搜索 artifact
+- **WHEN** Agent 通过 `searchArtifacts` 使用 hybrid search 搜索 artifact
 - **THEN** 搜索 MUST 限制为当前 userId 可访问的 artifact
 - **AND** 搜索 MUST 遵守 kind、scope、status 和 sessionScope 过滤
 - **AND** LLM MUST NOT 选择候选集合之外的 artifactId
@@ -84,4 +84,3 @@ TBD - created by archiving change change-008-rag-hybrid-search. Update Purpose a
 - **THEN** AiRunTrace MUST 记录 `rag_query` 或等价 step
 - **AND** step MUST 包含 query、过滤条件、召回数量、过滤数量、rerank 摘要和最终候选 id
 - **AND** step MUST 能关联对应的 `tool_call` step
-

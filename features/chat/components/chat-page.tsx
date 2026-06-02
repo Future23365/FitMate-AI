@@ -13,12 +13,6 @@ import { ExerciseRecommendationCard } from "@/features/exercises/components/exer
 import { AgentActivityIndicator } from "@/features/chat/components/agent-activity-indicator";
 import { useChatController } from "@/features/chat/hooks/use-chat-controller";
 import { getMessageAssistantSuggestions } from "@/features/chat/lib/assistant-suggestions";
-import {
-  extractExerciseRecommendationTrigger,
-  extractSuggestedReplyTrigger,
-  extractWorkoutPlanTrigger,
-  extractWorkoutRoutineTrigger,
-} from "@/features/chat/lib/workout-plan-trigger";
 import { listWorkoutSchedules } from "@/features/workouts/api/workout-data-client";
 import { WorkoutPlanDraftCard } from "@/features/workouts/components/workout-plan-draft-card";
 import { WorkoutRoutineDraftCard } from "@/features/workouts/components/workout-routine-draft-card";
@@ -121,6 +115,91 @@ function MarkdownContent({ content }: { content: string }) {
       {content}
     </ReactMarkdown>
   );
+}
+
+// 历史消息可能含旧 trigger JSON；这里只做纯展示清理，不再解析 intent 或触发任何训练卡片。
+function stripHistoricalLegacyTriggerBlocks(content: string) {
+  const legacyTriggerTypes = [
+    "workout_plan_trigger",
+    "workout_routine_trigger",
+    "exercise_recommendation_trigger",
+    "suggested_reply_trigger",
+    "suggested_question_trigger",
+  ];
+  let cleanContent = content;
+
+  for (const rawBlock of collectHistoricalJsonLikeBlocks(content)) {
+    if (legacyTriggerTypes.some((type) => rawBlock.includes(`"type"`) && rawBlock.includes(type))) {
+      cleanContent = cleanContent.replace(rawBlock, "");
+    }
+  }
+
+  return cleanContent.trim();
+}
+
+function collectHistoricalJsonLikeBlocks(content: string) {
+  const blocks: string[] = [];
+  const fencedRegex = /```json\s*[\s\S]*?\s*```/g;
+
+  for (const match of content.matchAll(fencedRegex)) {
+    blocks.push(match[0]);
+  }
+
+  for (const rawBlock of collectBalancedJsonObjects(content)) {
+    if (!blocks.includes(rawBlock)) {
+      blocks.push(rawBlock);
+    }
+  }
+
+  return blocks;
+}
+
+function collectBalancedJsonObjects(content: string) {
+  const blocks: string[] = [];
+
+  for (let start = content.indexOf("{"); start >= 0; start = content.indexOf("{", start + 1)) {
+    let depth = 0;
+    let inString = false;
+    let isEscaped = false;
+
+    for (let index = start; index < content.length; index += 1) {
+      const char = content[index];
+
+      if (isEscaped) {
+        isEscaped = false;
+        continue;
+      }
+
+      if (char === "\\") {
+        isEscaped = true;
+        continue;
+      }
+
+      if (char === "\"") {
+        inString = !inString;
+        continue;
+      }
+
+      if (inString) {
+        continue;
+      }
+
+      if (char === "{") {
+        depth += 1;
+      }
+
+      if (char === "}") {
+        depth -= 1;
+      }
+
+      if (depth === 0) {
+        blocks.push(content.slice(start, index + 1));
+        break;
+      }
+    }
+  }
+
+  return blocks;
 }
 
 function ChatThinkingIndicator({ showThinkingIcon }: { showThinkingIcon: boolean }) {
@@ -515,27 +594,9 @@ export function ChatPage() {
                           }`}
                         >
                           {(() => {
-                            const trigger = extractWorkoutPlanTrigger(message.content);
-                            const routineTrigger = extractWorkoutRoutineTrigger(message.content);
-                            const recommendationTrigger = extractExerciseRecommendationTrigger(
-                              trigger || routineTrigger ? "" : message.content,
-                            );
-                            const suggestedReplyTrigger = extractSuggestedReplyTrigger(message.content);
-                            let cleanContent = message.content;
-                            for (const rawBlock of [
-                              trigger?.rawBlock,
-                              routineTrigger?.rawBlock,
-                              recommendationTrigger?.rawBlock,
-                              suggestedReplyTrigger?.rawBlock,
-                            ]) {
-                              if (rawBlock) {
-                                cleanContent = cleanContent.replace(rawBlock, "");
-                              }
-                            }
-                            cleanContent = cleanContent.trim();
+                            const cleanContent = stripHistoricalLegacyTriggerBlocks(message.content);
                             const assistantSuggestions = getMessageAssistantSuggestions({
                               ...message,
-                              suggestedReplies: message.suggestedReplies ?? suggestedReplyTrigger?.suggestedReplies,
                             });
                             const recommendationCard = bubbleExerciseRecommendations[message.id];
 

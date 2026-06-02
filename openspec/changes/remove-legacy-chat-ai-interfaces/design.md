@@ -80,7 +80,19 @@
 5. 更新主规格、legacy allowlist、架构文档和方案变更历史。
 6. 运行引用扫描、相关测试、typecheck 和 build，证明旧接口无法被新聊天流程触发。
 
-## Open Questions
+## Audit Results
 
-- 推荐刷新最终采用“发起 `/api/chat` Agent 请求”还是“对已存在 Agent result 做确定性重排”，需要在 apply 阶段结合当前 UI 交互和 Agent result 持久化能力确定。
-- 历史消息中旧 trigger JSON 是否需要继续做纯展示清理，还是可以直接按普通文本展示，需要实现阶段根据历史消息恢复逻辑确认。
+记录时间：2026-06-02 13:35:50 CST
+
+- active Route Handler：`/api/ai/workout-plan` 和 `/api/ai/exercise-recommendations` 删除，不保留 410 代理或兼容转发。
+- 旧前端 helper：`requestWorkoutPlanDraft`、`requestExerciseRecommendations` 删除；`requestChatStream` 是聊天 AI 请求入口。
+- 旧 trigger parser：`features/chat/lib/workout-plan-trigger.ts` 删除；`chat-page.tsx` 仅保留历史展示型旧 JSON 文本剥离，不解析 intent、不生成 suggested replies、不触发卡片。
+- 旧计划/推荐服务：`ai-workout-plan-service`、`ai-exercise-recommendation-service` 删除，计划/routine/推荐由 Agent tools、`AgentExecutionResult` 和 artifact 事件表达。
+- 旧引用/Patch 入口：`reference-resolver-service`、`workout-patch-chat-service` 和旧 `lib/shared/reference-resolver/schema.ts` 删除；artifact 定位、payload 读取和 Patch 合同迁移到 Agent artifact tools、`WorkoutEditPlan`、`proposeWorkoutPatch`、`validateWorkoutPatch` 与 `workout-patch-engine`。
+- 当前主规格：`openspec/specs/test-coverage`、`plan-push-composition`、`api-layer-boundaries`、`reference-resolver`、`domain-plan-engine`、`workout-patch`、`rag-hybrid-search` 和 `workout-validation-boundary` 已改为 Agent-first / tool-result 边界。
+- 防回归测试：新增 `tests/legacy-chat-interface-cleanup.test.ts`，扫描旧 route、旧 helper、旧 parser、旧 route-only service、旧 resolver / patch chat service、旧 shared resolver schema 和当前主规格正向要求。
+
+## Resolved Apply Decisions
+
+- 推荐刷新不再有旧 `/api/ai/exercise-recommendations` 活路径；当前前端不保留旧 helper，后续如需要“换一批”语义刷新，应作为 `/api/chat` Agent 请求或已存在 Agent result 的确定性操作实现。
+- 历史消息中的旧 trigger JSON 继续做纯展示清理，因为直接展示会污染旧会话可读性；该逻辑不解析旧 trigger，也不进入生产执行路径。

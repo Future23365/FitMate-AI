@@ -2,9 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   requestChatStream,
-  requestExerciseRecommendations,
-  requestWorkoutPlanDraft,
-  WorkoutPlanGenerationRecoveryError,
 } from "@/features/chat/api/chat-client";
 import { saveChatConversation } from "@/features/chat/lib/chat-history";
 import {
@@ -26,12 +23,9 @@ import {
   createApiChatMessages,
   createChatConversation,
   createConversationContext,
-  createExercise,
   createWorkoutRoutine,
   createWorkoutSchedule,
-  createWorkoutPlanDraft,
   createWorkoutPlanIntent,
-  createWorkoutRoutineDraft,
 } from "./fixtures/domain";
 
 describe("frontend API clients", () => {
@@ -39,41 +33,10 @@ describe("frontend API clients", () => {
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
   });
 
-  it("passes chat stream, workout plan, and recommendation request payloads", async () => {
+  it("passes chat stream payload without calling legacy AI routes", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(new Response("stream", { status: 200 }))
-      .mockResolvedValueOnce(
-        Response.json({
-          ok: true,
-          kind: "plan",
-          draft: createWorkoutPlanDraft(),
-          candidates: {
-            primaryCandidates: [
-              { exercise: createExercise({ id: "push-up", nameZh: "俯卧撑" }) },
-              { exercise: createExercise({ id: "unused", nameZh: "未使用动作" }) },
-            ],
-            supplementaryCandidates: [],
-          },
-        }),
-      )
-      .mockResolvedValueOnce(
-        Response.json({
-          ok: true,
-          kind: "routine",
-          draft: createWorkoutRoutineDraft(),
-          candidates: {
-            primaryCandidates: [
-              { exercise: createExercise({ id: "push-up", nameZh: "俯卧撑" }) },
-            ],
-            supplementaryCandidates: [
-              { exercise: createExercise({ id: "warmup", nameZh: "肩部动态热身" }) },
-              { exercise: createExercise({ id: "stretch", nameZh: "胸肩拉伸" }) },
-            ],
-          },
-        }),
-      )
-      .mockResolvedValueOnce(Response.json({ ok: false, message: "推荐失败" }));
+      .mockResolvedValueOnce(new Response("stream", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
     const messages = createApiChatMessages();
@@ -84,37 +47,6 @@ describe("frontend API clients", () => {
     await expect(
       requestChatStream("chat-1", "assistant-1", messages[0].content, summary.summary, context, false, signal),
     ).resolves.toBeInstanceOf(Response);
-    await expect(requestWorkoutPlanDraft(messages[0].content, createWorkoutPlanIntent(), summary, "trace-1")).resolves.toMatchObject({
-      kind: "plan",
-      draft: {
-        title: "居家胸肌训练",
-      },
-      exercises: [
-        {
-          id: "push-up",
-          nameZh: "俯卧撑",
-        },
-      ],
-    });
-    await expect(
-      requestWorkoutPlanDraft(messages[0].content, createWorkoutPlanIntent({ intentType: "routine" }), summary, "trace-2"),
-    ).resolves.toMatchObject({
-      kind: "routine",
-      draft: {
-        kind: "routine",
-        trainingLoopRounds: 3,
-      },
-      exercises: expect.arrayContaining([
-        expect.objectContaining({ id: "warmup" }),
-        expect.objectContaining({ id: "push-up" }),
-        expect.objectContaining({ id: "stretch" }),
-      ]),
-    });
-    await expect(
-      requestExerciseRecommendations(messages[0].content, createWorkoutPlanIntent(), summary, "trace-1", {
-        excludeExerciseIds: ["push-up"],
-      }),
-    ).rejects.toThrow("推荐失败");
 
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({
       responseMessageId: "assistant-1",
@@ -122,12 +54,7 @@ describe("frontend API clients", () => {
       latestUserMessage: messages[0].content,
       conversationSummary: summary.summary,
     });
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toMatchObject({
-      parentTraceId: "trace-1",
-    });
-    expect(JSON.parse(fetchMock.mock.calls[3][1].body as string)).toMatchObject({
-      excludeExerciseIds: ["push-up"],
-    });
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual(["/api/chat"]);
   });
 
   it("maps workout data requests, errors, and update events", async () => {
@@ -174,38 +101,6 @@ describe("frontend API clients", () => {
     })).resolves.toMatchObject({ id: "result-1" });
     await expect(saveWorkoutRoutine(workoutRoutine)).rejects.toBeInstanceOf(ClientRequestError);
     expect(window.dispatchEvent).toHaveBeenCalled();
-  });
-
-  it("preserves recoverable workout plan generation failures for chat guidance", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        Response.json(
-          {
-            ok: false,
-            code: "plan_validation_failed",
-            message: "AI 生成的单次训练编排没有通过服务端校验。",
-            recoverable: true,
-            guidanceMessage: "这版训练估算约 49 分钟，超过你原本的 30 分钟。",
-            suggestedReplies: ["压缩到 30 分钟", "保留完整训练量"],
-            validation: {
-              errors: [{ code: "session_too_long" }],
-              warnings: [],
-            },
-          },
-          { status: 422 },
-        ),
-      ),
-    );
-
-    await expect(
-      requestWorkoutPlanDraft("今天在家练胸", createWorkoutPlanIntent(), { summary: "" }, "trace-1"),
-    ).rejects.toMatchObject({
-      name: "WorkoutPlanGenerationRecoveryError",
-      recoverable: true,
-      guidanceMessage: "这版训练估算约 49 分钟，超过你原本的 30 分钟。",
-      suggestedReplies: ["压缩到 30 分钟", "保留完整训练量"],
-    } satisfies Partial<WorkoutPlanGenerationRecoveryError>);
   });
 
   it("preserves chat message timestamps when saving chat history", async () => {

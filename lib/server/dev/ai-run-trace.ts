@@ -3,7 +3,6 @@ import "server-only";
 import type { AiRunFinalDecision } from "@/lib/server/dev/ai-trace-store";
 import type { RecentArtifactSummary } from "@/lib/server/conversation-artifacts/artifact-service";
 import type { ConfirmationRequest, ConfirmationValidationResult, PolicyCheckResult } from "@/lib/shared/policy-confirmation/schema";
-import type { ReferenceResolution } from "@/lib/shared/reference-resolver/schema";
 import type { WorkoutPatch, WorkoutPatchResult } from "@/lib/shared/workout-patches/schema";
 
 export const aiRunTraceModel = "deepseek-v4-flash";
@@ -38,26 +37,6 @@ export function summarizeRecentArtifactsForTrace(summaries: RecentArtifactSummar
     trainingDayCount: summary.trainingDayCount,
     updatedAt: summary.updatedAt,
   }));
-}
-
-// ReferenceResolver trace 输出只保留候选摘要和决策原因，不记录任何 artifact payload。
-export function summarizeReferenceResolutionForTrace(resolution: ReferenceResolution | null) {
-  if (!resolution) {
-    return null;
-  }
-
-  return {
-    ...resolution,
-    candidates: resolution.candidates.map((candidate) => ({
-      artifactId: candidate.artifactId,
-      kind: candidate.kind,
-      title: candidate.title,
-      summary: candidate.summary,
-      exerciseIds: candidate.exerciseIds.slice(0, 12),
-      goals: candidate.goals.slice(0, 6),
-      updatedAt: candidate.updatedAt,
-    })),
-  };
 }
 
 // Patch trace 只暴露 scope、operation、目标和 diff 摘要，完整 payload 交给 Raw JSON 的截断层处理。

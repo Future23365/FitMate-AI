@@ -65,8 +65,8 @@ describe("AI trace store and HTTP request helpers", () => {
       output: { status: "resolved", artifactId: "artifact-1" },
     });
     const continued = createAiTrace({
-      route: "/api/ai/workout-plan",
-      title: "生成计划",
+      route: "/api/chat",
+      title: "继续聊天",
       existingTraceId: trace?.id,
       metadata: { parentTraceId: trace?.id },
     });
@@ -97,7 +97,7 @@ describe("AI trace store and HTTP request helpers", () => {
       metadata: {
         tokenUsage: { input: "10" },
         parentTraceId: trace?.id,
-        continuedRoutes: ["/api/ai/workout-plan"],
+        continuedRoutes: ["/api/chat"],
       },
       steps: [
         expect.objectContaining({
