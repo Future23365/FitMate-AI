@@ -8,3 +8,9 @@
 
 - [x] 2.1 更新 `tests/exercise-service.test.ts`，覆盖筛选、分页、排序、facets 与“不调用完整 `listExerciseRecords()`”的列表路径。
 - [x] 2.2 运行相关测试和类型检查，至少包含 `npm test -- --run tests/exercise-service.test.ts` 与 `npm run typecheck`。
+
+## 3. 编排页动作库连续浏览
+
+- [x] 3.1 为动作编排页右侧动作库增加分页状态、下一页追加和筛选变更重置逻辑。
+- [x] 3.2 为右侧动作库列表增加滚动到底自动加载和底部加载更多入口。
+- [x] 3.3 运行 `npm run typecheck`、`npm run lint`，并按需运行相关测试。

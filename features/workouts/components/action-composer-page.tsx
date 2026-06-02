@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import type { ReactNode } from "react";
+import type { ReactNode, UIEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ResponsiveRightSidebar } from "@/components/app/responsive-right-sidebar";
@@ -52,6 +52,10 @@ import {
 type ExerciseApiResponse = {
   items: ExerciseListItem[];
   total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  hasNextPage: boolean;
   facets: ExerciseFacets;
 };
 
@@ -135,6 +139,7 @@ const defaultExerciseFacets: ExerciseFacets = {
   goalTags: [],
   riskTags: [],
 };
+const composerLibraryPageSize = 30;
 
 const templateExerciseConfigs: TemplateExerciseConfig[] = [
   {
@@ -281,6 +286,21 @@ function hasFacetValue(options: ExerciseFacets["categories"], value: string) {
   return !value || options.some((option) => option.value === value || option.label === value);
 }
 
+// 动作库分页追加按 exerciseId 去重，避免快速筛选或翻页时同一动作重复出现在右侧列表。
+function mergeExerciseListItems(currentItems: ExerciseListItem[], nextItems: ExerciseListItem[]) {
+  const existingIds = new Set(currentItems.map((exercise) => exercise.id));
+  const merged = [...currentItems];
+
+  for (const exercise of nextItems) {
+    if (!existingIds.has(exercise.id)) {
+      existingIds.add(exercise.id);
+      merged.push(exercise);
+    }
+  }
+
+  return merged;
+}
+
 // 阶段摘要只服务编排画布的信息层级，不改变 routine 的保存或执行规则。
 function summarizeComposerSection(
   sectionItems: WorkoutItem[],
@@ -353,6 +373,8 @@ export function ActionComposerPage() {
   const [libraryItems, setLibraryItems] = useState<ExerciseListItem[]>([]);
   const [exerciseCache, setExerciseCache] = useState<Map<string, Exercise>>(() => new Map());
   const [libraryTotal, setLibraryTotal] = useState(0);
+  const [libraryPage, setLibraryPage] = useState(1);
+  const [libraryHasNextPage, setLibraryHasNextPage] = useState(false);
   const [libraryFacets, setLibraryFacets] = useState<ExerciseFacets>(defaultExerciseFacets);
   const [libraryQuery, setLibraryQuery] = useState("");
   const [libraryCategory, setLibraryCategory] = useState("");
@@ -364,6 +386,7 @@ export function ActionComposerPage() {
   const [libraryHomeRequirement, setLibraryHomeRequirement] = useState("");
   const [selectedLibraryExerciseId, setSelectedLibraryExerciseId] = useState("");
   const [isLoadingLibrary, setIsLoadingLibrary] = useState(true);
+  const [isLoadingMoreLibrary, setIsLoadingMoreLibrary] = useState(false);
   const [saveStatus, setSaveStatus] = useState("");
   const [rightPanelView, setRightPanelView] = useState<RightPanelView>("library");
   const [draggingItemId, setDraggingItemId] = useState("");
@@ -380,6 +403,7 @@ export function ActionComposerPage() {
   const [previewExerciseError, setPreviewExerciseError] = useState("");
   const titleInputRef = useRef<HTMLInputElement>(null);
   const hasHandledInitialWorkoutLoadRef = useRef(false);
+  const isLibraryRequestInFlightRef = useRef(false);
 
   // 标题更新集中在这里，避免展示态标题和编辑态草稿在切换编排时出现不同步。
   const applyPlanTitle = useCallback((nextTitle: string) => {
@@ -414,13 +438,17 @@ export function ActionComposerPage() {
   useEffect(() => {
     const controller = new AbortController();
     const params = new URLSearchParams({
-      pageSize: "30",
+      page: String(libraryPage),
+      pageSize: String(composerLibraryPageSize),
       sort: "name_asc",
     });
+    const isFirstPage = libraryPage === 1;
 
+    isLibraryRequestInFlightRef.current = true;
     queueMicrotask(() => {
       if (!controller.signal.aborted) {
-        setIsLoadingLibrary(true);
+        setIsLoadingLibrary(isFirstPage);
+        setIsLoadingMoreLibrary(!isFirstPage);
       }
     });
 
@@ -466,33 +494,45 @@ export function ActionComposerPage() {
           libraryHomeRequirement,
         );
 
-        setLibraryItems(data.items);
-        setLibraryTotal(data.total);
-        setLibraryFacets(data.facets);
-        setSelectedLibraryExerciseId((current) =>
-          data.items.some((exercise) => exercise.id === current)
-            ? current
-            : data.items[0]?.id ?? "",
+        setLibraryItems((currentItems) =>
+          isFirstPage ? data.items : mergeExerciseListItems(currentItems, data.items),
         );
+        setLibraryTotal(data.total);
+        setLibraryHasNextPage(data.hasNextPage);
+        setLibraryFacets(data.facets);
+        setSelectedLibraryExerciseId((current) => {
+          if (!isFirstPage) {
+            return current || data.items[0]?.id || "";
+          }
+
+          return data.items.some((exercise) => exercise.id === current)
+            ? current
+            : data.items[0]?.id ?? "";
+        });
 
         // 请求返回的新 facets 是筛选项的事实来源，失效筛选在这里统一归一化。
         if (shouldClearCategory) {
+          setLibraryPage(1);
           setLibraryCategory("");
         }
 
         if (shouldClearMuscle) {
+          setLibraryPage(1);
           setLibraryMuscle("");
         }
 
         if (shouldClearEquipment) {
+          setLibraryPage(1);
           setLibraryEquipment("");
         }
 
         if (shouldClearLevel) {
+          setLibraryPage(1);
           setLibraryLevel("");
         }
 
         if (shouldClearHomeRequirement) {
+          setLibraryPage(1);
           setLibraryHomeRequirement("");
         }
 
@@ -513,10 +553,14 @@ export function ActionComposerPage() {
 
         setLibraryItems([]);
         setLibraryTotal(0);
+        setLibraryHasNextPage(false);
+        setSaveStatus(isFirstPage ? "动作库加载失败" : "更多动作加载失败");
       })
       .finally(() => {
         if (!controller.signal.aborted) {
+          isLibraryRequestInFlightRef.current = false;
           setIsLoadingLibrary(false);
+          setIsLoadingMoreLibrary(false);
         }
       });
 
@@ -527,6 +571,7 @@ export function ActionComposerPage() {
     libraryHomeRequirement,
     libraryLevel,
     libraryMuscle,
+    libraryPage,
     libraryQuery,
     librarySuitabilityFilter,
   ]);
@@ -712,12 +757,43 @@ export function ActionComposerPage() {
   }
 
   function resetLibraryFilters() {
+    setLibraryPage(1);
     setLibraryQuery("");
     setLibraryCategory("");
     setLibraryMuscle("");
     setLibraryEquipment("");
     setLibraryHomeRequirement("");
     setLibraryLevel("");
+  }
+
+  function updateLibraryFilter(updater: () => void) {
+    setLibraryPage(1);
+    setLibraryHasNextPage(false);
+    updater();
+  }
+
+  function loadMoreLibraryExercises() {
+    if (
+      !libraryHasNextPage ||
+      isLoadingLibrary ||
+      isLoadingMoreLibrary ||
+      isLibraryRequestInFlightRef.current
+    ) {
+      return;
+    }
+
+    isLibraryRequestInFlightRef.current = true;
+    setLibraryPage((current) => current + 1);
+  }
+
+  // 右侧动作库空间有限，接近底部时自动翻页，同时底部保留手动加载入口。
+  function handleLibraryScroll(event: UIEvent<HTMLDivElement>) {
+    const listElement = event.currentTarget;
+    const distanceToBottom = listElement.scrollHeight - listElement.scrollTop - listElement.clientHeight;
+
+    if (distanceToBottom <= 120) {
+      loadMoreLibraryExercises();
+    }
   }
 
   function duplicateItem(item: WorkoutItem) {
@@ -1196,7 +1272,7 @@ export function ActionComposerPage() {
                 </SymbolIcon>
                 <input
                   className="w-full rounded-xl border border-line bg-white py-sm pl-10 pr-md font-label-md text-label-md outline-none focus:border-primary focus:ring-4 focus:ring-primary/10"
-                  onChange={(event) => setLibraryQuery(event.target.value)}
+                  onChange={(event) => updateLibraryFilter(() => setLibraryQuery(event.target.value))}
                   placeholder="搜索训练动作..."
                   value={libraryQuery}
                 />
@@ -1213,7 +1289,7 @@ export function ActionComposerPage() {
                           : "border-transparent text-secondary hover:bg-white/70 hover:text-primary"
                       }`}
                       key={option.id}
-                      onClick={() => setLibrarySuitabilityFilter(option.id)}
+                      onClick={() => updateLibraryFilter(() => setLibrarySuitabilityFilter(option.id))}
                       type="button"
                     >
                       <SymbolIcon className="text-[15px]">{option.icon}</SymbolIcon>
@@ -1225,31 +1301,31 @@ export function ActionComposerPage() {
               <div className="mb-sm grid grid-cols-2 gap-xs">
                 <LibraryFilterSelect
                   label="分类"
-                  onChange={setLibraryCategory}
+                  onChange={(value) => updateLibraryFilter(() => setLibraryCategory(value))}
                   options={libraryFacets.categories}
                   value={libraryCategory}
                 />
                 <LibraryFilterSelect
                   label="肌群"
-                  onChange={setLibraryMuscle}
+                  onChange={(value) => updateLibraryFilter(() => setLibraryMuscle(value))}
                   options={libraryFacets.muscles.slice(0, 16)}
                   value={libraryMuscle}
                 />
                 <LibraryFilterSelect
                   label="器械"
-                  onChange={setLibraryEquipment}
+                  onChange={(value) => updateLibraryFilter(() => setLibraryEquipment(value))}
                   options={libraryFacets.equipment.slice(0, 16)}
                   value={libraryEquipment}
                 />
                 <LibraryFilterSelect
                   label="难度"
-                  onChange={setLibraryLevel}
+                  onChange={(value) => updateLibraryFilter(() => setLibraryLevel(value))}
                   options={libraryFacets.levels}
                   value={libraryLevel}
                 />
                 <LibraryFilterSelect
                   label="居家条件"
-                  onChange={setLibraryHomeRequirement}
+                  onChange={(value) => updateLibraryFilter(() => setLibraryHomeRequirement(value))}
                   options={libraryFacets.homeRequirements}
                   value={libraryHomeRequirement}
                 />
@@ -1262,7 +1338,10 @@ export function ActionComposerPage() {
                   清空筛选
                 </button>
               </div>
-              <div className="custom-scrollbar flex-1 space-y-sm overflow-y-auto pr-xs">
+              <div
+                className="custom-scrollbar flex-1 space-y-sm overflow-y-auto pr-xs"
+                onScroll={handleLibraryScroll}
+              >
                 {isLoadingLibrary ? (
                   <p className="rounded-xl bg-surface-container-low p-md text-center font-label-md text-label-md text-on-surface-variant">
                     正在加载动作库...
@@ -1280,65 +1359,84 @@ export function ActionComposerPage() {
                     </button>
                   </div>
                 ) : (
-                  libraryItems.map((exercise) => {
-                    const isSelected = exercise.id === selectedLibraryExercise?.id;
+                  <>
+                    {libraryItems.map((exercise) => {
+                      const isSelected = exercise.id === selectedLibraryExercise?.id;
 
-                    return (
-                      <div
-                        className={`flex w-full items-center gap-sm rounded-xl border p-sm text-left transition-all ${
-                          isSelected
-                            ? "border-primary-container bg-primary/5 ring-2 ring-primary-container/10"
-                            : "border-outline-variant bg-surface-container-lowest hover:border-primary"
-                        }`}
-                        key={exercise.id}
-                        onClick={() => setSelectedLibraryExerciseId(exercise.id)}
+                      return (
+                        <div
+                          className={`flex w-full items-center gap-sm rounded-xl border p-sm text-left transition-all ${
+                            isSelected
+                              ? "border-primary-container bg-primary/5 ring-2 ring-primary-container/10"
+                              : "border-outline-variant bg-surface-container-lowest hover:border-primary"
+                          }`}
+                          key={exercise.id}
+                          onClick={() => setSelectedLibraryExerciseId(exercise.id)}
+                        >
+                          <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-surface-container-low">
+                            <Image
+                              alt=""
+                              className="object-cover"
+                              fill
+                              sizes="40px"
+                              src={exercise.imageUrls[0] || placeholderWorkoutImage}
+                            />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate font-label-md text-label-md font-bold">{exercise.nameZh}</p>
+                            <p className="truncate text-[10px] text-outline">
+                              {(exercise.primaryMusclesZh[0] || exercise.categoryZh || "综合")} · {exercise.equipmentZh || "未标注"}
+                            </p>
+                          </div>
+                          <button
+                            aria-label={`查看动作详情：${exercise.nameZh}`}
+                            className="rounded-full p-xs text-outline transition-colors hover:bg-primary/10 hover:text-primary"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openLibraryPreview(exercise);
+                            }}
+                            type="button"
+                          >
+                            <SymbolIcon>info</SymbolIcon>
+                          </button>
+                          <button
+                            aria-label={`加入当前计划：${exercise.nameZh}`}
+                            className="rounded-full p-xs text-primary transition-colors hover:bg-primary/10"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setSaveStatus("正在读取动作详情...");
+                              void readExerciseDetailFromCache(exercise.id)
+                                .then((fullExercise) => {
+                                  addExercise(fullExercise);
+                                  setSaveStatus(`已加入：${fullExercise.nameZh}`);
+                                })
+                                .catch(() => setSaveStatus("动作详情加载失败"));
+                            }}
+                            type="button"
+                          >
+                            <SymbolIcon>add_circle</SymbolIcon>
+                          </button>
+                        </div>
+                      );
+                    })}
+                    {libraryHasNextPage ? (
+                      <button
+                        className="flex w-full items-center justify-center gap-xs rounded-xl border border-dashed border-outline-variant bg-white px-md py-sm font-label-md text-label-md font-bold text-primary transition-colors hover:bg-primary/5 disabled:cursor-wait disabled:text-outline"
+                        disabled={isLoadingMoreLibrary}
+                        onClick={loadMoreLibraryExercises}
+                        type="button"
                       >
-                        <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-surface-container-low">
-                          <Image
-                            alt=""
-                            className="object-cover"
-                            fill
-                            sizes="40px"
-                            src={exercise.imageUrls[0] || placeholderWorkoutImage}
-                          />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate font-label-md text-label-md font-bold">{exercise.nameZh}</p>
-                          <p className="truncate text-[10px] text-outline">
-                            {(exercise.primaryMusclesZh[0] || exercise.categoryZh || "综合")} · {exercise.equipmentZh || "未标注"}
-                          </p>
-                        </div>
-                        <button
-                          aria-label={`查看动作详情：${exercise.nameZh}`}
-                          className="rounded-full p-xs text-outline transition-colors hover:bg-primary/10 hover:text-primary"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            openLibraryPreview(exercise);
-                          }}
-                          type="button"
-                        >
-                          <SymbolIcon>info</SymbolIcon>
-                        </button>
-                        <button
-                          aria-label={`加入当前计划：${exercise.nameZh}`}
-                          className="rounded-full p-xs text-primary transition-colors hover:bg-primary/10"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setSaveStatus("正在读取动作详情...");
-                            void readExerciseDetailFromCache(exercise.id)
-                              .then((fullExercise) => {
-                                addExercise(fullExercise);
-                                setSaveStatus(`已加入：${fullExercise.nameZh}`);
-                              })
-                              .catch(() => setSaveStatus("动作详情加载失败"));
-                          }}
-                          type="button"
-                        >
-                          <SymbolIcon>add_circle</SymbolIcon>
-                        </button>
-                      </div>
-                    );
-                  })
+                        <SymbolIcon className="text-[18px]">
+                          {isLoadingMoreLibrary ? "progress_activity" : "expand_more"}
+                        </SymbolIcon>
+                        {isLoadingMoreLibrary ? "正在加载更多动作..." : "加载更多动作"}
+                      </button>
+                    ) : (
+                      <p className="rounded-xl bg-surface-container-low px-md py-xs text-center text-[11px] text-outline">
+                        已显示全部 {libraryItems.length} 个动作
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
             </>
