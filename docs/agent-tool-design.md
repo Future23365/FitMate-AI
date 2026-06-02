@@ -2,18 +2,17 @@
 
 本文只描述基础闭环：用户通过聊天让系统推送动作卡片或训练编排卡片。设计不依赖当前已有实现，目标是重新固定 Agent tool 的职责边界：
 
-> LLM 产出语义草稿，Tool 只做检索、校验、资源登记和保存。
+> LLM 产出语义草稿，Tool 只做检索、校验、资源登记和卡片生效。
 
 ## 设计结论
 
-基础能力需要 4 个 tool：
+基础能力需要 3 个 tool：
 
 | Tool | 类型 | 核心职责 |
 | --- | --- | --- |
 | `searchExerciseResources` | 检索 | 根据 LLM 给出的结构化条件检索数据库动作，登记 `candidateSetId` |
-| `validateExerciseCardDraft` | 校验 + 资源登记 | 校验 LLM 写出的动作卡片草稿，登记 `exerciseCardDraftId` |
-| `validateRoutineCardDraft` | 校验 + 资源登记 | 校验 LLM 写出的编排卡片草稿，登记 `routineCardDraftId` |
-| `saveConversationCardArtifact` | 保存 | 从已登记 draft 恢复完整 payload，保存会话卡片 artifact/revision |
+| `validateExerciseCardDraft` | 校验 + 生效 | 校验 LLM 写出的动作卡片草稿；通过后直接生成会话卡片 artifact/revision 和 `responseEvent` |
+| `validateRoutineCardDraft` | 校验 + 生效 | 校验 LLM 写出的编排卡片草稿；通过后直接生成会话卡片 artifact/revision 和 `responseEvent` |
 
 不建议把动作卡片和编排卡片的校验合并成一个 tool。动作卡片校验重点是候选动作、推荐理由和单项处方；编排卡片校验重点是 section、训练顺序、处方结构、总时长和动作覆盖。合并后 schema 会过宽，LLM 更容易把字段写错层级。
 
@@ -30,8 +29,6 @@ LLM 基于候选动作写语义草稿
   ↓
 validateExerciseCardDraft / validateRoutineCardDraft
   ↓
-saveConversationCardArtifact
-  ↓
 Response Writer 推送动作卡片 / 编排卡片
 ```
 
@@ -39,8 +36,8 @@ Response Writer 推送动作卡片 / 编排卡片
 
 1. LLM 是语义来源。用户目标、训练偏好、调整方向、卡片标题、推荐理由、编排意图都由 LLM 产出。
 2. Tool 不读取用户原文做关键词判断，不根据自然语言改写 LLM 的高层语义。
-3. Tool 只执行结构化入参表达的确定性操作，包括检索、存在性校验、权限校验、候选集合校验、结构校验、资源登记和保存。
-4. Tool 成功结果必须返回可追踪资源 id，后续 tool 通过资源 id 消费服务端保存的完整 payload，而不是要求 LLM 重放大 JSON。
+3. Tool 只执行结构化入参表达的确定性操作，包括检索、存在性校验、权限校验、候选集合校验、结构校验、资源登记和卡片生效。
+4. 校验 tool 成功后直接生成用户可见卡片 artifact/revision，不再拆出额外写入步骤，也不要求 LLM 重放大 JSON。
 5. Tool 失败时返回结构化 diagnostics，LLM 可以据此重新检索、重写草稿或向用户澄清；Tool 不自动修复语义草稿。
 
 ## 隐式上下文
@@ -83,10 +80,10 @@ type AgentToolResultEnvelope<TOutput> = {
 | `toolResultId` | 本次 tool 执行结果 id。后续 tool 可以通过具体资源 id 消费结果，但 trace 仍应保留 `toolResultId` |
 | `toolName` | 执行的 tool 名称 |
 | `status` | 执行状态。`success` 表示 schema、权限和确定性执行通过；`failed` 表示本次结果不可直接作为写入依据 |
-| `satisfied` | 本次 tool 是否满足 LLM 在入参中表达的结构化请求。`status = "success"` 但 `satisfied = false` 时，结果只能用于解释或澄清，不能作为 draft/save 依赖 |
+| `satisfied` | 本次 tool 是否满足 LLM 在入参中表达的结构化请求。`status = "success"` 但 `satisfied = false` 时，结果只能用于解释或澄清，不能触发卡片生效 |
 | `output` | tool 成功时的结构化输出 |
 | `diagnostics` | tool 失败或部分满足时的结构化诊断信息 |
-| `evidence` | 执行证据，例如应用了哪些 hard filters、校验了哪些 resource id、保存了哪个 revision |
+| `evidence` | 执行证据，例如应用了哪些 hard filters、校验了哪些 resource id、生成了哪个 revision |
 | `modelSummary` | 给下一轮 LLM 看的短摘要，只包含决策必要信息，不包含完整 payload |
 | `traceSummary` | 给 trace/debug UI 使用的摘要，可以包含更多工程调试字段，但必须脱敏 |
 
@@ -105,11 +102,11 @@ type AgentToolDiagnostic = {
     | "draft_not_found"
     | "validation_not_found"
     | "permission_denied"
-    | "persistence_failed"
+    | "publish_failed"
     | "needs_more_candidates";
   message: string;
   recoverable: boolean;
-  suggestedNextTool?: "searchExerciseResources" | "validateExerciseCardDraft" | "validateRoutineCardDraft" | "saveConversationCardArtifact";
+  suggestedNextTool?: "searchExerciseResources" | "validateExerciseCardDraft" | "validateRoutineCardDraft";
 };
 ```
 
@@ -305,14 +302,15 @@ type ExerciseCandidateSummary = {
 
 ### 功能
 
-`validateExerciseCardDraft` 校验 LLM 写出的动作卡片草稿，并把通过校验的完整草稿登记为服务端资源。
+`validateExerciseCardDraft` 校验 LLM 写出的动作卡片草稿。校验通过后，Tool 立即把这份草稿生效为当前会话中的动作卡片 artifact/revision，并返回 Response Writer 可以直接推送的 `responseEvent`。
 
 这个 tool 只做：
 
 - 校验 `candidateSetId` 存在、属于当前用户/会话/Agent run，并且用途允许生成动作卡片。
 - 校验每个 `exerciseId` 存在且来自候选集合。
 - 校验卡片标题、推荐理由、处方字段、排序字段等结构合法。
-- 登记 `exerciseCardDraftId` 和 `validationId`，供保存 tool 消费。
+- 登记 `exerciseCardDraftId` 和 `validationId`，用于 trace、幂等和后续引用。
+- 生成动作卡片 `artifactId`、`revisionId` 和 `responseEvent`，让本轮回复可以直接推送卡片。
 
 这个 tool 不做：
 
@@ -320,6 +318,7 @@ type ExerciseCandidateSummary = {
 - 不判断推荐理由是否“语义正确”。
 - 不根据用户原文重写卡片标题、理由或处方。
 - 不把候选外动作静默替换成候选内动作。
+- 不等待额外写入步骤；校验通过就是卡片生效边界。
 
 ### 入参
 
@@ -436,6 +435,9 @@ type ValidateExerciseCardDraftOutput = {
   exerciseCardDraftId: string;
   validationId: string;
   candidateSetId: string;
+  artifactId: string;
+  revisionId: string;
+  responseEvent: ConversationCardResponseEvent;
   acceptedExerciseIds: string[];
   rejectedExerciseIds: string[];
   cardSummary: {
@@ -451,28 +453,32 @@ type ValidateExerciseCardDraftOutput = {
 
 | 字段 | 含义 |
 | --- | --- |
-| `exerciseCardDraftId` | 服务端登记的动作卡片草稿 id。保存 tool 只能通过这个 id 恢复完整 payload |
-| `validationId` | 本次校验 id。保存时必须一起传入，防止未校验草稿被保存 |
+| `exerciseCardDraftId` | 服务端登记的动作卡片草稿 id，用于 trace、幂等和后续引用 |
+| `validationId` | 本次校验 id，用于证明 artifact/revision 来自已校验草稿 |
 | `candidateSetId` | 本草稿消费的候选集合 id |
+| `artifactId` | 校验通过后生成的会话卡片 artifact id |
+| `revisionId` | 校验通过后生成的 artifact revision id。前端渲染和后续引用应以它为稳定版本事实 |
+| `responseEvent` | Response Writer 可以推送给前端的安全卡片事件 |
 | `acceptedExerciseIds` | 校验通过并进入草稿资源的动作 id |
 | `rejectedExerciseIds` | 因不存在、越权或不在候选集合中被拒绝的动作 id |
 | `cardSummary.title` | 校验通过后的卡片标题 |
 | `cardSummary.itemCount` | 卡片条目数量 |
 | `cardSummary.primaryExerciseIds` | 主推荐动作 id |
-| `warnings` | 不阻止保存的结构化警告，例如缺少可选处方、替代动作过多 |
+| `warnings` | 不阻止卡片生效的结构化警告，例如缺少可选处方、替代动作过多 |
 
 ## Tool 3：`validateRoutineCardDraft`
 
 ### 功能
 
-`validateRoutineCardDraft` 校验 LLM 写出的训练编排卡片草稿，并把通过校验的完整草稿登记为服务端资源。
+`validateRoutineCardDraft` 校验 LLM 写出的训练编排卡片草稿。校验通过后，Tool 立即把这份草稿生效为当前会话中的编排卡片 artifact/revision，并返回 Response Writer 可以直接推送的 `responseEvent`。
 
 这个 tool 只做：
 
 - 校验 `candidateSetIds` 存在、可访问，且属于当前 Agent run 可消费资源。
 - 校验所有 `exerciseId` 存在并来自允许的候选集合。
 - 校验 section 结构、动作顺序、处方字段、预计时长和重复动作边界。
-- 登记 `routineCardDraftId` 和 `validationId`。
+- 登记 `routineCardDraftId` 和 `validationId`，用于 trace、幂等和后续引用。
+- 生成编排卡片 `artifactId`、`revisionId` 和 `responseEvent`，让本轮回复可以直接推送卡片。
 
 这个 tool 不做：
 
@@ -480,6 +486,7 @@ type ValidateExerciseCardDraftOutput = {
 - 不替换不合适动作。
 - 不根据关键词判断用户是不是要减脂、增肌或康复。
 - 不把动作编排成另一套语义目标。
+- 不等待额外写入步骤；校验通过就是卡片生效边界。
 
 如果校验发现动作不足或 section 缺失，Tool 应返回 diagnostics，LLM 决定是重新检索、重写草稿，还是向用户澄清。
 
@@ -592,6 +599,9 @@ type ValidateRoutineCardDraftOutput = {
   routineCardDraftId: string;
   validationId: string;
   candidateSetIds: string[];
+  artifactId: string;
+  revisionId: string;
+  responseEvent: ConversationCardResponseEvent;
   acceptedExerciseIds: string[];
   rejectedExerciseIds: string[];
   routineSummary: {
@@ -609,9 +619,12 @@ type ValidateRoutineCardDraftOutput = {
 
 | 字段 | 含义 |
 | --- | --- |
-| `routineCardDraftId` | 服务端登记的编排卡片草稿 id。保存 tool 只能通过这个 id 恢复完整 payload |
-| `validationId` | 本次校验 id。保存时必须一起传入 |
+| `routineCardDraftId` | 服务端登记的编排卡片草稿 id，用于 trace、幂等和后续引用 |
+| `validationId` | 本次校验 id，用于证明 artifact/revision 来自已校验草稿 |
 | `candidateSetIds` | 本草稿消费的候选集合 id 列表 |
+| `artifactId` | 校验通过后生成的会话卡片 artifact id |
+| `revisionId` | 校验通过后生成的 artifact revision id。前端渲染和后续引用应以它为稳定版本事实 |
+| `responseEvent` | Response Writer 可以推送给前端的安全卡片事件 |
 | `acceptedExerciseIds` | 校验通过并进入编排草稿的动作 id |
 | `rejectedExerciseIds` | 因不存在、越权或不在候选集合中被拒绝的动作 id |
 | `routineSummary.title` | 编排卡片标题 |
@@ -619,7 +632,7 @@ type ValidateRoutineCardDraftOutput = {
 | `routineSummary.exerciseCount` | 动作数量 |
 | `routineSummary.estimatedMinutes` | Tool 根据处方确定性估算的训练时长 |
 | `routineSummary.sectionSummaries` | 每个 section 的结构摘要 |
-| `warnings` | 不阻止保存的结构化警告，例如时长偏差、重复动作、缺少可选 notes |
+| `warnings` | 不阻止卡片生效的结构化警告，例如时长偏差、重复动作、缺少可选 notes |
 
 #### `RoutineSectionSummary`
 
@@ -643,85 +656,9 @@ type RoutineSectionSummary = {
 | `exerciseIds` | section 内动作 id 列表 |
 | `estimatedMinutes` | section 的确定性估算时长 |
 
-## Tool 4：`saveConversationCardArtifact`
+## 用户可见卡片事件
 
-### 功能
-
-`saveConversationCardArtifact` 把已校验、已登记的动作卡片草稿或编排卡片草稿保存为会话 artifact/revision，并返回 Response Writer 可以推送给用户的卡片引用。
-
-这个 tool 只做：
-
-- 根据 `draftId` 和 `validationId` 从服务端当前 run 资源中恢复完整 payload。
-- 校验 draft、validation、candidate set、用户、会话和 Agent run 的归属关系。
-- 保存 `ConversationArtifact` 和对应 revision。
-- 返回用户可见卡片事件所需的安全投影。
-
-这个 tool 不做：
-
-- 不接收完整卡片 payload。
-- 不允许 LLM 直接写数据库字段。
-- 不重新校验或改写 LLM 的语义内容。
-- 不绕过 validation 保存草稿。
-
-### 入参
-
-```ts
-type SaveConversationCardArtifactInput = {
-  draftKind: "exercise_card" | "routine_card";
-  draftId: string;
-  validationId: string;
-  artifactTitle?: string;
-  publishMode: "push_to_chat";
-  idempotencyKey?: string;
-};
-```
-
-#### 入参字段说明
-
-| 参数 | 类型 | 必填 | 含义 |
-| --- | --- | --- | --- |
-| `draftKind` | `"exercise_card" \| "routine_card"` | 是 | 要保存的草稿类型。必须与 `draftId` 对应资源类型一致 |
-| `draftId` | `string` | 是 | `exerciseCardDraftId` 或 `routineCardDraftId` |
-| `validationId` | `string` | 是 | 对应 validate tool 返回的校验 id |
-| `artifactTitle` | `string` | 否 | 保存到 artifact 的标题。缺省时使用 draft 标题 |
-| `publishMode` | `"push_to_chat"` | 是 | 基础闭环只支持推送到当前聊天 |
-| `idempotencyKey` | `string` | 否 | 幂等键，用于避免同一 Agent run 重复保存同一张卡片 |
-
-### 出参
-
-```ts
-type SaveConversationCardArtifactOutput = {
-  artifactKind: "exercise_card" | "routine_card";
-  artifactId: string;
-  revisionId: string;
-  validationId: string;
-  draftId: string;
-  responseEvent: ConversationCardResponseEvent;
-  savedSummary: {
-    title: string;
-    itemCount?: number;
-    sectionCount?: number;
-    exerciseCount: number;
-  };
-};
-```
-
-#### 出参字段说明
-
-| 字段 | 含义 |
-| --- | --- |
-| `artifactKind` | 保存后的卡片类型 |
-| `artifactId` | 会话 artifact id |
-| `revisionId` | artifact revision id。前端渲染和后续引用应以它为稳定版本事实 |
-| `validationId` | 本次保存消费的校验 id |
-| `draftId` | 本次保存消费的草稿 id |
-| `responseEvent` | Response Writer 可以推送给前端的安全卡片事件 |
-| `savedSummary.title` | 保存后的卡片标题 |
-| `savedSummary.itemCount` | 动作卡片条目数量，动作卡片时返回 |
-| `savedSummary.sectionCount` | 编排卡片 section 数量，编排卡片时返回 |
-| `savedSummary.exerciseCount` | 卡片内动作总数 |
-
-#### `ConversationCardResponseEvent`
+`validateExerciseCardDraft` 和 `validateRoutineCardDraft` 校验通过后都必须返回 `ConversationCardResponseEvent`。Response Writer 只消费这个事件和 artifact/revision 引用来推送卡片，不读取 LLM 原始草稿。
 
 ```ts
 type ConversationCardResponseEvent = {
@@ -741,7 +678,7 @@ type ConversationCardResponseEvent = {
 | `artifactId` | 会话 artifact id |
 | `revisionId` | artifact revision id |
 | `title` | 用户可见卡片标题 |
-| `renderResourceId` | 前端读取卡片渲染数据的资源 id。它应指向服务端保存后的安全投影，而不是 LLM 原始输出 |
+| `renderResourceId` | 前端读取卡片渲染数据的资源 id。它应指向服务端生效后的安全投影，而不是 LLM 原始输出 |
 
 ## 典型调用示例
 
@@ -756,13 +693,9 @@ type ConversationCardResponseEvent = {
 
 3. LLM 调用 validateExerciseCardDraft
    candidateSetId = 上一步返回的 candidateSetId
+   校验通过后直接返回 artifactId / revisionId / responseEvent
 
-4. LLM 调用 saveConversationCardArtifact
-   draftKind = "exercise_card"
-   draftId = validateExerciseCardDraft.output.exerciseCardDraftId
-   validationId = validateExerciseCardDraft.output.validationId
-
-5. Response Writer 根据 responseEvent 推送动作卡片
+4. Response Writer 根据 validateExerciseCardDraft.output.responseEvent 推送动作卡片
 ```
 
 ### 推送编排卡片
@@ -784,13 +717,9 @@ type ConversationCardResponseEvent = {
 
 5. LLM 调用 validateRoutineCardDraft
    candidateSetIds = [warmupCandidateSetId, mainCandidateSetId, cooldownCandidateSetId]
+   校验通过后直接返回 artifactId / revisionId / responseEvent
 
-6. LLM 调用 saveConversationCardArtifact
-   draftKind = "routine_card"
-   draftId = validateRoutineCardDraft.output.routineCardDraftId
-   validationId = validateRoutineCardDraft.output.validationId
-
-7. Response Writer 根据 responseEvent 推送编排卡片
+6. Response Writer 根据 validateRoutineCardDraft.output.responseEvent 推送编排卡片
 ```
 
 ## 不纳入基础闭环的 Tool
@@ -811,7 +740,6 @@ type ConversationCardResponseEvent = {
 1. LLM 可以通过 `searchExerciseResources` 拿到数据库动作候选。
 2. 动作卡片只能引用候选集合中的 `exerciseId`。
 3. 编排卡片所有动作都必须来自已声明的 `candidateSetIds`。
-4. 通过 validate 的草稿必须登记为服务端资源，并返回 draft id 和 validation id。
-5. 保存 tool 只能消费 draft id 和 validation id，不能消费 LLM 重放的完整 payload。
-6. Response Writer 只消费 `saveConversationCardArtifact` 返回的 `responseEvent` 和 artifact/revision 引用。
-7. 任一 tool 失败时必须返回结构化 diagnostics，后续写入不能消费失败或未满足的资源。
+4. 通过 validate 的草稿必须直接生效为会话卡片 artifact/revision，并返回 draft id、validation id 和 `responseEvent`。
+5. Response Writer 只消费 validate tool 返回的 `responseEvent` 和 artifact/revision 引用，不读取 LLM 原始草稿。
+6. 任一 tool 失败时必须返回结构化 diagnostics，不能生成 artifact/revision，也不能推送卡片事件。
