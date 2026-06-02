@@ -138,7 +138,23 @@ Agent tool definition 需要新增或规范化一份能力合同，至少包含�
 
 示例：用户说“换一套没有器械的上肢训练”。LLM 应该调用 `searchExercises` 并把“无器械”作为 hard constraint，把“上肢”作为 hard constraint 或 body region filter，把“routine 需要 warmup/training/stretch 足够候选”作为 result requirement。`query="上肢训练 无器械"` 只能作为召回或排序提示，不构成 hard constraint。
 
-### 5. Tool 执行必须区分“参数不足”和“能力不支持”
+### 5. `agent_tool_decision` prompt 必须同步新 ToolRequest 合同
+
+工具能力合同和模型可见 schema 是主合同，但当前生产链路还会通过 `lib/server/ai/prompt-config.ts` 的 `agent_tool_decision` prompt module 指导 LLM 何时调用工具、怎样组织工具输入、以及失败后怎样修复。因此本 change 不能只更新 registry description 或 schema 摘要，还必须同步更新 prompt module。
+
+`agent_tool_decision` 至少需要表达以下策略：
+
+- 调用执行型 `searchExercises` 时，必须使用 `operation=build_exercise_candidate_set` 或等价操作标识。
+- 用户明确的器械、身体区域、section、难度、风险排除、居家条件等执行边界必须写入结构化 `filters`，不能只写入 `query`、`preferences`、`avoidances` 或自然语言 reason。
+- routine / plan / patch 候选必须写入必要 `resultRequirements`，例如最少候选数、section 覆盖、`mustBeUsableFor` 和 `requireProof`。
+- `query` 只能作为召回或排序提示；LLM 不得把 query 文本当作 hard constraint 已满足的证据。
+- 当工具返回 `missing_required_parameter`、`invalid_parameter`、`unsupported_operation`、`insufficient_candidates` 或 `result_requirement_unmet` 时，LLM 必须基于结构化 diagnostics 重新调用 tool、澄清或 blocked，不能把失败包装成成功回答。
+
+`agent_tool_execution` 可保持通用，但应补充：工具失败或 `satisfied=false` 时，下一步只能走 repair / retry / clarification / blocked / failed，不得继续消费该资源。
+
+这不是用 prompt 替代服务端校验。prompt 的职责是让 LLM 按新合同提交可执行参数；服务端仍只按 schema、白名单、facet、权限、候选证据和 result requirements 做确定性执行与证明。
+
+### 6. Tool 执行必须区分“参数不足”和“能力不支持”
 
 当 LLM 传入的参数不足、字段非法、资源引用不唯一、候选不足或该 tool 根本不支持对应操作时，tool 必须返回结构化失败。失败类型至少分为：
 
@@ -162,7 +178,7 @@ tool 不得用以下方式伪装成功：
 
 原因：用户真正需要的是“LLM 懂了以后 tool 能执行”。如果 tool 执行不了，系统应该显式暴露这个事实，让 Agent repair 或澄清。
 
-### 6. Agent tools 按能力类型重新审计
+### 7. Agent tools 按能力类型重新审计
 
 当前工具按风险和合同要求划分：
 
@@ -182,7 +198,7 @@ tool 不得用以下方式伪装成功：
 - `saveConversationArtifactRevision`: `persistence`。只保存已通过 validation 和 policy 的资源；不能替 validator 判断训练是否满足用户意图。
 - `askClarification`: `clarification`。只生成澄清问题和建议，不执行数据查询或写入。
 
-### 7. `searchExercises` 改为结构化查询执行器
+### 8. `searchExercises` 改为结构化查询执行器
 
 `searchExercises` 输入继续由 LLM 决定，但输入形态必须收紧为具体过滤字段，而不是让 `query` 或自由文本偏好承载执行型 hard constraint。第一版建议保留现有字段并新增或收敛到更明确的过滤对象：
 
@@ -227,7 +243,7 @@ tool 不得用以下方式伪装成功：
 
 取舍：这会增加 tool schema 的字段数量，但能换来查询结果可测试、可追踪、可证明。
 
-### 8. 服务端只校验白名单字段和合法 facet，不读用户原文
+### 9. 服务端只校验白名单字段和合法 facet，不读用户原文
 
 服务端必须只处理工具输入中的结构化字段。它可以做：
 
@@ -246,7 +262,7 @@ tool 不得用以下方式伪装成功：
 
 原因：这符合项目 AI 语义边界。语义理解仍由 LLM 负责，服务端只是让查询合同变得严格。
 
-### 9. 执行型 candidate set 必须带查询证据
+### 10. 执行型 candidate set 必须带查询证据
 
 `candidateSet` 不能只表示 `exerciseIds`。执行型 `candidateUse=recommendation/routine/plan/patch` 的成功输出必须包含：
 
@@ -260,7 +276,7 @@ tool 不得用以下方式伪装成功：
 
 后续生成、Patch、校验和 trace 都引用这份证据，而不是让模型重新复述过滤条件。
 
-### 10. 生成和补动作必须继承 candidate set 查询边界
+### 11. 生成和补动作必须继承 candidate set 查询边界
 
 `generateRoutineDraft` 当前会保留模型传入的候选动作，并在缺少 warmup / stretch 时从全量动作库补动作。这个行为需要改为：
 
@@ -271,7 +287,7 @@ tool 不得用以下方式伪装成功：
 
 `generatePlanDraft` 和 `proposeWorkoutPatch` 也必须验证使用的动作来自对应 candidate set，并且没有越过 candidate set 的查询证据。
 
-### 11. Validator 对查询边界和结果合同做确定性证明
+### 12. Validator 对查询边界和结果合同做确定性证明
 
 `validateRoutineDraft`、`validatePlanDraft` 和 `validateWorkoutPatch` 必须能读取或接收 candidate set 查询证据，并校验最终动作仍满足这份证据。违反查询边界属于确定性 hard fail，而不是训练合理性 warning。
 
@@ -284,7 +300,7 @@ tool 不得用以下方式伪装成功：
 
 这不是服务端重新判断自然语言语义；它只校验工具查询事实和数据库动作元数据是否一致。
 
-### 12. 与现有 change 的边界
+### 13. 与现有 change 的边界
 
 `optimize-exercise-search-ranking-runtime` 处理排序、缓存、query mode 和性能；本 change 处理“执行型结构化查询合同”和“候选查询证据”。实现时可以共享 diagnostics 字段，但不把排序优化作为前置。
 
@@ -296,6 +312,7 @@ tool 不得用以下方式伪装成功：
 
 - 每个 Agent tool 都有可被 registry 校验的 capability contract。
 - 模型可见工具摘要来自同一份合同，并保留执行必需的 operation、filters、resultRequirements 和 failure semantics。
+- `agent_tool_decision` prompt module 明确指导 LLM 使用 `operation`、`filters` 和 `resultRequirements` 表达执行型 ToolRequest，并声明 `query` 不是 hard constraint。
 - LLM 可以通过结构化参数完整表达“想让 tool 返回什么结果”；如果表达不了，已新增或调整对应 tool。
 - 所有复杂 tool 成功输出都能证明 `ToolRequest` 被满足；不能满足时返回结构化失败。
 - 后续工具只能消费已登记且 `satisfied=true` 的资源。
@@ -318,14 +335,15 @@ tool 不得用以下方式伪装成功：
 1. 为所有 Agent tools 建立 capability audit 表，逐项记录 LLM 可能想要的结果、当前 schema 是否能表达、tool 成功时能否证明。
 2. 定义 `AgentToolCapabilityContract`、统一 ToolRequest 语义、统一 ToolResult 履约状态和结构化 failure codes。
 3. 把 tool registry、模型可见工具摘要、dependency graph、resource registry、trace 和测试接到同一份能力合同。
-4. 收紧 exact read / list 工具边界，新增或拆分 `resolveArtifactReference` 和 `queryUserMemory`，避免粗搜索和 snapshot 假装完成精确语义操作。
-5. 定义结构化动作查询输入 schema、result requirements 和 candidate set 查询证据类型，保留旧结构化字段的兼容解析但模型可见摘要切到新字段。
-6. 修改 `searchExercises` 工具执行：校验白名单字段、合法 facet、执行 hard filters、校验 result requirements、输出 proof 和 diagnostics。
-7. 修改 routine / plan / patch 生成工具，确保只消费 `satisfied=true` 的 candidate set 查询证据，并且补动作、计划展开和 replacement 都不越界。
-8. 修改 workout validator，将查询边界违反和 result requirements 未满足作为 hard fail，并接入可恢复失败分类。
-9. 更新 trace / Response Writer / 黑盒报告字段，让报告能说明每个 tool 接收了什么 ToolRequest、执行了什么、拒绝了什么、是否 satisfied、产出了什么证据。
-10. 增加单元测试、Agent 工具测试、tool request replay 测试和黑盒流程。先覆盖无器械 trace，再覆盖器械要求、风险排除、难度、section 覆盖、artifact 引用解析、memory 查询、routine 补动作和 patch 替换。
-11. 如果上线后发现模型频繁漏填 filters 或 resultRequirements，只能通过工具摘要、schema、repair 或澄清改进，不得让执行型候选用裸 query 或放宽后的 hard filters 伪装成功。
+4. 更新 `agent_tool_decision` / 必要时 `agent_tool_execution` prompt module，让 LLM 在调用执行型工具时提交 `operation`、结构化 `filters` 和 `resultRequirements`，并按结构化 failure diagnostics repair。
+5. 收紧 exact read / list 工具边界，新增或拆分 `resolveArtifactReference` 和 `queryUserMemory`，避免粗搜索和 snapshot 假装完成精确语义操作。
+6. 定义结构化动作查询输入 schema、result requirements 和 candidate set 查询证据类型，保留旧结构化字段的兼容解析但模型可见摘要切到新字段。
+7. 修改 `searchExercises` 工具执行：校验白名单字段、合法 facet、执行 hard filters、校验 result requirements、输出 proof 和 diagnostics。
+8. 修改 routine / plan / patch 生成工具，确保只消费 `satisfied=true` 的 candidate set 查询证据，并且补动作、计划展开和 replacement 都不越界。
+9. 修改 workout validator，将查询边界违反和 result requirements 未满足作为 hard fail，并接入可恢复失败分类。
+10. 更新 trace / Response Writer / 黑盒报告字段，让报告能说明每个 tool 接收了什么 ToolRequest、执行了什么、拒绝了什么、是否 satisfied、产出了什么证据。
+11. 增加单元测试、Agent 工具测试、tool request replay 测试和黑盒流程。先覆盖无器械 trace，再覆盖器械要求、风险排除、难度、section 覆盖、artifact 引用解析、memory 查询、routine 补动作和 patch 替换。
+12. 如果上线后发现模型频繁漏填 filters 或 resultRequirements，只能通过工具摘要、schema、prompt module、repair 或澄清改进，不得让执行型候选用裸 query 或放宽后的 hard filters 伪装成功。
 
 ## Open Questions
 

@@ -53,6 +53,13 @@ Agent 向模型暴露工具摘要时，系统 SHALL 明确哪些字段是 hard f
 - **AND** 摘要 MUST 标明执行型候选集合不能只依赖 `query`
 - **AND** 摘要 MUST 标明 `query` 不是 hard constraint
 
+#### Scenario: 更新 Agent 决策 Prompt
+- **WHEN** Agent 构造 `agent_tool_decision` prompt module
+- **THEN** prompt MUST 引导 LLM 在执行型 `searchExercises` 调用中提交 `operation`、结构化 filters 和必要 result requirements
+- **AND** prompt MUST 明确用户明确约束不能只写入 `query`、`preferences`、`avoidances` 或 reason
+- **AND** prompt MUST 明确 `query` 只用于召回或排序，不是 hard constraint
+- **AND** prompt MUST 引导 LLM 对结构化失败 diagnostics 执行 repair、retry、clarification、blocked 或 failed，而不是继续消费失败资源
+
 #### Scenario: 暴露 artifact 和 memory 工具摘要
 - **WHEN** Agent 构造模型可见工具说明
 - **THEN** `searchArtifacts` 摘要 MUST 明确它是搜索候选，不保证唯一引用解析

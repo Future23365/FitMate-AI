@@ -38,6 +38,7 @@
 
 - 影响 `lib/server/agent-orchestrator/tool-registry.ts` 或等价 registry 定义，需要为每个 tool 增加能力类型、输入合同、执行合同、拒绝条件、证据输出和不支持语义说明。
 - 影响模型可见工具 schema / prompt summary，需要把 tool 的 operation、hard constraints、soft ranking hints、result requirements、projection 和 failure semantics 暴露给 LLM，且不能在 token 瘦身时隐藏执行必需字段。
+- 影响 `lib/server/ai/prompt-config.ts` 中 `agent_tool_decision`、必要时 `agent_tool_execution` prompt module：系统 prompt 必须引导 LLM 把执行型候选边界写入结构化 `operation`、`filters` 和 `resultRequirements`，并明确 `query` 只能作为召回或排序信号。
 - 影响 `lib/server/agent-orchestrator/readonly-tools.ts` 中 `searchExercisesAgentToolInputSchema`、工具说明、工具执行和 diagnostics。
 - 影响 `lib/server/exercises/exercise-service.ts` 中动作检索输入规范化、hard filter、facet 校验和候选证明。
 - 影响 `lib/server/agent-orchestrator/workout-tools.ts` 中 `generateRoutineDraft`、`generatePlanDraft`、`proposeWorkoutPatch` 对 candidate set 的依赖校验和补动作边界。

@@ -13,7 +13,9 @@
 - [ ] 2.4 为每个 tool 定义结构化失败类型，至少覆盖参数缺失、参数非法、能力不支持、资源歧义、候选不足、边界不匹配、结果要求未满足和结果不可证明。
 - [ ] 2.5 更新 `AgentToolRegistry` 校验：缺少 capability contract 或 failure semantics 的 tool 不得作为复杂业务 tool 暴露给模型。
 - [ ] 2.6 更新工具摘要生成逻辑，确保 LLM 能看到 operation、hard constraints、soft preferences、result requirements、projection、query 语义、拒绝条件和不能执行的常见操作。
-- [ ] 2.7 确保 dependency graph、tool result resource registry、trace 和测试共用同一份 capability contract，不复制一套描述文本。
+- [ ] 2.7 更新 `agent_tool_decision` prompt module，明确执行型 tool 调用必须使用 `operation`、结构化 `filters` 和必要 `resultRequirements`，并明确 `query` 不是 hard constraint。
+- [ ] 2.8 更新 `agent_tool_execution` 或等价失败恢复 prompt 边界，确保工具结构化失败或 `satisfied=false` 时只能进入 repair、retry、clarification、blocked 或 failed，不能继续消费该资源。
+- [ ] 2.9 确保 dependency graph、tool result resource registry、trace、prompt module 和测试共用同一份 capability contract，不复制一套描述文本。
 
 ## 3. 读工具与引用工具严格边界
 
@@ -69,14 +71,15 @@
 - [ ] 8.1 增加 tool registry 测试：所有 Agent tools 都声明 capability contract，模型可见摘要来自同一份合同。
 - [ ] 8.2 增加 ToolRequest / ToolResult 测试：参数缺失、参数非法、能力不支持、资源歧义、结果要求未满足和结果不可证明时 tool 必须失败，不能静默成功。
 - [ ] 8.3 增加 schema 摘要测试：operation、hard constraints、result requirements、关键 enum 和 query 语义不会被 token 瘦身隐藏。
-- [ ] 8.4 增加 `searchExercises` 单元测试：无器械、指定器械、风险排除、难度、section、无效 facet、裸 query 执行型失败、section 覆盖不足和 result requirement 未满足。
-- [ ] 8.5 增加 Agent tool 测试：模型传合法结构化 filters 和 result requirements 时返回 candidate set 查询证据；传无效 filters 时返回可恢复 diagnostics。
-- [ ] 8.6 增加 `searchArtifacts` / `resolveArtifactReference` 测试：引用结果不唯一、引用无法表达或候选证据不足时必须返回歧义、unsupported 或澄清。
-- [ ] 8.7 增加 `getUserMemory` / `queryUserMemory` 测试：snapshot 不得伪装成结构化查询；memory filters 无法证明覆盖时返回 `unverifiable_result`。
-- [ ] 8.8 增加 routine 生成测试：补 warmup / stretch 时不得从全量动作库补入违反查询边界的动作。
-- [ ] 8.9 增加 plan / patch 测试：计划展开和 replacement 动作必须满足 candidate set 查询证据和 result requirements。
-- [ ] 8.10 增加 validator 测试：候选集合内但违反查询边界或 result requirements 的动作必须 hard fail，不能作为 warning 放过。
-- [ ] 8.11 增加 tool request replay 测试：复现“换一套没有器械的” trace，验证 LLM 传入结构化 filters 后最终 routine 不包含器械动作，并记录 tool diagnostics。
-- [ ] 8.12 增加真实模型黑盒或详细套件场景：用户要求“换一套没有器械的”时，最终 routine 不得包含器械动作，且报告能说明 search/generate/validate 的 evidence。
-- [ ] 8.13 运行 `npm test` 或相关测试子集，并按需运行 `npm run typecheck`。
-- [ ] 8.14 运行 `openspec validate harden-search-exercises-structured-query-contract --strict`，确认 proposal、design、spec 和 tasks 可归档。
+- [ ] 8.4 增加 prompt module 测试：`agent_tool_decision` 必须保留执行型 ToolRequest 的 `operation`、`filters`、`resultRequirements`、`query` 非 hard constraint 和结构化失败修复规则。
+- [ ] 8.5 增加 `searchExercises` 单元测试：无器械、指定器械、风险排除、难度、section、无效 facet、裸 query 执行型失败、section 覆盖不足和 result requirement 未满足。
+- [ ] 8.6 增加 Agent tool 测试：模型传合法结构化 filters 和 result requirements 时返回 candidate set 查询证据；传无效 filters 时返回可恢复 diagnostics。
+- [ ] 8.7 增加 `searchArtifacts` / `resolveArtifactReference` 测试：引用结果不唯一、引用无法表达或候选证据不足时必须返回歧义、unsupported 或澄清。
+- [ ] 8.8 增加 `getUserMemory` / `queryUserMemory` 测试：snapshot 不得伪装成结构化查询；memory filters 无法证明覆盖时返回 `unverifiable_result`。
+- [ ] 8.9 增加 routine 生成测试：补 warmup / stretch 时不得从全量动作库补入违反查询边界的动作。
+- [ ] 8.10 增加 plan / patch 测试：计划展开和 replacement 动作必须满足 candidate set 查询证据和 result requirements。
+- [ ] 8.11 增加 validator 测试：候选集合内但违反查询边界或 result requirements 的动作必须 hard fail，不能作为 warning 放过。
+- [ ] 8.12 增加 tool request replay 测试：复现“换一套没有器械的” trace，验证 LLM 传入结构化 filters 后最终 routine 不包含器械动作，并记录 tool diagnostics。
+- [ ] 8.13 增加真实模型黑盒或详细套件场景：用户要求“换一套没有器械的”时，最终 routine 不得包含器械动作，且报告能说明 search/generate/validate 的 evidence。
+- [ ] 8.14 运行 `npm test` 或相关测试子集，并按需运行 `npm run typecheck`。
+- [ ] 8.15 运行 `openspec validate harden-search-exercises-structured-query-contract --strict`，确认 proposal、design、spec 和 tasks 可归档。
