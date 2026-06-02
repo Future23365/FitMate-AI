@@ -1,20 +1,4 @@
-## MODIFIED Requirements
-
-### Requirement: 系统必须提供只读 LLM Tool Registry
-
-系统 SHALL 将现有只读 LLM Tool Registry 升级为统一 `AgentToolRegistry`。Registry SHALL 同时支持读工具、规划工具、校验工具和受控写工具；所有工具仍必须在服务端执行 Schema、权限、摘要和 trace 边界。
-
-#### Scenario: 注册 Agent 工具
-- **WHEN** 服务端启动或构建聊天编排工具集合
-- **THEN** registry MUST 至少包含 `listRecentArtifacts`、`searchArtifacts`、`getArtifactPayload`、`searchExercises`、`getExerciseById`、`proposeWorkoutPatch`、`validateWorkoutPatch`、`generateRoutineDraft`、`validateRoutineDraft`、`saveConversationArtifactRevision` 和 `askClarification` 或等价工具
-- **AND** 每个工具 MUST 声明名称、描述、输入 Schema、输出摘要策略、Trace 摘要策略、执行函数、读写级别、幂等 key 和前置依赖
-- **AND** 写工具 MUST 声明其前置校验依赖、可写范围和需要引用的 tool result id 类型
-
-#### Scenario: 工具名称不在 registry 中
-- **WHEN** LLM 请求调用未注册工具
-- **THEN** 系统 MUST 拒绝执行该工具
-- **AND** 系统 MUST 记录可诊断错误
-- **AND** 系统 MUST NOT 将未知工具请求转发到任意服务端函数
+## ADDED Requirements
 
 ### Requirement: 写能力不得通过只读 tool loop 暴露给 LLM
 
@@ -45,8 +29,6 @@
 - **WHEN** `generateRoutineDraft` 或 `generatePlanDraft` 被注册为 Agent 工具
 - **THEN** 工具 MUST 接收结构化 intent/edit plan、candidateSetId 和 ContextPackage 摘要
 - **AND** 工具 MUST NOT 只接收用户原文和 summary 后让 LLM 自由生成完整训练
-
-## ADDED Requirements
 
 ### Requirement: Agent tool loop 不得因旧只读预算跳过必要查询
 

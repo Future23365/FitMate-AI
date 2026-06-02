@@ -46,21 +46,37 @@
 
 ### Requirement: Routine 生成必须基于动作库候选并经过服务端校验
 
-聊天推送的 routine 草稿 SHALL 只使用后端动作库中存在且属于本轮候选集合的动作，并且 SHALL 在保存或展示前通过服务端确定性结构校验。服务端校验不得仅因训练合理性判断、动作 section 与本地推导元数据不一致、训练量偏高、休息偏短或目标时长来自默认推断而拒绝草稿。用户当前消息、历史已确认约束或用户确认 artifact 明确表达的避免动作、禁忌和时长要求仍可作为 hard fail 依据；未主动提出或未确认的伤病限制不得作为 hard fail 依据。
+聊天推送的 routine 草稿 SHALL 只使用后端动作库中存在、属于本轮候选集合或服务端受控补充候选集合的动作，并且 SHALL 在保存或展示前通过服务端确定性结构校验。用户或 Agent 明确传入 routine draft 工具的 `candidateExerciseIds` SHALL 被视为必须保留动作，系统不得在生成三段式 routine 时静默丢弃。服务端校验不得仅因训练合理性判断、动作 section 与本地推导元数据不一致、训练量偏高、休息偏短或目标时长来自默认推断而拒绝草稿。用户当前消息、历史已确认约束或用户确认 artifact 明确表达的避免动作、禁忌和时长要求仍可作为 hard fail 依据；未主动提出或未确认的伤病限制不得作为 hard fail 依据。
 
 #### Scenario: AI 选择候选动作
 
 - **WHEN** 系统调用 AI 生成 routine 草稿
 - **THEN** 提示词 MUST 要求 AI 只能选择候选动作中的 `exerciseId`
 - **AND** 服务端 MUST 校验草稿中每个 `exerciseId` 存在于数据库动作库
-- **AND** 服务端 MUST 校验草稿中每个 `exerciseId` 属于本轮候选集合
-- **AND** 系统 MUST NOT 持久化模型编造、客户端伪造或候选集合外的动作 id
+- **AND** 服务端 MUST 校验草稿中每个 `exerciseId` 属于本轮候选集合或服务端受控补充候选集合
+- **AND** 系统 MUST NOT 持久化模型编造、客户端伪造或候选边界外的动作 id
 
-#### Scenario: 候选动作不足
+#### Scenario: 指定动作必须保留
 
-- **WHEN** 动作库候选不足以生成包含热身、训练、拉伸的 routine
+- **WHEN** 用户要求把一批指定动作编成 routine
+- **AND** Agent 调用 `generateRoutineDraft` 时传入这些动作的 `candidateExerciseIds`
+- **THEN** 生成的 routine 草稿 MUST 包含这些 `candidateExerciseIds` 中每一个数据库存在的动作
+- **AND** 系统 MUST NOT 仅因三段式 section 选择逻辑而丢弃指定动作
+- **AND** 若指定动作不适合作为 warmup 或 stretch，系统 MUST 将其保留在 `training` 或更合适的非补充 section 中
+
+#### Scenario: 候选动作不足时受控补齐
+
+- **WHEN** 指定动作不足以生成包含热身、训练、拉伸的 routine
+- **THEN** 系统 MUST 从后端动作库中选择受控补充动作补齐缺失 section
+- **AND** 补充动作 MUST 纳入本次 routine 的候选边界并在后续 `validateRoutineDraft` 中可校验
+- **AND** 补充动作 MUST 优先满足用户明确器械、权限、候选用途和动作来源约束
+- **AND** 系统 MUST NOT 让 AI 使用数据库不存在或未纳入候选边界的动作补足 section
+
+#### Scenario: 受控补齐仍不足
+
+- **WHEN** 指定动作和受控补充动作仍无法覆盖 `warmup`、`training`、`stretch`
 - **THEN** 系统 MUST 返回可识别的失败结果
-- **AND** 系统 MUST NOT 让 AI 用候选列表之外的动作补足 section
+- **AND** 系统 MUST NOT 将缺少必要 section 的草稿发送给聊天卡片保存
 
 #### Scenario: AI 输出结构无效
 
@@ -171,7 +187,8 @@
 - **AND** 系统 MAY 在 trace 中记录 warning
 
 ### Requirement: Routine 生成必须由 Agent draft 工具触发
-系统 SHALL 让聊天 routine 生成从 Agent routine draft / validation / policy / persistence 工具链触发，而不是从旧聊天意图、内部动作事件或 `workoutIntent` 触发。
+
+系统 SHALL 让聊天 routine 生成从 Agent routine draft / validation / policy / persistence 工具链触发，而不是从旧聊天意图、内部动作事件或 `workoutIntent` 触发。首次生成 routine 时，工具链 SHALL 能创建新的 conversation artifact；修改已有 routine 时才需要 source artifact revision。
 
 #### Scenario: 用户请求单次训练
 - **WHEN** Agent 判断用户请求应生成单次 routine
@@ -179,9 +196,170 @@
 - **AND** `AgentExecutionResult` MUST 引用对应 tool result、validationId、policyDecisionId 或 revisionId
 - **AND** 系统 MUST NOT 通过旧 `workout_routine` intent 字段独立触发 routine 卡片
 
-#### Scenario: 明确时长
-- **WHEN** 用户给出明确训练时长
-- **THEN** Agent routine 输入 MUST 保留该时长和字段来源
-- **AND** routine 校验 MUST 验证草稿接近目标可执行时长
-- **AND** 系统 MUST NOT 从旧 `workoutIntent.sessionMinutes` 读取该字段作为生产事实源
+#### Scenario: 首次生成 routine
+- **WHEN** 本轮 Agent 已生成并校验新的 routine draft
+- **AND** 当前会话没有可作为 revision source 的 routine artifact
+- **THEN** 保存工具 MUST 创建新的 `ConversationArtifact(kind = "routine")`
+- **AND** artifact MUST 归属于当前 `userId` 和 `sessionId`
+- **AND** 系统 MUST NOT 因缺少 `sourceArtifactId` 将首次生成降级为自由文本回答
+
+#### Scenario: 修改已有 routine
+- **WHEN** 本轮 Agent 基于已有 routine artifact 生成修订或 patch
+- **THEN** 保存工具 MUST 校验 source artifact 可访问且 active
+- **AND** 保存结果 MUST 创建新的 revision
+- **AND** 系统 MUST NOT 覆盖旧 artifact payload
+
+### Requirement: Routine 生成必须恢复可修正的候选检索失败
+聊天 routine 生成 SHALL 在动作候选检索出现可恢复 facet 偏差时先重查候选，再决定是否阻断。
+
+#### Scenario: 上肢哑铃 routine 请求
+- **WHEN** 用户发送“今天想练上肢，30 分钟，有哑铃，帮我安排一套”或等价请求
+- **THEN** 系统 MUST 能通过动作候选检索获得哑铃上肢候选
+- **AND** 系统 MUST 继续进入 routine draft、validation、policy 或可展示结果链路
+- **AND** 系统 MUST NOT 因 `upper body` 这类未知 facet 首次检索失败直接回复动作库无匹配动作
+
+#### Scenario: 候选重查成功
+- **WHEN** Agent 根据 `searchExercises` 可恢复诊断重查后获得候选
+- **THEN** routine draft MUST 引用成功候选集合的 `candidateSetId`
+- **AND** 用户可见回复 MUST NOT 声称动作库没有匹配动作
+
+### Requirement: Routine 请求不得投影为动作推荐卡
+聊天 routine 生成请求 SHALL 只展示 routine、artifact、失败或澄清结果，不得把中间动作候选投影为动作推荐卡。
+
+#### Scenario: Agent 只引用 searchExercises 并输出 answered
+- **WHEN** 用户请求生成单次训练编排
+- **AND** Agent 结果只引用 `searchExercises` 工具结果
+- **THEN** 系统 MUST NOT 投影 `exercise_recommendation` 卡片作为最终训练结果
+- **AND** 系统 MUST 通过 Agent 决策约束促使下一轮使用 `generateRoutineDraft`
+
+#### Scenario: 动作推荐卡 summary
+- **WHEN** 系统确实投影 `exercise_recommendation` 卡片
+- **THEN** 卡片 summary MUST 使用推荐卡摘要
+- **AND** 卡片 summary MUST NOT 复制整段聊天正文
+
+### Requirement: Routine Agent 工具链必须通过服务端资源解析 draft
+
+聊天 routine 编排链路 SHALL 将 `generateRoutineDraft` 产出的完整 draft 作为本轮 Agent runtime 的服务端资源保存，并允许后续 validation、policy 和 artifact revision 工具通过资源 id 读取该 draft。模型 SHALL 只负责引用服务端登记的资源 id，不得被要求复写完整 routine draft payload。
+
+#### Scenario: Draft 生成后进入校验
+- **WHEN** `generateRoutineDraft` 成功返回 `draftId` 和完整 routine draft
+- **AND** 模型随后调用 `validateRoutineDraft` 并提供同一 `draftId`
+- **THEN** 服务端 MUST 从本轮 Agent tool results 中解析完整 draft
+- **AND** 服务端 MUST 使用解析出的 draft 执行 routine 校验
+- **AND** 系统 MUST NOT 要求模型在 `validateRoutineDraft` 输入中提交完整 `draft` 对象
+
+#### Scenario: 模型误传局部 draft payload
+- **WHEN** `generateRoutineDraft` 成功返回 `draftId` 和完整 routine draft
+- **AND** 模型调用 `validateRoutineDraft` 时提供同一 `draftId`
+- **AND** 模型额外提交了不完整或字段形状不匹配的 `draft` 对象
+- **THEN** 服务端 MUST NOT 使用该模型提交的 `draft` 作为校验事实源
+- **AND** 服务端 MUST 继续从本轮 Agent tool results 中解析完整 draft
+- **AND** 系统 MUST NOT 因模型误传的 partial `draft` 字段返回 `schema_validation_failed`
+
+#### Scenario: Draft 资源不存在
+- **WHEN** 模型调用 `validateRoutineDraft`、`evaluatePolicy` 或 `saveConversationArtifactRevision` 时引用不存在的 `draftId`
+- **THEN** 服务端 MUST 返回结构化工具失败
+- **AND** 系统 MUST NOT 展示或保存 routine 卡片
+- **AND** AI Trace MUST 记录资源解析失败的工具名和资源 id
+
+#### Scenario: 候选集合不匹配
+- **WHEN** 模型调用 `validateRoutineDraft` 时提供的 `candidateSetId` 与 draft 生成时登记的候选集合不一致
+- **THEN** 服务端 MUST 返回结构化依赖失败
+- **AND** 系统 MUST NOT 用不匹配的候选集合继续校验或保存 routine
+
+#### Scenario: 校验和策略通过后写入 artifact
+- **WHEN** routine draft 已通过 `validateRoutineDraft`
+- **AND** Policy 允许展示或进入可确认展示边界
+- **AND** 模型调用 `saveConversationArtifactRevision` 引用对应 `draftId`、`validationId` 和 `policyDecisionId`
+- **THEN** 服务端 MUST 使用已登记的 draft payload 写入 `ConversationArtifact`
+- **AND** 聊天回复 MUST 包含可供前端渲染 routine 卡片的 artifact / revision 证据
+- **AND** 系统 MUST NOT 退化为仅返回自由文本编排
+
+### Requirement: Routine 候选搜索不得被泛化 query 硬清零
+
+聊天 routine / plan 编排链路 SHALL 以结构化动作候选边界作为可执行候选集事实来源。当 `searchExercises` 请求用于 routine 或 plan 生成，并且已经提供结构化候选边界时，系统不得因为泛化 `query` 的 hybrid 召回未命中而丢弃全部结构化候选。
+
+#### Scenario: Routine 搜索带泛化 query 和结构化边界
+- **WHEN** Agent 调用 `searchExercises` 且 `candidateUse` 为 `routine`
+- **AND** 输入包含 `bodyRegions`、`equipmentRequired` 或 `allowedSections` 等结构化边界
+- **AND** 输入同时包含类似 `上肢训练` 的泛化 `query`
+- **THEN** 服务端 MUST 先按结构化边界执行 hard filters
+- **AND** 服务端 MUST NOT 要求该泛化 `query` 在单个动作文本或向量召回中命中后才保留候选
+- **AND** 若 hard filters 后存在可用候选，系统 MUST 返回候选集合并允许 Agent 继续调用 `generateRoutineDraft`
+
+#### Scenario: Recommendation 搜索仍保留 query 召回约束
+- **WHEN** Agent 调用 `searchExercises` 且 `candidateUse` 为 `recommendation`
+- **AND** 输入包含自然语言 `query`
+- **THEN** 服务端 MAY 继续使用 query hybrid match 约束候选召回
+- **AND** 系统 MUST NOT 因 routine / plan 的放宽规则改变 recommendation 搜索语义
+
+### Requirement: 基于推荐 artifact 的 routine 必须保留推荐动作集合
+
+当 Agent 通过结构化工具决策把 routine 生成绑定到 `exercise_recommendation` artifact 时，系统 SHALL 将该 artifact 中的主要 `exerciseIds` 作为 required candidate boundary。服务端 MUST 校验 artifact 归属、artifact kind、required 动作来源和最终 draft 覆盖，不得用重新裸搜得到的候选集合替代用户引用的推荐动作集合。
+
+#### Scenario: 用户要求使用已显示推荐动作生成 routine
+
+- **WHEN** Agent 决策将本轮 routine 生成绑定到一个当前用户可访问的 `exercise_recommendation` artifact
+- **AND** 该 artifact 包含 1 个或多个主要 `exerciseIds`
+- **THEN** `generateRoutineDraft` 输入 MUST 包含 `sourceArtifactId` 或等价 artifact 来源字段
+- **AND** `generateRoutineDraft` 输入 MUST 包含来自该 artifact 的 `requiredExerciseIds`
+- **AND** 服务端 MUST 校验全部 `requiredExerciseIds` 来自该 artifact 的 index 或 payload
+
+#### Scenario: 生成 artifact-bound routine
+
+- **WHEN** `generateRoutineDraft` 接收到合法的 `sourceArtifactId` 和 `requiredExerciseIds`
+- **THEN** routine draft MUST 包含全部 required 动作
+- **AND** required 动作 MAY 按服务端 routine section 规则重新分配顺序和阶段
+- **AND** 系统 MUST NOT 因缺少热身或拉伸阶段而丢弃 required 动作
+
+#### Scenario: 推荐动作缺少必要阶段
+
+- **WHEN** required 动作集合不足以覆盖 `warmup`、`training` 或 `stretch` 必要 section
+- **THEN** 服务端 MAY 从数据库动作库中补充必要阶段动作
+- **AND** 补充动作 MUST 被加入最终 `candidateExerciseIds`
+- **AND** 后续 Validator、Policy 和保存链路 MUST 使用包含 required 与 supplemental 动作的最终候选边界
+
+#### Scenario: required 动作来源不合法
+
+- **WHEN** `generateRoutineDraft` 输入的 `requiredExerciseIds` 不属于 `sourceArtifactId` 对应 artifact
+- **OR** `sourceArtifactId` 不属于当前用户
+- **OR** `sourceArtifactId` 不是可作为动作来源的推荐 artifact
+- **THEN** 服务端 MUST 返回结构化工具失败
+- **AND** 系统 MUST NOT 生成或保存 routine artifact
+
+#### Scenario: 无 artifact 绑定的从零 routine
+
+- **WHEN** Agent 没有结构化绑定已有推荐 artifact
+- **THEN** 系统 MAY 继续通过 `searchExercises(candidateUse="routine")` 获取候选集合
+- **AND** 服务端 MUST 继续校验草稿动作存在于数据库并属于本轮候选边界
+
+### Requirement: Routine 卡片不得由旧 trigger JSON 触发
+系统 SHALL 删除前端新聊天流中基于旧 trigger JSON 的 routine 或训练卡片触发路径。Routine 卡片 MUST 来自 Agent routine draft / validation / policy / persistence 工具链和 `AgentExecutionResult`。
+
+#### Scenario: assistant 回复包含旧 trigger JSON
+- **WHEN** 新聊天运行的 assistant 文本中包含 `workout_plan_trigger`、`workout_routine` 或其他历史遗留 trigger JSON
+- **THEN** 前端 MUST NOT 将该文本解析成 routine 卡片
+- **AND** routine 卡片 MUST 只由 `agent_execution_result`、artifact 事件、done metadata 或等价 Agent-first 事件触发
+
+#### Scenario: 历史 routine 草稿需要展示
+- **WHEN** 历史消息中存在旧 trigger JSON 或非 Agent-first routine 草稿
+- **THEN** 系统 MAY 做纯展示兼容或忽略该旧草稿
+- **AND** 系统 MUST NOT 为历史 trigger 新增生产执行兼容层
+
+### Requirement: Artifact-bound routine 生成必须支持旧推荐 revision
+系统 SHALL 在基于已有 `exercise_recommendation` artifact 的动作生成 routine 时，接受当前用户可访问的旧 recommendation revision id，并恢复到 active payload 后校验 required 动作来源。
+
+#### Scenario: 推荐 artifact 旧 revision 生成 routine
+- **WHEN** 用户要求将 recent artifact summary 中的动作做成一套 routine
+- **AND** Agent 调用 `generateRoutineDraft` 时传入 `sourceArtifactId` 和 `requiredExerciseIds`
+- **AND** `sourceArtifactId` 已经是 superseded artifact 但可恢复到同 lineage active recommendation artifact
+- **THEN** 服务端 MUST 使用 active recommendation payload 校验 `requiredExerciseIds`
+- **AND** 所有 required 动作都属于 active recommendation payload 时 MUST 继续生成 routine 草稿
+- **AND** 系统 MUST NOT 因 requested artifact status 为 superseded 而退回自由文本回答
+
+#### Scenario: required 动作不属于 active 推荐 payload
+- **WHEN** `generateRoutineDraft` 恢复到 active recommendation payload
+- **AND** 输入的 `requiredExerciseIds` 中存在不属于该 payload 的动作 id
+- **THEN** 服务端 MUST 返回结构化 `invalid_dependency` 或等价失败
+- **AND** 系统 MUST NOT 用裸搜候选替代用户指定 artifact 动作集合
 

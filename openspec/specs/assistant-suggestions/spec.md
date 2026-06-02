@@ -20,6 +20,13 @@ TBD - created by archiving change unify-ai-assistant-suggestions. Update Purpose
 - **THEN** 服务端 MUST 将这些旧字段归一化为 `assistantSuggestions`
 - **AND** 服务端 MUST 对旧字段执行与新结构相同的口吻、数量、去重和事实校验
 
+#### Scenario: Agent 终止结果输出建议
+
+- **WHEN** Tool-first Agent 本轮返回 `needs_clarification`、`blocked` 或成功推荐后的下一步建议
+- **THEN** 服务端 MUST 将 `AgentExecutionResult` 或 Response Writer 投影中的建议输出为 `assistant_suggestions` 流事件
+- **AND** 前端 MUST 在当前 assistant bubble 下展示建议 chips
+- **AND** 系统 MUST NOT 依赖旧 resolved intent、旧 `assistant_action` 或旧 `suggestedReplies` 事件才能展示建议
+
 ### Requirement: 建议内容由对应阶段的 LLM 产出
 
 系统 SHALL 让最了解当前上下文的 LLM 阶段产出建议候选；服务端 SHALL 负责统一结构和边界校验，不得把通用训练建议长期硬编码在服务端。
@@ -36,6 +43,13 @@ TBD - created by archiving change unify-ai-assistant-suggestions. Update Purpose
 - **THEN** 动作推荐阶段 MUST 能产出基于该推荐结果的下一步建议
 - **AND** 建议 MAY 包括基于这些动作生成训练、换一批更简单动作或调整偏好
 - **AND** 服务端 MUST 将这些建议标记为 `kind = "next_action"` 和 `blocking = false`
+
+#### Scenario: 推荐卡片不注入默认建议
+
+- **WHEN** Agent 已生成动作推荐卡片
+- **AND** Agent 回复上下文没有显式提供 `assistantSuggestions`
+- **THEN** Response Writer MUST NOT 自动注入“换一批”“生成训练”或等价固定建议
+- **AND** 前端 MUST NOT 展示来自 Response Writer 默认兜底的推荐卡片按钮
 
 #### Scenario: 训练生成失败后产出恢复建议
 

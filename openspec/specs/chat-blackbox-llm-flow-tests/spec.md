@@ -24,7 +24,8 @@ TBD - created by archiving change blackbox-chat-llm-flow-tests. Update Purpose a
 - **AND** 系统 MUST 在报告中记录后续轮次未执行的原因
 
 ### Requirement: 黑盒测试必须验证用户可见输出
-系统 SHALL 只以最终用户可见结果作为第一版断言对象，不把内部编排字段作为测试通过条件。
+
+系统 SHALL 只以最终用户可见结果作为第一版断言对象，不把内部编排字段作为测试通过条件。报告中的实际卡片类型 SHALL 表示用户可见训练卡片和明确阻断状态，不得把同一轮的普通回复状态误算成训练卡片之外的额外卡片。
 
 #### Scenario: 普通回复可展示
 - **WHEN** 任一黑盒流程轮次完成
@@ -34,6 +35,7 @@ TBD - created by archiving change blackbox-chat-llm-flow-tests. Update Purpose a
 #### Scenario: 预期卡片正常推送
 - **WHEN** 流程轮次预期推送动作推荐、单次训练或长期训练计划卡片
 - **THEN** 系统 MUST 验证最终用户可见结果包含对应的 `exercise_recommendation`、`workout_routine` 或 `workout_plan` 卡片类型
+- **AND** 系统 MUST NOT 因同一轮存在普通 assistant 文本而额外记录 `answer` 卡片失败
 - **AND** 系统 MUST NOT 校验卡片内动作选择、训练容量或计划内容准确性
 
 #### Scenario: 预期不推送卡片
