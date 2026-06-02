@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { createExercise, createWorkoutPlanIntent, createWorkoutRoutineDraft } from "./fixtures/domain";
+import { createExercise, createWorkoutPlanDraft, createWorkoutPlanIntent, createWorkoutRoutineDraft } from "./fixtures/domain";
 import {
   AgentToolRegistry,
   AgentToolRegistryContractError,
@@ -933,6 +933,105 @@ describe("agent orchestrator phase 2 readonly tools", () => {
       },
     });
   });
+
+  it("resolves unique artifact references and returns query user memory matches", async () => {
+    artifactMocks.searchArtifactsDetailed.mockResolvedValue({
+      candidates: [
+        {
+          artifactId: "artifact-1",
+          kind: "routine",
+          title: "上肢训练",
+          exerciseIds: ["push-up"],
+          goals: ["胸肌训练"],
+          muscles: ["胸部"],
+          equipment: ["自重"],
+          updatedAt: "2026-06-01T01:00:00.000Z",
+        },
+      ],
+      diagnostics: {
+        query: undefined,
+        filters: { userId: "user-1", sessionId: "chat-1", kind: "routine" },
+        recalledCount: 1,
+        filteredCount: 0,
+        rerank: [],
+        finalCandidateIds: ["artifact-1"],
+        failureReasons: [],
+      },
+    });
+    prismaMocks.userMemory.findMany.mockResolvedValue([
+      {
+        id: "memory-1",
+        kind: "explicit_preference",
+        subjectType: "equipment",
+        subjectId: null,
+        subjectLabel: "自重",
+        value: { text: "用户偏好自重训练。" },
+        source: "chat",
+        status: "active",
+        requiresConfirmation: false,
+        updatedAt: new Date("2026-06-01T02:00:00.000Z"),
+      },
+    ]);
+    const registry = createReadonlyAgentToolRegistry();
+
+    await expect(registry.get("resolveArtifactReference")?.execute(
+      {
+        operation: "resolve_artifact_reference",
+        referenceKind: "latest",
+        kind: "routine",
+        requireUnique: true,
+      },
+      createToolExecutionContext(),
+    )).resolves.toMatchObject({
+      ok: true,
+      output: {
+        artifactReferenceId: expect.stringMatching(/^artifact_reference_/),
+        artifactId: "artifact-1",
+      },
+    });
+
+    await expect(registry.get("queryUserMemory")?.execute(
+      {
+        operation: "query_user_memory",
+        filters: {
+          kind: ["explicit_preference"],
+          subjectType: ["equipment"],
+          confirmed: true,
+          source: ["chat"],
+        },
+        projection: { includeValue: true },
+        limit: 5,
+      },
+      createToolExecutionContext(),
+    )).resolves.toMatchObject({
+      ok: true,
+      output: {
+        memoryQueryId: expect.stringMatching(/^memory_query_/),
+        matchedMemories: [
+          expect.objectContaining({
+            memoryId: "memory-1",
+            subjectLabel: "自重",
+            confirmed: true,
+            value: { text: "用户偏好自重训练。" },
+          }),
+        ],
+        coverageDiagnostics: {
+          matchedCount: 1,
+          limit: 5,
+          unverifiable: false,
+          snapshotFreshness: "2026-06-01T02:00:00.000Z",
+        },
+      },
+    });
+    expect(prismaMocks.userMemory.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        userId: "user-1",
+        kind: { in: ["explicit_preference"] },
+        subjectType: { in: ["equipment"] },
+        requiresConfirmation: false,
+      }),
+    }));
+  });
 });
 
 describe("agent orchestrator phase 3 workout tools", () => {
@@ -986,6 +1085,75 @@ describe("agent orchestrator phase 3 workout tools", () => {
       error: { code: "missing_required_parameter" },
     });
     expect(exerciseMocks.searchExercises).not.toHaveBeenCalled();
+  });
+
+  it("creates edit plans and clarification outputs as standalone tool results", async () => {
+    const registry = createToolFirstAgentToolRegistry();
+    const editPlanInput = {
+      targetArtifactId: "artifact-1",
+      sourceArtifactPayloadId: "payload-1",
+      allowedArtifactPayloadIds: ["payload-1"],
+      requestedChangeSummary: "不用哑铃了，替换为自重动作。",
+      preserve: [{ kind: "duration", summary: "保留 30 分钟训练时长。" }],
+      changes: [{ kind: "equipment", summary: "排除哑铃，改为自重动作。" }],
+      scope: "whole_routine",
+      strategy: "patch",
+      requiredCandidateSetIds: ["candidate-set-patch"],
+      confirmationLevel: "none",
+    } as const;
+
+    await expect(registry.get("proposeWorkoutEditPlan")?.execute(
+      editPlanInput,
+      createToolExecutionContext(),
+    )).resolves.toMatchObject({
+      ok: true,
+      output: {
+        editPlanId: expect.stringMatching(/^edit_plan_/),
+        targetArtifactId: "artifact-1",
+        sourceArtifactPayloadId: "payload-1",
+        changes: [expect.objectContaining({ kind: "equipment" })],
+      },
+      modelSummary: expect.objectContaining({
+        editPlanId: expect.stringMatching(/^edit_plan_/),
+      }),
+    });
+
+    await expect(registry.get("proposeWorkoutEditPlan")?.execute(
+      {
+        ...editPlanInput,
+        sourceArtifactPayloadId: "payload-outside",
+      },
+      createToolExecutionContext(),
+    )).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "invalid_dependency",
+        detail: { sourceArtifactPayloadId: "payload-outside" },
+      },
+    });
+
+    await expect(registry.get("askClarification")?.execute(
+      {
+        question: "这次训练想重点练哪个部位？",
+        blockingReasons: ["缺少目标部位，无法生成可靠训练。"],
+        assistantSuggestions: [
+          { label: "练胸", message: "今天练胸，20分钟。" },
+          { label: "练腿", message: "今天练腿，20分钟。" },
+        ],
+      },
+      createToolExecutionContext(),
+    )).resolves.toMatchObject({
+      ok: true,
+      output: {
+        question: "这次训练想重点练哪个部位？",
+        blockingReasons: ["缺少目标部位，无法生成可靠训练。"],
+        assistantSuggestions: [
+          { label: "练胸", message: "今天练胸，20分钟。" },
+          { label: "练腿", message: "今天练腿，20分钟。" },
+        ],
+      },
+      toolResultId: expect.stringMatching(/^tool_result_/),
+    });
   });
 
   it("generates and validates routine drafts from current candidate ids", async () => {
@@ -1492,6 +1660,130 @@ describe("agent orchestrator phase 3 workout tools", () => {
     });
   });
 
+  it("validates plan drafts from registered plan draft resources", async () => {
+    const exerciseIds = ["warmup", "push-up", "stretch"];
+    exerciseMocks.listAllExercises.mockResolvedValue([
+      createExercise({
+        id: "warmup",
+        nameZh: "肩部绕环",
+        categoryZh: "热身",
+        allowedSections: ["warmup"],
+      }),
+      createExercise({
+        id: "push-up",
+        nameZh: "俯卧撑",
+        allowedSections: ["training"],
+      }),
+      createExercise({
+        id: "stretch",
+        nameZh: "胸肩拉伸",
+        categoryZh: "拉伸",
+        allowedSections: ["stretch"],
+      }),
+    ]);
+    const registry = createToolFirstAgentToolRegistry();
+    const intent = createWorkoutPlanIntent({
+      intentType: "plan",
+      goal: "胸肌训练",
+      sessionMinutes: 30,
+      weeklyFrequency: 1,
+    });
+    const draftResult = createPlanDraftToolResult({
+      candidateSetId: "candidate-set-plan",
+      candidateExerciseIds: exerciseIds,
+      intent,
+    });
+
+    await expect(registry.get("validatePlanDraft")?.execute(
+      {
+        draftId: "draft-plan-1",
+        candidateSetId: "candidate-set-plan",
+        candidateExerciseIds: exerciseIds,
+        intent,
+      },
+      createCandidateSetContext("candidate-set-plan", exerciseIds, {
+        toolResults: [draftResult],
+      }, "plan"),
+    )).resolves.toMatchObject({
+      ok: true,
+      output: {
+        validationId: expect.stringMatching(/^validation_/),
+        draftId: "draft-plan-1",
+        candidateSetId: "candidate-set-plan",
+        valid: true,
+      },
+      modelSummary: expect.objectContaining({
+        validationId: expect.stringMatching(/^validation_/),
+        valid: true,
+      }),
+    });
+  });
+
+  it("proposes and validates workout patches from current candidate resources", async () => {
+    const registry = createToolFirstAgentToolRegistry();
+    const candidateSetId = "candidate-set-patch";
+    const candidateExerciseIds = ["bodyweight-row"];
+    const patch = createWorkoutPatchFixture({ replacementExerciseId: "bodyweight-row" });
+    const editPlan = {
+      editPlanId: "edit-plan-1",
+      targetArtifactId: "artifact-1",
+      sourceArtifactPayloadId: "payload-1",
+      requestedChangeSummary: "不用哑铃，替换主训练动作。",
+      preserve: [{ kind: "duration", summary: "保留原训练容量。" }],
+      changes: [{ kind: "exercise", targetId: "push-up", summary: "替换为自重划船。" }],
+      scope: "single_item",
+      strategy: "patch",
+      requiredCandidateSetIds: [candidateSetId],
+      confirmationLevel: "none",
+    } as const;
+    const context = createCandidateSetContext(candidateSetId, candidateExerciseIds, {}, "patch");
+    const proposal = await registry.get("proposeWorkoutPatch")?.execute({
+      editPlan,
+      candidateSetId,
+      candidateExerciseIds,
+      patch,
+    }, context);
+
+    expect(proposal).toMatchObject({
+      ok: true,
+      output: {
+        patchId: expect.stringMatching(/^patch_/),
+        editPlanId: "edit-plan-1",
+        candidateSetId,
+        patch,
+      },
+      modelSummary: expect.objectContaining({
+        patchId: expect.stringMatching(/^patch_/),
+        candidateSetId,
+      }),
+    });
+
+    if (!proposal?.ok) {
+      throw new Error("expected proposeWorkoutPatch to succeed");
+    }
+
+    const proposedPatch = proposal.output as { patchId: string };
+
+    await expect(registry.get("validateWorkoutPatch")?.execute(
+      {
+        patchId: proposedPatch.patchId,
+        candidateSetId,
+        candidateExerciseIds,
+        patch,
+      },
+      context,
+    )).resolves.toMatchObject({
+      ok: true,
+      output: {
+        validationId: expect.stringMatching(/^validation_/),
+        valid: true,
+        errors: [],
+        candidateSetId,
+        patchId: proposedPatch.patchId,
+      },
+    });
+  });
+
   it("rejects patch replacement ids outside the current candidate set", async () => {
     const registry = createToolFirstAgentToolRegistry();
     const result = await registry.get("proposeWorkoutPatch")?.execute({
@@ -1530,6 +1822,59 @@ describe("agent orchestrator phase 3 workout tools", () => {
     expect(result).toMatchObject({
       ok: false,
       error: { code: "candidate_set_mismatch" },
+    });
+  });
+
+  it("evaluates policy decisions for new artifacts and workout patches", async () => {
+    const registry = createToolFirstAgentToolRegistry();
+    const patch = createWorkoutPatchFixture({ replacementExerciseId: "bodyweight-row" });
+
+    await expect(registry.get("evaluatePolicy")?.execute(
+      {
+        policyTarget: "new_artifact",
+        artifactKind: "routine",
+        draftId: "draft-routine-1",
+      },
+      createToolExecutionContext(),
+    )).resolves.toMatchObject({
+      ok: true,
+      output: {
+        policyDecisionId: expect.stringMatching(/^policy_decision_/),
+        artifactKind: "routine",
+        draftId: "draft-routine-1",
+        policy: {
+          allowed: true,
+          requiresConfirmation: false,
+          safeScope: "new_revision",
+        },
+      },
+      modelSummary: {
+        policyDecisionId: expect.stringMatching(/^policy_decision_/),
+        allowed: true,
+        requiresConfirmation: false,
+        safeScope: "new_revision",
+        blockedReasons: [],
+      },
+    });
+
+    await expect(registry.get("evaluatePolicy")?.execute(
+      {
+        policyTarget: "workout_patch",
+        patchId: "patch-1",
+        patch,
+      },
+      createToolExecutionContext(),
+    )).resolves.toMatchObject({
+      ok: true,
+      output: {
+        policyDecisionId: expect.stringMatching(/^policy_decision_/),
+        patchId: "patch-1",
+        policy: {
+          allowed: true,
+          requiresConfirmation: false,
+          safeScope: "artifact_only",
+        },
+      },
     });
   });
 
@@ -3343,6 +3688,70 @@ function createCandidateSetToolResult(
   };
 }
 
+function createPlanDraftToolResult(input: {
+  candidateSetId: string;
+  candidateExerciseIds: string[];
+  intent?: ReturnType<typeof createWorkoutPlanIntent>;
+  draftId?: string;
+}): NonNullable<AgentToolExecutionContext["toolResults"]>[number] {
+  const draftId = input.draftId ?? "draft-plan-1";
+  const draft = createWorkoutPlanDraft({
+    weeklyFrequency: input.intent?.weeklyFrequency,
+    estimatedSessionMinutes: input.intent?.sessionMinutes,
+    calendarHorizonDays: input.intent?.calendarHorizonDays,
+  });
+  const output: Extract<AgentWorkoutDraftOutput, { draftKind: "plan" }> = {
+    draftKind: "plan",
+    draftId,
+    candidateSetId: input.candidateSetId,
+    candidateExerciseIds: input.candidateExerciseIds,
+    draft,
+    validation: {
+      valid: true,
+      errors: [],
+      warnings: [],
+      exerciseIds: input.candidateExerciseIds,
+      invalidExerciseIds: [],
+      outsideCandidateExerciseIds: [],
+      dayEstimates: [
+        {
+          dayIndex: 1,
+          title: "Day 1 胸肌激活",
+          estimatedMinutes: input.intent?.sessionMinutes ?? 30,
+          declaredEstimatedMinutes: input.intent?.sessionMinutes ?? 30,
+          totalSets: 4,
+          exerciseCount: input.candidateExerciseIds.length,
+        },
+      ],
+      maxEstimatedMinutes: input.intent?.sessionMinutes ?? 30,
+      totalWeeklySets: 4,
+    },
+    recovery: {
+      recoverable: false,
+      guidanceMessage: "校验通过",
+      suggestedReplies: [],
+    },
+  };
+
+  return {
+    toolResultId: `tool-result-${draftId}`,
+    toolCallId: `tool-call-${draftId}`,
+    toolName: "generatePlanDraft",
+    status: "success",
+    draftId,
+    candidateSetId: input.candidateSetId,
+    output,
+    modelSummary: {
+      draftId,
+      candidateSetId: input.candidateSetId,
+    },
+    traceSummary: {
+      draftId,
+      candidateSetId: input.candidateSetId,
+    },
+  };
+}
+
 function createCandidateSetContext(
   candidateSetId: string,
   exerciseIds: string[],
@@ -3365,6 +3774,45 @@ function createToolExecutionContext(overrides: Partial<AgentToolExecutionContext
     sessionId: "chat-1",
     traceId: "trace-1",
     ...overrides,
+  };
+}
+
+function createWorkoutPatchFixture(input: {
+  replacementExerciseId: string;
+  sourceExerciseId?: string;
+  artifactId?: string;
+  artifactKind?: "routine" | "plan";
+}) {
+  const artifactId = input.artifactId ?? "artifact-1";
+  const artifactKind = input.artifactKind ?? "routine";
+  const sourceExerciseId = input.sourceExerciseId ?? "push-up";
+
+  return {
+    scope: "artifact_only" as const,
+    target: { artifactId, artifactKind },
+    operations: [
+      {
+        operation: "replace_exercise" as const,
+        target: {
+          artifactId,
+          artifactKind,
+          section: "training" as const,
+          exerciseId: sourceExerciseId,
+          occurrenceIndex: 1,
+        },
+        replacementExerciseId: input.replacementExerciseId,
+        preserve: {
+          section: true,
+          order: true,
+          sets: true,
+          target: true,
+          duration: true,
+          rest: true,
+        },
+        reason: "替换为候选集合中的动作。",
+      },
+    ],
+    reason: "用户要求替换主训练动作。",
   };
 }
 
