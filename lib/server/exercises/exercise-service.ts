@@ -1,8 +1,12 @@
 import "server-only";
 
-import { getExerciseRecordById, listExerciseRecords } from "@/lib/server/exercises/exercise-repository";
+import {
+  getExerciseRecordById,
+  listExerciseFacetsFromStore,
+  listExerciseListItems,
+  listExerciseRecords,
+} from "@/lib/server/exercises/exercise-repository";
 import { normalizeExerciseMetadata } from "@/lib/shared/exercises/metadata";
-import { getExerciseTagLabel } from "@/lib/shared/exercises/tag-labels";
 import {
   buildEmbeddingText,
   cosineSimilarity,
@@ -13,12 +17,9 @@ import {
 } from "@/lib/shared/search/hybrid-search";
 import type {
   Exercise,
-  ExerciseFacetItem,
   ExerciseFacets,
-  ExerciseListItem,
   ExerciseListQuery,
   ExerciseListResult,
-  ExerciseSort,
   ExerciseSuitability,
 } from "@/lib/shared/exercises/types";
 
@@ -36,12 +37,7 @@ export const exerciseBodyRegionTargetMuscles: Record<ExerciseBodyRegion, string[
   full_body: [],
 };
 
-const DEFAULT_SORT: ExerciseSort = "name_asc";
-const levelRank: Record<string, number> = {
-  beginner: 1,
-  intermediate: 2,
-  expert: 3,
-};
+const DEFAULT_SORT = "name_asc" as const;
 
 export type ExerciseSuitabilityFlags = Record<ExerciseSuitability, boolean>;
 
@@ -209,62 +205,30 @@ export async function listAllExercises(): Promise<Exercise[]> {
 }
 
 export async function listExercises(query: ExerciseListQuery = {}): Promise<ExerciseListResult> {
-  const exercises = await listExerciseRecords();
   const pagination = resolvePagination(query);
-  const filtered = exercises
-    .filter((exercise) => matchesExerciseQuery(exercise, query))
-    .sort(createExerciseSorter(query.sort ?? DEFAULT_SORT));
-  const totalPages = Math.ceil(filtered.length / pagination.limit);
+  const result = await listExerciseListItems({
+    query,
+    limit: pagination.limit,
+    offset: pagination.offset,
+    sort: query.sort ?? DEFAULT_SORT,
+  });
+  const totalPages = Math.ceil(result.total / pagination.limit);
 
   return {
-    items: filtered
-      .slice(pagination.offset, pagination.offset + pagination.limit)
-      .map(toExerciseListItem),
-    total: filtered.length,
+    items: result.items,
+    total: result.total,
     limit: pagination.limit,
     offset: pagination.offset,
     page: pagination.page,
     pageSize: pagination.limit,
     totalPages,
-    hasNextPage: pagination.offset + pagination.limit < filtered.length,
+    hasNextPage: pagination.offset + pagination.limit < result.total,
     hasPreviousPage: pagination.offset > 0,
   };
 }
 
 export async function getExerciseById(id: string): Promise<Exercise | null> {
   return getExerciseRecordById(id);
-}
-
-// toExerciseListItem 是 `/api/exercises` 的摘要投影，避免列表响应携带详情页才需要的长字段和 embedding。
-export function toExerciseListItem(exercise: Exercise): ExerciseListItem {
-  return {
-    id: exercise.id,
-    nameEn: exercise.nameEn,
-    nameZh: exercise.nameZh,
-    category: exercise.category,
-    categoryZh: exercise.categoryZh,
-    level: exercise.level,
-    levelZh: exercise.levelZh,
-    force: exercise.force,
-    forceZh: exercise.forceZh,
-    mechanic: exercise.mechanic,
-    mechanicZh: exercise.mechanicZh,
-    equipment: exercise.equipment,
-    equipmentZh: exercise.equipmentZh,
-    homeRequirement: exercise.homeRequirement,
-    homeRequirementZh: exercise.homeRequirementZh,
-    primaryMuscles: exercise.primaryMuscles,
-    primaryMusclesZh: exercise.primaryMusclesZh,
-    imageUrls: exercise.imageUrls,
-    allowedSections: exercise.allowedSections,
-    intensityRole: exercise.intensityRole,
-    movementPattern: exercise.movementPattern,
-    difficulty: exercise.difficulty,
-    goalTags: exercise.goalTags,
-    riskTags: exercise.riskTags,
-    reviewStatus: exercise.reviewStatus,
-    isPublished: exercise.isPublished,
-  };
 }
 
 export async function searchExercises(input: ExerciseSearchInput = {}): Promise<ExerciseSearchResult> {
@@ -354,87 +318,7 @@ export function searchExercisesInMemory(exercises: Exercise[], input: ExerciseSe
 }
 
 export async function getExerciseFacets(scope: Pick<ExerciseListQuery, "suitability"> = {}): Promise<ExerciseFacets> {
-  const exercises = await listExerciseRecords();
-  const suitability = scope.suitability;
-  const scopedExercises = suitability
-    ? exercises.filter((exercise) => getExerciseSuitability(exercise)[suitability])
-    : exercises;
-
-  return {
-    categories: collectFacet(scopedExercises, "category", "categoryZh"),
-    levels: collectFacet(scopedExercises, "level", "levelZh"),
-    force: collectFacet(scopedExercises, "force", "forceZh"),
-    mechanics: collectFacet(scopedExercises, "mechanic", "mechanicZh"),
-    equipment: collectFacet(scopedExercises, "equipment", "equipmentZh"),
-    homeRequirements: collectFacet(scopedExercises, "homeRequirement", "homeRequirementZh"),
-    muscles: collectArrayFacet(scopedExercises, "primaryMuscles", "primaryMusclesZh"),
-    goalTags: collectTagFacet(scopedExercises, "goalTags"),
-    riskTags: collectTagFacet(scopedExercises, "riskTags"),
-  };
-}
-
-function matchesExerciseQuery(exercise: Exercise, query: ExerciseListQuery) {
-  if (query.published !== undefined && exercise.isPublished !== query.published) {
-    return false;
-  }
-
-  if (query.category && exercise.category !== query.category && exercise.categoryZh !== query.category) {
-    return false;
-  }
-
-  if (query.suitability && !getExerciseSuitability(exercise)[query.suitability]) {
-    return false;
-  }
-
-  if (query.level && exercise.level !== query.level && exercise.levelZh !== query.level) {
-    return false;
-  }
-
-  if (query.force && exercise.force !== query.force && exercise.forceZh !== query.force) {
-    return false;
-  }
-
-  if (
-    query.mechanic &&
-    exercise.mechanic !== query.mechanic &&
-    exercise.mechanicZh !== query.mechanic
-  ) {
-    return false;
-  }
-
-  if (
-    query.equipment &&
-    exercise.equipment !== query.equipment &&
-    exercise.equipmentZh !== query.equipment
-  ) {
-    return false;
-  }
-
-  if (
-    query.homeRequirement &&
-    exercise.homeRequirement !== query.homeRequirement &&
-    exercise.homeRequirementZh !== query.homeRequirement
-  ) {
-    return false;
-  }
-
-  if (query.muscle && !matchesMuscle(exercise, query.muscle)) {
-    return false;
-  }
-
-  if (query.goalTag && !exercise.goalTags.includes(query.goalTag)) {
-    return false;
-  }
-
-  if (query.riskTag && !exercise.riskTags.includes(query.riskTag)) {
-    return false;
-  }
-
-  if (query.q && !matchesSearchText(exercise, query.q)) {
-    return false;
-  }
-
-  return true;
+  return listExerciseFacetsFromStore(scope);
 }
 
 // 根据现有动作元数据派生非互斥用途适配结果，供右侧动作库筛选和 facets 复用。
@@ -495,40 +379,6 @@ function matchesMuscle(exercise: Exercise, muscle: string) {
     ...exercise.secondaryMuscles,
     ...exercise.secondaryMusclesZh,
   ].includes(muscle);
-}
-
-function matchesSearchText(exercise: Exercise, keyword: string) {
-  const normalizedKeyword = normalizeSearchText(keyword);
-
-  if (!normalizedKeyword) {
-    return true;
-  }
-
-  const haystack = normalizeSearchText(
-    [
-      exercise.id,
-      exercise.nameEn,
-      exercise.nameZh,
-      exercise.category,
-      exercise.categoryZh,
-      exercise.equipment,
-      exercise.equipmentZh,
-      exercise.homeRequirement,
-      exercise.homeRequirementZh,
-      exercise.level,
-      exercise.levelZh,
-      ...exercise.primaryMuscles,
-      ...exercise.primaryMusclesZh,
-      ...exercise.secondaryMuscles,
-      ...exercise.secondaryMusclesZh,
-      ...exercise.goalTags,
-      ...exercise.riskTags,
-    ]
-      .filter(Boolean)
-      .join(" "),
-  );
-
-  return haystack.includes(normalizedKeyword);
 }
 
 // embeddingText 只拼接动作库可公开检索字段，避免把运行时用户上下文写入全局动作索引。
@@ -1461,108 +1311,6 @@ function resolvePagination(query: ExerciseListQuery) {
   };
 }
 
-function createExerciseSorter(sort: ExerciseSort) {
-  return (left: Exercise, right: Exercise) => {
-    switch (sort) {
-      case "name_desc":
-        return compareText(right.nameZh, left.nameZh);
-      case "level_asc":
-        return compareLevel(left, right);
-      case "level_desc":
-        return compareLevel(right, left);
-      case "category_asc":
-        return compareText(left.categoryZh ?? "", right.categoryZh ?? "") || compareText(left.nameZh, right.nameZh);
-      case "category_desc":
-        return compareText(right.categoryZh ?? "", left.categoryZh ?? "") || compareText(left.nameZh, right.nameZh);
-      case "name_asc":
-      default:
-        return compareText(left.nameZh, right.nameZh);
-    }
-  };
-}
-
 function compareText(left: string, right: string) {
   return left.localeCompare(right, "zh-Hans-CN");
-}
-
-function compareLevel(left: Exercise, right: Exercise) {
-  const leftRank = left.level ? levelRank[left.level] ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
-  const rightRank = right.level
-    ? levelRank[right.level] ?? Number.MAX_SAFE_INTEGER
-    : Number.MAX_SAFE_INTEGER;
-
-  return leftRank - rightRank || compareText(left.nameZh, right.nameZh);
-}
-
-function collectFacet(
-  exercises: Exercise[],
-  valueKey: keyof Exercise,
-  labelKey: keyof Exercise,
-): ExerciseFacetItem[] {
-  const values = new Map<string, ExerciseFacetItem>();
-
-  for (const exercise of exercises) {
-    const value = exercise[valueKey];
-    const label = exercise[labelKey];
-
-    if (typeof value === "string" && value && typeof label === "string" && label) {
-      const current = values.get(value);
-      values.set(value, {
-        value,
-        label,
-        count: (current?.count ?? 0) + 1,
-      });
-    }
-  }
-
-  return [...values.values()].sort((a, b) => a.label.localeCompare(b.label, "zh-Hans-CN"));
-}
-
-function collectArrayFacet(
-  exercises: Exercise[],
-  valueKey: keyof Exercise,
-  labelKey: keyof Exercise,
-): ExerciseFacetItem[] {
-  const values = new Map<string, ExerciseFacetItem>();
-
-  for (const exercise of exercises) {
-    const rawValues = exercise[valueKey];
-    const labels = exercise[labelKey];
-
-    if (!Array.isArray(rawValues) || !Array.isArray(labels)) {
-      continue;
-    }
-
-    for (const [index, value] of rawValues.entries()) {
-      const label = labels[index];
-
-      if (typeof value === "string" && value && typeof label === "string" && label) {
-        const current = values.get(value);
-        values.set(value, {
-          value,
-          label,
-          count: (current?.count ?? 0) + 1,
-        });
-      }
-    }
-  }
-
-  return [...values.values()].sort((a, b) => a.label.localeCompare(b.label, "zh-Hans-CN"));
-}
-
-function collectTagFacet(exercises: Exercise[], key: "goalTags" | "riskTags"): ExerciseFacetItem[] {
-  const values = new Map<string, ExerciseFacetItem>();
-
-  for (const exercise of exercises) {
-    for (const tag of exercise[key]) {
-      const current = values.get(tag);
-      values.set(tag, {
-        value: tag,
-        label: getExerciseTagLabel(key, tag),
-        count: (current?.count ?? 0) + 1,
-      });
-    }
-  }
-
-  return [...values.values()].sort((a, b) => a.label.localeCompare(b.label, "zh-Hans-CN"));
 }

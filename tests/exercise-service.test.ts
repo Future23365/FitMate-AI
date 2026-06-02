@@ -1,9 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type {
+  Exercise,
+  ExerciseFacetItem,
+  ExerciseFacets,
+  ExerciseListItem,
+  ExerciseListQuery,
+  ExerciseSort,
+} from "@/lib/shared/exercises/types";
+import { getExerciseTagLabel } from "@/lib/shared/exercises/tag-labels";
 import { createExercise } from "./fixtures/domain";
 
 const repositoryMocks = vi.hoisted(() => ({
   getExerciseRecordById: vi.fn(),
+  listExerciseFacetsFromStore: vi.fn(),
+  listExerciseListItems: vi.fn(),
   listExerciseRecords: vi.fn(),
 }));
 
@@ -14,8 +25,11 @@ const { getExerciseById, getExerciseFacets, getExerciseSuitability, listExercise
 );
 
 describe("exercise service", () => {
+  let exerciseFixtures: Exercise[];
+
   beforeEach(() => {
-    repositoryMocks.listExerciseRecords.mockResolvedValue([
+    vi.clearAllMocks();
+    exerciseFixtures = [
       createExercise({
         id: "push-up",
         nameZh: "俯卧撑",
@@ -177,7 +191,35 @@ describe("exercise service", () => {
         primaryMusclesZh: ["髋部"],
         goalTags: ["mobility", "activation"],
       }),
-    ]);
+    ];
+    repositoryMocks.listExerciseRecords.mockResolvedValue(exerciseFixtures);
+    repositoryMocks.listExerciseListItems.mockImplementation(
+      async (input: {
+        query: ExerciseListQuery;
+        limit: number;
+        offset: number;
+        sort: ExerciseSort;
+      }) => {
+        const filtered = exerciseFixtures
+          .filter((exercise) => matchesTestExerciseQuery(exercise, input.query))
+          .sort(createTestExerciseSorter(input.sort));
+
+        return {
+          items: filtered
+            .slice(input.offset, input.offset + input.limit)
+            .map(toTestExerciseListItem),
+          total: filtered.length,
+        };
+      },
+    );
+    repositoryMocks.listExerciseFacetsFromStore.mockImplementation(
+      async (scope: Pick<ExerciseListQuery, "suitability"> = {}) =>
+        collectTestFacets(
+          scope.suitability
+            ? exerciseFixtures.filter((exercise) => exercise.allowedSections.includes(scope.suitability!))
+            : exerciseFixtures,
+        ),
+    );
     repositoryMocks.getExerciseRecordById.mockResolvedValue(createExercise({ id: "push-up" }));
   });
 
@@ -203,6 +245,13 @@ describe("exercise service", () => {
       hasNextPage: true,
       hasPreviousPage: true,
     });
+    expect(repositoryMocks.listExerciseListItems).toHaveBeenLastCalledWith({
+      query: { page: 2, pageSize: 1, sort: "level_desc" },
+      limit: 1,
+      offset: 1,
+      sort: "level_desc",
+    });
+    expect(repositoryMocks.listExerciseRecords).not.toHaveBeenCalled();
   });
 
   it("returns lightweight list summaries without detail-only fields", async () => {
@@ -280,6 +329,8 @@ describe("exercise service", () => {
     await expect(getExerciseById("push-up")).resolves.toMatchObject({ id: "push-up" });
 
     const facets = await getExerciseFacets();
+    expect(repositoryMocks.listExerciseFacetsFromStore).toHaveBeenCalledWith({});
+    expect(repositoryMocks.listExerciseRecords).not.toHaveBeenCalled();
     expect(facets.categories).toEqual(
       expect.arrayContaining([
         { value: "strength", label: "力量", count: 5 },
@@ -309,6 +360,7 @@ describe("exercise service", () => {
 
   it("returns facets scoped to suitability without applying lower-level filters", async () => {
     const warmupFacets = await getExerciseFacets({ suitability: "warmup" });
+    expect(repositoryMocks.listExerciseFacetsFromStore).toHaveBeenCalledWith({ suitability: "warmup" });
     expect(warmupFacets.categories).toEqual(
       expect.arrayContaining([
         { value: "cardio", label: "有氧训练", count: 1 },
@@ -712,3 +764,263 @@ describe("exercise service", () => {
     });
   });
 });
+
+function toTestExerciseListItem(exercise: Exercise): ExerciseListItem {
+  return {
+    id: exercise.id,
+    nameEn: exercise.nameEn,
+    nameZh: exercise.nameZh,
+    category: exercise.category,
+    categoryZh: exercise.categoryZh,
+    level: exercise.level,
+    levelZh: exercise.levelZh,
+    force: exercise.force,
+    forceZh: exercise.forceZh,
+    mechanic: exercise.mechanic,
+    mechanicZh: exercise.mechanicZh,
+    equipment: exercise.equipment,
+    equipmentZh: exercise.equipmentZh,
+    homeRequirement: exercise.homeRequirement,
+    homeRequirementZh: exercise.homeRequirementZh,
+    primaryMuscles: exercise.primaryMuscles,
+    primaryMusclesZh: exercise.primaryMusclesZh,
+    imageUrls: exercise.imageUrls,
+    allowedSections: exercise.allowedSections,
+    intensityRole: exercise.intensityRole,
+    movementPattern: exercise.movementPattern,
+    difficulty: exercise.difficulty,
+    goalTags: exercise.goalTags,
+    riskTags: exercise.riskTags,
+    reviewStatus: exercise.reviewStatus,
+    isPublished: exercise.isPublished,
+  };
+}
+
+function matchesTestExerciseQuery(exercise: Exercise, query: ExerciseListQuery) {
+  if (query.published !== undefined && exercise.isPublished !== query.published) {
+    return false;
+  }
+
+  if (query.category && !matchesTestLabel(exercise.category, exercise.categoryZh, query.category)) {
+    return false;
+  }
+
+  if (query.suitability && !exercise.allowedSections.includes(query.suitability)) {
+    return false;
+  }
+
+  if (query.level && !matchesTestLabel(exercise.level, exercise.levelZh, query.level)) {
+    return false;
+  }
+
+  if (query.force && !matchesTestLabel(exercise.force, exercise.forceZh, query.force)) {
+    return false;
+  }
+
+  if (query.mechanic && !matchesTestLabel(exercise.mechanic, exercise.mechanicZh, query.mechanic)) {
+    return false;
+  }
+
+  if (query.equipment && !matchesTestLabel(exercise.equipment, exercise.equipmentZh, query.equipment)) {
+    return false;
+  }
+
+  if (
+    query.homeRequirement &&
+    !matchesTestLabel(exercise.homeRequirement, exercise.homeRequirementZh, query.homeRequirement)
+  ) {
+    return false;
+  }
+
+  if (query.muscle && !matchesTestMuscle(exercise, query.muscle)) {
+    return false;
+  }
+
+  if (query.goalTag && !exercise.goalTags.includes(query.goalTag)) {
+    return false;
+  }
+
+  if (query.riskTag && !exercise.riskTags.includes(query.riskTag)) {
+    return false;
+  }
+
+  if (query.q && !matchesTestSearchText(exercise, query.q)) {
+    return false;
+  }
+
+  return true;
+}
+
+function matchesTestLabel(value: string | null, label: string | null, expected: string) {
+  return value === expected || label === expected;
+}
+
+function matchesTestMuscle(exercise: Exercise, muscle: string) {
+  return [
+    ...exercise.primaryMuscles,
+    ...exercise.primaryMusclesZh,
+    ...exercise.secondaryMuscles,
+    ...exercise.secondaryMusclesZh,
+  ].includes(muscle);
+}
+
+function matchesTestSearchText(exercise: Exercise, keyword: string) {
+  const normalizedKeyword = normalizeTestSearchText(keyword);
+  const haystack = normalizeTestSearchText(
+    [
+      exercise.id,
+      exercise.nameEn,
+      exercise.nameZh,
+      exercise.category,
+      exercise.categoryZh,
+      exercise.equipment,
+      exercise.equipmentZh,
+      exercise.homeRequirement,
+      exercise.homeRequirementZh,
+      exercise.level,
+      exercise.levelZh,
+      ...exercise.primaryMuscles,
+      ...exercise.primaryMusclesZh,
+      ...exercise.secondaryMuscles,
+      ...exercise.secondaryMusclesZh,
+      ...exercise.goalTags,
+      ...exercise.riskTags,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+
+  return haystack.includes(normalizedKeyword);
+}
+
+function normalizeTestSearchText(value: string) {
+  return value.trim().toLowerCase();
+}
+
+const testLevelRank: Record<string, number> = {
+  beginner: 1,
+  intermediate: 2,
+  expert: 3,
+};
+
+function createTestExerciseSorter(sort: ExerciseSort) {
+  return (left: Exercise, right: Exercise) => {
+    switch (sort) {
+      case "name_desc":
+        return compareTestText(right.nameZh, left.nameZh);
+      case "level_asc":
+        return compareTestLevel(left, right);
+      case "level_desc":
+        return compareTestLevel(right, left);
+      case "category_asc":
+        return compareTestText(left.categoryZh ?? "", right.categoryZh ?? "") || compareTestText(left.nameZh, right.nameZh);
+      case "category_desc":
+        return compareTestText(right.categoryZh ?? "", left.categoryZh ?? "") || compareTestText(left.nameZh, right.nameZh);
+      case "name_asc":
+      default:
+        return compareTestText(left.nameZh, right.nameZh);
+    }
+  };
+}
+
+function compareTestText(left: string, right: string) {
+  return left.localeCompare(right, "zh-Hans-CN");
+}
+
+function compareTestLevel(left: Exercise, right: Exercise) {
+  const leftRank = left.level ? testLevelRank[left.level] ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
+  const rightRank = right.level ? testLevelRank[right.level] ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
+
+  return leftRank - rightRank || compareTestText(left.nameZh, right.nameZh);
+}
+
+function collectTestFacets(exercises: Exercise[]): ExerciseFacets {
+  return {
+    categories: collectTestScalarFacet(exercises, "category", "categoryZh"),
+    levels: collectTestScalarFacet(exercises, "level", "levelZh"),
+    force: collectTestScalarFacet(exercises, "force", "forceZh"),
+    mechanics: collectTestScalarFacet(exercises, "mechanic", "mechanicZh"),
+    equipment: collectTestScalarFacet(exercises, "equipment", "equipmentZh"),
+    homeRequirements: collectTestScalarFacet(exercises, "homeRequirement", "homeRequirementZh"),
+    muscles: collectTestArrayFacet(exercises, "primaryMuscles", "primaryMusclesZh"),
+    goalTags: collectTestTagFacet(exercises, "goalTags"),
+    riskTags: collectTestTagFacet(exercises, "riskTags"),
+  };
+}
+
+function collectTestScalarFacet(
+  exercises: Exercise[],
+  valueKey: keyof Exercise,
+  labelKey: keyof Exercise,
+): ExerciseFacetItem[] {
+  const values = new Map<string, ExerciseFacetItem>();
+
+  for (const exercise of exercises) {
+    const value = exercise[valueKey];
+    const label = exercise[labelKey];
+
+    if (typeof value === "string" && value && typeof label === "string" && label) {
+      const current = values.get(value);
+      values.set(value, {
+        value,
+        label,
+        count: (current?.count ?? 0) + 1,
+      });
+    }
+  }
+
+  return [...values.values()].sort(compareTestFacetByLabel);
+}
+
+function collectTestArrayFacet(
+  exercises: Exercise[],
+  valueKey: keyof Exercise,
+  labelKey: keyof Exercise,
+): ExerciseFacetItem[] {
+  const values = new Map<string, ExerciseFacetItem>();
+
+  for (const exercise of exercises) {
+    const rawValues = exercise[valueKey];
+    const labels = exercise[labelKey];
+
+    if (!Array.isArray(rawValues) || !Array.isArray(labels)) {
+      continue;
+    }
+
+    for (const [index, value] of rawValues.entries()) {
+      const label = labels[index];
+
+      if (typeof value === "string" && value && typeof label === "string" && label) {
+        const current = values.get(value);
+        values.set(value, {
+          value,
+          label,
+          count: (current?.count ?? 0) + 1,
+        });
+      }
+    }
+  }
+
+  return [...values.values()].sort(compareTestFacetByLabel);
+}
+
+function collectTestTagFacet(exercises: Exercise[], key: "goalTags" | "riskTags"): ExerciseFacetItem[] {
+  const values = new Map<string, ExerciseFacetItem>();
+
+  for (const exercise of exercises) {
+    for (const tag of exercise[key]) {
+      const current = values.get(tag);
+      values.set(tag, {
+        value: tag,
+        label: getExerciseTagLabel(key, tag),
+        count: (current?.count ?? 0) + 1,
+      });
+    }
+  }
+
+  return [...values.values()].sort(compareTestFacetByLabel);
+}
+
+function compareTestFacetByLabel(left: ExerciseFacetItem, right: ExerciseFacetItem) {
+  return left.label.localeCompare(right.label, "zh-Hans-CN");
+}
