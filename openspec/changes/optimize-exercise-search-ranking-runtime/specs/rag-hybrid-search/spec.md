@@ -15,7 +15,8 @@
 - **AND** 系统 MUST NOT 对所有候选用途无条件套用同一组 `beginner`、`training` 或等价固定加分
 
 #### Scenario: Query 作为召回门
-- **WHEN** `searchExercises` 只有裸 `query` 或缺少可执行结构化候选边界
+- **WHEN** `searchExercises` 以 `candidateUse = answer_only` 接收裸 `query`
+- **OR WHEN** 非执行型检索缺少可执行结构化候选边界
 - **THEN** 系统 MAY 将 query text/vector score 作为召回门
 - **AND** 未达到最低相关性阈值的候选 MUST NOT 进入最终候选集合
 
@@ -24,6 +25,12 @@
 - **THEN** query text/vector score MUST 只影响合法候选之间的排序
 - **AND** query text/vector score MUST NOT 将已经通过结构化 hard filters 的合法候选硬清零
 - **AND** 器械、section、难度、目标肌群、用户限制和候选集合边界 MUST 继续优先于 query 相似度
+
+#### Scenario: Patch 裸 query 不生成执行候选集合
+- **WHEN** Agent tool 调用 `searchExercises` 且 `candidateUse = patch`
+- **AND** 输入只有裸 `query`，没有 `targetMuscles`、`bodyRegions`、`equipment`、`equipmentAvoided`、`allowedSections`、`level`、`goal` 或等价结构化过滤字段
+- **THEN** 系统 MUST 在工具输入层返回可重试的结构化错误
+- **AND** 系统 MUST NOT 把该调用降级为 `recall_gate` 后生成可执行候选集合
 
 #### Scenario: 禁用 query 评分
 - **WHEN** 检索输入没有 query 或调用方明确不允许自然语言 query 影响排序
@@ -76,23 +83,35 @@
 - **THEN** 系统 MUST NOT 用旧失败结果阻止 LLM 以修正参数重新查询
 - **AND** trace MUST 能区分真实执行、run-level reuse 和失败重试
 
-### Requirement: 检索诊断必须暴露性能和评分证据
-系统 SHALL 在动作和 artifact 混合检索 diagnostics / trace 中记录足够定位性能和排序问题的证据。
+### Requirement: 动作检索诊断必须暴露性能和评分证据
+系统 SHALL 在动作混合检索 diagnostics / trace 中记录足够定位性能和排序问题的证据。
 
 #### Scenario: 记录动作检索 diagnostics
 - **WHEN** `searchExercises` 执行完成
-- **THEN** diagnostics MUST 包含 `candidateUse`、结构化 filters、query 参与模式、总动作数、hard filter 后候选数、返回候选数和最终 exerciseId
+- **THEN** diagnostics MUST 包含 `candidateUse`、结构化 filters、`queryMode`、`totalExerciseCount`、`filteredCount`、`returnedCount` 和最终 exerciseId
+- **AND** `queryMode` MUST 是 `recall_gate`、`ranking_boost` 或 `disabled`
+- **AND** `totalExerciseCount` MUST 表示轻量索引中的动作总数
+- **AND** `filteredCount` MUST 表示 hard filters 后候选数量
+- **AND** `returnedCount` MUST 表示最终返回候选数量
 - **AND** diagnostics MUST 包含 top rerank 的 text score、vector score、business score、total score 和原因摘要
 
 #### Scenario: 记录缓存和耗时
 - **WHEN** `searchExercises` 执行完成或复用完成
-- **THEN** trace 或 diagnostics MUST 记录 cache source、cache age、检索耗时、评分耗时或等价性能摘要
+- **THEN** trace 或 diagnostics MUST 记录 `cacheSource`、`cacheAgeMs`、`durationMs` 和等价性能摘要
+- **AND** `cacheSource` MUST 是 `database_load`、`process_cache` 或 `run_cache`
+- **AND** `durationMs` MUST 表示本次 `searchExercises` 从入口到产出结果的总耗时
+- **AND** 系统 MAY 额外记录 `scoringDurationMs`，但测试 MUST NOT 依赖固定性能阈值
 - **AND** trace MUST 能区分数据库加载、进程内缓存命中和 Agent run 内复用
 
 #### Scenario: 字段长度和权限边界
 - **WHEN** 检索 trace 包含 rerank、query、filters 或候选摘要
 - **THEN** 系统 MUST 遵守现有 trace 字段长度、权限和隐私限制
 - **AND** trace MUST NOT 记录未经授权的 artifact payload 或不必要的大动作详情字段
+
+#### Scenario: Artifact search 不在本次行为变更范围
+- **WHEN** 本 change 实现动作检索缓存、ranking profile、query mode 或 run-level reuse
+- **THEN** 系统 MUST NOT 改变 `searchArtifactsDetailed` 的召回、排序、缓存或输出合同
+- **AND** artifact search 只能作为 Agent trace 形态对照使用
 
 ### Requirement: 动作检索排序必须具备固定评测集
 系统 SHALL 为动作检索评分和性能优化提供固定自动化测试，防止排序策略回归。

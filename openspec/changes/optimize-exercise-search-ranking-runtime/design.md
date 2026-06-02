@@ -23,6 +23,7 @@
 - 不改变 Prisma Schema、动作 seed 数据格式或 `/api/chat` 外部 API 契约。
 - 不新增服务端自然语言意图判断；服务端不得根据关键词改写 LLM 已输出的 intent、action 或高层语义字段。
 - 不把检索缓存作为权限、Validator 或候选集合校验的替代品。
+- 不修改 `searchArtifactsDetailed` 的召回、排序或缓存行为；本次只对照其 trace 形态，确保 Agent trace 心智模型一致。
 
 ## Decisions
 
@@ -38,9 +39,11 @@
 
 检索内部将 `query` 归类为三种模式：
 
-- `recall_gate`：裸 query 或缺少可执行结构化边界时，text/vector 分数可以决定是否进入候选集合。
+- `recall_gate`：`candidateUse=answer_only` 的裸 query，或缺少可执行结构化边界的非执行型检索，text/vector 分数可以决定是否进入候选集合。
 - `ranking_boost`：`recommendation`、`routine`、`plan`、`patch` 已有结构化边界时，query 只能影响排序，不能把 hard filter 后的合法候选硬清零。
-- `disabled`：没有 query 或调用方明确不希望自然语言影响排序时，不计算 query text/vector 分数。
+- `disabled`：没有 query，或调用方通过不传 query 明确不希望自然语言影响排序时，不计算 query text/vector 分数。
+
+Agent `searchExercises` 工具继续要求所有非 `answer_only` 的可执行候选集合必须包含结构化过滤字段。也就是说，`patch` 只有裸 query 时应在工具输入层被拒绝；`patch` 带有 `targetMuscles`、`bodyRegions`、`equipment`、`equipmentAvoided`、`allowedSections`、`level`、`goal` 或等价结构化边界时，内部 query mode 才进入 `ranking_boost`。
 
 原因：这保留了 RAG 对模糊需求的价值，同时避免“用户原话相似度”覆盖器械、section、候选用途等硬边界。
 
@@ -50,11 +53,11 @@
 
 新增动作检索索引读取层，返回 `ExerciseSearchRecord` 或等价轻量结构。缓存内容只包含检索、过滤和摘要需要的字段，例如 id、名称、肌群、器械、level、allowedSections、difficulty、movementPattern、goalTags、riskTags、embeddingText、embedding 和必要展示摘要。完整 `instructions`、图片、来源 URL 等详情字段继续由 `getExerciseById` 或批量详情读取按需获取。
 
-缓存为进程内缓存，支持 TTL 和显式刷新函数。数据库未配置、查询失败或缓存构建失败时必须暴露错误，不使用陈旧缓存伪装成功，除非后续实现明确加入带版本的 stale fallback。
+缓存为进程内缓存，第一版使用固定短 TTL：`300_000ms`。缓存层必须提供显式刷新函数，供 seed、embedding refresh 或后续管理入口调用。数据库未配置、查询失败或缓存构建失败时必须暴露错误，不使用陈旧缓存伪装成功，除非后续实现明确加入带版本的 stale fallback。
 
 原因：当前 2c2g 风险主要来自重复全量读取和反序列化，不是 48 维向量计算。进程内缓存和字段裁剪是最小架构代价下的最大收益。
 
-取舍：多实例部署时各实例有独立缓存；当前阶段可接受。后续如需要集中失效，再增加版本号或后台刷新。
+取舍：多实例部署时各实例有独立缓存；当前阶段可接受。暂不新增环境变量，避免为了 873 条动作的轻量缓存引入新的部署配置。后续如需要集中失效，再增加版本号或后台刷新。
 
 ### Decision 4: Agent run 内复用等价工具结果
 
@@ -71,6 +74,14 @@ Agent runtime 已有 tool idempotency key 概念，但当前 loop 仍会执行�
 原因：排序权重没有评测集时很容易出现局部修好、整体变差。先建立评测可以让后续替换真实 embedding 或 pgvector 时有回归基线。
 
 取舍：评测集第一版不追求覆盖所有健身语义，只覆盖当前黑盒和产品路径中最高频、最容易回归的表达。
+
+### Decision 6: 本次不瘦身模型可见候选摘要
+
+`searchExercises` 返回给 Agent 模型的候选摘要第一版保持现有字段合同，只把内部数据来源从完整动作全量读取切到轻量检索索引。完整动作详情仍按需读取，模型可见摘要不在本次 change 中额外瘦身。
+
+原因：本次目标是运行时成本、排序和 diagnostics。若同时改变模型可见候选摘要，会把排序优化和 Prompt 可见信息变化耦合在一起，黑盒回归定位会变困难。
+
+取舍：候选摘要的 token 成本可以后续单独优化；本次 trace 只记录 top rerank 摘要和必要计数，避免把完整动作大字段写入 diagnostics。
 
 ## Risks / Trade-offs
 
@@ -90,7 +101,11 @@ Agent runtime 已有 tool idempotency key 概念，但当前 loop 仍会执行�
 
 如上线后出现异常排序，可回退到旧 scoring profile 或关闭 run-level reuse；缓存层可通过 TTL 缩短或显式刷新降级，外部 API 不需要迁移。
 
-## Open Questions
+## Settled Implementation Boundaries
 
-- 第一版缓存 TTL 使用固定值还是配置项，需要实现时结合现有配置方式确定。
-- `searchExercises` 返回给模型的候选摘要是否同步瘦身，还是只先优化内部索引读取，需要结合现有卡片投影确认。
+- 第一版缓存 TTL 固定为 `300_000ms`，不新增环境变量或 README 配置项。
+- `searchExercises` 模型可见候选摘要保持现有合同；本次只优化内部检索索引、排序、缓存和 diagnostics。
+- diagnostics 中 `queryMode` 必须是 `recall_gate`、`ranking_boost` 或 `disabled`。
+- diagnostics / trace 中 `cacheSource` 必须是 `database_load`、`process_cache` 或 `run_cache`。
+- `totalExerciseCount` 表示轻量索引里的动作总数，`filteredCount` 表示 hard filters 后候选数量，`returnedCount` 表示最终返回候选数量。
+- `durationMs` 表示本次 `searchExercises` 从入口到产出结果的总耗时；如实现单独记录评分耗时，可使用 `scoringDurationMs`，但测试不依赖固定性能阈值。
