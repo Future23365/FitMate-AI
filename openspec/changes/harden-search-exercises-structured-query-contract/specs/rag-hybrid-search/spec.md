@@ -12,9 +12,18 @@
 #### Scenario: 执行型动作检索使用结构化 filters
 - **WHEN** Agent 调用 `searchExercises`
 - **AND** `candidateUse` 是 `recommendation`、`routine`、`plan` 或 `patch`
-- **THEN** 工具输入 MUST 包含足以表达候选边界的结构化 filters
+- **THEN** 工具输入 MUST 包含 `operation=build_exercise_candidate_set` 或等价操作标识
+- **AND** 工具输入 MUST 包含足以表达候选边界的结构化 filters
 - **AND** filters MUST 仅包含系统白名单字段和合法 enum / facet 值
 - **AND** 系统 MUST NOT 仅凭 `query` 或自由文本偏好生成执行型候选集合
+
+#### Scenario: 执行型动作检索声明结果要求
+- **WHEN** Agent 调用 `searchExercises`
+- **AND** `candidateUse` 是 `routine`、`plan` 或 `patch`
+- **THEN** 工具输入 MUST 能声明 result requirements，例如最少候选数量、section 覆盖、是否必须可用于 routine / plan / patch、是否必须返回 proof
+- **AND** `searchExercises` MUST 校验结果集合是否满足这些 result requirements
+- **AND** 如果合法候选不满足 result requirements，工具 MUST 返回 `insufficient_candidates`、`result_requirement_unmet` 或等价可恢复失败
+- **AND** 系统 MUST NOT 放宽 hard filters 后返回成功
 
 #### Scenario: 结构化过滤严格执行
 - **WHEN** `searchExercises` 接收到合法 filters
@@ -28,6 +37,12 @@
 - **THEN** `query` MUST 只能作为召回或排序信号
 - **AND** 系统 MUST NOT 将 `query` 中的自然语言内容解释为额外 hard filter
 - **AND** 系统 MUST NOT 因 `query` 文本没有覆盖某个 filter 而放宽已经传入的 filters
+
+#### Scenario: 旧字段兼容只处理显式结构化字段
+- **WHEN** 旧输入字段如 `equipmentRequired`、`equipmentAvoided`、`allowedSections` 或 `bodyRegions` 被保留兼容
+- **THEN** 系统 MAY 将这些显式结构化字段规范化进新 filters
+- **AND** 规范化结果 MUST 出现在 `normalizedQueryInput` 和 `appliedFilters`
+- **AND** 系统 MUST NOT 从 `query`、`preferences`、`avoidances` 或用户原文中解析隐藏 hard filters
 
 #### Scenario: 无效 filter 返回可恢复诊断
 - **WHEN** LLM 传入未知字段、非法 enum 或动作库不存在的 facet 值
@@ -50,6 +65,7 @@
 - **THEN** tool result MUST 包含 `candidateSetId`
 - **AND** tool result MUST 记录规范化后的结构化查询输入
 - **AND** tool result MUST 记录实际执行的 hard filters
+- **AND** tool result MUST 记录 result requirements 和满足状态
 - **AND** tool result MUST 记录最终返回 exerciseIds
 
 #### Scenario: 候选满足证明
@@ -58,7 +74,19 @@
 - **AND** proof MUST 至少覆盖器械或居家条件、肌群或身体区域、section、难度、风险排除和可见性中本次实际传入的字段
 - **AND** proof MUST 遵守现有 trace 字段长度和隐私限制
 
+#### Scenario: 结果要求证明
+- **WHEN** `searchExercises` 返回执行型 candidate set
+- **THEN** diagnostics 或 trace MUST 能证明 candidate set 满足本次 result requirements
+- **AND** proof MUST 覆盖最少候选数量、section 覆盖、可用于 routine / plan / patch 的资源边界和 proof 是否完整
+- **AND** 如果某个 result requirement 未满足，candidate set MUST NOT 被登记为 `satisfied=true`
+
 #### Scenario: 查询证据被后续工具引用
 - **WHEN** 后续工具引用 `candidateSetId`
 - **THEN** runtime MUST 能读取该候选集合的查询证据
 - **AND** 后续工具 MUST NOT 只凭模型重新提交的 `candidateExerciseIds` 判断候选边界
+
+#### Scenario: 自动恢复不能改变 hard filters
+- **WHEN** `searchExercises` 发现候选不足、facet 无效或 result requirements 未满足
+- **THEN** 工具 MAY 返回 suggested filters、available facets 或 retry diagnostics
+- **AND** 工具 MUST NOT 在同一次成功结果中自动删除、替换或放宽 hard filters
+- **AND** 任何放宽约束的重查都 MUST 由 LLM 在新的 ToolRequest 中显式提交

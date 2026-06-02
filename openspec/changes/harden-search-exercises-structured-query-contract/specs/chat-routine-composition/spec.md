@@ -57,8 +57,27 @@
 - **THEN** 输入 MUST 引用当前 run 中已登记的 `candidateSetId`
 - **AND** 服务端 MUST 验证传入 `candidateExerciseIds` 来自该 candidate set
 - **AND** 服务端 MUST 读取该 candidate set 的查询证据作为生成边界
+- **AND** 服务端 MUST 验证该 candidate set 的 ToolResult 已满足对应 ToolRequest，例如 `satisfied=true` 或等价状态
+- **AND** 如果 candidate set 的 result requirements 未满足，`generateRoutineDraft` MUST 返回可恢复失败
 
 #### Scenario: 查询证据传递到 validation
 - **WHEN** `generateRoutineDraft` 成功生成 draft
 - **THEN** draft tool result MUST 保留 `candidateSetId` 和查询证据引用
 - **AND** `validateRoutineDraft` MUST 使用同一查询证据校验最终动作
+
+#### Scenario: Routine result requirements 继承
+- **WHEN** `searchExercises` 的 candidate set 包含 section 覆盖、最少候选数量、器械、风险、难度或可用于 routine 的 result requirements
+- **THEN** `generateRoutineDraft` MUST 继承这些 result requirements 作为 draft 生成边界
+- **AND** draft result MUST 记录使用了哪些 candidateSetIds、哪些 section 由哪些候选覆盖、哪些 soft preferences 未满足
+- **AND** 系统 MUST NOT 因 LLM 重新提交较宽的 `candidateExerciseIds` 而覆盖上游 result requirements
+
+#### Scenario: 补查仍由 LLM 显式发起
+- **WHEN** 同一 candidate set 缺少某个必要 section 或候选数量不足
+- **THEN** `generateRoutineDraft` MUST 返回结构化失败或要求 Agent 用同一 hard constraints 和新的 result requirements 重新调用 `searchExercises`
+- **AND** 自动补查如果发生在服务端内部，MUST 使用同一 normalized query input 和同一 hard filters，并把新 candidate set proof 登记到 trace
+- **AND** 系统 MUST NOT 在没有 proof 的情况下从全量动作库补动作
+
+#### Scenario: Draft 不能通过文案伪装满足约束
+- **WHEN** draft 动作不满足 candidate set 的 hard constraints 或 result requirements
+- **THEN** 系统 MUST 返回生成失败或 validation hard fail
+- **AND** draft title、summary、coach notes 或 response writer MUST NOT 声称该 routine 满足未被 proof 证明的约束

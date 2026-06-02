@@ -28,7 +28,20 @@
 - **AND** 重新调用必须传入合法结构化 filters
 - **AND** 系统 MUST NOT 通过改标题、改 summary 或忽略该 filter 来修复
 
+#### Scenario: 结果要求失败后的恢复
+- **WHEN** tool 或 validator 返回 `result_requirement_unmet`、`insufficient_candidates` 或等价失败
+- **THEN** 恢复流程 MUST 把未满足的 result requirements、已执行 hard filters、可用 facet 和候选覆盖缺口提供给 Agent
+- **AND** Agent 若要重查，MUST 显式提交新的 ToolRequest
+- **AND** 如果新的 ToolRequest 放宽 hard constraints，必须由 LLM 明确表达为新的用户可解释选择或触发澄清
+- **AND** 系统 MUST NOT 在同一次恢复中隐式删除 hard constraints 后继续生成成功 routine
+
 #### Scenario: 查询边界不可满足
 - **WHEN** 重新检索仍无法得到满足 hard filters 的足够候选
 - **THEN** 系统 MUST 返回可继续对话的失败或澄清引导
 - **AND** 系统 MUST NOT 用放宽后的候选伪装成满足原查询边界
+
+#### Scenario: Tool 能力不支持后的恢复
+- **WHEN** tool 返回 `unsupported_operation` 或 `unverifiable_result`
+- **THEN** 恢复流程 MUST 优先引导 Agent 改用更合适的 tool、补结构化参数或向用户澄清
+- **AND** 系统 MUST NOT 把 unsupported operation 当作空结果继续执行
+- **AND** trace MUST 记录原始 tool、unsupported operation、推荐下一步和是否需要用户澄清
