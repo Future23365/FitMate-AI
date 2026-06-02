@@ -40,7 +40,7 @@
 
 #### Scenario: agent_tool_execution 不允许盲目重试
 - **WHEN** 工具结果包含失败、重复失败或 feedback 摘要
-- **THEN** `agent_tool_execution` prompt MUST 指示模型只能基于结构化 tool result、feedback、dependency graph 和资源合同修复
+- **THEN** `agent_tool_execution` prompt MUST 指示模型只能基于结构化 tool result、feedback、dependency graph 和当前 run 已登记资源修复
 - **AND** prompt MUST 明确 `retryable: true` 不是继续重试的充分条件
 - **AND** prompt MUST 明确模型不得从用户自然语言、自由文本回复或 `conversationSummary` 补造资源 id
 

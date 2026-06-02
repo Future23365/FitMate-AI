@@ -13,19 +13,25 @@
 - **AND** feedback MUST 推荐调用 `saveConversationArtifactRevision` 或等价写工具
 - **AND** 系统 MUST NOT 将该 final result 投影为成功训练卡片
 
-#### Scenario: 工具输入缺少可恢复依赖
-- **WHEN** 模型调用工具时缺少该工具声明的必需资源 id
+#### Scenario: 工具输入缺少可恢复资源引用
+- **WHEN** 模型调用工具时缺少该工具输入 schema 或 dependency graph 要求的已登记资源 id
 - **AND** 当前 run 中存在可用于补齐下一步的上游资源
-- **AND** 工具资源合同声明该缺失依赖属于可恢复失败
+- **AND** runtime 能根据当前已登记资源确定推荐下一步
 - **THEN** 系统 MUST 生成结构化 feedback
 - **AND** feedback MUST 包含缺失依赖、可用资源和推荐下一步工具
 - **AND** 系统 MUST 允许模型在剩余预算内重新决策
 
-#### Scenario: 可恢复性必须由合同和 runtime 共同判定
+#### Scenario: 可恢复性必须由 ToolResult 和 runtime 共同判定
 - **WHEN** 模型决策或工具结果出现 `schema_validation_failed`、`invalid_dependency` 或 `model_output_invalid`
-- **THEN** 系统 MUST 同时检查 runtime 错误分类、工具资源合同、hard boundary 状态和修复预算
+- **THEN** 系统 MUST 同时检查 runtime 错误分类、tool result 状态、已登记资源、hard boundary 状态和修复预算
 - **AND** 系统 MUST NOT 仅凭 `AgentToolError.retryable`、错误码名称或 prompt 文案判定该错误可恢复
 - **AND** 如果缺少任一可恢复条件，系统 MUST 返回 blocked 或 failed，而不是继续调用模型猜测
+
+#### Scenario: ToolResult 失败进入反馈上下文
+- **WHEN** tool 返回结构化失败、`satisfied=false` 或 result requirement 未满足诊断
+- **THEN** runtime MUST 只将该结果作为失败事实和模型可见摘要登记
+- **AND** runtime MUST NOT 把该结果登记为可被后续工具消费的成功资源
+- **AND** runtime MUST NOT 从用户原文、query、title、summary 或 `conversationSummary` 推断额外修复参数
 
 #### Scenario: prompt 引导不能替代 runtime 合同校验
 - **WHEN** prompt 指示模型基于 `AgentDecisionFeedback` 修复上一轮决策
