@@ -98,6 +98,37 @@ export type Exercise = {
   isPublished: boolean;
 };
 
+// ExerciseListItem 是动作列表和小卡片的轻量 DTO，完整教学步骤和来源字段只在详情接口读取。
+export type ExerciseListItem = Pick<
+  Exercise,
+  | "id"
+  | "nameEn"
+  | "nameZh"
+  | "category"
+  | "categoryZh"
+  | "level"
+  | "levelZh"
+  | "force"
+  | "forceZh"
+  | "mechanic"
+  | "mechanicZh"
+  | "equipment"
+  | "equipmentZh"
+  | "homeRequirement"
+  | "homeRequirementZh"
+  | "primaryMuscles"
+  | "primaryMusclesZh"
+  | "imageUrls"
+  | "allowedSections"
+  | "intensityRole"
+  | "movementPattern"
+  | "difficulty"
+  | "goalTags"
+  | "riskTags"
+  | "reviewStatus"
+  | "isPublished"
+>;
+
 export type ExerciseListQuery = {
   q?: string;
   category?: string;
@@ -147,7 +178,7 @@ export type ExerciseFacets = {
 };
 
 export type ExerciseListResult = {
-  items: Exercise[];
+  items: ExerciseListItem[];
   total: number;
   limit: number;
   offset: number;

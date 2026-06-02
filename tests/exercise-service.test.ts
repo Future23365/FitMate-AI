@@ -205,6 +205,25 @@ describe("exercise service", () => {
     });
   });
 
+  it("returns lightweight list summaries without detail-only fields", async () => {
+    const result = await listExercises({ page: 1, pageSize: 1 });
+    const item = result.items[0] as Record<string, unknown>;
+
+    expect(item).toMatchObject({
+      id: expect.any(String),
+      nameZh: expect.any(String),
+      imageUrls: expect.any(Array),
+      primaryMusclesZh: expect.any(Array),
+    });
+    expect(item).not.toHaveProperty("sourceUrl");
+    expect(item).not.toHaveProperty("license");
+    expect(item).not.toHaveProperty("instructionsEn");
+    expect(item).not.toHaveProperty("instructionsZh");
+    expect(item).not.toHaveProperty("secondaryMuscles");
+    expect(item).not.toHaveProperty("embeddingText");
+    expect(item).not.toHaveProperty("embedding");
+  });
+
   it("filters by non-exclusive suitability before pagination", async () => {
     await expect(listExercises({ suitability: "warmup" })).resolves.toMatchObject({
       items: expect.arrayContaining([

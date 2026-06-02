@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
+import { LazyExercisePreviewSheet } from "@/features/exercises/components/lazy-exercise-preview-sheet";
 import {
   createWorkoutRoutine,
   deleteWorkoutRoutine as deleteWorkoutRoutineRequest,
@@ -23,7 +23,7 @@ import {
   saveWorkoutRoutine,
 } from "@/features/workouts/api/workout-data-client";
 import { clientRequest } from "@/lib/client/http/client-request";
-import type { Exercise, ExerciseFacets, ExerciseSuitability } from "@/lib/shared/exercises/types";
+import type { Exercise, ExerciseFacets, ExerciseListItem, ExerciseSuitability } from "@/lib/shared/exercises/types";
 import { toUtcISOString } from "@/lib/shared/time/utc-date-time";
 import {
   clampLoopRounds,
@@ -50,9 +50,13 @@ import {
 } from "@/lib/shared/workouts/composition";
 
 type ExerciseApiResponse = {
-  items: Exercise[];
+  items: ExerciseListItem[];
   total: number;
   facets: ExerciseFacets;
+};
+
+type ExerciseDetailApiResponse = {
+  item: Exercise;
 };
 
 type TemplateExerciseConfig = {
@@ -303,6 +307,18 @@ function summarizeComposerSection(
   };
 }
 
+async function fetchExerciseDetail(exerciseId: string, signal?: AbortSignal) {
+  const data = await clientRequest<ExerciseDetailApiResponse>(
+    `/api/exercises/${encodeURIComponent(exerciseId)}`,
+    {
+      signal,
+      errorMessage: "动作详情加载失败",
+    },
+  );
+
+  return data.item;
+}
+
 async function fetchTemplateExercise(config: TemplateExerciseConfig) {
   const params = new URLSearchParams({
     pageSize: "20",
@@ -316,12 +332,13 @@ async function fetchTemplateExercise(config: TemplateExerciseConfig) {
     .map((id) => data.items.find((exercise) => exercise.id === id))
     .find(Boolean);
 
-  return (
+  const matchedSummary =
     preferredExercise ??
     data.items.find((exercise) => exercise.equipmentZh === "自重") ??
     data.items[0] ??
-    null
-  );
+    null;
+
+  return matchedSummary ? fetchExerciseDetail(matchedSummary.id) : null;
 }
 
 export function ActionComposerPage() {
@@ -333,7 +350,7 @@ export function ActionComposerPage() {
   const [workoutRoutines, setWorkoutRoutines] = useState<WorkoutRoutine[]>([]);
   const [activeWorkoutRoutineId, setActiveWorkoutRoutineId] = useState("");
   const [selectedItemId, setSelectedItemId] = useState("");
-  const [libraryItems, setLibraryItems] = useState<Exercise[]>([]);
+  const [libraryItems, setLibraryItems] = useState<ExerciseListItem[]>([]);
   const [exerciseCache, setExerciseCache] = useState<Map<string, Exercise>>(() => new Map());
   const [libraryTotal, setLibraryTotal] = useState(0);
   const [libraryFacets, setLibraryFacets] = useState<ExerciseFacets>(defaultExerciseFacets);
@@ -358,6 +375,9 @@ export function ActionComposerPage() {
   const [trainingToStretchRestSeconds, setTrainingToStretchRestSeconds] = useState(defaultTrainingToStretchRestSeconds);
   const [activePreviewExercise, setActivePreviewExercise] = useState<Exercise | null>(null);
   const [activePreviewSource, setActivePreviewSource] = useState<"library" | "plan" | null>(null);
+  const [isPreviewSheetOpen, setIsPreviewSheetOpen] = useState(false);
+  const [isPreviewExerciseLoading, setIsPreviewExerciseLoading] = useState(false);
+  const [previewExerciseError, setPreviewExerciseError] = useState("");
   const titleInputRef = useRef<HTMLInputElement>(null);
   const hasHandledInitialWorkoutLoadRef = useRef(false);
 
@@ -447,11 +467,6 @@ export function ActionComposerPage() {
         );
 
         setLibraryItems(data.items);
-        setExerciseCache((current) => {
-          const next = new Map(current);
-          data.items.forEach((exercise) => next.set(exercise.id, exercise));
-          return next;
-        });
         setLibraryTotal(data.total);
         setLibraryFacets(data.facets);
         setSelectedLibraryExerciseId((current) =>
@@ -623,6 +638,26 @@ export function ActionComposerPage() {
     setIsEditingTitle(false);
   }
 
+  function cacheExerciseDetail(exercise: Exercise) {
+    setExerciseCache((current) => {
+      const next = new Map(current);
+      next.set(exercise.id, exercise);
+      return next;
+    });
+  }
+
+  async function readExerciseDetailFromCache(exerciseId: string) {
+    const cachedExercise = exerciseCache.get(exerciseId);
+
+    if (cachedExercise) {
+      return cachedExercise;
+    }
+
+    const exercise = await fetchExerciseDetail(exerciseId);
+    cacheExerciseDetail(exercise);
+    return exercise;
+  }
+
   function addExercise(exercise: Exercise, section = selectedSection) {
     const nextItem = toWorkoutItem(exercise, { section });
     setItems((current) => [...current, nextItem]);
@@ -632,20 +667,39 @@ export function ActionComposerPage() {
     setSaveStatus("");
   }
 
-  function openLibraryPreview(exercise: Exercise) {
+  function openLibraryPreview(exercise: ExerciseListItem) {
     setSelectedLibraryExerciseId(exercise.id);
-    setActivePreviewExercise(exercise);
+    setIsPreviewSheetOpen(true);
+    setIsPreviewExerciseLoading(true);
+    setPreviewExerciseError("");
+    setActivePreviewExercise(null);
     setActivePreviewSource("library");
+
+    void readExerciseDetailFromCache(exercise.id)
+      .then((fullExercise) => {
+        setActivePreviewExercise(fullExercise);
+      })
+      .catch((error: unknown) => {
+        setPreviewExerciseError(error instanceof Error ? error.message : "动作详情加载失败");
+      })
+      .finally(() => {
+        setIsPreviewExerciseLoading(false);
+      });
   }
 
   function openPlanPreview(item: WorkoutItem) {
     setActivePreviewExercise(toPreviewExercise(item, exerciseCache));
     setActivePreviewSource("plan");
+    setIsPreviewSheetOpen(true);
+    setPreviewExerciseError("");
   }
 
   function closePreviewSheet() {
+    setIsPreviewSheetOpen(false);
     setActivePreviewExercise(null);
     setActivePreviewSource(null);
+    setIsPreviewExerciseLoading(false);
+    setPreviewExerciseError("");
   }
 
   function addPreviewExercise() {
@@ -714,11 +768,14 @@ export function ActionComposerPage() {
       }
 
       const selectedIds = new Set(nextItems.map((item) => item.exerciseId));
-      const supplementalItems = libraryItems
+      const supplementalSummaries = libraryItems
         .filter((exercise) => !selectedIds.has(exercise.id))
         .filter((exercise) => exercise.equipmentZh === "自重" || exercise.goalTags.includes("home_friendly"))
-        .slice(0, Math.max(0, 3 - nextItems.length))
-        .map((exercise) => toWorkoutItem(exercise));
+        .slice(0, Math.max(0, 3 - nextItems.length));
+      const supplementalExercises = await Promise.all(
+        supplementalSummaries.map((exercise) => readExerciseDetailFromCache(exercise.id)),
+      );
+      const supplementalItems = supplementalExercises.map((exercise) => toWorkoutItem(exercise));
 
       const composedItems = [...nextItems, ...supplementalItems];
 
@@ -1267,7 +1324,13 @@ export function ActionComposerPage() {
                           className="rounded-full p-xs text-primary transition-colors hover:bg-primary/10"
                           onClick={(event) => {
                             event.stopPropagation();
-                            addExercise(exercise);
+                            setSaveStatus("正在读取动作详情...");
+                            void readExerciseDetailFromCache(exercise.id)
+                              .then((fullExercise) => {
+                                addExercise(fullExercise);
+                                setSaveStatus(`已加入：${fullExercise.nameZh}`);
+                              })
+                              .catch(() => setSaveStatus("动作详情加载失败"));
                           }}
                           type="button"
                         >
@@ -1317,9 +1380,11 @@ export function ActionComposerPage() {
           )}
         </section>
       </ResponsiveRightSidebar>
-      <ExercisePreviewSheet
+      <LazyExercisePreviewSheet
         exercise={activePreviewExercise}
-        isOpen={Boolean(activePreviewExercise)}
+        errorMessage={previewExerciseError}
+        isLoading={isPreviewExerciseLoading}
+        isOpen={isPreviewSheetOpen}
         onClose={closePreviewSheet}
         primaryAction={
           activePreviewSource === "library"

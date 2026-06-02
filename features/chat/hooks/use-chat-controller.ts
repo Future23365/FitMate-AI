@@ -13,22 +13,21 @@ import {
 } from "@/features/chat/lib/agent-activity";
 import { readChatConversation, saveChatConversation } from "@/features/chat/lib/chat-history";
 import { readAssistantSuggestionsFromStreamEvent } from "@/features/chat/lib/assistant-suggestions";
+import {
+  buildClientConversationSummaryContext,
+  buildClientFitnessConversationContext,
+  initializeClientConversationSummary,
+} from "@/features/chat/lib/lightweight-conversation-context";
+import { readWorkoutPlanIntentLightweight } from "@/features/chat/lib/lightweight-workout-intent";
 import type {
   ApiChatMessage,
   ChatMessage,
   ChatStreamEvent,
 } from "@/features/chat/types";
-import {
-  buildConversationSummaryContext,
-  buildFitnessConversationContext,
-  initializeConversationSummary,
-  type ConversationSummaryContext,
-  type FitnessConversationContext,
-} from "@/lib/shared/chat/fitness-conversation-context";
+import type { ConversationSummaryContext, FitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
 import {
-  workoutPlanIntentSchema,
   type WorkoutPlanDraft,
   type WorkoutPlanIntent,
   type WorkoutRoutineDraft,
@@ -54,8 +53,7 @@ function createMessage(role: ChatMessage["role"], content: string): ChatMessage 
 }
 
 function parseRecommendationIntent(intent: unknown): WorkoutPlanIntent | null {
-  const parsed = workoutPlanIntentSchema.safeParse(intent);
-  return parsed.success ? parsed.data : null;
+  return readWorkoutPlanIntentLightweight(intent);
 }
 
 function readThinkingEnabledPreference() {
@@ -89,7 +87,7 @@ export function useChatController() {
   const [bubbleRecommendationIntents, setBubbleRecommendationIntents] = useState<Record<string, WorkoutPlanIntent>>({});
   const [bubblePlanErrors, setBubblePlanErrors] = useState<Record<string, BubblePlanError>>({});
   const [conversationContext, setConversationContext] = useState<FitnessConversationContext>(() =>
-    buildFitnessConversationContext([]),
+    buildClientFitnessConversationContext([]),
   );
   const [conversationSummary, setConversationSummary] = useState<Pick<ConversationSummaryContext, "summary">>({
     summary: "",
@@ -131,11 +129,11 @@ export function useChatController() {
       setBubbleRecommendationIntents(matchedConversation.recommendationIntents ?? {});
       setConversationContext(
         matchedConversation.conversationContext ??
-          buildFitnessConversationContext(matchedConversation.messages),
+          buildClientFitnessConversationContext(matchedConversation.messages),
       );
       setConversationSummary(
         matchedConversation.conversationSummary ??
-          initializeConversationSummary(
+          initializeClientConversationSummary(
             matchedConversation.messages,
             matchedConversation.conversationContext,
           ),
@@ -173,7 +171,7 @@ export function useChatController() {
       setBubblePlanExercises({});
       setBubbleExerciseRecommendations({});
       setBubbleRecommendationIntents({});
-      setConversationContext(buildFitnessConversationContext([]));
+      setConversationContext(buildClientFitnessConversationContext([]));
       setConversationSummary({ summary: "" });
       setBubblePlanErrors({});
       setAutoPlanGenerating(null);
@@ -257,8 +255,8 @@ export function useChatController() {
     const requestMessages: ApiChatMessage[] = [...messages, userMessage]
       .filter((message) => message.content.trim().length > 0)
       .map(({ role, content }) => ({ role, content }));
-    const nextConversationContext = buildFitnessConversationContext(requestMessages);
-    const requestSummaryContext = buildConversationSummaryContext({
+    const nextConversationContext = buildClientFitnessConversationContext(requestMessages);
+    const requestSummaryContext = buildClientConversationSummaryContext({
       summary: conversationSummary.summary,
       latestUserMessage: text,
     });
@@ -472,7 +470,7 @@ export function useChatController() {
 
       setConversationContext(
         updatedConversationContext ??
-          buildFitnessConversationContext([
+          buildClientFitnessConversationContext([
             ...requestMessages,
             { role: "assistant", content: fullContent },
           ]),

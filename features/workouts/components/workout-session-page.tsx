@@ -7,7 +7,7 @@ import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState }
 import { createPortal } from "react-dom";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
-import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
+import { LazyExercisePreviewSheet } from "@/features/exercises/components/lazy-exercise-preview-sheet";
 import {
   getWorkoutSchedule,
   saveWorkoutSessionResult,
@@ -22,10 +22,9 @@ import {
   writeWorkoutVoiceBroadcastSettings,
   writeWorkoutVoiceBroadcastTipSeen,
 } from "@/features/workouts/hooks/use-workout-voice-broadcast";
-import {
-  runWorkoutVoiceSelfCheck,
-  type WorkoutVoiceSelfCheckResult,
-  type WorkoutVoiceSelfCheckStepStatus,
+import type {
+  WorkoutVoiceSelfCheckResult,
+  WorkoutVoiceSelfCheckStepStatus,
 } from "@/features/workouts/voice/workout-voice-self-check";
 import {
   getWorkoutVoiceToggleLabel,
@@ -711,9 +710,11 @@ export function WorkoutSessionPage() {
     setIsVoiceSelfChecking(true);
     setVoiceSelfCheckResult(null);
 
-    void runWorkoutVoiceSelfCheck({
-      onDiagnostic: logVoiceSelfCheckDiagnostic,
-    }, voiceBroadcastConfig).then((result) => {
+    void import("@/features/workouts/voice/workout-voice-self-check").then((module) =>
+      module.runWorkoutVoiceSelfCheck({
+        onDiagnostic: logVoiceSelfCheckDiagnostic,
+      }, voiceBroadcastConfig),
+    ).then((result) => {
       setVoiceSelfCheckResult(result);
     }).catch((error: unknown) => {
       console.error("[WorkoutVoiceCheck] failed", error);
@@ -1411,7 +1412,7 @@ export function WorkoutSessionPage() {
           </section>
         ) : null}
       </div>
-      <ExercisePreviewSheet
+      <LazyExercisePreviewSheet
         exercise={currentExerciseDetail}
         isOpen={isExerciseDetailOpen}
         onClose={() => setIsExerciseDetailOpen(false)}

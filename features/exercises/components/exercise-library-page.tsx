@@ -8,7 +8,7 @@ import { ResponsiveRightSidebar } from "@/components/app/responsive-right-sideba
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { useAutoHideScrollbar } from "@/components/app/use-auto-hide-scrollbar";
 import { clientRequest } from "@/lib/client/http/client-request";
-import type { Exercise, ExerciseFacets, ExerciseSort } from "@/lib/shared/exercises/types";
+import type { Exercise, ExerciseFacets, ExerciseListItem, ExerciseSort } from "@/lib/shared/exercises/types";
 
 type ExerciseFacet = {
   value: string;
@@ -23,7 +23,7 @@ type ActiveFilter = {
 };
 
 type ExerciseApiResponse = {
-  items: Exercise[];
+  items: ExerciseListItem[];
   total: number;
   page: number;
   pageSize: number;
@@ -41,6 +41,10 @@ type ExerciseApiResponse = {
     goalTags: ExerciseFacet[];
     riskTags: ExerciseFacet[];
   };
+};
+
+type ExerciseDetailApiResponse = {
+  item: Exercise;
 };
 
 const defaultExerciseFacets: ExerciseFacets = {
@@ -65,7 +69,7 @@ const exerciseSortOptions: Array<{ value: ExerciseSort; label: string }> = [
 ];
 
 const pageSizeOptions = [12, 24, 48, 96];
-function getExerciseImage(exercise?: Exercise) {
+function getExerciseImage(exercise?: Pick<Exercise, "imageUrls"> | Pick<ExerciseListItem, "imageUrls">) {
   return (
     exercise?.imageUrls[0] ||
     "/images/exercise-placeholder.svg"
@@ -442,13 +446,17 @@ export function ExerciseLibraryPage() {
   const [sortBy, setSortBy] = useState<ExerciseSort>("name_asc");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(24);
-  const [items, setItems] = useState<Exercise[]>([]);
+  const [items, setItems] = useState<ExerciseListItem[]>([]);
   const [facets, setFacets] = useState<ExerciseFacets>(defaultExerciseFacets);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [hasNextPage, setHasNextPage] = useState(false);
   const [hasPreviousPage, setHasPreviousPage] = useState(false);
   const [selectedId, setSelectedId] = useState("");
+  const [detailCache, setDetailCache] = useState<Map<string, Exercise>>(() => new Map());
+  const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
+  const [isLoadingExerciseDetail, setIsLoadingExerciseDetail] = useState(false);
+  const [exerciseDetailError, setExerciseDetailError] = useState("");
   const [isLoadingExercises, setIsLoadingExercises] = useState(true);
   const [exerciseError, setExerciseError] = useState("");
   const [isMoreFiltersOpen, setIsMoreFiltersOpen] = useState(false);
@@ -663,7 +671,7 @@ export function ExerciseLibraryPage() {
   const effectiveSelectedId = items.some((exercise) => exercise.id === selectedId)
     ? selectedId
     : items[0]?.id || "";
-  const selectedExercise = items.find((exercise) => exercise.id === effectiveSelectedId);
+  const selectedListItem = items.find((exercise) => exercise.id === effectiveSelectedId);
   const relatedExercises = selectedExercise
     ? items
         .filter(
@@ -675,6 +683,83 @@ export function ExerciseLibraryPage() {
         )
         .slice(0, 5)
     : [];
+
+  useEffect(() => {
+    let cancelled = false;
+    const applyDetailState = (update: () => void) => {
+      queueMicrotask(() => {
+        if (!cancelled) {
+          update();
+        }
+      });
+    };
+
+    if (!effectiveSelectedId) {
+      applyDetailState(() => {
+        setSelectedExercise(null);
+        setExerciseDetailError("");
+        setIsLoadingExerciseDetail(false);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const cachedExercise = detailCache.get(effectiveSelectedId);
+    if (cachedExercise) {
+      applyDetailState(() => {
+        setSelectedExercise(cachedExercise);
+        setExerciseDetailError("");
+        setIsLoadingExerciseDetail(false);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const controller = new AbortController();
+    applyDetailState(() => {
+      setIsLoadingExerciseDetail(true);
+      setExerciseDetailError("");
+    });
+
+    clientRequest<ExerciseDetailApiResponse>(`/api/exercises/${encodeURIComponent(effectiveSelectedId)}`, {
+      signal: controller.signal,
+      errorMessage: "动作详情加载失败，请稍后重试。",
+    })
+      .then((data) => {
+        if (cancelled) {
+          return;
+        }
+        setDetailCache((current) => {
+          const next = new Map(current);
+          next.set(data.item.id, data.item);
+          return next;
+        });
+        setSelectedExercise(data.item);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) {
+          return;
+        }
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+
+        setSelectedExercise(null);
+        setExerciseDetailError(error instanceof Error ? error.message : "动作详情加载失败，请稍后重试。");
+      })
+      .finally(() => {
+        if (!cancelled && !controller.signal.aborted) {
+          setIsLoadingExerciseDetail(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [detailCache, effectiveSelectedId]);
 
   return (
     <div
@@ -943,7 +1028,10 @@ export function ExerciseLibraryPage() {
       </main>
 
       <ExerciseDetailPanel
+        errorMessage={exerciseDetailError}
         exercise={selectedExercise}
+        fallbackExercise={selectedListItem}
+        isLoading={isLoadingExerciseDetail}
         onSelectExercise={setSelectedId}
         relatedExercises={relatedExercises}
       />
@@ -952,13 +1040,19 @@ export function ExerciseLibraryPage() {
 }
 
 function ExerciseDetailPanel({
+  errorMessage,
   exercise,
+  fallbackExercise,
+  isLoading,
   onSelectExercise,
   relatedExercises,
 }: {
-  exercise?: Exercise;
+  errorMessage: string;
+  exercise: Exercise | null;
+  fallbackExercise?: ExerciseListItem;
+  isLoading: boolean;
   onSelectExercise: (id: string) => void;
-  relatedExercises: Exercise[];
+  relatedExercises: ExerciseListItem[];
 }) {
   const [selectedImage, setSelectedImage] = useState({
     exerciseId: "",
@@ -1012,7 +1106,29 @@ function ExerciseDetailPanel({
   return (
     <ResponsiveRightSidebar label="动作详情侧边栏">
       <div className="custom-scrollbar flex h-full flex-col overflow-y-auto px-md py-lg">
-        {exercise ? (
+        {isLoading ? (
+          <div className="space-y-md">
+            <div className="aspect-[3/2] animate-pulse rounded-xl bg-surface-container" />
+            <div className="rounded-xl border border-line bg-white p-md shadow-card">
+              <div className="mb-sm h-5 w-2/3 animate-pulse rounded bg-surface-container" />
+              <div className="space-y-xs">
+                <div className="h-3 w-full animate-pulse rounded bg-surface-container" />
+                <div className="h-3 w-5/6 animate-pulse rounded bg-surface-container" />
+                <div className="h-3 w-2/3 animate-pulse rounded bg-surface-container" />
+              </div>
+            </div>
+          </div>
+        ) : errorMessage ? (
+          <div className="flex h-full flex-col items-center justify-center text-center text-muted">
+            <SymbolIcon className="mb-md text-5xl text-error">error</SymbolIcon>
+            <p className="font-label-md text-label-md text-ink">{errorMessage}</p>
+            {fallbackExercise ? (
+              <p className="mt-xs font-label-sm text-label-sm">
+                已选：{fallbackExercise.nameZh}
+              </p>
+            ) : null}
+          </div>
+        ) : exercise ? (
           <>
             <div className="mb-lg flex flex-col gap-sm">
               <div className="relative aspect-[3/2] w-full overflow-hidden rounded-xl bg-[#EEF2F6] shadow-card ring-1 ring-line/70">

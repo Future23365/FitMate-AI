@@ -15,6 +15,7 @@ import type {
   Exercise,
   ExerciseFacetItem,
   ExerciseFacets,
+  ExerciseListItem,
   ExerciseListQuery,
   ExerciseListResult,
   ExerciseSort,
@@ -216,7 +217,9 @@ export async function listExercises(query: ExerciseListQuery = {}): Promise<Exer
   const totalPages = Math.ceil(filtered.length / pagination.limit);
 
   return {
-    items: filtered.slice(pagination.offset, pagination.offset + pagination.limit),
+    items: filtered
+      .slice(pagination.offset, pagination.offset + pagination.limit)
+      .map(toExerciseListItem),
     total: filtered.length,
     limit: pagination.limit,
     offset: pagination.offset,
@@ -230,6 +233,38 @@ export async function listExercises(query: ExerciseListQuery = {}): Promise<Exer
 
 export async function getExerciseById(id: string): Promise<Exercise | null> {
   return getExerciseRecordById(id);
+}
+
+// toExerciseListItem 是 `/api/exercises` 的摘要投影，避免列表响应携带详情页才需要的长字段和 embedding。
+export function toExerciseListItem(exercise: Exercise): ExerciseListItem {
+  return {
+    id: exercise.id,
+    nameEn: exercise.nameEn,
+    nameZh: exercise.nameZh,
+    category: exercise.category,
+    categoryZh: exercise.categoryZh,
+    level: exercise.level,
+    levelZh: exercise.levelZh,
+    force: exercise.force,
+    forceZh: exercise.forceZh,
+    mechanic: exercise.mechanic,
+    mechanicZh: exercise.mechanicZh,
+    equipment: exercise.equipment,
+    equipmentZh: exercise.equipmentZh,
+    homeRequirement: exercise.homeRequirement,
+    homeRequirementZh: exercise.homeRequirementZh,
+    primaryMuscles: exercise.primaryMuscles,
+    primaryMusclesZh: exercise.primaryMusclesZh,
+    imageUrls: exercise.imageUrls,
+    allowedSections: exercise.allowedSections,
+    intensityRole: exercise.intensityRole,
+    movementPattern: exercise.movementPattern,
+    difficulty: exercise.difficulty,
+    goalTags: exercise.goalTags,
+    riskTags: exercise.riskTags,
+    reviewStatus: exercise.reviewStatus,
+    isPublished: exercise.isPublished,
+  };
 }
 
 export async function searchExercises(input: ExerciseSearchInput = {}): Promise<ExerciseSearchResult> {

@@ -65,6 +65,7 @@ EXERCISE_IMAGE_PUBLIC_BASE_URL="/api/exercise-images"
 - `EXERCISE_IMAGE_LOCAL_DIR` 默认值为 `exercises_picture`，支持填写相对项目根目录的路径或绝对路径。
 - `EXERCISE_IMAGE_PUBLIC_BASE_URL` 默认值为 `/api/exercise-images`，前端会收到该基础 URL 下的展示地址；如果迁移到 CDN、对象存储或站内静态目录，可改成对应绝对 URL 或站内路径。
 - 数据库中的 `Exercise.images` / `Exercise.imageUrls` 保留原始来源语义，服务端会在动作库、推荐卡和训练执行读取链路中统一派生当前可展示 URL。
+- 本地动作图片默认交给 Next image optimizer 做尺寸和格式优化；列表和小卡片应继续使用 `next/image` 的 `sizes` 约束，不直接请求原始大图。
 
 启动本地 PostgreSQL：
 
@@ -100,6 +101,7 @@ npm test
 npm run typecheck
 npm run lint
 npm run build
+npm run perf:frontend
 docker compose ps
 docker compose stop postgres
 docker compose down
@@ -111,6 +113,7 @@ docker compose down
 - `npm run typecheck`：运行 TypeScript 静态类型检查。
 - `npm run lint`：运行 ESLint 源码质量检查。
 - `npm run build`：验证 Next.js 构建、路由和服务端/客户端模块边界。
+- `npm run perf:frontend`：在完成生产构建后，从 `.next` client-reference manifest 汇总关键路由入口 JavaScript raw/gzip 大小和 chunk 清单，并统计本地动作图片资源体积。
 - UI/交互或浏览器能力变更仍需使用 Chrome DevTools MCP 做真实 Chrome 验证，并检查页面渲染、Console、Network 和关键交互结果。
 
 ## 目录说明
@@ -123,10 +126,13 @@ app/
     ai/workout-plan/       # AI 训练计划草稿生成接口
     chat/                  # 聊天流式响应接口
     exercises/             # 动作库查询接口
-  page.tsx                 # 首页路由入口，渲染聊天功能模块
-  composer/page.tsx        # 动作编排页路由入口
-  exercises/page.tsx       # 动作库页路由入口
-  plans/page.tsx           # 训练计划页路由入口
+  (main)/                  # 主应用 shell route group，URL 不包含该目录名
+    page.tsx               # 首页路由入口，渲染聊天功能模块
+    composer/page.tsx      # 动作编排页路由入口
+    exercises/page.tsx     # 动作库页路由入口
+    plans/page.tsx         # 训练计划页路由入口
+    settings/page.tsx      # 设置页路由入口
+    layout.tsx             # 主应用侧栏和 route transition，只包裹常规应用页面
   training/page.tsx        # 训练执行页路由入口
 
 components/

@@ -1,6 +1,4 @@
 import type { Metadata } from "next";
-import { AppSidebar } from "@/components/app/app-sidebar";
-import { RouteTransition } from "@/components/app/route-transition";
 import { LocalAuthProvider } from "@/components/auth/local-auth-provider";
 import "./globals.css";
 
@@ -18,10 +16,7 @@ export default function RootLayout({
     <html lang="zh-CN">
       <body>
         <LocalAuthProvider>
-          <div id="app-content-wrapper">
-            <AppSidebar />
-            <RouteTransition>{children}</RouteTransition>
-          </div>
+          {children}
         </LocalAuthProvider>
       </body>
     </html>

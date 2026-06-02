@@ -2,20 +2,16 @@
 
 import type { FormEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import dynamic from "next/dynamic";
 
 import { LogoMark } from "@/components/app/logo-mark";
 import { ResponsiveRightSidebar } from "@/components/app/responsive-right-sidebar";
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { useAutoHideScrollbar } from "@/components/app/use-auto-hide-scrollbar";
-import { ExerciseRecommendationCard } from "@/features/exercises/components/exercise-recommendation-card";
 import { AgentActivityIndicator } from "@/features/chat/components/agent-activity-indicator";
 import { useChatController } from "@/features/chat/hooks/use-chat-controller";
 import { getMessageAssistantSuggestions } from "@/features/chat/lib/assistant-suggestions";
 import { listWorkoutSchedules } from "@/features/workouts/api/workout-data-client";
-import { WorkoutPlanDraftCard } from "@/features/workouts/components/workout-plan-draft-card";
-import { WorkoutRoutineDraftCard } from "@/features/workouts/components/workout-routine-draft-card";
 import type { WorkoutSchedule } from "@/lib/shared/workouts/composition";
 
 // 首页示例保留完整 prompt，让新用户能直接理解第一句话应该提供哪些训练条件。
@@ -46,6 +42,32 @@ type MiniCalendarCell = {
 
 const miniCalendarWeekdays = ["一", "二", "三", "四", "五", "六", "日"];
 
+const loadMarkdownContent = () =>
+  import("@/features/chat/components/markdown-content").then((module) => module.MarkdownContent);
+const loadWorkoutPlanDraftCard = () =>
+  import("@/features/workouts/components/workout-plan-draft-card").then((module) => module.WorkoutPlanDraftCard);
+const loadWorkoutRoutineDraftCard = () =>
+  import("@/features/workouts/components/workout-routine-draft-card").then((module) => module.WorkoutRoutineDraftCard);
+const loadExerciseRecommendationCard = () =>
+  import("@/features/exercises/components/exercise-recommendation-card").then((module) => module.ExerciseRecommendationCard);
+
+const MarkdownContent = dynamic(loadMarkdownContent, {
+  ssr: false,
+  loading: () => <TextContentSkeleton />,
+});
+const WorkoutPlanDraftCard = dynamic(loadWorkoutPlanDraftCard, {
+  ssr: false,
+  loading: () => <ArtifactCardSkeleton label="正在加载训练计划卡片" />,
+});
+const WorkoutRoutineDraftCard = dynamic(loadWorkoutRoutineDraftCard, {
+  ssr: false,
+  loading: () => <ArtifactCardSkeleton label="正在加载动作编排卡片" />,
+});
+const ExerciseRecommendationCard = dynamic(loadExerciseRecommendationCard, {
+  ssr: false,
+  loading: () => <ArtifactCardSkeleton label="正在加载动作推荐卡片" />,
+});
+
 function toDateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
     date.getDate(),
@@ -74,46 +96,32 @@ function getMiniCalendarCells(monthDate: Date): MiniCalendarCell[] {
   });
 }
 
-function MarkdownContent({ content }: { content: string }) {
+function TextContentSkeleton() {
   return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      components={{
-        p: ({ children }) => (
-          <p className="mb-sm last:mb-0 font-body-md text-body-md">{children}</p>
-        ),
-        strong: ({ children }) => <strong className="font-bold">{children}</strong>,
-        em: ({ children }) => <em className="italic">{children}</em>,
-        ul: ({ children }) => (
-          <ul className="mb-sm list-disc space-y-xs pl-lg last:mb-0">{children}</ul>
-        ),
-        ol: ({ children }) => (
-          <ol className="mb-sm list-decimal space-y-xs pl-lg last:mb-0">{children}</ol>
-        ),
-        li: ({ children }) => <li className="pl-xs font-body-md text-body-md">{children}</li>,
-        h1: ({ children }) => (
-          <h1 className="mb-sm font-headline-md text-headline-md font-bold">{children}</h1>
-        ),
-        h2: ({ children }) => (
-          <h2 className="mb-sm font-title-lg text-title-lg font-bold">{children}</h2>
-        ),
-        h3: ({ children }) => (
-          <h3 className="mb-xs font-label-md text-label-md font-bold">{children}</h3>
-        ),
-        blockquote: ({ children }) => (
-          <blockquote className="mb-sm border-l-4 border-primary-container pl-md text-on-surface-variant last:mb-0">
-            {children}
-          </blockquote>
-        ),
-        code: ({ children }) => (
-          <code className="rounded-md bg-surface-container px-xs py-[2px] font-mono text-[0.9em]">
-            {children}
-          </code>
-        ),
-      }}
+    <div className="space-y-sm" aria-label="正在加载回复内容">
+      <div className="h-4 w-11/12 animate-pulse rounded bg-surface-container" />
+      <div className="h-4 w-4/5 animate-pulse rounded bg-surface-container" />
+      <div className="h-4 w-2/3 animate-pulse rounded bg-surface-container" />
+    </div>
+  );
+}
+
+function ArtifactCardSkeleton({ label }: { label: string }) {
+  return (
+    <div
+      aria-label={label}
+      className="rounded-xl border border-line bg-white p-md shadow-card"
     >
-      {content}
-    </ReactMarkdown>
+      <div className="mb-sm flex items-center gap-sm">
+        <span className="h-9 w-9 animate-pulse rounded-lg bg-primary-soft" />
+        <span className="h-4 w-40 animate-pulse rounded bg-surface-container" />
+      </div>
+      <div className="grid gap-sm sm:grid-cols-3">
+        <span className="h-16 animate-pulse rounded-lg bg-surface-container" />
+        <span className="h-16 animate-pulse rounded-lg bg-surface-container" />
+        <span className="h-16 animate-pulse rounded-lg bg-surface-container" />
+      </div>
+    </div>
   );
 }
 
@@ -467,6 +475,23 @@ export function ChatPage() {
   useEffect(() => {
     chatInputRef.current?.focus();
   }, [isLoading]);
+
+  useEffect(() => {
+    if (!autoPlanGenerating) {
+      return;
+    }
+
+    void loadWorkoutPlanDraftCard();
+    void loadWorkoutRoutineDraftCard();
+  }, [autoPlanGenerating]);
+
+  useEffect(() => {
+    if (!autoRecommendationGenerating) {
+      return;
+    }
+
+    void loadExerciseRecommendationCard();
+  }, [autoRecommendationGenerating]);
 
   useEffect(() => {
     const chatScroll = chatScrollRef.current;

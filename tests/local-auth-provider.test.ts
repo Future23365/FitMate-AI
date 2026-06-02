@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { LocalAuthProvider } from "@/components/auth/local-auth-provider";
-import SettingsPage from "@/app/settings/page";
+import SettingsPage from "@/app/(main)/settings/page";
 
 describe("LocalAuthProvider", () => {
   it("renders the current page on first entry without opening the anonymous login dialog", () => {
@@ -34,7 +34,7 @@ describe("LocalAuthProvider", () => {
 
   it("keeps reset behind a shadcn confirmation dialog instead of calling reset directly", () => {
     const source = readFileSync(
-      fileURLToPath(new URL("../app/settings/page.tsx", import.meta.url)),
+      fileURLToPath(new URL("../app/(main)/settings/page.tsx", import.meta.url)),
       "utf8",
     );
 
