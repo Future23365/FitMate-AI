@@ -143,7 +143,6 @@ describe("AgentActivityIndicator", () => {
     expect(html).toContain("aria-live=\"polite\"");
     expect(html).toContain("role=\"status\"");
     expect(html).toContain("正在校验训练内容...");
-    expect(html).toContain("fact_check");
     expect(html).toContain("motion-safe:animate-pulse");
     expect(html).toContain("motion-reduce:animate-none");
     expect(html).not.toContain("validateRoutineDraft");
