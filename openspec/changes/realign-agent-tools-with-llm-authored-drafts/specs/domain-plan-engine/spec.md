@@ -2,7 +2,7 @@
 
 ### Requirement: DomainPlanEngine 不得生成训练语义草稿
 
-`DomainPlanEngine` SHALL 只执行确定性计划辅助能力，例如 schedule preview、calendar 展开和一致性校验。生产 Agent 生成链路 MUST NOT 使用 `DomainPlanEngine` 根据 source artifact、候选动作或策略自动生成完整 `WorkoutPlanDraft`。
+`DomainPlanEngine` SHALL 只执行确定性计划辅助能力，例如 schedule preview、calendar 展开和一致性校验。生产 Agent 生成链路 MUST NOT 使用 `DomainPlanEngine` 根据 source artifact、动作搜索结果或策略自动生成完整 `WorkoutPlanDraft`。
 
 #### Scenario: 生成长期计划
 - **WHEN** Agent 需要生成长期 plan

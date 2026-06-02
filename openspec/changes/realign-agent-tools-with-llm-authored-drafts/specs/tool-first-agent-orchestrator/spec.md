@@ -6,7 +6,7 @@ Tool-first Agent Loop SHALL 由 LLM 做语义决策和结构化草稿输出，�
 
 #### Scenario: LLM 生成训练草稿
 - **WHEN** 用户请求生成 routine 或 plan
-- **THEN** LLM MUST 通过候选工具读取可用候选
+- **THEN** LLM MUST 通过纯搜索工具读取可用动作和 artifact 事实
 - **AND** LLM MUST 在生成工具输入中提交完整 structured draft
 - **AND** 生成工具 MUST 只登记和校验该 structured draft
 
@@ -14,7 +14,13 @@ Tool-first Agent Loop SHALL 由 LLM 做语义决策和结构化草稿输出，�
 - **WHEN** Agent Tool 执行
 - **THEN** Tool MUST 只执行其合同声明的确定性能力
 - **AND** Tool MUST NOT 通过本地规则生成训练语义
-- **AND** Tool MUST NOT 把候选池或动作元数据直接转成最终编排
+- **AND** Tool MUST NOT 把搜索结果或动作元数据直接转成最终编排
+
+#### Scenario: 搜索工具不承担编排职责
+- **WHEN** Agent 调用 `searchExercises` 或 `searchArtifacts`
+- **THEN** Tool MUST 只返回搜索结果资源和事实摘要
+- **AND** Tool MUST NOT 接收 `candidateUse` 或 routine / plan 覆盖要求
+- **AND** Tool MUST NOT 返回生成前置成功状态
 
 ### Requirement: Agent 生成链路必须避免服务端自动编排逃逸
 
