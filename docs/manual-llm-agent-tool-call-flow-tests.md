@@ -131,7 +131,7 @@ P3 不让测试失败，只进入报告的 `needs_review`。
 
 ## 报告要求
 
-建议新增报告路径：
+当前报告路径：
 
 `docs/manual-llm-agent-tool-call-latest-report.md`
 
@@ -149,11 +149,11 @@ P3 不让测试失败，只进入报告的 `needs_review`。
 
 ## 脚本参数
 
-如果新增独立入口，建议脚本命名为：
+当前独立入口脚本：
 
 `scripts/run-manual-agent-tool-tests.mjs`
 
-建议命令入口：
+当前命令入口：
 
 `npm run test:llm:agent-tool`
 
@@ -170,6 +170,7 @@ P3 不让测试失败，只进入报告的 `needs_review`。
 | `--concurrency` | integer | `1` | 并发数；真实模型和数据库写入测试默认保持 1。 |
 | `--report` | path | `docs/manual-llm-agent-tool-call-latest-report.md` | 输出报告路径。 |
 | `--disable-legacy-events` | boolean | `true` | 关闭旧兼容事件，确保报告依赖 Agent 证据。 |
+| `--no-disable-legacy-events` | boolean | `false` | 调试时显式允许旧兼容事件。 |
 | `--dry-run` | boolean | `false` | 只输出筛选后的用例和 token 预估，不请求真实模型。 |
 
 对应环境变量建议：
@@ -215,14 +216,15 @@ npm run test:llm:agent-tool -- --ids=AT01,AT02,AT04,AT05 --state=empty --concurr
 npm run test:llm:agent-tool -- --ids=AT07,AT08 --state=recent_recommendation,recent_routine --concurrency=1 --report=docs/manual-llm-agent-tool-call-latest-report.md --disable-legacy-events
 ```
 
-## 实现顺序建议
+## 当前实现落点
 
-1. 新增 `manual-tests/llm/agent-tool-fixtures.ts`，只存单轮 tool flow case。
-2. 从现有 `blackbox-runner.ts` 抽出可复用的单轮执行函数，不改变多轮黑盒行为。
-3. 新增 `agent-tool-assertions.ts`，把 `requiredAgentTools`、`forbiddenAgentTools`、关键 id 和 legacy skip 提升为主断言。
-4. 新增独立 Vitest 文件，禁止挂入普通 `npm run test`。
-5. 新增脚本入口和独立报告生成。
-6. 先跑当前参数，再根据报告扩展 stateful 用例。
+1. `manual-tests/llm/agent-tool-fixtures.ts`：单轮 Agent tool 用例。
+2. `manual-tests/llm/agent-tool-selection.ts`：`id/group/tool/status/state/failed-from-report` 筛选。
+3. `manual-tests/llm/agent-tool-assertions.ts`：tool 选择、关键 id、legacy skip 和结果合同断言。
+4. `manual-tests/llm/agent-tool-call.test.ts`：独立 Vitest 执行与报告生成。
+5. `scripts/run-manual-agent-tool-tests.mjs`：命令行入口。
+6. `vitest.llm-agent-tool.config.ts`：只匹配单次 Agent tool 测试。
+7. `vitest.llm.config.ts`：收窄为原来的 `llm-consistency.test.ts`，避免旧 `test:llm` 混跑新套件。
 
 ## 验收标准
 

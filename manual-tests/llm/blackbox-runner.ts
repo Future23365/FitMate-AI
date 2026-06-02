@@ -7,6 +7,7 @@ import {
   signLocalAnonymousToken,
 } from "@/lib/server/auth/local-anonymous-auth";
 import {
+  createOrUpdateConversationArtifact,
   getArtifactPayloadForCurrentUser,
   listRecentArtifactSummariesForCurrentUser,
   type RecentArtifactSummary,
@@ -130,6 +131,19 @@ export type BlackboxConversationState = {
   authSession?: ManualAuthSession;
 };
 
+export type BlackboxStateFixtureName =
+  | "empty"
+  | "recent_recommendation"
+  | "recent_routine"
+  | "recent_plan"
+  | "user_memory";
+
+export type BlackboxStateFixtureResult = {
+  fixtureName: BlackboxStateFixtureName;
+  seededArtifactIds: string[];
+  note?: string;
+};
+
 type ConsumedChatStream = {
   assistantText: string;
   actionTypes: BlackboxCardType[];
@@ -160,6 +174,52 @@ export function createBlackboxConversationState(flowId: string): BlackboxConvers
     conversationSummary: "",
     conversationContext: buildFitnessConversationContext([]),
     recentArtifactSummaries: [],
+  };
+}
+
+// 单次 Agent tool 测试通过真实 artifact 写入口预置上下文，避免用多轮自然语言前置步骤污染“单次调用”边界。
+export async function applyBlackboxStateFixture(input: {
+  state: BlackboxConversationState;
+  fixtureName: BlackboxStateFixtureName;
+}): Promise<BlackboxStateFixtureResult> {
+  if (input.fixtureName === "empty") {
+    return { fixtureName: input.fixtureName, seededArtifactIds: [] };
+  }
+
+  input.state.authSession ??= await createManualLlmAuthSession();
+
+  if (input.fixtureName === "user_memory") {
+    input.state.recentArtifactSummaries = await listRecentArtifactSummariesForCurrentUser(
+      input.state.conversationId,
+      undefined,
+      input.state.authSession.user,
+    );
+    return {
+      fixtureName: input.fixtureName,
+      seededArtifactIds: [],
+      note: "user_memory fixture 当前只预留筛选能力，首版单次 tool 用例不写入用户记忆。",
+    };
+  }
+
+  const exercises = await loadFixtureExercises();
+  const artifact = await createOrUpdateConversationArtifact({
+    userId: input.state.authSession.user.id,
+    sessionId: input.state.conversationId,
+    messageId: createManualId(`fixture_${input.fixtureName}`),
+    kind: getFixtureArtifactKind(input.fixtureName),
+    payload: createFixtureArtifactPayload(input.fixtureName, exercises),
+  });
+
+  input.state.recentArtifactSummaries = await listRecentArtifactSummariesForCurrentUser(
+    input.state.conversationId,
+    undefined,
+    input.state.authSession.user,
+  );
+
+  return {
+    fixtureName: input.fixtureName,
+    seededArtifactIds: [artifact.id],
+    note: `已预置 ${input.fixtureName} artifact，供本轮 Agent tool 通过真实索引读取。`,
   };
 }
 
@@ -369,6 +429,226 @@ async function createManualLlmAuthSession(): Promise<ManualAuthSession> {
   return {
     cookieHeader: `${localAnonymousAuthCookieName}=${encodeURIComponent(signedToken.token)}`,
     user,
+  };
+}
+
+type FixtureExercise = {
+  id: string;
+  nameZh: string;
+  nameEn: string;
+  categoryZh: string | null;
+  levelZh: string | null;
+  equipmentZh: string | null;
+  primaryMusclesZh: string[];
+  secondaryMusclesZh: string[];
+  imageUrls: string[];
+};
+
+async function loadFixtureExercises(): Promise<[FixtureExercise, FixtureExercise, FixtureExercise]> {
+  const prisma = getPrismaClient();
+  const exercises = await prisma.exercise.findMany({
+    where: { isPublished: true },
+    orderBy: { nameZh: "asc" },
+    take: 3,
+    select: {
+      id: true,
+      nameZh: true,
+      nameEn: true,
+      categoryZh: true,
+      levelZh: true,
+      equipmentZh: true,
+      primaryMusclesZh: true,
+      secondaryMusclesZh: true,
+      imageUrls: true,
+    },
+  });
+  const fallbackExercises = exercises.length > 0
+    ? exercises
+    : await prisma.exercise.findMany({
+        orderBy: { nameZh: "asc" },
+        take: 3,
+        select: {
+          id: true,
+          nameZh: true,
+          nameEn: true,
+          categoryZh: true,
+          levelZh: true,
+          equipmentZh: true,
+          primaryMusclesZh: true,
+          secondaryMusclesZh: true,
+          imageUrls: true,
+        },
+      });
+
+  if (fallbackExercises.length === 0) {
+    throw new Error("缺少 Exercise seed 数据，无法预置 Agent tool 测试 artifact。");
+  }
+
+  return [
+    fallbackExercises[0],
+    fallbackExercises[1] ?? fallbackExercises[0],
+    fallbackExercises[2] ?? fallbackExercises[0],
+  ];
+}
+
+function getFixtureArtifactKind(
+  fixtureName: Exclude<BlackboxStateFixtureName, "empty" | "user_memory">,
+): ConversationArtifactKind {
+  if (fixtureName === "recent_recommendation") return "exercise_recommendation";
+  if (fixtureName === "recent_plan") return "plan";
+  return "routine";
+}
+
+function createFixtureArtifactPayload(
+  fixtureName: Exclude<BlackboxStateFixtureName, "empty" | "user_memory">,
+  exercises: [FixtureExercise, FixtureExercise, FixtureExercise],
+) {
+  if (fixtureName === "recent_recommendation") {
+    return {
+      title: "测试预置胸部动作推荐",
+      goal: "胸部训练",
+      summary: "用于单次 Agent tool 测试的最近动作推荐卡片。",
+      items: exercises.map((exercise) => ({
+        exerciseId: exercise.id,
+        nameZh: exercise.nameZh,
+        nameEn: exercise.nameEn,
+        categoryZh: exercise.categoryZh ?? "力量训练",
+        levelZh: exercise.levelZh ?? "中等",
+        equipmentZh: exercise.equipmentZh ?? "自重",
+        primaryMusclesZh: exercise.primaryMusclesZh.length ? exercise.primaryMusclesZh : ["胸部"],
+        secondaryMusclesZh: exercise.secondaryMusclesZh,
+        imageUrl: exercise.imageUrls[0],
+        reasons: ["测试预置 artifact，用于验证 getArtifactPayload 单次读取。"],
+      })),
+      safetyNotes: ["按自身状态调整动作幅度。"],
+    };
+  }
+
+  if (fixtureName === "recent_routine") {
+    return {
+      kind: "routine",
+      title: "测试预置 30 分钟哑铃上肢训练",
+      goal: "上肢力量训练",
+      summary: "用于单次 Agent tool patch 测试的最近 routine，当前条件包含哑铃。",
+      estimatedSessionMinutes: 30,
+      trainingLoopRounds: 2,
+      trainingLoopRestSeconds: 90,
+      sections: [
+        createFixtureRoutineSection("warmup", "热身激活", exercises[0], "上肢热身，准备进入哑铃训练。"),
+        createFixtureRoutineSection("training", "哑铃上肢主训练", exercises[1], "主训练阶段，当前版本允许使用哑铃。"),
+        createFixtureRoutineSection("stretch", "拉伸放松", exercises[2], "上肢拉伸，降低肩胸紧张。"),
+      ],
+      safetyNotes: ["如出现疼痛应停止训练。"],
+    };
+  }
+
+  return {
+    kind: "plan",
+    title: "测试预置每周 3 练计划",
+    goal: "增肌",
+    summary: "用于单次 Agent tool 测试的最近长期计划。",
+    cycleLengthDays: 7,
+    trainingDayCount: 3,
+    restDayCount: 4,
+    cycleRepeatable: true,
+    weeklyFrequency: 3,
+    estimatedSessionMinutes: 40,
+    progression: "每周优先保持动作质量，再逐步增加训练量。",
+    recoveryStrategy: "训练日之间保留恢复日，避免连续高负荷。",
+    schedulePattern: Array.from({ length: 7 }, (_, index) => {
+      const cycleDayIndex = index + 1;
+      const isTrainingDay = [1, 3, 5].includes(cycleDayIndex);
+
+      return {
+        cycleDayIndex,
+        title: isTrainingDay ? `第 ${cycleDayIndex} 天训练` : `第 ${cycleDayIndex} 天恢复`,
+        dayType: isTrainingDay ? "strength" : "rest",
+        focus: isTrainingDay ? "全身力量" : "恢复",
+        isRestDay: !isTrainingDay,
+      };
+    }),
+    days: Array.from({ length: 7 }, (_, index) => {
+      const cycleDayIndex = index + 1;
+      const isTrainingDay = [1, 3, 5].includes(cycleDayIndex);
+
+      if (!isTrainingDay) {
+        return {
+          title: `第 ${cycleDayIndex} 天恢复`,
+          focus: "恢复",
+          cycleDayIndex,
+          dayType: "rest",
+          isRestDay: true,
+          estimatedMinutes: 0,
+          recoveryNotes: ["轻松活动或完全休息。"],
+          sections: [],
+          safetyNotes: [],
+        };
+      }
+
+      return {
+        title: `第 ${cycleDayIndex} 天全身力量`,
+        focus: "全身力量",
+        cycleDayIndex,
+        dayType: "strength",
+        isRestDay: false,
+        estimatedMinutes: 40,
+        recoveryNotes: [],
+        sections: [
+          createFixturePlanSection("warmup", "热身激活", exercises[0]),
+          createFixturePlanSection("training", "主训练", exercises[1]),
+          createFixturePlanSection("stretch", "拉伸放松", exercises[2]),
+        ],
+        safetyNotes: ["保持动作控制。"],
+      };
+    }),
+    safetyNotes: ["根据恢复状态调整训练量。"],
+  };
+}
+
+function createFixtureRoutineSection(
+  section: "warmup" | "training" | "stretch",
+  title: string,
+  exercise: FixtureExercise,
+  notes: string,
+) {
+  return {
+    section,
+    title,
+    items: [
+      {
+        exerciseId: exercise.id,
+        section,
+        mode: section === "training" ? "reps" : "duration",
+        sets: section === "training" ? 3 : 1,
+        target: section === "training" ? 12 : 45,
+        setRestSeconds: section === "training" ? 60 : 15,
+        transitionRestSeconds: section === "training" ? 90 : 30,
+        notes,
+      },
+    ],
+  };
+}
+
+function createFixturePlanSection(
+  section: "warmup" | "training" | "stretch",
+  title: string,
+  exercise: FixtureExercise,
+) {
+  return {
+    section,
+    title,
+    items: [
+      {
+        exerciseId: exercise.id,
+        section,
+        mode: section === "training" ? "reps" : "duration",
+        sets: section === "training" ? 3 : 1,
+        target: section === "training" ? 10 : 45,
+        setRestSeconds: section === "training" ? 60 : 15,
+        transitionRestSeconds: section === "training" ? 90 : 30,
+        notes: section === "training" ? "全身力量主训练。" : "训练前后辅助阶段。",
+      },
+    ],
   };
 }
 
