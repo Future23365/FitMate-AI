@@ -103,6 +103,7 @@ type ScalarFacetField =
 type ScalarFacetConfig = {
   valueField: ScalarFacetField;
   labelField: ScalarFacetField;
+  nullable: boolean;
 };
 
 type ArrayFacetConfig = {
@@ -118,12 +119,12 @@ type RawFacetRow = {
 };
 
 const scalarFacetConfigs = {
-  categories: { valueField: "category", labelField: "categoryZh" },
-  levels: { valueField: "level", labelField: "levelZh" },
-  force: { valueField: "force", labelField: "forceZh" },
-  mechanics: { valueField: "mechanic", labelField: "mechanicZh" },
-  equipment: { valueField: "equipment", labelField: "equipmentZh" },
-  homeRequirements: { valueField: "homeRequirement", labelField: "homeRequirementZh" },
+  categories: { valueField: "category", labelField: "categoryZh", nullable: true },
+  levels: { valueField: "level", labelField: "levelZh", nullable: true },
+  force: { valueField: "force", labelField: "forceZh", nullable: true },
+  mechanics: { valueField: "mechanic", labelField: "mechanicZh", nullable: true },
+  equipment: { valueField: "equipment", labelField: "equipmentZh", nullable: true },
+  homeRequirements: { valueField: "homeRequirement", labelField: "homeRequirementZh", nullable: false },
 } satisfies Record<
   "categories" | "levels" | "force" | "mechanics" | "equipment" | "homeRequirements",
   ScalarFacetConfig
@@ -389,13 +390,7 @@ async function collectScalarFacet(
   const prisma = getPrismaClient();
   const rows = await prisma.exercise.groupBy({
     by: [config.valueField, config.labelField],
-    where: {
-      AND: [
-        createExerciseListWhere(scope),
-        { [config.valueField]: { not: null } },
-        { [config.labelField]: { not: null } },
-      ],
-    } as Prisma.ExerciseWhereInput,
+    where: createScalarFacetWhere(config, scope),
     _count: { _all: true },
   });
 
@@ -417,6 +412,27 @@ async function collectScalarFacet(
     })
     .filter((item): item is ExerciseFacetItem => Boolean(item))
     .sort(compareFacetByLabel);
+}
+
+function createScalarFacetWhere(
+  config: ScalarFacetConfig,
+  scope: Pick<ExerciseListQuery, "suitability">,
+): Prisma.ExerciseWhereInput {
+  return {
+    AND: [
+      createExerciseListWhere(scope),
+      ...createNonEmptyScalarFieldFilters(config.valueField, config.nullable),
+      ...createNonEmptyScalarFieldFilters(config.labelField, config.nullable),
+    ],
+  };
+}
+
+function createNonEmptyScalarFieldFilters(field: ScalarFacetField, nullable: boolean): Prisma.ExerciseWhereInput[] {
+  const filters: Prisma.ExerciseWhereInput[] = [{ [field]: { not: "" } } as Prisma.ExerciseWhereInput];
+
+  return nullable
+    ? ([{ [field]: { not: null } } as Prisma.ExerciseWhereInput, ...filters])
+    : filters;
 }
 
 async function collectArrayFacet(
