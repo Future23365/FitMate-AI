@@ -552,6 +552,123 @@ describe("chat service Agent-only contract", () => {
     }));
   });
 
+  it("keeps nested searchExercises schema shapes visible after model input slimming", () => {
+    const input = buildAgentDecisionModelInput({
+      contextPackage: {
+        latestUserMessage: "今天想练上肢，30 分钟，有哑铃，帮我安排一套",
+        recentMessages: [],
+        recentArtifacts: [],
+        memorySnapshot: { snapshotId: "memory-1", facts: [], preferences: [], avoidances: [] },
+        provenance: [],
+        limits: {
+          maxRecentMessages: 12,
+          maxRecentArtifacts: 8,
+          maxMessageChars: 1200,
+          maxArtifactSummaryChars: 700,
+        },
+      },
+      registeredTools: createToolFirstAgentToolRegistry().listModelDefinitions(),
+      toolResults: [],
+      dependencyGraph: { nodes: [], edges: [] },
+      remainingSteps: 6,
+    });
+
+    const searchFields = getToolInputFields(input.input.registeredTools, "searchExercises");
+    const topLevelQuery = findField(searchFields, "query");
+    const resultRequirements = findField(searchFields, "resultRequirements");
+    const resultRequirementFields = readFieldList(resultRequirements.properties);
+    const sectionCoverage = findField(resultRequirementFields, "sectionCoverage");
+    const sectionCoverageValue = sectionCoverage.additionalProperties as Record<string, unknown> | undefined;
+    const sectionCoverageValueFields = readFieldList(sectionCoverageValue?.properties);
+    const softPreferences = findField(searchFields, "softPreferences");
+    const softPreferenceFields = readFieldList(softPreferences.properties);
+
+    expect(topLevelQuery).toMatchObject({
+      name: "query",
+      type: "string",
+    });
+    expect(sectionCoverage).toMatchObject({
+      name: "sectionCoverage",
+      type: "object",
+      propertyNames: expect.objectContaining({
+        enum: ["warmup", "training", "stretch"],
+      }),
+    });
+    expect(sectionCoverageValue).toMatchObject({
+      type: "object",
+    });
+    expect(sectionCoverageValueFields).toContainEqual(expect.objectContaining({
+      name: "min",
+      required: true,
+      type: "integer",
+      min: 1,
+      max: 40,
+    }));
+    expect(softPreferenceFields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "preferredEquipment" }),
+      expect.objectContaining({ name: "preferredMuscles" }),
+      expect.objectContaining({ name: "preferredDifficulty" }),
+    ]));
+    expect(softPreferenceFields.some((field) => field.name === "query")).toBe(false);
+  });
+
+  it("keeps nested generation tool schema shapes visible after model input slimming", () => {
+    const input = buildAgentDecisionModelInput({
+      contextPackage: {
+        latestUserMessage: "生成一套长期计划",
+        recentMessages: [],
+        recentArtifacts: [],
+        memorySnapshot: { snapshotId: "memory-1", facts: [], preferences: [], avoidances: [] },
+        provenance: [],
+        limits: {
+          maxRecentMessages: 12,
+          maxRecentArtifacts: 8,
+          maxMessageChars: 1200,
+          maxArtifactSummaryChars: 700,
+        },
+      },
+      registeredTools: createToolFirstAgentToolRegistry().listModelDefinitions(),
+      toolResults: [],
+      dependencyGraph: { nodes: [], edges: [] },
+      remainingSteps: 6,
+    });
+
+    const routineFields = getToolInputFields(input.input.registeredTools, "generateRoutineDraft");
+    const routineIntent = findField(routineFields, "intent");
+    const routineIntentFields = readFieldList(routineIntent.properties);
+    const planFields = getToolInputFields(input.input.registeredTools, "generatePlanDraft");
+    const planStrategy = findField(planFields, "strategy");
+    const planStrategyFields = readFieldList(planStrategy.properties);
+    const policyFields = input.input.registeredTools
+      .find((tool) => tool.name === "evaluatePolicy")
+      ?.inputFields as Array<{ fields?: Array<Record<string, unknown>> }>;
+    const artifactRevisionFields = policyFields
+      .find((variant) => variant.fields?.some((field) => field.name === "policyTarget" && field.const === "artifact_revision"))
+      ?.fields ?? [];
+
+    expect(routineIntentFields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "intentType" }),
+      expect.objectContaining({ name: "goal" }),
+      expect.objectContaining({ name: "sessionMinutes" }),
+      expect.objectContaining({ name: "weeklyFrequency" }),
+      expect.objectContaining({ name: "equipment" }),
+    ]));
+    expect(planStrategyFields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "goal" }),
+      expect.objectContaining({ name: "horizonDays" }),
+      expect.objectContaining({ name: "weeklyFrequency" }),
+      expect.objectContaining({ name: "sessionMinutes" }),
+      expect.objectContaining({ name: "progressionPolicy" }),
+      expect.objectContaining({ name: "fieldSources" }),
+    ]));
+    expect(artifactRevisionFields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "policyTarget", const: "artifact_revision" }),
+      expect.objectContaining({ name: "sourceArtifactId" }),
+      expect.objectContaining({ name: "draftId" }),
+      expect.objectContaining({ name: "patchId" }),
+    ]));
+  });
+
   it("compacts duplicate non-retryable tool failures in Agent decision model input", () => {
     const input = buildAgentDecisionModelInput({
       contextPackage: {
@@ -724,3 +841,31 @@ describe("chat service Agent-only contract", () => {
     });
   });
 });
+
+function getToolInputFields(tools: Array<Record<string, unknown>>, toolName: string) {
+  const fields = tools.find((tool) => tool.name === toolName)?.inputFields;
+
+  if (!Array.isArray(fields)) {
+    throw new Error(`Expected ${toolName} inputFields to be an array.`);
+  }
+
+  return fields as Array<Record<string, unknown>>;
+}
+
+function findField(fields: Array<Record<string, unknown>>, name: string) {
+  const field = fields.find((candidate) => candidate.name === name);
+
+  if (!field) {
+    throw new Error(`Expected field ${name} to be visible.`);
+  }
+
+  return field;
+}
+
+function readFieldList(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error("Expected nested field list to be visible.");
+  }
+
+  return value as Array<Record<string, unknown>>;
+}

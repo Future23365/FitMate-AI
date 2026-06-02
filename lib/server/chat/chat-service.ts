@@ -86,6 +86,12 @@ type AgentDecisionModelInput = {
   remainingSteps: number;
 };
 
+const maxSchemaSummaryDepth = 3;
+const maxSchemaSummaryFieldsPerObject = 32;
+const maxSchemaSummaryVariants = 8;
+
+type JsonSchemaFieldSummary = Record<string, unknown>;
+
 export const chatRequestSchema = z.object({
   conversationId: z.string().trim().min(1).max(120).optional(),
   responseMessageId: z.string().trim().min(1).max(120).optional(),
@@ -531,7 +537,7 @@ function summarizeToolDefinitionForModel(tool: Record<string, unknown>) {
 }
 
 // summarizeJsonSchemaFields 保留模型调用工具所需的轻量 Schema 契约，尤其是 union 工具的分支边界。
-function summarizeJsonSchemaFields(schema: unknown) {
+function summarizeJsonSchemaFields(schema: unknown): JsonSchemaFieldSummary[] {
   const record = asRecord(schema);
 
   if (!record) {
@@ -542,11 +548,11 @@ function summarizeJsonSchemaFields(schema: unknown) {
   if (variants.length > 0) {
     return variants.map((variant, index) => compactObject({
       variant: index + 1,
-      fields: summarizeJsonSchemaObjectFields(variant),
+      fields: summarizeJsonSchemaObjectFields(variant, 0),
     }));
   }
 
-  return summarizeJsonSchemaObjectFields(record);
+  return summarizeJsonSchemaObjectFields(record, 0);
 }
 
 // readJsonSchemaVariants 识别 discriminated union 转换后的 oneOf/anyOf 分支，避免判别字段被瘦身掉。
@@ -562,7 +568,7 @@ function readJsonSchemaVariants(schema: Record<string, unknown>) {
     .filter((variant): variant is Record<string, unknown> => Boolean(variant));
 }
 
-function summarizeJsonSchemaObjectFields(record: Record<string, unknown>) {
+function summarizeJsonSchemaObjectFields(record: Record<string, unknown>, depth: number): JsonSchemaFieldSummary[] {
   const properties = record.properties;
   const required = new Set(Array.isArray(record.required) ? record.required.filter((item): item is string => typeof item === "string") : []);
 
@@ -570,37 +576,106 @@ function summarizeJsonSchemaObjectFields(record: Record<string, unknown>) {
     return [];
   }
 
-  return Object.entries(properties as Record<string, unknown>).map(([name, field]) => {
+  return Object.entries(properties as Record<string, unknown>).slice(0, maxSchemaSummaryFieldsPerObject).map(([name, field]) => {
     const fieldRecord = field && typeof field === "object" ? field as Record<string, unknown> : {};
 
-    return compactObject({
+    return summarizeJsonSchemaShape(fieldRecord, {
       name,
       required: required.has(name),
-      type: fieldRecord.type,
-      enum: Array.isArray(fieldRecord.enum) ? fieldRecord.enum : undefined,
-      const: fieldRecord.const,
-      items: summarizeJsonSchemaArrayItems(fieldRecord.items),
-      default: fieldRecord.default,
-      min: fieldRecord.minimum,
-      max: fieldRecord.maximum,
-      maxItems: fieldRecord.maxItems,
+      depth,
     });
   });
 }
 
-function summarizeJsonSchemaArrayItems(items: unknown) {
+// summarizeJsonSchemaShape 用受控深度暴露工具输入结构，避免复杂对象在模型侧只剩字段名。
+function summarizeJsonSchemaShape(
+  fieldRecord: Record<string, unknown>,
+  options: {
+    name?: string;
+    required?: boolean;
+    depth: number;
+  },
+): JsonSchemaFieldSummary {
+  const variants = readJsonSchemaVariants(fieldRecord).slice(0, maxSchemaSummaryVariants);
+  const nextDepth = options.depth + 1;
+  const canExpand = options.depth < maxSchemaSummaryDepth;
+  const properties: JsonSchemaFieldSummary[] | undefined = canExpand ? summarizeJsonSchemaNestedProperties(fieldRecord, nextDepth) : undefined;
+  const additionalProperties: JsonSchemaFieldSummary | boolean | undefined = canExpand
+    ? summarizeJsonSchemaAdditionalProperties(fieldRecord.additionalProperties, nextDepth)
+    : undefined;
+  const propertyNames: JsonSchemaFieldSummary | undefined = canExpand
+    ? summarizeJsonSchemaPropertyNames(fieldRecord.propertyNames, nextDepth)
+    : undefined;
+
+  return compactObject({
+    name: options.name,
+    required: options.required,
+    type: fieldRecord.type,
+    enum: Array.isArray(fieldRecord.enum) ? fieldRecord.enum : undefined,
+    const: fieldRecord.const,
+    default: fieldRecord.default,
+    format: fieldRecord.format,
+    min: fieldRecord.minimum,
+    max: fieldRecord.maximum,
+    minLength: fieldRecord.minLength,
+    maxLength: fieldRecord.maxLength,
+    minItems: fieldRecord.minItems,
+    maxItems: fieldRecord.maxItems,
+    items: canExpand ? summarizeJsonSchemaArrayItems(fieldRecord.items, nextDepth) : undefined,
+    properties,
+    propertyNames,
+    additionalProperties,
+    variants: canExpand && variants.length > 0
+      ? variants.map((variant, index) => compactObject({
+        variant: index + 1,
+        fields: summarizeJsonSchemaObjectFields(variant, nextDepth),
+      }))
+      : undefined,
+  });
+}
+
+function summarizeJsonSchemaNestedProperties(record: Record<string, unknown>, depth: number): JsonSchemaFieldSummary[] | undefined {
+  return record.properties && typeof record.properties === "object"
+    ? summarizeJsonSchemaObjectFields(record, depth)
+    : undefined;
+}
+
+function summarizeJsonSchemaAdditionalProperties(additionalProperties: unknown, depth: number): JsonSchemaFieldSummary | boolean | undefined {
+  if (additionalProperties === false) {
+    return false;
+  }
+
+  if (additionalProperties === true) {
+    return true;
+  }
+
+  const record = asRecord(additionalProperties);
+
+  if (!record) {
+    return undefined;
+  }
+
+  return summarizeJsonSchemaShape(record, { depth });
+}
+
+function summarizeJsonSchemaPropertyNames(propertyNames: unknown, depth: number): JsonSchemaFieldSummary | undefined {
+  const record = asRecord(propertyNames);
+
+  if (!record) {
+    return undefined;
+  }
+
+  return summarizeJsonSchemaShape(record, { depth });
+}
+
+function summarizeJsonSchemaArrayItems(items: unknown, depth: number): JsonSchemaFieldSummary | undefined {
   const itemRecord = asRecord(items);
 
   if (!itemRecord) {
     return undefined;
   }
 
-  return compactObject({
-    type: itemRecord.type,
-    enum: Array.isArray(itemRecord.enum) ? itemRecord.enum : undefined,
-    min: itemRecord.minimum,
-    max: itemRecord.maximum,
-  });
+  return summarizeJsonSchemaShape(itemRecord, { depth });
 }
 
 function summarizeToolResultsForModel(
