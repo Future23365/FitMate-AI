@@ -1,5 +1,6 @@
 import "server-only";
 
+import { withResolvedExerciseImageUrls } from "@/lib/server/exercise-images/exercise-image-resolver";
 import { getPrismaClient, isDatabaseConfigured } from "@/lib/server/db/prisma";
 import { normalizeExerciseMetadata } from "@/lib/shared/exercises/metadata";
 import type { Exercise } from "@/lib/shared/exercises/types";
@@ -58,7 +59,7 @@ export async function getExerciseRecordById(id: string): Promise<Exercise | null
 function mapExerciseRecord(exercise: ExerciseRecord): Exercise {
   const metadata = normalizeExerciseMetadata(exercise);
 
-  return {
+  return withResolvedExerciseImageUrls({
     id: exercise.id,
     source: exercise.source,
     sourceUrl: exercise.sourceUrl,
@@ -100,5 +101,5 @@ function mapExerciseRecord(exercise: ExerciseRecord): Exercise {
     embedding: Array.isArray(exercise.embedding) ? exercise.embedding.filter((value): value is number => typeof value === "number") : null,
     reviewStatus: exercise.reviewStatus,
     isPublished: exercise.isPublished,
-  };
+  });
 }

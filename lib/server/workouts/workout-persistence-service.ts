@@ -4,6 +4,7 @@ import type { Prisma } from "@prisma/client";
 
 import { linkArtifactSourceEntityFromMessage } from "@/lib/server/conversation-artifacts/artifact-service";
 import { getPrismaClient } from "@/lib/server/db/prisma";
+import { resolveExerciseImageUrls } from "@/lib/server/exercise-images/exercise-image-resolver";
 import { getCurrentUser } from "@/lib/server/users/current-user";
 import type { CurrentUser } from "@/lib/server/users/current-user";
 import type {
@@ -21,7 +22,6 @@ import {
   getWorkoutTimingConfig,
   normalizeWorkoutItem,
   normalizeWorkoutRoutine,
-  placeholderWorkoutImage,
 } from "@/lib/shared/workouts/composition";
 import {
   workoutRoutineSchema,
@@ -486,7 +486,8 @@ function mapWorkoutSessionResultRecord(result: WorkoutSessionResultRecord): Work
 
 function mapWorkoutRoutineItemRecord(item: WorkoutRoutineWithItems["items"][number]): WorkoutItem {
   const exercise = item.exercise;
-  const imageUrls = exercise.imageUrls.length ? exercise.imageUrls : [placeholderWorkoutImage];
+  // 已保存 routine 只持久化 exerciseId，读取时按当前图片配置重新派生展示 URL。
+  const imageUrls = resolveExerciseImageUrls(exercise);
 
   return normalizeWorkoutItem({
     id: item.id,

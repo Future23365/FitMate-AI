@@ -53,9 +53,18 @@ cp .env.example .env.local
 DEEPSEEK_API_KEY=
 DATABASE_URL="postgresql://fitmate:fitmate@localhost:5432/fitmate?schema=public"
 FITMATE_LOCAL_AUTH_SECRET=
+EXERCISE_IMAGE_LOCAL_DIR="exercises_picture"
+EXERCISE_IMAGE_PUBLIC_BASE_URL="/api/exercise-images"
 ```
 
 `FITMATE_LOCAL_AUTH_SECRET` 用于签发和校验本地匿名 auth cookie。生产环境必须显式配置；本地开发未配置时会使用固定开发 fallback，方便重启后继续验证同一浏览器匿名会话。
+
+动作图片本地资源配置：
+
+- `exercises_picture/` 是默认动作图片目录，可通过 `npm run db:download-exercise-images` 从数据库中的原始 `Exercise.imageUrls` 下载生成。
+- `EXERCISE_IMAGE_LOCAL_DIR` 默认值为 `exercises_picture`，支持填写相对项目根目录的路径或绝对路径。
+- `EXERCISE_IMAGE_PUBLIC_BASE_URL` 默认值为 `/api/exercise-images`，前端会收到该基础 URL 下的展示地址；如果迁移到 CDN、对象存储或站内静态目录，可改成对应绝对 URL 或站内路径。
+- 数据库中的 `Exercise.images` / `Exercise.imageUrls` 保留原始来源语义，服务端会在动作库、推荐卡和训练执行读取链路中统一派生当前可展示 URL。
 
 启动本地 PostgreSQL：
 
