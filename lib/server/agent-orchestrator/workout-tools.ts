@@ -49,6 +49,7 @@ import {
 } from "./tool-registry";
 import {
   assistantSuggestionSchema,
+  resolveAgentToolResultResourceRole,
   workoutEditPlanSchema,
   type AgentToolError,
   type AgentToolCapabilityContract,
@@ -1152,7 +1153,9 @@ function resolveCandidateSetResource(
       candidateSetId,
       toolResultId: result.toolResultId,
       status: result.status,
+      resourceRole: resolveAgentToolResultResourceRole(result),
       satisfied: result.fulfillment?.satisfied,
+      unmetResultRequirements: result.fulfillment?.unmetResultRequirements,
     });
   }
 

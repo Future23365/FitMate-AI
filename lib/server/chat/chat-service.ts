@@ -16,6 +16,8 @@ import { getCurrentUser, type CurrentUser } from "@/lib/server/users/current-use
 import {
   createAgentContextBuilder,
   createToolFirstAgentToolRegistry,
+  isAgentToolResultConsumable,
+  resolveAgentToolResultResourceRole,
   projectAgentExecutionResultToResponse,
   parseJsonObjectWithRecovery,
   runAgentOrchestrator,
@@ -82,6 +84,7 @@ type AgentDecisionModelInput = {
   contextPackage: ContextPackage;
   registeredTools: Array<Record<string, unknown>>;
   toolResults: Array<Record<string, unknown>>;
+  resourceAvailability?: Record<string, unknown>;
   dependencyGraph: Record<string, unknown>;
   remainingSteps: number;
 };
@@ -494,15 +497,17 @@ export function buildAgentDecisionModelInput(input: {
     remainingSteps: input.remainingSteps,
   };
   const summarizedToolResults = summarizeToolResultsForModel(input.toolResults, input.toolCalls ?? []);
+  const resourceAvailability = summarizeAgentResourceAvailabilityForModel(input.toolResults);
   const rawFeedbackCount = input.toolResults.filter((result) => Boolean(result.decisionFeedback)).length;
   const compressedFeedbackCount = summarizedToolResults.filter((result) => Boolean(result.agentDecisionFeedback)).length;
-  const slimmed: AgentDecisionModelInput = {
+  const slimmed = compactObject({
     contextPackage: input.contextPackage,
     registeredTools: input.registeredTools.map(summarizeToolDefinitionForModel),
     toolResults: summarizedToolResults,
+    resourceAvailability: Object.keys(resourceAvailability).length > 0 ? resourceAvailability : undefined,
     dependencyGraph: summarizeDependencyGraphForModel(input.dependencyGraph),
     remainingSteps: input.remainingSteps,
-  };
+  }) as AgentDecisionModelInput;
   const originalChars = JSON.stringify(original).length;
   const slimmedChars = JSON.stringify(slimmed).length;
 
@@ -754,6 +759,7 @@ function summarizeToolResultForModel(result: AgentToolResultRecord) {
     repeatCount: typeof duplicateDetail?.repeatCount === "number" ? duplicateDetail.repeatCount : undefined,
     toolName: result.toolName,
     status: result.status,
+    resourceRole: resolveAgentToolResultResourceRole(result),
     candidateSetId: result.candidateSetId,
     artifactPayloadId: result.artifactPayloadId,
     editPlanId: result.editPlanId,
@@ -768,6 +774,7 @@ function summarizeToolResultForModel(result: AgentToolResultRecord) {
     agentDecisionFeedback: result.decisionFeedback
       ? summarizeAgentDecisionFeedbackForModel(result.decisionFeedback)
       : undefined,
+    partialCandidate: summarizePartialCandidateForModel(result),
     error: result.error
       ? compactObject({
         code: result.error.code,
@@ -780,6 +787,62 @@ function summarizeToolResultForModel(result: AgentToolResultRecord) {
         detail: summarizeErrorDetail(result.error.detail),
       })
       : undefined,
+  });
+}
+
+function summarizeAgentResourceAvailabilityForModel(results: AgentToolResultRecord[]) {
+  const consumable = results.filter(isAgentToolResultConsumable);
+  const diagnostic = results.filter((result) => !isAgentToolResultConsumable(result));
+  const partialCandidates = diagnostic
+    .filter((result) => resolveAgentToolResultResourceRole(result) === "partial")
+    .map(summarizePartialCandidateForModel)
+    .filter(Boolean);
+  const latestClarification = [...results]
+    .reverse()
+    .find((result) => result.toolName === "askClarification" && result.status === "success");
+  const consumableToolResultIds = consumable.map((result) => result.toolResultId);
+  const consumableCandidateSetIds = consumable.map((result) => result.candidateSetId).filter((id): id is string => Boolean(id));
+  const diagnosticToolResultIds = diagnostic.map((result) => result.toolResultId);
+  const feedbackToolResultIds = diagnostic.filter((result) => result.decisionFeedback).map((result) => result.toolResultId);
+  const shouldExposeConsumableIndex = consumable.length > 1 || diagnostic.length > 0;
+
+  return compactObject({
+    consumableToolResultIds: shouldExposeConsumableIndex ? nonEmptyArray(consumableToolResultIds) : undefined,
+    consumableCandidateSetIds: shouldExposeConsumableIndex ? nonEmptyArray(consumableCandidateSetIds) : undefined,
+    diagnosticToolResultIds: nonEmptyArray(diagnosticToolResultIds),
+    partialCandidateSets: nonEmptyArray(partialCandidates),
+    feedbackToolResultIds: nonEmptyArray(feedbackToolResultIds),
+    recentClarification: latestClarification ? summarizeClarificationToolResult(latestClarification) : undefined,
+  });
+}
+
+function summarizePartialCandidateForModel(result: AgentToolResultRecord) {
+  if (resolveAgentToolResultResourceRole(result) !== "partial") {
+    return undefined;
+  }
+
+  const summary = asRecord(result.modelSummary);
+  const diagnostics = asRecord(summary?.diagnostics);
+
+  return compactObject({
+    toolResultId: result.toolResultId,
+    candidateSetId: result.candidateSetId,
+    candidateUse: summary?.candidateUse,
+    candidateCount: Array.isArray(summary?.candidates) ? summary.candidates.length : undefined,
+    unmetResultRequirements: summary?.unmetResultRequirements ?? diagnostics?.unmetResultRequirements,
+    resultRequirementProof: summary?.resultRequirementProof ?? diagnostics?.resultRequirementProof,
+    recoveryOptions: summary?.recoveryOptions,
+  });
+}
+
+function summarizeClarificationToolResult(result: AgentToolResultRecord) {
+  const output = asRecord(result.output);
+
+  return compactObject({
+    toolResultId: result.toolResultId,
+    question: output?.question,
+    blockingReasons: output?.blockingReasons,
+    assistantSuggestions: output?.assistantSuggestions,
   });
 }
 
@@ -807,6 +870,8 @@ function summarizeToolResultResourceIds(result: AgentToolResultRecord) {
     toolResultId: result.toolResultId,
     toolCallId: result.toolCallId,
     toolName: result.toolName,
+    resourceRole: resolveAgentToolResultResourceRole(result),
+    resourceSummary: result.resourceSummary,
     candidateSetId: result.candidateSetId,
     artifactPayloadId: result.artifactPayloadId,
     editPlanId: result.editPlanId,
@@ -946,7 +1011,7 @@ function createDeepSeekAgentDecisionProvider(input: {
             "agent_tool_execution",
             "agent_final_result",
           ]),
-          "必须只返回一个 JSON 对象，不要输出 Markdown。工具调用格式：{\"action\":\"call_tool\",\"toolName\":\"searchExercises\",\"input\":{},\"reason\":\"...\"}。answered 终止格式：{\"action\":\"final_result\",\"result\":{\"status\":\"answered\",\"replyContext\":{\"reply\":\"...\"},\"usedToolResultIds\":[]},\"reason\":\"...\"}。generated 终止格式：{\"action\":\"final_result\",\"result\":{\"status\":\"generated\",\"artifact\":{\"artifactId\":\"...\",\"revisionId\":\"...\",\"kind\":\"routine\",\"title\":\"...\",\"summary\":\"...\"},\"revisionId\":\"...\",\"validationId\":\"...\",\"policyDecisionId\":\"...\",\"usedToolResultIds\":[\"...\"]},\"reason\":\"...\"}。blocked 终止格式：{\"action\":\"final_result\",\"result\":{\"status\":\"blocked\",\"blockReason\":\"...\",\"usedToolResultIds\":[]},\"reason\":\"...\"}。",
+          "必须只返回一个 JSON 对象，不要输出 Markdown。工具调用格式：{\"action\":\"call_tool\",\"toolName\":\"searchExercises\",\"input\":{},\"reason\":\"...\"}。answered 终止格式：{\"action\":\"final_result\",\"result\":{\"status\":\"answered\",\"replyContext\":{\"reply\":\"...\"},\"usedToolResultIds\":[]},\"reason\":\"...\"}。needs_clarification 终止格式：{\"action\":\"final_result\",\"result\":{\"status\":\"needs_clarification\",\"question\":\"...\",\"assistantSuggestions\":[{\"label\":\"...\",\"message\":\"...\"}],\"blockingReasons\":[\"...\"],\"usedToolResultIds\":[\"...\"]},\"reason\":\"...\"}。generated 终止格式：{\"action\":\"final_result\",\"result\":{\"status\":\"generated\",\"artifact\":{\"artifactId\":\"...\",\"revisionId\":\"...\",\"kind\":\"routine\",\"title\":\"...\",\"summary\":\"...\"},\"revisionId\":\"...\",\"validationId\":\"...\",\"policyDecisionId\":\"...\",\"usedToolResultIds\":[\"...\"]},\"reason\":\"...\"}。blocked 终止格式：{\"action\":\"final_result\",\"result\":{\"status\":\"blocked\",\"blockReason\":\"...\",\"usedToolResultIds\":[]},\"reason\":\"...\"}。",
         ].join("\n\n"),
       },
       {
@@ -1231,6 +1296,7 @@ function createAgentResponseStream(input: {
             dependencyGraph: agentRun.replayFixture.dependencyGraph,
             agentRepairSummary: agentRun.replayFixture.repairSummary,
             legacyPathSkip: agentRun.replayFixture.legacyPathSkip,
+            agentResourceDiagnostics: summarizeAgentResourceDiagnostics(agentRun.replayFixture.toolResults),
           }),
         );
       } catch (error) {
@@ -1283,9 +1349,24 @@ export function buildAgentStreamEvents(input: {
         dependencyGraph: input.replayFixture.dependencyGraph,
         agentRepairSummary: input.replayFixture.repairSummary,
         legacyPathSkip: input.replayFixture.legacyPathSkip,
+        agentResourceDiagnostics: summarizeAgentResourceDiagnostics(input.replayFixture.toolResults),
       },
     },
   ];
+}
+
+function summarizeAgentResourceDiagnostics(toolResults: AgentToolResultRecord[]) {
+  return {
+    toolResults: toolResults.map((result) => compactObject({
+      toolResultId: result.toolResultId,
+      toolName: result.toolName,
+      status: result.status,
+      resourceRole: resolveAgentToolResultResourceRole(result),
+      candidateSetId: result.candidateSetId,
+      unmetResultRequirements: result.fulfillment?.unmetResultRequirements,
+      partialCandidate: summarizePartialCandidateForModel(result),
+    })),
+  };
 }
 
 export async function buildAgentArtifactStreamEvents(input: {
@@ -1727,6 +1808,10 @@ function compactObject<T extends Record<string, unknown>>(value: T) {
   return Object.fromEntries(
     Object.entries(value).filter(([, item]) => item !== undefined),
   );
+}
+
+function nonEmptyArray<T>(items: T[]) {
+  return items.length > 0 ? items : undefined;
 }
 
 function uniqueStrings(items: string[]) {

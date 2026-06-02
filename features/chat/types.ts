@@ -103,6 +103,8 @@ export type ChatStreamEvent = {
   dependencyGraph?: unknown;
   /** Agent 合同修复循环摘要，只用于 trace / 黑盒报告。 */
   agentRepairSummary?: unknown;
+  /** Agent 资源角色诊断，只用于 trace / 黑盒报告，不作为用户可见内容。 */
+  agentResourceDiagnostics?: unknown;
   legacyPathSkip?: unknown;
   agentRunId?: string;
   agentStatus?: string;

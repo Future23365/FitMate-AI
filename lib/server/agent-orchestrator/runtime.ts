@@ -9,11 +9,17 @@ import { toUtcISOString } from "@/lib/shared/time/utc-date-time";
 
 import {
   agentExecutionStateSchema,
+  createAgentToolResultResourceSummary,
   defaultAgentRuntimeLimits,
+  isAgentToolResultConsumable,
+  isAgentToolResultDiagnostic,
+  resolveAgentToolResultResourceRole,
+  type AgentAvailableResourceIds,
   type AgentCheckpoint,
   type AgentDecisionFeedback,
   type AgentDecisionFeedbackAvailableResources,
   type AgentDecisionFeedbackCode,
+  type AgentDiagnosticResourceIds,
   type AgentDecisionFeedbackResourceKind,
   type AgentDecisionFeedbackResourceReference,
   type AgentDependencyGraph,
@@ -300,6 +306,29 @@ export async function runAgentOrchestrator(
     });
 
     if (decision.action === "final_result") {
+      const answeredClarificationProjection = decision.result.status === "answered"
+        ? projectFinalResultFromRegisteredFacts({ state, rawDecision: decision })
+        : null;
+
+      if (answeredClarificationProjection) {
+        state = finishWithResult(
+          recordFinalProjection(state, answeredClarificationProjection.sourceToolResultId),
+          answeredClarificationProjection.result,
+          input.trace,
+          answeredClarificationProjection.reason,
+          {
+            loopTurnId,
+            loopTurnIndex: stepIndex,
+            modelCallId,
+            visibleToolResultIds,
+            usedToolResultIds: getResultUsedToolResultIds(answeredClarificationProjection.result),
+            finalProjectionSourceToolResultId: answeredClarificationProjection.sourceToolResultId,
+          },
+        );
+        state = maybeCheckpoint(state, limits, stepIndex);
+        break;
+      }
+
       const referenceValidation = validateFinalResultReferences(state, decision.result);
       const projectedResult = referenceValidation.ok ? null : projectFinalResultFromRegisteredFacts({
         state,
@@ -621,6 +650,25 @@ export async function runAgentOrchestrator(
         repairSummary: state.repairSummary,
       }),
     });
+    const clarificationProjection = projectNeedsClarificationFromAskClarification(state, resultRecord);
+    if (clarificationProjection) {
+      state = finishWithResult(
+        recordFinalProjection(state, clarificationProjection.sourceToolResultId),
+        clarificationProjection.result,
+        input.trace,
+        clarificationProjection.reason,
+        {
+          loopTurnId,
+          loopTurnIndex: stepIndex,
+          modelCallId,
+          visibleToolResultIds: state.toolResults.map((toolResult) => toolResult.toolResultId),
+          usedToolResultIds: clarificationProjection.result.usedToolResultIds,
+          finalProjectionSourceToolResultId: clarificationProjection.sourceToolResultId,
+        },
+      );
+      state = maybeCheckpoint(state, limits, stepIndex);
+      break;
+    }
     if (shouldTerminateAfterToolResult(resultRecord)) {
       state = finishWithResult(
         state,
@@ -803,7 +851,7 @@ function completeToolCall(
       : call
   ));
   const graph = addToolResultToGraph(state.dependencyGraph, toolCallId, result);
-  const canProduceResources = result.status === "success" && result.fulfillment?.satisfied !== false && !result.decisionFeedback;
+  const canProduceResources = isAgentToolResultConsumable(result);
 
   return agentExecutionStateSchema.parse({
     ...state,
@@ -894,7 +942,7 @@ function createDuplicateToolFailureResultRecord(input: {
     repeatCount: input.duplicateFailure.repeatCount,
   };
 
-  return {
+  return withResourceSummary({
     toolResultId,
     toolCallId: input.toolCallId,
     toolName: input.toolName,
@@ -920,7 +968,7 @@ function createDuplicateToolFailureResultRecord(input: {
       limits: input.limits,
       stepIndex: input.stepIndex,
     }),
-  };
+  });
 }
 
 function createFeedbackForParseFailure(input: {
@@ -1005,6 +1053,41 @@ function createFeedbackForFinalResultReferenceFailure(input: {
   remainingSteps: number;
   limits: AgentRuntimeLimits;
 }): RecoverableDecisionFeedback | null {
+  const answeredEscape = input.referenceValidation.missing.some((item) => (
+    item.reason === "answered_not_allowed_after_executable_workout_chain_started"
+  ));
+
+  if (answeredEscape) {
+    const saveInput = createRecommendedArtifactSaveInput(input.state);
+
+    return createSyntheticDecisionFeedback({
+      state: input.state,
+      rawInput: summarizeDecisionForTrace(input.decision),
+      code: "invalid_decision",
+      errorCode: "premature_final_result_before_save",
+      message: "Routine / plan / patch 执行型工具链已经启动，不能用 answered 自由文本作为结构化生成收口。",
+      failedAction: `final_result.${input.decision.result.status}`,
+      retryable: true,
+      hardBoundary: true,
+      missingResources: input.referenceValidation.missing.map((item) => ({
+        kind: item.kind,
+        id: item.id,
+        reason: item.reason ?? "answered_escape_after_executable_chain",
+      })),
+      recommendedNextTool: saveInput ? "saveConversationArtifactRevision" : recommendExecutableChainRecoveryTool(input.state),
+      recommendedInput: saveInput ?? undefined,
+      sanitizedReason: "本轮已进入 routine/plan/patch 执行链，模型必须继续 validation/policy/save，或返回 needs_clarification、blocked、failed。",
+      traceExtra: {
+        stepIndex: input.stepIndex,
+        finalStatus: input.decision.result.status,
+        missing: input.referenceValidation.missing,
+      },
+      limits: input.limits,
+      stepIndex: input.stepIndex,
+      remainingSteps: input.remainingSteps,
+    });
+  }
+
   const saveInput = input.referenceValidation.missing.some((item) => item.kind === "revision")
     ? createRecommendedArtifactSaveInput(input.state)
     : null;
@@ -1053,6 +1136,10 @@ function projectFinalResultFromRegisteredFacts(input: {
 }): { result: AgentExecutionResult; sourceToolResultId: string; reason: string } | null {
   const rawStatus = readRawFinalResultStatus(input.rawDecision);
   const rawResult = readRawFinalResultObject(input.rawDecision);
+
+  if (rawStatus === "answered") {
+    return projectNeedsClarificationFromAskClarification(input.state);
+  }
 
   if (
     rawStatus === "generated"
@@ -1108,6 +1195,74 @@ function projectFinalResultFromRegisteredFacts(input: {
   }
 
   return null;
+}
+
+function projectNeedsClarificationFromAskClarification(
+  state: AgentExecutionState,
+  sourceResult?: AgentToolResultRecord,
+): { result: AgentExecutionResult & { status: "needs_clarification" }; sourceToolResultId: string; reason: string } | null {
+  const clarification = sourceResult?.toolName === "askClarification" && sourceResult.status === "success"
+    ? sourceResult
+    : findLatestAskClarificationResult(state);
+
+  if (!clarification || clarification.status !== "success") {
+    return null;
+  }
+
+  const output = clarification.output && typeof clarification.output === "object"
+    ? clarification.output as Record<string, unknown>
+    : {};
+  const question = asString(output.question);
+
+  if (!question) {
+    return null;
+  }
+
+  return {
+    result: {
+      status: "needs_clarification",
+      question,
+      assistantSuggestions: readAssistantSuggestions(output.assistantSuggestions),
+      blockingReasons: flattenStringIds(output.blockingReasons),
+      usedToolResultIds: collectClarificationEvidenceToolResultIds(state, clarification.toolResultId),
+    },
+    sourceToolResultId: clarification.toolResultId,
+    reason: "askClarification 工具已成功返回澄清问题，runtime 将其稳定投影为 needs_clarification。",
+  };
+}
+
+function findLatestAskClarificationResult(state: AgentExecutionState) {
+  return [...state.toolResults]
+    .reverse()
+    .find((result) => result.toolName === "askClarification" && result.status === "success");
+}
+
+function collectClarificationEvidenceToolResultIds(
+  state: AgentExecutionState,
+  clarificationToolResultId: string,
+) {
+  const diagnosticIds = state.toolResults
+    .filter((result) => result.toolResultId !== clarificationToolResultId)
+    .filter((result) => isAgentToolResultDiagnostic(result))
+    .filter((result) => result.toolName !== "agentDecisionFeedback")
+    .slice(-4)
+    .map((result) => result.toolResultId);
+
+  return uniqueStringIds([...diagnosticIds, clarificationToolResultId]);
+}
+
+function readAssistantSuggestions(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((item) => {
+    const record = item && typeof item === "object" ? item as Record<string, unknown> : {};
+    const label = asString(record.label);
+    const message = asString(record.message);
+
+    return label && message ? [{ label, message }] : [];
+  });
 }
 
 function recordSyntheticDecisionFeedback(
@@ -1169,7 +1324,7 @@ function createSyntheticDecisionFeedback(input: {
       finishedAt: toUtcISOString(new Date()),
       reason: input.sanitizedReason ?? input.message,
     },
-    result: {
+    result: withResourceSummary({
       toolResultId: createAgentId("tool_result"),
       toolCallId,
       toolName: "agentDecisionFeedback",
@@ -1186,7 +1341,7 @@ function createSyntheticDecisionFeedback(input: {
         detail: createFeedbackModelSummary(feedback),
       },
       decisionFeedback: feedback,
-    },
+    }),
   };
 }
 
@@ -1321,6 +1476,10 @@ function createToolResultFeedback(input: {
     return undefined;
   }
 
+  if (isPartialCandidateToolExecutionResult(input.toolName, input.result)) {
+    return undefined;
+  }
+
   if (!input.result.ok) {
     const hardBoundary = isHardBoundaryToolErrorCode(input.result.error.code);
 
@@ -1355,6 +1514,19 @@ function createToolResultFeedback(input: {
     stepIndex: input.stepIndex,
     remainingSteps: input.limits.maxSteps - input.stepIndex - 1,
   });
+}
+
+// partial candidate set 是已执行搜索的诊断资源，不能被压成 repair feedback，否则模型会丢失候选摘要。
+function isPartialCandidateToolExecutionResult(
+  toolName: string,
+  result: AgentToolExecutionResult<unknown>,
+) {
+  if (toolName !== "searchExercises" || !result.ok || result.fulfillment?.satisfied !== false) {
+    return false;
+  }
+
+  const output = result.output && typeof result.output === "object" ? result.output as Record<string, unknown> : {};
+  return Array.isArray(output.candidates) && output.candidates.length > 0;
 }
 
 function createDuplicateToolFailureFeedback(input: {
@@ -1414,7 +1586,7 @@ function createRecommendedArtifactSaveInput(state: AgentExecutionState) {
 }
 
 function collectAvailableResources(state: AgentExecutionState): AgentDecisionFeedbackAvailableResources {
-  const available: AgentDecisionFeedbackAvailableResources = {
+  const consumable: AgentAvailableResourceIds = {
     toolResultIds: [],
     candidateSetIds: [],
     artifactPayloadIds: [],
@@ -1427,26 +1599,53 @@ function collectAvailableResources(state: AgentExecutionState): AgentDecisionFee
     revisionIds: [],
     operationResultIds: [],
   };
+  const diagnostic: AgentDiagnosticResourceIds = {
+    toolResultIds: [],
+    candidateSetIds: [],
+    partialCandidateSetIds: [],
+    failedToolResultIds: [],
+    feedbackToolResultIds: [],
+    clarificationToolResultIds: [],
+  };
 
   for (const result of state.toolResults) {
-    if (result.status !== "success" || result.fulfillment?.satisfied === false || result.decisionFeedback) {
+    if (isAgentToolResultConsumable(result)) {
+      pushUnique(consumable.toolResultIds, result.toolResultId);
+      pushUnique(consumable.candidateSetIds, result.candidateSetId);
+      pushUnique(consumable.artifactPayloadIds, result.artifactPayloadId);
+      pushUnique(consumable.editPlanIds, result.editPlanId);
+      pushUnique(consumable.draftIds, result.draftId);
+      pushUnique(consumable.patchIds, result.patchId);
+      pushUnique(consumable.validationIds, result.validationId);
+      pushUnique(consumable.policyDecisionIds, result.policyDecisionId);
+      pushUnique(consumable.confirmationIds, result.confirmationId);
+      pushUnique(consumable.revisionIds, result.revisionId);
+      pushUnique(consumable.operationResultIds, result.operationResultId);
       continue;
     }
 
-    pushUnique(available.toolResultIds, result.toolResultId);
-    pushUnique(available.candidateSetIds, result.candidateSetId);
-    pushUnique(available.artifactPayloadIds, result.artifactPayloadId);
-    pushUnique(available.editPlanIds, result.editPlanId);
-    pushUnique(available.draftIds, result.draftId);
-    pushUnique(available.patchIds, result.patchId);
-    pushUnique(available.validationIds, result.validationId);
-    pushUnique(available.policyDecisionIds, result.policyDecisionId);
-    pushUnique(available.confirmationIds, result.confirmationId);
-    pushUnique(available.revisionIds, result.revisionId);
-    pushUnique(available.operationResultIds, result.operationResultId);
+    pushUnique(diagnostic.toolResultIds, result.toolResultId);
+    pushUnique(diagnostic.candidateSetIds, result.candidateSetId);
+
+    if (resolveAgentToolResultResourceRole(result) === "partial") {
+      pushUnique(diagnostic.partialCandidateSetIds, result.candidateSetId);
+    }
+    if (result.status !== "success" && !result.decisionFeedback) {
+      pushUnique(diagnostic.failedToolResultIds, result.toolResultId);
+    }
+    if (result.decisionFeedback) {
+      pushUnique(diagnostic.feedbackToolResultIds, result.toolResultId);
+    }
+    if (result.toolName === "askClarification") {
+      pushUnique(diagnostic.clarificationToolResultIds, result.toolResultId);
+    }
   }
 
-  return available;
+  return {
+    ...consumable,
+    consumable,
+    diagnostic,
+  };
 }
 
 function createRepairBudgetSnapshot(
@@ -1556,7 +1755,12 @@ function uniqueFeedbackReferences(
 
 function hasUsefulResourceForRepair(state: AgentExecutionState) {
   const available = collectAvailableResources(state);
-  return Object.values(available).some((ids) => ids.length > 0);
+  return Object.entries(available).some(([key, ids]) => (
+    key !== "consumable" &&
+    key !== "diagnostic" &&
+    Array.isArray(ids) &&
+    ids.length > 0
+  ));
 }
 
 function recommendToolForMissingDependencies(
@@ -1578,6 +1782,32 @@ function recommendToolForMissingDependencies(
 
   if (kinds.has("draft")) {
     return "generateRoutineDraft";
+  }
+
+  return undefined;
+}
+
+function recommendExecutableChainRecoveryTool(state: AgentExecutionState) {
+  const latest = [...state.toolResults].reverse();
+
+  if (latest.some((result) => result.toolName === "askClarification")) {
+    return undefined;
+  }
+
+  if (latest.some((result) => resolveAgentToolResultResourceRole(result) === "partial")) {
+    return "askClarification";
+  }
+
+  if (latest.some((result) => result.toolName === "generateRoutineDraft")) {
+    return "validateRoutineDraft";
+  }
+
+  if (latest.some((result) => result.toolName === "generatePlanDraft")) {
+    return "validatePlanDraft";
+  }
+
+  if (latest.some((result) => result.toolName === "proposeWorkoutPatch")) {
+    return "validateWorkoutPatch";
   }
 
   return undefined;
@@ -1743,7 +1973,7 @@ function createToolResultRecord(input: {
   decisionFeedback?: AgentDecisionFeedback;
 }): AgentToolResultRecord {
   if (!input.result.ok) {
-    return {
+    return withResourceSummary({
       toolResultId: createAgentId("tool_result"),
       toolCallId: input.toolCallId,
       toolName: input.toolName,
@@ -1752,18 +1982,19 @@ function createToolResultRecord(input: {
       traceSummary: input.result.traceSummary,
       error: input.result.error,
       decisionFeedback: input.decisionFeedback,
-    };
+    });
   }
 
   const ids = extractStructuredIds(input.result.output);
   const satisfied = input.result.fulfillment?.satisfied !== false;
   const decisionFeedback = input.decisionFeedback;
+  const partial = !satisfied && !decisionFeedback && isPartialCandidateToolExecutionResult(input.toolName, input.result);
 
-  return {
+  return withResourceSummary({
     toolResultId: input.result.toolResultId,
     toolCallId: input.toolCallId,
     toolName: input.toolName,
-    status: satisfied && !decisionFeedback ? "success" : "failed",
+    status: (satisfied || partial) && !decisionFeedback ? "success" : "failed",
     output: input.result.output,
     modelSummary: decisionFeedback ? createFeedbackModelSummary(decisionFeedback) : input.result.modelSummary,
     traceSummary: input.result.traceSummary,
@@ -1777,6 +2008,21 @@ function createToolResultRecord(input: {
     fulfillment: input.result.fulfillment,
     decisionFeedback,
     ...ids,
+  });
+}
+
+function withResourceSummary(record: Omit<AgentToolResultRecord, "resourceRole" | "resourceSummary">): AgentToolResultRecord {
+  const resourceRole = record.toolName === "askClarification"
+    ? "diagnostic"
+    : resolveAgentToolResultResourceRole(record);
+  const withRole = {
+    ...record,
+    resourceRole,
+  };
+
+  return {
+    ...withRole,
+    resourceSummary: createAgentToolResultResourceSummary(withRole),
   };
 }
 
@@ -1790,7 +2036,7 @@ function addToolResultToGraph(
     kind: "tool_result" as const,
     label: result.toolName,
   };
-  const canProduceResources = result.status === "success" && result.fulfillment?.satisfied !== false && !result.decisionFeedback;
+  const canProduceResources = isAgentToolResultConsumable(result);
   const resourceNodes = canProduceResources
     ? [
         result.candidateSetId ? { id: result.candidateSetId, kind: "candidate_set" as const, label: "candidateSet" } : null,
@@ -1835,6 +2081,7 @@ function finishWithResult(
 ): AgentExecutionState {
   const finalResultId = createAgentId("final_result");
   const usedToolResultIds = "usedToolResultIds" in result ? result.usedToolResultIds : [];
+  const usedResourceClassification = classifyUsedToolResultIds(state, usedToolResultIds);
   const finalState = agentExecutionStateSchema.parse({
     ...state,
     finalResult: result,
@@ -1866,6 +2113,10 @@ function finishWithResult(
       modelCallId: linkage.modelCallId,
       visibleToolResultIds: linkage.visibleToolResultIds,
       usedToolResultIds: linkage.usedToolResultIds ?? usedToolResultIds,
+      usedConsumableToolResultIds: usedResourceClassification.consumable,
+      usedDiagnosticToolResultIds: usedResourceClassification.diagnostic,
+      usedPartialToolResultIds: usedResourceClassification.partial,
+      usedFeedbackToolResultIds: usedResourceClassification.feedback,
       repairFeedbackCodes: finalState.repairSummary.repairFeedbackCodes,
       repairTurnCount: finalState.repairSummary.repairTurnCount,
       finalProjectionSourceToolResultId: linkage.finalProjectionSourceToolResultId
@@ -1914,10 +2165,14 @@ function createToolResultTraceMetadata(input: {
     confirmationId: input.resultRecord?.confirmationId,
     revisionId: input.resultRecord?.revisionId,
     operationResultId: input.resultRecord?.operationResultId,
-    operationKind: input.resultRecord?.fulfillment?.operationKind,
-    operation: input.resultRecord?.fulfillment?.operation,
-    satisfied: input.resultRecord?.fulfillment?.satisfied,
-    producedResources: input.resultRecord?.fulfillment?.producedResources,
+      operationKind: input.resultRecord?.fulfillment?.operationKind,
+      operation: input.resultRecord?.fulfillment?.operation,
+      satisfied: input.resultRecord?.fulfillment?.satisfied,
+      resourceRole: input.resultRecord ? resolveAgentToolResultResourceRole(input.resultRecord) : undefined,
+      resourceSummary: input.resultRecord?.resourceSummary,
+      diagnosticReferenceAllowed: input.resultRecord ? isAgentToolResultDiagnostic(input.resultRecord) : undefined,
+      partialCandidate: summarizePartialCandidateForTrace(input.resultRecord),
+      producedResources: input.resultRecord?.fulfillment?.producedResources,
     evidence: input.resultRecord?.fulfillment?.evidence,
     unmetResultRequirements: input.resultRecord?.fulfillment?.unmetResultRequirements,
     agentDecisionFeedback: feedback ? createFeedbackModelSummary(feedback) : undefined,
@@ -1933,6 +2188,56 @@ function createToolResultTraceMetadata(input: {
     repairBudgetExhaustedReason: input.repairSummary?.repairBudgetExhaustedReason,
     artifactRevisionResolution: summarizeArtifactRevisionResolutionForTrace(input.resultRecord),
     duplicateToolFailure: summarizeDuplicateToolFailureForTrace(input.resultRecord),
+  };
+}
+
+function classifyUsedToolResultIds(state: AgentExecutionState, usedToolResultIds: string[]) {
+  const consumable: string[] = [];
+  const diagnostic: string[] = [];
+  const partial: string[] = [];
+  const feedback: string[] = [];
+
+  for (const id of usedToolResultIds) {
+    const result = findToolResultById(state, id);
+    if (!result) {
+      continue;
+    }
+
+    const role = resolveAgentToolResultResourceRole(result);
+    if (role === "consumable") {
+      consumable.push(id);
+    } else {
+      diagnostic.push(id);
+    }
+    if (role === "partial") {
+      partial.push(id);
+    }
+    if (role === "feedback") {
+      feedback.push(id);
+    }
+  }
+
+  return { consumable, diagnostic, partial, feedback };
+}
+
+function summarizePartialCandidateForTrace(result: AgentToolResultRecord | undefined) {
+  if (!result || resolveAgentToolResultResourceRole(result) !== "partial") {
+    return undefined;
+  }
+
+  const output = result.output && typeof result.output === "object" ? result.output as Record<string, unknown> : {};
+  const diagnostics = output.diagnostics && typeof output.diagnostics === "object"
+    ? output.diagnostics as Record<string, unknown>
+    : {};
+  const candidateCount = Array.isArray(output.candidates) ? output.candidates.length : undefined;
+
+  return {
+    candidateSetId: result.candidateSetId,
+    candidateUse: asString(output.candidateUse),
+    candidateCount,
+    unmetResultRequirements: flattenStringIds(diagnostics.unmetResultRequirements),
+    resultRequirementProof: diagnostics.resultRequirementProof,
+    recoveryOptions: output.recoveryOptions,
   };
 }
 
@@ -2108,19 +2413,41 @@ function validateFinalResultReferences(
 ): FinalResultReferenceValidation {
   const missing: Array<{ kind: AgentDecisionFeedbackResourceKind; id: string; reason?: string }> = [];
   const usedToolResultIds = "usedToolResultIds" in result ? result.usedToolResultIds : [];
+  const allowDiagnosticToolResults = allowsDiagnosticToolResultReferences(result.status);
+  const requireConsumableToolResults = requiresConsumableFinalResultReferences(result.status);
+
+  if (result.status === "answered" && hasExecutableWorkoutChainStarted(state)) {
+    missing.push({
+      kind: "tool_result",
+      id: "answered",
+      reason: "answered_not_allowed_after_executable_workout_chain_started",
+    });
+  }
 
   for (const toolResultId of usedToolResultIds) {
-    if (!stateHasDependencyId(state, "tool_result", toolResultId)) {
-      missing.push({ kind: "tool_result", id: toolResultId });
+    const toolResult = findToolResultById(state, toolResultId);
+
+    if (!toolResult) {
+      missing.push({ kind: "tool_result", id: toolResultId, reason: "tool_result_not_registered_in_current_run" });
+      continue;
+    }
+
+    if (requireConsumableToolResults && !isAgentToolResultConsumable(toolResult)) {
+      missing.push({ kind: "tool_result", id: toolResultId, reason: "tool_result_not_consumable_for_success_final_result" });
+      continue;
+    }
+
+    if (!requireConsumableToolResults && !allowDiagnosticToolResults && !isAgentToolResultConsumable(toolResult)) {
+      missing.push({ kind: "tool_result", id: toolResultId, reason: "diagnostic_tool_result_not_allowed_for_final_result" });
     }
   }
 
   if ("validationId" in result && result.validationId && !stateHasDependencyId(state, "validation", result.validationId)) {
-    missing.push({ kind: "validation", id: result.validationId });
+    missing.push({ kind: "validation", id: result.validationId, reason: "validation_not_produced_by_consumable_tool_result" });
   }
 
   if ("policyDecisionId" in result && result.policyDecisionId && !stateHasDependencyId(state, "policy_decision", result.policyDecisionId)) {
-    missing.push({ kind: "policy_decision", id: result.policyDecisionId });
+    missing.push({ kind: "policy_decision", id: result.policyDecisionId, reason: "policy_decision_not_produced_by_consumable_tool_result" });
   }
 
   if ("revisionId" in result && result.revisionId && !state.toolResults.some((toolResult) => toolResult.revisionId === result.revisionId)) {
@@ -2132,7 +2459,7 @@ function validateFinalResultReferences(
   }
 
   if (result.status === "patched" && !stateHasDependencyId(state, "patch", result.patchResult.patchId)) {
-    missing.push({ kind: "patch", id: result.patchResult.patchId, reason: "patch_result_not_registered_in_current_run" });
+    missing.push({ kind: "patch", id: result.patchResult.patchId, reason: "patch_result_not_produced_by_consumable_tool_result" });
   }
 
   if (result.status === "completed_operation") {
@@ -2151,6 +2478,48 @@ function validateFinalResultReferences(
       };
 }
 
+function allowsDiagnosticToolResultReferences(status: AgentExecutionResult["status"]) {
+  return status === "answered" ||
+    status === "blocked" ||
+    status === "failed" ||
+    status === "needs_clarification";
+}
+
+function requiresConsumableFinalResultReferences(status: AgentExecutionResult["status"]) {
+  return status === "generated" ||
+    status === "patched" ||
+    status === "completed_operation";
+}
+
+function findToolResultById(state: AgentExecutionState, toolResultId: string) {
+  return state.toolResults.find((toolResult) => toolResult.toolResultId === toolResultId);
+}
+
+function hasExecutableWorkoutChainStarted(state: AgentExecutionState) {
+  return state.toolResults.some((result) => isExecutableWorkoutToolResult(result));
+}
+
+function isExecutableWorkoutToolResult(result: AgentToolResultRecord) {
+  if (
+    result.toolName === "generateRoutineDraft" ||
+    result.toolName === "generatePlanDraft" ||
+    result.toolName === "proposeWorkoutPatch" ||
+    result.toolName === "validateRoutineDraft" ||
+    result.toolName === "validatePlanDraft" ||
+    result.toolName === "validateWorkoutPatch" ||
+    result.toolName === "saveConversationArtifactRevision"
+  ) {
+    return true;
+  }
+
+  if (result.toolName !== "searchExercises") {
+    return false;
+  }
+
+  const candidateUse = readStringField(result.output, "candidateUse") ?? readStringField(result.modelSummary, "candidateUse");
+  return candidateUse === "routine" || candidateUse === "plan" || candidateUse === "patch";
+}
+
 function findSuccessfulProducer(
   state: AgentExecutionState,
   key: "revisionId" | "operationResultId",
@@ -2158,8 +2527,7 @@ function findSuccessfulProducer(
   usedToolResultIds: string[],
 ) {
   return state.toolResults.find((toolResult) => (
-    toolResult.status === "success"
-    && toolResult.fulfillment?.satisfied !== false
+    isAgentToolResultConsumable(toolResult)
     && toolResult[key] === id
     && usedToolResultIds.includes(toolResult.toolResultId)
   ));
@@ -2204,7 +2572,7 @@ function collectDependencyIdsFromInput(input: unknown, kind: AgentToolDependency
 
 function stateHasDependencyId(state: AgentExecutionState, kind: AgentToolDependencyKind, id: string) {
   return state.toolResults.some((result) => {
-    if (result.status !== "success" || result.fulfillment?.satisfied === false || result.decisionFeedback) {
+    if (!isAgentToolResultConsumable(result)) {
       return false;
     }
 
@@ -2285,8 +2653,7 @@ function hasGeneratedResourceContractIssue(parseFailure: Extract<AgentToolDecisi
 
 function findUniqueSuccessfulArtifactSaveResult(state: AgentExecutionState) {
   const matches = state.toolResults.filter((result) => (
-    result.status === "success"
-    && result.fulfillment?.satisfied !== false
+    isAgentToolResultConsumable(result)
     && result.toolName === "saveConversationArtifactRevision"
     && Boolean(result.revisionId)
   ));
@@ -2296,8 +2663,7 @@ function findUniqueSuccessfulArtifactSaveResult(state: AgentExecutionState) {
 
 function findUniqueSuccessfulPatchResult(state: AgentExecutionState) {
   const matches = state.toolResults.filter((result) => (
-    result.status === "success"
-    && result.fulfillment?.satisfied !== false
+    isAgentToolResultConsumable(result)
     && Boolean(result.patchId)
   ));
 
@@ -2310,7 +2676,7 @@ function findLatestToolResultWith(
 ) {
   return [...state.toolResults]
     .reverse()
-    .find((result) => result.status === "success" && Boolean(result[key]));
+    .find((result) => isAgentToolResultConsumable(result) && Boolean(result[key]));
 }
 
 function isArtifactKind(value: unknown): value is "routine" | "plan" {

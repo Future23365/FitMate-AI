@@ -434,6 +434,9 @@ function validateCandidateSetEvidenceBoundary(
 
   const issues: WorkoutPlanValidationIssue[] = [];
   const evidenceExerciseIds = new Set(evidence.exerciseIds);
+  const supplementalById = new Map(
+    (evidence.controlledSupplementalCandidates ?? []).map((candidate) => [candidate.exerciseId, candidate]),
+  );
 
   if (!evidence.satisfied) {
     issues.push({
@@ -461,11 +464,16 @@ function validateCandidateSetEvidenceBoundary(
       continue;
     }
 
-    if (exercise && !exerciseMatchesCandidateSetFilters(exercise, evidence.appliedFilters)) {
+    const supplemental = supplementalById.get(exerciseId);
+    const appliedFilters = supplemental?.appliedFilters ?? evidence.appliedFilters;
+
+    if (exercise && !exerciseMatchesCandidateSetFilters(exercise, appliedFilters)) {
       issues.push({
         code: "candidate_query_boundary_mismatch",
         exerciseId,
-        message: `动作 ${exerciseId} 不满足 candidate set 已执行的结构化查询边界。`,
+        message: supplemental
+          ? `动作 ${exerciseId} 不满足受控补充候选的结构化查询边界。`
+          : `动作 ${exerciseId} 不满足 candidate set 已执行的结构化查询边界。`,
       });
     }
   }

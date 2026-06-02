@@ -196,6 +196,9 @@ export type AgentLoopToolResultViewModel = {
   durationMs?: number;
   failureCode?: string;
   repairFeedbackCode?: string;
+  resourceRole?: string;
+  resourceSummary?: unknown;
+  partialCandidate?: unknown;
   decisionFeedback?: unknown;
   repairBudget?: unknown;
   inputSummary: string;
@@ -360,6 +363,9 @@ export function createAgentTraceDiagnosisLogEntry(viewModel: AgentTraceViewModel
           toolResultId: result.toolResultId,
           durationMs: result.durationMs,
           failureCode: result.failureCode,
+          resourceRole: result.resourceRole,
+          resourceSummary: result.resourceSummary,
+          partialCandidate: result.partialCandidate,
           inputSummary: result.inputSummary,
           outputSummary: result.outputSummary,
           resourceIds: result.resourceIds,
@@ -997,6 +1003,9 @@ function createToolResultView(
     durationMs: step.durationMs ?? getNumber(isRecord(step.metadata) ? step.metadata.durationMs : undefined),
     failureCode: getFailureCode(step),
     repairFeedbackCode: getString(step.metadata?.repairFeedbackCode),
+    resourceRole: getString(step.metadata?.resourceRole),
+    resourceSummary: isRecord(step.metadata?.resourceSummary) ? step.metadata?.resourceSummary : undefined,
+    partialCandidate: isRecord(step.metadata?.partialCandidate) ? step.metadata?.partialCandidate : undefined,
     decisionFeedback: isRecord(step.metadata?.agentDecisionFeedback) ? step.metadata?.agentDecisionFeedback : undefined,
     repairBudget: isRecord(step.metadata?.repairBudget) ? step.metadata?.repairBudget : undefined,
     inputSummary: summarizeToolParameters(step),

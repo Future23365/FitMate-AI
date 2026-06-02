@@ -141,6 +141,13 @@ export type ExerciseSearchResultRequirementProof = {
   requireUnique?: { required: boolean; actual: number; satisfied: boolean };
 };
 
+export type ExerciseControlledSupplementalCandidate = {
+  exerciseId: string;
+  section: ExerciseSuitability;
+  appliedFilters: Record<string, unknown>;
+  reason: "section_coverage_supplement";
+};
+
 export type ExerciseSearchDiagnostics = {
   query?: string;
   filters: Omit<ExerciseSearchInput, "query" | "limit">;
@@ -175,6 +182,7 @@ export type ExerciseSearchDiagnostics = {
   suggestedEquipment: string[];
   retryable: boolean;
   recoveredFrom?: ExerciseSearchDiagnostics;
+  controlledSupplementalCandidates?: ExerciseControlledSupplementalCandidate[];
 };
 
 export type ExerciseSearchResult = {
@@ -192,6 +200,7 @@ export type ExerciseCandidateSetEvidence = {
   diagnostics: Pick<ExerciseSearchDiagnostics, "queryMode" | "failureReasons" | "unmetResultRequirements" | "finalExerciseIds">;
   satisfied: boolean;
   exerciseIds: string[];
+  controlledSupplementalCandidates?: ExerciseControlledSupplementalCandidate[];
 };
 
 export async function listAllExercises(): Promise<Exercise[]> {
@@ -271,7 +280,20 @@ export function searchExercisesInMemory(exercises: Exercise[], input: ExerciseSe
       return compareText(left.exercise.nameZh, right.exercise.nameZh);
     })
     .slice(0, limit);
-  const candidates = ranked.map(({ exercise }) => exercise);
+  const initialCandidates = ranked.map(({ exercise }) => exercise);
+  const supplement = createSectionCoverageSupplement({
+    exercises,
+    candidates: initialCandidates,
+    input: normalized.effectiveInput,
+    requirements: request.resultRequirements,
+  });
+  const candidates = supplement.candidates;
+  const rankedWithSupplement = ranked.concat(
+    supplement.addedCandidates.map((exercise) => ({
+      exercise,
+      score: scoreExerciseHybridSearch(exercise, undefined),
+    })),
+  );
   const queryMode = queryRequiresHybridMatch ? "hard_recall" : query ? "ranking_signal" : "none";
   const failureReasons = candidates.length > 0
     ? []
@@ -283,7 +305,7 @@ export function searchExercisesInMemory(exercises: Exercise[], input: ExerciseSe
       input,
       request,
       normalized,
-      ranked,
+      ranked: rankedWithSupplement,
       candidates,
       query,
       queryMode,
@@ -291,6 +313,7 @@ export function searchExercisesInMemory(exercises: Exercise[], input: ExerciseSe
       filteredCount: Math.max(exercises.length - filtered.length, 0),
       failureReasons,
       retryable: candidates.length === 0 && isRetryableSearchMiss(normalized),
+      controlledSupplementalCandidates: supplement.evidence,
     }),
   };
 }
@@ -753,6 +776,7 @@ function buildExerciseSearchDiagnostics(input: {
   filteredCount: number;
   failureReasons: string[];
   retryable: boolean;
+  controlledSupplementalCandidates?: ExerciseControlledSupplementalCandidate[];
 }): ExerciseSearchDiagnostics {
   const requirementProof = evaluateExerciseResultRequirements(input.candidates, input.request.resultRequirements);
   const unmetResultRequirements = collectUnmetResultRequirements(requirementProof);
@@ -818,7 +842,124 @@ function buildExerciseSearchDiagnostics(input: {
     suggestedTargetMuscles: input.normalized.suggestedTargetMuscles,
     suggestedEquipment: input.normalized.suggestedEquipment,
     retryable: input.retryable || input.invalidFilters.length > 0 || unmetResultRequirements.length > 0,
+    controlledSupplementalCandidates: input.controlledSupplementalCandidates ?? [],
   };
+}
+
+// createSectionCoverageSupplement 只用动作库结构化事实补齐 routine/plan/patch 的非主训练 section，不读取用户原文。
+function createSectionCoverageSupplement(input: {
+  exercises: Exercise[];
+  candidates: Exercise[];
+  input: ExerciseSearchInput;
+  requirements: ExerciseSearchResultRequirements;
+}): {
+  candidates: Exercise[];
+  addedCandidates: Exercise[];
+  evidence: ExerciseControlledSupplementalCandidate[];
+} {
+  if (!shouldUseSectionAwareSupplement(input.input, input.requirements) || input.candidates.length === 0) {
+    return { candidates: input.candidates, addedCandidates: [], evidence: [] };
+  }
+
+  const selectedIds = new Set(input.candidates.map((exercise) => exercise.id));
+  const candidates = [...input.candidates];
+  const addedCandidates: Exercise[] = [];
+  const evidence: ExerciseControlledSupplementalCandidate[] = [];
+  const currentProof = evaluateExerciseResultRequirements(candidates, input.requirements);
+
+  for (const [section, requirement] of Object.entries(input.requirements.sectionCoverage ?? {})) {
+    if (!isExerciseSuitability(section) || !requirement) {
+      continue;
+    }
+
+    const current = currentProof.sectionCoverage?.[section]?.actual ?? 0;
+    const missingCount = Math.max(0, requirement.min - current);
+
+    for (let index = 0; index < missingCount; index += 1) {
+      const supplement = pickSectionSupplementalExercise(input.exercises, selectedIds, section, input.input);
+      if (!supplement) {
+        break;
+      }
+
+      selectedIds.add(supplement.exercise.id);
+      candidates.push(supplement.exercise);
+      addedCandidates.push(supplement.exercise);
+      evidence.push({
+        exerciseId: supplement.exercise.id,
+        section,
+        appliedFilters: supplement.appliedFilters,
+        reason: "section_coverage_supplement",
+      });
+    }
+  }
+
+  return { candidates, addedCandidates, evidence };
+}
+
+function shouldUseSectionAwareSupplement(
+  input: ExerciseSearchInput,
+  requirements: ExerciseSearchResultRequirements,
+) {
+  return (
+    input.candidateUse === "routine" ||
+    input.candidateUse === "plan" ||
+    input.candidateUse === "patch"
+  ) && Boolean(requirements.sectionCoverage);
+}
+
+function pickSectionSupplementalExercise(
+  exercises: Exercise[],
+  selectedIds: Set<string>,
+  section: ExerciseSuitability,
+  input: ExerciseSearchInput,
+): { exercise: Exercise; appliedFilters: Record<string, unknown> } | null {
+  const baseFilters = createSupplementalSectionFilters(section, input, false);
+  const strictMatches = exercises
+    .filter((exercise) => !selectedIds.has(exercise.id))
+    .filter((exercise) => exerciseMatchesCandidateSetFilters(exercise, baseFilters));
+
+  const preferred = strictMatches.find(isNoEquipmentOrBodyweightExercise) ?? strictMatches[0];
+  if (preferred) {
+    return { exercise: preferred, appliedFilters: baseFilters };
+  }
+
+  const relaxedFilters = createSupplementalSectionFilters(section, input, true);
+  const relaxed = exercises
+    .filter((exercise) => !selectedIds.has(exercise.id))
+    .find((exercise) => exerciseMatchesCandidateSetFilters(exercise, relaxedFilters));
+
+  return relaxed ? { exercise: relaxed, appliedFilters: relaxedFilters } : null;
+}
+
+function createSupplementalSectionFilters(
+  section: ExerciseSuitability,
+  input: ExerciseSearchInput,
+  relaxBodyRegion: boolean,
+) {
+  return compactFilterRecord({
+    visibility: input.visibility,
+    allowedSections: [section],
+    bodyRegions: relaxBodyRegion ? undefined : input.bodyRegions,
+    targetMuscles: relaxBodyRegion ? undefined : input.targetMuscles,
+    equipmentAvoided: input.equipmentAvoided,
+    homeRequirements: input.homeRequirements,
+    levels: input.levels,
+    difficulty: input.difficulty,
+    riskTagsNotIn: input.riskTagsNotIn,
+    excludedRiskTags: input.excludedRiskTags,
+    goalTags: input.goalTags,
+    movementPatterns: input.movementPatterns,
+    intensityRoles: input.intensityRoles,
+  });
+}
+
+function isNoEquipmentOrBodyweightExercise(exercise: Exercise) {
+  return ["bodyweight", "自重", "no_equipment", "无器械"].some((value) => (
+    exercise.equipment === value ||
+    exercise.equipmentZh === value ||
+    exercise.homeRequirement === value ||
+    exercise.homeRequirementZh === value
+  ));
 }
 
 function evaluateExerciseResultRequirements(

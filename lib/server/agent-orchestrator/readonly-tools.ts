@@ -111,7 +111,8 @@ const searchExerciseFiltersSchema = z.object({
 
 const searchExerciseResultRequirementsSchema = z.object({
   minCandidates: z.number().int().min(1).max(100).optional(),
-  sectionCoverage: z.record(exerciseAllowedSectionSchema, z.object({
+  // sectionCoverage 是按目标 section 局部声明的结果要求，不能强制模型填满所有 section。
+  sectionCoverage: z.partialRecord(exerciseAllowedSectionSchema, z.object({
     min: z.number().int().min(1).max(40),
   }).strict()).optional(),
   mustBeUsableFor: z.enum(["answer", "routine", "plan", "patch"]).optional(),
@@ -212,7 +213,11 @@ export type AgentExerciseSearchOutput = ExerciseSearchResult & {
   candidateSetId: string;
   candidateUse: SearchExercisesAgentToolInput["candidateUse"];
   satisfied: boolean;
+  candidateSetStatus: "satisfied" | "partial";
   candidateSetEvidence: ExerciseCandidateSetEvidence;
+  unmetResultRequirements: string[];
+  resultRequirementProof: ExerciseSearchResult["diagnostics"]["resultRequirementProof"];
+  recoveryOptions: Array<{ label: string; message: string }>;
 };
 
 export type AgentArtifactPayloadOutput = ActiveArtifactPayloadSuccess & {
@@ -813,7 +818,12 @@ function createSearchExercisesTool(): AgentToolDefinition<SearchExercisesAgentTo
       return {
         candidateSetId: output.candidateSetId,
         candidateUse: output.candidateUse,
+        candidateSetStatus: output.candidateSetStatus,
+        satisfied: output.satisfied,
         candidates: summarizeExerciseCandidatesForModel(output.candidates, summaryMaxChars),
+        unmetResultRequirements: output.unmetResultRequirements,
+        resultRequirementProof: output.resultRequirementProof,
+        recoveryOptions: output.recoveryOptions,
         diagnostics: output.diagnostics,
       };
     },
@@ -874,7 +884,11 @@ function createSearchExercisesTool(): AgentToolDefinition<SearchExercisesAgentTo
           candidateSetId,
           candidateUse: parsedInput.candidateUse,
           satisfied: candidateSetEvidence.satisfied,
+          candidateSetStatus: candidateSetEvidence.satisfied ? "satisfied" as const : "partial" as const,
           candidateSetEvidence,
+          unmetResultRequirements: finalResult.diagnostics.unmetResultRequirements ?? [],
+          resultRequirementProof: finalResult.diagnostics.resultRequirementProof ?? {},
+          recoveryOptions: createExerciseSearchRecoveryOptions(finalResult),
         };
         const summary = this.summarizeOutput(output);
 
@@ -891,11 +905,21 @@ function createSearchExercisesTool(): AgentToolDefinition<SearchExercisesAgentTo
         }
 
         if (candidateSetEvidence.satisfied === false) {
-          return createFailure("result_requirement_unmet", "Exercise candidate set does not satisfy resultRequirements.", {
-            candidateSetId,
+          return createSuccess(context, "searchExercises", normalizedInput, output, summary, summary, {
+            satisfied: false,
+            producedResources: [],
+            appliedHardConstraints: finalResult.diagnostics.appliedFilters,
             unmetResultRequirements: finalResult.diagnostics.unmetResultRequirements ?? [],
-            diagnostics: finalResult.diagnostics,
-          }, true);
+            evidence: candidateSetEvidence,
+            diagnostics: {
+              queryMode: finalResult.diagnostics.queryMode,
+              finalExerciseIds: finalResult.diagnostics.finalExerciseIds,
+              failureReasons: finalResult.diagnostics.failureReasons,
+              unmetResultRequirements: finalResult.diagnostics.unmetResultRequirements,
+              resultRequirementProof: finalResult.diagnostics.resultRequirementProof,
+              controlledSupplementalCandidates: finalResult.diagnostics.controlledSupplementalCandidates,
+            },
+          });
         }
 
         return createSuccess(context, "searchExercises", normalizedInput, output, summary, summary, {
@@ -1251,7 +1275,36 @@ function createExerciseCandidateSetEvidence(result: ExerciseSearchResult): Agent
     },
     satisfied: result.diagnostics.satisfied ?? result.candidates.length > 0,
     exerciseIds: result.diagnostics.finalExerciseIds ?? result.candidates.map((exercise) => exercise.id),
+    controlledSupplementalCandidates: result.diagnostics.controlledSupplementalCandidates ?? [],
   };
+}
+
+function createExerciseSearchRecoveryOptions(result: ExerciseSearchResult) {
+  const unmet = result.diagnostics.unmetResultRequirements ?? [];
+  const options: Array<{ label: string; message: string }> = [];
+
+  if (unmet.some((item) => item.includes("sectionCoverage.warmup") || item.includes("sectionCoverage.stretch"))) {
+    options.push({
+      label: "允许无器械补齐",
+      message: "可以用无器械热身和拉伸补足这套训练。",
+    });
+  }
+
+  if (unmet.length > 0) {
+    options.push({
+      label: "调整条件重查",
+      message: "我可以放宽 section 或器械条件后重新筛选候选动作。",
+    });
+  }
+
+  if (options.length === 0 && result.candidates.length > 0) {
+    options.push({
+      label: "继续澄清",
+      message: "请确认是否接受当前候选集合的限制，我再继续生成训练。",
+    });
+  }
+
+  return options.slice(0, 3);
 }
 
 function createFailure(

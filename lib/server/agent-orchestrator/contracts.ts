@@ -319,7 +319,7 @@ export type AgentDecisionFeedbackResourceReference = z.infer<
   typeof agentDecisionFeedbackResourceReferenceSchema
 >;
 
-export const agentDecisionFeedbackAvailableResourcesSchema = z.object({
+export const agentAvailableResourceIdsSchema = z.object({
   toolResultIds: z.array(z.string().trim().min(1)).default([]),
   candidateSetIds: z.array(z.string().trim().min(1)).default([]),
   artifactPayloadIds: z.array(z.string().trim().min(1)).default([]),
@@ -333,7 +333,25 @@ export const agentDecisionFeedbackAvailableResourcesSchema = z.object({
   operationResultIds: z.array(z.string().trim().min(1)).default([]),
 });
 
-const emptyAgentDecisionFeedbackAvailableResources = {
+export type AgentAvailableResourceIds = z.infer<typeof agentAvailableResourceIdsSchema>;
+
+export const agentDiagnosticResourceIdsSchema = z.object({
+  toolResultIds: z.array(z.string().trim().min(1)).default([]),
+  candidateSetIds: z.array(z.string().trim().min(1)).default([]),
+  partialCandidateSetIds: z.array(z.string().trim().min(1)).default([]),
+  failedToolResultIds: z.array(z.string().trim().min(1)).default([]),
+  feedbackToolResultIds: z.array(z.string().trim().min(1)).default([]),
+  clarificationToolResultIds: z.array(z.string().trim().min(1)).default([]),
+});
+
+export type AgentDiagnosticResourceIds = z.infer<typeof agentDiagnosticResourceIdsSchema>;
+
+export const agentDecisionFeedbackAvailableResourcesSchema = agentAvailableResourceIdsSchema.extend({
+  consumable: agentAvailableResourceIdsSchema.optional(),
+  diagnostic: agentDiagnosticResourceIdsSchema.optional(),
+});
+
+const emptyAgentAvailableResourceIds: AgentAvailableResourceIds = {
   toolResultIds: [],
   candidateSetIds: [],
   artifactPayloadIds: [],
@@ -345,6 +363,21 @@ const emptyAgentDecisionFeedbackAvailableResources = {
   confirmationIds: [],
   revisionIds: [],
   operationResultIds: [],
+};
+
+const emptyAgentDiagnosticResourceIds: AgentDiagnosticResourceIds = {
+  toolResultIds: [],
+  candidateSetIds: [],
+  partialCandidateSetIds: [],
+  failedToolResultIds: [],
+  feedbackToolResultIds: [],
+  clarificationToolResultIds: [],
+};
+
+const emptyAgentDecisionFeedbackAvailableResources = {
+  ...emptyAgentAvailableResourceIds,
+  consumable: emptyAgentAvailableResourceIds,
+  diagnostic: emptyAgentDiagnosticResourceIds,
 };
 
 export type AgentDecisionFeedbackAvailableResources = z.infer<
@@ -427,6 +460,37 @@ export const agentToolResultFulfillmentSchema = z.object({
 
 export type AgentToolResultFulfillment = z.infer<typeof agentToolResultFulfillmentSchema>;
 
+export const agentToolResultResourceRoleSchema = z.enum([
+  "consumable",
+  "diagnostic",
+  "partial",
+  "feedback",
+]);
+
+export type AgentToolResultResourceRole = z.infer<typeof agentToolResultResourceRoleSchema>;
+
+// AgentToolResultResourceSummary 是 runtime、模型输入、trace 与 Response Writer 共用的资源角色摘要。
+export const agentToolResultResourceSummarySchema = z.object({
+  role: agentToolResultResourceRoleSchema,
+  consumable: z.boolean(),
+  diagnostic: z.boolean(),
+  partial: z.boolean(),
+  feedback: z.boolean(),
+  producedResources: z.array(agentToolProducedResourceSchema).default([]),
+  unmetResultRequirements: z.array(z.string().trim().min(1)).default([]),
+  allowedFinalResultStatuses: z.array(z.enum([
+    "answered",
+    "blocked",
+    "failed",
+    "needs_clarification",
+    "generated",
+    "patched",
+    "completed_operation",
+  ])).default([]),
+});
+
+export type AgentToolResultResourceSummary = z.infer<typeof agentToolResultResourceSummarySchema>;
+
 export const agentRuntimeLimitsSchema = z.object({
   maxSteps: z.number().int().min(1).max(40).default(12),
   maxDecisionCalls: z.number().int().min(1).max(30).default(10),
@@ -505,9 +569,66 @@ export const agentToolResultRecordSchema = z.object({
   operationResultId: z.string().trim().min(1).optional(),
   fulfillment: agentToolResultFulfillmentSchema.optional(),
   decisionFeedback: agentDecisionFeedbackSchema.optional(),
+  resourceRole: agentToolResultResourceRoleSchema.optional(),
+  resourceSummary: agentToolResultResourceSummarySchema.optional(),
 });
 
 export type AgentToolResultRecord = z.infer<typeof agentToolResultRecordSchema>;
+
+// resolveAgentToolResultResourceRole 是资源可消费性的唯一判定入口；服务端依赖校验不得重新解释用户语义。
+export function resolveAgentToolResultResourceRole(
+  result: Pick<AgentToolResultRecord, "status" | "fulfillment" | "decisionFeedback" | "resourceRole">,
+): AgentToolResultResourceRole {
+  if (result.resourceRole) {
+    return result.resourceRole;
+  }
+
+  if (result.decisionFeedback) {
+    return "feedback";
+  }
+
+  if (result.status === "success" && result.fulfillment?.satisfied !== false) {
+    return "consumable";
+  }
+
+  if (result.fulfillment?.satisfied === false) {
+    return "partial";
+  }
+
+  return "diagnostic";
+}
+
+export function isAgentToolResultConsumable(
+  result: Pick<AgentToolResultRecord, "status" | "fulfillment" | "decisionFeedback" | "resourceRole">,
+) {
+  return resolveAgentToolResultResourceRole(result) === "consumable";
+}
+
+export function isAgentToolResultDiagnostic(
+  result: Pick<AgentToolResultRecord, "status" | "fulfillment" | "decisionFeedback" | "resourceRole">,
+) {
+  return !isAgentToolResultConsumable(result);
+}
+
+export function createAgentToolResultResourceSummary(
+  result: Pick<AgentToolResultRecord, "status" | "fulfillment" | "decisionFeedback" | "resourceRole">,
+): AgentToolResultResourceSummary {
+  const role = resolveAgentToolResultResourceRole(result);
+  const consumable = role === "consumable";
+
+  return {
+    role,
+    consumable,
+    diagnostic: !consumable,
+    partial: role === "partial",
+    feedback: role === "feedback",
+    producedResources: consumable ? result.fulfillment?.producedResources ?? [] : [],
+    unmetResultRequirements: result.fulfillment?.unmetResultRequirements ?? [],
+    allowedFinalResultStatuses: consumable
+      ? ["answered", "generated", "patched", "completed_operation", "blocked", "failed", "needs_clarification"]
+      : ["answered", "blocked", "failed", "needs_clarification"],
+  };
+}
 
 export const agentRepairSummarySchema = z.object({
   repairTurnCount: z.number().int().min(0).default(0),
@@ -655,6 +776,7 @@ export const agentExecutionResultSchema = z.discriminatedUnion("status", [
     question: z.string().trim().min(1).max(700),
     assistantSuggestions: z.array(assistantSuggestionSchema).default([]),
     blockingReasons: z.array(z.string().trim().min(1).max(240)).default([]),
+    usedToolResultIds: z.array(z.string().trim().min(1)).default([]),
   }),
   z.object({
     status: z.literal("generated"),

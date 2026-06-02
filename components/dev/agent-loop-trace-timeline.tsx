@@ -213,6 +213,7 @@ function AgentLoopTurnCard({ turn }: { turn: AgentLoopTurnViewModel }) {
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-semibold text-slate-900">{result.toolName}</span>
                     <SmallPill>{result.status}</SmallPill>
+                    {result.resourceRole ? <SmallPill>resource:{result.resourceRole}</SmallPill> : null}
                     {result.failureCode ? <SmallPill>{result.failureCode}</SmallPill> : null}
                     {result.repairFeedbackCode ? <SmallPill>feedback:{result.repairFeedbackCode}</SmallPill> : null}
                   </div>
@@ -223,6 +224,8 @@ function AgentLoopTurnCard({ turn }: { turn: AgentLoopTurnViewModel }) {
                     <KeyValue label="consumedBy" value={result.consumedBy.join(" / ") || "未记录下游消费"} />
                   </div>
                   <JsonDetails title="resource ids" value={result.resourceIds} />
+                  {result.resourceSummary ? <JsonDetails title="resource role" value={result.resourceSummary} /> : null}
+                  {result.partialCandidate ? <JsonDetails title="partial candidate" value={result.partialCandidate} /> : null}
                   {result.decisionFeedback ? <JsonDetails title="AgentDecisionFeedback" value={result.decisionFeedback} /> : null}
                   {result.repairBudget ? <JsonDetails title="repair budget" value={result.repairBudget} /> : null}
                   <p className="mt-2 text-xs leading-5 text-slate-600">输入：{result.inputSummary}</p>

@@ -300,7 +300,7 @@ describe("agent orchestrator phase 1 contracts", () => {
       status: "blocked",
       reply: "没有找到符合条件的动作候选。",
       references: expect.arrayContaining([
-        { kind: "tool_result", id: "tool-result-empty" },
+        { kind: "tool_result", id: "tool-result-empty", resourceRole: "diagnostic" },
         { kind: "blocking_reason", id: "没有找到符合条件的动作候选。" },
       ]),
     });
@@ -1196,6 +1196,29 @@ describe("agent orchestrator phase 3 workout tools", () => {
             expect.objectContaining({ section: "stretch" }),
           ],
         },
+      },
+    });
+  });
+
+  it("rejects partial candidate sets before routine draft generation", async () => {
+    const registry = createToolFirstAgentToolRegistry();
+    const result = await registry.get("generateRoutineDraft")?.execute({
+      intent: createWorkoutPlanIntent({ intentType: "routine", sessionMinutes: 30 }),
+      candidateSetId: "candidate-set-partial",
+      candidateExerciseIds: ["dumbbell-row"],
+    }, createToolExecutionContext({
+      toolResults: [createPartialCandidateSetToolResult("candidate-set-partial", ["dumbbell-row"])],
+    }));
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "invalid_dependency",
+        detail: expect.objectContaining({
+          candidateSetId: "candidate-set-partial",
+          resourceRole: "partial",
+          satisfied: false,
+        }),
       },
     });
   });
@@ -2207,6 +2230,113 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
     });
   });
 
+  it("allows partial diagnostic tool results for clarification but rejects generated consumption", async () => {
+    const partialSearchTool = createPartialSearchTool();
+    const partialRun = await runAgentOrchestrator({
+      runId: "agent-run-partial-clarification",
+      userId: "user-1",
+      sessionId: "chat-1",
+      context: createTestContextPackage(),
+      registry: new AgentToolRegistry([partialSearchTool]),
+      limits: { maxSteps: 2 },
+      decideNext: vi.fn()
+        .mockResolvedValueOnce({
+          action: "call_tool",
+          toolName: "searchExercises",
+          input: { candidateUse: "routine" },
+          reason: "先查 routine 候选。",
+        })
+        .mockResolvedValueOnce({
+          action: "final_result",
+          result: {
+            status: "needs_clarification",
+            question: "缺少拉伸候选，是否允许用无器械拉伸补齐？",
+            assistantSuggestions: [{ label: "允许补齐", message: "可以用无器械拉伸补齐" }],
+            blockingReasons: ["result_requirement_unmet:sectionCoverage.stretch"],
+            usedToolResultIds: ["tool-result-partial"],
+          },
+          reason: "partial candidate 只能作为澄清证据。",
+        }),
+    });
+
+    expect(partialRun.result).toMatchObject({
+      status: "needs_clarification",
+      usedToolResultIds: ["tool-result-partial"],
+    });
+    expect(partialRun.state.toolResults[0]).toMatchObject({
+      toolResultId: "tool-result-partial",
+      status: "success",
+      resourceRole: "partial",
+      fulfillment: expect.objectContaining({ satisfied: false }),
+    });
+    expect(partialRun.state.candidateSets).toEqual({});
+
+    const generatedRun = await runAgentOrchestrator({
+      runId: "agent-run-partial-generated",
+      userId: "user-1",
+      sessionId: "chat-1",
+      context: createTestContextPackage(),
+      registry: new AgentToolRegistry([partialSearchTool]),
+      limits: { maxSteps: 2 },
+      decideNext: vi.fn()
+        .mockResolvedValueOnce({
+          action: "call_tool",
+          toolName: "searchExercises",
+          input: { candidateUse: "routine" },
+          reason: "先查 routine 候选。",
+        })
+        .mockResolvedValueOnce({
+          action: "final_result",
+          result: {
+            status: "generated",
+            artifact: { artifactId: "artifact-1", revisionId: "revision-1", kind: "routine", title: "上肢训练" },
+            revisionId: "revision-1",
+            validationId: "validation-1",
+            usedToolResultIds: ["tool-result-partial"],
+          },
+          reason: "错误地把 partial 当成功依赖。",
+        }),
+    });
+
+    expect(generatedRun.result).toMatchObject({
+      status: "failed",
+      failureCode: "model_output_invalid",
+    });
+  });
+
+  it("projects successful askClarification tool output into needs_clarification", async () => {
+    const output = await runAgentOrchestrator({
+      runId: "agent-run-ask-clarification",
+      userId: "user-1",
+      sessionId: "chat-1",
+      context: createTestContextPackage(),
+      registry: new AgentToolRegistry([createAskClarificationToolForTest()]),
+      limits: { maxSteps: 3 },
+      decideNext: vi.fn().mockResolvedValueOnce({
+        action: "call_tool",
+        toolName: "askClarification",
+        input: {
+          question: "是否允许用无器械热身和拉伸补齐？",
+          blockingReasons: ["result_requirement_unmet:sectionCoverage.warmup"],
+          assistantSuggestions: [{ label: "允许", message: "允许用无器械补齐" }],
+        },
+        reason: "需要用户确认补齐边界。",
+      }),
+    });
+
+    expect(output.result).toMatchObject({
+      status: "needs_clarification",
+      question: "是否允许用无器械热身和拉伸补齐？",
+      blockingReasons: ["result_requirement_unmet:sectionCoverage.warmup"],
+      assistantSuggestions: [{ label: "允许", message: "允许用无器械补齐" }],
+      usedToolResultIds: ["tool-result-clarification"],
+    });
+    expect(output.state.toolResults[0]).toMatchObject({
+      toolName: "askClarification",
+      resourceRole: "diagnostic",
+    });
+  });
+
   it("suppresses repeated non-retryable tool failures with the same normalized input", async () => {
     const trace = { id: "trace-duplicate", addStep: vi.fn() };
     const execute = vi.fn().mockResolvedValue({
@@ -3049,7 +3179,7 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
         safeOperationOnly: true,
       },
       references: expect.arrayContaining([
-        { kind: "tool_result", id: "tool-result-1" },
+        { kind: "tool_result", id: "tool-result-1", resourceRole: "consumable" },
         { kind: "operation_result", id: "operation-result-1" },
       ]),
     });
@@ -3077,6 +3207,7 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
           { label: "练上背", message: "我想练上背" },
         ],
         blockingReasons: ["target_missing"],
+        usedToolResultIds: [],
       },
       toolResults: [],
     });
@@ -3170,6 +3301,9 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
     expect(prompt).toContain("query 只能作为召回或排序提示，不是 hard constraint");
     expect(prompt).toContain("experience=\"beginner\"");
     expect(prompt).toContain("weeklyFrequency 可使用 1");
+    expect(prompt).toContain("resourceRole");
+    expect(prompt).toContain("candidateSetStatus=\"partial\"");
+    expect(prompt).toContain("默认把器械作为 training 主训练候选边界");
   });
 
   it("runs controlled operation fixtures through completed_operation, confirmation and policy blocked results", async () => {
@@ -3372,6 +3506,130 @@ function createReadTool(): AgentToolDefinition<{ scope: "current_user" }, { fact
         toolResultId: "tool-result-1",
         modelSummary: { facts: ["用户偏好在家训练"] },
         traceSummary: { factCount: 1 },
+      };
+    },
+  };
+}
+
+function createPartialSearchTool(): AgentToolDefinition<{ candidateUse: "routine" }, unknown> {
+  const candidateSetId = "candidate-set-partial";
+
+  return {
+    name: "searchExercises",
+    description: "返回 partial routine candidate set。",
+    accessLevel: "read",
+    inputSchema: z.object({ candidateUse: z.literal("routine") }),
+    dependencies: [],
+    capabilityContract: createTestCapabilityContract({
+      operationKind: "structured_search",
+      supportedOperations: ["build_exercise_candidate_set"],
+      produces: ["candidate_set"],
+      evidence: ["partial candidate set"],
+      failureCodes: ["result_requirement_unmet"],
+    }),
+    getIdempotencyKey(input, context) {
+      return `${context.runId}:${input.candidateUse}`;
+    },
+    summarizeOutput(output) {
+      return output;
+    },
+    summarizeTrace(result) {
+      return result.ok ? result.traceSummary : result.error;
+    },
+    async execute() {
+      const output = {
+        candidateSetId,
+        candidateUse: "routine",
+        candidateSetStatus: "partial",
+        satisfied: false,
+        candidates: [createExercise({ id: "dumbbell-row", nameZh: "哑铃划船" })],
+        diagnostics: {
+          queryMode: "none",
+          failureReasons: ["result_requirement_unmet:sectionCoverage.stretch"],
+          unmetResultRequirements: ["result_requirement_unmet:sectionCoverage.stretch"],
+          finalExerciseIds: ["dumbbell-row"],
+        },
+        resultRequirementProof: {
+          sectionCoverage: {
+            training: { required: 1, actual: 1, satisfied: true },
+            stretch: { required: 1, actual: 0, satisfied: false },
+          },
+        },
+        recoveryOptions: [{ label: "允许补齐", message: "可以用无器械拉伸补齐" }],
+      };
+
+      return {
+        ok: true,
+        output,
+        toolResultId: "tool-result-partial",
+        modelSummary: output,
+        traceSummary: output,
+        fulfillment: {
+          operationKind: "structured_search",
+          operation: "build_exercise_candidate_set",
+          satisfied: false,
+          producedResources: [],
+          appliedHardConstraints: {},
+          unmetResultRequirements: ["result_requirement_unmet:sectionCoverage.stretch"],
+          evidence: output,
+          diagnostics: output.diagnostics,
+        },
+      };
+    },
+  };
+}
+
+function createAskClarificationToolForTest(): AgentToolDefinition<{
+  question: string;
+  blockingReasons: string[];
+  assistantSuggestions: Array<{ label: string; message: string }>;
+}, unknown> {
+  const schema = z.object({
+    question: z.string().min(1),
+    blockingReasons: z.array(z.string()).default([]),
+    assistantSuggestions: z.array(z.object({ label: z.string(), message: z.string() })).default([]),
+  });
+
+  return {
+    name: "askClarification",
+    description: "返回澄清问题。",
+    accessLevel: "clarify",
+    inputSchema: schema,
+    dependencies: [],
+    capabilityContract: createTestCapabilityContract({
+      operationKind: "clarification",
+      supportedOperations: ["ask_clarification"],
+      produces: ["clarification"],
+      evidence: ["question"],
+    }),
+    getIdempotencyKey(input, context) {
+      return `${context.runId}:${input.question}`;
+    },
+    summarizeOutput(output) {
+      return output;
+    },
+    summarizeTrace(result) {
+      return result.ok ? result.traceSummary : result.error;
+    },
+    async execute(input) {
+      const output = schema.parse(input);
+
+      return {
+        ok: true,
+        output,
+        toolResultId: "tool-result-clarification",
+        modelSummary: output,
+        traceSummary: output,
+        fulfillment: {
+          operationKind: "clarification",
+          operation: "ask_clarification",
+          satisfied: true,
+          producedResources: [],
+          appliedHardConstraints: {},
+          unmetResultRequirements: [],
+          evidence: output,
+          diagnostics: {},
+        },
       };
     },
   };
@@ -3684,6 +3942,40 @@ function createCandidateSetToolResult(
       diagnostics: {
         finalExerciseIds: exerciseIds,
       },
+    },
+  };
+}
+
+function createPartialCandidateSetToolResult(
+  candidateSetId: string,
+  exerciseIds: string[],
+): NonNullable<AgentToolExecutionContext["toolResults"]>[number] {
+  const base = createCandidateSetToolResult(candidateSetId, exerciseIds, "routine");
+
+  return {
+    ...base,
+    resourceRole: "partial",
+    resourceSummary: {
+      role: "partial",
+      consumable: false,
+      diagnostic: true,
+      partial: true,
+      feedback: false,
+      producedResources: [],
+      unmetResultRequirements: ["result_requirement_unmet:sectionCoverage.stretch"],
+      allowedFinalResultStatuses: ["answered", "blocked", "failed", "needs_clarification"],
+    },
+    output: {
+      ...(base.output as Record<string, unknown>),
+      satisfied: false,
+      candidateSetStatus: "partial",
+      unmetResultRequirements: ["result_requirement_unmet:sectionCoverage.stretch"],
+    },
+    fulfillment: {
+      ...base.fulfillment!,
+      satisfied: false,
+      producedResources: [],
+      unmetResultRequirements: ["result_requirement_unmet:sectionCoverage.stretch"],
     },
   };
 }

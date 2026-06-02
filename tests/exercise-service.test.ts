@@ -499,6 +499,24 @@ describe("exercise service", () => {
   });
 
   it("marks routine section coverage requirements as unmet when the candidate set misses a section", async () => {
+    repositoryMocks.listExerciseRecords.mockResolvedValueOnce([
+      createExercise({
+        id: "push-up",
+        nameZh: "俯卧撑",
+        category: "strength",
+        categoryZh: "力量",
+        level: "beginner",
+        levelZh: "新手",
+        equipment: "bodyweight",
+        equipmentZh: "自重",
+        homeRequirement: "no_equipment",
+        homeRequirementZh: "无器械",
+        primaryMuscles: ["chest"],
+        primaryMusclesZh: ["胸部"],
+        goalTags: ["strength", "home_friendly"],
+      }),
+    ]);
+
     await expect(
       searchExercises({
         operation: "build_exercise_candidate_set",
@@ -526,11 +544,58 @@ describe("exercise service", () => {
         ]),
         resultRequirementProof: expect.objectContaining({
           sectionCoverage: expect.objectContaining({
-            warmup: expect.objectContaining({ satisfied: true }),
+            warmup: expect.objectContaining({ satisfied: false }),
             training: expect.objectContaining({ satisfied: true }),
             stretch: expect.objectContaining({ satisfied: false }),
           }),
         }),
+      }),
+    });
+  });
+
+  it("uses controlled no-equipment supplements to satisfy routine warmup and stretch coverage", async () => {
+    await expect(
+      searchExercises({
+        operation: "build_exercise_candidate_set",
+        candidateUse: "routine",
+        query: "上肢训练",
+        visibility: "all",
+        filters: {
+          bodyRegions: ["upper_body"],
+          equipment: { in: ["dumbbell"] },
+          allowedSections: ["training"],
+          visibility: "all",
+        },
+        resultRequirements: {
+          minCandidates: 1,
+          sectionCoverage: {
+            warmup: { min: 1 },
+            training: { min: 1 },
+            stretch: { min: 1 },
+          },
+          requireProof: true,
+        },
+        limit: 8,
+      }),
+    ).resolves.toMatchObject({
+      candidates: expect.arrayContaining([
+        expect.objectContaining({ id: "dumbbell-row" }),
+        expect.objectContaining({ id: "jumping-jack" }),
+        expect.objectContaining({ id: "hamstring-stretch" }),
+      ]),
+      diagnostics: expect.objectContaining({
+        satisfied: true,
+        unmetResultRequirements: [],
+        controlledSupplementalCandidates: expect.arrayContaining([
+          expect.objectContaining({
+            section: "warmup",
+            reason: "section_coverage_supplement",
+          }),
+          expect.objectContaining({
+            section: "stretch",
+            reason: "section_coverage_supplement",
+          }),
+        ]),
       }),
     });
   });

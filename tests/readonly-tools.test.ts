@@ -87,6 +87,76 @@ describe("Agent registry readonly tools", () => {
     expect(exerciseMocks.getExerciseById).toHaveBeenCalledWith("push-up");
   });
 
+  it("returns partial candidate diagnostics instead of failed output when result requirements are unmet", async () => {
+    const exercise = createExercise({ id: "dumbbell-row", nameZh: "哑铃划船" });
+    exerciseMocks.searchExercises.mockResolvedValue({
+      candidates: [exercise],
+      diagnostics: {
+        normalizedQueryInput: {
+          candidateUse: "routine",
+          filters: {},
+          resultRequirements: {},
+          softPreferences: {},
+          projection: {},
+        },
+        appliedFilters: {},
+        invalidFilters: [],
+        constraintProof: [{ exerciseId: "dumbbell-row", matchedFilters: [] }],
+        resultRequirementProof: {
+          sectionCoverage: {
+            training: { required: 1, actual: 1, satisfied: true },
+            stretch: { required: 1, actual: 0, satisfied: false },
+          },
+        },
+        satisfied: false,
+        queryMode: "none",
+        failureReasons: ["result_requirement_unmet:sectionCoverage.stretch"],
+        unmetResultRequirements: ["result_requirement_unmet:sectionCoverage.stretch"],
+        finalExerciseIds: ["dumbbell-row"],
+        controlledSupplementalCandidates: [],
+      },
+    });
+    const registry = createReadonlyAgentToolRegistry();
+    const tool = registry.get("searchExercises");
+
+    const result = await tool!.execute(
+      {
+        operation: "build_exercise_candidate_set",
+        candidateUse: "routine",
+        filters: { bodyRegions: ["upper_body"], visibility: "published" },
+        resultRequirements: {
+          sectionCoverage: {
+            training: { min: 1 },
+            stretch: { min: 1 },
+          },
+        },
+      },
+      {
+        runId: "agent-run-1",
+        userId: "user-1",
+        sessionId: "chat-1",
+        deadlineAt: Date.now() + 1000,
+      },
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      output: {
+        candidateSetStatus: "partial",
+        satisfied: false,
+        unmetResultRequirements: ["result_requirement_unmet:sectionCoverage.stretch"],
+        recoveryOptions: expect.arrayContaining([
+          expect.objectContaining({ label: "允许无器械补齐" }),
+        ]),
+      },
+      fulfillment: {
+        satisfied: false,
+        producedResources: [],
+        unmetResultRequirements: ["result_requirement_unmet:sectionCoverage.stretch"],
+      },
+    });
+  });
+
   it("keeps write-capable workout tools in the same Tool-first registry with domain contracts", () => {
     const registry = createToolFirstAgentToolRegistry();
     const tools = registry.list();

@@ -4,8 +4,10 @@ import type {
   AgentAssistantSuggestion,
   AgentExecutionResult,
   AgentOperationSummary,
+  AgentToolResultResourceRole,
   AgentToolResultRecord,
 } from "./contracts";
+import { resolveAgentToolResultResourceRole } from "./contracts";
 import {
   assistantSuggestionListSchema,
   type AssistantSuggestion,
@@ -20,6 +22,7 @@ export type AgentResponseProjectionReference = {
     | "operation_result"
     | "blocking_reason";
   id: string;
+  resourceRole?: AgentToolResultResourceRole;
 };
 
 export type AgentResponseProjection = {
@@ -43,8 +46,8 @@ export type AgentResponseProjectionInput = {
 export function projectAgentExecutionResultToResponse(
   input: AgentResponseProjectionInput,
 ): AgentResponseProjection {
-  const knownToolResultIds = new Set(input.toolResults?.map((result) => result.toolResultId) ?? []);
-  const references = collectResultReferences(input.result, knownToolResultIds);
+  const toolResultById = new Map(input.toolResults?.map((result) => [result.toolResultId, result]) ?? []);
+  const references = collectResultReferences(input.result, toolResultById);
 
   switch (input.result.status) {
     case "answered":
@@ -232,14 +235,16 @@ function buildCompletedOperationReply(operation: AgentOperationSummary) {
 
 function collectResultReferences(
   result: AgentExecutionResult,
-  knownToolResultIds: Set<string>,
+  toolResultById: Map<string, AgentToolResultRecord>,
 ): AgentResponseProjectionReference[] {
   const references: AgentResponseProjectionReference[] = [];
 
   for (const toolResultId of getUsedToolResultIds(result)) {
+    const toolResult = toolResultById.get(toolResultId);
     references.push({
       kind: "tool_result",
-      id: knownToolResultIds.has(toolResultId) ? toolResultId : `missing:${toolResultId}`,
+      id: toolResult ? toolResultId : `missing:${toolResultId}`,
+      resourceRole: toolResult ? resolveAgentToolResultResourceRole(toolResult) : undefined,
     });
   }
 
