@@ -431,6 +431,7 @@ function toAgentArtifactSummary(artifact: RecentArtifactSummary): AgentArtifactS
     kind: artifact.kind,
     title: artifact.title,
     summary: artifact.summary,
+    exerciseIds: artifact.exerciseIds,
     updatedAt: artifact.updatedAt,
   };
 }

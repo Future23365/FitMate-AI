@@ -1252,6 +1252,8 @@ function summarizeContextForTrace(context: ContextPackage) {
       revisionId: artifact.revisionId,
       kind: artifact.kind,
       title: artifact.title,
+      exerciseCount: artifact.exerciseIds.length,
+      exerciseIds: artifact.exerciseIds.slice(0, 12),
       updatedAt: artifact.updatedAt,
     })),
     memorySnapshot: context.memorySnapshot

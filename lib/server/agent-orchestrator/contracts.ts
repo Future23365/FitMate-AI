@@ -56,6 +56,8 @@ export const agentArtifactSummarySchema = z.object({
   kind: conversationArtifactKindSchema,
   title: z.string().trim().min(1).max(160),
   summary: z.string().trim().max(600).optional(),
+  // Agent 需要轻量结构化动作事实来绑定后续 routine 生成；完整 payload 仍必须走 artifact 工具读取。
+  exerciseIds: z.array(z.string().trim().min(1)).max(120).default([]),
   sessionId: z.string().trim().min(1).optional(),
   status: z.enum(["active", "superseded", "archived"]).optional(),
   updatedAt: z.string().trim().min(1).optional(),

@@ -7,10 +7,12 @@ import { z } from "zod";
 import {
   createConversationArtifactRevision,
   createOrUpdateConversationArtifact,
+  getArtifactPayload,
 } from "@/lib/server/conversation-artifacts/artifact-service";
 import { listAllExercises } from "@/lib/server/exercises/exercise-service";
 import { isExerciseAllowedInSection, normalizeExerciseMetadata } from "@/lib/shared/exercises/metadata";
 import type { Exercise } from "@/lib/shared/exercises/types";
+import { exerciseRecommendationCardSchema } from "@/lib/shared/exercise-recommendations/schema";
 import { evaluateArtifactPolicy, evaluateWorkoutPatchPolicy } from "@/lib/server/policy-confirmation/policy-engine";
 import { expandDomainPlan } from "@/lib/server/workout-plans/domain-plan-engine";
 import {
@@ -72,8 +74,25 @@ export const generateRoutineDraftAgentToolInputSchema = z.object({
   intent: agentRoutineIntentSchema,
   candidateSetId: z.string().trim().min(1),
   candidateExerciseIds: z.array(z.string().trim().min(1)).min(1).max(80),
+  sourceArtifactId: z.string().trim().min(1).optional(),
+  requiredExerciseIds: z.array(z.string().trim().min(1)).min(1).max(80).optional(),
   title: z.string().trim().min(1).max(100).optional(),
   sourceEditPlanId: z.string().trim().min(1).optional(),
+}).superRefine((input, ctx) => {
+  if (input.sourceArtifactId && !input.requiredExerciseIds) {
+    ctx.addIssue({
+      code: "custom",
+      message: "绑定 sourceArtifactId 生成 routine 时必须提供 requiredExerciseIds。",
+      path: ["requiredExerciseIds"],
+    });
+  }
+  if (input.requiredExerciseIds && !input.sourceArtifactId) {
+    ctx.addIssue({
+      code: "custom",
+      message: "requiredExerciseIds 必须绑定 sourceArtifactId。",
+      path: ["sourceArtifactId"],
+    });
+  }
 });
 
 export const generatePlanDraftAgentToolInputSchema = z.object({
@@ -211,6 +230,8 @@ export type AgentWorkoutDraftOutput =
       draftId: string;
       candidateSetId: string;
       candidateExerciseIds: string[];
+      sourceArtifactId?: string;
+      requiredExerciseIds?: string[];
       draft: WorkoutRoutineDraft;
       validation: WorkoutPlanValidationResult;
       recovery: WorkoutPlanValidationRecovery;
@@ -350,11 +371,12 @@ function createProposeWorkoutEditPlanTool(): AgentToolDefinition<z.infer<typeof 
 function createGenerateRoutineDraftTool(): AgentToolDefinition<GenerateRoutineDraftAgentToolInput, AgentWorkoutDraftOutput> {
   return {
     name: "generateRoutineDraft",
-    description: "使用结构化 intent 和候选集合生成单次 routine 草稿，并执行服务端校验。",
+    description: "使用结构化 intent 和候选集合生成单次 routine 草稿，并执行服务端校验。若基于已有 exercise_recommendation artifact 生成，必须传 sourceArtifactId 与来自该 artifact 的 requiredExerciseIds；服务端会保留全部 required 动作，只补齐缺失必要阶段。",
     accessLevel: "generate",
     inputSchema: generateRoutineDraftAgentToolInputSchema,
     dependencies: [
       { kind: "candidate_set", required: true, description: "必须引用当前 run 的动作候选集合。" },
+      { kind: "artifact_payload", required: false, description: "基于已有推荐 artifact 生成时必须绑定可访问的推荐 artifact。" },
     ],
     getIdempotencyKey: createIdempotencyKey,
     summarizeOutput: summarizeDraftOutput,
@@ -364,8 +386,25 @@ function createGenerateRoutineDraftTool(): AgentToolDefinition<GenerateRoutineDr
     async execute(input, context) {
       const parsedInput = generateRoutineDraftAgentToolInputSchema.parse(input);
       try {
+        const requiredBoundary = await resolveRoutineRequiredExerciseBoundary(parsedInput, context);
+
+        if (!requiredBoundary.ok) {
+          return requiredBoundary;
+        }
+
         const exercises = await listAllExercises();
-        const buildResult = buildRoutineDraftFromCandidates(parsedInput.intent, parsedInput.candidateExerciseIds, exercises, parsedInput.title);
+        const draftCandidateExerciseIds = requiredBoundary.requiredExerciseIds ?? parsedInput.candidateExerciseIds;
+        const buildResult = buildRoutineDraftFromCandidates(parsedInput.intent, draftCandidateExerciseIds, exercises, parsedInput.title);
+        const requiredCoverageError = validateRequiredRoutineExerciseCoverage(
+          buildResult.candidateExerciseIds,
+          requiredBoundary.requiredExerciseIds,
+          parsedInput.sourceArtifactId,
+        );
+
+        if (requiredCoverageError) {
+          return requiredCoverageError;
+        }
+
         const validation = validateWorkoutRoutineDraft(buildResult.draft, parsedInput.intent, {
           exercises,
           candidateExerciseIds: buildResult.candidateExerciseIds,
@@ -387,6 +426,8 @@ function createGenerateRoutineDraftTool(): AgentToolDefinition<GenerateRoutineDr
           draftId: createStructuredResultId(context, "draft", "generateRoutineDraft", parsedInput),
           candidateSetId: parsedInput.candidateSetId,
           candidateExerciseIds: buildResult.candidateExerciseIds,
+          sourceArtifactId: requiredBoundary.sourceArtifactId,
+          requiredExerciseIds: requiredBoundary.requiredExerciseIds,
           draft: buildResult.draft,
           validation,
           recovery,
@@ -865,6 +906,92 @@ type AgentValidationResourceOutput = WorkoutPlanValidationResult & {
   draftId?: string;
   candidateSetId?: string;
 };
+
+type RoutineRequiredExerciseBoundary =
+  | {
+      ok: true;
+      sourceArtifactId?: string;
+      requiredExerciseIds?: string[];
+    }
+  | AgentToolFailure;
+
+// Artifact-bound routine 生成只接受结构化 artifact 来源；这里不读取用户原文做语义判断。
+async function resolveRoutineRequiredExerciseBoundary(
+  input: GenerateRoutineDraftAgentToolInput,
+  context: AgentToolExecutionContext,
+): Promise<RoutineRequiredExerciseBoundary> {
+  if (!input.sourceArtifactId && !input.requiredExerciseIds) {
+    return { ok: true };
+  }
+
+  if (!input.sourceArtifactId || !input.requiredExerciseIds) {
+    return createFailure("schema_validation_failed", "Artifact-bound routine generation requires both sourceArtifactId and requiredExerciseIds.", {
+      sourceArtifactId: input.sourceArtifactId,
+      requiredExerciseIds: input.requiredExerciseIds,
+    });
+  }
+
+  const payloadResult = await getArtifactPayload({
+    userId: context.userId,
+    artifactId: input.sourceArtifactId,
+  });
+
+  if (!payloadResult.ok) {
+    return createFailure("forbidden", "Source artifact is not accessible for routine generation.", {
+      sourceArtifactId: input.sourceArtifactId,
+      failure: payloadResult,
+    });
+  }
+
+  if (payloadResult.kind !== "exercise_recommendation") {
+    return createFailure("invalid_dependency", "Artifact-bound routine generation requires an exercise_recommendation source artifact.", {
+      sourceArtifactId: input.sourceArtifactId,
+      artifactKind: payloadResult.kind,
+    });
+  }
+
+  const recommendation = exerciseRecommendationCardSchema.parse(payloadResult.payload);
+  const artifactExerciseIds = new Set(recommendation.items.map((item) => item.exerciseId));
+  const requiredExerciseIds = uniqueStrings(input.requiredExerciseIds);
+  const outsideArtifactIds = requiredExerciseIds.filter((exerciseId) => !artifactExerciseIds.has(exerciseId));
+
+  if (outsideArtifactIds.length > 0) {
+    return createFailure("invalid_dependency", "Required routine exercises must come from the source recommendation artifact.", {
+      sourceArtifactId: input.sourceArtifactId,
+      outsideArtifactIds,
+      artifactExerciseIds: Array.from(artifactExerciseIds),
+    });
+  }
+
+  return {
+    ok: true,
+    sourceArtifactId: input.sourceArtifactId,
+    requiredExerciseIds,
+  };
+}
+
+// 服务端只校验结构化 required id 是否被 draft 覆盖，不判断用户自然语言是否真正指向了该 artifact。
+function validateRequiredRoutineExerciseCoverage(
+  candidateExerciseIds: string[],
+  requiredExerciseIds: string[] | undefined,
+  sourceArtifactId: string | undefined,
+): AgentToolFailure | null {
+  if (!requiredExerciseIds || requiredExerciseIds.length === 0) {
+    return null;
+  }
+
+  const candidateSet = new Set(candidateExerciseIds);
+  const missingRequiredExerciseIds = requiredExerciseIds.filter((exerciseId) => !candidateSet.has(exerciseId));
+
+  if (missingRequiredExerciseIds.length === 0) {
+    return null;
+  }
+
+  return createFailure("invalid_dependency", "Routine draft did not preserve all required exercises from the source artifact.", {
+    sourceArtifactId,
+    missingRequiredExerciseIds,
+  });
+}
 
 // Agent 后续工具只拿资源 id；完整 draft / validation / policy 必须从本轮服务端 tool result 中解析。
 function resolveArtifactRevisionPayload(
@@ -1410,6 +1537,8 @@ function summarizeDraftOutput(output: AgentWorkoutDraftOutput) {
     draftKind: output.draftKind,
     draftId: output.draftId,
     candidateSetId: output.candidateSetId,
+    sourceArtifactId: "sourceArtifactId" in output ? output.sourceArtifactId : undefined,
+    requiredExerciseIds: "requiredExerciseIds" in output ? output.requiredExerciseIds?.slice(0, defaultCandidatePreviewLimit) : undefined,
     title: output.draft.title,
     valid: output.validation.valid,
     recovery: output.recovery,

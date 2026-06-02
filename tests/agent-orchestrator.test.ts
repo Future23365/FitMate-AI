@@ -63,9 +63,10 @@ describe("agent orchestrator phase 1 contracts", () => {
         {
           artifactId: "artifact-1",
           revisionId: "rev-1",
-          kind: "routine",
-          title: "30 分钟上肢训练",
-          summary: "包含哑铃推举和俯身划船。",
+          kind: "exercise_recommendation",
+          title: "为你推荐的动作",
+          summary: "已根据你的条件筛选出 2 个动作。",
+          exerciseIds: ["Side_Standing_Long_Jump", "Lateral_Box_Jump"],
           updatedAt: "2026-06-01T01:02:00.000Z",
         },
       ],
@@ -82,7 +83,8 @@ describe("agent orchestrator phase 1 contracts", () => {
     expect(context.recentMessages).toHaveLength(2);
     expect(context.recentArtifacts[0]).toMatchObject({
       artifactId: "artifact-1",
-      kind: "routine",
+      kind: "exercise_recommendation",
+      exerciseIds: ["Side_Standing_Long_Jump", "Lateral_Box_Jump"],
     });
     expect(context.provenance.map((item) => item.sourceKind)).toEqual([
       "latest_user_message",
@@ -109,6 +111,7 @@ describe("agent orchestrator phase 1 contracts", () => {
           kind: "routine",
           title: "上肢训练",
           summary: "哑铃动作较多".repeat(20),
+          exerciseIds: [],
           updatedAt: "2026-06-01T00:02:00.000Z",
         },
       ],
@@ -944,6 +947,119 @@ describe("agent orchestrator phase 3 workout tools", () => {
     expect(trainingExerciseIds).toEqual(expect.arrayContaining(specifiedIds.slice(0, 7)));
     expect(warmupExerciseIds).toEqual(["Band_Warmup"]);
     expect(stretchExerciseIds).toEqual(["Hamstring_Stretch"]);
+  });
+
+  it("keeps every required exercise from a source recommendation artifact", async () => {
+    const requiredIds = [
+      "Side_Standing_Long_Jump",
+      "Lateral_Box_Jump",
+      "Lateral_Bound",
+      "Side_Hop-Sprint",
+      "Lateral_Cone_Hops",
+      "Vertical_Swing",
+      "Sledgehammer_Swings",
+      "Thigh_Adductor",
+    ];
+    artifactMocks.getArtifactPayload.mockResolvedValue({
+      ok: true,
+      artifactId: "artifact-rec-1",
+      kind: "exercise_recommendation",
+      payload: createRecommendationArtifactPayload(requiredIds),
+    });
+    exerciseMocks.listAllExercises.mockResolvedValue([
+      createExercise({
+        id: "Warmup_March",
+        nameZh: "动态原地踏步",
+        allowedSections: ["warmup"],
+        intensityRole: "activation",
+      }),
+      ...requiredIds.map((id) => createExercise({
+        id,
+        nameZh: id,
+        allowedSections: ["training"],
+        primaryMusclesZh: ["臀部"],
+      })),
+      createExercise({
+        id: "Cooldown_Stretch",
+        nameZh: "下肢拉伸",
+        allowedSections: ["stretch"],
+        intensityRole: "recovery",
+      }),
+    ]);
+
+    const registry = createToolFirstAgentToolRegistry();
+    const result = await registry.get("generateRoutineDraft")?.execute({
+      intent: createWorkoutPlanIntent({
+        intentType: "routine",
+        goal: "臀腿训练",
+        sessionMinutes: 30,
+      }),
+      candidateSetId: "candidate-set-artifact-1",
+      candidateExerciseIds: ["Otis-Up"],
+      sourceArtifactId: "artifact-rec-1",
+      requiredExerciseIds: requiredIds,
+      title: "臀腿训练 30分钟",
+    }, createToolExecutionContext());
+
+    expect(artifactMocks.getArtifactPayload).toHaveBeenCalledWith({
+      userId: "user-1",
+      artifactId: "artifact-rec-1",
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      output: {
+        draftKind: "routine",
+        sourceArtifactId: "artifact-rec-1",
+        requiredExerciseIds: requiredIds,
+        candidateExerciseIds: expect.arrayContaining(["Warmup_March", ...requiredIds, "Cooldown_Stretch"]),
+        validation: { valid: true },
+      },
+    });
+
+    if (!result?.ok) {
+      throw new Error("expected artifact-bound generateRoutineDraft to succeed");
+    }
+
+    const draftOutput = result.output as Extract<AgentWorkoutDraftOutput, { draftKind: "routine" }>;
+    const allDraftExerciseIds = draftOutput.draft.sections.flatMap((section) => section.items.map((item) => item.exerciseId));
+
+    expect(allDraftExerciseIds).toEqual(expect.arrayContaining(requiredIds));
+    expect(allDraftExerciseIds).not.toContain("Otis-Up");
+  });
+
+  it("rejects artifact-bound routine required exercises outside the source artifact", async () => {
+    artifactMocks.getArtifactPayload.mockResolvedValue({
+      ok: true,
+      artifactId: "artifact-rec-1",
+      kind: "exercise_recommendation",
+      payload: createRecommendationArtifactPayload(["Side_Standing_Long_Jump"]),
+    });
+
+    const registry = createToolFirstAgentToolRegistry();
+    const result = await registry.get("generateRoutineDraft")?.execute({
+      intent: createWorkoutPlanIntent({
+        intentType: "routine",
+        goal: "臀腿训练",
+        sessionMinutes: 30,
+      }),
+      candidateSetId: "candidate-set-artifact-1",
+      candidateExerciseIds: ["Side_Standing_Long_Jump"],
+      sourceArtifactId: "artifact-rec-1",
+      requiredExerciseIds: ["Side_Standing_Long_Jump", "Otis-Up"],
+      title: "臀腿训练 30分钟",
+    }, createToolExecutionContext());
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "invalid_dependency",
+        detail: expect.objectContaining({
+          sourceArtifactId: "artifact-rec-1",
+          outsideArtifactIds: ["Otis-Up"],
+        }),
+      },
+    });
+    expect(exerciseMocks.listAllExercises).not.toHaveBeenCalled();
   });
 
   it("supplements warmup and stretch when a routine only has training candidates", async () => {
@@ -2539,6 +2655,7 @@ function createTestContextPackage() {
         kind: "routine",
         title: "30 分钟哑铃上肢训练",
         summary: "包含哑铃动作。",
+        exerciseIds: [],
         updatedAt: "2026-06-01T01:01:00.000Z",
       },
     ],
@@ -2549,4 +2666,24 @@ function createTestContextPackage() {
       avoidances: ["跳跃"],
     },
   });
+}
+
+function createRecommendationArtifactPayload(exerciseIds: string[]) {
+  return {
+    title: "为你推荐的动作",
+    goal: "臀腿训练",
+    summary: `已根据你的条件筛选出 ${exerciseIds.length} 个动作。`,
+    items: exerciseIds.map((exerciseId) => ({
+      exerciseId,
+      nameZh: exerciseId,
+      nameEn: exerciseId,
+      categoryZh: "力量训练",
+      levelZh: "初级",
+      equipmentZh: "自重",
+      primaryMusclesZh: ["臀部"],
+      secondaryMusclesZh: [],
+      reasons: ["来自推荐卡片"],
+    })),
+    safetyNotes: [],
+  };
 }
