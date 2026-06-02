@@ -106,7 +106,14 @@ type AgentToolDiagnostic = {
     | "needs_more_candidates";
   message: string;
   recoverable: boolean;
-  suggestedNextTool?: "searchExerciseResources" | "validateExerciseCardDraft" | "validateRoutineCardDraft";
+  recoveryHints?: AgentToolRecoveryHints;
+};
+
+type AgentToolRecoveryHints = {
+  canRetrySameTool?: boolean;
+  canSearchMoreCandidates?: boolean;
+  mustRewriteDraft?: boolean;
+  mustAskUser?: boolean;
 };
 ```
 
@@ -115,8 +122,19 @@ type AgentToolDiagnostic = {
 | `path` | 出错字段路径，例如 `items[0].exerciseId` 或 `routine.sections[1].exercises[2].prescription.sets` |
 | `code` | 机器可读错误码 |
 | `message` | 给 LLM 和 trace 使用的简短错误说明，不直接等同于用户可见文案 |
-| `recoverable` | 是否可以通过重新检索、重写草稿或补字段恢复 |
-| `suggestedNextTool` | 可选建议下一步 tool。它只能描述结构恢复路径，不能替 LLM 判断用户语义 |
+| `recoverable` | 是否可以通过修改结构化入参、重新检索、重写草稿或补字段在同一轮 Agent loop 内恢复 |
+| `recoveryHints` | 可选结构化恢复提示。它只描述错误恢复边界，不替 LLM 选择下一个 tool |
+
+#### `AgentToolRecoveryHints`
+
+| 字段 | 含义 |
+| --- | --- |
+| `canRetrySameTool` | LLM 修改当前 tool 入参后，可以重试同一个 tool，例如补齐缺失字段或修正枚举 |
+| `canSearchMoreCandidates` | 当前错误可以通过重新检索或扩大候选集合恢复，例如候选不足或草稿引用了候选外动作 |
+| `mustRewriteDraft` | 当前 draft 结构或引用不合法，LLM 必须重写草稿后再提交校验 |
+| `mustAskUser` | 当前结构化信息不足以恢复，LLM 应向用户澄清，而不是继续猜测 |
+
+`recoveryHints` 不能包含具体 tool 名。Agent runtime 和 LLM 可以根据 diagnostics 自行决定下一步，但服务端不能把确定性错误诊断升级成语义流程指令。
 
 ## Tool 1：`searchExerciseResources`
 
