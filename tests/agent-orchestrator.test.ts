@@ -2273,7 +2273,12 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
     const recommendation = projectAgentExecutionResultToResponse({
       result: {
         status: "answered",
-        replyContext: { reply: "给你几个动作。" },
+        replyContext: {
+          reply: "给你几个动作。",
+          assistantSuggestions: [
+            { label: "生成训练", message: "按这些动作生成 30 分钟训练" },
+          ],
+        },
         usedToolResultIds: ["tool-result-rec"],
       },
       toolResults: [{
@@ -2300,12 +2305,29 @@ describe("agent orchestrator phase 4 runtime, response writer and prompt budget"
     expect(recommendation.assistantSuggestions).toEqual(expect.arrayContaining([
       expect.objectContaining({
         label: "生成训练",
-        message: "按这些动作生成一套适合我的训练",
+        message: "按这些动作生成 30 分钟训练",
         kind: "next_action",
         blocking: false,
         source: "exercise_recommendation",
       }),
     ]));
+    expect(projectAgentExecutionResultToResponse({
+      result: {
+        status: "answered",
+        replyContext: { reply: "给你几个动作。" },
+        usedToolResultIds: ["tool-result-rec"],
+      },
+      toolResults: [{
+        toolResultId: "tool-result-rec",
+        toolCallId: "tool-call-rec",
+        toolName: "searchExercises",
+        status: "success",
+        candidateSetId: "candidate-set-rec",
+        modelSummary: {
+          candidateUse: "recommendation",
+        },
+      }],
+    }).assistantSuggestions).toEqual([]);
 
     expect(projectAgentExecutionResultToResponse({
       result: {

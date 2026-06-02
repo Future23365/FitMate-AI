@@ -2,10 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import {
-  requestChatStream,
-  requestExerciseRecommendations,
-} from "@/features/chat/api/chat-client";
+import { requestChatStream } from "@/features/chat/api/chat-client";
 import {
   createInitialAgentActivity,
   createWritingReplyAgentActivity,
@@ -58,14 +55,6 @@ function createMessage(role: ChatMessage["role"], content: string): ChatMessage 
   };
 }
 
-function getRecommendationExerciseIds(card?: ExerciseRecommendationCard) {
-  return card?.items.map((item) => item.exerciseId) ?? [];
-}
-
-function uniqueExerciseIds(ids: string[]) {
-  return [...new Set(ids.filter((id) => id.trim().length > 0))];
-}
-
 function parseRecommendationIntent(intent: unknown): WorkoutPlanIntent | null {
   const parsed = workoutPlanIntentSchema.safeParse(intent);
   return parsed.success ? parsed.data : null;
@@ -100,9 +89,6 @@ export function useChatController() {
     Record<string, ExerciseRecommendationCard>
   >({});
   const [bubbleRecommendationIntents, setBubbleRecommendationIntents] = useState<Record<string, WorkoutPlanIntent>>({});
-  const [dislikedExerciseIdsByMessage, setDislikedExerciseIdsByMessage] = useState<
-    Record<string, string[]>
-  >({});
   const [bubblePlanErrors, setBubblePlanErrors] = useState<Record<string, BubblePlanError>>({});
   const [conversationContext, setConversationContext] = useState<FitnessConversationContext>(() =>
     buildFitnessConversationContext([]),
@@ -145,7 +131,6 @@ export function useChatController() {
       setBubblePlanExercises({});
       setBubbleExerciseRecommendations(matchedConversation.exerciseRecommendations ?? {});
       setBubbleRecommendationIntents(matchedConversation.recommendationIntents ?? {});
-      setDislikedExerciseIdsByMessage({});
       setConversationContext(
         matchedConversation.conversationContext ??
           buildFitnessConversationContext(matchedConversation.messages),
@@ -190,7 +175,6 @@ export function useChatController() {
       setBubblePlanExercises({});
       setBubbleExerciseRecommendations({});
       setBubbleRecommendationIntents({});
-      setDislikedExerciseIdsByMessage({});
       setConversationContext(buildFitnessConversationContext([]));
       setConversationSummary({ summary: "" });
       setBubblePlanErrors({});
@@ -260,122 +244,6 @@ export function useChatController() {
     setMessages((current) =>
       current.map((message) => (message.id === assistantId ? updater(message) : message)),
     );
-  }
-
-  async function generateExerciseRecommendationsForBubble(
-    messageId: string,
-    intent: unknown,
-    latestUserMessage: string,
-    summaryContext: Pick<ConversationSummaryContext, "summary">,
-    parentTraceId?: string,
-    excludeExerciseIds: string[] = [],
-  ) {
-    try {
-      const card = await requestExerciseRecommendations(latestUserMessage, intent, summaryContext, parentTraceId, {
-        excludeExerciseIds,
-      });
-
-      setBubbleExerciseRecommendations((prev) => ({
-        ...prev,
-        [messageId]: card,
-      }));
-      const parsedIntent = parseRecommendationIntent(intent);
-      if (parsedIntent) {
-        setBubbleRecommendationIntents((prev) => ({
-          ...prev,
-          [messageId]: parsedIntent,
-        }));
-      }
-      setBubblePlanErrors((prev) => {
-        const next = { ...prev };
-        delete next[messageId];
-        return next;
-      });
-    } catch (err: unknown) {
-      console.error("[SilentExerciseRecommendation] Error:", err);
-      setBubblePlanErrors((prev) => ({
-        ...prev,
-        [messageId]: {
-          message: err instanceof Error ? err.message : "生成动作推荐失败，请稍后重试。",
-          suggestedReplies: [],
-          recoverable: false,
-        },
-      }));
-    } finally {
-      setAutoRecommendationGenerating(null);
-    }
-  }
-
-  async function refreshExerciseRecommendations(messageId: string, intent?: unknown) {
-    const recommendationIntent =
-      intent ?? bubbleRecommendationIntents[messageId] ?? conversationContext.currentIntent;
-
-    if (!recommendationIntent) {
-      setBubblePlanErrors((prev) => ({
-        ...prev,
-        [messageId]: {
-          message: "缺少上一轮推荐意图，无法直接换一批。",
-          suggestedReplies: [],
-          recoverable: false,
-        },
-      }));
-      return;
-    }
-
-    const excludeExerciseIds = uniqueExerciseIds([
-      ...getRecommendationExerciseIds(bubbleExerciseRecommendations[messageId]),
-      ...(dislikedExerciseIdsByMessage[messageId] ?? []),
-    ]);
-    setAutoRecommendationGenerating(messageId);
-    await generateExerciseRecommendationsForBubble(
-      messageId,
-      recommendationIntent,
-      "换一批动作",
-      conversationSummary,
-      undefined,
-      excludeExerciseIds,
-    );
-  }
-
-  function dislikeExerciseRecommendation(messageId: string, exerciseId: string) {
-    setDislikedExerciseIdsByMessage((prev) => ({
-      ...prev,
-      [messageId]: uniqueExerciseIds([...(prev[messageId] ?? []), exerciseId]),
-    }));
-    setBubbleExerciseRecommendations((prev) => {
-      const card = prev[messageId];
-
-      if (!card) {
-        return prev;
-      }
-
-      return {
-        ...prev,
-        [messageId]: {
-          ...card,
-          items: card.items.filter((item) => item.exerciseId !== exerciseId),
-        },
-      };
-    });
-  }
-
-  function composeExerciseRecommendations(messageId: string) {
-    const card = bubbleExerciseRecommendations[messageId];
-    const exerciseNames = card?.items.map((item) => item.nameZh).filter(Boolean) ?? [];
-
-    if (exerciseNames.length === 0) {
-      setBubblePlanErrors((prev) => ({
-        ...prev,
-        [messageId]: {
-          message: "当前没有可编排的推荐动作，请先换一批。",
-          suggestedReplies: [],
-          recoverable: false,
-        },
-      }));
-      return;
-    }
-
-    sendMessage(`把这批动作编成一套训练：${exerciseNames.join("、")}`);
   }
 
   async function sendMessage(nextText?: string) {
@@ -655,13 +523,10 @@ export function useChatController() {
     bubblePlanErrors,
     bubblePlans,
     bubbleRoutines,
-    composeExerciseRecommendations,
-    dislikeExerciseRecommendation,
     error,
     input,
     isLoading,
     messages,
-    refreshExerciseRecommendations,
     sendMessage,
     setInput,
     setThinkingEnabled,

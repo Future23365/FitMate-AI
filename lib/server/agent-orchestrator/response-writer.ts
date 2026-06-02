@@ -51,7 +51,7 @@ export function projectAgentExecutionResultToResponse(
       return {
         status: input.result.status,
         reply: resolveAnsweredReply(input.result.replyContext),
-        assistantSuggestions: buildAnsweredSuggestions(input.result, input.toolResults ?? []),
+        assistantSuggestions: buildAnsweredSuggestions(input.result),
         references,
         metadata: {
           promisedWrite: false,
@@ -190,62 +190,15 @@ function normalizeAssistantSuggestions(
   return parsed.success ? parsed.data : [];
 }
 
-// buildAnsweredSuggestions 为已完成的只读推荐结果补充下一步建议，不重新解释用户自然语言。
+// buildAnsweredSuggestions 只投影 Agent 显式给出的建议，避免 Response Writer 注入固定快捷按钮。
 function buildAnsweredSuggestions(
   result: AgentExecutionResult & { status: "answered" },
-  toolResults: AgentToolResultRecord[],
 ) {
-  const explicitSuggestions = normalizeAssistantSuggestions(readReplyAssistantSuggestions(result.replyContext), {
+  return normalizeAssistantSuggestions(readReplyAssistantSuggestions(result.replyContext), {
     kind: "next_action",
     blocking: false,
     source: "exercise_recommendation",
   });
-
-  if (explicitSuggestions.length > 0) {
-    return explicitSuggestions;
-  }
-
-  const usedToolResultIds = new Set(result.usedToolResultIds);
-  const hasRecommendationSource = toolResults.some((toolResult) => (
-    usedToolResultIds.has(toolResult.toolResultId) &&
-    toolResult.toolName === "searchExercises" &&
-    toolResult.status === "success" &&
-    readToolResultCandidateUse(toolResult) === "recommendation" &&
-    Boolean(toolResult.candidateSetId)
-  ));
-
-  if (!hasRecommendationSource) {
-    return [];
-  }
-
-  return assistantSuggestionListSchema.parse([
-    {
-      label: "生成训练",
-      message: "按这些动作生成一套适合我的训练",
-      kind: "next_action",
-      blocking: false,
-      source: "exercise_recommendation",
-    },
-    {
-      label: "换一批",
-      message: "换一批更简单的动作",
-      kind: "adjustment",
-      blocking: false,
-      source: "exercise_recommendation",
-    },
-  ]);
-}
-
-function readToolResultCandidateUse(toolResult: AgentToolResultRecord) {
-  const summary = toolResult.modelSummary;
-
-  if (!summary || typeof summary !== "object") {
-    return undefined;
-  }
-
-  const candidateUse = (summary as Record<string, unknown>).candidateUse;
-
-  return typeof candidateUse === "string" ? candidateUse : undefined;
 }
 
 function readReplyAssistantSuggestions(replyContext: Record<string, unknown>): AgentAssistantSuggestion[] {

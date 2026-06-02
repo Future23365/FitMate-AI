@@ -364,13 +364,10 @@ export function ChatPage() {
     bubblePlanErrors,
     bubblePlans,
     bubbleRoutines,
-    composeExerciseRecommendations,
-    dislikeExerciseRecommendation,
     error,
     input,
     isLoading,
     messages,
-    refreshExerciseRecommendations,
     sendMessage,
     setInput,
     setThinkingEnabled,
@@ -540,6 +537,7 @@ export function ChatPage() {
                               ...message,
                               suggestedReplies: message.suggestedReplies ?? suggestedReplyTrigger?.suggestedReplies,
                             });
+                            const recommendationCard = bubbleExerciseRecommendations[message.id];
 
                             if (message.role === "assistant") {
                               return (
@@ -554,7 +552,7 @@ export function ChatPage() {
                                     </div>
                                   )}
 
-                                {assistantSuggestions.length > 0 && (
+                                {assistantSuggestions.length > 0 && !recommendationCard && (
                                   <div className="mt-md flex flex-wrap gap-sm">
                                     {assistantSuggestions.map((suggestion) => (
                                       <button
@@ -634,18 +632,13 @@ export function ChatPage() {
                                   </div>
                                 )}
 
-                                {bubbleExerciseRecommendations[message.id] && (
+                                {recommendationCard && (
                                   <div className="mt-md">
                                     <ExerciseRecommendationCard
-                                      card={bubbleExerciseRecommendations[message.id]}
-                                      isRefreshing={autoRecommendationGenerating === message.id}
-                                      onCompose={() => composeExerciseRecommendations(message.id)}
-                                      onDislike={(exerciseId) =>
-                                        dislikeExerciseRecommendation(message.id, exerciseId)
-                                      }
-                                      onRefresh={() =>
-                                        refreshExerciseRecommendations(message.id, recommendationTrigger?.intent)
-                                      }
+                                      assistantSuggestions={assistantSuggestions}
+                                      card={recommendationCard}
+                                      isSuggestionDisabled={isLoading}
+                                      onSuggestionClick={sendMessage}
                                     />
                                   </div>
                                 )}

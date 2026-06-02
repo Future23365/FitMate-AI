@@ -117,7 +117,7 @@ export type ChatConversation = {
   routines?: Record<string, WorkoutRoutineDraft>;
   /** 消息气泡内嵌的动作推荐卡片，key 为 messageId */
   exerciseRecommendations?: Record<string, ExerciseRecommendationCard>;
-  /** 动作推荐卡片生成时使用的结构化意图，供换一批复用上一轮上下文 */
+  /** 动作推荐卡片生成时使用的结构化意图，供历史回读和多轮上下文恢复使用 */
   recommendationIntents?: Record<string, WorkoutPlanIntent>;
   /** 服务端维护的自然语言上下文总结，是模型可见历史上下文 */
   conversationSummary?: Pick<ConversationSummaryContext, "summary">;
