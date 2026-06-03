@@ -93,7 +93,7 @@ describe("API route boundaries", () => {
     authMocks.requireCurrentUser.mockResolvedValue({ id: "user-1", displayName: "匿名用户" });
   });
 
-  it("validates /api/chat body and returns disabled response without model configuration", async () => {
+  it("validates /api/chat body and returns stable configuration errors without model configuration", async () => {
     vi.stubEnv("DEEPSEEK_API_KEY", "");
     const invalid = await chatRoute.POST(jsonRequest("/api/chat", { latestUserMessage: "" }));
     await expect(invalid.json()).resolves.toMatchObject({ code: "validation_failed" });
@@ -103,14 +103,55 @@ describe("API route boundaries", () => {
       conversationSummary: "用户想练胸。",
     }));
     expect(valid.status).toBe(503);
-    await expect(valid.json()).resolves.toMatchObject({
-      code: "chat_ai_disabled",
-      userId: "user-1",
-      hydration: expect.objectContaining({
-        source: "latest_message",
-      }),
-    });
+    const events = parseNdjson(await valid.text());
+
+    expect(events).toMatchObject([
+      { type: "error", error: { code: "chat_ai_not_configured" } },
+      { type: "done" },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("chat_ai_disabled");
     expect(traceMocks.startAiTrace).not.toHaveBeenCalled();
+  });
+
+  it("streams /api/chat final answers from the production text Agent flow", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(Response.json({
+      model: "deepseek-chat",
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              type: "final_answer",
+              content: "可以，今天先做低强度胸部训练。",
+            }),
+          },
+        },
+      ],
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await chatRoute.POST(jsonRequest("/api/chat", {
+      latestUserMessage: "练胸",
+      conversationSummary: "用户想练胸。",
+      conversationId: "conversation-1",
+      responseMessageId: "assistant-1",
+    }));
+    const events = parseNdjson(await response.text());
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("application/x-ndjson");
+    expect(events).toEqual([
+      { type: "content", content: "可以，今天先做低强度胸部训练。" },
+      { type: "done" },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("assistant_action");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({
+      messages: expect.arrayContaining([
+        expect.objectContaining({
+          content: expect.stringContaining("\"tools\":[]"),
+        }),
+      ]),
+    });
   });
 
   it("handles exercise resource routes", async () => {
@@ -209,4 +250,8 @@ function params(id: string) {
   return {
     params: Promise.resolve({ id }),
   };
+}
+
+function parseNdjson(text: string) {
+  return text.trim().split("\n").map((line) => JSON.parse(line));
 }

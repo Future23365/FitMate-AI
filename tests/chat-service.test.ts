@@ -2,12 +2,23 @@ import { describe, expect, it } from "vitest";
 
 import {
   chatRequestSchema,
-  createChatUnavailableResponse,
   prepareChatRequest,
 } from "@/lib/server/chat/chat-service";
+import {
+  createAgentTextChatResponse,
+  createProductionAgentTextChatPlanner,
+} from "@/lib/server/chat/agent-text-chat-service";
+import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
+import { ReplayPlanner } from "@/lib/server/agent-planners/replay-planner";
 import { createChatConversation } from "./fixtures/domain";
 
-describe("chat service disabled runtime boundary", () => {
+async function readNdjsonEvents(response: Response) {
+  const text = await response.text();
+
+  return text.trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
+describe("chat service agent text flow boundary", () => {
   it("accepts current chat request shape and ignores removed legacy event toggles", () => {
     const parsed = chatRequestSchema.parse({
       latestUserMessage: "给我一个 30 分钟居家训练",
@@ -50,24 +61,109 @@ describe("chat service disabled runtime boundary", () => {
     expect(prepared).not.toHaveProperty("agentExecutionResult");
   });
 
-  it("returns a plain unavailable response instead of model, tool, trace, or Agent stream events", async () => {
+  it("projects final_answer into content and done NDJSON with an empty production registry", async () => {
     const prepared = prepareChatRequest({
       latestUserMessage: "今天练胸",
       conversationSummary: "",
     });
-    const response = createChatUnavailableResponse({
+    const planner = new ReplayPlanner([
+      { type: "final_answer", content: "可以，今天先做轻量胸部训练。" },
+    ]);
+    const response = await createAgentTextChatResponse({
       request: prepared,
       currentUser: { id: "user-1" },
+      planner,
+    });
+    const events = await readNdjsonEvents(response);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("application/x-ndjson");
+    expect(events).toEqual([
+      { type: "content", content: "可以，今天先做轻量胸部训练。" },
+      { type: "done" },
+    ]);
+    expect(planner.calls[0].manifests).toEqual([]);
+    expect(planner.calls[0].run).toMatchObject({
+      actor: { userId: "user-1" },
+      userInput: "今天练胸",
+      metadata: {
+        hydration: expect.objectContaining({ source: "latest_message" }),
+      },
+    });
+  });
+
+  it("projects ask_user into clarification content and assistant_suggestions", async () => {
+    const prepared = prepareChatRequest({
+      latestUserMessage: "帮我安排训练",
+      conversationSummary: "",
+    });
+    const response = await createAgentTextChatResponse({
+      request: prepared,
+      currentUser: { id: "user-1" },
+      planner: new ReplayPlanner([
+        { type: "ask_user", question: "你今天有多少时间？", suggestions: ["20 分钟", "40 分钟"] },
+      ]),
     });
 
-    expect(response.status).toBe(503);
-    await expect(response.json()).resolves.toMatchObject({
-      ok: false,
-      code: "chat_ai_disabled",
-      userId: "user-1",
-      hydration: expect.objectContaining({
-        source: "latest_message",
-      }),
+    await expect(readNdjsonEvents(response)).resolves.toEqual([
+      { type: "content", content: "你今天有多少时间？" },
+      { type: "assistant_suggestions", suggestions: ["20 分钟", "40 分钟"] },
+      { type: "done" },
+    ]);
+  });
+
+  it("returns stable configuration errors without the old chat_ai_disabled path", async () => {
+    const plannerResult = createProductionAgentTextChatPlanner({
+      env: { DEEPSEEK_API_KEY: "" },
     });
+
+    expect(plannerResult).toMatchObject({
+      ok: false,
+      error: {
+        code: "chat_ai_not_configured",
+        message: "Chat AI model configuration is missing.",
+      },
+    });
+
+    const response = await createAgentTextChatResponse({
+      request: prepareChatRequest({ latestUserMessage: "你好", conversationSummary: "" }),
+      currentUser: { id: "user-1" },
+      plannerFactory: () => plannerResult,
+    });
+    const events = await readNdjsonEvents(response);
+
+    expect(response.status).toBe(503);
+    expect(JSON.stringify(events)).not.toContain("chat_ai_disabled");
+    expect(events).toEqual([
+      {
+        type: "error",
+        error: {
+          code: "chat_ai_not_configured",
+          message: "Chat AI model configuration is missing.",
+          retryable: false,
+          details: { code: "chat_ai_not_configured", missing: ["DEEPSEEK_API_KEY"] },
+        },
+      },
+      { type: "done" },
+    ]);
+  });
+
+  it("rejects tool_call from the empty registry without executing handlers", async () => {
+    const planner = new ReplayPlanner([
+      { type: "tool_call", toolName: "searchExercises", input: { query: "胸" } },
+      { type: "tool_call", toolName: "searchExercises", input: { query: "胸" } },
+    ]);
+    const response = await createAgentTextChatResponse({
+      request: prepareChatRequest({ latestUserMessage: "推荐胸部动作", conversationSummary: "" }),
+      currentUser: { id: "user-1" },
+      planner,
+    });
+    const events = await readNdjsonEvents(response);
+
+    expect(planner.calls[0].manifests).toEqual([]);
+    expect(events).toMatchObject([
+      { type: "error", error: { code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED } },
+      { type: "done" },
+    ]);
   });
 });

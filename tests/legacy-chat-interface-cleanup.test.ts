@@ -39,7 +39,6 @@ describe("legacy chat AI interface cleanup", () => {
       "artifact_validated",
       "workout_patch",
       "reference_diagnostic",
-      "response.body.getReader",
     ];
 
     for (const file of frontendFiles) {

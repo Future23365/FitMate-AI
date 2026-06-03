@@ -3,7 +3,6 @@ import "server-only";
 import { z } from "zod";
 
 import type { RecentArtifactSummary } from "@/lib/server/conversation-artifacts/artifact-service";
-import type { CurrentUser } from "@/lib/server/users/current-user";
 import {
   aiContextChatMessageSchema,
   buildFitnessConversationContext,
@@ -111,31 +110,6 @@ export function prepareChatRequest(
     thinkingEnabled: request.thinkingEnabled !== false,
     hasClientConversationSummary: request.conversationSummary.trim().length > 0,
   };
-}
-
-// createChatUnavailableResponse 是旧 Agent core 删除后的明确禁用响应，禁止兜底模型调用或伪造旧事件。
-export function createChatUnavailableResponse({
-  request,
-  currentUser,
-}: {
-  request: PreparedChatRequest;
-  currentUser: CurrentUser;
-}) {
-  const message = "聊天 AI 运行时已下线，当前页面仅保留历史会话和本地内容展示。";
-
-  return Response.json(
-    {
-      ok: false,
-      code: "chat_ai_disabled",
-      error: message,
-      message,
-      conversationId: request.conversationId,
-      responseMessageId: request.responseMessageId,
-      userId: currentUser.id,
-      hydration: request.hydration,
-    },
-    { status: 503 },
-  );
 }
 
 // 服务端 hydration 只恢复真实消息、历史卡片摘要和短期 context；不会再派生 Agent 执行事实。

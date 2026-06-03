@@ -2,9 +2,9 @@ import { authErrorToApiResponse, requireCurrentUser } from "@/lib/server/auth/lo
 import { jsonApiError } from "@/lib/server/http/api-error";
 import {
   chatRequestSchema,
-  createChatUnavailableResponse,
   prepareChatRequest,
 } from "@/lib/server/chat/chat-service";
+import { createAgentTextChatResponse } from "@/lib/server/chat/agent-text-chat-service";
 import { getChatConversationById } from "@/lib/server/chat/chat-history-service";
 
 export async function POST(request: Request) {
@@ -39,7 +39,7 @@ export async function POST(request: Request) {
     return jsonApiError("validation_failed", "At least one valid message is required.", 400);
   }
 
-  return createChatUnavailableResponse({
+  return createAgentTextChatResponse({
     request: preparedRequest,
     currentUser: user,
   });

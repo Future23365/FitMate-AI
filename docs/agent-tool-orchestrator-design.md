@@ -1381,7 +1381,74 @@ ToolRegistry -> manifest linter -> registry snapshot / manifestHash
 
 ---
 
-## 31. Agent Tool 变更治理流程（2026-06-03）
+## 31. Production 文本聊天接入落地状态（2026-06-03 16:41:50 CST）
+
+本次在 M2 之后把 production `/api/chat` 从 `chat_ai_disabled` 禁用响应切换到新 `agent-core` 的文本聊天闭环。该阶段只验证真实用户消息可以进入 `LlmPlanner + DeepSeekModelAdapter`，再由默认 Response Renderer 输出 NDJSON；不注册 fixture tool，不注册真实业务 tool，也不恢复旧 `agent-orchestrator` 或旧 stream 事件。
+
+当前 production 文本聊天链路：
+
+```txt
+/api/chat POST
+-> requireCurrentUser / chatRequestSchema
+-> getChatConversationById / prepareChatRequest
+-> createAgentTextChatResponse
+-> createAgentTextChatRunInput
+-> new ToolRegistry()
+-> LlmPlanner + DeepSeekModelAdapter
+-> runAgentRuntime
+-> renderAgentResponseEvents
+-> content / assistant_suggestions / error / done NDJSON
+-> features/chat NDJSON client
+-> use-chat-controller assistant message 投影
+```
+
+本阶段已完成：
+
+```txt
+[x] production /api/chat 调用新 agent-core runtime。
+[x] PreparedChatRequest、CurrentUser、conversationId、responseMessageId 和 hydration metadata 被转换为 AgentRunInput。
+[x] DeepSeek planner 构造集中在聊天接入服务，缺少 DEEPSEEK_API_KEY 时返回 chat_ai_not_configured 配置错误。
+[x] 生产文本聊天使用空 ToolRegistry，Planner 可见 manifest 为 []。
+[x] 默认 Response Renderer 输出 content、assistant_suggestions、error、done 等 NDJSON 白名单事件。
+[x] 前端 chat client 支持跨 chunk NDJSON、空行、非法 JSON、HTTP 错误、abort 和 done 收尾。
+[x] use-chat-controller 只把通用文本事件投影到当前 assistant message，不推断训练卡片、动作推荐或保存结果。
+```
+
+仍不在本阶段内的边界：
+
+```txt
+[ ] 真实动作库查询 tool。
+[ ] 训练 routine / plan 生成 tool。
+[ ] artifact 保存、revision 或 publish tool。
+[ ] 用户记忆、数据库业务查询或长期计划业务 tool。
+[ ] 持久化 ConfirmationStore 或真实 /api/agent/confirm。
+[ ] 业务 card event 或旧 assistant_action / intent_resolved / agent_execution_result 兼容事件。
+```
+
+生产接入必须继续遵守的边界：
+
+```txt
+[x] /api/chat 不做用户文本关键词、正则、同义词或短句模板分流。
+[x] /api/chat 和聊天接入服务不导入旧 agent-orchestrator。
+[x] agent-core 不感知 DeepSeek 环境变量、HTTP endpoint、聊天 UI 或业务数据库。
+[x] 空 registry 下模型返回 tool_call 只能由 Action Validator / repair budget 收口，不能通过 route 业务分支执行。
+[x] fixture tools 仍只服务合同测试，不接入 production chat。
+```
+
+验证结论：
+
+```txt
+[x] tests/chat-service.test.ts 覆盖 final_answer、ask_user、缺配置和空 registry tool_call 拒绝。
+[x] tests/api-routes.test.ts 覆盖 /api/chat 配置错误和 fake DeepSeek final_answer NDJSON。
+[x] tests/client-api.test.ts 覆盖前端 NDJSON client 的多行、跨 chunk、非法 JSON、HTTP 错误和 abort。
+[x] tests/chat-controller-stream-state.test.ts 覆盖 assistant message 文本、建议、错误和 done 投影。
+[x] tests/agent-core/architecture-boundary.test.ts 覆盖旧 orchestrator / 旧事件 / fixture 或真实业务 tool 注册禁止项。
+[x] npm run typecheck 通过。
+```
+
+---
+
+## 32. Agent Tool 变更治理流程（2026-06-03）
 
 后续新增真实业务 tool、修复 Agent tool bug、修改 core contract 或接入 production `/api/chat` 前，必须先使用项目级 Skill：`.codex/skills/agent-tool-change-governance/SKILL.md`。该 Skill 会要求先读取本文第 24-26 节，再执行 OpenSpec、Git 工作区和任务分类 preflight。
 

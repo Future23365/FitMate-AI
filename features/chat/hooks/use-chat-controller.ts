@@ -2,7 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { requestDisabledChatResponse } from "@/features/chat/api/chat-client";
+import {
+  getAgentTextChatErrorMessage,
+  getAgentTextChatEventErrorMessage,
+  isAgentTextChatAbortError,
+  requestAgentTextChatResponse,
+  type AgentTextChatEvent,
+} from "@/features/chat/api/chat-client";
 import { readChatConversation, saveChatConversation } from "@/features/chat/lib/chat-history";
 import type {
   ApiChatMessage,
@@ -40,6 +46,40 @@ function createMessage(role: ChatMessage["role"], content: string): ChatMessage 
     content,
     createdAt: new Date().toISOString(),
   };
+}
+
+// applyAgentTextChatEventToAssistantMessage 是前端 NDJSON 事件到当前 assistant message 的唯一投影入口。
+export function applyAgentTextChatEventToAssistantMessage(
+  message: ChatMessage,
+  event: AgentTextChatEvent,
+): ChatMessage {
+  switch (event.type) {
+    case "content":
+      return {
+        ...message,
+        content: `${message.content}${event.content}`,
+        isReasoning: false,
+      };
+    case "assistant_suggestions":
+      return {
+        ...message,
+        suggestedReplies: event.suggestions,
+        isReasoning: false,
+      };
+    case "error":
+      return {
+        ...message,
+        content: message.content || getAgentTextChatEventErrorMessage(event),
+        isReasoning: false,
+      };
+    case "done":
+      return {
+        ...message,
+        isReasoning: false,
+      };
+    default:
+      return message;
+  }
 }
 
 function readThinkingEnabledPreference() {
@@ -254,32 +294,33 @@ export function useChatController() {
     const timeout = window.setTimeout(() => controller.abort(), chatRequestTimeoutMs);
 
     try {
-      const data = await requestDisabledChatResponse(
-        nextConversationId,
-        assistantMessage.id,
-        requestSummaryContext.latestUserMessage,
-        requestSummaryContext.summary,
-        conversationContext,
+      await requestAgentTextChatResponse({
+        conversationId: nextConversationId,
+        responseMessageId: assistantMessage.id,
+        latestUserMessage: requestSummaryContext.latestUserMessage,
+        conversationSummary: requestSummaryContext.summary,
+        conversationContext: nextConversationContext,
         thinkingEnabled,
-        controller.signal,
-      );
-      const disabledMessage =
-        data.error || data.message || "聊天 AI 运行时已下线，当前页面仅保留历史会话和本地内容展示。";
+        signal: controller.signal,
+        onEvent: (event) => {
+          if (event.type === "error") {
+            setError(getAgentTextChatEventErrorMessage(event));
+            setIsLoading(false);
+          }
 
-      setError(disabledMessage);
-      updateAssistantMessage(assistantMessage.id, (message) => ({
-        ...message,
-        content: message.content || disabledMessage,
-        isReasoning: false,
-      }));
+          if (event.type === "done") {
+            setIsLoading(false);
+          }
+
+          updateAssistantMessage(assistantMessage.id, (message) =>
+            applyAgentTextChatEventToAssistantMessage(message, event),
+          );
+        },
+      });
     } catch (requestError) {
-      const isAbortError =
-        requestError instanceof DOMException && requestError.name === "AbortError";
-      const errorMessage = isAbortError
+      const errorMessage = isAgentTextChatAbortError(requestError)
         ? "聊天请求超时，请稍后重试。"
-        : requestError instanceof Error
-          ? requestError.message
-          : "聊天请求失败，请稍后重试。";
+        : getAgentTextChatErrorMessage(requestError);
 
       setError(errorMessage);
       updateAssistantMessage(assistantMessage.id, (message) => ({

@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  requestDisabledChatResponse,
+  AgentTextChatHttpError,
+  AgentTextChatStreamError,
+  consumeAgentTextChatNdjson,
+  requestAgentTextChatResponse,
 } from "@/features/chat/api/chat-client";
 import { saveChatConversation } from "@/features/chat/lib/chat-history";
 import {
@@ -33,27 +36,39 @@ describe("frontend API clients", () => {
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
   });
 
-  it("passes disabled chat payload without calling legacy AI routes or stream readers", async () => {
+  it("passes chat payload and consumes multi-line NDJSON text events", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(Response.json(
-        { ok: false, code: "chat_ai_disabled", error: "聊天 AI 运行时已下线。" },
-        { status: 503 },
-      ));
+      .mockResolvedValueOnce(new Response([
+        JSON.stringify({ type: "content", content: "你好" }),
+        "",
+        JSON.stringify({ type: "assistant_suggestions", suggestions: ["继续"] }),
+        JSON.stringify({ type: "done" }),
+      ].join("\n")));
     vi.stubGlobal("fetch", fetchMock);
 
     const messages = createApiChatMessages();
     const context = createConversationContext();
     const summary = { summary: context.summary };
     const signal = new AbortController().signal;
+    const events: unknown[] = [];
 
-    await expect(
-      requestDisabledChatResponse("chat-1", "assistant-1", messages[0].content, summary.summary, context, false, signal),
-    ).resolves.toMatchObject({
-      code: "chat_ai_disabled",
-      error: "聊天 AI 运行时已下线。",
+    await requestAgentTextChatResponse({
+      conversationId: "chat-1",
+      responseMessageId: "assistant-1",
+      latestUserMessage: messages[0].content,
+      conversationSummary: summary.summary,
+      conversationContext: context,
+      thinkingEnabled: false,
+      signal,
+      onEvent: (event) => events.push(event),
     });
 
+    expect(events).toEqual([
+      { type: "content", content: "你好" },
+      { type: "assistant_suggestions", suggestions: ["继续"] },
+      { type: "done" },
+    ]);
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({
       responseMessageId: "assistant-1",
       thinkingEnabled: false,
@@ -61,6 +76,75 @@ describe("frontend API clients", () => {
       conversationSummary: summary.summary,
     });
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual(["/api/chat"]);
+  });
+
+  it("parses NDJSON split across chunks and rejects invalid JSON lines", async () => {
+    const events: unknown[] = [];
+    const response = new Response(streamFromChunks([
+      "{\"type\":\"content\",\"content\":\"你",
+      "好\"}\n{\"type\":\"done\"}\n",
+    ]));
+
+    await consumeAgentTextChatNdjson(response, (event) => events.push(event));
+
+    expect(events).toEqual([
+      { type: "content", content: "你好" },
+      { type: "done" },
+    ]);
+
+    await expect(
+      consumeAgentTextChatNdjson(new Response("{\"type\":\"content\"\n"), vi.fn()),
+    ).rejects.toBeInstanceOf(AgentTextChatStreamError);
+  });
+
+  it("surfaces HTTP NDJSON errors and aborts without leaving stream parsing hidden in UI", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response([
+      JSON.stringify({
+        type: "error",
+        error: {
+          code: "chat_ai_not_configured",
+          message: "Chat AI model configuration is missing.",
+        },
+      }),
+      JSON.stringify({ type: "done" }),
+    ].join("\n"), { status: 503 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const context = createConversationContext();
+
+    await expect(
+      requestAgentTextChatResponse({
+        conversationId: "chat-1",
+        responseMessageId: "assistant-1",
+        latestUserMessage: "你好",
+        conversationSummary: "",
+        conversationContext: context,
+        thinkingEnabled: false,
+        signal: new AbortController().signal,
+        onEvent: vi.fn(),
+      }),
+    ).rejects.toMatchObject({
+      name: "AgentTextChatHttpError",
+      status: 503,
+      code: "chat_ai_not_configured",
+      message: "Chat AI model configuration is missing.",
+    } satisfies Partial<AgentTextChatHttpError>);
+
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      requestAgentTextChatResponse({
+        conversationId: "chat-1",
+        responseMessageId: "assistant-1",
+        latestUserMessage: "你好",
+        conversationSummary: "",
+        conversationContext: context,
+        thinkingEnabled: false,
+        signal: controller.signal,
+        onEvent: vi.fn(),
+      }),
+    ).rejects.toMatchObject({ name: "AbortError" });
   });
 
   it("maps workout data requests, errors, and update events", async () => {
@@ -157,3 +241,17 @@ describe("frontend API clients", () => {
     expect(window.dispatchEvent).toHaveBeenCalledWith(expect.any(Event));
   });
 });
+
+function streamFromChunks(chunks: string[]) {
+  const encoder = new TextEncoder();
+
+  return new ReadableStream({
+    start(controller) {
+      for (const chunk of chunks) {
+        controller.enqueue(encoder.encode(chunk));
+      }
+
+      controller.close();
+    },
+  });
+}

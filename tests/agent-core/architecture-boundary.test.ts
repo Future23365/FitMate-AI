@@ -19,6 +19,7 @@ const coreFlowFiles = [
 const productionChatEntryFiles = [
   "app/api/chat/route.ts",
   "lib/server/chat/chat-service.ts",
+  "lib/server/chat/agent-text-chat-service.ts",
 ];
 
 function collectFiles(target: string): string[] {
@@ -208,6 +209,49 @@ describe("agent-core architecture boundaries", () => {
       }
     }
 
+    expect(matches).toEqual([]);
+  });
+
+  it("keeps production text chat flow off removed orchestrator contracts and legacy stream events", () => {
+    const forbiddenTerms = [
+      "agent-orchestrator",
+      "Agent" + "ExecutionResult",
+      "runAgent" + "Orchestrator",
+      "assistant_action",
+      "intent_resolved",
+      "agent_" + "execution_result",
+    ];
+    const matches: string[] = [];
+
+    for (const file of productionChatEntryFiles) {
+      const content = readRelative(file);
+      for (const term of forbiddenTerms) {
+        if (content.includes(term)) {
+          matches.push(`${file}: ${term}`);
+        }
+      }
+    }
+
+    expect(matches).toEqual([]);
+  });
+
+  it("keeps production text chat registry empty without fixture or real business tools", () => {
+    const service = readRelative("lib/server/chat/agent-text-chat-service.ts");
+    const forbiddenTerms = [
+      "@/lib/server/agent-tools",
+      "createM0FixtureToolRegistry",
+      "createM1FixtureToolRegistry",
+      "registry.register",
+      "readFixture",
+      "searchExercises",
+      "generateRoutine",
+      "saveWorkout",
+      "queryUserMemory",
+      "agent-tools/",
+    ];
+    const matches = forbiddenTerms.filter((term) => service.includes(term));
+
+    expect(service).toContain("new ToolRegistry()");
     expect(matches).toEqual([]);
   });
 
