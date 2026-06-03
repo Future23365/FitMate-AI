@@ -58,6 +58,27 @@ describe("agent-core architecture boundaries", () => {
     expect(matches).toEqual([]);
   });
 
+  it("keeps agent-core independent from DeepSeek adapter details", () => {
+    const forbiddenTerms = [
+      "deepseek",
+      "DEEPSEEK_API_KEY",
+      "chat/completions",
+      "response_format",
+    ];
+    const matches: string[] = [];
+
+    for (const file of collectFiles("lib/server/agent-core")) {
+      const content = readFileSync(file, "utf8").toLowerCase();
+      for (const term of forbiddenTerms) {
+        if (content.includes(term.toLowerCase())) {
+          matches.push(`${path.relative(repoRoot, file)}: ${term}`);
+        }
+      }
+    }
+
+    expect(matches).toEqual([]);
+  });
+
   it("does not connect M0/M1 runtime or fixture tools to production chat route", () => {
     const route = readRelative("app/api/chat/route.ts");
 
@@ -120,5 +141,29 @@ describe("agent-core architecture boundaries", () => {
     }
 
     expect(matches).toEqual([]);
+  });
+
+  it("does not add or register real domain tools in the M2 hardening change", () => {
+    const allowedAgentToolFiles = new Set([
+      "lib/server/agent-tools/index.ts",
+      "lib/server/agent-tools/fixture/read-fixture.tool.ts",
+      "lib/server/agent-tools/fixture/m1-safety-fixture.tools.ts",
+    ]);
+    const unexpectedFiles = collectFiles("lib/server/agent-tools")
+      .map((file) => path.relative(repoRoot, file))
+      .filter((file) => !allowedAgentToolFiles.has(file));
+    const registryEntry = readRelative("lib/server/agent-tools/index.ts");
+    const forbiddenRegistrations = [
+      "exercise",
+      "routine",
+      "workout",
+      "memory",
+      "saveWorkout",
+      "searchExercises",
+      "@/lib/server/db",
+    ].filter((term) => registryEntry.includes(term));
+
+    expect(unexpectedFiles).toEqual([]);
+    expect(forbiddenRegistrations).toEqual([]);
   });
 });

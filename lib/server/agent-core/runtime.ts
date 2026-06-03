@@ -7,18 +7,25 @@ import {
   markPendingActionConsumed,
   type ConfirmationStore,
 } from "./confirmation-store";
+import { estimateJsonTokens } from "./canonical-json";
 import { executeTool, hashNormalizedInput } from "./executor";
-import { createInvalidActionObservation, createRuntimeErrorObservation, createToolObservation } from "./observation";
+import { createToolExecutionIdempotencyKey } from "./idempotency";
+import { createRegistrySnapshot } from "./manifest-hardening";
+import { compressPlannerObservations, createInvalidActionObservation, createRuntimeErrorObservation, createToolObservation } from "./observation";
 import { evaluateToolPolicy } from "./policy-guard";
+import { redactJsonValue } from "./redaction";
 import { validateAndRegisterProducedResources, validateConsumedResources } from "./resource-contract";
 import { ResourceStore } from "./resource-store";
 import type {
   AgentObservation,
+  AgentReplaySummary,
   AgentTraceEvent,
   AgentRunInput,
   AgentRunResult,
   ConfirmationResumeInput,
   DynamicConfirmationEvaluator,
+  RegistrySnapshot,
+  ToolCallAction,
   ToolError,
   ToolResult,
 } from "./contracts";
@@ -53,6 +60,8 @@ const DEFAULT_LIMITS = {
   maxPlannerCalls: 8,
   maxToolCalls: 6,
   maxInvalidActions: 1,
+  maxRepairAttempts: undefined as number | undefined,
+  maxEstimatedTokens: undefined as number | undefined,
   duplicateFailureLimit: 1,
   perToolTimeoutMs: 1_000,
   overallTimeoutMs: 5_000,
@@ -69,45 +78,71 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
   const toolResults: ToolResult[] = [];
   const observations: AgentObservation[] = [];
   const traceEvents: AgentTraceEvent[] = [];
+  const manifests = input.registry.serializeForPlanner();
+  const registrySnapshot = createRegistrySnapshot(manifests);
   const resourceStore = input.resourceStore ?? new ResourceStore(input.run.runId);
   const confirmationStore = input.confirmationStore ?? new InMemoryConfirmationStore();
   const confirmationSecret = input.confirmationSecret ?? DEFAULT_CONFIRMATION_SECRET;
   const nonRetryableFailures = new Map<string, { code: ToolError["code"]; count: number }>();
+  const repairLimit = limits.maxRepairAttempts ?? limits.maxInvalidActions;
   let plannerCalls = 0;
   let toolCalls = 0;
   let invalidActions = 0;
 
+  traceEvents.push({
+    type: "registry_snapshot",
+    snapshotId: registrySnapshot.snapshotId,
+    manifestHash: registrySnapshot.manifestHash,
+    toolCount: registrySnapshot.tools.length,
+  });
+  const finish = (result: AgentRunResult) => attachReplaySummary(result, registrySnapshot);
+
   for (let step = 1; step <= limits.maxSteps; step += 1) {
     if (Date.now() >= deadline) {
       controller.abort();
-      return failedResult(input.run.runId, toolResults, observations, traceEvents, step - 1, createToolError(
+      return finish(failedResult(input.run.runId, toolResults, observations, traceEvents, step - 1, createToolError(
         AGENT_ERROR_CODES.OVERALL_TIMEOUT,
         "Agent runtime reached the overall timeout.",
-      ));
+      )));
     }
 
     if (plannerCalls >= limits.maxPlannerCalls) {
-      return failedResult(input.run.runId, toolResults, observations, traceEvents, step - 1, createToolError(
-        AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
+      traceEvents.push(createBudgetEvent("planner_calls", "exhausted", plannerCalls, limits.maxPlannerCalls, step));
+      return finish(failedResult(input.run.runId, toolResults, observations, traceEvents, step - 1, createToolError(
+        AGENT_ERROR_CODES.BUDGET_EXHAUSTED,
         "Agent runtime reached the planner call limit.",
-      ));
+      )));
     }
 
-    const manifests = input.registry.serializeForPlanner();
-    plannerCalls += 1;
-
-    const plannerAction = await callPlanner(input.planner, {
+    const plannerInput = {
       run: input.run,
       step,
       manifests,
-      observations,
+      observations: compressPlannerObservations(observations),
       toolResults: toolResults.map(redactToolResultForPlanner),
-    }, deadline);
+    };
+    const estimatedTokens = estimateJsonTokens(plannerInput);
+
+    if (limits.maxEstimatedTokens && estimatedTokens > limits.maxEstimatedTokens) {
+      traceEvents.push(createBudgetEvent("estimated_tokens", "exhausted", estimatedTokens, limits.maxEstimatedTokens, step));
+      return finish(failedResult(input.run.runId, toolResults, observations, traceEvents, step - 1, createToolError(
+        AGENT_ERROR_CODES.BUDGET_EXHAUSTED,
+        "Agent runtime reached the estimated token budget before calling planner.",
+        { estimatedTokens, maxEstimatedTokens: limits.maxEstimatedTokens },
+      )));
+    }
+
+    plannerCalls += 1;
+    traceEvents.push(createBudgetEvent("planner_calls", "used", plannerCalls, limits.maxPlannerCalls, step));
+
+    const plannerAction = await callPlanner(input.planner, plannerInput, deadline);
 
     if (!plannerAction.ok) {
       controller.abort();
-      return failedResult(input.run.runId, toolResults, observations, traceEvents, step - 1, plannerAction.error);
+      return finish(failedResult(input.run.runId, toolResults, observations, traceEvents, step - 1, plannerAction.error));
     }
+
+    traceEvents.push(createPlannerActionTrace(step, plannerAction.action));
 
     const validation = validateAgentAction({
       action: plannerAction.action,
@@ -116,18 +151,27 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
       toolResults,
       resourceStore,
     });
+    traceEvents.push({
+      type: "validation_result",
+      step,
+      ok: validation.ok,
+      code: validation.ok ? undefined : validation.error.code,
+    });
 
     if (!validation.ok) {
       invalidActions += 1;
       observations.push(createInvalidActionObservation(validation.error));
 
-      if (invalidActions > limits.maxInvalidActions) {
-        return failedResult(input.run.runId, toolResults, observations, traceEvents, step, createToolError(
+      if (invalidActions > repairLimit) {
+        traceEvents.push(createBudgetEvent("repair_attempts", "exhausted", invalidActions, repairLimit, step, validation.error.code));
+        return finish(failedResult(input.run.runId, toolResults, observations, traceEvents, step, createToolError(
           AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
           "Agent runtime reached the invalid action repair limit.",
           { lastCode: validation.error.code },
-        ));
+        )));
       }
+
+      traceEvents.push(createBudgetEvent("repair_attempts", "used", invalidActions, repairLimit, step, validation.error.code));
 
       continue;
     }
@@ -138,7 +182,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
         actionType: validation.action.type,
         usedResourceRefs: validation.action.usedResourceRefs ?? [],
       });
-      return {
+      return finish({
         runId: input.run.runId,
         status: "completed",
         terminalAction: validation.action,
@@ -146,7 +190,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
         observations,
         traceEvents,
         steps: step,
-      };
+      });
     }
 
     if (validation.action.type === "ask_user") {
@@ -155,7 +199,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
         actionType: validation.action.type,
         usedResourceRefs: validation.action.usedResourceRefs ?? [],
       });
-      return {
+      return finish({
         runId: input.run.runId,
         status: "needs_input",
         terminalAction: validation.action,
@@ -163,22 +207,23 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
         observations,
         traceEvents,
         steps: step,
-      };
+      });
     }
 
     if (toolCalls >= limits.maxToolCalls) {
-      return failedResult(input.run.runId, toolResults, observations, traceEvents, step, createToolError(
-        AGENT_ERROR_CODES.MAX_TOOL_CALLS_EXCEEDED,
+      traceEvents.push(createBudgetEvent("tool_calls", "exhausted", toolCalls, limits.maxToolCalls, step));
+      return finish(failedResult(input.run.runId, toolResults, observations, traceEvents, step, createToolError(
+        AGENT_ERROR_CODES.BUDGET_EXHAUSTED,
         "Agent runtime reached the tool call limit.",
-      ));
+      )));
     }
 
     const tool = input.registry.get(validation.action.toolName);
     if (!tool) {
-      return failedResult(input.run.runId, toolResults, observations, traceEvents, step, createToolError(
+      return finish(failedResult(input.run.runId, toolResults, observations, traceEvents, step, createToolError(
         AGENT_ERROR_CODES.UNKNOWN_TOOL,
         `Tool "${validation.action.toolName}" is not registered.`,
-      ));
+      )));
     }
 
     const consumedValidation = validateConsumedResources({
@@ -188,7 +233,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
     });
     if (!consumedValidation.ok) {
       observations.push(createInvalidActionObservation(consumedValidation.error));
-      return failedResult(input.run.runId, toolResults, observations, traceEvents, step, consumedValidation.error);
+      return finish(failedResult(input.run.runId, toolResults, observations, traceEvents, step, consumedValidation.error));
     }
 
     const policyDecision = evaluateToolPolicy({
@@ -205,7 +250,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
     });
 
     if (policyDecision.kind === "deny") {
-      return failedResult(input.run.runId, toolResults, observations, traceEvents, step, policyDecision.error);
+      return finish(failedResult(input.run.runId, toolResults, observations, traceEvents, step, policyDecision.error));
     }
 
     if (policyDecision.kind === "requires_confirmation") {
@@ -219,7 +264,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
       confirmationStore.save(pendingAction);
       const confirmationRequest = createConfirmationRequest(pendingAction);
       traceEvents.push({ type: "confirmation_request", request: confirmationRequest });
-      return {
+      return finish({
         runId: input.run.runId,
         status: "requires_confirmation",
         confirmationRequest,
@@ -227,7 +272,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
         observations,
         traceEvents,
         steps: step,
-      };
+      });
     }
 
     const normalizedInputHash = hashNormalizedInput(validation.action.input);
@@ -243,19 +288,29 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
       const duplicateResult = createFailureToolResult(input.run.runId, tool.name, tool.version, normalizedInputHash, duplicateError);
       toolResults.push(duplicateResult);
       observations.push(createToolObservation(duplicateResult));
-      return failedResult(input.run.runId, toolResults, observations, traceEvents, step, duplicateError);
+      return finish(failedResult(input.run.runId, toolResults, observations, traceEvents, step, duplicateError));
     }
 
     toolCalls += 1;
+    traceEvents.push(createBudgetEvent("tool_calls", "used", toolCalls, limits.maxToolCalls, step));
     const remainingMs = Math.max(1, deadline - Date.now());
     const configuredToolTimeout = tool.policy.timeoutMs ?? limits.perToolTimeoutMs;
     const timeoutMs = Math.min(configuredToolTimeout, remainingMs);
+    const idempotencyKey = createToolExecutionIdempotencyKey({
+      run: input.run,
+      toolName: tool.name,
+      toolVersion: tool.version,
+      input: validation.action.input,
+      action: validation.action,
+      resourceRefs: validation.action.consumes ?? [],
+    });
     const result = await executeTool({
       tool,
       input: validation.action.input,
       run: input.run,
       timeoutMs,
       toolCallId: `tc_${step}_${toolCalls}`,
+      idempotencyKey,
       parentSignal: controller.signal,
       resourceStore,
       consumedResources: consumedValidation.consumedResources,
@@ -270,10 +325,10 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
 
     if (!finalizedResult.ok && finalizedResult.error.code === AGENT_ERROR_CODES.TIMEOUT && remainingMs <= configuredToolTimeout) {
       controller.abort();
-      return failedResult(input.run.runId, toolResults, observations, traceEvents, step, createToolError(
+      return finish(failedResult(input.run.runId, toolResults, observations, traceEvents, step, createToolError(
         AGENT_ERROR_CODES.OVERALL_TIMEOUT,
         "Agent runtime reached the overall timeout during tool execution.",
-      ));
+      )));
     }
 
     toolResults.push(finalizedResult);
@@ -288,10 +343,10 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
     }
   }
 
-  return failedResult(input.run.runId, toolResults, observations, traceEvents, limits.maxSteps, createToolError(
+  return finish(failedResult(input.run.runId, toolResults, observations, traceEvents, limits.maxSteps, createToolError(
     AGENT_ERROR_CODES.MAX_STEPS_EXCEEDED,
     "Agent runtime reached maxSteps without a terminal action.",
-  ));
+  )));
 }
 
 /** resumeConfirmedAction 执行服务端保存的 pending tool_call，忽略客户端重传的新 input。 */
@@ -301,6 +356,15 @@ export async function resumeConfirmedAction(input: ResumeConfirmedActionRuntimeI
   const traceEvents: AgentTraceEvent[] = [];
   const observations: AgentObservation[] = [];
   const toolResults: ToolResult[] = [];
+  const manifests = input.registry.serializeForPlanner();
+  const registrySnapshot = createRegistrySnapshot(manifests);
+  traceEvents.push({
+    type: "registry_snapshot",
+    snapshotId: registrySnapshot.snapshotId,
+    manifestHash: registrySnapshot.manifestHash,
+    toolCount: registrySnapshot.tools.length,
+  });
+  const finish = (result: AgentRunResult) => attachReplaySummary(result, registrySnapshot);
   const claim = claimPendingActionForExecution({
     store: input.confirmationStore,
     resume: input.resume,
@@ -308,18 +372,17 @@ export async function resumeConfirmedAction(input: ResumeConfirmedActionRuntimeI
   });
 
   if (!claim.ok) {
-    return failedResult(run.runId, toolResults, observations, traceEvents, 0, claim.error);
+    return finish(failedResult(run.runId, toolResults, observations, traceEvents, 0, claim.error));
   }
 
   const tool = input.registry.get(claim.pendingAction.toolName);
   if (!tool) {
-    return failedResult(run.runId, toolResults, observations, traceEvents, 0, createToolError(
+    return finish(failedResult(run.runId, toolResults, observations, traceEvents, 0, createToolError(
       AGENT_ERROR_CODES.UNKNOWN_TOOL,
       `Tool "${claim.pendingAction.toolName}" is not registered.`,
-    ));
+    )));
   }
 
-  const manifests = input.registry.serializeForPlanner();
   const validation = validateAgentAction({
     action: claim.pendingAction.toolCall,
     registry: input.registry,
@@ -331,7 +394,7 @@ export async function resumeConfirmedAction(input: ResumeConfirmedActionRuntimeI
     const error = validation.ok
       ? createToolError(AGENT_ERROR_CODES.INVALID_ACTION, "Pending action is not an executable tool_call.")
       : validation.error;
-    return failedResult(run.runId, toolResults, observations, traceEvents, 0, error);
+    return finish(failedResult(run.runId, toolResults, observations, traceEvents, 0, error));
   }
 
   const consumedValidation = validateConsumedResources({
@@ -340,7 +403,7 @@ export async function resumeConfirmedAction(input: ResumeConfirmedActionRuntimeI
     resourceStore,
   });
   if (!consumedValidation.ok) {
-    return failedResult(run.runId, toolResults, observations, traceEvents, 0, consumedValidation.error);
+    return finish(failedResult(run.runId, toolResults, observations, traceEvents, 0, consumedValidation.error));
   }
 
   const policyDecision = evaluateToolPolicy({
@@ -361,15 +424,26 @@ export async function resumeConfirmedAction(input: ResumeConfirmedActionRuntimeI
     const error = policyDecision.kind === "deny"
       ? policyDecision.error
       : createToolError(AGENT_ERROR_CODES.CONFIRMATION_REQUIRED, "Confirmation was not accepted by policy guard.");
-    return failedResult(run.runId, toolResults, observations, traceEvents, 0, error);
+    return finish(failedResult(run.runId, toolResults, observations, traceEvents, 0, error));
   }
 
+  const idempotencyKey = createToolExecutionIdempotencyKey({
+    run,
+    toolName: tool.name,
+    toolVersion: tool.version,
+    input: validation.action.input,
+    action: validation.action,
+    resourceRefs: validation.action.consumes ?? [],
+    pendingActionId: claim.pendingAction.pendingActionId,
+    actionHash: claim.pendingAction.actionHash,
+  });
   const result = await executeTool({
     tool,
     input: validation.action.input,
     run,
     timeoutMs: input.timeoutMs ?? tool.policy.timeoutMs ?? DEFAULT_LIMITS.perToolTimeoutMs,
     toolCallId: `tc_resume_${claim.pendingAction.pendingActionId}`,
+    idempotencyKey,
     resourceStore,
     consumedResources: consumedValidation.consumedResources,
   });
@@ -385,7 +459,7 @@ export async function resumeConfirmedAction(input: ResumeConfirmedActionRuntimeI
   observations.push(createToolObservation(finalizedResult));
 
   if (!finalizedResult.ok) {
-    return failedResult(run.runId, toolResults, observations, traceEvents, 1, finalizedResult.error);
+    return finish(failedResult(run.runId, toolResults, observations, traceEvents, 1, finalizedResult.error));
   }
 
   markPendingActionConsumed(input.confirmationStore, claim.pendingAction.pendingActionId);
@@ -395,14 +469,14 @@ export async function resumeConfirmedAction(input: ResumeConfirmedActionRuntimeI
     status: "consumed",
   });
 
-  return {
+  return finish({
     runId: run.runId,
     status: "completed",
     toolResults,
     observations,
     traceEvents,
     steps: 1,
-  };
+  });
 }
 
 type PlannerCallResult =
@@ -467,6 +541,73 @@ function failedResult(
   };
 }
 
+function createBudgetEvent(
+  budget: Extract<AgentTraceEvent, { type: "budget_event" }>["budget"],
+  status: Extract<AgentTraceEvent, { type: "budget_event" }>["status"],
+  used: number,
+  limit: number,
+  step: number,
+  reason?: string,
+): Extract<AgentTraceEvent, { type: "budget_event" }> {
+  return {
+    type: "budget_event",
+    budget,
+    status,
+    used,
+    limit,
+    step,
+    reason,
+  };
+}
+
+function createPlannerActionTrace(step: number, action: unknown): AgentTraceEvent {
+  const actionRecord = action && typeof action === "object" ? action as Partial<ToolCallAction> : undefined;
+
+  return {
+    type: "planner_action",
+    step,
+    actionType: typeof actionRecord?.type === "string" ? actionRecord.type : "unknown",
+    toolName: typeof actionRecord?.toolName === "string" ? actionRecord.toolName : undefined,
+  };
+}
+
+function attachReplaySummary(result: AgentRunResult, registrySnapshot: RegistrySnapshot): AgentRunResult {
+  const traceEvents = redactJsonValue(result.traceEvents) as AgentTraceEvent[];
+  const safeResult = {
+    ...result,
+    traceEvents,
+    registrySnapshot,
+  };
+
+  return {
+    ...safeResult,
+    replaySummary: createReplaySummary(safeResult, registrySnapshot),
+  };
+}
+
+function createReplaySummary(result: AgentRunResult, registrySnapshot: RegistrySnapshot): AgentReplaySummary {
+  return {
+    manifestHash: registrySnapshot.manifestHash,
+    registrySnapshotId: registrySnapshot.snapshotId,
+    status: result.status,
+    steps: result.steps,
+    terminalActionType: result.terminalAction?.type,
+    terminalErrorCode: result.terminalError?.code,
+    toolResults: result.toolResults.map((toolResult) => ({
+      toolResultId: toolResult.toolResultId,
+      toolName: toolResult.toolName,
+      ok: toolResult.ok,
+      fulfillment: {
+        satisfied: toolResult.fulfillment.satisfied,
+        summary: toolResult.fulfillment.summary,
+        producedResources: toolResult.fulfillment.producedResources,
+        consumedResources: toolResult.fulfillment.consumedResources,
+      },
+    })),
+    budgetEvents: result.traceEvents.filter((event): event is Extract<AgentTraceEvent, { type: "budget_event" }> => event.type === "budget_event"),
+  };
+}
+
 function createFailureToolResult(
   runId: string,
   toolName: string,
@@ -481,6 +622,7 @@ function createFailureToolResult(
     toolName,
     toolVersion,
     toolCallId: `tc_duplicate_${toolName}`,
+    idempotencyKey: `idem_${hashNormalizedInput({ runId, toolName, normalizedInputHash, code: error.code })}`,
     normalizedInputHash,
     startedAt: now,
     completedAt: now,
@@ -512,6 +654,7 @@ function finalizeToolResultResources(input: {
       runId: input.run.runId,
       actor: input.run.actor,
       toolCallId: input.result.toolCallId,
+      idempotencyKey: input.result.idempotencyKey,
       metadata: input.run.metadata,
       resources: input.resourceStore,
     },
@@ -523,6 +666,7 @@ function finalizeToolResultResources(input: {
       toolName: input.result.toolName,
       toolVersion: input.result.toolVersion,
       toolCallId: input.result.toolCallId,
+      idempotencyKey: input.result.idempotencyKey,
       normalizedInputHash: input.result.normalizedInputHash,
       startedAt: input.result.startedAt,
       completedAt: new Date().toISOString(),
@@ -548,7 +692,7 @@ function finalizeToolResultResources(input: {
       type: "resource_registered",
       toolResultId: input.result.toolResultId,
       resource,
-      summary: registered?.summary ?? {},
+      summary: redactJsonValue(registered?.summary ?? {}),
     });
   }
 
@@ -569,6 +713,6 @@ function redactToolResultForPlanner(result: ToolResult): ToolResult {
 
   return {
     ...result,
-    output: "[redacted-tool-output]",
+    output: "[redacted]",
   };
 }

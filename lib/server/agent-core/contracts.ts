@@ -25,6 +25,8 @@ export type AgentRuntimeLimits = {
   maxPlannerCalls?: number;
   maxToolCalls?: number;
   maxInvalidActions?: number;
+  maxRepairAttempts?: number;
+  maxEstimatedTokens?: number;
   duplicateFailureLimit?: number;
   perToolTimeoutMs?: number;
   overallTimeoutMs?: number;
@@ -183,14 +185,17 @@ export type ToolHandlerContext = {
   runId: string;
   actor: AgentActor;
   toolCallId: string;
+  idempotencyKey: string;
   signal: AbortSignal;
   metadata?: Record<string, JsonValue>;
   resources?: ResourceStoreReader;
   consumedResources?: AgentResourceRef[];
 };
 
-/** ToolProjectionContext 为 tool 输出生成模型/用户安全投影提供只读上下文。 */
-export type ToolProjectionContext = Omit<ToolHandlerContext, "signal">;
+/** ToolProjectionContext 为 tool 输出生成模型/用户安全投影提供只读上下文，幂等键由 Executor 自动补齐。 */
+export type ToolProjectionContext = Omit<ToolHandlerContext, "signal" | "idempotencyKey"> & {
+  idempotencyKey?: string;
+};
 
 /** ToolExample 是模型可见的安全示例，只允许暴露输入和说明，不携带 handler 输出。 */
 export type ToolExample = {
@@ -234,6 +239,38 @@ export type ToolManifest = {
   examples?: ToolExample[];
 };
 
+/** ToolManifestLintIssue 记录模型可见 manifest 的上线硬化校验问题。 */
+export type ToolManifestLintIssue = {
+  code:
+    | "missing_required_field"
+    | "sensitive_field"
+    | "schema_structure_missing"
+    | "example_limit_exceeded"
+    | "unsafe_policy_hint"
+    | "unsafe_example";
+  path: string;
+  message: string;
+};
+
+/** ToolManifestLintResult 表达单个 tool manifest 是否可进入 Planner 可见上下文。 */
+export type ToolManifestLintResult = {
+  toolName: string;
+  ok: boolean;
+  issues: ToolManifestLintIssue[];
+};
+
+/** RegistrySnapshotTool 是 replay 可见的安全 tool 合同快照，不含 handler 或内部对象。 */
+export type RegistrySnapshotTool = ToolManifest;
+
+/** RegistrySnapshot 记录一次 run 的 manifestHash、tool contract 和 linter 证据。 */
+export type RegistrySnapshot = {
+  snapshotId: string;
+  manifestHash: string;
+  createdAt: string;
+  tools: RegistrySnapshotTool[];
+  lintResults: ToolManifestLintResult[];
+};
+
 /** ToolError 是 Executor、Validator 和 Runtime 对失败结果的统一归一化形状。 */
 export type ToolError = {
   code: AgentErrorCode;
@@ -257,6 +294,7 @@ export type ToolResult<Output = unknown> = {
   toolName: string;
   toolVersion: string;
   toolCallId: string;
+  idempotencyKey: string;
   normalizedInputHash: string;
   startedAt: string;
   completedAt: string;
@@ -349,11 +387,50 @@ export type ConfirmationResumeInput = {
 
 /** AgentTraceEvent 是 M1 fixture 用来断言资源、策略和确认链路的安全摘要。 */
 export type AgentTraceEvent =
+  | { type: "registry_snapshot"; snapshotId: string; manifestHash: string; toolCount: number }
+  | {
+      type: "planner_action";
+      step: number;
+      actionType: string;
+      toolName?: string;
+    }
+  | {
+      type: "validation_result";
+      step: number;
+      ok: boolean;
+      code?: AgentErrorCode;
+    }
+  | {
+      type: "budget_event";
+      budget: "planner_calls" | "tool_calls" | "repair_attempts" | "estimated_tokens";
+      status: "used" | "exhausted";
+      used: number;
+      limit: number;
+      step: number;
+      reason?: string;
+    }
   | { type: "resource_registered"; toolResultId: string; resource: AgentResourceRef; summary: JsonValue }
   | { type: "policy_decision"; toolName: string; decision: PolicyDecision["kind"]; policyVersion: string }
   | { type: "confirmation_request"; request: ConfirmationRequest }
   | { type: "confirmation_resume"; pendingActionId: string; status: "consumed" }
   | { type: "terminal_grounding"; actionType: TerminalAgentAction["type"]; usedResourceRefs: AgentResourceRef[] };
+
+/** AgentReplaySummary 是 run 结束后可安全保存或回放的轻量摘要。 */
+export type AgentReplaySummary = {
+  manifestHash?: string;
+  registrySnapshotId?: string;
+  status: "completed" | "needs_input" | "failed" | "requires_confirmation";
+  steps: number;
+  terminalActionType?: TerminalAgentAction["type"];
+  terminalErrorCode?: AgentErrorCode;
+  toolResults: Array<{
+    toolResultId: string;
+    toolName: string;
+    ok: boolean;
+    fulfillment: Pick<ToolFulfillment, "satisfied" | "summary" | "producedResources" | "consumedResources">;
+  }>;
+  budgetEvents: Extract<AgentTraceEvent, { type: "budget_event" }>[];
+};
 
 /** AgentRunResult 是 Runtime loop 的收口结果，renderer 只消费这个已校验结构。 */
 export type AgentRunResult = {
@@ -365,6 +442,8 @@ export type AgentRunResult = {
   toolResults: ToolResult[];
   observations: AgentObservation[];
   traceEvents: AgentTraceEvent[];
+  registrySnapshot?: RegistrySnapshot;
+  replaySummary?: AgentReplaySummary;
   steps: number;
 };
 

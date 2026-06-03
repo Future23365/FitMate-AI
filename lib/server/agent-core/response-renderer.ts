@@ -1,4 +1,5 @@
 import type { AgentRunResult, AgentStreamEvent, JsonValue, ToolResult } from "./contracts";
+import { redactJsonValue, redactToolError } from "./redaction";
 
 /** renderAgentResponseEvents 将 Runtime 收口结果转换为默认 NDJSON 白名单事件。 */
 export function renderAgentResponseEvents(result: AgentRunResult): AgentStreamEvent[] {
@@ -32,7 +33,7 @@ export function renderAgentResponseEvents(result: AgentRunResult): AgentStreamEv
       events.push({ type: "assistant_suggestions", suggestions: result.terminalAction.suggestions });
     }
   } else if (result.terminalError) {
-    events.push({ type: "error", error: result.terminalError });
+    events.push({ type: "error", error: redactToolError(result.terminalError) });
   }
 
   events.push({ type: "done" });
@@ -51,7 +52,7 @@ function renderToolResultEvent(result: Extract<ToolResult, { ok: true }>): Agent
     type: "tool_result",
     toolResultId: result.toolResultId,
     toolName: result.toolName,
-    content: result.projection.user ?? defaultToolResultSummary(result),
+    content: redactJsonValue(result.projection.user ?? defaultToolResultSummary(result)),
   };
 }
 

@@ -51,9 +51,14 @@ cp .env.example .env.local
 ```bash
 DATABASE_URL="postgresql://fitmate:fitmate@localhost:5432/fitmate?schema=public"
 FITMATE_LOCAL_AUTH_SECRET=
+DEEPSEEK_API_KEY=
+DEEPSEEK_MODEL=
+DEEPSEEK_API_URL=
 ```
 
 `FITMATE_LOCAL_AUTH_SECRET` 用于签发和校验本地匿名 auth cookie。生产环境必须显式配置；本地开发未配置时会使用固定开发 fallback，方便重启后继续验证同一浏览器匿名会话。
+
+`DEEPSEEK_API_KEY`、`DEEPSEEK_MODEL` 和 `DEEPSEEK_API_URL` 只用于新的 `agent-planners` DeepSeek adapter 与可选黑盒测试；当前生产 `/api/chat` 仍保持 `chat_ai_disabled`，不会因为配置这些变量而接入 AI 主链。
 
 启动本地 PostgreSQL：
 
@@ -97,6 +102,7 @@ docker compose down
 测试与验证命令：
 
 - `npm test`：运行 Vitest 自动化测试，覆盖共享领域逻辑、服务边界、API Route 边界和前端请求转换。
+- `npm test -- tests/agent-core`：运行新的 Agent Tool core / fixture / hardening 测试；真实 DeepSeek 黑盒需同时配置 `DEEPSEEK_API_KEY` 并显式设置 `RUN_DEEPSEEK_BLACKBOX=1`。
 - `npm run typecheck`：运行 TypeScript 静态类型检查。
 - `npm run lint`：运行 ESLint 源码质量检查。
 - `npm run build`：验证 Next.js 构建、路由和服务端/客户端模块边界。

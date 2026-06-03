@@ -131,7 +131,10 @@ const confirmationWriteOutputSchema = z.object({
   savedRecordId: z.string(),
   savedValue: z.string(),
   executedAt: z.string(),
+  idempotencyKey: z.string(),
 }).strict();
+
+const confirmationWriteExecutions: Array<{ recordId: string; idempotencyKey: string }> = [];
 
 /** confirmationWriteFixtureTool 验证 write/high-risk tool 只能通过服务端 confirmation resume 执行。 */
 export const confirmationWriteFixtureTool = defineTool({
@@ -152,11 +155,19 @@ export const confirmationWriteFixtureTool = defineTool({
     confirmationExpiresInMs: 60_000,
     timeoutMs: 500,
   },
-  handler: (input: z.infer<typeof confirmationWriteInputSchema>) => ({
-    savedRecordId: input.recordId,
-    savedValue: input.value,
-    executedAt: "2026-06-03T00:00:00.000Z",
-  }),
+  handler: (input: z.infer<typeof confirmationWriteInputSchema>, context: ToolHandlerContext) => {
+    confirmationWriteExecutions.push({
+      recordId: input.recordId,
+      idempotencyKey: context.idempotencyKey,
+    });
+
+    return {
+      savedRecordId: input.recordId,
+      savedValue: input.value,
+      executedAt: "2026-06-03T00:00:00.000Z",
+      idempotencyKey: context.idempotencyKey,
+    };
+  },
   toModelObservation: (output: z.infer<typeof confirmationWriteOutputSchema>) => ({
     savedRecordId: output.savedRecordId,
   }),
@@ -165,6 +176,16 @@ export const confirmationWriteFixtureTool = defineTool({
     savedValue: output.savedValue,
   }),
 });
+
+/** resetConfirmationWriteFixtureExecutions 清理 write fixture 执行记录，便于幂等测试隔离。 */
+export function resetConfirmationWriteFixtureExecutions() {
+  confirmationWriteExecutions.splice(0, confirmationWriteExecutions.length);
+}
+
+/** getConfirmationWriteFixtureExecutions 暴露 write fixture 执行记录，只用于测试幂等边界。 */
+export function getConfirmationWriteFixtureExecutions() {
+  return [...confirmationWriteExecutions];
+}
 
 const diagnosticFailureInputSchema = z.object({
   code: z.string().min(1),

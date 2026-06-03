@@ -1,5 +1,6 @@
 import { defineTool, isM0ExecutablePolicy } from "./define-tool";
 import { AgentContractError, AGENT_ERROR_CODES } from "./errors";
+import { assertSafeToolManifests } from "./manifest-hardening";
 import { toolToManifest } from "./manifest";
 import type { AnyTool, Tool, ToolManifest } from "./contracts";
 
@@ -46,6 +47,8 @@ export class ToolRegistry {
 
   /** serializeForPlanner 生成 Planner 唯一可见的安全 tool manifest。 */
   serializeForPlanner(): ToolManifest[] {
-    return this.listAvailable().map(toolToManifest);
+    const manifests = this.listAvailable().map(toolToManifest);
+    assertSafeToolManifests(manifests);
+    return manifests;
   }
 }

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { stableStringify } from "./canonical-json";
 import type { AgentResourceRef, AgentRunInput, AnyTool, ToolError, ToolResult, ToolProjectionContext } from "./contracts";
 import { createToolError } from "./action-validator";
 import { AGENT_ERROR_CODES, isAgentContractError } from "./errors";
@@ -12,6 +13,7 @@ export type ExecuteToolInput = {
   run: AgentRunInput;
   timeoutMs: number;
   toolCallId: string;
+  idempotencyKey?: string;
   parentSignal?: AbortSignal;
   resourceStore?: ResourceStore;
   consumedResources?: AgentResourceRef[];
@@ -21,11 +23,13 @@ export type ExecuteToolInput = {
 export async function executeTool(input: ExecuteToolInput): Promise<ToolResult> {
   const startedAt = new Date().toISOString();
   const normalizedInputHash = hashNormalizedInput(input.input);
+  const idempotencyKey = input.idempotencyKey ?? createDefaultIdempotencyKey(input.run.runId, input.tool.name, normalizedInputHash);
   const toolResultBase = {
     toolResultId: createToolResultId(input.run.runId, input.tool.name, normalizedInputHash),
     toolName: input.tool.name,
     toolVersion: input.tool.version,
     toolCallId: input.toolCallId,
+    idempotencyKey,
     normalizedInputHash,
     startedAt,
   };
@@ -53,6 +57,7 @@ export async function executeTool(input: ExecuteToolInput): Promise<ToolResult> 
       runId: input.run.runId,
       actor: input.run.actor,
       toolCallId: input.toolCallId,
+      idempotencyKey,
       signal: controller.signal,
       metadata: input.run.metadata,
       resources: input.resourceStore,
@@ -81,6 +86,7 @@ export async function executeTool(input: ExecuteToolInput): Promise<ToolResult> 
       runId: input.run.runId,
       actor: input.run.actor,
       toolCallId: input.toolCallId,
+      idempotencyKey,
       metadata: input.run.metadata,
       resources: input.resourceStore,
       consumedResources: input.consumedResources,
@@ -142,6 +148,10 @@ export function createToolResultId(runId: string, toolName: string, normalizedIn
   return `tr_${hashNormalizedInput({ runId, toolName, normalizedInputHash })}`;
 }
 
+function createDefaultIdempotencyKey(runId: string, toolName: string, normalizedInputHash: string): string {
+  return `idem_${hashNormalizedInput({ runId, toolName, normalizedInputHash })}`;
+}
+
 function failedToolResult(
   base: Omit<ToolResult, "completedAt" | "ok" | "error" | "fulfillment">,
   error: ToolError,
@@ -160,18 +170,4 @@ function failedToolResult(
   };
 }
 
-/** stableStringify 为 input hash 与 confirmation canonical action 提供稳定 JSON 表达。 */
-export function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") {
-    return JSON.stringify(value);
-  }
-
-  if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(",")}]`;
-  }
-
-  return `{${Object.entries(value as Record<string, unknown>)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, child]) => `${JSON.stringify(key)}:${stableStringify(child)}`)
-    .join(",")}}`;
-}
+export { stableStringify };

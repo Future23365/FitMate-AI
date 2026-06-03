@@ -1327,3 +1327,53 @@ tool_call.consumes -> ResourceStore / Resource Contract Validator
 [x] npm run typecheck 通过。
 [x] 架构扫描确认 M1 未接入 production /api/chat，未注册真实业务 tool，未导入旧 agent-orchestrator。
 ```
+
+---
+
+## 30. M2 上线硬化落地状态（2026-06-03 15:38:04 CST）
+
+本次 M2 在 M0/M1 通用 `agent-core` 上补齐真实模型接入前的上线硬化能力，并继续保持与 production `/api/chat`、真实动作库、训练生成、保存、用户记忆、数据库业务查询和前端 UI 解耦。真实模型接入范围只实现 DeepSeek adapter；OpenAI、Anthropic 或其他供应商 adapter 不在本阶段内。
+
+M2 当前已完成以下闭环：
+
+```txt
+ToolRegistry -> manifest linter -> registry snapshot / manifestHash
+-> LlmPlanner / ModelAdapter / DeepSeekModelAdapter
+-> Action Validator repair -> budget / idempotency
+-> Executor -> redacted Observation / Response Renderer / trace replay summary
+-> trace audit / contract helper / prompt injection regression
+```
+
+新增上线硬化能力：
+
+```txt
+[x] `ModelAdapter` 合同、`FakeModelAdapter` 和 `LlmPlanner`。
+[x] DeepSeek-only `DeepSeekModelAdapter`，供应商 HTTP、环境变量、响应格式和 JSON 解析只存在于 `agent-planners`。
+[x] `agent-core` 仍只依赖 `PlannerPort`，不导入 DeepSeek adapter、DeepSeek API key、HTTP endpoint 或供应商响应格式。
+[x] manifestHash、registry snapshot、tool manifest linter 和复杂 schema 保留测试。
+[x] 统一 redaction、observation 压缩、trace audit 和 renderer 用户事件脱敏。
+[x] planner call、tool call、repair attempt 和估算 token budget；预算耗尽后结构化失败，不继续调用模型或 tool handler。
+[x] tool execution `idempotencyKey`，普通执行和 confirmation resume 都由 runtime 生成并注入 handler context。
+[x] contract test helper，用于验证 fixture / 后续 tool 的 defineTool、manifest、policy、projection、redaction 和 trace 边界。
+[x] prompt injection 回归测试覆盖用户输入、tool output 和 manifest examples。
+```
+
+仍未进入 M2 的边界：
+
+```txt
+[ ] production /api/chat 接入。
+[ ] 真实 /api/agent/confirm 路由。
+[ ] 持久化 ConfirmationStore 或持久化 trace 表。
+[ ] 真实动作库、训练生成、保存、用户记忆或数据库业务 tool。
+[ ] 业务 domain tool 目录，例如 agent-tools/exercises、agent-tools/workouts、agent-tools/memory。
+[ ] OpenAI、Anthropic 或其他真实模型 adapter。
+```
+
+验证结论：
+
+```txt
+[x] tests/agent-core 覆盖 runtime hardening、adapter、manifest、redaction、budget、idempotency、fixture E2E、prompt injection、contract helper 和架构扫描。
+[x] DeepSeek 真实模型黑盒测试入口已存在，但默认 gated；缺少 DEEPSEEK_API_KEY 或 RUN_DEEPSEEK_BLACKBOX=1 时只记录未启用前置条件。
+[x] 架构扫描确认 agent-core 无 DeepSeek 依赖、无具体业务 toolName 分支、无用户自然语言关键词分流。
+[x] 架构扫描确认本阶段未新增或注册真实业务 tool，也未把 fixture runtime 接入 /api/chat。
+```
