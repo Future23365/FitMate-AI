@@ -424,6 +424,7 @@ model ConversationArtifact {
   @@index([sourceEntityKind, sourceEntityId])
 }
 
+/// ConversationBusinessFact 保存跨 run 的轻量业务事实，供 Agent 在后续轮次安全读取。
 model ConversationBusinessFact {
   id             String   @id @default(cuid())
   userId         String
@@ -437,8 +438,8 @@ model ConversationBusinessFact {
   updatedAt      DateTime @updatedAt @db.Timestamptz(3)
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, conversationId, messageId, kind, schemaVersion], name: "conversationBusinessFactIdentity")
-  @@index([userId, conversationId, kind, status, createdAt])
+  @@unique([userId, conversationId, messageId, kind, schemaVersion], name: "conversationBusinessFactIdentity", map: "ConversationBusinessFact_identity_key")
+  @@index([userId, conversationId, kind, status, createdAt], map: "ConversationBusinessFact_lookup_idx")
   @@index([messageId])
 }
 
