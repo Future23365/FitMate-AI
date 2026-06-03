@@ -359,8 +359,8 @@ function TraceFlowTimeline({ groups }: { groups: TraceStepGroup[] }) {
         </div>
       ) : (
         groups.map((group) => (
-          <div className="rounded-xl border border-slate-200 bg-white" key={group.id}>
-            <div className="border-b border-slate-100 p-4">
+          <details className="group/module rounded-xl border border-slate-200 bg-white" key={group.id}>
+            <summary className="cursor-pointer list-none p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h3 className="text-base font-semibold text-slate-950">{group.title}</h3>
@@ -369,8 +369,12 @@ function TraceFlowTimeline({ groups }: { groups: TraceStepGroup[] }) {
                 <div className="flex items-center gap-2 text-xs text-slate-500">
                   <StatusBadge status={group.status} />
                   <span>{formatDuration(group.durationMs)}</span>
+                  <span className="text-slate-400 group-open/module:hidden">展开</span>
+                  <span className="hidden text-slate-400 group-open/module:inline">收起</span>
                 </div>
               </div>
+            </summary>
+            <div className="border-t border-slate-100 p-4">
               <ModuleSummaryList group={group} />
             </div>
             <div className="divide-y divide-slate-100">
@@ -384,7 +388,7 @@ function TraceFlowTimeline({ groups }: { groups: TraceStepGroup[] }) {
                 </div>
               )}
             </div>
-          </div>
+          </details>
         ))
       )}
     </section>
