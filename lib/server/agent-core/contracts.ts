@@ -78,7 +78,7 @@ export type RegisteredResource = {
 
 /** RegisterResourceInput 是 tool 执行后声明待登记资源时允许提交的安全字段。 */
 export type RegisterResourceInput = {
-  resourceId: string;
+  resourceId?: string;
   resourceType: string;
   role: ResourceRole;
   schemaVersion: string;
@@ -292,6 +292,25 @@ export type PolicyDecision =
   | { kind: "allow"; policyVersion: string; reason: string }
   | { kind: "deny"; policyVersion: string; error: ToolError }
   | { kind: "requires_confirmation"; policyVersion: string; message: string; expiresAt: string };
+
+/** DynamicConfirmationInput 是 confirmation: dynamic 时可注入策略能读取的结构化事实。 */
+export type DynamicConfirmationInput = {
+  actor: AgentActor;
+  tool: AnyTool;
+  action: ToolCallAction;
+};
+
+/** DynamicConfirmationDecision 表达动态确认策略的确定性裁决结果。 */
+export type DynamicConfirmationDecision =
+  | boolean
+  | {
+      requiresConfirmation: boolean;
+      reason?: string;
+      message?: string;
+    };
+
+/** DynamicConfirmationEvaluator 只基于结构化 action/context/resource 裁决，不读取自然语言关键词。 */
+export type DynamicConfirmationEvaluator = (input: DynamicConfirmationInput) => DynamicConfirmationDecision;
 
 /** PendingAction 保存服务端已验收但等待用户确认的 tool_call，不信任客户端重传 input。 */
 export type PendingAction = {

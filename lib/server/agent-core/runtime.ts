@@ -4,6 +4,7 @@ import {
   createConfirmationRequest,
   createPendingAction,
   InMemoryConfirmationStore,
+  markPendingActionConsumed,
   type ConfirmationStore,
 } from "./confirmation-store";
 import { executeTool, hashNormalizedInput } from "./executor";
@@ -11,7 +12,16 @@ import { createInvalidActionObservation, createRuntimeErrorObservation, createTo
 import { evaluateToolPolicy } from "./policy-guard";
 import { validateAndRegisterProducedResources, validateConsumedResources } from "./resource-contract";
 import { ResourceStore } from "./resource-store";
-import type { AgentObservation, AgentTraceEvent, AgentRunInput, AgentRunResult, ConfirmationResumeInput, ToolError, ToolResult } from "./contracts";
+import type {
+  AgentObservation,
+  AgentTraceEvent,
+  AgentRunInput,
+  AgentRunResult,
+  ConfirmationResumeInput,
+  DynamicConfirmationEvaluator,
+  ToolError,
+  ToolResult,
+} from "./contracts";
 import { AGENT_ERROR_CODES, isAgentContractError } from "./errors";
 import type { PlannerPort } from "./planner-port";
 import type { ToolRegistry } from "./tool-registry";
@@ -24,6 +34,7 @@ export type RunAgentRuntimeInput = {
   resourceStore?: ResourceStore;
   confirmationStore?: ConfirmationStore;
   confirmationSecret?: string;
+  dynamicConfirmationEvaluator?: DynamicConfirmationEvaluator;
 };
 
 /** ResumeConfirmedActionRuntimeInput 是 M1 core 级 confirmation resume 的执行入口参数。 */
@@ -33,6 +44,7 @@ export type ResumeConfirmedActionRuntimeInput = {
   resourceStore?: ResourceStore;
   confirmationStore: ConfirmationStore;
   confirmationSecret?: string;
+  dynamicConfirmationEvaluator?: DynamicConfirmationEvaluator;
   timeoutMs?: number;
 };
 
@@ -183,6 +195,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
       actor: input.run.actor,
       tool,
       action: validation.action,
+      dynamicConfirmationEvaluator: input.dynamicConfirmationEvaluator,
     });
     traceEvents.push({
       type: "policy_decision",
@@ -298,12 +311,6 @@ export async function resumeConfirmedAction(input: ResumeConfirmedActionRuntimeI
     return failedResult(run.runId, toolResults, observations, traceEvents, 0, claim.error);
   }
 
-  traceEvents.push({
-    type: "confirmation_resume",
-    pendingActionId: claim.pendingAction.pendingActionId,
-    status: "consumed",
-  });
-
   const tool = input.registry.get(claim.pendingAction.toolName);
   if (!tool) {
     return failedResult(run.runId, toolResults, observations, traceEvents, 0, createToolError(
@@ -341,6 +348,7 @@ export async function resumeConfirmedAction(input: ResumeConfirmedActionRuntimeI
     tool,
     action: validation.action,
     confirmationSatisfied: true,
+    dynamicConfirmationEvaluator: input.dynamicConfirmationEvaluator,
   });
   traceEvents.push({
     type: "policy_decision",
@@ -379,6 +387,13 @@ export async function resumeConfirmedAction(input: ResumeConfirmedActionRuntimeI
   if (!finalizedResult.ok) {
     return failedResult(run.runId, toolResults, observations, traceEvents, 1, finalizedResult.error);
   }
+
+  markPendingActionConsumed(input.confirmationStore, claim.pendingAction.pendingActionId);
+  traceEvents.push({
+    type: "confirmation_resume",
+    pendingActionId: claim.pendingAction.pendingActionId,
+    status: "consumed",
+  });
 
   return {
     runId: run.runId,

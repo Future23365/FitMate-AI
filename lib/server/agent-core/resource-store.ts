@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type {
   AgentResourceRef,
   JsonValue,
@@ -16,14 +18,31 @@ export class ResourceStore implements ResourceStoreReader {
   constructor(readonly runId: string) {}
 
   /** register 在资源进入下游可见 inventory 前绑定 runId、sourceToolResultId 和安全摘要。 */
-  register(input: RegisterResourceInput & { sourceToolResultId: string; createdAt?: string }): RegisteredResource {
-    assertNonEmpty(input.resourceId, "resourceId");
+  register(input: RegisterResourceInput & { sourceToolResultId: string; createdAt?: string; resourceOrdinal?: number }): RegisteredResource {
     assertNonEmpty(input.resourceType, "resourceType");
     assertNonEmpty(input.schemaVersion, "schemaVersion");
     assertNonEmpty(input.sourceToolResultId, "sourceToolResultId");
 
+    const resourceId = input.resourceId ?? createResourceId({
+      runId: this.runId,
+      sourceToolResultId: input.sourceToolResultId,
+      resourceType: input.resourceType,
+      role: input.role,
+      schemaVersion: input.schemaVersion,
+      resourceOrdinal: input.resourceOrdinal ?? 0,
+    });
+    assertNonEmpty(resourceId, "resourceId");
+
+    if (this.resources.has(resourceId)) {
+      throw new AgentContractError(
+        AGENT_ERROR_CODES.RESOURCE_CONTRACT_VIOLATION,
+        "Resource id is already registered in the current run.",
+        { details: { runId: this.runId, resourceId } },
+      );
+    }
+
     const resource: RegisteredResource = {
-      resourceId: input.resourceId,
+      resourceId,
       resourceType: input.resourceType,
       role: input.role,
       runId: this.runId,
@@ -157,6 +176,30 @@ export function toResourceRef(resource: RegisteredResource): AgentResourceRef {
   };
 }
 
+/** createResourceId 由 ResourceStore 基于当前 run 与 toolResult 事实生成受控资源 id。 */
+export function createResourceId(input: {
+  runId: string;
+  sourceToolResultId: string;
+  resourceType: string;
+  role: ResourceRole;
+  schemaVersion: string;
+  resourceOrdinal?: number;
+}): string {
+  const digest = createHash("sha256")
+    .update(stableStringify({
+      runId: input.runId,
+      sourceToolResultId: input.sourceToolResultId,
+      resourceType: input.resourceType,
+      role: input.role,
+      schemaVersion: input.schemaVersion,
+      resourceOrdinal: input.resourceOrdinal ?? 0,
+    }))
+    .digest("hex")
+    .slice(0, 16);
+
+  return `res_${digest}`;
+}
+
 function assertNonEmpty(value: unknown, field: string) {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new AgentContractError(
@@ -165,4 +208,19 @@ function assertNonEmpty(value: unknown, field: string) {
       { details: { field } },
     );
   }
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+
+  return `{${Object.entries(value as Record<string, unknown>)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, child]) => `${JSON.stringify(key)}:${stableStringify(child)}`)
+    .join(",")}}`;
 }

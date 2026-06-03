@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { InMemoryConfirmationStore } from "@/lib/server/agent-core/confirmation-store";
 import { renderAgentResponseEvents } from "@/lib/server/agent-core/response-renderer";
-import { ResourceStore } from "@/lib/server/agent-core/resource-store";
+import { createResourceId, ResourceStore } from "@/lib/server/agent-core/resource-store";
 import { resumeConfirmedAction, runAgentRuntime } from "@/lib/server/agent-core/runtime";
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
+import { createToolResultId, hashNormalizedInput } from "@/lib/server/agent-core/executor";
+import { ToolRegistry } from "@/lib/server/agent-core/tool-registry";
 import { createM1FixtureToolRegistry } from "@/lib/server/agent-tools";
 import {
   M1_FIXTURE_DIAGNOSTIC_TYPE,
@@ -19,8 +21,20 @@ describe("agent-core M1 resource runtime", () => {
   it("runs producer -> consumer -> final answer with consumable resource grounding", async () => {
     const registry = createM1FixtureToolRegistry();
     const resourceStore = new ResourceStore("run-m1-resource");
+    const producerInput = {
+      title: "M1 Doc",
+      body: "safe body",
+      includeSecret: true,
+    };
+    const producerToolResultId = createToolResultId("run-m1-resource", "m1ResourceProducer", hashNormalizedInput(producerInput));
     const resourceRef: AgentResourceRef = {
-      resourceId: "doc-1",
+      resourceId: createResourceId({
+        runId: "run-m1-resource",
+        sourceToolResultId: producerToolResultId,
+        resourceType: M1_FIXTURE_RESOURCE_TYPE,
+        role: "consumable",
+        schemaVersion: M1_FIXTURE_SCHEMA_VERSION,
+      }),
       resourceType: M1_FIXTURE_RESOURCE_TYPE,
       role: "consumable",
       runId: "run-m1-resource",
@@ -30,12 +44,7 @@ describe("agent-core M1 resource runtime", () => {
       {
         type: "tool_call",
         toolName: "m1ResourceProducer",
-        input: {
-          resourceId: "doc-1",
-          title: "M1 Doc",
-          body: "safe body",
-          includeSecret: true,
-        },
+        input: producerInput,
       },
       {
         type: "tool_call",
@@ -183,7 +192,16 @@ describe("agent-core M1 diagnostic grounding", () => {
   it("rejects diagnostic final answer grounding but allows ask_user explanation without success projection", async () => {
     const registry = createM1FixtureToolRegistry();
     const diagnosticRef: AgentResourceRef = {
-      resourceId: "diag-1",
+      resourceId: createResourceId({
+        runId: "run-m1-diagnostic",
+        sourceToolResultId: createToolResultId("run-m1-diagnostic", "m1DiagnosticFailure", hashNormalizedInput({
+          code: "fixture_blocked",
+          message: "fixture 被阻断。",
+        })),
+        resourceType: M1_FIXTURE_DIAGNOSTIC_TYPE,
+        role: "diagnostic",
+        schemaVersion: M1_FIXTURE_SCHEMA_VERSION,
+      }),
       resourceType: M1_FIXTURE_DIAGNOSTIC_TYPE,
       role: "diagnostic",
       runId: "run-m1-diagnostic",
@@ -196,7 +214,6 @@ describe("agent-core M1 diagnostic grounding", () => {
           type: "tool_call",
           toolName: "m1DiagnosticFailure",
           input: {
-            evidenceId: "diag-1",
             code: "fixture_blocked",
             message: "fixture 被阻断。",
           },
@@ -240,5 +257,69 @@ describe("agent-core M1 diagnostic grounding", () => {
       { type: "done" },
     ]);
     expect(JSON.stringify(events)).not.toContain("tool_result");
+  });
+});
+
+describe("agent-core M1 confirmation failure handling", () => {
+  it("keeps pending action reusable when resume validation fails before execution", async () => {
+    const initialRegistry = createM1FixtureToolRegistry();
+    const confirmationStore = new InMemoryConfirmationStore();
+    const run = {
+      runId: "run-m1-confirmation-failure",
+      actor: { userId: "user-1", permissions: ["fixture:write"] },
+      userInput: "write fixture",
+    };
+    const initial = await runAgentRuntime({
+      registry: initialRegistry,
+      confirmationStore,
+      confirmationSecret: "test-secret",
+      planner: new ReplayPlanner([
+        {
+          type: "tool_call",
+          toolName: "m1ConfirmationWrite",
+          input: {
+            recordId: "record-1",
+            value: "original-value",
+          },
+        },
+      ]),
+      run,
+    });
+    const request = initial.confirmationRequest;
+    if (!request) {
+      throw new Error("confirmation request should exist");
+    }
+
+    await expect(resumeConfirmedAction({
+      registry: new ToolRegistry({ capabilityMode: "m1" }),
+      confirmationStore,
+      confirmationSecret: "test-secret",
+      resume: {
+        pendingActionId: request.pendingActionId,
+        actionHash: request.actionHash,
+        run,
+      },
+    })).resolves.toMatchObject({
+      status: "failed",
+      terminalError: { code: AGENT_ERROR_CODES.UNKNOWN_TOOL },
+    });
+    expect(confirmationStore.get(request.pendingActionId)).toMatchObject({ status: "pending" });
+
+    await expect(resumeConfirmedAction({
+      registry: initialRegistry,
+      confirmationStore,
+      confirmationSecret: "test-secret",
+      resume: {
+        pendingActionId: request.pendingActionId,
+        actionHash: request.actionHash,
+        run,
+      },
+    })).resolves.toMatchObject({
+      status: "completed",
+      toolResults: [
+        expect.objectContaining({ ok: true }),
+      ],
+    });
+    expect(confirmationStore.get(request.pendingActionId)).toMatchObject({ status: "consumed" });
   });
 });

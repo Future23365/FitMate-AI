@@ -101,7 +101,7 @@ export type ClaimPendingActionResult =
   | { ok: true; pendingAction: PendingAction }
   | { ok: false; error: ToolError };
 
-/** claimPendingActionForExecution 校验 hash、actor、run、过期和状态后占用服务端保存的 tool_call。 */
+/** claimPendingActionForExecution 校验 hash、actor、run、过期和状态后返回服务端保存的 tool_call。 */
 export function claimPendingActionForExecution(input: {
   store: ConfirmationStore;
   resume: ConfirmationResumeInput;
@@ -163,9 +163,19 @@ export function claimPendingActionForExecution(input: {
     };
   }
 
+  return { ok: true, pendingAction: pending };
+}
+
+/** markPendingActionConsumed 在 tool handler 成功完成后才把 pending action 标记为已消费。 */
+export function markPendingActionConsumed(store: ConfirmationStore, pendingActionId: string): PendingAction | undefined {
+  const pending = store.get(pendingActionId);
+  if (!pending || pending.status !== "pending") {
+    return pending;
+  }
+
   const consumed = { ...pending, status: "consumed" as const };
-  input.store.update(consumed);
-  return { ok: true, pendingAction: consumed };
+  store.update(consumed);
+  return consumed;
 }
 
 /** createActionHash 使用服务端 secret 绑定 canonical pending action，防止 TOCTOU 输入替换。 */

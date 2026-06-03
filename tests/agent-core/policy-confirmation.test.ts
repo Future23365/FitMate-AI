@@ -1,7 +1,12 @@
 import { z } from "zod";
 import { describe, expect, it } from "vitest";
 
-import { createPendingAction, claimPendingActionForExecution, InMemoryConfirmationStore } from "@/lib/server/agent-core/confirmation-store";
+import {
+  claimPendingActionForExecution,
+  createPendingAction,
+  InMemoryConfirmationStore,
+  markPendingActionConsumed,
+} from "@/lib/server/agent-core/confirmation-store";
 import { defineTool } from "@/lib/server/agent-core/define-tool";
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
 import { evaluateToolPolicy } from "@/lib/server/agent-core/policy-guard";
@@ -109,10 +114,60 @@ describe("agent-core Policy Guard", () => {
       action,
     })).toMatchObject({ kind: "requires_confirmation" });
   });
+
+  it("uses structured dynamic confirmation evaluator instead of fixed risk shortcut", () => {
+    const dynamicTool = createTool({
+      sideEffect: "read",
+      riskLevel: "low",
+      confirmation: "dynamic",
+    });
+
+    expect(evaluateToolPolicy({
+      actor: run.actor,
+      tool: dynamicTool,
+      action,
+    })).toMatchObject({ kind: "requires_confirmation" });
+
+    expect(evaluateToolPolicy({
+      actor: run.actor,
+      tool: dynamicTool,
+      action: {
+        ...action,
+        input: { requiresApproval: false },
+      },
+      dynamicConfirmationEvaluator: ({ action: evaluatedAction }) => {
+        return Boolean((evaluatedAction.input as { requiresApproval?: boolean }).requiresApproval);
+      },
+    })).toMatchObject({ kind: "allow" });
+
+    expect(evaluateToolPolicy({
+      actor: run.actor,
+      tool: dynamicTool,
+      action: {
+        ...action,
+        input: { requiresApproval: true },
+      },
+      dynamicConfirmationEvaluator: ({ action: evaluatedAction }) => ({
+        requiresConfirmation: Boolean((evaluatedAction.input as { requiresApproval?: boolean }).requiresApproval),
+        message: "结构化输入要求确认。",
+      }),
+    })).toMatchObject({ kind: "requires_confirmation", message: "结构化输入要求确认。" });
+
+    expect(evaluateToolPolicy({
+      actor: run.actor,
+      tool: createTool({
+        sideEffect: "read",
+        riskLevel: "low",
+        confirmation: "never",
+      }),
+      action,
+      dynamicConfirmationEvaluator: () => true,
+    })).toMatchObject({ kind: "requires_confirmation" });
+  });
 });
 
 describe("agent-core ConfirmationStore and action hash", () => {
-  it("creates pending actions, consumes them once and rejects repeated resume", () => {
+  it("creates pending actions, keeps claim pending, then consumes them after successful execution", () => {
     const tool = createTool({
       sideEffect: "write",
       riskLevel: "high",
@@ -138,7 +193,10 @@ describe("agent-core ConfirmationStore and action hash", () => {
         run,
       },
       secret: "secret",
-    })).toMatchObject({ ok: true, pendingAction: { status: "consumed" } });
+    })).toMatchObject({ ok: true, pendingAction: { status: "pending" } });
+    expect(store.get(pendingAction.pendingActionId)).toMatchObject({ status: "pending" });
+
+    expect(markPendingActionConsumed(store, pendingAction.pendingActionId)).toMatchObject({ status: "consumed" });
 
     expect(claimPendingActionForExecution({
       store,

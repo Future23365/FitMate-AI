@@ -160,7 +160,7 @@ export function validateAndRegisterProducedResources(input: {
         AGENT_ERROR_CODES.RESOURCE_CONTRACT_VIOLATION,
         "Produced resource does not match the tool resource contract.",
         {
-          resourceId: invalidResource.resourceId,
+          resourceId: invalidResource.resourceId ?? "[generated-by-resource-store]",
           resourceType: invalidResource.resourceType,
           role: invalidResource.role,
         },
@@ -168,10 +168,11 @@ export function validateAndRegisterProducedResources(input: {
     };
   }
 
-  const producedResources = declaredResources.map((resource) => {
+  const producedResources = declaredResources.map((resource, index) => {
     const registered = input.resourceStore.register({
       ...resource,
       sourceToolResultId: input.result.toolResultId,
+      resourceOrdinal: index,
     });
     return toResourceRef(registered);
   });

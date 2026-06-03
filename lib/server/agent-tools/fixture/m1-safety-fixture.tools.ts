@@ -9,14 +9,12 @@ export const M1_FIXTURE_DIAGNOSTIC_TYPE = "fixture_diagnostic";
 export const M1_FIXTURE_SCHEMA_VERSION = "m1-fixture@v1";
 
 const resourceProducerInputSchema = z.object({
-  resourceId: z.string().min(1),
   title: z.string().min(1),
   body: z.string().min(1),
   includeSecret: z.boolean().optional(),
 }).strict();
 
 const resourceProducerOutputSchema = z.object({
-  resourceId: z.string(),
   title: z.string(),
   body: z.string(),
   secretInternalValue: z.string().optional(),
@@ -43,14 +41,12 @@ export const resourceProducerFixtureTool = defineTool({
     ],
   },
   handler: (input: z.infer<typeof resourceProducerInputSchema>) => ({
-    resourceId: input.resourceId,
     title: input.title,
     body: input.body,
     secretInternalValue: input.includeSecret ? "server-only-secret" : undefined,
   }),
   toResources: (output: z.infer<typeof resourceProducerOutputSchema>) => [
     {
-      resourceId: output.resourceId,
       resourceType: M1_FIXTURE_RESOURCE_TYPE,
       role: "consumable",
       schemaVersion: M1_FIXTURE_SCHEMA_VERSION,
@@ -61,7 +57,6 @@ export const resourceProducerFixtureTool = defineTool({
     },
   ],
   toModelObservation: (output: z.infer<typeof resourceProducerOutputSchema>) => ({
-    resourceId: output.resourceId,
     title: output.title,
   }),
   toUserProjection: (output: z.infer<typeof resourceProducerOutputSchema>) => ({
@@ -172,13 +167,11 @@ export const confirmationWriteFixtureTool = defineTool({
 });
 
 const diagnosticFailureInputSchema = z.object({
-  evidenceId: z.string().min(1),
   code: z.string().min(1),
   message: z.string().min(1),
 }).strict();
 
 const diagnosticFailureOutputSchema = z.object({
-  evidenceId: z.string(),
   code: z.string(),
   message: z.string(),
 }).strict();
@@ -210,7 +203,6 @@ export const diagnosticFailureFixtureTool = defineTool({
   }),
   toResources: (output: z.infer<typeof diagnosticFailureOutputSchema>) => [
     {
-      resourceId: output.evidenceId,
       resourceType: M1_FIXTURE_DIAGNOSTIC_TYPE,
       role: "diagnostic",
       schemaVersion: M1_FIXTURE_SCHEMA_VERSION,
@@ -221,7 +213,6 @@ export const diagnosticFailureFixtureTool = defineTool({
     },
   ],
   toModelObservation: (output: z.infer<typeof diagnosticFailureOutputSchema>) => ({
-    evidenceId: output.evidenceId,
     code: output.code,
     message: output.message,
   }),

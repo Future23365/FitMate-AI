@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { defineTool } from "@/lib/server/agent-core/define-tool";
 import { executeTool } from "@/lib/server/agent-core/executor";
 import { validateAndRegisterProducedResources, validateConsumedResources } from "@/lib/server/agent-core/resource-contract";
-import { ResourceStore, toResourceRef } from "@/lib/server/agent-core/resource-store";
+import { createResourceId, ResourceStore, toResourceRef } from "@/lib/server/agent-core/resource-store";
 import { AGENT_ERROR_CODES, AgentContractError } from "@/lib/server/agent-core/errors";
 
 const fixtureResource = {
@@ -24,7 +24,12 @@ function createRun(runId = "run-resource") {
   };
 }
 
-function createProducerTool(options: { producedType?: string; producedRole?: "consumable" | "diagnostic"; omitResources?: boolean } = {}) {
+function createProducerTool(options: {
+  producedType?: string;
+  producedRole?: "consumable" | "diagnostic";
+  omitResources?: boolean;
+  producedResourceId?: string;
+} = {}) {
   return defineTool({
     name: "resourceProducerForTest",
     version: "0.1.0",
@@ -45,10 +50,10 @@ function createProducerTool(options: { producedType?: string; producedRole?: "co
     },
     handler: (input: { id: string }) => input,
     toResources: options.omitResources
-      ? undefined
+        ? undefined
       : (output: { id: string }) => [
           {
-            resourceId: output.id,
+            resourceId: options.producedResourceId,
             resourceType: options.producedType ?? "fixture_document",
             role: options.producedRole ?? "consumable",
             schemaVersion: "fixture@v1",
@@ -94,6 +99,42 @@ describe("agent-core ResourceStore", () => {
         summary: { title: "Fixture" },
       },
     ]);
+  });
+
+  it("generates resource ids when omitted and rejects duplicate ids in one run", () => {
+    const store = new ResourceStore("run-resource");
+    const registered = store.register({
+      resourceType: "fixture_document",
+      role: "consumable",
+      schemaVersion: "fixture@v1",
+      summary: { title: "Generated" },
+      sourceToolResultId: "tr_generated",
+    });
+
+    expect(registered.resourceId).toBe(createResourceId({
+      runId: "run-resource",
+      sourceToolResultId: "tr_generated",
+      resourceType: "fixture_document",
+      role: "consumable",
+      schemaVersion: "fixture@v1",
+    }));
+    expect(() => store.register({
+      ...fixtureResource,
+      sourceToolResultId: "tr_duplicate",
+    })).not.toThrow();
+    expect(() => store.register({
+      ...fixtureResource,
+      sourceToolResultId: "tr_duplicate_2",
+    })).toThrow(AgentContractError);
+    try {
+      store.register({
+        ...fixtureResource,
+        sourceToolResultId: "tr_duplicate_3",
+      });
+      throw new Error("duplicate resource id should fail");
+    } catch (error) {
+      expect(error).toMatchObject({ code: AGENT_ERROR_CODES.RESOURCE_CONTRACT_VIOLATION });
+    }
   });
 
   it("rejects missing, cross-run and diagnostic resources as consumable inputs", () => {
@@ -202,7 +243,14 @@ describe("agent-core Resource Contract Validator", () => {
         toolCallId: "tc_1",
       },
     })).toMatchObject({ ok: true });
-    expect(store.get({ resourceId: "doc-1" })).toMatchObject({ role: "consumable" });
+    const generatedResourceId = createResourceId({
+      runId: "run-resource",
+      sourceToolResultId: result.toolResultId,
+      resourceType: "fixture_document",
+      role: "consumable",
+      schemaVersion: "fixture@v1",
+    });
+    expect(store.get({ resourceId: generatedResourceId })).toMatchObject({ role: "consumable" });
 
     const invalidProducer = createProducerTool({ producedType: "unexpected_type" });
     const invalidResult = await executeTool({
