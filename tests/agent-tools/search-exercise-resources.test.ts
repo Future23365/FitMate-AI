@@ -231,7 +231,7 @@ describe("searchExerciseResources tool", () => {
     expect(repository.searchExerciseResourceSummaries).not.toHaveBeenCalled();
   });
 
-  it("reports candidate shortage after exclusions without refilling excluded exercises", async () => {
+  it("reports zero results after exclusions as completed facts without refilling excluded exercises", async () => {
     const { tool } = await importToolWithRepositoryResult(createSearchResult({
       query: {
         bodyRegions: ["lower_body"],
@@ -271,11 +271,13 @@ describe("searchExerciseResources tool", () => {
         exercises: [],
       },
       fulfillment: {
-        satisfied: false,
-        summary: "查询已执行，但排除用户已看到动作后没有更多满足当前筛选条件的发布态动作。",
+        satisfied: true,
+        summary: "查询已执行，排除用户已看到动作后当前发布态动作库没有更多匹配结果。",
       },
     });
     expect(JSON.stringify(result)).not.toContain("\"id\":\"squat\"");
+    expect(JSON.stringify(result)).not.toContain("candidateSetId");
+    expect(JSON.stringify(result)).not.toContain("candidate_set");
   });
 
   it("rejects unpublished, unknown, pagination and consumption-side fields before the handler runs", async () => {
@@ -290,6 +292,10 @@ describe("searchExerciseResources tool", () => {
       { offset: 20 },
       { pageSize: 20 },
       { candidateUse: "routine" },
+      { purpose: "existence_check" },
+      { queryIntent: "recommendation" },
+      { existenceCheck: true },
+      { recommendationMode: "list" },
       { resultRequirements: { minCandidates: 3 } },
       { sort: "semantic_desc" },
       { suitability: "cooldown" },
@@ -327,8 +333,12 @@ describe("searchExerciseResources tool", () => {
     expect(manifestJson).toContain("body only/自重");
     expect(manifestJson).toContain("dumbbell/哑铃");
     expect(manifestJson).toContain("beginner/初级");
+    expect(manifestJson).toContain("totalMatches=0");
+    expect(manifestJson).toContain("0 条事实查询结果");
     expect(manifestJson).not.toContain("home_friendly");
     expect(manifestJson).not.toContain("no_equipment");
+    expect(manifestJson).not.toContain("existence_check");
+    expect(manifestJson).not.toContain("recommendationMode");
     expect(manifest.examples).toEqual(expect.arrayContaining([
       expect.objectContaining({
         input: expect.objectContaining({
@@ -338,7 +348,7 @@ describe("searchExerciseResources tool", () => {
     ]));
   });
 
-  it("normalizes empty results, handler exceptions and invalid outputs at the tool boundary", async () => {
+  it("normalizes zero-match facts, handler exceptions and invalid outputs at the tool boundary", async () => {
     const empty = await importToolWithRepositoryResult(createSearchResult({
       query: { q: "不存在动作", published: true, sort: "name_asc" },
       appliedFilters: [
@@ -367,7 +377,10 @@ describe("searchExerciseResources tool", () => {
         },
         exercises: [],
       },
-      fulfillment: { satisfied: false },
+      fulfillment: {
+        satisfied: true,
+        summary: "查询已执行，当前发布态动作库没有匹配结果。",
+      },
     });
 
     const unknownMuscle = await importToolWithRepositoryResult(createSearchResult({
@@ -399,15 +412,15 @@ describe("searchExerciseResources tool", () => {
         },
       },
       fulfillment: {
-        satisfied: false,
-        summary: "查询已执行，但没有满足当前筛选条件的发布态动作。",
+        satisfied: true,
+        summary: "查询已执行，当前发布态动作库没有匹配结果。",
       },
     });
     expect(createToolObservation(unknownMuscleResult)).toMatchObject({
-      ok: false,
+      ok: true,
       content: expect.objectContaining({
         totalMatches: 0,
-        fulfillment: expect.objectContaining({ satisfied: false }),
+        fulfillment: expect.objectContaining({ satisfied: true }),
       }),
     });
 
@@ -492,6 +505,7 @@ describe("searchExerciseResources tool", () => {
         truncated: false,
         outputSummaryNote: expect.stringContaining("不是下一轮 searchExerciseResources input"),
         finalAnswerGrounding: expect.stringContaining("final_answer.usedToolResultIds"),
+        candidateConsumptionBoundary: expect.stringContaining("不是 routine"),
       }),
     });
     expect(events[0]).toMatchObject({
@@ -511,8 +525,8 @@ describe("searchExerciseResources tool", () => {
     expect(surfaces).not.toContain("instructionsZh");
     expect(surfaces).not.toContain("candidateSetId");
     expect(surfaces).not.toContain("candidate_set");
-    expect(surfaces).not.toContain("routine");
-    expect(surfaces).not.toContain("plan");
+    expect(userProjectionEventJson).not.toContain("routine");
+    expect(userProjectionEventJson).not.toContain("plan");
   });
 
   it("runs inside Agent runtime and grounds final answers through usedToolResultIds", async () => {
@@ -575,6 +589,70 @@ describe("searchExerciseResources tool", () => {
     ]);
   });
 
+  it("grounds zero-match facts through usedToolResultIds without treating them as candidate resources", async () => {
+    const toolInput = { q: "铅球" };
+    const expectedToolResultId = createToolResultId(
+      "run-zero-match",
+      "searchExerciseResources",
+      hashNormalizedInput(toolInput),
+    );
+    const { tool } = await importToolWithRepositoryResult(createSearchResult({
+      query: { q: "铅球", published: true, sort: "name_asc" },
+      appliedFilters: [
+        { field: "q", value: "铅球" },
+        { field: "published", value: true },
+      ],
+      totalMatches: 0,
+      returnedCount: 0,
+      exercises: [],
+    }));
+    const registry = new ToolRegistry();
+    registry.register(tool);
+    const planner = new ReplayPlanner([
+      { type: "tool_call", toolName: "searchExerciseResources", input: toolInput },
+      { type: "final_answer", content: "当前发布态动作库没有找到铅球相关动作。", usedToolResultIds: [expectedToolResultId] },
+    ]);
+
+    const result = await runAgentRuntime({
+      registry,
+      planner,
+      run: {
+        runId: "run-zero-match",
+        actor: { userId: "user-1" },
+        userInput: "有没有铅球动作",
+        limits: { maxToolCalls: 1, maxPlannerCalls: 3, maxSteps: 3 },
+      },
+    });
+    const serializedResult = JSON.stringify(result);
+
+    expect(result).toMatchObject({
+      status: "completed",
+      terminalAction: {
+        type: "final_answer",
+        usedToolResultIds: [expectedToolResultId],
+      },
+      toolResults: [
+        expect.objectContaining({
+          toolResultId: expectedToolResultId,
+          ok: true,
+          fulfillment: expect.objectContaining({
+            satisfied: true,
+            summary: "查询已执行，当前发布态动作库没有匹配结果。",
+          }),
+          output: expect.objectContaining({
+            query: expect.objectContaining({
+              totalMatches: 0,
+              returnedCount: 0,
+            }),
+            exercises: [],
+          }),
+        }),
+      ],
+    });
+    expect(serializedResult).not.toContain("candidateSetId");
+    expect(serializedResult).not.toContain("candidate_set");
+  });
+
   it("records duplicate tool calls with the same normalized input in trace and replay summaries", async () => {
     const toolInput = { muscle: "核心", suitability: "training" };
     const expectedInputHash = hashNormalizedInput(toolInput);
@@ -617,7 +695,7 @@ describe("searchExerciseResources tool", () => {
       expect.objectContaining({
         type: "duplicate_tool_call",
         toolName: "searchExerciseResources",
-        toolVersion: "0.3.0",
+        toolVersion: "0.3.1",
         normalizedInputHash: expectedInputHash,
         previousCount: 1,
       }),

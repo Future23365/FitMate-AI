@@ -685,6 +685,89 @@ describe("chat service agent text flow boundary", () => {
     });
   });
 
+  it("settles a zero-match exercise search final answer through usedToolResultIds", async () => {
+    const searchInput = {
+      q: "铅球",
+      published: true,
+      sort: "name_asc",
+    };
+    const expectedToolResultId = createToolResultId(
+      "chat_assistant-shot-put",
+      "searchExerciseResources",
+      hashNormalizedInput(searchInput),
+    );
+    exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockResolvedValueOnce(createExerciseResourceSearchResult({
+      query: {
+        q: "铅球",
+        published: true,
+        sort: "name_asc",
+      },
+      appliedFilters: [
+        { field: "q", value: "铅球" },
+        { field: "published", value: true },
+      ],
+      totalMatches: 0,
+      returnedCount: 0,
+      exercises: [],
+    }));
+    const prepared = prepareChatRequest({
+      responseMessageId: "assistant-shot-put",
+      latestUserMessage: "有没有铅球动作",
+      conversationSummary: "",
+    });
+    const planner = new ReplayPlanner([
+      { type: "tool_call", toolName: "searchExerciseResources", input: searchInput },
+      { type: "final_answer", content: "当前发布态动作库没有找到铅球相关动作。", usedToolResultIds: [expectedToolResultId] },
+    ]);
+
+    const response = await createAgentTextChatResponse({
+      request: prepared,
+      currentUser: { id: "user-1" },
+      planner,
+    });
+    const events = await readNdjsonEvents(response);
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "tool_result",
+        toolName: "searchExerciseResources",
+        toolResultId: expectedToolResultId,
+        content: expect.objectContaining({
+          totalMatches: 0,
+          returnedCount: 0,
+          exercises: [],
+        }),
+      }),
+      { type: "content", content: "当前发布态动作库没有找到铅球相关动作。" },
+      { type: "done" },
+    ]);
+    expect(listAiTracesForUser("user-1")[0]).toMatchObject({
+      status: "success",
+      finalDecision: {
+        status: "success",
+        reason: "completed",
+        responseType: "final_answer",
+      },
+      steps: expect.arrayContaining([
+        expect.objectContaining({
+          name: "Tool 执行",
+          output: expect.objectContaining({
+            toolName: "searchExerciseResources",
+            toolResultId: expectedToolResultId,
+            ok: true,
+            satisfied: true,
+            fulfillment: expect.objectContaining({
+              summary: "查询已执行，当前发布态动作库没有匹配结果。",
+            }),
+          }),
+        }),
+      ]),
+    });
+    expect(JSON.stringify(events)).not.toContain("candidateSetId");
+    expect(JSON.stringify(events)).not.toContain("candidate_set");
+    expect(JSON.stringify(events)).not.toContain("repair_limit_exceeded");
+  });
+
   it("explains shortage when no more exercises remain after excluding displayed ids", async () => {
     const readInput = { factRef: "fact-previous" };
     const searchInput = {
@@ -693,6 +776,11 @@ describe("chat service agent text flow boundary", () => {
       excludeExerciseIds: ["squat", "lunge"],
       sort: "name_asc",
     };
+    const expectedSearchToolResultId = createToolResultId(
+      "chat_assistant-shortage",
+      "searchExerciseResources",
+      hashNormalizedInput(searchInput),
+    );
     exerciseRecommendationFactStoreMocks.listRecentExerciseRecommendationFactSummaries.mockResolvedValueOnce([
       createRecentExerciseFactSummary(),
     ]);
@@ -728,7 +816,7 @@ describe("chat service agent text flow boundary", () => {
     const planner = new ReplayPlanner([
       { type: "tool_call", toolName: "readRecentExerciseRecommendationFact", input: readInput },
       { type: "tool_call", toolName: "searchExerciseResources", input: searchInput },
-      { type: "final_answer", content: "当前条件下没有更多未重复的腿部训练动作了，可以放宽器械或训练阶段再找。" },
+      { type: "final_answer", content: "当前条件下没有更多未重复的腿部训练动作了，可以放宽器械或训练阶段再找。", usedToolResultIds: [expectedSearchToolResultId] },
     ]);
 
     const response = await createAgentTextChatResponse({
@@ -740,6 +828,17 @@ describe("chat service agent text flow boundary", () => {
 
     expect(events).toEqual([
       expect.objectContaining({ type: "tool_result", toolName: "readRecentExerciseRecommendationFact" }),
+      expect.objectContaining({
+        type: "tool_result",
+        toolName: "searchExerciseResources",
+        toolResultId: expectedSearchToolResultId,
+        content: expect.objectContaining({
+          totalMatches: 0,
+          returnedCount: 0,
+          excludedCount: 2,
+          exercises: [],
+        }),
+      }),
       { type: "content", content: "当前条件下没有更多未重复的腿部训练动作了，可以放宽器械或训练阶段再找。" },
       { type: "done" },
     ]);

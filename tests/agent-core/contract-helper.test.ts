@@ -97,6 +97,8 @@ describe("agent-core contract test helper", () => {
       expect(examplesJson).not.toContain(field);
       expect(modelObservationJson).not.toContain(field);
     }
+    expect(modelObservationJson).toContain("totalMatches=0");
+    expect(modelObservationJson).toContain("不是 routine");
   });
 
   it("catches missing projection and unsafe examples", () => {

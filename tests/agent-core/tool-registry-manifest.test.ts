@@ -239,6 +239,8 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(inputSchema.properties.sort.default).toBe("name_asc");
     expect(inputSchema.additionalProperties).toBe(false);
     expect(manifestJson).toContain("usedToolResultIds");
+    expect(manifestJson).toContain("totalMatches=0");
+    expect(manifestJson).toContain("0 条事实查询结果");
     expect(manifestJson).toContain("published");
     expect(manifestJson).toContain("excludeExerciseIds");
     expect(manifestJson).toContain("bodyRegions");

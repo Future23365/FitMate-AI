@@ -126,18 +126,19 @@ type SearchExerciseResourcesOutput = z.infer<typeof searchExerciseResourcesOutpu
 /** searchExerciseResourcesTool 是生产聊天可用的只读动作库事实查询能力，不产出训练候选资源。 */
 export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInput, SearchExerciseResourcesOutput>({
   name: "searchExerciseResources",
-  version: "0.3.0",
-  description: "按结构化筛选条件查询发布态动作库，并返回可用于普通文本回答的安全动作摘要。input 只接受筛选字段和受控排除字段；maxReturned、returnedCount、totalMatches、truncated 等只属于 output summary，不是可传入 input。",
+  version: "0.3.1",
+  description: "按结构化筛选条件查询发布态动作库，并返回可用于普通文本回答的安全动作摘要；totalMatches=0 也是已完成的事实查询结果，不是数据库失败。input 只接受筛选字段和受控排除字段；maxReturned、returnedCount、totalMatches、truncated 等只属于 output summary，不是可传入 input。",
   whenToUse: [
     "当用户需要一组符合明确结构化事实的发布态动作时使用，例如 bodyRegions、真实肌群 facet、器械、难度、居家条件、目标标签、风险标签、分类，或 warmup/training/stretch 适配阶段。",
     "宽泛身体区域必须使用 bodyRegions：上肢用 upper_body，腿部或下肢用 lower_body，核心用 core，全身用 full_body。",
     "当 Planner 判断需要排除用户已经看到的动作，且当前 run 有已 read/import 的用户可见动作事实时，把 displayedExerciseIds 作为 excludeExerciseIds。",
     "excludeExerciseIds 只能填写用户已经看到或明确要求排除的动作；不要从未展示的内部候选中填充。",
     `精确筛选必须使用真实 facet 值。${levelFacetDescription} ${equipmentFacetDescription} ${homeRequirementFacetDescription}`,
-    "成功且 satisfied=true 的结果，可以在同一 run 通过 final_answer.usedToolResultIds 支撑最终回答；需要新结果时必须改变合法 input，例如使用 excludeExerciseIds 或调整筛选字段。",
+    "查询成功且 satisfied=true 的结果，包括 totalMatches=0 的结果，可以在同一 run 通过 final_answer.usedToolResultIds 支撑普通事实回答；需要新结果时必须改变合法 input，例如使用 excludeExerciseIds 或调整筛选字段。",
   ].join(" "),
   whenNotToUse: [
     "不要用它生成 routine、plan、patch、训练卡片、保存 artifact、用户记忆或执行候选集合。",
+    "不要把 0 条事实查询结果当作 routine、plan、训练卡片或推荐候选集合的消费证据；需要候选的下游能力必须自行校验候选数量和适用性。",
     "不要用它查询未发布动作、单个动作详情、唯一动作名解析、全库 facet 统计、分页或语义向量检索。",
     "不要传入 maxReturned、returnedCount、totalMatches、truncated、limit、take、offset、page 或 pageSize；这些不是 input 字段。",
     "不要从 handler-only 结果、model observation、diagnostic 候选，或没有 read/import 为当前 run fact 的自然语言历史中提取 excludeExerciseIds。",
@@ -232,10 +233,10 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
   toFulfillment: (output) => {
     if (output.query.totalMatches === 0) {
       return {
-        satisfied: false,
+        satisfied: true,
         summary: output.query.excludedCount > 0
-          ? "查询已执行，但排除用户已看到动作后没有更多满足当前筛选条件的发布态动作。"
-          : "查询已执行，但没有满足当前筛选条件的发布态动作。",
+          ? "查询已执行，排除用户已看到动作后当前发布态动作库没有更多匹配结果。"
+          : "查询已执行，当前发布态动作库没有匹配结果。",
       };
     }
 
@@ -251,7 +252,8 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
     truncated: output.query.truncated,
     excludedCount: output.query.excludedCount,
     outputSummaryNote: "totalMatches、returnedCount、truncated 和 excludedCount 是本次查询输出摘要，不是下一轮 searchExerciseResources input。",
-    finalAnswerGrounding: "如果 fulfillment.satisfied=true，可以引用当前 observation 的 toolResultId 填入 final_answer.usedToolResultIds；不要为了取得同一事实重复同参调用。",
+    finalAnswerGrounding: "本次查询事实（包括 totalMatches=0）如果 fulfillment.satisfied=true，可以引用当前 observation 的 toolResultId 填入 final_answer.usedToolResultIds；不要为了取得同一事实重复同参调用。",
+    candidateConsumptionBoundary: "该 observation 不是 routine、plan、训练卡片或候选消费资源；需要动作候选的下游能力必须自行校验 exercises 数量和适用性。",
     bodyRegions: output.query.bodyRegions ?? [],
     expandedMuscles: output.query.expandedMuscles,
     appliedFilters: output.query.appliedFilters,
