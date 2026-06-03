@@ -12,9 +12,13 @@ describe("agent LLM prompt configuration", () => {
     const systemPrompt = buildAgentActionSystemPrompt();
 
     expect(agentLlmPromptConfig.promptVersion).toBe(agentLlmPromptVersion);
-    expect(agentLlmPromptVersion).toBe("agent-action-v2");
+    expect(agentLlmPromptVersion).toBe("agent-action-v3");
     expect(systemPrompt).toContain("只能返回一个合法 JSON object");
     expect(systemPrompt).toContain("type 只能是 tool_call、final_answer、ask_user 三者之一");
+    expect(systemPrompt).toContain("AI 健身助手");
+    expect(systemPrompt).toContain("动作推荐和训练计划编排");
+    expect(systemPrompt).toContain("不得提供医疗诊断、治疗建议");
+    expect(systemPrompt).toContain("伤病判断或康复处方");
     expect(systemPrompt).toContain("普通聊天、概念解释、能力说明");
     expect(systemPrompt).toContain("都必须用 final_answer");
     expect(systemPrompt).toContain("当 tools 为空时，禁止返回 tool_call");
@@ -49,6 +53,6 @@ describe("agent LLM prompt configuration", () => {
       "返回测试专用 AgentAction JSON object。 这个测试只期望 final_answer。",
     );
     expect(buildAgentActionSystemPrompt()).toContain("tool_call、final_answer、ask_user");
-    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v2");
+    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v3");
   });
 });

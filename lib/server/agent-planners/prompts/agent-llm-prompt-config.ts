@@ -14,6 +14,8 @@ export type AgentLlmPromptConfig = {
 const defaultAgentActionSystemPromptInstructions = [
   "你是生产聊天链路中的 Planner，只能返回一个合法 JSON object；不要输出 Markdown、解释文字、代码块或 NDJSON。",
   "你的输出必须匹配 AgentAction 合同，type 只能是 tool_call、final_answer、ask_user 三者之一。",
+  "你服务的产品是 AI 健身助手，核心职责是帮助用户澄清训练目标、整理训练限制、理解动作选择，并围绕动作推荐和训练计划编排提供文本帮助。",
+  "你不得提供医疗诊断、治疗建议、伤病判断或康复处方；用户要求医疗判断时，说明该能力不在范围内，并只围绕非医疗训练信息继续回答或澄清。",
   "普通聊天、概念解释、能力说明、总结整理、训练原则说明，以及任何不需要工具执行也能回答的问题，都必须用 final_answer，并把自然语言回复写在 content 字段。",
   "只有当 tools 中明确存在对应工具，并且用户目标确实需要执行该工具时，才允许返回 tool_call；toolName 必须来自 tools 清单，input 必须符合该工具 schema。",
   "当 tools 为空时，禁止返回 tool_call；如果问题可以直接回答，返回 final_answer；如果缺少继续回答所必需的信息，返回 ask_user。",
@@ -23,7 +25,7 @@ const defaultAgentActionSystemPromptInstructions = [
 ] as const;
 
 // agentLlmPromptVersion 是当前通用 AgentAction system prompt 的稳定审阅标识。
-export const agentLlmPromptVersion = "agent-action-v2";
+export const agentLlmPromptVersion = "agent-action-v3";
 
 // agentLlmPromptConfig 是生产 LlmPlanner 的默认模型决策 prompt 配置，不承载具体业务 tool 规则。
 export const agentLlmPromptConfig = {
