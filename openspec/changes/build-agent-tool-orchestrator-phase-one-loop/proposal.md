@@ -1,13 +1,17 @@
 ## Why
 
-当前旧 Agent 核心层已经计划 delete-only 清理，项目需要按 `docs/agent-tool-orchestrator-design.md` 重建一套干净的通用 Agent Tool 编排器。第一阶段必须一次性完成完整编排闭环，但不提前实现任何业务 tool；目标是保证后续只要新增并注册 tool bundle，就能支撑业务扩展。
+当前旧 Agent 核心层已经 delete-only 清理完成，项目需要按 `docs/agent-tool-orchestrator-design.md` 重建一套干净的通用 Agent Tool 编排器。第一阶段必须一次性完成完整编排闭环，但不提前实现任何业务 tool；目标是保证后续只要新增并注册 tool bundle，就能支撑业务扩展。没有业务 tool 时，用户仍应能通过 `/api/chat` 正常和 LLM 聊天，但模型不能调用训练生成、动作查询、保存或其他尚未注册的功能。
 
 ## What Changes
 
 - **BREAKING** 新建通用 Agent Tool 编排器核心，不继承旧 `AgentOrchestrator`、旧 `AgentExecutionResult`、旧 tool 外壳、旧 response writer 或旧兼容事件。
-- **BREAKING** 如果旧代码残留、旧 OpenSpec change 或旧测试夹具与新设计冲突，实现阶段必须无条件忽略旧实现，以 `docs/agent-tool-orchestrator-design.md` 和本 change 为准。
+- **BREAKING** 新 core 只以 `docs/agent-tool-orchestrator-design.md` 和本 change 为准，不为旧 Agent core 增加兼容层、回退路径或旧事件适配。
 - 第一阶段完整实现通用闭环能力：`defineTool`、`ToolRegistry`、tool manifest 序列化、input/output schema 校验、resource contract 校验、Planner 输出 `AgentAction`、多轮 tool call、`maxSteps` / timeout 防死循环、`consumable` / `diagnostic` 资源角色、Policy Guard、confirmation action hash、Response Adapter、trace / replay fixture、`/api/chat` NDJSON 接入。
 - 第一阶段不实现具体业务 tool；只提供通用 tool bundle 定义、注册机制和无业务 fixture tools，用于证明注册、调用、资源生产/消费、确认、失败收口、response projection 和 replay 都能端到端运行。
+- `/api/chat` 在生产 registry 没有业务 tool 时仍必须正常调用 LLM，并允许 Planner 以 `final_answer` 或 `ask_user` 收口；此时不得伪造 tool result、训练卡片、artifact、保存结果或功能执行事件。
+- 无业务 fixture tools 只能用于测试、replay 或显式 test harness，不得注册进生产 `/api/chat` 默认 registry。
+- 新增 Planner Provider 和 `AgentRunInput` / `ContextPackage` 合同：模型调用、structured output、repair feedback、replay planner、模型可见上下文摘要和 trace 摘要必须由新 core 自己定义，不复活旧 AI provider 或旧 Prompt module。
+- Response Adapter 必须对 tool bundle adapter 输出的 NDJSON event 做统一 schema 校验、resource provenance 校验和 `consumable` / `diagnostic` 角色校验，防止 adapter 绕过 resource contract。
 - 新增扩展验收：新增 tool 时不得修改 orchestrator 主循环、Planner 循环、Executor、Policy Guard、Resource Contract Validator、Response Adapter 主流程或 `/api/chat` 接入层；扩展只能通过新增 tool manifest、schema、handler、resource contract、policy metadata、trace projection 和 response adapter 完成。
 
 ## Capabilities
@@ -22,6 +26,6 @@
 
 - 影响代码范围：新增或重建 `lib/server/agent-core/**`、`lib/server/agent-tools/index.ts`、`lib/server/chat/chat-service.ts` 的新 core 接入、`app/api/chat/route.ts` 的 NDJSON 边界，以及相关 trace/replay 测试。
 - 影响工具范围：第一阶段只实现通用 tool 定义、registry、manifest、contract、adapter 和测试 fixture；不提前实现业务 tool。
-- 影响 AI 契约：新增 Planner `AgentAction` structured output、tool manifest 输入、observation 压缩、final answer / ask user / confirmation 终止结构。
+- 影响 AI 契约：新增 Planner `AgentAction` structured output、tool manifest 输入、`AgentRunInput` / `ContextPackage`、observation 压缩、repair feedback、final answer / ask user / confirmation 终止结构。
 - 影响测试范围：新增架构级扩展测试、多轮 tool call 测试、schema/resource/policy 校验测试、`/api/chat` NDJSON 集成测试和 replay fixture。
 - 不影响数据库 schema；业务服务不作为本 change 的实现范围。

@@ -21,10 +21,10 @@
 - **THEN** orchestrator runtime、planner loop、executor、policy guard、resource contract validator、Response Adapter 主流程和 `/api/chat` 接入层 MUST 不需要新增业务分支
 - **AND** 新 tool MUST 能通过 manifest 暴露给 Planner
 
-#### Scenario: 旧实现残留冲突
-- **WHEN** 旧 Agent core、旧 open change 或旧测试夹具与新 core 行为冲突
-- **THEN** 实现 MUST 以 `docs/agent-tool-orchestrator-design.md` 和本 capability 为准
-- **AND** 生产路径 MUST NOT 为旧实现增加兼容层
+#### Scenario: 新 runtime 使用独立命名
+- **WHEN** 新 core 对外暴露运行时入口
+- **THEN** 入口 MUST 使用新名称，例如 `runAgentToolOrchestrator`
+- **AND** 实现 MUST NOT 复用旧 `runAgentOrchestrator` 名称作为新运行时入口
 
 ### Requirement: Tool 必须通过 defineTool 声明完整 bundle
 系统 SHALL 提供 `defineTool()`，用于声明单一职责 tool bundle。每个 tool bundle MUST 包含 manifest、input schema、output schema、resource contract、policy metadata、handler、trace projection 和 response adapter。
@@ -48,6 +48,12 @@
 - **AND** manifest MUST 包含 tool name、description、input schema 摘要、output 摘要、resource contract、risk metadata 和 examples
 - **AND** manifest MUST NOT 包含 handler、数据库对象、完整 payload 或用户敏感原始数据
 
+#### Scenario: 生产 registry 没有业务工具
+- **WHEN** 第一阶段生产 `/api/chat` 尚未注册任何业务 tool
+- **THEN** registry MUST 返回空的生产 manifest 列表
+- **AND** runtime MUST 仍允许 Planner 输出无需 tool 的 `final_answer` 或 `ask_user`
+- **AND** 生产 registry MUST NOT 包含无业务 fixture tools
+
 #### Scenario: 重复注册 tool
 - **WHEN** 两个 tool 使用相同 `name` 注册
 - **THEN** registry MUST 拒绝重复注册
@@ -55,6 +61,17 @@
 
 ### Requirement: Planner 必须输出结构化 AgentAction
 系统 SHALL 通过模型 structured output 获取 `AgentAction`。`AgentAction` MUST 支持 `tool_call`、`final_answer`、`ask_user` 和 `request_confirmation`。
+
+#### Scenario: Planner Provider 调用真实模型
+- **WHEN** runtime 需要下一步 action
+- **THEN** Planner Provider MUST 使用新 core 定义的 `AgentRunInput`、`ContextPackage`、tool manifest 和 observations 构造模型输入
+- **AND** Planner Provider MUST 通过 structured output 解析 `AgentAction`
+- **AND** trace MUST 记录模型调用摘要、usage、解析结果和 repair feedback
+
+#### Scenario: Replay planner 不调用真实模型
+- **WHEN** 测试使用 replay planner 提供固定 action 序列
+- **THEN** runtime MUST 使用该 action 序列推进 tool loop、policy、resource validation 和 response adapter
+- **AND** replay MUST NOT 调用真实模型
 
 #### Scenario: Planner 请求调用 tool
 - **WHEN** Planner 输出 `tool_call`
@@ -65,6 +82,12 @@
 - **WHEN** Planner 输出未知 tool、非法 input、非法 terminal action 或引用不可消费资源
 - **THEN** runtime MUST 进入结构化 repair、ask_user 或 failed 结果
 - **AND** 服务端 MUST NOT 根据用户原文把 action 改写成另一种业务语义
+
+#### Scenario: Planner 无需调用工具即可回答
+- **WHEN** 当前请求是普通聊天或生产 registry 没有业务 tool
+- **THEN** Planner MAY 输出不引用 tool result 的 `final_answer` 或 `ask_user`
+- **AND** runtime MUST 将其视为合法 terminal action
+- **AND** Response Adapter MUST NOT 为该结果编造 tool-backed 事件、artifact、训练卡片或保存结果
 
 ### Requirement: Runtime 必须支持多轮 tool call 和防循环边界
 系统 SHALL 提供通用 Agent runtime，循环执行 Planner action、tool execution、observation 和终止收口。Runtime MUST 支持 `maxSteps`、overall timeout、per-tool timeout 和重复失败熔断。
@@ -112,6 +135,11 @@
 - **AND** runtime MUST 生成 `request_confirmation` action 或等价确认事件
 - **AND** confirmation action hash MUST 由服务端根据稳定 action payload、userId、conversationId、toolName、resource refs 和过期时间生成
 
+#### Scenario: LLM 不能伪造确认 hash
+- **WHEN** Planner 输出包含 `actionHash` 的确认相关 action
+- **THEN** runtime MUST NOT 信任该 hash 作为有效确认
+- **AND** 有效 confirmation hash MUST 只能由 Policy Guard 或 runtime 根据服务端稳定 payload 生成和校验
+
 ### Requirement: Response Adapter 必须只投影真实执行结果
 系统 SHALL 提供通用 Response Adapter，将 terminal action、tool results 和 registered tool response adapters 转成 `/api/chat` NDJSON 事件。Response Adapter MUST NOT 编造 tool 未产生的用户可见结果。
 
@@ -119,6 +147,12 @@
 - **WHEN** terminal action 引用当前 run 的 tool results
 - **THEN** Response Adapter MUST 从已登记 tool results 和对应 tool response adapter 生成 `content`、`tool_result`、`assistant_suggestions`、`confirmation_request`、`error` 或 `done` 事件
 - **AND** Response Adapter MUST 校验被引用资源存在且角色允许投影
+
+#### Scenario: tool adapter 输出事件需要二次校验
+- **WHEN** tool bundle 的 response adapter 返回 NDJSON events
+- **THEN** 通用 Response Adapter MUST 校验每个 event 符合 `AgentStreamEvent` schema
+- **AND** 通用 Response Adapter MUST 校验 event 引用的 toolResultId、resource refs、resource role 和当前 run 归属
+- **AND** 不满足校验的 event MUST 被拒绝或降级为结构化错误
 
 #### Scenario: final answer 引用不存在资源
 - **WHEN** terminal action 引用不存在、跨 run 或 diagnostic-only 的资源作为成功结果
@@ -134,9 +168,10 @@
 - **AND** stream MUST 输出新 Response Adapter 生成的 NDJSON 事件
 - **AND** stream MUST 以 `done` 或结构化错误事件收口
 
-#### Scenario: 旧 core 导入扫描
-- **WHEN** 架构测试扫描 `/api/chat`、聊天服务和 stream response 生产路径
-- **THEN** 测试 MUST 证明这些路径不导入旧 `runAgentOrchestrator()`、旧 `AgentExecutionResult`、旧 response writer、旧 intent-first 或旧 readonly loop
+#### Scenario: 无业务 tool 时正常聊天
+- **WHEN** 生产 registry 尚未注册业务 tool 且用户发送普通聊天请求
+- **THEN** `/api/chat` MUST 仍调用 LLM 并输出普通 `content` 和 `done` NDJSON 事件，或输出 `ask_user`
+- **AND** `/api/chat` MUST NOT 输出 tool result、训练卡片、artifact、保存结果或其他未注册功能事件
 
 ### Requirement: Trace 和 replay fixture 必须覆盖完整运行链路
 系统 SHALL 记录 Agent run trace，并提供 replay fixture。Trace MUST 覆盖 context 摘要、tool manifest、planner action、policy decision、tool input/output 摘要、resource refs、terminal action 和 response events。
@@ -144,6 +179,7 @@
 #### Scenario: 记录成功 run
 - **WHEN** Agent run 成功产生用户可见结果
 - **THEN** trace MUST 记录每轮 action、tool result、resource role、policy decision 和 response event 摘要
+- **AND** trace MUST 记录 usage 和基础裁剪摘要
 - **AND** trace MUST 遵守脱敏和长度限制
 
 #### Scenario: replay 不调用真实模型
@@ -159,6 +195,11 @@
 - **THEN** Planner manifest MUST 能发现这些 tools
 - **AND** runtime MUST 能执行 tool call、校验 input/output schema、登记 tool results、生成 observation 并继续多轮调用
 - **AND** Response Adapter MUST 能输出 NDJSON events 并以 `done` 收口
+
+#### Scenario: fixture tools 不进入生产 registry
+- **WHEN** 生产 `/api/chat` 创建默认 registry
+- **THEN** registry MUST NOT 注册无业务 fixture tools
+- **AND** fixture tools MUST 只能通过测试、replay 或显式 test harness 注入
 
 #### Scenario: fixture resource 被消费
 - **WHEN** resource producer fixture 产生 consumable resource
