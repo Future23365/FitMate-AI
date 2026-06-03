@@ -33,4 +33,4 @@
 - [x] 5.4 运行 `npm test -- tests/agent-core/planner-validator.test.ts tests/agent-core/tool-registry-manifest.test.ts tests/agent-core/contract-helper.test.ts`。
 - [x] 5.5 运行 `npm run typecheck`。
 - [x] 5.6 检查最终 diff，确认没有无关改动、没有服务端关键词语义分流、没有 core 业务 toolName 特判。
-- [ ] 5.7 完成任务后按项目规则提交本次改动，提交信息使用中文。
+- [x] 5.7 完成任务后按项目规则提交本次改动，提交信息使用中文。
