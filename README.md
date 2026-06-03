@@ -128,7 +128,7 @@ components/
   app/                     # 跨功能复用的应用级 UI，如侧边栏、Logo、图标
 
 .codex/
-  skills/                  # 项目级 Codex Skills，用于固化 OpenSpec 与 Agent tool 协作流程
+  skills/                  # 项目级 Codex Skills，用于固化 OpenSpec、Agent tool 与 Agent prompt 合同治理流程
 
 features/
   chat/                    # 前端聊天功能模块

@@ -1163,6 +1163,48 @@ invalid action fixture
 涉及安全、权限、资源、trace、stream 协议：必须回到 core contract 统一设计，不能开业务特例。
 ```
 
+### 24.1 Agent prompt / model input 合同治理
+
+后续修改 Agent prompt、model input、tool manifest、schema summary、examples、repair feedback、context package、observations、compressed tool results 或业务 tool 的模型可见说明时，先使用项目级 `.codex/skills/agent-prompt-contract-governance/SKILL.md`。
+
+该 Skill 只治理模型实际可见合同，不替代 `.codex/skills/agent-tool-change-governance/SKILL.md`：
+
+```txt
+agent-tool-change-governance：先判断 Agent tool / core / production 变更能改哪里、不能改哪里。
+agent-prompt-contract-governance：再检查 prompt / model input 是否正确表达 AgentAction、tool loop、resource、policy、grounding 和 repair 合同。
+```
+
+如果一次 change 同时新增业务 tool 和修改模型可见说明，先用 `agent-tool-change-governance` 定模块边界，再用 `agent-prompt-contract-governance` 审模型可见合同。
+
+prompt 合同治理时必须优先确认模型实际看到的输入，而不是只读源文件文案。需要检查 prompt builder、tool manifest、schema summary、examples、repair feedback、context package、observations、compressed tool results，以及必要时的 `codex_logs/ai_trace_log.js` 或黑盒报告。
+
+非文案类 Agent prompt change 的 OpenSpec 文档必须写清：
+
+```txt
+1. prompt 修改类型。
+2. 允许触碰的 model input 入口。
+3. 禁止触碰的 runtime / core 模块。
+4. 是否涉及业务 tool 模型可见说明。
+5. 是否涉及 core contract、resource、policy、grounding 或 production 接入。
+6. 验证计划。
+```
+
+通用 Agent prompt 必须表达：
+
+```txt
+1. 模型只能输出受控 AgentAction。
+2. 允许的 action 类型和每类 action 的必需字段。
+3. toolName 只能来自 ToolRegistry。
+4. tool input 必须严格匹配 schema。
+5. 模型不能假装 tool 已执行或虚构 tool result。
+6. final_answer 必须基于 satisfied=true 的 tool result 或 consumable resource。
+7. diagnostic / failed / unsatisfied 结果只能用于 ask_user、失败解释、阻断说明或 repair。
+8. write / high risk tool 必须经过 Policy Guard / confirmation。
+9. 模型不能绕过 ResourceStore、Policy Guard、Resource Contract Validator 或 Response Renderer。
+```
+
+新增业务 tool 时，业务 tool 的模型可见说明必须覆盖：何时使用、何时不用、input schema 关键字段、成功结果含义、失败或 diagnostic 含义、resource role 和 final answer 引用方式。不得把单个业务 tool 的语义特例写进通用 prompt，也不得新增服务端关键词、正则、同义词表、短句模板或业务 `toolName` 特判去改写 LLM 的高层语义决策。
+
 ---
 
 ## 25. 最容易走偏的地方
