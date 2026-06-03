@@ -30,8 +30,11 @@ description: 治理 AITest 中 Agent tool 相关变更的实现前流程。用�
 - 如果当前 core 暴露对应能力，可选 `traceProjection` 或 trace 摘要
 - `ToolRegistry` 注册
 - 聚焦的 tool contract tests
+- 针对该 tool 的业务单元测试，必须直接覆盖 `handler`、`executeTool` 或当前真实 runtime 执行入口
 
 除非 OpenSpec design 明确证明需要 core contract 变更，否则不要为了单个业务 tool 修改 Agent core。
+
+新增业务 tool 的测试不能只证明 registry、manifest 或 schema 能暴露给模型；必须证明该 tool 在 AITest 的真实业务输入下能正确执行、拒绝、投影和留痕。
 
 ### Agent Tool Bug 修复
 
@@ -44,6 +47,7 @@ description: 治理 AITest 中 Agent tool 相关变更的实现前流程。用�
 - 检查模型可见 manifest 或 schema summary。
 - 检查与失败相关的 runtime validation、`ResourceStore`、`Policy Guard`、projection、response rendering 和 trace records。
 - 将根因分类为 LLM 参数错误、模型可见合同缺失、tool 能力缺口、resource 缺失或不可消费、policy / confirmation 边界、projection / redaction 泄漏、final grounding 缺陷或 production 接入问题。
+- 修改某个已有 tool 的功能或 bug 时，必须先定位并运行该 tool 已有的专属单测；如果没有专属单测，先补能复现问题的 tool-level 单测，再改实现。
 
 不要用服务端关键词、正则、同义词表、短句模板或业务 `toolName` 特判修复自然语言理解问题。
 
@@ -91,19 +95,56 @@ description: 治理 AITest 中 Agent tool 相关变更的实现前流程。用�
 - 验证计划
 - 无法运行验证时的剩余风险
 
-新增业务 tool 时，checklist 必须覆盖 tool bundle、`ToolRegistry` 注册、schema、policy、`resourceContract`、model projection、user projection、trace projection 或 trace summary，以及 contract tests。
+新增业务 tool 时，checklist 必须覆盖 tool bundle、`ToolRegistry` 注册、schema、policy、`resourceContract`、model projection、user projection、trace projection 或 trace summary、contract tests，以及该 tool 的业务单元测试。
+
+新增业务 tool 的 `tasks.md` 必须包含以下测试门禁，按真实文件名替换 `<toolName>` 和测试路径：
+
+- [ ] 为 `<toolName>` 新增或更新 tool-level unit tests，直接覆盖 `handler`、`executeTool` 或当前真实 runtime 执行入口。
+- [ ] 覆盖 `<toolName>` 的成功路径、schema 拒绝、领域边界、失败归一化、resource contract、projection / redaction 和 policy / permission 边界。
+- [ ] 按 tool 业务职责覆盖 AITest 真实健身场景，不只使用抽象 fixture。
+- [ ] 运行 `npm test -- tests/agent-tools/<toolName>.test.ts` 或该 tool 对应的最窄测试文件。
+- [ ] 运行 `npm test -- tests/agent-core/contract-helper.test.ts`。
+- [ ] 如修改注册、manifest 或 schema summary，运行 `npm test -- tests/agent-core/tool-registry-manifest.test.ts`。
+- [ ] 如修改 TypeScript、schema、AI orchestration 或共享业务逻辑，运行 `npm run typecheck`。
 
 修复 Agent tool bug 时，checklist 必须覆盖 `codex_logs/ai_trace_log.js`、模型实际可见的 `prompt / model input`、真实 schema、model-visible manifest 或 schema summary、`ResourceStore`、`Policy Guard`、projection、response rendering 和 trace。
 
+修复或修改已有 tool 时，`tasks.md` 必须额外包含该 tool 的回归单测任务：先补复现用例，再更新实现，并运行该 tool 对应的最窄单测。仅运行 registry、manifest、contract helper、黑盒 LLM 或全量 smoke tests，不能替代 tool-level unit tests。
+
 每个非文案类 Agent tool `tasks.md` 必须包含 `openspec validate <change> --strict`、相关自动化测试、触碰 core 或 production 边界时的 architecture scan，以及最终 diff 检查。
+
+## Tool 单测要求
+
+tool-level unit tests 应优先放在 `tests/agent-tools/<toolName>.test.ts`；如果项目已有更贴近的业务测试文件，可以放在现有文件中，但最终回复必须说明对应测试文件。
+
+每个新增或修改的业务 tool 至少覆盖：
+
+- 成功路径：使用接近真实用户请求的输入，断言关键业务输出，而不是只断言 `ok: true`。
+- 输入合同：非法枚举、缺失必填字段、错误 resource id、越界分页或数量、无效 `exerciseId` 等必须在执行前或确定性边界被拒绝。
+- 业务边界：候选为空、候选不足、多个候选冲突、用户限制冲突、默认值、可选字段缺失、重复调用和幂等行为。
+- 权限与隔离：涉及用户私有数据、artifact、memory、schedule、routine 或 plan 时，必须覆盖 `userId` 隔离、不可访问资源和 stale / archived / superseded 状态。
+- resource 合同：生产 consumable / diagnostic resource 的 tool 要断言 resource type、role、id、summary 和下游可消费边界。
+- projection 与 trace：断言 `toModelObservation`、`toUserProjection`、trace projection 或 trace summary 不泄漏完整 handler 输出、敏感字段、服务端内部枚举或仅供诊断的资源。
+- policy 与确认：写操作、高风险操作、长期记忆、覆盖已有计划或批量影响日程的 tool 必须覆盖 confirmation、permission、idempotency 和拒绝执行路径。
+- 失败路径：数据库未命中、权限不匹配、resource 不可消费、handler exception、外部服务失败或验证失败要返回结构化错误，不能用用户可见文案掩盖合同问题。
+
+按 tool 领域选择更具体的健身业务场景：
+
+- 动作检索 / 详情 tool：覆盖结构化过滤优先于语义排序、`query` 不是 hard filter、器械约束、目标肌群、训练目的、warmup / stretch 补齐、分页 / count / detail 读取和候选不足。
+- routine / plan draft tool：覆盖训练目标、每周频率、单次时长、热身 / 主训练 / 拉伸结构、候选证据、非法动作 id、动作 section 不匹配和 duration / frequency 边界。
+- validate / policy tool：覆盖 deterministic hard fail、warning、needs clarification、需要确认和不可执行结果，避免把语义判断写成服务端关键词规则。
+- artifact / reference tool：覆盖当前用户、active revision、stale revision 恢复、archived artifact、跨会话引用和 final grounding 可消费性。
+- memory / preference tool：覆盖长期偏好、临时上下文、明确用户限制、健康相关信号和不提供医疗诊断的边界。
 
 ## 验证
 
 优先运行最窄的相关检查：
 
 - OpenSpec：`openspec validate <change> --strict`
+- Tool 行为单测：新增或修改业务 tool 时，必须运行该 tool 对应的专属单测；registry、manifest、contract helper 或黑盒 LLM 测试不能替代 tool-level unit tests
 - Architecture boundary：`npm test -- tests/agent-core/architecture-boundary.test.ts`
 - Tool contract helper：`npm test -- tests/agent-core/contract-helper.test.ts`
+- Tool registry / manifest：修改注册、manifest 或 schema summary 时，运行 `npm test -- tests/agent-core/tool-registry-manifest.test.ts`
 - 修改 policy、resource、confirmation、renderer、trace 或 production integration 时，运行对应 runtime safety 和 projection tests
 - 修改 TypeScript、React、API、schema、AI orchestration 或共享业务逻辑后，运行 `npm run typecheck`
 
