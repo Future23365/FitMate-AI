@@ -63,9 +63,9 @@ describe("agent-core fixture read tool end to end", () => {
     registry.register(defineTool({
       name: "readSecondFixture",
       version: "0.1.0",
-      description: "Second read fixture.",
-      whenToUse: "Use to prove new read tools only need registration.",
-      whenNotToUse: "Do not use as a production business tool.",
+      description: "第二个只读 fixture。",
+      whenToUse: "仅用于证明新增只读 tool 只需要注册即可进入流程。",
+      whenNotToUse: "不要作为生产业务 tool 使用。",
       inputSchema: z.object({ id: z.string() }).strict(),
       outputSchema: z.object({ id: z.string(), label: z.string() }).strict(),
       policy: {
@@ -106,4 +106,3 @@ describe("agent-core fixture read tool end to end", () => {
     ]);
   });
 });
-

@@ -127,21 +127,21 @@ type SearchExerciseResourcesOutput = z.infer<typeof searchExerciseResourcesOutpu
 export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInput, SearchExerciseResourcesOutput>({
   name: "searchExerciseResources",
   version: "0.3.0",
-  description: "Query published exercise resources by structured filters and return safe exercise summaries for ordinary text answers. Use exact database facets for level/equipment/homeRequirement, bodyRegions for broad body areas, muscle only for real exercise muscle facets, and excludeExerciseIds only for exercises the user already saw or explicitly excluded.",
+  description: "按结构化筛选条件查询发布态动作库，并返回可用于普通文本回答的安全动作摘要。level/equipment/homeRequirement 必须使用精确数据库 facet，宽泛身体区域使用 bodyRegions，muscle 只填写动作库真实肌群 facet，excludeExerciseIds 只用于用户已经看到或明确要求排除的动作。",
   whenToUse: [
-    "Use when the user asks for a list of published exercises that match explicit structured facts such as bodyRegions, real muscle facets, equipment, level, home requirement, goal tag, risk tag, category, or warmup/training/stretch suitability.",
-    "Use bodyRegions for broad areas: upper_body for upper body, lower_body for legs/lower body, core for core, and full_body for full body.",
-    "For refresh requests such as another batch or do not repeat, first read/import the current run's available user-visible exercise fact when present, then use its displayedExerciseIds as excludeExerciseIds.",
-    "Use excludeExerciseIds only for exercises the user already saw or explicitly asked to exclude; never fill it from undisplayed internal candidates.",
-    `Use exact facet values for precise filters. ${levelFacetDescription} ${equipmentFacetDescription} ${homeRequirementFacetDescription}`,
-    "Successful results with satisfied=true may support a final_answer through usedToolResultIds in the same run.",
+    "当用户需要一组符合明确结构化事实的发布态动作时使用，例如 bodyRegions、真实肌群 facet、器械、难度、居家条件、目标标签、风险标签、分类，或 warmup/training/stretch 适配阶段。",
+    "宽泛身体区域必须使用 bodyRegions：上肢用 upper_body，腿部或下肢用 lower_body，核心用 core，全身用 full_body。",
+    "当用户要求再来一批、换一批或不要重复时，如果当前 run 存在可用的用户可见动作事实，先 read/import 该事实，再把其中 displayedExerciseIds 作为 excludeExerciseIds。",
+    "excludeExerciseIds 只能填写用户已经看到或明确要求排除的动作；不要从未展示的内部候选中填充。",
+    `精确筛选必须使用真实 facet 值。${levelFacetDescription} ${equipmentFacetDescription} ${homeRequirementFacetDescription}`,
+    "成功且 satisfied=true 的结果，可以在同一 run 通过 final_answer.usedToolResultIds 支撑最终回答。",
   ].join(" "),
   whenNotToUse: [
-    "Do not use to generate routines, plans, patches, workout cards, saved artifacts, user memory, or execution candidate sets.",
-    "Do not use for unpublished exercises, single-exercise detail lookup, unique-name resolution, full-library facet statistics, pagination, or semantic vector retrieval.",
-    "Do not use excludeExerciseIds from handler-only results, model observations, diagnostic candidates, or natural-language history that was not read/imported as current-run fact.",
-    "Do not put broad area words such as leg, lower body, upper body, full body, 腿部, 下肢, 上肢, or 全身 into muscle; use bodyRegions instead.",
-    "Failed, invalid-input, or satisfied=false results cannot support a successful exercise recommendation final_answer.",
+    "不要用它生成 routine、plan、patch、训练卡片、保存 artifact、用户记忆或执行候选集合。",
+    "不要用它查询未发布动作、单个动作详情、唯一动作名解析、全库 facet 统计、分页或语义向量检索。",
+    "不要从 handler-only 结果、model observation、diagnostic 候选，或没有 read/import 为当前 run fact 的自然语言历史中提取 excludeExerciseIds。",
+    "不要把 leg、lower body、upper body、full body、腿部、下肢、上肢或全身这类宽泛区域写进 muscle；必须改用 bodyRegions。",
+    "failed、invalid-input 或 satisfied=false 的结果不能支撑成功的动作推荐 final_answer。",
   ].join(" "),
   inputSchema: searchExerciseResourcesInputSchema,
   outputSchema: searchExerciseResourcesOutputSchema,
@@ -153,7 +153,7 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
   },
   examples: [
     {
-      description: "Find beginner body only training exercises for chest.",
+      description: "查找适合胸部训练的初级自重动作。",
       input: {
         muscle: "胸部",
         equipment: "body only",
@@ -163,7 +163,7 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
       },
     },
     {
-      description: "Find lower-body training exercises.",
+      description: "查找下肢训练动作。",
       input: {
         bodyRegions: ["lower_body"],
         suitability: "training",
@@ -171,7 +171,7 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
       },
     },
     {
-      description: "Find warmup exercises that can be done at home.",
+      description: "查找可在家完成的热身动作。",
       input: {
         suitability: "warmup",
         homeRequirement: "none",

@@ -23,9 +23,9 @@ const readFixtureOutputSchema = z.object({
 export const readFixtureTool = defineTool({
   name: "readFixture",
   version: "0.1.0",
-  description: "Read a deterministic fixture document for M0 agent-core contract tests.",
-  whenToUse: "Use only in M0 contract tests when a read-only tool call needs deterministic output.",
-  whenNotToUse: "Do not use for production chat, exercise search, workout generation, persistence, or user memory.",
+  description: "读取 M0 agent-core 合同测试使用的确定性 fixture 文档。",
+  whenToUse: "仅在 M0 合同测试需要只读 tool call 产生确定性输出时使用。",
+  whenNotToUse: "不要用于生产聊天、动作检索、训练生成、持久化或用户记忆。",
   inputSchema: readFixtureInputSchema,
   outputSchema: readFixtureOutputSchema,
   policy: {
@@ -36,7 +36,7 @@ export const readFixtureTool = defineTool({
   },
   examples: [
     {
-      description: "Read a sample alpha fixture.",
+      description: "读取一个 alpha 示例 fixture。",
       input: {
         fixtureId: "alpha-intro",
         tags: ["alpha"],
@@ -46,7 +46,7 @@ export const readFixtureTool = defineTool({
   handler: (input: z.infer<typeof readFixtureInputSchema>) => ({
     fixtureId: input.fixtureId,
     title: `Fixture ${input.fixtureId}`,
-    body: `This is deterministic fixture content for ${input.fixtureId}.`,
+    body: `这是 ${input.fixtureId} 的确定性 fixture 内容。`,
     meta: input.includeMeta
       ? {
           tags: input.tags ?? [],
@@ -64,4 +64,3 @@ export const readFixtureTool = defineTool({
     summary: output.body,
   }),
 });
-

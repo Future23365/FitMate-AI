@@ -12,9 +12,9 @@ function createSecretOutputTool() {
   return defineTool({
     name: "secretOutputFixture",
     version: "0.1.0",
-    description: "Return a secret output for redaction tests.",
-    whenToUse: "Use in redaction tests.",
-    whenNotToUse: "Do not use outside tests.",
+    description: "为 redaction 测试返回包含敏感字段的输出。",
+    whenToUse: "仅在 redaction 测试中使用。",
+    whenNotToUse: "不要在测试之外使用。",
     inputSchema: z.object({ id: z.string() }).strict(),
     outputSchema: z.object({
       id: z.string(),

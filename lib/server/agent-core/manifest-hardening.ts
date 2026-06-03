@@ -30,7 +30,8 @@ const SAFE_POLICY_VALUES = {
 };
 
 const MANIFEST_SENSITIVE_KEY_PATTERN = /(secret|token|password|authorization|cookie|api[_-]?key|handler|capabilit|database|payload)/i;
-const INJECTION_EXAMPLE_PATTERN = /(ignore\s+policy|bypass|leak\s+secret|fake\s+confirmation|ndjson|unregistered\s+tool)/i;
+const INJECTION_EXAMPLE_PATTERN = /(ignore\s+policy|bypass|leak\s+secret|fake\s+confirmation|ndjson|unregistered\s+tool|忽略\s*policy|绕过|泄漏\s*secret|伪造\s*confirmation|未注册\s*tool)/i;
+const MODEL_VISIBLE_CHINESE_PATTERN = /[\u3400-\u9FFF\uF900-\uFAFF]/;
 
 /** createManifestHash 基于模型可见 manifest 的 canonical JSON 生成稳定 hash。 */
 export function createManifestHash(manifests: ToolManifest[]): string {
@@ -96,6 +97,7 @@ export function lintToolManifest(manifest: ToolManifest): ToolManifestLintResult
   validatePolicyHint(manifest, issues);
   validateSchemaShape(manifest.inputJsonSchema, "$.inputJsonSchema", issues);
   validateSchemaShape(manifest.outputJsonSchema, "$.outputJsonSchema", issues);
+  validateDescriptionLanguage(manifest, issues);
   validateExamples(manifest, issues);
 
   return {
@@ -195,6 +197,51 @@ function validateSchemaShape(schema: JsonValue | undefined, path: string, issues
       message: "Manifest schema does not expose executable JSON Schema structure.",
     });
   }
+}
+
+function validateDescriptionLanguage(manifest: ToolManifest, issues: ToolManifestLintIssue[]) {
+  validateChineseDescription(manifest.description, "$.description", issues);
+  validateChineseDescription(manifest.whenToUse, "$.whenToUse", issues);
+  validateChineseDescription(manifest.whenNotToUse, "$.whenNotToUse", issues);
+
+  manifest.examples?.forEach((example, index) => {
+    validateChineseDescription(example.description, `$.examples[${index}].description`, issues);
+  });
+
+  scanSchemaDescriptions(manifest.inputJsonSchema, "$.inputJsonSchema", issues);
+  scanSchemaDescriptions(manifest.outputJsonSchema, "$.outputJsonSchema", issues);
+}
+
+function scanSchemaDescriptions(value: JsonValue | undefined, path: string, issues: ToolManifestLintIssue[]) {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => scanSchemaDescriptions(item, `${path}[${index}]`, issues));
+    return;
+  }
+
+  if (!value || typeof value !== "object") {
+    return;
+  }
+
+  for (const [key, child] of Object.entries(value as Record<string, JsonValue>)) {
+    const childPath = `${path}.${key}`;
+    if (key === "description" && typeof child === "string") {
+      validateChineseDescription(child, childPath, issues);
+      continue;
+    }
+    scanSchemaDescriptions(child, childPath, issues);
+  }
+}
+
+function validateChineseDescription(value: string, path: string, issues: ToolManifestLintIssue[]) {
+  if (MODEL_VISIBLE_CHINESE_PATTERN.test(value)) {
+    return;
+  }
+
+  issues.push({
+    code: "model_visible_description_language",
+    path,
+    message: "Model-visible descriptive text must include Chinese guidance while preserving technical identifiers.",
+  });
 }
 
 function validateExamples(manifest: ToolManifest, issues: ToolManifestLintIssue[]) {

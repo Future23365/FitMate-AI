@@ -255,6 +255,9 @@ OpenSpec 生成或修改的说明性文档应使用中文，便于人工 review�
 ## AI 规则
 
 - 模型生成的数据必须使用 Structured Outputs、Zod Schema 或 JSON Schema 进行结构约束。
+- 所有发给模型的描述性自然语言 prompt / model input 默认使用中文，包括但不限于 system / developer prompt、tool manifest、`description`、`whenToUse`、`whenNotToUse`、schema description、examples description、repair feedback、observations、compressed tool results 和 final grounding 说明。
+  - `toolName`、字段名、枚举值、action type、resource type、schema id、命令、路径、代码标识符和外部 API 标识必须保持英文原样，不要为了中文化而改动执行合同。
+  - 如必须引用英文原文，应同时提供中文解释；不得只用英文说明模型可见的业务规则、使用条件或失败含义。
 - 所有模型输出在保存或执行前都必须经过服务端校验。
   - 服务端只校验结构性边界。非确定性边界、语义性边界以模型输出结果为准。
 - Tool Calling 必须通过服务端函数执行。

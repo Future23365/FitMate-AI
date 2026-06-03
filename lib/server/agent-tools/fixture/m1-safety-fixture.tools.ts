@@ -24,9 +24,9 @@ const resourceProducerOutputSchema = z.object({
 export const resourceProducerFixtureTool = defineTool({
   name: "m1ResourceProducer",
   version: "0.1.0",
-  description: "Produce a deterministic consumable resource for M1 resource-store tests.",
-  whenToUse: "Use only in M1 fixture replay tests to create a consumable resource.",
-  whenNotToUse: "Do not use for production chat, exercise search, workout generation, persistence, or user memory.",
+  description: "为 M1 resource-store 测试产出确定性的 consumable resource。",
+  whenToUse: "仅在 M1 fixture replay 测试需要创建 consumable resource 时使用。",
+  whenNotToUse: "不要用于生产聊天、动作检索、训练生成、持久化或用户记忆。",
   inputSchema: resourceProducerInputSchema,
   outputSchema: resourceProducerOutputSchema,
   policy: {
@@ -79,9 +79,9 @@ const resourceConsumerOutputSchema = z.object({
 export const resourceConsumerFixtureTool = defineTool({
   name: "m1ResourceConsumer",
   version: "0.1.0",
-  description: "Consume a previously registered M1 fixture resource.",
-  whenToUse: "Use only in M1 fixture replay tests after m1ResourceProducer registered a resource.",
-  whenNotToUse: "Do not use without a current-run consumable resource reference.",
+  description: "消费一个已经登记的 M1 fixture resource。",
+  whenToUse: "仅在 M1 fixture replay 测试中，且 m1ResourceProducer 已登记 resource 后使用。",
+  whenNotToUse: "没有当前 run 的 consumable resource 引用时不要使用。",
   inputSchema: resourceConsumerInputSchema,
   outputSchema: resourceConsumerOutputSchema,
   policy: {
@@ -140,9 +140,9 @@ const confirmationWriteExecutions: Array<{ recordId: string; idempotencyKey: str
 export const confirmationWriteFixtureTool = defineTool({
   name: "m1ConfirmationWrite",
   version: "0.1.0",
-  description: "Write a deterministic fixture value after confirmation.",
-  whenToUse: "Use only in M1 confirmation replay tests.",
-  whenNotToUse: "Do not execute before Policy Guard creates and consumes a pending action.",
+  description: "在 confirmation 通过后写入确定性的 fixture 值。",
+  whenToUse: "仅在 M1 confirmation replay 测试中使用。",
+  whenNotToUse: "在 Policy Guard 创建并消费 pending action 之前不要执行。",
   inputSchema: confirmationWriteInputSchema,
   outputSchema: confirmationWriteOutputSchema,
   policy: {
@@ -201,9 +201,9 @@ const diagnosticFailureOutputSchema = z.object({
 export const diagnosticFailureFixtureTool = defineTool({
   name: "m1DiagnosticFailure",
   version: "0.1.0",
-  description: "Produce diagnostic evidence for M1 grounding tests.",
-  whenToUse: "Use only in M1 replay tests to explain blocked or failed fixture flows.",
-  whenNotToUse: "Do not use as a successful business result.",
+  description: "为 M1 grounding 测试产出 diagnostic evidence。",
+  whenToUse: "仅在 M1 replay 测试需要解释被阻断或失败的 fixture 流程时使用。",
+  whenNotToUse: "不要把它当作成功业务结果使用。",
   inputSchema: diagnosticFailureInputSchema,
   outputSchema: diagnosticFailureOutputSchema,
   policy: {

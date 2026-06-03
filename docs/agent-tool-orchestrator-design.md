@@ -1252,6 +1252,8 @@ agent-prompt-contract-governance：再检查 prompt / model input 是否正确�
 
 prompt 合同治理时必须优先确认模型实际看到的输入，而不是只读源文件文案。需要检查 prompt builder、tool manifest、schema summary、examples、repair feedback、context package、observations、compressed tool results，以及必要时的 `codex_logs/ai_trace_log.js` 或黑盒报告。
 
+模型可见描述性自然语言默认使用中文，包括 system / developer prompt、tool manifest 的 `description` / `whenToUse` / `whenNotToUse`、schema description、examples description、repair feedback、observations、compressed tool results 和 final grounding 说明。`toolName`、字段名、枚举值、action type、resource type、schema id、命令、路径、错误码和代码标识符保持英文原样，不要为了中文化改动执行合同。
+
 非文案类 Agent prompt change 的 OpenSpec 文档必须写清：
 
 ```txt
@@ -1277,7 +1279,7 @@ prompt 合同治理时必须优先确认模型实际看到的输入，而不是�
 9. 模型不能绕过 ResourceStore、Policy Guard、Resource Contract Validator 或 Response Renderer。
 ```
 
-新增业务 tool 时，业务 tool 的模型可见说明必须覆盖：何时使用、何时不用、input schema 关键字段、成功结果含义、失败或 diagnostic 含义、resource role 和 final answer 引用方式。不得把单个业务 tool 的语义特例写进通用 prompt，也不得新增服务端关键词、正则、同义词表、短句模板或业务 `toolName` 特判去改写 LLM 的高层语义决策。
+新增业务 tool 时，业务 tool 的模型可见说明必须覆盖：何时使用、何时不用、input schema 关键字段、成功结果含义、失败或 diagnostic 含义、resource role 和 final answer 引用方式。上述说明默认使用中文，技术标识保持英文原样。不得把单个业务 tool 的语义特例写进通用 prompt，也不得新增服务端关键词、正则、同义词表、短句模板或业务 `toolName` 特判去改写 LLM 的高层语义决策。
 
 ---
 

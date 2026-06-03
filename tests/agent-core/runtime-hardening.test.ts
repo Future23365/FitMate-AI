@@ -18,9 +18,9 @@ function createIdempotencyTool(handler: (idempotencyKey: string) => void) {
   return defineTool({
     name: "idempotencyRead",
     version: "0.1.0",
-    description: "Read idempotency context in tests.",
-    whenToUse: "Use in idempotency tests.",
-    whenNotToUse: "Do not use outside tests.",
+    description: "读取测试中的 idempotency 上下文。",
+    whenToUse: "仅在 idempotency 测试中使用。",
+    whenNotToUse: "不要在测试之外使用。",
     inputSchema: z.object({ id: z.string() }).strict(),
     outputSchema: z.object({ id: z.string(), idempotencyKey: z.string() }).strict(),
     policy: {

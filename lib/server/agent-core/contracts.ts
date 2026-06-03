@@ -247,7 +247,8 @@ export type ToolManifestLintIssue = {
     | "schema_structure_missing"
     | "example_limit_exceeded"
     | "unsafe_policy_hint"
-    | "unsafe_example";
+    | "unsafe_example"
+    | "model_visible_description_language";
   path: string;
   message: string;
 };

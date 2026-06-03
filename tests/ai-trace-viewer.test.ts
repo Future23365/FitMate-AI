@@ -342,12 +342,12 @@ describe("AI trace viewer step grouping", () => {
             {
               name: "readRecentExerciseRecommendationFact",
               version: "2026-06-04",
-              description: "Read recent exercise recommendation facts.",
+              description: "读取最近的动作推荐事实。",
             },
             {
               name: "searchExerciseResources",
               version: "2026-06-04",
-              description: "Search exercise resources.",
+              description: "查询动作资源。",
             },
           ],
         },

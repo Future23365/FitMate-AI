@@ -31,9 +31,9 @@ function createTool(policy: AnyTool["policy"]) {
   return defineTool({
     name: "writeFixture",
     version: "0.1.0",
-    description: "Fixture policy tool.",
-    whenToUse: "Use in policy tests.",
-    whenNotToUse: "Do not use outside tests.",
+    description: "用于 policy 测试的 fixture tool。",
+    whenToUse: "仅在 policy 测试中使用。",
+    whenNotToUse: "不要在测试之外使用。",
     inputSchema: z.object({ id: z.string() }).strict(),
     outputSchema: z.object({ id: z.string() }).strict(),
     policy,

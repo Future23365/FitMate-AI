@@ -33,9 +33,9 @@ function createProducerTool(options: {
   return defineTool({
     name: "resourceProducerForTest",
     version: "0.1.0",
-    description: "Produce a resource in tests.",
-    whenToUse: "Use in resource contract tests.",
-    whenNotToUse: "Do not use in production.",
+    description: "在测试中产出一个 resource。",
+    whenToUse: "仅在 resource contract 测试中使用。",
+    whenNotToUse: "不要在生产环境使用。",
     inputSchema: z.object({ id: z.string() }).strict(),
     outputSchema: z.object({ id: z.string() }).strict(),
     policy: {
@@ -67,9 +67,9 @@ function createConsumerTool() {
   return defineTool({
     name: "resourceConsumerForTest",
     version: "0.1.0",
-    description: "Consume a resource in tests.",
-    whenToUse: "Use in resource contract tests.",
-    whenNotToUse: "Do not use in production.",
+    description: "在测试中消费一个 resource。",
+    whenToUse: "仅在 resource contract 测试中使用。",
+    whenNotToUse: "不要在生产环境使用。",
     inputSchema: z.object({}).strict(),
     outputSchema: z.object({ ok: z.boolean() }).strict(),
     policy: {

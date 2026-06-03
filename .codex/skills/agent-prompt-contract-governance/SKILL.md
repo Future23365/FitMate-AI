@@ -27,6 +27,7 @@ description: 治理 AITest 中 Agent prompt 与模型实际可见输入的合同
 - repair / feedback 合同：结构化错误、repair feedback、失败原因、可恢复建议。
 - context / observation 投影：context package、observations、compressed tool results、resource 摘要、redaction 后内容。
 - production prompt 规则：生产聊天接入的模型输入、空 registry 行为、能力边界说明。
+- 模型可见描述语言：system / developer prompt、manifest、schema description、examples、repair feedback、observations、compressed tool results、final grounding 等描述性自然语言默认使用中文。
 
 ## 必查真实输入
 
@@ -42,6 +43,23 @@ description: 治理 AITest 中 Agent prompt 与模型实际可见输入的合同
 - `codex_logs/ai_trace_log.js` 或真实黑盒报告中的 model request / model input。
 
 如果源文件写了规则，但 builder 没带上、被压缩丢失、顺序被后续消息覆盖，必须把根因归为“模型可见合同缺失”，不要只继续润色源文件。
+
+## 模型可见描述语言
+
+所有发给模型的描述性自然语言默认使用中文，包括但不限于：
+
+- system / developer prompt 中的业务规则、能力边界和输出格式说明。
+- tool manifest 的 `description`、`whenToUse`、`whenNotToUse`。
+- JSON Schema / Zod schema 的 description、schema summary 和字段说明。
+- examples description、repair feedback、context package、observations、compressed tool results、resource 摘要和 final grounding 说明。
+
+以下内容保持英文原样，不要为了中文化而改动执行合同：
+
+- `toolName`、字段名、枚举值、action type、resource type、schema id。
+- 命令、路径、代码标识符、外部 API 标识、错误码和 trace event type。
+- 示例 input 中必须匹配 schema 的结构化值。
+
+如果必须引用英文原文或第三方术语，先保留原文，再补中文解释；不要让模型只看到英文业务规则、使用条件或失败含义。
 
 ## 通用 Agent 合同
 
@@ -68,6 +86,8 @@ description: 治理 AITest 中 Agent prompt 与模型实际可见输入的合同
 - 失败、diagnostic 或 unsatisfied 结果代表什么。
 - 产出的 resource role 是 `consumable`、`diagnostic`、`partial` 还是 `feedback`。
 - `final_answer` 可以怎样引用该结果，哪些结果只能用于解释或追问。
+
+这些说明必须使用中文描述业务含义；`toolName`、input/output 字段名、枚举值和 resource type 保持英文原样。
 
 通用 Agent prompt 只写稳定编排合同；业务 tool 的专属能力写进 manifest / schema 描述 / examples，不要把单个业务 tool 的特例写成通用规则。
 
@@ -105,6 +125,7 @@ description: 治理 AITest 中 Agent prompt 与模型实际可见输入的合同
 - Skill 基础校验：`quick_validate.py <skill-folder>` 或等价 frontmatter / metadata 检查
 - Prompt config 或 model input builder 测试
 - Tool manifest / schema summary 测试
+- 模型可见描述语言测试：manifest、schema description、examples、repair feedback 或 observation 中的描述性自然语言默认中文
 - Agent runtime / final grounding 测试
 - 修改 TypeScript、React、API、Schema、AI 编排或共享业务逻辑后运行 `npm run typecheck`
 

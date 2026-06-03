@@ -31,6 +31,7 @@ description: 治理 AITest 中 Agent tool 相关变更的实现前流程。用�
 - `ToolRegistry` 注册
 - 聚焦的 tool contract tests
 - 针对该 tool 的业务单元测试，必须直接覆盖 `handler`、`executeTool` 或当前真实 runtime 执行入口
+- 模型可见描述语言检查：manifest / schema / examples 中的描述性自然语言默认中文，`toolName`、字段名、枚举值和 resource type 保持英文原样
 
 除非 OpenSpec design 明确证明需要 core contract 变更，否则不要为了单个业务 tool 修改 Agent core。
 
@@ -45,6 +46,7 @@ description: 治理 AITest 中 Agent tool 相关变更的实现前流程。用�
 - 如果模型可见输入已经正确表达合同，再继续检查服务端确定性边界，例如 schema 校验、resource、policy、projection、trace 和 production 接入。
 - 检查相关 tool 的真实 Zod Schema 或 JSON Schema。
 - 检查模型可见 manifest 或 schema summary。
+- 检查模型可见 `description`、`whenToUse`、`whenNotToUse`、schema description 和 examples description 是否默认使用中文；技术标识、字段名和枚举值保持英文原样。
 - 检查与失败相关的 runtime validation、`ResourceStore`、`Policy Guard`、projection、response rendering 和 trace records。
 - 将根因分类为 LLM 参数错误、模型可见合同缺失、tool 能力缺口、resource 缺失或不可消费、policy / confirmation 边界、projection / redaction 泄漏、final grounding 缺陷或 production 接入问题。
 - 修改某个已有 tool 的功能或 bug 时，必须先定位并运行该 tool 已有的专属单测；如果没有专属单测，先补能复现问题的 tool-level 单测，再改实现。
@@ -95,12 +97,13 @@ description: 治理 AITest 中 Agent tool 相关变更的实现前流程。用�
 - 验证计划
 - 无法运行验证时的剩余风险
 
-新增业务 tool 时，checklist 必须覆盖 tool bundle、`ToolRegistry` 注册、schema、policy、`resourceContract`、model projection、user projection、trace projection 或 trace summary、contract tests，以及该 tool 的业务单元测试。
+新增业务 tool 时，checklist 必须覆盖 tool bundle、`ToolRegistry` 注册、schema、policy、`resourceContract`、model projection、user projection、trace projection 或 trace summary、模型可见描述语言、contract tests，以及该 tool 的业务单元测试。
 
 新增业务 tool 的 `tasks.md` 必须包含以下测试门禁，按真实文件名替换 `<toolName>` 和测试路径：
 
 - [ ] 为 `<toolName>` 新增或更新 tool-level unit tests，直接覆盖 `handler`、`executeTool` 或当前真实 runtime 执行入口。
 - [ ] 覆盖 `<toolName>` 的成功路径、schema 拒绝、领域边界、失败归一化、resource contract、projection / redaction 和 policy / permission 边界。
+- [ ] 覆盖 `<toolName>` 的模型可见描述语言，验证 `description`、`whenToUse`、`whenNotToUse`、schema description 和 examples description 默认中文。
 - [ ] 按 tool 业务职责覆盖 AITest 真实健身场景，不只使用抽象 fixture。
 - [ ] 运行 `npm test -- tests/agent-tools/<toolName>.test.ts` 或该 tool 对应的最窄测试文件。
 - [ ] 运行 `npm test -- tests/agent-core/contract-helper.test.ts`。

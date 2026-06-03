@@ -15,9 +15,9 @@ function createEchoTool(options: { name?: string; fail?: boolean; invalidOutput?
   return defineTool({
     name: options.name ?? "echoRead",
     version: "0.1.0",
-    description: "Echo read fixture.",
-    whenToUse: "Use in executor tests.",
-    whenNotToUse: "Do not use outside executor tests.",
+    description: "回显读取 fixture。",
+    whenToUse: "仅在 executor 测试中使用。",
+    whenNotToUse: "不要在 executor 测试之外使用。",
     inputSchema: z.object({ text: z.string() }).strict(),
     outputSchema: z.object({ text: z.string(), secretInternalValue: z.string().optional() }).strict(),
     policy: {

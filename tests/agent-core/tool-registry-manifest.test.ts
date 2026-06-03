@@ -5,14 +5,17 @@ import { defineTool } from "@/lib/server/agent-core/define-tool";
 import { AgentContractError, AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
 import { ToolRegistry } from "@/lib/server/agent-core/tool-registry";
 import { createProductionAgentToolRegistry } from "@/lib/server/agent-tools";
+import type { JsonValue, ToolManifest } from "@/lib/server/agent-core/contracts";
+
+const chineseDescriptionPattern = /[\u3400-\u9FFF\uF900-\uFAFF]/;
 
 function createNestedReadTool(name = "nestedRead") {
   return defineTool({
     name,
     version: "0.1.0",
-    description: "Nested read fixture.",
-    whenToUse: "Use for nested manifest tests.",
-    whenNotToUse: "Do not use outside agent-core tests.",
+    description: "用于嵌套 manifest 测试的只读 fixture。",
+    whenToUse: "仅在嵌套 manifest 测试需要验证 schema 序列化时使用。",
+    whenNotToUse: "不要在 agent-core 测试之外使用。",
     inputSchema: z.object({
       query: z.string(),
       items: z.array(z.object({
@@ -34,7 +37,7 @@ function createNestedReadTool(name = "nestedRead") {
     },
     examples: [
       {
-        description: "Sensitive example keys are stripped from manifest.",
+        description: "验证敏感 example key 会从 manifest 中剔除。",
         input: {
           query: "hello",
           secretToken: "should-not-leak",
@@ -48,6 +51,40 @@ function createNestedReadTool(name = "nestedRead") {
       },
     }),
   });
+}
+
+function collectModelVisibleDescriptions(manifests: ToolManifest[]) {
+  const descriptions: string[] = [];
+
+  for (const manifest of manifests) {
+    descriptions.push(manifest.description, manifest.whenToUse, manifest.whenNotToUse);
+    for (const example of manifest.examples ?? []) {
+      descriptions.push(example.description);
+    }
+    collectSchemaDescriptions(manifest.inputJsonSchema, descriptions);
+    collectSchemaDescriptions(manifest.outputJsonSchema, descriptions);
+  }
+
+  return descriptions;
+}
+
+function collectSchemaDescriptions(value: JsonValue | undefined, descriptions: string[]) {
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectSchemaDescriptions(item, descriptions));
+    return;
+  }
+
+  if (!value || typeof value !== "object") {
+    return;
+  }
+
+  for (const [key, child] of Object.entries(value)) {
+    if (key === "description" && typeof child === "string") {
+      descriptions.push(child);
+      continue;
+    }
+    collectSchemaDescriptions(child as JsonValue, descriptions);
+  }
 }
 
 describe("agent-core ToolRegistry and manifest", () => {
@@ -203,5 +240,8 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(manifestJson).not.toContain("candidateSetId");
     expect(manifestJson).not.toContain("candidate_set");
     expect(manifestJson).not.toContain("\"handler\"");
+    expect(manifestJson).not.toContain("Query published exercise resources");
+    expect(manifestJson).not.toContain("Use when the user asks");
+    expect(collectModelVisibleDescriptions(manifests).every((text) => chineseDescriptionPattern.test(text))).toBe(true);
   });
 });

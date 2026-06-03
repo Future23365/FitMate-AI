@@ -14,9 +14,9 @@ function createRegistry() {
   registry.register(defineTool({
     name: "readOne",
     version: "0.1.0",
-    description: "Read one value.",
-    whenToUse: "Use in validator tests.",
-    whenNotToUse: "Do not use outside validator tests.",
+    description: "读取一个 validator 测试值。",
+    whenToUse: "仅在 validator 测试需要只读 tool 时使用。",
+    whenNotToUse: "不要在 validator 测试之外使用。",
     inputSchema: z.object({ id: z.string() }).strict(),
     outputSchema: z.object({ id: z.string() }).strict(),
     policy: {
@@ -29,9 +29,9 @@ function createRegistry() {
   registry.register(defineTool({
     name: "writeOne",
     version: "0.1.0",
-    description: "Write one value.",
-    whenToUse: "Use to prove M0 rejects write tools.",
-    whenNotToUse: "Do not execute in M0.",
+    description: "写入一个 validator 测试值。",
+    whenToUse: "仅用于证明 M0 会拒绝 write tool。",
+    whenNotToUse: "不要在 M0 中执行。",
     inputSchema: z.object({ id: z.string() }).strict(),
     outputSchema: z.object({ id: z.string() }).strict(),
     policy: {
@@ -49,9 +49,9 @@ function createM1ResourceRegistry() {
   registry.register(defineTool({
     name: "consumeResource",
     version: "0.1.0",
-    description: "Consume one fixture resource.",
-    whenToUse: "Use in M1 validator tests.",
-    whenNotToUse: "Do not use outside tests.",
+    description: "消费一个 fixture resource。",
+    whenToUse: "仅在 M1 validator 测试中使用。",
+    whenNotToUse: "不要在测试之外使用。",
     inputSchema: z.object({}).strict(),
     outputSchema: z.object({ ok: z.boolean() }).strict(),
     policy: {

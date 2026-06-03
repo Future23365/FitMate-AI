@@ -15,7 +15,7 @@ const readRecentExerciseRecommendationFactInputSchema = z.object({
   factRef: factRefSchema.optional().describe("只能从当前 run metadata.recentExerciseRecommendationFacts 中真实出现的 factRef 复制；没有真实值时不要编造。"),
   messageId: factRefSchema.optional().describe("只能从当前 run metadata.recentExerciseRecommendationFacts 中真实出现的上一轮 assistant messageId 复制；仅在缺少 factRef 时使用。"),
 }).strict().refine((input) => Boolean(input.factRef || input.messageId), {
-  message: "factRef or messageId is required.",
+  message: "必须提供 factRef 或 messageId。",
 });
 
 const displayedExerciseSummarySchema = z.object({
@@ -93,18 +93,18 @@ export const readRecentExerciseRecommendationFactTool = defineTool<
 >({
   name: "readRecentExerciseRecommendationFact",
   version: "0.1.0",
-  description: "Read/import a recent exercise recommendation fact that was previously projected to the current user in this conversation. The successful result can be used in the current run to avoid repeating displayed exercise ids.",
+  description: "读取并引入本会话中最近一次已经投影给当前用户的动作推荐事实。成功结果可在当前 run 中用于排除上一轮已展示的动作 id，避免重复推荐。",
   whenToUse: [
-    "Use only when run metadata.recentExerciseRecommendationFacts contains a real relevant factRef or messageId and the user asks for another batch, a refresh, or no repeated exercises.",
-    "Copy factRef/messageId exactly from run metadata.recentExerciseRecommendationFacts; never invent, guess, or reuse example placeholder values.",
-    "After a successful read, use fact.displayedExerciseIds as searchExerciseResources.excludeExerciseIds when querying another batch under the same structured filters.",
-    "This tool only reads facts for the current actor and current conversation; it also imports the fact into the current run as a consumable resource.",
+    "只有当 run metadata.recentExerciseRecommendationFacts 中存在真实相关的 factRef 或 messageId，且用户要求再来一批、刷新或不要重复动作时使用。",
+    "必须从 run metadata.recentExerciseRecommendationFacts 精确复制 factRef/messageId；不要编造、猜测或复用 example 占位值。",
+    "成功读取后，在相同结构化筛选条件下查询另一批动作时，把 fact.displayedExerciseIds 作为 searchExerciseResources.excludeExerciseIds。",
+    "该 tool 只读取当前 actor 和当前 conversation 的事实，并把该事实作为 consumable resource 引入当前 run。",
   ].join(" "),
   whenNotToUse: [
-    "Do not use when run metadata.recentExerciseRecommendationFacts is empty or does not contain a matching factRef/messageId; choose final_answer, ask_user, or another visible tool based on the user's request.",
-    "Do not use for semantic routing, saving new facts, querying the exercise library, generating routines or plans, user memory, or cross-conversation references.",
-    "Do not pass a userId or conversationId; the server derives both from the current actor and rejects inaccessible facts.",
-    "Failed results cannot support a successful final_answer and should only be used to explain inability or ask for clarification.",
+    "当 run metadata.recentExerciseRecommendationFacts 为空或不存在匹配的 factRef/messageId 时不要使用；应根据用户请求选择 final_answer、ask_user 或其他可见 tool。",
+    "不要用它做语义路由、保存新事实、查询动作库、生成 routine 或 plan、读写用户记忆，或跨 conversation 引用。",
+    "不要传入 userId 或 conversationId；服务端会从当前 actor 推导二者，并拒绝不可访问事实。",
+    "失败结果不能支撑成功 final_answer，只能用于解释无法读取或向用户澄清。",
   ].join(" "),
   inputSchema: readRecentExerciseRecommendationFactInputSchema,
   outputSchema: readRecentExerciseRecommendationFactOutputSchema,
@@ -125,7 +125,7 @@ export const readRecentExerciseRecommendationFactTool = defineTool<
   },
   examples: [
     {
-      description: "Read a real factRef copied from run metadata.recentExerciseRecommendationFacts before refreshing exercise results.",
+      description: "在刷新动作结果前，读取从 run metadata.recentExerciseRecommendationFacts 复制的真实 factRef。",
       input: { factRef: "fact_recent_01" },
     },
   ],
@@ -143,7 +143,7 @@ export const readRecentExerciseRecommendationFactTool = defineTool<
       return {
         status: "failed",
         code: factStoreReadFailedCode,
-        message: "Exercise recommendation fact store read failed.",
+        message: "动作推荐事实存储读取失败。",
       };
     }
 
