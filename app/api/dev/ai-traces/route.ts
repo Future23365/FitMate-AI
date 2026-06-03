@@ -14,6 +14,25 @@ type SaveAiTraceLogRequest = {
 
 type AiTraceSavedLogType = "trace" | "prompt";
 
+const traceLogSensitiveKeyPatterns = [
+  /^api[_-]?key$/i,
+  /^authorization$/i,
+  /^bearer$/i,
+  /^cookie$/i,
+  /^set-cookie$/i,
+  /^token$/i,
+  /access[_-]?token/i,
+  /refresh[_-]?token/i,
+  /auth[_-]?token/i,
+  /secret/i,
+  /password/i,
+  /credential/i,
+  /handler/i,
+  /database/i,
+  /^payload$/i,
+  /tool[_-]?output/i,
+];
+
 export async function GET(request: Request) {
   let currentUser;
 
@@ -164,7 +183,9 @@ function getLogFileHeader(logType: AiTraceSavedLogType) {
 // normalizeSavedLogPayload 在开发态保存入口兜底约束日志形状，避免窄问答记录混入 prompt 或 tool payload。
 export function normalizeSavedLogPayload(logType: AiTraceSavedLogType, payload: object) {
   if (logType === "trace") {
-    return redactJsonValue(payload) as object;
+    return redactJsonValue(payload, {
+      sensitiveKeyPatterns: traceLogSensitiveKeyPatterns,
+    }) as object;
   }
 
   const record = payload as Record<string, unknown>;

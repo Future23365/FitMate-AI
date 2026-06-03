@@ -26,6 +26,8 @@ export type TraceStepGroup = {
   placement: "main_flow" | "out_of_flow";
   status: AiTrace["status"];
   steps: AiTraceStep[];
+  summary: Array<{ label: string; value: string }>;
+  skipReason?: string;
   startedAt?: string;
   endedAt?: string;
   durationMs?: number;
@@ -37,7 +39,7 @@ type TokenUsage = {
   total_tokens?: number;
 };
 
-// AiTraceViewer 是开发态历史 trace 壳，只展示已记录步骤和原始 JSON，不再依赖旧 Agent runtime 字段。
+// AiTraceViewer 是开发态模块化 trace 壳，按 agent-core 职责边界展示可保存诊断。
 export function AiTraceViewer() {
   const [traces, setTraces] = useState<AiTrace[]>([]);
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
@@ -293,7 +295,7 @@ function TraceHero({
             <StatusBadge status={trace.status} />
           </div>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
-            当前页面只展示已经写入的历史步骤和 Raw JSON，不再要求运行时生产旧智能体事件。
+            当前页面按入口、Registry、Planner/ModelAdapter、Runtime、Policy/Resource、Response Renderer 和 Raw 诊断组织 trace。
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -318,12 +320,12 @@ function TraceHero({
 
       <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="接口路径" value={trace.route} description="本次 trace 关联的服务端入口。" />
-        <MetricCard label="流程阶段" value={`${groups.length} 个`} description="按普通步骤类型归并后的主要步骤。" />
+        <MetricCard label="架构模块" value={`${groups.length} 个`} description="按 agent-core 职责边界归并后的诊断模块。" />
         <MetricCard label="总耗时" value={formatDuration(trace.durationMs)} description="trace 从创建到结束的总耗时。" />
         <MetricCard
           label="Token"
           value={tokenUsage?.total_tokens ? formatNumber(tokenUsage.total_tokens) : "-"}
-          description="模型输入和输出 token 合计；无模型步骤时为空。"
+          description="模型供应商返回的真实 usage；预算估算在 Runtime 模块中单独展示。"
         />
       </div>
     </header>
@@ -369,16 +371,45 @@ function TraceFlowTimeline({ groups }: { groups: TraceStepGroup[] }) {
                   <span>{formatDuration(group.durationMs)}</span>
                 </div>
               </div>
+              <ModuleSummaryList group={group} />
             </div>
             <div className="divide-y divide-slate-100">
-              {group.steps.map((step, index) => (
-                <TraceStepCard index={index} key={step.id} step={step} />
-              ))}
+              {group.steps.length > 0 ? (
+                group.steps.map((step, index) => (
+                  <TraceStepCard index={index} key={step.id} step={step} />
+                ))
+              ) : (
+                <div className="p-4 text-sm text-slate-500">
+                  {group.skipReason ?? "这个模块没有记录步骤。"}
+                </div>
+              )}
             </div>
           </div>
         ))
       )}
     </section>
+  );
+}
+
+function ModuleSummaryList({ group }: { group: TraceStepGroup }) {
+  if (group.summary.length === 0 && !group.skipReason) {
+    return null;
+  }
+
+  return (
+    <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+      {group.summary.map((item) => (
+        <div className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2" key={`${group.id}:${item.label}`}>
+          <div className="text-[11px] font-medium text-slate-500">{item.label}</div>
+          <div className="mt-1 truncate text-sm font-semibold text-slate-900">{item.value}</div>
+        </div>
+      ))}
+      {group.summary.length === 0 && group.skipReason ? (
+        <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-500">
+          {group.skipReason}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -464,121 +495,265 @@ function StatusBadge({ status }: { status: AiTrace["status"] }) {
 }
 
 export function groupTraceSteps(steps: AiTraceStep[]): TraceStepGroup[] {
-  const groupMap = new Map<string, TraceStepGroup>();
+  const groupMap = new Map<string, TraceStepGroup>(
+    moduleDefinitions.map((definition) => [
+      definition.id,
+      {
+        ...definition,
+        status: "success" as const,
+        steps: [],
+        summary: [],
+      },
+    ]),
+  );
 
   for (const step of steps) {
-    const definition = getStepGroupDefinition(step.type);
-    const existing = groupMap.get(definition.id);
-    const group = existing ?? {
-      ...definition,
-      status: "success" as const,
-      steps: [],
-    };
+    const definition = getStepGroupDefinition(step);
+    const group = groupMap.get(definition.id);
 
+    if (!group) {
+      continue;
+    }
     group.steps.push(step);
-    group.status = deriveGroupStatus(group.steps);
-    group.startedAt = getMinDate(group.steps.map((item) => item.startedAt));
-    group.endedAt = getMaxDate(group.steps.map((item) => item.endedAt).filter(Boolean) as string[]);
-    group.durationMs = group.steps.reduce((sum, item) => sum + (item.durationMs ?? 0), 0);
-    groupMap.set(group.id, group);
   }
 
-  return Array.from(groupMap.values());
+  return Array.from(groupMap.values()).map((group) => ({
+    ...group,
+    status: deriveGroupStatus(group.steps),
+    startedAt: getMinDate(group.steps.map((item) => item.startedAt)),
+    endedAt: getMaxDate(group.steps.map((item) => item.endedAt).filter(Boolean) as string[]),
+    durationMs: group.steps.reduce((sum, item) => sum + (item.durationMs ?? 0), 0),
+    summary: createModuleSummary(group),
+    skipReason: createModuleSkipReason(group),
+  }));
 }
 
-function getStepGroupDefinition(type: AiTraceStep["type"]): Omit<TraceStepGroup, "status" | "steps" | "startedAt" | "endedAt" | "durationMs"> {
-  switch (type) {
+const moduleDefinitions: Array<Omit<TraceStepGroup, "status" | "steps" | "summary" | "skipReason" | "startedAt" | "endedAt" | "durationMs">> = [
+  {
+    id: "request_context",
+    title: "入口与上下文",
+    description: "请求输入、会话 hydration、用户身份和入口参数。",
+    placement: "main_flow",
+  },
+  {
+    id: "registry_manifest",
+    title: "ToolRegistry / Manifest",
+    description: "当前 run 暴露给 Planner 的 tool manifest 快照。",
+    placement: "main_flow",
+  },
+  {
+    id: "planner_model",
+    title: "Planner / ModelAdapter",
+    description: "LLM 请求配置、messages 摘要、模型响应、parsed action 和真实 token usage。",
+    placement: "main_flow",
+  },
+  {
+    id: "runtime_validation",
+    title: "Runtime / Validator",
+    description: "planner action、预算事件、结构校验、terminal grounding 和失败收口。",
+    placement: "main_flow",
+  },
+  {
+    id: "policy_resource",
+    title: "Policy / Resource",
+    description: "Policy Guard、confirmation 和 ResourceStore 相关事件。",
+    placement: "main_flow",
+  },
+  {
+    id: "response_rendering",
+    title: "Response Renderer",
+    description: "真实返回前端的 NDJSON 事件摘要。",
+    placement: "main_flow",
+  },
+  {
+    id: "errors_diagnostics",
+    title: "错误诊断",
+    description: "配置、模型、runtime 或响应写入阶段的失败边界。",
+    placement: "out_of_flow",
+  },
+  {
+    id: "raw_export",
+    title: "Raw / 导出",
+    description: "Raw trace、展开详情和保存全链路 log 的入口。",
+    placement: "out_of_flow",
+  },
+];
+
+const moduleDefinitionsById = Object.fromEntries(
+  moduleDefinitions.map((definition) => [definition.id, definition]),
+) as Record<string, Omit<TraceStepGroup, "status" | "steps" | "summary" | "skipReason" | "startedAt" | "endedAt" | "durationMs">>;
+
+function getStepGroupDefinition(step: AiTraceStep): Omit<TraceStepGroup, "status" | "steps" | "summary" | "skipReason" | "startedAt" | "endedAt" | "durationMs"> {
+  const runtimeEventType = readRuntimeEventType(step);
+
+  if (step.status === "failed" && step.type !== "model_response") {
+    return moduleDefinitionsById.errors_diagnostics;
+  }
+
+  switch (step.type) {
     case "user_input":
-      return {
-        id: "request_input",
-        title: "请求输入",
-        description: "用户请求、会话 hydration 和入口参数。",
-        placement: "main_flow",
-      };
+      return moduleDefinitionsById.request_context;
     case "model_request":
     case "model_response":
-      return {
-        id: "model_io",
-        title: "模型请求",
-        description: "历史模型请求和响应记录；当前运行时不要求生产这些步骤。",
-        placement: "main_flow",
-      };
+      return moduleDefinitionsById.planner_model;
     case "runtime_event":
-      return {
-        id: "runtime_events",
-        title: "Runtime 事件",
-        description: "agent-core 文本聊天运行时的安全摘要事件。",
-        placement: "main_flow",
-      };
-    case "reference_resolution":
-      return {
-        id: "reference_resolution",
-        title: "引用解析",
-        description: "结构化引用解析和资源定位。",
-        placement: "main_flow",
-      };
+      if (runtimeEventType === "registry_snapshot") {
+        return moduleDefinitionsById.registry_manifest;
+      }
+
+      if (
+        runtimeEventType === "policy_decision" ||
+        runtimeEventType === "resource_registered" ||
+        runtimeEventType === "confirmation_request" ||
+        runtimeEventType === "confirmation_resume"
+      ) {
+        return moduleDefinitionsById.policy_resource;
+      }
+
+      return moduleDefinitionsById.runtime_validation;
+    case "token_budget":
+    case "validation":
+    case "final_response":
+      return moduleDefinitionsById.runtime_validation;
     case "tool_decision":
     case "tool_call":
     case "rag_query":
     case "exercise_lookup":
     case "candidate_selection":
-      return {
-        id: "domain_lookup",
-        title: "领域查询",
-        description: "动作库、RAG、候选集合或其他非模型查询步骤。",
-        placement: "main_flow",
-      };
+    case "reference_resolution":
     case "patch_proposal":
-      return {
-        id: "patch_proposal",
-        title: "Patch 提出与应用",
-        description: "训练内容变更草案和应用步骤。",
-        placement: "main_flow",
-      };
-    case "validation":
-      return {
-        id: "validation",
-        title: "服务端校验",
-        description: "Schema、权限、训练内容或策略校验。",
-        placement: "main_flow",
-      };
     case "persistence":
-      return {
-        id: "persistence",
-        title: "持久化",
-        description: "数据库写入、读取和保存结果。",
-        placement: "main_flow",
-      };
+      return moduleDefinitionsById.runtime_validation;
     case "response_write":
-    case "final_response":
-      return {
-        id: "response_write",
-        title: "响应写入",
-        description: "用户可见响应和最终返回。",
-        placement: "main_flow",
-      };
-    case "token_budget":
-      return {
-        id: "token_budget",
-        title: "预算控制",
-        description: "历史 token 预算或请求预算记录。",
-        placement: "out_of_flow",
-      };
+      return moduleDefinitionsById.response_rendering;
     case "error":
-      return {
-        id: "error",
-        title: "异常处理",
-        description: "请求失败、校验失败或外部依赖错误。",
-        placement: "out_of_flow",
-      };
+      return moduleDefinitionsById.errors_diagnostics;
+    case "intent":
+      return moduleDefinitionsById.request_context;
     default:
-      return {
-        id: "other",
-        title: "其他步骤",
-        description: "未归类的历史步骤。",
-        placement: "out_of_flow",
-      };
+      return moduleDefinitionsById.raw_export;
   }
+}
+
+function createModuleSummary(group: TraceStepGroup): Array<{ label: string; value: string }> {
+  switch (group.id) {
+    case "request_context": {
+      const requestStep = group.steps.find((step) => step.type === "user_input");
+      const input = isRecord(requestStep?.input) ? requestStep.input : {};
+
+      return [
+        { label: "最新用户输入", value: readString(input.latestUserMessage) || "-" },
+        { label: "消息数", value: formatOptionalNumber(readNumber(input.messageCount)) },
+        { label: "会话", value: readString(input.conversationId) || "-" },
+        { label: "hydration", value: readNestedString(input.hydration, "source") || "-" },
+      ];
+    }
+    case "registry_manifest": {
+      const registryStep = group.steps.find((step) => readRuntimeEventType(step) === "registry_snapshot");
+      const output = isRecord(registryStep?.output) ? registryStep.output : {};
+      const toolCount = readNumber(output.toolCount) ?? readNestedNumber(group.steps[0]?.output, "registry", "toolCount");
+
+      return [
+        { label: "tool count", value: formatOptionalNumber(toolCount) },
+        { label: "manifestHash", value: readString(output.manifestHash) || "-" },
+        { label: "snapshotId", value: readString(output.snapshotId) || "-" },
+        { label: "业务 tool", value: toolCount === 0 ? "空 ToolRegistry" : "已注册 tool" },
+      ];
+    }
+    case "planner_model": {
+      const modelResponses = group.steps.filter((step) => step.type === "model_response");
+      const usage = sumTokenUsage(modelResponses);
+      const latestResponse = modelResponses.at(-1);
+      const latestOutput = isRecord(latestResponse?.output) ? latestResponse.output : {};
+      const estimatedBudget = summarizeEstimatedTokenBudget(group.steps);
+
+      return [
+        { label: "LLM 调用", value: `${modelResponses.length} 轮` },
+        { label: "真实 usage", value: usage ? formatTokenUsage(usage) : "无真实 usage" },
+        { label: "预算估算", value: estimatedBudget },
+        { label: "parse status", value: readString(latestOutput.parseStatus) || "未记录" },
+        { label: "failure code", value: readString(latestOutput.failureCode) || "-" },
+      ];
+    }
+    case "runtime_validation": {
+      const plannerAction = [...group.steps].reverse().find((step) => readRuntimeEventType(step) === "planner_action");
+      const validation = [...group.steps].reverse().find((step) => step.type === "validation" || readRuntimeEventType(step) === "validation_result");
+      const actionOutput = isRecord(plannerAction?.output) ? plannerAction.output : {};
+      const validationOutput = isRecord(validation?.output) ? validation.output : {};
+      const budgetEvents = group.steps.filter((step) => step.type === "token_budget" || readRuntimeEventType(step) === "budget_event");
+
+      return [
+        { label: "action type", value: readString(actionOutput.actionType) || "-" },
+        { label: "toolName", value: readString(actionOutput.toolName) || "-" },
+        { label: "validator", value: formatValidatorSummary(validationOutput) },
+        { label: "budget events", value: `${budgetEvents.length} 个` },
+      ];
+    }
+    case "policy_resource":
+      return [
+        { label: "policy", value: `${group.steps.filter((step) => readRuntimeEventType(step) === "policy_decision").length} 个` },
+        { label: "resource", value: `${group.steps.filter((step) => readRuntimeEventType(step) === "resource_registered").length} 个` },
+        { label: "confirmation", value: `${group.steps.filter((step) => readRuntimeEventType(step)?.startsWith("confirmation_")).length} 个` },
+      ];
+    case "response_rendering": {
+      const responseStep = group.steps.find((step) => step.type === "response_write");
+      const output = isRecord(responseStep?.output) ? responseStep.output : {};
+
+      return [
+        { label: "event types", value: formatEventTypes(output.eventTypes) || "-" },
+        { label: "done", value: output.done === true ? "true" : "false" },
+        { label: "suggestions", value: formatOptionalNumber(readNumber(output.suggestionCount)) },
+        { label: "error codes", value: formatEventTypes(output.errorCodes) || "-" },
+      ];
+    }
+    case "errors_diagnostics": {
+      const failedSteps = group.steps.filter((step) => step.status === "failed");
+
+      return [
+        { label: "failed steps", value: `${failedSteps.length} 个` },
+        { label: "latest code", value: readLatestErrorCode(group.steps) || "-" },
+      ];
+    }
+    case "raw_export":
+      return [
+        { label: "Raw JSON", value: "请求概览区域可展开" },
+        { label: "保存", value: "顶部按钮导出脱敏 payload" },
+      ];
+    default:
+      return [];
+  }
+}
+
+function createModuleSkipReason(group: TraceStepGroup) {
+  if (group.steps.length > 0) {
+    return undefined;
+  }
+
+  switch (group.id) {
+    case "planner_model":
+      return "未记录模型调用。Replay/Fake planner 或配置阶段失败可以没有 model_request/model_response。";
+    case "policy_resource":
+      return "本次 run 没有 Policy Guard、confirmation 或 ResourceStore 事件。";
+    case "errors_diagnostics":
+      return "本次 trace 没有单独错误步骤。";
+    case "raw_export":
+      return "Raw trace 和保存入口在页面顶部按钮及请求概览中提供。";
+    default:
+      return "这个模块没有记录步骤。";
+  }
+}
+
+function readRuntimeEventType(step: AiTraceStep) {
+  const metadata = isRecord(step.metadata) ? step.metadata : {};
+  const output = isRecord(step.output) ? step.output : {};
+  const metadataEventType = metadata.eventType;
+  const outputType = output.type;
+
+  return typeof metadataEventType === "string"
+    ? metadataEventType
+    : typeof outputType === "string"
+      ? outputType
+      : undefined;
 }
 
 function deriveGroupStatus(steps: AiTraceStep[]): AiTrace["status"] {
@@ -593,23 +768,13 @@ function deriveGroupStatus(steps: AiTraceStep[]): AiTrace["status"] {
 }
 
 function getTraceTokenUsage(trace: AiTrace): TokenUsage | null {
-  const usage = trace.steps.reduce<TokenUsage>((sum, step) => {
-    const metadataUsage = readTokenUsage(step.metadata?.tokenUsage);
-    const outputUsage = isRecord(step.output) ? readTokenUsage(step.output.usage) : null;
-    const usage = metadataUsage ?? outputUsage;
+  const metadataUsage = readTokenUsage(trace.metadata?.tokenUsageSummary);
 
-    if (!usage) {
-      return sum;
-    }
+  if (metadataUsage) {
+    return metadataUsage;
+  }
 
-    return {
-      prompt_tokens: (sum.prompt_tokens ?? 0) + (usage.prompt_tokens ?? 0),
-      completion_tokens: (sum.completion_tokens ?? 0) + (usage.completion_tokens ?? 0),
-      total_tokens: (sum.total_tokens ?? 0) + (usage.total_tokens ?? 0),
-    };
-  }, {});
-
-  return usage.prompt_tokens || usage.completion_tokens || usage.total_tokens ? usage : null;
+  return sumTokenUsage(trace.steps.filter((step) => step.type === "model_response"));
 }
 
 function readTokenUsage(value: unknown): TokenUsage | null {
@@ -624,10 +789,136 @@ function readTokenUsage(value: unknown): TokenUsage | null {
   };
 }
 
+function sumTokenUsage(steps: AiTraceStep[]): TokenUsage | null {
+  const usage = steps.reduce<TokenUsage>((sum, step) => {
+    const output = isRecord(step.output) ? step.output : {};
+    const stepUsage = readTokenUsage(output.tokenUsage) ?? readTokenUsage(step.metadata?.tokenUsage);
+
+    if (!stepUsage) {
+      return sum;
+    }
+
+    return {
+      prompt_tokens: (sum.prompt_tokens ?? 0) + (stepUsage.prompt_tokens ?? 0),
+      completion_tokens: (sum.completion_tokens ?? 0) + (stepUsage.completion_tokens ?? 0),
+      total_tokens: (sum.total_tokens ?? 0) + (stepUsage.total_tokens ?? 0),
+    };
+  }, {});
+
+  return usage.prompt_tokens || usage.completion_tokens || usage.total_tokens ? usage : null;
+}
+
+function summarizeEstimatedTokenBudget(steps: AiTraceStep[]) {
+  const events = steps
+    .map((step) => isRecord(step.output) ? step.output : {})
+    .filter((output) => output.budget === "estimated_tokens");
+  const latest = events.at(-1);
+
+  if (!latest) {
+    return "无预算估算事件";
+  }
+
+  return `${readString(latest.status) || "-"} ${formatOptionalNumber(readNumber(latest.used))}/${formatOptionalNumber(readNumber(latest.limit))}`;
+}
+
+function formatTokenUsage(usage: TokenUsage) {
+  return `P ${formatOptionalNumber(usage.prompt_tokens)} / C ${formatOptionalNumber(usage.completion_tokens)} / T ${formatOptionalNumber(usage.total_tokens)}`;
+}
+
+function formatValidatorSummary(output: Record<string, unknown>) {
+  if (Object.keys(output).length === 0) {
+    return "-";
+  }
+
+  return `${output.ok === true ? "ok" : "failed"}${typeof output.code === "string" ? `:${output.code}` : ""}`;
+}
+
+function formatEventTypes(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string").join(", ")
+    : "";
+}
+
+function readLatestErrorCode(steps: AiTraceStep[]) {
+  for (const step of [...steps].reverse()) {
+    const output = isRecord(step.output) ? step.output : {};
+    const error = isRecord(step.error) ? step.error : {};
+    const code = readString(output.code) ?? readString(output.failureCode) ?? readString(error.code);
+
+    if (code) {
+      return code;
+    }
+  }
+
+  return "";
+}
+
+function readPlannerModelCalls(trace: AiTrace) {
+  const calls = new Map<string, Record<string, unknown>>();
+
+  for (const step of trace.steps.filter((item) => item.type === "model_request" || item.type === "model_response")) {
+    const plannerCallIndex = readNumber(step.metadata?.plannerCallIndex);
+    const key = plannerCallIndex === undefined ? step.id : String(plannerCallIndex);
+    const existing = calls.get(key) ?? { plannerCallIndex };
+
+    if (step.type === "model_request") {
+      existing.request = {
+        id: step.id,
+        input: step.input,
+        output: step.output,
+        metadata: step.metadata,
+      };
+    } else {
+      existing.response = {
+        id: step.id,
+        status: step.status,
+        output: step.output,
+        metadata: step.metadata,
+      };
+    }
+
+    calls.set(key, existing);
+  }
+
+  return Array.from(calls.values());
+}
+
+function readTraceResponseSummary(trace: AiTrace) {
+  const responseStep = [...trace.steps].reverse().find((step) => step.type === "response_write");
+
+  return responseStep?.output ?? null;
+}
+
 export function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) {
+  const tokenUsageSummary = getTraceTokenUsage(trace);
+
   return {
     title: trace.title,
     savedFrom: "/dev/ai-traces",
+    moduleGroups: groups.map((group) => ({
+      id: group.id,
+      title: group.title,
+      description: group.description,
+      stepIds: group.steps.map((step) => step.id),
+      status: group.status,
+      durationMs: group.durationMs,
+      summary: group.summary,
+      skipReason: group.skipReason,
+    })),
+    plannerModelCalls: readPlannerModelCalls(trace),
+    tokenUsageSummary,
+    runtimeTraceEvents: trace.steps
+      .filter((step) => ["runtime_event", "validation", "token_budget", "final_response"].includes(step.type))
+      .map((step) => ({
+        id: step.id,
+        name: step.name,
+        type: step.type,
+        eventType: readRuntimeEventType(step),
+        output: step.output,
+        metadata: step.metadata,
+      })),
+    responseSummary: readTraceResponseSummary(trace),
+    rawTrace: trace,
     trace,
     groupedSteps: groups.map((group) => ({
       id: group.id,
@@ -740,8 +1031,28 @@ function formatNumber(value: number) {
   return new Intl.NumberFormat("zh-CN").format(value);
 }
 
+function formatOptionalNumber(value: number | undefined) {
+  return typeof value === "number" ? formatNumber(value) : "-";
+}
+
 function readNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" ? value : undefined;
+}
+
+function readNestedString(value: unknown, key: string) {
+  return isRecord(value) ? readString(value[key]) : undefined;
+}
+
+function readNestedNumber(value: unknown, parentKey: string, childKey: string) {
+  if (!isRecord(value) || !isRecord(value[parentKey])) {
+    return undefined;
+  }
+
+  return readNumber(value[parentKey][childKey]);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

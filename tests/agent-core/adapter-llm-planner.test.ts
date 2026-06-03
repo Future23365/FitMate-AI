@@ -68,6 +68,7 @@ describe("agent-planners LlmPlanner and model adapters", () => {
     expect(result.status).toBe("completed");
     expect(adapter.calls).toHaveLength(2);
     expect(planner.completions.map((completion) => completion.model)).toEqual(["fake-model-adapter", "fake-model-adapter"]);
+    expect(planner.getModelTraceEvents()).toEqual([]);
   });
 
   it("parses DeepSeek JSON action candidates through the adapter boundary", async () => {
@@ -96,7 +97,99 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       type: "final_answer",
       content: "deepseek parsed.",
     });
+    expect(completion.usage).toEqual({
+      prompt_tokens: 12,
+      completion_tokens: 4,
+      total_tokens: 16,
+    });
+    expect(completion.trace).toMatchObject({
+      provider: "deepseek",
+      adapterName: "deepseek-model-adapter",
+      parseStatus: "parsed",
+      actionType: "final_answer",
+      request: {
+        model: "deepseek-chat",
+        response_format: { type: "json_object" },
+        messageCount: 2,
+        run: {
+          runId: "run-deepseek-parse",
+          step: 1,
+          toolCount: 0,
+        },
+      },
+      response: {
+        model: "deepseek-chat",
+        status: "parsed",
+        rawTextLength: expect.any(Number),
+      },
+      parsedAction: {
+        type: "final_answer",
+        content: "deepseek parsed.",
+      },
+      tokenUsage: {
+        prompt_tokens: 12,
+        completion_tokens: 4,
+        total_tokens: 16,
+      },
+    });
+    expect(JSON.stringify(completion.trace)).not.toContain("test-key");
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("records invalid_json and invalid_action_schema diagnostics without sensitive request fields", async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(deepSeekResponse("not json"))
+      .mockResolvedValueOnce(deepSeekResponse(JSON.stringify({
+        type: "tool_call",
+        input: { query: "胸" },
+      })));
+    const adapter = new DeepSeekModelAdapter({
+      apiKey: "test-key",
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+
+    const invalidJson = await adapter.completeAction({
+      run: {
+        runId: "run-deepseek-invalid-json",
+        actor: {},
+        userInput: "Bearer secret-token-value",
+      },
+      step: 1,
+      manifests: [],
+      observations: [],
+      toolResults: [],
+    });
+    const invalidSchema = await adapter.completeAction({
+      run: {
+        runId: "run-deepseek-invalid-schema",
+        actor: {},
+        userInput: "answer",
+      },
+      step: 2,
+      manifests: [],
+      observations: [],
+      toolResults: [],
+    });
+
+    expect(invalidJson.trace).toMatchObject({
+      parseStatus: "invalid_json",
+      failureCode: "invalid_json",
+      response: {
+        status: "invalid_json",
+        rawText: "not json",
+      },
+    });
+    expect(invalidSchema.trace).toMatchObject({
+      parseStatus: "invalid_action_schema",
+      failureCode: "invalid_action_schema",
+      actionType: "tool_call",
+      parsedAction: {
+        type: "tool_call",
+        input: { query: "胸" },
+      },
+    });
+    expect(JSON.stringify(invalidJson.trace)).not.toContain("Bearer secret-token-value");
+    expect(JSON.stringify(invalidJson.trace)).not.toContain("test-key");
   });
 
   it("builds DeepSeek request body from the default Agent LLM prompt config", async () => {
@@ -218,5 +311,12 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       }),
     ]));
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(planner.getModelTraceEvents()).toHaveLength(2);
+    expect(planner.getModelTraceEvents()[0]).toMatchObject({
+      plannerCallIndex: 1,
+      runtimeStep: 1,
+      parseStatus: "invalid_json",
+      failureCode: "invalid_json",
+    });
   });
 });

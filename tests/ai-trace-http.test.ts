@@ -253,6 +253,14 @@ describe("AI trace store and HTTP request helpers", () => {
       payload: {
         title: "完整链路",
         apiKey: "sk-secret-value",
+        plannerModelCalls: [
+          {
+            plannerCallIndex: 1,
+            request: { model: "deepseek-chat" },
+            response: { tokenUsage: { prompt_tokens: 10, completion_tokens: 3, total_tokens: 13 } },
+          },
+        ],
+        tokenUsageSummary: { prompt_tokens: 10, completion_tokens: 3, total_tokens: 13 },
         trace: {
           route: "/api/chat",
           steps: [
@@ -264,6 +272,7 @@ describe("AI trace store and HTTP request helpers", () => {
           ],
         },
         groupedSteps: [{ id: "request_input", stepIds: ["step-1"] }],
+        rawTrace: { id: "trace-1", route: "/api/chat" },
       },
     }));
 
@@ -278,6 +287,10 @@ describe("AI trace store and HTTP request helpers", () => {
     expect(savedContent).not.toContain("sk-secret-value");
     expect(savedContent).not.toContain("Bearer secret-token");
     expect(savedContent).not.toContain("不要保存完整 payload");
+    expect(savedContent).toContain("plannerModelCalls");
+    expect(savedContent).toContain("tokenUsageSummary");
+    expect(savedContent).toContain("\"prompt_tokens\": 10");
+    expect(savedContent).toContain("rawTrace");
     expect(fsMocks.appendFile).not.toHaveBeenCalled();
   });
 

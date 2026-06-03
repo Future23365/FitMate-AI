@@ -143,6 +143,10 @@ describe("API route boundaries", () => {
           },
         },
       ],
+      usage: {
+        prompt_tokens: 20,
+        completion_tokens: 8,
+      },
     }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -176,8 +180,29 @@ describe("API route boundaries", () => {
       messageId: "assistant-1",
     }));
     expect(traceMocks.startAiTrace.mock.results[0].value.addStep).toHaveBeenCalledWith(expect.objectContaining({
+      type: "model_request",
+      output: expect.objectContaining({
+        plannerCallIndex: 1,
+        runtimeStep: 1,
+        model: "deepseek-chat",
+      }),
+    }));
+    expect(traceMocks.startAiTrace.mock.results[0].value.addStep).toHaveBeenCalledWith(expect.objectContaining({
+      type: "model_response",
+      status: "success",
+      output: expect.objectContaining({
+        parseStatus: "parsed",
+        actionType: "final_answer",
+        tokenUsage: { prompt_tokens: 20, completion_tokens: 8, total_tokens: 28 },
+      }),
+    }));
+    expect(traceMocks.startAiTrace.mock.results[0].value.addStep).toHaveBeenCalledWith(expect.objectContaining({
       type: "response_write",
       output: expect.objectContaining({ eventTypes: ["content", "done"] }),
+      metadata: expect.objectContaining({
+        plannerModelCallCount: 1,
+        tokenUsageSummary: { prompt_tokens: 20, completion_tokens: 8, total_tokens: 28 },
+      }),
     }));
   });
 

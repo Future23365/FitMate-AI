@@ -526,6 +526,16 @@ RulePlanner
 直接生成 NDJSON events
 ```
 
+Planner / ModelAdapter 观测要求：
+
+```txt
+PlannerPort 返回合同保持 AgentAction，不把 diagnostics 写进 core 主接口。
+LlmPlanner 可以在实例上保留可选模型调用诊断，供 production 接入层读取。
+ModelAdapter 负责生成供应商无关的安全 envelope：request config、messages 摘要、raw response 摘要、parsed action、parse status、failure code 和 token usage。
+诊断字段必须脱敏和截断，不记录 API key、authorization、cookie、完整敏感 payload 或完整 tool output。
+ReplayPlanner、RulePlanner 和测试用 Fake planner 不强制实现供应商诊断；缺失 diagnostics 只能显示为“未记录模型调用”，不能推断业务失败。
+```
+
 ---
 
 ## 11. AgentAction
@@ -950,6 +960,16 @@ Replay 要求：
 使用 ReplayPlanner 提供 action 序列
 可以复现 runtime、validator、policy、resource、renderer 行为
 trace 中不保存 secret、完整敏感 payload、数据库连接信息
+```
+
+开发态 trace debugger 展示边界：
+
+```txt
+/dev/ai-traces 按入口与上下文、ToolRegistry/Manifest、Planner/ModelAdapter、Runtime/Validator、Policy/Resource、Response Renderer、错误诊断和 Raw/导出分组。
+默认展示模块状态、关键 code/id、LLM 调用轮次、真实 token usage、预算估算、失败边界和用户可见响应摘要。
+完整 messages 摘要、raw model text 摘要、parsed action、runtime traceEvents 和 Raw trace 只放在展开区或保存全链路 log 中。
+保存全链路 log 必须继续脱敏；保存用户问答记录只能保留用户问题和最终文本回答。
+真实 token usage 来自 ModelAdapter / 模型供应商响应，runtime estimated_tokens 只代表调用前预算估算，两者不能混用。
 ```
 
 ---

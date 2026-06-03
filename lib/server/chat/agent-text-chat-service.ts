@@ -19,6 +19,7 @@ import { runAgentRuntime } from "@/lib/server/agent-core/runtime";
 import { ToolRegistry } from "@/lib/server/agent-core/tool-registry";
 import { LlmPlanner } from "@/lib/server/agent-planners/llm-planner";
 import { DeepSeekModelAdapter } from "@/lib/server/agent-planners/model-adapters/deepseek-model-adapter";
+import type { PlannerModelTraceEvent } from "@/lib/server/agent-planners/model-adapters/model-adapter";
 import type { PlannerPort } from "@/lib/server/agent-core/planner-port";
 import {
   startAiTrace,
@@ -134,6 +135,7 @@ export async function createAgentTextChatResponse(input: CreateAgentTextChatResp
 
     recordAgentTextChatRuntimeExceptionTrace({
       trace,
+      planner: plannerResult.planner,
       error: runtimeError,
       events,
     });
@@ -148,6 +150,7 @@ export async function createAgentTextChatResponse(input: CreateAgentTextChatResp
 
   recordAgentTextChatRuntimeResultTrace({
     trace,
+    planner: plannerResult.planner,
     result,
     registry,
     events,
@@ -407,10 +410,30 @@ function startAgentTextChatTrace(input: {
 // recordAgentTextChatRuntimeResultTrace 将 agent-core 的安全事件摘要投影到开发态 trace，不把 dev store 下沉进 runtime。
 function recordAgentTextChatRuntimeResultTrace(input: {
   trace: AiTraceLogger;
+  planner: PlannerPort;
   result: AgentRunResult;
   registry: ToolRegistry;
   events: AgentTextChatStreamEvent[];
 }) {
+  const modelDiagnostics = readPlannerModelTraceEvents(input.planner);
+  const tokenUsageSummary = summarizePlannerModelTokenUsage(modelDiagnostics);
+
+  recordAgentTextChatModelDiagnosticsTrace({
+    trace: input.trace,
+    diagnostics: modelDiagnostics,
+    result: input.result,
+  });
+
+  input.trace.update({
+    model: modelDiagnostics.find((diagnostic) => diagnostic.response?.model || diagnostic.request.model)?.response?.model
+      ?? modelDiagnostics.find((diagnostic) => diagnostic.request.model)?.request.model,
+    metadata: {
+      ...createAgentTextChatTraceBoundaryMetadata(input.registry),
+      plannerModelCallCount: modelDiagnostics.length,
+      tokenUsageSummary,
+    },
+  });
+
   for (const event of input.result.traceEvents) {
     input.trace.addStep({
       name: getRuntimeTraceEventLabel(event),
@@ -432,6 +455,8 @@ function recordAgentTextChatRuntimeResultTrace(input: {
       route: agentTextChatRoute,
       eventCount: input.events.length,
       source: "renderAgentResponseEvents",
+      plannerModelCallCount: modelDiagnostics.length,
+      tokenUsageSummary,
     },
   });
 
@@ -485,10 +510,17 @@ function recordAgentTextChatConfigFailureTrace(input: {
 
 function recordAgentTextChatRuntimeExceptionTrace(input: {
   trace: AiTraceLogger;
+  planner: PlannerPort;
   error: ToolError;
   events: AgentTextChatStreamEvent[];
 }) {
   const responseSummary = summarizeAgentTextChatResponseEvents(input.events);
+  const modelDiagnostics = readPlannerModelTraceEvents(input.planner);
+
+  recordAgentTextChatModelDiagnosticsTrace({
+    trace: input.trace,
+    diagnostics: modelDiagnostics,
+  });
 
   input.trace.addStep({
     name: "Runtime 异常",
@@ -514,6 +546,8 @@ function recordAgentTextChatRuntimeExceptionTrace(input: {
     metadata: {
       route: agentTextChatRoute,
       eventCount: input.events.length,
+      plannerModelCallCount: modelDiagnostics.length,
+      tokenUsageSummary: summarizePlannerModelTokenUsage(modelDiagnostics),
     },
   });
   input.trace.finish("failed", {
@@ -681,6 +715,147 @@ function summarizeRuntimeTraceEvent(event: AgentTraceEvent): unknown {
         usedResourceRefs: event.usedResourceRefs.map(summarizeResourceRef),
       };
   }
+}
+
+// recordAgentTextChatModelDiagnosticsTrace 把 LlmPlanner 的可选模型诊断投影进开发态 trace，失败不影响 NDJSON。
+function recordAgentTextChatModelDiagnosticsTrace(input: {
+  trace: AiTraceLogger;
+  diagnostics: readonly PlannerModelTraceEvent[];
+  result?: AgentRunResult;
+}) {
+  try {
+    for (const diagnostic of input.diagnostics) {
+      const runtimeLinkage = createPlannerRuntimeLinkage(diagnostic, input.result);
+
+      input.trace.addStep({
+        name: `模型请求 #${diagnostic.plannerCallIndex}`,
+        type: "model_request",
+        input: diagnostic.request,
+        output: {
+          provider: diagnostic.provider,
+          adapterName: diagnostic.adapterName,
+          model: diagnostic.request.model,
+          plannerCallIndex: diagnostic.plannerCallIndex,
+          runtimeStep: diagnostic.runtimeStep,
+          messageCount: diagnostic.request.messageCount,
+          toolCount: diagnostic.request.run.toolCount,
+          observationCount: diagnostic.request.run.observationCount,
+          toolResultCount: diagnostic.request.run.toolResultCount,
+        },
+        metadata: {
+          pipeline: "agent-core-text-chat",
+          boundary: "planner_model_adapter",
+          runId: diagnostic.runId,
+          plannerCallIndex: diagnostic.plannerCallIndex,
+          runtimeStep: diagnostic.runtimeStep,
+          response_format: diagnostic.request.response_format,
+          tokenUsage: diagnostic.tokenUsage,
+          runtimeLinkage,
+        },
+      });
+
+      input.trace.addStep({
+        name: `模型响应 #${diagnostic.plannerCallIndex}`,
+        type: "model_response",
+        status: diagnostic.parseStatus === "parsed" ? "success" : "failed",
+        output: {
+          provider: diagnostic.provider,
+          adapterName: diagnostic.adapterName,
+          model: diagnostic.response?.model ?? diagnostic.request.model,
+          httpStatus: diagnostic.response?.httpStatus,
+          parseStatus: diagnostic.parseStatus,
+          failureCode: diagnostic.failureCode,
+          actionType: diagnostic.actionType,
+          toolName: diagnostic.toolName,
+          rawText: diagnostic.response?.rawText,
+          rawTextLength: diagnostic.response?.rawTextLength,
+          rawResponse: diagnostic.response?.rawResponse,
+          parsedAction: diagnostic.parsedAction,
+          tokenUsage: diagnostic.tokenUsage,
+          diagnostics: diagnostic.diagnostics,
+          runtimeLinkage,
+        },
+        metadata: {
+          pipeline: "agent-core-text-chat",
+          boundary: "planner_model_adapter",
+          runId: diagnostic.runId,
+          plannerCallIndex: diagnostic.plannerCallIndex,
+          runtimeStep: diagnostic.runtimeStep,
+          parseStatus: diagnostic.parseStatus,
+          failureCode: diagnostic.failureCode,
+          tokenUsage: diagnostic.tokenUsage,
+          runtimeLinkage,
+        },
+      });
+    }
+  } catch (error) {
+    console.warn("[agent-text-chat-trace] model_diagnostics_write_failed", {
+      detail: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
+function readPlannerModelTraceEvents(planner: PlannerPort): readonly PlannerModelTraceEvent[] {
+  const diagnosticPlanner = planner as PlannerPort & {
+    getModelTraceEvents?: () => readonly PlannerModelTraceEvent[];
+  };
+
+  try {
+    return diagnosticPlanner.getModelTraceEvents?.() ?? [];
+  } catch (error) {
+    console.warn("[agent-text-chat-trace] model_diagnostics_read_failed", {
+      detail: error instanceof Error ? error.message : error,
+    });
+    return [];
+  }
+}
+
+function createPlannerRuntimeLinkage(
+  diagnostic: PlannerModelTraceEvent,
+  result: AgentRunResult | undefined,
+) {
+  const validation = result?.traceEvents.find((event) => (
+    event.type === "validation_result" && event.step === diagnostic.runtimeStep
+  ));
+  const plannerAction = result?.traceEvents.find((event) => (
+    event.type === "planner_action" && event.step === diagnostic.runtimeStep
+  ));
+  const estimatedTokenBudget = result?.traceEvents.find((event) => (
+    event.type === "budget_event" &&
+    event.budget === "estimated_tokens" &&
+    event.step === diagnostic.runtimeStep
+  ));
+
+  return {
+    runId: diagnostic.runId,
+    plannerCallIndex: diagnostic.plannerCallIndex,
+    runtimeStep: diagnostic.runtimeStep,
+    actionType: diagnostic.actionType ?? (plannerAction?.type === "planner_action" ? plannerAction.actionType : undefined),
+    toolName: diagnostic.toolName ?? (plannerAction?.type === "planner_action" ? plannerAction.toolName : undefined),
+    validation: validation?.type === "validation_result"
+      ? {
+          ok: validation.ok,
+          code: validation.code,
+        }
+      : undefined,
+    estimatedTokenBudget,
+    terminalStatus: result?.status,
+    terminalActionType: result?.terminalAction?.type,
+    terminalErrorCode: result?.terminalError?.code,
+  };
+}
+
+function summarizePlannerModelTokenUsage(diagnostics: readonly PlannerModelTraceEvent[]) {
+  const summary = diagnostics.reduce(
+    (sum, diagnostic) => ({
+      prompt_tokens: sum.prompt_tokens + (diagnostic.tokenUsage?.prompt_tokens ?? 0),
+      completion_tokens: sum.completion_tokens + (diagnostic.tokenUsage?.completion_tokens ?? 0),
+      total_tokens: sum.total_tokens + (diagnostic.tokenUsage?.total_tokens ?? 0),
+    }),
+    { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+  );
+
+  return summary.prompt_tokens || summary.completion_tokens || summary.total_tokens ? summary : undefined;
 }
 
 function summarizeResourceRef(resource: AgentResourceRef): unknown {

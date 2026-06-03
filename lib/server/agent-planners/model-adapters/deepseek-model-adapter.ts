@@ -1,12 +1,16 @@
 import { AgentActionSchema } from "@/lib/server/agent-core/contracts";
 import { stableStringify } from "@/lib/server/agent-core/canonical-json";
+import { redactJsonValue } from "@/lib/server/agent-core/redaction";
 import type { JsonValue } from "@/lib/server/agent-core/contracts";
 
 import {
   createInvalidModelActionCandidate,
   ModelAdapterError,
+  normalizeModelTokenUsage,
+  type ModelActionCompletionParseStatus,
   type ModelActionCompletionInput,
   type ModelActionCompletionResult,
+  type ModelActionCompletionTrace,
   type ModelAdapter,
 } from "./model-adapter";
 import {
@@ -38,8 +42,17 @@ type DeepSeekChatResponse = {
   usage?: JsonValue;
 };
 
+type DeepSeekRequestBody = {
+  model: string;
+  temperature: number;
+  max_tokens: number;
+  response_format: { type: "json_object" };
+  messages: Array<{ role: string; content: string }>;
+};
+
 const DEFAULT_DEEPSEEK_ENDPOINT = "https://api.deepseek.com/chat/completions";
 const DEFAULT_DEEPSEEK_MODEL = "deepseek-chat";
+const maxModelTraceStringLength = 800;
 
 /** DeepSeekModelAdapter 封装 DeepSeek 请求、模型参数、结构化输出解析和错误归一化。 */
 export class DeepSeekModelAdapter implements ModelAdapter {
@@ -72,6 +85,8 @@ export class DeepSeekModelAdapter implements ModelAdapter {
   async completeAction(input: ModelActionCompletionInput): Promise<ModelActionCompletionResult> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    const requestBody = this.createRequestBody(input);
+    const requestTrace = this.createRequestTrace(input, requestBody);
 
     try {
       const response = await this.fetchImpl(this.endpoint, {
@@ -80,65 +95,182 @@ export class DeepSeekModelAdapter implements ModelAdapter {
           Authorization: `Bearer ${this.apiKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(this.createRequestBody(input)),
+        body: JSON.stringify(requestBody),
         signal: controller.signal,
       });
 
       if (!response.ok) {
+        const responseText = await safeReadResponseText(response);
+        const actionCandidate = createInvalidModelActionCandidate("deepseek_http_error", {
+          status: response.status,
+        });
+
         return {
-          actionCandidate: createInvalidModelActionCandidate("deepseek_http_error", {
-            status: response.status,
-          }),
+          actionCandidate,
           model: this.model,
+          diagnostics: safeTraceValue({ status: response.status }),
+          trace: this.createCompletionTrace({
+            request: requestTrace,
+            response: {
+              model: this.model,
+              httpStatus: response.status,
+              status: "http_error",
+              rawText: responseText ? summarizeText(responseText) : undefined,
+              rawTextLength: responseText?.length,
+            },
+            actionCandidate,
+            parseStatus: "http_error",
+            failureCode: "deepseek_http_error",
+            diagnostics: { status: response.status },
+          }),
         };
       }
 
       const payload = await response.json() as DeepSeekChatResponse;
       const content = payload.choices?.[0]?.message?.content;
+      const model = payload.model ?? this.model;
+      const usage = normalizeModelTokenUsage(payload.usage);
       if (!content) {
+        const actionCandidate = createInvalidModelActionCandidate("deepseek_empty_content");
+
         return {
-          actionCandidate: createInvalidModelActionCandidate("deepseek_empty_content"),
-          model: payload.model ?? this.model,
-          usage: payload.usage,
+          actionCandidate,
+          model,
+          usage,
+          trace: this.createCompletionTrace({
+            request: requestTrace,
+            response: {
+              model,
+              httpStatus: response.status,
+              status: "empty_content",
+              rawResponse: summarizeDeepSeekPayload(payload),
+            },
+            actionCandidate,
+            parseStatus: "empty_content",
+            failureCode: "deepseek_empty_content",
+            tokenUsage: usage,
+          }),
         };
       }
 
       const parsed = parseJsonObject(content);
       if (!parsed.ok) {
+        const actionCandidate = createInvalidModelActionCandidate("invalid_json", { message: parsed.message });
+
         return {
-          actionCandidate: createInvalidModelActionCandidate("invalid_json", { message: parsed.message }),
+          actionCandidate,
           rawText: content,
-          model: payload.model ?? this.model,
-          usage: payload.usage,
+          model,
+          usage,
+          diagnostics: safeTraceValue({ message: parsed.message }),
+          trace: this.createCompletionTrace({
+            request: requestTrace,
+            response: {
+              model,
+              httpStatus: response.status,
+              status: "invalid_json",
+              rawText: summarizeText(content),
+              rawTextLength: content.length,
+              rawResponse: summarizeDeepSeekPayload(payload),
+            },
+            actionCandidate,
+            parseStatus: "invalid_json",
+            failureCode: "invalid_json",
+            tokenUsage: usage,
+            diagnostics: { message: parsed.message },
+          }),
         };
       }
 
       const actionResult = AgentActionSchema.safeParse(parsed.value);
+      const actionCandidate = actionResult.success
+        ? actionResult.data
+        : createInvalidModelActionCandidate("invalid_action_schema", {
+            issues: actionResult.error.issues.map((issue) => ({
+              path: issue.path.join("."),
+              message: issue.message,
+            })),
+          });
+      const parseStatus: ModelActionCompletionParseStatus = actionResult.success
+        ? "parsed"
+        : "invalid_action_schema";
+      const diagnostics = actionResult.success
+        ? undefined
+        : {
+            issues: actionResult.error.issues.map((issue) => ({
+              path: issue.path.join("."),
+              message: issue.message,
+            })),
+          };
+
       return {
-        actionCandidate: actionResult.success
-          ? actionResult.data
-          : createInvalidModelActionCandidate("invalid_action_schema", {
-              issues: actionResult.error.issues.map((issue) => ({
-                path: issue.path.join("."),
-                message: issue.message,
-              })),
-            }),
+        actionCandidate,
         rawText: content,
-        model: payload.model ?? this.model,
-        usage: payload.usage,
+        model,
+        usage,
+        diagnostics: diagnostics ? safeTraceValue(diagnostics) : undefined,
+        trace: this.createCompletionTrace({
+          request: requestTrace,
+          response: {
+            model,
+            httpStatus: response.status,
+            status: parseStatus,
+            rawText: summarizeText(content),
+            rawTextLength: content.length,
+            rawResponse: summarizeDeepSeekPayload(payload),
+          },
+          actionCandidate,
+          parsedAction: parsed.value,
+          parseStatus,
+          failureCode: actionResult.success ? undefined : "invalid_action_schema",
+          tokenUsage: usage,
+          diagnostics,
+        }),
       };
     } catch (error) {
       if ((error as { name?: string }).name === "AbortError") {
-        throw new ModelAdapterError("DeepSeek request timed out.", { timeoutMs: this.timeoutMs });
+        throw new ModelAdapterError(
+          "DeepSeek request timed out.",
+          { timeoutMs: this.timeoutMs },
+          this.createCompletionTrace({
+            request: requestTrace,
+            response: {
+              model: this.model,
+              status: "timeout",
+            },
+            actionCandidate: createInvalidModelActionCandidate("timeout"),
+            parseStatus: "timeout",
+            failureCode: "timeout",
+            diagnostics: { timeoutMs: this.timeoutMs },
+          }),
+        );
       }
 
-      throw new ModelAdapterError("DeepSeek request failed before returning an action candidate.");
+      throw new ModelAdapterError(
+        "DeepSeek request failed before returning an action candidate.",
+        {
+          cause: error instanceof Error ? error.message : String(error),
+        },
+        this.createCompletionTrace({
+          request: requestTrace,
+          response: {
+            model: this.model,
+            status: "adapter_exception",
+          },
+          actionCandidate: createInvalidModelActionCandidate("adapter_exception"),
+          parseStatus: "adapter_exception",
+          failureCode: "adapter_exception",
+          diagnostics: {
+            cause: error instanceof Error ? error.message : String(error),
+          },
+        }),
+      );
     } finally {
       clearTimeout(timeout);
     }
   }
 
-  private createRequestBody(input: ModelActionCompletionInput) {
+  private createRequestBody(input: ModelActionCompletionInput): DeepSeekRequestBody {
     return {
       model: this.model,
       temperature: this.temperature,
@@ -165,6 +297,64 @@ export class DeepSeekModelAdapter implements ModelAdapter {
           }),
         },
       ],
+    };
+  }
+
+  private createRequestTrace(
+    input: ModelActionCompletionInput,
+    requestBody: DeepSeekRequestBody,
+  ): ModelActionCompletionTrace["request"] {
+    return {
+      model: requestBody.model,
+      endpoint: this.endpoint,
+      temperature: requestBody.temperature,
+      max_tokens: requestBody.max_tokens,
+      response_format: requestBody.response_format,
+      timeoutMs: this.timeoutMs,
+      messageCount: requestBody.messages.length,
+      messages: requestBody.messages.map((message) => ({
+        role: message.role,
+        content: summarizeText(message.content),
+        contentLength: message.content.length,
+      })),
+      run: {
+        runId: input.run.runId,
+        step: input.step,
+        latestUserMessage: summarizeText(input.run.userInput),
+        messageCount: input.run.messages?.length ?? 0,
+        observationCount: input.observations.length,
+        toolResultCount: input.toolResults.length,
+        toolCount: input.manifests.length,
+        toolNames: input.manifests.map((manifest) => manifest.name),
+        limits: safeTraceValue(input.run.limits ?? {}),
+      },
+    };
+  }
+
+  private createCompletionTrace(input: {
+    request: ModelActionCompletionTrace["request"];
+    response?: ModelActionCompletionTrace["response"];
+    actionCandidate: unknown;
+    parsedAction?: unknown;
+    parseStatus: ModelActionCompletionParseStatus;
+    failureCode?: string;
+    tokenUsage?: ModelActionCompletionTrace["tokenUsage"];
+    diagnostics?: unknown;
+  }): ModelActionCompletionTrace {
+    const actionSource = input.parsedAction ?? input.actionCandidate;
+
+    return {
+      provider: "deepseek",
+      adapterName: this.name,
+      request: input.request,
+      response: input.response,
+      parsedAction: input.parsedAction === undefined ? undefined : safeTraceValue(input.parsedAction),
+      actionType: readActionType(actionSource),
+      toolName: readToolName(actionSource),
+      parseStatus: input.parseStatus,
+      failureCode: input.failureCode,
+      tokenUsage: input.tokenUsage,
+      diagnostics: input.diagnostics === undefined ? undefined : safeTraceValue(input.diagnostics),
     };
   }
 }
@@ -199,4 +389,41 @@ function parseJsonObject(content: string): { ok: true; value: unknown } | { ok: 
 
     return { ok: false, message: (error as Error).message };
   }
+}
+
+async function safeReadResponseText(response: Response) {
+  try {
+    return await response.text();
+  } catch {
+    return undefined;
+  }
+}
+
+function summarizeDeepSeekPayload(payload: DeepSeekChatResponse): JsonValue {
+  return safeTraceValue({
+    model: payload.model,
+    choiceCount: payload.choices?.length ?? 0,
+    hasContent: Boolean(payload.choices?.[0]?.message?.content),
+    usage: normalizeModelTokenUsage(payload.usage),
+  });
+}
+
+function safeTraceValue(value: unknown): JsonValue {
+  return redactJsonValue(value, { maxStringLength: maxModelTraceStringLength });
+}
+
+function summarizeText(value: string): JsonValue {
+  return safeTraceValue(value);
+}
+
+function readActionType(action: unknown) {
+  return isRecord(action) && typeof action.type === "string" ? action.type : undefined;
+}
+
+function readToolName(action: unknown) {
+  return isRecord(action) && typeof action.toolName === "string" ? action.toolName : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

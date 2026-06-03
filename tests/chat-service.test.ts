@@ -9,7 +9,17 @@ import {
   createProductionAgentTextChatPlanner,
 } from "@/lib/server/chat/agent-text-chat-service";
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
+import type { JsonValue } from "@/lib/server/agent-core/contracts";
 import { ReplayPlanner } from "@/lib/server/agent-planners/replay-planner";
+import { LlmPlanner } from "@/lib/server/agent-planners/llm-planner";
+import {
+  createInvalidModelActionCandidate,
+  type ModelActionCompletionInput,
+  type ModelActionCompletionParseStatus,
+  type ModelActionCompletionResult,
+  type ModelAdapter,
+  type ModelTokenUsage,
+} from "@/lib/server/agent-planners/model-adapters/model-adapter";
 import { clearAiTraces, listAiTracesForUser } from "@/lib/server/dev/ai-trace-store";
 import { createChatConversation } from "./fixtures/domain";
 
@@ -17,6 +27,85 @@ async function readNdjsonEvents(response: Response) {
   const text = await response.text();
 
   return text.trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
+type TraceAdapterCandidate = {
+  actionCandidate: unknown;
+  parsedAction?: unknown;
+  parseStatus?: ModelActionCompletionParseStatus;
+  failureCode?: string;
+  tokenUsage?: ModelTokenUsage;
+};
+
+class TraceModelAdapter implements ModelAdapter {
+  readonly name = "trace-model-adapter";
+  readonly calls: ModelActionCompletionInput[] = [];
+  private cursor = 0;
+
+  constructor(private readonly candidates: TraceAdapterCandidate[]) {}
+
+  async completeAction(input: ModelActionCompletionInput): Promise<ModelActionCompletionResult> {
+    this.calls.push(input);
+    const candidate = this.candidates[this.cursor];
+    this.cursor += 1;
+
+    if (!candidate) {
+      throw new Error("TraceModelAdapter exhausted.");
+    }
+
+    const parseStatus = candidate.parseStatus ?? "parsed";
+    const tokenUsage = candidate.tokenUsage ?? {
+      prompt_tokens: 7,
+      completion_tokens: 3,
+      total_tokens: 10,
+    };
+    const actionSource = candidate.parsedAction ?? candidate.actionCandidate;
+
+    return {
+      actionCandidate: candidate.actionCandidate,
+      model: "trace-test-model",
+      usage: tokenUsage,
+      trace: {
+        provider: "test",
+        adapterName: this.name,
+        request: {
+          model: "trace-test-model",
+          response_format: { type: "json_object" },
+          messageCount: 1,
+          messages: [
+            {
+              role: "user",
+              content: input.run.userInput,
+              contentLength: input.run.userInput.length,
+            },
+          ],
+          run: {
+            runId: input.run.runId,
+            step: input.step,
+            latestUserMessage: input.run.userInput,
+            messageCount: input.run.messages?.length ?? 0,
+            observationCount: input.observations.length,
+            toolResultCount: input.toolResults.length,
+            toolCount: input.manifests.length,
+            toolNames: input.manifests.map((manifest) => manifest.name),
+            limits: input.run.limits ?? {},
+          },
+        },
+        response: {
+          model: "trace-test-model",
+          status: parseStatus,
+          rawText: JSON.stringify(candidate.parsedAction ?? candidate.actionCandidate),
+          rawTextLength: JSON.stringify(candidate.parsedAction ?? candidate.actionCandidate).length,
+        },
+        parsedAction: toJsonValue(candidate.parsedAction ?? candidate.actionCandidate),
+        actionType: readActionType(actionSource),
+        toolName: readToolName(actionSource),
+        parseStatus,
+        failureCode: candidate.failureCode,
+        tokenUsage,
+      },
+    };
+  }
 }
 
 describe("chat service agent text flow boundary", () => {
@@ -125,17 +214,81 @@ describe("chat service agent text flow boundary", () => {
     });
   });
 
+  it("writes model_request and model_response trace steps for final_answer model calls", async () => {
+    const prepared = prepareChatRequest({
+      latestUserMessage: "今天练胸",
+      conversationSummary: "",
+    });
+    const planner = createTracePlanner([
+      {
+        actionCandidate: { type: "final_answer", content: "可以，今天先做轻量胸部训练。" },
+      },
+    ]);
+    const response = await createAgentTextChatResponse({
+      request: prepared,
+      currentUser: { id: "user-1" },
+      planner,
+    });
+
+    await expect(readNdjsonEvents(response)).resolves.toEqual([
+      { type: "content", content: "可以，今天先做轻量胸部训练。" },
+      { type: "done" },
+    ]);
+    expect(listAiTracesForUser("user-1")[0]).toMatchObject({
+      model: "trace-test-model",
+      metadata: expect.objectContaining({
+        plannerModelCallCount: 1,
+        tokenUsageSummary: { prompt_tokens: 7, completion_tokens: 3, total_tokens: 10 },
+      }),
+      steps: expect.arrayContaining([
+        expect.objectContaining({
+          type: "model_request",
+          output: expect.objectContaining({
+            plannerCallIndex: 1,
+            runtimeStep: 1,
+            model: "trace-test-model",
+          }),
+        }),
+        expect.objectContaining({
+          type: "model_response",
+          status: "success",
+          output: expect.objectContaining({
+            parseStatus: "parsed",
+            actionType: "final_answer",
+            tokenUsage: { prompt_tokens: 7, completion_tokens: 3, total_tokens: 10 },
+            runtimeLinkage: expect.objectContaining({
+              plannerCallIndex: 1,
+              runtimeStep: 1,
+              validation: { ok: true },
+              terminalStatus: "completed",
+            }),
+          }),
+        }),
+        expect.objectContaining({
+          type: "response_write",
+          metadata: expect.objectContaining({
+            plannerModelCallCount: 1,
+            tokenUsageSummary: { prompt_tokens: 7, completion_tokens: 3, total_tokens: 10 },
+          }),
+        }),
+      ]),
+    });
+  });
+
   it("projects ask_user into clarification content and assistant_suggestions", async () => {
     const prepared = prepareChatRequest({
       latestUserMessage: "帮我安排训练",
       conversationSummary: "",
     });
+    const planner = createTracePlanner([
+      {
+        actionCandidate: { type: "ask_user", question: "你今天有多少时间？", suggestions: ["20 分钟", "40 分钟"] },
+      },
+    ]);
     const response = await createAgentTextChatResponse({
       request: prepared,
       currentUser: { id: "user-1" },
-      planner: new ReplayPlanner([
-        { type: "ask_user", question: "你今天有多少时间？", suggestions: ["20 分钟", "40 分钟"] },
-      ]),
+      planner,
     });
 
     await expect(readNdjsonEvents(response)).resolves.toEqual([
@@ -151,6 +304,10 @@ describe("chat service agent text flow boundary", () => {
         responseType: "ask_user",
       },
       steps: expect.arrayContaining([
+        expect.objectContaining({
+          type: "model_response",
+          output: expect.objectContaining({ actionType: "ask_user", parseStatus: "parsed" }),
+        }),
         expect.objectContaining({
           type: "response_write",
           output: expect.objectContaining({
@@ -224,9 +381,9 @@ describe("chat service agent text flow boundary", () => {
   });
 
   it("projects repeated empty-registry tool_call failures as a safe unsupported response", async () => {
-    const planner = new ReplayPlanner([
-      { type: "tool_call", toolName: "searchExercises", input: { query: "胸" } },
-      { type: "tool_call", toolName: "searchExercises", input: { query: "胸" } },
+    const planner = createTracePlanner([
+      { actionCandidate: { type: "tool_call", toolName: "searchExercises", input: { query: "胸" } } },
+      { actionCandidate: { type: "tool_call", toolName: "searchExercises", input: { query: "胸" } } },
     ]);
     const response = await createAgentTextChatResponse({
       request: prepareChatRequest({ latestUserMessage: "推荐胸部动作", conversationSummary: "" }),
@@ -259,6 +416,20 @@ describe("chat service agent text flow boundary", () => {
       },
       steps: expect.arrayContaining([
         expect.objectContaining({
+          type: "model_request",
+          output: expect.objectContaining({ plannerCallIndex: 1, runtimeStep: 1 }),
+        }),
+        expect.objectContaining({
+          type: "model_response",
+          output: expect.objectContaining({
+            actionType: "tool_call",
+            toolName: "searchExercises",
+            runtimeLinkage: expect.objectContaining({
+              validation: { ok: false, code: AGENT_ERROR_CODES.UNKNOWN_TOOL },
+            }),
+          }),
+        }),
+        expect.objectContaining({
           type: "validation",
           output: expect.objectContaining({ ok: false, code: AGENT_ERROR_CODES.UNKNOWN_TOOL }),
         }),
@@ -272,4 +443,76 @@ describe("chat service agent text flow boundary", () => {
       ]),
     });
   });
+
+  it("writes model diagnostics when model parsing fails before a valid action", async () => {
+    const invalidAction = createInvalidModelActionCandidate("invalid_json", { message: "Unexpected token" });
+    const planner = createTracePlanner([
+      {
+        actionCandidate: invalidAction,
+        parsedAction: undefined,
+        parseStatus: "invalid_json",
+        failureCode: "invalid_json",
+      },
+      {
+        actionCandidate: invalidAction,
+        parsedAction: undefined,
+        parseStatus: "invalid_json",
+        failureCode: "invalid_json",
+      },
+    ]);
+    const response = await createAgentTextChatResponse({
+      request: prepareChatRequest({ latestUserMessage: "你好", conversationSummary: "" }),
+      currentUser: { id: "user-1" },
+      planner,
+    });
+    const events = await readNdjsonEvents(response);
+
+    expect(events).toEqual([
+      {
+        type: "error",
+        error: expect.objectContaining({
+          code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
+          message: "聊天生成失败，请稍后重试。",
+        }),
+      },
+      { type: "done" },
+    ]);
+    expect(listAiTracesForUser("user-1")[0]).toMatchObject({
+      status: "failed",
+      steps: expect.arrayContaining([
+        expect.objectContaining({
+          type: "model_response",
+          status: "failed",
+          output: expect.objectContaining({
+            parseStatus: "invalid_json",
+            failureCode: "invalid_json",
+            runtimeLinkage: expect.objectContaining({
+              terminalStatus: "failed",
+              terminalErrorCode: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
+            }),
+          }),
+        }),
+      ]),
+    });
+  });
 });
+
+function createTracePlanner(candidates: TraceAdapterCandidate[]) {
+  return new LlmPlanner(new TraceModelAdapter(candidates));
+}
+
+function readActionType(action: unknown) {
+  return isRecord(action) && typeof action.type === "string" ? action.type : undefined;
+}
+
+function readToolName(action: unknown) {
+  return isRecord(action) && typeof action.toolName === "string" ? action.toolName : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function toJsonValue(value: unknown): JsonValue {
+  return JSON.parse(JSON.stringify(value)) as JsonValue;
+}
