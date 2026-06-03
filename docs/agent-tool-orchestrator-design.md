@@ -1378,3 +1378,73 @@ ToolRegistry -> manifest linter -> registry snapshot / manifestHash
 [x] 架构扫描确认 agent-core 无 DeepSeek 依赖、无具体业务 toolName 分支、无用户自然语言关键词分流。
 [x] 架构扫描确认本阶段未新增或注册真实业务 tool，也未把 fixture runtime 接入 /api/chat。
 ```
+
+---
+
+## 31. Agent Tool 变更治理流程（2026-06-03）
+
+后续新增真实业务 tool、修复 Agent tool bug、修改 core contract 或接入 production `/api/chat` 前，必须先使用项目级 Skill：`.codex/skills/agent-tool-change-governance/SKILL.md`。该 Skill 会要求先读取本文第 24-26 节，再执行 OpenSpec、Git 工作区和任务分类 preflight。
+
+非文案类 Agent tool change 的 `proposal.md`、`design.md` 和 `tasks.md` 必须写清楚：
+
+```txt
+[ ] 任务分类：新增业务 tool / Agent tool bug 修复 / core contract 变更 / production 接入变更。
+[ ] 本次允许触碰的模块。
+[ ] 本次禁止触碰的模块。
+[ ] 是否允许修改 orchestrator、PlannerPort、Executor、Policy Guard、Resource Contract Validator、Response Renderer 或 /api/chat。
+[ ] 如果必须修改 core，说明是单 tool 特例、多个无关 tool 通用需求，还是安全/权限/resource/trace/stream 合同问题。
+[ ] 验证计划：OpenSpec validate、自动化测试、架构扫描、typecheck 和无法运行时的风险说明。
+```
+
+新增业务 tool 默认只允许扩展 tool bundle：
+
+```txt
+[ ] 新增 tool 文件。
+[ ] 定义 inputSchema。
+[ ] 定义 outputSchema。
+[ ] 定义 policy metadata。
+[ ] 按需定义 resourceContract。
+[ ] 实现 handler。
+[ ] 按需实现 toModelObservation。
+[ ] 按需实现 toUserProjection。
+[ ] 按需实现 traceProjection 或当前 core 支持的 trace 摘要。
+[ ] 注册到 ToolRegistry。
+[ ] 补 tool contract tests。
+```
+
+新增业务 tool 默认禁止：
+
+```txt
+[ ] 修改 orchestrator 主循环。
+[ ] 修改 PlannerPort 接口。
+[ ] 修改 Executor 主流程。
+[ ] 修改 Policy Guard 主流程。
+[ ] 修改 Resource Contract Validator 主流程。
+[ ] 修改 Response Renderer 主流程。
+[ ] 修改 /api/chat 主链路。
+[ ] 在服务端增加关键词、正则、同义词或自然语言模板分流。
+[ ] 在 core 中写具体业务 toolName 分支。
+[ ] 在 handler 中绕过 confirmation、权限或 ResourceStore。
+```
+
+Agent tool bug 修复必须 trace-first 定位根因：
+
+```txt
+[ ] 读取 codex_logs/ai_trace_log.js，除非用户明确说不需要或文件不存在。
+[ ] 检查相关 tool 的真实 Zod Schema / JSON Schema。
+[ ] 检查模型可见 manifest 或 schema summary。
+[ ] 检查 runtime 校验、ResourceStore、Policy Guard、projection、Response Renderer 和 trace。
+[ ] 将根因分类为 LLM 参数错误、模型可见合同缺失、tool 能力不足、resource 未登记或不可消费、policy / confirmation 边界、projection / redaction 泄漏、final grounding 缺陷或 production 接入问题。
+[ ] 不用服务端关键词、正则、短句模板、同义词表或业务 toolName 特判改写 LLM 的高层语义决策。
+```
+
+后续 Agent tool `tasks.md` 的验证段至少包含：
+
+```txt
+[ ] 运行 openspec validate <change> --strict。
+[ ] 运行相关 Agent tool contract tests。
+[ ] 如触碰 core 或 production 边界，运行 tests/agent-core/architecture-boundary.test.ts。
+[ ] 修改 TypeScript、API、Schema、AI 编排或共享逻辑后运行 npm run typecheck。
+[ ] 按需运行 npm test；无法运行时记录原因和剩余风险。
+[ ] 最终检查 git diff，确认没有混入无关 change、真实业务 tool 或生产链路接入。
+```

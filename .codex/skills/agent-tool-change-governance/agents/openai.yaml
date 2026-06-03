@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent Tool Governance"
+  short_description: "Agent tool 变更治理、分类与验证工作流入口"
+  default_prompt: "Use $agent-tool-change-governance to classify and govern an Agent tool change before implementation."

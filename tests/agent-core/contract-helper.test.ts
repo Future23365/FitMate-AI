@@ -3,8 +3,9 @@ import { describe, expect, it } from "vitest";
 
 import { defineTool } from "@/lib/server/agent-core/define-tool";
 import { m1FixtureTools } from "@/lib/server/agent-tools";
+import { resourceProducerFixtureTool } from "@/lib/server/agent-tools/fixture/m1-safety-fixture.tools";
 
-import { checkToolContractForProduction } from "./contract-test-helper";
+import { checkToolContractForProduction, checkToolRuntimeSafety } from "./contract-test-helper";
 
 function createInvalidContractTool() {
   return defineTool({
@@ -30,6 +31,28 @@ function createInvalidContractTool() {
   });
 }
 
+function createHandlerFailureTool() {
+  return defineTool({
+    name: "handlerFailureContractFixture",
+    version: "0.1.0",
+    description: "Normalize handler failure in contract helper tests.",
+    whenToUse: "Use in contract helper tests.",
+    whenNotToUse: "Do not use outside tests.",
+    inputSchema: z.object({ id: z.string() }).strict(),
+    outputSchema: z.object({ id: z.string() }).strict(),
+    policy: {
+      sideEffect: "read",
+      riskLevel: "low",
+      confirmation: "never",
+    },
+    handler: (): { id: string } => {
+      throw new Error("handler boom");
+    },
+    toModelObservation: () => ({ status: "failed" }),
+    toUserProjection: () => ({ status: "failed" }),
+  });
+}
+
 describe("agent-core contract test helper", () => {
   it("accepts M0/M1 fixture tools without changing core flow", () => {
     for (const tool of m1FixtureTools) {
@@ -45,5 +68,29 @@ describe("agent-core contract test helper", () => {
       "missing_required_field",
       "unsafe_example",
     ]));
+  });
+
+  it("checks runtime projection, user event and trace safety for a tool scenario", async () => {
+    await expect(checkToolRuntimeSafety({
+      tool: resourceProducerFixtureTool,
+      validInput: {
+        title: "Contract Doc",
+        body: "safe body",
+        includeSecret: true,
+      },
+      invalidInput: {
+        title: "",
+        body: "safe body",
+      },
+      unsafeNeedles: ["server-only-secret"],
+    })).resolves.toMatchObject({ ok: true, issues: [] });
+  });
+
+  it("checks handler exception normalization through the helper", async () => {
+    await expect(checkToolRuntimeSafety({
+      tool: createHandlerFailureTool(),
+      validInput: { id: "boom" },
+      expectHandlerError: true,
+    })).resolves.toMatchObject({ ok: true, issues: [] });
   });
 });

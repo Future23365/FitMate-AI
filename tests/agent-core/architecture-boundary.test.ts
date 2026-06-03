@@ -16,6 +16,10 @@ const coreFlowFiles = [
   "lib/server/agent-core/runtime.ts",
   "lib/server/agent-core/response-renderer.ts",
 ];
+const productionChatEntryFiles = [
+  "app/api/chat/route.ts",
+  "lib/server/chat/chat-service.ts",
+];
 
 function collectFiles(target: string): string[] {
   const absolutePath = path.join(repoRoot, target);
@@ -30,6 +34,25 @@ function collectFiles(target: string): string[] {
 
 function readRelative(file: string) {
   return readFileSync(path.join(repoRoot, file), "utf8");
+}
+
+function findImportMatches(files: string[], forbiddenSources: string[]) {
+  const importPattern = /^\s*import\s+(?:type\s+)?[\s\S]*?\s+from\s+["']([^"']+)["'];/gm;
+  const matches: string[] = [];
+
+  for (const file of files) {
+    const content = readRelative(file);
+    for (const importMatch of content.matchAll(importPattern)) {
+      const source = importMatch[1];
+      for (const forbiddenSource of forbiddenSources) {
+        if (source === forbiddenSource || source.startsWith(`${forbiddenSource}/`)) {
+          matches.push(`${file}: ${source}`);
+        }
+      }
+    }
+  }
+
+  return matches;
 }
 
 describe("agent-core architecture boundaries", () => {
@@ -108,6 +131,75 @@ describe("agent-core architecture boundaries", () => {
     const matches: string[] = [];
 
     for (const file of coreFlowFiles) {
+      const content = readRelative(file);
+      for (const term of forbiddenTerms) {
+        if (content.includes(term)) {
+          matches.push(`${file}: ${term}`);
+        }
+      }
+    }
+
+    expect(matches).toEqual([]);
+  });
+
+  it("keeps agent-core free of business services, business tool handlers and concrete model adapters", () => {
+    const coreFiles = collectFiles("lib/server/agent-core").map((file) => path.relative(repoRoot, file));
+    const forbiddenImportSources = [
+      "@/lib/server/agent-tools",
+      "@/lib/server/exercises",
+      "@/lib/server/workout-plans",
+      "@/lib/server/workouts",
+      "@/lib/server/chat",
+      "@/lib/server/db",
+      "@/lib/server/auth",
+      "@/lib/server/" + "ai",
+      "@/lib/server/agent-planners/model-adapters",
+    ];
+    const forbiddenTerms = [
+      "DeepSeekModelAdapter",
+      "FakeModelAdapter",
+      "ModelAdapter",
+      "searchExercises",
+      "generateRoutine",
+      "saveWorkout",
+      "queryUserMemory",
+      "exerciseRecommendation",
+      "workoutRoutine",
+    ];
+    const matches = [
+      ...findImportMatches(coreFiles, forbiddenImportSources),
+    ];
+
+    for (const file of coreFiles) {
+      const content = readRelative(file);
+      for (const term of forbiddenTerms) {
+        if (content.includes(term)) {
+          matches.push(`${file}: ${term}`);
+        }
+      }
+    }
+
+    expect(matches).toEqual([]);
+  });
+
+  it("keeps production chat entry free of business keyword routing and Agent tool loop bypasses", () => {
+    const forbiddenTerms = [
+      "searchExercises",
+      "generateRoutine",
+      "saveWorkout",
+      "queryUserMemory",
+      "message.content.includes",
+      "userInput.includes",
+      "new RegExp",
+      ".match(",
+      ".test(",
+      "assistant_action",
+      "Agent" + "ExecutionResult",
+      "runAgent" + "Orchestrator",
+    ];
+    const matches: string[] = [];
+
+    for (const file of productionChatEntryFiles) {
       const content = readRelative(file);
       for (const term of forbiddenTerms) {
         if (content.includes(term)) {

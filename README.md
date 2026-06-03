@@ -103,6 +103,7 @@ docker compose down
 
 - `npm test`：运行 Vitest 自动化测试，覆盖共享领域逻辑、服务边界、API Route 边界和前端请求转换。
 - `npm test -- tests/agent-core`：运行新的 Agent Tool core / fixture / hardening 测试；真实 DeepSeek 黑盒需同时配置 `DEEPSEEK_API_KEY` 并显式设置 `RUN_DEEPSEEK_BLACKBOX=1`。
+- `npm test -- tests/agent-core/architecture-boundary.test.ts tests/agent-core/contract-helper.test.ts tests/agent-core/tool-governance-regression.test.ts`：运行 Agent tool governance 架构扫描、contract helper 和关键安全回归。
 - `npm run typecheck`：运行 TypeScript 静态类型检查。
 - `npm run lint`：运行 ESLint 源码质量检查。
 - `npm run build`：验证 Next.js 构建、路由和服务端/客户端模块边界。
@@ -125,6 +126,9 @@ app/
 
 components/
   app/                     # 跨功能复用的应用级 UI，如侧边栏、Logo、图标
+
+.codex/
+  skills/                  # 项目级 Codex Skills，用于固化 OpenSpec 与 Agent tool 协作流程
 
 features/
   chat/                    # 前端聊天功能模块
