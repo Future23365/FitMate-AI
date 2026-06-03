@@ -119,7 +119,7 @@ describe("AI trace viewer step grouping", () => {
           id: "planner_model",
           summary: expect.arrayContaining([
             { label: "LLM 调用", value: "1 轮" },
-            { label: "真实 usage", value: "P 10 / C 5 / T 15" },
+            { label: "真实 usage", value: "输入 10 / 输出 5 / 总 15" },
           ]),
         }),
       ]),

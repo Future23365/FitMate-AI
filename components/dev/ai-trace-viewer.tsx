@@ -187,26 +187,31 @@ export function AiTraceViewer() {
           {traces.length === 0 ? (
             <div className="px-5 py-8 text-sm text-slate-500">还没有 Trace。</div>
           ) : (
-            traces.map((trace) => (
-              <button
-                className={`block w-full border-b border-slate-100 px-5 py-4 text-left hover:bg-slate-50 ${
-                  selectedTrace?.id === trace.id ? "bg-slate-100" : "bg-white"
-                }`}
-                key={trace.id}
-                type="button"
-                onClick={() => setSelectedTraceId(trace.id)}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <span className="truncate text-sm font-semibold">{trace.title}</span>
-                  <StatusBadge status={trace.status} />
-                </div>
-                <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
-                  <span>{trace.route}</span>
-                  <span>{formatDuration(trace.durationMs)}</span>
-                </div>
-                <div className="mt-1 text-xs text-slate-400">{formatTime(trace.createdAt)}</div>
-              </button>
-            ))
+            traces.map((trace) => {
+              const tokenUsage = getTraceTokenUsage(trace);
+
+              return (
+                <button
+                  className={`block w-full border-b border-slate-100 px-5 py-4 text-left hover:bg-slate-50 ${
+                    selectedTrace?.id === trace.id ? "bg-slate-100" : "bg-white"
+                  }`}
+                  key={trace.id}
+                  type="button"
+                  onClick={() => setSelectedTraceId(trace.id)}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="truncate text-sm font-semibold">{trace.title}</span>
+                    <StatusBadge status={trace.status} />
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                    <span>{trace.route}</span>
+                    <span>{formatDuration(trace.durationMs)}</span>
+                    <TokenUsageBadge usage={tokenUsage} />
+                  </div>
+                  <div className="mt-1 text-xs text-slate-400">{formatTime(trace.createdAt)}</div>
+                </button>
+              );
+            })
           )}
         </div>
 
@@ -324,7 +329,7 @@ function TraceHero({
         <MetricCard label="总耗时" value={formatDuration(trace.durationMs)} description="trace 从创建到结束的总耗时。" />
         <MetricCard
           label="Token"
-          value={tokenUsage?.total_tokens ? formatNumber(tokenUsage.total_tokens) : "-"}
+          value={tokenUsage ? formatTokenUsage(tokenUsage) : "-"}
           description="模型供应商返回的真实 usage；预算估算在 Runtime 模块中单独展示。"
         />
       </div>
@@ -344,7 +349,7 @@ function MetricCard({
   return (
     <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
       <div className="text-xs font-medium text-slate-500">{label}</div>
-      <div className="mt-1 truncate text-lg font-semibold text-slate-950">{value}</div>
+      <div className="mt-1 break-words text-lg font-semibold text-slate-950">{value}</div>
       <div className="mt-1 text-xs leading-5 text-slate-500">{description}</div>
     </div>
   );
@@ -380,7 +385,12 @@ function TraceFlowTimeline({ groups }: { groups: TraceStepGroup[] }) {
             <div className="divide-y divide-slate-100">
               {group.steps.length > 0 ? (
                 group.steps.map((step, index) => (
-                  <TraceStepCard index={index} key={step.id} step={step} />
+                  <TraceStepCard
+                    index={index}
+                    key={step.id}
+                    step={step}
+                    tokenUsage={getStepModelTokenUsage(step, group.steps)}
+                  />
                 ))
               ) : (
                 <div className="p-4 text-sm text-slate-500">
@@ -417,7 +427,15 @@ function ModuleSummaryList({ group }: { group: TraceStepGroup }) {
   );
 }
 
-function TraceStepCard({ index, step }: { index: number; step: AiTraceStep }) {
+function TraceStepCard({
+  index,
+  step,
+  tokenUsage,
+}: {
+  index: number;
+  step: AiTraceStep;
+  tokenUsage: TokenUsage | null;
+}) {
   return (
     <details className="group p-4" open={index === 0}>
       <summary className="flex cursor-pointer list-none items-start justify-between gap-4">
@@ -430,6 +448,7 @@ function TraceStepCard({ index, step }: { index: number; step: AiTraceStep }) {
             <span className="rounded-full bg-slate-50 px-2 py-0.5 text-xs text-slate-500 ring-1 ring-slate-200">
               {getStepTypeLabel(step.type)}
             </span>
+            <TokenUsageBadge usage={tokenUsage} />
             <StatusBadge status={step.status} />
           </div>
           <div className="mt-1 text-xs text-slate-500">
@@ -494,6 +513,18 @@ function StatusBadge({ status }: { status: AiTrace["status"] }) {
   return (
     <span className={`rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${className}`}>
       {status}
+    </span>
+  );
+}
+
+function TokenUsageBadge({ usage }: { usage: TokenUsage | null }) {
+  if (!usage) {
+    return null;
+  }
+
+  return (
+    <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 ring-1 ring-indigo-100">
+      {formatTokenUsage(usage)}
     </span>
   );
 }
@@ -781,6 +812,31 @@ function getTraceTokenUsage(trace: AiTrace): TokenUsage | null {
   return sumTokenUsage(trace.steps.filter((step) => step.type === "model_response"));
 }
 
+function getStepModelTokenUsage(step: AiTraceStep, peerSteps: AiTraceStep[]): TokenUsage | null {
+  const directUsage = readStepTokenUsage(step);
+
+  if (directUsage) {
+    return directUsage;
+  }
+
+  if (step.type !== "model_request") {
+    return null;
+  }
+
+  const plannerCallIndex = readNumber(step.metadata?.plannerCallIndex);
+
+  if (plannerCallIndex === undefined) {
+    return null;
+  }
+
+  const matchingResponse = peerSteps.find((candidate) => (
+    candidate.type === "model_response" &&
+    readNumber(candidate.metadata?.plannerCallIndex) === plannerCallIndex
+  ));
+
+  return matchingResponse ? readStepTokenUsage(matchingResponse) : null;
+}
+
 function readTokenUsage(value: unknown): TokenUsage | null {
   if (!isRecord(value)) {
     return null;
@@ -793,10 +849,15 @@ function readTokenUsage(value: unknown): TokenUsage | null {
   };
 }
 
+function readStepTokenUsage(step: AiTraceStep): TokenUsage | null {
+  const output = isRecord(step.output) ? step.output : {};
+
+  return readTokenUsage(output.tokenUsage) ?? readTokenUsage(step.metadata?.tokenUsage);
+}
+
 function sumTokenUsage(steps: AiTraceStep[]): TokenUsage | null {
   const usage = steps.reduce<TokenUsage>((sum, step) => {
-    const output = isRecord(step.output) ? step.output : {};
-    const stepUsage = readTokenUsage(output.tokenUsage) ?? readTokenUsage(step.metadata?.tokenUsage);
+    const stepUsage = readStepTokenUsage(step);
 
     if (!stepUsage) {
       return sum;
@@ -826,7 +887,7 @@ function summarizeEstimatedTokenBudget(steps: AiTraceStep[]) {
 }
 
 function formatTokenUsage(usage: TokenUsage) {
-  return `P ${formatOptionalNumber(usage.prompt_tokens)} / C ${formatOptionalNumber(usage.completion_tokens)} / T ${formatOptionalNumber(usage.total_tokens)}`;
+  return `输入 ${formatOptionalNumber(usage.prompt_tokens)} / 输出 ${formatOptionalNumber(usage.completion_tokens)} / 总 ${formatOptionalNumber(usage.total_tokens)}`;
 }
 
 function formatValidatorSummary(output: Record<string, unknown>) {
