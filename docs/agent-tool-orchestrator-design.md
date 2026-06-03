@@ -640,6 +640,33 @@ export interface ResourceStore {
 6. `diagnostic` 只能用于解释、失败原因、调试证据，不能伪装成成功业务结果。
 7. resource id 必须由 core 或受控 ResourceStore 生成，不建议由 LLM 或 handler 任意拼接。
 
+### 13.1 跨 run 业务事实桥
+
+ResourceStore 只解决当前 run 内的事实传递。用户在上一轮已经看到、确认或生成过的结构化业务结果，不能直接作为旧 run resource 继续消费；它必须先被保存到业务层的持久化事实源，再在下一轮通过受控读取能力重新引入当前 run。
+
+这个桥接层是 `/api/chat` 或等价业务入口的上下文恢复职责，不是 Orchestrator core 的职责：
+
+```txt
+上一轮用户可见结构化结果
+  -> 业务层持久化事实源
+  -> 轻量索引 / recent summary
+  -> 下一轮上下文恢复
+  -> read/import tool 读取完整事实
+  -> ResourceStore 登记为当前 run 可消费资源
+```
+
+通用约束：
+
+1. core 不定义具体业务事实类型，不知道任何具体领域对象或业务语义。
+2. 业务层持久化事实源必须记录 owner、session/scope、kind、status、version 和 schemaVersion 等确定性边界。
+3. 上下文恢复只能把轻量摘要、索引字段或可引用 id 暴露给 Planner；完整 payload 必须通过 read/import tool 按权限和 schema 读取。
+4. read/import tool 必须验证当前 actor 是否可访问该事实，并把读取结果作为当前 run 的新 tool result 或 consumable resource 登记。
+5. 下游 tool 只能消费当前 run 内重新登记后的 resource，不能消费历史 toolResultId、历史 resourceId 或模型从摘要中重建的 payload。
+6. 如果引用不唯一、事实不存在、版本过期或权限不满足，read/import tool 必须返回结构化失败或要求澄清，不能静默选择一个候选。
+7. 响应渲染可以重投影已读取且通过 schema 校验的事实，但不能从自然语言摘要、标题或模型回复正文反向重建结构化业务结果。
+
+这个设计让多轮引用走稳定的数据桥，而不是让 Orchestrator 持有跨轮状态。新增业务类型时，应扩展业务事实 schema、索引和 read/import tool；除非出现通用安全、资源、trace 或 stream 协议缺口，否则不应修改 Orchestrator 主循环。
+
 ---
 
 ## 14. Policy Guard
@@ -982,6 +1009,7 @@ trace 中不保存 secret、完整敏感 payload、数据库连接信息
 认证
 请求 schema 校验
 恢复服务端上下文
+恢复跨 run 业务事实摘要
 创建 AgentRunInput
 调用 runAgentOrchestrator
 输出 NDJSON stream
@@ -996,8 +1024,18 @@ trace 中不保存 secret、完整敏感 payload、数据库连接信息
 根据用户原文选择 tool
 改写 Planner 语义
 根据 toolName 写业务分支
+从自然语言摘要重建完整业务事实
 回退旧 Agent core
 生成 confirmation hash
+```
+
+上下文恢复规则：
+
+```txt
+/api/chat 可以读取服务端已保存的 recent summary、索引字段和引用 id，并将这些轻量事实放入 AgentRunInput。
+/api/chat 不读取完整业务 payload 来替 Planner 决策，也不根据用户原文解析“上一个”“这个”等引用。
+需要完整事实时，Planner 必须选择已注册的 read/import tool，由 tool 执行权限、状态、版本和 schema 校验。
+read/import tool 成功后，Executor / ResourceStore 再把该事实登记为当前 run 内可消费资源。
 ```
 
 当前 production 文本聊天基础问答边界：
