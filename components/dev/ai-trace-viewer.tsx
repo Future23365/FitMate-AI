@@ -33,6 +33,42 @@ export type TraceStepGroup = {
   durationMs?: number;
 };
 
+export type TraceLoopModule = {
+  id: "planner_model" | "runtime_validation" | "policy_resource";
+  title: string;
+  description: string;
+  status: AiTrace["status"];
+  steps: AiTraceStep[];
+  modelCalls: TraceLoopModelCall[];
+  tokenUsage: TokenUsage | null;
+  durationMs?: number;
+};
+
+export type TraceLoopModelCall = {
+  id: string;
+  plannerCallIndex?: number;
+  runtimeStep: number;
+  request?: AiTraceStep;
+  response?: AiTraceStep;
+  tokenUsage: TokenUsage | null;
+  status: AiTrace["status"];
+};
+
+export type TraceLoopTurn = {
+  id: string;
+  loopNumber: number;
+  runtimeStep: number;
+  title: string;
+  status: AiTrace["status"];
+  steps: AiTraceStep[];
+  modules: TraceLoopModule[];
+  plannerCallIndexes: number[];
+  tokenUsage: TokenUsage | null;
+  durationMs?: number;
+  startedAt?: string;
+  endedAt?: string;
+};
+
 type TokenUsage = {
   prompt_tokens?: number;
   completion_tokens?: number;
@@ -57,8 +93,15 @@ export function AiTraceViewer() {
     () => (selectedTrace ? groupTraceSteps(selectedTrace.steps) : []),
     [selectedTrace],
   );
+  const selectedLoops = useMemo(
+    () => (selectedTrace ? buildAgentLoopTimeline(selectedTrace.steps) : []),
+    [selectedTrace],
+  );
   const mainStepGroups = selectedStepGroups.filter((group) => group.placement === "main_flow");
-  const outOfFlowGroups = selectedStepGroups.filter((group) => group.placement === "out_of_flow");
+  const boundaryStepGroups = selectedStepGroups.filter((group) => ["request_context", "registry_manifest"].includes(group.id));
+  const finalStepGroups = selectedStepGroups.filter((group) => (
+    ["response_rendering", "errors_diagnostics", "raw_export"].includes(group.id)
+  ));
 
   const loadTraces = useCallback(async () => {
     setIsLoading(true);
@@ -232,7 +275,7 @@ export function AiTraceViewer() {
           <div className="mx-auto max-w-[1400px] px-8 py-7">
             <TraceHero
               trace={selectedTrace}
-              groups={mainStepGroups}
+              loopCount={selectedLoops.length}
               isSavingPromptLog={savingLogTarget === `${selectedTrace.id}:prompt`}
               isSavingTraceLog={savingLogTarget === `${selectedTrace.id}:trace`}
               onSavePromptLog={() => {
@@ -261,7 +304,9 @@ export function AiTraceViewer() {
               }}
             />
 
-            <TraceFlowTimeline groups={[...mainStepGroups, ...outOfFlowGroups]} />
+            <TraceFlowTimeline groups={boundaryStepGroups} />
+            <AgentLoopTimeline loops={selectedLoops} />
+            <TraceFlowTimeline groups={finalStepGroups} />
             <TraceOverview trace={selectedTrace} />
           </div>
         ) : (
@@ -276,14 +321,14 @@ export function AiTraceViewer() {
 
 function TraceHero({
   trace,
-  groups,
+  loopCount,
   isSavingPromptLog,
   isSavingTraceLog,
   onSavePromptLog,
   onSaveLog,
 }: {
   trace: AiTrace;
-  groups: TraceStepGroup[];
+  loopCount: number;
   isSavingPromptLog: boolean;
   isSavingTraceLog: boolean;
   onSavePromptLog: () => void;
@@ -300,7 +345,7 @@ function TraceHero({
             <StatusBadge status={trace.status} />
           </div>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
-            当前页面按入口、Registry、Planner/ModelAdapter、Runtime、Policy/Resource、Response Renderer 和 Raw 诊断组织 trace。
+            当前页面按 Agent loop 组织模型调用、runtime 校验和策略资源诊断，便于按轮次定位问题。
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -325,7 +370,7 @@ function TraceHero({
 
       <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="接口路径" value={trace.route} description="本次 trace 关联的服务端入口。" />
-        <MetricCard label="架构模块" value={`${groups.length} 个`} description="按 agent-core 职责边界归并后的诊断模块。" />
+        <MetricCard label="Agent Loop" value={`${loopCount} 轮`} description="按 runtime step / planner call 归并后的执行轮次。" />
         <MetricCard label="总耗时" value={formatDuration(trace.durationMs)} description="trace 从创建到结束的总耗时。" />
         <MetricCard
           label="Token"
@@ -356,14 +401,13 @@ function MetricCard({
 }
 
 function TraceFlowTimeline({ groups }: { groups: TraceStepGroup[] }) {
+  if (groups.length === 0) {
+    return null;
+  }
+
   return (
     <section className="mt-6 space-y-4">
-      {groups.length === 0 ? (
-        <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
-          这条 trace 没有记录步骤。
-        </div>
-      ) : (
-        groups.map((group) => (
+      {groups.map((group) => (
           <details className="group/module rounded-xl border border-slate-200 bg-white" key={group.id}>
             <summary className="cursor-pointer list-none p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -399,9 +443,123 @@ function TraceFlowTimeline({ groups }: { groups: TraceStepGroup[] }) {
               )}
             </div>
           </details>
+      ))}
+    </section>
+  );
+}
+
+function AgentLoopTimeline({ loops }: { loops: TraceLoopTurn[] }) {
+  return (
+    <section className="mt-6 space-y-4">
+      {loops.length === 0 ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
+          没有记录 Agent loop。配置错误、入口拒绝或预算前置失败可能不会产生 loop。
+        </div>
+      ) : (
+        loops.map((loop) => (
+          <details className="group/loop rounded-xl border border-slate-200 bg-white" key={loop.id}>
+            <summary className="cursor-pointer list-none p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-base font-semibold text-slate-950">{loop.title}</h3>
+                    <TokenUsageBadge usage={loop.tokenUsage} />
+                  </div>
+                  <p className="mt-1 text-sm text-slate-500">
+                    runtime step {loop.runtimeStep}
+                    {loop.plannerCallIndexes.length > 0
+                      ? ` · planner call ${loop.plannerCallIndexes.join(", ")}`
+                      : ""}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-slate-500">
+                  <StatusBadge status={loop.status} />
+                  <span>{formatDuration(loop.durationMs)}</span>
+                  <span className="text-slate-400 group-open/loop:hidden">展开</span>
+                  <span className="hidden text-slate-400 group-open/loop:inline">收起</span>
+                </div>
+              </div>
+            </summary>
+            <div className="space-y-3 border-t border-slate-100 p-4">
+              {loop.modules.map((module) => (
+                <LoopModuleCard key={`${loop.id}:${module.id}`} module={module} />
+              ))}
+            </div>
+          </details>
         ))
       )}
     </section>
+  );
+}
+
+function LoopModuleCard({ module }: { module: TraceLoopModule }) {
+  return (
+    <div className="rounded-lg border border-slate-100 bg-slate-50">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-4 py-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h4 className="text-sm font-semibold text-slate-950">{module.title}</h4>
+            <TokenUsageBadge usage={module.tokenUsage} />
+          </div>
+          <p className="mt-1 text-xs text-slate-500">{module.description}</p>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-slate-500">
+          <StatusBadge status={module.status} />
+          <span>{formatDuration(module.durationMs)}</span>
+        </div>
+      </div>
+      <div className="divide-y divide-slate-100">
+        {module.id === "planner_model" ? (
+          module.modelCalls.map((call) => (
+            <ModelCallCard call={call} key={call.id} />
+          ))
+        ) : module.steps.length > 0 ? (
+          module.steps.map((step, index) => (
+            <TraceStepCard
+              index={index}
+              key={step.id}
+              step={step}
+              tokenUsage={readStepTokenUsage(step)}
+            />
+          ))
+        ) : (
+          <div className="p-4 text-sm text-slate-500">这个模块没有记录步骤。</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ModelCallCard({ call }: { call: TraceLoopModelCall }) {
+  const steps = [call.request, call.response].filter((step): step is AiTraceStep => Boolean(step));
+
+  return (
+    <details className="group/call bg-white p-4" open>
+      <summary className="flex cursor-pointer list-none items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-medium text-slate-950">
+              LLM Call {call.plannerCallIndex ? `#${call.plannerCallIndex}` : ""}
+            </span>
+            <TokenUsageBadge usage={call.tokenUsage} />
+            <StatusBadge status={call.status} />
+          </div>
+          <div className="mt-1 text-xs text-slate-500">runtime step {call.runtimeStep}</div>
+        </div>
+        <span className="text-xs text-slate-400 group-open/call:hidden">展开</span>
+        <span className="hidden text-xs text-slate-400 group-open/call:inline">收起</span>
+      </summary>
+      <div className="mt-3 divide-y divide-slate-100 rounded-lg border border-slate-100">
+        {steps.map((step, index) => (
+          <TraceStepCard
+            index={index}
+            key={step.id}
+            step={step}
+            tokenUsage={getModelCallStepTokenUsage(step, call.tokenUsage)}
+          />
+        ))}
+      </div>
+    </details>
   );
 }
 
@@ -563,6 +721,47 @@ export function groupTraceSteps(steps: AiTraceStep[]): TraceStepGroup[] {
   }));
 }
 
+// buildAgentLoopTimeline 把低层 trace steps 按 runtime step 归并成可阅读的 Agent loop。
+export function buildAgentLoopTimeline(steps: AiTraceStep[]): TraceLoopTurn[] {
+  const loopMap = new Map<number, AiTraceStep[]>();
+
+  for (const step of steps) {
+    const runtimeStep = readStepRuntimeStep(step);
+
+    if (runtimeStep === undefined) {
+      continue;
+    }
+
+    const current = loopMap.get(runtimeStep) ?? [];
+    current.push(step);
+    loopMap.set(runtimeStep, current);
+  }
+
+  return Array.from(loopMap.entries())
+    .sort(([left], [right]) => left - right)
+    .map(([runtimeStep, loopSteps], index) => {
+      const modules = createLoopModules(runtimeStep, loopSteps);
+      const plannerCallIndexes = Array.from(new Set(
+        loopSteps.map(readStepPlannerCallIndex).filter((value): value is number => value !== undefined),
+      )).sort((left, right) => left - right);
+
+      return {
+        id: `loop-${runtimeStep}`,
+        loopNumber: index + 1,
+        runtimeStep,
+        title: `Loop #${index + 1}`,
+        status: deriveGroupStatus(loopSteps),
+        steps: loopSteps,
+        modules,
+        plannerCallIndexes,
+        tokenUsage: sumTokenUsageValues(modules.flatMap((module) => module.modelCalls.map((call) => call.tokenUsage))),
+        startedAt: getMinDate(loopSteps.map((step) => step.startedAt)),
+        endedAt: getMaxDate(loopSteps.map((step) => step.endedAt).filter(Boolean) as string[]),
+        durationMs: loopSteps.reduce((sum, step) => sum + (step.durationMs ?? 0), 0),
+      };
+    });
+}
+
 const moduleDefinitions: Array<Omit<TraceStepGroup, "status" | "steps" | "summary" | "skipReason" | "startedAt" | "endedAt" | "durationMs">> = [
   {
     id: "request_context",
@@ -668,6 +867,117 @@ function getStepGroupDefinition(step: AiTraceStep): Omit<TraceStepGroup, "status
     default:
       return moduleDefinitionsById.raw_export;
   }
+}
+
+function createLoopModules(runtimeStep: number, steps: AiTraceStep[]): TraceLoopModule[] {
+  const plannerSteps = steps.filter((step) => step.type === "model_request" || step.type === "model_response");
+  const runtimeSteps = steps.filter((step) => {
+    const eventType = readRuntimeEventType(step);
+
+    return (
+      step.type === "validation" ||
+      step.type === "token_budget" ||
+      step.type === "final_response" ||
+      (
+        step.type === "runtime_event" &&
+        eventType !== "policy_decision" &&
+        eventType !== "resource_registered" &&
+        eventType !== "confirmation_request" &&
+        eventType !== "confirmation_resume"
+      )
+    );
+  });
+  const policyResourceSteps = steps.filter((step) => {
+    const eventType = readRuntimeEventType(step);
+
+    return (
+      eventType === "policy_decision" ||
+      eventType === "resource_registered" ||
+      eventType === "confirmation_request" ||
+      eventType === "confirmation_resume"
+    );
+  });
+  const plannerModelCalls = buildLoopModelCalls(runtimeStep, plannerSteps);
+  const modules: TraceLoopModule[] = [];
+
+  if (plannerSteps.length > 0 || plannerModelCalls.length > 0) {
+    modules.push(createLoopModule({
+      id: "planner_model",
+      title: "Planner / ModelAdapter",
+      description: "本轮 LLM call 的请求、响应、解析结果和 token 明细。",
+      steps: plannerSteps,
+      modelCalls: plannerModelCalls,
+      tokenUsage: sumTokenUsageValues(plannerModelCalls.map((call) => call.tokenUsage)),
+    }));
+  }
+
+  if (runtimeSteps.length > 0) {
+    modules.push(createLoopModule({
+      id: "runtime_validation",
+      title: "Runtime / Validator",
+      description: "本轮 planner action、预算事件、校验和 terminal grounding。",
+      steps: runtimeSteps,
+      modelCalls: [],
+      tokenUsage: null,
+    }));
+  }
+
+  if (policyResourceSteps.length > 0) {
+    modules.push(createLoopModule({
+      id: "policy_resource",
+      title: "Policy / Resource",
+      description: "本轮策略、确认和资源登记事件。",
+      steps: policyResourceSteps,
+      modelCalls: [],
+      tokenUsage: null,
+    }));
+  }
+
+  return modules;
+}
+
+function createLoopModule(input: Pick<TraceLoopModule, "id" | "title" | "description" | "steps" | "modelCalls" | "tokenUsage">): TraceLoopModule {
+  return {
+    ...input,
+    status: deriveGroupStatus(input.steps),
+    durationMs: input.steps.reduce((sum, step) => sum + (step.durationMs ?? 0), 0),
+  };
+}
+
+function buildLoopModelCalls(runtimeStep: number, steps: AiTraceStep[]): TraceLoopModelCall[] {
+  const callMap = new Map<string, { plannerCallIndex?: number; request?: AiTraceStep; response?: AiTraceStep }>();
+
+  for (const step of steps) {
+    const plannerCallIndex = readStepPlannerCallIndex(step);
+    const key = plannerCallIndex === undefined ? step.id : String(plannerCallIndex);
+    const current = callMap.get(key) ?? { plannerCallIndex };
+
+    if (step.type === "model_request") {
+      current.request = step;
+    }
+
+    if (step.type === "model_response") {
+      current.response = step;
+    }
+
+    callMap.set(key, current);
+  }
+
+  return Array.from(callMap.values())
+    .sort((left, right) => (left.plannerCallIndex ?? 0) - (right.plannerCallIndex ?? 0))
+    .map((call, index) => {
+      const tokenUsage = call.response ? readStepTokenUsage(call.response) : call.request ? readStepTokenUsage(call.request) : null;
+
+      return {
+        id: `loop-${runtimeStep}-llm-${call.plannerCallIndex ?? index + 1}`,
+        plannerCallIndex: call.plannerCallIndex,
+        runtimeStep,
+        request: call.request,
+        response: call.response,
+        tokenUsage,
+        status: deriveGroupStatus([call.request, call.response].filter((step): step is AiTraceStep => Boolean(step))),
+      };
+    });
 }
 
 function createModuleSummary(group: TraceStepGroup): Array<{ label: string; value: string }> {
@@ -791,6 +1101,36 @@ function readRuntimeEventType(step: AiTraceStep) {
       : undefined;
 }
 
+function readStepRuntimeStep(step: AiTraceStep) {
+  const metadata = isRecord(step.metadata) ? step.metadata : {};
+  const output = isRecord(step.output) ? step.output : {};
+  const runtimeLinkage = isRecord(output.runtimeLinkage)
+    ? output.runtimeLinkage
+    : isRecord(metadata.runtimeLinkage)
+      ? metadata.runtimeLinkage
+      : {};
+
+  return readNumber(metadata.runtimeStep)
+    ?? readNumber(output.runtimeStep)
+    ?? readNumber(runtimeLinkage.runtimeStep)
+    ?? readNumber(output.step)
+    ?? readNumber(metadata.step);
+}
+
+function readStepPlannerCallIndex(step: AiTraceStep) {
+  const metadata = isRecord(step.metadata) ? step.metadata : {};
+  const output = isRecord(step.output) ? step.output : {};
+  const runtimeLinkage = isRecord(output.runtimeLinkage)
+    ? output.runtimeLinkage
+    : isRecord(metadata.runtimeLinkage)
+      ? metadata.runtimeLinkage
+      : {};
+
+  return readNumber(metadata.plannerCallIndex)
+    ?? readNumber(output.plannerCallIndex)
+    ?? readNumber(runtimeLinkage.plannerCallIndex);
+}
+
 function deriveGroupStatus(steps: AiTraceStep[]): AiTrace["status"] {
   if (steps.some((step) => step.status === "failed")) {
     return "failed";
@@ -837,6 +1177,29 @@ function getStepModelTokenUsage(step: AiTraceStep, peerSteps: AiTraceStep[]): To
   return matchingResponse ? readStepTokenUsage(matchingResponse) : null;
 }
 
+function getModelCallStepTokenUsage(step: AiTraceStep, callUsage: TokenUsage | null): TokenUsage | null {
+  if (!callUsage) {
+    return readStepTokenUsage(step);
+  }
+
+  if (step.type === "model_request") {
+    return callUsage.prompt_tokens === undefined
+      ? null
+      : { prompt_tokens: callUsage.prompt_tokens };
+  }
+
+  if (step.type === "model_response") {
+    return callUsage.completion_tokens === undefined && callUsage.total_tokens === undefined
+      ? null
+      : {
+          completion_tokens: callUsage.completion_tokens,
+          total_tokens: callUsage.total_tokens,
+        };
+  }
+
+  return readStepTokenUsage(step);
+}
+
 function readTokenUsage(value: unknown): TokenUsage | null {
   if (!isRecord(value)) {
     return null;
@@ -867,6 +1230,22 @@ function sumTokenUsage(steps: AiTraceStep[]): TokenUsage | null {
       prompt_tokens: (sum.prompt_tokens ?? 0) + (stepUsage.prompt_tokens ?? 0),
       completion_tokens: (sum.completion_tokens ?? 0) + (stepUsage.completion_tokens ?? 0),
       total_tokens: (sum.total_tokens ?? 0) + (stepUsage.total_tokens ?? 0),
+    };
+  }, {});
+
+  return usage.prompt_tokens || usage.completion_tokens || usage.total_tokens ? usage : null;
+}
+
+function sumTokenUsageValues(values: Array<TokenUsage | null>): TokenUsage | null {
+  const usage = values.reduce<TokenUsage>((sum, item) => {
+    if (!item) {
+      return sum;
+    }
+
+    return {
+      prompt_tokens: (sum.prompt_tokens ?? 0) + (item.prompt_tokens ?? 0),
+      completion_tokens: (sum.completion_tokens ?? 0) + (item.completion_tokens ?? 0),
+      total_tokens: (sum.total_tokens ?? 0) + (item.total_tokens ?? 0),
     };
   }, {});
 
@@ -956,10 +1335,36 @@ function readTraceResponseSummary(trace: AiTrace) {
 
 export function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) {
   const tokenUsageSummary = getTraceTokenUsage(trace);
+  const agentLoops = buildAgentLoopTimeline(trace.steps);
 
   return {
     title: trace.title,
     savedFrom: "/dev/ai-traces",
+    agentLoops: agentLoops.map((loop) => ({
+      id: loop.id,
+      loopNumber: loop.loopNumber,
+      runtimeStep: loop.runtimeStep,
+      plannerCallIndexes: loop.plannerCallIndexes,
+      stepIds: loop.steps.map((step) => step.id),
+      status: loop.status,
+      durationMs: loop.durationMs,
+      tokenUsage: loop.tokenUsage,
+      modules: loop.modules.map((module) => ({
+        id: module.id,
+        title: module.title,
+        stepIds: module.steps.map((step) => step.id),
+        tokenUsage: module.tokenUsage,
+        modelCalls: module.modelCalls.map((call) => ({
+          id: call.id,
+          plannerCallIndex: call.plannerCallIndex,
+          runtimeStep: call.runtimeStep,
+          requestStepId: call.request?.id,
+          responseStepId: call.response?.id,
+          tokenUsage: call.tokenUsage,
+          status: call.status,
+        })),
+      })),
+    })),
     moduleGroups: groups.map((group) => ({
       id: group.id,
       title: group.title,

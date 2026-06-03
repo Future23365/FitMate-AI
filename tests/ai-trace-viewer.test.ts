@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createTraceLogPayload, groupTraceSteps } from "@/components/dev/ai-trace-viewer";
+import { buildAgentLoopTimeline, createTraceLogPayload, groupTraceSteps } from "@/components/dev/ai-trace-viewer";
 import type { AiTrace, AiTraceStep } from "@/lib/server/dev/ai-trace-store";
 
 describe("AI trace viewer step grouping", () => {
@@ -108,12 +108,41 @@ describe("AI trace viewer step grouping", () => {
           name: "Registry 快照",
           output: { type: "registry_snapshot", toolCount: 0 },
         }),
+        createStep({
+          type: "validation",
+          name: "Action 校验通过",
+          output: { type: "validation_result", step: 1, ok: true },
+        }),
       ],
     };
     const groups = groupTraceSteps(trace.steps);
 
     expect(createTraceLogPayload(trace, groups)).toMatchObject({
       title: "文本聊天",
+      agentLoops: [
+        expect.objectContaining({
+          id: "loop-1",
+          runtimeStep: 1,
+          tokenUsage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          modules: expect.arrayContaining([
+            expect.objectContaining({
+              id: "planner_model",
+              modelCalls: [
+                expect.objectContaining({
+                  plannerCallIndex: 1,
+                  requestStepId: "step-model_request",
+                  responseStepId: "step-model_response",
+                  tokenUsage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+                }),
+              ],
+            }),
+            expect.objectContaining({
+              id: "runtime_validation",
+              stepIds: ["step-validation"],
+            }),
+          ]),
+        }),
+      ],
       moduleGroups: expect.arrayContaining([
         expect.objectContaining({
           id: "planner_model",
@@ -150,11 +179,102 @@ describe("AI trace viewer step grouping", () => {
       ]),
     });
   });
+
+  it("builds loop-centric timeline with per-loop and per-call token usage", () => {
+    const loops = buildAgentLoopTimeline([
+      createStep({
+        id: "request-1",
+        type: "model_request",
+        name: "模型请求 #1",
+        metadata: { plannerCallIndex: 1, runtimeStep: 1 },
+      }),
+      createStep({
+        id: "response-1",
+        type: "model_response",
+        name: "模型响应 #1",
+        output: {
+          parseStatus: "parsed",
+          actionType: "tool_call",
+          tokenUsage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        },
+        metadata: { plannerCallIndex: 1, runtimeStep: 1 },
+      }),
+      createStep({
+        id: "action-1",
+        type: "runtime_event",
+        name: "Planner action",
+        output: { type: "planner_action", step: 1, actionType: "tool_call", toolName: "readFixture" },
+      }),
+      createStep({
+        id: "validation-1",
+        type: "validation",
+        name: "Action 校验通过",
+        output: { type: "validation_result", step: 1, ok: true },
+      }),
+      createStep({
+        id: "request-2",
+        type: "model_request",
+        name: "模型请求 #2",
+        metadata: { plannerCallIndex: 2, runtimeStep: 2 },
+      }),
+      createStep({
+        id: "response-2",
+        type: "model_response",
+        name: "模型响应 #2",
+        output: {
+          parseStatus: "parsed",
+          actionType: "final_answer",
+          tokenUsage: { prompt_tokens: 20, completion_tokens: 8, total_tokens: 28 },
+        },
+        metadata: { plannerCallIndex: 2, runtimeStep: 2 },
+      }),
+      createStep({
+        id: "validation-2",
+        type: "validation",
+        name: "Action 校验通过",
+        output: { type: "validation_result", step: 2, ok: true },
+      }),
+    ]);
+
+    expect(loops).toHaveLength(2);
+    expect(loops[0]).toMatchObject({
+      id: "loop-1",
+      runtimeStep: 1,
+      plannerCallIndexes: [1],
+      tokenUsage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      modules: [
+        expect.objectContaining({
+          id: "planner_model",
+          tokenUsage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          modelCalls: [
+            expect.objectContaining({
+              plannerCallIndex: 1,
+              request: expect.objectContaining({ id: "request-1" }),
+              response: expect.objectContaining({ id: "response-1" }),
+            }),
+          ],
+        }),
+        expect.objectContaining({
+          id: "runtime_validation",
+          steps: [
+            expect.objectContaining({ id: "action-1" }),
+            expect.objectContaining({ id: "validation-1" }),
+          ],
+        }),
+      ],
+    });
+    expect(loops[1]).toMatchObject({
+      id: "loop-2",
+      runtimeStep: 2,
+      plannerCallIndexes: [2],
+      tokenUsage: { prompt_tokens: 20, completion_tokens: 8, total_tokens: 28 },
+    });
+  });
 });
 
 function createStep(overrides: Pick<AiTraceStep, "type" | "name"> & Partial<AiTraceStep>): AiTraceStep {
   return {
-    id: `step-${overrides.type}`,
+    id: overrides.id ?? `step-${overrides.type}`,
     name: overrides.name,
     type: overrides.type,
     status: overrides.type === "error" ? "failed" : "success",
