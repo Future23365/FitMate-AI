@@ -1583,3 +1583,50 @@ Agent tool bug 修复必须 trace-first 定位根因：
 [ ] 按需运行 npm test；无法运行时记录原因和剩余风险。
 [ ] 最终检查 git diff，确认没有混入无关 change、真实业务 tool 或生产链路接入。
 ```
+
+---
+
+## 33. Agent LLM Prompt 配置边界（2026-06-03 17:37:00 CST）
+
+生产文本聊天的默认 system prompt 已从 `DeepSeekModelAdapter.createRequestBody()` 抽离到独立配置模块：
+
+```txt
+lib/server/agent-planners/prompts/agent-llm-prompt-config.ts
+```
+
+当前边界如下：
+
+```txt
+agentLlmPromptConfig
+-> buildAgentActionSystemPrompt()
+-> DeepSeekModelAdapter.createRequestBody()
+-> LlmPlanner
+-> PlannerPort
+-> runAgentRuntime
+```
+
+保持不变的职责分离：
+
+```txt
+[x] `agent-core` 仍只依赖 `PlannerPort`，不导入 prompt 配置、DeepSeek messages、DeepSeek endpoint、API key 或供应商响应结构。
+[x] `LlmPlanner` 仍只调用 `ModelAdapter` 并返回 `AgentAction` candidate，不拼 DeepSeek messages。
+[x] `DeepSeekModelAdapter` 只负责供应商请求映射、模型参数、JSON 输出解析和错误归一化。
+[x] `agentLlmPromptConfig` 只描述通用 `AgentAction` 合同、输出格式、安全边界、`promptVersion` 和默认请求参数。
+```
+
+禁止项：
+
+```txt
+[x] 不在默认 prompt 中加入 searchExercises、训练生成、计划保存、artifact revision、用户记忆、推荐卡片或具体业务 toolName 流程。
+[x] 不通过 prompt 抽离注册 fixture tool、真实业务 tool 或生产 ToolRegistry 能力。
+[x] 不在 `/api/chat` 或聊天接入服务中新增关键词、正则、同义词或短句模板分流。
+[x] 不恢复旧 `lib/server/ai/prompt-config.ts`、旧 `agent-orchestrator`、旧 `AgentExecutionResult` 或旧 Response Writer 作为当前生产入口。
+```
+
+验证结论：
+
+```txt
+[x] `tests/agent-core/agent-llm-prompt-config.test.ts` 覆盖默认 prompt、`promptVersion`、builder 和自定义配置。
+[x] `tests/agent-core/adapter-llm-planner.test.ts` 覆盖 DeepSeek 请求体 system message 来自默认或注入 prompt 配置。
+[x] `tests/agent-core/architecture-boundary.test.ts` 覆盖 `agent-core` 不导入 prompt 配置，prompt 配置不导入业务 tool、Prisma、动作服务、训练服务或旧 orchestrator。
+```

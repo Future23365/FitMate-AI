@@ -103,6 +103,55 @@ describe("agent-core architecture boundaries", () => {
     expect(matches).toEqual([]);
   });
 
+  it("keeps agent-core independent from Agent LLM prompt configuration", () => {
+    const coreFiles = collectFiles("lib/server/agent-core").map((file) => path.relative(repoRoot, file));
+    const matches = findImportMatches(coreFiles, [
+      "@/lib/server/agent-planners/prompts",
+    ]);
+
+    expect(matches).toEqual([]);
+  });
+
+  it("keeps Agent LLM prompt config free of business tools, persistence and removed runtimes", () => {
+    const promptConfigFiles = collectFiles("lib/server/agent-planners/prompts")
+      .map((file) => path.relative(repoRoot, file));
+    const forbiddenImportSources = [
+      "@/lib/server/agent-tools",
+      "@/lib/server/exercises",
+      "@/lib/server/workout-plans",
+      "@/lib/server/workouts",
+      "@/lib/server/chat",
+      "@/lib/server/db",
+      "@/lib/server/" + "ai",
+      "@/lib/server/agent-orchestrator",
+      "@prisma",
+    ];
+    const forbiddenTerms = [
+      "searchExercises",
+      "generateRoutine",
+      "generatePlanDraft",
+      "saveWorkout",
+      "queryUserMemory",
+      "recommendation",
+      "artifact revision",
+      "Agent" + "ExecutionResult",
+    ];
+    const matches = [
+      ...findImportMatches(promptConfigFiles, forbiddenImportSources),
+    ];
+
+    for (const file of promptConfigFiles) {
+      const content = readRelative(file);
+      for (const term of forbiddenTerms) {
+        if (content.includes(term)) {
+          matches.push(`${file}: ${term}`);
+        }
+      }
+    }
+
+    expect(matches).toEqual([]);
+  });
+
   it("does not connect M0/M1 runtime or fixture tools to production chat route", () => {
     const route = readRelative("app/api/chat/route.ts");
 

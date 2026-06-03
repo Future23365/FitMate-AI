@@ -9,6 +9,11 @@ import {
   type ModelActionCompletionResult,
   type ModelAdapter,
 } from "./model-adapter";
+import {
+  agentLlmPromptConfig,
+  buildAgentActionSystemPrompt,
+  type AgentLlmPromptConfig,
+} from "../prompts/agent-llm-prompt-config";
 
 type DeepSeekFetch = typeof fetch;
 
@@ -20,6 +25,7 @@ type DeepSeekModelAdapterOptions = {
   temperature?: number;
   maxTokens?: number;
   fetchImpl?: DeepSeekFetch;
+  promptConfig?: AgentLlmPromptConfig;
 };
 
 type DeepSeekChatResponse = {
@@ -45,18 +51,20 @@ export class DeepSeekModelAdapter implements ModelAdapter {
   private readonly maxTokens: number;
   private readonly fetchImpl: DeepSeekFetch;
   private readonly apiKey: string;
+  private readonly promptConfig: AgentLlmPromptConfig;
 
   constructor(options: DeepSeekModelAdapterOptions) {
     if (!options.apiKey) {
       throw new ModelAdapterError("DeepSeekModelAdapter requires apiKey.");
     }
 
+    this.promptConfig = options.promptConfig ?? agentLlmPromptConfig;
     this.apiKey = options.apiKey;
     this.endpoint = options.endpoint ?? DEFAULT_DEEPSEEK_ENDPOINT;
     this.model = options.model ?? DEFAULT_DEEPSEEK_MODEL;
     this.timeoutMs = options.timeoutMs ?? 10_000;
-    this.temperature = options.temperature ?? 0;
-    this.maxTokens = options.maxTokens ?? 1_200;
+    this.temperature = options.temperature ?? this.promptConfig.requestDefaults.temperature;
+    this.maxTokens = options.maxTokens ?? this.promptConfig.requestDefaults.maxTokens;
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
@@ -139,11 +147,7 @@ export class DeepSeekModelAdapter implements ModelAdapter {
       messages: [
         {
           role: "system",
-          content: [
-            "Return exactly one JSON object matching the AgentAction contract.",
-            "Allowed type values are tool_call, final_answer, and ask_user.",
-            "Do not execute tools, invent confirmation hashes, leak secrets, or emit NDJSON events.",
-          ].join(" "),
+          content: buildAgentActionSystemPrompt(this.promptConfig),
         },
         {
           role: "user",

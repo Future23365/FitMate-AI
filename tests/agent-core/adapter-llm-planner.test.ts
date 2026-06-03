@@ -7,6 +7,11 @@ import { createM0FixtureToolRegistry } from "@/lib/server/agent-tools";
 import { LlmPlanner } from "@/lib/server/agent-planners/llm-planner";
 import { DeepSeekModelAdapter } from "@/lib/server/agent-planners/model-adapters/deepseek-model-adapter";
 import { FakeModelAdapter } from "@/lib/server/agent-planners/model-adapters/model-adapter";
+import {
+  agentLlmPromptConfig,
+  buildAgentActionSystemPrompt,
+  type AgentLlmPromptConfig,
+} from "@/lib/server/agent-planners/prompts/agent-llm-prompt-config";
 
 function deepSeekResponse(content: string, status = 200) {
   return new Response(JSON.stringify({
@@ -23,6 +28,16 @@ function deepSeekResponse(content: string, status = 200) {
       completion_tokens: 4,
     },
   }), { status });
+}
+
+function captureDeepSeekRequestBodies(content: string) {
+  const requestBodies: unknown[] = [];
+  const fetchImpl = vi.fn(async (_input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    requestBodies.push(JSON.parse(String(init?.body)));
+    return deepSeekResponse(content);
+  });
+
+  return { fetchImpl, requestBodies };
 }
 
 describe("agent-planners LlmPlanner and model adapters", () => {
@@ -82,6 +97,91 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       content: "deepseek parsed.",
     });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("builds DeepSeek request body from the default Agent LLM prompt config", async () => {
+    const { fetchImpl, requestBodies } = captureDeepSeekRequestBodies(JSON.stringify({
+      type: "final_answer",
+      content: "default prompt configured.",
+    }));
+    const adapter = new DeepSeekModelAdapter({
+      apiKey: "test-key",
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+
+    await adapter.completeAction({
+      run: {
+        runId: "run-deepseek-default-prompt",
+        actor: {},
+        userInput: "answer",
+      },
+      step: 1,
+      manifests: [],
+      observations: [],
+      toolResults: [],
+    });
+
+    const body = requestBodies[0] as {
+      temperature: number;
+      max_tokens: number;
+      messages: Array<{ role: string; content: string }>;
+    };
+
+    expect(body.temperature).toBe(agentLlmPromptConfig.requestDefaults.temperature);
+    expect(body.max_tokens).toBe(agentLlmPromptConfig.requestDefaults.maxTokens);
+    expect(body.messages[0]).toEqual({
+      role: "system",
+      content: buildAgentActionSystemPrompt(agentLlmPromptConfig),
+    });
+  });
+
+  it("uses injected prompt config for DeepSeek request body without mutating defaults", async () => {
+    const customPromptConfig: AgentLlmPromptConfig = {
+      promptVersion: "agent-action-custom-test",
+      systemPromptInstructions: [
+        "Return a test-only AgentAction JSON object.",
+        "Only final_answer is expected in this adapter test.",
+      ],
+      requestDefaults: {
+        temperature: 0.4,
+        maxTokens: 456,
+      },
+    };
+    const { fetchImpl, requestBodies } = captureDeepSeekRequestBodies(JSON.stringify({
+      type: "final_answer",
+      content: "custom prompt configured.",
+    }));
+    const adapter = new DeepSeekModelAdapter({
+      apiKey: "test-key",
+      fetchImpl: fetchImpl as typeof fetch,
+      promptConfig: customPromptConfig,
+    });
+
+    await adapter.completeAction({
+      run: {
+        runId: "run-deepseek-custom-prompt",
+        actor: {},
+        userInput: "answer",
+      },
+      step: 1,
+      manifests: [],
+      observations: [],
+      toolResults: [],
+    });
+
+    const body = requestBodies[0] as {
+      temperature: number;
+      max_tokens: number;
+      messages: Array<{ role: string; content: string }>;
+    };
+
+    expect(body.temperature).toBe(customPromptConfig.requestDefaults.temperature);
+    expect(body.max_tokens).toBe(customPromptConfig.requestDefaults.maxTokens);
+    expect(body.messages[0]).toEqual({
+      role: "system",
+      content: buildAgentActionSystemPrompt(customPromptConfig),
+    });
+    expect(buildAgentActionSystemPrompt()).toBe(buildAgentActionSystemPrompt(agentLlmPromptConfig));
   });
 
   it("feeds invalid DeepSeek output back through validator repair instead of keyword fallback", async () => {
