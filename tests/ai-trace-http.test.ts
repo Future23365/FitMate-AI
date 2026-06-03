@@ -248,8 +248,8 @@ describe("AI trace store and HTTP request helpers", () => {
   });
 
   it("saves full trace logs as a lightweight report plus long text mapping", async () => {
-    const longModelText = `模型可见长文本 ${"请严格遵守 AgentAction 合同。".repeat(260)}`;
-    const longDetailText = `完整 runtime 详情 ${"保留 input output metadata 方便复盘。".repeat(180)}`;
+    const longModelText = `模型可见长文本 ${"请严格遵守 AgentAction 合同。".repeat(5000)}`;
+    const longDetailText = `完整 runtime 详情 ${"保留 input output metadata 方便复盘。".repeat(3000)}`;
     const sensitivePayloadText = `不要保存完整 payload ${"secret ".repeat(120)}`;
     const response = await devTraceRoute.POST(jsonRequest("/api/dev/ai-traces", {
       logType: "trace",
@@ -394,6 +394,7 @@ describe("AI trace store and HTTP request helpers", () => {
     expect(longTextContent).toContain("AI trace mapping saved from /dev/ai-traces.");
     expect(longTextContent).toContain("rg '\"contentRef\":\"text_0001\"' codex_logs/ai_trace_texts.jsonl");
     expect(longTextContent).toContain("rg '\"detailRef\":\"detail_0001\"' codex_logs/ai_trace_texts.jsonl");
+    expect(longTextContent).toContain("rg '\"parentRef\":\"text_0001\"' codex_logs/ai_trace_texts.jsonl");
     expect(longTextContent).toContain("\"contentRef\":\"text_0001\"");
     expect(longTextContent).toContain("\"paths\":[");
     expect(longTextContent).toContain("\"recordType\":\"text\"");
@@ -403,14 +404,21 @@ describe("AI trace store and HTTP request helpers", () => {
     expect(longTextContent).toContain("\"content\":\"[redacted]\"");
     expect(longTextContent).not.toContain(sensitivePayloadText);
     expect(longTextContent).not.toContain("Bearer secret-token");
+    expect(longTextContent).not.toContain("...[truncated]");
     const mappingRecords = parseJsonlRecords(longTextContent);
-    const textChunks = mappingRecords.filter((record) => record.recordType === "text_chunk" && record.contentRef === "text_0001");
-    const detailChunks = mappingRecords.filter((record) => record.recordType === "detail_chunk" && record.detailRef === "detail_0001");
+    const textChunks = mappingRecords.filter((record) => record.recordType === "text_chunk" && record.parentRef === "text_0001");
+    const detailChunks = mappingRecords.filter((record) => record.recordType === "detail_chunk" && record.parentRef === "detail_0001");
+    const contentRefRecords = mappingRecords.filter((record) => record.contentRef === "text_0001");
+    const detailRefRecords = mappingRecords.filter((record) => record.detailRef === "detail_0001");
 
     expect(textChunks.length).toBeGreaterThan(1);
     expect(textChunks.map((record) => record.content).join("")).toBe(longModelText);
     expect(detailChunks.length).toBeGreaterThan(1);
     expect(detailChunks.map((record) => record.content).join("")).toContain(longDetailText);
+    expect(contentRefRecords).toHaveLength(1);
+    expect(detailRefRecords).toHaveLength(1);
+    expect(textChunks.every((record) => record.contentRef === undefined)).toBe(true);
+    expect(detailChunks.every((record) => record.detailRef === undefined)).toBe(true);
     expect(Math.max(...longTextContent.split("\n").map((line) => line.length))).toBeLessThan(2600);
     expect(fsMocks.appendFile).not.toHaveBeenCalled();
   });

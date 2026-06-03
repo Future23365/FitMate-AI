@@ -1629,8 +1629,8 @@ export function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) 
     },
     lookupGuide: [
       "默认先读 codex_logs/ai_trace_log.js 的结构化报告。",
-      "遇到 contentRef 时，用 rg '\"contentRef\":\"text_0001\"' codex_logs/ai_trace_texts.jsonl 查对应长文本。",
-      "ai_trace_texts.jsonl 每行是一个 JSON object，content 字段是脱敏后的长文本。",
+      "遇到 contentRef/detailRef 时，用 rg 查 header 定位类型、路径、hash 和 chunkCount。",
+      "需要完整内容时，再用 rg '\"parentRef\":\"text_0001\"' codex_logs/ai_trace_texts.jsonl 查 chunks，并按 chunkIndex 拼接。",
     ],
     agentLoops: agentLoops.map((loop) => ({
       id: loop.id,
@@ -1697,7 +1697,7 @@ export function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) 
     details: detailState.details,
   };
 
-  return extractTraceLogLongTexts(payload);
+  return finalizeTraceLogDetailHashes(extractTraceLogLongTexts(payload));
 }
 
 function createTraceLogDetailEntry(
@@ -1753,6 +1753,48 @@ function safeStringifyTraceDetail(value: unknown) {
   } catch {
     return String(value);
   }
+}
+
+function finalizeTraceLogDetailHashes(payload: Record<string, unknown>) {
+  const details = Array.isArray(payload.details)
+    ? payload.details.filter((detail): detail is Record<string, unknown> => isRecord(detail))
+    : [];
+  const hashesByRef = new Map<string, string>();
+
+  for (const detail of details) {
+    const detailRef = readString(detail.detailRef);
+
+    if (!detailRef) {
+      continue;
+    }
+
+    const hash = hashLongText(safeStringifyTraceDetail(detail.content));
+    detail.hash = hash;
+    hashesByRef.set(detailRef, hash);
+  }
+
+  return replaceTraceLogDetailHashes(payload, hashesByRef) as Record<string, unknown>;
+}
+
+function replaceTraceLogDetailHashes(value: unknown, hashesByRef: Map<string, string>): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => replaceTraceLogDetailHashes(item, hashesByRef));
+  }
+
+  if (!isRecord(value)) {
+    return value;
+  }
+
+  const replaced = Object.fromEntries(
+    Object.entries(value).map(([key, child]) => [
+      key,
+      replaceTraceLogDetailHashes(child, hashesByRef),
+    ]),
+  );
+  const detailRef = readString(replaced.detailRef);
+  const hash = detailRef ? hashesByRef.get(detailRef) : undefined;
+
+  return hash ? { ...replaced, hash } : replaced;
 }
 
 // extractTraceLogLongTexts 将保存报告中的长字符串外置，降低默认 log 的阅读和 token 成本。

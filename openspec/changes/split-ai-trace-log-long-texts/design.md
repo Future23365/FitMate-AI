@@ -23,7 +23,7 @@
 3. `ai_trace_texts.jsonl` 写入对应长文本映射。超长内容不写成单行巨型 JSON，而是写成 header + chunk records：
    ```json
    {"recordType":"text","contentRef":"text_0001","path":"$.plannerModelCalls[0].request.messages[0].content","chunkCount":3}
-   {"recordType":"text_chunk","contentRef":"text_0001","chunkIndex":0,"content":"..."}
+   {"recordType":"text_chunk","parentRef":"text_0001","chunkIndex":0,"content":"..."}
    ```
 4. 报告不内联完整 `rawTrace` 或完整 `trace` 对象，只保留 `traceSummary` 和 step summary。
 5. 报告中的 `traceSummary` 和 `runtimeTraceEvents` 使用 `detailRef` 指向映射文件中的完整脱敏结构化详情；`runtimeTraceEvents` 在报告内只保留 event type、step、toolName、toolResultId、code、status、durationMs 和 resource refs 等定位字段，不保留完整 tool manifest 或完整 step input/output。
@@ -31,7 +31,7 @@
 7. 模型请求 trace 中的长 message content 使用分块 envelope 保存，导出层识别后合并为单条长文本映射，避免在进入导出层前被 adapter 的 800 字符摘要丢失尾部。
 8. 映射文件中的详情记录也使用 header + chunk records；报告里被瘦身掉的结构化详情必须能通过 `detailRef` 找回。
 9. 两个文件每次保存都覆盖旧内容，不生成目录，也不保留历史版本。
-10. 两个文件头部都写注释，说明默认先读报告；需要长文本或完整详情时用 `contentRef` / `detailRef` 到 `ai_trace_texts.jsonl` 查询。
+10. 两个文件头部都写注释，说明默认先读报告；`contentRef` / `detailRef` 用于查询 header，`parentRef` 用于查询 chunk 内容。
 
 ## 范围与边界
 
@@ -125,7 +125,7 @@
 - `full_trace`：保存当前 trace 的完整脱敏对象，用于恢复 `rawTrace` / `trace` 级别上下文。
 - `runtime_event_detail`：保存每条轻量 `runtimeTraceEvents` 对应 step 的完整 `input`、`output`、`metadata` 和 `error`。
 - 报告中每个 `detailRef` MUST 包含 `detailRef`、`path`、`kind`、`hash`、`summary` 和 `detailFile`。
-- 映射文件中每个详情 MUST 先写 header record，再写按 `chunkIndex` 排序的 `detail_chunk` records。
+- 映射文件中每个详情 MUST 先写 header record，再写按 `chunkIndex` 排序的 `detail_chunk` records；chunk records MUST 使用 `parentRef` 指向对应 `detailRef`。
 - 如果详情内部仍包含长字符串，导出层 SHOULD 继续把该字符串替换成 `contentRef`，避免 detail chunk 与 text chunk 重复保存大段内容。
 
 ## 脱敏策略
@@ -142,16 +142,17 @@
 - 文件头部说明：
   - 这是轻量报告。
   - 长文本被移到 `codex_logs/ai_trace_texts.jsonl`。
-  - 可用 `rg '"contentRef":"text_0001"' codex_logs/ai_trace_texts.jsonl` 查找。
+  - 可用 `rg '"contentRef":"text_0001"' codex_logs/ai_trace_texts.jsonl` 查 header。
+  - 可用 `rg '"parentRef":"text_0001"' codex_logs/ai_trace_texts.jsonl` 查 chunk 内容。
 
 `codex_logs/ai_trace_texts.jsonl`：
 
 - 前几行使用 `//` 注释，说明用途和查询方式。
 - 后续每行一个 JSON object，但一个逻辑内容可以拆成多条记录：
   - `recordType="text"`：长文本 header。
-  - `recordType="text_chunk"`：长文本分块。
+  - `recordType="text_chunk"`：长文本分块，使用 `parentRef` 指向 header。
   - `recordType="detail"`：结构化详情 header。
-  - `recordType="detail_chunk"`：结构化详情分块。
+  - `recordType="detail_chunk"`：结构化详情分块，使用 `parentRef` 指向 header。
 - 单个 chunk 的 `content` SHOULD 控制在较小长度，避免 `rg` 命中时一次打印超大行。
 - 每次保存覆盖旧文件。
 

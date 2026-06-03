@@ -12,7 +12,7 @@
 - 报告文件中的长字符串不再直接内联，改为 `contentRef`、`originalLength`、`hash`、`path` 和简短预览，方便按需定位长文本。
 - 报告文件中被瘦身掉的完整 `rawTrace` / `trace`、runtime event `input` / `output` / `metadata` 等结构化详情不直接丢弃，改为 `detailRef`，完整脱敏详情写入映射文件。
 - 模型请求 trace 中超过 adapter 摘要阈值的 message content 不再提前硬截为 800 字符摘要，改为安全分块 envelope，导出层再合并写入长文本映射。
-- 映射文件头部写入注释，说明如何从报告中的 `contentRef` / `detailRef` 使用 `rg` 精确查找；超长内容使用 chunk records 分块保存，避免单行 JSONL 过长。
+- 映射文件头部写入注释，说明如何从报告中的 `contentRef` / `detailRef` 使用 `rg` 精确查找 header，并用 `parentRef` 按需读取 chunk 内容；超长内容使用 chunk records 分块保存，避免单行 JSONL 过长。
 - 多次点击保存继续覆盖上一次全链路 log 和长文本映射，不新增导出目录，也不累积历史导出。
 - 「保存用户问答记录」继续追加写入 `codex_logs/prompt.js`，不受本 change 影响。
 - 继续执行脱敏边界，不导出 API key、authorization、cookie、跨用户 payload、完整敏感 payload 或完整 tool output。

@@ -53,8 +53,7 @@ const traceLogSensitiveKeyPatterns = [
   /tool[_-]?output/i,
 ];
 const traceLongTextFileName = "ai_trace_texts.jsonl";
-const maxSavedTraceLongTextLength = 80_000;
-const maxSavedTraceDetailStringLength = 80_000;
+const maxSavedTraceMappingStringLength = Number.MAX_SAFE_INTEGER;
 const traceMappingChunkContentLength = 2_000;
 
 export async function GET(request: Request) {
@@ -282,7 +281,8 @@ export function normalizeSavedTraceLogPayload(payload: object) {
         longTextFile: `codex_logs/${traceLongTextFileName}`,
         lookup: `rg '"contentRef":"text_0001"' codex_logs/${traceLongTextFileName}`,
         detailLookup: `rg '"detailRef":"detail_0001"' codex_logs/${traceLongTextFileName}`,
-        note: "默认先读本报告；需要长文本或完整结构化详情时，复制报告中的 contentRef/detailRef 到映射文件中查找。",
+        chunkLookup: `rg '"parentRef":"text_0001"' codex_logs/${traceLongTextFileName}`,
+        note: "默认先读本报告；contentRef/detailRef 只命中 header，需要完整内容时再用 parentRef 查 chunks。",
       },
     },
     {
@@ -305,7 +305,8 @@ function createTraceLogContent(payload: object, savedAt: string) {
     `// Mapping file: codex_logs/${traceLongTextFileName}`,
     `// Lookup example: rg '\"contentRef\":\"text_0001\"' codex_logs/${traceLongTextFileName}`,
     `// Detail example: rg '\"detailRef\":\"detail_0001\"' codex_logs/${traceLongTextFileName}`,
-    "// Workflow: read this report first, copy a contentRef/detailRef only when deeper inspection is needed.",
+    `// Chunk example: rg '\"parentRef\":\"text_0001\"' codex_logs/${traceLongTextFileName}`,
+    "// Workflow: read this report first. contentRef/detailRef finds headers; parentRef finds chunk content.",
     "",
     "module.exports = ",
     JSON.stringify(payload, null, 2),
@@ -330,8 +331,8 @@ function createTraceLongTextLogContent(
     "// Read codex_logs/ai_trace_log.js first. When the report shows contentRef/detailRef, query this file.",
     `// Example: rg '\"contentRef\":\"text_0001\"' codex_logs/${traceLongTextFileName}`,
     `// Detail: rg '\"detailRef\":\"detail_0001\"' codex_logs/${traceLongTextFileName}`,
-    "// Long content is split into text_chunk/detail_chunk records so one grep hit does not print a giant line.",
-    "// Reassemble chunks by contentRef/detailRef ordered by chunkIndex when full content is needed.",
+    `// Chunks: rg '\"parentRef\":\"text_0001\"' codex_logs/${traceLongTextFileName}`,
+    "// Header lookup does not print chunk content. Reassemble chunks by parentRef ordered by chunkIndex.",
     ...mappingRecords.map((record) => JSON.stringify(record)),
     "",
   ].join("\n");
@@ -381,7 +382,7 @@ function normalizeTraceLongTextRecord(item: Record<string, unknown>): SavedTrace
     ? REDACTED_VALUE
     : redactJsonValue(getString(item.content) ?? "", {
         sensitiveKeyPatterns: traceLogSensitiveKeyPatterns,
-        maxStringLength: maxSavedTraceLongTextLength,
+        maxStringLength: maxSavedTraceMappingStringLength,
       });
   const preview = pathContainsSensitiveTraceKey(pathValue)
     ? REDACTED_VALUE
@@ -407,11 +408,11 @@ function normalizeTraceDetailRecord(item: Record<string, unknown>): SavedTraceDe
     ? REDACTED_VALUE
     : redactJsonValue(item.content ?? {}, {
         sensitiveKeyPatterns: traceLogSensitiveKeyPatterns,
-        maxStringLength: maxSavedTraceDetailStringLength,
+        maxStringLength: maxSavedTraceMappingStringLength,
       });
   const summary = redactJsonValue(item.summary ?? {}, {
     sensitiveKeyPatterns: traceLogSensitiveKeyPatterns,
-    maxStringLength: maxSavedTraceDetailStringLength,
+    maxStringLength: maxSavedTraceMappingStringLength,
   });
 
   return {
@@ -427,7 +428,7 @@ function normalizeTraceDetailRecord(item: Record<string, unknown>): SavedTraceDe
 function createTextMappingRecords(record: SavedTraceLongTextRecord) {
   const content = typeof record.content === "string"
     ? record.content
-    : JSON.stringify(record.content);
+    : JSON.stringify(record.content) ?? "";
   const chunks = chunkString(content, traceMappingChunkContentLength);
 
   return [
@@ -446,7 +447,7 @@ function createTextMappingRecords(record: SavedTraceLongTextRecord) {
     },
     ...chunks.map((chunk, index) => ({
       recordType: "text_chunk",
-      contentRef: record.contentRef,
+      parentRef: record.contentRef,
       chunkIndex: index,
       chunkCount: chunks.length,
       content: chunk,
@@ -455,7 +456,7 @@ function createTextMappingRecords(record: SavedTraceLongTextRecord) {
 }
 
 function createDetailMappingRecords(record: SavedTraceDetailRecord) {
-  const content = JSON.stringify(record.content, null, 2);
+  const content = JSON.stringify(record.content, null, 2) ?? "";
   const chunks = chunkString(content, traceMappingChunkContentLength);
 
   return [
@@ -473,7 +474,7 @@ function createDetailMappingRecords(record: SavedTraceDetailRecord) {
     },
     ...chunks.map((chunk, index) => ({
       recordType: "detail_chunk",
-      detailRef: record.detailRef,
+      parentRef: record.detailRef,
       chunkIndex: index,
       chunkCount: chunks.length,
       content: chunk,

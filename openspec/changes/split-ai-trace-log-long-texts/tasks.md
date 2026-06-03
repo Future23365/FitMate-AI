@@ -60,3 +60,14 @@
 - [x] 8.7 运行 `npm test -- tests/ai-trace-viewer.test.ts tests/ai-trace-http.test.ts tests/agent-core/adapter-llm-planner.test.ts`。
 - [x] 8.8 运行 `npm run typecheck`。
 - [x] 8.9 运行 `git status --short` 和 diff 检查，确认只包含本 change 相关文件。
+
+## 9. 映射文件审查修复
+
+- [x] 9.1 将 `text_chunk` / `detail_chunk` 的关联字段改为 `parentRef`，避免按 `contentRef` / `detailRef` 查询 header 时直接打印所有 chunk 内容。
+- [x] 9.2 移除保存接口对长文本和详情字符串的 80k 二次硬截断，依赖脱敏和 chunk records 控制可读性。
+- [x] 9.3 同步更新导出注释、OpenSpec 和演变文档，说明 header ref 与 `parentRef` 的查询方式。
+- [x] 9.4 更新 `tests/ai-trace-http.test.ts`，覆盖 header ref 只命中一行、chunk 用 `parentRef` 查询、超过 80k 的文本不被 `...[truncated]` 截断。
+- [x] 9.5 运行 `openspec validate split-ai-trace-log-long-texts --strict`。
+- [x] 9.6 运行 `npm test -- tests/ai-trace-viewer.test.ts tests/ai-trace-http.test.ts tests/agent-core/adapter-llm-planner.test.ts`。
+- [x] 9.7 运行 `npm run typecheck`。
+- [x] 9.8 运行 `git status --short` 和 diff 检查，确认只包含本 change 相关文件。

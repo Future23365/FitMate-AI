@@ -16,8 +16,9 @@
 - **AND** 模型请求 trace 中超过 adapter 摘要阈值的 message content MUST 能以分块 envelope 进入导出层，并在 `ai_trace_texts.jsonl` 中恢复为单条长文本映射
 - **AND** `ai_trace_texts.jsonl` SHOULD 按 hash 去重保存重复长文本，并在记录中保留出现路径
 - **AND** `ai_trace_texts.jsonl` SHOULD 将超长 content 拆成多个 chunk records，避免单条 JSONL 记录过长
+- **AND** `ai_trace_texts.jsonl` 的 chunk records MUST 使用 `parentRef` 指向对应 `contentRef` 或 `detailRef`，避免按 header ref 查询时直接打印所有 chunk 内容
 - **AND** 两个文件 MUST 在每次保存全链路 log 时覆盖上一次导出，不新增导出目录或历史版本
-- **AND** 两个文件 MUST 包含注释，说明默认先读轻量报告，并按 `contentRef` 到 `ai_trace_texts.jsonl` 查询长文本
+- **AND** 两个文件 MUST 包含注释，说明默认先读轻量报告，按 `contentRef` / `detailRef` 查询 header，并按 `parentRef` 查询 chunk 内容
 - **AND** 保存内容 MUST NOT 包含 API key、authorization、cookie、跨用户 payload、完整敏感 payload 或完整 tool output
 
 #### Scenario: 保存用户问答记录
