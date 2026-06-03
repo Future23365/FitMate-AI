@@ -681,8 +681,19 @@ function TokenUsageBadge({ usage }: { usage: TokenUsage | null }) {
   }
 
   return (
-    <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 ring-1 ring-indigo-100">
-      {formatTokenUsage(usage)}
+    <span className="inline-flex overflow-hidden rounded-full text-xs font-medium ring-1 ring-slate-200">
+      <TokenUsagePart label="输入" value={usage.prompt_tokens} className="bg-sky-50 text-sky-700" />
+      <TokenUsagePart label="输出" value={usage.completion_tokens} className="bg-emerald-50 text-emerald-700" />
+      <TokenUsagePart label="总" value={usage.total_tokens} className="bg-violet-50 text-violet-700" />
+    </span>
+  );
+}
+
+function TokenUsagePart({ label, value, className }: { label: string; value?: number; className: string }) {
+  return (
+    <span className={`px-2 py-0.5 tabular-nums ${className}`}>
+      <span className="font-semibold">{label}</span>
+      <span className="ml-1">{formatOptionalNumber(value)}</span>
     </span>
   );
 }
