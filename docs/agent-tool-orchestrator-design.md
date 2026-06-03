@@ -1356,6 +1356,7 @@ ToolRegistry -> manifest linter -> registry snapshot / manifestHash
 [x] tool execution `idempotencyKey`，普通执行和 confirmation resume 都由 runtime 生成并注入 handler context。
 [x] contract test helper，用于验证 fixture / 后续 tool 的 defineTool、manifest、policy、projection、redaction 和 trace 边界。
 [x] prompt injection 回归测试覆盖用户输入、tool output 和 manifest examples。
+[x] final_answer success grounding 同时校验 consumable resource refs 和 satisfied tool results，diagnostic / unsatisfied tool result 只能用于 ask_user 或失败解释。
 ```
 
 仍未进入 M2 的边界：

@@ -190,10 +190,11 @@ describe("agent-core DeepSeek adapter fixture E2E", () => {
       code: "deepseek_blocked",
       message: "fixture blocked.",
     };
+    const diagnosticToolResultId = createToolResultId("run-deepseek-diagnostic", "m1DiagnosticFailure", hashNormalizedInput(diagnosticInput));
     const diagnosticRef: AgentResourceRef = {
       resourceId: createResourceId({
         runId: "run-deepseek-diagnostic",
-        sourceToolResultId: createToolResultId("run-deepseek-diagnostic", "m1DiagnosticFailure", hashNormalizedInput(diagnosticInput)),
+        sourceToolResultId: diagnosticToolResultId,
         resourceType: M1_FIXTURE_DIAGNOSTIC_TYPE,
         role: "diagnostic",
         schemaVersion: M1_FIXTURE_SCHEMA_VERSION,
@@ -205,6 +206,11 @@ describe("agent-core DeepSeek adapter fixture E2E", () => {
     };
     const { planner } = createScriptedDeepSeekPlanner([
       { type: "tool_call", toolName: "m1DiagnosticFailure", input: diagnosticInput },
+      {
+        type: "final_answer",
+        content: "success.",
+        usedToolResultIds: [diagnosticToolResultId],
+      },
       {
         type: "final_answer",
         content: "success.",
@@ -226,7 +232,7 @@ describe("agent-core DeepSeek adapter fixture E2E", () => {
         userInput: "diagnostic fixture",
         limits: {
           maxInvalidActions: 2,
-          maxSteps: 4,
+          maxSteps: 5,
         },
       },
     });

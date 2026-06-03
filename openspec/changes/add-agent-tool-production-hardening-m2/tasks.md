@@ -68,3 +68,8 @@
 - [x] 8.4 修改 TypeScript 核心代码后运行 `npm run typecheck`。
 - [x] 8.5 按需运行 `npm test`；如时间或环境限制无法运行，记录未运行原因和剩余风险。
 - [x] 8.6 最终检查 `git diff`，确认只包含 M2 OpenSpec、agent-core / agent-planners 硬化、fixture、测试和必要文档改动。
+
+## 9. Diagnostic grounding 补漏
+
+- [x] 9.1 修复 `final_answer.usedToolResultIds` 只校验存在性的边界缝隙，禁止 failed 或 `fulfillment.satisfied=false` 的 tool result 支撑成功 final answer。
+- [x] 9.2 增加 validator、M1 runtime 和 DeepSeek fixture adapter 回归测试，证明 unsatisfied diagnostic tool result 只能用于 ask_user / 失败解释，不能支撑 completed final_answer。

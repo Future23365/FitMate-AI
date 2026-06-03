@@ -160,7 +160,8 @@ function validateTerminalAction(action: TerminalAgentAction, input: ActionValida
     }
   }
 
-  const knownToolResultIds = new Set(input.toolResults.map((result) => result.toolResultId));
+  const knownToolResults = new Map(input.toolResults.map((result) => [result.toolResultId, result]));
+  const knownToolResultIds = new Set(knownToolResults.keys());
   const usedToolResultIds = action.usedToolResultIds ?? [];
   const unknownIds = usedToolResultIds.filter((id) => !knownToolResultIds.has(id));
 
@@ -173,6 +174,25 @@ function validateTerminalAction(action: TerminalAgentAction, input: ActionValida
         { unknownIds },
       ),
     };
+  }
+
+  // final_answer 只能引用已满足的成功 tool result，诊断或失败结果只能用于 ask_user/失败解释。
+  if (action.type === "final_answer") {
+    const unsatisfiedToolResultIds = usedToolResultIds.filter((id) => {
+      const result = knownToolResults.get(id);
+      return result ? !result.ok || !result.fulfillment.satisfied : false;
+    });
+
+    if (unsatisfiedToolResultIds.length > 0) {
+      return {
+        ok: false,
+        error: createToolError(
+          AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID,
+          "Final answer cannot use failed or unsatisfied tool results as successful grounding.",
+          { toolResultIds: unsatisfiedToolResultIds },
+        ),
+      };
+    }
   }
 
   return { ok: true, action };

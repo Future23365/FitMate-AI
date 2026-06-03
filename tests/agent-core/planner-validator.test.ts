@@ -7,6 +7,7 @@ import { AGENT_ERROR_CODES, AgentContractError } from "@/lib/server/agent-core/e
 import { ResourceStore, toResourceRef } from "@/lib/server/agent-core/resource-store";
 import { ToolRegistry } from "@/lib/server/agent-core/tool-registry";
 import { ReplayPlanner } from "@/lib/server/agent-planners/replay-planner";
+import type { ToolResult } from "@/lib/server/agent-core/contracts";
 
 function createRegistry() {
   const registry = new ToolRegistry();
@@ -66,6 +67,45 @@ function createM1ResourceRegistry() {
     handler: () => ({ ok: true }),
   }));
   return registry;
+}
+
+function createTerminalGroundingToolResult(input: { toolResultId: string; ok: boolean; satisfied: boolean }): ToolResult {
+  const base = {
+    toolResultId: input.toolResultId,
+    toolName: "readOne",
+    toolVersion: "0.1.0",
+    toolCallId: `tc_${input.toolResultId}`,
+    idempotencyKey: `idem_${input.toolResultId}`,
+    normalizedInputHash: `hash_${input.toolResultId}`,
+    startedAt: "2026-06-03T00:00:00.000Z",
+    completedAt: "2026-06-03T00:00:00.000Z",
+    fulfillment: {
+      summary: "validator fixture result",
+      satisfied: input.satisfied,
+    },
+  };
+
+  if (!input.ok) {
+    return {
+      ...base,
+      ok: false,
+      error: {
+        code: AGENT_ERROR_CODES.HANDLER_ERROR,
+        message: "fixture failed",
+        retryable: false,
+      },
+    };
+  }
+
+  return {
+    ...base,
+    ok: true,
+    output: { id: input.toolResultId },
+    projection: {
+      model: { id: input.toolResultId },
+      user: { id: input.toolResultId },
+    },
+  };
 }
 
 describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
@@ -186,6 +226,54 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       manifests: registry.serializeForPlanner(),
       toolResults: [],
     })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID } });
+  });
+
+  it("rejects final_answer grounding by failed or unsatisfied tool results but allows ask_user diagnostics", () => {
+    const registry = createRegistry();
+    const manifests = registry.serializeForPlanner();
+    const failedResult = createTerminalGroundingToolResult({
+      toolResultId: "tr_failed",
+      ok: false,
+      satisfied: false,
+    });
+    const unsatisfiedResult = createTerminalGroundingToolResult({
+      toolResultId: "tr_unsatisfied",
+      ok: true,
+      satisfied: false,
+    });
+
+    expect(validateAgentAction({
+      action: {
+        type: "final_answer",
+        content: "done",
+        usedToolResultIds: [failedResult.toolResultId],
+      },
+      registry,
+      manifests,
+      toolResults: [failedResult],
+    })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID } });
+
+    expect(validateAgentAction({
+      action: {
+        type: "final_answer",
+        content: "done",
+        usedToolResultIds: [unsatisfiedResult.toolResultId],
+      },
+      registry,
+      manifests,
+      toolResults: [unsatisfiedResult],
+    })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID } });
+
+    expect(validateAgentAction({
+      action: {
+        type: "ask_user",
+        question: "需要补充信息。",
+        usedToolResultIds: [unsatisfiedResult.toolResultId],
+      },
+      registry,
+      manifests,
+      toolResults: [unsatisfiedResult],
+    })).toMatchObject({ ok: true });
   });
 
   it("validates M1 resource consumes and terminal grounding by resource role", () => {

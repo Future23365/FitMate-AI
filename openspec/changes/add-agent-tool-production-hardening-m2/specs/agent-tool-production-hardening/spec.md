@@ -86,6 +86,11 @@
 - **THEN** Action Validator MUST 仍能校验 `usedToolResultIds` 和 `usedResourceRefs`
 - **AND** 压缩模块 MUST NOT 将 diagnostic resource 改写为 consumable resource
 
+#### Scenario: final_answer 不得引用未满足 tool result 作为成功依据
+- **WHEN** Planner 返回 final_answer 并通过 `usedToolResultIds` 引用 failed 或 `fulfillment.satisfied=false` 的 tool result
+- **THEN** Action Validator MUST 将该 terminal action 判定为 `terminal_reference_invalid`
+- **AND** ask_user MAY 引用未满足或诊断性 tool result 用于解释阻断或追问
+
 ### Requirement: Planner 和 tool budget 必须限制运行成本
 系统 SHALL 在 Runtime 中执行 planner call、tool call、repair、token 或等价成本预算。预算耗尽后 Runtime MUST 结构化失败收口，并不得继续调用模型或 tool handler。
 
