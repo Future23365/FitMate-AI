@@ -2,7 +2,7 @@ import { z } from "zod";
 import { describe, expect, it } from "vitest";
 
 import { defineTool } from "@/lib/server/agent-core/define-tool";
-import { m1FixtureTools } from "@/lib/server/agent-tools";
+import { m1FixtureTools, searchExerciseResourcesTool } from "@/lib/server/agent-tools";
 import { resourceProducerFixtureTool } from "@/lib/server/agent-tools/fixture/m1-safety-fixture.tools";
 
 import { checkToolContractForProduction, checkToolRuntimeSafety } from "./contract-test-helper";
@@ -58,6 +58,10 @@ describe("agent-core contract test helper", () => {
     for (const tool of m1FixtureTools) {
       expect(checkToolContractForProduction(tool)).toMatchObject({ ok: true });
     }
+  });
+
+  it("accepts the production searchExerciseResources tool contract", () => {
+    expect(checkToolContractForProduction(searchExerciseResourcesTool)).toMatchObject({ ok: true, issues: [] });
   });
 
   it("catches missing projection and unsafe examples", () => {

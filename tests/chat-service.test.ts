@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   chatRequestSchema,
@@ -8,6 +8,7 @@ import {
   createAgentTextChatResponse,
   createProductionAgentTextChatPlanner,
 } from "@/lib/server/chat/agent-text-chat-service";
+import { createToolResultId, hashNormalizedInput } from "@/lib/server/agent-core/executor";
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
 import type { JsonValue } from "@/lib/server/agent-core/contracts";
 import { ReplayPlanner } from "@/lib/server/agent-planners/replay-planner";
@@ -22,6 +23,12 @@ import {
 } from "@/lib/server/agent-planners/model-adapters/model-adapter";
 import { clearAiTraces, listAiTracesForUser } from "@/lib/server/dev/ai-trace-store";
 import { createChatConversation } from "./fixtures/domain";
+
+const exerciseResourceRepositoryMocks = vi.hoisted(() => ({
+  searchExerciseResourceSummaries: vi.fn(),
+}));
+
+vi.mock("@/lib/server/exercises/exercise-repository", () => exerciseResourceRepositoryMocks);
 
 async function readNdjsonEvents(response: Response) {
   const text = await response.text();
@@ -111,6 +118,8 @@ class TraceModelAdapter implements ModelAdapter {
 describe("chat service agent text flow boundary", () => {
   beforeEach(() => {
     clearAiTraces();
+    exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockReset();
+    exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockResolvedValue(createExerciseResourceSearchResult());
   });
 
   it("accepts current chat request shape and ignores removed legacy event toggles", () => {
@@ -155,7 +164,7 @@ describe("chat service agent text flow boundary", () => {
     expect(prepared).not.toHaveProperty("agentExecutionResult");
   });
 
-  it("projects final_answer into content and done NDJSON with an empty production registry", async () => {
+  it("projects final_answer into content and done NDJSON with the controlled production registry", async () => {
     const prepared = prepareChatRequest({
       latestUserMessage: "今天练胸",
       conversationSummary: "",
@@ -176,13 +185,16 @@ describe("chat service agent text flow boundary", () => {
       { type: "content", content: "可以，今天先做轻量胸部训练。" },
       { type: "done" },
     ]);
-    expect(planner.calls[0].manifests).toEqual([]);
+    expect(planner.calls[0].manifests.map((manifest) => manifest.name)).toEqual(["searchExerciseResources"]);
     expect(planner.calls[0].run).toMatchObject({
       actor: { userId: "user-1" },
       userInput: "今天练胸",
       metadata: {
         hydration: expect.objectContaining({ source: "latest_message" }),
       },
+      limits: expect.objectContaining({
+        maxToolCalls: 1,
+      }),
     });
     expect(listAiTracesForUser("user-1")[0]).toMatchObject({
       route: "/api/chat",
@@ -195,7 +207,11 @@ describe("chat service agent text flow boundary", () => {
       },
       input: expect.objectContaining({
         latestUserMessage: "今天练胸",
-        registry: { toolCount: 0, toolNames: [] },
+        registry: {
+          manifestHash: expect.any(String),
+          toolCount: 1,
+          toolNames: ["searchExerciseResources"],
+        },
       }),
       steps: expect.arrayContaining([
         expect.objectContaining({
@@ -204,7 +220,7 @@ describe("chat service agent text flow boundary", () => {
         }),
         expect.objectContaining({
           type: "runtime_event",
-          output: expect.objectContaining({ type: "registry_snapshot", toolCount: 0 }),
+          output: expect.objectContaining({ type: "registry_snapshot", toolCount: 1 }),
         }),
         expect.objectContaining({
           type: "response_write",
@@ -212,6 +228,101 @@ describe("chat service agent text flow boundary", () => {
         }),
       ]),
     });
+    expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries).not.toHaveBeenCalled();
+  });
+
+  it("runs searchExerciseResources when the model explicitly calls the production tool", async () => {
+    const toolInput = { q: "胸", suitability: "training" };
+    const expectedToolResultId = createToolResultId(
+      "chat_assistant-tool",
+      "searchExerciseResources",
+      hashNormalizedInput(toolInput),
+    );
+    exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockResolvedValueOnce(createExerciseResourceSearchResult({
+      query: {
+        q: "胸",
+        suitability: "training",
+        published: true,
+        sort: "name_asc",
+      },
+      appliedFilters: [
+        { field: "q", value: "胸" },
+        { field: "suitability", value: "training" },
+        { field: "published", value: true },
+      ],
+    }));
+    const prepared = prepareChatRequest({
+      latestUserMessage: "找几个胸部训练动作",
+      conversationSummary: "",
+      responseMessageId: "assistant-tool",
+    });
+    const planner = new ReplayPlanner([
+      { type: "tool_call", toolName: "searchExerciseResources", input: toolInput },
+      { type: "final_answer", content: "可以参考俯卧撑。", usedToolResultIds: [expectedToolResultId] },
+    ]);
+
+    const response = await createAgentTextChatResponse({
+      request: prepared,
+      currentUser: { id: "user-1" },
+      planner,
+    });
+    const events = await readNdjsonEvents(response);
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "tool_result",
+        toolResultId: expectedToolResultId,
+        toolName: "searchExerciseResources",
+        content: expect.objectContaining({
+          totalMatches: 1,
+          returnedCount: 1,
+          truncated: false,
+        }),
+      }),
+      { type: "content", content: "可以参考俯卧撑。" },
+      { type: "done" },
+    ]);
+    expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries).toHaveBeenCalledWith({
+      q: "胸",
+      category: undefined,
+      suitability: "training",
+      level: undefined,
+      force: undefined,
+      mechanic: undefined,
+      equipment: undefined,
+      homeRequirement: undefined,
+      muscle: undefined,
+      goalTag: undefined,
+      riskTag: undefined,
+      published: true,
+      sort: "name_asc",
+    });
+    expect(listAiTracesForUser("user-1")[0]).toMatchObject({
+      status: "success",
+      input: expect.objectContaining({
+        registry: expect.objectContaining({
+          toolCount: 1,
+          toolNames: ["searchExerciseResources"],
+        }),
+      }),
+      steps: expect.arrayContaining([
+        expect.objectContaining({
+          name: "Tool result 摘要",
+          output: {
+            toolResults: [
+              expect.objectContaining({
+                toolResultId: expectedToolResultId,
+                toolName: "searchExerciseResources",
+                ok: true,
+                satisfied: true,
+              }),
+            ],
+          },
+        }),
+      ]),
+    });
+    expect(JSON.stringify(events)).not.toContain("candidateSetId");
+    expect(JSON.stringify(events)).not.toContain("candidate_set");
   });
 
   it("answers capability questions through model final_answer instead of server fallback", async () => {
@@ -222,7 +333,7 @@ describe("chat service agent text flow boundary", () => {
     const planner = new ReplayPlanner([
       {
         type: "final_answer",
-        content: "我现在可以和你做普通文本交流，帮你梳理训练目标、解释训练原则、整理限制条件；如果没有工具接入，我不会声称能直接执行保存或查询。",
+        content: "我现在可以做普通文本交流，也可以通过受控工具查询发布态动作库事实；我不会声称能保存计划、修改日程或查询未发布动作。",
       },
     ]);
     const response = await createAgentTextChatResponse({
@@ -232,11 +343,11 @@ describe("chat service agent text flow boundary", () => {
     });
     const events = await readNdjsonEvents(response);
 
-    expect(planner.calls[0].manifests).toEqual([]);
+    expect(planner.calls[0].manifests.map((manifest) => manifest.name)).toEqual(["searchExerciseResources"]);
     expect(events).toEqual([
       {
         type: "content",
-        content: "我现在可以和你做普通文本交流，帮你梳理训练目标、解释训练原则、整理限制条件；如果没有工具接入，我不会声称能直接执行保存或查询。",
+        content: "我现在可以做普通文本交流，也可以通过受控工具查询发布态动作库事实；我不会声称能保存计划、修改日程或查询未发布动作。",
       },
       { type: "done" },
     ]);
@@ -246,7 +357,11 @@ describe("chat service agent text flow boundary", () => {
       status: "success",
       input: expect.objectContaining({
         latestUserMessage: "你能干什么",
-        registry: { toolCount: 0, toolNames: [] },
+        registry: {
+          manifestHash: expect.any(String),
+          toolCount: 1,
+          toolNames: ["searchExerciseResources"],
+        },
       }),
       finalDecision: {
         status: "success",
@@ -432,7 +547,7 @@ describe("chat service agent text flow boundary", () => {
     });
   });
 
-  it("projects repeated empty-registry tool_call failures as a safe unsupported response", async () => {
+  it("keeps unknown tool requests inside validator and repair boundaries when production registry is non-empty", async () => {
     const planner = createTracePlanner([
       { actionCandidate: { type: "tool_call", toolName: "searchExercises", input: { query: "胸" } } },
       { actionCandidate: { type: "tool_call", toolName: "searchExercises", input: { query: "胸" } } },
@@ -444,28 +559,27 @@ describe("chat service agent text flow boundary", () => {
     });
     const events = await readNdjsonEvents(response);
 
-    expect(planner.calls[0].manifests).toEqual([]);
+    expect(planner.calls[0].manifests.map((manifest) => manifest.name)).toEqual(["searchExerciseResources"]);
     expect(events).toEqual([
       {
-        type: "content",
-        content: "刚才这个请求需要当前未接入的工具，所以我不能直接执行这个操作。你可以把它改成普通文本问题，或先补充想让我整理的信息。",
-      },
-      {
-        type: "assistant_suggestions",
-        suggestions: ["改成普通文本问题", "先解释训练原则", "我需要补充哪些信息"],
+        type: "error",
+        error: expect.objectContaining({
+          code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
+          message: "聊天生成失败，请稍后重试。",
+        }),
       },
       { type: "done" },
     ]);
+    expect(JSON.stringify(events)).not.toContain("当前未接入的工具");
     expect(JSON.stringify(events)).not.toContain("直接生成、保存或执行训练计划");
-    expect(JSON.stringify(events)).not.toContain(AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED);
     expect(JSON.stringify(events)).not.toContain("Agent runtime reached the invalid action repair limit.");
     expect(JSON.stringify(events)).not.toContain("Tool \"searchExercises\" is not registered.");
     expect(listAiTracesForUser("user-1")[0]).toMatchObject({
       status: "failed",
       finalDecision: {
-        status: "recoverable_failure",
+        status: "hard_failure",
         code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
-        responseType: "content",
+        responseType: "error",
       },
       steps: expect.arrayContaining([
         expect.objectContaining({
@@ -489,8 +603,8 @@ describe("chat service agent text flow boundary", () => {
         expect.objectContaining({
           type: "response_write",
           output: expect.objectContaining({
-            eventTypes: ["content", "assistant_suggestions", "done"],
-            errorCodes: [],
+            eventTypes: ["error", "done"],
+            errorCodes: [AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED],
           }),
         }),
       ]),
@@ -568,4 +682,48 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function toJsonValue(value: unknown): JsonValue {
   return JSON.parse(JSON.stringify(value)) as JsonValue;
+}
+
+function createExerciseResourceSearchResult(overrides: Record<string, unknown> = {}) {
+  const exercise = {
+    id: "push-up",
+    nameEn: "Push-up",
+    nameZh: "俯卧撑",
+    category: "strength",
+    categoryZh: "力量",
+    level: "beginner",
+    levelZh: "初级",
+    force: "push",
+    forceZh: "推",
+    mechanic: "compound",
+    mechanicZh: "复合",
+    equipment: "body only",
+    equipmentZh: "自重",
+    homeRequirement: "home_friendly",
+    homeRequirementZh: "适合居家",
+    primaryMuscles: ["chest"],
+    primaryMusclesZh: ["胸部"],
+    secondaryMuscles: ["triceps"],
+    secondaryMusclesZh: ["肱三头肌"],
+    imageUrls: ["/push-up.png"],
+    allowedSections: ["training"],
+    goalTags: ["strength"],
+    riskTags: [],
+    reviewStatus: "human_reviewed",
+    isPublished: true,
+  };
+
+  return {
+    query: {
+      published: true,
+      sort: "name_asc",
+    },
+    appliedFilters: [{ field: "published", value: true }],
+    totalMatches: 1,
+    returnedCount: 1,
+    maxReturned: 12,
+    truncated: false,
+    exercises: [exercise],
+    ...overrides,
+  };
 }

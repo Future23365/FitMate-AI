@@ -61,7 +61,7 @@ describe("agent-core architecture boundaries", () => {
     const forbiddenTerms = [
       "agent" + "-orchestrator",
       "Agent" + "ExecutionResult",
-      "Agent" + "ToolRegistry",
+      "new Agent" + "ToolRegistry",
       "agent_" + "response_writer",
       "@/lib/server/" + "ai",
       "openai",
@@ -289,23 +289,21 @@ describe("agent-core architecture boundaries", () => {
     expect(matches).toEqual([]);
   });
 
-  it("keeps production text chat registry empty without fixture or real business tools", () => {
+  it("keeps production text chat registry controlled without fixture or unsafe business tools", () => {
     const service = readRelative("lib/server/chat/agent-text-chat-service.ts");
     const forbiddenTerms = [
-      "@/lib/server/agent-tools",
       "createM0FixtureToolRegistry",
       "createM1FixtureToolRegistry",
-      "registry.register",
       "readFixture",
       "searchExercises",
       "generateRoutine",
       "saveWorkout",
       "queryUserMemory",
-      "agent-tools/",
     ];
     const matches = forbiddenTerms.filter((term) => service.includes(term));
 
-    expect(service).toContain("new ToolRegistry()");
+    expect(service).toContain("createProductionAgentToolRegistry");
+    expect(service).toContain("maxToolCalls: 1");
     expect(matches).toEqual([]);
   });
 
@@ -333,9 +331,10 @@ describe("agent-core architecture boundaries", () => {
     expect(matches).toEqual([]);
   });
 
-  it("does not add or register real domain tools in the M2 hardening change", () => {
+  it("allows only searchExerciseResources as the current production business tool", () => {
     const allowedAgentToolFiles = new Set([
       "lib/server/agent-tools/index.ts",
+      "lib/server/agent-tools/exercises/search-exercise-resources.tool.ts",
       "lib/server/agent-tools/fixture/read-fixture.tool.ts",
       "lib/server/agent-tools/fixture/m1-safety-fixture.tools.ts",
     ]);
@@ -343,8 +342,11 @@ describe("agent-core architecture boundaries", () => {
       .map((file) => path.relative(repoRoot, file))
       .filter((file) => !allowedAgentToolFiles.has(file));
     const registryEntry = readRelative("lib/server/agent-tools/index.ts");
+    const productionRegistryFunction = registryEntry.slice(
+      registryEntry.indexOf("export function createProductionAgentToolRegistry"),
+      registryEntry.indexOf("/** productionAgentTools"),
+    );
     const forbiddenRegistrations = [
-      "exercise",
       "routine",
       "workout",
       "memory",
@@ -354,6 +356,10 @@ describe("agent-core architecture boundaries", () => {
     ].filter((term) => registryEntry.includes(term));
 
     expect(unexpectedFiles).toEqual([]);
+    expect(registryEntry).toContain("searchExerciseResourcesTool");
+    expect(registryEntry).toContain("productionAgentTools = [searchExerciseResourcesTool]");
+    expect(productionRegistryFunction).not.toContain("readFixtureTool");
+    expect(productionRegistryFunction).not.toContain("m1SafetyFixtureTools");
     expect(forbiddenRegistrations).toEqual([]);
   });
 });

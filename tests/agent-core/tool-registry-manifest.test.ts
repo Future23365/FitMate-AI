@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { defineTool } from "@/lib/server/agent-core/define-tool";
 import { AgentContractError, AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
 import { ToolRegistry } from "@/lib/server/agent-core/tool-registry";
+import { createProductionAgentToolRegistry } from "@/lib/server/agent-tools";
 
 function createNestedReadTool(name = "nestedRead") {
   return defineTool({
@@ -123,5 +124,47 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(manifestJson).not.toContain("handler");
     expect(manifestJson).not.toContain("secretToken");
     expect(manifestJson).not.toContain("should-not-leak");
+  });
+
+  it("serializes the production registry with only searchExerciseResources and its key schema fields", () => {
+    const registry = createProductionAgentToolRegistry();
+    const manifests = registry.serializeForPlanner();
+    const [manifest] = manifests;
+    const inputSchema = manifest.inputJsonSchema as {
+      properties: {
+        q: unknown;
+        suitability: { enum: string[] };
+        published: { const?: boolean; default?: boolean };
+        sort: { default?: string; enum: string[] };
+      };
+      additionalProperties?: boolean;
+    };
+    const manifestJson = JSON.stringify(manifest);
+
+    expect(manifests.map((tool) => tool.name)).toEqual(["searchExerciseResources"]);
+    expect(manifest.policyHint).toEqual({
+      sideEffect: "read",
+      riskLevel: "low",
+      confirmation: "never",
+    });
+    expect(inputSchema.properties).toHaveProperty("q");
+    expect(inputSchema.properties.suitability.enum).toEqual(["warmup", "training", "stretch"]);
+    expect(inputSchema.properties.sort.enum).toEqual([
+      "name_asc",
+      "name_desc",
+      "level_asc",
+      "level_desc",
+      "category_asc",
+      "category_desc",
+    ]);
+    expect(inputSchema.properties.sort.default).toBe("name_asc");
+    expect(inputSchema.additionalProperties).toBe(false);
+    expect(manifestJson).toContain("usedToolResultIds");
+    expect(manifestJson).toContain("published");
+    expect(manifestJson).not.toContain("readFixture");
+    expect(manifestJson).not.toContain("m1ResourceProducer");
+    expect(manifestJson).not.toContain("candidateSetId");
+    expect(manifestJson).not.toContain("candidate_set");
+    expect(manifestJson).not.toContain("handler");
   });
 });

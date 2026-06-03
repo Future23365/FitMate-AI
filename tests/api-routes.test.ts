@@ -116,7 +116,11 @@ describe("API route boundaries", () => {
       userId: "user-1",
       input: expect.objectContaining({
         latestUserMessage: "练胸",
-        registry: { toolCount: 0, toolNames: [] },
+        registry: {
+          manifestHash: expect.any(String),
+          toolCount: 1,
+          toolNames: ["searchExerciseResources"],
+        },
       }),
     }));
     expect(traceMocks.startAiTrace.mock.results[0].value.addStep).toHaveBeenCalledWith(expect.objectContaining({
@@ -166,13 +170,16 @@ describe("API route boundaries", () => {
     ]);
     expect(JSON.stringify(events)).not.toContain("assistant_action");
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({
+    const modelRequest = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(modelRequest).toMatchObject({
       messages: expect.arrayContaining([
         expect.objectContaining({
-          content: expect.stringContaining("\"tools\":[]"),
+          content: expect.stringContaining("\"name\":\"searchExerciseResources\""),
         }),
       ]),
     });
+    expect(JSON.stringify(modelRequest)).not.toContain("readFixture");
+    expect(JSON.stringify(modelRequest)).not.toContain("m1ResourceProducer");
     expect(traceMocks.startAiTrace).toHaveBeenCalledWith(expect.objectContaining({
       route: "/api/chat",
       userId: "user-1",

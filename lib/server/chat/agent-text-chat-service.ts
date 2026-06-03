@@ -13,10 +13,12 @@ import type {
   ToolError,
 } from "@/lib/server/agent-core/contracts";
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
+import { createManifestHash } from "@/lib/server/agent-core/manifest-hardening";
 import { redactJsonValue } from "@/lib/server/agent-core/redaction";
 import { renderAgentResponseEvents } from "@/lib/server/agent-core/response-renderer";
 import { runAgentRuntime } from "@/lib/server/agent-core/runtime";
 import { ToolRegistry } from "@/lib/server/agent-core/tool-registry";
+import { createProductionAgentToolRegistry } from "@/lib/server/agent-tools";
 import { LlmPlanner } from "@/lib/server/agent-planners/llm-planner";
 import { DeepSeekModelAdapter } from "@/lib/server/agent-planners/model-adapters/deepseek-model-adapter";
 import type { PlannerModelTraceEvent } from "@/lib/server/agent-planners/model-adapters/model-adapter";
@@ -45,7 +47,6 @@ const unsupportedToolActionSuggestions = [
   "我需要补充哪些信息",
 ];
 const directUnsupportedErrorCodes = new Set<string>([
-  AGENT_ERROR_CODES.UNKNOWN_TOOL,
   AGENT_ERROR_CODES.UNSUPPORTED_M0_CAPABILITY,
   AGENT_ERROR_CODES.MAX_TOOL_CALLS_EXCEEDED,
 ]);
@@ -86,9 +87,9 @@ type DeepSeekPlannerFactoryInput = {
   fetchImpl?: typeof fetch;
 };
 
-// createAgentTextChatResponse 是 /api/chat 到 agent-core 的薄接入层，只负责构造 run、空 registry 和 NDJSON 投影。
+// createAgentTextChatResponse 是 /api/chat 到 agent-core 的薄接入层，只负责构造 run、生产 registry 和 NDJSON 投影。
 export async function createAgentTextChatResponse(input: CreateAgentTextChatResponseInput): Promise<Response> {
-  const registry = createEmptyProductionTextChatRegistry();
+  const registry = createProductionTextChatRegistry();
   const run = createAgentTextChatRunInput({
     request: input.request,
     currentUser: input.currentUser,
@@ -215,7 +216,7 @@ export function createAgentTextChatRunInput(input: {
     limits: {
       maxSteps: 4,
       maxPlannerCalls: 4,
-      maxToolCalls: 0,
+      maxToolCalls: 1,
       maxInvalidActions: 1,
       maxRepairAttempts: 1,
       overallTimeoutMs: 40_000,
@@ -224,9 +225,9 @@ export function createAgentTextChatRunInput(input: {
   };
 }
 
-// createEmptyProductionTextChatRegistry 明确表达本阶段没有任何生产业务 tool 可执行。
-export function createEmptyProductionTextChatRegistry() {
-  return new ToolRegistry();
+// createProductionTextChatRegistry 明确表达当前生产聊天只接入受控低风险只读业务 tool。
+export function createProductionTextChatRegistry() {
+  return createProductionAgentToolRegistry();
 }
 
 // createAgentTextChatNdjsonResponse 保持 /api/chat 输出为前端可逐行消费的 NDJSON 白名单事件。
@@ -447,6 +448,20 @@ function recordAgentTextChatRuntimeResultTrace(input: {
     });
   }
 
+  if (input.result.toolResults.length > 0) {
+    input.trace.addStep({
+      name: "Tool result 摘要",
+      type: "runtime_event",
+      output: {
+        toolResults: input.result.toolResults.map(summarizeToolResultForTrace),
+      },
+      metadata: {
+        pipeline: "agent-core-text-chat",
+        boundary: "tool_result_projection",
+      },
+    });
+  }
+
   const responseSummary = summarizeAgentTextChatResponseEvents(input.events);
   input.trace.addStep({
     name: "NDJSON 响应写入",
@@ -604,6 +619,7 @@ function summarizeRegistry(registry: ToolRegistry) {
   const manifest = registry.serializeForPlanner();
 
   return {
+    manifestHash: createManifestHash(manifest),
     toolCount: manifest.length,
     toolNames: manifest.map((tool) => tool.name),
   };
@@ -891,6 +907,44 @@ function summarizeAgentTextChatResponseEvents(events: AgentTextChatStreamEvent[]
     errorCodes,
     confirmationRequestCount: events.filter((event) => event.type === "confirmation_request").length,
     toolResultCount: events.filter((event) => event.type === "tool_result").length,
+  };
+}
+
+function summarizeToolResultForTrace(result: AgentRunResult["toolResults"][number]) {
+  const base = {
+    toolResultId: result.toolResultId,
+    toolName: result.toolName,
+    ok: result.ok,
+    satisfied: result.fulfillment.satisfied,
+    summary: result.fulfillment.summary,
+  };
+
+  if (!result.ok) {
+    return {
+      ...base,
+      failureCode: result.error.code,
+    };
+  }
+
+  return {
+    ...base,
+    model: summarizeTraceProjectionValue(result.projection.model),
+    user: summarizeTraceProjectionValue(result.projection.user),
+  };
+}
+
+function summarizeTraceProjectionValue(value: JsonValue | undefined) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+
+  const record = value as Record<string, JsonValue>;
+  return {
+    status: record.status,
+    totalMatches: record.totalMatches,
+    returnedCount: record.returnedCount,
+    truncated: record.truncated,
+    appliedFilters: record.appliedFilters,
   };
 }
 
