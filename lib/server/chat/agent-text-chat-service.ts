@@ -35,12 +35,13 @@ const CHAT_TEXT_FLOW_CONFIG_ERROR_CODE = "chat_ai_not_configured";
 const agentTextChatRoute = "/api/chat";
 const ndjsonContentType = "application/x-ndjson; charset=utf-8";
 const maxTraceSummaryLength = 600;
-const unsupportedCapabilityMessage = "目前还不能直接生成、保存或执行训练计划。我可以先帮你梳理训练目标、解释动作和训练原则，或整理需要补充的信息。";
+// unsupportedToolActionMessage 只表达工具不可执行的安全边界，不替代模型的基础问答回复。
+const unsupportedToolActionMessage = "刚才这个请求需要当前未接入的工具，所以我不能直接执行这个操作。你可以把它改成普通文本问题，或先补充想让我整理的信息。";
 const genericChatFailureMessage = "聊天生成失败，请稍后重试。";
 const chatServiceUnavailableMessage = "聊天服务暂时不可用，请稍后再试。";
-const unsupportedCapabilitySuggestions = [
-  "先帮我梳理训练目标",
-  "解释一个动作怎么做",
+const unsupportedToolActionSuggestions = [
+  "改成普通文本问题",
+  "先解释训练原则",
   "我需要补充哪些信息",
 ];
 const directUnsupportedErrorCodes = new Set<string>([
@@ -249,8 +250,8 @@ function renderAgentTextChatResponseEvents(input: {
 }): AgentTextChatStreamEvent[] {
   if (isUnsupportedCapabilityFailure(input)) {
     return [
-      { type: "content", content: unsupportedCapabilityMessage },
-      { type: "assistant_suggestions", suggestions: unsupportedCapabilitySuggestions },
+      { type: "content", content: unsupportedToolActionMessage },
+      { type: "assistant_suggestions", suggestions: unsupportedToolActionSuggestions },
       { type: "done" },
     ];
   }

@@ -232,8 +232,8 @@ describe("agent-planners LlmPlanner and model adapters", () => {
     const customPromptConfig: AgentLlmPromptConfig = {
       promptVersion: "agent-action-custom-test",
       systemPromptInstructions: [
-        "Return a test-only AgentAction JSON object.",
-        "Only final_answer is expected in this adapter test.",
+        "返回测试专用 AgentAction JSON object。",
+        "这个 adapter 测试只期望 final_answer。",
       ],
       requestDefaults: {
         temperature: 0.4,

@@ -1000,6 +1000,16 @@ trace 中不保存 secret、完整敏感 payload、数据库连接信息
 生成 confirmation hash
 ```
 
+当前 production 文本聊天基础问答边界：
+
+```txt
+生产文本聊天可以使用空 ToolRegistry；空 registry 只表示没有可执行业务 tool，不表示不能做基础自然语言问答。
+普通聊天、能力说明、训练原则解释、信息整理等不需要工具执行的问题，必须由 LLM 返回合法 final_answer，再由 Response Renderer 投影为 content。
+当 tools 为空时，Prompt 必须要求模型禁止 tool_call；需要更多用户信息时返回 ask_user。
+服务端不得根据“你能干什么”等用户原文写死回答，也不得把 unsupported fallback 当作基础问答的正常回复。
+unsupported fallback 只处理模型明确返回不可执行 tool_call 的安全错误边界，职责是阻止内部 runtime / validator / provider 文案进入用户气泡。
+```
+
 确认建议单独入口：
 
 ```txt

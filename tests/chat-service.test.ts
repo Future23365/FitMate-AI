@@ -214,6 +214,58 @@ describe("chat service agent text flow boundary", () => {
     });
   });
 
+  it("answers capability questions through model final_answer instead of server fallback", async () => {
+    const prepared = prepareChatRequest({
+      latestUserMessage: "你能干什么",
+      conversationSummary: "",
+    });
+    const planner = new ReplayPlanner([
+      {
+        type: "final_answer",
+        content: "我现在可以和你做普通文本交流，帮你梳理训练目标、解释训练原则、整理限制条件；如果没有工具接入，我不会声称能直接执行保存或查询。",
+      },
+    ]);
+    const response = await createAgentTextChatResponse({
+      request: prepared,
+      currentUser: { id: "user-1" },
+      planner,
+    });
+    const events = await readNdjsonEvents(response);
+
+    expect(planner.calls[0].manifests).toEqual([]);
+    expect(events).toEqual([
+      {
+        type: "content",
+        content: "我现在可以和你做普通文本交流，帮你梳理训练目标、解释训练原则、整理限制条件；如果没有工具接入，我不会声称能直接执行保存或查询。",
+      },
+      { type: "done" },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("当前未接入的工具");
+    expect(JSON.stringify(events)).not.toContain("聊天生成失败");
+    expect(listAiTracesForUser("user-1")[0]).toMatchObject({
+      status: "success",
+      input: expect.objectContaining({
+        latestUserMessage: "你能干什么",
+        registry: { toolCount: 0, toolNames: [] },
+      }),
+      finalDecision: {
+        status: "success",
+        reason: "completed",
+        responseType: "final_answer",
+      },
+      steps: expect.arrayContaining([
+        expect.objectContaining({
+          type: "validation",
+          output: expect.objectContaining({ ok: true }),
+        }),
+        expect.objectContaining({
+          type: "response_write",
+          output: expect.objectContaining({ eventTypes: ["content", "done"], errorCodes: [] }),
+        }),
+      ]),
+    });
+  });
+
   it("writes model_request and model_response trace steps for final_answer model calls", async () => {
     const prepared = prepareChatRequest({
       latestUserMessage: "今天练胸",
@@ -396,14 +448,15 @@ describe("chat service agent text flow boundary", () => {
     expect(events).toEqual([
       {
         type: "content",
-        content: "目前还不能直接生成、保存或执行训练计划。我可以先帮你梳理训练目标、解释动作和训练原则，或整理需要补充的信息。",
+        content: "刚才这个请求需要当前未接入的工具，所以我不能直接执行这个操作。你可以把它改成普通文本问题，或先补充想让我整理的信息。",
       },
       {
         type: "assistant_suggestions",
-        suggestions: ["先帮我梳理训练目标", "解释一个动作怎么做", "我需要补充哪些信息"],
+        suggestions: ["改成普通文本问题", "先解释训练原则", "我需要补充哪些信息"],
       },
       { type: "done" },
     ]);
+    expect(JSON.stringify(events)).not.toContain("直接生成、保存或执行训练计划");
     expect(JSON.stringify(events)).not.toContain(AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED);
     expect(JSON.stringify(events)).not.toContain("Agent runtime reached the invalid action repair limit.");
     expect(JSON.stringify(events)).not.toContain("Tool \"searchExercises\" is not registered.");
