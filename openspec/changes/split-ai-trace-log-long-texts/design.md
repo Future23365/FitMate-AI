@@ -27,8 +27,9 @@
 4. 报告不内联完整 `rawTrace` 或完整 `trace` 对象，只保留 `traceSummary` 和 step summary。
 5. `runtimeTraceEvents` 只保留 event type、step、toolName、toolResultId、code、status、durationMs 和 resource refs 等定位字段，不保留完整 tool manifest 或完整 step input/output。
 6. 长文本映射按 hash 去重；同一段 prompt 或 observation 多次出现时只保存一条内容，并记录出现路径。
-7. 两个文件每次保存都覆盖旧内容，不生成目录，也不保留历史版本。
-8. 两个文件头部都写注释，说明默认先读报告；需要长文本时用 `contentRef` 到 `ai_trace_texts.jsonl` 查询。
+7. 模型请求 trace 中的长 message content 使用分块 envelope 保存，导出层识别后合并为单条长文本映射，避免在进入导出层前被 adapter 的 800 字符摘要丢失尾部。
+8. 两个文件每次保存都覆盖旧内容，不生成目录，也不保留历史版本。
+9. 两个文件头部都写注释，说明默认先读报告；需要长文本时用 `contentRef` 到 `ai_trace_texts.jsonl` 查询。
 
 ## 范围与边界
 
@@ -40,8 +41,11 @@
 
 - `components/dev/ai-trace-viewer.tsx`
 - `app/api/dev/ai-traces/route.ts`
+- `lib/server/agent-planners/model-adapters/model-adapter.ts`
+- `lib/server/agent-planners/model-adapters/deepseek-model-adapter.ts`
 - `tests/ai-trace-viewer.test.ts`
 - `tests/ai-trace-http.test.ts`
+- `tests/agent-core/adapter-llm-planner.test.ts`
 - 本 change 的 OpenSpec 文档
 
 ### 禁止触碰模块
@@ -59,7 +63,7 @@
 
 ### Core contract 变更
 
-不涉及 core contract 变更。长文本抽离发生在开发态保存导出层，不改变模型实际输入、runtime traceEvents、tool observation、用户可见 NDJSON 或 trace store 写入行为。
+不涉及 core contract 变更。长文本抽离发生在开发态 trace 诊断和保存导出层，不改变模型实际输入、PlannerPort、Agent runtime、tool observation 或用户可见 NDJSON。`DeepSeekModelAdapter` 只改变 request trace 中长 message content 的诊断表示，真实发送给模型的 request body 保持不变。
 
 ## 长文本识别规则
 
@@ -85,6 +89,22 @@
 - `generic_long_text`
 
 该分类只用于调试检索，不参与业务逻辑，也不得影响 Agent 执行。
+
+## 模型请求长文本保真规则
+
+`DeepSeekModelAdapter` 原本在 `createRequestTrace()` 中对 `requestBody.messages[].content` 直接调用 `summarizeText()`，超过 800 字符就变成摘要字符串。这样即使导出层支持长文本映射，`ai_trace_texts.jsonl` 也只能拿到已经被截断的文本。
+
+修正后：
+
+- 真实模型请求 body 不变，仍由 `createRequestBody()` 生成并发送给 DeepSeek。
+- request trace 中短 message content 仍保存为脱敏字符串摘要。
+- request trace 中超过 adapter 摘要阈值的 message content MUST 保存为 `kind="trace_long_text"` 的分块 envelope。
+- 每个 chunk 字符串 MUST 小于 `AiTraceStore` 的单字符串截断阈值，避免 store 把 chunk 变成 preview。
+- envelope MUST 记录 `originalLength`、`storedLength`、`chunkSize`、`hash`、`preview`、`redacted` 和 `chunks`。
+- 导出层 MUST 识别该 envelope，按 `chunk.index` 合并 `chunks[].text`，作为一条长文本写入 `ai_trace_texts.jsonl`。
+- 默认报告 MUST 只保留该长文本的 `contentRef`，不能把 chunks 或完整 content 留在 `ai_trace_log.js`。
+
+如果 chunk 命中敏感值规则，对应 chunk 保存 `[redacted]`；`originalLength` 仍记录模型请求原始长度，便于判断是否发生脱敏。
 
 ## 报告瘦身规则
 
@@ -121,10 +141,11 @@
 ## 验证计划
 
 - `openspec validate split-ai-trace-log-long-texts --strict`
-- `npm test -- tests/ai-trace-viewer.test.ts tests/ai-trace-http.test.ts`
+- `npm test -- tests/ai-trace-viewer.test.ts tests/ai-trace-http.test.ts tests/agent-core/adapter-llm-planner.test.ts`
 - `npm run typecheck`
 
 ## 剩余风险
 
 - 如果某些短文本低于阈值，仍会留在报告中；后端脱敏继续兜底。
 - 如果开发者只看报告不查 `contentRef`，可能仍无法判断长 prompt 尾部细节；文件注释和引用字段会明确引导查询方式。
+- 如果单次模型输入超过开发态 trace store 的整体序列化预算，仍可能触发 store 级保护；当前修复覆盖常见 30 多轮对话这种数万字符级模型输入。

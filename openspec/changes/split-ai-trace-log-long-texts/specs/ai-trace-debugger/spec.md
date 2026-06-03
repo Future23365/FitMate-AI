@@ -11,6 +11,7 @@
 - **AND** `ai_trace_log.js` MUST NOT 内联完整 `rawTrace` 或完整 `trace` payload
 - **AND** `ai_trace_log.js` MUST 使用 `contentRef`、`path`、`kind`、`originalLength`、`hash` 和 `preview` 引用被抽离的长文本
 - **AND** `ai_trace_texts.jsonl` MUST 以一行一个 JSON object 保存与 `contentRef` 对应的脱敏长文本
+- **AND** 模型请求 trace 中超过 adapter 摘要阈值的 message content MUST 能以分块 envelope 进入导出层，并在 `ai_trace_texts.jsonl` 中恢复为单条长文本映射
 - **AND** `ai_trace_texts.jsonl` SHOULD 按 hash 去重保存重复长文本，并在记录中保留出现路径
 - **AND** 两个文件 MUST 在每次保存全链路 log 时覆盖上一次导出，不新增导出目录或历史版本
 - **AND** 两个文件 MUST 包含注释，说明默认先读轻量报告，并按 `contentRef` 到 `ai_trace_texts.jsonl` 查询长文本
@@ -31,6 +32,7 @@
 - **AND** 保存内容 MUST 包含每轮 LLM 输入摘要、LLM 输出解析、tool 执行结果、resource links、diagnostic findings、final result 和用户可见回复摘要
 - **AND** 保存内容 MUST 将超过导出阈值的长文本替换为 `contentRef` 引用
 - **AND** 被引用的长文本 MUST 写入 `codex_logs/ai_trace_texts.jsonl`
+- **AND** 模型请求 message content 已在上游 trace 中以 chunks 保存时，导出层 MUST 合并 chunks 并只在报告中留下 `contentRef`
 - **AND** 保存内容 MUST 使用 step summary 或 trace summary 代替完整 Raw trace 对象
 - **AND** 报告 MUST 保留足够定位问题的 code、id、状态、step、token usage、hash 和路径信息，便于只读报告完成常规排查
 
@@ -52,6 +54,7 @@
 - **WHEN** 开发者点击保存全链路 log
 - **THEN** 保存 payload MUST 包含页面模块结构、每个模块的关键摘要、模型调用诊断详情、runtime traceEvents、response summary 和 Raw trace 摘要
 - **AND** 保存 payload MUST 将长文本外置为 `contentRef` 映射，并在报告中保留查询长文本所需的路径、hash、长度和预览
+- **AND** 保存 payload MUST NOT 因 adapter 级 800 字符摘要丢失完整模型请求 message 的尾部内容
 - **AND** 保存 payload MUST NOT 重复保存完整 `rawTrace` 和完整 `trace` 对象
 - **AND** 保存 payload 和长文本映射 MUST 继续经过脱敏
 

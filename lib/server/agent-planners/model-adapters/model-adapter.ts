@@ -22,7 +22,28 @@ export type ModelActionCompletionParseStatus =
   | "timeout"
   | "adapter_exception";
 
-/** ModelTraceMessageSummary 是 trace 可保存的模型 message 摘要，不包含未经截断的完整 prompt。 */
+/** ModelTraceLongTextChunk 是模型请求长文本在 trace 中的安全分块，避免单个字符串被 trace store 截断。 */
+export type ModelTraceLongTextChunk = {
+  index: number;
+  start: number;
+  end: number;
+  text: string;
+};
+
+/** ModelTraceLongTextEnvelope 让开发态导出层能还原模型可见长文本，同时默认报告只保留引用。 */
+export type ModelTraceLongTextEnvelope = {
+  kind: "trace_long_text";
+  contentType: "model_request_message";
+  originalLength: number;
+  storedLength: number;
+  chunkSize: number;
+  hash: string;
+  preview: string;
+  redacted: boolean;
+  chunks: ModelTraceLongTextChunk[];
+};
+
+/** ModelTraceMessageSummary 是 trace 可保存的模型 message 诊断，短文本直接保存，长文本使用分块 envelope。 */
 export type ModelTraceMessageSummary = {
   role: string;
   content: JsonValue;

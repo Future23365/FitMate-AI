@@ -303,6 +303,64 @@ describe("AI trace viewer step grouping", () => {
     ]);
   });
 
+  it("merges chunked model request trace envelopes into one long text mapping", () => {
+    const modelVisibleContent = `完整模型输入 ${"历史消息和合同内容需要保留。".repeat(80)}`;
+    const firstChunk = modelVisibleContent.slice(0, 420);
+    const secondChunk = modelVisibleContent.slice(420);
+
+    const payload = extractTraceLogLongTexts({
+      plannerModelCalls: [
+        {
+          request: {
+            input: {
+              messages: [
+                {
+                  role: "user",
+                  content: {
+                    kind: "trace_long_text",
+                    contentType: "model_request_message",
+                    originalLength: modelVisibleContent.length,
+                    storedLength: modelVisibleContent.length,
+                    chunkSize: 420,
+                    hash: "fnv1a:testtrace",
+                    preview: "完整模型输入\n...[middle omitted]...\n需要保留。",
+                    redacted: false,
+                    chunks: [
+                      { index: 1, start: 420, end: modelVisibleContent.length, text: secondChunk },
+                      { index: 0, start: 0, end: 420, text: firstChunk },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        },
+      ],
+    }) as Record<string, unknown>;
+    const plannerModelCalls = payload.plannerModelCalls as Array<Record<string, unknown>>;
+    const request = plannerModelCalls[0].request as Record<string, unknown>;
+    const input = request.input as Record<string, unknown>;
+    const messages = input.messages as Array<Record<string, unknown>>;
+    const messageContent = messages[0].content as Record<string, unknown>;
+    const longTexts = payload.longTexts as Array<Record<string, unknown>>;
+
+    expect(messageContent).toMatchObject({
+      contentRef: "text_0001",
+      path: "$.plannerModelCalls[0].request.input.messages[0].content",
+      kind: "model_request_message",
+      originalLength: modelVisibleContent.length,
+      hash: "fnv1a:testtrace",
+    });
+    expect(messageContent).not.toHaveProperty("chunks");
+    expect(longTexts).toEqual([
+      expect.objectContaining({
+        contentRef: "text_0001",
+        paths: ["$.plannerModelCalls[0].request.input.messages[0].content"],
+        content: modelVisibleContent,
+      }),
+    ]);
+  });
+
   it("builds loop-centric timeline with per-loop and per-call token usage", () => {
     const loops = buildAgentLoopTimeline([
       createStep({

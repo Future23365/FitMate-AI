@@ -136,6 +136,58 @@ describe("agent-planners LlmPlanner and model adapters", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps long DeepSeek request message diagnostics as chunked trace text", async () => {
+    const { fetchImpl, requestBodies } = captureDeepSeekRequestBodies(JSON.stringify({
+      type: "final_answer",
+      content: "chunked trace captured.",
+    }));
+    const adapter = new DeepSeekModelAdapter({
+      apiKey: "test-key",
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+    const longMessages = Array.from({ length: 36 }, (_, index) => ({
+      role: (index % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+      content: `第 ${index + 1} 轮对话，包含用于复盘的训练限制和上下文。${"需要完整保留尾部约束。".repeat(20)}`,
+    }));
+
+    const completion = await adapter.completeAction({
+      run: {
+        runId: "run-deepseek-long-trace",
+        actor: {},
+        userInput: "总结这段长上下文",
+        messages: longMessages,
+      },
+      step: 1,
+      manifests: [],
+      observations: [],
+      toolResults: [],
+    });
+    const body = requestBodies[0] as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const sentUserContent = body.messages[1].content;
+    const traceContent = completion.trace?.request.messages[1]?.content as Record<string, unknown>;
+    const chunks = traceContent.chunks as Array<Record<string, unknown>>;
+
+    expect(sentUserContent.length).toBeGreaterThan(800);
+    expect(traceContent).toMatchObject({
+      kind: "trace_long_text",
+      contentType: "model_request_message",
+      originalLength: sentUserContent.length,
+      chunkSize: 4000,
+      redacted: false,
+    });
+    expect(completion.trace?.request.messages[1]).toMatchObject({
+      contentLength: sentUserContent.length,
+    });
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.every((chunk) => typeof chunk.text === "string" && chunk.text.length <= 4000)).toBe(true);
+    expect(chunks.map((chunk) => chunk.text).join("")).toBe(sentUserContent);
+    expect(chunks.map((chunk) => chunk.text).join("").endsWith(sentUserContent.slice(-160))).toBe(true);
+    expect(JSON.stringify(traceContent)).not.toContain("...[truncated]");
+    expect(JSON.stringify(completion.trace)).not.toContain("test-key");
+  });
+
   it("records invalid_json and invalid_action_schema diagnostics without sensitive request fields", async () => {
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce(deepSeekResponse("not json"))

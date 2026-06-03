@@ -37,3 +37,14 @@
 - [x] 6.2 将 `runtimeTraceEvents` 改为轻量摘要，避免完整 manifest、step input/output 和 metadata 重新撑大报告。
 - [x] 6.3 让长文本映射按 hash 去重，并记录重复文本出现路径。
 - [x] 6.4 更新测试覆盖默认报告不包含完整 Raw trace，重复长文本只保存一次。
+
+## 7. 模型请求长文本保真修复
+
+- [x] 7.1 在 `DeepSeekModelAdapter` 的 request trace 中把超过 adapter 摘要阈值的 message content 保存为分块 envelope，而不是 800 字符摘要。
+- [x] 7.2 在 `extractTraceLogLongTexts()` 中识别 `trace_long_text` envelope，按 chunk 合并成一条 `contentRef` 长文本映射，并确保默认报告不保留 chunks。
+- [x] 7.3 更新 `tests/agent-core/adapter-llm-planner.test.ts`，覆盖长模型请求 message 的 trace chunks 可拼回真实 request body。
+- [x] 7.4 更新 `tests/ai-trace-viewer.test.ts`，覆盖导出层合并 chunk envelope 到 `ai_trace_texts.jsonl` 映射。
+- [x] 7.5 运行 `openspec validate split-ai-trace-log-long-texts --strict`。
+- [x] 7.6 运行 `npm test -- tests/ai-trace-viewer.test.ts tests/ai-trace-http.test.ts tests/agent-core/adapter-llm-planner.test.ts`。
+- [x] 7.7 运行 `npm run typecheck`。
+- [x] 7.8 运行 `git status --short` 和 diff 检查，确认只包含本 change 相关文件。

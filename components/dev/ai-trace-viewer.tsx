@@ -102,6 +102,11 @@ export type TraceLogLongTextEntry = TraceLogLongTextRef & {
   content: string;
 };
 
+type TraceLogLongTextState = {
+  longTexts: TraceLogLongTextEntry[];
+  byHash: Map<string, TraceLogLongTextEntry>;
+};
+
 const traceLogLongTextThreshold = 600;
 const traceLogLongTextPreviewEdgeLength = 120;
 
@@ -1650,10 +1655,7 @@ export function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) 
 
 // extractTraceLogLongTexts 将保存报告中的长字符串外置，降低默认 log 的阅读和 token 成本。
 export function extractTraceLogLongTexts(payload: Record<string, unknown>) {
-  const longTextState: {
-    longTexts: TraceLogLongTextEntry[];
-    byHash: Map<string, TraceLogLongTextEntry>;
-  } = {
+  const longTextState: TraceLogLongTextState = {
     longTexts: [],
     byHash: new Map(),
   };
@@ -1676,53 +1678,25 @@ export function extractTraceLogLongTexts(payload: Record<string, unknown>) {
 function replaceLongTextStrings(
   value: unknown,
   path: string,
-  state: { longTexts: TraceLogLongTextEntry[]; byHash: Map<string, TraceLogLongTextEntry> },
+  state: TraceLogLongTextState,
 ): unknown {
+  const traceLongText = readTraceLongTextEnvelope(value);
+
+  if (traceLongText) {
+    return createLongTextMappingRef(traceLongText.content, path, state, {
+      force: true,
+      hash: traceLongText.hash,
+      originalLength: traceLongText.originalLength,
+      preview: traceLongText.preview,
+    });
+  }
+
   if (typeof value === "string") {
     if (value.length <= traceLogLongTextThreshold) {
       return value;
     }
 
-    const hash = hashLongText(value);
-    const existing = state.byHash.get(hash);
-
-    if (existing) {
-      if (!existing.paths.includes(path)) {
-        existing.paths.push(path);
-      }
-
-      return {
-        contentRef: existing.contentRef,
-        path,
-        kind: inferLongTextKind(path),
-        originalLength: existing.originalLength,
-        hash: existing.hash,
-        preview: existing.preview,
-        textFile: existing.textFile,
-      };
-    }
-
-    const contentRef = createLongTextRef(state.longTexts.length + 1);
-    const ref: TraceLogLongTextRef = {
-      contentRef,
-      path,
-      kind: inferLongTextKind(path),
-      originalLength: value.length,
-      hash,
-      preview: createLongTextPreview(value),
-      textFile: "codex_logs/ai_trace_texts.jsonl",
-    };
-
-    const entry: TraceLogLongTextEntry = {
-      ...ref,
-      paths: [path],
-      content: value,
-    };
-
-    state.longTexts.push(entry);
-    state.byHash.set(hash, entry);
-
-    return ref;
+    return createLongTextMappingRef(value, path, state);
   }
 
   if (Array.isArray(value)) {
@@ -1739,6 +1713,87 @@ function replaceLongTextStrings(
   }
 
   return value;
+}
+
+function createLongTextMappingRef(
+  value: string,
+  path: string,
+  state: TraceLogLongTextState,
+  options: {
+    force?: boolean;
+    hash?: string;
+    originalLength?: number;
+    preview?: string;
+  } = {},
+) {
+  const originalLength = options.originalLength ?? value.length;
+
+  if (!options.force && value.length <= traceLogLongTextThreshold && originalLength <= traceLogLongTextThreshold) {
+    return value;
+  }
+
+  const hash = options.hash ?? hashLongText(value);
+  const existing = state.byHash.get(hash);
+
+  if (existing) {
+    if (!existing.paths.includes(path)) {
+      existing.paths.push(path);
+    }
+
+    return {
+      contentRef: existing.contentRef,
+      path,
+      kind: inferLongTextKind(path),
+      originalLength: existing.originalLength,
+      hash: existing.hash,
+      preview: existing.preview,
+      textFile: existing.textFile,
+    };
+  }
+
+  const contentRef = createLongTextRef(state.longTexts.length + 1);
+  const ref: TraceLogLongTextRef = {
+    contentRef,
+    path,
+    kind: inferLongTextKind(path),
+    originalLength,
+    hash,
+    preview: options.preview ?? createLongTextPreview(value),
+    textFile: "codex_logs/ai_trace_texts.jsonl",
+  };
+
+  const entry: TraceLogLongTextEntry = {
+    ...ref,
+    paths: [path],
+    content: value,
+  };
+
+  state.longTexts.push(entry);
+  state.byHash.set(hash, entry);
+
+  return ref;
+}
+
+function readTraceLongTextEnvelope(value: unknown) {
+  if (!isRecord(value) || value.kind !== "trace_long_text" || !Array.isArray(value.chunks)) {
+    return null;
+  }
+
+  const chunks = value.chunks
+    .filter((chunk): chunk is Record<string, unknown> => isRecord(chunk))
+    .map((chunk, fallbackIndex) => ({
+      index: readNumber(chunk.index) ?? fallbackIndex,
+      text: readString(chunk.text) ?? "",
+    }))
+    .sort((left, right) => left.index - right.index);
+  const content = chunks.map((chunk) => chunk.text).join("");
+
+  return {
+    content,
+    originalLength: readNumber(value.originalLength) ?? content.length,
+    hash: readString(value.hash) ?? hashLongText(content),
+    preview: readString(value.preview) ?? createLongTextPreview(content),
+  };
 }
 
 function createLongTextRef(index: number) {

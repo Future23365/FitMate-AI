@@ -1,6 +1,6 @@
 import { AgentActionSchema } from "@/lib/server/agent-core/contracts";
 import { stableStringify } from "@/lib/server/agent-core/canonical-json";
-import { redactJsonValue } from "@/lib/server/agent-core/redaction";
+import { REDACTED_VALUE, redactJsonValue } from "@/lib/server/agent-core/redaction";
 import type { JsonValue } from "@/lib/server/agent-core/contracts";
 
 import {
@@ -11,6 +11,8 @@ import {
   type ModelActionCompletionInput,
   type ModelActionCompletionResult,
   type ModelActionCompletionTrace,
+  type ModelTraceLongTextChunk,
+  type ModelTraceLongTextEnvelope,
   type ModelAdapter,
 } from "./model-adapter";
 import {
@@ -53,6 +55,7 @@ type DeepSeekRequestBody = {
 const DEFAULT_DEEPSEEK_ENDPOINT = "https://api.deepseek.com/chat/completions";
 const DEFAULT_DEEPSEEK_MODEL = "deepseek-chat";
 const maxModelTraceStringLength = 800;
+const modelTraceLongTextChunkLength = 4_000;
 
 /** DeepSeekModelAdapter 封装 DeepSeek 请求、模型参数、结构化输出解析和错误归一化。 */
 export class DeepSeekModelAdapter implements ModelAdapter {
@@ -314,7 +317,7 @@ export class DeepSeekModelAdapter implements ModelAdapter {
       messageCount: requestBody.messages.length,
       messages: requestBody.messages.map((message) => ({
         role: message.role,
-        content: summarizeText(message.content),
+        content: createModelTraceMessageContent(message.content),
         contentLength: message.content.length,
       })),
       run: {
@@ -414,6 +417,72 @@ function safeTraceValue(value: unknown): JsonValue {
 
 function summarizeText(value: string): JsonValue {
   return safeTraceValue(value);
+}
+
+// createModelTraceMessageContent 保留模型真实可见 message 的诊断价值，长文本交给导出层外置而不是提前硬截。
+function createModelTraceMessageContent(value: string): JsonValue {
+  if (value.length <= maxModelTraceStringLength) {
+    return summarizeText(value);
+  }
+
+  return createTraceLongTextEnvelope(value);
+}
+
+function createTraceLongTextEnvelope(value: string): ModelTraceLongTextEnvelope {
+  const chunks: ModelTraceLongTextChunk[] = [];
+  let hasRedactedChunk = false;
+
+  for (let start = 0; start < value.length; start += modelTraceLongTextChunkLength) {
+    const rawChunk = value.slice(start, start + modelTraceLongTextChunkLength);
+    const safeChunk = redactJsonValue(rawChunk, { maxStringLength: modelTraceLongTextChunkLength });
+    const text = typeof safeChunk === "string" ? safeChunk : REDACTED_VALUE;
+
+    if (text !== rawChunk) {
+      hasRedactedChunk = true;
+    }
+
+    chunks.push({
+      index: chunks.length,
+      start,
+      end: Math.min(start + rawChunk.length, value.length),
+      text,
+    });
+  }
+
+  const storedContent = chunks.map((chunk) => chunk.text).join("");
+
+  return {
+    kind: "trace_long_text",
+    contentType: "model_request_message",
+    originalLength: value.length,
+    storedLength: storedContent.length,
+    chunkSize: modelTraceLongTextChunkLength,
+    hash: hashTraceText(storedContent),
+    preview: createTraceLongTextPreview(storedContent),
+    redacted: hasRedactedChunk,
+    chunks,
+  };
+}
+
+function createTraceLongTextPreview(value: string) {
+  const edgeLength = 120;
+
+  if (value.length <= edgeLength * 2) {
+    return value;
+  }
+
+  return `${value.slice(0, edgeLength)}\n...[middle omitted]...\n${value.slice(-edgeLength)}`;
+}
+
+function hashTraceText(value: string) {
+  let hash = 0x811c9dc5;
+
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+
+  return `fnv1a:${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }
 
 function readActionType(action: unknown) {
