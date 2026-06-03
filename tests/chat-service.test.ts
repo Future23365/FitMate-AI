@@ -139,7 +139,7 @@ describe("chat service agent text flow boundary", () => {
         type: "error",
         error: {
           code: "chat_ai_not_configured",
-          message: "Chat AI model configuration is missing.",
+          message: "聊天服务暂时不可用，请稍后再试。",
           retryable: false,
           details: { code: "chat_ai_not_configured", missing: ["DEEPSEEK_API_KEY"] },
         },
@@ -148,7 +148,7 @@ describe("chat service agent text flow boundary", () => {
     ]);
   });
 
-  it("rejects tool_call from the empty registry without executing handlers", async () => {
+  it("projects repeated empty-registry tool_call failures as a safe unsupported response", async () => {
     const planner = new ReplayPlanner([
       { type: "tool_call", toolName: "searchExercises", input: { query: "胸" } },
       { type: "tool_call", toolName: "searchExercises", input: { query: "胸" } },
@@ -161,9 +161,19 @@ describe("chat service agent text flow boundary", () => {
     const events = await readNdjsonEvents(response);
 
     expect(planner.calls[0].manifests).toEqual([]);
-    expect(events).toMatchObject([
-      { type: "error", error: { code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED } },
+    expect(events).toEqual([
+      {
+        type: "content",
+        content: "目前还不能直接生成、保存或执行训练计划。我可以先帮你梳理训练目标、解释动作和训练原则，或整理需要补充的信息。",
+      },
+      {
+        type: "assistant_suggestions",
+        suggestions: ["先帮我梳理训练目标", "解释一个动作怎么做", "我需要补充哪些信息"],
+      },
       { type: "done" },
     ]);
+    expect(JSON.stringify(events)).not.toContain(AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED);
+    expect(JSON.stringify(events)).not.toContain("Agent runtime reached the invalid action repair limit.");
+    expect(JSON.stringify(events)).not.toContain("Tool \"searchExercises\" is not registered.");
   });
 });

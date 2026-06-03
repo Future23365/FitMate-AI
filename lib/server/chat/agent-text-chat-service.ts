@@ -3,7 +3,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 
 import { createToolError } from "@/lib/server/agent-core/action-validator";
-import type { AgentRunInput, AgentStreamEvent, JsonValue } from "@/lib/server/agent-core/contracts";
+import type { AgentRunInput, AgentRunResult, AgentStreamEvent, JsonValue } from "@/lib/server/agent-core/contracts";
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
 import { renderAgentResponseEvents } from "@/lib/server/agent-core/response-renderer";
 import { runAgentRuntime } from "@/lib/server/agent-core/runtime";
@@ -17,6 +17,24 @@ import type { PreparedChatRequest } from "./chat-service";
 
 const CHAT_TEXT_FLOW_CONFIG_ERROR_CODE = "chat_ai_not_configured";
 const ndjsonContentType = "application/x-ndjson; charset=utf-8";
+const unsupportedCapabilityMessage = "目前还不能直接生成、保存或执行训练计划。我可以先帮你梳理训练目标、解释动作和训练原则，或整理需要补充的信息。";
+const genericChatFailureMessage = "聊天生成失败，请稍后重试。";
+const chatServiceUnavailableMessage = "聊天服务暂时不可用，请稍后再试。";
+const unsupportedCapabilitySuggestions = [
+  "先帮我梳理训练目标",
+  "解释一个动作怎么做",
+  "我需要补充哪些信息",
+];
+const directUnsupportedErrorCodes = new Set<string>([
+  AGENT_ERROR_CODES.UNKNOWN_TOOL,
+  AGENT_ERROR_CODES.UNSUPPORTED_M0_CAPABILITY,
+  AGENT_ERROR_CODES.MAX_TOOL_CALLS_EXCEEDED,
+]);
+const unsupportedRepairReasonCodes = new Set<string>([
+  ...directUnsupportedErrorCodes,
+  AGENT_ERROR_CODES.INVALID_ACTION,
+  AGENT_ERROR_CODES.BUDGET_EXHAUSTED,
+]);
 
 type AgentTextChatConfigError = {
   code: typeof CHAT_TEXT_FLOW_CONFIG_ERROR_CODE;
@@ -55,7 +73,7 @@ export async function createAgentTextChatResponse(input: CreateAgentTextChatResp
 
   if (!plannerResult.ok) {
     return createAgentTextChatNdjsonResponse([
-      { type: "error", error: plannerResult.error },
+      createSafeAgentTextChatErrorEvent(plannerResult.error),
       { type: "done" },
     ], { status: 503 });
   }
@@ -70,7 +88,10 @@ export async function createAgentTextChatResponse(input: CreateAgentTextChatResp
     }),
   });
 
-  return createAgentTextChatNdjsonResponse(renderAgentResponseEvents(result));
+  return createAgentTextChatNdjsonResponse(renderAgentTextChatResponseEvents({
+    result,
+    registry,
+  }));
 }
 
 // createProductionAgentTextChatPlanner 是生产 DeepSeek planner 的唯一构造入口，缺配置时返回稳定配置错误。
@@ -155,6 +176,105 @@ export function createAgentTextChatNdjsonResponse(
     ...init,
     headers,
   });
+}
+
+function renderAgentTextChatResponseEvents(input: {
+  result: AgentRunResult;
+  registry: ToolRegistry;
+}): AgentTextChatStreamEvent[] {
+  if (isUnsupportedCapabilityFailure(input)) {
+    return [
+      { type: "content", content: unsupportedCapabilityMessage },
+      { type: "assistant_suggestions", suggestions: unsupportedCapabilitySuggestions },
+      { type: "done" },
+    ];
+  }
+
+  return renderAgentResponseEvents(input.result);
+}
+
+function isUnsupportedCapabilityFailure(input: {
+  result: AgentRunResult;
+  registry: ToolRegistry;
+}) {
+  const error = input.result.terminalError;
+
+  if (!error || input.result.status !== "failed") {
+    return false;
+  }
+
+  if (directUnsupportedErrorCodes.has(error.code)) {
+    return true;
+  }
+
+  const registryEmpty = isProductionTextChatRegistryEmpty(input);
+  const attemptedToolCall = input.result.traceEvents.some(
+    (event) => event.type === "planner_action" && event.actionType === "tool_call",
+  );
+
+  if (!registryEmpty || !attemptedToolCall) {
+    return false;
+  }
+
+  if (error.code === AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED) {
+    return true;
+  }
+
+  return hasUnsupportedTraceReason(input.result) || getLastValidationCode(error.details) !== undefined;
+}
+
+function isProductionTextChatRegistryEmpty(input: {
+  result: AgentRunResult;
+  registry: ToolRegistry;
+}) {
+  return input.registry.serializeForPlanner().length === 0
+    || input.result.registrySnapshot?.tools.length === 0
+    || input.result.traceEvents.some((event) => event.type === "registry_snapshot" && event.toolCount === 0);
+}
+
+function hasUnsupportedTraceReason(result: AgentRunResult) {
+  return result.traceEvents.some((event) => {
+    if (event.type === "validation_result" && event.code) {
+      return unsupportedRepairReasonCodes.has(event.code);
+    }
+
+    if (event.type === "budget_event" && event.reason) {
+      return unsupportedRepairReasonCodes.has(event.reason);
+    }
+
+    return false;
+  });
+}
+
+function getLastValidationCode(details: JsonValue | undefined) {
+  if (!details || typeof details !== "object" || Array.isArray(details)) {
+    return undefined;
+  }
+
+  const lastCode = details.lastCode;
+  return typeof lastCode === "string" && unsupportedRepairReasonCodes.has(lastCode)
+    ? lastCode
+    : undefined;
+}
+
+function createSafeAgentTextChatErrorEvent(
+  error: AgentTextChatConfigError,
+): Extract<AgentTextChatStreamEvent, { type: "error" }> {
+  return {
+    type: "error",
+    error: {
+      ...error,
+      message: getSafeAgentTextChatErrorMessage(error.code),
+    },
+  };
+}
+
+function getSafeAgentTextChatErrorMessage(code?: string) {
+  if (code === CHAT_TEXT_FLOW_CONFIG_ERROR_CODE) {
+    return chatServiceUnavailableMessage;
+  }
+
+  return genericChatFailureMessage;
 }
 
 function createConfigurationError(missing: string[]): AgentTextChatConfigError {

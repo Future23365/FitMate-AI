@@ -43,7 +43,7 @@ describe("chat controller Agent text event projection", () => {
     });
   });
 
-  it("writes stream errors into the assistant bubble and clears loading markers", () => {
+  it("writes safe stream error text into the assistant bubble and clears loading markers", () => {
     expect(
       applyAgentTextChatEventToAssistantMessage(createAssistantMessage(), {
         type: "error",
@@ -53,7 +53,7 @@ describe("chat controller Agent text event projection", () => {
         },
       }),
     ).toMatchObject({
-      content: "Chat AI model configuration is missing.",
+      content: "聊天服务暂时不可用，请稍后再试。",
       isReasoning: false,
     });
   });

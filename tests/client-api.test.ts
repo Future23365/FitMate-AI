@@ -4,6 +4,8 @@ import {
   AgentTextChatHttpError,
   AgentTextChatStreamError,
   consumeAgentTextChatNdjson,
+  getAgentTextChatErrorMessage,
+  getAgentTextChatEventErrorMessage,
   requestAgentTextChatResponse,
 } from "@/features/chat/api/chat-client";
 import { saveChatConversation } from "@/features/chat/lib/chat-history";
@@ -92,12 +94,37 @@ describe("frontend API clients", () => {
       { type: "done" },
     ]);
 
-    await expect(
-      consumeAgentTextChatNdjson(new Response("{\"type\":\"content\"\n"), vi.fn()),
-    ).rejects.toBeInstanceOf(AgentTextChatStreamError);
+    const streamError = await consumeAgentTextChatNdjson(new Response("{\"type\":\"content\"\n"), vi.fn())
+      .catch((error: unknown) => error);
+
+    expect(streamError).toBeInstanceOf(AgentTextChatStreamError);
+    expect(getAgentTextChatErrorMessage(streamError)).toBe("聊天生成失败，请稍后重试。");
   });
 
-  it("surfaces HTTP NDJSON errors and aborts without leaving stream parsing hidden in UI", async () => {
+  it("keeps HTTP, event, invalid NDJSON and stream errors user-safe", async () => {
+    const eventErrors: unknown[] = [];
+
+    await consumeAgentTextChatNdjson(new Response([
+      JSON.stringify({
+        type: "error",
+        error: {
+          code: "chat_ai_not_configured",
+          message: "Chat AI model configuration is missing.",
+        },
+      }),
+      JSON.stringify({ type: "done" }),
+    ].join("\n")), (event) => eventErrors.push(event));
+
+    expect(eventErrors[0]).toMatchObject({
+      type: "error",
+      error: {
+        code: "chat_ai_not_configured",
+        message: "Chat AI model configuration is missing.",
+      },
+    });
+    expect(getAgentTextChatEventErrorMessage(eventErrors[0] as Parameters<typeof getAgentTextChatEventErrorMessage>[0]))
+      .toBe("聊天服务暂时不可用，请稍后再试。");
+
     const fetchMock = vi.fn().mockResolvedValueOnce(new Response([
       JSON.stringify({
         type: "error",
@@ -112,8 +139,7 @@ describe("frontend API clients", () => {
 
     const context = createConversationContext();
 
-    await expect(
-      requestAgentTextChatResponse({
+    const httpError = await requestAgentTextChatResponse({
         conversationId: "chat-1",
         responseMessageId: "assistant-1",
         latestUserMessage: "你好",
@@ -122,13 +148,17 @@ describe("frontend API clients", () => {
         thinkingEnabled: false,
         signal: new AbortController().signal,
         onEvent: vi.fn(),
-      }),
-    ).rejects.toMatchObject({
+      })
+      .catch((error: unknown) => error);
+
+    expect(httpError).toMatchObject({
       name: "AgentTextChatHttpError",
       status: 503,
       code: "chat_ai_not_configured",
-      message: "Chat AI model configuration is missing.",
+      message: "聊天服务暂时不可用，请稍后再试。",
     } satisfies Partial<AgentTextChatHttpError>);
+    expect(getAgentTextChatErrorMessage(httpError)).toBe("聊天服务暂时不可用，请稍后再试。");
+    expect((httpError as Error).message).not.toContain("Chat AI model configuration is missing.");
 
     const controller = new AbortController();
     controller.abort();

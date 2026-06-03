@@ -9,6 +9,15 @@ export type AgentTextChatErrorPayload = {
   details?: unknown;
 };
 
+const genericAgentTextChatErrorMessage = "聊天生成失败，请稍后重试。";
+const chatServiceUnavailableMessage = "聊天服务暂时不可用，请稍后再试。";
+const unsupportedCapabilityMessage = "目前还不能直接生成、保存或执行训练计划。你可以继续询问训练原则、动作说明或需要补充的信息。";
+const unsupportedCapabilityErrorCodes = new Set([
+  "unknown_tool",
+  "unsupported_m0_capability",
+  "max_tool_calls_exceeded",
+]);
+
 export type AgentTextChatEvent =
   | { type: "content"; content: string }
   | { type: "assistant_suggestions"; suggestions: string[] }
@@ -125,15 +134,15 @@ export async function consumeAgentTextChatNdjson(
 }
 
 export function getAgentTextChatErrorMessage(error: unknown) {
-  if (error instanceof AgentTextChatHttpError || error instanceof AgentTextChatStreamError) {
-    return error.message;
+  if (error instanceof AgentTextChatHttpError) {
+    return getSafeAgentTextChatUserMessage(error.code);
   }
 
-  if (error instanceof Error) {
-    return error.message;
+  if (error instanceof AgentTextChatStreamError) {
+    return genericAgentTextChatErrorMessage;
   }
 
-  return "聊天请求失败，请稍后重试。";
+  return genericAgentTextChatErrorMessage;
 }
 
 export function isAgentTextChatAbortError(error: unknown) {
@@ -141,7 +150,7 @@ export function isAgentTextChatAbortError(error: unknown) {
 }
 
 export function getAgentTextChatEventErrorMessage(event: Extract<AgentTextChatEvent, { type: "error" }>) {
-  return event.error.message || event.error.code || "聊天生成失败，请稍后重试。";
+  return getSafeAgentTextChatUserMessage(event.error.code);
 }
 
 function emitCompleteNdjsonLines(
@@ -231,14 +240,25 @@ async function createHttpError(response: Response) {
   const text = await response.text().catch(() => "");
   const data = parseErrorResponseText(text);
   const payload = getErrorPayloadFromResponseData(data);
-  const fallback = response.statusText || "聊天请求失败，请稍后重试。";
 
   return new AgentTextChatHttpError(
-    payload.message || payload.code || fallback,
+    getSafeAgentTextChatUserMessage(payload.code),
     response.status,
     data,
     payload.code,
   );
+}
+
+function getSafeAgentTextChatUserMessage(code?: string) {
+  if (code === "chat_ai_not_configured") {
+    return chatServiceUnavailableMessage;
+  }
+
+  if (code && unsupportedCapabilityErrorCodes.has(code)) {
+    return unsupportedCapabilityMessage;
+  }
+
+  return genericAgentTextChatErrorMessage;
 }
 
 function parseErrorResponseText(text: string): unknown {

@@ -1,6 +1,8 @@
 import type { AgentRunResult, AgentStreamEvent, JsonValue, ToolResult } from "./contracts";
 import { redactJsonValue, redactToolError } from "./redaction";
 
+const genericUserVisibleErrorMessage = "聊天生成失败，请稍后重试。";
+
 /** renderAgentResponseEvents 将 Runtime 收口结果转换为默认 NDJSON 白名单事件。 */
 export function renderAgentResponseEvents(result: AgentRunResult): AgentStreamEvent[] {
   const events: AgentStreamEvent[] = [];
@@ -33,7 +35,7 @@ export function renderAgentResponseEvents(result: AgentRunResult): AgentStreamEv
       events.push({ type: "assistant_suggestions", suggestions: result.terminalAction.suggestions });
     }
   } else if (result.terminalError) {
-    events.push({ type: "error", error: redactToolError(result.terminalError) });
+    events.push({ type: "error", error: renderUserSafeToolError(result.terminalError) });
   }
 
   events.push({ type: "done" });
@@ -61,5 +63,15 @@ function defaultToolResultSummary(result: ToolResult): JsonValue {
     summary: result.fulfillment.summary,
     toolName: result.toolName,
     toolResultId: result.toolResultId,
+  };
+}
+
+function renderUserSafeToolError(error: NonNullable<AgentRunResult["terminalError"]>) {
+  const redactedError = redactToolError(error);
+
+  // 默认 renderer 只负责通用安全边界：保留 code/details 供诊断，不把内部 message 暴露给用户事件。
+  return {
+    ...redactedError,
+    message: genericUserVisibleErrorMessage,
   };
 }

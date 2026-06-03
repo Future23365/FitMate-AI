@@ -160,10 +160,23 @@ describe("agent-core Executor, Runtime and Response Renderer", () => {
       ]),
       run: createRun("run-error"),
     });
-    expect(renderAgentResponseEvents(errorResult)).toMatchObject([
-      { type: "error", error: { code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED } },
+    const errorEvents = renderAgentResponseEvents(errorResult);
+
+    expect(errorResult.terminalError).toMatchObject({
+      code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
+      message: "Agent runtime reached the invalid action repair limit.",
+    });
+    expect(errorEvents).toMatchObject([
+      {
+        type: "error",
+        error: {
+          code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
+          message: "聊天生成失败，请稍后重试。",
+        },
+      },
       { type: "done" },
     ]);
+    expect(JSON.stringify(errorEvents)).not.toContain("Agent runtime reached the invalid action repair limit.");
   });
 
   it("enforces maxSteps, overall timeout and duplicate failure fuse", async () => {

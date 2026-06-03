@@ -1396,8 +1396,9 @@ ToolRegistry -> manifest linter -> registry snapshot / manifestHash
 -> new ToolRegistry()
 -> LlmPlanner + DeepSeekModelAdapter
 -> runAgentRuntime
--> renderAgentResponseEvents
--> content / assistant_suggestions / error / done NDJSON
+-> renderAgentTextChatResponseEvents
+-> renderAgentResponseEvents 或 unsupported capability fallback
+-> content / assistant_suggestions / safe error / done NDJSON
 -> features/chat NDJSON client
 -> use-chat-controller assistant message 投影
 ```
@@ -1409,8 +1410,8 @@ ToolRegistry -> manifest linter -> registry snapshot / manifestHash
 [x] PreparedChatRequest、CurrentUser、conversationId、responseMessageId 和 hydration metadata 被转换为 AgentRunInput。
 [x] DeepSeek planner 构造集中在聊天接入服务，缺少 DEEPSEEK_API_KEY 时返回 chat_ai_not_configured 配置错误。
 [x] 生产文本聊天使用空 ToolRegistry，Planner 可见 manifest 为 []。
-[x] 默认 Response Renderer 输出 content、assistant_suggestions、error、done 等 NDJSON 白名单事件。
-[x] 前端 chat client 支持跨 chunk NDJSON、空行、非法 JSON、HTTP 错误、abort 和 done 收尾。
+[x] 默认 Response Renderer 输出 content、assistant_suggestions、safe error、done 等 NDJSON 白名单事件。
+[x] 前端 chat client 支持跨 chunk NDJSON、空行、非法 JSON、HTTP 错误、abort 和 done 收尾，并且不直接展示服务端 error.message。
 [x] use-chat-controller 只把通用文本事件投影到当前 assistant message，不推断训练卡片、动作推荐或保存结果。
 ```
 
@@ -1435,13 +1436,34 @@ ToolRegistry -> manifest linter -> registry snapshot / manifestHash
 [x] fixture tools 仍只服务合同测试，不接入 production chat。
 ```
 
+### 31.1 用户可见错误投影边界（2026-06-03 17:14:00 CST）
+
+当前 production 文本聊天仍不接入真实业务 tool，因此模型在空 registry 下返回 `tool_call` 时，系统只能根据确定性运行时事实收口，不能执行隐藏业务能力。用户可见投影规则如下：
+
+```txt
+[x] unsupported capability fallback 只基于 registry 为空、planner action type、Action Validator / runtime error code、trace event 和 repair reason 等结构化事实。
+[x] 空 registry 下的 unknown tool、unsupported tool、tool call 不可执行或 repair_limit_exceeded 会被 production chat service 投影为普通 content + assistant_suggestions + done。
+[x] 通用 Response Renderer 对 terminalError 只输出稳定中文 safe error message，仍保留 code / retryable / redacted details 作为诊断字段。
+[x] 前端 chat client 和 controller 不把 event.error.message、HTTP body、provider 原文、stream parser message 或 Error.message 原样写入 assistant bubble 或页面错误区。
+[x] traceEvents、runtime result、terminalError.code、details 和测试断言仍能定位原始失败。
+```
+
+禁止项保持不变：
+
+```txt
+[x] 不根据用户文本里的“生成计划”“删除数据”“推荐动作”等关键词、正则、同义词或短句模板决定 fallback。
+[x] 不注册 searchExercises、generateRoutine、generatePlan、artifact 保存、用户记忆、fixture registry 或任何真实业务 tool。
+[x] 不恢复旧 agent-orchestrator、旧 AgentExecutionResult、旧 Response Writer、旧 assistant_action、旧 intent_resolved 或旧兼容事件。
+[x] agent-core 内不新增具体业务 toolName 分支。
+```
+
 验证结论：
 
 ```txt
-[x] tests/chat-service.test.ts 覆盖 final_answer、ask_user、缺配置和空 registry tool_call 拒绝。
+[x] tests/chat-service.test.ts 覆盖 final_answer、ask_user、缺配置和空 registry tool_call 的 unsupported 安全投影。
 [x] tests/api-routes.test.ts 覆盖 /api/chat 配置错误和 fake DeepSeek final_answer NDJSON。
-[x] tests/client-api.test.ts 覆盖前端 NDJSON client 的多行、跨 chunk、非法 JSON、HTTP 错误和 abort。
-[x] tests/chat-controller-stream-state.test.ts 覆盖 assistant message 文本、建议、错误和 done 投影。
+[x] tests/client-api.test.ts 覆盖前端 NDJSON client 的多行、跨 chunk、非法 JSON、HTTP 错误、安全错误文案和 abort。
+[x] tests/chat-controller-stream-state.test.ts 覆盖 assistant message 文本、建议、安全错误和 done 投影。
 [x] tests/agent-core/architecture-boundary.test.ts 覆盖旧 orchestrator / 旧事件 / fixture 或真实业务 tool 注册禁止项。
 [x] npm run typecheck 通过。
 ```
