@@ -1,4 +1,4 @@
--- 将 ConversationBusinessFact 的物理索引名收敛为短且稳定的名称，避免 Prisma 反复提示生成纯重命名 migration。
+-- Keep ConversationBusinessFact physical index names short and stable so Prisma does not keep prompting for a rename-only migration.
 ALTER INDEX IF EXISTS "ConversationBusinessFact_conversationBusinessFactIdentity_key"
   RENAME TO "ConversationBusinessFact_identity_key";
 
