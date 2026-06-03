@@ -113,6 +113,26 @@ describe("AI trace viewer step grouping", () => {
           name: "Action 校验通过",
           output: { type: "validation_result", step: 1, ok: true },
         }),
+        createStep({
+          type: "tool_call",
+          name: "Tool 执行",
+          input: { text: "hello" },
+          output: {
+            type: "tool_execution",
+            step: 1,
+            toolName: "readFixture",
+            toolResultId: "tr_1",
+            ok: true,
+            satisfied: true,
+            durationMs: 12,
+          },
+          metadata: {
+            eventType: "tool_execution",
+            runtimeStep: 1,
+            toolName: "readFixture",
+            toolResultId: "tr_1",
+          },
+        }),
       ],
     };
     const groups = groupTraceSteps(trace.steps);
@@ -138,7 +158,7 @@ describe("AI trace viewer step grouping", () => {
             }),
             expect.objectContaining({
               id: "runtime_validation",
-              stepIds: ["step-validation"],
+              stepIds: ["step-validation", "step-tool_call"],
             }),
           ]),
         }),
@@ -160,6 +180,19 @@ describe("AI trace viewer step grouping", () => {
         }),
       ],
       tokenUsageSummary: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      runtimeTraceEvents: expect.arrayContaining([
+        expect.objectContaining({
+          name: "Tool 执行",
+          type: "tool_call",
+          eventType: "tool_execution",
+          input: { text: "hello" },
+          output: expect.objectContaining({
+            type: "tool_execution",
+            toolName: "readFixture",
+            toolResultId: "tr_1",
+          }),
+        }),
+      ]),
       rawTrace: expect.objectContaining({ id: "trace-1" }),
       trace: {
         id: "trace-1",
@@ -212,6 +245,21 @@ describe("AI trace viewer step grouping", () => {
         output: { type: "validation_result", step: 1, ok: true },
       }),
       createStep({
+        id: "tool-1",
+        type: "tool_call",
+        name: "Tool 执行",
+        input: { text: "hello" },
+        output: {
+          type: "tool_execution",
+          step: 1,
+          toolName: "readFixture",
+          toolResultId: "tr_1",
+          ok: true,
+          satisfied: true,
+        },
+        metadata: { eventType: "tool_execution", runtimeStep: 1 },
+      }),
+      createStep({
         id: "request-2",
         type: "model_request",
         name: "模型请求 #2",
@@ -259,6 +307,7 @@ describe("AI trace viewer step grouping", () => {
           steps: [
             expect.objectContaining({ id: "action-1" }),
             expect.objectContaining({ id: "validation-1" }),
+            expect.objectContaining({ id: "tool-1" }),
           ],
         }),
       ],

@@ -409,6 +409,31 @@ export type AgentTraceEvent =
       step: number;
       reason?: string;
     }
+  | {
+      type: "tool_execution";
+      step: number;
+      source?: "runtime" | "confirmation_resume" | "duplicate_failure_fuse";
+      toolName: string;
+      toolVersion: string;
+      toolCallId: string;
+      toolResultId: string;
+      normalizedInputHash: string;
+      inputSummary: JsonValue;
+      ok: boolean;
+      satisfied: boolean;
+      failureCode?: AgentErrorCode;
+      error?: Pick<ToolError, "code" | "retryable" | "details">;
+      fulfillment: ToolFulfillment;
+      projectionSummary?: {
+        model?: JsonValue;
+        user?: JsonValue;
+      };
+      producedResources?: AgentResourceRef[];
+      consumedResources?: AgentResourceRef[];
+      startedAt: string;
+      completedAt: string;
+      durationMs?: number;
+    }
   | { type: "resource_registered"; toolResultId: string; resource: AgentResourceRef; summary: JsonValue }
   | { type: "policy_decision"; toolName: string; decision: PolicyDecision["kind"]; policyVersion: string }
   | { type: "confirmation_request"; request: ConfirmationRequest }

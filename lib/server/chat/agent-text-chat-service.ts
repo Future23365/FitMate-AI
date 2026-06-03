@@ -437,13 +437,21 @@ function recordAgentTextChatRuntimeResultTrace(input: {
   });
 
   for (const event of input.result.traceEvents) {
+    const output = summarizeRuntimeTraceEvent(event);
+
     input.trace.addStep({
       name: getRuntimeTraceEventLabel(event),
       type: getRuntimeTraceStepType(event),
-      output: summarizeRuntimeTraceEvent(event),
+      status: event.type === "tool_execution" && !event.ok ? "failed" : undefined,
+      input: event.type === "tool_execution" ? event.inputSummary : undefined,
+      output,
       metadata: {
         eventType: event.type,
         pipeline: "agent-core-text-chat",
+        runtimeStep: "step" in event ? event.step : undefined,
+        toolName: event.type === "tool_execution" ? event.toolName : undefined,
+        toolResultId: event.type === "tool_execution" ? event.toolResultId : undefined,
+        boundary: event.type === "tool_execution" ? "tool_execution" : undefined,
       },
     });
   }
@@ -626,6 +634,10 @@ function summarizeRegistry(registry: ToolRegistry) {
 }
 
 function getRuntimeTraceStepType(event: AgentTraceEvent) {
+  if (event.type === "tool_execution") {
+    return "tool_call";
+  }
+
   if (event.type === "validation_result") {
     return "validation";
   }
@@ -651,6 +663,8 @@ function getRuntimeTraceEventLabel(event: AgentTraceEvent) {
       return event.ok ? "Action 校验通过" : "Action 校验失败";
     case "budget_event":
       return "预算事件";
+    case "tool_execution":
+      return "Tool 执行";
     case "resource_registered":
       return "Resource 注册";
     case "policy_decision":
@@ -696,6 +710,28 @@ function summarizeRuntimeTraceEvent(event: AgentTraceEvent): unknown {
         limit: event.limit,
         step: event.step,
         reason: event.reason,
+      };
+    case "tool_execution":
+      return {
+        type: event.type,
+        step: event.step,
+        source: event.source,
+        toolName: event.toolName,
+        toolVersion: event.toolVersion,
+        toolCallId: event.toolCallId,
+        toolResultId: event.toolResultId,
+        normalizedInputHash: event.normalizedInputHash,
+        ok: event.ok,
+        satisfied: event.satisfied,
+        failureCode: event.failureCode,
+        error: event.error ? redactTraceValue(event.error) : undefined,
+        fulfillment: redactTraceValue(event.fulfillment),
+        projectionSummary: event.projectionSummary ? redactTraceValue(event.projectionSummary) : undefined,
+        producedResources: event.producedResources?.map(summarizeResourceRef),
+        consumedResources: event.consumedResources?.map(summarizeResourceRef),
+        startedAt: event.startedAt,
+        completedAt: event.completedAt,
+        durationMs: event.durationMs,
       };
     case "resource_registered":
       return {

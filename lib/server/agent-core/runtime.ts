@@ -286,6 +286,12 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
         { toolName: tool.name, failureCode: previousFailure.code },
       );
       const duplicateResult = createFailureToolResult(input.run.runId, tool.name, tool.version, normalizedInputHash, duplicateError);
+      traceEvents.push(createToolExecutionTrace({
+        step,
+        action: validation.action,
+        result: duplicateResult,
+        source: "duplicate_failure_fuse",
+      }));
       toolResults.push(duplicateResult);
       observations.push(createToolObservation(duplicateResult));
       return finish(failedResult(input.run.runId, toolResults, observations, traceEvents, step, duplicateError));
@@ -322,6 +328,12 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
       resourceStore,
       traceEvents,
     });
+    traceEvents.push(createToolExecutionTrace({
+      step,
+      action: validation.action,
+      result: finalizedResult,
+      source: "runtime",
+    }));
 
     if (!finalizedResult.ok && finalizedResult.error.code === AGENT_ERROR_CODES.TIMEOUT && remainingMs <= configuredToolTimeout) {
       controller.abort();
@@ -454,6 +466,12 @@ export async function resumeConfirmedAction(input: ResumeConfirmedActionRuntimeI
     resourceStore,
     traceEvents,
   });
+  traceEvents.push(createToolExecutionTrace({
+    step: 1,
+    action: validation.action,
+    result: finalizedResult,
+    source: "confirmation_resume",
+  }));
 
   toolResults.push(finalizedResult);
   observations.push(createToolObservation(finalizedResult));
@@ -560,6 +578,54 @@ function createBudgetEvent(
   };
 }
 
+/** createToolExecutionTrace 统一投影 tool 执行证据，避免各业务 handler 自行打日志。 */
+function createToolExecutionTrace(input: {
+  step: number;
+  action: ToolCallAction;
+  result: ToolResult;
+  source?: Extract<AgentTraceEvent, { type: "tool_execution" }>["source"];
+}): Extract<AgentTraceEvent, { type: "tool_execution" }> {
+  return {
+    type: "tool_execution",
+    step: input.step,
+    source: input.source,
+    toolName: input.result.toolName,
+    toolVersion: input.result.toolVersion,
+    toolCallId: input.result.toolCallId,
+    toolResultId: input.result.toolResultId,
+    normalizedInputHash: input.result.normalizedInputHash,
+    inputSummary: redactJsonValue(input.action.input),
+    ok: input.result.ok,
+    satisfied: input.result.fulfillment.satisfied,
+    failureCode: input.result.ok ? undefined : input.result.error.code,
+    error: input.result.ok
+      ? undefined
+      : {
+          code: input.result.error.code,
+          retryable: input.result.error.retryable,
+          details: input.result.error.details ? redactJsonValue(input.result.error.details) : undefined,
+        },
+    fulfillment: {
+      summary: input.result.fulfillment.summary,
+      satisfied: input.result.fulfillment.satisfied,
+      producedResources: input.result.fulfillment.producedResources,
+      consumedResources: input.result.fulfillment.consumedResources,
+      unmetRequirements: input.result.fulfillment.unmetRequirements,
+    },
+    projectionSummary: input.result.ok
+      ? {
+          model: input.result.projection.model ? redactJsonValue(input.result.projection.model) : undefined,
+          user: input.result.projection.user ? redactJsonValue(input.result.projection.user) : undefined,
+        }
+      : undefined,
+    producedResources: input.result.fulfillment.producedResources,
+    consumedResources: input.result.fulfillment.consumedResources,
+    startedAt: input.result.startedAt,
+    completedAt: input.result.completedAt,
+    durationMs: getToolExecutionDurationMs(input.result.startedAt, input.result.completedAt),
+  };
+}
+
 function createPlannerActionTrace(step: number, action: unknown): AgentTraceEvent {
   const actionRecord = action && typeof action === "object" ? action as Partial<ToolCallAction> : undefined;
 
@@ -569,6 +635,17 @@ function createPlannerActionTrace(step: number, action: unknown): AgentTraceEven
     actionType: typeof actionRecord?.type === "string" ? actionRecord.type : "unknown",
     toolName: typeof actionRecord?.toolName === "string" ? actionRecord.toolName : undefined,
   };
+}
+
+function getToolExecutionDurationMs(startedAt: string, completedAt: string) {
+  const started = Date.parse(startedAt);
+  const completed = Date.parse(completedAt);
+
+  if (!Number.isFinite(started) || !Number.isFinite(completed)) {
+    return undefined;
+  }
+
+  return Math.max(0, completed - started);
 }
 
 function attachReplaySummary(result: AgentRunResult, registrySnapshot: RegistrySnapshot): AgentRunResult {

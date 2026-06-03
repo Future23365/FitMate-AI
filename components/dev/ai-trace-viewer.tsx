@@ -831,7 +831,7 @@ const moduleDefinitionsById = Object.fromEntries(
 function getStepGroupDefinition(step: AiTraceStep): Omit<TraceStepGroup, "status" | "steps" | "summary" | "skipReason" | "startedAt" | "endedAt" | "durationMs"> {
   const runtimeEventType = readRuntimeEventType(step);
 
-  if (step.status === "failed" && step.type !== "model_response") {
+  if (step.status === "failed" && step.type !== "model_response" && step.type !== "tool_call") {
     return moduleDefinitionsById.errors_diagnostics;
   }
 
@@ -888,6 +888,7 @@ function createLoopModules(runtimeStep: number, steps: AiTraceStep[]): TraceLoop
     return (
       step.type === "validation" ||
       step.type === "token_budget" ||
+      step.type === "tool_call" ||
       step.type === "final_response" ||
       (
         step.type === "runtime_event" &&
@@ -1389,12 +1390,13 @@ export function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) 
     plannerModelCalls: readPlannerModelCalls(trace),
     tokenUsageSummary,
     runtimeTraceEvents: trace.steps
-      .filter((step) => ["runtime_event", "validation", "token_budget", "final_response"].includes(step.type))
+      .filter((step) => ["runtime_event", "validation", "token_budget", "tool_call", "final_response"].includes(step.type))
       .map((step) => ({
         id: step.id,
         name: step.name,
         type: step.type,
         eventType: readRuntimeEventType(step),
+        input: step.input,
         output: step.output,
         metadata: step.metadata,
       })),

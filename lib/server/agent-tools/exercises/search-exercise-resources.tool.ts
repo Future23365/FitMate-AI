@@ -3,7 +3,6 @@ import { z } from "zod";
 import { defineTool } from "@/lib/server/agent-core/define-tool";
 import {
   searchExerciseResourceSummaries,
-  type ExerciseResourceAppliedFilter,
   type ExerciseResourceSummary,
 } from "@/lib/server/exercises/exercise-repository";
 import { exerciseBodyRegionSchema } from "@/lib/shared/exercises/body-regions";
@@ -267,20 +266,5 @@ function toExerciseResourceOutput(summary: ExerciseResourceSummary): SearchExerc
   return {
     ...summary,
     imageUrl: summary.imageUrls[0] ?? null,
-  };
-}
-
-export function summarizeSearchExerciseResourcesTrace(output: SearchExerciseResourcesOutput) {
-  return {
-    status: output.status,
-    totalMatches: output.query.totalMatches,
-    returnedCount: output.query.returnedCount,
-    truncated: output.query.truncated,
-    bodyRegions: output.query.bodyRegions,
-    expandedMuscles: output.query.expandedMuscles,
-    appliedFilters: output.query.appliedFilters.map((filter: ExerciseResourceAppliedFilter) => ({
-      field: filter.field,
-      value: filter.value,
-    })),
   };
 }

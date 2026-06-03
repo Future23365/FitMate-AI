@@ -292,6 +292,7 @@ describe("chat service agent text flow boundary", () => {
       equipment: undefined,
       homeRequirement: undefined,
       muscle: undefined,
+      bodyRegions: undefined,
       goalTag: undefined,
       riskTag: undefined,
       published: true,
@@ -306,6 +307,36 @@ describe("chat service agent text flow boundary", () => {
         }),
       }),
       steps: expect.arrayContaining([
+        expect.objectContaining({
+          name: "Tool 执行",
+          type: "tool_call",
+          input: toolInput,
+          output: expect.objectContaining({
+            type: "tool_execution",
+            step: 1,
+            toolName: "searchExerciseResources",
+            toolResultId: expectedToolResultId,
+            ok: true,
+            satisfied: true,
+            projectionSummary: expect.objectContaining({
+              model: expect.objectContaining({
+                totalMatches: 1,
+                returnedCount: 1,
+              }),
+              user: expect.objectContaining({
+                totalMatches: 1,
+                returnedCount: 1,
+              }),
+            }),
+          }),
+          metadata: expect.objectContaining({
+            eventType: "tool_execution",
+            boundary: "tool_execution",
+            runtimeStep: 1,
+            toolName: "searchExerciseResources",
+            toolResultId: expectedToolResultId,
+          }),
+        }),
         expect.objectContaining({
           name: "Tool result 摘要",
           output: {
@@ -719,6 +750,7 @@ function createExerciseResourceSearchResult(overrides: Record<string, unknown> =
       sort: "name_asc",
     },
     appliedFilters: [{ field: "published", value: true }],
+    expandedMuscles: [],
     totalMatches: 1,
     returnedCount: 1,
     maxReturned: 12,

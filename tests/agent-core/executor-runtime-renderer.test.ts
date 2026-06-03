@@ -125,6 +125,24 @@ describe("agent-core Executor, Runtime and Response Renderer", () => {
 
     expect(result.status).toBe("completed");
     expect(planner.calls[1].observations[0]).toMatchObject({ ok: true, content: { text: "hello" } });
+    expect(result.traceEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "tool_execution",
+        step: 1,
+        source: "runtime",
+        toolName: "echoRead",
+        toolCallId: "tc_1_1",
+        toolResultId: expectedToolResultId,
+        inputSummary: toolInput,
+        ok: true,
+        satisfied: true,
+        projectionSummary: {
+          model: { text: "hello" },
+          user: { text: "hello" },
+        },
+      }),
+    ]));
+    expect(JSON.stringify(result.traceEvents)).not.toContain("server-only");
     expect(events).toEqual([
       { type: "tool_result", toolResultId: expectedToolResultId, toolName: "echoRead", content: { text: "hello" } },
       { type: "content", content: "已读取。" },
@@ -218,7 +236,7 @@ describe("agent-core Executor, Runtime and Response Renderer", () => {
       handler: failingHandler,
     }));
 
-    await expect(runAgentRuntime({
+    const duplicateFailureResult = await runAgentRuntime({
       registry: failingRegistry,
       planner: new ReplayPlanner([
         { type: "tool_call", toolName: "failingRead", input: { text: "same" } },
@@ -228,10 +246,30 @@ describe("agent-core Executor, Runtime and Response Renderer", () => {
         ...createRun("run-duplicate-failure"),
         limits: { maxSteps: 3 },
       },
-    })).resolves.toMatchObject({
+    });
+
+    expect(duplicateFailureResult).toMatchObject({
       status: "failed",
       terminalError: { code: AGENT_ERROR_CODES.DUPLICATE_TOOL_FAILURE },
     });
+    expect(duplicateFailureResult.traceEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "tool_execution",
+        source: "runtime",
+        toolName: "failingRead",
+        ok: false,
+        failureCode: AGENT_ERROR_CODES.HANDLER_ERROR,
+        inputSummary: { text: "same" },
+      }),
+      expect.objectContaining({
+        type: "tool_execution",
+        source: "duplicate_failure_fuse",
+        toolName: "failingRead",
+        ok: false,
+        failureCode: AGENT_ERROR_CODES.DUPLICATE_TOOL_FAILURE,
+        inputSummary: { text: "same" },
+      }),
+    ]));
     expect(failingHandler).toHaveBeenCalledTimes(1);
   });
 });
