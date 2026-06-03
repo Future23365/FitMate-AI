@@ -7,6 +7,7 @@
 ## What Changes
 
 - 新增 `searchExerciseResources` 业务 Agent tool 的实现范围：tool bundle、`inputSchema`、`outputSchema`、policy metadata、handler、安全 model / user projection、trace summary 和 `ToolRegistry` 注册。
+- 为 `searchExerciseResources` 新增专用动作资源查询 repository 入口，使用数据库层 `where`、`count`、`take` 和 `select` 执行发布态结构化筛选，禁止通过 `listExerciseRecords()` 或旧 `searchExercises()` 全表读取后内存过滤。
 - 将 production `/api/chat` 的 Agent registry 从“必须为空”调整为“允许注册 `searchExerciseResources` 这一个低风险只读业务 tool”，但继续禁止 fixture tools、训练生成、保存、用户记忆、artifact 写入和业务关键词分流。
 - 将基础文本问答边界调整为“基于当前可见 tools 决定是否调用工具”：不需要数据库事实的问题继续用 `final_answer`，动作库事实查询可以由模型选择 `searchExerciseResources`。
 - 不修改 Agent core 主循环、`PlannerPort`、Executor 主流程、`Policy Guard` 主流程、`Resource Contract Validator` 主流程或 `Response Renderer` 主流程。
@@ -28,7 +29,7 @@
 - 预计影响代码：
   - `lib/server/agent-tools/**` 或等价业务 tool 目录。
   - `lib/server/agent-tools/index.ts` 或等价 registry 接线入口。
-  - 动作库查询服务边界，例如 `lib/server/exercises/exercise-service.ts` 和 `lib/shared/exercises/query-schema.ts` 的复用层。
+  - 动作库查询服务边界，例如 `lib/server/exercises/exercise-repository.ts`、`lib/server/exercises/exercise-service.ts` 和 `lib/shared/exercises/query-schema.ts` 的复用层。
   - `/api/chat` 的 production Agent registry 构造入口，但只允许局部注册接线，不改变主链路或新增自然语言分流。
   - Agent tool manifest、projection、trace summary 和相关测试。
 - 预计新增或更新测试：

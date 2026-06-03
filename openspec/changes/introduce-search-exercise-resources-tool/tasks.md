@@ -2,17 +2,21 @@
 
 - [ ] 1.1 确认 `lib/server/chat/agent-text-chat-service.ts` 当前 production registry 构造点、trace registry 摘要和空 registry 失败投影逻辑。
 - [ ] 1.2 确认 `lib/server/agent-tools/index.ts`、fixture tools、`ToolRegistry` capability mode 和 contract helper 的现有注册模式。
-- [ ] 1.3 确认动作列表查询可复用入口，包括 `lib/shared/exercises/query-schema.ts`、`lib/server/exercises/exercise-service.ts` 和 `Exercise` 发布态字段。
-- [ ] 1.4 确认现有测试中所有断言空 production registry 的用例，并记录哪些需要迁移为受控 production registry 断言。
+- [ ] 1.3 确认动作列表查询可复用入口，包括 `lib/shared/exercises/query-schema.ts`、`lib/server/exercises/exercise-service.ts`、`lib/server/exercises/exercise-repository.ts` 和 `Exercise` 发布态字段。
+- [ ] 1.4 确认当前 `listExerciseRecords()` / `searchExercises()` 的全表读取路径，并记录 `searchExerciseResources` 不得复用该路径。
+- [ ] 1.5 确认现有测试中所有断言空 production registry 的用例，并记录哪些需要迁移为受控 production registry 断言。
 
 ## 2. Tool Bundle 实现
 
 - [ ] 2.1 新增 `searchExerciseResources` tool bundle，包含 `inputSchema`、`outputSchema`、policy metadata、handler、安全投影和必要的简短中文意图注释。
 - [ ] 2.2 让 `inputSchema` 严格限制为 `q`、`category`、`suitability`、`level`、`force`、`mechanic`、`equipment`、`homeRequirement`、`muscle`、`goalTag`、`riskTag`、`published` 和 `sort`，拒绝未知字段、分页字段和消费侧字段。
 - [ ] 2.3 在普通 production 聊天上下文中强制发布态边界：默认 `published = true`，显式 `published = false` 返回结构化输入或权限失败，不读取未发布动作。
-- [ ] 2.4 复用现有动作查询服务执行结构化筛选，并使用服务端固定最大返回数量生成 `totalMatches`、`returnedCount`、`maxReturned` 和 `truncated`。
-- [ ] 2.5 实现成功 output、空结果 output 和 handler / output schema 失败归一化，确保空结果仍为 `satisfied = true` 的事实查询结果。
-- [ ] 2.6 确保 tool 不返回 `candidateSetId`，不登记 `candidate_set` resource，不生成训练卡片、保存事件或旧兼容 NDJSON 事件。
+- [ ] 2.4 新增或复用专用动作资源查询 repository 入口，将结构化筛选下推为 Prisma `where`，不得调用 `listExerciseRecords()`、`listAllExercises()`、旧 `searchExercises()` 或其他全量动作读取入口。
+- [ ] 2.5 repository 使用同一 `where` 执行 `count()` 生成 `totalMatches`，并使用服务端固定 `maxReturned + 1` 的 `take` 判断 `truncated`；`maxReturned`、`take`、`limit`、`offset`、`page`、`pageSize` 均不得由 LLM 输入控制。
+- [ ] 2.6 repository 使用 `select` 只读取动作摘要字段，默认不读取完整 `instructionsEn`、`instructionsZh`、`embedding` 或其他与本次事实查询无关的大 payload。
+- [ ] 2.7 将 `q` 实现为数据库可执行的确定性文本搜索，例如匹配公开动作文本字段或 `embeddingText`；本 change 不新增 pgvector、外部 Vector DB、外部 embedding 调用或全量向量 rerank。
+- [ ] 2.8 实现成功 output、空结果 output 和 handler / output schema 失败归一化，确保空结果仍为 `satisfied = true` 的事实查询结果。
+- [ ] 2.9 确保 tool 不返回 `candidateSetId`，不登记 `candidate_set` resource，不生成训练卡片、保存事件或旧兼容 NDJSON 事件。
 
 ## 3. Registry、模型可见合同与生产接入
 
@@ -29,8 +33,10 @@
 - [ ] 4.2 覆盖 `searchExerciseResources` 的成功路径、schema 拒绝、领域边界、失败归一化、resource contract、projection / redaction 和 policy / permission 边界。
 - [ ] 4.3 按真实健身场景覆盖动作查询输入，包括自重 / 无器械、热身 / 主训练 / 拉伸、肌群、器械、目标标签、风险标签、空结果和截断结果。
 - [ ] 4.4 覆盖 `published = true` 默认值、显式 `published = false` 拒绝、未知字段拒绝、非法枚举拒绝、分页字段拒绝和消费侧字段拒绝。
-- [ ] 4.5 覆盖模型观察、用户投影和 trace summary 不泄漏完整 handler output、内部对象、未发布动作或训练候选 evidence。
-- [ ] 4.6 覆盖该 tool 不产出 `candidateSetId`、`candidate_set` resource、训练卡片、保存事件或旧兼容 NDJSON 事件。
+- [ ] 4.5 覆盖 handler 走专用 repository 查询入口，证明不会调用 `listExerciseRecords()`、`listAllExercises()` 或旧 `searchExercises()`，并断言 repository 使用 `where`、`count`、内部固定 `take` 和摘要 `select`。
+- [ ] 4.6 覆盖 `q` 只触发确定性文本查询，不触发 pgvector、外部 Vector DB、外部 embedding 调用或全量向量 rerank。
+- [ ] 4.7 覆盖模型观察、用户投影和 trace summary 不泄漏完整 handler output、内部对象、未发布动作或训练候选 evidence。
+- [ ] 4.8 覆盖该 tool 不产出 `candidateSetId`、`candidate_set` resource、训练卡片、保存事件或旧兼容 NDJSON 事件。
 
 ## 5. 生产接入与回归测试
 

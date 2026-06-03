@@ -16,7 +16,7 @@
 - `lib/server/agent-tools/**` 中新增动作查询 tool bundle。
 - `lib/server/agent-tools/index.ts` 或等价 registry 工厂，新增 production registry 注册入口。
 - `lib/server/chat/agent-text-chat-service.ts` 中空 registry 构造点的局部接线。
-- `lib/server/exercises/**` 和 `lib/shared/exercises/query-schema.ts` 的查询服务复用边界。
+- `lib/server/exercises/**` 和 `lib/shared/exercises/query-schema.ts` 的查询服务复用边界，包括新增专用动作资源查询 repository 入口。
 - `tests/agent-tools/**`、`tests/agent-core/**`、`tests/chat-service.test.ts` 或等价最窄测试。
 
 禁止触碰模块：
@@ -44,6 +44,7 @@
 - 不查询未发布动作；普通生产聊天只能查询可面向用户展示的发布态动作。
 - 不调整通用 Agent prompt 的 core 合同，只在 tool manifest / schema 描述 / examples 中表达单个业务 tool 的模型可见说明。
 - 不新增数据库字段、Prisma migration 或外部依赖。
+- 不引入新的语义向量检索、pgvector 查询或外部 Vector DB；`q` 仍是数据库可执行的确定性文本搜索字段。
 
 ## Decisions
 
@@ -71,7 +72,20 @@
 
 备选方案：开放 `candidateUse`、`resultRequirements`、`injuryLimitations`、`requiresNoEquipment` 或分页字段。该方案会把消费场景和自然语言语义塞进基础查询 tool，放弃。
 
-### Decision 4: 成功查询不登记下游 resource
+### Decision 4: 使用专用 repository 下推查询，不复用全表读取入口
+
+`searchExerciseResources` 的 handler 不得调用 `listExerciseRecords()`、`listAllExercises()`、旧 `searchExercises()` 或其他会先读取全量 `Exercise` 再内存过滤的入口。实现时应新增或复用专用 repository 函数，例如 `searchExerciseResourceSummaries()`，把可执行筛选转换为 Prisma `where`，并用同一 `where` 分别执行：
+
+- `count()`：生成 `totalMatches`。
+- `findMany({ where, orderBy, take: maxReturned + 1, select })`：只取有限动作摘要字段，并用多取 1 条判断 `truncated`。
+
+`select` 必须只包含 tool output 和安全投影需要的摘要字段，默认不读取完整 `instructionsEn`、`instructionsZh`、`embedding`、内部诊断字段或其他大 payload。`q` 只能下推为确定性文本搜索，例如匹配 `nameZh`、`nameEn`、`embeddingText` 或当前动作列表查询合同支持的公开文本字段；不得在本 change 中新增本地向量 rerank、pgvector 查询或外部 embedding 调用。
+
+理由：当前动作库规模虽然不大，但 production Agent tool 每次执行都全表读取会放大数据库传输、Node.js 对象分配和 GC 压力。这个 tool 只是发布态动作事实查询，结构化字段已经能在数据库层确定性筛选，没必要把执行型候选集合 builder 的全量内存路径固化到新的只读 tool。
+
+备选方案：直接调用现有 `searchExercises()` 再截断输出。该方案实现快，但会把全表读取、执行型候选诊断和 hybrid ranking 带入一个本应轻量的事实查询 tool，放弃。
+
+### Decision 5: 成功查询不登记下游 resource
 
 工具成功时返回 `status: "succeeded"`、查询摘要和动作摘要，并使 fulfillment 为 `satisfied = true`。即使 `totalMatches = 0`，也表示成功完成事实查询。默认不登记 `ResourceStore` resource，final answer 只能通过 `usedToolResultIds` 引用本轮成功 tool result。
 
@@ -79,7 +93,7 @@
 
 备选方案：返回 `candidateSetId` 供训练生成复用。该方案会和执行型候选集合 builder 混淆，放弃。
 
-### Decision 5: 模型可见说明放在 tool manifest，不写入通用 prompt 特例
+### Decision 6: 模型可见说明放在 tool manifest，不写入通用 prompt 特例
 
 `whenToUse` 应表达“当用户需要查询符合结构化条件的发布态动作列表时使用”。`whenNotToUse` 应表达“不要用于生成训练、保存结果、读取单个动作详情、解析唯一动作名、统计全库 facet 或构建 routine / plan / patch 候选集合”。schema 描述和 examples 应说明关键字段、默认发布态、`q` 的确定性匹配边界、成功结果和空结果含义。
 
@@ -87,7 +101,7 @@
 
 备选方案：修改通用 prompt，要求遇到动作查询就调用某个工具。该方案会把 toolName 特例写进通用合同，放弃。
 
-### Decision 6: projection 和 trace 只输出摘要
+### Decision 7: projection 和 trace 只输出摘要
 
 `toModelObservation` 只允许输出 `toolResultId`、`totalMatches`、`returnedCount`、`truncated`、`appliedFilters` 和有限动作摘要字段。用户投影只展示查询口径、命中数量和可展示动作摘要。trace summary 记录 toolName、toolResultId、输入摘要、命中数量、截断状态、失败 code，不记录完整数据库对象或内部 handler payload。
 
@@ -98,6 +112,7 @@
 ## Risks / Trade-offs
 
 - [Risk] `q` 被模型误当成语义向量检索或 hard constraint。→ Mitigation: manifest / schema 描述明确 `q` 是动作库文本搜索字段，结构化约束必须放在对应 filters；tool-level tests 覆盖结构化字段优先和 `q` 边界。
+- [Risk] 实现时为了复用旧服务而继续全表读取动作库。→ Mitigation: design / spec / tasks 明确 handler 必须走专用 repository，测试用 mock 或 spy 证明 `listExerciseRecords()` / `searchExercises()` 未被调用，并断言 Prisma 查询使用 `where`、`select`、`count` 和内部固定 `take`。
 - [Risk] 空 registry 相关测试会失效。→ Mitigation: 更新测试语义，从“必须为空”改为“只允许受控 production registry”，并保留无工具场景的单元测试。
 - [Risk] 普通基础问答可能过度调用动作查询 tool。→ Mitigation: prompt / manifest tests 覆盖不需要数据库事实的问题必须直接 `final_answer`，能力说明基于当前可见 tools。
 - [Risk] 模型提交 `published = false`。→ Mitigation: schema、policy 或 handler 必须拒绝普通生产聊天查询未发布动作，并记录结构化失败。

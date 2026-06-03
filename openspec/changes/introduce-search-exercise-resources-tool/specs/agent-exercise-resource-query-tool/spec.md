@@ -63,6 +63,29 @@
 - **AND** 完整失败 payload MUST NOT 默认进入模型观察、用户事件或 trace
 - **AND** 模型 MUST NOT 用 failed result 支撑成功 `final_answer`
 
+### Requirement: `searchExerciseResources` 必须下推数据库查询且不得全表读取
+系统 SHALL 为 `searchExerciseResources` 使用专用动作资源查询 repository，在数据库层执行发布态和结构化字段筛选，并避免每次 tool 调用读取全量 `Exercise` 数据后再内存过滤。
+
+#### Scenario: Repository 查询下推结构化筛选
+- **WHEN** `searchExerciseResources` handler 接收到合法结构化输入
+- **THEN** handler MUST 调用专用 repository 查询入口，而不是调用 `listExerciseRecords()`、`listAllExercises()`、旧 `searchExercises()` 或其他全量动作读取入口
+- **AND** repository MUST 将 `published`、`category`、`suitability`、`level`、`force`、`mechanic`、`equipment`、`homeRequirement`、`muscle`、`goalTag`、`riskTag` 和 `q` 转换为数据库可执行 `where` 条件
+- **AND** repository MUST 使用同一 `where` 执行 `count()` 来生成 `totalMatches`
+- **AND** repository MUST 使用服务端内部固定 `maxReturned` 执行 `findMany({ take: maxReturned + 1 })` 或等价查询来判断 `truncated`
+- **AND** `maxReturned`、`take`、`offset`、`page` 或 `pageSize` MUST NOT 由 LLM 输入控制
+
+#### Scenario: Repository 只读取安全摘要字段
+- **WHEN** repository 读取 `Exercise` 数据用于 `searchExerciseResources`
+- **THEN** 查询 MUST 使用 `select` 或等价投影，只读取 output、模型观察、用户投影和 trace summary 所需的动作摘要字段
+- **AND** 查询 SHOULD NOT 读取完整 `instructionsEn`、`instructionsZh`、`embedding`、完整内部对象或与本次事实查询无关的大 payload
+- **AND** 查询 MUST NOT 投影未发布动作，除非未来 OpenSpec 明确引入受控管理员能力
+
+#### Scenario: `q` 不触发新增向量检索
+- **WHEN** 输入包含 `q`
+- **THEN** repository MUST 将 `q` 作为确定性文本搜索字段执行，例如匹配公开动作文本字段或 `embeddingText`
+- **AND** 本 change MUST NOT 新增 pgvector 查询、外部 Vector DB、外部 embedding 调用或本地全量向量 rerank
+- **AND** 如果未来需要语义向量召回，系统 MUST 通过独立 OpenSpec change 定义数据库索引、召回阶段、排序边界、trace 和性能验收
+
 ### Requirement: `searchExerciseResources` 投影必须保护模型、用户和 trace 边界
 系统 SHALL 为 `searchExerciseResources` 提供安全模型观察、用户投影和 trace summary，避免完整 handler output 默认外泄。
 
@@ -103,7 +126,7 @@
 #### Scenario: Tool 单测覆盖业务行为和安全边界
 - **WHEN** 本 change 完成实现
 - **THEN** 自动化测试 MUST 直接覆盖 `searchExerciseResources` 的 handler、`executeTool` 或当前真实 runtime 执行入口
-- **AND** 测试 MUST 覆盖成功路径、schema 拒绝、发布态默认值、`published = false` 拒绝、空结果、截断摘要、projection / redaction、trace summary 和 handler 失败归一化
+- **AND** 测试 MUST 覆盖成功路径、schema 拒绝、发布态默认值、`published = false` 拒绝、空结果、数据库下推查询、截断摘要、projection / redaction、trace summary 和 handler 失败归一化
 - **AND** 测试 MUST 使用接近 AITest 真实动作库查询的健身业务输入
 - **AND** 测试 MUST 证明该 tool 不产出 `candidateSetId`、`candidate_set` resource、训练卡片或保存事件
 
