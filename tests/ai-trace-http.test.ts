@@ -221,24 +221,19 @@ describe("AI trace store and HTTP request helpers", () => {
     expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "fitmate:auth-required" }));
   });
 
-  it("saves full trace logs with Agent loop payload intact", async () => {
+  it("saves full trace logs with generic grouped payload intact", async () => {
     const response = await devTraceRoute.POST(jsonRequest("/api/dev/ai-traces", {
       logType: "trace",
       payload: {
         title: "完整链路",
-        agentDiagnosis: {
-          agentLoopTimeline: {
-            loopTurns: [{ loopTurnId: "loop-turn-1" }],
-            diagnosticFindings: [],
-          },
-        },
+        groupedSteps: [{ id: "request_input", stepIds: ["step-1"] }],
       },
     }));
 
     await expect(response.json()).resolves.toMatchObject({ ok: true });
     expect(fsMocks.writeFile).toHaveBeenCalledWith(
       expect.stringContaining("ai_trace_log.js"),
-      expect.stringContaining("agentLoopTimeline"),
+      expect.stringContaining("groupedSteps"),
       "utf8",
     );
     expect(fsMocks.appendFile).not.toHaveBeenCalled();

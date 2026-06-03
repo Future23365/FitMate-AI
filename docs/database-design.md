@@ -431,7 +431,7 @@ artifact 保存后的来源实体类型。
 | `plan` | 绑定在该消息上的长期训练计划草稿卡片。 |
 | `routine` | 绑定在该消息上的单次训练编排草稿卡片，包含热身、训练、拉伸三段式动作和主训练循环配置。 |
 | `exerciseRecommendation` | 绑定在该消息上的动作推荐卡片。 |
-| `conversationSummary` | 服务端维护的自然语言对话总结。当前只写入最后一条消息，供下一轮模型调用使用。 |
+| `conversationSummary` | 服务端维护的自然语言对话总结。当前只作为历史展示和后续重建智能上下文的材料，不再接入已删除的旧模型调用链路。 |
 | `conversationContext` | 旧结构化对话上下文。仅用于历史迁移和服务端确定性兜底，不再作为模型可见协议。 |
 
 长期 `plan` 草稿当前不会单独落库为新的计划表，而是保存在 `ChatMessage.metadata.plan` 中，作为聊天消息上的结构化推送卡片。草稿包含 `cycleLengthDays`、`trainingDayCount`、`restDayCount`、`cycleRepeatable`、`progression`、`recoveryStrategy`、`schedulePattern` 和周期日 `days`；非休息周期日必须用 `warmup`、`training`、`stretch` 三段式 `sections` 表达动作，休息日只表达恢复说明。用户导入长期计划时，业务层只为非休息周期日创建 `WorkoutRoutine`，并把每个动作的 `section` 写入 `WorkoutRoutineItem.section`；随后按本周期、重复 2 个周期、重复 4 个周期或明确的 `calendarHorizonDays` 生成 `WorkoutSchedule`。重复导入时只替换同一 `sourceRoutineTitle` 且位于本次导入日期范围内的旧日程，避免误删手动安排或其他计划来源。
@@ -464,7 +464,7 @@ artifact 轻量检索索引。聊天上下文和后续引用解析优先读取�
 | `artifactId` | `String` | 唯一关联 `ConversationArtifact.id`。 |
 | `userId` / `sessionId` | `String` | 权限隔离和会话过滤。 |
 | `kind` / `scope` / `status` | enum | 检索类型和生命周期过滤。 |
-| `title` / `summary` | `String` / `String?` | 模型上下文和引用排序展示文本。 |
+| `title` / `summary` | `String` / `String?` | 后续智能上下文、引用排序和页面展示可复用的摘要文本。 |
 | `exerciseIds` | `String[]` | payload 中提取的主要动作 id。 |
 | `goals` / `muscles` / `equipment` | `String[]` | 可稳定提取的训练目标、肌群和器械。 |
 | `sessionMinutes` / `weeklyFrequency` / `trainingDayCount` | `Int?` | 训练时长、周频率和训练日数量。 |
@@ -505,4 +505,4 @@ artifact 轻量检索索引。聊天上下文和后续引用解析优先读取�
 - `WorkoutSessionResult` 保存训练完成摘要；`WorkoutSchedule.status = completed` 用于日历筛选、统计和徽标展示。
 - `UserMemory` 和 `UserExerciseFeedback` 只读取当前 `userId` 下 `active` 或待确认且未过期的数据；长期强约束在确认前不会作为已生效排除规则。
 - `ChatMessage.metadata` 是聊天上下文总结和卡片数据的落点；当前 `plan` 保存长期训练计划草稿，`routine` 保存单次训练编排草稿。如果某类数据变成稳定查询条件，应优先升级为显式字段。
-- 当前 `ChatSession` 不保存 `metadata`，模型可见上下文已迁移到 `ChatMessage.metadata.conversationSummary`；旧 `conversationContext` 只用于历史迁移。
+- 当前 `ChatSession` 不保存 `metadata`；旧模型可见上下文材料保留在 `ChatMessage.metadata.conversationSummary` 中，仅用于历史迁移和后续重建设计参考。

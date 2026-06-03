@@ -11,9 +11,6 @@ const traceMocks = vi.hoisted(() => ({
   })),
   summarizeLatestUserMessage: vi.fn(() => "最新用户消息"),
 }));
-const chatServiceMocks = vi.hoisted(() => ({
-  createAiChatResponse: vi.fn(),
-}));
 const exerciseServiceMocks = vi.hoisted(() => ({
   exerciseBodyRegionValues: ["upper_body", "lower_body", "core", "full_body"],
   getExerciseById: vi.fn(),
@@ -54,14 +51,6 @@ const authMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/server/dev/ai-trace-logger", () => traceMocks);
-vi.mock("@/lib/server/chat/chat-service", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/server/chat/chat-service")>();
-
-  return {
-    ...actual,
-    createAiChatResponse: chatServiceMocks.createAiChatResponse,
-  };
-});
 vi.mock("@/lib/server/exercises/exercise-service", () => exerciseServiceMocks);
 vi.mock("@/lib/server/workouts/workout-persistence-service", () => workoutPersistenceMocks);
 vi.mock("@/lib/server/chat/chat-history-service", () => chatHistoryMocks);
@@ -84,7 +73,6 @@ describe("API route boundaries", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
-    chatServiceMocks.createAiChatResponse.mockResolvedValue(new Response("stream", { status: 200 }));
     exerciseServiceMocks.listAllExercises.mockResolvedValue([createExercise({ id: "push-up" })]);
     exerciseServiceMocks.listExercises.mockResolvedValue({ items: [], total: 0 });
     exerciseServiceMocks.getExerciseFacets.mockResolvedValue({ categories: [] });
@@ -105,7 +93,8 @@ describe("API route boundaries", () => {
     authMocks.requireCurrentUser.mockResolvedValue({ id: "user-1", displayName: "匿名用户" });
   });
 
-  it("validates /api/chat body and returns stream response for legal requests", async () => {
+  it("validates /api/chat body and returns disabled response without model configuration", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "");
     const invalid = await chatRoute.POST(jsonRequest("/api/chat", { latestUserMessage: "" }));
     await expect(invalid.json()).resolves.toMatchObject({ code: "validation_failed" });
 
@@ -113,20 +102,15 @@ describe("API route boundaries", () => {
       latestUserMessage: "练胸",
       conversationSummary: "用户想练胸。",
     }));
-    expect(valid.status).toBe(200);
-    expect(chatServiceMocks.createAiChatResponse).toHaveBeenCalledWith(
-      expect.objectContaining({
-        apiKey: "test-key",
-        currentUser: expect.objectContaining({ id: "user-1" }),
-        request: expect.objectContaining({ rawMessages: [expect.objectContaining({ content: "练胸" })] }),
-      }),
-    );
-    expect(traceMocks.startAiTrace).toHaveBeenCalledWith(expect.objectContaining({
+    expect(valid.status).toBe(503);
+    await expect(valid.json()).resolves.toMatchObject({
+      code: "chat_ai_disabled",
       userId: "user-1",
-      model: "deepseek-v4-flash",
-      promptVersion: expect.any(String),
-      toolVersions: expect.objectContaining({ ReferenceResolver: expect.any(String) }),
-    }));
+      hydration: expect.objectContaining({
+        source: "latest_message",
+      }),
+    });
+    expect(traceMocks.startAiTrace).not.toHaveBeenCalled();
   });
 
   it("handles exercise resource routes", async () => {

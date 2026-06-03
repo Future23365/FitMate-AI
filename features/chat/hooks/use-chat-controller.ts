@@ -3,14 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 
 import { requestChatStream } from "@/features/chat/api/chat-client";
-import {
-  createInitialVisibleAgentActivity,
-  createWritingReplyAgentActivity,
-  reduceAgentActivity,
-  reduceVisibleAgentActivity,
-  shouldClearAgentActivityForStreamEvent,
-  type VisibleAgentActivity,
-} from "@/features/chat/lib/agent-activity";
 import { readChatConversation, saveChatConversation } from "@/features/chat/lib/chat-history";
 import { readAssistantSuggestionsFromStreamEvent } from "@/features/chat/lib/assistant-suggestions";
 import type {
@@ -75,7 +67,6 @@ export function useChatController() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [agentActivity, setAgentActivity] = useState<VisibleAgentActivity | null>(null);
   const [error, setError] = useState("");
   const [thinkingEnabled, setThinkingEnabled] = useState(readThinkingEnabledPreference);
   const [autoPlanGenerating, setAutoPlanGenerating] = useState<string | null>(null);
@@ -96,10 +87,6 @@ export function useChatController() {
   });
   const skipNextAutoSaveRef = useRef(false);
 
-  function clearAgentActivity() {
-    setAgentActivity(null);
-  }
-
   useEffect(() => {
     try {
       window.localStorage.setItem(thinkingEnabledStorageKey, String(thinkingEnabled));
@@ -114,7 +101,6 @@ export function useChatController() {
         return;
       }
 
-      clearAgentActivity();
       const matchedConversation = await readChatConversation(id);
 
       if (!matchedConversation) {
@@ -150,7 +136,6 @@ export function useChatController() {
     function handleHashChange() {
       const id = window.location.hash.replace(/^#/, "");
       if (!id) {
-        clearAgentActivity();
         return;
       }
       void loadConversation(id);
@@ -165,7 +150,6 @@ export function useChatController() {
 
     function startNewConversation() {
       window.history.replaceState(null, "", window.location.pathname);
-      clearAgentActivity();
       setConversationId(null);
       setMessages([]);
       setBubblePlans({});
@@ -273,7 +257,6 @@ export function useChatController() {
     setInput("");
     setError("");
     setIsLoading(true);
-    setAgentActivity(createInitialVisibleAgentActivity());
 
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), chatRequestTimeoutMs);
@@ -323,11 +306,6 @@ export function useChatController() {
 
           const streamEvent = JSON.parse(line) as ChatStreamEvent;
 
-          if (streamEvent.type === "agent_activity") {
-            setAgentActivity((current) => reduceAgentActivity(current, streamEvent));
-            continue;
-          }
-
           if (streamEvent.type === "done") {
             if (typeof streamEvent.conversationSummary === "string") {
               updatedConversationSummary = streamEvent.conversationSummary;
@@ -337,16 +315,10 @@ export function useChatController() {
               updatedConversationContext = streamEvent.conversationContext;
               setConversationContext(streamEvent.conversationContext);
             }
-            if (shouldClearAgentActivityForStreamEvent(streamEvent)) {
-              clearAgentActivity();
-            }
             continue;
           }
 
           if (streamEvent.type === "error") {
-            if (shouldClearAgentActivityForStreamEvent(streamEvent)) {
-              clearAgentActivity();
-            }
             throw new Error(streamEvent.delta || "聊天请求失败，请稍后重试。");
           }
 
@@ -453,9 +425,6 @@ export function useChatController() {
 
           if (streamEvent.type === "content") {
             fullContent += streamEvent.delta ?? "";
-            setAgentActivity((current) =>
-              reduceVisibleAgentActivity(current, createWritingReplyAgentActivity(current)),
-            );
             updateAssistantMessage(assistantMessage.id, (message) => ({
               ...message,
               content: `${message.content}${streamEvent.delta ?? ""}`,
@@ -496,13 +465,11 @@ export function useChatController() {
     } finally {
       window.clearTimeout(timeout);
       setIsLoading(false);
-      clearAgentActivity();
     }
   }
 
   return {
     autoRecommendationGenerating,
-    agentActivity,
     autoPlanGenerating,
     bubbleExerciseRecommendations,
     bubblePlanExercises,

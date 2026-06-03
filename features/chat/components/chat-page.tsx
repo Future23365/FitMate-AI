@@ -10,7 +10,6 @@ import { ResponsiveRightSidebar } from "@/components/app/responsive-right-sideba
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { useAutoHideScrollbar } from "@/components/app/use-auto-hide-scrollbar";
 import { ExerciseRecommendationCard } from "@/features/exercises/components/exercise-recommendation-card";
-import { AgentActivityIndicator } from "@/features/chat/components/agent-activity-indicator";
 import { useChatController } from "@/features/chat/hooks/use-chat-controller";
 import { getMessageAssistantSuggestions } from "@/features/chat/lib/assistant-suggestions";
 import { listWorkoutSchedules } from "@/features/workouts/api/workout-data-client";
@@ -436,7 +435,6 @@ function HomeRightSidebar() {
 export function ChatPage() {
   const {
     autoRecommendationGenerating,
-    agentActivity,
     autoPlanGenerating,
     bubbleExerciseRecommendations,
     bubblePlanExercises,
@@ -460,9 +458,6 @@ export function ChatPage() {
   const latestMessageState = messages
     .map((message) => `${message.id}:${message.content.length}:${message.reasoningContent?.length ?? 0}`)
     .join("|");
-  const activeAssistantMessageId = isLoading
-    ? [...messages].reverse().find((message) => message.role === "assistant")?.id
-    : undefined;
 
   useEffect(() => {
     chatInputRef.current?.focus();
@@ -563,7 +558,6 @@ export function ChatPage() {
             <div className="mx-auto flex max-w-4xl flex-col gap-md">
               {messages.map((message) => {
                 const isUserMessage = message.role === "user";
-                const isActiveAssistantMessage = message.id === activeAssistantMessageId;
 
                 return (
                   <div
@@ -581,11 +575,6 @@ export function ChatPage() {
                         <ChatMessageAvatar role={isUserMessage ? "user" : "assistant"} />
                       </div>
                       <div className="flex flex-1 flex-col gap-xs min-w-0">
-                        {message.role === "assistant" && (
-                          <AgentActivityIndicator
-                            activity={isActiveAssistantMessage ? agentActivity : null}
-                          />
-                        )}
                         <div
                           className={`ai-chat-bubble min-w-0 rounded-2xl p-lg transition-shadow ${
                             isUserMessage
