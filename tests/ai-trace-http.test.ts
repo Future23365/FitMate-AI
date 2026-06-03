@@ -248,7 +248,8 @@ describe("AI trace store and HTTP request helpers", () => {
   });
 
   it("saves full trace logs as a lightweight report plus long text mapping", async () => {
-    const longModelText = `模型可见长文本 ${"请严格遵守 AgentAction 合同。".repeat(90)}`;
+    const longModelText = `模型可见长文本 ${"请严格遵守 AgentAction 合同。".repeat(260)}`;
+    const longDetailText = `完整 runtime 详情 ${"保留 input output metadata 方便复盘。".repeat(180)}`;
     const sensitivePayloadText = `不要保存完整 payload ${"secret ".repeat(120)}`;
     const response = await devTraceRoute.POST(jsonRequest("/api/dev/ai-traces", {
       logType: "trace",
@@ -318,6 +319,37 @@ describe("AI trace store and HTTP request helpers", () => {
             response: { tokenUsage: { prompt_tokens: 10, completion_tokens: 3, total_tokens: 13 } },
           },
         ],
+        detailRefs: [
+          {
+            detailRef: "detail_0001",
+            path: "$.runtimeTraceEvents[0]",
+            kind: "runtime_event_detail",
+            hash: "fnv1a:33333333",
+            summary: { type: "tool_call", toolName: "readFixture", toolResultId: "tr_1" },
+            detailFile: "codex_logs/ai_trace_texts.jsonl",
+          },
+        ],
+        details: [
+          {
+            detailRef: "detail_0001",
+            path: "$.runtimeTraceEvents[0]",
+            kind: "runtime_event_detail",
+            hash: "fnv1a:33333333",
+            summary: { type: "tool_call", toolName: "readFixture", toolResultId: "tr_1" },
+            content: {
+              id: "step-tool",
+              type: "tool_call",
+              input: { text: "hello" },
+              output: {
+                type: "tool_execution",
+                toolName: "readFixture",
+                toolResultId: "tr_1",
+                diagnostic: longDetailText,
+              },
+              metadata: { authorization: "Bearer secret-token" },
+            },
+          },
+        ],
         tokenUsageSummary: { prompt_tokens: 10, completion_tokens: 3, total_tokens: 13 },
         trace: {
           route: "/api/chat",
@@ -348,20 +380,38 @@ describe("AI trace store and HTTP request helpers", () => {
     expect(savedContent).not.toContain("Bearer secret-token");
     expect(savedContent).not.toContain("不要保存完整 payload");
     expect(savedContent).not.toContain(longModelText);
+    expect(savedContent).not.toContain(longDetailText);
     expect(savedContent).toContain("plannerModelCalls");
     expect(savedContent).toContain("tokenUsageSummary");
+    expect(savedContent).toContain("detailRefs");
+    expect(savedContent).toContain("\"detailRef\": \"detail_0001\"");
     expect(savedContent).toContain("\"prompt_tokens\": 10");
     expect(savedContent).not.toContain("rawTrace");
     expect(savedContent).not.toContain("\"trace\":");
+    expect(savedContent).not.toContain("\"details\":");
     expect(savedContent).toContain("ai_trace_texts.jsonl");
     expect(savedContent).toContain("\"contentRef\": \"text_0001\"");
-    expect(longTextContent).toContain("Long text mapping saved from /dev/ai-traces.");
+    expect(longTextContent).toContain("AI trace mapping saved from /dev/ai-traces.");
     expect(longTextContent).toContain("rg '\"contentRef\":\"text_0001\"' codex_logs/ai_trace_texts.jsonl");
+    expect(longTextContent).toContain("rg '\"detailRef\":\"detail_0001\"' codex_logs/ai_trace_texts.jsonl");
     expect(longTextContent).toContain("\"contentRef\":\"text_0001\"");
     expect(longTextContent).toContain("\"paths\":[");
-    expect(longTextContent).toContain(longModelText);
+    expect(longTextContent).toContain("\"recordType\":\"text\"");
+    expect(longTextContent).toContain("\"recordType\":\"text_chunk\"");
+    expect(longTextContent).toContain("\"recordType\":\"detail\"");
+    expect(longTextContent).toContain("\"recordType\":\"detail_chunk\"");
     expect(longTextContent).toContain("\"content\":\"[redacted]\"");
     expect(longTextContent).not.toContain(sensitivePayloadText);
+    expect(longTextContent).not.toContain("Bearer secret-token");
+    const mappingRecords = parseJsonlRecords(longTextContent);
+    const textChunks = mappingRecords.filter((record) => record.recordType === "text_chunk" && record.contentRef === "text_0001");
+    const detailChunks = mappingRecords.filter((record) => record.recordType === "detail_chunk" && record.detailRef === "detail_0001");
+
+    expect(textChunks.length).toBeGreaterThan(1);
+    expect(textChunks.map((record) => record.content).join("")).toBe(longModelText);
+    expect(detailChunks.length).toBeGreaterThan(1);
+    expect(detailChunks.map((record) => record.content).join("")).toContain(longDetailText);
+    expect(Math.max(...longTextContent.split("\n").map((line) => line.length))).toBeLessThan(2600);
     expect(fsMocks.appendFile).not.toHaveBeenCalled();
   });
 
@@ -407,4 +457,11 @@ function jsonRequest(url: string, body: unknown) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+}
+
+function parseJsonlRecords(content: string) {
+  return content
+    .split("\n")
+    .filter((line) => line.trim().length > 0 && !line.startsWith("//"))
+    .map((line) => JSON.parse(line) as Record<string, string>);
 }

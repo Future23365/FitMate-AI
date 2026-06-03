@@ -83,7 +83,7 @@ describe("AI trace viewer step grouping", () => {
     });
   });
 
-  it("keeps module view, planner calls, token usage, and raw trace payload in full trace log exports", () => {
+  it("keeps module view, planner calls, token usage, and detail refs in full trace log exports", () => {
     const trace: AiTrace = {
       id: "trace-1",
       runId: "run-1",
@@ -198,6 +198,10 @@ describe("AI trace viewer step grouping", () => {
         expect.objectContaining({
           name: "Tool 执行",
           type: "tool_call",
+          detailRef: expect.objectContaining({
+            detailRef: expect.stringMatching(/^detail_/),
+            kind: "runtime_event_detail",
+          }),
           eventType: "tool_execution",
           output: expect.objectContaining({
             type: "tool_execution",
@@ -210,6 +214,10 @@ describe("AI trace viewer step grouping", () => {
         id: "trace-1",
         route: "/api/chat",
         stepCount: 5,
+        detailRef: expect.objectContaining({
+          detailRef: "detail_0001",
+          kind: "full_trace",
+        }),
         steps: expect.arrayContaining([
           expect.objectContaining({
             id: "step-runtime_event",
@@ -230,9 +238,89 @@ describe("AI trace viewer step grouping", () => {
         threshold: 600,
         textFile: "codex_logs/ai_trace_texts.jsonl",
       },
+      detailRefs: expect.arrayContaining([
+        expect.objectContaining({
+          detailRef: "detail_0001",
+          kind: "full_trace",
+          path: "$.trace",
+        }),
+        expect.objectContaining({
+          kind: "runtime_event_detail",
+          path: "$.runtimeTraceEvents[0]",
+        }),
+      ]),
+      details: expect.arrayContaining([
+        expect.objectContaining({
+          detailRef: "detail_0001",
+          kind: "full_trace",
+          content: expect.objectContaining({
+            id: "trace-1",
+            steps: expect.arrayContaining([
+              expect.objectContaining({ id: "step-tool_call" }),
+            ]),
+          }),
+        }),
+      ]),
     });
     expect(payload).not.toHaveProperty("rawTrace");
     expect(payload).not.toHaveProperty("trace");
+  });
+
+  it("moves omitted runtime event details to detail mappings while long strings stay addressable", () => {
+    const longRuntimeOutput = `完整 runtime 详情 ${"包含执行 input output metadata。".repeat(80)}`;
+    const trace: AiTrace = {
+      id: "trace-detail",
+      runId: "run-detail",
+      route: "/api/chat",
+      title: "详情外置",
+      status: "success",
+      createdAt: "2026-06-04T02:30:00.000Z",
+      steps: [
+        createStep({
+          id: "tool-detail",
+          type: "tool_call",
+          name: "Tool 执行",
+          input: { query: "练背" },
+          output: {
+            type: "tool_execution",
+            step: 1,
+            toolName: "searchExerciseResources",
+            toolResultId: "tr_detail",
+            ok: true,
+            satisfied: true,
+            diagnostic: longRuntimeOutput,
+          },
+          metadata: { runtimeStep: 1, toolName: "searchExerciseResources" },
+        }),
+      ],
+    };
+
+    const payload = createTraceLogPayload(trace, groupTraceSteps(trace.steps)) as Record<string, unknown>;
+    const runtimeTraceEvents = payload.runtimeTraceEvents as Array<Record<string, unknown>>;
+    const outputSummary = runtimeTraceEvents[0].output as Record<string, unknown>;
+    const detailRef = runtimeTraceEvents[0].detailRef as Record<string, unknown>;
+    const details = payload.details as Array<Record<string, unknown>>;
+    const runtimeDetail = details.find((detail) => detail.detailRef === detailRef.detailRef) as Record<string, unknown>;
+    const detailContent = runtimeDetail.content as Record<string, unknown>;
+    const detailOutput = detailContent.output as Record<string, unknown>;
+    const longTexts = payload.longTexts as Array<Record<string, unknown>>;
+
+    expect(outputSummary).not.toHaveProperty("diagnostic");
+    expect(detailRef).toMatchObject({
+      kind: "runtime_event_detail",
+      path: "$.runtimeTraceEvents[0]",
+    });
+    expect(detailOutput.diagnostic).toMatchObject({
+      contentRef: "text_0001",
+      kind: "trace_step_output",
+      originalLength: longRuntimeOutput.length,
+    });
+    expect(longTexts).toEqual([
+      expect.objectContaining({
+        contentRef: "text_0001",
+        content: longRuntimeOutput,
+      }),
+    ]);
   });
 
   it("extracts long trace text into contentRef mappings for split log export", () => {

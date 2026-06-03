@@ -6,7 +6,7 @@
 
 ## 设计方向
 
-本 change 采用「轻量报告 + 长文本映射」：
+本 change 采用「轻量报告 + 映射文件」：
 
 1. 前端仍由 `createTraceLogPayload()` 构造可保存 payload，但在 payload 内把长字符串抽离成 `longTextRefs` 和 `longTexts`。
 2. `ai_trace_log.js` 只写轻量报告对象。报告内的长文本字段替换为引用对象：
@@ -20,16 +20,18 @@
      "preview": "..."
    }
    ```
-3. `ai_trace_texts.jsonl` 写入对应长文本映射，一行一个 JSON 记录：
+3. `ai_trace_texts.jsonl` 写入对应长文本映射。超长内容不写成单行巨型 JSON，而是写成 header + chunk records：
    ```json
-   {"contentRef":"text_0001","path":"$.plannerModelCalls[0].request.messages[0].content","kind":"model_request_message","content":"..."}
+   {"recordType":"text","contentRef":"text_0001","path":"$.plannerModelCalls[0].request.messages[0].content","chunkCount":3}
+   {"recordType":"text_chunk","contentRef":"text_0001","chunkIndex":0,"content":"..."}
    ```
 4. 报告不内联完整 `rawTrace` 或完整 `trace` 对象，只保留 `traceSummary` 和 step summary。
-5. `runtimeTraceEvents` 只保留 event type、step、toolName、toolResultId、code、status、durationMs 和 resource refs 等定位字段，不保留完整 tool manifest 或完整 step input/output。
+5. 报告中的 `traceSummary` 和 `runtimeTraceEvents` 使用 `detailRef` 指向映射文件中的完整脱敏结构化详情；`runtimeTraceEvents` 在报告内只保留 event type、step、toolName、toolResultId、code、status、durationMs 和 resource refs 等定位字段，不保留完整 tool manifest 或完整 step input/output。
 6. 长文本映射按 hash 去重；同一段 prompt 或 observation 多次出现时只保存一条内容，并记录出现路径。
 7. 模型请求 trace 中的长 message content 使用分块 envelope 保存，导出层识别后合并为单条长文本映射，避免在进入导出层前被 adapter 的 800 字符摘要丢失尾部。
-8. 两个文件每次保存都覆盖旧内容，不生成目录，也不保留历史版本。
-9. 两个文件头部都写注释，说明默认先读报告；需要长文本时用 `contentRef` 到 `ai_trace_texts.jsonl` 查询。
+8. 映射文件中的详情记录也使用 header + chunk records；报告里被瘦身掉的结构化详情必须能通过 `detailRef` 找回。
+9. 两个文件每次保存都覆盖旧内容，不生成目录，也不保留历史版本。
+10. 两个文件头部都写注释，说明默认先读报告；需要长文本或完整详情时用 `contentRef` / `detailRef` 到 `ai_trace_texts.jsonl` 查询。
 
 ## 范围与边界
 
@@ -111,10 +113,20 @@
 默认报告用于快速排查，不是 Raw trace 归档：
 
 - MUST NOT 保留完整 `rawTrace` 或完整 `trace`。
-- MUST 使用 `traceSummary` 记录 trace id、run id、route、status、step count、finalDecision 和 step 摘要。
-- MUST 使用轻量 `runtimeTraceEvents`，只保留定位需要的 code、id、状态、tool、resource、token 和耗时。
+- MUST 使用 `traceSummary` 记录 trace id、run id、route、status、step count、finalDecision、step 摘要和 `detailRef`。
+- MUST 使用轻量 `runtimeTraceEvents`，只保留定位需要的 code、id、状态、tool、resource、token、耗时和 `detailRef`。
 - SHOULD 保留模型调用诊断的 request / response 摘要，但长文本必须通过 `contentRef` 外置。
-- 如果未来需要完整 Raw trace，应新增独立导出文件或显式调试入口，不能重新塞回默认报告。
+- 被默认报告移除的完整 `trace`、完整 runtime event `input` / `output` / `metadata` / `error` MUST 写入映射文件，并通过报告里的 `detailRef` 找回。
+
+## 结构化详情映射规则
+
+`detailRef` 用于保存“不是长字符串，但默认报告不该内联”的完整结构化诊断：
+
+- `full_trace`：保存当前 trace 的完整脱敏对象，用于恢复 `rawTrace` / `trace` 级别上下文。
+- `runtime_event_detail`：保存每条轻量 `runtimeTraceEvents` 对应 step 的完整 `input`、`output`、`metadata` 和 `error`。
+- 报告中每个 `detailRef` MUST 包含 `detailRef`、`path`、`kind`、`hash`、`summary` 和 `detailFile`。
+- 映射文件中每个详情 MUST 先写 header record，再写按 `chunkIndex` 排序的 `detail_chunk` records。
+- 如果详情内部仍包含长字符串，导出层 SHOULD 继续把该字符串替换成 `contentRef`，避免 detail chunk 与 text chunk 重复保存大段内容。
 
 ## 脱敏策略
 
@@ -135,7 +147,12 @@
 `codex_logs/ai_trace_texts.jsonl`：
 
 - 前几行使用 `//` 注释，说明用途和查询方式。
-- 后续每行一个 JSON object。
+- 后续每行一个 JSON object，但一个逻辑内容可以拆成多条记录：
+  - `recordType="text"`：长文本 header。
+  - `recordType="text_chunk"`：长文本分块。
+  - `recordType="detail"`：结构化详情 header。
+  - `recordType="detail_chunk"`：结构化详情分块。
+- 单个 chunk 的 `content` SHOULD 控制在较小长度，避免 `rg` 命中时一次打印超大行。
 - 每次保存覆盖旧文件。
 
 ## 验证计划

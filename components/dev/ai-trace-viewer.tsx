@@ -87,6 +87,10 @@ type TraceLogLongTextKind =
   | "response_summary"
   | "generic_long_text";
 
+type TraceLogDetailKind =
+  | "full_trace"
+  | "runtime_event_detail";
+
 export type TraceLogLongTextRef = {
   contentRef: string;
   path: string;
@@ -102,9 +106,26 @@ export type TraceLogLongTextEntry = TraceLogLongTextRef & {
   content: string;
 };
 
+export type TraceLogDetailRef = {
+  detailRef: string;
+  path: string;
+  kind: TraceLogDetailKind;
+  hash: string;
+  summary: Record<string, unknown>;
+  detailFile: "codex_logs/ai_trace_texts.jsonl";
+};
+
+export type TraceLogDetailEntry = TraceLogDetailRef & {
+  content: unknown;
+};
+
 type TraceLogLongTextState = {
   longTexts: TraceLogLongTextEntry[];
   byHash: Map<string, TraceLogLongTextEntry>;
+};
+
+type TraceLogDetailState = {
+  details: TraceLogDetailEntry[];
 };
 
 const traceLogLongTextThreshold = 600;
@@ -1585,6 +1606,19 @@ function summarizeRuntimeEventOutput(output: Record<string, unknown>) {
 export function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) {
   const tokenUsageSummary = getTraceTokenUsage(trace);
   const agentLoops = buildAgentLoopTimeline(trace.steps);
+  const detailState: TraceLogDetailState = { details: [] };
+  const traceDetailRef = createTraceLogDetailEntry(detailState, {
+    path: "$.trace",
+    kind: "full_trace",
+    summary: {
+      id: trace.id,
+      runId: trace.runId,
+      route: trace.route,
+      status: trace.status,
+      stepCount: trace.steps.length,
+    },
+    content: trace,
+  });
 
   const payload = {
     title: trace.title,
@@ -1638,9 +1672,20 @@ export function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) 
     tokenUsageSummary,
     runtimeTraceEvents: trace.steps
       .filter((step) => ["runtime_event", "validation", "token_budget", "tool_call", "final_response"].includes(step.type))
-      .map(createRuntimeTraceEventReport),
+      .map((step, index) => ({
+        ...createRuntimeTraceEventReport(step),
+        detailRef: createTraceLogDetailEntry(detailState, {
+          path: `$.runtimeTraceEvents[${index}]`,
+          kind: "runtime_event_detail",
+          summary: createTraceStepReportSummary(step),
+          content: createTraceStepDetail(step),
+        }),
+      })),
     responseSummary: readTraceResponseSummary(trace),
-    traceSummary: createTraceReportSummary(trace),
+    traceSummary: {
+      ...createTraceReportSummary(trace),
+      detailRef: traceDetailRef,
+    },
     groupedSteps: groups.map((group) => ({
       id: group.id,
       title: group.title,
@@ -1648,9 +1693,66 @@ export function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) 
       status: group.status,
       durationMs: group.durationMs,
     })),
+    detailRefs: detailState.details.map(({ content: _content, ...ref }) => ref),
+    details: detailState.details,
   };
 
   return extractTraceLogLongTexts(payload);
+}
+
+function createTraceLogDetailEntry(
+  state: TraceLogDetailState,
+  input: {
+    path: string;
+    kind: TraceLogDetailKind;
+    summary: Record<string, unknown>;
+    content: unknown;
+  },
+): TraceLogDetailRef {
+  const serialized = safeStringifyTraceDetail(input.content);
+  const ref: TraceLogDetailRef = {
+    detailRef: createDetailRef(state.details.length + 1),
+    path: input.path,
+    kind: input.kind,
+    hash: hashLongText(serialized),
+    summary: input.summary,
+    detailFile: "codex_logs/ai_trace_texts.jsonl",
+  };
+
+  state.details.push({
+    ...ref,
+    content: input.content,
+  });
+
+  return ref;
+}
+
+function createTraceStepDetail(step: AiTraceStep) {
+  return {
+    id: step.id,
+    name: step.name,
+    type: step.type,
+    status: step.status,
+    startedAt: step.startedAt,
+    endedAt: step.endedAt,
+    durationMs: step.durationMs,
+    input: step.input,
+    output: step.output,
+    metadata: step.metadata,
+    error: step.error,
+  };
+}
+
+function createDetailRef(index: number) {
+  return `detail_${String(index).padStart(4, "0")}`;
+}
+
+function safeStringifyTraceDetail(value: unknown) {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }
 
 // extractTraceLogLongTexts 将保存报告中的长字符串外置，降低默认 log 的阅读和 token 成本。
@@ -1834,19 +1936,19 @@ function inferLongTextKind(path: string): TraceLogLongTextKind {
     return "response_summary";
   }
 
-  if (/\.steps\[\d+\]\.input/.test(path)) {
+  if (/\.steps\[\d+\]\.input/.test(path) || /\.details\[\d+\]\.content\.input/.test(path)) {
     return "trace_step_input";
   }
 
-  if (/\.steps\[\d+\]\.output/.test(path)) {
+  if (/\.steps\[\d+\]\.output/.test(path) || /\.details\[\d+\]\.content\.output/.test(path)) {
     return "trace_step_output";
   }
 
-  if (/\.steps\[\d+\]\.metadata/.test(path)) {
+  if (/\.steps\[\d+\]\.metadata/.test(path) || /\.details\[\d+\]\.content\.metadata/.test(path)) {
     return "trace_step_metadata";
   }
 
-  if (/\.steps\[\d+\]\.error/.test(path)) {
+  if (/\.steps\[\d+\]\.error/.test(path) || /\.details\[\d+\]\.content\.error/.test(path)) {
     return "trace_step_error";
   }
 

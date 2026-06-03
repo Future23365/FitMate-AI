@@ -10,9 +10,12 @@
 - **AND** `ai_trace_log.js` MUST 包含 trace 标题、route、状态、runtime event 摘要、响应事件摘要、模块分组、模型调用摘要、token usage 和 Raw trace 摘要
 - **AND** `ai_trace_log.js` MUST NOT 内联完整 `rawTrace` 或完整 `trace` payload
 - **AND** `ai_trace_log.js` MUST 使用 `contentRef`、`path`、`kind`、`originalLength`、`hash` 和 `preview` 引用被抽离的长文本
-- **AND** `ai_trace_texts.jsonl` MUST 以一行一个 JSON object 保存与 `contentRef` 对应的脱敏长文本
+- **AND** `ai_trace_log.js` MUST 使用 `detailRef` 引用被瘦身掉的完整 `trace` 和 runtime event 结构化详情
+- **AND** `ai_trace_texts.jsonl` MUST 以一行一个 JSON object 保存与 `contentRef` 对应的脱敏长文本 header/chunk records
+- **AND** `ai_trace_texts.jsonl` MUST 保存与 `detailRef` 对应的脱敏结构化详情 header/chunk records
 - **AND** 模型请求 trace 中超过 adapter 摘要阈值的 message content MUST 能以分块 envelope 进入导出层，并在 `ai_trace_texts.jsonl` 中恢复为单条长文本映射
 - **AND** `ai_trace_texts.jsonl` SHOULD 按 hash 去重保存重复长文本，并在记录中保留出现路径
+- **AND** `ai_trace_texts.jsonl` SHOULD 将超长 content 拆成多个 chunk records，避免单条 JSONL 记录过长
 - **AND** 两个文件 MUST 在每次保存全链路 log 时覆盖上一次导出，不新增导出目录或历史版本
 - **AND** 两个文件 MUST 包含注释，说明默认先读轻量报告，并按 `contentRef` 到 `ai_trace_texts.jsonl` 查询长文本
 - **AND** 保存内容 MUST NOT 包含 API key、authorization、cookie、跨用户 payload、完整敏感 payload 或完整 tool output
@@ -34,6 +37,7 @@
 - **AND** 被引用的长文本 MUST 写入 `codex_logs/ai_trace_texts.jsonl`
 - **AND** 模型请求 message content 已在上游 trace 中以 chunks 保存时，导出层 MUST 合并 chunks 并只在报告中留下 `contentRef`
 - **AND** 保存内容 MUST 使用 step summary 或 trace summary 代替完整 Raw trace 对象
+- **AND** 被 step summary 或 trace summary 代替的完整结构化详情 MUST 能通过 `detailRef` 在映射文件中找回
 - **AND** 报告 MUST 保留足够定位问题的 code、id、状态、step、token usage、hash 和路径信息，便于只读报告完成常规排查
 
 #### Scenario: 保存用户问答记录
@@ -56,6 +60,7 @@
 - **AND** 保存 payload MUST 将长文本外置为 `contentRef` 映射，并在报告中保留查询长文本所需的路径、hash、长度和预览
 - **AND** 保存 payload MUST NOT 因 adapter 级 800 字符摘要丢失完整模型请求 message 的尾部内容
 - **AND** 保存 payload MUST NOT 重复保存完整 `rawTrace` 和完整 `trace` 对象
+- **AND** 保存 payload MUST NOT 丢弃被默认报告瘦身掉的完整 `rawTrace` / `trace`、runtime event `input` / `output` / `metadata` / `error`，这些内容 MUST 通过 `detailRef` 外置
 - **AND** 保存 payload 和长文本映射 MUST 继续经过脱敏
 
 #### Scenario: 保存用户问答记录

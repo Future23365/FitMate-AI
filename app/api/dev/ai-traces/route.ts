@@ -25,6 +25,15 @@ type SavedTraceLongTextRecord = {
   content: unknown;
 };
 
+type SavedTraceDetailRecord = {
+  detailRef: string;
+  path: string;
+  kind: string;
+  hash: string;
+  summary: unknown;
+  content: unknown;
+};
+
 const traceLogSensitiveKeyPatterns = [
   /^api[_-]?key$/i,
   /^authorization$/i,
@@ -45,6 +54,8 @@ const traceLogSensitiveKeyPatterns = [
 ];
 const traceLongTextFileName = "ai_trace_texts.jsonl";
 const maxSavedTraceLongTextLength = 80_000;
+const maxSavedTraceDetailStringLength = 80_000;
+const traceMappingChunkContentLength = 2_000;
 
 export async function GET(request: Request) {
   let currentUser;
@@ -170,7 +181,7 @@ export async function POST(request: Request) {
     const textLogPath = path.join(logDir, traceLongTextFileName);
 
     await writeFile(logPath, createTraceLogContent(payload.report, savedAt), "utf8");
-    await writeFile(textLogPath, createTraceLongTextLogContent(payload.longTexts, savedAt), "utf8");
+    await writeFile(textLogPath, createTraceLongTextLogContent(payload.longTexts, payload.details, savedAt), "utf8");
 
     return NextResponse.json({
       ok: true,
@@ -247,6 +258,7 @@ export function normalizeSavedTraceLogPayload(payload: object) {
   const record = payload as Record<string, unknown>;
   const {
     longTexts: rawLongTexts,
+    details: rawDetails,
     rawTrace: _rawTrace,
     trace: _trace,
     ...reportPayload
@@ -257,6 +269,11 @@ export function normalizeSavedTraceLogPayload(payload: object) {
         .filter((item): item is Record<string, unknown> => isRecord(item))
         .map(normalizeTraceLongTextRecord)
     : [];
+  const details = Array.isArray(rawDetails)
+    ? rawDetails
+        .filter((item): item is Record<string, unknown> => isRecord(item))
+        .map(normalizeTraceDetailRecord)
+    : [];
   const report = redactJsonValue(
     {
       ...(isRecord(safeReportPayload) ? safeReportPayload : {}),
@@ -264,7 +281,8 @@ export function normalizeSavedTraceLogPayload(payload: object) {
         reportFile: "codex_logs/ai_trace_log.js",
         longTextFile: `codex_logs/${traceLongTextFileName}`,
         lookup: `rg '"contentRef":"text_0001"' codex_logs/${traceLongTextFileName}`,
-        note: "默认先读本报告；需要长文本时，复制报告中的 contentRef 到 long text 文件中查找。",
+        detailLookup: `rg '"detailRef":"detail_0001"' codex_logs/${traceLongTextFileName}`,
+        note: "默认先读本报告；需要长文本或完整结构化详情时，复制报告中的 contentRef/detailRef 到映射文件中查找。",
       },
     },
     {
@@ -275,6 +293,7 @@ export function normalizeSavedTraceLogPayload(payload: object) {
   return {
     report,
     longTexts,
+    details,
   };
 }
 
@@ -283,9 +302,10 @@ function createTraceLogContent(payload: object, savedAt: string) {
     getLogFileHeader("trace"),
     `// Saved at: ${savedAt}`,
     "// This is the lightweight AI trace report. Long prompt/model text is stored separately.",
-    `// Long text file: codex_logs/${traceLongTextFileName}`,
+    `// Mapping file: codex_logs/${traceLongTextFileName}`,
     `// Lookup example: rg '\"contentRef\":\"text_0001\"' codex_logs/${traceLongTextFileName}`,
-    "// Workflow: read this report first, copy a contentRef only when deeper long-text inspection is needed.",
+    `// Detail example: rg '\"detailRef\":\"detail_0001\"' codex_logs/${traceLongTextFileName}`,
+    "// Workflow: read this report first, copy a contentRef/detailRef only when deeper inspection is needed.",
     "",
     "module.exports = ",
     JSON.stringify(payload, null, 2),
@@ -293,15 +313,26 @@ function createTraceLogContent(payload: object, savedAt: string) {
   ].join("\n");
 }
 
-// ai_trace_texts.jsonl 保存全链路报告外置的长文本映射，每次保存覆盖旧内容。
-function createTraceLongTextLogContent(records: SavedTraceLongTextRecord[], savedAt: string) {
+// ai_trace_texts.jsonl 保存全链路报告外置的长文本和结构化详情映射，每次保存覆盖旧内容。
+function createTraceLongTextLogContent(
+  textRecords: SavedTraceLongTextRecord[],
+  detailRecords: SavedTraceDetailRecord[],
+  savedAt: string,
+) {
+  const mappingRecords = [
+    ...textRecords.flatMap(createTextMappingRecords),
+    ...detailRecords.flatMap(createDetailMappingRecords),
+  ];
+
   return [
-    "// Long text mapping saved from /dev/ai-traces.",
+    "// AI trace mapping saved from /dev/ai-traces.",
     `// Saved at: ${savedAt}`,
-    "// Read codex_logs/ai_trace_log.js first. When the report shows contentRef, query this file.",
+    "// Read codex_logs/ai_trace_log.js first. When the report shows contentRef/detailRef, query this file.",
     `// Example: rg '\"contentRef\":\"text_0001\"' codex_logs/${traceLongTextFileName}`,
-    "// Each non-comment line is one JSON object with contentRef, path, kind, hash, preview and content.",
-    ...records.map((record) => JSON.stringify(record)),
+    `// Detail: rg '\"detailRef\":\"detail_0001\"' codex_logs/${traceLongTextFileName}`,
+    "// Long content is split into text_chunk/detail_chunk records so one grep hit does not print a giant line.",
+    "// Reassemble chunks by contentRef/detailRef ordered by chunkIndex when full content is needed.",
+    ...mappingRecords.map((record) => JSON.stringify(record)),
     "",
   ].join("\n");
 }
@@ -368,6 +399,100 @@ function normalizeTraceLongTextRecord(item: Record<string, unknown>): SavedTrace
     preview,
     content,
   };
+}
+
+function normalizeTraceDetailRecord(item: Record<string, unknown>): SavedTraceDetailRecord {
+  const pathValue = getString(item.path) ?? "$";
+  const content = pathContainsSensitiveTraceKey(pathValue)
+    ? REDACTED_VALUE
+    : redactJsonValue(item.content ?? {}, {
+        sensitiveKeyPatterns: traceLogSensitiveKeyPatterns,
+        maxStringLength: maxSavedTraceDetailStringLength,
+      });
+  const summary = redactJsonValue(item.summary ?? {}, {
+    sensitiveKeyPatterns: traceLogSensitiveKeyPatterns,
+    maxStringLength: maxSavedTraceDetailStringLength,
+  });
+
+  return {
+    detailRef: getString(item.detailRef) ?? "detail_unknown",
+    path: pathValue,
+    kind: getString(item.kind) ?? "generic_detail",
+    hash: getString(item.hash) ?? "",
+    summary,
+    content,
+  };
+}
+
+function createTextMappingRecords(record: SavedTraceLongTextRecord) {
+  const content = typeof record.content === "string"
+    ? record.content
+    : JSON.stringify(record.content);
+  const chunks = chunkString(content, traceMappingChunkContentLength);
+
+  return [
+    {
+      recordType: "text",
+      contentRef: record.contentRef,
+      path: record.path,
+      paths: record.paths,
+      kind: record.kind,
+      originalLength: record.originalLength,
+      hash: record.hash,
+      preview: record.preview,
+      contentLength: content.length,
+      chunkSize: traceMappingChunkContentLength,
+      chunkCount: chunks.length,
+    },
+    ...chunks.map((chunk, index) => ({
+      recordType: "text_chunk",
+      contentRef: record.contentRef,
+      chunkIndex: index,
+      chunkCount: chunks.length,
+      content: chunk,
+    })),
+  ];
+}
+
+function createDetailMappingRecords(record: SavedTraceDetailRecord) {
+  const content = JSON.stringify(record.content, null, 2);
+  const chunks = chunkString(content, traceMappingChunkContentLength);
+
+  return [
+    {
+      recordType: "detail",
+      detailRef: record.detailRef,
+      path: record.path,
+      kind: record.kind,
+      hash: record.hash,
+      summary: record.summary,
+      contentType: "json",
+      contentLength: content.length,
+      chunkSize: traceMappingChunkContentLength,
+      chunkCount: chunks.length,
+    },
+    ...chunks.map((chunk, index) => ({
+      recordType: "detail_chunk",
+      detailRef: record.detailRef,
+      chunkIndex: index,
+      chunkCount: chunks.length,
+      content: chunk,
+    })),
+  ];
+}
+
+function chunkString(value: string, chunkSize: number) {
+  if (value.length === 0) {
+    return [""];
+  }
+
+  const chunks: string[] = [];
+
+  for (let start = 0; start < value.length; start += chunkSize) {
+    chunks.push(value.slice(start, start + chunkSize));
+  }
+
+  return chunks;
 }
 
 function pathContainsSensitiveTraceKey(pathValue: string) {

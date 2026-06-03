@@ -48,3 +48,15 @@
 - [x] 7.6 运行 `npm test -- tests/ai-trace-viewer.test.ts tests/ai-trace-http.test.ts tests/agent-core/adapter-llm-planner.test.ts`。
 - [x] 7.7 运行 `npm run typecheck`。
 - [x] 7.8 运行 `git status --short` 和 diff 检查，确认只包含本 change 相关文件。
+
+## 8. 结构化详情外置与 JSONL 分块修复
+
+- [x] 8.1 在 `createTraceLogPayload()` 中为完整 trace 和 runtime event step detail 生成 `detailRef` / `details` 映射，默认报告只保留轻量摘要和引用。
+- [x] 8.2 在保存接口中把 `details` 从默认报告移除，并写入 `ai_trace_texts.jsonl` 的 `detail` / `detail_chunk` records。
+- [x] 8.3 将长文本映射输出改为 `text` / `text_chunk` records，避免超长 content 挤在单条 JSONL 行上。
+- [x] 8.4 更新 `tests/ai-trace-viewer.test.ts`，覆盖被摘要的 runtime event 详情可通过 `detailRef` 找回，详情内部长文本继续外置为 `contentRef`。
+- [x] 8.5 更新 `tests/ai-trace-http.test.ts`，覆盖映射文件同时保存 text/detail chunks、可重组内容、且单行长度受控。
+- [x] 8.6 运行 `openspec validate split-ai-trace-log-long-texts --strict`。
+- [x] 8.7 运行 `npm test -- tests/ai-trace-viewer.test.ts tests/ai-trace-http.test.ts tests/agent-core/adapter-llm-planner.test.ts`。
+- [x] 8.8 运行 `npm run typecheck`。
+- [x] 8.9 运行 `git status --short` 和 diff 检查，确认只包含本 change 相关文件。
