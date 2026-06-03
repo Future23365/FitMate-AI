@@ -15,6 +15,12 @@
 - **AND** 服务端内部上限、分页控制或 output-only 统计字段 MUST 被移除，或被明确标注为 output summary
 - **AND** observation MUST NOT 包含可被模型直接复制成下一轮 input 的分页控制片段
 
+#### Scenario: 嵌套 observation 不得泄漏 output-only 字段
+- **WHEN** tool result observation 包含上游 query、历史 fact、摘要对象或嵌套 payload
+- **THEN** 嵌套对象中的 output-only 字段 MUST 同样被移除或明确标注为 output summary
+- **AND** `maxReturned`、`limit`、`take`、`offset`、`page`、`pageSize` MUST NOT 通过嵌套 `query` 或历史 fact 重新暴露成可复制 input
+- **AND** observation MUST 保留下一步决策需要的安全摘要，而不是回灌完整 handler output
+
 #### Scenario: 搜索动作资源工具不得开放分页控制 input
 - **WHEN** `searchExerciseResources` 或等价只读动作资源查询 tool 暴露给 production Planner
 - **THEN** 其模型可见 input 合同 MUST NOT 包含 `maxReturned`、`limit`、`take`、`offset`、`page` 或 `pageSize`
@@ -25,3 +31,9 @@
 - **WHEN** tool result 满足 `ok = true` 且 `fulfillment.satisfied = true`
 - **THEN** 模型可见合同 MUST 说明该结果可以通过 `final_answer.usedToolResultIds` 支撑成功回答
 - **AND** failed、diagnostic 或 `satisfied=false` 的结果 MUST 继续只能用于解释、澄清、阻断说明或 repair
+
+#### Scenario: 成功 tool result 的下一步状态迁移说明清晰
+- **WHEN** tool result 满足 `ok = true` 且 `fulfillment.satisfied = true`
+- **AND** 该 tool result 已为当前 run 提供后续可用事实、resource 或候选结果
+- **THEN** 模型可见 observation MUST 说明后续应基于既有 `toolResultId`、resource ref 或安全摘要继续决策
+- **AND** observation MUST NOT 暗示 Planner 需要再次用相同 input 调用同一 tool 才能取得同一事实
