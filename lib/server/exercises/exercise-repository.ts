@@ -54,6 +54,7 @@ export type ExerciseResourceSearchInput = {
   bodyRegions?: ExerciseBodyRegion[];
   goalTag?: string;
   riskTag?: string;
+  excludeExerciseIds?: string[];
   published: boolean;
   sort: ExerciseSort;
 };
@@ -72,6 +73,7 @@ export type ExerciseResourceSearchResult = {
   returnedCount: number;
   maxReturned: number;
   truncated: boolean;
+  excludedCount: number;
   expandedMuscles: string[];
   exercises: ExerciseResourceSummary[];
 };
@@ -185,6 +187,7 @@ export async function searchExerciseResourceSummaries(
     returnedCount: visibleRecords.length,
     maxReturned: EXERCISE_RESOURCE_SEARCH_MAX_RETURNED,
     truncated: records.length > EXERCISE_RESOURCE_SEARCH_MAX_RETURNED,
+    excludedCount: input.excludeExerciseIds?.length ?? 0,
     expandedMuscles,
     exercises: visibleRecords.map(mapExerciseResourceSummary),
   };
@@ -272,6 +275,10 @@ function buildExerciseResourceWhere(
 
   if (input.q) {
     and.push(buildExerciseResourceTextWhere(input.q));
+  }
+
+  if (input.excludeExerciseIds?.length) {
+    and.push({ id: { notIn: input.excludeExerciseIds } });
   }
 
   return { AND: and };
@@ -368,6 +375,7 @@ function collectExerciseResourceAppliedFilters(input: ExerciseResourceSearchInpu
     "bodyRegions",
     "goalTag",
     "riskTag",
+    "excludeExerciseIds",
     "published",
   ] satisfies ExerciseResourceFilterField[])
     .flatMap((field) => {

@@ -303,7 +303,7 @@ describe("agent-core architecture boundaries", () => {
     const matches = forbiddenTerms.filter((term) => service.includes(term));
 
     expect(service).toContain("createProductionAgentToolRegistry");
-    expect(service).toContain("maxToolCalls: 1");
+    expect(service).toContain("maxToolCalls: 10");
     expect(matches).toEqual([]);
   });
 
@@ -331,9 +331,10 @@ describe("agent-core architecture boundaries", () => {
     expect(matches).toEqual([]);
   });
 
-  it("allows only searchExerciseResources as the current production business tool", () => {
+  it("allows only declared read-only tools as the current production business tools", () => {
     const allowedAgentToolFiles = new Set([
       "lib/server/agent-tools/index.ts",
+      "lib/server/agent-tools/exercise-facts/read-recent-exercise-recommendation-fact.tool.ts",
       "lib/server/agent-tools/exercises/search-exercise-resources.tool.ts",
       "lib/server/agent-tools/fixture/read-fixture.tool.ts",
       "lib/server/agent-tools/fixture/m1-safety-fixture.tools.ts",
@@ -356,8 +357,9 @@ describe("agent-core architecture boundaries", () => {
     ].filter((term) => registryEntry.includes(term));
 
     expect(unexpectedFiles).toEqual([]);
+    expect(registryEntry).toContain("readRecentExerciseRecommendationFactTool");
     expect(registryEntry).toContain("searchExerciseResourcesTool");
-    expect(registryEntry).toContain("productionAgentTools = [searchExerciseResourcesTool]");
+    expect(registryEntry).toContain("productionAgentTools = [readRecentExerciseRecommendationFactTool, searchExerciseResourcesTool]");
     expect(productionRegistryFunction).not.toContain("readFixtureTool");
     expect(productionRegistryFunction).not.toContain("m1SafetyFixtureTools");
     expect(forbiddenRegistrations).toEqual([]);

@@ -148,6 +148,7 @@ lib/
     chat/                  # 服务端聊天请求归一化、历史 hydration 和禁用响应
     db/                    # Prisma Client 单例和数据库配置入口
     http/server-request.ts # 服务端外部 HTTP 请求函数
+    exercise-recommendation-facts/ # Agent 动作刷新跨 run 事实桥
     exercises/             # 服务端动作库查询服务
     workout-plans/         # AI 计划生成、候选动作、计划校验服务
     workouts/              # 训练 routine、schedule、session result 持久化服务

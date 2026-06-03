@@ -11,6 +11,8 @@ import { exerciseAllowedSectionSchema } from "@/lib/shared/exercises/types";
 
 const optionalTextFilterSchema = z.string().trim().min(1).max(120).optional();
 const publishedInputSchema = z.literal(true).optional().default(true);
+const maxExcludeExerciseIds = 50;
+const exerciseIdSchema = z.string().trim().min(1).max(120).regex(/^[A-Za-z0-9:_-]+$/);
 const levelFacetDescription = "当前可用精确值：beginner/初级、intermediate/中级、expert/高级。";
 const equipmentFacetDescription = "当前常用精确值：body only/自重、dumbbell/哑铃、barbell/杠铃、bands/弹力带、machine/固定器械、cable/绳索器械、kettlebells/壶铃、medicine ball/药球、exercise ball/健身球、foam roll/泡沫轴、e-z curl bar/EZ 曲杆、other/其他。";
 const homeRequirementFacetDescription = "当前可用精确值：none/无器械、floor/地面/瑜伽垫、support/椅子/墙面/支撑物、small_equipment/居家小器械、gym_equipment/健身房器械、partner/搭档辅助、outdoor/户外场地。";
@@ -32,6 +34,10 @@ const searchExerciseResourcesInputSchema = z.object({
     .describe("高层身体区域筛选。上肢用 upper_body，腿部或下肢用 lower_body，核心用 core，全身用 full_body。"),
   goalTag: optionalTextFilterSchema.describe("动作目标标签的精确筛选值。"),
   riskTag: optionalTextFilterSchema.describe("动作风险标签的精确筛选值。"),
+  excludeExerciseIds: z.array(exerciseIdSchema)
+    .max(maxExcludeExerciseIds)
+    .optional()
+    .describe("刷新或用户明确排除时使用的动作 id 列表，只能排除用户已经看到或明确要求不要再出现的动作；不支持用内部候选填充。"),
   published: publishedInputSchema.describe("生产聊天只能查询发布态动作；省略时固定为 true，显式 false 会被拒绝。"),
   sort: exerciseSortSchema.default("name_asc").describe("固定排序字段，不支持分页、limit、offset、page 或 pageSize。"),
 }).strict();
@@ -50,6 +56,7 @@ const appliedFilterSchema = z.object({
     "bodyRegions",
     "goalTag",
     "riskTag",
+    "excludeExerciseIds",
     "published",
   ]),
   value: z.union([z.string(), z.boolean(), z.array(z.string())]),
@@ -100,6 +107,7 @@ const searchExerciseResourcesOutputSchema = z.object({
     expandedMuscles: z.array(z.string()),
     goalTag: z.string().optional(),
     riskTag: z.string().optional(),
+    excludeExerciseIds: z.array(exerciseIdSchema).optional(),
     published: z.literal(true),
     sort: exerciseSortSchema,
     appliedFilters: z.array(appliedFilterSchema),
@@ -107,6 +115,7 @@ const searchExerciseResourcesOutputSchema = z.object({
     returnedCount: z.number().int().min(0),
     maxReturned: z.number().int().min(1),
     truncated: z.boolean(),
+    excludedCount: z.number().int().min(0),
   }).strict(),
   exercises: z.array(exerciseResourceSummarySchema),
 }).strict();
@@ -117,17 +126,20 @@ type SearchExerciseResourcesOutput = z.infer<typeof searchExerciseResourcesOutpu
 /** searchExerciseResourcesTool 是生产聊天可用的只读动作库事实查询能力，不产出训练候选资源。 */
 export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInput, SearchExerciseResourcesOutput>({
   name: "searchExerciseResources",
-  version: "0.2.0",
-  description: "Query published exercise resources by structured filters and return safe exercise summaries for ordinary text answers. Use exact database facets for level/equipment/homeRequirement, bodyRegions for broad body areas, and muscle only for real exercise muscle facets.",
+  version: "0.3.0",
+  description: "Query published exercise resources by structured filters and return safe exercise summaries for ordinary text answers. Use exact database facets for level/equipment/homeRequirement, bodyRegions for broad body areas, muscle only for real exercise muscle facets, and excludeExerciseIds only for exercises the user already saw or explicitly excluded.",
   whenToUse: [
     "Use when the user asks for a list of published exercises that match explicit structured facts such as bodyRegions, real muscle facets, equipment, level, home requirement, goal tag, risk tag, category, or warmup/training/stretch suitability.",
     "Use bodyRegions for broad areas: upper_body for upper body, lower_body for legs/lower body, core for core, and full_body for full body.",
+    "For refresh requests such as another batch or do not repeat, first read/import the current run's available user-visible exercise fact when present, then use its displayedExerciseIds as excludeExerciseIds.",
+    "Use excludeExerciseIds only for exercises the user already saw or explicitly asked to exclude; never fill it from undisplayed internal candidates.",
     `Use exact facet values for precise filters. ${levelFacetDescription} ${equipmentFacetDescription} ${homeRequirementFacetDescription}`,
     "Successful results with satisfied=true may support a final_answer through usedToolResultIds in the same run.",
   ].join(" "),
   whenNotToUse: [
     "Do not use to generate routines, plans, patches, workout cards, saved artifacts, user memory, or execution candidate sets.",
     "Do not use for unpublished exercises, single-exercise detail lookup, unique-name resolution, full-library facet statistics, pagination, or semantic vector retrieval.",
+    "Do not use excludeExerciseIds from handler-only results, model observations, diagnostic candidates, or natural-language history that was not read/imported as current-run fact.",
     "Do not put broad area words such as leg, lower body, upper body, full body, 腿部, 下肢, 上肢, or 全身 into muscle; use bodyRegions instead.",
     "Failed, invalid-input, or satisfied=false results cannot support a successful exercise recommendation final_answer.",
   ].join(" "),
@@ -168,6 +180,7 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
     },
   ],
   handler: async (input) => {
+    const excludeExerciseIds = normalizeExcludeExerciseIds(input.excludeExerciseIds);
     const result = await searchExerciseResourceSummaries({
       q: input.q,
       category: input.category,
@@ -181,6 +194,7 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
       bodyRegions: input.bodyRegions,
       goalTag: input.goalTag,
       riskTag: input.riskTag,
+      excludeExerciseIds,
       published: input.published,
       sort: input.sort,
     });
@@ -201,6 +215,7 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
         expandedMuscles: result.expandedMuscles,
         goalTag: result.query.goalTag,
         riskTag: result.query.riskTag,
+        excludeExerciseIds: result.query.excludeExerciseIds,
         published: true,
         sort: result.query.sort,
         appliedFilters: result.appliedFilters,
@@ -208,6 +223,7 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
         returnedCount: result.returnedCount,
         maxReturned: result.maxReturned,
         truncated: result.truncated,
+        excludedCount: result.excludedCount,
       },
       exercises: result.exercises.map(toExerciseResourceOutput),
     };
@@ -216,7 +232,9 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
     if (output.query.totalMatches === 0) {
       return {
         satisfied: false,
-        summary: "查询已执行，但没有满足当前筛选条件的发布态动作。",
+        summary: output.query.excludedCount > 0
+          ? "查询已执行，但排除用户已看到动作后没有更多满足当前筛选条件的发布态动作。"
+          : "查询已执行，但没有满足当前筛选条件的发布态动作。",
       };
     }
 
@@ -229,7 +247,9 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
     status: output.status,
     totalMatches: output.query.totalMatches,
     returnedCount: output.query.returnedCount,
+    maxReturned: output.query.maxReturned,
     truncated: output.query.truncated,
+    excludedCount: output.query.excludedCount,
     bodyRegions: output.query.bodyRegions ?? [],
     expandedMuscles: output.query.expandedMuscles,
     appliedFilters: output.query.appliedFilters,
@@ -246,7 +266,9 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
     status: output.status,
     totalMatches: output.query.totalMatches,
     returnedCount: output.query.returnedCount,
+    maxReturned: output.query.maxReturned,
     truncated: output.query.truncated,
+    excludedCount: output.query.excludedCount,
     bodyRegions: output.query.bodyRegions ?? [],
     expandedMuscles: output.query.expandedMuscles,
     appliedFilters: output.query.appliedFilters,
@@ -272,4 +294,8 @@ function toExerciseResourceOutput(summary: ExerciseResourceSummary): SearchExerc
     ...summary,
     imageUrl: summary.imageUrls[0] ?? null,
   };
+}
+
+function normalizeExcludeExerciseIds(ids: string[] | undefined) {
+  return ids ? [...new Set(ids)] : undefined;
 }

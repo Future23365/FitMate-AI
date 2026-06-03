@@ -131,6 +131,7 @@ model User {
   chatSessions    ChatSession[]
   artifacts       ConversationArtifact[]
   artifactIndexes ArtifactIndex[]
+  businessFacts   ConversationBusinessFact[]
   memories        UserMemory[]
   exerciseFeedback UserExerciseFeedback[]
 
@@ -421,6 +422,24 @@ model ConversationArtifact {
   @@index([messageId, kind, status])
   @@index([revisionOfArtifactId])
   @@index([sourceEntityKind, sourceEntityId])
+}
+
+model ConversationBusinessFact {
+  id             String   @id @default(cuid())
+  userId         String
+  conversationId String
+  messageId      String
+  kind           String
+  status         String   @default("active")
+  schemaVersion  Int
+  payload        Json
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, conversationId, messageId, kind, schemaVersion], name: "conversationBusinessFactIdentity")
+  @@index([userId, conversationId, kind, status, createdAt])
+  @@index([messageId])
 }
 
 model ArtifactIndex {

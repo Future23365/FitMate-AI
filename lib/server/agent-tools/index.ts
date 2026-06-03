@@ -1,5 +1,6 @@
 import type { AnyTool } from "@/lib/server/agent-core/contracts";
 import { ToolRegistry } from "@/lib/server/agent-core/tool-registry";
+import { readRecentExerciseRecommendationFactTool } from "@/lib/server/agent-tools/exercise-facts/read-recent-exercise-recommendation-fact.tool";
 import { searchExerciseResourcesTool } from "@/lib/server/agent-tools/exercises/search-exercise-resources.tool";
 import { m1SafetyFixtureTools } from "@/lib/server/agent-tools/fixture/m1-safety-fixture.tools";
 import { readFixtureTool } from "@/lib/server/agent-tools/fixture/read-fixture.tool";
@@ -32,11 +33,12 @@ export const m1FixtureTools = [readFixtureTool, ...m1SafetyFixtureTools] as cons
 /** createProductionAgentToolRegistry 只注册当前生产文本聊天允许的低风险只读业务 tool。 */
 export function createProductionAgentToolRegistry() {
   const registry = new ToolRegistry();
+  registry.register(readRecentExerciseRecommendationFactTool);
   registry.register(searchExerciseResourcesTool);
   return registry;
 }
 
 /** productionAgentTools 是当前生产 Agent 可见业务能力白名单，不包含 fixture、写入或训练生成 tool。 */
-export const productionAgentTools = [searchExerciseResourcesTool] as const;
+export const productionAgentTools = [readRecentExerciseRecommendationFactTool, searchExerciseResourcesTool] as const;
 
-export { searchExerciseResourcesTool };
+export { readRecentExerciseRecommendationFactTool, searchExerciseResourcesTool };

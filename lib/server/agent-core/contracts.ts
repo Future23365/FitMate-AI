@@ -434,6 +434,14 @@ export type AgentTraceEvent =
       completedAt: string;
       durationMs?: number;
     }
+  | {
+      type: "duplicate_tool_call";
+      step: number;
+      toolName: string;
+      toolVersion: string;
+      normalizedInputHash: string;
+      previousCount: number;
+    }
   | { type: "resource_registered"; toolResultId: string; resource: AgentResourceRef; summary: JsonValue }
   | { type: "policy_decision"; toolName: string; decision: PolicyDecision["kind"]; policyVersion: string }
   | { type: "confirmation_request"; request: ConfirmationRequest }
@@ -455,6 +463,7 @@ export type AgentReplaySummary = {
     fulfillment: Pick<ToolFulfillment, "satisfied" | "summary" | "producedResources" | "consumedResources">;
   }>;
   budgetEvents: Extract<AgentTraceEvent, { type: "budget_event" }>[];
+  duplicateToolCalls: Extract<AgentTraceEvent, { type: "duplicate_tool_call" }>[];
 };
 
 /** AgentRunResult 是 Runtime loop 的收口结果，renderer 只消费这个已校验结构。 */

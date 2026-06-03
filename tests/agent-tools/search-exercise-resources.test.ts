@@ -90,6 +90,7 @@ describe("searchExerciseResources tool", () => {
       bodyRegions: undefined,
       goalTag: undefined,
       riskTag: undefined,
+      excludeExerciseIds: undefined,
       published: true,
       sort: "name_asc",
     });
@@ -152,6 +153,129 @@ describe("searchExerciseResources tool", () => {
       suitability: "training",
       published: true,
     }));
+  });
+
+  it("deduplicates excludeExerciseIds and keeps excluded summaries out of returned exercises", async () => {
+    const { tool, repository } = await importToolWithRepositoryResult(createSearchResult({
+      query: {
+        bodyRegions: ["lower_body"],
+        excludeExerciseIds: ["squat", "lunge"],
+        suitability: "training",
+        published: true,
+        sort: "name_asc",
+      },
+      appliedFilters: [
+        { field: "suitability", value: "training" },
+        { field: "bodyRegions", value: ["lower_body"] },
+        { field: "excludeExerciseIds", value: ["squat", "lunge"] },
+        { field: "published", value: true },
+      ],
+      excludedCount: 2,
+      totalMatches: 1,
+      returnedCount: 1,
+      exercises: [createExerciseSummary({ id: "step-up", nameZh: "台阶上步" })],
+    }));
+
+    const result = await executeTool({
+      tool,
+      input: {
+        bodyRegions: ["lower_body"],
+        suitability: "training",
+        excludeExerciseIds: ["squat", "squat", "lunge"],
+      },
+      run: { runId: "run-exclude", actor: { userId: "user-1" }, userInput: "再推荐一批腿部动作，不要重复" },
+      timeoutMs: 100,
+      toolCallId: "tc_exclude",
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      output: {
+        query: {
+          excludeExerciseIds: ["squat", "lunge"],
+          excludedCount: 2,
+          totalMatches: 1,
+          returnedCount: 1,
+        },
+        exercises: [expect.objectContaining({ id: "step-up" })],
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("\"id\":\"squat\"");
+    expect(repository.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
+      excludeExerciseIds: ["squat", "lunge"],
+    }));
+  });
+
+  it("rejects invalid or oversized excludeExerciseIds before the handler runs", async () => {
+    const { tool, repository } = await importToolWithRepositoryResult(createSearchResult());
+    const invalidInputs = [
+      { excludeExerciseIds: ["bad id with spaces"] },
+      { excludeExerciseIds: Array.from({ length: 51 }, (_, index) => `exercise-${index}`) },
+    ];
+
+    for (const input of invalidInputs) {
+      const result = await executeTool({
+        tool,
+        input,
+        run: { runId: `run-invalid-exclude-${hashNormalizedInput(input)}`, actor: { userId: "user-1" }, userInput: "invalid" },
+        timeoutMs: 100,
+        toolCallId: "tc_invalid_exclude",
+      });
+
+      expect(result).toMatchObject({
+        ok: false,
+        error: { code: AGENT_ERROR_CODES.INVALID_TOOL_INPUT },
+      });
+    }
+
+    expect(repository.searchExerciseResourceSummaries).not.toHaveBeenCalled();
+  });
+
+  it("reports candidate shortage after exclusions without refilling excluded exercises", async () => {
+    const { tool } = await importToolWithRepositoryResult(createSearchResult({
+      query: {
+        bodyRegions: ["lower_body"],
+        excludeExerciseIds: ["squat"],
+        suitability: "training",
+        published: true,
+        sort: "name_asc",
+      },
+      appliedFilters: [
+        { field: "suitability", value: "training" },
+        { field: "bodyRegions", value: ["lower_body"] },
+        { field: "excludeExerciseIds", value: ["squat"] },
+        { field: "published", value: true },
+      ],
+      excludedCount: 1,
+      totalMatches: 0,
+      returnedCount: 0,
+      exercises: [],
+    }));
+
+    const result = await executeTool({
+      tool,
+      input: { bodyRegions: ["lower_body"], suitability: "training", excludeExerciseIds: ["squat"] },
+      run: { runId: "run-shortage", actor: { userId: "user-1" }, userInput: "再推荐一批腿部动作" },
+      timeoutMs: 100,
+      toolCallId: "tc_shortage",
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      output: {
+        query: {
+          totalMatches: 0,
+          returnedCount: 0,
+          excludedCount: 1,
+        },
+        exercises: [],
+      },
+      fulfillment: {
+        satisfied: false,
+        summary: "查询已执行，但排除用户已看到动作后没有更多满足当前筛选条件的发布态动作。",
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("\"id\":\"squat\"");
   });
 
   it("rejects unpublished, unknown, pagination and consumption-side fields before the handler runs", async () => {
@@ -438,6 +562,62 @@ describe("searchExerciseResources tool", () => {
       }),
     ]);
   });
+
+  it("records duplicate tool calls with the same normalized input in trace and replay summaries", async () => {
+    const toolInput = { muscle: "核心", suitability: "training" };
+    const expectedInputHash = hashNormalizedInput(toolInput);
+    const expectedToolResultId = createToolResultId(
+      "run-duplicate-trace",
+      "searchExerciseResources",
+      expectedInputHash,
+    );
+    const { tool } = await importToolWithRepositoryResult(createSearchResult({
+      query: { muscle: "核心", suitability: "training", published: true, sort: "name_asc" },
+      appliedFilters: [
+        { field: "muscle", value: "核心" },
+        { field: "suitability", value: "training" },
+        { field: "published", value: true },
+      ],
+      totalMatches: 1,
+      returnedCount: 1,
+      exercises: [createExerciseSummary({ id: "plank", nameZh: "平板支撑", primaryMusclesZh: ["核心"] })],
+    }));
+    const registry = new ToolRegistry();
+    registry.register(tool);
+    const planner = new ReplayPlanner([
+      { type: "tool_call", toolName: "searchExerciseResources", input: toolInput },
+      { type: "tool_call", toolName: "searchExerciseResources", input: toolInput },
+      { type: "final_answer", content: "找到平板支撑这类核心训练动作。", usedToolResultIds: [expectedToolResultId] },
+    ]);
+
+    const result = await runAgentRuntime({
+      registry,
+      planner,
+      run: {
+        runId: "run-duplicate-trace",
+        actor: { userId: "user-1" },
+        userInput: "查核心训练动作",
+        limits: { maxToolCalls: 3, maxPlannerCalls: 4, maxSteps: 4 },
+      },
+    });
+
+    expect(result.traceEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "duplicate_tool_call",
+        toolName: "searchExerciseResources",
+        toolVersion: "0.3.0",
+        normalizedInputHash: expectedInputHash,
+        previousCount: 1,
+      }),
+    ]));
+    expect(result.replaySummary?.duplicateToolCalls).toEqual([
+      expect.objectContaining({
+        toolName: "searchExerciseResources",
+        normalizedInputHash: expectedInputHash,
+        previousCount: 1,
+      }),
+    ]);
+  });
 });
 
 describe("searchExerciseResourceSummaries repository", () => {
@@ -482,6 +662,7 @@ describe("searchExerciseResourceSummaries repository", () => {
       muscle: "胸部",
       goalTag: "strength",
       riskTag: "shoulder_pain",
+      excludeExerciseIds: ["push-up", "squat"],
       bodyRegions: ["lower_body"],
       published: true,
       sort: "name_asc",
@@ -509,6 +690,7 @@ describe("searchExerciseResourceSummaries repository", () => {
         { allowedSections: { has: "training" } },
         { goalTags: { has: "strength" } },
         { riskTags: { has: "shoulder_pain" } },
+        { id: { notIn: ["push-up", "squat"] } },
       ]),
     });
     expect(serializedFindMany).toContain("\"primaryMusclesZh\":{\"has\":\"股四头肌\"}");
@@ -523,6 +705,7 @@ describe("searchExerciseResourceSummaries repository", () => {
       returnedCount: EXERCISE_RESOURCE_SEARCH_MAX_RETURNED,
       maxReturned: EXERCISE_RESOURCE_SEARCH_MAX_RETURNED,
       truncated: true,
+      excludedCount: 2,
       expandedMuscles: expect.arrayContaining(["股四头肌", "腘绳肌", "臀部", "小腿"]),
     });
     expect(result.exercises).toHaveLength(EXERCISE_RESOURCE_SEARCH_MAX_RETURNED);
@@ -571,6 +754,7 @@ function createSearchResult(overrides: SearchResultOverrides = {}): ExerciseReso
     returnedCount: overrides.returnedCount ?? exercises.length,
     maxReturned: overrides.maxReturned ?? 12,
     truncated: overrides.truncated ?? false,
+    excludedCount: overrides.excludedCount ?? 0,
     expandedMuscles: overrides.expandedMuscles ?? [],
     exercises,
   };

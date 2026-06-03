@@ -39,6 +39,11 @@ const chatHistoryMocks = vi.hoisted(() => ({
 const artifactMocks = vi.hoisted(() => ({
   listRecentArtifactSummariesForCurrentUser: vi.fn(),
 }));
+const exerciseRecommendationFactStoreMocks = vi.hoisted(() => ({
+  listRecentExerciseRecommendationFactSummaries: vi.fn(async () => []),
+  persistExerciseRecommendationFactsFromEvents: vi.fn(async () => ({ ok: true, savedCount: 0 })),
+  readExerciseRecommendationFact: vi.fn(),
+}));
 const currentUserMocks = vi.hoisted(() => ({
   getCurrentUser: vi.fn(),
 }));
@@ -55,6 +60,15 @@ vi.mock("@/lib/server/exercises/exercise-service", () => exerciseServiceMocks);
 vi.mock("@/lib/server/workouts/workout-persistence-service", () => workoutPersistenceMocks);
 vi.mock("@/lib/server/chat/chat-history-service", () => chatHistoryMocks);
 vi.mock("@/lib/server/conversation-artifacts/artifact-service", () => artifactMocks);
+vi.mock("@/lib/server/exercise-recommendation-facts/exercise-recommendation-fact-store", () => ({
+  exerciseRecommendationFactKind: "exercise_recommendation_displayed",
+  exerciseRecommendationFactResourceType: "exercise_recommendation_fact",
+  exerciseRecommendationFactSchemaVersion: 1,
+  listRecentExerciseRecommendationFactSummaries: exerciseRecommendationFactStoreMocks.listRecentExerciseRecommendationFactSummaries,
+  persistExerciseRecommendationFactsFromEvents: exerciseRecommendationFactStoreMocks.persistExerciseRecommendationFactsFromEvents,
+  readExerciseRecommendationFact: exerciseRecommendationFactStoreMocks.readExerciseRecommendationFact,
+  toJsonValue: (value: unknown) => JSON.parse(JSON.stringify(value)),
+}));
 vi.mock("@/lib/server/users/current-user", () => currentUserMocks);
 vi.mock("@/lib/server/auth/local-anonymous-auth", () => authMocks);
 
@@ -118,8 +132,8 @@ describe("API route boundaries", () => {
         latestUserMessage: "练胸",
         registry: {
           manifestHash: expect.any(String),
-          toolCount: 1,
-          toolNames: ["searchExerciseResources"],
+          toolCount: 2,
+          toolNames: ["readRecentExerciseRecommendationFact", "searchExerciseResources"],
         },
       }),
     }));

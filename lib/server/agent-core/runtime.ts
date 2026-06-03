@@ -84,6 +84,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
   const confirmationStore = input.confirmationStore ?? new InMemoryConfirmationStore();
   const confirmationSecret = input.confirmationSecret ?? DEFAULT_CONFIRMATION_SECRET;
   const nonRetryableFailures = new Map<string, { code: ToolError["code"]; count: number }>();
+  const toolCallCounts = new Map<string, number>();
   const repairLimit = limits.maxRepairAttempts ?? limits.maxInvalidActions;
   let plannerCalls = 0;
   let toolCalls = 0;
@@ -277,6 +278,20 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
 
     const normalizedInputHash = hashNormalizedInput(validation.action.input);
     const failureKey = `${tool.name}:${tool.version}:${normalizedInputHash}`;
+    const previousToolCallCount = toolCallCounts.get(failureKey) ?? 0;
+
+    if (previousToolCallCount > 0) {
+      traceEvents.push({
+        type: "duplicate_tool_call",
+        step,
+        toolName: tool.name,
+        toolVersion: tool.version,
+        normalizedInputHash,
+        previousCount: previousToolCallCount,
+      });
+    }
+    toolCallCounts.set(failureKey, previousToolCallCount + 1);
+
     const previousFailure = nonRetryableFailures.get(failureKey);
 
     if (previousFailure && previousFailure.count >= limits.duplicateFailureLimit) {
@@ -682,6 +697,7 @@ function createReplaySummary(result: AgentRunResult, registrySnapshot: RegistryS
       },
     })),
     budgetEvents: result.traceEvents.filter((event): event is Extract<AgentTraceEvent, { type: "budget_event" }> => event.type === "budget_event"),
+    duplicateToolCalls: result.traceEvents.filter((event): event is Extract<AgentTraceEvent, { type: "duplicate_tool_call" }> => event.type === "duplicate_tool_call"),
   };
 }
 

@@ -24,6 +24,12 @@ import { DeepSeekModelAdapter } from "@/lib/server/agent-planners/model-adapters
 import type { PlannerModelTraceEvent } from "@/lib/server/agent-planners/model-adapters/model-adapter";
 import type { PlannerPort } from "@/lib/server/agent-core/planner-port";
 import {
+  listRecentExerciseRecommendationFactSummaries,
+  persistExerciseRecommendationFactsFromEvents,
+  toJsonValue,
+  type PersistExerciseRecommendationFactsResult,
+} from "@/lib/server/exercise-recommendation-facts/exercise-recommendation-fact-store";
+import {
   startAiTrace,
   summarizeLatestUserMessage,
   type AiTraceLogger,
@@ -68,6 +74,7 @@ type AgentTextChatStreamEvent =
   | { type: "error"; error: AgentTextChatConfigError };
 
 type AgentTextChatResponseSummary = ReturnType<typeof summarizeAgentTextChatResponseEvents>;
+type FactPersistenceTraceResult = PersistExerciseRecommendationFactsResult | { ok: false; code: "restore_failed"; message: string; savedCount: 0 };
 
 type PlannerFactoryResult =
   | { ok: true; planner: PlannerPort }
@@ -90,9 +97,14 @@ type DeepSeekPlannerFactoryInput = {
 // createAgentTextChatResponse 是 /api/chat 到 agent-core 的薄接入层，只负责构造 run、生产 registry 和 NDJSON 投影。
 export async function createAgentTextChatResponse(input: CreateAgentTextChatResponseInput): Promise<Response> {
   const registry = createProductionTextChatRegistry();
+  const recentExerciseRecommendationFacts = await restoreRecentExerciseRecommendationFactsForRun({
+    request: input.request,
+    currentUser: input.currentUser,
+  });
   const run = createAgentTextChatRunInput({
     request: input.request,
     currentUser: input.currentUser,
+    recentExerciseRecommendationFacts,
   });
   const trace = startAgentTextChatTrace({
     request: input.request,
@@ -149,6 +161,12 @@ export async function createAgentTextChatResponse(input: CreateAgentTextChatResp
     result,
     registry,
   });
+  const factPersistence = await persistExerciseRecommendationFactsFromEvents({
+    userId: input.currentUser.id,
+    conversationId: input.request.conversationId,
+    messageId: input.request.responseMessageId,
+    events: events as AgentStreamEvent[],
+  });
 
   recordAgentTextChatRuntimeResultTrace({
     trace,
@@ -156,6 +174,7 @@ export async function createAgentTextChatResponse(input: CreateAgentTextChatResp
     result,
     registry,
     events,
+    factPersistence,
   });
 
   return createAgentTextChatNdjsonResponse(events);
@@ -190,6 +209,7 @@ export function createProductionAgentTextChatPlanner(
 export function createAgentTextChatRunInput(input: {
   request: PreparedChatRequest;
   currentUser: CurrentUser;
+  recentExerciseRecommendationFacts?: JsonValue[];
 }): AgentRunInput {
   const latestUserMessage = getLatestUserMessage(input.request);
 
@@ -212,11 +232,12 @@ export function createAgentTextChatRunInput(input: {
       hasClientConversationSummary: input.request.hasClientConversationSummary,
       thinkingEnabled: input.request.thinkingEnabled,
       hydration: input.request.hydration as unknown as JsonValue,
+      recentExerciseRecommendationFacts: input.recentExerciseRecommendationFacts ?? [],
     },
     limits: {
-      maxSteps: 4,
-      maxPlannerCalls: 4,
-      maxToolCalls: 1,
+      maxSteps: 22,
+      maxPlannerCalls: 11,
+      maxToolCalls: 10,
       maxInvalidActions: 1,
       maxRepairAttempts: 1,
       overallTimeoutMs: 40_000,
@@ -258,6 +279,23 @@ function renderAgentTextChatResponseEvents(input: {
   }
 
   return renderAgentResponseEvents(input.result);
+}
+
+async function restoreRecentExerciseRecommendationFactsForRun(input: {
+  request: PreparedChatRequest;
+  currentUser: CurrentUser;
+}): Promise<JsonValue[]> {
+  try {
+    const summaries = await listRecentExerciseRecommendationFactSummaries({
+      userId: input.currentUser.id,
+      conversationId: input.request.conversationId,
+      limit: 3,
+    });
+
+    return summaries.map((summary) => toJsonValue(summary));
+  } catch {
+    return [];
+  }
 }
 
 function isUnsupportedCapabilityFailure(input: {
@@ -416,6 +454,7 @@ function recordAgentTextChatRuntimeResultTrace(input: {
   result: AgentRunResult;
   registry: ToolRegistry;
   events: AgentTextChatStreamEvent[];
+  factPersistence?: FactPersistenceTraceResult;
 }) {
   const modelDiagnostics = readPlannerModelTraceEvents(input.planner);
   const tokenUsageSummary = summarizePlannerModelTokenUsage(modelDiagnostics);
@@ -466,6 +505,19 @@ function recordAgentTextChatRuntimeResultTrace(input: {
       metadata: {
         pipeline: "agent-core-text-chat",
         boundary: "tool_result_projection",
+      },
+    });
+  }
+
+  if (input.factPersistence) {
+    input.trace.addStep({
+      name: "动作事实桥摘要",
+      type: "runtime_event",
+      status: input.factPersistence.ok ? undefined : "failed",
+      output: redactTraceValue(input.factPersistence),
+      metadata: {
+        pipeline: "agent-core-text-chat",
+        boundary: "exercise_recommendation_fact_bridge",
       },
     });
   }
@@ -604,6 +656,7 @@ function summarizeAgentTextChatRunInput(input: {
     conversationSummary: summarizeText(input.request.conversationSummaryContext.summary),
     thinkingEnabled: input.request.thinkingEnabled,
     hasClientConversationSummary: input.request.hasClientConversationSummary,
+    recentExerciseRecommendationFacts: input.run.metadata?.recentExerciseRecommendationFacts ?? [],
     registry: summarizeRegistry(input.registry),
     limits: input.run.limits,
   };
@@ -646,6 +699,10 @@ function getRuntimeTraceStepType(event: AgentTraceEvent) {
     return "token_budget";
   }
 
+  if (event.type === "duplicate_tool_call") {
+    return "runtime_event";
+  }
+
   if (event.type === "terminal_grounding") {
     return "final_response";
   }
@@ -665,6 +722,8 @@ function getRuntimeTraceEventLabel(event: AgentTraceEvent) {
       return "预算事件";
     case "tool_execution":
       return "Tool 执行";
+    case "duplicate_tool_call":
+      return "重复 Tool 调用";
     case "resource_registered":
       return "Resource 注册";
     case "policy_decision":
@@ -732,6 +791,15 @@ function summarizeRuntimeTraceEvent(event: AgentTraceEvent): unknown {
         startedAt: event.startedAt,
         completedAt: event.completedAt,
         durationMs: event.durationMs,
+      };
+    case "duplicate_tool_call":
+      return {
+        type: event.type,
+        step: event.step,
+        toolName: event.toolName,
+        toolVersion: event.toolVersion,
+        normalizedInputHash: event.normalizedInputHash,
+        previousCount: event.previousCount,
       };
     case "resource_registered":
       return {

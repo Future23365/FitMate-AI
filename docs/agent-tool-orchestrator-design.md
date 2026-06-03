@@ -667,6 +667,26 @@ ResourceStore 只解决当前 run 内的事实传递。用户在上一轮已经�
 
 这个设计让多轮引用走稳定的数据桥，而不是让 Orchestrator 持有跨轮状态。新增业务类型时，应扩展业务事实 schema、索引和 read/import tool；除非出现通用安全、资源、trace 或 stream 协议缺口，否则不应修改 Orchestrator 主循环。
 
+当前 production 文本聊天中的动作刷新事实桥落地为：
+
+```txt
+searchExerciseResources 的 projection.user
+  -> Response Renderer 输出 tool_result 用户投影
+  -> ConversationBusinessFact(kind=exercise_recommendation_displayed)
+  -> /api/chat 恢复 recentExerciseRecommendationFacts 轻量摘要
+  -> readRecentExerciseRecommendationFact 读取并校验当前 userId/conversationId/status/schemaVersion
+  -> 当前 run 产出 exercise_recommendation_fact consumable resource
+  -> searchExerciseResources.excludeExerciseIds 排除 displayedExerciseIds
+```
+
+动作刷新边界：
+
+1. `displayedExerciseIds` 只能来自服务端确定性用户投影，不能来自 `toModelObservation`、handler 完整 output、trace、自然语言回复正文或模型猜测。
+2. 当前没有前端动作卡片时，事实保存绑定 `Response Renderer` 写出的 `tool_result` 用户投影；未来卡片接入时必须复用同一用户投影源，不能另建自然语言解析通道。
+3. `returnedExerciseIds`、诊断候选或未展示内部候选不得作为默认刷新排除集合暴露给 Planner。
+4. `readRecentExerciseRecommendationFact` 是业务 read/import tool，不是 core 特例；它只读取当前 actor 和当前会话可访问的历史动作 fact。
+5. `searchExerciseResources.excludeExerciseIds` 只排除用户已看到或明确要求排除的动作 id，不提供分页、limit、offset、candidate set、训练生成或保存副作用。
+
 ---
 
 ## 14. Policy Guard
@@ -942,6 +962,22 @@ tool call limit
 ```txt
 toolName + toolVersion + normalizedInputHash + failureCode
 ```
+
+重复 tool 调用诊断使用确定性 key：
+
+```txt
+toolName + toolVersion + normalizedInputHash
+```
+
+当同一 run 中再次请求相同 tool 和归一化 input 时，trace / replay 必须记录 `duplicate_tool_call` 摘要；这只是通用诊断，不替代预算、validator 或业务 tool 合同。production `/api/chat` 当前低风险只读链路预算为：
+
+```txt
+maxToolCalls = 10
+maxPlannerCalls = 11
+maxSteps = 22
+```
+
+这个预算只允许多步只读链路完成，例如 `read/import -> query -> final_answer`，不得用于绕过 Action Validator、Policy Guard、ResourceStore、Resource Contract Validator 或 Response Renderer。
 
 不要使用用户自然语言关键词判断是否重复。
 

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { describe, expect, it } from "vitest";
 
 import { defineTool } from "@/lib/server/agent-core/define-tool";
-import { m1FixtureTools, searchExerciseResourcesTool } from "@/lib/server/agent-tools";
+import { m1FixtureTools, readRecentExerciseRecommendationFactTool, searchExerciseResourcesTool } from "@/lib/server/agent-tools";
 import { resourceProducerFixtureTool } from "@/lib/server/agent-tools/fixture/m1-safety-fixture.tools";
 
 import { checkToolContractForProduction, checkToolRuntimeSafety } from "./contract-test-helper";
@@ -60,7 +60,8 @@ describe("agent-core contract test helper", () => {
     }
   });
 
-  it("accepts the production searchExerciseResources tool contract", () => {
+  it("accepts the production exercise resource and fact tools contract", () => {
+    expect(checkToolContractForProduction(readRecentExerciseRecommendationFactTool)).toMatchObject({ ok: true, issues: [] });
     expect(checkToolContractForProduction(searchExerciseResourcesTool)).toMatchObject({ ok: true, issues: [] });
   });
 
