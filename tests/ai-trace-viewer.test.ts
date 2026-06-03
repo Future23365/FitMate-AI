@@ -142,7 +142,9 @@ describe("AI trace viewer step grouping", () => {
     };
     const groups = groupTraceSteps(trace.steps);
 
-    expect(createTraceLogPayload(trace, groups)).toMatchObject({
+    const payload = createTraceLogPayload(trace, groups);
+
+    expect(payload).toMatchObject({
       title: "文本聊天",
       agentLoops: [
         expect.objectContaining({
@@ -197,7 +199,6 @@ describe("AI trace viewer step grouping", () => {
           name: "Tool 执行",
           type: "tool_call",
           eventType: "tool_execution",
-          input: { text: "hello" },
           output: expect.objectContaining({
             type: "tool_execution",
             toolName: "readFixture",
@@ -205,13 +206,15 @@ describe("AI trace viewer step grouping", () => {
           }),
         }),
       ]),
-      rawTrace: expect.objectContaining({ id: "trace-1" }),
-      trace: {
+      traceSummary: {
         id: "trace-1",
         route: "/api/chat",
+        stepCount: 5,
         steps: expect.arrayContaining([
           expect.objectContaining({
-            output: { type: "registry_snapshot", toolCount: 0 },
+            id: "step-runtime_event",
+            type: "runtime_event",
+            eventType: "registry_snapshot",
           }),
         ]),
       },
@@ -228,6 +231,8 @@ describe("AI trace viewer step grouping", () => {
         textFile: "codex_logs/ai_trace_texts.jsonl",
       },
     });
+    expect(payload).not.toHaveProperty("rawTrace");
+    expect(payload).not.toHaveProperty("trace");
   });
 
   it("extracts long trace text into contentRef mappings for split log export", () => {
@@ -251,12 +256,14 @@ describe("AI trace viewer step grouping", () => {
           },
         },
       ],
+      repeatedPrompt: longSystemPrompt,
       tokenUsageSummary: { prompt_tokens: 12, completion_tokens: 4, total_tokens: 16 },
     }) as Record<string, unknown>;
     const plannerModelCalls = payload.plannerModelCalls as Array<Record<string, unknown>>;
     const request = plannerModelCalls[0].request as Record<string, unknown>;
     const response = plannerModelCalls[0].response as Record<string, unknown>;
     const messages = request.messages as Array<Record<string, unknown>>;
+    const repeatedPrompt = payload.repeatedPrompt as Record<string, unknown>;
     const longTextRefs = payload.longTextRefs as Array<Record<string, unknown>>;
     const longTexts = payload.longTexts as Array<Record<string, unknown>>;
 
@@ -273,12 +280,20 @@ describe("AI trace viewer step grouping", () => {
       path: "$.plannerModelCalls[0].response.rawText",
       originalLength: longRawText.length,
     });
+    expect(repeatedPrompt).toMatchObject({
+      contentRef: "text_0001",
+      path: "$.repeatedPrompt",
+    });
     expect(longTextRefs).toHaveLength(2);
     expect(longTexts).toEqual([
       expect.objectContaining({
         contentRef: "text_0001",
         hash: expect.stringMatching(/^fnv1a:/),
         preview: expect.stringContaining("[middle omitted]"),
+        paths: [
+          "$.plannerModelCalls[0].request.messages[0].content",
+          "$.repeatedPrompt",
+        ],
         content: longSystemPrompt,
       }),
       expect.objectContaining({

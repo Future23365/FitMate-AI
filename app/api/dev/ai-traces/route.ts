@@ -17,6 +17,7 @@ type AiTraceSavedLogType = "trace" | "prompt";
 type SavedTraceLongTextRecord = {
   contentRef: string;
   path: string;
+  paths: string[];
   kind: string;
   originalLength: number;
   hash: string;
@@ -244,7 +245,12 @@ export function normalizeSavedLogPayload(logType: AiTraceSavedLogType, payload: 
 // normalizeSavedTraceLogPayload 将全链路导出拆成轻量报告和长文本映射，服务端再次执行脱敏兜底。
 export function normalizeSavedTraceLogPayload(payload: object) {
   const record = payload as Record<string, unknown>;
-  const { longTexts: rawLongTexts, ...reportPayload } = record;
+  const {
+    longTexts: rawLongTexts,
+    rawTrace: _rawTrace,
+    trace: _trace,
+    ...reportPayload
+  } = record;
   const safeReportPayload = redactSensitiveLongTextRefPreviews(reportPayload);
   const longTexts = Array.isArray(rawLongTexts)
     ? rawLongTexts
@@ -355,6 +361,7 @@ function normalizeTraceLongTextRecord(item: Record<string, unknown>): SavedTrace
   return {
     contentRef: getString(item.contentRef) ?? "text_unknown",
     path: pathValue,
+    paths: Array.isArray(item.paths) ? item.paths.filter((path): path is string => typeof path === "string") : [pathValue],
     kind: getString(item.kind) ?? "generic_long_text",
     originalLength: typeof item.originalLength === "number" ? item.originalLength : 0,
     hash: getString(item.hash) ?? "",

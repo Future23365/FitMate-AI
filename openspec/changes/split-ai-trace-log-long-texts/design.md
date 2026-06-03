@@ -24,8 +24,11 @@
    ```json
    {"contentRef":"text_0001","path":"$.plannerModelCalls[0].request.messages[0].content","kind":"model_request_message","content":"..."}
    ```
-4. 两个文件每次保存都覆盖旧内容，不生成目录，也不保留历史版本。
-5. 两个文件头部都写注释，说明默认先读报告；需要长文本时用 `contentRef` 到 `ai_trace_texts.jsonl` 查询。
+4. 报告不内联完整 `rawTrace` 或完整 `trace` 对象，只保留 `traceSummary` 和 step summary。
+5. `runtimeTraceEvents` 只保留 event type、step、toolName、toolResultId、code、status、durationMs 和 resource refs 等定位字段，不保留完整 tool manifest 或完整 step input/output。
+6. 长文本映射按 hash 去重；同一段 prompt 或 observation 多次出现时只保存一条内容，并记录出现路径。
+7. 两个文件每次保存都覆盖旧内容，不生成目录，也不保留历史版本。
+8. 两个文件头部都写注释，说明默认先读报告；需要长文本时用 `contentRef` 到 `ai_trace_texts.jsonl` 查询。
 
 ## 范围与边界
 
@@ -82,6 +85,16 @@
 - `generic_long_text`
 
 该分类只用于调试检索，不参与业务逻辑，也不得影响 Agent 执行。
+
+## 报告瘦身规则
+
+默认报告用于快速排查，不是 Raw trace 归档：
+
+- MUST NOT 保留完整 `rawTrace` 或完整 `trace`。
+- MUST 使用 `traceSummary` 记录 trace id、run id、route、status、step count、finalDecision 和 step 摘要。
+- MUST 使用轻量 `runtimeTraceEvents`，只保留定位需要的 code、id、状态、tool、resource、token 和耗时。
+- SHOULD 保留模型调用诊断的 request / response 摘要，但长文本必须通过 `contentRef` 外置。
+- 如果未来需要完整 Raw trace，应新增独立导出文件或显式调试入口，不能重新塞回默认报告。
 
 ## 脱敏策略
 

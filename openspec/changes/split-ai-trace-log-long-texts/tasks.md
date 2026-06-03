@@ -30,3 +30,10 @@
 - [x] 5.4 运行 `npm test -- tests/ai-trace-viewer.test.ts tests/ai-trace-http.test.ts`。
 - [x] 5.5 运行 `npm run typecheck`。
 - [x] 5.6 运行 `git status --short` 和 diff 检查，确认只包含本 change 相关文件。
+
+## 6. 默认报告瘦身修复
+
+- [x] 6.1 移除默认报告中的完整 `rawTrace` 和完整 `trace`，改为 `traceSummary` 和 step summary。
+- [x] 6.2 将 `runtimeTraceEvents` 改为轻量摘要，避免完整 manifest、step input/output 和 metadata 重新撑大报告。
+- [x] 6.3 让长文本映射按 hash 去重，并记录重复文本出现路径。
+- [x] 6.4 更新测试覆盖默认报告不包含完整 Raw trace，重复长文本只保存一次。

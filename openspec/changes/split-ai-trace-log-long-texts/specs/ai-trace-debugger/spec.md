@@ -8,8 +8,10 @@
 - **THEN** 系统 MUST 写入轻量报告 `codex_logs/ai_trace_log.js`
 - **AND** 系统 MUST 写入长文本映射 `codex_logs/ai_trace_texts.jsonl`
 - **AND** `ai_trace_log.js` MUST 包含 trace 标题、route、状态、runtime event 摘要、响应事件摘要、模块分组、模型调用摘要、token usage 和 Raw trace 摘要
+- **AND** `ai_trace_log.js` MUST NOT 内联完整 `rawTrace` 或完整 `trace` payload
 - **AND** `ai_trace_log.js` MUST 使用 `contentRef`、`path`、`kind`、`originalLength`、`hash` 和 `preview` 引用被抽离的长文本
 - **AND** `ai_trace_texts.jsonl` MUST 以一行一个 JSON object 保存与 `contentRef` 对应的脱敏长文本
+- **AND** `ai_trace_texts.jsonl` SHOULD 按 hash 去重保存重复长文本，并在记录中保留出现路径
 - **AND** 两个文件 MUST 在每次保存全链路 log 时覆盖上一次导出，不新增导出目录或历史版本
 - **AND** 两个文件 MUST 包含注释，说明默认先读轻量报告，并按 `contentRef` 到 `ai_trace_texts.jsonl` 查询长文本
 - **AND** 保存内容 MUST NOT 包含 API key、authorization、cookie、跨用户 payload、完整敏感 payload 或完整 tool output
@@ -29,6 +31,7 @@
 - **AND** 保存内容 MUST 包含每轮 LLM 输入摘要、LLM 输出解析、tool 执行结果、resource links、diagnostic findings、final result 和用户可见回复摘要
 - **AND** 保存内容 MUST 将超过导出阈值的长文本替换为 `contentRef` 引用
 - **AND** 被引用的长文本 MUST 写入 `codex_logs/ai_trace_texts.jsonl`
+- **AND** 保存内容 MUST 使用 step summary 或 trace summary 代替完整 Raw trace 对象
 - **AND** 报告 MUST 保留足够定位问题的 code、id、状态、step、token usage、hash 和路径信息，便于只读报告完成常规排查
 
 #### Scenario: 保存用户问答记录
@@ -49,6 +52,7 @@
 - **WHEN** 开发者点击保存全链路 log
 - **THEN** 保存 payload MUST 包含页面模块结构、每个模块的关键摘要、模型调用诊断详情、runtime traceEvents、response summary 和 Raw trace 摘要
 - **AND** 保存 payload MUST 将长文本外置为 `contentRef` 映射，并在报告中保留查询长文本所需的路径、hash、长度和预览
+- **AND** 保存 payload MUST NOT 重复保存完整 `rawTrace` 和完整 `trace` 对象
 - **AND** 保存 payload 和长文本映射 MUST 继续经过脱敏
 
 #### Scenario: 保存用户问答记录

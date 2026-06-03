@@ -351,12 +351,14 @@ describe("AI trace store and HTTP request helpers", () => {
     expect(savedContent).toContain("plannerModelCalls");
     expect(savedContent).toContain("tokenUsageSummary");
     expect(savedContent).toContain("\"prompt_tokens\": 10");
-    expect(savedContent).toContain("rawTrace");
+    expect(savedContent).not.toContain("rawTrace");
+    expect(savedContent).not.toContain("\"trace\":");
     expect(savedContent).toContain("ai_trace_texts.jsonl");
     expect(savedContent).toContain("\"contentRef\": \"text_0001\"");
     expect(longTextContent).toContain("Long text mapping saved from /dev/ai-traces.");
     expect(longTextContent).toContain("rg '\"contentRef\":\"text_0001\"' codex_logs/ai_trace_texts.jsonl");
     expect(longTextContent).toContain("\"contentRef\":\"text_0001\"");
+    expect(longTextContent).toContain("\"paths\":[");
     expect(longTextContent).toContain(longModelText);
     expect(longTextContent).toContain("\"content\":\"[redacted]\"");
     expect(longTextContent).not.toContain(sensitivePayloadText);

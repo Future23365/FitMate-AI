@@ -98,6 +98,7 @@ export type TraceLogLongTextRef = {
 };
 
 export type TraceLogLongTextEntry = TraceLogLongTextRef & {
+  paths: string[];
   content: string;
 };
 
@@ -1441,6 +1442,141 @@ function readTraceResponseSummary(trace: AiTrace) {
   return responseStep?.output ?? null;
 }
 
+function createTraceReportSummary(trace: AiTrace) {
+  return {
+    id: trace.id,
+    runId: trace.runId,
+    route: trace.route,
+    title: trace.title,
+    status: trace.status,
+    createdAt: trace.createdAt,
+    endedAt: trace.endedAt,
+    durationMs: trace.durationMs,
+    userId: trace.userId,
+    sessionId: trace.sessionId,
+    messageId: trace.messageId,
+    model: trace.model,
+    promptVersion: trace.promptVersion,
+    finalDecision: trace.finalDecision,
+    metadata: trace.metadata,
+    stepCount: trace.steps.length,
+    steps: trace.steps.map(createTraceStepReportSummary),
+  };
+}
+
+function createTraceStepReportSummary(step: AiTraceStep) {
+  const output = isRecord(step.output) ? step.output : {};
+  const metadata = isRecord(step.metadata) ? step.metadata : {};
+  const error = isRecord(step.error) ? step.error : {};
+
+  return {
+    id: step.id,
+    name: step.name,
+    type: step.type,
+    status: step.status,
+    startedAt: step.startedAt,
+    endedAt: step.endedAt,
+    durationMs: step.durationMs,
+    eventType: readRuntimeEventType(step),
+    runtimeStep: readStepRuntimeStep(step),
+    plannerCallIndex: readStepPlannerCallIndex(step),
+    actionType: readString(output.actionType),
+    toolName: readString(output.toolName) ?? readString(metadata.toolName),
+    toolResultId: readString(output.toolResultId) ?? readString(metadata.toolResultId),
+    failureCode: readString(output.failureCode),
+    code: readString(output.code) ?? readString(error.code),
+    tokenUsage: getStepModelTokenUsage(step, []),
+  };
+}
+
+function createRuntimeTraceEventReport(step: AiTraceStep) {
+  const output = isRecord(step.output) ? step.output : {};
+
+  return {
+    ...createTraceStepReportSummary(step),
+    output: summarizeRuntimeEventOutput(output),
+  };
+}
+
+function summarizeRuntimeEventOutput(output: Record<string, unknown>) {
+  const eventType = readString(output.type);
+
+  switch (eventType) {
+    case "registry_snapshot":
+      return {
+        type: eventType,
+        snapshotId: readString(output.snapshotId),
+        manifestHash: readString(output.manifestHash),
+        toolCount: readNumber(output.toolCount),
+        toolNames: Array.isArray(output.toolNames) ? output.toolNames.filter((item): item is string => typeof item === "string") : undefined,
+      };
+    case "budget_event":
+      return {
+        type: eventType,
+        budget: readString(output.budget),
+        status: readString(output.status),
+        used: readNumber(output.used),
+        limit: readNumber(output.limit),
+        step: readNumber(output.step),
+        reason: readString(output.reason),
+      };
+    case "planner_action":
+      return {
+        type: eventType,
+        step: readNumber(output.step),
+        actionType: readString(output.actionType),
+        toolName: readString(output.toolName),
+      };
+    case "validation_result":
+      return {
+        type: eventType,
+        step: readNumber(output.step),
+        ok: output.ok === true,
+        code: readString(output.code),
+        actionType: readString(output.actionType),
+        toolName: readString(output.toolName),
+      };
+    case "tool_execution":
+      return {
+        type: eventType,
+        step: readNumber(output.step),
+        toolName: readString(output.toolName),
+        toolVersion: readString(output.toolVersion),
+        toolCallId: readString(output.toolCallId),
+        toolResultId: readString(output.toolResultId),
+        ok: output.ok === true,
+        satisfied: output.satisfied === true,
+        failureCode: readString(output.failureCode),
+        producedResources: output.producedResources,
+        consumedResources: output.consumedResources,
+        durationMs: readNumber(output.durationMs),
+      };
+    case "resource_registered":
+      return {
+        type: eventType,
+        toolResultId: readString(output.toolResultId),
+        resource: output.resource,
+      };
+    case "terminal_grounding":
+      return {
+        type: eventType,
+        actionType: readString(output.actionType),
+        usedResourceRefs: output.usedResourceRefs,
+      };
+    default:
+      return {
+        type: eventType,
+        ok: output.ok,
+        status: readString(output.status),
+        code: readString(output.code),
+        failureCode: readString(output.failureCode),
+        actionType: readString(output.actionType),
+        toolName: readString(output.toolName),
+        toolResultId: readString(output.toolResultId),
+      };
+  }
+}
+
 export function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) {
   const tokenUsageSummary = getTraceTokenUsage(trace);
   const agentLoops = buildAgentLoopTimeline(trace.steps);
@@ -1497,18 +1633,9 @@ export function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) 
     tokenUsageSummary,
     runtimeTraceEvents: trace.steps
       .filter((step) => ["runtime_event", "validation", "token_budget", "tool_call", "final_response"].includes(step.type))
-      .map((step) => ({
-        id: step.id,
-        name: step.name,
-        type: step.type,
-        eventType: readRuntimeEventType(step),
-        input: step.input,
-        output: step.output,
-        metadata: step.metadata,
-      })),
+      .map(createRuntimeTraceEventReport),
     responseSummary: readTraceResponseSummary(trace),
-    rawTrace: trace,
-    trace,
+    traceSummary: createTraceReportSummary(trace),
     groupedSteps: groups.map((group) => ({
       id: group.id,
       title: group.title,
@@ -1523,8 +1650,15 @@ export function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) 
 
 // extractTraceLogLongTexts 将保存报告中的长字符串外置，降低默认 log 的阅读和 token 成本。
 export function extractTraceLogLongTexts(payload: Record<string, unknown>) {
-  const longTexts: TraceLogLongTextEntry[] = [];
-  const report = replaceLongTextStrings(payload, "$", longTexts);
+  const longTextState: {
+    longTexts: TraceLogLongTextEntry[];
+    byHash: Map<string, TraceLogLongTextEntry>;
+  } = {
+    longTexts: [],
+    byHash: new Map(),
+  };
+  const report = replaceLongTextStrings(payload, "$", longTextState);
+  const longTexts = longTextState.longTexts;
   const longTextRefs = longTexts.map(({ content: _content, ...ref }) => ref);
 
   return {
@@ -1539,40 +1673,67 @@ export function extractTraceLogLongTexts(payload: Record<string, unknown>) {
   };
 }
 
-function replaceLongTextStrings(value: unknown, path: string, longTexts: TraceLogLongTextEntry[]): unknown {
+function replaceLongTextStrings(
+  value: unknown,
+  path: string,
+  state: { longTexts: TraceLogLongTextEntry[]; byHash: Map<string, TraceLogLongTextEntry> },
+): unknown {
   if (typeof value === "string") {
     if (value.length <= traceLogLongTextThreshold) {
       return value;
     }
 
-    const contentRef = createLongTextRef(longTexts.length + 1);
+    const hash = hashLongText(value);
+    const existing = state.byHash.get(hash);
+
+    if (existing) {
+      if (!existing.paths.includes(path)) {
+        existing.paths.push(path);
+      }
+
+      return {
+        contentRef: existing.contentRef,
+        path,
+        kind: inferLongTextKind(path),
+        originalLength: existing.originalLength,
+        hash: existing.hash,
+        preview: existing.preview,
+        textFile: existing.textFile,
+      };
+    }
+
+    const contentRef = createLongTextRef(state.longTexts.length + 1);
     const ref: TraceLogLongTextRef = {
       contentRef,
       path,
       kind: inferLongTextKind(path),
       originalLength: value.length,
-      hash: hashLongText(value),
+      hash,
       preview: createLongTextPreview(value),
       textFile: "codex_logs/ai_trace_texts.jsonl",
     };
 
-    longTexts.push({
+    const entry: TraceLogLongTextEntry = {
       ...ref,
+      paths: [path],
       content: value,
-    });
+    };
+
+    state.longTexts.push(entry);
+    state.byHash.set(hash, entry);
 
     return ref;
   }
 
   if (Array.isArray(value)) {
-    return value.map((item, index) => replaceLongTextStrings(item, `${path}[${index}]`, longTexts));
+    return value.map((item, index) => replaceLongTextStrings(item, `${path}[${index}]`, state));
   }
 
   if (isRecord(value)) {
     return Object.fromEntries(
       Object.entries(value).map(([key, child]) => [
         key,
-        replaceLongTextStrings(child, `${path}.${key}`, longTexts),
+        replaceLongTextStrings(child, `${path}.${key}`, state),
       ]),
     );
   }
