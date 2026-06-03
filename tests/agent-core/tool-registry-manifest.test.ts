@@ -164,6 +164,8 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(JSON.stringify(readFactManifest)).toContain("factRef");
     expect(JSON.stringify(readFactManifest)).toContain("exercise_recommendation_fact");
     expect(JSON.stringify(readFactManifest)).toContain("displayedExerciseIds");
+    expect(JSON.stringify(readFactManifest)).toContain("recentExerciseRecommendationFacts");
+    expect(JSON.stringify(readFactManifest)).toContain("run metadata");
     expect(inputSchema.properties).toHaveProperty("q");
     expect(inputSchema.properties.suitability.enum).toEqual(["warmup", "training", "stretch"]);
     expect(inputSchema.properties.level.description).toContain("beginner/初级");
@@ -195,6 +197,7 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(manifestJson).toContain("machine/固定器械");
     expect(manifestJson).not.toContain("home_friendly");
     expect(manifestJson).not.toContain("no_equipment");
+    expect(manifestJson).not.toContain("cbf_previous_response");
     expect(manifestJson).not.toContain("readFixture");
     expect(manifestJson).not.toContain("m1ResourceProducer");
     expect(manifestJson).not.toContain("candidateSetId");

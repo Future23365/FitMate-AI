@@ -12,8 +12,8 @@ import {
 const factRefSchema = z.string().trim().min(1).max(160);
 
 const readRecentExerciseRecommendationFactInputSchema = z.object({
-  factRef: factRefSchema.optional().describe("从当前上下文 recentExerciseRecommendationFacts 看到的 factRef。"),
-  messageId: factRefSchema.optional().describe("上一轮 assistant 响应消息 id；仅在缺少 factRef 时使用。"),
+  factRef: factRefSchema.optional().describe("只能从当前 run metadata.recentExerciseRecommendationFacts 中真实出现的 factRef 复制；没有真实值时不要编造。"),
+  messageId: factRefSchema.optional().describe("只能从当前 run metadata.recentExerciseRecommendationFacts 中真实出现的上一轮 assistant messageId 复制；仅在缺少 factRef 时使用。"),
 }).strict().refine((input) => Boolean(input.factRef || input.messageId), {
   message: "factRef or messageId is required.",
 });
@@ -84,6 +84,8 @@ const readRecentExerciseRecommendationFactOutputSchema = z.discriminatedUnion("s
 type ReadRecentExerciseRecommendationFactInput = z.infer<typeof readRecentExerciseRecommendationFactInputSchema>;
 type ReadRecentExerciseRecommendationFactOutput = z.infer<typeof readRecentExerciseRecommendationFactOutputSchema>;
 
+const factStoreReadFailedCode = "fact_store_read_failed";
+
 /** readRecentExerciseRecommendationFactTool 把历史用户投影动作事实安全引入当前 Agent run。 */
 export const readRecentExerciseRecommendationFactTool = defineTool<
   ReadRecentExerciseRecommendationFactInput,
@@ -93,11 +95,13 @@ export const readRecentExerciseRecommendationFactTool = defineTool<
   version: "0.1.0",
   description: "Read/import a recent exercise recommendation fact that was previously projected to the current user in this conversation. The successful result can be used in the current run to avoid repeating displayed exercise ids.",
   whenToUse: [
-    "Use when recentExerciseRecommendationFacts in run metadata contains a relevant factRef or messageId and the user asks for another batch, a refresh, or no repeated exercises.",
+    "Use only when run metadata.recentExerciseRecommendationFacts contains a real relevant factRef or messageId and the user asks for another batch, a refresh, or no repeated exercises.",
+    "Copy factRef/messageId exactly from run metadata.recentExerciseRecommendationFacts; never invent, guess, or reuse example placeholder values.",
     "After a successful read, use fact.displayedExerciseIds as searchExerciseResources.excludeExerciseIds when querying another batch under the same structured filters.",
     "This tool only reads facts for the current actor and current conversation; it also imports the fact into the current run as a consumable resource.",
   ].join(" "),
   whenNotToUse: [
+    "Do not use when run metadata.recentExerciseRecommendationFacts is empty or does not contain a matching factRef/messageId; choose final_answer, ask_user, or another visible tool based on the user's request.",
     "Do not use for semantic routing, saving new facts, querying the exercise library, generating routines or plans, user memory, or cross-conversation references.",
     "Do not pass a userId or conversationId; the server derives both from the current actor and rejects inaccessible facts.",
     "Failed results cannot support a successful final_answer and should only be used to explain inability or ask for clarification.",
@@ -121,17 +125,27 @@ export const readRecentExerciseRecommendationFactTool = defineTool<
   },
   examples: [
     {
-      description: "Read the fact reference restored into recentExerciseRecommendationFacts before refreshing exercise results.",
-      input: { factRef: "cbf_previous_response" },
+      description: "Read a real factRef copied from run metadata.recentExerciseRecommendationFacts before refreshing exercise results.",
+      input: { factRef: "fact_recent_01" },
     },
   ],
   handler: async (input, context) => {
-    const result = await readExerciseRecommendationFact({
-      userId: context.actor.userId,
-      conversationId: context.actor.sessionId,
-      factRef: input.factRef,
-      messageId: input.messageId,
-    });
+    let result: Awaited<ReturnType<typeof readExerciseRecommendationFact>>;
+
+    try {
+      result = await readExerciseRecommendationFact({
+        userId: context.actor.userId,
+        conversationId: context.actor.sessionId,
+        factRef: input.factRef,
+        messageId: input.messageId,
+      });
+    } catch {
+      return {
+        status: "failed",
+        code: factStoreReadFailedCode,
+        message: "Exercise recommendation fact store read failed.",
+      };
+    }
 
     if (!result.ok) {
       return {

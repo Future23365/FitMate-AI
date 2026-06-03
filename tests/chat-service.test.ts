@@ -554,6 +554,71 @@ describe("chat service agent text flow boundary", () => {
     expect(JSON.stringify(events)).not.toContain("budget_exhausted");
   });
 
+  it("lets the planner recover when refresh fact lookup fails without server text routing", async () => {
+    const invalidReadInput = { factRef: "cbf_previous_response" };
+    exerciseRecommendationFactStoreMocks.listRecentExerciseRecommendationFactSummaries.mockResolvedValueOnce([]);
+    exerciseRecommendationFactStoreMocks.readExerciseRecommendationFact.mockRejectedValueOnce(new Error("Prisma read failed."));
+    const prepared = prepareChatRequest({
+      conversationId: "conversation-refresh-empty",
+      responseMessageId: "assistant-refresh-empty",
+      latestUserMessage: "换一批",
+      conversationSummary: "",
+    });
+    const planner = new ReplayPlanner([
+      { type: "tool_call", toolName: "readRecentExerciseRecommendationFact", input: invalidReadInput },
+      { type: "final_answer", content: "我这里没有可读取的上一轮推荐记录，你可以告诉我想换哪类动作，我再按条件帮你找。", usedToolResultIds: [] },
+    ]);
+
+    const response = await createAgentTextChatResponse({
+      request: prepared,
+      currentUser: { id: "user-1" },
+      planner,
+    });
+    const events = await readNdjsonEvents(response);
+    const trace = listAiTracesForUser("user-1")[0];
+    const serializedTrace = JSON.stringify(trace);
+
+    expect(planner.calls[0].run.metadata).toMatchObject({
+      recentExerciseRecommendationFacts: [],
+    });
+    expect(exerciseRecommendationFactStoreMocks.readExerciseRecommendationFact).toHaveBeenCalledWith({
+      userId: "user-1",
+      conversationId: "conversation-refresh-empty",
+      factRef: "cbf_previous_response",
+      messageId: undefined,
+    });
+    expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries).not.toHaveBeenCalled();
+    expect(events).toEqual([
+      { type: "content", content: "我这里没有可读取的上一轮推荐记录，你可以告诉我想换哪类动作，我再按条件帮你找。" },
+      { type: "done" },
+    ]);
+    expect(serializedTrace).toContain("fact_store_read_failed");
+    expect(serializedTrace).not.toContain("handler_error");
+    expect(serializedTrace).not.toContain("duplicate_tool_failure");
+    expect(trace).toMatchObject({
+      status: "success",
+      finalDecision: {
+        status: "success",
+        reason: "completed",
+        responseType: "final_answer",
+      },
+      steps: expect.arrayContaining([
+        expect.objectContaining({
+          name: "Tool result 摘要",
+          output: {
+            toolResults: [
+              expect.objectContaining({
+                toolName: "readRecentExerciseRecommendationFact",
+                ok: true,
+                satisfied: false,
+              }),
+            ],
+          },
+        }),
+      ]),
+    });
+  });
+
   it("answers capability questions through model final_answer instead of server fallback", async () => {
     const prepared = prepareChatRequest({
       latestUserMessage: "你能干什么",

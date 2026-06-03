@@ -116,6 +116,35 @@ describe("readRecentExerciseRecommendationFact tool", () => {
     });
   });
 
+  it("normalizes fact store exceptions into unsatisfied structured output", async () => {
+    factStoreMocks.readExerciseRecommendationFact.mockRejectedValueOnce(new Error("Prisma read failed."));
+
+    const result = await executeTool({
+      tool: readRecentExerciseRecommendationFactTool,
+      input: { factRef: "fact-store-error" },
+      run: {
+        runId: "run-fact-store-error",
+        actor: { userId: "user-1", sessionId: "conversation-1" },
+        userInput: "换一批",
+      },
+      timeoutMs: 100,
+      toolCallId: "tc_fact_store_error",
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      output: {
+        status: "failed",
+        code: "fact_store_read_failed",
+      },
+      fulfillment: {
+        satisfied: false,
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain(AGENT_ERROR_CODES.HANDLER_ERROR);
+    expect(result.fulfillment.producedResources).toBeUndefined();
+  });
+
   it("rejects missing fact references before handler execution", async () => {
     const result = await executeTool({
       tool: readRecentExerciseRecommendationFactTool,
