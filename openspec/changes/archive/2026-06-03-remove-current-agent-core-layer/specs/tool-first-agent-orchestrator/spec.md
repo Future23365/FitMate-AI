@@ -1,6 +1,6 @@
 ## REMOVED Requirements
 
-### Requirement: `/api/chat` 必须使用 Tool-first AgentOrchestrator 作为主链
+### Requirement: /api/chat 必须使用 Tool-first AgentOrchestrator 作为主链
 
 **Reason**: `/api/chat` 不再承载运行时 AI/Agent 执行能力。旧 Tool-first `AgentOrchestrator` 与旧 tools、旧 Response Writer、旧 trace 和训练业务恢复逻辑深度绑定，必须整体删除。
 
