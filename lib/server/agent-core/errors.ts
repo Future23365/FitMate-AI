@@ -1,4 +1,4 @@
-/** AgentErrorCode 是 M0 内核跨 validator、executor、runtime 和 renderer 共用的稳定诊断码集合。 */
+/** AgentErrorCode 是 Agent core 跨 validator、executor、runtime 和 renderer 共用的稳定诊断码集合。 */
 export const AGENT_ERROR_CODES = {
   UNKNOWN_TOOL: "unknown_tool",
   DUPLICATE_TOOL: "duplicate_tool",
@@ -7,8 +7,20 @@ export const AGENT_ERROR_CODES = {
   INVALID_TOOL_OUTPUT: "invalid_tool_output",
   INVALID_ACTION: "invalid_action",
   INVALID_RESOURCE_REFERENCE: "invalid_resource_reference",
+  RESOURCE_MISSING: "resource_missing",
+  RESOURCE_RUN_MISMATCH: "resource_run_mismatch",
+  RESOURCE_ROLE_INVALID: "resource_role_invalid",
+  RESOURCE_TYPE_INVALID: "resource_type_invalid",
+  RESOURCE_REQUIREMENT_UNMET: "resource_requirement_unmet",
+  RESOURCE_CONTRACT_VIOLATION: "resource_contract_violation",
   TERMINAL_REFERENCE_INVALID: "terminal_reference_invalid",
   UNSUPPORTED_M0_CAPABILITY: "unsupported_m0_capability",
+  POLICY_DENIED: "policy_denied",
+  CONFIRMATION_REQUIRED: "confirmation_required",
+  CONFIRMATION_EXPIRED: "confirmation_expired",
+  CONFIRMATION_CONSUMED: "confirmation_consumed",
+  CONFIRMATION_HASH_INVALID: "confirmation_hash_invalid",
+  CONFIRMATION_CLIENT_FORBIDDEN: "confirmation_client_forbidden",
   TIMEOUT: "timeout",
   ABORTED: "aborted",
   HANDLER_ERROR: "handler_error",
@@ -41,4 +53,3 @@ export class AgentContractError extends Error {
 export function isAgentContractError(error: unknown): error is AgentContractError {
   return error instanceof AgentContractError;
 }
-

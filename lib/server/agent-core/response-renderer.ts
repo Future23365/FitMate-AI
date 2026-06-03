@@ -5,12 +5,21 @@ export function renderAgentResponseEvents(result: AgentRunResult): AgentStreamEv
   const events: AgentStreamEvent[] = [];
 
   for (const toolResult of result.toolResults) {
-    if (toolResult.ok) {
+    if (toolResult.ok && toolResult.fulfillment.satisfied) {
       events.push(renderToolResultEvent(toolResult));
     }
   }
 
-  if (result.terminalAction?.type === "final_answer") {
+  if (result.confirmationRequest) {
+    events.push({
+      type: "confirmation_request",
+      pendingActionId: result.confirmationRequest.pendingActionId,
+      actionHash: result.confirmationRequest.actionHash,
+      expiresAt: result.confirmationRequest.expiresAt,
+      message: result.confirmationRequest.message,
+      toolName: result.confirmationRequest.toolName,
+    });
+  } else if (result.terminalAction?.type === "final_answer") {
     events.push({ type: "content", content: result.terminalAction.content });
 
     if (result.terminalAction.assistantSuggestions?.length) {
@@ -53,4 +62,3 @@ function defaultToolResultSummary(result: ToolResult): JsonValue {
     toolResultId: result.toolResultId,
   };
 }
-

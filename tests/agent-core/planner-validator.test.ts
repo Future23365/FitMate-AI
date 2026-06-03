@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { validateAgentAction } from "@/lib/server/agent-core/action-validator";
 import { defineTool } from "@/lib/server/agent-core/define-tool";
 import { AGENT_ERROR_CODES, AgentContractError } from "@/lib/server/agent-core/errors";
+import { ResourceStore, toResourceRef } from "@/lib/server/agent-core/resource-store";
 import { ToolRegistry } from "@/lib/server/agent-core/tool-registry";
 import { ReplayPlanner } from "@/lib/server/agent-planners/replay-planner";
 
@@ -38,6 +39,31 @@ function createRegistry() {
       confirmation: "never",
     },
     handler: (input: { id: string }) => input,
+  }));
+  return registry;
+}
+
+function createM1ResourceRegistry() {
+  const registry = new ToolRegistry({ capabilityMode: "m1" });
+  registry.register(defineTool({
+    name: "consumeResource",
+    version: "0.1.0",
+    description: "Consume one fixture resource.",
+    whenToUse: "Use in M1 validator tests.",
+    whenNotToUse: "Do not use outside tests.",
+    inputSchema: z.object({}).strict(),
+    outputSchema: z.object({ ok: z.boolean() }).strict(),
+    policy: {
+      sideEffect: "read",
+      riskLevel: "low",
+      confirmation: "never",
+    },
+    resourceContract: {
+      requires: [
+        { resourceType: "fixture_document", role: "consumable" },
+      ],
+    },
+    handler: () => ({ ok: true }),
   }));
   return registry;
 }
@@ -161,5 +187,75 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       toolResults: [],
     })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID } });
   });
-});
 
+  it("validates M1 resource consumes and terminal grounding by resource role", () => {
+    const registry = createM1ResourceRegistry();
+    const store = new ResourceStore("run-m1-validator");
+    const consumable = store.register({
+      resourceId: "doc-1",
+      resourceType: "fixture_document",
+      role: "consumable",
+      schemaVersion: "fixture@v1",
+      sourceToolResultId: "tr_doc",
+      summary: { title: "Doc" },
+    });
+    const diagnostic = store.register({
+      resourceId: "diag-1",
+      resourceType: "fixture_diagnostic",
+      role: "diagnostic",
+      schemaVersion: "fixture@v1",
+      sourceToolResultId: "tr_diag",
+      summary: { code: "blocked" },
+    });
+
+    expect(validateAgentAction({
+      action: {
+        type: "tool_call",
+        toolName: "consumeResource",
+        input: {},
+        consumes: [toResourceRef(consumable)],
+      },
+      registry,
+      manifests: registry.serializeForPlanner(),
+      toolResults: [],
+      resourceStore: store,
+    })).toMatchObject({ ok: true });
+
+    expect(validateAgentAction({
+      action: {
+        type: "tool_call",
+        toolName: "consumeResource",
+        input: {},
+        consumes: [toResourceRef(diagnostic)],
+      },
+      registry,
+      manifests: registry.serializeForPlanner(),
+      toolResults: [],
+      resourceStore: store,
+    })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.RESOURCE_REQUIREMENT_UNMET } });
+
+    expect(validateAgentAction({
+      action: {
+        type: "final_answer",
+        content: "done",
+        usedResourceRefs: [toResourceRef(diagnostic)],
+      },
+      registry,
+      manifests: registry.serializeForPlanner(),
+      toolResults: [],
+      resourceStore: store,
+    })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID } });
+
+    expect(validateAgentAction({
+      action: {
+        type: "ask_user",
+        question: "需要补充信息。",
+        usedResourceRefs: [toResourceRef(diagnostic)],
+      },
+      registry,
+      manifests: registry.serializeForPlanner(),
+      toolResults: [],
+      resourceStore: store,
+    })).toMatchObject({ ok: true });
+  });
+});

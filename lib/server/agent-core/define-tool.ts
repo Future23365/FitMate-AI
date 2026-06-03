@@ -1,5 +1,5 @@
 import { AgentContractError, AGENT_ERROR_CODES } from "./errors";
-import type { Tool, ToolPolicy } from "./contracts";
+import type { Tool, ToolPolicy, ToolResourceContract } from "./contracts";
 
 /** defineTool 在注册前校验 tool 合同完整性，防止不完整能力进入 Planner 或 Executor。 */
 export function defineTool<Input, Output>(tool: Tool<Input, Output>): Tool<Input, Output> {
@@ -11,6 +11,7 @@ export function defineTool<Input, Output>(tool: Tool<Input, Output>): Tool<Input
   assertZodSchema(tool.inputSchema, "inputSchema");
   assertZodSchema(tool.outputSchema, "outputSchema");
   assertPolicy(tool.policy);
+  assertResourceContract(tool.resourceContract);
 
   if (typeof tool.handler !== "function") {
     throw new AgentContractError(
@@ -91,12 +92,61 @@ function assertPolicy(policy: ToolPolicy | undefined) {
     );
   }
 
-  if (!["never", "required"].includes(policy.confirmation)) {
+  if (!["never", "required", "always", "dynamic"].includes(policy.confirmation)) {
     throw new AgentContractError(
       AGENT_ERROR_CODES.INVALID_TOOL_DEFINITION,
       "Tool policy.confirmation is invalid.",
       { details: { field: "policy.confirmation" } },
     );
   }
+
+  if (policy.permissions && !policy.permissions.every((permission) => typeof permission === "string" && permission.length > 0)) {
+    throw new AgentContractError(
+      AGENT_ERROR_CODES.INVALID_TOOL_DEFINITION,
+      "Tool policy.permissions must be non-empty strings.",
+      { details: { field: "policy.permissions" } },
+    );
+  }
 }
 
+function assertResourceContract(contract: ToolResourceContract | undefined) {
+  if (!contract) {
+    return;
+  }
+
+  for (const requirement of contract.requires ?? []) {
+    if (typeof requirement.resourceType !== "string" || requirement.resourceType.length === 0) {
+      throw new AgentContractError(
+        AGENT_ERROR_CODES.INVALID_TOOL_DEFINITION,
+        "Tool resourceContract.requires[].resourceType must be a non-empty string.",
+        { details: { field: "resourceContract.requires.resourceType" } },
+      );
+    }
+
+    if (requirement.role && !["consumable", "diagnostic"].includes(requirement.role)) {
+      throw new AgentContractError(
+        AGENT_ERROR_CODES.INVALID_TOOL_DEFINITION,
+        "Tool resourceContract.requires[].role is invalid.",
+        { details: { field: "resourceContract.requires.role" } },
+      );
+    }
+  }
+
+  for (const production of contract.produces ?? []) {
+    if (typeof production.resourceType !== "string" || production.resourceType.length === 0) {
+      throw new AgentContractError(
+        AGENT_ERROR_CODES.INVALID_TOOL_DEFINITION,
+        "Tool resourceContract.produces[].resourceType must be a non-empty string.",
+        { details: { field: "resourceContract.produces.resourceType" } },
+      );
+    }
+
+    if (!["consumable", "diagnostic"].includes(production.role)) {
+      throw new AgentContractError(
+        AGENT_ERROR_CODES.INVALID_TOOL_DEFINITION,
+        "Tool resourceContract.produces[].role is invalid.",
+        { details: { field: "resourceContract.produces.role" } },
+      );
+    }
+  }
+}

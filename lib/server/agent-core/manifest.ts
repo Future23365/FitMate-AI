@@ -27,6 +27,10 @@ export function toolToManifest(tool: Tool): ToolManifest {
     },
   };
 
+  if (tool.resourceContract) {
+    manifest.resourceContract = tool.resourceContract;
+  }
+
   if (tool.examples?.length) {
     manifest.examples = tool.examples.map(sanitizeExample);
   }
@@ -61,4 +65,3 @@ function sanitizeExample(example: ToolExample): ToolExample {
     input: sanitizeJsonValue(example.input),
   };
 }
-

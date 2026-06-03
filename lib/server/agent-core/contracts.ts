@@ -10,6 +10,7 @@ export type AgentActor = {
   userId?: string;
   sessionId?: string;
   requestId?: string;
+  permissions?: string[];
 };
 
 /** AgentMessage 是 Planner 可见的上游对话输入，core 不解释自然语言语义。 */
@@ -39,18 +40,91 @@ export type AgentRunInput = {
   limits?: AgentRuntimeLimits;
 };
 
-/** AgentResourceRef 是长期 resource 合同的占位形状，M0 只保留字段并拒绝非空引用。 */
+/** ResourceRole 区分可被下游消费的业务资源和只能解释失败的诊断证据。 */
+export type ResourceRole = "consumable" | "diagnostic";
+
+/** AgentResourceRef 是 Planner 和 Runtime 之间传递已登记资源引用的最小安全形状。 */
 export type AgentResourceRef = {
   resourceId: string;
-  role?: "consumable" | "diagnostic";
+  resourceType?: string;
+  role?: ResourceRole;
+  runId?: string;
   version?: string;
+  schemaVersion?: string;
 };
 
 const agentResourceRefSchema = z.object({
   resourceId: z.string().min(1),
+  resourceType: z.string().min(1).optional(),
   role: z.enum(["consumable", "diagnostic"]).optional(),
+  runId: z.string().min(1).optional(),
   version: z.string().min(1).optional(),
+  schemaVersion: z.string().min(1).optional(),
 }).strict();
+
+/** RegisteredResource 是当前 run 内 ResourceStore 已验收资源的事实记录。 */
+export type RegisteredResource = {
+  resourceId: string;
+  resourceType: string;
+  role: ResourceRole;
+  runId: string;
+  sourceToolResultId: string;
+  schemaVersion: string;
+  summary: JsonValue;
+  version?: string;
+  createdAt: string;
+  expiresAt?: string;
+};
+
+/** RegisterResourceInput 是 tool 执行后声明待登记资源时允许提交的安全字段。 */
+export type RegisterResourceInput = {
+  resourceId: string;
+  resourceType: string;
+  role: ResourceRole;
+  schemaVersion: string;
+  summary: JsonValue;
+  version?: string;
+  expiresAt?: string;
+};
+
+/** ToolResourceRequirement 描述 tool 执行前必须消费的资源类型与角色边界。 */
+export type ToolResourceRequirement = {
+  resourceType: string;
+  role?: ResourceRole;
+  required?: boolean;
+  minCount?: number;
+};
+
+/** ToolResourceProduction 描述 tool 成功或诊断性执行后允许产出的资源类型与角色。 */
+export type ToolResourceProduction = {
+  resourceType: string;
+  role: ResourceRole;
+  schemaVersion?: string;
+};
+
+/** ToolResourceContract 是 M1 Resource Contract Validator 校验 requires/produces 的共享合同。 */
+export type ToolResourceContract = {
+  requires?: ToolResourceRequirement[];
+  produces?: ToolResourceProduction[];
+};
+
+/** ResourceStoreReader 是 handler 可见的只读资源接口，避免 tool 绕过 Runtime 自行登记资源。 */
+export type ResourceStoreReader = {
+  get(ref: AgentResourceRef): RegisteredResource | undefined;
+  list(query?: { role?: ResourceRole; resourceType?: string }): RegisteredResource[];
+  assertRegistered(ref: AgentResourceRef): RegisteredResource;
+  assertConsumable(ref: AgentResourceRef, requirement?: ToolResourceRequirement): RegisteredResource;
+  inventory(): Array<{ ref: AgentResourceRef; summary: JsonValue }>;
+};
+
+/** ResourceRequirementFailure 记录资源合同未满足时的结构化摘要。 */
+export type ResourceRequirementFailure = {
+  resourceType?: string;
+  resourceId?: string;
+  role?: ResourceRole;
+  reason: AgentErrorCode;
+  message: string;
+};
 
 /** ToolCallAction 是 Planner 请求执行已注册 tool 的唯一 M0 动作。 */
 export const ToolCallActionSchema = z.object({
@@ -92,21 +166,27 @@ export type AskUserAction = z.infer<typeof AskUserActionSchema>;
 export type AgentAction = z.infer<typeof AgentActionSchema>;
 export type TerminalAgentAction = FinalAnswerAction | AskUserAction;
 
-/** ToolPolicy 描述 tool 的副作用、风险和确认要求，M0 只执行安全只读策略。 */
+/** ToolPolicy 描述 tool 的副作用、风险、权限和确认策略，M1 由 Policy Guard 统一裁决。 */
 export type ToolPolicy = {
   sideEffect: "read" | "write";
   riskLevel: "low" | "medium" | "high";
-  confirmation: "never" | "required";
+  confirmation: "never" | "required" | "always" | "dynamic";
+  permissions?: string[];
+  policyVersion?: string;
+  confirmationMessage?: string;
+  confirmationExpiresInMs?: number;
   timeoutMs?: number;
 };
 
-/** ToolHandlerContext 是 Executor 调用 handler 时注入的运行上下文和取消信号。 */
+/** ToolHandlerContext 是 Executor 调用 handler 时注入的运行上下文、取消信号和只读资源接口。 */
 export type ToolHandlerContext = {
   runId: string;
   actor: AgentActor;
   toolCallId: string;
   signal: AbortSignal;
   metadata?: Record<string, JsonValue>;
+  resources?: ResourceStoreReader;
+  consumedResources?: AgentResourceRef[];
 };
 
 /** ToolProjectionContext 为 tool 输出生成模型/用户安全投影提供只读上下文。 */
@@ -128,8 +208,11 @@ export type Tool<Input = any, Output = any> = {
   inputSchema: ZodTypeAny;
   outputSchema: ZodTypeAny;
   policy: ToolPolicy;
+  resourceContract?: ToolResourceContract;
   examples?: ToolExample[];
   handler: (input: Input, context: ToolHandlerContext) => Promise<Output> | Output;
+  toResources?: (output: Output, context: ToolProjectionContext) => RegisterResourceInput[];
+  toFulfillment?: (output: Output, context: ToolProjectionContext) => Partial<ToolFulfillment>;
   toModelObservation?: (output: Output, context: ToolProjectionContext) => JsonValue;
   toUserProjection?: (output: Output, context: ToolProjectionContext) => JsonValue;
 };
@@ -147,6 +230,7 @@ export type ToolManifest = {
   inputJsonSchema: JsonValue;
   outputJsonSchema: JsonValue;
   policyHint: Pick<ToolPolicy, "sideEffect" | "riskLevel" | "confirmation">;
+  resourceContract?: ToolResourceContract;
   examples?: ToolExample[];
 };
 
@@ -158,9 +242,13 @@ export type ToolError = {
   details?: JsonValue;
 };
 
-/** ToolFulfillment 总结一次 tool 调用是否满足合同，供 renderer 和 trace 类测试读取。 */
+/** ToolFulfillment 总结一次 tool 调用是否满足资源合同，供 renderer 和 trace 类测试读取。 */
 export type ToolFulfillment = {
   summary: string;
+  satisfied: boolean;
+  producedResources?: AgentResourceRef[];
+  consumedResources?: AgentResourceRef[];
+  unmetRequirements?: ResourceRequirementFailure[];
 };
 
 /** ToolResult 是 M0 工具执行后的唯一结果合同，成功与失败都带稳定 id 和摘要。 */
@@ -199,14 +287,65 @@ export type AgentObservation = {
   content: JsonValue;
 };
 
+/** PolicyDecision 是 Policy Guard 在 Executor 前输出的唯一策略裁决。 */
+export type PolicyDecision =
+  | { kind: "allow"; policyVersion: string; reason: string }
+  | { kind: "deny"; policyVersion: string; error: ToolError }
+  | { kind: "requires_confirmation"; policyVersion: string; message: string; expiresAt: string };
+
+/** PendingAction 保存服务端已验收但等待用户确认的 tool_call，不信任客户端重传 input。 */
+export type PendingAction = {
+  pendingActionId: string;
+  actionHash: string;
+  runId: string;
+  actor: AgentActor;
+  toolName: string;
+  toolVersion: string;
+  toolCall: ToolCallAction;
+  inputHash: string;
+  resourceRefs: AgentResourceRef[];
+  policyVersion: string;
+  status: "pending" | "consumed" | "expired";
+  createdAt: string;
+  expiresAt: string;
+  message: string;
+};
+
+/** ConfirmationRequest 是 renderer 可安全输出的确认请求白名单摘要。 */
+export type ConfirmationRequest = {
+  pendingActionId: string;
+  actionHash: string;
+  expiresAt: string;
+  message: string;
+  toolName: string;
+};
+
+/** ConfirmationResumeInput 是 core resume 入口接受的最小确认输入。 */
+export type ConfirmationResumeInput = {
+  pendingActionId: string;
+  actionHash: string;
+  run: AgentRunInput;
+  clientAction?: unknown;
+};
+
+/** AgentTraceEvent 是 M1 fixture 用来断言资源、策略和确认链路的安全摘要。 */
+export type AgentTraceEvent =
+  | { type: "resource_registered"; toolResultId: string; resource: AgentResourceRef; summary: JsonValue }
+  | { type: "policy_decision"; toolName: string; decision: PolicyDecision["kind"]; policyVersion: string }
+  | { type: "confirmation_request"; request: ConfirmationRequest }
+  | { type: "confirmation_resume"; pendingActionId: string; status: "consumed" }
+  | { type: "terminal_grounding"; actionType: TerminalAgentAction["type"]; usedResourceRefs: AgentResourceRef[] };
+
 /** AgentRunResult 是 Runtime loop 的收口结果，renderer 只消费这个已校验结构。 */
 export type AgentRunResult = {
   runId: string;
-  status: "completed" | "needs_input" | "failed";
+  status: "completed" | "needs_input" | "failed" | "requires_confirmation";
   terminalAction?: TerminalAgentAction;
   terminalError?: ToolError;
+  confirmationRequest?: ConfirmationRequest;
   toolResults: ToolResult[];
   observations: AgentObservation[];
+  traceEvents: AgentTraceEvent[];
   steps: number;
 };
 
@@ -214,6 +353,7 @@ export type AgentRunResult = {
 export type AgentStreamEvent =
   | { type: "content"; content: string }
   | { type: "tool_result"; toolResultId: string; toolName: string; content: JsonValue }
+  | { type: "confirmation_request"; pendingActionId: string; actionHash: string; expiresAt: string; message: string; toolName: string }
   | { type: "assistant_suggestions"; suggestions: string[] }
   | { type: "error"; error: ToolError }
   | { type: "done" };

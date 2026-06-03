@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 
-import type { AgentRunInput, AnyTool, ToolError, ToolResult, ToolProjectionContext } from "./contracts";
+import type { AgentResourceRef, AgentRunInput, AnyTool, ToolError, ToolResult, ToolProjectionContext } from "./contracts";
 import { createToolError } from "./action-validator";
 import { AGENT_ERROR_CODES, isAgentContractError } from "./errors";
+import type { ResourceStore } from "./resource-store";
 
 /** ExecuteToolInput 是 Executor 调用单个 tool handler 时所需的确定性上下文。 */
 export type ExecuteToolInput = {
@@ -12,6 +13,8 @@ export type ExecuteToolInput = {
   timeoutMs: number;
   toolCallId: string;
   parentSignal?: AbortSignal;
+  resourceStore?: ResourceStore;
+  consumedResources?: AgentResourceRef[];
 };
 
 /** executeTool 统一处理 handler 调用、取消、timeout、output schema 校验和 ToolResult 归一化。 */
@@ -52,6 +55,8 @@ export async function executeTool(input: ExecuteToolInput): Promise<ToolResult> 
       toolCallId: input.toolCallId,
       signal: controller.signal,
       metadata: input.run.metadata,
+      resources: input.resourceStore,
+      consumedResources: input.consumedResources,
     };
 
     const output = await Promise.race([
@@ -77,7 +82,10 @@ export async function executeTool(input: ExecuteToolInput): Promise<ToolResult> 
       actor: input.run.actor,
       toolCallId: input.toolCallId,
       metadata: input.run.metadata,
+      resources: input.resourceStore,
+      consumedResources: input.consumedResources,
     };
+    const fulfillment = input.tool.toFulfillment?.(outputResult.data, projectionContext);
     const projection = {
       model: input.tool.toModelObservation?.(outputResult.data, projectionContext),
       user: input.tool.toUserProjection?.(outputResult.data, projectionContext),
@@ -90,7 +98,10 @@ export async function executeTool(input: ExecuteToolInput): Promise<ToolResult> 
       output: outputResult.data,
       projection,
       fulfillment: {
+        satisfied: fulfillment?.satisfied ?? true,
         summary: `Tool "${input.tool.name}" completed successfully.`,
+        ...fulfillment,
+        consumedResources: input.consumedResources,
       },
     };
   } catch (error) {
@@ -112,7 +123,7 @@ export async function executeTool(input: ExecuteToolInput): Promise<ToolResult> 
       ? createToolError(error.code, error.message)
       : createToolError(AGENT_ERROR_CODES.HANDLER_ERROR, `Tool "${input.tool.name}" handler failed.`);
 
-    return failedToolResult(toolResultBase, normalizedError);
+    return failedToolResult(toolResultBase, normalizedError, input.consumedResources);
   } finally {
     if (timeout) {
       clearTimeout(timeout);
@@ -134,6 +145,7 @@ export function createToolResultId(runId: string, toolName: string, normalizedIn
 function failedToolResult(
   base: Omit<ToolResult, "completedAt" | "ok" | "error" | "fulfillment">,
   error: ToolError,
+  consumedResources?: AgentResourceRef[],
 ): ToolResult {
   return {
     ...base,
@@ -141,12 +153,15 @@ function failedToolResult(
     ok: false,
     error,
     fulfillment: {
+      satisfied: false,
       summary: `Tool "${base.toolName}" failed with ${error.code}.`,
+      consumedResources,
     },
   };
 }
 
-function stableStringify(value: unknown): string {
+/** stableStringify 为 input hash 与 confirmation canonical action 提供稳定 JSON 表达。 */
+export function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value);
   }

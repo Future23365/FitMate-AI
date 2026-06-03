@@ -1278,3 +1278,52 @@ Tool Bundle -> ToolRegistry -> manifest -> PlannerPort / ReplayPlanner
 ```
 
 M0 的 fixture read tool 只用于合同闭环测试，不代表动作库、训练生成、保存、用户记忆或任何真实业务能力。后续如果要接入生产聊天，应另起 M1/M2 change，先补 ResourceStore、Policy Guard、confirmation、Trace/Replay、真实 `LlmPlanner` 和生产回归测试，再接真实业务 tool。
+
+---
+
+## 29. M1 安全与资源闭环落地状态（2026-06-03 13:43:49 CST）
+
+本次 M1 在新 `lib/server/agent-core/**` 内补齐资源、策略和确认闭环，并继续保持与 production `/api/chat`、真实 LLM adapter、真实业务 tool、数据库和前端 UI 解耦。M1 fixture tools 只通过 `ToolRegistry({ capabilityMode: "m1" })` 显式注册，用于证明通用机制，不代表任何真实业务能力。
+
+M1 当前已完成以下闭环：
+
+```txt
+tool_call.consumes -> ResourceStore / Resource Contract Validator
+-> Policy Guard -> confirmation pending action 或 Executor
+-> output schema -> produced resource contract -> ResourceStore.register
+-> safe Observation / Response Renderer / trace fixture summary
+```
+
+新增能力：
+
+```txt
+[x] ResourceStore 作为当前 run 内资源事实来源。
+[x] consumable / diagnostic resource role 分层。
+[x] tool.resourceContract.requires / produces 执行前后校验。
+[x] Policy Guard 在 Executor 前裁决 permission、sideEffect、riskLevel 和 confirmation。
+[x] confirmation pending action 与服务端 actionHash。
+[x] confirmation resume 执行服务端保存的 pending tool_call，不信任客户端重传 input。
+[x] Response Renderer 支持 confirmation_request 白名单事件。
+[x] Planner observation 和 fixture trace 只暴露 resource ref、安全摘要和 fulfillment，不回灌完整 tool output 或 secret。
+[x] diagnostic resource 不得支撑成功 final_answer，但可支撑 ask_user 阻断说明。
+```
+
+仍留给 M2 或生产接入 change 的边界：
+
+```txt
+[ ] production /api/chat 接入。
+[ ] 真实 /api/agent/confirm 路由。
+[ ] 持久化 ConfirmationStore。
+[ ] 真实 LLM adapter / prompt / model tool calling。
+[ ] 真实动作库、训练生成、保存、用户记忆等业务 tool。
+[ ] manifestHash / registry snapshot / 生产 trace 脱敏审计。
+[ ] 上线级限流、成本控制、认证与跨请求恢复。
+```
+
+验证结论：
+
+```txt
+[x] tests/agent-core 覆盖 ResourceStore、Resource Contract、Action Validator、Policy Guard、ConfirmationStore、Runtime E2E、Renderer 和架构扫描。
+[x] npm run typecheck 通过。
+[x] 架构扫描确认 M1 未接入 production /api/chat，未注册真实业务 tool，未导入旧 agent-orchestrator。
+```
