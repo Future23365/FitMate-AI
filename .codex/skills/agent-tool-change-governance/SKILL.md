@@ -1,6 +1,6 @@
 ---
 name: agent-tool-change-governance
-description: 治理 AITest 中 Agent tool 相关变更的实现前流程。用于新增 Agent tool、修复 Agent tool bug、修改 Agent core contract，或触碰 PlannerPort、Executor、Policy Guard、ResourceStore、Resource Contract Validator、Response Renderer、trace/replay、/api/chat 生产聊天接入等任务。
+description: 治理 AITest 中 Agent tool 相关变更的实现前流程。用于新增 Agent tool、修复 Agent tool bug、排查 prompt/model input、修改 Agent core contract，或触碰 PlannerPort、Executor、Policy Guard、ResourceStore、Resource Contract Validator、Response Renderer、trace/replay、/api/chat 生产聊天接入等任务。
 ---
 
 # Agent Tool 变更治理
@@ -38,6 +38,8 @@ description: 治理 AITest 中 Agent tool 相关变更的实现前流程。用�
 从证据定位，不从表面现象直接补丁：
 
 - 读取 `codex_logs/ai_trace_log.js`，除非用户明确说不用看，或该文件不存在。
+- 在怀疑服务端流程前，先检查本次模型实际可见的 `prompt / model input`，包括 `system prompt`、`developer prompt`、tool manifest、schema summary、examples、repair feedback、context package、observations 和已压缩的 tool results。不要先入为主假设服务端 runtime、handler 或 response flow 有问题。
+- 如果模型可见输入已经正确表达合同，再继续检查服务端确定性边界，例如 schema 校验、resource、policy、projection、trace 和 production 接入。
 - 检查相关 tool 的真实 Zod Schema 或 JSON Schema。
 - 检查模型可见 manifest 或 schema summary。
 - 检查与失败相关的 runtime validation、`ResourceStore`、`Policy Guard`、projection、response rendering 和 trace records。
@@ -91,7 +93,7 @@ description: 治理 AITest 中 Agent tool 相关变更的实现前流程。用�
 
 新增业务 tool 时，checklist 必须覆盖 tool bundle、`ToolRegistry` 注册、schema、policy、`resourceContract`、model projection、user projection、trace projection 或 trace summary，以及 contract tests。
 
-修复 Agent tool bug 时，checklist 必须覆盖 `codex_logs/ai_trace_log.js`、真实 schema、model-visible manifest 或 schema summary、`ResourceStore`、`Policy Guard`、projection、response rendering 和 trace。
+修复 Agent tool bug 时，checklist 必须覆盖 `codex_logs/ai_trace_log.js`、模型实际可见的 `prompt / model input`、真实 schema、model-visible manifest 或 schema summary、`ResourceStore`、`Policy Guard`、projection、response rendering 和 trace。
 
 每个非文案类 Agent tool `tasks.md` 必须包含 `openspec validate <change> --strict`、相关自动化测试、触碰 core 或 production 边界时的 architecture scan，以及最终 diff 检查。
 
