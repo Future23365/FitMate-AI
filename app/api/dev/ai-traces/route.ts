@@ -3,7 +3,7 @@ import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { authErrorToApiResponse, requireCurrentUser } from "@/lib/server/auth/local-anonymous-auth";
-import { redactJsonValue } from "@/lib/server/agent-core/redaction";
+import { REDACTED_VALUE, redactJsonValue } from "@/lib/server/agent-core/redaction";
 import { clearAiTraces, isAiTraceEnabled, listAiTracesForUser } from "@/lib/server/dev/ai-trace-store";
 
 type SaveAiTraceLogRequest = {
@@ -13,6 +13,16 @@ type SaveAiTraceLogRequest = {
 };
 
 type AiTraceSavedLogType = "trace" | "prompt";
+
+type SavedTraceLongTextRecord = {
+  contentRef: string;
+  path: string;
+  kind: string;
+  originalLength: number;
+  hash: string;
+  preview: unknown;
+  content: unknown;
+};
 
 const traceLogSensitiveKeyPatterns = [
   /^api[_-]?key$/i,
@@ -32,6 +42,8 @@ const traceLogSensitiveKeyPatterns = [
   /^payload$/i,
   /tool[_-]?output/i,
 ];
+const traceLongTextFileName = "ai_trace_texts.jsonl";
+const maxSavedTraceLongTextLength = 80_000;
 
 export async function GET(request: Request) {
   let currentUser;
@@ -143,18 +155,28 @@ export async function POST(request: Request) {
 
   await mkdir(logDir, { recursive: true });
 
-  const payload = normalizeSavedLogPayload(logType, body.payload);
-
   if (logType === "prompt") {
-    await appendFile(logPath, createPromptLogEntryContent(payload, savedAt), "utf8");
-  } else {
-    await writeFile(logPath, createTraceLogContent(payload, savedAt), "utf8");
-  }
+    const payload = normalizeSavedLogPayload(logType, body.payload);
 
-  return NextResponse.json({
-    ok: true,
-    path: logPath,
-  });
+    await appendFile(logPath, createPromptLogEntryContent(payload, savedAt), "utf8");
+
+    return NextResponse.json({
+      ok: true,
+      path: logPath,
+    });
+  } else {
+    const payload = normalizeSavedTraceLogPayload(body.payload);
+    const textLogPath = path.join(logDir, traceLongTextFileName);
+
+    await writeFile(logPath, createTraceLogContent(payload.report, savedAt), "utf8");
+    await writeFile(textLogPath, createTraceLongTextLogContent(payload.longTexts, savedAt), "utf8");
+
+    return NextResponse.json({
+      ok: true,
+      path: logPath,
+      textPath: textLogPath,
+    });
+  }
 }
 
 // 保存类型只开放给开发态 trace 页面，用来区分完整链路日志和回归样本问答记录。
@@ -183,9 +205,7 @@ function getLogFileHeader(logType: AiTraceSavedLogType) {
 // normalizeSavedLogPayload 在开发态保存入口兜底约束日志形状，避免窄问答记录混入 prompt 或 tool payload。
 export function normalizeSavedLogPayload(logType: AiTraceSavedLogType, payload: object) {
   if (logType === "trace") {
-    return redactJsonValue(payload, {
-      sensitiveKeyPatterns: traceLogSensitiveKeyPatterns,
-    }) as object;
+    return normalizeSavedTraceLogPayload(payload).report;
   }
 
   const record = payload as Record<string, unknown>;
@@ -221,14 +241,62 @@ export function normalizeSavedLogPayload(logType: AiTraceSavedLogType, payload: 
   };
 }
 
+// normalizeSavedTraceLogPayload 将全链路导出拆成轻量报告和长文本映射，服务端再次执行脱敏兜底。
+export function normalizeSavedTraceLogPayload(payload: object) {
+  const record = payload as Record<string, unknown>;
+  const { longTexts: rawLongTexts, ...reportPayload } = record;
+  const safeReportPayload = redactSensitiveLongTextRefPreviews(reportPayload);
+  const longTexts = Array.isArray(rawLongTexts)
+    ? rawLongTexts
+        .filter((item): item is Record<string, unknown> => isRecord(item))
+        .map(normalizeTraceLongTextRecord)
+    : [];
+  const report = redactJsonValue(
+    {
+      ...(isRecord(safeReportPayload) ? safeReportPayload : {}),
+      exportGuide: {
+        reportFile: "codex_logs/ai_trace_log.js",
+        longTextFile: `codex_logs/${traceLongTextFileName}`,
+        lookup: `rg '"contentRef":"text_0001"' codex_logs/${traceLongTextFileName}`,
+        note: "默认先读本报告；需要长文本时，复制报告中的 contentRef 到 long text 文件中查找。",
+      },
+    },
+    {
+      sensitiveKeyPatterns: traceLogSensitiveKeyPatterns,
+    },
+  ) as object;
+
+  return {
+    report,
+    longTexts,
+  };
+}
+
 function createTraceLogContent(payload: object, savedAt: string) {
   return [
     getLogFileHeader("trace"),
     `// Saved at: ${savedAt}`,
+    "// This is the lightweight AI trace report. Long prompt/model text is stored separately.",
+    `// Long text file: codex_logs/${traceLongTextFileName}`,
+    `// Lookup example: rg '\"contentRef\":\"text_0001\"' codex_logs/${traceLongTextFileName}`,
+    "// Workflow: read this report first, copy a contentRef only when deeper long-text inspection is needed.",
     "",
     "module.exports = ",
     JSON.stringify(payload, null, 2),
     ";\n",
+  ].join("\n");
+}
+
+// ai_trace_texts.jsonl 保存全链路报告外置的长文本映射，每次保存覆盖旧内容。
+function createTraceLongTextLogContent(records: SavedTraceLongTextRecord[], savedAt: string) {
+  return [
+    "// Long text mapping saved from /dev/ai-traces.",
+    `// Saved at: ${savedAt}`,
+    "// Read codex_logs/ai_trace_log.js first. When the report shows contentRef, query this file.",
+    `// Example: rg '\"contentRef\":\"text_0001\"' codex_logs/${traceLongTextFileName}`,
+    "// Each non-comment line is one JSON object with contentRef, path, kind, hash, preview and content.",
+    ...records.map((record) => JSON.stringify(record)),
+    "",
   ].join("\n");
 }
 
@@ -268,4 +336,63 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function getString(value: unknown) {
   return typeof value === "string" ? value : undefined;
+}
+
+function normalizeTraceLongTextRecord(item: Record<string, unknown>): SavedTraceLongTextRecord {
+  const pathValue = getString(item.path) ?? "$";
+  const content = pathContainsSensitiveTraceKey(pathValue)
+    ? REDACTED_VALUE
+    : redactJsonValue(getString(item.content) ?? "", {
+        sensitiveKeyPatterns: traceLogSensitiveKeyPatterns,
+        maxStringLength: maxSavedTraceLongTextLength,
+      });
+  const preview = pathContainsSensitiveTraceKey(pathValue)
+    ? REDACTED_VALUE
+    : redactJsonValue(item.preview ?? "", {
+        sensitiveKeyPatterns: traceLogSensitiveKeyPatterns,
+      });
+
+  return {
+    contentRef: getString(item.contentRef) ?? "text_unknown",
+    path: pathValue,
+    kind: getString(item.kind) ?? "generic_long_text",
+    originalLength: typeof item.originalLength === "number" ? item.originalLength : 0,
+    hash: getString(item.hash) ?? "",
+    preview,
+    content,
+  };
+}
+
+function pathContainsSensitiveTraceKey(pathValue: string) {
+  return pathValue
+    .split(/[\.\[\]]+/)
+    .map((part) => part.replace(/^["']|["']$/g, ""))
+    .some((part) => traceLogSensitiveKeyPatterns.some((pattern) => pattern.test(part)));
+}
+
+function redactSensitiveLongTextRefPreviews(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(redactSensitiveLongTextRefPreviews);
+  }
+
+  if (!isRecord(value)) {
+    return value;
+  }
+
+  const pathValue = getString(value.path);
+  const isLongTextRef = typeof value.contentRef === "string" && typeof pathValue === "string";
+
+  if (isLongTextRef && pathContainsSensitiveTraceKey(pathValue)) {
+    return {
+      ...value,
+      preview: REDACTED_VALUE,
+    };
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, child]) => [
+      key,
+      redactSensitiveLongTextRefPreviews(child),
+    ]),
+  );
 }

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { buildAgentLoopTimeline, createTraceLogPayload, groupTraceSteps } from "@/components/dev/ai-trace-viewer";
+import {
+  buildAgentLoopTimeline,
+  createTraceLogPayload,
+  extractTraceLogLongTexts,
+  groupTraceSteps,
+} from "@/components/dev/ai-trace-viewer";
 import type { AiTrace, AiTraceStep } from "@/lib/server/dev/ai-trace-store";
 
 describe("AI trace viewer step grouping", () => {
@@ -217,7 +222,70 @@ describe("AI trace viewer step grouping", () => {
           stepIds: ["step-runtime_event"],
         }),
       ]),
+      longTextStats: {
+        count: 0,
+        threshold: 600,
+        textFile: "codex_logs/ai_trace_texts.jsonl",
+      },
     });
+  });
+
+  it("extracts long trace text into contentRef mappings for split log export", () => {
+    const longSystemPrompt = `系统提示 ${"必须遵守合同。".repeat(90)}`;
+    const longRawText = `模型输出 ${"返回 final_answer。".repeat(80)}`;
+
+    const payload = extractTraceLogLongTexts({
+      title: "长文本 trace",
+      plannerModelCalls: [
+        {
+          request: {
+            messages: [
+              {
+                role: "system",
+                content: longSystemPrompt,
+              },
+            ],
+          },
+          response: {
+            rawText: longRawText,
+          },
+        },
+      ],
+      tokenUsageSummary: { prompt_tokens: 12, completion_tokens: 4, total_tokens: 16 },
+    }) as Record<string, unknown>;
+    const plannerModelCalls = payload.plannerModelCalls as Array<Record<string, unknown>>;
+    const request = plannerModelCalls[0].request as Record<string, unknown>;
+    const response = plannerModelCalls[0].response as Record<string, unknown>;
+    const messages = request.messages as Array<Record<string, unknown>>;
+    const longTextRefs = payload.longTextRefs as Array<Record<string, unknown>>;
+    const longTexts = payload.longTexts as Array<Record<string, unknown>>;
+
+    expect(messages[0].content).toMatchObject({
+      contentRef: "text_0001",
+      kind: "model_request_message",
+      path: "$.plannerModelCalls[0].request.messages[0].content",
+      originalLength: longSystemPrompt.length,
+      textFile: "codex_logs/ai_trace_texts.jsonl",
+    });
+    expect(response.rawText).toMatchObject({
+      contentRef: "text_0002",
+      kind: "model_response_text",
+      path: "$.plannerModelCalls[0].response.rawText",
+      originalLength: longRawText.length,
+    });
+    expect(longTextRefs).toHaveLength(2);
+    expect(longTexts).toEqual([
+      expect.objectContaining({
+        contentRef: "text_0001",
+        hash: expect.stringMatching(/^fnv1a:/),
+        preview: expect.stringContaining("[middle omitted]"),
+        content: longSystemPrompt,
+      }),
+      expect.objectContaining({
+        contentRef: "text_0002",
+        content: longRawText,
+      }),
+    ]);
   });
 
   it("builds loop-centric timeline with per-loop and per-call token usage", () => {

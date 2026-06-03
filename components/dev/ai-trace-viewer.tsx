@@ -14,6 +14,7 @@ type TraceResponse = {
 type SaveLogResponse = {
   ok: boolean;
   path?: string;
+  textPath?: string;
   error?: string;
 };
 
@@ -75,6 +76,33 @@ type TokenUsage = {
   completion_tokens?: number;
   total_tokens?: number;
 };
+
+type TraceLogLongTextKind =
+  | "model_request_message"
+  | "model_response_text"
+  | "trace_step_input"
+  | "trace_step_output"
+  | "trace_step_metadata"
+  | "trace_step_error"
+  | "response_summary"
+  | "generic_long_text";
+
+export type TraceLogLongTextRef = {
+  contentRef: string;
+  path: string;
+  kind: TraceLogLongTextKind;
+  originalLength: number;
+  hash: string;
+  preview: string;
+  textFile: "codex_logs/ai_trace_texts.jsonl";
+};
+
+export type TraceLogLongTextEntry = TraceLogLongTextRef & {
+  content: string;
+};
+
+const traceLogLongTextThreshold = 600;
+const traceLogLongTextPreviewEdgeLength = 120;
 
 // AiTraceViewer 是开发态模块化 trace 壳，按 agent-core 职责边界展示可保存诊断。
 export function AiTraceViewer() {
@@ -173,7 +201,7 @@ export function AiTraceViewer() {
         throw new Error(data.error || "Failed to save AI trace log.");
       }
 
-      setSaveLogMessage(`已保存到 ${data.path}`);
+      setSaveLogMessage(data.textPath ? `已保存到 ${data.path}，长文本映射 ${data.textPath}` : `已保存到 ${data.path}`);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Failed to save AI trace log.");
     } finally {
@@ -1417,9 +1445,18 @@ export function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) 
   const tokenUsageSummary = getTraceTokenUsage(trace);
   const agentLoops = buildAgentLoopTimeline(trace.steps);
 
-  return {
+  const payload = {
     title: trace.title,
     savedFrom: "/dev/ai-traces",
+    exportFiles: {
+      report: "codex_logs/ai_trace_log.js",
+      longTexts: "codex_logs/ai_trace_texts.jsonl",
+    },
+    lookupGuide: [
+      "默认先读 codex_logs/ai_trace_log.js 的结构化报告。",
+      "遇到 contentRef 时，用 rg '\"contentRef\":\"text_0001\"' codex_logs/ai_trace_texts.jsonl 查对应长文本。",
+      "ai_trace_texts.jsonl 每行是一个 JSON object，content 字段是脱敏后的长文本。",
+    ],
     agentLoops: agentLoops.map((loop) => ({
       id: loop.id,
       loopNumber: loop.loopNumber,
@@ -1480,6 +1517,124 @@ export function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) 
       durationMs: group.durationMs,
     })),
   };
+
+  return extractTraceLogLongTexts(payload);
+}
+
+// extractTraceLogLongTexts 将保存报告中的长字符串外置，降低默认 log 的阅读和 token 成本。
+export function extractTraceLogLongTexts(payload: Record<string, unknown>) {
+  const longTexts: TraceLogLongTextEntry[] = [];
+  const report = replaceLongTextStrings(payload, "$", longTexts);
+  const longTextRefs = longTexts.map(({ content: _content, ...ref }) => ref);
+
+  return {
+    ...(isRecord(report) ? report : { value: report }),
+    longTextRefs,
+    longTextStats: {
+      count: longTexts.length,
+      threshold: traceLogLongTextThreshold,
+      textFile: "codex_logs/ai_trace_texts.jsonl",
+    },
+    longTexts,
+  };
+}
+
+function replaceLongTextStrings(value: unknown, path: string, longTexts: TraceLogLongTextEntry[]): unknown {
+  if (typeof value === "string") {
+    if (value.length <= traceLogLongTextThreshold) {
+      return value;
+    }
+
+    const contentRef = createLongTextRef(longTexts.length + 1);
+    const ref: TraceLogLongTextRef = {
+      contentRef,
+      path,
+      kind: inferLongTextKind(path),
+      originalLength: value.length,
+      hash: hashLongText(value),
+      preview: createLongTextPreview(value),
+      textFile: "codex_logs/ai_trace_texts.jsonl",
+    };
+
+    longTexts.push({
+      ...ref,
+      content: value,
+    });
+
+    return ref;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item, index) => replaceLongTextStrings(item, `${path}[${index}]`, longTexts));
+  }
+
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [
+        key,
+        replaceLongTextStrings(child, `${path}.${key}`, longTexts),
+      ]),
+    );
+  }
+
+  return value;
+}
+
+function createLongTextRef(index: number) {
+  return `text_${String(index).padStart(4, "0")}`;
+}
+
+function createLongTextPreview(value: string) {
+  const edgeLength = traceLogLongTextPreviewEdgeLength;
+
+  if (value.length <= edgeLength * 2) {
+    return value;
+  }
+
+  return `${value.slice(0, edgeLength)}\n...[middle omitted]...\n${value.slice(-edgeLength)}`;
+}
+
+function hashLongText(value: string) {
+  let hash = 0x811c9dc5;
+
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+
+  return `fnv1a:${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+function inferLongTextKind(path: string): TraceLogLongTextKind {
+  if (/\.messages\[\d+\]\.content$/.test(path)) {
+    return "model_request_message";
+  }
+
+  if (/(\.rawText|\.rawResponse|\.model_response|modelResponse)/i.test(path)) {
+    return "model_response_text";
+  }
+
+  if (/responseSummary\.content$/.test(path)) {
+    return "response_summary";
+  }
+
+  if (/\.steps\[\d+\]\.input/.test(path)) {
+    return "trace_step_input";
+  }
+
+  if (/\.steps\[\d+\]\.output/.test(path)) {
+    return "trace_step_output";
+  }
+
+  if (/\.steps\[\d+\]\.metadata/.test(path)) {
+    return "trace_step_metadata";
+  }
+
+  if (/\.steps\[\d+\]\.error/.test(path)) {
+    return "trace_step_error";
+  }
+
+  return "generic_long_text";
 }
 
 export function createPromptLogPayload(trace: AiTrace) {

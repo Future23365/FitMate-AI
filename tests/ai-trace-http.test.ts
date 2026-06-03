@@ -247,16 +247,74 @@ describe("AI trace store and HTTP request helpers", () => {
     expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "fitmate:auth-required" }));
   });
 
-  it("saves full trace logs with generic grouped payload intact", async () => {
+  it("saves full trace logs as a lightweight report plus long text mapping", async () => {
+    const longModelText = `模型可见长文本 ${"请严格遵守 AgentAction 合同。".repeat(90)}`;
+    const sensitivePayloadText = `不要保存完整 payload ${"secret ".repeat(120)}`;
     const response = await devTraceRoute.POST(jsonRequest("/api/dev/ai-traces", {
       logType: "trace",
       payload: {
         title: "完整链路",
         apiKey: "sk-secret-value",
+        longTextRefs: [
+          {
+            contentRef: "text_0001",
+            path: "$.plannerModelCalls[0].request.messages[0].content",
+            kind: "model_request_message",
+            originalLength: longModelText.length,
+            hash: "fnv1a:11111111",
+            preview: "模型可见长文本",
+            textFile: "codex_logs/ai_trace_texts.jsonl",
+          },
+          {
+            contentRef: "text_0002",
+            path: "$.trace.steps[0].output.payload",
+            kind: "trace_step_output",
+            originalLength: sensitivePayloadText.length,
+            hash: "fnv1a:22222222",
+            preview: "不要保存完整 payload",
+            textFile: "codex_logs/ai_trace_texts.jsonl",
+          },
+        ],
+        longTexts: [
+          {
+            contentRef: "text_0001",
+            path: "$.plannerModelCalls[0].request.messages[0].content",
+            kind: "model_request_message",
+            originalLength: longModelText.length,
+            hash: "fnv1a:11111111",
+            preview: "模型可见长文本",
+            content: longModelText,
+          },
+          {
+            contentRef: "text_0002",
+            path: "$.trace.steps[0].output.payload",
+            kind: "trace_step_output",
+            originalLength: sensitivePayloadText.length,
+            hash: "fnv1a:22222222",
+            preview: "不要保存完整 payload",
+            content: sensitivePayloadText,
+          },
+        ],
         plannerModelCalls: [
           {
             plannerCallIndex: 1,
-            request: { model: "deepseek-chat" },
+            request: {
+              model: "deepseek-chat",
+              messages: [
+                {
+                  role: "system",
+                  content: {
+                    contentRef: "text_0001",
+                    path: "$.plannerModelCalls[0].request.messages[0].content",
+                    kind: "model_request_message",
+                    originalLength: longModelText.length,
+                    hash: "fnv1a:11111111",
+                    preview: "模型可见长文本",
+                    textFile: "codex_logs/ai_trace_texts.jsonl",
+                  },
+                },
+              ],
+            },
             response: { tokenUsage: { prompt_tokens: 10, completion_tokens: 3, total_tokens: 13 } },
           },
         ],
@@ -276,21 +334,32 @@ describe("AI trace store and HTTP request helpers", () => {
       },
     }));
 
-    await expect(response.json()).resolves.toMatchObject({ ok: true });
-    expect(fsMocks.writeFile).toHaveBeenCalledWith(
-      expect.stringContaining("ai_trace_log.js"),
-      expect.stringContaining("groupedSteps"),
-      "utf8",
-    );
-    const savedContent = String(fsMocks.writeFile.mock.calls[0]?.[1] ?? "");
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      path: expect.stringContaining("ai_trace_log.js"),
+      textPath: expect.stringContaining("ai_trace_texts.jsonl"),
+    });
+    const reportCall = fsMocks.writeFile.mock.calls.find((call) => String(call[0]).includes("ai_trace_log.js"));
+    const longTextCall = fsMocks.writeFile.mock.calls.find((call) => String(call[0]).includes("ai_trace_texts.jsonl"));
+    const savedContent = String(reportCall?.[1] ?? "");
+    const longTextContent = String(longTextCall?.[1] ?? "");
 
     expect(savedContent).not.toContain("sk-secret-value");
     expect(savedContent).not.toContain("Bearer secret-token");
     expect(savedContent).not.toContain("不要保存完整 payload");
+    expect(savedContent).not.toContain(longModelText);
     expect(savedContent).toContain("plannerModelCalls");
     expect(savedContent).toContain("tokenUsageSummary");
     expect(savedContent).toContain("\"prompt_tokens\": 10");
     expect(savedContent).toContain("rawTrace");
+    expect(savedContent).toContain("ai_trace_texts.jsonl");
+    expect(savedContent).toContain("\"contentRef\": \"text_0001\"");
+    expect(longTextContent).toContain("Long text mapping saved from /dev/ai-traces.");
+    expect(longTextContent).toContain("rg '\"contentRef\":\"text_0001\"' codex_logs/ai_trace_texts.jsonl");
+    expect(longTextContent).toContain("\"contentRef\":\"text_0001\"");
+    expect(longTextContent).toContain(longModelText);
+    expect(longTextContent).toContain("\"content\":\"[redacted]\"");
+    expect(longTextContent).not.toContain(sensitivePayloadText);
     expect(fsMocks.appendFile).not.toHaveBeenCalled();
   });
 
