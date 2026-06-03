@@ -207,9 +207,11 @@ Zod 用于在服务端再次校验模型输出，避免模型生成不可执行�
 理解用户 → 查询动作 → 生成计划 → 校验计划 → 保存计划
 ```
 
-当前 `/api/chat` 不承载 AI 执行能力。Route Handler 只做本地匿名鉴权、请求体验证、已保存会话读取、历史 hydration 和 `chat_ai_disabled` 禁用响应；不会触发模型调用、tool calling、artifact 生成、summary 更新、AI trace 生产或流式事件输出。
+当前 `/api/chat` 已恢复新 `agent-core` 文本聊天执行能力。Route Handler 仍只做本地匿名鉴权、请求体验证、已保存会话读取和历史 hydration，随后进入 `createAgentTextChatResponse()`，由 `PreparedChatRequest -> AgentRunInput -> 空 ToolRegistry -> LlmPlanner + DeepSeekModelAdapter -> runAgentRuntime -> 默认 Response Renderer -> NDJSON` 完成通用文本回复、澄清建议、结构化错误和 `done` 事件输出。
 
-旧 Tool-first Agent 运行时、旧 tool registry、旧 Prompt、旧模型调用、旧 Response Writer、旧 Agent 活动事件、旧手动 LLM runner 和旧核心链路测试已经删除。后续重新接入 AI 聊天能力时，必须通过新的规格重新定义模型输入、工具合同、模型输出、trace 和前端事件协议，不得把已删除的旧合同当作兼容基础。
+production 文本聊天现在会在开发态写入当前用户绑定的 `AiTrace`。trace 由聊天薄接入层把 `AgentRunInput`、空 registry、`AgentRunResult.traceEvents`、runtime 终止状态和真实返回的 NDJSON 事件摘要投影为脱敏步骤；配置错误、runtime 合同失败和成功路径都会结束 trace。trace 写入失败是非致命诊断，不改变用户可见聊天响应。
+
+当前阶段仍不注册动作检索、训练生成、artifact 保存、用户记忆、数据库业务查询或任何真实业务 tool。旧 Tool-first Agent 运行时、旧 tool registry、旧 Prompt、旧模型调用、旧 Response Writer、旧 Agent 活动事件、旧手动 LLM runner 和旧核心链路测试已经删除；新 `agent-core` 接入不恢复旧 `assistant_action`、旧 `intent_resolved`、旧 `agent_execution_result` 或旧 card trigger 事件。
 
 旧 `reference-resolver-service`、旧 `workout-patch-chat-service` 和旧 shared `referenceResolution` schema 不再作为生产导出存在。artifact、memory、patch、policy 和 workout validation 等公共服务可以继续作为非 AI 领域服务保留；如果后续 AI 编排需要使用这些能力，应通过新的受控工具合同显式接入。
 

@@ -1468,6 +1468,52 @@ ToolRegistry -> manifest linter -> registry snapshot / manifestHash
 [x] npm run typecheck 通过。
 ```
 
+### 31.2 Production 文本聊天 Trace 接入状态（2026-06-03 17:26:56 CST）
+
+本次在 production 文本聊天闭环外侧补齐开发态 trace 生产。trace 生命周期只放在 `lib/server/chat/agent-text-chat-service.ts` 的薄接入层，由局部 helper 调用现有 `startAiTrace()`；`agent-core`、`PlannerPort`、Executor、Policy Guard、Resource Contract Validator 和默认 Response Renderer 不感知开发态 trace store。
+
+当前 trace 投影链路：
+
+```txt
+createAgentTextChatResponse
+-> createAgentTextChatRunInput
+-> startAgentTextChatTrace
+-> runAgentRuntime
+-> renderAgentTextChatResponseEvents
+-> recordAgentTextChatRuntimeResultTrace
+-> createAgentTextChatNdjsonResponse
+```
+
+已记录的 trace 事实：
+
+```txt
+[x] route、runId、current user、conversationId、responseMessageId、latestUserMessage 和 hydration 摘要。
+[x] 空 ToolRegistry 的 tool count / tool names。
+[x] registry_snapshot、budget_event、planner_action、validation_result、terminal_grounding、policy_decision、resource_registered 等 runtime traceEvents 的白名单摘要。
+[x] completed、needs_input、requires_confirmation、failed 等 runtime status 与 terminal action / error code。
+[x] 真实返回给前端的同一份 NDJSON 事件摘要，包括 eventTypes、content 摘要、建议数量、错误 code 和 done。
+[x] 缺少 DEEPSEEK_API_KEY 时的 failed trace 和 chat_ai_not_configured 稳定错误 code。
+[x] runtime 合同失败、unknown tool、预算耗尽、planner 失败等失败边界的 failed trace。
+```
+
+保持不变的禁止项：
+
+```txt
+[x] 不注册 searchExercises、训练生成、artifact 保存、用户记忆、fixture registry 或任何真实业务 tool。
+[x] 不恢复旧 agent-orchestrator、旧 AgentExecutionResult、旧 Response Writer 或旧兼容 stream 事件。
+[x] 不在 /api/chat 或聊天接入服务中增加用户文本关键词、正则、同义词或短句模板分流。
+[x] 不把完整 tool output、secret、authorization、cookie、跨用户 payload 或未经摘要的大 payload 写入 trace。
+```
+
+验证结论：
+
+```txt
+[x] tests/chat-service.test.ts 覆盖 final_answer、ask_user、配置错误和 runtime failure 的 trace 写入。
+[x] tests/api-routes.test.ts 覆盖 /api/chat 成功 NDJSON 和配置错误路径的 trace 生产。
+[x] tests/ai-trace-http.test.ts 覆盖用户隔离、保存全链路 log、保存用户问答记录和脱敏边界。
+[x] tests/ai-trace-viewer.test.ts 覆盖文本聊天 runtime_event 分组、空 registry 展示和 Raw JSON 导出。
+```
+
 ---
 
 ## 32. Agent Tool 变更治理流程（2026-06-03）

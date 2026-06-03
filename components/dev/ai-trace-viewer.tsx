@@ -503,6 +503,13 @@ function getStepGroupDefinition(type: AiTraceStep["type"]): Omit<TraceStepGroup,
         description: "历史模型请求和响应记录；当前运行时不要求生产这些步骤。",
         placement: "main_flow",
       };
+    case "runtime_event":
+      return {
+        id: "runtime_events",
+        title: "Runtime 事件",
+        description: "agent-core 文本聊天运行时的安全摘要事件。",
+        placement: "main_flow",
+      };
     case "reference_resolution":
       return {
         id: "reference_resolution",
@@ -617,7 +624,7 @@ function readTokenUsage(value: unknown): TokenUsage | null {
   };
 }
 
-function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) {
+export function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) {
   return {
     title: trace.title,
     savedFrom: "/dev/ai-traces",
@@ -632,7 +639,7 @@ function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) {
   };
 }
 
-function createPromptLogPayload(trace: AiTrace) {
+export function createPromptLogPayload(trace: AiTrace) {
   const userQuestions = trace.steps
     .filter((step) => step.type === "user_input")
     .map((step, index) => ({

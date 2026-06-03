@@ -110,7 +110,24 @@ describe("API route boundaries", () => {
       { type: "done" },
     ]);
     expect(JSON.stringify(events)).not.toContain("chat_ai_disabled");
-    expect(traceMocks.startAiTrace).not.toHaveBeenCalled();
+    expect(traceMocks.startAiTrace).toHaveBeenCalledTimes(1);
+    expect(traceMocks.startAiTrace).toHaveBeenCalledWith(expect.objectContaining({
+      route: "/api/chat",
+      userId: "user-1",
+      input: expect.objectContaining({
+        latestUserMessage: "练胸",
+        registry: { toolCount: 0, toolNames: [] },
+      }),
+    }));
+    expect(traceMocks.startAiTrace.mock.results[0].value.addStep).toHaveBeenCalledWith(expect.objectContaining({
+      name: "模型配置错误",
+      type: "error",
+      status: "failed",
+    }));
+    expect(traceMocks.startAiTrace.mock.results[0].value.finish).toHaveBeenCalledWith(
+      "failed",
+      expect.objectContaining({ code: "chat_ai_not_configured", responseType: "error" }),
+    );
   });
 
   it("streams /api/chat final answers from the production text Agent flow", async () => {
@@ -152,6 +169,16 @@ describe("API route boundaries", () => {
         }),
       ]),
     });
+    expect(traceMocks.startAiTrace).toHaveBeenCalledWith(expect.objectContaining({
+      route: "/api/chat",
+      userId: "user-1",
+      sessionId: "conversation-1",
+      messageId: "assistant-1",
+    }));
+    expect(traceMocks.startAiTrace.mock.results[0].value.addStep).toHaveBeenCalledWith(expect.objectContaining({
+      type: "response_write",
+      output: expect.objectContaining({ eventTypes: ["content", "done"] }),
+    }));
   });
 
   it("handles exercise resource routes", async () => {

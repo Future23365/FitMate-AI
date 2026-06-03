@@ -136,6 +136,32 @@ describe("AI trace store and HTTP request helpers", () => {
     expect(trace?.id).toBeTruthy();
   });
 
+  it("returns only traces owned by the current user", async () => {
+    createAiTrace({
+      route: "/api/chat",
+      title: "当前用户 trace",
+      userId: "user-1",
+      input: { latestUserMessage: "帮我练背" },
+    });
+    createAiTrace({
+      route: "/api/chat",
+      title: "其他用户 trace",
+      userId: "user-2",
+      input: { latestUserMessage: "其他用户问题" },
+    });
+
+    const response = await devTraceRoute.GET(new Request("http://localhost/api/dev/ai-traces"));
+    const body = await response.json();
+
+    expect(body).toMatchObject({ ok: true });
+    expect(body.traces).toHaveLength(1);
+    expect(body.traces[0]).toMatchObject({
+      title: "当前用户 trace",
+      userId: "user-1",
+    });
+    expect(JSON.stringify(body)).not.toContain("其他用户问题");
+  });
+
   it("serializes JSON requests and maps server-side error bodies", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ message: "上游失败" }), {
@@ -226,6 +252,17 @@ describe("AI trace store and HTTP request helpers", () => {
       logType: "trace",
       payload: {
         title: "完整链路",
+        apiKey: "sk-secret-value",
+        trace: {
+          route: "/api/chat",
+          steps: [
+            {
+              type: "runtime_event",
+              output: { payload: "不要保存完整 payload" },
+              metadata: { authorization: "Bearer secret-token" },
+            },
+          ],
+        },
         groupedSteps: [{ id: "request_input", stepIds: ["step-1"] }],
       },
     }));
@@ -236,6 +273,11 @@ describe("AI trace store and HTTP request helpers", () => {
       expect.stringContaining("groupedSteps"),
       "utf8",
     );
+    const savedContent = String(fsMocks.writeFile.mock.calls[0]?.[1] ?? "");
+
+    expect(savedContent).not.toContain("sk-secret-value");
+    expect(savedContent).not.toContain("Bearer secret-token");
+    expect(savedContent).not.toContain("不要保存完整 payload");
     expect(fsMocks.appendFile).not.toHaveBeenCalled();
   });
 

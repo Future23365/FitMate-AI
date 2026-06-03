@@ -3,6 +3,7 @@ import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { authErrorToApiResponse, requireCurrentUser } from "@/lib/server/auth/local-anonymous-auth";
+import { redactJsonValue } from "@/lib/server/agent-core/redaction";
 import { clearAiTraces, isAiTraceEnabled, listAiTracesForUser } from "@/lib/server/dev/ai-trace-store";
 
 type SaveAiTraceLogRequest = {
@@ -163,7 +164,7 @@ function getLogFileHeader(logType: AiTraceSavedLogType) {
 // normalizeSavedLogPayload 在开发态保存入口兜底约束日志形状，避免窄问答记录混入 prompt 或 tool payload。
 export function normalizeSavedLogPayload(logType: AiTraceSavedLogType, payload: object) {
   if (logType === "trace") {
-    return payload;
+    return redactJsonValue(payload) as object;
   }
 
   const record = payload as Record<string, unknown>;

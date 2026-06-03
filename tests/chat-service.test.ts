@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   chatRequestSchema,
@@ -10,6 +10,7 @@ import {
 } from "@/lib/server/chat/agent-text-chat-service";
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
 import { ReplayPlanner } from "@/lib/server/agent-planners/replay-planner";
+import { clearAiTraces, listAiTracesForUser } from "@/lib/server/dev/ai-trace-store";
 import { createChatConversation } from "./fixtures/domain";
 
 async function readNdjsonEvents(response: Response) {
@@ -19,6 +20,10 @@ async function readNdjsonEvents(response: Response) {
 }
 
 describe("chat service agent text flow boundary", () => {
+  beforeEach(() => {
+    clearAiTraces();
+  });
+
   it("accepts current chat request shape and ignores removed legacy event toggles", () => {
     const parsed = chatRequestSchema.parse({
       latestUserMessage: "给我一个 30 分钟居家训练",
@@ -90,6 +95,34 @@ describe("chat service agent text flow boundary", () => {
         hydration: expect.objectContaining({ source: "latest_message" }),
       },
     });
+    expect(listAiTracesForUser("user-1")[0]).toMatchObject({
+      route: "/api/chat",
+      status: "success",
+      userId: "user-1",
+      finalDecision: {
+        status: "success",
+        reason: "completed",
+        responseType: "final_answer",
+      },
+      input: expect.objectContaining({
+        latestUserMessage: "今天练胸",
+        registry: { toolCount: 0, toolNames: [] },
+      }),
+      steps: expect.arrayContaining([
+        expect.objectContaining({
+          type: "user_input",
+          input: expect.objectContaining({ latestUserMessage: "今天练胸" }),
+        }),
+        expect.objectContaining({
+          type: "runtime_event",
+          output: expect.objectContaining({ type: "registry_snapshot", toolCount: 0 }),
+        }),
+        expect.objectContaining({
+          type: "response_write",
+          output: expect.objectContaining({ eventTypes: ["content", "done"], done: true }),
+        }),
+      ]),
+    });
   });
 
   it("projects ask_user into clarification content and assistant_suggestions", async () => {
@@ -110,6 +143,23 @@ describe("chat service agent text flow boundary", () => {
       { type: "assistant_suggestions", suggestions: ["20 分钟", "40 分钟"] },
       { type: "done" },
     ]);
+    expect(listAiTracesForUser("user-1")[0]).toMatchObject({
+      status: "success",
+      finalDecision: {
+        status: "success",
+        reason: "needs_input",
+        responseType: "ask_user",
+      },
+      steps: expect.arrayContaining([
+        expect.objectContaining({
+          type: "response_write",
+          output: expect.objectContaining({
+            eventTypes: ["content", "assistant_suggestions", "done"],
+            suggestionCount: 2,
+          }),
+        }),
+      ]),
+    });
   });
 
   it("returns stable configuration errors without the old chat_ai_disabled path", async () => {
@@ -146,6 +196,31 @@ describe("chat service agent text flow boundary", () => {
       },
       { type: "done" },
     ]);
+    expect(listAiTracesForUser("user-1")[0]).toMatchObject({
+      route: "/api/chat",
+      status: "failed",
+      userId: "user-1",
+      finalDecision: {
+        status: "hard_failure",
+        code: "chat_ai_not_configured",
+        responseType: "error",
+      },
+      steps: expect.arrayContaining([
+        expect.objectContaining({
+          name: "模型配置错误",
+          type: "error",
+          status: "failed",
+          output: expect.objectContaining({ code: "chat_ai_not_configured" }),
+        }),
+        expect.objectContaining({
+          type: "response_write",
+          output: expect.objectContaining({
+            eventTypes: ["error", "done"],
+            errorCodes: ["chat_ai_not_configured"],
+          }),
+        }),
+      ]),
+    });
   });
 
   it("projects repeated empty-registry tool_call failures as a safe unsupported response", async () => {
@@ -175,5 +250,26 @@ describe("chat service agent text flow boundary", () => {
     expect(JSON.stringify(events)).not.toContain(AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED);
     expect(JSON.stringify(events)).not.toContain("Agent runtime reached the invalid action repair limit.");
     expect(JSON.stringify(events)).not.toContain("Tool \"searchExercises\" is not registered.");
+    expect(listAiTracesForUser("user-1")[0]).toMatchObject({
+      status: "failed",
+      finalDecision: {
+        status: "recoverable_failure",
+        code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
+        responseType: "content",
+      },
+      steps: expect.arrayContaining([
+        expect.objectContaining({
+          type: "validation",
+          output: expect.objectContaining({ ok: false, code: AGENT_ERROR_CODES.UNKNOWN_TOOL }),
+        }),
+        expect.objectContaining({
+          type: "response_write",
+          output: expect.objectContaining({
+            eventTypes: ["content", "assistant_suggestions", "done"],
+            errorCodes: [],
+          }),
+        }),
+      ]),
+    });
   });
 });
