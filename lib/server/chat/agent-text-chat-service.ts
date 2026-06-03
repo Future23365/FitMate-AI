@@ -476,7 +476,9 @@ function recordAgentTextChatRuntimeResultTrace(input: {
   });
 
   for (const event of input.result.traceEvents) {
-    const output = summarizeRuntimeTraceEvent(event);
+    const output = event.type === "registry_snapshot"
+      ? summarizeRegistrySnapshotTraceEvent(event, input.registry)
+      : summarizeRuntimeTraceEvent(event);
 
     input.trace.addStep({
       name: getRuntimeTraceEventLabel(event),
@@ -683,6 +685,22 @@ function summarizeRegistry(registry: ToolRegistry) {
     manifestHash: createManifestHash(manifest),
     toolCount: manifest.length,
     toolNames: manifest.map((tool) => tool.name),
+  };
+}
+
+function summarizeRegistrySnapshotTraceEvent(
+  event: Extract<AgentTraceEvent, { type: "registry_snapshot" }>,
+  registry: ToolRegistry,
+) {
+  const manifest = registry.serializeForPlanner();
+
+  return {
+    type: event.type,
+    snapshotId: event.snapshotId,
+    manifestHash: event.manifestHash,
+    toolCount: event.toolCount,
+    toolNames: manifest.map((tool) => tool.name),
+    tools: redactTraceValue(manifest),
   };
 }
 

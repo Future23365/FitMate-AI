@@ -73,7 +73,7 @@ describe("AI trace viewer step grouping", () => {
       ],
       summary: expect.arrayContaining([
         { label: "tool count", value: "0" },
-        { label: "业务 tool", value: "空 ToolRegistry" },
+        { label: "tool names", value: "空 ToolRegistry" },
       ]),
     });
   });
@@ -143,6 +143,7 @@ describe("AI trace viewer step grouping", () => {
         expect.objectContaining({
           id: "loop-1",
           runtimeStep: 1,
+          toolNames: ["readFixture"],
           tokenUsage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
           modules: expect.arrayContaining([
             expect.objectContaining({
@@ -164,6 +165,12 @@ describe("AI trace viewer step grouping", () => {
         }),
       ],
       moduleGroups: expect.arrayContaining([
+        expect.objectContaining({
+          id: "registry_manifest",
+          summary: expect.arrayContaining([
+            { label: "tool names", value: "空 ToolRegistry" },
+          ]),
+        }),
         expect.objectContaining({
           id: "planner_model",
           summary: expect.arrayContaining([
@@ -288,6 +295,7 @@ describe("AI trace viewer step grouping", () => {
     expect(loops[0]).toMatchObject({
       id: "loop-1",
       runtimeStep: 1,
+      toolNames: ["readFixture"],
       plannerCallIndexes: [1],
       tokenUsage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
       modules: [
@@ -315,8 +323,42 @@ describe("AI trace viewer step grouping", () => {
     expect(loops[1]).toMatchObject({
       id: "loop-2",
       runtimeStep: 2,
+      toolNames: [],
       plannerCallIndexes: [2],
       tokenUsage: { prompt_tokens: 20, completion_tokens: 8, total_tokens: 28 },
+    });
+  });
+
+  it("summarizes the full Planner-visible manifest names from registry snapshot output", () => {
+    const groups = groupTraceSteps([
+      createStep({
+        type: "runtime_event",
+        name: "Registry 快照",
+        output: {
+          type: "registry_snapshot",
+          toolCount: 2,
+          toolNames: ["readRecentExerciseRecommendationFact", "searchExerciseResources"],
+          tools: [
+            {
+              name: "readRecentExerciseRecommendationFact",
+              version: "2026-06-04",
+              description: "Read recent exercise recommendation facts.",
+            },
+            {
+              name: "searchExerciseResources",
+              version: "2026-06-04",
+              description: "Search exercise resources.",
+            },
+          ],
+        },
+      }),
+    ]);
+
+    expect(groups.find((group) => group.id === "registry_manifest")).toMatchObject({
+      summary: expect.arrayContaining([
+        { label: "tool count", value: "2" },
+        { label: "tool names", value: "readRecentExerciseRecommendationFact, searchExerciseResources" },
+      ]),
     });
   });
 });

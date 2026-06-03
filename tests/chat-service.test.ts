@@ -241,7 +241,19 @@ describe("chat service agent text flow boundary", () => {
         }),
         expect.objectContaining({
           type: "runtime_event",
-          output: expect.objectContaining({ type: "registry_snapshot", toolCount: 2 }),
+          output: expect.objectContaining({
+            type: "registry_snapshot",
+            toolCount: 2,
+            toolNames: productionToolNames,
+            tools: expect.arrayContaining([
+              expect.objectContaining({
+                name: "searchExerciseResources",
+                inputJsonSchema: expect.any(Object),
+                outputJsonSchema: expect.any(Object),
+                policyHint: expect.any(Object),
+              }),
+            ]),
+          }),
         }),
         expect.objectContaining({
           type: "response_write",

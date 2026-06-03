@@ -59,6 +59,7 @@ export type TraceLoopTurn = {
   loopNumber: number;
   runtimeStep: number;
   title: string;
+  toolNames: string[];
   status: AiTrace["status"];
   steps: AiTraceStep[];
   modules: TraceLoopModule[];
@@ -463,6 +464,7 @@ function AgentLoopTimeline({ loops }: { loops: TraceLoopTurn[] }) {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="text-base font-semibold text-slate-950">{loop.title}</h3>
+                    <LoopToolBadge toolNames={loop.toolNames} />
                     <TokenUsageBadge usage={loop.tokenUsage} />
                   </div>
                   <p className="mt-1 text-sm text-slate-500">
@@ -489,6 +491,20 @@ function AgentLoopTimeline({ loops }: { loops: TraceLoopTurn[] }) {
         ))
       )}
     </section>
+  );
+}
+
+function LoopToolBadge({ toolNames }: { toolNames: string[] }) {
+  const label = toolNames.length > 0 ? `Tool: ${toolNames.join(", ")}` : "未调用 Tool";
+
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${
+      toolNames.length > 0
+        ? "bg-indigo-50 text-indigo-700 ring-indigo-100"
+        : "bg-slate-50 text-slate-500 ring-slate-200"
+    }`}>
+      {label}
+    </span>
   );
 }
 
@@ -761,6 +777,7 @@ export function buildAgentLoopTimeline(steps: AiTraceStep[]): TraceLoopTurn[] {
         loopNumber: index + 1,
         runtimeStep,
         title: `Loop #${index + 1}`,
+        toolNames: readLoopToolNames(loopSteps),
         status: deriveGroupStatus(loopSteps),
         steps: loopSteps,
         modules,
@@ -1014,7 +1031,7 @@ function createModuleSummary(group: TraceStepGroup): Array<{ label: string; valu
         { label: "tool count", value: formatOptionalNumber(toolCount) },
         { label: "manifestHash", value: readString(output.manifestHash) || "-" },
         { label: "snapshotId", value: readString(output.snapshotId) || "-" },
-        { label: "业务 tool", value: toolCount === 0 ? "空 ToolRegistry" : "已注册 tool" },
+        { label: "tool names", value: formatToolNames(readManifestToolNames(output)) },
       ];
     }
     case "planner_model": {
@@ -1141,6 +1158,57 @@ function readStepPlannerCallIndex(step: AiTraceStep) {
   return readNumber(metadata.plannerCallIndex)
     ?? readNumber(output.plannerCallIndex)
     ?? readNumber(runtimeLinkage.plannerCallIndex);
+}
+
+function readLoopToolNames(steps: AiTraceStep[]) {
+  const toolNames = new Set<string>();
+
+  for (const step of steps) {
+    for (const toolName of readStepToolNames(step)) {
+      toolNames.add(toolName);
+    }
+  }
+
+  return Array.from(toolNames);
+}
+
+function readStepToolNames(step: AiTraceStep) {
+  const metadata = isRecord(step.metadata) ? step.metadata : {};
+  const input = isRecord(step.input) ? step.input : {};
+  const output = isRecord(step.output) ? step.output : {};
+  const runtimeEventType = readRuntimeEventType(step);
+  const actionType = readString(output.actionType);
+  const toolName = readString(output.toolName) || readString(metadata.toolName) || readString(input.toolName);
+
+  if (
+    step.type === "tool_call" ||
+    runtimeEventType === "tool_execution" ||
+    runtimeEventType === "duplicate_tool_call" ||
+    (runtimeEventType === "planner_action" && actionType === "tool_call") ||
+    (step.type === "model_response" && actionType === "tool_call")
+  ) {
+    return toolName ? [toolName] : [];
+  }
+
+  return [];
+}
+
+function readManifestToolNames(output: Record<string, unknown>) {
+  const explicitNames = readStringArray(output.toolNames);
+
+  if (explicitNames.length > 0) {
+    return explicitNames;
+  }
+
+  const tools = Array.isArray(output.tools) ? output.tools : [];
+
+  return tools
+    .map((tool) => (isRecord(tool) ? readString(tool.name) : undefined))
+    .filter((toolName): toolName is string => Boolean(toolName));
+}
+
+function formatToolNames(toolNames: string[]) {
+  return toolNames.length > 0 ? toolNames.join(", ") : "空 ToolRegistry";
 }
 
 function deriveGroupStatus(steps: AiTraceStep[]): AiTrace["status"] {
@@ -1356,6 +1424,7 @@ export function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) 
       id: loop.id,
       loopNumber: loop.loopNumber,
       runtimeStep: loop.runtimeStep,
+      toolNames: loop.toolNames,
       plannerCallIndexes: loop.plannerCallIndexes,
       stepIds: loop.steps.map((step) => step.id),
       status: loop.status,
@@ -1524,6 +1593,10 @@ function readNumber(value: unknown) {
 
 function readString(value: unknown) {
   return typeof value === "string" ? value : undefined;
+}
+
+function readStringArray(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
 function readNestedString(value: unknown, key: string) {
