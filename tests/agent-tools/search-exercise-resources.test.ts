@@ -87,6 +87,7 @@ describe("searchExerciseResources tool", () => {
       equipment: "body only",
       homeRequirement: undefined,
       muscle: "胸部",
+      bodyRegions: undefined,
       goalTag: undefined,
       riskTag: undefined,
       published: true,
@@ -96,10 +97,68 @@ describe("searchExerciseResources tool", () => {
     expect(JSON.stringify(result)).not.toContain("candidate_set");
   });
 
+  it("queries broad lower-body requests through bodyRegions and exposes deterministic expansion", async () => {
+    const { tool, repository } = await importToolWithRepositoryResult(createSearchResult({
+      query: {
+        bodyRegions: ["lower_body"],
+        suitability: "training",
+        published: true,
+        sort: "name_asc",
+      },
+      appliedFilters: [
+        { field: "suitability", value: "training" },
+        { field: "bodyRegions", value: ["lower_body"] },
+        { field: "published", value: true },
+      ],
+      expandedMuscles: ["臀部", "股四头肌", "腘绳肌", "小腿"],
+      totalMatches: 2,
+      returnedCount: 1,
+      exercises: [createExerciseSummary({
+        id: "band-squat",
+        nameZh: "弹力带深蹲",
+        primaryMuscles: ["quadriceps"],
+        primaryMusclesZh: ["股四头肌"],
+        secondaryMuscles: ["glutes", "hamstrings"],
+        secondaryMusclesZh: ["臀部", "腘绳肌"],
+      })],
+    }));
+
+    const result = await executeTool({
+      tool,
+      input: { bodyRegions: ["lower_body"], suitability: "training" },
+      run: { runId: "run-lower-body", actor: { userId: "user-1" }, userInput: "我想练腿，给我推荐几个动作" },
+      timeoutMs: 100,
+      toolCallId: "tc_lower_body",
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      output: {
+        query: {
+          bodyRegions: ["lower_body"],
+          expandedMuscles: ["臀部", "股四头肌", "腘绳肌", "小腿"],
+          totalMatches: 2,
+          returnedCount: 1,
+        },
+        exercises: [expect.objectContaining({ id: "band-squat", primaryMusclesZh: ["股四头肌"] })],
+      },
+      fulfillment: {
+        satisfied: true,
+      },
+    });
+    expect(repository.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
+      bodyRegions: ["lower_body"],
+      muscle: undefined,
+      suitability: "training",
+      published: true,
+    }));
+  });
+
   it("rejects unpublished, unknown, pagination and consumption-side fields before the handler runs", async () => {
     const { tool, repository } = await importToolWithRepositoryResult(createSearchResult());
     const invalidInputs = [
       { published: false },
+      { bodyRegions: ["legs"] },
       { page: 1 },
       { limit: 20 },
       { candidateUse: "routine" },
@@ -156,7 +215,48 @@ describe("searchExerciseResources tool", () => {
         },
         exercises: [],
       },
-      fulfillment: { satisfied: true },
+      fulfillment: { satisfied: false },
+    });
+
+    const unknownMuscle = await importToolWithRepositoryResult(createSearchResult({
+      query: { muscle: "腿部", suitability: "training", published: true, sort: "name_asc" },
+      appliedFilters: [
+        { field: "suitability", value: "training" },
+        { field: "muscle", value: "腿部" },
+        { field: "published", value: true },
+      ],
+      totalMatches: 0,
+      returnedCount: 0,
+      exercises: [],
+    }));
+    const unknownMuscleResult = await executeTool({
+      tool: unknownMuscle.tool,
+      input: { muscle: "腿部", suitability: "training" },
+      run: { runId: "run-unknown-muscle", actor: { userId: "user-1" }, userInput: "我想练腿" },
+      timeoutMs: 100,
+      toolCallId: "tc_unknown_muscle",
+    });
+
+    expect(unknownMuscleResult).toMatchObject({
+      ok: true,
+      output: {
+        query: {
+          muscle: "腿部",
+          totalMatches: 0,
+          returnedCount: 0,
+        },
+      },
+      fulfillment: {
+        satisfied: false,
+        summary: "查询已执行，但没有满足当前筛选条件的发布态动作。",
+      },
+    });
+    expect(createToolObservation(unknownMuscleResult)).toMatchObject({
+      ok: false,
+      content: expect.objectContaining({
+        totalMatches: 0,
+        fulfillment: expect.objectContaining({ satisfied: false }),
+      }),
     });
 
     const failing = await importToolWithRepositoryImplementation(async () => {
@@ -358,6 +458,7 @@ describe("searchExerciseResourceSummaries repository", () => {
       muscle: "胸部",
       goalTag: "strength",
       riskTag: "shoulder_pain",
+      bodyRegions: ["lower_body"],
       published: true,
       sort: "name_asc",
     });
@@ -386,6 +487,8 @@ describe("searchExerciseResourceSummaries repository", () => {
         { riskTags: { has: "shoulder_pain" } },
       ]),
     });
+    expect(serializedFindMany).toContain("\"primaryMusclesZh\":{\"has\":\"股四头肌\"}");
+    expect(serializedFindMany).toContain("\"secondaryMusclesZh\":{\"has\":\"腘绳肌\"}");
     expect(serializedFindMany).toContain("\"embeddingText\"");
     expect(serializedFindMany).toContain("\"contains\":\"俯卧撑\"");
     expect(serializedFindMany).not.toContain("pgvector");
@@ -396,6 +499,7 @@ describe("searchExerciseResourceSummaries repository", () => {
       returnedCount: EXERCISE_RESOURCE_SEARCH_MAX_RETURNED,
       maxReturned: EXERCISE_RESOURCE_SEARCH_MAX_RETURNED,
       truncated: true,
+      expandedMuscles: expect.arrayContaining(["股四头肌", "腘绳肌", "臀部", "小腿"]),
     });
     expect(result.exercises).toHaveLength(EXERCISE_RESOURCE_SEARCH_MAX_RETURNED);
     expect(result.exercises[0]).toMatchObject({
@@ -443,6 +547,7 @@ function createSearchResult(overrides: SearchResultOverrides = {}): ExerciseReso
     returnedCount: overrides.returnedCount ?? exercises.length,
     maxReturned: overrides.maxReturned ?? 12,
     truncated: overrides.truncated ?? false,
+    expandedMuscles: overrides.expandedMuscles ?? [],
     exercises,
   };
 }

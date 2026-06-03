@@ -56,7 +56,8 @@
 | `mechanic` | `Exercise.mechanic/mechanicZh` | 动作机制 |
 | `equipment` | `Exercise.equipment/equipmentZh` | 器械 |
 | `homeRequirement` | `Exercise.homeRequirement/homeRequirementZh` | 居家条件 |
-| `muscle` | `Exercise.primaryMuscles/primaryMusclesZh/secondaryMuscles/secondaryMusclesZh` | 肌群 |
+| `muscle` | `Exercise.primaryMuscles/primaryMusclesZh/secondaryMuscles/secondaryMusclesZh` | 真实肌群 facet |
+| `bodyRegions` | `upper_body/lower_body/core/full_body` 结构化枚举 | 高层身体区域，由服务端确定性展开到真实肌群 facet |
 | `goalTag` | `Exercise.goalTags` | 目标标签 |
 | `riskTag` | `Exercise.riskTags` | 风险标签 |
 | `published` | `Exercise.isPublished` | 是否已发布，默认 `true` |
@@ -101,6 +102,7 @@ type SearchExerciseResourcesInput = {
   equipment?: string;
   homeRequirement?: string;
   muscle?: string;
+  bodyRegions?: Array<"upper_body" | "lower_body" | "core" | "full_body">;
   goalTag?: string;
   riskTag?: string;
   published?: boolean;
@@ -120,7 +122,8 @@ type SearchExerciseResourcesInput = {
 | `mechanic` | `string` | 否 | 动作机制筛选，对应 `Exercise.mechanic` 或 `Exercise.mechanicZh` |
 | `equipment` | `string` | 否 | 器械筛选，对应 `Exercise.equipment` 或 `Exercise.equipmentZh` |
 | `homeRequirement` | `string` | 否 | 居家条件筛选，对应 `Exercise.homeRequirement` 或 `Exercise.homeRequirementZh` |
-| `muscle` | `string` | 否 | 肌群筛选，对应主肌群或辅助肌群的中英文字段 |
+| `muscle` | `string` | 否 | 真实肌群 facet 筛选，对应主肌群或辅助肌群的中英文字段；不要填 `腿部`、`下肢`、`上肢` 这类高层区域词 |
+| `bodyRegions` | 枚举数组 | 否 | 高层身体区域筛选；`upper_body` 表示上肢，`lower_body` 表示腿部/下肢，`core` 表示核心，`full_body` 表示全身 |
 | `goalTag` | `string` | 否 | 目标标签筛选，对应 `Exercise.goalTags` |
 | `riskTag` | `string` | 否 | 风险标签筛选，对应 `Exercise.riskTags`；这里只查标签，不做伤病语义判断 |
 | `published` | `boolean` | 否 | 是否只返回已发布动作；缺省为 `true` |
@@ -142,6 +145,8 @@ type SearchExerciseResourcesOutput = {
     sort: "name_asc" | "name_desc" | "level_asc" | "level_desc" | "category_asc" | "category_desc";
     published: boolean;
     appliedFilters: SearchExerciseAppliedFilter[];
+    bodyRegions?: Array<"upper_body" | "lower_body" | "core" | "full_body">;
+    expandedMuscles: string[];
     totalMatches: number;
     returnedCount: number;
     maxReturned: number;
@@ -159,6 +164,8 @@ type SearchExerciseResourcesOutput = {
 | `query.sort` | 本次实际使用的排序方式 |
 | `query.published` | 本次实际使用的发布态口径 |
 | `query.appliedFilters` | 服务端实际执行的筛选条件摘要 |
+| `query.bodyRegions` | 本次使用的结构化身体区域 |
+| `query.expandedMuscles` | `bodyRegions` 被确定性展开后的真实肌群 facet |
 | `query.totalMatches` | 筛选后总命中数量 |
 | `query.returnedCount` | 本次返回给模型和用户投影的动作数量 |
 | `query.maxReturned` | 服务端内部最大返回数量 |
@@ -170,7 +177,7 @@ type SearchExerciseResourcesOutput = {
 ```ts
 type SearchExerciseAppliedFilter = {
   field: keyof SearchExerciseResourcesInput;
-  value: string | boolean;
+  value: string | boolean | string[];
 };
 ```
 
@@ -237,18 +244,19 @@ type SearchExerciseResource = {
 
 ```ts
 type SearchExerciseResourcesFulfillment = {
-  satisfied: true;
+  satisfied: boolean;
   summary: string;
 };
 ```
 
 规则：
 
-1. 只要查询参数合法、数据库读取完成，即使 `totalMatches = 0`，也属于成功执行的事实查询，`satisfied` 应为 `true`。
-2. `totalMatches = 0` 表示“没有符合条件的动作”，可以支撑 `final_answer` 向用户解释未找到结果。
-3. 数据库不可用、handler exception 或 output schema 失败应由 Executor 归一为 failed `ToolResult`，不得伪装成成功 output。
-4. 默认不登记 ResourceStore resource。final answer 使用 `usedToolResultIds` 引用本轮成功 tool result。
-5. 如果未来需要让其他 tool 消费该查询结果，必须新增专用 resource type，并通过 OpenSpec 明确它不是 `candidate_set`，也不能被 routine / plan / patch 链路误消费。
+1. 查询参数合法、数据库读取完成，表示 tool output 的 `status` 可以是 `succeeded`，但不代表用户筛选目标已经被满足。
+2. `totalMatches > 0` 时，fulfillment 应为 `satisfied = true`，可以通过 `usedToolResultIds` 支撑普通 `final_answer`。
+3. `totalMatches = 0` 时，fulfillment 应为 `satisfied = false`，表示查询成功但没有满足当前筛选条件的动作；该结果只能用于失败解释、澄清或后续重查，不能作为成功动作推荐的 grounding。
+4. 数据库不可用、handler exception 或 output schema 失败应由 Executor 归一为 failed `ToolResult`，不得伪装成成功 output。
+5. 默认不登记 ResourceStore resource。final answer 使用 `usedToolResultIds` 引用本轮成功且 `satisfied=true` 的 tool result。
+6. 如果未来需要让其他 tool 消费该查询结果，必须新增专用 resource type，并通过 OpenSpec 明确它不是 `candidate_set`，也不能被 routine / plan / patch 链路误消费。
 
 ## 模型观察与用户投影
 
@@ -262,6 +270,8 @@ type SearchExerciseResourcesFulfillment = {
 - `totalMatches`
 - `returnedCount`
 - `truncated`
+- `bodyRegions`
+- `expandedMuscles`
 - `appliedFilters`
 - 有限数量的动作摘要：`id`、`nameZh`、`nameEn`、`equipmentZh`、`primaryMusclesZh`、`allowedSections`
 
@@ -296,13 +306,24 @@ type SearchExerciseResourcesFulfillment = {
 
 ## 示例
 
-### 查询自重腿部训练动作
+### 查询自重股四头肌训练动作
 
 ```ts
 {
   "equipment": "bodyweight",
   "homeRequirement": "no_equipment",
   "muscle": "股四头肌",
+  "published": true,
+  "sort": "name_asc"
+}
+```
+
+### 查询腿部/下肢训练动作
+
+```ts
+{
+  "bodyRegions": ["lower_body"],
+  "suitability": "training",
   "published": true,
   "sort": "name_asc"
 }

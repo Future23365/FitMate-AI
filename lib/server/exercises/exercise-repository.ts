@@ -3,6 +3,10 @@ import "server-only";
 import type { Prisma } from "@prisma/client";
 
 import { getPrismaClient, isDatabaseConfigured } from "@/lib/server/db/prisma";
+import {
+  expandExerciseBodyRegionTargetMuscles,
+  type ExerciseBodyRegion,
+} from "@/lib/shared/exercises/body-regions";
 import { normalizeExerciseMetadata } from "@/lib/shared/exercises/metadata";
 import type { Exercise, ExerciseSort, ExerciseSuitability } from "@/lib/shared/exercises/types";
 
@@ -47,6 +51,7 @@ export type ExerciseResourceSearchInput = {
   equipment?: string;
   homeRequirement?: string;
   muscle?: string;
+  bodyRegions?: ExerciseBodyRegion[];
   goalTag?: string;
   riskTag?: string;
   published: boolean;
@@ -57,7 +62,7 @@ export type ExerciseResourceFilterField = Exclude<keyof ExerciseResourceSearchIn
 
 export type ExerciseResourceAppliedFilter = {
   field: ExerciseResourceFilterField;
-  value: string | boolean;
+  value: string | boolean | string[];
 };
 
 export type ExerciseResourceSearchResult = {
@@ -67,6 +72,7 @@ export type ExerciseResourceSearchResult = {
   returnedCount: number;
   maxReturned: number;
   truncated: boolean;
+  expandedMuscles: string[];
   exercises: ExerciseResourceSummary[];
 };
 
@@ -158,7 +164,8 @@ export async function searchExerciseResourceSummaries(
   }
 
   const prisma = getPrismaClient();
-  const where = buildExerciseResourceWhere(input);
+  const expandedMuscles = expandExerciseBodyRegionTargetMuscles(input.bodyRegions ?? []);
+  const where = buildExerciseResourceWhere(input, expandedMuscles);
   const orderBy = buildExerciseResourceOrderBy(input.sort);
   const [totalMatches, records] = await Promise.all([
     prisma.exercise.count({ where }),
@@ -178,6 +185,7 @@ export async function searchExerciseResourceSummaries(
     returnedCount: visibleRecords.length,
     maxReturned: EXERCISE_RESOURCE_SEARCH_MAX_RETURNED,
     truncated: records.length > EXERCISE_RESOURCE_SEARCH_MAX_RETURNED,
+    expandedMuscles,
     exercises: visibleRecords.map(mapExerciseResourceSummary),
   };
 }
@@ -230,7 +238,10 @@ function mapExerciseRecord(exercise: ExerciseRecord): Exercise {
   };
 }
 
-function buildExerciseResourceWhere(input: ExerciseResourceSearchInput): Prisma.ExerciseWhereInput {
+function buildExerciseResourceWhere(
+  input: ExerciseResourceSearchInput,
+  expandedMuscles: string[],
+): Prisma.ExerciseWhereInput {
   const and: Prisma.ExerciseWhereInput[] = [
     { isPublished: input.published },
   ];
@@ -246,15 +257,9 @@ function buildExerciseResourceWhere(input: ExerciseResourceSearchInput): Prisma.
     and.push({ allowedSections: { has: input.suitability } });
   }
 
-  if (input.muscle) {
-    and.push({
-      OR: [
-        { primaryMuscles: { has: input.muscle } },
-        { primaryMusclesZh: { has: input.muscle } },
-        { secondaryMuscles: { has: input.muscle } },
-        { secondaryMusclesZh: { has: input.muscle } },
-      ],
-    });
+  const muscleFilters = uniqueStrings([input.muscle, ...expandedMuscles]);
+  if (muscleFilters.length > 0) {
+    and.push(buildExerciseResourceMuscleWhere(muscleFilters));
   }
 
   if (input.goalTag) {
@@ -270,6 +275,17 @@ function buildExerciseResourceWhere(input: ExerciseResourceSearchInput): Prisma.
   }
 
   return { AND: and };
+}
+
+function buildExerciseResourceMuscleWhere(muscles: string[]): Prisma.ExerciseWhereInput {
+  return {
+    OR: muscles.flatMap((muscle) => [
+      { primaryMuscles: { has: muscle } },
+      { primaryMusclesZh: { has: muscle } },
+      { secondaryMuscles: { has: muscle } },
+      { secondaryMusclesZh: { has: muscle } },
+    ]),
+  };
 }
 
 function pushTextFacetFilter(
@@ -349,6 +365,7 @@ function collectExerciseResourceAppliedFilters(input: ExerciseResourceSearchInpu
     "equipment",
     "homeRequirement",
     "muscle",
+    "bodyRegions",
     "goalTag",
     "riskTag",
     "published",
@@ -357,6 +374,10 @@ function collectExerciseResourceAppliedFilters(input: ExerciseResourceSearchInpu
       const value = input[field];
       return value === undefined ? [] : [{ field, value }];
     });
+}
+
+function uniqueStrings(values: Array<string | undefined>) {
+  return [...new Set(values.filter((value): value is string => Boolean(value)))];
 }
 
 function mapExerciseResourceSummary(

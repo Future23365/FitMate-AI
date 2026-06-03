@@ -134,6 +134,7 @@ describe("agent-core ToolRegistry and manifest", () => {
       properties: {
         q: unknown;
         suitability: { enum: string[] };
+        bodyRegions: { items: { enum: string[] } };
         published: { const?: boolean; default?: boolean };
         sort: { default?: string; enum: string[] };
       };
@@ -149,6 +150,7 @@ describe("agent-core ToolRegistry and manifest", () => {
     });
     expect(inputSchema.properties).toHaveProperty("q");
     expect(inputSchema.properties.suitability.enum).toEqual(["warmup", "training", "stretch"]);
+    expect(inputSchema.properties.bodyRegions.items.enum).toEqual(["upper_body", "lower_body", "core", "full_body"]);
     expect(inputSchema.properties.sort.enum).toEqual([
       "name_asc",
       "name_desc",
@@ -161,6 +163,9 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(inputSchema.additionalProperties).toBe(false);
     expect(manifestJson).toContain("usedToolResultIds");
     expect(manifestJson).toContain("published");
+    expect(manifestJson).toContain("bodyRegions");
+    expect(manifestJson).toContain("lower_body");
+    expect(manifestJson).toContain("真实肌群 facet");
     expect(manifestJson).not.toContain("readFixture");
     expect(manifestJson).not.toContain("m1ResourceProducer");
     expect(manifestJson).not.toContain("candidateSetId");

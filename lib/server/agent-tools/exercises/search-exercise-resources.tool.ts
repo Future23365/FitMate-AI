@@ -6,6 +6,7 @@ import {
   type ExerciseResourceAppliedFilter,
   type ExerciseResourceSummary,
 } from "@/lib/server/exercises/exercise-repository";
+import { exerciseBodyRegionSchema } from "@/lib/shared/exercises/body-regions";
 import { exerciseSortSchema } from "@/lib/shared/exercises/query-schema";
 import { exerciseAllowedSectionSchema } from "@/lib/shared/exercises/types";
 
@@ -21,7 +22,12 @@ const searchExerciseResourcesInputSchema = z.object({
   mechanic: optionalTextFilterSchema.describe("动作机制或中文动作机制的精确筛选值。"),
   equipment: optionalTextFilterSchema.describe("器械或中文器械的精确筛选值。"),
   homeRequirement: optionalTextFilterSchema.describe("居家条件或中文居家条件的精确筛选值。"),
-  muscle: optionalTextFilterSchema.describe("主肌群或辅助肌群的精确筛选值，可使用英文或中文肌群名。"),
+  muscle: optionalTextFilterSchema.describe("主肌群或辅助肌群的精确筛选值，只能使用动作库真实肌群 facet；腿部、下肢、上肢、全身等高层区域必须使用 bodyRegions。"),
+  bodyRegions: z.array(exerciseBodyRegionSchema)
+    .min(1)
+    .max(4)
+    .optional()
+    .describe("高层身体区域筛选。上肢用 upper_body，腿部或下肢用 lower_body，核心用 core，全身用 full_body。"),
   goalTag: optionalTextFilterSchema.describe("动作目标标签的精确筛选值。"),
   riskTag: optionalTextFilterSchema.describe("动作风险标签的精确筛选值。"),
   published: publishedInputSchema.describe("生产聊天只能查询发布态动作；省略时固定为 true，显式 false 会被拒绝。"),
@@ -39,11 +45,12 @@ const appliedFilterSchema = z.object({
     "equipment",
     "homeRequirement",
     "muscle",
+    "bodyRegions",
     "goalTag",
     "riskTag",
     "published",
   ]),
-  value: z.union([z.string(), z.boolean()]),
+  value: z.union([z.string(), z.boolean(), z.array(z.string())]),
 }).strict();
 
 const exerciseResourceSummarySchema = z.object({
@@ -87,6 +94,8 @@ const searchExerciseResourcesOutputSchema = z.object({
     equipment: z.string().optional(),
     homeRequirement: z.string().optional(),
     muscle: z.string().optional(),
+    bodyRegions: z.array(exerciseBodyRegionSchema).optional(),
+    expandedMuscles: z.array(z.string()),
     goalTag: z.string().optional(),
     riskTag: z.string().optional(),
     published: z.literal(true),
@@ -106,16 +115,18 @@ type SearchExerciseResourcesOutput = z.infer<typeof searchExerciseResourcesOutpu
 /** searchExerciseResourcesTool 是生产聊天可用的只读动作库事实查询能力，不产出训练候选资源。 */
 export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInput, SearchExerciseResourcesOutput>({
   name: "searchExerciseResources",
-  version: "0.1.0",
-  description: "Query published exercise resources by structured filters and return safe exercise summaries for ordinary text answers.",
+  version: "0.2.0",
+  description: "Query published exercise resources by structured filters and return safe exercise summaries for ordinary text answers. Use bodyRegions for broad body areas and muscle only for real exercise muscle facets.",
   whenToUse: [
-    "Use when the user asks for a list of published exercises that match explicit structured facts such as muscle, equipment, level, home requirement, goal tag, risk tag, category, or warmup/training/stretch suitability.",
-    "Successful results, including empty results, may support a final_answer through usedToolResultIds in the same run.",
+    "Use when the user asks for a list of published exercises that match explicit structured facts such as bodyRegions, real muscle facets, equipment, level, home requirement, goal tag, risk tag, category, or warmup/training/stretch suitability.",
+    "Use bodyRegions for broad areas: upper_body for upper body, lower_body for legs/lower body, core for core, and full_body for full body.",
+    "Successful results with satisfied=true may support a final_answer through usedToolResultIds in the same run.",
   ].join(" "),
   whenNotToUse: [
     "Do not use to generate routines, plans, patches, workout cards, saved artifacts, user memory, or execution candidate sets.",
     "Do not use for unpublished exercises, single-exercise detail lookup, unique-name resolution, full-library facet statistics, pagination, or semantic vector retrieval.",
-    "Failed or invalid-input results cannot support a successful final_answer.",
+    "Do not put broad area words such as leg, lower body, upper body, full body, 腿部, 下肢, 上肢, or 全身 into muscle; use bodyRegions instead.",
+    "Failed, invalid-input, or satisfied=false results cannot support a successful exercise recommendation final_answer.",
   ].join(" "),
   inputSchema: searchExerciseResourcesInputSchema,
   outputSchema: searchExerciseResourcesOutputSchema,
@@ -136,18 +147,19 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
       },
     },
     {
+      description: "Find lower-body training exercises.",
+      input: {
+        bodyRegions: ["lower_body"],
+        suitability: "training",
+        sort: "name_asc",
+      },
+    },
+    {
       description: "Find warmup exercises that can be done at home.",
       input: {
         suitability: "warmup",
         homeRequirement: "home_friendly",
         sort: "name_asc",
-      },
-    },
-    {
-      description: "Search published stretching resources by deterministic text.",
-      input: {
-        q: "肩部",
-        suitability: "stretch",
       },
     },
   ],
@@ -162,6 +174,7 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
       equipment: input.equipment,
       homeRequirement: input.homeRequirement,
       muscle: input.muscle,
+      bodyRegions: input.bodyRegions,
       goalTag: input.goalTag,
       riskTag: input.riskTag,
       published: input.published,
@@ -180,6 +193,8 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
         equipment: result.query.equipment,
         homeRequirement: result.query.homeRequirement,
         muscle: result.query.muscle,
+        bodyRegions: result.query.bodyRegions,
+        expandedMuscles: result.expandedMuscles,
         goalTag: result.query.goalTag,
         riskTag: result.query.riskTag,
         published: true,
@@ -193,15 +208,26 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
       exercises: result.exercises.map(toExerciseResourceOutput),
     };
   },
-  toFulfillment: (output) => ({
-    satisfied: true,
-    summary: `查询到 ${output.query.totalMatches} 个发布态动作，返回 ${output.query.returnedCount} 个摘要。`,
-  }),
+  toFulfillment: (output) => {
+    if (output.query.totalMatches === 0) {
+      return {
+        satisfied: false,
+        summary: "查询已执行，但没有满足当前筛选条件的发布态动作。",
+      };
+    }
+
+    return {
+      satisfied: true,
+      summary: `查询到 ${output.query.totalMatches} 个发布态动作，返回 ${output.query.returnedCount} 个摘要。`,
+    };
+  },
   toModelObservation: (output) => ({
     status: output.status,
     totalMatches: output.query.totalMatches,
     returnedCount: output.query.returnedCount,
     truncated: output.query.truncated,
+    bodyRegions: output.query.bodyRegions ?? [],
+    expandedMuscles: output.query.expandedMuscles,
     appliedFilters: output.query.appliedFilters,
     exercises: output.exercises.map((exercise) => ({
       id: exercise.id,
@@ -217,6 +243,8 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
     totalMatches: output.query.totalMatches,
     returnedCount: output.query.returnedCount,
     truncated: output.query.truncated,
+    bodyRegions: output.query.bodyRegions ?? [],
+    expandedMuscles: output.query.expandedMuscles,
     appliedFilters: output.query.appliedFilters,
     exercises: output.exercises.map((exercise) => ({
       id: exercise.id,
@@ -248,6 +276,8 @@ export function summarizeSearchExerciseResourcesTrace(output: SearchExerciseReso
     totalMatches: output.query.totalMatches,
     returnedCount: output.query.returnedCount,
     truncated: output.query.truncated,
+    bodyRegions: output.query.bodyRegions,
+    expandedMuscles: output.query.expandedMuscles,
     appliedFilters: output.query.appliedFilters.map((filter: ExerciseResourceAppliedFilter) => ({
       field: filter.field,
       value: filter.value,
