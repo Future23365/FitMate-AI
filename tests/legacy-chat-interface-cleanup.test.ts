@@ -20,6 +20,8 @@ describe("legacy chat AI interface cleanup", () => {
       "features/chat/api/chat-client.ts",
       "features/chat/hooks/use-chat-controller.ts",
       "features/chat/components/chat-page.tsx",
+      "features/chat/types.ts",
+      "features/chat/lib/assistant-suggestions.ts",
     ];
     const forbiddenPatterns = [
       "/api/ai/workout-plan",
@@ -31,6 +33,13 @@ describe("legacy chat AI interface cleanup", () => {
       "extractWorkoutRoutineTrigger",
       "extractExerciseRecommendationTrigger",
       "extractSuggestedReplyTrigger",
+      "requestChatStream",
+      "ChatStreamEvent",
+      "artifact_generating",
+      "artifact_validated",
+      "workout_patch",
+      "reference_diagnostic",
+      "response.body.getReader",
     ];
 
     for (const file of frontendFiles) {

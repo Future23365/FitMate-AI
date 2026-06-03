@@ -2,13 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { requestChatStream } from "@/features/chat/api/chat-client";
+import { requestDisabledChatResponse } from "@/features/chat/api/chat-client";
 import { readChatConversation, saveChatConversation } from "@/features/chat/lib/chat-history";
-import { readAssistantSuggestionsFromStreamEvent } from "@/features/chat/lib/assistant-suggestions";
 import type {
   ApiChatMessage,
   ChatMessage,
-  ChatStreamEvent,
 } from "@/features/chat/types";
 import {
   buildConversationSummaryContext,
@@ -20,7 +18,6 @@ import {
 import type { Exercise } from "@/lib/shared/exercises/types";
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
 import {
-  workoutPlanIntentSchema,
   type WorkoutPlanDraft,
   type WorkoutPlanIntent,
   type WorkoutRoutineDraft,
@@ -43,11 +40,6 @@ function createMessage(role: ChatMessage["role"], content: string): ChatMessage 
     content,
     createdAt: new Date().toISOString(),
   };
-}
-
-function parseRecommendationIntent(intent: unknown): WorkoutPlanIntent | null {
-  const parsed = workoutPlanIntentSchema.safeParse(intent);
-  return parsed.success ? parsed.data : null;
 }
 
 function readThinkingEnabledPreference() {
@@ -262,7 +254,7 @@ export function useChatController() {
     const timeout = window.setTimeout(() => controller.abort(), chatRequestTimeoutMs);
 
     try {
-      const response = await requestChatStream(
+      const data = await requestDisabledChatResponse(
         nextConversationId,
         assistantMessage.id,
         requestSummaryContext.latestUserMessage,
@@ -271,195 +263,28 @@ export function useChatController() {
         thinkingEnabled,
         controller.signal,
       );
+      const disabledMessage =
+        data.error || data.message || "聊天 AI 运行时已下线，当前页面仅保留历史会话和本地内容展示。";
 
-      if (!response.ok || !response.body) {
-        const data = (await response.json().catch(() => null)) as {
-          error?: string;
-          detail?: string;
-        } | null;
-
-        throw new Error(data?.error || "聊天请求失败，请稍后重试。");
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let fullContent = "";
-      let updatedConversationSummary = requestSummaryContext.summary;
-      let updatedConversationContext: FitnessConversationContext | null = null;
-
-      while (true) {
-        const { done, value } = await reader.read();
-
-        if (done) {
-          break;
-        }
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          if (!line.trim()) {
-            continue;
-          }
-
-          const streamEvent = JSON.parse(line) as ChatStreamEvent;
-
-          if (streamEvent.type === "done") {
-            if (typeof streamEvent.conversationSummary === "string") {
-              updatedConversationSummary = streamEvent.conversationSummary;
-              setConversationSummary({ summary: updatedConversationSummary });
-            }
-            if (streamEvent.conversationContext) {
-              updatedConversationContext = streamEvent.conversationContext;
-              setConversationContext(streamEvent.conversationContext);
-            }
-            continue;
-          }
-
-          if (streamEvent.type === "error") {
-            throw new Error(streamEvent.delta || "聊天请求失败，请稍后重试。");
-          }
-
-          if (streamEvent.type === "artifact_generating") {
-            if (streamEvent.artifactKind === "exercise_recommendation") {
-              setAutoRecommendationGenerating(assistantMessage.id);
-            } else {
-              setAutoPlanGenerating(assistantMessage.id);
-            }
-            continue;
-          }
-
-          if ((streamEvent.type === "artifact" || streamEvent.type === "artifact_validated") && streamEvent.payload) {
-            if (streamEvent.artifactKind === "exercise_recommendation" && "items" in streamEvent.payload) {
-              setBubbleExerciseRecommendations((prev) => ({
-                ...prev,
-                [assistantMessage.id]: streamEvent.payload as ExerciseRecommendationCard,
-              }));
-              const parsedIntent = parseRecommendationIntent(streamEvent.intent);
-              if (parsedIntent) {
-                setBubbleRecommendationIntents((prev) => ({
-                  ...prev,
-                  [assistantMessage.id]: parsedIntent,
-                }));
-              }
-              setAutoRecommendationGenerating(null);
-            }
-
-            if (streamEvent.artifactKind === "routine" && "sections" in streamEvent.payload) {
-              setBubbleRoutines((prev) => ({
-                ...prev,
-                [assistantMessage.id]: streamEvent.payload as WorkoutRoutineDraft,
-              }));
-              setAutoPlanGenerating(null);
-            }
-
-            if (streamEvent.artifactKind === "plan" && "days" in streamEvent.payload) {
-              setBubblePlans((prev) => ({
-                ...prev,
-                [assistantMessage.id]: streamEvent.payload as WorkoutPlanDraft,
-              }));
-              setAutoPlanGenerating(null);
-            }
-            continue;
-          }
-
-          if (streamEvent.type === "artifact_failed") {
-            setBubblePlanErrors((prev) => ({
-              ...prev,
-              [assistantMessage.id]: {
-                message: streamEvent.guidanceMessage || streamEvent.errorCode || "生成训练内容失败，请补充条件后重试。",
-                guidanceMessage: streamEvent.guidanceMessage,
-                suggestedReplies: streamEvent.suggestedReplies ?? [],
-                recoverable: Boolean(streamEvent.recoverable),
-              },
-            }));
-            setAutoPlanGenerating(null);
-            setAutoRecommendationGenerating(null);
-            continue;
-          }
-
-          if (streamEvent.type === "workout_patch" && streamEvent.payload) {
-            if (streamEvent.artifactKind === "routine" && "sections" in streamEvent.payload) {
-              setBubbleRoutines((prev) => ({
-                ...prev,
-                [assistantMessage.id]: streamEvent.payload as WorkoutRoutineDraft,
-              }));
-            }
-
-            if (streamEvent.artifactKind === "plan" && "days" in streamEvent.payload) {
-              setBubblePlans((prev) => ({
-                ...prev,
-                [assistantMessage.id]: streamEvent.payload as WorkoutPlanDraft,
-              }));
-            }
-            continue;
-          }
-
-          if (
-            streamEvent.type === "assistant_suggestions" ||
-            streamEvent.type === "suggested_replies" ||
-            streamEvent.type === "suggested_questions"
-          ) {
-            const assistantSuggestions = readAssistantSuggestionsFromStreamEvent(streamEvent);
-
-            if (assistantSuggestions.length > 0) {
-              updateAssistantMessage(assistantMessage.id, (message) => ({
-                ...message,
-                assistantSuggestions: message.assistantSuggestions?.length
-                  ? message.assistantSuggestions
-                  : assistantSuggestions,
-                suggestedReplies: message.suggestedReplies ?? assistantSuggestions.map((suggestion) => suggestion.message),
-              }));
-            }
-            continue;
-          }
-
-          if (streamEvent.type === "reasoning") {
-            updateAssistantMessage(assistantMessage.id, (message) => ({
-              ...message,
-              isReasoning: true,
-            }));
-          }
-
-          if (streamEvent.type === "content") {
-            fullContent += streamEvent.delta ?? "";
-            updateAssistantMessage(assistantMessage.id, (message) => ({
-              ...message,
-              content: `${message.content}${streamEvent.delta ?? ""}`,
-              isReasoning: false,
-            }));
-          }
-        }
-      }
-
+      setError(disabledMessage);
       updateAssistantMessage(assistantMessage.id, (message) => ({
         ...message,
+        content: message.content || disabledMessage,
         isReasoning: false,
       }));
-
-      setConversationContext(
-        updatedConversationContext ??
-          buildFitnessConversationContext([
-            ...requestMessages,
-            { role: "assistant", content: fullContent },
-          ]),
-      );
     } catch (requestError) {
       const isAbortError =
         requestError instanceof DOMException && requestError.name === "AbortError";
+      const errorMessage = isAbortError
+        ? "聊天请求超时，请稍后重试。"
+        : requestError instanceof Error
+          ? requestError.message
+          : "聊天请求失败，请稍后重试。";
 
-      setError(
-        isAbortError
-          ? "聊天请求超时，请稍后重试。"
-          : requestError instanceof Error
-            ? requestError.message
-            : "聊天请求失败，请稍后重试。",
-      );
+      setError(errorMessage);
       updateAssistantMessage(assistantMessage.id, (message) => ({
         ...message,
-        content: message.content || "请求失败，请检查网络或服务端配置后重试。",
+        content: message.content || errorMessage,
         isReasoning: false,
       }));
     } finally {

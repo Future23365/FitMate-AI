@@ -1,23 +1,17 @@
-import type { ChatMessage, ChatStreamEvent } from "@/features/chat/types";
+import type { ChatMessage } from "@/features/chat/types";
 import {
   assistantSuggestionListSchema,
   type AssistantSuggestion,
 } from "@/lib/shared/chat/assistant-suggestions";
 
-// 前端建议适配层只做协议兼容，不重新解释业务来源，避免 UI 同时消费新旧两套字段。
-export function readAssistantSuggestionsFromStreamEvent(event: ChatStreamEvent): AssistantSuggestion[] {
-  if (event.type === "assistant_suggestions") {
-    const parsed = assistantSuggestionListSchema.safeParse(event.assistantSuggestions);
-    return parsed.success ? parsed.data : [];
-  }
+// normalizeAssistantSuggestions 只校验统一建议对象，不再消费旧 Agent stream 事件。
+export function normalizeAssistantSuggestions(value: unknown): AssistantSuggestion[] {
+  const parsed = assistantSuggestionListSchema.safeParse(value);
 
-  const rawReplies =
-    event.type === "suggested_replies"
-      ? event.suggestedReplies
-      : event.type === "suggested_questions"
-        ? event.suggestedQuestions
-        : [];
+  return parsed.success ? parsed.data : [];
+}
 
+function createLegacySuggestionsFromReplies(rawReplies: unknown): AssistantSuggestion[] {
   if (!Array.isArray(rawReplies)) {
     return [];
   }
@@ -38,11 +32,8 @@ export function readAssistantSuggestionsFromStreamEvent(event: ChatStreamEvent):
 
 export function getMessageAssistantSuggestions(message: ChatMessage): AssistantSuggestion[] {
   if (message.assistantSuggestions?.length) {
-    return message.assistantSuggestions;
+    return normalizeAssistantSuggestions(message.assistantSuggestions);
   }
 
-  return readAssistantSuggestionsFromStreamEvent({
-    type: "suggested_replies",
-    suggestedReplies: message.suggestedReplies ?? message.suggestedQuestions ?? [],
-  });
+  return createLegacySuggestionsFromReplies(message.suggestedReplies ?? message.suggestedQuestions ?? []);
 }

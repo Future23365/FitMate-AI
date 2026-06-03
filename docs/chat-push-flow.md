@@ -36,7 +36,7 @@ HTTP 503 JSON: chat_ai_disabled
 
 ## 3. 前端发送聊天消息
 
-前端当前仍通过 `requestChatStream()` 调用 `/api/chat`，这是历史命名保留。请求体包含：
+前端当前通过 `requestDisabledChatResponse()` 以普通 JSON 请求调用 `/api/chat`。请求体包含：
 
 - `conversationId`
 - `responseMessageId`
@@ -45,7 +45,7 @@ HTTP 503 JSON: chat_ai_disabled
 - `conversationContext`
 - `thinkingEnabled`
 
-由于接口当前返回普通 JSON 错误而不是 NDJSON stream，前端会走非 2xx 失败处理路径。页面不得伪造旧 stream 事件、旧 tool result、训练卡片或模型回复。
+由于接口当前返回普通 JSON 禁用响应而不是 NDJSON stream，前端只展示非 AI 的不可用状态。页面不得读取旧 stream、伪造旧 tool result、训练卡片或模型回复。
 
 ## 4. `/api/chat` 服务端职责
 

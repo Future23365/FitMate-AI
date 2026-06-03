@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  requestChatStream,
+  requestDisabledChatResponse,
 } from "@/features/chat/api/chat-client";
 import { saveChatConversation } from "@/features/chat/lib/chat-history";
 import {
@@ -33,10 +33,13 @@ describe("frontend API clients", () => {
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
   });
 
-  it("passes chat stream payload without calling legacy AI routes", async () => {
+  it("passes disabled chat payload without calling legacy AI routes or stream readers", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(new Response("stream", { status: 200 }));
+      .mockResolvedValueOnce(Response.json(
+        { ok: false, code: "chat_ai_disabled", error: "聊天 AI 运行时已下线。" },
+        { status: 503 },
+      ));
     vi.stubGlobal("fetch", fetchMock);
 
     const messages = createApiChatMessages();
@@ -45,8 +48,11 @@ describe("frontend API clients", () => {
     const signal = new AbortController().signal;
 
     await expect(
-      requestChatStream("chat-1", "assistant-1", messages[0].content, summary.summary, context, false, signal),
-    ).resolves.toBeInstanceOf(Response);
+      requestDisabledChatResponse("chat-1", "assistant-1", messages[0].content, summary.summary, context, false, signal),
+    ).resolves.toMatchObject({
+      code: "chat_ai_disabled",
+      error: "聊天 AI 运行时已下线。",
+    });
 
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({
       responseMessageId: "assistant-1",

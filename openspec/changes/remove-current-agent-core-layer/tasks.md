@@ -42,3 +42,10 @@
 - [x] 6.4 运行 `npm run typecheck`。
 - [x] 6.5 运行相关自动化测试，至少覆盖架构缺席扫描和公共领域服务导入。
 - [x] 6.6 如删除影响构建、路由或模块边界，运行 `npm run build` 或说明无法运行原因。
+
+## 7. 前端旧 stream 合同收尾
+
+- [x] 7.1 将首页聊天前端到 `/api/chat` 的调用收敛为普通 JSON 禁用响应请求，删除 `requestChatStream` 命名和 `response.body.getReader()` 旧 NDJSON 读取。
+- [x] 7.2 删除 `ChatStreamEvent` 中旧 artifact / patch / reference diagnostic 事件类型，并让建议适配层只消费消息字段和统一建议对象。
+- [x] 7.3 更新前端 API、建议适配和旧接口清理测试，防止旧 stream parser、旧 artifact stream event 或旧 chat AI route 再次进入生产前端。
+- [x] 7.4 运行 `openspec validate remove-current-agent-core-layer --strict`、相关自动化测试和 `npm run typecheck`。

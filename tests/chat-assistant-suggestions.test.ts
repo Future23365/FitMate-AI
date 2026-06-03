@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   getMessageAssistantSuggestions,
-  readAssistantSuggestionsFromStreamEvent,
+  normalizeAssistantSuggestions,
 } from "@/features/chat/lib/assistant-suggestions";
 
 describe("chat assistant suggestions frontend adapter", () => {
@@ -31,10 +31,12 @@ describe("chat assistant suggestions frontend adapter", () => {
     ]);
   });
 
-  it("keeps legacy suggested_replies compatible without duplicating unified events", () => {
+  it("keeps legacy suggested replies from saved messages without stream events", () => {
     expect(
-      readAssistantSuggestionsFromStreamEvent({
-        type: "suggested_replies",
+      getMessageAssistantSuggestions({
+        id: "m1",
+        role: "assistant",
+        content: "需要补充条件。",
         suggestedReplies: ["我在家自重练 30 分钟"],
       }),
     ).toEqual([
@@ -48,21 +50,18 @@ describe("chat assistant suggestions frontend adapter", () => {
     ]);
   });
 
-  it("reads unified suggestion events without depending on Agent projection", () => {
+  it("validates unified suggestion objects without depending on Agent projection", () => {
     expect(
-      readAssistantSuggestionsFromStreamEvent({
-        type: "assistant_suggestions",
-        assistantSuggestions: [
-          {
-            label: "查看动作",
-            message: "查看第一个动作",
-            kind: "next_action",
-            blocking: false,
-            source: "exercise_recommendation",
-            targetOperation: "view_artifact",
-          },
-        ],
-      }),
+      normalizeAssistantSuggestions([
+        {
+          label: "查看动作",
+          message: "查看第一个动作",
+          kind: "next_action",
+          blocking: false,
+          source: "exercise_recommendation",
+          targetOperation: "view_artifact",
+        },
+      ]),
     ).toEqual([
       expect.objectContaining({
         label: "查看动作",
