@@ -503,6 +503,188 @@ describe("chat service agent text flow boundary", () => {
     }));
   });
 
+  it("recovers from duplicate successful read/import without resource duplicate hard failure", async () => {
+    const readInput = { factRef: "fact-previous" };
+    const searchInput = {
+      bodyRegions: ["lower_body"],
+      suitability: "training",
+      excludeExerciseIds: ["squat", "lunge"],
+      sort: "name_asc",
+    };
+    const expectedSearchToolResultId = createToolResultId(
+      "chat_assistant-refresh-duplicate",
+      "searchExerciseResources",
+      hashNormalizedInput(searchInput),
+    );
+    exerciseRecommendationFactStoreMocks.listRecentExerciseRecommendationFactSummaries.mockResolvedValueOnce([
+      createRecentExerciseFactSummary(),
+    ]);
+    exerciseRecommendationFactStoreMocks.readExerciseRecommendationFact.mockResolvedValueOnce({
+      ok: true,
+      fact: createReadableExerciseFact(),
+    });
+    exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockResolvedValueOnce(createExerciseResourceSearchResult({
+      query: {
+        bodyRegions: ["lower_body"],
+        suitability: "training",
+        excludeExerciseIds: ["squat", "lunge"],
+        published: true,
+        sort: "name_asc",
+      },
+      appliedFilters: [
+        { field: "bodyRegions", value: ["lower_body"] },
+        { field: "suitability", value: "training" },
+        { field: "excludeExerciseIds", value: ["squat", "lunge"] },
+        { field: "published", value: true },
+      ],
+      excludedCount: 2,
+      totalMatches: 1,
+      returnedCount: 1,
+      exercises: [
+        {
+          ...createExerciseResourceSearchResult().exercises[0],
+          id: "step-up",
+          nameZh: "台阶上步",
+        },
+      ],
+    }));
+    const prepared = prepareChatRequest({
+      conversationId: "conversation-refresh",
+      responseMessageId: "assistant-refresh-duplicate",
+      latestUserMessage: "换一个",
+      conversationSummary: "",
+    });
+    const planner = new ReplayPlanner([
+      { type: "tool_call", toolName: "readRecentExerciseRecommendationFact", input: readInput },
+      { type: "tool_call", toolName: "readRecentExerciseRecommendationFact", input: readInput },
+      { type: "tool_call", toolName: "searchExerciseResources", input: searchInput },
+      { type: "final_answer", content: "这次可以参考台阶上步。", usedToolResultIds: [expectedSearchToolResultId] },
+    ]);
+
+    const response = await createAgentTextChatResponse({
+      request: prepared,
+      currentUser: { id: "user-1" },
+      planner,
+    });
+    const events = await readNdjsonEvents(response);
+    const trace = listAiTracesForUser("user-1")[0];
+    const serializedTrace = JSON.stringify(trace);
+    const duplicateFeedback = planner.calls[2].observations.find((observation) => (
+      observation.source === "runtime"
+      && JSON.stringify(observation.content).includes(AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS)
+    ));
+
+    expect(exerciseRecommendationFactStoreMocks.readExerciseRecommendationFact).toHaveBeenCalledTimes(1);
+    expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
+      bodyRegions: ["lower_body"],
+      suitability: "training",
+      excludeExerciseIds: ["squat", "lunge"],
+      published: true,
+    }));
+    expect(duplicateFeedback).toMatchObject({
+      toolName: "readRecentExerciseRecommendationFact",
+      content: expect.objectContaining({
+        code: AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS,
+      }),
+    });
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "tool_result",
+        toolName: "readRecentExerciseRecommendationFact",
+      }),
+      expect.objectContaining({
+        type: "tool_result",
+        toolName: "searchExerciseResources",
+        content: expect.objectContaining({
+          excludedCount: 2,
+          exercises: [
+            expect.objectContaining({ id: "step-up" }),
+          ],
+        }),
+      }),
+      { type: "content", content: "这次可以参考台阶上步。" },
+      { type: "done" },
+    ]);
+    expect(serializedTrace).toContain(AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS);
+    expect(serializedTrace).not.toContain("Resource id is already registered in the current run.");
+    expect(serializedTrace).not.toContain("\"invalid_action\"");
+    expect(JSON.stringify(events)).not.toContain("聊天生成失败");
+  });
+
+  it("settles a satisfied exercise search final answer through usedToolResultIds", async () => {
+    const searchInput = {
+      bodyRegions: ["lower_body"],
+      muscle: "胸部",
+      suitability: "training",
+      sort: "name_asc",
+    };
+    const expectedToolResultId = createToolResultId(
+      "chat_assistant-leg-chest",
+      "searchExerciseResources",
+      hashNormalizedInput(searchInput),
+    );
+    exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockResolvedValueOnce(createExerciseResourceSearchResult({
+      query: {
+        bodyRegions: ["lower_body"],
+        muscle: "胸部",
+        suitability: "training",
+        published: true,
+        sort: "name_asc",
+      },
+      appliedFilters: [
+        { field: "bodyRegions", value: ["lower_body"] },
+        { field: "muscle", value: "胸部" },
+        { field: "suitability", value: "training" },
+        { field: "published", value: true },
+      ],
+      totalMatches: 1,
+      returnedCount: 1,
+      exercises: [
+        {
+          ...createExerciseResourceSearchResult().exercises[0],
+          id: "chest-leg-drive",
+          nameZh: "三点支撑胸推动作",
+          primaryMusclesZh: ["胸部"],
+          secondaryMusclesZh: ["股四头肌"],
+        },
+      ],
+    }));
+    const prepared = prepareChatRequest({
+      responseMessageId: "assistant-leg-chest",
+      latestUserMessage: "找既练腿又练胸肌的动作",
+      conversationSummary: "",
+    });
+    const planner = new ReplayPlanner([
+      { type: "tool_call", toolName: "searchExerciseResources", input: searchInput },
+      { type: "final_answer", content: "可以参考三点支撑胸推动作。", usedToolResultIds: [expectedToolResultId] },
+    ]);
+
+    const response = await createAgentTextChatResponse({
+      request: prepared,
+      currentUser: { id: "user-1" },
+      planner,
+    });
+    const events = await readNdjsonEvents(response);
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "tool_result",
+        toolName: "searchExerciseResources",
+        toolResultId: expectedToolResultId,
+      }),
+      { type: "content", content: "可以参考三点支撑胸推动作。" },
+      { type: "done" },
+    ]);
+    expect(listAiTracesForUser("user-1")[0]).toMatchObject({
+      status: "success",
+      finalDecision: {
+        status: "success",
+        reason: "completed",
+        responseType: "final_answer",
+      },
+    });
+  });
+
   it("explains shortage when no more exercises remain after excluding displayed ids", async () => {
     const readInput = { factRef: "fact-previous" };
     const searchInput = {

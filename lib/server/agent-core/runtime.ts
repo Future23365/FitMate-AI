@@ -11,7 +11,13 @@ import { estimateJsonTokens } from "./canonical-json";
 import { executeTool, hashNormalizedInput } from "./executor";
 import { createToolExecutionIdempotencyKey } from "./idempotency";
 import { createRegistrySnapshot } from "./manifest-hardening";
-import { compressPlannerObservations, createInvalidActionObservation, createRuntimeErrorObservation, createToolObservation } from "./observation";
+import {
+  compressPlannerObservations,
+  createDuplicateSuccessToolCallObservation,
+  createInvalidActionObservation,
+  createRuntimeErrorObservation,
+  createToolObservation,
+} from "./observation";
 import { evaluateToolPolicy } from "./policy-guard";
 import { redactJsonValue } from "./redaction";
 import { validateAndRegisterProducedResources, validateConsumedResources } from "./resource-contract";
@@ -24,6 +30,7 @@ import type {
   AgentRunResult,
   ConfirmationResumeInput,
   DynamicConfirmationEvaluator,
+  JsonValue,
   RegistrySnapshot,
   ToolCallAction,
   ToolError,
@@ -291,6 +298,35 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
       });
     }
     toolCallCounts.set(failureKey, previousToolCallCount + 1);
+
+    const previousSatisfiedResult = findSatisfiedToolResult(toolResults, {
+      toolName: tool.name,
+      toolVersion: tool.version,
+      normalizedInputHash,
+    });
+    if (previousSatisfiedResult) {
+      invalidActions += 1;
+      observations.push(createDuplicateSuccessToolCallObservation({
+        toolName: tool.name,
+        toolVersion: tool.version,
+        normalizedInputHash,
+        previousToolResultId: previousSatisfiedResult.toolResultId,
+        repeatCount: previousToolCallCount + 1,
+        producedResources: previousSatisfiedResult.fulfillment.producedResources as JsonValue | undefined,
+      }));
+
+      if (invalidActions > repairLimit) {
+        traceEvents.push(createBudgetEvent("repair_attempts", "exhausted", invalidActions, repairLimit, step, AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS));
+        return finish(failedResult(input.run.runId, toolResults, observations, traceEvents, step, createToolError(
+          AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
+          "Agent runtime reached the duplicate successful tool call repair limit.",
+          { lastCode: AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS },
+        )));
+      }
+
+      traceEvents.push(createBudgetEvent("repair_attempts", "used", invalidActions, repairLimit, step, AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS));
+      continue;
+    }
 
     const previousFailure = nonRetryableFailures.get(failureKey);
 
@@ -726,6 +762,23 @@ function createFailureToolResult(
       summary: `Tool "${toolName}" failed with ${error.code}.`,
     },
   };
+}
+
+function findSatisfiedToolResult(
+  toolResults: ToolResult[],
+  input: {
+    toolName: string;
+    toolVersion: string;
+    normalizedInputHash: string;
+  },
+): Extract<ToolResult, { ok: true }> | undefined {
+  return toolResults.find((result): result is Extract<ToolResult, { ok: true }> => (
+    result.toolName === input.toolName
+    && result.toolVersion === input.toolVersion
+    && result.normalizedInputHash === input.normalizedInputHash
+    && result.ok
+    && result.fulfillment.satisfied
+  ));
 }
 
 function finalizeToolResultResources(input: {

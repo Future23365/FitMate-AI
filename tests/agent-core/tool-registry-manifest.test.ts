@@ -182,6 +182,8 @@ describe("agent-core ToolRegistry and manifest", () => {
       };
       additionalProperties?: boolean;
     };
+    const readManifestJson = JSON.stringify(readFactManifest);
+    const searchExamplesJson = JSON.stringify(searchManifest?.examples ?? []);
     const manifestJson = JSON.stringify(manifests);
 
     expect(manifests.map((tool) => tool.name)).toEqual([
@@ -203,7 +205,19 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(JSON.stringify(readFactManifest)).toContain("displayedExerciseIds");
     expect(JSON.stringify(readFactManifest)).toContain("recentExerciseRecommendationFacts");
     expect(JSON.stringify(readFactManifest)).toContain("run metadata");
+    expect(readManifestJson).toContain("Planner 判断");
+    expect(readManifestJson).toContain("不要再次调用本 tool");
+    expect(readManifestJson).not.toContain("换一个");
+    expect(readManifestJson).not.toContain("换一批");
+    expect(readManifestJson).not.toContain("再推荐一批");
     expect(inputSchema.properties).toHaveProperty("q");
+    expect(inputSchema.properties).not.toHaveProperty("maxReturned");
+    expect(inputSchema.properties).not.toHaveProperty("limit");
+    expect(inputSchema.properties).not.toHaveProperty("page");
+    expect(inputSchema.properties).not.toHaveProperty("pageSize");
+    expect(searchExamplesJson).not.toContain("maxReturned");
+    expect(searchExamplesJson).not.toContain("limit");
+    expect(searchExamplesJson).not.toContain("pageSize");
     expect(inputSchema.properties.suitability.enum).toEqual(["warmup", "training", "stretch"]);
     expect(inputSchema.properties.level.description).toContain("beginner/初级");
     expect(inputSchema.properties.level.description).toContain("expert/高级");

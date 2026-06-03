@@ -1,4 +1,5 @@
 import type { AgentObservation, JsonValue, ToolError, ToolResult } from "./contracts";
+import { AGENT_ERROR_CODES } from "./errors";
 import { redactJsonValue } from "./redaction";
 
 /** createToolObservation 将 ToolResult 投影成 Planner 可见安全 observation，不回灌完整 output。 */
@@ -46,6 +47,41 @@ export function createInvalidActionObservation(error: ToolError): AgentObservati
       code: error.code,
       message: error.message,
       details: error.details,
+    }),
+  };
+}
+
+/** createDuplicateSuccessToolCallObservation 提醒 Planner 复用同等成功结果或提交改变后的合法 input。 */
+export function createDuplicateSuccessToolCallObservation(input: {
+  toolName: string;
+  toolVersion: string;
+  normalizedInputHash: string;
+  previousToolResultId: string;
+  repeatCount: number;
+  producedResources?: JsonValue;
+}): AgentObservation {
+  return {
+    type: "invalid_action",
+    source: "runtime",
+    toolResultId: input.previousToolResultId,
+    toolName: input.toolName,
+    ok: false,
+    content: redactJsonValue({
+      code: AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS,
+      message: "当前 run 已经有相同 toolName、toolVersion 和 input 的成功结果；不要再次调用同一 tool 和同一 input。",
+      details: {
+        toolName: input.toolName,
+        toolVersion: input.toolVersion,
+        normalizedInputHash: input.normalizedInputHash,
+        previousToolResultId: input.previousToolResultId,
+        repeatCount: input.repeatCount,
+        producedResources: input.producedResources,
+        recoverableActions: [
+          "基于 previousToolResultId 输出合法 final_answer 或 ask_user。",
+          "调用其他当前可见且合法的 tool。",
+          "如果确实需要新事实，提交改变后的合法 tool input。",
+        ],
+      },
     }),
   };
 }

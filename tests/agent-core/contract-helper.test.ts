@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { defineTool } from "@/lib/server/agent-core/define-tool";
 import { m1FixtureTools, readRecentExerciseRecommendationFactTool, searchExerciseResourcesTool } from "@/lib/server/agent-tools";
+import { toolToManifest } from "@/lib/server/agent-core/manifest";
 import { resourceProducerFixtureTool } from "@/lib/server/agent-tools/fixture/m1-safety-fixture.tools";
 
 import { checkToolContractForProduction, checkToolRuntimeSafety } from "./contract-test-helper";
@@ -63,6 +64,39 @@ describe("agent-core contract test helper", () => {
   it("accepts the production exercise resource and fact tools contract", () => {
     expect(checkToolContractForProduction(readRecentExerciseRecommendationFactTool)).toMatchObject({ ok: true, issues: [] });
     expect(checkToolContractForProduction(searchExerciseResourcesTool)).toMatchObject({ ok: true, issues: [] });
+  });
+
+  it("keeps output-only fields out of input schema, examples and model observation", () => {
+    const manifest = toolToManifest(searchExerciseResourcesTool);
+    const inputSchema = manifest.inputJsonSchema as { properties?: Record<string, unknown> };
+    const forbiddenInputFields = ["maxReturned", "limit", "take", "offset", "page", "pageSize"];
+    const examplesJson = JSON.stringify(manifest.examples ?? []);
+    const modelObservation = searchExerciseResourcesTool.toModelObservation?.({
+      status: "succeeded",
+      query: {
+        published: true,
+        sort: "name_asc",
+        expandedMuscles: [],
+        appliedFilters: [{ field: "published", value: true }],
+        totalMatches: 1,
+        returnedCount: 1,
+        maxReturned: 12,
+        truncated: false,
+        excludedCount: 0,
+      },
+      exercises: [],
+    } as never, {
+      runId: "run-contract-output-only",
+      actor: { userId: "contract-user" },
+      toolCallId: "tc_contract",
+    });
+    const modelObservationJson = JSON.stringify(modelObservation);
+
+    for (const field of forbiddenInputFields) {
+      expect(inputSchema.properties).not.toHaveProperty(field);
+      expect(examplesJson).not.toContain(field);
+      expect(modelObservationJson).not.toContain(field);
+    }
   });
 
   it("catches missing projection and unsafe examples", () => {

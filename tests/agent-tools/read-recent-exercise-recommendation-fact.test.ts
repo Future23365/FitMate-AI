@@ -83,6 +83,32 @@ describe("readRecentExerciseRecommendationFact tool", () => {
         }),
       ],
     });
+
+    const readObservation = result.observations.find((observation) => observation.toolName === "readRecentExerciseRecommendationFact");
+    const serializedObservation = JSON.stringify(readObservation);
+
+    expect(readObservation).toMatchObject({
+      ok: true,
+      content: expect.objectContaining({
+        factRef: "fact-1",
+        messageId: "assistant-1",
+        displayedExerciseIds: ["squat", "lunge"],
+        currentRunImport: expect.objectContaining({
+          imported: true,
+          note: expect.stringContaining("已成功导入当前 run"),
+        }),
+        filterSummary: expect.objectContaining({
+          bodyRegions: ["lower_body"],
+          appliedFilters: expect.arrayContaining([
+            { field: "bodyRegions", value: ["lower_body"] },
+          ]),
+        }),
+      }),
+    });
+    expect(serializedObservation).toContain("searchExerciseResources.excludeExerciseIds");
+    expect(serializedObservation).not.toContain("displayedExercises");
+    expect(serializedObservation).not.toContain("\"query\"");
+    expect(serializedObservation).not.toContain("maxReturned");
   });
 
   it("returns an unsatisfied structured result for inaccessible facts", async () => {

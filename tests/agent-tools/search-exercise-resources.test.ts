@@ -285,6 +285,10 @@ describe("searchExerciseResources tool", () => {
       { bodyRegions: ["legs"] },
       { page: 1 },
       { limit: 20 },
+      { maxReturned: 20 },
+      { take: 20 },
+      { offset: 20 },
+      { pageSize: 20 },
       { candidateUse: "routine" },
       { resultRequirements: { minCandidates: 3 } },
       { sort: "semantic_desc" },
@@ -475,6 +479,8 @@ describe("searchExerciseResources tool", () => {
       steps: 2,
     });
     const surfaces = JSON.stringify({ observation, events });
+    const modelObservationJson = JSON.stringify(observation);
+    const userProjectionEventJson = JSON.stringify(events[0]);
 
     expect(observation).toMatchObject({
       toolResultId: result.toolResultId,
@@ -484,6 +490,8 @@ describe("searchExerciseResources tool", () => {
         totalMatches: 1,
         returnedCount: 1,
         truncated: false,
+        outputSummaryNote: expect.stringContaining("不是下一轮 searchExerciseResources input"),
+        finalAnswerGrounding: expect.stringContaining("final_answer.usedToolResultIds"),
       }),
     });
     expect(events[0]).toMatchObject({
@@ -492,8 +500,12 @@ describe("searchExerciseResources tool", () => {
       content: expect.objectContaining({
         totalMatches: 1,
         returnedCount: 1,
+        maxReturned: 12,
       }),
     });
+    expect(modelObservationJson).not.toContain("maxReturned");
+    expect(modelObservationJson).not.toContain("pageSize");
+    expect(userProjectionEventJson).toContain("maxReturned");
     expect(surfaces).not.toContain("reviewStatus");
     expect(surfaces).not.toContain("secondaryMuscles");
     expect(surfaces).not.toContain("instructionsZh");
