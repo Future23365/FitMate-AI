@@ -1,0 +1,102 @@
+import { AgentContractError, AGENT_ERROR_CODES } from "./errors";
+import type { Tool, ToolPolicy } from "./contracts";
+
+/** defineTool 在注册前校验 tool 合同完整性，防止不完整能力进入 Planner 或 Executor。 */
+export function defineTool<Input, Output>(tool: Tool<Input, Output>): Tool<Input, Output> {
+  assertNonEmptyString(tool.name, "name");
+  assertNonEmptyString(tool.version, "version");
+  assertNonEmptyString(tool.description, "description");
+  assertNonEmptyString(tool.whenToUse, "whenToUse");
+  assertNonEmptyString(tool.whenNotToUse, "whenNotToUse");
+  assertZodSchema(tool.inputSchema, "inputSchema");
+  assertZodSchema(tool.outputSchema, "outputSchema");
+  assertPolicy(tool.policy);
+
+  if (typeof tool.handler !== "function") {
+    throw new AgentContractError(
+      AGENT_ERROR_CODES.INVALID_TOOL_DEFINITION,
+      "Tool handler must be a function.",
+      { details: { field: "handler" } },
+    );
+  }
+
+  return Object.freeze({ ...tool });
+}
+
+/** isM0ExecutablePolicy 表达 M0 只能执行低风险、无需确认、只读 tool 的安全边界。 */
+export function isM0ExecutablePolicy(policy: ToolPolicy): boolean {
+  return policy.sideEffect === "read" && policy.riskLevel === "low" && policy.confirmation === "never";
+}
+
+/** assertM0ExecutableTool 在执行前阻断 write、高风险或需要确认的 tool。 */
+export function assertM0ExecutableTool(tool: Tool) {
+  if (!isM0ExecutablePolicy(tool.policy)) {
+    throw new AgentContractError(
+      AGENT_ERROR_CODES.UNSUPPORTED_M0_CAPABILITY,
+      "M0 runtime can only execute read, low risk tools that never require confirmation.",
+      {
+        details: {
+          toolName: tool.name,
+          sideEffect: tool.policy.sideEffect,
+          riskLevel: tool.policy.riskLevel,
+          confirmation: tool.policy.confirmation,
+        },
+      },
+    );
+  }
+}
+
+function assertNonEmptyString(value: unknown, field: string) {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new AgentContractError(
+      AGENT_ERROR_CODES.INVALID_TOOL_DEFINITION,
+      `Tool ${field} must be a non-empty string.`,
+      { details: { field } },
+    );
+  }
+}
+
+function assertZodSchema(value: unknown, field: string) {
+  if (!value || typeof (value as { safeParse?: unknown }).safeParse !== "function") {
+    throw new AgentContractError(
+      AGENT_ERROR_CODES.INVALID_TOOL_DEFINITION,
+      `Tool ${field} must be a Zod schema.`,
+      { details: { field } },
+    );
+  }
+}
+
+function assertPolicy(policy: ToolPolicy | undefined) {
+  if (!policy) {
+    throw new AgentContractError(
+      AGENT_ERROR_CODES.INVALID_TOOL_DEFINITION,
+      "Tool policy is required.",
+      { details: { field: "policy" } },
+    );
+  }
+
+  if (!["read", "write"].includes(policy.sideEffect)) {
+    throw new AgentContractError(
+      AGENT_ERROR_CODES.INVALID_TOOL_DEFINITION,
+      "Tool policy.sideEffect is invalid.",
+      { details: { field: "policy.sideEffect" } },
+    );
+  }
+
+  if (!["low", "medium", "high"].includes(policy.riskLevel)) {
+    throw new AgentContractError(
+      AGENT_ERROR_CODES.INVALID_TOOL_DEFINITION,
+      "Tool policy.riskLevel is invalid.",
+      { details: { field: "policy.riskLevel" } },
+    );
+  }
+
+  if (!["never", "required"].includes(policy.confirmation)) {
+    throw new AgentContractError(
+      AGENT_ERROR_CODES.INVALID_TOOL_DEFINITION,
+      "Tool policy.confirmation is invalid.",
+      { details: { field: "policy.confirmation" } },
+    );
+  }
+}
+

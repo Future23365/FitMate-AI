@@ -1251,3 +1251,30 @@ core 使用 AgentAction。
 ```
 
 这样可以保持长期架构正确，又不会在第一阶段被过多抽象拖慢。
+
+---
+
+## 28. M0 合同内核落地状态（2026-06-03 12:51:48 CST）
+
+本次 M0 已按上述“第一阶段先打穿通用 runtime + registry + validator + executor + 默认 renderer”的口径落地到 `lib/server/agent-core/**`，并新增 `lib/server/agent-planners/replay-planner.ts`、`lib/server/agent-tools/fixture/read-fixture.tool.ts` 和 `lib/server/agent-tools/index.ts`。
+
+M0 当前只证明以下闭环：
+
+```txt
+Tool Bundle -> ToolRegistry -> manifest -> PlannerPort / ReplayPlanner
+-> Action Validator -> Executor -> Observation -> Runtime -> Response Renderer
+```
+
+当前实现刻意保留的边界：
+
+```txt
+[x] 不复用旧 agent-orchestrator runtime。
+[x] 不接入 production /api/chat。
+[x] 不接入真实 LLM adapter。
+[x] 不注册真实业务 tool。
+[x] 不执行 write / high risk / confirmation-required tool。
+[x] 不消费 ResourceStore 或跨 run resource。
+[x] 不根据用户自然语言关键词、正则或同义词选择 tool。
+```
+
+M0 的 fixture read tool 只用于合同闭环测试，不代表动作库、训练生成、保存、用户记忆或任何真实业务能力。后续如果要接入生产聊天，应另起 M1/M2 change，先补 ResourceStore、Policy Guard、confirmation、Trace/Replay、真实 `LlmPlanner` 和生产回归测试，再接真实业务 tool。
