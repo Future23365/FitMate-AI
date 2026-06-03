@@ -129,6 +129,16 @@ type SearchExerciseResourcesInput = {
 | `published` | `boolean` | 否 | 是否只返回已发布动作；缺省为 `true` |
 | `sort` | 枚举 | 否 | 排序方式；缺省为 `name_asc` |
 
+### 精确 facet 可用值摘要
+
+`searchExerciseResources` 的精确 facet 字段会直接匹配数据库字段，不做服务端同义词或旧别名改写。模型可见说明和 examples 必须使用当前动作库真实值。
+
+| 字段 | 当前可用值摘要 |
+| --- | --- |
+| `level` | `beginner` / `初级`、`intermediate` / `中级`、`expert` / `高级` |
+| `equipment` | `body only` / `自重`、`dumbbell` / `哑铃`、`barbell` / `杠铃`、`bands` / `弹力带`、`machine` / `固定器械`、`cable` / `绳索器械`、`kettlebells` / `壶铃`、`medicine ball` / `药球`、`exercise ball` / `健身球`、`foam roll` / `泡沫轴`、`e-z curl bar` / `EZ 曲杆`、`other` / `其他` |
+| `homeRequirement` | `none` / `无器械`、`floor` / `地面/瑜伽垫`、`support` / `椅子/墙面/支撑物`、`small_equipment` / `居家小器械`、`gym_equipment` / `健身房器械`、`partner` / `搭档辅助`、`outdoor` / `户外场地` |
+
 ### 入参默认值
 
 | 字段 | 默认值 | 说明 |
@@ -310,8 +320,8 @@ type SearchExerciseResourcesFulfillment = {
 
 ```ts
 {
-  "equipment": "bodyweight",
-  "homeRequirement": "no_equipment",
+  "equipment": "body only",
+  "homeRequirement": "none",
   "muscle": "股四头肌",
   "published": true,
   "sort": "name_asc"
@@ -334,7 +344,7 @@ type SearchExerciseResourcesFulfillment = {
 ```ts
 {
   "suitability": "warmup",
-  "homeRequirement": "no_equipment",
+  "homeRequirement": "none",
   "published": true
 }
 ```
@@ -352,7 +362,7 @@ type SearchExerciseResourcesFulfillment = {
 
 ```ts
 {
-  "equipment": "resistance_band",
+  "equipment": "bands",
   "published": true,
   "sort": "category_asc"
 }

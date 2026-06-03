@@ -186,6 +186,30 @@ describe("searchExerciseResources tool", () => {
     expect(repository.searchExerciseResourceSummaries).not.toHaveBeenCalled();
   });
 
+  it("exposes real exact facet guidance and examples without stale homeRequirement values", async () => {
+    const { searchExerciseResourcesTool } = await import("@/lib/server/agent-tools/exercises/search-exercise-resources.tool");
+    const registry = new ToolRegistry();
+    registry.register(searchExerciseResourcesTool);
+    const [manifest] = registry.serializeForPlanner();
+    const manifestJson = JSON.stringify(manifest);
+
+    expect(manifestJson).toContain("none/无器械");
+    expect(manifestJson).toContain("floor/地面/瑜伽垫");
+    expect(manifestJson).toContain("small_equipment/居家小器械");
+    expect(manifestJson).toContain("body only/自重");
+    expect(manifestJson).toContain("dumbbell/哑铃");
+    expect(manifestJson).toContain("beginner/初级");
+    expect(manifestJson).not.toContain("home_friendly");
+    expect(manifestJson).not.toContain("no_equipment");
+    expect(manifest.examples).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        input: expect.objectContaining({
+          homeRequirement: "none",
+        }),
+      }),
+    ]));
+  });
+
   it("normalizes empty results, handler exceptions and invalid outputs at the tool boundary", async () => {
     const empty = await importToolWithRepositoryResult(createSearchResult({
       query: { q: "不存在动作", published: true, sort: "name_asc" },
@@ -454,7 +478,7 @@ describe("searchExerciseResourceSummaries repository", () => {
       force: "push",
       mechanic: "compound",
       equipment: "body only",
-      homeRequirement: "home_friendly",
+      homeRequirement: "none",
       muscle: "胸部",
       goalTag: "strength",
       riskTag: "shoulder_pain",
@@ -567,8 +591,8 @@ function createExerciseSummary(overrides: Partial<ExerciseResourceSearchResult["
     mechanicZh: overrides.mechanicZh ?? "复合",
     equipment: overrides.equipment ?? "body only",
     equipmentZh: overrides.equipmentZh ?? "自重",
-    homeRequirement: overrides.homeRequirement ?? "home_friendly",
-    homeRequirementZh: overrides.homeRequirementZh ?? "适合居家",
+    homeRequirement: overrides.homeRequirement ?? "none",
+    homeRequirementZh: overrides.homeRequirementZh ?? "无器械",
     primaryMuscles: overrides.primaryMuscles ?? ["chest"],
     primaryMusclesZh: overrides.primaryMusclesZh ?? ["胸部"],
     secondaryMuscles: overrides.secondaryMuscles ?? ["triceps"],

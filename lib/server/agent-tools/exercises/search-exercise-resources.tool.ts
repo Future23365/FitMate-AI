@@ -11,16 +11,19 @@ import { exerciseAllowedSectionSchema } from "@/lib/shared/exercises/types";
 
 const optionalTextFilterSchema = z.string().trim().min(1).max(120).optional();
 const publishedInputSchema = z.literal(true).optional().default(true);
+const levelFacetDescription = "当前可用精确值：beginner/初级、intermediate/中级、expert/高级。";
+const equipmentFacetDescription = "当前常用精确值：body only/自重、dumbbell/哑铃、barbell/杠铃、bands/弹力带、machine/固定器械、cable/绳索器械、kettlebells/壶铃、medicine ball/药球、exercise ball/健身球、foam roll/泡沫轴、e-z curl bar/EZ 曲杆、other/其他。";
+const homeRequirementFacetDescription = "当前可用精确值：none/无器械、floor/地面/瑜伽垫、support/椅子/墙面/支撑物、small_equipment/居家小器械、gym_equipment/健身房器械、partner/搭档辅助、outdoor/户外场地。";
 
 const searchExerciseResourcesInputSchema = z.object({
   q: optionalTextFilterSchema.describe("确定性动作文本搜索字段，可匹配动作名称、公开分类、肌群、标签或 embeddingText；不是向量语义召回。"),
   category: optionalTextFilterSchema.describe("动作分类或中文分类的精确筛选值。"),
   suitability: exerciseAllowedSectionSchema.describe("动作适配阶段，只允许 warmup、training 或 stretch。").optional(),
-  level: optionalTextFilterSchema.describe("动作难度或中文难度的精确筛选值。"),
+  level: optionalTextFilterSchema.describe(`动作难度或中文难度的精确筛选值。${levelFacetDescription}`),
   force: optionalTextFilterSchema.describe("发力类型或中文发力类型的精确筛选值。"),
   mechanic: optionalTextFilterSchema.describe("动作机制或中文动作机制的精确筛选值。"),
-  equipment: optionalTextFilterSchema.describe("器械或中文器械的精确筛选值。"),
-  homeRequirement: optionalTextFilterSchema.describe("居家条件或中文居家条件的精确筛选值。"),
+  equipment: optionalTextFilterSchema.describe(`器械或中文器械的精确筛选值。${equipmentFacetDescription}`),
+  homeRequirement: optionalTextFilterSchema.describe(`居家条件或中文居家条件的精确筛选值。${homeRequirementFacetDescription}`),
   muscle: optionalTextFilterSchema.describe("主肌群或辅助肌群的精确筛选值，只能使用动作库真实肌群 facet；腿部、下肢、上肢、全身等高层区域必须使用 bodyRegions。"),
   bodyRegions: z.array(exerciseBodyRegionSchema)
     .min(1)
@@ -115,10 +118,11 @@ type SearchExerciseResourcesOutput = z.infer<typeof searchExerciseResourcesOutpu
 export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInput, SearchExerciseResourcesOutput>({
   name: "searchExerciseResources",
   version: "0.2.0",
-  description: "Query published exercise resources by structured filters and return safe exercise summaries for ordinary text answers. Use bodyRegions for broad body areas and muscle only for real exercise muscle facets.",
+  description: "Query published exercise resources by structured filters and return safe exercise summaries for ordinary text answers. Use exact database facets for level/equipment/homeRequirement, bodyRegions for broad body areas, and muscle only for real exercise muscle facets.",
   whenToUse: [
     "Use when the user asks for a list of published exercises that match explicit structured facts such as bodyRegions, real muscle facets, equipment, level, home requirement, goal tag, risk tag, category, or warmup/training/stretch suitability.",
     "Use bodyRegions for broad areas: upper_body for upper body, lower_body for legs/lower body, core for core, and full_body for full body.",
+    `Use exact facet values for precise filters. ${levelFacetDescription} ${equipmentFacetDescription} ${homeRequirementFacetDescription}`,
     "Successful results with satisfied=true may support a final_answer through usedToolResultIds in the same run.",
   ].join(" "),
   whenNotToUse: [
@@ -137,10 +141,11 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
   },
   examples: [
     {
-      description: "Find beginner bodyweight training exercises for chest.",
+      description: "Find beginner body only training exercises for chest.",
       input: {
         muscle: "胸部",
         equipment: "body only",
+        homeRequirement: "none",
         suitability: "training",
         level: "beginner",
       },
@@ -157,7 +162,7 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
       description: "Find warmup exercises that can be done at home.",
       input: {
         suitability: "warmup",
-        homeRequirement: "home_friendly",
+        homeRequirement: "none",
         sort: "name_asc",
       },
     },

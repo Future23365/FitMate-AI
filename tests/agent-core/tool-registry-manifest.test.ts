@@ -134,6 +134,9 @@ describe("agent-core ToolRegistry and manifest", () => {
       properties: {
         q: unknown;
         suitability: { enum: string[] };
+        level: { description?: string };
+        equipment: { description?: string };
+        homeRequirement: { description?: string };
         bodyRegions: { items: { enum: string[] } };
         published: { const?: boolean; default?: boolean };
         sort: { default?: string; enum: string[] };
@@ -150,6 +153,12 @@ describe("agent-core ToolRegistry and manifest", () => {
     });
     expect(inputSchema.properties).toHaveProperty("q");
     expect(inputSchema.properties.suitability.enum).toEqual(["warmup", "training", "stretch"]);
+    expect(inputSchema.properties.level.description).toContain("beginner/初级");
+    expect(inputSchema.properties.level.description).toContain("expert/高级");
+    expect(inputSchema.properties.equipment.description).toContain("body only/自重");
+    expect(inputSchema.properties.equipment.description).toContain("dumbbell/哑铃");
+    expect(inputSchema.properties.homeRequirement.description).toContain("none/无器械");
+    expect(inputSchema.properties.homeRequirement.description).toContain("small_equipment/居家小器械");
     expect(inputSchema.properties.bodyRegions.items.enum).toEqual(["upper_body", "lower_body", "core", "full_body"]);
     expect(inputSchema.properties.sort.enum).toEqual([
       "name_asc",
@@ -166,6 +175,10 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(manifestJson).toContain("bodyRegions");
     expect(manifestJson).toContain("lower_body");
     expect(manifestJson).toContain("真实肌群 facet");
+    expect(manifestJson).toContain("floor/地面/瑜伽垫");
+    expect(manifestJson).toContain("machine/固定器械");
+    expect(manifestJson).not.toContain("home_friendly");
+    expect(manifestJson).not.toContain("no_equipment");
     expect(manifestJson).not.toContain("readFixture");
     expect(manifestJson).not.toContain("m1ResourceProducer");
     expect(manifestJson).not.toContain("candidateSetId");
