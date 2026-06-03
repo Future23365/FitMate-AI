@@ -1,69 +1,69 @@
 ---
 name: agent-tool-change-governance
-description: Govern Agent tool changes in AITest before implementation. Use when Codex needs to add a new Agent tool, fix an Agent tool bug, change Agent core contracts, touch PlannerPort, Executor, Policy Guard, ResourceStore, Resource Contract Validator, Response Renderer, trace/replay, or connect Agent tools to /api/chat production chat flow.
+description: 治理 AITest 中 Agent tool 相关变更的实现前流程。用于新增 Agent tool、修复 Agent tool bug、修改 Agent core contract，或触碰 PlannerPort、Executor、Policy Guard、ResourceStore、Resource Contract Validator、Response Renderer、trace/replay、/api/chat 生产聊天接入等任务。
 ---
 
-# Agent Tool Change Governance
+# Agent Tool 变更治理
 
-## Preflight
+## 前置检查
 
-1. Read `docs/agent-tool-orchestrator-design.md` sections 24, 25, and 26 before proposing or editing implementation.
-2. Check the active OpenSpec change with `openspec status --change <change> --json` and read its proposal, design, spec, and tasks before editing non-trivial behavior.
-3. Check `git status --short` before changing files. If unrelated user changes exist, keep them out of the current diff and commit.
-4. Classify the task as exactly one primary class: new business tool, Agent tool bug fix, core contract change, or production integration change.
-5. Before implementation, state the root cause or product need, design direction, affected modules, and trade-offs.
+1. 在提出方案或修改实现前，读取 `docs/agent-tool-orchestrator-design.md` 第 24、25、26 节。
+2. 对非平凡行为改动，先用 `openspec status --change <change> --json` 检查当前 OpenSpec change，并读取 proposal、design、spec 和 tasks。
+3. 改文件前运行 `git status --short`。如果存在无关用户改动，不要混入当前 diff 或 commit。
+4. 将任务归为一个主类型：新增业务 tool、Agent tool bug 修复、core contract 变更、production 接入变更。
+5. 实现前先说明问题根因或产品需求、设计方向、预计影响模块和取舍。
 
-## Task Classes
+## 任务分类
 
-### New Business Tool
+### 新增业务 Tool
 
-Default to adding only the tool bundle and its local wiring:
+默认只新增 tool bundle 和局部接线：
 
-- tool file
+- tool 文件
 - `inputSchema`
 - `outputSchema`
 - policy metadata
-- `resourceContract` when needed
+- 必要时定义 `resourceContract`
 - handler
-- optional `toModelObservation`
-- optional `toUserProjection`
-- optional `traceProjection` or trace summary if the current core exposes it
-- `ToolRegistry` registration
-- focused tool contract tests
+- 可选 `toModelObservation`
+- 可选 `toUserProjection`
+- 如果当前 core 暴露对应能力，可选 `traceProjection` 或 trace 摘要
+- `ToolRegistry` 注册
+- 聚焦的 tool contract tests
 
-Do not modify Agent core to make one business tool work unless the OpenSpec design explicitly justifies a core contract change.
+除非 OpenSpec design 明确证明需要 core contract 变更，否则不要为了单个业务 tool 修改 Agent core。
 
-### Agent Tool Bug Fix
+### Agent Tool Bug 修复
 
-Start from evidence, not surface symptoms:
+从证据定位，不从表面现象直接补丁：
 
-- Read `codex_logs/ai_trace_log.js` unless the user explicitly says not to or the file does not exist.
-- Inspect the real Zod or JSON Schema for the tool.
-- Inspect the model-visible manifest or schema summary.
-- Inspect runtime validation, `ResourceStore`, `Policy Guard`, projection, response rendering, and trace records relevant to the failure.
-- Classify the root cause as LLM parameter error, missing model-visible contract, tool capability gap, missing or unusable resource, policy or confirmation boundary, projection or redaction leak, final grounding gap, or production integration issue.
+- 读取 `codex_logs/ai_trace_log.js`，除非用户明确说不用看，或该文件不存在。
+- 检查相关 tool 的真实 Zod Schema 或 JSON Schema。
+- 检查模型可见 manifest 或 schema summary。
+- 检查与失败相关的 runtime validation、`ResourceStore`、`Policy Guard`、projection、response rendering 和 trace records。
+- 将根因分类为 LLM 参数错误、模型可见合同缺失、tool 能力缺口、resource 缺失或不可消费、policy / confirmation 边界、projection / redaction 泄漏、final grounding 缺陷或 production 接入问题。
 
-Do not fix natural-language understanding failures with server-side keywords, regex, synonym lists, phrase templates, or business `toolName` special cases.
+不要用服务端关键词、正则、同义词表、短句模板或业务 `toolName` 特判修复自然语言理解问题。
 
-### Core Contract Change
+### Core Contract 变更
 
-Escalate to a core contract design only when the need is genuinely shared:
+只有在需求确实具备通用性时，才升级为 core contract 设计：
 
-- If only one tool needs it, first change that tool's contract.
-- If two or more unrelated tools need it, design a generic core extension point and add core contract tests.
-- If the issue involves security, permissions, resources, trace, replay, stream, or confirmation, return to the core contract and do not open a business exception.
+- 如果只有一个 tool 需要，优先修改该 tool 的合同。
+- 如果两个以上无关 tool 都需要，设计通用 core 扩展点，并补 core contract tests。
+- 如果问题涉及安全、权限、resources、trace、replay、stream 或 confirmation，必须回到 core contract 统一设计，不要开业务特例。
 
-### Production Integration Change
+### Production 接入变更
 
-Treat `/api/chat` and equivalent production entrypoints as high-risk boundaries:
+将 `/api/chat` 和等价 production entrypoint 视为高风险边界：
 
-- Keep production routing inside the Agent loop rather than adding business keyword routing.
-- Do not bypass `ToolRegistry`, `Policy Guard`, `ResourceStore`, `Resource Contract Validator`, or `Response Renderer`.
-- Prove the route does not register fixture tools, hidden business services, or ad hoc natural-language dispatch unless the OpenSpec change explicitly scopes that production capability.
+- production routing 必须留在 Agent loop 内，不要新增业务关键词路由。
+- 不要绕过 `ToolRegistry`、`Policy Guard`、`ResourceStore`、`Resource Contract Validator` 或 `Response Renderer`。
+- 除非 OpenSpec change 明确包含该 production 能力，否则必须证明 route 没有注册 fixture tools、隐藏业务服务或临时自然语言分流。
 
-## Forbidden By Default
+## 默认禁止项
 
-Do not default to changing these modules for a new business tool or ordinary tool bug:
+新增业务 tool 或普通 tool bug 修复时，默认不要修改这些模块：
 
 - orchestrator main loop
 - `PlannerPort`
@@ -71,38 +71,38 @@ Do not default to changing these modules for a new business tool or ordinary too
 - `Policy Guard`
 - `Resource Contract Validator`
 - `Response Renderer`
-- `/api/chat` main route or chat production chain
-- Agent core branches on concrete business `toolName`
-- service-side keyword, regex, synonym, or natural-language template routing
-- handler-side confirmation, permission, or resource registration bypasses
+- `/api/chat` main route 或 chat production chain
+- Agent core 内基于具体业务 `toolName` 的分支
+- 服务端关键词、正则、同义词或自然语言模板路由
+- handler 内绕过 confirmation、permission 或 resource registration
 
-If a change must touch one of these areas, stop and ensure the OpenSpec design names the task class, allowed modules, forbidden modules, validation plan, and core contract rationale.
+如果必须触碰以上区域，先停下来确认 OpenSpec design 已写清任务分类、允许模块、禁止模块、验证计划和 core contract 理由。
 
-## OpenSpec Requirements
+## OpenSpec 要求
 
-For non-copy Agent tool changes, ensure `proposal.md`, `design.md`, and `tasks.md` state:
+非文案类 Agent tool change 的 `proposal.md`、`design.md` 和 `tasks.md` 必须说明：
 
-- task class
-- allowed modules
-- forbidden modules
-- whether core contract changes are in scope
-- validation plan
-- remaining risks when validation cannot run
+- 任务分类
+- 允许触碰模块
+- 禁止触碰模块
+- core contract 变更是否在范围内
+- 验证计划
+- 无法运行验证时的剩余风险
 
-For a new business tool, include checklist items for tool bundle, `ToolRegistry` registration, schema, policy, `resourceContract`, model projection, user projection, trace projection or trace summary, and contract tests.
+新增业务 tool 时，checklist 必须覆盖 tool bundle、`ToolRegistry` 注册、schema、policy、`resourceContract`、model projection、user projection、trace projection 或 trace summary，以及 contract tests。
 
-For an Agent tool bug fix, include checklist items for `codex_logs/ai_trace_log.js`, real schema, model-visible manifest or schema summary, `ResourceStore`, `Policy Guard`, projection, response rendering, and trace.
+修复 Agent tool bug 时，checklist 必须覆盖 `codex_logs/ai_trace_log.js`、真实 schema、model-visible manifest 或 schema summary、`ResourceStore`、`Policy Guard`、projection、response rendering 和 trace。
 
-Every non-copy Agent tool `tasks.md` must include `openspec validate <change> --strict`, relevant automated tests, architecture scan when core or production boundaries are touched, and a final diff check.
+每个非文案类 Agent tool `tasks.md` 必须包含 `openspec validate <change> --strict`、相关自动化测试、触碰 core 或 production 边界时的 architecture scan，以及最终 diff 检查。
 
-## Validation
+## 验证
 
-Run the narrowest relevant checks first:
+优先运行最窄的相关检查：
 
-- OpenSpec: `openspec validate <change> --strict`
-- Architecture boundary: `npm test -- tests/agent-core/architecture-boundary.test.ts`
-- Tool contract helper: `npm test -- tests/agent-core/contract-helper.test.ts`
-- Runtime safety and projection tests when policy, resource, confirmation, renderer, trace, or production integration changes
-- `npm run typecheck` after TypeScript, React, API, schema, AI orchestration, or shared business logic changes
+- OpenSpec：`openspec validate <change> --strict`
+- Architecture boundary：`npm test -- tests/agent-core/architecture-boundary.test.ts`
+- Tool contract helper：`npm test -- tests/agent-core/contract-helper.test.ts`
+- 修改 policy、resource、confirmation、renderer、trace 或 production integration 时，运行对应 runtime safety 和 projection tests
+- 修改 TypeScript、React、API、schema、AI orchestration 或共享业务逻辑后，运行 `npm run typecheck`
 
-Finish by summarizing what changed, why the design is better than a local patch, how it was verified, and any remaining risk.
+结束时总结改了什么、为什么这个设计优于局部补丁、如何验证，以及是否还有剩余风险。
