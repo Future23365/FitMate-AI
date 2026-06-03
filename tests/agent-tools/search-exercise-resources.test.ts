@@ -522,10 +522,10 @@ async function importToolWithRepositoryImplementation(
   vi.doMock(repositoryPath, () => ({
     searchExerciseResourceSummaries,
   }));
-  const module = await import("@/lib/server/agent-tools/exercises/search-exercise-resources.tool");
+  const toolModule = await import("@/lib/server/agent-tools/exercises/search-exercise-resources.tool");
 
   return {
-    tool: module.searchExerciseResourcesTool,
+    tool: toolModule.searchExerciseResourcesTool,
     repository: {
       searchExerciseResourceSummaries,
     },
