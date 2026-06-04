@@ -7,7 +7,7 @@
 - **WHEN** assistant message 包含 `outputType = "visibleTrainingProposal"`、`schemaVersion = "1"` 且 `payload.kind = "exercise_selection"` 的 `visible_output`
 - **THEN** 聊天气泡 MUST 渲染 `ExerciseRecommendationCard`
 - **AND** 卡片动作项 MUST 来自 `visibleTrainingProposal.payload.exerciseItems`
-- **AND** 卡片底部 MUST 继续使用本轮 `assistantSuggestions`，不得恢复固定“换一批”或“编成训练”按钮
+- **AND** 本 change MUST NOT 给该卡片绑定或渲染推荐按钮
 
 #### Scenario: 训练编排渲染为 WorkoutRoutineDraftCard
 - **WHEN** assistant message 包含 `outputType = "visibleTrainingProposal"`、`schemaVersion = "1"` 且 `payload.kind = "routine"` 的 `visible_output`
@@ -70,6 +70,19 @@
 - **THEN** 这些展示详情 MUST NOT 反向改写 `visibleTrainingProposal.payload.exerciseItems`
 - **AND** 缺失展示详情时 MUST 使用稳定兜底，不得丢弃已校验的动作事实
 
+### Requirement: 推荐按钮能力仅预留
+推荐按钮和 AI 建议回复生成能力 SHALL 保留为后续独立能力；本 change 只接旧三张卡片样式，不实现推荐按钮生成、绑定或展示。
+
+#### Scenario: 新富卡片路径不绑定 assistantSuggestions
+- **WHEN** assistant message 同时包含可渲染的 `visibleTrainingProposal` 和 `assistant_suggestions`
+- **THEN** 本 change 的富卡片 adapter MUST NOT 将 `assistant_suggestions` 绑定到新渲染的训练富卡片
+- **AND** 聊天气泡 MUST NOT 因本 change 在训练富卡片底部新增推荐按钮
+
+#### Scenario: 不恢复固定推荐按钮
+- **WHEN** 渲染 `ExerciseRecommendationCard`、`WorkoutRoutineDraftCard` 或 `WorkoutPlanDraftCard`
+- **THEN** 系统 MUST NOT 恢复固定“换一批”、“编成训练”或等价硬编码推荐按钮
+- **AND** 后续如需推荐按钮 MUST 通过独立 change 定义 AI 层建议来源、前端绑定位置和 targetOperation 语义
+
 ### Requirement: 自动化验证覆盖富卡片适配
 实现 SHALL 使用自动化测试覆盖 adapter、聊天事件消费和富卡片渲染边界。
 
@@ -83,6 +96,7 @@
 - **THEN** 测试 MUST 覆盖 `visible_output` 只写入 `message.visibleOutputs`
 - **AND** 测试 MUST 覆盖有 `visibleTrainingProposal` 时不重复渲染旧 `bubble*` 卡片
 - **AND** 测试 MUST 覆盖有 `visibleTrainingProposal` 时不显示轻量面板或技术枚举字段
+- **AND** 测试 MUST 覆盖本 change 不在新训练富卡片底部渲染推荐按钮
 
 #### Scenario: 类型检查覆盖共享结构
 - **WHEN** 修改前端 adapter、聊天类型、卡片 props 或训练 draft 结构

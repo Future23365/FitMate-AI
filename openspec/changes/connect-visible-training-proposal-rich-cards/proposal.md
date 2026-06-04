@@ -1,6 +1,6 @@
 ## Why
 
-当前 `/api/chat` 已经把动作推荐、训练编排和训练计划统一收敛到 `final_answer.visibleOutputs[]` 的 `visibleTrainingProposal`，但前端仍用轻量 `VisibleTrainingProposalPanel` 展示这份结构化事实，旧的 `ExerciseRecommendationCard`、`WorkoutRoutineDraftCard` 和 `WorkoutPlanDraftCard` 还没有接入新主链。这个轻量面板是此前为了先验证新链路而临时写出的极简展示，不是用户要求的目标样式；目标展示必须回到旧三张富卡片。用户需要继续使用旧三张富卡片的动作详情、保存、导入和建议交互，同时不能为了 UI 形态回退或拆分 AI 输出合同。
+当前 `/api/chat` 已经把动作推荐、训练编排和训练计划统一收敛到 `final_answer.visibleOutputs[]` 的 `visibleTrainingProposal`，但前端仍用轻量 `VisibleTrainingProposalPanel` 展示这份结构化事实，旧的 `ExerciseRecommendationCard`、`WorkoutRoutineDraftCard` 和 `WorkoutPlanDraftCard` 还没有接入新主链。这个轻量面板是此前为了先验证新链路而临时写出的极简展示，不是用户要求的目标样式；目标展示必须回到旧三张富卡片。用户当前只要求把 `visibleTrainingProposal` 接到旧三张卡片样式，同时不能为了 UI 形态回退或拆分 AI 输出合同。
 
 ## What Changes
 
@@ -10,10 +10,11 @@
   - `kind = "plan"` 渲染为 `WorkoutPlanDraftCard`
 - 保持 `visibleTrainingProposal` 作为唯一训练事实源；`message.visibleOutputs` 继续保存原始结构化输出，正文 `content` 只作为解释文本。
 - 不修改 `AgentAction`、`final_answer.visibleOutputs[]`、`visibleTrainingProposal.payload`、`searchExerciseResources`、`inspectVisibleTrainingProposals` 或跨轮事实桥合同。
-- 前端适配只负责展示结构转换、动作详情补齐和旧卡片交互复用；不得把旧 `bubblePlans`、`bubbleRoutines`、`bubbleExerciseRecommendations` 重新作为新消息事实源。
+- 前端适配只负责展示结构转换、动作详情补齐和旧卡片已有保存 / 导入 / 详情交互复用；不得把旧 `bubblePlans`、`bubbleRoutines`、`bubbleExerciseRecommendations` 重新作为新消息事实源。
 - 旧历史消息中已有的 `bubblePlans`、`bubbleRoutines`、`exerciseRecommendations` 继续兼容展示；新 Agent 消息优先从 `visibleOutputs` 渲染富卡片。
 - 删除或停用 `VisibleTrainingProposalPanel` 面向用户的轻量展示路径；不得保留其标题、分段 mini list、处方 chip、`exercise_selection` / `routine` / `plan` 技术枚举 badge 或任何其他面板信息作为新消息 UI。
 - 前端展示样式以旧三张卡片为准，不新增第四种训练卡片样式，不用轻量面板作为 fallback。
+- 推荐按钮 / AI 建议回复生成能力先预留，不在本 change 实现；新 `visibleTrainingProposal` 富卡片路径本次不得新增或绑定推荐按钮，也不得恢复固定“换一批”或“编成训练”按钮。
 - 计划卡片适配必须遵守当前 `visibleTrainingProposal` 计划合同：同一套 `warmup` / `training` / `stretch` 编排加 `schedule.assignments`，不得要求模型输出每天不同的完整动作编排。
 
 ## Capabilities
