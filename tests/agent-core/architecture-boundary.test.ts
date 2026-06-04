@@ -193,6 +193,33 @@ describe("agent-core architecture boundaries", () => {
     expect(matches).toEqual([]);
   });
 
+  it("keeps visible training proposal terminal validation free of concrete business toolName allowlists", () => {
+    const files = [
+      "lib/server/agent-core/terminal-output-validator.ts",
+      "lib/server/visible-training-proposals/visible-training-proposal-validator.ts",
+      "lib/server/visible-training-proposals/visible-training-proposal-renderer.ts",
+    ];
+    const forbiddenTerms = [
+      "searchExerciseResources",
+      "inspectVisibleTrainingProposals",
+      "visible_training_proposal_fact",
+      "toolResult.toolName",
+      "result.toolName",
+    ];
+    const matches: string[] = [];
+
+    for (const file of files) {
+      const content = readRelative(file);
+      for (const term of forbiddenTerms) {
+        if (content.includes(term)) {
+          matches.push(`${file}: ${term}`);
+        }
+      }
+    }
+
+    expect(matches).toEqual([]);
+  });
+
   it("keeps agent-core free of business services, business tool handlers and concrete model adapters", () => {
     const coreFiles = collectFiles("lib/server/agent-core").map((file) => path.relative(repoRoot, file));
     const forbiddenImportSources = [
@@ -336,6 +363,7 @@ describe("agent-core architecture boundaries", () => {
     const allowedAgentToolFiles = new Set([
       "lib/server/agent-tools/index.ts",
       "lib/server/agent-tools/exercise-facts/inspect-visible-training-proposals.tool.ts",
+      "lib/server/agent-tools/exercises/resolve-exercise-resource-mentions.tool.ts",
       "lib/server/agent-tools/exercises/search-exercise-resources.tool.ts",
       "lib/server/agent-tools/fixture/read-fixture.tool.ts",
       "lib/server/agent-tools/fixture/m1-safety-fixture.tools.ts",
@@ -359,8 +387,9 @@ describe("agent-core architecture boundaries", () => {
 
     expect(unexpectedFiles).toEqual([]);
     expect(registryEntry).toContain("inspectVisibleTrainingProposalsTool");
+    expect(registryEntry).toContain("resolveExerciseResourceMentionsTool");
     expect(registryEntry).toContain("searchExerciseResourcesTool");
-    expect(registryEntry).toContain("productionAgentTools = [inspectVisibleTrainingProposalsTool, searchExerciseResourcesTool]");
+    expect(registryEntry).toContain("productionAgentTools = [");
     expect(productionRegistryFunction).not.toContain("readFixtureTool");
     expect(productionRegistryFunction).not.toContain("m1SafetyFixtureTools");
     expect(forbiddenRegistrations).toEqual([]);

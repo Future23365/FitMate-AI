@@ -1,0 +1,4 @@
+interface:
+  display_name: "架构解耦治理"
+  short_description: "非简单改动前的模块职责、稳定合同和耦合风险审查入口"
+  default_prompt: "Use $architecture-decoupling-governance 在非简单改动前执行架构解耦审查。"

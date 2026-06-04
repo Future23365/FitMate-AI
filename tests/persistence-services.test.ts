@@ -307,6 +307,9 @@ describe("persistence services", () => {
             createdAt: new Date("2026-05-25T09:01:00.000Z"),
             metadata: {
               suggestedReplies: ["30 分钟"],
+              visibleOutputs: [createVisibleExerciseSelectionOutput("push-up")],
+              plan: createWorkoutPlanDraft(),
+              exerciseRecommendation: createExerciseRecommendationCard(),
               recommendationIntent: createWorkoutPlanIntent({ goal: "练胸" }),
               conversationContext: createChatConversation().conversationContext,
             },
@@ -345,9 +348,22 @@ describe("persistence services", () => {
       id: "chat-1",
       title: "今天练胸",
       updatedAt: "2026-05-25T09:01:00.000Z",
-      messages: [expect.objectContaining({ id: "m1" }), expect.objectContaining({ suggestedReplies: ["30 分钟"] })],
-      recommendationIntents: { m2: expect.objectContaining({ goal: "练胸" }) },
+      messages: [
+        expect.objectContaining({ id: "m1" }),
+        expect.objectContaining({
+          suggestedReplies: ["30 分钟"],
+          visibleOutputs: [
+            expect.objectContaining({
+              outputType: "visibleTrainingProposal",
+              payload: expect.objectContaining({ kind: "exercise_selection" }),
+            }),
+          ],
+        }),
+      ],
     });
+    expect(conversations[2].plans).toBeUndefined();
+    expect(conversations[2].exerciseRecommendations).toBeUndefined();
+    expect(conversations[2].recommendationIntents).toBeUndefined();
   });
 
   it("saves chat history without rewriting existing message timestamps", async () => {
@@ -463,7 +479,12 @@ describe("persistence services", () => {
       id: "chat-save",
       messages: [
         { id: "m1", role: "user", content: "今天练胸" },
-        { id: "m2", role: "assistant", content: "可以。" },
+        {
+          id: "m2",
+          role: "assistant",
+          content: "可以。",
+          visibleOutputs: [createVisibleExerciseSelectionOutput("push-up")],
+        },
       ],
       exerciseRecommendations: {
         m2: createExerciseRecommendationCard(),
@@ -479,27 +500,30 @@ describe("persistence services", () => {
       },
     }));
 
-    expect(prismaMock.conversationArtifact.create).toHaveBeenCalledTimes(3);
-    expect(prismaMock.conversationArtifact.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ messageId: "m2", kind: "exercise_recommendation" }),
-    }));
-    expect(prismaMock.conversationArtifact.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ messageId: "m2", kind: "routine" }),
-    }));
-    expect(prismaMock.conversationArtifact.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ messageId: "m2", kind: "plan" }),
-    }));
+    expect(prismaMock.conversationArtifact.create).not.toHaveBeenCalled();
     expect(prismaMock.chatMessage.createMany.mock.calls[0][0].data).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           id: "m2",
           metadata: expect.objectContaining({
-            recommendationIntent: expect.objectContaining({ goal: "练胸" }),
+            visibleOutputs: [
+              expect.objectContaining({
+                outputType: "visibleTrainingProposal",
+                payload: expect.objectContaining({ kind: "exercise_selection" }),
+              }),
+            ],
           }),
         }),
       ]),
     );
-    expect(prismaMock.artifactIndex.upsert).toHaveBeenCalledTimes(3);
+    const assistantMetadata = prismaMock.chatMessage.createMany.mock.calls[0][0].data.find(
+      (item: { id: string }) => item.id === "m2",
+    )?.metadata;
+    expect(assistantMetadata).not.toHaveProperty("plan");
+    expect(assistantMetadata).not.toHaveProperty("routine");
+    expect(assistantMetadata).not.toHaveProperty("exerciseRecommendation");
+    expect(assistantMetadata).not.toHaveProperty("recommendationIntent");
+    expect(prismaMock.artifactIndex.upsert).not.toHaveBeenCalled();
   });
 
   it("does not persist assistant-only chat conversations", async () => {
@@ -532,6 +556,41 @@ function createExerciseRecommendationCard() {
       },
     ],
     safetyNotes: [],
+  };
+}
+
+function createVisibleExerciseSelectionOutput(exerciseId: string) {
+  return {
+    outputType: "visibleTrainingProposal",
+    schemaVersion: "1",
+    payload: {
+      kind: "exercise_selection",
+      exerciseItems: [
+        { exerciseId, section: "training", order: 1 },
+      ],
+    },
+    content: {
+      kind: "exercise_selection",
+      sections: [
+        {
+          section: "training",
+          items: [
+            {
+              exerciseId,
+              section: "training",
+              order: 1,
+              exercise: {
+                exerciseId,
+                nameZh: "俯卧撑",
+                equipmentZh: "自重",
+                primaryMusclesZh: ["胸部"],
+                imageUrl: null,
+              },
+            },
+          ],
+        },
+      ],
+    },
   };
 }
 

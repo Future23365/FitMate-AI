@@ -58,6 +58,40 @@ describe("chat controller Agent text event projection", () => {
     });
   });
 
+  it("appends visible_output events only to message.visibleOutputs", () => {
+    const next = applyAgentTextChatEventToAssistantMessage(createAssistantMessage({ content: "完成。" }), {
+      type: "visible_output",
+      outputType: "visibleTrainingProposal",
+      schemaVersion: "1",
+      payload: {
+        kind: "exercise_selection",
+        exerciseItems: [
+          { exerciseId: "push-up", section: "training", order: 1 },
+        ],
+      },
+      content: {
+        sections: [],
+      },
+    });
+
+    expect(next).toMatchObject({
+      content: "完成。",
+      visibleOutputs: [
+        {
+          outputType: "visibleTrainingProposal",
+          schemaVersion: "1",
+          payload: {
+            kind: "exercise_selection",
+          },
+        },
+      ],
+      isReasoning: false,
+    });
+    expect("bubblePlans" in next).toBe(false);
+    expect("bubbleRoutines" in next).toBe(false);
+    expect("bubbleExerciseRecommendations" in next).toBe(false);
+  });
+
   it("clears reasoning state on done without inventing business card results", () => {
     expect(
       applyAgentTextChatEventToAssistantMessage(createAssistantMessage({ content: "完成。" }), {

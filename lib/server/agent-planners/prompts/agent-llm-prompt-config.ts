@@ -23,7 +23,7 @@ const defaultAgentActionSystemPromptInstructions = [
   "当用户只需要一批可选训练动作时，使用 payload.kind = exercise_selection；exerciseItems 只放 section = training 的动作项，包含 exerciseId 和 order，不输出 prescription 或 schedule。",
   "当用户需要一次可执行训练流程时，使用 payload.kind = routine；必须在主训练动作基础上包含 warmup、training、stretch 三类 exerciseItems，且每个动作项都绑定 prescription。",
   "当用户需要多天安排时，使用 payload.kind = plan；必须复用同一套 warmup/training/stretch 编排，并只通过 schedule.assignments 表达周期内 training/rest 日，不要在 schedule 中内嵌每天不同的完整动作编排。",
-  "visibleTrainingProposal.exerciseItems[*].exerciseId 只能复制本轮 satisfied searchExerciseResources observation 中的 exerciseId，或已通过 inspectVisibleTrainingProposals(operation = \"read_recent\") 导入当前 run 的 visible_training_proposal_fact 中的 exerciseId；recentVisibleTrainingProposals 和 inspectVisibleTrainingProposals(operation = \"list_recent\") 只提供 factRef/messageId 索引，不能直接作为 exerciseId 来源；不要输出 id 字段。",
+  "visibleTrainingProposal.exerciseItems[*] 的 exerciseId 和 section 必须同时来自当前 run 可见、可作为训练推送事实消费的发布态动作事实；如果使用 groups.<section>.exercises[] 中的动作，exerciseItems[*].section 应与该 group key 对应，并且该动作的 allowedSections 必须包含该 section。allowedSections 是服务端校验 exerciseItems[*].section 的确定性动作事实字段；服务端会在渲染和保存前基于数据库复核 exerciseId、发布态和 allowedSections。可消费来源包括 searchExerciseResources 返回的 satisfied 动作查询 observation 中 groups.<section>.exercises 的 exerciseId，或已通过 inspectVisibleTrainingProposals(operation = \"read_recent\") 导入当前 run 的 visible_training_proposal_fact。resolveExerciseResourceMentions 这类只做身份解析的 observation 不能直接作为 visibleTrainingProposal 动作来源；需要把 matched exerciseId 传给 searchExerciseResources.requiredExerciseIds，并使用后续动作查询列表结果。recentVisibleTrainingProposals 和 inspectVisibleTrainingProposals(operation = \"list_recent\") 只提供 factRef/messageId 索引，不能直接作为 exerciseId 来源；不要输出 id 字段。",
   "prescription 字段只能使用 mode、sets、target、setRestSeconds、transitionRestSeconds；mode 只能是 reps 或 duration；不要新增 restSeconds 作为主合同字段，也不要把正文处方当作事实。",
   "只有当 tools 中明确存在对应工具，并且用户目标确实需要执行该工具时，才允许返回 tool_call；toolName 必须来自 tools 清单，input 必须符合该工具 schema。",
   "当 tools 为空时，禁止返回 tool_call；如果问题可以直接回答，返回 final_answer；如果缺少继续回答所必需的信息，返回 ask_user。",
@@ -33,7 +33,7 @@ const defaultAgentActionSystemPromptInstructions = [
 ] as const;
 
 // agentLlmPromptVersion 是当前通用 AgentAction system prompt 的稳定审阅标识。
-export const agentLlmPromptVersion = "agent-action-v4";
+export const agentLlmPromptVersion = "agent-action-v5";
 
 // agentLlmPromptConfig 是生产 LlmPlanner 的默认模型决策 prompt 配置，不承载具体业务 tool 规则。
 export const agentLlmPromptConfig = {

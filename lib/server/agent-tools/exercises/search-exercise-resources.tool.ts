@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { defineTool } from "@/lib/server/agent-core/define-tool";
 import {
+  getExerciseResourceSummariesByIds,
   searchExerciseResourceSummaries,
   type ExerciseResourceSummary,
 } from "@/lib/server/exercises/exercise-repository";
@@ -12,6 +13,7 @@ import { exerciseAllowedSectionSchema } from "@/lib/shared/exercises/types";
 const optionalTextFilterSchema = z.string().trim().min(1).max(120).optional();
 const publishedInputSchema = z.literal(true).optional().default(true);
 const maxExcludeExerciseIds = 50;
+const maxRequiredExerciseIds = 12;
 const exerciseIdSchema = z.string().trim().min(1).max(120).regex(/^[A-Za-z0-9:_-]+$/);
 const levelFacetDescription = "当前可用精确值：beginner/初级、intermediate/中级、expert/高级。";
 const equipmentFacetDescription = "当前常用精确值：body only/自重、dumbbell/哑铃、barbell/杠铃、bands/弹力带、machine/固定器械、cable/绳索器械、kettlebells/壶铃、medicine ball/药球、exercise ball/健身球、foam roll/泡沫轴、e-z curl bar/EZ 曲杆、other/其他。";
@@ -42,6 +44,10 @@ const searchExerciseResourcesInputSchema = z.object({
     .max(maxExcludeExerciseIds)
     .optional()
     .describe("刷新或用户明确排除时使用的动作 id 列表，只能排除用户已经看到或明确要求不要再出现的动作；不支持用内部候选填充。"),
+  requiredExerciseIds: z.array(exerciseIdSchema)
+    .max(maxRequiredExerciseIds)
+    .optional()
+    .describe("用户点名动作已通过 resolveExerciseResourceMentions 解析为数据库 id 后使用；tool 会优先把这些发布态动作纳入现有 groups.<section>.exercises 列表，并用 diagnostics 说明无法纳入或筛选不完全一致的原因。"),
   published: publishedInputSchema.describe("生产聊天只能查询发布态动作；省略时固定为 true，显式 false 会被拒绝。"),
   sort: exerciseSortSchema.default("name_asc").describe("固定排序字段，不支持分页、limit、offset、page 或 pageSize。"),
 }).strict();
@@ -61,6 +67,7 @@ const appliedFilterSchema = z.object({
     "goalTag",
     "riskTag",
     "excludeExerciseIds",
+    "requiredExerciseIds",
     "published",
   ]),
   value: z.union([z.string(), z.boolean(), z.array(z.string())]),
@@ -88,7 +95,8 @@ const exerciseResourceSummarySchema = z.object({
   secondaryMusclesZh: z.array(z.string()),
   imageUrls: z.array(z.string()),
   imageUrl: z.string().nullable(),
-  allowedSections: z.array(exerciseAllowedSectionSchema),
+  allowedSections: z.array(exerciseAllowedSectionSchema)
+    .describe("动作可进入哪些 visibleTrainingProposal.exerciseItems[*].section 的数据库事实字段。"),
   goalTags: z.array(z.string()),
   riskTags: z.array(z.string()),
   reviewStatus: z.string(),
@@ -100,7 +108,8 @@ const suitabilityGroupSchema = z.object({
   totalMatches: z.number().int().min(0),
   returnedCount: z.number().int().min(0),
   truncated: z.boolean(),
-  exercises: z.array(exerciseResourceSummarySchema),
+  exercises: z.array(exerciseResourceSummarySchema)
+    .describe("该 groups.<section> 分组下返回的发布态动作事实；生成 visibleTrainingProposal.exerciseItems[] 时，section 应与所在 group key 和动作 allowedSections 保持一致。"),
 }).strict();
 
 const searchExerciseResourcesOutputSchema = z.object({
@@ -120,6 +129,7 @@ const searchExerciseResourcesOutputSchema = z.object({
     goalTag: z.string().optional(),
     riskTag: z.string().optional(),
     excludeExerciseIds: z.array(exerciseIdSchema).optional(),
+    requiredExerciseIds: z.array(exerciseIdSchema).optional(),
     published: z.literal(true),
     sort: exerciseSortSchema,
     appliedFilters: z.array(appliedFilterSchema),
@@ -133,11 +143,20 @@ const searchExerciseResourcesOutputSchema = z.object({
     warmup: suitabilityGroupSchema.optional(),
     training: suitabilityGroupSchema.optional(),
     stretch: suitabilityGroupSchema.optional(),
-  }).strict(),
+  }).strict().describe("按 groups.<section> 分组的动作事实来源；section key 表示本次查询中这些动作作为该训练阶段候选返回。"),
   diagnostics: z.array(z.object({
     suitability: exerciseAllowedSectionSchema,
-    code: z.literal("no_candidates"),
+    code: z.enum([
+      "no_candidates",
+      "required_exercise_not_found",
+      "required_exercise_unpublished",
+      "required_exercise_section_conflict",
+      "required_exercise_excluded",
+      "required_exercise_filter_mismatch",
+    ]),
     message: z.string(),
+    exerciseId: exerciseIdSchema.optional(),
+    conflictFields: z.array(z.string()).optional(),
   }).strict()),
 }).strict();
 
@@ -149,13 +168,15 @@ type SuitabilityGroupOutput = z.infer<typeof suitabilityGroupSchema>;
 /** searchExerciseResourcesTool 是生产聊天可用的只读动作库事实查询能力，不产出训练候选资源。 */
 export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInput, SearchExerciseResourcesOutput>({
   name: "searchExerciseResources",
-  version: "0.4.0",
+  version: "0.5.0",
   description: "按结构化筛选条件查询发布态动作库，并按 suitabilities 分组返回安全动作摘要；不查询当前会话是否已有 visibleTrainingProposal。totalMatches=0 也是已完成的事实查询结果，不是数据库失败。",
   whenToUse: [
     "当用户需要一组符合明确结构化事实的发布态动作时使用，例如 bodyRegions、真实肌群 facet、器械、难度、居家条件、目标标签、风险标签、分类，或 suitabilities 指定的 warmup/training/stretch 用途。",
     "如果需要确认当前会话是否存在可引用 visibleTrainingProposal，先使用 inspectVisibleTrainingProposals(operation = \"list_recent\")；如果需要复用具体上一轮方案，先使用 inspectVisibleTrainingProposals(operation = \"read_recent\") 导入当前 run。",
     "用户明确提出新的动作查询目标、结构化筛选条件或普通动作事实问题时，可以直接调用 searchExerciseResources，不需要强制先 inspectVisibleTrainingProposals。",
     "只推荐一批动作时通常查询 suitabilities = [\"training\"] 或省略 suitabilities；返回的 exerciseId 可写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal.payload.exerciseItems。",
+    "groups.<section>.exercises[] 是该查询结果中对应 section 的动作事实来源；生成 visibleTrainingProposal.exerciseItems[] 时，exerciseItems[*].section 应对应使用的 groups.<section> key，并且必须被该动作 allowedSections 包含；allowedSections 是动作可进入哪些 section 的动作事实字段。",
+    "当用户点名多个具体动作时，应先调用 resolveExerciseResourceMentions 解析 mentions；再把 matched exerciseId 或模型从 ambiguous 中选择的 exerciseId 传入 requiredExerciseIds，让这些发布态动作优先进入现有 groups.<section>.exercises。",
     "需要一次可执行编排时，先确定 training 主训练动作；再围绕这些主训练动作和用户目标查询 suitabilities = [\"warmup\", \"stretch\"] 补充热身和拉伸候选。",
     "宽泛身体区域必须使用 bodyRegions：上肢用 upper_body，腿部或下肢用 lower_body，核心用 core，全身用 full_body。",
     "excludeExerciseIds 只能填写用户已经看到或明确要求排除的动作；如果来自上一轮方案，应先通过 inspectVisibleTrainingProposals(operation = \"read_recent\") 导入 visible_training_proposal_fact 后复制真实 exerciseId，不要从未展示的内部候选或 list_recent 索引中填充。",
@@ -166,7 +187,9 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
     "不要用它生成 visibleTrainingProposal、routine、plan、patch、prescription、schedule、训练卡片、保存 artifact、用户记忆或执行候选集合。",
     "不要用它判断当前会话有没有上一轮 visibleTrainingProposal、列出 factRef/messageId、读取完整 visibleTrainingProposal.payload，或替代 inspectVisibleTrainingProposals 的 list_recent / read_recent 事实查询。",
     "不要把 0 条事实查询结果当作 visibleTrainingProposal、routine、plan、训练卡片或推荐候选集合的消费证据；模型应基于 diagnostics 选择重查、澄清或失败收口。",
+    "不要把 groups.training 中且 allowedSections 不包含 warmup/stretch 的动作写入 visibleTrainingProposal.exerciseItems[*].section = warmup 或 stretch；不同 section 需要对应 section 的动作事实支撑。",
     "不要用它查询未发布动作、单个动作详情、唯一动作名解析、全库 facet 统计、分页或语义向量检索。",
+    "不要在没有 resolveExerciseResourceMentions 或其他当前 run 可见数据库事实支撑时编造 requiredExerciseIds；该字段只能填真实发布态动作 id，不能填自然语言动作名。",
     "不要传入 maxReturned、returnedCount、totalMatches、truncated、limit、take、offset、page 或 pageSize；这些不是 input 字段。",
     "不要从 handler-only 结果、model observation、diagnostic 候选，或没有进入 visibleTrainingProposal 的自然语言历史中提取 excludeExerciseIds。",
     "不要把 leg、lower body、upper body、full body、腿部、下肢、上肢或全身这类宽泛区域写进 muscle；必须改用 bodyRegions。",
@@ -192,14 +215,6 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
       },
     },
     {
-      description: "查找下肢训练动作。",
-      input: {
-        bodyRegions: ["lower_body"],
-        suitabilities: ["training"],
-        sort: "name_asc",
-      },
-    },
-    {
       description: "围绕已确定主训练动作补充居家热身和拉伸候选。",
       input: {
         suitabilities: ["warmup", "stretch"],
@@ -207,50 +222,92 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
         sort: "name_asc",
       },
     },
+    {
+      description: "用户点名多个动作时，先用 resolveExerciseResourceMentions 解析 mentions；requiredExerciseIds 必须复制上一轮结果中真实 matched exerciseId，示例 id 不可脱离上一步结果照抄，也不能填自然语言动作名。",
+      input: {
+        suitabilities: ["training"],
+        equipment: "body only",
+        homeRequirement: "none",
+        level: "beginner",
+        requiredExerciseIds: ["Pushups", "Bodyweight_Squat", "Plank"],
+        sort: "name_asc",
+      },
+    },
   ],
   handler: async (input) => {
     const excludeExerciseIds = normalizeExcludeExerciseIds(input.excludeExerciseIds);
+    const requiredExerciseIds = normalizeRequiredExerciseIds(input.requiredExerciseIds);
     const suitabilities = normalizeSuitabilities(input.suitabilities);
-    const results = await Promise.all(suitabilities.map((suitability) => searchExerciseResourceSummaries({
-      q: input.q,
-      category: input.category,
-      suitability,
-      level: input.level,
-      force: input.force,
-      mechanic: input.mechanic,
-      equipment: input.equipment,
-      homeRequirement: input.homeRequirement,
-      muscle: input.muscle,
-      bodyRegions: input.bodyRegions,
-      goalTag: input.goalTag,
-      riskTag: input.riskTag,
-      excludeExerciseIds,
-      published: input.published,
-      sort: input.sort,
-    })));
-    const groups = Object.fromEntries(results.flatMap((result) => {
+    const [requiredExercises, results] = await Promise.all([
+      requiredExerciseIds?.length
+        ? getExerciseResourceSummariesByIds(requiredExerciseIds)
+        : Promise.resolve([]),
+      Promise.all(suitabilities.map((suitability) => searchExerciseResourceSummaries({
+        q: input.q,
+        category: input.category,
+        suitability,
+        level: input.level,
+        force: input.force,
+        mechanic: input.mechanic,
+        equipment: input.equipment,
+        homeRequirement: input.homeRequirement,
+        muscle: input.muscle,
+        bodyRegions: input.bodyRegions,
+        goalTag: input.goalTag,
+        riskTag: input.riskTag,
+        excludeExerciseIds,
+        published: input.published,
+        sort: input.sort,
+      }))),
+    ]);
+    const requiredById = new Map(requiredExercises.map((exercise) => [exercise.id, exercise]));
+    const diagnostics: SearchExerciseResourcesOutput["diagnostics"] = [];
+    const groupEntries = results.flatMap((result) => {
       const suitability = result.query.suitability;
       if (!suitability) {
         return [];
       }
+      const baseExercises = result.exercises.map(toExerciseResourceOutput);
+      const requiredDiagnostics = collectRequiredExerciseDiagnostics({
+        requiredExerciseIds,
+        requiredById,
+        excludeExerciseIds,
+        input,
+        suitability,
+        expandedMuscles: result.expandedMuscles,
+      });
+      diagnostics.push(...requiredDiagnostics);
+      const requiredExercisesForGroup = collectRequiredExercisesForGroup({
+        requiredExerciseIds,
+        requiredById,
+        excludeExerciseIds,
+        suitability,
+      }).map(toExerciseResourceOutput);
+      const mergedExercises = mergeExerciseOutputs(requiredExercisesForGroup, baseExercises, result.maxReturned);
+      const baseExerciseIds = new Set(baseExercises.map((exercise) => exercise.exerciseId));
+      const addedRequiredCount = requiredExercisesForGroup
+        .filter((exercise) => !baseExerciseIds.has(exercise.exerciseId))
+        .length;
+      const totalMatches = result.totalMatches + addedRequiredCount;
 
       return [[
         suitability,
         {
           suitability,
-          totalMatches: result.totalMatches,
-          returnedCount: result.returnedCount,
-          truncated: result.truncated,
-          exercises: result.exercises.map(toExerciseResourceOutput),
+          totalMatches,
+          returnedCount: mergedExercises.length,
+          truncated: result.truncated || requiredExercisesForGroup.length + baseExercises.length > result.maxReturned,
+          exercises: mergedExercises,
         },
       ]];
-    })) as SearchExerciseResourcesOutput["groups"];
+    });
+    const groups = Object.fromEntries(groupEntries) as SearchExerciseResourcesOutput["groups"];
     const firstResult = results[0];
     if (!firstResult) {
       throw new Error("searchExerciseResources requires at least one suitability.");
     }
-    const totalMatches = results.reduce((sum, result) => sum + result.totalMatches, 0);
-    const returnedCount = results.reduce((sum, result) => sum + result.returnedCount, 0);
+    const totalMatches = Object.values(groups).reduce((sum, group) => sum + (group?.totalMatches ?? 0), 0);
+    const returnedCount = Object.values(groups).reduce((sum, group) => sum + (group?.returnedCount ?? 0), 0);
     const maxReturned = results.reduce((sum, result) => sum + result.maxReturned, 0);
 
     return {
@@ -270,23 +327,27 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
         goalTag: firstResult.query.goalTag,
         riskTag: firstResult.query.riskTag,
         excludeExerciseIds: firstResult.query.excludeExerciseIds,
+        requiredExerciseIds,
         published: true,
         sort: firstResult.query.sort,
-        appliedFilters: collectAppliedFilters(input, suitabilities, excludeExerciseIds),
+        appliedFilters: collectAppliedFilters(input, suitabilities, excludeExerciseIds, requiredExerciseIds),
         totalMatches,
         returnedCount,
         maxReturned,
-        truncated: results.some((result) => result.truncated),
+        truncated: Object.values(groups).some((group) => Boolean(group?.truncated)),
         excludedCount: firstResult.excludedCount,
       },
       groups,
-      diagnostics: results.flatMap((result) => result.totalMatches === 0
-        ? [{
-            suitability: result.query.suitability ?? "training",
-            code: "no_candidates" as const,
-            message: `${result.query.suitability ?? "training"} 用途当前没有匹配候选；Agent 可调整结构化筛选、澄清用户条件或失败收口。`,
-          }]
-        : []),
+      diagnostics: [
+        ...diagnostics,
+        ...Object.values(groups).flatMap((group) => !group || group.totalMatches > 0
+          ? []
+          : [{
+              suitability: group.suitability,
+              code: "no_candidates" as const,
+              message: `${group.suitability} 用途当前没有匹配候选；Agent 可调整结构化筛选、澄清用户条件或失败收口。`,
+            }]),
+      ],
     };
   },
   toFulfillment: (output) => {
@@ -314,6 +375,11 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
     outputSummaryNote: "totalMatches、returnedCount、truncated、excludedCount、groups 和 diagnostics 是本次查询输出摘要，不是下一轮 searchExerciseResources input。",
     finalAnswerGrounding: "本次查询事实（包括 totalMatches=0）如果 fulfillment.satisfied=true，可以引用当前 observation 的 toolResultId 填入 final_answer.usedToolResultIds；训练方案必须放入 final_answer.visibleOutputs[]。",
     candidateConsumptionBoundary: "该 observation 只提供候选事实，不是 visibleTrainingProposal、routine、plan、prescription、schedule 或训练卡片；最终训练事实只能来自 final_answer.visibleOutputs[]。",
+    groupSemantics: {
+      groupKey: "groups.<section>",
+      sectionRelation: "groups.<section>.exercises[] 中的动作是当前查询按该 section 返回的动作事实；生成 visibleTrainingProposal.exerciseItems[] 时，section 应与使用的 group key 保持一致。",
+      allowedSectionsRelation: "每个动作的 allowedSections 是可进入哪些 section 的事实字段；exerciseItems[*].section 必须包含在该动作 allowedSections 中。",
+    },
     bodyRegions: output.query.bodyRegions ?? [],
     expandedMuscles: output.query.expandedMuscles,
     appliedFilters: output.query.appliedFilters,
@@ -391,6 +457,10 @@ function normalizeExcludeExerciseIds(ids: string[] | undefined) {
   return ids ? [...new Set(ids)] : undefined;
 }
 
+function normalizeRequiredExerciseIds(ids: string[] | undefined) {
+  return ids ? [...new Set(ids)] : undefined;
+}
+
 function normalizeSuitabilities(suitabilities: SearchExerciseResourcesInput["suitabilities"]) {
   return [...new Set(suitabilities?.length ? suitabilities : ["training"])] as Array<z.infer<typeof exerciseAllowedSectionSchema>>;
 }
@@ -399,6 +469,7 @@ function collectAppliedFilters(
   input: SearchExerciseResourcesInput,
   suitabilities: Array<z.infer<typeof exerciseAllowedSectionSchema>>,
   excludeExerciseIds: string[] | undefined,
+  requiredExerciseIds: string[] | undefined,
 ): SearchExerciseResourcesOutput["query"]["appliedFilters"] {
   const filters: SearchExerciseResourcesOutput["query"]["appliedFilters"] = [];
   const entries = {
@@ -415,6 +486,7 @@ function collectAppliedFilters(
     goalTag: input.goalTag,
     riskTag: input.riskTag,
     excludeExerciseIds,
+    requiredExerciseIds,
     published: input.published,
   } as const;
 
@@ -428,6 +500,199 @@ function collectAppliedFilters(
   }
 
   return filters;
+}
+
+function collectRequiredExerciseDiagnostics(input: {
+  requiredExerciseIds: string[] | undefined;
+  requiredById: Map<string, ExerciseResourceSummary>;
+  excludeExerciseIds: string[] | undefined;
+  input: SearchExerciseResourcesInput;
+  suitability: z.infer<typeof exerciseAllowedSectionSchema>;
+  expandedMuscles: string[];
+}): SearchExerciseResourcesOutput["diagnostics"] {
+  if (!input.requiredExerciseIds?.length) {
+    return [];
+  }
+
+  const excludedIds = new Set(input.excludeExerciseIds ?? []);
+  const diagnostics: SearchExerciseResourcesOutput["diagnostics"] = [];
+  for (const exerciseId of input.requiredExerciseIds) {
+    const exercise = input.requiredById.get(exerciseId);
+    if (!exercise) {
+      diagnostics.push({
+        suitability: input.suitability,
+        code: "required_exercise_not_found",
+        exerciseId,
+        message: `指定动作 ${exerciseId} 不存在，无法纳入 ${input.suitability} 动作列表。`,
+      });
+      continue;
+    }
+
+    if (!exercise.isPublished) {
+      diagnostics.push({
+        suitability: input.suitability,
+        code: "required_exercise_unpublished",
+        exerciseId,
+        message: `指定动作 ${exerciseId} 不是发布态动作，无法纳入 ${input.suitability} 动作列表。`,
+      });
+      continue;
+    }
+
+    if (excludedIds.has(exerciseId)) {
+      diagnostics.push({
+        suitability: input.suitability,
+        code: "required_exercise_excluded",
+        exerciseId,
+        message: `指定动作 ${exerciseId} 同时出现在 excludeExerciseIds 中，已按排除条件阻止纳入。`,
+      });
+      continue;
+    }
+
+    if (!exercise.allowedSections.includes(input.suitability)) {
+      diagnostics.push({
+        suitability: input.suitability,
+        code: "required_exercise_section_conflict",
+        exerciseId,
+        conflictFields: ["suitabilities"],
+        message: `指定动作 ${exerciseId} 不适配 ${input.suitability} 用途，无法纳入该分组。`,
+      });
+      continue;
+    }
+
+    const conflictFields = collectRequiredExerciseFilterMismatches(exercise, input.input, input.expandedMuscles);
+    if (conflictFields.length === 0) {
+      continue;
+    }
+
+    diagnostics.push({
+      suitability: input.suitability,
+      code: "required_exercise_filter_mismatch",
+      exerciseId,
+      conflictFields,
+      message: `指定动作 ${exerciseId} 已按用户点名优先纳入，但与当前筛选字段不完全一致：${conflictFields.join(", ")}。`,
+    });
+  }
+
+  return diagnostics;
+}
+
+function collectRequiredExercisesForGroup(input: {
+  requiredExerciseIds: string[] | undefined;
+  requiredById: Map<string, ExerciseResourceSummary>;
+  excludeExerciseIds: string[] | undefined;
+  suitability: z.infer<typeof exerciseAllowedSectionSchema>;
+}) {
+  if (!input.requiredExerciseIds?.length) {
+    return [];
+  }
+
+  const excludedIds = new Set(input.excludeExerciseIds ?? []);
+  return input.requiredExerciseIds
+    .map((exerciseId) => input.requiredById.get(exerciseId))
+    .filter((exercise): exercise is ExerciseResourceSummary => Boolean(exercise))
+    .filter((exercise) => exercise.isPublished)
+    .filter((exercise) => !excludedIds.has(exercise.id))
+    .filter((exercise) => exercise.allowedSections.includes(input.suitability));
+}
+
+function mergeExerciseOutputs(
+  requiredExercises: ExerciseResourceOutput[],
+  baseExercises: ExerciseResourceOutput[],
+  maxReturned: number,
+) {
+  const byId = new Map<string, ExerciseResourceOutput>();
+  for (const exercise of [...requiredExercises, ...baseExercises]) {
+    if (!byId.has(exercise.exerciseId)) {
+      byId.set(exercise.exerciseId, exercise);
+    }
+  }
+  return [...byId.values()].slice(0, maxReturned);
+}
+
+function collectRequiredExerciseFilterMismatches(
+  exercise: ExerciseResourceSummary,
+  input: SearchExerciseResourcesInput,
+  expandedMuscles: string[],
+) {
+  const conflicts: string[] = [];
+
+  if (input.q && !matchesExerciseText(exercise, input.q)) {
+    conflicts.push("q");
+  }
+  if (input.category && !equalsAnyText(input.category, exercise.category, exercise.categoryZh)) {
+    conflicts.push("category");
+  }
+  if (input.level && !equalsAnyText(input.level, exercise.level, exercise.levelZh)) {
+    conflicts.push("level");
+  }
+  if (input.force && !equalsAnyText(input.force, exercise.force, exercise.forceZh)) {
+    conflicts.push("force");
+  }
+  if (input.mechanic && !equalsAnyText(input.mechanic, exercise.mechanic, exercise.mechanicZh)) {
+    conflicts.push("mechanic");
+  }
+  if (input.equipment && !equalsAnyText(input.equipment, exercise.equipment, exercise.equipmentZh)) {
+    conflicts.push("equipment");
+  }
+  if (input.homeRequirement && !equalsAnyText(input.homeRequirement, exercise.homeRequirement, exercise.homeRequirementZh)) {
+    conflicts.push("homeRequirement");
+  }
+  if (input.muscle && !equalsAnyText(input.muscle, ...exercise.primaryMuscles, ...exercise.primaryMusclesZh, ...exercise.secondaryMuscles, ...exercise.secondaryMusclesZh)) {
+    conflicts.push("muscle");
+  }
+  if (input.bodyRegions?.length && expandedMuscles.length > 0 && !expandedMuscles.some((muscle) => equalsAnyText(muscle, ...exercise.primaryMuscles, ...exercise.primaryMusclesZh, ...exercise.secondaryMuscles, ...exercise.secondaryMusclesZh))) {
+    conflicts.push("bodyRegions");
+  }
+  if (input.goalTag && !exercise.goalTags.includes(input.goalTag)) {
+    conflicts.push("goalTag");
+  }
+  if (input.riskTag && !exercise.riskTags.includes(input.riskTag)) {
+    conflicts.push("riskTag");
+  }
+
+  return conflicts;
+}
+
+function matchesExerciseText(exercise: ExerciseResourceSummary, query: string) {
+  return matchesAnyText(
+    query,
+    exercise.id,
+    exercise.nameEn,
+    exercise.nameZh,
+    exercise.category,
+    exercise.categoryZh,
+    exercise.level,
+    exercise.levelZh,
+    exercise.force,
+    exercise.forceZh,
+    exercise.mechanic,
+    exercise.mechanicZh,
+    exercise.equipment,
+    exercise.equipmentZh,
+    exercise.homeRequirement,
+    exercise.homeRequirementZh,
+    ...exercise.primaryMuscles,
+    ...exercise.primaryMusclesZh,
+    ...exercise.secondaryMuscles,
+    ...exercise.secondaryMusclesZh,
+    ...exercise.goalTags,
+    ...exercise.riskTags,
+  );
+}
+
+function matchesAnyText(query: string, ...values: Array<string | null | undefined>) {
+  const normalizedQuery = query.trim().toLowerCase();
+  return values.some((value) => {
+    if (!value) {
+      return false;
+    }
+    return value.toLowerCase().includes(normalizedQuery);
+  });
+}
+
+function equalsAnyText(query: string, ...values: Array<string | null | undefined>) {
+  const normalizedQuery = query.trim().toLowerCase();
+  return values.some((value) => typeof value === "string" && value.toLowerCase() === normalizedQuery);
 }
 
 function mapGroups<T>(

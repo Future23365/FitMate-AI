@@ -6,6 +6,7 @@ import type {
 
 export type VisibleOutputRendererContext = {
   result: AgentRunResult;
+  outputIndex: number;
 };
 
 export type VisibleOutputRenderer = {

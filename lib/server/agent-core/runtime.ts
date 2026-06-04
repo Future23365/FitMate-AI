@@ -1,4 +1,4 @@
-import { validateAgentAction, createToolError } from "./action-validator";
+import { validateAgentAction, validateAgentActionAsync, createToolError } from "./action-validator";
 import {
   claimPendingActionForExecution,
   createConfirmationRequest,
@@ -154,7 +154,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
 
     traceEvents.push(createPlannerActionTrace(step, plannerAction.action));
 
-    const validation = validateAgentAction({
+    const validation = await validateAgentActionAsync({
       action: plannerAction.action,
       registry: input.registry,
       manifests,
@@ -198,6 +198,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
         runId: input.run.runId,
         status: "completed",
         terminalAction: validation.action,
+        terminalOutputValidation: validation.terminalOutputValidation,
         toolResults,
         observations,
         traceEvents,

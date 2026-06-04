@@ -159,6 +159,16 @@ export const VisibleOutputEnvelopeSchema = z.object({
 /** VisibleOutputEnvelope 是 final_answer 承载用户可见结构化输出的通用 envelope，不包含业务语义。 */
 export type VisibleOutputEnvelope = z.infer<typeof VisibleOutputEnvelopeSchema>;
 
+/** TerminalOutputValidationSummary 保存业务 validator 返回的有限摘要，供 renderer 复用已校验事实。 */
+export type TerminalOutputValidationSummary = {
+  outputs: Array<{
+    index: number;
+    outputType: string;
+    schemaVersion: string;
+    metadata?: JsonValue;
+  }>;
+};
+
 export const FinalAnswerActionSchema = z.object({
   type: z.literal("final_answer"),
   content: z.string().min(1),
@@ -496,6 +506,7 @@ export type AgentRunResult = {
   runId: string;
   status: "completed" | "needs_input" | "failed" | "requires_confirmation";
   terminalAction?: TerminalAgentAction;
+  terminalOutputValidation?: TerminalOutputValidationSummary;
   terminalError?: ToolError;
   confirmationRequest?: ConfirmationRequest;
   toolResults: ToolResult[];

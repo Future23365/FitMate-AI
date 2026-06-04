@@ -4,7 +4,7 @@
 TBD - created by archiving change harden-agent-contract-repair-loop. Update Purpose after archive.
 ## Requirements
 ### Requirement: Agent 决策合同失败必须生成结构化反馈
-系统 SHALL 在 Agent 模型决策违反可恢复执行合同时生成结构化 `AgentDecisionFeedback`，并将该反馈作为下一轮模型可见的工具结果摘要，而不是只返回通用 `model_output_invalid`。
+系统 SHALL 在 Agent 模型决策违反可恢复执行合同时生成结构化 `AgentDecisionFeedback` 或等价模型可见 repair feedback，并将该反馈作为下一轮模型可见的工具结果摘要或 invalid action observation，而不是只返回通用 `model_output_invalid` 或泛化 schema 失败消息。
 
 #### Scenario: final result 引用未登记 revision
 - **WHEN** 模型返回 `final_result.generated` 或 `final_result.patched`
@@ -23,6 +23,15 @@ TBD - created by archiving change harden-agent-contract-repair-loop. Update Purp
 - **THEN** 系统 MUST 生成结构化 feedback
 - **AND** feedback MUST 包含缺失依赖、可用资源和推荐下一步工具
 - **AND** 系统 MUST 允许模型在剩余预算内重新决策
+
+#### Scenario: tool input schema 失败必须暴露安全字段级 repair feedback
+- **WHEN** 模型返回已注册且当前 manifest 可见的 `tool_call`
+- **AND** tool input 未通过对应 tool `inputSchema` 校验
+- **AND** 失败原因可通过安全字段路径和中文说明表达
+- **THEN** 系统 MUST 返回 `invalid_tool_input`
+- **AND** 模型可见 feedback MUST 包含脱敏后的字段路径、失败原因和可恢复建议
+- **AND** feedback MUST NOT 包含 handler payload、数据库完整输出、secret、stack trace 或用户不可见事实
+- **AND** 系统 MUST NOT 在服务端替模型补全 tool input 或改写高层 action
 
 #### Scenario: 可恢复性必须由 ToolResult 和 runtime 共同判定
 - **WHEN** 模型决策或工具结果出现 `schema_validation_failed`、`invalid_dependency` 或 `model_output_invalid`

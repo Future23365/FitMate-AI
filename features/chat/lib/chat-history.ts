@@ -3,12 +3,6 @@
 import { clientRequest } from "@/lib/client/http/client-request";
 import type { ChatConversation, ChatMessage } from "@/features/chat/types";
 import type { ConversationSummaryContext, FitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
-import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
-import type {
-  WorkoutPlanDraft,
-  WorkoutPlanIntent,
-  WorkoutRoutineDraft,
-} from "@/lib/shared/workout-plans/draft-schema";
 
 type ChatHistoryResponse = {
   items: ChatConversation[];
@@ -58,10 +52,6 @@ export function createConversationTitle(nextMessages: ChatMessage[]) {
 export function createChatConversationSavePayload(
   conversationId: string,
   messages: ChatMessage[],
-  bubblePlans: Record<string, WorkoutPlanDraft>,
-  bubbleRoutines: Record<string, WorkoutRoutineDraft> = {},
-  bubbleExerciseRecommendations: Record<string, ExerciseRecommendationCard> = {},
-  bubbleRecommendationIntents: Record<string, WorkoutPlanIntent> = {},
   conversationSummary?: Pick<ConversationSummaryContext, "summary">,
   conversationContext?: FitnessConversationContext,
 ) {
@@ -79,47 +69,11 @@ export function createChatConversationSavePayload(
     return null;
   }
 
-  const messageIds = new Set(messagesToSave.map((message) => message.id));
-  const plansToSave: Record<string, WorkoutPlanDraft> = {};
-  for (const [messageId, draft] of Object.entries(bubblePlans)) {
-    if (messageIds.has(messageId)) {
-      plansToSave[messageId] = draft;
-    }
-  }
-  const routinesToSave: Record<string, WorkoutRoutineDraft> = {};
-  for (const [messageId, draft] of Object.entries(bubbleRoutines)) {
-    if (messageIds.has(messageId)) {
-      routinesToSave[messageId] = draft;
-    }
-  }
-  const exerciseRecommendationsToSave: Record<string, ExerciseRecommendationCard> = {};
-  for (const [messageId, card] of Object.entries(bubbleExerciseRecommendations)) {
-    if (messageIds.has(messageId)) {
-      exerciseRecommendationsToSave[messageId] = card;
-    }
-  }
-  const recommendationIntentsToSave: Record<string, WorkoutPlanIntent> = {};
-  for (const [messageId, intent] of Object.entries(bubbleRecommendationIntents)) {
-    if (messageIds.has(messageId)) {
-      recommendationIntentsToSave[messageId] = intent;
-    }
-  }
-
   return {
     id: conversationId,
     title: createConversationTitle(messagesToSave),
     updatedAt: new Date().toISOString(),
     messages: messagesToSave,
-    plans: Object.keys(plansToSave).length > 0 ? plansToSave : undefined,
-    routines: Object.keys(routinesToSave).length > 0 ? routinesToSave : undefined,
-    exerciseRecommendations:
-      Object.keys(exerciseRecommendationsToSave).length > 0
-        ? exerciseRecommendationsToSave
-        : undefined,
-    recommendationIntents:
-      Object.keys(recommendationIntentsToSave).length > 0
-        ? recommendationIntentsToSave
-        : undefined,
     conversationSummary,
     conversationContext,
   };
@@ -128,20 +82,12 @@ export function createChatConversationSavePayload(
 export async function saveChatConversation(
   conversationId: string,
   messages: ChatMessage[],
-  bubblePlans: Record<string, WorkoutPlanDraft>,
-  bubbleRoutines: Record<string, WorkoutRoutineDraft> = {},
-  bubbleExerciseRecommendations: Record<string, ExerciseRecommendationCard> = {},
-  bubbleRecommendationIntents: Record<string, WorkoutPlanIntent> = {},
   conversationSummary?: Pick<ConversationSummaryContext, "summary">,
   conversationContext?: FitnessConversationContext,
 ) {
   const payload = createChatConversationSavePayload(
     conversationId,
     messages,
-    bubblePlans,
-    bubbleRoutines,
-    bubbleExerciseRecommendations,
-    bubbleRecommendationIntents,
     conversationSummary,
     conversationContext,
   );
