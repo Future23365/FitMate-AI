@@ -17,6 +17,7 @@ import {
 
 const visibleTrainingProposalOutputType = "visibleTrainingProposal";
 const visibleTrainingProposalSchemaVersion = "1";
+const maxExerciseRecommendationItems = 10;
 const orderedSections = ["warmup", "training", "stretch"] as const;
 const sectionTitles: Record<WorkoutRoutineSection, string> = {
   warmup: "热身激活",
@@ -119,6 +120,7 @@ function createExerciseRecommendationCardView(
     items: payload.exerciseItems
       .filter((item) => item.section === "training")
       .sort(compareExerciseItems)
+      .slice(0, maxExerciseRecommendationItems)
       .map((item) => {
         const detail = detailMap.get(item.exerciseId);
         return {

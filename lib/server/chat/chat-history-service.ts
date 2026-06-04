@@ -3,11 +3,9 @@ import "server-only";
 import type { Prisma } from "@prisma/client";
 
 import type { ChatConversation, ChatMessage } from "@/features/chat/types";
-import { createOrUpdateConversationArtifact } from "@/lib/server/conversation-artifacts/artifact-service";
 import { getPrismaClient } from "@/lib/server/db/prisma";
 import { getCurrentUser } from "@/lib/server/users/current-user";
 import type { CurrentUser } from "@/lib/server/users/current-user";
-import type { ConversationArtifactKind } from "@/lib/shared/conversation-artifacts/schema";
 import {
   buildFitnessConversationContext,
   initializeConversationSummary,
@@ -93,6 +91,13 @@ export async function saveChatConversation(rawConversation: ChatConversation, cu
         const fallbackCreatedAt = new Date(savedAtMs + index);
         const createdAt = message.createdAt ? parseUtcDateTimeInput(message.createdAt) : fallbackCreatedAt;
         const isLastMessage = index === conversation.messages.length - 1;
+        const metadata = toPrismaJsonInput({
+          assistantSuggestions: message.assistantSuggestions,
+          suggestedReplies: message.suggestedReplies,
+          visibleOutputs: message.visibleOutputs,
+          conversationSummary: isLastMessage ? conversation.conversationSummary : undefined,
+          conversationContext: isLastMessage ? conversation.conversationContext : undefined,
+        });
 
         return {
           id: message.id,
@@ -100,27 +105,9 @@ export async function saveChatConversation(rawConversation: ChatConversation, cu
           role: message.role,
           content: message.content,
           createdAt,
-          metadata: {
-            assistantSuggestions: message.assistantSuggestions,
-            suggestedReplies: message.suggestedReplies,
-            plan: conversation.plans?.[message.id],
-            routine: conversation.routines?.[message.id],
-            exerciseRecommendation: conversation.exerciseRecommendations?.[message.id],
-            recommendationIntent: conversation.recommendationIntents?.[message.id],
-            conversationSummary: isLastMessage ? conversation.conversationSummary : undefined,
-            conversationContext: isLastMessage ? conversation.conversationContext : undefined,
-          },
+          metadata,
         };
       }),
-    });
-    await createConversationArtifactsFromMessages({
-      tx,
-      userId: user.id,
-      sessionId: conversation.id,
-      messages: conversation.messages,
-      plans: conversation.plans,
-      routines: conversation.routines,
-      exerciseRecommendations: conversation.exerciseRecommendations,
     });
 
     const savedSession = await tx.chatSession.findFirstOrThrow({
@@ -151,11 +138,6 @@ function normalizeConversation(conversation: ChatConversation): ChatConversation
       suggestedReplies: message.suggestedReplies ?? suggestedQuestions,
     }))
     .filter((message) => message.role === "user" || message.role === "assistant");
-  const messageIds = new Set(messages.map((message) => message.id));
-  const plans = filterMessageRecord(conversation.plans, messageIds);
-  const routines = filterMessageRecord(conversation.routines, messageIds);
-  const exerciseRecommendations = filterMessageRecord(conversation.exerciseRecommendations, messageIds);
-  const recommendationIntents = filterMessageRecord(conversation.recommendationIntents, messageIds);
   const conversationContext =
     conversation.conversationContext ??
     buildFitnessConversationContext(messages.map(({ role, content }) => ({ role, content })));
@@ -168,14 +150,6 @@ function normalizeConversation(conversation: ChatConversation): ChatConversation
     title: conversation.title,
     updatedAt: conversation.updatedAt,
     messages,
-    plans: Object.keys(plans).length ? plans : undefined,
-    routines: Object.keys(routines).length ? routines : undefined,
-    exerciseRecommendations: Object.keys(exerciseRecommendations).length
-      ? exerciseRecommendations
-      : undefined,
-    recommendationIntents: Object.keys(recommendationIntents).length
-      ? recommendationIntents
-      : undefined,
     conversationSummary,
     conversationContext,
   };
@@ -183,10 +157,6 @@ function normalizeConversation(conversation: ChatConversation): ChatConversation
 
 function mapChatSessionToConversation(session: ChatSessionWithMessages): ChatConversation {
   const messages: ChatMessage[] = [];
-  const plans: NonNullable<ChatConversation["plans"]> = {};
-  const routines: NonNullable<ChatConversation["routines"]> = {};
-  const exerciseRecommendations: NonNullable<ChatConversation["exerciseRecommendations"]> = {};
-  const recommendationIntents: NonNullable<ChatConversation["recommendationIntents"]> = {};
 
   for (const dbMessage of session.messages) {
     const metadata = readObject(dbMessage.metadata);
@@ -201,27 +171,10 @@ function mapChatSessionToConversation(session: ChatSessionWithMessages): ChatCon
         ? assistantSuggestions.data
         : undefined,
       suggestedReplies: suggestedReplies.length ? suggestedReplies : undefined,
+      visibleOutputs: readVisibleOutputs(metadata?.visibleOutputs),
     };
 
     messages.push(message);
-
-    if (metadata?.plan) {
-      plans[message.id] = metadata.plan as NonNullable<ChatConversation["plans"]>[string];
-    }
-
-    if (metadata?.routine) {
-      routines[message.id] = metadata.routine as NonNullable<ChatConversation["routines"]>[string];
-    }
-
-    if (metadata?.exerciseRecommendation) {
-      exerciseRecommendations[message.id] =
-        metadata.exerciseRecommendation as NonNullable<ChatConversation["exerciseRecommendations"]>[string];
-    }
-
-    if (metadata?.recommendationIntent) {
-      recommendationIntents[message.id] =
-        metadata.recommendationIntent as NonNullable<ChatConversation["recommendationIntents"]>[string];
-    }
   }
 
   const latestMessageMetadata = readObject(session.messages.at(-1)?.metadata);
@@ -238,75 +191,9 @@ function mapChatSessionToConversation(session: ChatSessionWithMessages): ChatCon
     title: session.title ?? createConversationTitle(messages),
     updatedAt: toUtcISOString(getConversationDisplayTime(session)),
     messages,
-    plans: Object.keys(plans).length ? plans : undefined,
-    routines: Object.keys(routines).length ? routines : undefined,
-    exerciseRecommendations: Object.keys(exerciseRecommendations).length
-      ? exerciseRecommendations
-      : undefined,
-    recommendationIntents: Object.keys(recommendationIntents).length
-      ? recommendationIntents
-      : undefined,
     conversationSummary,
     conversationContext,
   };
-}
-
-async function createConversationArtifactsFromMessages({
-  tx,
-  userId,
-  sessionId,
-  messages,
-  plans,
-  routines,
-  exerciseRecommendations,
-}: {
-  tx: Prisma.TransactionClient;
-  userId: string;
-  sessionId: string;
-  messages: ChatMessage[];
-  plans?: ChatConversation["plans"];
-  routines?: ChatConversation["routines"];
-  exerciseRecommendations?: ChatConversation["exerciseRecommendations"];
-}) {
-  const messageIds = new Set(messages.map((message) => message.id));
-  const candidates: Array<{
-    messageId: string;
-    kind: ConversationArtifactKind;
-    payload: unknown;
-  }> = [
-    ...Object.entries(exerciseRecommendations ?? {}).map(([messageId, payload]) => ({
-      messageId,
-      kind: "exercise_recommendation" as const,
-      payload,
-    })),
-    ...Object.entries(routines ?? {}).map(([messageId, payload]) => ({
-      messageId,
-      kind: "routine" as const,
-      payload,
-    })),
-    ...Object.entries(plans ?? {}).map(([messageId, payload]) => ({
-      messageId,
-      kind: "plan" as const,
-      payload,
-    })),
-  ];
-
-  for (const candidate of candidates) {
-    if (!messageIds.has(candidate.messageId)) {
-      continue;
-    }
-
-    await createOrUpdateConversationArtifact(
-      {
-        userId,
-        sessionId,
-        messageId: candidate.messageId,
-        kind: candidate.kind,
-        payload: candidate.payload,
-      },
-      tx,
-    );
-  }
 }
 
 function getConversationDisplayTime(session: ChatSessionWithMessages) {
@@ -331,16 +218,31 @@ function createConversationTitle(messages: ChatMessage[]) {
   return title.length > 24 ? `${title.slice(0, 24)}...` : title;
 }
 
-function filterMessageRecord<T>(record: Record<string, T> | undefined, messageIds: Set<string>) {
-  const filtered: Record<string, T> = {};
-
-  for (const [messageId, value] of Object.entries(record ?? {})) {
-    if (messageIds.has(messageId)) {
-      filtered[messageId] = value;
-    }
+// readVisibleOutputs 只恢复用户已看到的结构化输出，不再读取旧 bubble metadata。
+function readVisibleOutputs(value: unknown): ChatMessage["visibleOutputs"] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
   }
 
-  return filtered;
+  const outputs = value.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return [];
+    }
+
+    const output = item as Record<string, unknown>;
+    if (typeof output.outputType !== "string" || typeof output.schemaVersion !== "string") {
+      return [];
+    }
+
+    return [{
+      outputType: output.outputType,
+      schemaVersion: output.schemaVersion,
+      payload: output.payload,
+      content: output.content,
+    }];
+  });
+
+  return outputs.length ? outputs : undefined;
 }
 
 function readObject(value: Prisma.JsonValue | null | undefined) {
@@ -353,4 +255,8 @@ function readObject(value: Prisma.JsonValue | null | undefined) {
 
 function readStringArray(value: unknown) {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function toPrismaJsonInput(value: unknown) {
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }

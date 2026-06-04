@@ -47,6 +47,25 @@ describe("visible training proposal rich card adapter", () => {
     expect(JSON.stringify(card)).not.toContain("exercise_selection");
   });
 
+  it("caps 12 returned exercise_selection items to the recommendation card display limit", () => {
+    const card = adaptVisibleTrainingProposalToRichCard(createVisibleOutput({
+      kind: "exercise_selection",
+      exerciseItems: Array.from({ length: 12 }, (_, index) => ({
+        exerciseId: `exercise-${index + 1}`,
+        section: "training",
+        order: index + 1,
+      })),
+    }), { assistantContent: "推荐一批动作。" });
+
+    expect(card?.kind).toBe("exerciseRecommendation");
+    if (card?.kind !== "exerciseRecommendation") {
+      throw new Error("Expected exercise recommendation rich card");
+    }
+
+    expect(card.card.items).toHaveLength(10);
+    expect(card.card.items.at(-1)?.exerciseId).toBe("exercise-10");
+  });
+
   it("adapts routine payload facts into a three-section WorkoutRoutineDraft", () => {
     const card = adaptVisibleTrainingProposalToRichCard(createVisibleOutput({
       kind: "routine",
