@@ -113,6 +113,19 @@ describe("searchExerciseResources tool", () => {
     );
     const serializedObservation = JSON.stringify(modelObservation);
     expect(serializedObservation).toContain("exerciseId");
+    expect(modelObservation).toMatchObject({
+      groupSemantics: {
+        groupKey: "groups.<section>",
+        sectionRelation: expect.stringContaining("visibleTrainingProposal.exerciseItems[]"),
+        allowedSectionsRelation: expect.stringContaining("allowedSections"),
+      },
+    });
+    expect(serializedObservation).toContain("section 应与使用的 group key 保持一致");
+    expect(serializedObservation).not.toContain("sectionEvidence");
+    expect(serializedObservation).not.toContain("exerciseSectionEvidence");
+    expect(serializedObservation).not.toContain("visibleTrainingProposalEvidence");
+    expect(serializedObservation).not.toContain("candidate_set");
+    expect(serializedObservation).not.toContain("imageUrl");
     expect(serializedObservation).not.toContain("\"id\"");
     expect(serializedObservation).not.toContain("visibleTrainingProposal\":{\"");
     expect(serializedObservation).toContain("最终训练事实只能来自 final_answer.visibleOutputs[]");

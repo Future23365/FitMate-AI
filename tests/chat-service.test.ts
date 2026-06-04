@@ -751,6 +751,86 @@ describe("chat service agent text flow boundary", () => {
     }));
   });
 
+  it("keeps section_not_allowed details in visible output repair observations", async () => {
+    exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockResolvedValueOnce(createExerciseResourceSearchResult({
+      query: {
+        suitability: "training",
+        muscle: "胸部",
+        published: true,
+        sort: "name_asc",
+      },
+      exercises: [
+        createExerciseResourceSummary({ id: "Pushups", nameEn: "Pushups", nameZh: "俯卧撑", allowedSections: ["training"] }),
+      ],
+    }));
+    const prepared = prepareChatRequest({
+      conversationId: "conversation-section-repair",
+      responseMessageId: "assistant-section-repair",
+      latestUserMessage: "把胸部自重动作编排成完整训练",
+      conversationSummary: "",
+    });
+    const searchInput = { muscle: "胸部", suitabilities: ["training" as const] };
+    const planner = new ReplayPlanner([
+      { type: "tool_call", toolName: "searchExerciseResources", input: searchInput },
+      {
+        type: "final_answer",
+        content: "先给你一版完整训练。",
+        visibleOutputs: [createInvalidWarmupRoutineOutput()],
+      },
+      {
+        type: "final_answer",
+        content: "当前动作 section 校验没有通过，我会重新基于可用动作事实调整。",
+      },
+    ]);
+
+    const response = await createAgentTextChatResponse({
+      request: prepared,
+      currentUser: { id: "user-1" },
+      planner,
+    });
+    const events = await readNdjsonEvents(response);
+    const secondPlannerInput = planner.calls[1];
+    const repairPlannerInput = planner.calls[2];
+    const searchObservationJson = JSON.stringify(secondPlannerInput.observations);
+    const repairObservation = repairPlannerInput.observations.find((observation) => (
+      observation.type === "invalid_action"
+      && observation.source === "validator"
+      && JSON.stringify(observation.content).includes("section_not_allowed")
+    ));
+    const repairObservationJson = JSON.stringify(repairObservation?.content);
+
+    expect(searchObservationJson).toContain("groups");
+    expect(searchObservationJson).toContain("training");
+    expect(searchObservationJson).toContain("Pushups");
+    expect(searchObservationJson).toContain("allowedSections");
+    expect(searchObservationJson).toContain("groupSemantics");
+    expect(repairObservation).toMatchObject({
+      ok: false,
+      content: {
+        code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID,
+        details: {
+          index: 0,
+          outputType: "visibleTrainingProposal",
+          schemaVersion: "1",
+          details: {
+            code: "section_not_allowed",
+            path: "payload.exerciseItems[0].section",
+            exerciseId: "Pushups",
+            section: "warmup",
+            allowedSections: ["training"],
+          },
+        },
+      },
+    });
+    expect(repairObservationJson).not.toContain("必须调用 searchExerciseResources");
+    expect(repairObservationJson).not.toContain("stack");
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "tool_result", toolName: "searchExerciseResources" }),
+      { type: "content", content: "当前动作 section 校验没有通过，我会重新基于可用动作事实调整。" },
+      { type: "done" },
+    ]));
+  });
+
   it("recovers from duplicate successful read/import without resource duplicate hard failure", async () => {
     const listInput = { operation: "list_recent" as const };
     const readInput = { operation: "read_recent" as const, factRef: "fact-previous" };
@@ -1829,6 +1909,16 @@ function createExerciseRecordForValidation(id: string) {
       allowedSections: ["training"],
       isPublished: true,
     },
+    Pushups: {
+      id,
+      nameEn: "Pushups",
+      nameZh: "俯卧撑",
+      equipmentZh: "自重",
+      primaryMusclesZh: ["胸部"],
+      imageUrls: [],
+      allowedSections: ["training"],
+      isPublished: true,
+    },
     "chest-stretch": {
       id,
       nameEn: "Chest Stretch",
@@ -1943,6 +2033,21 @@ function createVisibleRoutineOutput() {
       exerciseItems: [
         { exerciseId: "jumping-jack", section: "warmup" as const, order: 1, prescription: createVisiblePrescription("reps", 20) },
         { exerciseId: "push-up", section: "training" as const, order: 1, prescription: createVisiblePrescription("reps", 12) },
+        { exerciseId: "chest-stretch", section: "stretch" as const, order: 1, prescription: createVisiblePrescription("duration", 30) },
+      ],
+    },
+  };
+}
+
+function createInvalidWarmupRoutineOutput() {
+  return {
+    outputType: "visibleTrainingProposal" as const,
+    schemaVersion: "1",
+    payload: {
+      kind: "routine" as const,
+      exerciseItems: [
+        { exerciseId: "Pushups", section: "warmup" as const, order: 1, prescription: createVisiblePrescription("reps", 10) },
+        { exerciseId: "squat", section: "training" as const, order: 1, prescription: createVisiblePrescription("reps", 12) },
         { exerciseId: "chest-stretch", section: "stretch" as const, order: 1, prescription: createVisiblePrescription("duration", 30) },
       ],
     },

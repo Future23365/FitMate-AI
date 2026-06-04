@@ -114,9 +114,35 @@ describe("visible training proposal validator", () => {
       message: "visibleTrainingProposal 动作项 section 超出数据库允许边界。",
       details: {
         code: "section_not_allowed",
+        path: "payload.exerciseItems[0].section",
         exerciseId: "chest-stretch",
         section: "training",
         allowedSections: ["stretch"],
+      },
+    });
+  });
+
+  it("returns field-level section_not_allowed details when Pushups is placed in warmup", async () => {
+    await expect(validateVisibleTrainingProposalOutput(
+      createEnvelope({
+        kind: "routine",
+        exerciseItems: [
+          { exerciseId: "Pushups", section: "warmup", order: 1, prescription: createPrescription("reps", 10) },
+          { exerciseId: "squat", section: "training", order: 1, prescription: createPrescription("reps", 12) },
+          { exerciseId: "chest-stretch", section: "stretch", order: 1, prescription: createPrescription("duration", 30) },
+        ],
+      }),
+      createContext(),
+      { loadExerciseRecordsByIds: createExerciseFactLoader() },
+    )).resolves.toMatchObject({
+      ok: false,
+      message: "visibleTrainingProposal 动作项 section 超出数据库允许边界。",
+      details: {
+        code: "section_not_allowed",
+        path: "payload.exerciseItems[0].section",
+        exerciseId: "Pushups",
+        section: "warmup",
+        allowedSections: ["training"],
       },
     });
   });
@@ -276,6 +302,16 @@ function createExerciseRecord(id: string): FixtureExerciseRecord | undefined {
       allowedSections: ["training"],
       imageUrls: [],
       isPublished: false,
+    },
+    Pushups: {
+      id,
+      nameZh: "俯卧撑",
+      nameEn: "Pushups",
+      equipmentZh: "自重",
+      primaryMusclesZh: ["胸大肌"],
+      allowedSections: ["training"],
+      imageUrls: [],
+      isPublished: true,
     },
     squat: {
       id,

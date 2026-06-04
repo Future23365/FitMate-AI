@@ -95,7 +95,8 @@ const exerciseResourceSummarySchema = z.object({
   secondaryMusclesZh: z.array(z.string()),
   imageUrls: z.array(z.string()),
   imageUrl: z.string().nullable(),
-  allowedSections: z.array(exerciseAllowedSectionSchema),
+  allowedSections: z.array(exerciseAllowedSectionSchema)
+    .describe("动作可进入哪些 visibleTrainingProposal.exerciseItems[*].section 的数据库事实字段。"),
   goalTags: z.array(z.string()),
   riskTags: z.array(z.string()),
   reviewStatus: z.string(),
@@ -107,7 +108,8 @@ const suitabilityGroupSchema = z.object({
   totalMatches: z.number().int().min(0),
   returnedCount: z.number().int().min(0),
   truncated: z.boolean(),
-  exercises: z.array(exerciseResourceSummarySchema),
+  exercises: z.array(exerciseResourceSummarySchema)
+    .describe("该 groups.<section> 分组下返回的发布态动作事实；生成 visibleTrainingProposal.exerciseItems[] 时，section 应与所在 group key 和动作 allowedSections 保持一致。"),
 }).strict();
 
 const searchExerciseResourcesOutputSchema = z.object({
@@ -141,7 +143,7 @@ const searchExerciseResourcesOutputSchema = z.object({
     warmup: suitabilityGroupSchema.optional(),
     training: suitabilityGroupSchema.optional(),
     stretch: suitabilityGroupSchema.optional(),
-  }).strict(),
+  }).strict().describe("按 groups.<section> 分组的动作事实来源；section key 表示本次查询中这些动作作为该训练阶段候选返回。"),
   diagnostics: z.array(z.object({
     suitability: exerciseAllowedSectionSchema,
     code: z.enum([
@@ -173,6 +175,7 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
     "如果需要确认当前会话是否存在可引用 visibleTrainingProposal，先使用 inspectVisibleTrainingProposals(operation = \"list_recent\")；如果需要复用具体上一轮方案，先使用 inspectVisibleTrainingProposals(operation = \"read_recent\") 导入当前 run。",
     "用户明确提出新的动作查询目标、结构化筛选条件或普通动作事实问题时，可以直接调用 searchExerciseResources，不需要强制先 inspectVisibleTrainingProposals。",
     "只推荐一批动作时通常查询 suitabilities = [\"training\"] 或省略 suitabilities；返回的 exerciseId 可写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal.payload.exerciseItems。",
+    "groups.<section>.exercises[] 是该查询结果中对应 section 的动作事实来源；生成 visibleTrainingProposal.exerciseItems[] 时，exerciseItems[*].section 应对应使用的 groups.<section> key，并且必须被该动作 allowedSections 包含；allowedSections 是动作可进入哪些 section 的动作事实字段。",
     "当用户点名多个具体动作时，应先调用 resolveExerciseResourceMentions 解析 mentions；再把 matched exerciseId 或模型从 ambiguous 中选择的 exerciseId 传入 requiredExerciseIds，让这些发布态动作优先进入现有 groups.<section>.exercises。",
     "需要一次可执行编排时，先确定 training 主训练动作；再围绕这些主训练动作和用户目标查询 suitabilities = [\"warmup\", \"stretch\"] 补充热身和拉伸候选。",
     "宽泛身体区域必须使用 bodyRegions：上肢用 upper_body，腿部或下肢用 lower_body，核心用 core，全身用 full_body。",
@@ -184,6 +187,7 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
     "不要用它生成 visibleTrainingProposal、routine、plan、patch、prescription、schedule、训练卡片、保存 artifact、用户记忆或执行候选集合。",
     "不要用它判断当前会话有没有上一轮 visibleTrainingProposal、列出 factRef/messageId、读取完整 visibleTrainingProposal.payload，或替代 inspectVisibleTrainingProposals 的 list_recent / read_recent 事实查询。",
     "不要把 0 条事实查询结果当作 visibleTrainingProposal、routine、plan、训练卡片或推荐候选集合的消费证据；模型应基于 diagnostics 选择重查、澄清或失败收口。",
+    "不要把 groups.training 中且 allowedSections 不包含 warmup/stretch 的动作写入 visibleTrainingProposal.exerciseItems[*].section = warmup 或 stretch；不同 section 需要对应 section 的动作事实支撑。",
     "不要用它查询未发布动作、单个动作详情、唯一动作名解析、全库 facet 统计、分页或语义向量检索。",
     "不要在没有 resolveExerciseResourceMentions 或其他当前 run 可见数据库事实支撑时编造 requiredExerciseIds；该字段只能填真实发布态动作 id，不能填自然语言动作名。",
     "不要传入 maxReturned、returnedCount、totalMatches、truncated、limit、take、offset、page 或 pageSize；这些不是 input 字段。",
@@ -371,6 +375,11 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
     outputSummaryNote: "totalMatches、returnedCount、truncated、excludedCount、groups 和 diagnostics 是本次查询输出摘要，不是下一轮 searchExerciseResources input。",
     finalAnswerGrounding: "本次查询事实（包括 totalMatches=0）如果 fulfillment.satisfied=true，可以引用当前 observation 的 toolResultId 填入 final_answer.usedToolResultIds；训练方案必须放入 final_answer.visibleOutputs[]。",
     candidateConsumptionBoundary: "该 observation 只提供候选事实，不是 visibleTrainingProposal、routine、plan、prescription、schedule 或训练卡片；最终训练事实只能来自 final_answer.visibleOutputs[]。",
+    groupSemantics: {
+      groupKey: "groups.<section>",
+      sectionRelation: "groups.<section>.exercises[] 中的动作是当前查询按该 section 返回的动作事实；生成 visibleTrainingProposal.exerciseItems[] 时，section 应与使用的 group key 保持一致。",
+      allowedSectionsRelation: "每个动作的 allowedSections 是可进入哪些 section 的事实字段；exerciseItems[*].section 必须包含在该动作 allowedSections 中。",
+    },
     bodyRegions: output.query.bodyRegions ?? [],
     expandedMuscles: output.query.expandedMuscles,
     appliedFilters: output.query.appliedFilters,

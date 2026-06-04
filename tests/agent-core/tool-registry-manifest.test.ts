@@ -314,6 +314,11 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(manifestJson).toContain("visibleOutputs");
     expect(manifestJson).toContain("visibleTrainingProposal");
     expect(manifestJson).toContain("exerciseId");
+    expect(manifestJson).toContain("groups.<section>.exercises[] 是该查询结果中对应 section 的动作事实来源");
+    expect(manifestJson).toContain("visibleTrainingProposal.exerciseItems[*].section");
+    expect(manifestJson).toContain("allowedSections 是动作可进入哪些 section 的动作事实字段");
+    expect(manifestJson).toContain("exerciseItems[*].section 应对应使用的 groups.<section> key");
+    expect(manifestJson).not.toContain("必须调用 searchExerciseResources");
     expect(manifestJson).toContain("totalMatches=0");
     expect(manifestJson).toContain("0 条事实查询结果");
     expect(manifestJson).toContain("published");

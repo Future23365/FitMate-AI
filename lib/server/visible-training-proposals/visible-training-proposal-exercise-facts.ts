@@ -109,6 +109,7 @@ export async function validateVisibleTrainingProposalExerciseFacts(input: {
         message: "visibleTrainingProposal 动作项 section 超出数据库允许边界。",
         details: {
           index,
+          path: `payload.exerciseItems[${index}].section`,
           exerciseId: item.exerciseId,
           section: item.section,
           allowedSections: record.allowedSections,
