@@ -445,6 +445,40 @@ describe("agent-core architecture boundaries", () => {
     expect(matches).toEqual([]);
   });
 
+  it("keeps basic LLM blackbox fixtures out of production chat, Agent core, tools and renderers", () => {
+    const files = [
+      ...productionChatEntryFiles,
+      ...coreFlowFiles,
+      "lib/server/agent-core/terminal-output-validator.ts",
+      "lib/server/visible-training-proposals/visible-training-proposal-renderer.ts",
+      ...collectFiles("lib/server/agent-tools").map((file) => path.relative(repoRoot, file)),
+    ];
+    const forbiddenTerms = [
+      "llm基础测试",
+      "manual-tests/llm",
+      "MANUAL_LLM_BASIC",
+      "test:llm:basic",
+      "manual-basic-",
+      "F01",
+      "F02",
+      "触发动作推荐卡片",
+      "固定答案",
+      "测试专用",
+    ];
+    const matches: string[] = [];
+
+    for (const file of files) {
+      const content = readRelative(file);
+      for (const term of forbiddenTerms) {
+        if (content.includes(term)) {
+          matches.push(`${file}: ${term}`);
+        }
+      }
+    }
+
+    expect(matches).toEqual([]);
+  });
+
   it("keeps M1 fixture layer free of real business tools, real LLM adapters and production persistence", () => {
     const forbiddenTerms = [
       "searchExercises",
