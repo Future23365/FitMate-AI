@@ -45,6 +45,35 @@ description: 治理 AITest 中 Agent prompt 与模型实际可见输入的合同
 
 如果源文件写了规则，但 builder 没带上、被压缩丢失、顺序被后续消息覆盖，必须把根因归为“模型可见合同缺失”，不要只继续润色源文件。
 
+## 模型自主规划与 Tool Calling
+
+prompt / model input 修复的目标不是把业务流程写死给服务端，而是让模型具备稳定自主规划能力。
+
+模型可见合同应清楚表达：
+
+- 当前有哪些 tool 可用。
+- 每个 tool 适合解决什么问题，不适合解决什么问题。
+- 模型什么时候应该先调用 tool，而不是直接回答。
+- tool input 如何从用户目标、上下文、resource 和历史结果中构造。
+- tool result 中哪些内容可以支撑 `final_answer`，哪些只能用于追问、解释失败或下一轮 repair。
+- 当 tool input 被拒绝、resource 不可消费或结果不足时，模型应该如何修正或澄清。
+
+不要把单个业务流程写成服务端隐藏编排；如果模型缺少判断依据，应补模型可见上下文、tool 说明、schema、examples 或 repair feedback。
+
+## 语义偏差根因检查
+
+当问题表现为模型误解用户意图、选错 action、错误引用上下文、错误消费 tool result 或 final answer grounding 不符合预期时，优先怀疑模型实际可见合同不完整或被投影/压缩/顺序覆盖，而不是先改某一句 prompt 文案。
+
+修改 prompt / model input 前必须回答：
+
+- 模型实际看到了哪些上下文、resource、tool 说明和历史摘要？
+- 模型是否能从可见输入中稳定区分相邻语义，例如 plan 与 routine、查看与生成、调整与新建、失败解释与成功回答？
+- 当前 prompt 是否只对一个 phrasing 有效，换成同义表达后是否仍能约束模型？
+- 是否应该把规则放到通用 Agent 合同、单个 tool manifest、schema description、examples、repair feedback、observation，还是 final grounding 说明中？
+- 是否需要同步调整结构化输出字段或 schema summary，而不是只补自然语言提示？
+
+prompt 修复必须覆盖语义类别，而不是只补当前失败句子的提示词。涉及可复现 bug 时，测试或黑盒用例至少覆盖原始输入和一个等价表达。
+
 ## 字段重命名同步检查
 
 当业务 tool 的字段已经重命名、弃用或含义调整时，本 Skill 只负责模型可见合同同步，不负责替代 runtime/schema 迁移：

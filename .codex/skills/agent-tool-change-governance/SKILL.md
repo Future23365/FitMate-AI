@@ -52,6 +52,33 @@ description: 治理 AITest 中 Agent tool 相关变更的实现前流程。用�
 - 将根因分类为 LLM 参数错误、模型可见合同缺失、tool 能力缺口、resource 缺失或不可消费、policy / confirmation 边界、projection / redaction 泄漏、final grounding 缺陷或 production 接入问题。
 - 修改某个已有 tool 的功能或 bug 时，必须先定位并运行该 tool 已有的专属单测；如果没有专属单测，先补能复现问题的 tool-level 单测，再改实现。
 
+#### 模型能力优先修复
+
+修复 Agent tool / AI 编排相关 bug 时，优先判断是否应该增强模型可调用能力，而不是新增业务端语义判断。
+
+默认修复顺序：
+
+1. 模型是否缺少完成任务所需的 tool。
+2. 已有 tool 的 `description`、`whenToUse`、`whenNotToUse`、input schema、output schema、resource role 或 examples 是否没有把能力说清楚。
+3. context package、observations、compressed tool results 或 resource 摘要是否没有把模型决策所需事实暴露出来。
+4. repair feedback 是否没有告诉模型如何修正错误 tool input 或错误 action。
+5. final grounding 是否没有约束模型如何消费 tool result。
+6. 最后才检查 handler、policy、projection、response renderer 等确定性执行边界。
+
+不要在 `/api/chat`、production route、handler 或 renderer 中增加“当用户说 X 就调用 Y tool”的业务端语义分流。正确方向是让 `ToolRegistry` 暴露能力，让模型在 Agent loop 内自行选择 tool。
+
+#### 语义特例升级检查
+
+如果 bug 看起来是“某句话没理解对”“某个工具在这个语义下选错”“某个输出只在当前 trace 里失败”，不得直接按当前用户原文、当前 `toolName` 或当前失败字段写特例修复。
+
+实现前必须完成：
+
+- 从 `codex_logs/ai_trace_log.js` 还原模型实际看到的 prompt、tool manifest、schema summary、context package、observations、repair feedback 和 tool results。
+- 说明失败是由模型可见合同缺失、tool contract 表达不清、resource 消费边界不清、projection / grounding 缺陷、policy 边界、production 接入，还是 handler 确定性校验问题导致。
+- 列出至少 2 个同类变体，说明本次修复为什么覆盖这一类问题，而不是只覆盖当前 phrasing。
+- 如果修复方案需要读取用户原始自然语言关键词、同义词、短句模板或业务特定 phrasing，必须停止并改为 prompt / model input / schema / repair / resource contract 层面的方案，除非用户明确批准。
+- 回归测试必须覆盖问题类别：至少包含原始失败 case 和一个等价语义变体；tool-level test 不能只断言当前 trace 的单个输入。
+
 不要用服务端关键词、正则、同义词表、短句模板或业务 `toolName` 特判修复自然语言理解问题。
 
 ### 过时字段重命名
