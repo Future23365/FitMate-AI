@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: visibleTrainingProposal 渲染为训练富卡片
-聊天气泡 SHALL 将已校验的 `visibleTrainingProposal` 渲染为现有训练富卡片，而不是继续只渲染轻量列表面板。
+聊天气泡 SHALL 将已校验的 `visibleTrainingProposal` 渲染为现有训练富卡片，而不是继续只渲染轻量列表面板。`VisibleTrainingProposalPanel` 是临时极简展示，不属于目标产品样式。
 
 #### Scenario: 动作推荐渲染为 ExerciseRecommendationCard
 - **WHEN** assistant message 包含 `outputType = "visibleTrainingProposal"`、`schemaVersion = "1"` 且 `payload.kind = "exercise_selection"` 的 `visible_output`
@@ -39,6 +39,19 @@
 - **AND** 历史会话仍包含 `bubblePlans`、`bubbleRoutines` 或 `exerciseRecommendations`
 - **THEN** 聊天气泡 MUST 继续按旧卡片数据展示历史卡片
 
+### Requirement: 轻量面板不得作为用户可见训练 UI 保留
+新 Agent 消息 SHALL 只使用旧三张富卡片样式展示训练内容；系统 MUST 删除或停用 `VisibleTrainingProposalPanel` 的用户可见渲染路径。
+
+#### Scenario: 不显示轻量面板信息
+- **WHEN** assistant message 包含可渲染的 `visibleTrainingProposal`
+- **THEN** 聊天气泡 MUST NOT 显示 `VisibleTrainingProposalPanel` 的标题、分段 mini list、处方 chip 或面板容器
+- **AND** 聊天气泡 MUST NOT 显示 `exercise_selection`、`routine`、`plan`、`visibleTrainingProposal`、`exerciseItems` 或 `schemaVersion` 等技术字段作为卡片 UI
+
+#### Scenario: 不新增第四种训练卡片样式
+- **WHEN** 实现训练富卡片适配
+- **THEN** 用户可见训练内容 MUST 只落到 `ExerciseRecommendationCard`、`WorkoutRoutineDraftCard` 或 `WorkoutPlanDraftCard`
+- **AND** 系统 MUST NOT 新增独立于这三张卡片之外的轻量训练卡片 fallback
+
 ### Requirement: 富卡片 adapter 不改变 AI 输出合同
 富卡片 adapter SHALL 只在前端派生展示数据，不得改变 `AgentAction`、`visibleTrainingProposal`、Agent tool 或跨轮事实桥合同。
 
@@ -69,6 +82,7 @@
 - **WHEN** 运行聊天页或聊天 controller 相关测试
 - **THEN** 测试 MUST 覆盖 `visible_output` 只写入 `message.visibleOutputs`
 - **AND** 测试 MUST 覆盖有 `visibleTrainingProposal` 时不重复渲染旧 `bubble*` 卡片
+- **AND** 测试 MUST 覆盖有 `visibleTrainingProposal` 时不显示轻量面板或技术枚举字段
 
 #### Scenario: 类型检查覆盖共享结构
 - **WHEN** 修改前端 adapter、聊天类型、卡片 props 或训练 draft 结构
