@@ -21,26 +21,27 @@
 - **AND** 训练日 MUST 复用同一套 `warmup`、`training`、`stretch` 编排
 - **AND** 休息日 MUST 来自 `schedule.assignments` 中 `type = "rest"` 的日期，不得要求模型输出每天不同的完整动作编排
 
-### Requirement: visibleOutputs 保持唯一新消息事实源
-新 Agent 消息的训练富卡片 SHALL 从 `message.visibleOutputs` 派生；旧 `bubblePlans`、`bubbleRoutines` 和 `exerciseRecommendations` 不得重新成为新消息事实源。
+### Requirement: visibleOutputs 保持唯一训练卡片事实源
+Agent 消息的训练富卡片 SHALL 从 `message.visibleOutputs` 派生；旧 `bubblePlans`、`bubbleRoutines` 和 `exerciseRecommendations` 不得重新成为消息事实源或历史 fallback。
 
 #### Scenario: 新消息不写回旧 bubble state
 - **WHEN** 前端收到 `visible_output` 事件
 - **THEN** 消息 MUST 追加到 `message.visibleOutputs`
 - **AND** 前端 MUST NOT 同步写入 `bubblePlans`、`bubbleRoutines` 或 `bubbleExerciseRecommendations` 作为新消息事实
 
-#### Scenario: 新旧卡片不重复渲染
-- **WHEN** 同一 assistant message 同时存在可渲染的 `visibleTrainingProposal` 和旧 `bubble*` 卡片数据
-- **THEN** 聊天气泡 MUST 优先渲染 `visibleTrainingProposal` 派生的富卡片
-- **AND** 对应旧 `bubble*` 卡片 MUST NOT 在同一消息中重复显示
-
-#### Scenario: 旧历史消息继续兼容
+#### Scenario: 旧 bubble 卡片不再作为 fallback 渲染
 - **WHEN** assistant message 不包含可渲染的 `visibleTrainingProposal`
 - **AND** 历史会话仍包含 `bubblePlans`、`bubbleRoutines` 或 `exerciseRecommendations`
-- **THEN** 聊天气泡 MUST 继续按旧卡片数据展示历史卡片
+- **THEN** 聊天气泡 MUST NOT 回退展示旧 `bubble*` 卡片
+- **AND** 实现 MUST 删除或停用旧 `bubble*` 渲染路径
+
+#### Scenario: 不做旧数据迁移或双写
+- **WHEN** 实现训练富卡片适配
+- **THEN** 系统 MUST NOT 为 `bubblePlans`、`bubbleRoutines` 或 `exerciseRecommendations` 增加迁移、双写或运行时兼容分支
+- **AND** 开发环境旧聊天历史如影响验证，MUST 在验证前清理，而不是通过前端 fallback 保留
 
 ### Requirement: 轻量面板不得作为用户可见训练 UI 保留
-新 Agent 消息 SHALL 只使用旧三张富卡片样式展示训练内容；系统 MUST 删除或停用 `VisibleTrainingProposalPanel` 的用户可见渲染路径。
+Agent 消息 SHALL 只使用旧三张富卡片样式展示训练内容；系统 MUST 删除或停用 `VisibleTrainingProposalPanel` 的用户可见渲染路径。
 
 #### Scenario: 不显示轻量面板信息
 - **WHEN** assistant message 包含可渲染的 `visibleTrainingProposal`
@@ -94,7 +95,7 @@
 #### Scenario: 聊天渲染回归覆盖事实源边界
 - **WHEN** 运行聊天页或聊天 controller 相关测试
 - **THEN** 测试 MUST 覆盖 `visible_output` 只写入 `message.visibleOutputs`
-- **AND** 测试 MUST 覆盖有 `visibleTrainingProposal` 时不重复渲染旧 `bubble*` 卡片
+- **AND** 测试 MUST 覆盖旧 `bubble*` 卡片不再作为 fallback 渲染
 - **AND** 测试 MUST 覆盖有 `visibleTrainingProposal` 时不显示轻量面板或技术枚举字段
 - **AND** 测试 MUST 覆盖本 change 不在新训练富卡片底部渲染推荐按钮
 
