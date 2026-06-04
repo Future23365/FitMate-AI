@@ -8,9 +8,9 @@
 
 - **BREAKING（AI 输出合同）**：`final_answer` SHALL 新增通用 `visibleOutputs[]`，用于承载用户可见结构化输出；训练推送类输出 SHALL 使用 `outputType = "visibleTrainingProposal"`，正文 `content` 只负责解释和说明，不再作为动作事实来源。
 - `agent-core` SHALL 只理解 `visibleOutputs[]` 的通用 envelope，不读取 `visibleTrainingProposal` 的健身业务语义，不基于 `outputType` 写业务分支。
-- `visibleTrainingProposal` payload SHALL 包含 `kind = "exercise_recommendation" | "routine" | "plan"`，服务端按模型声明的 `kind` 校验结构边界；服务端 MUST NOT 根据用户自然语言关键词替模型判断 kind。
+- `visibleTrainingProposal` payload SHALL 包含 `kind = "exercise_selection" | "routine" | "plan"`，服务端按模型声明的 `kind` 校验结构边界；服务端 MUST NOT 根据用户自然语言关键词替模型判断 kind。
 - `visibleTrainingProposal.exerciseItems` SHALL 作为动作事实源，动作项包含 `exerciseId`、`section`、`order`，并在 `routine` / `plan` 中包含 `prescription`。
-- `exercise_recommendation` 只允许 `section = "training"` 的 `exerciseItems`，且不需要输出 `prescription`，不允许输出 `schedule`。
+- `exercise_selection` 只允许 `section = "training"` 的 `exerciseItems`，且不需要输出 `prescription`，不允许输出 `schedule`。
 - `routine` 必须保留已确定的 `training` 动作，并补充 `warmup`、`stretch` 动作；所有动作项必须包含 `prescription`。
 - `plan` 必须在当前同一套 `routine` 编排上增加 `schedule`，用 `assignments` 表达哪些周期日训练、哪些周期日休息；模型 MUST NOT 一次生成每天不同的多套完整编排。
 - `prescription` SHALL 对齐现有训练执行字段，使用 `mode`、`sets`、`target`、`setRestSeconds`、`transitionRestSeconds`，不得引入独立处方数组、按 index join 的处方表或正文处方事实源。

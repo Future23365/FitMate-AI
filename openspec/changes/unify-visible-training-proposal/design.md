@@ -11,7 +11,7 @@
 **Goals:**
 - 用 `final_answer.visibleOutputs[]` 表达用户可见结构化输出，避免把健身业务字段硬编码进 `agent-core`。
 - 用 `outputType = "visibleTrainingProposal"` 表达本轮 AI 实际推送给用户的训练方案，并让渲染和跨轮事实桥保存同一份 payload。
-- 用 `kind` 明确区分 `exercise_recommendation`、`routine`、`plan` 三种结构形态，服务端只校验模型已声明的结构合同，不替模型判断用户意图。
+- 用 `kind` 明确区分 `exercise_selection`、`routine`、`plan` 三种结构形态，服务端只校验模型已声明的结构合同，不替模型判断用户意图。
 - 用 `exerciseItems` 作为唯一动作事实源，覆盖动作推荐、三段式编排和计划中的训练日安排。
 - 扩展 `searchExerciseResources`，支持按 `suitabilities` 查询 `warmup` / `stretch` 候选，并按用途分组投影给模型。
 - 修改 prompt / model-visible contract，引导模型根据用户自然语言目标判断需要动作、编排还是计划，但不写关键词式分流规则。
@@ -51,14 +51,14 @@
 
 ```ts
 {
-  kind: "exercise_recommendation" | "routine" | "plan",
+  kind: "exercise_selection" | "routine" | "plan",
   exerciseItems: VisibleTrainingExerciseItem[],
   schedule?: VisibleTrainingSchedule
 }
 ```
 
 服务端按模型输出的 `kind` 做确定性结构校验：
-- `exercise_recommendation`：只允许 `training` 动作，不要求 `prescription`，不允许 `schedule`。
+- `exercise_selection`：只允许 `training` 动作，不要求 `prescription`，不允许 `schedule`。
 - `routine`：必须包含 `warmup`、`training`、`stretch`，所有动作项必须有 `prescription`。
 - `plan`：必须满足完整 `routine` 结构，并额外包含合法 `schedule`。
 
@@ -149,7 +149,7 @@
 ### 9. Prompt 写成语义判断指南，不写关键词路由
 
 prompt / model-visible contract 必须用中文说明：
-- 当用户只需要一批可选动作时，输出 `kind = "exercise_recommendation"`。
+- 当用户只需要一批可选动作时，输出 `kind = "exercise_selection"`。
 - 当用户需要一次可执行训练流程时，输出 `kind = "routine"`，并在主训练动作基础上补充热身、拉伸和处方。
 - 当用户需要多天安排时，输出 `kind = "plan"`，并在已有或新生成的编排上增加训练日 / 休息日安排。
 

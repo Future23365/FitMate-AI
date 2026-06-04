@@ -20,7 +20,7 @@
 ## 3. `visibleTrainingProposal` payload 合同
 
 - [ ] 3.1 定义 `visibleTrainingProposal` payload schema：`kind`、`exerciseItems`、可选 `schedule`，由 `outputType = "visibleTrainingProposal"` 和 `schemaVersion = "1"` 承载。
-- [ ] 3.2 定义 `kind = "exercise_recommendation" | "routine" | "plan"`，并按 kind 做确定性结构校验：推荐、编排、计划三种结构不得互相混用。
+- [ ] 3.2 定义 `kind = "exercise_selection" | "routine" | "plan"`，并按 kind 做确定性结构校验：推荐、编排、计划三种结构不得互相混用。
 - [ ] 3.3 定义 `exerciseItems` 动作项 schema：`exerciseId`、`section`、`order` 和可选 `prescription`；`section` 只允许 `training`、`warmup`、`stretch`。
 - [ ] 3.4 定义 `prescription` schema，并对齐现有执行字段：`mode`、`sets`、`target`、`setRestSeconds`、`transitionRestSeconds`；不得新增 `restSeconds` 作为主合同字段。
 - [ ] 3.5 定义 `schedule` schema：`cycleLengthDays`、`assignments[]`、`cycleDayIndex`、`type`；要求 `cycleDayIndex` 从 1 开始、覆盖 `1..cycleLengthDays`、不能重复，`type` 只允许 `training` / `rest`。
@@ -64,7 +64,7 @@
 ## 7. Renderer、事实桥与前端事件
 
 - [ ] 7.1 更新 Response Renderer，使动作推荐、编排和计划的用户可见结构化事件只从已校验 `visibleOutputs[]` 渲染。
-- [ ] 7.2 当 `visibleTrainingProposal.payload.kind = "exercise_recommendation"` 时，渲染为动作推荐事件或等价卡片数据。
+- [ ] 7.2 当 `visibleTrainingProposal.payload.kind = "exercise_selection"` 时，渲染为动作推荐事件或等价卡片数据。
 - [ ] 7.3 当 `visibleTrainingProposal.payload.kind = "routine"` 时，按 `warmup`、`training`、`stretch` 顺序渲染编排事件或等价卡片数据。
 - [ ] 7.4 当 `visibleTrainingProposal.payload.kind = "plan"` 时，在同一套编排基础上渲染训练日 / 休息日安排，不生成每日独立编排。
 - [ ] 7.5 更新跨轮事实桥，在确认本轮 assistant response 已对用户可见后保存同一份 `visibleTrainingProposal` payload，不得再从 `searchExerciseResources` 的 `tool_result`、handler output、model observation 或 user projection 直接抽取最终方案事实。

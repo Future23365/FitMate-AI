@@ -24,11 +24,11 @@
 - **AND** 系统 MUST NOT 在校验失败后继续渲染或保存该训练方案
 
 ### Requirement: visibleTrainingProposal 必须声明 kind 并满足对应结构
-`visibleTrainingProposal.payload` SHALL 声明 `kind = "exercise_recommendation" | "routine" | "plan"`。系统 SHALL 按模型声明的 `kind` 校验结构自洽性；服务端 MUST NOT 通过用户自然语言关键词、正则、同义词表或固定短句模板替模型判断或改写 kind。
+`visibleTrainingProposal.payload` SHALL 声明 `kind = "exercise_selection" | "routine" | "plan"`。系统 SHALL 按模型声明的 `kind` 校验结构自洽性；服务端 MUST NOT 通过用户自然语言关键词、正则、同义词表或固定短句模板替模型判断或改写 kind。
 
 #### Scenario: 用户只要推荐一批动作
 - **WHEN** 模型判断用户目标只需要获得一批可选训练动作
-- **THEN** `payload.kind` MUST 为 `exercise_recommendation`
+- **THEN** `payload.kind` MUST 为 `exercise_selection`
 - **AND** `payload.exerciseItems` 中每个动作项 MUST 使用 `section = "training"`
 - **AND** 每个动作项 MUST 包含 `exerciseId` 和 `order`
 - **AND** 动作项 MUST NOT 因只推荐动作而强制包含 `prescription`
@@ -95,7 +95,7 @@
 - **AND** 数值边界 MUST 对齐当前训练草稿或执行模型的确定性 schema
 
 #### Scenario: 推荐动作不需要处方
-- **WHEN** `visibleTrainingProposal.payload.kind` 为 `exercise_recommendation`
+- **WHEN** `visibleTrainingProposal.payload.kind` 为 `exercise_selection`
 - **THEN** 服务端 MUST 接受缺少 `prescription` 的 `training` 动作项
 - **AND** Response Renderer MUST 将该结果渲染为动作推荐而不是可执行编排
 
@@ -125,7 +125,7 @@
 系统 SHALL 从已校验的 `visibleOutputs[]` 渲染用户可见训练推送，并在确认本轮 assistant response 对用户可见后，将同一份 `visibleTrainingProposal` payload 保存为跨轮事实。跨轮事实桥 MUST NOT 保存与用户可见结构不同的一份动作列表。
 
 #### Scenario: 渲染动作推荐
-- **WHEN** `visibleOutputs[]` 包含 `outputType = "visibleTrainingProposal"` 且 payload `kind = "exercise_recommendation"`
+- **WHEN** `visibleOutputs[]` 包含 `outputType = "visibleTrainingProposal"` 且 payload `kind = "exercise_selection"`
 - **THEN** Response Renderer MUST 输出动作推荐可消费事件或等价结构化投影
 - **AND** 用户可见动作列表 MUST 来自 `payload.exerciseItems`
 
@@ -175,7 +175,7 @@
 
 #### Scenario: Prompt 描述动作推荐
 - **WHEN** 构造模型可见输出合同
-- **THEN** prompt MUST 说明一批可选动作使用 `outputType = "visibleTrainingProposal"` 且 `payload.kind = "exercise_recommendation"`
+- **THEN** prompt MUST 说明一批可选动作使用 `outputType = "visibleTrainingProposal"` 且 `payload.kind = "exercise_selection"`
 - **AND** prompt MUST 说明动作推荐默认 `section = "training"`
 - **AND** prompt MUST NOT 写成依赖固定用户词语触发动作推荐的规则
 
