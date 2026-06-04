@@ -23,7 +23,7 @@ import type { WorkoutSchedule } from "@/lib/shared/workouts/composition";
 const quickPrompts = [
   {
     title: "新手入门",
-    prompt: "我是新手，想在家练，没有器械，每次 20 分钟，帮我安排一套不跳跃的全身训练",
+    prompt: "我是新手，想在家练，没有器械，20 分钟时间，帮我安排一套不跳跃的全身训练",
   },
   {
     title: "居家减脂",
