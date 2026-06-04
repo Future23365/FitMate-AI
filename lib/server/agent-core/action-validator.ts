@@ -2,6 +2,7 @@ import {
   parseAgentAction,
   type AgentAction,
   type AgentRunInput,
+  type TerminalOutputValidationSummary,
   type TerminalAgentAction,
   type ToolCallAction,
   type ToolManifest,
@@ -28,11 +29,31 @@ export type ActionValidationInput = {
 
 /** ActionValidationResult 用稳定 ToolError 表达 action 是否可执行。 */
 export type ActionValidationResult =
-  | { ok: true; action: AgentAction }
+  | { ok: true; action: AgentAction; terminalOutputValidation?: TerminalOutputValidationSummary }
   | { ok: false; error: ToolError };
 
 /** validateAgentAction 在执行前校验 action 结构、tool 可用性、input schema 和 M0 resource 禁用边界。 */
 export function validateAgentAction(input: ActionValidationInput): ActionValidationResult {
+  return validateAgentActionInternal(input, "sync") as ActionValidationResult;
+}
+
+/** validateAgentActionAsync 支持业务 terminal output validator 在生产装配层异步读取事实。 */
+export async function validateAgentActionAsync(input: ActionValidationInput): Promise<ActionValidationResult> {
+  return validateAgentActionInternal(input, "async") as Promise<ActionValidationResult>;
+}
+
+function validateAgentActionInternal(
+  input: ActionValidationInput,
+  mode: "sync",
+): ActionValidationResult;
+function validateAgentActionInternal(
+  input: ActionValidationInput,
+  mode: "async",
+): Promise<ActionValidationResult>;
+function validateAgentActionInternal(
+  input: ActionValidationInput,
+  mode: "sync" | "async",
+): ActionValidationResult | Promise<ActionValidationResult> {
   if (isPlannerGeneratedConfirmationRequest(input.action)) {
     return {
       ok: false,
@@ -55,7 +76,9 @@ export function validateAgentAction(input: ActionValidationInput): ActionValidat
     return validateToolCallAction(action, input);
   }
 
-  return validateTerminalAction(action, input);
+  return mode === "async"
+    ? validateTerminalAction(action, input, "async")
+    : validateTerminalAction(action, input, "sync");
 }
 
 function validateToolCallAction(action: ToolCallAction, input: ActionValidationInput): ActionValidationResult {
@@ -127,7 +150,21 @@ function validateToolCallAction(action: ToolCallAction, input: ActionValidationI
   return { ok: true, action };
 }
 
-function validateTerminalAction(action: TerminalAgentAction, input: ActionValidationInput): ActionValidationResult {
+function validateTerminalAction(
+  action: TerminalAgentAction,
+  input: ActionValidationInput,
+  mode: "sync",
+): ActionValidationResult;
+function validateTerminalAction(
+  action: TerminalAgentAction,
+  input: ActionValidationInput,
+  mode: "async",
+): Promise<ActionValidationResult>;
+function validateTerminalAction(
+  action: TerminalAgentAction,
+  input: ActionValidationInput,
+  mode: "sync" | "async",
+): ActionValidationResult | Promise<ActionValidationResult> {
   if (action.usedResourceRefs?.length && !input.resourceStore) {
     return {
       ok: false,
@@ -210,18 +247,44 @@ function validateTerminalAction(action: TerminalAgentAction, input: ActionValida
         };
       }
 
-      const outputValidation = input.terminalOutputValidators.validateAll(action.visibleOutputs, {
+      const context = {
         action,
         run: input.run,
         toolResults: input.toolResults,
         resourceStore: input.resourceStore,
-      });
+      };
+
+      if (mode === "async") {
+        return input.terminalOutputValidators.validateAll(action.visibleOutputs, context)
+          .then((outputValidation) => {
+            if (!outputValidation.ok) {
+              return {
+                ok: false as const,
+                error: outputValidation.error,
+              };
+            }
+
+            return {
+              ok: true as const,
+              action,
+              terminalOutputValidation: outputValidation.summary,
+            };
+          });
+      }
+
+      const outputValidation = input.terminalOutputValidators.validateAllSync(action.visibleOutputs, context);
       if (!outputValidation.ok) {
         return {
           ok: false,
           error: outputValidation.error,
         };
       }
+
+      return {
+        ok: true,
+        action,
+        terminalOutputValidation: outputValidation.summary,
+      };
     }
   }
 

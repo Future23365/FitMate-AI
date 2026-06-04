@@ -204,7 +204,7 @@ describe("agent-core Executor, Runtime and Response Renderer", () => {
     terminalOutputValidators.register({
       outputType: "fixtureVisible",
       schemaVersions: ["1"],
-      validate: () => ({ ok: true }),
+      validate: async () => ({ ok: true, metadata: { source: "async-validator" } }),
     });
     const visibleOutputRenderers = new VisibleOutputRendererRegistry();
     visibleOutputRenderers.register({
@@ -235,6 +235,16 @@ describe("agent-core Executor, Runtime and Response Renderer", () => {
     });
 
     expect(result.status).toBe("completed");
+    expect(result.terminalOutputValidation).toEqual({
+      outputs: [
+        {
+          index: 0,
+          outputType: "fixtureVisible",
+          schemaVersion: "1",
+          metadata: { source: "async-validator" },
+        },
+      ],
+    });
     expect(renderAgentResponseEvents(result, { visibleOutputRenderers })).toEqual([
       { type: "content", content: "已生成结构化输出。" },
       {

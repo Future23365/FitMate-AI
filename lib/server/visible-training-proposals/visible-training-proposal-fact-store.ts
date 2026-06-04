@@ -5,8 +5,6 @@ import type { Prisma } from "@prisma/client";
 
 import type { AgentStreamEvent, JsonValue } from "@/lib/server/agent-core/contracts";
 import { getPrismaClient, isDatabaseConfigured } from "@/lib/server/db/prisma";
-import { getExerciseRecordById } from "@/lib/server/exercises/exercise-repository";
-import { exerciseAllowedSectionSchema } from "@/lib/shared/exercises/types";
 
 import {
   toJsonValue,
@@ -17,18 +15,14 @@ import {
   visibleTrainingProposalSchemaVersion,
   type VisibleTrainingProposalPayload,
 } from "./visible-training-proposal-contract";
+import {
+  validateVisibleTrainingProposalExerciseFacts,
+  visibleTrainingProposalCanonicalExerciseSchema,
+} from "./visible-training-proposal-exercise-facts";
 
 const activeFactStatus = "active";
 
-const exerciseDetailSchema = z.object({
-  exerciseId: z.string().trim().min(1),
-  nameZh: z.string().optional(),
-  nameEn: z.string().optional(),
-  equipmentZh: z.string().nullable().optional(),
-  primaryMusclesZh: z.array(z.string()).default([]),
-  allowedSections: z.array(exerciseAllowedSectionSchema).default([]),
-  imageUrl: z.string().nullable().optional(),
-}).strict();
+const exerciseDetailSchema = visibleTrainingProposalCanonicalExerciseSchema;
 
 const visibleTrainingProposalFactPayloadSchema = z.object({
   proposal: visibleTrainingProposalPayloadSchema,
@@ -103,6 +97,8 @@ export type VisibleTrainingProposalFactReadFailure = {
     | "schema_version_unsupported"
     | "payload_invalid"
     | "exercise_missing"
+    | "exercise_unpublished"
+    | "section_not_allowed"
     | "database_unconfigured";
   message: string;
 };
@@ -258,9 +254,15 @@ export async function readVisibleTrainingProposalFact(input: {
     return { ok: false, code: "payload_invalid", message: "Visible training proposal fact payload is invalid." };
   }
 
-  const exerciseDetails = await loadExerciseDetails(payload.proposal);
-  if (!exerciseDetails) {
-    return { ok: false, code: "exercise_missing", message: "Visible training proposal fact references an exercise that no longer exists." };
+  const exerciseValidation = await validateVisibleTrainingProposalExerciseFacts({
+    exerciseItems: payload.proposal.exerciseItems,
+  });
+  if (!exerciseValidation.ok) {
+    return {
+      ok: false,
+      code: exerciseValidation.code,
+      message: exerciseValidation.message,
+    };
   }
 
   return {
@@ -268,12 +270,12 @@ export async function readVisibleTrainingProposalFact(input: {
     fact: {
       ...toFactSummary(row, {
         ...payload,
-        exerciseDetails,
+        exerciseDetails: exerciseValidation.exerciseDetails,
       }),
       userId: row.userId,
       conversationId: row.conversationId,
       payload: payload.proposal,
-      exerciseDetails,
+      exerciseDetails: exerciseValidation.exerciseDetails,
     },
   };
 }
@@ -351,27 +353,6 @@ function toFactSummary(
 function parseFactPayload(row: ConversationBusinessFactRow) {
   const parsed = visibleTrainingProposalFactPayloadSchema.safeParse(row.payload);
   return parsed.success ? parsed.data : null;
-}
-
-async function loadExerciseDetails(proposal: VisibleTrainingProposalPayload): Promise<ExerciseDetail[] | null> {
-  const ids = [...new Set(proposal.exerciseItems.map((item) => item.exerciseId))];
-  const records = await Promise.all(ids.map((id) => getExerciseRecordById(id)));
-
-  if (records.some((record) => !record)) {
-    return null;
-  }
-
-  return records.flatMap((record) => record
-    ? [{
-        exerciseId: record.id,
-        nameZh: record.nameZh,
-        nameEn: record.nameEn,
-        equipmentZh: record.equipmentZh,
-        primaryMusclesZh: record.primaryMusclesZh,
-        allowedSections: record.allowedSections,
-        imageUrl: record.imageUrls[0] ?? null,
-      }]
-    : []);
 }
 
 function getOptionalFactClient(): ConversationBusinessFactClient | null {

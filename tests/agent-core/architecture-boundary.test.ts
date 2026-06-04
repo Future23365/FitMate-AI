@@ -193,6 +193,33 @@ describe("agent-core architecture boundaries", () => {
     expect(matches).toEqual([]);
   });
 
+  it("keeps visible training proposal terminal validation free of concrete business toolName allowlists", () => {
+    const files = [
+      "lib/server/agent-core/terminal-output-validator.ts",
+      "lib/server/visible-training-proposals/visible-training-proposal-validator.ts",
+      "lib/server/visible-training-proposals/visible-training-proposal-renderer.ts",
+    ];
+    const forbiddenTerms = [
+      "searchExerciseResources",
+      "inspectVisibleTrainingProposals",
+      "visible_training_proposal_fact",
+      "toolResult.toolName",
+      "result.toolName",
+    ];
+    const matches: string[] = [];
+
+    for (const file of files) {
+      const content = readRelative(file);
+      for (const term of forbiddenTerms) {
+        if (content.includes(term)) {
+          matches.push(`${file}: ${term}`);
+        }
+      }
+    }
+
+    expect(matches).toEqual([]);
+  });
+
   it("keeps agent-core free of business services, business tool handlers and concrete model adapters", () => {
     const coreFiles = collectFiles("lib/server/agent-core").map((file) => path.relative(repoRoot, file));
     const forbiddenImportSources = [

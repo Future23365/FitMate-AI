@@ -7,16 +7,16 @@ import {
 } from "@/lib/server/visible-training-proposals/visible-training-proposal-fact-store";
 
 const exerciseRepositoryMocks = vi.hoisted(() => ({
-  getExerciseRecordById: vi.fn(),
+  getExerciseRecordsByIds: vi.fn(),
 }));
 
 vi.mock("@/lib/server/exercises/exercise-repository", () => ({
-  getExerciseRecordById: exerciseRepositoryMocks.getExerciseRecordById,
+  getExerciseRecordsByIds: exerciseRepositoryMocks.getExerciseRecordsByIds,
 }));
 
 describe("visible training proposal fact store", () => {
   beforeEach(() => {
-    exerciseRepositoryMocks.getExerciseRecordById.mockReset();
+    exerciseRepositoryMocks.getExerciseRecordsByIds.mockReset();
   });
 
   it("persists visible proposal payloads from visible_output events only", async () => {
@@ -114,7 +114,7 @@ describe("visible training proposal fact store", () => {
 
   it("reads only current user and conversation facts and validates referenced exercises still exist", async () => {
     const successClient = createFactClient({ findMany: [createFactRow()] });
-    exerciseRepositoryMocks.getExerciseRecordById.mockImplementation(async (id: string) => createExerciseRecord(id));
+    exerciseRepositoryMocks.getExerciseRecordsByIds.mockImplementation(async (ids: string[]) => ids.map((id) => createExerciseRecord(id)).filter(Boolean));
 
     await expect(readVisibleTrainingProposalFact({
       userId: "user-1",
@@ -160,13 +160,37 @@ describe("visible training proposal fact store", () => {
       client: createFactClient({ findMany: [createFactRow({ status: "expired" })] }),
     })).resolves.toMatchObject({ ok: false, code: "status_not_readable" });
 
-    exerciseRepositoryMocks.getExerciseRecordById.mockResolvedValueOnce(null);
+    exerciseRepositoryMocks.getExerciseRecordsByIds.mockResolvedValueOnce([]);
     await expect(readVisibleTrainingProposalFact({
       userId: "user-1",
       conversationId: "conversation-1",
       factRef: "fact-1",
       client: createFactClient({ findMany: [createFactRow()] }),
     })).resolves.toMatchObject({ ok: false, code: "exercise_missing" });
+
+    exerciseRepositoryMocks.getExerciseRecordsByIds.mockResolvedValueOnce([
+      createExerciseRecord("jumping-jack"),
+      { ...createExerciseRecord("squat")!, isPublished: false },
+      createExerciseRecord("standing-quad-stretch"),
+    ]);
+    await expect(readVisibleTrainingProposalFact({
+      userId: "user-1",
+      conversationId: "conversation-1",
+      factRef: "fact-1",
+      client: createFactClient({ findMany: [createFactRow()] }),
+    })).resolves.toMatchObject({ ok: false, code: "exercise_unpublished" });
+
+    exerciseRepositoryMocks.getExerciseRecordsByIds.mockResolvedValueOnce([
+      createExerciseRecord("jumping-jack"),
+      { ...createExerciseRecord("squat")!, allowedSections: ["warmup"] },
+      createExerciseRecord("standing-quad-stretch"),
+    ]);
+    await expect(readVisibleTrainingProposalFact({
+      userId: "user-1",
+      conversationId: "conversation-1",
+      factRef: "fact-1",
+      client: createFactClient({ findMany: [createFactRow()] }),
+    })).resolves.toMatchObject({ ok: false, code: "section_not_allowed" });
   });
 });
 
@@ -266,6 +290,7 @@ function createExerciseRecord(id: string) {
       primaryMusclesZh: ["全身"],
       allowedSections: ["warmup"],
       imageUrls: [],
+      isPublished: true,
     },
     squat: {
       id,
@@ -275,6 +300,7 @@ function createExerciseRecord(id: string) {
       primaryMusclesZh: ["股四头肌"],
       allowedSections: ["training"],
       imageUrls: [],
+      isPublished: true,
     },
     "standing-quad-stretch": {
       id,
@@ -284,6 +310,7 @@ function createExerciseRecord(id: string) {
       primaryMusclesZh: ["股四头肌"],
       allowedSections: ["stretch"],
       imageUrls: [],
+      isPublished: true,
     },
   } as const;
 

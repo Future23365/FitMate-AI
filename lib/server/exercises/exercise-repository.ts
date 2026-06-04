@@ -157,6 +157,25 @@ export async function getExerciseRecordById(id: string): Promise<Exercise | null
   return exercise ? mapExerciseRecord(exercise) : null;
 }
 
+/** getExerciseRecordsByIds 按 exerciseId 批量读取动作事实，供终态输出校验复用数据库事实源。 */
+export async function getExerciseRecordsByIds(ids: readonly string[]): Promise<Exercise[]> {
+  if (!isDatabaseConfigured()) {
+    throw new Error("DATABASE_URL is required before reading exercises from PostgreSQL.");
+  }
+
+  const uniqueIds = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+  if (uniqueIds.length === 0) {
+    return [];
+  }
+
+  const prisma = getPrismaClient();
+  const exercises = await prisma.exercise.findMany({
+    where: { id: { in: uniqueIds } },
+  });
+
+  return exercises.map(mapExerciseRecord);
+}
+
 /** searchExerciseResourceSummaries 是 Agent 只读动作事实查询入口，必须下推 where/count/select，不能走全表读取。 */
 export async function searchExerciseResourceSummaries(
   input: ExerciseResourceSearchInput,

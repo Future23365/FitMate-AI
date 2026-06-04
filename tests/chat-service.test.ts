@@ -25,6 +25,7 @@ import { clearAiTraces, listAiTracesForUser } from "@/lib/server/dev/ai-trace-st
 import { createChatConversation } from "./fixtures/domain";
 
 const exerciseResourceRepositoryMocks = vi.hoisted(() => ({
+  getExerciseRecordsByIds: vi.fn(),
   searchExerciseResourceSummaries: vi.fn(),
 }));
 const visibleTrainingProposalFactStoreMocks = vi.hoisted(() => ({
@@ -131,6 +132,10 @@ class TraceModelAdapter implements ModelAdapter {
 describe("chat service agent text flow boundary", () => {
   beforeEach(() => {
     clearAiTraces();
+    exerciseResourceRepositoryMocks.getExerciseRecordsByIds.mockReset();
+    exerciseResourceRepositoryMocks.getExerciseRecordsByIds.mockImplementation(async (ids: string[]) => (
+      ids.map((id) => createExerciseRecordForValidation(id)).filter(Boolean)
+    ));
     exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockReset();
     exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockResolvedValue(createExerciseResourceSearchResult());
     visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries.mockReset();
@@ -536,6 +541,58 @@ describe("chat service agent text flow boundary", () => {
       conversationId: "conversation-refresh",
       messageId: "assistant-refresh",
       events: expect.any(Array),
+    }));
+  });
+
+  it("validates final_answer.visibleOutputs against database exercise facts before rendering or fact persistence", async () => {
+    exerciseResourceRepositoryMocks.getExerciseRecordsByIds.mockResolvedValueOnce([]);
+    const prepared = prepareChatRequest({
+      conversationId: "conversation-visible-validation",
+      responseMessageId: "assistant-visible-validation",
+      latestUserMessage: "推荐一个不存在的动作",
+      conversationSummary: "",
+    });
+    const planner = new ReplayPlanner([
+      {
+        type: "final_answer",
+        content: "这个动作可以参考。",
+        visibleOutputs: [createVisibleExerciseSelectionOutput("missing-exercise")],
+      },
+      {
+        type: "final_answer",
+        content: "当前动作事实校验没有通过，我需要重新查询可用动作。",
+      },
+    ]);
+
+    const response = await createAgentTextChatResponse({
+      request: prepared,
+      currentUser: { id: "user-1" },
+      planner,
+    });
+    const events = await readNdjsonEvents(response);
+    const repairObservation = planner.calls[1].observations.find((observation) => (
+      observation.source === "validator"
+      && JSON.stringify(observation.content).includes("exercise_missing")
+    ));
+
+    expect(repairObservation).toMatchObject({
+      ok: false,
+      content: expect.objectContaining({
+        code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID,
+      }),
+    });
+    expect(events).toEqual([
+      { type: "content", content: "当前动作事实校验没有通过，我需要重新查询可用动作。" },
+      { type: "done" },
+    ]);
+    expect(visibleTrainingProposalFactStoreMocks.persistVisibleTrainingProposalFactsFromEvents).toHaveBeenCalledWith(expect.objectContaining({
+      userId: "user-1",
+      conversationId: "conversation-visible-validation",
+      messageId: "assistant-visible-validation",
+      events: [
+        { type: "content", content: "当前动作事实校验没有通过，我需要重新查询可用动作。" },
+        { type: "done" },
+      ],
     }));
   });
 
@@ -1575,6 +1632,73 @@ function createExerciseResourceSearchResult(overrides: Record<string, unknown> =
     exercises: [exercise],
     ...Object.fromEntries(Object.entries(overrides).filter(([key]) => key !== "query")),
   };
+}
+
+function createExerciseRecordForValidation(id: string) {
+  const records = {
+    "jumping-jack": {
+      id,
+      nameEn: "Jumping Jack",
+      nameZh: "开合跳",
+      equipmentZh: "自重",
+      primaryMusclesZh: ["全身"],
+      imageUrls: [],
+      allowedSections: ["warmup"],
+      isPublished: true,
+    },
+    "push-up": {
+      id,
+      nameEn: "Push-up",
+      nameZh: "俯卧撑",
+      equipmentZh: "自重",
+      primaryMusclesZh: ["胸部"],
+      imageUrls: ["/push-up.png"],
+      allowedSections: ["training"],
+      isPublished: true,
+    },
+    "chest-stretch": {
+      id,
+      nameEn: "Chest Stretch",
+      nameZh: "胸部拉伸",
+      equipmentZh: "自重",
+      primaryMusclesZh: ["胸部"],
+      imageUrls: [],
+      allowedSections: ["stretch"],
+      isPublished: true,
+    },
+    "step-up": {
+      id,
+      nameEn: "Step-up",
+      nameZh: "台阶踏上",
+      equipmentZh: "自重",
+      primaryMusclesZh: ["股四头肌"],
+      imageUrls: [],
+      allowedSections: ["training"],
+      isPublished: true,
+    },
+    squat: {
+      id,
+      nameEn: "Squat",
+      nameZh: "深蹲",
+      equipmentZh: "自重",
+      primaryMusclesZh: ["股四头肌"],
+      imageUrls: [],
+      allowedSections: ["training"],
+      isPublished: true,
+    },
+    lunge: {
+      id,
+      nameEn: "Lunge",
+      nameZh: "箭步蹲",
+      equipmentZh: "自重",
+      primaryMusclesZh: ["股四头肌"],
+      imageUrls: [],
+      allowedSections: ["training"],
+      isPublished: true,
+    },
+  } as const;
+
+  return records[id as keyof typeof records];
 }
 
 function createRecentVisibleTrainingProposalSummary() {

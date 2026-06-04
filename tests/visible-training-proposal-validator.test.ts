@@ -1,63 +1,65 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import type { ToolResult, VisibleOutputEnvelope } from "@/lib/server/agent-core/contracts";
-import { ResourceStore } from "@/lib/server/agent-core/resource-store";
+import type { VisibleOutputEnvelope } from "@/lib/server/agent-core/contracts";
 import { validateVisibleTrainingProposalOutput } from "@/lib/server/visible-training-proposals/visible-training-proposal-validator";
+import type { VisibleTrainingProposalExerciseFactLoader } from "@/lib/server/visible-training-proposals/visible-training-proposal-exercise-facts";
+
+type FixtureExerciseRecord = Awaited<ReturnType<VisibleTrainingProposalExerciseFactLoader>>[number];
 
 describe("visible training proposal validator", () => {
-  it("accepts exercise_selection when every exerciseId comes from a satisfied grouped search result", () => {
-    expect(validateVisibleTrainingProposalOutput(
+  it("accepts exercise_selection when every exerciseId is valid in database facts without search tool results", async () => {
+    await expect(validateVisibleTrainingProposalOutput(
       createEnvelope({
         kind: "exercise_selection",
         exerciseItems: [
           { exerciseId: "push-up", section: "training", order: 1 },
         ],
       }),
-      {
-        action: {
-          type: "final_answer",
-          content: "可以参考俯卧撑。",
-        },
-        toolResults: [createSearchToolResult()],
+      createContext(),
+      { loadExerciseRecordsByIds: createExerciseFactLoader() },
+    )).resolves.toEqual({
+      ok: true,
+      metadata: {
+        exerciseDetails: [
+          expect.objectContaining({
+            exerciseId: "push-up",
+            nameZh: "俯卧撑",
+            allowedSections: ["training"],
+          }),
+        ],
       },
-    )).toEqual({ ok: true });
+    });
   });
 
-  it("rejects exercise ids that were not visible in satisfied search or visible proposal facts", () => {
-    expect(validateVisibleTrainingProposalOutput(
+  it("rejects exercise ids that do not exist in database facts", async () => {
+    await expect(validateVisibleTrainingProposalOutput(
       createEnvelope({
         kind: "exercise_selection",
         exerciseItems: [
           { exerciseId: "missing-exercise", section: "training", order: 1 },
         ],
       }),
-      {
-        action: {
-          type: "final_answer",
-          content: "可以参考这个动作。",
-        },
-        toolResults: [createSearchToolResult()],
-      },
-    )).toMatchObject({
+      createContext(),
+      { loadExerciseRecordsByIds: createExerciseFactLoader() },
+    )).resolves.toMatchObject({
       ok: false,
-      message: expect.stringContaining("exerciseId 未被本轮 satisfied searchExerciseResources"),
+      message: "visibleTrainingProposal 引用了数据库不存在的动作。",
+      details: {
+        code: "exercise_missing",
+        exerciseIds: ["missing-exercise"],
+      },
     });
   });
 
-  it("rejects exercise ids that only appear in recent metadata summaries before read/import", () => {
-    expect(validateVisibleTrainingProposalOutput(
+  it("rejects exercise ids that only appear in recent metadata summaries before current database validation", async () => {
+    await expect(validateVisibleTrainingProposalOutput(
       createEnvelope({
         kind: "exercise_selection",
         exerciseItems: [
           { exerciseId: "squat", section: "training", order: 1 },
         ],
       }),
-      {
-        action: {
-          type: "final_answer",
-          content: "沿用上一轮深蹲。",
-        },
-        toolResults: [],
+      createContext({
         run: {
           runId: "run-visible-metadata-only",
           actor: { userId: "user-1", sessionId: "conversation-1" },
@@ -66,90 +68,116 @@ describe("visible training proposal validator", () => {
             recentVisibleTrainingProposals: [createRecentVisibleTrainingProposalSummary()],
           },
         },
-      },
-    )).toMatchObject({
+      }),
+      { loadExerciseRecordsByIds: async () => [] },
+    )).resolves.toMatchObject({
       ok: false,
-      message: expect.stringContaining("visible_training_proposal_fact 支持"),
+      details: {
+        code: "exercise_missing",
+        exerciseIds: ["squat"],
+      },
     });
   });
 
-  it("accepts exercise ids after a visible proposal fact is imported into the current run", () => {
-    expect(validateVisibleTrainingProposalOutput(
+  it("rejects unpublished exercise ids", async () => {
+    await expect(validateVisibleTrainingProposalOutput(
       createEnvelope({
         kind: "exercise_selection",
         exerciseItems: [
-          { exerciseId: "squat", section: "training", order: 1 },
+          { exerciseId: "archived-push-up", section: "training", order: 1 },
         ],
       }),
-      {
-        action: {
-          type: "final_answer",
-          content: "沿用上一轮深蹲。",
-        },
-        toolResults: [createVisibleFactToolResult()],
-        run: {
-          runId: "run-visible-imported",
-          actor: { userId: "user-1", sessionId: "conversation-1" },
-          userInput: "把上一轮动作编排一下",
-          metadata: {
-            recentVisibleTrainingProposals: [createRecentVisibleTrainingProposalSummary()],
-          },
-        },
+      createContext(),
+      { loadExerciseRecordsByIds: createExerciseFactLoader() },
+    )).resolves.toMatchObject({
+      ok: false,
+      message: "visibleTrainingProposal 引用了当前不可用于用户可见训练方案的动作。",
+      details: {
+        code: "exercise_unpublished",
+        exerciseIds: ["archived-push-up"],
       },
-    )).toEqual({ ok: true });
-  });
-
-  it("accepts exercise ids from consumable visible proposal fact resources", () => {
-    const resourceStore = new ResourceStore("run-visible-resource");
-    resourceStore.register({
-      resourceType: "visible_training_proposal_fact",
-      role: "consumable",
-      schemaVersion: "1",
-      sourceToolResultId: "tr_read_visible_fact",
-      summary: createRecentVisibleTrainingProposalSummary(),
     });
+  });
 
-    expect(validateVisibleTrainingProposalOutput(
+  it("rejects section values outside database allowedSections", async () => {
+    await expect(validateVisibleTrainingProposalOutput(
       createEnvelope({
         kind: "exercise_selection",
         exerciseItems: [
-          { exerciseId: "squat", section: "training", order: 1 },
+          { exerciseId: "chest-stretch", section: "training", order: 1 },
         ],
       }),
-      {
-        action: {
-          type: "final_answer",
-          content: "沿用上一轮深蹲。",
-        },
-        toolResults: [],
-        resourceStore,
+      createContext(),
+      { loadExerciseRecordsByIds: createExerciseFactLoader() },
+    )).resolves.toMatchObject({
+      ok: false,
+      message: "visibleTrainingProposal 动作项 section 超出数据库允许边界。",
+      details: {
+        code: "section_not_allowed",
+        exerciseId: "chest-stretch",
+        section: "training",
+        allowedSections: ["stretch"],
       },
-    )).toEqual({ ok: true });
+    });
   });
 
-  it("rejects legacy id fields before accepting any payload shape", () => {
-    expect(validateVisibleTrainingProposalOutput(
+  it("deduplicates repeated exerciseId before loading database facts", async () => {
+    const loader = vi.fn(async (ids: readonly string[]) => ids.flatMap((id) => {
+      const record = createExerciseRecord(id);
+      return record ? [record] : [];
+    }));
+
+    await expect(validateVisibleTrainingProposalOutput(
+      createEnvelope({
+        kind: "exercise_selection",
+        exerciseItems: [
+          { exerciseId: "push-up", section: "training", order: 1 },
+          { exerciseId: "push-up", section: "training", order: 2 },
+        ],
+      }),
+      createContext(),
+      { loadExerciseRecordsByIds: loader },
+    )).resolves.toMatchObject({ ok: true });
+    expect(loader).toHaveBeenCalledWith(["push-up"]);
+  });
+
+  it("returns structured database errors when exercise fact loading is unavailable", async () => {
+    await expect(validateVisibleTrainingProposalOutput(
+      createEnvelope({
+        kind: "exercise_selection",
+        exerciseItems: [
+          { exerciseId: "push-up", section: "training", order: 1 },
+        ],
+      }),
+      createContext(),
+      { loadExerciseRecordsByIds: async () => { throw new Error("DATABASE_URL is required before reading exercises from PostgreSQL."); } },
+    )).resolves.toMatchObject({
+      ok: false,
+      details: {
+        code: "database_unconfigured",
+        exerciseIds: ["push-up"],
+      },
+    });
+  });
+
+  it("rejects legacy id fields before accepting any payload shape", async () => {
+    await expect(validateVisibleTrainingProposalOutput(
       createEnvelope({
         kind: "exercise_selection",
         exerciseItems: [
           { id: "push-up", section: "training", order: 1 },
         ],
       }),
-      {
-        action: {
-          type: "final_answer",
-          content: "可以参考俯卧撑。",
-        },
-        toolResults: [createSearchToolResult()],
-      },
-    )).toMatchObject({
+      createContext(),
+      { loadExerciseRecordsByIds: createExerciseFactLoader() },
+    )).resolves.toMatchObject({
       ok: false,
       message: expect.stringContaining("必须使用 exerciseId"),
     });
   });
 
-  it("rejects routine payloads without prescriptions", () => {
-    expect(validateVisibleTrainingProposalOutput(
+  it("rejects routine payloads without prescriptions", async () => {
+    await expect(validateVisibleTrainingProposalOutput(
       createEnvelope({
         kind: "routine",
         exerciseItems: [
@@ -158,21 +186,16 @@ describe("visible training proposal validator", () => {
           { exerciseId: "chest-stretch", section: "stretch", order: 1 },
         ],
       }),
-      {
-        action: {
-          type: "final_answer",
-          content: "这是一套训练。",
-        },
-        toolResults: [createSearchToolResult()],
-      },
-    )).toMatchObject({
+      createContext(),
+      { loadExerciseRecordsByIds: createExerciseFactLoader() },
+    )).resolves.toMatchObject({
       ok: false,
       message: "visibleTrainingProposal payload 不符合 schema。",
     });
   });
 
-  it("rejects plan payloads with incomplete schedule coverage", () => {
-    expect(validateVisibleTrainingProposalOutput(
+  it("rejects plan payloads with incomplete schedule coverage", async () => {
+    await expect(validateVisibleTrainingProposalOutput(
       createEnvelope({
         kind: "plan",
         exerciseItems: [
@@ -187,14 +210,9 @@ describe("visible training proposal validator", () => {
           ],
         },
       }),
-      {
-        action: {
-          type: "final_answer",
-          content: "这是一套计划。",
-        },
-        toolResults: [createSearchToolResult()],
-      },
-    )).toMatchObject({
+      createContext(),
+      { loadExerciseRecordsByIds: createExerciseFactLoader() },
+    )).resolves.toMatchObject({
       ok: false,
       message: "visibleTrainingProposal payload 不符合 schema。",
     });
@@ -209,83 +227,79 @@ function createEnvelope(payload: unknown): VisibleOutputEnvelope {
   };
 }
 
-function createSearchToolResult(): ToolResult {
+function createContext(overrides: Record<string, unknown> = {}) {
   return {
-    ok: true,
-    toolResultId: "tr_search",
-    toolName: "searchExerciseResources",
-    toolVersion: "0.4.0",
-    toolCallId: "tc_search",
-    idempotencyKey: "idem_search",
-    normalizedInputHash: "hash_search",
-    startedAt: "2026-06-04T00:00:00.000Z",
-    completedAt: "2026-06-04T00:00:00.000Z",
-    output: {
-      status: "succeeded",
-      groups: {
-        warmup: {
-          exercises: [
-            { exerciseId: "jumping-jack", allowedSections: ["warmup"] },
-          ],
-        },
-        training: {
-          exercises: [
-            { exerciseId: "push-up", allowedSections: ["training"] },
-          ],
-        },
-        stretch: {
-          exercises: [
-            { exerciseId: "chest-stretch", allowedSections: ["stretch"] },
-          ],
-        },
-      },
+    action: {
+      type: "final_answer" as const,
+      content: "可以参考这个方案。",
     },
-    projection: {
-      model: {},
-      user: {},
-    },
-    fulfillment: {
-      satisfied: true,
-      summary: "fixture search result",
-    },
+    toolResults: [],
+    ...overrides,
   };
 }
 
-function createVisibleFactToolResult(): ToolResult {
-  return {
-    ok: true,
-    toolResultId: "tr_read_visible_fact",
-    toolName: "inspectVisibleTrainingProposals",
-    toolVersion: "0.2.0",
-    toolCallId: "tc_read_visible_fact",
-    idempotencyKey: "idem_read_visible_fact",
-    normalizedInputHash: "hash_read_visible_fact",
-    startedAt: "2026-06-04T00:00:00.000Z",
-    completedAt: "2026-06-04T00:00:00.000Z",
-    output: {
-      status: "succeeded",
-      operation: "read_recent",
-      fact: {
-        proposal: {
-          kind: "exercise_selection",
-          exerciseItems: [
-            { exerciseId: "squat", section: "training", order: 1 },
-          ],
-        },
-        exerciseDetails: [
-          { exerciseId: "squat", allowedSections: ["training"] },
-        ],
-      },
+function createExerciseFactLoader(): VisibleTrainingProposalExerciseFactLoader {
+  return async (ids) => ids.flatMap((id) => {
+    const record = createExerciseRecord(id);
+    return record ? [record] : [];
+  });
+}
+
+function createExerciseRecord(id: string): FixtureExerciseRecord | undefined {
+  const records: Record<string, FixtureExerciseRecord> = {
+    "jumping-jack": {
+      id,
+      nameZh: "开合跳",
+      nameEn: "Jumping Jack",
+      equipmentZh: "自重",
+      primaryMusclesZh: ["全身"],
+      allowedSections: ["warmup"],
+      imageUrls: [],
+      isPublished: true,
     },
-    projection: {
-      model: {},
-      user: {},
+    "push-up": {
+      id,
+      nameZh: "俯卧撑",
+      nameEn: "Push-Up",
+      equipmentZh: "自重",
+      primaryMusclesZh: ["胸大肌"],
+      allowedSections: ["training"],
+      imageUrls: ["https://example.test/push-up.jpg"],
+      isPublished: true,
     },
-    fulfillment: {
-      satisfied: true,
-      summary: "fixture visible fact result",
+    "archived-push-up": {
+      id,
+      nameZh: "旧版俯卧撑",
+      nameEn: "Archived Push-Up",
+      equipmentZh: "自重",
+      primaryMusclesZh: ["胸大肌"],
+      allowedSections: ["training"],
+      imageUrls: [],
+      isPublished: false,
+    },
+    squat: {
+      id,
+      nameZh: "深蹲",
+      nameEn: "Squat",
+      equipmentZh: "自重",
+      primaryMusclesZh: ["股四头肌"],
+      allowedSections: ["training"],
+      imageUrls: [],
+      isPublished: true,
+    },
+    "chest-stretch": {
+      id,
+      nameZh: "胸部拉伸",
+      nameEn: "Chest Stretch",
+      equipmentZh: "自重",
+      primaryMusclesZh: ["胸大肌"],
+      allowedSections: ["stretch"],
+      imageUrls: [],
+      isPublished: true,
     },
   };
+
+  return records[id as keyof typeof records];
 }
 
 function createRecentVisibleTrainingProposalSummary() {

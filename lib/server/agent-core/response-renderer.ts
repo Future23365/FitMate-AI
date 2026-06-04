@@ -33,8 +33,8 @@ export function renderAgentResponseEvents(
   } else if (result.terminalAction?.type === "final_answer") {
     events.push({ type: "content", content: result.terminalAction.content });
 
-    for (const output of result.terminalAction.visibleOutputs ?? []) {
-      events.push(...(options.visibleOutputRenderers?.render(output, { result }) ?? []));
+    for (const [outputIndex, output] of (result.terminalAction.visibleOutputs ?? []).entries()) {
+      events.push(...(options.visibleOutputRenderers?.render(output, { result, outputIndex }) ?? []));
     }
 
     if (result.terminalAction.assistantSuggestions?.length) {

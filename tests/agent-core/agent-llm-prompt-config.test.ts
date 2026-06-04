@@ -12,7 +12,7 @@ describe("agent LLM prompt configuration", () => {
     const systemPrompt = buildAgentActionSystemPrompt();
 
     expect(agentLlmPromptConfig.promptVersion).toBe(agentLlmPromptVersion);
-    expect(agentLlmPromptVersion).toBe("agent-action-v4");
+    expect(agentLlmPromptVersion).toBe("agent-action-v5");
     expect(systemPrompt).toContain("只能返回一个合法 JSON object");
     expect(systemPrompt).toContain("type 只能是 tool_call、final_answer、ask_user 三者之一");
     expect(systemPrompt).toContain("AI 健身助手");
@@ -35,6 +35,9 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).toContain("setRestSeconds");
     expect(systemPrompt).toContain("transitionRestSeconds");
     expect(systemPrompt).toContain("mode 只能是 reps 或 duration");
+    expect(systemPrompt).toContain("当前 run 可见的发布态动作事实");
+    expect(systemPrompt).toContain("服务端会在渲染和保存前基于数据库复核 exerciseId、发布态和 allowedSections");
+    expect(systemPrompt).not.toContain("只能复制本轮 satisfied searchExerciseResources observation");
     expect(systemPrompt).toContain("recentVisibleTrainingProposals 和 inspectVisibleTrainingProposals(operation = \"list_recent\") 只提供 factRef/messageId");
     expect(systemPrompt).toContain("inspectVisibleTrainingProposals(operation = \"read_recent\")");
     expect(systemPrompt).toContain("inspectVisibleTrainingProposals(operation = \"list_recent\")");
@@ -76,6 +79,6 @@ describe("agent LLM prompt configuration", () => {
       "返回测试专用 AgentAction JSON object。 这个测试只期望 final_answer。",
     );
     expect(buildAgentActionSystemPrompt()).toContain("tool_call、final_answer、ask_user");
-    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v4");
+    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v5");
   });
 });
