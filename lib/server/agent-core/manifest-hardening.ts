@@ -122,6 +122,7 @@ function toSnapshotTool(manifest: ToolManifest): RegistrySnapshotTool {
     outputJsonSchema: redactJsonValue(manifest.outputJsonSchema),
     policyHint: manifest.policyHint,
     resourceContract: manifest.resourceContract,
+    metadata: manifest.metadata ? redactJsonValue(manifest.metadata) as Record<string, JsonValue> : undefined,
     examples: manifest.examples?.map((example) => ({
       description: example.description,
       input: redactJsonValue(example.input),

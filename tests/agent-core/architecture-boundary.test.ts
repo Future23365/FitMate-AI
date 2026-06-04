@@ -173,6 +173,9 @@ describe("agent-core architecture boundaries", () => {
       "visibleTrainingProposal",
       "searchExercises",
       "generateRoutine",
+      "generatePlanDraft",
+      "generateRoutineDraft",
+      "payload.kind",
       "targetMuscles",
       "userInput.includes",
       "new RegExp",
@@ -182,6 +185,28 @@ describe("agent-core architecture boundaries", () => {
     const matches: string[] = [];
 
     for (const file of coreFlowFiles) {
+      const content = readRelative(file);
+      for (const term of forbiddenTerms) {
+        if (content.includes(term)) {
+          matches.push(`${file}: ${term}`);
+        }
+      }
+    }
+
+    expect(matches).toEqual([]);
+  });
+
+  it("keeps agent-core progress observation free of concrete production toolName UI branches", () => {
+    const coreFiles = collectFiles("lib/server/agent-core").map((file) => path.relative(repoRoot, file));
+    const forbiddenTerms = [
+      "inspectVisibleTrainingProposals",
+      "resolveExerciseResourceMentions",
+      "searchExerciseResources",
+      "toolActivityStageByToolName",
+    ];
+    const matches: string[] = [];
+
+    for (const file of coreFiles) {
       const content = readRelative(file);
       for (const term of forbiddenTerms) {
         if (content.includes(term)) {
@@ -239,6 +264,9 @@ describe("agent-core architecture boundaries", () => {
       "ModelAdapter",
       "searchExercises",
       "generateRoutine",
+      "generatePlanDraft",
+      "generateRoutineDraft",
+      "payload.kind",
       "saveWorkout",
       "queryUserMemory",
       "exerciseRecommendation",
@@ -301,6 +329,7 @@ describe("agent-core architecture boundaries", () => {
       "runAgent" + "Orchestrator",
       "assistant_action",
       "intent_resolved",
+      "agent_activity",
       "agent_" + "execution_result",
     ];
     const matches: string[] = [];
@@ -325,6 +354,8 @@ describe("agent-core architecture boundaries", () => {
       "readFixture",
       "searchExercises",
       "generateRoutine",
+      "generatePlanDraft",
+      "generateRoutineDraft",
       "saveWorkout",
       "queryUserMemory",
     ];
@@ -332,6 +363,85 @@ describe("agent-core architecture boundaries", () => {
 
     expect(service).toContain("createProductionToolRegistry");
     expect(service).toContain("maxToolCalls: 10");
+    expect(matches).toEqual([]);
+  });
+
+  it("keeps plan composition hardening scoped to model-visible contracts", () => {
+    const serverBoundaryFiles = [
+      ...productionChatEntryFiles,
+      ...coreFlowFiles,
+      "lib/server/agent-core/terminal-output-validator.ts",
+      "lib/server/visible-training-proposals/visible-training-proposal-renderer.ts",
+      "lib/server/agent-tools/exercises/search-exercise-resources.tool.ts",
+    ];
+    const modelVisibleFiles = [
+      "lib/server/agent-planners/prompts/agent-llm-prompt-config.ts",
+      "lib/server/agent-tools/exercises/search-exercise-resources.tool.ts",
+    ];
+    const serverTextRoutingTerms = [
+      "userInput.includes",
+      "message.content.includes",
+      ".includes(input.run.userInput",
+      "new RegExp",
+      ".match(",
+    ];
+    const removedDraftTools = [
+      "generatePlanDraft",
+      "generateRoutineDraft",
+    ];
+    const textRoutingMatches: string[] = [];
+    const removedDraftMatches: string[] = [];
+
+    for (const file of serverBoundaryFiles) {
+      const content = readRelative(file);
+      for (const term of serverTextRoutingTerms) {
+        if (content.includes(term)) {
+          textRoutingMatches.push(`${file}: ${term}`);
+        }
+      }
+    }
+    for (const file of modelVisibleFiles) {
+      const content = readRelative(file);
+      for (const term of removedDraftTools) {
+        if (content.includes(term)) {
+          removedDraftMatches.push(`${file}: ${term}`);
+        }
+      }
+    }
+
+    expect(textRoutingMatches).toEqual([]);
+    expect(removedDraftMatches).toEqual([]);
+  });
+
+  it("keeps searchExerciseResources free of removed region expansion and text keyword routing", () => {
+    const files = [
+      "app/api/chat/route.ts",
+      "lib/server/chat/agent-text-chat-service.ts",
+      "lib/server/agent-tools/exercises/search-exercise-resources.tool.ts",
+      "lib/server/exercises/exercise-repository.ts",
+    ];
+    const forbiddenTerms = [
+      "bodyRegions",
+      "expandedMuscles",
+      "exerciseBodyRegion",
+      "expandExerciseBodyRegionTargetMuscles",
+      "userInput.includes",
+      "message.content.includes",
+      ".includes(input.run.userInput",
+      "new RegExp",
+      ".match(",
+    ];
+    const matches: string[] = [];
+
+    for (const file of files) {
+      const content = readRelative(file);
+      for (const term of forbiddenTerms) {
+        if (content.includes(term)) {
+          matches.push(`${file}: ${term}`);
+        }
+      }
+    }
+
     expect(matches).toEqual([]);
   });
 

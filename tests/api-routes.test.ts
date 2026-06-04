@@ -18,6 +18,20 @@ const exerciseServiceMocks = vi.hoisted(() => ({
   listAllExercises: vi.fn(),
   listExercises: vi.fn(),
 }));
+const exerciseRepositoryMocks = vi.hoisted(() => ({
+  readExerciseResourceFacetCatalog: vi.fn(async () => ({
+    muscles: [],
+    categories: [],
+    levels: [],
+    forces: [],
+    mechanics: [],
+    equipment: [],
+    homeRequirements: [],
+    goalTags: [],
+    riskTags: [],
+    suitabilities: ["warmup", "training", "stretch"],
+  })),
+}));
 const workoutPersistenceMocks = vi.hoisted(() => ({
   createWorkoutSchedule: vi.fn(),
   deleteWorkoutRoutine: vi.fn(),
@@ -57,6 +71,7 @@ const authMocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/server/dev/ai-trace-logger", () => traceMocks);
 vi.mock("@/lib/server/exercises/exercise-service", () => exerciseServiceMocks);
+vi.mock("@/lib/server/exercises/exercise-repository", () => exerciseRepositoryMocks);
 vi.mock("@/lib/server/workouts/workout-persistence-service", () => workoutPersistenceMocks);
 vi.mock("@/lib/server/chat/chat-history-service", () => chatHistoryMocks);
 vi.mock("@/lib/server/conversation-artifacts/artifact-service", () => artifactMocks);
@@ -64,6 +79,27 @@ vi.mock("@/lib/server/visible-training-proposals/visible-training-proposal-fact-
   listRecentVisibleTrainingProposalSummaries: visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries,
   persistVisibleTrainingProposalFactsFromEvents: visibleTrainingProposalFactStoreMocks.persistVisibleTrainingProposalFactsFromEvents,
   readVisibleTrainingProposalFact: visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact,
+  toVisibleTrainingProposalMetadataSummary: (summary: any) => {
+    const exerciseItems = Array.isArray(summary.exerciseItems) ? summary.exerciseItems : [];
+
+    return {
+      factRef: summary.factRef,
+      messageId: summary.messageId,
+      kind: summary.kind,
+      status: summary.status,
+      schemaVersion: summary.schemaVersion,
+      createdAt: summary.createdAt,
+      proposalKind: summary.proposalKind,
+      visibleOutputSchemaVersion: "1",
+      factSchemaVersion: summary.schemaVersion,
+      sectionSummary: {
+        warmup: exerciseItems.filter((item: any) => item.section === "warmup").length,
+        training: exerciseItems.filter((item: any) => item.section === "training").length,
+        stretch: exerciseItems.filter((item: any) => item.section === "stretch").length,
+      },
+      reusableTrainingExerciseCount: exerciseItems.filter((item: any) => item.section === "training").length,
+    };
+  },
   toJsonValue: (value: unknown) => JSON.parse(JSON.stringify(value)),
 }));
 vi.mock("@/lib/server/users/current-user", () => currentUserMocks);
@@ -171,10 +207,15 @@ describe("API route boundaries", () => {
       conversationId: "conversation-1",
       responseMessageId: "assistant-1",
     }));
-    const events = parseNdjson(await response.text());
+    const rawEvents = parseNdjson(await response.text());
+    const events = rawEvents.filter((event) => event.type !== "agent_progress");
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("application/x-ndjson");
+    expect(rawEvents[0]).toMatchObject({
+      type: "agent_progress",
+      stage: "preparing_context",
+    });
     expect(events).toEqual([
       { type: "content", content: "可以，今天先做低强度胸部训练。" },
       { type: "done" },

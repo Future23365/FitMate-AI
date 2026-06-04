@@ -424,4 +424,39 @@ describe("agent-core runtime budget and idempotency hardening", () => {
     expect(executions).toHaveLength(1);
     expect(executions[0].idempotencyKey).toMatch(/^idem_/);
   });
+
+  it("emits nonfatal runtime trace observer events without changing the result", async () => {
+    const observedTypes: string[] = [];
+    const result = await runAgentRuntime({
+      registry: new ToolRegistry(),
+      planner: new ReplayPlanner([
+        { type: "final_answer", content: "observer done" },
+      ]),
+      run: {
+        runId: "run-observer",
+        actor: {},
+        userInput: "observer",
+      },
+      onTraceEvent: (event) => {
+        observedTypes.push(event.type);
+
+        if (event.type === "validation_result") {
+          throw new Error("observer failed");
+        }
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: "completed",
+      terminalAction: { type: "final_answer", content: "observer done" },
+    });
+    expect(observedTypes).toEqual([
+      "registry_snapshot",
+      "budget_event",
+      "planner_action",
+      "validation_result",
+      "terminal_grounding",
+    ]);
+    expect(result.traceEvents.map((event) => event.type)).toEqual(observedTypes);
+  });
 });

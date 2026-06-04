@@ -75,7 +75,19 @@ describe("agent-core contract test helper", () => {
   it("keeps output-only fields out of input schema, examples and model observation", () => {
     const manifest = toolToManifest(searchExerciseResourcesTool);
     const inputSchema = manifest.inputJsonSchema as { properties?: Record<string, unknown> };
-    const forbiddenInputFields = ["maxReturned", "limit", "take", "offset", "page", "pageSize"];
+    const forbiddenInputFields = [
+      "maxReturned",
+      "purpose",
+      "queryIntent",
+      "candidateUse",
+      "resultRequirements",
+      "rankingHints",
+      "limit",
+      "take",
+      "offset",
+      "page",
+      "pageSize",
+    ];
     const examplesJson = JSON.stringify(manifest.examples ?? []);
     const modelObservation = searchExerciseResourcesTool.toModelObservation?.({
       status: "succeeded",
@@ -83,7 +95,6 @@ describe("agent-core contract test helper", () => {
         published: true,
         sort: "name_asc",
         suitabilities: ["training"],
-        expandedMuscles: [],
         appliedFilters: [{ field: "published", value: true }, { field: "suitabilities", value: ["training"] }],
         totalMatches: 1,
         returnedCount: 1,
@@ -115,7 +126,22 @@ describe("agent-core contract test helper", () => {
       expect(modelObservationJson).not.toContain(field);
     }
     expect(modelObservationJson).toContain("totalMatches=0");
-    expect(modelObservationJson).toContain("不是 visibleTrainingProposal");
+    expect(modelObservationJson).toContain("groups.<section>.exercises[*].exerciseId 可作为 visibleTrainingProposal.exerciseItems[*].exerciseId 的事实来源");
+    expect(modelObservationJson).toContain("prescription、schedule 和最终 payload.kind");
+    expect(modelObservationJson).toContain("继续查询、澄清、失败收口或输出当前事实可支撑的结构");
+    expect(modelObservationJson).toContain("routinePlanCompositionBoundary");
+    expect(modelObservationJson).toContain("当前结果只提供 training 动作事实");
+    expect(modelObservationJson).toContain("missingSectionsForRoutineOrPlan");
+    expect(modelObservationJson).toContain("warmup");
+    expect(modelObservationJson).toContain("stretch");
+    expect(modelObservationJson).toContain("suitabilities = [\\\"warmup\\\", \\\"stretch\\\"]");
+    expect(modelObservationJson).toContain("不得把未返回的 section 伪造成已获得事实");
+    expect(modelObservationJson).toContain("不得把本次 tool result 直接当作最终 visibleTrainingProposal");
+    expect(modelObservationJson).not.toContain("不是 visibleTrainingProposal");
+    expect(modelObservationJson).not.toContain("generatePlanDraft");
+    expect(modelObservationJson).not.toContain("generateRoutineDraft");
+    expect(modelObservationJson).not.toContain("bodyRegions");
+    expect(modelObservationJson).not.toContain("expandedMuscles");
   });
 
   it("keeps resolve mention projection focused on safe exercise summaries", () => {

@@ -9,6 +9,14 @@ import {
   requestAgentTextChatResponse,
   type AgentTextChatEvent,
 } from "@/features/chat/api/chat-client";
+import {
+  createInitialVisibleAgentActivity,
+  createWritingReplyAgentActivity,
+  reduceAgentActivity,
+  reduceVisibleAgentActivity,
+  shouldClearAgentActivityForStreamEvent,
+  type VisibleAgentActivity,
+} from "@/features/chat/lib/agent-activity";
 import { readChatConversation, saveChatConversation } from "@/features/chat/lib/chat-history";
 import type {
   ApiChatMessage,
@@ -100,6 +108,8 @@ export function useChatController() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [agentActivity, setAgentActivity] = useState<VisibleAgentActivity | null>(null);
+  const [activeAgentActivityMessageId, setActiveAgentActivityMessageId] = useState<string | null>(null);
   const [thinkingEnabled, setThinkingEnabled] = useState(readThinkingEnabledPreference);
   const [conversationContext, setConversationContext] = useState<FitnessConversationContext>(() =>
     buildFitnessConversationContext([]),
@@ -145,6 +155,8 @@ export function useChatController() {
       );
       setError("");
       setInput("");
+      setAgentActivity(null);
+      setActiveAgentActivityMessageId(null);
     }
 
     function handleHashChange() {
@@ -170,6 +182,8 @@ export function useChatController() {
       setConversationSummary({ summary: "" });
       setError("");
       setInput("");
+      setAgentActivity(null);
+      setActiveAgentActivityMessageId(null);
     }
 
     const initialId = window.location.hash.replace(/^#/, "");
@@ -255,6 +269,8 @@ export function useChatController() {
     setInput("");
     setError("");
     setIsLoading(true);
+    setActiveAgentActivityMessageId(assistantMessage.id);
+    setAgentActivity(createInitialVisibleAgentActivity());
 
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), chatRequestTimeoutMs);
@@ -269,6 +285,16 @@ export function useChatController() {
         thinkingEnabled,
         signal: controller.signal,
         onEvent: (event) => {
+          if (event.type === "agent_progress") {
+            setAgentActivity((current) => reduceAgentActivity(current, event));
+          }
+
+          if (event.type === "content") {
+            setAgentActivity((current) => (
+              reduceVisibleAgentActivity(current, createWritingReplyAgentActivity(current))
+            ));
+          }
+
           if (event.type === "error") {
             setError(getAgentTextChatEventErrorMessage(event));
             setIsLoading(false);
@@ -276,6 +302,11 @@ export function useChatController() {
 
           if (event.type === "done") {
             setIsLoading(false);
+          }
+
+          if (shouldClearAgentActivityForStreamEvent(event)) {
+            setAgentActivity(null);
+            setActiveAgentActivityMessageId(null);
           }
 
           updateAssistantMessage(assistantMessage.id, (message) =>
@@ -289,6 +320,8 @@ export function useChatController() {
         : getAgentTextChatErrorMessage(requestError);
 
       setError(errorMessage);
+      setAgentActivity(null);
+      setActiveAgentActivityMessageId(null);
       updateAssistantMessage(assistantMessage.id, (message) => ({
         ...message,
         content: message.content || errorMessage,
@@ -297,10 +330,14 @@ export function useChatController() {
     } finally {
       window.clearTimeout(timeout);
       setIsLoading(false);
+      setAgentActivity(null);
+      setActiveAgentActivityMessageId(null);
     }
   }
 
   return {
+    activeAgentActivityMessageId,
+    agentActivity,
     error,
     input,
     isLoading,

@@ -41,6 +41,7 @@ describe("frontend API clients", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(new Response([
+        JSON.stringify({ type: "agent_progress", stage: "preparing_context", status: "active", messageKey: "preparing_context", sequence: 1, toolName: "searchExerciseResources" }),
         JSON.stringify({ type: "content", content: "你好" }),
         "",
         JSON.stringify({ type: "assistant_suggestions", suggestions: ["继续"] }),
@@ -66,6 +67,7 @@ describe("frontend API clients", () => {
     });
 
     expect(events).toEqual([
+      { type: "agent_progress", stage: "preparing_context", status: "active", messageKey: "preparing_context", sequence: 1 },
       { type: "content", content: "你好" },
       { type: "assistant_suggestions", suggestions: ["继续"] },
       { type: "done" },
@@ -77,6 +79,36 @@ describe("frontend API clients", () => {
       conversationSummary: summary.summary,
     });
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual(["/api/chat"]);
+  });
+
+  it("parses agent_progress safely and rejects invalid progress payloads", async () => {
+    const events: unknown[] = [];
+    await consumeAgentTextChatNdjson(new Response([
+      JSON.stringify({
+        type: "agent_progress",
+        stage: "raw_internal_tool_name",
+        status: "active",
+        sequence: 7,
+        toolName: "searchExerciseResources",
+      }),
+      JSON.stringify({ type: "done" }),
+    ].join("\n")), (event) => events.push(event));
+
+    expect(events).toEqual([
+      { type: "agent_progress", stage: "raw_internal_tool_name", status: "active", messageKey: undefined, sequence: 7 },
+      { type: "done" },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("toolName");
+    expect(JSON.stringify(events)).not.toContain("searchExerciseResources");
+
+    const streamError = await consumeAgentTextChatNdjson(new Response(JSON.stringify({
+      type: "agent_progress",
+      stage: "querying_exercises",
+      status: "internal_error",
+      sequence: 1,
+    })), vi.fn()).catch((error: unknown) => error);
+
+    expect(streamError).toBeInstanceOf(AgentTextChatStreamError);
   });
 
   it("parses NDJSON split across chunks and rejects invalid JSON lines", async () => {

@@ -8,6 +8,7 @@ import { LogoMark } from "@/components/app/logo-mark";
 import { ResponsiveRightSidebar } from "@/components/app/responsive-right-sidebar";
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { useAutoHideScrollbar } from "@/components/app/use-auto-hide-scrollbar";
+import { AgentActivityIndicator } from "@/features/chat/components/agent-activity-indicator";
 import { useChatController } from "@/features/chat/hooks/use-chat-controller";
 import { getMessageAssistantSuggestions } from "@/features/chat/lib/assistant-suggestions";
 import { adaptVisibleTrainingProposalToRichCard } from "@/features/chat/lib/visible-training-proposal-cards";
@@ -29,7 +30,7 @@ const quickPrompts = [
   },
   {
     title: "增肌塑形",
-    prompt: "我想增肌，每周 3 练，每次 50 分钟，没有器械，高强度一些的，重点练胸背腿",
+    prompt: "我想增肌，每周 3 练，每次 50 分钟，没有器械，高强度一些的，重点练胸",
   },
   {
     title: "全身徒手训练",
@@ -451,6 +452,8 @@ function HomeRightSidebar() {
 
 export function ChatPage() {
   const {
+    activeAgentActivityMessageId,
+    agentActivity,
     error,
     input,
     isLoading,
@@ -568,6 +571,10 @@ export function ChatPage() {
             <div className="mx-auto flex max-w-4xl flex-col gap-md">
               {messages.map((message) => {
                 const isUserMessage = message.role === "user";
+                const visibleAgentActivity =
+                  !isUserMessage && message.id === activeAgentActivityMessageId
+                    ? agentActivity
+                    : null;
 
                 return (
                   <div
@@ -585,6 +592,9 @@ export function ChatPage() {
                         <ChatMessageAvatar role={isUserMessage ? "user" : "assistant"} />
                       </div>
                       <div className="flex flex-1 flex-col gap-xs min-w-0">
+                        {message.role === "assistant" && (
+                          <AgentActivityIndicator activity={visibleAgentActivity} />
+                        )}
                         <div
                           className={`ai-chat-bubble min-w-0 rounded-2xl p-lg transition-shadow ${
                             isUserMessage

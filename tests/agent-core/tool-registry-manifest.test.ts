@@ -6,6 +6,7 @@ import { AgentContractError, AGENT_ERROR_CODES } from "@/lib/server/agent-core/e
 import { ToolRegistry } from "@/lib/server/agent-core/tool-registry";
 import { createProductionToolRegistry } from "@/lib/server/agent-tools";
 import type { JsonValue, ToolManifest } from "@/lib/server/agent-core/contracts";
+import type { ExerciseResourceFacetCatalog } from "@/lib/server/exercises/exercise-repository";
 
 const chineseDescriptionPattern = /[\u3400-\u9FFF\uF900-\uFAFF]/;
 
@@ -111,6 +112,21 @@ function objectHasReadRecentOperation(value: Record<string, JsonValue>) {
   return JSON.stringify(operation).includes("read_recent");
 }
 
+function createExerciseResourceFacetCatalog(): ExerciseResourceFacetCatalog {
+  return {
+    muscles: ["胸部", "肱三头肌", "股四头肌"],
+    categories: ["strength", "力量"],
+    levels: ["beginner", "初级", "expert", "高级"],
+    forces: ["push", "推"],
+    mechanics: ["compound", "复合"],
+    equipment: ["body only", "自重", "dumbbell", "哑铃"],
+    homeRequirements: ["none", "无器械", "small_equipment", "居家小器械"],
+    goalTags: ["strength"],
+    riskTags: ["shoulder_pain"],
+    suitabilities: ["warmup", "training", "stretch"],
+  };
+}
+
 describe("agent-core ToolRegistry and manifest", () => {
   it("registers read tools and rejects duplicate names", () => {
     const registry = new ToolRegistry();
@@ -188,7 +204,10 @@ describe("agent-core ToolRegistry and manifest", () => {
   });
 
   it("serializes the production registry with visible training proposal inspect/read and search schema fields", () => {
-    const registry = createProductionToolRegistry();
+    const facetCatalog = createExerciseResourceFacetCatalog();
+    const registry = createProductionToolRegistry({
+      searchExerciseResourcesFacetCatalog: facetCatalog,
+    });
     const manifests = registry.serializeForPlanner();
     const inspectFactManifest = manifests.find((tool) => tool.name === "inspectVisibleTrainingProposals");
     const resolveMentionManifest = manifests.find((tool) => tool.name === "resolveExerciseResourceMentions");
@@ -197,11 +216,11 @@ describe("agent-core ToolRegistry and manifest", () => {
     const inputSchema = searchManifest?.inputJsonSchema as {
       properties: {
         q: unknown;
-        suitabilities: { items: { enum: string[] }; minItems?: number; maxItems?: number };
+        suitabilities: { items: { enum: string[] }; minItems?: number; maxItems?: number; description?: string };
         level: { description?: string };
         equipment: { description?: string };
         homeRequirement: { description?: string };
-        bodyRegions: { items: { enum: string[] } };
+        muscles: { items: unknown; maxItems?: number; description?: string };
         excludeExerciseIds: { items: unknown; maxItems?: number; description?: string };
         requiredExerciseIds: { items: unknown; maxItems?: number; description?: string };
         published: { const?: boolean; default?: boolean };
@@ -226,6 +245,7 @@ describe("agent-core ToolRegistry and manifest", () => {
     const inspectManifestJson = JSON.stringify(inspectFactManifest);
     const inspectExamplesJson = JSON.stringify(inspectFactManifest?.examples ?? []);
     const searchExamplesJson = JSON.stringify(searchManifest?.examples ?? []);
+    const searchManifestJson = JSON.stringify(searchManifest);
     const manifestJson = JSON.stringify(manifests);
     collectJsonObjects(inspectFactManifest?.inputJsonSchema, inspectInputSchemaObjects);
     const readRecentInputBranches = inspectInputSchemaObjects.filter(objectHasReadRecentOperation);
@@ -276,22 +296,44 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(manifestJson).toContain("inspectVisibleTrainingProposals(operation = \\\"read_recent\\\")");
     expect(inputSchema.properties).toHaveProperty("q");
     expect(inputSchema.properties).not.toHaveProperty("maxReturned");
+    expect(inputSchema.properties).not.toHaveProperty("purpose");
+    expect(inputSchema.properties).not.toHaveProperty("queryIntent");
+    expect(inputSchema.properties).not.toHaveProperty("candidateUse");
+    expect(inputSchema.properties).not.toHaveProperty("resultRequirements");
+    expect(inputSchema.properties).not.toHaveProperty("rankingHints");
     expect(inputSchema.properties).not.toHaveProperty("limit");
+    expect(inputSchema.properties).not.toHaveProperty("offset");
     expect(inputSchema.properties).not.toHaveProperty("page");
     expect(inputSchema.properties).not.toHaveProperty("pageSize");
     expect(searchExamplesJson).not.toContain("maxReturned");
+    expect(searchExamplesJson).not.toContain("purpose");
+    expect(searchExamplesJson).not.toContain("queryIntent");
+    expect(searchExamplesJson).not.toContain("candidateUse");
+    expect(searchExamplesJson).not.toContain("resultRequirements");
+    expect(searchExamplesJson).not.toContain("rankingHints");
     expect(searchExamplesJson).not.toContain("limit");
+    expect(searchExamplesJson).not.toContain("offset");
     expect(searchExamplesJson).not.toContain("pageSize");
     expect(inputSchema.properties).not.toHaveProperty("suitability");
+    expect(inputSchema.properties).not.toHaveProperty("bodyRegions");
     expect(inputSchema.properties.suitabilities.items.enum).toEqual(["warmup", "training", "stretch"]);
     expect(inputSchema.properties.suitabilities.maxItems).toBe(3);
-    expect(inputSchema.properties.level.description).toContain("beginner/初级");
-    expect(inputSchema.properties.level.description).toContain("expert/高级");
-    expect(inputSchema.properties.equipment.description).toContain("body only/自重");
-    expect(inputSchema.properties.equipment.description).toContain("dumbbell/哑铃");
-    expect(inputSchema.properties.homeRequirement.description).toContain("none/无器械");
-    expect(inputSchema.properties.homeRequirement.description).toContain("small_equipment/居家小器械");
-    expect(inputSchema.properties.bodyRegions.items.enum).toEqual(["upper_body", "lower_body", "core", "full_body"]);
+    expect(inputSchema.properties.suitabilities.description).toContain("目标需要 routine 或 plan");
+    expect(inputSchema.properties.suitabilities.description).toContain("[\"warmup\", \"stretch\"]");
+    expect(inputSchema.properties.level.description).toContain("metadata.facetCatalog");
+    expect(inputSchema.properties.equipment.description).toContain("metadata.facetCatalog");
+    expect(inputSchema.properties.homeRequirement.description).toContain("metadata.facetCatalog");
+    expect(inputSchema.properties.muscles.maxItems).toBe(20);
+    expect(inputSchema.properties.muscles.description).toContain("多个主肌群");
+    expect(searchManifest?.metadata).toEqual({
+      facetCatalog,
+    });
+    expect(searchManifest?.metadata?.facetCatalog).toMatchObject({
+      muscles: expect.arrayContaining(["胸部", "股四头肌"]),
+      equipment: expect.arrayContaining(["body only", "哑铃"]),
+      homeRequirements: expect.arrayContaining(["none", "居家小器械"]),
+      suitabilities: ["warmup", "training", "stretch"],
+    });
     expect(inputSchema.properties.excludeExerciseIds.maxItems).toBe(50);
     expect(inputSchema.properties.excludeExerciseIds.description).toContain("用户已经看到");
     expect(inputSchema.properties.requiredExerciseIds.maxItems).toBe(12);
@@ -314,11 +356,29 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(manifestJson).toContain("visibleOutputs");
     expect(manifestJson).toContain("visibleTrainingProposal");
     expect(manifestJson).toContain("exerciseId");
-    expect(manifestJson).toContain("groups.<section>.exercises[] 是该查询结果中对应 section 的动作事实来源");
+    expect(searchManifestJson).toContain("发布态动作事实原料");
+    expect(searchManifestJson).toContain("不生成最终 visibleTrainingProposal");
+    expect(searchManifestJson).toContain("groups.<section>.exercises[*].exerciseId");
+    expect(searchManifestJson).toContain("fulfillment.satisfied = true");
+    expect(searchManifestJson).toContain("visibleTrainingProposal.exerciseItems[*].exerciseId");
+    expect(searchManifestJson).toContain("最终训练输出只能由 final_answer.visibleOutputs[] 承载");
+    expect(searchManifestJson).toContain("模型根据用户目标已经需要 routine 或 plan");
+    expect(searchManifestJson).toContain("当前 run 只有 training 动作事实或缺少 warmup / stretch 动作事实");
+    expect(searchManifestJson).toContain("suitabilities = [\\\"warmup\\\", \\\"stretch\\\"]");
+    expect(searchManifestJson).toContain("不得因为当前只查到 training 动作事实就把 routine 或 plan 目标降级输出为 payload.kind = \\\"exercise_selection\\\"");
+    expect(searchManifestJson).toContain("普通动作推荐和动作事实问答不要求固定查询 warmup / training / stretch");
+    expect(searchManifestJson).toContain("本 tool 不要求固定 tool 调用次数或顺序");
+    expect(searchManifestJson).toContain("不要因为当前只查到 training 动作事实");
+    expect(searchManifestJson).toContain("failed、invalid-input 或 satisfied=false 的结果不能支撑成功 final_answer");
+    expect(manifestJson).toContain("groups.<section>.exercises[*].exerciseId 是该查询结果中对应 section 的动作事实来源");
     expect(manifestJson).toContain("visibleTrainingProposal.exerciseItems[*].section");
     expect(manifestJson).toContain("allowedSections 是动作可进入哪些 section 的动作事实字段");
     expect(manifestJson).toContain("exerciseItems[*].section 应对应使用的 groups.<section> key");
     expect(manifestJson).not.toContain("必须调用 searchExerciseResources");
+    expect(searchExamplesJson).not.toContain("用户说");
+    expect(searchExamplesJson).not.toContain("固定短语");
+    expect(searchExamplesJson).not.toContain("先用 resolveExerciseResourceMentions");
+    expect(searchExamplesJson).not.toContain("上一轮结果中真实 matched exerciseId");
     expect(manifestJson).toContain("totalMatches=0");
     expect(manifestJson).toContain("0 条事实查询结果");
     expect(manifestJson).toContain("published");
@@ -328,14 +388,17 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(manifestJson).toContain("俯卧撑");
     expect(manifestJson).toContain("深蹲");
     expect(manifestJson).toContain("平板支撑");
-    expect(manifestJson).toContain("先用 resolveExerciseResourceMentions");
-    expect(manifestJson).toContain("上一轮结果中真实 matched exerciseId");
-    expect(manifestJson).toContain("示例 id 不可脱离上一步结果照抄");
-    expect(manifestJson).toContain("bodyRegions");
-    expect(manifestJson).toContain("lower_body");
+    expect(searchExamplesJson).toContain("当前 run 已有受控 exerciseId");
+    expect(searchExamplesJson).toContain("routine 或 plan 目标已有 training 动作事实");
+    expect(searchExamplesJson).not.toContain("示例 id 不可脱离上一步结果照抄");
+    expect(manifestJson).not.toContain("bodyRegions");
+    expect(manifestJson).not.toContain("lower_body");
+    expect(manifestJson).not.toContain("upper_body");
+    expect(manifestJson).not.toContain("full_body");
     expect(manifestJson).toContain("真实肌群 facet");
-    expect(manifestJson).toContain("floor/地面/瑜伽垫");
-    expect(manifestJson).toContain("machine/固定器械");
+    expect(manifestJson).toContain("metadata.facetCatalog");
+    expect(manifestJson).toContain("股四头肌");
+    expect(manifestJson).toContain("居家小器械");
     expect(manifestJson).not.toContain("home_friendly");
     expect(manifestJson).not.toContain("no_equipment");
     expect(manifestJson).not.toContain("cbf_previous_response");
@@ -349,6 +412,8 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(manifestJson).not.toContain("readRecentExerciseRecommendationFact");
     expect(manifestJson).not.toContain("readRecentVisibleTrainingProposal");
     expect(manifestJson).not.toContain("exercise_recommendation_fact");
+    expect(manifestJson).not.toContain("generatePlanDraft");
+    expect(manifestJson).not.toContain("generateRoutineDraft");
     expect(manifestJson).not.toContain("\"handler\"");
     expect(manifestJson).not.toContain("Query published exercise resources");
     expect(manifestJson).not.toContain("Use when the user asks");

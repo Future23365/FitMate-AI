@@ -41,6 +41,9 @@ import { AGENT_ERROR_CODES, isAgentContractError } from "./errors";
 import type { PlannerPort } from "./planner-port";
 import type { ToolRegistry } from "./tool-registry";
 
+/** AgentRuntimeTraceObserver 是 runtime 对外暴露的只读观察点，失败时不得影响执行结果。 */
+export type AgentRuntimeTraceObserver = (event: AgentTraceEvent) => void | Promise<void>;
+
 /** RunAgentRuntimeInput 连接 registry、planner 和 run input，是 M0 runtime 的唯一入口。 */
 export type RunAgentRuntimeInput = {
   registry: ToolRegistry;
@@ -51,6 +54,7 @@ export type RunAgentRuntimeInput = {
   confirmationSecret?: string;
   dynamicConfirmationEvaluator?: DynamicConfirmationEvaluator;
   terminalOutputValidators?: TerminalOutputValidatorRegistry;
+  onTraceEvent?: AgentRuntimeTraceObserver;
 };
 
 /** ResumeConfirmedActionRuntimeInput 是 M1 core 级 confirmation resume 的执行入口参数。 */
@@ -99,7 +103,21 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
   let toolCalls = 0;
   let invalidActions = 0;
 
-  traceEvents.push({
+  const recordTraceEvent = async (event: AgentTraceEvent) => {
+    traceEvents.push(event);
+
+    if (!input.onTraceEvent) {
+      return;
+    }
+
+    try {
+      await input.onTraceEvent(event);
+    } catch {
+      // 进度观察是非致命 UI 侧信号，不能改变 Planner、tool 或 runtime 结果。
+    }
+  };
+
+  await recordTraceEvent({
     type: "registry_snapshot",
     snapshotId: registrySnapshot.snapshotId,
     manifestHash: registrySnapshot.manifestHash,
@@ -117,7 +135,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
     }
 
     if (plannerCalls >= limits.maxPlannerCalls) {
-      traceEvents.push(createBudgetEvent("planner_calls", "exhausted", plannerCalls, limits.maxPlannerCalls, step));
+      await recordTraceEvent(createBudgetEvent("planner_calls", "exhausted", plannerCalls, limits.maxPlannerCalls, step));
       return finish(failedResult(input.run.runId, toolResults, observations, traceEvents, step - 1, createToolError(
         AGENT_ERROR_CODES.BUDGET_EXHAUSTED,
         "Agent runtime reached the planner call limit.",
@@ -134,7 +152,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
     const estimatedTokens = estimateJsonTokens(plannerInput);
 
     if (limits.maxEstimatedTokens && estimatedTokens > limits.maxEstimatedTokens) {
-      traceEvents.push(createBudgetEvent("estimated_tokens", "exhausted", estimatedTokens, limits.maxEstimatedTokens, step));
+      await recordTraceEvent(createBudgetEvent("estimated_tokens", "exhausted", estimatedTokens, limits.maxEstimatedTokens, step));
       return finish(failedResult(input.run.runId, toolResults, observations, traceEvents, step - 1, createToolError(
         AGENT_ERROR_CODES.BUDGET_EXHAUSTED,
         "Agent runtime reached the estimated token budget before calling planner.",
@@ -143,7 +161,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
     }
 
     plannerCalls += 1;
-    traceEvents.push(createBudgetEvent("planner_calls", "used", plannerCalls, limits.maxPlannerCalls, step));
+    await recordTraceEvent(createBudgetEvent("planner_calls", "used", plannerCalls, limits.maxPlannerCalls, step));
 
     const plannerAction = await callPlanner(input.planner, plannerInput, deadline);
 
@@ -152,7 +170,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
       return finish(failedResult(input.run.runId, toolResults, observations, traceEvents, step - 1, plannerAction.error));
     }
 
-    traceEvents.push(createPlannerActionTrace(step, plannerAction.action));
+    await recordTraceEvent(createPlannerActionTrace(step, plannerAction.action));
 
     const validation = await validateAgentActionAsync({
       action: plannerAction.action,
@@ -163,7 +181,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
       resourceStore,
       terminalOutputValidators: input.terminalOutputValidators,
     });
-    traceEvents.push({
+    await recordTraceEvent({
       type: "validation_result",
       step,
       ok: validation.ok,
@@ -175,7 +193,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
       observations.push(createInvalidActionObservation(validation.error));
 
       if (invalidActions > repairLimit) {
-        traceEvents.push(createBudgetEvent("repair_attempts", "exhausted", invalidActions, repairLimit, step, validation.error.code));
+        await recordTraceEvent(createBudgetEvent("repair_attempts", "exhausted", invalidActions, repairLimit, step, validation.error.code));
         return finish(failedResult(input.run.runId, toolResults, observations, traceEvents, step, createToolError(
           AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
           "Agent runtime reached the invalid action repair limit.",
@@ -183,13 +201,13 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
         )));
       }
 
-      traceEvents.push(createBudgetEvent("repair_attempts", "used", invalidActions, repairLimit, step, validation.error.code));
+      await recordTraceEvent(createBudgetEvent("repair_attempts", "used", invalidActions, repairLimit, step, validation.error.code));
 
       continue;
     }
 
     if (validation.action.type === "final_answer") {
-      traceEvents.push({
+      await recordTraceEvent({
         type: "terminal_grounding",
         actionType: validation.action.type,
         usedResourceRefs: validation.action.usedResourceRefs ?? [],
@@ -207,7 +225,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
     }
 
     if (validation.action.type === "ask_user") {
-      traceEvents.push({
+      await recordTraceEvent({
         type: "terminal_grounding",
         actionType: validation.action.type,
         usedResourceRefs: validation.action.usedResourceRefs ?? [],
@@ -224,7 +242,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
     }
 
     if (toolCalls >= limits.maxToolCalls) {
-      traceEvents.push(createBudgetEvent("tool_calls", "exhausted", toolCalls, limits.maxToolCalls, step));
+      await recordTraceEvent(createBudgetEvent("tool_calls", "exhausted", toolCalls, limits.maxToolCalls, step));
       return finish(failedResult(input.run.runId, toolResults, observations, traceEvents, step, createToolError(
         AGENT_ERROR_CODES.BUDGET_EXHAUSTED,
         "Agent runtime reached the tool call limit.",
@@ -255,7 +273,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
       action: validation.action,
       dynamicConfirmationEvaluator: input.dynamicConfirmationEvaluator,
     });
-    traceEvents.push({
+    await recordTraceEvent({
       type: "policy_decision",
       toolName: tool.name,
       decision: policyDecision.kind,
@@ -276,7 +294,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
       });
       confirmationStore.save(pendingAction);
       const confirmationRequest = createConfirmationRequest(pendingAction);
-      traceEvents.push({ type: "confirmation_request", request: confirmationRequest });
+      await recordTraceEvent({ type: "confirmation_request", request: confirmationRequest });
       return finish({
         runId: input.run.runId,
         status: "requires_confirmation",
@@ -293,7 +311,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
     const previousToolCallCount = toolCallCounts.get(failureKey) ?? 0;
 
     if (previousToolCallCount > 0) {
-      traceEvents.push({
+      await recordTraceEvent({
         type: "duplicate_tool_call",
         step,
         toolName: tool.name,
@@ -321,7 +339,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
       }));
 
       if (invalidActions > repairLimit) {
-        traceEvents.push(createBudgetEvent("repair_attempts", "exhausted", invalidActions, repairLimit, step, AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS));
+        await recordTraceEvent(createBudgetEvent("repair_attempts", "exhausted", invalidActions, repairLimit, step, AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS));
         return finish(failedResult(input.run.runId, toolResults, observations, traceEvents, step, createToolError(
           AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
           "Agent runtime reached the duplicate successful tool call repair limit.",
@@ -329,7 +347,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
         )));
       }
 
-      traceEvents.push(createBudgetEvent("repair_attempts", "used", invalidActions, repairLimit, step, AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS));
+      await recordTraceEvent(createBudgetEvent("repair_attempts", "used", invalidActions, repairLimit, step, AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS));
       continue;
     }
 
@@ -342,7 +360,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
         { toolName: tool.name, failureCode: previousFailure.code },
       );
       const duplicateResult = createFailureToolResult(input.run.runId, tool.name, tool.version, normalizedInputHash, duplicateError);
-      traceEvents.push(createToolExecutionTrace({
+      await recordTraceEvent(createToolExecutionTrace({
         step,
         action: validation.action,
         result: duplicateResult,
@@ -354,7 +372,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
     }
 
     toolCalls += 1;
-    traceEvents.push(createBudgetEvent("tool_calls", "used", toolCalls, limits.maxToolCalls, step));
+    await recordTraceEvent(createBudgetEvent("tool_calls", "used", toolCalls, limits.maxToolCalls, step));
     const remainingMs = Math.max(1, deadline - Date.now());
     const configuredToolTimeout = tool.policy.timeoutMs ?? limits.perToolTimeoutMs;
     const timeoutMs = Math.min(configuredToolTimeout, remainingMs);
@@ -377,21 +395,23 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
       resourceStore,
       consumedResources: consumedValidation.consumedResources,
     });
-    const finalizedResult = finalizeToolResultResources({
+    const finalizedToolResult = finalizeToolResultResources({
       result,
       tool,
       run: input.run,
       resourceStore,
-      traceEvents,
     });
-    traceEvents.push(createToolExecutionTrace({
+    for (const resourceTraceEvent of finalizedToolResult.resourceTraceEvents) {
+      await recordTraceEvent(resourceTraceEvent);
+    }
+    await recordTraceEvent(createToolExecutionTrace({
       step,
       action: validation.action,
-      result: finalizedResult,
+      result: finalizedToolResult.result,
       source: "runtime",
     }));
 
-    if (!finalizedResult.ok && finalizedResult.error.code === AGENT_ERROR_CODES.TIMEOUT && remainingMs <= configuredToolTimeout) {
+    if (!finalizedToolResult.result.ok && finalizedToolResult.result.error.code === AGENT_ERROR_CODES.TIMEOUT && remainingMs <= configuredToolTimeout) {
       controller.abort();
       return finish(failedResult(input.run.runId, toolResults, observations, traceEvents, step, createToolError(
         AGENT_ERROR_CODES.OVERALL_TIMEOUT,
@@ -399,13 +419,13 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
       )));
     }
 
-    toolResults.push(finalizedResult);
-    observations.push(createToolObservation(finalizedResult));
+    toolResults.push(finalizedToolResult.result);
+    observations.push(createToolObservation(finalizedToolResult.result));
 
-    if (!finalizedResult.ok && !finalizedResult.error.retryable) {
+    if (!finalizedToolResult.result.ok && !finalizedToolResult.result.error.retryable) {
       const current = nonRetryableFailures.get(failureKey);
       nonRetryableFailures.set(failureKey, {
-        code: finalizedResult.error.code,
+        code: finalizedToolResult.result.error.code,
         count: (current?.count ?? 0) + 1,
       });
     }
@@ -517,25 +537,25 @@ export async function resumeConfirmedAction(input: ResumeConfirmedActionRuntimeI
     resourceStore,
     consumedResources: consumedValidation.consumedResources,
   });
-  const finalizedResult = finalizeToolResultResources({
+  const finalizedToolResult = finalizeToolResultResources({
     result,
     tool,
     run,
     resourceStore,
-    traceEvents,
   });
+  traceEvents.push(...finalizedToolResult.resourceTraceEvents);
   traceEvents.push(createToolExecutionTrace({
     step: 1,
     action: validation.action,
-    result: finalizedResult,
+    result: finalizedToolResult.result,
     source: "confirmation_resume",
   }));
 
-  toolResults.push(finalizedResult);
-  observations.push(createToolObservation(finalizedResult));
+  toolResults.push(finalizedToolResult.result);
+  observations.push(createToolObservation(finalizedToolResult.result));
 
-  if (!finalizedResult.ok) {
-    return finish(failedResult(run.runId, toolResults, observations, traceEvents, 1, finalizedResult.error));
+  if (!finalizedToolResult.result.ok) {
+    return finish(failedResult(run.runId, toolResults, observations, traceEvents, 1, finalizedToolResult.result.error));
   }
 
   markPendingActionConsumed(input.confirmationStore, claim.pendingAction.pendingActionId);
@@ -793,10 +813,9 @@ function finalizeToolResultResources(input: {
   tool: NonNullable<ReturnType<ToolRegistry["get"]>>;
   run: AgentRunInput;
   resourceStore: ResourceStore;
-  traceEvents: AgentTraceEvent[];
-}): ToolResult {
+}): { result: ToolResult; resourceTraceEvents: AgentTraceEvent[] } {
   if (!input.result.ok) {
-    return input.result;
+    return { result: input.result, resourceTraceEvents: [] };
   }
 
   const producedValidation = validateAndRegisterProducedResources({
@@ -815,46 +834,53 @@ function finalizeToolResultResources(input: {
 
   if (!producedValidation.ok) {
     return {
-      toolResultId: input.result.toolResultId,
-      toolName: input.result.toolName,
-      toolVersion: input.result.toolVersion,
-      toolCallId: input.result.toolCallId,
-      idempotencyKey: input.result.idempotencyKey,
-      normalizedInputHash: input.result.normalizedInputHash,
-      startedAt: input.result.startedAt,
-      completedAt: new Date().toISOString(),
-      ok: false,
-      error: producedValidation.error,
-      fulfillment: {
-        ...input.result.fulfillment,
-        satisfied: false,
-        summary: `Tool "${input.result.toolName}" failed resource contract validation.`,
-        unmetRequirements: [
-          {
-            reason: producedValidation.error.code,
-            message: producedValidation.error.message,
-          },
-        ],
+      result: {
+        toolResultId: input.result.toolResultId,
+        toolName: input.result.toolName,
+        toolVersion: input.result.toolVersion,
+        toolCallId: input.result.toolCallId,
+        idempotencyKey: input.result.idempotencyKey,
+        normalizedInputHash: input.result.normalizedInputHash,
+        startedAt: input.result.startedAt,
+        completedAt: new Date().toISOString(),
+        ok: false,
+        error: producedValidation.error,
+        fulfillment: {
+          ...input.result.fulfillment,
+          satisfied: false,
+          summary: `Tool "${input.result.toolName}" failed resource contract validation.`,
+          unmetRequirements: [
+            {
+              reason: producedValidation.error.code,
+              message: producedValidation.error.message,
+            },
+          ],
+        },
       },
+      resourceTraceEvents: [],
     };
   }
 
-  for (const resource of producedValidation.producedResources) {
+  const resourceTraceEvents = producedValidation.producedResources.map((resource) => {
     const registered = input.resourceStore.get(resource);
-    input.traceEvents.push({
+
+    return {
       type: "resource_registered",
       toolResultId: input.result.toolResultId,
       resource,
       summary: redactJsonValue(registered?.summary ?? {}),
-    });
-  }
+    } satisfies Extract<AgentTraceEvent, { type: "resource_registered" }>;
+  });
 
   return {
-    ...input.result,
-    fulfillment: {
-      ...input.result.fulfillment,
-      producedResources: producedValidation.producedResources,
+    result: {
+      ...input.result,
+      fulfillment: {
+        ...input.result.fulfillment,
+        producedResources: producedValidation.producedResources,
+      },
     },
+    resourceTraceEvents,
   };
 }
 

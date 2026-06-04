@@ -30,6 +30,18 @@ describe("chat controller Agent text event projection", () => {
     });
   });
 
+  it("keeps agent_progress out of the assistant message content", () => {
+    expect(
+      applyAgentTextChatEventToAssistantMessage(createAssistantMessage(), {
+        type: "agent_progress",
+        stage: "querying_exercises",
+        status: "active",
+        messageKey: "querying_exercises",
+        sequence: 2,
+      }),
+    ).toEqual(createAssistantMessage());
+  });
+
   it("stores assistant_suggestions as user-clickable suggested replies", () => {
     expect(
       applyAgentTextChatEventToAssistantMessage(createAssistantMessage({ content: "你想练多久？" }), {

@@ -177,7 +177,17 @@ OpenSpec 生成或修改的说明性文档应使用中文，便于人工 review�
 
 ## 调试与日志规则
 
-- 当我说“看一下 log”、“看一下日志”时，先读取项目根目录下的 `codex_logs/ai_trace_log.js`，这个文件是从 dev log 保存下来的 AI Trace 步骤内容，用于分析 AI 调用链路与预期不符的原因。
+- 当我说“看一下 log”、“看一下日志”时，先读取项目根目录下的 `codex_logs/ai_trace_log.js`。
+- `codex_logs/ai_trace_log.js` 是基础轻量报告，默认用于快速定位当前问题：先看 `Saved at`、`title`、`agentLoops`、`plannerModelCalls`、`runtimeTraceEvents`、`tool_execution`、`tokenUsage`、错误 code、tool input/output summary、model request/response summary。
+- `codex_logs/ai_trace_texts.jsonl` 是详细日志映射文件，保存长 prompt、model input、tool observation、raw response 和结构化详情 chunks。不要默认整文件读取，避免 token 过大。
+- 当 `ai_trace_log.js` 中出现 `contentRef` 或 `detailRef` 时，先用 `rg` 在详细日志里查 header：
+  - `rg '"contentRef":"text_0001"' codex_logs/ai_trace_texts.jsonl`
+  - `rg '"detailRef":"detail_0001"' codex_logs/ai_trace_texts.jsonl`
+- 需要完整内容时，再按 `parentRef` 查 chunks，并按 `chunkIndex` 顺序拼接：
+  - `rg '"parentRef":"text_0001"' codex_logs/ai_trace_texts.jsonl`
+  - `rg '"parentRef":"detail_0001"' codex_logs/ai_trace_texts.jsonl`
+- 如果怀疑日志不是最新，先检查 `ai_trace_log.js` 顶部的 `Saved at` 和 `title`；不要沿用旧日志结论。
+- `codex_logs/ai_trace_log.js` / `ai_trace_texts.jsonl` 是从 `/dev/ai-traces` 保存出来的导出文件，不是 `/dev/ai-traces` 页面的实时数据源。
 
 ## Git 提交规则
 

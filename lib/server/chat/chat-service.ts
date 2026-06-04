@@ -154,9 +154,9 @@ function appendLatestUserMessageIfMissing(
   latestUserMessage: string,
 ) {
   const normalizedLatest = latestUserMessage.trim();
-  const latestSavedUserMessage = [...savedMessages].reverse().find((message) => message.role === "user")?.content.trim();
+  const latestSavedMessage = savedMessages.at(-1);
 
-  if (latestSavedUserMessage === normalizedLatest) {
+  if (latestSavedMessage?.role === "user" && latestSavedMessage.content.trim() === normalizedLatest) {
     return savedMessages;
   }
 

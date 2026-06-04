@@ -7,6 +7,8 @@ import type {
   AgentResourceRef,
   AgentRunInput,
   AgentRunResult,
+  AgentProgressEvent,
+  AgentProgressStage,
   AgentStreamEvent,
   AgentTraceEvent,
   JsonValue,
@@ -26,11 +28,13 @@ import type { PlannerPort } from "@/lib/server/agent-core/planner-port";
 import {
   listRecentVisibleTrainingProposalSummaries,
   persistVisibleTrainingProposalFactsFromEvents,
+  toVisibleTrainingProposalMetadataSummary,
   toJsonValue,
   type PersistVisibleTrainingProposalFactsResult,
 } from "@/lib/server/visible-training-proposals/visible-training-proposal-fact-store";
 import { createProductionTerminalOutputValidatorRegistry } from "@/lib/server/visible-training-proposals/visible-training-proposal-validator";
 import { createProductionVisibleOutputRendererRegistry } from "@/lib/server/visible-training-proposals/visible-training-proposal-renderer";
+import { readExerciseResourceFacetCatalog } from "@/lib/server/exercises/exercise-repository";
 import {
   startAiTrace,
   summarizeLatestUserMessage,
@@ -75,6 +79,11 @@ type AgentTextChatStreamEvent =
   | AgentStreamEvent
   | { type: "error"; error: AgentTextChatConfigError };
 
+type AgentTextChatNdjsonWriter = {
+  write: (event: AgentTextChatStreamEvent) => Promise<boolean>;
+  readonly events: AgentTextChatStreamEvent[];
+};
+
 type AgentTextChatResponseSummary = ReturnType<typeof summarizeAgentTextChatResponseEvents>;
 type FactPersistenceTraceResult = PersistVisibleTrainingProposalFactsResult | { ok: false; code: "restore_failed"; message: string; savedCount: 0 };
 
@@ -96,9 +105,15 @@ type DeepSeekPlannerFactoryInput = {
   fetchImpl?: typeof fetch;
 };
 
+const toolActivityStageByToolName = new Map<string, AgentProgressStage>([
+  ["inspectVisibleTrainingProposals", "reading_artifacts"],
+  ["resolveExerciseResourceMentions", "querying_exercises"],
+  ["searchExerciseResources", "querying_exercises"],
+]);
+
 // createAgentTextChatResponse 是 /api/chat 到 agent-core 的薄接入层，只负责构造 run、生产 registry 和 NDJSON 投影。
 export async function createAgentTextChatResponse(input: CreateAgentTextChatResponseInput): Promise<Response> {
-  const registry = createProductionTextChatRegistry();
+  const registry = await createProductionTextChatRegistry();
   const terminalOutputValidators = createProductionTerminalOutputValidatorRegistry();
   const visibleOutputRenderers = createProductionVisibleOutputRendererRegistry();
   const recentVisibleTrainingProposals = await restoreRecentVisibleTrainingProposalsForRun({
@@ -136,54 +151,74 @@ export async function createAgentTextChatResponse(input: CreateAgentTextChatResp
     return createAgentTextChatNdjsonResponse(events, { status: 503 });
   }
 
-  let result: AgentRunResult;
+  return createAgentTextChatStreamingResponse(async (writer) => {
+    const progressWriter = createAgentProgressWriter(writer);
+    await progressWriter.write("preparing_context");
 
-  try {
-    result = await runAgentRuntime({
+    let result: AgentRunResult;
+
+    try {
+      result = await runAgentRuntime({
+        registry,
+        planner: plannerResult.planner,
+        run,
+        terminalOutputValidators,
+        onTraceEvent: async (event) => {
+          const stage = mapRuntimeTraceEventToAgentProgressStage(event, registry);
+
+          if (stage) {
+            // 活动条只表达用户可见进度；可恢复失败保留在 trace 和最终错误事件中处理。
+            await progressWriter.write(stage);
+          }
+        },
+      });
+    } catch (error) {
+      const runtimeError = createUnexpectedRuntimeError(error);
+      const events: AgentTextChatStreamEvent[] = [
+        createSafeRuntimeErrorEvent(runtimeError),
+        { type: "done" },
+      ];
+
+      recordAgentTextChatRuntimeExceptionTrace({
+        trace,
+        planner: plannerResult.planner,
+        error: runtimeError,
+        events,
+      });
+
+      for (const event of events) {
+        await writer.write(event);
+      }
+      return;
+    }
+
+    const events = renderAgentTextChatResponseEvents({
+      result,
       registry,
-      planner: plannerResult.planner,
-      run,
-      terminalOutputValidators,
+      visibleOutputRenderers,
     });
-  } catch (error) {
-    const runtimeError = createUnexpectedRuntimeError(error);
-    const events: AgentTextChatStreamEvent[] = [
-      createSafeRuntimeErrorEvent(runtimeError),
-      { type: "done" },
-    ];
+    const factPersistence = await persistVisibleTrainingProposalFactsFromEvents({
+      userId: input.currentUser.id,
+      conversationId: input.request.conversationId,
+      messageId: input.request.responseMessageId,
+      events: events as AgentStreamEvent[],
+    });
 
-    recordAgentTextChatRuntimeExceptionTrace({
+    recordAgentTextChatRuntimeResultTrace({
       trace,
       planner: plannerResult.planner,
-      error: runtimeError,
+      result,
+      registry,
       events,
+      factPersistence,
     });
 
-    return createAgentTextChatNdjsonResponse(events, { status: 500 });
-  }
+    await progressWriter.write("writing_reply");
 
-  const events = renderAgentTextChatResponseEvents({
-    result,
-    registry,
-    visibleOutputRenderers,
+    for (const event of events) {
+      await writer.write(event);
+    }
   });
-  const factPersistence = await persistVisibleTrainingProposalFactsFromEvents({
-    userId: input.currentUser.id,
-    conversationId: input.request.conversationId,
-    messageId: input.request.responseMessageId,
-    events: events as AgentStreamEvent[],
-  });
-
-  recordAgentTextChatRuntimeResultTrace({
-    trace,
-    planner: plannerResult.planner,
-    result,
-    registry,
-    events,
-    factPersistence,
-  });
-
-  return createAgentTextChatNdjsonResponse(events);
 }
 
 // createProductionAgentTextChatPlanner 是生产 DeepSeek planner 的唯一构造入口，缺配置时返回稳定配置错误。
@@ -252,9 +287,11 @@ export function createAgentTextChatRunInput(input: {
   };
 }
 
-// createProductionTextChatRegistry 明确表达当前生产聊天只接入受控低风险只读业务 tool。
-export function createProductionTextChatRegistry() {
-  return createProductionToolRegistry();
+// createProductionTextChatRegistry 明确表达当前生产聊天只接入受控低风险只读业务 tool，并注入数据库 facet catalog。
+export async function createProductionTextChatRegistry() {
+  const searchExerciseResourcesFacetCatalog = await readExerciseResourceFacetCatalog();
+
+  return createProductionToolRegistry({ searchExerciseResourcesFacetCatalog });
 }
 
 // createAgentTextChatNdjsonResponse 保持 /api/chat 输出为前端可逐行消费的 NDJSON 白名单事件。
@@ -270,6 +307,152 @@ export function createAgentTextChatNdjsonResponse(
     ...init,
     headers,
   });
+}
+
+function createAgentTextChatStreamingResponse(
+  writeBody: (writer: AgentTextChatNdjsonWriter) => Promise<void>,
+  init: ResponseInit = {},
+) {
+  const headers = new Headers(init.headers);
+  headers.set("Content-Type", ndjsonContentType);
+  headers.set("Cache-Control", "no-store");
+
+  const encoder = new TextEncoder();
+  const events: AgentTextChatStreamEvent[] = [];
+  let closed = false;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const writer: AgentTextChatNdjsonWriter = {
+        events,
+        write: async (event) => {
+          if (closed) {
+            return false;
+          }
+
+          try {
+            events.push(event);
+            controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+            return true;
+          } catch {
+            closed = true;
+            return false;
+          }
+        },
+      };
+
+      void (async () => {
+        try {
+          await writeBody(writer);
+        } catch (error) {
+          const runtimeError = createUnexpectedRuntimeError(error);
+          await writer.write(createSafeRuntimeErrorEvent(runtimeError));
+          await writer.write({ type: "done" });
+        } finally {
+          if (!closed) {
+            closed = true;
+            try {
+              controller.close();
+            } catch {
+              // stream 已被客户端取消时不再影响服务端 runtime 结果。
+            }
+          }
+        }
+      })();
+    },
+    cancel() {
+      closed = true;
+    },
+  });
+
+  return new Response(body, {
+    ...init,
+    headers,
+  });
+}
+
+function createAgentProgressWriter(writer: AgentTextChatNdjsonWriter) {
+  let sequence = 0;
+
+  return {
+    write: async (
+      stage: AgentProgressStage,
+      status: AgentProgressEvent["status"] = "active",
+    ) => {
+      sequence += 1;
+      await writer.write({
+        type: "agent_progress",
+        stage,
+        status,
+        messageKey: stage,
+        sequence,
+      });
+    },
+  };
+}
+
+function mapRuntimeTraceEventToAgentProgressStage(
+  event: AgentTraceEvent,
+  registry: ToolRegistry,
+): AgentProgressStage | undefined {
+  switch (event.type) {
+    case "registry_snapshot":
+      return "preparing_context";
+    case "planner_action":
+    case "budget_event":
+    case "duplicate_tool_call":
+      return "analyzing_request";
+    case "validation_result":
+    case "policy_decision":
+      return "validating_result";
+    case "tool_execution":
+      return resolveToolExecutionProgressStage(event, registry);
+    case "resource_registered":
+    case "confirmation_request":
+    case "terminal_grounding":
+      return "finalizing";
+    case "confirmation_resume":
+      return undefined;
+  }
+}
+
+function resolveToolExecutionProgressStage(
+  event: Extract<AgentTraceEvent, { type: "tool_execution" }>,
+  registry: ToolRegistry,
+): AgentProgressStage {
+  const tool = registry.get(event.toolName);
+  const metadataStage = readSafeAgentProgressStage(tool?.metadata?.uiActivityStage);
+
+  if (metadataStage) {
+    return metadataStage;
+  }
+
+  if (tool?.resourceContract?.produces?.some((resource) => (
+    resource.resourceType === "visible_training_proposal_fact"
+    || resource.resourceType === "visible_training_proposal_fact_index"
+  ))) {
+    return "reading_artifacts";
+  }
+
+  // 生产 adapter 只在 tool 已执行后投影粗粒度 UI 阶段，不参与 Planner 选择或输入改写。
+  return toolActivityStageByToolName.get(event.toolName) ?? "analyzing_request";
+}
+
+function readSafeAgentProgressStage(value: JsonValue | undefined): AgentProgressStage | undefined {
+  return typeof value === "string" && isKnownAgentProgressStage(value) ? value : undefined;
+}
+
+function isKnownAgentProgressStage(stage: string): stage is AgentProgressStage {
+  return [
+    "preparing_context",
+    "analyzing_request",
+    "querying_exercises",
+    "reading_artifacts",
+    "generating_workout",
+    "validating_result",
+    "saving_result",
+    "writing_reply",
+    "finalizing",
+  ].includes(stage);
 }
 
 function renderAgentTextChatResponseEvents(input: {
@@ -301,7 +484,7 @@ async function restoreRecentVisibleTrainingProposalsForRun(input: {
       limit: 3,
     });
 
-    return summaries.map((summary) => toJsonValue(summary));
+    return summaries.map((summary) => toJsonValue(toVisibleTrainingProposalMetadataSummary(summary)));
   } catch {
     return [];
   }

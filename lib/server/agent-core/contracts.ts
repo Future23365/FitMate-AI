@@ -248,6 +248,7 @@ export type Tool<Input = any, Output = any> = {
   outputSchema: ZodTypeAny;
   policy: ToolPolicy;
   resourceContract?: ToolResourceContract;
+  metadata?: Record<string, JsonValue>;
   examples?: ToolExample[];
   handler: (input: Input, context: ToolHandlerContext) => Promise<Output> | Output;
   toResources?: (output: Output, context: ToolProjectionContext) => RegisterResourceInput[];
@@ -270,6 +271,7 @@ export type ToolManifest = {
   outputJsonSchema: JsonValue;
   policyHint: Pick<ToolPolicy, "sideEffect" | "riskLevel" | "confirmation">;
   resourceContract?: ToolResourceContract;
+  metadata?: Record<string, JsonValue>;
   examples?: ToolExample[];
 };
 
@@ -483,6 +485,27 @@ export type AgentTraceEvent =
   | { type: "confirmation_resume"; pendingActionId: string; status: "consumed" }
   | { type: "terminal_grounding"; actionType: TerminalAgentAction["type"]; usedResourceRefs: AgentResourceRef[] };
 
+/** AgentProgressStage 是可投影给用户的粗粒度 Agent 进度阶段，不包含 toolName 或 trace 详情。 */
+export type AgentProgressStage =
+  | "preparing_context"
+  | "analyzing_request"
+  | "querying_exercises"
+  | "reading_artifacts"
+  | "generating_workout"
+  | "validating_result"
+  | "saving_result"
+  | "writing_reply"
+  | "finalizing";
+
+/** AgentProgressEvent 是生产聊天可用的临时 UI 事件，只表达当前请求进度。 */
+export type AgentProgressEvent = {
+  type: "agent_progress";
+  stage: AgentProgressStage | (string & {});
+  status: "active" | "completed" | "skipped" | "failed";
+  messageKey?: AgentProgressStage;
+  sequence: number;
+};
+
 /** AgentReplaySummary 是 run 结束后可安全保存或回放的轻量摘要。 */
 export type AgentReplaySummary = {
   manifestHash?: string;
@@ -519,6 +542,7 @@ export type AgentRunResult = {
 
 /** AgentStreamEvent 是默认 Response Renderer 允许输出的 NDJSON 白名单事件。 */
 export type AgentStreamEvent =
+  | AgentProgressEvent
   | { type: "content"; content: string }
   | { type: "visible_output"; outputType: string; schemaVersion: string; payload: JsonValue; content?: JsonValue }
   | { type: "tool_result"; toolResultId: string; toolName: string; content: JsonValue }
