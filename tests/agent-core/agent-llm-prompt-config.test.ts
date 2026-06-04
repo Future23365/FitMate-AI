@@ -12,7 +12,7 @@ describe("agent LLM prompt configuration", () => {
     const systemPrompt = buildAgentActionSystemPrompt();
 
     expect(agentLlmPromptConfig.promptVersion).toBe(agentLlmPromptVersion);
-    expect(agentLlmPromptVersion).toBe("agent-action-v5");
+    expect(agentLlmPromptVersion).toBe("agent-action-v6");
     expect(systemPrompt).toContain("只能返回一个合法 JSON object");
     expect(systemPrompt).toContain("type 只能是 tool_call、final_answer、ask_user 三者之一");
     expect(systemPrompt).toContain("AI 健身助手");
@@ -30,17 +30,32 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).toContain("这三类是最终训练输出的结构能力");
     expect(systemPrompt).toContain("根据用户目标、上下文、当前可见 tools、observations 和 tool results 自主选择");
     expect(systemPrompt).toContain("服务端只校验你声明的结构、权限和数据库事实");
+    expect(systemPrompt).toContain("不会根据用户原文替你改写 kind");
+    expect(systemPrompt).toContain("目标需要周期、多天、频次、训练日 / 休息日安排或跨天训练计划时，应优先使用 payload.kind = plan");
+    expect(systemPrompt).toContain("这是一条训练输出结构选择规则，不是固定词语触发规则");
     expect(systemPrompt).toContain("payload.kind = exercise_selection 表达一批可选 training 动作事实");
+    expect(systemPrompt).toContain("仅用于目标只需要动作选择或普通动作事实推荐的场景");
     expect(systemPrompt).toContain("payload.kind = routine 表达一次可执行训练编排结构");
     expect(systemPrompt).toContain("payload.kind = plan 表达多天安排结构");
+    expect(systemPrompt).toContain("先确认或使用当前可见的训练目标、限制、器械、时间和难度");
+    expect(systemPrompt).toContain("再查询或复用 training 动作事实作为主训练来源");
+    expect(systemPrompt).toContain("缺少可消费 warmup 或 stretch 动作事实时，应优先使用可见 tool 查询缺失 section");
+    expect(systemPrompt).toContain("把 warmup/training/stretch 组成同一套带 prescription 的编排");
     expect(systemPrompt).toContain("exerciseId");
     expect(systemPrompt).toContain("schedule.assignments");
+    expect(systemPrompt).toContain("schedule 只表达周期内 training/rest 日");
+    expect(systemPrompt).toContain("不得内嵌每天不同的完整动作编排");
     expect(systemPrompt).toContain("schemaVersion = \"1\"");
     expect(systemPrompt).not.toContain("schemaVersion = 1");
     expect(systemPrompt).not.toContain("schemaVersion: 1");
     expect(systemPrompt).toContain("setRestSeconds");
     expect(systemPrompt).toContain("transitionRestSeconds");
     expect(systemPrompt).toContain("mode 只能是 reps 或 duration");
+    expect(systemPrompt).toContain("如果模型判断最终目标需要 routine 或 plan");
+    expect(systemPrompt).toContain("当前 run 只具备 training 动作事实");
+    expect(systemPrompt).toContain("应优先补齐 warmup/stretch");
+    expect(systemPrompt).toContain("不得因为只查到 training 动作就输出 payload.kind = exercise_selection 来替代 routine 或 plan");
+    expect(systemPrompt).toContain("tool 不可用、事实仍不足或用户目标缺少必要约束");
     expect(systemPrompt).toContain("如果最终结构需要当前可见事实未覆盖的 section、动作、prescription 或 schedule");
     expect(systemPrompt).toContain("继续查询、澄清、失败收口或只输出当前事实可支撑的结构");
     expect(systemPrompt).toContain("exerciseId 和 section 必须同时来自当前 run 可见、fulfillment.satisfied=true");
@@ -54,9 +69,6 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).not.toContain("必须调用 searchExerciseResources");
     expect(systemPrompt).not.toContain("validation failure 后必须调用 searchExerciseResources");
     expect(systemPrompt).not.toContain("只能复制本轮 satisfied searchExerciseResources observation");
-    expect(systemPrompt).not.toContain("当用户只需要一批可选训练动作时");
-    expect(systemPrompt).not.toContain("当用户需要一次可执行训练流程时");
-    expect(systemPrompt).not.toContain("当用户需要多天安排时");
     expect(systemPrompt).not.toContain("用户说某个固定词语");
     expect(systemPrompt).toContain("recentVisibleTrainingProposals 和 inspectVisibleTrainingProposals(operation = \"list_recent\") 只提供 factRef/messageId");
     expect(systemPrompt).toContain("inspectVisibleTrainingProposals(operation = \"read_recent\")");
@@ -101,6 +113,6 @@ describe("agent LLM prompt configuration", () => {
       "返回测试专用 AgentAction JSON object。 这个测试只期望 final_answer。",
     );
     expect(buildAgentActionSystemPrompt()).toContain("tool_call、final_answer、ask_user");
-    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v5");
+    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v6");
   });
 });

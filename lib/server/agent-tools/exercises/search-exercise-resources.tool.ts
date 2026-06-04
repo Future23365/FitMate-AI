@@ -18,6 +18,7 @@ const maxRequiredExerciseIds = 12;
 const maxMuscles = 20;
 const exerciseIdSchema = z.string().trim().min(1).max(120).regex(/^[A-Za-z0-9:_-]+$/);
 const catalogFacetDescription = "精确筛选值应优先从 manifest metadata.facetCatalog 的对应数组中选择；服务端只执行 schema、去空、去重和数据库查询。";
+const visibleTrainingCompositionSections = ["warmup", "training", "stretch"] as const;
 
 const searchExerciseResourcesInputSchema = z.object({
   q: optionalTextFilterSchema.describe("确定性动作文本搜索字段，可匹配动作名称、公开分类、肌群、标签或 embeddingText；不是向量语义召回。"),
@@ -26,7 +27,7 @@ const searchExerciseResourcesInputSchema = z.object({
     .min(1)
     .max(3)
     .optional()
-    .describe("动作适配用途数组，只允许 warmup、training 或 stretch；省略时按 training 主训练候选查询。需要编排时，可用 [\"warmup\", \"stretch\"] 围绕已确定主训练动作补齐候选。"),
+    .describe("动作适配用途数组，只允许 warmup、training 或 stretch；省略时按 training 主训练候选查询。目标需要 routine 或 plan 且当前 run 缺少 warmup / stretch 动作事实时，可用 [\"warmup\", \"stretch\"] 或等价缺失 section 查询补齐候选。"),
   level: optionalTextFilterSchema.describe(`动作难度或中文难度的精确筛选值。${catalogFacetDescription}`),
   force: optionalTextFilterSchema.describe(`发力类型或中文发力类型的精确筛选值。${catalogFacetDescription}`),
   mechanic: optionalTextFilterSchema.describe(`动作机制或中文动作机制的精确筛选值。${catalogFacetDescription}`),
@@ -183,7 +184,8 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
       "groups.<section>.exercises[*].exerciseId 是该查询结果中对应 section 的动作事实来源；当 fulfillment.satisfied = true 时，可作为 final_answer.visibleOutputs[] 中 visibleTrainingProposal.exerciseItems[*].exerciseId 的受控来源。",
       "最终训练输出只能由 final_answer.visibleOutputs[] 承载；如果生成 visibleTrainingProposal.exerciseItems[]，exerciseItems[*].section 应对应使用的 groups.<section> key，并且必须被该动作 allowedSections 包含；allowedSections 是动作可进入哪些 section 的动作事实字段。",
       "当用户点名多个具体动作时，应先调用 resolveExerciseResourceMentions 解析 mentions；再把 matched exerciseId 或模型从 ambiguous 中选择的 exerciseId 传入 requiredExerciseIds，让这些发布态动作优先进入现有 groups.<section>.exercises。",
-      "如果最终训练结构还缺 warmup 或 stretch 动作事实，可用 suitabilities = [\"warmup\", \"stretch\"] 查询热身和拉伸候选；是否继续查询、澄清或输出当前事实可支撑的结构由模型基于当前可见事实自主决定。",
+      "如果模型根据用户目标已经需要 routine 或 plan，且当前 run 只有 training 动作事实或缺少 warmup / stretch 动作事实，应优先使用 suitabilities = [\"warmup\", \"stretch\"] 或等价缺失 section 查询补齐热身和拉伸候选；不得因为当前只查到 training 动作事实就把 routine 或 plan 目标降级输出为 payload.kind = \"exercise_selection\"。",
+      "继续查询缺失 section 只适用于模型已判断目标需要 routine 或 plan 的场景；普通动作推荐和动作事实问答不要求固定查询 warmup / training / stretch，也不要求固定 tool 调用次数或顺序。",
       "excludeExerciseIds 只能填写用户已经看到或明确要求排除的动作；如果来自上一轮方案，应先通过 inspectVisibleTrainingProposals(operation = \"read_recent\") 导入 visible_training_proposal_fact 后复制真实 exerciseId，不要从未展示的内部候选或 list_recent 索引中填充。",
       "精确筛选必须使用真实数据库 facet 值；服务端只执行 schema、去空、去重、权限边界和数据库查询，不根据用户原文替模型增删 facet。",
       "查询成功且 satisfied=true 的结果，包括 totalMatches=0 的结果，可以在同一 run 通过 final_answer.usedToolResultIds 支撑普通事实回答；训练推送事实必须写入 final_answer.visibleOutputs[]，不要只写正文。",
@@ -194,6 +196,7 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
       "不要用它判断当前会话有没有上一轮 visibleTrainingProposal、列出 factRef/messageId、读取完整 visibleTrainingProposal.payload，或替代 inspectVisibleTrainingProposals 的 list_recent / read_recent 事实查询。",
       "不要把 0 条事实查询结果当作 visibleTrainingProposal、routine、plan、训练卡片或推荐候选集合的消费证据；模型应基于 diagnostics 选择重查、澄清或失败收口。",
       "不要把 groups.training 中且 allowedSections 不包含 warmup/stretch 的动作写入 visibleTrainingProposal.exerciseItems[*].section = warmup 或 stretch；不同 section 需要对应 section 的动作事实支撑。",
+      "不要因为当前只查到 training 动作事实，就把模型已经判断需要 routine 或 plan 的目标降级输出为 payload.kind = \"exercise_selection\"；应继续补查缺失 section、澄清或失败收口。",
       "不要用它查询未发布动作、单个动作详情、唯一动作名解析、全库 facet 统计、分页或语义向量检索。",
       "不要在没有 resolveExerciseResourceMentions 或其他当前 run 可见数据库事实支撑时编造 requiredExerciseIds；该字段只能填真实发布态动作 id，不能填自然语言动作名。",
       "不要传入 maxReturned、returnedCount、totalMatches、truncated、limit、take、offset、page 或 pageSize；这些不是 input 字段。",
@@ -222,7 +225,7 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
         },
       },
       {
-        description: "基于数据库真实 facet 同时查询 warmup 和 stretch 用途的动作事实。",
+        description: "当 routine 或 plan 目标已有 training 动作事实但缺少热身和拉伸时，基于数据库真实 facet 同时查询 warmup 和 stretch 用途的动作事实。",
         input: {
           suitabilities: ["warmup", "stretch"],
           homeRequirement: "none",
@@ -385,6 +388,7 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
       outputSummaryNote: "totalMatches、returnedCount、truncated、excludedCount、groups 和 diagnostics 是本次查询输出摘要，不是下一轮 searchExerciseResources input。",
       finalAnswerGrounding: "当 fulfillment.satisfied=true，本次查询事实包括 totalMatches=0 的结果，toolResultId 可支撑 final_answer.usedToolResultIds 中的普通事实回答；如果要推送训练结构，最终事实必须写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal.payload。",
       candidateConsumptionBoundary: "当前 observation 提供动作事实原料：可用 section 只包含 groups 实际返回的 key，groups.<section>.exercises[*].exerciseId 可作为 visibleTrainingProposal.exerciseItems[*].exerciseId 的事实来源；prescription、schedule 和最终 payload.kind 需要由 final_answer.visibleOutputs[] 明确输出。若目标结构还缺 section 或字段，模型应基于可见事实自主继续查询、澄清、失败收口或输出当前事实可支撑的结构。",
+      routinePlanCompositionBoundary: buildRoutinePlanCompositionBoundary(output.groups),
       groupSemantics: {
         groupKey: "groups.<section>",
         sectionRelation: "groups.<section>.exercises[] 中的动作是当前查询按该 section 返回的动作事实；生成 visibleTrainingProposal.exerciseItems[] 时，section 应与使用的 group key 保持一致。",
@@ -735,4 +739,24 @@ function mapGroups<T>(
       },
     ]];
   }));
+}
+
+function buildRoutinePlanCompositionBoundary(groups: SearchExerciseResourcesOutput["groups"]) {
+  const returnedSections = collectReturnedSections(groups);
+  const missingSectionsForRoutineOrPlan = visibleTrainingCompositionSections.filter((section) => (
+    !returnedSections.includes(section)
+  ));
+  const onlyTrainingReturned = returnedSections.length === 1 && returnedSections[0] === "training";
+
+  return {
+    returnedSections,
+    missingSectionsForRoutineOrPlan,
+    note: onlyTrainingReturned
+      ? "当前结果只提供 training 动作事实；如果最终目标是 routine 或 plan，还需要当前 run 可消费的 warmup 和 stretch 动作事实，可用 suitabilities = [\"warmup\", \"stretch\"] 或等价缺失 section 查询补齐候选。不得把未返回的 section 伪造成已获得事实，也不得把本次 tool result 直接当作最终 visibleTrainingProposal。"
+      : "如果最终目标是 routine 或 plan，模型应检查 returnedSections 与 missingSectionsForRoutineOrPlan；缺失 section 可通过 suitabilities 指定缺失用途继续查询。不得把未返回的 section 伪造成已获得事实，也不得把本次 tool result 直接当作最终 visibleTrainingProposal。",
+  };
+}
+
+function collectReturnedSections(groups: SearchExerciseResourcesOutput["groups"]) {
+  return visibleTrainingCompositionSections.filter((section) => Boolean(groups[section]));
 }

@@ -119,8 +119,18 @@ describe("searchExerciseResources tool", () => {
         sectionRelation: expect.stringContaining("visibleTrainingProposal.exerciseItems[]"),
         allowedSectionsRelation: expect.stringContaining("allowedSections"),
       },
+      routinePlanCompositionBoundary: {
+        returnedSections: ["training"],
+        missingSectionsForRoutineOrPlan: ["warmup", "stretch"],
+        note: expect.stringContaining("当前结果只提供 training 动作事实"),
+      },
     });
     expect(serializedObservation).toContain("section 应与使用的 group key 保持一致");
+    expect(serializedObservation).toContain("如果最终目标是 routine 或 plan");
+    expect(serializedObservation).toContain("还需要当前 run 可消费的 warmup 和 stretch 动作事实");
+    expect(serializedObservation).toContain("suitabilities = [\\\"warmup\\\", \\\"stretch\\\"]");
+    expect(serializedObservation).toContain("不得把未返回的 section 伪造成已获得事实");
+    expect(serializedObservation).toContain("不得把本次 tool result 直接当作最终 visibleTrainingProposal");
     expect(serializedObservation).not.toContain("sectionEvidence");
     expect(serializedObservation).not.toContain("exerciseSectionEvidence");
     expect(serializedObservation).not.toContain("visibleTrainingProposalEvidence");
@@ -134,6 +144,8 @@ describe("searchExerciseResources tool", () => {
     expect(serializedObservation).toContain("prescription、schedule 和最终 payload.kind");
     expect(serializedObservation).toContain("最终事实必须写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal.payload");
     expect(serializedObservation).not.toContain("不是 visibleTrainingProposal");
+    expect(serializedObservation).not.toContain("\"warmup\":{\"suitability\":\"warmup\"");
+    expect(serializedObservation).not.toContain("\"stretch\":{\"suitability\":\"stretch\"");
   });
 
   it("passes multiple real muscle facets through the tool boundary", async () => {

@@ -1288,7 +1288,7 @@ describe("chat service agent text flow boundary", () => {
     });
     const prepared = prepareChatRequest({
       responseMessageId: "assistant-plan-visible",
-      latestUserMessage: "我想增肌，每周 3 练，每次 50 分钟，没有器械，高强度一些的，重点练胸",
+      latestUserMessage: "我想在家减脂，没有器械，每周 3 练，每次 25 分钟，动作简单一点",
       conversationSummary: "",
     });
     const planner = new ReplayPlanner([
@@ -1296,7 +1296,7 @@ describe("chat service agent text flow boundary", () => {
       { type: "tool_call", toolName: "searchExerciseResources", input: supportSearchInput },
       {
         type: "final_answer",
-        content: "这是一套每周 3 练的自重胸部增肌计划。",
+        content: "这是一套每周 3 练的居家自重减脂计划。",
         usedToolResultIds: [expectedTrainingToolResultId, expectedSupportToolResultId],
         visibleOutputs: [createVisiblePlanOutput()],
       },
@@ -1308,15 +1308,20 @@ describe("chat service agent text flow boundary", () => {
       planner,
     });
     const events = await readNdjsonEvents(response);
+    const supportPlannerObservationJson = JSON.stringify(planner.calls[1].observations);
     const finalPlannerObservationJson = JSON.stringify(planner.calls[2].observations);
 
     expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries).toHaveBeenCalledTimes(3);
     expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mock.calls.map(([input]) => (
       isRecord(input) ? input.suitability : undefined
     ))).toEqual(["training", "warmup", "stretch"]);
+    expect(supportPlannerObservationJson).toContain("当前结果只提供 training 动作事实");
+    expect(supportPlannerObservationJson).toContain("还需要当前 run 可消费的 warmup 和 stretch 动作事实");
+    expect(supportPlannerObservationJson).toContain("suitabilities = [\\\"warmup\\\"");
     expect(finalPlannerObservationJson).toContain("push-up");
     expect(finalPlannerObservationJson).toContain("jumping-jack");
     expect(finalPlannerObservationJson).toContain("chest-stretch");
+    expect(finalPlannerObservationJson).toContain("missingSectionsForRoutineOrPlan");
     expect(finalPlannerObservationJson).toContain("groups.<section>.exercises[*].exerciseId 可作为 visibleTrainingProp");
     expect(events).toEqual([
       expect.objectContaining({
@@ -1340,7 +1345,7 @@ describe("chat service agent text flow boundary", () => {
           }),
         }),
       }),
-      { type: "content", content: "这是一套每周 3 练的自重胸部增肌计划。" },
+      { type: "content", content: "这是一套每周 3 练的居家自重减脂计划。" },
       expect.objectContaining({
         type: "visible_output",
         outputType: "visibleTrainingProposal",

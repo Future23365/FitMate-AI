@@ -343,6 +343,53 @@ describe("agent-core architecture boundaries", () => {
     expect(matches).toEqual([]);
   });
 
+  it("keeps plan composition hardening scoped to model-visible contracts", () => {
+    const serverBoundaryFiles = [
+      ...productionChatEntryFiles,
+      ...coreFlowFiles,
+      "lib/server/agent-core/terminal-output-validator.ts",
+      "lib/server/visible-training-proposals/visible-training-proposal-renderer.ts",
+      "lib/server/agent-tools/exercises/search-exercise-resources.tool.ts",
+    ];
+    const modelVisibleFiles = [
+      "lib/server/agent-planners/prompts/agent-llm-prompt-config.ts",
+      "lib/server/agent-tools/exercises/search-exercise-resources.tool.ts",
+    ];
+    const serverTextRoutingTerms = [
+      "userInput.includes",
+      "message.content.includes",
+      ".includes(input.run.userInput",
+      "new RegExp",
+      ".match(",
+    ];
+    const removedDraftTools = [
+      "generatePlanDraft",
+      "generateRoutineDraft",
+    ];
+    const textRoutingMatches: string[] = [];
+    const removedDraftMatches: string[] = [];
+
+    for (const file of serverBoundaryFiles) {
+      const content = readRelative(file);
+      for (const term of serverTextRoutingTerms) {
+        if (content.includes(term)) {
+          textRoutingMatches.push(`${file}: ${term}`);
+        }
+      }
+    }
+    for (const file of modelVisibleFiles) {
+      const content = readRelative(file);
+      for (const term of removedDraftTools) {
+        if (content.includes(term)) {
+          removedDraftMatches.push(`${file}: ${term}`);
+        }
+      }
+    }
+
+    expect(textRoutingMatches).toEqual([]);
+    expect(removedDraftMatches).toEqual([]);
+  });
+
   it("keeps searchExerciseResources free of removed region expansion and text keyword routing", () => {
     const files = [
       "app/api/chat/route.ts",

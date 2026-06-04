@@ -129,6 +129,14 @@ describe("agent-core contract test helper", () => {
     expect(modelObservationJson).toContain("groups.<section>.exercises[*].exerciseId 可作为 visibleTrainingProposal.exerciseItems[*].exerciseId 的事实来源");
     expect(modelObservationJson).toContain("prescription、schedule 和最终 payload.kind");
     expect(modelObservationJson).toContain("继续查询、澄清、失败收口或输出当前事实可支撑的结构");
+    expect(modelObservationJson).toContain("routinePlanCompositionBoundary");
+    expect(modelObservationJson).toContain("当前结果只提供 training 动作事实");
+    expect(modelObservationJson).toContain("missingSectionsForRoutineOrPlan");
+    expect(modelObservationJson).toContain("warmup");
+    expect(modelObservationJson).toContain("stretch");
+    expect(modelObservationJson).toContain("suitabilities = [\\\"warmup\\\", \\\"stretch\\\"]");
+    expect(modelObservationJson).toContain("不得把未返回的 section 伪造成已获得事实");
+    expect(modelObservationJson).toContain("不得把本次 tool result 直接当作最终 visibleTrainingProposal");
     expect(modelObservationJson).not.toContain("不是 visibleTrainingProposal");
     expect(modelObservationJson).not.toContain("generatePlanDraft");
     expect(modelObservationJson).not.toContain("generateRoutineDraft");
