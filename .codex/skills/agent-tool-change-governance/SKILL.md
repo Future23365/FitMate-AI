@@ -18,51 +18,13 @@ description: 治理 AITest 中 Agent tool 相关变更的实现前流程。用�
 
 ### 新增业务 Tool
 
-默认只新增 tool bundle 和局部接线：
+默认只新增 tool bundle 和局部接线：schema、policy metadata、必要的 `resourceContract`、handler、model/user/trace projection、`ToolRegistry` 注册、contract tests 和直接覆盖 `handler`、`executeTool` 或真实 runtime 入口的业务单测。manifest / schema / examples 的描述性自然语言默认中文，`toolName`、字段名、枚举值和 resource type 保持英文原样。
 
-- tool 文件
-- `inputSchema`
-- `outputSchema`
-- policy metadata
-- 必要时定义 `resourceContract`
-- handler
-- 可选 `toModelObservation`
-- 可选 `toUserProjection`
-- 如果当前 core 暴露对应能力，可选 `traceProjection` 或 trace 摘要
-- `ToolRegistry` 注册
-- 聚焦的 tool contract tests
-- 针对该 tool 的业务单元测试，必须直接覆盖 `handler`、`executeTool` 或当前真实 runtime 执行入口
-- 模型可见描述语言检查：manifest / schema / examples 中的描述性自然语言默认中文，`toolName`、字段名、枚举值和 resource type 保持英文原样
+新增或重命名 tool 前必须做抽象层级检查：说明稳定 resource type、能力族（query / list / read / register / validate / policy / save / update）、同类变体、命名理由，以及当前需求限制哪些应落到 filter / sort / limit / cursor / detailLevel / resource reference。优先复用或扩展同类 tool；如果跨了不同资源、权限、policy、projection 或执行副作用，应拆分。
 
-除非 OpenSpec design 明确证明需要 core contract 变更，否则不要为了单个业务 tool 修改 Agent core。
+`toolName` 优先使用稳定资源 + 能力动词，例如 `queryXxxResources`、`listXxxResources`、`readXxxResource`。`recent`、`current`、`latest`、`fromCard`、`forThisFlow` 等只在属于永久业务边界时才写进名称；否则作为输入条件表达。
 
-新增业务 tool 的测试不能只证明 registry、manifest 或 schema 能暴露给模型；必须证明该 tool 在 AITest 的真实业务输入下能正确执行、拒绝、投影和留痕。
-
-#### Tool 抽象层级检查
-
-新增业务 tool 或重命名已有 tool 前，必须先做抽象层级检查，避免把 tool 建成当前业务场景的专用入口。
-
-实现前回答：
-
-- 稳定 resource type 是什么？
-- tool 的能力族是什么：query / list / read / register / validate / policy / save / update？
-- 当前需求里的限制哪些是永久能力边界，哪些只是 filter、sort、limit、cursor、detailLevel 或 resource reference？
-- 是否存在至少 2 个同类变体会自然复用这个 tool？
-- `toolName` 去掉当前场景词后是否仍然准确？
-- 这个 tool 是否和已有 tool 能力重叠？如果重叠，应优先扩展已有同类 tool 合同，而不是新增窄 tool。
-- 这个 tool 是否过度通用，跨了不同资源、权限、policy、projection 或执行副作用？如果是，应拆分。
-
-命名规则：
-
-- 优先使用稳定资源 + 能力动词，例如 `queryXxxResources`、`listXxxResources`、`readXxxResource`、`registerXxxDraft`、`validateXxxDraft`。
-- 避免把 `recent`、`current`、`latest`、`fromCard`、`forThisFlow` 等当前场景词写进 `toolName`，除非它们是不可变业务边界。
-- “最近”通常应表现为 `sortBy`、`sortDirection`、`limit` 或默认查询策略；“获取列表”通常应表现为 pagination / cursor / filters，而不是另起一个场景 tool。
-
-测试要求：
-
-- 新增或调整 tool 时，测试不能只覆盖当前业务 case。
-- 至少覆盖当前 case 和一个同类变体，例如“读取最近一条”和“分页获取列表”。
-- 如果 tool 支持筛选、排序、分页、详情级别，必须覆盖这些字段的边界。
+除非 OpenSpec design 明确证明需要 core contract 变更，否则不要为了单个业务 tool 修改 Agent core。测试不能只证明 registry、manifest 或 schema 暴露给模型，必须覆盖真实业务输入、拒绝、投影、留痕，以及至少一个同类功能变体。
 
 ### Agent Tool Bug 修复
 
@@ -70,38 +32,10 @@ description: 治理 AITest 中 Agent tool 相关变更的实现前流程。用�
 
 - 读取 `codex_logs/ai_trace_log.js`，除非用户明确说不用看，或该文件不存在。
 - 在怀疑服务端流程前，先检查本次模型实际可见的 `prompt / model input`，包括 `system prompt`、`developer prompt`、tool manifest、schema summary、examples、repair feedback、context package、observations 和已压缩的 tool results。不要先入为主假设服务端 runtime、handler 或 response flow 有问题。
-- 如果模型可见输入已经正确表达合同，再继续检查服务端确定性边界，例如 schema 校验、resource、policy、projection、trace 和 production 接入。
-- 检查相关 tool 的真实 Zod Schema 或 JSON Schema。
-- 检查模型可见 manifest 或 schema summary。
-- 检查模型可见 `description`、`whenToUse`、`whenNotToUse`、schema description 和 examples description 是否默认使用中文；技术标识、字段名和枚举值保持英文原样。
-- 检查与失败相关的 runtime validation、`ResourceStore`、`Policy Guard`、projection、response rendering 和 trace records。
+- 优先判断是否缺 tool 能力、tool 描述/Schema/examples 不清、context/resource 摘要不足、repair feedback 不足或 final grounding 不清；不要先新增业务端语义判断。
+- 如果模型可见输入已经正确表达合同，再检查真实 Zod / JSON Schema、runtime validation、`ResourceStore`、`Policy Guard`、projection、response rendering、trace 和 production 接入。
 - 将根因分类为 LLM 参数错误、模型可见合同缺失、tool 能力缺口、resource 缺失或不可消费、policy / confirmation 边界、projection / redaction 泄漏、final grounding 缺陷或 production 接入问题。
 - 修改某个已有 tool 的功能或 bug 时，必须先定位并运行该 tool 已有的专属单测；如果没有专属单测，先补能复现问题的 tool-level 单测，再改实现。
-
-#### 模型能力优先修复
-
-修复 Agent tool / AI 编排相关 bug 时，优先判断是否应该增强模型可调用能力，而不是新增业务端语义判断。
-
-默认修复顺序：
-
-1. 模型是否缺少完成任务所需的 tool。
-2. 已有 tool 的 `description`、`whenToUse`、`whenNotToUse`、input schema、output schema、resource role 或 examples 是否没有把能力说清楚。
-3. context package、observations、compressed tool results 或 resource 摘要是否没有把模型决策所需事实暴露出来。
-4. repair feedback 是否没有告诉模型如何修正错误 tool input 或错误 action。
-5. final grounding 是否没有约束模型如何消费 tool result。
-6. 最后才检查 handler、policy、projection、response renderer 等确定性执行边界。
-
-不要在 `/api/chat`、production route、handler 或 renderer 中增加“当用户说 X 就调用 Y tool”的业务端语义分流。正确方向是让 `ToolRegistry` 暴露能力，让模型在 Agent loop 内自行选择 tool。
-
-#### 语义特例升级检查
-
-如果 bug 看起来是“某句话没理解对”“某个工具在这个语义下选错”“某个输出只在当前 trace 里失败”，不得直接按当前用户原文、当前 `toolName` 或当前失败字段写特例修复。
-
-实现前必须完成：
-
-- 从 `codex_logs/ai_trace_log.js` 还原模型实际看到的 prompt、tool manifest、schema summary、context package、observations、repair feedback 和 tool results。
-- 说明失败是由模型可见合同缺失、tool contract 表达不清、resource 消费边界不清、projection / grounding 缺陷、policy 边界、production 接入，还是 handler 确定性校验问题导致。
-- 列出至少 2 个同类变体，说明本次修复为什么覆盖这一类问题，而不是只覆盖当前 phrasing。
 - 如果修复方案需要读取用户原始自然语言关键词、同义词、短句模板或业务特定 phrasing，必须停止并改为 prompt / model input / schema / repair / resource contract 层面的方案，除非用户明确批准。
 - 回归测试必须覆盖问题类别：至少包含原始失败 case 和一个等价语义变体；tool-level test 不能只断言当前 trace 的单个输入。
 
@@ -167,8 +101,7 @@ description: 治理 AITest 中 Agent tool 相关变更的实现前流程。用�
 
 - [ ] 完成 Tool 抽象层级检查，说明稳定 resource type、能力族、同类变体、命名理由，以及哪些需求限制应落到 filter / sort / limit / cursor / resource reference。
 - [ ] 为 `<toolName>` 新增或更新 tool-level unit tests，直接覆盖 `handler`、`executeTool` 或当前真实 runtime 执行入口。
-- [ ] 覆盖 `<toolName>` 的成功路径、schema 拒绝、领域边界、失败归一化、resource contract、projection / redaction 和 policy / permission 边界。
-- [ ] 覆盖 `<toolName>` 的同类功能变体，不能只覆盖当前业务 case；如支持筛选、排序、分页或详情级别，必须覆盖对应边界。
+- [ ] 覆盖 `<toolName>` 的成功路径、schema 拒绝、领域边界、失败归一化、resource contract、projection / redaction、policy / permission 边界和同类功能变体。
 - [ ] 覆盖 `<toolName>` 的模型可见描述语言，验证 `description`、`whenToUse`、`whenNotToUse`、schema description 和 examples description 默认中文。
 - [ ] 按 tool 业务职责覆盖 AITest 真实健身场景，不只使用抽象 fixture。
 - [ ] 运行 `npm test -- tests/agent-tools/<toolName>.test.ts` 或该 tool 对应的最窄测试文件。

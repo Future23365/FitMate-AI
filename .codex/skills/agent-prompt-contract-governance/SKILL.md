@@ -45,34 +45,18 @@ description: 治理 AITest 中 Agent prompt 与模型实际可见输入的合同
 
 如果源文件写了规则，但 builder 没带上、被压缩丢失、顺序被后续消息覆盖，必须把根因归为“模型可见合同缺失”，不要只继续润色源文件。
 
-## 模型自主规划与 Tool Calling
+## 模型可见合同检查
 
-prompt / model input 修复的目标不是把业务流程写死给服务端，而是让模型具备稳定自主规划能力。
+prompt / model input 修复的目标不是把业务流程写死给服务端，而是让模型具备稳定自主规划和 tool calling 能力。修改前检查：
 
-模型可见合同应清楚表达：
-
-- 当前有哪些 tool 可用。
-- 每个 tool 适合解决什么问题，不适合解决什么问题。
-- 模型什么时候应该先调用 tool，而不是直接回答。
+- 模型实际看到了哪些上下文、resource、tool 说明和历史摘要。
+- 当前有哪些 tool 可用，每个 tool 适合/不适合解决什么问题，什么时候应先调用 tool 而不是直接回答。
 - tool input 如何从用户目标、上下文、resource 和历史结果中构造。
+- 模型是否能从可见输入中稳定区分相邻语义，例如 plan 与 routine、查看与生成、调整与新建、失败解释与成功回答？
 - tool result 中哪些内容可以支撑 `final_answer`，哪些只能用于追问、解释失败或下一轮 repair。
 - 当 tool input 被拒绝、resource 不可消费或结果不足时，模型应该如何修正或澄清。
 
-不要把单个业务流程写成服务端隐藏编排；如果模型缺少判断依据，应补模型可见上下文、tool 说明、schema、examples 或 repair feedback。
-
-## 语义偏差根因检查
-
-当问题表现为模型误解用户意图、选错 action、错误引用上下文、错误消费 tool result 或 final answer grounding 不符合预期时，优先怀疑模型实际可见合同不完整或被投影/压缩/顺序覆盖，而不是先改某一句 prompt 文案。
-
-修改 prompt / model input 前必须回答：
-
-- 模型实际看到了哪些上下文、resource、tool 说明和历史摘要？
-- 模型是否能从可见输入中稳定区分相邻语义，例如 plan 与 routine、查看与生成、调整与新建、失败解释与成功回答？
-- 当前 prompt 是否只对一个 phrasing 有效，换成同义表达后是否仍能约束模型？
-- 是否应该把规则放到通用 Agent 合同、单个 tool manifest、schema description、examples、repair feedback、observation，还是 final grounding 说明中？
-- 是否需要同步调整结构化输出字段或 schema summary，而不是只补自然语言提示？
-
-prompt 修复必须覆盖语义类别，而不是只补当前失败句子的提示词。涉及可复现 bug 时，测试或黑盒用例至少覆盖原始输入和一个等价表达。
+不要把单个业务流程写成服务端隐藏编排；如果模型缺少判断依据，应补模型可见上下文、tool 说明、schema、examples、repair feedback、observation、final grounding 或结构化字段。prompt 修复必须覆盖语义类别，涉及可复现 bug 时至少覆盖原始输入和一个等价表达。
 
 ## 字段重命名同步检查
 
@@ -119,27 +103,14 @@ prompt 修复必须覆盖语义类别，而不是只补当前失败句子的提�
 
 新增或修改业务 Agent tool 时，同步补齐该 tool 的模型可见说明：
 
-- 何时使用这个 tool。
-- 何时不要使用这个 tool。
-- input schema 的关键字段、必填条件、枚举和引用字段含义。
-- 成功结果代表什么。
-- 失败、diagnostic 或 unsatisfied 结果代表什么。
-- 产出的 resource role 是 `consumable`、`diagnostic`、`partial` 还是 `feedback`。
-- `final_answer` 可以怎样引用该结果，哪些结果只能用于解释或追问。
+- `description` 说明稳定资源和能力，而不是当前页面或当前流程。
+- `whenToUse` / `whenNotToUse` 覆盖同类场景和边界，例如最近、列表、筛选、详情读取、跨资源、跨权限、写操作或不可消费结果。
+- input schema 解释关键字段、必填条件、枚举、引用字段、filter、sort、limit、cursor、resource id、detailLevel 等结构化能力。
+- 成功、失败、diagnostic 或 unsatisfied 结果含义清晰；resource role 是 `consumable`、`diagnostic`、`partial` 还是 `feedback`。
+- `final_answer` 可以怎样引用结果，哪些结果只能用于解释、追问或 repair。
+- examples 至少包含当前需求和一个同类变体。
 
 这些说明必须使用中文描述业务含义；`toolName`、input/output 字段名、枚举值和 resource type 保持英文原样。
-
-### Tool 能力族可见说明
-
-新增或调整业务 tool 的模型可见说明时，不要只围绕当前用户故事写 `whenToUse` 和 examples。必须让模型看到这个 tool 的稳定能力族。
-
-检查项：
-
-- `description` 是否说明稳定资源和能力，而不是当前页面或当前流程。
-- `whenToUse` 是否覆盖同类场景，例如最近、列表、筛选、详情读取。
-- schema description 是否解释 filter、sort、limit、cursor、resource id、detailLevel 等结构化能力。
-- examples 是否至少包含当前需求和一个同类变体。
-- `whenNotToUse` 是否说明跨资源、跨权限、写操作或不可消费结果的边界。
 
 通用 Agent prompt 只写稳定编排合同；业务 tool 的专属能力写进 manifest / schema 描述 / examples，不要把单个业务 tool 的特例写成通用规则。
 

@@ -265,63 +265,16 @@ OpenSpec 生成或修改的说明性文档应使用中文，便于人工 review�
 - AI 选择或生成的 exerciseId 必须经过数据库校验。
 - 不要向 AI 工具暴露任意 SQL 查询能力。
 
-### AI 业务实现原则：模型能力优先
+### AI / Agent 边界：模型能力优先，服务端只管契约
 
-解决 AI 相关业务需求或 bug 时，默认优先增强模型可用能力，而不是在业务端替模型判断应该怎么做。
-
-优先方向包括：
-
-1. 给模型提供更清晰的 tool、tool manifest、schema description、examples、context package、resource 摘要和 repair feedback。
-2. 让模型基于当前上下文自行选择是否调用 tool、调用哪个 tool、如何组织 tool input、如何根据 tool result 继续推理。
-3. 业务端负责提供确定性能力和执行边界：tool 执行、schema 校验、权限校验、resource 注册、policy、confirmation、trace、projection 和 response rendering。
-4. 业务端不得基于用户原始自然语言、关键词、短句模板、同义词表或业务场景特例，提前替模型决定 action、toolName、调用顺序或最终回答策略。
-5. 如果当前模型无法稳定完成任务，应优先检查是否缺少 tool 能力、模型可见合同、上下文投影、结构化字段、repair 反馈或 grounding 规则；不要优先新增服务端语义分流。
-6. 只有确定性边界可以写在业务端，例如权限、数据存在性、字段合法性、resource 可消费性、用户确认、成本/限流、安全拒绝和数据库事实校验。
-
-除非用户明确要求 quick patch，否则不要用业务端编排分支替代模型自主 tool calling。
-
-### Bug 修复根因规则：不要只修当前语义特例
-
-当 bug 表现为某个自然语言说法、某个用户 phrasing、某个模型输出形态或某个 trace 个例失败时，必须先把它视为系统合同或上下文链路缺口，而不是把当前例子当成唯一问题。
-
-修复前必须说明：
-
-1. 当前现象背后的根因是什么，而不是只描述触发它的那句话。
-2. 这个问题属于哪一类：模型可见合同缺失、上下文投影缺失、schema / contract 不清晰、resource 不可消费、repair feedback 不足、response grounding 缺陷、执行层确定性校验缺失，还是 UI 状态/数据流问题。
-3. 为什么类似表达、同义目标、不同上下文顺序或相邻用户流程也会受影响或不会受影响。
-4. 准备在哪个最合适的系统边界修复，而不是在哪个地方最容易打补丁。
-5. 回归测试如何覆盖“这一类问题”，不能只覆盖当前一条输入或当前一个 trace。
-
-禁止为了修复自然语言理解问题新增服务端关键词、短句模板、同义词表、特定 phrasing 分支或业务特例兜底。除非用户明确要求 quick patch，否则不要把“只修当前 case”作为可接受方案。
-
-### Agent Tool 设计原则：同类能力优先
-
-新增或调整 Agent tool 时，不要按当前页面、当前 trace、当前用户说法或当前单一业务场景设计 tool。必须先抽象它服务的稳定资源、能力边界和同类功能集合。
-
-设计 tool 前必须说明：
-
-1. 这个 tool 操作的稳定资源是什么，例如 exercise、artifact、fact、routine、plan、preference。
-2. 当前需求属于哪类能力：query / list / read / register / validate / policy / save / update，而不是当前业务说法。
-3. 是否存在显而易见的同类变体，例如最近一条、列表、按条件筛选、分页、详情读取、按 resource id 读取。
-4. 如果某个限制只是当前需求的默认值，例如“最近”“当前卡片”“刚生成的”，优先做成 input filter、sort、limit、cursor 或 resource reference，不要写进 `toolName`。
-5. `toolName` 应表达稳定能力，不表达临时场景。只有当某个限制是永久业务边界时，才允许写进 tool 名称。
-6. 不要为了通用而做万能 tool。通用范围只能覆盖同一资源、同一能力族、同一权限和同一投影边界下的功能。
-
-如果后续很自然需要通过重命名才能支持同类功能，说明初始 tool 抽象过窄，应回到 tool contract 重新设计，而不是继续叠加场景字段。
-
-### AI 语义边界：服务端只验证契约，不判断语义对错
-
-- LLM 是自然语言语义理解的唯一来源。用户意图、偏好、引用对象、调整方向、问题类型、上下文含义等语义性边界，默认以模型结构化输出为准。
-- 服务端校验模型输出时，只能校验确定性契约：Schema、枚举合法性、字段是否自洽、权限隔离、数据库记录是否存在、数据是否属于当前用户、引用对象是否可访问、生成或修改结果是否满足结构化边界。
-- 服务端不得使用关键词、正则、短句模板、同义词表、历史摘要推断、规则评分或其他写死条件，去判断 LLM 对用户自然语言的理解是否正确。
-- 服务端不得基于用户原始文本特征改写 LLM 已输出的高层语义字段、引用目标、调整目标或用户偏好。
-- 当 LLM 输出结构冲突、字段缺失、引用不可用或结果不可执行时，服务端只能执行以下动作之一：
-  1. 按结构化错误进入 LLM repair；
-  2. 向用户澄清；
-  3. 拒绝执行并返回可恢复错误。
-  服务端不得擅自把该 intent 改写成另一个语义意图或 action。
-- 不同 action 的必需字段必须按该 action 的执行契约定义。服务端不得把某一类 action 的必需字段强加给另一类 action，也不得因为缺少无关字段而改写语义意图。
-- 如果实现方案需要新增任何服务端自然语言判断逻辑、语义归一化、同义词匹配、关键词分流或基于文本的意图纠偏，必须先暂停并说明为什么不能交给 LLM/Structured Outputs/repair/澄清处理，未经我确认不得实现。
+- AI 相关需求或 bug 默认优先增强模型可用能力：tool、manifest / schema / examples、context / resource 摘要、repair feedback 和 grounding；不要用业务端编排分支替代模型自主 tool calling。
+- LLM 是自然语言语义理解的唯一来源。服务端不得基于用户原始文本、关键词、正则、短句模板、同义词表、历史摘要推断或业务特例改写 action、`toolName`、调用顺序、引用目标、调整目标或最终回答策略。
+- 服务端只校验确定性边界：Schema / enum / 字段自洽、权限隔离、数据库事实、resource 可访问/可消费、policy / confirmation、成本限流、安全拒绝、trace / projection / response rendering。
+- 当模型输出结构冲突、字段缺失、引用不可用或结果不可执行时，只能进入 LLM repair、向用户澄清或拒绝并返回可恢复错误；不得把该 intent 改写成另一个语义意图或 action。
+- Agent tool 按稳定 resource 和能力族设计。新增或调整 tool 前说明 resource、能力族（query / list / read / register / validate / policy / save / update）、同类变体和命名理由。
+- `recent`、`current`、`latest`、`fromCard`、`forThisFlow` 等如果只是当前需求默认值，应落到 filter / sort / limit / cursor / resource reference，不写进 `toolName`；通用范围只能覆盖同一资源、能力族、权限和投影边界。
+- bug 若表现为某个 phrasing、模型输出形态或 trace 个例失败，先按合同/上下文链路缺口定位根因，说明影响的同类变体、修复边界和回归测试；不能只修当前 case。
+- 除非用户明确要求 quick patch，否则不要新增服务端自然语言判断、语义归一化、关键词分流或特定 phrasing 兜底。
 
 ## 健身领域规则
 
