@@ -343,6 +343,38 @@ describe("agent-core architecture boundaries", () => {
     expect(matches).toEqual([]);
   });
 
+  it("keeps searchExerciseResources free of removed region expansion and text keyword routing", () => {
+    const files = [
+      "app/api/chat/route.ts",
+      "lib/server/chat/agent-text-chat-service.ts",
+      "lib/server/agent-tools/exercises/search-exercise-resources.tool.ts",
+      "lib/server/exercises/exercise-repository.ts",
+    ];
+    const forbiddenTerms = [
+      "bodyRegions",
+      "expandedMuscles",
+      "exerciseBodyRegion",
+      "expandExerciseBodyRegionTargetMuscles",
+      "userInput.includes",
+      "message.content.includes",
+      ".includes(input.run.userInput",
+      "new RegExp",
+      ".match(",
+    ];
+    const matches: string[] = [];
+
+    for (const file of files) {
+      const content = readRelative(file);
+      for (const term of forbiddenTerms) {
+        if (content.includes(term)) {
+          matches.push(`${file}: ${term}`);
+        }
+      }
+    }
+
+    expect(matches).toEqual([]);
+  });
+
   it("keeps M1 fixture layer free of real business tools, real LLM adapters and production persistence", () => {
     const forbiddenTerms = [
       "searchExercises",

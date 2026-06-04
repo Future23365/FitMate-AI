@@ -6,6 +6,7 @@ import { AgentContractError, AGENT_ERROR_CODES } from "@/lib/server/agent-core/e
 import { ToolRegistry } from "@/lib/server/agent-core/tool-registry";
 import { createProductionToolRegistry } from "@/lib/server/agent-tools";
 import type { JsonValue, ToolManifest } from "@/lib/server/agent-core/contracts";
+import type { ExerciseResourceFacetCatalog } from "@/lib/server/exercises/exercise-repository";
 
 const chineseDescriptionPattern = /[\u3400-\u9FFF\uF900-\uFAFF]/;
 
@@ -111,6 +112,21 @@ function objectHasReadRecentOperation(value: Record<string, JsonValue>) {
   return JSON.stringify(operation).includes("read_recent");
 }
 
+function createExerciseResourceFacetCatalog(): ExerciseResourceFacetCatalog {
+  return {
+    muscles: ["胸部", "肱三头肌", "股四头肌"],
+    categories: ["strength", "力量"],
+    levels: ["beginner", "初级", "expert", "高级"],
+    forces: ["push", "推"],
+    mechanics: ["compound", "复合"],
+    equipment: ["body only", "自重", "dumbbell", "哑铃"],
+    homeRequirements: ["none", "无器械", "small_equipment", "居家小器械"],
+    goalTags: ["strength"],
+    riskTags: ["shoulder_pain"],
+    suitabilities: ["warmup", "training", "stretch"],
+  };
+}
+
 describe("agent-core ToolRegistry and manifest", () => {
   it("registers read tools and rejects duplicate names", () => {
     const registry = new ToolRegistry();
@@ -188,7 +204,10 @@ describe("agent-core ToolRegistry and manifest", () => {
   });
 
   it("serializes the production registry with visible training proposal inspect/read and search schema fields", () => {
-    const registry = createProductionToolRegistry();
+    const facetCatalog = createExerciseResourceFacetCatalog();
+    const registry = createProductionToolRegistry({
+      searchExerciseResourcesFacetCatalog: facetCatalog,
+    });
     const manifests = registry.serializeForPlanner();
     const inspectFactManifest = manifests.find((tool) => tool.name === "inspectVisibleTrainingProposals");
     const resolveMentionManifest = manifests.find((tool) => tool.name === "resolveExerciseResourceMentions");
@@ -201,7 +220,7 @@ describe("agent-core ToolRegistry and manifest", () => {
         level: { description?: string };
         equipment: { description?: string };
         homeRequirement: { description?: string };
-        bodyRegions: { items: { enum: string[] } };
+        muscles: { items: unknown; maxItems?: number; description?: string };
         excludeExerciseIds: { items: unknown; maxItems?: number; description?: string };
         requiredExerciseIds: { items: unknown; maxItems?: number; description?: string };
         published: { const?: boolean; default?: boolean };
@@ -296,15 +315,23 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(searchExamplesJson).not.toContain("offset");
     expect(searchExamplesJson).not.toContain("pageSize");
     expect(inputSchema.properties).not.toHaveProperty("suitability");
+    expect(inputSchema.properties).not.toHaveProperty("bodyRegions");
     expect(inputSchema.properties.suitabilities.items.enum).toEqual(["warmup", "training", "stretch"]);
     expect(inputSchema.properties.suitabilities.maxItems).toBe(3);
-    expect(inputSchema.properties.level.description).toContain("beginner/初级");
-    expect(inputSchema.properties.level.description).toContain("expert/高级");
-    expect(inputSchema.properties.equipment.description).toContain("body only/自重");
-    expect(inputSchema.properties.equipment.description).toContain("dumbbell/哑铃");
-    expect(inputSchema.properties.homeRequirement.description).toContain("none/无器械");
-    expect(inputSchema.properties.homeRequirement.description).toContain("small_equipment/居家小器械");
-    expect(inputSchema.properties.bodyRegions.items.enum).toEqual(["upper_body", "lower_body", "core", "full_body"]);
+    expect(inputSchema.properties.level.description).toContain("metadata.facetCatalog");
+    expect(inputSchema.properties.equipment.description).toContain("metadata.facetCatalog");
+    expect(inputSchema.properties.homeRequirement.description).toContain("metadata.facetCatalog");
+    expect(inputSchema.properties.muscles.maxItems).toBe(20);
+    expect(inputSchema.properties.muscles.description).toContain("多个主肌群");
+    expect(searchManifest?.metadata).toEqual({
+      facetCatalog,
+    });
+    expect(searchManifest?.metadata?.facetCatalog).toMatchObject({
+      muscles: expect.arrayContaining(["胸部", "股四头肌"]),
+      equipment: expect.arrayContaining(["body only", "哑铃"]),
+      homeRequirements: expect.arrayContaining(["none", "居家小器械"]),
+      suitabilities: ["warmup", "training", "stretch"],
+    });
     expect(inputSchema.properties.excludeExerciseIds.maxItems).toBe(50);
     expect(inputSchema.properties.excludeExerciseIds.description).toContain("用户已经看到");
     expect(inputSchema.properties.requiredExerciseIds.maxItems).toBe(12);
@@ -355,11 +382,14 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(manifestJson).toContain("平板支撑");
     expect(searchExamplesJson).toContain("当前 run 已有受控 exerciseId");
     expect(searchExamplesJson).not.toContain("示例 id 不可脱离上一步结果照抄");
-    expect(manifestJson).toContain("bodyRegions");
-    expect(manifestJson).toContain("lower_body");
+    expect(manifestJson).not.toContain("bodyRegions");
+    expect(manifestJson).not.toContain("lower_body");
+    expect(manifestJson).not.toContain("upper_body");
+    expect(manifestJson).not.toContain("full_body");
     expect(manifestJson).toContain("真实肌群 facet");
-    expect(manifestJson).toContain("floor/地面/瑜伽垫");
-    expect(manifestJson).toContain("machine/固定器械");
+    expect(manifestJson).toContain("metadata.facetCatalog");
+    expect(manifestJson).toContain("股四头肌");
+    expect(manifestJson).toContain("居家小器械");
     expect(manifestJson).not.toContain("home_friendly");
     expect(manifestJson).not.toContain("no_equipment");
     expect(manifestJson).not.toContain("cbf_previous_response");

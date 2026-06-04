@@ -95,7 +95,6 @@ describe("agent-core contract test helper", () => {
         published: true,
         sort: "name_asc",
         suitabilities: ["training"],
-        expandedMuscles: [],
         appliedFilters: [{ field: "published", value: true }, { field: "suitabilities", value: ["training"] }],
         totalMatches: 1,
         returnedCount: 1,
@@ -133,6 +132,8 @@ describe("agent-core contract test helper", () => {
     expect(modelObservationJson).not.toContain("不是 visibleTrainingProposal");
     expect(modelObservationJson).not.toContain("generatePlanDraft");
     expect(modelObservationJson).not.toContain("generateRoutineDraft");
+    expect(modelObservationJson).not.toContain("bodyRegions");
+    expect(modelObservationJson).not.toContain("expandedMuscles");
   });
 
   it("keeps resolve mention projection focused on safe exercise summaries", () => {

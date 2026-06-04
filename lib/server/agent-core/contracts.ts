@@ -248,6 +248,7 @@ export type Tool<Input = any, Output = any> = {
   outputSchema: ZodTypeAny;
   policy: ToolPolicy;
   resourceContract?: ToolResourceContract;
+  metadata?: Record<string, JsonValue>;
   examples?: ToolExample[];
   handler: (input: Input, context: ToolHandlerContext) => Promise<Output> | Output;
   toResources?: (output: Output, context: ToolProjectionContext) => RegisterResourceInput[];
@@ -270,6 +271,7 @@ export type ToolManifest = {
   outputJsonSchema: JsonValue;
   policyHint: Pick<ToolPolicy, "sideEffect" | "riskLevel" | "confirmation">;
   resourceContract?: ToolResourceContract;
+  metadata?: Record<string, JsonValue>;
   examples?: ToolExample[];
 };
 

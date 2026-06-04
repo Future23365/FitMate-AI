@@ -28,6 +28,7 @@ const exerciseResourceRepositoryMocks = vi.hoisted(() => ({
   getExerciseResourceSummariesByIds: vi.fn(),
   getExerciseRecordsByIds: vi.fn(),
   resolveExerciseResourceMentionSummaries: vi.fn(),
+  readExerciseResourceFacetCatalog: vi.fn(),
   searchExerciseResourceSummaries: vi.fn(),
 }));
 const visibleTrainingProposalFactStoreMocks = vi.hoisted(() => ({
@@ -145,6 +146,8 @@ describe("chat service agent text flow boundary", () => {
     exerciseResourceRepositoryMocks.getExerciseResourceSummariesByIds.mockReset();
     exerciseResourceRepositoryMocks.getExerciseResourceSummariesByIds.mockResolvedValue([]);
     exerciseResourceRepositoryMocks.resolveExerciseResourceMentionSummaries.mockReset();
+    exerciseResourceRepositoryMocks.readExerciseResourceFacetCatalog.mockReset();
+    exerciseResourceRepositoryMocks.readExerciseResourceFacetCatalog.mockResolvedValue(createExerciseResourceFacetCatalog());
     exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockReset();
     exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockResolvedValue(createExerciseResourceSearchResult());
     visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries.mockReset();
@@ -218,6 +221,15 @@ describe("chat service agent text flow boundary", () => {
       { type: "done" },
     ]);
     expect(planner.calls[0].manifests.map((manifest) => manifest.name)).toEqual(productionToolNames);
+    expect(planner.calls[0].manifests.find((manifest) => manifest.name === "searchExerciseResources")).toMatchObject({
+      metadata: {
+        facetCatalog: expect.objectContaining({
+          muscles: expect.arrayContaining(["胸部", "股四头肌"]),
+          equipment: expect.arrayContaining(["body only", "自重"]),
+          suitabilities: ["warmup", "training", "stretch"],
+        }),
+      },
+    });
     expect(planner.calls[0].run).toMatchObject({
       actor: { userId: "user-1" },
       userInput: "今天练胸",
@@ -343,7 +355,7 @@ describe("chat service agent text flow boundary", () => {
       equipment: undefined,
       homeRequirement: undefined,
       muscle: undefined,
-      bodyRegions: undefined,
+      muscles: undefined,
       goalTag: undefined,
       riskTag: undefined,
       excludeExerciseIds: undefined,
@@ -558,7 +570,7 @@ describe("chat service agent text flow boundary", () => {
     const listInput = { operation: "list_recent" as const };
     const readInput = { operation: "read_recent" as const, factRef: "fact-previous" };
     const searchInput = {
-      bodyRegions: ["lower_body"],
+      muscles: ["股四头肌", "臀部"],
       suitabilities: ["training"],
       excludeExerciseIds: ["squat", "lunge"],
       sort: "name_asc",
@@ -577,14 +589,14 @@ describe("chat service agent text flow boundary", () => {
     });
     exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockResolvedValueOnce(createExerciseResourceSearchResult({
       query: {
-        bodyRegions: ["lower_body"],
+        muscles: ["股四头肌", "臀部"],
         suitability: "training",
         excludeExerciseIds: ["squat", "lunge"],
         published: true,
         sort: "name_asc",
       },
       appliedFilters: [
-        { field: "bodyRegions", value: ["lower_body"] },
+        { field: "muscles", value: ["股四头肌", "臀部"] },
         { field: "suitability", value: "training" },
         { field: "excludeExerciseIds", value: ["squat", "lunge"] },
         { field: "published", value: true },
@@ -640,7 +652,7 @@ describe("chat service agent text flow boundary", () => {
       messageId: undefined,
     });
     expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
-      bodyRegions: ["lower_body"],
+      muscles: ["股四头肌", "臀部"],
       suitability: "training",
       excludeExerciseIds: ["squat", "lunge"],
       published: true,
@@ -835,7 +847,7 @@ describe("chat service agent text flow boundary", () => {
     const listInput = { operation: "list_recent" as const };
     const readInput = { operation: "read_recent" as const, factRef: "fact-previous" };
     const searchInput = {
-      bodyRegions: ["lower_body"],
+      muscles: ["股四头肌", "臀部"],
       suitabilities: ["training"],
       excludeExerciseIds: ["squat", "lunge"],
       sort: "name_asc",
@@ -854,14 +866,14 @@ describe("chat service agent text flow boundary", () => {
     });
     exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockResolvedValueOnce(createExerciseResourceSearchResult({
       query: {
-        bodyRegions: ["lower_body"],
+        muscles: ["股四头肌", "臀部"],
         suitability: "training",
         excludeExerciseIds: ["squat", "lunge"],
         published: true,
         sort: "name_asc",
       },
       appliedFilters: [
-        { field: "bodyRegions", value: ["lower_body"] },
+        { field: "muscles", value: ["股四头肌", "臀部"] },
         { field: "suitability", value: "training" },
         { field: "excludeExerciseIds", value: ["squat", "lunge"] },
         { field: "published", value: true },
@@ -911,7 +923,7 @@ describe("chat service agent text flow boundary", () => {
 
     expect(visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact).toHaveBeenCalledTimes(1);
     expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
-      bodyRegions: ["lower_body"],
+      muscles: ["股四头肌", "臀部"],
       suitability: "training",
       excludeExerciseIds: ["squat", "lunge"],
       published: true,
@@ -966,8 +978,8 @@ describe("chat service agent text flow boundary", () => {
 
   it("settles a satisfied exercise search final answer through usedToolResultIds", async () => {
     const searchInput = {
-      bodyRegions: ["lower_body"],
       muscle: "胸部",
+      muscles: ["股四头肌"],
       suitabilities: ["training"],
       sort: "name_asc",
     };
@@ -978,15 +990,15 @@ describe("chat service agent text flow boundary", () => {
     );
     exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockResolvedValueOnce(createExerciseResourceSearchResult({
       query: {
-        bodyRegions: ["lower_body"],
         muscle: "胸部",
+        muscles: ["股四头肌"],
         suitability: "training",
         published: true,
         sort: "name_asc",
       },
       appliedFilters: [
-        { field: "bodyRegions", value: ["lower_body"] },
         { field: "muscle", value: "胸部" },
+        { field: "muscles", value: ["股四头肌"] },
         { field: "suitability", value: "training" },
         { field: "published", value: true },
       ],
@@ -1125,7 +1137,7 @@ describe("chat service agent text flow boundary", () => {
 
   it("renders a routine visible output after querying warmup training and stretch groups", async () => {
     const searchInput = {
-      bodyRegions: ["full_body"],
+      muscles: ["胸部", "股四头肌", "腹肌"],
       suitabilities: ["warmup", "training", "stretch"],
       homeRequirement: "none",
       sort: "name_asc",
@@ -1145,7 +1157,7 @@ describe("chat service agent text flow boundary", () => {
 
       return createExerciseResourceSearchResult({
         query: {
-          bodyRegions: ["full_body"],
+          muscles: ["胸部", "股四头肌", "腹肌"],
           suitability,
           homeRequirement: "none",
           published: true,
@@ -1365,7 +1377,7 @@ describe("chat service agent text flow boundary", () => {
     const listInput = { operation: "list_recent" as const };
     const readInput = { operation: "read_recent" as const, factRef: "fact-previous" };
     const searchInput = {
-      bodyRegions: ["lower_body"],
+      muscles: ["股四头肌", "臀部"],
       suitabilities: ["training"],
       excludeExerciseIds: ["squat", "lunge"],
       sort: "name_asc",
@@ -1384,14 +1396,14 @@ describe("chat service agent text flow boundary", () => {
     });
     exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockResolvedValueOnce(createExerciseResourceSearchResult({
       query: {
-        bodyRegions: ["lower_body"],
+        muscles: ["股四头肌", "臀部"],
         suitability: "training",
         excludeExerciseIds: ["squat", "lunge"],
         published: true,
         sort: "name_asc",
       },
       appliedFilters: [
-        { field: "bodyRegions", value: ["lower_body"] },
+        { field: "muscles", value: ["股四头肌", "臀部"] },
         { field: "suitability", value: "training" },
         { field: "excludeExerciseIds", value: ["squat", "lunge"] },
         { field: "published", value: true },
@@ -1973,7 +1985,6 @@ function createExerciseResourceSearchResult(overrides: Record<string, unknown> =
       ...queryOverrides,
     },
     appliedFilters: [{ field: "published", value: true }],
-    expandedMuscles: [],
     totalMatches: 1,
     returnedCount: 1,
     maxReturned: 12,
@@ -1981,6 +1992,21 @@ function createExerciseResourceSearchResult(overrides: Record<string, unknown> =
     excludedCount: 0,
     exercises: [exercise],
     ...Object.fromEntries(Object.entries(overrides).filter(([key]) => key !== "query")),
+  };
+}
+
+function createExerciseResourceFacetCatalog() {
+  return {
+    muscles: ["胸部", "肱三头肌", "股四头肌", "臀部", "腹肌"],
+    categories: ["strength", "力量"],
+    levels: ["beginner", "初级"],
+    forces: ["push", "推"],
+    mechanics: ["compound", "复合"],
+    equipment: ["body only", "自重"],
+    homeRequirements: ["none", "无器械"],
+    goalTags: ["strength"],
+    riskTags: ["shoulder_pain"],
+    suitabilities: ["warmup", "training", "stretch"],
   };
 }
 

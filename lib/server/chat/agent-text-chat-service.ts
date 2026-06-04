@@ -31,6 +31,7 @@ import {
 } from "@/lib/server/visible-training-proposals/visible-training-proposal-fact-store";
 import { createProductionTerminalOutputValidatorRegistry } from "@/lib/server/visible-training-proposals/visible-training-proposal-validator";
 import { createProductionVisibleOutputRendererRegistry } from "@/lib/server/visible-training-proposals/visible-training-proposal-renderer";
+import { readExerciseResourceFacetCatalog } from "@/lib/server/exercises/exercise-repository";
 import {
   startAiTrace,
   summarizeLatestUserMessage,
@@ -98,7 +99,7 @@ type DeepSeekPlannerFactoryInput = {
 
 // createAgentTextChatResponse 是 /api/chat 到 agent-core 的薄接入层，只负责构造 run、生产 registry 和 NDJSON 投影。
 export async function createAgentTextChatResponse(input: CreateAgentTextChatResponseInput): Promise<Response> {
-  const registry = createProductionTextChatRegistry();
+  const registry = await createProductionTextChatRegistry();
   const terminalOutputValidators = createProductionTerminalOutputValidatorRegistry();
   const visibleOutputRenderers = createProductionVisibleOutputRendererRegistry();
   const recentVisibleTrainingProposals = await restoreRecentVisibleTrainingProposalsForRun({
@@ -252,9 +253,11 @@ export function createAgentTextChatRunInput(input: {
   };
 }
 
-// createProductionTextChatRegistry 明确表达当前生产聊天只接入受控低风险只读业务 tool。
-export function createProductionTextChatRegistry() {
-  return createProductionToolRegistry();
+// createProductionTextChatRegistry 明确表达当前生产聊天只接入受控低风险只读业务 tool，并注入数据库 facet catalog。
+export async function createProductionTextChatRegistry() {
+  const searchExerciseResourcesFacetCatalog = await readExerciseResourceFacetCatalog();
+
+  return createProductionToolRegistry({ searchExerciseResourcesFacetCatalog });
 }
 
 // createAgentTextChatNdjsonResponse 保持 /api/chat 输出为前端可逐行消费的 NDJSON 白名单事件。

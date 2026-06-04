@@ -92,7 +92,7 @@ describe("searchExerciseResources tool", () => {
       equipment: "body only",
       homeRequirement: undefined,
       muscle: "胸部",
-      bodyRegions: undefined,
+      muscles: undefined,
       goalTag: undefined,
       riskTag: undefined,
       excludeExerciseIds: undefined,
@@ -126,12 +126,57 @@ describe("searchExerciseResources tool", () => {
     expect(serializedObservation).not.toContain("visibleTrainingProposalEvidence");
     expect(serializedObservation).not.toContain("candidate_set");
     expect(serializedObservation).not.toContain("imageUrl");
+    expect(serializedObservation).not.toContain("bodyRegions");
+    expect(serializedObservation).not.toContain("expandedMuscles");
     expect(serializedObservation).not.toContain("\"id\"");
     expect(serializedObservation).not.toContain("visibleTrainingProposal\":{\"");
     expect(serializedObservation).toContain("groups.<section>.exercises[*].exerciseId 可作为 visibleTrainingProposal.exerciseItems[*].exerciseId 的事实来源");
     expect(serializedObservation).toContain("prescription、schedule 和最终 payload.kind");
     expect(serializedObservation).toContain("最终事实必须写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal.payload");
     expect(serializedObservation).not.toContain("不是 visibleTrainingProposal");
+  });
+
+  it("passes multiple real muscle facets through the tool boundary", async () => {
+    const { tool, repository } = await importToolWithRepositoryImplementation(async (input) => createSearchResult({
+      query: input as ExerciseResourceSearchResult["query"],
+      totalMatches: 2,
+      returnedCount: 2,
+      exercises: [
+        createExerciseSummary({ id: "push-up", nameZh: "俯卧撑", primaryMusclesZh: ["胸部"] }),
+        createExerciseSummary({ id: "diamond-push-up", nameZh: "钻石俯卧撑", primaryMusclesZh: ["肱三头肌"] }),
+      ],
+    }));
+
+    const result = await executeTool({
+      tool,
+      input: {
+        muscle: "胸部",
+        muscles: ["胸部", "肱三头肌", "肱三头肌"],
+        suitabilities: ["training"],
+      },
+      run: { runId: "run-muscles", actor: { userId: "user-1" }, userInput: "找胸部和手臂动作" },
+      timeoutMs: 100,
+      toolCallId: "tc_muscles",
+    });
+
+    expect(repository.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
+      muscle: "胸部",
+      muscles: ["胸部", "肱三头肌"],
+      suitability: "training",
+    }));
+    expect(result).toMatchObject({
+      ok: true,
+      output: {
+        query: {
+          muscle: "胸部",
+          muscles: ["胸部", "肱三头肌"],
+          appliedFilters: expect.arrayContaining([
+            { field: "muscle", value: "胸部" },
+            { field: "muscles", value: ["胸部", "肱三头肌"] },
+          ]),
+        },
+      },
+    });
   });
 
   it("queries warmup and stretch in one tool call and returns structured empty diagnostics", async () => {
@@ -341,12 +386,35 @@ describe("searchExerciseResources tool", () => {
 
     await expect(executeTool({
       tool,
+      input: { bodyRegions: ["lower_body"], suitabilities: ["training"] },
+      run: { runId: "run-removed-input", actor: { userId: "user-1" }, userInput: "练腿" },
+      timeoutMs: 100,
+      toolCallId: "tc_removed",
+    })).resolves.toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.INVALID_TOOL_INPUT } });
+    expect(repository.searchExerciseResourceSummaries).not.toHaveBeenCalled();
+
+    await expect(executeTool({
+      tool,
       input: { suitabilities: ["cooldown"] },
       run: { runId: "run-bad-input", actor: { userId: "user-1" }, userInput: "放松" },
       timeoutMs: 100,
       toolCallId: "tc_bad",
     })).resolves.toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.INVALID_TOOL_INPUT } });
     expect(repository.searchExerciseResourceSummaries).not.toHaveBeenCalled();
+  });
+
+  it("normalizes repository failures as handler errors", async () => {
+    const { tool } = await importToolWithRepositoryImplementation(async () => {
+      throw new Error("repository boom");
+    });
+
+    await expect(executeTool({
+      tool,
+      input: { suitabilities: ["training"], muscle: "胸部" },
+      run: { runId: "run-handler-error", actor: { userId: "user-1" }, userInput: "找胸部动作" },
+      timeoutMs: 100,
+      toolCallId: "tc_handler_error",
+    })).resolves.toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.HANDLER_ERROR } });
   });
 
   it("renders search results as tool_result only and does not save final proposal facts from candidates", async () => {
@@ -420,7 +488,7 @@ describe("searchExerciseResources tool", () => {
       goalTag: "strength",
       riskTag: "shoulder_pain",
       excludeExerciseIds: ["push-up", "squat"],
-      bodyRegions: ["lower_body"],
+      muscles: ["股四头肌", "腘绳肌"],
       published: true,
       sort: "name_asc",
     });
@@ -450,6 +518,8 @@ describe("searchExerciseResources tool", () => {
         { id: { notIn: ["push-up", "squat"] } },
       ]),
     });
+    expect(serializedFindMany).toContain("\"primaryMuscles\":{\"has\":\"胸部\"}");
+    expect(serializedFindMany).toContain("\"secondaryMuscles\":{\"has\":\"腘绳肌\"}");
     expect(serializedFindMany).toContain("\"primaryMusclesZh\":{\"has\":\"股四头肌\"}");
     expect(serializedFindMany).toContain("\"secondaryMusclesZh\":{\"has\":\"腘绳肌\"}");
     expect(serializedFindMany).toContain("\"embeddingText\"");
@@ -463,7 +533,6 @@ describe("searchExerciseResources tool", () => {
       maxReturned: EXERCISE_RESOURCE_SEARCH_MAX_RETURNED,
       truncated: true,
       excludedCount: 2,
-      expandedMuscles: expect.arrayContaining(["股四头肌", "腘绳肌", "臀部", "小腿"]),
     });
     expect(result.exercises).toHaveLength(EXERCISE_RESOURCE_SEARCH_MAX_RETURNED);
     expect(result.exercises[0]).toMatchObject({
@@ -471,6 +540,88 @@ describe("searchExerciseResources tool", () => {
       allowedSections: ["training"],
       isPublished: true,
     });
+  });
+
+  it("reads a complete facetCatalog from published exercise facts", async () => {
+    const prisma = {
+      exercise: {
+        findMany: vi.fn().mockResolvedValue([
+          createRepositoryExerciseRecord({
+            category: "strength",
+            categoryZh: "力量",
+            level: "beginner",
+            levelZh: "初级",
+            force: "push",
+            forceZh: "推",
+            mechanic: "compound",
+            mechanicZh: "复合",
+            equipment: "body only",
+            equipmentZh: "自重",
+            homeRequirement: "none",
+            homeRequirementZh: "无器械",
+            primaryMuscles: ["chest", ""],
+            primaryMusclesZh: ["胸部"],
+            secondaryMuscles: ["triceps"],
+            secondaryMusclesZh: ["肱三头肌"],
+            allowedSections: ["training", "warmup"],
+            goalTags: ["strength", ""],
+            riskTags: ["shoulder_pain"],
+          }),
+          createRepositoryExerciseRecord({
+            category: "mobility",
+            categoryZh: "灵活性",
+            level: "beginner",
+            levelZh: "初级",
+            force: "pull",
+            forceZh: "拉",
+            mechanic: "isolation",
+            mechanicZh: "孤立",
+            equipment: "dumbbell",
+            equipmentZh: "哑铃",
+            homeRequirement: "small_equipment",
+            homeRequirementZh: "居家小器械",
+            primaryMuscles: ["chest"],
+            primaryMusclesZh: ["胸部"],
+            secondaryMuscles: ["biceps"],
+            secondaryMusclesZh: ["肱二头肌"],
+            allowedSections: ["stretch"],
+            goalTags: ["mobility"],
+            riskTags: ["shoulder_pain", "wrist_load"],
+          }),
+        ]),
+      },
+    };
+    vi.doMock(dbPath, () => ({
+      isDatabaseConfigured: () => true,
+      getPrismaClient: () => prisma,
+    }));
+    vi.doUnmock(repositoryPath);
+    const { readExerciseResourceFacetCatalog } = await import("@/lib/server/exercises/exercise-repository");
+
+    const catalog = await readExerciseResourceFacetCatalog();
+
+    expect(prisma.exercise.findMany).toHaveBeenCalledWith({
+      where: { isPublished: true },
+      select: expect.objectContaining({
+        primaryMuscles: true,
+        primaryMusclesZh: true,
+        secondaryMuscles: true,
+        secondaryMusclesZh: true,
+        allowedSections: true,
+      }),
+    });
+    expect(catalog.muscles).toEqual(expect.arrayContaining(["chest", "胸部", "triceps", "肱三头肌", "biceps", "肱二头肌"]));
+    expect(catalog.categories).toEqual(expect.arrayContaining(["strength", "力量", "mobility", "灵活性"]));
+    expect(catalog.levels).toEqual(expect.arrayContaining(["beginner", "初级"]));
+    expect(catalog.forces).toEqual(expect.arrayContaining(["push", "推", "pull", "拉"]));
+    expect(catalog.mechanics).toEqual(expect.arrayContaining(["compound", "复合", "isolation", "孤立"]));
+    expect(catalog.equipment).toEqual(expect.arrayContaining(["body only", "自重", "dumbbell", "哑铃"]));
+    expect(catalog.homeRequirements).toEqual(expect.arrayContaining(["none", "无器械", "small_equipment", "居家小器械"]));
+    expect(catalog.goalTags).toEqual(expect.arrayContaining(["strength", "mobility"]));
+    expect(catalog.riskTags).toEqual(expect.arrayContaining(["shoulder_pain", "wrist_load"]));
+    expect(catalog.suitabilities).toEqual(["warmup", "training", "stretch"]);
+    expect(catalog.muscles).not.toContain("");
+    expect(catalog.muscles.filter((value) => value === "胸部")).toHaveLength(1);
   });
 });
 
@@ -519,7 +670,6 @@ function createSearchResult(overrides: SearchResultOverrides = {}): ExerciseReso
     maxReturned: overrides.maxReturned ?? 12,
     truncated: overrides.truncated ?? false,
     excludedCount: overrides.excludedCount ?? 0,
-    expandedMuscles: overrides.expandedMuscles ?? [],
     exercises,
   };
 }

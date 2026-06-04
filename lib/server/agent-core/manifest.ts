@@ -31,6 +31,10 @@ export function toolToManifest(tool: Tool): ToolManifest {
     manifest.resourceContract = tool.resourceContract;
   }
 
+  if (tool.metadata) {
+    manifest.metadata = sanitizeJsonValue(tool.metadata) as Record<string, JsonValue>;
+  }
+
   if (tool.examples?.length) {
     manifest.examples = tool.examples.map(sanitizeExample);
   }

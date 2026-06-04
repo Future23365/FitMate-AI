@@ -3,10 +3,6 @@ import "server-only";
 import type { Prisma } from "@prisma/client";
 
 import { getPrismaClient, isDatabaseConfigured } from "@/lib/server/db/prisma";
-import {
-  expandExerciseBodyRegionTargetMuscles,
-  type ExerciseBodyRegion,
-} from "@/lib/shared/exercises/body-regions";
 import { normalizeExerciseMetadata } from "@/lib/shared/exercises/metadata";
 import type { Exercise, ExerciseSort, ExerciseSuitability } from "@/lib/shared/exercises/types";
 
@@ -52,7 +48,7 @@ export type ExerciseResourceSearchInput = {
   equipment?: string;
   homeRequirement?: string;
   muscle?: string;
-  bodyRegions?: ExerciseBodyRegion[];
+  muscles?: string[];
   goalTag?: string;
   riskTag?: string;
   excludeExerciseIds?: string[];
@@ -80,8 +76,20 @@ export type ExerciseResourceSearchResult = {
   maxReturned: number;
   truncated: boolean;
   excludedCount: number;
-  expandedMuscles: string[];
   exercises: ExerciseResourceSummary[];
+};
+
+export type ExerciseResourceFacetCatalog = {
+  muscles: string[];
+  categories: string[];
+  levels: string[];
+  forces: string[];
+  mechanics: string[];
+  equipment: string[];
+  homeRequirements: string[];
+  goalTags: string[];
+  riskTags: string[];
+  suitabilities: ExerciseSuitability[];
 };
 
 export type ExerciseResourceMentionResolutionResult = {
@@ -147,6 +155,28 @@ const exerciseResourceSummarySelect = {
   isPublished: true,
 } satisfies Prisma.ExerciseSelect;
 
+const exerciseResourceFacetCatalogSelect = {
+  category: true,
+  categoryZh: true,
+  level: true,
+  levelZh: true,
+  force: true,
+  forceZh: true,
+  mechanic: true,
+  mechanicZh: true,
+  equipment: true,
+  equipmentZh: true,
+  homeRequirement: true,
+  homeRequirementZh: true,
+  primaryMuscles: true,
+  primaryMusclesZh: true,
+  secondaryMuscles: true,
+  secondaryMusclesZh: true,
+  allowedSections: true,
+  goalTags: true,
+  riskTags: true,
+} satisfies Prisma.ExerciseSelect;
+
 // The repository is the only place that reads exercise facts from PostgreSQL.
 export async function listExerciseRecords(): Promise<Exercise[]> {
   if (!isDatabaseConfigured()) {
@@ -202,8 +232,7 @@ export async function searchExerciseResourceSummaries(
   }
 
   const prisma = getPrismaClient();
-  const expandedMuscles = expandExerciseBodyRegionTargetMuscles(input.bodyRegions ?? []);
-  const where = buildExerciseResourceWhere(input, expandedMuscles);
+  const where = buildExerciseResourceWhere(input);
   const orderBy = buildExerciseResourceOrderBy(input.sort);
   const [totalMatches, records] = await Promise.all([
     prisma.exercise.count({ where }),
@@ -224,7 +253,6 @@ export async function searchExerciseResourceSummaries(
     maxReturned: EXERCISE_RESOURCE_SEARCH_MAX_RETURNED,
     truncated: records.length > EXERCISE_RESOURCE_SEARCH_MAX_RETURNED,
     excludedCount: input.excludeExerciseIds?.length ?? 0,
-    expandedMuscles,
     exercises: visibleRecords.map(mapExerciseResourceSummary),
   };
 }
@@ -301,6 +329,32 @@ export async function getExerciseResourceSummariesByIds(ids: readonly string[]):
     .map(mapExerciseResourceSummary);
 }
 
+/** readExerciseResourceFacetCatalog 暴露发布态动作库当前可执行 facet，供 Planner manifest 使用。 */
+export async function readExerciseResourceFacetCatalog(): Promise<ExerciseResourceFacetCatalog> {
+  if (!isDatabaseConfigured()) {
+    throw new Error("DATABASE_URL is required before reading exercise facet catalog from PostgreSQL.");
+  }
+
+  const prisma = getPrismaClient();
+  const records = await prisma.exercise.findMany({
+    where: { isPublished: true },
+    select: exerciseResourceFacetCatalogSelect,
+  });
+
+  return {
+    muscles: collectDistinctFacetValues(records, ["primaryMuscles", "primaryMusclesZh", "secondaryMuscles", "secondaryMusclesZh"]),
+    categories: collectDistinctFacetValues(records, ["category", "categoryZh"]),
+    levels: collectDistinctFacetValues(records, ["level", "levelZh"]),
+    forces: collectDistinctFacetValues(records, ["force", "forceZh"]),
+    mechanics: collectDistinctFacetValues(records, ["mechanic", "mechanicZh"]),
+    equipment: collectDistinctFacetValues(records, ["equipment", "equipmentZh"]),
+    homeRequirements: collectDistinctFacetValues(records, ["homeRequirement", "homeRequirementZh"]),
+    goalTags: collectDistinctFacetValues(records, ["goalTags"]),
+    riskTags: collectDistinctFacetValues(records, ["riskTags"]),
+    suitabilities: collectDistinctSuitabilities(records),
+  };
+}
+
 function mapExerciseRecord(exercise: ExerciseRecord): Exercise {
   const metadata = normalizeExerciseMetadata(exercise);
 
@@ -349,10 +403,7 @@ function mapExerciseRecord(exercise: ExerciseRecord): Exercise {
   };
 }
 
-function buildExerciseResourceWhere(
-  input: ExerciseResourceSearchInput,
-  expandedMuscles: string[],
-): Prisma.ExerciseWhereInput {
+function buildExerciseResourceWhere(input: ExerciseResourceSearchInput): Prisma.ExerciseWhereInput {
   const and: Prisma.ExerciseWhereInput[] = [
     { isPublished: input.published },
   ];
@@ -368,7 +419,7 @@ function buildExerciseResourceWhere(
     and.push({ allowedSections: { has: input.suitability } });
   }
 
-  const muscleFilters = uniqueStrings([input.muscle, ...expandedMuscles]);
+  const muscleFilters = uniqueStrings([input.muscle, ...(input.muscles ?? [])]);
   if (muscleFilters.length > 0) {
     and.push(buildExerciseResourceMuscleWhere(muscleFilters));
   }
@@ -514,7 +565,7 @@ function collectExerciseResourceAppliedFilters(input: ExerciseResourceSearchInpu
     "equipment",
     "homeRequirement",
     "muscle",
-    "bodyRegions",
+    "muscles",
     "goalTag",
     "riskTag",
     "excludeExerciseIds",
@@ -527,7 +578,47 @@ function collectExerciseResourceAppliedFilters(input: ExerciseResourceSearchInpu
 }
 
 function uniqueStrings(values: Array<string | undefined>) {
-  return [...new Set(values.filter((value): value is string => Boolean(value)))];
+  return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
+}
+
+type ExerciseResourceFacetCatalogRecord = Prisma.ExerciseGetPayload<{ select: typeof exerciseResourceFacetCatalogSelect }>;
+
+function collectDistinctFacetValues(
+  records: ExerciseResourceFacetCatalogRecord[],
+  fields: Array<keyof ExerciseResourceFacetCatalogRecord>,
+) {
+  const values = new Set<string>();
+
+  for (const record of records) {
+    for (const field of fields) {
+      const value = record[field];
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          if (typeof item === "string" && item.trim().length > 0) {
+            values.add(item.trim());
+          }
+        }
+        continue;
+      }
+
+      if (typeof value === "string" && value.trim().length > 0) {
+        values.add(value.trim());
+      }
+    }
+  }
+
+  return sortFacetValues([...values]);
+}
+
+function collectDistinctSuitabilities(records: ExerciseResourceFacetCatalogRecord[]): ExerciseSuitability[] {
+  const values = new Set(records.flatMap((record) => record.allowedSections));
+  const canonicalOrder: ExerciseSuitability[] = ["warmup", "training", "stretch"];
+
+  return canonicalOrder.filter((value) => values.has(value));
+}
+
+function sortFacetValues(values: string[]) {
+  return values.sort((left, right) => left.localeCompare(right, "zh-Hans-CN") || left.localeCompare(right));
 }
 
 function uniqueExerciseSummaryRecords(

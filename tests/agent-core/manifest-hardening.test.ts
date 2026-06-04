@@ -72,4 +72,30 @@ describe("agent-core manifest hash, snapshot and linter", () => {
       ],
     }).issues.map((issue) => issue.code)).toContain("unsafe_example");
   });
+
+  it("preserves safe manifest metadata and rejects sensitive metadata keys", () => {
+    const [safeManifest] = createM0FixtureToolRegistry().serializeForPlanner();
+    const manifestWithMetadata: ToolManifest = {
+      ...safeManifest,
+      metadata: {
+        facetCatalog: {
+          muscles: ["胸部"],
+        },
+      },
+    };
+    const snapshot = createRegistrySnapshot([manifestWithMetadata], new Date("2026-06-03T00:00:00.000Z"));
+
+    expect(snapshot.tools[0].metadata).toEqual({
+      facetCatalog: {
+        muscles: ["胸部"],
+      },
+    });
+    expect(lintToolManifest(manifestWithMetadata).ok).toBe(true);
+    expect(lintToolManifest({
+      ...safeManifest,
+      metadata: {
+        databasePayload: "unsafe",
+      },
+    }).issues.map((issue) => issue.code)).toContain("sensitive_field");
+  });
 });

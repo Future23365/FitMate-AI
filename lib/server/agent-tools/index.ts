@@ -2,9 +2,17 @@ import type { AnyTool } from "@/lib/server/agent-core/contracts";
 import { ToolRegistry } from "@/lib/server/agent-core/tool-registry";
 import { inspectVisibleTrainingProposalsTool } from "@/lib/server/agent-tools/exercise-facts/inspect-visible-training-proposals.tool";
 import { resolveExerciseResourceMentionsTool } from "@/lib/server/agent-tools/exercises/resolve-exercise-resource-mentions.tool";
-import { searchExerciseResourcesTool } from "@/lib/server/agent-tools/exercises/search-exercise-resources.tool";
+import {
+  createSearchExerciseResourcesTool,
+  searchExerciseResourcesTool,
+} from "@/lib/server/agent-tools/exercises/search-exercise-resources.tool";
 import { m1SafetyFixtureTools } from "@/lib/server/agent-tools/fixture/m1-safety-fixture.tools";
 import { readFixtureTool } from "@/lib/server/agent-tools/fixture/read-fixture.tool";
+import type { ExerciseResourceFacetCatalog } from "@/lib/server/exercises/exercise-repository";
+
+export type CreateProductionToolRegistryOptions = {
+  searchExerciseResourcesFacetCatalog?: ExerciseResourceFacetCatalog;
+};
 
 /** createM0FixtureToolRegistry 只注册 M0 fixture tool，用于合同测试，不接入生产聊天主链。 */
 export function createM0FixtureToolRegistry() {
@@ -32,11 +40,13 @@ export function createM1FixtureToolRegistry() {
 export const m1FixtureTools = [readFixtureTool, ...m1SafetyFixtureTools] as const;
 
 /** createProductionToolRegistry 只注册当前生产文本聊天允许的低风险只读业务 tool。 */
-export function createProductionToolRegistry() {
+export function createProductionToolRegistry(options: CreateProductionToolRegistryOptions = {}) {
   const registry = new ToolRegistry();
   registry.register(inspectVisibleTrainingProposalsTool);
   registry.register(resolveExerciseResourceMentionsTool);
-  registry.register(searchExerciseResourcesTool);
+  registry.register(createSearchExerciseResourcesTool({
+    facetCatalog: options.searchExerciseResourcesFacetCatalog,
+  }));
   return registry;
 }
 
