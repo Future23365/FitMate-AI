@@ -2,9 +2,13 @@
 
 生成时间：2026-06-02 19:21:13 +0800
 
+> 当前状态：已停用。
+>
+> 旧 Agent tool registry、`manual-tests/llm/**`、`scripts/run-manual-agent-tool-tests.mjs`、`vitest.llm-agent-tool.config.ts` 和 `npm run test:llm:agent-tool` 入口已经删除。本文只作为历史测试方案记录保留，不再代表当前可运行命令、当前 tool 合同或当前生产链路。
+
 ## 目标
 
-本文基于根目录 `测试情况预览.md` 和当前 Agent tool registry，定义一套只验证“单次 `LLM -> Agent tool` 调用”的手动黑盒测试流程。
+本文基于根目录 `测试情况预览.md` 和当时的 Agent tool registry，定义一套只验证“单次 `LLM -> Agent tool` 调用”的手动黑盒测试流程。
 
 这里的“单次”只指一次模型决策：
 
@@ -14,7 +18,7 @@
 4. 测试脚本只执行这个目标 tool 一次。
 5. 报告只判断本次模型决策、目标 tool 入参 schema、目标 tool 执行结果和输出合同。
 
-本流程的目的不是验证一次 Agent run 能否串起多个 tool，而是逐个验证已有 Agent tool 本身是否可被 LLM 正确调用、是否能用真实服务端上下文正常执行。
+本流程的目的不是验证一次 Agent run 能否串起多个 tool，而是逐个验证当时已有 Agent tool 本身是否可被 LLM 正确调用、是否能用真实服务端上下文正常执行。
 
 ## 不覆盖范围
 
@@ -28,13 +32,13 @@
 
 ## 与现有黑盒测试的关系
 
-现有 `测试情况预览.md` 面向首页聊天真实用户流程，每个 flow 通常包含多轮对话和完整 `/api/chat` Agent run。它适合回答“用户体验链路是否符合预期”。
+当时的 `测试情况预览.md` 面向首页聊天真实用户流程，每个 flow 通常包含多轮对话和完整 `/api/chat` Agent run。它适合回答“用户体验链路是否符合预期”。
 
 本流程只回答一个更窄的问题：
 
 > 对某一个已注册 Agent tool，LLM 能不能产出符合该 tool 契约的单个 `call_tool`，并且这个 tool 在真实服务端上下文中能不能执行成功。
 
-因此本流程不会复用 `manual-tests/llm/blackbox-runner.ts`。它直接使用 `createToolFirstAgentToolRegistry()` 获取当前真实 registry，按 case 创建隔离用户、会话和依赖资源，再调用目标 tool 的 `inputSchema` 和 `execute()`。
+因此本流程不会复用 `manual-tests/llm/blackbox-runner.ts`。它曾直接使用 `createToolFirstAgentToolRegistry()` 获取当时的真实 registry，按 case 创建隔离用户、会话和依赖资源，再调用目标 tool 的 `inputSchema` 和 `execute()`。
 
 ## 测试执行流程
 
@@ -86,9 +90,9 @@ type AgentSingleToolCase = {
 };
 ```
 
-## 当前用例覆盖
+## 历史用例覆盖
 
-当前 fixture 覆盖 `createToolFirstAgentToolRegistry()` 中已注册的 18 个 Agent tool。
+历史 fixture 覆盖 `createToolFirstAgentToolRegistry()` 中已注册的 18 个 Agent tool。
 
 | ID | targetTool | group | setup | 主要验收 |
 |---|---|---|---|---|
@@ -142,7 +146,7 @@ type AgentSingleToolCase = {
 
 ## 报告要求
 
-当前报告路径：
+历史报告路径：
 
 `docs/manual-llm-agent-tool-call-latest-report.md`
 
@@ -159,17 +163,17 @@ type AgentSingleToolCase = {
 - 每个 case 的 `setupTools`、`targetTool`、`expectedInput` 摘要、模型原始输出摘要、解析后的 action/toolName、schema 断言、执行断言和输出合同断言。
 - 失败分类：`llm_decision_invalid`、`wrong_tool`、`input_schema_invalid`、`tool_execution_failed`、`output_contract_invalid`、`setup_failed`。
 
-## 脚本参数
+## 历史脚本参数
 
-当前独立入口脚本：
+历史独立入口脚本：
 
 `scripts/run-manual-agent-tool-tests.mjs`
 
-当前命令入口：
+历史命令入口：
 
 `npm run test:llm:agent-tool`
 
-脚本参数只描述可配置能力，不绑定某一次运行：
+脚本参数只描述历史可配置能力，不绑定某一次运行：
 
 | 参数 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
@@ -193,9 +197,9 @@ type AgentSingleToolCase = {
 | `MANUAL_LLM_AGENT_TOOL_REPORT_PATH` | `--report` |
 | `MANUAL_LLM_AGENT_TOOL_DRY_RUN` | `--dry-run` |
 
-## 当前参数
+## 历史参数
 
-当前实现默认覆盖全部已注册 Agent tool。为了避免误耗费真实模型 token，本次验证优先使用 dry-run 生成完整覆盖报告。
+历史实现默认覆盖全部已注册 Agent tool。为了避免误耗费真实模型 token，当时验证优先使用 dry-run 生成完整覆盖报告。
 
 | 项 | 当前值 |
 |---|---|
@@ -207,31 +211,33 @@ type AgentSingleToolCase = {
 | report | `docs/manual-llm-agent-tool-call-latest-report.md` |
 | dry-run | `true` |
 
-当前验证命令：
+历史验证命令，当前已不可运行：
 
 ```bash
 npm run test:llm:agent-tool -- --dry-run --concurrency=1 --report=docs/manual-llm-agent-tool-call-latest-report.md
 ```
 
-真实模型执行全量 18 个 tool 时使用：
+历史上真实模型执行全量 18 个 tool 时使用：
 
 ```bash
 npm run test:llm:agent-tool -- --concurrency=1 --report=docs/manual-llm-agent-tool-call-latest-report.md
 ```
 
-单独验证某个 tool 时使用：
+历史上单独验证某个 tool 时使用：
 
 ```bash
 npm run test:llm:agent-tool -- --tool=searchExercises --concurrency=1
 ```
 
-只重跑上一份报告中的失败 case 时使用：
+历史上只重跑上一份报告中的失败 case 时使用：
 
 ```bash
 npm run test:llm:agent-tool -- --failed-from-report=docs/manual-llm-agent-tool-call-latest-report.md --concurrency=1
 ```
 
-## 当前实现落点
+## 历史实现落点
+
+以下文件已经随旧运行时删除：
 
 1. `manual-tests/llm/agent-tool-fixtures.ts`：18 个单工具 case。
 2. `manual-tests/llm/agent-tool-selection.ts`：`id/group/tool/failed-from-report` 筛选。
@@ -240,9 +246,9 @@ npm run test:llm:agent-tool -- --failed-from-report=docs/manual-llm-agent-tool-c
 5. `scripts/run-manual-agent-tool-tests.mjs`：命令行入口。
 6. `vitest.llm-agent-tool.config.ts`：只匹配单次 Agent tool 测试。
 
-## 验收标准
+## 历史验收标准
 
-- 不影响现有 `npm run test:llm` 和普通自动化测试。
+- 不影响当时的 `npm run test:llm` 和普通自动化测试。
 - 缺少 `DEEPSEEK_API_KEY` 时生成跳过报告，不使用 mock。
 - 每个 case 最多请求一次 LLM。
 - 每个 case 最多执行一次 `targetTool`。

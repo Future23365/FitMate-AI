@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -55,6 +55,10 @@ describe("database time format contract", () => {
 });
 
 function collectViolations(path: string, pattern: RegExp, violations: string[]) {
+  if (!existsSync(path)) {
+    return;
+  }
+
   const stat = statSync(path);
 
   if (stat.isDirectory()) {

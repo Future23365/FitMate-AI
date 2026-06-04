@@ -1,20 +1,26 @@
 # 手动 LLM 首页聊天黑盒流程测试
 
-这组测试用于在修改 LLM prompt、AI 编排、模型参数或输出结构后，手动检查首页聊天真实用户流程是否仍然可用。它会调用真实 DeepSeek 模型，并复用服务端聊天编排链路，因此不会包含在 `npm run test` 中。
+> 当前状态：已停用。
+>
+> 旧 AI/Agent 运行时、`manual-tests/llm/**`、`vitest.llm.config.ts`、`npm run test:llm` 和 `npm run test --detail` 入口已经删除。本文以下内容只作为历史黑盒验收设计记录保留，不再代表当前可运行命令或生产链路。
 
-## 运行方式
+这组测试曾用于在修改 LLM prompt、AI 编排、模型参数或输出结构后，手动检查首页聊天真实用户流程是否仍然可用。它会调用真实模型，并复用当时的服务端聊天编排链路，因此不会包含在 `npm run test` 中。
+
+## 历史运行方式（已删除）
+
+以下命令对应的脚本和配置已经删除，不应在当前代码库中继续执行。
 
 ```bash
 DEEPSEEK_API_KEY=你的真实 key npm run test:llm
 ```
 
-`npm run test:llm` 运行基础首页聊天黑盒套件。需要运行更完整的详细套件时，使用：
+历史上 `npm run test:llm` 运行基础首页聊天黑盒套件。需要运行更完整的详细套件时，曾使用：
 
 ```bash
 DEEPSEEK_API_KEY=你的真实 key npm run test --detail
 ```
 
-详细套件支持按子集运行，常用参数如下：
+详细套件曾支持按子集运行，常用参数如下：
 
 ```bash
 DEEPSEEK_API_KEY=你的真实 key npm run test --detail -- --ids F01,C03
@@ -26,7 +32,7 @@ DEEPSEEK_API_KEY=你的真实 key npm run test --detail -- --group reference --c
 
 ## suite 与 group 用例索引
 
-`suite` 是运行层级，决定这条 flow 属于基础冒烟、详细核心回归还是扩展边界；`group` 是能力域标签，同一个 flow 可以同时属于多个 group。`npm run test:llm` 默认只跑 `basic`。`npm run test --detail` 会加载完整详细集合，其中包含 `basic`、`detail_core` 和 `detail_extended`；`--suite detail-core` 会归一化为源码里的 `detail_core`。
+`suite` 是历史运行层级，决定这条 flow 属于基础冒烟、详细核心回归还是扩展边界；`group` 是能力域标签，同一个 flow 可以同时属于多个 group。历史上 `npm run test:llm` 默认只跑 `basic`。`npm run test --detail` 会加载完整详细集合，其中包含 `basic`、`detail_core` 和 `detail_extended`；`--suite detail-core` 会归一化为源码里的 `detail_core`。
 
 ### 按 suite 查看
 
@@ -120,7 +126,7 @@ DEEPSEEK_API_KEY=你的真实 key npm run test --detail -- --group reference --c
 
 不带参数的 `npm run test` 仍运行原有普通 Vitest 基准测试，不会请求真实模型。
 
-命令会自动读取项目根目录的 `.env*` 配置。缺少 `DEEPSEEK_API_KEY` 时，LLM 命令会明确输出缺失配置名称，生成跳过摘要，并说明不会使用 mock、旧快照或非真实模型结果。
+历史命令会自动读取项目根目录的 `.env*` 配置。缺少 `DEEPSEEK_API_KEY` 时，LLM 命令会明确输出缺失配置名称，生成跳过摘要，并说明不会使用 mock、旧快照或非真实模型结果。
 
 运行开始时会输出本次测试的 token 预估，包括预计输入 token、预计输出 token、预计总量和估算来源。预估基于本次筛选后的实际运行集合计算；优先使用最近一次真实运行报告的 token 均值校准；没有可用真实报告、最近报告是跳过报告或字段缺失时，才按 fixture 数量、轮次数和保守均值 fallback。
 
@@ -138,9 +144,9 @@ docs/manual-llm-blackbox-flow-detail-latest-report.md
 
 报告会按流程和轮次记录用户输入、期望结果、实际用户可见回复摘要、实际卡片类型、卡片类型断言状态、语义断言状态、最终状态、失败等级、token 汇总和失败排错信息。报告还会记录完整 fixture 数、本次筛选数、筛选条件、未运行原因、并发数和 fixture 去重检查摘要。失败记录会包含 `conversationId`、`responseMessageId`、`traceId`、请求或 stream 错误摘要，以及 artifact 诊断摘要，方便判断是聊天链路错误、模型输出漂移、stream 解析失败、卡片推送缺失、会话保存失败还是引用 payload 读取失败。
 
-## runner 与 preflight
+## 历史 runner 与 preflight
 
-详细套件使用 `api_route` runner。每轮按首页聊天字段构造 `/api/chat` 请求：
+详细套件曾使用 `api_route` runner。每轮按首页聊天字段构造 `/api/chat` 请求：
 
 ```text
 conversationId
@@ -150,7 +156,7 @@ conversationSummary
 thinkingEnabled
 ```
 
-runner 会创建测试专用匿名用户并通过同一个 HttpOnly cookie 形态的 current user 调用 `/api/chat` 和会话保存 Route Handler。每个流程使用独立的 `manual-llm-*` conversationId；同一流程内后续轮次沿用保存后的会话，引用类用例通过数据库中的 `ConversationArtifact` / `ArtifactIndex` recent summary 和 payload 继续。
+历史 runner 会创建测试专用匿名用户并通过同一个 HttpOnly cookie 形态的 current user 调用 `/api/chat` 和会话保存 Route Handler。每个流程使用独立的 `manual-llm-*` conversationId；同一流程内后续轮次沿用保存后的会话，引用类用例通过数据库中的 `ConversationArtifact` / `ArtifactIndex` recent summary 和 payload 继续。
 
 运行前会执行 preflight：
 
@@ -160,10 +166,10 @@ runner 会创建测试专用匿名用户并通过同一个 HttpOnly cookie 形�
 
 ## 与默认测试的边界
 
-- `npm run test` 仍只运行默认 Vitest 配置，不运行真实模型黑盒流程。
-- 手动 LLM 测试位于 `manual-tests/llm/`，由 `vitest.llm.config.ts` 单独收集。
-- 这组测试依赖外部模型、网络、账户额度和本地服务端依赖，结果可能因为模型波动出现偶发失败。
-- 每次运行都会覆盖 `docs/manual-llm-blackbox-flow-latest-report.md`，该文件用于人工验收最新一次结果。
+- `npm run test` 只运行默认 Vitest 配置，不运行真实模型黑盒流程。
+- 历史手动 LLM 测试曾位于 `manual-tests/llm/`，由 `vitest.llm.config.ts` 单独收集；这些文件当前已经删除。
+- 这组历史测试依赖外部模型、网络、账户额度和本地服务端依赖，结果可能因为模型波动出现偶发失败。
+- 历史运行曾覆盖 `docs/manual-llm-blackbox-flow-latest-report.md`，该文件现在仅作为旧验收报告保留。
 
 ## 覆盖范围
 
@@ -216,8 +222,7 @@ runner 会创建测试专用匿名用户并通过同一个 HttpOnly cookie 形�
 
 ## 维护规则
 
-- 新增基础黑盒流程时，优先在 `manual-tests/llm/flow-fixtures.ts` 的 `basicBlackboxFlowCases` 增加 3 轮流程用例。
-- 新增详细黑盒流程时，优先在 `detailedBlackboxFlowCases` 增加 3 轮流程用例，并保持详细套件包含基础套件。
+- 当前不再维护该 runner。后续重新接入真实模型黑盒测试时，应通过新的 OpenSpec change 重新定义测试入口、fixture、报告格式和成本控制边界。
 - 每个 flow 必须声明 `suite`、至少一个 `group`、`riskLevel` 和覆盖说明；元数据缺失会被不调用真实模型的测试拒绝。
 - 严格重复的三轮用户输入序列必须删除、合并或改写。确需保留高重叠 setup 时，应在重复矩阵和覆盖说明中解释差异。
 - 如果只是模型措辞变化，不应把自然语言断言改成逐字匹配。

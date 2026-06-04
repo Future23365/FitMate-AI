@@ -216,6 +216,7 @@ OpenSpec 生成或修改的说明性文档应使用中文，便于人工 review�
 - 修改目录结构、数据库表结构、环境变量、启动方式等会影响项目使用或协作的内容时，需同步更新 README.md 或其他文档 中的相关说明。
 - 每次进行技术架构、实现逻辑、方案大调整的时候。必须在`docs/方案变更历史`文件夹中生成相关md文档。每个调整单独一份md文档。重点记录当前真实的问题如原方案为什么不合适、调整思路、关键改动、怎么做的。如果结果可以量化，则标注上量化的结果。该文档主要作用就是记录项目演变过程，细节不需要太细，以讲故事为标准。
 - 当本次改动涉及架构调整、核心实现逻辑变化、核心链路优化，或修正了一个会影响后续开发的重要问题时。则在`docs/项目演变历程.md`文档中按照改动顺序追加到末尾，简要记录此次干了什么，为了解决什么问题，无需详细记录实现细节。
+- 如需要在docs下生成文档，在要分配好归类文件夹，不要直接散落在docs目录下。
 - 文档记录的时间精确到时分秒,以上海(UTC+8)时间为准
 
 ## 技术栈
@@ -249,13 +250,14 @@ OpenSpec 生成或修改的说明性文档应使用中文，便于人工 review�
 - 保持 UI 层、API 层、AI 编排层、领域服务层和数据访问层之间的职责分离。
 - 不要把业务逻辑直接写在 API Route 中。
 - 不要在 UI 组件中直接调用数据库或 AI 服务。
-- 确定性的健身业务规则应放在领域服务中。
-- AI 编排逻辑应与数据校验、权限控制和持久化逻辑分离。
-- AI 编排层可以校验 LLM 输出的结构和执行边界，但不得用服务端规则二次解释用户自然语言；自然语言理解问题应优先通过 Prompt、Structured Outputs、LLM repair 或澄清解决。
+- 必须严格按照`docs/agent-tool-orchestrator-design.md`中的设计准则执行，如果需要对架构进行调整，则需要说明原因、方案、取舍。
 
 ## AI 规则
 
 - 模型生成的数据必须使用 Structured Outputs、Zod Schema 或 JSON Schema 进行结构约束。
+- 所有发给模型的描述性自然语言 prompt / model input 默认使用中文，包括但不限于 system / developer prompt、tool manifest、`description`、`whenToUse`、`whenNotToUse`、schema description、examples description、repair feedback、observations、compressed tool results 和 final grounding 说明。
+  - `toolName`、字段名、枚举值、action type、resource type、schema id、命令、路径、代码标识符和外部 API 标识必须保持英文原样，不要为了中文化而改动执行合同。
+  - 如必须引用英文原文，应同时提供中文解释；不得只用英文说明模型可见的业务规则、使用条件或失败含义。
 - 所有模型输出在保存或执行前都必须经过服务端校验。
   - 服务端只校验结构性边界。非确定性边界、语义性边界以模型输出结果为准。
 - Tool Calling 必须通过服务端函数执行。
@@ -263,19 +265,16 @@ OpenSpec 生成或修改的说明性文档应使用中文，便于人工 review�
 - AI 选择或生成的 exerciseId 必须经过数据库校验。
 - 不要向 AI 工具暴露任意 SQL 查询能力。
 
-### AI 语义边界：服务端只验证契约，不判断语义对错
+### AI / Agent 边界：模型能力优先，服务端只管契约
 
-- LLM 是自然语言语义理解的唯一来源。用户意图、偏好、引用对象、调整方向、问题类型、上下文含义等语义性边界，默认以模型结构化输出为准。
-- 服务端校验模型输出时，只能校验确定性契约：Schema、枚举合法性、字段是否自洽、权限隔离、数据库记录是否存在、数据是否属于当前用户、引用对象是否可访问、生成或修改结果是否满足结构化边界。
-- 服务端不得使用关键词、正则、短句模板、同义词表、历史摘要推断、规则评分或其他写死条件，去判断 LLM 对用户自然语言的理解是否正确。
-- 服务端不得基于用户原始文本特征改写 LLM 已输出的高层语义字段，包括但不限于 `type`、`action.kind`、`workoutIntent.intentType`、引用目标、调整目标或用户偏好。
-- 当 LLM 输出结构冲突、字段缺失、引用不可用或结果不可执行时，服务端只能执行以下动作之一：
-  1. 按结构化错误进入 LLM repair；
-  2. 向用户澄清；
-  3. 拒绝执行并返回可恢复错误。
-  服务端不得擅自把该 intent 改写成另一个语义意图或 action。
-- 不同 action 的必需字段必须按该 action 的执行契约定义。服务端不得把某一类 action 的必需字段强加给另一类 action，也不得因为缺少无关字段而改写语义意图。
-- 如果实现方案需要新增任何服务端自然语言判断逻辑、语义归一化、同义词匹配、关键词分流或基于文本的意图纠偏，必须先暂停并说明为什么不能交给 LLM/Structured Outputs/repair/澄清处理，未经我确认不得实现。
+- AI 相关需求或 bug 默认优先增强模型可用能力：tool、manifest / schema / examples、context / resource 摘要、repair feedback 和 grounding；不要用业务端编排分支替代模型自主 tool calling。
+- LLM 是自然语言语义理解的唯一来源。服务端不得基于用户原始文本、关键词、正则、短句模板、同义词表、历史摘要推断或业务特例改写 action、`toolName`、调用顺序、引用目标、调整目标或最终回答策略。
+- 服务端只校验确定性边界：Schema / enum / 字段自洽、权限隔离、数据库事实、resource 可访问/可消费、policy / confirmation、成本限流、安全拒绝、trace / projection / response rendering。
+- 当模型输出结构冲突、字段缺失、引用不可用或结果不可执行时，只能进入 LLM repair、向用户澄清或拒绝并返回可恢复错误；不得把该 intent 改写成另一个语义意图或 action。
+- Agent tool 按稳定 resource 和能力族设计。新增或调整 tool 前说明 resource、能力族（query / list / read / register / validate / policy / save / update）、同类变体和命名理由。
+- `recent`、`current`、`latest`、`fromCard`、`forThisFlow` 等如果只是当前需求默认值，应落到 filter / sort / limit / cursor / resource reference，不写进 `toolName`；通用范围只能覆盖同一资源、能力族、权限和投影边界。
+- bug 若表现为某个 phrasing、模型输出形态或 trace 个例失败，先按合同/上下文链路缺口定位根因，说明影响的同类变体、修复边界和回归测试；不能只修当前 case。
+- 除非用户明确要求 quick patch，否则不要新增服务端自然语言判断、语义归一化、关键词分流或特定 phrasing 兜底。
 
 ## 健身领域规则
 

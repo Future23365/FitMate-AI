@@ -206,3 +206,103 @@ Agent 在生成 routine / plan artifact 并成功调用 `saveConversationArtifac
 - **AND** 解析结果 MUST 记录 revisionId、lineageId 和可访问性
 - **AND** 系统 MUST NOT 让旧 ReferenceResolver-first 分支在 Agent 前直接决定 Patch 或 Regenerate
 
+### Requirement: 已读取 artifact payload 必须能重新投影聊天卡片
+
+系统 SHALL 在只读 artifact 查看路径中，将本轮已通过受控工具读取并通过 Schema 校验的 routine / plan payload 重新投影为聊天卡片事件。该投影 MUST 只来自当前用户可访问的 `ConversationArtifact` payload 或当前 run 已登记 tool result，不得从回复正文、summary、artifact title 或 recent artifact 摘要反向重建 payload。
+
+#### Scenario: answered 引用 routine payload
+- **WHEN** Agent 本轮成功调用 `getArtifactPayload` 或等价只读工具读取 routine payload
+- **AND** `final_result.answered` 的 `usedToolResultIds` 引用该读取结果
+- **THEN** 聊天流 MUST 输出 `artifact_validated` 和 `artifact` 事件
+- **AND** 事件 metadata MUST 包含 `artifactKind = "routine"`、`artifactId` 和完整可展示 payload
+- **AND** 前端 MUST 能在当前 assistant bubble 下展示 routine 卡片
+
+#### Scenario: answered 引用 plan payload
+- **WHEN** Agent 本轮成功调用 `getArtifactPayload` 或等价只读工具读取 plan payload
+- **AND** `final_result.answered` 的 `usedToolResultIds` 引用该读取结果
+- **THEN** 聊天流 MUST 输出 `artifact_validated` 和 `artifact` 事件
+- **AND** 事件 metadata MUST 包含 `artifactKind = "plan"`、`artifactId` 和完整可展示 payload
+
+#### Scenario: 没有完整 payload
+- **WHEN** Agent 只拥有 recent artifact summary、artifact title、自然语言回复或 conversationSummary
+- **THEN** 系统 MUST NOT 生成 routine / plan 卡片事件
+- **AND** 系统 MUST 要求模型先通过受控工具读取完整 payload，或返回澄清、普通回答、blocked 或 failed
+
+### Requirement: Artifact 写入和聊天自动保存必须避免重复 active 记录
+
+系统 SHALL 对 Agent 写入和聊天自动保存两条入口使用一致的 artifact 绑定与去重规则。同一用户、同一会话、同一 assistant message、同一 kind 和同一稳定 payload 的卡片 MUST 只保留一条 active `ConversationArtifact` 与一条 active `ArtifactIndex`。
+
+#### Scenario: 同一 message 重复保存同一 routine payload
+- **WHEN** Agent 写工具已经为当前 `messageId` 创建 active routine artifact
+- **AND** 聊天自动保存随后提交同一 `messageId` 和稳定相同的 routine payload
+- **THEN** 系统 MUST 复用已有 artifact 或刷新其 index
+- **AND** 系统 MUST NOT 创建第二条 active routine artifact
+- **AND** 下一轮 recent artifact summaries MUST 只返回该 message 对应的一条 active routine
+
+#### Scenario: 同一 message payload 发生变化
+- **WHEN** 同一 `userId + sessionId + messageId + kind` 已有 active artifact
+- **AND** 新提交的 payload 与原 payload 稳定比较不同
+- **THEN** 系统 MUST 按既有 revision 或 superseded 规则处理
+- **AND** recent artifact summaries MUST 只暴露新的 active artifact
+- **AND** 原 payload MUST 保持可诊断或按既有生命周期规则读取
+
+#### Scenario: 旧 artifact 未绑定 message
+- **WHEN** 当前会话存在未绑定 `messageId` 的旧 active artifact
+- **AND** 本轮 Agent 或聊天自动保存为当前 assistant message 写入稳定相同 payload
+- **THEN** 系统 MUST 优先将 active artifact 事实收敛到当前 message 绑定
+- **AND** 系统 MUST 避免 recent artifact summaries 同时暴露旧未绑定记录和新绑定记录作为两个可保存或可查看候选
+
+### Requirement: Recent artifact 列表必须反映用户端可见卡片事实
+
+系统 SHALL 确保传给 Agent 的 recent artifact summaries 与当前会话用户可见卡片事实保持一致。重复 active artifact、superseded revision 或同一 message 的重复 index MUST NOT 让模型看到比用户端更多的等价训练候选。
+
+#### Scenario: 前端只有两张 routine 卡片
+- **WHEN** 当前会话用户端只有两条 assistant message 绑定 routine 卡片
+- **AND** ArtifactIndex 中存在同 payload 或同 message 的重复记录
+- **THEN** `listRecentArtifactSummariesForCurrentUser` MUST 只返回去重后的 active routine summaries
+- **AND** Agent MUST NOT 因重复 index 认为当前会话有四套等价训练
+
+#### Scenario: 不同 message 的不同 routine
+- **WHEN** 当前会话存在多个不同 assistant message 绑定不同 routine payload
+- **THEN** recent artifact summaries MUST 保留这些不同训练候选
+- **AND** 系统 MUST NOT 仅因 title 或 summary 相同而合并不同 payload
+
+### Requirement: Artifact 生成成功必须引用真实写工具结果
+系统 SHALL 只有在当前 run 已成功执行 `saveConversationArtifactRevision` 或等价写工具，并获得可验证 `revisionId` 后，才允许 routine / plan artifact 以 `generated` 或 `patched` 状态终止。
+
+#### Scenario: 模型伪造 revisionId
+- **WHEN** 模型返回 `final_result.generated` 或 `final_result.patched`
+- **AND** 结果中的 `revisionId` 不属于当前 run 已登记的写工具结果
+- **THEN** 系统 MUST 拒绝该成功状态
+- **AND** 系统 MUST NOT 创建或展示成功训练 artifact 卡片
+- **AND** 若已有可保存资源，系统 MUST 通过 `AgentDecisionFeedback` 推荐继续调用写工具
+
+#### Scenario: 写工具保存成功
+- **WHEN** `saveConversationArtifactRevision` 成功创建或修订 routine / plan artifact
+- **THEN** 写工具结果 MUST 返回 `artifactId`、`revisionId`、`artifactKind`、`validationId` 和 `policyDecisionId`
+- **AND** runtime MUST 将这些 id 登记到 dependency graph
+- **AND** Response Writer MUST 只消费通过引用校验的 `AgentExecutionResult`
+
+### Requirement: Artifact final result 结构化字段必须由服务端事实投影
+系统 SHALL 以当前 run 已登记写工具结果作为 `AgentExecutionResult.generated` / `patched` 中 artifact summary、`revisionId`、`validationId` 和 `policyDecisionId` 的事实来源。
+
+#### Scenario: 模型输出缺少保存字段
+- **WHEN** 当前 run 已有唯一成功写工具结果
+- **AND** 模型最终结果缺少 artifact summary、`revisionId`、`validationId` 或 `policyDecisionId`
+- **THEN** runtime MAY 从写工具结果投影这些结构化字段
+- **AND** 投影结果 MUST 继续通过当前 run 引用校验
+- **AND** runtime MUST NOT 从模型自由文本或 `conversationSummary` 重建 artifact payload
+
+#### Scenario: patched 结果必须同时引用 patch 和保存事实
+- **WHEN** 模型返回 `final_result.patched`
+- **THEN** `patchResult.patchId`、`patchResult.sourceArtifactId`、`patchResult.changedExerciseIds` 和 patch summary MUST 来自当前 run 已登记的 patch 工具结果或等价结构化 patch 结果
+- **AND** `artifact`、`revisionId`、`validationId` 和 `policyDecisionId` MUST 来自当前 run 已登记的保存、校验和策略结果
+- **AND** runtime MUST NOT 只凭保存结果、模型自由文本或旧 artifact summary 猜测 patch 摘要
+- **AND** Response Writer MUST 只展示通过该组合引用校验的 patched 结果
+
+#### Scenario: 多个写工具结果无法唯一确定
+- **WHEN** 当前 run 中存在多个可能匹配的写工具结果
+- **AND** 模型 final result 没有足够引用来唯一确定使用哪一个保存结果
+- **THEN** runtime MUST NOT 猜测选择 artifact
+- **AND** 系统 MUST 返回可恢复 feedback 或 failed 结果
+

@@ -142,6 +142,7 @@ type ArtifactIndexRow = {
   kind: ConversationArtifactKind;
   scope: ConversationArtifactScope;
   status: ConversationArtifactStatus;
+  sourceMessageId?: string | null;
   title: string;
   summary: string | null;
   exerciseIds: string[];
@@ -193,7 +194,7 @@ export async function createOrUpdateConversationArtifact(
   const scope = input.scope ?? "chat";
 
   return runArtifactWrite(client, async (tx) => {
-    const existing = input.messageId
+    const existingForMessage = input.messageId
       ? await tx.conversationArtifact.findFirst({
           where: {
             userId: input.userId,
@@ -208,6 +209,15 @@ export async function createOrUpdateConversationArtifact(
           orderBy: { revision: "desc" },
         })
       : null;
+    const existingUnboundSamePayload = input.messageId && !existingForMessage
+      ? await findUnboundActiveArtifactWithSamePayload(tx, {
+          userId: input.userId,
+          sessionId: input.sessionId,
+          kind: input.kind,
+          payload,
+        })
+      : null;
+    const existing = existingForMessage ?? existingUnboundSamePayload;
 
     if (existing && stableJsonEquals(existing.payload, payload)) {
       if (input.messageId && existing.messageId !== input.messageId) {
@@ -370,10 +380,12 @@ export async function listRecentArtifactSummariesForCurrentUser(
       status: "active",
     },
     orderBy: { updatedAt: "desc" },
-    take: limit,
+    take: Math.max(limit * 3, limit),
   });
 
-  return indexes.map((index) => artifactIndexRowToRecentSummary(index as ArtifactIndexRow));
+  return dedupeArtifactIndexRows(indexes.map((index) => index as ArtifactIndexRow))
+    .slice(0, limit)
+    .map(artifactIndexRowToRecentSummary);
 }
 
 // Agent recent artifact tool 使用显式 userId/sessionId 读取轻量索引，避免从 summary 重建训练事实。
@@ -391,10 +403,12 @@ export async function listRecentArtifacts(
       ...(sessionScope === "current_session" ? { sessionId: input.sessionId } : {}),
     },
     orderBy: { updatedAt: "desc" },
-    take: limit,
+    take: Math.max(limit * 3, limit),
   });
 
-  return rows.map(artifactIndexRowToRecentSummary);
+  return dedupeArtifactIndexRows(rows.map((row) => row as ArtifactIndexRow))
+    .slice(0, limit)
+    .map(artifactIndexRowToRecentSummary);
 }
 
 // 语义检索工具只返回轻量候选摘要，完整 payload 读取必须走 getArtifactPayload。
@@ -433,10 +447,11 @@ export async function searchArtifactsDetailed(
   });
 
   const hardFilteredRows = rows.filter((row) => matchesArtifactStructuredFilters(row as ArtifactIndexRow, input));
-  const rankedRows = hardFilteredRows
+  const dedupedRows = dedupeArtifactIndexRows(hardFilteredRows.map((row) => row as ArtifactIndexRow));
+  const rankedRows = dedupedRows
     .map((row) => ({
-      row: row as ArtifactIndexRow,
-      score: scoreArtifactIndex(row as ArtifactIndexRow, query, input.sessionId),
+      row,
+      score: scoreArtifactIndex(row, query, input.sessionId),
     }))
     .filter(({ score }) => !query || score.totalScore > 0)
     .sort((left, right) => {
@@ -463,7 +478,7 @@ export async function searchArtifactsDetailed(
       status: "active",
     },
     recalledCount: rows.length,
-    filteredCount: Math.max(rows.length - hardFilteredRows.length, 0),
+    filteredCount: Math.max(rows.length - dedupedRows.length, 0),
     rerank: rankedRows.map(({ row, score }) => ({
       artifactId: row.artifactId,
       score,
@@ -812,7 +827,55 @@ export function buildArtifactIndex(input: {
 }
 
 function stableJsonEquals(left: unknown, right: unknown) {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return stableJsonStringify(left) === stableJsonStringify(right);
+}
+
+function stableJsonStringify(value: unknown): string {
+  if (!value || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJsonStringify).join(",")}]`;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableJsonStringify(record[key])}`)
+    .join(",")}}`;
+}
+
+async function findUnboundActiveArtifactWithSamePayload(
+  client: ArtifactTransactionClient,
+  input: {
+    userId: string;
+    sessionId: string;
+    kind: ConversationArtifactKind;
+    payload: ConversationArtifactPayload;
+  },
+) {
+  const findMany = (client.conversationArtifact as {
+    findMany?: ArtifactTransactionClient["conversationArtifact"]["findMany"];
+  }).findMany;
+
+  if (!findMany) {
+    return null;
+  }
+
+  const candidates = await findMany({
+    where: {
+      userId: input.userId,
+      sessionId: input.sessionId,
+      kind: input.kind,
+      status: "active",
+      messageId: null,
+    },
+    orderBy: { revision: "desc" },
+  });
+
+  return (candidates ?? []).find((candidate) => stableJsonEquals(candidate.payload, input.payload)) ?? null;
 }
 
 function parseArtifactPayloadRecord(
@@ -903,6 +966,53 @@ function artifactIndexRowToRecentSummary(row: ArtifactIndexRow): RecentArtifactS
     trainingDayCount: row.trainingDayCount ?? undefined,
     updatedAt: toUtcISOString(row.updatedAt),
   };
+}
+
+function dedupeArtifactIndexRows(rows: ArtifactIndexRow[]) {
+  const result: ArtifactIndexRow[] = [];
+  const indexByMessageKey = new Map<string, number>();
+  const indexByPayloadSignature = new Map<string, number>();
+
+  for (const row of rows) {
+    const messageKey = row.sourceMessageId ? `${row.kind}:message:${row.sourceMessageId}` : undefined;
+    const payloadSignature = `${row.kind}:payload:${stableArtifactIndexSignature(row)}`;
+
+    if (messageKey && indexByMessageKey.has(messageKey)) {
+      continue;
+    }
+
+    const duplicateIndex = indexByPayloadSignature.get(payloadSignature);
+    if (duplicateIndex !== undefined) {
+      const existing = result[duplicateIndex];
+      if (!existing.sourceMessageId && row.sourceMessageId) {
+        result[duplicateIndex] = row;
+        indexByMessageKey.set(`${row.kind}:message:${row.sourceMessageId}`, duplicateIndex);
+      }
+      continue;
+    }
+
+    const index = result.push(row) - 1;
+    indexByPayloadSignature.set(payloadSignature, index);
+    if (messageKey) {
+      indexByMessageKey.set(messageKey, index);
+    }
+  }
+
+  return result;
+}
+
+function stableArtifactIndexSignature(row: ArtifactIndexRow) {
+  return JSON.stringify({
+    title: row.title,
+    summary: row.summary ?? "",
+    exerciseIds: row.exerciseIds,
+    goals: row.goals,
+    muscles: row.muscles,
+    equipment: row.equipment,
+    sessionMinutes: row.sessionMinutes ?? null,
+    weeklyFrequency: row.weeklyFrequency ?? null,
+    trainingDayCount: row.trainingDayCount ?? null,
+  });
 }
 
 function matchesArtifactStructuredFilters(row: ArtifactIndexRow, input: SearchArtifactsInput) {

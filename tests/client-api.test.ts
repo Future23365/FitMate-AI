@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  requestChatStream,
+  AgentTextChatHttpError,
+  AgentTextChatStreamError,
+  consumeAgentTextChatNdjson,
+  getAgentTextChatErrorMessage,
+  getAgentTextChatEventErrorMessage,
+  requestAgentTextChatResponse,
 } from "@/features/chat/api/chat-client";
 import { saveChatConversation } from "@/features/chat/lib/chat-history";
 import {
@@ -33,21 +38,39 @@ describe("frontend API clients", () => {
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
   });
 
-  it("passes chat stream payload without calling legacy AI routes", async () => {
+  it("passes chat payload and consumes multi-line NDJSON text events", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(new Response("stream", { status: 200 }));
+      .mockResolvedValueOnce(new Response([
+        JSON.stringify({ type: "content", content: "你好" }),
+        "",
+        JSON.stringify({ type: "assistant_suggestions", suggestions: ["继续"] }),
+        JSON.stringify({ type: "done" }),
+      ].join("\n")));
     vi.stubGlobal("fetch", fetchMock);
 
     const messages = createApiChatMessages();
     const context = createConversationContext();
     const summary = { summary: context.summary };
     const signal = new AbortController().signal;
+    const events: unknown[] = [];
 
-    await expect(
-      requestChatStream("chat-1", "assistant-1", messages[0].content, summary.summary, context, false, signal),
-    ).resolves.toBeInstanceOf(Response);
+    await requestAgentTextChatResponse({
+      conversationId: "chat-1",
+      responseMessageId: "assistant-1",
+      latestUserMessage: messages[0].content,
+      conversationSummary: summary.summary,
+      conversationContext: context,
+      thinkingEnabled: false,
+      signal,
+      onEvent: (event) => events.push(event),
+    });
 
+    expect(events).toEqual([
+      { type: "content", content: "你好" },
+      { type: "assistant_suggestions", suggestions: ["继续"] },
+      { type: "done" },
+    ]);
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({
       responseMessageId: "assistant-1",
       thinkingEnabled: false,
@@ -55,6 +78,103 @@ describe("frontend API clients", () => {
       conversationSummary: summary.summary,
     });
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual(["/api/chat"]);
+  });
+
+  it("parses NDJSON split across chunks and rejects invalid JSON lines", async () => {
+    const events: unknown[] = [];
+    const response = new Response(streamFromChunks([
+      "{\"type\":\"content\",\"content\":\"你",
+      "好\"}\n{\"type\":\"done\"}\n",
+    ]));
+
+    await consumeAgentTextChatNdjson(response, (event) => events.push(event));
+
+    expect(events).toEqual([
+      { type: "content", content: "你好" },
+      { type: "done" },
+    ]);
+
+    const streamError = await consumeAgentTextChatNdjson(new Response("{\"type\":\"content\"\n"), vi.fn())
+      .catch((error: unknown) => error);
+
+    expect(streamError).toBeInstanceOf(AgentTextChatStreamError);
+    expect(getAgentTextChatErrorMessage(streamError)).toBe("聊天生成失败，请稍后重试。");
+  });
+
+  it("keeps HTTP, event, invalid NDJSON and stream errors user-safe", async () => {
+    const eventErrors: unknown[] = [];
+
+    await consumeAgentTextChatNdjson(new Response([
+      JSON.stringify({
+        type: "error",
+        error: {
+          code: "chat_ai_not_configured",
+          message: "Chat AI model configuration is missing.",
+        },
+      }),
+      JSON.stringify({ type: "done" }),
+    ].join("\n")), (event) => eventErrors.push(event));
+
+    expect(eventErrors[0]).toMatchObject({
+      type: "error",
+      error: {
+        code: "chat_ai_not_configured",
+        message: "Chat AI model configuration is missing.",
+      },
+    });
+    expect(getAgentTextChatEventErrorMessage(eventErrors[0] as Parameters<typeof getAgentTextChatEventErrorMessage>[0]))
+      .toBe("聊天服务暂时不可用，请稍后再试。");
+
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response([
+      JSON.stringify({
+        type: "error",
+        error: {
+          code: "chat_ai_not_configured",
+          message: "Chat AI model configuration is missing.",
+        },
+      }),
+      JSON.stringify({ type: "done" }),
+    ].join("\n"), { status: 503 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const context = createConversationContext();
+
+    const httpError = await requestAgentTextChatResponse({
+        conversationId: "chat-1",
+        responseMessageId: "assistant-1",
+        latestUserMessage: "你好",
+        conversationSummary: "",
+        conversationContext: context,
+        thinkingEnabled: false,
+        signal: new AbortController().signal,
+        onEvent: vi.fn(),
+      })
+      .catch((error: unknown) => error);
+
+    expect(httpError).toMatchObject({
+      name: "AgentTextChatHttpError",
+      status: 503,
+      code: "chat_ai_not_configured",
+      message: "聊天服务暂时不可用，请稍后再试。",
+    } satisfies Partial<AgentTextChatHttpError>);
+    expect(getAgentTextChatErrorMessage(httpError)).toBe("聊天服务暂时不可用，请稍后再试。");
+    expect((httpError as Error).message).not.toContain("Chat AI model configuration is missing.");
+
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      requestAgentTextChatResponse({
+        conversationId: "chat-1",
+        responseMessageId: "assistant-1",
+        latestUserMessage: "你好",
+        conversationSummary: "",
+        conversationContext: context,
+        thinkingEnabled: false,
+        signal: controller.signal,
+        onEvent: vi.fn(),
+      }),
+    ).rejects.toMatchObject({ name: "AbortError" });
   });
 
   it("maps workout data requests, errors, and update events", async () => {
@@ -151,3 +271,17 @@ describe("frontend API clients", () => {
     expect(window.dispatchEvent).toHaveBeenCalledWith(expect.any(Event));
   });
 });
+
+function streamFromChunks(chunks: string[]) {
+  const encoder = new TextEncoder();
+
+  return new ReadableStream({
+    start(controller) {
+      for (const chunk of chunks) {
+        controller.enqueue(encoder.encode(chunk));
+      }
+
+      controller.close();
+    },
+  });
+}

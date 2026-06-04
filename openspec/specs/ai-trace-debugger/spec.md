@@ -183,13 +183,15 @@ TBD - created by archiving change redesign-ai-trace-debugger. Update Purpose aft
 #### Scenario: 查看 tool 执行结果
 - **WHEN** Agent loop turn 包含 tool decision 和 tool result
 - **THEN** 页面 MUST 在同一轮展示 toolName、toolCallId、toolResultId、输入摘要、输出摘要、状态、耗时和失败 code
-- **AND** 页面 MUST 展示 candidateSetId、artifactId、validationId、policyDecisionId、confirmationId、revisionId 或其他 resource id 的产生位置
+- **AND** 页面 MUST 展示 candidateSetId、artifactId、validationId、policyDecisionId、confirmationId、revisionId 或其他 resource id 的产生位置（如果存在）
 - **AND** 页面 MUST 展示该 tool result 是否被下一轮 LLM 输入、Agent final result、validator、policy、persistence 或 Response Writer 消费
+- **AND** 页面 MUST 将通用 `tool_execution` runtime event 展示为可展开的 tool step，包含 Input、Output、Metadata 和 Raw JSON 入口
 
-#### Scenario: 发现未消费 tool result
-- **WHEN** tool result 已产生但没有出现在后续 visibleToolResultIds、usedToolResultIds、dependency graph 或 final result 引用中
-- **THEN** 页面 MUST 标记为 orphaned tool result
-- **AND** 页面 MUST 提供产生该结果的 LLM 输出、tool 执行 step 和 Raw JSON 入口
+#### Scenario: 保存全链路 log 包含 tool 执行证据
+- **WHEN** 开发者点击保存全链路 log
+- **THEN** 导出的 `codex_logs/ai_trace_log.js` MUST 包含逐 tool 的 execution step 或等价 runtime event
+- **AND** 导出内容 MUST 包含 toolName、toolResultId、input summary、output summary、status、durationMs 和 failureCode
+- **AND** 导出内容 MUST NOT 包含完整 handler output、权限 token、cookie、API key 或未脱敏大 payload
 
 ### Requirement: Debug metrics are explained in context
 `/dev/ai-traces` SHALL explain trace metrics in the context of Agent loop debugging instead of presenting them as unexplained standalone fields.
@@ -207,18 +209,23 @@ TBD - created by archiving change redesign-ai-trace-debugger. Update Purpose aft
 - **AND** 页面 MUST 保留全链路 token 和耗时总计
 
 ### Requirement: Agent loop log export is readable
-`/dev/ai-traces` SHALL export Agent loop logs in the same causal structure used by the page.
+`/dev/ai-traces` SHALL export Agent loop logs in the same causal structure used by the page, while separating long text from the default report.
 
 #### Scenario: 保存全链路 log
 - **WHEN** 开发者点击保存全链路 log
-- **THEN** 系统 MUST 写入包含 Agent loop timeline 的 `codex_logs/ai_trace_log.js`
+- **THEN** 系统 MUST 写入包含 Agent loop timeline 的轻量报告 `codex_logs/ai_trace_log.js`
 - **AND** 保存内容 MUST 包含每轮 LLM 输入摘要、LLM 输出解析、tool 执行结果、resource links、diagnostic findings、final result 和用户可见回复摘要
-- **AND** 保存内容 MUST 保留 Raw trace 入口或原始 trace payload 摘要，便于人工复查
+- **AND** 保存内容 MUST 将超过导出阈值的长文本替换为 `contentRef` 引用
+- **AND** 被引用的长文本 MUST 写入 `codex_logs/ai_trace_texts.jsonl`
+- **AND** 模型请求 message content 已在上游 trace 中以 chunks 保存时，导出层 MUST 合并 chunks 并只在报告中留下 `contentRef`
+- **AND** 保存内容 MUST 使用 step summary 或 trace summary 代替完整 Raw trace 对象
+- **AND** 被 step summary 或 trace summary 代替的完整结构化详情 MUST 能通过 `detailRef` 在映射文件中找回
+- **AND** 报告 MUST 保留足够定位问题的 code、id、状态、step、token usage、hash 和路径信息，便于只读报告完成常规排查
 
 #### Scenario: 保存用户问答记录
 - **WHEN** 开发者点击保存用户问答记录
 - **THEN** 系统 MUST 继续只写入用户问题列表和最终文本回答
-- **AND** 保存内容 MUST NOT 包含完整 prompt、tool payload、动作卡片、训练计划卡片、权限 token 或敏感字段
+- **AND** 保存内容 MUST NOT 包含完整 prompt、tool payload、动作卡片、训练计划卡片、权限 token、敏感字段或长文本映射
 
 ### Requirement: Agent run diagnosis is the default trace entry
 `/dev/ai-traces` SHALL use Tool-first Agent run diagnosis as the default detail view when a trace contains Agent stages.
@@ -291,4 +298,98 @@ TBD - created by archiving change redesign-ai-trace-debugger. Update Purpose aft
 - **THEN** 系统 MUST 继续追加写入 `codex_logs/prompt.js`
 - **AND** 保存内容 MUST 只包含保存时间、trace 标识、用户问题列表和最终文本回答
 - **AND** 保存内容 MUST NOT 包含完整 tool payload、候选池、动作卡片、训练计划卡片、权限 token 或敏感字段
+
+### Requirement: Trace 页面必须展示当前文本聊天 trace
+`/dev/ai-traces` SHALL 能列出并展示当前新 `agent-core` 文本聊天主链写入的 `AiTrace`。页面 MUST 保留通用历史 trace 查看器能力，并提供 Raw JSON 入口。
+
+#### Scenario: 开发者查看最新文本聊天 trace
+- **WHEN** 已认证用户完成一次进入文本聊天接入服务的 `/api/chat` 请求
+- **THEN** `/api/dev/ai-traces` MUST 返回该用户可见的最新 trace
+- **AND** `/dev/ai-traces` MUST 在列表中展示该 trace 的标题、route、状态、创建时间和耗时
+- **AND** 页面 MUST 允许开发者选择该 trace 查看步骤详情和请求概览
+
+#### Scenario: 只显示当前用户 trace
+- **WHEN** 开发态 trace store 中存在多个用户的 trace
+- **THEN** `/api/dev/ai-traces` MUST 只返回当前 `CurrentUser.id` 对应的 trace
+- **AND** 页面 MUST NOT 展示其他用户的 trace payload
+
+#### Scenario: 文本聊天没有业务 tool
+- **WHEN** 当前文本聊天 trace 的 registry 为空且没有业务 tool result
+- **THEN** 页面 MUST 仍展示请求输入、runtime 事件、validation、response write 和 error 中已记录的步骤
+- **AND** 页面 MUST NOT 把“未记录业务 tool”或“未记录旧 Agent run 诊断”当作业务失败
+
+### Requirement: Trace 页面导出必须包含文本聊天 trace 摘要
+`/dev/ai-traces` SHALL 支持将当前文本聊天 trace 导出到现有开发日志文件。导出 MUST 保留可读分组摘要、长文本映射入口和 Raw trace 摘要，并继续遵守脱敏边界。
+
+#### Scenario: 保存全链路 log
+- **WHEN** 开发者选择当前文本聊天 trace 并点击保存全链路 log
+- **THEN** 系统 MUST 写入轻量报告 `codex_logs/ai_trace_log.js`
+- **AND** 系统 MUST 写入长文本映射 `codex_logs/ai_trace_texts.jsonl`
+- **AND** `ai_trace_log.js` MUST 包含 trace 标题、route、状态、runtime event 摘要、响应事件摘要、模块分组、模型调用摘要、token usage 和 Raw trace 摘要
+- **AND** `ai_trace_log.js` MUST NOT 内联完整 `rawTrace` 或完整 `trace` payload
+- **AND** `ai_trace_log.js` MUST 使用 `contentRef`、`path`、`kind`、`originalLength`、`hash` 和 `preview` 引用被抽离的长文本
+- **AND** `ai_trace_log.js` MUST 使用 `detailRef` 引用被瘦身掉的完整 `trace` 和 runtime event 结构化详情
+- **AND** `ai_trace_texts.jsonl` MUST 以一行一个 JSON object 保存与 `contentRef` 对应的脱敏长文本 header/chunk records
+- **AND** `ai_trace_texts.jsonl` MUST 保存与 `detailRef` 对应的脱敏结构化详情 header/chunk records
+- **AND** 模型请求 trace 中超过 adapter 摘要阈值的 message content MUST 能以分块 envelope 进入导出层，并在 `ai_trace_texts.jsonl` 中恢复为单条长文本映射
+- **AND** `ai_trace_texts.jsonl` SHOULD 按 hash 去重保存重复长文本，并在记录中保留出现路径
+- **AND** `ai_trace_texts.jsonl` SHOULD 将超长 content 拆成多个 chunk records，避免单条 JSONL 记录过长
+- **AND** `ai_trace_texts.jsonl` 的 chunk records MUST 使用 `parentRef` 指向对应 `contentRef` 或 `detailRef`，避免按 header ref 查询时直接打印所有 chunk 内容
+- **AND** 两个文件 MUST 在每次保存全链路 log 时覆盖上一次导出，不新增导出目录或历史版本
+- **AND** 两个文件 MUST 包含注释，说明默认先读轻量报告，按 `contentRef` / `detailRef` 查询 header，并按 `parentRef` 查询 chunk 内容
+- **AND** 保存内容 MUST NOT 包含 API key、authorization、cookie、跨用户 payload、完整敏感 payload 或完整 tool output
+
+#### Scenario: 保存用户问答记录
+- **WHEN** 开发者选择当前文本聊天 trace 并点击保存用户问答记录
+- **THEN** 系统 MUST 追加写入 `codex_logs/prompt.js`
+- **AND** 保存内容 MUST 只包含保存时间、trace 标识、用户问题列表和最终文本回答
+- **AND** 保存内容 MUST NOT 保存完整 tool payload、候选池、校验详情、完整 trace payload 或长文本映射文件
+
+### Requirement: Trace 调试页必须按架构模块展示
+`/dev/ai-traces` SHALL 按 `docs/agent-tool-orchestrator-design.md` 的职责边界展示新 `agent-core` 文本聊天 trace，而不是只按低层 step type 粗略分组。
+
+#### Scenario: 查看模块总览
+- **WHEN** 开发者选择一条包含新 `agent-core` 文本聊天证据的 trace
+- **THEN** 页面 MUST 展示模块总览，至少包含入口与上下文、ToolRegistry/Manifest、Planner/ModelAdapter、Runtime/Validator、Policy/Resource、Response Renderer、错误诊断和 Raw/导出入口
+- **AND** 每个模块 MUST 展示 status、step count、durationMs、token usage 或 skip reason 中适用的摘要
+- **AND** 页面 MUST 明确标记本轮仍使用空 `ToolRegistry`，且没有业务 tool 或旧 Agent 事件参与
+
+#### Scenario: 查看 Planner / ModelAdapter 模块
+- **WHEN** trace 包含 `model_request`、`model_response` 或 planner diagnostics
+- **THEN** 页面 MUST 在 Planner / ModelAdapter 模块中展示模型名称、调用轮次、请求配置、messages 摘要、raw output 摘要、parsed action、parse status、failure code 和 token usage
+- **AND** 页面 MUST 将真实 token usage 与 runtime estimated token budget 分开展示
+- **AND** 页面 MUST 提供展开入口查看脱敏后的 messages 和 Raw JSON
+
+#### Scenario: 查看 Runtime / Validator 模块
+- **WHEN** trace 包含 `planner_action`、`validation_result`、`budget_event`、`terminal_grounding` 或 runtime status
+- **THEN** 页面 MUST 在 Runtime / Validator 模块展示 action type、toolName、validator ok/code、预算事件、terminal action/error 和 repair/failure 边界
+- **AND** 页面 MUST NOT 通过用户文本、step title 或关键词推断不存在的 tool 消费关系
+
+#### Scenario: 查看 Response Renderer 模块
+- **WHEN** trace 包含 response write 或 final response 摘要
+- **THEN** 页面 MUST 展示真实返回给前端的 NDJSON event types、content 摘要、suggestion count、error code 和 done 状态
+- **AND** 页面 MUST 能让开发者对照模型输出、runtime terminal action 和用户可见响应
+
+### Requirement: 页面默认只显示排查有用信息
+`/dev/ai-traces` SHALL 默认展示对定位问题有用的模块摘要和关键字段，低频或大体积字段必须保留在展开区或 Raw JSON / 保存 log 中；保存 log 时长文本 MUST 可按引用追溯。
+
+#### Scenario: 默认查看 trace
+- **WHEN** 开发者打开 trace 详情
+- **THEN** 页面 MUST 优先展示模块状态、关键 code、关键 id、LLM 调用轮次、token usage、失败边界和用户可见响应摘要
+- **AND** 页面 MUST 默认隐藏完整 messages、完整 Raw JSON、长文本 payload 和低频 metadata
+- **AND** 页面 MUST 提供明确入口展开这些隐藏诊断
+
+#### Scenario: 保存全链路 log
+- **WHEN** 开发者点击保存全链路 log
+- **THEN** 保存 payload MUST 包含页面模块结构、每个模块的关键摘要、模型调用诊断详情、runtime traceEvents、response summary 和 Raw trace 摘要
+- **AND** 保存 payload MUST 将长文本外置为 `contentRef` 映射，并在报告中保留查询长文本所需的路径、hash、长度和预览
+- **AND** 保存 payload MUST NOT 因 adapter 级 800 字符摘要丢失完整模型请求 message 的尾部内容
+- **AND** 保存 payload MUST NOT 重复保存完整 `rawTrace` 和完整 `trace` 对象
+- **AND** 保存 payload MUST NOT 丢弃被默认报告瘦身掉的完整 `rawTrace` / `trace`、runtime event `input` / `output` / `metadata` / `error`，这些内容 MUST 通过 `detailRef` 外置
+- **AND** 保存 payload 和长文本映射 MUST 继续经过脱敏
+
+#### Scenario: 保存用户问答记录
+- **WHEN** 开发者点击保存用户问答记录
+- **THEN** 保存内容 MUST 继续只包含保存时间、trace 标识、用户问题列表和最终文本回答
+- **AND** 保存内容 MUST NOT 包含完整 prompt、模型 raw output、tool payload、traceEvents、Raw trace payload 或长文本映射
 

@@ -11,9 +11,6 @@ const traceMocks = vi.hoisted(() => ({
   })),
   summarizeLatestUserMessage: vi.fn(() => "最新用户消息"),
 }));
-const chatServiceMocks = vi.hoisted(() => ({
-  createAiChatResponse: vi.fn(),
-}));
 const exerciseServiceMocks = vi.hoisted(() => ({
   exerciseBodyRegionValues: ["upper_body", "lower_body", "core", "full_body"],
   getExerciseById: vi.fn(),
@@ -42,6 +39,11 @@ const chatHistoryMocks = vi.hoisted(() => ({
 const artifactMocks = vi.hoisted(() => ({
   listRecentArtifactSummariesForCurrentUser: vi.fn(),
 }));
+const visibleTrainingProposalFactStoreMocks = vi.hoisted(() => ({
+  listRecentVisibleTrainingProposalSummaries: vi.fn(async () => []),
+  persistVisibleTrainingProposalFactsFromEvents: vi.fn(async () => ({ ok: true, savedCount: 0 })),
+  readVisibleTrainingProposalFact: vi.fn(),
+}));
 const currentUserMocks = vi.hoisted(() => ({
   getCurrentUser: vi.fn(),
 }));
@@ -54,18 +56,16 @@ const authMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/server/dev/ai-trace-logger", () => traceMocks);
-vi.mock("@/lib/server/chat/chat-service", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/server/chat/chat-service")>();
-
-  return {
-    ...actual,
-    createAiChatResponse: chatServiceMocks.createAiChatResponse,
-  };
-});
 vi.mock("@/lib/server/exercises/exercise-service", () => exerciseServiceMocks);
 vi.mock("@/lib/server/workouts/workout-persistence-service", () => workoutPersistenceMocks);
 vi.mock("@/lib/server/chat/chat-history-service", () => chatHistoryMocks);
 vi.mock("@/lib/server/conversation-artifacts/artifact-service", () => artifactMocks);
+vi.mock("@/lib/server/visible-training-proposals/visible-training-proposal-fact-store", () => ({
+  listRecentVisibleTrainingProposalSummaries: visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries,
+  persistVisibleTrainingProposalFactsFromEvents: visibleTrainingProposalFactStoreMocks.persistVisibleTrainingProposalFactsFromEvents,
+  readVisibleTrainingProposalFact: visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact,
+  toJsonValue: (value: unknown) => JSON.parse(JSON.stringify(value)),
+}));
 vi.mock("@/lib/server/users/current-user", () => currentUserMocks);
 vi.mock("@/lib/server/auth/local-anonymous-auth", () => authMocks);
 
@@ -84,7 +84,6 @@ describe("API route boundaries", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
-    chatServiceMocks.createAiChatResponse.mockResolvedValue(new Response("stream", { status: 200 }));
     exerciseServiceMocks.listAllExercises.mockResolvedValue([createExercise({ id: "push-up" })]);
     exerciseServiceMocks.listExercises.mockResolvedValue({ items: [], total: 0 });
     exerciseServiceMocks.getExerciseFacets.mockResolvedValue({ categories: [] });
@@ -105,7 +104,8 @@ describe("API route boundaries", () => {
     authMocks.requireCurrentUser.mockResolvedValue({ id: "user-1", displayName: "匿名用户" });
   });
 
-  it("validates /api/chat body and returns stream response for legal requests", async () => {
+  it("validates /api/chat body and returns stable configuration errors without model configuration", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "");
     const invalid = await chatRoute.POST(jsonRequest("/api/chat", { latestUserMessage: "" }));
     await expect(invalid.json()).resolves.toMatchObject({ code: "validation_failed" });
 
@@ -113,19 +113,114 @@ describe("API route boundaries", () => {
       latestUserMessage: "练胸",
       conversationSummary: "用户想练胸。",
     }));
-    expect(valid.status).toBe(200);
-    expect(chatServiceMocks.createAiChatResponse).toHaveBeenCalledWith(
-      expect.objectContaining({
-        apiKey: "test-key",
-        currentUser: expect.objectContaining({ id: "user-1" }),
-        request: expect.objectContaining({ rawMessages: [expect.objectContaining({ content: "练胸" })] }),
-      }),
-    );
+    expect(valid.status).toBe(503);
+    const events = parseNdjson(await valid.text());
+
+    expect(events).toMatchObject([
+      { type: "error", error: { code: "chat_ai_not_configured" } },
+      { type: "done" },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("chat_ai_disabled");
+    expect(traceMocks.startAiTrace).toHaveBeenCalledTimes(1);
     expect(traceMocks.startAiTrace).toHaveBeenCalledWith(expect.objectContaining({
+      route: "/api/chat",
       userId: "user-1",
-      model: "deepseek-v4-flash",
-      promptVersion: expect.any(String),
-      toolVersions: expect.objectContaining({ ReferenceResolver: expect.any(String) }),
+      input: expect.objectContaining({
+        latestUserMessage: "练胸",
+        registry: {
+          manifestHash: expect.any(String),
+          toolCount: 2,
+          toolNames: ["inspectVisibleTrainingProposals", "searchExerciseResources"],
+        },
+      }),
+    }));
+    expect(traceMocks.startAiTrace.mock.results[0].value.addStep).toHaveBeenCalledWith(expect.objectContaining({
+      name: "模型配置错误",
+      type: "error",
+      status: "failed",
+    }));
+    expect(traceMocks.startAiTrace.mock.results[0].value.finish).toHaveBeenCalledWith(
+      "failed",
+      expect.objectContaining({ code: "chat_ai_not_configured", responseType: "error" }),
+    );
+  });
+
+  it("streams /api/chat final answers from the production text Agent flow", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(Response.json({
+      model: "deepseek-chat",
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              type: "final_answer",
+              content: "可以，今天先做低强度胸部训练。",
+            }),
+          },
+        },
+      ],
+      usage: {
+        prompt_tokens: 20,
+        completion_tokens: 8,
+      },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await chatRoute.POST(jsonRequest("/api/chat", {
+      latestUserMessage: "练胸",
+      conversationSummary: "用户想练胸。",
+      conversationId: "conversation-1",
+      responseMessageId: "assistant-1",
+    }));
+    const events = parseNdjson(await response.text());
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("application/x-ndjson");
+    expect(events).toEqual([
+      { type: "content", content: "可以，今天先做低强度胸部训练。" },
+      { type: "done" },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("assistant_action");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const modelRequest = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(modelRequest).toMatchObject({
+      messages: expect.arrayContaining([
+        expect.objectContaining({
+          content: expect.stringContaining("\"name\":\"searchExerciseResources\""),
+        }),
+      ]),
+    });
+    expect(JSON.stringify(modelRequest)).not.toContain("readFixture");
+    expect(JSON.stringify(modelRequest)).not.toContain("m1ResourceProducer");
+    expect(traceMocks.startAiTrace).toHaveBeenCalledWith(expect.objectContaining({
+      route: "/api/chat",
+      userId: "user-1",
+      sessionId: "conversation-1",
+      messageId: "assistant-1",
+    }));
+    expect(traceMocks.startAiTrace.mock.results[0].value.addStep).toHaveBeenCalledWith(expect.objectContaining({
+      type: "model_request",
+      output: expect.objectContaining({
+        plannerCallIndex: 1,
+        runtimeStep: 1,
+        model: "deepseek-chat",
+      }),
+    }));
+    expect(traceMocks.startAiTrace.mock.results[0].value.addStep).toHaveBeenCalledWith(expect.objectContaining({
+      type: "model_response",
+      status: "success",
+      output: expect.objectContaining({
+        parseStatus: "parsed",
+        actionType: "final_answer",
+        tokenUsage: { prompt_tokens: 20, completion_tokens: 8, total_tokens: 28 },
+      }),
+    }));
+    expect(traceMocks.startAiTrace.mock.results[0].value.addStep).toHaveBeenCalledWith(expect.objectContaining({
+      type: "response_write",
+      output: expect.objectContaining({ eventTypes: ["content", "done"] }),
+      metadata: expect.objectContaining({
+        plannerModelCallCount: 1,
+        tokenUsageSummary: { prompt_tokens: 20, completion_tokens: 8, total_tokens: 28 },
+      }),
     }));
   });
 
@@ -225,4 +320,8 @@ function params(id: string) {
   return {
     params: Promise.resolve({ id }),
   };
+}
+
+function parseNdjson(text: string) {
+  return text.trim().split("\n").map((line) => JSON.parse(line));
 }

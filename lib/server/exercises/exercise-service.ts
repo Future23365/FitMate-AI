@@ -8,6 +8,12 @@ import {
 } from "@/lib/server/exercises/exercise-repository";
 import { normalizeExerciseMetadata } from "@/lib/shared/exercises/metadata";
 import {
+  expandExerciseBodyRegionTargetMuscles,
+  exerciseBodyRegionTargetMuscles,
+  exerciseBodyRegionValues,
+  type ExerciseBodyRegion,
+} from "@/lib/shared/exercises/body-regions";
+import {
   buildEmbeddingText,
   cosineSimilarity,
   createSearchEmbedding,
@@ -25,17 +31,8 @@ import type {
 
 const DEFAULT_LIMIT = 24;
 const MAX_LIMIT = 100;
-export const exerciseBodyRegionValues = ["upper_body", "lower_body", "core", "full_body"] as const;
-
-export type ExerciseBodyRegion = (typeof exerciseBodyRegionValues)[number];
-
-// bodyRegions 是 Agent 已结构化后的身体区域合同，服务端只做枚举到动作库 facet 的确定性展开。
-export const exerciseBodyRegionTargetMuscles: Record<ExerciseBodyRegion, string[]> = {
-  upper_body: ["肩部", "胸部", "背阔肌", "中背部", "背部", "肱二头肌", "肱三头肌", "前臂"],
-  lower_body: ["臀部", "股四头肌", "腘绳肌", "小腿", "髋部", "内收肌", "外展肌"],
-  core: ["核心", "腹肌", "下背部"],
-  full_body: [],
-};
+export { exerciseBodyRegionTargetMuscles, exerciseBodyRegionValues };
+export type { ExerciseBodyRegion };
 
 const DEFAULT_SORT = "name_asc" as const;
 
@@ -971,9 +968,7 @@ function collectInvalidExerciseSearchFilters(exercises: Exercise[], input: Exerc
 }
 
 function expandBodyRegionTargetMuscles(bodyRegions: ExerciseBodyRegion[], availableTargetMuscles: Set<string>) {
-  return uniqueStrings(
-    bodyRegions.flatMap((region) => exerciseBodyRegionTargetMuscles[region] ?? []),
-  ).filter((muscle) => availableTargetMuscles.has(muscle));
+  return expandExerciseBodyRegionTargetMuscles(bodyRegions, availableTargetMuscles);
 }
 
 function collectAvailableTargetMuscles(exercises: Exercise[]) {

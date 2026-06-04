@@ -20,7 +20,7 @@
 | 用户反馈记忆 | `UserMemory`、`UserExerciseFeedback` | 保存显式偏好、动作反馈、临时上下文和训练行为反馈；健康/不适字段保留为历史兼容，不参与训练生成决策。 |
 | 动作库 | `Exercise` | 保存训练动作的标准事实数据，包括来源、分类、肌群、器械、居家可做条件、图片、教学步骤和审核状态。 |
 | 训练编排、日历与结果 | `WorkoutRoutine`、`WorkoutRoutineItem`、`WorkoutSchedule`、`WorkoutSessionResult` | 保存用户可复用动作编排、编排项、日历安排和实际训练结果摘要。 |
-| 聊天历史 | `ChatSession`、`ChatMessage`、`ConversationArtifact`、`ArtifactIndex` | 保存用户和 AI 的对话历史、聊天结构化卡片事实源、轻量索引和自然语言上下文总结。 |
+| 聊天历史 | `ChatSession`、`ChatMessage`、`ConversationArtifact`、`ArtifactIndex`、`ConversationBusinessFact` | 保存用户和 AI 的对话历史、聊天结构化卡片事实源、轻量索引、跨 run 业务事实和自然语言上下文总结。 |
 
 主要关系如下：
 
@@ -39,7 +39,8 @@ User
   └─ ChatSession
        ├─ ChatMessage
        ├─ ConversationArtifact
-       └─ ArtifactIndex
+       ├─ ArtifactIndex
+       └─ ConversationBusinessFact
 ```
 
 ## 2. 枚举
@@ -431,7 +432,7 @@ artifact 保存后的来源实体类型。
 | `plan` | 绑定在该消息上的长期训练计划草稿卡片。 |
 | `routine` | 绑定在该消息上的单次训练编排草稿卡片，包含热身、训练、拉伸三段式动作和主训练循环配置。 |
 | `exerciseRecommendation` | 绑定在该消息上的动作推荐卡片。 |
-| `conversationSummary` | 服务端维护的自然语言对话总结。当前只写入最后一条消息，供下一轮模型调用使用。 |
+| `conversationSummary` | 服务端维护的自然语言对话总结。当前只作为历史展示和后续重建智能上下文的材料，不再接入已删除的旧模型调用链路。 |
 | `conversationContext` | 旧结构化对话上下文。仅用于历史迁移和服务端确定性兜底，不再作为模型可见协议。 |
 
 长期 `plan` 草稿当前不会单独落库为新的计划表，而是保存在 `ChatMessage.metadata.plan` 中，作为聊天消息上的结构化推送卡片。草稿包含 `cycleLengthDays`、`trainingDayCount`、`restDayCount`、`cycleRepeatable`、`progression`、`recoveryStrategy`、`schedulePattern` 和周期日 `days`；非休息周期日必须用 `warmup`、`training`、`stretch` 三段式 `sections` 表达动作，休息日只表达恢复说明。用户导入长期计划时，业务层只为非休息周期日创建 `WorkoutRoutine`，并把每个动作的 `section` 写入 `WorkoutRoutineItem.section`；随后按本周期、重复 2 个周期、重复 4 个周期或明确的 `calendarHorizonDays` 生成 `WorkoutSchedule`。重复导入时只替换同一 `sourceRoutineTitle` 且位于本次导入日期范围内的旧日程，避免误删手动安排或其他计划来源。
@@ -464,11 +465,32 @@ artifact 轻量检索索引。聊天上下文和后续引用解析优先读取�
 | `artifactId` | `String` | 唯一关联 `ConversationArtifact.id`。 |
 | `userId` / `sessionId` | `String` | 权限隔离和会话过滤。 |
 | `kind` / `scope` / `status` | enum | 检索类型和生命周期过滤。 |
-| `title` / `summary` | `String` / `String?` | 模型上下文和引用排序展示文本。 |
+| `title` / `summary` | `String` / `String?` | 后续智能上下文、引用排序和页面展示可复用的摘要文本。 |
 | `exerciseIds` | `String[]` | payload 中提取的主要动作 id。 |
 | `goals` / `muscles` / `equipment` | `String[]` | 可稳定提取的训练目标、肌群和器械。 |
 | `sessionMinutes` / `weeklyFrequency` / `trainingDayCount` | `Int?` | 训练时长、周频率和训练日数量。 |
 | `sourceMessageId` | `String?` | 用于聊天历史消息重写后继续匹配来源消息。 |
+
+### ConversationBusinessFact
+
+跨 run 业务事实表。当前用于保存 production 文本聊天中已经通过服务端 `visible_output` 用户事件输出的可见训练方案事实，使下一轮 Agent 能先恢复轻量摘要，再通过 read/import tool 读取完整事实。
+
+该表不依赖 `ChatMessage` 行已经存在，因为 `/api/chat` 响应生成时 assistant 消息通常还没有被前端保存到数据库；因此它用 `conversationId` 和 `messageId` 字符串绑定来源响应。
+
+| 字段 | 类型 | 约束 / 默认值 | 作用 |
+|---|---|---|---|
+| `id` | `String` | 主键，默认 `cuid()` | 业务 fact 引用 id，作为下一轮 recent summary 的 `factRef`。 |
+| `userId` | `String` | 外键，关联 `User.id` | 所属用户，用于权限隔离。 |
+| `conversationId` | `String` | 已建组合索引 | 所属聊天会话 id；不强制外键，避免响应生成早于会话保存。 |
+| `messageId` | `String` | 已建索引 | 产生该 fact 的 assistant 响应消息 id。 |
+| `kind` | `String` | 已建组合索引 | 业务 fact 类型。当前使用 `visible_training_proposal_displayed`。 |
+| `status` | `String` | 默认 `active` | fact 生命周期；read/import 只读取 active fact。 |
+| `schemaVersion` | `Int` | 已参与唯一约束 | payload schema 版本。 |
+| `payload` | `Json` | 必填 | 服务端确定性用户投影事实，不从自然语言回复正文反推。 |
+| `createdAt` | `DateTime` | 默认 `now()` | fact 创建时间。 |
+| `updatedAt` | `DateTime` | `@updatedAt` | fact 最后更新时间。 |
+
+当前唯一约束为 `userId + conversationId + messageId + kind + schemaVersion`，用于同一响应重复投影时幂等覆盖。
 
 ## 4. 关系与删除策略总结
 
@@ -492,6 +514,7 @@ artifact 轻量检索索引。聊天上下文和后续引用解析优先读取�
 | `ConversationArtifact` | `User` / `ChatSession` | `Cascade` | artifact 属于用户和会话私有事实源。 |
 | `ConversationArtifact` | `ChatMessage` | `SetNull` | 聊天历史重写消息时保留 artifact 事实源。 |
 | `ArtifactIndex` | `ConversationArtifact` | `Cascade` | 索引不能脱离 artifact 存在。 |
+| `ConversationBusinessFact` | `User` | `Cascade` | 跨 run 业务事实属于用户私有数据，删除用户时同步删除。 |
 
 ## 5. 当前实现注意事项
 
@@ -505,4 +528,5 @@ artifact 轻量检索索引。聊天上下文和后续引用解析优先读取�
 - `WorkoutSessionResult` 保存训练完成摘要；`WorkoutSchedule.status = completed` 用于日历筛选、统计和徽标展示。
 - `UserMemory` 和 `UserExerciseFeedback` 只读取当前 `userId` 下 `active` 或待确认且未过期的数据；长期强约束在确认前不会作为已生效排除规则。
 - `ChatMessage.metadata` 是聊天上下文总结和卡片数据的落点；当前 `plan` 保存长期训练计划草稿，`routine` 保存单次训练编排草稿。如果某类数据变成稳定查询条件，应优先升级为显式字段。
-- 当前 `ChatSession` 不保存 `metadata`，模型可见上下文已迁移到 `ChatMessage.metadata.conversationSummary`；旧 `conversationContext` 只用于历史迁移。
+- `ConversationBusinessFact` 是跨 run read/import 的轻量业务事实源；当前可见训练方案事实只保存 Response Renderer 用户事件中的 `visibleTrainingProposal` payload，不保存 `searchExerciseResources` handler 内部候选作为最终方案事实。
+- 当前 `ChatSession` 不保存 `metadata`；旧模型可见上下文材料保留在 `ChatMessage.metadata.conversationSummary` 中，仅用于历史迁移和后续重建设计参考。

@@ -210,3 +210,160 @@ TBD - created by archiving change change-010-ai-trace-eval. Update Purpose after
 - **AND** fixture MUST 不包含敏感认证信息或未经摘要的大 payload
 - **AND** fixture MUST 足以复盘最终 artifact 事件为何出现或为何被阻断
 
+### Requirement: Trace 必须记录 Agent 合同修复循环
+系统 SHALL 在 AiRunTrace 中记录 Agent 决策合同失败、结构化反馈、修复尝试、熔断和最终收口来源，使开发者能复盘模型如何基于错误修正。
+
+#### Scenario: 生成 AgentDecisionFeedback
+- **WHEN** runtime 将模型决策拒绝为可恢复合同失败
+- **THEN** trace MUST 记录 feedback 的稳定 code、retryable 状态、失败边界、推荐下一步工具和关键资源 id
+- **AND** trace MUST 记录原始被拒绝决策的摘要
+- **AND** trace MUST 记录 `repairTurnCount`、剩余 repair 预算和当前 `repairFeedbackCodes`
+- **AND** trace MUST NOT 暴露未授权 payload 或其他用户数据
+
+#### Scenario: 修复后成功
+- **WHEN** 模型基于 feedback 重新调用工具并最终成功
+- **THEN** trace MUST 能关联原始失败 feedback、修复工具调用、写工具结果和最终 `AgentExecutionResult`
+- **AND** trace MUST 记录最终结构化字段来自哪一个 tool result
+- **AND** trace MUST 记录 `finalProjectionSourceToolResultId` 或等价来源字段
+
+#### Scenario: 修复循环被熔断
+- **WHEN** runtime 因修复预算耗尽或重复失败停止继续修复
+- **THEN** trace MUST 记录熔断原因、预算类型、repeat count、firstToolResultId 和 latestToolResultId
+- **AND** trace MUST 记录 `fusedFailureCount` 和 `repairBudgetExhaustedReason`
+- **AND** 最终失败摘要 MUST 能被黑盒报告读取
+
+### Requirement: Trace 必须区分模型错误、合同拒绝和服务端事实收口
+系统 SHALL 在 trace phase 与 step metadata 中区分模型原始输出、runtime 合同校验、结构化反馈和服务端 final result 投影。
+
+#### Scenario: final result 被服务端投影补齐
+- **WHEN** runtime 从已登记写工具结果投影 `AgentExecutionResult.generated` 或 `patched`
+- **THEN** trace MUST 记录投影来源 tool result id
+- **AND** trace MUST 记录模型原始 final result 缺失或错误的字段
+- **AND** trace MUST 记录投影后引用校验结果
+
+#### Scenario: final result 引用未登记资源
+- **WHEN** 模型 final result 引用没有 producer 的资源 id
+- **THEN** trace MUST 记录资源 kind、资源 id、缺失 producer 的原因和是否进入可恢复 feedback
+
+#### Scenario: 黑盒报告读取修复证据
+- **WHEN** 手动 LLM 黑盒 runner 消费 Agent stream 或 trace 摘要
+- **THEN** 报告 MUST 能读取 `repairFeedbackCodes`、`repairTurnCount`、`finalProjectionSourceToolResultId`、`unregisteredResourceReferences`、`fusedFailureCount` 和 `repairBudgetExhaustedReason`
+- **AND** 报告 MUST 区分 recovered、fused、unrecoverable 和 projected 四类结果
+- **AND** 报告 MUST NOT 依赖旧 `assistant_action` 或自由文本关键字判断修复是否发生
+
+### Requirement: 新 agent-core 文本聊天必须投影 AgentRunResult trace
+系统 SHALL 将新 `agent-core` 文本聊天运行产生的 `AgentRunResult.traceEvents` 投影到开发态 `AiTrace`。投影 MUST 使用字段白名单、脱敏和截断，不得把完整 tool output、secret、cookie、authorization 或跨用户 payload 写入 trace。
+
+#### Scenario: Agent run 输入被记录
+- **WHEN** `/api/chat` 构造 `AgentRunInput` 并进入文本聊天 runtime
+- **THEN** trace MUST 记录 `runId`、当前 `userId`、`conversationId`、`responseMessageId`、最新用户消息摘要和 hydration 摘要
+- **AND** trace MUST 记录当前 registry 为空或等价 tool count
+- **AND** trace MUST NOT 记录认证 cookie、API key、authorization header 或未经摘要的大 payload
+
+#### Scenario: runtime traceEvents 被记录
+- **WHEN** `runAgentRuntime()` 返回 `AgentRunResult`
+- **THEN** trace MUST 记录 `registry_snapshot`、`budget_event`、`planner_action`、`validation_result`、`terminal_grounding`、`policy_decision`、`resource_registered` 或等价 runtime event 的安全摘要
+- **AND** 每个 runtime event 摘要 MUST 保留 event type、step、action type、toolName、budget、status、code 或可诊断 id 中适用的字段
+- **AND** trace MUST NOT 通过用户文本或 step title 推断不存在的 tool 消费关系
+
+#### Scenario: terminal action 和错误被记录
+- **WHEN** `AgentRunResult` 以 completed、needs_input、requires_confirmation 或 failed 结束
+- **THEN** trace MUST 记录 runtime status、terminal action type、terminal error code、steps 和 replay summary 中的安全摘要
+- **AND** failed trace MUST 能定位失败边界是配置、planner、runtime validation、budget、unknown tool 还是 response projection
+
+#### Scenario: 响应投影被记录
+- **WHEN** 系统将 `AgentRunResult` 投影为 NDJSON 事件
+- **THEN** trace MUST 记录真实返回事件的类型列表、最终文本摘要、建议回复数量、错误 code 和 `done` 是否输出
+- **AND** trace 中的响应摘要 MUST 来自同一份即将返回给前端的事件数组
+
+#### Scenario: trace 字段超出预算
+- **WHEN** trace input、output、metadata 或 error 字段包含长文本或大对象
+- **THEN** 系统 MUST 截断或摘要化该字段
+- **AND** trace MUST 保留足够定位问题的 code、id、状态和摘要信息
+
+### Requirement: 文本聊天 trace 必须证明旧路径未参与
+系统 SHALL 在新 `agent-core` 文本聊天 trace 中记录当前生产链路边界，证明旧 intent-first、旧只读 tool loop、旧 `agent-orchestrator` 和旧兼容事件没有参与本轮执行。
+
+#### Scenario: 文本聊天 trace 标记当前链路
+- **WHEN** `/api/chat` 完成一次文本聊天 run
+- **THEN** trace MUST 记录本轮使用的是 `agent-core` 文本聊天接入、空 `ToolRegistry` 和默认 Response Renderer
+- **AND** trace MUST 标记旧 `agent-orchestrator`、旧 `assistant_action`、旧 `intent_resolved` 和旧业务 card event 未参与当前响应
+
+#### Scenario: 架构扫描验证旧路径缺席
+- **WHEN** 本 change 完成实现
+- **THEN** 自动化测试 MUST 证明 `/api/chat` 和文本聊天接入服务没有导入旧 `agent-orchestrator`
+- **AND** 自动化测试 MUST 证明 route 没有通过关键词、正则、同义词或业务 toolName 分支选择执行路径
+
+### Requirement: 新 agent-core trace 必须记录 Planner / ModelAdapter 调用
+系统 SHALL 为新 `agent-core` 文本聊天中的每一次 `LlmPlanner` 模型调用记录可复盘的安全摘要。该摘要 MUST 能说明本次 LLM 看到了什么、返回了什么、解析成了什么 action、消耗了多少 token，以及失败发生在哪个模型调用边界。
+
+#### Scenario: 发送模型请求
+- **WHEN** `LlmPlanner` 调用 `ModelAdapter.completeAction()` 生成下一步 `AgentAction` candidate
+- **THEN** trace MUST 记录 `model_request` step 或等价模型请求事件
+- **AND** step MUST 包含 runId、planner call index、runtime step、model、response_format、temperature、max_tokens、messages 摘要和 manifest/tool count
+- **AND** step MUST 包含模型可见的 user payload 摘要，包括 latest user message、registered tools、observations、toolResults、remaining limits 或等价字段
+- **AND** step MUST NOT 记录 API key、authorization、cookie、跨用户 payload、完整 tool output 或未经摘要的大 payload
+
+#### Scenario: 收到模型响应
+- **WHEN** `ModelAdapter.completeAction()` 收到模型响应并完成解析
+- **THEN** trace MUST 记录 `model_response` step 或等价模型响应事件
+- **AND** step MUST 包含 model、status、raw text 摘要、parsed JSON/action 摘要、action type、toolName、parse status、failure code 和 diagnostics 中适用的字段
+- **AND** step MUST 包含真实 `tokenUsage.prompt_tokens`、`tokenUsage.completion_tokens`、`tokenUsage.total_tokens` 或等价 usage 摘要
+- **AND** step MUST 能区分 HTTP 错误、空 content、invalid_json、invalid_action_schema、timeout 和 adapter exception
+
+#### Scenario: 模型响应进入 runtime 校验
+- **WHEN** `LlmPlanner` 将 action candidate 返回给 runtime
+- **THEN** trace MUST 能通过 planner call index、runtime step 或 action trace id 关联模型响应、`planner_action`、`validation_result` 和最终 runtime status
+- **AND** 如果 Action Validator 拒绝该 action，trace MUST 保留模型输出摘要和 validator code
+
+### Requirement: Trace 必须区分真实 token usage 和预算估算
+系统 SHALL 同时记录模型供应商返回的真实 token usage 与 runtime 调用前的预算估算，并在字段名和展示语义上明确区分两者。
+
+#### Scenario: 模型返回 usage
+- **WHEN** DeepSeek 或其他 ModelAdapter 返回 usage
+- **THEN** trace MUST 将 usage 归一化为 `prompt_tokens`、`completion_tokens`、`total_tokens`
+- **AND** trace MUST 将该 usage 关联到对应 `model_response` step
+- **AND** trace MUST 将全链路模型 usage 汇总到 trace overview 可读取位置
+
+#### Scenario: runtime 使用估算 token 预算
+- **WHEN** runtime 在调用 Planner 前计算 `estimated_tokens` budget event
+- **THEN** trace MUST 保留该预算估算事件
+- **AND** trace MUST NOT 将预算估算展示或导出为真实模型 token usage
+- **AND** 如果请求因估算预算耗尽而未调用模型，trace MUST 显示真实 usage 不存在且失败边界为预算控制
+
+### Requirement: Trace 导出必须保留模型调用诊断详情
+系统 SHALL 在保存全链路 log 时保留比页面默认展示更完整的脱敏模型调用诊断详情。
+
+#### Scenario: 保存包含模型调用的全链路 log
+- **WHEN** 开发者在 `/dev/ai-traces` 保存包含 `model_request` 和 `model_response` 的 trace
+- **THEN** `codex_logs/ai_trace_log.js` MUST 包含每次模型调用的 request config、messages 摘要、raw model text 摘要、parsed action、diagnostics、token usage 和 runtime linkage
+- **AND** 保存内容 MUST 包含 Raw trace payload 或等价脱敏原始入口
+- **AND** 保存内容 MUST NOT 包含 API key、authorization、cookie、完整敏感 payload、跨用户 payload 或完整 tool output
+
+### Requirement: 新 agent-core trace 必须记录 tool 执行事件
+系统 SHALL 为每一次通过 Runtime / Executor 执行的 Agent tool 记录通用 `tool_execution` trace event，作为模型决策、执行结果、资源登记和最终回答之间的可复盘证据。
+
+#### Scenario: 记录成功 tool 执行
+- **WHEN** Runtime 校验 `tool_call`、Policy Guard 允许执行，并完成 `executeTool()`
+- **THEN** trace MUST 记录 `tool_execution` event
+- **AND** event MUST 包含 `step`、`toolName`、`toolVersion`、`toolCallId`、`toolResultId`、`normalizedInputHash`、`inputSummary`、`ok`、`satisfied`、`fulfillment`、`projectionSummary`、`startedAt`、`completedAt` 和 `durationMs`
+- **AND** event MUST 关联 produced / consumed resource refs（如果存在）
+- **AND** event MUST NOT 包含完整 handler output、未脱敏敏感字段、数据库内部对象或 API credential
+
+#### Scenario: 记录失败 tool 执行
+- **WHEN** `executeTool()` 返回失败、output schema 校验失败、handler 失败、timeout、abort 或 resource contract validation 失败
+- **THEN** trace MUST 记录 `tool_execution` event
+- **AND** event MUST 包含失败后的最终 `toolResultId`、`toolName`、`ok = false`、`satisfied = false`、`failureCode` 和已脱敏错误摘要
+- **AND** event MUST 保留 input hash 和 input summary，便于判断是否是重复输入或 schema 边界问题
+
+#### Scenario: 重复失败熔断不再次调用 handler
+- **WHEN** Runtime 因重复非重试 tool 失败触发 duplicate failure fuse
+- **THEN** trace MUST 记录 `tool_execution` event
+- **AND** event MUST 标记该结果来自 duplicate failure fuse 或等价 reason
+- **AND** event MUST NOT 伪装为 handler 已重新执行
+
+#### Scenario: confirmation resume 执行 tool
+- **WHEN** confirmation resume 读取服务端保存的 pending `tool_call` 并执行 tool
+- **THEN** trace MUST 记录 `tool_execution` event
+- **AND** event MUST 使用服务端 pending action 的 input summary，而不是客户端重传的新 input
+

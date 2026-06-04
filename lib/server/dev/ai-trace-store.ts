@@ -11,11 +11,8 @@ export type AiRunFinalDecision = {
 
 export type AiTraceStepType =
   | "user_input"
-  | "agent_context"
-  | "agent_tool_decision"
-  | "agent_tool_result"
-  | "agent_final_result"
   | "token_budget"
+  | "runtime_event"
   | "model_request"
   | "model_response"
   | "intent"

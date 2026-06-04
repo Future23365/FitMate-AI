@@ -207,15 +207,15 @@ Zod 用于在服务端再次校验模型输出，避免模型生成不可执行�
 理解用户 → 查询动作 → 生成计划 → 校验计划 → 保存计划
 ```
 
-当前 `/api/chat` 主链已经切换为 Tool-first `AgentOrchestrator`。服务端先构造 `ContextPackage`，其中包含最新用户消息、真实 recent messages、recent artifact 摘要、用户记忆和 provenance；LLM 只能通过统一 `AgentToolRegistry` 调用受控工具读取 artifact payload、查询动作、提出 `WorkoutEditPlan`、生成 draft、校验、评估 Policy 和保存 revision。`conversationSummary` 降级为后台摘要、标题或调试材料，不再是 Agent 执行事实源。
+当前 `/api/chat` 已恢复新 `agent-core` 文本聊天执行能力。Route Handler 仍只做本地匿名鉴权、请求体验证、已保存会话读取和历史 hydration，随后进入 `createAgentTextChatResponse()`，由 `PreparedChatRequest -> AgentRunInput -> 空 ToolRegistry -> LlmPlanner + DeepSeekModelAdapter -> runAgentRuntime -> 默认 Response Renderer -> NDJSON` 完成通用文本回复、澄清建议、结构化错误和 `done` 事件输出。
 
-聊天链路不再由旧 `ResolvedChatIntent`、`assistant_action` 或 ReferenceResolver-first 分支独立触发卡片。生产执行合同是 `AgentExecutionResult`，最终回复、artifact / patch 流事件、trace 和黑盒报告都从该结果、tool results 和 dependency graph 投影。新运行不再输出 `assistant_action` / `intent_resolved`，旧事件解析只允许作为历史报告或测试夹具存在，不能反向驱动工具选择、Patch、生成或写入。
+production 文本聊天现在会在开发态写入当前用户绑定的 `AiTrace`。trace 由聊天薄接入层把 `AgentRunInput`、空 registry、`AgentRunResult.traceEvents`、runtime 终止状态和真实返回的 NDJSON 事件摘要投影为脱敏步骤；配置错误、runtime 合同失败和成功路径都会结束 trace。trace 写入失败是非致命诊断，不改变用户可见聊天响应。
 
-旧聊天 AI 独立接口已经从 active Route Handler 和前端 client 中移除。计划、routine、动作推荐和推荐刷新只能通过 `/api/chat` Agent-first stream / result 合同，或基于已存在 Agent result 的确定性分页、去重、排除已反馈动作等操作表达。
+当前阶段仍不注册动作检索、训练生成、artifact 保存、用户记忆、数据库业务查询或任何真实业务 tool。旧 Tool-first Agent 运行时、旧 tool registry、旧 Prompt、旧模型调用、旧 Response Writer、旧 Agent 活动事件、旧手动 LLM runner 和旧核心链路测试已经删除；新 `agent-core` 接入不恢复旧 `assistant_action`、旧 `intent_resolved`、旧 `agent_execution_result` 或旧 card trigger 事件。
 
-旧 `reference-resolver-service`、旧 `workout-patch-chat-service` 和旧 shared `referenceResolution` schema 也不再作为生产导出存在。artifact 引用定位和 payload 读取通过 Agent 的 `listRecentArtifacts`、`searchArtifacts`、`getArtifactPayload` 工具完成；Patch 由 `WorkoutEditPlan`、`proposeWorkoutPatch`、`validateWorkoutPatch` 和 `workout-patch-engine` 承接。
+旧 `reference-resolver-service`、旧 `workout-patch-chat-service` 和旧 shared `referenceResolution` schema 不再作为生产导出存在。artifact、memory、patch、policy 和 workout validation 等公共服务可以继续作为非 AI 领域服务保留；如果后续 AI 编排需要使用这些能力，应通过新的受控工具合同显式接入。
 
-用户反馈不再只依赖 `conversationSummary`。`UserFeedbackMemoryService` 会把“不喜欢某动作”“某动作太难”“今天不想练腿”等训练偏好、动作反馈和临时上下文写成 `UserMemory` / `UserExerciseFeedback`；Agent context builder 负责把可见记忆摘要放入 `ContextPackage`，需要完整结构化事实时必须继续通过工具读取数据库或 artifact payload。健康、疼痛、伤病或身体不适信号不再写入为训练决策约束，也不参与候选排除、计划生成或 Patch 替换拒绝；系统只保留不提供医疗诊断或治疗承诺的回复边界。
+用户反馈不再只依赖 `conversationSummary`。`UserFeedbackMemoryService` 会把“不喜欢某动作”“某动作太难”“今天不想练腿”等训练偏好、动作反馈和临时上下文写成 `UserMemory` / `UserExerciseFeedback`；需要完整结构化事实时必须读取数据库或 artifact payload。健康、疼痛、伤病或身体不适信号不再写入为训练决策约束，也不参与候选排除、计划生成或 Patch 替换拒绝；系统只保留不提供医疗诊断或治疗承诺的回复边界。
 
 动作推荐去重由服务端候选服务统一处理。`selectExerciseCandidates` 接收当前卡片、当前会话、近期推荐和未来计划等 `ExerciseExposureSource`，并结合结构化用户反馈、器械和 section 约束生成排除集合。当前卡片、`dislike`、器械不可用和 section 不合法是硬限制；近期曝光、未来过度使用和 `too_hard` 是候选不足时可放宽的软约束。健康风险、动作 `riskTags` 和 `contraindications` 不再作为排除或降级原因。每次推荐会输出 `RecommendationTrace`，记录 filters、excludedExerciseIds、excludeReasons、candidateCounts、relaxedConstraints、fallbackUsed 和 finalExerciseIds，供 AI trace 与测试复盘。
 

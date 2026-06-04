@@ -144,7 +144,7 @@ TBD - created by archiving change improve-plan-push-composition. Update Purpose 
 
 ### Requirement: 经验未明确时长期计划必须默认推送简单计划
 
-当用户提出长期、每周、多天或周期性训练计划需求，并且目标、单次时长、频率、器械或场地条件已经足够时，系统 SHALL 在经验未明确时默认按简单/新手友好的方式触发 `workout_plan`。
+当用户提出长期、每周、多天或周期性训练计划需求，并且目标、单次时长和每周频率已经足够时，系统 SHALL 在经验未明确时默认按简单/新手友好的方式触发 `workout_plan`。若用户没有提供正向可用器械或居家条件，系统 SHALL 默认按无器械 / 自重计划生成；器械或场地缺失本身不得作为阻断长期计划的核心缺失条件。
 
 #### Scenario: 用户补充无器械完成计划条件
 
@@ -155,13 +155,30 @@ TBD - created by archiving change improve-plan-push-composition. Update Purpose 
 - **AND** 动作候选状态为 `enough` 或 `limited_but_usable`
 - **THEN** 系统 MUST 触发 `workout_plan` 内部动作事件
 - **AND** 生成结果 MUST 使用简单/新手友好的周期安排、动作选择和训练量
+- **AND** 生成结果 MUST 使用无器械或自重候选边界
+
+#### Scenario: 用户未指定器械但其他计划条件足够
+
+- **WHEN** 用户提出长期计划需求
+- **AND** 对话上下文已经包含训练目标、单次训练时长和每周频率
+- **AND** 当前消息、已确认上下文和用户记忆中都没有正向可用器械或居家条件
+- **THEN** 系统 MUST 默认按无器械或自重条件触发 `workout_plan`
+- **AND** 系统 MUST NOT 因缺少器械或场地条件继续追问
+
+#### Scenario: 用户明确提供可用器械
+
+- **WHEN** 用户提出长期计划需求
+- **AND** 当前消息或已确认上下文包含正向可用器械，例如哑铃、弹力带或健身房器械
+- **AND** 训练目标、单次训练时长和每周频率已经足够
+- **THEN** 系统 MUST 使用该器械条件触发 `workout_plan`
+- **AND** 系统 MUST NOT 用默认无器械覆盖用户明确可用器械
 
 #### Scenario: 核心计划条件不足仍需追问
 
 - **WHEN** 用户提出长期计划需求
-- **AND** 目标、单次时长、每周频率、器械或场地等核心条件仍有缺失
+- **AND** 目标、单次时长或每周频率等核心条件仍有缺失
 - **THEN** 系统 MUST 继续追问缺失的核心训练条件
-- **AND** 系统 MUST NOT 仅凭默认经验触发 `workout_plan`
+- **AND** 系统 MUST NOT 仅凭默认经验或默认无器械触发 `workout_plan`
 
 ### Requirement: 长期计划校验失败必须可恢复
 
@@ -238,3 +255,4 @@ TBD - created by archiving change improve-plan-push-composition. Update Purpose 
 - **WHEN** assistant 文本中出现 `workout_plan_trigger` 或历史遗留 plan trigger JSON
 - **THEN** 前端新流 MUST NOT 解析该文本来触发长期计划卡片
 - **AND** 长期计划卡片 MUST 只由 Agent stream/result 合同触发
+

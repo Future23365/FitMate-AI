@@ -2,29 +2,25 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { requestChatStream } from "@/features/chat/api/chat-client";
 import {
-  createInitialVisibleAgentActivity,
-  createWritingReplyAgentActivity,
-  reduceAgentActivity,
-  reduceVisibleAgentActivity,
-  shouldClearAgentActivityForStreamEvent,
-  type VisibleAgentActivity,
-} from "@/features/chat/lib/agent-activity";
+  getAgentTextChatErrorMessage,
+  getAgentTextChatEventErrorMessage,
+  isAgentTextChatAbortError,
+  requestAgentTextChatResponse,
+  type AgentTextChatEvent,
+} from "@/features/chat/api/chat-client";
 import { readChatConversation, saveChatConversation } from "@/features/chat/lib/chat-history";
-import { readAssistantSuggestionsFromStreamEvent } from "@/features/chat/lib/assistant-suggestions";
-import {
-  buildClientConversationSummaryContext,
-  buildClientFitnessConversationContext,
-  initializeClientConversationSummary,
-} from "@/features/chat/lib/lightweight-conversation-context";
-import { readWorkoutPlanIntentLightweight } from "@/features/chat/lib/lightweight-workout-intent";
 import type {
   ApiChatMessage,
   ChatMessage,
-  ChatStreamEvent,
 } from "@/features/chat/types";
-import type { ConversationSummaryContext, FitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
+import {
+  buildConversationSummaryContext,
+  buildFitnessConversationContext,
+  initializeConversationSummary,
+  type ConversationSummaryContext,
+  type FitnessConversationContext,
+} from "@/lib/shared/chat/fitness-conversation-context";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
 import {
@@ -52,8 +48,52 @@ function createMessage(role: ChatMessage["role"], content: string): ChatMessage 
   };
 }
 
-function parseRecommendationIntent(intent: unknown): WorkoutPlanIntent | null {
-  return readWorkoutPlanIntentLightweight(intent);
+// applyAgentTextChatEventToAssistantMessage 是前端 NDJSON 事件到当前 assistant message 的唯一投影入口。
+export function applyAgentTextChatEventToAssistantMessage(
+  message: ChatMessage,
+  event: AgentTextChatEvent,
+): ChatMessage {
+  switch (event.type) {
+    case "content":
+      return {
+        ...message,
+        content: `${message.content}${event.content}`,
+        isReasoning: false,
+      };
+    case "assistant_suggestions":
+      return {
+        ...message,
+        suggestedReplies: event.suggestions,
+        isReasoning: false,
+      };
+    case "visible_output":
+      return {
+        ...message,
+        visibleOutputs: [
+          ...(message.visibleOutputs ?? []),
+          {
+            outputType: event.outputType,
+            schemaVersion: event.schemaVersion,
+            payload: event.payload,
+            content: event.content,
+          },
+        ],
+        isReasoning: false,
+      };
+    case "error":
+      return {
+        ...message,
+        content: message.content || getAgentTextChatEventErrorMessage(event),
+        isReasoning: false,
+      };
+    case "done":
+      return {
+        ...message,
+        isReasoning: false,
+      };
+    default:
+      return message;
+  }
 }
 
 function readThinkingEnabledPreference() {
@@ -73,7 +113,6 @@ export function useChatController() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [agentActivity, setAgentActivity] = useState<VisibleAgentActivity | null>(null);
   const [error, setError] = useState("");
   const [thinkingEnabled, setThinkingEnabled] = useState(readThinkingEnabledPreference);
   const [autoPlanGenerating, setAutoPlanGenerating] = useState<string | null>(null);
@@ -87,16 +126,12 @@ export function useChatController() {
   const [bubbleRecommendationIntents, setBubbleRecommendationIntents] = useState<Record<string, WorkoutPlanIntent>>({});
   const [bubblePlanErrors, setBubblePlanErrors] = useState<Record<string, BubblePlanError>>({});
   const [conversationContext, setConversationContext] = useState<FitnessConversationContext>(() =>
-    buildClientFitnessConversationContext([]),
+    buildFitnessConversationContext([]),
   );
   const [conversationSummary, setConversationSummary] = useState<Pick<ConversationSummaryContext, "summary">>({
     summary: "",
   });
   const skipNextAutoSaveRef = useRef(false);
-
-  function clearAgentActivity() {
-    setAgentActivity(null);
-  }
 
   useEffect(() => {
     try {
@@ -112,7 +147,6 @@ export function useChatController() {
         return;
       }
 
-      clearAgentActivity();
       const matchedConversation = await readChatConversation(id);
 
       if (!matchedConversation) {
@@ -129,11 +163,11 @@ export function useChatController() {
       setBubbleRecommendationIntents(matchedConversation.recommendationIntents ?? {});
       setConversationContext(
         matchedConversation.conversationContext ??
-          buildClientFitnessConversationContext(matchedConversation.messages),
+          buildFitnessConversationContext(matchedConversation.messages),
       );
       setConversationSummary(
         matchedConversation.conversationSummary ??
-          initializeClientConversationSummary(
+          initializeConversationSummary(
             matchedConversation.messages,
             matchedConversation.conversationContext,
           ),
@@ -148,7 +182,6 @@ export function useChatController() {
     function handleHashChange() {
       const id = window.location.hash.replace(/^#/, "");
       if (!id) {
-        clearAgentActivity();
         return;
       }
       void loadConversation(id);
@@ -163,7 +196,6 @@ export function useChatController() {
 
     function startNewConversation() {
       window.history.replaceState(null, "", window.location.pathname);
-      clearAgentActivity();
       setConversationId(null);
       setMessages([]);
       setBubblePlans({});
@@ -171,7 +203,7 @@ export function useChatController() {
       setBubblePlanExercises({});
       setBubbleExerciseRecommendations({});
       setBubbleRecommendationIntents({});
-      setConversationContext(buildClientFitnessConversationContext([]));
+      setConversationContext(buildFitnessConversationContext([]));
       setConversationSummary({ summary: "" });
       setBubblePlanErrors({});
       setAutoPlanGenerating(null);
@@ -255,8 +287,8 @@ export function useChatController() {
     const requestMessages: ApiChatMessage[] = [...messages, userMessage]
       .filter((message) => message.content.trim().length > 0)
       .map(({ role, content }) => ({ role, content }));
-    const nextConversationContext = buildClientFitnessConversationContext(requestMessages);
-    const requestSummaryContext = buildClientConversationSummaryContext({
+    const nextConversationContext = buildFitnessConversationContext(requestMessages);
+    const requestSummaryContext = buildConversationSummaryContext({
       summary: conversationSummary.summary,
       latestUserMessage: text,
     });
@@ -271,236 +303,53 @@ export function useChatController() {
     setInput("");
     setError("");
     setIsLoading(true);
-    setAgentActivity(createInitialVisibleAgentActivity());
 
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), chatRequestTimeoutMs);
 
     try {
-      const response = await requestChatStream(
-        nextConversationId,
-        assistantMessage.id,
-        requestSummaryContext.latestUserMessage,
-        requestSummaryContext.summary,
-        conversationContext,
+      await requestAgentTextChatResponse({
+        conversationId: nextConversationId,
+        responseMessageId: assistantMessage.id,
+        latestUserMessage: requestSummaryContext.latestUserMessage,
+        conversationSummary: requestSummaryContext.summary,
+        conversationContext: nextConversationContext,
         thinkingEnabled,
-        controller.signal,
-      );
-
-      if (!response.ok || !response.body) {
-        const data = (await response.json().catch(() => null)) as {
-          error?: string;
-          detail?: string;
-        } | null;
-
-        throw new Error(data?.error || "聊天请求失败，请稍后重试。");
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let fullContent = "";
-      let updatedConversationSummary = requestSummaryContext.summary;
-      let updatedConversationContext: FitnessConversationContext | null = null;
-
-      while (true) {
-        const { done, value } = await reader.read();
-
-        if (done) {
-          break;
-        }
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          if (!line.trim()) {
-            continue;
+        signal: controller.signal,
+        onEvent: (event) => {
+          if (event.type === "error") {
+            setError(getAgentTextChatEventErrorMessage(event));
+            setIsLoading(false);
           }
 
-          const streamEvent = JSON.parse(line) as ChatStreamEvent;
-
-          if (streamEvent.type === "agent_activity") {
-            setAgentActivity((current) => reduceAgentActivity(current, streamEvent));
-            continue;
+          if (event.type === "done") {
+            setIsLoading(false);
           }
 
-          if (streamEvent.type === "done") {
-            if (typeof streamEvent.conversationSummary === "string") {
-              updatedConversationSummary = streamEvent.conversationSummary;
-              setConversationSummary({ summary: updatedConversationSummary });
-            }
-            if (streamEvent.conversationContext) {
-              updatedConversationContext = streamEvent.conversationContext;
-              setConversationContext(streamEvent.conversationContext);
-            }
-            if (shouldClearAgentActivityForStreamEvent(streamEvent)) {
-              clearAgentActivity();
-            }
-            continue;
-          }
-
-          if (streamEvent.type === "error") {
-            if (shouldClearAgentActivityForStreamEvent(streamEvent)) {
-              clearAgentActivity();
-            }
-            throw new Error(streamEvent.delta || "聊天请求失败，请稍后重试。");
-          }
-
-          if (streamEvent.type === "artifact_generating") {
-            if (streamEvent.artifactKind === "exercise_recommendation") {
-              setAutoRecommendationGenerating(assistantMessage.id);
-            } else {
-              setAutoPlanGenerating(assistantMessage.id);
-            }
-            continue;
-          }
-
-          if ((streamEvent.type === "artifact" || streamEvent.type === "artifact_validated") && streamEvent.payload) {
-            if (streamEvent.artifactKind === "exercise_recommendation" && "items" in streamEvent.payload) {
-              setBubbleExerciseRecommendations((prev) => ({
-                ...prev,
-                [assistantMessage.id]: streamEvent.payload as ExerciseRecommendationCard,
-              }));
-              const parsedIntent = parseRecommendationIntent(streamEvent.intent);
-              if (parsedIntent) {
-                setBubbleRecommendationIntents((prev) => ({
-                  ...prev,
-                  [assistantMessage.id]: parsedIntent,
-                }));
-              }
-              setAutoRecommendationGenerating(null);
-            }
-
-            if (streamEvent.artifactKind === "routine" && "sections" in streamEvent.payload) {
-              setBubbleRoutines((prev) => ({
-                ...prev,
-                [assistantMessage.id]: streamEvent.payload as WorkoutRoutineDraft,
-              }));
-              setAutoPlanGenerating(null);
-            }
-
-            if (streamEvent.artifactKind === "plan" && "days" in streamEvent.payload) {
-              setBubblePlans((prev) => ({
-                ...prev,
-                [assistantMessage.id]: streamEvent.payload as WorkoutPlanDraft,
-              }));
-              setAutoPlanGenerating(null);
-            }
-            continue;
-          }
-
-          if (streamEvent.type === "artifact_failed") {
-            setBubblePlanErrors((prev) => ({
-              ...prev,
-              [assistantMessage.id]: {
-                message: streamEvent.guidanceMessage || streamEvent.errorCode || "生成训练内容失败，请补充条件后重试。",
-                guidanceMessage: streamEvent.guidanceMessage,
-                suggestedReplies: streamEvent.suggestedReplies ?? [],
-                recoverable: Boolean(streamEvent.recoverable),
-              },
-            }));
-            setAutoPlanGenerating(null);
-            setAutoRecommendationGenerating(null);
-            continue;
-          }
-
-          if (streamEvent.type === "workout_patch" && streamEvent.payload) {
-            if (streamEvent.artifactKind === "routine" && "sections" in streamEvent.payload) {
-              setBubbleRoutines((prev) => ({
-                ...prev,
-                [assistantMessage.id]: streamEvent.payload as WorkoutRoutineDraft,
-              }));
-            }
-
-            if (streamEvent.artifactKind === "plan" && "days" in streamEvent.payload) {
-              setBubblePlans((prev) => ({
-                ...prev,
-                [assistantMessage.id]: streamEvent.payload as WorkoutPlanDraft,
-              }));
-            }
-            continue;
-          }
-
-          if (
-            streamEvent.type === "assistant_suggestions" ||
-            streamEvent.type === "suggested_replies" ||
-            streamEvent.type === "suggested_questions"
-          ) {
-            const assistantSuggestions = readAssistantSuggestionsFromStreamEvent(streamEvent);
-
-            if (assistantSuggestions.length > 0) {
-              updateAssistantMessage(assistantMessage.id, (message) => ({
-                ...message,
-                assistantSuggestions: message.assistantSuggestions?.length
-                  ? message.assistantSuggestions
-                  : assistantSuggestions,
-                suggestedReplies: message.suggestedReplies ?? assistantSuggestions.map((suggestion) => suggestion.message),
-              }));
-            }
-            continue;
-          }
-
-          if (streamEvent.type === "reasoning") {
-            updateAssistantMessage(assistantMessage.id, (message) => ({
-              ...message,
-              isReasoning: true,
-            }));
-          }
-
-          if (streamEvent.type === "content") {
-            fullContent += streamEvent.delta ?? "";
-            setAgentActivity((current) =>
-              reduceVisibleAgentActivity(current, createWritingReplyAgentActivity(current)),
-            );
-            updateAssistantMessage(assistantMessage.id, (message) => ({
-              ...message,
-              content: `${message.content}${streamEvent.delta ?? ""}`,
-              isReasoning: false,
-            }));
-          }
-        }
-      }
-
-      updateAssistantMessage(assistantMessage.id, (message) => ({
-        ...message,
-        isReasoning: false,
-      }));
-
-      setConversationContext(
-        updatedConversationContext ??
-          buildClientFitnessConversationContext([
-            ...requestMessages,
-            { role: "assistant", content: fullContent },
-          ]),
-      );
+          updateAssistantMessage(assistantMessage.id, (message) =>
+            applyAgentTextChatEventToAssistantMessage(message, event),
+          );
+        },
+      });
     } catch (requestError) {
-      const isAbortError =
-        requestError instanceof DOMException && requestError.name === "AbortError";
+      const errorMessage = isAgentTextChatAbortError(requestError)
+        ? "聊天请求超时，请稍后重试。"
+        : getAgentTextChatErrorMessage(requestError);
 
-      setError(
-        isAbortError
-          ? "聊天请求超时，请稍后重试。"
-          : requestError instanceof Error
-            ? requestError.message
-            : "聊天请求失败，请稍后重试。",
-      );
+      setError(errorMessage);
       updateAssistantMessage(assistantMessage.id, (message) => ({
         ...message,
-        content: message.content || "请求失败，请检查网络或服务端配置后重试。",
+        content: message.content || errorMessage,
         isReasoning: false,
       }));
     } finally {
       window.clearTimeout(timeout);
       setIsLoading(false);
-      clearAgentActivity();
     }
   }
 
   return {
     autoRecommendationGenerating,
-    agentActivity,
     autoPlanGenerating,
     bubbleExerciseRecommendations,
     bubblePlanExercises,

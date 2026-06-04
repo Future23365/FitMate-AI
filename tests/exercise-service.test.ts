@@ -538,6 +538,26 @@ describe("exercise service", () => {
     });
   });
 
+  it("does not apply Agent no-equipment defaults inside the shared exercise search service", async () => {
+    await expect(
+      searchExercises({
+        operation: "build_exercise_candidate_set",
+        candidateUse: "recommendation",
+        filters: {
+          bodyRegions: ["upper_body"],
+          visibility: "published",
+        },
+        limit: 8,
+      }),
+    ).resolves.toMatchObject({
+      diagnostics: expect.objectContaining({
+        appliedFilters: expect.not.objectContaining({
+          homeRequirements: ["no_equipment"],
+        }),
+      }),
+    });
+  });
+
   it("reports invalid executable candidate facets instead of silently dropping them", async () => {
     await expect(
       searchExercises({

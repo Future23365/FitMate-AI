@@ -136,6 +136,76 @@ describe("conversation artifact service", () => {
     }));
   });
 
+  it("reuses the active artifact when the same message saves the same routine payload again", async () => {
+    const routine = createWorkoutRoutineDraft({ title: "重复训练" });
+    prismaMock.conversationArtifact.findFirst.mockResolvedValue({
+      id: "artifact-existing",
+      userId: "user-1",
+      sessionId: "chat-1",
+      messageId: "message-1",
+      kind: "routine",
+      payload: routine,
+      revision: 1,
+    });
+
+    await expect(artifactService.createOrUpdateConversationArtifact({
+      userId: "user-1",
+      sessionId: "chat-1",
+      messageId: "message-1",
+      kind: "routine",
+      payload: routine,
+    })).resolves.toMatchObject({
+      id: "artifact-existing",
+    });
+
+    expect(prismaMock.conversationArtifact.create).not.toHaveBeenCalled();
+    expect(prismaMock.conversationArtifact.update).not.toHaveBeenCalledWith(expect.objectContaining({
+      data: { status: "superseded" },
+    }));
+    expect(prismaMock.artifactIndex.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { artifactId: "artifact-existing" },
+      update: expect.objectContaining({
+        sourceMessageId: "message-1",
+      }),
+    }));
+  });
+
+  it("binds an old unbound active artifact to the current message when payload is stable", async () => {
+    const routine = createWorkoutRoutineDraft({ title: "旧未绑定训练" });
+    prismaMock.conversationArtifact.findFirst.mockResolvedValue(null);
+    prismaMock.conversationArtifact.findMany.mockResolvedValue([
+      {
+        id: "artifact-unbound",
+        userId: "user-1",
+        sessionId: "chat-1",
+        messageId: null,
+        kind: "routine",
+        payload: routine,
+        revision: 1,
+      },
+    ]);
+
+    await artifactService.createOrUpdateConversationArtifact({
+      userId: "user-1",
+      sessionId: "chat-1",
+      messageId: "message-2",
+      kind: "routine",
+      payload: routine,
+    });
+
+    expect(prismaMock.conversationArtifact.create).not.toHaveBeenCalled();
+    expect(prismaMock.conversationArtifact.update).toHaveBeenCalledWith({
+      where: { id: "artifact-unbound" },
+      data: { messageId: "message-2" },
+    });
+    expect(prismaMock.artifactIndex.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { artifactId: "artifact-unbound" },
+      update: expect.objectContaining({
+        sourceMessageId: "message-2",
+      }),
+    }));
+  });
+
   it("lists only current user's active recent artifact summaries", async () => {
     prismaMock.artifactIndex.findMany.mockResolvedValue([
       {
@@ -160,7 +230,7 @@ describe("conversation artifact service", () => {
     expect(prismaMock.artifactIndex.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { userId: "user-1", sessionId: "chat-1", status: "active" },
       orderBy: { updatedAt: "desc" },
-      take: 6,
+      take: 18,
     }));
     expect(summaries).toEqual([
       expect.objectContaining({
@@ -170,6 +240,82 @@ describe("conversation artifact service", () => {
         equipment: ["自重"],
         updatedAt: "2026-05-30T08:00:00.000Z",
       }),
+    ]);
+  });
+
+  it("deduplicates recent active summaries by source message and stable index facts", async () => {
+    prismaMock.artifactIndex.findMany.mockResolvedValue([
+      {
+        artifactId: "artifact-1-newer",
+        sessionId: "chat-1",
+        kind: "routine",
+        sourceMessageId: "assistant-1",
+        title: "训练 A",
+        summary: "30 分钟",
+        exerciseIds: ["push-up"],
+        goals: ["胸肌训练"],
+        muscles: ["胸部"],
+        equipment: ["自重"],
+        sessionMinutes: 30,
+        weeklyFrequency: null,
+        trainingDayCount: null,
+        updatedAt: new Date("2026-06-02T08:03:00.000Z"),
+      },
+      {
+        artifactId: "artifact-1-duplicate",
+        sessionId: "chat-1",
+        kind: "routine",
+        sourceMessageId: "assistant-1",
+        title: "训练 A",
+        summary: "30 分钟",
+        exerciseIds: ["push-up"],
+        goals: ["胸肌训练"],
+        muscles: ["胸部"],
+        equipment: ["自重"],
+        sessionMinutes: 30,
+        weeklyFrequency: null,
+        trainingDayCount: null,
+        updatedAt: new Date("2026-06-02T08:02:00.000Z"),
+      },
+      {
+        artifactId: "artifact-unbound-duplicate",
+        sessionId: "chat-1",
+        kind: "routine",
+        sourceMessageId: null,
+        title: "训练 A",
+        summary: "30 分钟",
+        exerciseIds: ["push-up"],
+        goals: ["胸肌训练"],
+        muscles: ["胸部"],
+        equipment: ["自重"],
+        sessionMinutes: 30,
+        weeklyFrequency: null,
+        trainingDayCount: null,
+        updatedAt: new Date("2026-06-02T08:01:00.000Z"),
+      },
+      {
+        artifactId: "artifact-2",
+        sessionId: "chat-1",
+        kind: "routine",
+        sourceMessageId: "assistant-2",
+        title: "训练 B",
+        summary: "20 分钟",
+        exerciseIds: ["squat"],
+        goals: ["腿部训练"],
+        muscles: ["腿部"],
+        equipment: ["自重"],
+        sessionMinutes: 20,
+        weeklyFrequency: null,
+        trainingDayCount: null,
+        updatedAt: new Date("2026-06-02T08:00:00.000Z"),
+      },
+    ]);
+
+    const summaries = await artifactService.listRecentArtifactSummariesForCurrentUser("chat-1");
+
+    expect(summaries.map((summary) => summary.artifactId)).toEqual([
+      "artifact-1-newer",
+      "artifact-2",
     ]);
   });
 
