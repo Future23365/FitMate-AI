@@ -22,10 +22,10 @@
 - **AND** runtime MUST NOT 为了兼容该错误而自动把数字转换为字符串后继续执行
 
 ### Requirement: 模型可见事实版本不得误导 visible output 版本
-系统 SHALL 区分服务端内部事实存储版本和模型需要输出的 visible output envelope 版本。模型可见 list/read observation 不得把内部数字事实版本以泛名 `schemaVersion` 暴露成可复制的 visible output 字段。
+系统 SHALL 区分服务端内部事实存储版本和模型需要输出的 visible output envelope 版本。模型可见 `list_recent` / `read_recent` observation 不得把内部数字事实版本以泛名 `schemaVersion` 暴露成可复制的 visible output 字段。
 
-#### Scenario: list/read observation 暴露版本信息
-- **WHEN** `readRecentVisibleTrainingProposal` list mode 或 read mode 向模型投影事实摘要
+#### Scenario: list_recent / read_recent observation 暴露版本信息
+- **WHEN** `inspectVisibleTrainingProposals` 的 `list_recent` 或 `read_recent` 向模型投影事实摘要
 - **THEN** 如模型可见内容暴露 visible output 版本，字段 MUST 使用 `visibleOutputSchemaVersion = "1"`
 - **AND** 如模型可见内容暴露事实存储版本，字段 MUST 使用 `factSchemaVersion = 1`
 - **AND** 模型可见内容 MUST 说明 `factSchemaVersion` 是服务端事实存储版本，不应复制到 `final_answer.visibleOutputs[].schemaVersion`
