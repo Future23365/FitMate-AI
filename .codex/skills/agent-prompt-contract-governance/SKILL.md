@@ -129,6 +129,18 @@ prompt 修复必须覆盖语义类别，而不是只补当前失败句子的提�
 
 这些说明必须使用中文描述业务含义；`toolName`、input/output 字段名、枚举值和 resource type 保持英文原样。
 
+### Tool 能力族可见说明
+
+新增或调整业务 tool 的模型可见说明时，不要只围绕当前用户故事写 `whenToUse` 和 examples。必须让模型看到这个 tool 的稳定能力族。
+
+检查项：
+
+- `description` 是否说明稳定资源和能力，而不是当前页面或当前流程。
+- `whenToUse` 是否覆盖同类场景，例如最近、列表、筛选、详情读取。
+- schema description 是否解释 filter、sort、limit、cursor、resource id、detailLevel 等结构化能力。
+- examples 是否至少包含当前需求和一个同类变体。
+- `whenNotToUse` 是否说明跨资源、跨权限、写操作或不可消费结果的边界。
+
 通用 Agent prompt 只写稳定编排合同；业务 tool 的专属能力写进 manifest / schema 描述 / examples，不要把单个业务 tool 的特例写成通用规则。
 
 ## 禁止项

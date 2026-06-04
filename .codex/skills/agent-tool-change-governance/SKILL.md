@@ -38,6 +38,32 @@ description: 治理 AITest 中 Agent tool 相关变更的实现前流程。用�
 
 新增业务 tool 的测试不能只证明 registry、manifest 或 schema 能暴露给模型；必须证明该 tool 在 AITest 的真实业务输入下能正确执行、拒绝、投影和留痕。
 
+#### Tool 抽象层级检查
+
+新增业务 tool 或重命名已有 tool 前，必须先做抽象层级检查，避免把 tool 建成当前业务场景的专用入口。
+
+实现前回答：
+
+- 稳定 resource type 是什么？
+- tool 的能力族是什么：query / list / read / register / validate / policy / save / update？
+- 当前需求里的限制哪些是永久能力边界，哪些只是 filter、sort、limit、cursor、detailLevel 或 resource reference？
+- 是否存在至少 2 个同类变体会自然复用这个 tool？
+- `toolName` 去掉当前场景词后是否仍然准确？
+- 这个 tool 是否和已有 tool 能力重叠？如果重叠，应优先扩展已有同类 tool 合同，而不是新增窄 tool。
+- 这个 tool 是否过度通用，跨了不同资源、权限、policy、projection 或执行副作用？如果是，应拆分。
+
+命名规则：
+
+- 优先使用稳定资源 + 能力动词，例如 `queryXxxResources`、`listXxxResources`、`readXxxResource`、`registerXxxDraft`、`validateXxxDraft`。
+- 避免把 `recent`、`current`、`latest`、`fromCard`、`forThisFlow` 等当前场景词写进 `toolName`，除非它们是不可变业务边界。
+- “最近”通常应表现为 `sortBy`、`sortDirection`、`limit` 或默认查询策略；“获取列表”通常应表现为 pagination / cursor / filters，而不是另起一个场景 tool。
+
+测试要求：
+
+- 新增或调整 tool 时，测试不能只覆盖当前业务 case。
+- 至少覆盖当前 case 和一个同类变体，例如“读取最近一条”和“分页获取列表”。
+- 如果 tool 支持筛选、排序、分页、详情级别，必须覆盖这些字段的边界。
+
 ### Agent Tool Bug 修复
 
 从证据定位，不从表面现象直接补丁：
@@ -139,8 +165,10 @@ description: 治理 AITest 中 Agent tool 相关变更的实现前流程。用�
 
 新增业务 tool 的 `tasks.md` 必须包含以下测试门禁，按真实文件名替换 `<toolName>` 和测试路径：
 
+- [ ] 完成 Tool 抽象层级检查，说明稳定 resource type、能力族、同类变体、命名理由，以及哪些需求限制应落到 filter / sort / limit / cursor / resource reference。
 - [ ] 为 `<toolName>` 新增或更新 tool-level unit tests，直接覆盖 `handler`、`executeTool` 或当前真实 runtime 执行入口。
 - [ ] 覆盖 `<toolName>` 的成功路径、schema 拒绝、领域边界、失败归一化、resource contract、projection / redaction 和 policy / permission 边界。
+- [ ] 覆盖 `<toolName>` 的同类功能变体，不能只覆盖当前业务 case；如支持筛选、排序、分页或详情级别，必须覆盖对应边界。
 - [ ] 覆盖 `<toolName>` 的模型可见描述语言，验证 `description`、`whenToUse`、`whenNotToUse`、schema description 和 examples description 默认中文。
 - [ ] 按 tool 业务职责覆盖 AITest 真实健身场景，不只使用抽象 fixture。
 - [ ] 运行 `npm test -- tests/agent-tools/<toolName>.test.ts` 或该 tool 对应的最窄测试文件。
