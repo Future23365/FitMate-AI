@@ -166,7 +166,8 @@ export async function createAgentTextChatResponse(input: CreateAgentTextChatResp
           const stage = mapRuntimeTraceEventToAgentProgressStage(event, registry);
 
           if (stage) {
-            await progressWriter.write(stage, getProgressStatusFromTraceEvent(event));
+            // 活动条只表达用户可见进度；可恢复失败保留在 trace 和最终错误事件中处理。
+            await progressWriter.write(stage);
           }
         },
       });
@@ -451,22 +452,6 @@ function isKnownAgentProgressStage(stage: string): stage is AgentProgressStage {
     "writing_reply",
     "finalizing",
   ].includes(stage);
-}
-
-function getProgressStatusFromTraceEvent(event: AgentTraceEvent): AgentProgressEvent["status"] {
-  if (event.type === "validation_result" && !event.ok) {
-    return "failed";
-  }
-
-  if (event.type === "tool_execution" && !event.ok) {
-    return "failed";
-  }
-
-  if (event.type === "budget_event" && event.status === "exhausted") {
-    return "failed";
-  }
-
-  return "active";
 }
 
 function renderAgentTextChatResponseEvents(input: {

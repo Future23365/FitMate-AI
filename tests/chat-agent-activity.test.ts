@@ -49,6 +49,25 @@ describe("Agent progress activity UI state", () => {
     expect(stale).toBe(current);
     expect(fallback.label).toBe(fallbackAgentActivityLabel);
     expect(fallback.label).not.toContain("internal_tool_stage");
+    expect(fallback.label).not.toContain("Agent 编排");
+  });
+
+  it("keeps failed progress states as neutral user-facing activity", () => {
+    const knownFailed = getAgentActivityDisplay({
+      stage: "validating_result",
+      status: "failed",
+    });
+    const unknownFailed = getAgentActivityDisplay({
+      stage: "raw_internal_failure",
+      status: "failed",
+    });
+
+    expect(knownFailed.label).toBe("正在校验训练内容...");
+    expect(knownFailed.toneClass).toBe("text-primary");
+    expect(unknownFailed.label).toBe(fallbackAgentActivityLabel);
+    expect(unknownFailed.toneClass).toBe("text-primary");
+    expect(`${knownFailed.label}${unknownFailed.label}`).not.toContain("Agent 编排");
+    expect(`${knownFailed.label}${unknownFailed.label}`).not.toContain("遇到问题");
   });
 
   it("keeps informative tool stages when dynamic loop emits generic analyzing events", () => {

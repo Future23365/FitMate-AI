@@ -17,7 +17,7 @@ export type VisibleAgentActivity = AgentProgressPayload & {
   lastSequence: number;
 };
 
-export const fallbackAgentActivityLabel = "正在推进 Agent 编排...";
+export const fallbackAgentActivityLabel = "正在处理请求...";
 export const visibleAgentActivityMinimumMs = 1_000;
 export const genericAgentActivityCooldownMs = 2_500;
 
@@ -232,14 +232,6 @@ export function shouldClearAgentActivityForStreamEvent(event: AgentTextChatEvent
 export function getAgentActivityDisplay(
   activity: Pick<AgentProgressPayload, "stage" | "status">,
 ): AgentActivityDisplay {
-  if (activity.status === "failed") {
-    return {
-      label: "Agent 编排遇到问题，正在整理可恢复结果...",
-      icon: "warning",
-      toneClass: "text-error",
-    };
-  }
-
   if (typeof activity.stage === "string" && isKnownAgentProgressStage(activity.stage)) {
     return agentActivityDisplayByStage[activity.stage];
   }

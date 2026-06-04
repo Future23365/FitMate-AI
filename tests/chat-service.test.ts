@@ -1809,7 +1809,9 @@ describe("chat service agent text flow boundary", () => {
       currentUser: { id: "user-1" },
       planner,
     });
-    const events = await readNdjsonEvents(response);
+    const rawEvents = await readNdjsonEvents(response, { includeProgress: true });
+    const events = rawEvents.filter((event) => event.type !== "agent_progress");
+    const progressEvents = rawEvents.filter((event) => event.type === "agent_progress");
 
     expect(planner.calls[0].manifests.map((manifest) => manifest.name)).toEqual(productionToolNames);
     expect(events).toEqual([
@@ -1826,6 +1828,10 @@ describe("chat service agent text flow boundary", () => {
     expect(JSON.stringify(events)).not.toContain("直接生成、保存或执行训练计划");
     expect(JSON.stringify(events)).not.toContain("Agent runtime reached the invalid action repair limit.");
     expect(JSON.stringify(events)).not.toContain("Tool \"searchExercises\" is not registered.");
+    expect(progressEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "agent_progress", stage: "validating_result", status: "active" }),
+    ]));
+    expect(JSON.stringify(progressEvents)).not.toContain("\"failed\"");
     expect(listAiTracesForUser("user-1")[0]).toMatchObject({
       status: "failed",
       finalDecision: {
