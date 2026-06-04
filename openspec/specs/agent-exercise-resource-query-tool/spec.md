@@ -21,15 +21,17 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 - **AND** 工具结果 MUST NOT 产出 `candidate_set` resource
 
 ### Requirement: `searchExerciseResources` 输入必须只包含动作列表结构化筛选字段
-系统 SHALL 使用严格 input schema 约束 `searchExerciseResources` 入参，字段范围必须对齐当前动作列表查询和 `Exercise` 模型可确定性执行的筛选字段，并区分高层身体区域与真实肌群 facet。刷新场景 MAY 通过 `excludeExerciseIds` 排除指定发布态动作 id。
+
+系统 SHALL 使用严格 input schema 约束 `searchExerciseResources` 入参，字段范围必须对齐当前动作列表查询和 `Exercise` 模型可确定性执行的筛选字段，并区分高层身体区域与真实肌群 facet。刷新场景 MAY 通过 `excludeExerciseIds` 排除指定发布态动作 id；点名动作已解析为数据库 id 后，MAY 通过 `requiredExerciseIds` 请求返回列表优先包含这些动作。
 
 #### Scenario: 合法结构化查询
 - **WHEN** 模型调用 `searchExerciseResources`
-- **THEN** input schema MUST 只允许 `q`、`category`、`suitability`、`level`、`force`、`mechanic`、`equipment`、`homeRequirement`、`muscle`、`bodyRegions`、`goalTag`、`riskTag`、`published`、`sort` 和 `excludeExerciseIds`
-- **AND** `suitability` MUST 只允许 `warmup`、`training` 或 `stretch`
+- **THEN** input schema MUST 只允许 `q`、`category`、`suitabilities`、`level`、`force`、`mechanic`、`equipment`、`homeRequirement`、`muscle`、`bodyRegions`、`goalTag`、`riskTag`、`published`、`sort`、`excludeExerciseIds` 和 `requiredExerciseIds`
+- **AND** `suitabilities` MUST 只允许 `warmup`、`training` 或 `stretch`
 - **AND** `bodyRegions` MUST 只允许 `upper_body`、`lower_body`、`core` 或 `full_body`
 - **AND** `sort` MUST 只允许 `name_asc`、`name_desc`、`level_asc`、`level_desc`、`category_asc` 或 `category_desc`
 - **AND** `excludeExerciseIds` MUST 是去重后的动作 id 数组，并且数量 MUST 有服务端上限
+- **AND** `requiredExerciseIds` MUST 是去重后的动作 id 数组，并且数量 MUST 有服务端上限
 - **AND** 缺省 `sort` MUST 为 `name_asc`
 - **AND** 缺省发布态口径 MUST 为 `published = true`
 
@@ -49,6 +51,12 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 - **THEN** repository 查询 MUST 在数据库层排除这些动作 id
 - **AND** 被排除动作 MUST NOT 出现在 `exercises` 输出中
 - **AND** `appliedFilters` 或等价查询摘要 MUST 能记录本次存在排除条件，但不得泄漏不该展示的完整历史 payload
+
+#### Scenario: 优先包含指定动作 id
+- **WHEN** `searchExerciseResources` 收到合法 `requiredExerciseIds`
+- **THEN** handler MUST 尝试将这些发布态动作优先纳入对应 `groups.<section>.exercises` 列表
+- **AND** 被纳入的指定动作 MUST 使用与普通动作相同的动作摘要结构
+- **AND** tool MUST NOT 为指定动作新增 `requiredMatches`、`supplementalMatches` 或其他并行顶层结果字段
 
 #### Scenario: 拒绝消费侧和分页字段
 - **WHEN** 模型调用 `searchExerciseResources` 时传入未知字段、`purpose`、`candidateUse`、`allowedExerciseIds`、`injuryLimitations`、`requiresNoEquipment`、`resultRequirements`、`rankingHints`、`limit`、`offset`、`page` 或 `pageSize`
@@ -114,7 +122,7 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 - **AND** trace MUST NOT 记录完整 handler output、数据库连接对象、secret、跨用户 payload 或未经摘要的大 payload
 
 ### Requirement: `searchExerciseResources` 模型可见说明必须表达业务边界
-系统 SHALL 在 tool manifest、schema 描述或 examples 中为模型提供 `searchExerciseResources` 的使用边界，且不得把该 tool 的业务特例写入通用 Agent prompt。
+系统 SHALL 在 tool manifest、schema 描述、examples 或 observation 中为模型提供 `searchExerciseResources` 的使用边界，且不得把该 tool 的业务特例写入通用 Agent prompt。该边界 SHALL 表达 tool 提供发布态动作事实原料，而不是最终训练方案生成器。
 
 #### Scenario: Manifest 说明何时使用和何时不用
 - **WHEN** Agent 构造 Planner 可见 tool manifest
@@ -124,9 +132,12 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 - **AND** 模型可见说明 MUST 表达 `excludeExerciseIds` 只用于排除用户已看到或用户明确要求排除的动作 id
 - **AND** 模型可见说明 MUST 表达“再推荐一批 / 换一批”应尽量基于当前 run 已恢复的用户可见动作事实填充排除 id
 - **AND** 模型可见说明 MUST 表达未展示给用户的内部候选或未读取完整事实不得被默认排除
-- **AND** 模型可见说明 MUST 表达它不适用于生成训练、保存结果、读取单个动作完整详情、解析唯一动作名、统计全库 facet 或构建 routine / plan / patch 候选集合
-- **AND** 模型可见说明 MUST 表达成功且 `satisfied=true` 的结果可以通过 `usedToolResultIds` 支撑普通 `final_answer`
-- **AND** 模型可见说明 MUST 表达 failed、非法输入或 `satisfied=false` 结果不能支撑成功动作推荐
+- **AND** 模型可见说明 MUST 表达该 tool 返回的 `groups.<section>.exercises[*].exerciseId` 在 `fulfillment.satisfied = true` 时可作为 `visibleTrainingProposal.exerciseItems[*].exerciseId` 的受控动作事实来源
+- **AND** 模型可见说明 MUST 表达该 tool 本身不生成最终 `visibleTrainingProposal`、`routine`、`plan`、`patch`、`prescription`、`schedule`、训练卡片、保存结果或用户记忆
+- **AND** 模型可见说明 MUST 表达最终训练输出只能由 `final_answer.visibleOutputs[]` 承载
+- **AND** 模型可见说明 MUST 表达 failed、非法输入或 `satisfied=false` 结果不能支撑成功动作推荐或训练方案
+- **AND** 模型可见说明 MUST NOT 把自然语言短语写成固定 `payload.kind` 选择规则
+- **AND** 模型可见说明 MUST NOT 要求固定 tool 调用次数或固定 tool 调用顺序
 - **AND** 通用 Agent prompt MUST NOT 新增 `searchExerciseResources` toolName 特例或服务端关键词路由规则
 
 ### Requirement: `searchExerciseResources` 必须具备 tool-level 验证
@@ -169,4 +180,89 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 - **THEN** route、handler、renderer 和 Agent core MUST NOT 根据用户原文选择 `inspectVisibleTrainingProposals` 或 `searchExerciseResources`
 - **AND** Planner MUST remain responsible for choosing tools based on visible manifest, context, observations and tool results
 - **AND** tests MUST prove no new keyword, regex, synonym table or fixed phrase routing is introduced for refresh-like expressions
+
+### Requirement: `searchExerciseResources` 模型观察必须表达动作事实可组合边界
+系统 SHALL 让 `searchExerciseResources` 的模型可见 observation 表达当前 tool result 提供了哪些动作事实、这些事实可如何被最终输出引用，以及哪些字段不是 tool result 自带的最终训练结构。
+
+#### Scenario: Observation 表达可用动作事实
+- **WHEN** `searchExerciseResources` 执行成功并进入下一轮 Planner 输入
+- **THEN** 模型可见 observation MUST 表达当前结果提供动作事实原料
+- **AND** 模型可见 observation MUST 表达 `groups.<section>.exercises[*].exerciseId` 可作为 `visibleTrainingProposal.exerciseItems[*].exerciseId` 的事实来源
+- **AND** 模型可见 observation MUST 表达当前结果只覆盖实际返回的 section
+- **AND** 模型可见 observation MUST NOT 将 tool result 表达为已经生成的最终 `visibleTrainingProposal`
+
+#### Scenario: Observation 表达结构缺口
+- **WHEN** 模型可见 observation 描述 `searchExerciseResources` 的结果边界
+- **THEN** observation MUST 表达 `prescription`、`schedule` 和最终 `payload.kind` 不是该 tool 的输出事实
+- **AND** observation MUST 表达如果模型选择输出的最终结构需要当前 observation 未提供的 section 或字段，模型应基于可见事实自主决定继续调用 tool、澄清或输出当前事实可支撑的结构
+- **AND** observation MUST NOT 要求模型按照固定调用顺序继续调用 tool
+
+### Requirement: `searchExerciseResources` examples 必须展示查询能力而非意图分类
+系统 SHALL 将 `searchExerciseResources` examples 限定为合法结构化查询输入示例，避免把 examples 变成自然语言意图到输出结构的固定映射。
+
+#### Scenario: Examples 只描述 tool 输入
+- **WHEN** Agent 序列化 `searchExerciseResources` examples 给 Planner
+- **THEN** examples MUST 展示如何填写结构化查询字段，例如 `suitabilities`、`equipment`、`homeRequirement`、`level`、`bodyRegions`、`requiredExerciseIds` 或 `excludeExerciseIds`
+- **AND** examples MUST 使用符合当前 schema 的 input
+- **AND** examples MUST NOT 说明用户出现某个固定短语时必须选择某个 `visibleTrainingProposal.payload.kind`
+- **AND** examples MUST NOT 承诺 tool 自己会生成最终训练方案、处方、日程或保存结果
+
+### Requirement: `searchExerciseResources` 模型可见说明必须表达 group 与 section 的对应关系
+系统 SHALL 在 `searchExerciseResources` 的模型可见 manifest、schema description、examples 或等价 output 说明中表达 `groups.<section>` 的分组语义。说明 MUST 明确 `groups.<section>.exercises[]` 是该查询结果中对应 section 的动作事实来源，`visibleTrainingProposal.exerciseItems[*].section` 应与使用的 group key 和动作 `allowedSections` 保持一致。说明 MUST 使用中文描述业务含义，`groups`、`section`、`visibleTrainingProposal`、`exerciseItems`、`allowedSections` 等技术标识保持英文原样。
+
+#### Scenario: manifest 表达 groups section 语义
+- **WHEN** production registry 序列化 `searchExerciseResources` manifest
+- **THEN** manifest 中的 `whenToUse`、`whenNotToUse`、schema description 或 examples description MUST 表达 `groups.<section>` 与 `visibleTrainingProposal.exerciseItems[*].section` 的对应关系
+- **AND** manifest MUST 表达 `allowedSections` 是动作可进入哪些 section 的动作事实字段
+- **AND** manifest MUST NOT 要求 Planner 在特定失败或缺口下必须调用某个固定 tool
+- **AND** manifest MUST NOT 将 `searchExerciseResources` 描述成 routine、plan、patch、训练卡片或保存工具
+
+### Requirement: `searchExerciseResources` model observation 必须包含短 `groupSemantics`
+系统 SHALL 在 `searchExerciseResources` 成功结果的模型可见 observation 中加入短小 `groupSemantics` 摘要，用于解释当前 observation 的 `groups.<section>` 分组含义。`groupSemantics` MUST 只解释已有 `groups` 结构，不得复制动作列表、不得新增重复证据表、不得注册 resource，也不得改变 handler output 合同。
+
+#### Scenario: observation 投影包含 groupSemantics
+- **WHEN** `searchExerciseResources` 执行成功并进入下一轮 Planner 输入
+- **THEN** model observation MUST 包含 `groupSemantics`
+- **AND** `groupSemantics` MUST 表达 `groups.<section>.exercises[]` 中的动作是该 section 分组下返回的动作事实
+- **AND** `groupSemantics` MUST 表达生成 `visibleTrainingProposal.exerciseItems[]` 时 `section` 与使用的 `groups.<section>` 和动作 `allowedSections` 之间存在事实对应关系
+- **AND** `groupSemantics` MUST NOT 包含完整 handler output、完整数据库对象、secret 或跨用户 payload
+
+#### Scenario: observation 不新增重复证据表
+- **WHEN** `searchExerciseResources` model observation 生成 `groupSemantics`
+- **THEN** observation MUST NOT 新增 `sectionEvidence`、`exerciseSectionEvidence`、`visibleTrainingProposalEvidence` 或等价重复动作证据表
+- **AND** observation MUST NOT 复制 `groups.<section>.exercises[]` 中的 `exerciseId` 列表到第二套证据结构
+- **AND** observation MUST NOT 产出 `candidate_set` resource 或其他训练生成消费 resource
+
+### Requirement: `searchExerciseResources` 必须用现有列表结构返回 requiredExerciseIds
+
+系统 SHALL 在不改变 `searchExerciseResources` 输出主结构的前提下支持 `requiredExerciseIds`。指定动作成功纳入时 MUST 出现在现有 `groups.<section>.exercises` 数组中；无法纳入时 MUST 通过现有 `diagnostics` 说明原因。
+
+#### Scenario: requiredExerciseIds 纳入现有 exercises 列表
+- **WHEN** `searchExerciseResources` 输入包含 `requiredExerciseIds = ["Pushups", "Bodyweight_Squat", "Plank"]`
+- **AND** 这些动作存在、发布态可用且适配目标 section
+- **THEN** output MUST 继续使用 `groups.<section>.exercises`
+- **AND** 对应动作 MUST 出现在该数组中
+- **AND** output MUST NOT 新增 `requiredMatches`、`supplementalMatches`、`selectedRequiredExercises` 或等价并行动作列表字段
+
+#### Scenario: requiredExerciseIds 与筛选条件不完全一致
+- **WHEN** 某个 required exercise 与 `q`、`level`、`equipment`、`homeRequirement`、`bodyRegions`、`muscle` 或其他筛选字段不完全一致
+- **THEN** tool MUST 在 `diagnostics` 中返回稳定 code 和有限说明
+- **AND** diagnostics MUST 包含相关 `exerciseId` 和冲突字段摘要
+- **AND** tool MUST NOT 通过服务端自然语言判断替模型决定是否放弃该用户点名动作
+
+#### Scenario: requiredExerciseIds 无法纳入
+- **WHEN** 某个 required exercise 不存在、未发布、被排除或不能用于目标 section
+- **THEN** tool MUST 不把该动作放入 `groups.<section>.exercises`
+- **AND** tool MUST 在 `diagnostics` 中返回稳定 code，例如 `required_exercise_not_found`、`required_exercise_unpublished`、`required_exercise_excluded` 或 `required_exercise_section_conflict`
+- **AND** 模型 MAY 基于该诊断澄清、放宽条件重查或解释当前无法包含该动作
+
+### Requirement: `searchExerciseResources` 必须具备 requiredExerciseIds 回归验证
+
+系统 SHALL 更新 `searchExerciseResources` 的 tool-level tests、manifest / contract tests 和生产聊天回归，覆盖 required exercise id 与普通列表查询混合使用的场景。
+
+#### Scenario: requiredExerciseIds 测试覆盖多点名动作链路
+- **WHEN** 本 change 完成实现
+- **THEN** 测试 MUST 覆盖从 `resolveExerciseResourceMentions` 得到 `俯卧撑`、`深蹲`、`平板支撑` 的 exerciseId 后传入 `searchExerciseResources.requiredExerciseIds`
+- **AND** 测试 MUST 证明返回主结构仍为 `groups.<section>.exercises`
+- **AND** 测试 MUST 覆盖指定动作缺失、section 冲突、被排除、筛选条件不完全一致和 projection / redaction 边界
 
