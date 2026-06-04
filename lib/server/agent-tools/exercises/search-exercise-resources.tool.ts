@@ -150,18 +150,21 @@ type SuitabilityGroupOutput = z.infer<typeof suitabilityGroupSchema>;
 export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInput, SearchExerciseResourcesOutput>({
   name: "searchExerciseResources",
   version: "0.4.0",
-  description: "按结构化筛选条件查询发布态动作库，并按 suitabilities 分组返回安全动作摘要；totalMatches=0 也是已完成的事实查询结果，不是数据库失败。input 只接受筛选字段和受控排除字段；maxReturned、returnedCount、totalMatches、truncated 等只属于 output summary，不是可传入 input。",
+  description: "按结构化筛选条件查询发布态动作库，并按 suitabilities 分组返回安全动作摘要；不查询当前会话是否已有 visibleTrainingProposal。totalMatches=0 也是已完成的事实查询结果，不是数据库失败。",
   whenToUse: [
     "当用户需要一组符合明确结构化事实的发布态动作时使用，例如 bodyRegions、真实肌群 facet、器械、难度、居家条件、目标标签、风险标签、分类，或 suitabilities 指定的 warmup/training/stretch 用途。",
+    "如果需要确认当前会话是否存在可引用 visibleTrainingProposal，先使用 inspectVisibleTrainingProposals(operation = \"list_recent\")；如果需要复用具体上一轮方案，先使用 inspectVisibleTrainingProposals(operation = \"read_recent\") 导入当前 run。",
+    "用户明确提出新的动作查询目标、结构化筛选条件或普通动作事实问题时，可以直接调用 searchExerciseResources，不需要强制先 inspectVisibleTrainingProposals。",
     "只推荐一批动作时通常查询 suitabilities = [\"training\"] 或省略 suitabilities；返回的 exerciseId 可写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal.payload.exerciseItems。",
     "需要一次可执行编排时，先确定 training 主训练动作；再围绕这些主训练动作和用户目标查询 suitabilities = [\"warmup\", \"stretch\"] 补充热身和拉伸候选。",
     "宽泛身体区域必须使用 bodyRegions：上肢用 upper_body，腿部或下肢用 lower_body，核心用 core，全身用 full_body。",
-    "excludeExerciseIds 只能填写用户已经看到或明确要求排除的动作；如果来自上一轮方案，应从 recentVisibleTrainingProposals 或 visible_training_proposal_fact 中复制真实 exerciseId，不要从未展示的内部候选中填充。",
+    "excludeExerciseIds 只能填写用户已经看到或明确要求排除的动作；如果来自上一轮方案，应先通过 inspectVisibleTrainingProposals(operation = \"read_recent\") 导入 visible_training_proposal_fact 后复制真实 exerciseId，不要从未展示的内部候选或 list_recent 索引中填充。",
     `精确筛选必须使用真实 facet 值。${levelFacetDescription} ${equipmentFacetDescription} ${homeRequirementFacetDescription}`,
     "查询成功且 satisfied=true 的结果，包括 totalMatches=0 的结果，可以在同一 run 通过 final_answer.usedToolResultIds 支撑普通事实回答；训练推送事实必须写入 final_answer.visibleOutputs[]，不要只写正文。",
   ].join(" "),
   whenNotToUse: [
     "不要用它生成 visibleTrainingProposal、routine、plan、patch、prescription、schedule、训练卡片、保存 artifact、用户记忆或执行候选集合。",
+    "不要用它判断当前会话有没有上一轮 visibleTrainingProposal、列出 factRef/messageId、读取完整 visibleTrainingProposal.payload，或替代 inspectVisibleTrainingProposals 的 list_recent / read_recent 事实查询。",
     "不要把 0 条事实查询结果当作 visibleTrainingProposal、routine、plan、训练卡片或推荐候选集合的消费证据；模型应基于 diagnostics 选择重查、澄清或失败收口。",
     "不要用它查询未发布动作、单个动作详情、唯一动作名解析、全库 facet 统计、分页或语义向量检索。",
     "不要传入 maxReturned、returnedCount、totalMatches、truncated、limit、take、offset、page 或 pageSize；这些不是 input 字段。",

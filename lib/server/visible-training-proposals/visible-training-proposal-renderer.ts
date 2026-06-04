@@ -36,6 +36,7 @@ const groupedSearchOutputSchema = z.object({
 
 const visibleFactOutputSchema = z.object({
   status: z.literal("succeeded"),
+  operation: z.literal("read_recent"),
   fact: z.object({
     proposal: visibleTrainingProposalPayloadSchema.optional(),
     exerciseDetails: z.array(sourceExerciseDetailSchema).optional(),
@@ -161,7 +162,7 @@ function collectToolResultDetails(
     return;
   }
 
-  if (toolResult.toolName === "readRecentVisibleTrainingProposal") {
+  if (toolResult.toolName === "inspectVisibleTrainingProposals") {
     const parsed = visibleFactOutputSchema.safeParse(toolResult.output);
     if (!parsed.success) {
       return;

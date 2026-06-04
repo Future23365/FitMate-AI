@@ -335,7 +335,7 @@ describe("agent-core architecture boundaries", () => {
   it("allows only declared read-only tools as the current production business tools", () => {
     const allowedAgentToolFiles = new Set([
       "lib/server/agent-tools/index.ts",
-      "lib/server/agent-tools/exercise-facts/read-recent-visible-training-proposal.tool.ts",
+      "lib/server/agent-tools/exercise-facts/inspect-visible-training-proposals.tool.ts",
       "lib/server/agent-tools/exercises/search-exercise-resources.tool.ts",
       "lib/server/agent-tools/fixture/read-fixture.tool.ts",
       "lib/server/agent-tools/fixture/m1-safety-fixture.tools.ts",
@@ -358,9 +358,9 @@ describe("agent-core architecture boundaries", () => {
     ].filter((term) => registryEntry.includes(term));
 
     expect(unexpectedFiles).toEqual([]);
-    expect(registryEntry).toContain("readRecentVisibleTrainingProposalTool");
+    expect(registryEntry).toContain("inspectVisibleTrainingProposalsTool");
     expect(registryEntry).toContain("searchExerciseResourcesTool");
-    expect(registryEntry).toContain("productionAgentTools = [readRecentVisibleTrainingProposalTool, searchExerciseResourcesTool]");
+    expect(registryEntry).toContain("productionAgentTools = [inspectVisibleTrainingProposalsTool, searchExerciseResourcesTool]");
     expect(productionRegistryFunction).not.toContain("readFixtureTool");
     expect(productionRegistryFunction).not.toContain("m1SafetyFixtureTools");
     expect(forbiddenRegistrations).toEqual([]);

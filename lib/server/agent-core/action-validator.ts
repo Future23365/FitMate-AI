@@ -46,7 +46,7 @@ export function validateAgentAction(input: ActionValidationInput): ActionValidat
   const parsed = parseAgentAction(input.action);
 
   if (!parsed.success) {
-    return invalidAction("Planner returned an action outside the M0 AgentAction contract.");
+    return invalidAction(createInvalidActionMessage(parsed.error), createInvalidActionDetails(parsed.error));
   }
 
   const action = parsed.data;
@@ -227,10 +227,10 @@ function validateTerminalAction(action: TerminalAgentAction, input: ActionValida
   return { ok: true, action };
 }
 
-function invalidAction(message: string): ActionValidationResult {
+function invalidAction(message: string, details?: ToolError["details"]): ActionValidationResult {
   return {
     ok: false,
-    error: createToolError(AGENT_ERROR_CODES.INVALID_ACTION, message),
+    error: createToolError(AGENT_ERROR_CODES.INVALID_ACTION, message, details),
   };
 }
 
@@ -251,4 +251,37 @@ function isPlannerGeneratedConfirmationRequest(action: unknown) {
       && "type" in action
       && (action as { type?: unknown }).type === "request_confirmation",
   );
+}
+
+function createInvalidActionMessage(error: { issues: Array<{ path: PropertyKey[]; message: string }> }) {
+  if (hasNumericVisibleOutputSchemaVersionIssue(error)) {
+    return "Planner returned an action outside the M0 AgentAction contract: visibleOutputs[].schemaVersion must be the string \"1\", not the number 1.";
+  }
+
+  return "Planner returned an action outside the M0 AgentAction contract.";
+}
+
+function createInvalidActionDetails(error: { issues: Array<{ path: PropertyKey[]; message: string }> }): ToolError["details"] {
+  const issues = error.issues.map((issue) => ({
+    path: issue.path.join("."),
+    message: issue.message,
+  }));
+
+  if (!hasNumericVisibleOutputSchemaVersionIssue(error)) {
+    return { issues };
+  }
+
+  return {
+    issues,
+    repair: "将 final_answer.visibleOutputs[].schemaVersion 改为字符串 \"1\"；不要输出数字 1，也不要让服务端替你转换。",
+  };
+}
+
+function hasNumericVisibleOutputSchemaVersionIssue(error: { issues: Array<{ path: PropertyKey[]; message: string }> }) {
+  return error.issues.some((issue) => {
+    const path = issue.path.map(String);
+    return path[0] === "visibleOutputs"
+      && path[path.length - 1] === "schemaVersion"
+      && issue.message.includes("expected string");
+  });
 }

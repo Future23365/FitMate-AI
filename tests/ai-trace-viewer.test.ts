@@ -566,12 +566,12 @@ describe("AI trace viewer step grouping", () => {
         output: {
           type: "registry_snapshot",
           toolCount: 2,
-          toolNames: ["readRecentVisibleTrainingProposal", "searchExerciseResources"],
+          toolNames: ["inspectVisibleTrainingProposals", "searchExerciseResources"],
           tools: [
             {
-              name: "readRecentVisibleTrainingProposal",
+              name: "inspectVisibleTrainingProposals",
               version: "2026-06-04",
-              description: "读取最近的可见训练方案事实。",
+              description: "查询或读取最近的可见训练方案事实。",
             },
             {
               name: "searchExerciseResources",
@@ -586,7 +586,7 @@ describe("AI trace viewer step grouping", () => {
     expect(groups.find((group) => group.id === "registry_manifest")).toMatchObject({
       summary: expect.arrayContaining([
         { label: "tool count", value: "2" },
-        { label: "tool names", value: "readRecentVisibleTrainingProposal, searchExerciseResources" },
+        { label: "tool names", value: "inspectVisibleTrainingProposals, searchExerciseResources" },
       ]),
     });
   });

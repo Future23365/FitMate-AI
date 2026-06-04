@@ -8,6 +8,8 @@ export const visibleTrainingProposalOutputType = "visibleTrainingProposal";
 export const visibleTrainingProposalSchemaVersion = "1";
 export const visibleTrainingProposalFactKind = "visible_training_proposal_displayed";
 export const visibleTrainingProposalFactResourceType = "visible_training_proposal_fact";
+/** visibleTrainingProposalFactIndexResourceType 标记 list_recent 只读索引 resource，不能作为训练方案事实消费。 */
+export const visibleTrainingProposalFactIndexResourceType = "visible_training_proposal_fact_index";
 export const visibleTrainingProposalFactSchemaVersion = 1;
 
 const exerciseIdSchema = z.string().trim().min(1).max(120).regex(/^[A-Za-z0-9:_-]+$/);

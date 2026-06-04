@@ -371,6 +371,43 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
         }),
       },
     });
+
+    expect(validateAgentAction({
+      action: {
+        type: "final_answer",
+        content: "done",
+        visibleOutputs: [
+          { outputType: "fixtureVisible", schemaVersion: 1, payload: { accepted: true } },
+        ],
+      },
+      registry,
+      manifests,
+      toolResults: [],
+      terminalOutputValidators,
+    })).toMatchObject({
+      ok: false,
+      error: {
+        code: AGENT_ERROR_CODES.INVALID_ACTION,
+        message: expect.stringContaining("schemaVersion must be the string \"1\""),
+        details: expect.objectContaining({
+          repair: expect.stringContaining("字符串 \"1\""),
+        }),
+      },
+    });
+
+    expect(validateAgentAction({
+      action: {
+        type: "final_answer",
+        content: "done",
+        visibleOutputs: [
+          { outputType: "fixtureVisible", schemaVersion: "1", payload: { accepted: true } },
+        ],
+      },
+      registry,
+      manifests,
+      toolResults: [],
+      terminalOutputValidators,
+    })).toMatchObject({ ok: true });
   });
 
   it("validates M1 resource consumes and terminal grounding by resource role", () => {

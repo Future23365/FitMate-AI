@@ -130,7 +130,7 @@ describe("API route boundaries", () => {
         registry: {
           manifestHash: expect.any(String),
           toolCount: 2,
-          toolNames: ["readRecentVisibleTrainingProposal", "searchExerciseResources"],
+          toolNames: ["inspectVisibleTrainingProposals", "searchExerciseResources"],
         },
       }),
     }));

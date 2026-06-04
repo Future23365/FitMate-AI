@@ -255,8 +255,8 @@ function createVisibleFactToolResult(): ToolResult {
   return {
     ok: true,
     toolResultId: "tr_read_visible_fact",
-    toolName: "readRecentVisibleTrainingProposal",
-    toolVersion: "0.1.0",
+    toolName: "inspectVisibleTrainingProposals",
+    toolVersion: "0.2.0",
     toolCallId: "tc_read_visible_fact",
     idempotencyKey: "idem_read_visible_fact",
     normalizedInputHash: "hash_read_visible_fact",
@@ -264,6 +264,7 @@ function createVisibleFactToolResult(): ToolResult {
     completedAt: "2026-06-04T00:00:00.000Z",
     output: {
       status: "succeeded",
+      operation: "read_recent",
       fact: {
         proposal: {
           kind: "exercise_selection",

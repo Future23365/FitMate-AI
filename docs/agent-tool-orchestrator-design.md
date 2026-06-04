@@ -674,7 +674,8 @@ final_answer.visibleOutputs[]
   -> Response Renderer 输出 visible_output 用户事件
   -> ConversationBusinessFact(kind=visible_training_proposal_displayed)
   -> /api/chat 恢复 recentVisibleTrainingProposals 轻量摘要
-  -> readRecentVisibleTrainingProposal 读取并校验当前 userId/conversationId/status/schemaVersion
+  -> inspectVisibleTrainingProposals(operation=list_recent) 查询当前会话可引用事实索引
+  -> inspectVisibleTrainingProposals(operation=read_recent) 读取并校验当前 userId/conversationId/status/schemaVersion
   -> 当前 run 产出 visible_training_proposal_fact consumable resource
   -> searchExerciseResources.excludeExerciseIds 排除用户已看到的 exerciseId
 ```
@@ -684,7 +685,7 @@ final_answer.visibleOutputs[]
 1. 训练方案事实只能来自已通过服务端校验的 `final_answer.visibleOutputs[]`，不能来自 `searchExerciseResources` handler output、model observation、trace、自然语言回复正文或模型猜测。
 2. `visibleTrainingProposal` 是业务 outputType，不是 core 特例；core 只校验通用 envelope 并通过 registry 分发 validator/renderer。
 3. `searchExerciseResources` 只提供分组动作事实候选；它不产出 routine、plan、prescription、schedule 或训练卡片事实。
-4. `readRecentVisibleTrainingProposal` 是业务 read/import tool，不是 core 特例；它只读取当前 actor 和当前会话可访问的历史可见训练方案 fact。
+4. `inspectVisibleTrainingProposals` 是业务 inspect/read/import tool，不是 core 特例；`list_recent` 只返回当前 actor 和当前会话可访问的轻量索引，`read_recent` 才导入完整历史可见训练方案 fact。
 5. `searchExerciseResources.excludeExerciseIds` 只排除用户已看到或明确要求排除的 `exerciseId`，不提供分页、limit、offset、candidate set、训练生成或保存副作用。
 
 ---

@@ -29,11 +29,16 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).toContain("plan");
     expect(systemPrompt).toContain("exerciseId");
     expect(systemPrompt).toContain("schedule.assignments");
+    expect(systemPrompt).toContain("schemaVersion = \"1\"");
+    expect(systemPrompt).not.toContain("schemaVersion = 1");
+    expect(systemPrompt).not.toContain("schemaVersion: 1");
     expect(systemPrompt).toContain("setRestSeconds");
     expect(systemPrompt).toContain("transitionRestSeconds");
     expect(systemPrompt).toContain("mode 只能是 reps 或 duration");
-    expect(systemPrompt).toContain("recentVisibleTrainingProposals 只提供 factRef/messageId");
-    expect(systemPrompt).toContain("readRecentVisibleTrainingProposal");
+    expect(systemPrompt).toContain("recentVisibleTrainingProposals 和 inspectVisibleTrainingProposals(operation = \"list_recent\") 只提供 factRef/messageId");
+    expect(systemPrompt).toContain("inspectVisibleTrainingProposals(operation = \"read_recent\")");
+    expect(systemPrompt).toContain("inspectVisibleTrainingProposals(operation = \"list_recent\")");
+    expect(systemPrompt).not.toContain("readRecentVisibleTrainingProposal");
     expect(systemPrompt).toContain("visible_training_proposal_fact");
     expect(systemPrompt).not.toContain("run metadata.recentVisibleTrainingProposals / visible_training_proposal_fact 中真实存在的 exerciseId");
     expect(systemPrompt).not.toContain("关键词");

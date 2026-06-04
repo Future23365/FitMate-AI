@@ -163,10 +163,10 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(manifestJson).not.toContain("should-not-leak");
   });
 
-  it("serializes the production registry with visible training proposal fact read/import and search schema fields", () => {
+  it("serializes the production registry with visible training proposal inspect/read and search schema fields", () => {
     const registry = createProductionToolRegistry();
     const manifests = registry.serializeForPlanner();
-    const readFactManifest = manifests.find((tool) => tool.name === "readRecentVisibleTrainingProposal");
+    const inspectFactManifest = manifests.find((tool) => tool.name === "inspectVisibleTrainingProposals");
     const searchManifest = manifests.find((tool) => tool.name === "searchExerciseResources");
     const inputSchema = searchManifest?.inputJsonSchema as {
       properties: {
@@ -182,15 +182,15 @@ describe("agent-core ToolRegistry and manifest", () => {
       };
       additionalProperties?: boolean;
     };
-    const readManifestJson = JSON.stringify(readFactManifest);
+    const inspectManifestJson = JSON.stringify(inspectFactManifest);
     const searchExamplesJson = JSON.stringify(searchManifest?.examples ?? []);
     const manifestJson = JSON.stringify(manifests);
 
     expect(manifests.map((tool) => tool.name)).toEqual([
-      "readRecentVisibleTrainingProposal",
+      "inspectVisibleTrainingProposals",
       "searchExerciseResources",
     ]);
-    expect(readFactManifest?.policyHint).toEqual({
+    expect(inspectFactManifest?.policyHint).toEqual({
       sideEffect: "read",
       riskLevel: "low",
       confirmation: "never",
@@ -200,16 +200,24 @@ describe("agent-core ToolRegistry and manifest", () => {
       riskLevel: "low",
       confirmation: "never",
     });
-    expect(JSON.stringify(readFactManifest)).toContain("factRef");
-    expect(JSON.stringify(readFactManifest)).toContain("visible_training_proposal_fact");
-    expect(JSON.stringify(readFactManifest)).toContain("recentVisibleTrainingProposals");
-    expect(JSON.stringify(readFactManifest)).toContain("proposal.exerciseItems");
-    expect(JSON.stringify(readFactManifest)).toContain("run metadata");
-    expect(readManifestJson).toContain("Planner 判断");
-    expect(readManifestJson).toContain("不要再次调用本 tool");
-    expect(readManifestJson).not.toContain("换一个");
-    expect(readManifestJson).not.toContain("换一批");
-    expect(readManifestJson).not.toContain("再推荐一批");
+    expect(inspectManifestJson).toContain("operation");
+    expect(inspectManifestJson).toContain("list_recent");
+    expect(inspectManifestJson).toContain("read_recent");
+    expect(inspectManifestJson).toContain("factRef");
+    expect(inspectManifestJson).toContain("messageId");
+    expect(inspectManifestJson).toContain("visible_training_proposal_fact_index");
+    expect(inspectManifestJson).toContain("visible_training_proposal_fact");
+    expect(inspectManifestJson).toContain("visibleOutputSchemaVersion");
+    expect(inspectManifestJson).toContain("factSchemaVersion");
+    expect(inspectManifestJson).toContain("schemaVersion 必须写字符串 \\\"1\\\"");
+    expect(inspectManifestJson).toContain("不要重复读取同一引用");
+    expect(inspectManifestJson).not.toContain("readRecentVisibleTrainingProposal");
+    expect(inspectManifestJson).not.toContain("fact_recent_visible_training_01");
+    expect(inspectManifestJson).not.toContain("换一个");
+    expect(inspectManifestJson).not.toContain("换一批");
+    expect(inspectManifestJson).not.toContain("再推荐一批");
+    expect(manifestJson).toContain("inspectVisibleTrainingProposals(operation = \\\"list_recent\\\")");
+    expect(manifestJson).toContain("inspectVisibleTrainingProposals(operation = \\\"read_recent\\\")");
     expect(inputSchema.properties).toHaveProperty("q");
     expect(inputSchema.properties).not.toHaveProperty("maxReturned");
     expect(inputSchema.properties).not.toHaveProperty("limit");
@@ -264,6 +272,7 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(manifestJson).not.toContain("displayedExercises");
     expect(manifestJson).not.toContain("recentExerciseRecommendationFacts");
     expect(manifestJson).not.toContain("readRecentExerciseRecommendationFact");
+    expect(manifestJson).not.toContain("readRecentVisibleTrainingProposal");
     expect(manifestJson).not.toContain("exercise_recommendation_fact");
     expect(manifestJson).not.toContain("\"handler\"");
     expect(manifestJson).not.toContain("Query published exercise resources");
