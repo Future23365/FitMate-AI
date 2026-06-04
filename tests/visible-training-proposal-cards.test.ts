@@ -32,12 +32,14 @@ describe("visible training proposal rich card adapter", () => {
           ],
         },
       ],
-    }), { assistantContent: "按你的条件推荐这些动作。" });
+    }));
 
     expect(card).toMatchObject({
       kind: "exerciseRecommendation",
       card: {
         title: "推荐训练动作",
+        goal: "推荐 2 个训练动作",
+        summary: "共 2 个训练动作，主要覆盖腿部、胸部，器械需求：自重。",
         items: [
           { exerciseId: "squat", nameZh: "深蹲", primaryMusclesZh: ["腿部"] },
           { exerciseId: "push-up", nameZh: "俯卧撑", primaryMusclesZh: ["胸部"] },
@@ -55,7 +57,7 @@ describe("visible training proposal rich card adapter", () => {
         section: "training",
         order: index + 1,
       })),
-    }), { assistantContent: "推荐一批动作。" });
+    }));
 
     expect(card?.kind).toBe("exerciseRecommendation");
     if (card?.kind !== "exerciseRecommendation") {
@@ -70,7 +72,7 @@ describe("visible training proposal rich card adapter", () => {
     const card = adaptVisibleTrainingProposalToRichCard(createVisibleOutput({
       kind: "routine",
       exerciseItems: createRoutineItems(),
-    }), { assistantContent: "今天做一套全身训练。" });
+    }));
 
     expect(card?.kind).toBe("routine");
     if (card?.kind !== "routine") {
@@ -78,6 +80,8 @@ describe("visible training proposal rich card adapter", () => {
     }
 
     expect(workoutRoutineDraftSchema.safeParse(card.draft).success).toBe(true);
+    expect(card.draft.goal).toBe("完成 3 个动作的本次训练");
+    expect(card.draft.summary).toBe("包含热身、主训练和拉伸，共 3 个动作，预估 6 分钟。");
     expect(card.draft.sections.map((section) => section.section)).toEqual([
       "warmup",
       "training",
@@ -104,7 +108,7 @@ describe("visible training proposal rich card adapter", () => {
           { cycleDayIndex: 3, type: "training" },
         ],
       },
-    }), { assistantContent: "三天循环安排如下。" });
+    }));
 
     expect(card?.kind).toBe("plan");
     if (card?.kind !== "plan") {
@@ -114,6 +118,8 @@ describe("visible training proposal rich card adapter", () => {
     expect(workoutPlanDraftSchema.safeParse(card.draft).success).toBe(true);
     expect(card.draft.trainingDayCount).toBe(2);
     expect(card.draft.restDayCount).toBe(1);
+    expect(card.draft.goal).toBe("完成 2 个训练日的周期计划");
+    expect(card.draft.summary).toBe("3 天周期，训练 2 天、休息 1 天，单次训练预估 6 分钟。");
     expect(card.draft.days[0].sections).toEqual(card.draft.days[2].sections);
     expect(card.draft.days[1]).toMatchObject({
       cycleDayIndex: 2,

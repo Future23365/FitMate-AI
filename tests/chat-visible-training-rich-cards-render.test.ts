@@ -13,8 +13,12 @@ vi.mock("@/features/chat/hooks/use-chat-controller", () => ({
 }));
 
 vi.mock("@/features/exercises/components/exercise-recommendation-card", () => ({
-  ExerciseRecommendationCard: ({ assistantSuggestions, card }: { assistantSuggestions?: unknown[]; card: { title: string } }) =>
-    createElement("section", { "data-rich-card": "exercise" }, `${card.title}:cardSuggestions=${assistantSuggestions?.length ?? 0}`),
+  ExerciseRecommendationCard: ({ assistantSuggestions, card }: { assistantSuggestions?: unknown[]; card: { summary?: string; title: string } }) =>
+    createElement(
+      "section",
+      { "data-rich-card": "exercise" },
+      `${card.title}:summary=${card.summary ?? ""}:cardSuggestions=${assistantSuggestions?.length ?? 0}`,
+    ),
 }));
 
 vi.mock("@/features/workouts/components/workout-routine-draft-card", () => ({
@@ -83,6 +87,7 @@ describe("ChatPage visible training proposal rich card rendering", () => {
     const html = renderToStaticMarkup(createElement(ChatPage));
 
     expect(html).toContain('data-rich-card="exercise"');
+    expect(html).toContain("summary=共 1 个训练动作，主要覆盖胸部，器械需求：自重。");
     expect(html).toContain("cardSuggestions=0");
     expect(html).toContain("换一批");
     expect(html).not.toContain("exercise_selection");

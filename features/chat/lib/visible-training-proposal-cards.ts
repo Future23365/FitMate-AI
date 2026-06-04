@@ -78,14 +78,9 @@ export type VisibleTrainingProposalRichCard =
       draft: WorkoutPlanDraft;
     };
 
-type AdapterOptions = {
-  assistantContent?: string;
-};
-
 // adaptVisibleTrainingProposalToRichCard 是 visibleOutputs 到旧三张训练富卡片的唯一前端投影入口。
 export function adaptVisibleTrainingProposalToRichCard(
   output: ChatVisibleOutput,
-  options: AdapterOptions = {},
 ): VisibleTrainingProposalRichCard | null {
   const payload = parseVisibleTrainingProposalPayload(output);
 
@@ -94,46 +89,44 @@ export function adaptVisibleTrainingProposalToRichCard(
   }
 
   const detailMap = collectContentExerciseDetails(output.content);
-  const assistantSummary = createAssistantSummary(options.assistantContent);
 
   if (payload.kind === "exercise_selection") {
-    return createExerciseRecommendationCardView(payload, detailMap, assistantSummary);
+    return createExerciseRecommendationCardView(payload, detailMap);
   }
 
   if (payload.kind === "routine") {
-    return createRoutineCardView(payload, assistantSummary);
+    return createRoutineCardView(payload);
   }
 
-  return createPlanCardView(payload, assistantSummary);
+  return createPlanCardView(payload);
 }
 
 function createExerciseRecommendationCardView(
   payload: VisibleTrainingProposalPayload,
   detailMap: Map<string, VisibleExerciseDetail>,
-  assistantSummary: string,
 ): VisibleTrainingProposalRichCard | null {
+  const trainingItems = payload.exerciseItems
+    .filter((item) => item.section === "training")
+    .sort(compareExerciseItems);
   const card: ExerciseRecommendationCard = {
     title: "推荐训练动作",
-    goal: createGoal(assistantSummary),
-    summary: createSummary(assistantSummary, "这些动作按你的条件筛选，可继续查看详情或告诉我需要调整的方向。", 260),
-    items: payload.exerciseItems
-      .filter((item) => item.section === "training")
-      .sort(compareExerciseItems)
-      .map((item) => {
-        const detail = detailMap.get(item.exerciseId);
-        return {
-          exerciseId: item.exerciseId,
-          nameZh: nonEmptyString(detail?.nameZh) ?? nonEmptyString(detail?.nameEn) ?? item.exerciseId,
-          nameEn: nonEmptyString(detail?.nameEn),
-          categoryZh: nonEmptyString(detail?.categoryZh) ?? "训练",
-          levelZh: nonEmptyString(detail?.levelZh) ?? "未标注",
-          equipmentZh: nonEmptyString(detail?.equipmentZh) ?? "未标注器械",
-          primaryMusclesZh: normalizeStringList(detail?.primaryMusclesZh, ["综合"]),
-          secondaryMusclesZh: normalizeStringList(detail?.secondaryMusclesZh, []),
-          imageUrl: nonEmptyString(detail?.imageUrl),
-          reasons: ["适合当前训练条件。"],
-        };
-      }),
+    goal: createExerciseRecommendationGoal(trainingItems.length),
+    summary: createExerciseRecommendationSummary(trainingItems, detailMap),
+    items: trainingItems.map((item) => {
+      const detail = detailMap.get(item.exerciseId);
+      return {
+        exerciseId: item.exerciseId,
+        nameZh: nonEmptyString(detail?.nameZh) ?? nonEmptyString(detail?.nameEn) ?? item.exerciseId,
+        nameEn: nonEmptyString(detail?.nameEn),
+        categoryZh: nonEmptyString(detail?.categoryZh) ?? "训练",
+        levelZh: nonEmptyString(detail?.levelZh) ?? "未标注",
+        equipmentZh: nonEmptyString(detail?.equipmentZh) ?? "未标注器械",
+        primaryMusclesZh: normalizeStringList(detail?.primaryMusclesZh, ["综合"]),
+        secondaryMusclesZh: normalizeStringList(detail?.secondaryMusclesZh, []),
+        imageUrl: nonEmptyString(detail?.imageUrl),
+        reasons: ["适合当前训练条件。"],
+      };
+    }),
     safetyNotes: [],
   };
   const parsed = exerciseRecommendationCardSchema.safeParse(card);
@@ -143,7 +136,6 @@ function createExerciseRecommendationCardView(
 
 function createRoutineCardView(
   payload: VisibleTrainingProposalPayload,
-  assistantSummary: string,
 ): VisibleTrainingProposalRichCard | null {
   const sections = createRoutineSections(payload.exerciseItems);
 
@@ -151,12 +143,14 @@ function createRoutineCardView(
     return null;
   }
 
+  const routineItems = sections.flatMap((section) => section.items);
+  const estimatedSessionMinutes = estimateSessionMinutes(routineItems);
   const draft: WorkoutRoutineDraft = {
     kind: "routine",
     title: "本次训练编排",
-    goal: createGoal(assistantSummary),
-    summary: createSummary(assistantSummary, "包含热身、主训练和拉伸的单次训练安排。", 400),
-    estimatedSessionMinutes: estimateSessionMinutes(sections.flatMap((section) => section.items)),
+    goal: createRoutineGoal(routineItems.length),
+    summary: createRoutineSummary(routineItems.length, estimatedSessionMinutes),
+    estimatedSessionMinutes,
     trainingLoopRounds: 1,
     trainingLoopRestSeconds: 60,
     sections,
@@ -169,7 +163,6 @@ function createRoutineCardView(
 
 function createPlanCardView(
   payload: VisibleTrainingProposalPayload,
-  assistantSummary: string,
 ): VisibleTrainingProposalRichCard | null {
   if (!payload.schedule) {
     return null;
@@ -217,8 +210,8 @@ function createPlanCardView(
   const draft: WorkoutPlanDraft = {
     kind: "plan",
     title: `${payload.schedule.cycleLengthDays} 天训练计划`,
-    goal: createGoal(assistantSummary),
-    summary: createSummary(assistantSummary, "按训练日和休息日节奏安排同一套训练编排。", 400),
+    goal: createPlanGoal(trainingDayCount),
+    summary: createPlanSummary(payload.schedule.cycleLengthDays, trainingDayCount, restDayCount, estimatedSessionMinutes),
     cycleLengthDays: payload.schedule.cycleLengthDays,
     trainingDayCount,
     restDayCount,
@@ -437,22 +430,54 @@ function parseExerciseDetailFromContentItem(value: unknown): VisibleExerciseDeta
   };
 }
 
-function createAssistantSummary(content: string | undefined) {
-  const normalized = content
-    ?.replace(/```[\s\S]*?```/g, " ")
-    .replace(/[#*_`~>\-[\]()]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return normalized ? limitText(normalized, 180) : "";
+// 卡片摘要只表达 visibleOutputs 里的结构化训练事实，避免把自然语言正文复制进富卡片。
+function createExerciseRecommendationGoal(itemCount: number) {
+  return itemCount > 0 ? `推荐 ${itemCount} 个训练动作` : "推荐训练动作";
 }
 
-function createGoal(summary: string) {
-  return limitText(summary || "按你的训练条件完成训练", 120);
+function createExerciseRecommendationSummary(
+  items: Pick<VisibleTrainingExerciseItem, "exerciseId">[],
+  detailMap: Map<string, VisibleExerciseDetail>,
+) {
+  const muscles = uniqueLimitedStrings(
+    items.flatMap((item) => detailMap.get(item.exerciseId)?.primaryMusclesZh ?? []),
+    4,
+  );
+  const equipment = uniqueLimitedStrings(
+    items.flatMap((item) => {
+      const value = nonEmptyString(detailMap.get(item.exerciseId)?.equipmentZh);
+      return value && value !== "未标注器械" ? [value] : [];
+    }),
+    3,
+  );
+  const muscleText = muscles.length > 0 ? `，主要覆盖${muscles.join("、")}` : "";
+  const equipmentText = equipment.length > 0 ? `，器械需求：${equipment.join("、")}` : "";
+
+  return limitText(`共 ${items.length} 个训练动作${muscleText}${equipmentText}。`, 260);
 }
 
-function createSummary(summary: string, fallback: string, maxLength: number) {
-  return limitText(summary || fallback, maxLength);
+function createRoutineGoal(itemCount: number) {
+  return itemCount > 0 ? `完成 ${itemCount} 个动作的本次训练` : "完成本次训练";
+}
+
+function createRoutineSummary(itemCount: number, estimatedSessionMinutes: number) {
+  return limitText(`包含热身、主训练和拉伸，共 ${itemCount} 个动作，预估 ${estimatedSessionMinutes} 分钟。`, 400);
+}
+
+function createPlanGoal(trainingDayCount: number) {
+  return trainingDayCount > 0 ? `完成 ${trainingDayCount} 个训练日的周期计划` : "完成周期训练计划";
+}
+
+function createPlanSummary(
+  cycleLengthDays: number,
+  trainingDayCount: number,
+  restDayCount: number,
+  estimatedSessionMinutes: number,
+) {
+  return limitText(
+    `${cycleLengthDays} 天周期，训练 ${trainingDayCount} 天、休息 ${restDayCount} 天，单次训练预估 ${estimatedSessionMinutes} 分钟。`,
+    400,
+  );
 }
 
 function estimateSessionMinutes(items: Array<WorkoutRoutineDraftItem | WorkoutPlanItemDraft>) {
@@ -472,6 +497,10 @@ function normalizeStringList(value: string[] | undefined, fallback: string[]) {
   const normalized = value?.map((item) => item.trim()).filter(Boolean) ?? [];
 
   return normalized.length > 0 ? normalized : fallback;
+}
+
+function uniqueLimitedStrings(values: string[], maxLength: number) {
+  return [...new Set(values.map((item) => item.trim()).filter(Boolean))].slice(0, maxLength);
 }
 
 function limitText(value: string, maxLength: number) {

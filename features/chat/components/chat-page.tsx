@@ -118,15 +118,13 @@ function MarkdownContent({ content }: { content: string }) {
 }
 
 function VisibleTrainingProposalRichCardRenderer({
-  assistantContent,
   output,
   sourceChatMessageId,
 }: {
-  assistantContent: string;
   output: Parameters<typeof adaptVisibleTrainingProposalToRichCard>[0];
   sourceChatMessageId: string;
 }) {
-  const richCard = adaptVisibleTrainingProposalToRichCard(output, { assistantContent });
+  const richCard = adaptVisibleTrainingProposalToRichCard(output);
 
   if (!richCard) {
     return null;
@@ -641,7 +639,6 @@ export function ChatPage() {
 
                                   {message.visibleOutputs?.map((output, index) => (
                                     <VisibleTrainingProposalRichCardRenderer
-                                      assistantContent={cleanContent}
                                       key={`${output.outputType}:${output.schemaVersion}:${index}`}
                                       output={output}
                                       sourceChatMessageId={message.id}
