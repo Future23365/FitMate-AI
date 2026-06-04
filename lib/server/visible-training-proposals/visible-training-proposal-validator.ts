@@ -182,22 +182,6 @@ function collectExerciseSources(context: {
     }
   }
 
-  const recentFacts = context.run?.metadata?.recentVisibleTrainingProposals;
-  if (Array.isArray(recentFacts)) {
-    for (const fact of recentFacts) {
-      const parsed = visibleFactResourceSummarySchema.safeParse(fact);
-      if (!parsed.success) {
-        continue;
-      }
-      for (const item of parsed.data.exerciseItems) {
-        addSource(sources, item.exerciseId, {
-          section: item.section,
-          allowedSections: item.allowedSections,
-        });
-      }
-    }
-  }
-
   return sources;
 }
 

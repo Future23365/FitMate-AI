@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ToolResult, VisibleOutputEnvelope } from "@/lib/server/agent-core/contracts";
+import { ResourceStore } from "@/lib/server/agent-core/resource-store";
 import { validateVisibleTrainingProposalOutput } from "@/lib/server/visible-training-proposals/visible-training-proposal-validator";
 
 describe("visible training proposal validator", () => {
@@ -41,6 +42,89 @@ describe("visible training proposal validator", () => {
       ok: false,
       message: expect.stringContaining("exerciseId 未被本轮 satisfied searchExerciseResources"),
     });
+  });
+
+  it("rejects exercise ids that only appear in recent metadata summaries before read/import", () => {
+    expect(validateVisibleTrainingProposalOutput(
+      createEnvelope({
+        kind: "exercise_selection",
+        exerciseItems: [
+          { exerciseId: "squat", section: "training", order: 1 },
+        ],
+      }),
+      {
+        action: {
+          type: "final_answer",
+          content: "沿用上一轮深蹲。",
+        },
+        toolResults: [],
+        run: {
+          runId: "run-visible-metadata-only",
+          actor: { userId: "user-1", sessionId: "conversation-1" },
+          userInput: "把上一轮动作编排一下",
+          metadata: {
+            recentVisibleTrainingProposals: [createRecentVisibleTrainingProposalSummary()],
+          },
+        },
+      },
+    )).toMatchObject({
+      ok: false,
+      message: expect.stringContaining("visible_training_proposal_fact 支持"),
+    });
+  });
+
+  it("accepts exercise ids after a visible proposal fact is imported into the current run", () => {
+    expect(validateVisibleTrainingProposalOutput(
+      createEnvelope({
+        kind: "exercise_selection",
+        exerciseItems: [
+          { exerciseId: "squat", section: "training", order: 1 },
+        ],
+      }),
+      {
+        action: {
+          type: "final_answer",
+          content: "沿用上一轮深蹲。",
+        },
+        toolResults: [createVisibleFactToolResult()],
+        run: {
+          runId: "run-visible-imported",
+          actor: { userId: "user-1", sessionId: "conversation-1" },
+          userInput: "把上一轮动作编排一下",
+          metadata: {
+            recentVisibleTrainingProposals: [createRecentVisibleTrainingProposalSummary()],
+          },
+        },
+      },
+    )).toEqual({ ok: true });
+  });
+
+  it("accepts exercise ids from consumable visible proposal fact resources", () => {
+    const resourceStore = new ResourceStore("run-visible-resource");
+    resourceStore.register({
+      resourceType: "visible_training_proposal_fact",
+      role: "consumable",
+      schemaVersion: "1",
+      sourceToolResultId: "tr_read_visible_fact",
+      summary: createRecentVisibleTrainingProposalSummary(),
+    });
+
+    expect(validateVisibleTrainingProposalOutput(
+      createEnvelope({
+        kind: "exercise_selection",
+        exerciseItems: [
+          { exerciseId: "squat", section: "training", order: 1 },
+        ],
+      }),
+      {
+        action: {
+          type: "final_answer",
+          content: "沿用上一轮深蹲。",
+        },
+        toolResults: [],
+        resourceStore,
+      },
+    )).toEqual({ ok: true });
   });
 
   it("rejects legacy id fields before accepting any payload shape", () => {
@@ -164,6 +248,53 @@ function createSearchToolResult(): ToolResult {
       satisfied: true,
       summary: "fixture search result",
     },
+  };
+}
+
+function createVisibleFactToolResult(): ToolResult {
+  return {
+    ok: true,
+    toolResultId: "tr_read_visible_fact",
+    toolName: "readRecentVisibleTrainingProposal",
+    toolVersion: "0.1.0",
+    toolCallId: "tc_read_visible_fact",
+    idempotencyKey: "idem_read_visible_fact",
+    normalizedInputHash: "hash_read_visible_fact",
+    startedAt: "2026-06-04T00:00:00.000Z",
+    completedAt: "2026-06-04T00:00:00.000Z",
+    output: {
+      status: "succeeded",
+      fact: {
+        proposal: {
+          kind: "exercise_selection",
+          exerciseItems: [
+            { exerciseId: "squat", section: "training", order: 1 },
+          ],
+        },
+        exerciseDetails: [
+          { exerciseId: "squat", allowedSections: ["training"] },
+        ],
+      },
+    },
+    projection: {
+      model: {},
+      user: {},
+    },
+    fulfillment: {
+      satisfied: true,
+      summary: "fixture visible fact result",
+    },
+  };
+}
+
+function createRecentVisibleTrainingProposalSummary() {
+  return {
+    factRef: "fact-previous",
+    messageId: "assistant-previous",
+    proposalKind: "exercise_selection",
+    exerciseItems: [
+      { exerciseId: "squat", section: "training", order: 1, allowedSections: ["training"] },
+    ],
   };
 }
 

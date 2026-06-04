@@ -32,6 +32,10 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).toContain("setRestSeconds");
     expect(systemPrompt).toContain("transitionRestSeconds");
     expect(systemPrompt).toContain("mode 只能是 reps 或 duration");
+    expect(systemPrompt).toContain("recentVisibleTrainingProposals 只提供 factRef/messageId");
+    expect(systemPrompt).toContain("readRecentVisibleTrainingProposal");
+    expect(systemPrompt).toContain("visible_training_proposal_fact");
+    expect(systemPrompt).not.toContain("run metadata.recentVisibleTrainingProposals / visible_training_proposal_fact 中真实存在的 exerciseId");
     expect(systemPrompt).not.toContain("关键词");
     expect(systemPrompt).not.toContain("正则");
     expect(systemPrompt).not.toContain("同义词");

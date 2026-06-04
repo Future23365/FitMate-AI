@@ -46,6 +46,7 @@ describe("readRecentVisibleTrainingProposal tool", () => {
         runId: "run-read-visible-proposal",
         actor: { userId: "user-1", sessionId: "conversation-1" },
         userInput: "基于上一轮动作加一个计划",
+        metadata: createRunMetadata(),
         limits: { maxToolCalls: 2, maxPlannerCalls: 3, maxSteps: 3 },
       },
     });
@@ -129,6 +130,7 @@ describe("readRecentVisibleTrainingProposal tool", () => {
         runId: "run-visible-fact-denied",
         actor: { userId: "user-2", sessionId: "conversation-2" },
         userInput: "继续上一轮",
+        metadata: createRunMetadata({ factRef: "fact-cross-user" }),
       },
       timeoutMs: 100,
       toolCallId: "tc_visible_fact_denied",
@@ -146,6 +148,69 @@ describe("readRecentVisibleTrainingProposal tool", () => {
     });
   });
 
+  it("refuses fact references that are absent from current run metadata before reading the store", async () => {
+    const result = await executeTool({
+      tool: readRecentVisibleTrainingProposalTool,
+      input: { factRef: "fact-not-in-run" },
+      run: {
+        runId: "run-visible-fact-not-in-metadata",
+        actor: { userId: "user-1", sessionId: "conversation-1" },
+        userInput: "继续上一轮",
+        metadata: createRunMetadata(),
+      },
+      timeoutMs: 100,
+      toolCallId: "tc_visible_fact_not_in_metadata",
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      output: {
+        status: "failed",
+        code: "fact_reference_not_in_run_metadata",
+      },
+      fulfillment: {
+        satisfied: false,
+      },
+    });
+    expect(factStoreMocks.readVisibleTrainingProposalFact).not.toHaveBeenCalled();
+  });
+
+  it("accepts a messageId reference when it exists in current run metadata", async () => {
+    factStoreMocks.readVisibleTrainingProposalFact.mockResolvedValueOnce({
+      ok: true,
+      fact: createFact(),
+    });
+
+    const result = await executeTool({
+      tool: readRecentVisibleTrainingProposalTool,
+      input: { messageId: "assistant-1" },
+      run: {
+        runId: "run-visible-fact-message-id",
+        actor: { userId: "user-1", sessionId: "conversation-1" },
+        userInput: "继续上一轮",
+        metadata: createRunMetadata(),
+      },
+      timeoutMs: 100,
+      toolCallId: "tc_visible_fact_message_id",
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      output: {
+        status: "succeeded",
+      },
+      fulfillment: {
+        satisfied: true,
+      },
+    });
+    expect(factStoreMocks.readVisibleTrainingProposalFact).toHaveBeenCalledWith({
+      userId: "user-1",
+      conversationId: "conversation-1",
+      factRef: undefined,
+      messageId: "assistant-1",
+    });
+  });
+
   it("normalizes fact store exceptions into unsatisfied structured output", async () => {
     factStoreMocks.readVisibleTrainingProposalFact.mockRejectedValueOnce(new Error("Prisma read failed."));
 
@@ -156,6 +221,7 @@ describe("readRecentVisibleTrainingProposal tool", () => {
         runId: "run-visible-fact-store-error",
         actor: { userId: "user-1", sessionId: "conversation-1" },
         userInput: "换一批",
+        metadata: createRunMetadata({ factRef: "fact-store-error" }),
       },
       timeoutMs: 100,
       toolCallId: "tc_visible_fact_store_error",
@@ -195,6 +261,21 @@ describe("readRecentVisibleTrainingProposal tool", () => {
     expect(factStoreMocks.readVisibleTrainingProposalFact).not.toHaveBeenCalled();
   });
 });
+
+function createRunMetadata(input: { factRef?: string; messageId?: string } = {}) {
+  return {
+    recentVisibleTrainingProposals: [
+      {
+        factRef: input.factRef ?? "fact-1",
+        messageId: input.messageId ?? "assistant-1",
+        proposalKind: "routine",
+        exerciseItems: [
+          { exerciseId: "squat", section: "training", order: 1 },
+        ],
+      },
+    ],
+  };
+}
 
 function createFact() {
   const payload = createVisibleProposalPayload();

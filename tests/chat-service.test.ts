@@ -988,7 +988,6 @@ describe("chat service agent text flow boundary", () => {
   it("lets the planner recover when refresh fact lookup fails without server text routing", async () => {
     const invalidReadInput = { factRef: "cbf_previous_response" };
     visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries.mockResolvedValueOnce([]);
-    visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact.mockRejectedValueOnce(new Error("Prisma read failed."));
     const prepared = prepareChatRequest({
       conversationId: "conversation-refresh-empty",
       responseMessageId: "assistant-refresh-empty",
@@ -1012,18 +1011,13 @@ describe("chat service agent text flow boundary", () => {
     expect(planner.calls[0].run.metadata).toMatchObject({
       recentVisibleTrainingProposals: [],
     });
-    expect(visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact).toHaveBeenCalledWith({
-      userId: "user-1",
-      conversationId: "conversation-refresh-empty",
-      factRef: "cbf_previous_response",
-      messageId: undefined,
-    });
+    expect(visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact).not.toHaveBeenCalled();
     expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries).not.toHaveBeenCalled();
     expect(events).toEqual([
       { type: "content", content: "我这里没有可读取的上一轮推荐记录，你可以告诉我想换哪类动作，我再按条件帮你找。" },
       { type: "done" },
     ]);
-    expect(serializedTrace).toContain("fact_store_read_failed");
+    expect(serializedTrace).toContain("fact_reference_not_in_run_metadata");
     expect(serializedTrace).not.toContain("handler_error");
     expect(serializedTrace).not.toContain("duplicate_tool_failure");
     expect(trace).toMatchObject({

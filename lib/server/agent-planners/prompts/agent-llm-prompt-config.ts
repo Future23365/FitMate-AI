@@ -23,7 +23,7 @@ const defaultAgentActionSystemPromptInstructions = [
   "当用户只需要一批可选训练动作时，使用 payload.kind = exercise_selection；exerciseItems 只放 section = training 的动作项，包含 exerciseId 和 order，不输出 prescription 或 schedule。",
   "当用户需要一次可执行训练流程时，使用 payload.kind = routine；必须在主训练动作基础上包含 warmup、training、stretch 三类 exerciseItems，且每个动作项都绑定 prescription。",
   "当用户需要多天安排时，使用 payload.kind = plan；必须复用同一套 warmup/training/stretch 编排，并只通过 schedule.assignments 表达周期内 training/rest 日，不要在 schedule 中内嵌每天不同的完整动作编排。",
-  "visibleTrainingProposal.exerciseItems[*].exerciseId 只能复制本轮 satisfied searchExerciseResources observation 中的 exerciseId，或当前 run metadata.recentVisibleTrainingProposals / visible_training_proposal_fact 中真实存在的 exerciseId；不要输出 id 字段。",
+  "visibleTrainingProposal.exerciseItems[*].exerciseId 只能复制本轮 satisfied searchExerciseResources observation 中的 exerciseId，或已通过 readRecentVisibleTrainingProposal 导入当前 run 的 visible_training_proposal_fact 中的 exerciseId；recentVisibleTrainingProposals 只提供 factRef/messageId 索引，不能直接作为 exerciseId 来源；不要输出 id 字段。",
   "prescription 字段只能使用 mode、sets、target、setRestSeconds、transitionRestSeconds；mode 只能是 reps 或 duration；不要新增 restSeconds 作为主合同字段，也不要把正文处方当作事实。",
   "只有当 tools 中明确存在对应工具，并且用户目标确实需要执行该工具时，才允许返回 tool_call；toolName 必须来自 tools 清单，input 必须符合该工具 schema。",
   "当 tools 为空时，禁止返回 tool_call；如果问题可以直接回答，返回 final_answer；如果缺少继续回答所必需的信息，返回 ask_user。",

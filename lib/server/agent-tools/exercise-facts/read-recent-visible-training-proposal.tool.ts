@@ -23,6 +23,11 @@ const readRecentVisibleTrainingProposalInputSchema = z.object({
   message: "必须提供 factRef 或 messageId。",
 });
 
+const recentVisibleTrainingProposalReferenceSchema = z.object({
+  factRef: factRefSchema.optional(),
+  messageId: factRefSchema.optional(),
+}).passthrough();
+
 const exerciseDetailSchema = z.object({
   exerciseId: z.string(),
   nameZh: z.string().optional(),
@@ -59,6 +64,7 @@ type ReadRecentVisibleTrainingProposalInput = z.infer<typeof readRecentVisibleTr
 type ReadRecentVisibleTrainingProposalOutput = z.infer<typeof readRecentVisibleTrainingProposalOutputSchema>;
 
 const factStoreReadFailedCode = "fact_store_read_failed";
+const factReferenceNotInRunMetadataCode = "fact_reference_not_in_run_metadata";
 
 /** readRecentVisibleTrainingProposalTool 把最近可见训练方案事实安全导入当前 Agent run。 */
 export const readRecentVisibleTrainingProposalTool = defineTool<
@@ -107,6 +113,14 @@ export const readRecentVisibleTrainingProposalTool = defineTool<
   ],
   handler: async (input, context) => {
     let result: Awaited<ReturnType<typeof readVisibleTrainingProposalFact>>;
+
+    if (!isReferenceListedInRunMetadata(input, context.metadata)) {
+      return {
+        status: "failed",
+        code: factReferenceNotInRunMetadataCode,
+        message: "当前 run metadata.recentVisibleTrainingProposals 中没有该可见训练方案事实引用。",
+      };
+    }
 
     try {
       result = await readVisibleTrainingProposalFact({
@@ -226,4 +240,28 @@ function summarizeSections(items: z.infer<typeof visibleTrainingProposalPayloadS
     training: items.filter((item) => item.section === "training").length,
     stretch: items.filter((item) => item.section === "stretch").length,
   };
+}
+
+function isReferenceListedInRunMetadata(
+  input: ReadRecentVisibleTrainingProposalInput,
+  metadata: Record<string, JsonValue> | undefined,
+) {
+  const recentFacts = metadata?.recentVisibleTrainingProposals;
+  if (!Array.isArray(recentFacts)) {
+    return false;
+  }
+
+  return recentFacts.some((fact) => {
+    const parsed = recentVisibleTrainingProposalReferenceSchema.safeParse(fact);
+    if (!parsed.success) {
+      return false;
+    }
+    if (input.factRef && parsed.data.factRef !== input.factRef) {
+      return false;
+    }
+    if (input.messageId && parsed.data.messageId !== input.messageId) {
+      return false;
+    }
+    return true;
+  });
 }
