@@ -92,20 +92,7 @@ function getFacetLabel(facets: ExerciseFacet[], value: string) {
   return facets.find((facet) => facet.value === value)?.label ?? value;
 }
 
-// 核心筛选在抽屉内保留高频选项和当前已选项，避免默认页面被筛选区占满。
-function getVisibleFacetOptions(options: ExerciseFacet[], value: string, limit = 10) {
-  const visibleOptions = options.slice(0, limit);
-
-  if (!value || visibleOptions.some((option) => option.value === value)) {
-    return visibleOptions;
-  }
-
-  const selectedOption = options.find((option) => option.value === value);
-
-  return selectedOption ? [selectedOption, ...visibleOptions].slice(0, limit) : visibleOptions;
-}
-
-// 统一动作库高频筛选的 chip 行，保证肌群、分类、器械和目标使用同一种交互。
+// 统一动作库高频筛选的 chip 行，完整展示服务端返回的 facet 选项并用横向滚动承载密度。
 function ChipFilterRow({
   label,
   options,
@@ -117,8 +104,6 @@ function ChipFilterRow({
   value: string;
   onChange: (value: string) => void;
 }) {
-  const visibleOptions = getVisibleFacetOptions(options, value);
-
   return (
     <div className="grid gap-sm md:grid-cols-[64px_minmax(0,1fr)]">
       <span className="font-label-md text-label-md text-muted md:pt-1.5">{label}</span>
@@ -135,7 +120,7 @@ function ChipFilterRow({
         >
           全部
         </button>
-        {visibleOptions.map((facet) => {
+        {options.map((facet) => {
           const isActive = value === facet.value;
 
           return (

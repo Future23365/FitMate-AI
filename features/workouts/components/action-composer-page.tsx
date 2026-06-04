@@ -1308,13 +1308,13 @@ export function ActionComposerPage() {
                 <LibraryFilterSelect
                   label="肌群"
                   onChange={(value) => updateLibraryFilter(() => setLibraryMuscle(value))}
-                  options={libraryFacets.muscles.slice(0, 16)}
+                  options={libraryFacets.muscles}
                   value={libraryMuscle}
                 />
                 <LibraryFilterSelect
                   label="器械"
                   onChange={(value) => updateLibraryFilter(() => setLibraryEquipment(value))}
-                  options={libraryFacets.equipment.slice(0, 16)}
+                  options={libraryFacets.equipment}
                   value={libraryEquipment}
                 />
                 <LibraryFilterSelect
