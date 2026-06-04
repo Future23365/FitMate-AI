@@ -28,7 +28,7 @@ describe("LocalAuthProvider", () => {
     );
 
     expect(html).toContain("重置本地用户");
-    expect(html).toContain("标记为软删除");
+    expect(html).toContain("重置会退出当前浏览器保存的匿名用户，并无法恢复");
     expect(html).not.toContain("继续使用 FitMate");
   });
 
@@ -43,7 +43,7 @@ describe("LocalAuthProvider", () => {
     expect(source).toContain("DialogClose asChild");
     expect(source).toContain("confirmResetLocalUser");
     expect(source).toContain("await resetLocalUser()");
-    expect(source).toContain("旧本地用户会被软删除");
+    expect(source).toContain("当前操作无法撤销，重置后无法恢复当前用户数据，是否继续？");
     expect(source).toContain("restart_alt");
     expect(source).toContain("warning");
     expect(source).not.toContain("person_cancel");

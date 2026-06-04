@@ -105,7 +105,7 @@ export default function SettingsPage() {
                 <h2 className="text-xl font-extrabold text-ink">本地用户</h2>
               </div>
               <p className="mt-sm text-sm font-semibold text-muted">
-                重置会退出当前浏览器保存的匿名用户，并将旧本地用户标记为软删除；该操作无法恢复，但可建立新的匿名用户继续使用。
+                重置会退出当前浏览器保存的匿名用户，并无法恢复，但可建立新的匿名用户继续使用。
               </p>
             </div>
             <Button
@@ -147,7 +147,7 @@ export default function SettingsPage() {
               重置本地用户？
             </DialogTitle>
             <DialogDescription className="text-sm font-semibold leading-6 text-muted">
-              当前操作无法撤销，旧本地用户会被软删除，重置后无法恢复当前用户数据，是否继续？
+              当前操作无法撤销，重置后无法恢复当前用户数据，是否继续？
             </DialogDescription>
           </DialogHeader>
           {resetError ? (
