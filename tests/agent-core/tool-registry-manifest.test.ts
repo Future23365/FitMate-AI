@@ -324,6 +324,8 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(manifestJson).toContain("深蹲");
     expect(manifestJson).toContain("平板支撑");
     expect(manifestJson).toContain("先用 resolveExerciseResourceMentions");
+    expect(manifestJson).toContain("上一轮结果中真实 matched exerciseId");
+    expect(manifestJson).toContain("示例 id 不可脱离上一步结果照抄");
     expect(manifestJson).toContain("bodyRegions");
     expect(manifestJson).toContain("lower_body");
     expect(manifestJson).toContain("真实肌群 facet");

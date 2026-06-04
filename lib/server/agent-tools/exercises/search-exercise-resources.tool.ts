@@ -219,7 +219,7 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
       },
     },
     {
-      description: "用户点名多个动作时，先用 resolveExerciseResourceMentions 解析 mentions，再把 matched exerciseId 传入 requiredExerciseIds。",
+      description: "用户点名多个动作时，先用 resolveExerciseResourceMentions 解析 mentions；requiredExerciseIds 必须复制上一轮结果中真实 matched exerciseId，示例 id 不可脱离上一步结果照抄，也不能填自然语言动作名。",
       input: {
         suitabilities: ["training"],
         equipment: "body only",

@@ -35,7 +35,10 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).toContain("setRestSeconds");
     expect(systemPrompt).toContain("transitionRestSeconds");
     expect(systemPrompt).toContain("mode 只能是 reps 或 duration");
-    expect(systemPrompt).toContain("当前 run 可见的发布态动作事实");
+    expect(systemPrompt).toContain("当前 run 可见、可作为训练推送事实消费的发布态动作来源");
+    expect(systemPrompt).toContain("searchExerciseResources 返回的 satisfied 动作查询 observation 中 groups.<section>.exercises 的 exerciseId");
+    expect(systemPrompt).toContain("resolveExerciseResourceMentions 这类只做身份解析的 observation 不能直接作为 visibleTrainingProposal 动作来源");
+    expect(systemPrompt).toContain("必须先把 matched exerciseId 传给 searchExerciseResources.requiredExerciseIds");
     expect(systemPrompt).toContain("服务端会在渲染和保存前基于数据库复核 exerciseId、发布态和 allowedSections");
     expect(systemPrompt).not.toContain("只能复制本轮 satisfied searchExerciseResources observation");
     expect(systemPrompt).toContain("recentVisibleTrainingProposals 和 inspectVisibleTrainingProposals(operation = \"list_recent\") 只提供 factRef/messageId");
