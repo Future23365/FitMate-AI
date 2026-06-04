@@ -11,6 +11,7 @@ import { normalizeExerciseMetadata } from "@/lib/shared/exercises/metadata";
 import type { Exercise, ExerciseSort, ExerciseSuitability } from "@/lib/shared/exercises/types";
 
 export const EXERCISE_RESOURCE_SEARCH_MAX_RETURNED = 12;
+export const EXERCISE_RESOURCE_MENTION_MAX_MATCHES = 5;
 
 export type ExerciseResourceSummary = Pick<
   Exercise,
@@ -61,6 +62,11 @@ export type ExerciseResourceSearchInput = {
 
 export type ExerciseResourceFilterField = Exclude<keyof ExerciseResourceSearchInput, "sort">;
 
+export type ExerciseResourceMentionResolutionInput = {
+  text: string;
+  maxMatches?: number;
+};
+
 export type ExerciseResourceAppliedFilter = {
   field: ExerciseResourceFilterField;
   value: string | boolean | string[];
@@ -75,6 +81,16 @@ export type ExerciseResourceSearchResult = {
   truncated: boolean;
   excludedCount: number;
   expandedMuscles: string[];
+  exercises: ExerciseResourceSummary[];
+};
+
+export type ExerciseResourceMentionResolutionResult = {
+  text: string;
+  totalMatches: number;
+  returnedCount: number;
+  maxMatches: number;
+  truncated: boolean;
+  exactMatchCount: number;
   exercises: ExerciseResourceSummary[];
 };
 
@@ -104,6 +120,7 @@ type ExerciseRecord = Omit<
 
 const exerciseResourceSummarySelect = {
   id: true,
+  sourceId: true,
   nameEn: true,
   nameZh: true,
   category: true,
@@ -210,6 +227,78 @@ export async function searchExerciseResourceSummaries(
     expandedMuscles,
     exercises: visibleRecords.map(mapExerciseResourceSummary),
   };
+}
+
+/** resolveExerciseResourceMentionSummaries 只把结构化 mention 文本解析为发布态 Exercise 摘要，不读取聊天原文做拆词。 */
+export async function resolveExerciseResourceMentionSummaries(
+  input: ExerciseResourceMentionResolutionInput,
+): Promise<ExerciseResourceMentionResolutionResult> {
+  if (!isDatabaseConfigured()) {
+    throw new Error("DATABASE_URL is required before reading exercises from PostgreSQL.");
+  }
+
+  const prisma = getPrismaClient();
+  const text = input.text.trim();
+  const maxMatches = Math.min(
+    Math.max(input.maxMatches ?? EXERCISE_RESOURCE_MENTION_MAX_MATCHES, 1),
+    EXERCISE_RESOURCE_MENTION_MAX_MATCHES,
+  );
+  const exactWhere = buildExerciseMentionExactWhere(text);
+  const mentionWhere = buildExerciseMentionWhere(text);
+  const [totalMatches, exactRecords, records] = await Promise.all([
+    prisma.exercise.count({ where: mentionWhere }),
+    prisma.exercise.findMany({
+      where: exactWhere,
+      orderBy: [{ nameZh: "asc" }, { id: "asc" }],
+      take: maxMatches + 1,
+      select: exerciseResourceSummarySelect,
+    }),
+    prisma.exercise.findMany({
+      where: mentionWhere,
+      orderBy: [{ nameZh: "asc" }, { id: "asc" }],
+      take: maxMatches + 1,
+      select: exerciseResourceSummarySelect,
+    }),
+  ]);
+  const orderedRecords = [...uniqueExerciseSummaryRecords([...exactRecords, ...records])]
+    .sort((a, b) => scoreMentionRecord(text, a) - scoreMentionRecord(text, b)
+      || a.nameZh.localeCompare(b.nameZh, "zh-Hans")
+      || a.id.localeCompare(b.id));
+  const visibleRecords = orderedRecords.slice(0, maxMatches);
+
+  return {
+    text,
+    totalMatches,
+    returnedCount: visibleRecords.length,
+    maxMatches,
+    truncated: totalMatches > maxMatches,
+    exactMatchCount: exactRecords.length,
+    exercises: visibleRecords.map(mapExerciseResourceSummary),
+  };
+}
+
+/** getExerciseResourceSummariesByIds 按 id 读取动作摘要，供 requiredExerciseIds 合并和诊断使用。 */
+export async function getExerciseResourceSummariesByIds(ids: readonly string[]): Promise<ExerciseResourceSummary[]> {
+  if (!isDatabaseConfigured()) {
+    throw new Error("DATABASE_URL is required before reading exercises from PostgreSQL.");
+  }
+
+  const uniqueIds = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+  if (uniqueIds.length === 0) {
+    return [];
+  }
+
+  const prisma = getPrismaClient();
+  const records = await prisma.exercise.findMany({
+    where: { id: { in: uniqueIds } },
+    select: exerciseResourceSummarySelect,
+  });
+  const byId = new Map(records.map((record) => [record.id, record]));
+
+  return uniqueIds
+    .map((id) => byId.get(id))
+    .filter((record): record is Prisma.ExerciseGetPayload<{ select: typeof exerciseResourceSummarySelect }> => Boolean(record))
+    .map(mapExerciseResourceSummary);
 }
 
 function mapExerciseRecord(exercise: ExerciseRecord): Exercise {
@@ -362,6 +451,40 @@ function buildExerciseResourceTextWhere(q: string): Prisma.ExerciseWhereInput {
   };
 }
 
+function buildExerciseMentionWhere(text: string): Prisma.ExerciseWhereInput {
+  const contains = { contains: text, mode: "insensitive" as const };
+
+  return {
+    AND: [
+      { isPublished: true },
+      {
+        OR: [
+          { id: text },
+          { sourceId: text },
+          { nameZh: { contains: text } },
+          { nameEn: contains },
+        ],
+      },
+    ],
+  };
+}
+
+function buildExerciseMentionExactWhere(text: string): Prisma.ExerciseWhereInput {
+  return {
+    AND: [
+      { isPublished: true },
+      {
+        OR: [
+          { id: text },
+          { sourceId: text },
+          { nameZh: text },
+          { nameEn: { equals: text, mode: "insensitive" } },
+        ],
+      },
+    ],
+  };
+}
+
 function buildExerciseResourceOrderBy(sort: ExerciseSort): Prisma.ExerciseOrderByWithRelationInput[] {
   switch (sort) {
     case "name_desc":
@@ -405,6 +528,39 @@ function collectExerciseResourceAppliedFilters(input: ExerciseResourceSearchInpu
 
 function uniqueStrings(values: Array<string | undefined>) {
   return [...new Set(values.filter((value): value is string => Boolean(value)))];
+}
+
+function uniqueExerciseSummaryRecords(
+  records: Array<Prisma.ExerciseGetPayload<{ select: typeof exerciseResourceSummarySelect }>>,
+) {
+  const byId = new Map<string, Prisma.ExerciseGetPayload<{ select: typeof exerciseResourceSummarySelect }>>();
+  for (const record of records) {
+    byId.set(record.id, record);
+  }
+  return [...byId.values()];
+}
+
+function scoreMentionRecord(
+  text: string,
+  record: Prisma.ExerciseGetPayload<{ select: typeof exerciseResourceSummarySelect }>,
+) {
+  const normalizedText = text.toLowerCase();
+  const nameEn = record.nameEn.toLowerCase();
+
+  if (
+    record.id === text
+    || record.sourceId === text
+    || record.nameZh === text
+    || nameEn === normalizedText
+  ) {
+    return 0;
+  }
+
+  if (record.nameZh.startsWith(text) || nameEn.startsWith(normalizedText)) {
+    return 1;
+  }
+
+  return 2;
 }
 
 function mapExerciseResourceSummary(

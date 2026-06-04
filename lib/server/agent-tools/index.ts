@@ -1,6 +1,7 @@
 import type { AnyTool } from "@/lib/server/agent-core/contracts";
 import { ToolRegistry } from "@/lib/server/agent-core/tool-registry";
 import { inspectVisibleTrainingProposalsTool } from "@/lib/server/agent-tools/exercise-facts/inspect-visible-training-proposals.tool";
+import { resolveExerciseResourceMentionsTool } from "@/lib/server/agent-tools/exercises/resolve-exercise-resource-mentions.tool";
 import { searchExerciseResourcesTool } from "@/lib/server/agent-tools/exercises/search-exercise-resources.tool";
 import { m1SafetyFixtureTools } from "@/lib/server/agent-tools/fixture/m1-safety-fixture.tools";
 import { readFixtureTool } from "@/lib/server/agent-tools/fixture/read-fixture.tool";
@@ -34,11 +35,16 @@ export const m1FixtureTools = [readFixtureTool, ...m1SafetyFixtureTools] as cons
 export function createProductionToolRegistry() {
   const registry = new ToolRegistry();
   registry.register(inspectVisibleTrainingProposalsTool);
+  registry.register(resolveExerciseResourceMentionsTool);
   registry.register(searchExerciseResourcesTool);
   return registry;
 }
 
 /** productionAgentTools 是当前生产 Agent 可见业务能力白名单，不包含 fixture、写入或训练生成 tool。 */
-export const productionAgentTools = [inspectVisibleTrainingProposalsTool, searchExerciseResourcesTool] as const;
+export const productionAgentTools = [
+  inspectVisibleTrainingProposalsTool,
+  resolveExerciseResourceMentionsTool,
+  searchExerciseResourcesTool,
+] as const;
 
-export { inspectVisibleTrainingProposalsTool, searchExerciseResourcesTool };
+export { inspectVisibleTrainingProposalsTool, resolveExerciseResourceMentionsTool, searchExerciseResourcesTool };

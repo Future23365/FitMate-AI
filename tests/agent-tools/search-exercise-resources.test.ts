@@ -176,6 +176,141 @@ describe("searchExerciseResources tool", () => {
     ]);
   });
 
+  it("prioritizes requiredExerciseIds inside the existing grouped exercises output", async () => {
+    const requiredExercises = [
+      createExerciseSummary({ id: "Pushups", nameZh: "俯卧撑", nameEn: "Pushups" }),
+      createExerciseSummary({ id: "Bodyweight_Squat", nameZh: "深蹲", nameEn: "Bodyweight Squat", primaryMusclesZh: ["股四头肌"] }),
+      createExerciseSummary({ id: "Plank", nameZh: "平板支撑", nameEn: "Plank", primaryMusclesZh: ["腹肌"] }),
+    ];
+    const { tool, repository } = await importToolWithRepositoryResult(createSearchResult({
+      query: {
+        q: "俯卧撑",
+        suitability: "training",
+        published: true,
+        sort: "name_asc",
+      },
+      totalMatches: 1,
+      returnedCount: 1,
+      exercises: [requiredExercises[0]],
+    }), requiredExercises);
+
+    const result = await executeTool({
+      tool,
+      input: {
+        q: "俯卧撑",
+        suitabilities: ["training"],
+        requiredExerciseIds: ["Pushups", "Bodyweight_Squat", "Plank"],
+      },
+      run: { runId: "run-required-exercises", actor: { userId: "user-1" }, userInput: "包含俯卧撑、深蹲和平板支撑" },
+      timeoutMs: 100,
+      toolCallId: "tc_required",
+    });
+
+    expect(repository.getExerciseResourceSummariesByIds).toHaveBeenCalledWith(["Pushups", "Bodyweight_Squat", "Plank"]);
+    expect(result).toMatchObject({
+      ok: true,
+      output: {
+        query: {
+          requiredExerciseIds: ["Pushups", "Bodyweight_Squat", "Plank"],
+          appliedFilters: expect.arrayContaining([
+            { field: "q", value: "俯卧撑" },
+            { field: "requiredExerciseIds", value: ["Pushups", "Bodyweight_Squat", "Plank"] },
+          ]),
+          totalMatches: 3,
+          returnedCount: 3,
+        },
+        groups: {
+          training: {
+            totalMatches: 3,
+            returnedCount: 3,
+            exercises: [
+              { exerciseId: "Pushups" },
+              { exerciseId: "Bodyweight_Squat" },
+              { exerciseId: "Plank" },
+            ],
+          },
+        },
+        diagnostics: expect.arrayContaining([
+          expect.objectContaining({ code: "required_exercise_filter_mismatch", exerciseId: "Bodyweight_Squat", conflictFields: ["q"] }),
+          expect.objectContaining({ code: "required_exercise_filter_mismatch", exerciseId: "Plank", conflictFields: ["q"] }),
+        ]),
+      },
+    });
+
+    if (!result.ok) {
+      throw new Error("searchExerciseResources should succeed");
+    }
+    const projectionJson = JSON.stringify(result.projection);
+    expect(projectionJson).toContain("groups");
+    expect(projectionJson).toContain("requiredExerciseIds");
+    expect(projectionJson).not.toContain("requiredMatches");
+    expect(projectionJson).not.toContain("supplementalMatches");
+    expect(projectionJson).not.toContain("selectedRequiredExercises");
+    expect(projectionJson).not.toContain("embedding");
+  });
+
+  it("diagnoses required exercise boundary conflicts without adding parallel output fields", async () => {
+    const { tool } = await importToolWithRepositoryResult(createSearchResult({
+      query: {
+        level: "beginner",
+        equipment: "body only",
+        suitability: "training",
+        published: true,
+        sort: "name_asc",
+      },
+      totalMatches: 0,
+      returnedCount: 0,
+      exercises: [],
+    }), [
+      createExerciseSummary({ id: "draft-exercise", isPublished: false }),
+      createExerciseSummary({ id: "warmup-only", allowedSections: ["warmup"] }),
+      createExerciseSummary({ id: "excluded-exercise" }),
+      createExerciseSummary({ id: "Dumbbell_Bench", nameZh: "哑铃卧推", level: "intermediate", levelZh: "中级", equipment: "dumbbell", equipmentZh: "哑铃" }),
+    ]);
+
+    const result = await executeTool({
+      tool,
+      input: {
+        suitabilities: ["training"],
+        level: "beginner",
+        equipment: "body only",
+        excludeExerciseIds: ["excluded-exercise"],
+        requiredExerciseIds: [
+          "missing-exercise",
+          "draft-exercise",
+          "warmup-only",
+          "excluded-exercise",
+          "Dumbbell_Bench",
+        ],
+      },
+      run: { runId: "run-required-diagnostics", actor: { userId: "user-1" }, userInput: "指定动作冲突测试" },
+      timeoutMs: 100,
+      toolCallId: "tc_required_diagnostics",
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      output: {
+        groups: {
+          training: {
+            exercises: [{ exerciseId: "Dumbbell_Bench" }],
+          },
+        },
+        diagnostics: expect.arrayContaining([
+          expect.objectContaining({ code: "required_exercise_not_found", exerciseId: "missing-exercise" }),
+          expect.objectContaining({ code: "required_exercise_unpublished", exerciseId: "draft-exercise" }),
+          expect.objectContaining({ code: "required_exercise_section_conflict", exerciseId: "warmup-only", conflictFields: ["suitabilities"] }),
+          expect.objectContaining({ code: "required_exercise_excluded", exerciseId: "excluded-exercise" }),
+          expect.objectContaining({
+            code: "required_exercise_filter_mismatch",
+            exerciseId: "Dumbbell_Bench",
+            conflictFields: ["level", "equipment"],
+          }),
+        ]),
+      },
+    });
+  });
+
   it("rejects legacy suitability input and unsupported suitabilities before handler execution", async () => {
     const { tool, repository } = await importToolWithRepositoryResult(createSearchResult());
 
@@ -323,17 +458,23 @@ describe("searchExerciseResources tool", () => {
   });
 });
 
-async function importToolWithRepositoryResult(result: ExerciseResourceSearchResult) {
-  return importToolWithRepositoryImplementation(async () => result);
+async function importToolWithRepositoryResult(
+  result: ExerciseResourceSearchResult,
+  requiredExercises: ExerciseResourceSearchResult["exercises"] = [],
+) {
+  return importToolWithRepositoryImplementation(async () => result, requiredExercises);
 }
 
 async function importToolWithRepositoryImplementation(
   implementation: (...args: unknown[]) => Promise<ExerciseResourceSearchResult>,
+  requiredExercises: ExerciseResourceSearchResult["exercises"] = [],
 ) {
   vi.resetModules();
   const searchExerciseResourceSummaries = vi.fn(implementation);
+  const getExerciseResourceSummariesByIds = vi.fn(async () => requiredExercises);
   vi.doMock(repositoryPath, () => ({
     searchExerciseResourceSummaries,
+    getExerciseResourceSummariesByIds,
   }));
   const toolModule = await import("@/lib/server/agent-tools/exercises/search-exercise-resources.tool");
 
@@ -341,6 +482,7 @@ async function importToolWithRepositoryImplementation(
     tool: toolModule.searchExerciseResourcesTool,
     repository: {
       searchExerciseResourceSummaries,
+      getExerciseResourceSummariesByIds,
     },
   };
 }

@@ -191,6 +191,7 @@ describe("agent-core ToolRegistry and manifest", () => {
     const registry = createProductionToolRegistry();
     const manifests = registry.serializeForPlanner();
     const inspectFactManifest = manifests.find((tool) => tool.name === "inspectVisibleTrainingProposals");
+    const resolveMentionManifest = manifests.find((tool) => tool.name === "resolveExerciseResourceMentions");
     const searchManifest = manifests.find((tool) => tool.name === "searchExerciseResources");
     const inspectInputSchemaObjects: Array<Record<string, JsonValue>> = [];
     const inputSchema = searchManifest?.inputJsonSchema as {
@@ -202,8 +203,23 @@ describe("agent-core ToolRegistry and manifest", () => {
         homeRequirement: { description?: string };
         bodyRegions: { items: { enum: string[] } };
         excludeExerciseIds: { items: unknown; maxItems?: number; description?: string };
+        requiredExerciseIds: { items: unknown; maxItems?: number; description?: string };
         published: { const?: boolean; default?: boolean };
         sort: { default?: string; enum: string[] };
+      };
+      additionalProperties?: boolean;
+    };
+    const resolveInputSchema = resolveMentionManifest?.inputJsonSchema as {
+      properties: {
+        mentions: {
+          maxItems?: number;
+          items: {
+            properties: {
+              text: { description?: string };
+              sectionHint: { enum?: string[]; description?: string };
+            };
+          };
+        };
       };
       additionalProperties?: boolean;
     };
@@ -216,6 +232,7 @@ describe("agent-core ToolRegistry and manifest", () => {
 
     expect(manifests.map((tool) => tool.name)).toEqual([
       "inspectVisibleTrainingProposals",
+      "resolveExerciseResourceMentions",
       "searchExerciseResources",
     ]);
     expect(inspectFactManifest?.policyHint).toEqual({
@@ -224,6 +241,11 @@ describe("agent-core ToolRegistry and manifest", () => {
       confirmation: "never",
     });
     expect(searchManifest?.policyHint).toEqual({
+      sideEffect: "read",
+      riskLevel: "low",
+      confirmation: "never",
+    });
+    expect(resolveMentionManifest?.policyHint).toEqual({
       sideEffect: "read",
       riskLevel: "low",
       confirmation: "never",
@@ -272,6 +294,12 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(inputSchema.properties.bodyRegions.items.enum).toEqual(["upper_body", "lower_body", "core", "full_body"]);
     expect(inputSchema.properties.excludeExerciseIds.maxItems).toBe(50);
     expect(inputSchema.properties.excludeExerciseIds.description).toContain("用户已经看到");
+    expect(inputSchema.properties.requiredExerciseIds.maxItems).toBe(12);
+    expect(inputSchema.properties.requiredExerciseIds.description).toContain("resolveExerciseResourceMentions");
+    expect(resolveInputSchema.properties.mentions.maxItems).toBe(12);
+    expect(resolveInputSchema.properties.mentions.items.properties.text.description).toContain("结构化提取");
+    expect(resolveInputSchema.properties.mentions.items.properties.sectionHint.enum).toEqual(["warmup", "training", "stretch"]);
+    expect(resolveInputSchema.additionalProperties).toBe(false);
     expect(inputSchema.properties.sort.enum).toEqual([
       "name_asc",
       "name_desc",
@@ -290,6 +318,12 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(manifestJson).toContain("0 条事实查询结果");
     expect(manifestJson).toContain("published");
     expect(manifestJson).toContain("excludeExerciseIds");
+    expect(manifestJson).toContain("requiredExerciseIds");
+    expect(manifestJson).toContain("mentions");
+    expect(manifestJson).toContain("俯卧撑");
+    expect(manifestJson).toContain("深蹲");
+    expect(manifestJson).toContain("平板支撑");
+    expect(manifestJson).toContain("先用 resolveExerciseResourceMentions");
     expect(manifestJson).toContain("bodyRegions");
     expect(manifestJson).toContain("lower_body");
     expect(manifestJson).toContain("真实肌群 facet");

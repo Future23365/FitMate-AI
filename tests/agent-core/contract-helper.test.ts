@@ -2,7 +2,12 @@ import { z } from "zod";
 import { describe, expect, it } from "vitest";
 
 import { defineTool } from "@/lib/server/agent-core/define-tool";
-import { inspectVisibleTrainingProposalsTool, m1FixtureTools, searchExerciseResourcesTool } from "@/lib/server/agent-tools";
+import {
+  inspectVisibleTrainingProposalsTool,
+  m1FixtureTools,
+  resolveExerciseResourceMentionsTool,
+  searchExerciseResourcesTool,
+} from "@/lib/server/agent-tools";
 import { toolToManifest } from "@/lib/server/agent-core/manifest";
 import { resourceProducerFixtureTool } from "@/lib/server/agent-tools/fixture/m1-safety-fixture.tools";
 
@@ -63,6 +68,7 @@ describe("agent-core contract test helper", () => {
 
   it("accepts the production exercise resource and fact tools contract", () => {
     expect(checkToolContractForProduction(inspectVisibleTrainingProposalsTool)).toMatchObject({ ok: true, issues: [] });
+    expect(checkToolContractForProduction(resolveExerciseResourceMentionsTool)).toMatchObject({ ok: true, issues: [] });
     expect(checkToolContractForProduction(searchExerciseResourcesTool)).toMatchObject({ ok: true, issues: [] });
   });
 
@@ -84,6 +90,7 @@ describe("agent-core contract test helper", () => {
         maxReturned: 12,
         truncated: false,
         excludedCount: 0,
+        requiredExerciseIds: ["push-up"],
       },
       groups: {
         training: {
@@ -109,6 +116,58 @@ describe("agent-core contract test helper", () => {
     }
     expect(modelObservationJson).toContain("totalMatches=0");
     expect(modelObservationJson).toContain("不是 visibleTrainingProposal");
+  });
+
+  it("keeps resolve mention projection focused on safe exercise summaries", () => {
+    const manifest = toolToManifest(resolveExerciseResourceMentionsTool);
+    const inputSchema = manifest.inputJsonSchema as { properties?: Record<string, unknown> };
+    const modelObservation = resolveExerciseResourceMentionsTool.toModelObservation?.({
+      status: "succeeded",
+      mentionCount: 1,
+      matchedCount: 1,
+      ambiguousCount: 0,
+      notFoundCount: 0,
+      results: [
+        {
+          text: "俯卧撑",
+          sectionHint: "training",
+          status: "matched",
+          totalMatches: 1,
+          returnedCount: 1,
+          truncated: false,
+          matches: [
+            {
+              exerciseId: "push-up",
+              nameZh: "俯卧撑",
+              nameEn: "Push-up",
+              categoryZh: "力量",
+              levelZh: "初级",
+              equipmentZh: "自重",
+              homeRequirementZh: "无器械",
+              primaryMusclesZh: ["胸部"],
+              allowedSections: ["training"],
+              imageUrl: "/push-up.png",
+              reviewStatus: "human_reviewed",
+              isPublished: true,
+            },
+          ],
+          diagnostics: [],
+        },
+      ],
+    } as never, {
+      runId: "run-contract-resolve-mentions",
+      actor: { userId: "contract-user" },
+      toolCallId: "tc_resolve_mentions",
+    });
+    const serialized = JSON.stringify({ manifest, modelObservation });
+
+    expect(inputSchema.properties).toHaveProperty("mentions");
+    expect(serialized).toContain("requiredExerciseIds");
+    expect(serialized).toContain("俯卧撑");
+    expect(serialized).not.toContain("instructionsZh");
+    expect(serialized).not.toContain("embedding");
+    expect(serialized).not.toContain("candidateSetId");
+    expect(serialized).not.toContain("candidate_set");
   });
 
   it("catches missing projection and unsafe examples", () => {

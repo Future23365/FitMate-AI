@@ -363,6 +363,7 @@ describe("agent-core architecture boundaries", () => {
     const allowedAgentToolFiles = new Set([
       "lib/server/agent-tools/index.ts",
       "lib/server/agent-tools/exercise-facts/inspect-visible-training-proposals.tool.ts",
+      "lib/server/agent-tools/exercises/resolve-exercise-resource-mentions.tool.ts",
       "lib/server/agent-tools/exercises/search-exercise-resources.tool.ts",
       "lib/server/agent-tools/fixture/read-fixture.tool.ts",
       "lib/server/agent-tools/fixture/m1-safety-fixture.tools.ts",
@@ -386,8 +387,9 @@ describe("agent-core architecture boundaries", () => {
 
     expect(unexpectedFiles).toEqual([]);
     expect(registryEntry).toContain("inspectVisibleTrainingProposalsTool");
+    expect(registryEntry).toContain("resolveExerciseResourceMentionsTool");
     expect(registryEntry).toContain("searchExerciseResourcesTool");
-    expect(registryEntry).toContain("productionAgentTools = [inspectVisibleTrainingProposalsTool, searchExerciseResourcesTool]");
+    expect(registryEntry).toContain("productionAgentTools = [");
     expect(productionRegistryFunction).not.toContain("readFixtureTool");
     expect(productionRegistryFunction).not.toContain("m1SafetyFixtureTools");
     expect(forbiddenRegistrations).toEqual([]);
