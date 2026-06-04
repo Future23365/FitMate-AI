@@ -30,7 +30,6 @@ import {
   createConversationContext,
   createWorkoutRoutine,
   createWorkoutSchedule,
-  createWorkoutPlanIntent,
 } from "./fixtures/domain";
 
 describe("frontend API clients", () => {
@@ -247,12 +246,6 @@ describe("frontend API clients", () => {
           createdAt: "2026-05-25T09:01:00.000Z",
         },
       ],
-      {},
-      {},
-      {},
-      {
-        "message-2": createWorkoutPlanIntent(),
-      },
       { summary: "用户想在家练胸肌。" },
       createConversationContext(),
     );
@@ -263,11 +256,12 @@ describe("frontend API clients", () => {
         { id: "message-1", createdAt: "2026-05-25T09:00:00.000Z" },
         { id: "message-2", createdAt: "2026-05-25T09:01:00.000Z" },
       ],
-      recommendationIntents: {
-        "message-2": expect.objectContaining({ goal: "胸肌训练" }),
-      },
       conversationSummary: { summary: "用户想在家练胸肌。" },
     });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).not.toHaveProperty("plans");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).not.toHaveProperty("routines");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).not.toHaveProperty("exerciseRecommendations");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).not.toHaveProperty("recommendationIntents");
     expect(window.dispatchEvent).toHaveBeenCalledWith(expect.any(Event));
   });
 });

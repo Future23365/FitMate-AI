@@ -21,23 +21,9 @@ import {
   type ConversationSummaryContext,
   type FitnessConversationContext,
 } from "@/lib/shared/chat/fitness-conversation-context";
-import type { Exercise } from "@/lib/shared/exercises/types";
-import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
-import {
-  type WorkoutPlanDraft,
-  type WorkoutPlanIntent,
-  type WorkoutRoutineDraft,
-} from "@/lib/shared/workout-plans/draft-schema";
 
 const chatRequestTimeoutMs = 45_000;
 const thinkingEnabledStorageKey = "fitmate.chat.thinkingEnabled";
-
-type BubblePlanError = {
-  message: string;
-  guidanceMessage?: string;
-  suggestedReplies: string[];
-  recoverable: boolean;
-};
 
 function createMessage(role: ChatMessage["role"], content: string): ChatMessage {
   return {
@@ -115,16 +101,6 @@ export function useChatController() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [thinkingEnabled, setThinkingEnabled] = useState(readThinkingEnabledPreference);
-  const [autoPlanGenerating, setAutoPlanGenerating] = useState<string | null>(null);
-  const [autoRecommendationGenerating, setAutoRecommendationGenerating] = useState<string | null>(null);
-  const [bubblePlans, setBubblePlans] = useState<Record<string, WorkoutPlanDraft>>({});
-  const [bubbleRoutines, setBubbleRoutines] = useState<Record<string, WorkoutRoutineDraft>>({});
-  const [bubblePlanExercises, setBubblePlanExercises] = useState<Record<string, Exercise[]>>({});
-  const [bubbleExerciseRecommendations, setBubbleExerciseRecommendations] = useState<
-    Record<string, ExerciseRecommendationCard>
-  >({});
-  const [bubbleRecommendationIntents, setBubbleRecommendationIntents] = useState<Record<string, WorkoutPlanIntent>>({});
-  const [bubblePlanErrors, setBubblePlanErrors] = useState<Record<string, BubblePlanError>>({});
   const [conversationContext, setConversationContext] = useState<FitnessConversationContext>(() =>
     buildFitnessConversationContext([]),
   );
@@ -156,11 +132,6 @@ export function useChatController() {
       skipNextAutoSaveRef.current = true;
       setConversationId(matchedConversation.id);
       setMessages(matchedConversation.messages);
-      setBubblePlans(matchedConversation.plans ?? {});
-      setBubbleRoutines(matchedConversation.routines ?? {});
-      setBubblePlanExercises({});
-      setBubbleExerciseRecommendations(matchedConversation.exerciseRecommendations ?? {});
-      setBubbleRecommendationIntents(matchedConversation.recommendationIntents ?? {});
       setConversationContext(
         matchedConversation.conversationContext ??
           buildFitnessConversationContext(matchedConversation.messages),
@@ -172,9 +143,6 @@ export function useChatController() {
             matchedConversation.conversationContext,
           ),
       );
-      setBubblePlanErrors({});
-      setAutoPlanGenerating(null);
-      setAutoRecommendationGenerating(null);
       setError("");
       setInput("");
     }
@@ -198,16 +166,8 @@ export function useChatController() {
       window.history.replaceState(null, "", window.location.pathname);
       setConversationId(null);
       setMessages([]);
-      setBubblePlans({});
-      setBubbleRoutines({});
-      setBubblePlanExercises({});
-      setBubbleExerciseRecommendations({});
-      setBubbleRecommendationIntents({});
       setConversationContext(buildFitnessConversationContext([]));
       setConversationSummary({ summary: "" });
-      setBubblePlanErrors({});
-      setAutoPlanGenerating(null);
-      setAutoRecommendationGenerating(null);
       setError("");
       setInput("");
     }
@@ -242,10 +202,6 @@ export function useChatController() {
       void saveChatConversation(
         conversationId,
         messages,
-        bubblePlans,
-        bubbleRoutines,
-        bubbleExerciseRecommendations,
-        bubbleRecommendationIntents,
         conversationSummary,
         conversationContext,
       ).catch((saveError: unknown) => {
@@ -257,10 +213,6 @@ export function useChatController() {
   }, [
     conversationId,
     messages,
-    bubblePlans,
-    bubbleRoutines,
-    bubbleExerciseRecommendations,
-    bubbleRecommendationIntents,
     conversationSummary,
     conversationContext,
   ]);
@@ -349,13 +301,6 @@ export function useChatController() {
   }
 
   return {
-    autoRecommendationGenerating,
-    autoPlanGenerating,
-    bubbleExerciseRecommendations,
-    bubblePlanExercises,
-    bubblePlanErrors,
-    bubblePlans,
-    bubbleRoutines,
     error,
     input,
     isLoading,
