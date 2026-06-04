@@ -710,7 +710,7 @@ describe("chat service agent text flow boundary", () => {
     const prepared = prepareChatRequest({
       conversationId: "conversation-refresh",
       responseMessageId: "assistant-refresh",
-      latestUserMessage: "再推荐一批",
+      latestUserMessage: "不要刚才那套，重新来一套",
       conversationSummary: "",
     });
     const planner = new ReplayPlanner([
@@ -742,6 +742,7 @@ describe("chat service agent text flow boundary", () => {
         }),
       ],
     });
+    expect(planner.calls[0].run.userInput).toBe("不要刚才那套，重新来一套");
     expect(JSON.stringify(planner.calls[0].run.metadata)).not.toContain("exerciseItems");
     expect(JSON.stringify(planner.calls[0].run.metadata)).not.toContain("prescription");
     expect(JSON.stringify(planner.calls[0].run.metadata)).not.toContain("imageUrl");

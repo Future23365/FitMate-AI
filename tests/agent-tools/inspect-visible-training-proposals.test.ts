@@ -212,8 +212,9 @@ describe("inspectVisibleTrainingProposals tool", () => {
         operation: "read_recent",
         currentRunImport: expect.objectContaining({
           imported: true,
-          note: expect.stringContaining("已导入当前 run，不要重复读取同一引用"),
+          note: expect.stringContaining("已导入当前 run，可作为后续差异化刷新"),
         }),
+        refreshPlanningBoundary: expect.stringContaining("本 tool 只读取上一套用户可见训练方案事实，不生成新的 visibleTrainingProposal"),
         trainingExerciseItems: [
           expect.objectContaining({
             exerciseId: "squat",
@@ -225,6 +226,8 @@ describe("inspectVisibleTrainingProposals tool", () => {
     });
     expect(serializedObservation).toContain("visibleOutputSchemaVersion");
     expect(serializedObservation).toContain("factSchemaVersion");
+    expect(serializedObservation).toContain("动作保留、动作排除、结构调整、澄清或失败收口");
+    expect(serializedObservation).toContain("最终结构仍必须由 final_answer.visibleOutputs[] 承载");
     expect(serializedObservation).toContain("final_answer.visibleOutputs[]");
     expect(serializedObservation).not.toContain("displayedExerciseIds");
     expect(serializedObservation).not.toContain("displayedExercises");

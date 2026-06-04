@@ -137,13 +137,13 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
 >({
   name: "inspectVisibleTrainingProposals",
   version: "0.2.0",
-  description: "只读查询当前会话中用户已经看到的 visibleTrainingProposal 事实。operation = \"list_recent\" 返回最近事实索引；operation = \"read_recent\" 读取具体事实并导入当前 run。",
+  description: "只读查询当前会话中用户已经看到的 visibleTrainingProposal 事实，帮助 Planner 了解上一套 exerciseItems、section 摘要和计划结构，再自主规划差异化刷新、保留、排除、结构调整或失败收口。operation = \"list_recent\" 返回最近事实索引；operation = \"read_recent\" 读取具体事实并导入当前 run。",
   whenToUse: [
     "当 Planner 需要确认当前 actor 和 conversation 是否存在可引用的用户可见训练方案事实时，先调用 operation = \"list_recent\"。",
     "list_recent 只返回 factRef、messageId、proposalKind、section 摘要、可复用 training 动作数量、visibleOutputSchemaVersion 和 factSchemaVersion；它不导入完整 payload，也不产出 consumable 训练方案事实。",
     "当 Planner 已经从 list_recent result、diagnostic index resource 或当前受控 metadata 中看到真实 factRef/messageId，并且需要复用具体方案时，再调用 operation = \"read_recent\"。",
-    "read_recent 成功后会把 visible_training_proposal_fact 作为当前 run 的 consumable resource 导入；后续应基于该结果继续规划，不要重复读取同一引用。",
-    "省略表达、指代不明或上下文引用场景由模型基于上下文、list_recent result 和 read_recent result 自主判断下一步，可以读取事实、查询动作库、澄清或普通回复。",
+    "read_recent 成功后会把 visible_training_proposal_fact 作为当前 run 的 consumable resource 导入；Planner 可用其中用户已看到的动作事实、section 摘要和计划结构，继续判断保留、排除、替换、查询新动作、调整结构、澄清或失败收口，不要重复读取同一引用。",
+    "省略表达、指代不明或上下文引用场景由模型基于上下文、list_recent result 和 read_recent result 自主判断下一步，可以读取事实、查询动作库、澄清或普通回复；本 tool 不要求固定 tool 调用次数或顺序。",
   ].join(" "),
   whenNotToUse: [
     "不要把任意固定自然语言短语写成必须调用本 tool 的条件；服务端不会根据用户原文替模型选择 operation。",
@@ -355,8 +355,9 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
       currentRunImport: {
         imported: true,
         resourceType: visibleTrainingProposalFactResourceType,
-        note: "该 visibleTrainingProposal 事实已导入当前 run，不要重复读取同一引用。",
+        note: "该 visibleTrainingProposal 事实已导入当前 run，可作为后续差异化刷新、动作保留、动作排除、结构调整、澄清或失败收口的依据；不要重复读取同一引用。",
       },
+      refreshPlanningBoundary: "本 tool 只读取上一套用户可见训练方案事实，不生成新的 visibleTrainingProposal；需要推送新方案时，最终结构仍必须由 final_answer.visibleOutputs[] 承载。",
       proposalKind: output.fact.proposalKind,
       visibleOutputSchemaVersion: output.fact.visibleOutputSchemaVersion,
       factSchemaVersion: output.fact.factSchemaVersion,

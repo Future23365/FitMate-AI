@@ -12,7 +12,7 @@ describe("agent LLM prompt configuration", () => {
     const systemPrompt = buildAgentActionSystemPrompt();
 
     expect(agentLlmPromptConfig.promptVersion).toBe(agentLlmPromptVersion);
-    expect(agentLlmPromptVersion).toBe("agent-action-v6");
+    expect(agentLlmPromptVersion).toBe("agent-action-v7");
     expect(systemPrompt).toContain("只能返回一个合法 JSON object");
     expect(systemPrompt).toContain("type 只能是 tool_call、final_answer、ask_user 三者之一");
     expect(systemPrompt).toContain("AI 健身助手");
@@ -41,6 +41,17 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).toContain("再查询或复用 training 动作事实作为主训练来源");
     expect(systemPrompt).toContain("缺少可消费 warmup 或 stretch 动作事实时，应优先使用可见 tool 查询缺失 section");
     expect(systemPrompt).toContain("把 warmup/training/stretch 组成同一套带 prescription 的编排");
+    expect(systemPrompt).toContain("刷新可见训练方案");
+    expect(systemPrompt).toContain("保留原训练目标、器械、难度、居家条件、时长、section 和计划约束");
+    expect(systemPrompt).toContain("优先让新的 exerciseItems 与上一套用户已看到动作产生实质差异");
+    expect(systemPrompt).toContain("routine 或 plan 的刷新不应只按原始需求和同一排序重新生成重复动作");
+    expect(systemPrompt).toContain("如果需要替换动作，应基于当前 run 可见事实自主决定读取上一套事实、查询替代动作、澄清或失败收口");
+    expect(systemPrompt).toContain("不要把某个自然语言表达映射成固定 tool、固定 action、固定 payload.kind 或服务端分流");
+    expect(systemPrompt).toContain("如果用户只是调整组数、时长、顺序、休息或难度，应优先保留已选动作");
+    expect(systemPrompt).toContain("调整 prescription、order、schedule 或相关结构字段");
+    expect(systemPrompt).toContain("可替代候选不足，可以复用部分已展示动作");
+    expect(systemPrompt).toContain("必须在 content 中说明原因、询问是否放宽条件或只输出当前事实可支撑的结构");
+    expect(systemPrompt).toContain("不要在未说明原因时把重复旧动作称为已经完成刷新");
     expect(systemPrompt).toContain("exerciseId");
     expect(systemPrompt).toContain("schedule.assignments");
     expect(systemPrompt).toContain("schedule 只表达周期内 training/rest 日");
@@ -67,6 +78,8 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).toContain("需要把 matched exerciseId 传给 searchExerciseResources.requiredExerciseIds");
     expect(systemPrompt).toContain("服务端会在渲染和保存前基于数据库复核 exerciseId、发布态和 allowedSections");
     expect(systemPrompt).not.toContain("必须调用 searchExerciseResources");
+    expect(systemPrompt).not.toContain("必须调用 inspectVisibleTrainingProposals");
+    expect(systemPrompt).not.toContain("固定调用顺序");
     expect(systemPrompt).not.toContain("validation failure 后必须调用 searchExerciseResources");
     expect(systemPrompt).not.toContain("只能复制本轮 satisfied searchExerciseResources observation");
     expect(systemPrompt).not.toContain("用户说某个固定词语");
@@ -113,6 +126,6 @@ describe("agent LLM prompt configuration", () => {
       "返回测试专用 AgentAction JSON object。 这个测试只期望 final_answer。",
     );
     expect(buildAgentActionSystemPrompt()).toContain("tool_call、final_answer、ask_user");
-    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v6");
+    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v7");
   });
 });

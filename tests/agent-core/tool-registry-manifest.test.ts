@@ -281,6 +281,10 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(inspectManifestJson).toContain("factSchemaVersion");
     expect(inspectManifestJson).toContain("schemaVersion 必须写字符串 \\\"1\\\"");
     expect(inspectManifestJson).toContain("不要重复读取同一引用");
+    expect(inspectManifestJson).toContain("上一套 exerciseItems、section 摘要和计划结构");
+    expect(inspectManifestJson).toContain("自主规划差异化刷新、保留、排除、结构调整或失败收口");
+    expect(inspectManifestJson).toContain("保留、排除、替换、查询新动作、调整结构、澄清或失败收口");
+    expect(inspectManifestJson).toContain("本 tool 不要求固定 tool 调用次数或顺序");
     expect(inspectManifestJson).not.toContain("readRecentVisibleTrainingProposal");
     expect(inspectManifestJson).not.toContain("fact_recent_visible_training_01");
     expect(inspectManifestJson).not.toContain("从上一条 list_recent result 中复制真实 factRef");
@@ -362,6 +366,13 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(searchManifestJson).toContain("fulfillment.satisfied = true");
     expect(searchManifestJson).toContain("visibleTrainingProposal.exerciseItems[*].exerciseId");
     expect(searchManifestJson).toContain("最终训练输出只能由 final_answer.visibleOutputs[] 承载");
+    expect(searchManifestJson).toContain("替换上一套用户可见 visibleTrainingProposal 的动作");
+    expect(searchManifestJson).toContain("保留原目标、器械、难度、居家条件、section、时长或计划约束");
+    expect(searchManifestJson).toContain("用 excludeExerciseIds 查询替代动作");
+    expect(searchManifestJson).toContain("不同 section 的替代动作仍必须来自对应 groups.<section>.exercises");
+    expect(searchManifestJson).toContain("当前 run 可见事实获得上一套已看到 exerciseItems");
+    expect(searchManifestJson).toContain("当前 run 可见的用户已经看到动作事实");
+    expect(searchManifestJson).toContain("未展示的内部候选、trace 摘要、handler-only 结果或 list_recent 索引");
     expect(searchManifestJson).toContain("模型根据用户目标已经需要 routine 或 plan");
     expect(searchManifestJson).toContain("当前 run 只有 training 动作事实或缺少 warmup / stretch 动作事实");
     expect(searchManifestJson).toContain("suitabilities = [\\\"warmup\\\", \\\"stretch\\\"]");
@@ -375,6 +386,7 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(manifestJson).toContain("allowedSections 是动作可进入哪些 section 的动作事实字段");
     expect(manifestJson).toContain("exerciseItems[*].section 应对应使用的 groups.<section> key");
     expect(manifestJson).not.toContain("必须调用 searchExerciseResources");
+    expect(manifestJson).not.toContain("必须调用 inspectVisibleTrainingProposals");
     expect(searchExamplesJson).not.toContain("用户说");
     expect(searchExamplesJson).not.toContain("固定短语");
     expect(searchExamplesJson).not.toContain("先用 resolveExerciseResourceMentions");
