@@ -128,7 +128,10 @@ describe("searchExerciseResources tool", () => {
     expect(serializedObservation).not.toContain("imageUrl");
     expect(serializedObservation).not.toContain("\"id\"");
     expect(serializedObservation).not.toContain("visibleTrainingProposal\":{\"");
-    expect(serializedObservation).toContain("最终训练事实只能来自 final_answer.visibleOutputs[]");
+    expect(serializedObservation).toContain("groups.<section>.exercises[*].exerciseId 可作为 visibleTrainingProposal.exerciseItems[*].exerciseId 的事实来源");
+    expect(serializedObservation).toContain("prescription、schedule 和最终 payload.kind");
+    expect(serializedObservation).toContain("最终事实必须写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal.payload");
+    expect(serializedObservation).not.toContain("不是 visibleTrainingProposal");
   });
 
   it("queries warmup and stretch in one tool call and returns structured empty diagnostics", async () => {

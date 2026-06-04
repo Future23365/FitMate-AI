@@ -1220,6 +1220,147 @@ describe("chat service agent text flow boundary", () => {
     expect(JSON.stringify(events)).not.toContain("displayedExerciseIds");
   });
 
+  it("renders a plan visible output after composing multiple exercise search observations", async () => {
+    const trainingSearchInput = {
+      muscle: "胸部",
+      equipment: "body only",
+      homeRequirement: "none",
+      level: "beginner",
+      suitabilities: ["training"],
+      sort: "name_asc",
+    };
+    const supportSearchInput = {
+      homeRequirement: "none",
+      suitabilities: ["warmup", "stretch"],
+      sort: "name_asc",
+    };
+    const expectedTrainingToolResultId = createToolResultId(
+      "chat_assistant-plan-visible",
+      "searchExerciseResources",
+      hashNormalizedInput(trainingSearchInput),
+    );
+    const expectedSupportToolResultId = createToolResultId(
+      "chat_assistant-plan-visible",
+      "searchExerciseResources",
+      hashNormalizedInput(supportSearchInput),
+    );
+    exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockImplementation(async (input) => {
+      const suitability = isRecord(input) && typeof input.suitability === "string" ? input.suitability : "training";
+      const exerciseBySuitability = {
+        warmup: { id: "jumping-jack", nameZh: "开合跳" },
+        training: { id: "push-up", nameZh: "俯卧撑" },
+        stretch: { id: "chest-stretch", nameZh: "胸部拉伸" },
+      }[suitability] ?? { id: "push-up", nameZh: "俯卧撑" };
+
+      return createExerciseResourceSearchResult({
+        query: {
+          muscle: isRecord(input) && typeof input.muscle === "string" ? input.muscle : undefined,
+          equipment: isRecord(input) && typeof input.equipment === "string" ? input.equipment : undefined,
+          homeRequirement: "none",
+          level: isRecord(input) && typeof input.level === "string" ? input.level : undefined,
+          suitability,
+          published: true,
+          sort: "name_asc",
+        },
+        totalMatches: 1,
+        returnedCount: 1,
+        exercises: [
+          {
+            ...createExerciseResourceSearchResult().exercises[0],
+            id: exerciseBySuitability.id,
+            nameZh: exerciseBySuitability.nameZh,
+            allowedSections: [suitability],
+          },
+        ],
+      });
+    });
+    const prepared = prepareChatRequest({
+      responseMessageId: "assistant-plan-visible",
+      latestUserMessage: "我想增肌，每周 3 练，每次 50 分钟，没有器械，高强度一些的，重点练胸",
+      conversationSummary: "",
+    });
+    const planner = new ReplayPlanner([
+      { type: "tool_call", toolName: "searchExerciseResources", input: trainingSearchInput },
+      { type: "tool_call", toolName: "searchExerciseResources", input: supportSearchInput },
+      {
+        type: "final_answer",
+        content: "这是一套每周 3 练的自重胸部增肌计划。",
+        usedToolResultIds: [expectedTrainingToolResultId, expectedSupportToolResultId],
+        visibleOutputs: [createVisiblePlanOutput()],
+      },
+    ]);
+
+    const response = await createAgentTextChatResponse({
+      request: prepared,
+      currentUser: { id: "user-1" },
+      planner,
+    });
+    const events = await readNdjsonEvents(response);
+    const finalPlannerObservationJson = JSON.stringify(planner.calls[2].observations);
+
+    expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries).toHaveBeenCalledTimes(3);
+    expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mock.calls.map(([input]) => (
+      isRecord(input) ? input.suitability : undefined
+    ))).toEqual(["training", "warmup", "stretch"]);
+    expect(finalPlannerObservationJson).toContain("push-up");
+    expect(finalPlannerObservationJson).toContain("jumping-jack");
+    expect(finalPlannerObservationJson).toContain("chest-stretch");
+    expect(finalPlannerObservationJson).toContain("groups.<section>.exercises[*].exerciseId 可作为 visibleTrainingProp");
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "tool_result",
+        toolName: "searchExerciseResources",
+        toolResultId: expectedTrainingToolResultId,
+        content: expect.objectContaining({
+          groups: expect.objectContaining({
+            training: expect.objectContaining({ exercises: [expect.objectContaining({ exerciseId: "push-up" })] }),
+          }),
+        }),
+      }),
+      expect.objectContaining({
+        type: "tool_result",
+        toolName: "searchExerciseResources",
+        toolResultId: expectedSupportToolResultId,
+        content: expect.objectContaining({
+          groups: expect.objectContaining({
+            warmup: expect.objectContaining({ exercises: [expect.objectContaining({ exerciseId: "jumping-jack" })] }),
+            stretch: expect.objectContaining({ exercises: [expect.objectContaining({ exerciseId: "chest-stretch" })] }),
+          }),
+        }),
+      }),
+      { type: "content", content: "这是一套每周 3 练的自重胸部增肌计划。" },
+      expect.objectContaining({
+        type: "visible_output",
+        outputType: "visibleTrainingProposal",
+        payload: expect.objectContaining({
+          kind: "plan",
+          schedule: expect.objectContaining({
+            cycleLengthDays: 7,
+            assignments: [
+              { cycleDayIndex: 1, type: "training" },
+              { cycleDayIndex: 2, type: "rest" },
+              { cycleDayIndex: 3, type: "training" },
+              { cycleDayIndex: 4, type: "rest" },
+              { cycleDayIndex: 5, type: "training" },
+              { cycleDayIndex: 6, type: "rest" },
+              { cycleDayIndex: 7, type: "rest" },
+            ],
+          }),
+        }),
+      }),
+      { type: "done" },
+    ]);
+    expect(visibleTrainingProposalFactStoreMocks.persistVisibleTrainingProposalFactsFromEvents).toHaveBeenCalledWith(expect.objectContaining({
+      messageId: "assistant-plan-visible",
+      events: expect.arrayContaining([
+        expect.objectContaining({
+          type: "visible_output",
+          outputType: "visibleTrainingProposal",
+        }),
+      ]),
+    }));
+  });
+
   it("explains shortage when no more exercises remain after excluding displayed ids", async () => {
     const listInput = { operation: "list_recent" as const };
     const readInput = { operation: "read_recent" as const, factRef: "fact-previous" };
@@ -2035,6 +2176,33 @@ function createVisibleRoutineOutput() {
         { exerciseId: "push-up", section: "training" as const, order: 1, prescription: createVisiblePrescription("reps", 12) },
         { exerciseId: "chest-stretch", section: "stretch" as const, order: 1, prescription: createVisiblePrescription("duration", 30) },
       ],
+    },
+  };
+}
+
+function createVisiblePlanOutput() {
+  return {
+    outputType: "visibleTrainingProposal" as const,
+    schemaVersion: "1",
+    payload: {
+      kind: "plan" as const,
+      exerciseItems: [
+        { exerciseId: "jumping-jack", section: "warmup" as const, order: 1, prescription: createVisiblePrescription("reps", 20) },
+        { exerciseId: "push-up", section: "training" as const, order: 1, prescription: createVisiblePrescription("reps", 12) },
+        { exerciseId: "chest-stretch", section: "stretch" as const, order: 1, prescription: createVisiblePrescription("duration", 30) },
+      ],
+      schedule: {
+        cycleLengthDays: 7,
+        assignments: [
+          { cycleDayIndex: 1, type: "training" as const },
+          { cycleDayIndex: 2, type: "rest" as const },
+          { cycleDayIndex: 3, type: "training" as const },
+          { cycleDayIndex: 4, type: "rest" as const },
+          { cycleDayIndex: 5, type: "training" as const },
+          { cycleDayIndex: 6, type: "rest" as const },
+          { cycleDayIndex: 7, type: "rest" as const },
+        ],
+      },
     },
   };
 }

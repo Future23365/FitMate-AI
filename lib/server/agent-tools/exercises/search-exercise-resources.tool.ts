@@ -169,19 +169,21 @@ type SuitabilityGroupOutput = z.infer<typeof suitabilityGroupSchema>;
 export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInput, SearchExerciseResourcesOutput>({
   name: "searchExerciseResources",
   version: "0.5.0",
-  description: "按结构化筛选条件查询发布态动作库，并按 suitabilities 分组返回安全动作摘要；不查询当前会话是否已有 visibleTrainingProposal。totalMatches=0 也是已完成的事实查询结果，不是数据库失败。",
+  description: "只读查询发布态动作事实原料，并按 suitabilities 分组返回安全动作摘要；它不生成最终 visibleTrainingProposal、routine、plan、prescription、schedule、保存结果或用户记忆。totalMatches=0 也是已完成的事实查询结果，不是数据库失败。",
   whenToUse: [
-    "当用户需要一组符合明确结构化事实的发布态动作时使用，例如 bodyRegions、真实肌群 facet、器械、难度、居家条件、目标标签、风险标签、分类，或 suitabilities 指定的 warmup/training/stretch 用途。",
+    "用于查询符合明确结构化条件的发布态动作列表，例如 bodyRegions、真实肌群 facet、器械、难度、居家条件、目标标签、风险标签、分类，或 suitabilities 指定的 warmup/training/stretch 用途。",
     "如果需要确认当前会话是否存在可引用 visibleTrainingProposal，先使用 inspectVisibleTrainingProposals(operation = \"list_recent\")；如果需要复用具体上一轮方案，先使用 inspectVisibleTrainingProposals(operation = \"read_recent\") 导入当前 run。",
     "用户明确提出新的动作查询目标、结构化筛选条件或普通动作事实问题时，可以直接调用 searchExerciseResources，不需要强制先 inspectVisibleTrainingProposals。",
-    "只推荐一批动作时通常查询 suitabilities = [\"training\"] 或省略 suitabilities；返回的 exerciseId 可写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal.payload.exerciseItems。",
-    "groups.<section>.exercises[] 是该查询结果中对应 section 的动作事实来源；生成 visibleTrainingProposal.exerciseItems[] 时，exerciseItems[*].section 应对应使用的 groups.<section> key，并且必须被该动作 allowedSections 包含；allowedSections 是动作可进入哪些 section 的动作事实字段。",
+    "groups.<section>.exercises[*].exerciseId 是该查询结果中对应 section 的动作事实来源；当 fulfillment.satisfied = true 时，可作为 final_answer.visibleOutputs[] 中 visibleTrainingProposal.exerciseItems[*].exerciseId 的受控来源。",
+    "最终训练输出只能由 final_answer.visibleOutputs[] 承载；如果生成 visibleTrainingProposal.exerciseItems[]，exerciseItems[*].section 应对应使用的 groups.<section> key，并且必须被该动作 allowedSections 包含；allowedSections 是动作可进入哪些 section 的动作事实字段。",
     "当用户点名多个具体动作时，应先调用 resolveExerciseResourceMentions 解析 mentions；再把 matched exerciseId 或模型从 ambiguous 中选择的 exerciseId 传入 requiredExerciseIds，让这些发布态动作优先进入现有 groups.<section>.exercises。",
-    "需要一次可执行编排时，先确定 training 主训练动作；再围绕这些主训练动作和用户目标查询 suitabilities = [\"warmup\", \"stretch\"] 补充热身和拉伸候选。",
+    "如果最终训练结构还缺 warmup 或 stretch 动作事实，可用 suitabilities = [\"warmup\", \"stretch\"] 查询热身和拉伸候选；是否继续查询、澄清或输出当前事实可支撑的结构由模型基于当前可见事实自主决定。",
     "宽泛身体区域必须使用 bodyRegions：上肢用 upper_body，腿部或下肢用 lower_body，核心用 core，全身用 full_body。",
+    "muscle 只用于动作库真实主肌群或辅助肌群 facet；腿部、下肢、上肢、全身等高层区域必须使用 bodyRegions。",
     "excludeExerciseIds 只能填写用户已经看到或明确要求排除的动作；如果来自上一轮方案，应先通过 inspectVisibleTrainingProposals(operation = \"read_recent\") 导入 visible_training_proposal_fact 后复制真实 exerciseId，不要从未展示的内部候选或 list_recent 索引中填充。",
     `精确筛选必须使用真实 facet 值。${levelFacetDescription} ${equipmentFacetDescription} ${homeRequirementFacetDescription}`,
     "查询成功且 satisfied=true 的结果，包括 totalMatches=0 的结果，可以在同一 run 通过 final_answer.usedToolResultIds 支撑普通事实回答；训练推送事实必须写入 final_answer.visibleOutputs[]，不要只写正文。",
+    "本 tool 不要求固定 tool 调用次数或顺序；它只提供当前查询实际返回 section 的动作事实。",
   ].join(" "),
   whenNotToUse: [
     "不要用它生成 visibleTrainingProposal、routine、plan、patch、prescription、schedule、训练卡片、保存 artifact、用户记忆或执行候选集合。",
@@ -205,7 +207,7 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
   },
   examples: [
     {
-      description: "查找适合胸部训练的初级自重动作。",
+      description: "按真实肌群、器械、居家条件、用途和难度查询 training 动作事实。",
       input: {
         muscle: "胸部",
         equipment: "body only",
@@ -215,7 +217,7 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
       },
     },
     {
-      description: "围绕已确定主训练动作补充居家热身和拉伸候选。",
+      description: "按居家条件同时查询 warmup 和 stretch 用途的动作事实。",
       input: {
         suitabilities: ["warmup", "stretch"],
         homeRequirement: "none",
@@ -223,7 +225,7 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
       },
     },
     {
-      description: "用户点名多个动作时，先用 resolveExerciseResourceMentions 解析 mentions；requiredExerciseIds 必须复制上一轮结果中真实 matched exerciseId，示例 id 不可脱离上一步结果照抄，也不能填自然语言动作名。",
+      description: "在当前 run 已有受控 exerciseId 时，用 requiredExerciseIds 要求这些发布态动作优先进入对应 groups。",
       input: {
         suitabilities: ["training"],
         equipment: "body only",
@@ -373,8 +375,8 @@ export const searchExerciseResourcesTool = defineTool<SearchExerciseResourcesInp
     truncated: output.query.truncated,
     excludedCount: output.query.excludedCount,
     outputSummaryNote: "totalMatches、returnedCount、truncated、excludedCount、groups 和 diagnostics 是本次查询输出摘要，不是下一轮 searchExerciseResources input。",
-    finalAnswerGrounding: "本次查询事实（包括 totalMatches=0）如果 fulfillment.satisfied=true，可以引用当前 observation 的 toolResultId 填入 final_answer.usedToolResultIds；训练方案必须放入 final_answer.visibleOutputs[]。",
-    candidateConsumptionBoundary: "该 observation 只提供候选事实，不是 visibleTrainingProposal、routine、plan、prescription、schedule 或训练卡片；最终训练事实只能来自 final_answer.visibleOutputs[]。",
+    finalAnswerGrounding: "当 fulfillment.satisfied=true，本次查询事实包括 totalMatches=0 的结果，toolResultId 可支撑 final_answer.usedToolResultIds 中的普通事实回答；如果要推送训练结构，最终事实必须写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal.payload。",
+    candidateConsumptionBoundary: "当前 observation 提供动作事实原料：可用 section 只包含 groups 实际返回的 key，groups.<section>.exercises[*].exerciseId 可作为 visibleTrainingProposal.exerciseItems[*].exerciseId 的事实来源；prescription、schedule 和最终 payload.kind 需要由 final_answer.visibleOutputs[] 明确输出。若目标结构还缺 section 或字段，模型应基于可见事实自主继续查询、澄清、失败收口或输出当前事实可支撑的结构。",
     groupSemantics: {
       groupKey: "groups.<section>",
       sectionRelation: "groups.<section>.exercises[] 中的动作是当前查询按该 section 返回的动作事实；生成 visibleTrainingProposal.exerciseItems[] 时，section 应与使用的 group key 保持一致。",

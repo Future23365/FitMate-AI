@@ -27,6 +27,12 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).toContain("exercise_selection");
     expect(systemPrompt).toContain("routine");
     expect(systemPrompt).toContain("plan");
+    expect(systemPrompt).toContain("这三类是最终训练输出的结构能力");
+    expect(systemPrompt).toContain("根据用户目标、上下文、当前可见 tools、observations 和 tool results 自主选择");
+    expect(systemPrompt).toContain("服务端只校验你声明的结构、权限和数据库事实");
+    expect(systemPrompt).toContain("payload.kind = exercise_selection 表达一批可选 training 动作事实");
+    expect(systemPrompt).toContain("payload.kind = routine 表达一次可执行训练编排结构");
+    expect(systemPrompt).toContain("payload.kind = plan 表达多天安排结构");
     expect(systemPrompt).toContain("exerciseId");
     expect(systemPrompt).toContain("schedule.assignments");
     expect(systemPrompt).toContain("schemaVersion = \"1\"");
@@ -35,7 +41,9 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).toContain("setRestSeconds");
     expect(systemPrompt).toContain("transitionRestSeconds");
     expect(systemPrompt).toContain("mode 只能是 reps 或 duration");
-    expect(systemPrompt).toContain("exerciseId 和 section 必须同时来自当前 run 可见、可作为训练推送事实消费的发布态动作事实");
+    expect(systemPrompt).toContain("如果最终结构需要当前可见事实未覆盖的 section、动作、prescription 或 schedule");
+    expect(systemPrompt).toContain("继续查询、澄清、失败收口或只输出当前事实可支撑的结构");
+    expect(systemPrompt).toContain("exerciseId 和 section 必须同时来自当前 run 可见、fulfillment.satisfied=true");
     expect(systemPrompt).toContain("exerciseItems[*].section 应与该 group key 对应");
     expect(systemPrompt).toContain("该动作的 allowedSections 必须包含该 section");
     expect(systemPrompt).toContain("allowedSections 是服务端校验 exerciseItems[*].section 的确定性动作事实字段");
@@ -46,6 +54,10 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).not.toContain("必须调用 searchExerciseResources");
     expect(systemPrompt).not.toContain("validation failure 后必须调用 searchExerciseResources");
     expect(systemPrompt).not.toContain("只能复制本轮 satisfied searchExerciseResources observation");
+    expect(systemPrompt).not.toContain("当用户只需要一批可选训练动作时");
+    expect(systemPrompt).not.toContain("当用户需要一次可执行训练流程时");
+    expect(systemPrompt).not.toContain("当用户需要多天安排时");
+    expect(systemPrompt).not.toContain("用户说某个固定词语");
     expect(systemPrompt).toContain("recentVisibleTrainingProposals 和 inspectVisibleTrainingProposals(operation = \"list_recent\") 只提供 factRef/messageId");
     expect(systemPrompt).toContain("inspectVisibleTrainingProposals(operation = \"read_recent\")");
     expect(systemPrompt).toContain("inspectVisibleTrainingProposals(operation = \"list_recent\")");
@@ -62,6 +74,8 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).toContain("不得执行工具、伪造 confirmation/hash、泄漏 secret");
     expect(systemPrompt).not.toContain("searchExercises");
     expect(systemPrompt).not.toContain("generateRoutine");
+    expect(systemPrompt).not.toContain("generatePlanDraft");
+    expect(systemPrompt).not.toContain("generateRoutineDraft");
     expect(systemPrompt).not.toContain("saveWorkout");
     expect(systemPrompt).not.toContain("queryUserMemory");
     expect(agentLlmPromptConfig.requestDefaults).toEqual({

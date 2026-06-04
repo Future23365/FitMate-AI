@@ -75,7 +75,19 @@ describe("agent-core contract test helper", () => {
   it("keeps output-only fields out of input schema, examples and model observation", () => {
     const manifest = toolToManifest(searchExerciseResourcesTool);
     const inputSchema = manifest.inputJsonSchema as { properties?: Record<string, unknown> };
-    const forbiddenInputFields = ["maxReturned", "limit", "take", "offset", "page", "pageSize"];
+    const forbiddenInputFields = [
+      "maxReturned",
+      "purpose",
+      "queryIntent",
+      "candidateUse",
+      "resultRequirements",
+      "rankingHints",
+      "limit",
+      "take",
+      "offset",
+      "page",
+      "pageSize",
+    ];
     const examplesJson = JSON.stringify(manifest.examples ?? []);
     const modelObservation = searchExerciseResourcesTool.toModelObservation?.({
       status: "succeeded",
@@ -115,7 +127,12 @@ describe("agent-core contract test helper", () => {
       expect(modelObservationJson).not.toContain(field);
     }
     expect(modelObservationJson).toContain("totalMatches=0");
-    expect(modelObservationJson).toContain("不是 visibleTrainingProposal");
+    expect(modelObservationJson).toContain("groups.<section>.exercises[*].exerciseId 可作为 visibleTrainingProposal.exerciseItems[*].exerciseId 的事实来源");
+    expect(modelObservationJson).toContain("prescription、schedule 和最终 payload.kind");
+    expect(modelObservationJson).toContain("继续查询、澄清、失败收口或输出当前事实可支撑的结构");
+    expect(modelObservationJson).not.toContain("不是 visibleTrainingProposal");
+    expect(modelObservationJson).not.toContain("generatePlanDraft");
+    expect(modelObservationJson).not.toContain("generateRoutineDraft");
   });
 
   it("keeps resolve mention projection focused on safe exercise summaries", () => {
