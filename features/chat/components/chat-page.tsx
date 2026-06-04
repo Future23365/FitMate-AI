@@ -9,9 +9,11 @@ import { LogoMark } from "@/components/app/logo-mark";
 import { ResponsiveRightSidebar } from "@/components/app/responsive-right-sidebar";
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { useAutoHideScrollbar } from "@/components/app/use-auto-hide-scrollbar";
+import { Card, CardContent } from "@/components/ui/card";
 import { ExerciseRecommendationCard } from "@/features/exercises/components/exercise-recommendation-card";
 import { useChatController } from "@/features/chat/hooks/use-chat-controller";
 import { getMessageAssistantSuggestions } from "@/features/chat/lib/assistant-suggestions";
+import type { ChatVisibleOutput } from "@/features/chat/types";
 import { listWorkoutSchedules } from "@/features/workouts/api/workout-data-client";
 import { WorkoutPlanDraftCard } from "@/features/workouts/components/workout-plan-draft-card";
 import { WorkoutRoutineDraftCard } from "@/features/workouts/components/workout-routine-draft-card";
@@ -114,6 +116,277 @@ function MarkdownContent({ content }: { content: string }) {
       {content}
     </ReactMarkdown>
   );
+}
+
+type VisibleTrainingSection = "warmup" | "training" | "stretch";
+
+type VisibleTrainingExerciseView = {
+  exerciseId: string;
+  section: VisibleTrainingSection;
+  order: number;
+  prescription?: {
+    mode?: string;
+    sets?: number;
+    target?: number;
+    setRestSeconds?: number;
+    transitionRestSeconds?: number;
+  };
+  exercise?: {
+    nameZh?: string;
+    nameEn?: string;
+    equipmentZh?: string | null;
+    primaryMusclesZh?: string[];
+    imageUrl?: string | null;
+  };
+};
+
+type VisibleTrainingProposalView = {
+  kind: "exercise_selection" | "routine" | "plan";
+  sections: Array<{
+    section: VisibleTrainingSection;
+    items: VisibleTrainingExerciseView[];
+  }>;
+  schedule?: {
+    cycleLengthDays?: number;
+    assignments?: Array<{ cycleDayIndex?: number; type?: "training" | "rest" }>;
+  };
+};
+
+// VisibleTrainingProposalPanel 只渲染已由服务端校验的 visibleOutputs，不从正文反推训练事实。
+function VisibleTrainingProposalPanel({ output }: { output: ChatVisibleOutput }) {
+  const proposal = parseVisibleTrainingProposalOutput(output);
+
+  if (!proposal) {
+    return null;
+  }
+
+  const title = proposal.kind === "exercise_selection"
+    ? "动作方案"
+    : proposal.kind === "routine"
+      ? "训练编排"
+      : "训练计划";
+
+  return (
+    <Card className="mt-md overflow-hidden border-primary/15 bg-surface-container-low shadow-none">
+      <CardContent className="p-md">
+        <div className="mb-sm flex items-center justify-between gap-sm">
+          <div className="flex min-w-0 items-center gap-xs">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <SymbolIcon className="text-[18px]">fitness_center</SymbolIcon>
+            </span>
+            <div className="min-w-0">
+              <p className="font-label-md text-label-md font-bold text-ink">{title}</p>
+              {proposal.schedule ? (
+                <p className="font-body-xs text-body-xs text-muted">
+                  {formatScheduleSummary(proposal.schedule)}
+                </p>
+              ) : null}
+            </div>
+          </div>
+          <span className="shrink-0 rounded-md bg-white px-sm py-xs font-label-xs text-label-xs font-bold text-primary ring-1 ring-primary/15">
+            {proposal.kind}
+          </span>
+        </div>
+
+        <div className="space-y-sm">
+          {proposal.sections.map((section) => (
+            <div className="rounded-lg border border-line bg-white p-sm" key={section.section}>
+              <div className="mb-xs flex items-center gap-xs font-label-sm text-label-sm font-bold text-on-surface-variant">
+                <SymbolIcon className="text-[16px]">{sectionIcon(section.section)}</SymbolIcon>
+                <span>{sectionLabel(section.section)}</span>
+              </div>
+              <div className="space-y-xs">
+                {section.items.map((item) => (
+                  <div className="flex min-w-0 items-center gap-sm" key={`${item.section}:${item.order}:${item.exerciseId}`}>
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/10 font-label-xs text-label-xs font-bold text-primary">
+                      {item.order}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-label-sm text-label-sm font-bold text-ink">
+                        {item.exercise?.nameZh ?? item.exercise?.nameEn ?? item.exerciseId}
+                      </p>
+                      <p className="truncate font-body-xs text-body-xs text-muted">
+                        {[item.exercise?.equipmentZh, ...(item.exercise?.primaryMusclesZh ?? [])].filter(Boolean).join(" · ") || item.exerciseId}
+                      </p>
+                    </div>
+                    {item.prescription ? (
+                      <span className="shrink-0 rounded-md bg-surface-container px-sm py-xs font-label-xs text-label-xs text-on-surface-variant">
+                        {formatPrescription(item.prescription)}
+                      </span>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function parseVisibleTrainingProposalOutput(output: ChatVisibleOutput): VisibleTrainingProposalView | null {
+  if (output.outputType !== "visibleTrainingProposal" || output.schemaVersion !== "1") {
+    return null;
+  }
+
+  const content = isRecord(output.content) ? output.content : null;
+  const payload = isRecord(output.payload) ? output.payload : null;
+  const kind = readVisibleProposalKind(content?.kind ?? payload?.kind);
+  const rawSections = Array.isArray(content?.sections) ? content.sections : null;
+  const sections = rawSections
+    ? rawSections.flatMap(parseVisibleTrainingSection)
+    : parseSectionsFromPayload(payload);
+
+  if (!kind || sections.length === 0) {
+    return null;
+  }
+
+  return {
+    kind,
+    sections,
+    schedule: parseSchedule(content?.schedule ?? payload?.schedule),
+  };
+}
+
+function parseVisibleTrainingSection(value: unknown): VisibleTrainingProposalView["sections"] {
+  if (!isRecord(value)) {
+    return [];
+  }
+
+  const section = readVisibleTrainingSection(value.section);
+  const rawItems = Array.isArray(value.items) ? value.items : [];
+  const items = rawItems.flatMap(parseVisibleTrainingExerciseItem);
+
+  return section && items.length > 0 ? [{ section, items }] : [];
+}
+
+function parseSectionsFromPayload(payload: Record<string, unknown> | null): VisibleTrainingProposalView["sections"] {
+  const rawItems = Array.isArray(payload?.exerciseItems) ? payload.exerciseItems : [];
+  const items = rawItems.flatMap(parseVisibleTrainingExerciseItem);
+
+  return (["warmup", "training", "stretch"] as const)
+    .map((section) => ({
+      section,
+      items: items.filter((item) => item.section === section),
+    }))
+    .filter((section) => section.items.length > 0);
+}
+
+function parseVisibleTrainingExerciseItem(value: unknown): VisibleTrainingExerciseView[] {
+  if (!isRecord(value)) {
+    return [];
+  }
+
+  const exerciseId = typeof value.exerciseId === "string" ? value.exerciseId : null;
+  const section = readVisibleTrainingSection(value.section);
+  const order = typeof value.order === "number" ? value.order : null;
+
+  if (!exerciseId || !section || !order) {
+    return [];
+  }
+
+  return [{
+    exerciseId,
+    section,
+    order,
+    prescription: parsePrescription(value.prescription),
+    exercise: parseExerciseDetail(value.exercise),
+  }];
+}
+
+function parsePrescription(value: unknown): VisibleTrainingExerciseView["prescription"] {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  return {
+    mode: typeof value.mode === "string" ? value.mode : undefined,
+    sets: typeof value.sets === "number" ? value.sets : undefined,
+    target: typeof value.target === "number" ? value.target : undefined,
+    setRestSeconds: typeof value.setRestSeconds === "number" ? value.setRestSeconds : undefined,
+    transitionRestSeconds: typeof value.transitionRestSeconds === "number" ? value.transitionRestSeconds : undefined,
+  };
+}
+
+function parseExerciseDetail(value: unknown): VisibleTrainingExerciseView["exercise"] {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  return {
+    nameZh: typeof value.nameZh === "string" ? value.nameZh : undefined,
+    nameEn: typeof value.nameEn === "string" ? value.nameEn : undefined,
+    equipmentZh: typeof value.equipmentZh === "string" || value.equipmentZh === null ? value.equipmentZh : undefined,
+    primaryMusclesZh: Array.isArray(value.primaryMusclesZh)
+      ? value.primaryMusclesZh.filter((item): item is string => typeof item === "string")
+      : undefined,
+    imageUrl: typeof value.imageUrl === "string" || value.imageUrl === null ? value.imageUrl : undefined,
+  };
+}
+
+function parseSchedule(value: unknown): VisibleTrainingProposalView["schedule"] {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  return {
+    cycleLengthDays: typeof value.cycleLengthDays === "number" ? value.cycleLengthDays : undefined,
+    assignments: Array.isArray(value.assignments)
+      ? value.assignments.flatMap((assignment) => {
+          if (!isRecord(assignment)) {
+            return [];
+          }
+          return [{
+            cycleDayIndex: typeof assignment.cycleDayIndex === "number" ? assignment.cycleDayIndex : undefined,
+            type: assignment.type === "training" || assignment.type === "rest" ? assignment.type : undefined,
+          }];
+        })
+      : undefined,
+  };
+}
+
+function formatPrescription(prescription: NonNullable<VisibleTrainingExerciseView["prescription"]>) {
+  const unit = prescription.mode === "duration" ? "秒" : "次";
+  const sets = prescription.sets ?? 1;
+  const target = prescription.target ?? 1;
+
+  return `${sets} 组 x ${target} ${unit}`;
+}
+
+function formatScheduleSummary(schedule: NonNullable<VisibleTrainingProposalView["schedule"]>) {
+  const trainingDays = schedule.assignments?.filter((assignment) => assignment.type === "training").length ?? 0;
+  const restDays = schedule.assignments?.filter((assignment) => assignment.type === "rest").length ?? 0;
+
+  return `周期 ${schedule.cycleLengthDays ?? schedule.assignments?.length ?? 0} 天 · 训练 ${trainingDays} 天 · 休息 ${restDays} 天`;
+}
+
+function readVisibleProposalKind(value: unknown): VisibleTrainingProposalView["kind"] | null {
+  return value === "exercise_selection" || value === "routine" || value === "plan" ? value : null;
+}
+
+function readVisibleTrainingSection(value: unknown): VisibleTrainingSection | null {
+  return value === "warmup" || value === "training" || value === "stretch" ? value : null;
+}
+
+function sectionLabel(section: VisibleTrainingSection) {
+  return {
+    warmup: "热身",
+    training: "主训练",
+    stretch: "拉伸",
+  }[section];
+}
+
+function sectionIcon(section: VisibleTrainingSection) {
+  return {
+    warmup: "directions_run",
+    training: "fitness_center",
+    stretch: "self_improvement",
+  }[section];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 // 历史消息可能含旧 trigger JSON；这里只做纯展示清理，不再解析 intent 或触发任何训练卡片。
@@ -601,6 +874,13 @@ export function ChatPage() {
                                       <ChatThinkingIndicator showThinkingIcon={thinkingEnabled || message.isReasoning === true} />
                                     </div>
                                   )}
+
+                                {message.visibleOutputs?.map((output, index) => (
+                                  <VisibleTrainingProposalPanel
+                                    key={`${output.outputType}:${output.schemaVersion}:${index}`}
+                                    output={output}
+                                  />
+                                ))}
 
                                 {assistantSuggestions.length > 0 && !recommendationCard && (
                                   <div className="mt-md flex flex-wrap gap-sm">

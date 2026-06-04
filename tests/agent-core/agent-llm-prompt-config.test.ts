@@ -12,7 +12,7 @@ describe("agent LLM prompt configuration", () => {
     const systemPrompt = buildAgentActionSystemPrompt();
 
     expect(agentLlmPromptConfig.promptVersion).toBe(agentLlmPromptVersion);
-    expect(agentLlmPromptVersion).toBe("agent-action-v3");
+    expect(agentLlmPromptVersion).toBe("agent-action-v4");
     expect(systemPrompt).toContain("只能返回一个合法 JSON object");
     expect(systemPrompt).toContain("type 只能是 tool_call、final_answer、ask_user 三者之一");
     expect(systemPrompt).toContain("AI 健身助手");
@@ -21,6 +21,20 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).toContain("伤病判断或康复处方");
     expect(systemPrompt).toContain("普通聊天、概念解释、能力说明");
     expect(systemPrompt).toContain("都必须用 final_answer");
+    expect(systemPrompt).toContain("visibleOutputs[]");
+    expect(systemPrompt).toContain("visibleTrainingProposal");
+    expect(systemPrompt).toContain("payload.kind");
+    expect(systemPrompt).toContain("exercise_selection");
+    expect(systemPrompt).toContain("routine");
+    expect(systemPrompt).toContain("plan");
+    expect(systemPrompt).toContain("exerciseId");
+    expect(systemPrompt).toContain("schedule.assignments");
+    expect(systemPrompt).toContain("setRestSeconds");
+    expect(systemPrompt).toContain("transitionRestSeconds");
+    expect(systemPrompt).toContain("mode 只能是 reps 或 duration");
+    expect(systemPrompt).not.toContain("关键词");
+    expect(systemPrompt).not.toContain("正则");
+    expect(systemPrompt).not.toContain("同义词");
     expect(systemPrompt).toContain("当 tools 为空时，禁止返回 tool_call");
     expect(systemPrompt).toContain("用户询问你能做什么或当前能力边界时");
     expect(systemPrompt).toContain("不得承诺直接执行未注册工具");
@@ -53,6 +67,6 @@ describe("agent LLM prompt configuration", () => {
       "返回测试专用 AgentAction JSON object。 这个测试只期望 final_answer。",
     );
     expect(buildAgentActionSystemPrompt()).toContain("tool_call、final_answer、ask_user");
-    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v3");
+    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v4");
   });
 });

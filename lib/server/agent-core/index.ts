@@ -16,5 +16,7 @@ export * from "./response-renderer";
 export * from "./resource-contract";
 export * from "./resource-store";
 export * from "./runtime";
+export * from "./terminal-output-validator";
 export * from "./trace-audit";
 export * from "./tool-registry";
+export * from "./visible-output-renderer";

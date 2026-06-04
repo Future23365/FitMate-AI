@@ -66,6 +66,20 @@ export function applyAgentTextChatEventToAssistantMessage(
         suggestedReplies: event.suggestions,
         isReasoning: false,
       };
+    case "visible_output":
+      return {
+        ...message,
+        visibleOutputs: [
+          ...(message.visibleOutputs ?? []),
+          {
+            outputType: event.outputType,
+            schemaVersion: event.schemaVersion,
+            payload: event.payload,
+            content: event.content,
+          },
+        ],
+        isReasoning: false,
+      };
     case "error":
       return {
         ...message,

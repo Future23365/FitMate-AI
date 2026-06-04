@@ -27,24 +27,21 @@ import { createChatConversation } from "./fixtures/domain";
 const exerciseResourceRepositoryMocks = vi.hoisted(() => ({
   searchExerciseResourceSummaries: vi.fn(),
 }));
-const exerciseRecommendationFactStoreMocks = vi.hoisted(() => ({
-  listRecentExerciseRecommendationFactSummaries: vi.fn(),
-  persistExerciseRecommendationFactsFromEvents: vi.fn(),
-  readExerciseRecommendationFact: vi.fn(),
+const visibleTrainingProposalFactStoreMocks = vi.hoisted(() => ({
+  listRecentVisibleTrainingProposalSummaries: vi.fn(),
+  persistVisibleTrainingProposalFactsFromEvents: vi.fn(),
+  readVisibleTrainingProposalFact: vi.fn(),
 }));
 
 vi.mock("@/lib/server/exercises/exercise-repository", () => exerciseResourceRepositoryMocks);
-vi.mock("@/lib/server/exercise-recommendation-facts/exercise-recommendation-fact-store", () => ({
-  exerciseRecommendationFactKind: "exercise_recommendation_displayed",
-  exerciseRecommendationFactResourceType: "exercise_recommendation_fact",
-  exerciseRecommendationFactSchemaVersion: 1,
-  listRecentExerciseRecommendationFactSummaries: exerciseRecommendationFactStoreMocks.listRecentExerciseRecommendationFactSummaries,
-  persistExerciseRecommendationFactsFromEvents: exerciseRecommendationFactStoreMocks.persistExerciseRecommendationFactsFromEvents,
-  readExerciseRecommendationFact: exerciseRecommendationFactStoreMocks.readExerciseRecommendationFact,
+vi.mock("@/lib/server/visible-training-proposals/visible-training-proposal-fact-store", () => ({
+  listRecentVisibleTrainingProposalSummaries: visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries,
+  persistVisibleTrainingProposalFactsFromEvents: visibleTrainingProposalFactStoreMocks.persistVisibleTrainingProposalFactsFromEvents,
+  readVisibleTrainingProposalFact: visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact,
   toJsonValue: (value: unknown) => JSON.parse(JSON.stringify(value)),
 }));
 
-const productionToolNames = ["readRecentExerciseRecommendationFact", "searchExerciseResources"];
+const productionToolNames = ["readRecentVisibleTrainingProposal", "searchExerciseResources"];
 
 async function readNdjsonEvents(response: Response) {
   const text = await response.text();
@@ -136,11 +133,11 @@ describe("chat service agent text flow boundary", () => {
     clearAiTraces();
     exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockReset();
     exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockResolvedValue(createExerciseResourceSearchResult());
-    exerciseRecommendationFactStoreMocks.listRecentExerciseRecommendationFactSummaries.mockReset();
-    exerciseRecommendationFactStoreMocks.listRecentExerciseRecommendationFactSummaries.mockResolvedValue([]);
-    exerciseRecommendationFactStoreMocks.persistExerciseRecommendationFactsFromEvents.mockReset();
-    exerciseRecommendationFactStoreMocks.persistExerciseRecommendationFactsFromEvents.mockResolvedValue({ ok: true, savedCount: 0, skippedReason: "no_visible_exercise_fact" });
-    exerciseRecommendationFactStoreMocks.readExerciseRecommendationFact.mockReset();
+    visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries.mockReset();
+    visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries.mockResolvedValue([]);
+    visibleTrainingProposalFactStoreMocks.persistVisibleTrainingProposalFactsFromEvents.mockReset();
+    visibleTrainingProposalFactStoreMocks.persistVisibleTrainingProposalFactsFromEvents.mockResolvedValue({ ok: true, savedCount: 0, skippedReason: "no_visible_training_proposal" });
+    visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact.mockReset();
   });
 
   it("accepts current chat request shape and ignores removed legacy event toggles", () => {
@@ -265,7 +262,7 @@ describe("chat service agent text flow boundary", () => {
   });
 
   it("runs searchExerciseResources when the model explicitly calls the production tool", async () => {
-    const toolInput = { q: "胸", suitability: "training" };
+    const toolInput = { q: "胸", suitabilities: ["training"] };
     const expectedToolResultId = createToolResultId(
       "chat_assistant-tool",
       "searchExerciseResources",
@@ -310,6 +307,13 @@ describe("chat service agent text flow boundary", () => {
           totalMatches: 1,
           returnedCount: 1,
           truncated: false,
+          groups: expect.objectContaining({
+            training: expect.objectContaining({
+              exercises: [
+                expect.objectContaining({ exerciseId: "push-up" }),
+              ],
+            }),
+          }),
         }),
       }),
       { type: "content", content: "可以参考俯卧撑。" },
@@ -390,11 +394,11 @@ describe("chat service agent text flow boundary", () => {
     expect(JSON.stringify(events)).not.toContain("candidate_set");
   });
 
-  it("refreshes exercise recommendations by reading prior visible fact and excluding displayed ids", async () => {
+  it("refreshes visible training proposals by reading prior visible fact and excluding prior exercise ids", async () => {
     const readInput = { factRef: "fact-previous" };
     const searchInput = {
       bodyRegions: ["lower_body"],
-      suitability: "training",
+      suitabilities: ["training"],
       excludeExerciseIds: ["squat", "lunge"],
       sort: "name_asc",
     };
@@ -403,12 +407,12 @@ describe("chat service agent text flow boundary", () => {
       "searchExerciseResources",
       hashNormalizedInput(searchInput),
     );
-    exerciseRecommendationFactStoreMocks.listRecentExerciseRecommendationFactSummaries.mockResolvedValueOnce([
-      createRecentExerciseFactSummary(),
+    visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries.mockResolvedValueOnce([
+      createRecentVisibleTrainingProposalSummary(),
     ]);
-    exerciseRecommendationFactStoreMocks.readExerciseRecommendationFact.mockResolvedValueOnce({
+    visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact.mockResolvedValueOnce({
       ok: true,
-      fact: createReadableExerciseFact(),
+      fact: createReadableVisibleTrainingProposalFact(),
     });
     exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockResolvedValueOnce(createExerciseResourceSearchResult({
       query: {
@@ -442,9 +446,14 @@ describe("chat service agent text flow boundary", () => {
       conversationSummary: "",
     });
     const planner = new ReplayPlanner([
-      { type: "tool_call", toolName: "readRecentExerciseRecommendationFact", input: readInput },
+      { type: "tool_call", toolName: "readRecentVisibleTrainingProposal", input: readInput },
       { type: "tool_call", toolName: "searchExerciseResources", input: searchInput },
-      { type: "final_answer", content: "这次可以参考台阶上步。", usedToolResultIds: [expectedSearchToolResultId] },
+      {
+        type: "final_answer",
+        content: "这次可以参考台阶上步。",
+        usedToolResultIds: [expectedSearchToolResultId],
+        visibleOutputs: [createVisibleExerciseSelectionOutput("step-up")],
+      },
     ]);
 
     const response = await createAgentTextChatResponse({
@@ -455,14 +464,14 @@ describe("chat service agent text flow boundary", () => {
     const events = await readNdjsonEvents(response);
 
     expect(planner.calls[0].run.metadata).toMatchObject({
-      recentExerciseRecommendationFacts: [
+      recentVisibleTrainingProposals: [
         expect.objectContaining({
           factRef: "fact-previous",
-          displayedCount: 2,
+          proposalKind: "exercise_selection",
         }),
       ],
     });
-    expect(exerciseRecommendationFactStoreMocks.readExerciseRecommendationFact).toHaveBeenCalledWith({
+    expect(visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact).toHaveBeenCalledWith({
       userId: "user-1",
       conversationId: "conversation-refresh",
       factRef: "fact-previous",
@@ -477,25 +486,40 @@ describe("chat service agent text flow boundary", () => {
     expect(events).toEqual([
       expect.objectContaining({
         type: "tool_result",
-        toolName: "readRecentExerciseRecommendationFact",
+        toolName: "readRecentVisibleTrainingProposal",
       }),
       expect.objectContaining({
         type: "tool_result",
         toolName: "searchExerciseResources",
         content: expect.objectContaining({
           excludedCount: 2,
-          exercises: [
-            expect.objectContaining({ id: "step-up" }),
-          ],
+          groups: expect.objectContaining({
+            training: expect.objectContaining({
+              exercises: [
+                expect.objectContaining({ exerciseId: "step-up" }),
+              ],
+            }),
+          }),
         }),
       }),
       { type: "content", content: "这次可以参考台阶上步。" },
+      expect.objectContaining({
+        type: "visible_output",
+        outputType: "visibleTrainingProposal",
+        schemaVersion: "1",
+        payload: expect.objectContaining({
+          kind: "exercise_selection",
+          exerciseItems: [
+            expect.objectContaining({ exerciseId: "step-up", section: "training" }),
+          ],
+        }),
+      }),
       { type: "done" },
     ]);
     expect(JSON.stringify(events)).not.toContain("budget_exhausted");
     expect(JSON.stringify(events)).not.toContain("\"id\":\"squat\"");
     expect(JSON.stringify(events)).not.toContain("\"id\":\"lunge\"");
-    expect(exerciseRecommendationFactStoreMocks.persistExerciseRecommendationFactsFromEvents).toHaveBeenCalledWith(expect.objectContaining({
+    expect(visibleTrainingProposalFactStoreMocks.persistVisibleTrainingProposalFactsFromEvents).toHaveBeenCalledWith(expect.objectContaining({
       userId: "user-1",
       conversationId: "conversation-refresh",
       messageId: "assistant-refresh",
@@ -507,7 +531,7 @@ describe("chat service agent text flow boundary", () => {
     const readInput = { factRef: "fact-previous" };
     const searchInput = {
       bodyRegions: ["lower_body"],
-      suitability: "training",
+      suitabilities: ["training"],
       excludeExerciseIds: ["squat", "lunge"],
       sort: "name_asc",
     };
@@ -516,12 +540,12 @@ describe("chat service agent text flow boundary", () => {
       "searchExerciseResources",
       hashNormalizedInput(searchInput),
     );
-    exerciseRecommendationFactStoreMocks.listRecentExerciseRecommendationFactSummaries.mockResolvedValueOnce([
-      createRecentExerciseFactSummary(),
+    visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries.mockResolvedValueOnce([
+      createRecentVisibleTrainingProposalSummary(),
     ]);
-    exerciseRecommendationFactStoreMocks.readExerciseRecommendationFact.mockResolvedValueOnce({
+    visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact.mockResolvedValueOnce({
       ok: true,
-      fact: createReadableExerciseFact(),
+      fact: createReadableVisibleTrainingProposalFact(),
     });
     exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockResolvedValueOnce(createExerciseResourceSearchResult({
       query: {
@@ -555,10 +579,15 @@ describe("chat service agent text flow boundary", () => {
       conversationSummary: "",
     });
     const planner = new ReplayPlanner([
-      { type: "tool_call", toolName: "readRecentExerciseRecommendationFact", input: readInput },
-      { type: "tool_call", toolName: "readRecentExerciseRecommendationFact", input: readInput },
+      { type: "tool_call", toolName: "readRecentVisibleTrainingProposal", input: readInput },
+      { type: "tool_call", toolName: "readRecentVisibleTrainingProposal", input: readInput },
       { type: "tool_call", toolName: "searchExerciseResources", input: searchInput },
-      { type: "final_answer", content: "这次可以参考台阶上步。", usedToolResultIds: [expectedSearchToolResultId] },
+      {
+        type: "final_answer",
+        content: "这次可以参考台阶上步。",
+        usedToolResultIds: [expectedSearchToolResultId],
+        visibleOutputs: [createVisibleExerciseSelectionOutput("step-up")],
+      },
     ]);
 
     const response = await createAgentTextChatResponse({
@@ -574,7 +603,7 @@ describe("chat service agent text flow boundary", () => {
       && JSON.stringify(observation.content).includes(AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS)
     ));
 
-    expect(exerciseRecommendationFactStoreMocks.readExerciseRecommendationFact).toHaveBeenCalledTimes(1);
+    expect(visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact).toHaveBeenCalledTimes(1);
     expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
       bodyRegions: ["lower_body"],
       suitability: "training",
@@ -582,7 +611,7 @@ describe("chat service agent text flow boundary", () => {
       published: true,
     }));
     expect(duplicateFeedback).toMatchObject({
-      toolName: "readRecentExerciseRecommendationFact",
+      toolName: "readRecentVisibleTrainingProposal",
       content: expect.objectContaining({
         code: AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS,
       }),
@@ -590,19 +619,27 @@ describe("chat service agent text flow boundary", () => {
     expect(events).toEqual([
       expect.objectContaining({
         type: "tool_result",
-        toolName: "readRecentExerciseRecommendationFact",
+        toolName: "readRecentVisibleTrainingProposal",
       }),
       expect.objectContaining({
         type: "tool_result",
         toolName: "searchExerciseResources",
         content: expect.objectContaining({
           excludedCount: 2,
-          exercises: [
-            expect.objectContaining({ id: "step-up" }),
-          ],
+          groups: expect.objectContaining({
+            training: expect.objectContaining({
+              exercises: [
+                expect.objectContaining({ exerciseId: "step-up" }),
+              ],
+            }),
+          }),
         }),
       }),
       { type: "content", content: "这次可以参考台阶上步。" },
+      expect.objectContaining({
+        type: "visible_output",
+        outputType: "visibleTrainingProposal",
+      }),
       { type: "done" },
     ]);
     expect(serializedTrace).toContain(AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS);
@@ -615,7 +652,7 @@ describe("chat service agent text flow boundary", () => {
     const searchInput = {
       bodyRegions: ["lower_body"],
       muscle: "胸部",
-      suitability: "training",
+      suitabilities: ["training"],
       sort: "name_asc",
     };
     const expectedToolResultId = createToolResultId(
@@ -735,7 +772,9 @@ describe("chat service agent text flow boundary", () => {
         content: expect.objectContaining({
           totalMatches: 0,
           returnedCount: 0,
-          exercises: [],
+          groups: expect.objectContaining({
+            training: expect.objectContaining({ exercises: [] }),
+          }),
         }),
       }),
       { type: "content", content: "当前发布态动作库没有找到铅球相关动作。" },
@@ -768,11 +807,108 @@ describe("chat service agent text flow boundary", () => {
     expect(JSON.stringify(events)).not.toContain("repair_limit_exceeded");
   });
 
+  it("renders a routine visible output after querying warmup training and stretch groups", async () => {
+    const searchInput = {
+      bodyRegions: ["full_body"],
+      suitabilities: ["warmup", "training", "stretch"],
+      homeRequirement: "none",
+      sort: "name_asc",
+    };
+    const expectedToolResultId = createToolResultId(
+      "chat_assistant-routine-visible",
+      "searchExerciseResources",
+      hashNormalizedInput(searchInput),
+    );
+    exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockImplementation(async (input) => {
+      const suitability = isRecord(input) && typeof input.suitability === "string" ? input.suitability : "training";
+      const exerciseBySuitability = {
+        warmup: { id: "jumping-jack", nameZh: "开合跳" },
+        training: { id: "push-up", nameZh: "俯卧撑" },
+        stretch: { id: "chest-stretch", nameZh: "胸部拉伸" },
+      }[suitability] ?? { id: "push-up", nameZh: "俯卧撑" };
+
+      return createExerciseResourceSearchResult({
+        query: {
+          bodyRegions: ["full_body"],
+          suitability,
+          homeRequirement: "none",
+          published: true,
+          sort: "name_asc",
+        },
+        totalMatches: 1,
+        returnedCount: 1,
+        exercises: [
+          {
+            ...createExerciseResourceSearchResult().exercises[0],
+            id: exerciseBySuitability.id,
+            nameZh: exerciseBySuitability.nameZh,
+            allowedSections: [suitability],
+          },
+        ],
+      });
+    });
+    const prepared = prepareChatRequest({
+      responseMessageId: "assistant-routine-visible",
+      latestUserMessage: "帮我做一套全身训练编排",
+      conversationSummary: "",
+    });
+    const planner = new ReplayPlanner([
+      { type: "tool_call", toolName: "searchExerciseResources", input: searchInput },
+      {
+        type: "final_answer",
+        content: "这是一套包含热身、主训练和拉伸的全身训练。",
+        usedToolResultIds: [expectedToolResultId],
+        visibleOutputs: [createVisibleRoutineOutput()],
+      },
+    ]);
+
+    const response = await createAgentTextChatResponse({
+      request: prepared,
+      currentUser: { id: "user-1" },
+      planner,
+    });
+    const events = await readNdjsonEvents(response);
+
+    expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries).toHaveBeenCalledTimes(3);
+    expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mock.calls.map(([input]) => (
+      isRecord(input) ? input.suitability : undefined
+    ))).toEqual(["warmup", "training", "stretch"]);
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "tool_result",
+        toolName: "searchExerciseResources",
+        toolResultId: expectedToolResultId,
+        content: expect.objectContaining({
+          groups: expect.objectContaining({
+            warmup: expect.objectContaining({ exercises: [expect.objectContaining({ exerciseId: "jumping-jack" })] }),
+            training: expect.objectContaining({ exercises: [expect.objectContaining({ exerciseId: "push-up" })] }),
+            stretch: expect.objectContaining({ exercises: [expect.objectContaining({ exerciseId: "chest-stretch" })] }),
+          }),
+        }),
+      }),
+      { type: "content", content: "这是一套包含热身、主训练和拉伸的全身训练。" },
+      expect.objectContaining({
+        type: "visible_output",
+        outputType: "visibleTrainingProposal",
+        payload: expect.objectContaining({
+          kind: "routine",
+          exerciseItems: expect.arrayContaining([
+            expect.objectContaining({ exerciseId: "jumping-jack", section: "warmup" }),
+            expect.objectContaining({ exerciseId: "push-up", section: "training" }),
+            expect.objectContaining({ exerciseId: "chest-stretch", section: "stretch" }),
+          ]),
+        }),
+      }),
+      { type: "done" },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("displayedExerciseIds");
+  });
+
   it("explains shortage when no more exercises remain after excluding displayed ids", async () => {
     const readInput = { factRef: "fact-previous" };
     const searchInput = {
       bodyRegions: ["lower_body"],
-      suitability: "training",
+      suitabilities: ["training"],
       excludeExerciseIds: ["squat", "lunge"],
       sort: "name_asc",
     };
@@ -781,12 +917,12 @@ describe("chat service agent text flow boundary", () => {
       "searchExerciseResources",
       hashNormalizedInput(searchInput),
     );
-    exerciseRecommendationFactStoreMocks.listRecentExerciseRecommendationFactSummaries.mockResolvedValueOnce([
-      createRecentExerciseFactSummary(),
+    visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries.mockResolvedValueOnce([
+      createRecentVisibleTrainingProposalSummary(),
     ]);
-    exerciseRecommendationFactStoreMocks.readExerciseRecommendationFact.mockResolvedValueOnce({
+    visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact.mockResolvedValueOnce({
       ok: true,
-      fact: createReadableExerciseFact(),
+      fact: createReadableVisibleTrainingProposalFact(),
     });
     exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockResolvedValueOnce(createExerciseResourceSearchResult({
       query: {
@@ -814,7 +950,7 @@ describe("chat service agent text flow boundary", () => {
       conversationSummary: "",
     });
     const planner = new ReplayPlanner([
-      { type: "tool_call", toolName: "readRecentExerciseRecommendationFact", input: readInput },
+      { type: "tool_call", toolName: "readRecentVisibleTrainingProposal", input: readInput },
       { type: "tool_call", toolName: "searchExerciseResources", input: searchInput },
       { type: "final_answer", content: "当前条件下没有更多未重复的腿部训练动作了，可以放宽器械或训练阶段再找。", usedToolResultIds: [expectedSearchToolResultId] },
     ]);
@@ -827,7 +963,7 @@ describe("chat service agent text flow boundary", () => {
     const events = await readNdjsonEvents(response);
 
     expect(events).toEqual([
-      expect.objectContaining({ type: "tool_result", toolName: "readRecentExerciseRecommendationFact" }),
+      expect.objectContaining({ type: "tool_result", toolName: "readRecentVisibleTrainingProposal" }),
       expect.objectContaining({
         type: "tool_result",
         toolName: "searchExerciseResources",
@@ -836,7 +972,9 @@ describe("chat service agent text flow boundary", () => {
           totalMatches: 0,
           returnedCount: 0,
           excludedCount: 2,
-          exercises: [],
+          groups: expect.objectContaining({
+            training: expect.objectContaining({ exercises: [] }),
+          }),
         }),
       }),
       { type: "content", content: "当前条件下没有更多未重复的腿部训练动作了，可以放宽器械或训练阶段再找。" },
@@ -849,8 +987,8 @@ describe("chat service agent text flow boundary", () => {
 
   it("lets the planner recover when refresh fact lookup fails without server text routing", async () => {
     const invalidReadInput = { factRef: "cbf_previous_response" };
-    exerciseRecommendationFactStoreMocks.listRecentExerciseRecommendationFactSummaries.mockResolvedValueOnce([]);
-    exerciseRecommendationFactStoreMocks.readExerciseRecommendationFact.mockRejectedValueOnce(new Error("Prisma read failed."));
+    visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries.mockResolvedValueOnce([]);
+    visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact.mockRejectedValueOnce(new Error("Prisma read failed."));
     const prepared = prepareChatRequest({
       conversationId: "conversation-refresh-empty",
       responseMessageId: "assistant-refresh-empty",
@@ -858,7 +996,7 @@ describe("chat service agent text flow boundary", () => {
       conversationSummary: "",
     });
     const planner = new ReplayPlanner([
-      { type: "tool_call", toolName: "readRecentExerciseRecommendationFact", input: invalidReadInput },
+      { type: "tool_call", toolName: "readRecentVisibleTrainingProposal", input: invalidReadInput },
       { type: "final_answer", content: "我这里没有可读取的上一轮推荐记录，你可以告诉我想换哪类动作，我再按条件帮你找。", usedToolResultIds: [] },
     ]);
 
@@ -872,9 +1010,9 @@ describe("chat service agent text flow boundary", () => {
     const serializedTrace = JSON.stringify(trace);
 
     expect(planner.calls[0].run.metadata).toMatchObject({
-      recentExerciseRecommendationFacts: [],
+      recentVisibleTrainingProposals: [],
     });
-    expect(exerciseRecommendationFactStoreMocks.readExerciseRecommendationFact).toHaveBeenCalledWith({
+    expect(visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact).toHaveBeenCalledWith({
       userId: "user-1",
       conversationId: "conversation-refresh-empty",
       factRef: "cbf_previous_response",
@@ -901,7 +1039,7 @@ describe("chat service agent text flow boundary", () => {
           output: {
             toolResults: [
               expect.objectContaining({
-                toolName: "readRecentExerciseRecommendationFact",
+                toolName: "readRecentVisibleTrainingProposal",
                 ok: true,
                 satisfied: false,
               }),
@@ -1300,10 +1438,14 @@ function createExerciseResourceSearchResult(overrides: Record<string, unknown> =
     isPublished: true,
   };
 
+  const queryOverrides = isRecord(overrides.query) ? overrides.query : {};
+
   return {
     query: {
+      suitability: "training",
       published: true,
       sort: "name_asc",
+      ...queryOverrides,
     },
     appliedFilters: [{ field: "published", value: true }],
     expandedMuscles: [],
@@ -1313,61 +1455,81 @@ function createExerciseResourceSearchResult(overrides: Record<string, unknown> =
     truncated: false,
     excludedCount: 0,
     exercises: [exercise],
-    ...overrides,
+    ...Object.fromEntries(Object.entries(overrides).filter(([key]) => key !== "query")),
   };
 }
 
-function createRecentExerciseFactSummary() {
+function createRecentVisibleTrainingProposalSummary() {
   return {
     factRef: "fact-previous",
     messageId: "assistant-previous",
-    kind: "exercise_recommendation_displayed",
+    kind: "visible_training_proposal_displayed",
     status: "active",
     schemaVersion: 1,
     createdAt: "2026-06-03T14:30:00.000Z",
-    displayedCount: 2,
-    displayedExercises: [
-      { id: "squat", nameZh: "深蹲", nameEn: "Squat", equipmentZh: "自重", primaryMusclesZh: ["股四头肌"], allowedSections: ["training"], imageUrl: null },
-      { id: "lunge", nameZh: "箭步蹲", nameEn: "Lunge", equipmentZh: "自重", primaryMusclesZh: ["股四头肌"], allowedSections: ["training"], imageUrl: null },
+    proposalKind: "exercise_selection",
+    exerciseItems: [
+      { exerciseId: "squat", section: "training", order: 1, nameZh: "深蹲", nameEn: "Squat", equipmentZh: "自重", primaryMusclesZh: ["股四头肌"], allowedSections: ["training"], imageUrl: null },
+      { exerciseId: "lunge", section: "training", order: 2, nameZh: "箭步蹲", nameEn: "Lunge", equipmentZh: "自重", primaryMusclesZh: ["股四头肌"], allowedSections: ["training"], imageUrl: null },
     ],
-    query: {
-      appliedFilters: [
-        { field: "bodyRegions", value: ["lower_body"] },
-        { field: "suitability", value: "training" },
-        { field: "published", value: true },
+  };
+}
+
+function createReadableVisibleTrainingProposalFact() {
+  const payload = {
+    kind: "exercise_selection" as const,
+    exerciseItems: [
+      { exerciseId: "squat", section: "training" as const, order: 1 },
+      { exerciseId: "lunge", section: "training" as const, order: 2 },
+    ],
+  };
+
+  return {
+    ...createRecentVisibleTrainingProposalSummary(),
+    userId: "user-1",
+    conversationId: "conversation-refresh",
+    payload,
+    exerciseDetails: [
+      { exerciseId: "squat", nameZh: "深蹲", nameEn: "Squat", equipmentZh: "自重", primaryMusclesZh: ["股四头肌"], allowedSections: ["training"], imageUrl: null },
+      { exerciseId: "lunge", nameZh: "箭步蹲", nameEn: "Lunge", equipmentZh: "自重", primaryMusclesZh: ["股四头肌"], allowedSections: ["training"], imageUrl: null },
+    ],
+  };
+}
+
+function createVisibleExerciseSelectionOutput(exerciseId: string) {
+  return {
+    outputType: "visibleTrainingProposal" as const,
+    schemaVersion: "1",
+    payload: {
+      kind: "exercise_selection" as const,
+      exerciseItems: [
+        { exerciseId, section: "training" as const, order: 1 },
       ],
-      bodyRegions: ["lower_body"],
-      expandedMuscles: ["股四头肌"],
-      totalMatches: 5,
-      returnedCount: 2,
-      excludedCount: 0,
-      truncated: false,
     },
   };
 }
 
-function createReadableExerciseFact() {
+function createVisibleRoutineOutput() {
   return {
-    ...createRecentExerciseFactSummary(),
-    userId: "user-1",
-    conversationId: "conversation-refresh",
-    displayedExerciseIds: ["squat", "lunge"],
-    query: {
-      bodyRegions: ["lower_body"],
-      expandedMuscles: ["股四头肌"],
-      suitability: "training",
-      published: true,
-      sort: "name_asc",
-      appliedFilters: [
-        { field: "bodyRegions", value: ["lower_body"] },
-        { field: "suitability", value: "training" },
-        { field: "published", value: true },
+    outputType: "visibleTrainingProposal" as const,
+    schemaVersion: "1",
+    payload: {
+      kind: "routine" as const,
+      exerciseItems: [
+        { exerciseId: "jumping-jack", section: "warmup" as const, order: 1, prescription: createVisiblePrescription("reps", 20) },
+        { exerciseId: "push-up", section: "training" as const, order: 1, prescription: createVisiblePrescription("reps", 12) },
+        { exerciseId: "chest-stretch", section: "stretch" as const, order: 1, prescription: createVisiblePrescription("duration", 30) },
       ],
-      totalMatches: 5,
-      returnedCount: 2,
-      maxReturned: 12,
-      truncated: false,
-      excludedCount: 0,
     },
+  };
+}
+
+function createVisiblePrescription(mode: "reps" | "duration", target: number) {
+  return {
+    mode,
+    sets: 2,
+    target,
+    setRestSeconds: 45,
+    transitionRestSeconds: 30,
   };
 }

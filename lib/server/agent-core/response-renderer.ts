@@ -1,10 +1,18 @@
 import type { AgentRunResult, AgentStreamEvent, JsonValue, ToolResult } from "./contracts";
 import { redactJsonValue, redactToolError } from "./redaction";
+import type { VisibleOutputRendererRegistry } from "./visible-output-renderer";
 
 const genericUserVisibleErrorMessage = "聊天生成失败，请稍后重试。";
 
+export type RenderAgentResponseEventsOptions = {
+  visibleOutputRenderers?: VisibleOutputRendererRegistry;
+};
+
 /** renderAgentResponseEvents 将 Runtime 收口结果转换为默认 NDJSON 白名单事件。 */
-export function renderAgentResponseEvents(result: AgentRunResult): AgentStreamEvent[] {
+export function renderAgentResponseEvents(
+  result: AgentRunResult,
+  options: RenderAgentResponseEventsOptions = {},
+): AgentStreamEvent[] {
   const events: AgentStreamEvent[] = [];
 
   for (const toolResult of result.toolResults) {
@@ -24,6 +32,10 @@ export function renderAgentResponseEvents(result: AgentRunResult): AgentStreamEv
     });
   } else if (result.terminalAction?.type === "final_answer") {
     events.push({ type: "content", content: result.terminalAction.content });
+
+    for (const output of result.terminalAction.visibleOutputs ?? []) {
+      events.push(...(options.visibleOutputRenderers?.render(output, { result }) ?? []));
+    }
 
     if (result.terminalAction.assistantSuggestions?.length) {
       events.push({ type: "assistant_suggestions", suggestions: result.terminalAction.assistantSuggestions });

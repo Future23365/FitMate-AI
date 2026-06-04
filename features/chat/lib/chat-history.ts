@@ -72,6 +72,7 @@ export function createChatConversationSavePayload(
     createdAt: message.createdAt,
     assistantSuggestions: message.assistantSuggestions,
     suggestedReplies: message.suggestedReplies ?? message.suggestedQuestions,
+    visibleOutputs: message.visibleOutputs,
   }));
 
   if (!messagesToSave.some((message) => message.role === "user")) {

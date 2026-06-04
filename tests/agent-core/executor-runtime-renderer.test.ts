@@ -8,7 +8,9 @@ import { createToolResultId, executeTool, hashNormalizedInput } from "@/lib/serv
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
 import { renderAgentResponseEvents, renderAgentResponseNdjson } from "@/lib/server/agent-core/response-renderer";
 import { runAgentRuntime } from "@/lib/server/agent-core/runtime";
+import { TerminalOutputValidatorRegistry } from "@/lib/server/agent-core/terminal-output-validator";
 import { ToolRegistry } from "@/lib/server/agent-core/tool-registry";
+import { VisibleOutputRendererRegistry } from "@/lib/server/agent-core/visible-output-renderer";
 import { ReplayPlanner } from "@/lib/server/agent-planners/replay-planner";
 
 function createEchoTool(options: { name?: string; fail?: boolean; invalidOutput?: boolean; delayMs?: number } = {}) {
@@ -195,6 +197,56 @@ describe("agent-core Executor, Runtime and Response Renderer", () => {
       { type: "done" },
     ]);
     expect(JSON.stringify(errorEvents)).not.toContain("Agent runtime reached the invalid action repair limit.");
+  });
+
+  it("renders final_answer visible outputs through the renderer registry", async () => {
+    const terminalOutputValidators = new TerminalOutputValidatorRegistry();
+    terminalOutputValidators.register({
+      outputType: "fixtureVisible",
+      schemaVersions: ["1"],
+      validate: () => ({ ok: true }),
+    });
+    const visibleOutputRenderers = new VisibleOutputRendererRegistry();
+    visibleOutputRenderers.register({
+      outputType: "fixtureVisible",
+      render: (output) => [
+        {
+          type: "visible_output",
+          outputType: output.outputType,
+          schemaVersion: output.schemaVersion,
+          payload: output.payload,
+          content: { rendered: true },
+        },
+      ],
+    });
+    const result = await runAgentRuntime({
+      registry: new ToolRegistry(),
+      planner: new ReplayPlanner([
+        {
+          type: "final_answer",
+          content: "已生成结构化输出。",
+          visibleOutputs: [
+            { outputType: "fixtureVisible", schemaVersion: "1", payload: { id: "visible-1" } },
+          ],
+        },
+      ]),
+      run: createRun("run-visible-output"),
+      terminalOutputValidators,
+    });
+
+    expect(result.status).toBe("completed");
+    expect(renderAgentResponseEvents(result, { visibleOutputRenderers })).toEqual([
+      { type: "content", content: "已生成结构化输出。" },
+      {
+        type: "visible_output",
+        outputType: "fixtureVisible",
+        schemaVersion: "1",
+        payload: { id: "visible-1" },
+        content: { rendered: true },
+      },
+      { type: "done" },
+    ]);
+    expect(JSON.stringify(result.traceEvents)).not.toContain("fixtureVisible");
   });
 
   it("enforces maxSteps, overall timeout and duplicate failure fuse", async () => {

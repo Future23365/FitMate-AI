@@ -20,6 +20,7 @@ const unsupportedCapabilityErrorCodes = new Set([
 
 export type AgentTextChatEvent =
   | { type: "content"; content: string }
+  | { type: "visible_output"; outputType: string; schemaVersion: string; payload: unknown; content?: unknown }
   | { type: "assistant_suggestions"; suggestions: string[] }
   | { type: "error"; error: AgentTextChatErrorPayload }
   | { type: "done" }
@@ -211,6 +212,14 @@ function parseAgentTextChatEvent(value: unknown): AgentTextChatEvent {
         throw new AgentTextChatStreamError("assistant_suggestions 事件格式不合法。");
       }
       return { type: "assistant_suggestions", suggestions: event.suggestions };
+    case "visible_output":
+      return {
+        type: "visible_output",
+        outputType: String(event.outputType ?? ""),
+        schemaVersion: String(event.schemaVersion ?? ""),
+        payload: event.payload,
+        content: event.content,
+      };
     case "error":
       return { type: "error", error: normalizeErrorPayload(event.error) };
     case "done":

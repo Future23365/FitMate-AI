@@ -123,7 +123,7 @@ describe("agent-core architecture boundaries", () => {
       "@/lib/server/chat",
       "@/lib/server/db",
       "@/lib/server/" + "ai",
-      "@/lib/server/agent-orchestrator",
+      "@/lib/server/" + "agent-orchestrator",
       "@prisma",
     ];
     const forbiddenTerms = [
@@ -170,6 +170,7 @@ describe("agent-core architecture boundaries", () => {
       "m1ResourceConsumer",
       "m1ConfirmationWrite",
       "m1DiagnosticFailure",
+      "visibleTrainingProposal",
       "searchExercises",
       "generateRoutine",
       "targetMuscles",
@@ -302,7 +303,7 @@ describe("agent-core architecture boundaries", () => {
     ];
     const matches = forbiddenTerms.filter((term) => service.includes(term));
 
-    expect(service).toContain("createProductionAgentToolRegistry");
+    expect(service).toContain("createProductionToolRegistry");
     expect(service).toContain("maxToolCalls: 10");
     expect(matches).toEqual([]);
   });
@@ -334,7 +335,7 @@ describe("agent-core architecture boundaries", () => {
   it("allows only declared read-only tools as the current production business tools", () => {
     const allowedAgentToolFiles = new Set([
       "lib/server/agent-tools/index.ts",
-      "lib/server/agent-tools/exercise-facts/read-recent-exercise-recommendation-fact.tool.ts",
+      "lib/server/agent-tools/exercise-facts/read-recent-visible-training-proposal.tool.ts",
       "lib/server/agent-tools/exercises/search-exercise-resources.tool.ts",
       "lib/server/agent-tools/fixture/read-fixture.tool.ts",
       "lib/server/agent-tools/fixture/m1-safety-fixture.tools.ts",
@@ -344,7 +345,7 @@ describe("agent-core architecture boundaries", () => {
       .filter((file) => !allowedAgentToolFiles.has(file));
     const registryEntry = readRelative("lib/server/agent-tools/index.ts");
     const productionRegistryFunction = registryEntry.slice(
-      registryEntry.indexOf("export function createProductionAgentToolRegistry"),
+      registryEntry.indexOf("export function createProductionToolRegistry"),
       registryEntry.indexOf("/** productionAgentTools"),
     );
     const forbiddenRegistrations = [
@@ -357,9 +358,9 @@ describe("agent-core architecture boundaries", () => {
     ].filter((term) => registryEntry.includes(term));
 
     expect(unexpectedFiles).toEqual([]);
-    expect(registryEntry).toContain("readRecentExerciseRecommendationFactTool");
+    expect(registryEntry).toContain("readRecentVisibleTrainingProposalTool");
     expect(registryEntry).toContain("searchExerciseResourcesTool");
-    expect(registryEntry).toContain("productionAgentTools = [readRecentExerciseRecommendationFactTool, searchExerciseResourcesTool]");
+    expect(registryEntry).toContain("productionAgentTools = [readRecentVisibleTrainingProposalTool, searchExerciseResourcesTool]");
     expect(productionRegistryFunction).not.toContain("readFixtureTool");
     expect(productionRegistryFunction).not.toContain("m1SafetyFixtureTools");
     expect(forbiddenRegistrations).toEqual([]);

@@ -1,6 +1,7 @@
 import {
   parseAgentAction,
   type AgentAction,
+  type AgentRunInput,
   type TerminalAgentAction,
   type ToolCallAction,
   type ToolManifest,
@@ -10,6 +11,7 @@ import { assertM0ExecutableTool } from "./define-tool";
 import { AGENT_ERROR_CODES, AgentContractError } from "./errors";
 import { validateConsumedResources } from "./resource-contract";
 import type { ResourceStore } from "./resource-store";
+import type { TerminalOutputValidatorRegistry } from "./terminal-output-validator";
 import type { ToolRegistry } from "./tool-registry";
 import type { ToolError } from "./contracts";
 
@@ -19,7 +21,9 @@ export type ActionValidationInput = {
   registry: ToolRegistry;
   manifests: ToolManifest[];
   toolResults: ToolResult[];
+  run?: AgentRunInput;
   resourceStore?: ResourceStore;
+  terminalOutputValidators?: TerminalOutputValidatorRegistry;
 };
 
 /** ActionValidationResult 用稳定 ToolError 表达 action 是否可执行。 */
@@ -192,6 +196,31 @@ function validateTerminalAction(action: TerminalAgentAction, input: ActionValida
           { toolResultIds: unsatisfiedToolResultIds },
         ),
       };
+    }
+
+    if (action.visibleOutputs?.length) {
+      if (!input.terminalOutputValidators) {
+        return {
+          ok: false,
+          error: createToolError(
+            AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID,
+            "Final answer visibleOutputs require a terminal output validator registry.",
+          ),
+        };
+      }
+
+      const outputValidation = input.terminalOutputValidators.validateAll(action.visibleOutputs, {
+        action,
+        run: input.run,
+        toolResults: input.toolResults,
+        resourceStore: input.resourceStore,
+      });
+      if (!outputValidation.ok) {
+        return {
+          ok: false,
+          error: outputValidation.error,
+        };
+      }
     }
   }
 

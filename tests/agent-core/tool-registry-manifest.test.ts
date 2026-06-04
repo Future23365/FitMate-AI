@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { defineTool } from "@/lib/server/agent-core/define-tool";
 import { AgentContractError, AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
 import { ToolRegistry } from "@/lib/server/agent-core/tool-registry";
-import { createProductionAgentToolRegistry } from "@/lib/server/agent-tools";
+import { createProductionToolRegistry } from "@/lib/server/agent-tools";
 import type { JsonValue, ToolManifest } from "@/lib/server/agent-core/contracts";
 
 const chineseDescriptionPattern = /[\u3400-\u9FFF\uF900-\uFAFF]/;
@@ -163,15 +163,15 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(manifestJson).not.toContain("should-not-leak");
   });
 
-  it("serializes the production registry with exercise fact read/import and search schema fields", () => {
-    const registry = createProductionAgentToolRegistry();
+  it("serializes the production registry with visible training proposal fact read/import and search schema fields", () => {
+    const registry = createProductionToolRegistry();
     const manifests = registry.serializeForPlanner();
-    const readFactManifest = manifests.find((tool) => tool.name === "readRecentExerciseRecommendationFact");
+    const readFactManifest = manifests.find((tool) => tool.name === "readRecentVisibleTrainingProposal");
     const searchManifest = manifests.find((tool) => tool.name === "searchExerciseResources");
     const inputSchema = searchManifest?.inputJsonSchema as {
       properties: {
         q: unknown;
-        suitability: { enum: string[] };
+        suitabilities: { items: { enum: string[] }; minItems?: number; maxItems?: number };
         level: { description?: string };
         equipment: { description?: string };
         homeRequirement: { description?: string };
@@ -187,7 +187,7 @@ describe("agent-core ToolRegistry and manifest", () => {
     const manifestJson = JSON.stringify(manifests);
 
     expect(manifests.map((tool) => tool.name)).toEqual([
-      "readRecentExerciseRecommendationFact",
+      "readRecentVisibleTrainingProposal",
       "searchExerciseResources",
     ]);
     expect(readFactManifest?.policyHint).toEqual({
@@ -201,9 +201,9 @@ describe("agent-core ToolRegistry and manifest", () => {
       confirmation: "never",
     });
     expect(JSON.stringify(readFactManifest)).toContain("factRef");
-    expect(JSON.stringify(readFactManifest)).toContain("exercise_recommendation_fact");
-    expect(JSON.stringify(readFactManifest)).toContain("displayedExerciseIds");
-    expect(JSON.stringify(readFactManifest)).toContain("recentExerciseRecommendationFacts");
+    expect(JSON.stringify(readFactManifest)).toContain("visible_training_proposal_fact");
+    expect(JSON.stringify(readFactManifest)).toContain("recentVisibleTrainingProposals");
+    expect(JSON.stringify(readFactManifest)).toContain("proposal.exerciseItems");
     expect(JSON.stringify(readFactManifest)).toContain("run metadata");
     expect(readManifestJson).toContain("Planner 判断");
     expect(readManifestJson).toContain("不要再次调用本 tool");
@@ -218,7 +218,9 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(searchExamplesJson).not.toContain("maxReturned");
     expect(searchExamplesJson).not.toContain("limit");
     expect(searchExamplesJson).not.toContain("pageSize");
-    expect(inputSchema.properties.suitability.enum).toEqual(["warmup", "training", "stretch"]);
+    expect(inputSchema.properties).not.toHaveProperty("suitability");
+    expect(inputSchema.properties.suitabilities.items.enum).toEqual(["warmup", "training", "stretch"]);
+    expect(inputSchema.properties.suitabilities.maxItems).toBe(3);
     expect(inputSchema.properties.level.description).toContain("beginner/初级");
     expect(inputSchema.properties.level.description).toContain("expert/高级");
     expect(inputSchema.properties.equipment.description).toContain("body only/自重");
@@ -239,6 +241,9 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(inputSchema.properties.sort.default).toBe("name_asc");
     expect(inputSchema.additionalProperties).toBe(false);
     expect(manifestJson).toContain("usedToolResultIds");
+    expect(manifestJson).toContain("visibleOutputs");
+    expect(manifestJson).toContain("visibleTrainingProposal");
+    expect(manifestJson).toContain("exerciseId");
     expect(manifestJson).toContain("totalMatches=0");
     expect(manifestJson).toContain("0 条事实查询结果");
     expect(manifestJson).toContain("published");
@@ -255,6 +260,11 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(manifestJson).not.toContain("m1ResourceProducer");
     expect(manifestJson).not.toContain("candidateSetId");
     expect(manifestJson).not.toContain("candidate_set");
+    expect(manifestJson).not.toContain("displayedExerciseIds");
+    expect(manifestJson).not.toContain("displayedExercises");
+    expect(manifestJson).not.toContain("recentExerciseRecommendationFacts");
+    expect(manifestJson).not.toContain("readRecentExerciseRecommendationFact");
+    expect(manifestJson).not.toContain("exercise_recommendation_fact");
     expect(manifestJson).not.toContain("\"handler\"");
     expect(manifestJson).not.toContain("Query published exercise resources");
     expect(manifestJson).not.toContain("Use when the user asks");

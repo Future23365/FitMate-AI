@@ -2,7 +2,7 @@ import { z } from "zod";
 import { describe, expect, it } from "vitest";
 
 import { defineTool } from "@/lib/server/agent-core/define-tool";
-import { m1FixtureTools, readRecentExerciseRecommendationFactTool, searchExerciseResourcesTool } from "@/lib/server/agent-tools";
+import { m1FixtureTools, readRecentVisibleTrainingProposalTool, searchExerciseResourcesTool } from "@/lib/server/agent-tools";
 import { toolToManifest } from "@/lib/server/agent-core/manifest";
 import { resourceProducerFixtureTool } from "@/lib/server/agent-tools/fixture/m1-safety-fixture.tools";
 
@@ -62,7 +62,7 @@ describe("agent-core contract test helper", () => {
   });
 
   it("accepts the production exercise resource and fact tools contract", () => {
-    expect(checkToolContractForProduction(readRecentExerciseRecommendationFactTool)).toMatchObject({ ok: true, issues: [] });
+    expect(checkToolContractForProduction(readRecentVisibleTrainingProposalTool)).toMatchObject({ ok: true, issues: [] });
     expect(checkToolContractForProduction(searchExerciseResourcesTool)).toMatchObject({ ok: true, issues: [] });
   });
 
@@ -76,15 +76,25 @@ describe("agent-core contract test helper", () => {
       query: {
         published: true,
         sort: "name_asc",
+        suitabilities: ["training"],
         expandedMuscles: [],
-        appliedFilters: [{ field: "published", value: true }],
+        appliedFilters: [{ field: "published", value: true }, { field: "suitabilities", value: ["training"] }],
         totalMatches: 1,
         returnedCount: 1,
         maxReturned: 12,
         truncated: false,
         excludedCount: 0,
       },
-      exercises: [],
+      groups: {
+        training: {
+          suitability: "training",
+          totalMatches: 1,
+          returnedCount: 0,
+          truncated: false,
+          exercises: [],
+        },
+      },
+      diagnostics: [],
     } as never, {
       runId: "run-contract-output-only",
       actor: { userId: "contract-user" },
@@ -98,7 +108,7 @@ describe("agent-core contract test helper", () => {
       expect(modelObservationJson).not.toContain(field);
     }
     expect(modelObservationJson).toContain("totalMatches=0");
-    expect(modelObservationJson).toContain("不是 routine");
+    expect(modelObservationJson).toContain("不是 visibleTrainingProposal");
   });
 
   it("catches missing projection and unsafe examples", () => {

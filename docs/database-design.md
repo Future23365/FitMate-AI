@@ -473,7 +473,7 @@ artifact 轻量检索索引。聊天上下文和后续引用解析优先读取�
 
 ### ConversationBusinessFact
 
-跨 run 业务事实表。当前用于保存 production 文本聊天中已经通过服务端用户投影输出的动作推荐事实，使下一轮 Agent 能先恢复轻量摘要，再通过 read/import tool 读取完整事实。
+跨 run 业务事实表。当前用于保存 production 文本聊天中已经通过服务端 `visible_output` 用户事件输出的可见训练方案事实，使下一轮 Agent 能先恢复轻量摘要，再通过 read/import tool 读取完整事实。
 
 该表不依赖 `ChatMessage` 行已经存在，因为 `/api/chat` 响应生成时 assistant 消息通常还没有被前端保存到数据库；因此它用 `conversationId` 和 `messageId` 字符串绑定来源响应。
 
@@ -483,7 +483,7 @@ artifact 轻量检索索引。聊天上下文和后续引用解析优先读取�
 | `userId` | `String` | 外键，关联 `User.id` | 所属用户，用于权限隔离。 |
 | `conversationId` | `String` | 已建组合索引 | 所属聊天会话 id；不强制外键，避免响应生成早于会话保存。 |
 | `messageId` | `String` | 已建索引 | 产生该 fact 的 assistant 响应消息 id。 |
-| `kind` | `String` | 已建组合索引 | 业务 fact 类型。当前使用 `exercise_recommendation_displayed`。 |
+| `kind` | `String` | 已建组合索引 | 业务 fact 类型。当前使用 `visible_training_proposal_displayed`。 |
 | `status` | `String` | 默认 `active` | fact 生命周期；read/import 只读取 active fact。 |
 | `schemaVersion` | `Int` | 已参与唯一约束 | payload schema 版本。 |
 | `payload` | `Json` | 必填 | 服务端确定性用户投影事实，不从自然语言回复正文反推。 |
@@ -528,5 +528,5 @@ artifact 轻量检索索引。聊天上下文和后续引用解析优先读取�
 - `WorkoutSessionResult` 保存训练完成摘要；`WorkoutSchedule.status = completed` 用于日历筛选、统计和徽标展示。
 - `UserMemory` 和 `UserExerciseFeedback` 只读取当前 `userId` 下 `active` 或待确认且未过期的数据；长期强约束在确认前不会作为已生效排除规则。
 - `ChatMessage.metadata` 是聊天上下文总结和卡片数据的落点；当前 `plan` 保存长期训练计划草稿，`routine` 保存单次训练编排草稿。如果某类数据变成稳定查询条件，应优先升级为显式字段。
-- `ConversationBusinessFact` 是跨 run read/import 的轻量业务事实源；当前动作刷新事实只保存 Response Renderer 用户投影中的 `displayedExerciseIds`，不保存 handler 内部候选作为默认排除集合。
+- `ConversationBusinessFact` 是跨 run read/import 的轻量业务事实源；当前可见训练方案事实只保存 Response Renderer 用户事件中的 `visibleTrainingProposal` payload，不保存 `searchExerciseResources` handler 内部候选作为最终方案事实。
 - 当前 `ChatSession` 不保存 `metadata`；旧模型可见上下文材料保留在 `ChatMessage.metadata.conversationSummary` 中，仅用于历史迁移和后续重建设计参考。

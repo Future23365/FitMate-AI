@@ -18,17 +18,19 @@ import { redactJsonValue } from "@/lib/server/agent-core/redaction";
 import { renderAgentResponseEvents } from "@/lib/server/agent-core/response-renderer";
 import { runAgentRuntime } from "@/lib/server/agent-core/runtime";
 import { ToolRegistry } from "@/lib/server/agent-core/tool-registry";
-import { createProductionAgentToolRegistry } from "@/lib/server/agent-tools";
+import { createProductionToolRegistry } from "@/lib/server/agent-tools";
 import { LlmPlanner } from "@/lib/server/agent-planners/llm-planner";
 import { DeepSeekModelAdapter } from "@/lib/server/agent-planners/model-adapters/deepseek-model-adapter";
 import type { PlannerModelTraceEvent } from "@/lib/server/agent-planners/model-adapters/model-adapter";
 import type { PlannerPort } from "@/lib/server/agent-core/planner-port";
 import {
-  listRecentExerciseRecommendationFactSummaries,
-  persistExerciseRecommendationFactsFromEvents,
+  listRecentVisibleTrainingProposalSummaries,
+  persistVisibleTrainingProposalFactsFromEvents,
   toJsonValue,
-  type PersistExerciseRecommendationFactsResult,
-} from "@/lib/server/exercise-recommendation-facts/exercise-recommendation-fact-store";
+  type PersistVisibleTrainingProposalFactsResult,
+} from "@/lib/server/visible-training-proposals/visible-training-proposal-fact-store";
+import { createProductionTerminalOutputValidatorRegistry } from "@/lib/server/visible-training-proposals/visible-training-proposal-validator";
+import { createProductionVisibleOutputRendererRegistry } from "@/lib/server/visible-training-proposals/visible-training-proposal-renderer";
 import {
   startAiTrace,
   summarizeLatestUserMessage,
@@ -74,7 +76,7 @@ type AgentTextChatStreamEvent =
   | { type: "error"; error: AgentTextChatConfigError };
 
 type AgentTextChatResponseSummary = ReturnType<typeof summarizeAgentTextChatResponseEvents>;
-type FactPersistenceTraceResult = PersistExerciseRecommendationFactsResult | { ok: false; code: "restore_failed"; message: string; savedCount: 0 };
+type FactPersistenceTraceResult = PersistVisibleTrainingProposalFactsResult | { ok: false; code: "restore_failed"; message: string; savedCount: 0 };
 
 type PlannerFactoryResult =
   | { ok: true; planner: PlannerPort }
@@ -97,14 +99,16 @@ type DeepSeekPlannerFactoryInput = {
 // createAgentTextChatResponse 是 /api/chat 到 agent-core 的薄接入层，只负责构造 run、生产 registry 和 NDJSON 投影。
 export async function createAgentTextChatResponse(input: CreateAgentTextChatResponseInput): Promise<Response> {
   const registry = createProductionTextChatRegistry();
-  const recentExerciseRecommendationFacts = await restoreRecentExerciseRecommendationFactsForRun({
+  const terminalOutputValidators = createProductionTerminalOutputValidatorRegistry();
+  const visibleOutputRenderers = createProductionVisibleOutputRendererRegistry();
+  const recentVisibleTrainingProposals = await restoreRecentVisibleTrainingProposalsForRun({
     request: input.request,
     currentUser: input.currentUser,
   });
   const run = createAgentTextChatRunInput({
     request: input.request,
     currentUser: input.currentUser,
-    recentExerciseRecommendationFacts,
+    recentVisibleTrainingProposals,
   });
   const trace = startAgentTextChatTrace({
     request: input.request,
@@ -139,6 +143,7 @@ export async function createAgentTextChatResponse(input: CreateAgentTextChatResp
       registry,
       planner: plannerResult.planner,
       run,
+      terminalOutputValidators,
     });
   } catch (error) {
     const runtimeError = createUnexpectedRuntimeError(error);
@@ -160,8 +165,9 @@ export async function createAgentTextChatResponse(input: CreateAgentTextChatResp
   const events = renderAgentTextChatResponseEvents({
     result,
     registry,
+    visibleOutputRenderers,
   });
-  const factPersistence = await persistExerciseRecommendationFactsFromEvents({
+  const factPersistence = await persistVisibleTrainingProposalFactsFromEvents({
     userId: input.currentUser.id,
     conversationId: input.request.conversationId,
     messageId: input.request.responseMessageId,
@@ -209,7 +215,7 @@ export function createProductionAgentTextChatPlanner(
 export function createAgentTextChatRunInput(input: {
   request: PreparedChatRequest;
   currentUser: CurrentUser;
-  recentExerciseRecommendationFacts?: JsonValue[];
+  recentVisibleTrainingProposals?: JsonValue[];
 }): AgentRunInput {
   const latestUserMessage = getLatestUserMessage(input.request);
 
@@ -232,7 +238,7 @@ export function createAgentTextChatRunInput(input: {
       hasClientConversationSummary: input.request.hasClientConversationSummary,
       thinkingEnabled: input.request.thinkingEnabled,
       hydration: input.request.hydration as unknown as JsonValue,
-      recentExerciseRecommendationFacts: input.recentExerciseRecommendationFacts ?? [],
+      recentVisibleTrainingProposals: input.recentVisibleTrainingProposals ?? [],
     },
     limits: {
       maxSteps: 22,
@@ -248,7 +254,7 @@ export function createAgentTextChatRunInput(input: {
 
 // createProductionTextChatRegistry 明确表达当前生产聊天只接入受控低风险只读业务 tool。
 export function createProductionTextChatRegistry() {
-  return createProductionAgentToolRegistry();
+  return createProductionToolRegistry();
 }
 
 // createAgentTextChatNdjsonResponse 保持 /api/chat 输出为前端可逐行消费的 NDJSON 白名单事件。
@@ -269,6 +275,7 @@ export function createAgentTextChatNdjsonResponse(
 function renderAgentTextChatResponseEvents(input: {
   result: AgentRunResult;
   registry: ToolRegistry;
+  visibleOutputRenderers: ReturnType<typeof createProductionVisibleOutputRendererRegistry>;
 }): AgentTextChatStreamEvent[] {
   if (isUnsupportedCapabilityFailure(input)) {
     return [
@@ -278,15 +285,17 @@ function renderAgentTextChatResponseEvents(input: {
     ];
   }
 
-  return renderAgentResponseEvents(input.result);
+  return renderAgentResponseEvents(input.result, {
+    visibleOutputRenderers: input.visibleOutputRenderers,
+  });
 }
 
-async function restoreRecentExerciseRecommendationFactsForRun(input: {
+async function restoreRecentVisibleTrainingProposalsForRun(input: {
   request: PreparedChatRequest;
   currentUser: CurrentUser;
 }): Promise<JsonValue[]> {
   try {
-    const summaries = await listRecentExerciseRecommendationFactSummaries({
+    const summaries = await listRecentVisibleTrainingProposalSummaries({
       userId: input.currentUser.id,
       conversationId: input.request.conversationId,
       limit: 3,
@@ -513,13 +522,13 @@ function recordAgentTextChatRuntimeResultTrace(input: {
 
   if (input.factPersistence) {
     input.trace.addStep({
-      name: "动作事实桥摘要",
+      name: "可见训练方案事实桥摘要",
       type: "runtime_event",
       status: input.factPersistence.ok ? undefined : "failed",
       output: redactTraceValue(input.factPersistence),
       metadata: {
         pipeline: "agent-core-text-chat",
-        boundary: "exercise_recommendation_fact_bridge",
+        boundary: "visible_training_proposal_fact_bridge",
       },
     });
   }
@@ -658,7 +667,7 @@ function summarizeAgentTextChatRunInput(input: {
     conversationSummary: summarizeText(input.request.conversationSummaryContext.summary),
     thinkingEnabled: input.request.thinkingEnabled,
     hasClientConversationSummary: input.request.hasClientConversationSummary,
-    recentExerciseRecommendationFacts: input.run.metadata?.recentExerciseRecommendationFacts ?? [],
+    recentVisibleTrainingProposals: input.run.metadata?.recentVisibleTrainingProposals ?? [],
     registry: summarizeRegistry(input.registry),
     limits: input.run.limits,
   };
@@ -669,7 +678,7 @@ function createAgentTextChatTraceBoundaryMetadata(registry: ToolRegistry) {
     pipeline: "agent-core-text-chat",
     route: agentTextChatRoute,
     registry: summarizeRegistry(registry),
-    renderer: "default-agent-response-renderer",
+    renderer: "visible-output-agent-response-renderer",
     legacyPathParticipation: {
       removedIntentFlow: false,
       removedDomainAgentRuntime: false,
@@ -1029,6 +1038,7 @@ function summarizeAgentTextChatResponseEvents(events: AgentTextChatStreamEvent[]
     errorCodes,
     confirmationRequestCount: events.filter((event) => event.type === "confirmation_request").length,
     toolResultCount: events.filter((event) => event.type === "tool_result").length,
+    visibleOutputCount: events.filter((event) => event.type === "visible_output").length,
   };
 }
 
@@ -1066,6 +1076,7 @@ function summarizeTraceProjectionValue(value: JsonValue | undefined) {
     totalMatches: record.totalMatches,
     returnedCount: record.returnedCount,
     truncated: record.truncated,
+    suitabilities: record.suitabilities,
     appliedFilters: record.appliedFilters,
   };
 }
@@ -1103,6 +1114,10 @@ function getResponseType(summary: AgentTextChatResponseSummary) {
 
   if (summary.confirmationRequestCount > 0) {
     return "confirmation_request";
+  }
+
+  if (summary.visibleOutputCount > 0) {
+    return "visible_output";
   }
 
   if (summary.contentLength > 0) {

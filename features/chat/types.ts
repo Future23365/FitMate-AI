@@ -20,8 +20,17 @@ export type ChatMessage = {
   suggestedReplies?: string[];
   /** 统一 AI 建议，label 用于展示，message 用于点击后发送 */
   assistantSuggestions?: AssistantSuggestion[];
+  /** 用户可见结构化输出，后续训练卡片只从这里读取事实，正文只作为解释文本 */
+  visibleOutputs?: ChatVisibleOutput[];
   /** @deprecated 旧历史兼容字段；新消息使用 suggestedReplies */
   suggestedQuestions?: string[];
+};
+
+export type ChatVisibleOutput = {
+  outputType: string;
+  schemaVersion: string;
+  payload: unknown;
+  content?: unknown;
 };
 
 export type ApiChatMessage = Pick<ChatMessage, "role" | "content">;

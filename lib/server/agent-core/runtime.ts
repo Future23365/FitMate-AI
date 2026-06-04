@@ -22,6 +22,7 @@ import { evaluateToolPolicy } from "./policy-guard";
 import { redactJsonValue } from "./redaction";
 import { validateAndRegisterProducedResources, validateConsumedResources } from "./resource-contract";
 import { ResourceStore } from "./resource-store";
+import type { TerminalOutputValidatorRegistry } from "./terminal-output-validator";
 import type {
   AgentObservation,
   AgentReplaySummary,
@@ -49,6 +50,7 @@ export type RunAgentRuntimeInput = {
   confirmationStore?: ConfirmationStore;
   confirmationSecret?: string;
   dynamicConfirmationEvaluator?: DynamicConfirmationEvaluator;
+  terminalOutputValidators?: TerminalOutputValidatorRegistry;
 };
 
 /** ResumeConfirmedActionRuntimeInput 是 M1 core 级 confirmation resume 的执行入口参数。 */
@@ -157,7 +159,9 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
       registry: input.registry,
       manifests,
       toolResults,
+      run: input.run,
       resourceStore,
+      terminalOutputValidators: input.terminalOutputValidators,
     });
     traceEvents.push({
       type: "validation_result",
@@ -451,7 +455,9 @@ export async function resumeConfirmedAction(input: ResumeConfirmedActionRuntimeI
     registry: input.registry,
     manifests,
     toolResults,
+    run,
     resourceStore,
+    terminalOutputValidators: undefined,
   });
   if (!validation.ok || validation.action.type !== "tool_call") {
     const error = validation.ok

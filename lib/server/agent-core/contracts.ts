@@ -5,6 +5,18 @@ import type { AgentErrorCode } from "./errors";
 /** JsonValue 是 manifest、projection 和 stream event 可安全序列化字段的基础类型。 */
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
+const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
+  z.string(),
+  z.number().finite(),
+  z.boolean(),
+  z.null(),
+  z.array(jsonValueSchema),
+  z.record(z.string(), jsonValueSchema),
+]));
+
+/** JsonValueSchema 约束 Planner 可输出和 renderer 可传输的 JSON 可序列化边界。 */
+export const JsonValueSchema = jsonValueSchema;
+
 /** AgentActor 描述本次 Agent run 的调用主体，M0 只透传身份边界，不做权限判断。 */
 export type AgentActor = {
   userId?: string;
@@ -138,11 +150,23 @@ export const ToolCallActionSchema = z.object({
 }).strict();
 
 /** FinalAnswerAction 是 Planner 以最终回答收口时使用的终止动作。 */
+export const VisibleOutputEnvelopeSchema = z.object({
+  outputType: z.string().trim().min(1).max(80).regex(/^[A-Za-z][A-Za-z0-9_-]*$/),
+  schemaVersion: z.string().trim().min(1).max(24),
+  payload: JsonValueSchema,
+}).strict();
+
+/** VisibleOutputEnvelope 是 final_answer 承载用户可见结构化输出的通用 envelope，不包含业务语义。 */
+export type VisibleOutputEnvelope = z.infer<typeof VisibleOutputEnvelopeSchema>;
+
 export const FinalAnswerActionSchema = z.object({
   type: z.literal("final_answer"),
   content: z.string().min(1),
   usedToolResultIds: z.array(z.string().min(1)).optional(),
   usedResourceRefs: z.array(agentResourceRefSchema).optional(),
+  visibleOutputs: z.array(VisibleOutputEnvelopeSchema)
+    .max(4)
+    .optional(),
   assistantSuggestions: z.array(z.string().min(1)).optional(),
 }).strict();
 
@@ -485,6 +509,7 @@ export type AgentRunResult = {
 /** AgentStreamEvent 是默认 Response Renderer 允许输出的 NDJSON 白名单事件。 */
 export type AgentStreamEvent =
   | { type: "content"; content: string }
+  | { type: "visible_output"; outputType: string; schemaVersion: string; payload: JsonValue; content?: JsonValue }
   | { type: "tool_result"; toolResultId: string; toolName: string; content: JsonValue }
   | { type: "confirmation_request"; pendingActionId: string; actionHash: string; expiresAt: string; message: string; toolName: string }
   | { type: "assistant_suggestions"; suggestions: string[] }

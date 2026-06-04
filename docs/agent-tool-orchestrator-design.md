@@ -667,25 +667,25 @@ ResourceStore 只解决当前 run 内的事实传递。用户在上一轮已经�
 
 这个设计让多轮引用走稳定的数据桥，而不是让 Orchestrator 持有跨轮状态。新增业务类型时，应扩展业务事实 schema、索引和 read/import tool；除非出现通用安全、资源、trace 或 stream 协议缺口，否则不应修改 Orchestrator 主循环。
 
-当前 production 文本聊天中的动作刷新事实桥落地为：
+当前 production 文本聊天中的可见训练方案事实桥落地为：
 
 ```txt
-searchExerciseResources 的 projection.user
-  -> Response Renderer 输出 tool_result 用户投影
-  -> ConversationBusinessFact(kind=exercise_recommendation_displayed)
-  -> /api/chat 恢复 recentExerciseRecommendationFacts 轻量摘要
-  -> readRecentExerciseRecommendationFact 读取并校验当前 userId/conversationId/status/schemaVersion
-  -> 当前 run 产出 exercise_recommendation_fact consumable resource
-  -> searchExerciseResources.excludeExerciseIds 排除 displayedExerciseIds
+final_answer.visibleOutputs[]
+  -> Response Renderer 输出 visible_output 用户事件
+  -> ConversationBusinessFact(kind=visible_training_proposal_displayed)
+  -> /api/chat 恢复 recentVisibleTrainingProposals 轻量摘要
+  -> readRecentVisibleTrainingProposal 读取并校验当前 userId/conversationId/status/schemaVersion
+  -> 当前 run 产出 visible_training_proposal_fact consumable resource
+  -> searchExerciseResources.excludeExerciseIds 排除用户已看到的 exerciseId
 ```
 
-动作刷新边界：
+可见训练方案边界：
 
-1. `displayedExerciseIds` 只能来自服务端确定性用户投影，不能来自 `toModelObservation`、handler 完整 output、trace、自然语言回复正文或模型猜测。
-2. 当前没有前端动作卡片时，事实保存绑定 `Response Renderer` 写出的 `tool_result` 用户投影；未来卡片接入时必须复用同一用户投影源，不能另建自然语言解析通道。
-3. `returnedExerciseIds`、诊断候选或未展示内部候选不得作为默认刷新排除集合暴露给 Planner。
-4. `readRecentExerciseRecommendationFact` 是业务 read/import tool，不是 core 特例；它只读取当前 actor 和当前会话可访问的历史动作 fact。
-5. `searchExerciseResources.excludeExerciseIds` 只排除用户已看到或明确要求排除的动作 id，不提供分页、limit、offset、candidate set、训练生成或保存副作用。
+1. 训练方案事实只能来自已通过服务端校验的 `final_answer.visibleOutputs[]`，不能来自 `searchExerciseResources` handler output、model observation、trace、自然语言回复正文或模型猜测。
+2. `visibleTrainingProposal` 是业务 outputType，不是 core 特例；core 只校验通用 envelope 并通过 registry 分发 validator/renderer。
+3. `searchExerciseResources` 只提供分组动作事实候选；它不产出 routine、plan、prescription、schedule 或训练卡片事实。
+4. `readRecentVisibleTrainingProposal` 是业务 read/import tool，不是 core 特例；它只读取当前 actor 和当前会话可访问的历史可见训练方案 fact。
+5. `searchExerciseResources.excludeExerciseIds` 只排除用户已看到或明确要求排除的 `exerciseId`，不提供分页、limit、offset、candidate set、训练生成或保存副作用。
 
 ---
 

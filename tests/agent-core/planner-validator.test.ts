@@ -5,6 +5,7 @@ import { validateAgentAction } from "@/lib/server/agent-core/action-validator";
 import { defineTool } from "@/lib/server/agent-core/define-tool";
 import { AGENT_ERROR_CODES, AgentContractError } from "@/lib/server/agent-core/errors";
 import { ResourceStore, toResourceRef } from "@/lib/server/agent-core/resource-store";
+import { TerminalOutputValidatorRegistry } from "@/lib/server/agent-core/terminal-output-validator";
 import { ToolRegistry } from "@/lib/server/agent-core/tool-registry";
 import { ReplayPlanner } from "@/lib/server/agent-planners/replay-planner";
 import type { ToolResult } from "@/lib/server/agent-core/contracts";
@@ -106,6 +107,10 @@ function createTerminalGroundingToolResult(input: { toolResultId: string; ok: bo
       user: { id: input.toolResultId },
     },
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
@@ -274,6 +279,98 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       manifests,
       toolResults: [unsatisfiedResult],
     })).toMatchObject({ ok: true });
+  });
+
+  it("validates final_answer visibleOutputs through the terminal output validator registry", () => {
+    const registry = createRegistry();
+    const manifests = registry.serializeForPlanner();
+    const terminalOutputValidators = new TerminalOutputValidatorRegistry();
+    terminalOutputValidators.register({
+      outputType: "fixtureVisible",
+      schemaVersions: ["1"],
+      validate: (output) => (
+        isRecord(output.payload) && output.payload.accepted === true
+          ? { ok: true }
+          : { ok: false, message: "fixture visible output rejected.", details: { accepted: false } }
+      ),
+    });
+
+    expect(validateAgentAction({
+      action: {
+        type: "final_answer",
+        content: "done",
+        visibleOutputs: [
+          { outputType: "fixtureVisible", schemaVersion: "1", payload: { accepted: true } },
+        ],
+      },
+      registry,
+      manifests,
+      toolResults: [],
+      terminalOutputValidators,
+    })).toMatchObject({ ok: true });
+
+    expect(validateAgentAction({
+      action: {
+        type: "final_answer",
+        content: "done",
+        visibleOutputs: [
+          { outputType: "fixtureVisible", schemaVersion: "1", payload: { accepted: true } },
+        ],
+      },
+      registry,
+      manifests,
+      toolResults: [],
+    })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID } });
+
+    expect(validateAgentAction({
+      action: {
+        type: "final_answer",
+        content: "done",
+        visibleOutputs: [
+          { outputType: "missingVisible", schemaVersion: "1", payload: { accepted: true } },
+        ],
+      },
+      registry,
+      manifests,
+      toolResults: [],
+      terminalOutputValidators,
+    })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID } });
+
+    expect(validateAgentAction({
+      action: {
+        type: "final_answer",
+        content: "done",
+        visibleOutputs: [
+          { outputType: "fixtureVisible", schemaVersion: "2", payload: { accepted: true } },
+        ],
+      },
+      registry,
+      manifests,
+      toolResults: [],
+      terminalOutputValidators,
+    })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID } });
+
+    expect(validateAgentAction({
+      action: {
+        type: "final_answer",
+        content: "done",
+        visibleOutputs: [
+          { outputType: "fixtureVisible", schemaVersion: "1", payload: { accepted: false } },
+        ],
+      },
+      registry,
+      manifests,
+      toolResults: [],
+      terminalOutputValidators,
+    })).toMatchObject({
+      ok: false,
+      error: {
+        code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID,
+        details: expect.objectContaining({
+          outputType: "fixtureVisible",
+        }),
+      },
+    });
   });
 
   it("validates M1 resource consumes and terminal grounding by resource role", () => {
