@@ -47,7 +47,7 @@ describe("visible training proposal rich card adapter", () => {
     expect(JSON.stringify(card)).not.toContain("exercise_selection");
   });
 
-  it("caps 12 returned exercise_selection items to the recommendation card display limit", () => {
+  it("keeps all 12 returned exercise_selection items visible in the recommendation card", () => {
     const card = adaptVisibleTrainingProposalToRichCard(createVisibleOutput({
       kind: "exercise_selection",
       exerciseItems: Array.from({ length: 12 }, (_, index) => ({
@@ -62,8 +62,8 @@ describe("visible training proposal rich card adapter", () => {
       throw new Error("Expected exercise recommendation rich card");
     }
 
-    expect(card.card.items).toHaveLength(10);
-    expect(card.card.items.at(-1)?.exerciseId).toBe("exercise-10");
+    expect(card.card.items).toHaveLength(12);
+    expect(card.card.items.at(-1)?.exerciseId).toBe("exercise-12");
   });
 
   it("adapts routine payload facts into a three-section WorkoutRoutineDraft", () => {

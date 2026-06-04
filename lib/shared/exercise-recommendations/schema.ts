@@ -21,7 +21,8 @@ export const exerciseRecommendationCardSchema = z.object({
   title: z.string().trim().min(1).max(100),
   goal: z.string().trim().min(1).max(120),
   summary: z.string().trim().max(260).optional(),
-  items: z.array(exerciseRecommendationItemSchema).min(1).max(10),
+  // 动作推荐卡片作为 visibleTrainingProposal 的展示视图时，必须完整承接 payload 最多 40 个动作项。
+  items: z.array(exerciseRecommendationItemSchema).min(1).max(40),
   safetyNotes: z.array(z.string().trim().min(1)).max(8).default([]),
 });
 
