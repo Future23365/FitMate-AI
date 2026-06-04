@@ -21,33 +21,31 @@ import { exerciseAllowedSectionSchema } from "@/lib/shared/exercises/types";
 
 const factRefSchema = z.string().trim().min(1).max(160);
 const recentFactListLimit = 3;
+const readRecentOperationDescription = "读取 list_recent 或当前受控上下文中真实出现的可见训练方案事实，并导入当前 run。";
+const factRefDescription = "只能从 list_recent result、diagnostic index resource 或当前 run metadata.recentVisibleTrainingProposals 中真实出现的 factRef 复制；没有真实值时不要编造。";
+const messageIdDescription = "只能从 list_recent result、diagnostic index resource 或当前 run metadata.recentVisibleTrainingProposals 中真实出现的上一轮 assistant messageId 复制；仅在缺少 factRef 时使用。";
 
 const listRecentInputSchema = z.object({
   operation: z.literal("list_recent").describe("查询当前 actor 和当前 conversation 可访问的最近 visibleTrainingProposal 轻量事实索引；不需要 factRef 或 messageId。"),
 }).strict();
 
-const readRecentInputSchema = z.object({
-  operation: z.literal("read_recent").describe("读取 list_recent 或当前受控上下文中真实出现的可见训练方案事实，并导入当前 run。"),
-  factRef: factRefSchema.optional().describe("只能从 list_recent result、diagnostic index resource 或当前 run metadata.recentVisibleTrainingProposals 中真实出现的 factRef 复制；没有真实值时不要编造。"),
-  messageId: factRefSchema.optional().describe("只能从 list_recent result、diagnostic index resource 或当前 run metadata.recentVisibleTrainingProposals 中真实出现的上一轮 assistant messageId 复制；仅在缺少 factRef 时使用。"),
+const readRecentByFactRefInputSchema = z.object({
+  operation: z.literal("read_recent").describe(readRecentOperationDescription),
+  factRef: factRefSchema.describe(factRefDescription),
+  messageId: factRefSchema.optional().describe(messageIdDescription),
 }).strict();
 
-const inspectVisibleTrainingProposalsInputSchema = z.discriminatedUnion("operation", [
-  listRecentInputSchema,
-  readRecentInputSchema,
-]).superRefine((input, ctx) => {
-  if (input.operation !== "read_recent") {
-    return;
-  }
+const readRecentByMessageIdInputSchema = z.object({
+  operation: z.literal("read_recent").describe(readRecentOperationDescription),
+  factRef: factRefSchema.optional().describe(factRefDescription),
+  messageId: factRefSchema.describe(messageIdDescription),
+}).strict();
 
-  if (!input.factRef && !input.messageId) {
-    ctx.addIssue({
-      code: "custom",
-      message: "operation = \"read_recent\" 时必须提供 factRef 或 messageId。",
-      path: ["factRef"],
-    });
-  }
-});
+const inspectVisibleTrainingProposalsInputSchema = z.union([
+  listRecentInputSchema,
+  readRecentByFactRefInputSchema,
+  readRecentByMessageIdInputSchema,
+]);
 
 const visibleTrainingProposalReferenceSchema = z.object({
   factRef: factRefSchema.optional(),
@@ -180,10 +178,6 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
     {
       description: "先查询当前会话最近是否有可引用的 visibleTrainingProposal 事实索引。",
       input: { operation: "list_recent" },
-    },
-    {
-      description: "当 list_recent result 已经返回真实 factRef 或 messageId 后，补入该真实引用读取并导入具体事实；本示例不提供可复制引用值。",
-      input: { operation: "read_recent" },
     },
   ],
   handler: async (input, context) => {

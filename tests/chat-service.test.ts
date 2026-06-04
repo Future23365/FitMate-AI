@@ -1384,6 +1384,76 @@ describe("chat service agent text flow boundary", () => {
     });
   });
 
+  it("keeps missing read_recent references inside validator repair boundaries without reading facts", async () => {
+    const adapter = new TraceModelAdapter([
+      {
+        actionCandidate: {
+          type: "tool_call",
+          toolName: "inspectVisibleTrainingProposals",
+          input: { operation: "read_recent" },
+        },
+      },
+      {
+        actionCandidate: {
+          type: "tool_call",
+          toolName: "inspectVisibleTrainingProposals",
+          input: { operation: "read_recent", factRef: "" },
+        },
+      },
+    ]);
+    const planner = new LlmPlanner(adapter);
+    const response = await createAgentTextChatResponse({
+      request: prepareChatRequest({ latestUserMessage: "把这些动作帮我组一套30分钟的锻炼。", conversationSummary: "" }),
+      currentUser: { id: "user-1" },
+      planner,
+    });
+    const events = await readNdjsonEvents(response);
+    const secondModelInput = adapter.calls[1];
+    const repairContext = JSON.stringify(secondModelInput.observations);
+    const trace = listAiTracesForUser("user-1")[0];
+    const serializedTrace = JSON.stringify(trace);
+
+    expect(events).toEqual([
+      {
+        type: "error",
+        error: expect.objectContaining({
+          code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
+          message: "聊天生成失败，请稍后重试。",
+        }),
+      },
+      { type: "done" },
+    ]);
+    expect(visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact).not.toHaveBeenCalled();
+    expect(repairContext).toContain("factRef");
+    expect(repairContext).toContain("messageId");
+    expect(repairContext).toContain("真实引用");
+    expect(repairContext).toContain("list_recent");
+    expect(repairContext).not.toContain("payload");
+    expect(serializedTrace).toContain(AGENT_ERROR_CODES.INVALID_TOOL_INPUT);
+    expect(serializedTrace).not.toContain("handler_error");
+    expect(trace).toMatchObject({
+      status: "failed",
+      finalDecision: {
+        status: "hard_failure",
+        code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
+        responseType: "error",
+      },
+      steps: expect.arrayContaining([
+        expect.objectContaining({
+          type: "validation",
+          output: expect.objectContaining({ ok: false, code: AGENT_ERROR_CODES.INVALID_TOOL_INPUT }),
+        }),
+        expect.objectContaining({
+          type: "response_write",
+          output: expect.objectContaining({
+            eventTypes: ["error", "done"],
+            errorCodes: [AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED],
+          }),
+        }),
+      ]),
+    });
+  });
+
   it("writes model diagnostics when model parsing fails before a valid action", async () => {
     const invalidAction = createInvalidModelActionCandidate("invalid_json", { message: "Unexpected token" });
     const planner = createTracePlanner([

@@ -107,6 +107,7 @@ function validateToolCallAction(action: ToolCallAction, input: ActionValidationI
       error: createToolError(
         AGENT_ERROR_CODES.INVALID_TOOL_INPUT,
         `Tool "${action.toolName}" input does not match its schema.`,
+        createInvalidToolInputDetails(inputResult.error),
       ),
     };
   }
@@ -284,4 +285,67 @@ function hasNumericVisibleOutputSchemaVersionIssue(error: { issues: Array<{ path
       && path[path.length - 1] === "schemaVersion"
       && issue.message.includes("expected string");
   });
+}
+
+function createInvalidToolInputDetails(error: { issues: unknown[] }): ToolError["details"] {
+  const issues = flattenSchemaIssues(error.issues)
+    .map((issue) => ({
+      path: issue.path.length > 0 ? issue.path.join(".") : "$",
+      message: issue.message,
+    }))
+    .filter(dedupeIssue)
+    .slice(0, 8);
+
+  return {
+    issues,
+    repair: createToolInputRepairMessage(issues.map((issue) => issue.path)),
+  };
+}
+
+function createToolInputRepairMessage(paths: string[]) {
+  const pathSet = new Set(paths);
+  if (pathSet.has("factRef") || pathSet.has("messageId")) {
+    return "按当前 tool inputJsonSchema 补齐真实引用字段；引用读取类输入必须从当前 run 可见的 recentVisibleTrainingProposals、list_recent result 或 diagnostic index resource 复制真实 factRef 或 messageId，不要编造不可见引用。";
+  }
+
+  return "按当前 tool inputJsonSchema 修正 required 字段、字段类型、枚举值和 additionalProperties；只能使用当前 run 可见的结构化事实，不要让服务端替你转换。";
+}
+
+type SanitizedSchemaIssue = {
+  path: string[];
+  message: string;
+};
+
+function flattenSchemaIssues(issues: unknown[]): SanitizedSchemaIssue[] {
+  const flattened: SanitizedSchemaIssue[] = [];
+
+  for (const issue of issues) {
+    if (!isIssueLike(issue)) {
+      continue;
+    }
+
+    if (Array.isArray(issue.errors)) {
+      for (const branchIssues of issue.errors) {
+        if (Array.isArray(branchIssues)) {
+          flattened.push(...flattenSchemaIssues(branchIssues));
+        }
+      }
+      continue;
+    }
+
+    flattened.push({
+      path: Array.isArray(issue.path) ? issue.path.map(String) : [],
+      message: typeof issue.message === "string" ? issue.message.slice(0, 240) : "输入字段不符合 schema。",
+    });
+  }
+
+  return flattened;
+}
+
+function isIssueLike(value: unknown): value is { path?: unknown; message?: unknown; errors?: unknown } {
+  return Boolean(value && typeof value === "object");
+}
+
+function dedupeIssue(issue: { path: string; message: string }, index: number, issues: Array<{ path: string; message: string }>) {
+  return issues.findIndex((candidate) => candidate.path === issue.path && candidate.message === issue.message) === index;
 }

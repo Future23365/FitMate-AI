@@ -7,6 +7,7 @@ import { AGENT_ERROR_CODES, AgentContractError } from "@/lib/server/agent-core/e
 import { ResourceStore, toResourceRef } from "@/lib/server/agent-core/resource-store";
 import { TerminalOutputValidatorRegistry } from "@/lib/server/agent-core/terminal-output-validator";
 import { ToolRegistry } from "@/lib/server/agent-core/tool-registry";
+import { createProductionToolRegistry } from "@/lib/server/agent-tools";
 import { ReplayPlanner } from "@/lib/server/agent-planners/replay-planner";
 import type { ToolResult } from "@/lib/server/agent-core/contracts";
 
@@ -180,7 +181,51 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       registry,
       manifests,
       toolResults: [],
-    })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.INVALID_TOOL_INPUT } });
+    })).toMatchObject({
+      ok: false,
+      error: {
+        code: AGENT_ERROR_CODES.INVALID_TOOL_INPUT,
+        details: expect.objectContaining({
+          issues: expect.arrayContaining([
+            expect.objectContaining({ path: "id" }),
+          ]),
+          repair: expect.stringContaining("inputJsonSchema"),
+        }),
+      },
+    });
+  });
+
+  it("returns field-level repair details for missing read_recent references", () => {
+    const registry = createProductionToolRegistry();
+    const result = validateAgentAction({
+      action: {
+        type: "tool_call",
+        toolName: "inspectVisibleTrainingProposals",
+        input: { operation: "read_recent" },
+      },
+      registry,
+      manifests: registry.serializeForPlanner(),
+      toolResults: [],
+    });
+    const detailsJson = result.ok ? "" : JSON.stringify(result.error.details);
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: AGENT_ERROR_CODES.INVALID_TOOL_INPUT,
+        details: expect.objectContaining({
+          issues: expect.arrayContaining([
+            expect.objectContaining({ path: "factRef" }),
+            expect.objectContaining({ path: "messageId" }),
+          ]),
+          repair: expect.stringContaining("真实引用"),
+        }),
+      },
+    });
+    expect(detailsJson).toContain("recentVisibleTrainingProposals");
+    expect(detailsJson).toContain("list_recent");
+    expect(detailsJson).not.toContain("payload");
+    expect(detailsJson).not.toContain("stack");
   });
 
   it("rejects non-M0 capabilities and non-empty resource references", () => {

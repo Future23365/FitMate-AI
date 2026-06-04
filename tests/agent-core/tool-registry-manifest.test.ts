@@ -87,6 +87,30 @@ function collectSchemaDescriptions(value: JsonValue | undefined, descriptions: s
   }
 }
 
+function collectJsonObjects(value: JsonValue | undefined, objects: Array<Record<string, JsonValue>>) {
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectJsonObjects(item, objects));
+    return;
+  }
+
+  if (!value || typeof value !== "object") {
+    return;
+  }
+
+  objects.push(value as Record<string, JsonValue>);
+  Object.values(value).forEach((child) => collectJsonObjects(child as JsonValue, objects));
+}
+
+function objectHasReadRecentOperation(value: Record<string, JsonValue>) {
+  const properties = value.properties;
+  if (!properties || typeof properties !== "object" || Array.isArray(properties)) {
+    return false;
+  }
+
+  const operation = (properties as Record<string, JsonValue>).operation;
+  return JSON.stringify(operation).includes("read_recent");
+}
+
 describe("agent-core ToolRegistry and manifest", () => {
   it("registers read tools and rejects duplicate names", () => {
     const registry = new ToolRegistry();
@@ -168,6 +192,7 @@ describe("agent-core ToolRegistry and manifest", () => {
     const manifests = registry.serializeForPlanner();
     const inspectFactManifest = manifests.find((tool) => tool.name === "inspectVisibleTrainingProposals");
     const searchManifest = manifests.find((tool) => tool.name === "searchExerciseResources");
+    const inspectInputSchemaObjects: Array<Record<string, JsonValue>> = [];
     const inputSchema = searchManifest?.inputJsonSchema as {
       properties: {
         q: unknown;
@@ -183,11 +208,11 @@ describe("agent-core ToolRegistry and manifest", () => {
       additionalProperties?: boolean;
     };
     const inspectManifestJson = JSON.stringify(inspectFactManifest);
-    const inspectReadExample = inspectFactManifest?.examples?.find((example) =>
-      JSON.stringify(example.input).includes("read_recent")
-    );
+    const inspectExamplesJson = JSON.stringify(inspectFactManifest?.examples ?? []);
     const searchExamplesJson = JSON.stringify(searchManifest?.examples ?? []);
     const manifestJson = JSON.stringify(manifests);
+    collectJsonObjects(inspectFactManifest?.inputJsonSchema, inspectInputSchemaObjects);
+    const readRecentInputBranches = inspectInputSchemaObjects.filter(objectHasReadRecentOperation);
 
     expect(manifests.map((tool) => tool.name)).toEqual([
       "inspectVisibleTrainingProposals",
@@ -221,7 +246,10 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(inspectManifestJson).not.toContain("换一个");
     expect(inspectManifestJson).not.toContain("换一批");
     expect(inspectManifestJson).not.toContain("再推荐一批");
-    expect(inspectReadExample?.input).toEqual({ operation: "read_recent" });
+    expect(inspectExamplesJson).not.toContain("\"operation\":\"read_recent\"");
+    expect(inspectExamplesJson).toContain("\"operation\":\"list_recent\"");
+    expect(readRecentInputBranches.some((branch) => Array.isArray(branch.required) && branch.required.includes("factRef"))).toBe(true);
+    expect(readRecentInputBranches.some((branch) => Array.isArray(branch.required) && branch.required.includes("messageId"))).toBe(true);
     expect(manifestJson).toContain("inspectVisibleTrainingProposals(operation = \\\"list_recent\\\")");
     expect(manifestJson).toContain("inspectVisibleTrainingProposals(operation = \\\"read_recent\\\")");
     expect(inputSchema.properties).toHaveProperty("q");
