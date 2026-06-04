@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: visibleOutputs schemaVersion 必须使用字符串合同
-`final_answer.visibleOutputs[].schemaVersion` SHALL 使用字符串版本合同。`visibleTrainingProposal` 的 visible output envelope MUST 使用 `schemaVersion = "1"`。模型可见 prompt、schema summary、examples、repair feedback、observations 和 compressed tool results MUST NOT 引导模型输出数字 `1` 作为 visible output schemaVersion。
+`final_answer.visibleOutputs[].schemaVersion` SHALL 使用字符串版本合同。`visibleTrainingProposal` 的 visible output envelope MUST 使用 `schemaVersion = "1"`。模型可见 prompt、schema summary、examples、业务 observations 和 compressed tool results MUST NOT 引导模型输出数字 `1` 作为 visible output schemaVersion。通用 `agent-core` repair feedback SHALL 只表达 `schemaVersion` 的字符串类型边界，不硬编码具体业务 outputType 的版本值。
 
 #### Scenario: 模型输出 visibleTrainingProposal
 - **WHEN** 模型输出 `final_answer.visibleOutputs[]`
@@ -18,7 +18,9 @@
 #### Scenario: 数字版本触发 repair
 - **WHEN** 模型输出 `visibleOutputs[].schemaVersion` 为数字 `1`
 - **THEN** `AgentAction` 或 terminal output validation MUST 拒绝该 action
-- **AND** repair feedback MUST 明确指出该字段应为字符串 `"1"`
+- **AND** 通用 repair feedback MUST 明确指出该字段应为字符串
+- **AND** 通用 `agent-core` repair feedback MUST NOT 硬编码 `visibleTrainingProposal` 的业务版本 `"1"`
+- **AND** `visibleTrainingProposal` 的业务模型可见合同 MUST 继续声明该 outputType 使用字符串 `"1"`
 - **AND** runtime MUST NOT 为了兼容该错误而自动把数字转换为字符串后继续执行
 
 ### Requirement: 模型可见事实版本不得误导 visible output 版本
@@ -47,11 +49,13 @@
 #### Scenario: Validator 和 repair 测试
 - **WHEN** 测试向 validator 输入 `schemaVersion: 1`
 - **THEN** tests MUST 断言校验失败
-- **AND** tests MUST 断言 repair feedback 指向字符串 `"1"`
+- **AND** tests MUST 断言通用 repair feedback 指向字符串类型
+- **AND** tests MUST 断言通用 repair feedback 不硬编码业务版本 `"1"`
 - **AND** tests MUST 断言 `schemaVersion: "1"` 可以进入后续 terminal output validation
 
 #### Scenario: 生产聊天回归
 - **WHEN** production chat replay 模拟模型先输出数字 `schemaVersion`
 - **THEN** runtime MUST 通过结构化 repair 要求模型修正为字符串
+- **AND** 模型可见业务合同 MUST 继续提供 `visibleTrainingProposal` 的字符串版本 `"1"`
 - **AND** 模型修正后 MUST 能继续输出合法 `visibleTrainingProposal`
 - **AND** 用户响应 MUST 不暴露内部 schema 错误细节

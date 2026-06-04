@@ -255,7 +255,7 @@ function isPlannerGeneratedConfirmationRequest(action: unknown) {
 
 function createInvalidActionMessage(error: { issues: Array<{ path: PropertyKey[]; message: string }> }) {
   if (hasNumericVisibleOutputSchemaVersionIssue(error)) {
-    return "Planner returned an action outside the M0 AgentAction contract: visibleOutputs[].schemaVersion must be the string \"1\", not the number 1.";
+    return "Planner returned an action outside the M0 AgentAction contract: visibleOutputs[].schemaVersion must be a string.";
   }
 
   return "Planner returned an action outside the M0 AgentAction contract.";
@@ -273,7 +273,7 @@ function createInvalidActionDetails(error: { issues: Array<{ path: PropertyKey[]
 
   return {
     issues,
-    repair: "将 final_answer.visibleOutputs[].schemaVersion 改为字符串 \"1\"；不要输出数字 1，也不要让服务端替你转换。",
+    repair: "将 final_answer.visibleOutputs[].schemaVersion 改为字符串；具体版本值按 outputType 的模型可见合同和业务 validator 支持版本填写，不要输出数字，也不要让服务端替你转换。",
   };
 }
 

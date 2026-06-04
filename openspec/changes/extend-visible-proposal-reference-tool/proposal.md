@@ -11,7 +11,7 @@
 - `searchExerciseResources` SHALL 继续保持只读动作库结构化查询职责，不负责判断当前会话是否已有上一轮推荐，也不替代 `inspectVisibleTrainingProposals` 的 `list_recent` / `read_recent` 事实查询职责。
 - 模型调用链 SHALL 由 LLM 根据 tool result 自主决策：`list_recent` 返回空时，模型可选择 `ask_user` 或 `final_answer`；`list_recent` 返回可引用事实时，模型可选择 `read_recent`、再调用 `searchExerciseResources` 刷新候选，或根据用户目标直接收口。
 - 服务端 SHALL NOT 根据用户原文关键词、正则、同义词表、短句模板或业务 `toolName` 特判选择 `list_recent` / `read_recent` / search，也不得在 `/api/chat` 中新增刷新语义分流。
-- 修正 `visibleOutputs[].schemaVersion` 的模型可见合同：`visibleTrainingProposal` 输出统一使用字符串 `"1"`；prompt、schema summary、examples、repair feedback 和 tests SHALL 不再引导模型输出数字 `1`。
+- 修正 `visibleOutputs[].schemaVersion` 的模型可见合同：`visibleTrainingProposal` 输出统一使用字符串 `"1"`；prompt、schema summary、examples、业务 observation 和 tests SHALL 不再引导模型输出数字 `1`。通用 `agent-core` repair feedback SHALL 只表达该字段必须是字符串，不硬编码 `visibleTrainingProposal` 的业务版本。
 - 保持 `final_answer.visibleOutputs[]` 通用 envelope 的 core 边界：`agent-core` 只校验通用结构和 grounding，不硬编码 `visibleTrainingProposal` 业务语义。
 - 回归测试 SHALL 覆盖一组省略 / 指代 / 上下文断裂表达，而不是只覆盖“换一批”单句；测试目标是证明模型能通过 `inspectVisibleTrainingProposals` 查询事实状态后自行规划。
 

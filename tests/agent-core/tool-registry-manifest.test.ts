@@ -183,6 +183,9 @@ describe("agent-core ToolRegistry and manifest", () => {
       additionalProperties?: boolean;
     };
     const inspectManifestJson = JSON.stringify(inspectFactManifest);
+    const inspectReadExample = inspectFactManifest?.examples?.find((example) =>
+      JSON.stringify(example.input).includes("read_recent")
+    );
     const searchExamplesJson = JSON.stringify(searchManifest?.examples ?? []);
     const manifestJson = JSON.stringify(manifests);
 
@@ -213,9 +216,12 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(inspectManifestJson).toContain("不要重复读取同一引用");
     expect(inspectManifestJson).not.toContain("readRecentVisibleTrainingProposal");
     expect(inspectManifestJson).not.toContain("fact_recent_visible_training_01");
+    expect(inspectManifestJson).not.toContain("从上一条 list_recent result 中复制真实 factRef");
+    expect(inspectManifestJson).not.toContain("占位值");
     expect(inspectManifestJson).not.toContain("换一个");
     expect(inspectManifestJson).not.toContain("换一批");
     expect(inspectManifestJson).not.toContain("再推荐一批");
+    expect(inspectReadExample?.input).toEqual({ operation: "read_recent" });
     expect(manifestJson).toContain("inspectVisibleTrainingProposals(operation = \\\"list_recent\\\")");
     expect(manifestJson).toContain("inspectVisibleTrainingProposals(operation = \\\"read_recent\\\")");
     expect(inputSchema.properties).toHaveProperty("q");

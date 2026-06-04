@@ -34,10 +34,10 @@
 ## 4. `schemaVersion` 字符串合同修复
 
 - [x] 4.1 更新 Agent system prompt，使 `visibleTrainingProposal` 的 visible output 示例和说明统一使用 `schemaVersion = "1"`。
-- [x] 4.2 更新 schema summary、examples、repair feedback、observations 和 compressed tool results，避免把 `visibleOutputs[].schemaVersion` 表达成数字 `1`。
+- [x] 4.2 更新 schema summary、examples、业务 observations 和 compressed tool results，避免把 `visibleOutputs[].schemaVersion` 表达成数字 `1`；通用 repair feedback 只表达字符串类型边界。
 - [x] 4.3 在 `inspectVisibleTrainingProposals` 的模型可见摘要中区分 `visibleOutputSchemaVersion = "1"` 和 `factSchemaVersion = 1`，避免模型把内部事实版本复制到 visible output envelope。
 - [x] 4.4 保持 `VisibleOutputEnvelopeSchema` 对 `schemaVersion` 的字符串校验，不新增数字兼容层或自动转换层。
-- [x] 4.5 更新结构化 repair feedback，使 `visibleOutputs[].schemaVersion` 为数字 `1` 时明确提示模型改为字符串 `"1"`。
+- [x] 4.5 更新结构化 repair feedback，使 `visibleOutputs[].schemaVersion` 为数字 `1` 时明确提示模型改为字符串；具体业务版本由 `outputType` 的模型可见合同和业务 validator 表达。
 
 ## 5. Tool 与 runtime 回归测试
 
@@ -47,7 +47,7 @@
 - [x] 5.4 覆盖 `inspectVisibleTrainingProposals` manifest 包含 `operation = "list_recent"` 和 `operation = "read_recent"` 的中文说明，不包含 `readRecentVisibleTrainingProposal`、可复制占位 `factRef`，且不把固定自然语言短语表达成强制调用条件。
 - [x] 5.5 更新 `tests/agent-core/tool-registry-manifest.test.ts`，覆盖 `list_recent` / `read_recent` schema、中文模型可见说明、`searchExerciseResources` 职责边界和 schemaVersion 字符串说明，并断言 production manifest 不再注册旧 `readRecentVisibleTrainingProposal`。
 - [x] 5.6 更新 `tests/agent-core/agent-llm-prompt-config.test.ts`，覆盖 prompt 中 `visibleOutputs[].schemaVersion` 使用字符串 `"1"`，且不出现引导模型输出数字版本的说明。
-- [x] 5.7 更新 `tests/agent-core/planner-validator.test.ts` 或 terminal output validator tests，覆盖 `schemaVersion: 1` 被拒绝并产生明确 repair feedback，`schemaVersion: "1"` 可继续进入业务 validator。
+- [x] 5.7 更新 `tests/agent-core/planner-validator.test.ts` 或 terminal output validator tests，覆盖 `schemaVersion: 1` 被拒绝并产生通用字符串类型 repair feedback，`schemaVersion: "1"` 可继续进入业务 validator。
 - [x] 5.8 更新 `tests/chat-service.test.ts` 或等价生产聊天 replay tests，覆盖无可见训练方案时省略 / 指代表达可以 `list_recent` 后合法收口。
 - [x] 5.9 更新 `tests/chat-service.test.ts` 或等价生产聊天 replay tests，覆盖有 `visibleTrainingProposal` 时模型可 `list_recent` / `read_recent` 后再选择是否调用 `searchExerciseResources`。
 - [x] 5.10 更新 `tests/chat-service.test.ts` 或等价生产聊天 replay tests，覆盖用户明确提出新动作查询目标时仍可直接调用 `searchExerciseResources`，不被强制先 `list_recent`。

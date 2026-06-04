@@ -372,7 +372,7 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       },
     });
 
-    expect(validateAgentAction({
+    const numericSchemaVersionResult = validateAgentAction({
       action: {
         type: "final_answer",
         content: "done",
@@ -384,16 +384,23 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       manifests,
       toolResults: [],
       terminalOutputValidators,
-    })).toMatchObject({
+    });
+
+    expect(numericSchemaVersionResult).toMatchObject({
       ok: false,
       error: {
         code: AGENT_ERROR_CODES.INVALID_ACTION,
-        message: expect.stringContaining("schemaVersion must be the string \"1\""),
+        message: expect.stringContaining("schemaVersion must be a string"),
         details: expect.objectContaining({
-          repair: expect.stringContaining("字符串 \"1\""),
+          repair: expect.stringContaining("改为字符串"),
         }),
       },
     });
+    if (numericSchemaVersionResult.ok) {
+      throw new Error("numeric schemaVersion should fail validation");
+    }
+    expect(numericSchemaVersionResult.error.message).not.toContain("\"1\"");
+    expect(JSON.stringify(numericSchemaVersionResult.error.details)).not.toContain("\"1\"");
 
     expect(validateAgentAction({
       action: {

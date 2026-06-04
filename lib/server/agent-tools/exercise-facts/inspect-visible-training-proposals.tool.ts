@@ -151,7 +151,7 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
     "不要把任意固定自然语言短语写成必须调用本 tool 的条件；服务端不会根据用户原文替模型选择 operation。",
     "不要用本 tool 查询动作库、生成 visibleTrainingProposal、保存 artifact、写用户记忆、执行候选集合或跨 conversation 引用。",
     "不要在 operation = \"list_recent\" 时传入 factRef、messageId、分页、limit、cursor、userId 或 conversationId；服务端固定最近数量并从 actor 推导权限边界。",
-    "不要在 operation = \"read_recent\" 时编造 factRef/messageId 或复制 example 占位值；失败结果不能支撑成功训练方案生成。",
+    "不要在 operation = \"read_recent\" 时编造 factRef/messageId；失败结果不能支撑成功训练方案生成。",
     "factSchemaVersion 是服务端事实存储版本，不应复制到 final_answer.visibleOutputs[].schemaVersion；visible output envelope 的 schemaVersion 必须写字符串 \"1\"。",
   ].join(" "),
   inputSchema: inspectVisibleTrainingProposalsInputSchema,
@@ -182,8 +182,8 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
       input: { operation: "list_recent" },
     },
     {
-      description: "当 list_recent result 已经返回真实 factRef 后，复制该真实引用读取并导入具体事实。",
-      input: { operation: "read_recent", factRef: "从上一条 list_recent result 中复制真实 factRef" },
+      description: "当 list_recent result 已经返回真实 factRef 或 messageId 后，补入该真实引用读取并导入具体事实；本示例不提供可复制引用值。",
+      input: { operation: "read_recent" },
     },
   ],
   handler: async (input, context) => {

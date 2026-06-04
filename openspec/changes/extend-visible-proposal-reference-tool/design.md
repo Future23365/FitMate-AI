@@ -88,7 +88,7 @@ type InspectVisibleTrainingProposalsInput =
 - `visibleOutputSchemaVersion: "1"`：模型写 `final_answer.visibleOutputs[]` 时可参考的字符串版本。
 - `factSchemaVersion: 1`：服务端事实存储版本，仅用于说明事实兼容性，不应复制到 `visibleOutputs[].schemaVersion`。
 
-prompt、examples、schema summary 和 repair feedback 必须统一告诉模型：`visibleOutputs[].schemaVersion` 要写 `"1"`，不是 `1`。
+prompt、examples、schema summary 和业务 observation 必须统一告诉模型：`visibleTrainingProposal` 的 `visibleOutputs[].schemaVersion` 要写 `"1"`，不是 `1`。通用 `AgentAction` 结构校验的 repair feedback 只说明 `visibleOutputs[].schemaVersion` 必须是字符串，具体版本值按 `outputType` 的模型可见合同和业务 validator 支持版本填写，避免 `agent-core` 硬编码业务版本。
 
 ### 5. `searchExerciseResources` 保持动作库查询职责
 
@@ -113,7 +113,7 @@ prompt、examples、schema summary 和 repair feedback 必须统一告诉模型�
 - [Risk] 一个 tool 同时支持 `list_recent` / `read_recent` 后 input 语义变宽。→ Mitigation：使用显式 `operation` discriminated union，两个 operation 的 required fields 分开测试。
 - [Risk] `list_recent` result 被模型当成完整训练方案消费。→ Mitigation：`list_recent` 不产出 consumable resource，observation 明确 facts 只是索引；terminal output validator 仍要求动作来自 `read_recent` 导入的 fact 或本轮 satisfied search result。
 - [Risk] 模型继续绕过 `list_recent` / `read_recent` 直接 search。→ Mitigation：不做服务端拦截，只通过 manifest、examples、黑盒/replay 测试提升模型可见合同；明确 search tool 不负责历史事实状态。
-- [Risk] `factSchemaVersion` 和 `visibleOutputSchemaVersion` 仍让模型混淆。→ Mitigation：模型可见 examples 只在 `visibleOutputs[]` 中展示 `"1"`；repair feedback 针对数字 `1` 明确指出应改为字符串 `"1"`。
+- [Risk] `factSchemaVersion` 和 `visibleOutputSchemaVersion` 仍让模型混淆。→ Mitigation：模型可见 examples 只在 `visibleOutputs[]` 中展示 `"1"`；通用 repair feedback 针对数字 `1` 明确指出应改为字符串，业务 prompt / manifest / observation 继续声明 `visibleTrainingProposal` 使用字符串 `"1"`。
 - [Risk] 删除 metadata 投影会降低模型可见事实。→ Mitigation：本 change 不要求先删除 metadata；实现可先保留安全摘要，但 `inspectVisibleTrainingProposals(operation = "list_recent")` 必须成为权威事实查询能力。后续如果要移除 metadata，应另开 change 或在本 change 实现阶段明确验证。
 - [Risk] 测试用 ReplayPlanner 不能完全代表真实 LLM。→ Mitigation：先用确定性 replay 覆盖执行合同，再保留真实模型黑盒用例作为手动或 opt-in 验证。
 
@@ -125,7 +125,7 @@ prompt、examples、schema summary 和 repair feedback 必须统一告诉模型�
 4. 实现 `list_recent`，并确保空列表是成功事实查询但不产出 consumable resource。
 5. 调整 `read_recent`，只从真实 `list_recent`/metadata 引用读取事实，读取成功后登记当前 run consumable resource。
 6. 更新模型可见 manifest、schema description、examples、observations、compressed tool results 和 repair feedback。
-7. 修正 `visibleOutputs[].schemaVersion` 的 prompt、examples、schema summary 和 repair feedback，统一为字符串 `"1"`。
+7. 修正 `visibleOutputs[].schemaVersion` 的 prompt、examples、schema summary 和业务 observation，统一声明 `visibleTrainingProposal` 使用字符串 `"1"`；通用 repair feedback 只保留字符串类型边界。
 8. 更新 `searchExerciseResources` manifest 边界，说明它不承担可见训练方案事实 `list_recent` / `read_recent`。
 9. 补齐 tool-level、manifest、prompt、chat service、validator 和 architecture boundary tests。
 10. 运行 `openspec validate extend-visible-proposal-reference-tool --strict`、相关单测和 `npm run typecheck`。
