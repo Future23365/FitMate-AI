@@ -196,6 +196,28 @@ describe("agent-core architecture boundaries", () => {
     expect(matches).toEqual([]);
   });
 
+  it("keeps agent-core progress observation free of concrete production toolName UI branches", () => {
+    const coreFiles = collectFiles("lib/server/agent-core").map((file) => path.relative(repoRoot, file));
+    const forbiddenTerms = [
+      "inspectVisibleTrainingProposals",
+      "resolveExerciseResourceMentions",
+      "searchExerciseResources",
+      "toolActivityStageByToolName",
+    ];
+    const matches: string[] = [];
+
+    for (const file of coreFiles) {
+      const content = readRelative(file);
+      for (const term of forbiddenTerms) {
+        if (content.includes(term)) {
+          matches.push(`${file}: ${term}`);
+        }
+      }
+    }
+
+    expect(matches).toEqual([]);
+  });
+
   it("keeps visible training proposal terminal validation free of concrete business toolName allowlists", () => {
     const files = [
       "lib/server/agent-core/terminal-output-validator.ts",
@@ -307,6 +329,7 @@ describe("agent-core architecture boundaries", () => {
       "runAgent" + "Orchestrator",
       "assistant_action",
       "intent_resolved",
+      "agent_activity",
       "agent_" + "execution_result",
     ];
     const matches: string[] = [];

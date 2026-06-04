@@ -1,6 +1,11 @@
 import { clientRequest } from "@/lib/client/http/client-request";
 
 import type { FitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
+import {
+  isKnownAgentProgressStage,
+  isKnownAgentProgressStatus,
+  type AgentProgressPayload,
+} from "@/features/chat/types";
 
 export type AgentTextChatErrorPayload = {
   code?: string;
@@ -19,6 +24,7 @@ const unsupportedCapabilityErrorCodes = new Set([
 ]);
 
 export type AgentTextChatEvent =
+  | ({ type: "agent_progress" } & AgentProgressPayload)
   | { type: "content"; content: string }
   | { type: "visible_output"; outputType: string; schemaVersion: string; payload: unknown; content?: unknown }
   | { type: "assistant_suggestions"; suggestions: string[] }
@@ -202,6 +208,8 @@ function parseAgentTextChatEvent(value: unknown): AgentTextChatEvent {
   const event = value as { type: string; [key: string]: unknown };
 
   switch (event.type) {
+    case "agent_progress":
+      return parseAgentProgressEvent(event);
     case "content":
       if (typeof event.content !== "string") {
         throw new AgentTextChatStreamError("content 事件缺少文本内容。");
@@ -243,6 +251,37 @@ function parseAgentTextChatEvent(value: unknown): AgentTextChatEvent {
     default:
       throw new AgentTextChatStreamError(`未知聊天响应事件：${event.type}`);
   }
+}
+
+function parseAgentProgressEvent(event: Record<string, unknown>): AgentTextChatEvent {
+  if (typeof event.stage !== "string" || !event.stage.trim()) {
+    throw new AgentTextChatStreamError("agent_progress 事件缺少 stage 字段。");
+  }
+
+  if (typeof event.status !== "string" || !isKnownAgentProgressStatus(event.status)) {
+    throw new AgentTextChatStreamError("agent_progress 事件 status 字段不合法。");
+  }
+
+  if (typeof event.sequence !== "number" || !Number.isFinite(event.sequence) || event.sequence < 0) {
+    throw new AgentTextChatStreamError("agent_progress 事件 sequence 字段不合法。");
+  }
+
+  const messageKey =
+    typeof event.messageKey === "string" && isKnownAgentProgressStage(event.messageKey)
+      ? event.messageKey
+      : undefined;
+
+  if (event.messageKey !== undefined && !messageKey) {
+    throw new AgentTextChatStreamError("agent_progress 事件 messageKey 字段不合法。");
+  }
+
+  return {
+    type: "agent_progress",
+    stage: event.stage,
+    status: event.status,
+    messageKey,
+    sequence: event.sequence,
+  };
 }
 
 async function createHttpError(response: Response) {

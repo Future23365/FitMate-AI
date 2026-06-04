@@ -10,6 +10,7 @@ import { ResponsiveRightSidebar } from "@/components/app/responsive-right-sideba
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { useAutoHideScrollbar } from "@/components/app/use-auto-hide-scrollbar";
 import { ExerciseRecommendationCard } from "@/features/exercises/components/exercise-recommendation-card";
+import { AgentActivityIndicator } from "@/features/chat/components/agent-activity-indicator";
 import { useChatController } from "@/features/chat/hooks/use-chat-controller";
 import { getMessageAssistantSuggestions } from "@/features/chat/lib/assistant-suggestions";
 import { adaptVisibleTrainingProposalToRichCard } from "@/features/chat/lib/visible-training-proposal-cards";
@@ -477,6 +478,8 @@ function HomeRightSidebar() {
 
 export function ChatPage() {
   const {
+    activeAgentActivityMessageId,
+    agentActivity,
     error,
     input,
     isLoading,
@@ -594,6 +597,10 @@ export function ChatPage() {
             <div className="mx-auto flex max-w-4xl flex-col gap-md">
               {messages.map((message) => {
                 const isUserMessage = message.role === "user";
+                const visibleAgentActivity =
+                  !isUserMessage && message.id === activeAgentActivityMessageId
+                    ? agentActivity
+                    : null;
 
                 return (
                   <div
@@ -627,6 +634,8 @@ export function ChatPage() {
                             if (message.role === "assistant") {
                               return (
                                 <>
+                                  <AgentActivityIndicator activity={visibleAgentActivity} />
+
                                   {cleanContent ? (
                                     <div className="markdown-answer">
                                       <MarkdownContent content={cleanContent} />

@@ -35,6 +35,50 @@ export type ChatVisibleOutput = {
 
 export type ApiChatMessage = Pick<ChatMessage, "role" | "content">;
 
+export const agentProgressStageValues = [
+  "preparing_context",
+  "analyzing_request",
+  "querying_exercises",
+  "reading_artifacts",
+  "generating_workout",
+  "validating_result",
+  "saving_result",
+  "writing_reply",
+  "finalizing",
+] as const;
+
+export type AgentProgressStage = (typeof agentProgressStageValues)[number];
+
+export const agentProgressStatusValues = [
+  "active",
+  "completed",
+  "skipped",
+  "failed",
+] as const;
+
+export type AgentProgressStatus = (typeof agentProgressStatusValues)[number];
+
+/** AgentProgressPayload 是当前请求级临时 UI 状态，不写入 ChatMessage 或聊天历史。 */
+export type AgentProgressPayload = {
+  stage: AgentProgressStage | (string & {});
+  status: AgentProgressStatus;
+  messageKey?: AgentProgressStage;
+  sequence: number;
+};
+
+const knownAgentProgressStages = new Set<string>(agentProgressStageValues);
+const knownAgentProgressStatuses = new Set<string>(agentProgressStatusValues);
+
+/** isKnownAgentProgressStage 只服务前端展示白名单，未知 stage 不直接渲染给用户。 */
+export function isKnownAgentProgressStage(stage: string): stage is AgentProgressStage {
+  return knownAgentProgressStages.has(stage);
+}
+
+/** isKnownAgentProgressStatus 限定 stream progress 状态，避免内部错误态原文进入 UI。 */
+export function isKnownAgentProgressStatus(status: string): status is AgentProgressStatus {
+  return knownAgentProgressStatuses.has(status);
+}
+
 export type ChatConversation = {
   id: string;
   title: string;

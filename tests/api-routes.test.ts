@@ -171,10 +171,15 @@ describe("API route boundaries", () => {
       conversationId: "conversation-1",
       responseMessageId: "assistant-1",
     }));
-    const events = parseNdjson(await response.text());
+    const rawEvents = parseNdjson(await response.text());
+    const events = rawEvents.filter((event) => event.type !== "agent_progress");
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("application/x-ndjson");
+    expect(rawEvents[0]).toMatchObject({
+      type: "agent_progress",
+      stage: "preparing_context",
+    });
     expect(events).toEqual([
       { type: "content", content: "可以，今天先做低强度胸部训练。" },
       { type: "done" },

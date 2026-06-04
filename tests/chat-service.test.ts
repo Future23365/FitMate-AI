@@ -51,10 +51,16 @@ const productionToolNames = [
   "searchExerciseResources",
 ];
 
-async function readNdjsonEvents(response: Response) {
+async function readNdjsonEvents(
+  response: Response,
+  options: { includeProgress?: boolean } = {},
+) {
   const text = await response.text();
+  const events = text.trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
 
-  return text.trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+  return options.includeProgress
+    ? events
+    : events.filter((event) => event.type !== "agent_progress");
 }
 
 type TraceAdapterCandidate = {
@@ -212,10 +218,25 @@ describe("chat service agent text flow boundary", () => {
       currentUser: { id: "user-1" },
       planner,
     });
-    const events = await readNdjsonEvents(response);
+    const rawEvents = await readNdjsonEvents(response, { includeProgress: true });
+    const events = rawEvents.filter((event) => event.type !== "agent_progress");
+    const firstProgressIndex = rawEvents.findIndex((event) => event.type === "agent_progress");
+    const firstContentIndex = rawEvents.findIndex((event) => event.type === "content");
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("application/x-ndjson");
+    expect(rawEvents[firstProgressIndex]).toMatchObject({
+      type: "agent_progress",
+      stage: "preparing_context",
+      status: "active",
+      sequence: 1,
+    });
+    expect(firstProgressIndex).toBeGreaterThanOrEqual(0);
+    expect(firstContentIndex).toBeGreaterThan(firstProgressIndex);
+    expect(JSON.stringify(rawEvents)).not.toContain("agent_activity");
+    expect(JSON.stringify(rawEvents)).not.toContain("assistant_action");
+    expect(JSON.stringify(rawEvents)).not.toContain("agent_execution_result");
+    expect(JSON.stringify(rawEvents)).not.toContain("intent_resolved");
     expect(events).toEqual([
       { type: "content", content: "可以，今天先做轻量胸部训练。" },
       { type: "done" },
@@ -322,7 +343,9 @@ describe("chat service agent text flow boundary", () => {
       currentUser: { id: "user-1" },
       planner,
     });
-    const events = await readNdjsonEvents(response);
+    const rawEvents = await readNdjsonEvents(response, { includeProgress: true });
+    const events = rawEvents.filter((event) => event.type !== "agent_progress");
+    const progressEvents = rawEvents.filter((event) => event.type === "agent_progress");
 
     expect(events).toEqual([
       expect.objectContaining({
@@ -345,6 +368,12 @@ describe("chat service agent text flow boundary", () => {
       { type: "content", content: "可以参考俯卧撑。" },
       { type: "done" },
     ]);
+    expect(progressEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ stage: "querying_exercises", status: "active" }),
+    ]));
+    expect(JSON.stringify(progressEvents)).not.toContain("searchExerciseResources");
+    expect(JSON.stringify(progressEvents)).not.toContain("toolName");
+    expect(JSON.stringify(progressEvents)).not.toContain("toolResultId");
     expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries).toHaveBeenCalledWith({
       q: "胸",
       category: undefined,
