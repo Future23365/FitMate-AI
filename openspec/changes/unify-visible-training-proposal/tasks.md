@@ -43,9 +43,11 @@
 - [ ] 5.2 当 `visibleTrainingProposal` 只包含 `training` 且无处方时，渲染为动作推荐事件或等价卡片数据。
 - [ ] 5.3 当 `visibleTrainingProposal` 包含三段 section 和处方时，按 `warmup`、`training`、`stretch` 顺序渲染编排事件或等价卡片数据。
 - [ ] 5.4 当 `visibleTrainingProposal` 包含 `schedule` 时，在同一套编排基础上渲染训练日 / 休息日安排，不生成每日独立编排。
-- [ ] 5.5 更新跨轮事实桥，在确认本轮 assistant response 已对用户可见后保存同一份 `visibleTrainingProposal`。
-- [ ] 5.6 更新跨轮事实桥读取投影，使下一轮 Agent 能复用上一轮 `training` 动作并按需补 `warmup` / `stretch` 或 `schedule`。
-- [ ] 5.7 更新前端聊天客户端类型和事件消费边界，确保后续卡片从结构化事件读取事实，正文只作为解释文本。
+- [ ] 5.5 更新跨轮事实桥，在确认本轮 assistant response 已对用户可见后保存同一份 `visibleTrainingProposal`，不得再从 `searchExerciseResources` 的 `tool_result`、handler output 或 user projection 直接抽取最终方案事实。
+- [ ] 5.6 将旧动作推荐事实桥命名迁移为可见训练方案语义，例如 kind / resourceType / read tool / run metadata 不再以 `exercise_recommendation_displayed`、`exercise_recommendation_fact`、`readRecentExerciseRecommendationFact`、`recentExerciseRecommendationFacts` 作为新合同主路径；如保留旧事实读取，必须隔离为显式兼容路径。
+- [ ] 5.7 更新跨轮事实桥 payload schema，使保存内容覆盖 `exerciseItems` 的最终 `exerciseId`、`section`、`order`、`prescription` 和可选 `schedule`，并确保未进入最终方案的 tool 候选不会被投影成“上一轮这套训练”。
+- [ ] 5.8 更新跨轮事实桥读取投影，使下一轮 Agent 能复用上一轮 `training` 动作并按需补 `warmup` / `stretch` 或 `schedule`。
+- [ ] 5.9 更新前端聊天客户端类型和事件消费边界，确保后续卡片从结构化事件读取事实，正文只作为解释文本。
 
 ## 6. Runtime 回归与安全边界
 
@@ -53,13 +55,15 @@
 - [ ] 6.2 更新 `tests/agent-core/executor-runtime-renderer.test.ts`，覆盖 renderer 从同一结构渲染动作推荐、编排、计划。
 - [ ] 6.3 更新 `tests/chat-service.test.ts` 或当前生产聊天回归测试，覆盖只推荐动作调用 1 次 tool、直接编排调用 training 后再 warmup / stretch、基于上一轮动作编排只补查 warmup / stretch、已有编排生成计划只输出 schedule。
 - [ ] 6.4 更新 fact bridge 相关测试，覆盖保存点在用户可见 response 之后，且下一轮读取的事实与上一轮渲染结构一致。
-- [ ] 6.5 更新 `tests/agent-core/architecture-boundary.test.ts`，证明 `/api/chat`、agent-core 和 `searchExerciseResources` 不新增服务端关键词分流、业务 toolName 特判或隐藏编排器。
-- [ ] 6.6 运行 `npm test -- tests/agent-tools/search-exercise-resources.test.ts`。
-- [ ] 6.7 运行 `npm test -- tests/agent-core/contract-helper.test.ts`。
-- [ ] 6.8 运行 `npm test -- tests/agent-core/tool-registry-manifest.test.ts`。
-- [ ] 6.9 运行 `npm test -- tests/agent-core/agent-llm-prompt-config.test.ts`。
-- [ ] 6.10 运行与 final grounding、renderer、fact bridge 和 chat service 相关的最窄自动化测试。
-- [ ] 6.11 运行 `npm run typecheck`。
+- [ ] 6.5 覆盖候选与最终方案边界：`searchExerciseResources` 返回但未进入 `visibleTrainingProposal` 的候选不得被保存或投影为上一轮方案。
+- [ ] 6.6 覆盖旧命名迁移边界：新主路径不得继续以 `exercise_recommendation_displayed`、`readRecentExerciseRecommendationFact` 或 `recentExerciseRecommendationFacts` 承载 `visibleTrainingProposal`；旧事实读取如存在必须有独立兼容测试。
+- [ ] 6.7 更新 `tests/agent-core/architecture-boundary.test.ts`，证明 `/api/chat`、agent-core 和 `searchExerciseResources` 不新增服务端关键词分流、业务 toolName 特判或隐藏编排器。
+- [ ] 6.8 运行 `npm test -- tests/agent-tools/search-exercise-resources.test.ts`。
+- [ ] 6.9 运行 `npm test -- tests/agent-core/contract-helper.test.ts`。
+- [ ] 6.10 运行 `npm test -- tests/agent-core/tool-registry-manifest.test.ts`。
+- [ ] 6.11 运行 `npm test -- tests/agent-core/agent-llm-prompt-config.test.ts`。
+- [ ] 6.12 运行与 final grounding、renderer、fact bridge 和 chat service 相关的最窄自动化测试。
+- [ ] 6.13 运行 `npm run typecheck`。
 
 ## 7. 文档与收口
 

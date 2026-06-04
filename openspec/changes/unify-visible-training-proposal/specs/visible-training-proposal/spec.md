@@ -98,6 +98,18 @@
 - **AND** 下一轮 Agent 上下文 MUST 能投影最近可见训练方案的 `exerciseItems`、section 摘要和 `schedule` 摘要
 - **AND** 跨轮事实桥 MUST NOT 从正文重新提取动作事实
 
+#### Scenario: 候选 tool result 不得替代可见训练方案
+- **WHEN** `searchExerciseResources` 返回动作候选、`warmup` 分组或 `stretch` 分组
+- **THEN** 跨轮事实桥 MUST NOT 将这些候选结果直接保存为可复用训练方案
+- **AND** 只有最终 `final_answer.visibleTrainingProposal.exerciseItems` 中真实出现的动作才能作为下一轮可引用的方案动作
+- **AND** 未被最终方案选中的候选 MUST NOT 因曾出现在 tool result 中而被投影为“上一轮这套训练”
+
+#### Scenario: 旧动作推荐事实桥不得承载新方案合同
+- **WHEN** 系统实现 `visibleTrainingProposal` 跨轮保存和读取
+- **THEN** 事实 kind、resourceType、读取 tool 和 run metadata 命名 MUST 表达可见训练方案语义
+- **AND** 系统 MUST NOT 使用 `exercise_recommendation_displayed`、`exercise_recommendation_fact`、`readRecentExerciseRecommendationFact` 或 `recentExerciseRecommendationFacts` 作为新合同的主路径命名
+- **AND** 如需读取旧动作推荐事实，系统 MUST 将其作为显式兼容路径，并且 MUST NOT 与新 `visibleTrainingProposal` payload 混用
+
 ### Requirement: 模型可见合同必须引导语义理解而非关键词分流
 模型可见 prompt、schema summary、tool manifest、examples、observations 和 repair feedback SHALL 使用中文说明 `visibleTrainingProposal` 的作用、字段含义和逐步增强关系。说明 MUST 引导模型根据用户自然语言目标理解用户要动作、编排还是计划；系统 MUST NOT 在 prompt 或服务端中写入固定关键词、正则、同义词表或短句模板式分流规则。
 

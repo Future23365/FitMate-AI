@@ -13,6 +13,8 @@
 - 生成计划时，模型 SHALL 在当前同一套编排上增加 `schedule`，用 `assignments` 表达哪些天训练、哪些天休息；模型 MUST NOT 一次生成每天不同的多套完整编排。
 - `exerciseId` SHALL 使用动作库当前主键，例如 `Power_Stairs`；模型可读其语义，服务端也能用同一值校验并读取动作详情。
 - Response Renderer SHALL 从 `visibleTrainingProposal` 渲染用户可见动作、编排和计划；跨轮事实桥 SHALL 在确认本轮回答已对用户可见后保存同一份 `visibleTrainingProposal`。
+- 跨轮事实桥 SHALL 从旧的动作推荐展示事实语义迁移为可见训练方案事实语义；实现不得继续用 `exercise_recommendation_displayed`、`readRecentExerciseRecommendationFact` 或 `recentExerciseRecommendationFacts` 等旧命名承载新合同，除非设计中明确说明兼容读取和迁移边界。
+- 跨轮事实桥 SHALL NOT 从 `searchExerciseResources` 的 `tool_result` 直接保存事实；tool 返回的是候选事实，只有通过 `final_answer.visibleTrainingProposal` 校验并实际进入用户可见 response 的结构才是可跨轮引用的训练方案事实。
 - `searchExerciseResources` SHALL 保持只读动作事实查询 tool，不拆分成多个 tool；其输入 SHALL 支持 `suitabilities` 多值筛选，例如 `["warmup", "stretch"]`。
 - `searchExerciseResources` 在查询 `warmup` / `stretch` 时 SHOULD 按用途分组返回候选，例如 `{ warmup: [...], stretch: [...] }`，帮助模型围绕已确定主训练补足结构。
 - 模型调用流程 SHALL 遵循“先确定主训练，再围绕主训练补热身/拉伸”的原则：
@@ -37,7 +39,7 @@
 - 模型可见输入：system / developer prompt、tool manifest、schema summary、examples、observations、compressed tool results 和 repair feedback。
 - Tool 合同：`searchExerciseResources` input schema、output schema、resource projection、trace summary 和 tool-level tests。
 - Response Renderer：从 `visibleTrainingProposal` 输出用户可见 NDJSON 事件和后续卡片渲染数据。
-- 跨轮事实桥：在本轮回答确认可见后保存 `visibleTrainingProposal`，下一轮向模型投影最近可见训练方案摘要。
+- 跨轮事实桥：在本轮回答确认可见后保存 `visibleTrainingProposal`，下一轮向模型投影最近可见训练方案摘要；同步替换旧动作推荐事实桥的 kind / resourceType / read tool / metadata 命名或明确兼容迁移边界。
 - 动作详情解析：服务端按 `exerciseId` 从数据库读取动作名称、图片、肌群、器械等展示详情。
 - 前端聊天消费：后续训练卡片从结构化事件读取动作、编排和计划数据；正文不再承担事实渲染职责。
 - 测试：OpenSpec strict validate、tool contract tests、prompt/model input 描述语言测试、final grounding / renderer / fact bridge tests、相关 TypeScript typecheck。

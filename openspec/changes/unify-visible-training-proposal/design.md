@@ -110,10 +110,16 @@ prompt / model-visible contract 必须用中文说明：
 - 不修改 `PlannerPort` 或 agent runtime 主循环来特判动作、编排或计划语义。
 - 不让服务端用用户原文关键词、正则、同义词表或规则评分决定用户要动作、编排还是计划。
 - 不把 `searchExerciseResources` 扩展成生成处方、生成计划或保存事实的 tool。
+- 不继续沿用 `exercise_recommendation_displayed`、`exercise_recommendation_fact`、`readRecentExerciseRecommendationFact`、`recentExerciseRecommendationFacts` 等旧动作推荐命名来承载新的可见训练方案事实，除非实现明确保留只读兼容层并写清迁移边界。
+- 不从 `searchExerciseResources` 的 `tool_result`、候选分组或用户可见工具投影中直接保存 `visibleTrainingProposal`；这些结果只是候选证据，不是最终推送给用户的训练方案。
 
 ## Risks / Trade-offs
 
 - [Risk] 模型正文和 `visibleTrainingProposal` 写出不同动作 → Mitigation：Response Renderer 只从 `visibleTrainingProposal` 渲染训练事实，prompt 要求正文只解释，不复制完整动作事实；final grounding 拒绝正文承诺但结构缺失的训练推送。
+- [Risk] 继续把 `searchExerciseResources` 返回候选保存成跨轮事实 → Mitigation：事实桥保存入口只接受已校验、已进入用户可见 response 的 `visibleTrainingProposal`；不得从 `tool_result`、handler output 或 tool user projection 抽取最终方案事实。
+- [Risk] tool 候选数量大于最终选择，导致下一轮把未被用户实际采纳的候选当成“这套方案” → Mitigation：事实桥 payload 只保存 `visibleTrainingProposal.exerciseItems` 中的最终动作、section、order、prescription 和 schedule，不保存未进入最终方案的候选动作作为可复用训练方案。
+- [Risk] `warmup` / `stretch` 查询分组被误认为最终补齐结果 → Mitigation：`searchExerciseResources` 的分组 output 只能作为模型选择候选；最终热身和拉伸必须由模型写入 `visibleTrainingProposal.exerciseItems` 后再经服务端结构、来源和数据库存在性校验。
+- [Risk] 沿用 `exercise_recommendation_displayed` / `readRecentExerciseRecommendationFact` / `recentExerciseRecommendationFacts` 等旧命名，让实现继续按“动作推荐刷新”理解事实桥 → Mitigation：实现应迁移到可见训练方案事实命名，例如 `visible_training_proposal_displayed`、`visible_training_proposal_fact`、`readRecentVisibleTrainingProposal` 和 `recentVisibleTrainingProposals`；如需读取旧事实，只能作为显式兼容路径，不得混入新事实合同。
 - [Risk] 模型生成编排时丢掉上一轮 `training` 动作 → Mitigation：ContextPackage / fact bridge 投影最近 `visibleTrainingProposal` 的 `training` items，并在 prompt 中要求“基于上一轮动作编排”时保留这些动作，除非用户明确要求替换。
 - [Risk] 模型凭空编造 `exerciseId` → Mitigation：服务端校验所有 `exerciseId` 必须来自本轮 satisfied tool result 或可访问的跨轮事实桥，并存在于数据库。
 - [Risk] 热身或拉伸被塞进 `training` → Mitigation：schema 限定 section enum，tool result 按 `suitabilities` 分组投影，测试覆盖 section 错位和编排补齐场景；服务端不做语义纠错，只做结构与来源校验。
@@ -126,7 +132,7 @@ prompt / model-visible contract 必须用中文说明：
 1. 先增加 `visibleTrainingProposal` schema、prompt/model-visible contract 和校验测试，不改变生产默认行为。
 2. 扩展 `searchExerciseResources` 的 `suitabilities` 输入和分组输出，补齐 tool-level contract tests。
 3. 接入 Response Renderer，使训练推送事件从 `visibleTrainingProposal` 渲染。
-4. 接入跨轮事实桥保存和投影，使下一轮能读取上一轮可见训练方案。
+4. 接入跨轮事实桥保存和投影，使下一轮能读取上一轮可见训练方案；同时迁移旧动作推荐事实桥命名和 payload schema，避免旧 `displayedExerciseIds` 语义继续承载新方案。
 5. 最后接入前端卡片消费结构化事件；在卡片未接入前，仍以 renderer 输出的结构化事实为准。
 
 回滚策略：如果上线后训练推送链路出现合同失败，可临时关闭训练推送类 `visibleTrainingProposal` 渲染入口，让模型退回普通文本回答；不得回滚到正文动作列表作为跨轮事实源。
