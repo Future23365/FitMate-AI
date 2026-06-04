@@ -1,6 +1,6 @@
 ---
 name: agent-tool-change-governance
-description: 治理 AITest 中 Agent tool 相关变更的实现前流程。用于新增 Agent tool、修复 Agent tool bug、排查 prompt/model input、修改 Agent core contract，或触碰 PlannerPort、Executor、Policy Guard、ResourceStore、Resource Contract Validator、Response Renderer、trace/replay、/api/chat 生产聊天接入等任务。
+description: 治理 AITest 中 Agent tool 相关变更的实现前流程。用于新增 Agent tool、修复 Agent tool bug、排查 prompt/model input、修改 Agent core contract、调整业务 tool 输入/输出字段命名、弃用或重命名过时字段，或触碰 PlannerPort、Executor、Policy Guard、ResourceStore、Resource Contract Validator、Response Renderer、trace/replay、/api/chat 生产聊天接入等任务。
 ---
 
 # Agent Tool 变更治理
@@ -11,7 +11,8 @@ description: 治理 AITest 中 Agent tool 相关变更的实现前流程。用�
 2. 对非平凡行为改动，先用 `openspec status --change <change> --json` 检查当前 OpenSpec change，并读取 proposal、design、spec 和 tasks。
 3. 改文件前运行 `git status --short`。如果存在无关用户改动，不要混入当前 diff 或 commit。
 4. 将任务归为一个主类型：新增业务 tool、Agent tool bug 修复、core contract 变更、production 接入变更。
-5. 实现前先说明问题根因或产品需求、设计方向、预计影响模块和取舍。
+5. 字段命名、弃用或重命名不是独立主类型：只影响单个业务 tool 时归为 Agent tool bug 修复或已有 tool 合同调整；影响两个以上无关 tool、`AgentAction`、resource、trace/replay 或通用 renderer 时归为 core contract 变更。
+6. 实现前先说明问题根因或产品需求、设计方向、预计影响模块和取舍。
 
 ## 任务分类
 
@@ -52,6 +53,16 @@ description: 治理 AITest 中 Agent tool 相关变更的实现前流程。用�
 - 修改某个已有 tool 的功能或 bug 时，必须先定位并运行该 tool 已有的专属单测；如果没有专属单测，先补能复现问题的 tool-level 单测，再改实现。
 
 不要用服务端关键词、正则、同义词表、短句模板或业务 `toolName` 特判修复自然语言理解问题。
+
+### 过时字段重命名
+
+当业务变化导致 tool 字段过时、含义漂移或需要重命名时，把它当作执行合同变更处理，不要只在 prompt 或局部 handler 里补别名：
+
+- 先追踪旧字段的完整产生和消费链路：`inputSchema`、`outputSchema`、handler、policy metadata、`resourceContract`、`toModelObservation`、`toUserProjection`、trace projection、response rendering、fixtures、tests 和真实 model-visible manifest / schema summary。
+- 字段新名称必须表达当前业务含义；不要为了兼容旧语义保留误导性字段名。
+- 默认删除旧字段和旧别名，不新增长期兼容层；如果生产迁移确实需要短期兼容，必须写清兼容入口、清理条件、测试覆盖和 OpenSpec 边界。
+- 字段名、枚举值、resource type 等执行合同保持英文标识；描述性自然语言使用中文解释新字段业务含义。
+- 字段重命名后同步使用 `agent-prompt-contract-governance` 检查模型可见输入，确认 manifest、schema summary、examples、repair feedback、observations 和 compressed tool results 不再引导模型使用旧字段。
 
 ### Core Contract 变更
 
@@ -112,6 +123,8 @@ description: 治理 AITest 中 Agent tool 相关变更的实现前流程。用�
 
 修复 Agent tool bug 时，checklist 必须覆盖 `codex_logs/ai_trace_log.js`、模型实际可见的 `prompt / model input`、真实 schema、model-visible manifest 或 schema summary、`ResourceStore`、`Policy Guard`、projection、response rendering 和 trace。
 
+涉及过时字段重命名时，`tasks.md` 必须额外包含字段迁移检查：列出旧字段和新字段，覆盖所有产生方、消费方、模型可见说明、trace/replay、fixtures 和回归测试，并明确是否删除旧字段或短期保留兼容入口。
+
 修复或修改已有 tool 时，`tasks.md` 必须额外包含该 tool 的回归单测任务：先补复现用例，再更新实现，并运行该 tool 对应的最窄单测。仅运行 registry、manifest、contract helper、黑盒 LLM 或全量 smoke tests，不能替代 tool-level unit tests。
 
 每个非文案类 Agent tool `tasks.md` 必须包含 `openspec validate <change> --strict`、相关自动化测试、触碰 core 或 production 边界时的 architecture scan，以及最终 diff 检查。
@@ -149,6 +162,7 @@ tool-level unit tests 应优先放在 `tests/agent-tools/<toolName>.test.ts`；�
 - Tool contract helper：`npm test -- tests/agent-core/contract-helper.test.ts`
 - Tool registry / manifest：修改注册、manifest 或 schema summary 时，运行 `npm test -- tests/agent-core/tool-registry-manifest.test.ts`
 - 修改 policy、resource、confirmation、renderer、trace 或 production integration 时，运行对应 runtime safety 和 projection tests
+- 字段重命名时，用 `rg` 检查旧字段残留，并运行覆盖该字段的 tool-level、manifest/schema summary、projection 或 trace/replay 测试
 - 修改 TypeScript、React、API、schema、AI orchestration 或共享业务逻辑后，运行 `npm run typecheck`
 
 结束时总结改了什么、为什么这个设计优于局部补丁、如何验证，以及是否还有剩余风险。

@@ -1,6 +1,6 @@
 ---
 name: agent-prompt-contract-governance
-description: 治理 AITest 中 Agent prompt 与模型实际可见输入的合同变更。用于修改 Agent prompt、model input、tool manifest、schema summary、examples、repair feedback、context package、observations、compressed tool results、AgentAction 输出格式说明、final grounding 说明，或新增/调整业务 Agent tool 的模型可见说明；不用于普通 UI 文案、README 文案或与模型执行合同无关的小修。
+description: 治理 AITest 中 Agent prompt 与模型实际可见输入的合同变更。用于修改 Agent prompt、model input、tool manifest、schema summary、examples、repair feedback、context package、observations、compressed tool results、AgentAction 输出格式说明、final grounding 说明，新增/调整业务 Agent tool 的模型可见说明，或在 tool 字段重命名后同步模型可见字段说明；不用于普通 UI 文案、README 文案或与模型执行合同无关的小修。
 ---
 
 # Agent Prompt 合同治理
@@ -15,6 +15,7 @@ description: 治理 AITest 中 Agent prompt 与模型实际可见输入的合同
 2. 运行 `git status --short`。如有无关改动，不要混入当前 diff 或 commit。
 3. 判断是否还需要同时使用 `agent-tool-change-governance`：
    - 新增业务 tool、修 Agent tool bug、改 core contract、改 production 接入、触碰 `PlannerPort`、Executor、`Policy Guard`、`ResourceStore`、`Resource Contract Validator`、`Response Renderer`、trace/replay 或 `/api/chat` 主链路时，先用 `agent-tool-change-governance` 定范围。
+   - 涉及业务 tool `inputSchema`、`outputSchema`、handler、resource、projection、trace 或测试中的字段命名、弃用和重命名时，先用 `agent-tool-change-governance` 治理执行合同，再用本 Skill 检查模型可见说明。
    - 只修改 prompt、model input、manifest、schema summary、examples、repair feedback、context package、observations 或 compressed tool results 时，用本 Skill 治理模型可见合同。
 4. 实现前说明问题根因或产品需求、设计方向、预计影响模块和取舍。
 
@@ -43,6 +44,16 @@ description: 治理 AITest 中 Agent prompt 与模型实际可见输入的合同
 - `codex_logs/ai_trace_log.js` 或真实黑盒报告中的 model request / model input。
 
 如果源文件写了规则，但 builder 没带上、被压缩丢失、顺序被后续消息覆盖，必须把根因归为“模型可见合同缺失”，不要只继续润色源文件。
+
+## 字段重命名同步检查
+
+当业务 tool 的字段已经重命名、弃用或含义调整时，本 Skill 只负责模型可见合同同步，不负责替代 runtime/schema 迁移：
+
+- 先确认 `agent-tool-change-governance` 已覆盖真实执行合同；不要用 prompt 继续兼容旧字段。
+- 检查 tool manifest、schema summary、schema description、examples、repair feedback、observations、compressed tool results、resource 摘要和 final grounding 说明是否仍暴露旧字段名。
+- 示例 input 必须使用新字段名，并继续严格匹配当前 schema。
+- 如保留旧字段名只用于迁移说明或反例，必须明确告诉模型不要再输出旧字段；不要让旧字段同时表现为可用字段。
+- 技术字段名保持英文原样；中文说明解释新字段当前业务含义和使用条件。
 
 ## 模型可见描述语言
 
@@ -114,6 +125,7 @@ description: 治理 AITest 中 Agent prompt 与模型实际可见输入的合同
 
 - `openspec validate <change> --strict`。
 - 与改动范围相关的 prompt config、manifest、schema summary、model input builder、Agent runtime、final grounding 或黑盒验证。
+- 涉及字段重命名时，包含旧字段残留检查、示例 input 更新、schema summary/manifest 快照或等价回归测试。
 - 修改 TypeScript、API、Schema、AI 编排或共享业务逻辑时，包含 `npm test` 或相关自动化测试，并按需包含 `npm run typecheck`。
 - 无法运行验证时，最终总结说明原因和剩余风险。
 
@@ -126,6 +138,7 @@ description: 治理 AITest 中 Agent prompt 与模型实际可见输入的合同
 - Prompt config 或 model input builder 测试
 - Tool manifest / schema summary 测试
 - 模型可见描述语言测试：manifest、schema description、examples、repair feedback 或 observation 中的描述性自然语言默认中文
+- 字段重命名同步测试：用 `rg` 检查旧字段残留，并验证模型可见 manifest、schema summary、examples 和 repair feedback 使用新字段
 - Agent runtime / final grounding 测试
 - 修改 TypeScript、React、API、Schema、AI 编排或共享业务逻辑后运行 `npm run typecheck`
 
