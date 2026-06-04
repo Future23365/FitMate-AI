@@ -4,6 +4,7 @@ import {
   listRecentVisibleTrainingProposalSummaries,
   persistVisibleTrainingProposalFactsFromEvents,
   readVisibleTrainingProposalFact,
+  toVisibleTrainingProposalMetadataSummary,
 } from "@/lib/server/visible-training-proposals/visible-training-proposal-fact-store";
 
 const exerciseRepositoryMocks = vi.hoisted(() => ({
@@ -110,6 +111,37 @@ describe("visible training proposal fact store", () => {
     ]);
     expect(JSON.stringify(summaries)).not.toContain("displayedExerciseIds");
     expect(JSON.stringify(summaries)).not.toContain("displayedExercises");
+  });
+
+  it("projects recent summaries to metadata indexes without reusable exercise payloads", async () => {
+    const client = createFactClient({
+      findMany: [createFactRow()],
+    });
+    const [summary] = await listRecentVisibleTrainingProposalSummaries({
+      userId: "user-1",
+      conversationId: "conversation-1",
+      client,
+    });
+
+    const metadataSummary = toVisibleTrainingProposalMetadataSummary(summary!);
+
+    expect(metadataSummary).toEqual({
+      factRef: "fact-1",
+      messageId: "assistant-1",
+      kind: "visible_training_proposal_displayed",
+      status: "active",
+      schemaVersion: 1,
+      createdAt: "2026-06-03T14:30:00.000Z",
+      proposalKind: "routine",
+      visibleOutputSchemaVersion: "1",
+      factSchemaVersion: 1,
+      sectionSummary: { warmup: 1, training: 1, stretch: 1 },
+      reusableTrainingExerciseCount: 1,
+    });
+    expect(JSON.stringify(metadataSummary)).not.toContain("exerciseItems");
+    expect(JSON.stringify(metadataSummary)).not.toContain("prescription");
+    expect(JSON.stringify(metadataSummary)).not.toContain("schedule");
+    expect(JSON.stringify(metadataSummary)).not.toContain("imageUrl");
   });
 
   it("reads only current user and conversation facts and validates referenced exercises still exist", async () => {

@@ -28,6 +28,7 @@ import type { PlannerPort } from "@/lib/server/agent-core/planner-port";
 import {
   listRecentVisibleTrainingProposalSummaries,
   persistVisibleTrainingProposalFactsFromEvents,
+  toVisibleTrainingProposalMetadataSummary,
   toJsonValue,
   type PersistVisibleTrainingProposalFactsResult,
 } from "@/lib/server/visible-training-proposals/visible-training-proposal-fact-store";
@@ -483,7 +484,7 @@ async function restoreRecentVisibleTrainingProposalsForRun(input: {
       limit: 3,
     });
 
-    return summaries.map((summary) => toJsonValue(summary));
+    return summaries.map((summary) => toJsonValue(toVisibleTrainingProposalMetadataSummary(summary)));
   } catch {
     return [];
   }

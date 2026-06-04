@@ -77,6 +77,26 @@ export type VisibleTrainingProposalFactSummary = {
   schedule?: VisibleTrainingProposalPayload["schedule"];
 };
 
+type VisibleTrainingProposalSectionSummary = {
+  warmup: number;
+  training: number;
+  stretch: number;
+};
+
+export type VisibleTrainingProposalMetadataSummary = {
+  factRef: string;
+  messageId: string;
+  kind: typeof visibleTrainingProposalFactKind;
+  status: typeof activeFactStatus;
+  schemaVersion: typeof visibleTrainingProposalFactSchemaVersion;
+  createdAt: string;
+  proposalKind: VisibleTrainingProposalPayload["kind"];
+  visibleOutputSchemaVersion: typeof visibleTrainingProposalSchemaVersion;
+  factSchemaVersion: typeof visibleTrainingProposalFactSchemaVersion;
+  sectionSummary: VisibleTrainingProposalSectionSummary;
+  reusableTrainingExerciseCount: number;
+};
+
 export type VisibleTrainingProposalFactReadSuccess = {
   ok: true;
   fact: VisibleTrainingProposalFactSummary & {
@@ -170,7 +190,7 @@ export async function persistVisibleTrainingProposalFactsFromEvents(input: {
   return { ok: true, savedCount };
 }
 
-/** listRecentVisibleTrainingProposalSummaries 恢复模型可见轻量事实摘要，不读取旧动作推荐事实。 */
+/** listRecentVisibleTrainingProposalSummaries 读取当前会话最近可见方案事实，调用方需按消费场景再投影。 */
 export async function listRecentVisibleTrainingProposalSummaries(input: {
   userId: string;
   conversationId?: string;
@@ -202,6 +222,27 @@ export async function listRecentVisibleTrainingProposalSummaries(input: {
     const parsed = parseFactPayload(row);
     return parsed ? [toFactSummary(row, parsed)] : [];
   });
+}
+
+/** toVisibleTrainingProposalMetadataSummary 为 Agent run metadata 提供只含引用索引的安全投影。 */
+export function toVisibleTrainingProposalMetadataSummary(
+  summary: VisibleTrainingProposalFactSummary,
+): VisibleTrainingProposalMetadataSummary {
+  const sectionSummary = summarizeFactSections(summary.exerciseItems);
+
+  return {
+    factRef: summary.factRef,
+    messageId: summary.messageId,
+    kind: summary.kind,
+    status: summary.status,
+    schemaVersion: summary.schemaVersion,
+    createdAt: summary.createdAt,
+    proposalKind: summary.proposalKind,
+    visibleOutputSchemaVersion: visibleTrainingProposalSchemaVersion,
+    factSchemaVersion: summary.schemaVersion,
+    sectionSummary,
+    reusableTrainingExerciseCount: sectionSummary.training,
+  };
 }
 
 /** readVisibleTrainingProposalFact 读取当前用户和会话可访问的可见训练方案事实。 */
@@ -347,6 +388,16 @@ function toFactSummary(
       ...details.get(item.exerciseId),
     })),
     schedule: payload.proposal.schedule,
+  };
+}
+
+function summarizeFactSections(
+  items: readonly Pick<VisibleTrainingProposalPayload["exerciseItems"][number], "section">[],
+): VisibleTrainingProposalSectionSummary {
+  return {
+    warmup: items.filter((item) => item.section === "warmup").length,
+    training: items.filter((item) => item.section === "training").length,
+    stretch: items.filter((item) => item.section === "stretch").length,
   };
 }
 

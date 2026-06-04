@@ -42,6 +42,27 @@ vi.mock("@/lib/server/visible-training-proposals/visible-training-proposal-fact-
   listRecentVisibleTrainingProposalSummaries: visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries,
   persistVisibleTrainingProposalFactsFromEvents: visibleTrainingProposalFactStoreMocks.persistVisibleTrainingProposalFactsFromEvents,
   readVisibleTrainingProposalFact: visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact,
+  toVisibleTrainingProposalMetadataSummary: (summary: any) => {
+    const exerciseItems = Array.isArray(summary.exerciseItems) ? summary.exerciseItems : [];
+
+    return {
+      factRef: summary.factRef,
+      messageId: summary.messageId,
+      kind: summary.kind,
+      status: summary.status,
+      schemaVersion: summary.schemaVersion,
+      createdAt: summary.createdAt,
+      proposalKind: summary.proposalKind,
+      visibleOutputSchemaVersion: "1",
+      factSchemaVersion: summary.schemaVersion,
+      sectionSummary: {
+        warmup: exerciseItems.filter((item: any) => item.section === "warmup").length,
+        training: exerciseItems.filter((item: any) => item.section === "training").length,
+        stretch: exerciseItems.filter((item: any) => item.section === "stretch").length,
+      },
+      reusableTrainingExerciseCount: exerciseItems.filter((item: any) => item.section === "training").length,
+    };
+  },
   toJsonValue: (value: unknown) => JSON.parse(JSON.stringify(value)),
 }));
 
@@ -203,6 +224,51 @@ describe("chat service agent text flow boundary", () => {
     expect(prepared.hydration.source).toBe("server_saved");
     expect(prepared).not.toHaveProperty("contextPackage");
     expect(prepared).not.toHaveProperty("agentExecutionResult");
+  });
+
+  it.each(["不要", "换一批"])("appends same-text user turn after an assistant reply for %s", (latestUserMessage) => {
+    const savedConversation = createChatConversation({
+      messages: [
+        { id: "m1", role: "user", content: latestUserMessage, createdAt: "2026-06-01T00:00:00.000Z" },
+        { id: "m2", role: "assistant", content: "好的，我已经处理了上一轮请求。", createdAt: "2026-06-01T00:01:00.000Z" },
+      ],
+    });
+
+    const prepared = prepareChatRequest(
+      {
+        conversationId: savedConversation.id,
+        latestUserMessage,
+        conversationSummary: "",
+      },
+      { savedConversation },
+    );
+
+    expect(prepared.rawMessages).toEqual([
+      { role: "user", content: latestUserMessage },
+      { role: "assistant", content: "好的，我已经处理了上一轮请求。" },
+      { role: "user", content: latestUserMessage },
+    ]);
+  });
+
+  it("does not duplicate latest user message when saved conversation already ends with the same user turn", () => {
+    const savedConversation = createChatConversation({
+      messages: [
+        { id: "m1", role: "user", content: "不要", createdAt: "2026-06-01T00:00:00.000Z" },
+      ],
+    });
+
+    const prepared = prepareChatRequest(
+      {
+        conversationId: savedConversation.id,
+        latestUserMessage: "不要",
+        conversationSummary: "",
+      },
+      { savedConversation },
+    );
+
+    expect(prepared.rawMessages).toEqual([
+      { role: "user", content: "不要" },
+    ]);
   });
 
   it("projects final_answer into content and done NDJSON with the controlled production registry", async () => {
@@ -671,9 +737,14 @@ describe("chat service agent text flow boundary", () => {
         expect.objectContaining({
           factRef: "fact-previous",
           proposalKind: "exercise_selection",
+          sectionSummary: { warmup: 0, training: 2, stretch: 0 },
+          reusableTrainingExerciseCount: 2,
         }),
       ],
     });
+    expect(JSON.stringify(planner.calls[0].run.metadata)).not.toContain("exerciseItems");
+    expect(JSON.stringify(planner.calls[0].run.metadata)).not.toContain("prescription");
+    expect(JSON.stringify(planner.calls[0].run.metadata)).not.toContain("imageUrl");
     expect(visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact).toHaveBeenCalledWith({
       userId: "user-1",
       conversationId: "conversation-refresh",
