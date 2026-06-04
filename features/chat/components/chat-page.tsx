@@ -618,6 +618,9 @@ export function ChatPage() {
                         <ChatMessageAvatar role={isUserMessage ? "user" : "assistant"} />
                       </div>
                       <div className="flex flex-1 flex-col gap-xs min-w-0">
+                        {message.role === "assistant" && (
+                          <AgentActivityIndicator activity={visibleAgentActivity} />
+                        )}
                         <div
                           className={`ai-chat-bubble min-w-0 rounded-2xl p-lg transition-shadow ${
                             isUserMessage
@@ -634,8 +637,6 @@ export function ChatPage() {
                             if (message.role === "assistant") {
                               return (
                                 <>
-                                  <AgentActivityIndicator activity={visibleAgentActivity} />
-
                                   {cleanContent ? (
                                     <div className="markdown-answer">
                                       <MarkdownContent content={cleanContent} />

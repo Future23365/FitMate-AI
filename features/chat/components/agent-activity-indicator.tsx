@@ -1,4 +1,3 @@
-import { SymbolIcon } from "@/components/app/symbol-icon";
 import { getAgentActivityDisplay } from "@/features/chat/lib/agent-activity";
 import type { AgentProgressPayload } from "@/features/chat/types";
 
@@ -20,7 +19,6 @@ export function AgentActivityIndicator({
       className={`agent-activity-indicator flex items-center gap-xs px-xs py-[2px] font-label-sm text-label-sm font-bold ${toneClass} motion-safe:animate-pulse motion-reduce:animate-none`}
       role="status"
     >
-      <SymbolIcon aria-hidden className="text-[16px]">{display.icon}</SymbolIcon>
       <span>{display.label}</span>
     </div>
   );

@@ -150,7 +150,7 @@ describe("AgentActivityIndicator", () => {
     expect(html).toContain("aria-live=\"polite\"");
     expect(html).toContain("role=\"status\"");
     expect(html).toContain("正在校验训练内容...");
-    expect(html).toContain("fact_check");
+    expect(html).not.toContain("fact_check");
     expect(html).toContain("motion-safe:animate-pulse");
     expect(html).toContain("motion-reduce:animate-none");
     expect(html).not.toContain("validateRoutineDraft");
@@ -173,7 +173,7 @@ describe("AgentActivityIndicator", () => {
 });
 
 describe("ChatPage activity placement", () => {
-  it("renders Agent activity at the top of the active answer bubble while keeping the thinking indicator", () => {
+  it("renders Agent activity above the active answer bubble while keeping the thinking indicator inside the bubble", () => {
     const source = readFileSync(
       fileURLToPath(new URL("../features/chat/components/chat-page.tsx", import.meta.url)),
       "utf8",
@@ -181,11 +181,13 @@ describe("ChatPage activity placement", () => {
     const inputShellIndex = source.indexOf("app-shell-glass-soft border-t border-line/60");
     const activityIndex = source.lastIndexOf("<AgentActivityIndicator", inputShellIndex);
     const assistantBranchIndex = source.lastIndexOf('message.role === "assistant"', activityIndex);
-    const thinkingIndex = source.indexOf("<ChatThinkingIndicator", activityIndex);
+    const bubbleIndex = source.indexOf("ai-chat-bubble", activityIndex);
+    const thinkingIndex = source.indexOf("<ChatThinkingIndicator", bubbleIndex);
     const inputShellSource = source.slice(inputShellIndex);
 
     expect(activityIndex).toBeGreaterThan(assistantBranchIndex);
-    expect(thinkingIndex).toBeGreaterThan(activityIndex);
+    expect(bubbleIndex).toBeGreaterThan(activityIndex);
+    expect(thinkingIndex).toBeGreaterThan(bubbleIndex);
     expect(inputShellSource).not.toContain("<AgentActivityIndicator");
   });
 });
