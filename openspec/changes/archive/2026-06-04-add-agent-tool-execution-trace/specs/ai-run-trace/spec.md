@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: 新 agent-core trace 必须记录 tool 执行事件
 系统 SHALL 为每一次通过 Runtime / Executor 执行的 Agent tool 记录通用 `tool_execution` trace event，作为模型决策、执行结果、资源登记和最终回答之间的可复盘证据。

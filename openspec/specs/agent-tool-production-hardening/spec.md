@@ -95,7 +95,13 @@ TBD - created by archiving change add-agent-tool-production-hardening-m2. Update
 - **AND** ask_user MAY 引用未满足或诊断性 tool result 用于解释阻断或追问
 
 ### Requirement: Planner 和 tool budget 必须限制运行成本
-系统 SHALL 在 Runtime 中执行 planner call、tool call、repair、token 或等价成本预算。预算耗尽后 Runtime MUST 结构化失败收口，并不得继续调用模型或 tool handler。
+系统 SHALL 在 Runtime 中执行 planner call、tool call、repair、token 或等价成本预算。预算耗尽后 Runtime MUST 结构化失败收口，并不得继续调用模型或 tool handler。Production `/api/chat` 的低风险只读 Agent 链路 MUST 支持多 tool 调用，不得将总 tool 调用预算固定为 1。
+
+#### Scenario: Production 文本聊天允许低风险多 tool 链路
+- **WHEN** production `/api/chat` 构造 Agent run limits
+- **THEN** `maxToolCalls` MUST 设置为 10
+- **AND** `maxPlannerCalls` 和 `maxSteps` MUST 与 10 次 tool 调用加一次 terminal action 的最坏路径匹配，不能低于完成该链路所需的 planner / step 上限
+- **AND** 该预算放宽 MUST 只改变总运行预算，不得绕过 Action Validator、Policy Guard、Resource Contract Validator、ResourceStore 或 Response Renderer
 
 #### Scenario: Planner call 预算耗尽
 - **WHEN** `LlmPlanner` 调用次数达到 run 配置的 planner budget
@@ -106,6 +112,12 @@ TBD - created by archiving change add-agent-tool-production-hardening-m2. Update
 - **WHEN** tool call 次数达到 run 配置的 tool budget
 - **THEN** Runtime MUST NOT 调用后续 tool handler
 - **AND** trace / replay 摘要 MUST 记录预算耗尽原因
+
+#### Scenario: 重复 tool 调用不能被预算放宽掩盖
+- **WHEN** Planner 在同一 run 中重复请求相同 toolName、相同 toolVersion 和相同归一化 input
+- **THEN** trace / replay MUST 能记录重复调用摘要
+- **AND** 系统 SHOULD 在结构化 observation、duplicate failure 或等价安全边界中提示 Planner 收口或调整输入
+- **AND** 系统 MUST NOT 通过提高 tool 预算把重复空转伪装成成功刷新
 
 ### Requirement: idempotencyKey 必须进入通用执行上下文
 系统 SHALL 为每次 tool execution 生成稳定 `idempotencyKey`，并把它注入 `ToolContext`。相同 pending action 或重复 confirmation resume MUST NOT 导致 fixture write tool 重复执行。
@@ -172,4 +184,85 @@ TBD - created by archiving change add-agent-tool-production-hardening-m2. Update
 - **WHEN** 扫描 `agent-core`、Runtime、Executor、Policy Guard、Action Validator、Response Renderer 和 `/api/chat`
 - **THEN** 代码中 MUST 不存在具体业务 toolName 分支
 - **AND** `/api/chat` MUST 不存在基于业务关键词的 tool 路由逻辑
+
+### Requirement: 事实查询 tool 可以将 0 条结果声明为满足的成功结果
+系统 SHALL 允许只读事实查询 tool 在查询执行成功且返回 0 条业务记录时声明 `fulfillment.satisfied = true`，前提是该结果表达的是已完成事实查询，而不是候选消费、写入或生成任务完成。
+
+#### Scenario: 0 条事实查询可以支撑 final_answer
+- **WHEN** Planner 返回 `final_answer`
+- **AND** `usedToolResultIds` 引用当前 run 中 `ok = true` 且 `fulfillment.satisfied = true` 的事实查询 tool result
+- **AND** 该 tool result 的业务摘要包含 `totalMatches = 0`
+- **THEN** Action Validator MUST 按通用 grounding 规则允许该引用
+- **AND** Runtime MUST NOT 因业务记录数量为 0 而将该 terminal action 改写成 `terminal_reference_invalid`
+
+#### Scenario: 通用 unsatisfied grounding 规则保持不变
+- **WHEN** Planner 返回 `final_answer`
+- **AND** `usedToolResultIds` 引用 failed、diagnostic 或 `fulfillment.satisfied = false` 的 tool result
+- **THEN** Action Validator MUST 继续将该 terminal action 判定为 `terminal_reference_invalid`
+- **AND** 本规则 MUST NOT 为单个业务 tool 增加 Action Validator 特判
+
+### Requirement: 候选消费不足不能伪装成事实查询成功
+系统 SHALL 保持事实查询成功与下游候选消费满足之间的边界。只读查询 tool 的 `satisfied = true` 只表示查询事实已完成，不表示训练生成、推荐候选或保存操作已满足。
+
+#### Scenario: 空查询结果不自动生成 consumable candidate resource
+- **WHEN** `searchExerciseResources` 或等价只读查询 tool 返回 `totalMatches = 0`
+- **THEN** Runtime MUST NOT 自动登记 `candidate_set`、routine、plan、patch、artifact revision 或等价可消费生成资源
+- **AND** 下游生成或保存 tool MUST 继续依赖自己的输入 schema、resource contract 和领域校验
+
+#### Scenario: 不在 core 内写业务 toolName 分支
+- **WHEN** Runtime、Action Validator、Executor、Policy Guard、ResourceStore、Resource Contract Validator 或 Response Renderer 处理 0 条事实查询 result
+- **THEN** 这些 core 模块 MUST NOT 新增基于 `searchExerciseResources` 或其他具体业务 `toolName` 的特判
+- **AND** 0 条事实查询的语义 MUST 由该 tool 的 output、fulfillment 和模型可见说明表达
+
+### Requirement: 模型可见 tool 合同必须区分 input 字段和 output-only 字段
+系统 SHALL 确保 production tool manifest、schema summary、examples 和 Planner observation 明确区分可传入 input 字段与 output-only 摘要字段，避免模型把服务端输出统计、截断状态或内部上限误当成下一轮 tool input。
+
+#### Scenario: output-only 字段不得出现在 input schema 或 examples
+- **WHEN** 系统构造 production tool manifest
+- **THEN** manifest 的 `inputJsonSchema` MUST 只包含该 tool 真实允许的 input 字段
+- **AND** manifest examples MUST NOT 把 output-only 字段放进 input 示例
+- **AND** manifest / schema summary MUST NOT 暗示 output-only 字段可以由 Planner 传入
+
+#### Scenario: observation 不暴露可复制的内部上限字段
+- **WHEN** tool result 被投影成 Planner 可见 observation
+- **THEN** observation MUST 使用安全投影或默认摘要
+- **AND** 服务端内部上限、分页控制或 output-only 统计字段 MUST 被移除，或被明确标注为 output summary
+- **AND** observation MUST NOT 包含可被模型直接复制成下一轮 input 的分页控制片段
+
+#### Scenario: 嵌套 observation 不得泄漏 output-only 字段
+- **WHEN** tool result observation 包含上游 query、历史 fact、摘要对象或嵌套 payload
+- **THEN** 嵌套对象中的 output-only 字段 MUST 同样被移除或明确标注为 output summary
+- **AND** `maxReturned`、`limit`、`take`、`offset`、`page`、`pageSize` MUST NOT 通过嵌套 `query` 或历史 fact 重新暴露成可复制 input
+- **AND** observation MUST 保留下一步决策需要的安全摘要，而不是回灌完整 handler output
+
+#### Scenario: 搜索动作资源工具不得开放分页控制 input
+- **WHEN** `searchExerciseResources` 或等价只读动作资源查询 tool 暴露给 production Planner
+- **THEN** 其模型可见 input 合同 MUST NOT 包含 `maxReturned`、`limit`、`take`、`offset`、`page` 或 `pageSize`
+- **AND** Action Validator MUST 继续拒绝这些未知或不允许字段
+- **AND** 服务端内部固定返回上限 MUST 只作为执行和输出摘要边界，不得变成 LLM 可控查询能力
+
+#### Scenario: 成功 tool result 的 final grounding 说明清晰
+- **WHEN** tool result 满足 `ok = true` 且 `fulfillment.satisfied = true`
+- **THEN** 模型可见合同 MUST 说明该结果可以通过 `final_answer.usedToolResultIds` 支撑成功回答
+- **AND** failed、diagnostic 或 `satisfied=false` 的结果 MUST 继续只能用于解释、澄清、阻断说明或 repair
+
+#### Scenario: 成功 tool result 的下一步状态迁移说明清晰
+- **WHEN** tool result 满足 `ok = true` 且 `fulfillment.satisfied = true`
+- **AND** 该 tool result 已为当前 run 提供后续可用事实、resource 或候选结果
+- **THEN** 模型可见 observation MUST 说明后续应基于既有 `toolResultId`、resource ref 或安全摘要继续决策
+- **AND** observation MUST NOT 暗示 Planner 需要再次用相同 input 调用同一 tool 才能取得同一事实
+
+### Requirement: Tool manifest 描述字段必须具备中文说明
+系统 SHALL 在 tool manifest hardening 或等价 registry manifest 测试中检查 Planner 可见描述性字段，防止英文说明作为默认 prompt 暴露给模型。
+
+#### Scenario: 序列化 Planner manifest
+- **WHEN** `ToolRegistry` 序列化可进入 Planner 的 tool manifest
+- **THEN** manifest 顶层 `description`、`whenToUse`、`whenNotToUse` 和 `examples.description` MUST 包含中文说明
+- **AND** input / output JSON Schema 中的 `description` MUST 包含中文说明
+- **AND** manifest linter 或回归测试 MUST 允许字段名、enum、resource type、toolName、schema id 和示例 input 中的结构化值保持英文
+
+#### Scenario: 描述字段缺少中文说明
+- **WHEN** tool manifest 的描述性字段完全没有中文说明
+- **THEN** manifest hardening MUST 报告不合格或相关 registry manifest 测试 MUST 失败
+- **AND** 不合格 manifest MUST NOT 被视为符合生产模型可见合同
 

@@ -88,3 +88,41 @@ TBD - created by archiving change add-agent-prompt-contract-governance-skill. Up
 - **AND** 如果修改 TypeScript、API、Schema、AI 编排或共享业务逻辑，`tasks.md` MUST 包含 `npm test` 或相关自动化测试，并按需包含 `npm run typecheck`
 - **AND** 如果无法运行某项验证，最终实现总结 MUST 说明原因和剩余风险
 
+### Requirement: 业务 tool 模型可见说明必须区分事实查询和候选消费
+系统 SHALL 要求修改业务 Agent tool 模型可见说明时，明确区分只读事实查询结果、失败或 diagnostic 结果，以及下游候选消费资源。
+
+#### Scenario: 0 条事实查询说明
+- **WHEN** 后续 change 修改 `searchExerciseResources` 或等价只读查询 tool 的 manifest、schema description、examples、observation 或 compressed tool result
+- **THEN** 模型可见说明 MUST 明确合法查询返回 `totalMatches = 0` 是事实结果，不是数据库失败
+- **AND** 模型可见说明 MUST 明确 `ok = true && fulfillment.satisfied = true` 的 0 条事实查询可以通过 `final_answer.usedToolResultIds` 支撑“没有找到”类普通文本回答
+- **AND** 模型可见说明 MUST 明确该结果不等于 routine、plan、训练卡片或候选消费资源
+
+#### Scenario: 不把业务语义分流写入服务端规则
+- **WHEN** 业务 tool 的模型可见说明需要解释存在性查询、可用性查询、推荐请求或空结果处理
+- **THEN** 实现 MUST NOT 新增服务端关键词、正则、同义词表、短句模板或基于用户原文的语义改写
+- **AND** 实现 MUST 将自然语言解释交给 Planner，并通过结构化 output、observation、repair feedback 或澄清边界提供事实依据
+- **AND** 通用 Agent prompt MUST NOT 新增单个业务 tool 的自然语言路由特例
+
+### Requirement: 0 条事实查询 observation 必须可用于 repair
+系统 SHALL 要求 0 条事实查询相关 observation 和 repair feedback 保留足够结构化信息，使模型能够从非法引用、重复调用或错误理解中恢复。
+
+#### Scenario: Repair 轮可见合法收口方式
+- **WHEN** Planner 因引用不可用 tool result、非法 input 或其他可恢复错误进入 repair
+- **AND** 当前 run 存在 `ok = true && fulfillment.satisfied = true && totalMatches = 0` 的事实查询结果
+- **THEN** repair / observation 内容 MUST 保留该 `toolResultId`、`totalMatches`、`returnedCount`、`appliedFilters` 和 grounding 说明
+- **AND** 模型可见内容 MUST 说明可以基于该事实输出合法 `final_answer`，但不能将空 `exercises` 当作候选消费资源
+
+### Requirement: 模型可见描述性 prompt 默认使用中文
+系统 SHALL 要求所有 Agent prompt、model input、tool manifest、schema summary、examples、repair feedback、context package、observations、compressed tool results、AgentAction 输出格式说明和 final grounding 说明中的描述性自然语言默认使用中文。
+
+#### Scenario: 审查模型可见描述字段
+- **WHEN** 后续 change 修改 Agent prompt、model input、tool manifest、schema summary、examples、repair feedback、context package、observations 或 compressed tool results
+- **THEN** 实现前 MUST 检查模型实际可见的描述性自然语言是否默认使用中文
+- **AND** `toolName`、字段名、enum、action type、resource type、schema id、命令、路径和代码标识符 MUST 保持英文原样
+- **AND** 如果必须保留英文原文，说明中 MUST 同时提供中文解释，且不得改变结构化合同含义
+
+#### Scenario: 新增或修改业务 tool 模型可见说明
+- **WHEN** 后续 change 新增或修改业务 Agent tool 的 `description`、`whenToUse`、`whenNotToUse`、schema description 或 examples
+- **THEN** 这些描述性字段 MUST 使用中文说明业务能力边界、使用条件、禁止条件、成功结果、失败含义和 final answer 引用方式
+- **AND** 技术标识、字段名和枚举值 MUST 保持原始英文值
+
