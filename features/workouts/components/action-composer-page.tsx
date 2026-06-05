@@ -15,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
 import { createExercisePreviewFromListItem } from "@/features/exercises/lib/exercise-preview-fallback";
 import {
@@ -1372,9 +1373,14 @@ export function ActionComposerPage() {
                 onScroll={handleLibraryScroll}
               >
                 {isLoadingLibrary ? (
-                  <p className="rounded-xl bg-surface-container-low p-md text-center font-label-md text-label-md text-on-surface-variant">
-                    正在加载动作库...
-                  </p>
+                  <div className="flex min-h-[160px] items-center justify-center rounded-xl border border-dashed border-line bg-surface-container-lowest p-md">
+                    <Spinner
+                      className="font-label-md text-label-md font-semibold text-on-surface-variant"
+                      label="正在加载动作库..."
+                      showLabel
+                      size="md"
+                    />
+                  </div>
                 ) : !libraryItems.length ? (
                   <div className="rounded-xl border border-dashed border-outline-variant bg-surface-container-lowest p-md text-center">
                     <SymbolIcon className="mb-xs text-3xl text-outline">search_off</SymbolIcon>
@@ -1449,17 +1455,25 @@ export function ActionComposerPage() {
                       );
                     })}
                     {libraryHasNextPage ? (
-                      <button
-                        className="flex w-full items-center justify-center gap-xs rounded-xl border border-dashed border-outline-variant bg-white px-md py-sm font-label-md text-label-md font-bold text-primary transition-colors hover:bg-primary/5 disabled:cursor-wait disabled:text-outline"
-                        disabled={isLoadingMoreLibrary}
-                        onClick={loadMoreLibraryExercises}
-                        type="button"
-                      >
-                        <SymbolIcon className="text-[18px]">
-                          {isLoadingMoreLibrary ? "progress_activity" : "expand_more"}
-                        </SymbolIcon>
-                        {isLoadingMoreLibrary ? "正在加载更多动作..." : "加载更多动作"}
-                      </button>
+                      isLoadingMoreLibrary ? (
+                        <div className="flex min-h-10 w-full items-center justify-center rounded-xl border border-dashed border-line bg-surface-container-lowest px-md py-sm">
+                          <Spinner
+                            className="font-label-md text-label-md font-semibold text-on-surface-variant"
+                            label="正在加载更多动作..."
+                            showLabel
+                            size="sm"
+                          />
+                        </div>
+                      ) : (
+                        <button
+                          className="flex w-full items-center justify-center gap-xs rounded-xl border border-dashed border-outline-variant bg-surface-container-lowest px-md py-sm font-label-md text-label-md font-bold text-primary transition-colors hover:bg-primary/5"
+                          onClick={loadMoreLibraryExercises}
+                          type="button"
+                        >
+                          <SymbolIcon className="text-[18px]">expand_more</SymbolIcon>
+                          加载更多动作
+                        </button>
+                      )
                     ) : (
                       <p className="rounded-xl bg-surface-container-low px-md py-xs text-center text-[11px] text-outline">
                         已显示全部 {libraryItems.length} 个动作
