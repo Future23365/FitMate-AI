@@ -39,7 +39,6 @@ function oldRuntimeTerms() {
     "Context" + "Package",
     "create" + "Tool" + "First" + "Agent" + "Tool" + "Registry",
     "project" + "Agent" + "Execution" + "Result" + "To" + "Response",
-    "manual-tests" + "/llm",
     "run-manual" + "-llm-tests",
     "run-manual" + "-agent-tool-tests",
     "@/lib/server/" + "agent" + "-orchestrator",

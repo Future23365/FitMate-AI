@@ -68,7 +68,7 @@ DEEPSEEK_API_URL=
 - 数据库中的 `Exercise.images` / `Exercise.imageUrls` 保留原始来源语义，服务端会在动作库、推荐卡和训练执行读取链路中统一派生当前可展示 URL。
 - 本地动作图片默认交给 Next image optimizer 做尺寸和格式优化；列表和小卡片应继续使用 `next/image` 的 `sizes` 约束，不直接请求原始大图。
 
-`DEEPSEEK_API_KEY`、`DEEPSEEK_MODEL` 和 `DEEPSEEK_API_URL` 用于新的 `agent-planners` DeepSeek adapter、生产 `/api/chat` 文本聊天和可选黑盒测试；缺少 `DEEPSEEK_API_KEY` 时生产聊天会返回稳定的 `chat_ai_not_configured` 配置错误。
+`DEEPSEEK_API_KEY`、`DEEPSEEK_MODEL` 和 `DEEPSEEK_API_URL` 用于新的 `agent-planners` DeepSeek adapter、生产 `/api/chat` 文本聊天和手动 LLM 黑盒测试；缺少 `DEEPSEEK_API_KEY` 时生产聊天会返回稳定的 `chat_ai_not_configured` 配置错误。
 
 启动本地 PostgreSQL：
 
@@ -101,6 +101,7 @@ npm run dev
 
 ```bash
 npm test
+npm run test:llm:basic -- --help
 npm run typecheck
 npm run lint
 npm run build
@@ -112,9 +113,10 @@ docker compose down
 
 测试与验证命令：
 
-- `npm test`：运行 Vitest 自动化测试，覆盖共享领域逻辑、服务边界、API Route 边界和前端请求转换。
-- `npm test -- tests/agent-core`：运行新的 Agent Tool core / fixture / hardening 测试；真实 DeepSeek 黑盒需同时配置 `DEEPSEEK_API_KEY` 并显式设置 `RUN_DEEPSEEK_BLACKBOX=1`。
+- `npm test`：运行 Vitest 自动化测试，覆盖共享领域逻辑、服务边界、API Route 边界和前端请求转换；该命令永远不触发真实模型 API，不消费模型 token。
+- `npm test -- tests/agent-core`：运行新的 Agent Tool core / fixture / hardening 测试；该命令同样不触发真实模型 API。
 - `npm test -- tests/agent-core/architecture-boundary.test.ts tests/agent-core/contract-helper.test.ts tests/agent-core/tool-governance-regression.test.ts`：运行 Agent tool governance 架构扫描、contract helper 和关键安全回归。
+- `npm run test:llm:basic`：手动运行基础首页聊天 LLM 黑盒测试，会真实调用模型并消费 token。支持 `--flow F01`、`--flow F01,F02` 和 `--report <path>`；详细说明见 [docs/manual-llm-basic-blackbox-tests.md](./docs/manual-llm-basic-blackbox-tests.md)。
 - `npm run typecheck`：运行 TypeScript 静态类型检查。
 - `npm run lint`：运行 ESLint 源码质量检查。
 - `npm run build`：验证 Next.js 构建、路由和服务端/客户端模块边界。
