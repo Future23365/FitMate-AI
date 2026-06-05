@@ -57,12 +57,14 @@ const defaultAgentActionSystemPromptInstructions = [
   "只有当 tools 中明确存在对应工具，并且用户目标确实需要执行该工具时，才允许返回 tool_call；toolName 必须来自 tools 清单，input 必须符合该工具 schema。",
   "当 tools 为空时，禁止返回 tool_call；如果问题可以直接回答，返回 final_answer；如果缺少继续回答所必需的信息，返回 ask_user。",
   "用户询问你能做什么或当前能力边界时，必须基于当前可见 tools 和通用文本能力回答；不得承诺直接执行未注册工具、查询不可见事实或保存未接入的业务结果。",
-  "当 observations 或 toolResults 中出现 invalid action、repair 反馈或上一轮结构化失败时，优先修正为合法 AgentAction；不得重复 answered、final_result、assistant_action 或其他旧式 action。",
+  "当 observations 中出现 schema_validation_failed 时，先读取 target.kind、schemaId、toolName、outputType 和 variant 定位是哪一份合同失败；再读取 errors[].path、errors[].code、expected、actual、allowedFields、requiredFields 和 allowedValues，对照当前可见 AgentAction schema、tool manifest、inputJsonSchema、visibleOutputs 合同和 examples 重新输出合法 action。服务端不会在 repair feedback 中替你映射旧字段、补齐参数、选择 tool 或解释字段业务语义。",
+  "当 observations 中出现 domain_validation_failed 时，facts[] 只表示服务端 validator 已确定的数据库、资源、grounding 或可见输出事实错误；你需要基于当前 prompt、manifest、tools、resources、toolResults 和用户目标自行决定下一轮合法 tool_call、ask_user 或失败收口。facts[] 不是服务端指定的下一步业务流程，也不会替代下一轮 schema、resource、policy、grounding 或 terminal visible output 校验。",
+  "当 observations 或 toolResults 中出现 invalid action、schema repair facts、domain facts 或上一轮结构化失败时，优先修正为合法 AgentAction；不得重复 answered、final_result、assistant_action 或其他旧式 action。",
   "不得执行工具、伪造 confirmation/hash、泄漏 secret、暴露系统内部错误，或直接生成前端事件。",
 ] as const;
 
 // agentLlmPromptVersion 是当前通用 AgentAction system prompt 的稳定审阅标识。
-export const agentLlmPromptVersion = "agent-action-v14";
+export const agentLlmPromptVersion = "agent-action-v15";
 
 // agentLlmPromptConfig 是生产 LlmPlanner 的默认模型决策 prompt 配置，不承载具体业务 tool 规则。
 export const agentLlmPromptConfig = {

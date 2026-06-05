@@ -1,5 +1,6 @@
 import {
   parseAgentAction,
+  AgentActionSchema,
   type AgentResourceRef,
   type AgentAction,
   type AgentRunInput,
@@ -14,6 +15,7 @@ import { assertM0ExecutableTool } from "./define-tool";
 import { AGENT_ERROR_CODES, AgentContractError } from "./errors";
 import { validateConsumedResources } from "./resource-contract";
 import type { ResourceStore } from "./resource-store";
+import { projectSchemaValidationFeedback, type SchemaRepairTarget } from "./schema-error-projector";
 import type { TerminalOutputValidatorRegistry } from "./terminal-output-validator";
 import type { ToolRegistry } from "./tool-registry";
 import type { ToolError } from "./contracts";
@@ -132,7 +134,16 @@ function validateToolCallAction(action: ToolCallAction, input: ActionValidationI
       error: createToolError(
         AGENT_ERROR_CODES.INVALID_TOOL_INPUT,
         `Tool "${action.toolName}" input does not match its schema.`,
-        createInvalidToolInputDetails(inputResult.error),
+        projectSchemaValidationFeedback({
+          target: {
+            kind: "ToolInput",
+            schemaId: `${tool.name}@${tool.version}.input`,
+            toolName: action.toolName,
+          },
+          schema: tool.inputSchema,
+          issues: inputResult.error.issues,
+          value: action.input,
+        }),
       ),
     };
   }
@@ -314,15 +325,26 @@ function hasTerminalGrounding(action: Extract<TerminalAgentAction, { type: "fina
 
 function createMissingTerminalGroundingDetails(toolResultCount: number): ToolError["details"] {
   return {
-    reason: "missing_terminal_grounding_after_tool_result",
-    toolResultCount,
-    repair: "当前 run 已经有 tool result 后，成功 final_answer 必须通过 usedRefs 或合法 visibleOutputs[] 连接到当前 run 的已满足事实；如果事实不足，应继续返回合法 tool_call、使用 ask_user 澄清，或明确失败收口，不要用 final_answer.content 承诺本轮之后还会自动继续。",
-    recoverableActions: [
-      "继续返回当前可见且合法的 tool_call 获取缺失事实。",
-      "用 usedRefs: [{ type: \"tool_result\", id: \"...\" }] 引用当前 run 中 ok=true 且 fulfillment.satisfied=true 的 tool result。",
-      "用 usedRefs: [{ type: \"resource\", id: \"...\", resourceType: \"...\" }] 引用当前 run 中 role=consumable 的 resource。",
-      "输出可通过 terminal output validator 的 final_answer.visibleOutputs[]。",
-      "使用 ask_user 澄清必要信息，或明确说明当前事实不足而失败收口。",
+    type: "domain_validation_failed",
+    target: {
+      kind: "DomainValidation",
+      schemaId: "AgentAction",
+      variant: "final_answer",
+    },
+    facts: [
+      {
+        code: "missing_terminal_grounding_after_tool_result",
+        path: "usedRefs",
+        expected: {
+          anyOf: [
+            "satisfied_tool_result_ref",
+            "consumable_resource_ref",
+            "valid_visibleOutputs",
+          ],
+        },
+        actual: { kind: "missing" },
+        toolResultCount,
+      },
     ],
   };
 }
@@ -365,33 +387,12 @@ function createInvalidActionDetails(
   error: { issues: Array<{ path: PropertyKey[]; message: string }> },
   action: unknown,
 ): ToolError["details"] {
-  const issues = error.issues.map((issue) => ({
-    path: issue.path.join("."),
-    message: issue.message,
-  }));
-  const oldFieldIssues = collectOldTerminalFieldIssues(action);
-  for (const issue of oldFieldIssues) {
-    if (!issues.some((current) => current.path === issue.path)) {
-      issues.push(issue);
-    }
-  }
-
-  const oldFieldRepair = createOldTerminalFieldRepair(action);
-  if (oldFieldRepair) {
-    return {
-      issues,
-      repair: oldFieldRepair,
-    };
-  }
-
-  if (hasNumericVisibleOutputSchemaVersionIssue(error)) {
-    return {
-      issues,
-      repair: "将 final_answer.visibleOutputs[].schemaVersion 改为字符串；具体版本值按 outputType 的模型可见合同和业务 validator 支持版本填写，不要输出数字，也不要让服务端替你转换。",
-    };
-  }
-
-  return { issues };
+  return projectSchemaValidationFeedback({
+    target: createInvalidActionTarget(error, action),
+    schema: AgentActionSchema,
+    issues: error.issues,
+    value: action,
+  });
 }
 
 function hasNumericVisibleOutputSchemaVersionIssue(error: { issues: Array<{ path: PropertyKey[]; message: string }> }) {
@@ -401,34 +402,6 @@ function hasNumericVisibleOutputSchemaVersionIssue(error: { issues: Array<{ path
       && path[path.length - 1] === "schemaVersion"
       && issue.message.includes("expected string");
   });
-}
-
-function createInvalidToolInputDetails(error: { issues: unknown[] }): ToolError["details"] {
-  const issues = flattenSchemaIssues(error.issues)
-    .map((issue) => ({
-      path: issue.path.length > 0 ? issue.path.join(".") : "$",
-      message: issue.message,
-    }))
-    .filter(dedupeIssue)
-    .slice(0, 8);
-
-  return {
-    issues,
-    repair: createToolInputRepairMessage(issues.map((issue) => issue.path)),
-  };
-}
-
-function createToolInputRepairMessage(paths: string[]) {
-  const pathSet = new Set(paths);
-  if (pathSet.has("factRef") || pathSet.has("messageId") || pathSet.has("ref")) {
-    return "读取引用类 tool input 统一使用 ref: { type: \"fact_ref\" | \"message_id\", value: \"...\" }；旧顶层 factRef/messageId 不可用，ref.value 必须从当前 run 可见的结构化索引、list_recent result、diagnostic index resource 或受控 metadata 中复制真实引用值，不要让服务端替你转换旧顶层字段。";
-  }
-
-  if (pathSet.has("muscle") || pathSet.has("muscles")) {
-    return "肌群筛选类 tool input 统一使用 muscles 数组；单个肌群也写成 muscles: [\"...\"]，不要使用旧 muscle 字段，也不要让服务端替你转换。";
-  }
-
-  return "按当前 tool inputJsonSchema 修正 required 字段、字段类型、枚举值和 additionalProperties；只能使用当前 run 可见的结构化事实，不要让服务端替你转换。";
 }
 
 function collectTerminalToolResultIds(action: TerminalAgentAction) {
@@ -450,79 +423,36 @@ function collectTerminalResourceRefs(action: TerminalAgentAction): AgentResource
     }));
 }
 
-function collectOldTerminalFieldIssues(action: unknown): Array<{ path: string; message: string }> {
-  if (!isRecord(action)) {
-    return [];
-  }
-
-  const issues: Array<{ path: string; message: string }> = [];
-  for (const field of ["question", "message", "usedToolResultIds", "usedResourceRefs"]) {
-    if (field in action) {
-      issues.push({
-        path: field,
-        message: `字段 ${field} 不属于当前 AgentAction 统一字段合同。`,
-      });
-    }
-  }
-
-  return issues;
-}
-
-function createOldTerminalFieldRepair(action: unknown) {
-  if (!isRecord(action)) {
-    return undefined;
-  }
-
-  const repairs: string[] = [];
-  if ("question" in action || "message" in action) {
-    repairs.push("ask_user 和 final_answer 的用户可见文本都必须写入 content；语义差异由 type 表达，不要再输出 question 或 message。");
-  }
-  if ("usedToolResultIds" in action || "usedResourceRefs" in action) {
-    repairs.push("terminal grounding 统一使用 usedRefs；tool result 写成 { type: \"tool_result\", id: \"...\" }，resource 写成 { type: \"resource\", id: \"...\", resourceType: \"...\" }，不要再输出 usedToolResultIds 或 usedResourceRefs。");
-  }
-
-  return repairs.length > 0 ? repairs.join(" ") : undefined;
-}
-
-type SanitizedSchemaIssue = {
-  path: string[];
-  message: string;
-};
-
-function flattenSchemaIssues(issues: unknown[]): SanitizedSchemaIssue[] {
-  const flattened: SanitizedSchemaIssue[] = [];
-
-  for (const issue of issues) {
-    if (!isIssueLike(issue)) {
-      continue;
-    }
-
-    if (Array.isArray(issue.errors)) {
-      for (const branchIssues of issue.errors) {
-        if (Array.isArray(branchIssues)) {
-          flattened.push(...flattenSchemaIssues(branchIssues));
-        }
-      }
-      continue;
-    }
-
-    flattened.push({
-      path: Array.isArray(issue.path) ? issue.path.map(String) : [],
-      message: typeof issue.message === "string" ? issue.message.slice(0, 240) : "输入字段不符合 schema。",
-    });
-  }
-
-  return flattened;
-}
-
-function isIssueLike(value: unknown): value is { path?: unknown; message?: unknown; errors?: unknown } {
-  return Boolean(value && typeof value === "object");
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
-function dedupeIssue(issue: { path: string; message: string }, index: number, issues: Array<{ path: string; message: string }>) {
-  return issues.findIndex((candidate) => candidate.path === issue.path && candidate.message === issue.message) === index;
+function createInvalidActionTarget(
+  error: { issues: Array<{ path: PropertyKey[]; message: string }> },
+  action: unknown,
+): SchemaRepairTarget {
+  if (error.issues.length > 0 && error.issues.every((issue) => issue.path[0] === "visibleOutputs")) {
+    const output = readFirstVisibleOutput(action);
+    return {
+      kind: "VisibleOutputEnvelope",
+      schemaId: "VisibleOutputEnvelope",
+      outputType: typeof output?.outputType === "string" ? output.outputType : undefined,
+      variant: typeof output?.schemaVersion === "string" ? output.schemaVersion : undefined,
+    };
+  }
+
+  return {
+    kind: "AgentAction",
+    schemaId: "AgentAction",
+    ...(isRecord(action) && typeof action.type === "string" ? { variant: action.type } : {}),
+  };
+}
+
+function readFirstVisibleOutput(action: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(action) || !Array.isArray(action.visibleOutputs)) {
+    return undefined;
+  }
+
+  const [first] = action.visibleOutputs;
+  return isRecord(first) ? first : undefined;
 }

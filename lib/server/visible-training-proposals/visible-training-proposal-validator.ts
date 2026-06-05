@@ -99,7 +99,6 @@ export async function validateVisibleTrainingProposalOutput(
           hasSchedule: Boolean(parsed.data.schedule),
         }),
         currentVisibleCoverage: summarizeCurrentVisibleTrainingCoverage(context),
-        recoveryDirections: createCoverageRecoveryDirections(),
       },
     };
   }
@@ -155,7 +154,6 @@ function createRoutinePlanCoverageFailure(
       availableSections: outputCoverage.availableSections,
       missingSectionsForRoutineOrPlan: outputCoverage.missingSectionsForRoutineOrPlan,
       currentVisibleCoverage: summarizeCurrentVisibleTrainingCoverage(context),
-      recoveryDirections: createCoverageRecoveryDirections(),
     },
   };
 }
@@ -240,17 +238,6 @@ function readExerciseSections(value: JsonValue | undefined): Array<Pick<VisibleT
   return sections;
 }
 
-function createCoverageRecoveryDirections(): JsonValue {
-  return [
-    "继续获取缺失 section 的可消费动作事实。",
-    "如要输出 routine 或 plan，先让当前 run 具备 warmup、training、stretch 三类可消费动作事实。",
-    "不要再次提交缺少 warmup、training 或 stretch 的 routine / plan visibleOutputs。",
-    "输出当前事实可支撑的结构。",
-    "向用户澄清缺失条件或可放宽边界。",
-    "在事实不足时失败收口，不保存或渲染不可验证方案。",
-  ];
-}
-
 function validateCurrentRunExerciseSources(
   exerciseItems: readonly Pick<VisibleTrainingExerciseItem, "exerciseId" | "section" | "order">[],
   context: TerminalOutputValidationContext,
@@ -276,7 +263,6 @@ function validateCurrentRunExerciseSources(
       currentRunSourceSummary: {
         sourceCount: sources.size,
       },
-      recoveryDirections: createCurrentRunSourceRecoveryDirections(),
     },
   };
 }
@@ -347,15 +333,6 @@ function collectSourcesFromExerciseItems(value: JsonValue | undefined, sources: 
 
 function createExerciseSourceKey(item: Pick<VisibleTrainingExerciseItem, "exerciseId" | "section">) {
   return `${item.section}:${item.exerciseId}`;
-}
-
-function createCurrentRunSourceRecoveryDirections(): JsonValue {
-  return [
-    "继续查询当前目标所需的发布态动作事实，并使用 satisfied tool result 中的 exerciseId 和 section。",
-    "如需复用上一轮用户可见训练方案，先导入对应 consumable resource。",
-    "不要从数据库记忆、metadata-only summary、unsatisfied tool result 或正文中直接复制动作到 visibleOutputs。",
-    "当前事实不足时使用 ask_user 澄清，或不输出 visibleOutputs 并失败收口。",
-  ];
 }
 
 function isRecord(value: JsonValue | undefined): value is Record<string, JsonValue> {

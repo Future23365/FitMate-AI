@@ -1300,28 +1300,31 @@ describe("chat service agent text flow boundary", () => {
         code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID,
         details: {
           index: 0,
-          outputType: "visibleTrainingProposal",
-          schemaVersion: "1",
-          details: {
-            code: "section_not_allowed",
-            path: "payload.exerciseItems[0].section",
-            exerciseId: "Pushups",
-            section: "warmup",
-            allowedSections: ["training"],
-            currentVisibleCoverage: expect.objectContaining({
-              availableSections: ["training"],
-              missingSectionsForRoutineOrPlan: ["warmup", "stretch"],
-            }),
-            recoveryDirections: expect.arrayContaining([
-              "继续获取缺失 section 的可消费动作事实。",
-              "不要再次提交缺少 warmup、training 或 stretch 的 routine / plan visibleOutputs。",
-              "输出当前事实可支撑的结构。",
-            ]),
+          type: "domain_validation_failed",
+          target: {
+            kind: "DomainValidation",
+            schemaId: "visibleTrainingProposal@1",
+            outputType: "visibleTrainingProposal",
+            variant: "1",
           },
+          facts: expect.arrayContaining([
+            expect.objectContaining({
+              code: "section_not_allowed",
+              path: "payload.exerciseItems[0].section",
+              exerciseId: "Pushups",
+              section: "warmup",
+              allowedSections: ["training"],
+              currentVisibleCoverage: expect.objectContaining({
+                availableSections: ["training"],
+                missingSectionsForRoutineOrPlan: ["warmup", "stretch"],
+              }),
+            }),
+          ]),
         },
       },
     });
     expect(repairObservationJson).not.toContain("必须调用 searchExerciseResources");
+    expect(repairObservationJson).not.toContain("recoveryDirections");
     expect(repairObservationJson).not.toContain("stack");
     expect(events).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: "tool_result", toolName: "searchExerciseResources" }),
@@ -1425,12 +1428,18 @@ describe("chat service agent text flow boundary", () => {
       content: expect.objectContaining({
         code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID,
         details: expect.objectContaining({
-          reason: "missing_terminal_grounding_after_tool_result",
-          recoverableActions: expect.arrayContaining([
-            expect.stringContaining("tool_call"),
-            expect.stringContaining("usedRefs"),
-            expect.stringContaining("visibleOutputs[]"),
-            expect.stringContaining("ask_user"),
+          type: "domain_validation_failed",
+          target: expect.objectContaining({
+            kind: "DomainValidation",
+            schemaId: "AgentAction",
+            variant: "final_answer",
+          }),
+          facts: expect.arrayContaining([
+            expect.objectContaining({
+              code: "missing_terminal_grounding_after_tool_result",
+              path: "usedRefs",
+              toolResultCount: 1,
+            }),
           ]),
         }),
       }),
@@ -2881,8 +2890,9 @@ describe("chat service agent text flow boundary", () => {
     expect(repairObservationJson).toContain("section_coverage_missing");
     expect(repairObservationJson).toContain("missingSectionsForRoutineOrPlan");
     expect(repairObservationJson).toContain("currentVisibleCoverage");
-    expect(repairObservationJson).toContain("继续获取缺失 section");
-    expect(repairObservationJson).toContain("不要再次提交缺少 warmup、training 或 stretch 的 routine / plan visibleOutputs");
+    expect(repairObservationJson).not.toContain("recoveryDirections");
+    expect(repairObservationJson).not.toContain("继续获取缺失 section");
+    expect(repairObservationJson).not.toContain("不要再次提交缺少 warmup、training 或 stretch 的 routine / plan visibleOutputs");
     expect(repairObservationJson).not.toContain("必须调用 searchExerciseResources");
     expect(trace).toMatchObject({
       status: "failed",
@@ -2994,10 +3004,10 @@ describe("chat service agent text flow boundary", () => {
       { type: "done" },
     ]);
     expect(visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact).not.toHaveBeenCalled();
-    expect(repairContext).toContain("factRef");
-    expect(repairContext).toContain("messageId");
-    expect(repairContext).toContain("真实引用");
-    expect(repairContext).toContain("list_recent");
+    expect(repairContext).toContain("schema_validation_failed");
+    expect(repairContext).toContain("invalid_literal");
+    expect(repairContext).toContain("required_field_missing");
+    expect(repairContext).toContain("ref");
     expect(repairContext).not.toContain("payload");
     expect(serializedTrace).toContain(AGENT_ERROR_CODES.INVALID_TOOL_INPUT);
     expect(serializedTrace).not.toContain("handler_error");

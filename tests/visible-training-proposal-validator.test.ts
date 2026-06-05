@@ -27,11 +27,20 @@ describe("visible training proposal validator", () => {
         missingExerciseItems: [
           { exerciseId: "push-up", section: "training", order: 1 },
         ],
-        recoveryDirections: expect.arrayContaining([
-          "继续查询当前目标所需的发布态动作事实，并使用 satisfied tool result 中的 exerciseId 和 section。",
-        ]),
+        currentRunSourceSummary: { sourceCount: 0 },
       },
     });
+    const result = await validateVisibleTrainingProposalOutput(
+      createEnvelope({
+        kind: "exercise_selection",
+        exerciseItems: [
+          { exerciseId: "push-up", section: "training", order: 1 },
+        ],
+      }),
+      createContext(),
+      { loadExerciseRecordsByIds: createExerciseFactLoader() },
+    );
+    expectNoRecoverySuggestionFields(result);
   });
 
   it("accepts exercise_selection when exercise facts come from a satisfied current-run search result", async () => {
@@ -292,12 +301,6 @@ describe("visible training proposal validator", () => {
           missingSectionsForRoutineOrPlan: ["warmup", "stretch"],
           supportsOutputKinds: ["exercise_selection"],
         },
-        recoveryDirections: expect.arrayContaining([
-          "继续获取缺失 section 的可消费动作事实。",
-          "如要输出 routine 或 plan，先让当前 run 具备 warmup、training、stretch 三类可消费动作事实。",
-          "不要再次提交缺少 warmup、training 或 stretch 的 routine / plan visibleOutputs。",
-          "输出当前事实可支撑的结构。",
-        ]),
       },
     });
   });
@@ -322,11 +325,24 @@ describe("visible training proposal validator", () => {
       details: {
         code: "section_coverage_missing",
         missingSectionsForRoutineOrPlan: ["warmup", "stretch"],
-        recoveryDirections: expect.arrayContaining([
-          "不要再次提交缺少 warmup、training 或 stretch 的 routine / plan visibleOutputs。",
-        ]),
       },
     });
+    const result = await validateVisibleTrainingProposalOutput(
+      createEnvelope({
+        kind: "routine",
+        exerciseItems: [
+          { exerciseId: "push-up", section: "training", order: 1, prescription: createPrescription("reps", 12) },
+        ],
+      }),
+      createContext({
+        action: {
+          type: "final_answer",
+          content: "热身可以慢跑 5 分钟，结束后做胸部拉伸。",
+        },
+      }),
+      { loadExerciseRecordsByIds: createExerciseFactLoader() },
+    );
+    expectNoRecoverySuggestionFields(result);
   });
 
   it("accepts routine payloads when warmup training and stretch facts are structurally present", async () => {
@@ -467,6 +483,16 @@ function createEnvelope(payload: unknown): VisibleOutputEnvelope {
     schemaVersion: "1",
     payload: JSON.parse(JSON.stringify(payload)),
   };
+}
+
+function expectNoRecoverySuggestionFields(value: unknown) {
+  const serialized = JSON.stringify(value);
+  expect(serialized).not.toContain("repair");
+  expect(serialized).not.toContain("recoveryDirections");
+  expect(serialized).not.toContain("recoverableActions");
+  expect(serialized).not.toContain("nextToolName");
+  expect(serialized).not.toContain("继续获取缺失 section");
+  expect(serialized).not.toContain("不要再次提交缺少 warmup、training 或 stretch 的 routine / plan visibleOutputs");
 }
 
 function createContext(overrides: Record<string, unknown> = {}) {

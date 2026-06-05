@@ -76,11 +76,6 @@ export function createDuplicateSuccessToolCallObservation(input: {
         previousToolResultId: input.previousToolResultId,
         repeatCount: input.repeatCount,
         producedResources: input.producedResources,
-        recoverableActions: [
-          "基于 previousToolResultId 输出合法 final_answer 或 ask_user。",
-          "调用其他当前可见且合法的 tool。",
-          "如果确实需要新事实，提交改变后的合法 tool input。",
-        ],
       },
     }),
   };

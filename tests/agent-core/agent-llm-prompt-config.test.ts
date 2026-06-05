@@ -13,7 +13,7 @@ describe("agent LLM prompt configuration", () => {
     const systemPrompt = buildAgentActionSystemPrompt();
 
     expect(agentLlmPromptConfig.promptVersion).toBe(agentLlmPromptVersion);
-    expect(agentLlmPromptVersion).toBe("agent-action-v14");
+    expect(agentLlmPromptVersion).toBe("agent-action-v15");
     expect(systemPrompt).toContain("只能返回一个合法 JSON object");
     expect(systemPrompt).toContain("type 只能是 tool_call、final_answer、ask_user 三者之一");
     expect(systemPrompt).toContain("{\"type\":\"tool_call\",\"toolName\":\"...\",\"input\":{}}");
@@ -206,6 +206,14 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).toContain("当 tools 为空时，禁止返回 tool_call");
     expect(systemPrompt).toContain("用户询问你能做什么或当前能力边界时");
     expect(systemPrompt).toContain("不得承诺直接执行未注册工具");
+    expect(systemPrompt).toContain("当 observations 中出现 schema_validation_failed");
+    expect(systemPrompt).toContain("target.kind、schemaId、toolName、outputType 和 variant");
+    expect(systemPrompt).toContain("errors[].path、errors[].code、expected、actual、allowedFields、requiredFields 和 allowedValues");
+    expect(systemPrompt).toContain("服务端不会在 repair feedback 中替你映射旧字段、补齐参数、选择 tool 或解释字段业务语义");
+    expect(systemPrompt).toContain("当 observations 中出现 domain_validation_failed");
+    expect(systemPrompt).toContain("facts[] 只表示服务端 validator 已确定的数据库、资源、grounding 或可见输出事实错误");
+    expect(systemPrompt).toContain("facts[] 不是服务端指定的下一步业务流程");
+    expect(systemPrompt).toContain("不会替代下一轮 schema、resource、policy、grounding 或 terminal visible output 校验");
     expect(systemPrompt).toContain("不得重复 answered、final_result、assistant_action");
     expect(systemPrompt).toContain("不得执行工具、伪造 confirmation/hash、泄漏 secret");
     expect(systemPrompt).not.toContain("searchExercises");
@@ -237,6 +245,6 @@ describe("agent LLM prompt configuration", () => {
       "返回测试专用 AgentAction JSON object。 这个测试只期望 final_answer。",
     );
     expect(buildAgentActionSystemPrompt()).toContain("tool_call、final_answer、ask_user");
-    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v14");
+    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v15");
   });
 });
