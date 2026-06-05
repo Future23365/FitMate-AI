@@ -142,6 +142,9 @@ describe("searchExerciseResources tool", () => {
     expect(serializedObservation).not.toContain("\"id\"");
     expect(serializedObservation).not.toContain("visibleTrainingProposal\":{\"");
     expect(serializedObservation).toContain("groups.<section>.exercises[*].exerciseId 可作为 visibleTrainingProposal.exerciseItems[*].exerciseId 的事实来源");
+    expect(serializedObservation).toContain("本次动作查询不证明当前 run 存在可操作的上一轮 visibleTrainingProposal");
+    expect(serializedObservation).toContain("也不证明已经完成刷新、替换或调整");
+    expect(serializedObservation).toContain("引用对象不可见时，不得用本查询结果宣称刷新、替换或调整成功");
     expect(serializedObservation).toContain("prescription、schedule 和最终 payload.kind");
     expect(serializedObservation).toContain("最终事实必须写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal.payload");
     expect(serializedObservation).not.toContain("不是 visibleTrainingProposal");

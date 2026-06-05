@@ -71,6 +71,12 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).toContain("继续查询、澄清、失败收口或只输出当前事实可支撑的结构");
     expect(systemPrompt).toContain("当本轮用户请求是省略表达、续问、替换、调整、继续或引用最近内容时");
     expect(systemPrompt).toContain("结合 run.messages、metadata、observations 和 toolResults 判断被引用的上一轮、当前可见、已生成或已选择对象是否真实存在且可继续操作");
+    expect(systemPrompt).toContain("引用型请求和独立生成请求是两个不同目标");
+    expect(systemPrompt).toContain("必须先确认该对象在当前可见上下文、tool result 或 consumable resource 中真实存在且可操作");
+    expect(systemPrompt).toContain("不得改写成相邻的新生成目标");
+    expect(systemPrompt).toContain("不得输出结构化结果声称已经完成替换、刷新或调整");
+    expect(systemPrompt).toContain("只有当用户已经提供足够独立生成所需的目标和约束时，才可作为新请求处理");
+    expect(systemPrompt).toContain("content 必须明确这是按新目标生成，而不是对不可见已有对象的继续操作");
     expect(systemPrompt).toContain("历史 assistant 消息只能作为上下文参考，不能当作本轮回复模板重复输出，除非用户明确要求复述");
     expect(systemPrompt).toContain("不要编造对象、动作、方案或 tool result");
     expect(systemPrompt).toContain("自然说明缺少可继续操作的上下文，并给出可恢复下一步");
@@ -94,6 +100,8 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).not.toContain("换一批");
     expect(systemPrompt).not.toContain("再来一组");
     expect(systemPrompt).not.toContain("factCount = 0");
+    expect(systemPrompt).not.toContain("facts=[]");
+    expect(systemPrompt).not.toContain("toolName = inspectVisibleTrainingProposals");
     expect(systemPrompt).toContain("recentVisibleTrainingProposals 和 inspectVisibleTrainingProposals(operation = \"list_recent\") 只提供 factRef/messageId");
     expect(systemPrompt).toContain("inspectVisibleTrainingProposals(operation = \"read_recent\")");
     expect(systemPrompt).toContain("inspectVisibleTrainingProposals(operation = \"list_recent\")");

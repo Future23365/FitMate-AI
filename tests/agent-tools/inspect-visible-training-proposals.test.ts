@@ -140,11 +140,15 @@ describe("inspectVisibleTrainingProposals tool", () => {
         facts: [],
         factsBoundary: expect.stringContaining("facts[] 是当前 actor 和当前 conversation 中当前可见、可引用的 visibleTrainingProposal 事实索引集合"),
         emptyFactsBoundary: expect.stringContaining("空 facts[] 可作为模型推理、解释缺少引用对象或向用户澄清的事实依据"),
-        nextStepBoundary: expect.stringContaining("模型应结合本轮用户请求、最近对话和其他 observations/toolResults 自主决定"),
+        nextStepBoundary: expect.stringContaining("若本轮目标依赖该引用对象"),
       }),
     });
     expect(serializedObservation).toContain("facts=[] 只表示当前可见事实中没有这类引用对象");
-    expect(serializedObservation).toContain("不能支撑成功训练方案刷新或新训练方案生成");
+    expect(serializedObservation).toContain("不能支撑成功训练方案刷新、替换、调整或新训练方案生成");
+    expect(serializedObservation).toContain("解释缺少引用对象、追问、请求补充目标或失败收口");
+    expect(serializedObservation).toContain("只有用户已经提供足够独立生成所需目标和约束时，才可作为新请求处理");
+    expect(serializedObservation).toContain("不得宣称这是对不可见已有对象的刷新、替换或调整");
+    expect(serializedObservation).not.toContain("开始新的生成");
     expect(serializedObservation).not.toContain("如果用户这样说");
     expect(serializedObservation).not.toContain("答案模板");
     expect(serializedObservation).not.toContain("换一批");

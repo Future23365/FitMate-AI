@@ -388,10 +388,10 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
       excludedCount: output.query.excludedCount,
       outputSummaryNote: "totalMatches、returnedCount、truncated、excludedCount、groups 和 diagnostics 是本次查询输出摘要，不是下一轮 searchExerciseResources input。",
       finalAnswerGrounding: "当 fulfillment.satisfied=true，本次查询事实包括 totalMatches=0 的结果，toolResultId 可支撑 final_answer.usedToolResultIds 中的普通事实回答；如果要推送训练结构，最终事实必须写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal.payload。",
-      candidateConsumptionBoundary: "当前 observation 提供动作事实原料：可用 section 只包含 groups 实际返回的 key，groups.<section>.exercises[*].exerciseId 可作为 visibleTrainingProposal.exerciseItems[*].exerciseId 的事实来源；prescription、schedule 和最终 payload.kind 需要由 final_answer.visibleOutputs[] 明确输出。若目标结构还缺 section 或字段，模型应基于可见事实自主继续查询、澄清、失败收口或输出当前事实可支撑的结构。",
+      candidateConsumptionBoundary: "groups.<section>.exercises[*].exerciseId 可作为 visibleTrainingProposal.exerciseItems[*].exerciseId 的事实来源；当前 observation 只提供本次查询返回的动作事实原料，可用 section 只包含 groups 实际返回的 key。本次动作查询不证明当前 run 存在可操作的上一轮 visibleTrainingProposal，也不证明已经完成刷新、替换或调整。prescription、schedule 和最终 payload.kind 需要由 final_answer.visibleOutputs[] 明确输出。若目标结构还缺 section 或字段，模型应基于可见事实自主继续查询、澄清、失败收口或输出当前事实可支撑的结构。",
       refreshExclusionBoundary: output.query.excludedCount > 0
         ? "本次查询已应用 excludeExerciseIds；这些 id 只能代表当前 run 可见的用户已看到动作事实或用户明确要求排除的动作。若当前条件下可替代候选不足，模型应说明无法完全换新、询问是否放宽条件或只输出可支撑结构，不得为了填满新方案回填已排除动作。"
-        : "本次查询未应用 excludeExerciseIds；如果目标是替换上一套用户可见 visibleTrainingProposal，应先确认当前 run 是否已有可引用事实，或基于可见事实自主决定读取、查询、澄清或失败收口。",
+        : "本次查询未应用 excludeExerciseIds；该查询只提供动作事实，不证明当前 run 存在上一套可操作的 visibleTrainingProposal，也不证明已经完成刷新、替换或调整。如果目标是操作已有对象，应先基于当前可见引用事实确认对象；引用对象不可见时，不得用本查询结果宣称刷新、替换或调整成功。",
       routinePlanCompositionBoundary: buildRoutinePlanCompositionBoundary(output.groups),
       groupSemantics: {
         groupKey: "groups.<section>",

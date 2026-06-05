@@ -1600,7 +1600,7 @@ describe("chat service agent text flow boundary", () => {
     expect(JSON.stringify(events)).not.toContain("budget_exhausted");
   });
 
-  it.each(["换一批", "再来一组", "不要这个"])("lets the planner recover through list_recent when no visible proposal exists for %s", async (latestUserMessage) => {
+  it.each(["换一批", "再来一组", "不要这个", "重新来一套"])("lets the planner recover through list_recent when no visible proposal exists for %s", async (latestUserMessage) => {
     const listInput = { operation: "list_recent" as const };
     const expectedListToolResultId = createToolResultId(
       "chat_assistant-refresh-empty",
