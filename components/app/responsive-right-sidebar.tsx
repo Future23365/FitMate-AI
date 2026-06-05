@@ -2,9 +2,11 @@
 
 import {
   useEffect,
+  useRef,
   useState,
   useSyncExternalStore,
   type CSSProperties,
+  type FocusEvent,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
@@ -52,6 +54,9 @@ export function ResponsiveRightSidebar({
   label,
   width = defaultRightSidebarWidth,
 }: ResponsiveRightSidebarProps) {
+  const sidebarRef = useRef<HTMLElement | null>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [isInteractionReady, setIsInteractionReady] = useState(false);
   const [isMotionReady, setIsMotionReady] = useState(false);
   const portalRoot = useSyncExternalStore(
     subscribePortalRoot,
@@ -59,7 +64,7 @@ export function ResponsiveRightSidebar({
     getPortalRootServerSnapshot,
   );
 
-  // 首次挂到 body 后先提交无动画的收起状态，再开启后续交互动画，避免刷新时先展开再收起。
+  // 首次挂到 body 后先固定收起，再开放交互，避免刷新恢复焦点或初始命中 hover 直接展开。
   useEffect(() => {
     if (!portalRoot) {
       return;
@@ -68,6 +73,16 @@ export function ResponsiveRightSidebar({
     let secondFrameId = 0;
     const firstFrameId = window.requestAnimationFrame(() => {
       secondFrameId = window.requestAnimationFrame(() => {
+        const activeElement = document.activeElement;
+
+        if (
+          activeElement instanceof HTMLElement &&
+          sidebarRef.current?.contains(activeElement)
+        ) {
+          activeElement.blur();
+        }
+
+        setIsInteractionReady(true);
         setIsMotionReady(true);
       });
     });
@@ -80,12 +95,56 @@ export function ResponsiveRightSidebar({
     };
   }, [portalRoot]);
 
+  function expandSidebar() {
+    if (isInteractionReady) {
+      setIsExpanded(true);
+    }
+  }
+
+  function collapseSidebarIfFocusOutside() {
+    if (!isInteractionReady) {
+      return;
+    }
+
+    const activeElement = document.activeElement;
+    if (activeElement instanceof Node && sidebarRef.current?.contains(activeElement)) {
+      return;
+    }
+
+    setIsExpanded(false);
+  }
+
+  function handleSidebarBlur(event: FocusEvent<HTMLElement>) {
+    if (!isInteractionReady) {
+      return;
+    }
+
+    const nextFocusedElement = event.relatedTarget;
+    if (
+      nextFocusedElement instanceof Node &&
+      event.currentTarget.contains(nextFocusedElement)
+    ) {
+      return;
+    }
+
+    setIsExpanded(false);
+  }
+
   const style = getResponsiveRightSidebarStyle(width);
   const sidebar = (
     <aside
       aria-label={label}
+      onBlurCapture={handleSidebarBlur}
+      onFocusCapture={expandSidebar}
+      onPointerDown={expandSidebar}
+      onPointerEnter={expandSidebar}
+      onPointerLeave={collapseSidebarIfFocusOutside}
+      onPointerMove={expandSidebar}
+      ref={sidebarRef}
       className={`responsive-right-sidebar app-shell-glass fixed right-0 top-0 z-30 flex h-screen flex-col border-l border-line/70 shadow-nav ${
         isMotionReady ? "responsive-right-sidebar-motion-ready" : ""
+      } ${
+        isExpanded ? "responsive-right-sidebar-expanded" : ""
       } ${className}`}
       style={style}
     >
