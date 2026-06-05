@@ -45,7 +45,7 @@ describe("frontend API clients", () => {
         JSON.stringify({ type: "agent_loop", loopTurn: 1, sequence: 2, toolName: "searchExerciseResources" }),
         JSON.stringify({ type: "content", content: "你好" }),
         "",
-        JSON.stringify({ type: "assistant_suggestions", suggestions: ["继续"] }),
+        JSON.stringify({ type: "suggested_questions", suggestedQuestions: ["继续"] }),
         JSON.stringify({ type: "done" }),
       ].join("\n")));
     vi.stubGlobal("fetch", fetchMock);
@@ -71,7 +71,7 @@ describe("frontend API clients", () => {
       { type: "agent_progress", stage: "preparing_context", status: "active", messageKey: "preparing_context", sequence: 1 },
       { type: "agent_loop", loopTurn: 1, sequence: 2 },
       { type: "content", content: "你好" },
-      { type: "assistant_suggestions", suggestions: ["继续"] },
+      { type: "suggested_questions", suggestedQuestions: ["继续"] },
       { type: "done" },
     ]);
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({
@@ -81,6 +81,19 @@ describe("frontend API clients", () => {
       conversationSummary: summary.summary,
     });
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual(["/api/chat"]);
+  });
+
+  it("does not convert legacy assistant_suggestions events into suggestedQuestions", async () => {
+    const events: unknown[] = [];
+    const streamError = await consumeAgentTextChatNdjson(new Response([
+      JSON.stringify({ type: "content", content: "你好" }),
+      JSON.stringify({ type: "assistant_suggestions", suggestions: ["继续"] }),
+      JSON.stringify({ type: "done" }),
+    ].join("\n")), (event) => events.push(event)).catch((error: unknown) => error);
+
+    expect(streamError).toBeInstanceOf(AgentTextChatStreamError);
+    expect(events).toEqual([{ type: "content", content: "你好" }]);
+    expect(JSON.stringify(events)).not.toContain("suggestedQuestions");
   });
 
   it("parses agent_loop and agent_progress safely and rejects invalid activity payloads", async () => {

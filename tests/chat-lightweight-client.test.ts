@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeAssistantSuggestions } from "@/features/chat/lib/assistant-suggestions";
 import { buildClientFitnessConversationContext } from "@/features/chat/lib/lightweight-conversation-context";
 import { readWorkoutPlanIntentLightweight } from "@/features/chat/lib/lightweight-workout-intent";
 
@@ -49,28 +48,5 @@ describe("chat lightweight client guards", () => {
         avoidances: ["跳跃"],
       }),
     });
-  });
-
-  it("accepts valid assistant suggestions and drops malformed entries", () => {
-    expect(
-      normalizeAssistantSuggestions([
-        {
-          label: "继续生成",
-          message: "继续生成",
-          kind: "next_action",
-          blocking: false,
-          source: "workout_generation",
-        },
-        { label: "", message: "bad", kind: "retry", blocking: false, source: "legacy" },
-      ]),
-    ).toEqual([
-      {
-        label: "继续生成",
-        message: "继续生成",
-        kind: "next_action",
-        blocking: false,
-        source: "workout_generation",
-      },
-    ]);
   });
 });

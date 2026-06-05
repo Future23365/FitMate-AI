@@ -19,6 +19,7 @@ const exerciseServiceMocks = vi.hoisted(() => ({
   listExercises: vi.fn(),
 }));
 const exerciseRepositoryMocks = vi.hoisted(() => ({
+  normalizeExerciseResourceFacetCatalogForPlanner: vi.fn((catalog) => catalog),
   readExerciseResourceFacetCatalog: vi.fn(async () => ({
     muscles: [],
     categories: [],

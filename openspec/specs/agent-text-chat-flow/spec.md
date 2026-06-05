@@ -92,17 +92,27 @@ TBD - created by archiving change connect-agent-text-chat-trace-log. Update Purp
 - **AND** 服务端 MUST NOT 用用户原文关键词改写该 action
 
 ### Requirement: 默认 Response Renderer 必须输出聊天可消费的 NDJSON 事件
-系统 SHALL 使用默认 Response Renderer 将 `AgentRunResult` 投影为前端可消费的 NDJSON 事件。用户可见事件 MUST 来自 runtime terminal action、tool result 的安全投影或结构化错误，不得由 LLM 直接生成。
+
+系统 SHALL 使用默认 Response Renderer 或 production chat adapter 将 `AgentRunResult` 投影为前端可消费的 NDJSON 事件。用户可见事件 MUST 来自 runtime terminal action、tool result 的安全投影、production adapter 的安全 terminal failure 投影或结构化错误，不得由 LLM 直接生成。
 
 #### Scenario: 文本回答流式输出
 - **WHEN** Runtime 以 `final_answer` 结束
 - **THEN** 响应 MUST 至少输出一个 `content` 事件和一个 `done` 事件
 - **AND** `content` MUST 来自已校验 terminal action
 
-#### Scenario: 错误流式输出
-- **WHEN** Runtime 因模型输出非法、未知工具、预算耗尽或 planner 失败而结构化失败
-- **THEN** 响应 MUST 输出 `error` 事件和 `done` 事件
+#### Scenario: 可恢复 terminal failure 流式输出
+- **WHEN** Runtime 因 terminal output validation、terminal reference、repair budget 耗尽、预算耗尽或等价 Agent terminal failure 而结构化失败
+- **AND** production chat adapter 能基于稳定错误事实归类该失败
+- **THEN** 响应 MAY 输出用户安全 `content` 事件和 `assistant_suggestions` 事件
+- **AND** 响应 MUST 输出 `done` 事件
+- **AND** 用户可见事件 MUST NOT 原样包含内部 `terminalError.message`、validator details、provider 原文或 stack
+- **AND** trace MUST 记录该响应是 terminal failure fallback projection，而不是 runtime 成功的 `final_answer`
+
+#### Scenario: 未分类错误流式输出
+- **WHEN** Runtime 因模型输出非法、未知工具、预算耗尽、planner 失败或其他结构化失败而无法被 production chat adapter 安全归类为用户可恢复内容
+- **THEN** 响应 MUST 输出脱敏 `error` 事件和 `done` 事件
 - **AND** `error` 事件 MUST 使用脱敏后的错误信息
+- **AND** 前端 MUST 将该 error code 映射为稳定中文安全文案，不得展示内部 message
 
 #### Scenario: 不输出旧兼容事件
 - **WHEN** `/api/chat` 返回文本聊天 NDJSON
@@ -225,31 +235,19 @@ production `/api/chat` 文本聊天主链 SHALL 将 `LlmPlanner` 和 `ModelAdapt
 
 生产 `/api/chat` 文本聊天 NDJSON stream SHALL 支持用户安全的 Agent 进度事件，例如 `agent_progress`。该事件只服务当前请求的聊天 UI 活动条，MUST NOT 替代 `content`、`visible_output`、`tool_result`、`confirmation_request`、`assistant_suggestions`、`error` 或 `done` 等最终用户事件。
 
-#### Scenario: 进度事件出现在首个 content 之前
-- **WHEN** 已认证用户向 `/api/chat` 发送合法请求，并且请求进入当前 `agent-core` 文本聊天主链
-- **THEN** stream MUST 在首个用户可见 `content` 事件之前输出至少一个 `agent_progress` 或等价当前主链进度事件
-- **AND** 该事件 MUST 表达 `preparing_context`、`analyzing_request` 或等价早期阶段
-- **AND** 该事件 MUST NOT 包含旧 `agent_activity` 事件名或旧 `AgentOrchestrator` payload
-
 #### Scenario: 进度事件来自当前 agent-core 生命周期
 - **WHEN** production chat service 输出 Agent 进度事件
-- **THEN** 事件 MUST 来自当前请求生命周期、runtime 观察点、已发生的 `AgentTraceEvent`、tool 安全 UI metadata 或等价服务端确定性事实
+- **THEN** 事件 MUST 来自当前请求生命周期、runtime 观察点、已发生的 `AgentTraceEvent`、tool 安全 UI definition 字段、稳定 resource contract 或等价服务端确定性事实
 - **AND** 事件 MUST NOT 由 LLM 直接生成
 - **AND** 事件 MUST NOT 基于用户原文、关键词、正则、同义词表或固定短句模板生成
 - **AND** 事件 MUST NOT 影响 Planner 输出、Action Validator、Executor、Policy Guard、ResourceStore、Resource Contract Validator 或 Response Renderer 结果
 
-#### Scenario: 终态用户事件仍来自 Response Renderer
-- **WHEN** runtime 完成并产生 `AgentRunResult`
-- **THEN** production chat service MUST 继续使用默认 Response Renderer 或等价安全 renderer 输出最终用户事件
-- **AND** `content` MUST 来自已校验 terminal action
-- **AND** `visible_output` MUST 来自已校验 visible output renderer
-- **AND** `tool_result` MUST 来自 tool result 的安全 user projection
-- **AND** `done` MUST 只表达响应结束，不得携带旧兼容 payload
-
-#### Scenario: 不恢复旧兼容事件
-- **WHEN** `/api/chat` 返回文本聊天 NDJSON
-- **THEN** 响应 MUST NOT 输出旧 `assistant_action`、旧 `intent_resolved`、旧 `agent_execution_result`、旧 card trigger 或旧 `agent_activity` 事件
-- **AND** 前端 MUST NOT 依赖这些旧事件展示本轮文本回复或活动条
+#### Scenario: production adapter 不维护具体 toolName 活动映射
+- **WHEN** production chat service 将 `tool_execution` runtime event 投影为 Agent 进度事件
+- **THEN** service MUST 优先读取 tool definition 的安全 UI 字段，例如 `uiActivityStage`
+- **AND** service MAY 使用稳定 resource contract 做 fallback
+- **AND** service MUST NOT 维护 `searchExerciseResources`、`inspectVisibleTrainingProposals`、`resolveExerciseResourceMentions` 或其他具体业务 `toolName` 的活动阶段映射表
+- **AND** 缺少 `uiActivityStage` 和 resource fallback 时 MUST 使用通用安全阶段，例如 `analyzing_request`
 
 ### Requirement: Agent runtime 进度观察必须是非致命只读扩展
 
@@ -273,4 +271,41 @@ production `/api/chat` 文本聊天主链 SHALL 将 `LlmPlanner` 和 `ModelAdapt
 - **THEN** 系统 MUST 按当前请求取消或错误边界安全收口
 - **AND** 已完成的 runtime 结果 MUST 不因进度写入失败被改写成业务成功或业务失败
 - **AND** 用户可见错误 MUST 继续使用当前安全中文错误边界
+
+### Requirement: 文本聊天 stream 必须拆分 Agent Loop 和 Activity 事件
+
+生产 `/api/chat` 文本聊天 NDJSON stream SHALL 使用独立事件表达后端 Agent Loop 轮次和当前活动阶段。Loop 事件 MUST 只表示当前请求内真实 Agent Loop 轮次；Activity 事件 MUST 只表示当前可展示活动阶段，两者不得互相推断或绑定为同一个状态字段。
+
+#### Scenario: 进入后端 Agent Loop 时发送轮次事件
+- **WHEN** 当前 `agent-core` runtime 进入一次新的 Agent Loop
+- **THEN** stream MUST 发送 `agent_loop` 或等价白名单事件
+- **AND** 事件 payload MUST 包含当前请求内从 1 开始的正整数 `loopTurn`
+- **AND** 同一请求内只有进入新的后端 Agent Loop 才能递增 `loopTurn`
+- **AND** 事件 payload MUST NOT 包含 stage、toolName、tool input、tool output、resource id、prompt、raw model output、token usage 或 trace 详情
+
+#### Scenario: 同一 Loop 内 Activity 更新不改变轮次
+- **WHEN** 当前 Agent Loop 内发生 planner、tool execution、validation、resource handling、finalizing 或等价运行阶段变化
+- **THEN** stream MAY 发送 `agent_progress` 或等价 Activity 事件
+- **AND** Activity 事件 MUST 表达 stage/status/messageKey/sequence 或等价 UI 安全字段
+- **AND** Activity 事件 MUST NOT 让前端将 `loopTurn` 递增
+- **AND** Activity 事件 MUST NOT 要求每个 stage 都绑定一个 Loop 轮次字段
+
+#### Scenario: 不同 Loop 可以重复相同 Activity 阶段
+- **WHEN** 后端连续两个 Agent Loop 都执行同类 tool 或同类运行阶段
+- **THEN** stream MUST 能表达新的 `agent_loop` 轮次
+- **AND** stream MAY 在新轮次内再次发送相同 stage 的 Activity 事件
+- **AND** 系统 MUST NOT 因 stage 文案重复而抑制真实 Loop 轮次变化
+
+#### Scenario: 进入 Loop 前只发送准备阶段
+- **WHEN** `/api/chat` 已完成请求校验、上下文准备或 `AgentRunInput` 构造，但尚未进入后端 Agent Loop
+- **THEN** stream MAY 发送 Activity 事件表达准备阶段
+- **AND** stream MUST NOT 发送虚假的 `agent_loop` 轮次
+- **AND** 前端 MUST 能在没有 Loop 轮次时展示安全活动文案
+
+#### Scenario: Loop 与 Activity 事件均来自服务端确定性生命周期
+- **WHEN** production chat service 输出 `agent_loop` 或 Activity 事件
+- **THEN** 事件 MUST 来自当前请求生命周期、runtime 观察点、已发生的 `AgentTraceEvent`、tool 安全 UI metadata 或等价服务端确定性事实
+- **AND** 事件 MUST NOT 由 LLM 直接生成
+- **AND** 事件 MUST NOT 基于用户原文、关键词、正则、同义词表、固定短句模板或具体业务 `toolName` 特判生成
+- **AND** 事件生成失败 MUST 被视为非致命 UI 诊断，不得改变 Planner、Executor、Policy Guard、ResourceStore、Resource Contract Validator 或 Response Renderer 结果
 

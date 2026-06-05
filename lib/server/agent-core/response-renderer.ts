@@ -37,14 +37,14 @@ export function renderAgentResponseEvents(
       events.push(...(options.visibleOutputRenderers?.render(output, { result, outputIndex }) ?? []));
     }
 
-    if (result.terminalAction.assistantSuggestions?.length) {
-      events.push({ type: "assistant_suggestions", suggestions: result.terminalAction.assistantSuggestions });
+    if (result.terminalAction.suggestedQuestions?.length) {
+      events.push({ type: "suggested_questions", suggestedQuestions: result.terminalAction.suggestedQuestions });
     }
   } else if (result.terminalAction?.type === "ask_user") {
     events.push({ type: "content", content: result.terminalAction.question });
 
-    if (result.terminalAction.suggestions?.length) {
-      events.push({ type: "assistant_suggestions", suggestions: result.terminalAction.suggestions });
+    if (result.terminalAction.suggestedQuestions?.length) {
+      events.push({ type: "suggested_questions", suggestedQuestions: result.terminalAction.suggestedQuestions });
     }
   } else if (result.terminalError) {
     events.push({ type: "error", error: renderUserSafeToolError(result.terminalError) });

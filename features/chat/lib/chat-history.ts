@@ -60,8 +60,7 @@ export function createChatConversationSavePayload(
     role: message.role,
     content: message.content,
     createdAt: message.createdAt,
-    assistantSuggestions: message.assistantSuggestions,
-    suggestedReplies: message.suggestedReplies ?? message.suggestedQuestions,
+    suggestedQuestions: message.suggestedQuestions,
     visibleOutputs: message.visibleOutputs,
   }));
 

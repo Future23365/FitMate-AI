@@ -352,7 +352,7 @@ async function runBasicChatFlow(input: {
         role: "assistant",
         content: output.assistantText || output.safeErrorMessage || "",
         createdAt: new Date().toISOString(),
-        suggestedReplies: output.assistantSuggestions.length ? output.assistantSuggestions : undefined,
+        suggestedQuestions: output.assistantSuggestions.length ? output.assistantSuggestions : undefined,
         visibleOutputs: output.rawVisibleOutputs.length ? output.rawVisibleOutputs : undefined,
       };
       const persistence = await saveBasicChatConversation({
@@ -652,8 +652,8 @@ export async function normalizeChatOutput(rawNdjson: string): Promise<Normalized
       });
     }
 
-    if (event.type === "assistant_suggestions") {
-      assistantSuggestions.push(...event.suggestions);
+    if (event.type === "suggested_questions") {
+      assistantSuggestions.push(...event.suggestedQuestions);
     }
 
     if (event.type === "confirmation_request") {

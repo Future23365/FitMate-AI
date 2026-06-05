@@ -94,7 +94,20 @@ describe("Agent progress activity UI state", () => {
     expect(`${knownFailed.label}${unknownFailed.label}`).not.toContain("遇到问题");
   });
 
-  it("keeps loopTurn independent when Activity arbitration keeps an informative stage", () => {
+  it("uses analyzing_request only as an initial fallback activity", () => {
+    const analyzing = reduceAgentActivity(null, {
+      type: "agent_progress",
+      stage: "analyzing_request",
+      status: "active",
+      messageKey: "analyzing_request",
+      sequence: 1,
+    }, { nowMs: 0 });
+
+    expect(analyzing?.activityStage?.stage).toBe("analyzing_request");
+    expect(getAgentActivityDisplay(analyzing!).label).toBe("正在规划下一步...");
+  });
+
+  it("keeps loopTurn independent when Activity arbitration ignores analyzing_request after an informative stage", () => {
     const querying = reduceAgentActivity(null, {
       type: "agent_progress",
       stage: "querying_exercises",
@@ -132,9 +145,10 @@ describe("Agent progress activity UI state", () => {
     expect(genericActivity?.activityStage?.stage).toBe("querying_exercises");
     expect(genericActivity?.loopTurn).toBe(1);
     expect(genericActivity?.lastActivitySequence).toBe(3);
-    expect(afterCooldown?.activityStage?.stage).toBe("analyzing_request");
+    expect(afterCooldown?.activityStage?.stage).toBe("querying_exercises");
     expect(afterCooldown?.loopTurn).toBe(1);
-    expect(getAgentActivityDisplay(afterCooldown!).label).toBe("正在规划下一步...");
+    expect(afterCooldown?.lastActivitySequence).toBe(4);
+    expect(getAgentActivityDisplay(afterCooldown!).label).toBe("正在查询动作库...");
   });
 
   it("uses safe fallback copy for unknown Activity stages without exposing raw stage", () => {
@@ -253,8 +267,12 @@ describe("AgentActivityIndicator", () => {
     expect(html).toContain("正在校验训练内容...");
     expect(html).not.toContain("fact_check");
     expect(html).toContain("items-baseline");
-    expect(html).toContain("min-w-[1.75rem]");
+    expect(html).toContain("gap-[2px]");
+    expect(html).toContain("pl-0");
+    expect(html).toContain("w-[1.375rem]");
+    expect(html).toContain("text-left");
     expect(html).toContain("tabular-nums");
+    expect(html).not.toContain("text-right");
     expect(html).not.toContain("translate-y-[1px]");
     expect(html).not.toContain("motion-safe:animate-pulse");
     expect(html).not.toContain("validateRoutineDraft");
@@ -298,7 +316,7 @@ describe("AgentActivityIndicator", () => {
 
     expect(html).toContain("正在整理上下文...");
     expect(html).toContain("aria-hidden=\"true\"");
-    expect(html).toContain("min-w-[1.75rem]");
+    expect(html).toContain("w-[1.375rem]");
     expect(html).not.toContain("#0");
     expect(html).not.toContain("#1");
   });
@@ -355,7 +373,7 @@ describe("chat history activity persistence boundary", () => {
       id: "a1",
       role: "assistant",
       content: "可以。",
-      suggestedReplies: ["继续"],
+      suggestedQuestions: ["继续"],
     });
   });
 });

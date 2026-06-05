@@ -276,6 +276,9 @@ describe("inspectVisibleTrainingProposals tool", () => {
     expect(serializedObservation).toContain("正向消费的训练事实来源");
     expect(serializedObservation).toContain("不得把已导入动作默认排除");
     expect(serializedObservation).toContain("最终结构仍必须由 final_answer.visibleOutputs[] 承载");
+    expect(serializedObservation).toContain("不代表本轮最终训练结构已经完成");
+    expect(serializedObservation).toContain("不得用成功 final_answer.content 承诺本轮回复后还会自动继续");
+    expect(serializedObservation).toContain("usedToolResultIds/usedResourceRefs");
     expect(serializedObservation).toContain("final_answer.visibleOutputs[]");
     expect(serializedObservation).not.toContain("displayedExerciseIds");
     expect(serializedObservation).not.toContain("displayedExercises");
@@ -322,6 +325,7 @@ describe("inspectVisibleTrainingProposals tool", () => {
     const observationJson = JSON.stringify(result.ok ? result.projection.model : {});
     expect(observationJson).toContain("继续获取缺失 section");
     expect(observationJson).toContain("输出当前事实可支撑结构");
+    expect(observationJson).toContain("不允许用成功 final_answer.content 承诺本轮之后自动继续");
     expect(observationJson).not.toContain("\"routine\",\"plan\"");
     expect(observationJson).not.toContain("必须调用 searchExerciseResources");
   });

@@ -28,19 +28,20 @@ describe("searchExerciseResources tool", () => {
     const { tool, repository } = await importToolWithRepositoryResult(createSearchResult({
       query: {
         muscle: "胸部",
-        equipment: "body only",
+        equipment: "no_equipment",
         suitability: "training",
         published: true,
         sort: "name_asc",
       },
+      filterSemantics: [createNoEquipmentFilterSemantic("no_equipment")],
       totalMatches: 2,
       returnedCount: 1,
-      exercises: [createExerciseSummary({ id: "push-up", nameZh: "俯卧撑" })],
+      exercises: [createExerciseSummary({ id: "push-up", nameZh: "俯卧撑", homeRequirement: "floor", homeRequirementZh: "地面/瑜伽垫" })],
     }));
 
     const result = await executeTool({
       tool,
-      input: { muscle: "胸部", equipment: "body only", suitabilities: ["training"] },
+      input: { muscle: "胸部", equipment: "no_equipment", suitabilities: ["training"] },
       run: { runId: "run-search", actor: { userId: "user-1" }, userInput: "找几个徒手胸部训练动作" },
       timeoutMs: 100,
       toolCallId: "tc_search",
@@ -58,9 +59,11 @@ describe("searchExerciseResources tool", () => {
           returnedCount: 1,
           truncated: false,
           appliedFilters: expect.arrayContaining([
+            { field: "equipment", value: "no_equipment" },
             { field: "suitabilities", value: ["training"] },
             { field: "published", value: true },
           ]),
+          filterSemantics: [createNoEquipmentFilterSemantic("no_equipment")],
         },
         groups: {
           training: {
@@ -90,7 +93,7 @@ describe("searchExerciseResources tool", () => {
       level: undefined,
       force: undefined,
       mechanic: undefined,
-      equipment: "body only",
+      equipment: "no_equipment",
       homeRequirement: undefined,
       muscle: "胸部",
       muscles: undefined,
@@ -129,18 +132,31 @@ describe("searchExerciseResources tool", () => {
       },
       routinePlanCompositionBoundary: {
         returnedSections: ["training"],
+        sectionSummary: { warmup: 0, training: 1, stretch: 0 },
         missingSectionsForRoutineOrPlan: ["warmup", "stretch"],
+        forbiddenFinalVisibleOutputs: expect.stringContaining("缺口补齐前禁止提交"),
+        allowedNextActions: expect.arrayContaining([
+          "继续用缺失 section 的 suitabilities 查询候选。",
+          "使用 ask_user 澄清必要约束。",
+          "不输出 visibleOutputs，仅说明当前事实不足或失败收口。",
+        ]),
         note: expect.stringContaining("当前结果只提供 training 动作事实"),
       },
       refreshExclusionBoundary: expect.stringContaining("本次查询未应用 excludeExerciseIds"),
+      filterSemantics: [createNoEquipmentFilterSemantic("no_equipment")],
     });
     expect(serializedObservation).toContain("section 应与使用的 group key 保持一致");
     expect(serializedObservation).toContain("如果最终目标是 routine 或 plan");
     expect(serializedObservation).toContain("还需要当前 run 可消费的 warmup 和 stretch 动作事实");
     expect(serializedObservation).toContain("suitabilities = [\\\"warmup\\\", \\\"stretch\\\"]");
+    expect(serializedObservation).toContain("missingSectionsForRoutineOrPlan 非空");
+    expect(serializedObservation).toContain("final_answer.visibleOutputs[] 中 payload.kind = \\\"routine\\\" 或 \\\"plan\\\"");
+    expect(serializedObservation).toContain("不得在 content 中解释缺口后仍提交不完整结构");
     expect(serializedObservation).toContain("不得把未返回的 section 伪造成已获得事实");
     expect(serializedObservation).toContain("不得把本次 tool result 直接当作最终 visibleTrainingProposal");
     expect(serializedObservation).toContain("本次查询未使用 requiredExerciseIds");
+    expect(serializedObservation).toContain("地面/瑜伽垫");
+    expect(serializedObservation).toContain("repository 只映射到自重动作字段");
     expect(serializedObservation).toContain("正向事实来源");
     expect(serializedObservation).not.toContain("sectionEvidence");
     expect(serializedObservation).not.toContain("exerciseSectionEvidence");
@@ -157,6 +173,9 @@ describe("searchExerciseResources tool", () => {
     expect(serializedObservation).toContain("引用对象不可见时，不得用本查询结果宣称刷新、替换或调整成功");
     expect(serializedObservation).toContain("prescription、schedule 和最终 payload.kind");
     expect(serializedObservation).toContain("最终事实必须写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal.payload");
+    expect(serializedObservation).toContain("section-scoped 事实原料");
+    expect(serializedObservation).toContain("grounded terminal action");
+    expect(serializedObservation).toContain("不得用成功 final_answer.content 承诺本轮回复后还会自动继续");
     expect(serializedObservation).not.toContain("不是 visibleTrainingProposal");
     expect(serializedObservation).not.toContain("\"warmup\":{\"suitability\":\"warmup\"");
     expect(serializedObservation).not.toContain("\"stretch\":{\"suitability\":\"stretch\"");
@@ -211,7 +230,6 @@ describe("searchExerciseResources tool", () => {
       return createSearchResult({
         query: {
           suitability: suitability as "warmup" | "stretch",
-          homeRequirement: "none",
           published: true,
           sort: "name_asc",
         },
@@ -225,7 +243,7 @@ describe("searchExerciseResources tool", () => {
 
     const result = await executeTool({
       tool,
-      input: { suitabilities: ["warmup", "stretch"], homeRequirement: "none" },
+      input: { suitabilities: ["warmup", "stretch"] },
       run: { runId: "run-groups", actor: { userId: "user-1" }, userInput: "把这些动作编排一下" },
       timeoutMs: 100,
       toolCallId: "tc_groups",
@@ -508,6 +526,24 @@ describe("searchExerciseResources tool", () => {
 
     await expect(executeTool({
       tool,
+      input: { homeRequirement: "none", suitabilities: ["training"] },
+      run: { runId: "run-removed-home-none", actor: { userId: "user-1" }, userInput: "不要器械" },
+      timeoutMs: 100,
+      toolCallId: "tc_removed_home_none",
+    })).resolves.toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.INVALID_TOOL_INPUT } });
+    expect(repository.searchExerciseResourceSummaries).not.toHaveBeenCalled();
+
+    await expect(executeTool({
+      tool,
+      input: { homeRequirement: "无器械", suitabilities: ["training"] },
+      run: { runId: "run-removed-home-zh", actor: { userId: "user-1" }, userInput: "不要器械" },
+      timeoutMs: 100,
+      toolCallId: "tc_removed_home_zh",
+    })).resolves.toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.INVALID_TOOL_INPUT } });
+    expect(repository.searchExerciseResourceSummaries).not.toHaveBeenCalled();
+
+    await expect(executeTool({
+      tool,
       input: { suitabilities: ["cooldown"] },
       run: { runId: "run-bad-input", actor: { userId: "user-1" }, userInput: "放松" },
       timeoutMs: 100,
@@ -595,8 +631,8 @@ describe("searchExerciseResources tool", () => {
       level: "beginner",
       force: "push",
       mechanic: "compound",
-      equipment: "body only",
-      homeRequirement: "none",
+      equipment: "no_equipment",
+      homeRequirement: "floor",
       muscle: "胸部",
       goalTag: "strength",
       riskTag: "shoulder_pain",
@@ -637,6 +673,11 @@ describe("searchExerciseResources tool", () => {
     expect(serializedFindMany).toContain("\"secondaryMusclesZh\":{\"has\":\"腘绳肌\"}");
     expect(serializedFindMany).toContain("\"embeddingText\"");
     expect(serializedFindMany).toContain("\"contains\":\"俯卧撑\"");
+    expect(serializedFindMany).toContain("\"equipment\":{\"in\":[\"body only\",\"bodyweight\"]}");
+    expect(serializedFindMany).toContain("\"equipmentZh\":{\"in\":[\"自重\"]}");
+    expect(serializedFindMany).toContain("\"homeRequirement\":\"floor\"");
+    expect(serializedFindMany).not.toContain("\"homeRequirement\":\"none\"");
+    expect(serializedFindMany).not.toContain("\"homeRequirementZh\":\"无器械\"");
     expect(serializedFindMany).not.toContain("pgvector");
     expect(serializedFindMany).not.toContain("Vector DB");
     expect(serializedFindMany).not.toContain("rerank");
@@ -646,12 +687,65 @@ describe("searchExerciseResources tool", () => {
       maxReturned: configuredMaxReturned,
       truncated: true,
       excludedCount: 2,
+      filterSemantics: [createNoEquipmentFilterSemantic("no_equipment")],
     });
     expect(result.exercises).toHaveLength(configuredMaxReturned);
     expect(result.exercises[0]).toMatchObject({
       id: "exercise-1",
       allowedSections: ["training"],
       isPublished: true,
+    });
+  });
+
+  it("maps Chinese no-equipment equipment query to bodyweight database facts without homeRequirement fallback", async () => {
+    const prisma = {
+      exercise: {
+        count: vi.fn().mockResolvedValue(1),
+        findMany: vi.fn().mockResolvedValue([
+          createRepositoryExerciseRecord({
+            id: "floor-push-up",
+            nameZh: "俯卧撑",
+            equipment: "body only",
+            equipmentZh: "自重",
+            homeRequirement: "floor",
+            homeRequirementZh: "地面/瑜伽垫",
+          }),
+        ]),
+      },
+    };
+    vi.doMock(dbPath, () => ({
+      isDatabaseConfigured: () => true,
+      getPrismaClient: () => prisma,
+    }));
+    vi.doUnmock(repositoryPath);
+    const {
+      searchExerciseResourceSummaries,
+    } = await import("@/lib/server/exercises/exercise-repository");
+
+    const result = await searchExerciseResourceSummaries({
+      equipment: "无器械",
+      suitability: "training",
+      published: true,
+      sort: "name_asc",
+    });
+    const findManyArgs = prisma.exercise.findMany.mock.calls[0][0];
+    const serializedWhere = JSON.stringify(findManyArgs.where);
+
+    expect(serializedWhere).toContain("\"equipment\":{\"in\":[\"body only\",\"bodyweight\"]}");
+    expect(serializedWhere).toContain("\"equipmentZh\":{\"in\":[\"自重\"]}");
+    expect(serializedWhere).not.toContain("\"homeRequirement\":\"none\"");
+    expect(serializedWhere).not.toContain("\"homeRequirementZh\":\"无器械\"");
+    expect(result).toMatchObject({
+      totalMatches: 1,
+      returnedCount: 1,
+      filterSemantics: [createNoEquipmentFilterSemantic("无器械")],
+      exercises: [
+        expect.objectContaining({
+          id: "floor-push-up",
+          equipmentZh: "自重",
+          homeRequirementZh: "地面/瑜伽垫",
+        }),
+      ],
     });
   });
 
@@ -705,8 +799,8 @@ describe("searchExerciseResources tool", () => {
             mechanicZh: "复合",
             equipment: "body only",
             equipmentZh: "自重",
-            homeRequirement: "none",
-            homeRequirementZh: "无器械",
+            homeRequirement: "floor",
+            homeRequirementZh: "地面/瑜伽垫",
             primaryMuscles: ["chest", ""],
             primaryMusclesZh: ["胸部"],
             secondaryMuscles: ["triceps"],
@@ -763,8 +857,10 @@ describe("searchExerciseResources tool", () => {
     expect(catalog.levels).toEqual(expect.arrayContaining(["beginner", "初级"]));
     expect(catalog.forces).toEqual(expect.arrayContaining(["push", "推", "pull", "拉"]));
     expect(catalog.mechanics).toEqual(expect.arrayContaining(["compound", "复合", "isolation", "孤立"]));
-    expect(catalog.equipment).toEqual(expect.arrayContaining(["body only", "自重", "dumbbell", "哑铃"]));
-    expect(catalog.homeRequirements).toEqual(expect.arrayContaining(["none", "无器械", "small_equipment", "居家小器械"]));
+    expect(catalog.equipment).toEqual(expect.arrayContaining(["body only", "自重", "dumbbell", "哑铃", "no_equipment", "无器械"]));
+    expect(catalog.homeRequirements).toEqual(expect.arrayContaining(["floor", "地面/瑜伽垫", "small_equipment", "居家小器械"]));
+    expect(catalog.homeRequirements).not.toContain("none");
+    expect(catalog.homeRequirements).not.toContain("无器械");
     expect(catalog.goalTags).toEqual(expect.arrayContaining(["strength", "mobility"]));
     expect(catalog.riskTags).toEqual(expect.arrayContaining(["shoulder_pain", "wrist_load"]));
     expect(catalog.suitabilities).toEqual(["warmup", "training", "stretch"]);
@@ -790,6 +886,10 @@ async function importToolWithRepositoryImplementation(
   vi.doMock(repositoryPath, () => ({
     searchExerciseResourceSummaries,
     getExerciseResourceSummariesByIds,
+    isNoEquipmentResourceQueryValue: isTestNoEquipmentResourceQueryValue,
+    isRemovedNoEquipmentHomeRequirementValue: isTestRemovedNoEquipmentHomeRequirementValue,
+    isBodyweightExerciseResourceEquipment: isTestBodyweightExerciseResourceEquipment,
+    normalizeExerciseResourceFacetCatalogForPlanner: normalizeTestExerciseResourceFacetCatalogForPlanner,
   }));
   const toolModule = await import("@/lib/server/agent-tools/exercises/search-exercise-resources.tool");
 
@@ -813,6 +913,7 @@ function createSearchResult(overrides: SearchResultOverrides = {}): ExerciseReso
   return {
     query,
     appliedFilters: overrides.appliedFilters ?? [{ field: "published", value: true }],
+    filterSemantics: overrides.filterSemantics ?? [],
     totalMatches: overrides.totalMatches ?? exercises.length,
     returnedCount: overrides.returnedCount ?? exercises.length,
     maxReturned: overrides.maxReturned ?? agentRuntimeConfig.tools.searchExerciseResources.maxReturnedPerSection,
@@ -837,8 +938,8 @@ function createExerciseSummary(overrides: Partial<ExerciseResourceSearchResult["
     mechanicZh: overrides.mechanicZh ?? "复合",
     equipment: overrides.equipment ?? "body only",
     equipmentZh: overrides.equipmentZh ?? "自重",
-    homeRequirement: overrides.homeRequirement ?? "none",
-    homeRequirementZh: overrides.homeRequirementZh ?? "无器械",
+    homeRequirement: overrides.homeRequirement ?? "floor",
+    homeRequirementZh: overrides.homeRequirementZh ?? "地面/瑜伽垫",
     primaryMuscles: overrides.primaryMuscles ?? ["chest"],
     primaryMusclesZh: overrides.primaryMusclesZh ?? ["胸部"],
     secondaryMuscles: overrides.secondaryMuscles ?? ["triceps"],
@@ -854,4 +955,42 @@ function createExerciseSummary(overrides: Partial<ExerciseResourceSearchResult["
 
 function createRepositoryExerciseRecord(overrides: Partial<ReturnType<typeof createExerciseSummary>> = {}) {
   return createExerciseSummary(overrides);
+}
+
+function createNoEquipmentFilterSemantic(requestedValue: string) {
+  return {
+    field: "equipment" as const,
+    requestedValue,
+    databaseMapping: {
+      equipment: ["body only", "bodyweight"],
+      equipmentZh: ["自重"],
+    },
+    note: "equipment=no_equipment/无器械 表示不需要外部器械；repository 只映射到自重动作字段，不自动附加 homeRequirement 条件。",
+  };
+}
+
+function isTestNoEquipmentResourceQueryValue(value: string) {
+  return value.trim().toLowerCase() === "no_equipment" || value.trim() === "无器械";
+}
+
+function isTestRemovedNoEquipmentHomeRequirementValue(value: string) {
+  const normalized = value.trim().toLowerCase();
+  return normalized === "none" || normalized === "no_equipment" || value.trim() === "无器械";
+}
+
+function isTestBodyweightExerciseResourceEquipment(input: { equipment?: string | null; equipmentZh?: string | null }) {
+  return input.equipment === "body only"
+    || input.equipment === "bodyweight"
+    || input.equipmentZh === "自重";
+}
+
+function normalizeTestExerciseResourceFacetCatalogForPlanner(catalog: {
+  equipment: string[];
+  homeRequirements: string[];
+}) {
+  return {
+    ...catalog,
+    equipment: [...new Set([...catalog.equipment, "no_equipment", "无器械"])],
+    homeRequirements: catalog.homeRequirements.filter((value) => !isTestRemovedNoEquipmentHomeRequirementValue(value)),
+  };
 }

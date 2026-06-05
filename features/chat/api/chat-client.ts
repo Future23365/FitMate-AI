@@ -45,7 +45,7 @@ export type AgentTextChatEvent =
   | ({ type: "agent_progress" } & AgentProgressPayload)
   | { type: "content"; content: string }
   | { type: "visible_output"; outputType: string; schemaVersion: string; payload: unknown; content?: unknown }
-  | { type: "assistant_suggestions"; suggestions: string[] }
+  | { type: "suggested_questions"; suggestedQuestions: string[] }
   | { type: "error"; error: AgentTextChatErrorPayload }
   | { type: "done" }
   | { type: "tool_result"; toolResultId: string; toolName: string; content: unknown }
@@ -235,11 +235,14 @@ function parseAgentTextChatEvent(value: unknown): AgentTextChatEvent {
         throw new AgentTextChatStreamError("content 事件缺少文本内容。");
       }
       return { type: "content", content: event.content };
-    case "assistant_suggestions":
-      if (!Array.isArray(event.suggestions) || event.suggestions.some((suggestion) => typeof suggestion !== "string")) {
-        throw new AgentTextChatStreamError("assistant_suggestions 事件格式不合法。");
+    case "suggested_questions":
+      if (
+        !Array.isArray(event.suggestedQuestions)
+        || event.suggestedQuestions.some((suggestedQuestion) => typeof suggestedQuestion !== "string")
+      ) {
+        throw new AgentTextChatStreamError("suggested_questions 事件格式不合法。");
       }
-      return { type: "assistant_suggestions", suggestions: event.suggestions };
+      return { type: "suggested_questions", suggestedQuestions: event.suggestedQuestions };
     case "visible_output":
       return {
         type: "visible_output",

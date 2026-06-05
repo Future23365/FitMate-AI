@@ -177,7 +177,7 @@ describe("manual basic LLM judge contract", () => {
         payload: { kind: "exercise_selection" },
         content: { title: "胸部训练" },
       }),
-      JSON.stringify({ type: "assistant_suggestions", suggestions: ["换一批", "只要徒手"] }),
+      JSON.stringify({ type: "suggested_questions", suggestedQuestions: ["换一批", "只要徒手"] }),
       JSON.stringify({
         type: "confirmation_request",
         pendingActionId: "pending-1",
