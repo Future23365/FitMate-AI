@@ -1,7 +1,8 @@
 "use client";
 
 import {
-  useMemo,
+  useEffect,
+  useState,
   useSyncExternalStore,
   type CSSProperties,
   type ReactNode,
@@ -37,32 +38,6 @@ const getPortalRootServerSnapshot = () => {
   return null;
 };
 
-function createMotionReadyStore() {
-  let isMotionReady = false;
-  const subscribers = new Set<() => void>();
-
-  return {
-    subscribe(onStoreChange: () => void) {
-      subscribers.add(onStoreChange);
-      const frameId = window.requestAnimationFrame(() => {
-        isMotionReady = true;
-        subscribers.forEach((subscriber) => subscriber());
-      });
-
-      return () => {
-        window.cancelAnimationFrame(frameId);
-        subscribers.delete(onStoreChange);
-      };
-    },
-    getSnapshot() {
-      return isMotionReady;
-    },
-    getServerSnapshot() {
-      return false;
-    },
-  };
-}
-
 // getResponsiveRightSidebarStyle 提供页面级宽度变量，保证主内容避让和右侧栏本体使用同一事实。
 export function getResponsiveRightSidebarStyle(width = defaultRightSidebarWidth) {
   return {
@@ -77,17 +52,34 @@ export function ResponsiveRightSidebar({
   label,
   width = defaultRightSidebarWidth,
 }: ResponsiveRightSidebarProps) {
-  const motionReadyStore = useMemo(() => createMotionReadyStore(), []);
+  const [isMotionReady, setIsMotionReady] = useState(false);
   const portalRoot = useSyncExternalStore(
     subscribePortalRoot,
     getPortalRootSnapshot,
     getPortalRootServerSnapshot,
   );
-  const isMotionReady = useSyncExternalStore(
-    motionReadyStore.subscribe,
-    motionReadyStore.getSnapshot,
-    motionReadyStore.getServerSnapshot,
-  );
+
+  // 首次挂到 body 后先提交无动画的收起状态，再开启后续交互动画，避免刷新时先展开再收起。
+  useEffect(() => {
+    if (!portalRoot) {
+      return;
+    }
+
+    let secondFrameId = 0;
+    const firstFrameId = window.requestAnimationFrame(() => {
+      secondFrameId = window.requestAnimationFrame(() => {
+        setIsMotionReady(true);
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(firstFrameId);
+      if (secondFrameId) {
+        window.cancelAnimationFrame(secondFrameId);
+      }
+    };
+  }, [portalRoot]);
+
   const style = getResponsiveRightSidebarStyle(width);
   const sidebar = (
     <aside
