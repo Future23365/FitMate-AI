@@ -15,7 +15,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { LazyExercisePreviewSheet } from "@/features/exercises/components/lazy-exercise-preview-sheet";
+import {
+  LazyExercisePreviewSheet,
+  preloadExercisePreviewBody,
+} from "@/features/exercises/components/lazy-exercise-preview-sheet";
+import { createExercisePreviewFromListItem } from "@/features/exercises/lib/exercise-preview-fallback";
 import {
   createWorkoutRoutine,
   deleteWorkoutRoutine as deleteWorkoutRoutineRequest,
@@ -437,6 +441,12 @@ export function ActionComposerPage() {
   const titleInputRef = useRef<HTMLInputElement>(null);
   const hasHandledInitialWorkoutLoadRef = useRef(false);
   const isLibraryRequestInFlightRef = useRef(false);
+  const previewRequestIdRef = useRef(0);
+
+  // 详情抽屉主体提前预热，保留懒加载拆包，同时降低首次打开时的组件空白等待。
+  useEffect(() => {
+    preloadExercisePreviewBody();
+  }, []);
 
   // 标题更新集中在这里，避免展示态标题和编辑态草稿在切换编排时出现不同步。
   const applyPlanTitle = useCallback((nextTitle: string) => {
@@ -737,33 +747,56 @@ export function ActionComposerPage() {
   }
 
   function openLibraryPreview(exercise: ExerciseListItem) {
+    const cachedExercise = exerciseCache.get(exercise.id);
+    const requestId = previewRequestIdRef.current + 1;
+
+    previewRequestIdRef.current = requestId;
     setSelectedLibraryExerciseId(exercise.id);
-    setIsPreviewSheetOpen(true);
-    setIsPreviewExerciseLoading(true);
+    setActivePreviewExercise(cachedExercise ?? createExercisePreviewFromListItem(exercise));
     setPreviewExerciseError("");
-    setActivePreviewExercise(null);
     setActivePreviewSource("library");
+    setIsPreviewSheetOpen(true);
+    setIsPreviewExerciseLoading(!cachedExercise);
+
+    if (cachedExercise) {
+      return;
+    }
 
     void readExerciseDetailFromCache(exercise.id)
       .then((fullExercise) => {
+        if (previewRequestIdRef.current !== requestId) {
+          return;
+        }
+
         setActivePreviewExercise(fullExercise);
       })
       .catch((error: unknown) => {
+        if (previewRequestIdRef.current !== requestId) {
+          return;
+        }
+
         setPreviewExerciseError(error instanceof Error ? error.message : "动作详情加载失败");
       })
       .finally(() => {
+        if (previewRequestIdRef.current !== requestId) {
+          return;
+        }
+
         setIsPreviewExerciseLoading(false);
       });
   }
 
   function openPlanPreview(item: WorkoutItem) {
+    previewRequestIdRef.current += 1;
     setActivePreviewExercise(toPreviewExercise(item, exerciseCache));
     setActivePreviewSource("plan");
     setIsPreviewSheetOpen(true);
+    setIsPreviewExerciseLoading(false);
     setPreviewExerciseError("");
   }
 
   function closePreviewSheet() {
+    previewRequestIdRef.current += 1;
     setIsPreviewSheetOpen(false);
     setActivePreviewExercise(null);
     setActivePreviewSource(null);
@@ -1410,6 +1443,8 @@ export function ActionComposerPage() {
                           <button
                             aria-label={`查看动作详情：${exercise.nameZh}`}
                             className="rounded-full p-xs text-outline transition-colors hover:bg-primary/10 hover:text-primary"
+                            onFocus={preloadExercisePreviewBody}
+                            onMouseEnter={preloadExercisePreviewBody}
                             onClick={(event) => {
                               event.stopPropagation();
                               openLibraryPreview(exercise);

@@ -7,6 +7,10 @@ import { SymbolIcon } from "@/components/app/symbol-icon";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
 import { ExerciseSummaryMetaChip } from "@/features/exercises/components/exercise-summary-meta-chip";
 import { ExerciseDetailIconButton } from "@/features/exercises/components/exercise-detail-icon-button";
+import {
+  createExercisePreviewFromRecommendationItem,
+  exercisePreviewPlaceholderImage,
+} from "@/features/exercises/lib/exercise-preview-fallback";
 import type { AssistantSuggestion } from "@/lib/shared/chat/assistant-suggestions";
 import type {
   ExerciseRecommendationCard as ExerciseRecommendationCardData,
@@ -22,55 +26,9 @@ type ExerciseRecommendationCardProps = {
   onSuggestionClick?: (message: string) => void;
 };
 
-const placeholderImage = "/images/exercise-placeholder.svg";
-
 type ExerciseApiResponse = {
   item: Exercise;
 };
-
-function toPreviewFallbackExercise(item: ExerciseRecommendationItem): Exercise {
-  return {
-    id: item.exerciseId,
-    source: "recommendation",
-    sourceUrl: "",
-    sourceId: item.exerciseId,
-    license: "",
-    nameEn: item.nameEn ?? item.exerciseId,
-    nameZh: item.nameZh,
-    category: null,
-    categoryZh: item.categoryZh,
-    level: null,
-    levelZh: item.levelZh,
-    force: null,
-    forceZh: null,
-    mechanic: null,
-    mechanicZh: null,
-    equipment: null,
-    equipmentZh: item.equipmentZh,
-    homeRequirement: "unknown",
-    homeRequirementZh: "未标注",
-    primaryMuscles: [],
-    primaryMusclesZh: item.primaryMusclesZh,
-    secondaryMuscles: [],
-    secondaryMusclesZh: item.secondaryMusclesZh,
-    instructionsEn: [],
-    instructionsZh: item.reasons,
-    images: [],
-    imageUrls: [item.imageUrl || placeholderImage],
-    allowedSections: ["training"],
-    intensityRole: "strength",
-    movementPattern: "other",
-    difficulty: "beginner",
-    riskTags: [],
-    contraindications: [],
-    regressionExerciseIds: [],
-    progressionExerciseIds: [],
-    substitutionGroupId: null,
-    goalTags: [],
-    reviewStatus: "fallback",
-    isPublished: true,
-  };
-}
 
 // ExerciseRecommendationCard 承载聊天气泡里的动作推荐结果，底部只展示本轮 AI 明确给出的下一步建议。
 export function ExerciseRecommendationCard({
@@ -92,7 +50,7 @@ export function ExerciseRecommendationCard({
   function handleOpenPreview(item: ExerciseRecommendationItem) {
     const cachedExercise = exerciseMap.get(item.exerciseId);
 
-    setActivePreviewExercise(cachedExercise ?? toPreviewFallbackExercise(item));
+    setActivePreviewExercise(cachedExercise ?? createExercisePreviewFromRecommendationItem(item));
     setIsPreviewOpen(true);
 
     if (!cachedExercise) {
@@ -108,7 +66,7 @@ export function ExerciseRecommendationCard({
           setActivePreviewExercise(data.item);
         })
         .catch(() => {
-          setActivePreviewExercise(toPreviewFallbackExercise(item));
+          setActivePreviewExercise(createExercisePreviewFromRecommendationItem(item));
         });
     }
   }
@@ -184,7 +142,7 @@ export function ExerciseRecommendationCard({
                     className="object-cover transition-transform duration-300 group-hover/exercise-card:scale-105"
                     fill
                     sizes="68px"
-                    src={item.imageUrl || placeholderImage}
+                    src={item.imageUrl || exercisePreviewPlaceholderImage}
                   />
                 </button>
 

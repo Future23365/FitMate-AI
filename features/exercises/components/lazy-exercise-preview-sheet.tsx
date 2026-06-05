@@ -28,6 +28,13 @@ const DynamicExercisePreviewSheetBody = dynamic(
   },
 );
 
+// preloadExercisePreviewBody 提前加载详情主体代码块，减少第一次打开抽屉时的空白等待。
+export function preloadExercisePreviewBody() {
+  const preload = (DynamicExercisePreviewSheetBody as unknown as { preload?: () => void }).preload;
+
+  preload?.();
+}
+
 // LazyExercisePreviewSheet 统一持有动作详情抽屉外壳，只懒加载重交互内容，避免 fallback 重建抽屉导致闪烁。
 export function LazyExercisePreviewSheet({
   errorMessage,
@@ -38,7 +45,8 @@ export function LazyExercisePreviewSheet({
   onClose,
   primaryAction,
 }: LazyExercisePreviewSheetProps) {
-  const isDetailReady = isOpen && !isLoading && !errorMessage && Boolean(exercise);
+  const hasPreviewExercise = isOpen && Boolean(exercise);
+  const isDetailReady = hasPreviewExercise && !isLoading && !errorMessage;
 
   if (!isOpen && !exercise && !isLoading && !errorMessage) {
     return null;
@@ -59,7 +67,7 @@ export function LazyExercisePreviewSheet({
       footerClassName="shrink-0"
       header={
         <ExercisePreviewHeader
-          exercise={isDetailReady ? exercise : null}
+          exercise={hasPreviewExercise ? exercise : null}
           onClose={onClose}
         />
       }
@@ -69,17 +77,30 @@ export function LazyExercisePreviewSheet({
       panelClassName="bg-slate-50"
       widthClassName="sm:w-[460px]"
     >
-      {errorMessage ? (
+      {hasPreviewExercise && exercise ? (
+        <>
+          {errorMessage ? (
+            <div className="rounded-xl border border-error-container bg-error-container/30 p-md text-on-error-container">
+              <p className="font-label-md text-label-md font-bold">动作详情加载失败</p>
+              <p className="mt-xs font-body-sm text-body-sm">{errorMessage}</p>
+            </div>
+          ) : null}
+          <DynamicExercisePreviewSheetBody
+            exercise={exercise}
+            executionTip={executionTip}
+            isActive={isOpen}
+          />
+          {isLoading ? (
+            <div className="rounded-xl border border-primary/10 bg-white px-md py-sm font-label-sm text-label-sm text-primary shadow-sm">
+              正在补全动作详情...
+            </div>
+          ) : null}
+        </>
+      ) : errorMessage ? (
         <div className="rounded-xl border border-error-container bg-error-container/30 p-md text-on-error-container">
           <p className="font-label-md text-label-md font-bold">动作详情加载失败</p>
           <p className="mt-xs font-body-sm text-body-sm">{errorMessage}</p>
         </div>
-      ) : isDetailReady && exercise ? (
-        <DynamicExercisePreviewSheetBody
-          exercise={exercise}
-          executionTip={executionTip}
-          isActive={isOpen}
-        />
       ) : (
         <ExercisePreviewLoadingBody />
       )}
