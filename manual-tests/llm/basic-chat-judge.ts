@@ -12,14 +12,22 @@ export type BasicChatVisibleOutputSummary = {
   summary: string;
 };
 
+// BasicChatVisibleUserOutput 是 judge 唯一可见输出事实，避免内部 trace/tool 诊断进入语义判定。
+export type BasicChatVisibleUserOutput = {
+  finalAssistantText: string;
+  visibleOutputs: BasicChatVisibleOutputSummary[];
+  assistantSuggestions: string[];
+  confirmationRequests: string[];
+  safeErrorMessage?: string;
+};
+
 export type BasicChatJudgeModelInput = {
   flowId: string;
   goal: string;
   turnIndex: number;
   userInput: string;
   expectation: string;
-  finalAssistantText: string;
-  visibleOutputs: BasicChatVisibleOutputSummary[];
+  visibleUserOutput: BasicChatVisibleUserOutput;
 };
 
 export type BasicChatJudgeConfig = {
@@ -62,6 +70,7 @@ const defaultJudgeEndpoint = "https://api.deepseek.com/chat/completions";
 const defaultJudgeModel = "deepseek-chat";
 const maxJudgeAssistantTextLength = 4000;
 const maxJudgeVisibleOutputSummaryLength = 1200;
+const maxJudgeSuggestionLength = 240;
 
 // createBasicChatJudgeConfig 统一解析真实 judge 模型配置，避免缺配置时回退到 mock 或旧快照。
 export function createBasicChatJudgeConfig(env: NodeJS.ProcessEnv = process.env): {
@@ -93,12 +102,23 @@ export function buildBasicChatJudgeModelInput(input: BasicChatJudgeModelInput): 
     turnIndex: input.turnIndex,
     userInput: input.userInput,
     expectation: input.expectation,
-    finalAssistantText: truncateText(input.finalAssistantText, maxJudgeAssistantTextLength),
-    visibleOutputs: input.visibleOutputs.map((output) => ({
-      outputType: output.outputType,
-      schemaVersion: output.schemaVersion,
-      summary: truncateText(output.summary, maxJudgeVisibleOutputSummaryLength),
-    })),
+    visibleUserOutput: {
+      finalAssistantText: truncateText(input.visibleUserOutput.finalAssistantText, maxJudgeAssistantTextLength),
+      visibleOutputs: input.visibleUserOutput.visibleOutputs.map((output) => ({
+        outputType: output.outputType,
+        schemaVersion: output.schemaVersion,
+        summary: truncateText(output.summary, maxJudgeVisibleOutputSummaryLength),
+      })),
+      assistantSuggestions: input.visibleUserOutput.assistantSuggestions.map((suggestion) =>
+        truncateText(suggestion, maxJudgeSuggestionLength),
+      ),
+      confirmationRequests: input.visibleUserOutput.confirmationRequests.map((message) =>
+        truncateText(message, maxJudgeSuggestionLength),
+      ),
+      safeErrorMessage: input.visibleUserOutput.safeErrorMessage
+        ? truncateText(input.visibleUserOutput.safeErrorMessage, maxJudgeSuggestionLength)
+        : undefined,
+    },
   };
 }
 
@@ -112,7 +132,7 @@ export function createBasicChatJudgeMessages(input: BasicChatJudgeModelInput) {
       content: [
         "你是首页聊天基础黑盒测试的语义判定器。",
         "你只能依据用户最终可见输出判断该轮是否满足文档期望。",
-        "用户最终可见输出包括 finalAssistantText 和 visibleOutputs 摘要。",
+        "用户最终可见输出位于 visibleUserOutput，包括 finalAssistantText、visibleOutputs、assistantSuggestions、confirmationRequests 和 safeErrorMessage。",
         "不要因为缺少 agent_progress、tool_result、trace、planner action、raw provider response、token diagnostics 或内部错误栈而判失败。",
         "不要要求文档未声明的 exerciseId、动作精确组数、精确时长、计划内部字段或数据库字段完全匹配。",
         "如果最终输出语义满足文档期望，返回 passed=true 且 status=passed。",

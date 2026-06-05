@@ -54,14 +54,14 @@
 
 ## 7. 黑盒边界收紧补充
 
-- [ ] 7.1 收紧基础 runner 请求体：每轮只发送首页聊天客户端公开字段，移除完整历史 `messages`，并增加单元测试证明请求体不包含测试专用绕过字段。
-- [ ] 7.2 补齐多轮保存/hydration：每轮成功后按首页保存边界保存会话和最终可见输出，后续轮次通过同一 `conversationId + current user` 触发服务端 hydration；报告只记录保存/hydration 诊断摘要，不把诊断送入 judge。
-- [ ] 7.3 复用生产 NDJSON parser 或抽取共享解析模块：未知事件、非法事件字段和生产页面会失败的格式错误必须让 runner 失败，不能被手写宽松 parser 静默忽略。
-- [ ] 7.4 扩展 `visibleUserOutput` judge 投影：纳入最终 assistant 正文、`visible_output`、`assistant_suggestions`、`confirmation_request` 和用户安全错误文案；继续排除 `agent_progress`、`tool_result`、trace、planner action、raw provider response、token diagnostics 和内部错误栈。
-- [ ] 7.5 将 token usage 降级为可选诊断：读取不到 token 或开发态 trace store 不可用时不影响 flow 判定；报告必须标明 token 来源和缺失状态。
-- [ ] 7.6 放松非真实模型单测中的 fixture 硬编码：验证文档结构、ID 唯一、三轮完整和非空字段，不再把当前 flow 总数、完整固定 id 列表或当前顺序当作长期合同。
-- [ ] 7.7 更新报告生成：展示建议回复、确认请求、安全错误、保存/hydration 诊断和 token 来源摘要，同时继续避免保存完整 prompt、raw provider response、tool payload、候选池或大段 trace。
-- [ ] 7.8 补充或更新自动化测试，覆盖请求体不含 `messages`、parser 复用、judge input 排除内部字段、token 缺失不失败、fixture parser 不锁死当前用例数量。
-- [ ] 7.9 运行 `npm run test -- tests/manual-llm-basic-blackbox.test.ts` 和新增相关非真实模型测试。
-- [ ] 7.10 运行 `openspec validate add-llm-basic-chat-blackbox-tests --strict`。
-- [ ] 7.11 在真实模型配置可用且用户确认 token 成本后，运行 `npm run test:llm:basic -- --flow F01` 验证单 flow 链路；若未运行，报告缺失环境或未确认原因。
+- [x] 7.1 收紧基础 runner 请求体：每轮只发送首页聊天客户端公开字段，移除完整历史 `messages`，并增加单元测试证明请求体不包含测试专用绕过字段。
+- [x] 7.2 补齐多轮保存/hydration：每轮成功后按首页保存边界保存会话和最终可见输出，后续轮次通过同一 `conversationId + current user` 触发服务端 hydration；报告只记录保存/hydration 诊断摘要，不把诊断送入 judge。
+- [x] 7.3 复用生产 NDJSON parser 或抽取共享解析模块：未知事件、非法事件字段和生产页面会失败的格式错误必须让 runner 失败，不能被手写宽松 parser 静默忽略。
+- [x] 7.4 扩展 `visibleUserOutput` judge 投影：纳入最终 assistant 正文、`visible_output`、`assistant_suggestions`、`confirmation_request` 和用户安全错误文案；继续排除 `agent_progress`、`tool_result`、trace、planner action、raw provider response、token diagnostics 和内部错误栈。
+- [x] 7.5 将 token usage 降级为可选诊断：读取不到 token 或开发态 trace store 不可用时不影响 flow 判定；报告必须标明 token 来源和缺失状态。
+- [x] 7.6 放松非真实模型单测中的 fixture 硬编码：验证文档结构、ID 唯一、三轮完整和非空字段，不再把当前 flow 总数、完整固定 id 列表或当前顺序当作长期合同。
+- [x] 7.7 更新报告生成：展示建议回复、确认请求、安全错误、保存/hydration 诊断和 token 来源摘要，同时继续避免保存完整 prompt、raw provider response、tool payload、候选池或大段 trace。
+- [x] 7.8 补充或更新自动化测试，覆盖请求体不含 `messages`、parser 复用、judge input 排除内部字段、token 缺失不失败、fixture parser 不锁死当前用例数量。
+- [x] 7.9 运行 `npm run test -- tests/manual-llm-basic-blackbox.test.ts` 和新增相关非真实模型测试。
+- [x] 7.10 运行 `openspec validate add-llm-basic-chat-blackbox-tests --strict`。
+- [x] 7.11 在真实模型配置可用且用户确认 token 成本后，运行 `npm run test:llm:basic -- --flow F01` 验证单 flow 链路；若未运行，报告缺失环境或未确认原因。

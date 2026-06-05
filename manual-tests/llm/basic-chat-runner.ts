@@ -4,11 +4,27 @@ import { dirname, resolve } from "node:path";
 
 import { POST as createLocalAnonymousSession } from "@/app/api/auth/local-anonymous/route";
 import { POST as postChat } from "@/app/api/chat/route";
+import {
+  consumeAgentTextChatNdjson,
+  getAgentTextChatEventErrorMessage,
+  type AgentTextChatEvent,
+} from "@/features/chat/api/chat-client";
+import type { ChatMessage, ChatVisibleOutput } from "@/features/chat/types";
+import {
+  getChatConversationById,
+  saveChatConversation as saveChatConversationHistory,
+} from "@/lib/server/chat/chat-history-service";
+import {
+  prepareChatRequest,
+  type ChatHistoryHydrationMetadata,
+} from "@/lib/server/chat/chat-service";
 import { clearAiTraces, listAiTracesForUser } from "@/lib/server/dev/ai-trace-store";
 import {
   buildConversationSummaryContext,
   buildFitnessConversationContext,
   initializeConversationSummary,
+  type ConversationSummaryContext,
+  type FitnessConversationContext,
 } from "@/lib/shared/chat/fitness-conversation-context";
 
 import {
@@ -22,20 +38,29 @@ import {
   createBasicChatJudgeConfig,
   judgeBasicChatTurn,
   type BasicChatJudgeConfig,
-  type BasicChatTokenUsage,
+  type BasicChatVisibleUserOutput,
   type BasicChatVisibleOutputSummary,
 } from "./basic-chat-judge";
 import {
   mergeTokenUsage,
   renderBasicChatBlackboxReport,
   summarizeReportText,
+  summarizeTokenDiagnostics,
+  type BasicChatHydrationDiagnostic,
+  type BasicChatHydrationSaveDiagnostic,
   type BasicChatSuiteSummary,
+  type BasicChatTokenDiagnostics,
   type BasicChatTurnRunRecord,
 } from "./basic-chat-report";
 
-type BasicChatMessage = {
-  role: "user" | "assistant";
-  content: string;
+// BasicChatRequestBody 是基础黑盒 runner 允许发送给 /api/chat 的公开页面字段白名单。
+export type BasicChatRequestBody = {
+  conversationId: string;
+  responseMessageId: string;
+  latestUserMessage: string;
+  conversationSummary: string;
+  conversationContext: FitnessConversationContext;
+  thinkingEnabled: boolean;
 };
 
 export type BasicChatBlackboxRunOptions = {
@@ -60,9 +85,14 @@ type AuthSession = {
   userId: string;
 };
 
-type NormalizedChatOutput = {
+// NormalizedChatOutput 是 NDJSON stream 到用户可见输出的测试侧归一化结果。
+export type NormalizedChatOutput = {
   assistantText: string;
   visibleOutputs: BasicChatVisibleOutputSummary[];
+  rawVisibleOutputs: ChatVisibleOutput[];
+  assistantSuggestions: string[];
+  confirmationRequests: string[];
+  safeErrorMessage?: string;
   visibleOutputKinds: string[];
   eventTypes: string[];
   done: boolean;
@@ -237,7 +267,7 @@ async function runBasicChatFlow(input: {
 }): Promise<BasicChatTurnRunRecord[]> {
   const records: BasicChatTurnRunRecord[] = [];
   const conversationId = `manual-basic-${input.flow.id}-${randomUUID()}`;
-  const historyMessages: BasicChatMessage[] = [];
+  let savedMessages: ChatMessage[] = [];
   let conversationSummary = "";
   let shouldSkipAfterFirstTurn = false;
 
@@ -258,28 +288,38 @@ async function runBasicChatFlow(input: {
       continue;
     }
 
+    const userMessage: ChatMessage = {
+      id: `user-${randomUUID()}`,
+      role: "user",
+      content: turn.userInput,
+      createdAt: new Date().toISOString(),
+    };
     const responseMessageId = `assistant-${randomUUID()}`;
-    const requestMessages = [...historyMessages, { role: "user" as const, content: turn.userInput }];
     const requestSummary = buildConversationSummaryContext({
       summary: conversationSummary,
       latestUserMessage: turn.userInput,
     });
-    const requestBody = {
+    const nextRequestContext = buildFitnessConversationContext([...savedMessages, userMessage]);
+    const requestBody = createBasicChatRequestBody({
       conversationId,
       responseMessageId,
       latestUserMessage: requestSummary.latestUserMessage,
       conversationSummary: requestSummary.summary,
-      messages: requestMessages,
-      conversationContext: buildFitnessConversationContext(requestMessages),
+      conversationContext: nextRequestContext,
       thinkingEnabled: false,
-    };
+    });
+    const hydrationDiagnostic = await inspectRequestHydration({
+      conversationId,
+      currentUserId: input.authSession.userId,
+      requestBody,
+    });
 
     let record: BasicChatTurnRunRecord;
 
     try {
       const response = await postChat(jsonRequest("/api/chat", requestBody, input.authSession.cookie));
-      const output = normalizeChatOutput(await response.text());
-      const chatTokenUsage = readChatTokenUsage(input.authSession.userId, responseMessageId);
+      const output = await normalizeChatOutput(await response.text());
+      const chatTokenDiagnostics = readChatTokenDiagnostics(input.authSession.userId, responseMessageId);
       if (!output.done) {
         record = {
           flowId: input.flow.id,
@@ -291,7 +331,12 @@ async function runBasicChatFlow(input: {
           status: "error",
           finalAssistantTextSummary: summarizeReportText(output.assistantText),
           visibleOutputKinds: output.visibleOutputKinds,
-          chatTokenUsage,
+          assistantSuggestions: output.assistantSuggestions,
+          confirmationRequests: output.confirmationRequests,
+          safeErrorMessage: output.safeErrorMessage,
+          hydration: hydrationDiagnostic,
+          chatTokenDiagnostics,
+          chatTokenUsage: chatTokenDiagnostics.usage,
           failureReason: output.errorMessage ?? "聊天响应未收到 done 事件。",
         };
         records.push(record);
@@ -302,6 +347,54 @@ async function runBasicChatFlow(input: {
         continue;
       }
 
+      const assistantMessage: ChatMessage = {
+        id: responseMessageId,
+        role: "assistant",
+        content: output.assistantText || output.safeErrorMessage || "",
+        createdAt: new Date().toISOString(),
+        suggestedReplies: output.assistantSuggestions.length ? output.assistantSuggestions : undefined,
+        visibleOutputs: output.rawVisibleOutputs.length ? output.rawVisibleOutputs : undefined,
+      };
+      const persistence = await saveBasicChatConversation({
+        conversationId,
+        currentUserId: input.authSession.userId,
+        messages: [...savedMessages, userMessage, assistantMessage],
+        fallbackConversationSummary: conversationSummary,
+        fallbackConversationContext: nextRequestContext,
+      });
+
+      hydrationDiagnostic.save = persistence.diagnostic;
+
+      if (!persistence.ok) {
+        record = {
+          flowId: input.flow.id,
+          goal: input.flow.goal,
+          turnIndex: turn.index,
+          userInput: turn.userInput,
+          expectation: turn.expectation,
+          executed: true,
+          status: "error",
+          finalAssistantTextSummary: summarizeReportText(output.assistantText),
+          visibleOutputKinds: output.visibleOutputKinds,
+          assistantSuggestions: output.assistantSuggestions,
+          confirmationRequests: output.confirmationRequests,
+          safeErrorMessage: output.safeErrorMessage,
+          hydration: hydrationDiagnostic,
+          chatTokenDiagnostics,
+          chatTokenUsage: chatTokenDiagnostics.usage,
+          failureReason: persistence.diagnostic.errorMessage ?? "会话保存失败。",
+        };
+        records.push(record);
+
+        if (turn.index === 1) {
+          shouldSkipAfterFirstTurn = true;
+        }
+        continue;
+      }
+
+      savedMessages = persistence.messages;
+      conversationSummary = persistence.conversationSummary.summary;
+
       const judgeOutcome = await judgeBasicChatTurn(
         {
           flowId: input.flow.id,
@@ -309,8 +402,7 @@ async function runBasicChatFlow(input: {
           turnIndex: turn.index,
           userInput: turn.userInput,
           expectation: turn.expectation,
-          finalAssistantText: output.assistantText,
-          visibleOutputs: output.visibleOutputs,
+          visibleUserOutput: createBasicChatVisibleUserOutput(output),
         },
         input.judgeConfig,
         input.fetchImpl,
@@ -327,8 +419,13 @@ async function runBasicChatFlow(input: {
           status: judgeOutcome.result.passed ? "passed" : "failed",
           finalAssistantTextSummary: summarizeReportText(output.assistantText),
           visibleOutputKinds: output.visibleOutputKinds,
+          assistantSuggestions: output.assistantSuggestions,
+          confirmationRequests: output.confirmationRequests,
+          safeErrorMessage: output.safeErrorMessage,
+          hydration: hydrationDiagnostic,
           judge: judgeOutcome.result,
-          chatTokenUsage,
+          chatTokenDiagnostics,
+          chatTokenUsage: chatTokenDiagnostics.usage,
           judgeTokenUsage: judgeOutcome.usage,
           failureReason: output.errorMessage,
         };
@@ -343,15 +440,16 @@ async function runBasicChatFlow(input: {
           status: "judge_failed",
           finalAssistantTextSummary: summarizeReportText(output.assistantText),
           visibleOutputKinds: output.visibleOutputKinds,
-          chatTokenUsage,
+          assistantSuggestions: output.assistantSuggestions,
+          confirmationRequests: output.confirmationRequests,
+          safeErrorMessage: output.safeErrorMessage,
+          hydration: hydrationDiagnostic,
+          chatTokenDiagnostics,
+          chatTokenUsage: chatTokenDiagnostics.usage,
           judgeTokenUsage: judgeOutcome.usage,
           failureReason: `${judgeOutcome.failureCode}: ${judgeOutcome.reason}`,
         };
       }
-
-      historyMessages.push({ role: "user", content: turn.userInput });
-      historyMessages.push({ role: "assistant", content: output.assistantText || record.failureReason || "" });
-      conversationSummary = initializeConversationSummary(historyMessages).summary;
     } catch (error) {
       record = {
         flowId: input.flow.id,
@@ -363,6 +461,10 @@ async function runBasicChatFlow(input: {
         status: "error",
         finalAssistantTextSummary: "",
         visibleOutputKinds: [],
+        hydration: {
+          ...hydrationDiagnostic,
+          save: { status: "not_attempted" },
+        },
         failureReason: error instanceof Error ? error.message : String(error),
       };
     }
@@ -375,6 +477,127 @@ async function runBasicChatFlow(input: {
   }
 
   return records;
+}
+
+// createBasicChatRequestBody 固定基础黑盒 runner 的页面公开请求面，避免用 messages 等兼容字段绕过 hydration。
+export function createBasicChatRequestBody(input: BasicChatRequestBody): BasicChatRequestBody {
+  return {
+    conversationId: input.conversationId,
+    responseMessageId: input.responseMessageId,
+    latestUserMessage: input.latestUserMessage,
+    conversationSummary: input.conversationSummary,
+    conversationContext: input.conversationContext,
+    thinkingEnabled: input.thinkingEnabled,
+  };
+}
+
+function createBasicChatVisibleUserOutput(output: NormalizedChatOutput): BasicChatVisibleUserOutput {
+  return {
+    finalAssistantText: output.assistantText,
+    visibleOutputs: output.visibleOutputs,
+    assistantSuggestions: output.assistantSuggestions,
+    confirmationRequests: output.confirmationRequests,
+    safeErrorMessage: output.safeErrorMessage,
+  };
+}
+
+async function inspectRequestHydration(input: {
+  conversationId: string;
+  currentUserId: string;
+  requestBody: BasicChatRequestBody;
+}): Promise<BasicChatHydrationDiagnostic> {
+  try {
+    const savedConversation = await getChatConversationById(input.conversationId, { id: input.currentUserId });
+    const prepared = prepareChatRequest(input.requestBody, { savedConversation });
+
+    return mapHydrationMetadata(prepared.hydration);
+  } catch (error) {
+    return {
+      source: "inspect_failed",
+      savedConversationFound: false,
+      restoredMessageCount: 0,
+      hasSavedConversationContext: false,
+      hasClientConversationContext: false,
+      save: {
+        status: "not_attempted",
+        errorMessage: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
+async function saveBasicChatConversation(input: {
+  conversationId: string;
+  currentUserId: string;
+  messages: ChatMessage[];
+  fallbackConversationSummary: string;
+  fallbackConversationContext: FitnessConversationContext;
+}): Promise<{
+  ok: true;
+  messages: ChatMessage[];
+  conversationSummary: Pick<ConversationSummaryContext, "summary">;
+  conversationContext: FitnessConversationContext;
+  diagnostic: BasicChatHydrationSaveDiagnostic;
+} | {
+  ok: false;
+  diagnostic: BasicChatHydrationSaveDiagnostic;
+}> {
+  try {
+    const normalizedMessages = input.messages.map((message) => ({
+      ...message,
+      createdAt: message.createdAt ?? new Date().toISOString(),
+    }));
+    const conversationContext = buildFitnessConversationContext(normalizedMessages);
+    const conversationSummary = initializeConversationSummary(normalizedMessages, {
+      summary: input.fallbackConversationSummary,
+    });
+    const saved = await saveChatConversationHistory({
+      id: input.conversationId,
+      title: createBasicChatConversationTitle(normalizedMessages),
+      updatedAt: new Date().toISOString(),
+      messages: normalizedMessages,
+      conversationSummary: { summary: conversationSummary.summary },
+      conversationContext: conversationContext ?? input.fallbackConversationContext,
+    }, { id: input.currentUserId });
+
+    return {
+      ok: true,
+      messages: saved.messages,
+      conversationSummary: saved.conversationSummary ?? { summary: conversationSummary.summary },
+      conversationContext: saved.conversationContext ?? conversationContext,
+      diagnostic: {
+        status: "saved",
+        savedMessageCount: saved.messages.length,
+        savedVisibleOutputCount: saved.messages.reduce((total, message) => total + (message.visibleOutputs?.length ?? 0), 0),
+      },
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      diagnostic: {
+        status: "failed",
+        errorMessage: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
+function mapHydrationMetadata(metadata: ChatHistoryHydrationMetadata): BasicChatHydrationDiagnostic {
+  return {
+    source: metadata.source,
+    savedConversationFound: metadata.savedConversationFound,
+    restoredMessageCount: metadata.restoredMessageCount,
+    hasSavedConversationContext: metadata.hasSavedConversationContext,
+    hasClientConversationContext: metadata.hasClientConversationContext,
+    save: { status: "not_attempted" },
+  };
+}
+
+function createBasicChatConversationTitle(messages: ChatMessage[]) {
+  const firstUserMessage = messages.find((message) => message.role === "user");
+  const title = firstUserMessage?.content.trim().replace(/\s+/g, " ") || "新对话";
+
+  return title.length > 24 ? `${title.slice(0, 24)}...` : title;
 }
 
 async function createManualAuthSession(): Promise<AuthSession> {
@@ -392,40 +615,60 @@ async function createManualAuthSession(): Promise<AuthSession> {
   return { cookie, userId };
 }
 
-function normalizeChatOutput(rawNdjson: string): NormalizedChatOutput {
-  const events = parseNdjsonEvents(rawNdjson);
+// normalizeChatOutput 复用生产 NDJSON parser，并只投影最终用户可见内容给 runner。
+export async function normalizeChatOutput(rawNdjson: string): Promise<NormalizedChatOutput> {
+  const events: AgentTextChatEvent[] = [];
+  await consumeAgentTextChatNdjson(new Response(rawNdjson), (event) => {
+    events.push(event);
+  });
   let assistantText = "";
   let done = false;
   let errorMessage: string | undefined;
+  let safeErrorMessage: string | undefined;
   const visibleOutputs: BasicChatVisibleOutputSummary[] = [];
+  const rawVisibleOutputs: ChatVisibleOutput[] = [];
+  const assistantSuggestions: string[] = [];
+  const confirmationRequests: string[] = [];
   const eventTypes: string[] = [];
 
   for (const event of events) {
-    const eventType = typeof event.type === "string" ? event.type : "unknown";
-    eventTypes.push(eventType);
+    eventTypes.push(event.type);
 
-    if (eventType === "content" && typeof event.content === "string") {
+    if (event.type === "content") {
       assistantText += event.content;
     }
 
-    if (eventType === "visible_output") {
-      const outputType = String(event.outputType ?? "");
-      const schemaVersion = String(event.schemaVersion ?? "");
+    if (event.type === "visible_output") {
       visibleOutputs.push({
-        outputType,
-        schemaVersion,
+        outputType: event.outputType,
+        schemaVersion: event.schemaVersion,
         summary: summarizeUnknown(event.content ?? event.payload),
+      });
+      rawVisibleOutputs.push({
+        outputType: event.outputType,
+        schemaVersion: event.schemaVersion,
+        payload: event.payload,
+        content: event.content,
       });
     }
 
-    if (eventType === "error") {
-      errorMessage = readSafeErrorMessage(event.error);
+    if (event.type === "assistant_suggestions") {
+      assistantSuggestions.push(...event.suggestions);
+    }
+
+    if (event.type === "confirmation_request") {
+      confirmationRequests.push(event.message);
+    }
+
+    if (event.type === "error") {
+      safeErrorMessage = getAgentTextChatEventErrorMessage(event);
+      errorMessage = safeErrorMessage;
       if (!assistantText) {
-        assistantText = errorMessage;
+        assistantText = safeErrorMessage;
       }
     }
 
-    if (eventType === "done") {
+    if (event.type === "done") {
       done = true;
     }
   }
@@ -433,19 +676,15 @@ function normalizeChatOutput(rawNdjson: string): NormalizedChatOutput {
   return {
     assistantText,
     visibleOutputs,
+    rawVisibleOutputs,
+    assistantSuggestions,
+    confirmationRequests,
+    safeErrorMessage,
     visibleOutputKinds: visibleOutputs.map((output) => `${output.outputType}@${output.schemaVersion}`),
     eventTypes,
     done,
     errorMessage: done ? errorMessage : errorMessage ?? "聊天响应未收到 done 事件。",
   };
-}
-
-function parseNdjsonEvents(text: string): Array<Record<string, unknown>> {
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
 async function writeFinalReport(input: {
@@ -486,6 +725,7 @@ async function writeFinalReport(input: {
     estimatedTokenTotal: input.estimatedTokenTotal,
     actualChatTokenUsage: mergeTokenUsage(input.records.map((record) => record.chatTokenUsage)),
     actualJudgeTokenUsage: mergeTokenUsage(input.records.map((record) => record.judgeTokenUsage)),
+    chatTokenDiagnosticsSummary: summarizeTokenDiagnostics(input.records.map((record) => record.chatTokenDiagnostics)),
     missingConfiguration: input.missingConfiguration,
     preflightErrors: input.preflightErrors,
   };
@@ -527,30 +767,50 @@ function selectFlows(flows: BasicChatFlow[], flowIds: string[] | undefined):
   return { ok: true, flows: flowIds.map((id) => flowById.get(id)!) };
 }
 
-function readChatTokenUsage(userId: string, responseMessageId: string): BasicChatTokenUsage | undefined {
-  const trace = listAiTracesForUser(userId).find((item) => item.messageId === responseMessageId);
-  const usage = trace?.metadata?.tokenUsageSummary;
+function readChatTokenDiagnostics(userId: string, responseMessageId: string): BasicChatTokenDiagnostics {
+  try {
+    const trace = listAiTracesForUser(userId).find((item) => item.messageId === responseMessageId);
+    const usage = trace?.metadata?.tokenUsageSummary;
 
-  if (!usage || typeof usage !== "object" || Array.isArray(usage)) {
-    return undefined;
+    if (!usage || typeof usage !== "object" || Array.isArray(usage)) {
+      return {
+        source: "dev_trace_store",
+        status: "missing",
+        reason: "trace token usage not found",
+      };
+    }
+
+    const record = usage as Record<string, unknown>;
+    const promptTokens = readNumber(record.prompt_tokens);
+    const completionTokens = readNumber(record.completion_tokens);
+    const totalTokens = readNumber(record.total_tokens) ?? (
+      promptTokens !== undefined && completionTokens !== undefined ? promptTokens + completionTokens : undefined
+    );
+
+    if (promptTokens === undefined && completionTokens === undefined && totalTokens === undefined) {
+      return {
+        source: "dev_trace_store",
+        status: "missing",
+        reason: "trace token usage is empty",
+      };
+    }
+
+    return {
+      source: "dev_trace_store",
+      status: "available",
+      usage: {
+        promptTokens: promptTokens ?? 0,
+        completionTokens: completionTokens ?? 0,
+        totalTokens: totalTokens ?? 0,
+      },
+    };
+  } catch (error) {
+    return {
+      source: "dev_trace_store",
+      status: "unavailable",
+      reason: error instanceof Error ? error.message : String(error),
+    };
   }
-
-  const record = usage as Record<string, unknown>;
-  const promptTokens = readNumber(record.prompt_tokens);
-  const completionTokens = readNumber(record.completion_tokens);
-  const totalTokens = readNumber(record.total_tokens) ?? (
-    promptTokens !== undefined && completionTokens !== undefined ? promptTokens + completionTokens : undefined
-  );
-
-  if (promptTokens === undefined && completionTokens === undefined && totalTokens === undefined) {
-    return undefined;
-  }
-
-  return {
-    promptTokens: promptTokens ?? 0,
-    completionTokens: completionTokens ?? 0,
-    totalTokens: totalTokens ?? 0,
-  };
 }
 
 function jsonRequest(url: string, body: unknown, cookie: string) {
@@ -625,17 +885,6 @@ function summarizeUnknown(value: unknown) {
   } catch {
     return summarizeReportText(String(value));
   }
-}
-
-function readSafeErrorMessage(error: unknown) {
-  if (!error || typeof error !== "object" || Array.isArray(error)) {
-    return "聊天生成失败，请稍后重试。";
-  }
-
-  const message = (error as Record<string, unknown>).message;
-  return typeof message === "string" && message.trim()
-    ? message.trim()
-    : "聊天生成失败，请稍后重试。";
 }
 
 function parseFlowIds(value: string | undefined) {

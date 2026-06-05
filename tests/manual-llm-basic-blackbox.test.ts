@@ -15,46 +15,56 @@ import {
 } from "@/manual-tests/llm/basic-chat-judge";
 import {
   renderBasicChatBlackboxReport,
+  summarizeTokenDiagnostics,
   type BasicChatSuiteSummary,
   type BasicChatTurnRunRecord,
 } from "@/manual-tests/llm/basic-chat-report";
+import {
+  createBasicChatRequestBody,
+  normalizeChatOutput,
+} from "@/manual-tests/llm/basic-chat-runner";
+import { buildFitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
 
 describe("manual basic LLM blackbox fixtures", () => {
   it("parses llm基础测试.md as the single basic three-turn flow source", async () => {
     const fixture = await readBasicChatFixture();
+    const ids = fixture.flows.map((flow) => flow.id);
 
     expect(fixture.sourcePath).toContain("llm基础测试.md");
-    expect(fixture.stats).toEqual({ flowCount: 19, turnCount: 57 });
-    expect(fixture.flows.map((flow) => flow.id)).toEqual([
-      "F01",
-      "F02",
-      "F03",
-      "F04",
-      "F05",
-      "F08",
-      "F12",
-      "F13",
-      "F14",
-      "F15",
-      "F16",
-      "F17",
-      "F18",
-      "F19",
-      "F20",
-      "F21",
-      "F22",
-      "F23",
-      "F24",
-    ]);
-    expect(fixture.flows[0]).toMatchObject({
-      id: "F01",
-      goal: "纯动作推荐到刷新推荐",
-      turns: [
-        { index: 1, userInput: "今天我想练胸" },
-        { index: 2, userInput: "换一批" },
-        { index: 3, userInput: "推荐几个不用器械的" },
-      ],
+    expect(fixture.stats.flowCount).toBeGreaterThan(0);
+    expect(fixture.stats.turnCount).toBe(fixture.stats.flowCount * 3);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(fixture.flows.every((flow) => flow.turns.length === 3)).toBe(true);
+    expect(fixture.flows.every((flow) => flow.id.trim() && flow.goal.trim())).toBe(true);
+    expect(fixture.flows.every((flow) =>
+      flow.turns.every((turn) => turn.userInput.trim() && turn.expectation.trim()),
+    )).toBe(true);
+  });
+
+  it("builds the basic runner request body without full history or bypass fields", () => {
+    const requestBody = createBasicChatRequestBody({
+      conversationId: "chat-1",
+      responseMessageId: "assistant-1",
+      latestUserMessage: "今天我想练胸",
+      conversationSummary: "用户想练胸。",
+      conversationContext: buildFitnessConversationContext([{ role: "user", content: "今天我想练胸" }]),
+      thinkingEnabled: false,
     });
+    const serialized = JSON.stringify(requestBody);
+
+    expect(requestBody).toEqual({
+      conversationId: "chat-1",
+      responseMessageId: "assistant-1",
+      latestUserMessage: "今天我想练胸",
+      conversationSummary: "用户想练胸。",
+      conversationContext: expect.any(Object),
+      thinkingEnabled: false,
+    });
+    expect(requestBody).not.toHaveProperty("messages");
+    expect(serialized).not.toContain("plannerOverride");
+    expect(serialized).not.toContain("toolOverride");
+    expect(serialized).not.toContain("traceOverride");
+    expect(serialized).not.toContain("runtimeState");
   });
 
   it("fails preflight before model calls for missing columns, duplicate ids, and empty fields", () => {
@@ -91,10 +101,15 @@ describe("manual basic LLM judge contract", () => {
       turnIndex: 1,
       userInput: "今天我想练胸",
       expectation: "触发动作推荐卡片",
-      finalAssistantText: "可以，给你推荐几个胸部动作。",
-      visibleOutputs: [
-        { outputType: "exercise_recommendation", schemaVersion: "1", summary: "胸部动作推荐卡片" },
-      ],
+      visibleUserOutput: {
+        finalAssistantText: "可以，给你推荐几个胸部动作。",
+        visibleOutputs: [
+          { outputType: "exercise_recommendation", schemaVersion: "1", summary: "胸部动作推荐卡片" },
+        ],
+        assistantSuggestions: ["换一批"],
+        confirmationRequests: ["是否保存这套训练？"],
+        safeErrorMessage: "聊天生成失败，请稍后重试。",
+      },
     });
     const messages = createBasicChatJudgeMessages(modelInput);
     const userPayload = JSON.parse(messages[1].content) as Record<string, unknown>;
@@ -106,10 +121,15 @@ describe("manual basic LLM judge contract", () => {
       turnIndex: 1,
       userInput: "今天我想练胸",
       expectation: "触发动作推荐卡片",
-      finalAssistantText: "可以，给你推荐几个胸部动作。",
-      visibleOutputs: [
-        { outputType: "exercise_recommendation", schemaVersion: "1", summary: "胸部动作推荐卡片" },
-      ],
+      visibleUserOutput: {
+        finalAssistantText: "可以，给你推荐几个胸部动作。",
+        visibleOutputs: [
+          { outputType: "exercise_recommendation", schemaVersion: "1", summary: "胸部动作推荐卡片" },
+        ],
+        assistantSuggestions: ["换一批"],
+        confirmationRequests: ["是否保存这套训练？"],
+        safeErrorMessage: "聊天生成失败，请稍后重试。",
+      },
     });
     expect(serializedPayload).not.toContain("agent_progress");
     expect(serializedPayload).not.toContain("tool_result");
@@ -145,6 +165,46 @@ describe("manual basic LLM judge contract", () => {
       total_tokens: 17,
     })).toEqual({ promptTokens: 12, completionTokens: 5, totalTokens: 17 });
   });
+
+  it("reuses the production NDJSON parser and projects visible user output", async () => {
+    const output = await normalizeChatOutput([
+      JSON.stringify({ type: "content", content: "可以。" }),
+      JSON.stringify({
+        type: "visible_output",
+        outputType: "visibleTrainingProposal",
+        schemaVersion: "1",
+        payload: { kind: "exercise_selection" },
+        content: { title: "胸部训练" },
+      }),
+      JSON.stringify({ type: "assistant_suggestions", suggestions: ["换一批", "只要徒手"] }),
+      JSON.stringify({
+        type: "confirmation_request",
+        pendingActionId: "pending-1",
+        actionHash: "hash-1",
+        expiresAt: "2026-06-04T09:00:00.000Z",
+        message: "是否保存这套训练？",
+        toolName: "saveRoutine",
+      }),
+      JSON.stringify({
+        type: "error",
+        error: { code: "chat_ai_not_configured", message: "Chat AI model configuration is missing." },
+      }),
+      JSON.stringify({ type: "done" }),
+    ].join("\n"));
+
+    expect(output).toMatchObject({
+      assistantText: "可以。",
+      visibleOutputKinds: ["visibleTrainingProposal@1"],
+      assistantSuggestions: ["换一批", "只要徒手"],
+      confirmationRequests: ["是否保存这套训练？"],
+      safeErrorMessage: "聊天服务暂时不可用，请稍后再试。",
+      done: true,
+    });
+
+    await expect(normalizeChatOutput(JSON.stringify({ type: "unknown_internal_event" })))
+      .rejects
+      .toThrow(/未知聊天响应事件/);
+  });
 });
 
 describe("manual basic LLM report and isolation", () => {
@@ -170,6 +230,26 @@ describe("manual basic LLM report and isolation", () => {
       },
       chatTokenUsage: { promptTokens: 10, completionTokens: 4, totalTokens: 14 },
       judgeTokenUsage: { promptTokens: 8, completionTokens: 3, totalTokens: 11 },
+      assistantSuggestions: ["换一批"],
+      confirmationRequests: ["是否保存这套训练？"],
+      safeErrorMessage: "聊天生成失败，请稍后重试。",
+      hydration: {
+        source: "server_saved",
+        savedConversationFound: true,
+        restoredMessageCount: 2,
+        hasSavedConversationContext: true,
+        hasClientConversationContext: true,
+        save: {
+          status: "saved",
+          savedMessageCount: 2,
+          savedVisibleOutputCount: 1,
+        },
+      },
+      chatTokenDiagnostics: {
+        source: "dev_trace_store",
+        status: "missing",
+        reason: "trace token usage not found",
+      },
     }];
     const summary: BasicChatSuiteSummary = {
       status: "passed",
@@ -191,6 +271,11 @@ describe("manual basic LLM report and isolation", () => {
       estimatedTokenTotal: 3000,
       actualChatTokenUsage: { promptTokens: 10, completionTokens: 4, totalTokens: 14 },
       actualJudgeTokenUsage: { promptTokens: 8, completionTokens: 3, totalTokens: 11 },
+      chatTokenDiagnosticsSummary: summarizeTokenDiagnostics([{
+        source: "dev_trace_store",
+        status: "missing",
+        reason: "trace token usage not found",
+      }]),
       missingConfiguration: [],
       preflightErrors: [],
     };
@@ -204,6 +289,11 @@ describe("manual basic LLM report and isolation", () => {
     expect(report).toContain("2026-06-04 09:01:00 +08:00");
     expect(report).toContain("F01");
     expect(report).toContain("exercise_recommendation@1");
+    expect(report).toContain("换一批");
+    expect(report).toContain("是否保存这套训练？");
+    expect(report).toContain("source=server_saved");
+    expect(report).toContain("source=dev_trace_store, available=0, missing=1, unavailable=0");
+    expect(report).toContain("status=missing");
     expect(report).not.toContain("完整 prompt");
     expect(report).not.toContain("raw provider response");
     expect(report).not.toContain("tool input");
