@@ -630,27 +630,29 @@ export function ChatPage() {
                                   {/* 建议提问作为回复 footer 操作呈现，避免在聊天气泡内嵌套厚重卡片。 */}
                                   {suggestedQuestions.length > 0 && (
                                     <div className="mt-md border-t border-line/70 pt-sm">
-                                      <div className="flex flex-wrap items-center gap-x-sm gap-y-xs">
-                                        <span className="shrink-0 font-label-xs text-label-xs font-bold text-muted">
+                                      <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-sm">
+                                        <span className="shrink-0 pt-1 font-label-xs text-label-xs font-bold text-muted">
                                           继续问
                                         </span>
-                                        {suggestedQuestions.map((suggestedQuestion, index) => (
-                                          <button
-                                            className="group inline-flex max-w-full items-start gap-[4px] rounded-md px-xs py-1 text-left font-label-sm text-label-sm font-semibold text-primary transition-colors hover:bg-primary-soft/70 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/15 disabled:cursor-not-allowed disabled:opacity-60"
-                                            disabled={isLoading}
-                                            key={`${suggestedQuestion}:${index}`}
-                                            onClick={() => sendSuggestedQuestionMessage(sendMessage, suggestedQuestion)}
-                                            title={suggestedQuestion}
-                                            type="button"
-                                          >
-                                            <SymbolIcon className="mt-[1px] shrink-0 text-[15px] opacity-65 transition-opacity group-hover:opacity-100">
-                                              arrow_forward
-                                            </SymbolIcon>
-                                            <span className="min-w-0 break-words leading-snug">
-                                              {suggestedQuestion}
-                                            </span>
-                                          </button>
-                                        ))}
+                                        <div className="flex min-w-0 flex-col items-start gap-xs">
+                                          {suggestedQuestions.map((suggestedQuestion, index) => (
+                                            <button
+                                              className="group inline-flex max-w-full items-start gap-[4px] rounded-md px-xs py-1 text-left font-label-sm text-label-sm font-semibold text-primary transition-colors hover:bg-primary-soft/70 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/15 disabled:cursor-not-allowed disabled:opacity-60"
+                                              disabled={isLoading}
+                                              key={`${suggestedQuestion}:${index}`}
+                                              onClick={() => sendSuggestedQuestionMessage(sendMessage, suggestedQuestion)}
+                                              title={suggestedQuestion}
+                                              type="button"
+                                            >
+                                              <SymbolIcon className="mt-[1px] shrink-0 text-[15px] opacity-65 transition-opacity group-hover:opacity-100">
+                                                arrow_forward
+                                              </SymbolIcon>
+                                              <span className="min-w-0 break-words leading-snug">
+                                                {suggestedQuestion}
+                                              </span>
+                                            </button>
+                                          ))}
+                                        </div>
                                       </div>
                                     </div>
                                   )}
