@@ -7,35 +7,19 @@ TBD - created by archiving change add-agent-activity-indicator. Update Purpose a
 
 系统 SHALL 在 `/api/chat` 当前 `agent-core` 文本聊天主链处理请求时，通过 NDJSON stream 提供面向聊天页 UI 的 Agent 进度状态，使前端可以展示当前大致编排阶段。该事件 MUST 使用当前主链的新白名单事件合同，例如 `agent_progress`；系统 MUST NOT 恢复旧 `AgentOrchestrator`、旧 `agent_activity` stream 合同或旧训练卡片触发事件。
 
-#### Scenario: 请求开始时提供初始进度状态
-- **WHEN** 用户在聊天页发送消息，并且 `/api/chat` 已完成认证、请求校验和 `AgentRunInput` 构造
-- **THEN** stream MUST 在首个用户可见 `content` 事件之前提供初始 Agent 进度状态
-- **AND** 初始进度状态 MUST 表示正在准备上下文、理解训练需求或等价的早期处理阶段
-- **AND** 初始进度状态 MUST 来自当前请求生命周期，不得来自旧聊天历史、旧 stream event 或旧 `AgentOrchestrator` 字段
+#### Scenario: Tool 活动阶段来自安全 definition 字段
+- **WHEN** 当前 `agent-core` runtime 已通过 `ToolRegistry`、Action Validator、Policy Guard 和 Executor 执行生产 tool
+- **THEN** stream 生成 tool 相关 Agent 进度状态时 MUST 优先读取该 tool 的安全 UI definition 字段，例如 `uiActivityStage`
+- **AND** 该字段只能选择稳定 `AgentProgressStage`，不得提供任意用户可见文案
+- **AND** 该字段 MUST NOT 进入 Planner 可见 manifest
+- **AND** 前端 MUST 继续通过 `agentActivityDisplayByStage` 或等价白名单将 stage 映射为中文短文案
+- **AND** 未知 stage MUST 使用安全兜底文案，不得直接渲染内部 stage、toolName、trace step name、runtime event type 或调试 payload
 
-#### Scenario: Agent 执行动作库相关工作
-- **WHEN** 当前 `agent-core` runtime 已通过 `ToolRegistry`、Action Validator、Policy Guard 和 Executor 执行动作库查询、动作事实读取或等价低风险只读 tool
-- **THEN** stream MUST 提供可映射为“正在查询动作库...”或“正在读取已有训练内容...”的进度状态
-- **AND** 该状态 MUST 只基于已发生的 runtime / tool execution 生命周期或 tool 安全 UI metadata
-- **AND** 该状态 MUST NOT 基于用户原文、关键词、正则、同义词表或固定短句推断
-- **AND** 进度状态 MUST NOT 包含完整查询参数、候选池、动作 payload、tool result id、resource id、tool input / output 或 trace payload
-
-#### Scenario: Agent 校验和收口训练内容
-- **WHEN** 当前 `agent-core` runtime 正在执行 validation、policy、resource registration、terminal grounding、visible output rendering 或等价确定性收口阶段
-- **THEN** stream MUST 提供可区分校验、收尾和整理回复的进度状态
-- **AND** 进度状态 MUST 只表达大致阶段，不得承诺百分比、剩余时间或最终一定成功
-- **AND** 进度状态 MUST NOT 伪装成训练结果已生成、已保存或已查询成功，除非对应 runtime / tool / renderer 阶段已经真实完成
-
-#### Scenario: 活动事件保持用户安全
-- **WHEN** stream 发送 Agent 进度状态
-- **THEN** 事件 payload MUST 只包含稳定 stage、status、可选 messageKey 和 sequence 等 UI 安全字段
-- **AND** 事件 payload MUST NOT 包含 prompt、raw model output、toolName、tool input、tool output、resource id、token usage、权限信息、数据库 payload、开发 trace 详情或服务端内部错误栈
-- **AND** 未知 stage MUST 在前端使用安全兜底文案展示，不得把未知 stage 原文直接渲染给用户
-
-#### Scenario: 活动事件不改变 Agent 执行结果
-- **WHEN** 当前 `agent-core` runtime 或 production chat adapter 生成 Agent 进度状态
-- **THEN** 进度状态 MUST NOT 改写 Planner action、tool input、tool result、resource contract、Policy Guard 决策、terminal action 或 Response Renderer 的最终用户事件
-- **AND** 进度状态生成失败 MUST 被视为非致命 UI 诊断，不得触发模型重试、tool 重试或用户可见业务失败
+#### Scenario: 新增生产 tool 的活动阶段同步
+- **WHEN** 新增或注册一个需要用户可见具体进度的生产 tool
+- **THEN** 该 tool MUST 在 tool definition 附近声明对应的安全 activity stage
+- **AND** production chat adapter MUST NOT 通过新增具体业务 `toolName -> stage` 表来补同步
+- **AND** 如果该 tool 没有用户可理解的具体阶段，系统 MAY 退回通用 `analyzing_request` 或基于稳定 resource contract 的安全 fallback
 
 ### Requirement: Chat page displays the current Agent activity in the active answer box
 
@@ -116,4 +100,61 @@ TBD - created by archiving change add-agent-activity-indicator. Update Purpose a
 - **THEN** 事件序列 MUST 包含至少一个首个 `content` 之前的 Agent 进度状态
 - **AND** 活动事件 MUST 不包含 prompt、raw model output、tool payload、resource id、token usage 或 trace 详情
 - **AND** 测试 MUST 证明旧 `agent_activity`、旧 `assistant_action`、旧 `agent_execution_result` 和旧 `intent_resolved` 未被恢复
+
+### Requirement: 聊天活动条必须独立消费 Agent Loop 和 Activity 事件
+
+聊天页 SHALL 将 Agent Loop 轮次和当前活动文案建模为两个独立的临时 UI 状态。`#N` MUST 只来自后端 stream 的 Loop 事件；右侧中文文案 MUST 只来自 Activity stage 映射或安全兜底文案。
+
+#### Scenario: 收到 Loop 事件只更新轮次前缀
+- **WHEN** 前端聊天客户端收到合法 `agent_loop` 事件
+- **THEN** 当前活动条状态 MUST 更新为该事件的 `loopTurn`
+- **AND** 活动条在存在活动文案时 MUST 展示 `#N` 前缀
+- **AND** 该更新 MUST NOT 修改当前 Activity stage、中文文案、图标或失败状态
+- **AND** 非正整数、非有限数字或过期的 `loopTurn` MUST NOT 覆盖当前轮次
+
+#### Scenario: 收到 Activity 事件只更新中文文案
+- **WHEN** 前端聊天客户端收到合法 `agent_progress` 或等价 Activity 事件
+- **THEN** 当前活动条状态 MUST 更新对应 Activity stage
+- **AND** 活动条右侧 MUST 展示该 stage 映射出的中文短文案
+- **AND** 该更新 MUST NOT 递增、重置或推断 `loopTurn`
+- **AND** 未知 stage MUST 使用安全兜底中文文案，不得直接渲染原始 stage 字段
+
+#### Scenario: 同一 Loop 内多次 Activity 更新保持同一前缀
+- **WHEN** 前端先收到 `agent_loop` 的 `loopTurn=1`
+- **AND** 随后收到多个 Activity 事件，例如 `analyzing_request`、`querying_exercises`、`validating_result`
+- **THEN** 活动条 MUST 可以更新右侧中文文案
+- **AND** 活动条 MUST 保持 `#1` 前缀不变
+- **AND** 前端 MUST NOT 按 Activity 事件数量显示 `#2`、`#3` 或更高轮次
+
+#### Scenario: 新 Loop 内重复相同 Activity 文案仍更新前缀
+- **WHEN** 前端已经展示 `#1 正在查询动作库...`
+- **AND** stream 随后发送合法 `agent_loop` 事件，`loopTurn=2`
+- **AND** 新轮次内 Activity stage 仍为 `querying_exercises`
+- **THEN** 活动条 MUST 展示 `#2 正在查询动作库...`
+- **AND** 前端 MUST NOT 因中文文案重复而忽略新的 Loop 轮次
+
+#### Scenario: 未进入 Loop 前不显示虚假前缀
+- **WHEN** 当前请求只有准备阶段 Activity 事件，尚未收到合法 Loop 事件
+- **THEN** 活动条 MAY 展示准备阶段中文文案
+- **AND** 活动条 MUST NOT 显示 `#0`、`#1` 或基于本地计数生成的前缀
+
+#### Scenario: 请求结束时同时清理两类临时状态
+- **WHEN** stream 收到 `done`、`error`，请求 abort、timeout、会话切换或新建会话
+- **THEN** 前端 MUST 清空当前 `loopTurn` 和 Activity stage
+- **AND** 两类状态 MUST NOT 写入 `ChatMessage`、聊天历史、conversation summary、visible output、artifact payload 或模型上下文
+
+### Requirement: Agent Loop 前缀必须保持简约用户可见样式
+
+聊天页活动条 SHALL 以简约行内样式展示 Agent Loop 前缀。该前缀 MUST 只使用 `#N` 形式表达轮次，不得展示“Agent Loop”、runtime step、planner call、tool call 或其他技术诊断文本。
+
+#### Scenario: 活动条展示简约轮次前缀
+- **WHEN** 活动条同时存在合法 `loopTurn` 和 Activity 文案
+- **THEN** 活动条 MUST 在中文文案前展示 `#N`
+- **AND** `#N` MUST 与中文文案视觉相邻但状态来源独立
+- **AND** 活动条 MUST NOT 展示 `Loop 1`、`第一轮`、`Step1`、`S1`、runtime step、planner call 或 tool call 诊断信息
+
+#### Scenario: 前缀不与文案语义绑定
+- **WHEN** 第五个 Agent Loop 内 Activity stage 仍是 `querying_exercises`
+- **THEN** 活动条 MUST 能展示 `#5 正在查询动作库...`
+- **AND** 系统 MUST NOT 把 `querying_exercises` 文案解释为第几轮含义
 
