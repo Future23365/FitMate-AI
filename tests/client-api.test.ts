@@ -42,6 +42,7 @@ describe("frontend API clients", () => {
       .fn()
       .mockResolvedValueOnce(new Response([
         JSON.stringify({ type: "agent_progress", stage: "preparing_context", status: "active", messageKey: "preparing_context", sequence: 1, toolName: "searchExerciseResources" }),
+        JSON.stringify({ type: "agent_loop", loopTurn: 1, sequence: 2, toolName: "searchExerciseResources" }),
         JSON.stringify({ type: "content", content: "你好" }),
         "",
         JSON.stringify({ type: "assistant_suggestions", suggestions: ["继续"] }),
@@ -68,6 +69,7 @@ describe("frontend API clients", () => {
 
     expect(events).toEqual([
       { type: "agent_progress", stage: "preparing_context", status: "active", messageKey: "preparing_context", sequence: 1 },
+      { type: "agent_loop", loopTurn: 1, sequence: 2 },
       { type: "content", content: "你好" },
       { type: "assistant_suggestions", suggestions: ["继续"] },
       { type: "done" },
@@ -81,9 +83,16 @@ describe("frontend API clients", () => {
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual(["/api/chat"]);
   });
 
-  it("parses agent_progress safely and rejects invalid progress payloads", async () => {
+  it("parses agent_loop and agent_progress safely and rejects invalid activity payloads", async () => {
     const events: unknown[] = [];
     await consumeAgentTextChatNdjson(new Response([
+      JSON.stringify({
+        type: "agent_loop",
+        loopTurn: 2,
+        sequence: 6,
+        toolName: "searchExerciseResources",
+        resourceId: "res_internal",
+      }),
       JSON.stringify({
         type: "agent_progress",
         stage: "raw_internal_tool_name",
@@ -95,6 +104,7 @@ describe("frontend API clients", () => {
     ].join("\n")), (event) => events.push(event));
 
     expect(events).toEqual([
+      { type: "agent_loop", loopTurn: 2, sequence: 6 },
       { type: "agent_progress", stage: "raw_internal_tool_name", status: "active", messageKey: undefined, sequence: 7 },
       { type: "done" },
     ]);
@@ -109,6 +119,14 @@ describe("frontend API clients", () => {
     })), vi.fn()).catch((error: unknown) => error);
 
     expect(streamError).toBeInstanceOf(AgentTextChatStreamError);
+
+    const invalidLoopError = await consumeAgentTextChatNdjson(new Response(JSON.stringify({
+      type: "agent_loop",
+      loopTurn: 0,
+      sequence: 1,
+    })), vi.fn()).catch((error: unknown) => error);
+
+    expect(invalidLoopError).toBeInstanceOf(AgentTextChatStreamError);
   });
 
   it("parses NDJSON split across chunks and rejects invalid JSON lines", async () => {

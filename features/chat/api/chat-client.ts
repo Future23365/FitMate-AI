@@ -4,6 +4,7 @@ import type { FitnessConversationContext } from "@/lib/shared/chat/fitness-conve
 import {
   isKnownAgentProgressStage,
   isKnownAgentProgressStatus,
+  type AgentLoopPayload,
   type AgentProgressPayload,
 } from "@/features/chat/types";
 
@@ -24,6 +25,7 @@ const unsupportedCapabilityErrorCodes = new Set([
 ]);
 
 export type AgentTextChatEvent =
+  | ({ type: "agent_loop" } & AgentLoopPayload)
   | ({ type: "agent_progress" } & AgentProgressPayload)
   | { type: "content"; content: string }
   | { type: "visible_output"; outputType: string; schemaVersion: string; payload: unknown; content?: unknown }
@@ -208,6 +210,8 @@ function parseAgentTextChatEvent(value: unknown): AgentTextChatEvent {
   const event = value as { type: string; [key: string]: unknown };
 
   switch (event.type) {
+    case "agent_loop":
+      return parseAgentLoopEvent(event);
     case "agent_progress":
       return parseAgentProgressEvent(event);
     case "content":
@@ -251,6 +255,22 @@ function parseAgentTextChatEvent(value: unknown): AgentTextChatEvent {
     default:
       throw new AgentTextChatStreamError(`未知聊天响应事件：${event.type}`);
   }
+}
+
+function parseAgentLoopEvent(event: Record<string, unknown>): AgentTextChatEvent {
+  if (typeof event.loopTurn !== "number" || !Number.isSafeInteger(event.loopTurn) || event.loopTurn <= 0) {
+    throw new AgentTextChatStreamError("agent_loop 事件 loopTurn 字段不合法。");
+  }
+
+  if (typeof event.sequence !== "number" || !Number.isFinite(event.sequence) || event.sequence < 0) {
+    throw new AgentTextChatStreamError("agent_loop 事件 sequence 字段不合法。");
+  }
+
+  return {
+    type: "agent_loop",
+    loopTurn: event.loopTurn,
+    sequence: event.sequence,
+  };
 }
 
 function parseAgentProgressEvent(event: Record<string, unknown>): AgentTextChatEvent {

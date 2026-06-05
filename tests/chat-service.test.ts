@@ -84,7 +84,11 @@ async function readNdjsonEvents(
 
   return options.includeProgress
     ? events
-    : events.filter((event) => event.type !== "agent_progress");
+    : events.filter((event) => !isTransientAgentActivityEvent(event));
+}
+
+function isTransientAgentActivityEvent(event: Record<string, unknown>) {
+  return event.type === "agent_progress" || event.type === "agent_loop";
 }
 
 type TraceAdapterCandidate = {
@@ -317,8 +321,9 @@ describe("chat service agent text flow boundary", () => {
       planner,
     });
     const rawEvents = await readNdjsonEvents(response, { includeProgress: true });
-    const events = rawEvents.filter((event) => event.type !== "agent_progress");
+    const events = rawEvents.filter((event) => !isTransientAgentActivityEvent(event));
     const firstProgressIndex = rawEvents.findIndex((event) => event.type === "agent_progress");
+    const firstLoopIndex = rawEvents.findIndex((event) => event.type === "agent_loop");
     const firstContentIndex = rawEvents.findIndex((event) => event.type === "content");
 
     expect(response.status).toBe(200);
@@ -330,7 +335,13 @@ describe("chat service agent text flow boundary", () => {
       sequence: 1,
     });
     expect(firstProgressIndex).toBeGreaterThanOrEqual(0);
-    expect(firstContentIndex).toBeGreaterThan(firstProgressIndex);
+    expect(rawEvents[firstLoopIndex]).toEqual({
+      type: "agent_loop",
+      loopTurn: 1,
+      sequence: expect.any(Number),
+    });
+    expect(firstLoopIndex).toBeGreaterThan(firstProgressIndex);
+    expect(firstContentIndex).toBeGreaterThan(firstLoopIndex);
     expect(JSON.stringify(rawEvents)).not.toContain("agent_activity");
     expect(JSON.stringify(rawEvents)).not.toContain("assistant_action");
     expect(JSON.stringify(rawEvents)).not.toContain("agent_" + "execution_result");
@@ -441,8 +452,9 @@ describe("chat service agent text flow boundary", () => {
       planner,
     });
     const rawEvents = await readNdjsonEvents(response, { includeProgress: true });
-    const events = rawEvents.filter((event) => event.type !== "agent_progress");
+    const events = rawEvents.filter((event) => !isTransientAgentActivityEvent(event));
     const progressEvents = rawEvents.filter((event) => event.type === "agent_progress");
+    const loopEvents = rawEvents.filter((event) => event.type === "agent_loop");
 
     expect(events).toEqual([
       expect.objectContaining({
@@ -468,6 +480,12 @@ describe("chat service agent text flow boundary", () => {
     expect(progressEvents).toEqual(expect.arrayContaining([
       expect.objectContaining({ stage: "querying_exercises", status: "active" }),
     ]));
+    expect(loopEvents).toEqual([
+      { type: "agent_loop", loopTurn: 1, sequence: expect.any(Number) },
+      { type: "agent_loop", loopTurn: 2, sequence: expect.any(Number) },
+    ]);
+    expect(JSON.stringify(loopEvents)).not.toContain("toolName");
+    expect(JSON.stringify(progressEvents)).not.toContain("toolName");
     expect(JSON.stringify(progressEvents)).not.toContain("searchExerciseResources");
     expect(JSON.stringify(progressEvents)).not.toContain("toolName");
     expect(JSON.stringify(progressEvents)).not.toContain("toolResultId");
@@ -2059,8 +2077,9 @@ describe("chat service agent text flow boundary", () => {
       planner,
     });
     const rawEvents = await readNdjsonEvents(response, { includeProgress: true });
-    const events = rawEvents.filter((event) => event.type !== "agent_progress");
+    const events = rawEvents.filter((event) => !isTransientAgentActivityEvent(event));
     const progressEvents = rawEvents.filter((event) => event.type === "agent_progress");
+    const loopEvents = rawEvents.filter((event) => event.type === "agent_loop");
 
     expect(planner.calls[0].manifests.map((manifest) => manifest.name)).toEqual(productionToolNames);
     expect(events).toEqual([
@@ -2080,6 +2099,10 @@ describe("chat service agent text flow boundary", () => {
     expect(progressEvents).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: "agent_progress", stage: "validating_result", status: "active" }),
     ]));
+    expect(loopEvents).toEqual([
+      { type: "agent_loop", loopTurn: 1, sequence: expect.any(Number) },
+      { type: "agent_loop", loopTurn: 2, sequence: expect.any(Number) },
+    ]);
     expect(JSON.stringify(progressEvents)).not.toContain("\"failed\"");
     expect(listAiTracesForUser("user-1")[0]).toMatchObject({
       status: "failed",

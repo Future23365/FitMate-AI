@@ -285,15 +285,13 @@ export function useChatController() {
         thinkingEnabled,
         signal: controller.signal,
         onEvent: (event) => {
-          if (event.type === "agent_progress") {
+          if (event.type === "agent_loop" || event.type === "agent_progress") {
             setAgentActivity((current) => reduceAgentActivity(current, event));
           }
 
           if (event.type === "content") {
             setAgentActivity((current) => (
-              reduceVisibleAgentActivity(current, createWritingReplyAgentActivity(current), {
-                advanceActivityRound: false,
-              })
+              reduceVisibleAgentActivity(current, createWritingReplyAgentActivity(current))
             ));
           }
 

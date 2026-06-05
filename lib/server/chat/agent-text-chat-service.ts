@@ -7,6 +7,7 @@ import type {
   AgentResourceRef,
   AgentRunInput,
   AgentRunResult,
+  AgentLoopEvent,
   AgentProgressEvent,
   AgentProgressStage,
   AgentStreamEvent,
@@ -147,8 +148,8 @@ export async function createAgentTextChatResponse(input: CreateAgentTextChatResp
   }
 
   return createAgentTextChatStreamingResponse(async (writer) => {
-    const progressWriter = createAgentProgressWriter(writer);
-    await progressWriter.write("preparing_context");
+    const activityWriter = createAgentActivityStreamWriter(writer);
+    await activityWriter.writeActivity("preparing_context");
 
     let result: AgentRunResult;
 
@@ -159,11 +160,16 @@ export async function createAgentTextChatResponse(input: CreateAgentTextChatResp
         run,
         terminalOutputValidators,
         onTraceEvent: async (event) => {
+          if (event.type === "agent_loop") {
+            await activityWriter.writeLoop(event.loopTurn);
+            return;
+          }
+
           const stage = mapRuntimeTraceEventToAgentProgressStage(event, registry);
 
           if (stage) {
             // 活动条只表达用户可见进度；可恢复失败保留在 trace 和最终错误事件中处理。
-            await progressWriter.write(stage);
+            await activityWriter.writeActivity(stage);
           }
         },
       });
@@ -208,7 +214,7 @@ export async function createAgentTextChatResponse(input: CreateAgentTextChatResp
       factPersistence,
     });
 
-    await progressWriter.write("writing_reply");
+    await activityWriter.writeActivity("writing_reply");
 
     for (const event of events) {
       await writer.write(event);
@@ -359,11 +365,11 @@ function createAgentTextChatStreamingResponse(
   });
 }
 
-function createAgentProgressWriter(writer: AgentTextChatNdjsonWriter) {
+function createAgentActivityStreamWriter(writer: AgentTextChatNdjsonWriter) {
   let sequence = 0;
 
   return {
-    write: async (
+    writeActivity: async (
       stage: AgentProgressStage,
       status: AgentProgressEvent["status"] = "active",
     ) => {
@@ -376,6 +382,18 @@ function createAgentProgressWriter(writer: AgentTextChatNdjsonWriter) {
         sequence,
       });
     },
+    writeLoop: async (loopTurn: AgentLoopEvent["loopTurn"]) => {
+      if (!Number.isSafeInteger(loopTurn) || loopTurn <= 0) {
+        return;
+      }
+
+      sequence += 1;
+      await writer.write({
+        type: "agent_loop",
+        loopTurn,
+        sequence,
+      });
+    },
   };
 }
 
@@ -384,6 +402,8 @@ function mapRuntimeTraceEventToAgentProgressStage(
   registry: ToolRegistry,
 ): AgentProgressStage | undefined {
   switch (event.type) {
+    case "agent_loop":
+      return undefined;
     case "registry_snapshot":
       return "preparing_context";
     case "planner_action":
@@ -909,6 +929,8 @@ function getRuntimeTraceEventLabel(event: AgentTraceEvent) {
   switch (event.type) {
     case "registry_snapshot":
       return "Registry 快照";
+    case "agent_loop":
+      return "Agent Loop 轮次";
     case "planner_action":
       return "Planner action";
     case "validation_result":
@@ -940,6 +962,12 @@ function summarizeRuntimeTraceEvent(event: AgentTraceEvent): unknown {
         snapshotId: event.snapshotId,
         manifestHash: event.manifestHash,
         toolCount: event.toolCount,
+      };
+    case "agent_loop":
+      return {
+        type: event.type,
+        loopTurn: event.loopTurn,
+        step: event.step,
       };
     case "planner_action":
       return {

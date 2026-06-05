@@ -1,5 +1,6 @@
 import type { AgentTextChatEvent } from "@/features/chat/api/chat-client";
 import type {
+  AgentLoopPayload,
   AgentProgressPayload,
   AgentProgressStage,
 } from "@/features/chat/types";
@@ -11,12 +12,14 @@ export type AgentActivityDisplay = {
   toneClass: string;
 };
 
-/** VisibleAgentActivity 保存当前请求的临时活动条状态，activityRound 只服务本地展示前缀。 */
-export type VisibleAgentActivity = AgentProgressPayload & {
-  activityRound: number;
+/** VisibleAgentActivity 保存当前请求的临时活动条状态，loopTurn 与 activityStage 分别来自独立 stream 事件。 */
+export type VisibleAgentActivity = {
+  loopTurn?: number;
+  activityStage: AgentProgressPayload | null;
   visibleSinceMs: number;
   holdUntilMs: number;
-  lastSequence: number;
+  lastActivitySequence: number;
+  lastLoopSequence: number;
 };
 
 export const fallbackAgentActivityLabel = "正在处理请求...";
@@ -102,7 +105,7 @@ export function createInitialVisibleAgentActivity(nowMs = Date.now()): VisibleAg
     nowMs,
     visibleAgentActivityMinimumMs,
     0,
-    0,
+    undefined,
   );
 }
 
@@ -110,7 +113,6 @@ export type AgentActivityReductionOptions = {
   nowMs?: number;
   minimumSpecificStageMs?: number;
   genericCooldownMs?: number;
-  advanceActivityRound?: boolean;
 };
 
 export function isSpecificAgentActivityStage(stage: string) {
@@ -125,60 +127,37 @@ function createVisibleAgentActivity(
   activity: AgentProgressPayload,
   nowMs: number,
   minimumSpecificStageMs: number,
-  lastSequence: number,
-  activityRound: number,
+  lastActivitySequence: number,
+  current: VisibleAgentActivity | undefined,
 ): VisibleAgentActivity {
   const holdUntilMs = isSpecificAgentActivityStage(activity.stage)
     ? nowMs + minimumSpecificStageMs
     : nowMs;
+  const loopTurn = typeof current?.loopTurn === "number" ? { loopTurn: current.loopTurn } : {};
 
   return {
-    ...activity,
-    activityRound,
+    ...loopTurn,
+    activityStage: activity,
     visibleSinceMs: nowMs,
     holdUntilMs,
-    lastSequence,
+    lastActivitySequence,
+    lastLoopSequence: current?.lastLoopSequence ?? -1,
   };
 }
 
-function rememberIgnoredSequence(
+function rememberIgnoredActivitySequence(
   current: VisibleAgentActivity,
-  lastSequence: number,
+  lastActivitySequence: number,
 ): VisibleAgentActivity {
-  return current.lastSequence === lastSequence
+  return current.lastActivitySequence === lastActivitySequence
     ? current
     : {
       ...current,
-      lastSequence,
+      lastActivitySequence,
     };
 }
 
-function rememberAcceptedProgressSequence(
-  current: VisibleAgentActivity,
-  lastSequence: number,
-  activityRound: number,
-): VisibleAgentActivity {
-  return current.lastSequence === lastSequence && current.activityRound === activityRound
-    ? current
-    : {
-      ...current,
-      activityRound,
-      lastSequence,
-    };
-}
-
-function nextActivityRound(
-  current: VisibleAgentActivity | null,
-  shouldAdvance: boolean,
-) {
-  if (!shouldAdvance) {
-    return current?.activityRound ?? 0;
-  }
-
-  return Math.max(1, (current?.activityRound ?? 0) + 1);
-}
-
-// reduceVisibleAgentActivity 是生产聊天页的展示仲裁器，只折叠用户可见文案，不推断 Agent 业务流程。
+// reduceVisibleAgentActivity 是生产聊天页的展示仲裁器，只折叠用户可见文案，不修改 Agent Loop 轮次。
 export function reduceVisibleAgentActivity(
   current: VisibleAgentActivity | null,
   next: AgentProgressPayload,
@@ -187,22 +166,17 @@ export function reduceVisibleAgentActivity(
   const nowMs = options.nowMs ?? Date.now();
   const minimumSpecificStageMs = options.minimumSpecificStageMs ?? visibleAgentActivityMinimumMs;
   const genericCooldownMs = options.genericCooldownMs ?? genericAgentActivityCooldownMs;
-  const shouldAdvanceRound = options.advanceActivityRound ?? true;
-  const lastSequence = Math.max(current?.lastSequence ?? -1, next.sequence);
+  const lastActivitySequence = Math.max(current?.lastActivitySequence ?? -1, next.sequence);
+  const currentActivity = current?.activityStage ?? null;
 
-  if (current && next.sequence <= current.lastSequence) {
+  if (current && next.sequence <= current.lastActivitySequence) {
     return current;
   }
 
-  if (current && !isKnownAgentProgressStage(next.stage)) {
-    return rememberIgnoredSequence(current, lastSequence);
-  }
-
-  const activityRound = nextActivityRound(current, shouldAdvanceRound);
-
   if (
     current &&
-    isSpecificAgentActivityStage(current.stage) &&
+    currentActivity &&
+    isSpecificAgentActivityStage(currentActivity.stage) &&
     isGenericAgentActivityStage(next.stage)
   ) {
     const genericBlockedUntilMs = Math.max(
@@ -211,30 +185,64 @@ export function reduceVisibleAgentActivity(
     );
 
     if (nowMs < genericBlockedUntilMs) {
-      return rememberAcceptedProgressSequence(current, lastSequence, activityRound);
+      return {
+        ...current,
+        lastActivitySequence,
+      };
     }
   }
 
   if (
     current &&
-    current.stage === next.stage &&
-    current.status === next.status &&
-    current.messageKey === next.messageKey
+    currentActivity &&
+    currentActivity.stage === next.stage &&
+    currentActivity.status === next.status &&
+    currentActivity.messageKey === next.messageKey
   ) {
-    return shouldAdvanceRound
-      ? createVisibleAgentActivity(next, nowMs, minimumSpecificStageMs, lastSequence, activityRound)
-      : rememberAcceptedProgressSequence(current, lastSequence, activityRound);
+    return rememberIgnoredActivitySequence(current, lastActivitySequence);
   }
 
-  return createVisibleAgentActivity(next, nowMs, minimumSpecificStageMs, lastSequence, activityRound);
+  return createVisibleAgentActivity(next, nowMs, minimumSpecificStageMs, lastActivitySequence, current ?? undefined);
 }
 
-// reduceAgentActivity 只接受 agent_progress 白名单事件，避免旧 stream 合同回流。
+/** reduceAgentLoopTurn 只消费合法 agent_loop 事件，禁止用 Activity sequence 推断轮次。 */
+export function reduceAgentLoopTurn(
+  current: VisibleAgentActivity | null,
+  event: { type: "agent_loop" } & AgentLoopPayload,
+  nowMs = Date.now(),
+): VisibleAgentActivity | null {
+  if (!Number.isSafeInteger(event.loopTurn) || event.loopTurn <= 0) {
+    return current;
+  }
+
+  if (current && event.sequence <= current.lastLoopSequence) {
+    return current;
+  }
+
+  if (current?.loopTurn && event.loopTurn < current.loopTurn) {
+    return current;
+  }
+
+  return {
+    loopTurn: event.loopTurn,
+    activityStage: current?.activityStage ?? null,
+    visibleSinceMs: current?.visibleSinceMs ?? nowMs,
+    holdUntilMs: current?.holdUntilMs ?? nowMs,
+    lastActivitySequence: current?.lastActivitySequence ?? -1,
+    lastLoopSequence: event.sequence,
+  };
+}
+
+// reduceAgentActivity 分别消费 agent_loop 与 agent_progress，保持轮次和活动文案两个状态独立。
 export function reduceAgentActivity(
   current: VisibleAgentActivity | null,
   event: AgentTextChatEvent,
   options: AgentActivityReductionOptions = {},
 ): VisibleAgentActivity | null {
+  if (event.type === "agent_loop") {
+    return reduceAgentLoopTurn(current, event, options.nowMs);
+  }
+
   if (event.type !== "agent_progress") {
     return current;
   }
@@ -248,9 +256,9 @@ export function reduceAgentActivity(
 }
 
 export function createWritingReplyAgentActivity(
-  current: Pick<AgentProgressPayload, "sequence"> & { lastSequence?: number } | null,
+  current: VisibleAgentActivity | null,
 ): AgentProgressPayload {
-  const previousSequence = Math.max(current?.sequence ?? 0, current?.lastSequence ?? 0);
+  const previousSequence = Math.max(current?.activityStage?.sequence ?? 0, current?.lastActivitySequence ?? 0);
 
   return {
     stage: "writing_reply",
@@ -266,10 +274,12 @@ export function shouldClearAgentActivityForStreamEvent(event: AgentTextChatEvent
 
 // getAgentActivityDisplay 是 UI 文案白名单，未知 stage 统一展示不泄漏内部信息的兜底文案。
 export function getAgentActivityDisplay(
-  activity: Pick<AgentProgressPayload, "stage" | "status">,
+  activity: Pick<AgentProgressPayload, "stage" | "status"> | Pick<VisibleAgentActivity, "activityStage">,
 ): AgentActivityDisplay {
-  if (typeof activity.stage === "string" && isKnownAgentProgressStage(activity.stage)) {
-    return agentActivityDisplayByStage[activity.stage];
+  const activityStage = "activityStage" in activity ? activity.activityStage : activity;
+
+  if (activityStage && typeof activityStage.stage === "string" && isKnownAgentProgressStage(activityStage.stage)) {
+    return agentActivityDisplayByStage[activityStage.stage];
   }
 
   return {

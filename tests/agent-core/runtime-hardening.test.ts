@@ -452,6 +452,7 @@ describe("agent-core runtime budget and idempotency hardening", () => {
     });
     expect(observedTypes).toEqual([
       "registry_snapshot",
+      "agent_loop",
       "budget_event",
       "planner_action",
       "validation_result",

@@ -17,6 +17,25 @@ import { createChatConversationSavePayload } from "@/features/chat/lib/chat-hist
 import type { AgentTextChatEvent } from "@/features/chat/api/chat-client";
 import type { ChatMessage } from "@/features/chat/types";
 
+function createVisibleActivityForTest(
+  overrides: Partial<NonNullable<Parameters<typeof AgentActivityIndicator>[0]["activity"]>> = {},
+): NonNullable<Parameters<typeof AgentActivityIndicator>[0]["activity"]> {
+  return {
+    activityStage: {
+      stage: "validating_result",
+      status: "active",
+      messageKey: "validating_result",
+      sequence: 4,
+    },
+    loopTurn: 4,
+    visibleSinceMs: 0,
+    holdUntilMs: 0,
+    lastActivitySequence: 4,
+    lastLoopSequence: 3,
+    ...overrides,
+  };
+}
+
 describe("Agent progress activity UI state", () => {
   it("updates activity by sequence and falls back for unknown stages", () => {
     const current = reduceAgentActivity(null, {
@@ -40,13 +59,17 @@ describe("Agent progress activity UI state", () => {
     });
 
     expect(current).toMatchObject({
-      activityRound: 1,
-      stage: "querying_exercises",
-      status: "active",
-      messageKey: "querying_exercises",
-      sequence: 2,
+      activityStage: {
+        stage: "querying_exercises",
+        status: "active",
+        messageKey: "querying_exercises",
+        sequence: 2,
+      },
+      lastActivitySequence: 2,
+      lastLoopSequence: -1,
     });
-    expect(current).not.toHaveProperty("toolName");
+    expect(current?.loopTurn).toBeUndefined();
+    expect(JSON.stringify(current)).not.toContain("toolName");
     expect(stale).toBe(current);
     expect(fallback.label).toBe(fallbackAgentActivityLabel);
     expect(fallback.label).not.toContain("internal_tool_stage");
@@ -71,7 +94,7 @@ describe("Agent progress activity UI state", () => {
     expect(`${knownFailed.label}${unknownFailed.label}`).not.toContain("遇到问题");
   });
 
-  it("keeps informative tool stages when dynamic loop emits generic analyzing events", () => {
+  it("keeps loopTurn independent when Activity arbitration keeps an informative stage", () => {
     const querying = reduceAgentActivity(null, {
       type: "agent_progress",
       stage: "querying_exercises",
@@ -80,22 +103,21 @@ describe("Agent progress activity UI state", () => {
       sequence: 1,
     }, { nowMs: 0 });
 
-    const genericLoopTurn = reduceAgentActivity(querying, {
+    const withLoop = reduceAgentActivity(querying, {
+      type: "agent_loop",
+      loopTurn: 1,
+      sequence: 2,
+    }, { nowMs: 100 });
+
+    const genericActivity = reduceAgentActivity(withLoop, {
       type: "agent_progress",
       stage: "analyzing_request",
       status: "active",
       messageKey: "analyzing_request",
-      sequence: 2,
+      sequence: 3,
     }, { nowMs: 500 });
 
-    const unknownStage = reduceAgentActivity(genericLoopTurn, {
-      type: "agent_progress",
-      stage: "raw_internal_tool_name",
-      status: "active",
-      sequence: 3,
-    }, { nowMs: 700 });
-
-    const afterCooldown = reduceAgentActivity(unknownStage, {
+    const afterCooldown = reduceAgentActivity(genericActivity, {
       type: "agent_progress",
       stage: "analyzing_request",
       status: "active",
@@ -103,20 +125,32 @@ describe("Agent progress activity UI state", () => {
       sequence: 4,
     }, { nowMs: 3_000 });
 
-    expect(querying?.stage).toBe("querying_exercises");
-    expect(querying?.activityRound).toBe(1);
-    expect(genericLoopTurn?.stage).toBe("querying_exercises");
-    expect(genericLoopTurn?.activityRound).toBe(2);
-    expect(genericLoopTurn?.lastSequence).toBe(2);
-    expect(unknownStage?.stage).toBe("querying_exercises");
-    expect(unknownStage?.activityRound).toBe(2);
-    expect(unknownStage?.lastSequence).toBe(3);
-    expect(afterCooldown?.stage).toBe("analyzing_request");
-    expect(afterCooldown?.activityRound).toBe(3);
+    expect(querying?.activityStage?.stage).toBe("querying_exercises");
+    expect(querying?.loopTurn).toBeUndefined();
+    expect(withLoop?.activityStage?.stage).toBe("querying_exercises");
+    expect(withLoop?.loopTurn).toBe(1);
+    expect(genericActivity?.activityStage?.stage).toBe("querying_exercises");
+    expect(genericActivity?.loopTurn).toBe(1);
+    expect(genericActivity?.lastActivitySequence).toBe(3);
+    expect(afterCooldown?.activityStage?.stage).toBe("analyzing_request");
+    expect(afterCooldown?.loopTurn).toBe(1);
     expect(getAgentActivityDisplay(afterCooldown!).label).toBe("正在规划下一步...");
   });
 
-  it("advances the visible round for repeated backend stages without binding it to the label", () => {
+  it("uses safe fallback copy for unknown Activity stages without exposing raw stage", () => {
+    const unknownStage = reduceAgentActivity(null, {
+      type: "agent_progress",
+      stage: "raw_internal_tool_name",
+      status: "active",
+      sequence: 1,
+    }, { nowMs: 0 });
+
+    expect(unknownStage?.activityStage?.stage).toBe("raw_internal_tool_name");
+    expect(getAgentActivityDisplay(unknownStage!).label).toBe(fallbackAgentActivityLabel);
+    expect(getAgentActivityDisplay(unknownStage!).label).not.toContain("raw_internal_tool_name");
+  });
+
+  it("updates loopTurn for repeated Activity labels without changing the label source", () => {
     const firstQuery = reduceAgentActivity(null, {
       type: "agent_progress",
       stage: "querying_exercises",
@@ -125,22 +159,36 @@ describe("Agent progress activity UI state", () => {
       sequence: 1,
     }, { nowMs: 0 });
 
-    const secondQuery = reduceAgentActivity(firstQuery, {
+    const firstLoop = reduceAgentActivity(firstQuery, {
+      type: "agent_loop",
+      loopTurn: 1,
+      sequence: 2,
+    }, { nowMs: 100 });
+
+    const repeatedQuery = reduceAgentActivity(firstLoop, {
       type: "agent_progress",
       stage: "querying_exercises",
       status: "active",
       messageKey: "querying_exercises",
-      sequence: 2,
+      sequence: 3,
     }, { nowMs: 300 });
 
-    expect(firstQuery?.stage).toBe("querying_exercises");
-    expect(firstQuery?.activityRound).toBe(1);
-    expect(secondQuery?.stage).toBe("querying_exercises");
-    expect(secondQuery?.activityRound).toBe(2);
-    expect(getAgentActivityDisplay(secondQuery!).label).toBe("正在查询动作库...");
+    const secondLoop = reduceAgentActivity(repeatedQuery, {
+      type: "agent_loop",
+      loopTurn: 2,
+      sequence: 4,
+    }, { nowMs: 400 });
+
+    expect(firstQuery?.activityStage?.stage).toBe("querying_exercises");
+    expect(firstLoop?.loopTurn).toBe(1);
+    expect(repeatedQuery?.activityStage?.stage).toBe("querying_exercises");
+    expect(repeatedQuery?.loopTurn).toBe(1);
+    expect(secondLoop?.activityStage?.stage).toBe("querying_exercises");
+    expect(secondLoop?.loopTurn).toBe(2);
+    expect(getAgentActivityDisplay(secondLoop!).label).toBe("正在查询动作库...");
   });
 
-  it("accepts specific stages in a dynamic order without requiring a fixed workflow", () => {
+  it("accepts specific stages in a dynamic order without changing loopTurn from content", () => {
     const reading = reduceAgentActivity(null, {
       type: "agent_progress",
       stage: "reading_artifacts",
@@ -149,27 +197,33 @@ describe("Agent progress activity UI state", () => {
       sequence: 1,
     }, { nowMs: 0 });
 
-    const saving = reduceAgentActivity(reading, {
+    const withLoop = reduceAgentActivity(reading, {
+      type: "agent_loop",
+      loopTurn: 5,
+      sequence: 2,
+    }, { nowMs: 100 });
+
+    const saving = reduceAgentActivity(withLoop, {
       type: "agent_progress",
       stage: "saving_result",
       status: "active",
       messageKey: "saving_result",
-      sequence: 2,
+      sequence: 3,
     }, { nowMs: 300 });
 
     const writing = reduceVisibleAgentActivity(
       saving,
       createWritingReplyAgentActivity(saving),
-      { nowMs: 600, advanceActivityRound: false },
+      { nowMs: 600 },
     );
 
-    expect(reading?.stage).toBe("reading_artifacts");
-    expect(reading?.activityRound).toBe(1);
-    expect(saving?.stage).toBe("saving_result");
-    expect(saving?.activityRound).toBe(2);
-    expect(writing?.stage).toBe("writing_reply");
-    expect(writing?.activityRound).toBe(2);
-    expect(writing?.sequence).toBe(3);
+    expect(reading?.activityStage?.stage).toBe("reading_artifacts");
+    expect(withLoop?.loopTurn).toBe(5);
+    expect(saving?.activityStage?.stage).toBe("saving_result");
+    expect(saving?.loopTurn).toBe(5);
+    expect(writing?.activityStage?.stage).toBe("writing_reply");
+    expect(writing?.loopTurn).toBe(5);
+    expect(writing?.activityStage?.sequence).toBe(4);
   });
 
   it("marks done and error stream events as lifecycle cleanup boundaries", () => {
@@ -189,13 +243,7 @@ describe("AgentActivityIndicator", () => {
   it("renders known stages with Chinese copy, motion classes, and aria-live", () => {
     const html = renderToStaticMarkup(
       createElement(AgentActivityIndicator, {
-        activity: {
-          stage: "validating_result",
-          status: "active",
-          messageKey: "validating_result",
-          activityRound: 4,
-          sequence: 4,
-        },
+        activity: createVisibleActivityForTest(),
       }),
     );
 
@@ -212,18 +260,42 @@ describe("AgentActivityIndicator", () => {
   it("renders unknown stages with a safe fallback label", () => {
     const html = renderToStaticMarkup(
       createElement(AgentActivityIndicator, {
-        activity: {
-          stage: "raw_internal_tool_name",
-          status: "active",
-          activityRound: 1,
-          sequence: 1,
-        },
+        activity: createVisibleActivityForTest({
+          loopTurn: 1,
+          activityStage: {
+            stage: "raw_internal_tool_name",
+            status: "active",
+            sequence: 1,
+          },
+        }),
       }),
     );
 
     expect(html).toContain(fallbackAgentActivityLabel);
     expect(html).toContain("#1");
     expect(html).not.toContain("raw_internal_tool_name");
+  });
+
+  it("does not render a local loop prefix before a valid backend loop event", () => {
+    const activity = createVisibleActivityForTest({
+      activityStage: {
+        stage: "preparing_context",
+        status: "active",
+        messageKey: "preparing_context",
+        sequence: 1,
+      },
+    });
+    delete activity.loopTurn;
+
+    const html = renderToStaticMarkup(
+      createElement(AgentActivityIndicator, {
+        activity,
+      }),
+    );
+
+    expect(html).toContain("正在整理上下文...");
+    expect(html).not.toContain("#0");
+    expect(html).not.toContain("#1");
   });
 });
 

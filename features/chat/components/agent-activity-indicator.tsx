@@ -1,23 +1,19 @@
 import { getAgentActivityDisplay } from "@/features/chat/lib/agent-activity";
-import type { AgentProgressPayload } from "@/features/chat/types";
-
-type AgentActivityIndicatorPayload = AgentProgressPayload & {
-  activityRound?: number;
-};
+import type { VisibleAgentActivity } from "@/features/chat/lib/agent-activity";
 
 export function AgentActivityIndicator({
   activity,
 }: {
-  activity: AgentActivityIndicatorPayload | null;
+  activity: VisibleAgentActivity | null;
 }) {
-  if (!activity) {
+  if (!activity?.activityStage) {
     return null;
   }
 
-  const display = getAgentActivityDisplay(activity);
+  const display = getAgentActivityDisplay(activity.activityStage);
   const toneClass = display.toneClass === "text-error" ? "text-error" : "text-primary/80";
-  const roundLabel = typeof activity.activityRound === "number" && Number.isFinite(activity.activityRound)
-    ? `#${Math.max(1, activity.activityRound)}`
+  const roundLabel = typeof activity.loopTurn === "number" && Number.isSafeInteger(activity.loopTurn) && activity.loopTurn > 0
+    ? `#${activity.loopTurn}`
     : null;
 
   return (

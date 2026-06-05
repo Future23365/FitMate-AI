@@ -42,6 +42,16 @@ describe("chat controller Agent text event projection", () => {
     ).toEqual(createAssistantMessage());
   });
 
+  it("keeps agent_loop out of the assistant message content", () => {
+    expect(
+      applyAgentTextChatEventToAssistantMessage(createAssistantMessage(), {
+        type: "agent_loop",
+        loopTurn: 1,
+        sequence: 2,
+      }),
+    ).toEqual(createAssistantMessage());
+  });
+
   it("stores assistant_suggestions as user-clickable suggested replies", () => {
     expect(
       applyAgentTextChatEventToAssistantMessage(createAssistantMessage({ content: "你想练多久？" }), {

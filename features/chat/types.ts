@@ -66,6 +66,12 @@ export type AgentProgressPayload = {
   sequence: number;
 };
 
+/** AgentLoopPayload 是当前请求内的后端 runtime loop 轮次，不写入 ChatMessage 或聊天历史。 */
+export type AgentLoopPayload = {
+  loopTurn: number;
+  sequence: number;
+};
+
 const knownAgentProgressStages = new Set<string>(agentProgressStageValues);
 const knownAgentProgressStatuses = new Set<string>(agentProgressStatusValues);
 

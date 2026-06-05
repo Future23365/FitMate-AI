@@ -160,6 +160,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
       )));
     }
 
+    await recordTraceEvent(createAgentLoopTrace(step));
     plannerCalls += 1;
     await recordTraceEvent(createBudgetEvent("planner_calls", "used", plannerCalls, limits.maxPlannerCalls, step));
 
@@ -653,6 +654,15 @@ function createBudgetEvent(
     limit,
     step,
     reason,
+  };
+}
+
+/** createAgentLoopTrace 标记 runtime 进入一次真实 Agent loop，供上层投影安全 UI 轮次。 */
+function createAgentLoopTrace(step: number): Extract<AgentTraceEvent, { type: "agent_loop" }> {
+  return {
+    type: "agent_loop",
+    loopTurn: step,
+    step,
   };
 }
 
