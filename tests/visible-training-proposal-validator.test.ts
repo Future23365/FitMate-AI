@@ -180,6 +180,54 @@ describe("visible training proposal validator", () => {
     });
   });
 
+  it("rejects routine section coverage even when final answer content mentions warmup and stretch", async () => {
+    await expect(validateVisibleTrainingProposalOutput(
+      createEnvelope({
+        kind: "routine",
+        exerciseItems: [
+          { exerciseId: "push-up", section: "training", order: 1, prescription: createPrescription("reps", 12) },
+        ],
+      }),
+      createContext({
+        action: {
+          type: "final_answer",
+          content: "热身可以慢跑 5 分钟，结束后做胸部拉伸。",
+        },
+      }),
+      { loadExerciseRecordsByIds: createExerciseFactLoader() },
+    )).resolves.toMatchObject({
+      ok: false,
+      details: {
+        code: "section_coverage_missing",
+        missingSectionsForRoutineOrPlan: ["warmup", "stretch"],
+      },
+    });
+  });
+
+  it("accepts routine payloads when warmup training and stretch facts are structurally present", async () => {
+    await expect(validateVisibleTrainingProposalOutput(
+      createEnvelope({
+        kind: "routine",
+        exerciseItems: [
+          { exerciseId: "jumping-jack", section: "warmup", order: 1, prescription: createPrescription("reps", 20) },
+          { exerciseId: "push-up", section: "training", order: 1, prescription: createPrescription("reps", 12) },
+          { exerciseId: "chest-stretch", section: "stretch", order: 1, prescription: createPrescription("duration", 30) },
+        ],
+      }),
+      createContext(),
+      { loadExerciseRecordsByIds: createExerciseFactLoader() },
+    )).resolves.toEqual({
+      ok: true,
+      metadata: {
+        exerciseDetails: [
+          expect.objectContaining({ exerciseId: "jumping-jack", allowedSections: ["warmup"] }),
+          expect.objectContaining({ exerciseId: "push-up", allowedSections: ["training"] }),
+          expect.objectContaining({ exerciseId: "chest-stretch", allowedSections: ["stretch"] }),
+        ],
+      },
+    });
+  });
+
   it("deduplicates repeated exerciseId before loading database facts", async () => {
     const loader = vi.fn(async (ids: readonly string[]) => ids.flatMap((id) => {
       const record = createExerciseRecord(id);

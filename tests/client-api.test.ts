@@ -42,6 +42,7 @@ describe("frontend API clients", () => {
       .fn()
       .mockResolvedValueOnce(new Response([
         JSON.stringify({ type: "agent_progress", stage: "preparing_context", status: "active", messageKey: "preparing_context", sequence: 1, toolName: "searchExerciseResources" }),
+        JSON.stringify({ type: "agent_loop", loopTurn: 1, sequence: 2, toolName: "searchExerciseResources" }),
         JSON.stringify({ type: "content", content: "你好" }),
         "",
         JSON.stringify({ type: "assistant_suggestions", suggestions: ["继续"] }),
@@ -68,6 +69,7 @@ describe("frontend API clients", () => {
 
     expect(events).toEqual([
       { type: "agent_progress", stage: "preparing_context", status: "active", messageKey: "preparing_context", sequence: 1 },
+      { type: "agent_loop", loopTurn: 1, sequence: 2 },
       { type: "content", content: "你好" },
       { type: "assistant_suggestions", suggestions: ["继续"] },
       { type: "done" },
@@ -81,9 +83,16 @@ describe("frontend API clients", () => {
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual(["/api/chat"]);
   });
 
-  it("parses agent_progress safely and rejects invalid progress payloads", async () => {
+  it("parses agent_loop and agent_progress safely and rejects invalid activity payloads", async () => {
     const events: unknown[] = [];
     await consumeAgentTextChatNdjson(new Response([
+      JSON.stringify({
+        type: "agent_loop",
+        loopTurn: 2,
+        sequence: 6,
+        toolName: "searchExerciseResources",
+        resourceId: "res_internal",
+      }),
       JSON.stringify({
         type: "agent_progress",
         stage: "raw_internal_tool_name",
@@ -95,6 +104,7 @@ describe("frontend API clients", () => {
     ].join("\n")), (event) => events.push(event));
 
     expect(events).toEqual([
+      { type: "agent_loop", loopTurn: 2, sequence: 6 },
       { type: "agent_progress", stage: "raw_internal_tool_name", status: "active", messageKey: undefined, sequence: 7 },
       { type: "done" },
     ]);
@@ -109,6 +119,14 @@ describe("frontend API clients", () => {
     })), vi.fn()).catch((error: unknown) => error);
 
     expect(streamError).toBeInstanceOf(AgentTextChatStreamError);
+
+    const invalidLoopError = await consumeAgentTextChatNdjson(new Response(JSON.stringify({
+      type: "agent_loop",
+      loopTurn: 0,
+      sequence: 1,
+    })), vi.fn()).catch((error: unknown) => error);
+
+    expect(invalidLoopError).toBeInstanceOf(AgentTextChatStreamError);
   });
 
   it("parses NDJSON split across chunks and rejects invalid JSON lines", async () => {
@@ -129,7 +147,7 @@ describe("frontend API clients", () => {
       .catch((error: unknown) => error);
 
     expect(streamError).toBeInstanceOf(AgentTextChatStreamError);
-    expect(getAgentTextChatErrorMessage(streamError)).toBe("聊天生成失败，请稍后重试。");
+    expect(getAgentTextChatErrorMessage(streamError)).toBe("聊天响应暂时无法读取。你可以稍后重试，或把问题缩小后再发一次。");
   });
 
   it("keeps HTTP, event, invalid NDJSON and stream errors user-safe", async () => {
@@ -190,6 +208,28 @@ describe("frontend API clients", () => {
     } satisfies Partial<AgentTextChatHttpError>);
     expect(getAgentTextChatErrorMessage(httpError)).toBe("聊天服务暂时不可用，请稍后再试。");
     expect((httpError as Error).message).not.toContain("Chat AI model configuration is missing.");
+
+    expect(getAgentTextChatEventErrorMessage({
+      type: "error",
+      error: {
+        code: "terminal_reference_invalid",
+        message: "visibleTrainingProposal 缺少 routine 或 plan 必要 section。",
+      },
+    })).toBe("这次没有生成通过校验的可靠训练结果。你可以缩小范围、补充缺失条件，或先让我说明当前事实能支撑的内容。");
+    expect(getAgentTextChatEventErrorMessage({
+      type: "error",
+      error: {
+        code: "overall_timeout",
+        message: "Provider timed out while waiting for completion.",
+      },
+    })).toBe("这次请求需要的步骤或信息量超出了当前处理范围。你可以减少条件、缩小训练目标，或分两步提问。");
+    expect(getAgentTextChatEventErrorMessage({
+      type: "error",
+      error: {
+        code: "unclassified_internal_error",
+        message: "Internal stack trace",
+      },
+    })).toBe("聊天服务暂时没能完成这次回复。你可以稍后重试，或把问题缩小后再发一次。");
 
     const controller = new AbortController();
     controller.abort();

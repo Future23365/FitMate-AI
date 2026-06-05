@@ -235,6 +235,60 @@ describe("agent-core architecture boundaries", () => {
     expect(matches).toEqual([]);
   });
 
+  it("keeps production chat progress mapping free of concrete toolName stage tables", () => {
+    const service = readRelative("lib/server/chat/agent-text-chat-service.ts");
+    const forbiddenTerms = [
+      "toolActivityStageByToolName",
+      "new Map<string, AgentProgressStage>",
+      "[\"inspectVisibleTrainingProposals\"",
+      "[\"resolveExerciseResourceMentions\"",
+      "[\"searchExerciseResources\"",
+    ];
+    const matches = forbiddenTerms.filter((term) => service.includes(term));
+
+    expect(matches).toEqual([]);
+    expect(service).toContain("tool?.uiActivityStage");
+  });
+
+  it("keeps Agent loop stream projection free of semantic, toolName and stage-count inference", () => {
+    const files = [
+      "app/api/chat/route.ts",
+      "lib/server/chat/agent-text-chat-service.ts",
+      "lib/server/agent-core/runtime.ts",
+    ];
+    const forbiddenTerms = [
+      "latestUserMessage.includes",
+      "userInput.includes",
+      "message.content.includes",
+      "toolName ===",
+      "event.toolName ===",
+      "stageCount",
+      "progressCount",
+      "activityRound",
+      ".match(",
+      "new RegExp",
+      "[\"searchExerciseResources\"",
+      "[\"inspectVisibleTrainingProposals\"",
+      "[\"resolveExerciseResourceMentions\"",
+    ];
+    const matches: string[] = [];
+
+    for (const file of files) {
+      const content = readRelative(file);
+      const loopSnippets = content.match(/[\s\S]{0,180}agent_loop[\s\S]{0,180}/g) ?? [];
+
+      for (const snippet of loopSnippets) {
+        for (const term of forbiddenTerms) {
+          if (snippet.includes(term)) {
+            matches.push(`${file}: ${term}`);
+          }
+        }
+      }
+    }
+
+    expect(matches).toEqual([]);
+  });
+
   it("keeps visible training proposal terminal validation free of concrete business toolName allowlists", () => {
     const files = [
       "lib/server/agent-core/terminal-output-validator.ts",

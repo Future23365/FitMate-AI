@@ -248,6 +248,7 @@ export type Tool<Input = any, Output = any> = {
   outputSchema: ZodTypeAny;
   policy: ToolPolicy;
   resourceContract?: ToolResourceContract;
+  uiActivityStage?: AgentProgressStage;
   metadata?: Record<string, JsonValue>;
   examples?: ToolExample[];
   handler: (input: Input, context: ToolHandlerContext) => Promise<Output> | Output;
@@ -426,6 +427,11 @@ export type ConfirmationResumeInput = {
 export type AgentTraceEvent =
   | { type: "registry_snapshot"; snapshotId: string; manifestHash: string; toolCount: number }
   | {
+      type: "agent_loop";
+      loopTurn: number;
+      step: number;
+    }
+  | {
       type: "planner_action";
       step: number;
       actionType: string;
@@ -506,6 +512,13 @@ export type AgentProgressEvent = {
   sequence: number;
 };
 
+/** AgentLoopEvent 是生产聊天流中的安全轮次事件，只表达当前请求内真实 runtime loop。 */
+export type AgentLoopEvent = {
+  type: "agent_loop";
+  loopTurn: number;
+  sequence: number;
+};
+
 /** AgentReplaySummary 是 run 结束后可安全保存或回放的轻量摘要。 */
 export type AgentReplaySummary = {
   manifestHash?: string;
@@ -542,6 +555,7 @@ export type AgentRunResult = {
 
 /** AgentStreamEvent 是默认 Response Renderer 允许输出的 NDJSON 白名单事件。 */
 export type AgentStreamEvent =
+  | AgentLoopEvent
   | AgentProgressEvent
   | { type: "content"; content: string }
   | { type: "visible_output"; outputType: string; schemaVersion: string; payload: JsonValue; content?: JsonValue }

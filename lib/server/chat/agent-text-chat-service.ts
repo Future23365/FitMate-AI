@@ -7,6 +7,7 @@ import type {
   AgentResourceRef,
   AgentRunInput,
   AgentRunResult,
+  AgentLoopEvent,
   AgentProgressEvent,
   AgentProgressStage,
   AgentStreamEvent,
@@ -52,22 +53,70 @@ const ndjsonContentType = "application/x-ndjson; charset=utf-8";
 const maxTraceSummaryLength = 600;
 // unsupportedToolActionMessage 只表达工具不可执行的安全边界，不替代模型的基础问答回复。
 const unsupportedToolActionMessage = "刚才这个请求需要当前未接入的工具，所以我不能直接执行这个操作。你可以把它改成普通文本问题，或先补充想让我整理的信息。";
-const genericChatFailureMessage = "聊天生成失败，请稍后重试。";
+const genericChatFailureMessage = "聊天服务暂时没能完成这次回复。你可以稍后重试，或把问题缩小后再发一次。";
 const chatServiceUnavailableMessage = "聊天服务暂时不可用，请稍后再试。";
+const visibleOutputValidationFailureMessage = "这次没有生成通过校验的可靠训练结果，所以我不会展示或保存这份方案。你可以缩小范围、补充缺失条件，或先让我说明当前事实能支撑的内容。";
+const budgetOrTimeoutFailureMessage = "这次请求需要的步骤或信息量超出了当前处理范围。你可以减少条件、缩小训练目标，或分两步提问。";
 const unsupportedToolActionSuggestions = [
   "改成普通文本问题",
   "先解释训练原则",
   "我需要补充哪些信息",
 ];
+const visibleOutputValidationFailureSuggestions = [
+  "缩小训练范围",
+  "补充缺失条件",
+  "先说明当前可用事实",
+];
+const budgetOrTimeoutFailureSuggestions = [
+  "减少训练限制条件",
+  "拆成两步提问",
+  "先回答核心问题",
+];
 const directUnsupportedErrorCodes = new Set<string>([
+  AGENT_ERROR_CODES.UNKNOWN_TOOL,
   AGENT_ERROR_CODES.UNSUPPORTED_M0_CAPABILITY,
   AGENT_ERROR_CODES.MAX_TOOL_CALLS_EXCEEDED,
 ]);
 const unsupportedRepairReasonCodes = new Set<string>([
+  AGENT_ERROR_CODES.UNKNOWN_TOOL,
   ...directUnsupportedErrorCodes,
-  AGENT_ERROR_CODES.INVALID_ACTION,
-  AGENT_ERROR_CODES.BUDGET_EXHAUSTED,
 ]);
+const visibleOutputValidationReasonCodes = new Set<string>([
+  "section_coverage_missing",
+  "section_not_allowed",
+  "exercise_missing",
+  "exercise_unpublished",
+  "database_unconfigured",
+]);
+const terminalReferenceErrorCodes = new Set<string>([
+  AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID,
+  AGENT_ERROR_CODES.INVALID_RESOURCE_REFERENCE,
+  AGENT_ERROR_CODES.RESOURCE_MISSING,
+  AGENT_ERROR_CODES.RESOURCE_RUN_MISMATCH,
+  AGENT_ERROR_CODES.RESOURCE_ROLE_INVALID,
+  AGENT_ERROR_CODES.RESOURCE_TYPE_INVALID,
+  AGENT_ERROR_CODES.RESOURCE_REQUIREMENT_UNMET,
+  AGENT_ERROR_CODES.RESOURCE_CONTRACT_VIOLATION,
+]);
+const budgetOrTimeoutErrorCodes = new Set<string>([
+  AGENT_ERROR_CODES.BUDGET_EXHAUSTED,
+  AGENT_ERROR_CODES.PLANNER_EXHAUSTED,
+  AGENT_ERROR_CODES.MAX_STEPS_EXCEEDED,
+  AGENT_ERROR_CODES.OVERALL_TIMEOUT,
+  AGENT_ERROR_CODES.TIMEOUT,
+]);
+
+type AgentTextChatResponseProjectionType =
+  | "final_answer_success"
+  | "ask_user"
+  | "confirmation_request"
+  | "unsupported_capability_fallback"
+  | "visible_output_validation_fallback"
+  | "budget_timeout_fallback"
+  | "transport_config_failure"
+  | "unclassified_error_event"
+  | "content"
+  | "done";
 
 type AgentTextChatConfigError = {
   code: typeof CHAT_TEXT_FLOW_CONFIG_ERROR_CODE;
@@ -87,6 +136,11 @@ type AgentTextChatNdjsonWriter = {
 
 type AgentTextChatResponseSummary = ReturnType<typeof summarizeAgentTextChatResponseEvents>;
 type FactPersistenceTraceResult = PersistVisibleTrainingProposalFactsResult | { ok: false; code: "restore_failed"; message: string; savedCount: 0 };
+type AgentTextChatResponseSummaryContext = {
+  result?: AgentRunResult;
+  registry?: ToolRegistry;
+  transportErrorCode?: string;
+};
 
 type PlannerFactoryResult =
   | { ok: true; planner: PlannerPort }
@@ -105,12 +159,6 @@ type DeepSeekPlannerFactoryInput = {
   env?: Partial<Pick<NodeJS.ProcessEnv, "DEEPSEEK_API_KEY" | "DEEPSEEK_API_URL" | "DEEPSEEK_MODEL">>;
   fetchImpl?: typeof fetch;
 };
-
-const toolActivityStageByToolName = new Map<string, AgentProgressStage>([
-  ["inspectVisibleTrainingProposals", "reading_artifacts"],
-  ["resolveExerciseResourceMentions", "querying_exercises"],
-  ["searchExerciseResources", "querying_exercises"],
-]);
 
 // createAgentTextChatResponse 是 /api/chat 到 agent-core 的薄接入层，只负责构造 run、生产 registry 和 NDJSON 投影。
 export async function createAgentTextChatResponse(input: CreateAgentTextChatResponseInput): Promise<Response> {
@@ -153,8 +201,8 @@ export async function createAgentTextChatResponse(input: CreateAgentTextChatResp
   }
 
   return createAgentTextChatStreamingResponse(async (writer) => {
-    const progressWriter = createAgentProgressWriter(writer);
-    await progressWriter.write("preparing_context");
+    const activityWriter = createAgentActivityStreamWriter(writer);
+    await activityWriter.writeActivity("preparing_context");
 
     let result: AgentRunResult;
 
@@ -165,11 +213,16 @@ export async function createAgentTextChatResponse(input: CreateAgentTextChatResp
         run,
         terminalOutputValidators,
         onTraceEvent: async (event) => {
+          if (event.type === "agent_loop") {
+            await activityWriter.writeLoop(event.loopTurn);
+            return;
+          }
+
           const stage = mapRuntimeTraceEventToAgentProgressStage(event, registry);
 
           if (stage) {
             // 活动条只表达用户可见进度；可恢复失败保留在 trace 和最终错误事件中处理。
-            await progressWriter.write(stage);
+            await activityWriter.writeActivity(stage);
           }
         },
       });
@@ -214,7 +267,7 @@ export async function createAgentTextChatResponse(input: CreateAgentTextChatResp
       factPersistence,
     });
 
-    await progressWriter.write("writing_reply");
+    await activityWriter.writeActivity("writing_reply");
 
     for (const event of events) {
       await writer.write(event);
@@ -365,11 +418,11 @@ function createAgentTextChatStreamingResponse(
   });
 }
 
-function createAgentProgressWriter(writer: AgentTextChatNdjsonWriter) {
+function createAgentActivityStreamWriter(writer: AgentTextChatNdjsonWriter) {
   let sequence = 0;
 
   return {
-    write: async (
+    writeActivity: async (
       stage: AgentProgressStage,
       status: AgentProgressEvent["status"] = "active",
     ) => {
@@ -382,6 +435,18 @@ function createAgentProgressWriter(writer: AgentTextChatNdjsonWriter) {
         sequence,
       });
     },
+    writeLoop: async (loopTurn: AgentLoopEvent["loopTurn"]) => {
+      if (!Number.isSafeInteger(loopTurn) || loopTurn <= 0) {
+        return;
+      }
+
+      sequence += 1;
+      await writer.write({
+        type: "agent_loop",
+        loopTurn,
+        sequence,
+      });
+    },
   };
 }
 
@@ -390,6 +455,8 @@ function mapRuntimeTraceEventToAgentProgressStage(
   registry: ToolRegistry,
 ): AgentProgressStage | undefined {
   switch (event.type) {
+    case "agent_loop":
+      return undefined;
     case "registry_snapshot":
       return "preparing_context";
     case "planner_action":
@@ -415,7 +482,7 @@ function resolveToolExecutionProgressStage(
   registry: ToolRegistry,
 ): AgentProgressStage {
   const tool = registry.get(event.toolName);
-  const metadataStage = readSafeAgentProgressStage(tool?.metadata?.uiActivityStage);
+  const metadataStage = tool?.uiActivityStage;
 
   if (metadataStage) {
     return metadataStage;
@@ -429,11 +496,7 @@ function resolveToolExecutionProgressStage(
   }
 
   // 生产 adapter 只在 tool 已执行后投影粗粒度 UI 阶段，不参与 Planner 选择或输入改写。
-  return toolActivityStageByToolName.get(event.toolName) ?? "analyzing_request";
-}
-
-function readSafeAgentProgressStage(value: JsonValue | undefined): AgentProgressStage | undefined {
-  return typeof value === "string" && isKnownAgentProgressStage(value) ? value : undefined;
+  return "analyzing_request";
 }
 
 function isKnownAgentProgressStage(stage: string): stage is AgentProgressStage {
@@ -455,10 +518,15 @@ function renderAgentTextChatResponseEvents(input: {
   registry: ToolRegistry;
   visibleOutputRenderers: ReturnType<typeof createProductionVisibleOutputRendererRegistry>;
 }): AgentTextChatStreamEvent[] {
-  if (isUnsupportedCapabilityFailure(input)) {
+  const failureProjection = createAgentTextChatTerminalFailureProjection(input);
+
+  if (failureProjection) {
+    return failureProjection.events;
+  }
+
+  if (input.result.status === "failed" && input.result.terminalError) {
     return [
-      { type: "content", content: unsupportedToolActionMessage },
-      { type: "assistant_suggestions", suggestions: unsupportedToolActionSuggestions },
+      createSafeRuntimeErrorEvent(input.result.terminalError),
       { type: "done" },
     ];
   }
@@ -466,6 +534,50 @@ function renderAgentTextChatResponseEvents(input: {
   return renderAgentResponseEvents(input.result, {
     visibleOutputRenderers: input.visibleOutputRenderers,
   });
+}
+
+function createAgentTextChatTerminalFailureProjection(input: {
+  result: AgentRunResult;
+  registry: ToolRegistry;
+}): { projectionType: AgentTextChatResponseProjectionType; events: AgentTextChatStreamEvent[] } | null {
+  if (input.result.status !== "failed" || !input.result.terminalError) {
+    return null;
+  }
+
+  if (isUnsupportedCapabilityFailure(input)) {
+    return {
+      projectionType: "unsupported_capability_fallback",
+      events: [
+        { type: "content", content: unsupportedToolActionMessage },
+        { type: "assistant_suggestions", suggestions: unsupportedToolActionSuggestions },
+        { type: "done" },
+      ],
+    };
+  }
+
+  if (isVisibleOutputValidationFailure(input.result)) {
+    return {
+      projectionType: "visible_output_validation_fallback",
+      events: [
+        { type: "content", content: visibleOutputValidationFailureMessage },
+        { type: "assistant_suggestions", suggestions: visibleOutputValidationFailureSuggestions },
+        { type: "done" },
+      ],
+    };
+  }
+
+  if (isBudgetOrTimeoutFailure(input.result)) {
+    return {
+      projectionType: "budget_timeout_fallback",
+      events: [
+        { type: "content", content: budgetOrTimeoutFailureMessage },
+        { type: "assistant_suggestions", suggestions: budgetOrTimeoutFailureSuggestions },
+        { type: "done" },
+      ],
+    };
+  }
+
+  return null;
 }
 
 async function restoreRecentVisibleTrainingProposalsForRun(input: {
@@ -499,20 +611,19 @@ function isUnsupportedCapabilityFailure(input: {
     return true;
   }
 
-  const registryEmpty = isProductionTextChatRegistryEmpty(input);
   const attemptedToolCall = input.result.traceEvents.some(
     (event) => event.type === "planner_action" && event.actionType === "tool_call",
   );
 
-  if (!registryEmpty || !attemptedToolCall) {
+  if (!attemptedToolCall) {
     return false;
   }
 
-  if (error.code === AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED) {
+  if (hasUnsupportedTraceReason(input.result) || hasTerminalFailureReason(input.result, unsupportedRepairReasonCodes)) {
     return true;
   }
 
-  return hasUnsupportedTraceReason(input.result) || getLastValidationCode(error.details) !== undefined;
+  return isProductionTextChatRegistryEmpty(input) && error.code === AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED;
 }
 
 function isProductionTextChatRegistryEmpty(input: {
@@ -538,15 +649,96 @@ function hasUnsupportedTraceReason(result: AgentRunResult) {
   });
 }
 
-function getLastValidationCode(details: JsonValue | undefined) {
-  if (!details || typeof details !== "object" || Array.isArray(details)) {
-    return undefined;
+function isVisibleOutputValidationFailure(result: AgentRunResult) {
+  const terminalError = result.terminalError;
+
+  if (!terminalError) {
+    return false;
   }
 
-  const lastCode = details.lastCode;
-  return typeof lastCode === "string" && unsupportedRepairReasonCodes.has(lastCode)
-    ? lastCode
-    : undefined;
+  const terminalReferenceFailure =
+    terminalReferenceErrorCodes.has(terminalError.code)
+    || hasTerminalFailureReason(result, terminalReferenceErrorCodes);
+
+  if (!terminalReferenceFailure) {
+    return false;
+  }
+
+  return containsVisibleOutputValidationDetails(terminalError.details)
+    || result.observations.some((observation) => containsVisibleOutputValidationDetails(observation.content));
+}
+
+function isBudgetOrTimeoutFailure(result: AgentRunResult) {
+  const terminalError = result.terminalError;
+
+  if (!terminalError) {
+    return false;
+  }
+
+  return budgetOrTimeoutErrorCodes.has(terminalError.code)
+    || hasTerminalFailureReason(result, budgetOrTimeoutErrorCodes)
+    || result.traceEvents.some((event) => (
+      event.type === "budget_event"
+      && event.status === "exhausted"
+      && event.budget !== "repair_attempts"
+    ));
+}
+
+function hasTerminalFailureReason(result: AgentRunResult, reasonCodes: ReadonlySet<string>) {
+  return containsAnyDiagnosticCode(result.terminalError?.details, reasonCodes)
+    || result.traceEvents.some((event) => (
+      (event.type === "validation_result" && event.code && reasonCodes.has(event.code))
+      || (event.type === "budget_event" && event.reason && reasonCodes.has(event.reason))
+    ));
+}
+
+function containsVisibleOutputValidationDetails(value: JsonValue | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((item) => containsVisibleOutputValidationDetails(item));
+  }
+
+  if (typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as Record<string, JsonValue>;
+  if (typeof record.outputType === "string") {
+    return true;
+  }
+
+  if (containsAnyDiagnosticCode(value, visibleOutputValidationReasonCodes)) {
+    return true;
+  }
+
+  return Object.values(record).some((item) => containsVisibleOutputValidationDetails(item));
+}
+
+function containsAnyDiagnosticCode(value: JsonValue | undefined, codes: ReadonlySet<string>): boolean {
+  if (!value) {
+    return false;
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((item) => containsAnyDiagnosticCode(item, codes));
+  }
+
+  if (typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as Record<string, JsonValue>;
+  for (const key of ["code", "lastCode", "reason"]) {
+    const candidate = record[key];
+    if (typeof candidate === "string" && codes.has(candidate)) {
+      return true;
+    }
+  }
+
+  return Object.values(record).some((item) => containsAnyDiagnosticCode(item, codes));
 }
 
 function createSafeAgentTextChatErrorEvent(
@@ -564,6 +756,10 @@ function createSafeAgentTextChatErrorEvent(
 function getSafeAgentTextChatErrorMessage(code?: string) {
   if (code === CHAT_TEXT_FLOW_CONFIG_ERROR_CODE) {
     return chatServiceUnavailableMessage;
+  }
+
+  if (code && budgetOrTimeoutErrorCodes.has(code)) {
+    return budgetOrTimeoutFailureMessage;
   }
 
   return genericChatFailureMessage;
@@ -711,7 +907,10 @@ function recordAgentTextChatRuntimeResultTrace(input: {
     });
   }
 
-  const responseSummary = summarizeAgentTextChatResponseEvents(input.events);
+  const responseSummary = summarizeAgentTextChatResponseEvents(input.events, {
+    result: input.result,
+    registry: input.registry,
+  });
   input.trace.addStep({
     name: "NDJSON 响应写入",
     type: "response_write",
@@ -719,7 +918,10 @@ function recordAgentTextChatRuntimeResultTrace(input: {
     metadata: {
       route: agentTextChatRoute,
       eventCount: input.events.length,
-      source: "renderAgentResponseEvents",
+      source: responseSummary.projectionType.endsWith("_fallback")
+        ? "productionTerminalFailureProjection"
+        : "renderAgentResponseEvents",
+      projectionType: responseSummary.projectionType,
       plannerModelCallCount: modelDiagnostics.length,
       tokenUsageSummary,
     },
@@ -737,7 +939,9 @@ function recordAgentTextChatConfigFailureTrace(input: {
   error: AgentTextChatConfigError;
   events: AgentTextChatStreamEvent[];
 }) {
-  const responseSummary = summarizeAgentTextChatResponseEvents(input.events);
+  const responseSummary = summarizeAgentTextChatResponseEvents(input.events, {
+    transportErrorCode: input.error.code,
+  });
 
   input.trace.addStep({
     name: "模型配置错误",
@@ -763,6 +967,7 @@ function recordAgentTextChatConfigFailureTrace(input: {
     metadata: {
       route: agentTextChatRoute,
       eventCount: input.events.length,
+      projectionType: responseSummary.projectionType,
     },
   });
   input.trace.finish("failed", {
@@ -813,6 +1018,7 @@ function recordAgentTextChatRuntimeExceptionTrace(input: {
       eventCount: input.events.length,
       plannerModelCallCount: modelDiagnostics.length,
       tokenUsageSummary: summarizePlannerModelTokenUsage(modelDiagnostics),
+      projectionType: responseSummary.projectionType,
     },
   });
   input.trace.finish("failed", {
@@ -919,6 +1125,8 @@ function getRuntimeTraceEventLabel(event: AgentTraceEvent) {
   switch (event.type) {
     case "registry_snapshot":
       return "Registry 快照";
+    case "agent_loop":
+      return "Agent Loop 轮次";
     case "planner_action":
       return "Planner action";
     case "validation_result":
@@ -950,6 +1158,12 @@ function summarizeRuntimeTraceEvent(event: AgentTraceEvent): unknown {
         snapshotId: event.snapshotId,
         manifestHash: event.manifestHash,
         toolCount: event.toolCount,
+      };
+    case "agent_loop":
+      return {
+        type: event.type,
+        loopTurn: event.loopTurn,
+        step: event.step,
       };
     case "planner_action":
       return {
@@ -1195,7 +1409,10 @@ function summarizeResourceRef(resource: AgentResourceRef): unknown {
   };
 }
 
-function summarizeAgentTextChatResponseEvents(events: AgentTextChatStreamEvent[]) {
+function summarizeAgentTextChatResponseEvents(
+  events: AgentTextChatStreamEvent[],
+  context: AgentTextChatResponseSummaryContext = {},
+) {
   const content = events
     .filter((event): event is Extract<AgentStreamEvent, { type: "content" }> => event.type === "content")
     .map((event) => event.content)
@@ -1210,6 +1427,7 @@ function summarizeAgentTextChatResponseEvents(events: AgentTextChatStreamEvent[]
   return {
     eventTypes: events.map((event) => event.type),
     done: events.some((event) => event.type === "done"),
+    projectionType: getAgentTextChatResponseProjectionType(events, context),
     content: summarizeText(content),
     contentLength: content.length,
     suggestionCount: suggestions.length,
@@ -1218,6 +1436,48 @@ function summarizeAgentTextChatResponseEvents(events: AgentTextChatStreamEvent[]
     toolResultCount: events.filter((event) => event.type === "tool_result").length,
     visibleOutputCount: events.filter((event) => event.type === "visible_output").length,
   };
+}
+
+function getAgentTextChatResponseProjectionType(
+  events: AgentTextChatStreamEvent[],
+  context: AgentTextChatResponseSummaryContext,
+): AgentTextChatResponseProjectionType {
+  const errorCodes = events
+    .filter((event): event is Extract<AgentTextChatStreamEvent, { type: "error" }> => event.type === "error")
+    .map((event) => event.error.code);
+
+  if (context.transportErrorCode === CHAT_TEXT_FLOW_CONFIG_ERROR_CODE || errorCodes.includes(CHAT_TEXT_FLOW_CONFIG_ERROR_CODE)) {
+    return "transport_config_failure";
+  }
+
+  if (context.result?.status === "failed" && context.registry) {
+    return createAgentTextChatTerminalFailureProjection({
+      result: context.result,
+      registry: context.registry,
+    })?.projectionType ?? "unclassified_error_event";
+  }
+
+  if (errorCodes.length > 0) {
+    return "unclassified_error_event";
+  }
+
+  if (events.some((event) => event.type === "confirmation_request")) {
+    return "confirmation_request";
+  }
+
+  if (context.result?.terminalAction?.type === "ask_user") {
+    return "ask_user";
+  }
+
+  if (context.result?.terminalAction?.type === "final_answer") {
+    return "final_answer_success";
+  }
+
+  if (events.some((event) => event.type === "content")) {
+    return "content";
+  }
+
+  return "done";
 }
 
 function summarizeToolResultForTrace(result: AgentRunResult["toolResults"][number]) {
@@ -1265,9 +1525,15 @@ function createFinalDecision(input: {
   responseSummary: AgentTextChatResponseSummary;
 }): AiRunFinalDecision {
   if (input.result.status === "failed") {
+    const recoverableFailure = new Set<AgentTextChatResponseProjectionType>([
+      "unsupported_capability_fallback",
+      "visible_output_validation_fallback",
+      "budget_timeout_fallback",
+    ]).has(input.responseSummary.projectionType);
+
     return {
-      status: isUnsupportedCapabilityFailure(input) ? "recoverable_failure" : "hard_failure",
-      reason: input.result.status,
+      status: recoverableFailure ? "recoverable_failure" : "hard_failure",
+      reason: input.responseSummary.projectionType,
       code: input.result.terminalError?.code,
       responseType: getResponseType(input.responseSummary),
     };

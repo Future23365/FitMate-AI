@@ -158,6 +158,8 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
   ].join(" "),
   inputSchema: inspectVisibleTrainingProposalsInputSchema,
   outputSchema: inspectVisibleTrainingProposalsOutputSchema,
+  // uiActivityStage 将训练事实读取类 tool 绑定到用户安全的读取进度阶段。
+  uiActivityStage: "reading_artifacts",
   policy: {
     sideEffect: "read",
     riskLevel: "low",

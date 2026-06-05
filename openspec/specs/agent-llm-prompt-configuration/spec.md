@@ -133,17 +133,17 @@ TBD - created by archiving change externalize-agent-llm-prompts. Update Purpose 
 - **AND** 本 change MUST NOT 因该规则新增 `currentTurn`、`evidence`、`conversationContext` 或等价稳定语义外壳
 
 ### Requirement: prompt change 不得引入服务端语义分流
-系统 SHALL 保持 `/api/chat`、Agent runtime、validator 和 tool handler 的语义中立。模型自然语言理解、引用对象判断和最终回复策略 SHALL 继续由模型基于可见输入推理完成。
+系统 SHALL 保持 `/api/chat`、Agent runtime、validator、tool handler 和 renderer 的语义中立。模型自然语言理解、引用资源操作和最终输出策略 SHALL 继续由模型基于可见输入推理完成。
 
 #### Scenario: route 和 runtime 不识别固定用户短语
 - **WHEN** 实现本 change
-- **THEN** `/api/chat`、Agent runtime、validator、`Policy Guard`、`ResourceStore` 和 `Response Renderer` MUST NOT 新增基于 `换一批`、`再来一组`、`重新来一套` 或等价用户原文短语的条件分支
-- **AND** 系统 MUST NOT 根据用户原文把请求改写成固定 `toolName`、固定 action 或固定 final answer
+- **THEN** `/api/chat`、Agent runtime、validator、`Policy Guard`、`ResourceStore`、tool handler 和 `Response Renderer` MUST NOT 新增基于用户原文短语的条件分支
+- **AND** 系统 MUST NOT 根据用户原文把请求改写成固定 `toolName`、固定 action、固定 `payload.kind` 或固定 final answer
 
-#### Scenario: 不实现强制 tool result 引用 guard
-- **WHEN** 实现本 change
-- **THEN** validator 或 runtime MUST NOT 新增“只要本轮调用过 tool，terminal action 就必须引用 tool result / resource”的强制 guard
-- **AND** 是否使用 tool result / resource MUST 由模型基于本轮用户请求、上下文和可见事实自行判断
+#### Scenario: 具体业务名只作为局部说明或测试样例
+- **WHEN** 本 change 涉及 `visibleTrainingProposal`、`inspectVisibleTrainingProposals` 或 `searchExerciseResources`
+- **THEN** 这些业务名 MUST 只出现在对应 tool manifest、observation projection、resource contract、spec 或回归测试中
+- **AND** 通用 prompt MUST NOT 把这些业务名写成语义触发条件或固定 tool 调用流程
 
 ### Requirement: Agent LLM prompt 必须表达 visibleTrainingProposal 刷新语义
 系统 SHALL 在默认 Agent LLM prompt 中表达 `visibleTrainingProposal` 的刷新语义：当用户基于上一套用户可见训练方案要求替换、重新来一套、不满意或同类继续请求时，模型应理解为保留原目标和约束，并优先让新的 `exerciseItems` 与上一套用户已看到动作产生实质差异。该说明 MUST NOT 写成固定自然语言短语到固定 tool、固定 action 或固定 `payload.kind` 的映射。
@@ -209,4 +209,94 @@ TBD - created by archiving change externalize-agent-llm-prompts. Update Purpose 
 - **THEN** system message MUST 在首轮可见合同中表达 plan 组合路径和禁止降级边界
 - **AND** system message MUST NOT 只依赖 validation failure 或 repair feedback 才向模型说明 plan 需要补齐 `warmup` / `stretch` 和 `schedule`
 - **AND** system message MUST NOT 要求模型调用未注册 tool 或隐藏训练生成服务
+
+### Requirement: Agent LLM prompt 配置必须迁移到服务端集中配置目录
+系统 SHALL 将生产 `LlmPlanner` 使用的 Agent LLM prompt 配置放在 `lib/server/config/` 下，与 Agent runtime TS config 统一管理。迁移 MUST 保持现有模型可见合同含义、`promptVersion`、请求默认值和测试注入能力。
+
+#### Scenario: 默认 prompt 配置入口位于 lib/server/config
+- **WHEN** 开发者查看生产 Agent LLM prompt 配置入口
+- **THEN** 当前默认入口 MUST 位于 `lib/server/config/` 下
+- **AND** 旧 `lib/server/agent-planners/prompts/agent-llm-prompt-config.ts` MUST 被删除或改为不承载生产默认内容的短期 re-export
+- **AND** 若保留短期 re-export，tasks MUST 明确清理条件和测试覆盖
+
+#### Scenario: Adapter 继续消费 prompt 配置而不内联 prompt
+- **WHEN** `DeepSeekModelAdapter` 构造 system message
+- **THEN** adapter MUST 从迁移后的 prompt 配置入口构造 system prompt
+- **AND** adapter MUST NOT 在供应商请求构造函数中内联默认 prompt 句子
+- **AND** adapter MUST 继续支持测试传入自定义 prompt 配置
+
+#### Scenario: 迁移不改变 prompt 语义
+- **WHEN** prompt 配置迁移完成
+- **THEN** 生成的默认 system prompt 内容 MUST 与本 change 前的业务含义保持一致，除非实现任务明确列出独立 prompt 合同变更
+- **AND** 本 change MUST NOT 借迁移新增服务端关键词分流、固定 tool 调用规则或新的业务 toolName 流程
+
+#### Scenario: 文档和测试指向新入口
+- **WHEN** 开发者阅读 prompt 相关文档或测试失败信息
+- **THEN** 文档和测试 MUST 指向 `lib/server/config/` 下的新 prompt 配置入口
+- **AND** 文档 MUST 不再把旧 `lib/server/ai/prompt-config.ts` 或旧 `lib/server/agent-planners/prompts/agent-llm-prompt-config.ts` 当作生产默认入口
+
+### Requirement: 默认 prompt 必须表达引用资源操作合同
+系统 SHALL 在默认 Agent LLM prompt 中表达引用资源操作合同。Prompt MUST 引导模型区分复用、派生、调整、替换和澄清这些稳定操作类型；Prompt MUST NOT 使用固定用户短语、关键词、正则、同义词表、具体业务 `toolName` 或字段组合规定必须选择某个操作、tool、action 或 `payload.kind`。
+
+#### Scenario: Prompt 引导引用资源操作分类
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 说明引用已有对象时应先基于当前可见上下文判断目标是 `reuse`、`derive`、`modify`、`replace` 还是 `clarify`
+- **AND** system message MUST 说明 `reuse`、`derive` 和 `modify` 应优先把可消费资源作为正向事实来源
+- **AND** system message MUST 说明 `replace` 才适合把已看到动作作为负向排除约束
+- **AND** system message MUST 使用中文描述业务含义，技术标识保持英文原样
+
+#### Scenario: Prompt 不包含固定短句触发规则
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST NOT 包含原始失败用户短句或等价固定短语作为触发规则
+- **AND** system message MUST NOT 表达成 `toolName = "inspectVisibleTrainingProposals"` 或 `toolName = "searchExerciseResources"` 时必须选择固定下一步
+- **AND** system message MUST NOT 根据 `factRef`、`excludeExerciseIds`、`requiredExerciseIds` 或 section 数量的具体组合替模型判断用户语义
+
+### Requirement: 默认 prompt 必须表达结构输出受可见事实覆盖约束
+系统 SHALL 在默认 Agent LLM prompt 中表达：最终 `visibleTrainingProposal` 的结构强度必须由当前 run 可见事实支撑。Prompt MUST 引导模型在事实不足时继续获取事实、澄清、失败收口或输出当前事实可支撑的结构。
+
+#### Scenario: Prompt 表达 routine 和 plan 的 section 覆盖要求
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 表达 `routine` 和 `plan` 需要 `warmup`、`training`、`stretch` 三类 section 的可消费动作事实
+- **AND** system message MUST 表达 `exerciseItems[*].section` 必须被对应动作事实的 `allowedSections` 支撑
+- **AND** system message MUST 表达只有 `training` 动作事实时不得伪造 `warmup` 或 `stretch`
+
+#### Scenario: Prompt 表达事实不足的恢复方式
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 表达如果最终结构所需 section、动作、处方或 schedule 缺少可见事实，模型应基于可见 tool 和事实自主选择继续查询、澄清、失败收口或输出当前事实可支撑结构
+- **AND** system message MUST NOT 固定要求调用某个业务 tool
+- **AND** system message MUST NOT 固定要求输出某个 `payload.kind`
+
+### Requirement: 默认 prompt 必须区分引用型请求和独立生成请求
+系统 SHALL 在默认 Agent LLM prompt 中表达引用目标解析合同。Prompt MUST 引导模型区分“操作已有对象”的引用型请求和“按新目标生成内容”的独立生成请求；系统 MUST NOT 通过服务端关键词、正则、同义词表、短句模板、业务 `toolName` 或字段组合替模型判断该语义。
+
+#### Scenario: 引用型请求需要真实可操作对象
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 说明当本轮请求依赖已有对象时，模型必须基于当前 run 的 `messages`、`metadata`、`observations`、`toolResults` 或 consumable resource 判断被引用对象是否真实存在且可操作
+- **AND** system message MUST 使用中文描述业务含义
+- **AND** system message MUST NOT 包含 `换一批`、`再来一组`、`facts=[]`、`toolName = inspectVisibleTrainingProposals` 或等价固定短语 / 固定字段 / 固定业务 tool 条件作为触发规则
+
+#### Scenario: 缺失引用对象不得降级成相邻新生成
+- **WHEN** 当前可见事实不足以确认引用对象存在或可操作
+- **THEN** system message MUST 说明模型不得把引用型请求改写成相邻的新生成目标
+- **AND** system message MUST 说明模型不得输出结构化结果并声称已经完成替换、刷新或调整
+- **AND** system message MUST 引导模型自然说明缺少可继续操作的上下文、请求用户补充目标，或在用户已提供独立生成目标和约束时明确按新目标处理
+
+#### Scenario: 独立生成必须明确不是继续操作
+- **WHEN** 用户已经提供足够独立生成所需的目标和约束
+- **THEN** system message MUST 允许模型按新目标自主选择 tool_call、final_answer 或 ask_user
+- **AND** system message MUST 要求模型在 content 中避免把独立生成描述成对不可见已有对象的继续、替换、刷新或调整
+- **AND** system message MUST NOT 要求固定调用某个业务 tool、固定输出某个 `payload.kind` 或固定引用某个 tool result / resource
+
+### Requirement: 引用目标合同不得引入服务端语义分流
+系统 SHALL 保持 `/api/chat`、Agent runtime、validator、tool handler 和 renderer 的语义中立。模型自然语言理解、引用对象判断和最终回复策略 SHALL 继续由模型基于可见输入推理完成。
+
+#### Scenario: 服务端不识别固定用户短语或字段组合
+- **WHEN** 实现本 change
+- **THEN** `/api/chat`、Agent runtime、validator、`Policy Guard`、`ResourceStore`、tool handler 和 `Response Renderer` MUST NOT 新增基于 `换一批`、`再来一组`、`重新来一套` 或等价用户原文短语的条件分支
+- **AND** 系统 MUST NOT 根据用户原文、具体 `toolName`、`facts=[]`、`factCount = 0` 或同类字段组合把请求改写成固定 action、固定 tool 调用或固定 final answer
+
+#### Scenario: 具体业务名只作为局部说明或测试样例
+- **WHEN** 本 change 涉及 `visibleTrainingProposal`、`inspectVisibleTrainingProposals` 或 `searchExerciseResources`
+- **THEN** 这些具体业务名 MUST 只出现在对应 tool manifest、observation projection、resource contract、spec 或回归测试中
+- **AND** 通用 Agent prompt MUST NOT 把这些业务名写成语义触发条件或固定 tool 调用流程
 

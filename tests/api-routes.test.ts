@@ -208,7 +208,7 @@ describe("API route boundaries", () => {
       responseMessageId: "assistant-1",
     }));
     const rawEvents = parseNdjson(await response.text());
-    const events = rawEvents.filter((event) => event.type !== "agent_progress");
+    const events = rawEvents.filter((event) => event.type !== "agent_progress" && event.type !== "agent_loop");
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("application/x-ndjson");

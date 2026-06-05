@@ -213,6 +213,8 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
     ].join(" "),
     inputSchema: searchExerciseResourcesInputSchema,
     outputSchema: searchExerciseResourcesOutputSchema,
+    // uiActivityStage 让生产聊天活动条跟随 tool 定义同步，不进入 Planner 可见 manifest。
+    uiActivityStage: "querying_exercises",
     metadata: options.facetCatalog ? { facetCatalog: options.facetCatalog } : undefined,
     policy: {
       sideEffect: "read",

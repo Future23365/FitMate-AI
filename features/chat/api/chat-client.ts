@@ -4,6 +4,7 @@ import type { FitnessConversationContext } from "@/lib/shared/chat/fitness-conve
 import {
   isKnownAgentProgressStage,
   isKnownAgentProgressStatus,
+  type AgentLoopPayload,
   type AgentProgressPayload,
 } from "@/features/chat/types";
 
@@ -14,16 +15,33 @@ export type AgentTextChatErrorPayload = {
   details?: unknown;
 };
 
-const genericAgentTextChatErrorMessage = "聊天生成失败，请稍后重试。";
+const genericAgentTextChatErrorMessage = "聊天服务暂时没能完成这次回复。你可以稍后重试，或把问题缩小后再发一次。";
 const chatServiceUnavailableMessage = "聊天服务暂时不可用，请稍后再试。";
 const unsupportedCapabilityMessage = "目前还不能直接生成、保存或执行训练计划。你可以继续询问训练原则、动作说明或需要补充的信息。";
+const unreadableChatResponseMessage = "聊天响应暂时无法读取。你可以稍后重试，或把问题缩小后再发一次。";
+const visibleOutputValidationFailureMessage = "这次没有生成通过校验的可靠训练结果。你可以缩小范围、补充缺失条件，或先让我说明当前事实能支撑的内容。";
+const budgetOrTimeoutFailureMessage = "这次请求需要的步骤或信息量超出了当前处理范围。你可以减少条件、缩小训练目标，或分两步提问。";
 const unsupportedCapabilityErrorCodes = new Set([
   "unknown_tool",
   "unsupported_m0_capability",
   "max_tool_calls_exceeded",
 ]);
+const visibleOutputValidationErrorCodes = new Set([
+  "terminal_reference_invalid",
+  "resource_missing",
+  "resource_requirement_unmet",
+  "resource_contract_violation",
+]);
+const budgetOrTimeoutErrorCodes = new Set([
+  "budget_exhausted",
+  "planner_exhausted",
+  "max_steps_exceeded",
+  "overall_timeout",
+  "timeout",
+]);
 
 export type AgentTextChatEvent =
+  | ({ type: "agent_loop" } & AgentLoopPayload)
   | ({ type: "agent_progress" } & AgentProgressPayload)
   | { type: "content"; content: string }
   | { type: "visible_output"; outputType: string; schemaVersion: string; payload: unknown; content?: unknown }
@@ -146,7 +164,7 @@ export function getAgentTextChatErrorMessage(error: unknown) {
   }
 
   if (error instanceof AgentTextChatStreamError) {
-    return genericAgentTextChatErrorMessage;
+    return unreadableChatResponseMessage;
   }
 
   return genericAgentTextChatErrorMessage;
@@ -208,6 +226,8 @@ function parseAgentTextChatEvent(value: unknown): AgentTextChatEvent {
   const event = value as { type: string; [key: string]: unknown };
 
   switch (event.type) {
+    case "agent_loop":
+      return parseAgentLoopEvent(event);
     case "agent_progress":
       return parseAgentProgressEvent(event);
     case "content":
@@ -251,6 +271,22 @@ function parseAgentTextChatEvent(value: unknown): AgentTextChatEvent {
     default:
       throw new AgentTextChatStreamError(`未知聊天响应事件：${event.type}`);
   }
+}
+
+function parseAgentLoopEvent(event: Record<string, unknown>): AgentTextChatEvent {
+  if (typeof event.loopTurn !== "number" || !Number.isSafeInteger(event.loopTurn) || event.loopTurn <= 0) {
+    throw new AgentTextChatStreamError("agent_loop 事件 loopTurn 字段不合法。");
+  }
+
+  if (typeof event.sequence !== "number" || !Number.isFinite(event.sequence) || event.sequence < 0) {
+    throw new AgentTextChatStreamError("agent_loop 事件 sequence 字段不合法。");
+  }
+
+  return {
+    type: "agent_loop",
+    loopTurn: event.loopTurn,
+    sequence: event.sequence,
+  };
 }
 
 function parseAgentProgressEvent(event: Record<string, unknown>): AgentTextChatEvent {
@@ -306,6 +342,14 @@ function getSafeAgentTextChatUserMessage(code?: string) {
     return unsupportedCapabilityMessage;
   }
 
+  if (code && visibleOutputValidationErrorCodes.has(code)) {
+    return visibleOutputValidationFailureMessage;
+  }
+
+  if (code && budgetOrTimeoutErrorCodes.has(code)) {
+    return budgetOrTimeoutFailureMessage;
+  }
+
   return genericAgentTextChatErrorMessage;
 }
 
@@ -356,7 +400,7 @@ function getErrorPayloadFromResponseData(data: unknown): AgentTextChatErrorPaylo
 
 function normalizeErrorPayload(value: unknown): AgentTextChatErrorPayload {
   if (!value || typeof value !== "object") {
-    return { message: typeof value === "string" ? value : "聊天生成失败，请稍后重试。" };
+    return { message: typeof value === "string" ? value : genericAgentTextChatErrorMessage };
   }
 
   const record = value as Record<string, unknown>;
