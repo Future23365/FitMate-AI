@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { LocalAuthProvider } from "@/components/auth/local-auth-provider";
+import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -18,6 +19,7 @@ export default function RootLayout({
         <LocalAuthProvider>
           {children}
         </LocalAuthProvider>
+        <Toaster />
       </body>
     </html>
   );

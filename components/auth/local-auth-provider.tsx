@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,7 @@ type LocalAuthContextValue = {
 };
 
 const LocalAuthContext = createContext<LocalAuthContextValue | null>(null);
+const localAuthRequiredToastId = "local-auth-required";
 
 export function useLocalAuth() {
   const context = useContext(LocalAuthContext);
@@ -61,6 +63,10 @@ export function LocalAuthProvider({ children }: { children: React.ReactNode }) {
         ? (event.detail as Partial<LocalAuthRequiredDetail> | undefined)
         : undefined;
 
+      toast.warning("需要登录", {
+        id: localAuthRequiredToastId,
+        description: "当前操作需要登录。可以匿名注册账户登录使用。",
+      });
       setAuthState((current) => localAuthRequiredState(current, detail?.reason ?? "unauthenticated"));
     }
 
