@@ -173,6 +173,10 @@ export function reduceVisibleAgentActivity(
     return current;
   }
 
+  if (current && currentActivity && next.stage === "analyzing_request") {
+    return rememberIgnoredActivitySequence(current, lastActivitySequence);
+  }
+
   if (
     current &&
     currentActivity &&

@@ -94,7 +94,20 @@ describe("Agent progress activity UI state", () => {
     expect(`${knownFailed.label}${unknownFailed.label}`).not.toContain("遇到问题");
   });
 
-  it("keeps loopTurn independent when Activity arbitration keeps an informative stage", () => {
+  it("uses analyzing_request only as an initial fallback activity", () => {
+    const analyzing = reduceAgentActivity(null, {
+      type: "agent_progress",
+      stage: "analyzing_request",
+      status: "active",
+      messageKey: "analyzing_request",
+      sequence: 1,
+    }, { nowMs: 0 });
+
+    expect(analyzing?.activityStage?.stage).toBe("analyzing_request");
+    expect(getAgentActivityDisplay(analyzing!).label).toBe("正在规划下一步...");
+  });
+
+  it("keeps loopTurn independent when Activity arbitration ignores analyzing_request after an informative stage", () => {
     const querying = reduceAgentActivity(null, {
       type: "agent_progress",
       stage: "querying_exercises",
@@ -132,9 +145,10 @@ describe("Agent progress activity UI state", () => {
     expect(genericActivity?.activityStage?.stage).toBe("querying_exercises");
     expect(genericActivity?.loopTurn).toBe(1);
     expect(genericActivity?.lastActivitySequence).toBe(3);
-    expect(afterCooldown?.activityStage?.stage).toBe("analyzing_request");
+    expect(afterCooldown?.activityStage?.stage).toBe("querying_exercises");
     expect(afterCooldown?.loopTurn).toBe(1);
-    expect(getAgentActivityDisplay(afterCooldown!).label).toBe("正在规划下一步...");
+    expect(afterCooldown?.lastActivitySequence).toBe(4);
+    expect(getAgentActivityDisplay(afterCooldown!).label).toBe("正在查询动作库...");
   });
 
   it("uses safe fallback copy for unknown Activity stages without exposing raw stage", () => {
