@@ -253,8 +253,9 @@ describe("AgentActivityIndicator", () => {
     expect(html).toContain("正在校验训练内容...");
     expect(html).not.toContain("fact_check");
     expect(html).toContain("items-baseline");
+    expect(html).toContain("gap-[2px]");
     expect(html).toContain("pl-0");
-    expect(html).toContain("min-w-[1.75rem]");
+    expect(html).toContain("w-[1.375rem]");
     expect(html).toContain("text-left");
     expect(html).toContain("tabular-nums");
     expect(html).not.toContain("text-right");
@@ -301,7 +302,7 @@ describe("AgentActivityIndicator", () => {
 
     expect(html).toContain("正在整理上下文...");
     expect(html).toContain("aria-hidden=\"true\"");
-    expect(html).toContain("min-w-[1.75rem]");
+    expect(html).toContain("w-[1.375rem]");
     expect(html).not.toContain("#0");
     expect(html).not.toContain("#1");
   });
