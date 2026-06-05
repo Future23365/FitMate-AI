@@ -1,6 +1,6 @@
 ---
 name: architecture-decoupling-governance
-description: 治理 AITest 中非简单改动的架构解耦审查。用于新增或修改业务能力、跨模块数据流、API/validator/renderer/persistence/domain service、UI 或服务端状态模型、共享类型、AI 编排、训练规则、特殊分支、fallback、兼容层，或新增第二个同类来源/视图/流程/数据生产者时；要求实现前说明模块职责、稳定合同、具体 adapter、耦合风险和验证方式。
+description: 治理 AITest 中跨模块、跨层或抽象边界变化的架构解耦审查。作为 primary skill 用于新增/修改业务能力、跨模块数据流、API/validator/renderer/persistence/domain service、UI 或服务端状态模型、共享类型、AI 编排、训练规则、特殊分支、fallback、兼容层，或新增第二个同类来源/视图/流程/数据生产者；要求实现前说明模块职责、稳定合同、具体 adapter、耦合风险和验证方式。单个 tool manifest、prompt 文案、schema description、局部测试或不改变模块边界的小修不自动触发。
 ---
 
 # 架构解耦治理
@@ -13,9 +13,10 @@ description: 治理 AITest 中非简单改动的架构解耦审查。用于新�
 
 ## 前置检查
 
+0. 每个任务只选择一个 primary governance skill。本 Skill 只在模块边界、稳定合同、adapter、状态模型或第二来源/第二消费者是主问题时作为 primary；局部 Agent tool 或 prompt 变更由更具体的治理 Skill 主导。
 1. 运行 `git status --short`。如果存在无关用户改动，不要混入当前 diff 或 commit。
 2. 判断是否触发 OpenSpec。凡是新功能、行为逻辑变更、用户流程变化、架构调整、API 契约、数据模型、AI 编排、训练规则、权限安全、重构或跨模块改动，默认先走 OpenSpec，除非用户明确要求跳过。
-3. 如果涉及 Agent tool、Agent core、ResourceStore、Response Renderer、trace/replay、`/api/chat` 或模型可见合同，同时使用对应治理 Skill。
+3. 如果涉及 Agent tool、Agent core、ResourceStore、Response Renderer、trace/replay、`/api/chat` 或模型可见合同，先判断哪个边界是 primary；本 Skill 只保留架构解耦审查，执行合同和模型可见合同由对应治理 Skill 收口。
 4. 实现前先给出解耦审查结论，不要直接开改。
 
 ## 必须审查的问题

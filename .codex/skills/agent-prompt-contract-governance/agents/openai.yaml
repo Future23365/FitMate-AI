@@ -1,4 +1,4 @@
 interface:
   display_name: "Agent Prompt 合同治理"
-  short_description: "Agent prompt 和模型可见合同治理流程入口"
-  default_prompt: "Use $agent-prompt-contract-governance 在修改 Agent prompt 或模型可见输入前执行合同治理。"
+  short_description: "Agent prompt 和模型实际可见输入合同治理入口"
+  default_prompt: "Use $agent-prompt-contract-governance 作为 primary skill 治理一次 Agent prompt 或模型实际可见输入变更。"

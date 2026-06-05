@@ -1,6 +1,6 @@
 ---
 name: ui-ux-pro-max
-description: UI/UX design intelligence with searchable database
+description: UI/UX design intelligence with searchable database. Use when the user explicitly asks for UI/UX strategy, visual system, page/interface design, redesign, layout/information architecture, design review, or complex visual polish. Do not use for routine component bug fixes, small style tweaks, loading/form state fixes, dashboard/workbench maintenance, or non-design frontend implementation unless the user explicitly asks for UX/design guidance.
 ---
 # ui-ux-pro-max
 
@@ -35,7 +35,7 @@ winget install Python.Python.3.12
 
 ## How to Use This Skill
 
-When user requests UI/UX work (design, build, create, implement, review, fix, improve), follow this workflow:
+When the user explicitly requests UI/UX strategy, visual system design, page/interface design, redesign, design review, or complex visual polish, follow this workflow. Do not trigger this skill for routine component bug fixes, small style tweaks, loading/form state fixes, dashboard/workbench maintenance, or non-design frontend implementation unless the user explicitly asks for UX/design guidance.
 
 ### Step 1: Analyze User Requirements
 

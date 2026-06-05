@@ -1,4 +1,4 @@
 interface:
   display_name: "Agent Tool 变更治理"
-  short_description: "Agent tool 变更治理、分类与验证工作流入口"
-  default_prompt: "Use $agent-tool-change-governance 在实现前分类并治理一次 Agent tool 变更。"
+  short_description: "Agent tool、执行合同、core runtime 和 production 接入治理入口"
+  default_prompt: "Use $agent-tool-change-governance 作为 primary skill 治理一次 Agent tool、执行合同、core runtime 或 production 接入变更。"

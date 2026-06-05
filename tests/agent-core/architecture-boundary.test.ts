@@ -366,6 +366,40 @@ describe("agent-core architecture boundaries", () => {
     expect(matches).toEqual([]);
   });
 
+  it("keeps visible training refresh semantics out of route, core and renderer text routing", () => {
+    const files = [
+      ...productionChatEntryFiles,
+      ...coreFlowFiles,
+      "lib/server/agent-core/terminal-output-validator.ts",
+      "lib/server/visible-training-proposals/visible-training-proposal-renderer.ts",
+    ];
+    const forbiddenTerms = [
+      "换一批",
+      "重新来一套",
+      "不要刚才那套",
+      "再推荐一批",
+      "再来一组",
+      "不要这个",
+      "userInput.includes",
+      "message.content.includes",
+      ".includes(input.run.userInput",
+      "new RegExp",
+      ".match(",
+    ];
+    const matches: string[] = [];
+
+    for (const file of files) {
+      const content = readRelative(file);
+      for (const term of forbiddenTerms) {
+        if (content.includes(term)) {
+          matches.push(`${file}: ${term}`);
+        }
+      }
+    }
+
+    expect(matches).toEqual([]);
+  });
+
   it("keeps plan composition hardening scoped to model-visible contracts", () => {
     const serverBoundaryFiles = [
       ...productionChatEntryFiles,

@@ -124,6 +124,7 @@ describe("searchExerciseResources tool", () => {
         missingSectionsForRoutineOrPlan: ["warmup", "stretch"],
         note: expect.stringContaining("当前结果只提供 training 动作事实"),
       },
+      refreshExclusionBoundary: expect.stringContaining("本次查询未应用 excludeExerciseIds"),
     });
     expect(serializedObservation).toContain("section 应与使用的 group key 保持一致");
     expect(serializedObservation).toContain("如果最终目标是 routine 或 plan");
@@ -247,6 +248,89 @@ describe("searchExerciseResources tool", () => {
       "warmup",
       "stretch",
     ]);
+  });
+
+  it("explains replacement shortage after excluding visible training proposal exercises without refilling excluded ids", async () => {
+    const { tool, repository } = await importToolWithRepositoryResult(createSearchResult({
+      query: {
+        suitability: "training",
+        equipment: "body only",
+        excludeExerciseIds: ["squat", "lunge"],
+        published: true,
+        sort: "name_asc",
+      },
+      totalMatches: 0,
+      returnedCount: 0,
+      excludedCount: 2,
+      exercises: [],
+    }));
+
+    const result = await executeTool({
+      tool,
+      input: {
+        suitabilities: ["training"],
+        equipment: "body only",
+        excludeExerciseIds: ["squat", "lunge"],
+      },
+      run: { runId: "run-excluded-shortage", actor: { userId: "user-1" }, userInput: "不要刚才那套，重新来一套" },
+      timeoutMs: 100,
+      toolCallId: "tc_excluded_shortage",
+    });
+
+    expect(repository.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
+      suitability: "training",
+      equipment: "body only",
+      excludeExerciseIds: ["squat", "lunge"],
+      published: true,
+    }));
+    expect(result).toMatchObject({
+      ok: true,
+      output: {
+        query: {
+          totalMatches: 0,
+          returnedCount: 0,
+          excludedCount: 2,
+          excludeExerciseIds: ["squat", "lunge"],
+          appliedFilters: expect.arrayContaining([
+            { field: "excludeExerciseIds", value: ["squat", "lunge"] },
+          ]),
+        },
+        groups: {
+          training: {
+            exercises: [],
+          },
+        },
+        diagnostics: [
+          {
+            suitability: "training",
+            code: "no_candidates",
+            message: expect.stringContaining("排除用户已看到或明确要求排除的动作后没有更多匹配候选"),
+          },
+        ],
+      },
+      fulfillment: {
+        satisfied: true,
+        summary: "查询已执行，排除用户已看到动作后当前发布态动作库没有更多匹配结果。",
+      },
+    });
+
+    if (!result.ok) {
+      throw new Error("searchExerciseResources should succeed");
+    }
+    const modelObservation = tool.toModelObservation?.(
+      result.output as Parameters<NonNullable<typeof tool.toModelObservation>>[0],
+      {
+        runId: "run-excluded-shortage",
+        actor: { userId: "user-1" },
+        toolCallId: "tc_excluded_shortage",
+      },
+    );
+    const serializedObservation = JSON.stringify(modelObservation);
+
+    expect(serializedObservation).toContain("无法完全换新");
+    expect(serializedObservation).toContain("不得为了填满新方案回填已排除动作");
+    expect(serializedObservation).not.toContain("\"exerciseId\":\"squat\"");
+    expect(serializedObservation).not.toContain("\"exerciseId\":\"lunge\"");
   });
 
   it("prioritizes requiredExerciseIds inside the existing grouped exercises output", async () => {

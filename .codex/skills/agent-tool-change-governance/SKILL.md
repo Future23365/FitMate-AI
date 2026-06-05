@@ -1,12 +1,13 @@
 ---
 name: agent-tool-change-governance
-description: 治理 AITest 中 Agent tool 相关变更的实现前流程。用于新增 Agent tool、修复 Agent tool bug、排查 prompt/model input、修改 Agent core contract、调整业务 tool 输入/输出字段命名、弃用或重命名过时字段，或触碰 PlannerPort、Executor、Policy Guard、ResourceStore、Resource Contract Validator、Response Renderer、trace/replay、/api/chat 生产聊天接入等任务。
+description: 治理 AITest 中 Agent tool、执行合同、core runtime 和 production 接入相关变更的实现前流程。作为 primary skill 用于新增或修改 Agent tool、tool schema、handler、policy metadata、resource contract、projection、trace/replay、PlannerPort、Executor、Policy Guard、ResourceStore、Resource Contract Validator、Response Renderer 或 /api/chat 生产聊天接入；也用于业务 tool 输入/输出字段命名、弃用和重命名。纯 prompt/model input/model-visible 文案变更不以本 Skill 为主，应使用 agent-prompt-contract-governance；普通 trace 根因排查不自动触发。
 ---
 
 # Agent Tool 变更治理
 
 ## 前置检查
 
+0. 每个任务只选择一个 primary governance skill。本 Skill 只在执行合同、tool/core/runtime/production 边界是主问题时作为 primary；涉及模型可见说明时，`agent-prompt-contract-governance` 只作为 secondary 检查。
 1. 在提出方案或修改实现前，读取 `docs/agent-tool-orchestrator-design.md` 第 24、25、26 节。
 2. 对非平凡行为改动，先用 `openspec status --change <change> --json` 检查当前 OpenSpec change，并读取 proposal、design、spec 和 tasks。
 3. 改文件前运行 `git status --short`。如果存在无关用户改动，不要混入当前 diff 或 commit。
@@ -30,7 +31,7 @@ description: 治理 AITest 中 Agent tool 相关变更的实现前流程。用�
 
 从证据定位，不从表面现象直接补丁：
 
-- 读取 `codex_logs/ai_trace_log.js`，除非用户明确说不用看，或该文件不存在。
+- 先判断证据来源是否对应当前问题。覆盖写的导出文件可能已经被替换；只有在用户提供、刚导出或明确确认导出证据对应当前 case 时，才把它作为证据使用。
 - 在怀疑服务端流程前，先检查本次模型实际可见的 `prompt / model input`，包括 `system prompt`、`developer prompt`、tool manifest、schema summary、examples、repair feedback、context package、observations 和已压缩的 tool results。不要先入为主假设服务端 runtime、handler 或 response flow 有问题。
 - 优先判断是否缺 tool 能力、tool 描述/Schema/examples 不清、context/resource 摘要不足、repair feedback 不足或 final grounding 不清；不要先新增业务端语义判断。
 - 如果模型可见输入已经正确表达合同，再检查真实 Zod / JSON Schema、runtime validation、`ResourceStore`、`Policy Guard`、projection、response rendering、trace 和 production 接入。
@@ -109,7 +110,7 @@ description: 治理 AITest 中 Agent tool 相关变更的实现前流程。用�
 - [ ] 如修改注册、manifest 或 schema summary，运行 `npm test -- tests/agent-core/tool-registry-manifest.test.ts`。
 - [ ] 如修改 TypeScript、schema、AI orchestration 或共享业务逻辑，运行 `npm run typecheck`。
 
-修复 Agent tool bug 时，checklist 必须覆盖 `codex_logs/ai_trace_log.js`、模型实际可见的 `prompt / model input`、真实 schema、model-visible manifest 或 schema summary、`ResourceStore`、`Policy Guard`、projection、response rendering 和 trace。
+修复 Agent tool bug 时，checklist 必须覆盖证据来源有效性、模型实际可见的 `prompt / model input`、真实 schema、model-visible manifest 或 schema summary、`ResourceStore`、`Policy Guard`、projection、response rendering 和 trace/replay 影响。
 
 涉及过时字段重命名时，`tasks.md` 必须额外包含字段迁移检查：列出旧字段和新字段，覆盖所有产生方、消费方、模型可见说明、trace/replay、fixtures 和回归测试，并明确是否删除旧字段或短期保留兼容入口。
 

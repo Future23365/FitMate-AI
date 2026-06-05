@@ -137,13 +137,13 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
 >({
   name: "inspectVisibleTrainingProposals",
   version: "0.2.0",
-  description: "只读查询当前会话中用户已经看到的 visibleTrainingProposal 事实。operation = \"list_recent\" 返回最近事实索引；operation = \"read_recent\" 读取具体事实并导入当前 run。",
+  description: "只读查询当前会话中用户已经看到的 visibleTrainingProposal 事实，帮助 Planner 了解上一套 exerciseItems、section 摘要和计划结构，再自主规划差异化刷新、保留、排除、结构调整或失败收口。operation = \"list_recent\" 返回最近事实索引；operation = \"read_recent\" 读取具体事实并导入当前 run。",
   whenToUse: [
     "当 Planner 需要确认当前 actor 和 conversation 是否存在可引用的用户可见训练方案事实时，先调用 operation = \"list_recent\"。",
     "list_recent 只返回 factRef、messageId、proposalKind、section 摘要、可复用 training 动作数量、visibleOutputSchemaVersion 和 factSchemaVersion；它不导入完整 payload，也不产出 consumable 训练方案事实。",
     "当 Planner 已经从 list_recent result、diagnostic index resource 或当前受控 metadata 中看到真实 factRef/messageId，并且需要复用具体方案时，再调用 operation = \"read_recent\"。",
-    "read_recent 成功后会把 visible_training_proposal_fact 作为当前 run 的 consumable resource 导入；后续应基于该结果继续规划，不要重复读取同一引用。",
-    "省略表达、指代不明或上下文引用场景由模型基于上下文、list_recent result 和 read_recent result 自主判断下一步，可以读取事实、查询动作库、澄清或普通回复。",
+    "read_recent 成功后会把 visible_training_proposal_fact 作为当前 run 的 consumable resource 导入；Planner 可用其中用户已看到的动作事实、section 摘要和计划结构，继续判断保留、排除、替换、查询新动作、调整结构、澄清或失败收口，不要重复读取同一引用。",
+    "省略表达、指代不明或上下文引用场景由模型基于上下文、list_recent result 和 read_recent result 自主判断下一步，可以读取事实、查询动作库、澄清或普通回复；本 tool 不要求固定 tool 调用次数或顺序。",
   ].join(" "),
   whenNotToUse: [
     "不要把任意固定自然语言短语写成必须调用本 tool 的条件；服务端不会根据用户原文替模型选择 operation。",
@@ -342,6 +342,9 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
         factCount: output.facts.length,
         facts: output.facts,
         indexBoundary: "list_recent 只提供当前会话可引用 visibleTrainingProposal 的轻量索引，不包含完整 payload、prescription、schedule 或未展示候选。",
+        factsBoundary: "facts[] 是当前 actor 和当前 conversation 中当前可见、可引用的 visibleTrainingProposal 事实索引集合；facts=[] 只表示当前可见事实中没有这类引用对象。",
+        emptyFactsBoundary: "空 facts[] 可作为模型推理、解释缺少引用对象或向用户澄清的事实依据；不能支撑成功训练方案刷新或新训练方案生成。",
+        nextStepBoundary: "该结果只提供事实边界；模型应结合本轮用户请求、最近对话和其他 observations/toolResults 自主决定是继续查询、解释缺少引用对象、追问，还是开始新的生成。",
         finalAnswerGrounding: "本次事实索引查询若 fulfillment.satisfied=true，可用 usedToolResultIds 支撑“当前是否有可引用方案”的解释或澄清；不能支撑成功训练方案生成。",
         schemaVersionBoundary: "visibleOutputSchemaVersion 是 final_answer.visibleOutputs[].schemaVersion 可参考的字符串版本；factSchemaVersion 是服务端事实存储版本，不要复制到 visibleOutputs[].schemaVersion。",
       });
@@ -355,8 +358,9 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
       currentRunImport: {
         imported: true,
         resourceType: visibleTrainingProposalFactResourceType,
-        note: "该 visibleTrainingProposal 事实已导入当前 run，不要重复读取同一引用。",
+        note: "该 visibleTrainingProposal 事实已导入当前 run，可作为后续差异化刷新、动作保留、动作排除、结构调整、澄清或失败收口的依据；不要重复读取同一引用。",
       },
+      refreshPlanningBoundary: "本 tool 只读取上一套用户可见训练方案事实，不生成新的 visibleTrainingProposal；需要推送新方案时，最终结构仍必须由 final_answer.visibleOutputs[] 承载。",
       proposalKind: output.fact.proposalKind,
       visibleOutputSchemaVersion: output.fact.visibleOutputSchemaVersion,
       factSchemaVersion: output.fact.factSchemaVersion,

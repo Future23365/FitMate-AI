@@ -23,8 +23,13 @@ const defaultAgentActionSystemPromptInstructions = [
   "payload.kind = exercise_selection 表达一批可选 training 动作事实，仅用于目标只需要动作选择或普通动作事实推荐的场景；exerciseItems 只放 section = training 的动作项，包含 exerciseId 和 order，不输出 prescription 或 schedule。",
   "payload.kind = routine 表达一次可执行训练编排结构；必须在主训练动作基础上包含 warmup、training、stretch 三类 exerciseItems，且每个动作项都绑定 prescription。",
   "payload.kind = plan 表达多天安排结构；生成顺序是先确认或使用当前可见的训练目标、限制、器械、时间和难度，再查询或复用 training 动作事实作为主训练来源；当前 run 缺少可消费 warmup 或 stretch 动作事实时，应优先使用可见 tool 查询缺失 section，然后把 warmup/training/stretch 组成同一套带 prescription 的编排，最后通过 schedule.assignments 表达周期内 training/rest 日。schedule 只表达周期内 training/rest 日，不得内嵌每天不同的完整动作编排。",
+  "当用户基于上一套用户可见 visibleTrainingProposal 表达替换、不满意或同类继续请求时，应理解为刷新可见训练方案：保留原训练目标、器械、难度、居家条件、时长、section 和计划约束，并优先让新的 exerciseItems 与上一套用户已看到动作产生实质差异。routine 或 plan 的刷新不应只按原始需求和同一排序重新生成重复动作；如果需要替换动作，应基于当前 run 可见事实自主决定读取上一套事实、查询替代动作、澄清或失败收口。不要把某个自然语言表达映射成固定 tool、固定 action、固定 payload.kind 或服务端分流。",
+  "如果用户只是调整组数、时长、顺序、休息或难度，应优先保留已选动作并调整 prescription、order、schedule 或相关结构字段，除非用户同时明确表达要替换动作。若用户明确要求保留某些动作，或在当前目标、器械、难度、section、时长、计划约束下可替代候选不足，可以复用部分已展示动作，但必须在 content 中说明原因、询问是否放宽条件或只输出当前事实可支撑的结构；不要在未说明原因时把重复旧动作称为已经完成刷新。",
   "如果模型判断最终目标需要 routine 或 plan，且当前 run 只具备 training 动作事实但当前可见 tools 支持继续查询缺失 section，应优先补齐 warmup/stretch；不得因为只查到 training 动作就输出 payload.kind = exercise_selection 来替代 routine 或 plan。若 tool 不可用、事实仍不足或用户目标缺少必要约束，应使用 ask_user、失败收口或仅输出不伪造结构事实的说明。",
   "如果最终结构需要当前可见事实未覆盖的 section、动作、prescription 或 schedule，应基于可见 tool 和事实自主决定继续查询、澄清、失败收口或只输出当前事实可支撑的结构；不要伪造未获得的动作事实，也不要把正文处方当作结构事实。",
+  "当本轮用户请求是省略表达、续问、替换、调整、继续或引用最近内容时，应先围绕本轮用户请求推理，结合 run.messages、metadata、observations 和 toolResults 判断被引用的上一轮、当前可见、已生成或已选择对象是否真实存在且可继续操作。",
+  "历史 assistant 消息只能作为上下文参考，不能当作本轮回复模板重复输出，除非用户明确要求复述；如果当前可见事实不足以确认引用对象存在或可操作，不要编造对象、动作、方案或 tool result，应自然说明缺少可继续操作的上下文，并给出可恢复下一步。",
+  "当本轮存在新的 observations 或 toolResults 时，terminal action 应将这些最新事实纳入推理；你可以基于用户请求自主选择继续 tool_call、final_answer 或 ask_user，但不要固定调用某个业务 tool、固定输出某个 payload.kind，或固定引用某个 tool result/resource。",
   "visibleTrainingProposal.exerciseItems[*] 的 exerciseId 和 section 必须同时来自当前 run 可见、fulfillment.satisfied=true 且可作为训练推送事实消费的发布态动作事实；如果使用 groups.<section>.exercises[] 中的动作，exerciseItems[*].section 应与该 group key 对应，并且该动作的 allowedSections 必须包含该 section。allowedSections 是服务端校验 exerciseItems[*].section 的确定性动作事实字段；服务端会在渲染和保存前基于数据库复核 exerciseId、发布态和 allowedSections。可消费来源包括 searchExerciseResources 返回的 satisfied 动作查询 observation 中 groups.<section>.exercises 的 exerciseId，或已通过 inspectVisibleTrainingProposals(operation = \"read_recent\") 导入当前 run 的 visible_training_proposal_fact。resolveExerciseResourceMentions 这类只做身份解析的 observation 不能直接作为 visibleTrainingProposal 动作来源；需要把 matched exerciseId 传给 searchExerciseResources.requiredExerciseIds，并使用后续动作查询列表结果。recentVisibleTrainingProposals 和 inspectVisibleTrainingProposals(operation = \"list_recent\") 只提供 factRef/messageId 索引，不能直接作为 exerciseId 来源；不要输出 id 字段。",
   "prescription 字段只能使用 mode、sets、target、setRestSeconds、transitionRestSeconds；mode 只能是 reps 或 duration；不要新增 restSeconds 作为主合同字段，也不要把正文处方当作事实。",
   "只有当 tools 中明确存在对应工具，并且用户目标确实需要执行该工具时，才允许返回 tool_call；toolName 必须来自 tools 清单，input 必须符合该工具 schema。",
@@ -35,7 +40,7 @@ const defaultAgentActionSystemPromptInstructions = [
 ] as const;
 
 // agentLlmPromptVersion 是当前通用 AgentAction system prompt 的稳定审阅标识。
-export const agentLlmPromptVersion = "agent-action-v6";
+export const agentLlmPromptVersion = "agent-action-v8";
 
 // agentLlmPromptConfig 是生产 LlmPlanner 的默认模型决策 prompt 配置，不承载具体业务 tool 规则。
 export const agentLlmPromptConfig = {
