@@ -11,11 +11,18 @@ import {
   visibleTrainingProposalOutputType,
   visibleTrainingProposalPayloadSchema,
   visibleTrainingProposalSchemaVersion,
+  type VisibleTrainingExerciseItem,
 } from "./visible-training-proposal-contract";
 import {
   validateVisibleTrainingProposalExerciseFacts,
   type VisibleTrainingProposalExerciseFactLoader,
 } from "./visible-training-proposal-exercise-facts";
+import {
+  isVisibleTrainingCompositionSection,
+  summarizeVisibleTrainingResourceCoverage,
+  visibleTrainingCompositionSections,
+  type VisibleTrainingCompositionSection,
+} from "./visible-training-resource-coverage";
 
 type VisibleTrainingProposalValidatorOptions = {
   loadExerciseRecordsByIds?: VisibleTrainingProposalExerciseFactLoader;
@@ -44,7 +51,7 @@ export function createProductionTerminalOutputValidatorRegistry(
 /** validateVisibleTrainingProposalOutput 是 visibleTrainingProposal 的终态输出安全边界，不读取用户原文。 */
 export async function validateVisibleTrainingProposalOutput(
   output: VisibleOutputEnvelope,
-  _context: TerminalOutputValidationContext,
+  context: TerminalOutputValidationContext,
   options: VisibleTrainingProposalValidatorOptions = {},
 ): Promise<TerminalOutputValidationResult> {
   const legacyIdPath = findLegacyIdField(output.payload);
@@ -54,6 +61,11 @@ export async function validateVisibleTrainingProposalOutput(
       message: "visibleTrainingProposal 动作项必须使用 exerciseId，不能输出 id。",
       details: { path: legacyIdPath },
     };
+  }
+
+  const coverageFailure = createRoutinePlanCoverageFailure(output.payload, context);
+  if (coverageFailure) {
+    return coverageFailure;
   }
 
   const parsed = visibleTrainingProposalPayloadSchema.safeParse(output.payload);
@@ -81,6 +93,12 @@ export async function validateVisibleTrainingProposalOutput(
       details: {
         code: exerciseValidation.code,
         ...asObjectDetails(exerciseValidation.details),
+        outputCoverage: summarizeVisibleTrainingResourceCoverage({
+          exerciseItems: parsed.data.exerciseItems,
+          hasSchedule: Boolean(parsed.data.schedule),
+        }),
+        currentVisibleCoverage: summarizeCurrentVisibleTrainingCoverage(context),
+        recoveryDirections: createCoverageRecoveryDirections(),
       },
     };
   }
@@ -97,6 +115,136 @@ function asObjectDetails(details: JsonValue): Record<string, JsonValue> {
   return details && typeof details === "object" && !Array.isArray(details)
     ? details
     : { details };
+}
+
+function createRoutinePlanCoverageFailure(
+  payload: JsonValue,
+  context: TerminalOutputValidationContext,
+): TerminalOutputValidationResult | null {
+  if (!isRecord(payload) || (payload.kind !== "routine" && payload.kind !== "plan")) {
+    return null;
+  }
+
+  const exerciseItems = readExerciseSections(payload.exerciseItems);
+  if (!exerciseItems) {
+    return null;
+  }
+
+  const outputCoverage = summarizeVisibleTrainingResourceCoverage({
+    exerciseItems,
+    hasSchedule: isRecord(payload.schedule),
+  });
+  if (outputCoverage.missingSectionsForRoutineOrPlan.length === 0) {
+    return null;
+  }
+
+  return {
+    ok: false,
+    message: "visibleTrainingProposal 缺少 routine 或 plan 必要 section。",
+    details: {
+      code: "section_coverage_missing",
+      path: "payload.exerciseItems",
+      payloadKind: payload.kind,
+      outputCoverage,
+      availableSections: outputCoverage.availableSections,
+      missingSectionsForRoutineOrPlan: outputCoverage.missingSectionsForRoutineOrPlan,
+      currentVisibleCoverage: summarizeCurrentVisibleTrainingCoverage(context),
+      recoveryDirections: createCoverageRecoveryDirections(),
+    },
+  };
+}
+
+function summarizeCurrentVisibleTrainingCoverage(context: TerminalOutputValidationContext) {
+  const sections = new Set<VisibleTrainingCompositionSection>();
+
+  for (const result of context.toolResults) {
+    if (result.ok) {
+      collectSectionsFromJson(result.projection.model, sections);
+    }
+  }
+
+  for (const resource of context.resourceStore?.inventory() ?? []) {
+    collectSectionsFromJson(resource.summary, sections);
+  }
+
+  return summarizeVisibleTrainingResourceCoverage({
+    exerciseItems: [...sections].map((section) => ({ section })),
+  });
+}
+
+function collectSectionsFromJson(value: JsonValue | undefined, sections: Set<VisibleTrainingCompositionSection>) {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectSectionsFromJson(item, sections);
+    }
+    return;
+  }
+
+  if (!isRecord(value)) {
+    return;
+  }
+
+  if (isVisibleTrainingCompositionSection(value.section)) {
+    sections.add(value.section);
+  }
+
+  if (Array.isArray(value.availableSections)) {
+    for (const candidate of value.availableSections) {
+      if (isVisibleTrainingCompositionSection(candidate)) {
+        sections.add(candidate);
+      }
+    }
+  }
+
+  if (isRecord(value.sectionSummary)) {
+    for (const candidate of visibleTrainingCompositionSections) {
+      if (typeof value.sectionSummary[candidate] === "number" && value.sectionSummary[candidate] > 0) {
+        sections.add(candidate);
+      }
+    }
+  }
+
+  if (isRecord(value.groups)) {
+    for (const candidate of visibleTrainingCompositionSections) {
+      const group = value.groups[candidate];
+      if (isRecord(group) && Array.isArray(group.exercises) && group.exercises.length > 0) {
+        sections.add(candidate);
+      }
+    }
+  }
+
+  for (const child of Object.values(value)) {
+    collectSectionsFromJson(child, sections);
+  }
+}
+
+function readExerciseSections(value: JsonValue | undefined): Array<Pick<VisibleTrainingExerciseItem, "section">> | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const sections: Array<Pick<VisibleTrainingExerciseItem, "section">> = [];
+  for (const item of value) {
+    if (!isRecord(item) || !isVisibleTrainingCompositionSection(item.section)) {
+      return null;
+    }
+    sections.push({ section: item.section });
+  }
+
+  return sections;
+}
+
+function createCoverageRecoveryDirections(): JsonValue {
+  return [
+    "继续获取缺失 section 的可消费动作事实。",
+    "输出当前事实可支撑的结构。",
+    "向用户澄清缺失条件或可放宽边界。",
+    "在事实不足时失败收口，不保存或渲染不可验证方案。",
+  ];
+}
+
+function isRecord(value: JsonValue | undefined): value is Record<string, JsonValue> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 function findLegacyIdField(payload: JsonValue) {

@@ -106,15 +106,14 @@ describe("agent-core architecture boundaries", () => {
   it("keeps agent-core independent from Agent LLM prompt configuration", () => {
     const coreFiles = collectFiles("lib/server/agent-core").map((file) => path.relative(repoRoot, file));
     const matches = findImportMatches(coreFiles, [
-      "@/lib/server/agent-planners/prompts",
+      "@/lib/server/config",
     ]);
 
     expect(matches).toEqual([]);
   });
 
   it("keeps Agent LLM prompt config free of business tools, persistence and removed runtimes", () => {
-    const promptConfigFiles = collectFiles("lib/server/agent-planners/prompts")
-      .map((file) => path.relative(repoRoot, file));
+    const promptConfigFiles = ["lib/server/config/agent-llm-prompt-config.ts"];
     const forbiddenImportSources = [
       "@/lib/server/agent-tools",
       "@/lib/server/exercises",
@@ -148,6 +147,24 @@ describe("agent-core architecture boundaries", () => {
         }
       }
     }
+
+    expect(matches).toEqual([]);
+  });
+
+  it("keeps server config directory free of route, tool handler, renderer, Prisma service and removed runtime imports", () => {
+    const configFiles = collectFiles("lib/server/config").map((file) => path.relative(repoRoot, file));
+    const forbiddenImportSources = [
+      "@/app/api/chat",
+      "@/lib/server/chat",
+      "@/lib/server/agent-tools",
+      "@/lib/server/exercises",
+      "@/lib/server/visible-training-proposals",
+      "@/lib/server/db",
+      "@/lib/server/agent-core/response-renderer",
+      "@/lib/server/" + "agent-orchestrator",
+      "@prisma",
+    ];
+    const matches = findImportMatches(configFiles, forbiddenImportSources);
 
     expect(matches).toEqual([]);
   });
@@ -362,7 +379,7 @@ describe("agent-core architecture boundaries", () => {
     const matches = forbiddenTerms.filter((term) => service.includes(term));
 
     expect(service).toContain("createProductionToolRegistry");
-    expect(service).toContain("maxToolCalls: 10");
+    expect(service).toContain("agentRuntimeConfig.runtime");
     expect(matches).toEqual([]);
   });
 
@@ -409,7 +426,7 @@ describe("agent-core architecture boundaries", () => {
       "lib/server/agent-tools/exercises/search-exercise-resources.tool.ts",
     ];
     const modelVisibleFiles = [
-      "lib/server/agent-planners/prompts/agent-llm-prompt-config.ts",
+      "lib/server/config/agent-llm-prompt-config.ts",
       "lib/server/agent-tools/exercises/search-exercise-resources.tool.ts",
     ];
     const serverTextRoutingTerms = [

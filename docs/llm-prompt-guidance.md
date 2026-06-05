@@ -17,14 +17,14 @@
 -> NDJSON
 ```
 
-本阶段仍不注册真实动作库、训练生成、artifact 保存、用户记忆或数据库业务 tool。
+当前生产 registry 已接入受控低风险只读动作事实 tool；训练生成、保存、artifact 写入和用户记忆仍未接入。
 
 ## 2. 当前生产 Prompt 入口
 
 当前生产 `/api/chat` 的 Agent LLM system prompt 来源是：
 
 ```txt
-lib/server/agent-planners/prompts/agent-llm-prompt-config.ts
+lib/server/config/agent-llm-prompt-config.ts
 ```
 
 该模块集中导出：
@@ -34,13 +34,21 @@ lib/server/agent-planners/prompts/agent-llm-prompt-config.ts
 - `agentLlmPromptVersion`：当前通用 AgentAction prompt 的稳定版本标识。
 - `buildAgentActionSystemPrompt()`：把配置组装为 DeepSeek system message。
 
+Agent 生产行为预算的集中入口是：
+
+```txt
+lib/server/config/agent-runtime-config.ts
+```
+
+该模块按 `llm`、`runtime`、`tools`、`trace` 分组定义模型请求默认值、Agent loop limits、tool 可见事实数量和模型 trace 裁剪参数。`DEEPSEEK_API_KEY`、`DEEPSEEK_API_URL`、`DEEPSEEK_MODEL` 仍属于 provider 部署配置，不在该 runtime config 中覆盖。
+
 `DeepSeekModelAdapter` 只负责把 prompt 配置、用户 payload 和模型参数映射为 DeepSeek 请求体；它不拥有默认 prompt 文案，也不注册或执行 tool。
 
 ## 3. 旧 Prompt Module 边界
 
 `lib/server/ai/prompt-config.ts` 不再是当前生产 `/api/chat` 文本聊天入口。
 
-旧 `prompt-config.ts` 曾服务于已删除的旧 Agent orchestrator、Response Writer、summary 更新和多业务 prompt module。当前新 `agent-core` 文本聊天闭环已经切到 `agent-planners/prompts/agent-llm-prompt-config.ts`。排查当前首页聊天发给 DeepSeek 的 system prompt 时，应优先查看新的 Agent LLM prompt 配置模块和 `DeepSeekModelAdapter` 请求体测试。
+旧 `prompt-config.ts` 曾服务于已删除的旧 Agent orchestrator、Response Writer、summary 更新和多业务 prompt module。当前新 `agent-core` 文本聊天闭环已经切到 `lib/server/config/agent-llm-prompt-config.ts`。排查当前首页聊天发给 DeepSeek 的 system prompt 时，应优先查看新的 Agent LLM prompt 配置模块和 `DeepSeekModelAdapter` 请求体测试。
 
 如果后续旧文档或历史报告提到 `aiPromptModuleRegistry`、`agent_tool_decision`、`agent_response_writer` 等旧模块，需要先确认它们是否只是历史说明，不能默认当作当前生产入口。
 
@@ -73,13 +81,14 @@ lib/server/agent-planners/prompts/agent-llm-prompt-config.ts
 
 - `tests/agent-core/agent-llm-prompt-config.test.ts` 覆盖默认 prompt、`promptVersion` 和 builder。
 - `tests/agent-core/adapter-llm-planner.test.ts` 覆盖 DeepSeek 请求体 system message 来自默认或注入配置。
-- `tests/agent-core/architecture-boundary.test.ts` 覆盖 `agent-core` 不导入 prompt 配置，prompt 配置不导入业务 tool、Prisma、动作服务、训练服务或旧 orchestrator。
+- `tests/agent-core/architecture-boundary.test.ts` 覆盖 `agent-core` 不导入 prompt 配置，`lib/server/config/` 不导入 route、业务 tool handler、Prisma、Response Renderer 或旧 orchestrator。
 - `npm run typecheck` 通过。
 - 对应 OpenSpec change 通过 `openspec validate <change> --strict`。
 
 ## 7. 关键代码索引
 
-- `lib/server/agent-planners/prompts/agent-llm-prompt-config.ts`
+- `lib/server/config/agent-llm-prompt-config.ts`
+- `lib/server/config/agent-runtime-config.ts`
 - `lib/server/agent-planners/model-adapters/deepseek-model-adapter.ts`
 - `lib/server/agent-planners/llm-planner.ts`
 - `lib/server/chat/agent-text-chat-service.ts`

@@ -8,10 +8,11 @@ import { LlmPlanner } from "@/lib/server/agent-planners/llm-planner";
 import { DeepSeekModelAdapter } from "@/lib/server/agent-planners/model-adapters/deepseek-model-adapter";
 import { FakeModelAdapter } from "@/lib/server/agent-planners/model-adapters/model-adapter";
 import {
+  agentRuntimeConfig,
   agentLlmPromptConfig,
   buildAgentActionSystemPrompt,
   type AgentLlmPromptConfig,
-} from "@/lib/server/agent-planners/prompts/agent-llm-prompt-config";
+} from "@/lib/server/config";
 
 function deepSeekResponse(content: string, status = 200) {
   return new Response(JSON.stringify({
@@ -110,6 +111,7 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       request: {
         model: "deepseek-chat",
         response_format: { type: "json_object" },
+        timeoutMs: agentRuntimeConfig.llm.timeoutMs,
         messageCount: 2,
         run: {
           runId: "run-deepseek-parse",
@@ -169,19 +171,22 @@ describe("agent-planners LlmPlanner and model adapters", () => {
     const traceContent = completion.trace?.request.messages[1]?.content as Record<string, unknown>;
     const chunks = traceContent.chunks as Array<Record<string, unknown>>;
 
-    expect(sentUserContent.length).toBeGreaterThan(800);
+    expect(sentUserContent.length).toBeGreaterThan(agentRuntimeConfig.trace.modelTraceMaxStringLength);
     expect(traceContent).toMatchObject({
       kind: "trace_long_text",
       contentType: "model_request_message",
       originalLength: sentUserContent.length,
-      chunkSize: 4000,
+      chunkSize: agentRuntimeConfig.trace.modelTraceLongTextChunkLength,
       redacted: false,
     });
     expect(completion.trace?.request.messages[1]).toMatchObject({
       contentLength: sentUserContent.length,
     });
     expect(chunks.length).toBeGreaterThan(1);
-    expect(chunks.every((chunk) => typeof chunk.text === "string" && chunk.text.length <= 4000)).toBe(true);
+    expect(chunks.every((chunk) => (
+      typeof chunk.text === "string"
+      && chunk.text.length <= agentRuntimeConfig.trace.modelTraceLongTextChunkLength
+    ))).toBe(true);
     expect(chunks.map((chunk) => chunk.text).join("")).toBe(sentUserContent);
     expect(chunks.map((chunk) => chunk.text).join("").endsWith(sentUserContent.slice(-160))).toBe(true);
     expect(JSON.stringify(traceContent)).not.toContain("...[truncated]");
@@ -274,6 +279,8 @@ describe("agent-planners LlmPlanner and model adapters", () => {
 
     expect(body.temperature).toBe(agentLlmPromptConfig.requestDefaults.temperature);
     expect(body.max_tokens).toBe(agentLlmPromptConfig.requestDefaults.maxTokens);
+    expect(body.temperature).toBe(agentRuntimeConfig.llm.temperature);
+    expect(body.max_tokens).toBe(agentRuntimeConfig.llm.maxTokens);
     expect(body.messages[0]).toEqual({
       role: "system",
       content: buildAgentActionSystemPrompt(agentLlmPromptConfig),

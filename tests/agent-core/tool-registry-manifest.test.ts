@@ -283,7 +283,10 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(inspectManifestJson).toContain("不要重复读取同一引用");
     expect(inspectManifestJson).toContain("上一套 exerciseItems、section 摘要和计划结构");
     expect(inspectManifestJson).toContain("自主规划差异化刷新、保留、排除、结构调整或失败收口");
-    expect(inspectManifestJson).toContain("保留、排除、替换、查询新动作、调整结构、澄清或失败收口");
+    expect(inspectManifestJson).toContain("继续判断 reuse、derive、modify、replace、clarify");
+    expect(inspectManifestJson).toContain("availableSections");
+    expect(inspectManifestJson).toContain("missingSectionsForRoutineOrPlan");
+    expect(inspectManifestJson).toContain("supportsOutputKinds");
     expect(inspectManifestJson).toContain("本 tool 不要求固定 tool 调用次数或顺序");
     expect(inspectManifestJson).not.toContain("readRecentVisibleTrainingProposal");
     expect(inspectManifestJson).not.toContain("fact_recent_visible_training_01");
@@ -343,8 +346,11 @@ describe("agent-core ToolRegistry and manifest", () => {
     });
     expect(inputSchema.properties.excludeExerciseIds.maxItems).toBe(50);
     expect(inputSchema.properties.excludeExerciseIds.description).toContain("用户已经看到");
+    expect(inputSchema.properties.excludeExerciseIds.description).toContain("负向动作 id 列表");
+    expect(inputSchema.properties.excludeExerciseIds.description).toContain("不用于保留、复用、派生或调整已有动作");
     expect(inputSchema.properties.requiredExerciseIds.maxItems).toBe(12);
     expect(inputSchema.properties.requiredExerciseIds.description).toContain("resolveExerciseResourceMentions");
+    expect(inputSchema.properties.requiredExerciseIds.description).toContain("正向查询锚点");
     expect(resolveInputSchema.properties.mentions.maxItems).toBe(12);
     expect(resolveInputSchema.properties.mentions.items.properties.text.description).toContain("结构化提取");
     expect(resolveInputSchema.properties.mentions.items.properties.sectionHint.enum).toEqual(["warmup", "training", "stretch"]);
@@ -375,6 +381,9 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(searchManifestJson).toContain("不同 section 的替代动作仍必须来自对应 groups.<section>.exercises");
     expect(searchManifestJson).toContain("当前 run 可见事实获得上一套已看到 exerciseItems");
     expect(searchManifestJson).toContain("当前 run 可见的用户已经看到动作事实");
+    expect(searchManifestJson).toContain("requiredExerciseIds 是正向查询锚点");
+    expect(searchManifestJson).toContain("excludeExerciseIds 是负向约束");
+    expect(searchManifestJson).toContain("不要把需要保留、复用、派生或调整的动作写进 excludeExerciseIds");
     expect(searchManifestJson).toContain("未展示的内部候选、trace 摘要、handler-only 结果或 list_recent 索引");
     expect(searchManifestJson).toContain("模型根据用户目标已经需要 routine 或 plan");
     expect(searchManifestJson).toContain("当前 run 只有 training 动作事实或缺少 warmup / stretch 动作事实");

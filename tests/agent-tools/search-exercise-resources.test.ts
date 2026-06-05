@@ -6,6 +6,7 @@ import { renderAgentResponseEvents } from "@/lib/server/agent-core/response-rend
 import { runAgentRuntime } from "@/lib/server/agent-core/runtime";
 import { ToolRegistry } from "@/lib/server/agent-core/tool-registry";
 import { ReplayPlanner } from "@/lib/server/agent-planners/replay-planner";
+import { agentRuntimeConfig } from "@/lib/server/config";
 import type { ExerciseResourceSearchResult } from "@/lib/server/exercises/exercise-repository";
 
 const repositoryPath = "@/lib/server/exercises/exercise-repository";
@@ -96,6 +97,7 @@ describe("searchExerciseResources tool", () => {
       goalTag: undefined,
       riskTag: undefined,
       excludeExerciseIds: undefined,
+      maxReturned: agentRuntimeConfig.tools.searchExerciseResources.maxReturnedPerSection,
       published: true,
       sort: "name_asc",
     });
@@ -113,7 +115,13 @@ describe("searchExerciseResources tool", () => {
     );
     const serializedObservation = JSON.stringify(modelObservation);
     expect(serializedObservation).toContain("exerciseId");
+    expect(serializedObservation).toContain("availableSections");
+    expect(serializedObservation).toContain("section-scoped 事实原料");
     expect(modelObservation).toMatchObject({
+      availableSections: ["training"],
+      sectionSummary: { warmup: 0, training: 1, stretch: 0 },
+      missingSectionsForRoutineOrPlan: ["warmup", "stretch"],
+      supportsOutputKinds: ["exercise_selection"],
       groupSemantics: {
         groupKey: "groups.<section>",
         sectionRelation: expect.stringContaining("visibleTrainingProposal.exerciseItems[]"),
@@ -132,6 +140,8 @@ describe("searchExerciseResources tool", () => {
     expect(serializedObservation).toContain("suitabilities = [\\\"warmup\\\", \\\"stretch\\\"]");
     expect(serializedObservation).toContain("不得把未返回的 section 伪造成已获得事实");
     expect(serializedObservation).toContain("不得把本次 tool result 直接当作最终 visibleTrainingProposal");
+    expect(serializedObservation).toContain("本次查询未使用 requiredExerciseIds");
+    expect(serializedObservation).toContain("正向事实来源");
     expect(serializedObservation).not.toContain("sectionEvidence");
     expect(serializedObservation).not.toContain("exerciseSectionEvidence");
     expect(serializedObservation).not.toContain("visibleTrainingProposalEvidence");
@@ -142,6 +152,9 @@ describe("searchExerciseResources tool", () => {
     expect(serializedObservation).not.toContain("\"id\"");
     expect(serializedObservation).not.toContain("visibleTrainingProposal\":{\"");
     expect(serializedObservation).toContain("groups.<section>.exercises[*].exerciseId 可作为 visibleTrainingProposal.exerciseItems[*].exerciseId 的事实来源");
+    expect(serializedObservation).toContain("本次动作查询不证明当前 run 存在可操作的上一轮 visibleTrainingProposal");
+    expect(serializedObservation).toContain("也不证明已经完成刷新、替换或调整");
+    expect(serializedObservation).toContain("引用对象不可见时，不得用本查询结果宣称刷新、替换或调整成功");
     expect(serializedObservation).toContain("prescription、schedule 和最终 payload.kind");
     expect(serializedObservation).toContain("最终事实必须写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal.payload");
     expect(serializedObservation).not.toContain("不是 visibleTrainingProposal");
@@ -369,6 +382,7 @@ describe("searchExerciseResources tool", () => {
       output: {
         query: {
           requiredExerciseIds: ["Pushups", "Bodyweight_Squat", "Plank"],
+          excludeExerciseIds: undefined,
           appliedFilters: expect.arrayContaining([
             { field: "q", value: "俯卧撑" },
             { field: "requiredExerciseIds", value: ["Pushups", "Bodyweight_Squat", "Plank"] },
@@ -400,6 +414,9 @@ describe("searchExerciseResources tool", () => {
     const projectionJson = JSON.stringify(result.projection);
     expect(projectionJson).toContain("groups");
     expect(projectionJson).toContain("requiredExerciseIds");
+    expect(projectionJson).toContain("正向锚点");
+    expect(projectionJson).toContain("不表示排除、替换或已经生成最终训练方案");
+    expect(projectionJson).toContain("positiveAnchorBoundary");
     expect(projectionJson).not.toContain("requiredMatches");
     expect(projectionJson).not.toContain("supplementalMatches");
     expect(projectionJson).not.toContain("selectedRequiredExercises");
@@ -567,9 +584,9 @@ describe("searchExerciseResources tool", () => {
     }));
     vi.doUnmock(repositoryPath);
     const {
-      EXERCISE_RESOURCE_SEARCH_MAX_RETURNED,
       searchExerciseResourceSummaries,
     } = await import("@/lib/server/exercises/exercise-repository");
+    const configuredMaxReturned = agentRuntimeConfig.tools.searchExerciseResources.maxReturnedPerSection;
 
     const result = await searchExerciseResourceSummaries({
       q: "俯卧撑",
@@ -593,7 +610,7 @@ describe("searchExerciseResources tool", () => {
     const serializedFindMany = JSON.stringify(findManyArgs);
 
     expect(countArgs.where).toEqual(findManyArgs.where);
-    expect(findManyArgs.take).toBe(EXERCISE_RESOURCE_SEARCH_MAX_RETURNED + 1);
+    expect(findManyArgs.take).toBe(configuredMaxReturned + 1);
     expect(findManyArgs).not.toHaveProperty("skip");
     expect(findManyArgs.select).toMatchObject({
       id: true,
@@ -625,17 +642,52 @@ describe("searchExerciseResources tool", () => {
     expect(serializedFindMany).not.toContain("rerank");
     expect(result).toMatchObject({
       totalMatches: 13,
-      returnedCount: EXERCISE_RESOURCE_SEARCH_MAX_RETURNED,
-      maxReturned: EXERCISE_RESOURCE_SEARCH_MAX_RETURNED,
+      returnedCount: configuredMaxReturned,
+      maxReturned: configuredMaxReturned,
       truncated: true,
       excludedCount: 2,
     });
-    expect(result.exercises).toHaveLength(EXERCISE_RESOURCE_SEARCH_MAX_RETURNED);
+    expect(result.exercises).toHaveLength(configuredMaxReturned);
     expect(result.exercises[0]).toMatchObject({
       id: "exercise-1",
       allowedSections: ["training"],
       isPublished: true,
     });
+  });
+
+  it("clamps repository maxReturned to the hard cap when callers pass an unsafe value", async () => {
+    const prisma = {
+      exercise: {
+        count: vi.fn().mockResolvedValue(30),
+        findMany: vi.fn(),
+      },
+    };
+    vi.doMock(dbPath, () => ({
+      isDatabaseConfigured: () => true,
+      getPrismaClient: () => prisma,
+    }));
+    vi.doUnmock(repositoryPath);
+    const {
+      EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED,
+      searchExerciseResourceSummaries,
+    } = await import("@/lib/server/exercises/exercise-repository");
+    prisma.exercise.findMany.mockResolvedValue(
+      Array.from({ length: EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED + 1 }, (_, index) => createRepositoryExerciseRecord({
+        id: `hard-cap-exercise-${index + 1}`,
+        nameZh: `硬上限动作 ${index + 1}`,
+      })),
+    );
+
+    const result = await searchExerciseResourceSummaries({
+      suitability: "training",
+      published: true,
+      sort: "name_asc",
+      maxReturned: EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED + 100,
+    });
+
+    expect(prisma.exercise.findMany.mock.calls[0][0].take).toBe(EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED + 1);
+    expect(result.maxReturned).toBe(EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED);
+    expect(result.exercises).toHaveLength(EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED);
   });
 
   it("reads a complete facetCatalog from published exercise facts", async () => {
@@ -763,7 +815,7 @@ function createSearchResult(overrides: SearchResultOverrides = {}): ExerciseReso
     appliedFilters: overrides.appliedFilters ?? [{ field: "published", value: true }],
     totalMatches: overrides.totalMatches ?? exercises.length,
     returnedCount: overrides.returnedCount ?? exercises.length,
-    maxReturned: overrides.maxReturned ?? 12,
+    maxReturned: overrides.maxReturned ?? agentRuntimeConfig.tools.searchExerciseResources.maxReturnedPerSection,
     truncated: overrides.truncated ?? false,
     excludedCount: overrides.excludedCount ?? 0,
     exercises,

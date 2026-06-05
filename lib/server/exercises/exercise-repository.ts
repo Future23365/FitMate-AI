@@ -6,6 +6,7 @@ import {
   resolveExerciseImageUrls,
   withResolvedExerciseImageUrls,
 } from "@/lib/server/exercise-images/exercise-image-resolver";
+import { agentRuntimeConfig } from "@/lib/server/config";
 import { getPrismaClient, isDatabaseConfigured } from "@/lib/server/db/prisma";
 import { normalizeExerciseMetadata } from "@/lib/shared/exercises/metadata";
 import { getExerciseTagLabel } from "@/lib/shared/exercises/tag-labels";
@@ -19,8 +20,10 @@ import type {
   ExerciseSuitability,
 } from "@/lib/shared/exercises/types";
 
-export const EXERCISE_RESOURCE_SEARCH_MAX_RETURNED = 12;
-export const EXERCISE_RESOURCE_MENTION_MAX_MATCHES = 5;
+/** EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED 是动作查询 payload 的安全上限，防止配置误调撑爆模型上下文。 */
+export const EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED = 24;
+/** EXERCISE_RESOURCE_MENTION_HARD_MAX_MATCHES 是点名解析候选的安全上限，默认值仍来自 Agent runtime config。 */
+export const EXERCISE_RESOURCE_MENTION_HARD_MAX_MATCHES = 10;
 
 export type ExerciseResourceSummary = Pick<
   Exercise,
@@ -65,11 +68,12 @@ export type ExerciseResourceSearchInput = {
   goalTag?: string;
   riskTag?: string;
   excludeExerciseIds?: string[];
+  maxReturned?: number;
   published: boolean;
   sort: ExerciseSort;
 };
 
-export type ExerciseResourceFilterField = Exclude<keyof ExerciseResourceSearchInput, "sort">;
+export type ExerciseResourceFilterField = Exclude<keyof ExerciseResourceSearchInput, "sort" | "maxReturned">;
 
 export type ExerciseResourceMentionResolutionInput = {
   text: string;
@@ -675,24 +679,25 @@ export async function searchExerciseResourceSummaries(
   const prisma = getPrismaClient();
   const where = buildExerciseResourceWhere(input);
   const orderBy = buildExerciseResourceOrderBy(input.sort);
+  const maxReturned = clampExerciseResourceSearchMaxReturned(input.maxReturned);
   const [totalMatches, records] = await Promise.all([
     prisma.exercise.count({ where }),
     prisma.exercise.findMany({
       where,
       orderBy,
-      take: EXERCISE_RESOURCE_SEARCH_MAX_RETURNED + 1,
+      take: maxReturned + 1,
       select: exerciseResourceSummarySelect,
     }),
   ]);
-  const visibleRecords = records.slice(0, EXERCISE_RESOURCE_SEARCH_MAX_RETURNED);
+  const visibleRecords = records.slice(0, maxReturned);
 
   return {
     query: input,
     appliedFilters: collectExerciseResourceAppliedFilters(input),
     totalMatches,
     returnedCount: visibleRecords.length,
-    maxReturned: EXERCISE_RESOURCE_SEARCH_MAX_RETURNED,
-    truncated: records.length > EXERCISE_RESOURCE_SEARCH_MAX_RETURNED,
+    maxReturned,
+    truncated: records.length > maxReturned,
     excludedCount: input.excludeExerciseIds?.length ?? 0,
     exercises: visibleRecords.map(mapExerciseResourceSummary),
   };
@@ -709,8 +714,8 @@ export async function resolveExerciseResourceMentionSummaries(
   const prisma = getPrismaClient();
   const text = input.text.trim();
   const maxMatches = Math.min(
-    Math.max(input.maxMatches ?? EXERCISE_RESOURCE_MENTION_MAX_MATCHES, 1),
-    EXERCISE_RESOURCE_MENTION_MAX_MATCHES,
+    Math.max(input.maxMatches ?? agentRuntimeConfig.tools.resolveExerciseResourceMentions.maxMatches, 1),
+    EXERCISE_RESOURCE_MENTION_HARD_MAX_MATCHES,
   );
   const exactWhere = buildExerciseMentionExactWhere(text);
   const mentionWhere = buildExerciseMentionWhere(text);
@@ -744,6 +749,13 @@ export async function resolveExerciseResourceMentionSummaries(
     exactMatchCount: exactRecords.length,
     exercises: visibleRecords.map(mapExerciseResourceSummary),
   };
+}
+
+function clampExerciseResourceSearchMaxReturned(maxReturned?: number) {
+  return Math.min(
+    Math.max(maxReturned ?? agentRuntimeConfig.tools.searchExerciseResources.maxReturnedPerSection, 1),
+    EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED,
+  );
 }
 
 /** getExerciseResourceSummariesByIds 按 id 读取动作摘要，供 requiredExerciseIds 合并和诊断使用。 */

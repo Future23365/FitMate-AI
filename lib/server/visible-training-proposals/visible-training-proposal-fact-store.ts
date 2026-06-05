@@ -3,6 +3,7 @@ import "server-only";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 
+import { agentRuntimeConfig } from "@/lib/server/config";
 import type { AgentStreamEvent, JsonValue } from "@/lib/server/agent-core/contracts";
 import { getPrismaClient, isDatabaseConfigured } from "@/lib/server/db/prisma";
 
@@ -21,6 +22,8 @@ import {
 } from "./visible-training-proposal-exercise-facts";
 
 const activeFactStatus = "active";
+/** visibleTrainingProposalRecentFactHardLimit 是事实桥最近索引读取硬上限，避免历史事实过多进入模型上下文。 */
+export const visibleTrainingProposalRecentFactHardLimit = 5;
 
 const exerciseDetailSchema = visibleTrainingProposalCanonicalExerciseSchema;
 
@@ -215,7 +218,13 @@ export async function listRecentVisibleTrainingProposalSummaries(input: {
       schemaVersion: visibleTrainingProposalFactSchemaVersion,
     },
     orderBy: { createdAt: "desc" },
-    take: Math.max(1, Math.min(input.limit ?? 3, 5)),
+    take: Math.max(
+      1,
+      Math.min(
+        input.limit ?? agentRuntimeConfig.tools.inspectVisibleTrainingProposals.recentFactListLimit,
+        visibleTrainingProposalRecentFactHardLimit,
+      ),
+    ),
   });
 
   return rows.flatMap((row) => {

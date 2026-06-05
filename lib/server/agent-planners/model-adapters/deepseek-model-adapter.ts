@@ -16,10 +16,11 @@ import {
   type ModelAdapter,
 } from "./model-adapter";
 import {
+  agentRuntimeConfig,
   agentLlmPromptConfig,
   buildAgentActionSystemPrompt,
   type AgentLlmPromptConfig,
-} from "../prompts/agent-llm-prompt-config";
+} from "@/lib/server/config";
 
 type DeepSeekFetch = typeof fetch;
 
@@ -54,9 +55,6 @@ type DeepSeekRequestBody = {
 
 const DEFAULT_DEEPSEEK_ENDPOINT = "https://api.deepseek.com/chat/completions";
 const DEFAULT_DEEPSEEK_MODEL = "deepseek-chat";
-const maxModelTraceStringLength = 800;
-const modelTraceLongTextChunkLength = 4_000;
-
 /** DeepSeekModelAdapter 封装 DeepSeek 请求、模型参数、结构化输出解析和错误归一化。 */
 export class DeepSeekModelAdapter implements ModelAdapter {
   readonly name = "deepseek-model-adapter";
@@ -78,7 +76,7 @@ export class DeepSeekModelAdapter implements ModelAdapter {
     this.apiKey = options.apiKey;
     this.endpoint = options.endpoint ?? DEFAULT_DEEPSEEK_ENDPOINT;
     this.model = options.model ?? DEFAULT_DEEPSEEK_MODEL;
-    this.timeoutMs = options.timeoutMs ?? 10_000;
+    this.timeoutMs = options.timeoutMs ?? agentRuntimeConfig.llm.timeoutMs;
     this.temperature = options.temperature ?? this.promptConfig.requestDefaults.temperature;
     this.maxTokens = options.maxTokens ?? this.promptConfig.requestDefaults.maxTokens;
     this.fetchImpl = options.fetchImpl ?? fetch;
@@ -412,7 +410,7 @@ function summarizeDeepSeekPayload(payload: DeepSeekChatResponse): JsonValue {
 }
 
 function safeTraceValue(value: unknown): JsonValue {
-  return redactJsonValue(value, { maxStringLength: maxModelTraceStringLength });
+  return redactJsonValue(value, { maxStringLength: agentRuntimeConfig.trace.modelTraceMaxStringLength });
 }
 
 function summarizeText(value: string): JsonValue {
@@ -421,7 +419,7 @@ function summarizeText(value: string): JsonValue {
 
 // createModelTraceMessageContent 保留模型真实可见 message 的诊断价值，长文本交给导出层外置而不是提前硬截。
 function createModelTraceMessageContent(value: string): JsonValue {
-  if (value.length <= maxModelTraceStringLength) {
+  if (value.length <= agentRuntimeConfig.trace.modelTraceMaxStringLength) {
     return summarizeText(value);
   }
 
@@ -432,9 +430,9 @@ function createTraceLongTextEnvelope(value: string): ModelTraceLongTextEnvelope 
   const chunks: ModelTraceLongTextChunk[] = [];
   let hasRedactedChunk = false;
 
-  for (let start = 0; start < value.length; start += modelTraceLongTextChunkLength) {
-    const rawChunk = value.slice(start, start + modelTraceLongTextChunkLength);
-    const safeChunk = redactJsonValue(rawChunk, { maxStringLength: modelTraceLongTextChunkLength });
+  for (let start = 0; start < value.length; start += agentRuntimeConfig.trace.modelTraceLongTextChunkLength) {
+    const rawChunk = value.slice(start, start + agentRuntimeConfig.trace.modelTraceLongTextChunkLength);
+    const safeChunk = redactJsonValue(rawChunk, { maxStringLength: agentRuntimeConfig.trace.modelTraceLongTextChunkLength });
     const text = typeof safeChunk === "string" ? safeChunk : REDACTED_VALUE;
 
     if (text !== rawChunk) {
@@ -456,7 +454,7 @@ function createTraceLongTextEnvelope(value: string): ModelTraceLongTextEnvelope 
     contentType: "model_request_message",
     originalLength: value.length,
     storedLength: storedContent.length,
-    chunkSize: modelTraceLongTextChunkLength,
+    chunkSize: agentRuntimeConfig.trace.modelTraceLongTextChunkLength,
     hash: hashTraceText(storedContent),
     preview: createTraceLongTextPreview(storedContent),
     redacted: hasRedactedChunk,
@@ -465,7 +463,7 @@ function createTraceLongTextEnvelope(value: string): ModelTraceLongTextEnvelope 
 }
 
 function createTraceLongTextPreview(value: string) {
-  const edgeLength = 120;
+  const edgeLength = agentRuntimeConfig.trace.modelTracePreviewEdgeLength;
 
   if (value.length <= edgeLength * 2) {
     return value;
