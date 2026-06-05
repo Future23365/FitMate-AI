@@ -27,6 +27,21 @@
 - **AND** 系统 MUST NOT 复用其他 flow 的消息历史、summary、conversation context 或 visible output
 - **AND** 同一 flow 的第 2 轮和第 3 轮 MUST 基于该 flow 内已完成轮次继续请求首页聊天链路
 
+#### Scenario: 基础 runner 不发送额外历史窗口
+- **WHEN** 基础黑盒 runner 构造任一轮 `/api/chat` 请求体
+- **THEN** 请求 MUST 只包含首页聊天客户端公开发送的输入字段
+- **AND** 请求 MUST 包含 `conversationId`、`responseMessageId`、`latestUserMessage`、`conversationSummary`、`conversationContext` 和 `thinkingEnabled`
+- **AND** 请求 MUST NOT 包含完整历史 `messages`
+- **AND** 请求 MUST NOT 包含测试专用绕过字段、planner override、tool override、trace override 或内部 runtime 状态
+
+#### Scenario: 多轮 flow 通过保存后的 hydration 继续
+- **WHEN** 基础黑盒 runner 完成同一 flow 的任一成功轮次
+- **THEN** 系统 MUST 按首页会话保存边界保存该轮 user message、assistant message、conversation summary、conversation context 和最终用户可见输出摘要
+- **AND** 后续轮次 MUST 使用同一 `conversationId` 和测试 current user 继续请求
+- **AND** 后续轮次 MUST NOT 通过 runner 内存中的完整 `messages` 历史绕过服务端会话 hydration
+- **AND** 报告 MAY 记录保存结果、hydration source 和最近可见输出读取状态作为诊断摘要
+- **AND** 这些诊断摘要 MUST NOT 进入 judge 输入或作为通过条件
+
 ### Requirement: 基础黑盒断言必须只判断最终用户可见输出
 系统 SHALL 只以每轮请求完成后的最终 assistant 用户可见输出作为黑盒判定对象，不把 Agent 内部编排、中间 stream 事件或调试数据作为通过条件。
 
@@ -35,6 +50,9 @@
 - **THEN** 系统 MUST 等待该轮聊天响应到达 `done` 或等价完成边界
 - **AND** 系统 MUST 将最终 assistant 文本内容归一化为用户可见回复
 - **AND** 系统 MUST 将最终 `visible_output` 事件归一化为用户可见训练输出摘要
+- **AND** 系统 MUST 将最终 `assistant_suggestions` 事件归一化为用户可见建议摘要
+- **AND** 系统 MUST 将最终 `confirmation_request` 事件归一化为用户可见确认摘要
+- **AND** 系统 MUST 将请求失败或 stream 失败归一化为用户安全错误文案
 - **AND** 系统 MUST 使用归一化后的最终输出进行该轮判定
 
 #### Scenario: 中间事件不作为通过条件
@@ -45,8 +63,9 @@
 
 #### Scenario: 语义 judge 只接收最终输出
 - **WHEN** 系统调用 judge 判断某一轮结果
-- **THEN** judge 输入 MUST 只包含 flow id、流程目标、轮次、该轮用户输入、该轮文档期望、最终 assistant 文本和最终用户可见训练输出摘要
-- **AND** judge 输入 MUST NOT 包含 prompt、完整 tool payload、trace、Agent loop、raw provider response 或服务端内部错误栈
+- **THEN** judge 输入 MUST 只包含 flow id、流程目标、轮次、该轮用户输入、该轮文档期望和 `visibleUserOutput`
+- **AND** `visibleUserOutput` MUST 只包含最终 assistant 文本、最终用户可见训练输出摘要、最终建议回复摘要、最终确认请求摘要和用户安全错误文案
+- **AND** judge 输入 MUST NOT 包含 prompt、完整 NDJSON raw line、完整 tool payload、trace、Agent loop、raw provider response、token diagnostics、数据库内部 payload 或服务端内部错误栈
 - **AND** judge 输出 MUST 经过结构化 schema 校验
 
 #### Scenario: 自然语言期望按用户可见语义判定
@@ -69,6 +88,13 @@
 - **THEN** 报告 MUST 包含运行时间、模型、judge 模型、完整 flow 数、完整 turn 数、实际执行 flow 数、实际执行 turn 数、通过数、失败数和跳过数
 - **AND** 报告 MUST 包含预计 token 消耗和真实 token 汇总
 - **AND** 报告 MUST 使用上海时区时间展示报告生成时间
+
+#### Scenario: token usage 是可选诊断
+- **WHEN** 基础黑盒测试汇总 token usage
+- **THEN** 系统 MAY 从稳定响应合同或受控诊断来源读取 token usage
+- **AND** 如果 token usage 只能从开发态 trace store 推导，报告 MUST 标明来源为 `dev_trace_store`
+- **AND** token usage 缺失、读取失败或 trace store 不可用 MUST NOT 导致 flow 判定失败
+- **AND** token usage MUST NOT 进入 judge 输入
 
 #### Scenario: 报告不保存敏感中间载荷
 - **WHEN** 基础黑盒测试生成报告
