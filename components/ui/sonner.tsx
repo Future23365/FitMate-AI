@@ -8,14 +8,48 @@ import {
   TriangleAlertIcon,
 } from "lucide-react";
 import { useTheme } from "next-themes";
+import { useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { Toaster as Sonner, type ToasterProps } from "sonner";
 
 import { cn } from "@/lib/utils";
 
+type HydrationListener = () => void;
+
+let isClientHydrated = false;
+const hydrationListeners = new Set<HydrationListener>();
+
+function subscribeToClientHydration(listener: HydrationListener) {
+  hydrationListeners.add(listener);
+
+  if (!isClientHydrated) {
+    isClientHydrated = true;
+    queueMicrotask(() => {
+      hydrationListeners.forEach((currentListener) => currentListener());
+    });
+  }
+
+  return () => {
+    hydrationListeners.delete(listener);
+  };
+}
+
+function getClientHydrationSnapshot() {
+  return isClientHydrated;
+}
+
+function getServerHydrationSnapshot() {
+  return false;
+}
+
 // Toaster 是 shadcn Sonner 的全局提示容器，统一承载应用级 toast 展示。
 const Toaster = ({ className, position = "top-center", style, ...props }: ToasterProps) => {
   const { theme = "system" } = useTheme();
+  const hasHydrated = useSyncExternalStore(
+    subscribeToClientHydration,
+    getClientHydrationSnapshot,
+    getServerHydrationSnapshot,
+  );
 
   const toaster = (
     <Sonner
@@ -39,7 +73,7 @@ const Toaster = ({ className, position = "top-center", style, ...props }: Toaste
     />
   );
 
-  if (typeof document === "undefined") {
+  if (!hasHydrated || typeof document === "undefined") {
     return null;
   }
 
