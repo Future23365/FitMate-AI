@@ -4,9 +4,6 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
-// 与 app/globals.css 的 .drawer-*-transition 时长保持一致，确保退出动画结束后再卸载 portal。
-const drawerTransitionDurationMs = 500;
-
 type RightDrawerProps = {
   isOpen: boolean;
   onClose: () => void;
@@ -36,8 +33,6 @@ export function RightDrawer({
   footerClassName = "shrink-0",
 }: RightDrawerProps) {
   const [isClientMounted, setIsClientMounted] = useState(false);
-  const [shouldRender, setShouldRender] = useState(false);
-  const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -46,54 +41,6 @@ export function RightDrawer({
 
     return () => window.clearTimeout(timer);
   }, []);
-
-  useEffect(() => {
-    if (!isClientMounted) {
-      return;
-    }
-
-    if (isOpen) {
-      if (shouldRender) {
-        return;
-      }
-
-      const frame = window.requestAnimationFrame(() => {
-        setShouldRender(true);
-      });
-
-      return () => window.cancelAnimationFrame(frame);
-    }
-
-    if (!shouldRender) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      setShouldRender(false);
-    }, drawerTransitionDurationMs);
-
-    return () => window.clearTimeout(timer);
-  }, [isClientMounted, isOpen, shouldRender]);
-
-  useEffect(() => {
-    if (!isClientMounted || !shouldRender) {
-      return;
-    }
-
-    if (!isOpen) {
-      const frame = window.requestAnimationFrame(() => {
-        setIsVisible(false);
-      });
-
-      return () => window.cancelAnimationFrame(frame);
-    }
-
-    const frame = window.requestAnimationFrame(() => {
-      setIsVisible(true);
-    });
-
-    return () => window.cancelAnimationFrame(frame);
-  }, [isClientMounted, isOpen, shouldRender]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -127,7 +74,7 @@ export function RightDrawer({
     };
   }, [isOpen]);
 
-  if (!isClientMounted || !shouldRender) {
+  if (!isClientMounted) {
     return null;
   }
 
@@ -136,14 +83,14 @@ export function RightDrawer({
       aria-label={ariaLabel}
       aria-modal="true"
       className={`fixed inset-0 z-50 flex justify-end bg-black/20 backdrop-blur-[1px] drawer-backdrop-transition ${
-        isVisible ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
+        isOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
       }`}
       onClick={onClose}
       role="dialog"
     >
       <aside
         className={`flex h-full w-full flex-col shadow-2xl drawer-panel-transition ${widthClassName} ${panelClassName} ${
-          isVisible ? "translate-x-0" : "translate-x-full"
+          isOpen ? "translate-x-0" : "translate-x-full"
         }`}
         onClick={(event) => event.stopPropagation()}
       >
