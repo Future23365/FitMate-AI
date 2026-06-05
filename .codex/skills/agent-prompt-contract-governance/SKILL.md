@@ -1,6 +1,6 @@
 ---
 name: agent-prompt-contract-governance
-description: 治理 AITest 中 Agent prompt 与模型实际可见输入的合同变更。用于修改 Agent prompt、model input、tool manifest、schema summary、examples、repair feedback、context package、observations、compressed tool results、AgentAction 输出格式说明、final grounding 说明，新增/调整业务 Agent tool 的模型可见说明，或在 tool 字段重命名后同步模型可见字段说明；不用于普通 UI 文案、README 文案或与模型执行合同无关的小修。
+description: 治理 AITest 中 Agent prompt 与模型实际可见输入的合同变更。作为 primary skill 用于修改 Agent prompt、model input、tool manifest、schema summary、examples、repair feedback、context package、observations、compressed tool results、AgentAction 输出格式说明、final grounding 说明，新增/调整业务 Agent tool 的模型可见说明，或在 tool 字段重命名后同步模型可见字段说明；不用于普通 UI 文案、README 文案、tool handler、runtime validation、ResourceStore、Policy Guard、Response Renderer、production route 或与模型执行合同无关的小修。
 ---
 
 # Agent Prompt 合同治理
@@ -11,6 +11,7 @@ description: 治理 AITest 中 Agent prompt 与模型实际可见输入的合同
 
 ## 前置检查
 
+0. 每个任务只选择一个 primary governance skill。本 Skill 只在模型实际可见输入是主问题时作为 primary；涉及 tool/core/runtime/production 执行合同时，`agent-tool-change-governance` 作为 primary，本 Skill 只做模型可见说明的 secondary 检查。
 1. 运行或读取当前 OpenSpec change 状态；非文案类 prompt / model input 变更必须先有 OpenSpec 边界。
 2. 运行 `git status --short`。如有无关改动，不要混入当前 diff 或 commit。
 3. 判断是否还需要同时使用 `agent-tool-change-governance`：
@@ -41,7 +42,7 @@ description: 治理 AITest 中 Agent prompt 与模型实际可见输入的合同
 - `ContextPackage` 或等价上下文投影。
 - repair feedback、runtime observations、compressed tool results。
 - `ResourceStore` 暴露给模型的 resource 摘要。
-- `codex_logs/ai_trace_log.js` 或真实黑盒报告中的 model request / model input。
+- 用户提供、刚导出或明确确认与当前问题对应的 model request / model input、trace 或真实黑盒报告。
 
 如果源文件写了规则，但 builder 没带上、被压缩丢失、顺序被后续消息覆盖，必须把根因归为“模型可见合同缺失”，不要只继续润色源文件。
 

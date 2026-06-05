@@ -1,4 +1,4 @@
 interface:
   display_name: "Agent 修复抽象门禁"
-  short_description: "审查 Agent 修复方案是否把 case 规则升格为生产规则"
-  default_prompt: "Use $agent-fix-abstraction-gate 审查当前 Agent 修复方案或 OpenSpec change 的抽象层级门禁。"
+  short_description: "显式审查 Agent change 或修复方案的抽象层级门禁"
+  default_prompt: "Use $agent-fix-abstraction-gate 审查一个 Agent / prompt / tool 相关 OpenSpec change 或修复方案是否把 case 规则升格为生产规则。"

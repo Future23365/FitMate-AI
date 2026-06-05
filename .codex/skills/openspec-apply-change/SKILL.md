@@ -69,7 +69,7 @@ Implement tasks from an OpenSpec change.
    For each pending task:
    - Show which task is being worked on
    - Make the code changes required
-   - Keep changes minimal and focused
+   - Keep changes scoped to the OpenSpec task, but prefer the cleanest maintainable design over minimal textual diffs
    - Mark task complete in the tasks file: `- [ ]` → `- [x]`
    - Continue to next task
 
@@ -143,7 +143,7 @@ What would you like to do?
 - Always read context files before starting (from the apply instructions output)
 - If task is ambiguous, pause and ask before implementing
 - If implementation reveals issues, pause and suggest artifact updates
-- Keep code changes minimal and scoped to each task
+- Keep code changes scoped to each task, but prefer the cleanest maintainable design over minimal textual diffs
 - Update task checkbox immediately after completing each task
 - Pause on errors, blockers, or unclear requirements - don't guess
 - Use contextFiles from CLI output, don't assume specific file names

@@ -1,24 +1,25 @@
 ---
 name: agent-fix-abstraction-gate
-description: 审查 AITest 中 Agent / prompt / tool 修复方案是否违反 Agent 修复方案抽象层级门禁。用于开始实现某个 Agent bug fix 或 OpenSpec change 前，用户要求审查某个 change、trace 修复方案、prompt 修复方案、tool 修复方案，或需要判断方案是否把具体用户原话、具体 trace、具体 toolName、字段组合、phrasing、业务实例错误升格为通用生产规则时。发现违反门禁时必须暂停执行，指出违反条款、证据和正确修复层级。
+description: 审查 AITest 中 Agent / prompt / tool 相关 OpenSpec change 或修复方案是否违反抽象层级门禁。仅在用户明确要求审查某个 change、审查 Agent 修复方案、检查是否存在 case-specific 生产规则，或准备实现/继续实现一个 Agent / prompt / tool 相关 OpenSpec change 且该 change 可能把具体 trace、用户原话、toolName、字段组合、phrasing 或业务实例升格为通用规则时使用。普通 trace 根因排查、普通 prompt 文案调整、非 Agent change 不自动触发。
 ---
 
 # Agent 修复方案抽象层级门禁
 
 ## 使用目标
 
-用这个 Skill 在实现 Agent / prompt / tool 修复前先审“修复方案放在哪个抽象层级”。重点防止把某个 trace、用户原话、tool result、模型输出形态或业务实例，错误升格成通用 prompt、runtime 或服务端生产规则。
+用这个 Skill 在审查 change 或实现 Agent / prompt / tool 相关 change 前，先审“修复方案放在哪个抽象层级”。重点防止把某个 trace、用户原话、tool result、模型输出形态或业务实例，错误升格成通用 prompt、runtime 或服务端生产规则。
 
 这个 Skill 不替代 `agent-tool-change-governance` 或 `agent-prompt-contract-governance`：前者负责 Agent tool / core / production 能改哪里，后者负责模型实际可见输入；本 Skill 只负责判断修复方案抽象层级是否正确。
 
 ## 触发条件
 
-遇到以下情况必须使用本 Skill：
+仅在以下情况使用本 Skill：
 
 - 用户要求“审查某个 change”、“开始做这个 change 前先审查”、“看这个 Agent 修复方案有没有违反抽象层级门禁”。
-- 修复来自某个具体 trace、用户原话、tool result、模型输出失败、repair 失败或 final grounding 失败。
-- 方案可能修改 Agent prompt、model input、tool manifest、schema summary、examples、repair feedback、observation、compressed tool result、resource contract、Agent runtime、`/api/chat` 或 tool handler。
-- 方案中出现具体用户短句、具体 `toolName`、字段组合、业务资源名、phrasing、`recent` / `current` / `latest` / `fromCard` / `forThisFlow` 这类疑似当前 case 默认值。
+- 准备实现或继续实现 Agent / prompt / tool 相关 OpenSpec change，且该 change 的方案来自具体 trace、用户原话、tool result、模型输出失败、repair 失败或 final grounding 失败。
+- 方案可能把具体用户短句、具体 `toolName`、字段组合、业务资源名、phrasing、`recent` / `current` / `latest` / `fromCard` / `forThisFlow` 这类当前 case 默认值写进通用 prompt、runtime、服务端生产规则或 core 分支。
+- 已有 diff、proposal、design 或 tasks 中出现服务端关键词规则、自然语言模板路由、phrasing 特判、具体业务 `toolName` 语义分支，或为单个业务 case 修改 Agent core。
+- 普通 trace 根因排查不自动触发；只有当排查已经进入修复方案审查或 Agent/prompt/tool change 实现前门禁时才使用。
 
 ## 必读上下文
 
@@ -27,7 +28,8 @@ description: 审查 AITest 中 Agent / prompt / tool 修复方案是否违反 Ag
 1. `AGENTS.md` 中 `Agent 修复方案抽象层级门禁` 和 `AI / Agent 边界：模型能力优先，服务端只管契约`。
 2. `docs/agent-tool-orchestrator-design.md` 第 24、25、26 节。
 3. 如果有 OpenSpec change，读取该 change 的 `proposal.md`、`design.md`、`tasks.md` 和相关 `spec.md`。
-4. 如果已有实现，读取当前 diff；如果是 trace 修复，先读取 `codex_logs/ai_trace_log.js`，必要时按 `contentRef` / `detailRef` 查询 `codex_logs/ai_trace_texts.jsonl`。
+4. 如果已有实现，读取当前 diff。
+5. 对于 trace 修复，外部导出证据仅在用户提供、刚导出或明确确认对应当前问题时使用。覆盖写的导出文件可能已经替换，不能默认当作当前 change 证据。
 
 ## 抽象层级分类
 
