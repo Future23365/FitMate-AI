@@ -2,6 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
 import { createToolResultId, hashNormalizedInput } from "@/lib/server/agent-core/executor";
+import { toTerminalToolResultRefs, type ToolResult } from "@/lib/server/agent-core/contracts";
+import {
+  createToolObservation,
+  OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
+  TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
+} from "@/lib/server/agent-core/observation";
 import { runAgentRuntime } from "@/lib/server/agent-core/runtime";
 import { createM0FixtureToolRegistry } from "@/lib/server/agent-tools";
 import { LlmPlanner } from "@/lib/server/agent-planners/llm-planner";
@@ -51,7 +57,7 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       {
         type: "final_answer",
         content: "fake adapter completed.",
-        usedToolResultIds: [expectedToolResultId],
+        usedRefs: toTerminalToolResultRefs([expectedToolResultId]),
       },
     ]);
     const planner = new LlmPlanner(adapter);
@@ -191,6 +197,80 @@ describe("agent-planners LlmPlanner and model adapters", () => {
     expect(chunks.map((chunk) => chunk.text).join("").endsWith(sentUserContent.slice(-160))).toBe(true);
     expect(JSON.stringify(traceContent)).not.toContain("...[truncated]");
     expect(JSON.stringify(completion.trace)).not.toContain("test-key");
+  });
+
+  it("serializes satisfied success facts only through toolResults and records input dedupe trace", async () => {
+    const { fetchImpl, requestBodies } = captureDeepSeekRequestBodies(JSON.stringify({
+      type: "final_answer",
+      content: "facts consumed.",
+      usedRefs: toTerminalToolResultRefs(["tr_projection"]),
+    }));
+    const adapter = new DeepSeekModelAdapter({
+      apiKey: "test-key",
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+    const successResult: ToolResult = {
+      toolResultId: "tr_projection",
+      toolName: "readFixture",
+      toolVersion: "0.1.0",
+      toolCallId: "tc_projection",
+      idempotencyKey: "idem_projection",
+      normalizedInputHash: "hash_projection",
+      startedAt: "2026-06-05T00:00:00.000Z",
+      completedAt: "2026-06-05T00:00:00.000Z",
+      ok: true,
+      output: "[redacted]",
+      projection: {
+        model: {
+          factText: "权威成功事实只应在 toolResults 中出现。",
+        },
+      },
+      fulfillment: {
+        satisfied: true,
+        summary: "读取成功。",
+      },
+    };
+    const observation = createToolObservation(successResult);
+
+    const completion = await adapter.completeAction({
+      run: {
+        runId: "run-deepseek-deduped-input",
+        actor: {},
+        userInput: "answer from facts",
+      },
+      step: 2,
+      manifests: [],
+      observations: [observation],
+      toolResults: [successResult],
+    });
+    const body = requestBodies[0] as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const modelInput = JSON.parse(body.messages[1].content) as {
+      observations: unknown[];
+      toolResults: unknown[];
+    };
+
+    expect(JSON.stringify(modelInput.observations)).toContain(OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE);
+    expect(JSON.stringify(modelInput.observations)).toContain(TOOL_RESULT_MODEL_PROJECTION_CHANNEL);
+    expect(JSON.stringify(modelInput.observations)).not.toContain("权威成功事实只应在 toolResults 中出现");
+    expect(JSON.stringify(modelInput.toolResults)).toContain("权威成功事实只应在 toolResults 中出现");
+    expect(JSON.stringify(modelInput.toolResults)).not.toContain("raw handler output");
+    expect(completion.trace?.request.run).toMatchObject({
+      observationCount: 1,
+      toolResultCount: 1,
+      successfulLightweightObservationCount: 1,
+      repairDiagnosticObservationCount: 0,
+      toolResultProjectionCount: 1,
+      toolResultProjectionPresence: [
+        {
+          toolResultId: "tr_projection",
+          toolName: "readFixture",
+          satisfied: true,
+          hasModelProjection: true,
+        },
+      ],
+    });
   });
 
   it("records invalid_json and invalid_action_schema diagnostics without sensitive request fields", async () => {

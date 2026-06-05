@@ -2,6 +2,12 @@ import type { AgentObservation, JsonValue, ToolError, ToolResult } from "./contr
 import { AGENT_ERROR_CODES } from "./errors";
 import { redactJsonValue } from "./redaction";
 
+/** OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE 标记 ok=true 的 tool fact 已降级为索引通道。 */
+export const OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE = "ok_tool_result_index";
+
+/** TOOL_RESULT_MODEL_PROJECTION_CHANNEL 指向成功 tool facts 的详细权威模型输入通道。 */
+export const TOOL_RESULT_MODEL_PROJECTION_CHANNEL = "toolResults[].projection.model";
+
 /** createToolObservation 将 ToolResult 投影成 Planner 可见安全 observation，不回灌完整 output。 */
 export function createToolObservation(result: ToolResult): AgentObservation {
   if (!result.ok) {
@@ -14,6 +20,7 @@ export function createToolObservation(result: ToolResult): AgentObservation {
       content: redactJsonValue({
         code: result.error.code,
         message: result.error.message,
+        details: result.error.details,
         fulfillment: {
           satisfied: result.fulfillment.satisfied,
           consumedResources: result.fulfillment.consumedResources,
@@ -23,17 +30,27 @@ export function createToolObservation(result: ToolResult): AgentObservation {
     };
   }
 
+  return createOkToolResultIndexObservation(result);
+}
+
+/** createOkToolResultIndexObservation 只给 Planner 留成功执行结果索引，详细事实由 toolResults 承载。 */
+function createOkToolResultIndexObservation(result: Extract<ToolResult, { ok: true }>): AgentObservation {
   return {
     type: "tool_result",
     source: "tool",
     toolResultId: result.toolResultId,
     toolName: result.toolName,
-    ok: result.fulfillment.satisfied,
-    content: redactJsonValue(withFulfillmentSummary(result.projection.model ?? {
-      summary: result.fulfillment.summary,
-      toolName: result.toolName,
+    ok: true,
+    content: redactJsonValue({
+      observationRole: OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
       toolResultId: result.toolResultId,
-    }, result)),
+      toolName: result.toolName,
+      ok: true,
+      fulfillment: createLightweightFulfillmentSummary(result),
+      modelFactsChannel: TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
+      projectionModelOmitted: true,
+      boundary: "详细事实见 toolResults[].projection.model；此 observation 只保留 ok=true 执行结果索引，避免同一事实在 observations 和 toolResults 中重复传递。fulfillment.satisfied 只作为诊断摘要，不是普通 final_answer grounding gate。",
+    }),
   };
 }
 
@@ -51,13 +68,15 @@ export function createInvalidActionObservation(error: ToolError): AgentObservati
   };
 }
 
-/** createDuplicateSuccessToolCallObservation 提醒 Planner 复用同等成功结果或提交改变后的合法 input。 */
-export function createDuplicateSuccessToolCallObservation(input: {
+/** createDuplicateToolInputObservation 提醒 Planner 复用同等执行结果或提交改变后的合法 input。 */
+export function createDuplicateToolInputObservation(input: {
   toolName: string;
   toolVersion: string;
   normalizedInputHash: string;
   previousToolResultId: string;
+  previousOk: boolean;
   repeatCount: number;
+  resultSummary?: string;
   producedResources?: JsonValue;
 }): AgentObservation {
   return {
@@ -67,19 +86,23 @@ export function createDuplicateSuccessToolCallObservation(input: {
     toolName: input.toolName,
     ok: false,
     content: redactJsonValue({
-      code: AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS,
-      message: "当前 run 已经有相同 toolName、toolVersion 和 input 的成功结果；不要再次调用同一 tool 和同一 input。",
+      code: AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT,
+      message: "当前 run 已经有相同 toolName、toolVersion 和 input 的执行结果；重复相同 input 不会产生新的 current-run 事实。",
       details: {
         toolName: input.toolName,
         toolVersion: input.toolVersion,
         normalizedInputHash: input.normalizedInputHash,
         previousToolResultId: input.previousToolResultId,
+        previousOk: input.previousOk,
         repeatCount: input.repeatCount,
+        resultSummary: input.resultSummary,
         producedResources: input.producedResources,
-        recoverableActions: [
-          "基于 previousToolResultId 输出合法 final_answer 或 ask_user。",
-          "调用其他当前可见且合法的 tool。",
-          "如果确实需要新事实，提交改变后的合法 tool input。",
+        allowedNextActions: [
+          "基于 previousToolResultId 输出带 usedRefs 的合法 final_answer。",
+          "调用其他当前 manifest 中可见且 input 不同的合法 tool。",
+          "提交改变后的合法 tool input。",
+          "使用 ask_user 澄清缺失信息。",
+          "在当前事实不足时用不带 visibleOutputs 的 final_answer 失败收口。",
         ],
       },
     }),
@@ -98,30 +121,21 @@ export function compressPlannerObservations(observations: AgentObservation[], ma
   }));
 }
 
-function withFulfillmentSummary(content: JsonValue, result: Extract<ToolResult, { ok: true }>): JsonValue {
-  const fulfillment = {
+function createLightweightFulfillmentSummary(result: Extract<ToolResult, { ok: true }>): JsonValue {
+  const summary: Record<string, JsonValue> = {
     satisfied: result.fulfillment.satisfied,
+    summary: result.fulfillment.summary,
   };
-  const resourceSummary: Record<string, JsonValue> = { ...fulfillment };
 
   if (result.fulfillment.producedResources) {
-    resourceSummary.producedResources = result.fulfillment.producedResources as unknown as JsonValue;
+    summary.producedResources = result.fulfillment.producedResources as unknown as JsonValue;
   }
 
   if (result.fulfillment.consumedResources) {
-    resourceSummary.consumedResources = result.fulfillment.consumedResources as unknown as JsonValue;
+    summary.consumedResources = result.fulfillment.consumedResources as unknown as JsonValue;
   }
 
-  if (content && typeof content === "object" && !Array.isArray(content)) {
-    const objectContent: Record<string, JsonValue> = { ...(content as Record<string, JsonValue>) };
-    objectContent.fulfillment = resourceSummary;
-    return objectContent;
-  }
-
-  return {
-    value: content,
-    fulfillment: resourceSummary,
-  };
+  return summary;
 }
 
 /** createRuntimeErrorObservation 用于记录 maxSteps、timeout 等运行时边界触发。 */

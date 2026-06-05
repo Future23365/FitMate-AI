@@ -8,6 +8,7 @@ import type { JsonValue, VisibleOutputEnvelope } from "@/lib/server/agent-core/c
 
 import {
   toJsonValue,
+  visibleTrainingProposalFactResourceType,
   visibleTrainingProposalOutputType,
   visibleTrainingProposalPayloadSchema,
   visibleTrainingProposalSchemaVersion,
@@ -98,9 +99,13 @@ export async function validateVisibleTrainingProposalOutput(
           hasSchedule: Boolean(parsed.data.schedule),
         }),
         currentVisibleCoverage: summarizeCurrentVisibleTrainingCoverage(context),
-        recoveryDirections: createCoverageRecoveryDirections(),
       },
     };
+  }
+
+  const sourceValidation = validateCurrentRunExerciseSources(parsed.data.exerciseItems, context);
+  if (!sourceValidation.ok) {
+    return sourceValidation;
   }
 
   return {
@@ -149,7 +154,6 @@ function createRoutinePlanCoverageFailure(
       availableSections: outputCoverage.availableSections,
       missingSectionsForRoutineOrPlan: outputCoverage.missingSectionsForRoutineOrPlan,
       currentVisibleCoverage: summarizeCurrentVisibleTrainingCoverage(context),
-      recoveryDirections: createCoverageRecoveryDirections(),
     },
   };
 }
@@ -234,15 +238,101 @@ function readExerciseSections(value: JsonValue | undefined): Array<Pick<VisibleT
   return sections;
 }
 
-function createCoverageRecoveryDirections(): JsonValue {
-  return [
-    "继续获取缺失 section 的可消费动作事实。",
-    "如要输出 routine 或 plan，先让当前 run 具备 warmup、training、stretch 三类可消费动作事实。",
-    "不要再次提交缺少 warmup、training 或 stretch 的 routine / plan visibleOutputs。",
-    "输出当前事实可支撑的结构。",
-    "向用户澄清缺失条件或可放宽边界。",
-    "在事实不足时失败收口，不保存或渲染不可验证方案。",
-  ];
+function validateCurrentRunExerciseSources(
+  exerciseItems: readonly Pick<VisibleTrainingExerciseItem, "exerciseId" | "section" | "order">[],
+  context: TerminalOutputValidationContext,
+): TerminalOutputValidationResult {
+  const sources = collectCurrentRunExerciseSources(context);
+  const missingItems = exerciseItems.filter((item) => !sources.has(createExerciseSourceKey(item)));
+
+  if (missingItems.length === 0) {
+    return { ok: true };
+  }
+
+  return {
+    ok: false,
+    message: "visibleTrainingProposal 动作项缺少当前 run 可消费动作事实来源。",
+    details: {
+      code: "current_run_source_missing",
+      path: "payload.exerciseItems",
+      missingExerciseItems: missingItems.map((item) => ({
+        exerciseId: item.exerciseId,
+        section: item.section,
+        order: item.order,
+      })),
+      currentRunSourceSummary: {
+        sourceCount: sources.size,
+      },
+    },
+  };
+}
+
+// collectCurrentRunExerciseSources 只读取当前 run 可用于训练结构交付的 tool result 和 consumable resource，不解释用户原文或绑定具体 toolName。
+function collectCurrentRunExerciseSources(context: TerminalOutputValidationContext) {
+  const sources = new Set<string>();
+
+  for (const result of context.toolResults) {
+    if (!result.ok || !result.fulfillment.satisfied) {
+      continue;
+    }
+
+    collectSourcesFromGroupedExerciseProjection(result.projection.model, sources);
+  }
+
+  for (const resource of context.resourceStore?.inventory() ?? []) {
+    if (
+      resource.ref.role !== "consumable"
+      || resource.ref.resourceType !== visibleTrainingProposalFactResourceType
+    ) {
+      continue;
+    }
+
+    collectSourcesFromExerciseItems(resource.summary, sources);
+  }
+
+  return sources;
+}
+
+function collectSourcesFromGroupedExerciseProjection(value: JsonValue | undefined, sources: Set<string>) {
+  if (!isRecord(value) || !isRecord(value.groups)) {
+    return;
+  }
+
+  for (const section of visibleTrainingCompositionSections) {
+    const group = value.groups[section];
+    if (!isRecord(group) || !Array.isArray(group.exercises)) {
+      continue;
+    }
+
+    for (const exercise of group.exercises) {
+      if (isRecord(exercise) && typeof exercise.exerciseId === "string") {
+        sources.add(createExerciseSourceKey({ exerciseId: exercise.exerciseId, section }));
+      }
+    }
+  }
+}
+
+function collectSourcesFromExerciseItems(value: JsonValue | undefined, sources: Set<string>) {
+  if (!isRecord(value) || !Array.isArray(value.exerciseItems)) {
+    return;
+  }
+
+  for (const item of value.exerciseItems) {
+    if (
+      isRecord(item)
+      && typeof item.exerciseId === "string"
+      && isVisibleTrainingCompositionSection(item.section)
+    ) {
+      sources.add(createExerciseSourceKey({
+        exerciseId: item.exerciseId,
+        section: item.section,
+      }));
+    }
+  }
+}
+
+function createExerciseSourceKey(item: Pick<VisibleTrainingExerciseItem, "exerciseId" | "section">) {
+  return `${item.section}:${item.exerciseId}`;
 }
 
 function isRecord(value: JsonValue | undefined): value is Record<string, JsonValue> {

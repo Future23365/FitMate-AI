@@ -34,7 +34,7 @@
 4. Tool 不接收 `limit`、`offset`、`page`、`pageSize` 等分页或数量控制参数；服务端内部使用固定最大返回数量保护，并在出参中明确 `maxReturned`、`totalMatches` 和 `truncated`。
 5. Tool 默认只返回已发布动作。只有未来存在明确的管理员权限和 OpenSpec 设计时，才允许普通聊天 Agent 查询未发布动作。
 6. Tool output 不默认完整回灌给模型或用户；实现时必须提供安全的 `toModelObservation` 和 `toUserProjection`。
-7. Tool 成功执行后，final answer 应通过 `usedToolResultIds` 引用本轮 `satisfied=true` 的 tool result。默认不产出可被下游训练生成链消费的 `candidate_set` resource。
+7. Tool 成功执行后，普通事实回答应通过 `final_answer.usedRefs` 引用本轮 `satisfied=true` 的 `tool_result`。默认不产出可被下游训练生成链消费的 `candidate_set` resource。
 
 ## 当前支持的筛选字段来源
 
@@ -50,14 +50,13 @@
 | --- | --- | --- |
 | `q` | `exerciseListQuerySchema.q` | 文本搜索 |
 | `category` | `Exercise.category/categoryZh` | 动作分类 |
-| `suitability` | `Exercise.allowedSections` / `getExerciseSuitability()` | 动作用途适配度 |
+| `suitabilities` | `Exercise.allowedSections` / `getExerciseSuitability()` | 动作用途数组，按 warmup / training / stretch 分组查询 |
 | `level` | `Exercise.level/levelZh` | 难度 |
 | `force` | `Exercise.force/forceZh` | 发力类型 |
 | `mechanic` | `Exercise.mechanic/mechanicZh` | 动作机制 |
 | `equipment` | `Exercise.equipment/equipmentZh` | 器械 |
 | `homeRequirement` | `Exercise.homeRequirement/homeRequirementZh` | 居家条件 |
-| `muscle` | `Exercise.primaryMuscles/primaryMusclesZh/secondaryMuscles/secondaryMusclesZh` | 真实肌群 facet |
-| `bodyRegions` | `upper_body/lower_body/core/full_body` 结构化枚举 | 高层身体区域，由服务端确定性展开到真实肌群 facet |
+| `muscles` | `Exercise.primaryMuscles/primaryMusclesZh/secondaryMuscles/secondaryMusclesZh` | 真实肌群 facet 数组，单个肌群也使用一项数组 |
 | `goalTag` | `Exercise.goalTags` | 目标标签 |
 | `riskTag` | `Exercise.riskTags` | 风险标签 |
 | `published` | `Exercise.isPublished` | 是否已发布，默认 `true` |
@@ -95,16 +94,17 @@
 type SearchExerciseResourcesInput = {
   q?: string;
   category?: string;
-  suitability?: "warmup" | "training" | "stretch";
+  suitabilities?: Array<"warmup" | "training" | "stretch">;
   level?: string;
   force?: string;
   mechanic?: string;
   equipment?: string;
   homeRequirement?: string;
-  muscle?: string;
-  bodyRegions?: Array<"upper_body" | "lower_body" | "core" | "full_body">;
+  muscles?: string[];
   goalTag?: string;
   riskTag?: string;
+  excludeExerciseIds?: string[];
+  requiredExerciseIds?: string[];
   published?: boolean;
   sort?: "name_asc" | "name_desc" | "level_asc" | "level_desc" | "category_asc" | "category_desc";
 };
@@ -116,16 +116,17 @@ type SearchExerciseResourcesInput = {
 | --- | --- | --- | --- |
 | `q` | `string` | 否 | 文本搜索关键字。按动作库可检索文本做确定性匹配，不是语义向量召回 |
 | `category` | `string` | 否 | 动作分类筛选，对应 `Exercise.category` 或 `Exercise.categoryZh` |
-| `suitability` | `"warmup" \| "training" \| "stretch"` | 否 | 动作用途适配度筛选，对应动作可用于热身、主训练或拉伸 |
+| `suitabilities` | `Array<"warmup" \| "training" \| "stretch">` | 否 | 动作用途数组；省略时按 `training` 查询，多个用途会分别返回 `groups.<section>` |
 | `level` | `string` | 否 | 难度筛选，对应 `Exercise.level` 或 `Exercise.levelZh` |
 | `force` | `string` | 否 | 发力类型筛选，对应 `Exercise.force` 或 `Exercise.forceZh` |
 | `mechanic` | `string` | 否 | 动作机制筛选，对应 `Exercise.mechanic` 或 `Exercise.mechanicZh` |
-| `equipment` | `string` | 否 | 器械筛选，对应 `Exercise.equipment` 或 `Exercise.equipmentZh` |
-| `homeRequirement` | `string` | 否 | 居家条件筛选，对应 `Exercise.homeRequirement` 或 `Exercise.homeRequirementZh` |
-| `muscle` | `string` | 否 | 真实肌群 facet 筛选，对应主肌群或辅助肌群的中英文字段；不要填 `腿部`、`下肢`、`上肢` 这类高层区域词 |
-| `bodyRegions` | 枚举数组 | 否 | 高层身体区域筛选；`upper_body` 表示上肢，`lower_body` 表示腿部/下肢，`core` 表示核心，`full_body` 表示全身 |
+| `equipment` | `string` | 否 | 器械可用性或器械类别筛选；`no_equipment` / `无器械` 表示不需要外部器械 |
+| `homeRequirement` | `string` | 否 | 环境、场地或支撑条件筛选；不表示器械可用性 |
+| `muscles` | `string[]` | 否 | 一个或多个真实肌群 facet 的 OR 查询数组；单个肌群也写成一项数组，不使用 `muscle` |
 | `goalTag` | `string` | 否 | 目标标签筛选，对应 `Exercise.goalTags` |
 | `riskTag` | `string` | 否 | 风险标签筛选，对应 `Exercise.riskTags`；这里只查标签，不做伤病语义判断 |
+| `excludeExerciseIds` | `string[]` | 否 | 明确替换、排除或避免重复时使用的负向动作 id 列表，只能来自当前 run 可见事实或用户明确排除 |
+| `requiredExerciseIds` | `string[]` | 否 | 正向查询锚点；当前 run 已有受控发布态动作 id 时，让这些动作优先进入对应 `groups.<section>.exercises` |
 | `published` | `boolean` | 否 | 是否只返回已发布动作；缺省为 `true` |
 | `sort` | 枚举 | 否 | 排序方式；缺省为 `name_asc` |
 
@@ -136,8 +137,8 @@ type SearchExerciseResourcesInput = {
 | 字段 | 当前可用值摘要 |
 | --- | --- |
 | `level` | `beginner` / `初级`、`intermediate` / `中级`、`expert` / `高级` |
-| `equipment` | `body only` / `自重`、`dumbbell` / `哑铃`、`barbell` / `杠铃`、`bands` / `弹力带`、`machine` / `固定器械`、`cable` / `绳索器械`、`kettlebells` / `壶铃`、`medicine ball` / `药球`、`exercise ball` / `健身球`、`foam roll` / `泡沫轴`、`e-z curl bar` / `EZ 曲杆`、`other` / `其他` |
-| `homeRequirement` | `none` / `无器械`、`floor` / `地面/瑜伽垫`、`support` / `椅子/墙面/支撑物`、`small_equipment` / `居家小器械`、`gym_equipment` / `健身房器械`、`partner` / `搭档辅助`、`outdoor` / `户外场地` |
+| `equipment` | `no_equipment` / `无器械`、`body only` / `自重`、`dumbbell` / `哑铃`、`barbell` / `杠铃`、`bands` / `弹力带`、`machine` / `固定器械`、`cable` / `绳索器械`、`kettlebells` / `壶铃`、`medicine ball` / `药球`、`exercise ball` / `健身球`、`foam roll` / `泡沫轴`、`e-z curl bar` / `EZ 曲杆`、`other` / `其他` |
+| `homeRequirement` | `floor` / `地面/瑜伽垫`、`support` / `椅子/墙面/支撑物`、`small_equipment` / `居家小器械`、`gym_equipment` / `健身房器械`、`partner` / `搭档辅助`、`outdoor` / `户外场地` |
 
 ### 入参默认值
 
@@ -152,17 +153,33 @@ type SearchExerciseResourcesInput = {
 type SearchExerciseResourcesOutput = {
   status: "succeeded";
   query: {
+    suitabilities: Array<"warmup" | "training" | "stretch">;
     sort: "name_asc" | "name_desc" | "level_asc" | "level_desc" | "category_asc" | "category_desc";
-    published: boolean;
+    published: true;
     appliedFilters: SearchExerciseAppliedFilter[];
-    bodyRegions?: Array<"upper_body" | "lower_body" | "core" | "full_body">;
-    expandedMuscles: string[];
+    muscles?: string[];
+    excludeExerciseIds?: string[];
+    requiredExerciseIds?: string[];
     totalMatches: number;
     returnedCount: number;
     maxReturned: number;
     truncated: boolean;
+    excludedCount: number;
   };
-  exercises: SearchExerciseResource[];
+  groups: Partial<Record<"warmup" | "training" | "stretch", {
+    suitability: "warmup" | "training" | "stretch";
+    totalMatches: number;
+    returnedCount: number;
+    truncated: boolean;
+    exercises: SearchExerciseResource[];
+  }>>;
+  diagnostics: Array<{
+    suitability: "warmup" | "training" | "stretch";
+    code: string;
+    message: string;
+    exerciseId?: string;
+    conflictFields?: string[];
+  }>;
 };
 ```
 
@@ -171,16 +188,20 @@ type SearchExerciseResourcesOutput = {
 | 字段 | 含义 |
 | --- | --- |
 | `status` | 成功状态，固定为 `succeeded` |
+| `query.suitabilities` | 本次查询的用途数组 |
 | `query.sort` | 本次实际使用的排序方式 |
 | `query.published` | 本次实际使用的发布态口径 |
 | `query.appliedFilters` | 服务端实际执行的筛选条件摘要 |
-| `query.bodyRegions` | 本次使用的结构化身体区域 |
-| `query.expandedMuscles` | `bodyRegions` 被确定性展开后的真实肌群 facet |
+| `query.muscles` | 本次使用的真实肌群 facet 数组 |
+| `query.excludeExerciseIds` | 本次应用的负向排除动作 id |
+| `query.requiredExerciseIds` | 本次应用的正向锚点动作 id |
 | `query.totalMatches` | 筛选后总命中数量 |
 | `query.returnedCount` | 本次返回给模型和用户投影的动作数量 |
 | `query.maxReturned` | 服务端内部最大返回数量 |
 | `query.truncated` | 是否因为内部最大返回数量被截断 |
-| `exercises` | 动作资源摘要列表 |
+| `query.excludedCount` | 因 `excludeExerciseIds` 被排除的命中数量 |
+| `groups` | 按 `groups.<section>` 分组的动作资源摘要列表 |
+| `diagnostics` | 指定动作未命中、未发布、section 冲突、排除冲突或筛选不匹配等结构化诊断 |
 
 #### `SearchExerciseAppliedFilter`
 
@@ -262,10 +283,10 @@ type SearchExerciseResourcesFulfillment = {
 规则：
 
 1. 查询参数合法、数据库读取完成，表示 tool output 的 `status` 可以是 `succeeded`，但不代表用户筛选目标已经被满足。
-2. `totalMatches > 0` 时，fulfillment 应为 `satisfied = true`，可以通过 `usedToolResultIds` 支撑普通 `final_answer`。
-3. `totalMatches = 0` 时，fulfillment 应为 `satisfied = false`，表示查询成功但没有满足当前筛选条件的动作；该结果只能用于失败解释、澄清或后续重查，不能作为成功动作推荐的 grounding。
+2. `query.totalMatches > 0` 时，fulfillment 应为 `satisfied = true`，可以通过 `final_answer.usedRefs: [{ type: "tool_result", id: "..." }]` 支撑普通 `final_answer`。
+3. `query.totalMatches = 0` 时，fulfillment 仍表示已完成事实查询，可用于说明当前发布态动作库没有匹配结果；如果 input 过宽或缺少可解释约束，fulfillment 应为 `satisfied = false`，只能用于失败解释、澄清或后续重查。
 4. 数据库不可用、handler exception 或 output schema 失败应由 Executor 归一为 failed `ToolResult`，不得伪装成成功 output。
-5. 默认不登记 ResourceStore resource。final answer 使用 `usedToolResultIds` 引用本轮成功且 `satisfied=true` 的 tool result。
+5. 默认不登记 ResourceStore resource。final answer 使用 `usedRefs` 引用本轮成功且 `satisfied=true` 的 `tool_result`。
 6. 如果未来需要让其他 tool 消费该查询结果，必须新增专用 resource type，并通过 OpenSpec 明确它不是 `candidate_set`，也不能被 routine / plan / patch 链路误消费。
 
 ## 模型观察与用户投影
@@ -280,10 +301,13 @@ type SearchExerciseResourcesFulfillment = {
 - `totalMatches`
 - `returnedCount`
 - `truncated`
-- `bodyRegions`
-- `expandedMuscles`
+- `excludedCount`
+- `availableSections`
+- `sectionSummary`
+- `missingSectionsForRoutineOrPlan`
+- `supportsOutputKinds`
 - `appliedFilters`
-- 有限数量的动作摘要：`id`、`nameZh`、`nameEn`、`equipmentZh`、`primaryMusclesZh`、`allowedSections`
+- 按 `groups.<section>` 分组的有限动作摘要：`exerciseId`、`nameZh`、`nameEn`、`equipmentZh`、`homeRequirementZh`、`primaryMusclesZh`、`allowedSections`
 
 模型可见摘要不应包含：
 
@@ -309,7 +333,7 @@ type SearchExerciseResourcesFulfillment = {
 | 场景 | 处理方式 |
 | --- | --- |
 | 未知字段 | `inputSchema.strict()` 拒绝，进入 `INVALID_TOOL_INPUT` |
-| 非法 `suitability` / `sort` 枚举 | `inputSchema` 拒绝，进入 `INVALID_TOOL_INPUT` |
+| 非法 `suitabilities` / `sort` 枚举 | `inputSchema` 拒绝，进入 `INVALID_TOOL_INPUT` |
 | 字符串过长或类型错误 | `inputSchema` 拒绝，进入 `INVALID_TOOL_INPUT` |
 | 数据库不可用 | handler 失败，由 Executor 归一为 failed `ToolResult` |
 | output 不符合 schema | Executor 返回 `INVALID_TOOL_OUTPUT` |
@@ -320,20 +344,20 @@ type SearchExerciseResourcesFulfillment = {
 
 ```ts
 {
-  "equipment": "body only",
-  "homeRequirement": "none",
-  "muscle": "股四头肌",
+  "equipment": "no_equipment",
+  "muscles": ["股四头肌"],
+  "suitabilities": ["training"],
   "published": true,
   "sort": "name_asc"
 }
 ```
 
-### 查询腿部/下肢训练动作
+### 查询多个真实肌群训练动作
 
 ```ts
 {
-  "bodyRegions": ["lower_body"],
-  "suitability": "training",
+  "muscles": ["股四头肌", "腘绳肌"],
+  "suitabilities": ["training"],
   "published": true,
   "sort": "name_asc"
 }
@@ -343,8 +367,8 @@ type SearchExerciseResourcesFulfillment = {
 
 ```ts
 {
-  "suitability": "warmup",
-  "homeRequirement": "none",
+  "suitabilities": ["warmup"],
+  "equipment": "no_equipment",
   "published": true
 }
 ```
@@ -378,8 +402,10 @@ type SearchExerciseResourcesFulfillment = {
 | `candidateUse` | 这是后续消费场景，不是动作数据库筛选字段 |
 | `allowedExerciseIds` | 这是候选裁剪或引用约束，不是基础动作库筛选字段 |
 | `excludedExerciseIds` | 这是消费侧排除逻辑，不是基础动作库筛选字段 |
+| `muscle` | 旧单值肌群字段已收敛为 `muscles`；单个肌群也使用一项数组 |
+| `bodyRegions` | 高层身体区域不属于真实数据库 facet；模型应基于 `facetCatalog.muscles` 选择真实肌群 |
 | `injuryLimitations` | 这是自然语言风险语义，不应由检索 tool 判断 |
-| `requiresNoEquipment` | 与 `equipment` / `homeRequirement` 重复，应使用已有筛选字段表达 |
+| `requiresNoEquipment` | 与 `equipment` 重复；无外部器械应使用 `equipment = "no_equipment"` 或 `equipment = "无器械"` |
 | `resultRequirements` | 这是执行型候选集合的履约合同，不属于动作列表查询 |
 | `movementPatterns` | 当前动作列表查询 schema 未暴露该筛选字段，基础 tool 不先设计 |
 | `rankingHints` | 当前目标是按数据库支持字段筛选，不设计额外排序提示 |

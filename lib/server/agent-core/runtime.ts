@@ -13,7 +13,7 @@ import { createToolExecutionIdempotencyKey } from "./idempotency";
 import { createRegistrySnapshot } from "./manifest-hardening";
 import {
   compressPlannerObservations,
-  createDuplicateSuccessToolCallObservation,
+  createDuplicateToolInputObservation,
   createInvalidActionObservation,
   createRuntimeErrorObservation,
   createToolObservation,
@@ -211,7 +211,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
       await recordTraceEvent({
         type: "terminal_grounding",
         actionType: validation.action.type,
-        usedResourceRefs: validation.action.usedResourceRefs ?? [],
+        usedRefs: validation.action.usedRefs ?? [],
       });
       return finish({
         runId: input.run.runId,
@@ -229,7 +229,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
       await recordTraceEvent({
         type: "terminal_grounding",
         actionType: validation.action.type,
-        usedResourceRefs: validation.action.usedResourceRefs ?? [],
+        usedRefs: validation.action.usedRefs ?? [],
       });
       return finish({
         runId: input.run.runId,
@@ -311,44 +311,51 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
     const failureKey = `${tool.name}:${tool.version}:${normalizedInputHash}`;
     const previousToolCallCount = toolCallCounts.get(failureKey) ?? 0;
 
-    if (previousToolCallCount > 0) {
+    const previousResult = findToolResult(toolResults, {
+      toolName: tool.name,
+      toolVersion: tool.version,
+      normalizedInputHash,
+    });
+
+    if (previousToolCallCount > 0 && previousResult) {
       await recordTraceEvent({
         type: "duplicate_tool_call",
         step,
         toolName: tool.name,
         toolVersion: tool.version,
         normalizedInputHash,
+        previousToolResultId: previousResult.toolResultId,
+        previousOk: previousResult.ok,
         previousCount: previousToolCallCount,
+        repeatCount: previousToolCallCount + 1,
       });
     }
     toolCallCounts.set(failureKey, previousToolCallCount + 1);
 
-    const previousSatisfiedResult = findSatisfiedToolResult(toolResults, {
-      toolName: tool.name,
-      toolVersion: tool.version,
-      normalizedInputHash,
-    });
-    if (previousSatisfiedResult) {
+    const previousOkResult = previousResult?.ok ? previousResult : undefined;
+    if (previousOkResult) {
       invalidActions += 1;
-      observations.push(createDuplicateSuccessToolCallObservation({
+      observations.push(createDuplicateToolInputObservation({
         toolName: tool.name,
         toolVersion: tool.version,
         normalizedInputHash,
-        previousToolResultId: previousSatisfiedResult.toolResultId,
+        previousToolResultId: previousOkResult.toolResultId,
+        previousOk: previousOkResult.ok,
         repeatCount: previousToolCallCount + 1,
-        producedResources: previousSatisfiedResult.fulfillment.producedResources as JsonValue | undefined,
+        resultSummary: previousOkResult.fulfillment.summary,
+        producedResources: previousOkResult.fulfillment.producedResources as JsonValue | undefined,
       }));
 
       if (invalidActions > repairLimit) {
-        await recordTraceEvent(createBudgetEvent("repair_attempts", "exhausted", invalidActions, repairLimit, step, AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS));
+        await recordTraceEvent(createBudgetEvent("repair_attempts", "exhausted", invalidActions, repairLimit, step, AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT));
         return finish(failedResult(input.run.runId, toolResults, observations, traceEvents, step, createToolError(
           AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
-          "Agent runtime reached the duplicate successful tool call repair limit.",
-          { lastCode: AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS },
+          "Agent runtime reached the duplicate tool input repair limit.",
+          { lastCode: AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT },
         )));
       }
 
-      await recordTraceEvent(createBudgetEvent("repair_attempts", "used", invalidActions, repairLimit, step, AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS));
+      await recordTraceEvent(createBudgetEvent("repair_attempts", "used", invalidActions, repairLimit, step, AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT));
       continue;
     }
 
@@ -685,6 +692,7 @@ function createToolExecutionTrace(input: {
     inputSummary: redactJsonValue(input.action.input),
     ok: input.result.ok,
     satisfied: input.result.fulfillment.satisfied,
+    factChannel: classifyToolResultFactChannel(input.result),
     failureCode: input.result.ok ? undefined : input.result.error.code,
     error: input.result.ok
       ? undefined
@@ -801,21 +809,27 @@ function createFailureToolResult(
   };
 }
 
-function findSatisfiedToolResult(
+function findToolResult(
   toolResults: ToolResult[],
   input: {
     toolName: string;
     toolVersion: string;
     normalizedInputHash: string;
   },
-): Extract<ToolResult, { ok: true }> | undefined {
-  return toolResults.find((result): result is Extract<ToolResult, { ok: true }> => (
+): ToolResult | undefined {
+  return toolResults.find((result) => (
     result.toolName === input.toolName
     && result.toolVersion === input.toolVersion
     && result.normalizedInputHash === input.normalizedInputHash
-    && result.ok
-    && result.fulfillment.satisfied
   ));
+}
+
+function classifyToolResultFactChannel(result: ToolResult): "fact" | "diagnostic" | "failed" {
+  if (!result.ok) {
+    return "failed";
+  }
+
+  return result.fulfillment.satisfied ? "fact" : "diagnostic";
 }
 
 function finalizeToolResultResources(input: {

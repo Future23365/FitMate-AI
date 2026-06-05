@@ -12,6 +12,9 @@ export type BasicChatVisibleOutputSummary = {
   summary: string;
 };
 
+export const basicChatJudgeStatuses = ["passed", "passed_via_suggestion", "failed", "uncertain"] as const;
+export type BasicChatJudgeStatus = (typeof basicChatJudgeStatuses)[number];
+
 // BasicChatVisibleUserOutput 是 judge 唯一可见输出事实，避免内部 trace/tool 诊断进入语义判定。
 export type BasicChatVisibleUserOutput = {
   finalAssistantText: string;
@@ -39,17 +42,22 @@ export type BasicChatJudgeConfig = {
 
 export const basicChatJudgeResultSchema = z.object({
   passed: z.boolean(),
-  status: z.enum(["passed", "failed", "uncertain"]),
+  status: z.enum(basicChatJudgeStatuses),
   reason: z.string().trim().min(1).max(1200),
   matchedExpectations: z.array(z.string().trim().min(1).max(300)).max(20),
   missingExpectations: z.array(z.string().trim().min(1).max(300)).max(20),
   visibleOutputKinds: z.array(z.string().trim().min(1).max(80)).max(12),
 }).refine(
-  (result) => (result.status === "passed" ? result.passed : !result.passed),
+  (result) => (isPassingJudgeStatus(result.status) ? result.passed : !result.passed),
   "passed 必须和 status 保持一致",
 );
 
 export type BasicChatJudgeResult = z.infer<typeof basicChatJudgeResultSchema>;
+
+// isPassingJudgeStatus 区分直接通过和建议可恢复通过，二者都不应让命令失败。
+export function isPassingJudgeStatus(status: BasicChatJudgeStatus) {
+  return status === "passed" || status === "passed_via_suggestion";
+}
 
 export type BasicChatJudgeOutcome =
   | {
@@ -136,6 +144,12 @@ export function createBasicChatJudgeMessages(input: BasicChatJudgeModelInput) {
         "不要因为缺少 agent_progress、tool_result、trace、planner action、raw provider response、token diagnostics 或内部错误栈而判失败。",
         "不要要求文档未声明的 exerciseId、动作精确组数、精确时长、计划内部字段或数据库字段完全匹配。",
         "如果最终输出语义满足文档期望，返回 passed=true 且 status=passed。",
+        "当文档期望明确要求不直接生成随机卡片、不随意推荐、不触发训练卡片或不推送训练卡片时，如果 visibleOutputs 中出现 visibleTrainingProposal、exercise_recommendation、workout_routine、workout_plan 或等价训练结构输出，必须返回 passed=false 且 status=failed。",
+        "当文档期望明确要求生成 routine、单次训练、训练编排或三段式训练时，如果最终只输出动作推荐、visibleTrainingProposal 摘要中的 kind=exercise_selection、正文动作列表、让用户自行组合，或只建议用户下一轮再生成完整训练，必须返回 passed=false 且 status=failed。",
+        "当文档期望明确要求生成 plan、多天安排、周期计划、每周训练安排或训练日 / 休息日安排时，如果最终只输出动作推荐、kind=exercise_selection、正文动作列表、无 schedule.assignments 的单次 routine，或只建议用户下一轮再生成计划，必须返回 passed=false 且 status=failed。",
+        "如果最终 assistant 文本或 visibleOutputs 没有直接完成全部期望，但 assistantSuggestions 中包含用户点击后可直接发送、并且语义上覆盖缺失下一步操作的建议提问，返回 passed=true 且 status=passed_via_suggestion。",
+        "如果 visibleOutputs 已经违反文档期望中的禁止推送边界，不能因为同时存在 assistantSuggestions 而返回 passed_via_suggestion。",
+        "不要把泛泛的、不相关的、需要用户自行重新理解任务的建议提问视为 passed_via_suggestion；这类情况仍应判 failed 或 uncertain。",
         "如果缺少关键用户可见语义，返回 passed=false 且 status=failed，并写清 missingExpectations。",
         "如果最终输出不足以判断或 judge 自身不确定，返回 passed=false 且 status=uncertain。",
         "只返回 JSON 对象，字段必须包含 passed、status、reason、matchedExpectations、missingExpectations、visibleOutputKinds。",

@@ -4,18 +4,20 @@
 TBD - created by archiving change extend-visible-proposal-reference-tool. Update Purpose after archive.
 ## Requirements
 ### Requirement: inspectVisibleTrainingProposals 必须同时支持 list_recent 和 read_recent 操作
-系统 SHALL 将现有 `readRecentVisibleTrainingProposal` delete-only 重命名为 `inspectVisibleTrainingProposals`，并删除旧 toolName 注册、manifest、examples、trace/replay fixture 和测试引用，不保留 alias。`inspectVisibleTrainingProposals` SHALL 作为当前生产聊天中可见训练方案事实的只读入口，并通过显式 `operation` 区分 `list_recent` 和 `read_recent`。系统 SHALL NOT 新增独立 `listRecentVisibleTrainingProposals` tool 来承担同类事实查询能力。
+系统 SHALL 将现有 `readRecentVisibleTrainingProposal` delete-only 重命名为 `inspectVisibleTrainingProposals`，并删除旧 toolName 注册、manifest、examples、trace/replay fixture 和测试引用，不保留 alias。`inspectVisibleTrainingProposals` SHALL 作为当前生产聊天中可见训练方案事实的只读入口，并通过显式 `operation` 区分 `list_recent` 和 `read_recent`。系统 SHALL NOT 新增独立 `listRecentVisibleTrainingProposals` tool 来承担同类事实查询能力。`read_recent` SHALL 使用统一 `ref` 字段表达要读取的可见事实引用。
 
 #### Scenario: 使用同一个 tool 查询事实列表
 - **WHEN** Planner 需要确认当前 actor 和 conversation 是否存在可引用的可见训练方案事实
 - **THEN** `inspectVisibleTrainingProposals` MUST 支持 input 使用 `operation = "list_recent"` 完成最近事实列表查询
-- **AND** 该调用 MUST 不需要 `factRef` 或 `messageId`
+- **AND** 该调用 MUST 不需要 `ref`
 - **AND** handler MUST 只查询当前 actor 和当前 conversation 可访问的事实索引
 
 #### Scenario: 使用同一个 tool 读取具体事实
 - **WHEN** Planner 需要复用某条可见训练方案事实
 - **THEN** `inspectVisibleTrainingProposals` MUST 支持 input 使用 `operation = "read_recent"` 完成最近具体事实读取
-- **AND** input MUST 提供当前 run 可见的真实 `factRef` 或 `messageId`
+- **AND** input MUST 提供当前 run 可见的真实 `ref`
+- **AND** `ref.type` MUST 表达引用类型，例如 `fact_ref` 或 `message_id`
+- **AND** `ref.value` MUST 复制当前 run 可见的真实引用值
 - **AND** handler MUST 校验 actor、conversation、status、kind、schemaVersion 和 payload 边界后再返回成功结果
 
 #### Scenario: 禁止隐式操作
@@ -23,6 +25,14 @@ TBD - created by archiving change extend-visible-proposal-reference-tool. Update
 - **AND** input 缺少 `operation`、同时混用 `list_recent` 专用字段和 `read_recent` 专用字段，或使用未知 operation
 - **THEN** input schema MUST 在 handler 执行前拒绝该调用
 - **AND** runtime MUST 按结构化非法输入或 repair 边界处理
+
+#### Scenario: 拒绝旧引用字段
+- **WHEN** Planner 使用 `operation = "read_recent"`
+- **AND** input 传入顶层 `factRef` 或顶层 `messageId`
+- **THEN** input schema MUST 在 handler 执行前拒绝该调用
+- **AND** repair feedback MUST 说明读取引用统一使用 `ref`
+- **AND** repair feedback MUST 给出 `ref.type` 和 `ref.value` 的合法形状
+- **AND** 服务端 MUST NOT 静默把顶层 `factRef` 或 `messageId` 转换为 `ref`
 
 ### Requirement: list_recent 必须只返回轻量事实索引
 `inspectVisibleTrainingProposals(operation = "list_recent")` SHALL 返回当前可引用 `visibleTrainingProposal` 的轻量索引。`list_recent` MUST NOT 返回完整训练方案 payload，也 MUST NOT 产出当前 run 的 consumable resource。
@@ -58,7 +68,8 @@ TBD - created by archiving change extend-visible-proposal-reference-tool. Update
 `inspectVisibleTrainingProposals(operation = "read_recent")` SHALL 读取 `list_recent` 或真实上下文暴露的具体事实，并在成功时把该事实作为当前 run 可消费事实导入。`read_recent` 失败 MUST 结构化归一，不能退化为通用 `handler_error`。
 
 #### Scenario: 成功读取并导入事实
-- **WHEN** `read_recent` 收到当前 run 可见的真实 `factRef` 或 `messageId`
+- **WHEN** `read_recent` 收到当前 run 可见的真实 `ref`
+- **AND** `ref.type` 和 `ref.value` 指向当前 run 可见的 `factRef`、`messageId` 或当前实现支持的等价引用
 - **AND** 当前 actor 有权访问该事实
 - **AND** 事实 status、kind、schemaVersion 和 payload 可被当前实现支持
 - **THEN** tool MUST 返回 `status = "succeeded"` 和 `operation = "read_recent"`
@@ -176,4 +187,44 @@ TBD - created by archiving change extend-visible-proposal-reference-tool. Update
 - **AND** observation MUST 表达 Planner 可以基于其中已展示动作决定保留、排除、替换、查询新动作、调整结构、澄清或失败收口
 - **AND** observation MUST 表达最终新方案仍必须由 `final_answer.visibleOutputs[]` 承载
 - **AND** observation MUST NOT 表达该 tool 已经生成刷新后的方案
+
+### Requirement: visible proposal read/import observation 必须表达终态边界
+`inspectVisibleTrainingProposals` 的模型可见说明和 `read_recent` observation SHALL 表达：该 tool 只读取当前会话中用户已经看到的 `visibleTrainingProposal` 事实，并将其作为当前 run 可消费事实导入；它不生成新的最终训练结构，不代表本轮已经完成编排、刷新、保存或渲染。
+
+#### Scenario: read_recent 成功不代表最终训练输出完成
+- **WHEN** `inspectVisibleTrainingProposals(operation = "read_recent")` 成功
+- **THEN** model observation MUST 表达该结果只是导入当前 run 可消费事实
+- **AND** observation MUST 表达最终训练结构仍必须由合法 `final_answer.visibleOutputs[]`、grounded `final_answer` 或后续合法 action 承载
+- **AND** observation MUST NOT 暗示 runtime 会在 `final_answer` 后继续自动查询或生成训练结构
+
+#### Scenario: 需要后续事实时继续合法 action
+- **WHEN** read/import 后模型判断目标仍需要额外动作事实、section、处方或 schedule
+- **THEN** 模型可见说明 MUST 引导 Planner 自主选择继续合法 `tool_call`、使用 `ask_user` 澄清或明确失败收口
+- **AND** 模型可见说明 MUST NOT 要求固定调用 `searchExerciseResources`
+- **AND** 模型可见说明 MUST NOT 把任意用户短句写成必须调用本 tool 或另一个 tool 的条件
+
+#### Scenario: 业务名只出现在 tool 局部说明
+- **WHEN** 本 change 涉及 `visibleTrainingProposal`、`inspectVisibleTrainingProposals` 或 `read_recent`
+- **THEN** 这些业务名 MUST 只作为 tool manifest、schema description、observation projection、resource contract 或测试样例出现
+- **AND** 通用 Agent core MUST NOT 因这些业务名新增语义分支
+
+### Requirement: run metadata 不得暴露可复制的 visibleTrainingProposal 业务引用
+系统 SHALL 在 `/api/chat` 构造 `AgentRunInput` 时，将 `run.metadata.recentVisibleTrainingProposals` 投影为不含具体 `factRef` 和 `messageId` 的轻量状态摘要。该 metadata MAY 表达最近可见方案的 kind、status、schemaVersion、createdAt、proposalKind、section 摘要和可复用 training 数量；MUST NOT 暴露可被模型复制为 `read_recent.ref.value` 或 `final_answer.usedRefs.resource.id` 的具体业务引用值。
+
+#### Scenario: metadata summary 不包含 factRef/messageId
+- **WHEN** 当前 actor 和 conversation 存在最近用户可见 `visibleTrainingProposal` 事实
+- **AND** `/api/chat` 构造生产 `AgentRunInput`
+- **THEN** `run.metadata.recentVisibleTrainingProposals[]` MUST NOT 包含 `factRef`
+- **AND** `run.metadata.recentVisibleTrainingProposals[]` MUST NOT 包含 `messageId`
+- **AND** metadata MUST NOT 包含完整 `exerciseItems`、`prescription`、`schedule`、`exerciseDetails` 或动作图片详情
+- **AND** 如模型需要具体引用，MUST 通过本轮 `inspectVisibleTrainingProposals(operation = "list_recent")` 获取
+
+### Requirement: list_recent 索引引用不得作为 terminal resource grounding
+`inspectVisibleTrainingProposals(operation = "list_recent")` SHALL 继续返回当前 run 可见的 `factRef/messageId` 轻量索引，但模型可见说明 MUST 表达这些引用只可用于本轮 `read_recent.ref.value`。系统 MUST NOT 将 `list_recent` 索引引用视为当前 run registered `resourceId`。
+
+#### Scenario: list_recent observation 表达 resourceId 边界
+- **WHEN** `list_recent` 返回 `facts[]`
+- **THEN** model observation MUST 表达 `facts[].factRef` 和 `facts[].messageId` 只可复制到 `inspectVisibleTrainingProposals(operation = "read_recent").ref.value`
+- **AND** model observation MUST 表达这些值不是 `final_answer.usedRefs.resource.id`
+- **AND** list_recent 的 diagnostic resource MUST NOT 支撑成功训练方案刷新、替换、调整或新训练方案生成
 

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { toTerminalToolResultRefs } from "@/lib/server/agent-core/contracts";
 import { createToolResultId, executeTool, hashNormalizedInput } from "@/lib/server/agent-core/executor";
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
 import { renderAgentResponseEvents } from "@/lib/server/agent-core/response-renderer";
@@ -27,7 +28,7 @@ describe("searchExerciseResources tool", () => {
   it("executes through the real tool boundary and exposes exerciseId grouped by training", async () => {
     const { tool, repository } = await importToolWithRepositoryResult(createSearchResult({
       query: {
-        muscle: "胸部",
+        muscles: ["胸部"],
         equipment: "no_equipment",
         suitability: "training",
         published: true,
@@ -41,7 +42,7 @@ describe("searchExerciseResources tool", () => {
 
     const result = await executeTool({
       tool,
-      input: { muscle: "胸部", equipment: "no_equipment", suitabilities: ["training"] },
+      input: { muscles: ["胸部"], equipment: "no_equipment", suitabilities: ["training"] },
       run: { runId: "run-search", actor: { userId: "user-1" }, userInput: "找几个徒手胸部训练动作" },
       timeoutMs: 100,
       toolCallId: "tc_search",
@@ -60,6 +61,7 @@ describe("searchExerciseResources tool", () => {
           truncated: false,
           appliedFilters: expect.arrayContaining([
             { field: "equipment", value: "no_equipment" },
+            { field: "muscles", value: ["胸部"] },
             { field: "suitabilities", value: ["training"] },
             { field: "published", value: true },
           ]),
@@ -95,8 +97,7 @@ describe("searchExerciseResources tool", () => {
       mechanic: undefined,
       equipment: "no_equipment",
       homeRequirement: undefined,
-      muscle: "胸部",
-      muscles: undefined,
+      muscles: ["胸部"],
       goalTag: undefined,
       riskTag: undefined,
       excludeExerciseIds: undefined,
@@ -119,7 +120,7 @@ describe("searchExerciseResources tool", () => {
     const serializedObservation = JSON.stringify(modelObservation);
     expect(serializedObservation).toContain("exerciseId");
     expect(serializedObservation).toContain("availableSections");
-    expect(serializedObservation).toContain("section-scoped 事实原料");
+    expect(serializedObservation).toContain("section-scoped 动作事实");
     expect(modelObservation).toMatchObject({
       availableSections: ["training"],
       sectionSummary: { warmup: 0, training: 1, stretch: 0 },
@@ -134,11 +135,11 @@ describe("searchExerciseResources tool", () => {
         returnedSections: ["training"],
         sectionSummary: { warmup: 0, training: 1, stretch: 0 },
         missingSectionsForRoutineOrPlan: ["warmup", "stretch"],
-        forbiddenFinalVisibleOutputs: expect.stringContaining("缺口补齐前禁止提交"),
+        forbiddenFinalVisibleOutputs: expect.stringContaining("缺口补齐前只能继续补事实、澄清或失败收口"),
         allowedNextActions: expect.arrayContaining([
-          "继续用缺失 section 的 suitabilities 查询候选。",
-          "使用 ask_user 澄清必要约束。",
-          "不输出 visibleOutputs，仅说明当前事实不足或失败收口。",
+          "如果目标已经是 routine 或 plan，且关键约束足以解释方案，可继续用 suitabilities = [\"warmup\", \"stretch\"] 或等价缺失 section 查询候选。",
+          "只有候选不足、约束冲突、tool 不可用或关键约束仍不足时，才使用 ask_user 澄清必要约束。",
+          "无法补齐时不输出 visibleOutputs，应说明缺少哪些 section 候选和可恢复下一步。",
         ]),
         note: expect.stringContaining("当前结果只提供 training 动作事实"),
       },
@@ -146,13 +147,13 @@ describe("searchExerciseResources tool", () => {
       filterSemantics: [createNoEquipmentFilterSemantic("no_equipment")],
     });
     expect(serializedObservation).toContain("section 应与使用的 group key 保持一致");
-    expect(serializedObservation).toContain("如果最终目标是 routine 或 plan");
+    expect(serializedObservation).toContain("当前结果只提供 training 动作事实");
     expect(serializedObservation).toContain("还需要当前 run 可消费的 warmup 和 stretch 动作事实");
     expect(serializedObservation).toContain("suitabilities = [\\\"warmup\\\", \\\"stretch\\\"]");
     expect(serializedObservation).toContain("missingSectionsForRoutineOrPlan 非空");
-    expect(serializedObservation).toContain("final_answer.visibleOutputs[] 中 payload.kind = \\\"routine\\\" 或 \\\"plan\\\"");
-    expect(serializedObservation).toContain("不得在 content 中解释缺口后仍提交不完整结构");
-    expect(serializedObservation).toContain("不得把未返回的 section 伪造成已获得事实");
+    expect(serializedObservation).toContain("不能支撑 successful routine 或 plan visible output");
+    expect(serializedObservation).toContain("缺口补齐前只能继续补事实、澄清或失败收口");
+    expect(serializedObservation).toContain("不得把未返回 section 伪造成已获得事实");
     expect(serializedObservation).toContain("不得把本次 tool result 直接当作最终 visibleTrainingProposal");
     expect(serializedObservation).toContain("本次查询未使用 requiredExerciseIds");
     expect(serializedObservation).toContain("地面/瑜伽垫");
@@ -167,18 +168,138 @@ describe("searchExerciseResources tool", () => {
     expect(serializedObservation).not.toContain("expandedMuscles");
     expect(serializedObservation).not.toContain("\"id\"");
     expect(serializedObservation).not.toContain("visibleTrainingProposal\":{\"");
-    expect(serializedObservation).toContain("groups.<section>.exercises[*].exerciseId 可作为 visibleTrainingProposal.exerciseItems[*].exerciseId 的事实来源");
-    expect(serializedObservation).toContain("本次动作查询不证明当前 run 存在可操作的上一轮 visibleTrainingProposal");
-    expect(serializedObservation).toContain("也不证明已经完成刷新、替换或调整");
+    expect(serializedObservation).toContain("groups.<section>.exercises[] 是本次实际返回的 section-scoped 动作事实");
+    expect(serializedObservation).toContain("availableSections 只包含本次 groups 中有动作的 section");
     expect(serializedObservation).toContain("引用对象不可见时，不得用本查询结果宣称刷新、替换或调整成功");
     expect(serializedObservation).toContain("prescription、schedule 和最终 payload.kind");
-    expect(serializedObservation).toContain("最终事实必须写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal.payload");
-    expect(serializedObservation).toContain("section-scoped 事实原料");
-    expect(serializedObservation).toContain("grounded terminal action");
-    expect(serializedObservation).toContain("不得用成功 final_answer.content 承诺本轮回复后还会自动继续");
+    expect(serializedObservation).toContain("section-scoped 动作事实");
+    expect(serializedObservation).toContain("visibleOutputs[] 或当前 run 可消费事实承载");
     expect(serializedObservation).not.toContain("不是 visibleTrainingProposal");
     expect(serializedObservation).not.toContain("\"warmup\":{\"suitability\":\"warmup\"");
     expect(serializedObservation).not.toContain("\"stretch\":{\"suitability\":\"stretch\"");
+  });
+
+  it("treats missing support sections as a routine composition step before asking the user to self-compose", async () => {
+    const { tool } = await importToolWithRepositoryImplementation(async (input) => {
+      const suitability = (input as { suitability?: string }).suitability;
+
+      return createSearchResult({
+        query: {
+          muscles: ["胸部"],
+          equipment: "no_equipment",
+          suitability: suitability as "training",
+          published: true,
+          sort: "name_asc",
+        },
+        totalMatches: 1,
+        returnedCount: 1,
+        exercises: [createExerciseSummary({
+          id: "push-up",
+          nameZh: "俯卧撑",
+          allowedSections: ["training"],
+        })],
+      });
+    });
+
+    const result = await executeTool({
+      tool,
+      input: { muscles: ["胸部"], equipment: "no_equipment", suitabilities: ["training"] },
+      run: { runId: "run-routine-training-only", actor: { userId: "user-1" }, userInput: "给我一套胸部20分钟无器械训练" },
+      timeoutMs: 100,
+      toolCallId: "tc_routine_training_only",
+    });
+
+    if (!result.ok) {
+      throw new Error("searchExerciseResources should succeed");
+    }
+    const observation = tool.toModelObservation?.(
+      result.output as Parameters<NonNullable<typeof tool.toModelObservation>>[0],
+      {
+        runId: "run-routine-training-only",
+        actor: { userId: "user-1" },
+        toolCallId: "tc_routine_training_only",
+      },
+    );
+    const observationJson = JSON.stringify(observation);
+
+    expect(observationJson).toContain("suitabilities = [\\\"warmup\\\", \\\"stretch\\\"]");
+    expect(observationJson).toContain("缺口补齐前只能继续补事实、澄清或失败收口");
+    expect(observationJson).toContain("当前结果只提供 training 动作事实");
+    expect(observationJson).not.toContain("你可以从中挑选");
+    expect(observationJson).not.toContain("如果你需要完整计划");
+  });
+
+  it("returns diagnostic unsatisfied fulfillment for broad queries without explanatory constraints", async () => {
+    const { tool, repository } = await importToolWithRepositoryResult(createSearchResult({
+      query: {
+        suitability: "training",
+        published: true,
+        sort: "name_asc",
+      },
+      totalMatches: 12,
+      returnedCount: 1,
+      exercises: [createExerciseSummary({ id: "push-up", nameZh: "俯卧撑" })],
+    }));
+
+    const result = await executeTool({
+      tool,
+      input: { suitabilities: ["training"] },
+      run: { runId: "run-broad", actor: { userId: "user-1" }, userInput: "推荐一个动作" },
+      timeoutMs: 100,
+      toolCallId: "tc_broad",
+    });
+
+    expect(repository.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
+      q: undefined,
+      muscles: undefined,
+      equipment: undefined,
+      homeRequirement: undefined,
+      suitability: "training",
+    }));
+    expect(result).toMatchObject({
+      ok: true,
+      fulfillment: {
+        satisfied: false,
+        summary: expect.stringContaining("input 缺少可解释训练目标"),
+      },
+    });
+
+    if (!result.ok) {
+      throw new Error("searchExerciseResources should return diagnostic success output");
+    }
+    const modelObservation = tool.toModelObservation?.(
+      result.output as Parameters<NonNullable<typeof tool.toModelObservation>>[0],
+      {
+        runId: "run-broad",
+        actor: { userId: "user-1" },
+        toolCallId: "tc_broad",
+      },
+    );
+
+    expect(modelObservation).toMatchObject({
+      querySpecificity: {
+        status: "too_broad",
+        specificFilters: [],
+        forbiddenFinalAnswer: expect.stringContaining("普通 final_answer 只能解释当前条件过宽或事实不足"),
+      },
+    });
+    const serializedObservation = JSON.stringify(modelObservation);
+    expect(serializedObservation).toContain("fulfillment.satisfied=false");
+    expect(serializedObservation).toContain("可支撑普通文本解释条件过宽");
+    expect(serializedObservation).toContain("不能作为训练推送可消费事实");
+    expect(serializedObservation).toContain("使用 ask_user 澄清训练目标");
+
+    const sameInputDifferentUserTextResult = await executeTool({
+      tool,
+      input: { suitabilities: ["training"] },
+      run: { runId: "run-broad-user-text", actor: { userId: "user-1" }, userInput: "找几个胸部动作" },
+      timeoutMs: 100,
+      toolCallId: "tc_broad_user_text",
+    });
+    expect(sameInputDifferentUserTextResult).toMatchObject({
+      ok: true,
+      fulfillment: { satisfied: false },
+    });
   });
 
   it("passes multiple real muscle facets through the tool boundary", async () => {
@@ -195,7 +316,6 @@ describe("searchExerciseResources tool", () => {
     const result = await executeTool({
       tool,
       input: {
-        muscle: "胸部",
         muscles: ["胸部", "肱三头肌", "肱三头肌"],
         suitabilities: ["training"],
       },
@@ -205,7 +325,6 @@ describe("searchExerciseResources tool", () => {
     });
 
     expect(repository.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
-      muscle: "胸部",
       muscles: ["胸部", "肱三头肌"],
       suitability: "training",
     }));
@@ -213,10 +332,8 @@ describe("searchExerciseResources tool", () => {
       ok: true,
       output: {
         query: {
-          muscle: "胸部",
           muscles: ["胸部", "肱三头肌"],
           appliedFilters: expect.arrayContaining([
-            { field: "muscle", value: "胸部" },
             { field: "muscles", value: ["胸部", "肱三头肌"] },
           ]),
         },
@@ -526,6 +643,15 @@ describe("searchExerciseResources tool", () => {
 
     await expect(executeTool({
       tool,
+      input: { muscle: "胸部", suitabilities: ["training"] },
+      run: { runId: "run-removed-muscle", actor: { userId: "user-1" }, userInput: "练胸" },
+      timeoutMs: 100,
+      toolCallId: "tc_removed_muscle",
+    })).resolves.toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.INVALID_TOOL_INPUT } });
+    expect(repository.searchExerciseResourceSummaries).not.toHaveBeenCalled();
+
+    await expect(executeTool({
+      tool,
       input: { homeRequirement: "none", suitabilities: ["training"] },
       run: { runId: "run-removed-home-none", actor: { userId: "user-1" }, userInput: "不要器械" },
       timeoutMs: 100,
@@ -559,7 +685,7 @@ describe("searchExerciseResources tool", () => {
 
     await expect(executeTool({
       tool,
-      input: { suitabilities: ["training"], muscle: "胸部" },
+      input: { suitabilities: ["training"], muscles: ["胸部"] },
       run: { runId: "run-handler-error", actor: { userId: "user-1" }, userInput: "找胸部动作" },
       timeoutMs: 100,
       toolCallId: "tc_handler_error",
@@ -573,13 +699,13 @@ describe("searchExerciseResources tool", () => {
     }));
     const registry = new ToolRegistry();
     registry.register(tool);
-    const toolInput = { muscle: "核心", suitabilities: ["training"] };
+    const toolInput = { muscles: ["腹肌"], suitabilities: ["training"] };
     const expectedToolResultId = createToolResultId("run-runtime-search", "searchExerciseResources", hashNormalizedInput(toolInput));
     const result = await runAgentRuntime({
       registry,
       planner: new ReplayPlanner([
         { type: "tool_call", toolName: "searchExerciseResources", input: toolInput },
-        { type: "final_answer", content: "找到平板支撑这类核心训练动作。", usedToolResultIds: [expectedToolResultId] },
+        { type: "final_answer", content: "找到平板支撑这类核心训练动作。", usedRefs: toTerminalToolResultRefs([expectedToolResultId]) },
       ]),
       run: {
         runId: "run-runtime-search",
@@ -633,11 +759,10 @@ describe("searchExerciseResources tool", () => {
       mechanic: "compound",
       equipment: "no_equipment",
       homeRequirement: "floor",
-      muscle: "胸部",
       goalTag: "strength",
       riskTag: "shoulder_pain",
       excludeExerciseIds: ["push-up", "squat"],
-      muscles: ["股四头肌", "腘绳肌"],
+      muscles: ["胸部", "股四头肌", "腘绳肌"],
       published: true,
       sort: "name_asc",
     });

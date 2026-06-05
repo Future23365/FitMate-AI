@@ -1,7 +1,10 @@
 import {
   parseAgentAction,
+  AgentActionSchema,
+  type AgentResourceRef,
   type AgentAction,
   type AgentRunInput,
+  type AgentTerminalRef,
   type TerminalOutputValidationSummary,
   type TerminalAgentAction,
   type ToolCallAction,
@@ -12,6 +15,7 @@ import { assertM0ExecutableTool } from "./define-tool";
 import { AGENT_ERROR_CODES, AgentContractError } from "./errors";
 import { validateConsumedResources } from "./resource-contract";
 import type { ResourceStore } from "./resource-store";
+import { projectSchemaValidationFeedback, type SchemaRepairTarget } from "./schema-error-projector";
 import type { TerminalOutputValidatorRegistry } from "./terminal-output-validator";
 import type { ToolRegistry } from "./tool-registry";
 import type { ToolError } from "./contracts";
@@ -67,7 +71,7 @@ function validateAgentActionInternal(
   const parsed = parseAgentAction(input.action);
 
   if (!parsed.success) {
-    return invalidAction(createInvalidActionMessage(parsed.error), createInvalidActionDetails(parsed.error));
+    return invalidAction(createInvalidActionMessage(parsed.error), createInvalidActionDetails(parsed.error, input.action));
   }
 
   const action = parsed.data;
@@ -130,7 +134,16 @@ function validateToolCallAction(action: ToolCallAction, input: ActionValidationI
       error: createToolError(
         AGENT_ERROR_CODES.INVALID_TOOL_INPUT,
         `Tool "${action.toolName}" input does not match its schema.`,
-        createInvalidToolInputDetails(inputResult.error),
+        projectSchemaValidationFeedback({
+          target: {
+            kind: "ToolInput",
+            schemaId: `${tool.name}@${tool.version}.input`,
+            toolName: action.toolName,
+          },
+          schema: tool.inputSchema,
+          issues: inputResult.error.issues,
+          value: action.input,
+        }),
       ),
     };
   }
@@ -165,7 +178,10 @@ function validateTerminalAction(
   input: ActionValidationInput,
   mode: "sync" | "async",
 ): ActionValidationResult | Promise<ActionValidationResult> {
-  if (action.usedResourceRefs?.length && !input.resourceStore) {
+  const toolResultRefIds = collectTerminalToolResultIds(action);
+  const resourceRefs = collectTerminalResourceRefs(action);
+
+  if (resourceRefs.length && !input.resourceStore) {
     return {
       ok: false,
       error: createToolError(
@@ -175,8 +191,8 @@ function validateTerminalAction(
     };
   }
 
-  if (action.usedResourceRefs?.length && input.resourceStore) {
-    for (const ref of action.usedResourceRefs) {
+  if (resourceRefs.length && input.resourceStore) {
+    for (const ref of resourceRefs) {
       try {
         const resource = input.resourceStore.assertRegistered(ref);
 
@@ -192,9 +208,13 @@ function validateTerminalAction(
         }
       } catch (error) {
         if (error instanceof AgentContractError) {
+          const details = error.code === AGENT_ERROR_CODES.RESOURCE_MISSING
+            ? createMissingResourceReferenceDetails(ref, action.type)
+            : error.details as ToolError["details"];
+
           return {
             ok: false,
-            error: createToolError(error.code, error.message, error.details as ToolError["details"]),
+            error: createToolError(error.code, error.message, details),
           };
         }
         throw error;
@@ -204,8 +224,7 @@ function validateTerminalAction(
 
   const knownToolResults = new Map(input.toolResults.map((result) => [result.toolResultId, result]));
   const knownToolResultIds = new Set(knownToolResults.keys());
-  const usedToolResultIds = action.usedToolResultIds ?? [];
-  const unknownIds = usedToolResultIds.filter((id) => !knownToolResultIds.has(id));
+  const unknownIds = toolResultRefIds.filter((id) => !knownToolResultIds.has(id));
 
   if (unknownIds.length > 0) {
     return {
@@ -218,25 +237,25 @@ function validateTerminalAction(
     };
   }
 
-  // final_answer 只能引用已满足的成功 tool result，诊断或失败结果只能用于 ask_user/失败解释。
+  // 普通 final_answer 只要求引用当前 run 内 ok=true 的 tool result；业务交付由 visibleOutputs validator 判定。
   if (action.type === "final_answer") {
-    const unsatisfiedToolResultIds = usedToolResultIds.filter((id) => {
+    const failedToolResultIds = toolResultRefIds.filter((id) => {
       const result = knownToolResults.get(id);
-      return result ? !result.ok || !result.fulfillment.satisfied : false;
+      return result ? !result.ok : false;
     });
 
-    if (unsatisfiedToolResultIds.length > 0) {
+    if (failedToolResultIds.length > 0) {
       return {
         ok: false,
         error: createToolError(
           AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID,
-          "Final answer cannot use failed or unsatisfied tool results as successful grounding.",
-          { toolResultIds: unsatisfiedToolResultIds },
+          "Final answer cannot use failed tool results as grounding.",
+          { toolResultIds: failedToolResultIds },
         ),
       };
     }
 
-    if (input.toolResults.length > 0 && !hasTerminalGrounding(action, usedToolResultIds)) {
+    if (input.toolResults.length > 0 && !hasTerminalGrounding(action, toolResultRefIds)) {
       return {
         ok: false,
         error: createToolError(
@@ -302,23 +321,80 @@ function validateTerminalAction(
   return { ok: true, action };
 }
 
-function hasTerminalGrounding(action: Extract<TerminalAgentAction, { type: "final_answer" }>, usedToolResultIds: string[]) {
-  return usedToolResultIds.length > 0
-    || (action.usedResourceRefs?.length ?? 0) > 0
+function hasTerminalGrounding(action: Extract<TerminalAgentAction, { type: "final_answer" }>, toolResultRefIds: string[]) {
+  return toolResultRefIds.length > 0
+    || collectTerminalResourceRefs(action).length > 0
     || (action.visibleOutputs?.length ?? 0) > 0;
 }
 
 function createMissingTerminalGroundingDetails(toolResultCount: number): ToolError["details"] {
   return {
-    reason: "missing_terminal_grounding_after_tool_result",
-    toolResultCount,
-    repair: "当前 run 已经有 tool result 后，成功 final_answer 必须通过 usedToolResultIds、usedResourceRefs 或合法 visibleOutputs[] 连接到当前 run 的已满足事实；如果事实不足，应继续返回合法 tool_call、使用 ask_user 澄清，或明确失败收口，不要用 final_answer.content 承诺本轮之后还会自动继续。",
-    recoverableActions: [
-      "继续返回当前可见且合法的 tool_call 获取缺失事实。",
-      "用 usedToolResultIds 引用当前 run 中 ok=true 且 fulfillment.satisfied=true 的 tool result。",
-      "用 usedResourceRefs 引用当前 run 中 role=consumable 的 resource。",
-      "输出可通过 terminal output validator 的 final_answer.visibleOutputs[]。",
-      "使用 ask_user 澄清必要信息，或明确说明当前事实不足而失败收口。",
+    type: "domain_validation_failed",
+    target: {
+      kind: "DomainValidation",
+      schemaId: "AgentAction",
+      variant: "final_answer",
+    },
+    facts: [
+      {
+        code: "missing_terminal_grounding_after_tool_result",
+        path: "usedRefs",
+        expected: {
+          anyOf: [
+            "current_run_ok_tool_result_ref",
+            "consumable_resource_ref",
+            "valid_visibleOutputs",
+          ],
+        },
+        actual: { kind: "missing" },
+        toolResultCount,
+      },
+    ],
+  };
+}
+
+function createMissingResourceReferenceDetails(
+  ref: AgentResourceRef,
+  actionType: TerminalAgentAction["type"],
+): ToolError["details"] {
+  const actual: Record<string, string> = {
+    resourceId: ref.resourceId,
+  };
+
+  if (ref.resourceType) {
+    actual.resourceType = ref.resourceType;
+  }
+  if (ref.role) {
+    actual.role = ref.role;
+  }
+  if (ref.runId) {
+    actual.runId = ref.runId;
+  }
+  if (ref.schemaVersion) {
+    actual.schemaVersion = ref.schemaVersion;
+  }
+
+  return {
+    type: "domain_validation_failed",
+    target: {
+      kind: "DomainValidation",
+      schemaId: "AgentAction",
+      variant: actionType,
+    },
+    facts: [
+      {
+        code: "resource_missing",
+        path: "usedRefs.resource.id",
+        expected: {
+          anyOf: [
+            "current_run_registered_resourceId",
+            "current_run_ok_tool_result_ref",
+            "valid_visibleOutputs",
+          ],
+        },
+        actual,
+        repair: "usedRefs.resource.id 必须是当前 run 已登记的 resourceId，通常来自 fulfillment.producedResources[].resourceId；不要把业务对象 id、历史消息 id、示例 id 或正文里的 id 当作 resourceId。若普通回答事实来自当前 run ok=true 的 tool result，优先改用 usedRefs: [{ type: \"tool_result\", id: \"...\" }]。",
+      },
     ],
   };
 }
@@ -357,20 +433,16 @@ function createInvalidActionMessage(error: { issues: Array<{ path: PropertyKey[]
   return "Planner returned an action outside the M0 AgentAction contract.";
 }
 
-function createInvalidActionDetails(error: { issues: Array<{ path: PropertyKey[]; message: string }> }): ToolError["details"] {
-  const issues = error.issues.map((issue) => ({
-    path: issue.path.join("."),
-    message: issue.message,
-  }));
-
-  if (!hasNumericVisibleOutputSchemaVersionIssue(error)) {
-    return { issues };
-  }
-
-  return {
-    issues,
-    repair: "将 final_answer.visibleOutputs[].schemaVersion 改为字符串；具体版本值按 outputType 的模型可见合同和业务 validator 支持版本填写，不要输出数字，也不要让服务端替你转换。",
-  };
+function createInvalidActionDetails(
+  error: { issues: Array<{ path: PropertyKey[]; message: string }> },
+  action: unknown,
+): ToolError["details"] {
+  return projectSchemaValidationFeedback({
+    target: createInvalidActionTarget(error, action),
+    schema: AgentActionSchema,
+    issues: error.issues,
+    value: action,
+  });
 }
 
 function hasNumericVisibleOutputSchemaVersionIssue(error: { issues: Array<{ path: PropertyKey[]; message: string }> }) {
@@ -382,65 +454,55 @@ function hasNumericVisibleOutputSchemaVersionIssue(error: { issues: Array<{ path
   });
 }
 
-function createInvalidToolInputDetails(error: { issues: unknown[] }): ToolError["details"] {
-  const issues = flattenSchemaIssues(error.issues)
-    .map((issue) => ({
-      path: issue.path.length > 0 ? issue.path.join(".") : "$",
-      message: issue.message,
-    }))
-    .filter(dedupeIssue)
-    .slice(0, 8);
+function collectTerminalToolResultIds(action: TerminalAgentAction) {
+  return (action.usedRefs ?? [])
+    .filter((ref): ref is Extract<AgentTerminalRef, { type: "tool_result" }> => ref.type === "tool_result")
+    .map((ref) => ref.id);
+}
+
+function collectTerminalResourceRefs(action: TerminalAgentAction): AgentResourceRef[] {
+  return (action.usedRefs ?? [])
+    .filter((ref): ref is Extract<AgentTerminalRef, { type: "resource" }> => ref.type === "resource")
+    .map((ref) => ({
+      resourceId: ref.id,
+      resourceType: ref.resourceType,
+      role: ref.role,
+      runId: ref.runId,
+      version: ref.version,
+      schemaVersion: ref.schemaVersion,
+    }));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function createInvalidActionTarget(
+  error: { issues: Array<{ path: PropertyKey[]; message: string }> },
+  action: unknown,
+): SchemaRepairTarget {
+  if (error.issues.length > 0 && error.issues.every((issue) => issue.path[0] === "visibleOutputs")) {
+    const output = readFirstVisibleOutput(action);
+    return {
+      kind: "VisibleOutputEnvelope",
+      schemaId: "VisibleOutputEnvelope",
+      outputType: typeof output?.outputType === "string" ? output.outputType : undefined,
+      variant: typeof output?.schemaVersion === "string" ? output.schemaVersion : undefined,
+    };
+  }
 
   return {
-    issues,
-    repair: createToolInputRepairMessage(issues.map((issue) => issue.path)),
+    kind: "AgentAction",
+    schemaId: "AgentAction",
+    ...(isRecord(action) && typeof action.type === "string" ? { variant: action.type } : {}),
   };
 }
 
-function createToolInputRepairMessage(paths: string[]) {
-  const pathSet = new Set(paths);
-  if (pathSet.has("factRef") || pathSet.has("messageId")) {
-    return "按当前 tool inputJsonSchema 补齐真实引用字段；引用读取类输入必须从当前 run 可见的 recentVisibleTrainingProposals、list_recent result 或 diagnostic index resource 复制真实 factRef 或 messageId，不要编造不可见引用。";
+function readFirstVisibleOutput(action: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(action) || !Array.isArray(action.visibleOutputs)) {
+    return undefined;
   }
 
-  return "按当前 tool inputJsonSchema 修正 required 字段、字段类型、枚举值和 additionalProperties；只能使用当前 run 可见的结构化事实，不要让服务端替你转换。";
-}
-
-type SanitizedSchemaIssue = {
-  path: string[];
-  message: string;
-};
-
-function flattenSchemaIssues(issues: unknown[]): SanitizedSchemaIssue[] {
-  const flattened: SanitizedSchemaIssue[] = [];
-
-  for (const issue of issues) {
-    if (!isIssueLike(issue)) {
-      continue;
-    }
-
-    if (Array.isArray(issue.errors)) {
-      for (const branchIssues of issue.errors) {
-        if (Array.isArray(branchIssues)) {
-          flattened.push(...flattenSchemaIssues(branchIssues));
-        }
-      }
-      continue;
-    }
-
-    flattened.push({
-      path: Array.isArray(issue.path) ? issue.path.map(String) : [],
-      message: typeof issue.message === "string" ? issue.message.slice(0, 240) : "输入字段不符合 schema。",
-    });
-  }
-
-  return flattened;
-}
-
-function isIssueLike(value: unknown): value is { path?: unknown; message?: unknown; errors?: unknown } {
-  return Boolean(value && typeof value === "object");
-}
-
-function dedupeIssue(issue: { path: string; message: string }, index: number, issues: Array<{ path: string; message: string }>) {
-  return issues.findIndex((candidate) => candidate.path === issue.path && candidate.message === issue.message) === index;
+  const [first] = action.visibleOutputs;
+  return isRecord(first) ? first : undefined;
 }

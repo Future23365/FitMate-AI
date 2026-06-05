@@ -352,6 +352,36 @@ describe("agent-core architecture boundaries", () => {
     expect(matches).toEqual([]);
   });
 
+  it("keeps schema repair projection free of concrete business toolName branches", () => {
+    const files = [
+      "lib/server/agent-core/schema-error-projector.ts",
+      "lib/server/agent-core/action-validator.ts",
+    ];
+    const forbiddenTerms = [
+      "inspectVisibleTrainingProposals",
+      "searchExerciseResources",
+      "resolveExerciseResourceMentions",
+      "toolName ===",
+      "case \"inspectVisibleTrainingProposals\"",
+      "case \"searchExerciseResources\"",
+      "case \"resolveExerciseResourceMentions\"",
+      "factRef/messageId",
+      "muscle 字段",
+    ];
+    const matches: string[] = [];
+
+    for (const file of files) {
+      const content = readRelative(file);
+      for (const term of forbiddenTerms) {
+        if (content.includes(term)) {
+          matches.push(`${file}: ${term}`);
+        }
+      }
+    }
+
+    expect(matches).toEqual([]);
+  });
+
   it("keeps agent-core free of business services, business tool handlers and concrete model adapters", () => {
     const coreFiles = collectFiles("lib/server/agent-core").map((file) => path.relative(repoRoot, file));
     const forbiddenImportSources = [

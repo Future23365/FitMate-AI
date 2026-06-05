@@ -34,7 +34,14 @@ describe("manual basic LLM blackbox fixtures", () => {
     expect(fixture.sourcePath).toContain("llm基础测试.md");
     expect(fixture.stats.flowCount).toBeGreaterThan(0);
     expect(fixture.stats.turnCount).toBe(fixture.stats.flowCount * 3);
+    expect(fixture.stats.flowCount).toBeLessThanOrEqual(9);
+    expect(ids).toContain("F12");
     expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).not.toContain("F16");
+    expect(ids).not.toContain("F17");
+    expect(ids).not.toContain("F18");
+    expect(ids).not.toContain("F21");
+    expect(ids).not.toContain("F22");
     expect(fixture.flows.every((flow) => flow.turns.length === 3)).toBe(true);
     expect(fixture.flows.every((flow) => flow.id.trim() && flow.goal.trim())).toBe(true);
     expect(fixture.flows.every((flow) =>
@@ -114,6 +121,7 @@ describe("manual basic LLM judge contract", () => {
     });
     const messages = createBasicChatJudgeMessages(modelInput);
     const userPayload = JSON.parse(messages[1].content) as Record<string, unknown>;
+    const systemPrompt = messages[0].content;
     const serializedPayload = JSON.stringify(userPayload);
 
     expect(userPayload).toEqual({
@@ -137,6 +145,15 @@ describe("manual basic LLM judge contract", () => {
     expect(serializedPayload).not.toContain("trace");
     expect(serializedPayload).not.toContain("raw provider response");
     expect(serializedPayload).not.toContain("token diagnostics");
+    expect(systemPrompt).toContain("不直接生成随机卡片");
+    expect(systemPrompt).toContain("visibleTrainingProposal、exercise_recommendation、workout_routine、workout_plan");
+    expect(systemPrompt).toContain("生成 routine、单次训练、训练编排或三段式训练");
+    expect(systemPrompt).toContain("kind=exercise_selection");
+    expect(systemPrompt).toContain("让用户自行组合");
+    expect(systemPrompt).toContain("生成 plan、多天安排、周期计划、每周训练安排或训练日 / 休息日安排");
+    expect(systemPrompt).toContain("无 schedule.assignments 的单次 routine");
+    expect(systemPrompt).toContain("只建议用户下一轮再生成计划");
+    expect(systemPrompt).toContain("不能因为同时存在 assistantSuggestions 而返回 passed_via_suggestion");
   });
 
   it("validates judge schema and rejects inconsistent passed/status pairs", () => {
@@ -147,6 +164,15 @@ describe("manual basic LLM judge contract", () => {
       matchedExpectations: ["推荐胸部动作"],
       missingExpectations: [],
       visibleOutputKinds: ["exercise_recommendation@1"],
+    }).success).toBe(true);
+
+    expect(basicChatJudgeResultSchema.safeParse({
+      passed: true,
+      status: "passed_via_suggestion",
+      reason: "正文没有直接生成计划，但建议提问可直接发送并补齐生成动作。",
+      matchedExpectations: ["建议提问覆盖缺失下一步"],
+      missingExpectations: [],
+      visibleOutputKinds: [],
     }).success).toBe(true);
 
     expect(basicChatJudgeResultSchema.safeParse({
@@ -218,13 +244,13 @@ describe("manual basic LLM report and isolation", () => {
       userInput: "今天我想练胸",
       expectation: "触发动作推荐卡片",
       executed: true,
-      status: "passed",
+      status: "passed_via_suggestion",
       finalAssistantTextSummary: "可以，给你推荐几个胸部动作。",
       visibleOutputKinds: ["exercise_recommendation@1"],
       judge: {
         passed: true,
-        status: "passed",
-        reason: "满足胸部动作推荐和卡片期望。",
+        status: "passed_via_suggestion",
+        reason: "建议提问可恢复完成当前期望。",
         matchedExpectations: ["胸部动作推荐"],
         missingExpectations: [],
         visibleOutputKinds: ["exercise_recommendation@1"],
@@ -267,6 +293,7 @@ describe("manual basic LLM report and isolation", () => {
       executedFlowCount: 1,
       executedTurnCount: 1,
       passedTurnCount: 1,
+      suggestionPassedTurnCount: 1,
       failedTurnCount: 0,
       skippedTurnCount: 0,
       estimatedTokenTotal: 3000,
@@ -289,6 +316,8 @@ describe("manual basic LLM report and isolation", () => {
     expect(report).toContain("# 基础 LLM 首页聊天黑盒测试报告");
     expect(report).toContain("2026-06-04T09:01:00+08:00");
     expect(report).toContain("F01");
+    expect(report).toContain("建议可恢复通过 turn 数：1");
+    expect(report).toContain("passed_via_suggestion");
     expect(report).toContain("exercise_recommendation@1");
     expect(report).toContain("换一批");
     expect(report).toContain("是否保存这套训练？");

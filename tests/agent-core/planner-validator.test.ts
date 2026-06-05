@@ -9,7 +9,7 @@ import { TerminalOutputValidatorRegistry } from "@/lib/server/agent-core/termina
 import { ToolRegistry } from "@/lib/server/agent-core/tool-registry";
 import { createProductionToolRegistry } from "@/lib/server/agent-tools";
 import { ReplayPlanner } from "@/lib/server/agent-planners/replay-planner";
-import type { ToolResult } from "@/lib/server/agent-core/contracts";
+import { toTerminalResourceRefs, toTerminalToolResultRefs, type ToolResult } from "@/lib/server/agent-core/contracts";
 
 function createRegistry() {
   const registry = new ToolRegistry();
@@ -176,13 +176,45 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
     expect(validateAgentAction({
       action: {
         type: "ask_user",
-        question: "你今天有多少时间？",
+        content: "你今天有多少时间？",
         suggestedQuestions: ["20 分钟", "40 分钟"],
       },
       registry,
       manifests,
       toolResults: [],
     })).toMatchObject({ ok: true });
+
+    expect(validateAgentAction({
+      action: {
+        type: "ask_user",
+        question: "你今天有多少时间？",
+      },
+      registry,
+      manifests,
+      toolResults: [],
+    })).toMatchObject({
+      ok: false,
+      error: {
+        code: AGENT_ERROR_CODES.INVALID_ACTION,
+        details: expect.objectContaining({
+          target: expect.objectContaining({
+            kind: "AgentAction",
+            schemaId: "AgentAction",
+            variant: "ask_user",
+          }),
+          errors: expect.arrayContaining([
+            expect.objectContaining({
+              code: "required_field_missing",
+              path: "content",
+            }),
+            expect.objectContaining({
+              code: "unknown_field",
+              path: "question",
+            }),
+          ]),
+        }),
+      },
+    });
 
     expect(validateAgentAction({
       action: {
@@ -209,7 +241,7 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
     expect(validateAgentAction({
       action: {
         type: "ask_user",
-        question: "你今天有多少时间？",
+        content: "你今天有多少时间？",
         suggestions: ["旧字段不应进入新主链"],
       },
       registry,
@@ -246,16 +278,24 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       error: {
         code: AGENT_ERROR_CODES.INVALID_TOOL_INPUT,
         details: expect.objectContaining({
-          issues: expect.arrayContaining([
-            expect.objectContaining({ path: "id" }),
+          target: expect.objectContaining({
+            kind: "ToolInput",
+            toolName: "readOne",
+          }),
+          errors: expect.arrayContaining([
+            expect.objectContaining({
+              code: "invalid_type",
+              path: "id",
+              expected: { type: "string" },
+              actual: { type: "number", value: 1 },
+            }),
           ]),
-          repair: expect.stringContaining("inputJsonSchema"),
         }),
       },
     });
   });
 
-  it("returns field-level repair details for missing read_recent references", () => {
+  it("returns field-level schema facts for missing read_recent references", () => {
     const registry = createProductionToolRegistry();
     const result = validateAgentAction({
       action: {
@@ -274,18 +314,87 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       error: {
         code: AGENT_ERROR_CODES.INVALID_TOOL_INPUT,
         details: expect.objectContaining({
-          issues: expect.arrayContaining([
-            expect.objectContaining({ path: "factRef" }),
-            expect.objectContaining({ path: "messageId" }),
+          target: expect.objectContaining({
+            kind: "ToolInput",
+            toolName: "inspectVisibleTrainingProposals",
+          }),
+          errors: expect.arrayContaining([
+            expect.objectContaining({
+              code: "required_field_missing",
+              path: "ref",
+            }),
           ]),
-          repair: expect.stringContaining("真实引用"),
         }),
       },
     });
-    expect(detailsJson).toContain("recentVisibleTrainingProposals");
-    expect(detailsJson).toContain("list_recent");
+    expect(detailsJson).toContain("schema_validation_failed");
+    expect(detailsJson).toContain("invalid_literal");
+    expect(detailsJson).toContain("required_field_missing");
     expect(detailsJson).not.toContain("payload");
     expect(detailsJson).not.toContain("stack");
+  });
+
+  it("projects field-level repair facts for a newly registered fixture tool input schema", () => {
+    const registry = new ToolRegistry();
+    registry.register(defineTool({
+      name: "schemaRepairFixture",
+      version: "0.1.0",
+      description: "读取 schema repair fixture。",
+      whenToUse: "仅在 schema repair fixture 测试中使用。",
+      whenNotToUse: "不要在测试之外使用。",
+      inputSchema: z.object({
+        id: z.string().min(1),
+        mode: z.enum(["brief", "full"]),
+      }).strict(),
+      outputSchema: z.object({ ok: z.boolean() }).strict(),
+      policy: {
+        sideEffect: "read",
+        riskLevel: "low",
+        confirmation: "never",
+      },
+      handler: () => ({ ok: true }),
+    }));
+
+    expect(validateAgentAction({
+      action: {
+        type: "tool_call",
+        toolName: "schemaRepairFixture",
+        input: {
+          mode: "verbose",
+          legacyId: "old",
+        },
+      },
+      registry,
+      manifests: registry.serializeForPlanner(),
+      toolResults: [],
+    })).toMatchObject({
+      ok: false,
+      error: {
+        code: AGENT_ERROR_CODES.INVALID_TOOL_INPUT,
+        details: expect.objectContaining({
+          type: "schema_validation_failed",
+          target: expect.objectContaining({
+            kind: "ToolInput",
+            toolName: "schemaRepairFixture",
+          }),
+          errors: expect.arrayContaining([
+            expect.objectContaining({
+              code: "required_field_missing",
+              path: "id",
+            }),
+            expect.objectContaining({
+              code: "invalid_enum_value",
+              path: "mode",
+              allowedValues: ["brief", "full"],
+            }),
+            expect.objectContaining({
+              code: "unknown_field",
+              path: "legacyId",
+            }),
+          ]),
+        }),
+      },
+    });
   });
 
   it("rejects non-M0 capabilities and non-empty resource references", () => {
@@ -315,7 +424,7 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       action: {
         type: "final_answer",
         content: "done",
-        usedResourceRefs: [{ resourceId: "resource-1" }],
+        usedRefs: toTerminalResourceRefs([{ resourceId: "resource-1" }]),
       },
       registry,
       manifests,
@@ -330,7 +439,7 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       action: {
         type: "final_answer",
         content: "done",
-        usedToolResultIds: ["missing-tool-result"],
+        usedRefs: toTerminalToolResultRefs(["missing-tool-result"]),
       },
       registry,
       manifests: registry.serializeForPlanner(),
@@ -361,16 +470,78 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       error: {
         code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID,
         details: expect.objectContaining({
-          reason: "missing_terminal_grounding_after_tool_result",
-          repair: expect.stringContaining("usedToolResultIds"),
-          recoverableActions: expect.arrayContaining([
-            expect.stringContaining("tool_call"),
-            expect.stringContaining("ask_user"),
-            expect.stringContaining("visibleOutputs[]"),
+          type: "domain_validation_failed",
+          target: expect.objectContaining({
+            kind: "DomainValidation",
+            schemaId: "AgentAction",
+            variant: "final_answer",
+          }),
+          facts: expect.arrayContaining([
+            expect.objectContaining({
+              code: "missing_terminal_grounding_after_tool_result",
+              path: "usedRefs",
+              actual: { kind: "missing" },
+              toolResultCount: 1,
+            }),
           ]),
         }),
       },
     });
+  });
+
+  it("projects missing terminal resource refs as repairable grounding facts", () => {
+    const registry = createRegistry();
+    const manifests = registry.serializeForPlanner();
+    const resourceStore = new ResourceStore("run-missing-terminal-resource");
+
+    const result = validateAgentAction({
+      action: {
+        type: "final_answer",
+        content: "我已基于这个资源回答。",
+        usedRefs: toTerminalResourceRefs([
+          { resourceId: "business-object-id", resourceType: "fixture_document" },
+        ]),
+      },
+      registry,
+      manifests,
+      toolResults: [],
+      resourceStore,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: AGENT_ERROR_CODES.RESOURCE_MISSING,
+        details: expect.objectContaining({
+          type: "domain_validation_failed",
+          target: expect.objectContaining({
+            kind: "DomainValidation",
+            schemaId: "AgentAction",
+            variant: "final_answer",
+          }),
+          facts: expect.arrayContaining([
+            expect.objectContaining({
+              code: "resource_missing",
+              path: "usedRefs.resource.id",
+              expected: expect.objectContaining({
+                anyOf: expect.arrayContaining([
+                  "current_run_registered_resourceId",
+                  "current_run_ok_tool_result_ref",
+                  "valid_visibleOutputs",
+                ]),
+              }),
+              actual: expect.objectContaining({
+                resourceId: "business-object-id",
+                resourceType: "fixture_document",
+              }),
+              repair: expect.stringContaining("fulfillment.producedResources[].resourceId"),
+            }),
+          ]),
+        }),
+      },
+    });
+    expect(JSON.stringify(result)).toContain("tool_result");
+    expect(JSON.stringify(result)).not.toContain("inspectVisibleTrainingProposals");
   });
 
   it("allows plain no-tool final_answer and grounded final_answer after tool results", () => {
@@ -415,7 +586,7 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       action: {
         type: "final_answer",
         content: "已基于 tool result 回答。",
-        usedToolResultIds: [satisfiedResult.toolResultId],
+        usedRefs: toTerminalToolResultRefs([satisfiedResult.toolResultId]),
       },
       registry,
       manifests,
@@ -426,7 +597,7 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       action: {
         type: "final_answer",
         content: "已基于 consumable resource 回答。",
-        usedResourceRefs: [toResourceRef(consumable)],
+        usedRefs: toTerminalResourceRefs([toResourceRef(consumable)]),
       },
       registry,
       manifests,
@@ -449,7 +620,7 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
     })).toMatchObject({ ok: true });
   });
 
-  it("rejects final_answer grounding by failed or unsatisfied tool results but allows ask_user diagnostics", () => {
+  it("rejects final_answer grounding by failed tool results and allows ok diagnostic tool results", () => {
     const registry = createRegistry();
     const manifests = registry.serializeForPlanner();
     const failedResult = createTerminalGroundingToolResult({
@@ -467,7 +638,7 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       action: {
         type: "final_answer",
         content: "done",
-        usedToolResultIds: [failedResult.toolResultId],
+        usedRefs: toTerminalToolResultRefs([failedResult.toolResultId]),
       },
       registry,
       manifests,
@@ -477,19 +648,19 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
     expect(validateAgentAction({
       action: {
         type: "final_answer",
-        content: "done",
-        usedToolResultIds: [unsatisfiedResult.toolResultId],
+        content: "没有找到满足条件的结果。",
+        usedRefs: toTerminalToolResultRefs([unsatisfiedResult.toolResultId]),
       },
       registry,
       manifests,
       toolResults: [unsatisfiedResult],
-    })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID } });
+    })).toMatchObject({ ok: true });
 
     expect(validateAgentAction({
       action: {
         type: "ask_user",
-        question: "需要补充信息。",
-        usedToolResultIds: [unsatisfiedResult.toolResultId],
+        content: "需要补充信息。",
+        usedRefs: toTerminalToolResultRefs([unsatisfiedResult.toolResultId]),
       },
       registry,
       manifests,
@@ -583,7 +754,17 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       error: {
         code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID,
         details: expect.objectContaining({
-          outputType: "fixtureVisible",
+          target: expect.objectContaining({
+            kind: "DomainValidation",
+            outputType: "fixtureVisible",
+            schemaId: "fixtureVisible@1",
+          }),
+          facts: expect.arrayContaining([
+            expect.objectContaining({
+              code: "domain_validation_failed",
+              accepted: false,
+            }),
+          ]),
         }),
       },
     });
@@ -608,7 +789,19 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
         code: AGENT_ERROR_CODES.INVALID_ACTION,
         message: expect.stringContaining("schemaVersion must be a string"),
         details: expect.objectContaining({
-          repair: expect.stringContaining("改为字符串"),
+          target: expect.objectContaining({
+            kind: "VisibleOutputEnvelope",
+            schemaId: "VisibleOutputEnvelope",
+            outputType: "fixtureVisible",
+          }),
+          errors: expect.arrayContaining([
+            expect.objectContaining({
+              code: "invalid_type",
+              path: "visibleOutputs[0].schemaVersion",
+              expected: { type: "string" },
+              actual: { type: "number", value: 1 },
+            }),
+          ]),
         }),
       },
     });
@@ -683,7 +876,7 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       action: {
         type: "final_answer",
         content: "done",
-        usedResourceRefs: [toResourceRef(diagnostic)],
+        usedRefs: toTerminalResourceRefs([toResourceRef(diagnostic)]),
       },
       registry,
       manifests: registry.serializeForPlanner(),
@@ -694,8 +887,8 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
     expect(validateAgentAction({
       action: {
         type: "ask_user",
-        question: "需要补充信息。",
-        usedResourceRefs: [toResourceRef(diagnostic)],
+        content: "需要补充信息。",
+        usedRefs: toTerminalResourceRefs([toResourceRef(diagnostic)]),
       },
       registry,
       manifests: registry.serializeForPlanner(),

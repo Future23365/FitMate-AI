@@ -2,7 +2,12 @@ import { z } from "zod";
 import { describe, expect, it } from "vitest";
 
 import { defineTool } from "@/lib/server/agent-core/define-tool";
+import { toTerminalToolResultRefs } from "@/lib/server/agent-core/contracts";
 import { createToolResultId, hashNormalizedInput } from "@/lib/server/agent-core/executor";
+import {
+  OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
+  TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
+} from "@/lib/server/agent-core/observation";
 import { renderAgentResponseEvents } from "@/lib/server/agent-core/response-renderer";
 import { runAgentRuntime } from "@/lib/server/agent-core/runtime";
 import { ToolRegistry } from "@/lib/server/agent-core/tool-registry";
@@ -19,7 +24,7 @@ describe("agent-core fixture read tool end to end", () => {
       {
         type: "final_answer",
         content: "fixture 已读取。",
-        usedToolResultIds: [expectedToolResultId],
+        usedRefs: toTerminalToolResultRefs([expectedToolResultId]),
       },
     ]);
 
@@ -47,8 +52,20 @@ describe("agent-core fixture read tool end to end", () => {
       type: "tool_result",
       ok: true,
       content: {
-        fixtureId: "alpha-intro",
-        title: "Fixture alpha-intro",
+        observationRole: OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
+        toolResultId: expectedToolResultId,
+        modelFactsChannel: TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
+        boundary: expect.stringContaining("详细事实见 toolResults[].projection.model"),
+      },
+    });
+    expect(JSON.stringify(planner.calls[1].observations[0])).not.toContain("Fixture alpha-intro");
+    expect(planner.calls[1].toolResults[0]).toMatchObject({
+      output: "[redacted]",
+      projection: {
+        model: expect.objectContaining({
+          fixtureId: "alpha-intro",
+          title: "Fixture alpha-intro",
+        }),
       },
     });
     expect(renderAgentResponseEvents(result)).toMatchObject([
@@ -87,7 +104,7 @@ describe("agent-core fixture read tool end to end", () => {
         {
           type: "final_answer",
           content: "second fixture 已读取。",
-          usedToolResultIds: [expectedToolResultId],
+          usedRefs: toTerminalToolResultRefs([expectedToolResultId]),
         },
       ]),
       run: {

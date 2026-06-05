@@ -7,6 +7,7 @@ import type {
   AgentResourceRef,
   AgentRunInput,
   AgentRunResult,
+  AgentTerminalRef,
   AgentLoopEvent,
   AgentProgressEvent,
   AgentProgressStage,
@@ -87,6 +88,7 @@ const visibleOutputValidationReasonCodes = new Set<string>([
   "exercise_missing",
   "exercise_unpublished",
   "database_unconfigured",
+  "current_run_source_missing",
 ]);
 const terminalReferenceErrorCodes = new Set<string>([
   AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID,
@@ -1201,6 +1203,7 @@ function summarizeRuntimeTraceEvent(event: AgentTraceEvent): unknown {
         normalizedInputHash: event.normalizedInputHash,
         ok: event.ok,
         satisfied: event.satisfied,
+        factChannel: event.factChannel,
         failureCode: event.failureCode,
         error: event.error ? redactTraceValue(event.error) : undefined,
         fulfillment: redactTraceValue(event.fulfillment),
@@ -1218,7 +1221,10 @@ function summarizeRuntimeTraceEvent(event: AgentTraceEvent): unknown {
         toolName: event.toolName,
         toolVersion: event.toolVersion,
         normalizedInputHash: event.normalizedInputHash,
+        previousToolResultId: event.previousToolResultId,
+        previousOk: event.previousOk,
         previousCount: event.previousCount,
+        repeatCount: event.repeatCount,
       };
     case "resource_registered":
       return {
@@ -1252,7 +1258,7 @@ function summarizeRuntimeTraceEvent(event: AgentTraceEvent): unknown {
       return {
         type: event.type,
         actionType: event.actionType,
-        usedResourceRefs: event.usedResourceRefs.map(summarizeResourceRef),
+        usedRefs: event.usedRefs.map(summarizeTerminalRef),
       };
   }
 }
@@ -1409,6 +1415,25 @@ function summarizeResourceRef(resource: AgentResourceRef): unknown {
   };
 }
 
+function summarizeTerminalRef(ref: AgentTerminalRef): unknown {
+  if (ref.type === "tool_result") {
+    return {
+      type: ref.type,
+      id: ref.id,
+    };
+  }
+
+  return {
+    type: ref.type,
+    id: ref.id,
+    resourceType: ref.resourceType,
+    role: ref.role,
+    runId: ref.runId,
+    version: ref.version,
+    schemaVersion: ref.schemaVersion,
+  };
+}
+
 function summarizeAgentTextChatResponseEvents(
   events: AgentTextChatStreamEvent[],
   context: AgentTextChatResponseSummaryContext = {},
@@ -1487,6 +1512,7 @@ function summarizeToolResultForTrace(result: AgentRunResult["toolResults"][numbe
     toolName: result.toolName,
     ok: result.ok,
     satisfied: result.fulfillment.satisfied,
+    factChannel: result.ok ? (result.fulfillment.satisfied ? "fact" : "diagnostic") : "failed",
     summary: result.fulfillment.summary,
   };
 

@@ -3,10 +3,16 @@ import { describe, expect, it } from "vitest";
 
 import { defineTool } from "@/lib/server/agent-core/define-tool";
 import { executeTool } from "@/lib/server/agent-core/executor";
-import { createToolObservation, compressPlannerObservations } from "@/lib/server/agent-core/observation";
+import {
+  createToolObservation,
+  compressPlannerObservations,
+  OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
+  TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
+} from "@/lib/server/agent-core/observation";
 import { auditRedactedValue, redactJsonValue } from "@/lib/server/agent-core/redaction";
 import { auditAgentTrace } from "@/lib/server/agent-core/trace-audit";
-import type { AgentObservation, AgentTraceEvent } from "@/lib/server/agent-core/contracts";
+import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
+import type { AgentObservation, AgentTraceEvent, ToolResult } from "@/lib/server/agent-core/contracts";
 
 function createSecretOutputTool() {
   return defineTool({
@@ -66,7 +72,7 @@ describe("agent-core redaction, observation compression and trace audit", () => 
     });
   });
 
-  it("redacts model observation and user projection without leaking complete handler output", async () => {
+  it("keeps satisfied success observations lightweight and points detailed facts to toolResults", async () => {
     const result = await executeTool({
       tool: createSecretOutputTool(),
       input: { id: "secret-1" },
@@ -86,9 +92,97 @@ describe("agent-core redaction, observation compression and trace audit", () => 
     const observation = createToolObservation(result);
     const serializedObservation = JSON.stringify(observation);
 
+    expect(observation).toMatchObject({
+      type: "tool_result",
+      source: "tool",
+      toolResultId: result.toolResultId,
+      toolName: "secretOutputFixture",
+      ok: true,
+      content: {
+        observationRole: OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
+        toolResultId: result.toolResultId,
+        toolName: "secretOutputFixture",
+        ok: true,
+        modelFactsChannel: TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
+        projectionModelOmitted: true,
+        boundary: expect.stringContaining("详细事实见 toolResults[].projection.model"),
+      },
+    });
     expect(serializedObservation).not.toContain("server-only-secret");
-    expect(serializedObservation).toContain("[redacted]");
+    expect(serializedObservation).not.toContain("visible");
     expect(auditRedactedValue(observation).ok).toBe(true);
+  });
+
+  it("keeps failed details in diagnostic observations and ok diagnostic facts in toolResults", () => {
+    const failedResult: ToolResult = {
+      toolResultId: "tr_failed",
+      toolName: "diagnosticFixture",
+      toolVersion: "0.1.0",
+      toolCallId: "tc_failed",
+      idempotencyKey: "idem_failed",
+      normalizedInputHash: "hash_failed",
+      startedAt: "2026-06-05T00:00:00.000Z",
+      completedAt: "2026-06-05T00:00:00.000Z",
+      ok: false,
+      error: {
+        code: AGENT_ERROR_CODES.INVALID_TOOL_INPUT,
+        message: "Tool input failed.",
+        retryable: false,
+        details: {
+          repairFacts: ["保留失败 details 供 Planner 修复。"],
+        },
+      },
+      fulfillment: {
+        satisfied: false,
+        summary: "输入不满足合同。",
+        unmetRequirements: [
+          {
+            reason: AGENT_ERROR_CODES.INVALID_TOOL_INPUT,
+            message: "需要修正 input。",
+          },
+        ],
+      },
+    };
+    const unsatisfiedResult: ToolResult = {
+      toolResultId: "tr_unsatisfied",
+      toolName: "diagnosticFixture",
+      toolVersion: "0.1.0",
+      toolCallId: "tc_unsatisfied",
+      idempotencyKey: "idem_unsatisfied",
+      normalizedInputHash: "hash_unsatisfied",
+      startedAt: "2026-06-05T00:00:00.000Z",
+      completedAt: "2026-06-05T00:00:00.000Z",
+      ok: true,
+      output: "[redacted]",
+      projection: {
+        model: {
+          status: "no_candidates",
+          repairFacts: ["放宽器械或目标部位。"],
+        },
+      },
+      fulfillment: {
+        satisfied: false,
+        summary: "没有满足条件的候选。",
+        unmetRequirements: [
+          {
+            reason: AGENT_ERROR_CODES.RESOURCE_REQUIREMENT_UNMET,
+            message: "没有候选动作。",
+          },
+        ],
+      },
+    };
+
+    const failedObservation = createToolObservation(failedResult);
+    const unsatisfiedObservation = createToolObservation(unsatisfiedResult);
+
+    expect(JSON.stringify(failedObservation.content)).toContain("repairFacts");
+    expect(JSON.stringify(failedObservation.content)).toContain("保留失败 details");
+    expect(JSON.stringify(unsatisfiedObservation.content)).toContain("ok_tool_result_index");
+    expect(JSON.stringify(unsatisfiedObservation.content)).toContain("\"satisfied\":false");
+    expect(JSON.stringify(unsatisfiedObservation.content)).not.toContain("no_candidates");
+    expect(JSON.stringify(unsatisfiedResult.projection.model)).toContain("no_candidates");
+    expect(JSON.stringify(unsatisfiedResult.projection.model)).toContain("放宽器械或目标部位");
+    expect(JSON.stringify(unsatisfiedObservation.content)).toContain(OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE);
   });
 
   it("compresses observations without changing diagnostic resource role", () => {

@@ -1,5 +1,6 @@
 import type { ResourceStore } from "./resource-store";
 import { AGENT_ERROR_CODES } from "./errors";
+import { projectDomainValidationFeedback } from "./schema-error-projector";
 import type {
   AgentRunInput,
   FinalAnswerAction,
@@ -172,14 +173,19 @@ export class TerminalOutputValidatorRegistry {
     | { ok: true; output: TerminalOutputValidationSummary["outputs"][number] }
     | { ok: false; error: ToolError } {
     if (!result.ok) {
+      const feedback = projectDomainValidationFeedback({
+        target: {
+          kind: "DomainValidation",
+          schemaId: `${output.outputType}@${output.schemaVersion}`,
+          outputType: output.outputType,
+          variant: output.schemaVersion,
+        },
+        details: result.details,
+      });
       const details: Record<string, JsonValue> = {
         index,
-        outputType: output.outputType,
-        schemaVersion: output.schemaVersion,
+        ...(feedback && typeof feedback === "object" && !Array.isArray(feedback) ? feedback : { feedback }),
       };
-      if (result.details !== undefined) {
-        details.details = result.details;
-      }
 
       return {
         ok: false,

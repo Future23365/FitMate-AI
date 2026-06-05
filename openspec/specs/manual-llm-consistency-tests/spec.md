@@ -544,3 +544,141 @@ TBD - created by archiving change add-manual-llm-consistency-tests. Update Purpo
 - **THEN** 测试 MUST 覆盖关闭旧 `assistant_action` / resolved intent 兼容事件后的主流程
 - **AND** 用户可见回复、artifact 事件、assistantSuggestions 和 done metadata MUST 仍然通过
 
+### Requirement: 基础 LLM 黑盒测试必须保持手动隔离
+系统 SHALL 提供专用手动命令运行首页聊天基础 LLM 黑盒测试，并确保该套件不会被默认自动化测试发现或运行。
+
+#### Scenario: 默认测试不运行基础 LLM 黑盒测试
+- **WHEN** 开发者在项目根目录执行 `npm test` 或 `npm run test`
+- **THEN** 系统 MUST NOT 运行 `llm基础测试.md` 驱动的真实 LLM 黑盒测试
+- **AND** 系统 MUST NOT 因缺少模型配置、judge 配置或外部模型网络不可用而导致默认测试失败
+- **AND** 默认 Vitest include 或测试 runner 配置 MUST 不包含手动 LLM 黑盒测试目录
+
+#### Scenario: 专用命令运行基础黑盒套件
+- **WHEN** 开发者执行基础 LLM 黑盒测试专用命令
+- **THEN** 系统 MUST 运行从 `llm基础测试.md` 解析出的首页聊天基础 flow
+- **AND** 命令输出 MUST 明确显示本次运行的 flow 数、turn 数、模型、judge 模型和报告路径
+- **AND** 命令 MUST 在真实模型调用前输出预计 token 消耗
+- **AND** 命令 MUST 支持按 flow id 运行子集
+- **AND** 未知 flow id MUST 在真实模型调用前失败并输出可用 id
+
+#### Scenario: 缺少真实模型配置时不使用 mock
+- **WHEN** 开发者执行基础 LLM 黑盒测试专用命令但缺少必需模型配置
+- **THEN** 系统 MUST 输出缺失配置名称
+- **AND** 系统 MUST NOT 静默改用 mock、旧快照、固定答案或非真实模型结果
+- **AND** 系统 MUST 生成失败或跳过摘要，说明真实基础黑盒测试未运行
+
+#### Scenario: 基础套件失败时命令失败
+- **WHEN** 基础 LLM 黑盒测试中任一已执行 turn 判定失败
+- **THEN** 专用命令 MUST 以非零退出码结束
+- **AND** 命令输出 MUST 指向报告中的失败 flow 和轮次
+- **AND** 命令 MUST 保留已完成 turn 的最终输出摘要，便于人工复核
+
+### Requirement: 基础 LLM 黑盒测试必须模拟聊天框输入边界
+系统 SHALL 通过首页聊天请求合同模拟用户在聊天框逐轮输入，而不是调用 Agent 内部 planner、tool handler 或 response renderer 作为测试入口。
+
+#### Scenario: 请求体匹配首页聊天输入
+- **WHEN** 基础 LLM 黑盒 runner 发送某一轮用户输入
+- **THEN** 请求 MUST 使用与首页聊天客户端等价的 `latestUserMessage`
+- **AND** 请求 MUST 携带当前 flow 的 `conversationId`
+- **AND** 请求 MUST 使用同一 flow 内已完成轮次形成的聊天上下文继续请求
+- **AND** 请求 MUST NOT 携带完整历史 `messages`
+- **AND** 请求 MUST NOT 通过测试专用字段绕过生产聊天输入校验
+
+#### Scenario: 响应解析匹配用户可见事件
+- **WHEN** 基础 LLM 黑盒 runner 消费聊天响应
+- **THEN** 系统 MUST 按生产 NDJSON 事件合同解析响应
+- **AND** 系统 MUST 只从用户可见事件构造最终 assistant 输出
+- **AND** 系统 MUST NOT 读取开发态 trace store、数据库内部 fact 表或 Agent runtime 内存状态来补齐判定输入
+
+#### Scenario: runner 复用生产 NDJSON 解析合同
+- **WHEN** 基础 LLM 黑盒 runner 解析 `/api/chat` NDJSON 响应
+- **THEN** runner MUST 复用生产聊天客户端 parser 或共享的 NDJSON 解析模块
+- **AND** 生产页面会判为非法的未知事件或字段格式错误 MUST 让 runner 失败
+- **AND** runner MUST NOT 使用比生产客户端更宽松的手写 parser 静默忽略未知事件
+
+#### Scenario: 用户可见输出摘要覆盖交互事件
+- **WHEN** 基础 LLM 黑盒 runner 构造 judge 输入
+- **THEN** runner MUST 汇总最终 assistant 正文、`visible_output`、`assistant_suggestions`、`confirmation_request` 和用户安全错误文案
+- **AND** runner MUST NOT 把 `agent_progress`、`tool_result`、trace、raw provider response 或 planner action 放入 judge 输入
+
+#### Scenario: 基建单测不锁死当前人工用例数量
+- **WHEN** 默认自动化测试验证基础 LLM 黑盒 fixture/parser
+- **THEN** 测试 MUST 验证 `llm基础测试.md` 可解析、flow id 唯一、每个 flow 固定三轮、每轮输入和期望非空
+- **AND** 测试 SHOULD NOT 将当前 flow 总数、完整固定 id 列表或当前人工用例顺序作为长期通过条件
+- **AND** 如果需要防止误删高价值用例，系统 SHOULD 通过文档 review 或单独覆盖矩阵表达，而不是把 parser 基建测试绑定到具体数量
+
+#### Scenario: 不要求浏览器验证
+- **WHEN** 开发者运行基础 LLM 黑盒测试
+- **THEN** 系统 MUST NOT 要求启动 dev server
+- **AND** 系统 MUST NOT 要求打开真实浏览器、Browser、Chrome DevTools、Playwright 或截图工具
+- **AND** 测试 MUST 通过请求层模拟聊天框输入并验证最终输出
+
+### Requirement: 默认自动化测试不得触发真实模型 API
+
+项目 SHALL 保证默认自动化测试入口不会在任何环境变量组合下真实调用外部模型 API。所有会消费模型 token 的测试 MUST 只能通过显式手动 LLM 测试命令进入。
+
+#### Scenario: 默认 npm test 永不调用真实模型
+
+- **WHEN** 开发者在项目根目录执行 `npm run test`
+- **THEN** 系统 MUST 只发现并运行普通自动化测试
+- **AND** 系统 MUST NOT 运行任何会调用 DeepSeek、OpenAI 或其他外部模型 API 的测试体
+- **AND** 即使环境中存在 `DEEPSEEK_API_KEY`、`DEEPSEEK_MODEL`、`RUN_DEEPSEEK_BLACKBOX=1` 或其他模型相关变量，系统也 MUST NOT 因默认测试而消费模型 token
+
+#### Scenario: 真实模型测试必须位于手动入口
+
+- **WHEN** 项目新增或保留任何真实模型测试
+- **THEN** 该测试文件 MUST 位于默认 Vitest include 之外
+- **AND** 该测试 MUST 通过专用手动命令和独立 Vitest config 运行
+- **AND** 默认测试目录中的测试 MAY 检查手动入口配置，但 MUST NOT 包含真实模型调用分支
+
+### Requirement: 基础 LLM 黑盒测试必须提供手动命令入口
+
+项目 SHALL 提供独立的基础首页聊天 LLM 黑盒手动命令，使开发者能在明确承担 token 成本时运行真实模型测试。
+
+#### Scenario: 手动命令运行基础黑盒
+
+- **WHEN** 开发者执行 `npm run test:llm:basic`
+- **THEN** 系统 MUST 使用独立 manual Vitest config 运行 `manual-tests/llm/**/*.manual.test.ts`
+- **AND** 系统 MUST 读取项目环境变量配置真实聊天模型和 judge 模型
+- **AND** 系统 MUST 在开始真实模型调用前输出本次运行范围和粗略 token 预估
+
+#### Scenario: 手动命令支持 flow 筛选
+
+- **WHEN** 开发者执行 `npm run test:llm:basic -- --flow F01` 或 `npm run test:llm:basic -- --flow F01,F02`
+- **THEN** 系统 MUST 只运行指定 flow id
+- **AND** 指定不存在的 flow id 时系统 MUST 在真实模型调用前失败
+- **AND** 报告 MUST 记录本次 flow 筛选条件
+
+#### Scenario: 手动命令支持报告路径
+
+- **WHEN** 开发者执行 `npm run test:llm:basic -- --report <path>`
+- **THEN** 系统 MUST 将本次 Markdown 报告写入指定路径
+- **AND** 未指定时系统 MUST 写入 `docs/manual-llm-basic-blackbox-latest-report.md`
+
+#### Scenario: 缺少模型配置时不静默降级
+
+- **WHEN** 开发者执行 `npm run test:llm:basic` 但缺少 `DEEPSEEK_API_KEY`
+- **THEN** 系统 MUST 明确输出缺失配置
+- **AND** 系统 MUST NOT 使用 mock、旧快照或非真实模型结果替代
+- **AND** 系统 MUST 生成或保留清晰的跳过/配置失败报告
+
+### Requirement: 基础黑盒 judge 必须识别 routine 和 plan 降级失败
+基础黑盒 judge prompt SHALL 在文档期望生成 `routine` 或 `plan` 时，把只输出动作推荐、`exercise_selection`、正文动作列表、让用户自行组合或建议下一轮再生成完整结构判为失败，而不是满足期望。
+
+#### Scenario: routine 目标降级为动作列表判失败
+- **WHEN** 文档期望明确要求生成 `routine`、单次训练、训练编排或三段式训练
+- **AND** 用户最终可见输出只包含动作推荐、`visibleTrainingProposal` 摘要中的 `kind=exercise_selection`、正文动作列表、让用户自行组合，或只建议用户下一轮再生成完整训练
+- **THEN** judge MUST 返回 `passed=false`
+- **AND** judge MUST 返回 `status=failed`
+
+#### Scenario: plan 目标降级为动作列表或无 schedule 结构判失败
+- **WHEN** 文档期望明确要求生成 `plan`、多天安排、周期计划、每周训练安排或训练日 / 休息日安排
+- **AND** 用户最终可见输出只包含动作推荐、`kind=exercise_selection`、正文动作列表、无 `schedule.assignments` 的单次 `routine`，或只建议用户下一轮再生成计划
+- **THEN** judge MUST 返回 `passed=false`
+- **AND** judge MUST 返回 `status=failed`
+
+#### Scenario: Judge 只依据用户最终可见输出
+- **WHEN** judge 评估基础黑盒结果
+- **THEN** judge MUST 继续只依据 `visibleUserOutput` 判断
+- **AND** judge MUST NOT 因缺少 trace、planner action、tool result、agent_progress、raw provider response 或 token diagnostics 而判失败
+

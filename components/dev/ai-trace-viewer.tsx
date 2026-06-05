@@ -1572,6 +1572,7 @@ function summarizeRuntimeEventOutput(output: Record<string, unknown>) {
         toolResultId: readString(output.toolResultId),
         ok: output.ok === true,
         satisfied: output.satisfied === true,
+        factChannel: readString(output.factChannel),
         failureCode: readString(output.failureCode),
         producedResources: output.producedResources,
         consumedResources: output.consumedResources,

@@ -87,8 +87,6 @@ type VisibleTrainingProposalSectionSummary = {
 };
 
 export type VisibleTrainingProposalMetadataSummary = {
-  factRef: string;
-  messageId: string;
   kind: typeof visibleTrainingProposalFactKind;
   status: typeof activeFactStatus;
   schemaVersion: typeof visibleTrainingProposalFactSchemaVersion;
@@ -233,15 +231,13 @@ export async function listRecentVisibleTrainingProposalSummaries(input: {
   });
 }
 
-/** toVisibleTrainingProposalMetadataSummary 为 Agent run metadata 提供只含引用索引的安全投影。 */
+/** toVisibleTrainingProposalMetadataSummary 为 Agent run metadata 提供不含具体引用 id 的轻量状态投影。 */
 export function toVisibleTrainingProposalMetadataSummary(
   summary: VisibleTrainingProposalFactSummary,
 ): VisibleTrainingProposalMetadataSummary {
   const sectionSummary = summarizeFactSections(summary.exerciseItems);
 
   return {
-    factRef: summary.factRef,
-    messageId: summary.messageId,
     kind: summary.kind,
     status: summary.status,
     schemaVersion: summary.schemaVersion,

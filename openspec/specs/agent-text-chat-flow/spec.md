@@ -72,52 +72,50 @@ TBD - created by archiving change connect-agent-text-chat-trace-log. Update Purp
 - **AND** 错误 MUST 区分于模型输出非法、runtime 合同失败和旧 AI 运行时下线
 
 ### Requirement: LLM 只能通过 PlannerPort 产出 AgentAction
-系统 SHALL 使用 `LlmPlanner` 和模型 adapter 作为生产文本聊天的 planner 边界。LLM 输出 MUST 先解析为 `AgentAction` candidate，并由 Action Validator 校验后才能进入终止投影或失败收口。
+系统 SHALL 使用 `LlmPlanner` 和模型 adapter 作为生产文本聊天的 planner 边界。LLM 输出 MUST 先解析为 `AgentAction` candidate，并由 Action Validator 校验后才能进入终止投影或失败收口。LLM MUST 使用当前统一字段合同输出 terminal action。
 
 #### Scenario: 模型返回最终文本回答
 - **WHEN** LLM 返回合法 `final_answer`
 - **THEN** Runtime MUST 将其作为 terminal action 校验
+- **AND** `final_answer.content` MUST 作为用户可见文本来源
 - **AND** Response Renderer MUST 输出 `content` 事件
 - **AND** LLM MUST NOT 直接生成 NDJSON event
 
 #### Scenario: 模型返回澄清问题
 - **WHEN** LLM 返回合法 `ask_user`
 - **THEN** Runtime MUST 将其作为需要用户输入的 terminal action
-- **AND** Response Renderer MUST 输出澄清问题的 `content` 事件
-- **AND** 如存在建议回复，Response Renderer MUST 输出 `assistant_suggestions` 事件
+- **AND** `ask_user.content` MUST 作为澄清问题的用户可见文本来源
+- **AND** Response Renderer MUST 输出 `content` 事件
+- **AND** 如存在建议提问，Response Renderer MUST 输出 `suggested_questions` 事件
+- **AND** LLM MUST NOT 输出 `ask_user.question`
 
 #### Scenario: 模型输出非法 action
 - **WHEN** LLM 返回无法解析、Schema 不合法或不被当前合同允许的 action
 - **THEN** Runtime MUST 记录结构化错误并按 repair / failure 预算收口
 - **AND** 服务端 MUST NOT 用用户原文关键词改写该 action
+- **AND** 如果非法 action 使用旧同义字段，repair feedback MUST 指出当前统一字段形状
 
 ### Requirement: 默认 Response Renderer 必须输出聊天可消费的 NDJSON 事件
-
 系统 SHALL 使用默认 Response Renderer 或 production chat adapter 将 `AgentRunResult` 投影为前端可消费的 NDJSON 事件。用户可见事件 MUST 来自 runtime terminal action、tool result 的安全投影、production adapter 的安全 terminal failure 投影或结构化错误，不得由 LLM 直接生成。
 
 #### Scenario: 文本回答流式输出
 - **WHEN** Runtime 以 `final_answer` 结束
 - **THEN** 响应 MUST 至少输出一个 `content` 事件和一个 `done` 事件
-- **AND** `content` MUST 来自已校验 terminal action
+- **AND** `content` MUST 来自已校验 `final_answer.content`
+
+#### Scenario: 澄清问题流式输出
+- **WHEN** Runtime 以 `ask_user` 结束
+- **THEN** 响应 MUST 至少输出一个 `content` 事件和一个 `done` 事件
+- **AND** `content` MUST 来自已校验 `ask_user.content`
+- **AND** renderer MUST NOT 读取 `ask_user.question`
 
 #### Scenario: 可恢复 terminal failure 流式输出
 - **WHEN** Runtime 因 terminal output validation、terminal reference、repair budget 耗尽、预算耗尽或等价 Agent terminal failure 而结构化失败
 - **AND** production chat adapter 能基于稳定错误事实归类该失败
-- **THEN** 响应 MAY 输出用户安全 `content` 事件和 `assistant_suggestions` 事件
+- **THEN** 响应 MAY 输出用户安全 `content` 事件和 `suggested_questions` 事件
 - **AND** 响应 MUST 输出 `done` 事件
 - **AND** 用户可见事件 MUST NOT 原样包含内部 `terminalError.message`、validator details、provider 原文或 stack
 - **AND** trace MUST 记录该响应是 terminal failure fallback projection，而不是 runtime 成功的 `final_answer`
-
-#### Scenario: 未分类错误流式输出
-- **WHEN** Runtime 因模型输出非法、未知工具、预算耗尽、planner 失败或其他结构化失败而无法被 production chat adapter 安全归类为用户可恢复内容
-- **THEN** 响应 MUST 输出脱敏 `error` 事件和 `done` 事件
-- **AND** `error` 事件 MUST 使用脱敏后的错误信息
-- **AND** 前端 MUST 将该 error code 映射为稳定中文安全文案，不得展示内部 message
-
-#### Scenario: 不输出旧兼容事件
-- **WHEN** `/api/chat` 返回文本聊天 NDJSON
-- **THEN** 响应 MUST NOT 输出旧 `assistant_action`、旧 `intent_resolved`、旧 `agent_execution_result` 或旧 card trigger 事件
-- **AND** 前端 MUST NOT 依赖这些旧事件展示本轮文本回复
 
 ### Requirement: 前端聊天必须消费通用 NDJSON 文本事件
 前端聊天客户端 SHALL 从 `/api/chat` 读取 NDJSON stream，并将通用事件投影到当前 assistant message。前端 MUST NOT 在本阶段根据用户文本或旧事件推断训练卡片、动作推荐或保存结果。
@@ -308,4 +306,50 @@ production `/api/chat` 文本聊天主链 SHALL 将 `LlmPlanner` 和 `ModelAdapt
 - **AND** 事件 MUST NOT 由 LLM 直接生成
 - **AND** 事件 MUST NOT 基于用户原文、关键词、正则、同义词表、固定短句模板或具体业务 `toolName` 特判生成
 - **AND** 事件生成失败 MUST 被视为非致命 UI 诊断，不得改变 Planner、Executor、Policy Guard、ResourceStore、Resource Contract Validator 或 Response Renderer 结果
+
+### Requirement: AgentAction 终态必须统一使用 suggestedQuestions
+生产文本聊天的 `AgentAction` 终态 SHALL 使用 `suggestedQuestions` 表达用户可见建议提问。`final_answer` 和 `ask_user` MUST 使用同一个字段名和同一套结构约束，避免把最终回答建议、澄清选项和前端按钮拆成多套字段。
+
+#### Scenario: final_answer 输出建议提问
+- **WHEN** LLM 返回合法 `final_answer`
+- **AND** 该回答存在自然的下一步建议提问
+- **THEN** terminal action MAY 包含 `suggestedQuestions`
+- **AND** `suggestedQuestions` MUST 是最多 3 条字符串的数组
+- **AND** 每条字符串 MUST 能作为下一轮用户消息直接发送
+
+#### Scenario: ask_user 输出建议提问
+- **WHEN** LLM 返回合法 `ask_user`
+- **AND** 澄清问题存在可点击的用户回答候选
+- **THEN** terminal action MAY 包含 `suggestedQuestions`
+- **AND** Response Renderer MUST 将这些建议提问与澄清问题一起投影给前端
+- **AND** terminal action MUST NOT 使用另一套 `suggestions` 字段表达相同语义
+
+#### Scenario: 旧终态字段不进入新链路
+- **WHEN** 实现阶段清理 `final_answer.assistantSuggestions`、旧 `ask_user.suggestions` 或等价历史字段
+- **THEN** 新 `AgentAction` schema、模型输出示例、测试 fixture 和 trace 断言 MUST 使用 `suggestedQuestions`
+- **AND** 系统 MUST NOT 将旧终态字段归一化为 `suggestedQuestions`
+- **AND** 系统 MUST NOT 因历史字段存在而在新生产路径继续保留旧字段名
+
+### Requirement: 文本聊天 stream 必须输出 suggested_questions 事件
+默认 Response Renderer SHALL 将已校验的 `suggestedQuestions` 投影为统一 NDJSON 事件。该事件只承载用户可见建议提问文本，前端点击后仍按普通用户消息发送。
+
+#### Scenario: Response Renderer 输出 suggested_questions
+- **WHEN** Runtime 以包含 `suggestedQuestions` 的 terminal action 结束
+- **THEN** Response Renderer MUST 输出 `suggested_questions` 事件
+- **AND** 事件 payload MUST 包含 `suggestedQuestions`
+- **AND** `suggestedQuestions` MUST 保持 terminal action 中已校验的字符串数组语义
+- **AND** Response Renderer MUST NOT 让 LLM 直接生成 NDJSON event
+
+#### Scenario: 前端消费 suggested_questions
+- **WHEN** chat client 收到 `suggested_questions` 事件
+- **THEN** 前端 MUST 将 `suggestedQuestions` 写入当前 assistant message 的 `suggestedQuestions` 字段
+- **AND** 前端 MUST 将每条建议提问渲染为可点击按钮
+- **AND** 点击按钮后 MUST 按普通用户消息发送该字符串
+- **AND** 前端 MUST NOT 根据按钮文案推断业务 action、toolName 或保存操作
+
+#### Scenario: assistant_suggestions 不作为新建议提问事件
+- **WHEN** 实现本 change 后 `/api/chat` 输出建议提问
+- **THEN** 新 Response Renderer 测试 MUST 断言主路径输出 `suggested_questions`
+- **AND** 新 chat client 主路径 MUST NOT 依赖旧 `assistant_suggestions` 事件展示建议提问
+- **AND** 新前端消息状态 MUST NOT 因旧 `assistant_suggestions` 事件生成 `suggestedQuestions`
 

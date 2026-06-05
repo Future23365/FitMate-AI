@@ -87,3 +87,30 @@ TBD - created by archiving change add-shadcn-ui-baseline. Update Purpose after a
 - **AND** Dialog MUST 支持键盘关闭或显式关闭
 - **AND** Dialog 操作按钮 MUST 有清晰的 focus 状态
 
+### Requirement: Sonner 组件可作为全局提示基线
+系统 SHALL 在 `components/ui` 中提供基于 shadcn/ui 官方 Sonner 的本地组件，并在应用根布局中挂载全局 `Toaster`。
+
+#### Scenario: Sonner 组件存在
+- **WHEN** 页面或全局 provider 从 `@/components/ui/sonner` 引入 `Toaster`
+- **THEN** TypeScript MUST 能识别组件类型
+- **AND** `Toaster` MUST 使用项目现有 shadcn/ui 本地源码模式
+
+#### Scenario: 根布局挂载全局 Toaster
+- **WHEN** 应用根布局渲染
+- **THEN** 系统 MUST 在当前页面内容之外挂载一个全局 `Toaster`
+- **AND** 业务页面 MUST NOT 需要单独挂载 `Toaster`
+
+#### Scenario: 全局 Toaster 显示在页面上方
+- **WHEN** 任一全局 toast 被触发
+- **THEN** `Toaster` MUST 将提示显示在页面上方
+- **AND** 业务页面 MUST NOT 需要为相同提示重复配置位置
+
+#### Scenario: 全局 Toaster 覆盖全局浮层
+- **WHEN** Dialog、Drawer 或其他全局浮层打开时触发 toast
+- **THEN** `Toaster` MUST 将 toast 显示在这些浮层之上
+- **AND** 业务页面 MUST NOT 需要为相同提示重复配置层级
+
+#### Scenario: Sonner 依赖可验证
+- **WHEN** 运行项目类型检查、lint 和构建
+- **THEN** 检查 MUST 不因新增 `sonner` 组件或依赖失败
+

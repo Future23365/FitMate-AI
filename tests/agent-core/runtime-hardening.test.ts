@@ -2,6 +2,7 @@ import { z } from "zod";
 import { describe, expect, it, vi } from "vitest";
 
 import { InMemoryConfirmationStore } from "@/lib/server/agent-core/confirmation-store";
+import { toTerminalToolResultRefs } from "@/lib/server/agent-core/contracts";
 import { defineTool } from "@/lib/server/agent-core/define-tool";
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
 import { createToolResultId, hashNormalizedInput } from "@/lib/server/agent-core/executor";
@@ -245,7 +246,7 @@ describe("agent-core runtime budget and idempotency hardening", () => {
     expect(keys).toEqual([expectedKey]);
   });
 
-  it("returns duplicate success feedback without executing the same handler or registering resources again", async () => {
+  it("returns duplicate input feedback without executing the same handler or registering resources again", async () => {
     const handler = vi.fn();
     const input = { id: "fact-1" };
     const expectedToolResultId = createToolResultId(
@@ -258,7 +259,7 @@ describe("agent-core runtime budget and idempotency hardening", () => {
     const planner = new ReplayPlanner([
       { type: "tool_call", toolName: "satisfiedResourceRead", input },
       { type: "tool_call", toolName: "satisfiedResourceRead", input },
-      { type: "final_answer", content: "已经基于第一次成功结果收口。", usedToolResultIds: [expectedToolResultId] },
+      { type: "final_answer", content: "已经基于第一次成功结果收口。", usedRefs: toTerminalToolResultRefs([expectedToolResultId]) },
     ]);
 
     const result = await runAgentRuntime({
@@ -274,7 +275,7 @@ describe("agent-core runtime budget and idempotency hardening", () => {
 
     const duplicateFeedback = planner.calls[2].observations.find((observation) => (
       observation.source === "runtime"
-      && JSON.stringify(observation.content).includes(AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS)
+      && JSON.stringify(observation.content).includes(AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT)
     ));
     const toolExecutionEvents = result.traceEvents.filter((event) => event.type === "tool_execution");
     const resourceRegisteredEvents = result.traceEvents.filter((event) => event.type === "resource_registered");
@@ -283,7 +284,7 @@ describe("agent-core runtime budget and idempotency hardening", () => {
       status: "completed",
       terminalAction: {
         type: "final_answer",
-        usedToolResultIds: [expectedToolResultId],
+        usedRefs: toTerminalToolResultRefs([expectedToolResultId]),
       },
     });
     expect(handler).toHaveBeenCalledTimes(1);
@@ -294,22 +295,30 @@ describe("agent-core runtime budget and idempotency hardening", () => {
       expect.objectContaining({
         type: "duplicate_tool_call",
         toolName: "satisfiedResourceRead",
+        previousToolResultId: expectedToolResultId,
+        previousOk: true,
         previousCount: 1,
+        repeatCount: 2,
       }),
       expect.objectContaining({
         type: "budget_event",
         budget: "repair_attempts",
         status: "used",
-        reason: AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS,
+        reason: AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT,
       }),
     ]));
     expect(duplicateFeedback).toMatchObject({
       toolResultId: expectedToolResultId,
       toolName: "satisfiedResourceRead",
       content: expect.objectContaining({
-        code: AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS,
+        code: AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT,
         details: expect.objectContaining({
           previousToolResultId: expectedToolResultId,
+          allowedNextActions: expect.arrayContaining([
+            "基于 previousToolResultId 输出带 usedRefs 的合法 final_answer。",
+            "提交改变后的合法 tool input。",
+            "使用 ask_user 澄清缺失信息。",
+          ]),
           producedResources: [
             expect.objectContaining({
               resourceType: "satisfied_resource",
@@ -321,7 +330,7 @@ describe("agent-core runtime budget and idempotency hardening", () => {
     });
   });
 
-  it("does not treat changed input or unsatisfied repeated results as duplicate success feedback", async () => {
+  it("does not treat changed input as duplicate and dedupes repeated ok diagnostic results", async () => {
     const changedHandler = vi.fn();
     const changedRegistry = new ToolRegistry();
     changedRegistry.register(createSatisfiedResourceReadTool(changedHandler));
@@ -330,10 +339,10 @@ describe("agent-core runtime budget and idempotency hardening", () => {
       planner: new ReplayPlanner([
         { type: "tool_call", toolName: "satisfiedResourceRead", input: { id: "a" } },
         { type: "tool_call", toolName: "satisfiedResourceRead", input: { id: "b" } },
-        { type: "final_answer", content: "两个不同输入都已执行。", usedToolResultIds: [
+        { type: "final_answer", content: "两个不同输入都已执行。", usedRefs: toTerminalToolResultRefs([
           createToolResultId("run-changed-input", "satisfiedResourceRead", hashNormalizedInput({ id: "a" })),
           createToolResultId("run-changed-input", "satisfiedResourceRead", hashNormalizedInput({ id: "b" })),
-        ] },
+        ]) },
       ]),
       run: {
         runId: "run-changed-input",
@@ -346,12 +355,18 @@ describe("agent-core runtime budget and idempotency hardening", () => {
     const unsatisfiedHandler = vi.fn();
     const unsatisfiedRegistry = new ToolRegistry();
     unsatisfiedRegistry.register(createUnsatisfiedReadTool(unsatisfiedHandler));
+    const unsatisfiedInput = { id: "empty" };
+    const expectedUnsatisfiedToolResultId = createToolResultId(
+      "run-unsatisfied-repeat",
+      "unsatisfiedRead",
+      hashNormalizedInput(unsatisfiedInput),
+    );
     const unsatisfiedResult = await runAgentRuntime({
       registry: unsatisfiedRegistry,
       planner: new ReplayPlanner([
-        { type: "tool_call", toolName: "unsatisfiedRead", input: { id: "empty" } },
-        { type: "tool_call", toolName: "unsatisfiedRead", input: { id: "empty" } },
-        { type: "ask_user", question: "没有找到满足条件的结果，要调整条件吗？" },
+        { type: "tool_call", toolName: "unsatisfiedRead", input: unsatisfiedInput },
+        { type: "tool_call", toolName: "unsatisfiedRead", input: unsatisfiedInput },
+        { type: "ask_user", content: "没有找到满足条件的结果，要调整条件吗？" },
       ]),
       run: {
         runId: "run-unsatisfied-repeat",
@@ -363,10 +378,20 @@ describe("agent-core runtime budget and idempotency hardening", () => {
 
     expect(changedResult).toMatchObject({ status: "completed" });
     expect(changedHandler).toHaveBeenCalledTimes(2);
-    expect(JSON.stringify(changedResult.observations)).not.toContain(AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS);
+    expect(JSON.stringify(changedResult.observations)).not.toContain(AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT);
     expect(unsatisfiedResult).toMatchObject({ status: "needs_input" });
-    expect(unsatisfiedHandler).toHaveBeenCalledTimes(2);
-    expect(JSON.stringify(unsatisfiedResult.observations)).not.toContain(AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS);
+    expect(unsatisfiedHandler).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(unsatisfiedResult.observations)).toContain(AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT);
+    expect(unsatisfiedResult.traceEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "duplicate_tool_call",
+        toolName: "unsatisfiedRead",
+        previousToolResultId: expectedUnsatisfiedToolResultId,
+        previousOk: true,
+        previousCount: 1,
+        repeatCount: 2,
+      }),
+    ]));
   });
 
   it("does not repeat fixture write execution after consumed confirmation resume", async () => {

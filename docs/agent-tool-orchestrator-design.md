@@ -17,6 +17,7 @@
 5. **Resource Contract 需要 ResourceStore 支撑**：不能只靠 handler 返回 `producedResources`。资源必须在当前 run 的 `ResourceStore` 中登记，带 role、source、scope、version，后续 tool 只能消费已登记且 role 为 `consumable` 的资源。
 6. **Response Adapter 应该默认化**：不应要求每个 tool 都写用户可见事件适配器。默认 renderer 先覆盖 80% 场景，特殊 tool 再通过可选 `toUserEvents` 扩展。
 7. **缺少幂等、取消、预算、错误分类、manifest 版本快照**：这些不是花活，是通用编排器上线后能否稳定的底座。
+8. **ToolResult 不应承载业务目标满足度**：中间 tool result 只能表达执行是否成功、返回了哪些事实、产生了哪些 resource / diagnostics；用户目标是否完成只能由最终 `final_answer` / `visibleOutputs` 校验决定。0 条查询结果是有效事实，可以支撑普通文本回答“没有匹配数据”，不能被 core 当成业务不合理或失败。
 
 最终建议：**保留 contract-first 架构，但把“所有能力强制实现”改成“核心闭环必备 + 默认实现 + 可选扩展”。**
 
@@ -276,11 +277,16 @@ export type ToolResourceContract = {
 ### 5.4 ToolResult
 
 ```ts
-export type ToolFulfillment = {
-  satisfied: boolean;
+export type ToolResultDiagnostic = {
+  code: string;
+  message: string;
+  facts?: unknown;
+};
+
+export type ToolExecutionFacts = {
   producedResources: AgentResourceRef[];
   consumedResources: AgentResourceRef[];
-  unmetRequirements: string[];
+  diagnostics?: ToolResultDiagnostic[];
 };
 
 export type ToolError = {
@@ -304,7 +310,7 @@ export type ToolResult<Output> =
       toolVersion: string;
       toolResultId: string;
       output: Output;
-      fulfillment: ToolFulfillment;
+      facts: ToolExecutionFacts;
       projection?: SafeProjection;
     }
   | {
@@ -313,9 +319,20 @@ export type ToolResult<Output> =
       toolVersion: string;
       toolResultId: string;
       error: ToolError;
-      fulfillment: ToolFulfillment;
+      facts: ToolExecutionFacts;
       projection?: SafeProjection;
     };
+```
+
+规则：
+
+```txt
+ok=true 只表示 tool 执行成功、outputSchema 通过、权限和执行合同没有失败。
+ok=false 只表示 tool 执行失败、权限失败、schema 失败、timeout、resource contract 失败或 handler 异常。
+ToolResult 不暴露 satisfied / unsatisfied 这类业务目标满足度字段。
+0 条、空候选、候选不足是 ok=true 的事实结果，应通过 output / projection / diagnostics 表达。
+普通 final_answer 可以引用 ok=true 的 0 条结果来解释“没有匹配数据”。
+结构化业务交付是否成功，只能由 final_answer.visibleOutputs[] 对应的业务 validator 判断。
 ```
 
 注意：`projection` 只允许放脱敏摘要；完整 `output` 不自动进入 Planner、用户响应或 trace。
@@ -543,6 +560,10 @@ ReplayPlanner、RulePlanner 和测试用 Fake planner 不强制实现供应商�
 Planner 只能输出三类 action：
 
 ```ts
+type AgentTerminalRef =
+  | { type: "tool_result"; id: string }
+  | { type: "resource"; id: string; resourceType?: string };
+
 export type AgentAction =
   | {
       type: "tool_call";
@@ -555,15 +576,14 @@ export type AgentAction =
       type: "final_answer";
       content: string;
       suggestedQuestions?: string[];
-      usedToolResultIds: string[];
-      usedResourceRefs?: AgentResourceRef[];
+      usedRefs?: AgentTerminalRef[];
+      visibleOutputs?: VisibleOutputEnvelope[];
     }
   | {
       type: "ask_user";
-      question: string;
+      content: string;
       suggestedQuestions?: string[];
-      usedToolResultIds: string[];
-      usedResourceRefs?: AgentResourceRef[];
+      usedRefs?: AgentTerminalRef[];
     };
 ```
 
@@ -598,12 +618,21 @@ Planner 不能消费 diagnostic resource
 ### 12.2 final_answer / ask_user 校验
 
 ```txt
-usedToolResultIds 必须存在于当前 run
-usedResourceRefs 必须存在于当前 run
-如果引用 resource，resource 必须是 consumable 或用于解释失败的 diagnostic
+final_answer.content / ask_user.content 必须承载用户可见文本
+usedRefs[type="tool_result"].id 必须存在于当前 run
+usedRefs[type="resource"] 必须存在于当前 run
+普通 final_answer 引用的 tool result 必须 ok=true
+普通 final_answer 可以引用 ok=true 的 0 条、空候选或诊断摘要 tool result，用于解释事实
+final_answer.visibleOutputs[] 必须通过对应 outputType / schemaVersion 的业务 validator
+结构化业务交付、保存、渲染和事实桥只能消费通过最终 validator 的 visibleOutputs
+final_answer 引用的 resource 如用于成功业务交付，必须是 consumable
+ask_user 可以引用用于解释、阻断或澄清的 failed / diagnostic 事实
 不能引用当前 run 之外的 resource
 不能携带任意 producedEvents
+不能携带 ask_user.question、message、usedToolResultIds、usedResourceRefs 等旧同义字段
 ```
+
+这里的重点是 final-output-centered validation：core 校验 action 结构、current-run 引用、resource role 和 schema；业务结果是否满足用户要求不由中间 tool result 决定，而由最终 `visibleOutputs` validator 决定。
 
 ### 12.3 非法 action 处理
 
@@ -640,6 +669,8 @@ export interface ResourceStore {
 5. downstream tool 只能消费 `consumable` resource。
 6. `diagnostic` 只能用于解释、失败原因、调试证据，不能伪装成成功业务结果。
 7. resource id 必须由 core 或受控 ResourceStore 生成，不建议由 LLM 或 handler 任意拼接。
+
+Resource role 只表达资源用途，不表达用户目标是否已经满足。业务 tool 不得用 `diagnostic` / `consumable` 或自定义摘要字段绕回中间业务满足度判断；如果最终业务输出需要数量、覆盖、动作合法性或 schedule 等约束，必须交给最终 output validator。
 
 ### 13.1 跨 run 业务事实桥
 
@@ -837,7 +868,15 @@ export async function runAgentOrchestrator(input: AgentRunInput): Promise<AgentR
     }
 
     if (action.type === "final_answer" || action.type === "ask_user") {
-      return buildTerminalResult(action, state);
+      const terminalValidation = validateTerminalAction(action, state);
+      if (!terminalValidation.ok) {
+        if (state.canRepairInvalidAction()) {
+          state.addObservation(buildInvalidActionObservation(terminalValidation));
+          continue;
+        }
+        return buildTerminalError(terminalValidation.error, state);
+      }
+      return buildTerminalResult(action, terminalValidation, state);
     }
 
     const policyDecision = await policyGuard.evaluate(action, state);
@@ -873,6 +912,7 @@ Runtime 不能出现具体业务 toolName 分支。
 Runtime 不直接读取用户自然语言做业务判断。
 Runtime 不信任 Planner 的 action，必须全部校验。
 Runtime 不信任 tool output，必须 schema/resource/projection 校验。
+Runtime 不根据中间 tool result 判断业务目标是否满足；结构化业务交付只看 terminal output validator。
 ```
 
 ---
@@ -1275,10 +1315,12 @@ prompt 合同治理时必须优先确认模型实际看到的输入，而不是�
 3. toolName 只能来自 ToolRegistry。
 4. tool input 必须严格匹配 schema。
 5. 模型不能假装 tool 已执行或虚构 tool result。
-6. final_answer 必须基于 satisfied=true 的 tool result 或 consumable resource。
-7. diagnostic / failed / unsatisfied 结果只能用于 ask_user、失败解释、阻断说明或 repair。
-8. write / high risk tool 必须经过 Policy Guard / confirmation。
-9. 模型不能绕过 ResourceStore、Policy Guard、Resource Contract Validator 或 Response Renderer。
+6. 普通 final_answer 必须基于当前 run 中 ok=true 的 tool result、合法 resource 或通过 validator 的 visibleOutputs。
+7. ok=true 的 0 条、空候选或诊断摘要 tool result 可以支撑普通事实回答，例如说明“没有匹配数据”。
+8. final_answer.visibleOutputs[] 是结构化业务交付，必须通过对应业务 validator；正文 content 不能替代结构化事实。
+9. failed / diagnostic 事实只能用于 ask_user、失败解释、阻断说明或 repair，不能伪装成通过 validator 的结构化业务交付。
+10. write / high risk tool 必须经过 Policy Guard / confirmation。
+11. 模型不能绕过 ResourceStore、Policy Guard、Resource Contract Validator 或 Response Renderer。
 ```
 
 新增业务 tool 时，业务 tool 的模型可见说明必须覆盖：何时使用、何时不用、input schema 关键字段、成功结果含义、失败或 diagnostic 含义、resource role 和 final answer 引用方式。上述说明默认使用中文，技术标识保持英文原样。不得把单个业务 tool 的语义特例写进通用 prompt，也不得新增服务端关键词、正则、同义词表、短句模板或业务 `toolName` 特判去改写 LLM 的高层语义决策。
