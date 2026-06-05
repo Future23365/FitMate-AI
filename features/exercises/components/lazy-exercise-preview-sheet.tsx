@@ -111,7 +111,7 @@ export function LazyExercisePreviewSheet({
 function ExercisePreviewLoadingBody() {
   return (
     <div className="space-y-md">
-      <div className="aspect-[4/3] animate-pulse rounded-2xl bg-surface-container" />
+      <div className="aspect-[3/2] animate-pulse rounded-2xl bg-surface-container" />
       <div className="rounded-2xl border border-line bg-white p-md shadow-sm">
         <div className="mb-sm h-4 w-1/2 animate-pulse rounded bg-surface-container" />
         <div className="space-y-xs">

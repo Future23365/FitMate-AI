@@ -332,7 +332,7 @@ function ExercisePreviewSheetContent({
                       src={activeImageUrl}
                     />
                   ) : (
-                    <div className="flex h-full w-full flex-col items-center justify-center gap-xs bg-slate-50 text-slate-400">
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-xs bg-slate-50 text-slate-400">
                       <SymbolIcon className="text-[28px]">
                         {didActiveImageFail ? "broken_image" : "image"}
                       </SymbolIcon>
