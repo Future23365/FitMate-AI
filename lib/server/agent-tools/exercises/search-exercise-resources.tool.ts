@@ -9,6 +9,10 @@ import {
 } from "@/lib/server/exercises/exercise-repository";
 import { exerciseSortSchema } from "@/lib/shared/exercises/query-schema";
 import { exerciseAllowedSectionSchema } from "@/lib/shared/exercises/types";
+import {
+  summarizeVisibleTrainingResourceCoverage,
+  visibleTrainingCompositionSections,
+} from "@/lib/server/visible-training-proposals/visible-training-resource-coverage";
 
 const textFilterValueSchema = z.string().trim().min(1).max(120);
 const optionalTextFilterSchema = textFilterValueSchema.optional();
@@ -18,7 +22,6 @@ const maxRequiredExerciseIds = 12;
 const maxMuscles = 20;
 const exerciseIdSchema = z.string().trim().min(1).max(120).regex(/^[A-Za-z0-9:_-]+$/);
 const catalogFacetDescription = "精确筛选值应优先从 manifest metadata.facetCatalog 的对应数组中选择；服务端只执行 schema、去空、去重和数据库查询。";
-const visibleTrainingCompositionSections = ["warmup", "training", "stretch"] as const;
 
 const searchExerciseResourcesInputSchema = z.object({
   q: optionalTextFilterSchema.describe("确定性动作文本搜索字段，可匹配动作名称、公开分类、肌群、标签或 embeddingText；不是向量语义召回。"),
@@ -44,11 +47,11 @@ const searchExerciseResourcesInputSchema = z.object({
   excludeExerciseIds: z.array(exerciseIdSchema)
     .max(maxExcludeExerciseIds)
     .optional()
-    .describe("刷新 visibleTrainingProposal 或用户明确排除时使用的动作 id 列表，只能来自当前 run 可见的用户已经看到动作事实，或用户明确要求不要再出现的动作；不支持用内部候选、trace 摘要或未读取完整事实填充。"),
+    .describe("明确替换、排除或避免重复时使用的负向动作 id 列表，只能来自当前 run 可见的用户已经看到动作事实，或用户明确要求不要再出现的动作；不用于保留、复用、派生或调整已有动作，不支持用内部候选、trace 摘要或未读取完整事实填充。"),
   requiredExerciseIds: z.array(exerciseIdSchema)
     .max(maxRequiredExerciseIds)
     .optional()
-    .describe("用户点名动作已通过 resolveExerciseResourceMentions 解析为数据库 id 后使用；tool 会优先把这些发布态动作纳入现有 groups.<section>.exercises 列表，并用 diagnostics 说明无法纳入或筛选不完全一致的原因。"),
+    .describe("正向查询锚点；当当前 run 已有受控发布态动作 id 时使用，例如来自 resolveExerciseResourceMentions、已导入可消费训练事实或用户明确给出的受控 id。tool 会优先把这些动作纳入现有 groups.<section>.exercises 列表，并用 diagnostics 说明无法纳入或筛选不完全一致的原因。"),
   published: publishedInputSchema.describe("生产聊天只能查询发布态动作；省略时固定为 true，显式 false 会被拒绝。"),
   sort: exerciseSortSchema.default("name_asc").describe("固定排序字段，不支持分页、limit、offset、page 或 pageSize。"),
 }).strict();
@@ -183,11 +186,12 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
       "用户明确提出新的动作查询目标、结构化筛选条件或普通动作事实问题时，可以直接调用 searchExerciseResources，不需要强制先 inspectVisibleTrainingProposals。",
       "groups.<section>.exercises[*].exerciseId 是该查询结果中对应 section 的动作事实来源；当 fulfillment.satisfied = true 时，可作为 final_answer.visibleOutputs[] 中 visibleTrainingProposal.exerciseItems[*].exerciseId 的受控来源。",
       "最终训练输出只能由 final_answer.visibleOutputs[] 承载；如果生成 visibleTrainingProposal.exerciseItems[]，exerciseItems[*].section 应对应使用的 groups.<section> key，并且必须被该动作 allowedSections 包含；allowedSections 是动作可进入哪些 section 的动作事实字段。",
+      "requiredExerciseIds 是正向查询锚点：当当前 run 已有受控发布态 exerciseId，例如来自 resolveExerciseResourceMentions、已导入可消费训练事实或用户明确给出的受控 id 时，可传入 requiredExerciseIds，让这些动作优先进入现有 groups.<section>.exercises；它不是排除列表，也不表示替换。",
       "当用户点名多个具体动作时，应先调用 resolveExerciseResourceMentions 解析 mentions；再把 matched exerciseId 或模型从 ambiguous 中选择的 exerciseId 传入 requiredExerciseIds，让这些发布态动作优先进入现有 groups.<section>.exercises。",
       "当 Planner 已判断需要替换上一套用户可见 visibleTrainingProposal 的动作，并且已通过当前 run 可见事实获得上一套已看到 exerciseItems 时，可以在保留原目标、器械、难度、居家条件、section、时长或计划约束的前提下，用 excludeExerciseIds 查询替代动作；不同 section 的替代动作仍必须来自对应 groups.<section>.exercises。",
       "如果模型根据用户目标已经需要 routine 或 plan，且当前 run 只有 training 动作事实或缺少 warmup / stretch 动作事实，应优先使用 suitabilities = [\"warmup\", \"stretch\"] 或等价缺失 section 查询补齐热身和拉伸候选；不得因为当前只查到 training 动作事实就把 routine 或 plan 目标降级输出为 payload.kind = \"exercise_selection\"。",
       "继续查询缺失 section 只适用于模型已判断目标需要 routine 或 plan 的场景；普通动作推荐和动作事实问答不要求固定查询 warmup / training / stretch，也不要求固定 tool 调用次数或顺序。",
-      "excludeExerciseIds 只能填写用户已经看到或明确要求排除的动作；如果来自上一轮方案，应先通过 inspectVisibleTrainingProposals(operation = \"read_recent\") 导入 visible_training_proposal_fact 后复制真实 exerciseId，不要从未展示的内部候选、trace 摘要、handler-only 结果或 list_recent 索引中填充。",
+      "excludeExerciseIds 是负向约束，只能填写用户已经看到且当前目标确实需要替换、排除或避免重复的动作，或用户明确要求排除的动作；如果来自上一轮方案，应先通过 inspectVisibleTrainingProposals(operation = \"read_recent\") 导入 visible_training_proposal_fact 后复制真实 exerciseId，不要从未展示的内部候选、trace 摘要、handler-only 结果或 list_recent 索引中填充。",
       "精确筛选必须使用真实数据库 facet 值；服务端只执行 schema、去空、去重、权限边界和数据库查询，不根据用户原文替模型增删 facet。",
       "查询成功且 satisfied=true 的结果，包括 totalMatches=0 的结果，可以在同一 run 通过 final_answer.usedToolResultIds 支撑普通事实回答；训练推送事实必须写入 final_answer.visibleOutputs[]，不要只写正文。",
       "本 tool 不要求固定 tool 调用次数或顺序；它只提供当前查询实际返回 section 的动作事实。",
@@ -199,7 +203,8 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
       "不要把 groups.training 中且 allowedSections 不包含 warmup/stretch 的动作写入 visibleTrainingProposal.exerciseItems[*].section = warmup 或 stretch；不同 section 需要对应 section 的动作事实支撑。",
       "不要因为当前只查到 training 动作事实，就把模型已经判断需要 routine 或 plan 的目标降级输出为 payload.kind = \"exercise_selection\"；应继续补查缺失 section、澄清或失败收口。",
       "不要用它查询未发布动作、单个动作详情、唯一动作名解析、全库 facet 统计、分页或语义向量检索。",
-      "不要在没有 resolveExerciseResourceMentions 或其他当前 run 可见数据库事实支撑时编造 requiredExerciseIds；该字段只能填真实发布态动作 id，不能填自然语言动作名。",
+      "不要把需要保留、复用、派生或调整的动作写进 excludeExerciseIds；这些目标应把受控动作作为正向事实来源，必要时通过 requiredExerciseIds 锚定查询。",
+      "不要在没有 resolveExerciseResourceMentions、已导入可消费训练事实或其他当前 run 可见数据库事实支撑时编造 requiredExerciseIds；该字段只能填真实发布态动作 id，不能填自然语言动作名。",
       "不要传入 maxReturned、returnedCount、totalMatches、truncated、limit、take、offset、page 或 pageSize；这些不是 input 字段。",
       "不要从 handler-only 结果、model observation、diagnostic 候选，未进入用户可见 visibleTrainingProposal 的内部候选，或未导入当前 run 的自然语言历史中提取 excludeExerciseIds。",
       "不要把 leg、lower body、upper body、full body、腿部、下肢、上肢或全身这类宽泛区域直接当成真实 muscle facet；应由模型基于 facetCatalog 选择数据库中真实存在的一个或多个肌群。",
@@ -379,36 +384,47 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
         summary: `按 ${output.query.suitabilities.join("/")} 查询到 ${output.query.totalMatches} 个发布态动作，返回 ${output.query.returnedCount} 个摘要。`,
       };
     },
-    toModelObservation: (output) => ({
-      status: output.status,
-      suitabilities: output.query.suitabilities,
-      totalMatches: output.query.totalMatches,
-      returnedCount: output.query.returnedCount,
-      truncated: output.query.truncated,
-      excludedCount: output.query.excludedCount,
-      outputSummaryNote: "totalMatches、returnedCount、truncated、excludedCount、groups 和 diagnostics 是本次查询输出摘要，不是下一轮 searchExerciseResources input。",
-      finalAnswerGrounding: "当 fulfillment.satisfied=true，本次查询事实包括 totalMatches=0 的结果，toolResultId 可支撑 final_answer.usedToolResultIds 中的普通事实回答；如果要推送训练结构，最终事实必须写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal.payload。",
-      candidateConsumptionBoundary: "groups.<section>.exercises[*].exerciseId 可作为 visibleTrainingProposal.exerciseItems[*].exerciseId 的事实来源；当前 observation 只提供本次查询返回的动作事实原料，可用 section 只包含 groups 实际返回的 key。本次动作查询不证明当前 run 存在可操作的上一轮 visibleTrainingProposal，也不证明已经完成刷新、替换或调整。prescription、schedule 和最终 payload.kind 需要由 final_answer.visibleOutputs[] 明确输出。若目标结构还缺 section 或字段，模型应基于可见事实自主继续查询、澄清、失败收口或输出当前事实可支撑的结构。",
-      refreshExclusionBoundary: output.query.excludedCount > 0
-        ? "本次查询已应用 excludeExerciseIds；这些 id 只能代表当前 run 可见的用户已看到动作事实或用户明确要求排除的动作。若当前条件下可替代候选不足，模型应说明无法完全换新、询问是否放宽条件或只输出可支撑结构，不得为了填满新方案回填已排除动作。"
-        : "本次查询未应用 excludeExerciseIds；该查询只提供动作事实，不证明当前 run 存在上一套可操作的 visibleTrainingProposal，也不证明已经完成刷新、替换或调整。如果目标是操作已有对象，应先基于当前可见引用事实确认对象；引用对象不可见时，不得用本查询结果宣称刷新、替换或调整成功。",
-      routinePlanCompositionBoundary: buildRoutinePlanCompositionBoundary(output.groups),
-      groupSemantics: {
-        groupKey: "groups.<section>",
-        sectionRelation: "groups.<section>.exercises[] 中的动作是当前查询按该 section 返回的动作事实；生成 visibleTrainingProposal.exerciseItems[] 时，section 应与使用的 group key 保持一致。",
-        allowedSectionsRelation: "每个动作的 allowedSections 是可进入哪些 section 的事实字段；exerciseItems[*].section 必须包含在该动作 allowedSections 中。",
-      },
-      appliedFilters: output.query.appliedFilters,
-      groups: mapGroups(output.groups, (exercise) => ({
-        exerciseId: exercise.exerciseId,
-        nameZh: exercise.nameZh,
-        nameEn: exercise.nameEn,
-        equipmentZh: exercise.equipmentZh,
-        primaryMusclesZh: exercise.primaryMusclesZh,
-        allowedSections: exercise.allowedSections,
-      })),
-      diagnostics: output.diagnostics,
-    }),
+    toModelObservation: (output) => {
+      const coverage = buildSearchResultCoverage(output.groups);
+
+      return {
+        status: output.status,
+        suitabilities: output.query.suitabilities,
+        totalMatches: output.query.totalMatches,
+        returnedCount: output.query.returnedCount,
+        truncated: output.query.truncated,
+        excludedCount: output.query.excludedCount,
+        availableSections: coverage.availableSections,
+        sectionSummary: coverage.sectionSummary,
+        missingSectionsForRoutineOrPlan: coverage.missingSectionsForRoutineOrPlan,
+        supportsOutputKinds: coverage.supportsOutputKinds,
+        outputSummaryNote: "totalMatches、returnedCount、truncated、excludedCount、groups 和 diagnostics 是本次查询输出摘要，不是下一轮 searchExerciseResources input。",
+        finalAnswerGrounding: "当 fulfillment.satisfied=true，本次查询事实包括 totalMatches=0 的结果，toolResultId 可支撑 final_answer.usedToolResultIds 中的普通事实回答；如果要推送训练结构，最终事实必须写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal.payload。",
+        candidateConsumptionBoundary: "groups.<section>.exercises[*].exerciseId 可作为 visibleTrainingProposal.exerciseItems[*].exerciseId 的事实来源；当前 observation 只提供本次查询实际返回动作的 section-scoped 事实原料，availableSections 只包含本次 groups 中确实返回动作的 section。本次动作查询不证明当前 run 存在可操作的上一轮 visibleTrainingProposal，也不证明已经完成刷新、替换或调整。prescription、schedule 和最终 payload.kind 需要由 final_answer.visibleOutputs[] 明确输出。若目标结构还缺 section 或字段，模型应基于可见事实自主继续查询、澄清、失败收口或输出当前事实可支撑的结构。",
+        positiveAnchorBoundary: output.query.requiredExerciseIds?.length
+          ? "本次查询使用 requiredExerciseIds 作为正向锚点；这些 id 只表示应优先纳入对应 groups.<section>.exercises 的受控动作事实，不表示排除、替换或已经生成最终训练方案。"
+          : "本次查询未使用 requiredExerciseIds；如果目标是保留、复用、派生或调整当前 run 可见动作，应优先把受控动作作为正向事实来源，而不是写入 excludeExerciseIds。",
+        refreshExclusionBoundary: output.query.excludedCount > 0
+          ? "本次查询已应用 excludeExerciseIds；这些 id 只能代表当前 run 可见且当前目标需要替换、排除或避免重复的动作，或用户明确要求排除的动作。若当前条件下可替代候选不足，模型应说明无法完全换新、询问是否放宽条件或只输出可支撑结构，不得为了填满新方案回填已排除动作。"
+          : "本次查询未应用 excludeExerciseIds；该查询只提供动作事实，不证明当前 run 存在上一套可操作的 visibleTrainingProposal，也不证明已经完成刷新、替换或调整。如果目标是操作已有对象，应先基于当前可见引用事实确认对象；引用对象不可见时，不得用本查询结果宣称刷新、替换或调整成功。",
+        routinePlanCompositionBoundary: buildRoutinePlanCompositionBoundary(output.groups),
+        groupSemantics: {
+          groupKey: "groups.<section>",
+          sectionRelation: "groups.<section>.exercises[] 中的动作是当前查询按该 section 返回的动作事实；生成 visibleTrainingProposal.exerciseItems[] 时，section 应与使用的 group key 保持一致。",
+          allowedSectionsRelation: "每个动作的 allowedSections 是可进入哪些 section 的事实字段；exerciseItems[*].section 必须包含在该动作 allowedSections 中。",
+        },
+        appliedFilters: output.query.appliedFilters,
+        groups: mapGroups(output.groups, (exercise) => ({
+          exerciseId: exercise.exerciseId,
+          nameZh: exercise.nameZh,
+          nameEn: exercise.nameEn,
+          equipmentZh: exercise.equipmentZh,
+          primaryMusclesZh: exercise.primaryMusclesZh,
+          allowedSections: exercise.allowedSections,
+        })),
+        diagnostics: output.diagnostics,
+      };
+    },
     toUserProjection: (output) => ({
       status: output.status,
       suitabilities: output.query.suitabilities,
@@ -754,21 +770,29 @@ function mapGroups<T>(
 }
 
 function buildRoutinePlanCompositionBoundary(groups: SearchExerciseResourcesOutput["groups"]) {
-  const returnedSections = collectReturnedSections(groups);
-  const missingSectionsForRoutineOrPlan = visibleTrainingCompositionSections.filter((section) => (
-    !returnedSections.includes(section)
-  ));
+  const coverage = buildSearchResultCoverage(groups);
+  const returnedSections = coverage.availableSections;
+  const missingSectionsForRoutineOrPlan = coverage.missingSectionsForRoutineOrPlan;
   const onlyTrainingReturned = returnedSections.length === 1 && returnedSections[0] === "training";
 
   return {
     returnedSections,
+    availableSections: coverage.availableSections,
     missingSectionsForRoutineOrPlan,
+    supportsOutputKinds: coverage.supportsOutputKinds,
     note: onlyTrainingReturned
       ? "当前结果只提供 training 动作事实；如果最终目标是 routine 或 plan，还需要当前 run 可消费的 warmup 和 stretch 动作事实，可用 suitabilities = [\"warmup\", \"stretch\"] 或等价缺失 section 查询补齐候选。不得把未返回的 section 伪造成已获得事实，也不得把本次 tool result 直接当作最终 visibleTrainingProposal。"
       : "如果最终目标是 routine 或 plan，模型应检查 returnedSections 与 missingSectionsForRoutineOrPlan；缺失 section 可通过 suitabilities 指定缺失用途继续查询。不得把未返回的 section 伪造成已获得事实，也不得把本次 tool result 直接当作最终 visibleTrainingProposal。",
   };
 }
 
-function collectReturnedSections(groups: SearchExerciseResourcesOutput["groups"]) {
-  return visibleTrainingCompositionSections.filter((section) => Boolean(groups[section]));
+function buildSearchResultCoverage(groups: SearchExerciseResourcesOutput["groups"]) {
+  const exerciseItems = visibleTrainingCompositionSections.flatMap((section) => {
+    const group = groups[section];
+    return group?.exercises.length
+      ? group.exercises.map(() => ({ section }))
+      : [];
+  });
+
+  return summarizeVisibleTrainingResourceCoverage({ exerciseItems });
 }

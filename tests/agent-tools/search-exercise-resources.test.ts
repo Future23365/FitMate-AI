@@ -113,7 +113,13 @@ describe("searchExerciseResources tool", () => {
     );
     const serializedObservation = JSON.stringify(modelObservation);
     expect(serializedObservation).toContain("exerciseId");
+    expect(serializedObservation).toContain("availableSections");
+    expect(serializedObservation).toContain("section-scoped 事实原料");
     expect(modelObservation).toMatchObject({
+      availableSections: ["training"],
+      sectionSummary: { warmup: 0, training: 1, stretch: 0 },
+      missingSectionsForRoutineOrPlan: ["warmup", "stretch"],
+      supportsOutputKinds: ["exercise_selection"],
       groupSemantics: {
         groupKey: "groups.<section>",
         sectionRelation: expect.stringContaining("visibleTrainingProposal.exerciseItems[]"),
@@ -132,6 +138,8 @@ describe("searchExerciseResources tool", () => {
     expect(serializedObservation).toContain("suitabilities = [\\\"warmup\\\", \\\"stretch\\\"]");
     expect(serializedObservation).toContain("不得把未返回的 section 伪造成已获得事实");
     expect(serializedObservation).toContain("不得把本次 tool result 直接当作最终 visibleTrainingProposal");
+    expect(serializedObservation).toContain("本次查询未使用 requiredExerciseIds");
+    expect(serializedObservation).toContain("正向事实来源");
     expect(serializedObservation).not.toContain("sectionEvidence");
     expect(serializedObservation).not.toContain("exerciseSectionEvidence");
     expect(serializedObservation).not.toContain("visibleTrainingProposalEvidence");
@@ -372,6 +380,7 @@ describe("searchExerciseResources tool", () => {
       output: {
         query: {
           requiredExerciseIds: ["Pushups", "Bodyweight_Squat", "Plank"],
+          excludeExerciseIds: undefined,
           appliedFilters: expect.arrayContaining([
             { field: "q", value: "俯卧撑" },
             { field: "requiredExerciseIds", value: ["Pushups", "Bodyweight_Squat", "Plank"] },
@@ -403,6 +412,9 @@ describe("searchExerciseResources tool", () => {
     const projectionJson = JSON.stringify(result.projection);
     expect(projectionJson).toContain("groups");
     expect(projectionJson).toContain("requiredExerciseIds");
+    expect(projectionJson).toContain("正向锚点");
+    expect(projectionJson).toContain("不表示排除、替换或已经生成最终训练方案");
+    expect(projectionJson).toContain("positiveAnchorBoundary");
     expect(projectionJson).not.toContain("requiredMatches");
     expect(projectionJson).not.toContain("supplementalMatches");
     expect(projectionJson).not.toContain("selectedRequiredExercises");

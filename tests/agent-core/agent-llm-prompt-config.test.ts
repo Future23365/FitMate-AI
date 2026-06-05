@@ -12,7 +12,7 @@ describe("agent LLM prompt configuration", () => {
     const systemPrompt = buildAgentActionSystemPrompt();
 
     expect(agentLlmPromptConfig.promptVersion).toBe(agentLlmPromptVersion);
-    expect(agentLlmPromptVersion).toBe("agent-action-v8");
+    expect(agentLlmPromptVersion).toBe("agent-action-v9");
     expect(systemPrompt).toContain("只能返回一个合法 JSON object");
     expect(systemPrompt).toContain("type 只能是 tool_call、final_answer、ask_user 三者之一");
     expect(systemPrompt).toContain("AI 健身助手");
@@ -23,6 +23,17 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).toContain("都必须用 final_answer");
     expect(systemPrompt).toContain("visibleOutputs[]");
     expect(systemPrompt).toContain("visibleTrainingProposal");
+    expect(systemPrompt).toContain("判断资源操作类型");
+    expect(systemPrompt).toContain("reuse 表示直接复用已有事实");
+    expect(systemPrompt).toContain("derive 表示从已有事实派生更合适的结构");
+    expect(systemPrompt).toContain("modify 表示保留对象并调整顺序、处方、schedule 或局部字段");
+    expect(systemPrompt).toContain("replace 表示替换、排除或避免重复");
+    expect(systemPrompt).toContain("clarify 表示引用对象或目标不足需要追问");
+    expect(systemPrompt).toContain("这些只是模型推理标签，不是 AgentAction 字段");
+    expect(systemPrompt).toContain("服务端不会根据用户原文替你选择标签、tool、action 或 payload.kind");
+    expect(systemPrompt).toContain("reuse、derive 和 modify 应优先把可消费资源作为正向事实来源");
+    expect(systemPrompt).toContain("replace 才适合把当前 run 可见且用户已经看到或明确要求排除的 exerciseId 作为 excludeExerciseIds");
+    expect(systemPrompt).toContain("requiredExerciseIds 作为正向锚点查询受控动作事实");
     expect(systemPrompt).toContain("payload.kind");
     expect(systemPrompt).toContain("exercise_selection");
     expect(systemPrompt).toContain("routine");
@@ -66,6 +77,9 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).toContain("当前 run 只具备 training 动作事实");
     expect(systemPrompt).toContain("应优先补齐 warmup/stretch");
     expect(systemPrompt).toContain("不得因为只查到 training 动作就输出 payload.kind = exercise_selection 来替代 routine 或 plan");
+    expect(systemPrompt).toContain("routine 和 plan 需要 warmup、training、stretch 三类 section 的当前 run 可消费动作事实");
+    expect(systemPrompt).toContain("exerciseItems[*].section 必须被对应动作事实的 allowedSections 支撑");
+    expect(systemPrompt).toContain("只有 training 动作事实时，不得伪造 warmup 或 stretch");
     expect(systemPrompt).toContain("tool 不可用、事实仍不足或用户目标缺少必要约束");
     expect(systemPrompt).toContain("如果最终结构需要当前可见事实未覆盖的 section、动作、prescription 或 schedule");
     expect(systemPrompt).toContain("继续查询、澄清、失败收口或只输出当前事实可支撑的结构");
@@ -145,6 +159,6 @@ describe("agent LLM prompt configuration", () => {
       "返回测试专用 AgentAction JSON object。 这个测试只期望 final_answer。",
     );
     expect(buildAgentActionSystemPrompt()).toContain("tool_call、final_answer、ask_user");
-    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v8");
+    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v9");
   });
 });

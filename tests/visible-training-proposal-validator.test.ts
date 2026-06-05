@@ -147,6 +147,39 @@ describe("visible training proposal validator", () => {
     });
   });
 
+  it("returns recoverable coverage diagnostics when routine output only contains training facts", async () => {
+    await expect(validateVisibleTrainingProposalOutput(
+      createEnvelope({
+        kind: "routine",
+        exerciseItems: [
+          { exerciseId: "push-up", section: "training", order: 1, prescription: createPrescription("reps", 12) },
+        ],
+      }),
+      createContext(),
+      { loadExerciseRecordsByIds: createExerciseFactLoader() },
+    )).resolves.toMatchObject({
+      ok: false,
+      message: "visibleTrainingProposal 缺少 routine 或 plan 必要 section。",
+      details: {
+        code: "section_coverage_missing",
+        path: "payload.exerciseItems",
+        payloadKind: "routine",
+        availableSections: ["training"],
+        missingSectionsForRoutineOrPlan: ["warmup", "stretch"],
+        outputCoverage: {
+          sectionSummary: { warmup: 0, training: 1, stretch: 0 },
+          availableSections: ["training"],
+          missingSectionsForRoutineOrPlan: ["warmup", "stretch"],
+          supportsOutputKinds: ["exercise_selection"],
+        },
+        recoveryDirections: expect.arrayContaining([
+          "继续获取缺失 section 的可消费动作事实。",
+          "输出当前事实可支撑的结构。",
+        ]),
+      },
+    });
+  });
+
   it("deduplicates repeated exerciseId before loading database facts", async () => {
     const loader = vi.fn(async (ids: readonly string[]) => ids.flatMap((id) => {
       const record = createExerciseRecord(id);

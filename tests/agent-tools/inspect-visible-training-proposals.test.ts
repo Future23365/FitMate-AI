@@ -241,9 +241,23 @@ describe("inspectVisibleTrainingProposals tool", () => {
         operation: "read_recent",
         currentRunImport: expect.objectContaining({
           imported: true,
-          note: expect.stringContaining("已导入当前 run，可作为后续差异化刷新"),
+          role: "consumable",
+          note: expect.stringContaining("正向消费的训练事实来源"),
         }),
+        resourceConsumption: expect.objectContaining({
+          availableSections: ["warmup", "training", "stretch"],
+          missingSectionsForRoutineOrPlan: [],
+          supportsOutputKinds: ["exercise_selection", "routine"],
+        }),
+        availableSections: ["warmup", "training", "stretch"],
+        missingSectionsForRoutineOrPlan: [],
+        supportsOutputKinds: ["exercise_selection", "routine"],
         refreshPlanningBoundary: expect.stringContaining("本 tool 只读取上一套用户可见训练方案事实，不生成新的 visibleTrainingProposal"),
+        reusableExerciseItems: [
+          expect.objectContaining({ exerciseId: "jumping-jack", section: "warmup" }),
+          expect.objectContaining({ exerciseId: "squat", section: "training" }),
+          expect.objectContaining({ exerciseId: "standing-quad-stretch", section: "stretch" }),
+        ],
         trainingExerciseItems: [
           expect.objectContaining({
             exerciseId: "squat",
@@ -255,12 +269,60 @@ describe("inspectVisibleTrainingProposals tool", () => {
     });
     expect(serializedObservation).toContain("visibleOutputSchemaVersion");
     expect(serializedObservation).toContain("factSchemaVersion");
-    expect(serializedObservation).toContain("动作保留、动作排除、结构调整、澄清或失败收口");
+    expect(serializedObservation).toContain("resourceOperationBoundary");
+    expect(serializedObservation).toContain("reuse、derive、modify");
+    expect(serializedObservation).toContain("replace");
+    expect(serializedObservation).toContain("正向消费的训练事实来源");
+    expect(serializedObservation).toContain("不得把已导入动作默认排除");
     expect(serializedObservation).toContain("最终结构仍必须由 final_answer.visibleOutputs[] 承载");
     expect(serializedObservation).toContain("final_answer.visibleOutputs[]");
     expect(serializedObservation).not.toContain("displayedExerciseIds");
     expect(serializedObservation).not.toContain("displayedExercises");
     expect(serializedObservation).not.toContain("exercise_recommendation_fact");
+  });
+
+  it("projects training-only read_recent facts as partial coverage without routine support", async () => {
+    factStoreMocks.readVisibleTrainingProposalFact.mockResolvedValueOnce({
+      ok: true,
+      fact: createTrainingOnlyVisibleTrainingProposalFact(),
+    });
+
+    const result = await executeTool({
+      tool: inspectVisibleTrainingProposalsTool,
+      input: { operation: "read_recent", factRef: "fact-training-only" },
+      run: {
+        ...createRun("run-visible-training-only"),
+        metadata: createRunMetadata({ factRef: "fact-training-only" }),
+      },
+      timeoutMs: 100,
+      toolCallId: "tc_visible_training_only",
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      output: {
+        status: "succeeded",
+        operation: "read_recent",
+      },
+      projection: {
+        model: expect.objectContaining({
+          availableSections: ["training"],
+          missingSectionsForRoutineOrPlan: ["warmup", "stretch"],
+          supportsOutputKinds: ["exercise_selection"],
+          resourceConsumption: expect.objectContaining({
+            availableSections: ["training"],
+            missingSectionsForRoutineOrPlan: ["warmup", "stretch"],
+            supportsOutputKinds: ["exercise_selection"],
+          }),
+        }),
+      },
+    });
+
+    const observationJson = JSON.stringify(result.ok ? result.projection.model : {});
+    expect(observationJson).toContain("继续获取缺失 section");
+    expect(observationJson).toContain("输出当前事实可支撑结构");
+    expect(observationJson).not.toContain("\"routine\",\"plan\"");
+    expect(observationJson).not.toContain("必须调用 searchExerciseResources");
   });
 
   it("refuses read_recent references that are absent from current run visible indexes before reading the store", async () => {
@@ -482,6 +544,29 @@ function createReadableVisibleTrainingProposalFact() {
       { exerciseId: "squat", nameZh: "深蹲", nameEn: "Squat", equipmentZh: "自重", primaryMusclesZh: ["股四头肌"], allowedSections: ["training"], imageUrl: null },
       { exerciseId: "standing-quad-stretch", nameZh: "站姿股四头肌拉伸", nameEn: "Standing Quad Stretch", equipmentZh: "自重", primaryMusclesZh: ["股四头肌"], allowedSections: ["stretch"], imageUrl: null },
     ],
+  };
+}
+
+function createTrainingOnlyVisibleTrainingProposalFact() {
+  return {
+    ...createRecentVisibleTrainingProposalSummary(),
+    factRef: "fact-training-only",
+    proposalKind: "exercise_selection" as const,
+    userId: "user-1",
+    conversationId: "conversation-1",
+    payload: {
+      kind: "exercise_selection" as const,
+      exerciseItems: [
+        { exerciseId: "squat", section: "training" as const, order: 1 },
+      ],
+    },
+    exerciseItems: [
+      { exerciseId: "squat", section: "training" as const, order: 1, nameZh: "深蹲", nameEn: "Squat", equipmentZh: "自重", primaryMusclesZh: ["股四头肌"], allowedSections: ["training" as const], imageUrl: null },
+    ],
+    exerciseDetails: [
+      { exerciseId: "squat", nameZh: "深蹲", nameEn: "Squat", equipmentZh: "自重", primaryMusclesZh: ["股四头肌"], allowedSections: ["training" as const], imageUrl: null },
+    ],
+    schedule: undefined,
   };
 }
 

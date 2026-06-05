@@ -107,9 +107,18 @@ describe("agent-core contract test helper", () => {
         training: {
           suitability: "training",
           totalMatches: 1,
-          returnedCount: 0,
+          returnedCount: 1,
           truncated: false,
-          exercises: [],
+          exercises: [
+            {
+              exerciseId: "push-up",
+              nameZh: "俯卧撑",
+              nameEn: "Push-up",
+              equipmentZh: "自重",
+              primaryMusclesZh: ["胸部"],
+              allowedSections: ["training"],
+            },
+          ],
         },
       },
       diagnostics: [],

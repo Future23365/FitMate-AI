@@ -12,6 +12,10 @@ import {
   type VisibleTrainingExerciseItem,
 } from "@/lib/server/visible-training-proposals/visible-training-proposal-contract";
 import {
+  summarizeVisibleTrainingResourceCoverage,
+  summarizeVisibleTrainingSections,
+} from "@/lib/server/visible-training-proposals/visible-training-resource-coverage";
+import {
   listRecentVisibleTrainingProposalSummaries,
   readVisibleTrainingProposalFact,
   toJsonValue,
@@ -142,7 +146,7 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
     "当 Planner 需要确认当前 actor 和 conversation 是否存在可引用的用户可见训练方案事实时，先调用 operation = \"list_recent\"。",
     "list_recent 只返回 factRef、messageId、proposalKind、section 摘要、可复用 training 动作数量、visibleOutputSchemaVersion 和 factSchemaVersion；它不导入完整 payload，也不产出 consumable 训练方案事实。",
     "当 Planner 已经从 list_recent result、diagnostic index resource 或当前受控 metadata 中看到真实 factRef/messageId，并且需要复用具体方案时，再调用 operation = \"read_recent\"。",
-    "read_recent 成功后会把 visible_training_proposal_fact 作为当前 run 的 consumable resource 导入；Planner 可用其中用户已看到的动作事实、section 摘要和计划结构，继续判断保留、排除、替换、查询新动作、调整结构、澄清或失败收口，不要重复读取同一引用。",
+    "read_recent 成功后会把 visible_training_proposal_fact 作为当前 run 的 consumable resource 导入；Planner 可用其中用户已看到的动作事实、availableSections、missingSectionsForRoutineOrPlan、supportsOutputKinds、section 摘要和计划结构，继续判断 reuse、derive、modify、replace、clarify、查询新动作、调整结构、澄清或失败收口，不要重复读取同一引用。",
     "省略表达、指代不明或上下文引用场景由模型基于上下文、list_recent result 和 read_recent result 自主判断下一步，可以读取事实、查询动作库、澄清或普通回复；本 tool 不要求固定 tool 调用次数或顺序。",
   ].join(" "),
   whenNotToUse: [
@@ -312,6 +316,7 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
         role: "consumable" as const,
         schemaVersion: String(visibleTrainingProposalFactSchemaVersion),
         summary: toJsonValue({
+          resourceConsumption: buildReadRecentResourceConsumptionSummary(output),
           factRef: output.fact.factRef,
           messageId: output.fact.messageId,
           proposalKind: output.fact.proposalKind,
@@ -350,21 +355,27 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
       });
     }
 
+    const resourceConsumption = buildReadRecentResourceConsumptionSummary(output);
+
     return toJsonValue({
       status: output.status,
       operation: output.operation,
       factRef: output.fact.factRef,
       messageId: output.fact.messageId,
       currentRunImport: {
-        imported: true,
-        resourceType: visibleTrainingProposalFactResourceType,
-        note: "该 visibleTrainingProposal 事实已导入当前 run，可作为后续差异化刷新、动作保留、动作排除、结构调整、澄清或失败收口的依据；不要重复读取同一引用。",
+          imported: true,
+          resourceType: visibleTrainingProposalFactResourceType,
+          role: "consumable",
+          note: "该 visibleTrainingProposal 事实已导入当前 run，是当前 Planner 可正向消费的训练事实来源；不要重复读取同一引用。",
       },
+      resourceConsumption,
+      resourceOperationBoundary: "导入事实可以作为 reuse、derive、modify 的正向来源；只有模型基于用户目标判断为 replace、明确排除或避免重复时，才适合把其中 exerciseId 作为 excludeExerciseIds。read_recent 不替 Planner 判断当前请求属于哪类操作，也不默认生成排除列表。",
       refreshPlanningBoundary: "本 tool 只读取上一套用户可见训练方案事实，不生成新的 visibleTrainingProposal；需要推送新方案时，最终结构仍必须由 final_answer.visibleOutputs[] 承载。",
       proposalKind: output.fact.proposalKind,
       visibleOutputSchemaVersion: output.fact.visibleOutputSchemaVersion,
       factSchemaVersion: output.fact.factSchemaVersion,
       factSchemaVersionBoundary: "factSchemaVersion 是服务端事实存储版本，不应复制到 final_answer.visibleOutputs[].schemaVersion；visible output envelope 的 schemaVersion 必须写字符串 \"1\"。",
+      reusableExerciseItems: toReusableExerciseItems(output),
       trainingExerciseItems: output.fact.proposal.exerciseItems
         .filter((item) => item.section === "training")
         .map((item) => ({
@@ -373,7 +384,10 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
           order: item.order,
           prescription: item.prescription,
         })),
-      sectionSummary: summarizeSections(output.fact.proposal.exerciseItems),
+      sectionSummary: resourceConsumption.sectionSummary,
+      availableSections: resourceConsumption.availableSections,
+      missingSectionsForRoutineOrPlan: resourceConsumption.missingSectionsForRoutineOrPlan,
+      supportsOutputKinds: resourceConsumption.supportsOutputKinds,
       schedule: output.fact.proposal.schedule,
       finalAnswerBoundary: "需要继续推送训练方案时，最终事实必须写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal payload；不要把正文当训练事实源。",
     });
@@ -443,11 +457,41 @@ function toFactIndex(fact: VisibleTrainingProposalFactSummary): VisibleTrainingP
 }
 
 function summarizeSections(items: readonly Pick<VisibleTrainingExerciseItem, "section">[]): SectionSummary {
+  return summarizeVisibleTrainingSections(items) satisfies SectionSummary;
+}
+
+function buildReadRecentResourceConsumptionSummary(
+  output: Extract<InspectVisibleTrainingProposalsOutput, { status: "succeeded"; operation: "read_recent" }>,
+) {
   return {
-    warmup: items.filter((item) => item.section === "warmup").length,
-    training: items.filter((item) => item.section === "training").length,
-    stretch: items.filter((item) => item.section === "stretch").length,
-  } satisfies SectionSummary;
+    ...summarizeVisibleTrainingResourceCoverage({
+      exerciseItems: output.fact.proposal.exerciseItems,
+      hasSchedule: Boolean(output.fact.proposal.schedule),
+    }),
+    positiveConsumptionBoundary: "这些 exerciseItems 是当前 run 可消费的正向训练事实来源，可用于保留、复用、派生或调整。",
+    negativeConstraintBoundary: "只有替换、排除或避免重复目标才适合把这些 exerciseId 转成负向 excludeExerciseIds；不得把已导入动作默认排除。",
+    outputBoundary: "supportsOutputKinds 只说明该事实当前可直接支撑的 visibleTrainingProposal 输出强度；最终新输出仍必须由 final_answer.visibleOutputs[] 承载并通过 validator。",
+    recoveryBoundary: "如果目标需要 routine 或 plan 但缺少 section，可继续获取缺失 section、输出当前事实可支撑结构、澄清或失败收口；本 observation 不规定固定 tool 调用顺序。",
+  };
+}
+
+function toReusableExerciseItems(
+  output: Extract<InspectVisibleTrainingProposalsOutput, { status: "succeeded"; operation: "read_recent" }>,
+) {
+  return output.fact.proposal.exerciseItems.map((item) => {
+    const detail = output.fact.exerciseDetails.find((exercise) => exercise.exerciseId === item.exerciseId);
+
+    return {
+      exerciseId: item.exerciseId,
+      section: item.section,
+      order: item.order,
+      nameZh: detail?.nameZh,
+      nameEn: detail?.nameEn,
+      equipmentZh: detail?.equipmentZh,
+      primaryMusclesZh: detail?.primaryMusclesZh ?? [],
+      allowedSections: detail?.allowedSections ?? [],
+    };
+  });
 }
 
 function isReferenceVisibleInCurrentRun(input: ReadRecentInput, context: ToolHandlerContext) {
