@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { defineTool } from "@/lib/server/agent-core/define-tool";
+import { agentRuntimeConfig } from "@/lib/server/config";
 import {
   resolveExerciseResourceMentionSummaries,
   type ExerciseResourceMentionResolutionResult,
@@ -102,7 +103,7 @@ export const resolveExerciseResourceMentionsTool = defineTool<
     sideEffect: "read",
     riskLevel: "low",
     confirmation: "never",
-    timeoutMs: 1_000,
+    timeoutMs: agentRuntimeConfig.tools.resolveExerciseResourceMentions.timeoutMs,
   },
   examples: [
     {
@@ -126,7 +127,10 @@ export const resolveExerciseResourceMentionsTool = defineTool<
   ],
   handler: async (input) => {
     const resolved = await Promise.all(input.mentions.map(async (mention) => {
-      const result = await resolveExerciseResourceMentionSummaries({ text: mention.text });
+      const result = await resolveExerciseResourceMentionSummaries({
+        text: mention.text,
+        maxMatches: agentRuntimeConfig.tools.resolveExerciseResourceMentions.maxMatches,
+      });
       return toMentionResolutionOutput(mention, result);
     }));
 

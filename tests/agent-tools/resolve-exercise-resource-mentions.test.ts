@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { executeTool } from "@/lib/server/agent-core/executor";
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
+import { agentRuntimeConfig } from "@/lib/server/config";
 import type {
   ExerciseResourceMentionResolutionResult,
   ExerciseResourceSummary,
@@ -72,9 +73,9 @@ describe("resolveExerciseResourceMentions tool", () => {
     });
     expect(repository.resolveExerciseResourceMentionSummaries).toHaveBeenCalledTimes(3);
     expect(repository.resolveExerciseResourceMentionSummaries.mock.calls.map(([input]) => input)).toEqual([
-      { text: "俯卧撑" },
-      { text: "深蹲" },
-      { text: "平板支撑" },
+      { text: "俯卧撑", maxMatches: agentRuntimeConfig.tools.resolveExerciseResourceMentions.maxMatches },
+      { text: "深蹲", maxMatches: agentRuntimeConfig.tools.resolveExerciseResourceMentions.maxMatches },
+      { text: "平板支撑", maxMatches: agentRuntimeConfig.tools.resolveExerciseResourceMentions.maxMatches },
     ]);
 
     if (!result.ok) {

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { defineTool } from "@/lib/server/agent-core/define-tool";
+import { agentRuntimeConfig } from "@/lib/server/config";
 import {
   getExerciseResourceSummariesByIds,
   searchExerciseResourceSummaries,
@@ -217,7 +218,7 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
       sideEffect: "read",
       riskLevel: "low",
       confirmation: "never",
-      timeoutMs: 1_000,
+      timeoutMs: agentRuntimeConfig.tools.searchExerciseResources.timeoutMs,
     },
     examples: [
       {
@@ -277,6 +278,7 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
           goalTag: input.goalTag,
           riskTag: input.riskTag,
           excludeExerciseIds,
+          maxReturned: agentRuntimeConfig.tools.searchExerciseResources.maxReturnedPerSection,
           published: input.published,
           sort: input.sort,
         }))),

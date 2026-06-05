@@ -6,6 +6,7 @@ import { renderAgentResponseEvents } from "@/lib/server/agent-core/response-rend
 import { runAgentRuntime } from "@/lib/server/agent-core/runtime";
 import { ToolRegistry } from "@/lib/server/agent-core/tool-registry";
 import { ReplayPlanner } from "@/lib/server/agent-planners/replay-planner";
+import { agentRuntimeConfig } from "@/lib/server/config";
 import type { ExerciseResourceSearchResult } from "@/lib/server/exercises/exercise-repository";
 
 const repositoryPath = "@/lib/server/exercises/exercise-repository";
@@ -96,6 +97,7 @@ describe("searchExerciseResources tool", () => {
       goalTag: undefined,
       riskTag: undefined,
       excludeExerciseIds: undefined,
+      maxReturned: agentRuntimeConfig.tools.searchExerciseResources.maxReturnedPerSection,
       published: true,
       sort: "name_asc",
     });
@@ -582,9 +584,9 @@ describe("searchExerciseResources tool", () => {
     }));
     vi.doUnmock(repositoryPath);
     const {
-      EXERCISE_RESOURCE_SEARCH_MAX_RETURNED,
       searchExerciseResourceSummaries,
     } = await import("@/lib/server/exercises/exercise-repository");
+    const configuredMaxReturned = agentRuntimeConfig.tools.searchExerciseResources.maxReturnedPerSection;
 
     const result = await searchExerciseResourceSummaries({
       q: "俯卧撑",
@@ -608,7 +610,7 @@ describe("searchExerciseResources tool", () => {
     const serializedFindMany = JSON.stringify(findManyArgs);
 
     expect(countArgs.where).toEqual(findManyArgs.where);
-    expect(findManyArgs.take).toBe(EXERCISE_RESOURCE_SEARCH_MAX_RETURNED + 1);
+    expect(findManyArgs.take).toBe(configuredMaxReturned + 1);
     expect(findManyArgs).not.toHaveProperty("skip");
     expect(findManyArgs.select).toMatchObject({
       id: true,
@@ -640,17 +642,52 @@ describe("searchExerciseResources tool", () => {
     expect(serializedFindMany).not.toContain("rerank");
     expect(result).toMatchObject({
       totalMatches: 13,
-      returnedCount: EXERCISE_RESOURCE_SEARCH_MAX_RETURNED,
-      maxReturned: EXERCISE_RESOURCE_SEARCH_MAX_RETURNED,
+      returnedCount: configuredMaxReturned,
+      maxReturned: configuredMaxReturned,
       truncated: true,
       excludedCount: 2,
     });
-    expect(result.exercises).toHaveLength(EXERCISE_RESOURCE_SEARCH_MAX_RETURNED);
+    expect(result.exercises).toHaveLength(configuredMaxReturned);
     expect(result.exercises[0]).toMatchObject({
       id: "exercise-1",
       allowedSections: ["training"],
       isPublished: true,
     });
+  });
+
+  it("clamps repository maxReturned to the hard cap when callers pass an unsafe value", async () => {
+    const prisma = {
+      exercise: {
+        count: vi.fn().mockResolvedValue(30),
+        findMany: vi.fn(),
+      },
+    };
+    vi.doMock(dbPath, () => ({
+      isDatabaseConfigured: () => true,
+      getPrismaClient: () => prisma,
+    }));
+    vi.doUnmock(repositoryPath);
+    const {
+      EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED,
+      searchExerciseResourceSummaries,
+    } = await import("@/lib/server/exercises/exercise-repository");
+    prisma.exercise.findMany.mockResolvedValue(
+      Array.from({ length: EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED + 1 }, (_, index) => createRepositoryExerciseRecord({
+        id: `hard-cap-exercise-${index + 1}`,
+        nameZh: `硬上限动作 ${index + 1}`,
+      })),
+    );
+
+    const result = await searchExerciseResourceSummaries({
+      suitability: "training",
+      published: true,
+      sort: "name_asc",
+      maxReturned: EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED + 100,
+    });
+
+    expect(prisma.exercise.findMany.mock.calls[0][0].take).toBe(EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED + 1);
+    expect(result.maxReturned).toBe(EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED);
+    expect(result.exercises).toHaveLength(EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED);
   });
 
   it("reads a complete facetCatalog from published exercise facts", async () => {
@@ -778,7 +815,7 @@ function createSearchResult(overrides: SearchResultOverrides = {}): ExerciseReso
     appliedFilters: overrides.appliedFilters ?? [{ field: "published", value: true }],
     totalMatches: overrides.totalMatches ?? exercises.length,
     returnedCount: overrides.returnedCount ?? exercises.length,
-    maxReturned: overrides.maxReturned ?? 12,
+    maxReturned: overrides.maxReturned ?? agentRuntimeConfig.tools.searchExerciseResources.maxReturnedPerSection,
     truncated: overrides.truncated ?? false,
     excludedCount: overrides.excludedCount ?? 0,
     exercises,

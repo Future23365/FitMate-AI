@@ -10,6 +10,7 @@ import {
 } from "@/lib/server/agent-tools";
 import { toolToManifest } from "@/lib/server/agent-core/manifest";
 import { resourceProducerFixtureTool } from "@/lib/server/agent-tools/fixture/m1-safety-fixture.tools";
+import { agentRuntimeConfig } from "@/lib/server/config";
 
 import { checkToolContractForProduction, checkToolRuntimeSafety } from "./contract-test-helper";
 
@@ -98,7 +99,7 @@ describe("agent-core contract test helper", () => {
         appliedFilters: [{ field: "published", value: true }, { field: "suitabilities", value: ["training"] }],
         totalMatches: 1,
         returnedCount: 1,
-        maxReturned: 12,
+        maxReturned: agentRuntimeConfig.tools.searchExerciseResources.maxReturnedPerSection,
         truncated: false,
         excludedCount: 0,
         requiredExerciseIds: ["push-up"],

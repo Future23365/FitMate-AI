@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type { JsonValue, ToolHandlerContext } from "@/lib/server/agent-core/contracts";
 import { defineTool } from "@/lib/server/agent-core/define-tool";
+import { agentRuntimeConfig } from "@/lib/server/config";
 import {
   visibleTrainingProposalFactIndexResourceType,
   visibleTrainingProposalFactKind,
@@ -24,7 +25,6 @@ import {
 import { exerciseAllowedSectionSchema } from "@/lib/shared/exercises/types";
 
 const factRefSchema = z.string().trim().min(1).max(160);
-const recentFactListLimit = 3;
 const readRecentOperationDescription = "读取 list_recent 或当前受控上下文中真实出现的可见训练方案事实，并导入当前 run。";
 const factRefDescription = "只能从 list_recent result、diagnostic index resource 或当前 run metadata.recentVisibleTrainingProposals 中真实出现的 factRef 复制；没有真实值时不要编造。";
 const messageIdDescription = "只能从 list_recent result、diagnostic index resource 或当前 run metadata.recentVisibleTrainingProposals 中真实出现的上一轮 assistant messageId 复制；仅在缺少 factRef 时使用。";
@@ -162,7 +162,7 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
     sideEffect: "read",
     riskLevel: "low",
     confirmation: "never",
-    timeoutMs: 1_000,
+    timeoutMs: agentRuntimeConfig.tools.inspectVisibleTrainingProposals.timeoutMs,
   },
   resourceContract: {
     produces: [
@@ -199,7 +199,7 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
         const facts = await listRecentVisibleTrainingProposalSummaries({
           userId: context.actor.userId,
           conversationId: context.actor.sessionId,
-          limit: recentFactListLimit,
+          limit: agentRuntimeConfig.tools.inspectVisibleTrainingProposals.recentFactListLimit,
         });
 
         return {

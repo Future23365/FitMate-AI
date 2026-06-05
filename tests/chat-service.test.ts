@@ -22,6 +22,7 @@ import {
   type ModelTokenUsage,
 } from "@/lib/server/agent-planners/model-adapters/model-adapter";
 import { clearAiTraces, listAiTracesForUser } from "@/lib/server/dev/ai-trace-store";
+import { agentRuntimeConfig } from "@/lib/server/config";
 import { createChatConversation } from "./fixtures/domain";
 
 const exerciseResourceRepositoryMocks = vi.hoisted(() => ({
@@ -323,9 +324,7 @@ describe("chat service agent text flow boundary", () => {
       metadata: {
         hydration: expect.objectContaining({ source: "latest_message" }),
       },
-      limits: expect.objectContaining({
-        maxToolCalls: 10,
-      }),
+      limits: agentRuntimeConfig.runtime,
     });
     expect(listAiTracesForUser("user-1")[0]).toMatchObject({
       route: "/api/chat",
@@ -454,6 +453,7 @@ describe("chat service agent text flow boundary", () => {
       goalTag: undefined,
       riskTag: undefined,
       excludeExerciseIds: undefined,
+      maxReturned: agentRuntimeConfig.tools.searchExerciseResources.maxReturnedPerSection,
       published: true,
       sort: "name_asc",
     });
@@ -1748,7 +1748,7 @@ describe("chat service agent text flow boundary", () => {
     expect(visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries).toHaveBeenCalledWith({
       userId: "user-1",
       conversationId: "conversation-refresh-empty",
-      limit: 3,
+      limit: agentRuntimeConfig.tools.inspectVisibleTrainingProposals.recentFactListLimit,
     });
     expect(visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact).not.toHaveBeenCalled();
     expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries).not.toHaveBeenCalled();

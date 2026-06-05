@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  agentRuntimeConfig,
   agentLlmPromptConfig,
   agentLlmPromptVersion,
   buildAgentActionSystemPrompt,
   type AgentLlmPromptConfig,
-} from "@/lib/server/agent-planners/prompts/agent-llm-prompt-config";
+} from "@/lib/server/config";
 
 describe("agent LLM prompt configuration", () => {
   it("exposes a stable default AgentAction prompt and version", () => {
@@ -137,8 +138,8 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).not.toContain("saveWorkout");
     expect(systemPrompt).not.toContain("queryUserMemory");
     expect(agentLlmPromptConfig.requestDefaults).toEqual({
-      temperature: 0,
-      maxTokens: 1_200,
+      temperature: agentRuntimeConfig.llm.temperature,
+      maxTokens: agentRuntimeConfig.llm.maxTokens,
     });
   });
 

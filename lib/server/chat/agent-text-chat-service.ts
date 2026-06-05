@@ -35,6 +35,7 @@ import {
 import { createProductionTerminalOutputValidatorRegistry } from "@/lib/server/visible-training-proposals/visible-training-proposal-validator";
 import { createProductionVisibleOutputRendererRegistry } from "@/lib/server/visible-training-proposals/visible-training-proposal-renderer";
 import { readExerciseResourceFacetCatalog } from "@/lib/server/exercises/exercise-repository";
+import { agentRuntimeConfig } from "@/lib/server/config";
 import {
   startAiTrace,
   summarizeLatestUserMessage,
@@ -276,13 +277,7 @@ export function createAgentTextChatRunInput(input: {
       recentVisibleTrainingProposals: input.recentVisibleTrainingProposals ?? [],
     },
     limits: {
-      maxSteps: 22,
-      maxPlannerCalls: 11,
-      maxToolCalls: 10,
-      maxInvalidActions: 1,
-      maxRepairAttempts: 1,
-      overallTimeoutMs: 40_000,
-      perToolTimeoutMs: 1_000,
+      ...agentRuntimeConfig.runtime,
     },
   };
 }

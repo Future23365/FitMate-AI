@@ -6,6 +6,7 @@ import { runAgentRuntime } from "@/lib/server/agent-core/runtime";
 import { ToolRegistry } from "@/lib/server/agent-core/tool-registry";
 import { inspectVisibleTrainingProposalsTool } from "@/lib/server/agent-tools/exercise-facts/inspect-visible-training-proposals.tool";
 import { ReplayPlanner } from "@/lib/server/agent-planners/replay-planner";
+import { agentRuntimeConfig } from "@/lib/server/config";
 
 const factStoreMocks = vi.hoisted(() => ({
   listRecentVisibleTrainingProposalSummaries: vi.fn(),
@@ -50,7 +51,7 @@ describe("inspectVisibleTrainingProposals tool", () => {
     expect(factStoreMocks.listRecentVisibleTrainingProposalSummaries).toHaveBeenCalledWith({
       userId: "user-1",
       conversationId: "conversation-1",
-      limit: 3,
+      limit: agentRuntimeConfig.tools.inspectVisibleTrainingProposals.recentFactListLimit,
     });
     expect(result).toMatchObject({
       status: "completed",

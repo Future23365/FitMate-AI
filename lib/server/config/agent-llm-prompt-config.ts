@@ -1,3 +1,7 @@
+import "server-only";
+
+import { agentRuntimeConfig } from "./agent-runtime-config";
+
 // AgentLlmPromptRequestDefaults 保存与通用 AgentAction prompt 绑定的模型请求默认参数。
 export type AgentLlmPromptRequestDefaults = {
   temperature: number;
@@ -50,8 +54,8 @@ export const agentLlmPromptConfig = {
   promptVersion: agentLlmPromptVersion,
   systemPromptInstructions: defaultAgentActionSystemPromptInstructions,
   requestDefaults: {
-    temperature: 0,
-    maxTokens: 1_200,
+    temperature: agentRuntimeConfig.llm.temperature,
+    maxTokens: agentRuntimeConfig.llm.maxTokens,
   },
 } satisfies AgentLlmPromptConfig;
 
