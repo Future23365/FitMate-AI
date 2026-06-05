@@ -10,15 +10,17 @@ import {
 import { useTheme } from "next-themes";
 import { Toaster as Sonner, type ToasterProps } from "sonner";
 
+import { cn } from "@/lib/utils";
+
 // Toaster 是 shadcn Sonner 的全局提示容器，统一承载应用级 toast 展示。
-const Toaster = ({ position = "top-center", ...props }: ToasterProps) => {
+const Toaster = ({ className, position = "top-center", style, ...props }: ToasterProps) => {
   const { theme = "system" } = useTheme();
 
   return (
     <Sonner
       theme={theme as ToasterProps["theme"]}
       position={position}
-      className="toaster group"
+      className={cn("toaster group", className)}
       icons={{
         success: <CircleCheckIcon className="size-4" />,
         info: <InfoIcon className="size-4" />,
@@ -32,6 +34,8 @@ const Toaster = ({ position = "top-center", ...props }: ToasterProps) => {
           "--normal-text": "var(--popover-foreground)",
           "--normal-border": "var(--border)",
           "--border-radius": "var(--radius)",
+          ...style,
+          zIndex: 2147483647,
         } as React.CSSProperties
       }
       {...props}

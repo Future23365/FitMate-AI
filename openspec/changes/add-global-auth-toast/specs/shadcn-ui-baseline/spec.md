@@ -18,6 +18,11 @@
 - **THEN** `Toaster` MUST 将提示显示在页面上方
 - **AND** 业务页面 MUST NOT 需要为相同提示重复配置位置
 
+#### Scenario: 全局 Toaster 覆盖全局浮层
+- **WHEN** Dialog、Drawer 或其他全局浮层打开时触发 toast
+- **THEN** `Toaster` MUST 将 toast 显示在这些浮层之上
+- **AND** 业务页面 MUST NOT 需要为相同提示重复配置层级
+
 #### Scenario: Sonner 依赖可验证
 - **WHEN** 运行项目类型检查、lint 和构建
 - **THEN** 检查 MUST 不因新增 `sonner` 组件或依赖失败

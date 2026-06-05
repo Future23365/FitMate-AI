@@ -4,6 +4,7 @@
 - [x] 1.2 使用 shadcn/ui 官方 Sonner 组件生成或补齐 `components/ui/sonner.tsx`，并确保依赖写入 `package.json` 与 lockfile。
 - [x] 1.3 在 `app/layout.tsx` 挂载全局 `Toaster`，保持页面内容和 `LocalAuthProvider` 的现有结构。
 - [x] 1.4 配置全局 `Toaster` 在页面上方显示 toast。
+- [x] 1.5 配置全局 `Toaster` 层级高于 Dialog、Drawer 等全局浮层。
 
 ## 2. 未认证事件提示
 
