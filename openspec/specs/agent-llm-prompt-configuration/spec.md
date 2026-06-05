@@ -300,3 +300,180 @@ TBD - created by archiving change externalize-agent-llm-prompts. Update Purpose 
 - **THEN** 这些具体业务名 MUST 只出现在对应 tool manifest、observation projection、resource contract、spec 或回归测试中
 - **AND** 通用 Agent prompt MUST NOT 把这些业务名写成语义触发条件或固定 tool 调用流程
 
+### Requirement: 默认 prompt 必须用短 JSON 形状表达 AgentAction 字段
+系统 SHALL 在默认 Agent LLM prompt 或等价模型可见输入中，用简短 JSON 形状表达当前允许的 `AgentAction` 类型和必需字段。字段示例 MUST 与当前 schema 完全一致，并且 MUST 遵守同一语义槽只使用一个字段名的原则。
+
+#### Scenario: prompt 展示三类 action 的合法形状
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** 模型可见输入 MUST 包含 `tool_call`、`final_answer` 和 `ask_user` 的最小合法 JSON 形状
+- **AND** `final_answer` 示例 MUST 使用 `content`
+- **AND** `ask_user` 示例 MUST 使用 `content`
+- **AND** `tool_call` 示例 MUST 使用 `toolName` 和 `input`
+- **AND** 示例 MUST NOT 使用 `ask_user.question`、`usedToolResultIds`、`usedResourceRefs` 或其他已废弃同义字段
+
+#### Scenario: prompt 说明语义差异由 type 表达
+- **WHEN** 模型可见输入说明 terminal action
+- **THEN** prompt MUST 说明 `final_answer` 与 `ask_user` 的用户可见文本都写入 `content`
+- **AND** prompt MUST 说明两者差异由 action `type` 表达
+- **AND** prompt MUST 使用中文解释业务含义，`type`、`content`、`tool_call`、`final_answer`、`ask_user` 等技术标识保持英文原样
+
+#### Scenario: prompt 说明旧字段不可用
+- **WHEN** prompt 描述字段要求或 repair 规则
+- **THEN** prompt MUST 明确 `ask_user.question`、`final_answer.assistantSuggestions`、`ask_user.suggestions`、`usedToolResultIds` 和 `usedResourceRefs` 不属于新主合同
+- **AND** prompt MUST NOT 暗示服务端会把这些字段转换成新字段
+- **AND** prompt MUST 引导模型在 repair 时直接输出新字段形状
+
+### Requirement: 默认 prompt 必须表达统一 grounding 引用字段
+系统 SHALL 在默认 Agent LLM prompt 中表达 terminal action 使用统一 `usedRefs` 引用当前 run 中已登记事实来源。Prompt MUST NOT 继续要求模型在 tool result 和 resource 之间切换不同顶层字段名。
+
+#### Scenario: prompt 说明 usedRefs 结构
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 说明 `usedRefs` 是 terminal action 的统一事实来源引用数组
+- **AND** `tool_result` 引用 MUST 使用 `{ "type": "tool_result", "id": "..." }` 或当前 schema 等价结构
+- **AND** `resource` 引用 MUST 使用 `{ "type": "resource", "id": "...", "resourceType": "..." }` 或当前 schema 等价结构
+- **AND** prompt MUST 说明 `visibleOutputs[]` 仍是结构化用户可见输出，不是 grounding 引用的同义字段
+
+#### Scenario: prompt 不改变 grounding 安全边界
+- **WHEN** prompt 描述 `usedRefs`
+- **THEN** prompt MUST 说明服务端仍会校验 tool result、resource role、resourceType、当前 run 归属和 satisfied 状态
+- **AND** prompt MUST 说明 failed、diagnostic 或 `satisfied=false` 结果不能支撑成功 `final_answer`
+- **AND** prompt MUST NOT 要求模型绕过 ResourceStore、Policy Guard、Resource Contract Validator 或 Response Renderer
+
+### Requirement: 默认 prompt 必须表达明确 routine 请求的正向组合路径
+系统 SHALL 在默认 Agent LLM prompt 中表达：当模型判断用户目标需要一次可执行 `routine`，且当前 run 已具备主训练 `training` 动作事实并可通过可见 tool 获取缺失 section 时，模型 MUST 优先继续获取 `warmup` / `stretch` 动作事实并输出完整三段式 `routine`。该合同 MUST NOT 使用固定用户短语、关键词、正则、同义词表或服务端语义分流替代模型判断。
+
+#### Scenario: Prompt 引导候选足够时生成完整 routine
+- **WHEN** 默认 prompt 配置生成 system message
+- **AND** system message 描述 `payload.kind = "routine"` 的输出边界
+- **THEN** system message MUST 说明明确 routine 目标在已有 `training` 动作事实且可继续查询缺失 section 时，应继续获取 `warmup` / `stretch` 动作事实
+- **AND** system message MUST 说明候选足够后最终输出 `final_answer.visibleOutputs[]` 中的 `visibleTrainingProposal.payload.kind = "routine"`
+- **AND** system message MUST 说明 `routine` 必须包含 `warmup`、`training`、`stretch` 三类 `exerciseItems`，并为每个动作项绑定 `prescription`
+
+#### Scenario: Prompt 禁止 routine 目标降级为动作列表
+- **WHEN** 默认 prompt 描述明确 routine 目标的终态
+- **THEN** system message MUST 说明不得因为只先查到 `training` 动作事实，就输出 `payload.kind = "exercise_selection"`、正文动作列表或“用户自行组合”的说明来替代 `routine`
+- **AND** system message MUST 说明如果候选不足、tool 不可用或关键约束不足，合法收口是 `ask_user` 或不带 `visibleOutputs` 的 `final_answer`，说明缺口和可恢复下一步
+
+#### Scenario: Prompt 不新增服务端语义分流
+- **WHEN** 实现本 change
+- **THEN** 默认 prompt MUST NOT 写入 F04、F17、F18 或等价测试编号
+- **AND** 默认 prompt MUST NOT 写入“当用户说 X 时必须调用 Y”这类固定短语规则
+- **AND** `/api/chat`、Agent runtime、tool handler、validator 和 renderer MUST NOT 根据用户原文改写 `toolName`、action 或 `payload.kind`
+
+### Requirement: 默认 prompt 必须表达新训练输出的信息充分性门槛
+系统 SHALL 在默认 Agent LLM prompt 中表达：当模型准备新输出 `final_answer.visibleOutputs[]` 中的 `visibleTrainingProposal` 时，必须先确认当前对话、当前 run 已导入事实或当前 run 的 tool results 已提供足够可解释的训练目标和关键约束。信息不足时，模型 MUST 使用 `ask_user`，或输出不含 `visibleOutputs` 的 `final_answer` 说明可选方向和可恢复下一步。
+
+#### Scenario: Prompt 表达 exercise_selection 的最低信息门槛
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 说明 `payload.kind = "exercise_selection"` 至少需要当前可见上下文中存在训练目标、身体部位、动作类别、器械限制、场地限制、目标标签、点名动作或其他可解释筛选条件之一
+- **AND** system message MUST 说明缺少这些条件时不得输出随机动作卡片
+- **AND** system message MUST 使用中文描述业务含义
+- **AND** `payload.kind`、`exercise_selection`、`visibleOutputs`、`ask_user` 等技术标识 MUST 保持英文原样
+
+#### Scenario: Prompt 表达 routine 的最低信息门槛
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 说明 `payload.kind = "routine"` 需要当前可见上下文中存在单次训练目标或部位、单次时长、可用器械或场地等关键约束
+- **AND** system message MUST 说明目标、时长、器械或场地不足以解释方案时，应先澄清或给出可选方向，不得推送默认 routine 卡片
+
+#### Scenario: Prompt 表达 plan 的最低信息门槛
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 说明 `payload.kind = "plan"` 需要当前可见上下文中存在长期目标、训练频率或周期、单次时长、可用器械或场地等关键约束
+- **AND** system message MUST 说明频率、时长、目标或器械/场地不足时，应先澄清或给出可选方向，不得推送空泛 plan 卡片
+
+#### Scenario: Prompt 不引入 phrasing 特判
+- **WHEN** 默认 prompt 表达信息充分性门槛
+- **THEN** system message MUST NOT 使用固定用户短句作为触发条件
+- **AND** system message MUST NOT 要求固定 `toolName`、固定 tool 调用次数、固定调用顺序或服务端语义分流
+- **AND** system message MUST NOT 承诺服务端会自动补齐训练目标、时长、频率、器械或场地
+
+### Requirement: 默认 prompt 必须表达 final_answer 的终态完成语义
+系统 SHALL 在默认 Agent LLM prompt 中表达 `final_answer` 是当前 run 的终态动作。Prompt MUST 说明 `final_answer.content` 只能解释本轮已经完成、明确阻断或失败收口的结果；如果还需要执行 tool、查询事实、生成结构、保存结果或等待内部步骤，模型 MUST 返回合法 `tool_call`、`ask_user` 或失败收口。
+
+#### Scenario: Prompt 说明 final_answer 不会触发后续 tool
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 说明 `final_answer` 是终态，不会让 runtime 在本轮回复后继续自动调用 tool
+- **AND** system message MUST 使用中文描述业务含义
+- **AND** `final_answer`、`tool_call`、`ask_user`、`visibleOutputs`、`usedToolResultIds` 和 `usedResourceRefs` 等技术标识 MUST 保持英文原样
+
+#### Scenario: Prompt 禁止未执行步骤的成功承诺
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 说明模型不得用 `final_answer.content` 承诺尚未执行的查询、生成、保存、等待或后续内部动作
+- **AND** system message MUST 说明需要继续获取事实时必须返回当前可见且合法的 `tool_call`
+- **AND** system message MUST NOT 要求固定 tool 调用次数、固定 tool 调用顺序或固定业务 `toolName`
+
+#### Scenario: Prompt 表达 tool 后 final_answer 的 grounding
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 说明当前 run 已经有 tool result 时，成功 `final_answer` 应通过 `usedToolResultIds`、`usedResourceRefs` 或合法 `visibleOutputs[]` 连接到当前 run 已满足事实
+- **AND** system message MUST 说明 failed、diagnostic 或 `satisfied=false` 的 tool result 只能用于 `ask_user`、失败解释、阻断说明或下一轮 repair
+
+#### Scenario: Prompt 保持普通文本聊天能力
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 说明普通聊天、概念解释、能力说明、总结整理、训练原则说明等不需要工具执行的问题仍可直接使用 `final_answer`
+- **AND** system message MUST NOT 暗示所有 `final_answer` 都必须引用 tool result
+
+#### Scenario: Prompt 不新增服务端隐藏业务能力
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST NOT 承诺服务端会自动补齐训练动作、自动生成训练编排、自动保存 artifact 或执行未注册 tool
+- **AND** system message MUST NOT 要求调用 `generatePlanDraft` 或 `generateRoutineDraft`
+
+### Requirement: 默认 prompt 必须表达 suggestedQuestions 建议提问合同
+系统 SHALL 在默认 Agent LLM prompt 中把 `suggestedQuestions` 表达为 `final_answer` 和 `ask_user` 都可使用的全局可选字段。该字段表示用户可直接点击发送的建议提问文本，而不是前端事件、内部 action、tool input 或业务确认结果。
+
+#### Scenario: Prompt 描述 suggestedQuestions 输出格式
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 说明 `suggestedQuestions` 是可选字符串数组字段
+- **AND** system message MUST 说明 `final_answer` 和 `ask_user` 都可以在适合时输出 `suggestedQuestions`
+- **AND** system message MUST 说明每条建议提问必须是完整自然语言文本，点击后可作为下一轮用户消息直接发送
+- **AND** system message MUST 使用中文描述业务含义
+- **AND** `suggestedQuestions`、`final_answer`、`ask_user` 等技术标识 MUST 保持英文原样
+
+#### Scenario: Prompt 限制 suggestedQuestions 数量和口吻
+- **WHEN** 默认 prompt 描述 `suggestedQuestions`
+- **THEN** system message MUST 说明最多输出 3 条建议提问
+- **AND** system message MUST 说明每条建议提问必须使用用户口吻，不得写成助手对用户的命令、说明或追问模板
+- **AND** system message MUST 说明建议提问不得重复正文内容
+- **AND** system message MUST 说明如果当前回复已经自然结束或没有可靠下一步，可以不输出 `suggestedQuestions`
+
+#### Scenario: Prompt 禁止 suggestedQuestions 承诺不可用能力
+- **WHEN** 默认 prompt 描述 `suggestedQuestions`
+- **THEN** system message MUST 说明建议提问不得承诺未注册 tool、未执行结果、未开放保存能力、医疗诊断或康复处方
+- **AND** system message MUST 说明建议提问只是下一轮用户消息候选，不代表服务端已经执行任何操作
+- **AND** system message MUST NOT 要求模型固定输出某个业务 `toolName`、固定 action 或固定训练结构
+
+#### Scenario: Prompt 不强制所有回复输出 suggestedQuestions
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST NOT 要求每个 `final_answer` 或每个 `ask_user` 都必须包含 `suggestedQuestions`
+- **AND** system message MUST 将是否输出建议提问交给模型基于当前可见上下文、tool result、observations 和用户目标判断
+- **AND** system message MUST NOT 用固定用户短语或关键词作为输出建议提问的触发条件
+
+### Requirement: 默认 prompt 必须把 routine 和 plan section readiness 表达为 final 前置条件
+系统 SHALL 在默认 Agent LLM prompt 中表达：`final_answer.visibleOutputs[]` 中的 `visibleTrainingProposal.payload.kind = "routine"` 或 `"plan"` 只有在当前 run 已具备 `warmup`、`training`、`stretch` 三类可消费动作事实时才允许输出。该合同 SHALL 作为首轮模型可见规则出现，MUST NOT 只依赖 validation failure 或 repair feedback 才表达。
+
+#### Scenario: Prompt 表达 routine 和 plan 的 final 前置条件
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 说明如果最终输出 `final_answer.visibleOutputs[].payload.kind = "routine"` 或 `"plan"`，当前 run 必须已经具备 `warmup`、`training`、`stretch` 三类当前可消费动作事实
+- **AND** system message MUST 说明 `exerciseItems[*].exerciseId` 和 `exerciseItems[*].section` 必须由当前 run 可见动作事实支撑
+- **AND** system message MUST 使用中文描述业务含义
+- **AND** `final_answer`、`visibleOutputs`、`visibleTrainingProposal`、`payload.kind`、`routine`、`plan`、`exerciseItems`、`exerciseId`、`section`、`warmup`、`training`、`stretch` 等技术标识 MUST 保持英文原样
+
+#### Scenario: Prompt 禁止缺 section 时输出 routine 或 plan visibleOutputs
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 说明当当前 run 只有 `training`，或 `missingSectionsForRoutineOrPlan` 非空时，模型不得输出 `final_answer.visibleOutputs[]` 中的 `routine` 或 `plan`
+- **AND** system message MUST 说明不得在正文中解释“缺少热身或拉伸”后仍提交不完整的 `routine` 或 `plan`
+- **AND** system message MUST 说明这种禁止只约束 `routine` / `plan` 的结构化输出，不阻止模型输出当前事实可支撑的普通解释或 `exercise_selection`
+
+#### Scenario: Prompt 表达缺 section 时的允许下一步
+- **WHEN** 默认 prompt 描述 `routine` / `plan` 输出前置条件
+- **AND** 当前可见事实不足以支撑 `warmup`、`training`、`stretch` 三类 section
+- **THEN** system message MUST 说明模型可以继续调用当前可见且合法的 tool 获取缺失 section 的动作事实
+- **AND** system message MUST 说明模型可以使用 `ask_user` 澄清必要约束
+- **AND** system message MUST 说明模型可以不输出 `visibleOutputs`，只用正文说明当前事实不足或失败收口
+- **AND** system message MUST NOT 要求固定 tool 调用次数、固定 tool 调用顺序或固定业务 `toolName`
+
+#### Scenario: Prompt 不引入服务端生成或旧 draft tool
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST NOT 承诺服务端会自动补齐 `warmup` 或 `stretch` 动作
+- **AND** system message MUST NOT 要求调用 `generatePlanDraft`
+- **AND** system message MUST NOT 要求调用 `generateRoutineDraft`
+- **AND** system message MUST NOT 描述未注册 tool、隐藏训练生成服务或绕过 `ToolRegistry` 的训练生成能力
+
