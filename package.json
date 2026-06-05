@@ -10,7 +10,6 @@
     "lint": "eslint .",
     "perf:frontend": "node scripts/analyze-frontend-performance.mjs",
     "test": "node scripts/run-tests.mjs",
-    "test:llm:basic": "node scripts/run-basic-llm-blackbox.mjs",
     "typecheck": "tsc --noEmit",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
