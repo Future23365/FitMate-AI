@@ -353,7 +353,7 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
         readRecentRefBoundary: "facts[].factRef/messageId 只允许复制到本轮 inspectVisibleTrainingProposals(operation = \"read_recent\") 的 ref.value；不能把它们当作 final_answer.usedRefs.resource.id。",
         emptyFactsBoundary: "空 facts[] 可作为模型推理、解释缺少引用对象或向用户澄清的事实依据；不能支撑成功训练方案刷新、替换、调整或新训练方案生成。",
         nextStepBoundary: "该结果只提供事实边界；若本轮目标依赖该引用对象，模型应结合本轮用户请求、最近对话和其他 observations/toolResults 自主决定解释缺少引用对象、追问、请求补充目标或失败收口。只有用户已经提供足够独立生成所需目标和约束时，才可作为新请求处理，且不得宣称这是对不可见已有对象的刷新、替换或调整。",
-        finalAnswerGrounding: "本次事实索引查询若 fulfillment.satisfied=true，可用 usedRefs: [{ type: \"tool_result\", id: \"...\" }] 支撑“当前是否有可引用方案”的解释或澄清；不能支撑成功训练方案刷新、替换、调整或新训练方案生成。",
+        finalAnswerGrounding: "本次事实索引查询 ok=true，可用 usedRefs: [{ type: \"tool_result\", id: \"...\" }] 支撑“当前是否有可引用方案”的解释或澄清；不能支撑成功训练方案刷新、替换、调整或新训练方案生成。",
         schemaVersionBoundary: "visibleOutputSchemaVersion 是 final_answer.visibleOutputs[].schemaVersion 可参考的字符串版本；factSchemaVersion 是服务端事实存储版本，不要复制到 visibleOutputs[].schemaVersion。",
       });
     }
@@ -392,7 +392,7 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
       missingSectionsForRoutineOrPlan: resourceConsumption.missingSectionsForRoutineOrPlan,
       supportsOutputKinds: resourceConsumption.supportsOutputKinds,
       schedule: output.fact.proposal.schedule,
-      finalAnswerGrounding: "read_recent 成功后可用 usedRefs: [{ type: \"tool_result\", id: \"...\" }] 引用本次 satisfied tool_result；若改用 resource 引用，必须使用 fulfillment.producedResources[].resourceId，不能使用 factRef、messageId 或历史消息 id。",
+      finalAnswerGrounding: "read_recent 成功后可用 usedRefs: [{ type: \"tool_result\", id: \"...\" }] 引用本次 ok=true tool_result；若改用 resource 引用，必须使用 fulfillment.producedResources[].resourceId，不能使用 factRef、messageId 或历史消息 id。",
       finalAnswerBoundary: "需要继续推送训练方案时，最终事实必须写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal payload，或通过 usedRefs 做 grounded terminal action；不要把正文当训练事实源，也不要承诺 final_answer 后自动继续。",
     });
   },

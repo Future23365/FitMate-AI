@@ -13,7 +13,7 @@ describe("agent LLM prompt configuration", () => {
     const systemPrompt = buildAgentActionSystemPrompt();
 
     expect(agentLlmPromptConfig.promptVersion).toBe(agentLlmPromptVersion);
-    expect(agentLlmPromptVersion).toBe("agent-action-v15");
+    expect(agentLlmPromptVersion).toBe("agent-action-v16");
     expect(systemPrompt).toContain("只能返回一个合法 JSON object");
     expect(systemPrompt).toContain("type 只能是 tool_call、final_answer、ask_user 三者之一");
     expect(systemPrompt).toContain("{\"type\":\"tool_call\",\"toolName\":\"...\",\"input\":{}}");
@@ -48,14 +48,15 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).toContain("必须返回当前可见且合法的 tool_call");
     expect(systemPrompt).toContain("使用 ask_user 澄清必要信息");
     expect(systemPrompt).toContain("明确说明当前事实不足而失败收口");
-    expect(systemPrompt).toContain("当前 run 已经有 tool result 后，成功 final_answer 应通过 usedRefs 或合法 visibleOutputs[]");
+    expect(systemPrompt).toContain("当前 run 已经有 tool result 后，final_answer 应通过 usedRefs 或合法 visibleOutputs[]");
     expect(systemPrompt).toContain("tool result 引用使用 {\"type\":\"tool_result\",\"id\":\"...\"}");
     expect(systemPrompt).toContain("resource 引用使用 {\"type\":\"resource\",\"id\":\"...\",\"resourceType\":\"...\"}");
     expect(systemPrompt).toContain("resource 引用里的 id 必须是当前 run 登记的 resourceId");
     expect(systemPrompt).toContain("不要把业务对象 id、历史 messageId、示例 id 或正文里的 id 当作 resourceId");
     expect(systemPrompt).toContain("visibleOutputs[] 是结构化用户可见输出，不是 grounding 引用的同义字段");
-    expect(systemPrompt).toContain("failed、diagnostic 或 fulfillment.satisfied=false 的 tool result");
-    expect(systemPrompt).toContain("不能支撑成功 final_answer");
+    expect(systemPrompt).toContain("ok=true 且返回 0 条、候选不足或诊断摘要的 tool result 可以支撑普通事实回答");
+    expect(systemPrompt).toContain("failed tool result 不能支撑 final_answer");
+    expect(systemPrompt).toContain("fulfillment.satisfied 只是诊断摘要，不是普通 final_answer 的成功 gate");
     expect(systemPrompt).toContain("visibleOutputs[]");
     expect(systemPrompt).toContain("visibleTrainingProposal");
     expect(systemPrompt).toContain("判断资源操作类型");
@@ -177,11 +178,11 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).toContain("当本轮存在新的 observations 或 toolResults 时，terminal action 应将这些最新事实纳入推理");
     expect(systemPrompt).toContain("自主选择继续 tool_call、final_answer 或 ask_user");
     expect(systemPrompt).toContain("不要固定调用某个业务 tool、固定输出某个 payload.kind，或固定引用某个 tool result/resource");
-    expect(systemPrompt).toContain("exerciseId 和 section 必须同时来自当前 run 可见、fulfillment.satisfied=true");
+    expect(systemPrompt).toContain("exerciseId 和 section 必须同时来自当前 run 可见、ok=true");
     expect(systemPrompt).toContain("exerciseItems[*].section 应与该 group key 对应");
     expect(systemPrompt).toContain("该动作的 allowedSections 必须包含该 section");
     expect(systemPrompt).toContain("allowedSections 是服务端校验 exerciseItems[*].section 的确定性动作事实字段");
-    expect(systemPrompt).toContain("searchExerciseResources 返回的 satisfied 动作查询 observation 中 groups.<section>.exercises 的 exerciseId");
+    expect(systemPrompt).toContain("searchExerciseResources 返回的动作查询 observation 中 groups.<section>.exercises 的 exerciseId");
     expect(systemPrompt).toContain("resolveExerciseResourceMentions 这类只做身份解析的 observation 不能直接作为 visibleTrainingProposal 动作来源");
     expect(systemPrompt).toContain("需要把 matched exerciseId 传给 searchExerciseResources.requiredExerciseIds");
     expect(systemPrompt).toContain("服务端会在渲染和保存前基于数据库复核 exerciseId、发布态和 allowedSections");
@@ -249,6 +250,6 @@ describe("agent LLM prompt configuration", () => {
       "返回测试专用 AgentAction JSON object。 这个测试只期望 final_answer。",
     );
     expect(buildAgentActionSystemPrompt()).toContain("tool_call、final_answer、ask_user");
-    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v15");
+    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v16");
   });
 });

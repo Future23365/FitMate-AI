@@ -49,7 +49,7 @@ describe("agent tool governance regressions", () => {
     expect(getConfirmationWriteFixtureExecutions()).toHaveLength(0);
   });
 
-  it("does not allow diagnostic resources or unsatisfied tool results to support successful final answer", async () => {
+  it("does not allow diagnostic resources to support successful final answer", async () => {
     const diagnosticInput = {
       code: "fixture_blocked",
       message: "fixture 被阻断。",

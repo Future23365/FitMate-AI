@@ -5,7 +5,7 @@ import { defineTool } from "@/lib/server/agent-core/define-tool";
 import { toTerminalToolResultRefs } from "@/lib/server/agent-core/contracts";
 import { createToolResultId, hashNormalizedInput } from "@/lib/server/agent-core/executor";
 import {
-  SUCCESSFUL_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
+  OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
   TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
 } from "@/lib/server/agent-core/observation";
 import { renderAgentResponseEvents } from "@/lib/server/agent-core/response-renderer";
@@ -52,7 +52,7 @@ describe("agent-core fixture read tool end to end", () => {
       type: "tool_result",
       ok: true,
       content: {
-        observationRole: SUCCESSFUL_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
+        observationRole: OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
         toolResultId: expectedToolResultId,
         modelFactsChannel: TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
         boundary: expect.stringContaining("详细事实见 toolResults[].projection.model"),

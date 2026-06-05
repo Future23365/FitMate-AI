@@ -25,7 +25,7 @@ export const AGENT_ERROR_CODES = {
   ABORTED: "aborted",
   HANDLER_ERROR: "handler_error",
   DUPLICATE_TOOL_FAILURE: "duplicate_tool_failure",
-  DUPLICATE_TOOL_SUCCESS: "duplicate_tool_success",
+  DUPLICATE_TOOL_INPUT: "duplicate_tool_input",
   BUDGET_EXHAUSTED: "budget_exhausted",
   PLANNER_EXHAUSTED: "planner_exhausted",
   MAX_STEPS_EXCEEDED: "max_steps_exceeded",

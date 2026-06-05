@@ -89,7 +89,7 @@ export const resolveExerciseResourceMentionsTool = defineTool<
     "当用户明确点名一个或多个动作，例如“包含俯卧撑、深蹲和平板支撑”，并且 Planner 需要确认这些动作是否存在于发布态动作库时使用。",
     "多点名训练请求应先调用本 tool，把每个点名动作解析为数据库 exerciseId；随后把 matched 或模型已选择的 exerciseId 传给 searchExerciseResources.requiredExerciseIds，让现有 groups.<section>.exercises 列表优先包含这些动作。",
     "本 tool 只解析 Exercise resource 身份和有限摘要；歧义结果应由模型继续选择、重查或澄清，不由服务端替模型判断用户语义。",
-    "结果可以帮助构造下一轮 searchExerciseResources input；最终训练方案仍必须基于 satisfied 动作查询 observation，并写入 final_answer.visibleOutputs[]。",
+    "结果可以帮助构造下一轮 searchExerciseResources input；最终训练方案仍必须基于动作查询返回的 section-scoped 动作事实，并写入 final_answer.visibleOutputs[]。",
   ].join(" "),
   whenNotToUse: [
     "不要用本 tool 生成 visibleTrainingProposal、routine、plan、patch、prescription、schedule、训练卡片、保存 artifact、用户记忆或执行候选集合。",
@@ -156,7 +156,7 @@ export const resolveExerciseResourceMentionsTool = defineTool<
     ambiguousCount: output.ambiguousCount,
     notFoundCount: output.notFoundCount,
     nextStepHint: "将 matched 或模型已从 ambiguous 中选择的 exerciseId 传给 searchExerciseResources.requiredExerciseIds；不要把本 observation 直接当作 visibleTrainingProposal。",
-    finalAnswerGrounding: "本 tool 只确认点名动作身份；最终训练方案仍应基于 searchExerciseResources 返回的 groups.<section>.exercises 和 satisfied tool result。",
+    finalAnswerGrounding: "本 tool 只确认点名动作身份；最终训练方案仍应基于 searchExerciseResources 返回的 groups.<section>.exercises 和 ok=true tool result。",
     results: output.results.map((result) => ({
       text: result.text,
       ...(result.sectionHint ? { sectionHint: result.sectionHint } : {}),

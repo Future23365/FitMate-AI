@@ -8,7 +8,7 @@ import { defineTool } from "@/lib/server/agent-core/define-tool";
 import { createToolResultId, executeTool, hashNormalizedInput } from "@/lib/server/agent-core/executor";
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
 import {
-  SUCCESSFUL_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
+  OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
   TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
 } from "@/lib/server/agent-core/observation";
 import { renderAgentResponseEvents, renderAgentResponseNdjson } from "@/lib/server/agent-core/response-renderer";
@@ -134,7 +134,7 @@ describe("agent-core Executor, Runtime and Response Renderer", () => {
     expect(planner.calls[1].observations[0]).toMatchObject({
       ok: true,
       content: {
-        observationRole: SUCCESSFUL_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
+        observationRole: OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
         toolResultId: expectedToolResultId,
         modelFactsChannel: TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
         boundary: expect.stringContaining("详细事实见 toolResults[].projection.model"),

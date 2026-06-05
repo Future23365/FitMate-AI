@@ -1,7 +1,7 @@
 import { AgentActionSchema } from "@/lib/server/agent-core/contracts";
 import { stableStringify } from "@/lib/server/agent-core/canonical-json";
 import {
-  SUCCESSFUL_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
+  OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
   TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
 } from "@/lib/server/agent-core/observation";
 import { REDACTED_VALUE, redactJsonValue } from "@/lib/server/agent-core/redaction";
@@ -434,6 +434,7 @@ function summarizePlannerInputDedupe(input: ModelActionCompletionInput) {
     toolResultId: result.toolResultId,
     toolName: result.toolName,
     satisfied: result.fulfillment.satisfied,
+    factChannel: result.ok ? (result.fulfillment.satisfied ? "fact" as const : "diagnostic" as const) : "failed" as const,
     hasModelProjection: result.ok && result.projection.model !== undefined,
   }));
 
@@ -451,7 +452,7 @@ function isSuccessfulLightweightObservation(observation: ModelActionCompletionIn
   return observation.type === "tool_result"
     && observation.ok === true
     && isRecord(content)
-    && content.observationRole === SUCCESSFUL_TOOL_RESULT_INDEX_OBSERVATION_ROLE
+    && content.observationRole === OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE
     && content.modelFactsChannel === TOOL_RESULT_MODEL_PROJECTION_CHANNEL;
 }
 

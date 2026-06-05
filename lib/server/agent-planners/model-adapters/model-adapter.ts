@@ -77,6 +77,7 @@ export type ModelActionCompletionTrace = {
         toolResultId: string;
         toolName: string;
         satisfied: boolean;
+        factChannel: "fact" | "diagnostic" | "failed";
         hasModelProjection: boolean;
       }>;
       toolCount: number;

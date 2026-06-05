@@ -246,7 +246,7 @@ describe("agent-core runtime budget and idempotency hardening", () => {
     expect(keys).toEqual([expectedKey]);
   });
 
-  it("returns duplicate success feedback without executing the same handler or registering resources again", async () => {
+  it("returns duplicate input feedback without executing the same handler or registering resources again", async () => {
     const handler = vi.fn();
     const input = { id: "fact-1" };
     const expectedToolResultId = createToolResultId(
@@ -275,7 +275,7 @@ describe("agent-core runtime budget and idempotency hardening", () => {
 
     const duplicateFeedback = planner.calls[2].observations.find((observation) => (
       observation.source === "runtime"
-      && JSON.stringify(observation.content).includes(AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS)
+      && JSON.stringify(observation.content).includes(AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT)
     ));
     const toolExecutionEvents = result.traceEvents.filter((event) => event.type === "tool_execution");
     const resourceRegisteredEvents = result.traceEvents.filter((event) => event.type === "resource_registered");
@@ -301,14 +301,14 @@ describe("agent-core runtime budget and idempotency hardening", () => {
         type: "budget_event",
         budget: "repair_attempts",
         status: "used",
-        reason: AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS,
+        reason: AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT,
       }),
     ]));
     expect(duplicateFeedback).toMatchObject({
       toolResultId: expectedToolResultId,
       toolName: "satisfiedResourceRead",
       content: expect.objectContaining({
-        code: AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS,
+        code: AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT,
         details: expect.objectContaining({
           previousToolResultId: expectedToolResultId,
           producedResources: [
@@ -322,7 +322,7 @@ describe("agent-core runtime budget and idempotency hardening", () => {
     });
   });
 
-  it("does not treat changed input or unsatisfied repeated results as duplicate success feedback", async () => {
+  it("does not treat changed input as duplicate and dedupes repeated ok diagnostic results", async () => {
     const changedHandler = vi.fn();
     const changedRegistry = new ToolRegistry();
     changedRegistry.register(createSatisfiedResourceReadTool(changedHandler));
@@ -364,10 +364,10 @@ describe("agent-core runtime budget and idempotency hardening", () => {
 
     expect(changedResult).toMatchObject({ status: "completed" });
     expect(changedHandler).toHaveBeenCalledTimes(2);
-    expect(JSON.stringify(changedResult.observations)).not.toContain(AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS);
+    expect(JSON.stringify(changedResult.observations)).not.toContain(AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT);
     expect(unsatisfiedResult).toMatchObject({ status: "needs_input" });
-    expect(unsatisfiedHandler).toHaveBeenCalledTimes(2);
-    expect(JSON.stringify(unsatisfiedResult.observations)).not.toContain(AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS);
+    expect(unsatisfiedHandler).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(unsatisfiedResult.observations)).toContain(AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT);
   });
 
   it("does not repeat fixture write execution after consumed confirmation resume", async () => {

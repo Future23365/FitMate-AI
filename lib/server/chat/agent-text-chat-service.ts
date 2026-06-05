@@ -1203,6 +1203,7 @@ function summarizeRuntimeTraceEvent(event: AgentTraceEvent): unknown {
         normalizedInputHash: event.normalizedInputHash,
         ok: event.ok,
         satisfied: event.satisfied,
+        factChannel: event.factChannel,
         failureCode: event.failureCode,
         error: event.error ? redactTraceValue(event.error) : undefined,
         fulfillment: redactTraceValue(event.fulfillment),
@@ -1508,6 +1509,7 @@ function summarizeToolResultForTrace(result: AgentRunResult["toolResults"][numbe
     toolName: result.toolName,
     ok: result.ok,
     satisfied: result.fulfillment.satisfied,
+    factChannel: result.ok ? (result.fulfillment.satisfied ? "fact" : "diagnostic") : "failed",
     summary: result.fulfillment.summary,
   };
 

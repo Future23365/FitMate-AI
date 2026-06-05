@@ -5,7 +5,7 @@ import { createToolResultId, hashNormalizedInput } from "@/lib/server/agent-core
 import { toTerminalToolResultRefs, type ToolResult } from "@/lib/server/agent-core/contracts";
 import {
   createToolObservation,
-  SUCCESSFUL_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
+  OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
   TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
 } from "@/lib/server/agent-core/observation";
 import { runAgentRuntime } from "@/lib/server/agent-core/runtime";
@@ -251,7 +251,7 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       toolResults: unknown[];
     };
 
-    expect(JSON.stringify(modelInput.observations)).toContain(SUCCESSFUL_TOOL_RESULT_INDEX_OBSERVATION_ROLE);
+    expect(JSON.stringify(modelInput.observations)).toContain(OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE);
     expect(JSON.stringify(modelInput.observations)).toContain(TOOL_RESULT_MODEL_PROJECTION_CHANNEL);
     expect(JSON.stringify(modelInput.observations)).not.toContain("权威成功事实只应在 toolResults 中出现");
     expect(JSON.stringify(modelInput.toolResults)).toContain("权威成功事实只应在 toolResults 中出现");

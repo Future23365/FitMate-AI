@@ -142,6 +142,7 @@ export function validateAndRegisterProducedResources(input: {
     return { ok: true, producedResources: [] };
   }
 
+  // 对声明 produces 但返回诊断结果的 tool，允许不登记 resource；普通 final_answer grounding 不依赖 satisfied。
   if (declaredResources.length === 0 && productions.length > 0 && input.result.fulfillment.satisfied) {
     return {
       ok: false,

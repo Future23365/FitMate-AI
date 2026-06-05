@@ -6,7 +6,7 @@ import { executeTool } from "@/lib/server/agent-core/executor";
 import {
   createToolObservation,
   compressPlannerObservations,
-  SUCCESSFUL_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
+  OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
   TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
 } from "@/lib/server/agent-core/observation";
 import { auditRedactedValue, redactJsonValue } from "@/lib/server/agent-core/redaction";
@@ -99,7 +99,7 @@ describe("agent-core redaction, observation compression and trace audit", () => 
       toolName: "secretOutputFixture",
       ok: true,
       content: {
-        observationRole: SUCCESSFUL_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
+        observationRole: OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
         toolResultId: result.toolResultId,
         toolName: "secretOutputFixture",
         ok: true,
@@ -113,7 +113,7 @@ describe("agent-core redaction, observation compression and trace audit", () => 
     expect(auditRedactedValue(observation).ok).toBe(true);
   });
 
-  it("keeps failed and unsatisfied repair details in diagnostic observations", () => {
+  it("keeps failed details in diagnostic observations and ok diagnostic facts in toolResults", () => {
     const failedResult: ToolResult = {
       toolResultId: "tr_failed",
       toolName: "diagnosticFixture",
@@ -177,9 +177,12 @@ describe("agent-core redaction, observation compression and trace audit", () => 
 
     expect(JSON.stringify(failedObservation.content)).toContain("repairFacts");
     expect(JSON.stringify(failedObservation.content)).toContain("保留失败 details");
-    expect(JSON.stringify(unsatisfiedObservation.content)).toContain("no_candidates");
-    expect(JSON.stringify(unsatisfiedObservation.content)).toContain("放宽器械或目标部位");
-    expect(JSON.stringify(unsatisfiedObservation.content)).not.toContain(SUCCESSFUL_TOOL_RESULT_INDEX_OBSERVATION_ROLE);
+    expect(JSON.stringify(unsatisfiedObservation.content)).toContain("ok_tool_result_index");
+    expect(JSON.stringify(unsatisfiedObservation.content)).toContain("\"satisfied\":false");
+    expect(JSON.stringify(unsatisfiedObservation.content)).not.toContain("no_candidates");
+    expect(JSON.stringify(unsatisfiedResult.projection.model)).toContain("no_candidates");
+    expect(JSON.stringify(unsatisfiedResult.projection.model)).toContain("放宽器械或目标部位");
+    expect(JSON.stringify(unsatisfiedObservation.content)).toContain(OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE);
   });
 
   it("compresses observations without changing diagnostic resource role", () => {

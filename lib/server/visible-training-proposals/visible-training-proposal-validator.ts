@@ -267,7 +267,7 @@ function validateCurrentRunExerciseSources(
   };
 }
 
-// collectCurrentRunExerciseSources 只读取当前 run 的 satisfied tool result 和 consumable resource，不解释用户原文或绑定具体 toolName。
+// collectCurrentRunExerciseSources 只读取当前 run 可用于训练结构交付的 tool result 和 consumable resource，不解释用户原文或绑定具体 toolName。
 function collectCurrentRunExerciseSources(context: TerminalOutputValidationContext) {
   const sources = new Set<string>();
 

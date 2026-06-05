@@ -372,7 +372,7 @@ export type ToolError = {
   details?: JsonValue;
 };
 
-/** ToolFulfillment 总结一次 tool 调用是否满足资源合同，供 renderer 和 trace 类测试读取。 */
+/** ToolFulfillment 总结一次 tool 调用的诊断状态；satisfied 不是普通 final_answer 的 core grounding gate。 */
 export type ToolFulfillment = {
   summary: string;
   satisfied: boolean;
@@ -519,6 +519,7 @@ export type AgentTraceEvent =
       inputSummary: JsonValue;
       ok: boolean;
       satisfied: boolean;
+      factChannel: "fact" | "diagnostic" | "failed";
       failureCode?: AgentErrorCode;
       error?: Pick<ToolError, "code" | "retryable" | "details">;
       fulfillment: ToolFulfillment;

@@ -202,14 +202,14 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
     description: "只读查询发布态动作事实原料，并按 suitabilities 分组返回 section-scoped 安全动作摘要；equipment 表达器械可用性或器械类别，homeRequirement 只表达环境、场地或支撑条件。它不生成最终 visibleTrainingProposal、routine、plan、prescription、schedule、保存结果或用户记忆。totalMatches=0 也是已完成的事实查询结果，不是数据库失败。",
     whenToUse: [
       "用于查询符合明确结构化条件的发布态动作列表，例如真实肌群 facet、多个肌群 OR 查询、器械、难度、居家条件、目标标签、风险标签、分类，或 suitabilities 指定的 warmup/training/stretch 用途。",
-      "如果 input 除默认 suitabilities、published、sort 外没有任何目标、facet、器械、场地、点名动作或当前 run 可见动作锚点，本次查询只能作为过宽查询诊断，fulfillment.satisfied=false，不能支撑成功 final_answer 或训练卡片；Planner 应先 ask_user 澄清或补充结构化约束。",
+      "如果 input 除默认 suitabilities、published、sort 外没有任何目标、facet、器械、场地、点名动作或当前 run 可见动作锚点，本次查询只能作为过宽查询诊断；Planner 可以用普通 final_answer 解释条件过宽或先 ask_user 澄清，但不能用它推送 visibleTrainingProposal 或训练卡片。",
       "所有精确 facet 值应优先从 metadata.facetCatalog 中选择；肌群筛选统一使用 muscles 数组，单个真实肌群 facet 也写成 muscles: [\"...\"]。",
       "equipment 表示器械可用性或器械类别；equipment = \"no_equipment\" 或 \"无器械\" 是 tool 合同层稳定查询值，表示不需要外部器械，并由 repository 映射到数据库自重动作事实。",
       "homeRequirement 表示环境、场地或支撑条件，例如 floor、support、outdoor、partner、small_equipment 或 gym_equipment；它不表示器械可用性。",
       "旧高层身体区域查询字段已删除；模型应基于用户目标、对话上下文和 facetCatalog 自主选择真实数据库 facet，不要输出 input schema 中不存在的字段。",
       "如果需要确认当前会话是否存在可引用 visibleTrainingProposal，先使用 inspectVisibleTrainingProposals(operation = \"list_recent\")；如果需要复用具体上一轮方案，先使用 inspectVisibleTrainingProposals(operation = \"read_recent\") 导入当前 run。",
       "用户明确提出新的动作查询目标、结构化筛选条件或普通动作事实问题时，可以直接调用 searchExerciseResources，不需要强制先 inspectVisibleTrainingProposals。",
-      "groups.<section>.exercises[*].exerciseId 是该查询结果中对应 section 的动作事实来源；当 fulfillment.satisfied = true 时，可作为 final_answer.visibleOutputs[] 中 visibleTrainingProposal.exerciseItems[*].exerciseId 的受控来源。",
+      "groups.<section>.exercises[*].exerciseId 是该查询结果中对应 section 的动作事实来源；本 tool 成功返回这些分组动作事实时，可作为 final_answer.visibleOutputs[] 中 visibleTrainingProposal.exerciseItems[*].exerciseId 的受控来源。",
       "最终训练输出只能由 final_answer.visibleOutputs[] 承载；如果生成 visibleTrainingProposal.exerciseItems[]，exerciseItems[*].section 应对应使用的 groups.<section> key，并且必须被该动作 allowedSections 包含；allowedSections 是动作可进入哪些 section 的动作事实字段。",
       "requiredExerciseIds 是正向查询锚点：当当前 run 已有受控发布态 exerciseId，例如来自 resolveExerciseResourceMentions、已导入可消费训练事实或用户明确给出的受控 id 时，可传入 requiredExerciseIds，让这些动作优先进入现有 groups.<section>.exercises；它不是排除列表，也不表示替换。",
       "当用户点名多个具体动作时，应先调用 resolveExerciseResourceMentions 解析 mentions；再把 matched exerciseId 或模型从 ambiguous 中选择的 exerciseId 传入 requiredExerciseIds，让这些发布态动作优先进入现有 groups.<section>.exercises。",
@@ -218,7 +218,7 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
       "继续查询缺失 section 只适用于模型已判断目标需要 routine 或 plan 的场景；普通动作推荐、动作清单或动作事实问答不要求固定查询 warmup / training / stretch，也不要求固定 tool 调用次数或顺序。该说明描述 tool loop 的事实补查能力，不把具体用户短句映射成固定 payload.kind。",
       "excludeExerciseIds 是负向约束，只能填写用户已经看到且当前目标确实需要替换、排除或避免重复的动作，或用户明确要求排除的动作；如果来自上一轮方案，应先通过 inspectVisibleTrainingProposals(operation = \"read_recent\") 导入 visible_training_proposal_fact 后复制真实 exerciseId，不要从未展示的内部候选、trace 摘要、handler-only 结果或 list_recent 索引中填充。",
       "精确筛选必须使用真实数据库 facet 值；服务端只执行 schema、去空、去重、权限边界和数据库查询，不根据用户原文替模型增删 facet。",
-      "查询成功且 satisfied=true 的结果，包括 totalMatches=0 的结果，可以在同一 run 通过 final_answer.usedRefs 中的 tool_result 引用支撑普通事实回答；训练推送事实必须写入 final_answer.visibleOutputs[]，不要只写正文。",
+      "查询执行成功且 ok=true 的结果，包括 totalMatches=0、候选不足或诊断摘要，可以在同一 run 通过 final_answer.usedRefs 中的 tool_result 引用支撑普通事实回答；训练推送事实必须写入 final_answer.visibleOutputs[] 并通过 validator，不要只写正文。",
       "如果最终训练结构仍缺 section、动作、prescription 或 schedule，Planner 应继续返回当前可见且合法的 tool_call、使用 ask_user 澄清，或明确失败收口；不得用成功 final_answer.content 承诺本轮回复后还会自动继续查询或生成。",
       "本 tool 不要求固定 tool 调用次数或顺序；它只提供当前查询实际返回 section 的动作事实，不代表最终训练结构已经生成。",
     ].join(" "),
@@ -235,7 +235,7 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
       "不要传入 maxReturned、returnedCount、totalMatches、truncated、limit、take、offset、page 或 pageSize；这些不是 input 字段。",
       "不要从 handler-only 结果、model observation、diagnostic 候选，未进入用户可见 visibleTrainingProposal 的内部候选，或未导入当前 run 的自然语言历史中提取 excludeExerciseIds。",
       "不要把 leg、lower body、upper body、full body、腿部、下肢、上肢或全身这类宽泛区域直接当成真实肌群 facet；应由模型基于 facetCatalog 选择数据库中真实存在的一个或多个肌群。",
-      "failed、invalid-input 或 satisfied=false 的结果不能支撑成功 final_answer。",
+      "failed 或 invalid-input 的结果不能支撑 final_answer；fulfillment.satisfied=false 只表示诊断摘要，普通文本可以解释该事实，但不能替代 visibleOutputs validator。",
       "不要把查询成功当成最终 visibleTrainingProposal、routine 或 plan 已经完成；不要用成功 final_answer.content 承诺本轮回复后自动继续查询、生成或保存。",
       "不要用缺少目标、facet、器械、场地、点名动作或当前 run 可见动作锚点的 broad query 结果推送动作卡片或训练方案；该结果只能用于澄清、解释过宽或下一轮 repair。",
     ].join(" "),
@@ -443,10 +443,10 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
         querySpecificity: buildQuerySpecificityObservation(output),
         filterSemantics: output.query.filterSemantics,
         finalAnswerGrounding: broadQuery
-          ? "本次查询 fulfillment.satisfied=false，因为 input 缺少可解释约束；该 toolResultId 不能支撑成功 final_answer、visibleTrainingProposal 或训练卡片，只能用于 ask_user、失败解释、阻断说明或下一轮 repair。"
-          : "当 fulfillment.satisfied=true，本次查询事实包括 totalMatches=0 的结果，toolResultId 可通过 final_answer.usedRefs 中的 tool_result 引用支撑普通事实回答；如果要推送训练结构，最终事实必须写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal.payload，或通过 grounded terminal action 引用当前 run 的可消费事实。",
+          ? "本次查询是 ok=true 的过宽查询诊断，因为 input 缺少可解释约束；该 toolResultId 可支撑普通文本解释条件过宽，但不能支撑 visibleTrainingProposal 或训练卡片。"
+          : "本次查询事实包括 totalMatches=0 的结果；toolResultId 可通过 final_answer.usedRefs 中的 tool_result 引用支撑普通事实回答。如果要推送训练结构，最终事实必须写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal.payload，或通过 grounded terminal action 引用当前 run 的可消费事实。",
         candidateConsumptionBoundary: broadQuery
-          ? "groups.<section>.exercises[*].exerciseId 虽是数据库动作摘要，但本次 query 过宽且 fulfillment.satisfied=false，不能作为 visibleTrainingProposal.exerciseItems[*] 的可消费事实来源；模型应先澄清目标、部位、器械、场地或其他结构化约束，或不输出 visibleOutputs 并说明当前事实不足。"
+          ? "groups.<section>.exercises[*].exerciseId 虽是数据库动作摘要，但本次 query 过宽，不能作为 visibleTrainingProposal.exerciseItems[*] 的可消费事实来源；模型应先澄清目标、部位、器械、场地或其他结构化约束，或不输出 visibleOutputs 并说明当前事实不足。"
           : "groups.<section>.exercises[*].exerciseId 可作为 visibleTrainingProposal.exerciseItems[*].exerciseId 的事实来源；当前 observation 只提供本次查询实际返回动作的 section-scoped 事实原料，availableSections 只包含本次 groups 中确实返回动作的 section。本次动作查询不证明当前 run 存在可操作的上一轮 visibleTrainingProposal，也不证明已经完成刷新、替换或调整。prescription、schedule 和最终 payload.kind 需要由 final_answer.visibleOutputs[] 明确输出。若目标结构还缺 section 或字段，模型应基于可见事实自主继续查询、澄清、失败收口或输出当前事实可支撑的结构；不得用成功 final_answer.content 承诺本轮回复后还会自动继续。",
         positiveAnchorBoundary: output.query.requiredExerciseIds?.length
           ? "本次查询使用 requiredExerciseIds 作为正向锚点；这些 id 只表示应优先纳入对应 groups.<section>.exercises 的受控动作事实，不表示排除、替换或已经生成最终训练方案。"
@@ -574,7 +574,7 @@ function buildQuerySpecificityObservation(output: SearchExerciseResourcesOutput)
       status: "too_broad",
       specificFilters,
       boundary: "本次 searchExerciseResources input 除默认 suitabilities、published、sort 外没有任何目标、facet、器械、场地、点名动作或当前 run 可见动作锚点；fulfillment.satisfied=false。",
-      forbiddenFinalAnswer: "不得用本次结果支撑成功 final_answer、visibleTrainingProposal、routine、plan 或随机动作卡片。",
+      forbiddenFinalAnswer: "不得用本次结果支撑 visibleTrainingProposal、routine、plan 或随机动作卡片；普通 final_answer 只能解释当前条件过宽或事实不足。",
       allowedNextActions: [
         "使用 ask_user 澄清训练目标、身体部位、器械、场地、时长、频率或其他必要约束。",
         "使用不带 visibleOutputs 的 final_answer 说明当前事实不足，并给出可点击的具体方向。",

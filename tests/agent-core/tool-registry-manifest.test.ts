@@ -390,7 +390,7 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(searchManifestJson).toContain("section-scoped 安全动作摘要");
     expect(searchManifestJson).toContain("不生成最终 visibleTrainingProposal");
     expect(searchManifestJson).toContain("groups.<section>.exercises[*].exerciseId");
-    expect(searchManifestJson).toContain("fulfillment.satisfied = true");
+    expect(searchManifestJson).toContain("本 tool 成功返回这些分组动作事实");
     expect(searchManifestJson).toContain("visibleTrainingProposal.exerciseItems[*].exerciseId");
     expect(searchManifestJson).toContain("最终训练输出只能由 final_answer.visibleOutputs[] 承载");
     expect(searchManifestJson).toContain("替换上一套用户可见 visibleTrainingProposal 的动作");
@@ -414,7 +414,8 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(searchManifestJson).toContain("不得用成功 final_answer.content 承诺本轮回复后还会自动继续查询或生成");
     expect(searchManifestJson).toContain("不要把查询成功当成最终 visibleTrainingProposal、routine 或 plan 已经完成");
     expect(searchManifestJson).toContain("不要因为当前只查到 training 动作事实");
-    expect(searchManifestJson).toContain("failed、invalid-input 或 satisfied=false 的结果不能支撑成功 final_answer");
+    expect(searchManifestJson).toContain("fulfillment.satisfied=false 只表示诊断摘要");
+    expect(searchManifestJson).toContain("普通文本可以解释该事实，但不能替代 visibleOutputs validator");
     expect(manifestJson).toContain("groups.<section>.exercises[*].exerciseId 是该查询结果中对应 section 的动作事实来源");
     expect(manifestJson).toContain("visibleTrainingProposal.exerciseItems[*].section");
     expect(manifestJson).toContain("allowedSections 是动作可进入哪些 section 的动作事实字段");

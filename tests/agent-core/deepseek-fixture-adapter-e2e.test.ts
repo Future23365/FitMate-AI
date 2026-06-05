@@ -209,11 +209,6 @@ describe("agent-core DeepSeek adapter fixture E2E", () => {
       {
         type: "final_answer",
         content: "success.",
-        usedRefs: toTerminalToolResultRefs([diagnosticToolResultId]),
-      },
-      {
-        type: "final_answer",
-        content: "success.",
         usedRefs: toTerminalResourceRefs([diagnosticRef]),
       },
       {
@@ -230,8 +225,8 @@ describe("agent-core DeepSeek adapter fixture E2E", () => {
         actor: {},
         userInput: "diagnostic fixture",
         limits: {
-          maxInvalidActions: 2,
-          maxSteps: 5,
+          maxInvalidActions: 1,
+          maxSteps: 4,
         },
       },
     });

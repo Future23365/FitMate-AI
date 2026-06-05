@@ -16,6 +16,7 @@ export function renderAgentResponseEvents(
   const events: AgentStreamEvent[] = [];
 
   for (const toolResult of result.toolResults) {
+    // 默认用户 tool_result 事件只投影结构化可展示的成功摘要；普通 final_answer.content 可引用任意 ok=true 的 tool result。
     if (toolResult.ok && toolResult.fulfillment.satisfied) {
       events.push(renderToolResultEvent(toolResult));
     }

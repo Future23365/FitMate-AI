@@ -147,12 +147,13 @@ class TraceModelAdapter implements ModelAdapter {
     this.cursor += 1;
     const successfulLightweightObservationCount = input.observations.filter((observation) => (
       isRecord(observation.content) &&
-      observation.content.observationRole === "successful_tool_result_index"
+      observation.content.observationRole === "ok_tool_result_index"
     )).length;
     const toolResultProjectionPresence = input.toolResults.map((toolResult) => ({
       toolResultId: toolResult.toolResultId,
       toolName: toolResult.toolName,
       satisfied: toolResult.fulfillment.satisfied,
+      factChannel: toolResult.ok ? (toolResult.fulfillment.satisfied ? "fact" as const : "diagnostic" as const) : "failed" as const,
       hasModelProjection: toolResult.ok && toolResult.projection.model !== undefined,
     }));
 
@@ -1220,14 +1221,14 @@ describe("chat service agent text flow boundary", () => {
       planner,
     });
     const events = await readNdjsonEvents(response);
-    const broadObservationJson = JSON.stringify(planner.calls[1].observations);
+    const broadFactsJson = JSON.stringify(planner.calls[1].toolResults);
     const repairObservation = planner.calls[2].observations.find((observation) => (
       observation.source === "validator"
       && JSON.stringify(observation.content).includes("current_run_source_missing")
     ));
 
-    expect(broadObservationJson).toContain("\"status\":\"too_broad\"");
-    expect(broadObservationJson).toContain("fulfillment.satisfied=false");
+    expect(broadFactsJson).toContain("\"status\":\"too_broad\"");
+    expect(broadFactsJson).toContain("\"satisfied\":false");
     expect(repairObservation).toMatchObject({
       ok: false,
       content: expect.objectContaining({
@@ -1641,7 +1642,7 @@ describe("chat service agent text flow boundary", () => {
     const serializedTrace = JSON.stringify(trace);
     const duplicateFeedback = planner.calls[3].observations.find((observation) => (
       observation.source === "runtime"
-      && JSON.stringify(observation.content).includes(AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS)
+      && JSON.stringify(observation.content).includes(AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT)
     ));
 
     expect(visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact).toHaveBeenCalledTimes(1);
@@ -1654,7 +1655,7 @@ describe("chat service agent text flow boundary", () => {
     expect(duplicateFeedback).toMatchObject({
       toolName: "inspectVisibleTrainingProposals",
       content: expect.objectContaining({
-        code: AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS,
+        code: AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT,
       }),
     });
     expect(events).toEqual([
@@ -1693,7 +1694,7 @@ describe("chat service agent text flow boundary", () => {
       }),
       { type: "done" },
     ]);
-    expect(serializedTrace).toContain(AGENT_ERROR_CODES.DUPLICATE_TOOL_SUCCESS);
+    expect(serializedTrace).toContain(AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT);
     expect(serializedTrace).not.toContain("Resource id is already registered in the current run.");
     expect(serializedTrace).not.toContain("\"invalid_action\"");
     expect(JSON.stringify(events)).not.toContain("聊天生成失败");

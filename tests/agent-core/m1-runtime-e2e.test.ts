@@ -189,7 +189,7 @@ describe("agent-core M1 confirmation runtime", () => {
 });
 
 describe("agent-core M1 diagnostic grounding", () => {
-  it("rejects diagnostic final answer grounding but allows ask_user explanation without success projection", async () => {
+  it("rejects diagnostic resource final answer grounding but allows ask_user explanation without success projection", async () => {
     const registry = createM1FixtureToolRegistry();
     const diagnosticToolResultId = createToolResultId("run-m1-diagnostic", "m1DiagnosticFailure", hashNormalizedInput({
       code: "fixture_blocked",
@@ -222,11 +222,6 @@ describe("agent-core M1 diagnostic grounding", () => {
         {
           type: "final_answer",
           content: "已成功完成。",
-          usedRefs: toTerminalToolResultRefs([diagnosticToolResultId]),
-        },
-        {
-          type: "final_answer",
-          content: "已成功完成。",
           usedRefs: toTerminalResourceRefs([diagnosticRef]),
         },
         {
@@ -238,7 +233,7 @@ describe("agent-core M1 diagnostic grounding", () => {
         runId: "run-m1-diagnostic",
         actor: { userId: "user-1" },
         userInput: "diagnostic fixture",
-        limits: { maxSteps: 5, maxInvalidActions: 2 },
+        limits: { maxSteps: 4, maxInvalidActions: 1 },
       },
     });
     const events = renderAgentResponseEvents(result);

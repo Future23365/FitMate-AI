@@ -526,7 +526,7 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
               expected: expect.objectContaining({
                 anyOf: expect.arrayContaining([
                   "current_run_registered_resourceId",
-                  "satisfied_tool_result_ref",
+                  "current_run_ok_tool_result_ref",
                   "valid_visibleOutputs",
                 ]),
               }),
@@ -620,7 +620,7 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
     })).toMatchObject({ ok: true });
   });
 
-  it("rejects final_answer grounding by failed or unsatisfied tool results but allows ask_user diagnostics", () => {
+  it("rejects final_answer grounding by failed tool results and allows ok diagnostic tool results", () => {
     const registry = createRegistry();
     const manifests = registry.serializeForPlanner();
     const failedResult = createTerminalGroundingToolResult({
@@ -648,13 +648,13 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
     expect(validateAgentAction({
       action: {
         type: "final_answer",
-        content: "done",
+        content: "没有找到满足条件的结果。",
         usedRefs: toTerminalToolResultRefs([unsatisfiedResult.toolResultId]),
       },
       registry,
       manifests,
       toolResults: [unsatisfiedResult],
-    })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID } });
+    })).toMatchObject({ ok: true });
 
     expect(validateAgentAction({
       action: {

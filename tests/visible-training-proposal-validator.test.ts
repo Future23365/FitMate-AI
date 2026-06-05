@@ -75,7 +75,7 @@ describe("visible training proposal validator", () => {
     });
   });
 
-  it("rejects exerciseItems that only appear in unsatisfied current-run search results", async () => {
+  it("rejects exerciseItems that only appear in diagnostic current-run search results", async () => {
     await expect(validateVisibleTrainingProposalOutput(
       createEnvelope({
         kind: "exercise_selection",
@@ -89,6 +89,35 @@ describe("visible training proposal validator", () => {
             satisfied: false,
             section: "training",
             exerciseIds: ["push-up"],
+          }),
+        ],
+      }),
+      { loadExerciseRecordsByIds: createExerciseFactLoader() },
+    )).resolves.toMatchObject({
+      ok: false,
+      details: {
+        code: "current_run_source_missing",
+        missingExerciseItems: [
+          { exerciseId: "push-up", section: "training", order: 1 },
+        ],
+      },
+    });
+  });
+
+  it("rejects exerciseItems when a 0-result ok tool result has no grouped action source", async () => {
+    await expect(validateVisibleTrainingProposalOutput(
+      createEnvelope({
+        kind: "exercise_selection",
+        exerciseItems: [
+          { exerciseId: "push-up", section: "training", order: 1 },
+        ],
+      }),
+      createContext({
+        toolResults: [
+          createSearchToolResult({
+            satisfied: false,
+            section: "training",
+            exerciseIds: [],
           }),
         ],
       }),

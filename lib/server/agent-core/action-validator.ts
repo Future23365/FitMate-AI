@@ -237,20 +237,20 @@ function validateTerminalAction(
     };
   }
 
-  // final_answer 只能引用已满足的成功 tool result，诊断或失败结果只能用于 ask_user/失败解释。
+  // 普通 final_answer 只要求引用当前 run 内 ok=true 的 tool result；业务交付由 visibleOutputs validator 判定。
   if (action.type === "final_answer") {
-    const unsatisfiedToolResultIds = toolResultRefIds.filter((id) => {
+    const failedToolResultIds = toolResultRefIds.filter((id) => {
       const result = knownToolResults.get(id);
-      return result ? !result.ok || !result.fulfillment.satisfied : false;
+      return result ? !result.ok : false;
     });
 
-    if (unsatisfiedToolResultIds.length > 0) {
+    if (failedToolResultIds.length > 0) {
       return {
         ok: false,
         error: createToolError(
           AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID,
-          "Final answer cannot use failed or unsatisfied tool results as successful grounding.",
-          { toolResultIds: unsatisfiedToolResultIds },
+          "Final answer cannot use failed tool results as grounding.",
+          { toolResultIds: failedToolResultIds },
         ),
       };
     }
@@ -341,7 +341,7 @@ function createMissingTerminalGroundingDetails(toolResultCount: number): ToolErr
         path: "usedRefs",
         expected: {
           anyOf: [
-            "satisfied_tool_result_ref",
+            "current_run_ok_tool_result_ref",
             "consumable_resource_ref",
             "valid_visibleOutputs",
           ],
@@ -388,12 +388,12 @@ function createMissingResourceReferenceDetails(
         expected: {
           anyOf: [
             "current_run_registered_resourceId",
-            "satisfied_tool_result_ref",
+            "current_run_ok_tool_result_ref",
             "valid_visibleOutputs",
           ],
         },
         actual,
-        repair: "usedRefs.resource.id 必须是当前 run 已登记的 resourceId，通常来自 fulfillment.producedResources[].resourceId；不要把业务对象 id、历史消息 id、示例 id 或正文里的 id 当作 resourceId。若事实来自已满足的 tool result，优先改用 usedRefs: [{ type: \"tool_result\", id: \"...\" }]。",
+        repair: "usedRefs.resource.id 必须是当前 run 已登记的 resourceId，通常来自 fulfillment.producedResources[].resourceId；不要把业务对象 id、历史消息 id、示例 id 或正文里的 id 当作 resourceId。若普通回答事实来自当前 run ok=true 的 tool result，优先改用 usedRefs: [{ type: \"tool_result\", id: \"...\" }]。",
       },
     ],
   };

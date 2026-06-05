@@ -287,11 +287,12 @@ describe("searchExerciseResources tool", () => {
       querySpecificity: {
         status: "too_broad",
         specificFilters: [],
-        forbiddenFinalAnswer: expect.stringContaining("不得用本次结果支撑成功 final_answer"),
+        forbiddenFinalAnswer: expect.stringContaining("普通 final_answer 只能解释当前条件过宽或事实不足"),
       },
     });
     const serializedObservation = JSON.stringify(modelObservation);
     expect(serializedObservation).toContain("fulfillment.satisfied=false");
+    expect(serializedObservation).toContain("可支撑普通文本解释条件过宽");
     expect(serializedObservation).toContain("不能作为 visibleTrainingProposal.exerciseItems[*] 的可消费事实来源");
     expect(serializedObservation).toContain("使用 ask_user 澄清训练目标");
 
