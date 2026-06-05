@@ -711,6 +711,9 @@ export function ChatPage() {
                   <SymbolIcon>send</SymbolIcon>
                 </button>
               </div>
+              <p className="mt-xs text-center font-label-sm text-[11px] leading-tight text-muted">
+                FitMate AI 也可能犯错，请结合自身情况甄别训练建议。
+              </p>
             </form>
           </div>
         </div>
