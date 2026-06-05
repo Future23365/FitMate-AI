@@ -147,6 +147,8 @@ describe("manual basic LLM judge contract", () => {
     expect(serializedPayload).not.toContain("token diagnostics");
     expect(systemPrompt).toContain("不直接生成随机卡片");
     expect(systemPrompt).toContain("visibleTrainingProposal、exercise_recommendation、workout_routine、workout_plan");
+    expect(systemPrompt).toContain("kind=exercise_selection");
+    expect(systemPrompt).toContain("让用户自行组合");
     expect(systemPrompt).toContain("不能因为同时存在 assistantSuggestions 而返回 passed_via_suggestion");
   });
 

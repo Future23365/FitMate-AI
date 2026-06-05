@@ -136,9 +136,9 @@ describe("searchExerciseResources tool", () => {
         missingSectionsForRoutineOrPlan: ["warmup", "stretch"],
         forbiddenFinalVisibleOutputs: expect.stringContaining("缺口补齐前禁止提交"),
         allowedNextActions: expect.arrayContaining([
-          "继续用缺失 section 的 suitabilities 查询候选。",
-          "使用 ask_user 澄清必要约束。",
-          "不输出 visibleOutputs，仅说明当前事实不足或失败收口。",
+          "如果模型目标已经是 routine 或 plan，且关键约束足以解释方案，优先继续用 suitabilities = [\"warmup\", \"stretch\"] 或等价缺失 section 查询候选。",
+          "只有候选不足、约束冲突、tool 不可用或关键约束仍不足时，才使用 ask_user 澄清必要约束。",
+          "无法补齐时不输出 visibleOutputs，应说明缺少哪些 section 候选和可恢复下一步。",
         ]),
         note: expect.stringContaining("当前结果只提供 training 动作事实"),
       },
@@ -148,6 +148,9 @@ describe("searchExerciseResources tool", () => {
     expect(serializedObservation).toContain("section 应与使用的 group key 保持一致");
     expect(serializedObservation).toContain("如果最终目标是 routine 或 plan");
     expect(serializedObservation).toContain("还需要当前 run 可消费的 warmup 和 stretch 动作事实");
+    expect(serializedObservation).toContain("作为本轮完成 routine / plan 的正常下一步");
+    expect(serializedObservation).toContain("不要把该状态回复成询问用户是否需要完整计划");
+    expect(serializedObservation).toContain("不要让用户自行组合 training 动作列表");
     expect(serializedObservation).toContain("suitabilities = [\\\"warmup\\\", \\\"stretch\\\"]");
     expect(serializedObservation).toContain("missingSectionsForRoutineOrPlan 非空");
     expect(serializedObservation).toContain("final_answer.visibleOutputs[] 中 payload.kind = \\\"routine\\\" 或 \\\"plan\\\"");
@@ -179,6 +182,57 @@ describe("searchExerciseResources tool", () => {
     expect(serializedObservation).not.toContain("不是 visibleTrainingProposal");
     expect(serializedObservation).not.toContain("\"warmup\":{\"suitability\":\"warmup\"");
     expect(serializedObservation).not.toContain("\"stretch\":{\"suitability\":\"stretch\"");
+  });
+
+  it("treats missing support sections as a routine composition step before asking the user to self-compose", async () => {
+    const { tool } = await importToolWithRepositoryImplementation(async (input) => {
+      const suitability = (input as { suitability?: string }).suitability;
+
+      return createSearchResult({
+        query: {
+          muscle: "胸部",
+          equipment: "no_equipment",
+          suitability: suitability as "training",
+          published: true,
+          sort: "name_asc",
+        },
+        totalMatches: 1,
+        returnedCount: 1,
+        exercises: [createExerciseSummary({
+          id: "push-up",
+          nameZh: "俯卧撑",
+          allowedSections: ["training"],
+        })],
+      });
+    });
+
+    const result = await executeTool({
+      tool,
+      input: { muscle: "胸部", equipment: "no_equipment", suitabilities: ["training"] },
+      run: { runId: "run-routine-training-only", actor: { userId: "user-1" }, userInput: "给我一套胸部20分钟无器械训练" },
+      timeoutMs: 100,
+      toolCallId: "tc_routine_training_only",
+    });
+
+    if (!result.ok) {
+      throw new Error("searchExerciseResources should succeed");
+    }
+    const observation = tool.toModelObservation?.(
+      result.output as Parameters<NonNullable<typeof tool.toModelObservation>>[0],
+      {
+        runId: "run-routine-training-only",
+        actor: { userId: "user-1" },
+        toolCallId: "tc_routine_training_only",
+      },
+    );
+    const observationJson = JSON.stringify(observation);
+
+    expect(observationJson).toContain("关键约束足以解释本次编排");
+    expect(observationJson).toContain("suitabilities = [\\\"warmup\\\", \\\"stretch\\\"]");
+    expect(observationJson).toContain("作为本轮完成 routine / plan 的正常下一步");
+    expect(observationJson).toContain("不要让用户自行组合 training 动作列表");
+    expect(observationJson).not.toContain("你可以从中挑选");
+    expect(observationJson).not.toContain("如果你需要完整计划");
   });
 
   it("returns diagnostic unsatisfied fulfillment for broad queries without explanatory constraints", async () => {

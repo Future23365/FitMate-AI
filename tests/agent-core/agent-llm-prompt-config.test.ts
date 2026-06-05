@@ -73,7 +73,7 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).toContain("payload.kind = exercise_selection 表达一批可选 training 动作事实");
     expect(systemPrompt).toContain("仅用于目标只需要动作选择或普通动作事实推荐的场景");
     expect(systemPrompt).toContain("payload.kind = routine 表达一次可执行训练编排结构");
-    expect(systemPrompt).toContain("routine 需要当前可见上下文中已有足以解释单次编排的训练目标或部位、单次时长、可用器械或场地等关键约束");
+    expect(systemPrompt).toContain("routine 需要当前可见上下文中已有足以解释单次编排的训练目标、身体部位、训练形式、单次时长、可用器械或场地等关键约束");
     expect(systemPrompt).toContain("不得推送默认 routine 卡片");
     expect(systemPrompt).toContain("payload.kind = plan 表达多天安排结构");
     expect(systemPrompt).toContain("先确认或使用当前可见的训练目标、限制、器械、时间和难度");
@@ -119,6 +119,13 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).toContain("使用 ask_user 澄清必要约束");
     expect(systemPrompt).toContain("不输出 visibleOutputs 并在 content 中说明当前事实不足或失败收口");
     expect(systemPrompt).toContain("不得因为只查到 training 动作事实就输出 payload.kind = exercise_selection 来替代 routine 或 plan");
+    expect(systemPrompt).toContain("获取 warmup / stretch 动作事实是本轮完成 routine 的正常下一步");
+    expect(systemPrompt).toContain("候选足够后应输出 payload.kind = \"routine\" 的 visibleTrainingProposal");
+    expect(systemPrompt).toContain("不得把这种状态回复成“如果你需要完整计划我可以继续查询”");
+    expect(systemPrompt).toContain("不得让用户自行组合 training 动作列表");
+    expect(systemPrompt).toContain("也不得把正文动作列表当作 routine 成功结果");
+    expect(systemPrompt).toContain("diagnostics 显示 no_candidates");
+    expect(systemPrompt).toContain("说明具体缺口和可恢复下一步");
     expect(systemPrompt).toContain("routine 和 plan 需要 warmup、training、stretch 三类 section 的当前 run 可消费动作事实");
     expect(systemPrompt).toContain("exerciseItems[*].section 必须被对应动作事实的 allowedSections 支撑");
     expect(systemPrompt).toContain("只有 training 动作事实时，不得伪造 warmup 或 stretch");

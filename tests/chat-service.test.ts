@@ -385,6 +385,8 @@ describe("chat service agent text flow boundary", () => {
     const serializedSearchManifest = JSON.stringify(plannerSearchManifest);
     expect(serializedSearchManifest).toContain("missingSectionsForRoutineOrPlan 非空");
     expect(serializedSearchManifest).toContain("suitabilities = [\\\"warmup\\\", \\\"stretch\\\"]");
+    expect(serializedSearchManifest).toContain("候选足够后应继续组合完整 routine / plan");
+    expect(serializedSearchManifest).toContain("正文动作列表或用户自行组合建议");
     expect(serializedSearchManifest).toContain("final_answer.visibleOutputs[].payload.kind = \\\"routine\\\" 或 \\\"plan\\\"");
     expect(serializedSearchManifest).toContain("不要在 content 中解释缺口后仍提交缺 section 的结构");
     expect(serializedSearchManifest).not.toContain("generatePlanDraft");
@@ -1913,6 +1915,174 @@ describe("chat service agent text flow boundary", () => {
     expect(JSON.stringify(events)).not.toContain("displayedExerciseIds");
   });
 
+  it.each([
+    {
+      caseId: "chest-no-equipment",
+      latestUserMessage: "给我一套胸部20分钟无器械训练",
+      muscle: "胸部",
+      trainingExercise: { id: "push-up", nameZh: "俯卧撑" },
+      warmupExercise: { id: "jumping-jack", nameZh: "开合跳" },
+      stretchExercise: { id: "chest-stretch", nameZh: "胸部拉伸" },
+    },
+    {
+      caseId: "home-back-30",
+      latestUserMessage: "今天在家练背30分钟",
+      muscle: "背部",
+      trainingExercise: { id: "superman", nameZh: "超人式" },
+      warmupExercise: { id: "dynamic-back-stretch", nameZh: "动态背部热身" },
+      stretchExercise: { id: "back-stretch", nameZh: "背部拉伸" },
+    },
+    {
+      caseId: "chest-circuit",
+      latestUserMessage: "给我一套循环胸部训练",
+      muscle: "胸部",
+      trainingExercise: { id: "push-up", nameZh: "俯卧撑" },
+      warmupExercise: { id: "jumping-jack", nameZh: "开合跳" },
+      stretchExercise: { id: "chest-stretch", nameZh: "胸部拉伸" },
+    },
+  ])("completes a direct routine request by supplementing support sections before final visible output: $caseId", async ({
+    caseId,
+    latestUserMessage,
+    muscle,
+    trainingExercise,
+    warmupExercise,
+    stretchExercise,
+  }) => {
+    const responseMessageId = `assistant-direct-routine-compose-${caseId}`;
+    const trainingSearchInput = {
+      muscle,
+      equipment: "no_equipment",
+      level: "beginner",
+      suitabilities: ["training"],
+      sort: "name_asc",
+    };
+    const supportSearchInput = {
+      muscle,
+      equipment: "no_equipment",
+      level: "beginner",
+      suitabilities: ["warmup", "stretch"],
+      sort: "name_asc",
+    };
+    const expectedTrainingToolResultId = createToolResultId(
+      `chat_${responseMessageId}`,
+      "searchExerciseResources",
+      hashNormalizedInput(trainingSearchInput),
+    );
+    const expectedSupportToolResultId = createToolResultId(
+      `chat_${responseMessageId}`,
+      "searchExerciseResources",
+      hashNormalizedInput(supportSearchInput),
+    );
+    exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockImplementation(async (input) => {
+      const suitability = isRecord(input) && typeof input.suitability === "string" ? input.suitability : "training";
+      const exerciseBySuitability = {
+        warmup: warmupExercise,
+        training: trainingExercise,
+        stretch: stretchExercise,
+      }[suitability] ?? trainingExercise;
+
+      return createExerciseResourceSearchResult({
+        query: {
+          muscle,
+          equipment: "no_equipment",
+          level: "beginner",
+          suitability,
+          published: true,
+          sort: "name_asc",
+        },
+        totalMatches: 1,
+        returnedCount: 1,
+        exercises: [
+          {
+            ...createExerciseResourceSearchResult().exercises[0],
+            id: exerciseBySuitability.id,
+            nameZh: exerciseBySuitability.nameZh,
+            allowedSections: [suitability],
+          },
+        ],
+      });
+    });
+    const prepared = prepareChatRequest({
+      conversationId: "conversation-direct-routine-compose",
+      responseMessageId,
+      latestUserMessage,
+      conversationSummary: "",
+    });
+    const planner = new ReplayPlanner([
+      { type: "tool_call", toolName: "searchExerciseResources", input: trainingSearchInput },
+      { type: "tool_call", toolName: "searchExerciseResources", input: supportSearchInput },
+      {
+        type: "final_answer",
+        content: "这是一套完整训练，已经包含热身、主训练和拉伸。",
+        usedToolResultIds: [expectedTrainingToolResultId, expectedSupportToolResultId],
+        visibleOutputs: [createVisibleRoutineOutputForExercises({
+          warmupExerciseId: warmupExercise.id,
+          trainingExerciseId: trainingExercise.id,
+          stretchExerciseId: stretchExercise.id,
+        })],
+      },
+    ]);
+
+    const response = await createAgentTextChatResponse({
+      request: prepared,
+      currentUser: { id: "user-1" },
+      planner,
+    });
+    const events = await readNdjsonEvents(response);
+    const supportPlannerInputJson = JSON.stringify(planner.calls[1]);
+    const finalPlannerObservationJson = JSON.stringify(planner.calls[2].observations);
+
+    expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries).toHaveBeenCalledTimes(3);
+    expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mock.calls.map(([input]) => (
+      isRecord(input) ? input.suitability : undefined
+    ))).toEqual(["training", "warmup", "stretch"]);
+    expect(supportPlannerInputJson).toContain("missingSectionsForRoutineOrPlan");
+    expect(supportPlannerInputJson).toContain("作为本轮完成 routine / plan 的正常下一步");
+    expect(supportPlannerInputJson).toContain("不要让用户自行组合 training 动作列表");
+    expect(finalPlannerObservationJson).toContain(warmupExercise.id);
+    expect(finalPlannerObservationJson).toContain(trainingExercise.id);
+    expect(finalPlannerObservationJson).toContain(stretchExercise.id);
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "tool_result",
+        toolName: "searchExerciseResources",
+        toolResultId: expectedTrainingToolResultId,
+        content: expect.objectContaining({
+          groups: expect.objectContaining({
+            training: expect.objectContaining({ exercises: [expect.objectContaining({ exerciseId: trainingExercise.id })] }),
+          }),
+        }),
+      }),
+      expect.objectContaining({
+        type: "tool_result",
+        toolName: "searchExerciseResources",
+        toolResultId: expectedSupportToolResultId,
+        content: expect.objectContaining({
+          groups: expect.objectContaining({
+            warmup: expect.objectContaining({ exercises: [expect.objectContaining({ exerciseId: warmupExercise.id })] }),
+            stretch: expect.objectContaining({ exercises: [expect.objectContaining({ exerciseId: stretchExercise.id })] }),
+          }),
+        }),
+      }),
+      { type: "content", content: "这是一套完整训练，已经包含热身、主训练和拉伸。" },
+      expect.objectContaining({
+        type: "visible_output",
+        outputType: "visibleTrainingProposal",
+        payload: expect.objectContaining({
+          kind: "routine",
+          exerciseItems: expect.arrayContaining([
+            expect.objectContaining({ exerciseId: warmupExercise.id, section: "warmup" }),
+            expect.objectContaining({ exerciseId: trainingExercise.id, section: "training" }),
+            expect.objectContaining({ exerciseId: stretchExercise.id, section: "stretch" }),
+          ]),
+        }),
+      }),
+      { type: "done" },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("你可以从中挑选");
+    expect(JSON.stringify(events)).not.toContain("如果你需要完整计划");
+  });
+
   it("renders a plan visible output after composing multiple exercise search observations", async () => {
     const trainingSearchInput = {
       muscle: "胸部",
@@ -2953,7 +3123,7 @@ function createExerciseResourceSearchResult(overrides: Record<string, unknown> =
 
 function createExerciseResourceFacetCatalog(): ExerciseResourceFacetCatalog {
   return {
-    muscles: ["胸部", "肱三头肌", "股四头肌", "臀部", "腹肌"],
+    muscles: ["胸部", "背部", "肱三头肌", "股四头肌", "臀部", "腹肌"],
     categories: ["strength", "力量"],
     levels: ["beginner", "初级"],
     forces: ["push", "推"],
@@ -3060,6 +3230,36 @@ function createExerciseRecordForValidation(id: string) {
       nameZh: "胸部拉伸",
       equipmentZh: "自重",
       primaryMusclesZh: ["胸部"],
+      imageUrls: [],
+      allowedSections: ["stretch"],
+      isPublished: true,
+    },
+    "dynamic-back-stretch": {
+      id,
+      nameEn: "Dynamic Back Stretch",
+      nameZh: "动态背部热身",
+      equipmentZh: "自重",
+      primaryMusclesZh: ["背部"],
+      imageUrls: [],
+      allowedSections: ["warmup"],
+      isPublished: true,
+    },
+    superman: {
+      id,
+      nameEn: "Superman",
+      nameZh: "超人式",
+      equipmentZh: "自重",
+      primaryMusclesZh: ["背部"],
+      imageUrls: [],
+      allowedSections: ["training"],
+      isPublished: true,
+    },
+    "back-stretch": {
+      id,
+      nameEn: "Back Stretch",
+      nameZh: "背部拉伸",
+      equipmentZh: "自重",
+      primaryMusclesZh: ["背部"],
       imageUrls: [],
       allowedSections: ["stretch"],
       isPublished: true,
@@ -3175,15 +3375,27 @@ function createVisibleRoutineOutput() {
 }
 
 function createRoutineOutputWithTrainingExercise(trainingExerciseId: string) {
+  return createVisibleRoutineOutputForExercises({
+    warmupExerciseId: "jumping-jack",
+    trainingExerciseId,
+    stretchExerciseId: "chest-stretch",
+  });
+}
+
+function createVisibleRoutineOutputForExercises(input: {
+  warmupExerciseId: string;
+  trainingExerciseId: string;
+  stretchExerciseId: string;
+}) {
   return {
     outputType: "visibleTrainingProposal" as const,
     schemaVersion: "1",
     payload: {
       kind: "routine" as const,
       exerciseItems: [
-        { exerciseId: "jumping-jack", section: "warmup" as const, order: 1, prescription: createVisiblePrescription("reps", 20) },
-        { exerciseId: trainingExerciseId, section: "training" as const, order: 1, prescription: createVisiblePrescription("reps", 12) },
-        { exerciseId: "chest-stretch", section: "stretch" as const, order: 1, prescription: createVisiblePrescription("duration", 30) },
+        { exerciseId: input.warmupExerciseId, section: "warmup" as const, order: 1, prescription: createVisiblePrescription("reps", 20) },
+        { exerciseId: input.trainingExerciseId, section: "training" as const, order: 1, prescription: createVisiblePrescription("reps", 12) },
+        { exerciseId: input.stretchExerciseId, section: "stretch" as const, order: 1, prescription: createVisiblePrescription("duration", 30) },
       ],
     },
   };
