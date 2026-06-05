@@ -240,7 +240,7 @@ describe("Agent progress activity UI state", () => {
 });
 
 describe("AgentActivityIndicator", () => {
-  it("renders known stages with Chinese copy, motion classes, and aria-live", () => {
+  it("renders known stages with Chinese copy, fixed prefix width, and aria-live", () => {
     const html = renderToStaticMarkup(
       createElement(AgentActivityIndicator, {
         activity: createVisibleActivityForTest(),
@@ -252,8 +252,10 @@ describe("AgentActivityIndicator", () => {
     expect(html).toContain("#4");
     expect(html).toContain("正在校验训练内容...");
     expect(html).not.toContain("fact_check");
-    expect(html).toContain("motion-safe:animate-pulse");
-    expect(html).toContain("motion-reduce:animate-none");
+    expect(html).toContain("items-end");
+    expect(html).toContain("min-w-[1.75rem]");
+    expect(html).toContain("tabular-nums");
+    expect(html).not.toContain("motion-safe:animate-pulse");
     expect(html).not.toContain("validateRoutineDraft");
   });
 
