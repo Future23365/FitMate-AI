@@ -286,6 +286,36 @@ OpenSpec 生成或修改的说明性文档应使用中文，便于人工 review�
 - bug 若表现为某个 phrasing、模型输出形态或 trace 个例失败，先按合同/上下文链路缺口定位根因，说明影响的同类变体、修复边界和回归测试；不能只修当前 case。
 - 除非用户明确要求 quick patch，否则不要新增服务端自然语言判断、语义归一化、关键词分流或特定 phrasing 兜底。
 
+## Agent 修复方案抽象层级门禁
+
+当问题来自某个具体 trace、用户原话、tool result 或模型输出失败时，Codex 在给修复方案前必须先区分：
+
+1. 失败证据：只能描述本次 case 发生了什么。
+2. 通用合同：只能使用稳定抽象，例如引用对象、可见资源、tool result、resource role、grounding、repair、clarification。
+3. 业务实例：`visibleTrainingProposal`、`searchExerciseResources`、`inspectVisibleTrainingProposals` 等只能作为 tool manifest、observation 或测试样例出现，不得直接升格成通用 prompt 规则。
+4. 回归测试：可以包含用户原话和具体 tool 输出，但测试样例不得反向决定生产规则。
+
+禁止把以下形态作为修复方案：
+- “当用户说 X 时……”
+- “当 toolName = Y 且字段 Z = 某值时，模型必须……”
+- “针对这次 trace 的短句/资源/字段组合增加一条行为规则”
+- 服务端根据用户自然语言、关键词、短句模板或具体 phrasing 改写 action、toolName、回复策略。
+
+如果方案中必须出现具体业务名，Codex 必须说明它属于：
+- tool 自身模型可见说明；
+- observation projection；
+- resource contract；
+- 回归测试；
+而不是通用语义规则。
+
+给 Agent / prompt / tool 修复方案时，必须按以下顺序输出：
+
+1. 抽象问题类型：例如引用对象缺失、grounding 缺失、tool observation 不足、repair feedback 不足。
+2. 通用合同修复：不使用具体用户短句，不使用具体业务 toolName 作为触发条件。
+3. 业务 tool 局部说明：如需涉及具体 tool，只说明该 tool 暴露什么事实、不能支撑什么事实。
+4. 回归测试样例：具体用户输入和 trace 条件只能放在测试里。
+5. 明确说明没有新增服务端语义分流、关键词规则或 phrasing 特判。
+
 ## 健身领域规则
 
 - 保存到系统中的训练动作必须来自数据库。
