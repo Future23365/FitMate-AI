@@ -43,9 +43,9 @@ export const agentRuntimeConfig = {
     /** temperature 越高越容易发散；生产 Planner 默认保持确定性，避免同一上下文下动作规划漂移。 */
     temperature: 0,
     /** maxTokens 限制单次 AgentAction 输出长度；调大可能增加成本，调小可能截断 visibleOutputs 或 repair 信息。 */
-    maxTokens: 1_200,
+    maxTokens: 10_000,
     /** timeoutMs 限制单次模型请求等待时间；调大增加用户等待，调小会放大慢响应的失败率。 */
-    timeoutMs: 10_000,
+    timeoutMs: 15_000,
   },
   /** runtime 控制 agent-core 主循环预算；这些值决定 repair、tool calling 和最终收口最多能推进多远。 */
   runtime: {
@@ -62,28 +62,28 @@ export const agentRuntimeConfig = {
     /** overallTimeoutMs 是整个 Agent run 的墙钟时间预算；调大增加请求占用，调小可能中断合法慢路径。 */
     overallTimeoutMs: 40_000,
     /** perToolTimeoutMs 是单个 tool 执行预算；调大增加慢查询占用，调小可能中断数据库读取。 */
-    perToolTimeoutMs: 1_000,
+    perToolTimeoutMs: 2_000,
   },
   /** tools 控制生产 tool 暴露给模型的默认事实数量和超时；业务层仍保留 hard cap。 */
   tools: {
     /** searchExerciseResources 控制每个 section 返回给模型的动作事实数量。 */
     searchExerciseResources: {
       /** timeoutMs 限制动作事实查询 tool 的单次执行时间；调大可能放大慢查询影响。 */
-      timeoutMs: 1_000,
+      timeoutMs: 2_000,
       /** maxReturnedPerSection 控制每个 warmup/training/stretch section 的可见动作数量；调大增加模型上下文体积。 */
       maxReturnedPerSection: 12,
     },
     /** resolveExerciseResourceMentions 控制点名动作解析返回给模型的候选规模。 */
     resolveExerciseResourceMentions: {
       /** timeoutMs 限制点名解析 tool 的单次执行时间；调大可能放大慢查询影响。 */
-      timeoutMs: 1_000,
+      timeoutMs: 2_000,
       /** maxMatches 控制每个 mention 的默认候选数；调大可能增加歧义 payload，调小可能漏掉可选动作。 */
       maxMatches: 5,
     },
     /** inspectVisibleTrainingProposals 控制最近可见训练方案事实索引的读取规模。 */
     inspectVisibleTrainingProposals: {
       /** timeoutMs 限制可见训练方案事实 tool 的单次执行时间；调大可能放大事实库慢读影响。 */
-      timeoutMs: 1_000,
+      timeoutMs: 2_000,
       /** recentFactListLimit 控制 list_recent 返回的最近事实索引数量；调大增加模型上下文和引用歧义。 */
       recentFactListLimit: 3,
     },
