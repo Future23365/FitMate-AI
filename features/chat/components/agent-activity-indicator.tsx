@@ -19,11 +19,11 @@ export function AgentActivityIndicator({
   return (
     <div
       aria-live="polite"
-      className={`agent-activity-indicator flex min-h-[18px] items-end gap-xs px-xs py-[2px] font-label-sm text-label-sm font-bold leading-[16px] ${toneClass} transition-colors duration-200`}
+      className={`agent-activity-indicator flex min-h-[18px] items-baseline gap-xs px-xs py-[2px] font-label-sm text-label-sm font-bold leading-[16px] ${toneClass} transition-colors duration-200`}
       role="status"
     >
       {roundLabel ? (
-        <span className="inline-flex min-w-[1.75rem] shrink-0 translate-y-[1px] justify-end font-mono text-[11px] leading-[12px] tabular-nums text-primary/55">{roundLabel}</span>
+        <span className="inline-block min-w-[1.75rem] shrink-0 text-right font-mono text-label-sm leading-[16px] tabular-nums text-primary/55">{roundLabel}</span>
       ) : null}
       <span className="block leading-[16px]">{display.label}</span>
     </div>

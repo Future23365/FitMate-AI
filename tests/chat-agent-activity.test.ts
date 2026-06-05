@@ -252,9 +252,10 @@ describe("AgentActivityIndicator", () => {
     expect(html).toContain("#4");
     expect(html).toContain("正在校验训练内容...");
     expect(html).not.toContain("fact_check");
-    expect(html).toContain("items-end");
+    expect(html).toContain("items-baseline");
     expect(html).toContain("min-w-[1.75rem]");
     expect(html).toContain("tabular-nums");
+    expect(html).not.toContain("translate-y-[1px]");
     expect(html).not.toContain("motion-safe:animate-pulse");
     expect(html).not.toContain("validateRoutineDraft");
   });
