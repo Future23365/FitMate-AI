@@ -1516,6 +1516,7 @@ function summarizeTraceProjectionValue(value: JsonValue | undefined) {
     truncated: record.truncated,
     suitabilities: record.suitabilities,
     appliedFilters: record.appliedFilters,
+    filterSemantics: record.filterSemantics,
   };
 }
 

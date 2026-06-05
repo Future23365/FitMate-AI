@@ -30,6 +30,24 @@ import { createChatConversation } from "./fixtures/domain";
 const exerciseResourceRepositoryMocks = vi.hoisted(() => ({
   getExerciseResourceSummariesByIds: vi.fn(),
   getExerciseRecordsByIds: vi.fn(),
+  isBodyweightExerciseResourceEquipment: (input: { equipment?: string | null; equipmentZh?: string | null }) => (
+    input.equipment === "body only" || input.equipment === "bodyweight" || input.equipmentZh === "自重"
+  ),
+  isNoEquipmentResourceQueryValue: (value: string) => (
+    value.trim().toLowerCase() === "no_equipment" || value.trim() === "无器械"
+  ),
+  isRemovedNoEquipmentHomeRequirementValue: (value: string) => {
+    const normalized = value.trim().toLowerCase();
+    return normalized === "none" || normalized === "no_equipment" || value.trim() === "无器械";
+  },
+  normalizeExerciseResourceFacetCatalogForPlanner: (catalog: ExerciseResourceFacetCatalog) => ({
+    ...catalog,
+    equipment: [...new Set([...catalog.equipment, "no_equipment", "无器械"])],
+    homeRequirements: catalog.homeRequirements.filter((value) => {
+      const normalized = value.trim().toLowerCase();
+      return normalized !== "none" && normalized !== "no_equipment" && value.trim() !== "无器械";
+    }),
+  }),
   resolveExerciseResourceMentionSummaries: vi.fn(),
   readExerciseResourceFacetCatalog: vi.fn(),
   searchExerciseResourceSummaries: vi.fn(),
@@ -351,15 +369,19 @@ describe("chat service agent text flow boundary", () => {
       { type: "done" },
     ]);
     expect(planner.calls[0].manifests.map((manifest) => manifest.name)).toEqual(productionToolNames);
-    expect(planner.calls[0].manifests.find((manifest) => manifest.name === "searchExerciseResources")).toMatchObject({
+    const plannerSearchManifest = planner.calls[0].manifests.find((manifest) => manifest.name === "searchExerciseResources");
+    const plannerSearchFacetCatalog = plannerSearchManifest?.metadata?.facetCatalog as ExerciseResourceFacetCatalog | undefined;
+    expect(plannerSearchManifest).toMatchObject({
       metadata: {
         facetCatalog: expect.objectContaining({
           muscles: expect.arrayContaining(["胸部", "股四头肌"]),
-          equipment: expect.arrayContaining(["body only", "自重"]),
+          equipment: expect.arrayContaining(["body only", "自重", "no_equipment", "无器械"]),
           suitabilities: ["warmup", "training", "stretch"],
         }),
       },
     });
+    expect(plannerSearchFacetCatalog?.homeRequirements).not.toContain("none");
+    expect(plannerSearchFacetCatalog?.homeRequirements).not.toContain("无器械");
     expect(JSON.stringify(planner.calls[0].manifests)).not.toContain("uiActivityStage");
     expect(planner.calls[0].run).toMatchObject({
       actor: { userId: "user-1" },
@@ -565,6 +587,91 @@ describe("chat service agent text flow boundary", () => {
     expect(JSON.stringify(events)).not.toContain("candidate_set");
   });
 
+  it("runs no-equipment chest search through the production tool contract", async () => {
+    const toolInput = { muscles: ["胸部"], equipment: "no_equipment", suitabilities: ["training"] };
+    const expectedToolResultId = createToolResultId(
+      "chat_assistant-no-equipment-search",
+      "searchExerciseResources",
+      hashNormalizedInput(toolInput),
+    );
+    exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockResolvedValueOnce(createExerciseResourceSearchResult({
+      query: {
+        muscles: ["胸部"],
+        equipment: "no_equipment",
+        suitability: "training",
+        published: true,
+        sort: "name_asc",
+      },
+      appliedFilters: [
+        { field: "equipment", value: "no_equipment" },
+        { field: "muscles", value: ["胸部"] },
+        { field: "suitability", value: "training" },
+        { field: "published", value: true },
+      ],
+      filterSemantics: [createNoEquipmentFilterSemantic("no_equipment")],
+      exercises: [
+        createExerciseResourceSummary({
+          id: "push-up",
+          nameZh: "俯卧撑",
+          equipment: "body only",
+          equipmentZh: "自重",
+          homeRequirement: "floor",
+          homeRequirementZh: "地面/瑜伽垫",
+        }),
+      ],
+    }));
+    const prepared = prepareChatRequest({
+      latestUserMessage: "找几个无器械胸部训练动作",
+      conversationSummary: "",
+      responseMessageId: "assistant-no-equipment-search",
+    });
+    const planner = new ReplayPlanner([
+      { type: "tool_call", toolName: "searchExerciseResources", input: toolInput },
+      { type: "final_answer", content: "可以参考俯卧撑。", usedToolResultIds: [expectedToolResultId] },
+    ]);
+
+    const response = await createAgentTextChatResponse({
+      request: prepared,
+      currentUser: { id: "user-1" },
+      planner,
+    });
+    const events = await readNdjsonEvents(response);
+    const searchObservation = planner.calls[1].observations.find((observation) => observation.toolName === "searchExerciseResources");
+    const searchObservationJson = JSON.stringify(searchObservation?.content);
+
+    expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
+      equipment: "no_equipment",
+      homeRequirement: undefined,
+      muscles: ["胸部"],
+      suitability: "training",
+    }));
+    expect(searchObservationJson).toContain("filterSemantics");
+    expect(searchObservationJson).toContain("repository 只映射到自重动作字段");
+    expect(searchObservationJson).toContain("地面/瑜伽垫");
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "tool_result",
+        toolName: "searchExerciseResources",
+        toolResultId: expectedToolResultId,
+        content: expect.objectContaining({
+          groups: expect.objectContaining({
+            training: expect.objectContaining({
+              exercises: [
+                expect.objectContaining({
+                  exerciseId: "push-up",
+                  equipmentZh: "自重",
+                  homeRequirementZh: "地面/瑜伽垫",
+                }),
+              ],
+            }),
+          }),
+        }),
+      }),
+      { type: "content", content: "可以参考俯卧撑。" },
+      { type: "done" },
+    ]);
+  });
+
   it("replays a multi-mentioned exercise request through mention resolution and requiredExerciseIds", async () => {
     const mentionInput = {
       mentions: [
@@ -575,8 +682,7 @@ describe("chat service agent text flow boundary", () => {
     };
     const searchInput = {
       suitabilities: ["training"],
-      equipment: "body only",
-      homeRequirement: "none",
+      equipment: "no_equipment",
       level: "beginner",
       requiredExerciseIds: ["push-up", "squat", "plank"],
       sort: "name_asc",
@@ -611,8 +717,7 @@ describe("chat service agent text flow boundary", () => {
     exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockResolvedValueOnce(createExerciseResourceSearchResult({
       query: {
         suitability: "training",
-        equipment: "body only",
-        homeRequirement: "none",
+        equipment: "no_equipment",
         level: "beginner",
         published: true,
         sort: "name_asc",
@@ -658,8 +763,8 @@ describe("chat service agent text flow boundary", () => {
     expect(exerciseResourceRepositoryMocks.resolveExerciseResourceMentionSummaries).toHaveBeenCalledTimes(3);
     expect(exerciseResourceRepositoryMocks.getExerciseResourceSummariesByIds).toHaveBeenCalledWith(["push-up", "squat", "plank"]);
     expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
-      equipment: "body only",
-      homeRequirement: "none",
+      equipment: "no_equipment",
+      homeRequirement: undefined,
       level: "beginner",
       suitability: "training",
     }));
@@ -1421,7 +1526,6 @@ describe("chat service agent text flow boundary", () => {
     const searchInput = {
       muscles: ["胸部", "股四头肌", "腹肌"],
       suitabilities: ["warmup", "training", "stretch"],
-      homeRequirement: "none",
       sort: "name_asc",
     };
     const expectedToolResultId = createToolResultId(
@@ -1441,7 +1545,6 @@ describe("chat service agent text flow boundary", () => {
         query: {
           muscles: ["胸部", "股四头肌", "腹肌"],
           suitability,
-          homeRequirement: "none",
           published: true,
           sort: "name_asc",
         },
@@ -1517,14 +1620,12 @@ describe("chat service agent text flow boundary", () => {
   it("renders a plan visible output after composing multiple exercise search observations", async () => {
     const trainingSearchInput = {
       muscle: "胸部",
-      equipment: "body only",
-      homeRequirement: "none",
+      equipment: "no_equipment",
       level: "beginner",
       suitabilities: ["training"],
       sort: "name_asc",
     };
     const supportSearchInput = {
-      homeRequirement: "none",
       suitabilities: ["warmup", "stretch"],
       sort: "name_asc",
     };
@@ -1550,7 +1651,6 @@ describe("chat service agent text flow boundary", () => {
         query: {
           muscle: isRecord(input) && typeof input.muscle === "string" ? input.muscle : undefined,
           equipment: isRecord(input) && typeof input.equipment === "string" ? input.equipment : undefined,
-          homeRequirement: "none",
           level: isRecord(input) && typeof input.level === "string" ? input.level : undefined,
           suitability,
           published: true,
@@ -2414,6 +2514,7 @@ function createExerciseResourceSearchResult(overrides: Record<string, unknown> =
       ...queryOverrides,
     },
     appliedFilters: [{ field: "published", value: true }],
+    filterSemantics: [],
     totalMatches: 1,
     returnedCount: 1,
     maxReturned: 12,
@@ -2436,6 +2537,18 @@ function createExerciseResourceFacetCatalog(): ExerciseResourceFacetCatalog {
     goalTags: ["strength"],
     riskTags: ["shoulder_pain"],
     suitabilities: ["warmup", "training", "stretch"],
+  };
+}
+
+function createNoEquipmentFilterSemantic(requestedValue: string) {
+  return {
+    field: "equipment" as const,
+    requestedValue,
+    databaseMapping: {
+      equipment: ["body only", "bodyweight"],
+      equipmentZh: ["自重"],
+    },
+    note: "equipment=no_equipment/无器械 表示不需要外部器械；repository 只映射到自重动作字段，不自动附加 homeRequirement 条件。",
   };
 }
 

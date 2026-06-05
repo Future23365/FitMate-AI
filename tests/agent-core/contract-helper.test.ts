@@ -96,7 +96,21 @@ describe("agent-core contract test helper", () => {
         published: true,
         sort: "name_asc",
         suitabilities: ["training"],
-        appliedFilters: [{ field: "published", value: true }, { field: "suitabilities", value: ["training"] }],
+        equipment: "no_equipment",
+        appliedFilters: [
+          { field: "equipment", value: "no_equipment" },
+          { field: "published", value: true },
+          { field: "suitabilities", value: ["training"] },
+        ],
+        filterSemantics: [{
+          field: "equipment",
+          requestedValue: "no_equipment",
+          databaseMapping: {
+            equipment: ["body only", "bodyweight"],
+            equipmentZh: ["自重"],
+          },
+          note: "equipment=no_equipment/无器械 表示不需要外部器械；repository 只映射到自重动作字段，不自动附加 homeRequirement 条件。",
+        }],
         totalMatches: 1,
         returnedCount: 1,
         maxReturned: agentRuntimeConfig.tools.searchExerciseResources.maxReturnedPerSection,
@@ -116,6 +130,7 @@ describe("agent-core contract test helper", () => {
               nameZh: "俯卧撑",
               nameEn: "Push-up",
               equipmentZh: "自重",
+              homeRequirementZh: "地面/瑜伽垫",
               primaryMusclesZh: ["胸部"],
               allowedSections: ["training"],
             },
@@ -136,6 +151,9 @@ describe("agent-core contract test helper", () => {
       expect(modelObservationJson).not.toContain(field);
     }
     expect(modelObservationJson).toContain("totalMatches=0");
+    expect(modelObservationJson).toContain("filterSemantics");
+    expect(modelObservationJson).toContain("repository 只映射到自重动作字段");
+    expect(modelObservationJson).toContain("地面/瑜伽垫");
     expect(modelObservationJson).toContain("groups.<section>.exercises[*].exerciseId 可作为 visibleTrainingProposal.exerciseItems[*].exerciseId 的事实来源");
     expect(modelObservationJson).toContain("prescription、schedule 和最终 payload.kind");
     expect(modelObservationJson).toContain("继续查询、澄清、失败收口或输出当前事实可支撑的结构");

@@ -24,6 +24,12 @@ import type {
 export const EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED = 24;
 /** EXERCISE_RESOURCE_MENTION_HARD_MAX_MATCHES 是点名解析候选的安全上限，默认值仍来自 Agent runtime config。 */
 export const EXERCISE_RESOURCE_MENTION_HARD_MAX_MATCHES = 10;
+/** EXERCISE_RESOURCE_NO_EQUIPMENT_QUERY_VALUES 是 Planner 可见的无外部器械查询合同值，不是 homeRequirement facet。 */
+export const EXERCISE_RESOURCE_NO_EQUIPMENT_QUERY_VALUES = ["no_equipment", "无器械"] as const;
+
+const bodyweightEquipmentValues = ["body only", "bodyweight"] as const;
+const bodyweightEquipmentZhValues = ["自重"] as const;
+const removedHomeRequirementNoEquipmentValues = ["none", "no_equipment", "无器械"] as const;
 
 export type ExerciseResourceSummary = Pick<
   Exercise,
@@ -85,9 +91,20 @@ export type ExerciseResourceAppliedFilter = {
   value: string | boolean | string[];
 };
 
+export type ExerciseResourceFilterSemantic = {
+  field: "equipment";
+  requestedValue: string;
+  databaseMapping: {
+    equipment: string[];
+    equipmentZh: string[];
+  };
+  note: string;
+};
+
 export type ExerciseResourceSearchResult = {
   query: ExerciseResourceSearchInput;
   appliedFilters: ExerciseResourceAppliedFilter[];
+  filterSemantics: ExerciseResourceFilterSemantic[];
   totalMatches: number;
   returnedCount: number;
   maxReturned: number;
@@ -694,6 +711,7 @@ export async function searchExerciseResourceSummaries(
   return {
     query: input,
     appliedFilters: collectExerciseResourceAppliedFilters(input),
+    filterSemantics: collectExerciseResourceFilterSemantics(input),
     totalMatches,
     returnedCount: visibleRecords.length,
     maxReturned,
@@ -794,7 +812,7 @@ export async function readExerciseResourceFacetCatalog(): Promise<ExerciseResour
     select: exerciseResourceFacetCatalogSelect,
   });
 
-  return {
+  return normalizeExerciseResourceFacetCatalogForPlanner({
     muscles: collectDistinctFacetValues(records, ["primaryMuscles", "primaryMusclesZh", "secondaryMuscles", "secondaryMusclesZh"]),
     categories: collectDistinctFacetValues(records, ["category", "categoryZh"]),
     levels: collectDistinctFacetValues(records, ["level", "levelZh"]),
@@ -805,7 +823,41 @@ export async function readExerciseResourceFacetCatalog(): Promise<ExerciseResour
     goalTags: collectDistinctFacetValues(records, ["goalTags"]),
     riskTags: collectDistinctFacetValues(records, ["riskTags"]),
     suitabilities: collectDistinctSuitabilities(records),
+  });
+}
+
+/** normalizeExerciseResourceFacetCatalogForPlanner 收紧 Planner 可见 facet，避免把无器械暴露成 homeRequirement。 */
+export function normalizeExerciseResourceFacetCatalogForPlanner(
+  catalog: ExerciseResourceFacetCatalog,
+): ExerciseResourceFacetCatalog {
+  return {
+    ...catalog,
+    equipment: addNoEquipmentQueryValues(catalog.equipment),
+    homeRequirements: catalog.homeRequirements.filter((value) => !isRemovedNoEquipmentHomeRequirementValue(value)),
   };
+}
+
+/** isNoEquipmentResourceQueryValue 判断 tool 合同层无器械查询值，不读取用户原文做语义推断。 */
+export function isNoEquipmentResourceQueryValue(value: string) {
+  const normalized = normalizeFacetKey(value);
+  return normalized === "no_equipment" || value.trim() === "无器械";
+}
+
+/** isRemovedNoEquipmentHomeRequirementValue 标识不再对 Planner 暴露的旧居家条件值。 */
+export function isRemovedNoEquipmentHomeRequirementValue(value: string) {
+  const normalized = normalizeFacetKey(value);
+  return removedHomeRequirementNoEquipmentValues.some((removedValue) => (
+    normalizeFacetKey(removedValue) === normalized || removedValue === value.trim()
+  ));
+}
+
+/** isBodyweightExerciseResourceEquipment 复用 repository 的无器械映射边界，供 requiredExerciseIds 诊断使用。 */
+export function isBodyweightExerciseResourceEquipment(input: Pick<ExerciseResourceSummary, "equipment" | "equipmentZh">) {
+  return Boolean(
+    input.equipment && bodyweightEquipmentValues.some((value) => normalizeFacetKey(value) === normalizeFacetKey(input.equipment ?? ""))
+  ) || Boolean(
+    input.equipmentZh && bodyweightEquipmentZhValues.includes(input.equipmentZh as (typeof bodyweightEquipmentZhValues)[number])
+  );
 }
 
 function mapExerciseRecord(exercise: ExerciseRecord): Exercise {
@@ -865,7 +917,7 @@ function buildExerciseResourceWhere(input: ExerciseResourceSearchInput): Prisma.
   pushTextFacetFilter(and, "level", "levelZh", input.level);
   pushTextFacetFilter(and, "force", "forceZh", input.force);
   pushTextFacetFilter(and, "mechanic", "mechanicZh", input.mechanic);
-  pushTextFacetFilter(and, "equipment", "equipmentZh", input.equipment);
+  pushEquipmentResourceFilter(and, input.equipment);
   pushTextFacetFilter(and, "homeRequirement", "homeRequirementZh", input.homeRequirement);
 
   if (input.suitability) {
@@ -923,6 +975,28 @@ function pushTextFacetFilter(
       { [labelField]: value },
     ],
   });
+}
+
+function pushEquipmentResourceFilter(and: Prisma.ExerciseWhereInput[], value: string | undefined) {
+  if (!value) {
+    return;
+  }
+
+  if (isNoEquipmentResourceQueryValue(value)) {
+    and.push(buildNoEquipmentResourceWhere());
+    return;
+  }
+
+  pushTextFacetFilter(and, "equipment", "equipmentZh", value);
+}
+
+function buildNoEquipmentResourceWhere(): Prisma.ExerciseWhereInput {
+  return {
+    OR: [
+      { equipment: { in: [...bodyweightEquipmentValues] } },
+      { equipmentZh: { in: [...bodyweightEquipmentZhValues] } },
+    ],
+  };
 }
 
 function buildExerciseResourceTextWhere(q: string): Prisma.ExerciseWhereInput {
@@ -1030,8 +1104,32 @@ function collectExerciseResourceAppliedFilters(input: ExerciseResourceSearchInpu
     });
 }
 
+function collectExerciseResourceFilterSemantics(input: ExerciseResourceSearchInput): ExerciseResourceFilterSemantic[] {
+  if (!input.equipment || !isNoEquipmentResourceQueryValue(input.equipment)) {
+    return [];
+  }
+
+  return [{
+    field: "equipment",
+    requestedValue: input.equipment,
+    databaseMapping: {
+      equipment: [...bodyweightEquipmentValues],
+      equipmentZh: [...bodyweightEquipmentZhValues],
+    },
+    note: "equipment=no_equipment/无器械 表示不需要外部器械；repository 只映射到自重动作字段，不自动附加 homeRequirement 条件。",
+  }];
+}
+
 function uniqueStrings(values: Array<string | undefined>) {
   return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
+}
+
+function addNoEquipmentQueryValues(values: string[]) {
+  return sortFacetValues([...new Set([...values, ...EXERCISE_RESOURCE_NO_EQUIPMENT_QUERY_VALUES])]);
+}
+
+function normalizeFacetKey(value: string) {
+  return value.trim().toLowerCase();
 }
 
 type ExerciseResourceFacetCatalogRecord = Prisma.ExerciseGetPayload<{ select: typeof exerciseResourceFacetCatalogSelect }>;
