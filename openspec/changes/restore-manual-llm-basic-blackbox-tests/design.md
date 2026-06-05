@@ -50,6 +50,10 @@ runner 通过 `/api/chat` Route Handler 执行，构造字段限定为 `conversa
 
 新增 `docs/manual-llm-basic-blackbox-tests.md`，README 只放简短入口和边界。详细文档列出命令、参数、环境变量、默认报告路径、失败时如何重跑、以及为什么默认 `npm run test` 不会触发真实模型。
 
+### Decision 6: 原 change 记录按误删前状态恢复，代码以当前链路为准
+
+误删前的 `add-llm-basic-chat-blackbox-tests` change 文档属于已经审阅过的需求和任务记录，应恢复到删除前状态，避免 OpenSpec 列表出现空 change。实现代码如果已经由当前恢复入口补齐，则不回滚到旧上下文；只补遗漏的 latest report 文件和架构扫描，继续以当前 `/api/chat`、manual Vitest 隔离和报告时间格式为准。
+
 ## Risks / Trade-offs
 
 - [Risk] 恢复历史 runner 可能与当前 Agent 文本聊天链路存在局部类型漂移。→ Mitigation: 只保留与当前 `/api/chat` 和 NDJSON client 兼容的字段，并补普通单测覆盖请求体、parser、报告和隔离边界。

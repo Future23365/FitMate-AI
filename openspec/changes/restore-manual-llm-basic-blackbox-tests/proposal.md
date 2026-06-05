@@ -10,6 +10,7 @@
 - 新增独立 `vitest.manual-llm.config.ts`，只发现 `manual-tests/llm/**/*.manual.test.ts`。
 - 将真实模型调用测试彻底移出默认 `tests/**/*.test.ts`，默认 `npm run test` 永远不触发真实模型 API。
 - 恢复基础黑盒 fixture、runner、judge、report 代码，使套件从 `llm基础测试.md` 读取三轮流程，并生成 Markdown 报告。
+- 补回误删时遗漏的原 `add-llm-basic-chat-blackbox-tests` change 文档、默认 latest report 文件和架构边界扫描。
 - 补充测试说明文档和 README 命令说明，明确 token 消耗、参数、报告路径、环境变量和默认测试隔离边界。
 - 补充普通自动化测试，验证手动 LLM 文件不会被默认测试发现，且默认测试目录不包含真实模型调用开关。
 
@@ -29,5 +30,6 @@
 - 影响 `package.json`、`scripts/run-basic-llm-blackbox.mjs`、`vitest.manual-llm.config.ts`。
 - 影响 `manual-tests/llm/**` 基础黑盒 runner、fixture、judge 和 report。
 - 影响 `tests/**` 中的默认测试隔离断言和现有 DeepSeek fixture blackbox 测试边界。
+- 影响 `openspec/changes/add-llm-basic-chat-blackbox-tests/**`，恢复误删前的原 change 审阅记录。
 - 影响 `README.md` 和新增/恢复的手动 LLM 黑盒测试说明文档。
 - 不改变生产 `/api/chat` 行为、Agent tool 合同、prompt 合同、数据库 schema 或用户可见产品流程。

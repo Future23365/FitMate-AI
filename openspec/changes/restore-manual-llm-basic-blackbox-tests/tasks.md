@@ -23,3 +23,10 @@
 - [x] 4.2 运行 `npm run test`，确认默认自动化测试不会执行手动 LLM 黑盒。
 - [x] 4.3 运行 `npm run test:llm:basic -- --help`，确认手动入口参数说明可用且不触发真实模型。
 - [x] 4.4 运行 `openspec validate restore-manual-llm-basic-blackbox-tests --strict`。
+
+## 5. 误删恢复补全
+
+- [x] 5.1 恢复原 `add-llm-basic-chat-blackbox-tests` change 的 proposal、design、tasks、specs 和 `.openspec.yaml`，避免 OpenSpec 显示空 change。
+- [x] 5.2 恢复 `docs/manual-llm-basic-blackbox-latest-report.md`，并按当前报告生成器使用 ISO `+08:00` 时间格式。
+- [x] 5.3 恢复 `tests/agent-core/architecture-boundary.test.ts` 中基础 LLM 黑盒 fixture 不得泄漏进生产聊天、Agent core、tools 和 renderer 的架构扫描。
+- [x] 5.4 重新运行相关普通测试和 `openspec validate`，确认补全后的两个 change 均可校验。
