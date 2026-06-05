@@ -1897,84 +1897,68 @@ function WorkoutPrescriptionControl({
   onUpdate: (updater: (item: WorkoutItem) => WorkoutItem) => void;
 }) {
   const targetLabel = item.mode === "duration" ? "目标时长" : "目标次数";
-  const targetSummary = item.mode === "duration" ? `${item.target}s/组` : `${item.target}次/组`;
-  const restSummary = item.sets > 1 ? `组间 ${item.setRestSeconds}s` : "连续完成";
 
   return (
     <div
-      className="grid w-full shrink-0 gap-[6px] rounded-xl border border-line bg-surface-container-low/70 p-[6px] shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:w-[252px]"
+      className="flex h-[50px] shrink-0 items-center rounded-[10px] border border-line bg-white px-[5px] shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:ml-auto"
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
       title={`${targetLabel} ${item.target}${item.mode === "duration" ? "s" : ""} · ${item.sets}组 · 组间 ${item.setRestSeconds}s`}
     >
-      <div className="flex h-5 min-w-0 items-center gap-xs overflow-hidden px-[2px] text-[11px] font-bold leading-none">
-        <span className="inline-flex min-w-0 flex-1 items-center justify-center truncate rounded-full bg-white px-xs py-[4px] text-primary shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-          {targetSummary}
+      <CompactPrescriptionStepper
+        ariaLabel={targetLabel}
+        className="w-[92px]"
+        label={targetLabel}
+        suffix={item.mode === "duration" ? "s" : ""}
+        value={item.target}
+        onChange={(nextValue) => onUpdate((current) => ({ ...current, target: nextValue }))}
+      />
+      <CompactPrescriptionStepper
+        ariaLabel="组数"
+        className="w-[74px]"
+        label="组数"
+        prefix="×"
+        value={item.sets}
+        onChange={(nextValue) => onUpdate((current) => ({ ...current, sets: nextValue }))}
+      />
+      <div className="flex h-11 w-[86px] shrink-0 flex-col justify-center gap-[3px] px-xs">
+        <span className={`text-center text-[10px] font-semibold leading-none ${item.sets > 1 ? "text-secondary" : "text-outline/60"}`}>
+          组间休息
         </span>
-        <span className="inline-flex shrink-0 items-center justify-center rounded-full bg-white px-xs py-[4px] text-secondary shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-          {item.sets}组
-        </span>
-        <span className={`inline-flex shrink-0 items-center justify-center rounded-full bg-white px-xs py-[4px] shadow-[0_1px_2px_rgba(15,23,42,0.04)] ${item.sets > 1 ? "text-secondary" : "text-outline/70"}`}>
-          {restSummary}
-        </span>
-      </div>
-      <div className="grid h-[46px] grid-cols-[92px_66px_minmax(0,1fr)] items-center rounded-[9px] border border-line bg-white px-[3px]">
-        <CompactPrescriptionStepper
-          ariaLabel={targetLabel}
-          className="w-full px-[3px]"
-          label={targetLabel}
-          suffix={item.mode === "duration" ? "s" : ""}
-          value={item.target}
-          onChange={(nextValue) => onUpdate((current) => ({ ...current, target: nextValue }))}
-        />
-        <CompactPrescriptionStepper
-          ariaLabel="组数"
-          className="w-full px-[3px]"
-          label="组数"
-          prefix="×"
-          value={item.sets}
-          onChange={(nextValue) => onUpdate((current) => ({ ...current, sets: nextValue }))}
-        />
-        <div className="flex h-11 min-w-0 flex-col justify-center gap-[3px] px-[3px]">
-          <span className={`text-center text-[10px] font-semibold leading-none ${item.sets > 1 ? "text-secondary" : "text-outline/60"}`}>
-            组间休息
-          </span>
-          {item.sets > 1 ? (
-            <Select
-              onValueChange={(nextValue: string) =>
-                onUpdate((current) => ({ ...current, setRestSeconds: Number(nextValue) }))
-              }
-              value={String(item.setRestSeconds)}
+        {item.sets > 1 ? (
+          <Select
+            onValueChange={(nextValue: string) =>
+              onUpdate((current) => ({ ...current, setRestSeconds: Number(nextValue) }))
+            }
+            value={String(item.setRestSeconds)}
+          >
+            <SelectTrigger
+              aria-label="组间"
+              className="relative h-6 w-full justify-center rounded-[6px] border-0 bg-transparent px-2 pr-5 text-center text-[13px] font-extrabold leading-6 text-ink shadow-none hover:bg-primary-soft focus-visible:ring-2 focus-visible:ring-primary/15 [&>span]:min-w-0 [&>span]:text-center [&>svg]:absolute [&>svg]:right-1.5"
             >
-              <SelectTrigger
-                aria-label="组间"
-                className="relative h-6 w-full justify-center rounded-[6px] border-0 bg-transparent px-1 pr-4 text-center text-[12px] font-extrabold leading-6 text-ink shadow-none hover:bg-primary-soft focus-visible:ring-2 focus-visible:ring-primary/15 [&>span]:min-w-0 [&>span]:text-center [&>svg]:absolute [&>svg]:right-1"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="min-w-[88px]">
-                {restOptions.map((option) => (
-                  <SelectItem className="pr-3" key={option} value={String(option)}>
-                    {option}s
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : (
-            <div
-              aria-label="组间，1组时不可选"
-              className="flex h-6 items-center justify-center rounded-[6px] text-[12px] font-extrabold leading-6 text-outline/60"
-            >
-              无
-            </div>
-          )}
-        </div>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="min-w-[88px]">
+              {restOptions.map((option) => (
+                <SelectItem className="pr-3" key={option} value={String(option)}>
+                  {option}s
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <div
+            aria-label="组间，1组时不可选"
+            className="flex h-6 items-center justify-center rounded-[6px] text-[13px] font-extrabold leading-6 text-outline/60"
+          >
+            无
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-// WorkoutExerciseRow 用固定分区承载排序、图片、动作信息和处方编辑，避免内容换行时破坏卡片对齐。
 function WorkoutExerciseRow({
   dragState,
   exercise,
@@ -2011,7 +1995,7 @@ function WorkoutExerciseRow({
 
   return (
     <div
-      className={`relative flex flex-col gap-md overflow-hidden rounded-2xl border border-line bg-white/95 p-md shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all hover:border-primary/35 hover:shadow-[0_12px_26px_rgba(15,23,42,0.07)] hover:ring-1 hover:ring-primary/10 md:grid md:min-h-[112px] md:grid-cols-[58px_80px_minmax(0,1fr)_252px_104px] md:items-stretch md:gap-md ${
+      className={`relative flex flex-col gap-md overflow-hidden rounded-2xl border border-line bg-white/95 p-md shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all hover:border-primary/35 hover:shadow-[0_12px_26px_rgba(15,23,42,0.07)] hover:ring-1 hover:ring-primary/10 md:flex-row md:items-center ${
         dragState === "dragging" ? "opacity-50" : ""
       } ${
         dragState === "over" ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""
@@ -2035,7 +2019,7 @@ function WorkoutExerciseRow({
       }}
     >
       <div className={`absolute inset-y-0 left-0 w-1 ${visual.line}`} aria-hidden="true" />
-      <div className="flex items-center gap-sm pl-xs md:h-full md:w-[58px] md:flex-col md:justify-center md:gap-xs">
+      <div className="flex items-center gap-sm pl-xs md:w-[58px] md:shrink-0">
         <div className={`flex h-9 w-9 items-center justify-center rounded-full border font-label-md text-label-md font-extrabold ${visual.chip}`}>
           {String(index + 1).padStart(2, "0")}
         </div>
@@ -2048,44 +2032,48 @@ function WorkoutExerciseRow({
           <SymbolIcon>drag_indicator</SymbolIcon>
         </button>
       </div>
-      <button
-        aria-label={`查看动作详情：${item.nameZh}`}
-        className="relative flex h-24 w-full shrink-0 items-center justify-center overflow-hidden rounded-xl bg-surface-container-low ring-1 ring-line transition-transform hover:scale-[1.02] md:h-full md:min-h-[80px] md:w-20"
-        onClick={(event) => {
-          event.stopPropagation();
-          onPreview();
-        }}
-        type="button"
-      >
-        <Image
-          alt=""
-          className="object-cover"
-          fill
-          sizes="80px"
-          src={item.imageUrl}
-        />
-      </button>
-      <div className="min-w-0 md:flex md:flex-col md:justify-center">
-        <div className="flex min-w-0 flex-wrap items-center gap-xs">
-          <p className="min-w-0 flex-1 truncate font-title-sm text-title-sm font-extrabold text-ink">{item.nameZh}</p>
-          <span className={`hidden min-w-[34px] shrink-0 items-center justify-center whitespace-nowrap rounded-full border px-xs py-[1px] text-center text-[10px] font-bold leading-none md:inline-flex ${visual.chip}`}>
-            {item.mode === "duration" ? "计时" : "次数"}
-          </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-md md:flex-row md:items-center">
+        <div className="flex min-w-0 flex-1 items-center gap-md md:min-w-[250px]">
+          <button
+            aria-label={`查看动作详情：${item.nameZh}`}
+            className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-surface-container-low ring-1 ring-line transition-transform hover:scale-[1.02]"
+            onClick={(event) => {
+              event.stopPropagation();
+              onPreview();
+            }}
+            type="button"
+          >
+            <Image
+              alt=""
+              className="object-cover"
+              fill
+              sizes="64px"
+              src={item.imageUrl}
+            />
+          </button>
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-xs">
+              <p className="min-w-0 flex-1 truncate font-title-sm text-title-sm font-extrabold text-ink">{item.nameZh}</p>
+              <span className={`hidden min-w-[34px] shrink-0 items-center justify-center whitespace-nowrap rounded-full border px-xs py-[1px] text-center text-[10px] font-bold leading-none md:inline-flex ${visual.chip}`}>
+                {item.mode === "duration" ? "计时" : "次数"}
+              </span>
+            </div>
+            <div className="mt-xs flex max-w-full flex-nowrap items-center gap-xs overflow-hidden">
+              {itemTags.map((tag) => (
+                <span
+                  className="inline-flex min-w-0 max-w-[140px] shrink-0 items-center rounded-md bg-surface-container-low px-xs py-[2px] text-[11px] font-semibold leading-none text-secondary"
+                  key={tag}
+                  title={tag}
+                >
+                  <span className="truncate">{tag}</span>
+                </span>
+              ))}
+            </div>
+          </div>
         </div>
-        <div className="mt-xs flex max-w-full flex-nowrap items-center gap-xs overflow-hidden">
-          {itemTags.map((tag) => (
-            <span
-              className="inline-flex min-w-0 max-w-[140px] shrink-0 items-center rounded-md bg-surface-container-low px-xs py-[2px] text-[11px] font-semibold leading-none text-secondary"
-              key={tag}
-              title={tag}
-            >
-              <span className="truncate">{tag}</span>
-            </span>
-          ))}
-        </div>
+        <WorkoutPrescriptionControl item={item} onUpdate={onUpdate} />
       </div>
-      <WorkoutPrescriptionControl item={item} onUpdate={onUpdate} />
-      <div className="flex shrink-0 gap-[2px] md:h-full md:items-center md:justify-end">
+      <div className="flex shrink-0 gap-[2px] md:pl-xs">
         <button
           aria-label={`查看动作详情：${item.nameZh}`}
           className="grid h-8 w-8 place-items-center rounded-lg text-outline transition-colors hover:bg-primary/5 hover:text-primary"
