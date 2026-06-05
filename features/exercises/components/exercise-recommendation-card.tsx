@@ -5,7 +5,8 @@ import { useMemo, useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
-import { ExerciseSummaryMetaChip, ExerciseSummaryRow } from "@/features/exercises/components/exercise-summary-row";
+import { ExerciseSummaryMetaChip } from "@/features/exercises/components/exercise-summary-meta-chip";
+import { ExerciseDetailIconButton } from "@/features/exercises/components/exercise-detail-icon-button";
 import type { AssistantSuggestion } from "@/lib/shared/chat/assistant-suggestions";
 import type {
   ExerciseRecommendationCard as ExerciseRecommendationCardData,
@@ -166,35 +167,45 @@ export function ExerciseRecommendationCard({
 
         <div className="mt-sm grid gap-sm sm:grid-cols-2">
           {card.items.map((item) => (
-            <ExerciseSummaryRow
-              meta={
-                <>
-                  <ExerciseSummaryMetaChip tone="primary">
-                    {item.primaryMusclesZh[0] || "综合"}
-                  </ExerciseSummaryMetaChip>
-                  <ExerciseSummaryMetaChip>
-                    {item.levelZh || "未标注难度"}
-                  </ExerciseSummaryMetaChip>
-                  <ExerciseSummaryMetaChip tone="outline">
-                    {item.equipmentZh || "未标注器械"}
-                  </ExerciseSummaryMetaChip>
-                </>
-              }
-              onOpenPreview={() => handleOpenPreview(item)}
+            <div
+              className="group/exercise-card relative min-w-0 rounded-xl border border-line bg-white p-sm pr-xl text-left transition-all duration-200 hover:border-primary/35 hover:bg-panel-soft/50 hover:shadow-sm"
               key={item.exerciseId}
-              thumbnail={
-                <Image
-                  alt={item.nameZh}
-                  className="object-cover transition-transform duration-300 group-hover/exercise-card:scale-105"
-                  fill
-                  sizes="64px"
-                  src={item.imageUrl || placeholderImage}
-                />
-              }
-              thumbnailLabel={`查看${item.nameZh}动作详情`}
-              title={item.nameZh}
-              titleElement="h4"
-            />
+            >
+              <ExerciseDetailIconButton onClick={() => handleOpenPreview(item)} />
+              <div className="grid min-w-0 grid-cols-[68px_minmax(0,1fr)] items-start gap-sm">
+                <button
+                  aria-label={`查看${item.nameZh}动作详情`}
+                  className="relative h-[68px] w-[68px] shrink-0 cursor-pointer overflow-hidden rounded-xl border border-line bg-panel-soft transition-colors hover:border-primary/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                  onClick={() => handleOpenPreview(item)}
+                  type="button"
+                >
+                  <Image
+                    alt={item.nameZh}
+                    className="object-cover transition-transform duration-300 group-hover/exercise-card:scale-105"
+                    fill
+                    sizes="68px"
+                    src={item.imageUrl || placeholderImage}
+                  />
+                </button>
+
+                <div className="min-w-0 pt-[3px]">
+                  <h4 className="truncate font-body-md text-body-md font-extrabold leading-tight text-on-surface">
+                    {item.nameZh}
+                  </h4>
+                  <div className="mt-sm flex min-w-0 flex-wrap items-center gap-xs">
+                    <ExerciseSummaryMetaChip tone="primary">
+                      {item.primaryMusclesZh[0] || "综合"}
+                    </ExerciseSummaryMetaChip>
+                    <ExerciseSummaryMetaChip>
+                      {item.levelZh || "未标注难度"}
+                    </ExerciseSummaryMetaChip>
+                    <ExerciseSummaryMetaChip tone="outline">
+                      {item.equipmentZh || "未标注器械"}
+                    </ExerciseSummaryMetaChip>
+                  </div>
+                </div>
+              </div>
+            </div>
           ))}
         </div>
 
