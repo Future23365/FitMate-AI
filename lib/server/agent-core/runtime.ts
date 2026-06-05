@@ -311,23 +311,28 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
     const failureKey = `${tool.name}:${tool.version}:${normalizedInputHash}`;
     const previousToolCallCount = toolCallCounts.get(failureKey) ?? 0;
 
-    if (previousToolCallCount > 0) {
+    const previousResult = findToolResult(toolResults, {
+      toolName: tool.name,
+      toolVersion: tool.version,
+      normalizedInputHash,
+    });
+
+    if (previousToolCallCount > 0 && previousResult) {
       await recordTraceEvent({
         type: "duplicate_tool_call",
         step,
         toolName: tool.name,
         toolVersion: tool.version,
         normalizedInputHash,
+        previousToolResultId: previousResult.toolResultId,
+        previousOk: previousResult.ok,
         previousCount: previousToolCallCount,
+        repeatCount: previousToolCallCount + 1,
       });
     }
     toolCallCounts.set(failureKey, previousToolCallCount + 1);
 
-    const previousOkResult = findOkToolResult(toolResults, {
-      toolName: tool.name,
-      toolVersion: tool.version,
-      normalizedInputHash,
-    });
+    const previousOkResult = previousResult?.ok ? previousResult : undefined;
     if (previousOkResult) {
       invalidActions += 1;
       observations.push(createDuplicateToolInputObservation({
@@ -804,19 +809,18 @@ function createFailureToolResult(
   };
 }
 
-function findOkToolResult(
+function findToolResult(
   toolResults: ToolResult[],
   input: {
     toolName: string;
     toolVersion: string;
     normalizedInputHash: string;
   },
-): Extract<ToolResult, { ok: true }> | undefined {
-  return toolResults.find((result): result is Extract<ToolResult, { ok: true }> => (
+): ToolResult | undefined {
+  return toolResults.find((result) => (
     result.toolName === input.toolName
     && result.toolVersion === input.toolVersion
     && result.normalizedInputHash === input.normalizedInputHash
-    && result.ok
   ));
 }
 

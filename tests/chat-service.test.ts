@@ -1581,6 +1581,11 @@ describe("chat service agent text flow boundary", () => {
       "searchExerciseResources",
       hashNormalizedInput(searchInput),
     );
+    const expectedReadToolResultId = createToolResultId(
+      "chat_assistant-refresh-duplicate",
+      "inspectVisibleTrainingProposals",
+      hashNormalizedInput(readInput),
+    );
     visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries
       .mockResolvedValueOnce([createRecentVisibleTrainingProposalSummary()])
       .mockResolvedValueOnce([createRecentVisibleTrainingProposalSummary()]);
@@ -1653,10 +1658,36 @@ describe("chat service agent text flow boundary", () => {
       published: true,
     }));
     expect(duplicateFeedback).toMatchObject({
+      toolResultId: expectedReadToolResultId,
       toolName: "inspectVisibleTrainingProposals",
       content: expect.objectContaining({
         code: AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT,
+        details: expect.objectContaining({
+          previousToolResultId: expectedReadToolResultId,
+          previousOk: true,
+          repeatCount: 2,
+          allowedNextActions: expect.arrayContaining([
+            "基于 previousToolResultId 输出带 usedRefs 的合法 final_answer。",
+            "提交改变后的合法 tool input。",
+            "使用 ask_user 澄清缺失信息。",
+          ]),
+        }),
       }),
+    });
+    expect(trace).toMatchObject({
+      steps: expect.arrayContaining([
+        expect.objectContaining({
+          type: "runtime_event",
+          output: expect.objectContaining({
+            type: "duplicate_tool_call",
+            toolName: "inspectVisibleTrainingProposals",
+            previousToolResultId: expectedReadToolResultId,
+            previousOk: true,
+            previousCount: 1,
+            repeatCount: 2,
+          }),
+        }),
+      ]),
     });
     expect(events).toEqual([
       expect.objectContaining({

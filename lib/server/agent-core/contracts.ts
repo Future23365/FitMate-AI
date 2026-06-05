@@ -539,7 +539,10 @@ export type AgentTraceEvent =
       toolName: string;
       toolVersion: string;
       normalizedInputHash: string;
+      previousToolResultId: string;
+      previousOk: boolean;
       previousCount: number;
+      repeatCount: number;
     }
   | { type: "resource_registered"; toolResultId: string; resource: AgentResourceRef; summary: JsonValue }
   | { type: "policy_decision"; toolName: string; decision: PolicyDecision["kind"]; policyVersion: string }

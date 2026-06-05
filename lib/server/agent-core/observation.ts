@@ -97,6 +97,13 @@ export function createDuplicateToolInputObservation(input: {
         repeatCount: input.repeatCount,
         resultSummary: input.resultSummary,
         producedResources: input.producedResources,
+        allowedNextActions: [
+          "基于 previousToolResultId 输出带 usedRefs 的合法 final_answer。",
+          "调用其他当前 manifest 中可见且 input 不同的合法 tool。",
+          "提交改变后的合法 tool input。",
+          "使用 ask_user 澄清缺失信息。",
+          "在当前事实不足时用不带 visibleOutputs 的 final_answer 失败收口。",
+        ],
       },
     }),
   };

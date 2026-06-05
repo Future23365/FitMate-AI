@@ -1221,7 +1221,10 @@ function summarizeRuntimeTraceEvent(event: AgentTraceEvent): unknown {
         toolName: event.toolName,
         toolVersion: event.toolVersion,
         normalizedInputHash: event.normalizedInputHash,
+        previousToolResultId: event.previousToolResultId,
+        previousOk: event.previousOk,
         previousCount: event.previousCount,
+        repeatCount: event.repeatCount,
       };
     case "resource_registered":
       return {

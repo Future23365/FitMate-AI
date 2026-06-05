@@ -182,8 +182,8 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).toContain("exerciseItems[*].section 应与该 group key 对应");
     expect(systemPrompt).toContain("该动作的 allowedSections 必须包含该 section");
     expect(systemPrompt).toContain("allowedSections 是服务端校验 exerciseItems[*].section 的确定性动作事实字段");
-    expect(systemPrompt).toContain("searchExerciseResources 返回的动作查询 observation 中 groups.<section>.exercises 的 exerciseId");
-    expect(systemPrompt).toContain("resolveExerciseResourceMentions 这类只做身份解析的 observation 不能直接作为 visibleTrainingProposal 动作来源");
+    expect(systemPrompt).toContain("searchExerciseResources 返回的 ok=true toolResult 在 toolResults[].projection.model.groups.<section>.exercises 中的 exerciseId");
+    expect(systemPrompt).toContain("resolveExerciseResourceMentions 这类只做身份解析的 tool result 不能直接作为 visibleTrainingProposal 动作来源");
     expect(systemPrompt).toContain("需要把 matched exerciseId 传给 searchExerciseResources.requiredExerciseIds");
     expect(systemPrompt).toContain("服务端会在渲染和保存前基于数据库复核 exerciseId、发布态和 allowedSections");
     expect(systemPrompt).not.toContain("必须调用 searchExerciseResources");
@@ -191,6 +191,7 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).not.toContain("固定调用顺序");
     expect(systemPrompt).not.toContain("validation failure 后必须调用 searchExerciseResources");
     expect(systemPrompt).not.toContain("只能复制本轮 satisfied searchExerciseResources observation");
+    expect(systemPrompt).not.toContain("动作查询 observation 中 groups.<section>.exercises");
     expect(systemPrompt).not.toContain("用户说某个固定词语");
     expect(systemPrompt).not.toContain("换一批");
     expect(systemPrompt).not.toContain("再来一组");
