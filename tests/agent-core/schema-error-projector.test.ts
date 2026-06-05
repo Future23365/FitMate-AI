@@ -116,6 +116,46 @@ describe("schema error projector", () => {
     });
   });
 
+  it("projects terminal usedRefs discriminator failures with allowed ref variants", () => {
+    const action = {
+      type: "final_answer",
+      content: "基于本轮查询结果回答。",
+      usedRefs: [
+        {
+          id: "tr_fixture",
+          resourceType: "tool_result",
+        },
+      ],
+    };
+    const parsed = AgentActionSchema.safeParse(action);
+    expect(parsed.success).toBe(false);
+
+    const feedback = parsed.success ? undefined : projectSchemaValidationFeedback({
+      target: { kind: "AgentAction", schemaId: "AgentAction", variant: "final_answer" },
+      schema: AgentActionSchema,
+      issues: parsed.error.issues,
+      value: action,
+    });
+
+    expect(feedback).toMatchObject({
+      type: "schema_validation_failed",
+      target: {
+        kind: "AgentAction",
+        schemaId: "AgentAction",
+        variant: "final_answer",
+      },
+      errors: expect.arrayContaining([
+        expect.objectContaining({
+          code: "invalid_discriminator",
+          path: "usedRefs[0].type",
+          allowedValues: expect.arrayContaining(["tool_result", "resource"]),
+          actual: { kind: "missing" },
+        }),
+      ]),
+    });
+    expect(JSON.stringify(feedback)).not.toContain("resourceType 改成 type");
+  });
+
   it("redacts sensitive actual values and never includes full object payloads", () => {
     const fixtureSchema = z.object({
       id: z.string(),

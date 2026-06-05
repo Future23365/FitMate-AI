@@ -39,6 +39,7 @@
 - [x] 5.6 运行 `npm test`，确认默认自动化测试仍 token-safe 且全部通过。
 - [x] 5.7 按需运行 `npm run typecheck`；若改动影响构建、路由或服务端/客户端模块边界，再运行 `npm run build` 或说明无法运行原因。
 - [x] 5.8 如需真实模型黑盒验证，使用显式手动命令执行，不纳入默认 `npm test`；验证报告只保留用户可见输出、失败原因和 token 诊断，不写 full prompt/raw response/tool dump。
+- [x] 5.9 补充 `usedRefs` 判别引用回归，确保模型可见 prompt / observation 明确 `tool_result` 引用使用 `{ type, id }`，并覆盖 `resourceType: "tool_result"` 误形状的 schema repair 反馈。
 
 ## 6. OpenSpec 与收口
 

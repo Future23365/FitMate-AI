@@ -426,7 +426,7 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
         filterSemantics: output.query.filterSemantics,
         finalAnswerGrounding: broadQuery
           ? "本次 ok=true 结果是过宽查询诊断；可支撑普通文本解释条件过宽，但不能支撑 visibleTrainingProposal。"
-          : "本次 ok=true 查询事实可通过 usedRefs.tool_result 支撑普通事实回答；训练推送仍需由 visibleOutputs[] 或当前 run 可消费事实承载。",
+          : "本次 ok=true 查询事实可通过 usedRefs[] 中的 { type: \"tool_result\", id: 当前 toolResultId } 支撑普通事实回答；训练推送仍需由 visibleOutputs[] 或当前 run 可消费事实承载。",
         candidateConsumptionBoundary: broadQuery
           ? "groups.<section>.exercises[] 仍是数据库摘要，但本次 query 缺少可解释约束，不能作为训练推送可消费事实；应先澄清或说明事实不足。"
           : "groups.<section>.exercises[] 是本次实际返回的 section-scoped 动作事实。availableSections 只包含本次 groups 中有动作的 section；prescription、schedule 和最终 payload.kind 仍需由 terminal action 明确输出。",

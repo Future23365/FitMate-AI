@@ -105,9 +105,12 @@ describe("agent-core redaction, observation compression and trace audit", () => 
         ok: true,
         modelFactsChannel: TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
         projectionModelOmitted: true,
+        terminalUsedRef: { type: "tool_result", id: result.toolResultId },
         boundary: expect.stringContaining("详细事实见 toolResults[].projection.model"),
       },
     });
+    expect(serializedObservation).toContain("\"terminalUsedRef\":{\"type\":\"tool_result\"");
+    expect(serializedObservation).not.toContain("\"resourceType\":\"tool_result\"");
     expect(serializedObservation).not.toContain("server-only-secret");
     expect(serializedObservation).not.toContain("visible");
     expect(auditRedactedValue(observation).ok).toBe(true);

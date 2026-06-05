@@ -47,9 +47,10 @@ function createOkToolResultIndexObservation(result: Extract<ToolResult, { ok: tr
       toolName: result.toolName,
       ok: true,
       fulfillment: createLightweightFulfillmentSummary(result),
+      terminalUsedRef: { type: "tool_result", id: result.toolResultId },
       modelFactsChannel: TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
       projectionModelOmitted: true,
-      boundary: "详细事实见 toolResults[].projection.model；此 observation 只保留 ok=true 执行结果索引，避免同一事实在 observations 和 toolResults 中重复传递。fulfillment.satisfied 只作为诊断摘要，不是普通 final_answer grounding gate。",
+      boundary: "详细事实见 toolResults[].projection.model；此 observation 只保留 ok=true 执行结果索引，避免同一事实在 observations 和 toolResults 中重复传递。如需在 terminal action 引用本次结果，usedRefs[] 中复制 terminalUsedRef 的 type/id 形状，不要把 resourceType 写成 tool_result。fulfillment.satisfied 只作为诊断摘要，不是普通 final_answer grounding gate。",
     }),
   };
 }
