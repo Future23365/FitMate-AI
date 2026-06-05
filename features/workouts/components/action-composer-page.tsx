@@ -3,6 +3,7 @@
 import Image from "next/image";
 import type { ReactNode, UIEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import { ResponsiveRightSidebar } from "@/components/app/responsive-right-sidebar";
 import { SymbolIcon } from "@/components/app/symbol-icon";
@@ -140,6 +141,8 @@ const defaultExerciseFacets: ExerciseFacets = {
   riskTags: [],
 };
 const composerLibraryPageSize = 30;
+const composerStatusToastId = "action-composer-status";
+type ComposerStatusToastType = "success" | "error" | "loading" | "info" | "warning";
 
 const templateExerciseConfigs: TemplateExerciseConfig[] = [
   {
@@ -193,6 +196,37 @@ const templateExerciseConfigs: TemplateExerciseConfig[] = [
     transitionRestSeconds: 20,
   },
 ];
+
+// 动作编排页的短反馈统一走全局 Sonner，避免页面内重复维护自定义浮层。
+function showComposerToast(message: string, type: ComposerStatusToastType = "success") {
+  const options = { id: composerStatusToastId };
+
+  if (type === "error") {
+    toast.error(message, options);
+    return;
+  }
+
+  if (type === "loading") {
+    toast.loading(message, options);
+    return;
+  }
+
+  if (type === "info") {
+    toast.info(message, options);
+    return;
+  }
+
+  if (type === "warning") {
+    toast.warning(message, options);
+    return;
+  }
+
+  toast.success(message, options);
+}
+
+function dismissComposerToast() {
+  toast.dismiss(composerStatusToastId);
+}
 
 function toWorkoutItem(
   exercise: Exercise,
@@ -387,7 +421,6 @@ export function ActionComposerPage() {
   const [selectedLibraryExerciseId, setSelectedLibraryExerciseId] = useState("");
   const [isLoadingLibrary, setIsLoadingLibrary] = useState(true);
   const [isLoadingMoreLibrary, setIsLoadingMoreLibrary] = useState(false);
-  const [saveStatus, setSaveStatus] = useState("");
   const [rightPanelView, setRightPanelView] = useState<RightPanelView>("library");
   const [draggingItemId, setDraggingItemId] = useState("");
   const [dragOverItemId, setDragOverItemId] = useState("");
@@ -426,7 +459,7 @@ export function ActionComposerPage() {
       setSelectedItemId(normalizedItems[0]?.id ?? "");
       setSelectedSection(normalizedItems[0]?.section ?? "training");
       setActiveWorkoutRoutineId(workout.id);
-      setSaveStatus(`已加载：${workout.title}`);
+      showComposerToast(`已加载：${workout.title}`);
 
       if (updateHash) {
         window.history.replaceState(null, "", `#${workout.id}`);
@@ -543,7 +576,7 @@ export function ActionComposerPage() {
           shouldClearLevel ||
           shouldClearHomeRequirement
         ) {
-          setSaveStatus("已清除与当前用途不匹配的筛选");
+          showComposerToast("已清除与当前用途不匹配的筛选", "info");
         }
       })
       .catch((error: unknown) => {
@@ -554,7 +587,7 @@ export function ActionComposerPage() {
         setLibraryItems([]);
         setLibraryTotal(0);
         setLibraryHasNextPage(false);
-        setSaveStatus(isFirstPage ? "动作库加载失败" : "更多动作加载失败");
+        showComposerToast(isFirstPage ? "动作库加载失败" : "更多动作加载失败", "error");
       })
       .finally(() => {
         if (!controller.signal.aborted) {
@@ -588,7 +621,7 @@ export function ActionComposerPage() {
         const matchedWorkout = await getWorkoutRoutine(hashId);
         openWorkoutRoutine(matchedWorkout, false);
       } catch {
-        setSaveStatus("训练编排读取失败");
+        showComposerToast("训练编排读取失败", "error");
       }
     }
 
@@ -613,7 +646,7 @@ export function ActionComposerPage() {
           }
         }
       } catch {
-        setSaveStatus("已保存编排加载失败");
+        showComposerToast("已保存编排加载失败", "error");
         setWorkoutRoutines([]);
       }
     }
@@ -625,15 +658,6 @@ export function ActionComposerPage() {
       window.removeEventListener("fitmate:workouts-updated", syncWorkoutRoutines);
     };
   }, [activeWorkoutRoutineId, items.length, openWorkoutRoutine]);
-
-  useEffect(() => {
-    if (!saveStatus) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => setSaveStatus(""), 1800);
-    return () => window.clearTimeout(timer);
-  }, [saveStatus]);
 
   useEffect(() => {
     if (!isEditingTitle) {
@@ -670,7 +694,7 @@ export function ActionComposerPage() {
   function startTitleEdit() {
     setTitleDraft(planTitle);
     setIsEditingTitle(true);
-    setSaveStatus("");
+    dismissComposerToast();
   }
 
   function commitTitleEdit() {
@@ -709,7 +733,7 @@ export function ActionComposerPage() {
     setSelectedItemId(nextItem.id);
     setSelectedLibraryExerciseId("");
     setSelectedSection(section);
-    setSaveStatus("");
+    dismissComposerToast();
   }
 
   function openLibraryPreview(exercise: ExerciseListItem) {
@@ -814,7 +838,7 @@ export function ActionComposerPage() {
   }
 
   async function importTemplate() {
-    setSaveStatus("正在从动作库生成模板...");
+    showComposerToast("正在从动作库生成模板...", "loading");
 
     try {
       const templateExercises = await Promise.all(
@@ -839,7 +863,7 @@ export function ActionComposerPage() {
       );
 
       if (!nextItems.length) {
-        setSaveStatus("动作库中没有找到可用模板动作");
+        showComposerToast("动作库中没有找到可用模板动作", "warning");
         return;
       }
 
@@ -862,9 +886,9 @@ export function ActionComposerPage() {
       setTrainingToStretchRestSeconds(defaultTrainingToStretchRestSeconds);
       setItems(composedItems);
       setSelectedItemId(composedItems[0]?.id ?? "");
-      setSaveStatus(`已从动作库导入 ${composedItems.length} 个模板动作`);
+      showComposerToast(`已从动作库导入 ${composedItems.length} 个模板动作`);
     } catch {
-      setSaveStatus("模板动作加载失败");
+      showComposerToast("模板动作加载失败", "error");
     }
   }
 
@@ -878,7 +902,7 @@ export function ActionComposerPage() {
     setSelectedItemId("");
     setSelectedSection("training");
     setActiveWorkoutRoutineId("");
-    setSaveStatus("已新建空白编排");
+    showComposerToast("已新建空白编排");
     window.history.replaceState(null, "", window.location.pathname);
   }
 
@@ -899,9 +923,9 @@ export function ActionComposerPage() {
     try {
       const savedCopy = await createWorkoutRoutine(copiedWorkout);
       setWorkoutRoutines((current) => [savedCopy, ...current].slice(0, 8));
-      setSaveStatus(`已复制：${workout.title}`);
+      showComposerToast(`已复制：${workout.title}`);
     } catch {
-      setSaveStatus("复制训练编排失败");
+      showComposerToast("复制训练编排失败", "error");
     }
   }
 
@@ -920,9 +944,9 @@ export function ActionComposerPage() {
         setActiveWorkoutRoutineId("");
       }
 
-      setSaveStatus(`已删除：${workout.title}`);
+      showComposerToast(`已删除：${workout.title}`);
     } catch {
-      setSaveStatus("删除训练编排失败");
+      showComposerToast("删除训练编排失败", "error");
     }
   }
 
@@ -952,13 +976,13 @@ export function ActionComposerPage() {
       );
       setActiveWorkoutRoutineId(routineId);
       window.history.replaceState(null, "", `#${routineId}`);
-      setSaveStatus(
+      showComposerToast(
         activeWorkoutExists
           ? `已更新：${persistedWorkout.updatedAt}`
           : `已保存：${persistedWorkout.updatedAt}`,
       );
     } catch {
-      setSaveStatus("保存训练编排失败，请确认动作来自数据库");
+      showComposerToast("保存训练编排失败，请确认动作来自数据库", "error");
     }
   }
 
@@ -986,7 +1010,7 @@ export function ActionComposerPage() {
 
       return nextItems;
     });
-    setSaveStatus("已调整动作顺序");
+    showComposerToast("已调整动作顺序");
   }
 
   function moveItemToSectionEnd(draggedId: string, targetSection: WorkoutSection) {
@@ -1007,7 +1031,7 @@ export function ActionComposerPage() {
       ];
     });
     setSelectedSection(targetSection);
-    setSaveStatus(`已移动到${sectionConfigs.find((section) => section.id === targetSection)?.title ?? "当前步骤"}`);
+    showComposerToast(`已移动到${sectionConfigs.find((section) => section.id === targetSection)?.title ?? "当前步骤"}`);
   }
 
   return (
@@ -1215,11 +1239,6 @@ export function ActionComposerPage() {
           </div>
         </section>
 
-        {saveStatus ? (
-          <div className="fixed bottom-lg left-1/2 z-40 -translate-x-1/2 rounded-full bg-inverse-surface px-lg py-sm font-label-md text-label-md text-inverse-on-surface shadow-lg">
-            {saveStatus}
-          </div>
-        ) : null}
       </main>
 
       <ResponsiveRightSidebar
@@ -1404,13 +1423,13 @@ export function ActionComposerPage() {
                             className="rounded-full p-xs text-primary transition-colors hover:bg-primary/10"
                             onClick={(event) => {
                               event.stopPropagation();
-                              setSaveStatus("正在读取动作详情...");
+                              showComposerToast("正在读取动作详情...", "loading");
                               void readExerciseDetailFromCache(exercise.id)
                                 .then((fullExercise) => {
                                   addExercise(fullExercise);
-                                  setSaveStatus(`已加入：${fullExercise.nameZh}`);
+                                  showComposerToast(`已加入：${fullExercise.nameZh}`);
                                 })
-                                .catch(() => setSaveStatus("动作详情加载失败"));
+                                .catch(() => showComposerToast("动作详情加载失败", "error"));
                             }}
                             type="button"
                           >
