@@ -47,22 +47,6 @@ type ExerciseImageAutoplayState = {
   isPlaying: boolean;
 };
 
-function preloadExerciseImage(src: string) {
-  return new Promise<void>((resolve, reject) => {
-    const image = new window.Image();
-    image.onload = async () => {
-      try {
-        await image.decode?.();
-      } catch {
-        // Some browsers resolve onload before decode is available or reliable.
-      }
-      resolve();
-    };
-    image.onerror = reject;
-    image.src = src;
-  });
-}
-
 export function ExercisePreviewSheet({
   isOpen,
   onClose,
@@ -183,8 +167,8 @@ function ExercisePreviewSheetContent({
   const canAutoSwitchImages = canLoadImages && canExercisePreviewAutoPlay(images, imageLoadStatus);
   const activeImageUrl = images[activeImageIndex];
   const activeImageStatus = imageLoadStatus[activeImageUrl];
-  const shouldShowActiveImage = canLoadImages && activeImageStatus === "loaded";
   const didActiveImageFail = canLoadImages && activeImageStatus === "failed";
+  const shouldShowImagePlaceholder = !canLoadImages || activeImageStatus !== "loaded";
 
   const setImageStatus = useCallback((
     nextExerciseId: string,
@@ -236,32 +220,6 @@ function ExercisePreviewSheetContent({
 
     return () => window.clearTimeout(timer);
   }, [exerciseId, imageSetKey, isActive]);
-
-  useEffect(() => {
-    if (!canLoadImages || !exerciseId) {
-      return;
-    }
-
-    let cancelled = false;
-
-    for (const src of images) {
-      preloadExerciseImage(src)
-        .then(() => {
-          if (!cancelled) {
-            markImageLoaded(exerciseId, imageSetKey, src);
-          }
-        })
-        .catch(() => {
-          if (!cancelled) {
-            markImageFailed(exerciseId, imageSetKey, src);
-          }
-        });
-    }
-
-    return () => {
-      cancelled = true;
-    };
-  }, [canLoadImages, exerciseId, imageSetKey, images, markImageFailed, markImageLoaded]);
 
   useEffect(() => {
     if (!isActive || !exerciseId || !hasMultipleImages || !isAutoPlaying || !canAutoSwitchImages) {
@@ -320,18 +278,32 @@ function ExercisePreviewSheetContent({
 
                 {/* 大图展示区域 */}
                 <div className="group relative aspect-[3/2] w-full overflow-hidden rounded-xl bg-white">
-                  {shouldShowActiveImage ? (
-                    <Image
-                      key={`${exerciseId}:${imageSetKey}:${activeImageUrl}`}
-                      alt={`${exercise.nameZh} 演示图`}
-                      className="object-cover"
-                      fill
-                      onError={() => markImageFailed(exerciseId, imageSetKey, activeImageUrl)}
-                      onLoad={() => markImageLoaded(exerciseId, imageSetKey, activeImageUrl)}
-                      sizes="(min-width: 640px) 428px, calc(100vw - 32px)"
-                      src={activeImageUrl}
-                    />
-                  ) : (
+                  {canLoadImages
+                    ? images.map((imageUrl, imageIndex) => {
+                        const isActiveImage = imageIndex === activeImageIndex;
+                        const imageStatus = imageLoadStatus[imageUrl];
+                        const shouldShowImage = isActiveImage && imageStatus === "loaded";
+
+                        return (
+                          <Image
+                            key={`${exerciseId}:${imageSetKey}:${imageUrl}`}
+                            alt={isActiveImage ? `${exercise.nameZh} 演示图 ${imageIndex + 1}` : ""}
+                            aria-hidden={!isActiveImage}
+                            className={`object-cover transition-opacity duration-200 ${
+                              shouldShowImage ? "z-10 opacity-100" : "z-0 opacity-0"
+                            }`}
+                            fill
+                            loading="eager"
+                            onError={() => markImageFailed(exerciseId, imageSetKey, imageUrl)}
+                            onLoad={() => markImageLoaded(exerciseId, imageSetKey, imageUrl)}
+                            sizes="(min-width: 640px) 428px, calc(100vw - 32px)"
+                            src={imageUrl}
+                          />
+                        );
+                      })
+                    : null}
+
+                  {shouldShowImagePlaceholder ? (
                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-xs bg-slate-50 text-slate-400">
                       <SymbolIcon className="text-[28px]">
                         {didActiveImageFail ? "broken_image" : "image"}
@@ -340,7 +312,7 @@ function ExercisePreviewSheetContent({
                         {didActiveImageFail ? "图片加载失败" : "图片加载中..."}
                       </span>
                     </div>
-                  )}
+                  ) : null}
 
                   {/* 左右翻页按钮 */}
                   {images.length > 1 && (
