@@ -2,6 +2,12 @@ import type { AgentObservation, JsonValue, ToolError, ToolResult } from "./contr
 import { AGENT_ERROR_CODES } from "./errors";
 import { redactJsonValue } from "./redaction";
 
+/** SUCCESSFUL_TOOL_RESULT_INDEX_OBSERVATION_ROLE 标记 satisfied success observation 已降级为索引通道。 */
+export const SUCCESSFUL_TOOL_RESULT_INDEX_OBSERVATION_ROLE = "successful_tool_result_index";
+
+/** TOOL_RESULT_MODEL_PROJECTION_CHANNEL 指向成功 tool facts 的详细权威模型输入通道。 */
+export const TOOL_RESULT_MODEL_PROJECTION_CHANNEL = "toolResults[].projection.model";
+
 /** createToolObservation 将 ToolResult 投影成 Planner 可见安全 observation，不回灌完整 output。 */
 export function createToolObservation(result: ToolResult): AgentObservation {
   if (!result.ok) {
@@ -14,6 +20,7 @@ export function createToolObservation(result: ToolResult): AgentObservation {
       content: redactJsonValue({
         code: result.error.code,
         message: result.error.message,
+        details: result.error.details,
         fulfillment: {
           satisfied: result.fulfillment.satisfied,
           consumedResources: result.fulfillment.consumedResources,
@@ -21,6 +28,10 @@ export function createToolObservation(result: ToolResult): AgentObservation {
         },
       }),
     };
+  }
+
+  if (result.fulfillment.satisfied) {
+    return createSatisfiedToolResultIndexObservation(result);
   }
 
   return {
@@ -34,6 +45,27 @@ export function createToolObservation(result: ToolResult): AgentObservation {
       toolName: result.toolName,
       toolResultId: result.toolResultId,
     }, result)),
+  };
+}
+
+/** createSatisfiedToolResultIndexObservation 只给 Planner 留成功结果索引，详细事实由 toolResults 承载。 */
+function createSatisfiedToolResultIndexObservation(result: Extract<ToolResult, { ok: true }>): AgentObservation {
+  return {
+    type: "tool_result",
+    source: "tool",
+    toolResultId: result.toolResultId,
+    toolName: result.toolName,
+    ok: true,
+    content: redactJsonValue({
+      observationRole: SUCCESSFUL_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
+      toolResultId: result.toolResultId,
+      toolName: result.toolName,
+      ok: true,
+      fulfillment: createLightweightFulfillmentSummary(result),
+      modelFactsChannel: TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
+      projectionModelOmitted: true,
+      boundary: "详细事实见 toolResults[].projection.model；此 observation 只保留成功结果索引，避免同一事实在 observations 和 toolResults 中重复传递。",
+    }),
   };
 }
 
@@ -117,6 +149,23 @@ function withFulfillmentSummary(content: JsonValue, result: Extract<ToolResult, 
     value: content,
     fulfillment: resourceSummary,
   };
+}
+
+function createLightweightFulfillmentSummary(result: Extract<ToolResult, { ok: true }>): JsonValue {
+  const summary: Record<string, JsonValue> = {
+    satisfied: result.fulfillment.satisfied,
+    summary: result.fulfillment.summary,
+  };
+
+  if (result.fulfillment.producedResources) {
+    summary.producedResources = result.fulfillment.producedResources as unknown as JsonValue;
+  }
+
+  if (result.fulfillment.consumedResources) {
+    summary.consumedResources = result.fulfillment.consumedResources as unknown as JsonValue;
+  }
+
+  return summary;
 }
 
 /** createRuntimeErrorObservation 用于记录 maxSteps、timeout 等运行时边界触发。 */

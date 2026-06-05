@@ -7,6 +7,10 @@ import { toTerminalToolResultRefs } from "@/lib/server/agent-core/contracts";
 import { defineTool } from "@/lib/server/agent-core/define-tool";
 import { createToolResultId, executeTool, hashNormalizedInput } from "@/lib/server/agent-core/executor";
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
+import {
+  SUCCESSFUL_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
+  TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
+} from "@/lib/server/agent-core/observation";
 import { renderAgentResponseEvents, renderAgentResponseNdjson } from "@/lib/server/agent-core/response-renderer";
 import { runAgentRuntime } from "@/lib/server/agent-core/runtime";
 import { TerminalOutputValidatorRegistry } from "@/lib/server/agent-core/terminal-output-validator";
@@ -127,7 +131,20 @@ describe("agent-core Executor, Runtime and Response Renderer", () => {
     const ndjson = renderAgentResponseNdjson(result);
 
     expect(result.status).toBe("completed");
-    expect(planner.calls[1].observations[0]).toMatchObject({ ok: true, content: { text: "hello" } });
+    expect(planner.calls[1].observations[0]).toMatchObject({
+      ok: true,
+      content: {
+        observationRole: SUCCESSFUL_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
+        toolResultId: expectedToolResultId,
+        modelFactsChannel: TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
+        boundary: expect.stringContaining("详细事实见 toolResults[].projection.model"),
+      },
+    });
+    expect(JSON.stringify(planner.calls[1].observations[0])).not.toContain("\"text\":\"hello\"");
+    expect(planner.calls[1].toolResults[0]).toMatchObject({
+      output: "[redacted]",
+      projection: { model: { text: "hello" } },
+    });
     expect(result.traceEvents).toEqual(expect.arrayContaining([
       expect.objectContaining({
         type: "tool_execution",

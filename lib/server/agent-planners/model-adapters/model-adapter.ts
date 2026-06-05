@@ -70,6 +70,15 @@ export type ModelActionCompletionTrace = {
       messageCount: number;
       observationCount: number;
       toolResultCount: number;
+      successfulLightweightObservationCount: number;
+      repairDiagnosticObservationCount: number;
+      toolResultProjectionCount: number;
+      toolResultProjectionPresence: Array<{
+        toolResultId: string;
+        toolName: string;
+        satisfied: boolean;
+        hasModelProjection: boolean;
+      }>;
       toolCount: number;
       toolNames: string[];
       limits?: JsonValue;

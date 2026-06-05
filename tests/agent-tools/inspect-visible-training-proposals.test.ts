@@ -129,35 +129,38 @@ describe("inspectVisibleTrainingProposals tool", () => {
         }),
       ],
     });
-    const listObservation = result.observations.find((observation) => (
-      observation.toolName === "inspectVisibleTrainingProposals" &&
-      JSON.stringify(observation.content).includes("\"list_recent\"")
+    const listToolResultForPlanner = planner.calls[1].toolResults.find((toolResult) => (
+      toolResult.toolName === "inspectVisibleTrainingProposals" &&
+      JSON.stringify(toolResult).includes("\"list_recent\"")
     ));
-    const serializedObservation = JSON.stringify(listObservation);
+    const serializedToolResultForPlanner = JSON.stringify(listToolResultForPlanner);
 
-    expect(listObservation).toMatchObject({
+    expect(listToolResultForPlanner).toMatchObject({
       ok: true,
-      content: expect.objectContaining({
-        operation: "list_recent",
-        factCount: 0,
-        facts: [],
-        factsBoundary: expect.stringContaining("facts[] 是当前 actor 和当前 conversation 中当前可见、可引用的 visibleTrainingProposal 事实索引集合"),
-        emptyFactsBoundary: expect.stringContaining("空 facts[] 可作为模型推理、解释缺少引用对象或向用户澄清的事实依据"),
-        nextStepBoundary: expect.stringContaining("若本轮目标依赖该引用对象"),
+      output: "[redacted]",
+      projection: expect.objectContaining({
+        model: expect.objectContaining({
+          operation: "list_recent",
+          factCount: 0,
+          facts: [],
+          factsBoundary: expect.stringContaining("facts[] 是当前 actor 和当前 conversation 中当前可见、可引用的 visibleTrainingProposal 事实索引集合"),
+          emptyFactsBoundary: expect.stringContaining("空 facts[] 可作为模型推理、解释缺少引用对象或向用户澄清的事实依据"),
+          nextStepBoundary: expect.stringContaining("若本轮目标依赖该引用对象"),
+        }),
       }),
     });
-    expect(serializedObservation).toContain("facts=[] 只表示当前可见事实中没有这类引用对象");
-    expect(serializedObservation).toContain("不能支撑成功训练方案刷新、替换、调整或新训练方案生成");
-    expect(serializedObservation).toContain("解释缺少引用对象、追问、请求补充目标或失败收口");
-    expect(serializedObservation).toContain("只有用户已经提供足够独立生成所需目标和约束时，才可作为新请求处理");
-    expect(serializedObservation).toContain("不得宣称这是对不可见已有对象的刷新、替换或调整");
-    expect(serializedObservation).not.toContain("开始新的生成");
-    expect(serializedObservation).not.toContain("如果用户这样说");
-    expect(serializedObservation).not.toContain("答案模板");
-    expect(serializedObservation).not.toContain("换一批");
-    expect(serializedObservation).not.toContain("再来一组");
-    expect(serializedObservation).not.toContain("不要这个");
-    expect(serializedObservation).not.toContain("固定调用顺序");
+    expect(serializedToolResultForPlanner).toContain("facts=[] 只表示当前可见事实中没有这类引用对象");
+    expect(serializedToolResultForPlanner).toContain("不能支撑成功训练方案刷新、替换、调整或新训练方案生成");
+    expect(serializedToolResultForPlanner).toContain("解释缺少引用对象、追问、请求补充目标或失败收口");
+    expect(serializedToolResultForPlanner).toContain("只有用户已经提供足够独立生成所需目标和约束时，才可作为新请求处理");
+    expect(serializedToolResultForPlanner).toContain("不得宣称这是对不可见已有对象的刷新、替换或调整");
+    expect(serializedToolResultForPlanner).not.toContain("开始新的生成");
+    expect(serializedToolResultForPlanner).not.toContain("如果用户这样说");
+    expect(serializedToolResultForPlanner).not.toContain("答案模板");
+    expect(serializedToolResultForPlanner).not.toContain("换一批");
+    expect(serializedToolResultForPlanner).not.toContain("再来一组");
+    expect(serializedToolResultForPlanner).not.toContain("不要这个");
+    expect(serializedToolResultForPlanner).not.toContain("固定调用顺序");
     expect(JSON.stringify(result.toolResults[0]?.fulfillment.producedResources)).not.toContain("visible_training_proposal_fact\",\"role\":\"consumable");
   });
 
@@ -232,59 +235,57 @@ describe("inspectVisibleTrainingProposals tool", () => {
       ],
     });
 
-    const readObservation = result.observations.find((observation) => (
-      observation.toolName === "inspectVisibleTrainingProposals" &&
-      JSON.stringify(observation.content).includes("\"read_recent\"")
+    const readToolResultForPlanner = planner.calls[2].toolResults.find((toolResult) => (
+      toolResult.toolName === "inspectVisibleTrainingProposals" &&
+      JSON.stringify(toolResult).includes("\"read_recent\"")
     ));
-    const serializedObservation = JSON.stringify(readObservation);
+    const serializedToolResultForPlanner = JSON.stringify(readToolResultForPlanner);
 
-    expect(readObservation).toMatchObject({
+    expect(readToolResultForPlanner).toMatchObject({
       ok: true,
-      content: expect.objectContaining({
-        operation: "read_recent",
-        currentRunImport: expect.objectContaining({
-          imported: true,
-          role: "consumable",
-          note: expect.stringContaining("正向消费的训练事实来源"),
-        }),
-        resourceConsumption: expect.objectContaining({
+      output: "[redacted]",
+      projection: expect.objectContaining({
+        model: expect.objectContaining({
+          operation: "read_recent",
+          currentRunImport: expect.objectContaining({
+            imported: true,
+            role: "consumable",
+            note: expect.stringContaining("正向消费的训练事实来源"),
+          }),
           availableSections: ["warmup", "training", "stretch"],
           missingSectionsForRoutineOrPlan: [],
           supportsOutputKinds: ["exercise_selection", "routine"],
+          refreshPlanningBoundary: expect.stringContaining("本 tool 只读取上一套用户可见训练方案事实，不生成新的 visibleTrainingProposal"),
+          reusableExerciseItems: [
+            expect.objectContaining({ exerciseId: "jumping-jack", section: "warmup" }),
+            expect.objectContaining({ exerciseId: "squat", section: "training" }),
+            expect.objectContaining({ exerciseId: "standing-quad-stretch", section: "stretch" }),
+          ],
+          trainingExerciseItems: [
+            expect.objectContaining({
+              exerciseId: "squat",
+              section: "training",
+            }),
+          ],
+          sectionSummary: { warmup: 1, training: 1, stretch: 1 },
         }),
-        availableSections: ["warmup", "training", "stretch"],
-        missingSectionsForRoutineOrPlan: [],
-        supportsOutputKinds: ["exercise_selection", "routine"],
-        refreshPlanningBoundary: expect.stringContaining("本 tool 只读取上一套用户可见训练方案事实，不生成新的 visibleTrainingProposal"),
-        reusableExerciseItems: [
-          expect.objectContaining({ exerciseId: "jumping-jack", section: "warmup" }),
-          expect.objectContaining({ exerciseId: "squat", section: "training" }),
-          expect.objectContaining({ exerciseId: "standing-quad-stretch", section: "stretch" }),
-        ],
-        trainingExerciseItems: [
-          expect.objectContaining({
-            exerciseId: "squat",
-            section: "training",
-          }),
-        ],
-        sectionSummary: { warmup: 1, training: 1, stretch: 1 },
       }),
     });
-    expect(serializedObservation).toContain("visibleOutputSchemaVersion");
-    expect(serializedObservation).toContain("factSchemaVersion");
-    expect(serializedObservation).toContain("resourceOperationBoundary");
-    expect(serializedObservation).toContain("reuse、derive、modify");
-    expect(serializedObservation).toContain("replace");
-    expect(serializedObservation).toContain("正向消费的训练事实来源");
-    expect(serializedObservation).toContain("不得把已导入动作默认排除");
-    expect(serializedObservation).toContain("最终结构仍必须由 final_answer.visibleOutputs[] 承载");
-    expect(serializedObservation).toContain("不代表本轮最终训练结构已经完成");
-    expect(serializedObservation).toContain("不得用成功 final_answer.content 承诺本轮回复后还会自动继续");
-    expect(serializedObservation).toContain("usedRefs");
-    expect(serializedObservation).toContain("final_answer.visibleOutputs[]");
-    expect(serializedObservation).not.toContain("displayedExerciseIds");
-    expect(serializedObservation).not.toContain("displayedExercises");
-    expect(serializedObservation).not.toContain("exercise_recommendation_fact");
+    expect(serializedToolResultForPlanner).toContain("visibleOutputSchemaVersion");
+    expect(serializedToolResultForPlanner).toContain("factSchemaVersion");
+    expect(serializedToolResultForPlanner).toContain("resourceOperationBoundary");
+    expect(serializedToolResultForPlanner).toContain("reuse、derive、modify");
+    expect(serializedToolResultForPlanner).toContain("replace");
+    expect(serializedToolResultForPlanner).toContain("正向消费的训练事实来源");
+    expect(serializedToolResultForPlanner).toContain("不得把已导入动作默认排除");
+    expect(serializedToolResultForPlanner).toContain("最终结构仍必须由 final_answer.visibleOutputs[] 承载");
+    expect(serializedToolResultForPlanner).toContain("不代表本轮最终训练结构已经完成");
+    expect(serializedToolResultForPlanner).toContain("不得用成功 final_answer.content 承诺本轮回复后还会自动继续");
+    expect(serializedToolResultForPlanner).toContain("usedRefs");
+    expect(serializedToolResultForPlanner).toContain("final_answer.visibleOutputs[]");
+    expect(serializedToolResultForPlanner).not.toContain("displayedExerciseIds");
+    expect(serializedToolResultForPlanner).not.toContain("displayedExercises");
+    expect(serializedToolResultForPlanner).not.toContain("exercise_recommendation_fact");
   });
 
   it("projects training-only read_recent facts as partial coverage without routine support", async () => {

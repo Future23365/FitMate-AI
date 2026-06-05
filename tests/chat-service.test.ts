@@ -107,6 +107,25 @@ function isTransientAgentActivityEvent(event: Record<string, unknown>) {
   return event.type === "agent_progress" || event.type === "agent_loop";
 }
 
+function findPlannerToolResult(
+  input: Pick<ModelActionCompletionInput, "toolResults">,
+  toolName: string,
+  contentNeedle?: string,
+) {
+  return input.toolResults.find((toolResult) => (
+    toolResult.toolName === toolName &&
+    (contentNeedle ? JSON.stringify(toolResult).includes(contentNeedle) : true)
+  ));
+}
+
+function stringifyPlannerToolResult(
+  input: Pick<ModelActionCompletionInput, "toolResults">,
+  toolName: string,
+  contentNeedle?: string,
+) {
+  return JSON.stringify(findPlannerToolResult(input, toolName, contentNeedle));
+}
+
 type TraceAdapterCandidate = {
   actionCandidate: unknown;
   parsedAction?: unknown;
@@ -126,6 +145,16 @@ class TraceModelAdapter implements ModelAdapter {
     this.calls.push(input);
     const candidate = this.candidates[this.cursor];
     this.cursor += 1;
+    const successfulLightweightObservationCount = input.observations.filter((observation) => (
+      isRecord(observation.content) &&
+      observation.content.observationRole === "successful_tool_result_index"
+    )).length;
+    const toolResultProjectionPresence = input.toolResults.map((toolResult) => ({
+      toolResultId: toolResult.toolResultId,
+      toolName: toolResult.toolName,
+      satisfied: toolResult.fulfillment.satisfied,
+      hasModelProjection: toolResult.ok && toolResult.projection.model !== undefined,
+    }));
 
     if (!candidate) {
       throw new Error("TraceModelAdapter exhausted.");
@@ -164,6 +193,10 @@ class TraceModelAdapter implements ModelAdapter {
             messageCount: input.run.messages?.length ?? 0,
             observationCount: input.observations.length,
             toolResultCount: input.toolResults.length,
+            successfulLightweightObservationCount,
+            repairDiagnosticObservationCount: Math.max(0, input.observations.length - successfulLightweightObservationCount),
+            toolResultProjectionCount: toolResultProjectionPresence.filter((entry) => entry.hasModelProjection).length,
+            toolResultProjectionPresence,
             toolCount: input.manifests.length,
             toolNames: input.manifests.map((manifest) => manifest.name),
             limits: input.run.limits ?? {},
@@ -646,8 +679,7 @@ describe("chat service agent text flow boundary", () => {
       planner,
     });
     const events = await readNdjsonEvents(response);
-    const searchObservation = planner.calls[1].observations.find((observation) => observation.toolName === "searchExerciseResources");
-    const searchObservationJson = JSON.stringify(searchObservation?.content);
+    const searchToolResultJson = stringifyPlannerToolResult(planner.calls[1], "searchExerciseResources");
 
     expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
       equipment: "no_equipment",
@@ -655,9 +687,9 @@ describe("chat service agent text flow boundary", () => {
       muscles: ["胸部"],
       suitability: "training",
     }));
-    expect(searchObservationJson).toContain("filterSemantics");
-    expect(searchObservationJson).toContain("repository 只映射到自重动作字段");
-    expect(searchObservationJson).toContain("地面/瑜伽垫");
+    expect(searchToolResultJson).toContain("filterSemantics");
+    expect(searchToolResultJson).toContain("repository 只映射到自重动作字段");
+    expect(searchToolResultJson).toContain("地面/瑜伽垫");
     expect(events).toEqual([
       expect.objectContaining({
         type: "tool_result",
@@ -896,17 +928,9 @@ describe("chat service agent text flow boundary", () => {
       planner,
     });
     const events = await readNdjsonEvents(response);
-    const listObservationForPlanner = planner.calls[1].observations.find((observation) => (
-      observation.toolName === "inspectVisibleTrainingProposals" &&
-      JSON.stringify(observation.content).includes("\"list_recent\"")
-    ));
-    const readObservationForPlanner = planner.calls[2].observations.find((observation) => (
-      observation.toolName === "inspectVisibleTrainingProposals" &&
-      JSON.stringify(observation.content).includes("\"read_recent\"")
-    ));
-    const searchObservationForPlanner = planner.calls[3].observations.find((observation) => (
-      observation.toolName === "searchExerciseResources"
-    ));
+    const listToolResultForPlanner = findPlannerToolResult(planner.calls[1], "inspectVisibleTrainingProposals", "\"list_recent\"");
+    const readToolResultForPlanner = findPlannerToolResult(planner.calls[2], "inspectVisibleTrainingProposals", "\"read_recent\"");
+    const searchToolResultForPlanner = findPlannerToolResult(planner.calls[3], "searchExerciseResources");
 
     expect(planner.calls[0].run.metadata).toMatchObject({
       recentVisibleTrainingProposals: [
@@ -919,22 +943,25 @@ describe("chat service agent text flow boundary", () => {
     });
     expect(planner.calls[0].run.userInput).toBe("不要刚才那套，重新来一套");
     expect(planner.calls).toHaveLength(4);
-    expect(listObservationForPlanner).toMatchObject({
+    expect(listToolResultForPlanner).toMatchObject({
       ok: true,
-      content: expect.objectContaining({ operation: "list_recent" }),
+      output: "[redacted]",
+      projection: { model: expect.objectContaining({ operation: "list_recent" }) },
     });
-    expect(readObservationForPlanner).toMatchObject({
+    expect(readToolResultForPlanner).toMatchObject({
       ok: true,
-      content: expect.objectContaining({
+      output: "[redacted]",
+      projection: { model: expect.objectContaining({
         operation: "read_recent",
         currentRunImport: expect.objectContaining({ imported: true }),
-      }),
+      }) },
     });
-    expect(searchObservationForPlanner).toMatchObject({
+    expect(searchToolResultForPlanner).toMatchObject({
       ok: true,
-      content: expect.objectContaining({
+      output: "[redacted]",
+      projection: { model: expect.objectContaining({
         status: "succeeded",
-      }),
+      }) },
     });
     expect(JSON.stringify(planner.calls[0].run.metadata)).not.toContain("exerciseItems");
     expect(JSON.stringify(planner.calls[0].run.metadata)).not.toContain("prescription");
@@ -1069,10 +1096,7 @@ describe("chat service agent text flow boundary", () => {
       planner,
     });
     const events = await readNdjsonEvents(response);
-    const searchObservationForPlanner = planner.calls[3].observations.find((observation) => (
-      observation.toolName === "searchExerciseResources"
-    ));
-    const searchObservationJson = JSON.stringify(searchObservationForPlanner?.content);
+    const searchToolResultJson = stringifyPlannerToolResult(planner.calls[3], "searchExerciseResources");
     const eventsJson = JSON.stringify(events);
 
     expect(exerciseResourceRepositoryMocks.getExerciseResourceSummariesByIds).toHaveBeenCalledWith(["squat"]);
@@ -1081,10 +1105,10 @@ describe("chat service agent text flow boundary", () => {
       excludeExerciseIds: undefined,
       published: true,
     }));
-    expect(searchObservationJson).toContain("positiveAnchorBoundary");
-    expect(searchObservationJson).toContain("requiredExerciseIds");
-    expect(searchObservationJson).toContain("正向锚点");
-    expect(searchObservationJson).not.toContain("本次查询已应用 excludeExerciseIds");
+    expect(searchToolResultJson).toContain("positiveAnchorBoundary");
+    expect(searchToolResultJson).toContain("requiredExerciseIds");
+    expect(searchToolResultJson).toContain("正向锚点");
+    expect(searchToolResultJson).not.toContain("本次查询已应用 excludeExerciseIds");
     expect(events).toEqual(expect.arrayContaining([
       expect.objectContaining({
         type: "visible_output",
@@ -1280,7 +1304,7 @@ describe("chat service agent text flow boundary", () => {
     const events = await readNdjsonEvents(response);
     const secondPlannerInput = planner.calls[1];
     const repairPlannerInput = planner.calls[2];
-    const searchObservationJson = JSON.stringify(secondPlannerInput.observations);
+    const searchToolResultJson = stringifyPlannerToolResult(secondPlannerInput, "searchExerciseResources");
     const repairObservation = repairPlannerInput.observations.find((observation) => (
       observation.type === "invalid_action"
       && observation.source === "validator"
@@ -1288,11 +1312,11 @@ describe("chat service agent text flow boundary", () => {
     ));
     const repairObservationJson = JSON.stringify(repairObservation?.content);
 
-    expect(searchObservationJson).toContain("groups");
-    expect(searchObservationJson).toContain("training");
-    expect(searchObservationJson).toContain("Pushups");
-    expect(searchObservationJson).toContain("allowedSections");
-    expect(searchObservationJson).toContain("groupSemantics");
+    expect(searchToolResultJson).toContain("groups");
+    expect(searchToolResultJson).toContain("training");
+    expect(searchToolResultJson).toContain("Pushups");
+    expect(searchToolResultJson).toContain("allowedSections");
+    expect(searchToolResultJson).toContain("groupSemantics");
     expect(repairObservation).toMatchObject({
       ok: false,
       content: {
@@ -2041,7 +2065,7 @@ describe("chat service agent text flow boundary", () => {
     });
     const events = await readNdjsonEvents(response);
     const supportPlannerInputJson = JSON.stringify(planner.calls[1]);
-    const finalPlannerObservationJson = JSON.stringify(planner.calls[2].observations);
+    const finalPlannerToolResultsJson = JSON.stringify(planner.calls[2].toolResults);
 
     expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries).toHaveBeenCalledTimes(3);
     expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mock.calls.map(([input]) => (
@@ -2050,9 +2074,9 @@ describe("chat service agent text flow boundary", () => {
     expect(supportPlannerInputJson).toContain("missingSectionsForRoutineOrPlan");
     expect(supportPlannerInputJson).toContain("作为本轮完成 routine / plan 的正常下一步");
     expect(supportPlannerInputJson).toContain("不要让用户自行组合 training 动作列表");
-    expect(finalPlannerObservationJson).toContain(warmupExercise.id);
-    expect(finalPlannerObservationJson).toContain(trainingExercise.id);
-    expect(finalPlannerObservationJson).toContain(stretchExercise.id);
+    expect(finalPlannerToolResultsJson).toContain(warmupExercise.id);
+    expect(finalPlannerToolResultsJson).toContain(trainingExercise.id);
+    expect(finalPlannerToolResultsJson).toContain(stretchExercise.id);
     expect(events).toEqual([
       expect.objectContaining({
         type: "tool_result",
@@ -2170,21 +2194,21 @@ describe("chat service agent text flow boundary", () => {
       planner,
     });
     const events = await readNdjsonEvents(response);
-    const supportPlannerObservationJson = JSON.stringify(planner.calls[1].observations);
-    const finalPlannerObservationJson = JSON.stringify(planner.calls[2].observations);
+    const supportPlannerToolResultsJson = JSON.stringify(planner.calls[1].toolResults);
+    const finalPlannerToolResultsJson = JSON.stringify(planner.calls[2].toolResults);
 
     expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries).toHaveBeenCalledTimes(3);
     expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mock.calls.map(([input]) => (
       isRecord(input) ? input.suitability : undefined
     ))).toEqual(["training", "warmup", "stretch"]);
-    expect(supportPlannerObservationJson).toContain("当前结果只提供 training 动作事实");
-    expect(supportPlannerObservationJson).toContain("还需要当前 run 可消费的 warmup 和 stretch 动作事实");
-    expect(supportPlannerObservationJson).toContain("suitabilities = [\\\"warmup\\\"");
-    expect(finalPlannerObservationJson).toContain("push-up");
-    expect(finalPlannerObservationJson).toContain("jumping-jack");
-    expect(finalPlannerObservationJson).toContain("chest-stretch");
-    expect(finalPlannerObservationJson).toContain("missingSectionsForRoutineOrPlan");
-    expect(finalPlannerObservationJson).toContain("groups.<section>.exercises[*].exerciseId 可作为 visibleTrainingProp");
+    expect(supportPlannerToolResultsJson).toContain("当前结果只提供 training 动作事实");
+    expect(supportPlannerToolResultsJson).toContain("还需要当前 run 可消费的 warmup 和 stretch 动作事实");
+    expect(supportPlannerToolResultsJson).toContain("suitabilities = [\\\"warmup\\\"");
+    expect(finalPlannerToolResultsJson).toContain("push-up");
+    expect(finalPlannerToolResultsJson).toContain("jumping-jack");
+    expect(finalPlannerToolResultsJson).toContain("chest-stretch");
+    expect(finalPlannerToolResultsJson).toContain("missingSectionsForRoutineOrPlan");
+    expect(finalPlannerToolResultsJson).toContain("groups.<section>.exercises[*].exerciseId 可作为 visibleTrainingProp");
     expect(events).toEqual([
       expect.objectContaining({
         type: "tool_result",
@@ -2316,7 +2340,7 @@ describe("chat service agent text flow boundary", () => {
     });
     const events = await readNdjsonEvents(response);
     const supportPlannerInputJson = JSON.stringify(planner.calls[2]);
-    const finalPlannerObservationJson = JSON.stringify(planner.calls[3].observations);
+    const finalPlannerToolResultsJson = JSON.stringify(planner.calls[3].toolResults);
 
     expect(planner.calls[0].run.metadata).toMatchObject({
       recentVisibleTrainingProposals: [
@@ -2333,10 +2357,10 @@ describe("chat service agent text flow boundary", () => {
     expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mock.calls.map(([input]) => (
       isRecord(input) ? input.suitability : undefined
     ))).toEqual(["warmup", "stretch"]);
-    expect(finalPlannerObservationJson).toContain("forbiddenFinalVisibleOutputs");
-    expect(finalPlannerObservationJson).toContain("missingSectionsForRoutineOrPlan 非空时");
-    expect(finalPlannerObservationJson).toContain("jumping-jack");
-    expect(finalPlannerObservationJson).toContain("chest-stretch");
+    expect(finalPlannerToolResultsJson).toContain("forbiddenFinalVisibleOutputs");
+    expect(finalPlannerToolResultsJson).toContain("missingSectionsForRoutineOrPlan 非空时");
+    expect(finalPlannerToolResultsJson).toContain("jumping-jack");
+    expect(finalPlannerToolResultsJson).toContain("chest-stretch");
     expect(events).toEqual([
       expect.objectContaining({ type: "tool_result", toolName: "inspectVisibleTrainingProposals" }),
       expect.objectContaining({ type: "tool_result", toolName: "inspectVisibleTrainingProposals" }),

@@ -1,5 +1,9 @@
 import { AgentActionSchema } from "@/lib/server/agent-core/contracts";
 import { stableStringify } from "@/lib/server/agent-core/canonical-json";
+import {
+  SUCCESSFUL_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
+  TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
+} from "@/lib/server/agent-core/observation";
 import { REDACTED_VALUE, redactJsonValue } from "@/lib/server/agent-core/redaction";
 import type { JsonValue } from "@/lib/server/agent-core/contracts";
 
@@ -305,6 +309,8 @@ export class DeepSeekModelAdapter implements ModelAdapter {
     input: ModelActionCompletionInput,
     requestBody: DeepSeekRequestBody,
   ): ModelActionCompletionTrace["request"] {
+    const dedupeSummary = summarizePlannerInputDedupe(input);
+
     return {
       model: requestBody.model,
       endpoint: this.endpoint,
@@ -325,6 +331,10 @@ export class DeepSeekModelAdapter implements ModelAdapter {
         messageCount: input.run.messages?.length ?? 0,
         observationCount: input.observations.length,
         toolResultCount: input.toolResults.length,
+        successfulLightweightObservationCount: dedupeSummary.successfulLightweightObservationCount,
+        repairDiagnosticObservationCount: dedupeSummary.repairDiagnosticObservationCount,
+        toolResultProjectionCount: dedupeSummary.toolResultProjectionCount,
+        toolResultProjectionPresence: dedupeSummary.toolResultProjectionPresence,
         toolCount: input.manifests.length,
         toolNames: input.manifests.map((manifest) => manifest.name),
         limits: safeTraceValue(input.run.limits ?? {}),
@@ -415,6 +425,34 @@ function safeTraceValue(value: unknown): JsonValue {
 
 function summarizeText(value: string): JsonValue {
   return safeTraceValue(value);
+}
+
+/** summarizePlannerInputDedupe 只记录去重诊断元数据，不复制模型可见 projection 或 handler output。 */
+function summarizePlannerInputDedupe(input: ModelActionCompletionInput) {
+  const successfulLightweightObservationCount = input.observations.filter(isSuccessfulLightweightObservation).length;
+  const toolResultProjectionPresence = input.toolResults.map((result) => ({
+    toolResultId: result.toolResultId,
+    toolName: result.toolName,
+    satisfied: result.fulfillment.satisfied,
+    hasModelProjection: result.ok && result.projection.model !== undefined,
+  }));
+
+  return {
+    successfulLightweightObservationCount,
+    repairDiagnosticObservationCount: Math.max(0, input.observations.length - successfulLightweightObservationCount),
+    toolResultProjectionCount: toolResultProjectionPresence.filter((entry) => entry.hasModelProjection).length,
+    toolResultProjectionPresence,
+  };
+}
+
+function isSuccessfulLightweightObservation(observation: ModelActionCompletionInput["observations"][number]) {
+  const content = observation.content;
+
+  return observation.type === "tool_result"
+    && observation.ok === true
+    && isRecord(content)
+    && content.observationRole === SUCCESSFUL_TOOL_RESULT_INDEX_OBSERVATION_ROLE
+    && content.modelFactsChannel === TOOL_RESULT_MODEL_PROJECTION_CHANNEL;
 }
 
 // createModelTraceMessageContent 保留模型真实可见 message 的诊断价值，长文本交给导出层外置而不是提前硬截。
