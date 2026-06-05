@@ -1,6 +1,6 @@
 ## Context
 
-根目录 `llm基础测试.md` 定义了首页聊天入口的 19 个三轮基础 flow，覆盖动作推荐、routine、plan、追问、引用、修改、边界收束和非健身话题切回等用户可见流程。当前 worktree 已没有 `manual-tests/llm` 和 `scripts/run-manual-llm-tests.mjs`，默认测试入口 `npm test` 只包含 `tests/**/*.test.ts`，因此本 change 需要新增一条隔离的手动 LLM 黑盒测试面，而不是沿用已删除的旧 runner。
+根目录 `llm基础测试.md` 定义首页聊天入口的三轮基础 flow。基础套件应保持低歧义、低成本，只覆盖动作推荐、routine、plan、信息不足追问、目标切换、非健身话题切回、未知动作不编造和动作说明等冒烟流程。引用歧义、局部替换、重复动作范围、高风险降级、过多目标与短时长冲突等复杂场景应移出基础默认执行面，放到 detailed suite 或专项回归。当前 worktree 已没有 `manual-tests/llm` 和 `scripts/run-manual-llm-tests.mjs`，默认测试入口 `npm test` 只包含 `tests/**/*.test.ts`，因此本 change 需要新增一条隔离的手动 LLM 黑盒测试面，而不是沿用已删除的旧 runner。
 
 现有首页聊天请求面是 `/api/chat`：前端通过 `latestUserMessage`、`conversationId`、`conversationSummary`、`conversationContext` 等字段发起请求，响应为 NDJSON 事件流。对这个 change 来说，`agent_progress`、`tool_result`、trace 和 runtime loop 都是中间过程；最终用户可见输出只由请求完成后的 assistant 文本内容和 `visible_output` 摘要构成。
 
@@ -88,7 +88,13 @@ token usage 只能作为可选诊断：如果当前生产聊天链路通过稳�
 
 ### 6. 非真实模型单测验证测试基建，不锁死当前用例数量
 
-基础 parser、judge input、报告和隔离检查需要普通自动化测试覆盖，但这些测试不应把当前 `llm基础测试.md` 的 flow 数量、固定 ID 列表或某一版人工用例顺序当成长期合同。合理断言是：文档可解析、ID 唯一、每个 flow 固定三轮、每轮输入和期望非空、报告不泄漏敏感中间载荷、手动套件不进入默认测试。
+基础 parser、judge input、报告和隔离检查需要普通自动化测试覆盖，但这些测试不应把当前 `llm基础测试.md` 的完整固定 ID 列表或某一版人工用例顺序当成长期合同。合理断言是：文档可解析、ID 唯一、每个 flow 固定三轮、每轮输入和期望非空、复杂 detailed 场景不混入基础默认表、报告不泄漏敏感中间载荷、手动套件不进入默认测试。
+
+### 9. 建议提问按钮作为可恢复路径
+
+基础黑盒的判定对象包含 `assistant_suggestions`。如果最终 assistant 文本或 `visible_output` 已满足期望，状态为 `passed`。如果本轮没有直接完成全部期望，但建议提问按钮是用户点击后可直接发送的完整输入，并且语义上覆盖缺失的下一步操作，judge 可返回 `passed_via_suggestion`。该状态计入通过，不让手动命令失败，但必须在报告中单独统计，避免把“可恢复路径”误读为“本轮直出能力已经完成”。
+
+泛泛建议、不相关建议、助手口吻说明、需要用户自行重新理解任务的建议，不能作为 `passed_via_suggestion`。如果需要真实验证点击建议后的下一跳效果，应在 detailed suite 或专项 follow-up runner 中另行执行建议文本；基础套件只判定当前轮用户最终可见输出是否提供了可恢复路径。
 
 取舍：固定数量断言能发现意外删用例，但会让人工正常增删用例时必须同步改测试基建。用例覆盖完整性应由人工 review 和 OpenSpec 文档承担，parser 单测只守结构合同。
 

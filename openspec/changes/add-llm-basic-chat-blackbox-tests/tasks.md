@@ -65,3 +65,16 @@
 - [x] 7.9 运行 `npm run test -- tests/manual-llm-basic-blackbox.test.ts` 和新增相关非真实模型测试。
 - [x] 7.10 运行 `openspec validate add-llm-basic-chat-blackbox-tests --strict`。
 - [x] 7.11 在真实模型配置可用且用户确认 token 成本后，运行 `npm run test:llm:basic -- --flow F01` 验证单 flow 链路；若未运行，报告缺失环境或未确认原因。
+
+## 8. 基础套件收窄与建议可恢复状态
+
+- [x] 8.1 收窄 `llm基础测试.md` 的基础默认 flow，只保留低歧义、低成本的基础首页聊天场景。
+- [x] 8.2 将引用歧义、局部替换、重复动作范围、高强度降级、过多目标与短时长冲突等复杂场景移出基础默认表，并保留为 detailed suite / 专项回归清单。
+- [x] 8.3 扩展 judge schema 和模型可见说明，新增 `passed_via_suggestion` 状态，表示建议提问按钮提供了用户可点击的可恢复路径。
+- [x] 8.4 更新 runner 通过/失败判定和报告统计，让 `passed_via_suggestion` 计入通过但单独展示。
+- [x] 8.5 更新 token 预估口径，按最近真实报告的聊天 + judge 量级估算基础套件成本，避免启动提示明显低估。
+- [x] 8.6 更新 `docs/manual-llm-basic-blackbox-tests.md`，说明基础范围、建议提问判定和成本排查方式。
+- [x] 8.7 补充非真实模型测试，覆盖基础 flow 收窄、`passed_via_suggestion` schema、报告统计和默认测试隔离。
+- [x] 8.8 运行 `npm run test -- tests/manual-llm-basic-blackbox.test.ts`。
+- [x] 8.9 运行 `openspec validate add-llm-basic-chat-blackbox-tests --strict`。
+- [x] 8.10 运行 `npm run typecheck`。

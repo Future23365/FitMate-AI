@@ -21,6 +21,13 @@
 - **THEN** 系统 MUST 以 `llm基础测试.md` 当前内容为准
 - **AND** 系统 MUST NOT 以旧 `测试情况预览.md`、归档 change fixture 或硬编码历史用例替代当前根目录文档
 
+#### Scenario: 基础默认表只保留冒烟场景
+- **WHEN** 开发者维护 `llm基础测试.md` 的可执行基础 flow 表
+- **THEN** 该表 SHOULD 优先保留低歧义、低成本的基础首页聊天场景
+- **AND** 该表 SHOULD 覆盖动作推荐、routine、plan、信息不足追问、目标切换、非健身话题回到训练、未知动作不编造和动作说明等基础能力
+- **AND** 引用歧义、局部替换、重复动作范围确认、高风险降级、过多目标与短时长冲突、复杂 schedule 或精确质量断言 SHOULD NOT 进入基础默认表
+- **AND** 被移出的复杂场景 MAY 记录在文档的 detailed suite 或专项回归清单中
+
 #### Scenario: 每个 flow 使用独立会话
 - **WHEN** 基础黑盒测试开始执行一个 flow
 - **THEN** 系统 MUST 为该 flow 使用新的 `conversationId`
@@ -73,6 +80,14 @@
 - **THEN** 系统 MUST 判断最终用户可见输出是否满足该轮期望的用户可见语义
 - **AND** 系统 MUST NOT 要求文档未声明的动作 ID、组数、精确时长、计划细节或数据库内部字段完全匹配
 - **AND** 系统 MUST 在判定失败时记录缺失的用户可见期望
+
+#### Scenario: 建议提问可作为可恢复通过
+- **WHEN** 最终 assistant 文本或最终用户可见训练输出未直接满足全部文档期望
+- **AND** 最终建议回复中存在用户点击后可直接发送的建议提问
+- **AND** 该建议提问语义上覆盖缺失的下一步操作
+- **THEN** judge MAY 返回 `status = "passed_via_suggestion"` 且 `passed = true`
+- **AND** 泛泛建议、不相关建议、助手口吻说明或无法直接发送的建议 MUST NOT 被视为 `passed_via_suggestion`
+- **AND** 系统 MUST 在报告中单独展示 `passed_via_suggestion`，不得把它和直接完成的 `passed` 混同
 
 ### Requirement: 基础黑盒报告必须展示最终输出验收结果
 系统 SHALL 在基础 LLM 黑盒测试结束后生成可人工复核的报告，报告重点展示输入、期望、最终 AI 输出和判定结果。

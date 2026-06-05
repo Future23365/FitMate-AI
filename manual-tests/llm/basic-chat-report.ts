@@ -29,6 +29,7 @@ export type BasicChatHydrationDiagnostic = {
 
 export type BasicChatTurnRunStatus =
   | "passed"
+  | "passed_via_suggestion"
   | "failed"
   | "judge_failed"
   | "error"
@@ -71,6 +72,7 @@ export type BasicChatSuiteSummary = {
   executedFlowCount: number;
   executedTurnCount: number;
   passedTurnCount: number;
+  suggestionPassedTurnCount: number;
   failedTurnCount: number;
   skippedTurnCount: number;
   estimatedTokenTotal: number;
@@ -109,6 +111,7 @@ export function renderBasicChatBlackboxReport(input: BasicChatReportInput) {
     `- 实际执行 flow 数：${input.summary.executedFlowCount}`,
     `- 实际执行 turn 数：${input.summary.executedTurnCount}`,
     `- 通过 turn 数：${input.summary.passedTurnCount}`,
+    `- 建议可恢复通过 turn 数：${input.summary.suggestionPassedTurnCount}`,
     `- 失败 turn 数：${input.summary.failedTurnCount}`,
     `- 跳过 turn 数：${input.summary.skippedTurnCount}`,
     `- 预计 token 消耗：约 ${input.summary.estimatedTokenTotal}`,
@@ -203,6 +206,11 @@ export function mergeTokenUsage(usages: Array<BasicChatTokenUsage | undefined>):
     }),
     { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
   );
+}
+
+// isPassingTurnRunStatus 让建议可恢复通过不阻断手动套件，同时在报告中保留独立状态。
+export function isPassingTurnRunStatus(status: BasicChatTurnRunStatus) {
+  return status === "passed" || status === "passed_via_suggestion";
 }
 
 // summarizeTokenDiagnostics 为报告提供 token 来源摘要，读取失败只展示诊断，不影响通过条件。

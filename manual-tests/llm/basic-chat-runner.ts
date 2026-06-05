@@ -36,6 +36,7 @@ import {
 } from "./basic-chat-fixtures";
 import {
   createBasicChatJudgeConfig,
+  isPassingJudgeStatus,
   judgeBasicChatTurn,
   type BasicChatJudgeConfig,
   type BasicChatVisibleUserOutput,
@@ -44,6 +45,7 @@ import {
 import {
   mergeTokenUsage,
   renderBasicChatBlackboxReport,
+  isPassingTurnRunStatus,
   summarizeReportText,
   summarizeTokenDiagnostics,
   type BasicChatHydrationDiagnostic,
@@ -101,6 +103,8 @@ export type NormalizedChatOutput = {
 
 const defaultReportPath = "docs/manual-llm-basic-blackbox-latest-report.md";
 const defaultChatModel = "deepseek-chat";
+const estimatedChatTokensPerTurn = 36_000;
+const estimatedJudgeTokensPerTurn = 800;
 
 // createBasicChatBlackboxRunOptionsFromEnv 让专用命令通过 env 传入筛选条件和报告路径。
 export function createBasicChatBlackboxRunOptionsFromEnv(env: NodeJS.ProcessEnv = process.env): BasicChatBlackboxRunOptions {
@@ -240,7 +244,7 @@ export async function runBasicChatBlackboxSuite(
     records.push(...flowRecords);
   }
 
-  const failed = records.some((record) => record.executed && record.status !== "passed");
+  const failed = records.some((record) => record.executed && !isPassingTurnRunStatus(record.status));
 
   return writeFinalReport({
     reportPath,
@@ -409,6 +413,9 @@ async function runBasicChatFlow(input: {
       );
 
       if (judgeOutcome.ok) {
+        const status = isPassingJudgeStatus(judgeOutcome.result.status)
+          ? judgeOutcome.result.status
+          : "failed";
         record = {
           flowId: input.flow.id,
           goal: input.flow.goal,
@@ -416,7 +423,7 @@ async function runBasicChatFlow(input: {
           userInput: turn.userInput,
           expectation: turn.expectation,
           executed: true,
-          status: judgeOutcome.result.passed ? "passed" : "failed",
+          status,
           finalAssistantTextSummary: summarizeReportText(output.assistantText),
           visibleOutputKinds: output.visibleOutputKinds,
           assistantSuggestions: output.assistantSuggestions,
@@ -471,7 +478,7 @@ async function runBasicChatFlow(input: {
 
     records.push(record);
 
-    if (turn.index === 1 && record.status !== "passed") {
+    if (turn.index === 1 && !isPassingTurnRunStatus(record.status)) {
       shouldSkipAfterFirstTurn = true;
     }
   }
@@ -717,9 +724,10 @@ async function writeFinalReport(input: {
     fullTurnCount: input.fixture.stats.turnCount,
     executedFlowCount: new Set(executedRecords.map((record) => record.flowId)).size,
     executedTurnCount: executedRecords.length,
-    passedTurnCount: input.records.filter((record) => record.status === "passed").length,
+    passedTurnCount: input.records.filter((record) => isPassingTurnRunStatus(record.status)).length,
+    suggestionPassedTurnCount: input.records.filter((record) => record.status === "passed_via_suggestion").length,
     failedTurnCount: input.records.filter((record) => (
-      record.executed && record.status !== "passed"
+      record.executed && !isPassingTurnRunStatus(record.status)
     )).length,
     skippedTurnCount: input.records.filter((record) => record.status === "skipped").length,
     estimatedTokenTotal: input.estimatedTokenTotal,
@@ -832,7 +840,7 @@ function estimateBasicChatTokenUsage(flows: BasicChatFlow[]) {
   ), 0);
   const turnCount = summarizeBasicChatFixture(flows).turnCount;
 
-  return Math.ceil(textLength / 2) + turnCount * 2800;
+  return Math.ceil(textLength / 2) + turnCount * (estimatedChatTokensPerTurn + estimatedJudgeTokensPerTurn);
 }
 
 function logRunStart(input: {
