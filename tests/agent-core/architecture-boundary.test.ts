@@ -235,6 +235,21 @@ describe("agent-core architecture boundaries", () => {
     expect(matches).toEqual([]);
   });
 
+  it("keeps production chat progress mapping free of concrete toolName stage tables", () => {
+    const service = readRelative("lib/server/chat/agent-text-chat-service.ts");
+    const forbiddenTerms = [
+      "toolActivityStageByToolName",
+      "new Map<string, AgentProgressStage>",
+      "[\"inspectVisibleTrainingProposals\"",
+      "[\"resolveExerciseResourceMentions\"",
+      "[\"searchExerciseResources\"",
+    ];
+    const matches = forbiddenTerms.filter((term) => service.includes(term));
+
+    expect(matches).toEqual([]);
+    expect(service).toContain("tool?.uiActivityStage");
+  });
+
   it("keeps visible training proposal terminal validation free of concrete business toolName allowlists", () => {
     const files = [
       "lib/server/agent-core/terminal-output-validator.ts",

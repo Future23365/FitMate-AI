@@ -8,6 +8,7 @@ import {
   createAgentTextChatResponse,
   createProductionAgentTextChatPlanner,
 } from "@/lib/server/chat/agent-text-chat-service";
+import { createProductionToolRegistry } from "@/lib/server/agent-tools";
 import { createToolResultId, hashNormalizedInput } from "@/lib/server/agent-core/executor";
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
 import type { JsonValue } from "@/lib/server/agent-core/contracts";
@@ -23,6 +24,7 @@ import {
 } from "@/lib/server/agent-planners/model-adapters/model-adapter";
 import { clearAiTraces, listAiTracesForUser } from "@/lib/server/dev/ai-trace-store";
 import { agentRuntimeConfig } from "@/lib/server/config";
+import type { ExerciseResourceFacetCatalog } from "@/lib/server/exercises/exercise-repository";
 import { createChatConversation } from "./fixtures/domain";
 
 const exerciseResourceRepositoryMocks = vi.hoisted(() => ({
@@ -199,6 +201,35 @@ describe("chat service agent text flow boundary", () => {
     expect("emitLegacyEvents" in parsed).toBe(false);
   });
 
+  it("keeps production tool activity stages on tool definitions and out of planner manifests", () => {
+    const registry = createProductionToolRegistry({
+      searchExerciseResourcesFacetCatalog: createExerciseResourceFacetCatalog(),
+    });
+    const expectedActivityStages = new Map([
+      ["inspectVisibleTrainingProposals", "reading_artifacts"],
+      ["resolveExerciseResourceMentions", "querying_exercises"],
+      ["searchExerciseResources", "querying_exercises"],
+    ]);
+
+    for (const [toolName, stage] of expectedActivityStages) {
+      expect(registry.get(toolName)?.uiActivityStage).toBe(stage);
+    }
+
+    const manifests = registry.serializeForPlanner();
+    const manifestJson = JSON.stringify(manifests);
+    const searchManifest = manifests.find((manifest) => manifest.name === "searchExerciseResources");
+
+    expect(manifests.map((manifest) => manifest.name)).toEqual(productionToolNames);
+    expect(searchManifest?.metadata).toMatchObject({
+      facetCatalog: expect.objectContaining({
+        suitabilities: ["warmup", "training", "stretch"],
+      }),
+    });
+    expect(manifestJson).not.toContain("uiActivityStage");
+    expect(manifestJson).not.toContain("querying_exercises");
+    expect(manifestJson).not.toContain("reading_artifacts");
+  });
+
   it("hydrates saved server messages without constructing Agent execution facts", () => {
     const savedConversation = createChatConversation({
       messages: [
@@ -318,6 +349,7 @@ describe("chat service agent text flow boundary", () => {
         }),
       },
     });
+    expect(JSON.stringify(planner.calls[0].manifests)).not.toContain("uiActivityStage");
     expect(planner.calls[0].run).toMatchObject({
       actor: { userId: "user-1" },
       userInput: "今天练胸",
@@ -2252,7 +2284,7 @@ function createExerciseResourceSearchResult(overrides: Record<string, unknown> =
   };
 }
 
-function createExerciseResourceFacetCatalog() {
+function createExerciseResourceFacetCatalog(): ExerciseResourceFacetCatalog {
   return {
     muscles: ["胸部", "肱三头肌", "股四头肌", "臀部", "腹肌"],
     categories: ["strength", "力量"],

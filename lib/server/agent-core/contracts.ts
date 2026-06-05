@@ -248,6 +248,7 @@ export type Tool<Input = any, Output = any> = {
   outputSchema: ZodTypeAny;
   policy: ToolPolicy;
   resourceContract?: ToolResourceContract;
+  uiActivityStage?: AgentProgressStage;
   metadata?: Record<string, JsonValue>;
   examples?: ToolExample[];
   handler: (input: Input, context: ToolHandlerContext) => Promise<Output> | Output;

@@ -99,6 +99,8 @@ export const resolveExerciseResourceMentionsTool = defineTool<
   ].join(" "),
   inputSchema: resolveExerciseResourceMentionsInputSchema,
   outputSchema: resolveExerciseResourceMentionsOutputSchema,
+  // uiActivityStage 说明该解析能力属于动作库查询进度，不泄漏具体 toolName 到用户界面。
+  uiActivityStage: "querying_exercises",
   policy: {
     sideEffect: "read",
     riskLevel: "low",

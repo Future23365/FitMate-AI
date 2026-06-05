@@ -106,12 +106,6 @@ type DeepSeekPlannerFactoryInput = {
   fetchImpl?: typeof fetch;
 };
 
-const toolActivityStageByToolName = new Map<string, AgentProgressStage>([
-  ["inspectVisibleTrainingProposals", "reading_artifacts"],
-  ["resolveExerciseResourceMentions", "querying_exercises"],
-  ["searchExerciseResources", "querying_exercises"],
-]);
-
 // createAgentTextChatResponse 是 /api/chat 到 agent-core 的薄接入层，只负责构造 run、生产 registry 和 NDJSON 投影。
 export async function createAgentTextChatResponse(input: CreateAgentTextChatResponseInput): Promise<Response> {
   const registry = await createProductionTextChatRegistry();
@@ -415,7 +409,7 @@ function resolveToolExecutionProgressStage(
   registry: ToolRegistry,
 ): AgentProgressStage {
   const tool = registry.get(event.toolName);
-  const metadataStage = readSafeAgentProgressStage(tool?.metadata?.uiActivityStage);
+  const metadataStage = tool?.uiActivityStage;
 
   if (metadataStage) {
     return metadataStage;
@@ -429,11 +423,7 @@ function resolveToolExecutionProgressStage(
   }
 
   // 生产 adapter 只在 tool 已执行后投影粗粒度 UI 阶段，不参与 Planner 选择或输入改写。
-  return toolActivityStageByToolName.get(event.toolName) ?? "analyzing_request";
-}
-
-function readSafeAgentProgressStage(value: JsonValue | undefined): AgentProgressStage | undefined {
-  return typeof value === "string" && isKnownAgentProgressStage(value) ? value : undefined;
+  return "analyzing_request";
 }
 
 function isKnownAgentProgressStage(stage: string): stage is AgentProgressStage {
