@@ -10,7 +10,6 @@ import {
   buildFitnessConversationContext,
   initializeConversationSummary,
 } from "@/lib/shared/chat/fitness-conversation-context";
-import { assistantSuggestionListSchema } from "@/lib/shared/chat/assistant-suggestions";
 import { parseUtcDateTimeInput, toUtcISOString } from "@/lib/shared/time/utc-date-time";
 
 type ChatSessionWithMessages = Prisma.ChatSessionGetPayload<{
@@ -92,8 +91,7 @@ export async function saveChatConversation(rawConversation: ChatConversation, cu
         const createdAt = message.createdAt ? parseUtcDateTimeInput(message.createdAt) : fallbackCreatedAt;
         const isLastMessage = index === conversation.messages.length - 1;
         const metadata = toPrismaJsonInput({
-          assistantSuggestions: message.assistantSuggestions,
-          suggestedReplies: message.suggestedReplies,
+          suggestedQuestions: message.suggestedQuestions,
           visibleOutputs: message.visibleOutputs,
           conversationSummary: isLastMessage ? conversation.conversationSummary : undefined,
           conversationContext: isLastMessage ? conversation.conversationContext : undefined,
@@ -133,10 +131,7 @@ const chatSessionInclude = {
 
 function normalizeConversation(conversation: ChatConversation): ChatConversation {
   const messages = conversation.messages
-    .map(({ isReasoning: _isReasoning, reasoningContent: _reasoningContent, suggestedQuestions, ...message }) => ({
-      ...message,
-      suggestedReplies: message.suggestedReplies ?? suggestedQuestions,
-    }))
+    .map(({ isReasoning: _isReasoning, reasoningContent: _reasoningContent, ...message }) => message)
     .filter((message) => message.role === "user" || message.role === "assistant");
   const conversationContext =
     conversation.conversationContext ??
@@ -160,17 +155,13 @@ function mapChatSessionToConversation(session: ChatSessionWithMessages): ChatCon
 
   for (const dbMessage of session.messages) {
     const metadata = readObject(dbMessage.metadata);
-    const assistantSuggestions = assistantSuggestionListSchema.safeParse(metadata?.assistantSuggestions);
-    const suggestedReplies = readStringArray(metadata?.suggestedReplies);
+    const suggestedQuestions = readStringArray(metadata?.suggestedQuestions);
     const message: ChatMessage = {
       id: dbMessage.id,
       role: dbMessage.role === "assistant" ? "assistant" : "user",
       content: dbMessage.content,
       createdAt: toUtcISOString(dbMessage.createdAt),
-      assistantSuggestions: assistantSuggestions.success && assistantSuggestions.data.length
-        ? assistantSuggestions.data
-        : undefined,
-      suggestedReplies: suggestedReplies.length ? suggestedReplies : undefined,
+      suggestedQuestions: suggestedQuestions.length ? suggestedQuestions : undefined,
       visibleOutputs: readVisibleOutputs(metadata?.visibleOutputs),
     };
 

@@ -54,10 +54,10 @@ export function applyAgentTextChatEventToAssistantMessage(
         content: `${message.content}${event.content}`,
         isReasoning: false,
       };
-    case "assistant_suggestions":
+    case "suggested_questions":
       return {
         ...message,
-        suggestedReplies: event.suggestions,
+        suggestedQuestions: event.suggestedQuestions,
         isReasoning: false,
       };
     case "visible_output":

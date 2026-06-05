@@ -549,7 +549,7 @@ function createAgentTextChatTerminalFailureProjection(input: {
       projectionType: "unsupported_capability_fallback",
       events: [
         { type: "content", content: unsupportedToolActionMessage },
-        { type: "assistant_suggestions", suggestions: unsupportedToolActionSuggestions },
+        { type: "suggested_questions", suggestedQuestions: unsupportedToolActionSuggestions },
         { type: "done" },
       ],
     };
@@ -560,7 +560,7 @@ function createAgentTextChatTerminalFailureProjection(input: {
       projectionType: "visible_output_validation_fallback",
       events: [
         { type: "content", content: visibleOutputValidationFailureMessage },
-        { type: "assistant_suggestions", suggestions: visibleOutputValidationFailureSuggestions },
+        { type: "suggested_questions", suggestedQuestions: visibleOutputValidationFailureSuggestions },
         { type: "done" },
       ],
     };
@@ -571,7 +571,7 @@ function createAgentTextChatTerminalFailureProjection(input: {
       projectionType: "budget_timeout_fallback",
       events: [
         { type: "content", content: budgetOrTimeoutFailureMessage },
-        { type: "assistant_suggestions", suggestions: budgetOrTimeoutFailureSuggestions },
+        { type: "suggested_questions", suggestedQuestions: budgetOrTimeoutFailureSuggestions },
         { type: "done" },
       ],
     };
@@ -1417,9 +1417,9 @@ function summarizeAgentTextChatResponseEvents(
     .filter((event): event is Extract<AgentStreamEvent, { type: "content" }> => event.type === "content")
     .map((event) => event.content)
     .join("\n");
-  const suggestions = events
-    .filter((event): event is Extract<AgentStreamEvent, { type: "assistant_suggestions" }> => event.type === "assistant_suggestions")
-    .flatMap((event) => event.suggestions);
+  const suggestedQuestions = events
+    .filter((event): event is Extract<AgentStreamEvent, { type: "suggested_questions" }> => event.type === "suggested_questions")
+    .flatMap((event) => event.suggestedQuestions);
   const errorCodes = events
     .filter((event): event is Extract<AgentTextChatStreamEvent, { type: "error" }> => event.type === "error")
     .map((event) => event.error.code);
@@ -1430,7 +1430,8 @@ function summarizeAgentTextChatResponseEvents(
     projectionType: getAgentTextChatResponseProjectionType(events, context),
     content: summarizeText(content),
     contentLength: content.length,
-    suggestionCount: suggestions.length,
+    suggestionCount: suggestedQuestions.length,
+    suggestedQuestions,
     errorCodes,
     confirmationRequestCount: events.filter((event) => event.type === "confirmation_request").length,
     toolResultCount: events.filter((event) => event.type === "tool_result").length,

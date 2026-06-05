@@ -45,7 +45,7 @@ describe("ChatPage visible training proposal rich card rendering", () => {
           id: "assistant-visible-card",
           role: "assistant",
           content: "按你的条件推荐这些动作。",
-          suggestedReplies: ["换一批"],
+          suggestedQuestions: ["换一批"],
           visibleOutputs: [
             {
               outputType: "visibleTrainingProposal",

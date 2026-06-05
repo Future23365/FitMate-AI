@@ -10,7 +10,7 @@ import { SymbolIcon } from "@/components/app/symbol-icon";
 import { useAutoHideScrollbar } from "@/components/app/use-auto-hide-scrollbar";
 import { AgentActivityIndicator } from "@/features/chat/components/agent-activity-indicator";
 import { useChatController } from "@/features/chat/hooks/use-chat-controller";
-import { getMessageAssistantSuggestions } from "@/features/chat/lib/assistant-suggestions";
+import { sendSuggestedQuestionMessage } from "@/features/chat/lib/suggested-questions";
 import { adaptVisibleTrainingProposalToRichCard } from "@/features/chat/lib/visible-training-proposal-cards";
 import { ExerciseRecommendationCard } from "@/features/exercises/components/exercise-recommendation-card";
 import { listWorkoutSchedules } from "@/features/workouts/api/workout-data-client";
@@ -604,9 +604,7 @@ export function ChatPage() {
                         >
                           {(() => {
                             const cleanContent = stripHistoricalLegacyTriggerBlocks(message.content);
-                            const assistantSuggestions = getMessageAssistantSuggestions({
-                              ...message,
-                            });
+                            const suggestedQuestions = message.suggestedQuestions ?? [];
 
                             if (message.role === "assistant") {
                               return (
@@ -629,17 +627,17 @@ export function ChatPage() {
                                     />
                                   ))}
 
-                                {assistantSuggestions.length > 0 && (
+                                {suggestedQuestions.length > 0 && (
                                   <div className="mt-md flex flex-wrap gap-sm">
-                                    {assistantSuggestions.map((suggestion) => (
+                                    {suggestedQuestions.map((suggestedQuestion) => (
                                       <button
                                         className="max-w-full break-words rounded-xl border border-primary/20 bg-primary-soft px-md py-sm text-left font-label-sm text-label-sm font-bold text-primary transition-colors hover:border-primary/40 hover:bg-[#dbe5ff] disabled:cursor-not-allowed disabled:opacity-60"
                                         disabled={isLoading}
-                                        key={`${suggestion.kind}:${suggestion.message}`}
-                                        onClick={() => sendMessage(suggestion.message)}
+                                        key={suggestedQuestion}
+                                        onClick={() => sendSuggestedQuestionMessage(sendMessage, suggestedQuestion)}
                                         type="button"
                                       >
-                                        {suggestion.label}
+                                        {suggestedQuestion}
                                       </button>
                                     ))}
                                   </div>

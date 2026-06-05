@@ -159,6 +159,9 @@ export const VisibleOutputEnvelopeSchema = z.object({
 /** VisibleOutputEnvelope 是 final_answer 承载用户可见结构化输出的通用 envelope，不包含业务语义。 */
 export type VisibleOutputEnvelope = z.infer<typeof VisibleOutputEnvelopeSchema>;
 
+/** SuggestedQuestionsSchema 约束建议提问按钮文本，点击后会作为下一轮普通用户消息发送。 */
+export const SuggestedQuestionsSchema = z.array(z.string().trim().min(1).max(120)).max(3);
+
 /** TerminalOutputValidationSummary 保存业务 validator 返回的有限摘要，供 renderer 复用已校验事实。 */
 export type TerminalOutputValidationSummary = {
   outputs: Array<{
@@ -177,14 +180,14 @@ export const FinalAnswerActionSchema = z.object({
   visibleOutputs: z.array(VisibleOutputEnvelopeSchema)
     .max(4)
     .optional(),
-  assistantSuggestions: z.array(z.string().min(1)).optional(),
+  suggestedQuestions: SuggestedQuestionsSchema.optional(),
 }).strict();
 
 /** AskUserAction 是 Planner 需要用户补充信息时使用的终止动作。 */
 export const AskUserActionSchema = z.object({
   type: z.literal("ask_user"),
   question: z.string().min(1),
-  suggestions: z.array(z.string().min(1)).optional(),
+  suggestedQuestions: SuggestedQuestionsSchema.optional(),
   usedToolResultIds: z.array(z.string().min(1)).optional(),
   usedResourceRefs: z.array(agentResourceRefSchema).optional(),
 }).strict();
@@ -561,7 +564,7 @@ export type AgentStreamEvent =
   | { type: "visible_output"; outputType: string; schemaVersion: string; payload: JsonValue; content?: JsonValue }
   | { type: "tool_result"; toolResultId: string; toolName: string; content: JsonValue }
   | { type: "confirmation_request"; pendingActionId: string; actionHash: string; expiresAt: string; message: string; toolName: string }
-  | { type: "assistant_suggestions"; suggestions: string[] }
+  | { type: "suggested_questions"; suggestedQuestions: string[] }
   | { type: "error"; error: ToolError }
   | { type: "done" };
 

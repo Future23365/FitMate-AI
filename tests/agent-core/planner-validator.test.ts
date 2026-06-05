@@ -158,6 +158,66 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("accepts suggestedQuestions on terminal actions and rejects legacy suggestion fields", () => {
+    const registry = createRegistry();
+    const manifests = registry.serializeForPlanner();
+
+    expect(validateAgentAction({
+      action: {
+        type: "final_answer",
+        content: "可以继续。",
+        suggestedQuestions: ["我想继续了解训练安排"],
+      },
+      registry,
+      manifests,
+      toolResults: [],
+    })).toMatchObject({ ok: true });
+
+    expect(validateAgentAction({
+      action: {
+        type: "ask_user",
+        question: "你今天有多少时间？",
+        suggestedQuestions: ["20 分钟", "40 分钟"],
+      },
+      registry,
+      manifests,
+      toolResults: [],
+    })).toMatchObject({ ok: true });
+
+    expect(validateAgentAction({
+      action: {
+        type: "final_answer",
+        content: "可以继续。",
+        suggestedQuestions: ["1", "2", "3", "4"],
+      },
+      registry,
+      manifests,
+      toolResults: [],
+    })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.INVALID_ACTION } });
+
+    expect(validateAgentAction({
+      action: {
+        type: "final_answer",
+        content: "可以继续。",
+        assistantSuggestions: ["旧字段不应进入新主链"],
+      },
+      registry,
+      manifests,
+      toolResults: [],
+    })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.INVALID_ACTION } });
+
+    expect(validateAgentAction({
+      action: {
+        type: "ask_user",
+        question: "你今天有多少时间？",
+        suggestions: ["旧字段不应进入新主链"],
+      },
+      registry,
+      manifests,
+      toolResults: [],
+    })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.INVALID_ACTION } });
+  });
+
   it("rejects unknown action, confirmation action, unknown tool and invalid input", () => {
     const registry = createRegistry();
     const manifests = registry.serializeForPlanner();

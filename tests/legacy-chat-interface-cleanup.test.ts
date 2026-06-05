@@ -13,6 +13,7 @@ describe("legacy chat AI interface cleanup", () => {
     expect(existsSync(join(repoRoot, "lib/server/reference-resolver/reference-resolver-service.ts"))).toBe(false);
     expect(existsSync(join(repoRoot, "lib/server/workout-patches/workout-patch-chat-service.ts"))).toBe(false);
     expect(existsSync(join(repoRoot, "lib/shared/reference-resolver/schema.ts"))).toBe(false);
+    expect(existsSync(join(repoRoot, "features/chat/lib/assistant-suggestions.ts"))).toBe(false);
   });
 
   it("keeps the frontend chat flow on Agent-first /api/chat contracts", () => {
@@ -21,7 +22,6 @@ describe("legacy chat AI interface cleanup", () => {
       "features/chat/hooks/use-chat-controller.ts",
       "features/chat/components/chat-page.tsx",
       "features/chat/types.ts",
-      "features/chat/lib/assistant-suggestions.ts",
     ];
     const forbiddenPatterns = [
       "/api/ai/workout-plan",

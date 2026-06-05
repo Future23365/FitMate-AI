@@ -110,7 +110,7 @@ describe("agent-core Executor, Runtime and Response Renderer", () => {
         type: "final_answer",
         content: "已读取。",
         usedToolResultIds: [expectedToolResultId],
-        assistantSuggestions: ["继续"],
+        suggestedQuestions: ["继续"],
       },
     ]);
 
@@ -148,7 +148,7 @@ describe("agent-core Executor, Runtime and Response Renderer", () => {
     expect(events).toEqual([
       { type: "tool_result", toolResultId: expectedToolResultId, toolName: "echoRead", content: { text: "hello" } },
       { type: "content", content: "已读取。" },
-      { type: "assistant_suggestions", suggestions: ["继续"] },
+      { type: "suggested_questions", suggestedQuestions: ["继续"] },
       { type: "done" },
     ]);
     expect(ndjson).toContain("\"type\":\"done\"");
@@ -162,13 +162,13 @@ describe("agent-core Executor, Runtime and Response Renderer", () => {
     const askResult = await runAgentRuntime({
       registry,
       planner: new ReplayPlanner([
-        { type: "ask_user", question: "需要哪个 fixture？", suggestions: ["alpha", "beta"] },
+        { type: "ask_user", question: "需要哪个 fixture？", suggestedQuestions: ["alpha", "beta"] },
       ]),
       run: createRun("run-ask"),
     });
     expect(renderAgentResponseEvents(askResult)).toEqual([
       { type: "content", content: "需要哪个 fixture？" },
-      { type: "assistant_suggestions", suggestions: ["alpha", "beta"] },
+      { type: "suggested_questions", suggestedQuestions: ["alpha", "beta"] },
       { type: "done" },
     ]);
 

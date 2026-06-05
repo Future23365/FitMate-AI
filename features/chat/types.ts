@@ -5,7 +5,6 @@ import type {
 } from "@/lib/shared/workout-plans/draft-schema";
 import type { ExerciseRecommendationCard } from "@/lib/shared/exercise-recommendations/schema";
 import type { ConversationSummaryContext, FitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
-import type { AssistantSuggestion } from "@/lib/shared/chat/assistant-suggestions";
 
 export type ChatMessage = {
   id: string;
@@ -16,14 +15,10 @@ export type ChatMessage = {
   reasoningContent?: string;
   /** 仅用于前端加载态，不保存或展示模型原始推理内容 */
   isReasoning?: boolean;
-  /** 模型显式给出的用户视角一键回复，点击后自动作为用户消息发送 */
-  suggestedReplies?: string[];
-  /** 统一 AI 建议，label 用于展示，message 用于点击后发送 */
-  assistantSuggestions?: AssistantSuggestion[];
+  /** 建议提问按钮文本，点击后会作为下一轮普通用户消息原文发送。 */
+  suggestedQuestions?: string[];
   /** 用户可见结构化输出，后续训练卡片只从这里读取事实，正文只作为解释文本 */
   visibleOutputs?: ChatVisibleOutput[];
-  /** @deprecated 旧历史兼容字段；新消息使用 suggestedReplies */
-  suggestedQuestions?: string[];
 };
 
 export type ChatVisibleOutput = {

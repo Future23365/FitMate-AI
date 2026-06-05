@@ -13,9 +13,18 @@ describe("agent LLM prompt configuration", () => {
     const systemPrompt = buildAgentActionSystemPrompt();
 
     expect(agentLlmPromptConfig.promptVersion).toBe(agentLlmPromptVersion);
-    expect(agentLlmPromptVersion).toBe("agent-action-v9");
+    expect(agentLlmPromptVersion).toBe("agent-action-v10");
     expect(systemPrompt).toContain("只能返回一个合法 JSON object");
     expect(systemPrompt).toContain("type 只能是 tool_call、final_answer、ask_user 三者之一");
+    expect(systemPrompt).toContain("final_answer 和 ask_user 都可以在适合时可选输出 suggestedQuestions");
+    expect(systemPrompt).toContain("最多 3 条字符串组成的建议提问数组");
+    expect(systemPrompt).toContain("用户口吻的完整自然语言文本");
+    expect(systemPrompt).toContain("点击后会作为下一轮普通用户消息直接发送");
+    expect(systemPrompt).toContain("suggestedQuestions 不得重复正文内容");
+    expect(systemPrompt).toContain("当前回复已经自然结束、没有可靠下一步或不需要澄清时可以省略");
+    expect(systemPrompt).toContain("suggestedQuestions 只是下一轮用户消息候选，不代表服务端已经执行任何操作");
+    expect(systemPrompt).toContain("不得承诺未注册 tool、未执行结果、未开放保存能力、医疗诊断或康复处方");
+    expect(systemPrompt).toContain("不得要求固定输出某个业务 toolName、固定 action 或固定训练结构");
     expect(systemPrompt).toContain("AI 健身助手");
     expect(systemPrompt).toContain("动作推荐和训练计划编排");
     expect(systemPrompt).toContain("不得提供医疗诊断、治疗建议");
@@ -171,6 +180,6 @@ describe("agent LLM prompt configuration", () => {
       "返回测试专用 AgentAction JSON object。 这个测试只期望 final_answer。",
     );
     expect(buildAgentActionSystemPrompt()).toContain("tool_call、final_answer、ask_user");
-    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v9");
+    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v10");
   });
 });

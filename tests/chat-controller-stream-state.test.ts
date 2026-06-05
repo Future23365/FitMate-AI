@@ -52,27 +52,27 @@ describe("chat controller Agent text event projection", () => {
     ).toEqual(createAssistantMessage());
   });
 
-  it("stores assistant_suggestions as user-clickable suggested replies", () => {
+  it("stores suggested_questions as user-clickable suggested questions", () => {
     expect(
       applyAgentTextChatEventToAssistantMessage(createAssistantMessage({ content: "你想练多久？" }), {
-        type: "assistant_suggestions",
-        suggestions: ["20 分钟", "40 分钟"],
+        type: "suggested_questions",
+        suggestedQuestions: ["20 分钟", "40 分钟"],
       }),
     ).toMatchObject({
       content: "你想练多久？",
-      suggestedReplies: ["20 分钟", "40 分钟"],
+      suggestedQuestions: ["20 分钟", "40 分钟"],
       isReasoning: false,
     });
   });
 
-  it("settles fallback content, suggestions and done as a normal assistant message", () => {
+  it("settles fallback content, suggested questions and done as a normal assistant message", () => {
     const withContent = applyAgentTextChatEventToAssistantMessage(createAssistantMessage(), {
       type: "content",
       content: "这次没有生成通过校验的可靠训练结果。",
     });
     const withSuggestions = applyAgentTextChatEventToAssistantMessage(withContent, {
-      type: "assistant_suggestions",
-      suggestions: ["缩小训练范围", "补充缺失条件"],
+      type: "suggested_questions",
+      suggestedQuestions: ["缩小训练范围", "补充缺失条件"],
     });
     const done = applyAgentTextChatEventToAssistantMessage(withSuggestions, {
       type: "done",
@@ -80,7 +80,7 @@ describe("chat controller Agent text event projection", () => {
 
     expect(done).toMatchObject({
       content: "这次没有生成通过校验的可靠训练结果。",
-      suggestedReplies: ["缩小训练范围", "补充缺失条件"],
+      suggestedQuestions: ["缩小训练范围", "补充缺失条件"],
       isReasoning: false,
     });
   });

@@ -359,7 +359,7 @@ describe("chat history activity persistence boundary", () => {
       id: "a1",
       role: "assistant",
       content: "可以。",
-      suggestedReplies: ["继续"],
+      suggestedQuestions: ["继续"],
     });
   });
 });

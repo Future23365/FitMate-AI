@@ -306,7 +306,7 @@ describe("persistence services", () => {
             content: "可以。",
             createdAt: new Date("2026-05-25T09:01:00.000Z"),
             metadata: {
-              suggestedReplies: ["30 分钟"],
+              suggestedQuestions: ["30 分钟"],
               visibleOutputs: [createVisibleExerciseSelectionOutput("push-up")],
               plan: createWorkoutPlanDraft(),
               exerciseRecommendation: createExerciseRecommendationCard(),
@@ -351,7 +351,7 @@ describe("persistence services", () => {
       messages: [
         expect.objectContaining({ id: "m1" }),
         expect.objectContaining({
-          suggestedReplies: ["30 分钟"],
+          suggestedQuestions: ["30 分钟"],
           visibleOutputs: [
             expect.objectContaining({
               outputType: "visibleTrainingProposal",

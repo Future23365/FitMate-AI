@@ -554,13 +554,14 @@ export type AgentAction =
   | {
       type: "final_answer";
       content: string;
+      suggestedQuestions?: string[];
       usedToolResultIds: string[];
       usedResourceRefs?: AgentResourceRef[];
     }
   | {
       type: "ask_user";
       question: string;
-      suggestions?: string[];
+      suggestedQuestions?: string[];
       usedToolResultIds: string[];
       usedResourceRefs?: AgentResourceRef[];
     };
@@ -928,7 +929,7 @@ export type AgentStreamEvent =
       message: string;
       expiresAt: string;
     })
-  | (BaseStreamEvent & { type: "assistant_suggestions"; suggestions: string[] })
+  | (BaseStreamEvent & { type: "suggested_questions"; suggestedQuestions: string[] })
   | (BaseStreamEvent & { type: "error"; code: string; message: string; retryable: boolean })
   | (BaseStreamEvent & { type: "done" });
 ```

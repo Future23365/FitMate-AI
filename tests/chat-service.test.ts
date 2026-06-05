@@ -2194,14 +2194,14 @@ describe("chat service agent text flow boundary", () => {
     });
   });
 
-  it("projects ask_user into clarification content and assistant_suggestions", async () => {
+  it("projects ask_user into clarification content and suggested_questions", async () => {
     const prepared = prepareChatRequest({
       latestUserMessage: "帮我安排训练",
       conversationSummary: "",
     });
     const planner = createTracePlanner([
       {
-        actionCandidate: { type: "ask_user", question: "你今天有多少时间？", suggestions: ["20 分钟", "40 分钟"] },
+        actionCandidate: { type: "ask_user", question: "你今天有多少时间？", suggestedQuestions: ["20 分钟", "40 分钟"] },
       },
     ]);
     const response = await createAgentTextChatResponse({
@@ -2212,7 +2212,7 @@ describe("chat service agent text flow boundary", () => {
 
     await expect(readNdjsonEvents(response)).resolves.toEqual([
       { type: "content", content: "你今天有多少时间？" },
-      { type: "assistant_suggestions", suggestions: ["20 分钟", "40 分钟"] },
+      { type: "suggested_questions", suggestedQuestions: ["20 分钟", "40 分钟"] },
       { type: "done" },
     ]);
     expect(listAiTracesForUser("user-1")[0]).toMatchObject({
@@ -2230,8 +2230,9 @@ describe("chat service agent text flow boundary", () => {
         expect.objectContaining({
           type: "response_write",
           output: expect.objectContaining({
-            eventTypes: ["content", "assistant_suggestions", "done"],
+            eventTypes: ["content", "suggested_questions", "done"],
             suggestionCount: 2,
+            suggestedQuestions: ["20 分钟", "40 分钟"],
           }),
         }),
       ]),
@@ -2318,8 +2319,8 @@ describe("chat service agent text flow boundary", () => {
     expect(events).toEqual([
       { type: "content", content: expect.stringContaining("当前未接入的工具") },
       {
-        type: "assistant_suggestions",
-        suggestions: expect.arrayContaining([
+        type: "suggested_questions",
+        suggestedQuestions: expect.arrayContaining([
           "改成普通文本问题",
         ]),
       },
@@ -2366,7 +2367,7 @@ describe("chat service agent text flow boundary", () => {
         expect.objectContaining({
           type: "response_write",
           output: expect.objectContaining({
-            eventTypes: ["content", "assistant_suggestions", "done"],
+            eventTypes: ["content", "suggested_questions", "done"],
             projectionType: "unsupported_capability_fallback",
             errorCodes: [],
           }),
@@ -2405,8 +2406,8 @@ describe("chat service agent text flow boundary", () => {
     expect(events).toEqual([
       { type: "content", content: expect.stringContaining("没有生成通过校验的可靠训练结果") },
       {
-        type: "assistant_suggestions",
-        suggestions: expect.arrayContaining([
+        type: "suggested_questions",
+        suggestedQuestions: expect.arrayContaining([
           "补充缺失条件",
         ]),
       },
@@ -2436,7 +2437,7 @@ describe("chat service agent text flow boundary", () => {
         expect.objectContaining({
           type: "response_write",
           output: expect.objectContaining({
-            eventTypes: ["content", "assistant_suggestions", "done"],
+            eventTypes: ["content", "suggested_questions", "done"],
             projectionType: "visible_output_validation_fallback",
             errorCodes: [],
           }),
@@ -2464,8 +2465,8 @@ describe("chat service agent text flow boundary", () => {
     expect(events).toEqual([
       { type: "content", content: expect.stringContaining("步骤或信息量超出了当前处理范围") },
       {
-        type: "assistant_suggestions",
-        suggestions: expect.arrayContaining([
+        type: "suggested_questions",
+        suggestedQuestions: expect.arrayContaining([
           "拆成两步提问",
         ]),
       },
