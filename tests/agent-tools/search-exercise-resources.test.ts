@@ -173,6 +173,9 @@ describe("searchExerciseResources tool", () => {
     expect(serializedObservation).toContain("引用对象不可见时，不得用本查询结果宣称刷新、替换或调整成功");
     expect(serializedObservation).toContain("prescription、schedule 和最终 payload.kind");
     expect(serializedObservation).toContain("最终事实必须写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal.payload");
+    expect(serializedObservation).toContain("section-scoped 事实原料");
+    expect(serializedObservation).toContain("grounded terminal action");
+    expect(serializedObservation).toContain("不得用成功 final_answer.content 承诺本轮回复后还会自动继续");
     expect(serializedObservation).not.toContain("不是 visibleTrainingProposal");
     expect(serializedObservation).not.toContain("\"warmup\":{\"suitability\":\"warmup\"");
     expect(serializedObservation).not.toContain("\"stretch\":{\"suitability\":\"stretch\"");

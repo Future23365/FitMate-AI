@@ -282,6 +282,10 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(inspectManifestJson).toContain("factSchemaVersion");
     expect(inspectManifestJson).toContain("schemaVersion 必须写字符串 \\\"1\\\"");
     expect(inspectManifestJson).toContain("不要重复读取同一引用");
+    expect(inspectManifestJson).toContain("导入事实不代表本轮最终训练结构已经生成、渲染或保存");
+    expect(inspectManifestJson).toContain("导入事实本身不等于已经完成最终 visibleTrainingProposal");
+    expect(inspectManifestJson).toContain("不得用成功 final_answer.content 承诺本轮回复后还会自动继续查询或生成");
+    expect(inspectManifestJson).toContain("grounded final_answer");
     expect(inspectManifestJson).toContain("上一套 exerciseItems、section 摘要和计划结构");
     expect(inspectManifestJson).toContain("自主规划差异化刷新、保留、排除、结构调整或失败收口");
     expect(inspectManifestJson).toContain("继续判断 reuse、derive、modify、replace、clarify");
@@ -375,6 +379,7 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(manifestJson).toContain("visibleTrainingProposal");
     expect(manifestJson).toContain("exerciseId");
     expect(searchManifestJson).toContain("发布态动作事实原料");
+    expect(searchManifestJson).toContain("section-scoped 安全动作摘要");
     expect(searchManifestJson).toContain("不生成最终 visibleTrainingProposal");
     expect(searchManifestJson).toContain("groups.<section>.exercises[*].exerciseId");
     expect(searchManifestJson).toContain("fulfillment.satisfied = true");
@@ -391,11 +396,14 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(searchManifestJson).toContain("不要把需要保留、复用、派生或调整的动作写进 excludeExerciseIds");
     expect(searchManifestJson).toContain("未展示的内部候选、trace 摘要、handler-only 结果或 list_recent 索引");
     expect(searchManifestJson).toContain("模型根据用户目标已经需要 routine 或 plan");
-    expect(searchManifestJson).toContain("当前 run 只有 training 动作事实或缺少 warmup / stretch 动作事实");
+    expect(searchManifestJson).toContain("当前 run 只有 training 动作事实、缺少 warmup / stretch 动作事实");
     expect(searchManifestJson).toContain("suitabilities = [\\\"warmup\\\", \\\"stretch\\\"]");
     expect(searchManifestJson).toContain("不得因为当前只查到 training 动作事实就把 routine 或 plan 目标降级输出为 payload.kind = \\\"exercise_selection\\\"");
     expect(searchManifestJson).toContain("普通动作推荐和动作事实问答不要求固定查询 warmup / training / stretch");
     expect(searchManifestJson).toContain("本 tool 不要求固定 tool 调用次数或顺序");
+    expect(searchManifestJson).toContain("它只提供当前查询实际返回 section 的动作事实，不代表最终训练结构已经生成");
+    expect(searchManifestJson).toContain("不得用成功 final_answer.content 承诺本轮回复后还会自动继续查询或生成");
+    expect(searchManifestJson).toContain("不要把查询成功当成最终 visibleTrainingProposal、routine 或 plan 已经完成");
     expect(searchManifestJson).toContain("不要因为当前只查到 training 动作事实");
     expect(searchManifestJson).toContain("failed、invalid-input 或 satisfied=false 的结果不能支撑成功 final_answer");
     expect(manifestJson).toContain("groups.<section>.exercises[*].exerciseId 是该查询结果中对应 section 的动作事实来源");

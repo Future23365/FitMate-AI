@@ -338,6 +338,117 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
     })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID } });
   });
 
+  it("rejects ungrounded final_answer after current-run tool results", () => {
+    const registry = createRegistry();
+    const manifests = registry.serializeForPlanner();
+    const satisfiedResult = createTerminalGroundingToolResult({
+      toolResultId: "tr_satisfied",
+      ok: true,
+      satisfied: true,
+    });
+
+    expect(validateAgentAction({
+      action: {
+        type: "final_answer",
+        content: "我稍后继续处理。",
+        visibleOutputs: [],
+      },
+      registry,
+      manifests,
+      toolResults: [satisfiedResult],
+    })).toMatchObject({
+      ok: false,
+      error: {
+        code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID,
+        details: expect.objectContaining({
+          reason: "missing_terminal_grounding_after_tool_result",
+          repair: expect.stringContaining("usedToolResultIds"),
+          recoverableActions: expect.arrayContaining([
+            expect.stringContaining("tool_call"),
+            expect.stringContaining("ask_user"),
+            expect.stringContaining("visibleOutputs[]"),
+          ]),
+        }),
+      },
+    });
+  });
+
+  it("allows plain no-tool final_answer and grounded final_answer after tool results", () => {
+    const registry = createRegistry();
+    const manifests = registry.serializeForPlanner();
+    const satisfiedResult = createTerminalGroundingToolResult({
+      toolResultId: "tr_satisfied",
+      ok: true,
+      satisfied: true,
+    });
+    const resourceStore = new ResourceStore("run-grounded-terminal");
+    const consumable = resourceStore.register({
+      resourceId: "fixture-doc",
+      resourceType: "fixture_document",
+      role: "consumable",
+      schemaVersion: "fixture@v1",
+      sourceToolResultId: satisfiedResult.toolResultId,
+      summary: { title: "Doc" },
+    });
+    const terminalOutputValidators = new TerminalOutputValidatorRegistry();
+    terminalOutputValidators.register({
+      outputType: "fixtureVisible",
+      schemaVersions: ["1"],
+      validate: (output) => (
+        isRecord(output.payload) && output.payload.accepted === true
+          ? { ok: true }
+          : { ok: false, message: "fixture visible output rejected." }
+      ),
+    });
+
+    expect(validateAgentAction({
+      action: {
+        type: "final_answer",
+        content: "普通问答可以直接收口。",
+      },
+      registry,
+      manifests,
+      toolResults: [],
+    })).toMatchObject({ ok: true });
+
+    expect(validateAgentAction({
+      action: {
+        type: "final_answer",
+        content: "已基于 tool result 回答。",
+        usedToolResultIds: [satisfiedResult.toolResultId],
+      },
+      registry,
+      manifests,
+      toolResults: [satisfiedResult],
+    })).toMatchObject({ ok: true });
+
+    expect(validateAgentAction({
+      action: {
+        type: "final_answer",
+        content: "已基于 consumable resource 回答。",
+        usedResourceRefs: [toResourceRef(consumable)],
+      },
+      registry,
+      manifests,
+      toolResults: [satisfiedResult],
+      resourceStore,
+    })).toMatchObject({ ok: true });
+
+    expect(validateAgentAction({
+      action: {
+        type: "final_answer",
+        content: "已输出合法可见结构。",
+        visibleOutputs: [
+          { outputType: "fixtureVisible", schemaVersion: "1", payload: { accepted: true } },
+        ],
+      },
+      registry,
+      manifests,
+      toolResults: [satisfiedResult],
+      terminalOutputValidators,
+    })).toMatchObject({ ok: true });
+  });
+
   it("rejects final_answer grounding by failed or unsatisfied tool results but allows ask_user diagnostics", () => {
     const registry = createRegistry();
     const manifests = registry.serializeForPlanner();

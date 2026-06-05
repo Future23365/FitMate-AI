@@ -141,17 +141,20 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
 >({
   name: "inspectVisibleTrainingProposals",
   version: "0.2.0",
-  description: "只读查询当前会话中用户已经看到的 visibleTrainingProposal 事实，帮助 Planner 了解上一套 exerciseItems、section 摘要和计划结构，再自主规划差异化刷新、保留、排除、结构调整或失败收口。operation = \"list_recent\" 返回最近事实索引；operation = \"read_recent\" 读取具体事实并导入当前 run。",
+  description: "只读查询当前会话中用户已经看到的 visibleTrainingProposal 事实，帮助 Planner 了解上一套 exerciseItems、section 摘要和计划结构，再自主规划差异化刷新、保留、排除、结构调整或失败收口。operation = \"list_recent\" 返回最近事实索引；operation = \"read_recent\" 读取具体事实并导入当前 run；导入事实不代表本轮最终训练结构已经生成、渲染或保存。",
   whenToUse: [
     "当 Planner 需要确认当前 actor 和 conversation 是否存在可引用的用户可见训练方案事实时，先调用 operation = \"list_recent\"。",
     "list_recent 只返回 factRef、messageId、proposalKind、section 摘要、可复用 training 动作数量、visibleOutputSchemaVersion 和 factSchemaVersion；它不导入完整 payload，也不产出 consumable 训练方案事实。",
     "当 Planner 已经从 list_recent result、diagnostic index resource 或当前受控 metadata 中看到真实 factRef/messageId，并且需要复用具体方案时，再调用 operation = \"read_recent\"。",
-    "read_recent 成功后会把 visible_training_proposal_fact 作为当前 run 的 consumable resource 导入；Planner 可用其中用户已看到的动作事实、availableSections、missingSectionsForRoutineOrPlan、supportsOutputKinds、section 摘要和计划结构，继续判断 reuse、derive、modify、replace、clarify、查询新动作、调整结构、澄清或失败收口，不要重复读取同一引用。",
+    "read_recent 成功后会把 visible_training_proposal_fact 作为当前 run 的 consumable resource 导入；Planner 可用其中用户已看到的动作事实、availableSections、missingSectionsForRoutineOrPlan、supportsOutputKinds、section 摘要和计划结构，继续判断 reuse、derive、modify、replace、clarify、查询新动作、调整结构、澄清或失败收口，不要重复读取同一引用；导入事实本身不等于已经完成最终 visibleTrainingProposal。",
+    "read_recent 后如果目标仍需要额外动作事实、section、prescription 或 schedule，Planner 应继续返回当前可见且合法的 tool_call、使用 ask_user 澄清，或明确失败收口；不得用成功 final_answer.content 承诺本轮回复后还会自动继续查询或生成。",
     "省略表达、指代不明或上下文引用场景由模型基于上下文、list_recent result 和 read_recent result 自主判断下一步，可以读取事实、查询动作库、澄清或普通回复；本 tool 不要求固定 tool 调用次数或顺序。",
   ].join(" "),
   whenNotToUse: [
     "不要把任意固定自然语言短语写成必须调用本 tool 的条件；服务端不会根据用户原文替模型选择 operation。",
     "不要用本 tool 查询动作库、生成 visibleTrainingProposal、保存 artifact、写用户记忆、执行候选集合或跨 conversation 引用。",
+    "不要把 read_recent 成功当作本轮已经完成最终训练结构、刷新、保存或渲染；最终结构仍必须由合法 final_answer.visibleOutputs[]、grounded final_answer 或后续合法 action 承载。",
+    "不要用成功 final_answer.content 承诺 read_recent 后还会在本轮回复之外自动继续查询、生成或保存。",
     "不要在 operation = \"list_recent\" 时传入 factRef、messageId、分页、limit、cursor、userId 或 conversationId；服务端固定最近数量并从 actor 推导权限边界。",
     "不要在 operation = \"read_recent\" 时编造 factRef/messageId；失败结果不能支撑成功训练方案生成。",
     "factSchemaVersion 是服务端事实存储版本，不应复制到 final_answer.visibleOutputs[].schemaVersion；visible output envelope 的 schemaVersion 必须写字符串 \"1\"。",
@@ -372,7 +375,8 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
       },
       resourceConsumption,
       resourceOperationBoundary: "导入事实可以作为 reuse、derive、modify 的正向来源；只有模型基于用户目标判断为 replace、明确排除或避免重复时，才适合把其中 exerciseId 作为 excludeExerciseIds。read_recent 不替 Planner 判断当前请求属于哪类操作，也不默认生成排除列表。",
-      refreshPlanningBoundary: "本 tool 只读取上一套用户可见训练方案事实，不生成新的 visibleTrainingProposal；需要推送新方案时，最终结构仍必须由 final_answer.visibleOutputs[] 承载。",
+      refreshPlanningBoundary: "本 tool 只读取上一套用户可见训练方案事实，不生成新的 visibleTrainingProposal，不代表本轮最终训练结构已经完成；需要推送新方案时，最终结构仍必须由 final_answer.visibleOutputs[] 承载。",
+      nextActionBoundary: "如果目标仍缺动作事实、section、prescription 或 schedule，Planner 应继续返回当前可见且合法的 tool_call、使用 ask_user 澄清，或明确失败收口；不得用成功 final_answer.content 承诺本轮回复后还会自动继续。",
       proposalKind: output.fact.proposalKind,
       visibleOutputSchemaVersion: output.fact.visibleOutputSchemaVersion,
       factSchemaVersion: output.fact.factSchemaVersion,
@@ -391,7 +395,7 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
       missingSectionsForRoutineOrPlan: resourceConsumption.missingSectionsForRoutineOrPlan,
       supportsOutputKinds: resourceConsumption.supportsOutputKinds,
       schedule: output.fact.proposal.schedule,
-      finalAnswerBoundary: "需要继续推送训练方案时，最终事实必须写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal payload；不要把正文当训练事实源。",
+      finalAnswerBoundary: "需要继续推送训练方案时，最终事实必须写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal payload，或通过 usedToolResultIds/usedResourceRefs 做 grounded terminal action；不要把正文当训练事实源，也不要承诺 final_answer 后自动继续。",
     });
   },
   toUserProjection: (output) => {
@@ -473,7 +477,7 @@ function buildReadRecentResourceConsumptionSummary(
     positiveConsumptionBoundary: "这些 exerciseItems 是当前 run 可消费的正向训练事实来源，可用于保留、复用、派生或调整。",
     negativeConstraintBoundary: "只有替换、排除或避免重复目标才适合把这些 exerciseId 转成负向 excludeExerciseIds；不得把已导入动作默认排除。",
     outputBoundary: "supportsOutputKinds 只说明该事实当前可直接支撑的 visibleTrainingProposal 输出强度；最终新输出仍必须由 final_answer.visibleOutputs[] 承载并通过 validator。",
-    recoveryBoundary: "如果目标需要 routine 或 plan 但缺少 section，可继续获取缺失 section、输出当前事实可支撑结构、澄清或失败收口；本 observation 不规定固定 tool 调用顺序。",
+    recoveryBoundary: "如果目标需要 routine 或 plan 但缺少 section，可继续获取缺失 section、输出当前事实可支撑结构、澄清或失败收口；本 observation 不规定固定 tool 调用顺序，也不允许用成功 final_answer.content 承诺本轮之后自动继续。",
   };
 }
 

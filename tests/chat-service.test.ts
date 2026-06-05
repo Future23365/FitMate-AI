@@ -1168,6 +1168,11 @@ describe("chat service agent text flow boundary", () => {
       conversationSummary: "",
     });
     const searchInput = { muscle: "胸部", suitabilities: ["training" as const] };
+    const expectedSearchToolResultId = createToolResultId(
+      "chat_assistant-section-repair",
+      "searchExerciseResources",
+      hashNormalizedInput(searchInput),
+    );
     const planner = new ReplayPlanner([
       { type: "tool_call", toolName: "searchExerciseResources", input: searchInput },
       {
@@ -1178,6 +1183,7 @@ describe("chat service agent text flow boundary", () => {
       {
         type: "final_answer",
         content: "当前动作 section 校验没有通过，我会重新基于可用动作事实调整。",
+        usedToolResultIds: [expectedSearchToolResultId],
       },
     ]);
 
@@ -1236,6 +1242,201 @@ describe("chat service agent text flow boundary", () => {
       { type: "content", content: "当前动作 section 校验没有通过，我会重新基于可用动作事实调整。" },
       { type: "done" },
     ]));
+  });
+
+  it.each([
+    {
+      responseMessageId: "assistant-terminal-grounding",
+      latestUserMessage: "可以可以，这些动作没问题。",
+      invalidContent: "需要先查询热身和拉伸动作，请稍等。",
+    },
+    {
+      responseMessageId: "assistant-terminal-grounding-variant",
+      latestUserMessage: "继续把刚才那组动作排成一次完整训练。",
+      invalidContent: "我还要补齐热身和拉伸，稍后继续生成。",
+    },
+  ])("repairs ungrounded terminal completion after read_recent and continues legal tool calls: $latestUserMessage", async ({
+    responseMessageId,
+    latestUserMessage,
+    invalidContent,
+  }) => {
+    const readInput = { operation: "read_recent" as const, factRef: "fact-previous" };
+    const searchInput = { suitabilities: ["warmup", "stretch"] as const, sort: "name_asc" as const };
+    const runId = `chat_${responseMessageId}`;
+    const expectedReadToolResultId = createToolResultId(
+      runId,
+      "inspectVisibleTrainingProposals",
+      hashNormalizedInput(readInput),
+    );
+    const expectedSearchToolResultId = createToolResultId(
+      runId,
+      "searchExerciseResources",
+      hashNormalizedInput(searchInput),
+    );
+    visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries.mockResolvedValueOnce([
+      createRecentVisibleTrainingProposalSummary(),
+    ]);
+    visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact.mockResolvedValueOnce({
+      ok: true,
+      fact: createReadableVisibleTrainingProposalFact(),
+    });
+    exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockImplementation(async (input: unknown) => {
+      const suitability = (input as { suitability?: "warmup" | "stretch" | "training" }).suitability ?? "training";
+
+      return createExerciseResourceSearchResult({
+        query: {
+          suitability,
+          published: true,
+          sort: "name_asc",
+        },
+        exercises: [
+          suitability === "stretch"
+            ? createExerciseResourceSummary({ id: "chest-stretch", nameZh: "胸部拉伸", allowedSections: ["stretch"] })
+            : createExerciseResourceSummary({ id: "jumping-jack", nameZh: "开合跳", allowedSections: ["warmup"] }),
+        ],
+      });
+    });
+    const planner = new ReplayPlanner([
+      { type: "tool_call", toolName: "inspectVisibleTrainingProposals", input: readInput },
+      {
+        type: "final_answer",
+        content: invalidContent,
+        visibleOutputs: [],
+      },
+      { type: "tool_call", toolName: "searchExerciseResources", input: searchInput },
+      {
+        type: "final_answer",
+        content: "已补齐热身和拉伸动作，并基于当前可见事实生成完整训练。",
+        visibleOutputs: [createRoutineOutputWithTrainingExercise("squat")],
+      },
+    ]);
+
+    const response = await createAgentTextChatResponse({
+      request: prepareChatRequest({
+        conversationId: "conversation-refresh",
+        responseMessageId,
+        latestUserMessage,
+        conversationSummary: "",
+      }),
+      currentUser: { id: "user-1" },
+      planner,
+    });
+    const events = await readNdjsonEvents(response);
+    const repairObservation = planner.calls[2].observations.find((observation) => (
+      observation.type === "invalid_action"
+      && observation.source === "validator"
+      && JSON.stringify(observation.content).includes("missing_terminal_grounding_after_tool_result")
+    ));
+    const eventsJson = JSON.stringify(events);
+
+    expect(repairObservation).toMatchObject({
+      ok: false,
+      content: expect.objectContaining({
+        code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID,
+        details: expect.objectContaining({
+          reason: "missing_terminal_grounding_after_tool_result",
+          recoverableActions: expect.arrayContaining([
+            expect.stringContaining("tool_call"),
+            expect.stringContaining("usedToolResultIds"),
+            expect.stringContaining("visibleOutputs[]"),
+            expect.stringContaining("ask_user"),
+          ]),
+        }),
+      }),
+    });
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "tool_result",
+        toolName: "inspectVisibleTrainingProposals",
+        toolResultId: expectedReadToolResultId,
+      }),
+      expect.objectContaining({
+        type: "tool_result",
+        toolName: "searchExerciseResources",
+        toolResultId: expectedSearchToolResultId,
+      }),
+      { type: "content", content: "已补齐热身和拉伸动作，并基于当前可见事实生成完整训练。" },
+      expect.objectContaining({
+        type: "visible_output",
+        outputType: "visibleTrainingProposal",
+        payload: expect.objectContaining({
+          kind: "routine",
+          exerciseItems: expect.arrayContaining([
+            expect.objectContaining({ exerciseId: "squat", section: "training" }),
+          ]),
+        }),
+      }),
+      { type: "done" },
+    ]));
+    expect(eventsJson).not.toContain(invalidContent);
+    expect(eventsJson).not.toContain("missing_terminal_grounding_after_tool_result");
+  });
+
+  it("returns a safe failure when ungrounded terminal completion repeats after repair", async () => {
+    const readInput = { operation: "read_recent" as const, factRef: "fact-previous" };
+    visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries.mockResolvedValueOnce([
+      createRecentVisibleTrainingProposalSummary(),
+    ]);
+    visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact.mockResolvedValueOnce({
+      ok: true,
+      fact: createReadableVisibleTrainingProposalFact(),
+    });
+    const planner = new ReplayPlanner([
+      { type: "tool_call", toolName: "inspectVisibleTrainingProposals", input: readInput },
+      {
+        type: "final_answer",
+        content: "我会继续查询缺失动作，请稍等。",
+        visibleOutputs: [],
+      },
+      {
+        type: "final_answer",
+        content: "我稍后继续生成完整训练。",
+        visibleOutputs: [],
+      },
+    ]);
+
+    const response = await createAgentTextChatResponse({
+      request: prepareChatRequest({
+        conversationId: "conversation-terminal-grounding-fallback",
+        responseMessageId: "assistant-terminal-grounding-fallback",
+        latestUserMessage: "继续用刚才动作排成一套训练。",
+        conversationSummary: "",
+      }),
+      currentUser: { id: "user-1" },
+      planner,
+    });
+    const events = await readNdjsonEvents(response);
+    const eventsJson = JSON.stringify(events);
+    const trace = listAiTracesForUser("user-1")[0];
+
+    expect(events).toEqual([
+      {
+        type: "error",
+        error: expect.objectContaining({
+          code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
+          message: "聊天服务暂时没能完成这次回复。你可以稍后重试，或把问题缩小后再发一次。",
+        }),
+      },
+      { type: "done" },
+    ]);
+    expect(eventsJson).not.toContain("我会继续查询缺失动作，请稍等。");
+    expect(eventsJson).not.toContain("我稍后继续生成完整训练。");
+    expect(eventsJson).not.toContain("Agent runtime reached the invalid action repair limit.");
+    expect(eventsJson).not.toContain("stack");
+    expect(trace).toMatchObject({
+      status: "failed",
+      finalDecision: {
+        status: "hard_failure",
+        code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
+        responseType: "error",
+      },
+      steps: expect.arrayContaining([
+        expect.objectContaining({
+          type: "validation",
+          output: expect.objectContaining({ ok: false, code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID }),
+        }),
+      ]),
+    });
   });
 
   it("recovers from duplicate successful read/import without resource duplicate hard failure", async () => {

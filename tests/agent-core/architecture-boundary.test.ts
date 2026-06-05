@@ -289,6 +289,42 @@ describe("agent-core architecture boundaries", () => {
     expect(matches).toEqual([]);
   });
 
+  it("keeps terminal completion hardening free of assistant text routing and concrete production tool branches", () => {
+    const files = [
+      ...productionChatEntryFiles,
+      ...coreFlowFiles,
+    ];
+    const forbiddenTerms = [
+      "action.content.includes",
+      "terminalAction.content.includes",
+      ".includes(action.content",
+      ".includes(validation.action.content",
+      ".includes(result.terminalAction.content",
+      "assistant.content.includes",
+      "assistantMessage.content.includes",
+      "new RegExp",
+      ".match(",
+      "toolName === \"inspectVisibleTrainingProposals\"",
+      "toolName === \"resolveExerciseResourceMentions\"",
+      "toolName === \"searchExerciseResources\"",
+      "case \"inspectVisibleTrainingProposals\"",
+      "case \"resolveExerciseResourceMentions\"",
+      "case \"searchExerciseResources\"",
+    ];
+    const matches: string[] = [];
+
+    for (const file of files) {
+      const content = readRelative(file);
+      for (const term of forbiddenTerms) {
+        if (content.includes(term)) {
+          matches.push(`${file}: ${term}`);
+        }
+      }
+    }
+
+    expect(matches).toEqual([]);
+  });
+
   it("keeps visible training proposal terminal validation free of concrete business toolName allowlists", () => {
     const files = [
       "lib/server/agent-core/terminal-output-validator.ts",

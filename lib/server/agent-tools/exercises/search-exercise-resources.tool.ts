@@ -202,7 +202,7 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
   return defineTool<SearchExerciseResourcesInput, SearchExerciseResourcesOutput>({
     name: "searchExerciseResources",
     version: "0.5.0",
-    description: "只读查询发布态动作事实原料，并按 suitabilities 分组返回安全动作摘要；equipment 表达器械可用性或器械类别，homeRequirement 只表达环境、场地或支撑条件。它不生成最终 visibleTrainingProposal、routine、plan、prescription、schedule、保存结果或用户记忆。totalMatches=0 也是已完成的事实查询结果，不是数据库失败。",
+    description: "只读查询发布态动作事实原料，并按 suitabilities 分组返回 section-scoped 安全动作摘要；equipment 表达器械可用性或器械类别，homeRequirement 只表达环境、场地或支撑条件。它不生成最终 visibleTrainingProposal、routine、plan、prescription、schedule、保存结果或用户记忆。totalMatches=0 也是已完成的事实查询结果，不是数据库失败。",
     whenToUse: [
       "用于查询符合明确结构化条件的发布态动作列表，例如真实肌群 facet、多个肌群 OR 查询、器械、难度、居家条件、目标标签、风险标签、分类，或 suitabilities 指定的 warmup/training/stretch 用途。",
       "所有精确 facet 值应优先从 metadata.facetCatalog 中选择；muscle 表示单个真实肌群 facet，muscles 表示多个真实肌群 facet 的 OR 查询。",
@@ -221,7 +221,8 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
       "excludeExerciseIds 是负向约束，只能填写用户已经看到且当前目标确实需要替换、排除或避免重复的动作，或用户明确要求排除的动作；如果来自上一轮方案，应先通过 inspectVisibleTrainingProposals(operation = \"read_recent\") 导入 visible_training_proposal_fact 后复制真实 exerciseId，不要从未展示的内部候选、trace 摘要、handler-only 结果或 list_recent 索引中填充。",
       "精确筛选必须使用真实数据库 facet 值；服务端只执行 schema、去空、去重、权限边界和数据库查询，不根据用户原文替模型增删 facet。",
       "查询成功且 satisfied=true 的结果，包括 totalMatches=0 的结果，可以在同一 run 通过 final_answer.usedToolResultIds 支撑普通事实回答；训练推送事实必须写入 final_answer.visibleOutputs[]，不要只写正文。",
-      "本 tool 不要求固定 tool 调用次数或顺序；它只提供当前查询实际返回 section 的动作事实。",
+      "如果最终训练结构仍缺 section、动作、prescription 或 schedule，Planner 应继续返回当前可见且合法的 tool_call、使用 ask_user 澄清，或明确失败收口；不得用成功 final_answer.content 承诺本轮回复后还会自动继续查询或生成。",
+      "本 tool 不要求固定 tool 调用次数或顺序；它只提供当前查询实际返回 section 的动作事实，不代表最终训练结构已经生成。",
     ].join(" "),
     whenNotToUse: [
       "不要用它生成 visibleTrainingProposal、routine、plan、patch、prescription、schedule、训练卡片、保存 artifact、用户记忆或执行候选集合。",
@@ -237,6 +238,7 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
       "不要从 handler-only 结果、model observation、diagnostic 候选，未进入用户可见 visibleTrainingProposal 的内部候选，或未导入当前 run 的自然语言历史中提取 excludeExerciseIds。",
       "不要把 leg、lower body、upper body、full body、腿部、下肢、上肢或全身这类宽泛区域直接当成真实 muscle facet；应由模型基于 facetCatalog 选择数据库中真实存在的一个或多个肌群。",
       "failed、invalid-input 或 satisfied=false 的结果不能支撑成功 final_answer。",
+      "不要把查询成功当成最终 visibleTrainingProposal、routine 或 plan 已经完成；不要用成功 final_answer.content 承诺本轮回复后自动继续查询、生成或保存。",
     ].join(" "),
     inputSchema: searchExerciseResourcesInputSchema,
     outputSchema: searchExerciseResourcesOutputSchema,
@@ -431,8 +433,8 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
         supportsOutputKinds: coverage.supportsOutputKinds,
         outputSummaryNote: "totalMatches、returnedCount、truncated、excludedCount、groups 和 diagnostics 是本次查询输出摘要，不是下一轮 searchExerciseResources input。",
         filterSemantics: output.query.filterSemantics,
-        finalAnswerGrounding: "当 fulfillment.satisfied=true，本次查询事实包括 totalMatches=0 的结果，toolResultId 可支撑 final_answer.usedToolResultIds 中的普通事实回答；如果要推送训练结构，最终事实必须写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal.payload。",
-        candidateConsumptionBoundary: "groups.<section>.exercises[*].exerciseId 可作为 visibleTrainingProposal.exerciseItems[*].exerciseId 的事实来源；当前 observation 只提供本次查询实际返回动作的 section-scoped 事实原料，availableSections 只包含本次 groups 中确实返回动作的 section。本次动作查询不证明当前 run 存在可操作的上一轮 visibleTrainingProposal，也不证明已经完成刷新、替换或调整。prescription、schedule 和最终 payload.kind 需要由 final_answer.visibleOutputs[] 明确输出。若目标结构还缺 section 或字段，模型应基于可见事实自主继续查询、澄清、失败收口或输出当前事实可支撑的结构。",
+        finalAnswerGrounding: "当 fulfillment.satisfied=true，本次查询事实包括 totalMatches=0 的结果，toolResultId 可支撑 final_answer.usedToolResultIds 中的普通事实回答；如果要推送训练结构，最终事实必须写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal.payload，或通过 grounded terminal action 引用当前 run 的可消费事实。",
+        candidateConsumptionBoundary: "groups.<section>.exercises[*].exerciseId 可作为 visibleTrainingProposal.exerciseItems[*].exerciseId 的事实来源；当前 observation 只提供本次查询实际返回动作的 section-scoped 事实原料，availableSections 只包含本次 groups 中确实返回动作的 section。本次动作查询不证明当前 run 存在可操作的上一轮 visibleTrainingProposal，也不证明已经完成刷新、替换或调整。prescription、schedule 和最终 payload.kind 需要由 final_answer.visibleOutputs[] 明确输出。若目标结构还缺 section 或字段，模型应基于可见事实自主继续查询、澄清、失败收口或输出当前事实可支撑的结构；不得用成功 final_answer.content 承诺本轮回复后还会自动继续。",
         positiveAnchorBoundary: output.query.requiredExerciseIds?.length
           ? "本次查询使用 requiredExerciseIds 作为正向锚点；这些 id 只表示应优先纳入对应 groups.<section>.exercises 的受控动作事实，不表示排除、替换或已经生成最终训练方案。"
           : "本次查询未使用 requiredExerciseIds；如果目标是保留、复用、派生或调整当前 run 可见动作，应优先把受控动作作为正向事实来源，而不是写入 excludeExerciseIds。",

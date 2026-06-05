@@ -236,6 +236,17 @@ function validateTerminalAction(
       };
     }
 
+    if (input.toolResults.length > 0 && !hasTerminalGrounding(action, usedToolResultIds)) {
+      return {
+        ok: false,
+        error: createToolError(
+          AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID,
+          "Final answer after tool execution must use current-run grounding or continue with another action.",
+          createMissingTerminalGroundingDetails(input.toolResults.length),
+        ),
+      };
+    }
+
     if (action.visibleOutputs?.length) {
       if (!input.terminalOutputValidators) {
         return {
@@ -289,6 +300,27 @@ function validateTerminalAction(
   }
 
   return { ok: true, action };
+}
+
+function hasTerminalGrounding(action: Extract<TerminalAgentAction, { type: "final_answer" }>, usedToolResultIds: string[]) {
+  return usedToolResultIds.length > 0
+    || (action.usedResourceRefs?.length ?? 0) > 0
+    || (action.visibleOutputs?.length ?? 0) > 0;
+}
+
+function createMissingTerminalGroundingDetails(toolResultCount: number): ToolError["details"] {
+  return {
+    reason: "missing_terminal_grounding_after_tool_result",
+    toolResultCount,
+    repair: "当前 run 已经有 tool result 后，成功 final_answer 必须通过 usedToolResultIds、usedResourceRefs 或合法 visibleOutputs[] 连接到当前 run 的已满足事实；如果事实不足，应继续返回合法 tool_call、使用 ask_user 澄清，或明确失败收口，不要用 final_answer.content 承诺本轮之后还会自动继续。",
+    recoverableActions: [
+      "继续返回当前可见且合法的 tool_call 获取缺失事实。",
+      "用 usedToolResultIds 引用当前 run 中 ok=true 且 fulfillment.satisfied=true 的 tool result。",
+      "用 usedResourceRefs 引用当前 run 中 role=consumable 的 resource。",
+      "输出可通过 terminal output validator 的 final_answer.visibleOutputs[]。",
+      "使用 ask_user 澄清必要信息，或明确说明当前事实不足而失败收口。",
+    ],
+  };
 }
 
 function invalidAction(message: string, details?: ToolError["details"]): ActionValidationResult {

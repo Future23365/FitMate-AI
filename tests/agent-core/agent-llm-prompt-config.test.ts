@@ -13,7 +13,7 @@ describe("agent LLM prompt configuration", () => {
     const systemPrompt = buildAgentActionSystemPrompt();
 
     expect(agentLlmPromptConfig.promptVersion).toBe(agentLlmPromptVersion);
-    expect(agentLlmPromptVersion).toBe("agent-action-v10");
+    expect(agentLlmPromptVersion).toBe("agent-action-v11");
     expect(systemPrompt).toContain("只能返回一个合法 JSON object");
     expect(systemPrompt).toContain("type 只能是 tool_call、final_answer、ask_user 三者之一");
     expect(systemPrompt).toContain("final_answer 和 ask_user 都可以在适合时可选输出 suggestedQuestions");
@@ -31,6 +31,16 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).toContain("伤病判断或康复处方");
     expect(systemPrompt).toContain("普通聊天、概念解释、能力说明");
     expect(systemPrompt).toContain("都必须用 final_answer");
+    expect(systemPrompt).toContain("final_answer 是当前 run 的终态动作");
+    expect(systemPrompt).toContain("runtime 不会因为 final_answer.content 中的文字");
+    expect(systemPrompt).toContain("本轮回复后继续自动调用 tool");
+    expect(systemPrompt).toContain("不得用 final_answer.content 承诺尚未执行的查询、生成、保存、等待、稍后继续或后续内部动作");
+    expect(systemPrompt).toContain("必须返回当前可见且合法的 tool_call");
+    expect(systemPrompt).toContain("使用 ask_user 澄清必要信息");
+    expect(systemPrompt).toContain("明确说明当前事实不足而失败收口");
+    expect(systemPrompt).toContain("当前 run 已经有 tool result 后，成功 final_answer 应通过 usedToolResultIds、usedResourceRefs 或合法 visibleOutputs[]");
+    expect(systemPrompt).toContain("failed、diagnostic 或 fulfillment.satisfied=false 的 tool result");
+    expect(systemPrompt).toContain("不能支撑成功 final_answer");
     expect(systemPrompt).toContain("visibleOutputs[]");
     expect(systemPrompt).toContain("visibleTrainingProposal");
     expect(systemPrompt).toContain("判断资源操作类型");
@@ -180,6 +190,6 @@ describe("agent LLM prompt configuration", () => {
       "返回测试专用 AgentAction JSON object。 这个测试只期望 final_answer。",
     );
     expect(buildAgentActionSystemPrompt()).toContain("tool_call、final_answer、ask_user");
-    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v10");
+    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v11");
   });
 });
