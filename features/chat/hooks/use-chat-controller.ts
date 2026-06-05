@@ -33,6 +33,7 @@ import {
 
 const chatRequestTimeoutMs = 45_000;
 const thinkingEnabledStorageKey = "fitmate.chat.thinkingEnabled";
+const defaultThinkingEnabled = false;
 
 function createMessage(role: ChatMessage["role"], content: string): ChatMessage {
   return {
@@ -92,14 +93,10 @@ export function applyAgentTextChatEventToAssistantMessage(
 }
 
 function readThinkingEnabledPreference() {
-  if (typeof window === "undefined") {
-    return false;
-  }
-
   try {
     return window.localStorage.getItem(thinkingEnabledStorageKey) === "true";
   } catch {
-    return false;
+    return defaultThinkingEnabled;
   }
 }
 
@@ -111,7 +108,9 @@ export function useChatController() {
   const [error, setError] = useState("");
   const [agentActivity, setAgentActivity] = useState<VisibleAgentActivity | null>(null);
   const [activeAgentActivityMessageId, setActiveAgentActivityMessageId] = useState<string | null>(null);
-  const [thinkingEnabled, setThinkingEnabled] = useState(readThinkingEnabledPreference);
+  // 首帧使用固定默认值，挂载后再读取 localStorage，避免 SSR 与客户端首帧不一致。
+  const [thinkingEnabled, setThinkingEnabled] = useState(defaultThinkingEnabled);
+  const [thinkingPreferenceReady, setThinkingPreferenceReady] = useState(false);
   const [conversationContext, setConversationContext] = useState<FitnessConversationContext>(() =>
     buildFitnessConversationContext([]),
   );
@@ -141,12 +140,21 @@ export function useChatController() {
   ]);
 
   useEffect(() => {
+    setThinkingEnabled(readThinkingEnabledPreference());
+    setThinkingPreferenceReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!thinkingPreferenceReady) {
+      return;
+    }
+
     try {
       window.localStorage.setItem(thinkingEnabledStorageKey, String(thinkingEnabled));
     } catch {
       // localStorage 不可用时保持当前会话内状态即可
     }
-  }, [thinkingEnabled]);
+  }, [thinkingEnabled, thinkingPreferenceReady]);
 
   useEffect(() => {
     async function loadConversation(id: string) {
