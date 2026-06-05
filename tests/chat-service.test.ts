@@ -24,6 +24,11 @@ import {
 } from "@/lib/server/agent-planners/model-adapters/model-adapter";
 import { clearAiTraces, listAiTracesForUser } from "@/lib/server/dev/ai-trace-store";
 import { agentRuntimeConfig } from "@/lib/server/config";
+import type {
+  TerminalFailureFinalizer,
+  TerminalFailureFinalizerInput,
+  TerminalFailureFinalizerResult,
+} from "@/lib/server/chat/terminal-failure-finalizer";
 import type { ExerciseResourceFacetCatalog } from "@/lib/server/exercises/exercise-repository";
 import { createChatConversation } from "./fixtures/domain";
 
@@ -218,6 +223,65 @@ class TraceModelAdapter implements ModelAdapter {
       },
     };
   }
+}
+
+class FakeTerminalFailureFinalizer implements TerminalFailureFinalizer {
+  readonly provider = "test";
+  readonly model = "test-finalizer";
+  readonly calls: TerminalFailureFinalizerInput[] = [];
+
+  constructor(private readonly complete: (input: TerminalFailureFinalizerInput) => TerminalFailureFinalizerResult) {}
+
+  async finalize(input: TerminalFailureFinalizerInput): Promise<TerminalFailureFinalizerResult> {
+    this.calls.push(input);
+    return this.complete(input);
+  }
+}
+
+function createFakeFinalizerSuccessResult(
+  input: TerminalFailureFinalizerInput,
+  output: { content: string; suggestedQuestions?: string[] },
+): TerminalFailureFinalizerResult {
+  return {
+    ok: true,
+    output,
+    model: "test-finalizer",
+    tokenUsage: {
+      prompt_tokens: 11,
+      completion_tokens: 5,
+      total_tokens: 16,
+    },
+    trace: {
+      provider: "test",
+      adapterName: "fake-terminal-failure-finalizer",
+      promptVersion: "terminal-failure-finalizer-test",
+      request: {
+        model: "test-finalizer",
+        temperature: 0,
+        max_tokens: 120,
+        response_format: { type: "json_object" },
+        timeoutMs: 100,
+        messageCount: 2,
+        messages: [
+          { role: "system", content: "测试 finalizer prompt", contentLength: 19 },
+          { role: "user", content: input as unknown as JsonValue, contentLength: JSON.stringify(input).length },
+        ],
+        inputSummary: input,
+      },
+      response: {
+        model: "test-finalizer",
+        status: "parsed",
+        rawText: JSON.stringify(output),
+        rawTextLength: JSON.stringify(output).length,
+      },
+      tokenUsage: {
+        prompt_tokens: 11,
+        completion_tokens: 5,
+        total_tokens: 16,
+      },
+      outputValidation: { ok: true },
+    },
+  };
 }
 
 describe("chat service agent text flow boundary", () => {
@@ -1535,12 +1599,10 @@ describe("chat service agent text flow boundary", () => {
     const trace = listAiTracesForUser("user-1")[0];
 
     expect(events).toEqual([
+      { type: "content", content: expect.stringContaining("没能确认最终回复引用的事实来源") },
       {
-        type: "error",
-        error: expect.objectContaining({
-          code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
-          message: "聊天服务暂时没能完成这次回复。你可以稍后重试，或把问题缩小后再发一次。",
-        }),
+        type: "suggested_questions",
+        suggestedQuestions: expect.arrayContaining(["先读取可用事实"]),
       },
       { type: "done" },
     ]);
@@ -1551,9 +1613,10 @@ describe("chat service agent text flow boundary", () => {
     expect(trace).toMatchObject({
       status: "failed",
       finalDecision: {
-        status: "hard_failure",
+        status: "recoverable_failure",
+        reason: "terminal_reference_fallback",
         code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
-        responseType: "error",
+        responseType: "content",
       },
       steps: expect.arrayContaining([
         expect.objectContaining({
@@ -2978,6 +3041,222 @@ describe("chat service agent text flow boundary", () => {
     }));
   });
 
+  it("finalizes a visible output validation failure as normal content when finalizer succeeds", async () => {
+    const finalizer = new FakeTerminalFailureFinalizer((input) => createFakeFinalizerSuccessResult(input, {
+      content: "这次没有生成通过服务端校验的可靠训练结果，所以我不会展示这份方案。你可以补充时长或先让我只列动作事实。",
+      suggestedQuestions: ["补充训练时长后重试", "先只列可用动作事实"],
+    }));
+    const planner = new ReplayPlanner([
+      {
+        type: "final_answer",
+        content: "我会把热身和拉伸写在说明里。",
+        visibleOutputs: [createTrainingOnlyRoutineOutput()],
+      },
+      {
+        type: "final_answer",
+        content: "我还是把热身和拉伸写在正文里。",
+        visibleOutputs: [createTrainingOnlyRoutineOutput()],
+      },
+    ]);
+    const response = await createAgentTextChatResponse({
+      request: prepareChatRequest({
+        conversationId: "conversation-finalizer-success",
+        responseMessageId: "assistant-finalizer-success",
+        latestUserMessage: "把这些动作帮我组一套 30 分钟训练。",
+        conversationSummary: "",
+      }),
+      currentUser: { id: "user-1" },
+      planner,
+      terminalFailureFinalizer: finalizer,
+    });
+    const events = await readNdjsonEvents(response);
+    const trace = listAiTracesForUser("user-1")[0];
+    const finalizerInputJson = JSON.stringify(finalizer.calls[0]);
+
+    expect(events).toEqual([
+      {
+        type: "content",
+        content: "这次没有生成通过服务端校验的可靠训练结果，所以我不会展示这份方案。你可以补充时长或先让我只列动作事实。",
+      },
+      {
+        type: "suggested_questions",
+        suggestedQuestions: ["补充训练时长后重试", "先只列可用动作事实"],
+      },
+      { type: "done" },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("visible_output");
+    expect(JSON.stringify(events)).not.toContain("\"error\"");
+    expect(finalizer.calls).toHaveLength(1);
+    expect(finalizer.calls[0]).toMatchObject({
+      failureCategory: "visible_output_validation",
+      errorCode: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
+      allowedResponseMode: "failure_explanation_only",
+    });
+    expect(finalizer.calls[0].blockedOutputs.length).toBeGreaterThan(0);
+    expect(finalizerInputJson).not.toContain("inputJsonSchema");
+    expect(finalizerInputJson).not.toContain("PlannerInput");
+    expect(visibleTrainingProposalFactStoreMocks.persistVisibleTrainingProposalFactsFromEvents).toHaveBeenCalledWith(expect.objectContaining({
+      events,
+    }));
+    expect(trace).toMatchObject({
+      status: "failed",
+      finalDecision: {
+        status: "recoverable_failure",
+        reason: "terminal_failure_finalizer",
+        code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
+        responseType: "content",
+      },
+      steps: expect.arrayContaining([
+        expect.objectContaining({
+          name: "Terminal failure finalizer gate",
+          output: expect.objectContaining({
+            failureCategory: "visible_output_validation",
+            finalizerCalled: true,
+            projectionType: "terminal_failure_finalizer",
+          }),
+        }),
+        expect.objectContaining({
+          name: "Terminal failure finalizer 模型响应",
+          type: "model_response",
+          status: "success",
+          output: expect.objectContaining({
+            outputValidation: { ok: true },
+          }),
+        }),
+        expect.objectContaining({
+          type: "response_write",
+          output: expect.objectContaining({
+            projectionType: "terminal_failure_finalizer",
+            eventTypes: ["content", "suggested_questions", "done"],
+            visibleOutputCount: 0,
+          }),
+        }),
+      ]),
+    });
+  });
+
+  it("does not call finalizer when planner diagnostics show provider failure", async () => {
+    const finalizer = new FakeTerminalFailureFinalizer((input) => createFakeFinalizerSuccessResult(input, {
+      content: "这次没有生成通过服务端校验的可靠结果。",
+    }));
+    const invalidAction = createInvalidModelActionCandidate("deepseek_http_error", { status: 429 });
+    const planner = createTracePlanner([
+      {
+        actionCandidate: invalidAction,
+        parseStatus: "http_error",
+        failureCode: "deepseek_http_error",
+      },
+      {
+        actionCandidate: invalidAction,
+        parseStatus: "http_error",
+        failureCode: "deepseek_http_error",
+      },
+    ]);
+    const response = await createAgentTextChatResponse({
+      request: prepareChatRequest({ latestUserMessage: "帮我生成计划", conversationSummary: "" }),
+      currentUser: { id: "user-1" },
+      planner,
+      terminalFailureFinalizer: finalizer,
+    });
+    const events = await readNdjsonEvents(response);
+    const trace = listAiTracesForUser("user-1")[0];
+
+    expect(finalizer.calls).toHaveLength(0);
+    expect(events).toEqual([
+      { type: "content", content: expect.stringContaining("模型服务暂时不可用") },
+      {
+        type: "suggested_questions",
+        suggestedQuestions: expect.arrayContaining(["稍后重试"]),
+      },
+      { type: "done" },
+    ]);
+    expect(trace).toMatchObject({
+      status: "failed",
+      finalDecision: {
+        status: "recoverable_failure",
+        reason: "provider_unavailable_fallback",
+        code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
+        responseType: "content",
+      },
+      steps: expect.arrayContaining([
+        expect.objectContaining({
+          name: "Terminal failure finalizer gate",
+          output: expect.objectContaining({
+            providerAvailability: expect.objectContaining({
+              allowed: false,
+              reason: "provider_unavailable",
+              providerDiagnosticCode: "deepseek_http_error",
+            }),
+            finalizerCalled: false,
+            projectionType: "provider_unavailable_fallback",
+          }),
+        }),
+      ]),
+    });
+  });
+
+  it("falls back deterministically when finalizer output is invalid", async () => {
+    const finalizer = new FakeTerminalFailureFinalizer(() => ({
+      ok: false,
+      reason: "finalizer_output_invalid",
+    }));
+    const planner = new ReplayPlanner([
+      {
+        type: "final_answer",
+        content: "我会把热身和拉伸写在说明里。",
+        visibleOutputs: [createTrainingOnlyRoutineOutput()],
+      },
+      {
+        type: "final_answer",
+        content: "我还是把热身和拉伸写在正文里。",
+        visibleOutputs: [createTrainingOnlyRoutineOutput()],
+      },
+    ]);
+    const response = await createAgentTextChatResponse({
+      request: prepareChatRequest({
+        conversationId: "conversation-finalizer-invalid",
+        responseMessageId: "assistant-finalizer-invalid",
+        latestUserMessage: "把这些动作帮我组一套 30 分钟训练。",
+        conversationSummary: "",
+      }),
+      currentUser: { id: "user-1" },
+      planner,
+      terminalFailureFinalizer: finalizer,
+    });
+    const events = await readNdjsonEvents(response);
+    const trace = listAiTracesForUser("user-1")[0];
+
+    expect(finalizer.calls).toHaveLength(1);
+    expect(events).toEqual([
+      { type: "content", content: expect.stringContaining("没有生成通过校验的可靠训练结果") },
+      {
+        type: "suggested_questions",
+        suggestedQuestions: expect.arrayContaining(["补充缺失条件"]),
+      },
+      { type: "done" },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("visible_output");
+    expect(trace).toMatchObject({
+      status: "failed",
+      finalDecision: {
+        status: "recoverable_failure",
+        reason: "visible_output_validation_fallback",
+        code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
+        responseType: "content",
+      },
+      steps: expect.arrayContaining([
+        expect.objectContaining({
+          name: "Terminal failure finalizer gate",
+          output: expect.objectContaining({
+            degradedReason: "finalizer_output_invalid",
+            finalizerCalled: true,
+            projectionType: "visible_output_validation_fallback",
+          }),
+        }),
+      ]),
+    });
+  });
+
   it("projects planner timeout failures as budget timeout fallback content", async () => {
     const planner = {
       async decideNext() {
@@ -3050,12 +3329,10 @@ describe("chat service agent text flow boundary", () => {
     const serializedTrace = JSON.stringify(trace);
 
     expect(events).toEqual([
+      { type: "content", content: expect.stringContaining("没能把内部结果修正到可安全回复的状态") },
       {
-        type: "error",
-        error: expect.objectContaining({
-          code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
-          message: "聊天服务暂时没能完成这次回复。你可以稍后重试，或把问题缩小后再发一次。",
-        }),
+        type: "suggested_questions",
+        suggestedQuestions: expect.arrayContaining(["缩小问题范围"]),
       },
       { type: "done" },
     ]);
@@ -3070,10 +3347,10 @@ describe("chat service agent text flow boundary", () => {
     expect(trace).toMatchObject({
       status: "failed",
       finalDecision: {
-        status: "hard_failure",
-        reason: "unclassified_error_event",
+        status: "recoverable_failure",
+        reason: "repair_exhausted_fallback",
         code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
-        responseType: "error",
+        responseType: "content",
       },
       steps: expect.arrayContaining([
         expect.objectContaining({
@@ -3083,9 +3360,9 @@ describe("chat service agent text flow boundary", () => {
         expect.objectContaining({
           type: "response_write",
           output: expect.objectContaining({
-            eventTypes: ["error", "done"],
-            projectionType: "unclassified_error_event",
-            errorCodes: [AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED],
+            eventTypes: ["content", "suggested_questions", "done"],
+            projectionType: "repair_exhausted_fallback",
+            errorCodes: [],
           }),
         }),
       ]),
@@ -3116,17 +3393,21 @@ describe("chat service agent text flow boundary", () => {
     const events = await readNdjsonEvents(response);
 
     expect(events).toEqual([
+      { type: "content", content: expect.stringContaining("没能把内部结果修正到可安全回复的状态") },
       {
-        type: "error",
-        error: expect.objectContaining({
-          code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
-          message: "聊天服务暂时没能完成这次回复。你可以稍后重试，或把问题缩小后再发一次。",
-        }),
+        type: "suggested_questions",
+        suggestedQuestions: expect.arrayContaining(["缩小问题范围"]),
       },
       { type: "done" },
     ]);
     expect(listAiTracesForUser("user-1")[0]).toMatchObject({
       status: "failed",
+      finalDecision: {
+        status: "recoverable_failure",
+        reason: "repair_exhausted_fallback",
+        code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
+        responseType: "content",
+      },
       steps: expect.arrayContaining([
         expect.objectContaining({
           type: "model_response",

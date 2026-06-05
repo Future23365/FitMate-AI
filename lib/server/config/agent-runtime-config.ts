@@ -6,6 +6,14 @@ export type AgentRuntimeConfig = {
     maxTokens: number;
     timeoutMs: number;
   };
+  terminalFailureFinalizer: {
+    enabled: boolean;
+    maxCallsPerRun: number;
+    timeoutMs: number;
+    maxTokens: number;
+    temperature: number;
+    maxSuggestedQuestions: number;
+  };
   runtime: {
     maxSteps: number;
     maxPlannerCalls: number;
@@ -46,6 +54,21 @@ export const agentRuntimeConfig = {
     maxTokens: 10_000,
     /** timeoutMs 限制单次模型请求等待时间；调大增加用户等待，调小会放大慢响应的失败率。 */
     timeoutMs: 15_000,
+  },
+  /** terminalFailureFinalizer 控制主 Agent 失败后的单次自然语言收口，独立于主 repair 预算。 */
+  terminalFailureFinalizer: {
+    /** enabled 关闭时直接使用确定性 fallback，避免额外模型成本和延迟。 */
+    enabled: true,
+    /** maxCallsPerRun 限制每次主 run 最多调用一次 finalizer，避免失败后进入新 retry 循环。 */
+    maxCallsPerRun: 1,
+    /** timeoutMs 限制 finalizer 等待时间，保障前端仍能在当前请求内看到终态回复。 */
+    timeoutMs: 3_000,
+    /** maxTokens 限制失败解释和建议问题长度，避免输出变成长篇诊断或增加不必要成本。 */
+    maxTokens: 500,
+    /** temperature 保持低随机性，让失败回复更稳定，并降低承诺已完成的概率。 */
+    temperature: 0.2,
+    /** maxSuggestedQuestions 控制下一轮建议问题数量，保证 UI 清晰且不会挤占聊天空间。 */
+    maxSuggestedQuestions: 3,
   },
   /** runtime 控制 agent-core 主循环预算；这些值决定 repair、tool calling 和最终收口最多能推进多远。 */
   runtime: {

@@ -85,6 +85,28 @@ describe("chat controller Agent text event projection", () => {
     });
   });
 
+  it("settles terminal failure finalizer content without inventing visible outputs", () => {
+    const withContent = applyAgentTextChatEventToAssistantMessage(createAssistantMessage(), {
+      type: "content",
+      content: "这次没有生成通过服务端校验的可靠结果。你可以补充目标后重试。",
+    });
+    const withSuggestions = applyAgentTextChatEventToAssistantMessage(withContent, {
+      type: "suggested_questions",
+      suggestedQuestions: ["补充训练目标后重试"],
+    });
+    const done = applyAgentTextChatEventToAssistantMessage(withSuggestions, {
+      type: "done",
+    });
+
+    expect(done).toMatchObject({
+      content: "这次没有生成通过服务端校验的可靠结果。你可以补充目标后重试。",
+      suggestedQuestions: ["补充训练目标后重试"],
+      isReasoning: false,
+    });
+    expect(done.visibleOutputs).toBeUndefined();
+  });
+
+
   it("writes safe stream error text into the assistant bubble and clears loading markers", () => {
     expect(
       applyAgentTextChatEventToAssistantMessage(createAssistantMessage(), {

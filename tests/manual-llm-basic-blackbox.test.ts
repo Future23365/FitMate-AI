@@ -277,6 +277,12 @@ describe("manual basic LLM report and isolation", () => {
         status: "missing",
         reason: "trace token usage not found",
       },
+      responseOutcome: {
+        status: "terminal_failure_finalizer",
+        projectionType: "terminal_failure_finalizer",
+        mainAgentFailureCode: "repair_limit_exceeded",
+        finalizerCalled: true,
+      },
     }];
     const summary: BasicChatSuiteSummary = {
       status: "passed",
@@ -322,6 +328,8 @@ describe("manual basic LLM report and isolation", () => {
     expect(report).toContain("换一批");
     expect(report).toContain("是否保存这套训练？");
     expect(report).toContain("source=server_saved");
+    expect(report).toContain("terminal_failure_finalizer");
+    expect(report).toContain("finalizerCalled=true");
     expect(report).toContain("source=dev_trace_store, available=0, missing=1, unavailable=0");
     expect(report).toContain("status=missing");
     expect(report).not.toContain("完整 prompt");

@@ -5,6 +5,9 @@ import {
   agentLlmPromptConfig,
   agentLlmPromptVersion,
   buildAgentActionSystemPrompt,
+  buildTerminalFailureFinalizerSystemPrompt,
+  terminalFailureFinalizerPromptConfig,
+  terminalFailureFinalizerPromptVersion,
   type AgentLlmPromptConfig,
 } from "@/lib/server/config";
 
@@ -214,5 +217,28 @@ describe("agent LLM prompt configuration", () => {
     );
     expect(buildAgentActionSystemPrompt()).toContain("tool_call、final_answer、ask_user");
     expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v17-streamlined-model-visible-contract");
+  });
+
+  it("exposes a dedicated terminal failure finalizer prompt and budget config", () => {
+    const systemPrompt = buildTerminalFailureFinalizerSystemPrompt();
+
+    expect(terminalFailureFinalizerPromptConfig.promptVersion).toBe(terminalFailureFinalizerPromptVersion);
+    expect(terminalFailureFinalizerPromptVersion).toBe("terminal-failure-finalizer-v1");
+    expect(systemPrompt).toContain("主 Agent 已经耗尽内部修复机会");
+    expect(systemPrompt).toContain("本轮没有满足用户需求");
+    expect(systemPrompt).toContain("只能输出一个 JSON object");
+    expect(systemPrompt).toContain("字段只允许 `content` 和可选 `suggestedQuestions`");
+    expect(systemPrompt).toContain("不得输出 `AgentAction`、`tool_call`、`visibleOutputs`");
+    expect(systemPrompt).toContain("最多 3 条");
+    expect(systemPrompt).not.toContain("toolName 只能复制当前 tools[].name");
+    expect(systemPrompt).not.toContain("tools 清单");
+    expect(agentRuntimeConfig.terminalFailureFinalizer).toEqual({
+      enabled: true,
+      maxCallsPerRun: 1,
+      timeoutMs: 3000,
+      maxTokens: 500,
+      temperature: 0.2,
+      maxSuggestedQuestions: 3,
+    });
   });
 });

@@ -48,6 +48,7 @@ import {
   isPassingTurnRunStatus,
   summarizeReportText,
   summarizeTokenDiagnostics,
+  type BasicChatResponseOutcomeDiagnostic,
   type BasicChatHydrationDiagnostic,
   type BasicChatHydrationSaveDiagnostic,
   type BasicChatSuiteSummary,
@@ -324,6 +325,7 @@ async function runBasicChatFlow(input: {
       const response = await postChat(jsonRequest("/api/chat", requestBody, input.authSession.cookie));
       const output = await normalizeChatOutput(await response.text());
       const chatTokenDiagnostics = readChatTokenDiagnostics(input.authSession.userId, responseMessageId);
+      const responseOutcome = readChatResponseOutcome(input.authSession.userId, responseMessageId);
       if (!output.done) {
         record = {
           flowId: input.flow.id,
@@ -339,6 +341,7 @@ async function runBasicChatFlow(input: {
           confirmationRequests: output.confirmationRequests,
           safeErrorMessage: output.safeErrorMessage,
           hydration: hydrationDiagnostic,
+          responseOutcome,
           chatTokenDiagnostics,
           chatTokenUsage: chatTokenDiagnostics.usage,
           failureReason: output.errorMessage ?? "聊天响应未收到 done 事件。",
@@ -384,6 +387,7 @@ async function runBasicChatFlow(input: {
           confirmationRequests: output.confirmationRequests,
           safeErrorMessage: output.safeErrorMessage,
           hydration: hydrationDiagnostic,
+          responseOutcome,
           chatTokenDiagnostics,
           chatTokenUsage: chatTokenDiagnostics.usage,
           failureReason: persistence.diagnostic.errorMessage ?? "会话保存失败。",
@@ -430,6 +434,7 @@ async function runBasicChatFlow(input: {
           confirmationRequests: output.confirmationRequests,
           safeErrorMessage: output.safeErrorMessage,
           hydration: hydrationDiagnostic,
+          responseOutcome,
           judge: judgeOutcome.result,
           chatTokenDiagnostics,
           chatTokenUsage: chatTokenDiagnostics.usage,
@@ -451,6 +456,7 @@ async function runBasicChatFlow(input: {
           confirmationRequests: output.confirmationRequests,
           safeErrorMessage: output.safeErrorMessage,
           hydration: hydrationDiagnostic,
+          responseOutcome,
           chatTokenDiagnostics,
           chatTokenUsage: chatTokenDiagnostics.usage,
           judgeTokenUsage: judgeOutcome.usage,
@@ -821,6 +827,58 @@ function readChatTokenDiagnostics(userId: string, responseMessageId: string): Ba
   }
 }
 
+function readChatResponseOutcome(userId: string, responseMessageId: string): BasicChatResponseOutcomeDiagnostic {
+  try {
+    const trace = listAiTracesForUser(userId).find((item) => item.messageId === responseMessageId);
+
+    if (!trace?.finalDecision) {
+      return { status: "missing" };
+    }
+
+    const projectionType = trace.finalDecision.reason;
+    if (!projectionType) {
+      return { status: "missing" };
+    }
+
+    const finalizerGateStep = trace.steps.find((step) => step.name === "Terminal failure finalizer gate");
+    const finalizerOutput = isRecord(finalizerGateStep?.output) ? finalizerGateStep.output : {};
+
+    return {
+      status: classifyChatResponseOutcome(projectionType, trace.finalDecision.status),
+      projectionType,
+      mainAgentFailureCode: trace.finalDecision.code,
+      finalizerCalled: readBoolean(finalizerOutput.finalizerCalled),
+      finalizerSkippedReason: readString(finalizerOutput.skippedReason),
+      finalizerDegradedReason: readString(finalizerOutput.degradedReason),
+    };
+  } catch {
+    return { status: "missing" };
+  }
+}
+
+function classifyChatResponseOutcome(
+  projectionType: string,
+  finalDecisionStatus: string,
+): BasicChatResponseOutcomeDiagnostic["status"] {
+  if (projectionType === "terminal_failure_finalizer") {
+    return "terminal_failure_finalizer";
+  }
+
+  if (projectionType === "provider_unavailable_fallback") {
+    return "provider_unavailable";
+  }
+
+  if (projectionType.endsWith("_fallback")) {
+    return "deterministic_fallback";
+  }
+
+  if (finalDecisionStatus === "success") {
+    return "main_agent_completed";
+  }
+
+  return "hard_failure";
+}
+
 function jsonRequest(url: string, body: unknown, cookie: string) {
   return new Request(`http://localhost${url}`, {
     method: "POST",
@@ -916,4 +974,16 @@ function readJudgeModelLabel(env: NodeJS.ProcessEnv) {
 
 function readNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function readBoolean(value: unknown) {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

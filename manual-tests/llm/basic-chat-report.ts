@@ -27,6 +27,22 @@ export type BasicChatHydrationDiagnostic = {
   save?: BasicChatHydrationSaveDiagnostic;
 };
 
+// BasicChatResponseOutcomeDiagnostic 区分主 Agent 成功、finalizer 可恢复失败和确定性兜底。
+export type BasicChatResponseOutcomeDiagnostic = {
+  status:
+    | "main_agent_completed"
+    | "terminal_failure_finalizer"
+    | "deterministic_fallback"
+    | "provider_unavailable"
+    | "hard_failure"
+    | "missing";
+  projectionType?: string;
+  mainAgentFailureCode?: string;
+  finalizerCalled?: boolean;
+  finalizerSkippedReason?: string;
+  finalizerDegradedReason?: string;
+};
+
 export type BasicChatTurnRunStatus =
   | "passed"
   | "passed_via_suggestion"
@@ -49,6 +65,7 @@ export type BasicChatTurnRunRecord = {
   confirmationRequests?: string[];
   safeErrorMessage?: string;
   hydration?: BasicChatHydrationDiagnostic;
+  responseOutcome?: BasicChatResponseOutcomeDiagnostic;
   judge?: BasicChatJudgeResult;
   failureReason?: string;
   skipReason?: string;
@@ -144,8 +161,8 @@ export function renderBasicChatBlackboxReport(input: BasicChatReportInput) {
   lines.push(
     "## Flow 结果",
     "",
-    "| Flow | 轮次 | 状态 | 用户输入 | 文档期望 | 最终 assistant 回复摘要 | 可见输出类型 | 建议回复 | 确认请求 | 安全错误 | 保存/hydration | Token 诊断 | Judge / 失败原因 |",
-    "|---|---:|---|---|---|---|---|---|---|---|---|---|---|",
+    "| Flow | 轮次 | 状态 | 用户输入 | 文档期望 | 最终 assistant 回复摘要 | 可见输出类型 | 建议回复 | 确认请求 | 安全错误 | 保存/hydration | 响应来源 | Token 诊断 | Judge / 失败原因 |",
+    "|---|---:|---|---|---|---|---|---|---|---|---|---|---|---|",
   );
 
   for (const record of input.records) {
@@ -161,13 +178,14 @@ export function renderBasicChatBlackboxReport(input: BasicChatReportInput) {
       escapeMarkdownTableCell(formatStringList(record.confirmationRequests)),
       escapeMarkdownTableCell(record.safeErrorMessage ?? "(无)"),
       escapeMarkdownTableCell(formatHydrationDiagnostic(record.hydration)),
+      escapeMarkdownTableCell(formatResponseOutcome(record.responseOutcome)),
       escapeMarkdownTableCell(formatTokenDiagnostics(record.chatTokenDiagnostics)),
       escapeMarkdownTableCell(formatRecordReason(record)),
     ].join(" | ").replace(/^/, "| ").replace(/$/, " |"));
   }
 
   if (input.records.length === 0) {
-    lines.push("| (未执行) | 0 | skipped | (无) | (无) | (无) | (无) | (无) | (无) | (无) | (无) | (无) | 未执行任何 turn |");
+    lines.push("| (未执行) | 0 | skipped | (无) | (无) | (无) | (无) | (无) | (无) | (无) | (无) | (无) | (无) | 未执行任何 turn |");
   }
 
   lines.push(
@@ -265,6 +283,22 @@ function formatTokenDiagnostics(diagnostics: BasicChatTokenDiagnostics | undefin
   const reason = diagnostics.reason ? `, reason=${diagnostics.reason}` : "";
 
   return `source=${diagnostics.source}, status=${diagnostics.status}${usage}${reason}`;
+}
+
+function formatResponseOutcome(outcome: BasicChatResponseOutcomeDiagnostic | undefined) {
+  if (!outcome) {
+    return "(未获取)";
+  }
+
+  const details = [
+    outcome.projectionType ? `projection=${outcome.projectionType}` : undefined,
+    outcome.mainAgentFailureCode ? `code=${outcome.mainAgentFailureCode}` : undefined,
+    outcome.finalizerCalled !== undefined ? `finalizerCalled=${String(outcome.finalizerCalled)}` : undefined,
+    outcome.finalizerSkippedReason ? `skipped=${outcome.finalizerSkippedReason}` : undefined,
+    outcome.finalizerDegradedReason ? `degraded=${outcome.finalizerDegradedReason}` : undefined,
+  ].filter(Boolean);
+
+  return details.length ? `${outcome.status} (${details.join(", ")})` : outcome.status;
 }
 
 function formatHydrationDiagnostic(diagnostic: BasicChatHydrationDiagnostic | undefined) {

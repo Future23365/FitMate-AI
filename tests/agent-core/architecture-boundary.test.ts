@@ -21,6 +21,9 @@ const productionChatEntryFiles = [
   "lib/server/chat/chat-service.ts",
   "lib/server/chat/agent-text-chat-service.ts",
 ];
+const terminalFailureFinalizerFiles = [
+  "lib/server/chat/terminal-failure-finalizer.ts",
+];
 
 function collectFiles(target: string): string[] {
   const absolutePath = path.join(repoRoot, target);
@@ -448,6 +451,38 @@ describe("agent-core architecture boundaries", () => {
     const matches: string[] = [];
 
     for (const file of productionChatEntryFiles) {
+      const content = readRelative(file);
+      for (const term of forbiddenTerms) {
+        if (content.includes(term)) {
+          matches.push(`${file}: ${term}`);
+        }
+      }
+    }
+
+    expect(matches).toEqual([]);
+  });
+
+  it("keeps terminal failure finalizer free of user text routing and concrete business tool branches", () => {
+    const forbiddenTerms = [
+      "latestUserMessage.includes",
+      "userInput.includes",
+      "message.content.includes",
+      ".includes(input.run.userInput",
+      "new RegExp",
+      ".match(",
+      ".test(",
+      "toolName ===",
+      "event.toolName ===",
+      "case \"searchExerciseResources\"",
+      "case \"inspectVisibleTrainingProposals\"",
+      "case \"resolveExerciseResourceMentions\"",
+      "assistant_action",
+      "intent_resolved",
+      "agent_" + "execution_result",
+    ];
+    const matches: string[] = [];
+
+    for (const file of terminalFailureFinalizerFiles) {
       const content = readRelative(file);
       for (const term of forbiddenTerms) {
         if (content.includes(term)) {

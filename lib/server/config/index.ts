@@ -7,6 +7,10 @@ export {
   agentLlmPromptConfig,
   agentLlmPromptVersion,
   buildAgentActionSystemPrompt,
+  buildTerminalFailureFinalizerSystemPrompt,
+  terminalFailureFinalizerPromptConfig,
+  terminalFailureFinalizerPromptVersion,
   type AgentLlmPromptConfig,
   type AgentLlmPromptRequestDefaults,
+  type TerminalFailureFinalizerPromptConfig,
 } from "./agent-llm-prompt-config";

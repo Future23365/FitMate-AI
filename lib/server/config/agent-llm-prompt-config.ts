@@ -15,6 +15,12 @@ export type AgentLlmPromptConfig = {
   requestDefaults: AgentLlmPromptRequestDefaults;
 };
 
+// TerminalFailureFinalizerPromptConfig 描述主 Agent 失败后受限收口模型可见的独立 prompt 合同。
+export type TerminalFailureFinalizerPromptConfig = {
+  promptVersion: string;
+  systemPromptInstructions: readonly string[];
+};
+
 const defaultAgentActionSystemPromptInstructions = [
   "你是生产聊天链路中的 Planner，只能返回一个合法 JSON object；不要输出 Markdown、解释文字、代码块或 NDJSON。",
   "你的输出必须匹配 AgentAction 合同，type 只能是 tool_call、final_answer、ask_user 三者之一。",
@@ -62,6 +68,22 @@ const defaultAgentActionSystemPromptInstructions = [
 // agentLlmPromptVersion 是当前通用 AgentAction system prompt 的稳定审阅标识。
 export const agentLlmPromptVersion = "agent-action-v17-streamlined-model-visible-contract";
 
+const terminalFailureFinalizerSystemPromptInstructions = [
+  "你是 production `/api/chat` 中的 terminal failure finalizer，只能在主 Agent 已经停止后生成用户可见失败解释。",
+  "主 Agent 已经耗尽内部修复机会，本轮没有满足用户需求；你必须明确表达这次没有生成通过服务端校验的可靠结果。",
+  "不得声称已经完成、已生成、已保存、已查询、已确认、已执行或已展示任何未发生的业务结果。",
+  "不得输出 `AgentAction`、`tool_call`、`visibleOutputs`、NDJSON、JSON 训练卡片、confirmation、保存承诺、数据库写入承诺或 tool 调用计划。",
+  "不得要求用户复制内部错误 code，不得展示 provider 原文、stack、validator 原文、API key、authorization、cookie 或服务端内部 details。",
+  "只能输出一个 JSON object，字段只允许 `content` 和可选 `suggestedQuestions`；不要输出 Markdown、代码块、NDJSON event 或额外字段。",
+  "`content` 必须是简短自然语言，说明本轮未完成、为什么需要下一步恢复，并给出用户可继续对话的方向。",
+  "`suggestedQuestions` 最多 3 条；每条必须是用户口吻的完整自然语言问题，点击后只代表下一轮普通用户消息，不代表服务端已经执行任何操作。",
+  "`suggestedQuestions` 不得承诺不可用能力、医疗诊断、保存结果、未注册 tool 或已经完成的业务结果。",
+  "技术标识如 `content`、`suggestedQuestions`、`AgentAction`、`tool_call`、`visibleOutputs`、NDJSON 保持英文原样；其他业务说明使用中文。",
+] as const;
+
+// terminalFailureFinalizerPromptVersion 是受限失败收口 prompt 的稳定审阅标识。
+export const terminalFailureFinalizerPromptVersion = "terminal-failure-finalizer-v1";
+
 // agentLlmPromptConfig 是生产 LlmPlanner 的默认模型决策 prompt 配置，不承载具体业务 tool 规则。
 export const agentLlmPromptConfig = {
   promptVersion: agentLlmPromptVersion,
@@ -72,9 +94,22 @@ export const agentLlmPromptConfig = {
   },
 } satisfies AgentLlmPromptConfig;
 
+// terminalFailureFinalizerPromptConfig 只约束失败解释模型输入，不复用主 Agent tool loop 指令。
+export const terminalFailureFinalizerPromptConfig = {
+  promptVersion: terminalFailureFinalizerPromptVersion,
+  systemPromptInstructions: terminalFailureFinalizerSystemPromptInstructions,
+} satisfies TerminalFailureFinalizerPromptConfig;
+
 // buildAgentActionSystemPrompt 将配置中的通用 AgentAction 合同组装为模型可见 system prompt。
 export function buildAgentActionSystemPrompt(
   config: AgentLlmPromptConfig = agentLlmPromptConfig,
+) {
+  return config.systemPromptInstructions.join(" ");
+}
+
+// buildTerminalFailureFinalizerSystemPrompt 将 finalizer prompt 配置组装成模型可见 system message。
+export function buildTerminalFailureFinalizerSystemPrompt(
+  config: TerminalFailureFinalizerPromptConfig = terminalFailureFinalizerPromptConfig,
 ) {
   return config.systemPromptInstructions.join(" ");
 }

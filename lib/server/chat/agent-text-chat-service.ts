@@ -47,6 +47,18 @@ import type { AiRunFinalDecision, AiTraceStatus } from "@/lib/server/dev/ai-trac
 import type { CurrentUser } from "@/lib/server/users/current-user";
 
 import type { PreparedChatRequest } from "./chat-service";
+import {
+  assessTerminalFailureFinalizerAvailability,
+  buildTerminalFailureFinalizerInput,
+  createProductionTerminalFailureFinalizerFromEnv,
+  type TerminalFailureFinalizer,
+  type TerminalFailureFinalizerDegradedReason,
+  type TerminalFailureFinalizerFailureCategory,
+  type TerminalFailureFinalizerInput,
+  type TerminalFailureFinalizerResult,
+  type TerminalFailureFinalizerSkipReason,
+  type TerminalFailureFinalizerTrace,
+} from "./terminal-failure-finalizer";
 
 const CHAT_TEXT_FLOW_CONFIG_ERROR_CODE = "chat_ai_not_configured";
 const agentTextChatRoute = "/api/chat";
@@ -58,6 +70,9 @@ const genericChatFailureMessage = "聊天服务暂时没能完成这次回复。
 const chatServiceUnavailableMessage = "聊天服务暂时不可用，请稍后再试。";
 const visibleOutputValidationFailureMessage = "这次没有生成通过校验的可靠训练结果，所以我不会展示或保存这份方案。你可以缩小范围、补充缺失条件，或先让我说明当前事实能支撑的内容。";
 const budgetOrTimeoutFailureMessage = "这次请求需要的步骤或信息量超出了当前处理范围。你可以减少条件、缩小训练目标，或分两步提问。";
+const terminalReferenceFailureMessage = "这次没能确认最终回复引用的事实来源，所以我不会展示可能不可靠的结果。你可以让我先读取可用事实，或把目标拆成更小的一步。";
+const repairExhaustedFailureMessage = "这次没能把内部结果修正到可安全回复的状态，所以我不会展示不可靠内容。你可以缩小问题范围、补充关键信息，或先让我说明当前可用事实。";
+const providerUnavailableFailureMessage = "模型服务暂时不可用或请求受限，所以这次不能继续生成可靠回复。你可以稍后重试，或先把问题缩小后再发一次。";
 const unsupportedToolActionSuggestions = [
   "改成普通文本问题",
   "先解释训练原则",
@@ -72,6 +87,21 @@ const budgetOrTimeoutFailureSuggestions = [
   "减少训练限制条件",
   "拆成两步提问",
   "先回答核心问题",
+];
+const terminalReferenceFailureSuggestions = [
+  "先读取可用事实",
+  "拆成一步完成",
+  "重新说明训练目标",
+];
+const repairExhaustedFailureSuggestions = [
+  "缩小问题范围",
+  "补充关键信息",
+  "先说明当前可用事实",
+];
+const providerUnavailableFailureSuggestions = [
+  "稍后重试",
+  "缩小问题后再问",
+  "先问普通训练原则",
 ];
 const directUnsupportedErrorCodes = new Set<string>([
   AGENT_ERROR_CODES.UNKNOWN_TOOL,
@@ -112,9 +142,13 @@ type AgentTextChatResponseProjectionType =
   | "final_answer_success"
   | "ask_user"
   | "confirmation_request"
+  | "terminal_failure_finalizer"
   | "unsupported_capability_fallback"
   | "visible_output_validation_fallback"
+  | "terminal_reference_fallback"
+  | "repair_exhausted_fallback"
   | "budget_timeout_fallback"
+  | "provider_unavailable_fallback"
   | "transport_config_failure"
   | "unclassified_error_event"
   | "content"
@@ -142,6 +176,7 @@ type AgentTextChatResponseSummaryContext = {
   result?: AgentRunResult;
   registry?: ToolRegistry;
   transportErrorCode?: string;
+  projectionType?: AgentTextChatResponseProjectionType;
 };
 
 type PlannerFactoryResult =
@@ -149,12 +184,40 @@ type PlannerFactoryResult =
   | { ok: false; error: AgentTextChatConfigError };
 
 type PlannerFactory = () => PlannerFactoryResult;
+type TerminalFailureFinalizerFactoryResult = ReturnType<typeof createProductionTerminalFailureFinalizerFromEnv>;
+type TerminalFailureFinalizerFactory = () => TerminalFailureFinalizerFactoryResult;
+
+type AgentTextChatTerminalFailureProjection = {
+  projectionType: AgentTextChatResponseProjectionType;
+  events: AgentTextChatStreamEvent[];
+  failureCategory?: TerminalFailureFinalizerFailureCategory;
+};
+
+type AgentTextChatFinalizerTraceSummary = {
+  failureCategory: TerminalFailureFinalizerFailureCategory;
+  terminalErrorCode?: string;
+  input?: TerminalFailureFinalizerInput;
+  providerAvailability: ReturnType<typeof assessTerminalFailureFinalizerAvailability>;
+  skippedReason?: TerminalFailureFinalizerSkipReason;
+  degradedReason?: TerminalFailureFinalizerDegradedReason;
+  finalizerCalled: boolean;
+  finalizerTrace?: TerminalFailureFinalizerTrace;
+  projectionType: AgentTextChatResponseProjectionType;
+};
+
+type AgentTextChatResponseProjection = {
+  projectionType: AgentTextChatResponseProjectionType;
+  events: AgentTextChatStreamEvent[];
+  terminalFailureFinalizer?: AgentTextChatFinalizerTraceSummary;
+};
 
 export type CreateAgentTextChatResponseInput = {
   request: PreparedChatRequest;
   currentUser: CurrentUser;
   planner?: PlannerPort;
   plannerFactory?: PlannerFactory;
+  terminalFailureFinalizer?: TerminalFailureFinalizer;
+  terminalFailureFinalizerFactory?: TerminalFailureFinalizerFactory;
 };
 
 type DeepSeekPlannerFactoryInput = {
@@ -164,6 +227,7 @@ type DeepSeekPlannerFactoryInput = {
 
 // createAgentTextChatResponse 是 /api/chat 到 agent-core 的薄接入层，只负责构造 run、生产 registry 和 NDJSON 投影。
 export async function createAgentTextChatResponse(input: CreateAgentTextChatResponseInput): Promise<Response> {
+  const requestStartedAtMs = Date.now();
   const registry = await createProductionTextChatRegistry();
   const terminalOutputValidators = createProductionTerminalOutputValidatorRegistry();
   const visibleOutputRenderers = createProductionVisibleOutputRendererRegistry();
@@ -186,6 +250,7 @@ export async function createAgentTextChatResponse(input: CreateAgentTextChatResp
   const plannerResult = input.planner
     ? { ok: true as const, planner: input.planner }
     : (input.plannerFactory ?? createProductionAgentTextChatPlanner)();
+  const finalizerFactoryResult = resolveTerminalFailureFinalizerFactory(input);
 
   if (!plannerResult.ok) {
     const events: AgentTextChatStreamEvent[] = [
@@ -248,11 +313,16 @@ export async function createAgentTextChatResponse(input: CreateAgentTextChatResp
       return;
     }
 
-    const events = renderAgentTextChatResponseEvents({
+    const responseProjection = await createAgentTextChatResponseProjection({
       result,
+      run,
       registry,
       visibleOutputRenderers,
+      planner: plannerResult.planner,
+      requestStartedAtMs,
+      finalizerFactoryResult,
     });
+    const events = responseProjection.events;
     const factPersistence = await persistVisibleTrainingProposalFactsFromEvents({
       userId: input.currentUser.id,
       conversationId: input.request.conversationId,
@@ -267,6 +337,7 @@ export async function createAgentTextChatResponse(input: CreateAgentTextChatResp
       registry,
       events,
       factPersistence,
+      responseProjection,
     });
 
     await activityWriter.writeActivity("writing_reply");
@@ -515,33 +586,55 @@ function isKnownAgentProgressStage(stage: string): stage is AgentProgressStage {
   ].includes(stage);
 }
 
-function renderAgentTextChatResponseEvents(input: {
+async function createAgentTextChatResponseProjection(input: {
   result: AgentRunResult;
+  run: AgentRunInput;
   registry: ToolRegistry;
   visibleOutputRenderers: ReturnType<typeof createProductionVisibleOutputRendererRegistry>;
-}): AgentTextChatStreamEvent[] {
+  planner: PlannerPort;
+  requestStartedAtMs: number;
+  finalizerFactoryResult: TerminalFailureFinalizerFactoryResult;
+}): Promise<AgentTextChatResponseProjection> {
   const failureProjection = createAgentTextChatTerminalFailureProjection(input);
 
   if (failureProjection) {
-    return failureProjection.events;
+    const finalizerProjection = await createTerminalFailureFinalizerProjection({
+      ...input,
+      failureProjection,
+    });
+
+    return finalizerProjection ?? failureProjection;
   }
 
   if (input.result.status === "failed" && input.result.terminalError) {
-    return [
+    const events: AgentTextChatStreamEvent[] = [
       createSafeRuntimeErrorEvent(input.result.terminalError),
       { type: "done" },
     ];
+
+    return {
+      projectionType: "unclassified_error_event",
+      events,
+    };
   }
 
-  return renderAgentResponseEvents(input.result, {
+  const events = renderAgentResponseEvents(input.result, {
     visibleOutputRenderers: input.visibleOutputRenderers,
   });
+
+  return {
+    projectionType: getAgentTextChatResponseProjectionType(events, {
+      result: input.result,
+      registry: input.registry,
+    }),
+    events,
+  };
 }
 
 function createAgentTextChatTerminalFailureProjection(input: {
   result: AgentRunResult;
   registry: ToolRegistry;
-}): { projectionType: AgentTextChatResponseProjectionType; events: AgentTextChatStreamEvent[] } | null {
+}): AgentTextChatTerminalFailureProjection | null {
   if (input.result.status !== "failed" || !input.result.terminalError) {
     return null;
   }
@@ -549,6 +642,7 @@ function createAgentTextChatTerminalFailureProjection(input: {
   if (isUnsupportedCapabilityFailure(input)) {
     return {
       projectionType: "unsupported_capability_fallback",
+      failureCategory: "unsupported_capability",
       events: [
         { type: "content", content: unsupportedToolActionMessage },
         { type: "suggested_questions", suggestedQuestions: unsupportedToolActionSuggestions },
@@ -560,6 +654,7 @@ function createAgentTextChatTerminalFailureProjection(input: {
   if (isVisibleOutputValidationFailure(input.result)) {
     return {
       projectionType: "visible_output_validation_fallback",
+      failureCategory: "visible_output_validation",
       events: [
         { type: "content", content: visibleOutputValidationFailureMessage },
         { type: "suggested_questions", suggestedQuestions: visibleOutputValidationFailureSuggestions },
@@ -568,9 +663,34 @@ function createAgentTextChatTerminalFailureProjection(input: {
     };
   }
 
+  if (isTerminalReferenceFailure(input.result)) {
+    return {
+      projectionType: "terminal_reference_fallback",
+      failureCategory: "terminal_reference",
+      events: [
+        { type: "content", content: terminalReferenceFailureMessage },
+        { type: "suggested_questions", suggestedQuestions: terminalReferenceFailureSuggestions },
+        { type: "done" },
+      ],
+    };
+  }
+
+  if (isRepairExhaustedFailure(input.result)) {
+    return {
+      projectionType: "repair_exhausted_fallback",
+      failureCategory: "repair_exhausted",
+      events: [
+        { type: "content", content: repairExhaustedFailureMessage },
+        { type: "suggested_questions", suggestedQuestions: repairExhaustedFailureSuggestions },
+        { type: "done" },
+      ],
+    };
+  }
+
   if (isBudgetOrTimeoutFailure(input.result)) {
     return {
       projectionType: "budget_timeout_fallback",
+      failureCategory: "budget_exhausted",
       events: [
         { type: "content", content: budgetOrTimeoutFailureMessage },
         { type: "suggested_questions", suggestedQuestions: budgetOrTimeoutFailureSuggestions },
@@ -580,6 +700,166 @@ function createAgentTextChatTerminalFailureProjection(input: {
   }
 
   return null;
+}
+
+async function createTerminalFailureFinalizerProjection(input: {
+  result: AgentRunResult;
+  run: AgentRunInput;
+  planner: PlannerPort;
+  requestStartedAtMs: number;
+  finalizerFactoryResult: TerminalFailureFinalizerFactoryResult;
+  failureProjection: AgentTextChatTerminalFailureProjection;
+}): Promise<AgentTextChatResponseProjection | null> {
+  if (!input.failureProjection.failureCategory) {
+    return null;
+  }
+
+  const finalizerInput = buildTerminalFailureFinalizerInput({
+    run: input.run,
+    result: input.result,
+    failureCategory: input.failureProjection.failureCategory,
+  });
+  const plannerDiagnostics = readPlannerModelTraceEvents(input.planner);
+  const providerAvailability = assessTerminalFailureFinalizerAvailability({
+    providerConfigured: input.finalizerFactoryResult.ok,
+    callsThisRun: 0,
+    remainingTimeMs: getTerminalFailureFinalizerRemainingTimeMs(input.requestStartedAtMs),
+    plannerDiagnostics,
+    terminalError: input.result.terminalError,
+  });
+
+  if (!providerAvailability.allowed || !input.finalizerFactoryResult.ok) {
+    const traceSummary: AgentTextChatFinalizerTraceSummary = {
+      failureCategory: input.failureProjection.failureCategory,
+      terminalErrorCode: input.result.terminalError?.code,
+      input: finalizerInput,
+      providerAvailability,
+      skippedReason: providerAvailability.reason ?? (input.finalizerFactoryResult.ok ? undefined : input.finalizerFactoryResult.reason),
+      finalizerCalled: false,
+      projectionType: getSkippedFinalizerProjectionType(providerAvailability.reason, input.failureProjection.projectionType),
+    };
+
+    if (shouldUseProviderUnavailableFallback(providerAvailability.reason)) {
+      return {
+        projectionType: "provider_unavailable_fallback",
+        events: createProviderUnavailableFallbackEvents(),
+        terminalFailureFinalizer: {
+          ...traceSummary,
+          projectionType: "provider_unavailable_fallback",
+        },
+      };
+    }
+
+    return {
+      ...input.failureProjection,
+      terminalFailureFinalizer: traceSummary,
+    };
+  }
+
+  const finalizerResult = await input.finalizerFactoryResult.finalizer.finalize(finalizerInput);
+
+  if (finalizerResult.ok) {
+    return {
+      projectionType: "terminal_failure_finalizer",
+      events: createTerminalFailureFinalizerEvents(finalizerResult.output),
+      terminalFailureFinalizer: {
+        failureCategory: input.failureProjection.failureCategory,
+        terminalErrorCode: input.result.terminalError?.code,
+        input: finalizerInput,
+        providerAvailability,
+        finalizerCalled: true,
+        finalizerTrace: finalizerResult.trace,
+        projectionType: "terminal_failure_finalizer",
+      },
+    };
+  }
+
+  const fallbackProjectionType = shouldUseProviderUnavailableFallback(finalizerResult.reason)
+    ? "provider_unavailable_fallback"
+    : input.failureProjection.projectionType;
+
+  return {
+    projectionType: fallbackProjectionType,
+    events: fallbackProjectionType === "provider_unavailable_fallback"
+      ? createProviderUnavailableFallbackEvents()
+      : input.failureProjection.events,
+    terminalFailureFinalizer: {
+      failureCategory: input.failureProjection.failureCategory,
+      terminalErrorCode: input.result.terminalError?.code,
+      input: finalizerInput,
+      providerAvailability,
+      degradedReason: finalizerResult.reason,
+      finalizerCalled: true,
+      finalizerTrace: finalizerResult.trace,
+      projectionType: fallbackProjectionType,
+    },
+  };
+}
+
+function resolveTerminalFailureFinalizerFactory(input: CreateAgentTextChatResponseInput): TerminalFailureFinalizerFactoryResult {
+  if (input.terminalFailureFinalizer) {
+    return { ok: true, finalizer: input.terminalFailureFinalizer };
+  }
+
+  if (input.terminalFailureFinalizerFactory) {
+    return input.terminalFailureFinalizerFactory();
+  }
+
+  if (input.planner || input.plannerFactory) {
+    return {
+      ok: false,
+      reason: "model_config_missing",
+      missing: ["terminalFailureFinalizer"],
+    };
+  }
+
+  return createProductionTerminalFailureFinalizerFromEnv();
+}
+
+function getTerminalFailureFinalizerRemainingTimeMs(requestStartedAtMs: number) {
+  const elapsedMs = Date.now() - requestStartedAtMs;
+  const requestBudgetMs =
+    agentRuntimeConfig.runtime.overallTimeoutMs
+    + agentRuntimeConfig.terminalFailureFinalizer.timeoutMs;
+
+  return Math.max(0, requestBudgetMs - elapsedMs);
+}
+
+function createTerminalFailureFinalizerEvents(
+  output: { content: string; suggestedQuestions?: string[] },
+): AgentTextChatStreamEvent[] {
+  return [
+    { type: "content", content: output.content },
+    ...(output.suggestedQuestions?.length
+      ? [{ type: "suggested_questions" as const, suggestedQuestions: output.suggestedQuestions }]
+      : []),
+    { type: "done" },
+  ];
+}
+
+function createProviderUnavailableFallbackEvents(): AgentTextChatStreamEvent[] {
+  return [
+    { type: "content", content: providerUnavailableFailureMessage },
+    { type: "suggested_questions", suggestedQuestions: providerUnavailableFailureSuggestions },
+    { type: "done" },
+  ];
+}
+
+function shouldUseProviderUnavailableFallback(reason: string | undefined) {
+  return reason === "provider_unavailable"
+    || reason === "provider_quota_exhausted"
+    || reason === "finalizer_http_error"
+    || reason === "finalizer_timeout"
+    || reason === "finalizer_adapter_exception";
+}
+
+function getSkippedFinalizerProjectionType(
+  reason: TerminalFailureFinalizerSkipReason | undefined,
+  fallbackProjectionType: AgentTextChatResponseProjectionType,
+) {
+  return shouldUseProviderUnavailableFallback(reason)
+    ? "provider_unavailable_fallback"
+    : fallbackProjectionType;
 }
 
 async function restoreRecentVisibleTrainingProposalsForRun(input: {
@@ -668,6 +948,25 @@ function isVisibleOutputValidationFailure(result: AgentRunResult) {
 
   return containsVisibleOutputValidationDetails(terminalError.details)
     || result.observations.some((observation) => containsVisibleOutputValidationDetails(observation.content));
+}
+
+function isTerminalReferenceFailure(result: AgentRunResult) {
+  const terminalError = result.terminalError;
+
+  if (!terminalError) {
+    return false;
+  }
+
+  return terminalReferenceErrorCodes.has(terminalError.code)
+    || hasTerminalFailureReason(result, terminalReferenceErrorCodes);
+}
+
+function isRepairExhaustedFailure(result: AgentRunResult) {
+  return result.terminalError?.code === AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED
+    && result.traceEvents.some((event) => (
+      (event.type === "validation_result" && !event.ok && Boolean(event.code))
+      || (event.type === "budget_event" && event.budget === "repair_attempts" && event.status === "exhausted")
+    ));
 }
 
 function isBudgetOrTimeoutFailure(result: AgentRunResult) {
@@ -840,6 +1139,7 @@ function recordAgentTextChatRuntimeResultTrace(input: {
   registry: ToolRegistry;
   events: AgentTextChatStreamEvent[];
   factPersistence?: FactPersistenceTraceResult;
+  responseProjection: AgentTextChatResponseProjection;
 }) {
   const modelDiagnostics = readPlannerModelTraceEvents(input.planner);
   const tokenUsageSummary = summarizePlannerModelTokenUsage(modelDiagnostics);
@@ -909,9 +1209,15 @@ function recordAgentTextChatRuntimeResultTrace(input: {
     });
   }
 
+  recordTerminalFailureFinalizerTrace({
+    trace: input.trace,
+    summary: input.responseProjection.terminalFailureFinalizer,
+  });
+
   const responseSummary = summarizeAgentTextChatResponseEvents(input.events, {
     result: input.result,
     registry: input.registry,
+    projectionType: input.responseProjection.projectionType,
   });
   input.trace.addStep({
     name: "NDJSON 响应写入",
@@ -920,12 +1226,15 @@ function recordAgentTextChatRuntimeResultTrace(input: {
     metadata: {
       route: agentTextChatRoute,
       eventCount: input.events.length,
-      source: responseSummary.projectionType.endsWith("_fallback")
+      source: responseSummary.projectionType === "terminal_failure_finalizer"
+        ? "terminalFailureFinalizer"
+        : responseSummary.projectionType.endsWith("_fallback")
         ? "productionTerminalFailureProjection"
         : "renderAgentResponseEvents",
       projectionType: responseSummary.projectionType,
       plannerModelCallCount: modelDiagnostics.length,
       tokenUsageSummary,
+      terminalFailureFinalizer: summarizeTerminalFailureFinalizerForTrace(input.responseProjection.terminalFailureFinalizer),
     },
   });
 
@@ -934,6 +1243,113 @@ function recordAgentTextChatRuntimeResultTrace(input: {
     registry: input.registry,
     responseSummary,
   }));
+}
+
+function recordTerminalFailureFinalizerTrace(input: {
+  trace: AiTraceLogger;
+  summary?: AgentTextChatFinalizerTraceSummary;
+}) {
+  if (!input.summary) {
+    return;
+  }
+
+  try {
+    input.trace.addStep({
+      name: "Terminal failure finalizer gate",
+      type: "runtime_event",
+      output: {
+        failureCategory: input.summary.failureCategory,
+        terminalErrorCode: input.summary.terminalErrorCode,
+        providerAvailability: input.summary.providerAvailability,
+        skippedReason: input.summary.skippedReason,
+        degradedReason: input.summary.degradedReason,
+        finalizerCalled: input.summary.finalizerCalled,
+        projectionType: input.summary.projectionType,
+        inputSummary: input.summary.input,
+      },
+      metadata: {
+        pipeline: "agent-core-text-chat",
+        boundary: "terminal_failure_finalizer",
+        projectionType: input.summary.projectionType,
+        promptVersion: input.summary.finalizerTrace?.promptVersion,
+      },
+    });
+
+    if (!input.summary.finalizerTrace) {
+      return;
+    }
+
+    input.trace.addStep({
+      name: "Terminal failure finalizer 模型请求",
+      type: "model_request",
+      input: input.summary.finalizerTrace.request,
+      output: {
+        provider: input.summary.finalizerTrace.provider,
+        adapterName: input.summary.finalizerTrace.adapterName,
+        promptVersion: input.summary.finalizerTrace.promptVersion,
+        model: input.summary.finalizerTrace.request.model,
+        messageCount: input.summary.finalizerTrace.request.messageCount,
+        maxTokens: input.summary.finalizerTrace.request.max_tokens,
+        timeoutMs: input.summary.finalizerTrace.request.timeoutMs,
+      },
+      metadata: {
+        pipeline: "agent-core-text-chat",
+        boundary: "terminal_failure_finalizer_model_adapter",
+        promptVersion: input.summary.finalizerTrace.promptVersion,
+        response_format: input.summary.finalizerTrace.request.response_format,
+      },
+    });
+
+    input.trace.addStep({
+      name: "Terminal failure finalizer 模型响应",
+      type: "model_response",
+      status: input.summary.finalizerTrace.outputValidation.ok ? "success" : "failed",
+      output: {
+        provider: input.summary.finalizerTrace.provider,
+        adapterName: input.summary.finalizerTrace.adapterName,
+        model: input.summary.finalizerTrace.response?.model ?? input.summary.finalizerTrace.request.model,
+        httpStatus: input.summary.finalizerTrace.response?.httpStatus,
+        parseStatus: input.summary.finalizerTrace.response?.status,
+        rawText: input.summary.finalizerTrace.response?.rawText,
+        rawTextLength: input.summary.finalizerTrace.response?.rawTextLength,
+        rawResponse: input.summary.finalizerTrace.response?.rawResponse,
+        outputValidation: input.summary.finalizerTrace.outputValidation,
+        tokenUsage: input.summary.finalizerTrace.tokenUsage,
+      },
+      metadata: {
+        pipeline: "agent-core-text-chat",
+        boundary: "terminal_failure_finalizer_model_adapter",
+        promptVersion: input.summary.finalizerTrace.promptVersion,
+        projectionType: input.summary.projectionType,
+        tokenUsage: input.summary.finalizerTrace.tokenUsage,
+      },
+    });
+  } catch (error) {
+    console.warn("[agent-text-chat-trace] finalizer_write_failed", {
+      detail: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
+function summarizeTerminalFailureFinalizerForTrace(
+  summary: AgentTextChatFinalizerTraceSummary | undefined,
+) {
+  if (!summary) {
+    return undefined;
+  }
+
+  return {
+    failureCategory: summary.failureCategory,
+    terminalErrorCode: summary.terminalErrorCode,
+    providerAvailability: summary.providerAvailability,
+    skippedReason: summary.skippedReason,
+    degradedReason: summary.degradedReason,
+    finalizerCalled: summary.finalizerCalled,
+    projectionType: summary.projectionType,
+    promptVersion: summary.finalizerTrace?.promptVersion,
+    model: summary.finalizerTrace?.response?.model ?? summary.finalizerTrace?.request.model,
+    tokenUsage: summary.finalizerTrace?.tokenUsage,
+  };
 }
 
 function recordAgentTextChatConfigFailureTrace(input: {
@@ -1468,6 +1884,10 @@ function getAgentTextChatResponseProjectionType(
   events: AgentTextChatStreamEvent[],
   context: AgentTextChatResponseSummaryContext,
 ): AgentTextChatResponseProjectionType {
+  if (context.projectionType) {
+    return context.projectionType;
+  }
+
   const errorCodes = events
     .filter((event): event is Extract<AgentTextChatStreamEvent, { type: "error" }> => event.type === "error")
     .map((event) => event.error.code);
@@ -1554,9 +1974,13 @@ function createFinalDecision(input: {
 }): AiRunFinalDecision {
   if (input.result.status === "failed") {
     const recoverableFailure = new Set<AgentTextChatResponseProjectionType>([
+      "terminal_failure_finalizer",
       "unsupported_capability_fallback",
       "visible_output_validation_fallback",
+      "terminal_reference_fallback",
+      "repair_exhausted_fallback",
       "budget_timeout_fallback",
+      "provider_unavailable_fallback",
     ]).has(input.responseSummary.projectionType);
 
     return {
