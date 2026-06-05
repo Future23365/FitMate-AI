@@ -359,7 +359,7 @@ export function AppSidebar() {
       </button>
 
       <aside
-        className={`app-sidebar app-shell-glass fixed left-0 top-0 z-30 hidden h-screen flex-col overflow-hidden border-r border-line/70 px-4 py-6 shadow-nav md:flex ${
+        className={`app-sidebar app-sidebar-surface fixed left-0 top-0 z-30 hidden h-screen flex-col overflow-hidden border-r border-line/70 px-4 py-6 shadow-nav md:flex ${
           isSidebarCollapseLocked ? "app-sidebar-collapse-locked" : ""
         }`}
         onBlur={(event) => {

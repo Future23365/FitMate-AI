@@ -141,7 +141,7 @@ export function ResponsiveRightSidebar({
       onPointerLeave={collapseSidebarIfFocusOutside}
       onPointerMove={expandSidebar}
       ref={sidebarRef}
-      className={`responsive-right-sidebar app-shell-glass fixed right-0 top-0 z-30 flex h-screen flex-col border-l border-line/70 shadow-nav ${
+      className={`responsive-right-sidebar app-right-sidebar-surface fixed right-0 top-0 z-30 flex h-screen flex-col border-l border-line/70 shadow-nav ${
         isMotionReady ? "responsive-right-sidebar-motion-ready" : ""
       } ${
         isExpanded ? "responsive-right-sidebar-expanded" : ""

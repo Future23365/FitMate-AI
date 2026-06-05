@@ -368,6 +368,15 @@ body,
   backdrop-filter: blur(24px) saturate(1.05);
 }
 
+/* 固定侧栏是应用框架层，使用不透明 surface 保持导航和辅助信息的稳定层级。 */
+.app-sidebar-surface {
+  background-color: var(--color-surface-container-low);
+}
+
+.app-right-sidebar-surface {
+  background-color: var(--color-panel);
+}
+
 /* 聊天推送卡片需要比普通控件更易读，局部放大 MD3 字号 token，不影响全站表单和导航。 */
 .app-push-card {
   --text-label-xs: 12px;
