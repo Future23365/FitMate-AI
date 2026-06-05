@@ -81,6 +81,24 @@ describe("resolveExerciseResourceMentions tool", () => {
     if (!result.ok) {
       throw new Error("resolveExerciseResourceMentions should succeed");
     }
+    const modelObservation = tool.toModelObservation?.(
+      result.output as Parameters<NonNullable<typeof tool.toModelObservation>>[0],
+      {
+        runId: "run-resolve-mentions",
+        actor: { userId: "user-1" },
+        toolCallId: "tc_resolve_mentions",
+      },
+    );
+    expect(modelObservation).toMatchObject({
+      mentionCount: 3,
+      matchedCount: 3,
+      ambiguousCount: 0,
+      notFoundCount: 0,
+      requiredExerciseIdsBoundary: expect.stringContaining("searchExerciseResources.requiredExerciseIds"),
+      sourceBoundary: expect.stringContaining("不能直接作为 visibleTrainingProposal.exerciseItems[*].exerciseId"),
+      nextStepBoundary: expect.stringContaining("不要求固定下一步 tool flow"),
+    });
+    expect(JSON.stringify(modelObservation)).toContain("allowedSections");
     const serializedProjection = JSON.stringify(result.projection);
     expect(serializedProjection).toContain("requiredExerciseIds");
     expect(serializedProjection).toContain("Pushups");
@@ -154,6 +172,31 @@ describe("resolveExerciseResourceMentions tool", () => {
         ],
       },
     });
+
+    if (!result.ok) {
+      throw new Error("resolveExerciseResourceMentions should succeed");
+    }
+    const modelObservation = tool.toModelObservation?.(
+      result.output as Parameters<NonNullable<typeof tool.toModelObservation>>[0],
+      {
+        runId: "run-ambiguous-mentions",
+        actor: { userId: "user-1" },
+        toolCallId: "tc_ambiguous_mentions",
+      },
+    );
+    expect(modelObservation).toMatchObject({
+      mentionCount: 2,
+      matchedCount: 0,
+      ambiguousCount: 1,
+      notFoundCount: 1,
+      nextStepBoundary: expect.stringContaining("选择候选、重查、澄清或失败收口"),
+    });
+    const observationJson = JSON.stringify(modelObservation);
+    expect(observationJson).toContain("mention_ambiguous");
+    expect(observationJson).toContain("mention_not_found");
+    expect(observationJson).toContain("allowedSections");
+    expect(observationJson).toContain("requiredExerciseIds");
+    expect(observationJson).not.toContain("必须调用 searchExerciseResources");
   });
 
   it("rejects unknown fields and mention count overflow before handler execution", async () => {

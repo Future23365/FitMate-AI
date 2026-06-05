@@ -415,16 +415,13 @@ describe("chat service agent text flow boundary", () => {
     expect(plannerSearchFacetCatalog?.homeRequirements).not.toContain("none");
     expect(plannerSearchFacetCatalog?.homeRequirements).not.toContain("无器械");
     const serializedSearchManifest = JSON.stringify(plannerSearchManifest);
-    expect(serializedSearchManifest).toContain("missingSectionsForRoutineOrPlan 非空");
+    expect(serializedSearchManifest).toContain("groups.<section>.exercises[]");
     expect(serializedSearchManifest).toContain("suitabilities = [\\\"warmup\\\", \\\"stretch\\\"]");
-    expect(serializedSearchManifest).toContain("候选足够后应继续组合完整 routine / plan");
-    expect(serializedSearchManifest).toContain("正文动作列表或用户自行组合建议");
-    expect(serializedSearchManifest).toContain("普通动作推荐、动作清单或动作事实问答不要求固定查询 warmup / training / stretch");
-    expect(serializedSearchManifest).toContain("不把具体用户短句映射成固定 payload.kind");
-    expect(serializedSearchManifest).toContain("真实 facet、器械、场地或难度约束");
+    expect(serializedSearchManifest).toContain("现有事实缺少 warmup / stretch");
+    expect(serializedSearchManifest).toContain("不要求固定调用次数或顺序");
+    expect(serializedSearchManifest).toContain("不代表最终训练结构已经生成");
+    expect(serializedSearchManifest).toContain("当前 run 可见动作锚点");
     expect(serializedSearchManifest).toContain("\"level\":\"beginner\"");
-    expect(serializedSearchManifest).toContain("final_answer.visibleOutputs[].payload.kind = \\\"routine\\\" 或 \\\"plan\\\"");
-    expect(serializedSearchManifest).toContain("不要在 content 中解释缺口后仍提交缺 section 的结构");
     expect(serializedSearchManifest).not.toContain("generatePlanDraft");
     expect(serializedSearchManifest).not.toContain("generateRoutineDraft");
     expect(JSON.stringify(planner.calls[0].manifests)).not.toContain("uiActivityStage");
@@ -2104,8 +2101,8 @@ describe("chat service agent text flow boundary", () => {
       isRecord(input) ? input.suitability : undefined
     ))).toEqual(["training", "warmup", "stretch"]);
     expect(supportPlannerInputJson).toContain("missingSectionsForRoutineOrPlan");
-    expect(supportPlannerInputJson).toContain("作为本轮完成 routine / plan 的正常下一步");
-    expect(supportPlannerInputJson).toContain("不要让用户自行组合 training 动作列表");
+    expect(supportPlannerInputJson).toContain("缺口补齐前只能继续补事实、澄清或失败收口");
+    expect(supportPlannerInputJson).toContain("suitabilities = [\\\"warmup\\\", \\\"stretch\\\"]");
     expect(finalPlannerToolResultsJson).toContain(warmupExercise.id);
     expect(finalPlannerToolResultsJson).toContain(trainingExercise.id);
     expect(finalPlannerToolResultsJson).toContain(stretchExercise.id);
@@ -2240,7 +2237,7 @@ describe("chat service agent text flow boundary", () => {
     expect(finalPlannerToolResultsJson).toContain("jumping-jack");
     expect(finalPlannerToolResultsJson).toContain("chest-stretch");
     expect(finalPlannerToolResultsJson).toContain("missingSectionsForRoutineOrPlan");
-    expect(finalPlannerToolResultsJson).toContain("groups.<section>.exercises[*].exerciseId 可作为 visibleTrainingProp");
+    expect(finalPlannerToolResultsJson).toContain("groups.<section>.exercises[] 是本次实际返回的 section-scoped 动作事实");
     expect(events).toEqual([
       expect.objectContaining({
         type: "tool_result",
