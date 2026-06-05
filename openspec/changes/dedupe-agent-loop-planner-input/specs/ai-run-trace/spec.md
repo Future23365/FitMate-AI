@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Trace 必须展示 Planner 输入去重证据
-系统 SHALL 在 model request trace、runtime trace 或 replay summary 中记录足够诊断 Planner input 去重的安全摘要。trace MUST 能说明成功 tool facts 的详细权威通道、observation 轻量化结果和 repair / diagnostic observation 保留情况。
+系统 SHALL 在 model request trace、runtime trace 或 replay summary 中记录足够诊断 Planner input 去重的安全摘要。trace MUST 能说明成功 tool facts 的详细权威通道、observation 轻量化结果，以及 repair / diagnostic observation 保留情况。
 
 #### Scenario: model request trace 记录去重摘要
 - **WHEN** model adapter 记录 Planner model request trace

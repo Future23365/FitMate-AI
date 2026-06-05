@@ -21,4 +21,3 @@
 - **WHEN** 新增或调整 observations / compressed tool results 中的模型可见说明
 - **THEN** 描述性自然语言 MUST 使用中文
 - **AND** `toolName`、字段名、enum、action type、resource type、schema id、错误码和代码标识符 MUST 保持英文原样
-

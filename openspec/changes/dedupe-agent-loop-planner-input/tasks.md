@@ -1,10 +1,11 @@
 ## 1. 边界确认
 
-- [ ] 1.1 复核本 change 的 primary governance 为 `agent-prompt-contract-governance`，修改类型为 context / observation 投影和 compressed tool results。
-- [ ] 1.2 确认允许触碰模块仅限 `lib/server/agent-core/observation.ts`、`lib/server/agent-core/runtime.ts`、`lib/server/agent-core/planner-port.ts` 注释或语义说明、model adapter request trace 摘要和相关 tests。
+- [ ] 1.1 复核本 change 的 primary governance 为 `agent-tool-change-governance` 的 core contract 小改，secondary governance 为 `agent-prompt-contract-governance` 的 context / observation / model input 检查。
+- [ ] 1.2 确认允许触碰模块仅限 `lib/server/agent-core/observation.ts`、`lib/server/agent-core/runtime.ts`、`lib/server/agent-core/contracts.ts` / `lib/server/agent-core/planner-port.ts` 的 `PlannerInput` 语义说明、model adapter request trace 摘要和相关 tests。
 - [ ] 1.3 确认禁止触碰模块：业务 tool handler、tool input/output schema、ToolRegistry 注册模式、Executor 主流程、Policy Guard、ResourceStore、Response Renderer、`/api/chat` 外部 stream contract 和 `AgentAction` schema。
 - [ ] 1.4 检查当前 Git 工作区，确认无关 diff 不进入本 change。
-- [ ] 1.5 记录当前真实模型输入路径：`runAgentRuntime` 构造 `observations` / `toolResults`，`createToolObservation()` 写入 `projection.model`，model adapter 序列化两者。
+- [ ] 1.5 使用 `agent-fix-abstraction-gate` 完成抽象层级门禁审查，确认没有把用户原文、具体 phrasing、具体业务 `toolName` 或测试样例升格成 core 规则。
+- [ ] 1.6 记录当前真实模型输入路径：`runAgentRuntime` 构造 `observations` / `toolResults`，`createToolObservation()` 写入 `projection.model`，model adapter 序列化两者。
 
 ## 2. Observation 去重实现
 
@@ -35,4 +36,4 @@
 
 - [ ] 5.1 运行 `openspec validate dedupe-agent-loop-planner-input --strict`。
 - [ ] 5.2 最终 diff 检查，确认没有混入当前工作区已有的无关 prompt、tool、judge 或测试改动。
-- [ ] 5.3 最终总结改了什么、为什么这个小改优于大 core 重构、如何验证，以及是否仍需要后续再评估完整 `PlannerStateView`。
+- [ ] 5.3 最终总结改了什么、为什么这个小改优于大 core 重构、如何验证，以及是否仍需要后续独立评估完整 `PlannerStateView` / `TerminalGate`。

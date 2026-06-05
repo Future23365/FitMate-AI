@@ -9,7 +9,7 @@ toolResults: toolResults.map(redactToolResultForPlanner),
 
 成功 tool result 的 `projection.model` 当前会通过 `createToolObservation()` 进入 `observations[].content`，同时也通过 redacted `toolResults[].projection.model` 进入 `toolResults`。由于 `observations` 会按通用字符预算压缩，而 `toolResults` 仍保留 projection，模型可能看到同一事实的两种版本：一份被截断或轻微变形，一份更完整。这个问题不需要完整 `PlannerStateView` 才能缓解，可以先在现有 `PlannerInput` 边界做去重。
 
-本 change 的 primary governance 是 `agent-prompt-contract-governance`，修改类型为 context / observation 投影和 compressed tool results。它涉及 `runtime.ts` 和 `observation.ts` 的模型输入构造，但不改变 `PlannerPort` 外形、Executor、Policy Guard、ResourceStore、Response Renderer、`/api/chat` 主链路或业务 tool handler。
+本 change 的 primary governance 调整为 `agent-tool-change-governance` 的 core contract 小改，secondary governance 为 `agent-prompt-contract-governance` 的 context / observation / model input 检查。它涉及 `runtime.ts`、`observation.ts`、`contracts.ts` / `planner-port.ts` 和 model adapter 的模型输入构造，但不改变 `PlannerPort.decideNext(input)` 方法签名、Executor、Policy Guard、ResourceStore、Response Renderer、`/api/chat` 主链路或业务 tool handler。
 
 ## Goals / Non-Goals
 
@@ -19,13 +19,15 @@ toolResults: toolResults.map(redactToolResultForPlanner),
 - 保留 `toolResults[].projection.model` 作为成功 tool facts 的详细安全通道。
 - 将成功 tool result 的 `observations` 降级为轻量索引和导航摘要。
 - 保留 failed / diagnostic / invalid action / runtime error / duplicate feedback observation 的完整修复价值。
-- 保持 `PlannerPort.decideNext(input)` TypeScript 外形兼容。
+- 保持 `PlannerPort.decideNext(input)` 方法签名兼容。
 - 补测试和 trace 摘要，让后续能确认模型输入没有再双通道重复。
 
 **Non-Goals:**
 
 - 不实现完整 `AgentLoopState` / `PlannerStateView`。
 - 不新增 terminal outcome、`TerminalGate` 或 `AgentAction` schema 字段。
+- 不新增 `PlannerInput` 字段。
+- 不实现跨 run / 跨会话的任务状态机。
 - 不改变业务 tool handler、tool schema、ToolRegistry 注册方式或数据库查询语义。
 - 不改 `/api/chat` 请求/响应外部 schema 和 stream event contract。
 - 不新增服务端关键词、正则、同义词表、用户 phrasing 特判、固定 `toolName` 调用顺序或业务 toolName 分支。
@@ -61,11 +63,11 @@ function createToolObservation(result: ToolResult): AgentObservation {
 
 命名可以按现有代码风格调整，但行为边界必须清晰。
 
-### Decision 3: 不改 `PlannerPort` 外形，只改语义合同和测试
+### Decision 3: 保持 `PlannerPort` 方法外形和 `PlannerInput` 字段稳定
 
-这次小改的关键是现实可落地。如果改 `PlannerInput` type 或引入 `PlannerStateView`，影响会扩大到 adapter、ReplayPlanner、trace、tests 和后续所有 planner 实现。
+这次小改的关键是现实可落地。如果引入完整 `PlannerStateView`，影响会扩大到 adapter、ReplayPlanner、trace、tests 和后续所有 planner 实现。
 
-因此本 change 保持：
+因此本 change 保持 `PlannerPort.decideNext(input)` 的单参数方法外形，也不新增 `PlannerInput` 字段：
 
 ```ts
 type PlannerInput = {
@@ -81,6 +83,7 @@ type PlannerInput = {
 
 - `toolResults` 是成功 tool facts 的详细权威通道。
 - `observations` 是 repair / diagnostic + successful result index 通道。
+- repair / diagnostic 信息仍沿用现有 observation、validator details、resource / grounding error 和 tool fulfillment 结构，不在本 change 中抽成新模型输入字段。
 
 ### Decision 4: trace 摘要只记录去重证据，不记录完整 payload
 
@@ -109,7 +112,7 @@ trace 不应为了证明去重而存完整模型 payload。实现可以在 model
 - [Risk] 成功 observation 变轻后，模型少看一份冗余事实，短期可能依赖旧 observation 的测试失败。→ Mitigation：更新 snapshot 和 ReplayPlanner 输入测试，明确详细 facts 在 `toolResults` 中仍可见。
 - [Risk] 某些 adapter 或 prompt 文案仍强调 `observations` 是 facts 来源。→ Mitigation：同步检查 prompt / model input 说明，把成功 facts 的权威来源改成 `toolResults`，repair / diagnostic 仍看 `observations`。
 - [Risk] trace 摘要不足以定位实际 payload。→ Mitigation：保留现有 request message contentRef / 摘要机制，同时新增去重相关计数和 projection presence。
-- [Risk] 未来仍需要完整状态视图。→ Mitigation：这个 change 不阻塞后续 `PlannerStateView`；它只是先去掉当前最明显的重复输入。
+- [Risk] 未来仍需要完整状态视图。→ Mitigation：这个 change 不阻塞后续独立评估；它只是先去掉当前最明显的重复输入。
 
 ## Migration Plan
 
