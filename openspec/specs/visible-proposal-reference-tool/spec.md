@@ -40,6 +40,13 @@ TBD - created by archiving change extend-visible-proposal-reference-tool. Update
 - **AND** output MUST NOT 包含完整 `prescription`、完整 `schedule`、完整 handler output、未进入用户可见方案的 tool 候选或跨用户数据
 - **AND** output MUST NOT 暴露可被模型直接复制为新训练方案的完整动作事实
 
+#### Scenario: run metadata 只暴露可见训练方案索引
+- **WHEN** `/api/chat` 构造 `AgentRunInput`
+- **AND** 当前 actor 和 conversation 存在最近可见训练方案事实
+- **THEN** `run.metadata.recentVisibleTrainingProposals` MUST 只包含可引用索引摘要
+- **AND** 每个摘要 MUST NOT 包含 `exerciseItems`、`prescription`、`schedule`、`exerciseDetails`、图片、肌群、器械或完整展示详情
+- **AND** 需要完整方案事实时，模型 MUST 通过 `inspectVisibleTrainingProposals(operation = "read_recent")` 导入当前 run 的 `visible_training_proposal_fact`
+
 #### Scenario: list_recent 空结果
 - **WHEN** 当前 actor 和 conversation 没有可访问的可见训练方案事实
 - **THEN** `list_recent` MUST 返回 `status = "succeeded"`、`operation = "list_recent"` 和空 `facts[]`
@@ -114,4 +121,58 @@ TBD - created by archiving change extend-visible-proposal-reference-tool. Update
 - **AND** tests MUST 覆盖无可见训练方案时模型可以 `list_recent` 后合法收口
 - **AND** tests MUST 覆盖有可见训练方案时模型可以 `list_recent` / `read_recent` 后再选择是否调用 `searchExerciseResources`
 - **AND** tests MUST 证明 `/api/chat` 没有基于用户原文新增服务端语义分流
+
+### Requirement: list_recent observation 必须表达事实边界而非答案模板
+`inspectVisibleTrainingProposals(operation = "list_recent")` 的模型可见 observation SHALL 描述当前 actor 和 conversation 中可引用 `visibleTrainingProposal` 事实索引的事实边界。Observation MUST NOT 替模型判断用户意图，也 MUST NOT 规定模型在某个用户短语或空结果条件下输出固定答案。
+
+#### Scenario: list_recent 空索引表达可见事实状态
+- **WHEN** `inspectVisibleTrainingProposals(operation = "list_recent")` 返回空 `facts[]`
+- **THEN** model projection MUST 表达 `facts[]` 是当前可见、可引用的 `visibleTrainingProposal` 事实索引集合
+- **AND** model projection MUST 表达空数组只表示当前可见事实中没有这类引用对象
+- **AND** model projection MUST 表达该结果可作为模型推理、解释缺少引用对象或向用户澄清的事实依据
+- **AND** model projection MUST 表达该结果不能支撑成功训练方案刷新或新训练方案生成
+
+#### Scenario: observation 不写固定用户短语或答案模板
+- **WHEN** production registry 或 runtime 将 `list_recent` observation 暴露给 Planner
+- **THEN** 模型可见内容 MUST NOT 包含 `换一批`、`再来一组`、`不要这个` 或等价固定用户短语作为使用条件
+- **AND** 模型可见内容 MUST NOT 包含“如果用户这样说就这样回答”的答案模板
+- **AND** 模型可见内容 MUST NOT 要求固定 `final_answer`、`ask_user`、`read_recent` 或 `searchExerciseResources` 调用顺序
+
+#### Scenario: observation 引导模型结合上下文自行决定下一步
+- **WHEN** `list_recent` observation 暴露给 Planner
+- **THEN** 模型可见内容 MUST 表达该结果只提供事实边界
+- **AND** 模型可见内容 MUST 表达模型应结合本轮用户请求、最近对话和其他 observations / tool results 自行决定是继续查询、解释缺少引用对象、追问，还是开始新的生成
+- **AND** 模型可见内容中的描述性自然语言 MUST 使用中文，`operation`、`list_recent`、`read_recent`、`facts`、`visibleTrainingProposal` 等技术标识 MUST 保持英文原样
+
+### Requirement: inspectVisibleTrainingProposals 模型说明必须支持训练方案刷新判断
+`inspectVisibleTrainingProposals` 的模型可见说明 SHALL 表达该 tool 能读取当前会话中用户已经看到的 `visibleTrainingProposal` 事实，使 Planner 可以了解上一套方案的结构和已展示动作，再自主决定是否查询替代动作、调整结构、澄清或失败收口。说明 MUST NOT 把任意固定自然语言短语写成强制 tool 调用条件。
+
+#### Scenario: Manifest 描述刷新可用事实
+- **WHEN** production registry 序列化 `inspectVisibleTrainingProposals` manifest
+- **THEN** `description`、`whenToUse`、schema description 或 examples MUST 说明该 tool 可用于读取上一套用户可见训练方案事实
+- **AND** 说明 MUST 表达读取事实的业务用途包括了解上一套 `exerciseItems`、section 摘要和计划结构，用于后续自主规划
+- **AND** 说明 MUST 使用中文描述业务含义，`inspectVisibleTrainingProposals`、`visibleTrainingProposal`、`exerciseItems`、`list_recent`、`read_recent` 保持英文原样
+
+#### Scenario: Metadata 和 list_recent 仍只是索引
+- **WHEN** 模型可见上下文包含 `run.metadata.recentVisibleTrainingProposals`
+- **OR** Planner 调用 `operation = "list_recent"`
+- **THEN** 模型可见说明 MUST 表达这些内容只提供可引用索引或摘要
+- **AND** 模型可见说明 MUST 表达完整历史方案事实需要通过当前 run 可见的受控读取结果获得
+- **AND** 模型可见说明 MUST NOT 鼓励模型从 metadata 或 `list_recent` 猜测完整 `exerciseItems`
+
+#### Scenario: 不写固定短语强制调用
+- **WHEN** 模型可见说明描述替换、刷新、省略表达、指代或上下文继续请求
+- **THEN** 说明 MUST 表达由模型基于上下文、可见事实和 tool result 自主判断是否调用本 tool
+- **AND** 说明 MUST NOT 表达成用户说“换一批”“重新来一套”“不要这个”或其他固定短语时必须调用本 tool
+- **AND** 服务端 MUST NOT 根据这些短语选择 `list_recent` 或 `read_recent`
+
+### Requirement: read_recent 成功结果必须说明可用于差异化刷新
+`inspectVisibleTrainingProposals(operation = "read_recent")` 成功后的模型 observation SHALL 说明读取到的事实可以作为当前 run 中差异化刷新、动作保留、动作排除或结构调整的依据，但该 tool 本身不生成新方案。
+
+#### Scenario: Observation 描述当前 run 事实用途
+- **WHEN** `read_recent` 成功
+- **THEN** 模型 observation MUST 表达该可见训练方案事实已经导入当前 run
+- **AND** observation MUST 表达 Planner 可以基于其中已展示动作决定保留、排除、替换、查询新动作、调整结构、澄清或失败收口
+- **AND** observation MUST 表达最终新方案仍必须由 `final_answer.visibleOutputs[]` 承载
+- **AND** observation MUST NOT 表达该 tool 已经生成刷新后的方案
 
