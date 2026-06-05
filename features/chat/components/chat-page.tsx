@@ -669,7 +669,7 @@ export function ChatPage() {
           )}
         </div>
 
-        <div className="app-shell-glass-soft border-t border-line/60 p-lg xl:p-xl">
+        <div className="app-shell-glass-soft border-t border-line/60 px-lg pt-lg xl:px-xl xl:pt-xl">
           <div className="mx-auto max-w-[850px] space-y-sm">
             <form onSubmit={handleSubmit}>
               <div className="relative flex items-center">
@@ -711,9 +711,11 @@ export function ChatPage() {
                   <SymbolIcon>send</SymbolIcon>
                 </button>
               </div>
-              <p className="mt-xs text-center font-label-sm text-[11px] leading-tight text-muted">
-                FitMate AI 也可能犯错，请结合自身情况甄别训练建议。
-              </p>
+              <div className="flex min-h-9 items-center justify-center">
+                <p className="text-center font-label-sm text-[11px] leading-tight text-muted">
+                  FitMate AI 也可能犯错，请结合自身情况甄别训练建议。
+                </p>
+              </div>
             </form>
           </div>
         </div>
