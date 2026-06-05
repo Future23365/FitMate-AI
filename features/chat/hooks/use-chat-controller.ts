@@ -12,6 +12,7 @@ import {
 import {
   createInitialVisibleAgentActivity,
   createWritingReplyAgentActivity,
+  flushPendingAgentActivity,
   reduceAgentActivity,
   reduceVisibleAgentActivity,
   shouldClearAgentActivityForStreamEvent,
@@ -118,6 +119,26 @@ export function useChatController() {
     summary: "",
   });
   const skipNextAutoSaveRef = useRef(false);
+
+  // pending 活动阶段只在最短展示时间结束后释放，避免中文状态连续跳变。
+  useEffect(() => {
+    const pendingVisibleAtMs = agentActivity?.pendingVisibleAtMs;
+    const pendingSequence = agentActivity?.pendingActivityStage?.sequence;
+
+    if (typeof pendingVisibleAtMs !== "number" || typeof pendingSequence !== "number") {
+      return;
+    }
+
+    const delayMs = Math.max(0, pendingVisibleAtMs - Date.now());
+    const timer = window.setTimeout(() => {
+      setAgentActivity((current) => flushPendingAgentActivity(current));
+    }, delayMs);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    agentActivity?.pendingActivityStage?.sequence,
+    agentActivity?.pendingVisibleAtMs,
+  ]);
 
   useEffect(() => {
     try {

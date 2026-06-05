@@ -8,6 +8,7 @@ import { AgentActivityIndicator } from "@/features/chat/components/agent-activit
 import {
   createWritingReplyAgentActivity,
   fallbackAgentActivityLabel,
+  flushPendingAgentActivity,
   getAgentActivityDisplay,
   reduceAgentActivity,
   reduceVisibleAgentActivity,
@@ -202,7 +203,7 @@ describe("Agent progress activity UI state", () => {
     expect(getAgentActivityDisplay(secondLoop!).label).toBe("正在查询动作库...");
   });
 
-  it("accepts specific stages in a dynamic order without changing loopTurn from content", () => {
+  it("holds visible copy before showing rapid specific stage changes", () => {
     const reading = reduceAgentActivity(null, {
       type: "agent_progress",
       stage: "reading_artifacts",
@@ -225,10 +226,59 @@ describe("Agent progress activity UI state", () => {
       sequence: 3,
     }, { nowMs: 300 });
 
+    const stillReading = flushPendingAgentActivity(saving, { nowMs: 999 });
+    const flushedSaving = flushPendingAgentActivity(stillReading, { nowMs: 1_000 });
+    const writing = reduceVisibleAgentActivity(
+      flushedSaving,
+      createWritingReplyAgentActivity(flushedSaving),
+      { nowMs: 1_300 },
+    );
+    const flushedWriting = flushPendingAgentActivity(writing, { nowMs: 2_000 });
+
+    expect(reading?.activityStage?.stage).toBe("reading_artifacts");
+    expect(withLoop?.loopTurn).toBe(5);
+    expect(saving?.activityStage?.stage).toBe("reading_artifacts");
+    expect(saving?.pendingActivityStage?.stage).toBe("saving_result");
+    expect(saving?.pendingVisibleAtMs).toBe(1_000);
+    expect(saving?.loopTurn).toBe(5);
+    expect(stillReading?.activityStage?.stage).toBe("reading_artifacts");
+    expect(flushedSaving?.activityStage?.stage).toBe("saving_result");
+    expect(flushedSaving?.pendingActivityStage).toBeUndefined();
+    expect(flushedSaving?.loopTurn).toBe(5);
+    expect(writing?.activityStage?.stage).toBe("saving_result");
+    expect(writing?.pendingActivityStage?.stage).toBe("writing_reply");
+    expect(flushedWriting?.activityStage?.stage).toBe("writing_reply");
+    expect(flushedWriting?.loopTurn).toBe(5);
+    expect(flushedWriting?.activityStage?.sequence).toBe(4);
+  });
+
+  it("accepts specific stages after the current label has met its minimum display time", () => {
+    const reading = reduceAgentActivity(null, {
+      type: "agent_progress",
+      stage: "reading_artifacts",
+      status: "active",
+      messageKey: "reading_artifacts",
+      sequence: 1,
+    }, { nowMs: 0 });
+
+    const withLoop = reduceAgentActivity(reading, {
+      type: "agent_loop",
+      loopTurn: 5,
+      sequence: 2,
+    }, { nowMs: 100 });
+
+    const saving = reduceAgentActivity(withLoop, {
+      type: "agent_progress",
+      stage: "saving_result",
+      status: "active",
+      messageKey: "saving_result",
+      sequence: 3,
+    }, { nowMs: 1_100 });
+
     const writing = reduceVisibleAgentActivity(
       saving,
       createWritingReplyAgentActivity(saving),
-      { nowMs: 600 },
+      { nowMs: 2_200 },
     );
 
     expect(reading?.activityStage?.stage).toBe("reading_artifacts");
@@ -274,7 +324,8 @@ describe("AgentActivityIndicator", () => {
     expect(html).toContain("tabular-nums");
     expect(html).not.toContain("text-right");
     expect(html).not.toContain("translate-y-[1px]");
-    expect(html).not.toContain("motion-safe:animate-pulse");
+    expect(html).toContain("motion-safe:animate-pulse");
+    expect(html).toContain("motion-reduce:animate-none");
     expect(html).not.toContain("validateRoutineDraft");
   });
 

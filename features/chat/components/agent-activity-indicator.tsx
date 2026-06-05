@@ -19,7 +19,7 @@ export function AgentActivityIndicator({
   return (
     <div
       aria-live="polite"
-      className={`agent-activity-indicator flex min-h-[18px] items-baseline gap-[2px] py-[2px] pl-0 pr-xs font-label-sm text-label-sm font-bold leading-[16px] ${toneClass} transition-colors duration-200`}
+      className={`agent-activity-indicator flex min-h-[18px] items-baseline gap-[2px] py-[2px] pl-0 pr-xs font-label-sm text-label-sm font-bold leading-[16px] ${toneClass} transition-colors duration-200 motion-safe:animate-pulse motion-reduce:animate-none`}
       role="status"
     >
       <span
