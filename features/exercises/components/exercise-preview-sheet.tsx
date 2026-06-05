@@ -4,6 +4,11 @@ import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { RightDrawer } from "@/components/app/right-drawer";
 import { SymbolIcon } from "@/components/app/symbol-icon";
+import {
+  ExercisePreviewFooter,
+  ExercisePreviewHeader,
+  type ExercisePreviewPrimaryAction,
+} from "@/features/exercises/components/exercise-preview-sheet-parts";
 import type { Exercise } from "@/lib/shared/exercises/types";
 
 interface ExercisePreviewSheetProps {
@@ -11,11 +16,7 @@ interface ExercisePreviewSheetProps {
   onClose: () => void;
   exercise: Exercise | null;
   executionTip?: string;
-  primaryAction?: {
-    icon?: string;
-    label: string;
-    onClick: () => void;
-  };
+  primaryAction?: ExercisePreviewPrimaryAction;
 }
 
 const placeholderImage = "/images/exercise-placeholder.svg";
@@ -68,6 +69,47 @@ export function ExercisePreviewSheet({
   executionTip,
   primaryAction,
 }: ExercisePreviewSheetProps) {
+  const isDrawerOpen = isOpen && Boolean(exercise);
+
+  return (
+    <RightDrawer
+      ariaLabel="动作详情"
+      bodyClassName="custom-scrollbar flex-1 space-y-md overflow-y-auto p-md"
+      footer={
+        <ExercisePreviewFooter
+          exercise={exercise}
+          primaryAction={primaryAction}
+        />
+      }
+      footerClassName="shrink-0"
+      header={<ExercisePreviewHeader exercise={exercise} onClose={onClose} />}
+      headerClassName="shrink-0"
+      isOpen={isDrawerOpen}
+      onClose={onClose}
+      panelClassName="bg-slate-50"
+      widthClassName="sm:w-[460px]"
+    >
+      {exercise ? (
+        <ExercisePreviewSheetBody
+          exercise={exercise}
+          executionTip={executionTip}
+          isActive={isDrawerOpen}
+        />
+      ) : null}
+    </RightDrawer>
+  );
+}
+
+// ExercisePreviewSheetBody 承载动作图片、参数和步骤详情，供完整 Sheet 与懒加载抽屉共用。
+export function ExercisePreviewSheetBody({
+  exercise,
+  executionTip,
+  isActive = true,
+}: {
+  exercise: Exercise;
+  executionTip?: string;
+  isActive?: boolean;
+}) {
   const [imageSelection, setImageSelection] = useState({
     exerciseId: "",
     index: 0,
@@ -122,7 +164,7 @@ export function ExercisePreviewSheet({
   );
 
   useEffect(() => {
-    if (!isOpen || !exerciseId) {
+    if (!isActive || !exerciseId) {
       return;
     }
 
@@ -145,10 +187,10 @@ export function ExercisePreviewSheet({
     return () => {
       cancelled = true;
     };
-  }, [exerciseId, images, isOpen, markImageFailed, markImageLoaded]);
+  }, [exerciseId, images, isActive, markImageFailed, markImageLoaded]);
 
   useEffect(() => {
-    if (!isOpen || !exerciseId || !hasMultipleImages || !isAutoPlaying) {
+    if (!isActive || !exerciseId || !hasMultipleImages || !isAutoPlaying) {
       return;
     }
 
@@ -177,7 +219,7 @@ export function ExercisePreviewSheet({
     }, delay);
 
     return () => window.clearTimeout(timer);
-  }, [activeImageIndex, exerciseId, hasMultipleImages, imageLoadStatus, images, isAutoPlaying, isOpen]);
+  }, [activeImageIndex, exerciseId, hasMultipleImages, imageLoadStatus, images, isActive, isAutoPlaying]);
 
   function selectImage(index: number) {
     setImageSelection({
@@ -195,61 +237,7 @@ export function ExercisePreviewSheet({
   };
 
   return (
-    <RightDrawer
-      ariaLabel="动作详情"
-      bodyClassName="custom-scrollbar flex-1 space-y-md overflow-y-auto p-md"
-      footer={
-        primaryAction && exercise ? (
-          <div className="shrink-0 border-t border-slate-100 bg-white p-md shadow-[0_-8px_24px_rgba(15,23,42,0.06)]">
-            <button
-              className="flex w-full items-center justify-center gap-xs rounded-xl bg-primary px-md py-sm font-label-md text-label-md font-bold text-white transition-colors hover:bg-primary-deep"
-              onClick={primaryAction.onClick}
-              type="button"
-            >
-              {primaryAction.icon ? (
-                <SymbolIcon className="text-[18px]">{primaryAction.icon}</SymbolIcon>
-              ) : null}
-              {primaryAction.label}
-            </button>
-          </div>
-        ) : null
-      }
-      footerClassName="shrink-0"
-      header={
-        exercise ? (
-          <div className="flex items-center justify-between border-b border-slate-100 bg-white px-lg py-md shadow-sm">
-              <div className="flex items-center gap-xs">
-                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary">
-                  <SymbolIcon className="text-[20px]">fitness_center</SymbolIcon>
-                </span>
-                <div>
-                  <h3 className="font-title-md text-title-md font-bold text-slate-800 leading-snug">
-                    {exercise.nameZh || "动作详情"}
-                  </h3>
-                  <p className="font-label-xs text-label-xs text-slate-400">
-                    {exercise.nameEn}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={onClose}
-                className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 active:scale-95 transition-all border border-slate-100"
-                type="button"
-                aria-label="关闭"
-              >
-                <SymbolIcon className="text-[20px]">close</SymbolIcon>
-              </button>
-            </div>
-        ) : null
-      }
-      headerClassName="shrink-0"
-      isOpen={isOpen && Boolean(exercise)}
-      onClose={onClose}
-      panelClassName="bg-slate-50"
-      widthClassName="sm:w-[460px]"
-    >
-      {exercise ? (
-        <>
+    <>
               {/* 卡片一：动作视觉演示 (步骤图轮播 + 快切大按钮) */}
               <div className="bg-white shadow-sm rounded-2xl p-md border border-slate-100/60">
                 <h4 className="mb-sm flex items-center gap-xs font-label-sm text-label-sm font-bold text-slate-700">
@@ -435,8 +423,6 @@ export function ExercisePreviewSheet({
                   </p>
                 </div>
               ) : null}
-        </>
-      ) : null}
-    </RightDrawer>
+    </>
   );
 }
