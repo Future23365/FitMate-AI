@@ -94,7 +94,7 @@ export const agentRuntimeConfig = {
       /** timeoutMs 限制动作事实查询 tool 的单次执行时间；调大可能放大慢查询影响。 */
       timeoutMs: 2_000,
       /** maxReturnedPerSection 控制每个 warmup/training/stretch section 的可见动作数量；调大增加模型上下文体积。 */
-      maxReturnedPerSection: 12,
+      maxReturnedPerSection: 8,
     },
     /** resolveExerciseResourceMentions 控制点名动作解析返回给模型的候选规模。 */
     resolveExerciseResourceMentions: {
