@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useEffect, useState } from "react";
 
 import { RightDrawer } from "@/components/app/right-drawer";
 import {
@@ -45,12 +46,22 @@ export function LazyExercisePreviewSheet({
   onClose,
   primaryAction,
 }: LazyExercisePreviewSheetProps) {
-  const hasPreviewExercise = isOpen && Boolean(exercise);
+  const [lastExercise, setLastExercise] = useState<Exercise | null>(null);
+  const displayExercise = exercise ?? (!isOpen ? lastExercise : null);
+  const hasPreviewExercise = Boolean(displayExercise);
   const isDetailReady = hasPreviewExercise && !isLoading && !errorMessage;
 
-  if (!isOpen && !exercise && !isLoading && !errorMessage) {
-    return null;
-  }
+  useEffect(() => {
+    if (!exercise) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      setLastExercise(exercise);
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [exercise]);
 
   return (
     <RightDrawer
@@ -59,7 +70,7 @@ export function LazyExercisePreviewSheet({
       footer={
         isDetailReady ? (
           <ExercisePreviewFooter
-            exercise={exercise}
+            exercise={displayExercise}
             primaryAction={primaryAction}
           />
         ) : null
@@ -67,7 +78,7 @@ export function LazyExercisePreviewSheet({
       footerClassName="shrink-0"
       header={
         <ExercisePreviewHeader
-          exercise={hasPreviewExercise ? exercise : null}
+          exercise={displayExercise}
           onClose={onClose}
         />
       }
@@ -77,7 +88,7 @@ export function LazyExercisePreviewSheet({
       panelClassName="bg-slate-50"
       widthClassName="sm:w-[460px]"
     >
-      {hasPreviewExercise && exercise ? (
+      {hasPreviewExercise && displayExercise ? (
         <>
           {errorMessage ? (
             <div className="rounded-xl border border-error-container bg-error-container/30 p-md text-on-error-container">
@@ -86,7 +97,7 @@ export function LazyExercisePreviewSheet({
             </div>
           ) : null}
           <DynamicExercisePreviewSheetBody
-            exercise={exercise}
+            exercise={displayExercise}
             executionTip={executionTip}
             isActive={isOpen}
           />
