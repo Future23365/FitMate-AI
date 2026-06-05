@@ -5,6 +5,13 @@ export type AgentRuntimeConfig = {
     temperature: number;
     maxTokens: number;
     timeoutMs: number;
+    deepSeek: {
+      defaultModel: string;
+      thinking: {
+        defaultEnabled: boolean;
+        reasoningEffort: "high" | "max";
+      };
+    };
   };
   terminalFailureFinalizer: {
     enabled: boolean;
@@ -13,6 +20,9 @@ export type AgentRuntimeConfig = {
     maxTokens: number;
     temperature: number;
     maxSuggestedQuestions: number;
+    deepSeek: {
+      thinkingType: "disabled";
+    };
   };
   runtime: {
     maxSteps: number;
@@ -54,6 +64,18 @@ export const agentRuntimeConfig = {
     maxTokens: 10_000,
     /** timeoutMs 限制单次模型请求等待时间；调大增加用户等待，调小会放大慢响应的失败率。 */
     timeoutMs: 15_000,
+    /** deepSeek 集中保存 DeepSeek provider 专有请求策略，避免 adapter 局部散落模型名和推理强度。 */
+    deepSeek: {
+      /** defaultModel 是生产 Planner 的默认 DeepSeek 模型；部署环境仍可用 DEEPSEEK_MODEL 覆盖最终请求 model。 */
+      defaultModel: "deepseek-v4-flash",
+      /** thinking 控制 DeepSeek Thinking Mode；开启会增加推理深度、延迟、成本，并影响 AgentAction 输出稳定性。 */
+      thinking: {
+        /** defaultEnabled 只表达 provider thinking 默认开关，不参与业务 tool、训练结构或服务端语义分流。 */
+        defaultEnabled: true,
+        /** reasoningEffort 控制 Thinking Mode 推理强度；调高会增加 reasoning token、等待时间和成本。 */
+        reasoningEffort: "high",
+      },
+    },
   },
   /** terminalFailureFinalizer 控制主 Agent 失败后的单次自然语言收口，独立于主 repair 预算。 */
   terminalFailureFinalizer: {
@@ -69,6 +91,11 @@ export const agentRuntimeConfig = {
     temperature: 0.2,
     /** maxSuggestedQuestions 控制下一轮建议问题数量，保证 UI 清晰且不会挤占聊天空间。 */
     maxSuggestedQuestions: 3,
+    /** deepSeek 约束失败收口模型的 provider 参数；finalizer 只做低延迟失败解释，显式禁用 Thinking Mode。 */
+    deepSeek: {
+      /** thinkingType 固定 disabled，避免失败收口阶段产生或保存 reasoning_content。 */
+      thinkingType: "disabled",
+    },
   },
   /** runtime 控制 agent-core 主循环预算；这些值决定 repair、tool calling 和最终收口最多能推进多远。 */
   runtime: {

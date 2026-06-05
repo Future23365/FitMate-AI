@@ -260,6 +260,7 @@ function createFakeFinalizerSuccessResult(
         temperature: 0,
         max_tokens: 120,
         response_format: { type: "json_object" },
+        thinking: { type: "disabled" },
         timeoutMs: 100,
         messageCount: 2,
         messages: [

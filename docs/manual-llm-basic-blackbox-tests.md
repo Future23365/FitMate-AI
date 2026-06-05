@@ -65,7 +65,7 @@ npm run test:llm:basic -- --help
 | 环境变量 | 说明 |
 |---|---|
 | `DEEPSEEK_API_KEY` | 必需。缺少时不会静默使用 mock，会生成配置失败摘要。 |
-| `DEEPSEEK_MODEL` | 可选。聊天模型默认使用 `deepseek-chat`。 |
+| `DEEPSEEK_MODEL` | 可选。聊天模型默认使用 `deepseek-v4-flash`。 |
 | `DEEPSEEK_API_URL` | 可选。DeepSeek endpoint 默认使用 `https://api.deepseek.com/chat/completions`。 |
 | `DEEPSEEK_JUDGE_MODEL` | 可选。Judge 模型优先使用该值，其次使用 `DEEPSEEK_MODEL`，最后默认 `deepseek-chat`。 |
 | `MANUAL_LLM_BASIC_TIMEOUT_MS` | 可选。手动套件整体 timeout，默认 20 分钟。 |

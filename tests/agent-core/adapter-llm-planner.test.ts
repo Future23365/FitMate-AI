@@ -20,13 +20,18 @@ import {
   type AgentLlmPromptConfig,
 } from "@/lib/server/config";
 
-function deepSeekResponse(content: string, status = 200) {
+function deepSeekResponse(
+  content: string,
+  status = 200,
+  options: { model?: string; reasoningContent?: string } = {},
+) {
   return new Response(JSON.stringify({
-    model: "deepseek-chat",
+    model: options.model ?? agentRuntimeConfig.llm.deepSeek.defaultModel,
     choices: [
       {
         message: {
           content,
+          reasoning_content: options.reasoningContent,
         },
       },
     ],
@@ -45,6 +50,22 @@ function captureDeepSeekRequestBodies(content: string) {
   });
 
   return { fetchImpl, requestBodies };
+}
+
+// createBasicPlannerInput 保持 adapter 单测聚焦 provider request contract，不引入业务 tool 或 runtime 语义。
+function createBasicPlannerInput(runId: string, thinkingEnabled?: boolean) {
+  return {
+    run: {
+      runId,
+      actor: {},
+      userInput: "answer",
+      metadata: typeof thinkingEnabled === "boolean" ? { thinkingEnabled } : undefined,
+    },
+    step: 1,
+    manifests: [],
+    observations: [],
+    toolResults: [],
+  };
 }
 
 describe("agent-planners LlmPlanner and model adapters", () => {
@@ -115,8 +136,13 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       parseStatus: "parsed",
       actionType: "final_answer",
       request: {
-        model: "deepseek-chat",
+        model: agentRuntimeConfig.llm.deepSeek.defaultModel,
         response_format: { type: "json_object" },
+        thinking: {
+          type: "enabled",
+          enabled: true,
+          reasoning_effort: agentRuntimeConfig.llm.deepSeek.thinking.reasoningEffort,
+        },
         timeoutMs: agentRuntimeConfig.llm.timeoutMs,
         messageCount: 2,
         run: {
@@ -126,9 +152,14 @@ describe("agent-planners LlmPlanner and model adapters", () => {
         },
       },
       response: {
-        model: "deepseek-chat",
+        model: agentRuntimeConfig.llm.deepSeek.defaultModel,
         status: "parsed",
         rawTextLength: expect.any(Number),
+        reasoning: {
+          received: false,
+          contentLength: 0,
+          source: "choices[0].message.reasoning_content",
+        },
       },
       parsedAction: {
         type: "final_answer",
@@ -142,6 +173,107 @@ describe("agent-planners LlmPlanner and model adapters", () => {
     });
     expect(JSON.stringify(completion.trace)).not.toContain("test-key");
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses centralized DeepSeek defaults and keeps constructor model override explicit", async () => {
+    const defaultCapture = captureDeepSeekRequestBodies(JSON.stringify({
+      type: "final_answer",
+      content: "default model.",
+    }));
+    const defaultAdapter = new DeepSeekModelAdapter({
+      apiKey: "test-key",
+      fetchImpl: defaultCapture.fetchImpl as typeof fetch,
+    });
+    const overrideCapture = captureDeepSeekRequestBodies(JSON.stringify({
+      type: "final_answer",
+      content: "override model.",
+    }));
+    const overrideAdapter = new DeepSeekModelAdapter({
+      apiKey: "test-key",
+      model: "deepseek-v4-pro",
+      fetchImpl: overrideCapture.fetchImpl as typeof fetch,
+    });
+
+    await defaultAdapter.completeAction(createBasicPlannerInput("run-deepseek-default-model"));
+    await overrideAdapter.completeAction(createBasicPlannerInput("run-deepseek-override-model"));
+
+    expect(defaultCapture.requestBodies[0]).toMatchObject({
+      model: agentRuntimeConfig.llm.deepSeek.defaultModel,
+    });
+    expect(overrideCapture.requestBodies[0]).toMatchObject({
+      model: "deepseek-v4-pro",
+    });
+  });
+
+  it("maps thinkingEnabled metadata to DeepSeek Thinking Mode request parameters", async () => {
+    const enabledCapture = captureDeepSeekRequestBodies(JSON.stringify({
+      type: "final_answer",
+      content: "thinking enabled.",
+    }));
+    const enabledAdapter = new DeepSeekModelAdapter({
+      apiKey: "test-key",
+      fetchImpl: enabledCapture.fetchImpl as typeof fetch,
+    });
+    const disabledCapture = captureDeepSeekRequestBodies(JSON.stringify({
+      type: "final_answer",
+      content: "thinking disabled.",
+    }));
+    const disabledAdapter = new DeepSeekModelAdapter({
+      apiKey: "test-key",
+      fetchImpl: disabledCapture.fetchImpl as typeof fetch,
+    });
+
+    const enabledCompletion = await enabledAdapter.completeAction(createBasicPlannerInput("run-deepseek-thinking-on", true));
+    const disabledCompletion = await disabledAdapter.completeAction(createBasicPlannerInput("run-deepseek-thinking-off", false));
+
+    expect(enabledCapture.requestBodies[0]).toMatchObject({
+      thinking: { type: "enabled" },
+      reasoning_effort: agentRuntimeConfig.llm.deepSeek.thinking.reasoningEffort,
+    });
+    expect(enabledCompletion.trace?.request.thinking).toEqual({
+      type: "enabled",
+      enabled: true,
+      reasoning_effort: agentRuntimeConfig.llm.deepSeek.thinking.reasoningEffort,
+    });
+    expect(disabledCapture.requestBodies[0]).toMatchObject({
+      thinking: { type: "disabled" },
+    });
+    expect(disabledCapture.requestBodies[0]).not.toHaveProperty("reasoning_effort");
+    expect(disabledCompletion.trace?.request.thinking).toEqual({
+      type: "disabled",
+      enabled: false,
+    });
+  });
+
+  it("parses AgentAction from content while keeping reasoning_content as trace diagnostics only", async () => {
+    const hiddenReasoning = "内部 reasoning 内容不应进入用户可见 action。";
+    const fetchImpl = vi.fn(async () => deepSeekResponse(JSON.stringify({
+      type: "final_answer",
+      content: "正式 content 被解析。",
+      suggestedQuestions: ["继续训练？"],
+    }), 200, { reasoningContent: hiddenReasoning }));
+    const adapter = new DeepSeekModelAdapter({
+      apiKey: "test-key",
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+
+    const completion = await adapter.completeAction(createBasicPlannerInput("run-deepseek-reasoning-trace", true));
+
+    expect(completion.actionCandidate).toEqual({
+      type: "final_answer",
+      content: "正式 content 被解析。",
+      suggestedQuestions: ["继续训练？"],
+    });
+    expect(completion.rawText).toContain("正式 content 被解析。");
+    expect(completion.rawText).not.toContain(hiddenReasoning);
+    expect(JSON.stringify(completion.trace?.response?.rawText)).not.toContain(hiddenReasoning);
+    expect(completion.trace?.response?.reasoning).toMatchObject({
+      received: true,
+      contentLength: hiddenReasoning.length,
+      rawText: hiddenReasoning,
+      source: "choices[0].message.reasoning_content",
+    });
+    expect(JSON.stringify(completion.actionCandidate)).not.toContain(hiddenReasoning);
   });
 
   it("keeps long DeepSeek request message diagnostics as chunked trace text", async () => {

@@ -17,6 +17,7 @@ import {
   type ModelActionCompletionTrace,
   type ModelTraceLongTextChunk,
   type ModelTraceLongTextEnvelope,
+  type ModelTraceReasoningSummary,
   type ModelAdapter,
 } from "./model-adapter";
 import {
@@ -44,21 +45,25 @@ type DeepSeekChatResponse = {
   choices?: Array<{
     message?: {
       content?: string | null;
+      reasoning_content?: string | null;
     };
   }>;
   usage?: JsonValue;
 };
+
+type DeepSeekThinkingType = "enabled" | "disabled";
 
 type DeepSeekRequestBody = {
   model: string;
   temperature: number;
   max_tokens: number;
   response_format: { type: "json_object" };
+  thinking: { type: DeepSeekThinkingType };
+  reasoning_effort?: "high" | "max";
   messages: Array<{ role: string; content: string }>;
 };
 
 const DEFAULT_DEEPSEEK_ENDPOINT = "https://api.deepseek.com/chat/completions";
-const DEFAULT_DEEPSEEK_MODEL = "deepseek-chat";
 /** DeepSeekModelAdapter 封装 DeepSeek 请求、模型参数、结构化输出解析和错误归一化。 */
 export class DeepSeekModelAdapter implements ModelAdapter {
   readonly name = "deepseek-model-adapter";
@@ -79,7 +84,7 @@ export class DeepSeekModelAdapter implements ModelAdapter {
     this.promptConfig = options.promptConfig ?? agentLlmPromptConfig;
     this.apiKey = options.apiKey;
     this.endpoint = options.endpoint ?? DEFAULT_DEEPSEEK_ENDPOINT;
-    this.model = options.model ?? DEFAULT_DEEPSEEK_MODEL;
+    this.model = options.model ?? agentRuntimeConfig.llm.deepSeek.defaultModel;
     this.timeoutMs = options.timeoutMs ?? agentRuntimeConfig.llm.timeoutMs;
     this.temperature = options.temperature ?? this.promptConfig.requestDefaults.temperature;
     this.maxTokens = options.maxTokens ?? this.promptConfig.requestDefaults.maxTokens;
@@ -133,6 +138,7 @@ export class DeepSeekModelAdapter implements ModelAdapter {
 
       const payload = await response.json() as DeepSeekChatResponse;
       const content = payload.choices?.[0]?.message?.content;
+      const reasoningTrace = createReasoningTrace(payload, requestTrace);
       const model = payload.model ?? this.model;
       const usage = normalizeModelTokenUsage(payload.usage);
       if (!content) {
@@ -149,6 +155,7 @@ export class DeepSeekModelAdapter implements ModelAdapter {
               httpStatus: response.status,
               status: "empty_content",
               rawResponse: summarizeDeepSeekPayload(payload),
+              reasoning: reasoningTrace,
             },
             actionCandidate,
             parseStatus: "empty_content",
@@ -177,6 +184,7 @@ export class DeepSeekModelAdapter implements ModelAdapter {
               rawText: summarizeText(content),
               rawTextLength: content.length,
               rawResponse: summarizeDeepSeekPayload(payload),
+              reasoning: reasoningTrace,
             },
             actionCandidate,
             parseStatus: "invalid_json",
@@ -223,6 +231,7 @@ export class DeepSeekModelAdapter implements ModelAdapter {
             rawText: summarizeText(content),
             rawTextLength: content.length,
             rawResponse: summarizeDeepSeekPayload(payload),
+            reasoning: reasoningTrace,
           },
           actionCandidate,
           parsedAction: parsed.value,
@@ -276,11 +285,17 @@ export class DeepSeekModelAdapter implements ModelAdapter {
   }
 
   private createRequestBody(input: ModelActionCompletionInput): DeepSeekRequestBody {
+    const thinking = createDeepSeekThinkingRequest(input);
+
     return {
       model: this.model,
       temperature: this.temperature,
       max_tokens: this.maxTokens,
       response_format: { type: "json_object" },
+      thinking: {
+        type: thinking.type,
+      },
+      reasoning_effort: thinking.reasoning_effort,
       messages: [
         {
           role: "system",
@@ -317,6 +332,11 @@ export class DeepSeekModelAdapter implements ModelAdapter {
       temperature: requestBody.temperature,
       max_tokens: requestBody.max_tokens,
       response_format: requestBody.response_format,
+      thinking: {
+        type: requestBody.thinking.type,
+        enabled: requestBody.thinking.type === "enabled",
+        reasoning_effort: requestBody.reasoning_effort,
+      },
       timeoutMs: this.timeoutMs,
       messageCount: requestBody.messages.length,
       messages: requestBody.messages.map((message) => ({
@@ -411,12 +431,55 @@ async function safeReadResponseText(response: Response) {
 }
 
 function summarizeDeepSeekPayload(payload: DeepSeekChatResponse): JsonValue {
+  const reasoningContent = readDeepSeekReasoningContent(payload);
+
   return safeTraceValue({
     model: payload.model,
     choiceCount: payload.choices?.length ?? 0,
     hasContent: Boolean(payload.choices?.[0]?.message?.content),
+    hasReasoningContent: Boolean(reasoningContent),
+    reasoningContentLength: reasoningContent?.length,
     usage: normalizeModelTokenUsage(payload.usage),
   });
+}
+
+// createDeepSeekThinkingRequest 只把受控 run metadata 映射为 provider 参数，不参与业务语义推断。
+function createDeepSeekThinkingRequest(input: ModelActionCompletionInput) {
+  const enabled = readRunThinkingEnabled(input.run.metadata);
+  const type: DeepSeekThinkingType = enabled ? "enabled" : "disabled";
+
+  return {
+    type,
+    reasoning_effort: enabled ? agentRuntimeConfig.llm.deepSeek.thinking.reasoningEffort : undefined,
+  };
+}
+
+function readRunThinkingEnabled(metadata: ModelActionCompletionInput["run"]["metadata"]) {
+  const value = metadata?.thinkingEnabled;
+
+  return typeof value === "boolean"
+    ? value
+    : agentRuntimeConfig.llm.deepSeek.thinking.defaultEnabled;
+}
+
+// createReasoningTrace 保留 reasoning_content 的安全诊断摘要，正式 AgentAction 仍只从 content 解析。
+function createReasoningTrace(
+  payload: DeepSeekChatResponse,
+  requestTrace: ModelActionCompletionTrace["request"],
+): ModelTraceReasoningSummary {
+  const reasoningContent = readDeepSeekReasoningContent(payload);
+
+  return {
+    received: Boolean(reasoningContent),
+    contentLength: reasoningContent?.length ?? 0,
+    rawText: reasoningContent ? summarizeText(reasoningContent) : undefined,
+    source: "choices[0].message.reasoning_content",
+    unexpectedWhenThinkingDisabled: Boolean(reasoningContent) && requestTrace.thinking?.type === "disabled",
+  };
+}
+
+function readDeepSeekReasoningContent(payload: DeepSeekChatResponse) {
+  return payload.choices?.[0]?.message?.reasoning_content ?? undefined;
 }
 
 function safeTraceValue(value: unknown): JsonValue {

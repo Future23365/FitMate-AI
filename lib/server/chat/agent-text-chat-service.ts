@@ -1289,6 +1289,7 @@ function recordTerminalFailureFinalizerTrace(input: {
         promptVersion: input.summary.finalizerTrace.promptVersion,
         model: input.summary.finalizerTrace.request.model,
         messageCount: input.summary.finalizerTrace.request.messageCount,
+        thinking: input.summary.finalizerTrace.request.thinking,
         maxTokens: input.summary.finalizerTrace.request.max_tokens,
         timeoutMs: input.summary.finalizerTrace.request.timeoutMs,
       },
@@ -1297,6 +1298,7 @@ function recordTerminalFailureFinalizerTrace(input: {
         boundary: "terminal_failure_finalizer_model_adapter",
         promptVersion: input.summary.finalizerTrace.promptVersion,
         response_format: input.summary.finalizerTrace.request.response_format,
+        thinking: input.summary.finalizerTrace.request.thinking,
       },
     });
 
@@ -1700,6 +1702,7 @@ function recordAgentTextChatModelDiagnosticsTrace(input: {
           plannerCallIndex: diagnostic.plannerCallIndex,
           runtimeStep: diagnostic.runtimeStep,
           messageCount: diagnostic.request.messageCount,
+          thinking: diagnostic.request.thinking,
           toolCount: diagnostic.request.run.toolCount,
           observationCount: diagnostic.request.run.observationCount,
           toolResultCount: diagnostic.request.run.toolResultCount,
@@ -1711,6 +1714,7 @@ function recordAgentTextChatModelDiagnosticsTrace(input: {
           plannerCallIndex: diagnostic.plannerCallIndex,
           runtimeStep: diagnostic.runtimeStep,
           response_format: diagnostic.request.response_format,
+          thinking: diagnostic.request.thinking,
           tokenUsage: diagnostic.tokenUsage,
           runtimeLinkage,
         },
@@ -1732,6 +1736,7 @@ function recordAgentTextChatModelDiagnosticsTrace(input: {
           rawText: diagnostic.response?.rawText,
           rawTextLength: diagnostic.response?.rawTextLength,
           rawResponse: diagnostic.response?.rawResponse,
+          reasoning: diagnostic.response?.reasoning,
           parsedAction: diagnostic.parsedAction,
           tokenUsage: diagnostic.tokenUsage,
           diagnostics: diagnostic.diagnostics,
@@ -1746,6 +1751,7 @@ function recordAgentTextChatModelDiagnosticsTrace(input: {
           parseStatus: diagnostic.parseStatus,
           failureCode: diagnostic.failureCode,
           tokenUsage: diagnostic.tokenUsage,
+          reasoning: diagnostic.response?.reasoning,
           runtimeLinkage,
         },
       });

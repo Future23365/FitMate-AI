@@ -239,6 +239,9 @@ describe("agent LLM prompt configuration", () => {
       maxTokens: 500,
       temperature: 0.2,
       maxSuggestedQuestions: 3,
+      deepSeek: {
+        thinkingType: "disabled",
+      },
     });
   });
 });

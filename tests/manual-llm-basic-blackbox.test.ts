@@ -286,7 +286,7 @@ describe("manual basic LLM report and isolation", () => {
     }];
     const summary: BasicChatSuiteSummary = {
       status: "passed",
-      model: "deepseek-chat",
+      model: "deepseek-v4-flash",
       judgeModel: "deepseek-chat",
       sourcePath: "llm基础测试.md",
       reportPath: "docs/manual-llm-basic-blackbox-latest-report.md",

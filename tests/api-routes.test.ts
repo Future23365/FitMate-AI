@@ -182,7 +182,7 @@ describe("API route boundaries", () => {
 
   it("streams /api/chat final answers from the production text Agent flow", async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(Response.json({
-      model: "deepseek-chat",
+      model: "deepseek-v4-flash",
       choices: [
         {
           message: {
@@ -223,6 +223,9 @@ describe("API route boundaries", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const modelRequest = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     expect(modelRequest).toMatchObject({
+      model: "deepseek-v4-flash",
+      thinking: { type: "enabled" },
+      reasoning_effort: "high",
       messages: expect.arrayContaining([
         expect.objectContaining({
           content: expect.stringContaining("\"name\":\"searchExerciseResources\""),
@@ -242,7 +245,11 @@ describe("API route boundaries", () => {
       output: expect.objectContaining({
         plannerCallIndex: 1,
         runtimeStep: 1,
-        model: "deepseek-chat",
+        model: "deepseek-v4-flash",
+        thinking: expect.objectContaining({
+          type: "enabled",
+          reasoning_effort: "high",
+        }),
       }),
     }));
     expect(traceMocks.startAiTrace.mock.results[0].value.addStep).toHaveBeenCalledWith(expect.objectContaining({

@@ -1090,14 +1090,20 @@ function createModuleSummary(group: TraceStepGroup): Array<{ label: string; valu
       ];
     }
     case "planner_model": {
+      const modelRequests = group.steps.filter((step) => step.type === "model_request");
       const modelResponses = group.steps.filter((step) => step.type === "model_response");
       const usage = sumTokenUsage(modelResponses);
+      const latestRequest = modelRequests.at(-1);
       const latestResponse = modelResponses.at(-1);
+      const latestRequestOutput = isRecord(latestRequest?.output) ? latestRequest.output : {};
+      const latestRequestMetadata = isRecord(latestRequest?.metadata) ? latestRequest.metadata : {};
       const latestOutput = isRecord(latestResponse?.output) ? latestResponse.output : {};
       const estimatedBudget = summarizeEstimatedTokenBudget(group.steps);
 
       return [
         { label: "LLM 调用", value: `${modelResponses.length} 轮` },
+        { label: "thinking", value: formatThinkingSummary(latestRequestOutput.thinking ?? latestRequestMetadata.thinking) },
+        { label: "reasoning", value: formatReasoningSummary(latestOutput.reasoning) },
         { label: "真实 usage", value: usage ? formatTokenUsage(usage) : "无真实 usage" },
         { label: "预算估算", value: estimatedBudget },
         { label: "parse status", value: readString(latestOutput.parseStatus) || "未记录" },
@@ -1404,6 +1410,29 @@ function formatTokenUsage(usage: TokenUsage) {
   return `输入 ${formatOptionalNumber(usage.prompt_tokens)} / 输出 ${formatOptionalNumber(usage.completion_tokens)} / 总 ${formatOptionalNumber(usage.total_tokens)}`;
 }
 
+function formatThinkingSummary(value: unknown) {
+  if (!isRecord(value)) {
+    return "未记录";
+  }
+
+  const type = readString(value.type) || "-";
+  const effort = readString(value.reasoning_effort);
+
+  return effort ? `${type} / reasoning_effort=${effort}` : type;
+}
+
+function formatReasoningSummary(value: unknown) {
+  if (!isRecord(value)) {
+    return "未记录";
+  }
+
+  const received = value.received === true ? "received" : "not_received";
+  const contentLength = readNumber(value.contentLength) ?? 0;
+  const unexpected = value.unexpectedWhenThinkingDisabled === true ? " / unexpected_when_disabled" : "";
+
+  return `${received} / length=${contentLength}${unexpected}`;
+}
+
 function formatValidatorSummary(output: Record<string, unknown>) {
   if (Object.keys(output).length === 0) {
     return "-";
@@ -1511,6 +1540,8 @@ function createTraceStepReportSummary(step: AiTraceStep) {
     toolResultId: readString(output.toolResultId) ?? readString(metadata.toolResultId),
     failureCode: readString(output.failureCode),
     code: readString(output.code) ?? readString(error.code),
+    thinking: step.type === "model_request" ? output.thinking ?? metadata.thinking : undefined,
+    reasoning: step.type === "model_response" ? output.reasoning ?? metadata.reasoning : undefined,
     tokenUsage: getStepModelTokenUsage(step, []),
   };
 }

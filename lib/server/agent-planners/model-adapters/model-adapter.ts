@@ -50,6 +50,22 @@ export type ModelTraceMessageSummary = {
   contentLength: number;
 };
 
+/** ModelTraceThinkingSummary 保存 provider thinking 请求配置，不参与 AgentAction 语义判断。 */
+export type ModelTraceThinkingSummary = {
+  type: "enabled" | "disabled";
+  enabled: boolean;
+  reasoning_effort?: "high" | "max";
+};
+
+/** ModelTraceReasoningSummary 保存 provider reasoning 诊断摘要，不作为用户可见回复或 AgentAction 解析来源。 */
+export type ModelTraceReasoningSummary = {
+  received: boolean;
+  contentLength: number;
+  rawText?: JsonValue;
+  source?: string;
+  unexpectedWhenThinkingDisabled?: boolean;
+};
+
 /** ModelActionCompletionTrace 是 ModelAdapter 输出给 LlmPlanner 的安全模型调用诊断。 */
 export type ModelActionCompletionTrace = {
   provider: string;
@@ -60,6 +76,7 @@ export type ModelActionCompletionTrace = {
     temperature?: number;
     max_tokens?: number;
     response_format?: JsonValue;
+    thinking?: ModelTraceThinkingSummary;
     timeoutMs?: number;
     messageCount: number;
     messages: ModelTraceMessageSummary[];
@@ -92,6 +109,7 @@ export type ModelActionCompletionTrace = {
     rawText?: JsonValue;
     rawTextLength?: number;
     rawResponse?: JsonValue;
+    reasoning?: ModelTraceReasoningSummary;
   };
   parsedAction?: JsonValue;
   actionType?: string;

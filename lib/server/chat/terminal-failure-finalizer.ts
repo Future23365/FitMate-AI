@@ -69,6 +69,9 @@ export type TerminalFailureFinalizerTrace = {
     temperature: number;
     max_tokens: number;
     response_format: { type: "json_object" };
+    thinking: {
+      type: "disabled";
+    };
     timeoutMs: number;
     messageCount: number;
     messages: Array<{ role: string; content: JsonValue; contentLength: number }>;
@@ -155,11 +158,11 @@ type DeepSeekRequestBody = {
   temperature: number;
   max_tokens: number;
   response_format: { type: "json_object" };
+  thinking: { type: "disabled" };
   messages: Array<{ role: string; content: string }>;
 };
 
 const DEFAULT_DEEPSEEK_ENDPOINT = "https://api.deepseek.com/chat/completions";
-const DEFAULT_DEEPSEEK_MODEL = "deepseek-chat";
 const maxFinalizerTraceStringLength = 800;
 const maxFinalizerListItems = 6;
 const requiredFailureDisclosureTerms = [
@@ -337,7 +340,7 @@ export class DeepSeekTerminalFailureFinalizer implements TerminalFailureFinalize
 
     this.apiKey = options.apiKey;
     this.endpoint = options.endpoint ?? DEFAULT_DEEPSEEK_ENDPOINT;
-    this.model = options.model ?? DEFAULT_DEEPSEEK_MODEL;
+    this.model = options.model ?? agentRuntimeConfig.llm.deepSeek.defaultModel;
     this.timeoutMs = options.timeoutMs ?? agentRuntimeConfig.terminalFailureFinalizer.timeoutMs;
     this.temperature = options.temperature ?? agentRuntimeConfig.terminalFailureFinalizer.temperature;
     this.maxTokens = options.maxTokens ?? agentRuntimeConfig.terminalFailureFinalizer.maxTokens;
@@ -506,6 +509,9 @@ export class DeepSeekTerminalFailureFinalizer implements TerminalFailureFinalize
       temperature: this.temperature,
       max_tokens: this.maxTokens,
       response_format: { type: "json_object" },
+      thinking: {
+        type: agentRuntimeConfig.terminalFailureFinalizer.deepSeek.thinkingType,
+      },
       messages: [
         {
           role: "system",
@@ -541,6 +547,7 @@ export class DeepSeekTerminalFailureFinalizer implements TerminalFailureFinalize
         temperature: requestBody.temperature,
         max_tokens: requestBody.max_tokens,
         response_format: requestBody.response_format,
+        thinking: requestBody.thinking,
         timeoutMs: this.timeoutMs,
         messageCount: requestBody.messages.length,
         messages: requestBody.messages.map((message) => ({

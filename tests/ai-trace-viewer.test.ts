@@ -95,8 +95,24 @@ describe("AI trace viewer step grouping", () => {
         createStep({
           type: "model_request",
           name: "模型请求 #1",
-          input: { request: { model: "deepseek-chat" } },
-          metadata: { plannerCallIndex: 1, runtimeStep: 1 },
+          input: { request: { model: "deepseek-v4-flash" } },
+          output: {
+            model: "deepseek-v4-flash",
+            thinking: {
+              type: "enabled",
+              enabled: true,
+              reasoning_effort: "high",
+            },
+          },
+          metadata: {
+            plannerCallIndex: 1,
+            runtimeStep: 1,
+            thinking: {
+              type: "enabled",
+              enabled: true,
+              reasoning_effort: "high",
+            },
+          },
         }),
         createStep({
           type: "model_response",
@@ -104,6 +120,12 @@ describe("AI trace viewer step grouping", () => {
           output: {
             parseStatus: "parsed",
             actionType: "final_answer",
+            reasoning: {
+              received: true,
+              contentLength: 12,
+              rawText: "受控 reasoning 摘要",
+              source: "choices[0].message.reasoning_content",
+            },
             tokenUsage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
           },
           metadata: { plannerCallIndex: 1, runtimeStep: 1 },
@@ -182,6 +204,8 @@ describe("AI trace viewer step grouping", () => {
           id: "planner_model",
           summary: expect.arrayContaining([
             { label: "LLM 调用", value: "1 轮" },
+            { label: "thinking", value: "enabled / reasoning_effort=high" },
+            { label: "reasoning", value: "received / length=12" },
             { label: "真实 usage", value: "输入 10 / 输出 5 / 总 15" },
           ]),
         }),
@@ -190,7 +214,15 @@ describe("AI trace viewer step grouping", () => {
         expect.objectContaining({
           plannerCallIndex: 1,
           request: expect.objectContaining({ id: "step-model_request" }),
-          response: expect.objectContaining({ id: "step-model_response" }),
+          response: expect.objectContaining({
+            id: "step-model_response",
+            output: expect.objectContaining({
+              reasoning: expect.objectContaining({
+                received: true,
+                contentLength: 12,
+              }),
+            }),
+          }),
         }),
       ],
       tokenUsageSummary: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
@@ -223,6 +255,16 @@ describe("AI trace viewer step grouping", () => {
             id: "step-runtime_event",
             type: "runtime_event",
             eventType: "registry_snapshot",
+          }),
+          expect.objectContaining({
+            id: "step-model_request",
+            type: "model_request",
+            thinking: expect.objectContaining({ type: "enabled", reasoning_effort: "high" }),
+          }),
+          expect.objectContaining({
+            id: "step-model_response",
+            type: "model_response",
+            reasoning: expect.objectContaining({ received: true, contentLength: 12 }),
           }),
         ]),
       },

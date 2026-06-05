@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createToolError } from "@/lib/server/agent-core/action-validator";
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
@@ -7,6 +7,7 @@ import type { PlannerModelTraceEvent } from "@/lib/server/agent-planners/model-a
 import {
   assessTerminalFailureFinalizerAvailability,
   buildTerminalFailureFinalizerInput,
+  DeepSeekTerminalFailureFinalizer,
   parseTerminalFailureFinalizerOutput,
 } from "@/lib/server/chat/terminal-failure-finalizer";
 import {
@@ -57,6 +58,52 @@ describe("terminal failure finalizer contract", () => {
     expect(parseTerminalFailureFinalizerOutput({
       content: "这次没有生成通过服务端校验的可靠结果，内部 code 是 repair_limit_exceeded。",
     }).ok).toBe(false);
+  });
+
+  it("uses centralized DeepSeek model while explicitly disabling Thinking Mode for failure finalization", async () => {
+    const requestBodies: unknown[] = [];
+    const fetchImpl = vi.fn(async (_input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      requestBodies.push(JSON.parse(String(init?.body)));
+
+      return new Response(JSON.stringify({
+        model: agentRuntimeConfig.llm.deepSeek.defaultModel,
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                content: "这次没有生成通过服务端校验的可靠结果。你可以补充训练目标后重试。",
+                suggestedQuestions: ["补充训练目标后重试"],
+              }),
+            },
+          },
+        ],
+      }), { status: 200 });
+    });
+    const finalizer = new DeepSeekTerminalFailureFinalizer({
+      apiKey: "test-key",
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+
+    const result = await finalizer.finalize({
+      failureCategory: "repair_exhausted",
+      errorCode: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
+      userRequestSummary: "用户希望生成训练计划。",
+      unmetRequirements: [],
+      blockedOutputs: [],
+      verifiedFactsSummary: {},
+      allowedResponseMode: "failure_explanation_only",
+    });
+
+    if (!result.ok) {
+      throw new Error(`Expected finalizer success, got ${result.reason}`);
+    }
+
+    expect(requestBodies[0]).toMatchObject({
+      model: agentRuntimeConfig.llm.deepSeek.defaultModel,
+      thinking: { type: "disabled" },
+    });
+    expect(requestBodies[0]).not.toHaveProperty("reasoning_effort");
+    expect(result.trace.request.thinking).toEqual({ type: "disabled" });
   });
 
   it("allows internal validation failures but rejects provider unavailable conditions", () => {
@@ -206,7 +253,7 @@ function createProviderFailureDiagnostic(status: number): PlannerModelTraceEvent
     runtimeStep: 1,
     runId: "chat_test",
     request: {
-      model: "deepseek-chat",
+      model: agentRuntimeConfig.llm.deepSeek.defaultModel,
       response_format: { type: "json_object" },
       messageCount: 1,
       messages: [],
@@ -226,7 +273,7 @@ function createProviderFailureDiagnostic(status: number): PlannerModelTraceEvent
       },
     },
     response: {
-      model: "deepseek-chat",
+      model: agentRuntimeConfig.llm.deepSeek.defaultModel,
       httpStatus: status,
       status: "http_error",
     },

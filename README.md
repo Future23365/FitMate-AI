@@ -68,7 +68,7 @@ DEEPSEEK_API_URL=
 - 数据库中的 `Exercise.images` / `Exercise.imageUrls` 保留原始来源语义，服务端会在动作库、推荐卡和训练执行读取链路中统一派生当前可展示 URL。
 - 本地动作图片默认交给 Next image optimizer 做尺寸和格式优化；列表和小卡片应继续使用 `next/image` 的 `sizes` 约束，不直接请求原始大图。
 
-`DEEPSEEK_API_KEY`、`DEEPSEEK_MODEL` 和 `DEEPSEEK_API_URL` 用于新的 `agent-planners` DeepSeek adapter、生产 `/api/chat` 文本聊天和手动 LLM 黑盒测试；缺少 `DEEPSEEK_API_KEY` 时生产聊天会返回稳定的 `chat_ai_not_configured` 配置错误。
+`DEEPSEEK_API_KEY`、`DEEPSEEK_MODEL` 和 `DEEPSEEK_API_URL` 用于新的 `agent-planners` DeepSeek adapter、生产 `/api/chat` 文本聊天和手动 LLM 黑盒测试；缺少 `DEEPSEEK_API_KEY` 时生产聊天会返回稳定的 `chat_ai_not_configured` 配置错误。`DEEPSEEK_MODEL` 未配置时，生产聊天默认使用集中配置中的 `deepseek-v4-flash`，并由首页请求的 `thinkingEnabled` 控制 DeepSeek Thinking Mode。
 
 启动本地 PostgreSQL：
 

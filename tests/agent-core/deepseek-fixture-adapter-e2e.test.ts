@@ -16,12 +16,13 @@ import {
 } from "@/lib/server/agent-tools/fixture/m1-safety-fixture.tools";
 import { LlmPlanner } from "@/lib/server/agent-planners/llm-planner";
 import { DeepSeekModelAdapter } from "@/lib/server/agent-planners/model-adapters/deepseek-model-adapter";
+import { agentRuntimeConfig } from "@/lib/server/config";
 
 function createScriptedDeepSeekPlanner(actions: unknown[]) {
   const fetchImpl = vi.fn(async () => {
     const action = actions.shift();
     return new Response(JSON.stringify({
-      model: "deepseek-chat",
+      model: agentRuntimeConfig.llm.deepSeek.defaultModel,
       choices: [
         {
           message: {

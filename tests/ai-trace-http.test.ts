@@ -300,7 +300,7 @@ describe("AI trace store and HTTP request helpers", () => {
           {
             plannerCallIndex: 1,
             request: {
-              model: "deepseek-chat",
+              model: "deepseek-v4-flash",
               messages: [
                 {
                   role: "system",

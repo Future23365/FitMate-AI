@@ -40,9 +40,9 @@ Agent 生产行为预算的集中入口是：
 lib/server/config/agent-runtime-config.ts
 ```
 
-该模块按 `llm`、`runtime`、`tools`、`trace` 分组定义模型请求默认值、Agent loop limits、tool 可见事实数量和模型 trace 裁剪参数。`DEEPSEEK_API_KEY`、`DEEPSEEK_API_URL`、`DEEPSEEK_MODEL` 仍属于 provider 部署配置，不在该 runtime config 中覆盖。
+该模块按 `llm`、`runtime`、`tools`、`trace` 分组定义模型请求默认值、Agent loop limits、tool 可见事实数量和模型 trace 裁剪参数。`llm.deepSeek.defaultModel` 当前为 `deepseek-v4-flash`，`llm.deepSeek.thinking.reasoningEffort` 当前为 `high`；`DEEPSEEK_API_KEY`、`DEEPSEEK_API_URL`、`DEEPSEEK_MODEL` 仍属于 provider 部署配置，其中 `DEEPSEEK_MODEL` 只覆盖最终请求 model。
 
-`DeepSeekModelAdapter` 只负责把 prompt 配置、用户 payload 和模型参数映射为 DeepSeek 请求体；它不拥有默认 prompt 文案，也不注册或执行 tool。
+`DeepSeekModelAdapter` 只负责把 prompt 配置、用户 payload、`thinkingEnabled` 和模型参数映射为 DeepSeek 请求体；它不拥有默认 prompt 文案，也不注册或执行 tool。`reasoning_content` 只作为受控 trace 诊断保留，正式 `AgentAction` 仍只从 DeepSeek `content` 解析。
 
 ## 3. 旧 Prompt Module 边界
 

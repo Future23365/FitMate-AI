@@ -103,7 +103,7 @@ export type NormalizedChatOutput = {
 };
 
 const defaultReportPath = "docs/manual-llm-basic-blackbox-latest-report.md";
-const defaultChatModel = "deepseek-chat";
+const defaultChatModel = "deepseek-v4-flash";
 const estimatedChatTokensPerTurn = 36_000;
 const estimatedJudgeTokensPerTurn = 800;
 
