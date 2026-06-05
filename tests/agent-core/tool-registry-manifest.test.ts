@@ -293,6 +293,8 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(inspectManifestJson).toContain("missingSectionsForRoutineOrPlan");
     expect(inspectManifestJson).toContain("supportsOutputKinds");
     expect(inspectManifestJson).toContain("本 tool 不要求固定 tool 调用次数或顺序");
+    expect(inspectManifestJson).toContain("没有本轮 list_recent 索引时应先调用 operation = \\\"list_recent\\\"");
+    expect(inspectManifestJson).toContain("不是 final_answer.usedRefs.resource.id");
     expect(inspectManifestJson).not.toContain("readRecentVisibleTrainingProposal");
     expect(inspectManifestJson).not.toContain("fact_recent_visible_training_01");
     expect(inspectManifestJson).not.toContain("从上一条 list_recent result 中复制真实 factRef");
@@ -303,9 +305,9 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(inspectManifestJson).not.toContain("再来一组");
     expect(inspectManifestJson).not.toContain("不要这个");
     expect(inspectManifestJson).not.toContain("factCount = 0");
-    expect(inspectExamplesJson).toContain("\"operation\":\"read_recent\"");
-    expect(inspectExamplesJson).toContain("\"ref\"");
-    expect(inspectExamplesJson).toContain("\"fact_ref\"");
+    expect(inspectExamplesJson).not.toContain("\"operation\":\"read_recent\"");
+    expect(inspectExamplesJson).not.toContain("\"ref\"");
+    expect(inspectExamplesJson).not.toContain("\"fact-1\"");
     expect(inspectExamplesJson).toContain("\"operation\":\"list_recent\"");
     expect(readRecentInputBranches.some((branch) => Array.isArray(branch.required) && branch.required.includes("ref"))).toBe(true);
     expect(readRecentInputBranches.some((branch) => Array.isArray(branch.required) && branch.required.includes("factRef"))).toBe(false);

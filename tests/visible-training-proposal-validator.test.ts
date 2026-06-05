@@ -614,8 +614,6 @@ function createExerciseRecord(id: string): FixtureExerciseRecord | undefined {
 
 function createRecentVisibleTrainingProposalSummary() {
   return {
-    factRef: "fact-previous",
-    messageId: "assistant-previous",
     proposalKind: "exercise_selection",
     exerciseItems: [
       { exerciseId: "squat", section: "training", order: 1, allowedSections: ["training"] },

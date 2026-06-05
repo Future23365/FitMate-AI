@@ -113,7 +113,7 @@ describe("visible training proposal fact store", () => {
     expect(JSON.stringify(summaries)).not.toContain("displayedExercises");
   });
 
-  it("projects recent summaries to metadata indexes without reusable exercise payloads", async () => {
+  it("projects recent summaries to metadata status without reference ids or reusable exercise payloads", async () => {
     const client = createFactClient({
       findMany: [createFactRow()],
     });
@@ -126,8 +126,6 @@ describe("visible training proposal fact store", () => {
     const metadataSummary = toVisibleTrainingProposalMetadataSummary(summary!);
 
     expect(metadataSummary).toEqual({
-      factRef: "fact-1",
-      messageId: "assistant-1",
       kind: "visible_training_proposal_displayed",
       status: "active",
       schemaVersion: 1,
@@ -138,6 +136,8 @@ describe("visible training proposal fact store", () => {
       sectionSummary: { warmup: 1, training: 1, stretch: 1 },
       reusableTrainingExerciseCount: 1,
     });
+    expect(JSON.stringify(metadataSummary)).not.toContain("fact-1");
+    expect(JSON.stringify(metadataSummary)).not.toContain("assistant-1");
     expect(JSON.stringify(metadataSummary)).not.toContain("exerciseItems");
     expect(JSON.stringify(metadataSummary)).not.toContain("prescription");
     expect(JSON.stringify(metadataSummary)).not.toContain("schedule");

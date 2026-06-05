@@ -84,8 +84,6 @@ vi.mock("@/lib/server/visible-training-proposals/visible-training-proposal-fact-
     const exerciseItems = Array.isArray(summary.exerciseItems) ? summary.exerciseItems : [];
 
     return {
-      factRef: summary.factRef,
-      messageId: summary.messageId,
       kind: summary.kind,
       status: summary.status,
       schemaVersion: summary.schemaVersion,

@@ -67,8 +67,6 @@ vi.mock("@/lib/server/visible-training-proposals/visible-training-proposal-fact-
     const exerciseItems = Array.isArray(summary.exerciseItems) ? summary.exerciseItems : [];
 
     return {
-      factRef: summary.factRef,
-      messageId: summary.messageId,
       kind: summary.kind,
       status: summary.status,
       schemaVersion: summary.schemaVersion,
@@ -842,9 +840,9 @@ describe("chat service agent text flow boundary", () => {
       "searchExerciseResources",
       hashNormalizedInput(searchInput),
     );
-    visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries.mockResolvedValueOnce([
-      createRecentVisibleTrainingProposalSummary(),
-    ]);
+    visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries
+      .mockResolvedValueOnce([createRecentVisibleTrainingProposalSummary()])
+      .mockResolvedValueOnce([createRecentVisibleTrainingProposalSummary()]);
     visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact.mockResolvedValueOnce({
       ok: true,
       fact: createReadableVisibleTrainingProposalFact(),
@@ -913,7 +911,6 @@ describe("chat service agent text flow boundary", () => {
     expect(planner.calls[0].run.metadata).toMatchObject({
       recentVisibleTrainingProposals: [
         expect.objectContaining({
-          factRef: "fact-previous",
           proposalKind: "exercise_selection",
           sectionSummary: { warmup: 0, training: 2, stretch: 0 },
           reusableTrainingExerciseCount: 2,
@@ -942,6 +939,8 @@ describe("chat service agent text flow boundary", () => {
     expect(JSON.stringify(planner.calls[0].run.metadata)).not.toContain("exerciseItems");
     expect(JSON.stringify(planner.calls[0].run.metadata)).not.toContain("prescription");
     expect(JSON.stringify(planner.calls[0].run.metadata)).not.toContain("imageUrl");
+    expect(JSON.stringify(planner.calls[0].run.metadata)).not.toContain("fact-previous");
+    expect(JSON.stringify(planner.calls[0].run.metadata)).not.toContain("assistant-previous");
     expect(visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact).toHaveBeenCalledWith({
       userId: "user-1",
       conversationId: "conversation-refresh",
@@ -1021,9 +1020,9 @@ describe("chat service agent text flow boundary", () => {
       "searchExerciseResources",
       hashNormalizedInput(searchInput),
     );
-    visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries.mockResolvedValueOnce([
-      createRecentVisibleTrainingProposalSummary(),
-    ]);
+    visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries
+      .mockResolvedValueOnce([createRecentVisibleTrainingProposalSummary()])
+      .mockResolvedValueOnce([createRecentVisibleTrainingProposalSummary()]);
     visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact.mockResolvedValueOnce({
       ok: true,
       fact: createReadableVisibleTrainingProposalFact(),
@@ -1349,6 +1348,7 @@ describe("chat service agent text flow boundary", () => {
     latestUserMessage,
     invalidContent,
   }) => {
+    const listInput = { operation: "list_recent" as const };
     const readInput = { operation: "read_recent" as const, ref: { type: "fact_ref", value: "fact-previous" } };
     const searchInput = {
       muscles: ["股四头肌"],
@@ -1366,9 +1366,9 @@ describe("chat service agent text flow boundary", () => {
       "searchExerciseResources",
       hashNormalizedInput(searchInput),
     );
-    visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries.mockResolvedValueOnce([
-      createRecentVisibleTrainingProposalSummary(),
-    ]);
+    visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries
+      .mockResolvedValueOnce([createRecentVisibleTrainingProposalSummary()])
+      .mockResolvedValueOnce([createRecentVisibleTrainingProposalSummary()]);
     visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact.mockResolvedValueOnce({
       ok: true,
       fact: createReadableVisibleTrainingProposalFact(),
@@ -1391,6 +1391,7 @@ describe("chat service agent text flow boundary", () => {
       });
     });
     const planner = new ReplayPlanner([
+      { type: "tool_call", toolName: "inspectVisibleTrainingProposals", input: listInput },
       { type: "tool_call", toolName: "inspectVisibleTrainingProposals", input: readInput },
       {
         type: "final_answer",
@@ -1416,7 +1417,7 @@ describe("chat service agent text flow boundary", () => {
       planner,
     });
     const events = await readNdjsonEvents(response);
-    const repairObservation = planner.calls[2].observations.find((observation) => (
+    const repairObservation = planner.calls[3].observations.find((observation) => (
       observation.type === "invalid_action"
       && observation.source === "validator"
       && JSON.stringify(observation.content).includes("missing_terminal_grounding_after_tool_result")
@@ -1438,7 +1439,7 @@ describe("chat service agent text flow boundary", () => {
             expect.objectContaining({
               code: "missing_terminal_grounding_after_tool_result",
               path: "usedRefs",
-              toolResultCount: 1,
+              toolResultCount: 2,
             }),
           ]),
         }),
@@ -1473,15 +1474,17 @@ describe("chat service agent text flow boundary", () => {
   });
 
   it("returns a safe failure when ungrounded terminal completion repeats after repair", async () => {
+    const listInput = { operation: "list_recent" as const };
     const readInput = { operation: "read_recent" as const, ref: { type: "fact_ref", value: "fact-previous" } };
-    visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries.mockResolvedValueOnce([
-      createRecentVisibleTrainingProposalSummary(),
-    ]);
+    visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries
+      .mockResolvedValueOnce([createRecentVisibleTrainingProposalSummary()])
+      .mockResolvedValueOnce([createRecentVisibleTrainingProposalSummary()]);
     visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact.mockResolvedValueOnce({
       ok: true,
       fact: createReadableVisibleTrainingProposalFact(),
     });
     const planner = new ReplayPlanner([
+      { type: "tool_call", toolName: "inspectVisibleTrainingProposals", input: listInput },
       { type: "tool_call", toolName: "inspectVisibleTrainingProposals", input: readInput },
       {
         type: "final_answer",
@@ -1553,9 +1556,9 @@ describe("chat service agent text flow boundary", () => {
       "searchExerciseResources",
       hashNormalizedInput(searchInput),
     );
-    visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries.mockResolvedValueOnce([
-      createRecentVisibleTrainingProposalSummary(),
-    ]);
+    visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries
+      .mockResolvedValueOnce([createRecentVisibleTrainingProposalSummary()])
+      .mockResolvedValueOnce([createRecentVisibleTrainingProposalSummary()]);
     visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact.mockResolvedValueOnce({
       ok: true,
       fact: createReadableVisibleTrainingProposalFact(),
@@ -2255,9 +2258,9 @@ describe("chat service agent text flow boundary", () => {
       "searchExerciseResources",
       hashNormalizedInput(supportSearchInput),
     );
-    visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries.mockResolvedValueOnce([
-      createRecentVisibleTrainingProposalSummary(),
-    ]);
+    visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries
+      .mockResolvedValueOnce([createRecentVisibleTrainingProposalSummary()])
+      .mockResolvedValueOnce([createRecentVisibleTrainingProposalSummary()]);
     visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact.mockResolvedValueOnce({
       ok: true,
       fact: createReadableVisibleTrainingProposalFact(),
@@ -2379,9 +2382,9 @@ describe("chat service agent text flow boundary", () => {
       "searchExerciseResources",
       hashNormalizedInput(searchInput),
     );
-    visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries.mockResolvedValueOnce([
-      createRecentVisibleTrainingProposalSummary(),
-    ]);
+    visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries
+      .mockResolvedValueOnce([createRecentVisibleTrainingProposalSummary()])
+      .mockResolvedValueOnce([createRecentVisibleTrainingProposalSummary()]);
     visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact.mockResolvedValueOnce({
       ok: true,
       fact: createReadableVisibleTrainingProposalFact(),

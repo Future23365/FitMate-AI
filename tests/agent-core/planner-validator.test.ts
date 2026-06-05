@@ -489,6 +489,61 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
     });
   });
 
+  it("projects missing terminal resource refs as repairable grounding facts", () => {
+    const registry = createRegistry();
+    const manifests = registry.serializeForPlanner();
+    const resourceStore = new ResourceStore("run-missing-terminal-resource");
+
+    const result = validateAgentAction({
+      action: {
+        type: "final_answer",
+        content: "我已基于这个资源回答。",
+        usedRefs: toTerminalResourceRefs([
+          { resourceId: "business-object-id", resourceType: "fixture_document" },
+        ]),
+      },
+      registry,
+      manifests,
+      toolResults: [],
+      resourceStore,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: AGENT_ERROR_CODES.RESOURCE_MISSING,
+        details: expect.objectContaining({
+          type: "domain_validation_failed",
+          target: expect.objectContaining({
+            kind: "DomainValidation",
+            schemaId: "AgentAction",
+            variant: "final_answer",
+          }),
+          facts: expect.arrayContaining([
+            expect.objectContaining({
+              code: "resource_missing",
+              path: "usedRefs.resource.id",
+              expected: expect.objectContaining({
+                anyOf: expect.arrayContaining([
+                  "current_run_registered_resourceId",
+                  "satisfied_tool_result_ref",
+                  "valid_visibleOutputs",
+                ]),
+              }),
+              actual: expect.objectContaining({
+                resourceId: "business-object-id",
+                resourceType: "fixture_document",
+              }),
+              repair: expect.stringContaining("fulfillment.producedResources[].resourceId"),
+            }),
+          ]),
+        }),
+      },
+    });
+    expect(JSON.stringify(result)).toContain("tool_result");
+    expect(JSON.stringify(result)).not.toContain("inspectVisibleTrainingProposals");
+  });
+
   it("allows plain no-tool final_answer and grounded final_answer after tool results", () => {
     const registry = createRegistry();
     const manifests = registry.serializeForPlanner();

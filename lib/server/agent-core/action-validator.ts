@@ -208,9 +208,13 @@ function validateTerminalAction(
         }
       } catch (error) {
         if (error instanceof AgentContractError) {
+          const details = error.code === AGENT_ERROR_CODES.RESOURCE_MISSING
+            ? createMissingResourceReferenceDetails(ref, action.type)
+            : error.details as ToolError["details"];
+
           return {
             ok: false,
-            error: createToolError(error.code, error.message, error.details as ToolError["details"]),
+            error: createToolError(error.code, error.message, details),
           };
         }
         throw error;
@@ -344,6 +348,52 @@ function createMissingTerminalGroundingDetails(toolResultCount: number): ToolErr
         },
         actual: { kind: "missing" },
         toolResultCount,
+      },
+    ],
+  };
+}
+
+function createMissingResourceReferenceDetails(
+  ref: AgentResourceRef,
+  actionType: TerminalAgentAction["type"],
+): ToolError["details"] {
+  const actual: Record<string, string> = {
+    resourceId: ref.resourceId,
+  };
+
+  if (ref.resourceType) {
+    actual.resourceType = ref.resourceType;
+  }
+  if (ref.role) {
+    actual.role = ref.role;
+  }
+  if (ref.runId) {
+    actual.runId = ref.runId;
+  }
+  if (ref.schemaVersion) {
+    actual.schemaVersion = ref.schemaVersion;
+  }
+
+  return {
+    type: "domain_validation_failed",
+    target: {
+      kind: "DomainValidation",
+      schemaId: "AgentAction",
+      variant: actionType,
+    },
+    facts: [
+      {
+        code: "resource_missing",
+        path: "usedRefs.resource.id",
+        expected: {
+          anyOf: [
+            "current_run_registered_resourceId",
+            "satisfied_tool_result_ref",
+            "valid_visibleOutputs",
+          ],
+        },
+        actual,
+        repair: "usedRefs.resource.id 必须是当前 run 已登记的 resourceId，通常来自 fulfillment.producedResources[].resourceId；不要把业务对象 id、历史消息 id、示例 id 或正文里的 id 当作 resourceId。若事实来自已满足的 tool result，优先改用 usedRefs: [{ type: \"tool_result\", id: \"...\" }]。",
       },
     ],
   };

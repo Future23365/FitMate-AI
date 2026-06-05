@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { toTerminalToolResultRefs } from "@/lib/server/agent-core/contracts";
 import { createToolResultId, executeTool, hashNormalizedInput } from "@/lib/server/agent-core/executor";
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
+import { ResourceStore } from "@/lib/server/agent-core/resource-store";
 import { runAgentRuntime } from "@/lib/server/agent-core/runtime";
 import { ToolRegistry } from "@/lib/server/agent-core/tool-registry";
 import { inspectVisibleTrainingProposalsTool } from "@/lib/server/agent-tools/exercise-facts/inspect-visible-training-proposals.tool";
@@ -295,10 +296,10 @@ describe("inspectVisibleTrainingProposals tool", () => {
     const result = await executeTool({
       tool: inspectVisibleTrainingProposalsTool,
       input: { operation: "read_recent", ref: { type: "fact_ref", value: "fact-training-only" } },
-      run: {
-        ...createRun("run-visible-training-only"),
-        metadata: createRunMetadata({ factRef: "fact-training-only" }),
-      },
+      run: createRun("run-visible-training-only"),
+      resourceStore: createVisibleProposalIndexResourceStore("run-visible-training-only", [
+        createTrainingOnlyVisibleTrainingProposalFact(),
+      ]),
       timeoutMs: 100,
       toolCallId: "tc_visible_training_only",
     });
@@ -354,7 +355,33 @@ describe("inspectVisibleTrainingProposals tool", () => {
     expect(factStoreMocks.readVisibleTrainingProposalFact).not.toHaveBeenCalled();
   });
 
-  it("accepts a messageId reference when it exists in current run metadata", async () => {
+  it("refuses metadata-only read_recent references before reading the store", async () => {
+    const result = await executeTool({
+      tool: inspectVisibleTrainingProposalsTool,
+      input: { operation: "read_recent", ref: { type: "fact_ref", value: "fact-1" } },
+      run: {
+        ...createRun("run-visible-fact-metadata-only"),
+        metadata: createRunMetadata(),
+      },
+      timeoutMs: 100,
+      toolCallId: "tc_visible_fact_metadata_only",
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      output: {
+        status: "failed",
+        operation: "read_recent",
+        code: "fact_reference_not_visible_in_run",
+      },
+      fulfillment: {
+        satisfied: false,
+      },
+    });
+    expect(factStoreMocks.readVisibleTrainingProposalFact).not.toHaveBeenCalled();
+  });
+
+  it("accepts a messageId reference when it exists in the current run diagnostic index resource", async () => {
     factStoreMocks.readVisibleTrainingProposalFact.mockResolvedValueOnce({
       ok: true,
       fact: createReadableVisibleTrainingProposalFact(),
@@ -363,10 +390,8 @@ describe("inspectVisibleTrainingProposals tool", () => {
     const result = await executeTool({
       tool: inspectVisibleTrainingProposalsTool,
       input: { operation: "read_recent", ref: { type: "message_id", value: "assistant-1" } },
-      run: {
-        ...createRun("run-visible-fact-message-id"),
-        metadata: createRunMetadata(),
-      },
+      run: createRun("run-visible-fact-message-id"),
+      resourceStore: createVisibleProposalIndexResourceStore("run-visible-fact-message-id"),
       timeoutMs: 100,
       toolCallId: "tc_visible_fact_message_id",
     });
@@ -404,10 +429,8 @@ describe("inspectVisibleTrainingProposals tool", () => {
     const result = await executeTool({
       tool: inspectVisibleTrainingProposalsTool,
       input: { operation: "read_recent", ref: { type: "fact_ref", value: "fact-1" } },
-      run: {
-        ...createRun(`run-${code}`),
-        metadata: createRunMetadata(),
-      },
+      run: createRun(`run-${code}`),
+      resourceStore: createVisibleProposalIndexResourceStore(`run-${code}`),
       timeoutMs: 100,
       toolCallId: `tc_${code}`,
     });
@@ -439,10 +462,8 @@ describe("inspectVisibleTrainingProposals tool", () => {
     const readResult = await executeTool({
       tool: inspectVisibleTrainingProposalsTool,
       input: { operation: "read_recent", ref: { type: "fact_ref", value: "fact-1" } },
-      run: {
-        ...createRun("run-visible-fact-read-error"),
-        metadata: createRunMetadata(),
-      },
+      run: createRun("run-visible-fact-read-error"),
+      resourceStore: createVisibleProposalIndexResourceStore("run-visible-fact-read-error"),
       timeoutMs: 100,
       toolCallId: "tc_visible_fact_read_error",
     });
@@ -515,6 +536,28 @@ function createRunMetadata(input: { factRef?: string; messageId?: string } = {})
       },
     ],
   };
+}
+
+function createVisibleProposalIndexResourceStore(
+  runId: string,
+  facts: Array<{ factRef: string; messageId: string }> = [createRecentVisibleTrainingProposalSummary()],
+) {
+  const store = new ResourceStore(runId);
+  store.register({
+    resourceType: "visible_training_proposal_fact_index",
+    role: "diagnostic",
+    schemaVersion: "1",
+    sourceToolResultId: "tr_visible_training_proposal_fact_index",
+    summary: {
+      operation: "list_recent",
+      facts: facts.map((fact) => ({
+        factRef: fact.factRef,
+        messageId: fact.messageId,
+      })),
+    },
+  });
+
+  return store;
 }
 
 function createRecentVisibleTrainingProposalSummary() {

@@ -51,6 +51,8 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).toContain("当前 run 已经有 tool result 后，成功 final_answer 应通过 usedRefs 或合法 visibleOutputs[]");
     expect(systemPrompt).toContain("tool result 引用使用 {\"type\":\"tool_result\",\"id\":\"...\"}");
     expect(systemPrompt).toContain("resource 引用使用 {\"type\":\"resource\",\"id\":\"...\",\"resourceType\":\"...\"}");
+    expect(systemPrompt).toContain("resource 引用里的 id 必须是当前 run 登记的 resourceId");
+    expect(systemPrompt).toContain("不要把业务对象 id、历史 messageId、示例 id 或正文里的 id 当作 resourceId");
     expect(systemPrompt).toContain("visibleOutputs[] 是结构化用户可见输出，不是 grounding 引用的同义字段");
     expect(systemPrompt).toContain("failed、diagnostic 或 fulfillment.satisfied=false 的 tool result");
     expect(systemPrompt).toContain("不能支撑成功 final_answer");
@@ -194,7 +196,9 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).not.toContain("factCount = 0");
     expect(systemPrompt).not.toContain("facts=[]");
     expect(systemPrompt).not.toContain("toolName = inspectVisibleTrainingProposals");
-    expect(systemPrompt).toContain("recentVisibleTrainingProposals 和 inspectVisibleTrainingProposals(operation = \"list_recent\") 只提供 factRef/messageId");
+    expect(systemPrompt).toContain("run.metadata.recentVisibleTrainingProposals 只提供不含具体 factRef/messageId 的最近可见训练方案状态摘要");
+    expect(systemPrompt).toContain("不能作为 read_recent 输入、exerciseId 来源或 usedRefs.resource.id");
+    expect(systemPrompt).toContain("inspectVisibleTrainingProposals(operation = \"list_recent\") 才会返回本轮可复制到 read_recent.ref.value 的 factRef/messageId 索引");
     expect(systemPrompt).toContain("inspectVisibleTrainingProposals(operation = \"read_recent\")");
     expect(systemPrompt).toContain("inspectVisibleTrainingProposals(operation = \"list_recent\")");
     expect(systemPrompt).not.toContain("readRecentVisibleTrainingProposal");
