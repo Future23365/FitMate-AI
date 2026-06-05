@@ -13,6 +13,11 @@
 - **THEN** 系统 MUST 在当前页面内容之外挂载一个全局 `Toaster`
 - **AND** 业务页面 MUST NOT 需要单独挂载 `Toaster`
 
+#### Scenario: 全局 Toaster 显示在页面上方
+- **WHEN** 任一全局 toast 被触发
+- **THEN** `Toaster` MUST 将提示显示在页面上方
+- **AND** 业务页面 MUST NOT 需要为相同提示重复配置位置
+
 #### Scenario: Sonner 依赖可验证
 - **WHEN** 运行项目类型检查、lint 和构建
 - **THEN** 检查 MUST 不因新增 `sonner` 组件或依赖失败

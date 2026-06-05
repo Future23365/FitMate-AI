@@ -11,12 +11,13 @@ import { useTheme } from "next-themes";
 import { Toaster as Sonner, type ToasterProps } from "sonner";
 
 // Toaster 是 shadcn Sonner 的全局提示容器，统一承载应用级 toast 展示。
-const Toaster = ({ ...props }: ToasterProps) => {
+const Toaster = ({ position = "top-center", ...props }: ToasterProps) => {
   const { theme = "system" } = useTheme();
 
   return (
     <Sonner
       theme={theme as ToasterProps["theme"]}
+      position={position}
       className="toaster group"
       icons={{
         success: <CircleCheckIcon className="size-4" />,

@@ -42,6 +42,8 @@ type LocalAuthContextValue = {
 
 const LocalAuthContext = createContext<LocalAuthContextValue | null>(null);
 const localAuthRequiredToastId = "local-auth-required";
+const localAuthSucceededToastId = "local-auth-succeeded";
+const localAuthResetToastId = "local-auth-reset";
 
 export function useLocalAuth() {
   const context = useContext(LocalAuthContext);
@@ -88,6 +90,10 @@ export function LocalAuthProvider({ children }: { children: React.ReactNode }) {
       try {
         await resetLocalAnonymousSession();
         setAuthState(localAuthResetState());
+        toast.success("重置成功", {
+          id: localAuthResetToastId,
+          description: "本地用户已重置，可以重新匿名登录使用。",
+        });
       } catch (error) {
         setAuthState(previousState);
         throw error;
@@ -101,6 +107,10 @@ export function LocalAuthProvider({ children }: { children: React.ReactNode }) {
 
     if (session.ok && session.user) {
       setAuthState((current) => localAuthSucceededState(current, session.user as LocalAuthUser));
+      toast.success("登录成功", {
+        id: localAuthSucceededToastId,
+        description: "已完成本地匿名登录。",
+      });
       return;
     }
 

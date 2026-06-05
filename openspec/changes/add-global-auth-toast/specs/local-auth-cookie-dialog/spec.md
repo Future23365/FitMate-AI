@@ -18,3 +18,18 @@
 - **WHEN** 多个私有 API 请求连续触发 `fitmate:auth-required` 事件
 - **THEN** 全局登录提示 MUST 使用稳定标识避免同类 toast 在界面上无序堆叠
 - **AND** 本地匿名登录 Dialog MUST 继续保持单一入口
+
+### Requirement: 本地匿名身份操作提供成功提示
+系统 SHALL 在本地匿名登录或本地用户重置成功后，通过全局 toast 给用户展示操作已完成的轻量反馈。
+
+#### Scenario: 匿名登录成功后提示
+- **WHEN** 用户在本地匿名登录 Dialog 中确认登录，且 `POST /api/auth/local-anonymous` 成功返回用户摘要
+- **THEN** `LocalAuthProvider` MUST 关闭登录 Dialog
+- **AND** `LocalAuthProvider` MUST 触发全局 toast 提示登录成功
+- **AND** 登录成功提示 MUST 使用稳定标识避免同类 toast 无序堆叠
+
+#### Scenario: 本地用户重置成功后提示
+- **WHEN** 用户确认重置本地用户，且 `DELETE /api/auth/local-anonymous` 成功清除当前浏览器 cookie
+- **THEN** 前端 MUST 清空当前运行时用户摘要
+- **AND** 前端 MUST 触发全局 toast 提示本地用户重置成功
+- **AND** 重置成功提示 MUST 使用稳定标识避免同类 toast 无序堆叠
