@@ -289,9 +289,7 @@ function ExercisePreviewSheetContent({
                             key={`${exerciseId}:${imageSetKey}:${imageUrl}`}
                             alt={isActiveImage ? `${exercise.nameZh} 演示图 ${imageIndex + 1}` : ""}
                             aria-hidden={!isActiveImage}
-                            className={`object-cover transition-opacity duration-200 ${
-                              shouldShowImage ? "z-10 opacity-100" : "z-0 opacity-0"
-                            }`}
+                            className={`pointer-events-none z-0 object-cover ${shouldShowImage ? "opacity-100" : "opacity-0"}`}
                             fill
                             loading="eager"
                             onError={() => markImageFailed(exerciseId, imageSetKey, imageUrl)}
@@ -304,7 +302,7 @@ function ExercisePreviewSheetContent({
                     : null}
 
                   {shouldShowImagePlaceholder ? (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-xs bg-slate-50 text-slate-400">
+                    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-xs bg-slate-50 text-slate-400">
                       <SymbolIcon className="text-[28px]">
                         {didActiveImageFail ? "broken_image" : "image"}
                       </SymbolIcon>
@@ -319,21 +317,21 @@ function ExercisePreviewSheetContent({
                     <>
                       <button
                         onClick={handlePrevImage}
-                        className="absolute left-sm top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-full bg-white/90 shadow-md text-slate-700 hover:bg-white hover:scale-105 active:scale-95 transition-all opacity-0 group-hover:opacity-100"
+                        className="absolute left-sm top-1/2 z-20 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-full bg-white/90 shadow-md text-slate-700 opacity-0 transition-all hover:scale-105 hover:bg-white active:scale-95 group-hover:opacity-100"
                         type="button"
                       >
                         <SymbolIcon className="text-[18px]">chevron_left</SymbolIcon>
                       </button>
                       <button
                         onClick={handleNextImage}
-                        className="absolute right-sm top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-full bg-white/90 shadow-md text-slate-700 hover:bg-white hover:scale-105 active:scale-95 transition-all opacity-0 group-hover:opacity-100"
+                        className="absolute right-sm top-1/2 z-20 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-full bg-white/90 shadow-md text-slate-700 opacity-0 transition-all hover:scale-105 hover:bg-white active:scale-95 group-hover:opacity-100"
                         type="button"
                       >
                         <SymbolIcon className="text-[18px]">chevron_right</SymbolIcon>
                       </button>
                       <button
                         aria-label={isAutoPlaying ? "暂停自动切换图片" : "自动切换图片"}
-                        className="absolute right-sm top-sm flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-slate-700 shadow-md transition-all hover:scale-105 hover:bg-white active:scale-95"
+                        className="absolute right-sm top-sm z-20 flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-slate-700 shadow-md transition-all hover:scale-105 hover:bg-white active:scale-95"
                         onClick={() =>
                           setAutoPlay({
                             exerciseId: exercise.id,
@@ -352,7 +350,7 @@ function ExercisePreviewSheetContent({
                   )}
 
                   {/* 步骤角标 */}
-                  <div className="absolute right-sm bottom-sm bg-black/60 backdrop-blur-sm text-white rounded-full px-sm py-[2px] font-label-xs text-label-xs font-semibold">
+                  <div className="absolute bottom-sm right-sm z-20 rounded-full bg-black/60 px-sm py-[2px] font-label-xs text-label-xs font-semibold text-white backdrop-blur-sm">
                     {activeImageIndex + 1} / {images.length}
                   </div>
                 </div>
