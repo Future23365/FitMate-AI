@@ -291,7 +291,9 @@ export function useChatController() {
 
           if (event.type === "content") {
             setAgentActivity((current) => (
-              reduceVisibleAgentActivity(current, createWritingReplyAgentActivity(current))
+              reduceVisibleAgentActivity(current, createWritingReplyAgentActivity(current), {
+                advanceActivityRound: false,
+              })
             ));
           }
 

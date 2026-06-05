@@ -11,7 +11,9 @@ export type AgentActivityDisplay = {
   toneClass: string;
 };
 
+/** VisibleAgentActivity 保存当前请求的临时活动条状态，activityRound 只服务本地展示前缀。 */
 export type VisibleAgentActivity = AgentProgressPayload & {
+  activityRound: number;
   visibleSinceMs: number;
   holdUntilMs: number;
   lastSequence: number;
@@ -100,6 +102,7 @@ export function createInitialVisibleAgentActivity(nowMs = Date.now()): VisibleAg
     nowMs,
     visibleAgentActivityMinimumMs,
     0,
+    0,
   );
 }
 
@@ -107,6 +110,7 @@ export type AgentActivityReductionOptions = {
   nowMs?: number;
   minimumSpecificStageMs?: number;
   genericCooldownMs?: number;
+  advanceActivityRound?: boolean;
 };
 
 export function isSpecificAgentActivityStage(stage: string) {
@@ -122,6 +126,7 @@ function createVisibleAgentActivity(
   nowMs: number,
   minimumSpecificStageMs: number,
   lastSequence: number,
+  activityRound: number,
 ): VisibleAgentActivity {
   const holdUntilMs = isSpecificAgentActivityStage(activity.stage)
     ? nowMs + minimumSpecificStageMs
@@ -129,6 +134,7 @@ function createVisibleAgentActivity(
 
   return {
     ...activity,
+    activityRound,
     visibleSinceMs: nowMs,
     holdUntilMs,
     lastSequence,
@@ -147,6 +153,31 @@ function rememberIgnoredSequence(
     };
 }
 
+function rememberAcceptedProgressSequence(
+  current: VisibleAgentActivity,
+  lastSequence: number,
+  activityRound: number,
+): VisibleAgentActivity {
+  return current.lastSequence === lastSequence && current.activityRound === activityRound
+    ? current
+    : {
+      ...current,
+      activityRound,
+      lastSequence,
+    };
+}
+
+function nextActivityRound(
+  current: VisibleAgentActivity | null,
+  shouldAdvance: boolean,
+) {
+  if (!shouldAdvance) {
+    return current?.activityRound ?? 0;
+  }
+
+  return Math.max(1, (current?.activityRound ?? 0) + 1);
+}
+
 // reduceVisibleAgentActivity 是生产聊天页的展示仲裁器，只折叠用户可见文案，不推断 Agent 业务流程。
 export function reduceVisibleAgentActivity(
   current: VisibleAgentActivity | null,
@@ -156,15 +187,18 @@ export function reduceVisibleAgentActivity(
   const nowMs = options.nowMs ?? Date.now();
   const minimumSpecificStageMs = options.minimumSpecificStageMs ?? visibleAgentActivityMinimumMs;
   const genericCooldownMs = options.genericCooldownMs ?? genericAgentActivityCooldownMs;
+  const shouldAdvanceRound = options.advanceActivityRound ?? true;
   const lastSequence = Math.max(current?.lastSequence ?? -1, next.sequence);
 
-  if (current && next.sequence < current.lastSequence) {
+  if (current && next.sequence <= current.lastSequence) {
     return current;
   }
 
   if (current && !isKnownAgentProgressStage(next.stage)) {
     return rememberIgnoredSequence(current, lastSequence);
   }
+
+  const activityRound = nextActivityRound(current, shouldAdvanceRound);
 
   if (
     current &&
@@ -177,7 +211,7 @@ export function reduceVisibleAgentActivity(
     );
 
     if (nowMs < genericBlockedUntilMs) {
-      return rememberIgnoredSequence(current, lastSequence);
+      return rememberAcceptedProgressSequence(current, lastSequence, activityRound);
     }
   }
 
@@ -187,10 +221,12 @@ export function reduceVisibleAgentActivity(
     current.status === next.status &&
     current.messageKey === next.messageKey
   ) {
-    return rememberIgnoredSequence(current, lastSequence);
+    return shouldAdvanceRound
+      ? createVisibleAgentActivity(next, nowMs, minimumSpecificStageMs, lastSequence, activityRound)
+      : rememberAcceptedProgressSequence(current, lastSequence, activityRound);
   }
 
-  return createVisibleAgentActivity(next, nowMs, minimumSpecificStageMs, lastSequence);
+  return createVisibleAgentActivity(next, nowMs, minimumSpecificStageMs, lastSequence, activityRound);
 }
 
 // reduceAgentActivity 只接受 agent_progress 白名单事件，避免旧 stream 合同回流。

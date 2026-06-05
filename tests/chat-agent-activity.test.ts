@@ -40,6 +40,7 @@ describe("Agent progress activity UI state", () => {
     });
 
     expect(current).toMatchObject({
+      activityRound: 1,
       stage: "querying_exercises",
       status: "active",
       messageKey: "querying_exercises",
@@ -103,12 +104,40 @@ describe("Agent progress activity UI state", () => {
     }, { nowMs: 3_000 });
 
     expect(querying?.stage).toBe("querying_exercises");
+    expect(querying?.activityRound).toBe(1);
     expect(genericLoopTurn?.stage).toBe("querying_exercises");
+    expect(genericLoopTurn?.activityRound).toBe(2);
     expect(genericLoopTurn?.lastSequence).toBe(2);
     expect(unknownStage?.stage).toBe("querying_exercises");
+    expect(unknownStage?.activityRound).toBe(2);
     expect(unknownStage?.lastSequence).toBe(3);
     expect(afterCooldown?.stage).toBe("analyzing_request");
+    expect(afterCooldown?.activityRound).toBe(3);
     expect(getAgentActivityDisplay(afterCooldown!).label).toBe("正在规划下一步...");
+  });
+
+  it("advances the visible round for repeated backend stages without binding it to the label", () => {
+    const firstQuery = reduceAgentActivity(null, {
+      type: "agent_progress",
+      stage: "querying_exercises",
+      status: "active",
+      messageKey: "querying_exercises",
+      sequence: 1,
+    }, { nowMs: 0 });
+
+    const secondQuery = reduceAgentActivity(firstQuery, {
+      type: "agent_progress",
+      stage: "querying_exercises",
+      status: "active",
+      messageKey: "querying_exercises",
+      sequence: 2,
+    }, { nowMs: 300 });
+
+    expect(firstQuery?.stage).toBe("querying_exercises");
+    expect(firstQuery?.activityRound).toBe(1);
+    expect(secondQuery?.stage).toBe("querying_exercises");
+    expect(secondQuery?.activityRound).toBe(2);
+    expect(getAgentActivityDisplay(secondQuery!).label).toBe("正在查询动作库...");
   });
 
   it("accepts specific stages in a dynamic order without requiring a fixed workflow", () => {
@@ -131,12 +160,15 @@ describe("Agent progress activity UI state", () => {
     const writing = reduceVisibleAgentActivity(
       saving,
       createWritingReplyAgentActivity(saving),
-      { nowMs: 600 },
+      { nowMs: 600, advanceActivityRound: false },
     );
 
     expect(reading?.stage).toBe("reading_artifacts");
+    expect(reading?.activityRound).toBe(1);
     expect(saving?.stage).toBe("saving_result");
+    expect(saving?.activityRound).toBe(2);
     expect(writing?.stage).toBe("writing_reply");
+    expect(writing?.activityRound).toBe(2);
     expect(writing?.sequence).toBe(3);
   });
 
@@ -161,6 +193,7 @@ describe("AgentActivityIndicator", () => {
           stage: "validating_result",
           status: "active",
           messageKey: "validating_result",
+          activityRound: 4,
           sequence: 4,
         },
       }),
@@ -168,6 +201,7 @@ describe("AgentActivityIndicator", () => {
 
     expect(html).toContain("aria-live=\"polite\"");
     expect(html).toContain("role=\"status\"");
+    expect(html).toContain("#4");
     expect(html).toContain("正在校验训练内容...");
     expect(html).not.toContain("fact_check");
     expect(html).toContain("motion-safe:animate-pulse");
@@ -181,12 +215,14 @@ describe("AgentActivityIndicator", () => {
         activity: {
           stage: "raw_internal_tool_name",
           status: "active",
+          activityRound: 1,
           sequence: 1,
         },
       }),
     );
 
     expect(html).toContain(fallbackAgentActivityLabel);
+    expect(html).toContain("#1");
     expect(html).not.toContain("raw_internal_tool_name");
   });
 });
