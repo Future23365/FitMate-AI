@@ -1375,10 +1375,10 @@ export function ActionComposerPage() {
                 {isLoadingLibrary ? (
                   <div className="flex min-h-[160px] items-center justify-center rounded-xl border border-dashed border-line bg-surface-container-lowest p-md">
                     <Spinner
-                      className="font-label-md text-label-md font-semibold text-on-surface-variant"
+                      className="font-label-sm text-label-sm font-medium text-muted"
                       label="正在加载动作库..."
                       showLabel
-                      size="md"
+                      size="sm"
                     />
                   </div>
                 ) : !libraryItems.length ? (
@@ -1458,7 +1458,7 @@ export function ActionComposerPage() {
                       isLoadingMoreLibrary ? (
                         <div className="flex min-h-10 w-full items-center justify-center rounded-xl border border-dashed border-line bg-surface-container-lowest px-md py-sm">
                           <Spinner
-                            className="font-label-md text-label-md font-semibold text-on-surface-variant"
+                            className="font-label-sm text-label-sm font-medium text-muted"
                             label="正在加载更多动作..."
                             showLabel
                             size="sm"
