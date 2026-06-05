@@ -1,8 +1,9 @@
 import type { ExerciseRecommendationItem } from "@/lib/shared/exercise-recommendations/schema";
 import type { Exercise, ExerciseListItem } from "@/lib/shared/exercises/types";
+import { exercisePreviewPlaceholderImage } from "./exercise-preview-images";
 
 // exercisePreviewPlaceholderImage 是详情抽屉 preview 在缺少真实图片时使用的统一占位图。
-export const exercisePreviewPlaceholderImage = "/images/exercise-placeholder.svg";
+export { exercisePreviewPlaceholderImage };
 
 function normalizePreviewImages(imageUrls: Array<string | null | undefined>) {
   const normalizedImages = imageUrls.flatMap((imageUrl) => {

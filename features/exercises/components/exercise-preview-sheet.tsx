@@ -9,6 +9,16 @@ import {
   ExercisePreviewHeader,
   type ExercisePreviewPrimaryAction,
 } from "@/features/exercises/components/exercise-preview-sheet-parts";
+import {
+  canExercisePreviewAutoPlay,
+  createExercisePreviewImageSetKey,
+  emptyExercisePreviewImageLoadStatus,
+  exercisePreviewAutoplayIntervalMs,
+  exercisePreviewImageLoadDelayMs,
+  normalizeExercisePreviewImages,
+  type ExercisePreviewImageLoadState,
+  type ExercisePreviewImageLoadStatus,
+} from "@/features/exercises/lib/exercise-preview-images";
 import type { Exercise } from "@/lib/shared/exercises/types";
 
 interface ExercisePreviewSheetProps {
@@ -19,14 +29,22 @@ interface ExercisePreviewSheetProps {
   primaryAction?: ExercisePreviewPrimaryAction;
 }
 
-const placeholderImage = "/images/exercise-placeholder.svg";
-const autoplayIntervalMs = 1200;
-const autoplayImageWaitMs = 120;
-type ImageLoadStatus = "loaded" | "failed";
-const emptyImageLoadStatus: Record<string, ImageLoadStatus> = {};
-type ExerciseImageLoadState = {
+type ExerciseImageSelection = {
   exerciseId: string;
-  statusByUrl: Record<string, ImageLoadStatus>;
+  imageSetKey: string;
+  index: number;
+};
+
+type ExerciseImageLoadGate = {
+  exerciseId: string;
+  imageSetKey: string;
+  canLoad: boolean;
+};
+
+type ExerciseImageAutoplayState = {
+  exerciseId: string;
+  imageSetKey: string;
+  isPlaying: boolean;
 };
 
 function preloadExerciseImage(src: string) {
@@ -43,23 +61,6 @@ function preloadExerciseImage(src: string) {
     image.onerror = reject;
     image.src = src;
   });
-}
-
-function getNextPlayableImageIndex(
-  currentIndex: number,
-  images: string[],
-  imageLoadStatus: Record<string, ImageLoadStatus>
-) {
-  for (let offset = 1; offset < images.length; offset += 1) {
-    const nextIndex = (currentIndex + offset) % images.length;
-    const status = imageLoadStatus[images[nextIndex]];
-
-    if (status !== "failed") {
-      return nextIndex;
-    }
-  }
-
-  return currentIndex;
 }
 
 export function ExercisePreviewSheet({
@@ -110,61 +111,134 @@ export function ExercisePreviewSheetBody({
   executionTip?: string;
   isActive?: boolean;
 }) {
-  const [imageSelection, setImageSelection] = useState({
-    exerciseId: "",
+  const images = useMemo(
+    () => normalizeExercisePreviewImages(exercise.imageUrls),
+    [exercise.imageUrls]
+  );
+  const imageSetKey = useMemo(() => createExercisePreviewImageSetKey(images), [images]);
+
+  return (
+    <ExercisePreviewSheetContent
+      key={`${exercise.id}:${imageSetKey}:${isActive ? "active" : "inactive"}`}
+      exercise={exercise}
+      executionTip={executionTip}
+      imageSetKey={imageSetKey}
+      images={images}
+      isActive={isActive}
+    />
+  );
+}
+
+function ExercisePreviewSheetContent({
+  exercise,
+  executionTip,
+  imageSetKey,
+  images,
+  isActive = true,
+}: {
+  exercise: Exercise;
+  executionTip?: string;
+  imageSetKey: string;
+  images: string[];
+  isActive?: boolean;
+}) {
+  const exerciseId = exercise.id;
+  const [imageSelection, setImageSelection] = useState<ExerciseImageSelection>({
+    exerciseId,
+    imageSetKey,
     index: 0,
   });
-  const [autoPlay, setAutoPlay] = useState({
-    exerciseId: "",
+  const [autoPlay, setAutoPlay] = useState<ExerciseImageAutoplayState>({
+    exerciseId,
+    imageSetKey,
     isPlaying: true,
   });
-  const [imageLoadState, setImageLoadState] = useState<ExerciseImageLoadState>({
-    exerciseId: "",
+  const [imageLoadState, setImageLoadState] = useState<ExercisePreviewImageLoadState>({
+    exerciseId,
+    imageSetKey,
     statusByUrl: {},
   });
+  const [imageLoadGate, setImageLoadGate] = useState<ExerciseImageLoadGate>({
+    exerciseId: "",
+    imageSetKey: "",
+    canLoad: false,
+  });
 
-  const images = useMemo(
-    () => (exercise?.imageUrls && exercise.imageUrls.length > 0 ? exercise.imageUrls : [placeholderImage]),
-    [exercise]
-  );
-  const exerciseId = exercise?.id ?? "";
   const activeImageIndex =
-    imageSelection.exerciseId === exerciseId
+    imageSelection.exerciseId === exerciseId && imageSelection.imageSetKey === imageSetKey
       ? Math.min(imageSelection.index, images.length - 1)
       : 0;
   const hasMultipleImages = images.length > 1;
-  const isAutoPlaying = autoPlay.exerciseId === exerciseId ? autoPlay.isPlaying : true;
+  const isAutoPlaying =
+    autoPlay.exerciseId === exerciseId && autoPlay.imageSetKey === imageSetKey ? autoPlay.isPlaying : true;
   const imageLoadStatus =
-    imageLoadState.exerciseId === exerciseId ? imageLoadState.statusByUrl : emptyImageLoadStatus;
+    imageLoadState.exerciseId === exerciseId && imageLoadState.imageSetKey === imageSetKey
+      ? imageLoadState.statusByUrl
+      : emptyExercisePreviewImageLoadStatus;
+  const canLoadImages =
+    isActive &&
+    imageLoadGate.exerciseId === exerciseId &&
+    imageLoadGate.imageSetKey === imageSetKey &&
+    imageLoadGate.canLoad;
+  const canAutoSwitchImages = canLoadImages && canExercisePreviewAutoPlay(images, imageLoadStatus);
   const activeImageUrl = images[activeImageIndex];
+  const activeImageStatus = imageLoadStatus[activeImageUrl];
+  const shouldShowActiveImage = canLoadImages && activeImageStatus === "loaded";
+  const didActiveImageFail = canLoadImages && activeImageStatus === "failed";
 
-  const setImageStatus = useCallback((nextExerciseId: string, src: string, status: ImageLoadStatus) => {
+  const setImageStatus = useCallback((
+    nextExerciseId: string,
+    nextImageSetKey: string,
+    src: string,
+    status: ExercisePreviewImageLoadStatus
+  ) => {
     setImageLoadState((current) => {
-      const statusByUrl = current.exerciseId === nextExerciseId ? current.statusByUrl : {};
+      if (current.exerciseId !== nextExerciseId || current.imageSetKey !== nextImageSetKey) {
+        return current;
+      }
 
-      if (statusByUrl[src] === status) {
+      if (current.statusByUrl[src] === status) {
         return current;
       }
 
       return {
         exerciseId: nextExerciseId,
-        statusByUrl: { ...statusByUrl, [src]: status },
+        imageSetKey: nextImageSetKey,
+        statusByUrl: { ...current.statusByUrl, [src]: status },
       };
     });
   }, []);
 
   const markImageLoaded = useCallback(
-    (nextExerciseId: string, src: string) => setImageStatus(nextExerciseId, src, "loaded"),
+    (nextExerciseId: string, nextImageSetKey: string, src: string) =>
+      setImageStatus(nextExerciseId, nextImageSetKey, src, "loaded"),
     [setImageStatus]
   );
 
   const markImageFailed = useCallback(
-    (nextExerciseId: string, src: string) => setImageStatus(nextExerciseId, src, "failed"),
+    (nextExerciseId: string, nextImageSetKey: string, src: string) =>
+      setImageStatus(nextExerciseId, nextImageSetKey, src, "failed"),
     [setImageStatus]
   );
 
   useEffect(() => {
     if (!isActive || !exerciseId) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setImageLoadGate({
+        exerciseId,
+        imageSetKey,
+        canLoad: true,
+      });
+    }, exercisePreviewImageLoadDelayMs);
+
+    return () => window.clearTimeout(timer);
+  }, [exerciseId, imageSetKey, isActive]);
+
+  useEffect(() => {
+    if (!canLoadImages || !exerciseId) {
       return;
     }
 
@@ -174,12 +248,12 @@ export function ExercisePreviewSheetBody({
       preloadExerciseImage(src)
         .then(() => {
           if (!cancelled) {
-            markImageLoaded(exerciseId, src);
+            markImageLoaded(exerciseId, imageSetKey, src);
           }
         })
         .catch(() => {
           if (!cancelled) {
-            markImageFailed(exerciseId, src);
+            markImageFailed(exerciseId, imageSetKey, src);
           }
         });
     }
@@ -187,43 +261,42 @@ export function ExercisePreviewSheetBody({
     return () => {
       cancelled = true;
     };
-  }, [exerciseId, images, isActive, markImageFailed, markImageLoaded]);
+  }, [canLoadImages, exerciseId, imageSetKey, images, markImageFailed, markImageLoaded]);
 
   useEffect(() => {
-    if (!isActive || !exerciseId || !hasMultipleImages || !isAutoPlaying) {
+    if (!isActive || !exerciseId || !hasMultipleImages || !isAutoPlaying || !canAutoSwitchImages) {
       return;
     }
-
-    const nextIndex = getNextPlayableImageIndex(activeImageIndex, images, imageLoadStatus);
-    if (nextIndex === activeImageIndex) {
-      return;
-    }
-
-    const nextImageUrl = images[nextIndex];
-    const isNextImageLoaded = imageLoadStatus[nextImageUrl] === "loaded";
-    const delay = isNextImageLoaded ? autoplayIntervalMs : autoplayImageWaitMs;
 
     const timer = window.setTimeout(() => {
-      if (!isNextImageLoaded) {
-        return;
-      }
-
       setImageSelection((current) => {
-        const currentIndex = current.exerciseId === exerciseId ? current.index : 0;
+        const currentIndex =
+          current.exerciseId === exerciseId && current.imageSetKey === imageSetKey ? current.index : 0;
 
         return {
           exerciseId,
-          index: getNextPlayableImageIndex(currentIndex, images, imageLoadStatus),
+          imageSetKey,
+          index: currentIndex >= images.length - 1 ? 0 : currentIndex + 1,
         };
       });
-    }, delay);
+    }, exercisePreviewAutoplayIntervalMs);
 
     return () => window.clearTimeout(timer);
-  }, [activeImageIndex, exerciseId, hasMultipleImages, imageLoadStatus, images, isActive, isAutoPlaying]);
+  }, [
+    activeImageIndex,
+    canAutoSwitchImages,
+    exerciseId,
+    hasMultipleImages,
+    imageSetKey,
+    images.length,
+    isActive,
+    isAutoPlaying,
+  ]);
 
   function selectImage(index: number) {
     setImageSelection({
       exerciseId: exercise?.id ?? "",
+      imageSetKey,
       index,
     });
   }
@@ -247,15 +320,27 @@ export function ExercisePreviewSheetBody({
 
                 {/* 大图展示区域 */}
                 <div className="group relative aspect-[3/2] w-full overflow-hidden rounded-xl bg-white">
-                  <Image
-                    alt={`${exercise.nameZh} 演示图`}
-                    className="object-cover"
-                    fill
-                    onError={() => markImageFailed(exerciseId, activeImageUrl)}
-                    onLoad={() => markImageLoaded(exerciseId, activeImageUrl)}
-                    sizes="(min-width: 640px) 428px, calc(100vw - 32px)"
-                    src={activeImageUrl}
-                  />
+                  {shouldShowActiveImage ? (
+                    <Image
+                      key={`${exerciseId}:${imageSetKey}:${activeImageUrl}`}
+                      alt={`${exercise.nameZh} 演示图`}
+                      className="object-cover"
+                      fill
+                      onError={() => markImageFailed(exerciseId, imageSetKey, activeImageUrl)}
+                      onLoad={() => markImageLoaded(exerciseId, imageSetKey, activeImageUrl)}
+                      sizes="(min-width: 640px) 428px, calc(100vw - 32px)"
+                      src={activeImageUrl}
+                    />
+                  ) : (
+                    <div className="flex h-full w-full flex-col items-center justify-center gap-xs bg-slate-50 text-slate-400">
+                      <SymbolIcon className="text-[28px]">
+                        {didActiveImageFail ? "broken_image" : "image"}
+                      </SymbolIcon>
+                      <span className="font-label-xs text-label-xs font-semibold">
+                        {didActiveImageFail ? "图片加载失败" : "图片加载中..."}
+                      </span>
+                    </div>
+                  )}
 
                   {/* 左右翻页按钮 */}
                   {images.length > 1 && (
@@ -280,6 +365,7 @@ export function ExercisePreviewSheetBody({
                         onClick={() =>
                           setAutoPlay({
                             exerciseId: exercise.id,
+                            imageSetKey,
                             isPlaying: !isAutoPlaying,
                           })
                         }
