@@ -87,6 +87,7 @@ const visibleOutputValidationReasonCodes = new Set<string>([
   "exercise_missing",
   "exercise_unpublished",
   "database_unconfigured",
+  "current_run_source_missing",
 ]);
 const terminalReferenceErrorCodes = new Set<string>([
   AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID,

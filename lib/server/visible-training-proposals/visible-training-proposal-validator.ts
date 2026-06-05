@@ -8,6 +8,7 @@ import type { JsonValue, VisibleOutputEnvelope } from "@/lib/server/agent-core/c
 
 import {
   toJsonValue,
+  visibleTrainingProposalFactResourceType,
   visibleTrainingProposalOutputType,
   visibleTrainingProposalPayloadSchema,
   visibleTrainingProposalSchemaVersion,
@@ -101,6 +102,11 @@ export async function validateVisibleTrainingProposalOutput(
         recoveryDirections: createCoverageRecoveryDirections(),
       },
     };
+  }
+
+  const sourceValidation = validateCurrentRunExerciseSources(parsed.data.exerciseItems, context);
+  if (!sourceValidation.ok) {
+    return sourceValidation;
   }
 
   return {
@@ -242,6 +248,113 @@ function createCoverageRecoveryDirections(): JsonValue {
     "输出当前事实可支撑的结构。",
     "向用户澄清缺失条件或可放宽边界。",
     "在事实不足时失败收口，不保存或渲染不可验证方案。",
+  ];
+}
+
+function validateCurrentRunExerciseSources(
+  exerciseItems: readonly Pick<VisibleTrainingExerciseItem, "exerciseId" | "section" | "order">[],
+  context: TerminalOutputValidationContext,
+): TerminalOutputValidationResult {
+  const sources = collectCurrentRunExerciseSources(context);
+  const missingItems = exerciseItems.filter((item) => !sources.has(createExerciseSourceKey(item)));
+
+  if (missingItems.length === 0) {
+    return { ok: true };
+  }
+
+  return {
+    ok: false,
+    message: "visibleTrainingProposal 动作项缺少当前 run 可消费动作事实来源。",
+    details: {
+      code: "current_run_source_missing",
+      path: "payload.exerciseItems",
+      missingExerciseItems: missingItems.map((item) => ({
+        exerciseId: item.exerciseId,
+        section: item.section,
+        order: item.order,
+      })),
+      currentRunSourceSummary: {
+        sourceCount: sources.size,
+      },
+      recoveryDirections: createCurrentRunSourceRecoveryDirections(),
+    },
+  };
+}
+
+// collectCurrentRunExerciseSources 只读取当前 run 的 satisfied tool result 和 consumable resource，不解释用户原文。
+function collectCurrentRunExerciseSources(context: TerminalOutputValidationContext) {
+  const sources = new Set<string>();
+
+  for (const result of context.toolResults) {
+    if (!result.ok || !result.fulfillment.satisfied || result.toolName !== "searchExerciseResources") {
+      continue;
+    }
+
+    collectSourcesFromSearchProjection(result.projection.model, sources);
+  }
+
+  for (const resource of context.resourceStore?.inventory() ?? []) {
+    if (
+      resource.ref.role !== "consumable"
+      || resource.ref.resourceType !== visibleTrainingProposalFactResourceType
+    ) {
+      continue;
+    }
+
+    collectSourcesFromExerciseItems(resource.summary, sources);
+  }
+
+  return sources;
+}
+
+function collectSourcesFromSearchProjection(value: JsonValue | undefined, sources: Set<string>) {
+  if (!isRecord(value) || !isRecord(value.groups)) {
+    return;
+  }
+
+  for (const section of visibleTrainingCompositionSections) {
+    const group = value.groups[section];
+    if (!isRecord(group) || !Array.isArray(group.exercises)) {
+      continue;
+    }
+
+    for (const exercise of group.exercises) {
+      if (isRecord(exercise) && typeof exercise.exerciseId === "string") {
+        sources.add(createExerciseSourceKey({ exerciseId: exercise.exerciseId, section }));
+      }
+    }
+  }
+}
+
+function collectSourcesFromExerciseItems(value: JsonValue | undefined, sources: Set<string>) {
+  if (!isRecord(value) || !Array.isArray(value.exerciseItems)) {
+    return;
+  }
+
+  for (const item of value.exerciseItems) {
+    if (
+      isRecord(item)
+      && typeof item.exerciseId === "string"
+      && isVisibleTrainingCompositionSection(item.section)
+    ) {
+      sources.add(createExerciseSourceKey({
+        exerciseId: item.exerciseId,
+        section: item.section,
+      }));
+    }
+  }
+}
+
+function createExerciseSourceKey(item: Pick<VisibleTrainingExerciseItem, "exerciseId" | "section">) {
+  return `${item.section}:${item.exerciseId}`;
+}
+
+function createCurrentRunSourceRecoveryDirections(): JsonValue {
+  return [
+    "继续查询当前目标所需的发布态动作事实，并使用 satisfied tool result 中的 exerciseId 和 section。",
+    "如需复用上一轮用户可见训练方案，先导入对应 consumable visible_training_proposal_fact。",
+    "不要从数据库记忆、metadata-only summary、unsatisfied tool result 或正文中直接复制动作到 visibleOutputs。",
+    "当前事实不足时使用 ask_user 澄清，或不输出 visibleOutputs 并失败收口。",
   ];
 }
 

@@ -30,9 +30,11 @@ const defaultAgentActionSystemPromptInstructions = [
   "当用户引用当前 run 可见对象、历史导入事实或 tool result 时，先基于 messages、metadata、observations、toolResults 和 consumable resource 判断资源操作类型：reuse 表示直接复用已有事实，derive 表示从已有事实派生更合适的结构，modify 表示保留对象并调整顺序、处方、schedule 或局部字段，replace 表示替换、排除或避免重复，clarify 表示引用对象或目标不足需要追问。这些只是模型推理标签，不是 AgentAction 字段；服务端不会根据用户原文替你选择标签、tool、action 或 payload.kind。",
   "reuse、derive 和 modify 应优先把可消费资源作为正向事实来源；replace 才适合把当前 run 可见且用户已经看到或明确要求排除的 exerciseId 作为 excludeExerciseIds。需要保留、复用、派生或调整已有动作时，不要把同一批动作写进 excludeExerciseIds；可以基于当前可见事实继续输出可支撑结构，或用 requiredExerciseIds 作为正向锚点查询受控动作事实。",
   "训练方案统一使用 outputType = visibleTrainingProposal、schemaVersion = \"1\"。payload.kind 只能是 exercise_selection、routine 或 plan；这三类是最终训练输出的结构能力，不是触发语列表。你应根据用户目标、上下文、当前可见 tools、observations 和 tool results 自主选择是否输出 visibleTrainingProposal 以及选择哪种 payload.kind；服务端只校验你声明的结构、权限和数据库事实，不会根据用户原文替你改写 kind。目标需要周期、多天、频次、训练日 / 休息日安排或跨天训练计划时，应优先使用 payload.kind = plan；这是一条训练输出结构选择规则，不是固定词语触发规则。",
+  "新输出 visibleTrainingProposal 前，必须先确认当前对话、metadata、observations、toolResults 或 consumable resource 已提供足够解释该训练输出的目标和关键约束；信息不足时应返回 ask_user，或使用不带 visibleOutputs 的 final_answer 说明可选方向并给出 suggestedQuestions。不要为了满足笼统训练意图而推送不可解释的默认训练卡片。",
+  "payload.kind = exercise_selection 至少需要当前可见上下文中存在训练目标、身体部位、动作类别、器械限制、场地限制、目标标签、点名动作或其他可解释筛选条件之一；缺少这些条件时，不得输出随机动作卡片，应先澄清目标或给出可点击的具体方向。",
   "payload.kind = exercise_selection 表达一批可选 training 动作事实，仅用于目标只需要动作选择或普通动作事实推荐的场景；exerciseItems 只放 section = training 的动作项，包含 exerciseId 和 order，不输出 prescription 或 schedule。",
-  "payload.kind = routine 表达一次可执行训练编排结构；必须在主训练动作基础上包含 warmup、training、stretch 三类 exerciseItems，且每个动作项都绑定 prescription。",
-  "payload.kind = plan 表达多天安排结构；生成顺序是先确认或使用当前可见的训练目标、限制、器械、时间和难度，再查询或复用 training 动作事实作为主训练来源；当前 run 缺少可消费 warmup 或 stretch 动作事实时，应优先使用可见 tool 查询缺失 section，然后把 warmup/training/stretch 组成同一套带 prescription 的编排，最后通过 schedule.assignments 表达周期内 training/rest 日。schedule 只表达周期内 training/rest 日，不得内嵌每天不同的完整动作编排。",
+  "payload.kind = routine 表达一次可执行训练编排结构；必须在主训练动作基础上包含 warmup、training、stretch 三类 exerciseItems，且每个动作项都绑定 prescription。routine 需要当前可见上下文中已有足以解释单次编排的训练目标或部位、单次时长、可用器械或场地等关键约束；目标、时长、器械或场地不足以解释方案时，应先澄清或给出可选方向，不得推送默认 routine 卡片。",
+  "payload.kind = plan 表达多天安排结构；生成顺序是先确认或使用当前可见的训练目标、限制、器械、时间和难度，再查询或复用 training 动作事实作为主训练来源；当前 run 缺少可消费 warmup 或 stretch 动作事实时，应优先使用可见 tool 查询缺失 section，然后把 warmup/training/stretch 组成同一套带 prescription 的编排，最后通过 schedule.assignments 表达周期内 training/rest 日。plan 需要当前可见上下文中已有足以解释长期安排的长期目标、训练频率或周期、单次时长、可用器械或场地等关键约束；频率、时长、目标或器械/场地不足时，应先澄清或给出可选方向，不得推送空泛 plan 卡片。schedule 只表达周期内 training/rest 日，不得内嵌每天不同的完整动作编排。",
   "当用户基于上一套用户可见 visibleTrainingProposal 表达替换、不满意或同类继续请求时，应理解为刷新可见训练方案：保留原训练目标、器械、难度、居家条件、时长、section 和计划约束，并优先让新的 exerciseItems 与上一套用户已看到动作产生实质差异。routine 或 plan 的刷新不应只按原始需求和同一排序重新生成重复动作；如果需要替换动作，应基于当前 run 可见事实自主决定读取上一套事实、查询替代动作、澄清或失败收口。不要把某个自然语言表达映射成固定 tool、固定 action、固定 payload.kind 或服务端分流。",
   "如果用户只是调整组数、时长、顺序、休息或难度，应优先保留已选动作并调整 prescription、order、schedule 或相关结构字段，除非用户同时明确表达要替换动作。若用户明确要求保留某些动作，或在当前目标、器械、难度、section、时长、计划约束下可替代候选不足，可以复用部分已展示动作，但必须在 content 中说明原因、询问是否放宽条件或只输出当前事实可支撑的结构；不要在未说明原因时把重复旧动作称为已经完成刷新。",
   "final_answer.visibleOutputs[] 中 payload.kind = routine 或 plan 的前置条件是当前 run 已具备 warmup、training、stretch 三类可消费动作事实；exerciseItems[*].exerciseId 和 exerciseItems[*].section 必须由当前 run 可见动作事实支撑，exerciseItems[*].section 必须被对应动作事实的 allowedSections 支撑。",
@@ -53,7 +55,7 @@ const defaultAgentActionSystemPromptInstructions = [
 ] as const;
 
 // agentLlmPromptVersion 是当前通用 AgentAction system prompt 的稳定审阅标识。
-export const agentLlmPromptVersion = "agent-action-v11";
+export const agentLlmPromptVersion = "agent-action-v12";
 
 // agentLlmPromptConfig 是生产 LlmPlanner 的默认模型决策 prompt 配置，不承载具体业务 tool 规则。
 export const agentLlmPromptConfig = {

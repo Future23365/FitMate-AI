@@ -1,13 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { VisibleOutputEnvelope } from "@/lib/server/agent-core/contracts";
+import { ResourceStore } from "@/lib/server/agent-core/resource-store";
+import type { ToolResult, VisibleOutputEnvelope } from "@/lib/server/agent-core/contracts";
 import { validateVisibleTrainingProposalOutput } from "@/lib/server/visible-training-proposals/visible-training-proposal-validator";
 import type { VisibleTrainingProposalExerciseFactLoader } from "@/lib/server/visible-training-proposals/visible-training-proposal-exercise-facts";
+import { visibleTrainingProposalFactResourceType } from "@/lib/server/visible-training-proposals/visible-training-proposal-contract";
 
 type FixtureExerciseRecord = Awaited<ReturnType<VisibleTrainingProposalExerciseFactLoader>>[number];
 
 describe("visible training proposal validator", () => {
-  it("accepts exercise_selection when every exerciseId is valid in database facts without search tool results", async () => {
+  it("rejects exercise_selection when database facts exist but current run has no consumable action source", async () => {
     await expect(validateVisibleTrainingProposalOutput(
       createEnvelope({
         kind: "exercise_selection",
@@ -16,6 +18,39 @@ describe("visible training proposal validator", () => {
         ],
       }),
       createContext(),
+      { loadExerciseRecordsByIds: createExerciseFactLoader() },
+    )).resolves.toMatchObject({
+      ok: false,
+      message: "visibleTrainingProposal 动作项缺少当前 run 可消费动作事实来源。",
+      details: {
+        code: "current_run_source_missing",
+        missingExerciseItems: [
+          { exerciseId: "push-up", section: "training", order: 1 },
+        ],
+        recoveryDirections: expect.arrayContaining([
+          "继续查询当前目标所需的发布态动作事实，并使用 satisfied tool result 中的 exerciseId 和 section。",
+        ]),
+      },
+    });
+  });
+
+  it("accepts exercise_selection when exercise facts come from a satisfied current-run search result", async () => {
+    await expect(validateVisibleTrainingProposalOutput(
+      createEnvelope({
+        kind: "exercise_selection",
+        exerciseItems: [
+          { exerciseId: "push-up", section: "training", order: 1 },
+        ],
+      }),
+      createContext({
+        toolResults: [
+          createSearchToolResult({
+            satisfied: true,
+            section: "training",
+            exerciseIds: ["push-up"],
+          }),
+        ],
+      }),
       { loadExerciseRecordsByIds: createExerciseFactLoader() },
     )).resolves.toEqual({
       ok: true,
@@ -26,6 +61,91 @@ describe("visible training proposal validator", () => {
             nameZh: "俯卧撑",
             allowedSections: ["training"],
           }),
+        ],
+      },
+    });
+  });
+
+  it("rejects exerciseItems that only appear in unsatisfied current-run search results", async () => {
+    await expect(validateVisibleTrainingProposalOutput(
+      createEnvelope({
+        kind: "exercise_selection",
+        exerciseItems: [
+          { exerciseId: "push-up", section: "training", order: 1 },
+        ],
+      }),
+      createContext({
+        toolResults: [
+          createSearchToolResult({
+            satisfied: false,
+            section: "training",
+            exerciseIds: ["push-up"],
+          }),
+        ],
+      }),
+      { loadExerciseRecordsByIds: createExerciseFactLoader() },
+    )).resolves.toMatchObject({
+      ok: false,
+      details: {
+        code: "current_run_source_missing",
+        missingExerciseItems: [
+          { exerciseId: "push-up", section: "training", order: 1 },
+        ],
+      },
+    });
+  });
+
+  it("accepts exerciseItems from a current-run consumable visible training proposal fact", async () => {
+    const resourceStore = new ResourceStore("run-visible-resource");
+    resourceStore.register({
+      sourceToolResultId: "tr_read_recent",
+      resourceType: visibleTrainingProposalFactResourceType,
+      role: "consumable",
+      schemaVersion: "1",
+      summary: {
+        exerciseItems: [
+          { exerciseId: "push-up", section: "training", order: 1 },
+        ],
+      },
+    });
+
+    await expect(validateVisibleTrainingProposalOutput(
+      createEnvelope({
+        kind: "exercise_selection",
+        exerciseItems: [
+          { exerciseId: "push-up", section: "training", order: 1 },
+        ],
+      }),
+      createContext({ resourceStore }),
+      { loadExerciseRecordsByIds: createExerciseFactLoader() },
+    )).resolves.toMatchObject({ ok: true });
+  });
+
+  it("does not accept metadata-only recent summaries as action fact sources", async () => {
+    await expect(validateVisibleTrainingProposalOutput(
+      createEnvelope({
+        kind: "exercise_selection",
+        exerciseItems: [
+          { exerciseId: "squat", section: "training", order: 1 },
+        ],
+      }),
+      createContext({
+        run: {
+          runId: "run-visible-metadata-only",
+          actor: { userId: "user-1", sessionId: "conversation-1" },
+          userInput: "把上一轮动作编排一下",
+          metadata: {
+            recentVisibleTrainingProposals: [createRecentVisibleTrainingProposalSummary()],
+          },
+        },
+      }),
+      { loadExerciseRecordsByIds: createExerciseFactLoader() },
+    )).resolves.toMatchObject({
+      ok: false,
+      details: {
+        code: "current_run_source_missing",
+        missingExerciseItems: [
+          { exerciseId: "squat", section: "training", order: 1 },
         ],
       },
     });
@@ -219,7 +339,13 @@ describe("visible training proposal validator", () => {
           { exerciseId: "chest-stretch", section: "stretch", order: 1, prescription: createPrescription("duration", 30) },
         ],
       }),
-      createContext(),
+      createContext({
+        toolResults: [
+          createSearchToolResult({ satisfied: true, section: "warmup", exerciseIds: ["jumping-jack"] }),
+          createSearchToolResult({ satisfied: true, section: "training", exerciseIds: ["push-up"] }),
+          createSearchToolResult({ satisfied: true, section: "stretch", exerciseIds: ["chest-stretch"] }),
+        ],
+      }),
       { loadExerciseRecordsByIds: createExerciseFactLoader() },
     )).resolves.toEqual({
       ok: true,
@@ -247,7 +373,11 @@ describe("visible training proposal validator", () => {
           { exerciseId: "push-up", section: "training", order: 2 },
         ],
       }),
-      createContext(),
+      createContext({
+        toolResults: [
+          createSearchToolResult({ satisfied: true, section: "training", exerciseIds: ["push-up"] }),
+        ],
+      }),
       { loadExerciseRecordsByIds: loader },
     )).resolves.toMatchObject({ ok: true });
     expect(loader).toHaveBeenCalledWith(["push-up"]);
@@ -347,6 +477,38 @@ function createContext(overrides: Record<string, unknown> = {}) {
     },
     toolResults: [],
     ...overrides,
+  };
+}
+
+function createSearchToolResult(input: {
+  satisfied: boolean;
+  section: "warmup" | "training" | "stretch";
+  exerciseIds: string[];
+}): ToolResult {
+  return {
+    toolResultId: `tr_${input.section}_${input.exerciseIds.join("_")}_${input.satisfied ? "satisfied" : "unsatisfied"}`,
+    toolName: "searchExerciseResources",
+    toolVersion: "0.5.0",
+    toolCallId: `tc_${input.section}`,
+    idempotencyKey: `idem_${input.section}`,
+    normalizedInputHash: `hash_${input.section}`,
+    startedAt: "2026-06-05T00:00:00.000Z",
+    completedAt: "2026-06-05T00:00:01.000Z",
+    ok: true,
+    output: {},
+    projection: {
+      model: {
+        groups: {
+          [input.section]: {
+            exercises: input.exerciseIds.map((exerciseId) => ({ exerciseId })),
+          },
+        },
+      },
+    },
+    fulfillment: {
+      satisfied: input.satisfied,
+      summary: input.satisfied ? "查询已满足。" : "查询未满足。",
+    },
   };
 }
 

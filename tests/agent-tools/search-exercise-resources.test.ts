@@ -181,6 +181,79 @@ describe("searchExerciseResources tool", () => {
     expect(serializedObservation).not.toContain("\"stretch\":{\"suitability\":\"stretch\"");
   });
 
+  it("returns diagnostic unsatisfied fulfillment for broad queries without explanatory constraints", async () => {
+    const { tool, repository } = await importToolWithRepositoryResult(createSearchResult({
+      query: {
+        suitability: "training",
+        published: true,
+        sort: "name_asc",
+      },
+      totalMatches: 12,
+      returnedCount: 1,
+      exercises: [createExerciseSummary({ id: "push-up", nameZh: "俯卧撑" })],
+    }));
+
+    const result = await executeTool({
+      tool,
+      input: { suitabilities: ["training"] },
+      run: { runId: "run-broad", actor: { userId: "user-1" }, userInput: "推荐一个动作" },
+      timeoutMs: 100,
+      toolCallId: "tc_broad",
+    });
+
+    expect(repository.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
+      q: undefined,
+      muscle: undefined,
+      muscles: undefined,
+      equipment: undefined,
+      homeRequirement: undefined,
+      suitability: "training",
+    }));
+    expect(result).toMatchObject({
+      ok: true,
+      fulfillment: {
+        satisfied: false,
+        summary: expect.stringContaining("input 缺少可解释训练目标"),
+      },
+    });
+
+    if (!result.ok) {
+      throw new Error("searchExerciseResources should return diagnostic success output");
+    }
+    const modelObservation = tool.toModelObservation?.(
+      result.output as Parameters<NonNullable<typeof tool.toModelObservation>>[0],
+      {
+        runId: "run-broad",
+        actor: { userId: "user-1" },
+        toolCallId: "tc_broad",
+      },
+    );
+
+    expect(modelObservation).toMatchObject({
+      querySpecificity: {
+        status: "too_broad",
+        specificFilters: [],
+        forbiddenFinalAnswer: expect.stringContaining("不得用本次结果支撑成功 final_answer"),
+      },
+    });
+    const serializedObservation = JSON.stringify(modelObservation);
+    expect(serializedObservation).toContain("fulfillment.satisfied=false");
+    expect(serializedObservation).toContain("不能作为 visibleTrainingProposal.exerciseItems[*] 的可消费事实来源");
+    expect(serializedObservation).toContain("使用 ask_user 澄清训练目标");
+
+    const sameInputDifferentUserTextResult = await executeTool({
+      tool,
+      input: { suitabilities: ["training"] },
+      run: { runId: "run-broad-user-text", actor: { userId: "user-1" }, userInput: "找几个胸部动作" },
+      timeoutMs: 100,
+      toolCallId: "tc_broad_user_text",
+    });
+    expect(sameInputDifferentUserTextResult).toMatchObject({
+      ok: true,
+      fulfillment: { satisfied: false },
+    });
+  });
+
   it("passes multiple real muscle facets through the tool boundary", async () => {
     const { tool, repository } = await importToolWithRepositoryImplementation(async (input) => createSearchResult({
       query: input as ExerciseResourceSearchResult["query"],

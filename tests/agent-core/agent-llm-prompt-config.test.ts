@@ -13,7 +13,7 @@ describe("agent LLM prompt configuration", () => {
     const systemPrompt = buildAgentActionSystemPrompt();
 
     expect(agentLlmPromptConfig.promptVersion).toBe(agentLlmPromptVersion);
-    expect(agentLlmPromptVersion).toBe("agent-action-v11");
+    expect(agentLlmPromptVersion).toBe("agent-action-v12");
     expect(systemPrompt).toContain("只能返回一个合法 JSON object");
     expect(systemPrompt).toContain("type 只能是 tool_call、final_answer、ask_user 三者之一");
     expect(systemPrompt).toContain("final_answer 和 ask_user 都可以在适合时可选输出 suggestedQuestions");
@@ -64,11 +64,21 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).toContain("不会根据用户原文替你改写 kind");
     expect(systemPrompt).toContain("目标需要周期、多天、频次、训练日 / 休息日安排或跨天训练计划时，应优先使用 payload.kind = plan");
     expect(systemPrompt).toContain("这是一条训练输出结构选择规则，不是固定词语触发规则");
+    expect(systemPrompt).toContain("新输出 visibleTrainingProposal 前，必须先确认当前对话、metadata、observations、toolResults 或 consumable resource");
+    expect(systemPrompt).toContain("已提供足够解释该训练输出的目标和关键约束");
+    expect(systemPrompt).toContain("信息不足时应返回 ask_user，或使用不带 visibleOutputs 的 final_answer");
+    expect(systemPrompt).toContain("不要为了满足笼统训练意图而推送不可解释的默认训练卡片");
+    expect(systemPrompt).toContain("payload.kind = exercise_selection 至少需要当前可见上下文中存在训练目标、身体部位、动作类别、器械限制、场地限制、目标标签、点名动作或其他可解释筛选条件之一");
+    expect(systemPrompt).toContain("缺少这些条件时，不得输出随机动作卡片");
     expect(systemPrompt).toContain("payload.kind = exercise_selection 表达一批可选 training 动作事实");
     expect(systemPrompt).toContain("仅用于目标只需要动作选择或普通动作事实推荐的场景");
     expect(systemPrompt).toContain("payload.kind = routine 表达一次可执行训练编排结构");
+    expect(systemPrompt).toContain("routine 需要当前可见上下文中已有足以解释单次编排的训练目标或部位、单次时长、可用器械或场地等关键约束");
+    expect(systemPrompt).toContain("不得推送默认 routine 卡片");
     expect(systemPrompt).toContain("payload.kind = plan 表达多天安排结构");
     expect(systemPrompt).toContain("先确认或使用当前可见的训练目标、限制、器械、时间和难度");
+    expect(systemPrompt).toContain("plan 需要当前可见上下文中已有足以解释长期安排的长期目标、训练频率或周期、单次时长、可用器械或场地等关键约束");
+    expect(systemPrompt).toContain("不得推送空泛 plan 卡片");
     expect(systemPrompt).toContain("再查询或复用 training 动作事实作为主训练来源");
     expect(systemPrompt).toContain("缺少可消费 warmup 或 stretch 动作事实时，应优先使用可见 tool 查询缺失 section");
     expect(systemPrompt).toContain("把 warmup/training/stretch 组成同一套带 prescription 的编排");
@@ -190,6 +200,6 @@ describe("agent LLM prompt configuration", () => {
       "返回测试专用 AgentAction JSON object。 这个测试只期望 final_answer。",
     );
     expect(buildAgentActionSystemPrompt()).toContain("tool_call、final_answer、ask_user");
-    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v11");
+    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v12");
   });
 });

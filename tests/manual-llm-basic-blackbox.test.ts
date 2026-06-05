@@ -34,7 +34,8 @@ describe("manual basic LLM blackbox fixtures", () => {
     expect(fixture.sourcePath).toContain("llm基础测试.md");
     expect(fixture.stats.flowCount).toBeGreaterThan(0);
     expect(fixture.stats.turnCount).toBe(fixture.stats.flowCount * 3);
-    expect(fixture.stats.flowCount).toBeLessThanOrEqual(8);
+    expect(fixture.stats.flowCount).toBeLessThanOrEqual(9);
+    expect(ids).toContain("F12");
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).not.toContain("F16");
     expect(ids).not.toContain("F17");
@@ -120,6 +121,7 @@ describe("manual basic LLM judge contract", () => {
     });
     const messages = createBasicChatJudgeMessages(modelInput);
     const userPayload = JSON.parse(messages[1].content) as Record<string, unknown>;
+    const systemPrompt = messages[0].content;
     const serializedPayload = JSON.stringify(userPayload);
 
     expect(userPayload).toEqual({
@@ -143,6 +145,9 @@ describe("manual basic LLM judge contract", () => {
     expect(serializedPayload).not.toContain("trace");
     expect(serializedPayload).not.toContain("raw provider response");
     expect(serializedPayload).not.toContain("token diagnostics");
+    expect(systemPrompt).toContain("不直接生成随机卡片");
+    expect(systemPrompt).toContain("visibleTrainingProposal、exercise_recommendation、workout_routine、workout_plan");
+    expect(systemPrompt).toContain("不能因为同时存在 assistantSuggestions 而返回 passed_via_suggestion");
   });
 
   it("validates judge schema and rejects inconsistent passed/status pairs", () => {

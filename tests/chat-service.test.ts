@@ -1149,6 +1149,88 @@ describe("chat service agent text flow boundary", () => {
     }));
   });
 
+  it.each([
+    { responseMessageId: "assistant-broad-query", latestUserMessage: "给我一套训练" },
+    { responseMessageId: "assistant-broad-query-variant", latestUserMessage: "帮我安排一节今天的训练" },
+  ])("blocks visible training output after an unsatisfied broad exercise query: $latestUserMessage", async ({
+    responseMessageId,
+    latestUserMessage,
+  }) => {
+    const searchInput = { suitabilities: ["training" as const] };
+    exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockResolvedValueOnce(createExerciseResourceSearchResult({
+      query: {
+        suitability: "training",
+        published: true,
+        sort: "name_asc",
+      },
+      exercises: [
+        createExerciseResourceSummary({ id: "push-up", nameZh: "俯卧撑", allowedSections: ["training"] }),
+      ],
+    }));
+    const prepared = prepareChatRequest({
+      conversationId: "conversation-broad-query",
+      responseMessageId,
+      latestUserMessage,
+      conversationSummary: "",
+    });
+    const planner = new ReplayPlanner([
+      { type: "tool_call", toolName: "searchExerciseResources", input: searchInput },
+      {
+        type: "final_answer",
+        content: "先给你一组动作。",
+        visibleOutputs: [createVisibleExerciseSelectionOutput("push-up")],
+      },
+      {
+        type: "ask_user",
+        question: "我还需要先确认你的训练目标、时长、器械或场地，再生成可靠训练方案。",
+        suggestedQuestions: ["练胸，20分钟，无器械", "每周3练，每次30分钟", "先推荐核心动作"],
+      },
+    ]);
+
+    const response = await createAgentTextChatResponse({
+      request: prepared,
+      currentUser: { id: "user-1" },
+      planner,
+    });
+    const events = await readNdjsonEvents(response);
+    const broadObservationJson = JSON.stringify(planner.calls[1].observations);
+    const repairObservation = planner.calls[2].observations.find((observation) => (
+      observation.source === "validator"
+      && JSON.stringify(observation.content).includes("current_run_source_missing")
+    ));
+
+    expect(broadObservationJson).toContain("\"status\":\"too_broad\"");
+    expect(broadObservationJson).toContain("fulfillment.satisfied=false");
+    expect(repairObservation).toMatchObject({
+      ok: false,
+      content: expect.objectContaining({
+        code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID,
+      }),
+    });
+    expect(events).toEqual([
+      { type: "content", content: "我还需要先确认你的训练目标、时长、器械或场地，再生成可靠训练方案。" },
+      {
+        type: "suggested_questions",
+        suggestedQuestions: ["练胸，20分钟，无器械", "每周3练，每次30分钟", "先推荐核心动作"],
+      },
+      { type: "done" },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("visible_output");
+    expect(visibleTrainingProposalFactStoreMocks.persistVisibleTrainingProposalFactsFromEvents).toHaveBeenCalledWith(expect.objectContaining({
+      userId: "user-1",
+      conversationId: "conversation-broad-query",
+      messageId: responseMessageId,
+      events: [
+        { type: "content", content: "我还需要先确认你的训练目标、时长、器械或场地，再生成可靠训练方案。" },
+        {
+          type: "suggested_questions",
+          suggestedQuestions: ["练胸，20分钟，无器械", "每周3练，每次30分钟", "先推荐核心动作"],
+        },
+        { type: "done" },
+      ],
+    }));
+  });
+
   it("keeps section_not_allowed details in visible output repair observations", async () => {
     exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockResolvedValueOnce(createExerciseResourceSearchResult({
       query: {
@@ -1261,7 +1343,11 @@ describe("chat service agent text flow boundary", () => {
     invalidContent,
   }) => {
     const readInput = { operation: "read_recent" as const, factRef: "fact-previous" };
-    const searchInput = { suitabilities: ["warmup", "stretch"] as const, sort: "name_asc" as const };
+    const searchInput = {
+      muscles: ["股四头肌"],
+      suitabilities: ["warmup", "stretch"] as const,
+      sort: "name_asc" as const,
+    };
     const runId = `chat_${responseMessageId}`;
     const expectedReadToolResultId = createToolResultId(
       runId,
@@ -1285,6 +1371,7 @@ describe("chat service agent text flow boundary", () => {
 
       return createExerciseResourceSearchResult({
         query: {
+          muscles: ["股四头肌"],
           suitability,
           published: true,
           sort: "name_asc",
@@ -1835,6 +1922,8 @@ describe("chat service agent text flow boundary", () => {
       sort: "name_asc",
     };
     const supportSearchInput = {
+      muscle: "胸部",
+      equipment: "no_equipment",
       suitabilities: ["warmup", "stretch"],
       sort: "name_asc",
     };
@@ -1976,6 +2065,7 @@ describe("chat service agent text flow boundary", () => {
     const listInput = { operation: "list_recent" as const };
     const readInput = { operation: "read_recent" as const, factRef: "fact-previous" };
     const supportSearchInput = {
+      muscles: ["股四头肌"],
       suitabilities: ["warmup", "stretch"],
       sort: "name_asc",
     };
