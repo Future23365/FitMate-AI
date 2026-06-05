@@ -15,10 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  LazyExercisePreviewSheet,
-  preloadExercisePreviewBody,
-} from "@/features/exercises/components/lazy-exercise-preview-sheet";
+import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
 import { createExercisePreviewFromListItem } from "@/features/exercises/lib/exercise-preview-fallback";
 import {
   createWorkoutRoutine,
@@ -436,17 +433,10 @@ export function ActionComposerPage() {
   const [activePreviewExercise, setActivePreviewExercise] = useState<Exercise | null>(null);
   const [activePreviewSource, setActivePreviewSource] = useState<"library" | "plan" | null>(null);
   const [isPreviewSheetOpen, setIsPreviewSheetOpen] = useState(false);
-  const [isPreviewExerciseLoading, setIsPreviewExerciseLoading] = useState(false);
-  const [previewExerciseError, setPreviewExerciseError] = useState("");
   const titleInputRef = useRef<HTMLInputElement>(null);
   const hasHandledInitialWorkoutLoadRef = useRef(false);
   const isLibraryRequestInFlightRef = useRef(false);
   const previewRequestIdRef = useRef(0);
-
-  // 详情抽屉主体提前预热，保留懒加载拆包，同时降低首次打开时的组件空白等待。
-  useEffect(() => {
-    preloadExercisePreviewBody();
-  }, []);
 
   // 标题更新集中在这里，避免展示态标题和编辑态草稿在切换编排时出现不同步。
   const applyPlanTitle = useCallback((nextTitle: string) => {
@@ -753,10 +743,8 @@ export function ActionComposerPage() {
     previewRequestIdRef.current = requestId;
     setSelectedLibraryExerciseId(exercise.id);
     setActivePreviewExercise(cachedExercise ?? createExercisePreviewFromListItem(exercise));
-    setPreviewExerciseError("");
     setActivePreviewSource("library");
     setIsPreviewSheetOpen(true);
-    setIsPreviewExerciseLoading(!cachedExercise);
 
     if (cachedExercise) {
       return;
@@ -775,14 +763,7 @@ export function ActionComposerPage() {
           return;
         }
 
-        setPreviewExerciseError(error instanceof Error ? error.message : "动作详情加载失败");
-      })
-      .finally(() => {
-        if (previewRequestIdRef.current !== requestId) {
-          return;
-        }
-
-        setIsPreviewExerciseLoading(false);
+        showComposerToast(error instanceof Error ? error.message : "动作详情加载失败", "error");
       });
   }
 
@@ -791,8 +772,6 @@ export function ActionComposerPage() {
     setActivePreviewExercise(toPreviewExercise(item, exerciseCache));
     setActivePreviewSource("plan");
     setIsPreviewSheetOpen(true);
-    setIsPreviewExerciseLoading(false);
-    setPreviewExerciseError("");
   }
 
   function closePreviewSheet() {
@@ -800,8 +779,6 @@ export function ActionComposerPage() {
     setIsPreviewSheetOpen(false);
     setActivePreviewExercise(null);
     setActivePreviewSource(null);
-    setIsPreviewExerciseLoading(false);
-    setPreviewExerciseError("");
   }
 
   function addPreviewExercise() {
@@ -1443,8 +1420,6 @@ export function ActionComposerPage() {
                           <button
                             aria-label={`查看动作详情：${exercise.nameZh}`}
                             className="rounded-full p-xs text-outline transition-colors hover:bg-primary/10 hover:text-primary"
-                            onFocus={preloadExercisePreviewBody}
-                            onMouseEnter={preloadExercisePreviewBody}
                             onClick={(event) => {
                               event.stopPropagation();
                               openLibraryPreview(exercise);
@@ -1532,10 +1507,8 @@ export function ActionComposerPage() {
           )}
         </section>
       </ResponsiveRightSidebar>
-      <LazyExercisePreviewSheet
+      <ExercisePreviewSheet
         exercise={activePreviewExercise}
-        errorMessage={previewExerciseError}
-        isLoading={isPreviewExerciseLoading}
         isOpen={isPreviewSheetOpen}
         onClose={closePreviewSheet}
         primaryAction={
