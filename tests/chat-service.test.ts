@@ -731,6 +731,17 @@ describe("chat service agent text flow boundary", () => {
       planner,
     });
     const events = await readNdjsonEvents(response);
+    const listObservationForPlanner = planner.calls[1].observations.find((observation) => (
+      observation.toolName === "inspectVisibleTrainingProposals" &&
+      JSON.stringify(observation.content).includes("\"list_recent\"")
+    ));
+    const readObservationForPlanner = planner.calls[2].observations.find((observation) => (
+      observation.toolName === "inspectVisibleTrainingProposals" &&
+      JSON.stringify(observation.content).includes("\"read_recent\"")
+    ));
+    const searchObservationForPlanner = planner.calls[3].observations.find((observation) => (
+      observation.toolName === "searchExerciseResources"
+    ));
 
     expect(planner.calls[0].run.metadata).toMatchObject({
       recentVisibleTrainingProposals: [
@@ -743,6 +754,24 @@ describe("chat service agent text flow boundary", () => {
       ],
     });
     expect(planner.calls[0].run.userInput).toBe("不要刚才那套，重新来一套");
+    expect(planner.calls).toHaveLength(4);
+    expect(listObservationForPlanner).toMatchObject({
+      ok: true,
+      content: expect.objectContaining({ operation: "list_recent" }),
+    });
+    expect(readObservationForPlanner).toMatchObject({
+      ok: true,
+      content: expect.objectContaining({
+        operation: "read_recent",
+        currentRunImport: expect.objectContaining({ imported: true }),
+      }),
+    });
+    expect(searchObservationForPlanner).toMatchObject({
+      ok: true,
+      content: expect.objectContaining({
+        status: "succeeded",
+      }),
+    });
     expect(JSON.stringify(planner.calls[0].run.metadata)).not.toContain("exerciseItems");
     expect(JSON.stringify(planner.calls[0].run.metadata)).not.toContain("prescription");
     expect(JSON.stringify(planner.calls[0].run.metadata)).not.toContain("imageUrl");
@@ -1578,12 +1607,20 @@ describe("chat service agent text flow boundary", () => {
       "inspectVisibleTrainingProposals",
       hashNormalizedInput(listInput),
     );
+    const previousAssistantCapabilityIntro = "我是你的 AI 健身助手，可以帮你澄清训练目标、推荐动作、编排训练计划。";
     visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries.mockResolvedValueOnce([]);
     const prepared = prepareChatRequest({
       conversationId: "conversation-refresh-empty",
       responseMessageId: "assistant-refresh-empty",
       latestUserMessage,
       conversationSummary: "",
+      messages: [
+        { role: "user", content: "你好啊" },
+        { role: "assistant", content: previousAssistantCapabilityIntro },
+        { role: "user", content: "你可以干什么呢？" },
+        { role: "assistant", content: previousAssistantCapabilityIntro },
+        { role: "user", content: latestUserMessage },
+      ],
     });
     const planner = new ReplayPlanner([
       { type: "tool_call", toolName: "inspectVisibleTrainingProposals", input: listInput },
@@ -1602,6 +1639,10 @@ describe("chat service agent text flow boundary", () => {
     expect(planner.calls[0].run.metadata).toMatchObject({
       recentVisibleTrainingProposals: [],
     });
+    expect(planner.calls[0].run.messages).toEqual(expect.arrayContaining([
+      { role: "assistant", content: previousAssistantCapabilityIntro },
+      { role: "user", content: latestUserMessage },
+    ]));
     expect(visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries).toHaveBeenCalledWith({
       userId: "user-1",
       conversationId: "conversation-refresh-empty",
@@ -1622,6 +1663,8 @@ describe("chat service agent text flow boundary", () => {
       { type: "content", content: "我这里没有可读取的上一轮推荐记录，你可以告诉我想换哪类动作，我再按条件帮你找。" },
       { type: "done" },
     ]);
+    expect(JSON.stringify(events)).not.toContain(previousAssistantCapabilityIntro);
+    expect(JSON.stringify(events)).not.toContain("我是你的 AI 健身助手，可以帮你");
     expect(serializedTrace).toContain("list_recent");
     expect(serializedTrace).not.toContain("handler_error");
     expect(serializedTrace).not.toContain("duplicate_tool_failure");

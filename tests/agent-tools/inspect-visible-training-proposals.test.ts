@@ -126,6 +126,31 @@ describe("inspectVisibleTrainingProposals tool", () => {
         }),
       ],
     });
+    const listObservation = result.observations.find((observation) => (
+      observation.toolName === "inspectVisibleTrainingProposals" &&
+      JSON.stringify(observation.content).includes("\"list_recent\"")
+    ));
+    const serializedObservation = JSON.stringify(listObservation);
+
+    expect(listObservation).toMatchObject({
+      ok: true,
+      content: expect.objectContaining({
+        operation: "list_recent",
+        factCount: 0,
+        facts: [],
+        factsBoundary: expect.stringContaining("facts[] 是当前 actor 和当前 conversation 中当前可见、可引用的 visibleTrainingProposal 事实索引集合"),
+        emptyFactsBoundary: expect.stringContaining("空 facts[] 可作为模型推理、解释缺少引用对象或向用户澄清的事实依据"),
+        nextStepBoundary: expect.stringContaining("模型应结合本轮用户请求、最近对话和其他 observations/toolResults 自主决定"),
+      }),
+    });
+    expect(serializedObservation).toContain("facts=[] 只表示当前可见事实中没有这类引用对象");
+    expect(serializedObservation).toContain("不能支撑成功训练方案刷新或新训练方案生成");
+    expect(serializedObservation).not.toContain("如果用户这样说");
+    expect(serializedObservation).not.toContain("答案模板");
+    expect(serializedObservation).not.toContain("换一批");
+    expect(serializedObservation).not.toContain("再来一组");
+    expect(serializedObservation).not.toContain("不要这个");
+    expect(serializedObservation).not.toContain("固定调用顺序");
     expect(JSON.stringify(result.toolResults[0]?.fulfillment.producedResources)).not.toContain("visible_training_proposal_fact\",\"role\":\"consumable");
   });
 

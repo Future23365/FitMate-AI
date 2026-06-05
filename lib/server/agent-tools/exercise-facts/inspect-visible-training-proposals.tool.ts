@@ -342,6 +342,9 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
         factCount: output.facts.length,
         facts: output.facts,
         indexBoundary: "list_recent 只提供当前会话可引用 visibleTrainingProposal 的轻量索引，不包含完整 payload、prescription、schedule 或未展示候选。",
+        factsBoundary: "facts[] 是当前 actor 和当前 conversation 中当前可见、可引用的 visibleTrainingProposal 事实索引集合；facts=[] 只表示当前可见事实中没有这类引用对象。",
+        emptyFactsBoundary: "空 facts[] 可作为模型推理、解释缺少引用对象或向用户澄清的事实依据；不能支撑成功训练方案刷新或新训练方案生成。",
+        nextStepBoundary: "该结果只提供事实边界；模型应结合本轮用户请求、最近对话和其他 observations/toolResults 自主决定是继续查询、解释缺少引用对象、追问，还是开始新的生成。",
         finalAnswerGrounding: "本次事实索引查询若 fulfillment.satisfied=true，可用 usedToolResultIds 支撑“当前是否有可引用方案”的解释或澄清；不能支撑成功训练方案生成。",
         schemaVersionBoundary: "visibleOutputSchemaVersion 是 final_answer.visibleOutputs[].schemaVersion 可参考的字符串版本；factSchemaVersion 是服务端事实存储版本，不要复制到 visibleOutputs[].schemaVersion。",
       });

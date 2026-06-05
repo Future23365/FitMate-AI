@@ -12,7 +12,7 @@ describe("agent LLM prompt configuration", () => {
     const systemPrompt = buildAgentActionSystemPrompt();
 
     expect(agentLlmPromptConfig.promptVersion).toBe(agentLlmPromptVersion);
-    expect(agentLlmPromptVersion).toBe("agent-action-v7");
+    expect(agentLlmPromptVersion).toBe("agent-action-v8");
     expect(systemPrompt).toContain("只能返回一个合法 JSON object");
     expect(systemPrompt).toContain("type 只能是 tool_call、final_answer、ask_user 三者之一");
     expect(systemPrompt).toContain("AI 健身助手");
@@ -69,6 +69,14 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).toContain("tool 不可用、事实仍不足或用户目标缺少必要约束");
     expect(systemPrompt).toContain("如果最终结构需要当前可见事实未覆盖的 section、动作、prescription 或 schedule");
     expect(systemPrompt).toContain("继续查询、澄清、失败收口或只输出当前事实可支撑的结构");
+    expect(systemPrompt).toContain("当本轮用户请求是省略表达、续问、替换、调整、继续或引用最近内容时");
+    expect(systemPrompt).toContain("结合 run.messages、metadata、observations 和 toolResults 判断被引用的上一轮、当前可见、已生成或已选择对象是否真实存在且可继续操作");
+    expect(systemPrompt).toContain("历史 assistant 消息只能作为上下文参考，不能当作本轮回复模板重复输出，除非用户明确要求复述");
+    expect(systemPrompt).toContain("不要编造对象、动作、方案或 tool result");
+    expect(systemPrompt).toContain("自然说明缺少可继续操作的上下文，并给出可恢复下一步");
+    expect(systemPrompt).toContain("当本轮存在新的 observations 或 toolResults 时，terminal action 应将这些最新事实纳入推理");
+    expect(systemPrompt).toContain("自主选择继续 tool_call、final_answer 或 ask_user");
+    expect(systemPrompt).toContain("不要固定调用某个业务 tool、固定输出某个 payload.kind，或固定引用某个 tool result/resource");
     expect(systemPrompt).toContain("exerciseId 和 section 必须同时来自当前 run 可见、fulfillment.satisfied=true");
     expect(systemPrompt).toContain("exerciseItems[*].section 应与该 group key 对应");
     expect(systemPrompt).toContain("该动作的 allowedSections 必须包含该 section");
@@ -83,6 +91,9 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).not.toContain("validation failure 后必须调用 searchExerciseResources");
     expect(systemPrompt).not.toContain("只能复制本轮 satisfied searchExerciseResources observation");
     expect(systemPrompt).not.toContain("用户说某个固定词语");
+    expect(systemPrompt).not.toContain("换一批");
+    expect(systemPrompt).not.toContain("再来一组");
+    expect(systemPrompt).not.toContain("factCount = 0");
     expect(systemPrompt).toContain("recentVisibleTrainingProposals 和 inspectVisibleTrainingProposals(operation = \"list_recent\") 只提供 factRef/messageId");
     expect(systemPrompt).toContain("inspectVisibleTrainingProposals(operation = \"read_recent\")");
     expect(systemPrompt).toContain("inspectVisibleTrainingProposals(operation = \"list_recent\")");
@@ -126,6 +137,6 @@ describe("agent LLM prompt configuration", () => {
       "返回测试专用 AgentAction JSON object。 这个测试只期望 final_answer。",
     );
     expect(buildAgentActionSystemPrompt()).toContain("tool_call、final_answer、ask_user");
-    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v7");
+    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v8");
   });
 });

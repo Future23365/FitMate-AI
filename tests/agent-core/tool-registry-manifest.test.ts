@@ -292,6 +292,9 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(inspectManifestJson).not.toContain("换一个");
     expect(inspectManifestJson).not.toContain("换一批");
     expect(inspectManifestJson).not.toContain("再推荐一批");
+    expect(inspectManifestJson).not.toContain("再来一组");
+    expect(inspectManifestJson).not.toContain("不要这个");
+    expect(inspectManifestJson).not.toContain("factCount = 0");
     expect(inspectExamplesJson).not.toContain("\"operation\":\"read_recent\"");
     expect(inspectExamplesJson).toContain("\"operation\":\"list_recent\"");
     expect(readRecentInputBranches.some((branch) => Array.isArray(branch.required) && branch.required.includes("factRef"))).toBe(true);
