@@ -31,6 +31,8 @@
 - **AND** system message MUST NOT 固定要求调用某个业务 tool
 - **AND** system message MUST NOT 固定要求输出某个 `payload.kind`
 
+## MODIFIED Requirements
+
 ### Requirement: prompt change 不得引入服务端语义分流
 系统 SHALL 保持 `/api/chat`、Agent runtime、validator、tool handler 和 renderer 的语义中立。模型自然语言理解、引用资源操作和最终输出策略 SHALL 继续由模型基于可见输入推理完成。
 
