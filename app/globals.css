@@ -444,6 +444,10 @@ body,
   max-width: var(--responsive-right-sidebar-width);
   min-width: var(--responsive-right-sidebar-width);
   width: var(--responsive-right-sidebar-width);
+  transition: none;
+}
+
+.responsive-right-sidebar-motion-ready {
   transition:
     transform 0.22s ease,
     box-shadow 0.22s ease;
