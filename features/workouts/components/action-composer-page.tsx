@@ -1456,12 +1456,12 @@ export function ActionComposerPage() {
                     })}
                     {libraryHasNextPage ? (
                       isLoadingMoreLibrary ? (
-                        <div className="flex min-h-10 w-full items-center justify-center rounded-xl border border-dashed border-line bg-surface-container-lowest px-md py-sm">
+                        <div className="flex h-7 w-full items-center justify-center rounded-lg border border-dashed border-line bg-surface-container-lowest px-sm">
                           <Spinner
-                            className="font-label-sm text-label-sm font-medium text-muted"
+                            className="gap-[4px] text-[10px] font-medium leading-none text-outline"
                             label="正在加载更多动作..."
                             showLabel
-                            size="sm"
+                            size="xs"
                           />
                         </div>
                       ) : (

@@ -3,9 +3,10 @@ import { Loader2Icon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
-type SpinnerSize = "sm" | "md" | "lg";
+type SpinnerSize = "xs" | "sm" | "md" | "lg";
 
 const spinnerSizeClass: Record<SpinnerSize, string> = {
+  xs: "size-3",
   sm: "size-4",
   md: "size-5",
   lg: "size-6",
