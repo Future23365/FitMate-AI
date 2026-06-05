@@ -174,6 +174,8 @@ describe("visible training proposal validator", () => {
         },
         recoveryDirections: expect.arrayContaining([
           "继续获取缺失 section 的可消费动作事实。",
+          "如要输出 routine 或 plan，先让当前 run 具备 warmup、training、stretch 三类可消费动作事实。",
+          "不要再次提交缺少 warmup、training 或 stretch 的 routine / plan visibleOutputs。",
           "输出当前事实可支撑的结构。",
         ]),
       },
@@ -200,6 +202,9 @@ describe("visible training proposal validator", () => {
       details: {
         code: "section_coverage_missing",
         missingSectionsForRoutineOrPlan: ["warmup", "stretch"],
+        recoveryDirections: expect.arrayContaining([
+          "不要再次提交缺少 warmup、training 或 stretch 的 routine / plan visibleOutputs。",
+        ]),
       },
     });
   });

@@ -237,6 +237,8 @@ function readExerciseSections(value: JsonValue | undefined): Array<Pick<VisibleT
 function createCoverageRecoveryDirections(): JsonValue {
   return [
     "继续获取缺失 section 的可消费动作事实。",
+    "如要输出 routine 或 plan，先让当前 run 具备 warmup、training、stretch 三类可消费动作事实。",
+    "不要再次提交缺少 warmup、training 或 stretch 的 routine / plan visibleOutputs。",
     "输出当前事实可支撑的结构。",
     "向用户澄清缺失条件或可放宽边界。",
     "在事实不足时失败收口，不保存或渲染不可验证方案。",

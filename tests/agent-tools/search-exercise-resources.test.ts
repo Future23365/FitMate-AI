@@ -132,7 +132,14 @@ describe("searchExerciseResources tool", () => {
       },
       routinePlanCompositionBoundary: {
         returnedSections: ["training"],
+        sectionSummary: { warmup: 0, training: 1, stretch: 0 },
         missingSectionsForRoutineOrPlan: ["warmup", "stretch"],
+        forbiddenFinalVisibleOutputs: expect.stringContaining("缺口补齐前禁止提交"),
+        allowedNextActions: expect.arrayContaining([
+          "继续用缺失 section 的 suitabilities 查询候选。",
+          "使用 ask_user 澄清必要约束。",
+          "不输出 visibleOutputs，仅说明当前事实不足或失败收口。",
+        ]),
         note: expect.stringContaining("当前结果只提供 training 动作事实"),
       },
       refreshExclusionBoundary: expect.stringContaining("本次查询未应用 excludeExerciseIds"),
@@ -142,6 +149,9 @@ describe("searchExerciseResources tool", () => {
     expect(serializedObservation).toContain("如果最终目标是 routine 或 plan");
     expect(serializedObservation).toContain("还需要当前 run 可消费的 warmup 和 stretch 动作事实");
     expect(serializedObservation).toContain("suitabilities = [\\\"warmup\\\", \\\"stretch\\\"]");
+    expect(serializedObservation).toContain("missingSectionsForRoutineOrPlan 非空");
+    expect(serializedObservation).toContain("final_answer.visibleOutputs[] 中 payload.kind = \\\"routine\\\" 或 \\\"plan\\\"");
+    expect(serializedObservation).toContain("不得在 content 中解释缺口后仍提交不完整结构");
     expect(serializedObservation).toContain("不得把未返回的 section 伪造成已获得事实");
     expect(serializedObservation).toContain("不得把本次 tool result 直接当作最终 visibleTrainingProposal");
     expect(serializedObservation).toContain("本次查询未使用 requiredExerciseIds");
