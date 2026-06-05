@@ -649,6 +649,15 @@ describe("searchExerciseResources tool", () => {
 
     await expect(executeTool({
       tool,
+      input: { muscle: "胸部", suitabilities: ["training"] },
+      run: { runId: "run-removed-muscle", actor: { userId: "user-1" }, userInput: "练胸" },
+      timeoutMs: 100,
+      toolCallId: "tc_removed_muscle",
+    })).resolves.toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.INVALID_TOOL_INPUT } });
+    expect(repository.searchExerciseResourceSummaries).not.toHaveBeenCalled();
+
+    await expect(executeTool({
+      tool,
       input: { homeRequirement: "none", suitabilities: ["training"] },
       run: { runId: "run-removed-home-none", actor: { userId: "user-1" }, userInput: "不要器械" },
       timeoutMs: 100,
@@ -756,11 +765,10 @@ describe("searchExerciseResources tool", () => {
       mechanic: "compound",
       equipment: "no_equipment",
       homeRequirement: "floor",
-      muscle: "胸部",
       goalTag: "strength",
       riskTag: "shoulder_pain",
       excludeExerciseIds: ["push-up", "squat"],
-      muscles: ["股四头肌", "腘绳肌"],
+      muscles: ["胸部", "股四头肌", "腘绳肌"],
       published: true,
       sort: "name_asc",
     });

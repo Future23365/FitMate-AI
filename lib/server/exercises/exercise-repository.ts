@@ -69,7 +69,6 @@ export type ExerciseResourceSearchInput = {
   mechanic?: string;
   equipment?: string;
   homeRequirement?: string;
-  muscle?: string;
   muscles?: string[];
   goalTag?: string;
   riskTag?: string;
@@ -924,7 +923,7 @@ function buildExerciseResourceWhere(input: ExerciseResourceSearchInput): Prisma.
     and.push({ allowedSections: { has: input.suitability } });
   }
 
-  const muscleFilters = uniqueStrings([input.muscle, ...(input.muscles ?? [])]);
+  const muscleFilters = uniqueStrings(input.muscles ?? []);
   if (muscleFilters.length > 0) {
     and.push(buildExerciseResourceMuscleWhere(muscleFilters));
   }
@@ -1091,7 +1090,6 @@ function collectExerciseResourceAppliedFilters(input: ExerciseResourceSearchInpu
     "mechanic",
     "equipment",
     "homeRequirement",
-    "muscle",
     "muscles",
     "goalTag",
     "riskTag",

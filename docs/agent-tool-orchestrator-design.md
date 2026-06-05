@@ -543,6 +543,10 @@ ReplayPlanner、RulePlanner 和测试用 Fake planner 不强制实现供应商�
 Planner 只能输出三类 action：
 
 ```ts
+type AgentTerminalRef =
+  | { type: "tool_result"; id: string }
+  | { type: "resource"; id: string; resourceType?: string };
+
 export type AgentAction =
   | {
       type: "tool_call";
@@ -555,15 +559,14 @@ export type AgentAction =
       type: "final_answer";
       content: string;
       suggestedQuestions?: string[];
-      usedToolResultIds: string[];
-      usedResourceRefs?: AgentResourceRef[];
+      usedRefs?: AgentTerminalRef[];
+      visibleOutputs?: VisibleOutputEnvelope[];
     }
   | {
       type: "ask_user";
-      question: string;
+      content: string;
       suggestedQuestions?: string[];
-      usedToolResultIds: string[];
-      usedResourceRefs?: AgentResourceRef[];
+      usedRefs?: AgentTerminalRef[];
     };
 ```
 
@@ -598,11 +601,15 @@ Planner 不能消费 diagnostic resource
 ### 12.2 final_answer / ask_user 校验
 
 ```txt
-usedToolResultIds 必须存在于当前 run
-usedResourceRefs 必须存在于当前 run
-如果引用 resource，resource 必须是 consumable 或用于解释失败的 diagnostic
+final_answer.content / ask_user.content 必须承载用户可见文本
+usedRefs[type="tool_result"].id 必须存在于当前 run
+usedRefs[type="resource"] 必须存在于当前 run
+final_answer 引用的 tool result 必须 ok=true 且 fulfillment.satisfied=true
+final_answer 引用的 resource 必须是 consumable
+ask_user 可以引用用于解释、阻断或澄清的 failed / diagnostic / unsatisfied 事实
 不能引用当前 run 之外的 resource
 不能携带任意 producedEvents
+不能携带 ask_user.question、message、usedToolResultIds、usedResourceRefs 等旧同义字段
 ```
 
 ### 12.3 非法 action 处理
