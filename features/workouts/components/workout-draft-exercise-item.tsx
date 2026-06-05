@@ -5,7 +5,7 @@ import { useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ExerciseDetailIconButton } from "@/features/exercises/components/exercise-detail-icon-button";
+import { ExerciseSummaryMetaChip, ExerciseSummaryRow } from "@/features/exercises/components/exercise-summary-row";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import type { WorkoutMode } from "@/lib/shared/workout-plans/draft-schema";
 
@@ -83,50 +83,9 @@ export function WorkoutDraftExerciseItem({
   const shouldShowLoading = resolvedImageState === "loading";
 
   return (
-    <div className="group/exercise-card relative flex w-full items-center gap-md rounded-xl border border-line bg-white p-sm pr-xl text-left transition-colors hover:border-primary/30 hover:bg-panel-soft">
-      <ExerciseDetailIconButton onClick={onOpenPreview} />
-      <button
-        aria-label={`查看${exerciseName}动作详情`}
-        aria-busy={shouldShowLoading}
-        className="relative h-14 w-14 shrink-0 cursor-pointer overflow-hidden rounded-lg border border-line bg-panel-soft transition-colors hover:border-primary/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-        onClick={onOpenPreview}
-        type="button"
-      >
-        {shouldShowImage ? (
-          <Image
-            alt={exerciseName}
-            className="object-cover"
-            fill
-            onError={() => setFailedImageUrl(image)}
-            sizes="56px"
-            src={image}
-          />
-        ) : shouldShowLoading ? (
-          <ExerciseImageLoadingPlaceholder />
-        ) : (
-          <ExerciseImageUnavailablePlaceholder />
-        )}
-      </button>
-      <div className="min-w-0 flex-1 pr-xs">
-        <div className="flex items-center gap-xs">
-          <h5 className="truncate font-body-lg text-body-lg font-extrabold leading-tight text-on-surface">
-            {exerciseName}
-          </h5>
-        </div>
-        <div className="mt-xs flex min-w-0 items-center gap-xs">
-          <span className="shrink-0 rounded-md border border-line bg-panel-soft px-xs py-[1px] font-label-xs text-label-xs font-bold text-ink">
-            {muscles}
-          </span>
-          {level && (
-            <span className="shrink-0 rounded-md border border-primary/15 bg-white px-xs py-[1px] font-label-xs text-label-xs font-bold text-primary">
-              {level}
-            </span>
-          )}
-          <span className="truncate font-label-sm text-label-sm font-semibold text-muted">
-            {exercise?.equipmentZh || "未标注器械"}
-          </span>
-        </div>
-        <div className="mt-xs flex min-w-0 items-center justify-between gap-md">
+    <ExerciseSummaryRow
+      footer={
+        <div className="flex min-w-0 items-center justify-between gap-sm">
           {notes ? (
             <p className="flex min-w-0 items-center gap-[4px] font-label-sm text-label-sm font-medium text-muted">
               <SymbolIcon className="shrink-0 text-[15px] text-[#F59E0B]">lightbulb</SymbolIcon>
@@ -139,7 +98,41 @@ export function WorkoutDraftExerciseItem({
             {prescription}
           </p>
         </div>
-      </div>
-    </div>
+      }
+      meta={
+        <>
+          <ExerciseSummaryMetaChip>{muscles}</ExerciseSummaryMetaChip>
+          {level ? (
+            <ExerciseSummaryMetaChip tone="primary">
+              {level}
+            </ExerciseSummaryMetaChip>
+          ) : null}
+          <ExerciseSummaryMetaChip tone="outline">
+            {exercise?.equipmentZh || "未标注器械"}
+          </ExerciseSummaryMetaChip>
+        </>
+      }
+      onOpenPreview={onOpenPreview}
+      thumbnail={
+        shouldShowImage ? (
+          <Image
+            alt={exerciseName}
+            className="object-cover"
+            fill
+            onError={() => setFailedImageUrl(image)}
+            sizes="64px"
+            src={image}
+          />
+        ) : shouldShowLoading ? (
+          <ExerciseImageLoadingPlaceholder />
+        ) : (
+          <ExerciseImageUnavailablePlaceholder />
+        )
+      }
+      thumbnailBusy={shouldShowLoading}
+      thumbnailLabel={`查看${exerciseName}动作详情`}
+      title={exerciseName}
+      titleElement="h5"
+    />
   );
 }

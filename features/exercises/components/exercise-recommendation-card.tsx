@@ -4,8 +4,8 @@ import Image from "next/image";
 import { useMemo, useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
-import { ExerciseDetailIconButton } from "@/features/exercises/components/exercise-detail-icon-button";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
+import { ExerciseSummaryMetaChip, ExerciseSummaryRow } from "@/features/exercises/components/exercise-summary-row";
 import type { AssistantSuggestion } from "@/lib/shared/chat/assistant-suggestions";
 import type {
   ExerciseRecommendationCard as ExerciseRecommendationCardData,
@@ -166,40 +166,35 @@ export function ExerciseRecommendationCard({
 
         <div className="mt-sm grid gap-sm sm:grid-cols-2">
           {card.items.map((item) => (
-            <div
-              className="group/exercise-card relative min-w-0 rounded-xl border border-line bg-white p-md pr-xl text-left transition-all duration-200 hover:border-primary/40 hover:bg-panel-soft/40 hover:shadow-sm"
+            <ExerciseSummaryRow
+              meta={
+                <>
+                  <ExerciseSummaryMetaChip tone="primary">
+                    {item.primaryMusclesZh[0] || "综合"}
+                  </ExerciseSummaryMetaChip>
+                  <ExerciseSummaryMetaChip>
+                    {item.levelZh || "未标注难度"}
+                  </ExerciseSummaryMetaChip>
+                  <ExerciseSummaryMetaChip tone="outline">
+                    {item.equipmentZh || "未标注器械"}
+                  </ExerciseSummaryMetaChip>
+                </>
+              }
+              onOpenPreview={() => handleOpenPreview(item)}
               key={item.exerciseId}
-            >
-              <ExerciseDetailIconButton onClick={() => handleOpenPreview(item)} />
-              <div className="flex min-w-0 items-center gap-md">
-                <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-line bg-panel-soft">
-                  <Image
-                    alt={item.nameZh}
-                    className="object-cover transition-transform duration-300 group-hover/exercise-card:scale-105"
-                    fill
-                    sizes="64px"
-                    src={item.imageUrl || placeholderImage}
-                  />
-                </div>
-
-                <div className="min-w-0 flex-1">
-                  <h4 className="truncate font-body-md text-body-md font-bold text-on-surface">
-                    {item.nameZh}
-                  </h4>
-
-                  <div className="mt-xs flex min-w-0 flex-wrap items-center gap-xs font-label-xs text-label-xs text-muted">
-                    <span className="shrink-0 rounded-md bg-primary-soft px-1.5 py-[1px] font-bold text-primary">
-                      {item.primaryMusclesZh[0]}
-                    </span>
-                    <span className="shrink-0 rounded-md bg-panel-soft px-1.5 py-[1px]">
-                      {item.levelZh}
-                    </span>
-                    <span className="truncate">{item.categoryZh}</span>
-                    <span className="truncate">{item.equipmentZh}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
+              thumbnail={
+                <Image
+                  alt={item.nameZh}
+                  className="object-cover transition-transform duration-300 group-hover/exercise-card:scale-105"
+                  fill
+                  sizes="64px"
+                  src={item.imageUrl || placeholderImage}
+                />
+              }
+              thumbnailLabel={`查看${item.nameZh}动作详情`}
+              title={item.nameZh}
+              titleElement="h4"
+            />
           ))}
         </div>
 
