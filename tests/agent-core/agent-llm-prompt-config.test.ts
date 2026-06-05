@@ -13,7 +13,7 @@ describe("agent LLM prompt configuration", () => {
     const systemPrompt = buildAgentActionSystemPrompt();
 
     expect(agentLlmPromptConfig.promptVersion).toBe(agentLlmPromptVersion);
-    expect(agentLlmPromptVersion).toBe("agent-action-v13");
+    expect(agentLlmPromptVersion).toBe("agent-action-v14");
     expect(systemPrompt).toContain("只能返回一个合法 JSON object");
     expect(systemPrompt).toContain("type 只能是 tool_call、final_answer、ask_user 三者之一");
     expect(systemPrompt).toContain("{\"type\":\"tool_call\",\"toolName\":\"...\",\"input\":{}}");
@@ -33,7 +33,10 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).toContain("不得承诺未注册 tool、未执行结果、未开放保存能力、医疗诊断或康复处方");
     expect(systemPrompt).toContain("不得要求固定输出某个业务 toolName、固定 action 或固定训练结构");
     expect(systemPrompt).toContain("AI 健身助手");
-    expect(systemPrompt).toContain("动作推荐和训练计划编排");
+    expect(systemPrompt).toContain("核心训练输出能力包括：普通健身解释、动作事实查询与动作选择、一次可执行训练编排、多天或周期训练计划，以及基于当前 run 可见训练方案事实的调整或派生");
+    expect(systemPrompt).toContain("应先判断用户目标需要哪类训练结果");
+    expect(systemPrompt).toContain("基于当前可见 tools、observations 和 toolResults 自主决定 tool_call、final_answer 或 ask_user");
+    expect(systemPrompt).toContain("不得根据固定短语、关键词或测试样例机械选择");
     expect(systemPrompt).toContain("不得提供医疗诊断、治疗建议");
     expect(systemPrompt).toContain("伤病判断或康复处方");
     expect(systemPrompt).toContain("普通聊天、概念解释、能力说明");
@@ -72,8 +75,24 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).toContain("根据用户目标、上下文、当前可见 tools、observations 和 tool results 自主选择");
     expect(systemPrompt).toContain("服务端只校验你声明的结构、权限和数据库事实");
     expect(systemPrompt).toContain("不会根据用户原文替你改写 kind");
-    expect(systemPrompt).toContain("目标需要周期、多天、频次、训练日 / 休息日安排或跨天训练计划时，应优先使用 payload.kind = plan");
-    expect(systemPrompt).toContain("这是一条训练输出结构选择规则，不是固定词语触发规则");
+    expect(systemPrompt).toContain("visibleTrainingProposal.payload.kind 的选择指南");
+    expect(systemPrompt).toContain("exercise_selection 只表示一批可选 training 动作事实");
+    expect(systemPrompt).toContain("动作推荐、动作清单、动作库查询、动作替代候选或动作事实说明");
+    expect(systemPrompt).toContain("它不表示一次可直接照做的训练");
+    expect(systemPrompt).toContain("routine 表示一次可执行训练编排");
+    expect(systemPrompt).toContain("一套训练、一次训练、今天练某个目标或部位、某个时长内完成训练、循环训练、居家或无器械单次训练");
+    expect(systemPrompt).toContain("plan 表示多天或周期安排");
+    expect(systemPrompt).toContain("每周频次、周期长度、多天安排、训练日 / 休息日安排、每周几练、连续几周目标");
+    expect(systemPrompt).toContain("输出类型优先级");
+    expect(systemPrompt).toContain("同时包含单次训练编排信息和多天、频次或周期信息，应优先考虑 payload.kind = plan");
+    expect(systemPrompt).toContain("plan 可以复用同一套 warmup / training / stretch 编排");
+    expect(systemPrompt).toContain("只有当用户目标语义确实停留在动作候选、动作清单或动作事实层面时");
+    expect(systemPrompt).toContain("不要因为当前 run 先拿到的事实只支持 training");
+    expect(systemPrompt).toContain("以下表达只作为语义范式，不是固定触发词、关键词规则或服务端分流依据");
+    expect(systemPrompt).toContain("用户要“推荐几个动作”“有哪些动作”“动作列表”“替代动作”");
+    expect(systemPrompt).toContain("用户要“一套训练”“一次训练”“今天练某部位”“某部位 N 分钟训练”“循环训练”“居家无器械 N 分钟训练”");
+    expect(systemPrompt).toContain("用户要“每周几练”“周期计划”“多天安排”“训练日 / 休息日”“几周计划”");
+    expect(systemPrompt).toContain("不能把这些示例写成服务端规则");
     expect(systemPrompt).toContain("新输出 visibleTrainingProposal 前，必须先确认当前对话、metadata、observations、toolResults 或 consumable resource");
     expect(systemPrompt).toContain("已提供足够解释该训练输出的目标和关键约束");
     expect(systemPrompt).toContain("信息不足时应返回 ask_user，或使用不带 visibleOutputs 的 final_answer");
@@ -129,13 +148,14 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).toContain("使用 ask_user 澄清必要约束");
     expect(systemPrompt).toContain("不输出 visibleOutputs 并在 content 中说明当前事实不足或失败收口");
     expect(systemPrompt).toContain("不得因为只查到 training 动作事实就输出 payload.kind = exercise_selection 来替代 routine 或 plan");
-    expect(systemPrompt).toContain("获取 warmup / stretch 动作事实是本轮完成 routine 的正常下一步");
-    expect(systemPrompt).toContain("候选足够后应输出 payload.kind = \"routine\" 的 visibleTrainingProposal");
+    expect(systemPrompt).toContain("获取 warmup / stretch 动作事实是本轮完成 routine 或 plan 的正常下一步");
+    expect(systemPrompt).toContain("候选足够后应输出 payload.kind = \"routine\" 或 \"plan\" 的 visibleTrainingProposal");
     expect(systemPrompt).toContain("不得把这种状态回复成“如果你需要完整计划我可以继续查询”");
     expect(systemPrompt).toContain("不得让用户自行组合 training 动作列表");
-    expect(systemPrompt).toContain("也不得把正文动作列表当作 routine 成功结果");
+    expect(systemPrompt).toContain("也不得把正文动作列表当作 routine 或 plan 成功结果");
     expect(systemPrompt).toContain("diagnostics 显示 no_candidates");
     expect(systemPrompt).toContain("说明具体缺口和可恢复下一步");
+    expect(systemPrompt).toContain("可恢复下一步应围绕放宽器械、场地、难度、目标部位、训练形式、时长、频次或继续澄清");
     expect(systemPrompt).toContain("routine 和 plan 需要 warmup、training、stretch 三类 section 的当前 run 可消费动作事实");
     expect(systemPrompt).toContain("exerciseItems[*].section 必须被对应动作事实的 allowedSections 支撑");
     expect(systemPrompt).toContain("只有 training 动作事实时，不得伪造 warmup 或 stretch");
@@ -180,9 +200,9 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).not.toContain("readRecentVisibleTrainingProposal");
     expect(systemPrompt).toContain("visible_training_proposal_fact");
     expect(systemPrompt).not.toContain("run metadata.recentVisibleTrainingProposals / visible_training_proposal_fact 中真实存在的 exerciseId");
-    expect(systemPrompt).not.toContain("关键词");
     expect(systemPrompt).not.toContain("正则");
     expect(systemPrompt).not.toContain("同义词");
+    expect(systemPrompt).not.toContain("根据用户原文、关键词、正则、同义词表或短句模板改写");
     expect(systemPrompt).toContain("当 tools 为空时，禁止返回 tool_call");
     expect(systemPrompt).toContain("用户询问你能做什么或当前能力边界时");
     expect(systemPrompt).toContain("不得承诺直接执行未注册工具");
@@ -217,6 +237,6 @@ describe("agent LLM prompt configuration", () => {
       "返回测试专用 AgentAction JSON object。 这个测试只期望 final_answer。",
     );
     expect(buildAgentActionSystemPrompt()).toContain("tool_call、final_answer、ask_user");
-    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v13");
+    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v14");
   });
 });

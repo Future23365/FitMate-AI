@@ -146,6 +146,7 @@ export function createBasicChatJudgeMessages(input: BasicChatJudgeModelInput) {
         "如果最终输出语义满足文档期望，返回 passed=true 且 status=passed。",
         "当文档期望明确要求不直接生成随机卡片、不随意推荐、不触发训练卡片或不推送训练卡片时，如果 visibleOutputs 中出现 visibleTrainingProposal、exercise_recommendation、workout_routine、workout_plan 或等价训练结构输出，必须返回 passed=false 且 status=failed。",
         "当文档期望明确要求生成 routine、单次训练、训练编排或三段式训练时，如果最终只输出动作推荐、visibleTrainingProposal 摘要中的 kind=exercise_selection、正文动作列表、让用户自行组合，或只建议用户下一轮再生成完整训练，必须返回 passed=false 且 status=failed。",
+        "当文档期望明确要求生成 plan、多天安排、周期计划、每周训练安排或训练日 / 休息日安排时，如果最终只输出动作推荐、kind=exercise_selection、正文动作列表、无 schedule.assignments 的单次 routine，或只建议用户下一轮再生成计划，必须返回 passed=false 且 status=failed。",
         "如果最终 assistant 文本或 visibleOutputs 没有直接完成全部期望，但 assistantSuggestions 中包含用户点击后可直接发送、并且语义上覆盖缺失下一步操作的建议提问，返回 passed=true 且 status=passed_via_suggestion。",
         "如果 visibleOutputs 已经违反文档期望中的禁止推送边界，不能因为同时存在 assistantSuggestions 而返回 passed_via_suggestion。",
         "不要把泛泛的、不相关的、需要用户自行重新理解任务的建议提问视为 passed_via_suggestion；这类情况仍应判 failed 或 uncertain。",

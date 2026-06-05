@@ -147,8 +147,12 @@ describe("manual basic LLM judge contract", () => {
     expect(serializedPayload).not.toContain("token diagnostics");
     expect(systemPrompt).toContain("不直接生成随机卡片");
     expect(systemPrompt).toContain("visibleTrainingProposal、exercise_recommendation、workout_routine、workout_plan");
+    expect(systemPrompt).toContain("生成 routine、单次训练、训练编排或三段式训练");
     expect(systemPrompt).toContain("kind=exercise_selection");
     expect(systemPrompt).toContain("让用户自行组合");
+    expect(systemPrompt).toContain("生成 plan、多天安排、周期计划、每周训练安排或训练日 / 休息日安排");
+    expect(systemPrompt).toContain("无 schedule.assignments 的单次 routine");
+    expect(systemPrompt).toContain("只建议用户下一轮再生成计划");
     expect(systemPrompt).toContain("不能因为同时存在 assistantSuggestions 而返回 passed_via_suggestion");
   });
 

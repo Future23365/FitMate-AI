@@ -405,7 +405,8 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(searchManifestJson).toContain("当前 run 只有 training 动作事实、缺少 warmup / stretch 动作事实");
     expect(searchManifestJson).toContain("suitabilities = [\\\"warmup\\\", \\\"stretch\\\"]");
     expect(searchManifestJson).toContain("不得因为当前只查到 training 动作事实就把 routine 或 plan 目标降级输出为 payload.kind = \\\"exercise_selection\\\"");
-    expect(searchManifestJson).toContain("普通动作推荐和动作事实问答不要求固定查询 warmup / training / stretch");
+    expect(searchManifestJson).toContain("普通动作推荐、动作清单或动作事实问答不要求固定查询 warmup / training / stretch");
+    expect(searchManifestJson).toContain("不把具体用户短句映射成固定 payload.kind");
     expect(searchManifestJson).toContain("本 tool 不要求固定 tool 调用次数或顺序");
     expect(searchManifestJson).toContain("它只提供当前查询实际返回 section 的动作事实，不代表最终训练结构已经生成");
     expect(searchManifestJson).toContain("不得用成功 final_answer.content 承诺本轮回复后还会自动继续查询或生成");
@@ -433,7 +434,10 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(manifestJson).toContain("平板支撑");
     expect(searchExamplesJson).toContain("当前 run 已有受控 exerciseId");
     expect(searchExamplesJson).toContain("routine 或 plan 目标已有 training 动作事实");
+    expect(searchExamplesJson).toContain("真实 facet、器械、场地或难度约束");
     expect(searchExamplesJson).toContain("\"equipment\":\"no_equipment\"");
+    expect(searchExamplesJson).toContain("\"level\":\"beginner\"");
+    expect(searchExamplesJson).toContain("\"suitabilities\":[\"warmup\",\"stretch\"]");
     expect(searchExamplesJson).not.toContain("\"homeRequirement\":\"none\"");
     expect(searchExamplesJson).not.toContain("\"homeRequirement\":\"无器械\"");
     expect(searchExamplesJson).not.toContain("示例 id 不可脱离上一步结果照抄");

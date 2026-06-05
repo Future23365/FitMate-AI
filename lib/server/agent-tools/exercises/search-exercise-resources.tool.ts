@@ -215,7 +215,7 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
       "当用户点名多个具体动作时，应先调用 resolveExerciseResourceMentions 解析 mentions；再把 matched exerciseId 或模型从 ambiguous 中选择的 exerciseId 传入 requiredExerciseIds，让这些发布态动作优先进入现有 groups.<section>.exercises。",
       "当 Planner 已判断需要替换上一套用户可见 visibleTrainingProposal 的动作，并且已通过当前 run 可见事实获得上一套已看到 exerciseItems 时，可以在保留原目标、器械、难度、居家条件、section、时长或计划约束的前提下，用 excludeExerciseIds 查询替代动作；不同 section 的替代动作仍必须来自对应 groups.<section>.exercises。",
       "如果模型根据用户目标已经需要 routine 或 plan，且当前 run 只有 training 动作事实、缺少 warmup / stretch 动作事实，或 observations/toolResults/resource summary 中 missingSectionsForRoutineOrPlan 非空，应优先沿用当前目标、器械、场地、难度或肌群约束，使用 suitabilities = [\"warmup\", \"stretch\"] 或等价缺失 section 查询补齐热身和拉伸候选；候选足够后应继续组合完整 routine / plan。缺口补齐前不得输出 final_answer.visibleOutputs[].payload.kind = \"routine\" 或 \"plan\"，也不得因为当前只查到 training 动作事实就把 routine 或 plan 目标降级输出为 payload.kind = \"exercise_selection\"、正文动作列表或用户自行组合建议。",
-      "继续查询缺失 section 只适用于模型已判断目标需要 routine 或 plan 的场景；普通动作推荐和动作事实问答不要求固定查询 warmup / training / stretch，也不要求固定 tool 调用次数或顺序。",
+      "继续查询缺失 section 只适用于模型已判断目标需要 routine 或 plan 的场景；普通动作推荐、动作清单或动作事实问答不要求固定查询 warmup / training / stretch，也不要求固定 tool 调用次数或顺序。该说明描述 tool loop 的事实补查能力，不把具体用户短句映射成固定 payload.kind。",
       "excludeExerciseIds 是负向约束，只能填写用户已经看到且当前目标确实需要替换、排除或避免重复的动作，或用户明确要求排除的动作；如果来自上一轮方案，应先通过 inspectVisibleTrainingProposals(operation = \"read_recent\") 导入 visible_training_proposal_fact 后复制真实 exerciseId，不要从未展示的内部候选、trace 摘要、handler-only 结果或 list_recent 索引中填充。",
       "精确筛选必须使用真实数据库 facet 值；服务端只执行 schema、去空、去重、权限边界和数据库查询，不根据用户原文替模型增删 facet。",
       "查询成功且 satisfied=true 的结果，包括 totalMatches=0 的结果，可以在同一 run 通过 final_answer.usedRefs 中的 tool_result 引用支撑普通事实回答；训练推送事实必须写入 final_answer.visibleOutputs[]，不要只写正文。",
@@ -263,10 +263,11 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
         },
       },
       {
-        description: "当 routine 或 plan 目标已有 training 动作事实但缺少热身和拉伸时，带上当前目标的真实 facet 和器械约束，同时查询 warmup 和 stretch 用途的动作事实。",
+        description: "当 routine 或 plan 目标已有 training 动作事实但缺少热身和拉伸时，沿用当前目标的真实 facet、器械、场地或难度约束，同时查询 warmup 和 stretch 用途的动作事实。",
         input: {
           muscles: ["胸部"],
           equipment: "no_equipment",
+          level: "beginner",
           suitabilities: ["warmup", "stretch"],
           sort: "name_asc",
         },

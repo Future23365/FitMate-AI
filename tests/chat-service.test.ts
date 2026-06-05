@@ -387,6 +387,10 @@ describe("chat service agent text flow boundary", () => {
     expect(serializedSearchManifest).toContain("suitabilities = [\\\"warmup\\\", \\\"stretch\\\"]");
     expect(serializedSearchManifest).toContain("候选足够后应继续组合完整 routine / plan");
     expect(serializedSearchManifest).toContain("正文动作列表或用户自行组合建议");
+    expect(serializedSearchManifest).toContain("普通动作推荐、动作清单或动作事实问答不要求固定查询 warmup / training / stretch");
+    expect(serializedSearchManifest).toContain("不把具体用户短句映射成固定 payload.kind");
+    expect(serializedSearchManifest).toContain("真实 facet、器械、场地或难度约束");
+    expect(serializedSearchManifest).toContain("\"level\":\"beginner\"");
     expect(serializedSearchManifest).toContain("final_answer.visibleOutputs[].payload.kind = \\\"routine\\\" 或 \\\"plan\\\"");
     expect(serializedSearchManifest).toContain("不要在 content 中解释缺口后仍提交缺 section 的结构");
     expect(serializedSearchManifest).not.toContain("generatePlanDraft");
@@ -2076,6 +2080,7 @@ describe("chat service agent text flow boundary", () => {
     ]);
     expect(JSON.stringify(events)).not.toContain("你可以从中挑选");
     expect(JSON.stringify(events)).not.toContain("如果你需要完整计划");
+    expect(JSON.stringify(events)).not.toContain("kind\":\"exercise_selection");
   });
 
   it("renders a plan visible output after composing multiple exercise search observations", async () => {
@@ -2221,6 +2226,8 @@ describe("chat service agent text flow boundary", () => {
         }),
       ]),
     }));
+    expect(JSON.stringify(events)).not.toContain("kind\":\"exercise_selection");
+    expect(JSON.stringify(events)).not.toContain("下一轮再生成计划");
   });
 
   it.each([
