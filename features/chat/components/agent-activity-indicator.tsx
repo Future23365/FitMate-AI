@@ -22,9 +22,12 @@ export function AgentActivityIndicator({
       className={`agent-activity-indicator flex min-h-[18px] items-baseline gap-xs px-xs py-[2px] font-label-sm text-label-sm font-bold leading-[16px] ${toneClass} transition-colors duration-200`}
       role="status"
     >
-      {roundLabel ? (
-        <span className="inline-block min-w-[1.75rem] shrink-0 text-right font-mono text-label-sm leading-[16px] tabular-nums text-primary/55">{roundLabel}</span>
-      ) : null}
+      <span
+        aria-hidden={roundLabel ? undefined : true}
+        className="inline-block min-w-[1.75rem] shrink-0 text-right font-mono text-label-sm leading-[16px] tabular-nums text-primary/55"
+      >
+        {roundLabel ?? ""}
+      </span>
       <span className="block leading-[16px]">{display.label}</span>
     </div>
   );

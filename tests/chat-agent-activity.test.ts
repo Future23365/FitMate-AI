@@ -297,6 +297,8 @@ describe("AgentActivityIndicator", () => {
     );
 
     expect(html).toContain("正在整理上下文...");
+    expect(html).toContain("aria-hidden=\"true\"");
+    expect(html).toContain("min-w-[1.75rem]");
     expect(html).not.toContain("#0");
     expect(html).not.toContain("#1");
   });
