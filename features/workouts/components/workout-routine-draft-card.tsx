@@ -7,7 +7,10 @@ import { SymbolIcon } from "@/components/app/symbol-icon";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
 import { convertWorkoutRoutineDraftToWorkoutRoutine } from "@/features/workout-plans/lib/workout-routine-conversion";
 import { createWorkoutRoutine } from "@/features/workouts/api/workout-data-client";
-import { WorkoutDraftExerciseItem } from "@/features/workouts/components/workout-draft-exercise-item";
+import {
+  resolveWorkoutDraftExerciseImageState,
+  WorkoutDraftExerciseItem,
+} from "@/features/workouts/components/workout-draft-exercise-item";
 import { clientRequest } from "@/lib/client/http/client-request";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import type { WorkoutRoutineDraft, WorkoutRoutineDraftItem } from "@/lib/shared/workout-plans/draft-schema";
@@ -124,6 +127,7 @@ export function WorkoutRoutineDraftCard({
 }: WorkoutRoutineDraftCardProps) {
   const router = useRouter();
   const [fetchedExerciseMap, setFetchedExerciseMap] = useState<Map<string, Exercise>>(() => new Map());
+  const [failedExerciseIds, setFailedExerciseIds] = useState<Set<string>>(() => new Set());
   const [activePreviewExercise, setActivePreviewExercise] = useState<Exercise | null>(null);
   const [activePreviewTip, setActivePreviewTip] = useState<string | undefined>();
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -165,7 +169,7 @@ export function WorkoutRoutineDraftCard({
 
   useEffect(() => {
     const missingExerciseIds = draftExerciseIds.filter(
-      (exerciseId) => !findExerciseById(exerciseId, exerciseMap),
+      (exerciseId) => !findExerciseById(exerciseId, exerciseMap) && !failedExerciseIds.has(exerciseId),
     );
 
     if (missingExerciseIds.length === 0) {
@@ -181,11 +185,26 @@ export function WorkoutRoutineDraftCard({
           return;
         }
 
-        const loaded = results.flatMap((result) =>
-          result.status === "fulfilled" ? [result.value] : [],
-        );
+        const loaded: Exercise[] = [];
+        const failedIds: string[] = [];
+
+        results.forEach((result, index) => {
+          if (result.status === "fulfilled") {
+            loaded.push(result.value);
+            return;
+          }
+
+          failedIds.push(missingExerciseIds[index]);
+        });
 
         if (loaded.length === 0) {
+          setFailedExerciseIds((current) => {
+            const next = new Set(current);
+
+            failedIds.forEach((id) => next.add(id));
+
+            return next;
+          });
           return;
         }
 
@@ -199,13 +218,22 @@ export function WorkoutRoutineDraftCard({
 
           return next;
         });
+
+        setFailedExerciseIds((current) => {
+          const next = new Set(current);
+
+          loaded.forEach((exercise) => next.delete(exercise.id));
+          failedIds.forEach((id) => next.add(id));
+
+          return next;
+        });
       },
     );
 
     return () => {
       isCancelled = true;
     };
-  }, [draftExerciseIds, exerciseMap]);
+  }, [draftExerciseIds, exerciseMap, failedExerciseIds]);
 
   const handleOpenPreview = (item: WorkoutRoutineDraftItem) => {
     const exercise = findExerciseById(item.exerciseId, exerciseMap) ?? toFallbackPreviewExercise(item);
@@ -316,11 +344,17 @@ export function WorkoutRoutineDraftCard({
               <div className="space-y-xs">
                 {section.items.map((item, index) => {
                   const exercise = findExerciseById(item.exerciseId, exerciseMap);
+                  const imageState = resolveWorkoutDraftExerciseImageState({
+                    exercise,
+                    exerciseId: item.exerciseId,
+                    failedExerciseIds,
+                  });
 
                   return (
                     <WorkoutDraftExerciseItem
                       exercise={exercise}
                       exerciseId={item.exerciseId}
+                      imageState={imageState}
                       key={`${item.section}-${item.exerciseId}-${index}`}
                       mode={item.mode}
                       notes={item.notes}

@@ -11,7 +11,10 @@ import {
   deleteWorkoutSchedule,
   listWorkoutSchedules,
 } from "@/features/workouts/api/workout-data-client";
-import { WorkoutDraftExerciseItem } from "@/features/workouts/components/workout-draft-exercise-item";
+import {
+  resolveWorkoutDraftExerciseImageState,
+  WorkoutDraftExerciseItem,
+} from "@/features/workouts/components/workout-draft-exercise-item";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import type { WorkoutPlanDraft, WorkoutPlanItemDraft } from "@/lib/shared/workout-plans/draft-schema";
 import { convertWorkoutPlanDraftToWorkoutRoutine } from "@/features/workout-plans/lib/workout-routine-conversion";
@@ -138,6 +141,7 @@ export function WorkoutPlanDraftCard({
   const [selectedImportOptionId, setSelectedImportOptionId] =
     useState<WorkoutPlanImportOption["id"]>("cycle-1");
   const [fetchedExerciseMap, setFetchedExerciseMap] = useState<Map<string, Exercise>>(() => new Map());
+  const [failedExerciseIds, setFailedExerciseIds] = useState<Set<string>>(() => new Set());
 
   const [activePreviewExercise, setActivePreviewExercise] = useState<Exercise | null>(null);
   const [activePreviewTip, setActivePreviewTip] = useState<string | undefined>();
@@ -182,7 +186,7 @@ export function WorkoutPlanDraftCard({
 
   useEffect(() => {
     const missingExerciseIds = draftExerciseIds.filter(
-      (exerciseId) => !findExerciseById(exerciseId, exerciseMap),
+      (exerciseId) => !findExerciseById(exerciseId, exerciseMap) && !failedExerciseIds.has(exerciseId),
     );
 
     if (missingExerciseIds.length === 0) {
@@ -198,11 +202,26 @@ export function WorkoutPlanDraftCard({
           return;
         }
 
-        const loadedExercises = results.flatMap((result) =>
-          result.status === "fulfilled" ? [result.value] : [],
-        );
+        const loadedExercises: Exercise[] = [];
+        const failedIds: string[] = [];
+
+        results.forEach((result, index) => {
+          if (result.status === "fulfilled") {
+            loadedExercises.push(result.value);
+            return;
+          }
+
+          failedIds.push(missingExerciseIds[index]);
+        });
 
         if (loadedExercises.length === 0) {
+          setFailedExerciseIds((current) => {
+            const next = new Set(current);
+
+            failedIds.forEach((id) => next.add(id));
+
+            return next;
+          });
           return;
         }
 
@@ -216,13 +235,22 @@ export function WorkoutPlanDraftCard({
 
           return next;
         });
+
+        setFailedExerciseIds((current) => {
+          const next = new Set(current);
+
+          loadedExercises.forEach((exercise) => next.delete(exercise.id));
+          failedIds.forEach((id) => next.add(id));
+
+          return next;
+        });
       },
     );
 
     return () => {
       isCancelled = true;
     };
-  }, [draftExerciseIds, exerciseMap]);
+  }, [draftExerciseIds, exerciseMap, failedExerciseIds]);
 
   const activeDay = useMemo(() => {
     return draft.days.find((day) => day.cycleDayIndex === activeDayIndex) ?? draft.days[0];
@@ -435,11 +463,17 @@ export function WorkoutPlanDraftCard({
                       </div>
                       {section.items.map((item, index) => {
                         const exercise = findExerciseById(item.exerciseId, exerciseMap);
+                        const imageState = resolveWorkoutDraftExerciseImageState({
+                          exercise,
+                          exerciseId: item.exerciseId,
+                          failedExerciseIds,
+                        });
 
                         return (
                           <WorkoutDraftExerciseItem
                             exercise={exercise}
                             exerciseId={item.exerciseId}
+                            imageState={imageState}
                             key={`${section.section}-${item.exerciseId}-${index}`}
                             mode={item.mode}
                             notes={item.notes}
