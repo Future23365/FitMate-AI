@@ -11,7 +11,7 @@
 - 将 `suggestedQuestions` 设计为全局可选字段，而不是所有 AI 回复的强制字段；模型只在自然存在可恢复下一步、澄清选项或后续提问时输出。
 - 在默认 Agent LLM prompt 中增加全局合同：最多 3 条、每条必须是用户口吻、必须可直接发送、不得重复正文、不得承诺未注册能力或未执行结果。
 - 保留前端交互形态：按钮展示文本，点击后按普通用户消息发送该文本；前端不根据按钮文案推断业务语义。
-- 保留迁移兼容边界：实现阶段可以短期读取旧字段，但新生产路径、测试和文档应以 `suggestedQuestions` 为主字段。
+- 不做旧建议协议迁移：实现阶段直接移除或忽略 `assistantSuggestions`、`suggestedReplies`、`assistant_suggestions` 和 `suggestions` 等旧协议，不把旧字段转换成新字段。
 - 不新增服务端关键词、正则、同义词或短句模板来决定是否生成建议提问；是否给出建议由模型基于可见上下文和全局 prompt 自主决定，服务端只做结构和安全边界校验。
 - 本 change 先只建立 OpenSpec 文档，不修改 TypeScript、prompt、runtime、renderer 或前端代码。
 
@@ -25,8 +25,8 @@
 
 - `agent-llm-prompt-configuration`: 默认 Agent LLM prompt 必须把 `suggestedQuestions` 作为通用 AgentAction 可选字段表达，并说明输出条件、条数、口吻和能力边界。
 - `agent-text-chat-flow`: `AgentAction` 终态、Response Renderer、NDJSON stream 和前端消息投影需要围绕 `suggestedQuestions` 形成统一建议提问合同。
-- `assistant-suggestions`: 用户可见建议的主合同从复杂 `assistantSuggestions` 对象收敛为简单 `suggestedQuestions: string[]`，复杂对象和旧字段只作为迁移兼容来源。
-- `api-layer-boundaries`: `/api/chat` 仍输出统一建议事件，但新实现路径应以 `suggestedQuestions` 作为服务端和前端之间的建议提问语义，而不是多套旧字段并存。
+- `assistant-suggestions`: 用户可见建议的主合同从复杂 `assistantSuggestions` 对象收敛为简单 `suggestedQuestions: string[]`，复杂对象和旧字段不进入新链路。
+- `api-layer-boundaries`: `/api/chat` 仍输出统一建议事件，但新实现路径只以 `suggestedQuestions` 作为服务端和前端之间的建议提问语义。
 
 ## Impact
 
@@ -41,7 +41,7 @@
   - `features/chat/hooks/use-chat-controller.ts`
   - `features/chat/types.ts`
   - `features/chat/components/chat-page.tsx`
-- 影响历史兼容和持久化读取：
+- 影响聊天历史读写新字段：
   - `features/chat/lib/chat-history.ts`
   - `lib/server/chat/chat-history-service.ts`
 - 影响测试：
@@ -49,7 +49,7 @@
   - chat service NDJSON 测试
   - chat client / controller 状态测试
   - prompt 配置测试
-  - 字段残留和兼容迁移测试
+  - 旧字段不参与新链路的残留扫描测试
 - 不影响：
   - 业务 tool handler
   - ResourceStore、Policy Guard、Executor

@@ -10,7 +10,7 @@
 
 用户端当前目标并不需要复杂对象协议：只需要展示一个或多个按钮，按钮文字就是点击后发送的用户提问文本。因此新主合同应以 `suggestedQuestions: string[]` 表达“建议提问”，并让所有新生产路径围绕这个字段收敛。
 
-本 change 只建立 OpenSpec 边界，不修改代码。后续实现需要同时触碰 AgentAction schema、全局 prompt、Response Renderer、NDJSON stream、前端解析、历史兼容和测试。
+本 change 只建立 OpenSpec 边界，不修改代码。后续实现需要同时触碰 AgentAction schema、全局 prompt、Response Renderer、NDJSON stream、前端解析、聊天历史新字段读写和测试。
 
 ## Goals / Non-Goals
 
@@ -20,8 +20,8 @@
 - 让 `final_answer` 和 `ask_user` 使用同一个建议提问字段，而不是分别使用 `assistantSuggestions` 和 `suggestions`。
 - 在全局 Agent LLM prompt 中表达 `suggestedQuestions` 的输出条件和边界。
 - 保持前端交互简单：展示文本按钮，点击后发送同一段文本。
-- 允许短期读取旧字段，防止历史消息和已有 fallback 立即断裂。
-- 通过测试确保新字段、旧字段兼容、prompt 文案和 stream 事件都一致。
+- 明确旧建议协议不做迁移、不做兼容转换，后续实现直接忽略或移除旧协议入口。
+- 通过测试确保新字段、prompt 文案和 stream 事件一致。
 
 **Non-Goals:**
 
@@ -56,15 +56,15 @@
 
 ### 3. 新 stream 事件使用 `suggested_questions`
 
-选择：后续实现中 Response Renderer 输出 `{ type: "suggested_questions", suggestedQuestions: string[] }`，前端优先消费该事件。旧 `assistant_suggestions` 事件短期兼容读取，并投影为同一个 `ChatMessage.suggestedQuestions`。
+选择：后续实现中 Response Renderer 输出 `{ type: "suggested_questions", suggestedQuestions: string[] }`，前端只按新主路径消费该事件。旧 `assistant_suggestions` 事件不作为新链路输入来源。
 
 理由：如果只改 AgentAction 字段、不改 stream 和前端字段，服务端字段仍会继续分裂。事件名采用 snake_case，payload 字段采用 camelCase，保持现有 NDJSON 事件风格和 TypeScript 字段风格。
 
-### 4. 旧复杂对象协议降级为兼容来源，不作为新主合同
+### 4. 旧复杂对象协议不迁移、不兼容
 
-选择：`AssistantSuggestion` 对象、`assistantSuggestions`、`suggestedReplies`、`ask_user.suggestions` 和 `assistant_suggestions.suggestions` 进入迁移兼容清单。实现时可以读取并转换为 `suggestedQuestions`，但新模型输出、renderer 输出、前端消息和测试断言以 `suggestedQuestions` 为准。
+选择：`AssistantSuggestion` 对象、`assistantSuggestions`、`suggestedReplies`、`ask_user.suggestions` 和 `assistant_suggestions.suggestions` 不进入新链路，不转换为 `suggestedQuestions`。后续实现只支持新的 `suggestedQuestions` 字段和 `suggested_questions` 事件。
 
-理由：当前需求明确不需要 label/message 分离，也不需要 targetOperation。保留复杂对象作为主合同会让字段继续混乱。
+理由：当前需求明确不需要 label/message 分离，也不需要 targetOperation。为旧协议增加兼容层会让字段继续混乱，也会扩大实现和测试范围。
 
 ### 5. 服务端只做结构校验，不做按钮文案语义判断
 
@@ -74,21 +74,21 @@
 
 ## Risks / Trade-offs
 
-- [Risk] `suggestedQuestions` 与历史已废弃字段同名，容易误以为只是恢复旧字段。→ Mitigation：文档和实现任务明确它是新主合同，旧历史兼容也统一迁移到该字段，并删除 deprecated 说明。
-- [Risk] 改 stream 事件可能影响现有前端测试和历史客户端。→ Mitigation：实现阶段短期同时兼容 `assistant_suggestions`，但新 renderer 和新测试以 `suggested_questions` 为主。
+- [Risk] `suggestedQuestions` 与历史已废弃字段同名，容易误以为只是恢复旧字段。→ Mitigation：文档和实现任务明确它是新主合同，旧字段不迁移、不兼容，并删除 deprecated 说明。
+- [Risk] 改 stream 事件可能影响现有前端测试和历史客户端。→ Mitigation：本 change 明确不保留旧事件兼容；实现阶段同步更新前后端测试，发现旧事件依赖就直接清理。
 - [Risk] 去掉 `AssistantSuggestion` 对象会失去 `targetOperation` 等结构化 gate。→ Mitigation：本能力只用于“下一轮普通用户消息”，不直接执行写入、保存或内部 action；下一轮仍走 AgentAction、tool schema、Policy Guard 和 runtime 校验。
 - [Risk] prompt 要求过强导致模型每次硬塞建议。→ Mitigation：prompt 必须明确 `suggestedQuestions` 是可选字段，只有自然存在可继续问题、澄清选项或恢复路径时才输出。
-- [Risk] 旧 fallback 代码仍输出 `assistant_suggestions`。→ Mitigation：任务包含残留扫描、兼容转换和测试，确保旧字段不会作为新生产主路径继续扩散。
+- [Risk] 旧 fallback 代码仍输出 `assistant_suggestions`。→ Mitigation：任务包含残留扫描和清理，旧 fallback 必须改成 `suggestedQuestions` / `suggested_questions` 或不输出建议提问。
 
-## Migration Plan
+## Implementation Plan
 
-1. 扩展并迁移 AgentAction schema：`final_answer` 和 `ask_user` 增加 `suggestedQuestions?: string[]`，旧 `assistantSuggestions` / `suggestions` 进入兼容读取或清理路径。
+1. 扩展 AgentAction schema：`final_answer` 和 `ask_user` 只使用 `suggestedQuestions?: string[]` 表达建议提问。
 2. 更新默认 Agent LLM prompt：说明 `suggestedQuestions` 的可选性、数量、用户口吻、可直接发送和能力边界。
-3. 更新 Response Renderer：新路径输出 `suggested_questions`，兼容旧 terminal 字段时投影到同一 payload。
-4. 更新前端 stream parser 和 controller：优先消费 `suggested_questions.suggestedQuestions`，并把旧 `assistant_suggestions.suggestions` 兼容写入 `ChatMessage.suggestedQuestions`。
-5. 更新聊天历史读写：保存 `suggestedQuestions`，读取旧 `suggestedReplies` / `assistantSuggestions` / `suggestedQuestions` 时统一归一。
-6. 更新测试和 trace 断言，确认模型输出、stream、前端消息和历史兼容全部围绕 `suggestedQuestions`。
+3. 更新 Response Renderer：新路径输出 `suggested_questions`，旧 terminal 字段不再参与投影。
+4. 更新前端 stream parser 和 controller：消费 `suggested_questions.suggestedQuestions`，写入 `ChatMessage.suggestedQuestions`。
+5. 更新聊天历史读写：新消息保存和读取 `suggestedQuestions`，不为旧字段增加转换逻辑。
+6. 更新测试和 trace 断言，确认模型输出、stream、前端消息和历史新字段全部围绕 `suggestedQuestions`。
 
 ## Open Questions
 
-- 是否需要保留 `AssistantSuggestion` 对象给推荐卡片或 workout patch 的专属按钮？本 change 默认不作为聊天主链建议提问合同保留；如果某些业务卡片仍需要复杂按钮，应后续单独设计为卡片内部 action，而不是混入通用建议提问。
+- 无。

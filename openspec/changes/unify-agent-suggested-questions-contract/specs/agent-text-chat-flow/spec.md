@@ -17,11 +17,11 @@
 - **AND** Response Renderer MUST 将这些建议提问与澄清问题一起投影给前端
 - **AND** terminal action MUST NOT 使用另一套 `suggestions` 字段表达相同语义
 
-#### Scenario: 旧终态字段进入兼容迁移
-- **WHEN** 实现阶段仍遇到旧 `final_answer.assistantSuggestions`、旧 `ask_user.suggestions` 或等价历史字段
-- **THEN** 系统 MAY 在迁移期将其归一化为 `suggestedQuestions`
-- **AND** 新模型输出、schema 示例、测试 fixture 和 trace 断言 MUST 优先使用 `suggestedQuestions`
-- **AND** 系统 MUST NOT 因兼容旧字段而在新生产路径继续扩散旧字段名
+#### Scenario: 旧终态字段不进入新链路
+- **WHEN** 实现阶段清理 `final_answer.assistantSuggestions`、旧 `ask_user.suggestions` 或等价历史字段
+- **THEN** 新 `AgentAction` schema、模型输出示例、测试 fixture 和 trace 断言 MUST 使用 `suggestedQuestions`
+- **AND** 系统 MUST NOT 将旧终态字段归一化为 `suggestedQuestions`
+- **AND** 系统 MUST NOT 因历史字段存在而在新生产路径继续保留旧字段名
 
 ### Requirement: 文本聊天 stream 必须输出 suggested_questions 事件
 默认 Response Renderer SHALL 将已校验的 `suggestedQuestions` 投影为统一 NDJSON 事件。该事件只承载用户可见建议提问文本，前端点击后仍按普通用户消息发送。
@@ -40,8 +40,8 @@
 - **AND** 点击按钮后 MUST 按普通用户消息发送该字符串
 - **AND** 前端 MUST NOT 根据按钮文案推断业务 action、toolName 或保存操作
 
-#### Scenario: assistant_suggestions 仅作为迁移兼容
-- **WHEN** chat client 或历史 stream 仍收到旧 `assistant_suggestions` 事件
-- **THEN** 前端 MAY 将其中的字符串建议归一化为 `suggestedQuestions`
-- **AND** 新 Response Renderer 测试 MUST 断言主路径输出 `suggested_questions`
-- **AND** 同一条 assistant message MUST NOT 因新旧事件兼容重复展示同一条建议提问
+#### Scenario: assistant_suggestions 不作为新建议提问事件
+- **WHEN** 实现本 change 后 `/api/chat` 输出建议提问
+- **THEN** 新 Response Renderer 测试 MUST 断言主路径输出 `suggested_questions`
+- **AND** 新 chat client 主路径 MUST NOT 依赖旧 `assistant_suggestions` 事件展示建议提问
+- **AND** 新前端消息状态 MUST NOT 因旧 `assistant_suggestions` 事件生成 `suggestedQuestions`
