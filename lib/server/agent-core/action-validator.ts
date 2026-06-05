@@ -1,7 +1,9 @@
 import {
   parseAgentAction,
+  type AgentResourceRef,
   type AgentAction,
   type AgentRunInput,
+  type AgentTerminalRef,
   type TerminalOutputValidationSummary,
   type TerminalAgentAction,
   type ToolCallAction,
@@ -67,7 +69,7 @@ function validateAgentActionInternal(
   const parsed = parseAgentAction(input.action);
 
   if (!parsed.success) {
-    return invalidAction(createInvalidActionMessage(parsed.error), createInvalidActionDetails(parsed.error));
+    return invalidAction(createInvalidActionMessage(parsed.error), createInvalidActionDetails(parsed.error, input.action));
   }
 
   const action = parsed.data;
@@ -165,7 +167,10 @@ function validateTerminalAction(
   input: ActionValidationInput,
   mode: "sync" | "async",
 ): ActionValidationResult | Promise<ActionValidationResult> {
-  if (action.usedResourceRefs?.length && !input.resourceStore) {
+  const toolResultRefIds = collectTerminalToolResultIds(action);
+  const resourceRefs = collectTerminalResourceRefs(action);
+
+  if (resourceRefs.length && !input.resourceStore) {
     return {
       ok: false,
       error: createToolError(
@@ -175,8 +180,8 @@ function validateTerminalAction(
     };
   }
 
-  if (action.usedResourceRefs?.length && input.resourceStore) {
-    for (const ref of action.usedResourceRefs) {
+  if (resourceRefs.length && input.resourceStore) {
+    for (const ref of resourceRefs) {
       try {
         const resource = input.resourceStore.assertRegistered(ref);
 
@@ -204,8 +209,7 @@ function validateTerminalAction(
 
   const knownToolResults = new Map(input.toolResults.map((result) => [result.toolResultId, result]));
   const knownToolResultIds = new Set(knownToolResults.keys());
-  const usedToolResultIds = action.usedToolResultIds ?? [];
-  const unknownIds = usedToolResultIds.filter((id) => !knownToolResultIds.has(id));
+  const unknownIds = toolResultRefIds.filter((id) => !knownToolResultIds.has(id));
 
   if (unknownIds.length > 0) {
     return {
@@ -220,7 +224,7 @@ function validateTerminalAction(
 
   // final_answer 只能引用已满足的成功 tool result，诊断或失败结果只能用于 ask_user/失败解释。
   if (action.type === "final_answer") {
-    const unsatisfiedToolResultIds = usedToolResultIds.filter((id) => {
+    const unsatisfiedToolResultIds = toolResultRefIds.filter((id) => {
       const result = knownToolResults.get(id);
       return result ? !result.ok || !result.fulfillment.satisfied : false;
     });
@@ -236,7 +240,7 @@ function validateTerminalAction(
       };
     }
 
-    if (input.toolResults.length > 0 && !hasTerminalGrounding(action, usedToolResultIds)) {
+    if (input.toolResults.length > 0 && !hasTerminalGrounding(action, toolResultRefIds)) {
       return {
         ok: false,
         error: createToolError(
@@ -302,9 +306,9 @@ function validateTerminalAction(
   return { ok: true, action };
 }
 
-function hasTerminalGrounding(action: Extract<TerminalAgentAction, { type: "final_answer" }>, usedToolResultIds: string[]) {
-  return usedToolResultIds.length > 0
-    || (action.usedResourceRefs?.length ?? 0) > 0
+function hasTerminalGrounding(action: Extract<TerminalAgentAction, { type: "final_answer" }>, toolResultRefIds: string[]) {
+  return toolResultRefIds.length > 0
+    || collectTerminalResourceRefs(action).length > 0
     || (action.visibleOutputs?.length ?? 0) > 0;
 }
 
@@ -312,11 +316,11 @@ function createMissingTerminalGroundingDetails(toolResultCount: number): ToolErr
   return {
     reason: "missing_terminal_grounding_after_tool_result",
     toolResultCount,
-    repair: "当前 run 已经有 tool result 后，成功 final_answer 必须通过 usedToolResultIds、usedResourceRefs 或合法 visibleOutputs[] 连接到当前 run 的已满足事实；如果事实不足，应继续返回合法 tool_call、使用 ask_user 澄清，或明确失败收口，不要用 final_answer.content 承诺本轮之后还会自动继续。",
+    repair: "当前 run 已经有 tool result 后，成功 final_answer 必须通过 usedRefs 或合法 visibleOutputs[] 连接到当前 run 的已满足事实；如果事实不足，应继续返回合法 tool_call、使用 ask_user 澄清，或明确失败收口，不要用 final_answer.content 承诺本轮之后还会自动继续。",
     recoverableActions: [
       "继续返回当前可见且合法的 tool_call 获取缺失事实。",
-      "用 usedToolResultIds 引用当前 run 中 ok=true 且 fulfillment.satisfied=true 的 tool result。",
-      "用 usedResourceRefs 引用当前 run 中 role=consumable 的 resource。",
+      "用 usedRefs: [{ type: \"tool_result\", id: \"...\" }] 引用当前 run 中 ok=true 且 fulfillment.satisfied=true 的 tool result。",
+      "用 usedRefs: [{ type: \"resource\", id: \"...\", resourceType: \"...\" }] 引用当前 run 中 role=consumable 的 resource。",
       "输出可通过 terminal output validator 的 final_answer.visibleOutputs[]。",
       "使用 ask_user 澄清必要信息，或明确说明当前事实不足而失败收口。",
     ],
@@ -357,20 +361,37 @@ function createInvalidActionMessage(error: { issues: Array<{ path: PropertyKey[]
   return "Planner returned an action outside the M0 AgentAction contract.";
 }
 
-function createInvalidActionDetails(error: { issues: Array<{ path: PropertyKey[]; message: string }> }): ToolError["details"] {
+function createInvalidActionDetails(
+  error: { issues: Array<{ path: PropertyKey[]; message: string }> },
+  action: unknown,
+): ToolError["details"] {
   const issues = error.issues.map((issue) => ({
     path: issue.path.join("."),
     message: issue.message,
   }));
-
-  if (!hasNumericVisibleOutputSchemaVersionIssue(error)) {
-    return { issues };
+  const oldFieldIssues = collectOldTerminalFieldIssues(action);
+  for (const issue of oldFieldIssues) {
+    if (!issues.some((current) => current.path === issue.path)) {
+      issues.push(issue);
+    }
   }
 
-  return {
-    issues,
-    repair: "将 final_answer.visibleOutputs[].schemaVersion 改为字符串；具体版本值按 outputType 的模型可见合同和业务 validator 支持版本填写，不要输出数字，也不要让服务端替你转换。",
-  };
+  const oldFieldRepair = createOldTerminalFieldRepair(action);
+  if (oldFieldRepair) {
+    return {
+      issues,
+      repair: oldFieldRepair,
+    };
+  }
+
+  if (hasNumericVisibleOutputSchemaVersionIssue(error)) {
+    return {
+      issues,
+      repair: "将 final_answer.visibleOutputs[].schemaVersion 改为字符串；具体版本值按 outputType 的模型可见合同和业务 validator 支持版本填写，不要输出数字，也不要让服务端替你转换。",
+    };
+  }
+
+  return { issues };
 }
 
 function hasNumericVisibleOutputSchemaVersionIssue(error: { issues: Array<{ path: PropertyKey[]; message: string }> }) {
@@ -399,11 +420,68 @@ function createInvalidToolInputDetails(error: { issues: unknown[] }): ToolError[
 
 function createToolInputRepairMessage(paths: string[]) {
   const pathSet = new Set(paths);
-  if (pathSet.has("factRef") || pathSet.has("messageId")) {
-    return "按当前 tool inputJsonSchema 补齐真实引用字段；引用读取类输入必须从当前 run 可见的 recentVisibleTrainingProposals、list_recent result 或 diagnostic index resource 复制真实 factRef 或 messageId，不要编造不可见引用。";
+  if (pathSet.has("factRef") || pathSet.has("messageId") || pathSet.has("ref")) {
+    return "读取引用类 tool input 统一使用 ref: { type: \"fact_ref\" | \"message_id\", value: \"...\" }；旧顶层 factRef/messageId 不可用，ref.value 必须从当前 run 可见的结构化索引、list_recent result、diagnostic index resource 或受控 metadata 中复制真实引用值，不要让服务端替你转换旧顶层字段。";
+  }
+
+  if (pathSet.has("muscle") || pathSet.has("muscles")) {
+    return "肌群筛选类 tool input 统一使用 muscles 数组；单个肌群也写成 muscles: [\"...\"]，不要使用旧 muscle 字段，也不要让服务端替你转换。";
   }
 
   return "按当前 tool inputJsonSchema 修正 required 字段、字段类型、枚举值和 additionalProperties；只能使用当前 run 可见的结构化事实，不要让服务端替你转换。";
+}
+
+function collectTerminalToolResultIds(action: TerminalAgentAction) {
+  return (action.usedRefs ?? [])
+    .filter((ref): ref is Extract<AgentTerminalRef, { type: "tool_result" }> => ref.type === "tool_result")
+    .map((ref) => ref.id);
+}
+
+function collectTerminalResourceRefs(action: TerminalAgentAction): AgentResourceRef[] {
+  return (action.usedRefs ?? [])
+    .filter((ref): ref is Extract<AgentTerminalRef, { type: "resource" }> => ref.type === "resource")
+    .map((ref) => ({
+      resourceId: ref.id,
+      resourceType: ref.resourceType,
+      role: ref.role,
+      runId: ref.runId,
+      version: ref.version,
+      schemaVersion: ref.schemaVersion,
+    }));
+}
+
+function collectOldTerminalFieldIssues(action: unknown): Array<{ path: string; message: string }> {
+  if (!isRecord(action)) {
+    return [];
+  }
+
+  const issues: Array<{ path: string; message: string }> = [];
+  for (const field of ["question", "message", "usedToolResultIds", "usedResourceRefs"]) {
+    if (field in action) {
+      issues.push({
+        path: field,
+        message: `字段 ${field} 不属于当前 AgentAction 统一字段合同。`,
+      });
+    }
+  }
+
+  return issues;
+}
+
+function createOldTerminalFieldRepair(action: unknown) {
+  if (!isRecord(action)) {
+    return undefined;
+  }
+
+  const repairs: string[] = [];
+  if ("question" in action || "message" in action) {
+    repairs.push("ask_user 和 final_answer 的用户可见文本都必须写入 content；语义差异由 type 表达，不要再输出 question 或 message。");
+  }
+  if ("usedToolResultIds" in action || "usedResourceRefs" in action) {
+    repairs.push("terminal grounding 统一使用 usedRefs；tool result 写成 { type: \"tool_result\", id: \"...\" }，resource 写成 { type: \"resource\", id: \"...\", resourceType: \"...\" }，不要再输出 usedToolResultIds 或 usedResourceRefs。");
+  }
+
+  return repairs.length > 0 ? repairs.join(" ") : undefined;
 }
 
 type SanitizedSchemaIssue = {
@@ -439,6 +517,10 @@ function flattenSchemaIssues(issues: unknown[]): SanitizedSchemaIssue[] {
 
 function isIssueLike(value: unknown): value is { path?: unknown; message?: unknown; errors?: unknown } {
   return Boolean(value && typeof value === "object");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 function dedupeIssue(issue: { path: string; message: string }, index: number, issues: Array<{ path: string; message: string }>) {

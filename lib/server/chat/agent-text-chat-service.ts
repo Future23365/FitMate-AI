@@ -7,6 +7,7 @@ import type {
   AgentResourceRef,
   AgentRunInput,
   AgentRunResult,
+  AgentTerminalRef,
   AgentLoopEvent,
   AgentProgressEvent,
   AgentProgressStage,
@@ -1253,7 +1254,7 @@ function summarizeRuntimeTraceEvent(event: AgentTraceEvent): unknown {
       return {
         type: event.type,
         actionType: event.actionType,
-        usedResourceRefs: event.usedResourceRefs.map(summarizeResourceRef),
+        usedRefs: event.usedRefs.map(summarizeTerminalRef),
       };
   }
 }
@@ -1407,6 +1408,25 @@ function summarizeResourceRef(resource: AgentResourceRef): unknown {
     runId: resource.runId,
     version: resource.version,
     schemaVersion: resource.schemaVersion,
+  };
+}
+
+function summarizeTerminalRef(ref: AgentTerminalRef): unknown {
+  if (ref.type === "tool_result") {
+    return {
+      type: ref.type,
+      id: ref.id,
+    };
+  }
+
+  return {
+    type: ref.type,
+    id: ref.id,
+    resourceType: ref.resourceType,
+    role: ref.role,
+    runId: ref.runId,
+    version: ref.version,
+    schemaVersion: ref.schemaVersion,
   };
 }
 

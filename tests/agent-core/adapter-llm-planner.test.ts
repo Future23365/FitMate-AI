@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
 import { createToolResultId, hashNormalizedInput } from "@/lib/server/agent-core/executor";
+import { toTerminalToolResultRefs } from "@/lib/server/agent-core/contracts";
 import { runAgentRuntime } from "@/lib/server/agent-core/runtime";
 import { createM0FixtureToolRegistry } from "@/lib/server/agent-tools";
 import { LlmPlanner } from "@/lib/server/agent-planners/llm-planner";
@@ -51,7 +52,7 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       {
         type: "final_answer",
         content: "fake adapter completed.",
-        usedToolResultIds: [expectedToolResultId],
+        usedRefs: toTerminalToolResultRefs([expectedToolResultId]),
       },
     ]);
     const planner = new LlmPlanner(adapter);

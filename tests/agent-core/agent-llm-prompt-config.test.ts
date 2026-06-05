@@ -13,9 +13,16 @@ describe("agent LLM prompt configuration", () => {
     const systemPrompt = buildAgentActionSystemPrompt();
 
     expect(agentLlmPromptConfig.promptVersion).toBe(agentLlmPromptVersion);
-    expect(agentLlmPromptVersion).toBe("agent-action-v12");
+    expect(agentLlmPromptVersion).toBe("agent-action-v13");
     expect(systemPrompt).toContain("只能返回一个合法 JSON object");
     expect(systemPrompt).toContain("type 只能是 tool_call、final_answer、ask_user 三者之一");
+    expect(systemPrompt).toContain("{\"type\":\"tool_call\",\"toolName\":\"...\",\"input\":{}}");
+    expect(systemPrompt).toContain("{\"type\":\"final_answer\",\"content\":\"...\",\"usedRefs\"");
+    expect(systemPrompt).toContain("{\"type\":\"ask_user\",\"content\":\"...\",\"usedRefs\"");
+    expect(systemPrompt).toContain("final_answer 与 ask_user 的用户可见文本都必须写入 content");
+    expect(systemPrompt).toContain("两者差异由 action type 表达");
+    expect(systemPrompt).toContain("ask_user.question、question、message");
+    expect(systemPrompt).toContain("usedToolResultIds 和 usedResourceRefs 不属于当前主合同");
     expect(systemPrompt).toContain("final_answer 和 ask_user 都可以在适合时可选输出 suggestedQuestions");
     expect(systemPrompt).toContain("最多 3 条字符串组成的建议提问数组");
     expect(systemPrompt).toContain("用户口吻的完整自然语言文本");
@@ -38,7 +45,10 @@ describe("agent LLM prompt configuration", () => {
     expect(systemPrompt).toContain("必须返回当前可见且合法的 tool_call");
     expect(systemPrompt).toContain("使用 ask_user 澄清必要信息");
     expect(systemPrompt).toContain("明确说明当前事实不足而失败收口");
-    expect(systemPrompt).toContain("当前 run 已经有 tool result 后，成功 final_answer 应通过 usedToolResultIds、usedResourceRefs 或合法 visibleOutputs[]");
+    expect(systemPrompt).toContain("当前 run 已经有 tool result 后，成功 final_answer 应通过 usedRefs 或合法 visibleOutputs[]");
+    expect(systemPrompt).toContain("tool result 引用使用 {\"type\":\"tool_result\",\"id\":\"...\"}");
+    expect(systemPrompt).toContain("resource 引用使用 {\"type\":\"resource\",\"id\":\"...\",\"resourceType\":\"...\"}");
+    expect(systemPrompt).toContain("visibleOutputs[] 是结构化用户可见输出，不是 grounding 引用的同义字段");
     expect(systemPrompt).toContain("failed、diagnostic 或 fulfillment.satisfied=false 的 tool result");
     expect(systemPrompt).toContain("不能支撑成功 final_answer");
     expect(systemPrompt).toContain("visibleOutputs[]");
@@ -207,6 +217,6 @@ describe("agent LLM prompt configuration", () => {
       "返回测试专用 AgentAction JSON object。 这个测试只期望 final_answer。",
     );
     expect(buildAgentActionSystemPrompt()).toContain("tool_call、final_answer、ask_user");
-    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v12");
+    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v13");
   });
 });

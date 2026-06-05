@@ -211,7 +211,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
       await recordTraceEvent({
         type: "terminal_grounding",
         actionType: validation.action.type,
-        usedResourceRefs: validation.action.usedResourceRefs ?? [],
+        usedRefs: validation.action.usedRefs ?? [],
       });
       return finish({
         runId: input.run.runId,
@@ -229,7 +229,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
       await recordTraceEvent({
         type: "terminal_grounding",
         actionType: validation.action.type,
-        usedResourceRefs: validation.action.usedResourceRefs ?? [],
+        usedRefs: validation.action.usedRefs ?? [],
       });
       return finish({
         runId: input.run.runId,

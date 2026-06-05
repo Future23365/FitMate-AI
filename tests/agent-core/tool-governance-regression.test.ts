@@ -16,7 +16,7 @@ import {
 } from "@/lib/server/agent-tools/fixture/m1-safety-fixture.tools";
 import { ReplayPlanner } from "@/lib/server/agent-planners/replay-planner";
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
-import type { AgentResourceRef } from "@/lib/server/agent-core/contracts";
+import { toTerminalResourceRefs, toTerminalToolResultRefs, type AgentResourceRef } from "@/lib/server/agent-core/contracts";
 
 describe("agent tool governance regressions", () => {
   it("does not execute write or high-risk tools before Policy Guard returns confirmation", async () => {
@@ -84,8 +84,10 @@ describe("agent tool governance regressions", () => {
         {
           type: "final_answer",
           content: "已成功完成。",
-          usedToolResultIds: [diagnosticToolResultId],
-          usedResourceRefs: [diagnosticRef],
+          usedRefs: [
+            ...toTerminalToolResultRefs([diagnosticToolResultId]),
+            ...toTerminalResourceRefs([diagnosticRef]),
+          ],
         },
       ]),
       run: {
@@ -141,8 +143,10 @@ describe("agent tool governance regressions", () => {
       {
         type: "final_answer",
         content: "资源已创建。",
-        usedToolResultIds: [producerToolResultId],
-        usedResourceRefs: [resourceRef],
+        usedRefs: [
+          ...toTerminalToolResultRefs([producerToolResultId]),
+          ...toTerminalResourceRefs([resourceRef]),
+        ],
       },
     ]);
     const result = await runAgentRuntime({

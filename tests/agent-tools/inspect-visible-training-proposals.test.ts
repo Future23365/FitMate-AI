@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { toTerminalToolResultRefs } from "@/lib/server/agent-core/contracts";
 import { createToolResultId, executeTool, hashNormalizedInput } from "@/lib/server/agent-core/executor";
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
 import { runAgentRuntime } from "@/lib/server/agent-core/runtime";
@@ -39,7 +40,7 @@ describe("inspectVisibleTrainingProposals tool", () => {
     registry.register(inspectVisibleTrainingProposalsTool);
     const planner = new ReplayPlanner([
       { type: "tool_call", toolName: "inspectVisibleTrainingProposals", input },
-      { type: "final_answer", content: "当前有一条可引用的训练方案事实。", usedToolResultIds: [expectedToolResultId] },
+      { type: "final_answer", content: "当前有一条可引用的训练方案事实。", usedRefs: toTerminalToolResultRefs([expectedToolResultId]) },
     ]);
 
     const result = await runAgentRuntime({
@@ -108,7 +109,7 @@ describe("inspectVisibleTrainingProposals tool", () => {
     registry.register(inspectVisibleTrainingProposalsTool);
     const planner = new ReplayPlanner([
       { type: "tool_call", toolName: "inspectVisibleTrainingProposals", input },
-      { type: "final_answer", content: "当前没有可引用的上一轮训练方案。", usedToolResultIds: [expectedToolResultId] },
+      { type: "final_answer", content: "当前没有可引用的上一轮训练方案。", usedRefs: toTerminalToolResultRefs([expectedToolResultId]) },
     ]);
 
     const result = await runAgentRuntime({
@@ -161,7 +162,7 @@ describe("inspectVisibleTrainingProposals tool", () => {
 
   it("reads a listed visible proposal and registers a consumable current-run resource", async () => {
     const listInput = { operation: "list_recent" as const };
-    const readInput = { operation: "read_recent" as const, factRef: "fact-1" };
+    const readInput = { operation: "read_recent" as const, ref: { type: "fact_ref", value: "fact-1" } };
     const expectedReadToolResultId = createToolResultId(
       "run-read-visible-proposal",
       "inspectVisibleTrainingProposals",
@@ -179,7 +180,7 @@ describe("inspectVisibleTrainingProposals tool", () => {
     const planner = new ReplayPlanner([
       { type: "tool_call", toolName: "inspectVisibleTrainingProposals", input: listInput },
       { type: "tool_call", toolName: "inspectVisibleTrainingProposals", input: readInput },
-      { type: "final_answer", content: "我会沿用上一轮主训练动作。", usedToolResultIds: [expectedReadToolResultId] },
+      { type: "final_answer", content: "我会沿用上一轮主训练动作。", usedRefs: toTerminalToolResultRefs([expectedReadToolResultId]) },
     ]);
 
     const result = await runAgentRuntime({
@@ -278,7 +279,7 @@ describe("inspectVisibleTrainingProposals tool", () => {
     expect(serializedObservation).toContain("最终结构仍必须由 final_answer.visibleOutputs[] 承载");
     expect(serializedObservation).toContain("不代表本轮最终训练结构已经完成");
     expect(serializedObservation).toContain("不得用成功 final_answer.content 承诺本轮回复后还会自动继续");
-    expect(serializedObservation).toContain("usedToolResultIds/usedResourceRefs");
+    expect(serializedObservation).toContain("usedRefs");
     expect(serializedObservation).toContain("final_answer.visibleOutputs[]");
     expect(serializedObservation).not.toContain("displayedExerciseIds");
     expect(serializedObservation).not.toContain("displayedExercises");
@@ -293,7 +294,7 @@ describe("inspectVisibleTrainingProposals tool", () => {
 
     const result = await executeTool({
       tool: inspectVisibleTrainingProposalsTool,
-      input: { operation: "read_recent", factRef: "fact-training-only" },
+      input: { operation: "read_recent", ref: { type: "fact_ref", value: "fact-training-only" } },
       run: {
         ...createRun("run-visible-training-only"),
         metadata: createRunMetadata({ factRef: "fact-training-only" }),
@@ -333,7 +334,7 @@ describe("inspectVisibleTrainingProposals tool", () => {
   it("refuses read_recent references that are absent from current run visible indexes before reading the store", async () => {
     const result = await executeTool({
       tool: inspectVisibleTrainingProposalsTool,
-      input: { operation: "read_recent", factRef: "fact-not-in-run" },
+      input: { operation: "read_recent", ref: { type: "fact_ref", value: "fact-not-in-run" } },
       run: createRun("run-visible-fact-not-in-index"),
       timeoutMs: 100,
       toolCallId: "tc_visible_fact_not_in_index",
@@ -361,7 +362,7 @@ describe("inspectVisibleTrainingProposals tool", () => {
 
     const result = await executeTool({
       tool: inspectVisibleTrainingProposalsTool,
-      input: { operation: "read_recent", messageId: "assistant-1" },
+      input: { operation: "read_recent", ref: { type: "message_id", value: "assistant-1" } },
       run: {
         ...createRun("run-visible-fact-message-id"),
         metadata: createRunMetadata(),
@@ -402,7 +403,7 @@ describe("inspectVisibleTrainingProposals tool", () => {
 
     const result = await executeTool({
       tool: inspectVisibleTrainingProposalsTool,
-      input: { operation: "read_recent", factRef: "fact-1" },
+      input: { operation: "read_recent", ref: { type: "fact_ref", value: "fact-1" } },
       run: {
         ...createRun(`run-${code}`),
         metadata: createRunMetadata(),
@@ -437,7 +438,7 @@ describe("inspectVisibleTrainingProposals tool", () => {
     });
     const readResult = await executeTool({
       tool: inspectVisibleTrainingProposalsTool,
-      input: { operation: "read_recent", factRef: "fact-1" },
+      input: { operation: "read_recent", ref: { type: "fact_ref", value: "fact-1" } },
       run: {
         ...createRun("run-visible-fact-read-error"),
         metadata: createRunMetadata(),

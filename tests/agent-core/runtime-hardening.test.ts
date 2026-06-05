@@ -2,6 +2,7 @@ import { z } from "zod";
 import { describe, expect, it, vi } from "vitest";
 
 import { InMemoryConfirmationStore } from "@/lib/server/agent-core/confirmation-store";
+import { toTerminalToolResultRefs } from "@/lib/server/agent-core/contracts";
 import { defineTool } from "@/lib/server/agent-core/define-tool";
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
 import { createToolResultId, hashNormalizedInput } from "@/lib/server/agent-core/executor";
@@ -258,7 +259,7 @@ describe("agent-core runtime budget and idempotency hardening", () => {
     const planner = new ReplayPlanner([
       { type: "tool_call", toolName: "satisfiedResourceRead", input },
       { type: "tool_call", toolName: "satisfiedResourceRead", input },
-      { type: "final_answer", content: "已经基于第一次成功结果收口。", usedToolResultIds: [expectedToolResultId] },
+      { type: "final_answer", content: "已经基于第一次成功结果收口。", usedRefs: toTerminalToolResultRefs([expectedToolResultId]) },
     ]);
 
     const result = await runAgentRuntime({
@@ -283,7 +284,7 @@ describe("agent-core runtime budget and idempotency hardening", () => {
       status: "completed",
       terminalAction: {
         type: "final_answer",
-        usedToolResultIds: [expectedToolResultId],
+        usedRefs: toTerminalToolResultRefs([expectedToolResultId]),
       },
     });
     expect(handler).toHaveBeenCalledTimes(1);
@@ -330,10 +331,10 @@ describe("agent-core runtime budget and idempotency hardening", () => {
       planner: new ReplayPlanner([
         { type: "tool_call", toolName: "satisfiedResourceRead", input: { id: "a" } },
         { type: "tool_call", toolName: "satisfiedResourceRead", input: { id: "b" } },
-        { type: "final_answer", content: "两个不同输入都已执行。", usedToolResultIds: [
+        { type: "final_answer", content: "两个不同输入都已执行。", usedRefs: toTerminalToolResultRefs([
           createToolResultId("run-changed-input", "satisfiedResourceRead", hashNormalizedInput({ id: "a" })),
           createToolResultId("run-changed-input", "satisfiedResourceRead", hashNormalizedInput({ id: "b" })),
-        ] },
+        ]) },
       ]),
       run: {
         runId: "run-changed-input",
@@ -351,7 +352,7 @@ describe("agent-core runtime budget and idempotency hardening", () => {
       planner: new ReplayPlanner([
         { type: "tool_call", toolName: "unsatisfiedRead", input: { id: "empty" } },
         { type: "tool_call", toolName: "unsatisfiedRead", input: { id: "empty" } },
-        { type: "ask_user", question: "没有找到满足条件的结果，要调整条件吗？" },
+        { type: "ask_user", content: "没有找到满足条件的结果，要调整条件吗？" },
       ]),
       run: {
         runId: "run-unsatisfied-repeat",

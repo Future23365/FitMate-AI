@@ -109,7 +109,7 @@ function objectHasReadRecentOperation(value: Record<string, JsonValue>) {
   }
 
   const operation = (properties as Record<string, JsonValue>).operation;
-  return JSON.stringify(operation).includes("read_recent");
+  return JSON.stringify(operation ?? "").includes("read_recent");
 }
 
 function createExerciseResourceFacetCatalog(): ExerciseResourceFacetCatalog {
@@ -303,10 +303,13 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(inspectManifestJson).not.toContain("再来一组");
     expect(inspectManifestJson).not.toContain("不要这个");
     expect(inspectManifestJson).not.toContain("factCount = 0");
-    expect(inspectExamplesJson).not.toContain("\"operation\":\"read_recent\"");
+    expect(inspectExamplesJson).toContain("\"operation\":\"read_recent\"");
+    expect(inspectExamplesJson).toContain("\"ref\"");
+    expect(inspectExamplesJson).toContain("\"fact_ref\"");
     expect(inspectExamplesJson).toContain("\"operation\":\"list_recent\"");
-    expect(readRecentInputBranches.some((branch) => Array.isArray(branch.required) && branch.required.includes("factRef"))).toBe(true);
-    expect(readRecentInputBranches.some((branch) => Array.isArray(branch.required) && branch.required.includes("messageId"))).toBe(true);
+    expect(readRecentInputBranches.some((branch) => Array.isArray(branch.required) && branch.required.includes("ref"))).toBe(true);
+    expect(readRecentInputBranches.some((branch) => Array.isArray(branch.required) && branch.required.includes("factRef"))).toBe(false);
+    expect(readRecentInputBranches.some((branch) => Array.isArray(branch.required) && branch.required.includes("messageId"))).toBe(false);
     expect(manifestJson).toContain("inspectVisibleTrainingProposals(operation = \\\"list_recent\\\")");
     expect(manifestJson).toContain("inspectVisibleTrainingProposals(operation = \\\"read_recent\\\")");
     expect(inputSchema.properties).toHaveProperty("q");
@@ -331,6 +334,7 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(searchExamplesJson).not.toContain("pageSize");
     expect(inputSchema.properties).not.toHaveProperty("suitability");
     expect(inputSchema.properties).not.toHaveProperty("bodyRegions");
+    expect(inputSchema.properties).not.toHaveProperty("muscle");
     expect(inputSchema.properties.suitabilities.items.enum).toEqual(["warmup", "training", "stretch"]);
     expect(inputSchema.properties.suitabilities.maxItems).toBe(3);
     expect(inputSchema.properties.suitabilities.description).toContain("目标需要 routine 或 plan");
@@ -344,7 +348,7 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(inputSchema.properties.homeRequirement.description).not.toContain("none");
     expect(inputSchema.properties.homeRequirement.description).not.toContain("无器械");
     expect(inputSchema.properties.muscles.maxItems).toBe(20);
-    expect(inputSchema.properties.muscles.description).toContain("多个主肌群");
+    expect(inputSchema.properties.muscles.description).toContain("一个或多个主肌群");
     expect(searchFacetCatalog).toMatchObject({
       muscles: expect.arrayContaining(["胸部", "股四头肌"]),
       equipment: expect.arrayContaining(["body only", "哑铃", "no_equipment", "无器械"]),
@@ -374,7 +378,9 @@ describe("agent-core ToolRegistry and manifest", () => {
     ]);
     expect(inputSchema.properties.sort.default).toBe("name_asc");
     expect(inputSchema.additionalProperties).toBe(false);
-    expect(manifestJson).toContain("usedToolResultIds");
+    expect(manifestJson).toContain("usedRefs");
+    expect(manifestJson).not.toContain("usedToolResultIds");
+    expect(manifestJson).not.toContain("usedResourceRefs");
     expect(manifestJson).toContain("visibleOutputs");
     expect(manifestJson).toContain("visibleTrainingProposal");
     expect(manifestJson).toContain("exerciseId");

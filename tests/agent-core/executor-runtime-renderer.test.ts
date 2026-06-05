@@ -3,6 +3,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import { describe, expect, it, vi } from "vitest";
 
+import { toTerminalToolResultRefs } from "@/lib/server/agent-core/contracts";
 import { defineTool } from "@/lib/server/agent-core/define-tool";
 import { createToolResultId, executeTool, hashNormalizedInput } from "@/lib/server/agent-core/executor";
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
@@ -109,7 +110,7 @@ describe("agent-core Executor, Runtime and Response Renderer", () => {
       {
         type: "final_answer",
         content: "已读取。",
-        usedToolResultIds: [expectedToolResultId],
+        usedRefs: toTerminalToolResultRefs([expectedToolResultId]),
         suggestedQuestions: ["继续"],
       },
     ]);
@@ -162,7 +163,7 @@ describe("agent-core Executor, Runtime and Response Renderer", () => {
     const askResult = await runAgentRuntime({
       registry,
       planner: new ReplayPlanner([
-        { type: "ask_user", question: "需要哪个 fixture？", suggestedQuestions: ["alpha", "beta"] },
+        { type: "ask_user", content: "需要哪个 fixture？", suggestedQuestions: ["alpha", "beta"] },
       ]),
       run: createRun("run-ask"),
     });

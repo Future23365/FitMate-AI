@@ -9,7 +9,7 @@ import { TerminalOutputValidatorRegistry } from "@/lib/server/agent-core/termina
 import { ToolRegistry } from "@/lib/server/agent-core/tool-registry";
 import { createProductionToolRegistry } from "@/lib/server/agent-tools";
 import { ReplayPlanner } from "@/lib/server/agent-planners/replay-planner";
-import type { ToolResult } from "@/lib/server/agent-core/contracts";
+import { toTerminalResourceRefs, toTerminalToolResultRefs, type ToolResult } from "@/lib/server/agent-core/contracts";
 
 function createRegistry() {
   const registry = new ToolRegistry();
@@ -176,13 +176,34 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
     expect(validateAgentAction({
       action: {
         type: "ask_user",
-        question: "你今天有多少时间？",
+        content: "你今天有多少时间？",
         suggestedQuestions: ["20 分钟", "40 分钟"],
       },
       registry,
       manifests,
       toolResults: [],
     })).toMatchObject({ ok: true });
+
+    expect(validateAgentAction({
+      action: {
+        type: "ask_user",
+        question: "你今天有多少时间？",
+      },
+      registry,
+      manifests,
+      toolResults: [],
+    })).toMatchObject({
+      ok: false,
+      error: {
+        code: AGENT_ERROR_CODES.INVALID_ACTION,
+        details: expect.objectContaining({
+          issues: expect.arrayContaining([
+            expect.objectContaining({ path: "question" }),
+          ]),
+          repair: expect.stringContaining("content"),
+        }),
+      },
+    });
 
     expect(validateAgentAction({
       action: {
@@ -209,7 +230,7 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
     expect(validateAgentAction({
       action: {
         type: "ask_user",
-        question: "你今天有多少时间？",
+        content: "你今天有多少时间？",
         suggestions: ["旧字段不应进入新主链"],
       },
       registry,
@@ -275,14 +296,14 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
         code: AGENT_ERROR_CODES.INVALID_TOOL_INPUT,
         details: expect.objectContaining({
           issues: expect.arrayContaining([
-            expect.objectContaining({ path: "factRef" }),
-            expect.objectContaining({ path: "messageId" }),
+            expect.objectContaining({ path: "ref" }),
           ]),
-          repair: expect.stringContaining("真实引用"),
+          repair: expect.stringContaining("ref.value"),
         }),
       },
     });
-    expect(detailsJson).toContain("recentVisibleTrainingProposals");
+    expect(detailsJson).toContain("结构化索引");
+    expect(detailsJson).toContain("diagnostic index resource");
     expect(detailsJson).toContain("list_recent");
     expect(detailsJson).not.toContain("payload");
     expect(detailsJson).not.toContain("stack");
@@ -315,7 +336,7 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       action: {
         type: "final_answer",
         content: "done",
-        usedResourceRefs: [{ resourceId: "resource-1" }],
+        usedRefs: toTerminalResourceRefs([{ resourceId: "resource-1" }]),
       },
       registry,
       manifests,
@@ -330,7 +351,7 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       action: {
         type: "final_answer",
         content: "done",
-        usedToolResultIds: ["missing-tool-result"],
+        usedRefs: toTerminalToolResultRefs(["missing-tool-result"]),
       },
       registry,
       manifests: registry.serializeForPlanner(),
@@ -362,7 +383,7 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
         code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID,
         details: expect.objectContaining({
           reason: "missing_terminal_grounding_after_tool_result",
-          repair: expect.stringContaining("usedToolResultIds"),
+          repair: expect.stringContaining("usedRefs"),
           recoverableActions: expect.arrayContaining([
             expect.stringContaining("tool_call"),
             expect.stringContaining("ask_user"),
@@ -415,7 +436,7 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       action: {
         type: "final_answer",
         content: "已基于 tool result 回答。",
-        usedToolResultIds: [satisfiedResult.toolResultId],
+        usedRefs: toTerminalToolResultRefs([satisfiedResult.toolResultId]),
       },
       registry,
       manifests,
@@ -426,7 +447,7 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       action: {
         type: "final_answer",
         content: "已基于 consumable resource 回答。",
-        usedResourceRefs: [toResourceRef(consumable)],
+        usedRefs: toTerminalResourceRefs([toResourceRef(consumable)]),
       },
       registry,
       manifests,
@@ -467,7 +488,7 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       action: {
         type: "final_answer",
         content: "done",
-        usedToolResultIds: [failedResult.toolResultId],
+        usedRefs: toTerminalToolResultRefs([failedResult.toolResultId]),
       },
       registry,
       manifests,
@@ -478,7 +499,7 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       action: {
         type: "final_answer",
         content: "done",
-        usedToolResultIds: [unsatisfiedResult.toolResultId],
+        usedRefs: toTerminalToolResultRefs([unsatisfiedResult.toolResultId]),
       },
       registry,
       manifests,
@@ -488,8 +509,8 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
     expect(validateAgentAction({
       action: {
         type: "ask_user",
-        question: "需要补充信息。",
-        usedToolResultIds: [unsatisfiedResult.toolResultId],
+        content: "需要补充信息。",
+        usedRefs: toTerminalToolResultRefs([unsatisfiedResult.toolResultId]),
       },
       registry,
       manifests,
@@ -683,7 +704,7 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       action: {
         type: "final_answer",
         content: "done",
-        usedResourceRefs: [toResourceRef(diagnostic)],
+        usedRefs: toTerminalResourceRefs([toResourceRef(diagnostic)]),
       },
       registry,
       manifests: registry.serializeForPlanner(),
@@ -694,8 +715,8 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
     expect(validateAgentAction({
       action: {
         type: "ask_user",
-        question: "需要补充信息。",
-        usedResourceRefs: [toResourceRef(diagnostic)],
+        content: "需要补充信息。",
+        usedRefs: toTerminalResourceRefs([toResourceRef(diagnostic)]),
       },
       registry,
       manifests: registry.serializeForPlanner(),

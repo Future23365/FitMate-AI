@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { toTerminalToolResultRefs } from "@/lib/server/agent-core/contracts";
 import { createToolResultId, executeTool, hashNormalizedInput } from "@/lib/server/agent-core/executor";
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
 import { renderAgentResponseEvents } from "@/lib/server/agent-core/response-renderer";
@@ -27,7 +28,7 @@ describe("searchExerciseResources tool", () => {
   it("executes through the real tool boundary and exposes exerciseId grouped by training", async () => {
     const { tool, repository } = await importToolWithRepositoryResult(createSearchResult({
       query: {
-        muscle: "胸部",
+        muscles: ["胸部"],
         equipment: "no_equipment",
         suitability: "training",
         published: true,
@@ -41,7 +42,7 @@ describe("searchExerciseResources tool", () => {
 
     const result = await executeTool({
       tool,
-      input: { muscle: "胸部", equipment: "no_equipment", suitabilities: ["training"] },
+      input: { muscles: ["胸部"], equipment: "no_equipment", suitabilities: ["training"] },
       run: { runId: "run-search", actor: { userId: "user-1" }, userInput: "找几个徒手胸部训练动作" },
       timeoutMs: 100,
       toolCallId: "tc_search",
@@ -60,6 +61,7 @@ describe("searchExerciseResources tool", () => {
           truncated: false,
           appliedFilters: expect.arrayContaining([
             { field: "equipment", value: "no_equipment" },
+            { field: "muscles", value: ["胸部"] },
             { field: "suitabilities", value: ["training"] },
             { field: "published", value: true },
           ]),
@@ -95,8 +97,7 @@ describe("searchExerciseResources tool", () => {
       mechanic: undefined,
       equipment: "no_equipment",
       homeRequirement: undefined,
-      muscle: "胸部",
-      muscles: undefined,
+      muscles: ["胸部"],
       goalTag: undefined,
       riskTag: undefined,
       excludeExerciseIds: undefined,
@@ -190,7 +191,7 @@ describe("searchExerciseResources tool", () => {
 
       return createSearchResult({
         query: {
-          muscle: "胸部",
+          muscles: ["胸部"],
           equipment: "no_equipment",
           suitability: suitability as "training",
           published: true,
@@ -208,7 +209,7 @@ describe("searchExerciseResources tool", () => {
 
     const result = await executeTool({
       tool,
-      input: { muscle: "胸部", equipment: "no_equipment", suitabilities: ["training"] },
+      input: { muscles: ["胸部"], equipment: "no_equipment", suitabilities: ["training"] },
       run: { runId: "run-routine-training-only", actor: { userId: "user-1" }, userInput: "给我一套胸部20分钟无器械训练" },
       timeoutMs: 100,
       toolCallId: "tc_routine_training_only",
@@ -257,7 +258,6 @@ describe("searchExerciseResources tool", () => {
 
     expect(repository.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
       q: undefined,
-      muscle: undefined,
       muscles: undefined,
       equipment: undefined,
       homeRequirement: undefined,
@@ -322,7 +322,6 @@ describe("searchExerciseResources tool", () => {
     const result = await executeTool({
       tool,
       input: {
-        muscle: "胸部",
         muscles: ["胸部", "肱三头肌", "肱三头肌"],
         suitabilities: ["training"],
       },
@@ -332,7 +331,6 @@ describe("searchExerciseResources tool", () => {
     });
 
     expect(repository.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
-      muscle: "胸部",
       muscles: ["胸部", "肱三头肌"],
       suitability: "training",
     }));
@@ -340,10 +338,8 @@ describe("searchExerciseResources tool", () => {
       ok: true,
       output: {
         query: {
-          muscle: "胸部",
           muscles: ["胸部", "肱三头肌"],
           appliedFilters: expect.arrayContaining([
-            { field: "muscle", value: "胸部" },
             { field: "muscles", value: ["胸部", "肱三头肌"] },
           ]),
         },
@@ -686,7 +682,7 @@ describe("searchExerciseResources tool", () => {
 
     await expect(executeTool({
       tool,
-      input: { suitabilities: ["training"], muscle: "胸部" },
+      input: { suitabilities: ["training"], muscles: ["胸部"] },
       run: { runId: "run-handler-error", actor: { userId: "user-1" }, userInput: "找胸部动作" },
       timeoutMs: 100,
       toolCallId: "tc_handler_error",
@@ -700,13 +696,13 @@ describe("searchExerciseResources tool", () => {
     }));
     const registry = new ToolRegistry();
     registry.register(tool);
-    const toolInput = { muscle: "核心", suitabilities: ["training"] };
+    const toolInput = { muscles: ["腹肌"], suitabilities: ["training"] };
     const expectedToolResultId = createToolResultId("run-runtime-search", "searchExerciseResources", hashNormalizedInput(toolInput));
     const result = await runAgentRuntime({
       registry,
       planner: new ReplayPlanner([
         { type: "tool_call", toolName: "searchExerciseResources", input: toolInput },
-        { type: "final_answer", content: "找到平板支撑这类核心训练动作。", usedToolResultIds: [expectedToolResultId] },
+        { type: "final_answer", content: "找到平板支撑这类核心训练动作。", usedRefs: toTerminalToolResultRefs([expectedToolResultId]) },
       ]),
       run: {
         runId: "run-runtime-search",

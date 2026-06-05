@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { InMemoryConfirmationStore } from "@/lib/server/agent-core/confirmation-store";
+import { toTerminalResourceRefs, toTerminalToolResultRefs, type AgentResourceRef } from "@/lib/server/agent-core/contracts";
 import { createToolResultId, hashNormalizedInput } from "@/lib/server/agent-core/executor";
 import { createResourceId, ResourceStore } from "@/lib/server/agent-core/resource-store";
 import { resumeConfirmedAction, runAgentRuntime } from "@/lib/server/agent-core/runtime";
-import type { AgentResourceRef } from "@/lib/server/agent-core/contracts";
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
 import { createM0FixtureToolRegistry, createM1FixtureToolRegistry } from "@/lib/server/agent-tools";
 import {
@@ -50,7 +50,7 @@ describe("agent-core DeepSeek adapter fixture E2E", () => {
       {
         type: "final_answer",
         content: "read completed.",
-        usedToolResultIds: [expectedToolResultId],
+        usedRefs: toTerminalToolResultRefs([expectedToolResultId]),
       },
     ]);
 
@@ -100,7 +100,7 @@ describe("agent-core DeepSeek adapter fixture E2E", () => {
       {
         type: "final_answer",
         content: "resource completed.",
-        usedResourceRefs: [resourceRef],
+        usedRefs: toTerminalResourceRefs([resourceRef]),
       },
     ]);
 
@@ -209,17 +209,16 @@ describe("agent-core DeepSeek adapter fixture E2E", () => {
       {
         type: "final_answer",
         content: "success.",
-        usedToolResultIds: [diagnosticToolResultId],
+        usedRefs: toTerminalToolResultRefs([diagnosticToolResultId]),
       },
       {
         type: "final_answer",
         content: "success.",
-        usedResourceRefs: [diagnosticRef],
+        usedRefs: toTerminalResourceRefs([diagnosticRef]),
       },
       {
-        type: "ask_user",
-        question: "fixture blocked.",
-        usedResourceRefs: [diagnosticRef],
+        type: "ask_user", content: "fixture blocked.",
+        usedRefs: toTerminalResourceRefs([diagnosticRef]),
       },
     ]);
 

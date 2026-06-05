@@ -1,4 +1,5 @@
 import { defineTool } from "@/lib/server/agent-core/define-tool";
+import { toTerminalToolResultRefs } from "@/lib/server/agent-core/contracts";
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
 import { executeTool } from "@/lib/server/agent-core/executor";
 import { toolToManifest } from "@/lib/server/agent-core/manifest";
@@ -186,7 +187,7 @@ export async function checkToolRuntimeSafety(scenario: ToolRuntimeSafetyScenario
     terminalAction: {
       type: "final_answer",
       content: "contract done",
-      usedToolResultIds: [result.toolResultId],
+      usedRefs: toTerminalToolResultRefs([result.toolResultId]),
     },
     toolResults: [result],
     observations: [observation],

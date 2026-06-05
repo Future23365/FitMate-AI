@@ -2,6 +2,7 @@ import { z } from "zod";
 import { describe, expect, it } from "vitest";
 
 import { defineTool } from "@/lib/server/agent-core/define-tool";
+import { toTerminalToolResultRefs } from "@/lib/server/agent-core/contracts";
 import { createToolResultId, hashNormalizedInput } from "@/lib/server/agent-core/executor";
 import { renderAgentResponseEvents } from "@/lib/server/agent-core/response-renderer";
 import { runAgentRuntime } from "@/lib/server/agent-core/runtime";
@@ -19,7 +20,7 @@ describe("agent-core fixture read tool end to end", () => {
       {
         type: "final_answer",
         content: "fixture 已读取。",
-        usedToolResultIds: [expectedToolResultId],
+        usedRefs: toTerminalToolResultRefs([expectedToolResultId]),
       },
     ]);
 
@@ -87,7 +88,7 @@ describe("agent-core fixture read tool end to end", () => {
         {
           type: "final_answer",
           content: "second fixture 已读取。",
-          usedToolResultIds: [expectedToolResultId],
+          usedRefs: toTerminalToolResultRefs([expectedToolResultId]),
         },
       ]),
       run: {

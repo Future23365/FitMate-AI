@@ -11,7 +11,7 @@ import {
 import { createProductionToolRegistry } from "@/lib/server/agent-tools";
 import { createToolResultId, hashNormalizedInput } from "@/lib/server/agent-core/executor";
 import { AGENT_ERROR_CODES, AgentContractError } from "@/lib/server/agent-core/errors";
-import type { JsonValue } from "@/lib/server/agent-core/contracts";
+import { toTerminalToolResultRefs, type JsonValue } from "@/lib/server/agent-core/contracts";
 import { ReplayPlanner } from "@/lib/server/agent-planners/replay-planner";
 import { LlmPlanner } from "@/lib/server/agent-planners/llm-planner";
 import {
@@ -474,7 +474,7 @@ describe("chat service agent text flow boundary", () => {
     });
     const planner = new ReplayPlanner([
       { type: "tool_call", toolName: "searchExerciseResources", input: toolInput },
-      { type: "final_answer", content: "可以参考俯卧撑。", usedToolResultIds: [expectedToolResultId] },
+      { type: "final_answer", content: "可以参考俯卧撑。", usedRefs: toTerminalToolResultRefs([expectedToolResultId]) },
     ]);
 
     const response = await createAgentTextChatResponse({
@@ -529,7 +529,6 @@ describe("chat service agent text flow boundary", () => {
       mechanic: undefined,
       equipment: undefined,
       homeRequirement: undefined,
-      muscle: undefined,
       muscles: undefined,
       goalTag: undefined,
       riskTag: undefined,
@@ -636,7 +635,7 @@ describe("chat service agent text flow boundary", () => {
     });
     const planner = new ReplayPlanner([
       { type: "tool_call", toolName: "searchExerciseResources", input: toolInput },
-      { type: "final_answer", content: "可以参考俯卧撑。", usedToolResultIds: [expectedToolResultId] },
+      { type: "final_answer", content: "可以参考俯卧撑。", usedRefs: toTerminalToolResultRefs([expectedToolResultId]) },
     ]);
 
     const response = await createAgentTextChatResponse({
@@ -746,7 +745,7 @@ describe("chat service agent text flow boundary", () => {
       {
         type: "final_answer",
         content: "这套训练包含你点名的俯卧撑、深蹲和平板支撑。",
-        usedToolResultIds: [expectedSearchToolResultId],
+        usedRefs: toTerminalToolResultRefs([expectedSearchToolResultId]),
         visibleOutputs: [{
           outputType: "visibleTrainingProposal",
           schemaVersion: "1",
@@ -827,7 +826,7 @@ describe("chat service agent text flow boundary", () => {
 
   it("refreshes visible training proposals by reading prior visible fact and excluding prior exercise ids", async () => {
     const listInput = { operation: "list_recent" as const };
-    const readInput = { operation: "read_recent" as const, factRef: "fact-previous" };
+    const readInput = { operation: "read_recent" as const, ref: { type: "fact_ref", value: "fact-previous" } };
     const searchInput = {
       muscles: ["股四头肌", "臀部"],
       suitabilities: ["training"],
@@ -884,7 +883,7 @@ describe("chat service agent text flow boundary", () => {
       {
         type: "final_answer",
         content: "这次可以参考台阶上步。",
-        usedToolResultIds: [expectedSearchToolResultId],
+        usedRefs: toTerminalToolResultRefs([expectedSearchToolResultId]),
         visibleOutputs: [createVisibleExerciseSelectionOutput("step-up")],
       },
     ]);
@@ -1007,7 +1006,7 @@ describe("chat service agent text flow boundary", () => {
 
   it("reuses shown visible proposal exercises through requiredExerciseIds without excluding them", async () => {
     const listInput = { operation: "list_recent" as const };
-    const readInput = { operation: "read_recent" as const, factRef: "fact-previous" };
+    const readInput = { operation: "read_recent" as const, ref: { type: "fact_ref", value: "fact-previous" } };
     const searchInput = {
       suitabilities: ["training"],
       requiredExerciseIds: ["squat"],
@@ -1056,7 +1055,7 @@ describe("chat service agent text flow boundary", () => {
       {
         type: "final_answer",
         content: "我从上一轮已展示动作里保留深蹲。",
-        usedToolResultIds: [expectedSearchToolResultId],
+        usedRefs: toTerminalToolResultRefs([expectedSearchToolResultId]),
         visibleOutputs: [createVisibleExerciseSelectionOutput("squat")],
       },
     ]);
@@ -1183,8 +1182,7 @@ describe("chat service agent text flow boundary", () => {
         visibleOutputs: [createVisibleExerciseSelectionOutput("push-up")],
       },
       {
-        type: "ask_user",
-        question: "我还需要先确认你的训练目标、时长、器械或场地，再生成可靠训练方案。",
+        type: "ask_user", content: "我还需要先确认你的训练目标、时长、器械或场地，再生成可靠训练方案。",
         suggestedQuestions: ["练胸，20分钟，无器械", "每周3练，每次30分钟", "先推荐核心动作"],
       },
     ]);
@@ -1237,7 +1235,7 @@ describe("chat service agent text flow boundary", () => {
     exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockResolvedValueOnce(createExerciseResourceSearchResult({
       query: {
         suitability: "training",
-        muscle: "胸部",
+        muscles: ["胸部"],
         published: true,
         sort: "name_asc",
       },
@@ -1251,7 +1249,7 @@ describe("chat service agent text flow boundary", () => {
       latestUserMessage: "把胸部自重动作编排成完整训练",
       conversationSummary: "",
     });
-    const searchInput = { muscle: "胸部", suitabilities: ["training" as const] };
+    const searchInput = { muscles: ["胸部"], suitabilities: ["training" as const] };
     const expectedSearchToolResultId = createToolResultId(
       "chat_assistant-section-repair",
       "searchExerciseResources",
@@ -1267,7 +1265,7 @@ describe("chat service agent text flow boundary", () => {
       {
         type: "final_answer",
         content: "当前动作 section 校验没有通过，我会重新基于可用动作事实调整。",
-        usedToolResultIds: [expectedSearchToolResultId],
+        usedRefs: toTerminalToolResultRefs([expectedSearchToolResultId]),
       },
     ]);
 
@@ -1344,7 +1342,7 @@ describe("chat service agent text flow boundary", () => {
     latestUserMessage,
     invalidContent,
   }) => {
-    const readInput = { operation: "read_recent" as const, factRef: "fact-previous" };
+    const readInput = { operation: "read_recent" as const, ref: { type: "fact_ref", value: "fact-previous" } };
     const searchInput = {
       muscles: ["股四头肌"],
       suitabilities: ["warmup", "stretch"] as const,
@@ -1426,7 +1424,7 @@ describe("chat service agent text flow boundary", () => {
           reason: "missing_terminal_grounding_after_tool_result",
           recoverableActions: expect.arrayContaining([
             expect.stringContaining("tool_call"),
-            expect.stringContaining("usedToolResultIds"),
+            expect.stringContaining("usedRefs"),
             expect.stringContaining("visibleOutputs[]"),
             expect.stringContaining("ask_user"),
           ]),
@@ -1462,7 +1460,7 @@ describe("chat service agent text flow boundary", () => {
   });
 
   it("returns a safe failure when ungrounded terminal completion repeats after repair", async () => {
-    const readInput = { operation: "read_recent" as const, factRef: "fact-previous" };
+    const readInput = { operation: "read_recent" as const, ref: { type: "fact_ref", value: "fact-previous" } };
     visibleTrainingProposalFactStoreMocks.listRecentVisibleTrainingProposalSummaries.mockResolvedValueOnce([
       createRecentVisibleTrainingProposalSummary(),
     ]);
@@ -1530,7 +1528,7 @@ describe("chat service agent text flow boundary", () => {
 
   it("recovers from duplicate successful read/import without resource duplicate hard failure", async () => {
     const listInput = { operation: "list_recent" as const };
-    const readInput = { operation: "read_recent" as const, factRef: "fact-previous" };
+    const readInput = { operation: "read_recent" as const, ref: { type: "fact_ref", value: "fact-previous" } };
     const searchInput = {
       muscles: ["股四头肌", "臀部"],
       suitabilities: ["training"],
@@ -1588,7 +1586,7 @@ describe("chat service agent text flow boundary", () => {
       {
         type: "final_answer",
         content: "这次可以参考台阶上步。",
-        usedToolResultIds: [expectedSearchToolResultId],
+        usedRefs: toTerminalToolResultRefs([expectedSearchToolResultId]),
         visibleOutputs: [createVisibleExerciseSelectionOutput("step-up")],
       },
     ]);
@@ -1661,10 +1659,9 @@ describe("chat service agent text flow boundary", () => {
     expect(JSON.stringify(events)).not.toContain("聊天生成失败");
   });
 
-  it("settles a satisfied exercise search final answer through usedToolResultIds", async () => {
+  it("settles a satisfied exercise search final answer through usedRefs", async () => {
     const searchInput = {
-      muscle: "胸部",
-      muscles: ["股四头肌"],
+      muscles: ["胸部", "股四头肌"],
       suitabilities: ["training"],
       sort: "name_asc",
     };
@@ -1675,15 +1672,13 @@ describe("chat service agent text flow boundary", () => {
     );
     exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mockResolvedValueOnce(createExerciseResourceSearchResult({
       query: {
-        muscle: "胸部",
-        muscles: ["股四头肌"],
+        muscles: ["胸部", "股四头肌"],
         suitability: "training",
         published: true,
         sort: "name_asc",
       },
       appliedFilters: [
-        { field: "muscle", value: "胸部" },
-        { field: "muscles", value: ["股四头肌"] },
+        { field: "muscles", value: ["胸部", "股四头肌"] },
         { field: "suitability", value: "training" },
         { field: "published", value: true },
       ],
@@ -1706,7 +1701,7 @@ describe("chat service agent text flow boundary", () => {
     });
     const planner = new ReplayPlanner([
       { type: "tool_call", toolName: "searchExerciseResources", input: searchInput },
-      { type: "final_answer", content: "可以参考三点支撑胸推动作。", usedToolResultIds: [expectedToolResultId] },
+      { type: "final_answer", content: "可以参考三点支撑胸推动作。", usedRefs: toTerminalToolResultRefs([expectedToolResultId]) },
     ]);
 
     const response = await createAgentTextChatResponse({
@@ -1735,7 +1730,7 @@ describe("chat service agent text flow boundary", () => {
     });
   });
 
-  it("settles a zero-match exercise search final answer through usedToolResultIds", async () => {
+  it("settles a zero-match exercise search final answer through usedRefs", async () => {
     const searchInput = {
       q: "铅球",
       published: true,
@@ -1767,7 +1762,7 @@ describe("chat service agent text flow boundary", () => {
     });
     const planner = new ReplayPlanner([
       { type: "tool_call", toolName: "searchExerciseResources", input: searchInput },
-      { type: "final_answer", content: "当前发布态动作库没有找到铅球相关动作。", usedToolResultIds: [expectedToolResultId] },
+      { type: "final_answer", content: "当前发布态动作库没有找到铅球相关动作。", usedRefs: toTerminalToolResultRefs([expectedToolResultId]) },
     ]);
 
     const response = await createAgentTextChatResponse({
@@ -1868,7 +1863,7 @@ describe("chat service agent text flow boundary", () => {
       {
         type: "final_answer",
         content: "这是一套包含热身、主训练和拉伸的全身训练。",
-        usedToolResultIds: [expectedToolResultId],
+        usedRefs: toTerminalToolResultRefs([expectedToolResultId]),
         visibleOutputs: [createVisibleRoutineOutput()],
       },
     ]);
@@ -1950,14 +1945,14 @@ describe("chat service agent text flow boundary", () => {
   }) => {
     const responseMessageId = `assistant-direct-routine-compose-${caseId}`;
     const trainingSearchInput = {
-      muscle,
+      muscles: [muscle],
       equipment: "no_equipment",
       level: "beginner",
       suitabilities: ["training"],
       sort: "name_asc",
     };
     const supportSearchInput = {
-      muscle,
+      muscles: [muscle],
       equipment: "no_equipment",
       level: "beginner",
       suitabilities: ["warmup", "stretch"],
@@ -1983,7 +1978,7 @@ describe("chat service agent text flow boundary", () => {
 
       return createExerciseResourceSearchResult({
         query: {
-          muscle,
+          muscles: [muscle],
           equipment: "no_equipment",
           level: "beginner",
           suitability,
@@ -2014,7 +2009,7 @@ describe("chat service agent text flow boundary", () => {
       {
         type: "final_answer",
         content: "这是一套完整训练，已经包含热身、主训练和拉伸。",
-        usedToolResultIds: [expectedTrainingToolResultId, expectedSupportToolResultId],
+        usedRefs: toTerminalToolResultRefs([expectedTrainingToolResultId, expectedSupportToolResultId]),
         visibleOutputs: [createVisibleRoutineOutputForExercises({
           warmupExerciseId: warmupExercise.id,
           trainingExerciseId: trainingExercise.id,
@@ -2085,14 +2080,14 @@ describe("chat service agent text flow boundary", () => {
 
   it("renders a plan visible output after composing multiple exercise search observations", async () => {
     const trainingSearchInput = {
-      muscle: "胸部",
+      muscles: ["胸部"],
       equipment: "no_equipment",
       level: "beginner",
       suitabilities: ["training"],
       sort: "name_asc",
     };
     const supportSearchInput = {
-      muscle: "胸部",
+      muscles: ["胸部"],
       equipment: "no_equipment",
       suitabilities: ["warmup", "stretch"],
       sort: "name_asc",
@@ -2117,7 +2112,7 @@ describe("chat service agent text flow boundary", () => {
 
       return createExerciseResourceSearchResult({
         query: {
-          muscle: isRecord(input) && typeof input.muscle === "string" ? input.muscle : undefined,
+          muscles: isRecord(input) && Array.isArray(input.muscles) ? input.muscles.filter((value): value is string => typeof value === "string") : undefined,
           equipment: isRecord(input) && typeof input.equipment === "string" ? input.equipment : undefined,
           level: isRecord(input) && typeof input.level === "string" ? input.level : undefined,
           suitability,
@@ -2147,7 +2142,7 @@ describe("chat service agent text flow boundary", () => {
       {
         type: "final_answer",
         content: "这是一套每周 3 练的居家自重减脂计划。",
-        usedToolResultIds: [expectedTrainingToolResultId, expectedSupportToolResultId],
+        usedRefs: toTerminalToolResultRefs([expectedTrainingToolResultId, expectedSupportToolResultId]),
         visibleOutputs: [createVisiblePlanOutput()],
       },
     ]);
@@ -2233,7 +2228,7 @@ describe("chat service agent text flow boundary", () => {
     "用刚才动作排一节完整课",
   ])("supplements missing routine sections before final visible output for training-only facts: %s", async (latestUserMessage) => {
     const listInput = { operation: "list_recent" as const };
-    const readInput = { operation: "read_recent" as const, factRef: "fact-previous" };
+    const readInput = { operation: "read_recent" as const, ref: { type: "fact_ref", value: "fact-previous" } };
     const supportSearchInput = {
       muscles: ["股四头肌"],
       suitabilities: ["warmup", "stretch"],
@@ -2290,7 +2285,7 @@ describe("chat service agent text flow boundary", () => {
       {
         type: "final_answer",
         content: "已经补齐热身和拉伸动作，下面是一节完整训练。",
-        usedToolResultIds: [expectedSupportToolResultId],
+        usedRefs: toTerminalToolResultRefs([expectedSupportToolResultId]),
         visibleOutputs: [createRoutineOutputWithTrainingExercise("squat")],
       },
     ]);
@@ -2356,7 +2351,7 @@ describe("chat service agent text flow boundary", () => {
 
   it("explains shortage when no more exercises remain after excluding displayed ids", async () => {
     const listInput = { operation: "list_recent" as const };
-    const readInput = { operation: "read_recent" as const, factRef: "fact-previous" };
+    const readInput = { operation: "read_recent" as const, ref: { type: "fact_ref", value: "fact-previous" } };
     const searchInput = {
       muscles: ["股四头肌", "臀部"],
       suitabilities: ["training"],
@@ -2404,7 +2399,7 @@ describe("chat service agent text flow boundary", () => {
       { type: "tool_call", toolName: "inspectVisibleTrainingProposals", input: listInput },
       { type: "tool_call", toolName: "inspectVisibleTrainingProposals", input: readInput },
       { type: "tool_call", toolName: "searchExerciseResources", input: searchInput },
-      { type: "final_answer", content: "当前条件下没有更多未重复的腿部训练动作了，可以放宽器械或训练阶段再找。", usedToolResultIds: [expectedSearchToolResultId] },
+      { type: "final_answer", content: "当前条件下没有更多未重复的腿部训练动作了，可以放宽器械或训练阶段再找。", usedRefs: toTerminalToolResultRefs([expectedSearchToolResultId]) },
     ]);
 
     const response = await createAgentTextChatResponse({
@@ -2470,7 +2465,7 @@ describe("chat service agent text flow boundary", () => {
     });
     const planner = new ReplayPlanner([
       { type: "tool_call", toolName: "inspectVisibleTrainingProposals", input: listInput },
-      { type: "final_answer", content: "我这里没有可读取的上一轮推荐记录，你可以告诉我想换哪类动作，我再按条件帮你找。", usedToolResultIds: [expectedListToolResultId] },
+      { type: "final_answer", content: "我这里没有可读取的上一轮推荐记录，你可以告诉我想换哪类动作，我再按条件帮你找。", usedRefs: toTerminalToolResultRefs([expectedListToolResultId]) },
     ]);
 
     const response = await createAgentTextChatResponse({
@@ -2662,7 +2657,7 @@ describe("chat service agent text flow boundary", () => {
     });
     const planner = createTracePlanner([
       {
-        actionCandidate: { type: "ask_user", question: "你今天有多少时间？", suggestedQuestions: ["20 分钟", "40 分钟"] },
+        actionCandidate: { type: "ask_user", content: "你今天有多少时间？", suggestedQuestions: ["20 分钟", "40 分钟"] },
       },
     ]);
     const response = await createAgentTextChatResponse({

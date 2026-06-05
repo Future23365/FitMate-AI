@@ -41,7 +41,7 @@ export function renderAgentResponseEvents(
       events.push({ type: "suggested_questions", suggestedQuestions: result.terminalAction.suggestedQuestions });
     }
   } else if (result.terminalAction?.type === "ask_user") {
-    events.push({ type: "content", content: result.terminalAction.question });
+    events.push({ type: "content", content: result.terminalAction.content });
 
     if (result.terminalAction.suggestedQuestions?.length) {
       events.push({ type: "suggested_questions", suggestedQuestions: result.terminalAction.suggestedQuestions });

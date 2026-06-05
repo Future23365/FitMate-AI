@@ -15,7 +15,7 @@ import {
   summarizeM1FixtureTrace,
 } from "@/lib/server/agent-tools/fixture/m1-safety-fixture.tools";
 import { ReplayPlanner } from "@/lib/server/agent-planners/replay-planner";
-import type { AgentResourceRef } from "@/lib/server/agent-core/contracts";
+import { toTerminalResourceRefs, toTerminalToolResultRefs, type AgentResourceRef } from "@/lib/server/agent-core/contracts";
 
 describe("agent-core M1 resource runtime", () => {
   it("runs producer -> consumer -> final answer with consumable resource grounding", async () => {
@@ -55,7 +55,7 @@ describe("agent-core M1 resource runtime", () => {
       {
         type: "final_answer",
         content: "资源链路完成。",
-        usedResourceRefs: [resourceRef],
+        usedRefs: toTerminalResourceRefs([resourceRef]),
       },
     ]);
 
@@ -84,7 +84,7 @@ describe("agent-core M1 resource runtime", () => {
     });
     expect(result.traceEvents).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: "resource_registered", resource: resourceRef }),
-      expect.objectContaining({ type: "terminal_grounding", usedResourceRefs: [resourceRef] }),
+      expect.objectContaining({ type: "terminal_grounding", usedRefs: toTerminalResourceRefs([resourceRef]) }),
     ]));
     expect(summarizeM1FixtureTrace(result)).toMatchObject({ status: "completed" });
     expect(events).toEqual([
@@ -222,17 +222,16 @@ describe("agent-core M1 diagnostic grounding", () => {
         {
           type: "final_answer",
           content: "已成功完成。",
-          usedToolResultIds: [diagnosticToolResultId],
+          usedRefs: toTerminalToolResultRefs([diagnosticToolResultId]),
         },
         {
           type: "final_answer",
           content: "已成功完成。",
-          usedResourceRefs: [diagnosticRef],
+          usedRefs: toTerminalResourceRefs([diagnosticRef]),
         },
         {
-          type: "ask_user",
-          question: "fixture 被阻断，需要补充信息。",
-          usedResourceRefs: [diagnosticRef],
+          type: "ask_user", content: "fixture 被阻断，需要补充信息。",
+          usedRefs: toTerminalResourceRefs([diagnosticRef]),
         },
       ]),
       run: {

@@ -50,7 +50,7 @@ describe("agent-core prompt injection hardening", () => {
       registry: new ToolRegistry(),
       planner: new LlmPlanner(new FakeModelAdapter([
         { type: "custom_ndjson_event", content: "leak" },
-        { type: "ask_user", question: "需要补充信息。" },
+        { type: "ask_user", content: "需要补充信息。" },
       ])),
       run: {
         runId: "run-user-injection",

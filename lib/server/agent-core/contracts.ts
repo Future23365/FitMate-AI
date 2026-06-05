@@ -76,6 +76,58 @@ const agentResourceRefSchema = z.object({
   schemaVersion: z.string().min(1).optional(),
 }).strict();
 
+const terminalToolResultRefSchema = z.object({
+  type: z.literal("tool_result"),
+  id: z.string().min(1),
+}).strict();
+
+const terminalResourceRefSchema = z.object({
+  type: z.literal("resource"),
+  id: z.string().min(1),
+  resourceType: z.string().min(1).optional(),
+  role: z.enum(["consumable", "diagnostic"]).optional(),
+  runId: z.string().min(1).optional(),
+  version: z.string().min(1).optional(),
+  schemaVersion: z.string().min(1).optional(),
+}).strict();
+
+/** AgentTerminalRef 统一表达 terminal action 使用过的事实来源，来源差异由 type 判别。 */
+export const AgentTerminalRefSchema = z.discriminatedUnion("type", [
+  terminalToolResultRefSchema,
+  terminalResourceRefSchema,
+]);
+
+/** AgentTerminalRef 是 final_answer / ask_user 统一 usedRefs 数组中的单个事实引用。 */
+export type AgentTerminalRef = z.infer<typeof AgentTerminalRefSchema>;
+
+/** toTerminalToolResultRef 将当前 run 的 toolResultId 转成 terminal usedRefs 的 tool_result 项。 */
+export function toTerminalToolResultRef(id: string): Extract<AgentTerminalRef, { type: "tool_result" }> {
+  return { type: "tool_result", id };
+}
+
+/** toTerminalToolResultRefs 批量生成 terminal usedRefs 的 tool_result 引用。 */
+export function toTerminalToolResultRefs(ids: readonly string[]): Array<Extract<AgentTerminalRef, { type: "tool_result" }>> {
+  return ids.map(toTerminalToolResultRef);
+}
+
+/** toTerminalResourceRef 将已登记 resource ref 转成 terminal usedRefs 的 resource 项。 */
+export function toTerminalResourceRef(ref: AgentResourceRef): Extract<AgentTerminalRef, { type: "resource" }> {
+  return {
+    type: "resource",
+    id: ref.resourceId,
+    resourceType: ref.resourceType,
+    role: ref.role,
+    runId: ref.runId,
+    version: ref.version,
+    schemaVersion: ref.schemaVersion,
+  };
+}
+
+/** toTerminalResourceRefs 批量生成 terminal usedRefs 的 resource 引用。 */
+export function toTerminalResourceRefs(refs: readonly AgentResourceRef[]): Array<Extract<AgentTerminalRef, { type: "resource" }>> {
+  return refs.map(toTerminalResourceRef);
+}
+
 /** RegisteredResource 是当前 run 内 ResourceStore 已验收资源的事实记录。 */
 export type RegisteredResource = {
   resourceId: string;
@@ -172,24 +224,24 @@ export type TerminalOutputValidationSummary = {
   }>;
 };
 
+const terminalUsedRefsSchema = z.array(AgentTerminalRefSchema).optional();
+
 export const FinalAnswerActionSchema = z.object({
   type: z.literal("final_answer"),
   content: z.string().min(1),
-  usedToolResultIds: z.array(z.string().min(1)).optional(),
-  usedResourceRefs: z.array(agentResourceRefSchema).optional(),
+  usedRefs: terminalUsedRefsSchema,
   visibleOutputs: z.array(VisibleOutputEnvelopeSchema)
     .max(4)
     .optional(),
   suggestedQuestions: SuggestedQuestionsSchema.optional(),
 }).strict();
 
-/** AskUserAction 是 Planner 需要用户补充信息时使用的终止动作。 */
+/** AskUserAction 是 Planner 需要用户补充信息时使用的终止动作，与 final_answer 共享 content/usedRefs 语义槽。 */
 export const AskUserActionSchema = z.object({
   type: z.literal("ask_user"),
-  question: z.string().min(1),
+  content: z.string().min(1),
   suggestedQuestions: SuggestedQuestionsSchema.optional(),
-  usedToolResultIds: z.array(z.string().min(1)).optional(),
-  usedResourceRefs: z.array(agentResourceRefSchema).optional(),
+  usedRefs: terminalUsedRefsSchema,
 }).strict();
 
 /** AgentActionSchema 将 M0 action 限定为 tool_call、final_answer 和 ask_user 三类。 */
@@ -492,7 +544,7 @@ export type AgentTraceEvent =
   | { type: "policy_decision"; toolName: string; decision: PolicyDecision["kind"]; policyVersion: string }
   | { type: "confirmation_request"; request: ConfirmationRequest }
   | { type: "confirmation_resume"; pendingActionId: string; status: "consumed" }
-  | { type: "terminal_grounding"; actionType: TerminalAgentAction["type"]; usedResourceRefs: AgentResourceRef[] };
+  | { type: "terminal_grounding"; actionType: TerminalAgentAction["type"]; usedRefs: AgentTerminalRef[] };
 
 /** AgentProgressStage 是可投影给用户的粗粒度 Agent 进度阶段，不包含 toolName 或 trace 详情。 */
 export type AgentProgressStage =

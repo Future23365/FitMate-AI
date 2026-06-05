@@ -281,16 +281,16 @@ function validateCurrentRunExerciseSources(
   };
 }
 
-// collectCurrentRunExerciseSources 只读取当前 run 的 satisfied tool result 和 consumable resource，不解释用户原文。
+// collectCurrentRunExerciseSources 只读取当前 run 的 satisfied tool result 和 consumable resource，不解释用户原文或绑定具体 toolName。
 function collectCurrentRunExerciseSources(context: TerminalOutputValidationContext) {
   const sources = new Set<string>();
 
   for (const result of context.toolResults) {
-    if (!result.ok || !result.fulfillment.satisfied || result.toolName !== "searchExerciseResources") {
+    if (!result.ok || !result.fulfillment.satisfied) {
       continue;
     }
 
-    collectSourcesFromSearchProjection(result.projection.model, sources);
+    collectSourcesFromGroupedExerciseProjection(result.projection.model, sources);
   }
 
   for (const resource of context.resourceStore?.inventory() ?? []) {
@@ -307,7 +307,7 @@ function collectCurrentRunExerciseSources(context: TerminalOutputValidationConte
   return sources;
 }
 
-function collectSourcesFromSearchProjection(value: JsonValue | undefined, sources: Set<string>) {
+function collectSourcesFromGroupedExerciseProjection(value: JsonValue | undefined, sources: Set<string>) {
   if (!isRecord(value) || !isRecord(value.groups)) {
     return;
   }
@@ -352,7 +352,7 @@ function createExerciseSourceKey(item: Pick<VisibleTrainingExerciseItem, "exerci
 function createCurrentRunSourceRecoveryDirections(): JsonValue {
   return [
     "继续查询当前目标所需的发布态动作事实，并使用 satisfied tool result 中的 exerciseId 和 section。",
-    "如需复用上一轮用户可见训练方案，先导入对应 consumable visible_training_proposal_fact。",
+    "如需复用上一轮用户可见训练方案，先导入对应 consumable resource。",
     "不要从数据库记忆、metadata-only summary、unsatisfied tool result 或正文中直接复制动作到 visibleOutputs。",
     "当前事实不足时使用 ask_user 澄清，或不输出 visibleOutputs 并失败收口。",
   ];

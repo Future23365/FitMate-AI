@@ -50,12 +50,11 @@ const searchExerciseResourcesInputSchema = z.object({
   mechanic: optionalTextFilterSchema.describe(`动作机制或中文动作机制的精确筛选值。${catalogFacetDescription}`),
   equipment: equipmentFilterSchema,
   homeRequirement: homeRequirementFilterSchema,
-  muscle: optionalTextFilterSchema.describe(`单个主肌群或辅助肌群的真实数据库 facet。${catalogFacetDescription}`),
   muscles: z.array(textFilterValueSchema)
     .min(1)
     .max(maxMuscles)
     .optional()
-    .describe(`多个主肌群或辅助肌群真实数据库 facet 的 OR 查询数组。${catalogFacetDescription}`),
+    .describe(`一个或多个主肌群或辅助肌群真实数据库 facet 的 OR 查询数组；单个肌群也写成一项数组。${catalogFacetDescription}`),
   goalTag: optionalTextFilterSchema.describe(`动作目标标签的精确筛选值。${catalogFacetDescription}`),
   riskTag: optionalTextFilterSchema.describe(`动作风险标签的精确筛选值。${catalogFacetDescription}`),
   excludeExerciseIds: z.array(exerciseIdSchema)
@@ -80,7 +79,6 @@ const appliedFilterSchema = z.object({
     "mechanic",
     "equipment",
     "homeRequirement",
-    "muscle",
     "muscles",
     "goalTag",
     "riskTag",
@@ -151,7 +149,6 @@ const searchExerciseResourcesOutputSchema = z.object({
     mechanic: z.string().optional(),
     equipment: z.string().optional(),
     homeRequirement: z.string().optional(),
-    muscle: z.string().optional(),
     muscles: z.array(z.string()).optional(),
     goalTag: z.string().optional(),
     riskTag: z.string().optional(),
@@ -201,12 +198,12 @@ export type CreateSearchExerciseResourcesToolOptions = {
 export function createSearchExerciseResourcesTool(options: CreateSearchExerciseResourcesToolOptions = {}) {
   return defineTool<SearchExerciseResourcesInput, SearchExerciseResourcesOutput>({
     name: "searchExerciseResources",
-    version: "0.5.0",
+    version: "0.6.0",
     description: "只读查询发布态动作事实原料，并按 suitabilities 分组返回 section-scoped 安全动作摘要；equipment 表达器械可用性或器械类别，homeRequirement 只表达环境、场地或支撑条件。它不生成最终 visibleTrainingProposal、routine、plan、prescription、schedule、保存结果或用户记忆。totalMatches=0 也是已完成的事实查询结果，不是数据库失败。",
     whenToUse: [
       "用于查询符合明确结构化条件的发布态动作列表，例如真实肌群 facet、多个肌群 OR 查询、器械、难度、居家条件、目标标签、风险标签、分类，或 suitabilities 指定的 warmup/training/stretch 用途。",
       "如果 input 除默认 suitabilities、published、sort 外没有任何目标、facet、器械、场地、点名动作或当前 run 可见动作锚点，本次查询只能作为过宽查询诊断，fulfillment.satisfied=false，不能支撑成功 final_answer 或训练卡片；Planner 应先 ask_user 澄清或补充结构化约束。",
-      "所有精确 facet 值应优先从 metadata.facetCatalog 中选择；muscle 表示单个真实肌群 facet，muscles 表示多个真实肌群 facet 的 OR 查询。",
+      "所有精确 facet 值应优先从 metadata.facetCatalog 中选择；肌群筛选统一使用 muscles 数组，单个真实肌群 facet 也写成 muscles: [\"...\"]。",
       "equipment 表示器械可用性或器械类别；equipment = \"no_equipment\" 或 \"无器械\" 是 tool 合同层稳定查询值，表示不需要外部器械，并由 repository 映射到数据库自重动作事实。",
       "homeRequirement 表示环境、场地或支撑条件，例如 floor、support、outdoor、partner、small_equipment 或 gym_equipment；它不表示器械可用性。",
       "旧高层身体区域查询字段已删除；模型应基于用户目标、对话上下文和 facetCatalog 自主选择真实数据库 facet，不要输出 input schema 中不存在的字段。",
@@ -221,7 +218,7 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
       "继续查询缺失 section 只适用于模型已判断目标需要 routine 或 plan 的场景；普通动作推荐和动作事实问答不要求固定查询 warmup / training / stretch，也不要求固定 tool 调用次数或顺序。",
       "excludeExerciseIds 是负向约束，只能填写用户已经看到且当前目标确实需要替换、排除或避免重复的动作，或用户明确要求排除的动作；如果来自上一轮方案，应先通过 inspectVisibleTrainingProposals(operation = \"read_recent\") 导入 visible_training_proposal_fact 后复制真实 exerciseId，不要从未展示的内部候选、trace 摘要、handler-only 结果或 list_recent 索引中填充。",
       "精确筛选必须使用真实数据库 facet 值；服务端只执行 schema、去空、去重、权限边界和数据库查询，不根据用户原文替模型增删 facet。",
-      "查询成功且 satisfied=true 的结果，包括 totalMatches=0 的结果，可以在同一 run 通过 final_answer.usedToolResultIds 支撑普通事实回答；训练推送事实必须写入 final_answer.visibleOutputs[]，不要只写正文。",
+      "查询成功且 satisfied=true 的结果，包括 totalMatches=0 的结果，可以在同一 run 通过 final_answer.usedRefs 中的 tool_result 引用支撑普通事实回答；训练推送事实必须写入 final_answer.visibleOutputs[]，不要只写正文。",
       "如果最终训练结构仍缺 section、动作、prescription 或 schedule，Planner 应继续返回当前可见且合法的 tool_call、使用 ask_user 澄清，或明确失败收口；不得用成功 final_answer.content 承诺本轮回复后还会自动继续查询或生成。",
       "本 tool 不要求固定 tool 调用次数或顺序；它只提供当前查询实际返回 section 的动作事实，不代表最终训练结构已经生成。",
     ].join(" "),
@@ -237,7 +234,7 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
       "不要在没有 resolveExerciseResourceMentions、已导入可消费训练事实或其他当前 run 可见数据库事实支撑时编造 requiredExerciseIds；该字段只能填真实发布态动作 id，不能填自然语言动作名。",
       "不要传入 maxReturned、returnedCount、totalMatches、truncated、limit、take、offset、page 或 pageSize；这些不是 input 字段。",
       "不要从 handler-only 结果、model observation、diagnostic 候选，未进入用户可见 visibleTrainingProposal 的内部候选，或未导入当前 run 的自然语言历史中提取 excludeExerciseIds。",
-      "不要把 leg、lower body、upper body、full body、腿部、下肢、上肢或全身这类宽泛区域直接当成真实 muscle facet；应由模型基于 facetCatalog 选择数据库中真实存在的一个或多个肌群。",
+      "不要把 leg、lower body、upper body、full body、腿部、下肢、上肢或全身这类宽泛区域直接当成真实肌群 facet；应由模型基于 facetCatalog 选择数据库中真实存在的一个或多个肌群。",
       "failed、invalid-input 或 satisfied=false 的结果不能支撑成功 final_answer。",
       "不要把查询成功当成最终 visibleTrainingProposal、routine 或 plan 已经完成；不要用成功 final_answer.content 承诺本轮回复后自动继续查询、生成或保存。",
       "不要用缺少目标、facet、器械、场地、点名动作或当前 run 可见动作锚点的 broad query 结果推送动作卡片或训练方案；该结果只能用于澄清、解释过宽或下一轮 repair。",
@@ -268,7 +265,7 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
       {
         description: "当 routine 或 plan 目标已有 training 动作事实但缺少热身和拉伸时，带上当前目标的真实 facet 和器械约束，同时查询 warmup 和 stretch 用途的动作事实。",
         input: {
-          muscle: "胸部",
+          muscles: ["胸部"],
           equipment: "no_equipment",
           suitabilities: ["warmup", "stretch"],
           sort: "name_asc",
@@ -307,7 +304,6 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
           mechanic: input.mechanic,
           equipment: input.equipment,
           homeRequirement: input.homeRequirement,
-          muscle: input.muscle,
           muscles,
           goalTag: input.goalTag,
           riskTag: input.riskTag,
@@ -377,7 +373,6 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
           mechanic: firstResult.query.mechanic,
           equipment: firstResult.query.equipment,
           homeRequirement: firstResult.query.homeRequirement,
-          muscle: firstResult.query.muscle,
           muscles: firstResult.query.muscles,
           goalTag: firstResult.query.goalTag,
           riskTag: firstResult.query.riskTag,
@@ -448,7 +443,7 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
         filterSemantics: output.query.filterSemantics,
         finalAnswerGrounding: broadQuery
           ? "本次查询 fulfillment.satisfied=false，因为 input 缺少可解释约束；该 toolResultId 不能支撑成功 final_answer、visibleTrainingProposal 或训练卡片，只能用于 ask_user、失败解释、阻断说明或下一轮 repair。"
-          : "当 fulfillment.satisfied=true，本次查询事实包括 totalMatches=0 的结果，toolResultId 可支撑 final_answer.usedToolResultIds 中的普通事实回答；如果要推送训练结构，最终事实必须写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal.payload，或通过 grounded terminal action 引用当前 run 的可消费事实。",
+          : "当 fulfillment.satisfied=true，本次查询事实包括 totalMatches=0 的结果，toolResultId 可通过 final_answer.usedRefs 中的 tool_result 引用支撑普通事实回答；如果要推送训练结构，最终事实必须写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal.payload，或通过 grounded terminal action 引用当前 run 的可消费事实。",
         candidateConsumptionBoundary: broadQuery
           ? "groups.<section>.exercises[*].exerciseId 虽是数据库动作摘要，但本次 query 过宽且 fulfillment.satisfied=false，不能作为 visibleTrainingProposal.exerciseItems[*] 的可消费事实来源；模型应先澄清目标、部位、器械、场地或其他结构化约束，或不输出 visibleOutputs 并说明当前事实不足。"
           : "groups.<section>.exercises[*].exerciseId 可作为 visibleTrainingProposal.exerciseItems[*].exerciseId 的事实来源；当前 observation 只提供本次查询实际返回动作的 section-scoped 事实原料，availableSections 只包含本次 groups 中确实返回动作的 section。本次动作查询不证明当前 run 存在可操作的上一轮 visibleTrainingProposal，也不证明已经完成刷新、替换或调整。prescription、schedule 和最终 payload.kind 需要由 final_answer.visibleOutputs[] 明确输出。若目标结构还缺 section 或字段，模型应基于可见事实自主继续查询、澄清、失败收口或输出当前事实可支撑的结构；不得用成功 final_answer.content 承诺本轮回复后还会自动继续。",
@@ -610,7 +605,6 @@ function collectAppliedFilters(
     mechanic: input.mechanic,
     equipment: input.equipment,
     homeRequirement: input.homeRequirement,
-    muscle: input.muscle,
     muscles: input.muscles,
     goalTag: input.goalTag,
     riskTag: input.riskTag,
@@ -764,14 +758,11 @@ function collectRequiredExerciseFilterMismatches(
   if (input.homeRequirement && !equalsAnyText(input.homeRequirement, exercise.homeRequirement, exercise.homeRequirementZh)) {
     conflicts.push("homeRequirement");
   }
-  const requestedMuscles = [...new Set([input.muscle, ...(input.muscles ?? [])].filter((value): value is string => Boolean(value)))];
+  const requestedMuscles = [...new Set(input.muscles ?? [])];
   if (
     requestedMuscles.length > 0
     && !requestedMuscles.some((muscle) => equalsAnyText(muscle, ...exercise.primaryMuscles, ...exercise.primaryMusclesZh, ...exercise.secondaryMuscles, ...exercise.secondaryMusclesZh))
   ) {
-    if (input.muscle) {
-      conflicts.push("muscle");
-    }
     if (input.muscles?.length) {
       conflicts.push("muscles");
     }
