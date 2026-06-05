@@ -65,6 +65,26 @@ describe("chat controller Agent text event projection", () => {
     });
   });
 
+  it("settles fallback content, suggestions and done as a normal assistant message", () => {
+    const withContent = applyAgentTextChatEventToAssistantMessage(createAssistantMessage(), {
+      type: "content",
+      content: "这次没有生成通过校验的可靠训练结果。",
+    });
+    const withSuggestions = applyAgentTextChatEventToAssistantMessage(withContent, {
+      type: "assistant_suggestions",
+      suggestions: ["缩小训练范围", "补充缺失条件"],
+    });
+    const done = applyAgentTextChatEventToAssistantMessage(withSuggestions, {
+      type: "done",
+    });
+
+    expect(done).toMatchObject({
+      content: "这次没有生成通过校验的可靠训练结果。",
+      suggestedReplies: ["缩小训练范围", "补充缺失条件"],
+      isReasoning: false,
+    });
+  });
+
   it("writes safe stream error text into the assistant bubble and clears loading markers", () => {
     expect(
       applyAgentTextChatEventToAssistantMessage(createAssistantMessage(), {

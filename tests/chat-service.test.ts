@@ -10,7 +10,7 @@ import {
 } from "@/lib/server/chat/agent-text-chat-service";
 import { createProductionToolRegistry } from "@/lib/server/agent-tools";
 import { createToolResultId, hashNormalizedInput } from "@/lib/server/agent-core/executor";
-import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
+import { AGENT_ERROR_CODES, AgentContractError } from "@/lib/server/agent-core/errors";
 import type { JsonValue } from "@/lib/server/agent-core/contracts";
 import { ReplayPlanner } from "@/lib/server/agent-planners/replay-planner";
 import { LlmPlanner } from "@/lib/server/agent-planners/llm-planner";
@@ -2066,7 +2066,7 @@ describe("chat service agent text flow boundary", () => {
     });
   });
 
-  it("keeps unknown tool requests inside validator and repair boundaries when production registry is non-empty", async () => {
+  it("projects unknown tool repair exhaustion as unsupported capability fallback from validation facts", async () => {
     const planner = createTracePlanner([
       { actionCandidate: { type: "tool_call", toolName: "searchExercises", input: { query: "胸" } } },
       { actionCandidate: { type: "tool_call", toolName: "searchExercises", input: { query: "胸" } } },
@@ -2083,17 +2083,16 @@ describe("chat service agent text flow boundary", () => {
 
     expect(planner.calls[0].manifests.map((manifest) => manifest.name)).toEqual(productionToolNames);
     expect(events).toEqual([
+      { type: "content", content: expect.stringContaining("当前未接入的工具") },
       {
-        type: "error",
-        error: expect.objectContaining({
-          code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
-          message: "聊天生成失败，请稍后重试。",
-        }),
+        type: "assistant_suggestions",
+        suggestions: expect.arrayContaining([
+          "改成普通文本问题",
+        ]),
       },
       { type: "done" },
     ]);
-    expect(JSON.stringify(events)).not.toContain("当前未接入的工具");
-    expect(JSON.stringify(events)).not.toContain("直接生成、保存或执行训练计划");
+    expect(JSON.stringify(events)).not.toContain("聊天生成失败");
     expect(JSON.stringify(events)).not.toContain("Agent runtime reached the invalid action repair limit.");
     expect(JSON.stringify(events)).not.toContain("Tool \"searchExercises\" is not registered.");
     expect(progressEvents).toEqual(expect.arrayContaining([
@@ -2107,9 +2106,10 @@ describe("chat service agent text flow boundary", () => {
     expect(listAiTracesForUser("user-1")[0]).toMatchObject({
       status: "failed",
       finalDecision: {
-        status: "hard_failure",
+        status: "recoverable_failure",
+        reason: "unsupported_capability_fallback",
         code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
-        responseType: "error",
+        responseType: "content",
       },
       steps: expect.arrayContaining([
         expect.objectContaining({
@@ -2133,8 +2133,123 @@ describe("chat service agent text flow boundary", () => {
         expect.objectContaining({
           type: "response_write",
           output: expect.objectContaining({
-            eventTypes: ["error", "done"],
-            errorCodes: [AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED],
+            eventTypes: ["content", "assistant_suggestions", "done"],
+            projectionType: "unsupported_capability_fallback",
+            errorCodes: [],
+          }),
+        }),
+      ]),
+    });
+  });
+
+  it("projects repair exhausted section coverage failures as safe assistant content without rendering invalid visible output", async () => {
+    const planner = new ReplayPlanner([
+      {
+        type: "final_answer",
+        content: "我会把热身和拉伸写在说明里。",
+        visibleOutputs: [createTrainingOnlyRoutineOutput()],
+      },
+      {
+        type: "final_answer",
+        content: "我还是把热身和拉伸写在正文里。",
+        visibleOutputs: [createTrainingOnlyRoutineOutput()],
+      },
+    ]);
+    const response = await createAgentTextChatResponse({
+      request: prepareChatRequest({
+        conversationId: "conversation-section-coverage-fallback",
+        responseMessageId: "assistant-section-coverage-fallback",
+        latestUserMessage: "把这些动作帮我组一套 30 分钟训练。",
+        conversationSummary: "",
+      }),
+      currentUser: { id: "user-1" },
+      planner,
+    });
+    const events = await readNdjsonEvents(response);
+    const repairObservationJson = JSON.stringify(planner.calls[1].observations);
+    const trace = listAiTracesForUser("user-1")[0];
+
+    expect(events).toEqual([
+      { type: "content", content: expect.stringContaining("没有生成通过校验的可靠训练结果") },
+      {
+        type: "assistant_suggestions",
+        suggestions: expect.arrayContaining([
+          "补充缺失条件",
+        ]),
+      },
+      { type: "done" },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("visible_output");
+    expect(JSON.stringify(events)).not.toContain("聊天生成失败");
+    expect(repairObservationJson).toContain("section_coverage_missing");
+    expect(repairObservationJson).toContain("missingSectionsForRoutineOrPlan");
+    expect(repairObservationJson).toContain("currentVisibleCoverage");
+    expect(repairObservationJson).toContain("继续获取缺失 section");
+    expect(repairObservationJson).not.toContain("必须调用 searchExerciseResources");
+    expect(trace).toMatchObject({
+      status: "failed",
+      finalDecision: {
+        status: "recoverable_failure",
+        reason: "visible_output_validation_fallback",
+        code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
+        responseType: "content",
+      },
+      steps: expect.arrayContaining([
+        expect.objectContaining({
+          type: "validation",
+          output: expect.objectContaining({ ok: false, code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID }),
+        }),
+        expect.objectContaining({
+          type: "response_write",
+          output: expect.objectContaining({
+            eventTypes: ["content", "assistant_suggestions", "done"],
+            projectionType: "visible_output_validation_fallback",
+            errorCodes: [],
+          }),
+        }),
+      ]),
+    });
+    expect(visibleTrainingProposalFactStoreMocks.persistVisibleTrainingProposalFactsFromEvents).toHaveBeenCalledWith(expect.objectContaining({
+      events,
+    }));
+  });
+
+  it("projects planner timeout failures as budget timeout fallback content", async () => {
+    const planner = {
+      async decideNext() {
+        throw new AgentContractError(AGENT_ERROR_CODES.OVERALL_TIMEOUT, "Provider timed out while waiting for completion.");
+      },
+    };
+    const response = await createAgentTextChatResponse({
+      request: prepareChatRequest({ latestUserMessage: "帮我整理一个复杂训练计划", conversationSummary: "" }),
+      currentUser: { id: "user-1" },
+      planner,
+    });
+    const events = await readNdjsonEvents(response);
+
+    expect(events).toEqual([
+      { type: "content", content: expect.stringContaining("步骤或信息量超出了当前处理范围") },
+      {
+        type: "assistant_suggestions",
+        suggestions: expect.arrayContaining([
+          "拆成两步提问",
+        ]),
+      },
+      { type: "done" },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("Provider timed out");
+    expect(listAiTracesForUser("user-1")[0]).toMatchObject({
+      finalDecision: {
+        status: "recoverable_failure",
+        reason: "budget_timeout_fallback",
+        code: AGENT_ERROR_CODES.OVERALL_TIMEOUT,
+        responseType: "content",
+      },
+      steps: expect.arrayContaining([
+        expect.objectContaining({
+          type: "response_write",
+          output: expect.objectContaining({
+            projectionType: "budget_timeout_fallback",
           }),
         }),
       ]),
@@ -2175,7 +2290,7 @@ describe("chat service agent text flow boundary", () => {
         type: "error",
         error: expect.objectContaining({
           code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
-          message: "聊天生成失败，请稍后重试。",
+          message: "聊天服务暂时没能完成这次回复。你可以稍后重试，或把问题缩小后再发一次。",
         }),
       },
       { type: "done" },
@@ -2192,6 +2307,7 @@ describe("chat service agent text flow boundary", () => {
       status: "failed",
       finalDecision: {
         status: "hard_failure",
+        reason: "unclassified_error_event",
         code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
         responseType: "error",
       },
@@ -2204,6 +2320,7 @@ describe("chat service agent text flow boundary", () => {
           type: "response_write",
           output: expect.objectContaining({
             eventTypes: ["error", "done"],
+            projectionType: "unclassified_error_event",
             errorCodes: [AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED],
           }),
         }),
@@ -2239,7 +2356,7 @@ describe("chat service agent text flow boundary", () => {
         type: "error",
         error: expect.objectContaining({
           code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED,
-          message: "聊天生成失败，请稍后重试。",
+          message: "聊天服务暂时没能完成这次回复。你可以稍后重试，或把问题缩小后再发一次。",
         }),
       },
       { type: "done" },
@@ -2513,6 +2630,19 @@ function createVisibleRoutineOutput() {
         { exerciseId: "jumping-jack", section: "warmup" as const, order: 1, prescription: createVisiblePrescription("reps", 20) },
         { exerciseId: "push-up", section: "training" as const, order: 1, prescription: createVisiblePrescription("reps", 12) },
         { exerciseId: "chest-stretch", section: "stretch" as const, order: 1, prescription: createVisiblePrescription("duration", 30) },
+      ],
+    },
+  };
+}
+
+function createTrainingOnlyRoutineOutput() {
+  return {
+    outputType: "visibleTrainingProposal" as const,
+    schemaVersion: "1",
+    payload: {
+      kind: "routine" as const,
+      exerciseItems: [
+        { exerciseId: "push-up", section: "training" as const, order: 1, prescription: createVisiblePrescription("reps", 12) },
       ],
     },
   };

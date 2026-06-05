@@ -316,7 +316,7 @@ export function useChatController() {
       });
     } catch (requestError) {
       const errorMessage = isAgentTextChatAbortError(requestError)
-        ? "聊天请求超时，请稍后重试。"
+        ? "聊天请求超时。你可以缩小问题范围后再试。"
         : getAgentTextChatErrorMessage(requestError);
 
       setError(errorMessage);

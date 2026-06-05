@@ -147,7 +147,7 @@ describe("frontend API clients", () => {
       .catch((error: unknown) => error);
 
     expect(streamError).toBeInstanceOf(AgentTextChatStreamError);
-    expect(getAgentTextChatErrorMessage(streamError)).toBe("聊天生成失败，请稍后重试。");
+    expect(getAgentTextChatErrorMessage(streamError)).toBe("聊天响应暂时无法读取。你可以稍后重试，或把问题缩小后再发一次。");
   });
 
   it("keeps HTTP, event, invalid NDJSON and stream errors user-safe", async () => {
@@ -208,6 +208,28 @@ describe("frontend API clients", () => {
     } satisfies Partial<AgentTextChatHttpError>);
     expect(getAgentTextChatErrorMessage(httpError)).toBe("聊天服务暂时不可用，请稍后再试。");
     expect((httpError as Error).message).not.toContain("Chat AI model configuration is missing.");
+
+    expect(getAgentTextChatEventErrorMessage({
+      type: "error",
+      error: {
+        code: "terminal_reference_invalid",
+        message: "visibleTrainingProposal 缺少 routine 或 plan 必要 section。",
+      },
+    })).toBe("这次没有生成通过校验的可靠训练结果。你可以缩小范围、补充缺失条件，或先让我说明当前事实能支撑的内容。");
+    expect(getAgentTextChatEventErrorMessage({
+      type: "error",
+      error: {
+        code: "overall_timeout",
+        message: "Provider timed out while waiting for completion.",
+      },
+    })).toBe("这次请求需要的步骤或信息量超出了当前处理范围。你可以减少条件、缩小训练目标，或分两步提问。");
+    expect(getAgentTextChatEventErrorMessage({
+      type: "error",
+      error: {
+        code: "unclassified_internal_error",
+        message: "Internal stack trace",
+      },
+    })).toBe("聊天服务暂时没能完成这次回复。你可以稍后重试，或把问题缩小后再发一次。");
 
     const controller = new AbortController();
     controller.abort();
