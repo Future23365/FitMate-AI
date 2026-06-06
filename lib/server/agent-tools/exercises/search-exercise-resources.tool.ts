@@ -329,6 +329,7 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
           muscles,
           goalTag: input.goalTag,
           riskTag: input.riskTag,
+          requiredExerciseIds,
           excludeExerciseIds,
           maxReturned: agentRuntimeConfig.tools.searchExerciseResources.maxReturnedPerSection,
           published: input.published,
@@ -362,7 +363,7 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
         const addedRequiredCount = requiredExercisesForGroup
           .filter((exercise) => !baseExerciseIds.has(exercise.exerciseId))
           .length;
-        const totalMatches = result.totalMatches + addedRequiredCount;
+        const totalMatches = Math.max(result.totalMatches, baseExercises.length + addedRequiredCount);
 
         return [[
           suitability,

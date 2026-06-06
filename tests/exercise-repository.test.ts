@@ -87,6 +87,7 @@ describe("exercise repository", () => {
       muscles: ["胸部"],
       goalTag: "strength",
       riskTag: "shoulder_pain",
+      requiredExerciseIds: ["required-training"],
       excludeExerciseIds: ["excluded-training"],
       published: true,
       sort: "name_asc",
@@ -106,6 +107,7 @@ describe("exercise repository", () => {
     expect(serializedWhere).toContain("\"riskTags\":{\"has\":\"shoulder_pain\"}");
     expect(serializedWhere).toContain("\"equipment\":{\"in\":[\"body only\",\"bodyweight\"]}");
     expect(serializedWhere).toContain("\"primaryMuscles\":{\"has\":\"胸部\"}");
+    expect(serializedWhere).toContain("\"id\":{\"in\":[\"required-training\"]}");
     expect(serializedWhere).toContain("\"id\":{\"notIn\":[\"excluded-training\"]}");
     expect(result.filterApplication).toMatchObject({
       section: "training",
@@ -123,6 +125,7 @@ describe("exercise repository", () => {
         "muscles",
         "goalTag",
         "riskTag",
+        "requiredExerciseIds",
         "excludeExerciseIds",
       ]),
       unappliedInputFilters: [],
@@ -154,6 +157,7 @@ describe("exercise repository", () => {
       muscles: ["胸部"],
       goalTag: "strength",
       riskTag: "shoulder_pain",
+      requiredExerciseIds: ["required-warmup"],
       excludeExerciseIds: ["excluded-warmup"],
       published: true,
       sort: "name_asc",
@@ -170,6 +174,7 @@ describe("exercise repository", () => {
     expect(serializedWhere).toContain("\"equipmentZh\":{\"in\":[\"自重\"]}");
     expect(serializedWhere).toContain("\"homeRequirement\":\"floor\"");
     expect(serializedWhere).toContain("\"primaryMuscles\":{\"has\":\"胸部\"}");
+    expect(serializedWhere).toContain("\"id\":{\"in\":[\"required-warmup\"]}");
     expect(serializedWhere).toContain("\"id\":{\"notIn\":[\"excluded-warmup\"]}");
     expect(serializedWhere).not.toContain("胸部热身文本");
     expect(serializedWhere).not.toContain("\"category\":\"mobility\"");
@@ -187,6 +192,7 @@ describe("exercise repository", () => {
         "equipment",
         "homeRequirement",
         "muscles",
+        "requiredExerciseIds",
         "excludeExerciseIds",
       ]),
       unappliedInputFilters: expect.arrayContaining([

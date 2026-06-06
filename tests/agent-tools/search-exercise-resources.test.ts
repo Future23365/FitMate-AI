@@ -109,6 +109,7 @@ describe("searchExerciseResources tool", () => {
       muscles: ["胸部"],
       goalTag: undefined,
       riskTag: undefined,
+      requiredExerciseIds: undefined,
       excludeExerciseIds: undefined,
       maxReturned: agentRuntimeConfig.tools.searchExerciseResources.maxReturnedPerSection,
       published: true,
@@ -714,6 +715,10 @@ describe("searchExerciseResources tool", () => {
     });
 
     expect(repository.getExerciseResourceSummariesByIds).toHaveBeenCalledWith(["Pushups", "Bodyweight_Squat", "Plank"]);
+    expect(repository.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
+      suitability: "training",
+      requiredExerciseIds: ["Pushups", "Bodyweight_Squat", "Plank"],
+    }));
     expect(result).toMatchObject({
       ok: true,
       output: {
@@ -724,6 +729,12 @@ describe("searchExerciseResources tool", () => {
             { field: "q", value: "俯卧撑" },
             { field: "requiredExerciseIds", value: ["Pushups", "Bodyweight_Squat", "Plank"] },
           ]),
+          filterApplications: [
+            expect.objectContaining({
+              section: "training",
+              appliedHardFilters: expect.arrayContaining(["q", "requiredExerciseIds"]),
+            }),
+          ],
           totalMatches: 3,
           returnedCount: 3,
         },
