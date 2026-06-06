@@ -637,12 +637,12 @@ function SavedPlanListItem({
               ))}
             </div>
             <button
-              aria-label={`安排 ${workout.title}`}
+              aria-label={`添加 ${workout.title}`}
               className="shrink-0 rounded-lg bg-primary px-sm py-xs font-label-sm text-label-sm font-bold text-white shadow-sm transition-colors hover:bg-primary-deep"
               onClick={onSchedule}
               type="button"
             >
-              安排
+              添加
             </button>
           </div>
         </div>
