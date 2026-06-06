@@ -1,17 +1,18 @@
 # FitMate AI
 
-FitMate AI 是一个 AI 健身聊天助手原型。项目目标是通过自然语言交互理解用户的健身目标、身体状态、训练限制、训练偏好和可用时间，并据此生成、调整和执行个性化训练计划。
+FitMate AI 是一个 AI 健身聊天助手。项目目标是通过自然语言交互理解用户的健身目标、身体状态、训练限制、训练偏好和可用时间，并据此生成、调整和执行个性化训练计划。
 
-当前项目采用 Next.js App Router 构建，前端体验、API Route、领域规则、共享类型和 Prisma 数据模型已经按目录做了初步分层。动作库、聊天历史、训练编排、训练日历和训练执行状态已接入 PostgreSQL/Prisma；旧 AI/Agent 运行时已经下线，新的 `agent-core` 文本聊天和受控只读 tool 查询正在接入，当前仍缺少正式鉴权、用户画像管理和完整写入型 AI Tool Calling 闭环。
+当前项目采用 Next.js App Router 构建，前端体验、API Route、Agent 编排、领域服务、共享类型和 Prisma 数据模型已经按目录分层。动作库、聊天历史、训练编排、训练日历、训练执行状态、可见训练方案事实和动作资源查询已接入 PostgreSQL/Prisma；生产 `/api/chat` 已走 `agent-core`、DeepSeek planner 和受控只读业务 tool。当前仍未接入正式账号体系，也没有开放由 Agent 直接保存、覆盖或执行训练计划的写入型 tool。
 
 更完整的架构说明见 [docs/architecture.md](./docs/architecture.md)。当前数据库表结构、字段含义和关系说明见 [docs/database-design.md](./docs/database-design.md)，该文档根据已有数据库整理，仅用于帮助开发者理解当前设计，不作为数据库设计规范。
 
 ## 当前状态
 
-当前项目主要完成了以下原型能力：
+当前项目主要完成了以下能力：
 
-- 首页聊天界面保留历史会话、本地消息状态和卡片展示壳层；当前 `/api/chat` 通过新的 `agent-core` 生产文本流，支持 DeepSeek planner、受控只读 tool 查询和 `visibleTrainingProposal` 用户可见输出，写入/保存/执行训练计划能力仍未开放。
-- 旧聊天 AI/Agent 主链、旧 tool registry、旧 Prompt、旧模型调用、旧 Agent stream 和手动 LLM runner 已删除。
+- 首页聊天界面支持历史会话、本地匿名用户、流式回复、Agent 活动状态、建议问题和 `visibleTrainingProposal` 用户可见训练方案卡片。
+- 生产 `/api/chat` 通过 `agent-core`、DeepSeek planner、受控只读 tool 查询和 Response Renderer 生成 NDJSON 响应，并把已展示的可见训练方案事实保存为后续轮次可读取的业务事实。
+- 当前生产 Agent 可见 tool 白名单包含 `inspectVisibleTrainingProposals`、`resolveExerciseResourceMentions` 和 `searchExerciseResources`，只用于读取或解析动作资源与可见训练事实，不包含写入、保存、覆盖或训练执行 tool。
 - 动作库页面，基于 PostgreSQL/Prisma 动作 repository 展示、搜索、筛选动作。
 - 动作编排页面，支持从动作库添加动作、调整组数/次数/休息，并保存到数据库。
 - 训练日历页面，支持数据库持久化安排训练、设置休息日、标记完成/未完成。
@@ -19,7 +20,7 @@ FitMate AI 是一个 AI 健身聊天助手原型。项目目标是通过自然�
 - 基础响应式 UI、Tailwind CSS 主题和侧边栏导航。
 - 前端页面与服务端业务代码已分离：`features/` 承载前端功能模块，`lib/server/` 承载服务端服务，`lib/shared/` 承载共享类型和 Schema。
 
-注意：当前仍是前端原型 + 动作 seed 数据 + 数据库领域服务阶段，尚未接入正式鉴权或新的 AI 工具调用闭环。运行时数据以 PostgreSQL 为事实来源，本地运行需要配置 `DATABASE_URL` 后执行迁移与 seed；`data/exercises.zh.json` 只作为动作 seed 来源，不再作为运行时数据回退。
+注意：运行时数据以 PostgreSQL 为事实来源，本地运行和服务器部署都必须配置 `DATABASE_URL` 并执行迁移；`data/exercises.zh.json` 只作为动作 seed 来源，不再作为运行时数据回退。当前身份体系是本地匿名 auth cookie，适合单用户或内测部署，不等同于正式账号登录体系。
 
 ## 技术栈
 
@@ -30,7 +31,8 @@ FitMate AI 是一个 AI 健身聊天助手原型。项目目标是通过自然�
 - Prisma
 - PostgreSQL
 - Zod
-- 静态 JSON 动作 seed 数据
+- DeepSeek Chat Completions API
+- 本地 JSON 动作 seed 数据
 
 ## 本地运行
 
@@ -50,15 +52,27 @@ cp .env.example .env.local
 
 ```bash
 DATABASE_URL="postgresql://fitmate:fitmate@localhost:5432/fitmate?schema=public"
+DEEPSEEK_API_KEY=
 FITMATE_LOCAL_AUTH_SECRET=
+CONFIRMATION_TOKEN_SECRET=
 EXERCISE_IMAGE_LOCAL_DIR="exercises_picture"
 EXERCISE_IMAGE_PUBLIC_BASE_URL="/api/exercise-images"
-DEEPSEEK_API_KEY=
 DEEPSEEK_MODEL=
 DEEPSEEK_API_URL=
+ENABLE_AI_TRACE_LOG=
 ```
 
-`FITMATE_LOCAL_AUTH_SECRET` 用于签发和校验本地匿名 auth cookie。生产环境必须显式配置；本地开发未配置时会使用固定开发 fallback，方便重启后继续验证同一浏览器匿名会话。
+环境变量说明：
+
+- `DATABASE_URL`：PostgreSQL 连接串，服务端运行、Prisma CLI、seed 和搜索 embedding 刷新都依赖它。当前 Prisma 7 基线通过 `prisma.config.ts` 读取连接串，运行时通过 `@prisma/adapter-pg` 创建 `PrismaClient`。
+- `DEEPSEEK_API_KEY`：生产 `/api/chat` 和手动 LLM 黑盒测试需要的模型 API key；缺少时聊天接口会返回稳定的 `chat_ai_not_configured` 配置错误。
+- `FITMATE_LOCAL_AUTH_SECRET`：用于签发和校验本地匿名 auth cookie。生产环境必须显式配置；本地开发未配置时会使用固定开发 fallback，方便重启后继续验证同一浏览器匿名会话。
+- `CONFIRMATION_TOKEN_SECRET`：用于签名高影响操作确认 token。当前生产 Agent 尚未开放写入型 tool，但服务器部署仍应显式配置，避免使用开发 fallback。
+- `EXERCISE_IMAGE_LOCAL_DIR`：动作图片本地目录，默认值为 `exercises_picture`。
+- `EXERCISE_IMAGE_PUBLIC_BASE_URL`：动作图片对前端暴露的基础 URL，默认值为 `/api/exercise-images`。
+- `DEEPSEEK_MODEL`：可选，覆盖集中配置中的默认模型；未配置时默认使用 `deepseek-v4-flash`。
+- `DEEPSEEK_API_URL`：可选，覆盖 DeepSeek Chat Completions endpoint；未配置时使用官方默认地址。
+- `ENABLE_AI_TRACE_LOG`：可选，生产环境设为 `true` 时允许写入 AI trace 调试数据；不要在公开环境长期打开。
 
 动作图片本地资源配置：
 
@@ -68,7 +82,7 @@ DEEPSEEK_API_URL=
 - 数据库中的 `Exercise.images` / `Exercise.imageUrls` 保留原始来源语义，服务端会在动作库、推荐卡和训练执行读取链路中统一派生当前可展示 URL。
 - 本地动作图片默认交给 Next image optimizer 做尺寸和格式优化；列表和小卡片应继续使用 `next/image` 的 `sizes` 约束，不直接请求原始大图。
 
-`DEEPSEEK_API_KEY`、`DEEPSEEK_MODEL` 和 `DEEPSEEK_API_URL` 用于新的 `agent-planners` DeepSeek adapter、生产 `/api/chat` 文本聊天和手动 LLM 黑盒测试；缺少 `DEEPSEEK_API_KEY` 时生产聊天会返回稳定的 `chat_ai_not_configured` 配置错误。`DEEPSEEK_MODEL` 未配置时，生产聊天默认使用集中配置中的 `deepseek-v4-flash`，并由首页请求的 `thinkingEnabled` 控制 DeepSeek Thinking Mode。
+`DEEPSEEK_MODEL` 未配置时，生产聊天默认使用集中配置中的 `deepseek-v4-flash`，并由首页请求的 `thinkingEnabled` 控制 DeepSeek Thinking Mode。
 
 启动本地 PostgreSQL：
 
@@ -111,6 +125,32 @@ docker compose stop postgres
 docker compose down
 ```
 
+## 服务器部署
+
+部署前建议使用 Node.js `^22.12` 或更高版本。Next.js 当前包声明 `node >=20.9.0`，Prisma 7 当前包声明 `node ^20.19 || ^22.12 || >=24.0`，使用 Node 22 LTS 能同时满足两者要求。
+
+生产部署推荐流程：
+
+```bash
+npm ci
+npm run db:generate
+npx prisma migrate deploy
+npm run db:seed
+npm run db:refresh-embeddings
+npm run build
+npm start
+```
+
+部署注意事项：
+
+- 生产环境不要使用 `npm run db:migrate`；该脚本执行的是 `prisma migrate dev`，适合本地开发。服务器应使用 `npx prisma migrate deploy` 应用已提交的 migration。
+- `npm start` 运行的是 `next start`，需要先执行 `npm run build`。
+- `npm run db:seed` 会把 `data/exercises.zh.json` 写入 PostgreSQL；首次部署必须执行。后续如果动作 seed 数据没有变化，可以跳过。
+- `npm run db:refresh-embeddings` 会刷新动作搜索使用的本地 embedding/hash 数据；首次部署和动作 seed 更新后需要执行。
+- `exercises_picture/` 如果不随代码一起上传，需要在服务器上运行 `npm run db:download-exercise-images`，或把 `EXERCISE_IMAGE_PUBLIC_BASE_URL` 指向 CDN / 对象存储地址。
+- 当前身份体系是本地匿名 cookie。生产环境必须配置稳定的 `FITMATE_LOCAL_AUTH_SECRET`，否则匿名会话无法安全持续；如果后续接入正式 OAuth / credentials 登录，需要同步更新本文档。
+- 当前生产 Agent 只开放只读查询与可见训练方案输出，不会由模型直接保存或覆盖训练计划；用户仍需要通过页面已有训练编排、日历和执行入口保存或管理训练数据。
+
 测试与验证命令：
 
 - `npm test`：运行 Vitest 自动化测试，覆盖共享领域逻辑、服务边界、API Route 边界和前端请求转换；该命令永远不触发真实模型 API，不消费模型 token。
@@ -130,8 +170,14 @@ docker compose down
 ```txt
 app/
   api/                     # Route Handlers，仅做 HTTP 入参/出参和服务层调用
+    auth/local-anonymous/  # 本地匿名用户 cookie 签发与恢复
     chat/                  # 聊天请求接口；校验、历史 hydration 和 agent-core 文本流接入
+    chat/conversations/    # 聊天会话历史读取
+    dev/ai-traces/         # AI trace 调试数据接口
     exercises/             # 动作库查询接口
+    exercise-images/       # 本地动作图片读取接口
+    workout-routines/      # 训练 routine 持久化接口
+    workout-schedules/     # 训练日历持久化接口
   (main)/                  # 主应用 shell route group，URL 不包含该目录名
     page.tsx               # 首页路由入口，渲染聊天功能模块
     composer/page.tsx      # 动作编排页路由入口
@@ -140,6 +186,7 @@ app/
     settings/page.tsx      # 设置页路由入口
     layout.tsx             # 主应用侧栏和 route transition，只包裹常规应用页面
   training/page.tsx        # 训练执行页路由入口
+  dev/ai-traces/page.tsx   # AI trace 调试台，生产环境默认不开放 trace 写入
 
 components/
   app/                     # 跨功能复用的应用级 UI，如侧边栏、Logo、图标
@@ -162,11 +209,19 @@ lib/
   client/                  # 浏览器专用基础设施
     http/client-request.ts # 前端统一请求函数
   server/                  # 服务端专用基础设施和业务服务
+    agent-core/            # Agent runtime、tool registry、validator、resource store 和 response renderer
+    agent-planners/        # LLM planner 与 DeepSeek model adapter
+    agent-tools/           # 生产 Agent tool 白名单和 fixture tool 定义
+    auth/                  # 本地匿名 auth cookie 与当前用户恢复
     chat/                  # 服务端聊天请求归一化、历史 hydration 和 agent-core 文本流接入
+    config/                # Agent runtime、LLM prompt 和可见输出合同集中配置
     db/                    # Prisma Client 单例和数据库配置入口
     http/server-request.ts # 服务端外部 HTTP 请求函数
-    exercise-recommendation-facts/ # Agent 动作刷新跨 run 事实桥
     exercises/             # 服务端动作库查询服务
+    exercise-images/       # 动作图片本地路径解析和公开 URL 派生
+    users/                 # 当前用户读取边界
+    user-feedback-memory/  # 用户画像、偏好、反馈和记忆读取/写入服务
+    visible-training-proposals/ # 可见训练方案校验、渲染和跨 run 事实保存
     workout-plans/         # AI 计划生成、候选动作、计划校验服务
     workouts/              # 训练 routine、schedule、session result 持久化服务
   shared/                  # 前后端共享类型、Schema 和纯数据结构
@@ -180,8 +235,8 @@ data/
 prisma/
   schema.prisma            # PostgreSQL/Prisma 数据模型；DateTime 统一使用 timestamptz 语义
 
-scripts/                   # 动作数据清洗、翻译和修正脚本
-tests/                     # 当前项目内的逻辑测试脚本
+scripts/                   # 数据初始化、动作图片下载、测试入口和性能分析脚本
+tests/                     # Vitest 自动化测试
 docs/                      # 架构、数据库设计与其他说明文档
 example/                   # 设计参考 HTML
 ```
@@ -194,24 +249,9 @@ example/                   # 设计参考 HTML
 - `lib/shared/*` 只放前后端都可安全使用的类型、Schema 和纯函数，不放数据库、环境变量、外部 API 密钥或浏览器状态。
 - `components/app/*` 只放跨功能复用的应用级 UI，页面级组件优先放在对应 `features/*/components` 中。
 
+## 已知限制
 
-### 其他
-- [x] 语音播报增加配置功能，从配置文件读取播报规则，并可以配置播报文字，间隙等
-- [ ] 语音播报发音不准，后续加入大模型增加是几声
-- [x] 训练完成之后加欢呼动画
-- [ ] 加载loading效果
-- [ ] 排查动作时间预估是否正确
-- [ ] 推荐出来的动作，一键添加到输入框
-- [ ] 优化链路，降低token消耗
-- [ ] 补齐服务端未支持的功能门控
-- [ ] 用户画像完善
-- [ ] 编排页面在刷新页面的时候进行拦截提示，避免丢失编排
-- [ ] 推荐动作应改有限推荐适合主训练的
-- [ ] 字段强校验，模型输出不稳定，怎么解决
-- [ ] 超过一定时间的上下文就不用传了
-- [ ] 如果消息过多。在聊天页中间加一个开启新对话的功能。
-
-### 待完善场景
-- 热身激活经常只推送调整这一个动作
-- 目前指定换动作功能异常
-- 卡片也添加建议提示
+- 当前身份体系是本地匿名 cookie，不是正式账号登录、权限后台或多端账号同步。
+- 当前生产 Agent 只开放只读资源查询和可见训练方案输出，不开放由模型直接写入、保存、覆盖或执行训练计划。
+- `UserProfile`、`UserMemory` 和 `UserExerciseFeedback` 的数据结构与服务已存在，但正式用户画像管理流程仍不是完整产品能力。
+- AI trace 调试能力面向开发和内测；生产环境只有显式设置 `ENABLE_AI_TRACE_LOG=true` 时才写入 trace，公开部署应谨慎开启。
