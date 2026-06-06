@@ -407,6 +407,10 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(searchManifestJson).toContain("当前 run 可见的用户已经看到动作事实");
     expect(searchManifestJson).toContain("requiredExerciseIds 是正向锚点");
     expect(searchManifestJson).toContain("excludeExerciseIds 是负向排除");
+    expect(searchManifestJson).toContain("filterApplications");
+    expect(searchManifestJson).toContain("hardFilterPolicy");
+    expect(searchManifestJson).toContain("support_section");
+    expect(searchManifestJson).toContain("不表示 Planner 下一步行为策略");
     expect(searchManifestJson).toContain("不要把同一批动作同时放入 requiredExerciseIds 和 excludeExerciseIds");
     expect(searchManifestJson).toContain("用户需要动作候选、routine 或 plan");
     expect(searchManifestJson).toContain("缺少 warmup / stretch");
@@ -434,7 +438,8 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(manifestJson).toContain("平板支撑");
     expect(searchExamplesJson).toContain("当前 run 已有受控 exerciseId");
     expect(searchExamplesJson).toContain("缺少 support section");
-    expect(searchExamplesJson).toContain("当前约束查询 warmup 和 stretch 动作事实");
+    expect(searchExamplesJson).toContain("查询 warmup 和 stretch 动作事实");
+    expect(searchExamplesJson).toContain("support section 会通过 filterApplications");
     expect(searchExamplesJson).toContain("\"type\":\"tool_call\"");
     expect(searchExamplesJson).toContain("\"toolName\":\"searchExerciseResources\"");
     expect(searchExamplesJson).toContain("\"equipment\":\"no_equipment\"");
