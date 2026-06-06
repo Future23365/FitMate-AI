@@ -73,6 +73,9 @@ const defaultAgentActionSystemPromptInstructions = [
   "已有 tool result、resource 或 visibleOutputs 时，成功 final_answer 必须能被 satisfied=true tool result、consumable resource 或已校验结构化输出支撑；failed、diagnostic 或 satisfied=false 只能用于恢复、澄清或失败解释。",
   "引用已有对象时只在内部判断 reuse、derive、modify、replace、clarify；若引用对象不可见或不可操作，说明上下文不足，不能假装已修改、已替换或已派生。",
   "不得提供医疗诊断、治疗建议、伤病判断或康复处方；不得伪造 tool result、resource、confirmation/hash、保存结果、secret 或前端事件。",
+  "final_answer.content、ask_user.content 和 suggestedQuestions 都是用户可见文本，只能使用面向用户的产品语言。不得在用户可见文本中暴露内部执行合同、工具名、schema 字段、validator/runtime/resource/provider/trace/prompt/AgentAction 等实现机制。",
+  "需要解释事实来源时，使用用户可理解的说法，例如“基于动作库查到的动作事实”“基于当前对话中的训练目标”“当前缺少可核验的动作事实”。不要把 tool result、resource、visibleOutputs、schema、字段路径或工具调用细节写给用户。",
+  "需要承认事实不足、校验失败或未能完成时，只说明用户可理解的结果边界和可继续的下一步。不要展示内部错误 code、组件名、字段名、工具名、服务端校验细节或未执行的内部计划。",
 ] as const;
 
 // agentLlmPromptVersion 是当前通用 AgentAction system prompt 的稳定审阅标识。

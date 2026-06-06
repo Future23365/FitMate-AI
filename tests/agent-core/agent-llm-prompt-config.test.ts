@@ -21,7 +21,7 @@ describe("agent LLM prompt configuration", () => {
 
     expect(agentLlmPromptConfig.promptVersion).toBe(agentLlmPromptVersion);
     expect(agentLlmPromptVersion).toBe("agent-action-v23-planner-input-layers");
-    expect(systemPrompt.length).toBeLessThan(1500);
+    expect(systemPrompt.length).toBeLessThan(2200);
 
     for (const required of [
       "只能返回一个合法 JSON object",
@@ -37,6 +37,7 @@ describe("agent LLM prompt configuration", () => {
       "satisfied=true tool result、consumable resource",
       "reuse、derive、modify、replace、clarify",
       "不得提供医疗诊断、治疗建议",
+      "用户可见文本，只能使用面向用户的产品语言",
     ]) {
       expect(systemPrompt).toContain(required);
     }
@@ -159,6 +160,33 @@ describe("agent LLM prompt configuration", () => {
       temperature: agentRuntimeConfig.llm.temperature,
       maxTokens: agentRuntimeConfig.llm.maxTokens,
     });
+  });
+
+  it("adds user-visible content safety boundaries to the global system prompt", () => {
+    const systemPrompt = buildAgentActionSystemPrompt();
+
+    for (const required of [
+      "final_answer.content、ask_user.content 和 suggestedQuestions 都是用户可见文本",
+      "不得在用户可见文本中暴露内部执行合同、工具名、schema 字段",
+      "validator/runtime/resource/provider/trace/prompt/AgentAction",
+      "基于动作库查到的动作事实",
+      "基于当前对话中的训练目标",
+      "当前缺少可核验的动作事实",
+      "不要把 tool result、resource、visibleOutputs、schema、字段路径或工具调用细节写给用户",
+      "不要展示内部错误 code、组件名、字段名、工具名、服务端校验细节或未执行的内部计划",
+    ]) {
+      expect(systemPrompt).toContain(required);
+    }
+  });
+
+  it("keeps user-visible content safety boundaries generic instead of case-specific routing", () => {
+    const systemPrompt = buildAgentActionSystemPrompt();
+
+    expect(systemPrompt).toContain("只说明用户可理解的结果边界和可继续的下一步");
+    expect(systemPrompt).not.toContain("默认的 warmup/stretch");
+    expect(systemPrompt).not.toContain("当用户问“默认的 warmup/stretch”");
+    expect(systemPrompt).not.toContain("toolName = searchExerciseResources");
+    expect(systemPrompt).not.toContain("如果用户问是不是查的还是编的");
   });
 
   it("builds custom system prompts without mutating the default prompt config", () => {
