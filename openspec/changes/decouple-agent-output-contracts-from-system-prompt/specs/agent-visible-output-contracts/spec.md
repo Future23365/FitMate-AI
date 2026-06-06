@@ -24,6 +24,7 @@
 - **WHEN** production Planner 可输出训练推荐、训练编排或多天训练计划
 - **THEN** `outputContracts` MUST 包含 `outputType = "visibleTrainingProposal"` 的合同
 - **AND** 该合同 MUST 声明 `schemaVersion = "1"`
+- **AND** 该合同 MUST 集中提供字段字典，解释 `visibleTrainingProposal`、`visible_training_proposal_fact`、`consumable resource`、`producedResources`、`resource summary`、`fulfillment.satisfied`、`missingSectionsForRoutineOrPlan`、`payload`、`exerciseItems` 和 `schedule.assignments`
 - **AND** 该合同 MUST 说明 payload `kind` 只能是 `exercise_selection`、`routine` 或 `plan`
 - **AND** 该合同 MUST 说明 `exerciseItems[*].exerciseId` 和 `exerciseItems[*].section` 必须由当前 run 可见动作事实或可消费训练事实支撑
 - **AND** 该合同 MUST 说明 `content` 不能作为动作、处方、编排或计划事实源
@@ -32,8 +33,10 @@
 - **WHEN** `visibleTrainingProposal` output contract 描述 `routine` 或 `plan`
 - **THEN** 合同 MUST 说明 `routine` 和 `plan` 需要 `warmup`、`training`、`stretch` 三类 section 的当前 run 可消费动作事实
 - **AND** 合同 MUST 说明 `routine` 和 `plan` 的每个动作项都必须绑定 `prescription`
+- **AND** 合同 MUST 明确当前 `plan = one routine template + schedule`
 - **AND** 合同 MUST 说明 `plan` 必须使用 `schedule.assignments` 表达周期内 `training` / `rest` 日
 - **AND** 合同 MUST 说明 `schedule` 不得内嵌每天不同的完整动作编排
+- **AND** 合同 MUST 说明当前 schema 不支持 `routines[]`、`schedule.assignments[].routineId` 或 A/B 多训练日模板
 - **AND** 合同 MUST 说明缺少可消费 section 事实时不得伪造结构化输出
 
 #### Scenario: exercise_selection 的结构合同
@@ -41,6 +44,15 @@
 - **THEN** 合同 MUST 说明 `exercise_selection` 只表达一批可选 `training` 动作事实
 - **AND** 合同 MUST 说明 `exercise_selection` 不表示一次可直接照做的训练编排
 - **AND** 合同 MUST 说明 `exercise_selection` 不应输出 `prescription` 或 `schedule`
+
+#### Scenario: output contract examples 覆盖关键边界
+- **WHEN** `visibleTrainingProposal` output contract 暴露 examples
+- **THEN** examples MUST 覆盖缺少训练约束时的 `ask_user`
+- **AND** examples MUST 覆盖需要动作事实时的合法 `tool_call` 方向
+- **AND** examples MUST 覆盖只有 `training` 事实但用户需要 `routine` 时不得降级为 `exercise_selection`
+- **AND** examples MUST 覆盖已有三类 section 事实时输出 `routine`
+- **AND** examples MUST 覆盖已有三类 section 事实且需要周期安排时输出单模板 `plan`
+- **AND** examples MUST 覆盖基于已有对象 `derive`、`replace` 或 `modify` 的引用边界
 
 ### Requirement: output contract 必须与 terminal output validator 保持一致
 系统 SHALL 使 `outputContracts` 与对应 terminal output validator 的结构边界一致。模型可见 output contract MUST NOT 承诺 validator 不接受的字段、版本、resource role 或 payload shape。

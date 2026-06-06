@@ -17,6 +17,8 @@ import {
   agentRuntimeConfig,
   agentLlmPromptConfig,
   buildAgentActionSystemPrompt,
+  defaultAgentActionContract,
+  getAgentActionContract,
   getAgentVisibleOutputContracts,
   visibleTrainingProposalOutputContract,
   type AgentLlmPromptConfig,
@@ -501,7 +503,7 @@ describe("agent-planners LlmPlanner and model adapters", () => {
     });
   });
 
-  it("adds outputContracts beside tools, observations and toolResults in Planner user payload", async () => {
+  it("adds actionContract and outputContracts beside tools, observations and toolResults in Planner user payload", async () => {
     const { fetchImpl, requestBodies } = captureDeepSeekRequestBodies(JSON.stringify({
       type: "final_answer",
       content: "output contracts visible.",
@@ -527,6 +529,7 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       messages: Array<{ role: string; content: string }>;
     };
     const modelInput = JSON.parse(body.messages[1].content) as {
+      actionContract: unknown;
       tools: unknown[];
       outputContracts: unknown[];
       observations: unknown[];
@@ -534,6 +537,7 @@ describe("agent-planners LlmPlanner and model adapters", () => {
     };
 
     expect(Object.keys(modelInput)).toEqual([
+      "actionContract",
       "observations",
       "outputContracts",
       "run",
@@ -541,6 +545,10 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       "toolResults",
       "tools",
     ]);
+    expect(modelInput.actionContract).toEqual(getAgentActionContract());
+    expect(JSON.stringify(modelInput.actionContract)).toContain("fieldDictionary");
+    expect(JSON.stringify(modelInput.actionContract)).toContain("missing_training_constraints");
+    expect(JSON.stringify(modelInput.actionContract)).not.toContain("ask_user.question");
     expect(modelInput.outputContracts).toEqual(getAgentVisibleOutputContracts());
     expect(modelInput.outputContracts[0]).toMatchObject({
       outputType: visibleTrainingProposalOutputContract.outputType,
@@ -548,6 +556,10 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       description: expect.stringMatching(/[\u4e00-\u9fff]/),
     });
     expect(JSON.stringify(modelInput.outputContracts)).toContain("payload.kind");
+    expect(completion.trace?.request.run.actionContract).toEqual({
+      schemaId: "AgentAction",
+      schemaVersion: "1",
+    });
     expect(completion.trace?.request.run.outputContractCount).toBe(1);
     expect(completion.trace?.request.run.outputContracts).toEqual([
       {
@@ -565,6 +577,7 @@ describe("agent-planners LlmPlanner and model adapters", () => {
         "返回测试专用 AgentAction JSON object。",
         "这个 adapter 测试只期望 final_answer。",
       ],
+      actionContract: defaultAgentActionContract,
       requestDefaults: {
         temperature: 0.4,
         maxTokens: 456,

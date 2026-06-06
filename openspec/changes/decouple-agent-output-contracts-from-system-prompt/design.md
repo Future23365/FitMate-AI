@@ -101,6 +101,25 @@ system prompt 保留一段短规则，表达能力边界决策顺序：
 - fallback / repair 测试断言 failed / diagnostic 事实不会支撑成功 `final_answer`，而是进入 `ask_user`、repair 或 production fallback。
 - 架构扫描断言没有新增服务端关键词、短语模板、用户原文路由或具体业务 `toolName` 语义分支。
 
+### Decision 6: 新增 `actionContract`，把字段字典和 few-shot 从 system prompt 拆出
+
+默认 system prompt 继续瘦身为最小系统约束：Planner 身份、JSON object 输出、三类 `AgentAction`、tool registry 边界、终态语义、grounding、安全边界和不可执行能力顺序。`AgentAction` 的最小形状、字段字典、`suggestedQuestions` 约束、`usedRefs` 形状、repair 规则和少量高价值 few-shot 由模型 user payload 中的 `actionContract` 承载。
+
+这样处理后：
+
+- 字段合法性仍由 Zod / validator 执行，不要求模型从长 prompt 猜 schema。
+- 字段含义集中在 `actionContract.fieldDictionary`，避免在 system prompt、repair、examples 里重复解释。
+- `ask_user` 只暴露唯一正确形状，不继续把旧字段黑名单写成 system prompt 主体。
+- few-shot 使用稳定 action / resource / output contract 抽象，不使用用户 phrasing、关键词或具体业务 `toolName` 触发生产规则。
+
+替代方案：继续把字段字典和 examples 放在 system prompt 中。该方案实现更小，但会让 system prompt 重新变成后端接口文档，因此不采用。
+
+### Decision 7: `plan` 当前明确为单训练模板重复计划
+
+`visibleTrainingProposal.payload.kind = "plan"` 当前采用 `one routine template + schedule`。也就是说，`payload.exerciseItems` 表达一个可重复训练模板，`schedule.assignments` 只安排周期内 `training` / `rest` 日。
+
+当前 schema 不支持 `routines[]`、`schedule.assignments[].routineId` 或 A/B 多训练日模板。若后续要支持上肢 / 下肢 / 全身等多模板周期，应另起 output contract schema change，而不是让模型在现有 `schedule` 内嵌每天不同完整动作编排。
+
 ## Risks / Trade-offs
 
 - [Risk] system prompt 瘦身后模型首轮缺少业务结构信息。→ Mitigation：`outputContracts` 必须进入首轮 Planner user payload，并由测试验证 `visibleTrainingProposal` 合同可见。
@@ -108,6 +127,7 @@ system prompt 保留一段短规则，表达能力边界决策顺序：
 - [Risk] prompt 文案测试大量失败。→ Mitigation：将长句 `toContain` 改为稳定结构和禁止项断言，不保留逐字文案依赖。
 - [Risk] failed tool 后回复变得过于保守。→ Mitigation：区分 `ok=true` 空结果和 `failed` 结果；前者仍允许普通事实解释，后者只用于恢复、澄清或 fallback。
 - [Risk] 新合同通道增加模型输入体积。→ Mitigation：`outputContracts` 必须是 schema summary 和少量 examples，不携带完整 handler output、完整数据库对象或大 payload。
+- [Risk] `actionContract` 和 Zod schema 漂移。→ Mitigation：`actionContract` 只表达最小形状和字段字典，测试断言它与 `AgentAction` 主字段、旧字段禁止项和 adapter user payload 同步。
 
 ## Migration Plan
 

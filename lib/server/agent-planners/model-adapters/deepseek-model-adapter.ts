@@ -24,6 +24,7 @@ import {
   agentRuntimeConfig,
   agentLlmPromptConfig,
   buildAgentActionSystemPrompt,
+  getAgentActionContract,
   getAgentVisibleOutputContracts,
   summarizeAgentVisibleOutputContracts,
   type AgentLlmPromptConfig,
@@ -310,6 +311,7 @@ export class DeepSeekModelAdapter implements ModelAdapter {
         {
           role: "user",
           content: stableStringify({
+            actionContract: getAgentActionContract(this.promptConfig),
             run: {
               runId: input.run.runId,
               userInput: input.run.userInput,
@@ -333,6 +335,7 @@ export class DeepSeekModelAdapter implements ModelAdapter {
   ): ModelActionCompletionTrace["request"] {
     const dedupeSummary = summarizePlannerInputDedupe(input);
     const outputContracts = summarizeAgentVisibleOutputContracts(this.outputContracts);
+    const actionContract = this.promptConfig.actionContract;
 
     return {
       model: requestBody.model,
@@ -365,6 +368,10 @@ export class DeepSeekModelAdapter implements ModelAdapter {
         toolResultProjectionPresence: dedupeSummary.toolResultProjectionPresence,
         toolCount: input.manifests.length,
         toolNames: input.manifests.map((manifest) => manifest.name),
+        actionContract: {
+          schemaId: actionContract.schemaId,
+          schemaVersion: actionContract.schemaVersion,
+        },
         outputContractCount: outputContracts.count,
         outputContracts: outputContracts.contracts,
         limits: safeTraceValue(input.run.limits ?? {}),

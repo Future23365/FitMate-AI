@@ -101,6 +101,24 @@
 - **AND** `outputContracts` MUST 使用中文描述性说明并保留英文技术标识
 - **AND** tests MUST 能断言该 payload 中的 `outputContracts` 与 `tools`、`observations`、`toolResults` 同级或等价可见
 
+### Requirement: Planner 模型输入必须暴露 actionContract 字段字典
+系统 SHALL 在生产 Planner user payload 中暴露 `actionContract`，用于集中描述 `AgentAction` 最小形状、字段含义、决策顺序、grounding、引用操作、repair 边界和少量 few-shot。默认 system prompt MUST NOT 把这些字段说明重复展开成后端接口文档。
+
+#### Scenario: user payload 包含 actionContract
+- **WHEN** `DeepSeekModelAdapter` 或等价 Planner model input builder 构造模型请求
+- **THEN** user payload MUST 包含 `actionContract`
+- **AND** `actionContract.schemaId` MUST 为 `AgentAction`
+- **AND** `actionContract` MUST 包含 `tool_call`、`final_answer`、`ask_user` 的最小合法形状
+- **AND** `actionContract.fieldDictionary` MUST 集中解释 `content`、`suggestedQuestions`、`usedRefs`、`visibleOutputs`、`toolResults[].fulfillment.satisfied`、`producedResources` 和 `resource summary`
+- **AND** `actionContract.examples` MUST 覆盖普通文本回答、缺少训练约束澄清、需要注册事实的 tool call、事实不足的结构化输出恢复和已满足事实后的 visible output 收口
+- **AND** trace SHOULD 记录 `actionContract` 的 schema id 和 version 摘要
+
+#### Scenario: ask_user 只有唯一正确形状
+- **WHEN** Planner 需要向用户澄清必要信息
+- **THEN** 模型可见 `actionContract` MUST 给出 `ask_user` 的唯一形状：`type`、`content`、可选 `suggestedQuestions` 和可选 `usedRefs`
+- **AND** 默认 system prompt SHOULD NOT 反复列举旧字段黑名单
+- **AND** schema validator / repair feedback MUST 继续拒绝当前 schema 未声明的同义字段
+
 #### Scenario: system prompt 只引用 outputContracts
 - **WHEN** 默认 system prompt 需要说明结构化用户可见输出
 - **THEN** system prompt MUST 只要求模型遵守当前可见 `outputContracts[]`

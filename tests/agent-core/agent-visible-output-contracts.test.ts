@@ -27,8 +27,21 @@ describe("agent visible output contracts", () => {
     expect(contract.schemaVersion).toBe("1");
     expect(serialized).not.toContain("\"schemaVersion\":1");
     expect(contract.description).toMatch(/[\u4e00-\u9fff]/);
+    expect(contract.fieldDictionary.map((field) => field.field)).toEqual(expect.arrayContaining([
+      "visibleTrainingProposal",
+      "visible_training_proposal_fact",
+      "consumable resource",
+      "toolResults[].producedResources",
+      "resource summary",
+      "toolResults[].fulfillment.satisfied",
+      "missingSectionsForRoutineOrPlan",
+      "payload",
+      "exerciseItems",
+      "schedule.assignments",
+    ]));
     expect(contract.whenToUse.join(" ")).toMatch(/[\u4e00-\u9fff]/);
     expect(contract.whenNotToUse.join(" ")).toMatch(/[\u4e00-\u9fff]/);
+    expect(contract.kindSelectionRules.join(" ")).toMatch(/[\u4e00-\u9fff]/);
     expect(contract.groundingRequirements.join(" ")).toMatch(/[\u4e00-\u9fff]/);
     expect(contract.validatorBoundary.join(" ")).toMatch(/[\u4e00-\u9fff]/);
   });
@@ -56,11 +69,20 @@ describe("agent visible output contracts", () => {
       "transitionRestSeconds",
       "schedule.assignments",
       "cycleDayIndex",
+      "one_routine_template_with_schedule",
+      "one routine template + schedule",
+      "routines[]",
+      "routineId",
       "content",
       "visible_training_proposal_fact",
       "failed tool result",
       "diagnostic resource",
       "satisfied=false",
+      "缺少训练约束",
+      "需要动作事实",
+      "事实不足的 routine",
+      "基于已有结构派生计划",
+      "替换或修改",
     ]) {
       expect(serialized).toContain(required);
     }

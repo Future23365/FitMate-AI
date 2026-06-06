@@ -7,8 +7,9 @@
 ## What Changes
 
 - 收敛默认 Agent LLM system prompt：保留 `AgentAction` 输出格式、`tool_call` / `final_answer` / `ask_user` 行为边界、`usedRefs` grounding、policy/resource/validator 不可绕过、医疗安全和未执行能力不得承诺等通用规则。
+- 新增模型可见 `actionContract` 输入层，用结构化字段字典、最小 JSON 形状、决策顺序和 few-shot 解释 `AgentAction`，避免默认 system prompt 继续写成后端接口文档。
 - 新增模型可见 `outputContracts` 输入层，与 `tools`、`observations`、`toolResults` 并列进入 Planner user payload，用于承载 `visibleTrainingProposal` 等用户可见结构化输出能力的说明、schema summary、grounding 要求、examples 和可消费事实边界。
-- 将 `visibleTrainingProposal`、`payload.kind = exercise_selection | routine | plan`、`warmup` / `training` / `stretch`、`prescription`、`schedule` 等业务输出规则，从通用 system prompt 迁移到 `outputContracts` 或对应可见输出合同测试中。
+- 将 `visibleTrainingProposal`、`payload.kind = exercise_selection | routine | plan`、`warmup` / `training` / `stretch`、`prescription`、`schedule` 等业务输出规则，从通用 system prompt 迁移到 `outputContracts` 或对应可见输出合同测试中，并明确当前 `plan = one routine template + schedule`。
 - 明确 failed tool result 的终态语义：failed / diagnostic 事实不能支撑成功 `final_answer`；如需解释失败或恢复，应优先使用 `ask_user`、继续合法 `tool_call`，或让 production terminal failure fallback / finalizer 收口。
 - 集中不可执行请求的模型可见决策顺序：可直接回答则 `final_answer`；缺必要信息则 `ask_user`；需要未注册能力则不得 `tool_call` 或承诺已执行；已有事实不足则继续合法 tool、澄清或安全失败收口。
 - 更新 prompt / model input / output contract / repair feedback 相关测试，断言合同结构、禁止项和边界，而不是依赖超长 system prompt 文案逐字存在。

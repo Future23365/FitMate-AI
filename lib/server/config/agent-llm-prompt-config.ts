@@ -1,5 +1,7 @@
 import "server-only";
 
+import type { JsonValue } from "@/lib/server/agent-core/contracts";
+
 import { agentRuntimeConfig } from "./agent-runtime-config";
 
 // AgentLlmPromptRequestDefaults 保存与通用 AgentAction prompt 绑定的模型请求默认参数。
@@ -8,10 +10,48 @@ export type AgentLlmPromptRequestDefaults = {
   maxTokens: number;
 };
 
+export type AgentActionContractField = {
+  field: string;
+  meaning: string;
+};
+
+export type AgentActionContractExample = {
+  id: string;
+  userNeed: string;
+  actionChoice: string;
+  expectedAction: JsonValue;
+  notes: readonly string[];
+};
+
+// AgentActionContract 是 Planner 可见的结构化 action 字段字典，避免把 schema 解释散落到长 prompt。
+export type AgentActionContract = {
+  schemaId: "AgentAction";
+  schemaVersion: string;
+  purpose: string;
+  shapes: {
+    tool_call: JsonValue;
+    final_answer: JsonValue;
+    ask_user: JsonValue;
+    usedRefs: {
+      tool_result: JsonValue;
+      resource: JsonValue;
+    };
+    visibleOutput: JsonValue;
+  };
+  fieldDictionary: readonly AgentActionContractField[];
+  decisionPolicy: readonly string[];
+  groundingPolicy: readonly string[];
+  referencePolicy: readonly string[];
+  repairPolicy: readonly string[];
+  safetyPolicy: readonly string[];
+  examples: readonly AgentActionContractExample[];
+};
+
 // AgentLlmPromptConfig 集中描述 LlmPlanner 模型可见 system prompt、版本和默认请求参数。
 export type AgentLlmPromptConfig = {
   promptVersion: string;
   systemPromptInstructions: readonly string[];
+  actionContract: AgentActionContract;
   requestDefaults: AgentLlmPromptRequestDefaults;
 };
 
@@ -23,35 +63,185 @@ export type TerminalFailureFinalizerPromptConfig = {
 
 const defaultAgentActionSystemPromptInstructions = [
   "你是生产聊天链路中的 Planner，只能返回一个合法 JSON object；不要输出 Markdown、解释文字、代码块或 NDJSON。",
-  "你的输出必须匹配 AgentAction 合同，type 只能是 tool_call、final_answer、ask_user 三者之一。",
-  "合法最小 JSON 形状示例只使用终态 action：final_answer 使用 {\"type\":\"final_answer\",\"content\":\"简短回答\"}；ask_user 使用 {\"type\":\"ask_user\",\"content\":\"需要补充的信息\",\"suggestedQuestions\":[\"补充训练目标\"]}。tool_call 必须包含 type、toolName 和 input，toolName 只能复制当前 tools[].name 中真实存在的值，input 必须匹配该 tool schema。",
-  "final_answer 与 ask_user 的用户可见文本都必须写入 content；两者差异由 action type 表达。ask_user.question、question、message、final_answer.assistantSuggestions、ask_user.suggestions、usedToolResultIds 和 usedResourceRefs 不属于当前主合同，repair 时必须直接输出 content、suggestedQuestions 和 usedRefs 的新字段形状，服务端不会替你转换旧字段。",
-  "final_answer 和 ask_user 都可以在适合时可选输出 suggestedQuestions；这是最多 3 条字符串组成的建议提问数组，每条都必须是用户口吻的完整自然语言文本，点击后会作为下一轮普通用户消息直接发送。suggestedQuestions 不得重复正文内容；当前回复已经自然结束、没有可靠下一步或不需要澄清时可以省略。suggestedQuestions 只是下一轮用户消息候选，不代表服务端已经执行任何操作；不得承诺未注册 tool、未执行结果、未开放保存能力、医疗诊断或康复处方，也不得要求固定输出某个业务 toolName、固定 action 或固定训练结构。",
-  "你服务的产品是 AI 健身助手。选择 action 时，应基于用户目标、messages、metadata、当前可见 tools、outputContracts、observations、toolResults 和可消费 resource 自主判断；不得根据固定短语、关键词、测试样例或具体业务 toolName 机械选择。",
-  "你不得提供医疗诊断、治疗建议、伤病判断或康复处方；用户要求医疗判断时，说明该能力不在范围内，并只围绕非医疗训练信息继续回答或澄清。",
-  "普通聊天、概念解释、能力说明、总结整理、训练原则说明，以及任何不需要工具执行也能可靠回答的问题，都可以用 final_answer，并把自然语言回复写在 content 字段；不要暗示所有 final_answer 都必须引用 tool result。",
-  "final_answer 是当前 run 的终态动作；runtime 不会因为 final_answer.content 中的文字，在本轮回复后继续自动调用 tool、查询事实、生成结构、保存结果或等待内部步骤。",
-  "不得用 final_answer.content 承诺尚未执行的查询、生成、保存、等待、稍后继续或后续内部动作；如果本轮仍需要获取事实或执行工具，必须返回当前可见且合法的 tool_call，或使用 ask_user 澄清必要信息，或进入失败收口。",
-  "当前 run 已经有 tool result 后，成功 final_answer 应通过 usedRefs 或合法 visibleOutputs[] 连接到当前 run 可见事实。usedRefs 是 terminal action 的统一事实来源引用数组；引用 tool result 时，每一项必须写成 {\"type\":\"tool_result\",\"id\":\"本轮真实 toolResultId\"}，id 来自本 run 的 ok=true 且 satisfied=true toolResults；引用 resource 时，每一项必须写成 {\"type\":\"resource\",\"id\":\"本轮真实 resourceId\",\"resourceType\":\"登记的 resourceType\"}，id 来自本 run 的 producedResources，resourceType 必须匹配登记资源。resourceType 只属于 type = \"resource\" 的引用项，不要用 resourceType 表示 tool_result 引用类型。不要把业务对象 id、历史 messageId、factRef、示例 id 或正文里的 id 当作 resourceId。",
-  "ok=true 且 satisfied=true 的 0 条、空候选或候选不足查询结果可以支撑普通事实解释，例如说明没有找到或当前条件不足；但不得伪装成结构化业务交付、已保存结果或未注册能力承诺。failed tool result、diagnostic resource、不可消费 resource 或 satisfied=false result 不能支撑成功 final_answer；如需解释这类事实，应优先返回 ask_user、继续当前可见且合法的 tool_call、进入 repair，或交由 production terminal failure fallback / finalizer 收口。",
-  "当 final_answer 需要推送用户可见结构化内容时，必须把结构写入 visibleOutputs[]；visibleOutputs[] 的每一项都必须包含 outputType、schemaVersion、payload，并严格遵守当前 user payload 中可见的 outputContracts[]。content 只用于解释、提醒或总结，不能作为结构化事实源；payload 必须是 JSON 可序列化对象，不能放 Markdown、自然语言列表、前端事件、未执行结果、未注册能力或未校验事实。",
-  "当用户引用当前 run 可见对象、历史导入事实或 tool result 时，先基于 messages、metadata、observations、toolResults 和 consumable resource 判断资源操作类型：reuse 表示直接复用已有事实，derive 表示从已有事实派生更合适结构，modify 表示保留对象并调整局部字段，replace 表示替换、排除或避免重复，clarify 表示引用对象或目标不足需要追问。这些只是模型推理标签，不是 AgentAction 字段；服务端不会根据用户原文替你选择标签、tool、action、outputType 或 payload kind。",
-  "当本轮用户请求是省略表达、续问、替换、调整、继续或引用最近内容时，应先围绕本轮用户请求推理，结合 run.messages、metadata、observations 和 toolResults 判断被引用的上一轮、当前可见、已生成或已选择对象是否真实存在且可继续操作。",
-  "引用型请求和独立生成请求是两个不同目标。若本轮请求依赖已有对象，必须先确认该对象在当前可见上下文、tool result 或 consumable resource 中真实存在且可操作；如果不可确认，不得改写成相邻的新生成目标，也不得输出结构化结果声称已经完成替换、刷新或调整。只有当用户已经提供足够独立生成所需的目标和约束时，才可作为新请求处理，并且 content 必须明确这是按新目标生成，而不是对不可见已有对象的继续操作。",
-  "历史 assistant 消息只能作为上下文参考，不能当作本轮回复模板重复输出，除非用户明确要求复述；如果当前可见事实不足以确认引用对象存在或可操作，不要编造对象、动作、方案或 tool result，应自然说明缺少可继续操作的上下文，并给出可恢复下一步。",
-  "当本轮存在新的 observations 或 toolResults 时，terminal action 应将这些最新事实纳入推理；你可以基于用户请求自主选择继续 tool_call、final_answer 或 ask_user，但不要固定调用某个业务 tool、固定输出某个 payload.kind，或固定引用某个 tool result/resource。",
-  "只有当 tools 中明确存在对应工具，并且用户目标确实需要执行该工具时，才允许返回 tool_call；toolName 必须来自 tools 清单，input 必须符合该工具 schema。",
-  "当 tools 为空时，禁止返回 tool_call；如果问题可以直接回答，返回 final_answer；如果缺少继续回答所必需的信息，返回 ask_user。",
-  "不可执行请求按通用顺序处理：可直接可靠回答则 final_answer；缺必要信息则 ask_user；需要当前 tools[] 未注册的能力、写入、保存、查询或外部执行时，不得输出该未注册能力的 tool_call，也不得承诺已执行、已保存、已查询、已生成卡片或已等待内部流程；已有事实不足时优先继续合法 tool_call，不能继续时 ask_user、repair 或失败 fallback。",
-  "用户询问你能做什么或当前能力边界时，必须基于当前可见 tools、outputContracts 和通用文本能力回答；不得承诺直接执行未注册工具、查询不可见事实或保存未接入的业务结果。",
-  "当 observations 中出现 schema_validation_failed 时，先读取 target.kind、schemaId、toolName、outputType 和 variant 定位是哪一份合同失败；再读取 errors[].path、errors[].code、expected、actual、allowedFields、requiredFields 和 allowedValues，对照当前可见 AgentAction schema、tool manifest、inputJsonSchema、visibleOutputs 合同和 examples 重新输出合法 action。服务端不会在 repair feedback 中替你映射旧字段、补齐参数、选择 tool 或解释字段业务语义。",
-  "当 observations 中出现 domain_validation_failed 时，facts[] 只表示服务端 validator 已确定的数据库、资源、grounding 或可见输出事实错误；你需要基于当前 prompt、manifest、tools、resources、toolResults 和用户目标自行决定下一轮合法 tool_call、ask_user 或失败收口。facts[] 不是服务端指定的下一步业务流程，也不会替代下一轮 schema、resource、policy、grounding 或 terminal visible output 校验。",
-  "当 observations 或 toolResults 中出现 invalid action、schema repair facts、domain facts 或上一轮结构化失败时，优先修正为合法 AgentAction；不得重复 answered、final_result、assistant_action 或其他旧式 action。",
-  "不得执行工具、伪造 confirmation/hash、泄漏 secret、暴露系统内部错误，或直接生成前端事件。",
+  "你服务的是 AI 健身助手。读取 user payload 中的 actionContract、tools、outputContracts、observations、toolResults 和 run，再选择唯一 action。",
+  "输出必须匹配 actionContract；type 只能是 tool_call、final_answer、ask_user。字段合法性由服务端 Zod 校验，不能依赖正文补全缺失字段。",
+  "需要执行当前已注册能力时才返回 tool_call；toolName 必须来自 tools[].name，input 必须匹配对应 tool schema。tools 为空或目标无需工具时，不要返回 tool_call。",
+  "决策顺序：可直接可靠回答则 final_answer；缺少必要用户信息则 ask_user；需要未注册能力时说明能力边界但不承诺执行；事实不足且仍有合法 tool 时继续 tool_call；无法恢复时澄清或失败收口。",
+  "final_answer 是本轮终态，不会触发后续 tool、查询、保存、等待或内部步骤；不得在 content 中承诺尚未执行的结果。",
+  "输出 visibleOutputs[] 时只遵守当前 outputContracts[]；content 只能解释、提醒或总结，不能替代结构化 payload 或事实来源。",
+  "已有 tool result、resource 或 visibleOutputs 时，成功 final_answer 必须能被 satisfied=true tool result、consumable resource 或已校验结构化输出支撑；failed、diagnostic 或 satisfied=false 只能用于恢复、澄清或失败解释。",
+  "引用已有对象时只在内部判断 reuse、derive、modify、replace、clarify；若引用对象不可见或不可操作，说明上下文不足，不能假装已修改、已替换或已派生。",
+  "不得提供医疗诊断、治疗建议、伤病判断或康复处方；不得伪造 tool result、resource、confirmation/hash、保存结果、secret 或前端事件。",
 ] as const;
 
 // agentLlmPromptVersion 是当前通用 AgentAction system prompt 的稳定审阅标识。
-export const agentLlmPromptVersion = "agent-action-v18-output-contracts-layered";
+export const agentLlmPromptVersion = "agent-action-v19-schema-dictionary";
+
+// defaultAgentActionContract 把字段形状、决策策略和少量 few-shot 从 system prompt 中结构化拆出。
+export const defaultAgentActionContract: AgentActionContract = {
+  schemaId: "AgentAction",
+  schemaVersion: "1",
+  purpose: "Planner 每轮只能输出一个 AgentAction。schema 合法性由服务端校验；本合同说明字段含义、决策顺序和引用边界。",
+  shapes: {
+    tool_call: {
+      type: "tool_call",
+      toolName: "从 tools[].name 复制真实存在的 toolName",
+      input: "严格匹配该 tool inputJsonSchema 的 JSON 值",
+    },
+    final_answer: {
+      type: "final_answer",
+      content: "用户可见文本",
+      suggestedQuestions: ["可选，最多 3 条用户口吻下一轮问题"],
+      usedRefs: ["可选，引用本 run 已使用事实来源"],
+      visibleOutputs: ["可选，遵守 outputContracts[] 的结构化用户可见输出"],
+    },
+    ask_user: {
+      type: "ask_user",
+      content: "需要用户补充的信息",
+      suggestedQuestions: [
+        "我每周练 3 天，每次 45 分钟，只能在家徒手训练",
+        "我想减脂，每周练 4 天，每次 30 分钟，有哑铃",
+        "我想增肌，每周练 5 天，每次 60 分钟，可以去健身房",
+      ],
+      usedRefs: ["可选，引用导致澄清的诊断事实"],
+    },
+    usedRefs: {
+      tool_result: {
+        type: "tool_result",
+        id: "本 run 真实 toolResultId",
+      },
+      resource: {
+        type: "resource",
+        id: "本 run 已登记 resourceId",
+        resourceType: "登记的 resourceType",
+      },
+    },
+    visibleOutput: {
+      outputType: "从 outputContracts[].outputType 选择",
+      schemaVersion: "对应 output contract 的字符串版本",
+      payload: "严格匹配该 output contract schemaSummary 的 JSON object",
+    },
+  },
+  fieldDictionary: [
+    { field: "type", meaning: "唯一 action 判别字段，只能是 tool_call、final_answer 或 ask_user。" },
+    { field: "toolName", meaning: "只在 tool_call 中使用，必须来自当前 tools[].name。" },
+    { field: "input", meaning: "tool_call 的工具入参，必须匹配该工具模型可见 schema。" },
+    { field: "content", meaning: "final_answer 或 ask_user 的用户可见文本；结构化事实不能只写在 content 里。" },
+    { field: "suggestedQuestions", meaning: "最多 3 条用户口吻的下一轮消息候选；点击后只是普通用户消息，不代表已执行操作。" },
+    { field: "usedRefs", meaning: "terminal action 使用过的当前 run 事实来源引用数组。" },
+    { field: "visibleOutputs", meaning: "final_answer 可选结构化用户可见输出；每项都必须遵守 outputContracts[]。" },
+    { field: "outputContracts", meaning: "当前 run 可输出结构化结果的模型可见能力说明，不是服务端路由规则。" },
+    { field: "toolResults[].fulfillment.satisfied", meaning: "该 tool result 是否满足工具能力；false 只能用于恢复、澄清或失败解释。" },
+    { field: "toolResults[].producedResources", meaning: "本 run 工具执行后登记的 resource 引用来源；只有 consumable resource 可支撑成功结果。" },
+    { field: "resource summary", meaning: "ResourceStore 暴露给模型的安全压缩摘要，不是完整数据库对象或 handler output。" },
+    { field: "observations", meaning: "runtime 给 Planner 的结构化反馈，包括 schema、domain、resource、grounding 或重复调用诊断。" },
+  ],
+  decisionPolicy: [
+    "普通健身解释、能力说明、总结整理和训练原则说明，不需要工具也能可靠回答时使用 final_answer。",
+    "用户目标明确但缺少生成可执行训练结果的关键训练约束时使用 ask_user。",
+    "用户目标需要当前事实、动作库、resource 或其他已注册能力时，优先使用合法 tool_call。",
+    "目标需要结构化输出但事实不足时，不要降低结构标准；能继续获取事实则 tool_call，不能继续则 ask_user 或失败收口。",
+    "需要当前 tools[] 未注册的查询、保存、写入、外部执行或结构能力时，不得输出未注册 tool_call，也不得承诺已经执行。",
+  ],
+  groundingPolicy: [
+    "没有 tool result 的普通文本 final_answer 可以直接基于通用知识和当前对话回答。",
+    "已有 tool result 后，成功 final_answer 应引用 satisfied=true tool result、consumable resource，或输出通过 validator 的 visibleOutputs[]。",
+    "ok=true 且 satisfied=true 的空结果可以支撑普通文本解释，但不能伪装成结构化训练交付或已保存结果。",
+    "failed、diagnostic、不可消费 resource 或 satisfied=false result 不能支撑成功 final_answer。",
+  ],
+  referencePolicy: [
+    "用户引用已有对象时，先内部判断 reuse、derive、modify、replace 或 clarify；这些标签不能出现在 AgentAction JSON 中。",
+    "引用对象必须来自当前可见 messages、metadata、toolResults、observations 或 consumable resource。",
+    "引用对象不可见或不可操作时，说明上下文不足；不能把引用型请求改写成假装成功的新生成结果。",
+  ],
+  repairPolicy: [
+    "schema_validation_failed：读取 errors[].path、code、expected、allowedFields、requiredFields 和 allowedValues，按当前合同重新输出合法 action。",
+    "domain_validation_failed：facts[] 是 validator 已确认事实，不是指定流程；基于当前工具、资源和用户目标选择合法 tool_call、ask_user 或失败收口。",
+    "不要输出当前 actionContract、tool schema 或 outputContracts 未声明的同义字段。",
+  ],
+  safetyPolicy: [
+    "不提供医疗诊断、治疗建议、伤病判断或康复处方。",
+    "不伪造 tool result、resource、confirmation/hash、保存结果、数据库写入或前端事件。",
+    "不泄漏 secret、provider 原文、内部 stack、authorization、cookie 或服务端内部 details。",
+  ],
+  examples: [
+    {
+      id: "plain_fitness_explanation",
+      userNeed: "用户询问训练原则、动作概念或你能做什么，当前不需要工具事实。",
+      actionChoice: "final_answer",
+      expectedAction: {
+        type: "final_answer",
+        content: "用简短中文直接回答，并说明可继续提供的非医疗训练帮助。",
+      },
+      notes: ["不因为出现健身主题就强行 tool_call 或 ask_user。"],
+    },
+    {
+      id: "missing_training_constraints",
+      userNeed: "用户想要训练计划，但缺少频次、时长、器械或限制等必要约束。",
+      actionChoice: "ask_user",
+      expectedAction: {
+        type: "ask_user",
+        content: "为了生成可执行训练计划，我还需要知道你每周想练几天、每次多久、有哪些器械。",
+        suggestedQuestions: [
+          "我每周练 3 天，每次 45 分钟，只能在家徒手训练",
+          "我想减脂，每周练 4 天，每次 30 分钟，有哑铃",
+          "我想增肌，每周练 5 天，每次 60 分钟，可以去健身房",
+        ],
+      },
+      notes: ["只使用 content 和 suggestedQuestions 表达澄清，不输出其他同义字段。"],
+    },
+    {
+      id: "needs_registered_facts",
+      userNeed: "用户目标需要当前数据库事实、resource 或已注册能力才能可靠完成。",
+      actionChoice: "tool_call",
+      expectedAction: {
+        type: "tool_call",
+        toolName: "从 tools[].name 复制可完成该能力的真实 toolName",
+        input: "按该 tool schema 构造 JSON input",
+      },
+      notes: ["如果 tools 中没有对应能力，说明边界或澄清，不虚构 toolName。"],
+    },
+    {
+      id: "partial_facts_for_structured_output",
+      userNeed: "用户要结构化训练输出，但当前事实只覆盖部分必需资源。",
+      actionChoice: "tool_call 或 ask_user",
+      expectedAction: {
+        type: "tool_call",
+        toolName: "若 tools 中存在可补齐事实的真实 toolName，则调用它",
+        input: "补齐缺失事实所需的合法 input",
+      },
+      notes: ["不能为了收口而把目标降级成事实不足的结构化输出。", "如果无法继续获取事实，使用 ask_user 或失败收口。"],
+    },
+    {
+      id: "ready_visible_output",
+      userNeed: "当前 run 已具备 outputContracts 要求的全部事实，可以交付结构化结果。",
+      actionChoice: "final_answer",
+      expectedAction: {
+        type: "final_answer",
+        content: "简短说明结构化结果已经生成。",
+        visibleOutputs: [
+          {
+            outputType: "从 outputContracts[].outputType 选择",
+            schemaVersion: "对应字符串版本",
+            payload: "符合该 output contract 的 payload",
+          },
+        ],
+      },
+      notes: ["结构化事实写入 visibleOutputs[].payload，不写成 Markdown 列表。"],
+    },
+    {
+      id: "reference_replace_or_modify",
+      userNeed: "用户要求换一批、替换某项、组数少一点或基于已有结果继续。",
+      actionChoice: "先内部判断 replace、modify、derive 或 clarify",
+      expectedAction: {
+        type: "tool_call",
+        toolName: "若引用对象可见且需要工具事实，则调用当前真实 toolName",
+        input: "保留、替换或调整所需的合法 input",
+      },
+      notes: ["引用对象不可见时使用 ask_user 或 final_answer 说明上下文不足，不能假装已修改。"],
+    },
+  ],
+};
 
 const terminalFailureFinalizerSystemPromptInstructions = [
   "你是 production `/api/chat` 中的 terminal failure finalizer，只能在主 Agent 已经停止后生成用户可见失败解释。",
@@ -73,6 +263,7 @@ export const terminalFailureFinalizerPromptVersion = "terminal-failure-finalizer
 export const agentLlmPromptConfig = {
   promptVersion: agentLlmPromptVersion,
   systemPromptInstructions: defaultAgentActionSystemPromptInstructions,
+  actionContract: defaultAgentActionContract,
   requestDefaults: {
     temperature: agentRuntimeConfig.llm.temperature,
     maxTokens: agentRuntimeConfig.llm.maxTokens,
@@ -92,9 +283,20 @@ export function buildAgentActionSystemPrompt(
   return config.systemPromptInstructions.join(" ");
 }
 
+// getAgentActionContract 返回模型可见 action 合同克隆，避免 adapter 或测试误改默认配置。
+export function getAgentActionContract(
+  config: AgentLlmPromptConfig = agentLlmPromptConfig,
+): AgentActionContract {
+  return cloneJsonCompatible(config.actionContract);
+}
+
 // buildTerminalFailureFinalizerSystemPrompt 将 finalizer prompt 配置组装成模型可见 system message。
 export function buildTerminalFailureFinalizerSystemPrompt(
   config: TerminalFailureFinalizerPromptConfig = terminalFailureFinalizerPromptConfig,
 ) {
   return config.systemPromptInstructions.join(" ");
+}
+
+function cloneJsonCompatible<T extends JsonValue | AgentActionContract>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }

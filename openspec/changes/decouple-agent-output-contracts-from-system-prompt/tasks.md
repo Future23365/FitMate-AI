@@ -42,3 +42,12 @@
 - [x] 6.6 运行 `openspec validate decouple-agent-output-contracts-from-system-prompt --strict`。
 - [x] 6.7 运行相关自动化测试；涉及 TypeScript、AI 编排、schema 或共享业务逻辑时运行 `npm test` 或等价相关测试，并按需运行 `npm run typecheck`。
 - [x] 6.8 如果需要真实模型验证，只使用显式手动命令，不把真实模型调用放入默认 `npm test`。
+
+## 7. 二次收敛：schema 字典与 few-shot
+
+- [x] 7.1 将默认 system prompt 继续收敛为最小执行约束，不再承载字段字典、repair 细则或业务 few-shot。
+- [x] 7.2 新增 Planner 可见 `actionContract`，集中表达 `AgentAction` 最小形状、字段含义、决策顺序、grounding、引用操作、repair 和安全边界。
+- [x] 7.3 将 `actionContract` 与 `tools`、`outputContracts`、`observations`、`toolResults` 一起放入生产 Planner user payload，并在 trace 中记录 schema 摘要。
+- [x] 7.4 更新 `visibleTrainingProposal` output contract，补齐字段字典、kind 选择规则和高价值 few-shot。
+- [x] 7.5 明确当前 `plan = one routine template + schedule`，不支持 `routines[]`、`routineId` 或每天不同完整动作编排。
+- [x] 7.6 更新 prompt config、adapter model input 和 visible output contract 测试，断言 system prompt 不再变成后端接口文档。
