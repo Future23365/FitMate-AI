@@ -75,7 +75,7 @@ const defaultAgentActionSystemPromptInstructions = [
 ] as const;
 
 // agentLlmPromptVersion 是当前通用 AgentAction system prompt 的稳定审阅标识。
-export const agentLlmPromptVersion = "agent-action-v20-tool-manifest-layers";
+export const agentLlmPromptVersion = "agent-action-v21-structured-delivery-grounding";
 
 // defaultAgentActionContract 把字段形状、决策策略和少量 few-shot 从 system prompt 中结构化拆出。
 export const defaultAgentActionContract: AgentActionContract = {
@@ -152,7 +152,9 @@ export const defaultAgentActionContract: AgentActionContract = {
   ],
   groundingPolicy: [
     "没有 tool result 的普通文本 final_answer 可以直接基于通用知识和当前对话回答。",
-    "已有 tool result 后，成功 final_answer 应引用 satisfied=true tool result、consumable resource，或输出通过 validator 的 visibleOutputs[]。",
+    "usedRefs 只表示 terminal action 引用了当前 run 的事实来源，不等于用户可见结构化交付。",
+    "已有 tool result 后，普通事实解释、澄清、失败说明或不需要结构化输出的回答，可以用 satisfied=true tool result 或 consumable resource 支撑 usedRefs-only final_answer。",
+    "当用户目标需要交付 outputContracts[] 支持的用户可见结构化结果，且当前 run 已具备对应事实时，成功 final_answer 必须把结构写入 visibleOutputs[]；content 只能做摘要、提醒或解释。",
     "ok=true 且 satisfied=true 的空结果可以支撑普通文本解释，但不能伪装成结构化训练交付或已保存结果。",
     "failed、diagnostic、不可消费 resource 或 satisfied=false result 不能支撑成功 final_answer。",
     "tool result 不是最终回答；tool 不直接生成 final_answer.visibleOutputs，不保存 artifact，不写用户记忆，也不能被当作已经完成的用户可见交付。",

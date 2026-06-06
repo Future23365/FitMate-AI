@@ -20,7 +20,7 @@ describe("agent LLM prompt configuration", () => {
     const serializedContract = JSON.stringify(actionContract);
 
     expect(agentLlmPromptConfig.promptVersion).toBe(agentLlmPromptVersion);
-    expect(agentLlmPromptVersion).toBe("agent-action-v20-tool-manifest-layers");
+    expect(agentLlmPromptVersion).toBe("agent-action-v21-structured-delivery-grounding");
     expect(systemPrompt.length).toBeLessThan(1500);
 
     for (const required of [
@@ -113,6 +113,8 @@ describe("agent LLM prompt configuration", () => {
       "factSchemaVersion",
       "visibleOutputs[].schemaVersion",
       "tool result 不是最终回答",
+      "usedRefs 只表示 terminal action 引用了当前 run 的事实来源",
+      "必须把结构写入 visibleOutputs[]",
       "requiredExerciseIds",
       "excludeExerciseIds",
       "不要只输出 input 片段",
@@ -171,7 +173,7 @@ describe("agent LLM prompt configuration", () => {
       "返回测试专用 AgentAction JSON object。 这个测试只期望 final_answer。",
     );
     expect(buildAgentActionSystemPrompt()).toContain("tool_call、final_answer、ask_user");
-    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v20-tool-manifest-layers");
+    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v21-structured-delivery-grounding");
   });
 
   it("exposes a dedicated terminal failure finalizer prompt and budget config", () => {
