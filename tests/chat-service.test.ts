@@ -47,7 +47,7 @@ const exerciseResourceRepositoryMocks = vi.hoisted(() => ({
   },
   normalizeExerciseResourceFacetCatalogForPlanner: (catalog: ExerciseResourceFacetCatalog) => ({
     ...catalog,
-    equipment: [...new Set([...catalog.equipment, "no_equipment", "无器械"])],
+    equipment: [...new Set([...catalog.equipment.filter((value) => value.trim() !== "无器械"), "no_equipment"])],
     homeRequirements: catalog.homeRequirements.filter((value) => {
       const normalized = value.trim().toLowerCase();
       return normalized !== "none" && normalized !== "no_equipment" && value.trim() !== "无器械";
@@ -478,20 +478,20 @@ describe("chat service agent text flow boundary", () => {
       metadata: {
         facetCatalog: expect.objectContaining({
           muscles: expect.arrayContaining(["胸部", "股四头肌"]),
-          equipment: expect.arrayContaining(["body only", "自重", "no_equipment", "无器械"]),
+          equipment: expect.arrayContaining(["body only", "自重", "no_equipment"]),
           suitabilities: ["warmup", "training", "stretch"],
         }),
       },
     });
+    expect(plannerSearchFacetCatalog?.equipment).not.toContain("无器械");
     expect(plannerSearchFacetCatalog?.homeRequirements).not.toContain("none");
     expect(plannerSearchFacetCatalog?.homeRequirements).not.toContain("无器械");
     const serializedSearchManifest = JSON.stringify(plannerSearchManifest);
     expect(serializedSearchManifest).toContain("groups.<section>.exercises[]");
-    expect(serializedSearchManifest).toContain("suitabilities = [\\\"warmup\\\", \\\"stretch\\\"]");
-    expect(serializedSearchManifest).toContain("现有事实缺少 warmup / stretch");
-    expect(serializedSearchManifest).toContain("不要求固定调用次数或顺序");
-    expect(serializedSearchManifest).toContain("不代表最终训练结构已经生成");
-    expect(serializedSearchManifest).toContain("当前 run 可见动作锚点");
+    expect(serializedSearchManifest).toContain("缺少 warmup / stretch");
+    expect(serializedSearchManifest).toContain("过宽查询不能支撑 visibleOutputs");
+    expect(serializedSearchManifest).toContain("requiredExerciseIds");
+    expect(serializedSearchManifest).not.toContain("不要求固定调用次数或顺序");
     expect(serializedSearchManifest).toContain("\"level\":\"beginner\"");
     expect(serializedSearchManifest).not.toContain("generatePlanDraft");
     expect(serializedSearchManifest).not.toContain("generateRoutineDraft");
@@ -3500,7 +3500,7 @@ function createNoEquipmentFilterSemantic(requestedValue: string) {
       equipment: ["body only", "bodyweight"],
       equipmentZh: ["自重"],
     },
-    note: "equipment=no_equipment/无器械 表示不需要外部器械；repository 只映射到自重动作字段，不自动附加 homeRequirement 条件。",
+    note: "equipment=no_equipment 表示不需要外部器械；repository 只映射到自重动作字段，不自动附加 homeRequirement 条件。",
   };
 }
 

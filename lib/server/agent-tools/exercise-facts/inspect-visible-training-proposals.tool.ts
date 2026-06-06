@@ -25,10 +25,10 @@ import {
 import { exerciseAllowedSectionSchema } from "@/lib/shared/exercises/types";
 
 const factRefSchema = z.string().trim().min(1).max(160);
-const readRecentOperationDescription = "读取本轮 list_recent 结果或 diagnostic index resource 中真实出现的可见训练方案事实，并导入当前 run。";
+const readRecentOperationDescription = "读取本轮 list_recent 返回的具体可见训练方案事实，并导入当前 run。";
 const readRecentRefSchema = z.object({
-  type: z.enum(["fact_ref", "message_id"]).describe("引用类型；fact_ref 表示 ref.value 复制本轮索引中的真实 factRef，message_id 表示 ref.value 复制本轮索引中的真实上一轮 assistant messageId。"),
-  value: factRefSchema.describe("只能复制本轮 list_recent tool result 或 visible_training_proposal_fact_index diagnostic resource 中真实出现的 factRef/messageId；没有真实值时先调用 list_recent，不要编造。"),
+  type: z.enum(["fact_ref", "message_id"]).describe("引用类型；fact_ref 表示 ref.value 复制本轮 list_recent 返回的 factRef，message_id 表示 ref.value 复制本轮 list_recent 返回的 messageId。"),
+  value: factRefSchema.describe("只能复制本轮 list_recent 返回的 factRef 或 messageId；没有真实返回值时先调用 list_recent，不要编造。"),
 }).strict();
 
 const listRecentInputSchema = z.object({
@@ -134,26 +134,20 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
   InspectVisibleTrainingProposalsOutput
 >({
   name: "inspectVisibleTrainingProposals",
-  version: "0.5.0",
-  description: "只读查询当前会话中用户已经看到的 visibleTrainingProposal 事实。operation = \"list_recent\" 返回轻量事实索引；operation = \"read_recent\" 只能使用本轮真实 ref 读取具体事实，并导入当前 run 的 consumable visible_training_proposal_fact。导入事实不代表本轮最终训练结构已经生成、渲染或保存。",
+  version: "0.6.0",
+  description: "只读查询当前会话中用户已经看到的 visibleTrainingProposal。list_recent 列出最近可引用方案索引；read_recent 读取本轮索引中的具体方案，成功后导入 consumable visible_training_proposal_fact。",
   whenToUse: [
-    "当 Planner 需要确认当前 actor 和 conversation 是否存在可引用的用户可见训练方案事实时，使用 operation = \"list_recent\"。",
-    "list_recent 只返回 factRef、messageId、proposalKind、section 摘要、可复用 training 动作数量、visibleOutputSchemaVersion 和 factSchemaVersion；它不导入完整 payload，也不产出 consumable 训练方案事实。",
-    "当 Planner 已经从本轮 list_recent result 或 visible_training_proposal_fact_index diagnostic resource 中看到真实 factRef 或 messageId，并且需要复用具体方案时，使用 operation = \"read_recent\"，输入统一写为 ref: { type, value }。",
-    "read_recent 成功后会把 visible_training_proposal_fact 作为当前 run 的 consumable resource 导入；Planner 可用其中用户已看到的动作事实、availableSections、missingSectionsForRoutineOrPlan、supportsOutputKinds、section 摘要和计划结构，自主判断 reuse、derive、modify、replace、clarify、查询新动作、调整结构、澄清或失败收口。",
-    "factRef 和 messageId 只用于 read_recent.ref.value；它们不是 final_answer.usedRefs.resource.id。若需要引用导入 resource，resource id 必须来自当前 run 登记的 producedResources。",
-    "本 tool 不要求固定调用次数或顺序，也不把任意用户短语映射成固定 operation。",
+    "需要确认当前会话是否存在可操作的 visibleTrainingProposal 时，先用 operation = \"list_recent\"；该操作不需要 ref，只返回轻量索引。",
+    "需要读取一个具体历史方案时，用 operation = \"read_recent\"；ref 必须来自本轮 list_recent 返回的 factRef 或 messageId。",
+    "read_recent 成功后会把 visible_training_proposal_fact 作为当前 run 的 consumable resource 导入，可支撑复用、修改、派生或替换判断。",
+    "factRef 和 messageId 只用于 read_recent.ref.value；final_answer.usedRefs.resource.id 必须来自当前 run producedResources 中的 resourceId。",
   ].join(" "),
   whenNotToUse: [
-    "不要把任意固定自然语言短语写成必须调用本 tool 的条件；服务端不会根据用户原文替模型选择 operation。",
-    "不要用本 tool 查询动作库、生成 visibleTrainingProposal、保存 artifact、写用户记忆、执行候选集合或跨 conversation 引用。",
-    "不要把 read_recent 成功当作本轮已经完成最终训练结构、刷新、保存或渲染；它只导入当前 run 可消费事实。",
+    "不要用本 tool 查询动作库、读取其他 conversation 的方案或跨用户引用历史事实。",
     "不要在 operation = \"list_recent\" 时传入 ref、factRef、messageId、分页、limit、cursor、userId 或 conversationId；服务端固定最近数量并从 actor 推导权限边界。",
     "不要在 operation = \"read_recent\" 时传入顶层 factRef 或 messageId；读取引用统一写入 ref: { type: \"fact_ref\" | \"message_id\", value: \"...\" }。",
-    "factRef 和 messageId 只用于 read_recent.ref.value，不是 final_answer.usedRefs.resource.id；resource id 必须来自当前 run 登记的 producedResources。",
-    "不要从 run.metadata.recentVisibleTrainingProposals、历史 assistant 消息、示例、trace 摘要或业务存储 id 猜测 ref.value；没有本轮 list_recent 索引时应先调用 operation = \"list_recent\"。",
+    "不要从历史 assistant 消息、示例、trace 摘要或业务存储 id 猜测 ref.value；没有本轮 list_recent 索引时应先调用 operation = \"list_recent\"。",
     "不要在 operation = \"read_recent\" 时编造 ref.value；失败结果不能支撑成功训练方案生成。",
-    "factSchemaVersion 是服务端事实存储版本，不应复制到 final_answer.visibleOutputs[].schemaVersion；visible output envelope 的 schemaVersion 必须写字符串 \"1\"。",
   ].join(" "),
   inputSchema: inspectVisibleTrainingProposalsInputSchema,
   outputSchema: inspectVisibleTrainingProposalsOutputSchema,
@@ -181,8 +175,26 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
   },
   examples: [
     {
-      description: "先查询当前会话最近是否有可引用的 visibleTrainingProposal 事实索引。",
-      input: { operation: "list_recent" },
+      description: "查询当前会话最近是否有可引用的 visibleTrainingProposal 事实索引。",
+      action: {
+        type: "tool_call",
+        toolName: "inspectVisibleTrainingProposals",
+        input: { operation: "list_recent" },
+      },
+    },
+    {
+      description: "读取本轮 list_recent 返回的具体方案；ref.value 必须复制真实返回的 factRef。",
+      action: {
+        type: "tool_call",
+        toolName: "inspectVisibleTrainingProposals",
+        input: {
+          operation: "read_recent",
+          ref: {
+            type: "fact_ref",
+            value: "本轮 list_recent 返回的 factRef",
+          },
+        },
+      },
     },
   ],
   handler: async (input, context) => {

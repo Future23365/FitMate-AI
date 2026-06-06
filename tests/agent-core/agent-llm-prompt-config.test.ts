@@ -20,7 +20,7 @@ describe("agent LLM prompt configuration", () => {
     const serializedContract = JSON.stringify(actionContract);
 
     expect(agentLlmPromptConfig.promptVersion).toBe(agentLlmPromptVersion);
-    expect(agentLlmPromptVersion).toBe("agent-action-v19-schema-dictionary");
+    expect(agentLlmPromptVersion).toBe("agent-action-v20-tool-manifest-layers");
     expect(systemPrompt.length).toBeLessThan(1500);
 
     for (const required of [
@@ -105,6 +105,17 @@ describe("agent LLM prompt configuration", () => {
       "groundingPolicy",
       "referencePolicy",
       "repairPolicy",
+      "factRef",
+      "messageId",
+      "resource.id",
+      "diagnostic resource",
+      "consumable resource",
+      "factSchemaVersion",
+      "visibleOutputs[].schemaVersion",
+      "tool result 不是最终回答",
+      "requiredExerciseIds",
+      "excludeExerciseIds",
+      "不要只输出 input 片段",
       "plain_fitness_explanation",
       "missing_training_constraints",
       "needs_registered_facts",
@@ -113,11 +124,12 @@ describe("agent LLM prompt configuration", () => {
       "reference_replace_or_modify",
       "suggestedQuestions",
       "最多 3 条用户口吻",
-      "schema_validation_failed",
-      "domain_validation_failed",
+      "validator repair details",
     ]) {
       expect(serializedContract).toContain(required);
     }
+    expect(serializedContract).not.toContain("schema_validation_failed");
+    expect(serializedContract).not.toContain("domain_validation_failed");
     for (const forbidden of [
       "ask_user.question",
       "final_answer.assistantSuggestions",
@@ -159,7 +171,7 @@ describe("agent LLM prompt configuration", () => {
       "返回测试专用 AgentAction JSON object。 这个测试只期望 final_answer。",
     );
     expect(buildAgentActionSystemPrompt()).toContain("tool_call、final_answer、ask_user");
-    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v19-schema-dictionary");
+    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v20-tool-manifest-layers");
   });
 
   it("exposes a dedicated terminal failure finalizer prompt and budget config", () => {

@@ -83,21 +83,19 @@ export const resolveExerciseResourceMentionsTool = defineTool<
   ResolveExerciseResourceMentionsOutput
 >({
   name: "resolveExerciseResourceMentions",
-  version: "0.2.0",
-  description: "只解析 Planner 结构化传入的用户点名动作文本到发布态 Exercise 摘要，返回 matched、ambiguous 或 not_found；服务端不从完整聊天文本、历史摘要或 conversationSummary 做关键词拆词。",
+  version: "0.3.0",
+  description: "把用户明确点名的单个动作名解析为发布态 Exercise 候选，返回 matched、ambiguous 或 not_found。",
   whenToUse: [
-    "当用户明确点名一个或多个动作，并且 Planner 需要确认这些动作是否存在于发布态动作库时使用。",
-    "mentions 必须由 Planner 从用户表达中结构化提取；每一项只放单个动作文本和可选 sectionHint，不传完整用户消息或历史摘要。",
-    "matched exerciseId 或模型已选择的 ambiguous 候选可作为后续 searchExerciseResources.requiredExerciseIds，让发布态动作优先进入 section-scoped groups。",
-    "本 tool 只解析 Exercise resource 身份和有限摘要；ambiguous 或 not_found 结果应由模型选择候选、重查、澄清或失败收口，不由服务端替模型判断用户语义。",
-    "本 observation 本身不能直接作为 visibleTrainingProposal.exerciseItems[*].exerciseId 的动作事实来源；最终训练方案动作事实仍需来自 section-scoped 动作查询结果或当前 run 可消费训练事实。",
+    "用户明确说出动作名，并且后续需要确认动作库中是否存在时使用。",
+    "mentions[].text 只放单个动作名；mentions[].sectionHint 可选，只能是 warmup、training 或 stretch。",
+    "matched exerciseId 只能作为后续 searchExerciseResources.requiredExerciseIds，让这些发布态动作优先进入 section-scoped groups。",
+    "ambiguous 需要模型选择候选、重新查询或 ask_user；not_found 不能作为动作事实。",
+    "本 tool result 不能直接写入 visibleTrainingProposal.exerciseItems；最终动作事实仍需来自 searchExerciseResources.groups.<section>.exercises[] 或当前 run 可消费训练事实。",
   ].join(" "),
   whenNotToUse: [
-    "不要用本 tool 生成 visibleTrainingProposal、routine、plan、patch、prescription、schedule、训练卡片、保存 artifact、用户记忆或执行候选集合。",
     "不要把完整用户消息、conversationSummary、历史自然语言、分页、userId、sql、candidateUse、resultRequirements 或训练生成参数传给本 tool。",
-    "不要把 not_found 或 ambiguous 结果当作可直接写入 visibleTrainingProposal 的动作来源；需要澄清、选择候选或重新查询。",
-    "不要用服务端关键词、正则、同义词表或短句模板从用户原文拆 mention；mentions 必须由 Planner 结构化传入。",
-    "不要把本 tool 的结果当成固定下一步 tool flow；是否继续查询、澄清或失败收口由 Planner 基于当前目标和可见事实决定。",
+    "mentions 必须由用户明确点名的动作构成；不要从泛泛目标、肌群、训练目的或器械条件中猜动作名。",
+    "不要把 not_found 或 ambiguous 结果直接当作 visibleTrainingProposal 动作来源；需要澄清、选择候选或重新查询。",
   ].join(" "),
   inputSchema: resolveExerciseResourceMentionsInputSchema,
   outputSchema: resolveExerciseResourceMentionsOutputSchema,
@@ -112,20 +110,28 @@ export const resolveExerciseResourceMentionsTool = defineTool<
   examples: [
     {
       description: "解析用户明确点名的多个主训练动作，后续把 matched exerciseId 传给 searchExerciseResources.requiredExerciseIds。",
-      input: {
-        mentions: [
-          { text: "俯卧撑", sectionHint: "training" },
-          { text: "深蹲", sectionHint: "training" },
-          { text: "平板支撑", sectionHint: "training" },
-        ],
+      action: {
+        type: "tool_call",
+        toolName: "resolveExerciseResourceMentions",
+        input: {
+          mentions: [
+            { text: "俯卧撑", sectionHint: "training" },
+            { text: "深蹲", sectionHint: "training" },
+            { text: "平板支撑", sectionHint: "training" },
+          ],
+        },
       },
     },
     {
       description: "解析单个可能歧义的动作名；如果返回 ambiguous，模型应选择候选、重查或向用户澄清。",
-      input: {
-        mentions: [
-          { text: "划船", sectionHint: "training" },
-        ],
+      action: {
+        type: "tool_call",
+        toolName: "resolveExerciseResourceMentions",
+        input: {
+          mentions: [
+            { text: "划船", sectionHint: "training" },
+          ],
+        },
       },
     },
   ],

@@ -66,6 +66,6 @@ export function sanitizeJsonValue(value: JsonValue, depth = 0): JsonValue {
 function sanitizeExample(example: ToolExample): ToolExample {
   return {
     description: example.description,
-    input: sanitizeJsonValue(example.input),
+    action: sanitizeJsonValue(example.action) as ToolExample["action"],
   };
 }

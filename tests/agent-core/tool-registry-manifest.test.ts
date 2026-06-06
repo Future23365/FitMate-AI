@@ -39,9 +39,17 @@ function createNestedReadTool(name = "nestedRead") {
     examples: [
       {
         description: "验证敏感 example key 会从 manifest 中剔除。",
-        input: {
-          query: "hello",
-          secretToken: "should-not-leak",
+        action: {
+          type: "tool_call",
+          toolName: name,
+          input: {
+            query: "hello",
+            items: [{ kind: "primary", score: 1 }],
+            record: {
+              publicValue: "ok",
+              secretToken: "should-not-leak",
+            },
+          },
         },
       },
     ],
@@ -271,6 +279,16 @@ describe("agent-core ToolRegistry and manifest", () => {
       riskLevel: "low",
       confirmation: "never",
     });
+    for (const manifest of manifests) {
+      for (const example of manifest.examples ?? []) {
+        expect(example.action).toMatchObject({
+          type: "tool_call",
+          toolName: manifest.name,
+        });
+        expect(example.action).toHaveProperty("input");
+        expect(example).not.toHaveProperty("input");
+      }
+    }
     expect(inspectManifestJson).toContain("operation");
     expect(inspectManifestJson).toContain("list_recent");
     expect(inspectManifestJson).toContain("read_recent");
@@ -280,16 +298,9 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(inspectManifestJson).toContain("visible_training_proposal_fact");
     expect(inspectManifestJson).toContain("visibleOutputSchemaVersion");
     expect(inspectManifestJson).toContain("factSchemaVersion");
-    expect(inspectManifestJson).toContain("schemaVersion 必须写字符串 \\\"1\\\"");
-    expect(inspectManifestJson).toContain("导入事实不代表本轮最终训练结构已经生成、渲染或保存");
     expect(inspectManifestJson).toContain("consumable visible_training_proposal_fact");
-    expect(inspectManifestJson).toContain("自主判断 reuse、derive、modify、replace、clarify");
-    expect(inspectManifestJson).toContain("availableSections");
-    expect(inspectManifestJson).toContain("missingSectionsForRoutineOrPlan");
-    expect(inspectManifestJson).toContain("supportsOutputKinds");
-    expect(inspectManifestJson).toContain("不要求固定调用次数或顺序");
     expect(inspectManifestJson).toContain("没有本轮 list_recent 索引时应先调用 operation = \\\"list_recent\\\"");
-    expect(inspectManifestJson).toContain("不是 final_answer.usedRefs.resource.id");
+    expect(inspectManifestJson).toContain("final_answer.usedRefs.resource.id 必须来自当前 run producedResources");
     expect(inspectManifestJson).not.toContain("readRecentVisibleTrainingProposal");
     expect(inspectManifestJson).not.toContain("fact_recent_visible_training_01");
     expect(inspectManifestJson).not.toContain("从上一条 list_recent result 中复制真实 factRef");
@@ -300,8 +311,10 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(inspectManifestJson).not.toContain("再来一组");
     expect(inspectManifestJson).not.toContain("不要这个");
     expect(inspectManifestJson).not.toContain("factCount = 0");
-    expect(inspectExamplesJson).not.toContain("\"operation\":\"read_recent\"");
-    expect(inspectExamplesJson).not.toContain("\"ref\"");
+    expect(inspectExamplesJson).toContain("\"type\":\"tool_call\"");
+    expect(inspectExamplesJson).toContain("\"toolName\":\"inspectVisibleTrainingProposals\"");
+    expect(inspectExamplesJson).toContain("\"operation\":\"read_recent\"");
+    expect(inspectExamplesJson).toContain("\"ref\"");
     expect(inspectExamplesJson).not.toContain("\"fact-1\"");
     expect(inspectExamplesJson).toContain("\"operation\":\"list_recent\"");
     expect(readRecentInputBranches.some((branch) => Array.isArray(branch.required) && branch.required.includes("ref"))).toBe(true);
@@ -339,7 +352,7 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(inputSchema.properties.level.description).toContain("metadata.facetCatalog");
     expect(inputSchema.properties.equipment.description).toContain("metadata.facetCatalog");
     expect(inputSchema.properties.equipment.description).toContain("no_equipment");
-    expect(inputSchema.properties.equipment.description).toContain("无器械");
+    expect(inputSchema.properties.equipment.description).not.toContain("无器械");
     expect(inputSchema.properties.homeRequirement.description).toContain("metadata.facetCatalog");
     expect(inputSchema.properties.homeRequirement.description).toContain("环境、场地或支撑条件");
     expect(inputSchema.properties.homeRequirement.description).not.toContain("none");
@@ -348,10 +361,11 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(inputSchema.properties.muscles.description).toContain("一个或多个主肌群");
     expect(searchFacetCatalog).toMatchObject({
       muscles: expect.arrayContaining(["胸部", "股四头肌"]),
-      equipment: expect.arrayContaining(["body only", "哑铃", "no_equipment", "无器械"]),
+      equipment: expect.arrayContaining(["body only", "哑铃", "no_equipment"]),
       homeRequirements: expect.arrayContaining(["居家小器械"]),
       suitabilities: ["warmup", "training", "stretch"],
     });
+    expect(searchFacetCatalog?.equipment).not.toContain("无器械");
     expect(searchFacetCatalog?.homeRequirements).not.toContain("none");
     expect(searchFacetCatalog?.homeRequirements).not.toContain("无器械");
     expect(inputSchema.properties.excludeExerciseIds.maxItems).toBe(50);
@@ -383,25 +397,24 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(manifestJson).toContain("exerciseId");
     expect(searchManifestJson).toContain("发布态动作事实");
     expect(searchManifestJson).toContain("groups.<section>.exercises[]");
-    expect(searchManifestJson).toContain("不生成 visibleTrainingProposal");
+    expect(searchManifestJson).not.toContain("不生成 visibleTrainingProposal");
     expect(searchManifestJson).toContain("groups.<section>.exercises[] 是 section-scoped 动作事实来源");
     expect(searchManifestJson).toContain("visibleTrainingProposal.exerciseItems[]");
     expect(searchManifestJson).toContain("exerciseItems[*].section");
     expect(searchManifestJson).toContain("当前 run 可见的用户已经看到动作事实");
-    expect(searchManifestJson).toContain("requiredExerciseIds 是正向查询锚点");
+    expect(searchManifestJson).toContain("requiredExerciseIds 是正向锚点");
     expect(searchManifestJson).toContain("excludeExerciseIds 是负向排除");
-    expect(searchManifestJson).toContain("保留、复用、派生或调整已有动作时不要写入 excludeExerciseIds");
-    expect(searchManifestJson).toContain("未展示内部候选或未导入历史中提取 excludeExerciseIds");
-    expect(searchManifestJson).toContain("当前目标需要 routine 或 plan");
-    expect(searchManifestJson).toContain("现有事实缺少 warmup / stretch");
-    expect(searchManifestJson).toContain("suitabilities = [\\\"warmup\\\", \\\"stretch\\\"]");
-    expect(searchManifestJson).toContain("不要求固定调用次数或顺序");
-    expect(searchManifestJson).toContain("不代表最终训练结构已经生成");
+    expect(searchManifestJson).toContain("不要把同一批动作同时放入 requiredExerciseIds 和 excludeExerciseIds");
+    expect(searchManifestJson).toContain("用户需要动作候选、routine 或 plan");
+    expect(searchManifestJson).toContain("缺少 warmup / stretch");
+    expect(searchManifestJson).not.toContain("不要求固定调用次数或顺序");
+    expect(searchManifestJson).toContain("过宽查询不能支撑 visibleOutputs");
     expect(searchManifestJson).not.toContain("不得用成功 final_answer.content 承诺本轮回复后还会自动继续查询或生成");
     expect(manifestJson).toContain("groups.<section>.exercises[] 是 section-scoped 动作事实来源");
     expect(manifestJson).toContain("visibleTrainingProposal.exerciseItems[*].section");
     expect(manifestJson).toContain("动作可进入哪些 visibleTrainingProposal.exerciseItems[*].section");
-    expect(manifestJson).toContain("section 应对应使用的 groups.<section> key");
+    expect(manifestJson).toContain("section 必须等于 groups key");
+    expect(manifestJson).toContain("section 应与所在 group key");
     expect(manifestJson).not.toContain("必须调用 searchExerciseResources");
     expect(manifestJson).not.toContain("必须调用 inspectVisibleTrainingProposals");
     expect(searchExamplesJson).not.toContain("用户说");
@@ -409,7 +422,6 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(searchExamplesJson).not.toContain("先用 resolveExerciseResourceMentions");
     expect(searchExamplesJson).not.toContain("上一轮结果中真实 matched exerciseId");
     expect(manifestJson).toContain("totalMatches=0");
-    expect(manifestJson).toContain("0 条事实查询结果");
     expect(manifestJson).toContain("published");
     expect(manifestJson).toContain("excludeExerciseIds");
     expect(manifestJson).toContain("requiredExerciseIds");
@@ -420,7 +432,10 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(searchExamplesJson).toContain("当前 run 已有受控 exerciseId");
     expect(searchExamplesJson).toContain("缺少 support section");
     expect(searchExamplesJson).toContain("当前约束查询 warmup 和 stretch 动作事实");
+    expect(searchExamplesJson).toContain("\"type\":\"tool_call\"");
+    expect(searchExamplesJson).toContain("\"toolName\":\"searchExerciseResources\"");
     expect(searchExamplesJson).toContain("\"equipment\":\"no_equipment\"");
+    expect(searchExamplesJson).not.toContain("\"equipment\":\"无器械\"");
     expect(searchExamplesJson).toContain("\"level\":\"beginner\"");
     expect(searchExamplesJson).toContain("\"suitabilities\":[\"warmup\",\"stretch\"]");
     expect(searchExamplesJson).not.toContain("\"homeRequirement\":\"none\"");
@@ -430,7 +445,7 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(manifestJson).not.toContain("lower_body");
     expect(manifestJson).not.toContain("upper_body");
     expect(manifestJson).not.toContain("full_body");
-    expect(manifestJson).toContain("真实肌群 facet");
+    expect(manifestJson).toContain("真实肌群值");
     expect(manifestJson).toContain("metadata.facetCatalog");
     expect(manifestJson).toContain("股四头肌");
     expect(manifestJson).toContain("居家小器械");

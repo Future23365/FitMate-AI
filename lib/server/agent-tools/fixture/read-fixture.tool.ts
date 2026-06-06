@@ -37,9 +37,13 @@ export const readFixtureTool = defineTool({
   examples: [
     {
       description: "读取一个 alpha 示例 fixture。",
-      input: {
-        fixtureId: "alpha-intro",
-        tags: ["alpha"],
+      action: {
+        type: "tool_call",
+        toolName: "readFixture",
+        input: {
+          fixtureId: "alpha-intro",
+          tags: ["alpha"],
+        },
       },
     },
   ],

@@ -75,13 +75,13 @@ const defaultAgentActionSystemPromptInstructions = [
 ] as const;
 
 // agentLlmPromptVersion 是当前通用 AgentAction system prompt 的稳定审阅标识。
-export const agentLlmPromptVersion = "agent-action-v19-schema-dictionary";
+export const agentLlmPromptVersion = "agent-action-v20-tool-manifest-layers";
 
 // defaultAgentActionContract 把字段形状、决策策略和少量 few-shot 从 system prompt 中结构化拆出。
 export const defaultAgentActionContract: AgentActionContract = {
   schemaId: "AgentAction",
   schemaVersion: "1",
-  purpose: "Planner 每轮只能输出一个 AgentAction。schema 合法性由服务端校验；本合同说明字段含义、决策顺序和引用边界。",
+  purpose: "Planner 每轮只能输出一个 AgentAction。schema 合法性由服务端校验；本合同集中说明字段含义、tool 使用、资源 glossary、决策顺序和引用边界。",
   shapes: {
     tool_call: {
       type: "tool_call",
@@ -133,6 +133,13 @@ export const defaultAgentActionContract: AgentActionContract = {
     { field: "outputContracts", meaning: "当前 run 可输出结构化结果的模型可见能力说明，不是服务端路由规则。" },
     { field: "toolResults[].fulfillment.satisfied", meaning: "该 tool result 是否满足工具能力；false 只能用于恢复、澄清或失败解释。" },
     { field: "toolResults[].producedResources", meaning: "本 run 工具执行后登记的 resource 引用来源；只有 consumable resource 可支撑成功结果。" },
+    { field: "factRef", meaning: "历史可见训练方案事实引用，只能作为对应读取 tool 的 ref.value；不能写入 final_answer.usedRefs.resource.id。" },
+    { field: "messageId", meaning: "历史消息引用，只能作为对应读取 tool 的 ref.value；不能写入 final_answer.usedRefs.resource.id。" },
+    { field: "resource.id", meaning: "当前 run 已登记 resourceId；只有这种 id 能进入 final_answer.usedRefs 中 type=resource 的引用。" },
+    { field: "diagnostic resource", meaning: "只用于诊断、索引、澄清或失败解释，不能直接支撑成功结构化输出。" },
+    { field: "consumable resource", meaning: "当前 run 可消费事实来源，可在满足 outputContracts 和 validator 边界时支撑成功 final_answer 或 visibleOutputs。" },
+    { field: "factSchemaVersion", meaning: "服务端事实存储版本，不等于 visibleOutputs[].schemaVersion。" },
+    { field: "visibleOutputs[].schemaVersion", meaning: "用户可见结构化输出 envelope 的 schema 版本，应来自 outputContracts，而不是复制 factSchemaVersion。" },
     { field: "resource summary", meaning: "ResourceStore 暴露给模型的安全压缩摘要，不是完整数据库对象或 handler output。" },
     { field: "observations", meaning: "runtime 给 Planner 的结构化反馈，包括 schema、domain、resource、grounding 或重复调用诊断。" },
   ],
@@ -148,15 +155,20 @@ export const defaultAgentActionContract: AgentActionContract = {
     "已有 tool result 后，成功 final_answer 应引用 satisfied=true tool result、consumable resource，或输出通过 validator 的 visibleOutputs[]。",
     "ok=true 且 satisfied=true 的空结果可以支撑普通文本解释，但不能伪装成结构化训练交付或已保存结果。",
     "failed、diagnostic、不可消费 resource 或 satisfied=false result 不能支撑成功 final_answer。",
+    "tool result 不是最终回答；tool 不直接生成 final_answer.visibleOutputs，不保存 artifact，不写用户记忆，也不能被当作已经完成的用户可见交付。",
+    "不得编造 exerciseId、resourceId、factRef、messageId、toolResultId 或 confirmation/hash。",
   ],
   referencePolicy: [
     "用户引用已有对象时，先内部判断 reuse、derive、modify、replace 或 clarify；这些标签不能出现在 AgentAction JSON 中。",
     "引用对象必须来自当前可见 messages、metadata、toolResults、observations 或 consumable resource。",
     "引用对象不可见或不可操作时，说明上下文不足；不能把引用型请求改写成假装成功的新生成结果。",
+    "保留、复用、派生或调整已有动作时，使用当前 run 可见的正向事实、consumable resource 或 requiredExerciseIds。",
+    "替换、排除或避免重复已有动作时，使用 excludeExerciseIds；不要把同一批动作同时放入 requiredExerciseIds 和 excludeExerciseIds。",
+    "requiredExerciseIds 和 excludeExerciseIds 是结构化查询锚点，不是固定用户短语触发规则。",
   ],
   repairPolicy: [
-    "schema_validation_failed：读取 errors[].path、code、expected、allowedFields、requiredFields 和 allowedValues，按当前合同重新输出合法 action。",
-    "domain_validation_failed：facts[] 是 validator 已确认事实，不是指定流程；基于当前工具、资源和用户目标选择合法 tool_call、ask_user 或失败收口。",
+    "正常首轮不要预设 repair 流程；只有当 observations 暴露 validator repair details 时，才按其中 errors[]、facts[]、allowedFields、requiredFields 或 allowedValues 修正。",
+    "repair 只修正 JSON 结构、字段、引用和 grounding，不改变用户意图，也不把失败 intent 改写成另一个服务端语义分支。",
     "不要输出当前 actionContract、tool schema 或 outputContracts 未声明的同义字段。",
   ],
   safetyPolicy: [
@@ -199,7 +211,7 @@ export const defaultAgentActionContract: AgentActionContract = {
         toolName: "从 tools[].name 复制可完成该能力的真实 toolName",
         input: "按该 tool schema 构造 JSON input",
       },
-      notes: ["如果 tools 中没有对应能力，说明边界或澄清，不虚构 toolName。"],
+      notes: ["这是完整 AgentAction 形态，不要只输出 input 片段。", "如果 tools 中没有对应能力，说明边界或澄清，不虚构 toolName。"],
     },
     {
       id: "partial_facts_for_structured_output",

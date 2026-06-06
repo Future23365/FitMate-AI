@@ -982,7 +982,8 @@ describe("searchExerciseResources tool", () => {
     expect(catalog.levels).toEqual(expect.arrayContaining(["beginner", "初级"]));
     expect(catalog.forces).toEqual(expect.arrayContaining(["push", "推", "pull", "拉"]));
     expect(catalog.mechanics).toEqual(expect.arrayContaining(["compound", "复合", "isolation", "孤立"]));
-    expect(catalog.equipment).toEqual(expect.arrayContaining(["body only", "自重", "dumbbell", "哑铃", "no_equipment", "无器械"]));
+    expect(catalog.equipment).toEqual(expect.arrayContaining(["body only", "自重", "dumbbell", "哑铃", "no_equipment"]));
+    expect(catalog.equipment).not.toContain("无器械");
     expect(catalog.homeRequirements).toEqual(expect.arrayContaining(["floor", "地面/瑜伽垫", "small_equipment", "居家小器械"]));
     expect(catalog.homeRequirements).not.toContain("none");
     expect(catalog.homeRequirements).not.toContain("无器械");
@@ -1090,7 +1091,7 @@ function createNoEquipmentFilterSemantic(requestedValue: string) {
       equipment: ["body only", "bodyweight"],
       equipmentZh: ["自重"],
     },
-    note: "equipment=no_equipment/无器械 表示不需要外部器械；repository 只映射到自重动作字段，不自动附加 homeRequirement 条件。",
+    note: "equipment=no_equipment 表示不需要外部器械；repository 只映射到自重动作字段，不自动附加 homeRequirement 条件。",
   };
 }
 
@@ -1115,7 +1116,7 @@ function normalizeTestExerciseResourceFacetCatalogForPlanner(catalog: {
 }) {
   return {
     ...catalog,
-    equipment: [...new Set([...catalog.equipment, "no_equipment", "无器械"])],
+    equipment: [...new Set([...catalog.equipment.filter((value) => value.trim() !== "无器械"), "no_equipment"])],
     homeRequirements: catalog.homeRequirements.filter((value) => !isTestRemovedNoEquipmentHomeRequirementValue(value)),
   };
 }

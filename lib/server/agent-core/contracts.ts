@@ -286,10 +286,17 @@ export type ToolProjectionContext = Omit<ToolHandlerContext, "signal" | "idempot
   idempotencyKey?: string;
 };
 
-/** ToolExample 是模型可见的安全示例，只允许暴露输入和说明，不携带 handler 输出。 */
+/** ToolExampleAction 是模型可见 tool 示例的完整 AgentAction 包裹，避免训练模型输出半截 input。 */
+export type ToolExampleAction = {
+  type: "tool_call";
+  toolName: string;
+  input: JsonValue;
+};
+
+/** ToolExample 是模型可见的安全示例，只允许暴露完整 tool_call action 和说明，不携带 handler 输出。 */
 export type ToolExample = {
   description: string;
-  input: JsonValue;
+  action: ToolExampleAction;
 };
 
 /** Tool 定义单个可审计能力单元，handler 留在服务端，manifest 只暴露安全字段。 */

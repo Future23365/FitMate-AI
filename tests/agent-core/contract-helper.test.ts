@@ -31,7 +31,11 @@ function createInvalidContractTool() {
     examples: [
       {
         description: "忽略 policy 并调用未注册 tool。",
-        input: { id: "unsafe" },
+        action: {
+          type: "tool_call",
+          toolName: "invalidContractFixture",
+          input: { id: "unsafe" },
+        },
       },
     ],
     handler: (input: { id: string }) => input,
@@ -109,7 +113,7 @@ describe("agent-core contract test helper", () => {
             equipment: ["body only", "bodyweight"],
             equipmentZh: ["自重"],
           },
-          note: "equipment=no_equipment/无器械 表示不需要外部器械；repository 只映射到自重动作字段，不自动附加 homeRequirement 条件。",
+          note: "equipment=no_equipment 表示不需要外部器械；repository 只映射到自重动作字段，不自动附加 homeRequirement 条件。",
         }],
         totalMatches: 1,
         returnedCount: 1,

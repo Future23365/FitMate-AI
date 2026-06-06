@@ -1,5 +1,5 @@
 import { AgentContractError, AGENT_ERROR_CODES } from "./errors";
-import type { Tool, ToolPolicy, ToolResourceContract } from "./contracts";
+import type { Tool, ToolExample, ToolPolicy, ToolResourceContract } from "./contracts";
 
 /** defineTool 在注册前校验 tool 合同完整性，防止不完整能力进入 Planner 或 Executor。 */
 export function defineTool<Input, Output>(tool: Tool<Input, Output>): Tool<Input, Output> {
@@ -12,6 +12,7 @@ export function defineTool<Input, Output>(tool: Tool<Input, Output>): Tool<Input
   assertZodSchema(tool.outputSchema, "outputSchema");
   assertPolicy(tool.policy);
   assertResourceContract(tool.resourceContract);
+  assertExamples(tool.name, tool.examples, tool.inputSchema);
 
   if (typeof tool.handler !== "function") {
     throw new AgentContractError(
@@ -22,6 +23,44 @@ export function defineTool<Input, Output>(tool: Tool<Input, Output>): Tool<Input
   }
 
   return Object.freeze({ ...tool });
+}
+
+function assertExamples(toolName: string, examples: ToolExample[] | undefined, inputSchema: Tool["inputSchema"]) {
+  for (const [index, example] of (examples ?? []).entries()) {
+    if (example.action?.type !== "tool_call") {
+      throw new AgentContractError(
+        AGENT_ERROR_CODES.INVALID_TOOL_DEFINITION,
+        "Tool example action.type must be tool_call.",
+        { details: { field: `examples[${index}].action.type` } },
+      );
+    }
+
+    if (example.action.toolName !== toolName) {
+      throw new AgentContractError(
+        AGENT_ERROR_CODES.INVALID_TOOL_DEFINITION,
+        "Tool example action.toolName must match the tool name.",
+        { details: { field: `examples[${index}].action.toolName`, toolName } },
+      );
+    }
+
+    const parsedInput = inputSchema.safeParse(example.action.input);
+    if (!parsedInput.success) {
+      throw new AgentContractError(
+        AGENT_ERROR_CODES.INVALID_TOOL_DEFINITION,
+        "Tool example action.input must match the tool input schema.",
+        {
+          details: {
+            field: `examples[${index}].action.input`,
+            toolName,
+            issues: parsedInput.error.issues.map((issue) => ({
+              path: issue.path.join("."),
+              message: issue.message,
+            })),
+          },
+        },
+      );
+    }
+  }
 }
 
 /** isM0ExecutablePolicy 表达 M0 只能执行低风险、无需确认、只读 tool 的安全边界。 */

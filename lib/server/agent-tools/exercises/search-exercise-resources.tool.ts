@@ -29,10 +29,10 @@ const maxMuscles = 20;
 const exerciseIdSchema = z.string().trim().min(1).max(120).regex(/^[A-Za-z0-9:_-]+$/);
 const catalogFacetDescription = "精确筛选值应优先从 manifest metadata.facetCatalog 的对应数组中选择；服务端只执行 schema、去空、去重和数据库查询。";
 const equipmentFilterSchema = optionalTextFilterSchema
-  .describe(`器械可用性或器械类别的精确筛选值；可使用 no_equipment 或 无器械 表达不需要哑铃、杠铃、固定器械或其他外部器械的动作查询。${catalogFacetDescription}`);
+  .describe(`器械可用性或器械类别的精确筛选值；无外部器械统一使用 no_equipment。${catalogFacetDescription}`);
 const homeRequirementFilterSchema = textFilterValueSchema
   .refine((value) => !isRemovedNoEquipmentHomeRequirementValue(value), {
-    message: "homeRequirement 只表示环境、场地或支撑条件；无器械约束应使用 equipment = \"no_equipment\" 或 \"无器械\"。",
+    message: "homeRequirement 只表示环境、场地或支撑条件；无外部器械约束应使用 equipment = \"no_equipment\"。",
   })
   .optional()
   .describe(`环境、场地或支撑条件的精确筛选值，例如地面、支撑物、户外、搭档、居家小器械或健身房器械；不表示器械可用性。${catalogFacetDescription}`);
@@ -198,28 +198,24 @@ export type CreateSearchExerciseResourcesToolOptions = {
 export function createSearchExerciseResourcesTool(options: CreateSearchExerciseResourcesToolOptions = {}) {
   return defineTool<SearchExerciseResourcesInput, SearchExerciseResourcesOutput>({
     name: "searchExerciseResources",
-    version: "0.7.0",
-    description: "只读查询发布态动作事实，并按 suitabilities 返回 groups.<section>.exercises[]。equipment 表达器械可用性或器械类别，homeRequirement 只表达环境、场地或支撑条件。本 tool 不生成 visibleTrainingProposal、routine、plan、prescription、schedule、保存结果或用户记忆；totalMatches=0 也是已完成的事实查询结果。",
+    version: "0.8.0",
+    description: "只读查询发布态 Exercise 动作事实，并按 suitabilities 返回 groups.<section>.exercises[]；这些 section-scoped exercises 是训练结构动作项的主要事实来源。",
     whenToUse: [
-      "用于查询带明确结构化条件的发布态动作列表，例如真实肌群 facet、器械、难度、居家条件、目标标签、风险标签、分类，或 suitabilities 指定 warmup/training/stretch 用途。",
-      "所有精确 facet 值应优先从 metadata.facetCatalog 选择；肌群筛选统一使用 muscles 数组，单个真实肌群 facet 也写成 muscles: [\"...\"]。旧高层身体区域字段已删除，不能输出 schema 中不存在的字段。",
-      "equipment = \"no_equipment\" 或 \"无器械\" 是 tool 合同层稳定查询值，表示不需要外部器械；homeRequirement 只描述环境、场地或支撑条件。",
-      "groups.<section>.exercises[] 是 section-scoped 动作事实来源；生成 visibleTrainingProposal.exerciseItems[] 时，section 应对应使用的 groups.<section> key，并且必须被该动作 allowedSections 包含。",
-      "requiredExerciseIds 是正向查询锚点：当当前 run 已有受控发布态 exerciseId，例如来自点名动作解析、已导入可消费训练事实或用户明确给出的受控 id 时，可传入该字段让这些动作优先进入对应 groups。",
-      "excludeExerciseIds 是负向排除：只在用户已经看到且当前目标需要替换、排除或避免重复，或用户明确要求不要某些动作时使用；保留、复用、派生或调整已有动作时不要写入 excludeExerciseIds。",
-      "如果当前目标需要 routine 或 plan，且现有事实缺少 warmup / stretch，可沿用当前目标、器械、场地、难度或肌群约束，用 suitabilities = [\"warmup\", \"stretch\"] 或等价缺失 section 查询补齐候选。",
-      "input 除默认 suitabilities、published、sort 外没有目标、facet、器械、场地、点名动作或当前 run 可见动作锚点时，只能作为过宽查询诊断，不能支撑训练推送结构。",
-      "本 tool 不要求固定调用次数或顺序；它只提供当前查询实际返回 section 的动作事实，不代表最终训练结构已经生成。",
+      "用户需要动作候选、routine 或 plan，并且已有肌群、器械、难度、场地、目标标签、section 用途或受控 exerciseId 等结构化约束时使用。",
+      "所有精确 facet 值应优先从 metadata.facetCatalog 选择；muscles 必须使用 facetCatalog.muscles 中真实肌群值，宽泛身体区域应转成更具体肌群或改用澄清/其他约束。",
+      "无外部器械统一写 equipment: \"no_equipment\"；homeRequirement 只表示环境、场地或支撑条件，不表示器械可用性。",
+      "groups.<section>.exercises[] 是 section-scoped 动作事实来源；生成 visibleTrainingProposal.exerciseItems[] 时，section 必须等于 groups key，并且该动作 allowedSections 必须包含该 section。",
+      "requiredExerciseIds 是正向锚点，用于让已解析或已导入的发布态动作优先进入 groups；excludeExerciseIds 是负向排除，用于替换或避免重复。",
+      "需要补齐 warmup、training 或 stretch 某些 section 时，沿用当前目标、器械、场地、难度或肌群约束查询缺失 section。",
+      "过宽查询不能支撑 visibleOutputs；如果 input 只有默认 suitabilities、published 或 sort，且没有目标约束、器械、肌群、场地、难度或 requiredExerciseIds，则结果只能用于诊断。",
     ].join(" "),
     whenNotToUse: [
-      "不要用它生成 visibleTrainingProposal、routine、plan、patch、prescription、schedule、训练卡片、保存 artifact、用户记忆或执行候选集合。",
-      "不要用它判断当前会话有没有上一轮 visibleTrainingProposal、列出 factRef/messageId、读取完整 visibleTrainingProposal.payload，或替代引用事实读取工具。",
-      "不要把 0 条事实查询结果、failed result、invalid-input result 或过宽查询诊断当作训练推送结构的消费证据。",
+      "不要用它判断当前会话有没有上一轮 visibleTrainingProposal、列出 factRef/messageId、读取完整 visibleTrainingProposal.payload，或替代历史方案读取工具。",
+      "不要把 totalMatches=0、failed result、invalid-input result 或过宽查询诊断当作训练结构的动作事实。",
       "不要把 groups.training 中且 allowedSections 不包含 warmup/stretch 的动作写入 visibleTrainingProposal.exerciseItems[*].section = warmup 或 stretch；不同 section 需要对应 section 的动作事实支撑。",
       "不要用它查询未发布动作、单个动作详情、唯一动作名解析、全库 facet 统计、分页、limit、offset、page、pageSize 或语义向量检索。",
       "不要用 homeRequirement 表达器械是否可用；无外部器械是 equipment 的查询语义。",
-      "不要编造 requiredExerciseIds，也不要从 handler-only 结果、model observation、diagnostic 候选、未展示内部候选或未导入历史中提取 excludeExerciseIds。",
-      "不要把宽泛身体区域直接当成真实肌群 facet；应由模型基于 facetCatalog 选择数据库中真实存在的一个或多个肌群。",
+      "不要把同一批动作同时放入 requiredExerciseIds 和 excludeExerciseIds。",
     ].join(" "),
     inputSchema: searchExerciseResourcesInputSchema,
     outputSchema: searchExerciseResourcesOutputSchema,
@@ -237,31 +233,43 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
     examples: [
       {
         description: "按多个真实肌群、无外部器械、用途和难度查询 training 动作事实。",
-        input: {
-          muscles: ["胸部", "肱三头肌"],
-          equipment: "no_equipment",
-          suitabilities: ["training"],
-          level: "beginner",
+        action: {
+          type: "tool_call",
+          toolName: "searchExerciseResources",
+          input: {
+            muscles: ["胸部", "肱三头肌"],
+            equipment: "no_equipment",
+            suitabilities: ["training"],
+            level: "beginner",
+          },
         },
       },
       {
         description: "为已需要 routine 或 plan 且缺少 support section 的目标，沿用当前约束查询 warmup 和 stretch 动作事实。",
-        input: {
-          muscles: ["胸部"],
-          equipment: "no_equipment",
-          level: "beginner",
-          suitabilities: ["warmup", "stretch"],
-          sort: "name_asc",
+        action: {
+          type: "tool_call",
+          toolName: "searchExerciseResources",
+          input: {
+            muscles: ["胸部"],
+            equipment: "no_equipment",
+            level: "beginner",
+            suitabilities: ["warmup", "stretch"],
+            sort: "name_asc",
+          },
         },
       },
       {
         description: "在当前 run 已有受控 exerciseId 时，用 requiredExerciseIds 让这些发布态动作优先进入对应 groups。",
-        input: {
-          suitabilities: ["training"],
-          equipment: "no_equipment",
-          level: "beginner",
-          requiredExerciseIds: ["Pushups", "Bodyweight_Squat", "Plank"],
-          sort: "name_asc",
+        action: {
+          type: "tool_call",
+          toolName: "searchExerciseResources",
+          input: {
+            suitabilities: ["training"],
+            equipment: "no_equipment",
+            level: "beginner",
+            requiredExerciseIds: ["Pushups", "Bodyweight_Squat", "Plank"],
+            sort: "name_asc",
+          },
         },
       },
     ],

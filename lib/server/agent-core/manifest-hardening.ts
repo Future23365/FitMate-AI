@@ -7,6 +7,7 @@ import type {
   JsonValue,
   RegistrySnapshot,
   RegistrySnapshotTool,
+  ToolExample,
   ToolManifest,
   ToolManifestLintIssue,
   ToolManifestLintResult,
@@ -125,7 +126,7 @@ function toSnapshotTool(manifest: ToolManifest): RegistrySnapshotTool {
     metadata: manifest.metadata ? redactJsonValue(manifest.metadata) as Record<string, JsonValue> : undefined,
     examples: manifest.examples?.map((example) => ({
       description: example.description,
-      input: redactJsonValue(example.input),
+      action: redactJsonValue(example.action) as typeof example.action,
     })),
   };
 }
@@ -260,6 +261,7 @@ function validateExamples(manifest: ToolManifest, issues: ToolManifestLintIssue[
 
   manifest.examples.forEach((example, index) => {
     const serialized = stableStringify(example);
+    validateExampleAction(manifest, example, index, issues);
     if (INJECTION_EXAMPLE_PATTERN.test(serialized)) {
       issues.push({
         code: "unsafe_example",
@@ -268,4 +270,37 @@ function validateExamples(manifest: ToolManifest, issues: ToolManifestLintIssue[
       });
     }
   });
+}
+
+function validateExampleAction(
+  manifest: ToolManifest,
+  example: ToolExample,
+  index: number,
+  issues: ToolManifestLintIssue[],
+) {
+  const action = example.action as Record<string, unknown> | undefined;
+  if (!action || action.type !== "tool_call") {
+    issues.push({
+      code: "unsafe_example",
+      path: `$.examples[${index}].action.type`,
+      message: "Manifest example must use a complete tool_call AgentAction.",
+    });
+    return;
+  }
+
+  if (action.toolName !== manifest.name) {
+    issues.push({
+      code: "unsafe_example",
+      path: `$.examples[${index}].action.toolName`,
+      message: "Manifest example toolName must match the manifest name.",
+    });
+  }
+
+  if (!("input" in action)) {
+    issues.push({
+      code: "unsafe_example",
+      path: `$.examples[${index}].action.input`,
+      message: "Manifest example must include action.input.",
+    });
+  }
 }

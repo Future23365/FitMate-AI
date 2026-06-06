@@ -24,8 +24,8 @@ import type {
 export const EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED = 24;
 /** EXERCISE_RESOURCE_MENTION_HARD_MAX_MATCHES 是点名解析候选的安全上限，默认值仍来自 Agent runtime config。 */
 export const EXERCISE_RESOURCE_MENTION_HARD_MAX_MATCHES = 10;
-/** EXERCISE_RESOURCE_NO_EQUIPMENT_QUERY_VALUES 是 Planner 可见的无外部器械查询合同值，不是 homeRequirement facet。 */
-export const EXERCISE_RESOURCE_NO_EQUIPMENT_QUERY_VALUES = ["no_equipment", "无器械"] as const;
+/** EXERCISE_RESOURCE_NO_EQUIPMENT_QUERY_VALUES 是 Planner 可见的无外部器械 canonical 查询值，不是 homeRequirement facet。 */
+export const EXERCISE_RESOURCE_NO_EQUIPMENT_QUERY_VALUES = ["no_equipment"] as const;
 
 const bodyweightEquipmentValues = ["body only", "bodyweight"] as const;
 const bodyweightEquipmentZhValues = ["自重"] as const;
@@ -831,7 +831,7 @@ export function normalizeExerciseResourceFacetCatalogForPlanner(
 ): ExerciseResourceFacetCatalog {
   return {
     ...catalog,
-    equipment: addNoEquipmentQueryValues(catalog.equipment),
+    equipment: addNoEquipmentQueryValues(catalog.equipment.filter((value) => value.trim() !== "无器械")),
     homeRequirements: catalog.homeRequirements.filter((value) => !isRemovedNoEquipmentHomeRequirementValue(value)),
   };
 }
@@ -1114,7 +1114,7 @@ function collectExerciseResourceFilterSemantics(input: ExerciseResourceSearchInp
       equipment: [...bodyweightEquipmentValues],
       equipmentZh: [...bodyweightEquipmentZhValues],
     },
-    note: "equipment=no_equipment/无器械 表示不需要外部器械；repository 只映射到自重动作字段，不自动附加 homeRequirement 条件。",
+    note: "equipment=no_equipment 表示不需要外部器械；repository 只映射到自重动作字段，不自动附加 homeRequirement 条件。",
   }];
 }
 
