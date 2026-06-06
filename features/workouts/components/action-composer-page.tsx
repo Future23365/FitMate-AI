@@ -146,15 +146,16 @@ const composerLibraryPageSize = 30;
 const composerStatusToastId = "action-composer-status";
 type ComposerStatusToastType = "success" | "error" | "loading" | "info" | "warning";
 
+// 导入模板只引用当前动作库可命中的动作，避免默认编排出现空 section。
 const templateExerciseConfigs: TemplateExerciseConfig[] = [
   {
-    query: "开合跳",
-    preferredIds: ["Jumping_Jacks", "Jumping_Jack"],
+    query: "手臂绕环",
+    preferredIds: ["Arm_Circles"],
     mode: "duration",
     section: "warmup",
-    target: 40,
+    target: 30,
     sets: 2,
-    setRestSeconds: 20,
+    setRestSeconds: 15,
     transitionRestSeconds: 20,
   },
   {
@@ -173,6 +174,26 @@ const templateExerciseConfigs: TemplateExerciseConfig[] = [
     mode: "reps",
     section: "training",
     target: 15,
+    sets: 3,
+    setRestSeconds: 30,
+    transitionRestSeconds: 20,
+  },
+  {
+    query: "登山者",
+    preferredIds: ["Mountain_Climbers"],
+    mode: "duration",
+    section: "training",
+    target: 30,
+    sets: 3,
+    setRestSeconds: 30,
+    transitionRestSeconds: 20,
+  },
+  {
+    query: "自重行走弓步",
+    preferredIds: ["Bodyweight_Walking_Lunge"],
+    mode: "reps",
+    section: "training",
+    target: 10,
     sets: 3,
     setRestSeconds: 30,
     transitionRestSeconds: 20,
