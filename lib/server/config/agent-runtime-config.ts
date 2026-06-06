@@ -63,7 +63,7 @@ export const agentRuntimeConfig = {
     /** maxTokens 限制单次 AgentAction 输出长度；调大可能增加成本，调小可能截断 visibleOutputs 或 repair 信息。 */
     maxTokens: 10_000,
     /** timeoutMs 限制单次模型请求等待时间；调大增加用户等待，调小会放大慢响应的失败率。 */
-    timeoutMs: 15_000,
+    timeoutMs: 30_000,
     /** deepSeek 集中保存 DeepSeek provider 专有请求策略，避免 adapter 局部散落模型名和推理强度。 */
     deepSeek: {
       /** defaultModel 是生产 Planner 的默认 DeepSeek 模型；部署环境仍可用 DEEPSEEK_MODEL 覆盖最终请求 model。 */

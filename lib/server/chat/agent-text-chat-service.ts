@@ -73,36 +73,18 @@ const budgetOrTimeoutFailureMessage = "这次请求需要的步骤或信息量�
 const terminalReferenceFailureMessage = "这次没能确认最终回复引用的事实来源，所以我不会展示可能不可靠的结果。你可以让我先读取可用事实，或把目标拆成更小的一步。";
 const repairExhaustedFailureMessage = "这次没能把内部结果修正到可安全回复的状态，所以我不会展示不可靠内容。你可以缩小问题范围、补充关键信息，或先让我说明当前可用事实。";
 const providerUnavailableFailureMessage = "模型服务暂时不可用或请求受限，所以这次不能继续生成可靠回复。你可以稍后重试，或先把问题缩小后再发一次。";
-const unsupportedToolActionSuggestions = [
-  "改成普通文本问题",
-  "先解释训练原则",
-  "我需要补充哪些信息",
+// 固定 fallback 建议按钮统一为用户可直接追问的三种恢复入口。
+const fixedTerminalFailureSuggestions = [
+  "为什么没成功？",
+  "你再试试",
+  "要不换个别的？",
 ];
-const visibleOutputValidationFailureSuggestions = [
-  "缩小训练范围",
-  "补充缺失条件",
-  "先说明当前可用事实",
-];
-const budgetOrTimeoutFailureSuggestions = [
-  "减少训练限制条件",
-  "拆成两步提问",
-  "先回答核心问题",
-];
-const terminalReferenceFailureSuggestions = [
-  "先读取可用事实",
-  "拆成一步完成",
-  "重新说明训练目标",
-];
-const repairExhaustedFailureSuggestions = [
-  "缩小问题范围",
-  "补充关键信息",
-  "先说明当前可用事实",
-];
-const providerUnavailableFailureSuggestions = [
-  "稍后重试",
-  "缩小问题后再问",
-  "先问普通训练原则",
-];
+const unsupportedToolActionSuggestions = fixedTerminalFailureSuggestions;
+const visibleOutputValidationFailureSuggestions = fixedTerminalFailureSuggestions;
+const budgetOrTimeoutFailureSuggestions = fixedTerminalFailureSuggestions;
+const terminalReferenceFailureSuggestions = fixedTerminalFailureSuggestions;
+const repairExhaustedFailureSuggestions = fixedTerminalFailureSuggestions;
+const providerUnavailableFailureSuggestions = fixedTerminalFailureSuggestions;
 const directUnsupportedErrorCodes = new Set<string>([
   AGENT_ERROR_CODES.UNKNOWN_TOOL,
   AGENT_ERROR_CODES.UNSUPPORTED_M0_CAPABILITY,

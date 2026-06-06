@@ -32,6 +32,8 @@ import type {
 import type { ExerciseResourceFacetCatalog } from "@/lib/server/exercises/exercise-repository";
 import { createChatConversation } from "./fixtures/domain";
 
+const fixedTerminalFailureSuggestions = ["为什么没成功？", "你再试试", "要不换个别的？"];
+
 const exerciseResourceRepositoryMocks = vi.hoisted(() => ({
   getExerciseResourceSummariesByIds: vi.fn(),
   getExerciseRecordsByIds: vi.fn(),
@@ -1609,7 +1611,7 @@ describe("chat service agent text flow boundary", () => {
       { type: "content", content: expect.stringContaining("没能确认最终回复引用的事实来源") },
       {
         type: "suggested_questions",
-        suggestedQuestions: expect.arrayContaining(["先读取可用事实"]),
+        suggestedQuestions: fixedTerminalFailureSuggestions,
       },
       { type: "done" },
     ]);
@@ -2918,9 +2920,7 @@ describe("chat service agent text flow boundary", () => {
       { type: "content", content: expect.stringContaining("当前未接入的工具") },
       {
         type: "suggested_questions",
-        suggestedQuestions: expect.arrayContaining([
-          "改成普通文本问题",
-        ]),
+        suggestedQuestions: fixedTerminalFailureSuggestions,
       },
       { type: "done" },
     ]);
@@ -3005,9 +3005,7 @@ describe("chat service agent text flow boundary", () => {
       { type: "content", content: expect.stringContaining("没有生成通过校验的可靠训练结果") },
       {
         type: "suggested_questions",
-        suggestedQuestions: expect.arrayContaining([
-          "补充缺失条件",
-        ]),
+        suggestedQuestions: fixedTerminalFailureSuggestions,
       },
       { type: "done" },
     ]);
@@ -3173,7 +3171,7 @@ describe("chat service agent text flow boundary", () => {
       { type: "content", content: expect.stringContaining("模型服务暂时不可用") },
       {
         type: "suggested_questions",
-        suggestedQuestions: expect.arrayContaining(["稍后重试"]),
+        suggestedQuestions: fixedTerminalFailureSuggestions,
       },
       { type: "done" },
     ]);
@@ -3238,7 +3236,7 @@ describe("chat service agent text flow boundary", () => {
       { type: "content", content: expect.stringContaining("没有生成通过校验的可靠训练结果") },
       {
         type: "suggested_questions",
-        suggestedQuestions: expect.arrayContaining(["补充缺失条件"]),
+        suggestedQuestions: fixedTerminalFailureSuggestions,
       },
       { type: "done" },
     ]);
@@ -3281,9 +3279,7 @@ describe("chat service agent text flow boundary", () => {
       { type: "content", content: expect.stringContaining("步骤或信息量超出了当前处理范围") },
       {
         type: "suggested_questions",
-        suggestedQuestions: expect.arrayContaining([
-          "拆成两步提问",
-        ]),
+        suggestedQuestions: fixedTerminalFailureSuggestions,
       },
       { type: "done" },
     ]);
@@ -3339,7 +3335,7 @@ describe("chat service agent text flow boundary", () => {
       { type: "content", content: expect.stringContaining("没能把内部结果修正到可安全回复的状态") },
       {
         type: "suggested_questions",
-        suggestedQuestions: expect.arrayContaining(["缩小问题范围"]),
+        suggestedQuestions: fixedTerminalFailureSuggestions,
       },
       { type: "done" },
     ]);
@@ -3403,7 +3399,7 @@ describe("chat service agent text flow boundary", () => {
       { type: "content", content: expect.stringContaining("没能把内部结果修正到可安全回复的状态") },
       {
         type: "suggested_questions",
-        suggestedQuestions: expect.arrayContaining(["缩小问题范围"]),
+        suggestedQuestions: fixedTerminalFailureSuggestions,
       },
       { type: "done" },
     ]);
