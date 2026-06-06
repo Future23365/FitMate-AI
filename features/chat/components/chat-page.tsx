@@ -26,7 +26,7 @@ const quickPrompts = [
   },
   {
     title: "动作询问",
-    prompt: "今天我要减肥，想多练练核心，有没有推荐的动作？",
+    prompt: "今天我要减肥，想多练练核心，有没有推荐的动作",
   },
   {
     title: "计划建议",
@@ -526,7 +526,7 @@ export function ChatPage() {
                     你的 AI 健身计划助手
                   </h2>
                   <p className="mx-auto max-w-2xl font-body-lg text-body-lg text-muted">
-                    告诉我你的目标、时间、器械和身体限制，我会帮你生成训练计划、推荐动作或安排今天的训练。
+                    告诉我你的目标、时间、器械，我会帮你推荐动作或安排今天的训练。
                   </p>
                 </div>
               </div>
