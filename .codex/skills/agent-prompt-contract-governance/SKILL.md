@@ -1,24 +1,25 @@
 ---
 name: agent-prompt-contract-governance
-description: 治理 AITest 中 Agent prompt 与模型实际可见输入的合同变更。作为 primary skill 用于修改 Agent prompt、model input、tool manifest、schema summary、examples、repair feedback、context package、observations、compressed tool results、AgentAction 输出格式说明、final grounding 说明，新增/调整业务 Agent tool 的模型可见说明，或在 tool 字段重命名后同步模型可见字段说明；不用于普通 UI 文案、README 文案、tool handler、runtime validation、ResourceStore、Policy Guard、Response Renderer、production route 或与模型执行合同无关的小修。
+description: 治理 AITest 中 Agent prompt 与模型实际可见输入的合同变更，并要求所有传给 AI 的提示词、tool manifest 和模型可见说明先对齐 docs/llm-prompt-guidance.md 的分层、职责和检查清单。作为 primary skill 用于修改 Agent prompt、model input、tool manifest、schema summary、examples、repair feedback、context package、observations、compressed tool results、AgentAction 输出格式说明、final grounding 说明，新增/调整业务 Agent tool 的模型可见说明，或在 tool 字段重命名后同步模型可见字段说明；不用于普通 UI 文案、README 文案、tool handler、runtime validation、ResourceStore、Policy Guard、Response Renderer、production route 或与模型执行合同无关的小修。
 ---
 
 # Agent Prompt 合同治理
 
 ## 使用目标
 
-用这个 Skill 先审“模型实际看到了什么”，再决定怎么修改 prompt / model input。重点是稳定 Agent Orchestrator 的执行合同，而不是做普通文案润色。
+用这个 Skill 先审“模型实际看到了什么”，再按 `docs/llm-prompt-guidance.md` 判断提示词应该落在哪一层，最后决定怎么修改 prompt / model input。重点是稳定 Agent Orchestrator 的执行合同，而不是做普通文案润色。
 
 ## 前置检查
 
 0. 每个任务只选择一个 primary governance skill。本 Skill 只在模型实际可见输入是主问题时作为 primary；涉及 tool/core/runtime/production 执行合同时，`agent-tool-change-governance` 作为 primary，本 Skill 只做模型可见说明的 secondary 检查。
 1. 运行或读取当前 OpenSpec change 状态；非文案类 prompt / model input 变更必须先有 OpenSpec 边界。
-2. 运行 `git status --short`。如有无关改动，不要混入当前 diff 或 commit。
-3. 判断是否还需要同时使用 `agent-tool-change-governance`：
+2. 读取 `docs/llm-prompt-guidance.md` 中与本次改动相关的章节，并把它作为 prompt / tool 模型可见提示词设计的基准；不要把指南整篇复制进 prompt。
+3. 运行 `git status --short`。如有无关改动，不要混入当前 diff 或 commit。
+4. 判断是否还需要同时使用 `agent-tool-change-governance`：
    - 新增业务 tool、修 Agent tool bug、改 core contract、改 production 接入、触碰 `PlannerPort`、Executor、`Policy Guard`、`ResourceStore`、`Resource Contract Validator`、`Response Renderer`、trace/replay 或 `/api/chat` 主链路时，先用 `agent-tool-change-governance` 定范围。
    - 涉及业务 tool `inputSchema`、`outputSchema`、handler、resource、projection、trace 或测试中的字段命名、弃用和重命名时，先用 `agent-tool-change-governance` 治理执行合同，再用本 Skill 检查模型可见说明。
    - 只修改 prompt、model input、manifest、schema summary、examples、repair feedback、context package、observations 或 compressed tool results 时，用本 Skill 治理模型可见合同。
-4. 实现前说明问题根因或产品需求、设计方向、预计影响模块和取舍。
+5. 实现前说明问题根因或产品需求、设计方向、预计影响模块和取舍。
 
 ## 修改类型
 
@@ -30,6 +31,21 @@ description: 治理 AITest 中 Agent prompt 与模型实际可见输入的合同
 - context / observation 投影：context package、observations、compressed tool results、resource 摘要、redaction 后内容。
 - production prompt 规则：生产聊天接入的模型输入、空 registry 行为、能力边界说明。
 - 模型可见描述语言：system / developer prompt、manifest、schema description、examples、repair feedback、observations、compressed tool results、final grounding 等描述性自然语言默认使用中文。
+
+## Prompt / Tool 分层设计
+
+每次修改发给 AI 的提示词或 tool 模型可见说明，都必须先按 `docs/llm-prompt-guidance.md` 判断职责层级：
+
+- `System Prompt` 只放角色、硬约束、输出格式、安全边界和终态/工具动作区别；保持短句化，不承载字段长解释、工具流程、历史 bug 黑名单或 validator 修复细节。
+- `Action Contract` 和 `Output Contract` 负责 action JSON 与最终结构形状；字段合法性依赖 JSON Schema、Zod、TypeScript type 或后端 validator，prompt 只解释语义和决策边界。
+- `Glossary` 负责容易混淆的内部概念、ID、ref、resource、handle、key、状态和事实等级；相似概念优先用表格对照来源、用途、禁用场景和是否允许模型生成。
+- `Planner Policy` 负责选择规则、优先级、tie-breaker、停止条件和合法失败出口；不要把字段类型或每个 tool 的参数细节写进 policy。
+- `Tool Manifest` 负责工具能力、边界、输入来源、输出事实含义和 grounding；不要写成后端 API 文档，也不要承担完整业务 workflow。
+- `Runtime Context` 只提供当前 run 的事实，例如用户输入、metadata、当前 tools、observations、toolResults、producedResources 和 consumable resources；不要混入长期规则。
+- `Validator` 负责结构、字段、枚举、ID、事实来源和可渲染性校验；不要让 validator 重新理解用户意图、选择工具或生成业务字段。
+- `Repair Prompt` 独立于主 prompt，只修正上一轮非法 action；必须基于错误路径、错误码、expected、actual、allowedFields、allowedValues 和当前合同做局部修复。
+
+设计结论必须遵守：Prompt 定策略，Schema 定形状，Glossary 定概念，Tool 定能力，Runtime 给事实，Validator 守边界，Repair 修错误。
 
 ## 必查真实输入
 
@@ -56,6 +72,9 @@ prompt / model input 修复的目标不是把业务流程写死给服务端，�
 - 模型是否能从可见输入中稳定区分相邻语义，例如 plan 与 routine、查看与生成、调整与新建、失败解释与成功回答？
 - tool result 中哪些内容可以支撑 `final_answer`，哪些只能用于追问、解释失败或下一轮 repair。
 - 当 tool input 被拒绝、resource 不可消费或结果不足时，模型应该如何修正或澄清。
+- 每条 prompt 规则是否长期稳定、是否放在正确层级、是否应该改由 schema / tool manifest / glossary / repair 承担、是否重复、是否有优先级、是否能改成正向准入条件。
+- Planner policy 是否明确 `final_answer`、`ask_user`、`tool_call`、继续 tool、停止 tool、失败收口的优先级和 tie-breaker。
+- 最终输出事实是否只能来自用户输入、metadata、toolResults、producedResources 或 consumable resources；不能来自模型记忆、示例 ID、未导入历史文本、失败工具结果、未注册工具或未暴露数据库事实。
 
 不要把单个业务流程写成服务端隐藏编排；如果模型缺少判断依据，应补模型可见上下文、tool 说明、schema、examples、repair feedback、observation、final grounding 或结构化字段。prompt 修复必须覆盖语义类别，涉及可复现 bug 时至少覆盖原始输入和一个等价表达。
 
@@ -104,16 +123,33 @@ prompt / model input 修复的目标不是把业务流程写死给服务端，�
 
 新增或修改业务 Agent tool 时，同步补齐该 tool 的模型可见说明：
 
+- tool 说明必须围绕六个问题组织：`Purpose`、`Use When`、`Do Not Use When`、`Input Source`、`Output Meaning`、`Grounding Rules`。
 - `description` 说明稳定资源和能力，而不是当前页面或当前流程。
-- `whenToUse` / `whenNotToUse` 覆盖同类场景和边界，例如最近、列表、筛选、详情读取、跨资源、跨权限、写操作或不可消费结果。
+- tool 名称应表达动作和资源对象；避免 `handle*`、`process*`、`manage*`、`commonTool` 这类泛化命名。
+- `whenToUse` 写稳定意图类型，不写用户关键词、短句模板或具体 phrasing 触发条件。
+- `whenNotToUse` 只写本工具与其他工具的特有边界，不重复全局禁止项。
 - input schema 解释关键字段、必填条件、枚举、引用字段、filter、sort、limit、cursor、resource id、detailLevel 等结构化能力。
-- 成功、失败、diagnostic 或 unsatisfied 结果含义清晰；resource role 是 `consumable`、`diagnostic`、`partial` 还是 `feedback`。
-- `final_answer` 可以怎样引用结果，哪些结果只能用于解释、追问或 repair。
-- examples 至少包含当前需求和一个同类变体。
+- 每个关键输入字段必须说明来源：用户明确表达、当前 metadata、当前 toolResults、当前 producedResources、当前 consumable resources、schema 枚举、模型可解释推断或禁止模型生成。
+- `id`、`resourceId`、`toolResultId`、`factRef`、`messageId`、`exerciseId`、`cursor`、`handle`、`version` 和 enum 默认不可编造；不要让模型从示例复制 ID，不要把用户自然语言或历史文本当成本轮可用 ID。
+- 机器字段使用 schema 的 canonical value；用户可见自然语言和工具输入规范值不要混用。
+- 除非工具本身是全文搜索或语义检索，不要让模型把完整聊天文本传给工具；能结构化提取就使用结构化 input。
+- 成功、失败、diagnostic 或 unsatisfied 结果含义清晰；输出事实等级应标为 `diagnostic`、`candidate`、`resolved`、`consumable` 或 `terminal`。
+- 区分索引、详情和可消费事实；查到索引不等于读取完整对象，读取详情不等于已经生成最终结果，导入资源不等于已经保存或渲染。
+- `final_answer` 可以怎样引用结果，哪些结果只能用于解释、追问、下一轮 tool input 或 repair。
+- examples 必须示范完整 `AgentAction`，不只展示 tool input 片段；优先用 1 到 3 个示例覆盖正常调用、边界、不该调用、空结果、歧义、不足或最终停止。
 
 这些说明必须使用中文描述业务含义；`toolName`、input/output 字段名、枚举值和 resource type 保持英文原样。
 
 通用 Agent prompt 只写稳定编排合同；业务 tool 的专属能力写进 manifest / schema 描述 / examples，不要把单个业务 tool 的特例写成通用规则。
+
+## Repair / Validator 可见反馈
+
+修改 repair feedback、validator observation 或失败压缩结果时，必须让模型看到可操作的局部修复信息：
+
+- Schema validation 只描述字段类型、必填、枚举、未知字段和 tool input schema 形状问题。
+- Domain validation 只描述 ID 来源、事实可信度、引用是否来自当前 run、事实等级是否可消费和最终输出是否可渲染。
+- repair payload 应包含 `failedAction`、`error.path`、`error.code`、`expected`、`actual`、`allowedFields`、`requiredFields`、`allowedValues`、domain facts、current contracts 和 current tool schemas。
+- repair prompt 要求模型只修正上一轮非法 action，不重新规划用户目标，不引入新事实，不编造 ID，不扩大任务范围；事实不足时应移除结构化输出、`ask_user` 或失败收口。
 
 ## 禁止项
 
@@ -128,6 +164,7 @@ prompt / model input 修复的目标不是把业务流程写死给服务端，�
 非文案类 Agent prompt change 的 `proposal.md`、`design.md` 和 `tasks.md` 必须写清：
 
 - prompt 修改类型。
+- 已对照 `docs/llm-prompt-guidance.md` 的相关章节，以及本次规则属于哪个层级。
 - 允许触碰的 prompt / model input 入口。
 - 禁止触碰的 runtime / core 模块。
 - 是否涉及业务 tool 模型可见说明。
@@ -138,6 +175,7 @@ prompt / model input 修复的目标不是把业务流程写死给服务端，�
 
 - `openspec validate <change> --strict`。
 - 与改动范围相关的 prompt config、manifest、schema summary、model input builder、Agent runtime、final grounding 或黑盒验证。
+- 与 `docs/llm-prompt-guidance.md` 相关的分层、Tool Manifest 六问、输入来源、事实等级、停止条件、失败出口或 repair payload 检查。
 - 涉及字段重命名时，包含旧字段残留检查、示例 input 更新、schema summary/manifest 快照或等价回归测试。
 - 修改 TypeScript、API、Schema、AI 编排或共享业务逻辑时，包含 `npm test` 或相关自动化测试，并按需包含 `npm run typecheck`。
 - 无法运行验证时，最终总结说明原因和剩余风险。
@@ -150,6 +188,7 @@ prompt / model input 修复的目标不是把业务流程写死给服务端，�
 - Skill 基础校验：`quick_validate.py <skill-folder>` 或等价 frontmatter / metadata 检查
 - Prompt config 或 model input builder 测试
 - Tool manifest / schema summary 测试
+- Prompt / Tool 指南对齐检查：确认规则放在正确层级，Tool Manifest 覆盖六问，input source、ID/ref 来源、output fact level、完整 `AgentAction` examples、停止条件和失败出口清晰
 - 模型可见描述语言测试：manifest、schema description、examples、repair feedback 或 observation 中的描述性自然语言默认中文
 - 字段重命名同步测试：用 `rg` 检查旧字段残留，并验证模型可见 manifest、schema summary、examples 和 repair feedback 使用新字段
 - Agent runtime / final grounding 测试
