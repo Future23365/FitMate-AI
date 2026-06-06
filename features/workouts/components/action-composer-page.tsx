@@ -1170,7 +1170,7 @@ export function ActionComposerPage() {
               拖拽调整顺序，休息节点会进入训练时间线
             </p>
           </div>
-          <div className="relative space-y-md pl-8 md:pl-10">
+          <div className="relative space-y-sm pl-8 md:pl-10">
             <span
               className="absolute bottom-8 left-[14px] top-8 w-px bg-gradient-to-b from-[#F4C56B]/70 via-primary/40 to-[#86EFAC]/70 md:left-[18px]"
               aria-hidden="true"
@@ -1183,7 +1183,7 @@ export function ActionComposerPage() {
               });
 
               return (
-                <div className="relative space-y-sm" key={section.id}>
+                <div className="relative space-y-[4px]" key={section.id}>
                   <span
                     className={`absolute -left-[25px] top-6 z-10 grid h-7 w-7 place-items-center rounded-full border-[3px] border-[#F8FAFC] text-white shadow-sm md:-left-[31px] ${sectionVisualStyles[section.id].node}`}
                     aria-hidden="true"
@@ -1675,7 +1675,7 @@ function WorkoutSectionBlock({
         </div>
       </div>
       {itemCount ? (
-        <div className="space-y-xs">{children}</div>
+        <div className="space-y-[4px]">{children}</div>
       ) : (
         <div className="flex min-h-[96px] items-center justify-center rounded-xl border border-dashed border-outline-variant bg-white/65 p-md text-center font-label-md text-label-md text-muted">
           <div>
@@ -1684,7 +1684,7 @@ function WorkoutSectionBlock({
           </div>
         </div>
       )}
-      <div className="mt-md flex flex-wrap items-center justify-end gap-x-sm gap-y-[2px] border-t border-line/70 pt-xs">
+      <div className="mt-sm flex flex-wrap items-center justify-end gap-x-sm gap-y-[2px] border-t border-line/70 pt-xs">
         <SectionSummaryPill icon="format_list_numbered" label="动作" value={`${itemCount} 个`} visual={visual} />
         <SectionSummaryPill icon="repeat" label="组数" value={`${sets} 组`} visual={visual} />
         <SectionSummaryPill icon="schedule" label="预计" value={`${minutes} min`} visual={visual} />
@@ -2172,16 +2172,16 @@ function SectionBoundaryRestControl({
   const visual = sectionVisualStyles[section];
 
   return (
-    <div className="relative flex h-10 items-center justify-center">
-      <span className={`h-px min-w-10 ${visual.line}`} aria-hidden="true" />
-      <label className={`mx-xs flex h-8 items-center gap-[5px] rounded-full border bg-white px-sm text-[11px] font-semibold shadow-[0_4px_12px_rgba(15,23,42,0.05)] transition-colors hover:border-primary/40 ${visual.chip}`}>
-        <span className={`grid h-5 w-5 place-items-center rounded-full text-white ${visual.node}`}>
-          <SymbolIcon className="text-[13px]">timer</SymbolIcon>
+    <div className="relative flex h-7 items-center justify-center">
+      <span className={`h-px min-w-8 ${visual.line}`} aria-hidden="true" />
+      <label className={`mx-[6px] flex h-6 items-center gap-[4px] rounded-full border bg-white px-xs text-[10px] font-semibold leading-none shadow-[0_2px_8px_rgba(15,23,42,0.04)] transition-colors hover:border-primary/40 ${visual.chip}`}>
+        <span className={`grid h-4 w-4 place-items-center rounded-full text-white ${visual.node}`}>
+          <SymbolIcon className="text-[11px]">timer</SymbolIcon>
         </span>
         <span>{label}</span>
         <select
           aria-label={label}
-          className="h-6 rounded-full border border-outline-variant bg-white px-[6px] text-[10px] font-bold text-ink outline-none focus:ring-2 focus:ring-primary/20"
+          className="h-5 rounded-full border border-outline-variant bg-white px-[5px] py-0 text-[10px] font-bold leading-none text-ink outline-none focus:ring-2 focus:ring-primary/20"
           onChange={(event) => onChange(Number(event.target.value))}
           value={seconds}
         >
@@ -2192,7 +2192,7 @@ function SectionBoundaryRestControl({
           ))}
         </select>
       </label>
-      <span className={`h-px min-w-10 ${visual.line}`} aria-hidden="true" />
+      <span className={`h-px min-w-8 ${visual.line}`} aria-hidden="true" />
     </div>
   );
 }
@@ -2209,16 +2209,16 @@ function RestIntervalControl({
   const visual = sectionVisualStyles[section];
 
   return (
-    <div className="flex h-9 items-center justify-center">
-      <span className={`h-px min-w-12 ${visual.line}`} aria-hidden="true" />
-      <label className="group mx-xs flex h-7 cursor-pointer items-center gap-[4px] rounded-full border border-dashed border-outline-variant bg-white px-xs text-[10px] font-semibold text-secondary shadow-[0_2px_8px_rgba(15,23,42,0.04)] transition-colors hover:border-primary/50 hover:bg-primary-soft/60">
-        <span className={`grid h-5 w-5 place-items-center rounded-full text-white ${visual.node}`}>
-          <SymbolIcon className="text-[13px]">timer</SymbolIcon>
+    <div className="flex h-6 items-center justify-center">
+      <span className={`h-px min-w-8 ${visual.line}`} aria-hidden="true" />
+      <label className="group mx-[6px] flex h-5 cursor-pointer items-center gap-[3px] rounded-full border border-dashed border-outline-variant bg-white px-[6px] text-[10px] font-semibold leading-none text-secondary shadow-[0_1px_4px_rgba(15,23,42,0.04)] transition-colors hover:border-primary/50 hover:bg-primary-soft/60">
+        <span className={`grid h-4 w-4 place-items-center rounded-full text-white ${visual.node}`}>
+          <SymbolIcon className="text-[11px]">timer</SymbolIcon>
         </span>
         <span>动作间休息</span>
         <select
           aria-label="动作间休息"
-          className="h-5 rounded-full border border-outline-variant bg-white px-[5px] py-0 text-[10px] font-bold text-ink outline-none focus:ring-2 focus:ring-primary/20"
+          className="h-5 rounded-full border border-outline-variant bg-white px-[4px] py-0 text-[10px] font-bold leading-none text-ink outline-none focus:ring-2 focus:ring-primary/20"
           onChange={(event) => onChange(Number(event.target.value))}
           value={seconds}
         >
@@ -2229,7 +2229,7 @@ function RestIntervalControl({
           ))}
         </select>
       </label>
-      <span className={`h-px min-w-12 ${visual.line}`} aria-hidden="true" />
+      <span className={`h-px min-w-8 ${visual.line}`} aria-hidden="true" />
     </div>
   );
 }
