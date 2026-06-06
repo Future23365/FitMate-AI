@@ -1,0 +1,10 @@
+# 生产 Caddy 配置模板。
+# DOMAIN 来自同目录 .env，例如 DOMAIN=fitmate.example.com。
+
+{$DOMAIN} {
+  # 对文本、JSON、JS、CSS 等响应启用压缩。
+  encode zstd gzip
+
+  # app 是 docker-compose.yml 中的服务名，3000 是 Next.js standalone 容器端口。
+  reverse_proxy app:3000
+}

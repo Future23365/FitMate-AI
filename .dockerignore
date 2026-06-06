@@ -1,0 +1,38 @@
+# 本文件控制 Docker build 上下文，避免把本地依赖、构建产物和密钥发给 Docker daemon。
+
+# 本机依赖和构建产物必须在镜像里重新生成，不能复用宿主机结果。
+node_modules
+.next
+out
+dist
+coverage
+tsconfig.tsbuildinfo
+
+# Git 元数据和 Codex/调试产物不参与镜像构建。
+.git
+.codex
+.agents
+codex_logs
+
+# 真实环境变量不能进入镜像；模板文件保留用于说明字段。
+.env
+.env.*
+!.env.example
+!deploy/**/.env.example
+
+# 本地系统和包管理调试文件没有运行时意义。
+.DS_Store
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# 文档、测试和 OpenSpec 不进入生产镜像，减少构建上下文和镜像扫描噪音。
+docs
+openspec
+tests
+manual-tests
+项目部署指南.md
+
+# 部署模板只给服务器目录复制使用，不需要打进应用镜像。
+deploy

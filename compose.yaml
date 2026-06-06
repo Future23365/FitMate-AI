@@ -1,21 +1,36 @@
+# 本地开发用 Docker Compose，只启动 PostgreSQL，不包含 Next.js app。
+# README 中的 docker compose up -d postgres 会读取这个文件。
+
+name: fitmate-local
+
 services:
   postgres:
+    # 本地数据库版本与生产模板保持同一 PostgreSQL 主版本。
     image: postgres:17
+    # 固定容器名方便本地排查和手工连接。
     container_name: fitmate-postgres
+    # 本机重启或 Docker daemon 重启后自动恢复数据库容器。
     restart: unless-stopped
     environment:
+      # POSTGRES_DB 是首次初始化创建的本地数据库名。
       POSTGRES_DB: fitmate
+      # POSTGRES_USER 是本地开发连接数据库的用户名。
       POSTGRES_USER: fitmate
+      # POSTGRES_PASSWORD 是本地开发密码，只用于本机，不要复用到生产环境。
       POSTGRES_PASSWORD: fitmate
     ports:
+      # 把容器 5432 映射到本机 5432，DATABASE_URL 可使用 localhost。
       - "5432:5432"
     volumes:
+      # PostgreSQL 数据持久化到 Docker volume，容器删除后数据仍保留。
       - fitmate-postgres-data:/var/lib/postgresql/data
     healthcheck:
+      # pg_isready 用于确认本地数据库是否已可接受连接。
       test: ["CMD-SHELL", "pg_isready -U fitmate -d fitmate"]
       interval: 10s
       timeout: 5s
       retries: 5
 
 volumes:
+  # 本地 PostgreSQL 数据卷。
   fitmate-postgres-data:

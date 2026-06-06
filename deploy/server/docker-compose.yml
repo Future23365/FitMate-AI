@@ -1,0 +1,140 @@
+# 服务器生产部署模板。
+# 建议复制到 /opt/fitmate/docker-compose.yml，并与同目录的 .env、Caddyfile 一起使用。
+
+name: fitmate
+
+services:
+  caddy:
+    # Caddy 负责公网 HTTP/HTTPS、自动证书和反向代理。
+    image: caddy:2-alpine
+    container_name: fitmate-caddy
+    restart: unless-stopped
+    environment:
+      # DOMAIN 从服务器 .env 插值后传给 Caddyfile 的 {$DOMAIN}。
+      DOMAIN: ${DOMAIN:?DOMAIN is required}
+    ports:
+      # 80 用于 HTTP 访问和 ACME 验证。
+      - "80:80"
+      # 443 用于 HTTPS 访问。
+      - "443:443"
+    volumes:
+      # Caddyfile 描述域名和反向代理规则，ro 表示容器内只读。
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # caddy_data 保存证书和 ACME 账户，不能随容器删除。
+      - caddy_data:/data
+      # caddy_config 保存 Caddy 运行配置缓存。
+      - caddy_config:/config
+    depends_on:
+      # Caddy 先等 app 服务创建；证书申请和反向代理仍以 Caddy 自身日志为准。
+      - app
+
+  app:
+    # APP_IMAGE 由 GitHub Actions 每次部署更新为当前 commit tag。
+    image: ${APP_IMAGE:?APP_IMAGE is required}
+    container_name: fitmate-app
+    restart: unless-stopped
+    environment:
+      # NODE_ENV=production 会启用生产 auth secret 要求和 Next.js 生产行为。
+      NODE_ENV: production
+      # PORT/HOSTNAME 对齐 Dockerfile 中 standalone server.js 的监听配置。
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+      # 小内存服务器的保守 V8 heap 限制。
+      NODE_OPTIONS: --max-old-space-size=512
+      # DATABASE_URL 使用 Docker 内部服务名 db，不使用公网 IP。
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      # DeepSeek provider 配置，缺少 DEEPSEEK_API_KEY 时 /api/chat 会返回配置错误。
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?DEEPSEEK_API_KEY is required}
+      DEEPSEEK_API_URL: ${DEEPSEEK_API_URL:-}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-}
+      # 匿名 auth 和高影响操作确认 token 的生产签名密钥。
+      FITMATE_LOCAL_AUTH_SECRET: ${FITMATE_LOCAL_AUTH_SECRET:?FITMATE_LOCAL_AUTH_SECRET is required}
+      CONFIRMATION_TOKEN_SECRET: ${CONFIRMATION_TOKEN_SECRET:?CONFIRMATION_TOKEN_SECRET is required}
+      # 动作图片读取目录和前端展示基础 URL。
+      EXERCISE_IMAGE_LOCAL_DIR: ${EXERCISE_IMAGE_LOCAL_DIR:-exercises_picture}
+      EXERCISE_IMAGE_PUBLIC_BASE_URL: ${EXERCISE_IMAGE_PUBLIC_BASE_URL:-/api/exercise-images}
+      # 生产环境默认关闭 AI trace 写入，需要临时排查时再设为 true。
+      ENABLE_AI_TRACE_LOG: ${ENABLE_AI_TRACE_LOG:-false}
+    volumes:
+      # 首次创建 volume 时 Docker 会从镜像内 /app/exercises_picture 初始化动作图片。
+      - exercise_images:/app/exercises_picture
+    depends_on:
+      db:
+        # app 只在 PostgreSQL healthcheck 通过后启动，减少启动瞬间连接失败。
+        condition: service_healthy
+
+  db:
+    # PostgreSQL 是运行时事实数据源，不暴露 5432 到公网。
+    image: postgres:17-alpine
+    container_name: fitmate-db
+    restart: unless-stopped
+    environment:
+      # POSTGRES_DB 是初始化数据库名。
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      # POSTGRES_USER 是 app 连接数据库的账号。
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      # POSTGRES_PASSWORD 必须与 DATABASE_URL 中的密码保持一致。
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    command:
+      # 2GB 服务器的保守 PostgreSQL 内存参数。
+      - postgres
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - max_connections=30
+    volumes:
+      # 数据库数据持久化在 Docker volume 中，容器重建不会丢数据。
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # pg_isready 用于 app/migrator 等待数据库可用。
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  migrator:
+    # migrator 只在 --profile ops 下手动或 CI 部署时运行，不会常驻。
+    profiles: ["ops"]
+    image: ${OPS_IMAGE:?OPS_IMAGE is required}
+    environment:
+      # Prisma migrate deploy 需要同一条生产数据库连接串。
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+    command: ["npx", "prisma", "migrate", "deploy"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  seed:
+    # 首次上线或动作 seed 数据变更后执行：docker compose --profile ops run --rm seed
+    profiles: ["ops"]
+    image: ${OPS_IMAGE:?OPS_IMAGE is required}
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+    command: ["npm", "run", "db:seed"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  refresh_embeddings:
+    # seed 后执行：docker compose --profile ops run --rm refresh_embeddings
+    profiles: ["ops"]
+    image: ${OPS_IMAGE:?OPS_IMAGE is required}
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+    command: ["npm", "run", "db:refresh-embeddings"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  # PostgreSQL 数据。
+  postgres_data:
+  # Caddy 证书和账户数据。
+  caddy_data:
+  # Caddy 配置缓存。
+  caddy_config:
+  # 动作图片持久化目录。
+  exercise_images:

@@ -136,7 +136,26 @@ docker compose down
 
 部署前建议使用 Node.js `^22.12` 或更高版本。Next.js 当前包声明 `node >=20.9.0`，Prisma 7 当前包声明 `node ^20.19 || ^22.12 || >=24.0`，使用 Node 22 LTS 能同时满足两者要求。
 
-生产部署推荐流程：
+当前仓库已提供 Docker + Caddy + GitHub Actions 部署配置：
+
+- `Dockerfile`：包含 `runner` 和 `ops` 两个 target。`runner` 运行 Next.js standalone 应用；`ops` 保留 Prisma CLI、migration、seed 和 embedding 刷新脚本。
+- `.dockerignore`：控制 Docker build 上下文，避免把 `.env`、`.env.local`、`node_modules`、`.next`、测试和调试产物打进镜像。
+- `.github/workflows/deploy.yml`：推送到 `dev` 分支时构建 app / ops 两个 GHCR 镜像，通过 SSH 更新服务器并先执行 `prisma migrate deploy`。
+- `deploy/server/docker-compose.yml`：服务器 `/opt/fitmate/docker-compose.yml` 模板，包含 `caddy`、`app`、`db` 和 `ops` profile 下的 `migrator` / `seed` / `refresh_embeddings`。
+- `deploy/server/Caddyfile`：Caddy HTTPS 和反向代理模板，通过服务器 `.env` 中的 `DOMAIN` 注入域名。
+- `deploy/server/.env.example`：服务器生产 `.env` 模板，真实 `.env` 只保存在服务器，不提交到 Git。
+
+服务器首次准备时，将 `deploy/server/docker-compose.yml`、`deploy/server/Caddyfile` 和 `deploy/server/.env.example` 复制到 `/opt/fitmate/`，把 `.env.example` 改名为 `.env` 并填写真实值。GitHub Actions 需要配置 `SERVER_HOST`、`SERVER_PORT`、`SERVER_USER`、`SERVER_SSH_KEY` 这几个 Repository secrets。
+
+首次上线或动作 seed 数据变化后，在服务器执行：
+
+```bash
+cd /opt/fitmate
+docker compose --profile ops run --rm seed
+docker compose --profile ops run --rm refresh_embeddings
+```
+
+本地或裸机排查仍可使用以下命令链路：
 
 ```bash
 npm ci

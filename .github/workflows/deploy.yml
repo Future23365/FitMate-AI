@@ -1,0 +1,104 @@
+name: Deploy
+
+on:
+  push:
+    # 只有推送到 dev 时自动部署；如果生产分支改成 main/master，在这里调整。
+    branches:
+      - dev
+
+permissions:
+  # checkout 代码需要读取仓库内容。
+  contents: read
+  # 推送 GHCR 镜像需要写 GitHub Packages。
+  packages: write
+
+env:
+  # 服务器上的部署目录，需要和 deploy/server 模板实际上传位置一致。
+  DEPLOY_PATH: /opt/fitmate
+
+jobs:
+  build-and-deploy:
+    name: Build and deploy Docker images
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        # 拉取当前提交代码，供 Docker build 使用。
+        uses: actions/checkout@v6
+
+      - name: Prepare image names
+        id: image
+        shell: bash
+        run: |
+          # GHCR 镜像名必须小写；github.repository 可能包含大写字符。
+          repo="${GITHUB_REPOSITORY,,}"
+          echo "app=ghcr.io/${repo}" >> "$GITHUB_OUTPUT"
+          echo "ops=ghcr.io/${repo}-ops" >> "$GITHUB_OUTPUT"
+
+      - name: Login to GHCR
+        # 使用 GitHub Actions 自动注入的 GITHUB_TOKEN 推送当前仓库的容器镜像。
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push app image
+        # runner target 是真正对外服务的 Next.js standalone 镜像。
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: runner
+          push: true
+          tags: |
+            ${{ steps.image.outputs.app }}:latest
+            ${{ steps.image.outputs.app }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push ops image
+        # ops target 用于 Prisma migration、seed 和 embedding 刷新，不接收公网请求。
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: ops
+          push: true
+          tags: |
+            ${{ steps.image.outputs.ops }}:latest
+            ${{ steps.image.outputs.ops }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Prepare SSH
+        shell: bash
+        run: |
+          # SERVER_SSH_KEY 是部署专用私钥；公钥需要提前放到服务器用户的 authorized_keys。
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          # SERVER_HOST / SERVER_PORT 来自 GitHub Actions Repository secrets。
+          ssh-keyscan -p "${{ secrets.SERVER_PORT }}" "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy on server
+        shell: bash
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "${{ secrets.SERVER_PORT }}" \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" << EOF
+              set -e
+
+              # 部署目录内应已放置 deploy/server/docker-compose.yml、Caddyfile 和生产 .env。
+              cd "${{ env.DEPLOY_PATH }}"
+
+              # 每次部署把 .env 中的镜像版本锁到当前提交，便于回滚和排查。
+              sed -i 's|^APP_IMAGE=.*|APP_IMAGE=${{ steps.image.outputs.app }}:${{ github.sha }}|' .env
+              sed -i 's|^OPS_IMAGE=.*|OPS_IMAGE=${{ steps.image.outputs.ops }}:${{ github.sha }}|' .env
+
+              # 拉取新镜像，先运行 migration，再更新 app 容器。
+              docker compose --profile ops pull app migrator
+              docker compose --profile ops run --rm migrator
+              docker compose up -d --remove-orphans
+
+              # 清理无引用旧镜像，避免轻量服务器磁盘被历史镜像占满。
+              docker image prune -f
+          EOF
