@@ -11,8 +11,8 @@ import { SymbolIcon } from "./symbol-icon";
 
 const navItems = [
   { label: "首页", icon: "chat", href: "/" },
-  { label: "训练计划", icon: "calendar_today", href: "/plans" },
   { label: "动作编排", icon: "reorder", href: "/composer" },
+  { label: "训练计划", icon: "calendar_today", href: "/plans" },
   { label: "动作库", icon: "fitness_center", href: "/exercises" },
 ];
 
