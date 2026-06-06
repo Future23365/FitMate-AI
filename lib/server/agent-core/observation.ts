@@ -50,7 +50,7 @@ function createOkToolResultIndexObservation(result: Extract<ToolResult, { ok: tr
       terminalUsedRef: { type: "tool_result", id: result.toolResultId },
       modelFactsChannel: TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
       projectionModelOmitted: true,
-      boundary: "详细事实见 toolResults[].projection.model；此 observation 只保留 ok=true 执行结果索引，避免同一事实在 observations 和 toolResults 中重复传递。如需在 terminal action 引用本次结果，usedRefs[] 中复制 terminalUsedRef 的 type/id 形状，不要把 resourceType 写成 tool_result。fulfillment.satisfied 只作为诊断摘要，不是普通 final_answer grounding gate。",
+      boundary: "详细事实见 toolResults[].projection.model；此 observation 只保留 ok=true 执行结果索引，避免同一事实在 observations 和 toolResults 中重复传递。如需在 terminal action 引用本次结果，usedRefs[] 中复制 terminalUsedRef 的 type/id 形状，不要把 resourceType 写成 tool_result。只有 ok=true 且 fulfillment.satisfied=true 的结果可支撑成功 final_answer；satisfied=false 只能用于 ask_user、继续合法 tool_call、repair 或失败收口。",
     }),
   };
 }
@@ -76,6 +76,7 @@ export function createDuplicateToolInputObservation(input: {
   normalizedInputHash: string;
   previousToolResultId: string;
   previousOk: boolean;
+  previousSatisfied: boolean;
   repeatCount: number;
   resultSummary?: string;
   producedResources?: JsonValue;
@@ -95,16 +96,25 @@ export function createDuplicateToolInputObservation(input: {
         normalizedInputHash: input.normalizedInputHash,
         previousToolResultId: input.previousToolResultId,
         previousOk: input.previousOk,
+        previousSatisfied: input.previousSatisfied,
         repeatCount: input.repeatCount,
         resultSummary: input.resultSummary,
         producedResources: input.producedResources,
-        allowedNextActions: [
-          "基于 previousToolResultId 输出带 usedRefs 的合法 final_answer。",
-          "调用其他当前 manifest 中可见且 input 不同的合法 tool。",
-          "提交改变后的合法 tool input。",
-          "使用 ask_user 澄清缺失信息。",
-          "在当前事实不足时用不带 visibleOutputs 的 final_answer 失败收口。",
-        ],
+        allowedNextActions: input.previousSatisfied
+          ? [
+              "基于 previousToolResultId 输出带 usedRefs 的合法 final_answer。",
+              "调用其他当前 manifest 中可见且 input 不同的合法 tool。",
+              "提交改变后的合法 tool input。",
+              "使用 ask_user 澄清缺失信息。",
+              "在当前事实不足时用不带 visibleOutputs 的 final_answer 失败收口。",
+            ]
+          : [
+              "previousToolResultId 是 satisfied=false 诊断结果，不能支撑成功 final_answer。",
+              "调用其他当前 manifest 中可见且 input 不同的合法 tool。",
+              "提交改变后的合法 tool input。",
+              "使用 ask_user 澄清缺失信息或放宽条件。",
+              "在当前事实不足时交由 repair 或失败 fallback 收口。",
+            ],
       },
     }),
   };

@@ -172,6 +172,44 @@ describe("agent-core architecture boundaries", () => {
     expect(matches).toEqual([]);
   });
 
+  it("keeps visible output contract config as model-visible schema summary, not routing logic", () => {
+    const file = "lib/server/config/agent-visible-output-contracts.ts";
+    const forbiddenImportSources = [
+      "@/app/api/chat",
+      "@/lib/server/chat",
+      "@/lib/server/agent-tools",
+      "@/lib/server/exercises",
+      "@/lib/server/db",
+      "@/lib/server/visible-training-proposals",
+      "@/lib/server/agent-core/runtime",
+      "@/lib/server/agent-core/action-validator",
+      "@/lib/server/agent-core/terminal-output-validator",
+      "@/lib/server/agent-core/response-renderer",
+    ];
+    const forbiddenTerms = [
+      "userInput.includes",
+      "message.content.includes",
+      ".includes(input.run.userInput",
+      "new RegExp",
+      ".match(",
+      ".test(",
+      "toolName ===",
+      "case \"",
+      "searchExerciseResources",
+      "inspectVisibleTrainingProposals",
+      "resolveExerciseResourceMentions",
+    ];
+    const content = readRelative(file);
+    const matches = [
+      ...findImportMatches([file], forbiddenImportSources),
+      ...forbiddenTerms.filter((term) => content.includes(term)).map((term) => `${file}: ${term}`),
+    ];
+
+    expect(content).toContain("visibleTrainingProposal");
+    expect(content).toContain("AgentVisibleOutputContract");
+    expect(matches).toEqual([]);
+  });
+
   it("does not connect M0/M1 runtime or fixture tools to production chat route", () => {
     const route = readRelative("app/api/chat/route.ts");
 

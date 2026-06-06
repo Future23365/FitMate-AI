@@ -17,6 +17,8 @@ import {
   agentRuntimeConfig,
   agentLlmPromptConfig,
   buildAgentActionSystemPrompt,
+  getAgentVisibleOutputContracts,
+  visibleTrainingProposalOutputContract,
   type AgentLlmPromptConfig,
 } from "@/lib/server/config";
 
@@ -497,6 +499,63 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       role: "system",
       content: buildAgentActionSystemPrompt(agentLlmPromptConfig),
     });
+  });
+
+  it("adds outputContracts beside tools, observations and toolResults in Planner user payload", async () => {
+    const { fetchImpl, requestBodies } = captureDeepSeekRequestBodies(JSON.stringify({
+      type: "final_answer",
+      content: "output contracts visible.",
+    }));
+    const adapter = new DeepSeekModelAdapter({
+      apiKey: "test-key",
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+
+    const completion = await adapter.completeAction({
+      run: {
+        runId: "run-deepseek-output-contracts",
+        actor: {},
+        userInput: "answer",
+      },
+      step: 1,
+      manifests: [],
+      observations: [],
+      toolResults: [],
+    });
+
+    const body = requestBodies[0] as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const modelInput = JSON.parse(body.messages[1].content) as {
+      tools: unknown[];
+      outputContracts: unknown[];
+      observations: unknown[];
+      toolResults: unknown[];
+    };
+
+    expect(Object.keys(modelInput)).toEqual([
+      "observations",
+      "outputContracts",
+      "run",
+      "step",
+      "toolResults",
+      "tools",
+    ]);
+    expect(modelInput.outputContracts).toEqual(getAgentVisibleOutputContracts());
+    expect(modelInput.outputContracts[0]).toMatchObject({
+      outputType: visibleTrainingProposalOutputContract.outputType,
+      schemaVersion: visibleTrainingProposalOutputContract.schemaVersion,
+      description: expect.stringMatching(/[\u4e00-\u9fff]/),
+    });
+    expect(JSON.stringify(modelInput.outputContracts)).toContain("payload.kind");
+    expect(completion.trace?.request.run.outputContractCount).toBe(1);
+    expect(completion.trace?.request.run.outputContracts).toEqual([
+      {
+        outputType: visibleTrainingProposalOutputContract.outputType,
+        schemaVersion: visibleTrainingProposalOutputContract.schemaVersion,
+      },
+    ]);
+    expect(JSON.stringify(completion.trace?.request.run.outputContracts)).not.toContain("payload.kind");
   });
 
   it("uses injected prompt config for DeepSeek request body without mutating defaults", async () => {

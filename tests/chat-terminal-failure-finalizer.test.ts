@@ -270,6 +270,8 @@ function createProviderFailureDiagnostic(status: number): PlannerModelTraceEvent
         toolResultProjectionPresence: [],
         toolCount: 3,
         toolNames: ["searchExerciseResources"],
+        outputContractCount: 0,
+        outputContracts: [],
       },
     },
     response: {

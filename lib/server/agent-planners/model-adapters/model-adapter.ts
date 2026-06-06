@@ -99,6 +99,11 @@ export type ModelActionCompletionTrace = {
       }>;
       toolCount: number;
       toolNames: string[];
+      outputContractCount: number;
+      outputContracts: Array<{
+        outputType: string;
+        schemaVersion: string;
+      }>;
       limits?: JsonValue;
     };
   };

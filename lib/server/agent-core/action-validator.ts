@@ -237,7 +237,7 @@ function validateTerminalAction(
     };
   }
 
-  // 普通 final_answer 只要求引用当前 run 内 ok=true 的 tool result；业务交付由 visibleOutputs validator 判定。
+  // 成功 final_answer 只能引用当前 run 内 ok=true 且 satisfied=true 的 tool result；诊断结果只能用于 ask_user 或 repair。
   if (action.type === "final_answer") {
     const failedToolResultIds = toolResultRefIds.filter((id) => {
       const result = knownToolResults.get(id);
@@ -251,6 +251,22 @@ function validateTerminalAction(
           AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID,
           "Final answer cannot use failed tool results as grounding.",
           { toolResultIds: failedToolResultIds },
+        ),
+      };
+    }
+
+    const diagnosticToolResultIds = toolResultRefIds.filter((id) => {
+      const result = knownToolResults.get(id);
+      return result?.ok ? !result.fulfillment.satisfied : false;
+    });
+
+    if (diagnosticToolResultIds.length > 0) {
+      return {
+        ok: false,
+        error: createToolError(
+          AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID,
+          "Final answer cannot use diagnostic tool results as successful grounding.",
+          { toolResultIds: diagnosticToolResultIds },
         ),
       };
     }

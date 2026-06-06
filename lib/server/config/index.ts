@@ -14,3 +14,13 @@ export {
   type AgentLlmPromptRequestDefaults,
   type TerminalFailureFinalizerPromptConfig,
 } from "./agent-llm-prompt-config";
+
+export {
+  agentVisibleOutputContractRegistry,
+  getAgentVisibleOutputContracts,
+  summarizeAgentVisibleOutputContracts,
+  visibleTrainingProposalOutputContract,
+  type AgentVisibleOutputContract,
+  type AgentVisibleOutputContractExample,
+  type AgentVisibleOutputContractSummary,
+} from "./agent-visible-output-contracts";

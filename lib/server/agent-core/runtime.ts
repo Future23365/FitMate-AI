@@ -341,6 +341,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
         normalizedInputHash,
         previousToolResultId: previousOkResult.toolResultId,
         previousOk: previousOkResult.ok,
+        previousSatisfied: previousOkResult.fulfillment.satisfied,
         repeatCount: previousToolCallCount + 1,
         resultSummary: previousOkResult.fulfillment.summary,
         producedResources: previousOkResult.fulfillment.producedResources as JsonValue | undefined,

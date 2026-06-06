@@ -24,7 +24,10 @@ import {
   agentRuntimeConfig,
   agentLlmPromptConfig,
   buildAgentActionSystemPrompt,
+  getAgentVisibleOutputContracts,
+  summarizeAgentVisibleOutputContracts,
   type AgentLlmPromptConfig,
+  type AgentVisibleOutputContract,
 } from "@/lib/server/config";
 
 type DeepSeekFetch = typeof fetch;
@@ -38,6 +41,7 @@ type DeepSeekModelAdapterOptions = {
   maxTokens?: number;
   fetchImpl?: DeepSeekFetch;
   promptConfig?: AgentLlmPromptConfig;
+  outputContracts?: readonly AgentVisibleOutputContract[];
 };
 
 type DeepSeekChatResponse = {
@@ -75,6 +79,7 @@ export class DeepSeekModelAdapter implements ModelAdapter {
   private readonly fetchImpl: DeepSeekFetch;
   private readonly apiKey: string;
   private readonly promptConfig: AgentLlmPromptConfig;
+  private readonly outputContracts: readonly AgentVisibleOutputContract[];
 
   constructor(options: DeepSeekModelAdapterOptions) {
     if (!options.apiKey) {
@@ -89,6 +94,7 @@ export class DeepSeekModelAdapter implements ModelAdapter {
     this.temperature = options.temperature ?? this.promptConfig.requestDefaults.temperature;
     this.maxTokens = options.maxTokens ?? this.promptConfig.requestDefaults.maxTokens;
     this.fetchImpl = options.fetchImpl ?? fetch;
+    this.outputContracts = options.outputContracts ?? getAgentVisibleOutputContracts();
   }
 
   /** completeAction 要求 DeepSeek 只返回 JSON AgentAction candidate，非法输出转成可 repair action。 */
@@ -312,6 +318,7 @@ export class DeepSeekModelAdapter implements ModelAdapter {
             },
             step: input.step,
             tools: input.manifests,
+            outputContracts: this.outputContracts,
             observations: input.observations,
             toolResults: input.toolResults,
           }),
@@ -325,6 +332,7 @@ export class DeepSeekModelAdapter implements ModelAdapter {
     requestBody: DeepSeekRequestBody,
   ): ModelActionCompletionTrace["request"] {
     const dedupeSummary = summarizePlannerInputDedupe(input);
+    const outputContracts = summarizeAgentVisibleOutputContracts(this.outputContracts);
 
     return {
       model: requestBody.model,
@@ -357,6 +365,8 @@ export class DeepSeekModelAdapter implements ModelAdapter {
         toolResultProjectionPresence: dedupeSummary.toolResultProjectionPresence,
         toolCount: input.manifests.length,
         toolNames: input.manifests.map((manifest) => manifest.name),
+        outputContractCount: outputContracts.count,
+        outputContracts: outputContracts.contracts,
         limits: safeTraceValue(input.run.limits ?? {}),
       },
     };

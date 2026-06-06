@@ -205,6 +205,8 @@ class TraceModelAdapter implements ModelAdapter {
             toolResultProjectionPresence,
             toolCount: input.manifests.length,
             toolNames: input.manifests.map((manifest) => manifest.name),
+            outputContractCount: 0,
+            outputContracts: [],
             limits: input.run.limits ?? {},
           },
         },

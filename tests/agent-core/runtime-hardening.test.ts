@@ -375,6 +375,10 @@ describe("agent-core runtime budget and idempotency hardening", () => {
         limits: { maxToolCalls: 3, maxPlannerCalls: 4, maxSteps: 4 },
       },
     });
+    const unsatisfiedDuplicateFeedback = unsatisfiedResult.observations.find((observation) => (
+      observation.source === "runtime"
+      && JSON.stringify(observation.content).includes(AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT)
+    ));
 
     expect(changedResult).toMatchObject({ status: "completed" });
     expect(changedHandler).toHaveBeenCalledTimes(2);
@@ -382,6 +386,18 @@ describe("agent-core runtime budget and idempotency hardening", () => {
     expect(unsatisfiedResult).toMatchObject({ status: "needs_input" });
     expect(unsatisfiedHandler).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(unsatisfiedResult.observations)).toContain(AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT);
+    expect(unsatisfiedDuplicateFeedback).toMatchObject({
+      content: expect.objectContaining({
+        details: expect.objectContaining({
+          previousSatisfied: false,
+          allowedNextActions: expect.arrayContaining([
+            "previousToolResultId 是 satisfied=false 诊断结果，不能支撑成功 final_answer。",
+            "使用 ask_user 澄清缺失信息或放宽条件。",
+          ]),
+        }),
+      }),
+    });
+    expect(JSON.stringify(unsatisfiedDuplicateFeedback)).not.toContain("基于 previousToolResultId 输出带 usedRefs 的合法 final_answer。");
     expect(unsatisfiedResult.traceEvents).toEqual(expect.arrayContaining([
       expect.objectContaining({
         type: "duplicate_tool_call",
