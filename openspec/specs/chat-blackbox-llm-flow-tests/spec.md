@@ -133,29 +133,29 @@ TBD - created by archiving change blackbox-chat-llm-flow-tests. Update Purpose a
 - **THEN** judge MUST return `passed=false`
 - **AND** judge MUST NOT return `passed_via_suggestion` solely because generic `assistantSuggestions` are present
 
-### Requirement: 基础黑盒测试必须以 llm基础测试.md 为用例来源
-系统 SHALL 将根目录 `llm基础测试.md` 中“三轮流程用例”表作为首页聊天基础 LLM 黑盒套件的用例来源，并在真实模型调用前完成 fixture 预检。
+### Requirement: 基础黑盒测试必须以 docs/LLM基础测试用例.md 为用例来源
+系统 SHALL 将 `docs/LLM基础测试用例.md` 中“三轮流程用例”表作为首页聊天基础 LLM 黑盒套件的用例来源，并在真实模型调用前完成 fixture 预检。
 
-#### Scenario: 解析根目录基础用例表
+#### Scenario: 解析文档目录基础用例表
 - **WHEN** 开发者运行首页聊天基础 LLM 黑盒测试命令
-- **THEN** 系统 MUST 读取根目录 `llm基础测试.md`
+- **THEN** 系统 MUST 读取 `docs/LLM基础测试用例.md`
 - **AND** 系统 MUST 从“三轮流程用例”表中为每一行生成一个 flow
 - **AND** 每个 flow MUST 包含 `ID`、`流程目标`、三轮用户输入和三轮期望
 - **AND** 系统 MUST 在报告中记录本次从文档解析到的 flow 数和 turn 数
 
 #### Scenario: 用例表格式不合法时阻止模型调用
-- **WHEN** `llm基础测试.md` 缺少必需列、存在重复 `ID`、任一轮用户输入为空或任一轮期望为空
+- **WHEN** `docs/LLM基础测试用例.md` 缺少必需列、存在重复 `ID`、任一轮用户输入为空或任一轮期望为空
 - **THEN** 系统 MUST 在发起任何真实模型请求前失败
 - **AND** 系统 MUST 输出具体的文档解析错误
 - **AND** 系统 MUST NOT 静默回退到旧 fixture、mock fixture 或空测试集合
 
 #### Scenario: 基础套件不依赖旧预览文档
 - **WHEN** 首页聊天基础 LLM 黑盒测试构造运行集合
-- **THEN** 系统 MUST 以 `llm基础测试.md` 当前内容为准
-- **AND** 系统 MUST NOT 以旧 `测试情况预览.md`、归档 change fixture 或硬编码历史用例替代当前根目录文档
+- **THEN** 系统 MUST 以 `docs/LLM基础测试用例.md` 当前内容为准
+- **AND** 系统 MUST NOT 以旧 `测试情况预览.md`、归档 change fixture 或硬编码历史用例替代当前文档目录用例
 
 #### Scenario: 基础默认表只保留冒烟场景
-- **WHEN** 开发者维护 `llm基础测试.md` 的可执行基础 flow 表
+- **WHEN** 开发者维护 `docs/LLM基础测试用例.md` 的可执行基础 flow 表
 - **THEN** 该表 SHOULD 优先保留低歧义、低成本的基础首页聊天场景
 - **AND** 该表 SHOULD 覆盖动作推荐、routine、plan、信息不足追问、目标切换、非健身话题回到训练、未知动作不编造和动作说明等基础能力
 - **AND** 引用歧义、局部替换、重复动作范围确认、高风险降级、过多目标与短时长冲突、复杂 schedule 或精确质量断言 SHOULD NOT 进入基础默认表
@@ -249,20 +249,20 @@ TBD - created by archiving change blackbox-chat-llm-flow-tests. Update Purpose a
 - **THEN** 报告 MUST NOT 保存完整 prompt、完整 raw provider response、完整 tool input、完整 tool output、完整动作候选池或大段 trace payload
 - **AND** 报告 MUST 只保留排查失败所需的安全摘要
 
-### Requirement: 基础首页黑盒套件必须从 llm基础测试.md 读取流程
+### Requirement: 基础首页黑盒套件必须从 docs/LLM基础测试用例.md 读取流程
 
-系统 SHALL 将 `llm基础测试.md` 作为基础首页聊天黑盒套件的用例来源，按文档中的三轮流程表动态生成 flow。
+系统 SHALL 将 `docs/LLM基础测试用例.md` 作为基础首页聊天黑盒套件的用例来源，按文档中的三轮流程表动态生成 flow。
 
 #### Scenario: 解析三轮流程表
 
 - **WHEN** 基础黑盒 runner 启动
-- **THEN** 系统 MUST 读取 `llm基础测试.md` 中 `## 三轮流程用例` 下的 Markdown 表格
+- **THEN** 系统 MUST 读取 `docs/LLM基础测试用例.md` 中 `## 三轮流程用例` 下的 Markdown 表格
 - **AND** 系统 MUST 校验必需列、flow id 唯一性、每轮用户输入和期望非空
 - **AND** 表格结构不合法时系统 MUST 在真实模型调用前失败
 
 #### Scenario: 每个 flow 保持三轮结构
 
-- **WHEN** 系统从 `llm基础测试.md` 生成基础黑盒 fixture
+- **WHEN** 系统从 `docs/LLM基础测试用例.md` 生成基础黑盒 fixture
 - **THEN** 每个 flow MUST 包含 3 轮用户输入和 3 轮期望
 - **AND** 报告中的完整 flow 数和 turn 数 MUST 从实际解析结果动态计算
 
@@ -329,4 +329,3 @@ TBD - created by archiving change blackbox-chat-llm-flow-tests. Update Purpose a
 - **WHEN** 基础黑盒测试判断某一轮是否通过
 - **THEN** judge 输入 MUST NOT 包含原始 `reasoning_content`
 - **AND** 最终通过条件 MUST 继续只基于用户可见 assistant 文本、visible output、suggestedQuestions、confirmation 或安全错误文案
-

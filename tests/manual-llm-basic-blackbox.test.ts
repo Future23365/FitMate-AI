@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   BasicChatFixtureParseError,
+  basicChatFixtureSourcePath,
   parseBasicChatFixtureFromMarkdown,
   readBasicChatFixture,
 } from "@/manual-tests/llm/basic-chat-fixtures";
@@ -23,11 +24,11 @@ import {
 import { buildFitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
 
 describe("manual basic LLM blackbox fixtures", () => {
-  it("parses llm基础测试.md as the single basic three-turn flow source", async () => {
+  it("parses docs/LLM基础测试用例.md as the single basic three-turn flow source", async () => {
     const fixture = await readBasicChatFixture();
     const ids = fixture.flows.map((flow) => flow.id);
 
-    expect(fixture.sourcePath).toContain("llm基础测试.md");
+    expect(fixture.sourcePath).toContain(basicChatFixtureSourcePath);
     expect(fixture.stats.flowCount).toBeGreaterThan(0);
     expect(fixture.stats.turnCount).toBe(fixture.stats.flowCount * 3);
     expect(fixture.stats.flowCount).toBeLessThanOrEqual(10);
@@ -230,7 +231,7 @@ describe("manual basic LLM report and isolation", () => {
     const summary: BasicChatSuiteSummary = {
       status: "passed",
       model: "deepseek-v4-flash",
-      sourcePath: "llm基础测试.md",
+      sourcePath: basicChatFixtureSourcePath,
       reportPath: "docs/manual-llm-basic-blackbox-latest-report.md",
       startedAt: new Date("2026-06-04T01:00:00.000Z"),
       endedAt: new Date("2026-06-04T01:01:00.000Z"),

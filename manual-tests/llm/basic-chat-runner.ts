@@ -29,6 +29,7 @@ import {
 
 import {
   BasicChatFixtureParseError,
+  basicChatFixtureSourcePath,
   readBasicChatFixture,
   summarizeBasicChatFixture,
   type BasicChatFixture,
@@ -125,7 +126,7 @@ export async function runBasicChatBlackboxSuite(
     return writeFinalReport({
       reportPath,
       fixture: {
-        sourcePath: options.sourcePath ?? "llm基础测试.md",
+        sourcePath: options.sourcePath ?? basicChatFixtureSourcePath,
         flows: [],
         stats: { flowCount: 0, turnCount: 0 },
       },

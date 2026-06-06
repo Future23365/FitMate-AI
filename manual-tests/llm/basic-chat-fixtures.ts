@@ -26,6 +26,9 @@ export type BasicChatFixture = {
 
 export const basicChatFixtureHeading = "## 三轮流程用例";
 
+// basicChatFixtureSourcePath 是基础首页黑盒套件的人工用例文档入口。
+export const basicChatFixtureSourcePath = "docs/LLM基础测试用例.md";
+
 export const basicChatRequiredColumns = [
   "ID",
   "流程目标",
@@ -41,14 +44,14 @@ export class BasicChatFixtureParseError extends Error {
   readonly errors: string[];
 
   constructor(errors: string[]) {
-    super(`llm基础测试.md 解析失败：${errors.join("；")}`);
+    super(`${basicChatFixtureSourcePath} 解析失败：${errors.join("；")}`);
     this.name = "BasicChatFixtureParseError";
     this.errors = errors;
   }
 }
 
-// readBasicChatFixture 是基础黑盒套件的唯一用例入口，保证 runner 直接消费根目录文档。
-export async function readBasicChatFixture(sourcePath = resolve(process.cwd(), "llm基础测试.md")) {
+// readBasicChatFixture 是基础黑盒套件的唯一用例入口，保证 runner 直接消费当前文档目录里的基础用例。
+export async function readBasicChatFixture(sourcePath = resolve(process.cwd(), basicChatFixtureSourcePath)) {
   const markdown = await readFile(sourcePath, "utf8");
 
   return parseBasicChatFixtureFromMarkdown(markdown, sourcePath);
@@ -57,7 +60,7 @@ export async function readBasicChatFixture(sourcePath = resolve(process.cwd(), "
 // parseBasicChatFixtureFromMarkdown 将人工 review 的三轮流程表转成 runner 可执行的稳定 fixture。
 export function parseBasicChatFixtureFromMarkdown(
   markdown: string,
-  sourcePath = "llm基础测试.md",
+  sourcePath = basicChatFixtureSourcePath,
 ): BasicChatFixture {
   const errors: string[] = [];
   const lines = markdown.split(/\r?\n/);

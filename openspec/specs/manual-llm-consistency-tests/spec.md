@@ -549,13 +549,13 @@ TBD - created by archiving change add-manual-llm-consistency-tests. Update Purpo
 
 #### Scenario: 默认测试不运行基础 LLM 黑盒测试
 - **WHEN** 开发者在项目根目录执行 `npm test` 或 `npm run test`
-- **THEN** 系统 MUST NOT 运行 `llm基础测试.md` 驱动的真实 LLM 黑盒测试
+- **THEN** 系统 MUST NOT 运行 `docs/LLM基础测试用例.md` 驱动的真实 LLM 黑盒测试
 - **AND** 系统 MUST NOT 因缺少模型配置、judge 配置或外部模型网络不可用而导致默认测试失败
 - **AND** 默认 Vitest include 或测试 runner 配置 MUST 不包含手动 LLM 黑盒测试目录
 
 #### Scenario: 专用命令运行基础黑盒套件
 - **WHEN** 开发者执行基础 LLM 黑盒测试专用命令
-- **THEN** 系统 MUST 运行从 `llm基础测试.md` 解析出的首页聊天基础 flow
+- **THEN** 系统 MUST 运行从 `docs/LLM基础测试用例.md` 解析出的首页聊天基础 flow
 - **AND** 命令输出 MUST 明确显示本次运行的 flow 数、turn 数、模型、judge 模型和报告路径
 - **AND** 命令 MUST 在真实模型调用前输出预计 token 消耗
 - **AND** 命令 MUST 支持按 flow id 运行子集
@@ -603,7 +603,7 @@ TBD - created by archiving change add-manual-llm-consistency-tests. Update Purpo
 
 #### Scenario: 基建单测不锁死当前人工用例数量
 - **WHEN** 默认自动化测试验证基础 LLM 黑盒 fixture/parser
-- **THEN** 测试 MUST 验证 `llm基础测试.md` 可解析、flow id 唯一、每个 flow 固定三轮、每轮输入和期望非空
+- **THEN** 测试 MUST 验证 `docs/LLM基础测试用例.md` 可解析、flow id 唯一、每个 flow 固定三轮、每轮输入和期望非空
 - **AND** 测试 SHOULD NOT 将当前 flow 总数、完整固定 id 列表或当前人工用例顺序作为长期通过条件
 - **AND** 如果需要防止误删高价值用例，系统 SHOULD 通过文档 review 或单独覆盖矩阵表达，而不是把 parser 基建测试绑定到具体数量
 
@@ -753,4 +753,3 @@ TBD - created by archiving change add-manual-llm-consistency-tests. Update Purpo
 - **AND** assistant 只在 `suggestedQuestions` 中提供“改成每周 N 练”或等价下一轮建议
 - **THEN** judge MUST NOT 将该轮判定为已完成计划
 - **AND** 若 visible output 已经是错误 kind 或缺少 `schedule.assignments`，judge MUST 返回失败
-
