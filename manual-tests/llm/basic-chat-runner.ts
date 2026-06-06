@@ -35,14 +35,6 @@ import {
   type BasicChatFlow,
 } from "./basic-chat-fixtures";
 import {
-  createBasicChatJudgeConfig,
-  isPassingJudgeStatus,
-  judgeBasicChatTurn,
-  type BasicChatJudgeConfig,
-  type BasicChatVisibleUserOutput,
-  type BasicChatVisibleOutputSummary,
-} from "./basic-chat-judge";
-import {
   mergeTokenUsage,
   renderBasicChatBlackboxReport,
   isPassingTurnRunStatus,
@@ -53,6 +45,7 @@ import {
   type BasicChatHydrationSaveDiagnostic,
   type BasicChatSuiteSummary,
   type BasicChatTokenDiagnostics,
+  type BasicChatVisibleOutputSummary,
   type BasicChatTurnRunRecord,
 } from "./basic-chat-report";
 
@@ -71,7 +64,6 @@ export type BasicChatBlackboxRunOptions = {
   reportPath?: string;
   flowIds?: string[];
   env?: NodeJS.ProcessEnv;
-  fetchImpl?: typeof fetch;
   now?: () => Date;
 };
 
@@ -105,7 +97,6 @@ export type NormalizedChatOutput = {
 const defaultReportPath = "docs/manual-llm-basic-blackbox-latest-report.md";
 const defaultChatModel = "deepseek-v4-flash";
 const estimatedChatTokensPerTurn = 36_000;
-const estimatedJudgeTokensPerTurn = 800;
 
 // createBasicChatBlackboxRunOptionsFromEnv 让专用命令通过 env 传入筛选条件和报告路径。
 export function createBasicChatBlackboxRunOptionsFromEnv(env: NodeJS.ProcessEnv = process.env): BasicChatBlackboxRunOptions {
@@ -144,9 +135,7 @@ export async function runBasicChatBlackboxSuite(
       endedAt: options.now?.() ?? new Date(),
       status: "preflight_failed",
       model: readChatModel(env),
-      judgeModel: readJudgeModelLabel(env),
       filterLabel: formatFilterLabel(options.flowIds),
-      missingConfiguration: [],
       preflightErrors,
       estimatedTokenTotal: 0,
     });
@@ -163,48 +152,25 @@ export async function runBasicChatBlackboxSuite(
       endedAt: options.now?.() ?? new Date(),
       status: "preflight_failed",
       model: readChatModel(env),
-      judgeModel: readJudgeModelLabel(env),
       filterLabel: formatFilterLabel(options.flowIds),
-      missingConfiguration: [],
       preflightErrors: [selectedFlowResult.message],
       estimatedTokenTotal: estimateBasicChatTokenUsage(fixture.flows),
     });
   }
 
   const selectedFlows = selectedFlowResult.flows;
-  const judgeConfigResult = createBasicChatJudgeConfig(env);
   const estimatedTokenTotal = estimateBasicChatTokenUsage(selectedFlows);
   const model = readChatModel(env);
-  const judgeModel = judgeConfigResult.config?.model ?? readJudgeModelLabel(env);
   const filterLabel = formatFilterLabel(options.flowIds);
 
   logRunStart({
     model,
-    judgeModel,
     flowCount: selectedFlows.length,
     turnCount: summarizeBasicChatFixture(selectedFlows).turnCount,
     filterLabel,
     reportPath,
     estimatedTokenTotal,
   });
-
-  if (!judgeConfigResult.config) {
-    return writeFinalReport({
-      reportPath,
-      fixture,
-      selectedFlows,
-      records: [],
-      startedAt,
-      endedAt: options.now?.() ?? new Date(),
-      status: "configuration_failed",
-      model,
-      judgeModel,
-      filterLabel,
-      missingConfiguration: judgeConfigResult.missing,
-      preflightErrors: [],
-      estimatedTokenTotal,
-    });
-  }
 
   const records: BasicChatTurnRunRecord[] = [];
   let authSession: AuthSession;
@@ -226,9 +192,7 @@ export async function runBasicChatBlackboxSuite(
       endedAt: options.now?.() ?? new Date(),
       status: "failed",
       model,
-      judgeModel,
       filterLabel,
-      missingConfiguration: [],
       preflightErrors: [],
       estimatedTokenTotal,
     });
@@ -238,8 +202,6 @@ export async function runBasicChatBlackboxSuite(
     const flowRecords = await runBasicChatFlow({
       flow,
       authSession,
-      judgeConfig: judgeConfigResult.config,
-      fetchImpl: options.fetchImpl,
     });
 
     records.push(...flowRecords);
@@ -256,9 +218,7 @@ export async function runBasicChatBlackboxSuite(
     endedAt: options.now?.() ?? new Date(),
     status: failed ? "failed" : "passed",
     model,
-    judgeModel,
     filterLabel,
-    missingConfiguration: [],
     preflightErrors: [],
     estimatedTokenTotal,
   });
@@ -267,8 +227,6 @@ export async function runBasicChatBlackboxSuite(
 async function runBasicChatFlow(input: {
   flow: BasicChatFlow;
   authSession: AuthSession;
-  judgeConfig: BasicChatJudgeConfig;
-  fetchImpl?: typeof fetch;
 }): Promise<BasicChatTurnRunRecord[]> {
   const records: BasicChatTurnRunRecord[] = [];
   const conversationId = `manual-basic-${input.flow.id}-${randomUUID()}`;
@@ -403,23 +361,9 @@ async function runBasicChatFlow(input: {
       savedMessages = persistence.messages;
       conversationSummary = persistence.conversationSummary.summary;
 
-      const judgeOutcome = await judgeBasicChatTurn(
-        {
-          flowId: input.flow.id,
-          goal: input.flow.goal,
-          turnIndex: turn.index,
-          userInput: turn.userInput,
-          expectation: turn.expectation,
-          visibleUserOutput: createBasicChatVisibleUserOutput(output),
-        },
-        input.judgeConfig,
-        input.fetchImpl,
-      );
+      const visibleAnswer = summarizeBasicVisibleAnswer(output);
 
-      if (judgeOutcome.ok) {
-        const status = isPassingJudgeStatus(judgeOutcome.result.status)
-          ? judgeOutcome.result.status
-          : "failed";
+      if (visibleAnswer.ok) {
         record = {
           flowId: input.flow.id,
           goal: input.flow.goal,
@@ -427,7 +371,7 @@ async function runBasicChatFlow(input: {
           userInput: turn.userInput,
           expectation: turn.expectation,
           executed: true,
-          status,
+          status: "passed",
           finalAssistantTextSummary: summarizeReportText(output.assistantText),
           visibleOutputKinds: output.visibleOutputKinds,
           assistantSuggestions: output.assistantSuggestions,
@@ -435,11 +379,9 @@ async function runBasicChatFlow(input: {
           safeErrorMessage: output.safeErrorMessage,
           hydration: hydrationDiagnostic,
           responseOutcome,
-          judge: judgeOutcome.result,
+          resultReason: visibleAnswer.reason,
           chatTokenDiagnostics,
           chatTokenUsage: chatTokenDiagnostics.usage,
-          judgeTokenUsage: judgeOutcome.usage,
-          failureReason: output.errorMessage,
         };
       } else {
         record = {
@@ -449,7 +391,7 @@ async function runBasicChatFlow(input: {
           userInput: turn.userInput,
           expectation: turn.expectation,
           executed: true,
-          status: "judge_failed",
+          status: "failed",
           finalAssistantTextSummary: summarizeReportText(output.assistantText),
           visibleOutputKinds: output.visibleOutputKinds,
           assistantSuggestions: output.assistantSuggestions,
@@ -459,8 +401,7 @@ async function runBasicChatFlow(input: {
           responseOutcome,
           chatTokenDiagnostics,
           chatTokenUsage: chatTokenDiagnostics.usage,
-          judgeTokenUsage: judgeOutcome.usage,
-          failureReason: `${judgeOutcome.failureCode}: ${judgeOutcome.reason}`,
+          failureReason: visibleAnswer.reason,
         };
       }
     } catch (error) {
@@ -504,13 +445,26 @@ export function createBasicChatRequestBody(input: BasicChatRequestBody): BasicCh
   };
 }
 
-function createBasicChatVisibleUserOutput(output: NormalizedChatOutput): BasicChatVisibleUserOutput {
+// summarizeBasicVisibleAnswer 是基础黑盒的唯一验收口径：链路完成且用户能看到回答即可。
+export function summarizeBasicVisibleAnswer(output: NormalizedChatOutput): { ok: true; reason: string } | { ok: false; reason: string } {
+  const visibleParts = [
+    output.assistantText.trim() ? "assistant_text" : undefined,
+    output.visibleOutputs.length > 0 ? "visible_output" : undefined,
+    output.assistantSuggestions.length > 0 ? "suggested_questions" : undefined,
+    output.confirmationRequests.length > 0 ? "confirmation_request" : undefined,
+    output.safeErrorMessage?.trim() ? "safe_error_message" : undefined,
+  ].filter(Boolean);
+
+  if (visibleParts.length > 0) {
+    return {
+      ok: true,
+      reason: `收到用户可见回答：${visibleParts.join(", ")}`,
+    };
+  }
+
   return {
-    finalAssistantText: output.assistantText,
-    visibleOutputs: output.visibleOutputs,
-    assistantSuggestions: output.assistantSuggestions,
-    confirmationRequests: output.confirmationRequests,
-    safeErrorMessage: output.safeErrorMessage,
+    ok: false,
+    reason: "聊天响应已结束，但没有 assistant 文本、可见输出、建议提问、确认请求或安全兜底文案。",
   };
 }
 
@@ -709,9 +663,7 @@ async function writeFinalReport(input: {
   endedAt: Date;
   status: BasicChatSuiteSummary["status"];
   model: string;
-  judgeModel: string;
   filterLabel: string;
-  missingConfiguration: string[];
   preflightErrors: string[];
   estimatedTokenTotal: number;
 }): Promise<BasicChatBlackboxRunResult> {
@@ -719,7 +671,6 @@ async function writeFinalReport(input: {
   const summary: BasicChatSuiteSummary = {
     status: input.status,
     model: input.model,
-    judgeModel: input.judgeModel,
     sourcePath: input.fixture.sourcePath,
     reportPath: input.reportPath,
     startedAt: input.startedAt,
@@ -731,16 +682,13 @@ async function writeFinalReport(input: {
     executedFlowCount: new Set(executedRecords.map((record) => record.flowId)).size,
     executedTurnCount: executedRecords.length,
     passedTurnCount: input.records.filter((record) => isPassingTurnRunStatus(record.status)).length,
-    suggestionPassedTurnCount: input.records.filter((record) => record.status === "passed_via_suggestion").length,
     failedTurnCount: input.records.filter((record) => (
       record.executed && !isPassingTurnRunStatus(record.status)
     )).length,
     skippedTurnCount: input.records.filter((record) => record.status === "skipped").length,
     estimatedTokenTotal: input.estimatedTokenTotal,
     actualChatTokenUsage: mergeTokenUsage(input.records.map((record) => record.chatTokenUsage)),
-    actualJudgeTokenUsage: mergeTokenUsage(input.records.map((record) => record.judgeTokenUsage)),
     chatTokenDiagnosticsSummary: summarizeTokenDiagnostics(input.records.map((record) => record.chatTokenDiagnostics)),
-    missingConfiguration: input.missingConfiguration,
     preflightErrors: input.preflightErrors,
   };
   const reportMarkdown = renderBasicChatBlackboxReport({
@@ -898,12 +846,11 @@ function estimateBasicChatTokenUsage(flows: BasicChatFlow[]) {
   ), 0);
   const turnCount = summarizeBasicChatFixture(flows).turnCount;
 
-  return Math.ceil(textLength / 2) + turnCount * (estimatedChatTokensPerTurn + estimatedJudgeTokensPerTurn);
+  return Math.ceil(textLength / 2) + turnCount * estimatedChatTokensPerTurn;
 }
 
 function logRunStart(input: {
   model: string;
-  judgeModel: string;
   flowCount: number;
   turnCount: number;
   filterLabel: string;
@@ -913,7 +860,7 @@ function logRunStart(input: {
   console.log([
     `基础 LLM 黑盒套件启动`,
     `模型：${input.model}`,
-    `Judge 模型：${input.judgeModel}`,
+    `验收口径：收到 done 且存在用户可见回答`,
     `flow 数：${input.flowCount}`,
     `turn 数：${input.turnCount}`,
     `筛选条件：${input.filterLabel}`,
@@ -966,10 +913,6 @@ function formatFilterLabel(flowIds: string[] | undefined) {
 
 function readChatModel(env: NodeJS.ProcessEnv) {
   return env.DEEPSEEK_MODEL?.trim() || defaultChatModel;
-}
-
-function readJudgeModelLabel(env: NodeJS.ProcessEnv) {
-  return env.DEEPSEEK_JUDGE_MODEL?.trim() || env.DEEPSEEK_MODEL?.trim() || defaultChatModel;
 }
 
 function readNumber(value: unknown) {

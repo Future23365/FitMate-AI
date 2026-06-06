@@ -9,12 +9,6 @@ import {
   readBasicChatFixture,
 } from "@/manual-tests/llm/basic-chat-fixtures";
 import {
-  basicChatJudgeResultSchema,
-  buildBasicChatJudgeModelInput,
-  createBasicChatJudgeMessages,
-  normalizeBasicChatTokenUsage,
-} from "@/manual-tests/llm/basic-chat-judge";
-import {
   renderBasicChatBlackboxReport,
   summarizeTokenDiagnostics,
   type BasicChatSuiteSummary,
@@ -23,6 +17,8 @@ import {
 import {
   createBasicChatRequestBody,
   normalizeChatOutput,
+  summarizeBasicVisibleAnswer,
+  type NormalizedChatOutput,
 } from "@/manual-tests/llm/basic-chat-runner";
 import { buildFitnessConversationContext } from "@/lib/shared/chat/fitness-conversation-context";
 
@@ -102,98 +98,47 @@ describe("manual basic LLM blackbox fixtures", () => {
   });
 });
 
-describe("manual basic LLM judge contract", () => {
-  it("builds judge input from final user-visible output only", () => {
-    const modelInput = buildBasicChatJudgeModelInput({
-      flowId: "F01",
-      goal: "纯动作推荐到刷新推荐",
-      turnIndex: 1,
-      userInput: "今天我想练胸",
-      expectation: "触发动作推荐卡片",
-      visibleUserOutput: {
-        finalAssistantText: "可以，给你推荐几个胸部动作。",
-        visibleOutputs: [
-          { outputType: "exercise_recommendation", schemaVersion: "1", summary: "胸部动作推荐卡片" },
-        ],
-        assistantSuggestions: ["换一批"],
-        confirmationRequests: ["是否保存这套训练？"],
-        safeErrorMessage: "聊天生成失败，请稍后重试。",
-      },
-    });
-    const messages = createBasicChatJudgeMessages(modelInput);
-    const userPayload = JSON.parse(messages[1].content) as Record<string, unknown>;
-    const systemPrompt = messages[0].content;
-    const serializedPayload = JSON.stringify(userPayload);
-
-    expect(userPayload).toEqual({
-      flowId: "F01",
-      goal: "纯动作推荐到刷新推荐",
-      turnIndex: 1,
-      userInput: "今天我想练胸",
-      expectation: "触发动作推荐卡片",
-      visibleUserOutput: {
-        finalAssistantText: "可以，给你推荐几个胸部动作。",
-        visibleOutputs: [
-          { outputType: "exercise_recommendation", schemaVersion: "1", summary: "胸部动作推荐卡片" },
-        ],
-        assistantSuggestions: ["换一批"],
-        confirmationRequests: ["是否保存这套训练？"],
-        safeErrorMessage: "聊天生成失败，请稍后重试。",
-      },
-    });
-    expect(serializedPayload).not.toContain("agent_progress");
-    expect(serializedPayload).not.toContain("tool_result");
-    expect(serializedPayload).not.toContain("trace");
-    expect(serializedPayload).not.toContain("raw provider response");
-    expect(serializedPayload).not.toContain("token diagnostics");
-    expect(systemPrompt).toContain("不直接生成随机卡片");
-    expect(systemPrompt).toContain("visibleTrainingProposal、exercise_recommendation、workout_routine、workout_plan");
-    expect(systemPrompt).toContain("生成 routine、单次训练、训练编排或三段式训练");
-    expect(systemPrompt).toContain("kind=exercise_selection");
-    expect(systemPrompt).toContain("让用户自行组合");
-    expect(systemPrompt).toContain("生成 plan、多天安排、周期计划、每周训练安排或训练日 / 休息日安排");
-    expect(systemPrompt).toContain("无 schedule.assignments 的单次 routine");
-    expect(systemPrompt).toContain("只建议用户下一轮再生成计划");
-    expect(systemPrompt).toContain("visibleOutputs 摘要必须直接体现 kind=plan 和 schedule.assignments");
-    expect(systemPrompt).toContain("缺少 kind=plan、缺少 schedule.assignments 或显示 kind=routine");
-    expect(systemPrompt).toContain("不能因为同时存在 assistantSuggestions 而返回 passed_via_suggestion");
-  });
-
-  it("validates judge schema and rejects inconsistent passed/status pairs", () => {
-    expect(basicChatJudgeResultSchema.safeParse({
-      passed: true,
-      status: "passed",
-      reason: "最终输出满足期望。",
-      matchedExpectations: ["推荐胸部动作"],
-      missingExpectations: [],
-      visibleOutputKinds: ["exercise_recommendation@1"],
-    }).success).toBe(true);
-
-    expect(basicChatJudgeResultSchema.safeParse({
-      passed: true,
-      status: "passed_via_suggestion",
-      reason: "正文没有直接生成计划，但建议提问可直接发送并补齐生成动作。",
-      matchedExpectations: ["建议提问覆盖缺失下一步"],
-      missingExpectations: [],
+describe("manual basic LLM visible answer contract", () => {
+  it("passes when any user-visible answer surface is present", () => {
+    const baseOutput: NormalizedChatOutput = {
+      assistantText: "",
+      visibleOutputs: [],
+      rawVisibleOutputs: [],
+      assistantSuggestions: [],
+      confirmationRequests: [],
       visibleOutputKinds: [],
-    }).success).toBe(true);
+      eventTypes: ["done"],
+      done: true,
+    };
 
-    expect(basicChatJudgeResultSchema.safeParse({
-      passed: true,
-      status: "failed",
-      reason: "状态冲突。",
-      matchedExpectations: [],
-      missingExpectations: ["缺少卡片"],
-      visibleOutputKinds: [],
-    }).success).toBe(false);
-  });
-
-  it("normalizes provider token usage for report summaries", () => {
-    expect(normalizeBasicChatTokenUsage({
-      prompt_tokens: 12,
-      completion_tokens: 5,
-      total_tokens: 17,
-    })).toEqual({ promptTokens: 12, completionTokens: 5, totalTokens: 17 });
+    expect(summarizeBasicVisibleAnswer({
+      ...baseOutput,
+      assistantText: "可以，给你一个简单方案。",
+    })).toEqual({
+      ok: true,
+      reason: "收到用户可见回答：assistant_text",
+    });
+    expect(summarizeBasicVisibleAnswer({
+      ...baseOutput,
+      visibleOutputs: [{ outputType: "visibleTrainingProposal", schemaVersion: "1", summary: "训练方案卡片" }],
+      visibleOutputKinds: ["visibleTrainingProposal@1"],
+    }).ok).toBe(true);
+    expect(summarizeBasicVisibleAnswer({
+      ...baseOutput,
+      assistantSuggestions: ["换一批"],
+    }).ok).toBe(true);
+    expect(summarizeBasicVisibleAnswer({
+      ...baseOutput,
+      confirmationRequests: ["是否保存这套训练？"],
+    }).ok).toBe(true);
+    expect(summarizeBasicVisibleAnswer({
+      ...baseOutput,
+      safeErrorMessage: "聊天服务暂时不可用，请稍后再试。",
+    }).ok).toBe(true);
+    expect(summarizeBasicVisibleAnswer(baseOutput)).toEqual({
+      ok: false,
+      reason: "聊天响应已结束，但没有 assistant 文本、可见输出、建议提问、确认请求或安全兜底文案。",
+    });
   });
 
   it("reuses the production NDJSON parser and projects visible user output", async () => {
@@ -230,6 +175,9 @@ describe("manual basic LLM judge contract", () => {
       safeErrorMessage: "聊天服务暂时不可用，请稍后再试。",
       done: true,
     });
+    expect(summarizeBasicVisibleAnswer(output)).toMatchObject({
+      ok: true,
+    });
 
     await expect(normalizeChatOutput(JSON.stringify({ type: "unknown_internal_event" })))
       .rejects
@@ -247,19 +195,11 @@ describe("manual basic LLM report and isolation", () => {
       userInput: "今天我想练胸",
       expectation: "触发动作推荐卡片",
       executed: true,
-      status: "passed_via_suggestion",
+      status: "passed",
       finalAssistantTextSummary: "可以，给你推荐几个胸部动作。",
       visibleOutputKinds: ["exercise_recommendation@1"],
-      judge: {
-        passed: true,
-        status: "passed_via_suggestion",
-        reason: "建议提问可恢复完成当前期望。",
-        matchedExpectations: ["胸部动作推荐"],
-        missingExpectations: [],
-        visibleOutputKinds: ["exercise_recommendation@1"],
-      },
+      resultReason: "收到用户可见回答：assistant_text, visible_output, suggested_questions, confirmation_request, safe_error_message",
       chatTokenUsage: { promptTokens: 10, completionTokens: 4, totalTokens: 14 },
-      judgeTokenUsage: { promptTokens: 8, completionTokens: 3, totalTokens: 11 },
       assistantSuggestions: ["换一批"],
       confirmationRequests: ["是否保存这套训练？"],
       safeErrorMessage: "聊天生成失败，请稍后重试。",
@@ -290,7 +230,6 @@ describe("manual basic LLM report and isolation", () => {
     const summary: BasicChatSuiteSummary = {
       status: "passed",
       model: "deepseek-v4-flash",
-      judgeModel: "deepseek-chat",
       sourcePath: "llm基础测试.md",
       reportPath: "docs/manual-llm-basic-blackbox-latest-report.md",
       startedAt: new Date("2026-06-04T01:00:00.000Z"),
@@ -302,18 +241,15 @@ describe("manual basic LLM report and isolation", () => {
       executedFlowCount: 1,
       executedTurnCount: 1,
       passedTurnCount: 1,
-      suggestionPassedTurnCount: 1,
       failedTurnCount: 0,
       skippedTurnCount: 0,
       estimatedTokenTotal: 3000,
       actualChatTokenUsage: { promptTokens: 10, completionTokens: 4, totalTokens: 14 },
-      actualJudgeTokenUsage: { promptTokens: 8, completionTokens: 3, totalTokens: 11 },
       chatTokenDiagnosticsSummary: summarizeTokenDiagnostics([{
         source: "dev_trace_store",
         status: "missing",
         reason: "trace token usage not found",
       }]),
-      missingConfiguration: [],
       preflightErrors: [],
     };
     const report = renderBasicChatBlackboxReport({
@@ -325,8 +261,9 @@ describe("manual basic LLM report and isolation", () => {
     expect(report).toContain("# 基础 LLM 首页聊天黑盒测试报告");
     expect(report).toContain("2026-06-04T09:01:00+08:00");
     expect(report).toContain("F01");
-    expect(report).toContain("建议可恢复通过 turn 数：1");
-    expect(report).toContain("passed_via_suggestion");
+    expect(report).toContain("验收口径：收到 done 且存在用户可见回答");
+    expect(report).toContain("通过 turn 数：1");
+    expect(report).toContain("收到用户可见回答");
     expect(report).toContain("exercise_recommendation@1");
     expect(report).toContain("换一批");
     expect(report).toContain("是否保存这套训练？");

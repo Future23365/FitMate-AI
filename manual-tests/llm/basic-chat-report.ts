@@ -1,5 +1,16 @@
 import type { BasicChatFlow } from "./basic-chat-fixtures";
-import type { BasicChatJudgeResult, BasicChatTokenUsage } from "./basic-chat-judge";
+
+export type BasicChatTokenUsage = {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+};
+
+export type BasicChatVisibleOutputSummary = {
+  outputType: string;
+  schemaVersion: string;
+  summary: string;
+};
 
 // BasicChatTokenDiagnostics 描述聊天 token 的诊断来源和缺失状态，不能作为 flow 判定条件。
 export type BasicChatTokenDiagnostics = {
@@ -9,7 +20,7 @@ export type BasicChatTokenDiagnostics = {
   reason?: string;
 };
 
-// BasicChatHydrationSaveDiagnostic 记录 runner 保存会话后的可审计摘要，不进入 judge 输入。
+// BasicChatHydrationSaveDiagnostic 记录 runner 保存会话后的可审计摘要，不进入基础通过判定。
 export type BasicChatHydrationSaveDiagnostic = {
   status: "saved" | "failed" | "not_attempted";
   savedMessageCount?: number;
@@ -45,9 +56,7 @@ export type BasicChatResponseOutcomeDiagnostic = {
 
 export type BasicChatTurnRunStatus =
   | "passed"
-  | "passed_via_suggestion"
   | "failed"
-  | "judge_failed"
   | "error"
   | "skipped";
 
@@ -66,18 +75,16 @@ export type BasicChatTurnRunRecord = {
   safeErrorMessage?: string;
   hydration?: BasicChatHydrationDiagnostic;
   responseOutcome?: BasicChatResponseOutcomeDiagnostic;
-  judge?: BasicChatJudgeResult;
+  resultReason?: string;
   failureReason?: string;
   skipReason?: string;
   chatTokenDiagnostics?: BasicChatTokenDiagnostics;
   chatTokenUsage?: BasicChatTokenUsage;
-  judgeTokenUsage?: BasicChatTokenUsage;
 };
 
 export type BasicChatSuiteSummary = {
-  status: "passed" | "failed" | "configuration_failed" | "preflight_failed";
+  status: "passed" | "failed" | "preflight_failed";
   model: string;
-  judgeModel: string;
   sourcePath: string;
   reportPath: string;
   startedAt: Date;
@@ -89,14 +96,11 @@ export type BasicChatSuiteSummary = {
   executedFlowCount: number;
   executedTurnCount: number;
   passedTurnCount: number;
-  suggestionPassedTurnCount: number;
   failedTurnCount: number;
   skippedTurnCount: number;
   estimatedTokenTotal: number;
   actualChatTokenUsage?: BasicChatTokenUsage;
-  actualJudgeTokenUsage?: BasicChatTokenUsage;
   chatTokenDiagnosticsSummary: string;
-  missingConfiguration: string[];
   preflightErrors: string[];
 };
 
@@ -121,33 +125,22 @@ export function renderBasicChatBlackboxReport(input: BasicChatReportInput) {
     "## 运行摘要",
     "",
     `- 模型：${input.summary.model}`,
-    `- Judge 模型：${input.summary.judgeModel}`,
+    "- 验收口径：收到 done 且存在用户可见回答",
     `- 筛选条件：${input.summary.filterLabel}`,
     `- 完整 flow 数：${input.summary.fullFlowCount}`,
     `- 完整 turn 数：${input.summary.fullTurnCount}`,
     `- 实际执行 flow 数：${input.summary.executedFlowCount}`,
     `- 实际执行 turn 数：${input.summary.executedTurnCount}`,
     `- 通过 turn 数：${input.summary.passedTurnCount}`,
-    `- 建议可恢复通过 turn 数：${input.summary.suggestionPassedTurnCount}`,
     `- 失败 turn 数：${input.summary.failedTurnCount}`,
     `- 跳过 turn 数：${input.summary.skippedTurnCount}`,
     `- 预计 token 消耗：约 ${input.summary.estimatedTokenTotal}`,
     `- 聊天 token 汇总：${formatTokenUsage(input.summary.actualChatTokenUsage)}`,
     `- 聊天 token 来源：${input.summary.chatTokenDiagnosticsSummary}`,
-    `- Judge token 汇总：${formatTokenUsage(input.summary.actualJudgeTokenUsage)}`,
     `- 开始时间：${formatShanghaiDateTime(input.summary.startedAt)}`,
     `- 结束时间：${formatShanghaiDateTime(input.summary.endedAt)}`,
     "",
   ];
-
-  if (input.summary.missingConfiguration.length > 0) {
-    lines.push(
-      "## 缺失配置",
-      "",
-      ...input.summary.missingConfiguration.map((name) => `- ${name}`),
-      "",
-    );
-  }
 
   if (input.summary.preflightErrors.length > 0) {
     lines.push(
@@ -161,7 +154,7 @@ export function renderBasicChatBlackboxReport(input: BasicChatReportInput) {
   lines.push(
     "## Flow 结果",
     "",
-    "| Flow | 轮次 | 状态 | 用户输入 | 文档期望 | 最终 assistant 回复摘要 | 可见输出类型 | 建议回复 | 确认请求 | 安全错误 | 保存/hydration | 响应来源 | Token 诊断 | Judge / 失败原因 |",
+    "| Flow | 轮次 | 状态 | 用户输入 | 文档期望 | 最终 assistant 回复摘要 | 可见输出类型 | 建议回复 | 确认请求 | 安全错误 | 保存/hydration | 响应来源 | Token 诊断 | 通过说明 / 失败原因 |",
     "|---|---:|---|---|---|---|---|---|---|---|---|---|---|---|",
   );
 
@@ -226,9 +219,9 @@ export function mergeTokenUsage(usages: Array<BasicChatTokenUsage | undefined>):
   );
 }
 
-// isPassingTurnRunStatus 让建议可恢复通过不阻断手动套件，同时在报告中保留独立状态。
+// isPassingTurnRunStatus 只表达基础黑盒是否拿到用户可见回答，不再做语义质量判定。
 export function isPassingTurnRunStatus(status: BasicChatTurnRunStatus) {
-  return status === "passed" || status === "passed_via_suggestion";
+  return status === "passed";
 }
 
 // summarizeTokenDiagnostics 为报告提供 token 来源摘要，读取失败只展示诊断，不影响通过条件。
@@ -256,11 +249,8 @@ function formatRecordReason(record: BasicChatTurnRunRecord) {
     return record.skipReason ?? "跳过";
   }
 
-  if (record.judge) {
-    const missing = record.judge.missingExpectations.length
-      ? `缺失：${record.judge.missingExpectations.join("；")}`
-      : "";
-    return [record.judge.reason, missing].filter(Boolean).join("；");
+  if (record.resultReason) {
+    return record.resultReason;
   }
 
   return record.failureReason ?? "(无)";

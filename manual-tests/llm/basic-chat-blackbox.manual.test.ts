@@ -15,7 +15,7 @@ describe("manual basic homepage chat LLM blackbox suite", () => {
     if (result.exitCode !== 0) {
       console.error(`基础 LLM 黑盒套件失败，报告路径：${result.reportPath}`);
       for (const record of result.records.filter((item) => !isPassingTurnRunStatus(item.status))) {
-        console.error(`${record.flowId} 第 ${record.turnIndex} 轮：${record.failureReason ?? record.judge?.reason ?? record.status}`);
+        console.error(`${record.flowId} 第 ${record.turnIndex} 轮：${record.failureReason ?? record.resultReason ?? record.status}`);
       }
     }
 
