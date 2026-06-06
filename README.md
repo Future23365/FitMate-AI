@@ -1,8 +1,10 @@
 # FitMate AI
 
-FitMate AI 是一个 AI 健身聊天助手。项目目标是通过自然语言交互理解用户的健身目标、身体状态、训练限制、训练偏好和可用时间，并据此生成、调整和执行个性化训练计划。
+FitMate AI 是一个基于 Agent 编排的 AI 健身聊天助手。系统通过自然语言理解用户的训练目标、可用时间、器械条件、身体限制和训练偏好，并结合数据库中的动作事实生成可展示、可校验的训练建议。
 
-当前项目采用 Next.js App Router 构建，前端体验、API Route、Agent 编排、领域服务、共享类型和 Prisma 数据模型已经按目录分层。动作库、聊天历史、训练编排、训练日历、训练执行状态、可见训练方案事实和动作资源查询已接入 PostgreSQL/Prisma；生产 `/api/chat` 已走 `agent-core`、DeepSeek planner 和受控只读业务 tool。当前仍未接入正式账号体系，也没有开放由 Agent 直接保存、覆盖或执行训练计划的写入型 tool。
+项目采用 Next.js App Router + React + TypeScript 构建前端体验和 API Route，使用 PostgreSQL / Prisma 作为事实数据源。动作库、聊天历史、训练编排、训练日历、训练执行状态和可见训练方案事实均持久化到数据库；AI 链路通过自研 `agent-core` 接入 DeepSeek planner，生产环境只开放受控只读 tool 查询动作资源和历史可见训练事实，模型输出会经过服务端结构校验、数据库事实校验和 response renderer 后再展示给用户。
+
+当前已实现 AI 聊天、训练方案卡片、动作库搜索筛选、训练编排、训练日历、训练执行、动作图片本地解析、AI trace 调试和自动化测试体系。当前身份体系仍是本地匿名 auth cookie，不是正式账号登录体系；生产 Agent 也尚未开放直接保存、覆盖或执行训练计划的写入型 tool。
 
 更完整的架构说明见 [docs/architecture.md](./docs/architecture.md)。当前数据库表结构、字段含义和关系说明见 [docs/database-design.md](./docs/database-design.md)，该文档根据已有数据库整理，仅用于帮助开发者理解当前设计，不作为数据库设计规范。
 
@@ -22,17 +24,24 @@ FitMate AI 是一个 AI 健身聊天助手。项目目标是通过自然语言�
 
 注意：运行时数据以 PostgreSQL 为事实来源，本地运行和服务器部署都必须配置 `DATABASE_URL` 并执行迁移；`data/exercises.zh.json` 只作为动作 seed 来源，不再作为运行时数据回退。当前身份体系是本地匿名 auth cookie，适合单用户或内测部署，不等同于正式账号登录体系。
 
+## 核心方案
+
+- `agent-core` 是模型无关的 Agent 执行内核，负责 action schema、tool registry、resource store、policy guard、terminal output validation、trace 和 response rendering；DeepSeek 只在 `agent-planners` adapter 层接入。
+- 生产 Agent tool 采用白名单机制，当前只注册 `inspectVisibleTrainingProposals`、`resolveExerciseResourceMentions` 和 `searchExerciseResources`；fixture tool、写入型 tool 和训练执行 tool 不进入生产聊天主链。
+- `visibleTrainingProposal` 是统一的用户可见训练方案输出。模型生成后必须经过服务端 validator 校验动作 ID、发布态、section coverage 和数据库事实，再由 renderer 转成前端卡片事件。
+- 动作检索以 PostgreSQL/Prisma 为主，使用结构化过滤和本地 `embeddingText` / `embedding` 辅助检索，不依赖独立向量数据库。
+- 服务端只处理确定性边界：Schema、权限隔离、数据库事实、resource 引用、grounding、限流预算和错误恢复；不基于用户原文关键词或短句模板改写模型意图。
+- AI trace 调试台记录 Agent run、planner request/response、tool execution、token usage 和终态决策，便于复盘真实聊天链路。
+
 ## 技术栈
 
-- Next.js App Router
-- React
-- TypeScript
-- Tailwind CSS
-- Prisma
-- PostgreSQL
-- Zod
-- DeepSeek Chat Completions API
-- 本地 JSON 动作 seed 数据
+- 前端框架：Next.js 16 App Router、React 19、TypeScript。
+- UI 与样式：Tailwind CSS 4、shadcn/ui 风格组件、Radix UI、Material Symbols、lucide-react、Sonner。
+- 服务端与数据：Next.js Route Handlers、PostgreSQL、Prisma 7、`@prisma/adapter-pg`、`pg`。
+- AI 编排：自研 `agent-core`、`PlannerPort`、`ToolRegistry`、DeepSeek Chat Completions adapter。
+- 数据校验：Zod、JSON Schema、服务端 terminal output validator。
+- 内容与资源：本地 JSON 动作 seed 数据、动作图片本地目录 / CDN 基础 URL、Next image optimizer。
+- 测试与验证：Vitest、ESLint、TypeScript `tsc --noEmit`、独立手动 LLM 黑盒测试入口、前端性能分析脚本。
 
 ## 本地运行
 
