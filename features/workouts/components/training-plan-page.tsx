@@ -330,8 +330,8 @@ export function TrainingPlanPage() {
                   </Button>
                 </div>
               </div>
-              <div className="custom-scrollbar flex min-w-0 justify-start overflow-x-auto whitespace-nowrap lg:justify-end">
-                <div className="flex shrink-0 items-center gap-sm rounded-xl bg-white/70 px-sm py-xs md:gap-md">
+              <div className="custom-scrollbar flex min-w-0 justify-start overflow-x-auto whitespace-nowrap lg:self-end lg:justify-end">
+                <div className="flex shrink-0 items-center gap-xs rounded-lg bg-white/60 px-xs py-[3px] md:gap-sm">
                   <LegendDot className="bg-primary-container" label="已完成" />
                   <LegendDot className="border-2 border-primary-container" label="已安排" />
                   <LegendDot className="bg-error" label="未完成" />
@@ -653,9 +653,9 @@ function SavedPlanListItem({
 
 function LegendDot({ className, label }: { className: string; label: string }) {
   return (
-    <div className="flex items-center gap-xs">
-      <span className={`h-4 w-4 rounded-full ${className}`} />
-      <span className="font-label-sm text-label-sm text-on-surface">{label}</span>
+    <div className="flex items-center gap-[4px]">
+      <span className={`h-2.5 w-2.5 rounded-full ${className}`} />
+      <span className="text-[10px] font-bold leading-none text-secondary">{label}</span>
     </div>
   );
 }
