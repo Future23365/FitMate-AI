@@ -221,6 +221,11 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
       expectedAction: {
         type: "final_answer",
         content: "简短说明这是一批可选主训练动作。",
+        suggestedQuestions: [
+          "把这些动作编成一套 30 分钟训练",
+          "给我一批更简单的徒手动作",
+          "只保留适合在家练的动作",
+        ],
         visibleOutputs: ["见 visibleOutputShape"],
       },
       visibleOutputShape: {

@@ -39,6 +39,7 @@ export type AgentActionContract = {
     visibleOutput: JsonValue;
   };
   fieldDictionary: readonly AgentActionContractField[];
+  suggestedQuestionsPolicy: readonly string[];
   decisionPolicy: readonly string[];
   groundingPolicy: readonly string[];
   referencePolicy: readonly string[];
@@ -75,7 +76,7 @@ const defaultAgentActionSystemPromptInstructions = [
 ] as const;
 
 // agentLlmPromptVersion 是当前通用 AgentAction system prompt 的稳定审阅标识。
-export const agentLlmPromptVersion = "agent-action-v21-structured-delivery-grounding";
+export const agentLlmPromptVersion = "agent-action-v22-success-suggested-questions";
 
 // defaultAgentActionContract 把字段形状、决策策略和少量 few-shot 从 system prompt 中结构化拆出。
 export const defaultAgentActionContract: AgentActionContract = {
@@ -143,6 +144,12 @@ export const defaultAgentActionContract: AgentActionContract = {
     { field: "resource summary", meaning: "ResourceStore 暴露给模型的安全压缩摘要，不是完整数据库对象或 handler output。" },
     { field: "observations", meaning: "runtime 给 Planner 的结构化反馈，包括 schema、domain、resource、grounding 或重复调用诊断。" },
   ],
+  suggestedQuestionsPolicy: [
+    "`suggestedQuestions` 是可选字段；当前回复自然结束且没有可靠下一步时可以省略。",
+    "当 final_answer.content 中已经表达可继续做什么，或用户目标完成后存在清晰下一步时，应把 1-3 条用户可直接发送的下一步写入 suggestedQuestions，而不是只写在 content。",
+    "成功交付动作推荐、训练卡片、routine、plan 或训练解释后，如果下一步可以是调整条件、更换候选、生成计划、细化目标或继续提问，应输出 suggestedQuestions。",
+    "`suggestedQuestions` 只代表下一轮普通用户消息，不代表已经执行、保存、生成或调用未注册能力。",
+  ],
   decisionPolicy: [
     "普通健身解释、能力说明、总结整理和训练原则说明，不需要工具也能可靠回答时使用 final_answer。",
     "用户目标明确但缺少生成可执行训练结果的关键训练约束时使用 ask_user。",
@@ -203,6 +210,21 @@ export const defaultAgentActionContract: AgentActionContract = {
         ],
       },
       notes: ["只使用 content 和 suggestedQuestions 表达澄清，不输出其他同义字段。"],
+    },
+    {
+      id: "successful_answer_with_next_steps",
+      userNeed: "用户目标已经完成，回复正文里存在可靠自然下一步。",
+      actionChoice: "final_answer",
+      expectedAction: {
+        type: "final_answer",
+        content: "简短完成本轮回答，不把下一步只写在正文里。",
+        suggestedQuestions: [
+          "把这些动作编成一套 30 分钟训练",
+          "给我一批更简单的徒手动作",
+          "只保留适合在家练的动作",
+        ],
+      },
+      notes: ["建议提问是下一轮用户消息，不是已执行操作。"],
     },
     {
       id: "needs_registered_facts",

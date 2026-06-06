@@ -20,7 +20,7 @@ describe("agent LLM prompt configuration", () => {
     const serializedContract = JSON.stringify(actionContract);
 
     expect(agentLlmPromptConfig.promptVersion).toBe(agentLlmPromptVersion);
-    expect(agentLlmPromptVersion).toBe("agent-action-v21-structured-delivery-grounding");
+    expect(agentLlmPromptVersion).toBe("agent-action-v22-success-suggested-questions");
     expect(systemPrompt.length).toBeLessThan(1500);
 
     for (const required of [
@@ -101,6 +101,7 @@ describe("agent LLM prompt configuration", () => {
     });
     for (const required of [
       "fieldDictionary",
+      "suggestedQuestionsPolicy",
       "decisionPolicy",
       "groundingPolicy",
       "referencePolicy",
@@ -120,12 +121,15 @@ describe("agent LLM prompt configuration", () => {
       "不要只输出 input 片段",
       "plain_fitness_explanation",
       "missing_training_constraints",
+      "successful_answer_with_next_steps",
       "needs_registered_facts",
       "partial_facts_for_structured_output",
       "ready_visible_output",
       "reference_replace_or_modify",
       "suggestedQuestions",
       "最多 3 条用户口吻",
+      "不是只写在 content",
+      "给我一批更简单的徒手动作",
       "validator repair details",
     ]) {
       expect(serializedContract).toContain(required);
@@ -173,7 +177,7 @@ describe("agent LLM prompt configuration", () => {
       "返回测试专用 AgentAction JSON object。 这个测试只期望 final_answer。",
     );
     expect(buildAgentActionSystemPrompt()).toContain("tool_call、final_answer、ask_user");
-    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v21-structured-delivery-grounding");
+    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v22-success-suggested-questions");
   });
 
   it("exposes a dedicated terminal failure finalizer prompt and budget config", () => {
