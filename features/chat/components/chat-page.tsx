@@ -460,7 +460,6 @@ export function ChatPage() {
     messages,
     sendMessage,
     setInput,
-    setThinkingEnabled,
     thinkingEnabled,
   } = useChatController();
   const chatScrollRef = useAutoHideScrollbar<HTMLDivElement>();
@@ -686,35 +685,13 @@ export function ChatPage() {
             <form onSubmit={handleSubmit}>
               <div className="relative flex items-center">
                 <input
-                  className="w-full rounded-xl border border-line bg-white py-md pl-md pr-[150px] font-body-md shadow-card outline-none transition-all placeholder:text-muted focus:border-primary focus:ring-4 focus:ring-primary/10 sm:pr-[210px]"
+                  className="w-full rounded-xl border border-line bg-white py-md pl-md pr-[64px] font-body-md shadow-card outline-none transition-all placeholder:text-muted focus:border-primary focus:ring-4 focus:ring-primary/10"
                   ref={chatInputRef}
                   onChange={(event) => setInput(event.target.value)}
                   placeholder="向 FitMate AI 提问..."
                   type="text"
                   value={input}
                 />
-                <button
-                  aria-pressed={thinkingEnabled}
-                  aria-label={thinkingEnabled ? "关闭思考模式" : "开启思考模式"}
-                  className={`absolute right-[52px] flex h-9 items-center gap-xs rounded-full border px-sm font-label-sm text-label-sm shadow-sm transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 ${
-                    thinkingEnabled
-                      ? "border-primary/30 bg-primary-soft text-primary"
-                      : "border-line bg-white/90 text-muted hover:border-primary/30 hover:bg-panel-soft"
-                  }`}
-                  disabled={isLoading}
-                  onClick={() => setThinkingEnabled((enabled) => !enabled)}
-                  type="button"
-                >
-                  <SymbolIcon className="text-[18px]">
-                    {thinkingEnabled ? "psychology" : "psychology_alt"}
-                  </SymbolIcon>
-                  <span className="hidden sm:inline">思考</span>
-                  <span
-                    className={`h-1.5 w-1.5 rounded-full ${
-                      thinkingEnabled ? "bg-primary" : "bg-outline-variant"
-                    }`}
-                  />
-                </button>
                 <button
                   className="absolute right-xs flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-white shadow-card transition-all hover:bg-primary-deep hover:shadow-lift active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
                   disabled={!canSubmitMessage}
