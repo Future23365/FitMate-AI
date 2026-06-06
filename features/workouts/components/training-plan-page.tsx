@@ -288,7 +288,7 @@ export function TrainingPlanPage() {
                   回到今天
                 </Button>
                 <Button
-                  className="h-10 rounded-xl px-md font-label-md text-label-md font-bold shadow-card transition-all hover:shadow-lift active:scale-[0.98]"
+                  className="h-10 rounded-xl bg-primary px-md font-label-md text-label-md font-bold text-white shadow-card transition-all hover:bg-primary-deep hover:text-white hover:shadow-lift active:scale-[0.98]"
                   onClick={() => setSidePanelMode("saved-plans")}
                   type="button"
                 >
