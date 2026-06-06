@@ -15,17 +15,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-const profileItems = [
-  { label: "训练目标", value: "待完善", icon: "flag" },
-  { label: "训练经验", value: "待完善", icon: "fitness_center" },
-  { label: "可用器械", value: "待完善", icon: "exercise" },
-];
-
 export default function SettingsPage() {
-  const { status, user, resetLocalUser } = useLocalAuth();
+  const { status, resetLocalUser } = useLocalAuth();
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
-  const userName = user?.displayName || "匿名用户";
   const isResetting = status === "resetting";
 
   async function confirmResetLocalUser() {
@@ -52,50 +45,14 @@ export default function SettingsPage() {
             <div>
               <p className="text-sm font-bold text-primary">用户设置</p>
               <h1 className="mt-1 text-3xl font-extrabold tracking-tight text-ink">
-                {userName}
+                本地用户管理
               </h1>
               <p className="mt-2 max-w-2xl text-sm font-semibold text-muted">
-                管理个人资料、训练偏好和后续个性化推荐所需的信息。
+                管理当前浏览器保存的匿名用户状态。
               </p>
             </div>
           </div>
         </header>
-
-        <section className="grid gap-md md:grid-cols-2">
-          <div className="rounded-xl border border-line/70 bg-white/86 p-lg shadow-card backdrop-blur-xl">
-            <div className="mb-md flex h-10 w-10 items-center justify-center rounded-xl bg-primary-soft text-primary">
-              <SymbolIcon className="text-[20px]">badge</SymbolIcon>
-            </div>
-            <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-muted">
-              名称
-            </p>
-            <p className="mt-2 text-lg font-extrabold text-ink">{userName}</p>
-          </div>
-          {profileItems.map((item) => (
-            <div
-              className="rounded-xl border border-line/70 bg-white/86 p-lg shadow-card backdrop-blur-xl"
-              key={item.label}
-            >
-              <div className="mb-md flex h-10 w-10 items-center justify-center rounded-xl bg-primary-soft text-primary">
-                <SymbolIcon className="text-[20px]">{item.icon}</SymbolIcon>
-              </div>
-              <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-muted">
-                {item.label}
-              </p>
-              <p className="mt-2 text-lg font-extrabold text-ink">{item.value}</p>
-            </div>
-          ))}
-        </section>
-
-        <section className="rounded-2xl border border-line/70 bg-white/86 p-xl shadow-card backdrop-blur-xl">
-          <div className="flex items-center gap-sm">
-            <SymbolIcon className="text-[22px] text-primary">tune</SymbolIcon>
-            <h2 className="text-xl font-extrabold text-ink">偏好设置</h2>
-          </div>
-          <p className="mt-sm text-sm font-semibold text-muted">
-            用户系统和长期画像接入后，这里会承载资料编辑、训练偏好、通知和隐私选项。
-          </p>
-        </section>
 
         <section className="rounded-2xl border border-line/70 bg-white/86 p-xl shadow-card backdrop-blur-xl">
           <div className="flex flex-wrap items-start justify-between gap-lg">
