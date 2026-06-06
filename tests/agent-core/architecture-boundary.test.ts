@@ -693,6 +693,46 @@ describe("agent-core architecture boundaries", () => {
     expect(removedDraftMatches).toEqual([]);
   });
 
+  it("keeps visible training plan kind hardening out of server semantic routing", () => {
+    const files = [
+      ...productionChatEntryFiles,
+      ...coreFlowFiles,
+      "lib/server/agent-core/terminal-output-validator.ts",
+      "lib/server/visible-training-proposals/visible-training-proposal-validator.ts",
+      "lib/server/visible-training-proposals/visible-training-proposal-renderer.ts",
+      ...collectFiles("lib/server/agent-tools").map((file) => path.relative(repoRoot, file)),
+    ];
+    const forbiddenTerms = [
+      "每周 3 练",
+      "每周3练",
+      "每周 4 练",
+      "多天安排",
+      "周期计划",
+      "训练日 / 休息日",
+      "userInput.includes",
+      "latestUserMessage.includes",
+      "message.content.includes",
+      ".includes(input.run.userInput",
+      "new RegExp",
+      ".match(input.run.userInput",
+      ".test(input.run.userInput",
+      "toolName === \"searchExerciseResources\"",
+      "toolName === \"inspectVisibleTrainingProposals\"",
+    ];
+    const matches: string[] = [];
+
+    for (const file of files) {
+      const content = readRelative(file);
+      for (const term of forbiddenTerms) {
+        if (content.includes(term)) {
+          matches.push(`${file}: ${term}`);
+        }
+      }
+    }
+
+    expect(matches).toEqual([]);
+  });
+
   it("keeps searchExerciseResources free of removed region expansion and text keyword routing", () => {
     const files = [
       "app/api/chat/route.ts",

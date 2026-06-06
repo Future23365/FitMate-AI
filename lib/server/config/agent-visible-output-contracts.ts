@@ -82,6 +82,10 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
       meaning: "visibleOutputs[] 内的业务结构对象；只能用 JSON object 表达，不写 Markdown 或自然语言列表。",
     },
     {
+      field: "final_answer.content",
+      meaning: "用户可见正文只能解释、提醒或总结同一 final_answer.visibleOutputs[] 已表达的结构事实；正文承诺训练频次、周期、多天或一周安排时，必须由同一 visibleTrainingProposal payload 的 kind = \"plan\" 和 schedule.assignments 支撑。",
+    },
+    {
       field: "exerciseItems",
       meaning: "训练动作条目数组，是 visibleTrainingProposal 的唯一动作事实承载字段。",
     },
@@ -103,8 +107,10 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
   ],
   kindSelectionRules: [
     "用户只需要一批可选动作候选时，选择 payload.kind = \"exercise_selection\"。",
-    "用户要一次可直接照做的训练编排时，选择 payload.kind = \"routine\"。",
-    "用户要多天、频次、周期或一周安排时，选择 payload.kind = \"plan\"。",
+    "用户要一次可直接照做的训练编排时，选择 payload.kind = \"routine\"；routine 只表达一次可执行训练编排，不得承诺每周、多天、周期或训练日 / 休息日安排。",
+    "用户要多天、频次、周期或一周安排时，选择 payload.kind = \"plan\"；plan 必须通过 schedule.assignments 表达周期内 training/rest 日。",
+    "final_answer.content 和 visibleOutputs[].payload 必须一致：正文如果承诺训练频次、周期、多天或一周安排，同一 visibleTrainingProposal payload 必须使用 kind = \"plan\" 并提供 schedule.assignments。",
+    "如果当前事实只能支撑 payload.kind = \"routine\"，final_answer.content 只能描述单次训练编排；不得在正文中把 routine 伪装成多天、周期或每周计划。",
     "routine 和 plan 都必须具备 warmup、training、stretch 三类当前 run 可消费动作事实；如果缺失，不得降级输出 exercise_selection 来假装满足 routine/plan。",
     "当前 plan 只支持 one routine template + schedule：payload.exerciseItems 是一个可重复训练模板，schedule.assignments 只安排 training/rest 日。",
     "当前 plan 不支持 routines[]、schedule.assignments[].routineId 或每天不同完整动作编排；需要 A/B 训练日模板时必须等待新的 output contract schema。",
@@ -148,6 +154,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
         },
       },
       contentBoundary: "final_answer.content 只能解释、提醒或总结，不能作为 exerciseItems、prescription、schedule 或计划事实源。",
+      contentPayloadConsistency: "final_answer.content 中承诺的训练频次、周期、多天或一周安排，必须由同一 visibleOutputs[].payload.kind = \"plan\" 和 schedule.assignments 表达；payload.kind = \"routine\" 时，content 只能描述单次训练编排。",
     },
     kindContracts: [
       {
@@ -166,6 +173,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
           "必须包含 warmup、training、stretch 三类 section 的当前 run 可消费动作事实。",
           "每个 exerciseItems[*] 都必须绑定 prescription。",
           "不输出 schedule。",
+          "final_answer.content 只能描述一次可执行训练编排，不得声称已生成多天、周期或每周训练计划。",
         ],
       },
       {
@@ -176,6 +184,8 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
           "必须包含 warmup、training、stretch 三类 section 的当前 run 可消费动作事实。",
           "每个 exerciseItems[*] 都必须绑定 prescription。",
           "必须通过 schedule.assignments 表达周期内 training/rest 日。",
+          "schedule.assignments 必须覆盖 1..cycleLengthDays，type 只能是 training 或 rest。",
+          "final_answer.content 中关于训练频次、周期、多天或一周安排的承诺，必须能由同一 payload 的 schedule.assignments 支撑。",
         ],
       },
     ],
@@ -186,12 +196,14 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
     "exerciseItems[*].section 必须和动作事实中的 allowedSections 相容；缺少 warmup、training 或 stretch 可消费事实时，不得伪造 routine 或 plan。",
     "failed tool result、diagnostic resource、不可消费 resource 或 satisfied=false result 只能用于恢复、澄清、repair 或 fallback，不能支撑成功 visibleTrainingProposal。",
     "ok=true 且 satisfied=true 的 0 条查询结果可以支撑普通文本解释，但不能伪装成结构化训练卡片、routine、plan 或已保存结果。",
+    "content 不能替代 payload：如果结构化输出没有 kind = \"plan\" 和 schedule.assignments，正文不得承诺已生成训练频次、周期、多天或一周安排。",
   ],
   validatorBoundary: [
     "服务端会校验 outputType、schemaVersion、payload.kind、exerciseItems、prescription、schedule 和字段严格性。",
     "服务端会在渲染和保存前复核 exerciseId、发布态、当前用户可访问性和 allowedSections。",
     "schemaVersion 必须是字符串 \"1\"，不要输出数字 1。",
     "validator 不接受正文 content 里的动作、处方、编排或计划作为结构化事实。",
+    "服务端不根据用户原文关键词、正则、同义词、短句模板或 final_answer.content 语义替模型判断或改写 payload.kind；模型必须在输出前让 content 与 payload 自洽。",
     "本合同不暴露完整 handler payload、完整数据库对象、secret、provider 原文、跨用户数据或内部 stack。",
   ],
   examples: [
@@ -386,7 +398,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
       userSituation: "当前 run 已有三类 section 的可消费动作事实，用户要一周或多天训练安排。",
       expectedAction: {
         type: "final_answer",
-        content: "简短说明这是一个单训练模板重复计划。",
+        content: "这是一套 7 天周期、每周 3 练的单训练模板重复计划。",
         visibleOutputs: [
           {
             outputType: "visibleTrainingProposal",
@@ -432,10 +444,15 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
                 },
               ],
               schedule: {
-                cycleLengthDays: 2,
+                cycleLengthDays: 7,
                 assignments: [
                   { cycleDayIndex: 1, type: "training" },
                   { cycleDayIndex: 2, type: "rest" },
+                  { cycleDayIndex: 3, type: "training" },
+                  { cycleDayIndex: 4, type: "rest" },
+                  { cycleDayIndex: 5, type: "training" },
+                  { cycleDayIndex: 6, type: "rest" },
+                  { cycleDayIndex: 7, type: "rest" },
                 ],
               },
             },
@@ -486,10 +503,15 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
             },
           ],
           schedule: {
-            cycleLengthDays: 2,
+            cycleLengthDays: 7,
             assignments: [
               { cycleDayIndex: 1, type: "training" },
               { cycleDayIndex: 2, type: "rest" },
+              { cycleDayIndex: 3, type: "training" },
+              { cycleDayIndex: 4, type: "rest" },
+              { cycleDayIndex: 5, type: "training" },
+              { cycleDayIndex: 6, type: "rest" },
+              { cycleDayIndex: 7, type: "rest" },
             ],
           },
         },
@@ -497,7 +519,9 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
       notes: [
         "plan 必须覆盖 warmup、training、stretch。",
         "当前 plan = one routine template + schedule。",
+        "示例使用 7 天周期和 3 个 training 日，不新增 routines[]、routineId 或 A/B 多模板结构。",
         "schedule.assignments 只表达训练日和休息日，不内嵌每天不同的完整动作列表。",
+        "正文里的每周 3 练承诺必须由同一 payload.schedule.assignments 支撑。",
       ],
     },
     {

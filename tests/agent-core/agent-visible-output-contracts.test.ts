@@ -37,6 +37,7 @@ describe("agent visible output contracts", () => {
       "toolResults[].fulfillment.satisfied",
       "missingSections",
       "payload",
+      "final_answer.content",
       "exerciseItems",
       "schedule.assignments",
     ]));
@@ -75,6 +76,8 @@ describe("agent visible output contracts", () => {
       "routines[]",
       "routineId",
       "content",
+      "contentPayloadConsistency",
+      "训练频次、周期、多天或一周安排",
       "visible_training_proposal_fact",
       "failed tool result",
       "diagnostic resource",
@@ -84,6 +87,8 @@ describe("agent visible output contracts", () => {
       "把这些动作编成一套 30 分钟训练",
       "给我一批更简单的徒手动作",
       "只保留适合在家练的动作",
+      "7 天周期",
+      "每周 3 练",
       "事实不足的 routine",
       "基于已有结构派生计划",
       "替换或修改",
@@ -102,6 +107,75 @@ describe("agent visible output contracts", () => {
     ]) {
       expect(serialized).not.toContain(forbidden);
     }
+  });
+
+  it("describes content and payload kind consistency without adding semantic routing", () => {
+    const contract = visibleTrainingProposalOutputContract;
+    const fieldDictionary = contract.fieldDictionary.map((field) => field.field);
+    const kindRules = contract.kindSelectionRules.join("\n");
+    const validatorBoundary = contract.validatorBoundary.join("\n");
+    const schemaSummary = contract.schemaSummary as {
+      payload: {
+        contentPayloadConsistency?: string;
+      };
+      kindContracts: Array<{
+        kind: string;
+        requirements: string[];
+      }>;
+    };
+    const routineContract = schemaSummary.kindContracts.find((item) => item.kind === "routine");
+    const planContract = schemaSummary.kindContracts.find((item) => item.kind === "plan");
+
+    expect(fieldDictionary).toContain("final_answer.content");
+    expect(kindRules).toContain("routine 只表达一次可执行训练编排");
+    expect(kindRules).toContain("正文如果承诺训练频次、周期、多天或一周安排");
+    expect(kindRules).toContain("kind = \"plan\"");
+    expect(kindRules).toContain("schedule.assignments");
+    expect(schemaSummary.payload.contentPayloadConsistency).toContain("visibleOutputs[].payload.kind = \"plan\"");
+    expect(routineContract?.requirements).toEqual(expect.arrayContaining([
+      "final_answer.content 只能描述一次可执行训练编排，不得声称已生成多天、周期或每周训练计划。",
+    ]));
+    expect(planContract?.requirements).toEqual(expect.arrayContaining([
+      "schedule.assignments 必须覆盖 1..cycleLengthDays，type 只能是 training 或 rest。",
+      "final_answer.content 中关于训练频次、周期、多天或一周安排的承诺，必须能由同一 payload 的 schedule.assignments 支撑。",
+    ]));
+    expect(validatorBoundary).toContain("服务端不根据用户原文关键词、正则、同义词、短句模板或 final_answer.content 语义替模型判断或改写 payload.kind");
+  });
+
+  it("uses a 7-day 3-training-day single-template plan example", () => {
+    const planExample = visibleTrainingProposalOutputContract.examples.find((example) =>
+      example.description.startsWith("多天计划：")
+    );
+    const visibleOutputs = planExample?.expectedAction && Array.isArray(planExample.expectedAction.visibleOutputs)
+      ? planExample.expectedAction.visibleOutputs
+      : [];
+    const output = visibleOutputs[0] as {
+      payload?: {
+        kind?: string;
+        exerciseItems?: unknown[];
+        schedule?: {
+          cycleLengthDays?: number;
+          assignments?: Array<{ cycleDayIndex: number; type: string }>;
+        };
+      };
+    } | undefined;
+    const assignments = output?.payload?.schedule?.assignments ?? [];
+
+    expect(planExample?.expectedAction?.content).toContain("每周 3 练");
+    expect(output?.payload?.kind).toBe("plan");
+    expect(output?.payload?.exerciseItems).toHaveLength(3);
+    expect(output?.payload?.schedule?.cycleLengthDays).toBe(7);
+    expect(assignments).toEqual([
+      { cycleDayIndex: 1, type: "training" },
+      { cycleDayIndex: 2, type: "rest" },
+      { cycleDayIndex: 3, type: "training" },
+      { cycleDayIndex: 4, type: "rest" },
+      { cycleDayIndex: 5, type: "training" },
+      { cycleDayIndex: 6, type: "rest" },
+      { cycleDayIndex: 7, type: "rest" },
+    ]);
+    expect(assignments.filter((assignment) => assignment.type === "training")).toHaveLength(3);
+    expect(planExample?.notes.join("\n")).toContain("不新增 routines[]、routineId 或 A/B 多模板结构");
   });
 
   it("keeps expectedAction examples as full AgentAction objects and moves decisions to expectedDecision", () => {

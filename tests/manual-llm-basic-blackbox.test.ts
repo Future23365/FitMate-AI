@@ -34,7 +34,8 @@ describe("manual basic LLM blackbox fixtures", () => {
     expect(fixture.sourcePath).toContain("llm基础测试.md");
     expect(fixture.stats.flowCount).toBeGreaterThan(0);
     expect(fixture.stats.turnCount).toBe(fixture.stats.flowCount * 3);
-    expect(fixture.stats.flowCount).toBeLessThanOrEqual(9);
+    expect(fixture.stats.flowCount).toBeLessThanOrEqual(10);
+    expect(ids).toContain("F09");
     expect(ids).toContain("F12");
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).not.toContain("F16");
@@ -153,6 +154,8 @@ describe("manual basic LLM judge contract", () => {
     expect(systemPrompt).toContain("生成 plan、多天安排、周期计划、每周训练安排或训练日 / 休息日安排");
     expect(systemPrompt).toContain("无 schedule.assignments 的单次 routine");
     expect(systemPrompt).toContain("只建议用户下一轮再生成计划");
+    expect(systemPrompt).toContain("visibleOutputs 摘要必须直接体现 kind=plan 和 schedule.assignments");
+    expect(systemPrompt).toContain("缺少 kind=plan、缺少 schedule.assignments 或显示 kind=routine");
     expect(systemPrompt).toContain("不能因为同时存在 assistantSuggestions 而返回 passed_via_suggestion");
   });
 

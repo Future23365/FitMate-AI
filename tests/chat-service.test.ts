@@ -2326,6 +2326,23 @@ describe("chat service agent text flow boundary", () => {
       planner,
     });
     const events = await readNdjsonEvents(response);
+    const visiblePlanEvent = events.find((event) => (
+      isRecord(event)
+      && event.type === "visible_output"
+      && event.outputType === "visibleTrainingProposal"
+    ));
+    const visiblePlanPayload = isRecord(visiblePlanEvent) && isRecord(visiblePlanEvent.payload)
+      ? visiblePlanEvent.payload
+      : undefined;
+    const visiblePlanSchedule = visiblePlanPayload && isRecord(visiblePlanPayload.schedule)
+      ? visiblePlanPayload.schedule
+      : undefined;
+    if (!visiblePlanPayload || !visiblePlanSchedule) {
+      throw new Error("Expected final visibleTrainingProposal plan event with schedule.");
+    }
+    const assignments = Array.isArray(visiblePlanSchedule.assignments)
+      ? visiblePlanSchedule.assignments
+      : [];
     const supportPlannerToolResultsJson = JSON.stringify(planner.calls[1].toolResults);
     const finalPlannerToolResultsJson = JSON.stringify(planner.calls[2].toolResults);
 
@@ -2340,6 +2357,11 @@ describe("chat service agent text flow boundary", () => {
     expect(finalPlannerToolResultsJson).toContain("chest-stretch");
     expect(finalPlannerToolResultsJson).toContain("missingSections");
     expect(finalPlannerToolResultsJson).toContain("groups.<section>.exercises[] 中的动作是当前查询按该 section 返回的动作事实");
+    expect(visiblePlanPayload.kind).toBe("plan");
+    expect(visiblePlanSchedule.cycleLengthDays).toBe(7);
+    expect(assignments.filter((assignment) => (
+      isRecord(assignment) && assignment.type === "training"
+    ))).toHaveLength(3);
     expect(events).toEqual([
       expect.objectContaining({
         type: "tool_result",

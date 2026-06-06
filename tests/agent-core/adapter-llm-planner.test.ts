@@ -671,6 +671,10 @@ describe("agent-planners LlmPlanner and model adapters", () => {
     expect(body.messages[0].content).toContain("outputContracts");
     expect(body.messages[0].content).toContain(visibleTrainingProposalOutputContract.outputType);
     expect(body.messages[0].content).toContain("payload.kind");
+    expect(body.messages[0].content).toContain("final_answer.content 和 visibleOutputs[].payload 必须一致");
+    expect(body.messages[0].content).toContain("routine 只表达一次可执行训练编排");
+    expect(body.messages[0].content).toContain("kind = \\\"plan\\\"");
+    expect(body.messages[0].content).toContain("schedule.assignments 必须覆盖 1..cycleLengthDays");
     expect(completion.trace?.request.run.actionContract).toEqual({
       schemaId: "AgentAction",
       schemaVersion: "1",
