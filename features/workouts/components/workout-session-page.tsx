@@ -411,7 +411,6 @@ export function WorkoutSessionPage() {
       : 0;
   const demoImageUrls = getWorkoutItemImageUrls(demoItem);
   const demoImageIndex = isRestStep ? 0 : getWorkoutDemoImageIndex(demoImageUrls.length, stepElapsedSeconds, demoItem.mode);
-  const activeDemoImageUrl = demoImageUrls[demoImageIndex] ?? placeholderWorkoutImage;
   const currentExerciseDetail = useMemo(() => mapWorkoutItemToExercise(demoItem), [demoItem]);
   const trainedCalories = Math.min(
     estimateWorkoutCalories(plan.items, timingConfig),
@@ -1105,28 +1104,12 @@ export function WorkoutSessionPage() {
                   </span>
                 </div>
               </div>
-              <div className="relative grid min-h-0 flex-1 place-items-center overflow-hidden rounded-xl bg-panel-soft">
-                {activeDemoImageUrl && activeDemoImageUrl !== placeholderWorkoutImage ? (
-                  <>
-                    <Image
-                      alt={`${demoItem.nameZh} 动作图`}
-                      className="object-contain p-md"
-                      fill
-                      key={`${demoItem.id}-${demoImageIndex}-${activeDemoImageUrl}`}
-                      priority={activeStepIndex === 0}
-                      sizes="(min-width: 1280px) 30vw, 100vw"
-                      src={activeDemoImageUrl}
-                    />
-                    {demoImageUrls.length > 1 ? (
-                      <div className="absolute bottom-sm right-sm rounded-full border border-white/80 bg-white/90 px-sm py-xs text-label-md font-extrabold text-muted shadow-sm">
-                        {demoImageIndex + 1}/{demoImageUrls.length}
-                      </div>
-                    ) : null}
-                  </>
-                ) : (
-                  <SquatIllustration />
-                )}
-              </div>
+              <WorkoutDemoImageStage
+                activeIndex={demoImageIndex}
+                imageUrls={demoImageUrls}
+                item={demoItem}
+                priority={activeStepIndex === 0}
+              />
             </section>
           </aside>
 
@@ -2048,6 +2031,60 @@ function SessionControl({
         </SymbolIcon>
       </button>
       <span className="leading-none">{label}</span>
+    </div>
+  );
+}
+
+// 训练执行页示范图常驻挂载同一动作的多步骤图片，计次循环时只用 opacity 切换，避免重新加载闪白。
+function WorkoutDemoImageStage({
+  activeIndex,
+  imageUrls,
+  item,
+  priority,
+}: {
+  activeIndex: number;
+  imageUrls: string[];
+  item: WorkoutItem;
+  priority: boolean;
+}) {
+  const activeImageUrl = imageUrls[activeIndex] ?? placeholderWorkoutImage;
+  const renderableImages = imageUrls
+    .map((imageUrl, imageIndex) => ({ imageIndex, imageUrl }))
+    .filter(({ imageUrl }) => imageUrl && imageUrl !== placeholderWorkoutImage);
+
+  return (
+    <div className="relative grid min-h-0 flex-1 place-items-center overflow-hidden rounded-xl bg-panel-soft">
+      {activeImageUrl && activeImageUrl !== placeholderWorkoutImage && renderableImages.length ? (
+        <>
+          {renderableImages.map(({ imageIndex, imageUrl }) => {
+            const isActiveImage = imageIndex === activeIndex;
+            const shouldPrioritize = priority && isActiveImage;
+
+            return (
+              <Image
+                key={`${item.id}:${imageUrl}`}
+                alt={isActiveImage ? `${item.nameZh} 动作图` : ""}
+                aria-hidden={!isActiveImage}
+                className={`pointer-events-none object-contain p-md transition-opacity duration-200 ease-out ${
+                  isActiveImage ? "opacity-100" : "opacity-0"
+                }`}
+                fill
+                loading={shouldPrioritize ? undefined : "eager"}
+                priority={shouldPrioritize}
+                sizes="(min-width: 1280px) 30vw, 100vw"
+                src={imageUrl}
+              />
+            );
+          })}
+          {imageUrls.length > 1 ? (
+            <div className="absolute bottom-sm right-sm rounded-full border border-white/80 bg-white/90 px-sm py-xs text-label-md font-extrabold text-muted shadow-sm">
+              {activeIndex + 1}/{imageUrls.length}
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <SquatIllustration />
+      )}
     </div>
   );
 }
