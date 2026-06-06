@@ -21,19 +21,19 @@ import type { WorkoutSchedule } from "@/lib/shared/workouts/composition";
 // 首页示例面向居家新手，优先暴露徒手、短时和低冲击这类真实高频训练条件。
 const quickPrompts = [
   {
-    title: "新手入门",
-    prompt: "我是新手，想在家练，没有器械，20 分钟时间，帮我安排一套不跳跃的全身训练",
+    title: "闲聊",
+    prompt: "给我讲一个关于健身的笑话",
   },
   {
-    title: "居家减脂",
-    prompt: "我想在家减脂，没有器械，每周 3 练，每次 25 分钟，动作简单一点",
+    title: "动作询问",
+    prompt: "今天我要减肥，想多练练核心，有没有推荐的动作？",
   },
   {
-    title: "增肌塑形",
+    title: "计划建议",
     prompt: "我想增肌，每周 3 练，每次 50 分钟，没有器械，高强度一些的，重点练胸",
   },
   {
-    title: "全身徒手训练",
+    title: "训练方案",
     prompt: "我想做一套 20 分钟徒手全身训练，包含俯卧撑、深蹲和平板支撑，动作不要太难",
   },
 ];
@@ -724,7 +724,7 @@ export function ChatPage() {
                 </button>
               </div>
               <p className="mt-sm text-center font-label-xs text-label-xs font-medium text-muted/75">
-                FitMate AI 也可能犯错，请结合自身情况甄别训练建议。
+                FitMate AI 不作为专业健身指导，也可能犯错，请结合自身情况甄别训练建议。
               </p>
             </form>
           </div>
