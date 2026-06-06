@@ -1,13 +1,13 @@
 ---
 name: agent-tool-change-governance
-description: 治理 AITest 中 Agent tool、执行合同、core runtime 和 production 接入相关变更的实现前流程。作为 primary skill 用于新增或修改 Agent tool、tool schema、handler、policy metadata、resource contract、projection、trace/replay、PlannerPort、Executor、Policy Guard、ResourceStore、Resource Contract Validator、Response Renderer 或 /api/chat 生产聊天接入；也用于业务 tool 输入/输出字段命名、弃用和重命名。纯 prompt/model input/model-visible 文案变更不以本 Skill 为主，应使用 agent-prompt-contract-governance；普通 trace 根因排查不自动触发。
+description: 治理 AITest 中 Agent tool、执行合同、core runtime 和 production 接入相关变更的实现前流程。作为 primary skill 用于新增或修改 Agent tool、tool schema、handler、policy metadata、resource contract、projection、trace/replay、PlannerPort、Executor、Policy Guard、ResourceStore、Resource Contract Validator、Response Renderer 或 /api/chat 生产聊天接入；也用于业务 tool 输入/输出字段命名、弃用和重命名。纯 prompt/model input/model-visible 文案变更不以本 Skill 为主，应使用 agent-prompt-contract-governance；如果 tool 变更牵涉传给 AI 的提示词、manifest、schema summary、examples、repair feedback、observations 或 compressed tool results，本 Skill 只定执行边界，并引导使用 agent-prompt-contract-governance 做模型可见合同检查；普通 trace 根因排查不自动触发。
 ---
 
 # Agent Tool 变更治理
 
 ## 前置检查
 
-0. 每个任务只选择一个 primary governance skill。本 Skill 只在执行合同、tool/core/runtime/production 边界是主问题时作为 primary；涉及模型可见说明时，`agent-prompt-contract-governance` 只作为 secondary 检查。
+0. 每个任务只选择一个 primary governance skill。本 Skill 只在执行合同、tool/core/runtime/production 边界是主问题时作为 primary；涉及模型可见说明时，`agent-prompt-contract-governance` 负责提示词细节，本 Skill 只保留执行边界和交接检查。
 1. 在提出方案或修改实现前，读取 `docs/agent-tool-orchestrator-design.md` 第 24、25、26 节。
 2. 对非平凡行为改动，先用 `openspec status --change <change> --json` 检查当前 OpenSpec change，并读取 proposal、design、spec 和 tasks。
 3. 改文件前运行 `git status --short`。如果存在无关用户改动，不要混入当前 diff 或 commit。
@@ -19,7 +19,7 @@ description: 治理 AITest 中 Agent tool、执行合同、core runtime 和 prod
 
 ### 新增业务 Tool
 
-默认只新增 tool bundle 和局部接线：schema、policy metadata、必要的 `resourceContract`、handler、model/user/trace projection、`ToolRegistry` 注册、contract tests 和直接覆盖 `handler`、`executeTool` 或真实 runtime 入口的业务单测。manifest / schema / examples 的描述性自然语言默认中文，`toolName`、字段名、枚举值和 resource type 保持英文原样。
+默认只新增 tool bundle 和局部接线：schema、policy metadata、必要的 `resourceContract`、handler、model/user/trace projection、`ToolRegistry` 注册、contract tests 和直接覆盖 `handler`、`executeTool` 或真实 runtime 入口的业务单测。`toolName`、字段名、枚举值和 resource type 属于执行合同，本 Skill 负责命名和结构边界；manifest、schema summary、examples、repair feedback、observations 或 compressed tool results 的提示词设计交给 `agent-prompt-contract-governance`。
 
 新增或重命名 tool 前必须做抽象层级检查：说明稳定 resource type、能力族（query / list / read / register / validate / policy / save / update）、同类变体、命名理由，以及当前需求限制哪些应落到 filter / sort / limit / cursor / detailLevel / resource reference。优先复用或扩展同类 tool；如果跨了不同资源、权限、policy、projection 或执行副作用，应拆分。
 
@@ -32,12 +32,12 @@ description: 治理 AITest 中 Agent tool、执行合同、core runtime 和 prod
 从证据定位，不从表面现象直接补丁：
 
 - 先判断证据来源是否对应当前问题。覆盖写的导出文件可能已经被替换；只有在用户提供、刚导出或明确确认导出证据对应当前 case 时，才把它作为证据使用。
-- 在怀疑服务端流程前，先检查本次模型实际可见的 `prompt / model input`，包括 `system prompt`、`developer prompt`、tool manifest、schema summary、examples、repair feedback、context package、observations 和已压缩的 tool results。不要先入为主假设服务端 runtime、handler 或 response flow 有问题。
-- 优先判断是否缺 tool 能力、tool 描述/Schema/examples 不清、context/resource 摘要不足、repair feedback 不足或 final grounding 不清；不要先新增业务端语义判断。
+- 在怀疑服务端流程前，先判断本次问题是否主要来自模型可见输入。如果根因是 `prompt / model input`、tool manifest、schema summary、examples、repair feedback、context package、observations 或已压缩 tool results 不清，停止把本 Skill 当 primary，改用 `agent-prompt-contract-governance`。
+- 本 Skill 继续处理的前提是：模型可见输入不是主根因，或者提示词问题只是 tool 执行合同变更的 secondary 检查。
 - 如果模型可见输入已经正确表达合同，再检查真实 Zod / JSON Schema、runtime validation、`ResourceStore`、`Policy Guard`、projection、response rendering、trace 和 production 接入。
 - 将根因分类为 LLM 参数错误、模型可见合同缺失、tool 能力缺口、resource 缺失或不可消费、policy / confirmation 边界、projection / redaction 泄漏、final grounding 缺陷或 production 接入问题。
 - 修改某个已有 tool 的功能或 bug 时，必须先定位并运行该 tool 已有的专属单测；如果没有专属单测，先补能复现问题的 tool-level 单测，再改实现。
-- 如果修复方案需要读取用户原始自然语言关键词、同义词、短句模板或业务特定 phrasing，必须停止并改为 prompt / model input / schema / repair / resource contract 层面的方案，除非用户明确批准。
+- 如果修复方案需要读取用户原始自然语言关键词、同义词、短句模板或业务特定 phrasing，必须停止；属于模型可见合同缺口时改用 `agent-prompt-contract-governance`，属于执行资源或 schema 缺口时才回到本 Skill 处理。
 - 回归测试必须覆盖问题类别：至少包含原始失败 case 和一个等价语义变体；tool-level test 不能只断言当前 trace 的单个输入。
 
 不要用服务端关键词、正则、同义词表、短句模板或业务 `toolName` 特判修复自然语言理解问题。
@@ -46,11 +46,11 @@ description: 治理 AITest 中 Agent tool、执行合同、core runtime 和 prod
 
 当业务变化导致 tool 字段过时、含义漂移或需要重命名时，把它当作执行合同变更处理，不要只在 prompt 或局部 handler 里补别名：
 
-- 先追踪旧字段的完整产生和消费链路：`inputSchema`、`outputSchema`、handler、policy metadata、`resourceContract`、`toModelObservation`、`toUserProjection`、trace projection、response rendering、fixtures、tests 和真实 model-visible manifest / schema summary。
+- 先追踪旧字段的完整执行链路：`inputSchema`、`outputSchema`、handler、policy metadata、`resourceContract`、`toModelObservation`、`toUserProjection`、trace projection、response rendering、fixtures 和 tests。
 - 字段新名称必须表达当前业务含义；不要为了兼容旧语义保留误导性字段名。
 - 默认删除旧字段和旧别名，不新增长期兼容层；如果生产迁移确实需要短期兼容，必须写清兼容入口、清理条件、测试覆盖和 OpenSpec 边界。
-- 字段名、枚举值、resource type 等执行合同保持英文标识；描述性自然语言使用中文解释新字段业务含义。
-- 字段重命名后同步使用 `agent-prompt-contract-governance` 检查模型可见输入，确认 manifest、schema summary、examples、repair feedback、observations 和 compressed tool results 不再引导模型使用旧字段。
+- 字段名、枚举值、resource type 等执行合同保持英文标识；模型可见自然语言解释不在本 Skill 展开。
+- 字段重命名后必须把模型可见同步交给 `agent-prompt-contract-governance`，确认 manifest、schema summary、examples、repair feedback、observations 和 compressed tool results 不再引导模型使用旧字段。
 
 ### Core Contract 变更
 
@@ -96,23 +96,23 @@ description: 治理 AITest 中 Agent tool、执行合同、core runtime 和 prod
 - 验证计划
 - 无法运行验证时的剩余风险
 
-新增业务 tool 时，checklist 必须覆盖 tool bundle、`ToolRegistry` 注册、schema、policy、`resourceContract`、model projection、user projection、trace projection 或 trace summary、模型可见描述语言、contract tests，以及该 tool 的业务单元测试。
+新增业务 tool 时，checklist 必须覆盖 tool bundle、`ToolRegistry` 注册、schema、policy、`resourceContract`、model projection、user projection、trace projection 或 trace summary、contract tests，以及该 tool 的业务单元测试。若本次新增或修改会改变传给 AI 的 manifest、schema summary、examples、repair feedback、observations 或 compressed tool results，额外加入 `agent-prompt-contract-governance` 的模型可见合同检查任务。
 
 新增业务 tool 的 `tasks.md` 必须包含以下测试门禁，按真实文件名替换 `<toolName>` 和测试路径：
 
 - [ ] 完成 Tool 抽象层级检查，说明稳定 resource type、能力族、同类变体、命名理由，以及哪些需求限制应落到 filter / sort / limit / cursor / resource reference。
 - [ ] 为 `<toolName>` 新增或更新 tool-level unit tests，直接覆盖 `handler`、`executeTool` 或当前真实 runtime 执行入口。
 - [ ] 覆盖 `<toolName>` 的成功路径、schema 拒绝、领域边界、失败归一化、resource contract、projection / redaction、policy / permission 边界和同类功能变体。
-- [ ] 覆盖 `<toolName>` 的模型可见描述语言，验证 `description`、`whenToUse`、`whenNotToUse`、schema description 和 examples description 默认中文。
+- [ ] 如变更 `<toolName>` 的 manifest、schema summary、examples、repair feedback、observations 或 compressed tool results，使用 `agent-prompt-contract-governance` 检查模型可见合同；本 Skill 不维护提示词细节清单。
 - [ ] 按 tool 业务职责覆盖 AITest 真实健身场景，不只使用抽象 fixture。
 - [ ] 运行 `npm test -- tests/agent-tools/<toolName>.test.ts` 或该 tool 对应的最窄测试文件。
 - [ ] 运行 `npm test -- tests/agent-core/contract-helper.test.ts`。
 - [ ] 如修改注册、manifest 或 schema summary，运行 `npm test -- tests/agent-core/tool-registry-manifest.test.ts`。
 - [ ] 如修改 TypeScript、schema、AI orchestration 或共享业务逻辑，运行 `npm run typecheck`。
 
-修复 Agent tool bug 时，checklist 必须覆盖证据来源有效性、模型实际可见的 `prompt / model input`、真实 schema、model-visible manifest 或 schema summary、`ResourceStore`、`Policy Guard`、projection、response rendering 和 trace/replay 影响。
+修复 Agent tool bug 时，checklist 必须覆盖证据来源有效性、真实 schema、`ResourceStore`、`Policy Guard`、projection、response rendering 和 trace/replay 影响；如果排查发现根因在模型实际可见的 `prompt / model input`、manifest、schema summary 或 examples，转交 `agent-prompt-contract-governance` 作为 primary。
 
-涉及过时字段重命名时，`tasks.md` 必须额外包含字段迁移检查：列出旧字段和新字段，覆盖所有产生方、消费方、模型可见说明、trace/replay、fixtures 和回归测试，并明确是否删除旧字段或短期保留兼容入口。
+涉及过时字段重命名时，`tasks.md` 必须额外包含字段迁移检查：列出旧字段和新字段，覆盖所有执行产生方、消费方、trace/replay、fixtures 和回归测试，并明确是否删除旧字段或短期保留兼容入口；模型可见说明同步由 `agent-prompt-contract-governance` 检查。
 
 修复或修改已有 tool 时，`tasks.md` 必须额外包含该 tool 的回归单测任务：先补复现用例，再更新实现，并运行该 tool 对应的最窄单测。仅运行 registry、manifest、contract helper、黑盒 LLM 或全量 smoke tests，不能替代 tool-level unit tests。
 
@@ -149,7 +149,7 @@ tool-level unit tests 应优先放在 `tests/agent-tools/<toolName>.test.ts`；�
 - Tool 行为单测：新增或修改业务 tool 时，必须运行该 tool 对应的专属单测；registry、manifest、contract helper 或黑盒 LLM 测试不能替代 tool-level unit tests
 - Architecture boundary：`npm test -- tests/agent-core/architecture-boundary.test.ts`
 - Tool contract helper：`npm test -- tests/agent-core/contract-helper.test.ts`
-- Tool registry / manifest：修改注册、manifest 或 schema summary 时，运行 `npm test -- tests/agent-core/tool-registry-manifest.test.ts`
+- Tool registry / manifest：修改注册、manifest 或 schema summary 时，运行 `npm test -- tests/agent-core/tool-registry-manifest.test.ts`；manifest / schema summary 的提示词设计细节由 `agent-prompt-contract-governance` 检查
 - 修改 policy、resource、confirmation、renderer、trace 或 production integration 时，运行对应 runtime safety 和 projection tests
 - 字段重命名时，用 `rg` 检查旧字段残留，并运行覆盖该字段的 tool-level、manifest/schema summary、projection 或 trace/replay 测试
 - 修改 TypeScript、React、API、schema、AI orchestration 或共享业务逻辑后，运行 `npm run typecheck`
