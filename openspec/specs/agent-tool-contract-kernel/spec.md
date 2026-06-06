@@ -52,22 +52,21 @@ TBD - created by archiving change add-agent-tool-contract-kernel-m0. Update Purp
 
 系统 SHALL 通过 `ToolRegistry` 注册 tool、查询 tool、列出当前上下文可用 tool，并将可用 tool 序列化为 Planner 可见的 `ToolManifest[]`。
 
-#### Scenario: 注册和读取 tool
-- **WHEN** 系统注册 read fixture tool
-- **THEN** `ToolRegistry.get(toolName)` MUST 返回该 tool
-- **AND** 重复 name 的 tool MUST 被拒绝或产生稳定注册错误
-- **AND** 未注册 tool MUST NOT 被 Executor 执行
-
 #### Scenario: 生成 Planner manifest
 - **WHEN** Runtime 为 Planner 准备可用工具列表
 - **THEN** `ToolRegistry` MUST 生成 `ToolManifest[]`
-- **AND** manifest MUST 包含 tool name、version、description、whenToUse、whenNotToUse、inputJsonSchema、安全 policy hint 和安全 examples
+- **AND** manifest MUST 包含 tool name、version、description、whenToUse、whenNotToUse、inputJsonSchema、outputJsonSchema、安全 policy hint 和安全 examples
+- **AND** manifest examples MUST 使用完整 `AgentAction` tool_call 形态，例如 `{ "type": "tool_call", "toolName": "<tool name>", "input": { ... } }`
+- **AND** manifest examples MUST NOT 只暴露裸 tool input 片段
 - **AND** manifest MUST NOT 包含 handler、数据库对象、secret、完整用户 payload 或服务端 capability 对象
 
-#### Scenario: Manifest 保留关键 Schema 结构
-- **WHEN** tool inputSchema 包含 object、array、record、union、enum、required 或 nested fields
-- **THEN** manifest 的 `inputJsonSchema` MUST 保留这些执行关键结构
-- **AND** 系统 MUST NOT 为了压缩 token 而丢弃 required 字段、关键 enum 或 nested 字段
+#### Scenario: Manifest examples 保持安全和可执行
+- **WHEN** tool 声明 examples
+- **THEN** 每个 example MUST 包含中文 `description`
+- **AND** 每个 example 的 `action.type` MUST 为 `tool_call`
+- **AND** 每个 example 的 `action.toolName` MUST 等于该 tool 的真实 `name`
+- **AND** 每个 example 的 `action.input` MUST 匹配该 tool 的 `inputSchema`
+- **AND** manifest hardening MUST 继续拒绝 prompt-injection-like examples 或暴露 sensitive fields 的 examples
 
 ### Requirement: PlannerPort 必须与具体模型协议解耦
 
@@ -87,44 +86,26 @@ TBD - created by archiving change add-agent-tool-contract-kernel-m0. Update Purp
 ### Requirement: AgentAction 必须经过确定性校验
 系统 SHALL 定义 `AgentAction` Schema，并在执行前校验 `tool_call`、`final_answer` 和 `ask_user` 的结构、引用和可执行边界。`final_answer` 与 `ask_user` SHALL 都使用 `content` 承载用户可见文本；terminal action SHALL 使用统一 `usedRefs` 承载已使用事实来源引用。
 
-#### Scenario: 合法 tool_call
-- **WHEN** Planner 返回 `tool_call`
-- **THEN** Action Validator MUST 校验 action 结构合法
-- **AND** `toolName` MUST 已注册且当前可用
-- **AND** `input` MUST 通过对应 tool 的 `inputSchema`
-- **AND** 只有校验通过后 Runtime 才能调用 Executor
-
-#### Scenario: 未知 tool 或非法 input
-- **WHEN** Planner 返回未知 `toolName` 或不符合 Schema 的 `input`
-- **THEN** Runtime MUST NOT 执行 handler
-- **AND** Runtime MUST 生成可诊断 invalid action observation 或 terminal error
-- **AND** 错误 MUST 包含稳定 code，便于测试和后续 repair
-
 #### Scenario: 合法 final_answer terminal action
 - **WHEN** Planner 返回 `final_answer`
 - **THEN** Action Validator MUST 要求用户可见文本写入 `content`
 - **AND** 如果 action 包含 `usedRefs`，validator MUST 校验每个 ref 属于当前 run 的已登记事实来源
-- **AND** `usedRefs[type = "tool_result"]` MUST 指向当前 run 中已登记且可支撑该回答的 tool result
+- **AND** `usedRefs[type = "tool_result"]` MUST 指向当前 run 中已登记且 `ok = true` 的 tool result
+- **AND** `usedRefs[type = "tool_result"]` MAY 指向返回 0 条、候选不足或诊断摘要的成功 tool result，用于支撑普通事实回答
 - **AND** `usedRefs[type = "resource"]` MUST 指向当前 run 中已登记且 role / resourceType 满足 terminal grounding 要求的 resource
 - **AND** `final_answer` MUST NOT 携带任意 NDJSON event、未登记 resource 或 handler output
+- **AND** Action Validator MUST NOT 因 tool result 的业务结果为空、候选不足或中间满足度字段为 false 而拒绝普通 `final_answer`
 
-#### Scenario: 合法 ask_user terminal action
-- **WHEN** Planner 返回 `ask_user`
-- **THEN** Action Validator MUST 要求用户可见追问文本写入 `content`
-- **AND** 如果 action 包含 `usedRefs`，validator MUST 允许其引用可用于解释、阻断或澄清的 tool result 或 resource
-- **AND** Runtime MUST 将该 action 作为需要用户输入的 terminal action 收口
-- **AND** `ask_user` MUST NOT 携带 `question`、`message` 或其他与 `content` 同义的用户可见文本字段
-
-#### Scenario: 拒绝旧 terminal 字段
-- **WHEN** Planner 返回 `ask_user.question`
-- **OR** Planner 返回 terminal action 中的 `usedToolResultIds`
-- **OR** Planner 返回 terminal action 中的 `usedResourceRefs`
-- **THEN** Action Validator MUST 拒绝该 action
-- **AND** repair details MUST 指出当前合同应使用 `content` 和 `usedRefs`
-- **AND** Runtime MUST NOT 静默转换旧字段
+#### Scenario: 普通 final_answer 可以解释 0 条结果
+- **WHEN** 当前 run 中存在 `ok = true` 的只读查询 tool result
+- **AND** 该 result 的安全投影表达 `totalMatches = 0` 或等价空结果事实
+- **AND** Planner 返回不带 `visibleOutputs` 的 `final_answer`
+- **AND** `usedRefs` 引用该 current-run tool result
+- **THEN** Action Validator MUST 接受该 terminal action
+- **AND** Runtime MAY 渲染普通文本回答说明当前条件下没有匹配数据
+- **AND** Runtime MUST NOT 因该 tool result 没有产生业务候选而返回 `terminal_reference_invalid`
 
 ### Requirement: Executor 必须通用执行 tool 并归一化结果
-
 系统 SHALL 提供通用 Executor 调用 tool handler，并统一处理输入 Schema、输出 Schema、per-tool timeout、AbortSignal、异常、错误 code 和 `ToolResult` 归一化。
 
 #### Scenario: 执行成功 read fixture tool
@@ -132,24 +113,8 @@ TBD - created by archiving change add-agent-tool-contract-kernel-m0. Update Purp
 - **THEN** Executor MUST 调用对应 tool handler
 - **AND** handler 输出 MUST 通过 tool 的 `outputSchema`
 - **AND** Executor MUST 返回包含 `toolName`、`toolVersion`、`toolResultId`、`ok: true` 和安全 projection 的 `ToolResult`
-
-#### Scenario: Handler 抛出异常
-- **WHEN** tool handler 抛出异常
-- **THEN** Executor MUST 捕获异常
-- **AND** Executor MUST 返回 `ok: false` 的 `ToolResult`
-- **AND** 错误 MUST 归一化为稳定 `ToolError.code`
-- **AND** Runtime MUST NOT 让异常越过通用执行边界
-
-#### Scenario: Tool 输出 Schema 不合法
-- **WHEN** handler 返回不符合 `outputSchema` 的 output
-- **THEN** Executor 或 Runtime MUST 将结果标记为合同失败
-- **AND** 不合法 output MUST NOT 进入 observation、Response Renderer 或用户可见 payload
-
-#### Scenario: Tool 执行超时或取消
-- **WHEN** tool 执行超过 `perToolTimeoutMs` 或收到 abort signal
-- **THEN** Executor MUST 停止等待该 tool
-- **AND** Executor MUST 返回 timeout 或 aborted 类结构化失败
-- **AND** Runtime MUST 能以错误结果继续收口或进入 repair/失败路径
+- **AND** Executor MUST NOT 用候选数量、业务目标完成度或用户语义判断覆盖 `ok`
+- **AND** 如果 tool 结果为空或候选不足，该事实 MUST 通过安全 projection、diagnostics 或最终 output validator 表达，而不是通过 core 成功/失败状态表达
 
 ### Requirement: Runtime 必须完成 M0 单步和多步循环
 
@@ -187,47 +152,25 @@ TBD - created by archiving change add-agent-tool-contract-kernel-m0. Update Purp
 - **AND** Runtime MUST NOT 再次调用相同 handler
 
 ### Requirement: Observation 必须使用安全投影
-
 系统 SHALL 将 tool result 转换成 Planner 可见 observation，并确保 observation 只来自安全投影或默认安全摘要。
 
 #### Scenario: Tool 提供 model projection
 - **WHEN** tool result 包含 `projection.model` 或 `toModelObservation`
-- **THEN** Runtime MUST 使用该安全投影生成 observation
+- **THEN** Runtime MUST 使用该安全投影生成 Planner 可见事实或摘要
 - **AND** observation MUST 标注来源为 tool
 - **AND** observation MUST NOT 被提升为 system 指令
-
-#### Scenario: Tool 未提供 model projection
-- **WHEN** tool result 没有模型可见投影
-- **THEN** Runtime MUST 使用默认安全摘要
-- **AND** Runtime MUST NOT 将完整 `output` 默认塞入下一轮 Planner 输入
+- **AND** Runtime MUST NOT 因该 projection 表达 0 条结果、候选不足或业务诊断而把 `ok = true` 的 result 排除出普通事实通道
 
 ### Requirement: 默认 Response Renderer 必须输出安全 NDJSON 事件
-
 系统 SHALL 提供默认 Response Renderer，将 terminal result、tool result 和标准化错误转换为白名单 NDJSON event，并输出 `done` 收口。
 
 #### Scenario: 渲染 final answer
 - **WHEN** Runtime 以合法 `final_answer` 收口
 - **THEN** Response Renderer MUST 输出 `content` event
 - **AND** Response Renderer MUST 输出 `done` event
-- **AND** 用户可见内容 MUST 来自 terminal action 和已校验 tool result 的安全投影
-
-#### Scenario: 渲染 ask_user
-- **WHEN** Runtime 以合法 `ask_user` 收口
-- **THEN** Response Renderer MUST 输出用户问题对应的 `content` event
-- **AND** 如存在 suggestions，Response Renderer MUST 输出白名单建议事件或等价安全投影
-- **AND** Response Renderer MUST 输出 `done` event
-
-#### Scenario: 渲染 tool result
-- **WHEN** Runtime 需要输出 tool result 事件
-- **THEN** Response Renderer MUST 使用 `projection.user` 或默认安全摘要
-- **AND** Response Renderer MUST NOT 默认暴露完整 `output`
-- **AND** tool 自定义用户事件如未实现，默认 renderer MUST 仍能完成 M0 输出
-
-#### Scenario: 渲染错误
-- **WHEN** Runtime 以结构化失败收口
-- **THEN** Response Renderer MUST 输出 `error` event
-- **AND** error event MUST 包含稳定 code、message 和 retryable
-- **AND** Response Renderer MUST 输出 `done` event
+- **AND** 用户可见内容 MUST 来自 terminal action 和已校验 current-run refs 的安全投影
+- **AND** 如果 `final_answer` 只是解释 0 条或候选不足事实，Response Renderer MUST NOT 因缺少业务候选而改写为 runtime error
+- **AND** 如果 `final_answer.visibleOutputs[]` 存在，Response Renderer MUST 只渲染通过对应 terminal output validator 的结构化输出
 
 ### Requirement: Fixture read tool 必须证明 M0 端到端闭环
 
@@ -286,4 +229,27 @@ TBD - created by archiving change add-agent-tool-contract-kernel-m0. Update Purp
 - **THEN** runtime MUST 继续校验 schema、resource、policy、grounding 和 terminal visible output
 - **AND** runtime MUST NOT 因上一轮 feedback 已指出错误而接受未登记 resource
 - **AND** runtime MUST NOT 自动把业务对象 id 或历史 message id 转换成 current-run `resourceId`
+
+### Requirement: Runtime PlannerInput 必须区分成功事实通道和修复诊断通道
+系统 SHALL 在不改变 `PlannerPort.decideNext(input)` 方法签名、不新增 `PlannerInput` 字段的前提下，收敛当前 `PlannerInput` 中 `observations` 与 `toolResults` 的职责。`toolResults` SHALL 是成功 tool facts 的详细权威通道，`observations` SHALL 主要承载 repair、diagnostic、runtime boundary 和轻量索引。
+
+#### Scenario: Runtime 构造下一轮 PlannerInput
+- **WHEN** `runAgentRuntime` 为下一轮 Planner 调用构造 `PlannerInput`
+- **THEN** Runtime MUST 继续传入 `run`、`step`、`manifests`、`observations` 和 `toolResults`
+- **AND** Runtime MUST NOT 新增 `PlannerInput` 字段
+- **AND** Runtime MUST 保持 `PlannerPort.decideNext(input)` 方法签名兼容
+- **AND** Runtime MUST 确保成功 tool result 的详细模型可见事实不在 `observations` 和 `toolResults` 中重复出现
+- **AND** Runtime MUST 保持 invalid action、duplicate success、failed tool、runtime error 等 repair / diagnostic observation 的可见性
+
+#### Scenario: 新增业务 tool 不需要修改核心去重逻辑
+- **WHEN** 后续新增或注册业务 tool
+- **THEN** 该 tool 只要通过现有 `projection.model`、fulfillment、observation helper 和结构化 validator / resource facts 输出安全投影
+- **AND** Runtime PlannerInput 去重 MUST 对该 tool 自动生效
+- **AND** Runtime MUST NOT 新增基于具体业务 `toolName` 的分支来决定是否去重
+
+#### Scenario: ReplayPlanner 测试可断言输入边界
+- **WHEN** `ReplayPlanner` 或等价测试 Planner 记录每轮 Planner input
+- **THEN** 测试 MUST 能断言成功 tool result 的详细 facts 只出现在权威通道
+- **AND** 测试 MUST 能断言 repair / diagnostic observation 仍进入下一轮 input
+- **AND** 测试 MUST NOT 依赖用户原文关键词或具体业务 phrasing 判断去重是否生效
 

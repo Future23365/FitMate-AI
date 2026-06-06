@@ -25,6 +25,8 @@
 - **THEN** 模型可见说明 MUST 表达该结果只能用于诊断
 - **AND** 该结果 MUST NOT 支撑成功 `final_answer.visibleOutputs`
 
+## ADDED Requirements
+
 ### Requirement: `searchExerciseResources` 必须提供 section-scoped 动作事实说明
 
 系统 SHALL 在 `searchExerciseResources` 的模型可见说明、schema description、examples 或 observation 中表达 `groups.<section>.exercises[]` 是生成训练方案动作项的主要事实来源。

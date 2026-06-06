@@ -367,3 +367,119 @@ TBD - created by archiving change change-010-ai-trace-eval. Update Purpose after
 - **THEN** trace MUST 记录 `tool_execution` event
 - **AND** event MUST 使用服务端 pending action 的 input summary，而不是客户端重传的新 input
 
+### Requirement: Trace 必须展示 Planner 输入去重证据
+系统 SHALL 在 model request trace、runtime trace 或 replay summary 中记录足够诊断 Planner input 去重的安全摘要。trace MUST 能说明成功 tool facts 的详细权威通道、observation 轻量化结果，以及 repair / diagnostic observation 保留情况。
+
+#### Scenario: model request trace 记录去重摘要
+- **WHEN** model adapter 记录 Planner model request trace
+- **THEN** trace MUST 记录 observationCount 和 toolResultCount
+- **AND** trace MUST 记录或可派生成功 tool observation lightweight count、repair / diagnostic observation count 和 toolResults projection presence 摘要
+- **AND** trace MUST NOT 记录完整 handler output、secret、authorization、cookie、跨用户 payload 或未脱敏大 payload
+
+#### Scenario: trace 可诊断双通道回归
+- **WHEN** 某次回归导致成功 tool result 的完整 `projection.model` 同时进入 `observations` 和 `toolResults`
+- **THEN** 相关 trace / replay 测试 MUST 能失败或报告该重复事实通道
+- **AND** 失败报告 MUST 指向 Planner input builder 或 observation projection，而不是要求新增服务端语义分流
+
+### Requirement: AI trace 必须记录 Agent loop 的可诊断事实链
+系统 SHALL 在 AI trace 中记录 Agent loop 的关键诊断事实，使开发者可以复盘模型请求、tool execution、repair feedback、terminal validation 和 response rendering 的边界。
+
+#### Scenario: 记录 tool result 与最终输出校验的分层
+- **WHEN** Agent run 执行 tool 并进入 terminal action 或 repair
+- **THEN** trace MUST 区分 tool execution status、tool result fact summary、duplicate input feedback、terminal output validation 和 response rendering
+- **AND** trace MUST NOT 把中间 tool result 的候选数量或业务诊断投影成 core 业务成功 / 失败判定
+- **AND** trace SHOULD 显示普通 `final_answer` 引用的是哪个 current-run `toolResultId` 或 resource
+- **AND** trace SHOULD 显示结构化 `visibleOutputs` 是否通过最终 validator，以及失败 code / path / outputType / schemaVersion
+
+#### Scenario: 0 条结果可复盘
+- **WHEN** tool 成功执行并返回 0 条结果
+- **THEN** trace MUST 保留安全摘要说明该 tool `ok = true`、结果为空和对应 filters / diagnostics 摘要
+- **AND** 如果 Planner 用该结果输出普通 `final_answer`，trace MUST 将该 run 记录为合法 terminal answer，而不是 repair failure
+- **AND** 如果 Planner 用该结果伪造结构化输出，trace MUST 将失败归因到 final output validator，而不是 tool result 业务满足度
+
+#### Scenario: duplicate input 命名不表达业务成功
+- **WHEN** runtime 检测到相同 `toolName + toolVersion + normalizedInputHash` 重复调用
+- **THEN** trace MUST 记录 duplicate input 或等价中性事件
+- **AND** trace MUST 包含既有 `toolResultId`、重复次数和安全 input hash
+- **AND** trace MUST NOT 使用 `duplicate_tool_success` 或等价命名表达业务目标已成功
+
+### Requirement: Trace 必须记录 terminal failure finalizer 链路
+
+系统 SHALL 在 `/api/chat` trace 中记录 terminal failure finalizer 的触发、跳过、模型调用、输出校验、确定性降级和最终响应投影。该 trace MUST 能区分主 Agent 失败和 finalizer 成功回复，MUST NOT 把 finalizer 回复误记为主 Agent 成功。
+
+#### Scenario: finalizer 被调用
+
+- **WHEN** production adapter 调用 terminal failure finalizer
+- **THEN** trace MUST 记录 finalizer trigger step
+- **AND** step MUST 包含主 Agent failure code、failure category、repair budget 状态和 provider availability gate 结果
+- **AND** step MUST 记录 finalizer prompt version、model、timeout、maxTokens 或等价配置摘要
+- **AND** step MUST NOT 记录 API key、authorization、cookie、完整 prompt、完整 tool output 或跨用户 payload
+
+#### Scenario: finalizer 输出成功
+
+- **WHEN** terminal failure finalizer 返回合法输出
+- **THEN** trace MUST 记录 finalizer model response 摘要
+- **AND** trace MUST 记录 finalizer output validation success
+- **AND** trace MUST 记录最终 response projection type 为 `terminal_failure_finalizer` 或等价类型
+- **AND** trace final decision MUST 保留主 Agent 原始 failure code
+
+### Requirement: Trace 必须记录 finalizer 跳过和降级原因
+
+系统 SHALL 在 terminal failure finalizer 未被调用或调用失败时记录稳定跳过 / 降级原因，便于开发者区分 provider 不可用、配置关闭、输出无效、超时和不可分类失败。
+
+#### Scenario: provider gate 跳过 finalizer
+
+- **WHEN** provider availability gate 阻止 finalizer 调用
+- **THEN** trace MUST 记录 `finalizerSkippedReason`
+- **AND** reason MUST 使用稳定 code，例如 `provider_unavailable`、`provider_quota_exhausted`、`model_config_missing`、`finalizer_disabled`、`remaining_time_insufficient` 或等价 code
+- **AND** trace MUST 记录最终使用确定性 fallback
+
+#### Scenario: finalizer 输出无效
+
+- **WHEN** finalizer 返回输出但 schema 或内容校验失败
+- **THEN** trace MUST 记录 `finalizer_output_invalid` 或等价 code
+- **AND** trace MUST 记录被拒绝字段的安全摘要
+- **AND** trace MUST 记录系统已降级为确定性 fallback
+- **AND** 用户可见响应 MUST NOT 包含被拒绝的 finalizer 原文
+
+### Requirement: Trace 导出必须支持排查 finalizer 可见输入
+
+系统 SHALL 让 `/dev/ai-traces` 导出能排查 finalizer 实际模型可见输入，同时继续执行长文本外置、脱敏和权限边界。
+
+#### Scenario: 导出 finalizer 模型请求
+
+- **WHEN** trace 包含 terminal failure finalizer 模型调用
+- **THEN** trace 导出 MUST 包含 finalizer request 的安全摘要或 `contentRef`
+- **AND** 导出 MUST 能显示 finalizer user message 中的 failure category、unmet requirements 和 verified facts 摘要
+- **AND** 导出 MUST 能显示 finalizer system prompt version
+- **AND** 导出 MUST NOT 显示未脱敏 secret、完整 provider body 或跨用户 payload
+
+#### Scenario: 黑盒报告读取 finalizer 结果
+
+- **WHEN** 手动 LLM 黑盒 runner 或报告消费 trace 摘要
+- **THEN** 报告 MUST 能读取本轮是否进入 finalizer
+- **AND** 报告 MUST 能读取 finalizer 是否成功、跳过或降级
+- **AND** 报告 MUST 区分 `main_agent_completed`、`terminal_failure_finalizer` 和 `deterministic_fallback`
+
+### Requirement: Trace 必须记录 DeepSeek Thinking Mode 请求与响应诊断
+系统 SHALL 在 Agent LLM 调用 trace 中记录 DeepSeek Thinking Mode 的请求配置和响应诊断，使开发者能确认前端 `thinkingEnabled` 是否真正进入 provider 请求。
+
+#### Scenario: 模型请求记录 thinking 配置
+- **WHEN** `DeepSeekModelAdapter` 构造模型请求 trace
+- **THEN** `model_request` 或等价 trace envelope MUST 记录最终 model
+- **AND** trace MUST 记录 `thinking.type`
+- **AND** trace MUST 在 Thinking Mode 开启时记录 `reasoning_effort`
+- **AND** trace MUST 不记录 API key、authorization、cookie 或未经脱敏的大 payload
+
+#### Scenario: 模型响应记录 reasoning 诊断
+- **WHEN** DeepSeek 响应包含 `reasoning_content`
+- **THEN** `model_response` 或等价 trace envelope MUST 记录已收到 reasoning 的事实
+- **AND** trace MUST 记录 `reasoning_content` 长度、脱敏摘要或可追溯长文本引用
+- **AND** trace MUST 区分正式 `content` 与 `reasoning_content`
+- **AND** parse status、failureCode 和 parsed action MUST 继续基于正式 `content`
+
+#### Scenario: 关闭思考模式也有可诊断证据
+- **WHEN** `/api/chat` 请求中 `thinkingEnabled = false`
+- **THEN** trace MUST 能展示 provider 请求包含 `thinking.type = "disabled"` 或等价禁用证据
+- **AND** 若响应仍包含 `reasoning_content`，trace MUST 标记为诊断异常或 provider 行为差异，而不得把它展示给用户
+

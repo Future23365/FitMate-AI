@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: AI trace 必须记录 Agent loop 的可诊断事实链
 系统 SHALL 在 AI trace 中记录 Agent loop 的关键诊断事实，使开发者可以复盘模型请求、tool execution、repair feedback、terminal validation 和 response rendering 的边界。

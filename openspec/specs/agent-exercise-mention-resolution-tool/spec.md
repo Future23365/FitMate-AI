@@ -50,17 +50,26 @@ TBD - created by archiving change support-exercise-mention-required-query. Updat
 
 系统 SHALL 为 `resolveExerciseResourceMentions` 提供中文模型可见说明、examples、model observation、user projection 和 trace summary，且不得泄漏完整数据库记录或内部 handler output。
 
-#### Scenario: 模型可见说明表达使用边界
+#### Scenario: 模型可见说明表达 mention 解析与下游使用
 - **WHEN** Agent 构造 Planner 可见 tool manifest
 - **THEN** `resolveExerciseResourceMentions` 的 `description`、`whenToUse`、`whenNotToUse` 和 examples MUST 默认使用中文描述
-- **AND** 说明 MUST 表达该 tool 用于解析用户点名动作是否存在于数据库
-- **AND** 说明 MUST 表达需要最终返回动作列表时，应把 matched `exerciseId` 传给 `searchExerciseResources.requiredExerciseIds`
-- **AND** 说明 MUST 表达该 tool 不生成 routine、plan、训练卡片或保存结果
+- **AND** 说明 MUST 表达该 tool 只把用户明确点名的单个动作名解析为发布态 Exercise 候选
+- **AND** 说明 MUST 表达 `matched.exerciseId` 只能作为 `searchExerciseResources.requiredExerciseIds`
+- **AND** 说明 MUST 表达 `ambiguous` 需要模型选择候选、重新查询或 `ask_user`
+- **AND** 说明 MUST 表达 `not_found` 不能作为动作事实
+- **AND** 说明 MUST 表达本 tool result 不能直接写入 `visibleTrainingProposal.exerciseItems`
 
-#### Scenario: projection 不泄漏完整数据库事实
-- **WHEN** `resolveExerciseResourceMentions` 返回 handler output
-- **THEN** model observation 和 user projection MUST 只包含有限动作摘要、匹配状态和诊断
-- **AND** projection MUST NOT 包含完整 `Exercise` 记录、数据库连接对象、embedding 向量、内部排序细节、secret 或跨用户数据
+#### Scenario: examples 使用完整 tool_call action
+- **WHEN** production registry 序列化 `resolveExerciseResourceMentions` manifest
+- **THEN** examples MUST 包含完整 `{ type: "tool_call", toolName: "resolveExerciseResourceMentions", input: ... }`
+- **AND** examples MUST 展示 `mentions[].text` 只放单个动作名，不放完整用户消息
+- **AND** examples MUST NOT 训练模型输出裸 tool input
+
+#### Scenario: manifest 不包含工程实现者提示
+- **WHEN** production registry 序列化 `resolveExerciseResourceMentions` manifest
+- **THEN** 模型可见说明 SHOULD 使用“mentions 必须由用户明确点名的动作构成；不要从泛泛目标中猜动作名”表达边界
+- **AND** 模型可见说明 MUST NOT 把“不要用服务端关键词、正则、同义词表或短句模板从用户原文拆 mention”作为面向 Planner 的主要说明
+- **AND** 服务端仍 MUST NOT 新增关键词、正则、同义词表或短句模板拆 mention
 
 ### Requirement: `resolveExerciseResourceMentions` 必须具备 tool-level 验证
 
@@ -71,4 +80,46 @@ TBD - created by archiving change support-exercise-mention-required-query. Updat
 - **THEN** 测试 MUST 覆盖“俯卧撑、深蹲、平板支撑”多点名动作解析
 - **AND** 测试 MUST 覆盖成功命中、歧义、未命中、非法 input、数量上限、projection / redaction、trace summary 和 handler 失败归一化
 - **AND** 测试 MUST 证明该 tool 不产出 `candidateSetId`、`candidate_set` resource、训练卡片、保存事件或任意旧兼容业务事件
+
+### Requirement: `resolveExerciseResourceMentions` 模型可见说明必须聚焦点名动作解析
+系统 SHALL 将 `resolveExerciseResourceMentions` 的模型可见说明收敛为点名动作身份解析 tool 的独有能力说明。Manifest MUST 保留该 tool 如何从 Planner 结构化 `mentions` 查询发布态动作摘要，以及如何衔接 `searchExerciseResources.requiredExerciseIds`；MUST NOT 重复完整最终训练输出规则。
+
+#### Scenario: manifest 保留点名动作解析边界
+- **WHEN** production registry 序列化 `resolveExerciseResourceMentions` manifest
+- **THEN** manifest MUST 表达该 tool 只解析 Planner 结构化传入的用户点名动作文本
+- **AND** manifest MUST 表达服务端不从完整用户消息、历史摘要或 conversationSummary 中做关键词拆词
+- **AND** manifest MUST 表达结果状态包括 `matched`、`ambiguous` 和 `not_found`
+- **AND** manifest MUST 表达 matched `exerciseId` 可用于后续 `searchExerciseResources.requiredExerciseIds`
+- **AND** manifest MUST 使用中文描述业务含义，`resolveExerciseResourceMentions`、`mentions`、`matched`、`ambiguous`、`not_found`、`searchExerciseResources.requiredExerciseIds` 保持英文原样
+
+#### Scenario: manifest 不重复最终训练结构长规则
+- **WHEN** production registry 序列化 `resolveExerciseResourceMentions` manifest
+- **THEN** manifest MUST NOT 逐段重复 system prompt 中关于 `visibleOutputs[]`、`visibleTrainingProposal.payload.kind`、routine / plan section coverage 或 `final_answer.content` 终态的完整规则
+- **AND** manifest MUST 用短边界表达“本 tool 只确认动作身份，不直接作为最终训练方案动作来源”
+- **AND** manifest MUST 表达最终训练方案动作事实仍需来自 section-scoped 动作查询结果或当前 run 可消费训练事实
+
+#### Scenario: examples 保留结构化 mentions 示例
+- **WHEN** production registry 序列化 `resolveExerciseResourceMentions` examples
+- **THEN** examples MUST 展示合法 `mentions` 数组
+- **AND** examples MUST 包含多个点名动作的结构化输入示例
+- **AND** examples MUST NOT 包含完整用户消息、分页、userId、SQL、训练生成参数或 fake resource id
+- **AND** examples MUST NOT 表达用户说某个固定短语时必须调用该 tool
+
+### Requirement: `resolveExerciseResourceMentions` observation 必须保留解析结果和后续衔接边界
+系统 SHALL 在 `resolveExerciseResourceMentions` 的模型 observation 中保留解析结果摘要和必要后续衔接边界。Observation MUST 帮助 Planner 判断是否选择候选、重查、澄清或将 matched id 作为 `requiredExerciseIds`；MUST NOT 复制完整通用终态规则。
+
+#### Scenario: observation 保留匹配状态
+- **WHEN** `resolveExerciseResourceMentions` 执行成功并进入下一轮 Planner 输入
+- **THEN** model observation MUST 表达 `mentionCount`
+- **AND** model observation MUST 表达 `matchedCount`
+- **AND** model observation MUST 表达 `ambiguousCount`
+- **AND** model observation MUST 表达 `notFoundCount`
+- **AND** model observation MUST 为每个 result 提供有限候选摘要和 `allowedSections`
+
+#### Scenario: observation 保留后续 requiredExerciseIds 衔接
+- **WHEN** model observation 包含 matched 或模型可选择的 ambiguous 候选
+- **THEN** observation MUST 表达这些候选的 `exerciseId` 可作为后续 `searchExerciseResources.requiredExerciseIds`
+- **AND** observation MUST 表达该 observation 本身不能直接作为 `visibleTrainingProposal.exerciseItems[*].exerciseId` 的动作事实来源
+- **AND** observation MUST NOT 要求固定下一步必须调用 `searchExerciseResources`
+- **AND** observation MUST NOT 根据用户原文替模型决定是否澄清、重查或继续生成
 
