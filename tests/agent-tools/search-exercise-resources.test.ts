@@ -8,6 +8,7 @@ import { runAgentRuntime } from "@/lib/server/agent-core/runtime";
 import { ToolRegistry } from "@/lib/server/agent-core/tool-registry";
 import { ReplayPlanner } from "@/lib/server/agent-planners/replay-planner";
 import { agentRuntimeConfig } from "@/lib/server/config";
+import { buildExerciseResourceFilterApplication } from "@/lib/server/exercises/exercise-resource-filter-policy";
 import type { ExerciseResourceSearchResult } from "@/lib/server/exercises/exercise-repository";
 
 const repositoryPath = "@/lib/server/exercises/exercise-repository";
@@ -65,6 +66,14 @@ describe("searchExerciseResources tool", () => {
             { field: "suitabilities", value: ["training"] },
             { field: "published", value: true },
           ]),
+          filterApplications: [
+            expect.objectContaining({
+              section: "training",
+              hardFilterPolicy: "training",
+              appliedHardFilters: expect.arrayContaining(["published", "suitabilities", "equipment", "muscles"]),
+              unappliedInputFilters: [],
+            }),
+          ],
           filterSemantics: [createNoEquipmentFilterSemantic("no_equipment")],
         },
         groups: {
@@ -100,6 +109,7 @@ describe("searchExerciseResources tool", () => {
       muscles: ["胸部"],
       goalTag: undefined,
       riskTag: undefined,
+      requiredExerciseIds: undefined,
       excludeExerciseIds: undefined,
       maxReturned: agentRuntimeConfig.tools.searchExerciseResources.maxReturnedPerSection,
       published: true,
@@ -133,6 +143,14 @@ describe("searchExerciseResources tool", () => {
       },
       refreshExclusionBoundary: expect.stringContaining("本次查询未应用 excludeExerciseIds"),
       filterSemantics: [createNoEquipmentFilterSemantic("no_equipment")],
+      filterApplicationBoundary: expect.stringContaining("section 级 tool 执行事实摘要"),
+      filterApplications: [
+        expect.objectContaining({
+          section: "training",
+          hardFilterPolicy: "training",
+          appliedHardFilters: expect.arrayContaining(["published", "suitabilities", "equipment", "muscles"]),
+        }),
+      ],
     });
     expect(serializedObservation).toContain("section 应与使用的 group key 保持一致");
     expect(serializedObservation).toContain("\"missingSections\"");
@@ -388,6 +406,201 @@ describe("searchExerciseResources tool", () => {
     ]);
   });
 
+  it("discloses support section policy without applying level as a hard filter", async () => {
+    const { tool } = await importToolWithRepositoryImplementation(async (input) => {
+      const suitability = (input as { suitability?: "warmup" | "stretch" }).suitability;
+      return createSearchResult({
+        query: {
+          muscles: ["胸部"],
+          equipment: "no_equipment",
+          level: "intermediate",
+          suitability,
+          published: true,
+          sort: "name_asc",
+        },
+        totalMatches: 1,
+        returnedCount: 1,
+        exercises: [createExerciseSummary({
+          id: `${suitability}-chest-bodyweight`,
+          nameZh: suitability === "warmup" ? "胸部动态热身" : "胸部拉伸",
+          allowedSections: [suitability ?? "warmup"],
+        })],
+      });
+    });
+
+    const result = await executeTool({
+      tool,
+      input: {
+        suitabilities: ["warmup", "stretch"],
+        equipment: "no_equipment",
+        muscles: ["胸部"],
+        level: "intermediate",
+      },
+      run: { runId: "run-support-policy", actor: { userId: "user-1" }, userInput: "胸部无器械热身和拉伸" },
+      timeoutMs: 100,
+      toolCallId: "tc_support_policy",
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      output: {
+        query: {
+          appliedFilters: expect.arrayContaining([
+            { field: "equipment", value: "no_equipment" },
+            { field: "muscles", value: ["胸部"] },
+          ]),
+          filterApplications: [
+            expect.objectContaining({
+              section: "warmup",
+              hardFilterPolicy: "support_section",
+              appliedHardFilters: expect.arrayContaining(["published", "suitabilities", "equipment", "muscles"]),
+              unappliedInputFilters: [
+                {
+                  field: "level",
+                  code: "not_applied_as_hard_filter_for_support_section",
+                  valueSummary: "intermediate",
+                },
+              ],
+            }),
+            expect.objectContaining({
+              section: "stretch",
+              hardFilterPolicy: "support_section",
+              appliedHardFilters: expect.arrayContaining(["published", "suitabilities", "equipment", "muscles"]),
+              unappliedInputFilters: [
+                {
+                  field: "level",
+                  code: "not_applied_as_hard_filter_for_support_section",
+                  valueSummary: "intermediate",
+                },
+              ],
+            }),
+          ],
+        },
+      },
+    });
+    if (!result.ok) {
+      throw new Error("searchExerciseResources should succeed");
+    }
+    const observationJson = JSON.stringify(result.projection.model);
+    expect(observationJson).toContain("filterApplications");
+    expect(observationJson).toContain("support_section");
+    expect(observationJson).toContain("not_applied_as_hard_filter_for_support_section");
+    expect(observationJson).not.toContain("valueSummary");
+  });
+
+  it("records distinct hard filter policies for mixed section queries", async () => {
+    const { tool } = await importToolWithRepositoryImplementation(async (input) => {
+      const suitability = (input as { suitability?: "training" | "warmup" | "stretch" }).suitability;
+      return createSearchResult({
+        query: {
+          muscles: ["胸部"],
+          equipment: "no_equipment",
+          level: "beginner",
+          suitability,
+          published: true,
+          sort: "name_asc",
+        },
+        totalMatches: 1,
+        returnedCount: 1,
+        exercises: [createExerciseSummary({
+          id: `${suitability}-exercise`,
+          allowedSections: [suitability ?? "training"],
+        })],
+      });
+    });
+
+    const result = await executeTool({
+      tool,
+      input: {
+        suitabilities: ["training", "warmup", "stretch"],
+        equipment: "no_equipment",
+        muscles: ["胸部"],
+        level: "beginner",
+      },
+      run: { runId: "run-mixed-policy", actor: { userId: "user-1" }, userInput: "胸部无器械完整训练" },
+      timeoutMs: 100,
+      toolCallId: "tc_mixed_policy",
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      output: {
+        query: {
+          filterApplications: [
+            expect.objectContaining({
+              section: "training",
+              hardFilterPolicy: "training",
+              appliedHardFilters: expect.arrayContaining(["level"]),
+              unappliedInputFilters: [],
+            }),
+            expect.objectContaining({
+              section: "warmup",
+              hardFilterPolicy: "support_section",
+              appliedHardFilters: expect.not.arrayContaining(["level"]),
+              unappliedInputFilters: [expect.objectContaining({ field: "level" })],
+            }),
+            expect.objectContaining({
+              section: "stretch",
+              hardFilterPolicy: "support_section",
+              appliedHardFilters: expect.not.arrayContaining(["level"]),
+              unappliedInputFilters: [expect.objectContaining({ field: "level" })],
+            }),
+          ],
+        },
+      },
+    });
+  });
+
+  it("redacts q values from support section filter applications in projections", async () => {
+    const sensitiveQuery = "胸部热身请只要非常具体的长文本";
+    const { tool } = await importToolWithRepositoryResult(createSearchResult({
+      query: {
+        q: sensitiveQuery,
+        suitability: "warmup",
+        published: true,
+        sort: "name_asc",
+      },
+      totalMatches: 1,
+      returnedCount: 1,
+      exercises: [createExerciseSummary({ id: "warmup-chest", allowedSections: ["warmup"] })],
+    }));
+
+    const result = await executeTool({
+      tool,
+      input: { q: sensitiveQuery, suitabilities: ["warmup"] },
+      run: { runId: "run-redact-q-policy", actor: { userId: "user-1" }, userInput: "胸部热身" },
+      timeoutMs: 100,
+      toolCallId: "tc_redact_q_policy",
+    });
+
+    if (!result.ok) {
+      throw new Error("searchExerciseResources should succeed");
+    }
+    const projectionJson = JSON.stringify(result.projection);
+    const output = result.output as {
+      query: Pick<ExerciseResourceSearchResult["query"], "q"> & {
+        filterApplications: ExerciseResourceSearchResult["filterApplication"][];
+      };
+    };
+
+    expect(output.query.filterApplications).toEqual([
+      expect.objectContaining({
+        section: "warmup",
+        hardFilterPolicy: "support_section",
+        unappliedInputFilters: [
+          {
+            field: "q",
+            code: "not_applied_as_hard_filter_for_support_section",
+          },
+        ],
+      }),
+    ]);
+    expect(projectionJson).toContain("q");
+    expect(projectionJson).toContain("not_applied_as_hard_filter_for_support_section");
+    expect(projectionJson).not.toContain(sensitiveQuery);
+    expect(projectionJson).not.toContain("valueSummary");
+  });
+
   it("explains replacement shortage after excluding visible training proposal exercises without refilling excluded ids", async () => {
     const { tool, repository } = await importToolWithRepositoryResult(createSearchResult({
       query: {
@@ -502,6 +715,10 @@ describe("searchExerciseResources tool", () => {
     });
 
     expect(repository.getExerciseResourceSummariesByIds).toHaveBeenCalledWith(["Pushups", "Bodyweight_Squat", "Plank"]);
+    expect(repository.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
+      suitability: "training",
+      requiredExerciseIds: ["Pushups", "Bodyweight_Squat", "Plank"],
+    }));
     expect(result).toMatchObject({
       ok: true,
       output: {
@@ -512,6 +729,12 @@ describe("searchExerciseResources tool", () => {
             { field: "q", value: "俯卧撑" },
             { field: "requiredExerciseIds", value: ["Pushups", "Bodyweight_Squat", "Plank"] },
           ]),
+          filterApplications: [
+            expect.objectContaining({
+              section: "training",
+              appliedHardFilters: expect.arrayContaining(["q", "requiredExerciseIds"]),
+            }),
+          ],
           totalMatches: 3,
           returnedCount: 3,
         },
@@ -1029,6 +1252,7 @@ function createSearchResult(overrides: SearchResultOverrides = {}): ExerciseReso
   return {
     query,
     appliedFilters: overrides.appliedFilters ?? [{ field: "published", value: true }],
+    filterApplication: overrides.filterApplication ?? buildExerciseResourceFilterApplication(query),
     filterSemantics: overrides.filterSemantics ?? [],
     totalMatches: overrides.totalMatches ?? exercises.length,
     returnedCount: overrides.returnedCount ?? exercises.length,

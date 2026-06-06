@@ -106,6 +106,14 @@ describe("agent-core contract test helper", () => {
           { field: "published", value: true },
           { field: "suitabilities", value: ["training"] },
         ],
+        filterApplications: [
+          {
+            section: "training",
+            hardFilterPolicy: "training",
+            appliedHardFilters: ["published", "suitabilities", "equipment", "requiredExerciseIds"],
+            unappliedInputFilters: [],
+          },
+        ],
         filterSemantics: [{
           field: "equipment",
           requestedValue: "no_equipment",

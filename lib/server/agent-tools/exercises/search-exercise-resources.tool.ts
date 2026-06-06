@@ -13,6 +13,12 @@ import {
   type ExerciseResourceFilterSemantic,
   type ExerciseResourceSummary,
 } from "@/lib/server/exercises/exercise-repository";
+import {
+  buildExerciseResourceFilterApplication,
+  EXERCISE_RESOURCE_FILTER_APPLICATION_FIELDS,
+  EXERCISE_RESOURCE_SUPPORT_SECTION_UNAPPLIED_FILTER_CODE,
+  type ExerciseResourceFilterApplication,
+} from "@/lib/server/exercises/exercise-resource-filter-policy";
 import { exerciseSortSchema } from "@/lib/shared/exercises/query-schema";
 import { exerciseAllowedSectionSchema } from "@/lib/shared/exercises/types";
 import {
@@ -28,6 +34,7 @@ const maxRequiredExerciseIds = 12;
 const maxMuscles = 20;
 const exerciseIdSchema = z.string().trim().min(1).max(120).regex(/^[A-Za-z0-9:_-]+$/);
 const catalogFacetDescription = "精确筛选值应优先从 manifest metadata.facetCatalog 的对应数组中选择；服务端只执行 schema、去空、去重和数据库查询。";
+const trainingPolicyFacetDescription = `${catalogFacetDescription}该字段在 training policy 中作为 hard filter；warmup / stretch 的 support_section policy 会在 filterApplications.unappliedInputFilters 中披露其未作为 hard filter 使用。`;
 const equipmentFilterSchema = optionalTextFilterSchema
   .describe(`器械可用性或器械类别的精确筛选值；无外部器械统一使用 no_equipment。${catalogFacetDescription}`);
 const homeRequirementFilterSchema = textFilterValueSchema
@@ -38,16 +45,16 @@ const homeRequirementFilterSchema = textFilterValueSchema
   .describe(`环境、场地或支撑条件的精确筛选值，例如地面、支撑物、户外、搭档、居家小器械或健身房器械；不表示器械可用性。${catalogFacetDescription}`);
 
 const searchExerciseResourcesInputSchema = z.object({
-  q: optionalTextFilterSchema.describe("确定性动作文本搜索字段，可匹配动作名称、公开分类、肌群、标签或 embeddingText；不是向量语义召回。"),
-  category: optionalTextFilterSchema.describe(`动作分类或中文分类的精确筛选值。${catalogFacetDescription}`),
+  q: optionalTextFilterSchema.describe("确定性动作文本搜索字段，可匹配动作名称、公开分类、肌群、标签或 embeddingText；不是向量语义召回；仅在 training policy 中作为 hard filter，support_section policy 会披露其未作为 hard filter 使用且模型可见投影不回灌 q 原文。"),
+  category: optionalTextFilterSchema.describe(`动作分类或中文分类的精确筛选值。${trainingPolicyFacetDescription}`),
   suitabilities: z.array(exerciseAllowedSectionSchema)
     .min(1)
     .max(3)
     .optional()
-    .describe("动作适配用途数组，只允许 warmup、training 或 stretch；省略时按 training 主训练候选查询。目标需要 routine 或 plan、当前 run 已有 training 动作事实且缺少 warmup / stretch 时，应沿用当前目标、器械、场地、难度或肌群约束，用 [\"warmup\", \"stretch\"] 或等价缺失 section 查询补齐候选。"),
-  level: optionalTextFilterSchema.describe(`动作难度或中文难度的精确筛选值。${catalogFacetDescription}`),
-  force: optionalTextFilterSchema.describe(`发力类型或中文发力类型的精确筛选值。${catalogFacetDescription}`),
-  mechanic: optionalTextFilterSchema.describe(`动作机制或中文动作机制的精确筛选值。${catalogFacetDescription}`),
+    .describe("动作适配用途数组，只允许 warmup、training 或 stretch；省略时按 training 主训练候选查询。training 使用严格 hard filter policy；warmup / stretch 使用 support_section policy，只把发布态、section、器械、场地、肌群和受控动作 id 作为 hard filter。目标需要 routine 或 plan、当前 run 已有 training 动作事实且缺少 warmup / stretch 时，可用 [\"warmup\", \"stretch\"] 或等价缺失 section 查询补齐候选。"),
+  level: optionalTextFilterSchema.describe(`动作难度或中文难度的精确筛选值。${trainingPolicyFacetDescription}`),
+  force: optionalTextFilterSchema.describe(`发力类型或中文发力类型的精确筛选值。${trainingPolicyFacetDescription}`),
+  mechanic: optionalTextFilterSchema.describe(`动作机制或中文动作机制的精确筛选值。${trainingPolicyFacetDescription}`),
   equipment: equipmentFilterSchema,
   homeRequirement: homeRequirementFilterSchema,
   muscles: z.array(textFilterValueSchema)
@@ -55,8 +62,8 @@ const searchExerciseResourcesInputSchema = z.object({
     .max(maxMuscles)
     .optional()
     .describe(`一个或多个主肌群或辅助肌群真实数据库 facet 的 OR 查询数组；单个肌群也写成一项数组。${catalogFacetDescription}`),
-  goalTag: optionalTextFilterSchema.describe(`动作目标标签的精确筛选值。${catalogFacetDescription}`),
-  riskTag: optionalTextFilterSchema.describe(`动作风险标签的精确筛选值。${catalogFacetDescription}`),
+  goalTag: optionalTextFilterSchema.describe(`动作目标标签的精确筛选值。${trainingPolicyFacetDescription}`),
+  riskTag: optionalTextFilterSchema.describe(`动作风险标签的精确筛选值。${trainingPolicyFacetDescription}`),
   excludeExerciseIds: z.array(exerciseIdSchema)
     .max(maxExcludeExerciseIds)
     .optional()
@@ -87,6 +94,20 @@ const appliedFilterSchema = z.object({
     "published",
   ]),
   value: z.union([z.string(), z.boolean(), z.array(z.string())]),
+}).strict();
+
+const filterApplicationFieldSchema = z.enum(EXERCISE_RESOURCE_FILTER_APPLICATION_FIELDS);
+const hardFilterPolicySchema = z.enum(["training", "support_section"]);
+const unappliedInputFilterSchema = z.object({
+  field: filterApplicationFieldSchema,
+  code: z.literal(EXERCISE_RESOURCE_SUPPORT_SECTION_UNAPPLIED_FILTER_CODE),
+  valueSummary: z.string().max(80).optional(),
+}).strict();
+const filterApplicationSchema = z.object({
+  section: exerciseAllowedSectionSchema,
+  hardFilterPolicy: hardFilterPolicySchema,
+  appliedHardFilters: z.array(filterApplicationFieldSchema),
+  unappliedInputFilters: z.array(unappliedInputFilterSchema),
 }).strict();
 
 const filterSemanticSchema = z.object({
@@ -157,6 +178,8 @@ const searchExerciseResourcesOutputSchema = z.object({
     published: z.literal(true),
     sort: exerciseSortSchema,
     appliedFilters: z.array(appliedFilterSchema),
+    filterApplications: z.array(filterApplicationSchema)
+      .describe("section 级 tool 执行事实摘要；hardFilterPolicy 只表示该 section 的数据库 hard filter 口径，不表示 Planner 下一步行为策略。"),
     filterSemantics: z.array(filterSemanticSchema),
     totalMatches: z.number().int().min(0),
     returnedCount: z.number().int().min(0),
@@ -206,7 +229,7 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
       "无外部器械统一写 equipment: \"no_equipment\"；homeRequirement 只表示环境、场地或支撑条件，不表示器械可用性。",
       "groups.<section>.exercises[] 是 section-scoped 动作事实来源；生成 visibleTrainingProposal.exerciseItems[] 时，section 必须等于 groups key，并且该动作 allowedSections 必须包含该 section。",
       "requiredExerciseIds 是正向锚点，用于让已解析或已导入的发布态动作优先进入 groups；excludeExerciseIds 是负向排除，用于替换或避免重复。",
-      "需要补齐 warmup、training 或 stretch 某些 section 时，沿用当前目标、器械、场地、难度或肌群约束查询缺失 section。",
+      "需要补齐 warmup、training 或 stretch 某些 section 时，使用当前目标、器械、场地、肌群和受控动作 id 等结构化约束查询缺失 section；support section 的难度、文本、分类和标签输入是否作为 hard filter 以 filterApplications 为准。",
       "过宽查询不能支撑 visibleOutputs；如果 input 只有默认 suitabilities、published 或 sort，且没有目标约束、器械、肌群、场地、难度或 requiredExerciseIds，则结果只能用于诊断。",
     ].join(" "),
     whenNotToUse: [
@@ -216,6 +239,7 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
       "不要用它查询未发布动作、单个动作详情、唯一动作名解析、全库 facet 统计、分页、limit、offset、page、pageSize 或语义向量检索。",
       "不要用 homeRequirement 表达器械是否可用；无外部器械是 equipment 的查询语义。",
       "不要把同一批动作同时放入 requiredExerciseIds 和 excludeExerciseIds。",
+      "不要把 support_section 中的 level、q、category、force、mechanic、goalTag 或 riskTag 当作已满足的数据库 hard filter；以 filterApplications 的 section 级摘要为准。",
     ].join(" "),
     inputSchema: searchExerciseResourcesInputSchema,
     outputSchema: searchExerciseResourcesOutputSchema,
@@ -245,7 +269,7 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
         },
       },
       {
-        description: "为已需要 routine 或 plan 且缺少 support section 的目标，沿用当前约束查询 warmup 和 stretch 动作事实。",
+        description: "为已需要 routine 或 plan 且缺少 support section 的目标，查询 warmup 和 stretch 动作事实；support section 会通过 filterApplications 披露未作为 hard filter 使用的输入字段。",
         action: {
           type: "tool_call",
           toolName: "searchExerciseResources",
@@ -282,6 +306,13 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
         muscles,
       };
       const suitabilities = normalizeSuitabilities(input.suitabilities);
+      const filterApplications = suitabilities.map((suitability) => buildExerciseResourceFilterApplication({
+        ...normalizedInput,
+        suitability,
+        excludeExerciseIds,
+        requiredExerciseIds,
+        published: input.published,
+      }));
       const [requiredExercises, results] = await Promise.all([
         requiredExerciseIds?.length
           ? getExerciseResourceSummariesByIds(requiredExerciseIds)
@@ -298,6 +329,7 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
           muscles,
           goalTag: input.goalTag,
           riskTag: input.riskTag,
+          requiredExerciseIds,
           excludeExerciseIds,
           maxReturned: agentRuntimeConfig.tools.searchExerciseResources.maxReturnedPerSection,
           published: input.published,
@@ -331,7 +363,7 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
         const addedRequiredCount = requiredExercisesForGroup
           .filter((exercise) => !baseExerciseIds.has(exercise.exerciseId))
           .length;
-        const totalMatches = result.totalMatches + addedRequiredCount;
+        const totalMatches = Math.max(result.totalMatches, baseExercises.length + addedRequiredCount);
 
         return [[
           suitability,
@@ -371,7 +403,8 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
           requiredExerciseIds,
           published: true,
           sort: firstResult.query.sort,
-          appliedFilters: collectAppliedFilters(normalizedInput, suitabilities, excludeExerciseIds, requiredExerciseIds),
+          appliedFilters: collectAppliedFilters(normalizedInput, filterApplications, suitabilities, excludeExerciseIds, requiredExerciseIds),
+          filterApplications,
           filterSemantics: firstResult.filterSemantics ?? [],
           totalMatches,
           returnedCount,
@@ -446,6 +479,8 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
           allowedSectionsRelation: "每个动作的 allowedSections 是可进入哪些 section 的事实字段；exerciseItems[*].section 必须包含在该动作 allowedSections 中。",
         },
         appliedFilters: output.query.appliedFilters,
+        filterApplicationBoundary: "filterApplications 是 searchExerciseResources 的 section 级 tool 执行事实摘要；hardFilterPolicy 只表示数据库 hard filter 口径，不表示 Planner 下一步行为策略。",
+        filterApplications: toProjectionFilterApplications(output.query.filterApplications),
         groups: mapGroups(output.groups, (exercise) => ({
           exerciseId: exercise.exerciseId,
           nameZh: exercise.nameZh,
@@ -467,6 +502,7 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
       truncated: output.query.truncated,
       excludedCount: output.query.excludedCount,
       appliedFilters: output.query.appliedFilters,
+      filterApplications: toProjectionFilterApplications(output.query.filterApplications),
       filterSemantics: output.query.filterSemantics,
       groups: mapGroups(output.groups, (exercise) => ({
         exerciseId: exercise.exerciseId,
@@ -541,18 +577,22 @@ function normalizeSuitabilities(suitabilities: SearchExerciseResourcesInput["sui
 
 // isBroadExerciseResourceQueryOutput 只基于结构化 tool input 结果判断查询是否过宽，不读取用户原文。
 function isBroadExerciseResourceQueryOutput(output: SearchExerciseResourcesOutput) {
-  return !output.query.appliedFilters.some((filter) => isSpecificExerciseResourceFilter(filter.field));
+  return !output.query.filterApplications.some((application) =>
+    application.appliedHardFilters.some(isSpecificExerciseResourceFilter),
+  );
 }
 
-function isSpecificExerciseResourceFilter(field: SearchExerciseResourcesOutput["query"]["appliedFilters"][number]["field"]) {
+function isSpecificExerciseResourceFilter(field: SearchExerciseResourcesOutput["query"]["filterApplications"][number]["appliedHardFilters"][number]) {
   return field !== "suitabilities" && field !== "published";
 }
 
 function buildQuerySpecificityObservation(output: SearchExerciseResourcesOutput): Record<string, string | string[]> {
   const broadQuery = isBroadExerciseResourceQueryOutput(output);
-  const specificFilters = output.query.appliedFilters
-    .filter((filter) => isSpecificExerciseResourceFilter(filter.field))
-    .map((filter) => String(filter.field));
+  const specificFilters = [
+    ...new Set(output.query.filterApplications.flatMap((application) =>
+      application.appliedHardFilters.filter(isSpecificExerciseResourceFilter),
+    )),
+  ];
 
   if (broadQuery) {
     return {
@@ -569,13 +609,27 @@ function buildQuerySpecificityObservation(output: SearchExerciseResourcesOutput)
   };
 }
 
+function toProjectionFilterApplications(filterApplications: ExerciseResourceFilterApplication[]) {
+  return filterApplications.map((application) => ({
+    section: application.section,
+    hardFilterPolicy: application.hardFilterPolicy,
+    appliedHardFilters: application.appliedHardFilters,
+    unappliedInputFilters: application.unappliedInputFilters.map((filter) => ({
+      field: filter.field,
+      code: filter.code,
+    })),
+  }));
+}
+
 function collectAppliedFilters(
   input: SearchExerciseResourcesInput,
+  filterApplications: ExerciseResourceFilterApplication[],
   suitabilities: Array<z.infer<typeof exerciseAllowedSectionSchema>>,
   excludeExerciseIds: string[] | undefined,
   requiredExerciseIds: string[] | undefined,
 ): SearchExerciseResourcesOutput["query"]["appliedFilters"] {
   const filters: SearchExerciseResourcesOutput["query"]["appliedFilters"] = [];
+  const commonAppliedFields = collectCommonAppliedFilterFields(filterApplications);
   const entries = {
     q: input.q,
     category: input.category,
@@ -594,7 +648,7 @@ function collectAppliedFilters(
   } as const;
 
   for (const [field, value] of Object.entries(entries)) {
-    if (value !== undefined) {
+    if (value !== undefined && commonAppliedFields.has(field as SearchExerciseResourcesOutput["query"]["appliedFilters"][number]["field"])) {
       filters.push({
         field: field as SearchExerciseResourcesOutput["query"]["appliedFilters"][number]["field"],
         value,
@@ -603,6 +657,25 @@ function collectAppliedFilters(
   }
 
   return filters;
+}
+
+function collectCommonAppliedFilterFields(filterApplications: ExerciseResourceFilterApplication[]) {
+  const [firstApplication, ...restApplications] = filterApplications;
+  if (!firstApplication) {
+    return new Set<SearchExerciseResourcesOutput["query"]["appliedFilters"][number]["field"]>();
+  }
+
+  const commonFields = new Set(firstApplication.appliedHardFilters);
+  for (const application of restApplications) {
+    const fields = new Set(application.appliedHardFilters);
+    for (const field of [...commonFields]) {
+      if (!fields.has(field)) {
+        commonFields.delete(field);
+      }
+    }
+  }
+
+  return new Set([...commonFields] as SearchExerciseResourcesOutput["query"]["appliedFilters"][number]["field"][]);
 }
 
 function collectRequiredExerciseDiagnostics(input: {

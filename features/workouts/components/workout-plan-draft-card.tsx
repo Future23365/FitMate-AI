@@ -535,7 +535,7 @@ export function WorkoutPlanDraftCard({
         {/* 底部操作闭环区 */}
         <div className="mt-lg flex flex-col gap-md border-t border-outline-variant/40 pt-lg sm:flex-row sm:items-center sm:justify-between">
           <p className="font-label-xs text-label-xs text-on-surface-variant">
-            {`* 导入后将保存训练日 routine，并排定未来 ${selectedImportOption.daysToImport} 天的周期日程`}
+            {`* 导入后将保存到编排列表，并排定未来 ${selectedImportOption.daysToImport} 天的周期日程`}
           </p>
           <button
             onClick={handleSave}

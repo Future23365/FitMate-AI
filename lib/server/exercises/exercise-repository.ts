@@ -8,6 +8,11 @@ import {
 } from "@/lib/server/exercise-images/exercise-image-resolver";
 import { agentRuntimeConfig } from "@/lib/server/config";
 import { getPrismaClient, isDatabaseConfigured } from "@/lib/server/db/prisma";
+import {
+  buildExerciseResourceFilterApplication,
+  isExerciseResourceHardFilterApplied,
+  type ExerciseResourceFilterApplication,
+} from "@/lib/server/exercises/exercise-resource-filter-policy";
 import { normalizeExerciseMetadata } from "@/lib/shared/exercises/metadata";
 import { getExerciseTagLabel } from "@/lib/shared/exercises/tag-labels";
 import type {
@@ -72,6 +77,7 @@ export type ExerciseResourceSearchInput = {
   muscles?: string[];
   goalTag?: string;
   riskTag?: string;
+  requiredExerciseIds?: string[];
   excludeExerciseIds?: string[];
   maxReturned?: number;
   published: boolean;
@@ -103,6 +109,7 @@ export type ExerciseResourceFilterSemantic = {
 export type ExerciseResourceSearchResult = {
   query: ExerciseResourceSearchInput;
   appliedFilters: ExerciseResourceAppliedFilter[];
+  filterApplication: ExerciseResourceFilterApplication;
   filterSemantics: ExerciseResourceFilterSemantic[];
   totalMatches: number;
   returnedCount: number;
@@ -693,7 +700,8 @@ export async function searchExerciseResourceSummaries(
   }
 
   const prisma = getPrismaClient();
-  const where = buildExerciseResourceWhere(input);
+  const filterApplication = buildExerciseResourceFilterApplication(input);
+  const where = buildExerciseResourceWhere(input, filterApplication);
   const orderBy = buildExerciseResourceOrderBy(input.sort);
   const maxReturned = clampExerciseResourceSearchMaxReturned(input.maxReturned);
   const [totalMatches, records] = await Promise.all([
@@ -709,7 +717,8 @@ export async function searchExerciseResourceSummaries(
 
   return {
     query: input,
-    appliedFilters: collectExerciseResourceAppliedFilters(input),
+    appliedFilters: collectExerciseResourceAppliedFilters(input, filterApplication),
+    filterApplication,
     filterSemantics: collectExerciseResourceFilterSemantics(input),
     totalMatches,
     returnedCount: visibleRecords.length,
@@ -907,44 +916,77 @@ function mapExerciseRecord(exercise: ExerciseRecord): Exercise {
   });
 }
 
-function buildExerciseResourceWhere(input: ExerciseResourceSearchInput): Prisma.ExerciseWhereInput {
-  const and: Prisma.ExerciseWhereInput[] = [
-    { isPublished: input.published },
-  ];
+function buildExerciseResourceWhere(
+  input: ExerciseResourceSearchInput,
+  filterApplication: ExerciseResourceFilterApplication,
+): Prisma.ExerciseWhereInput {
+  const sharedHardFilters: Prisma.ExerciseWhereInput[] = [];
+  const candidateHardFilters: Prisma.ExerciseWhereInput[] = [];
 
-  pushTextFacetFilter(and, "category", "categoryZh", input.category);
-  pushTextFacetFilter(and, "level", "levelZh", input.level);
-  pushTextFacetFilter(and, "force", "forceZh", input.force);
-  pushTextFacetFilter(and, "mechanic", "mechanicZh", input.mechanic);
-  pushEquipmentResourceFilter(and, input.equipment);
-  pushTextFacetFilter(and, "homeRequirement", "homeRequirementZh", input.homeRequirement);
+  if (isExerciseResourceHardFilterApplied(filterApplication, "published")) {
+    sharedHardFilters.push({ isPublished: input.published });
+  }
 
-  if (input.suitability) {
-    and.push({ allowedSections: { has: input.suitability } });
+  if (input.suitability && isExerciseResourceHardFilterApplied(filterApplication, "suitabilities")) {
+    sharedHardFilters.push({ allowedSections: { has: input.suitability } });
+  }
+
+  if (isExerciseResourceHardFilterApplied(filterApplication, "category")) {
+    pushTextFacetFilter(candidateHardFilters, "category", "categoryZh", input.category);
+  }
+  if (isExerciseResourceHardFilterApplied(filterApplication, "level")) {
+    pushTextFacetFilter(candidateHardFilters, "level", "levelZh", input.level);
+  }
+  if (isExerciseResourceHardFilterApplied(filterApplication, "force")) {
+    pushTextFacetFilter(candidateHardFilters, "force", "forceZh", input.force);
+  }
+  if (isExerciseResourceHardFilterApplied(filterApplication, "mechanic")) {
+    pushTextFacetFilter(candidateHardFilters, "mechanic", "mechanicZh", input.mechanic);
+  }
+  if (isExerciseResourceHardFilterApplied(filterApplication, "equipment")) {
+    pushEquipmentResourceFilter(candidateHardFilters, input.equipment);
+  }
+  if (isExerciseResourceHardFilterApplied(filterApplication, "homeRequirement")) {
+    pushTextFacetFilter(candidateHardFilters, "homeRequirement", "homeRequirementZh", input.homeRequirement);
   }
 
   const muscleFilters = uniqueStrings(input.muscles ?? []);
-  if (muscleFilters.length > 0) {
-    and.push(buildExerciseResourceMuscleWhere(muscleFilters));
+  if (muscleFilters.length > 0 && isExerciseResourceHardFilterApplied(filterApplication, "muscles")) {
+    candidateHardFilters.push(buildExerciseResourceMuscleWhere(muscleFilters));
   }
 
-  if (input.goalTag) {
-    and.push({ goalTags: { has: input.goalTag } });
+  if (input.goalTag && isExerciseResourceHardFilterApplied(filterApplication, "goalTag")) {
+    candidateHardFilters.push({ goalTags: { has: input.goalTag } });
   }
 
-  if (input.riskTag) {
-    and.push({ riskTags: { has: input.riskTag } });
+  if (input.riskTag && isExerciseResourceHardFilterApplied(filterApplication, "riskTag")) {
+    candidateHardFilters.push({ riskTags: { has: input.riskTag } });
   }
 
-  if (input.q) {
-    and.push(buildExerciseResourceTextWhere(input.q));
+  if (input.q && isExerciseResourceHardFilterApplied(filterApplication, "q")) {
+    candidateHardFilters.push(buildExerciseResourceTextWhere(input.q));
   }
 
-  if (input.excludeExerciseIds?.length) {
-    and.push({ id: { notIn: input.excludeExerciseIds } });
+  if (input.excludeExerciseIds?.length && isExerciseResourceHardFilterApplied(filterApplication, "excludeExerciseIds")) {
+    sharedHardFilters.push({ id: { notIn: input.excludeExerciseIds } });
   }
 
-  return { AND: and };
+  const requiredExerciseIds = uniqueStrings(input.requiredExerciseIds ?? []);
+  if (requiredExerciseIds.length > 0 && isExerciseResourceHardFilterApplied(filterApplication, "requiredExerciseIds")) {
+    const requiredExerciseIdFilter: Prisma.ExerciseWhereInput = { id: { in: requiredExerciseIds } };
+
+    // requiredExerciseIds 是正向锚点：发布态、section 和 exclude 仍是共同硬边界，其他 facet 冲突交给 diagnostics 暴露。
+    return {
+      AND: [
+        ...sharedHardFilters,
+        candidateHardFilters.length > 0
+          ? { OR: [requiredExerciseIdFilter, { AND: candidateHardFilters }] }
+          : requiredExerciseIdFilter,
+      ],
+    };
+  }
+
+  return { AND: [...sharedHardFilters, ...candidateHardFilters] };
 }
 
 function buildExerciseResourceMuscleWhere(muscles: string[]): Prisma.ExerciseWhereInput {
@@ -1080,7 +1122,10 @@ function buildExerciseResourceOrderBy(sort: ExerciseSort): Prisma.ExerciseOrderB
   }
 }
 
-function collectExerciseResourceAppliedFilters(input: ExerciseResourceSearchInput): ExerciseResourceAppliedFilter[] {
+function collectExerciseResourceAppliedFilters(
+  input: ExerciseResourceSearchInput,
+  filterApplication: ExerciseResourceFilterApplication,
+): ExerciseResourceAppliedFilter[] {
   return ([
     "q",
     "category",
@@ -1093,10 +1138,15 @@ function collectExerciseResourceAppliedFilters(input: ExerciseResourceSearchInpu
     "muscles",
     "goalTag",
     "riskTag",
+    "requiredExerciseIds",
     "excludeExerciseIds",
     "published",
   ] satisfies ExerciseResourceFilterField[])
     .flatMap((field) => {
+      const applicationField = (field === "suitability" ? "suitabilities" : field) as ExerciseResourceFilterApplication["appliedHardFilters"][number];
+      if (!isExerciseResourceHardFilterApplied(filterApplication, applicationField)) {
+        return [];
+      }
       const value = input[field];
       return value === undefined ? [] : [{ field, value }];
     });
