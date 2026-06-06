@@ -48,40 +48,46 @@ tool output 增加 `query.filterApplications`，每项对应一个 section 查�
 ```json
 {
   "section": "warmup",
-  "policy": "support_section",
+  "hardFilterPolicy": "support_section",
   "appliedHardFilters": ["published", "suitabilities", "equipment", "muscles"],
   "unappliedInputFilters": [
     {
       "field": "level",
-      "value": "intermediate",
-      "code": "not_used_for_support_section"
+      "valueSummary": "intermediate",
+      "code": "not_applied_as_hard_filter_for_support_section"
     }
   ]
 }
 ```
 
-这里不使用 `resultBoundary` 之类自由文本字段。`code` 是稳定机器可读枚举，模型可见说明只解释这些字段含义，不把某句自然语言写死成服务端语义提示。
+这里不使用 `resultBoundary` 之类自由文本字段。`hardFilterPolicy` 只表示该 section 的数据库 hard filter 口径，不表示 Planner 后续行为策略。`code` 是稳定机器可读枚举，模型可见说明只解释这些字段含义，不把某句自然语言写死成服务端语义提示。`valueSummary` 只能是脱敏、截断后的值摘要；对于 `q` 这类自由文本输入，model observation 和 trace summary 默认只投影 `field` 与 `code`，不得把原文回灌成新的模型可见引导。
 
 取舍：Planner 能看到热身 / 拉伸结果并未声明满足 `level` 等字段，但不会被服务端提示“下一步应该重查”。是否接受这些事实、继续查、澄清或失败收口仍由 Planner 决定。
 
 ### 3. `appliedFilters` 保留兼容语义，但不再足以表达 section 差异
 
-现有 `appliedFilters` 可继续作为整体查询摘要存在，但它不能表达同一次调用里 `training` 与 `warmup` / `stretch` 分别采用不同 policy 的事实。实现应新增 `filterApplications`，并在模型 observation 和 trace 中优先投影该字段。
+现有 `appliedFilters` 可继续作为整体查询摘要存在，但它不能表达同一次调用里 `training` 与 `warmup` / `stretch` 分别采用不同 hard filter policy 的事实。实现应新增 `filterApplications`，并在模型 observation 和 trace 中优先投影该字段。
 
 如果实现保留 `appliedFilters`，必须避免让它误导 Planner 认为某个输入字段对所有 section 都被应用。对于混合查询，`appliedFilters` 只能表示全局输入摘要或共同硬约束；section 级真实执行口径以 `filterApplications` 为准。
 
-### 4. required / exclude 仍然是 hard filters
+### 4. policy 决策和执行摘要必须共用单一来源
+
+实现时应提供一个 section-aware hard filter policy helper，由该 helper 同时驱动 repository `where` 构造和 `filterApplications` 摘要生成。不得分别维护两套字段清单，否则容易出现数据库实际过滤与 tool output 披露不一致。该 helper 只能读取 schema 校验后的结构化输入和 section，不读取用户原文、查询结果或 trace。
+
+### 5. required / exclude 仍然是 hard filters
 
 `requiredExerciseIds` 是由模型基于可见事实或点名解析结果传入的正向锚点，`excludeExerciseIds` 是负向排除约束。两者都属于明确结构化输入，必须在 training 和 support section 中保持 hard filter 语义。若 required 动作与 section、器械或目标部位不兼容，仍通过 diagnostics 暴露冲突，不靠服务端自然语言判断是否放弃。
 
-### 5. 模型可见合同只说明字段含义，不增加调用规则
+### 6. 模型可见合同只说明字段含义，不增加调用规则
 
 如果本 change 更新 manifest、schema description 或 observation，说明应限定为：
 
 - `filterApplications` 是 tool 实际执行摘要。
+- `hardFilterPolicy` 是该 section 使用的数据库 hard filter 口径，不是 Planner 下一步行为策略。
 - `appliedHardFilters` 是该 section 已作为数据库 hard filter 使用的输入字段。
-- `unappliedInputFilters` 是 Planner 传入但该 section policy 未作为 hard filter 使用的字段。
+- `unappliedInputFilters` 是 Planner 传入但该 section hard filter policy 未作为 hard filter 使用的字段。
 - `support_section` policy 适用于 `warmup` / `stretch` 查询。
+- `unappliedInputFilters[*].valueSummary` 如果存在，只能用于说明输入值摘要；对于 `q` 等自由文本输入，模型可见投影不应包含原文。
 
 说明不得写成“当用户说胸部热身时必须如何传参”，也不得要求固定下一步 tool 调用。
 
@@ -91,13 +97,15 @@ tool output 增加 `query.filterApplications`，每项对应一个 section 查�
 - Risk: 混合查询里 `appliedFilters` 与 section 级执行口径产生歧义。Mitigation：新增 `filterApplications`，并要求 observation / trace 使用 section 级摘要作为真实执行依据。
 - Risk: 实现时把 support section policy 写成查空后的 fallback。Mitigation：spec 要求 policy 在构造 where 前确定，不以查询结果、用户原文或查空状态为触发条件。
 - Risk: 过度放宽 support section 查询导致返回过多候选。Mitigation：继续保留 section、发布态、器械、场地和肌群 hard filters，并沿用每 section 的 `maxReturned` 上限和排序规则。
+- Risk: `filterApplications` 摘要与 repository where 构造漂移。Mitigation：使用同一个 section-aware hard filter policy helper 同时生成 where 和执行摘要，并用 repository / tool-level tests 断言一致性。
+- Risk: `unappliedInputFilters` 携带 `q` 原文后变成模型可见业务引导。Mitigation：observation / trace 默认只投影 `field` 与 `code`，如确需值信息只使用脱敏截断的 `valueSummary`。
 
 ## Migration Plan
 
 1. 更新 OpenSpec spec，明确 section-aware hard filter policy、`filterApplications` 输出和禁止边界。
 2. 更新 `searchExerciseResources` output schema、handler 汇总逻辑、model observation、trace summary 和 tests。
-3. 更新 repository 的 where 构造和 applied filter 收集逻辑，让 policy 在查询前确定。
-4. 更新 manifest / schema summary 测试，如模型可见说明因新增字段而变化。
+3. 更新 repository 的 where 构造和 applied filter 收集逻辑，让 policy 在查询前确定，并由同一 helper 生成 where 与 `filterApplications`。
+4. 更新 manifest / schema summary 测试，如模型可见说明因新增字段、support section 难度口径或值摘要边界而变化。
 5. 运行 `openspec validate harden-exercise-support-section-query-policy --strict` 和相关 tool-level / contract tests。
 
 回滚策略：如果 support section policy 召回质量不符合预期，可回退 repository policy 和 output schema 新字段；这不影响 `stage-exercise-semantic-retrieval` 的向量基础设施 change。

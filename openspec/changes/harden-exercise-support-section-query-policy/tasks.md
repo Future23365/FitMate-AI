@@ -18,37 +18,41 @@
 ## 3. Tool 输出与投影
 
 - [ ] 3.1 更新 `searchExerciseResources` output schema，新增 `query.filterApplications` 或等价 section 级执行摘要字段。
-- [ ] 3.2 为每个 section 的 `filterApplications` 输出 `section`、`policy`、`appliedHardFilters` 和 `unappliedInputFilters`。
-- [ ] 3.3 为未作为 hard filter 使用的输入字段输出稳定 reason code，例如 `not_used_for_support_section`，避免自由文本 `resultBoundary` 成为唯一边界。
-- [ ] 3.4 更新 handler 汇总逻辑，让混合 `suitabilities = ["training", "warmup", "stretch"]` 能分别记录每个 section 的 policy 和 hard filter 应用情况。
+- [ ] 3.2 为每个 section 的 `filterApplications` 输出 `section`、`hardFilterPolicy`、`appliedHardFilters` 和 `unappliedInputFilters`。
+- [ ] 3.3 为未作为 hard filter 使用的输入字段输出稳定 reason code，例如 `not_applied_as_hard_filter_for_support_section`，避免自由文本 `resultBoundary` 成为唯一边界。
+- [ ] 3.4 更新 handler 汇总逻辑，让混合 `suitabilities = ["training", "warmup", "stretch"]` 能分别记录每个 section 的 hard filter policy 和 hard filter 应用情况。
 - [ ] 3.5 更新 `toModelObservation()`，投影 section 级 `filterApplications` 摘要，并保持 observation 只表达 tool 执行事实，不判断最终 routine、plan、visibleOutputs 或用户目标是否满足。
-- [ ] 3.6 更新 trace summary，记录每个 section 的 policy、applied hard filter 字段名、未应用字段名和 reason code，不泄漏完整 handler output 或完整数据库对象。
+- [ ] 3.6 更新 trace summary，记录每个 section 的 `hardFilterPolicy`、applied hard filter 字段名、未应用字段名和 reason code，不泄漏完整 handler output 或完整数据库对象。
 - [ ] 3.7 检查 `appliedFilters` 现有语义，避免它在混合 section 查询中误导 Planner；如保留该字段，明确 section 级真实执行口径以 `filterApplications` 为准。
+- [ ] 3.8 确保 repository where 构造和 `filterApplications` 摘要生成共用同一个 section-aware hard filter policy helper，不维护两套字段清单。
+- [ ] 3.9 确保 `unappliedInputFilters` 在 model observation / trace 中默认只暴露 `field` 和 `code`；如需要值信息，只输出脱敏截断的 `valueSummary`，不得回灌自由文本 `q` 原文。
 
 ## 4. Tool 合同与模型可见说明
 
-- [ ] 4.1 更新 `searchExerciseResources` manifest / schema description 中关于 support section 查询 policy 和 `filterApplications` 字段含义的中文说明，技术标识保持英文原样。
+- [ ] 4.1 更新 `searchExerciseResources` manifest / schema description 中关于 support section 查询 policy、`hardFilterPolicy` 和 `filterApplications` 字段含义的中文说明，技术标识保持英文原样。
 - [ ] 4.2 确保模型可见说明不包含“当用户说 X 时”这类 phrasing 规则，也不要求固定下一步必须调用某个 tool。
 - [ ] 4.3 确保通用 Agent prompt 不新增 `searchExerciseResources` toolName 特例。
 - [ ] 4.4 确保 `/api/chat`、handler 和 repository 不新增用户自然语言关键词、正则、同义词表、短句模板或具体 phrasing 分支。
+- [ ] 4.5 同步检查现有 `suitabilities`、examples 和 whenToUse 文案，避免暗示 `level`、`q` 等字段对 support section 一定作为 hard filter 生效。
 
 ## 5. 测试与验证
 
 - [ ] 5.1 为 `tests/agent-tools/search-exercise-resources.test.ts` 补回归测试：`warmup/stretch + equipment = "no_equipment" + muscles = ["胸部"] + level = "intermediate"` 不把 `level` 放入 support section hard filter，并能通过 `filterApplications` 披露。
 - [ ] 5.2 为 `tests/agent-tools/search-exercise-resources.test.ts` 补回归测试：`training + equipment + muscles + level` 仍把 `level` 作为 hard filter。
-- [ ] 5.3 为混合 section 查询补测试，断言 `training`、`warmup`、`stretch` 分别记录不同 policy。
+- [ ] 5.3 为混合 section 查询补测试，断言 `training`、`warmup`、`stretch` 分别记录不同 `hardFilterPolicy`。
 - [ ] 5.4 补测试断言 `warmup` / `stretch` 查询仍保留器械、场地、肌群、required / exclude hard filters；无器械查询不得返回非自重动作。
 - [ ] 5.5 补测试断言 `warmup` 不返回不能用于 `warmup` 的动作，`stretch` 不返回不能用于 `stretch` 的动作。
 - [ ] 5.6 补 projection / redaction 测试，断言 `toModelObservation()` 暴露 `filterApplications`，且不泄漏完整数据库对象、完整 handler output、secret 或无关诊断 payload。
-- [ ] 5.7 更新 `tests/exercise-repository.test.ts` 或最贴近 repository 的测试，直接断言 section-aware where 构造和数据库下推行为。
-- [ ] 5.8 如修改 manifest 或 schema summary，更新并运行 `tests/agent-core/tool-registry-manifest.test.ts`。
-- [ ] 5.9 运行 `openspec validate harden-exercise-support-section-query-policy --strict`。
-- [ ] 5.10 运行 `npm test -- tests/agent-tools/search-exercise-resources.test.ts`。
-- [ ] 5.11 运行 `npm test -- tests/exercise-repository.test.ts`。
-- [ ] 5.12 运行 `npm test -- tests/agent-core/contract-helper.test.ts`。
-- [ ] 5.13 如修改注册、manifest 或 schema summary，运行 `npm test -- tests/agent-core/tool-registry-manifest.test.ts`。
-- [ ] 5.14 运行 `npm test -- tests/agent-core/architecture-boundary.test.ts`，确认没有新增 core 里的业务 toolName 分支或服务端语义分流。
-- [ ] 5.15 如修改 TypeScript、schema、AI orchestration 或共享业务逻辑，运行 `npm run typecheck`。
+- [ ] 5.7 补 projection / redaction 测试，断言 `q` 出现在 `unappliedInputFilters` 时 model observation 和 trace 不包含原文，只包含 `field`、`code` 和必要的脱敏 `valueSummary`。
+- [ ] 5.8 更新 `tests/exercise-repository.test.ts` 或最贴近 repository 的测试，直接断言 section-aware where 构造、`filterApplications` 摘要和数据库下推行为来自同一 policy helper。
+- [ ] 5.9 如修改 manifest 或 schema summary，更新并运行 `tests/agent-core/tool-registry-manifest.test.ts`。
+- [ ] 5.10 运行 `openspec validate harden-exercise-support-section-query-policy --strict`。
+- [ ] 5.11 运行 `npm test -- tests/agent-tools/search-exercise-resources.test.ts`。
+- [ ] 5.12 运行 `npm test -- tests/exercise-repository.test.ts`。
+- [ ] 5.13 运行 `npm test -- tests/agent-core/contract-helper.test.ts`。
+- [ ] 5.14 如修改注册、manifest 或 schema summary，运行 `npm test -- tests/agent-core/tool-registry-manifest.test.ts`。
+- [ ] 5.15 运行 `npm test -- tests/agent-core/architecture-boundary.test.ts`，确认没有新增 core 里的业务 toolName 分支或服务端语义分流。
+- [ ] 5.16 如修改 TypeScript、schema、AI orchestration 或共享业务逻辑，运行 `npm run typecheck`。
 
 ## 6. 文档与收尾
 

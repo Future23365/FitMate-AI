@@ -10,8 +10,8 @@
 - `training` 查询继续保持现有严格结构化过滤：发布态、section、器械、场地、肌群、难度、分类、动作力学、目标标签、风险标签、`q`、`requiredExerciseIds` 和 `excludeExerciseIds` 等字段按当前合同执行。
 - `warmup` / `stretch` 查询采用 `support_section` policy：只把发布态、section、器械、场地、肌群、`requiredExerciseIds` 和 `excludeExerciseIds` 作为 hard filters。
 - 对 `warmup` / `stretch` 暂不把 `level`、`force`、`mechanic`、`category`、`goalTag`、`riskTag`、`q` 作为 hard filters；这些字段如果由 Planner 传入，必须在 output / observation 中以机器可读结构声明为未作为强约束使用。
-- 增加结构化 `filterApplications` 或等价字段，表达每个 section 实际采用的 policy、已应用 hard filters 和未作为 hard filter 使用的输入字段。
-- 不新增自由文本 `resultBoundary` 之类服务端语义解释句；只暴露机器可读执行事实和稳定 reason code。
+- 增加结构化 `filterApplications` 或等价字段，表达每个 section 实际采用的 `hardFilterPolicy`、已应用 hard filters 和未作为 hard filter 使用的输入字段。
+- 不新增自由文本 `resultBoundary` 之类服务端语义解释句；只暴露机器可读执行事实和稳定 reason code，字段值只允许按脱敏摘要投影，尤其不得把自由文本 `q` 原文作为模型可见引导。
 - 不新增 pgvector、RAG、向量召回或新的细碎 Planner 参数；现有 `stage-exercise-semantic-retrieval` change 仍负责语义检索基础设施。
 - 不修改 Agent core、`/api/chat` 主链路、Policy Guard、Response Renderer 或服务端自然语言 intent 判断。
 
