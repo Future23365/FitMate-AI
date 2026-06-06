@@ -48,7 +48,6 @@ function ExerciseImageLoadingPlaceholder() {
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-panel-soft">
       <Skeleton className="h-full w-full rounded-lg" />
-      <div className="absolute inset-[13px] rounded-md border border-white/70" />
     </div>
   );
 }
