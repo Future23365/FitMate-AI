@@ -6,8 +6,6 @@ FitMate AI 是一个基于 Agent 编排的 AI 健身聊天助手。系统通过�
 
 当前已实现 AI 聊天、训练方案卡片、动作库搜索筛选、训练编排、训练日历、训练执行、动作图片本地解析、AI trace 调试和自动化测试体系。当前身份体系仍是本地匿名 auth cookie，不是正式账号登录体系；生产 Agent 也尚未开放直接保存、覆盖或执行训练计划的写入型 tool。
 
-更完整的架构说明见 [docs/architecture.md](./docs/architecture.md)。当前数据库表结构、字段含义和关系说明见 [docs/database-design.md](./docs/database-design.md)，该文档根据已有数据库整理，仅用于帮助开发者理解当前设计，不作为数据库设计规范。
-
 ## 当前状态
 
 当前项目主要完成了以下能力：
