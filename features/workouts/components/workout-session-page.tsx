@@ -2065,7 +2065,7 @@ function WorkoutDemoImageStage({
                 key={`${item.id}:${imageUrl}`}
                 alt={isActiveImage ? `${item.nameZh} 动作图` : ""}
                 aria-hidden={!isActiveImage}
-                className={`pointer-events-none object-contain p-md transition-opacity duration-200 ease-out ${
+                className={`pointer-events-none object-contain p-md ${
                   isActiveImage ? "opacity-100" : "opacity-0"
                 }`}
                 fill
