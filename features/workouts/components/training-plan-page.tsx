@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { ResponsiveRightSidebar } from "@/components/app/responsive-right-sidebar";
 import { SymbolIcon } from "@/components/app/symbol-icon";
+import { Button } from "@/components/ui/button";
 import {
   createWorkoutSchedule,
   deleteWorkoutSchedule,
@@ -267,67 +268,76 @@ export function TrainingPlanPage() {
     >
       <main className="right-sidebar-page-main flex h-screen min-h-0 flex-col overflow-hidden">
         <section className="flex min-h-0 flex-1 flex-col rounded-[20px] border border-line bg-white p-md shadow-card xl:p-lg">
-          <div className="mb-md flex shrink-0 flex-wrap items-center justify-between gap-md">
-            <div className="flex min-w-0 flex-wrap items-center gap-md">
-              <div className="w-40 shrink-0">
+          <div className="mb-md shrink-0 space-y-md">
+            {/* 顶部命令区拆分页面身份和月历控制，避免不同层级信息挤在同一行。 */}
+            <div className="flex flex-wrap items-start justify-between gap-md">
+              <div className="min-w-0 space-y-xs">
                 <h1 className="font-headline-md text-headline-md font-extrabold">训练日历</h1>
                 <p className="font-label-sm text-label-sm text-muted tabular-nums">
-                  当前选中：{formatDayLabel(selectedDateKey)}
+                  {formatMonth(monthDate)} · 已完成 {completedCount} 次 · {completedMinutes} min · 待完成 {plannedCount} 次
                 </p>
               </div>
-              <div className="flex shrink-0 items-center gap-sm rounded-xl bg-panel-soft px-md py-sm">
-                <button
-                  aria-label="上个月"
-                  className="rounded-lg p-xs text-secondary transition-colors hover:bg-white hover:text-primary"
-                  onClick={() => shiftMonth(-1)}
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-sm">
+                <Button
+                  className="h-10 rounded-xl border-line bg-white px-md font-label-md text-label-md font-bold text-primary shadow-card hover:border-primary/40 hover:bg-primary-soft"
+                  onClick={goToToday}
+                  type="button"
+                  variant="outline"
+                >
+                  <SymbolIcon className="text-[18px]">today</SymbolIcon>
+                  回到今天
+                </Button>
+                <Button
+                  className="h-10 rounded-xl px-md font-label-md text-label-md font-bold shadow-card transition-all hover:shadow-lift active:scale-[0.98]"
+                  onClick={() => setSidePanelMode("saved-plans")}
                   type="button"
                 >
-                  <SymbolIcon>chevron_left</SymbolIcon>
-                </button>
-                <span className="min-w-36 text-center font-headline-md text-headline-md">
-                  {formatMonth(monthDate)}
-                </span>
-                <button
-                  aria-label="下个月"
-                  className="rounded-lg p-xs text-secondary transition-colors hover:bg-white hover:text-primary"
-                  onClick={() => shiftMonth(1)}
-                  type="button"
-                >
-                  <SymbolIcon>chevron_right</SymbolIcon>
-                </button>
+                  <SymbolIcon className="text-[20px]">event_available</SymbolIcon>
+                  添加安排
+                </Button>
               </div>
-              <button
-                className="flex items-center gap-xs rounded-xl border border-line bg-white px-md py-sm font-label-md text-label-md font-bold text-primary shadow-card transition-colors hover:border-primary/40 hover:bg-primary-soft"
-                onClick={goToToday}
-                type="button"
-              >
-                <SymbolIcon className="text-[18px]">today</SymbolIcon>
-                回到今天
-              </button>
             </div>
 
-            <div className="flex min-w-0 flex-wrap items-center justify-end gap-sm">
-              <div className="custom-scrollbar flex max-w-[360px] shrink overflow-x-auto whitespace-nowrap rounded-xl bg-panel-soft px-sm py-sm">
-                <div className="flex shrink-0 items-center gap-sm md:gap-md">
+            <div className="grid items-center gap-sm rounded-2xl border border-line bg-panel-soft p-sm lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+              <div className="hidden min-w-0 items-center gap-xs font-label-sm text-label-sm text-muted lg:flex">
+                <SymbolIcon className="text-[18px] text-primary">event</SymbolIcon>
+                <span className="truncate tabular-nums">选中 {formatDayLabel(selectedDateKey)}</span>
+              </div>
+              <div className="flex justify-center">
+                <div className="inline-flex items-center gap-xs rounded-xl border border-line bg-white p-xs shadow-sm">
+                  <Button
+                    aria-label="上个月"
+                    className="h-8 w-8 rounded-lg p-0 text-secondary hover:bg-primary-soft hover:text-primary"
+                    onClick={() => shiftMonth(-1)}
+                    size="icon"
+                    type="button"
+                    variant="ghost"
+                  >
+                    <SymbolIcon className="text-[20px]">chevron_left</SymbolIcon>
+                  </Button>
+                  <span className="min-w-36 text-center font-headline-md text-headline-md">
+                    {formatMonth(monthDate)}
+                  </span>
+                  <Button
+                    aria-label="下个月"
+                    className="h-8 w-8 rounded-lg p-0 text-secondary hover:bg-primary-soft hover:text-primary"
+                    onClick={() => shiftMonth(1)}
+                    size="icon"
+                    type="button"
+                    variant="ghost"
+                  >
+                    <SymbolIcon className="text-[20px]">chevron_right</SymbolIcon>
+                  </Button>
+                </div>
+              </div>
+              <div className="custom-scrollbar flex min-w-0 justify-start overflow-x-auto whitespace-nowrap lg:justify-end">
+                <div className="flex shrink-0 items-center gap-sm rounded-xl bg-white/70 px-sm py-xs md:gap-md">
                   <LegendDot className="bg-primary-container" label="已完成" />
                   <LegendDot className="border-2 border-primary-container" label="已安排" />
                   <LegendDot className="bg-error" label="未完成" />
                   <LegendDot className="bg-surface-container-highest" label="休息日" />
                 </div>
               </div>
-              <button
-                className="flex items-center justify-center gap-xs rounded-xl bg-primary px-md py-sm font-label-md text-label-md font-bold text-white shadow-card transition-all hover:bg-primary-deep hover:shadow-lift active:scale-[0.98]"
-                onClick={() => {
-                  const plan = filteredWorkouts[0];
-                  if (plan) {
-                    void scheduleWorkout(plan);
-                  }
-                }}
-                type="button"
-              >
-                <SymbolIcon className="text-[20px]">event_available</SymbolIcon>
-                快速安排
-              </button>
             </div>
           </div>
 
