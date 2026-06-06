@@ -10,6 +10,7 @@ import { ToolRegistry } from "@/lib/server/agent-core/tool-registry";
 import { createProductionToolRegistry } from "@/lib/server/agent-tools";
 import { ReplayPlanner } from "@/lib/server/agent-planners/replay-planner";
 import { toTerminalResourceRefs, toTerminalToolResultRefs, type ToolResult } from "@/lib/server/agent-core/contracts";
+import type { PlannerInput } from "@/lib/server/agent-core/planner-port";
 
 function createRegistry() {
   const registry = new ToolRegistry();
@@ -114,12 +115,25 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function withPlannerContext(input: Omit<PlannerInput, "context">): PlannerInput {
+  return {
+    ...input,
+    context: {
+      run: input.run,
+      step: input.step,
+      manifests: input.manifests,
+      observations: input.observations,
+      toolResults: input.toolResults,
+    },
+  };
+}
+
 describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
   it("replays fixed actions and records planner inputs", async () => {
     const planner = new ReplayPlanner([
       { type: "final_answer", content: "done" },
     ]);
-    const action = await planner.decideNext({
+    const action = await planner.decideNext(withPlannerContext({
       run: {
         runId: "run-replay",
         actor: {},
@@ -129,11 +143,11 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       manifests: [],
       observations: [],
       toolResults: [],
-    });
+    }));
 
     expect(action).toEqual({ type: "final_answer", content: "done" });
     expect(planner.calls).toHaveLength(1);
-    await expect(planner.decideNext({
+    await expect(planner.decideNext(withPlannerContext({
       run: {
         runId: "run-replay",
         actor: {},
@@ -143,7 +157,7 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       manifests: [],
       observations: [],
       toolResults: [],
-    })).rejects.toThrow(AgentContractError);
+    }))).rejects.toThrow(AgentContractError);
   });
 
   it("accepts valid tool calls and terminal references", () => {

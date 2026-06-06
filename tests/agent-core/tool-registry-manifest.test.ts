@@ -301,6 +301,8 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(inspectManifestJson).toContain("consumable visible_training_proposal_fact");
     expect(inspectManifestJson).toContain("没有本轮 list_recent 索引时应先调用 operation = \\\"list_recent\\\"");
     expect(inspectManifestJson).toContain("final_answer.usedRefs.resource.id 必须来自当前 run producedResources");
+    expect(inspectManifestJson).toContain("ref.value 复制本轮 list_recent 返回的真实 factRef 或 messageId");
+    expect(inspectManifestJson).not.toContain("diagnostic index resource");
     expect(inspectManifestJson).not.toContain("readRecentVisibleTrainingProposal");
     expect(inspectManifestJson).not.toContain("fact_recent_visible_training_01");
     expect(inspectManifestJson).not.toContain("从上一条 list_recent result 中复制真实 factRef");
@@ -316,6 +318,7 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(inspectExamplesJson).toContain("\"operation\":\"read_recent\"");
     expect(inspectExamplesJson).toContain("\"ref\"");
     expect(inspectExamplesJson).not.toContain("\"fact-1\"");
+    expect(inspectExamplesJson).not.toContain("fact_recent_visible_training_01");
     expect(inspectExamplesJson).toContain("\"operation\":\"list_recent\"");
     expect(readRecentInputBranches.some((branch) => Array.isArray(branch.required) && branch.required.includes("ref"))).toBe(true);
     expect(readRecentInputBranches.some((branch) => Array.isArray(branch.required) && branch.required.includes("factRef"))).toBe(false);

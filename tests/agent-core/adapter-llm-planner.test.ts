@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
 import { createToolResultId, hashNormalizedInput } from "@/lib/server/agent-core/executor";
 import { toTerminalToolResultRefs, type ToolResult } from "@/lib/server/agent-core/contracts";
+import type { PlannerInput } from "@/lib/server/agent-core/planner-port";
 import {
   createToolObservation,
   OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
@@ -19,7 +20,6 @@ import {
   buildAgentActionSystemPrompt,
   defaultAgentActionContract,
   getAgentActionContract,
-  getAgentVisibleOutputContracts,
   visibleTrainingProposalOutputContract,
   type AgentLlmPromptConfig,
 } from "@/lib/server/config";
@@ -56,9 +56,26 @@ function captureDeepSeekRequestBodies(content: string) {
   return { fetchImpl, requestBodies };
 }
 
+type PlannerInputWithoutContext = Omit<PlannerInput, "context">;
+
+function withPlannerContext(input: PlannerInputWithoutContext): PlannerInput {
+  const context = {
+    run: input.run,
+    step: input.step,
+    manifests: input.manifests,
+    observations: input.observations,
+    toolResults: input.toolResults,
+  };
+
+  return {
+    ...input,
+    context,
+  };
+}
+
 // createBasicPlannerInput 保持 adapter 单测聚焦 provider request contract，不引入业务 tool 或 runtime 语义。
 function createBasicPlannerInput(runId: string, thinkingEnabled?: boolean) {
-  return {
+  return withPlannerContext({
     run: {
       runId,
       actor: {},
@@ -69,7 +86,7 @@ function createBasicPlannerInput(runId: string, thinkingEnabled?: boolean) {
     manifests: [],
     observations: [],
     toolResults: [],
-  };
+  });
 }
 
 describe("agent-planners LlmPlanner and model adapters", () => {
@@ -113,7 +130,7 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       fetchImpl: fetchImpl as typeof fetch,
     });
 
-    const completion = await adapter.completeAction({
+    const completion = await adapter.completeAction(withPlannerContext({
       run: {
         runId: "run-deepseek-parse",
         actor: {},
@@ -123,7 +140,7 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       manifests: [],
       observations: [],
       toolResults: [],
-    });
+    }));
 
     expect(completion.actionCandidate).toEqual({
       type: "final_answer",
@@ -148,6 +165,27 @@ describe("agent-planners LlmPlanner and model adapters", () => {
           reasoning_effort: agentRuntimeConfig.llm.deepSeek.thinking.reasoningEffort,
         },
         timeoutMs: agentRuntimeConfig.llm.timeoutMs,
+        layers: {
+          protocol: {
+            present: true,
+            promptVersion: agentLlmPromptConfig.promptVersion,
+            actionContractSchemaId: "AgentAction",
+            actionContractSchemaVersion: "1",
+            outputContractCount: 1,
+          },
+          context: {
+            present: true,
+            keys: ["run", "step", "tools", "observations", "toolResults"],
+            toolCount: 0,
+            observationCount: 0,
+            toolResultCount: 0,
+          },
+          repairContext: {
+            present: false,
+            errorCount: 0,
+            factCount: 0,
+          },
+        },
         messageCount: 2,
         run: {
           runId: "run-deepseek-parse",
@@ -294,7 +332,7 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       content: `第 ${index + 1} 轮对话，包含用于复盘的训练限制和上下文。${"需要完整保留尾部约束。".repeat(20)}`,
     }));
 
-    const completion = await adapter.completeAction({
+    const completion = await adapter.completeAction(withPlannerContext({
       run: {
         runId: "run-deepseek-long-trace",
         actor: {},
@@ -305,7 +343,7 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       manifests: [],
       observations: [],
       toolResults: [],
-    });
+    }));
     const body = requestBodies[0] as {
       messages: Array<{ role: string; content: string }>;
     };
@@ -368,7 +406,7 @@ describe("agent-planners LlmPlanner and model adapters", () => {
     };
     const observation = createToolObservation(successResult);
 
-    const completion = await adapter.completeAction({
+    const completion = await adapter.completeAction(withPlannerContext({
       run: {
         runId: "run-deepseek-deduped-input",
         actor: {},
@@ -378,20 +416,22 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       manifests: [],
       observations: [observation],
       toolResults: [successResult],
-    });
+    }));
     const body = requestBodies[0] as {
       messages: Array<{ role: string; content: string }>;
     };
     const modelInput = JSON.parse(body.messages[1].content) as {
-      observations: unknown[];
-      toolResults: unknown[];
+      context: {
+        observations: unknown[];
+        toolResults: unknown[];
+      };
     };
 
-    expect(JSON.stringify(modelInput.observations)).toContain(OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE);
-    expect(JSON.stringify(modelInput.observations)).toContain(TOOL_RESULT_MODEL_PROJECTION_CHANNEL);
-    expect(JSON.stringify(modelInput.observations)).not.toContain("权威成功事实只应在 toolResults 中出现");
-    expect(JSON.stringify(modelInput.toolResults)).toContain("权威成功事实只应在 toolResults 中出现");
-    expect(JSON.stringify(modelInput.toolResults)).not.toContain("raw handler output");
+    expect(JSON.stringify(modelInput.context.observations)).toContain(OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE);
+    expect(JSON.stringify(modelInput.context.observations)).toContain(TOOL_RESULT_MODEL_PROJECTION_CHANNEL);
+    expect(JSON.stringify(modelInput.context.observations)).not.toContain("权威成功事实只应在 toolResults 中出现");
+    expect(JSON.stringify(modelInput.context.toolResults)).toContain("权威成功事实只应在 toolResults 中出现");
+    expect(JSON.stringify(modelInput.context.toolResults)).not.toContain("raw handler output");
     expect(completion.trace?.request.run).toMatchObject({
       observationCount: 1,
       toolResultCount: 1,
@@ -421,7 +461,7 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       fetchImpl: fetchImpl as typeof fetch,
     });
 
-    const invalidJson = await adapter.completeAction({
+    const invalidJson = await adapter.completeAction(withPlannerContext({
       run: {
         runId: "run-deepseek-invalid-json",
         actor: {},
@@ -431,8 +471,8 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       manifests: [],
       observations: [],
       toolResults: [],
-    });
-    const invalidSchema = await adapter.completeAction({
+    }));
+    const invalidSchema = await adapter.completeAction(withPlannerContext({
       run: {
         runId: "run-deepseek-invalid-schema",
         actor: {},
@@ -442,7 +482,7 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       manifests: [],
       observations: [],
       toolResults: [],
-    });
+    }));
 
     expect(invalidJson.trace).toMatchObject({
       parseStatus: "invalid_json",
@@ -475,7 +515,7 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       fetchImpl: fetchImpl as typeof fetch,
     });
 
-    await adapter.completeAction({
+    await adapter.completeAction(withPlannerContext({
       run: {
         runId: "run-deepseek-default-prompt",
         actor: {},
@@ -485,7 +525,7 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       manifests: [],
       observations: [],
       toolResults: [],
-    });
+    }));
 
     const body = requestBodies[0] as {
       temperature: number;
@@ -497,13 +537,16 @@ describe("agent-planners LlmPlanner and model adapters", () => {
     expect(body.max_tokens).toBe(agentLlmPromptConfig.requestDefaults.maxTokens);
     expect(body.temperature).toBe(agentRuntimeConfig.llm.temperature);
     expect(body.max_tokens).toBe(agentRuntimeConfig.llm.maxTokens);
-    expect(body.messages[0]).toEqual({
+    expect(body.messages[0]).toMatchObject({
       role: "system",
-      content: buildAgentActionSystemPrompt(agentLlmPromptConfig),
     });
+    expect(body.messages[0].content).toContain(buildAgentActionSystemPrompt(agentLlmPromptConfig));
+    expect(body.messages[0].content).toContain("稳定协议层 protocol");
+    expect(body.messages[0].content).toContain("\"actionContract\"");
+    expect(body.messages[0].content).toContain("\"outputContracts\"");
   });
 
-  it("adds actionContract and outputContracts beside tools, observations and toolResults in Planner user payload", async () => {
+  it("separates protocol from current facts in the DeepSeek Planner request", async () => {
     const { fetchImpl, requestBodies } = captureDeepSeekRequestBodies(JSON.stringify({
       type: "final_answer",
       content: "output contracts visible.",
@@ -513,7 +556,7 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       fetchImpl: fetchImpl as typeof fetch,
     });
 
-    const completion = await adapter.completeAction({
+    const completion = await adapter.completeAction(withPlannerContext({
       run: {
         runId: "run-deepseek-output-contracts",
         actor: {},
@@ -523,39 +566,43 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       manifests: [],
       observations: [],
       toolResults: [],
-    });
+    }));
 
     const body = requestBodies[0] as {
       messages: Array<{ role: string; content: string }>;
     };
     const modelInput = JSON.parse(body.messages[1].content) as {
-      actionContract: unknown;
-      tools: unknown[];
-      outputContracts: unknown[];
-      observations: unknown[];
-      toolResults: unknown[];
+      context: {
+        tools: unknown[];
+        observations: unknown[];
+        toolResults: unknown[];
+      };
+      actionContract?: unknown;
+      outputContracts?: unknown[];
     };
 
     expect(Object.keys(modelInput)).toEqual([
-      "actionContract",
+      "context",
+    ]);
+    expect(Object.keys(modelInput.context)).toEqual([
       "observations",
-      "outputContracts",
       "run",
       "step",
       "toolResults",
       "tools",
     ]);
-    expect(modelInput.actionContract).toEqual(getAgentActionContract());
-    expect(JSON.stringify(modelInput.actionContract)).toContain("fieldDictionary");
-    expect(JSON.stringify(modelInput.actionContract)).toContain("missing_training_constraints");
-    expect(JSON.stringify(modelInput.actionContract)).not.toContain("ask_user.question");
-    expect(modelInput.outputContracts).toEqual(getAgentVisibleOutputContracts());
-    expect(modelInput.outputContracts[0]).toMatchObject({
-      outputType: visibleTrainingProposalOutputContract.outputType,
-      schemaVersion: visibleTrainingProposalOutputContract.schemaVersion,
-      description: expect.stringMatching(/[\u4e00-\u9fff]/),
-    });
-    expect(JSON.stringify(modelInput.outputContracts)).toContain("payload.kind");
+    expect(modelInput).not.toHaveProperty("actionContract");
+    expect(modelInput).not.toHaveProperty("outputContracts");
+    expect(modelInput.context.tools).toEqual([]);
+    expect(modelInput.context.observations).toEqual([]);
+    expect(modelInput.context.toolResults).toEqual([]);
+    expect(body.messages[0].content).toContain(JSON.stringify(getAgentActionContract().schemaId));
+    expect(body.messages[0].content).toContain("fieldDictionary");
+    expect(body.messages[0].content).toContain("missing_training_constraints");
+    expect(body.messages[0].content).not.toContain("ask_user.question");
+    expect(body.messages[0].content).toContain("outputContracts");
+    expect(body.messages[0].content).toContain(visibleTrainingProposalOutputContract.outputType);
+    expect(body.messages[0].content).toContain("payload.kind");
     expect(completion.trace?.request.run.actionContract).toEqual({
       schemaId: "AgentAction",
       schemaVersion: "1",
@@ -568,6 +615,22 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       },
     ]);
     expect(JSON.stringify(completion.trace?.request.run.outputContracts)).not.toContain("payload.kind");
+    expect(completion.trace?.request.layers).toMatchObject({
+      protocol: {
+        present: true,
+        promptVersion: agentLlmPromptConfig.promptVersion,
+        actionContractSchemaId: "AgentAction",
+        actionContractSchemaVersion: "1",
+        outputContractCount: 1,
+      },
+      context: {
+        present: true,
+        keys: ["run", "step", "tools", "observations", "toolResults"],
+      },
+      repairContext: {
+        present: false,
+      },
+    });
   });
 
   it("uses injected prompt config for DeepSeek request body without mutating defaults", async () => {
@@ -593,7 +656,7 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       promptConfig: customPromptConfig,
     });
 
-    await adapter.completeAction({
+    await adapter.completeAction(withPlannerContext({
       run: {
         runId: "run-deepseek-custom-prompt",
         actor: {},
@@ -603,7 +666,7 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       manifests: [],
       observations: [],
       toolResults: [],
-    });
+    }));
 
     const body = requestBodies[0] as {
       temperature: number;
@@ -613,10 +676,11 @@ describe("agent-planners LlmPlanner and model adapters", () => {
 
     expect(body.temperature).toBe(customPromptConfig.requestDefaults.temperature);
     expect(body.max_tokens).toBe(customPromptConfig.requestDefaults.maxTokens);
-    expect(body.messages[0]).toEqual({
+    expect(body.messages[0]).toMatchObject({
       role: "system",
-      content: buildAgentActionSystemPrompt(customPromptConfig),
     });
+    expect(body.messages[0].content).toContain(buildAgentActionSystemPrompt(customPromptConfig));
+    expect(body.messages[0].content).toContain("\"promptVersion\":\"agent-action-custom-test\"");
     expect(buildAgentActionSystemPrompt()).toBe(buildAgentActionSystemPrompt(agentLlmPromptConfig));
   });
 
@@ -660,6 +724,46 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       runtimeStep: 1,
       parseStatus: "invalid_json",
       failureCode: "invalid_json",
+      request: {
+        layers: {
+          repairContext: {
+            present: false,
+          },
+        },
+      },
     });
+    expect(planner.getModelTraceEvents()[1]).toMatchObject({
+      plannerCallIndex: 2,
+      runtimeStep: 2,
+      request: {
+        layers: {
+          repairContext: {
+            present: true,
+            errorCode: AGENT_ERROR_CODES.INVALID_ACTION,
+          },
+        },
+      },
+    });
+    const firstBody = JSON.parse(String(fetchImpl.mock.calls[0][1]?.body)) as { messages: Array<{ content: string }> };
+    const secondBody = JSON.parse(String(fetchImpl.mock.calls[1][1]?.body)) as { messages: Array<{ content: string }> };
+    const firstUserPayload = JSON.parse(firstBody.messages[1].content) as Record<string, unknown>;
+    const secondUserPayload = JSON.parse(secondBody.messages[1].content) as {
+      repairContext?: {
+        error?: { code?: string };
+        errors?: Array<{ path?: string; expected?: unknown; actual?: unknown }>;
+      };
+    };
+
+    expect(firstBody.messages[0].content).not.toContain("repair-only 指令");
+    expect(firstUserPayload).not.toHaveProperty("repairContext");
+    expect(secondBody.messages[0].content).toContain("repair-only 指令");
+    expect(secondBody.messages[0].content).toContain("只修正上一轮非法 AgentAction");
+    expect(secondUserPayload.repairContext).toMatchObject({
+      error: { code: AGENT_ERROR_CODES.INVALID_ACTION },
+    });
+    expect(secondUserPayload.repairContext?.errors?.[0]).toEqual(expect.objectContaining({
+      path: expect.any(String),
+      actual: expect.anything(),
+    }));
   });
 });

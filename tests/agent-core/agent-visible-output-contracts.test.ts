@@ -103,6 +103,33 @@ describe("agent visible output contracts", () => {
     }
   });
 
+  it("keeps expectedAction examples as full AgentAction objects and moves decisions to expectedDecision", () => {
+    const examples = visibleTrainingProposalOutputContract.examples;
+    const expectedDecisionExamples = examples.filter((example) => example.expectedDecision);
+
+    expect(expectedDecisionExamples.length).toBeGreaterThan(0);
+    expect(expectedDecisionExamples.map((example) => example.description)).toEqual(expect.arrayContaining([
+      "需要动作事实：用户要结构化训练结果但当前 run 没有可消费动作事实时先 tool_call。",
+      "事实不足的 routine：只有 training 动作事实但用户要一次完整训练时继续补齐或澄清。",
+      "基于已有结构派生计划：用户要求按当前内容做一周计划时使用 derive。",
+      "替换或修改：用户要求换一批、避免重复或组数少一点时使用 replace / modify。",
+    ]));
+
+    for (const example of examples) {
+      if (example.expectedAction !== undefined) {
+        expect(typeof example.expectedAction).toBe("object");
+        expect(Array.isArray(example.expectedAction)).toBe(false);
+        expect(example.expectedAction).toEqual(expect.objectContaining({
+          type: expect.stringMatching(/^(tool_call|final_answer|ask_user)$/),
+        }));
+      }
+
+      if (example.expectedDecision !== undefined) {
+        expect(example.expectedDecision).toMatch(/[\u4e00-\u9fff]/);
+      }
+    }
+  });
+
   it("returns cloned contracts and records a safe trace summary", () => {
     const first = getAgentVisibleOutputContracts();
     const second = getAgentVisibleOutputContracts();

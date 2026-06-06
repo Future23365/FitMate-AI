@@ -90,13 +90,14 @@ describe("resolveExerciseResourceMentions tool", () => {
       },
     );
     expect(modelObservation).toMatchObject({
+      factLevel: "resolved_candidates",
       mentionCount: 3,
       matchedCount: 3,
       ambiguousCount: 0,
       notFoundCount: 0,
-      requiredExerciseIdsBoundary: expect.stringContaining("searchExerciseResources.requiredExerciseIds"),
-      sourceBoundary: expect.stringContaining("不能直接作为 visibleTrainingProposal.exerciseItems[*].exerciseId"),
-      nextStepBoundary: expect.stringContaining("不要求固定下一步 tool flow"),
+      requiredExerciseIdsBoundary: expect.stringContaining("requiredExerciseIds"),
+      outputBoundary: expect.stringContaining("不能直接作为 visibleTrainingProposal.exerciseItems[*].exerciseId"),
+      nextActionHints: ["continue_tool_call", "ask_user", "final_answer_without_visible_outputs"],
     });
     expect(JSON.stringify(modelObservation)).toContain("allowedSections");
     const serializedProjection = JSON.stringify(result.projection);
@@ -185,11 +186,12 @@ describe("resolveExerciseResourceMentions tool", () => {
       },
     );
     expect(modelObservation).toMatchObject({
+      factLevel: "resolved_candidates",
       mentionCount: 2,
       matchedCount: 0,
       ambiguousCount: 1,
       notFoundCount: 1,
-      nextStepBoundary: expect.stringContaining("选择候选、重查、澄清或失败收口"),
+      nextActionHints: ["continue_tool_call", "ask_user", "final_answer_without_visible_outputs"],
     });
     const observationJson = JSON.stringify(modelObservation);
     expect(observationJson).toContain("mention_ambiguous");

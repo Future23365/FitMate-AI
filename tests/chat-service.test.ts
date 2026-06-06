@@ -186,6 +186,28 @@ class TraceModelAdapter implements ModelAdapter {
         request: {
           model: "trace-test-model",
           response_format: { type: "json_object" },
+          layers: {
+            protocol: {
+              present: true,
+              promptVersion: "trace-test-prompt",
+              actionContractSchemaId: "AgentAction",
+              actionContractSchemaVersion: "1",
+              outputContractCount: 0,
+            },
+            context: {
+              present: true,
+              keys: ["run", "step", "tools", "observations", "toolResults"],
+              toolCount: input.manifests.length,
+              observationCount: input.observations.length,
+              toolResultCount: input.toolResults.length,
+            },
+            repairContext: {
+              present: Boolean(input.repairContext),
+              errorCode: input.repairContext?.error.code,
+              errorCount: input.repairContext?.errors.length ?? 0,
+              factCount: input.repairContext?.facts?.length ?? 0,
+            },
+          },
           messageCount: 1,
           messages: [
             {
@@ -2173,8 +2195,9 @@ describe("chat service agent text flow boundary", () => {
       isRecord(input) ? input.suitability : undefined
     ))).toEqual(["training", "warmup", "stretch"]);
     expect(supportPlannerInputJson).toContain("missingSectionsForRoutineOrPlan");
-    expect(supportPlannerInputJson).toContain("缺口补齐前只能继续补事实、澄清或失败收口");
-    expect(supportPlannerInputJson).toContain("suitabilities = [\\\"warmup\\\", \\\"stretch\\\"]");
+    expect(supportPlannerInputJson).toContain("\"nextActionHints\"");
+    expect(supportPlannerInputJson).toContain("continue_tool_call");
+    expect(supportPlannerInputJson).not.toContain("suitabilities = [\\\"warmup\\\", \\\"stretch\\\"]");
     expect(finalPlannerToolResultsJson).toContain(warmupExercise.id);
     expect(finalPlannerToolResultsJson).toContain(trainingExercise.id);
     expect(finalPlannerToolResultsJson).toContain(stretchExercise.id);
@@ -2302,9 +2325,9 @@ describe("chat service agent text flow boundary", () => {
     expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mock.calls.map(([input]) => (
       isRecord(input) ? input.suitability : undefined
     ))).toEqual(["training", "warmup", "stretch"]);
-    expect(supportPlannerToolResultsJson).toContain("当前结果只提供 training 动作事实");
-    expect(supportPlannerToolResultsJson).toContain("还需要当前 run 可消费的 warmup 和 stretch 动作事实");
-    expect(supportPlannerToolResultsJson).toContain("suitabilities = [\\\"warmup\\\"");
+    expect(supportPlannerToolResultsJson).toContain("\"nextActionHints\"");
+    expect(supportPlannerToolResultsJson).toContain("continue_tool_call");
+    expect(supportPlannerToolResultsJson).not.toContain("suitabilities = [\\\"warmup\\\"");
     expect(finalPlannerToolResultsJson).toContain("push-up");
     expect(finalPlannerToolResultsJson).toContain("jumping-jack");
     expect(finalPlannerToolResultsJson).toContain("chest-stretch");
@@ -2458,7 +2481,7 @@ describe("chat service agent text flow boundary", () => {
     expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mock.calls.map(([input]) => (
       isRecord(input) ? input.suitability : undefined
     ))).toEqual(["warmup", "stretch"]);
-    expect(finalPlannerToolResultsJson).toContain("forbiddenFinalVisibleOutputs");
+    expect(finalPlannerToolResultsJson).toContain("finalAnswerSupport");
     expect(finalPlannerToolResultsJson).toContain("missingSectionsForRoutineOrPlan 非空时");
     expect(finalPlannerToolResultsJson).toContain("jumping-jack");
     expect(finalPlannerToolResultsJson).toContain("chest-stretch");

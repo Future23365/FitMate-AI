@@ -1,9 +1,26 @@
 import { AGENT_ERROR_CODES, AgentContractError } from "@/lib/server/agent-core/errors";
 import type { AgentAction, JsonValue } from "@/lib/server/agent-core/contracts";
-import type { PlannerInput } from "@/lib/server/agent-core/planner-port";
+import type { PlannerInput, PlannerRepairContext } from "@/lib/server/agent-core/planner-port";
 
 /** ModelActionCompletionInput 是模型 adapter 可见的模型无关 action completion 输入。 */
 export type ModelActionCompletionInput = PlannerInput;
+
+/** ModelActionCompletionProtocolLayer 承载稳定 AgentAction 协议，不属于当前 run facts。 */
+export type ModelActionCompletionProtocolLayer = {
+  promptVersion: string;
+  actionContract: JsonValue;
+  outputContracts: JsonValue[];
+};
+
+/** ModelActionCompletionContextLayer 承载当前 run facts，adapter 可将其映射为 provider user payload。 */
+export type ModelActionCompletionContextLayer = PlannerInput["context"];
+
+/** ModelActionCompletionEnvelope 是 adapter 内部使用的 provider 无关输入分层形态。 */
+export type ModelActionCompletionEnvelope = {
+  protocol: ModelActionCompletionProtocolLayer;
+  context: ModelActionCompletionContextLayer;
+  repairContext?: PlannerRepairContext;
+};
 
 /** ModelTokenUsage 是供应商 usage 字段归一化后的真实模型 token 用量。 */
 export type ModelTokenUsage = {
@@ -78,6 +95,28 @@ export type ModelActionCompletionTrace = {
     response_format?: JsonValue;
     thinking?: ModelTraceThinkingSummary;
     timeoutMs?: number;
+    layers: {
+      protocol: {
+        present: boolean;
+        promptVersion?: string;
+        actionContractSchemaId?: string;
+        actionContractSchemaVersion?: string;
+        outputContractCount: number;
+      };
+      context: {
+        present: boolean;
+        keys: string[];
+        toolCount: number;
+        observationCount: number;
+        toolResultCount: number;
+      };
+      repairContext: {
+        present: boolean;
+        errorCode?: string;
+        errorCount: number;
+        factCount: number;
+      };
+    };
     messageCount: number;
     messages: ModelTraceMessageSummary[];
     run: {

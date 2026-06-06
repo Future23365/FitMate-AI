@@ -13,6 +13,7 @@ import {
   normalizeModelTokenUsage,
   type ModelActionCompletionParseStatus,
   type ModelActionCompletionInput,
+  type ModelActionCompletionEnvelope,
   type ModelActionCompletionResult,
   type ModelActionCompletionTrace,
   type ModelTraceLongTextChunk,
@@ -69,6 +70,13 @@ type DeepSeekRequestBody = {
 };
 
 const DEFAULT_DEEPSEEK_ENDPOINT = "https://api.deepseek.com/chat/completions";
+const REPAIR_ONLY_SYSTEM_INSTRUCTIONS = [
+  "Repair mode: 本轮只修正上一轮非法 AgentAction。",
+  "不要重新规划用户目标，不引入新事实，不编造 id，不扩大任务范围。",
+  "只能依据 repairContext.error、repairContext.errors、repairContext.facts、当前 context、当前 protocol 和可见 tools 修正上一轮 action。",
+  "事实不足时可以移除结构化输出、返回 ask_user，或用不带成功 visibleOutputs 的 final_answer 失败收口。",
+] as const;
+
 /** DeepSeekModelAdapter 封装 DeepSeek 请求、模型参数、结构化输出解析和错误归一化。 */
 export class DeepSeekModelAdapter implements ModelAdapter {
   readonly name = "deepseek-model-adapter";
@@ -293,6 +301,7 @@ export class DeepSeekModelAdapter implements ModelAdapter {
 
   private createRequestBody(input: ModelActionCompletionInput): DeepSeekRequestBody {
     const thinking = createDeepSeekThinkingRequest(input);
+    const envelope = this.createModelInputEnvelope(input);
 
     return {
       model: this.model,
@@ -306,26 +315,25 @@ export class DeepSeekModelAdapter implements ModelAdapter {
       messages: [
         {
           role: "system",
-          content: buildAgentActionSystemPrompt(this.promptConfig),
+          content: buildPlannerSystemContent(this.promptConfig, envelope),
         },
         {
           role: "user",
-          content: stableStringify({
-            actionContract: getAgentActionContract(this.promptConfig),
-            run: {
-              runId: input.run.runId,
-              userInput: input.run.userInput,
-              messages: input.run.messages ?? [],
-              metadata: input.run.metadata ?? {},
-            },
-            step: input.step,
-            tools: input.manifests,
-            outputContracts: this.outputContracts,
-            observations: input.observations,
-            toolResults: input.toolResults,
-          }),
+          content: stableStringify(createPlannerUserPayload(envelope)),
         },
       ],
+    };
+  }
+
+  private createModelInputEnvelope(input: ModelActionCompletionInput): ModelActionCompletionEnvelope {
+    return {
+      protocol: {
+        promptVersion: this.promptConfig.promptVersion,
+        actionContract: cloneJsonValue(getAgentActionContract(this.promptConfig)),
+        outputContracts: cloneJsonArray(this.outputContracts),
+      },
+      context: input.context,
+      repairContext: input.repairContext,
     };
   }
 
@@ -336,6 +344,7 @@ export class DeepSeekModelAdapter implements ModelAdapter {
     const dedupeSummary = summarizePlannerInputDedupe(input);
     const outputContracts = summarizeAgentVisibleOutputContracts(this.outputContracts);
     const actionContract = this.promptConfig.actionContract;
+    const envelope = this.createModelInputEnvelope(input);
 
     return {
       model: requestBody.model,
@@ -349,6 +358,7 @@ export class DeepSeekModelAdapter implements ModelAdapter {
         reasoning_effort: requestBody.reasoning_effort,
       },
       timeoutMs: this.timeoutMs,
+      layers: createInputLayerTraceSummary(envelope, actionContract),
       messageCount: requestBody.messages.length,
       messages: requestBody.messages.map((message) => ({
         role: message.role,
@@ -420,6 +430,83 @@ export function createDeepSeekModelAdapterFromEnv(fetchImpl?: DeepSeekFetch): De
     model: process.env.DEEPSEEK_MODEL,
     fetchImpl,
   });
+}
+
+// buildPlannerSystemContent 将稳定协议提升到 system message；repair 指令只在 repairContext 存在时出现。
+function buildPlannerSystemContent(
+  promptConfig: AgentLlmPromptConfig,
+  envelope: ModelActionCompletionEnvelope,
+) {
+  const sections = [
+    buildAgentActionSystemPrompt(promptConfig),
+    "稳定协议层 protocol：以下 JSON 是长期 AgentAction 合同、Planner policy、glossary 和 output contract 摘要，优先级高于当前 run facts；不要把它当作本轮普通数据。",
+    stableStringify(envelope.protocol),
+  ];
+
+  if (envelope.repairContext) {
+    sections.push(
+      "repair-only 指令：",
+      REPAIR_ONLY_SYSTEM_INSTRUCTIONS.join(" "),
+    );
+  }
+
+  return sections.join("\n\n");
+}
+
+// createPlannerUserPayload 只放当前 run facts 和可选 repairContext，不再平铺 actionContract / outputContracts。
+function createPlannerUserPayload(envelope: ModelActionCompletionEnvelope) {
+  return {
+    context: {
+      run: {
+        runId: envelope.context.run.runId,
+        userInput: envelope.context.run.userInput,
+        messages: envelope.context.run.messages ?? [],
+        metadata: envelope.context.run.metadata ?? {},
+      },
+      step: envelope.context.step,
+      tools: envelope.context.manifests,
+      observations: envelope.context.observations,
+      toolResults: envelope.context.toolResults,
+    },
+    ...(envelope.repairContext ? { repairContext: envelope.repairContext } : {}),
+  };
+}
+
+// createInputLayerTraceSummary 只记录分层证据和计数，不复制完整协议、tool output 或 repair payload。
+function createInputLayerTraceSummary(
+  envelope: ModelActionCompletionEnvelope,
+  actionContract: AgentLlmPromptConfig["actionContract"],
+): ModelActionCompletionTrace["request"]["layers"] {
+  return {
+    protocol: {
+      present: true,
+      promptVersion: envelope.protocol.promptVersion,
+      actionContractSchemaId: actionContract.schemaId,
+      actionContractSchemaVersion: actionContract.schemaVersion,
+      outputContractCount: envelope.protocol.outputContracts.length,
+    },
+    context: {
+      present: true,
+      keys: ["run", "step", "tools", "observations", "toolResults"],
+      toolCount: envelope.context.manifests.length,
+      observationCount: envelope.context.observations.length,
+      toolResultCount: envelope.context.toolResults.length,
+    },
+    repairContext: {
+      present: Boolean(envelope.repairContext),
+      errorCode: envelope.repairContext?.error.code,
+      errorCount: envelope.repairContext?.errors.length ?? 0,
+      factCount: envelope.repairContext?.facts?.length ?? 0,
+    },
+  };
+}
+
+function cloneJsonValue(value: unknown): JsonValue {
+  return JSON.parse(JSON.stringify(value)) as JsonValue;
+}
+
+function cloneJsonArray(value: unknown): JsonValue[] {
+  return JSON.parse(JSON.stringify(value)) as JsonValue[];
 }
 
 function parseJsonObject(content: string): { ok: true; value: unknown } | { ok: false; message: string } {

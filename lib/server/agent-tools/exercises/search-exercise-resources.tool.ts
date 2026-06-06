@@ -420,6 +420,11 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
 
       return {
         status: output.status,
+        factLevel: broadQuery ? "diagnostic" : "section_scoped_exercise_facts",
+        fulfillment: {
+          satisfied: !broadQuery,
+          supportsSuccessfulVisibleOutputs: !broadQuery && coverage.supportsOutputKinds.length > 0,
+        },
         suitabilities: output.query.suitabilities,
         totalMatches: output.query.totalMatches,
         returnedCount: output.query.returnedCount,
@@ -429,27 +434,24 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
         sectionSummary: coverage.sectionSummary,
         missingSectionsForRoutineOrPlan: coverage.missingSectionsForRoutineOrPlan,
         supportsOutputKinds: coverage.supportsOutputKinds,
-        outputSummaryNote: "totalMatches、returnedCount、truncated、excludedCount、groups 和 diagnostics 是本次查询输出摘要，不是下一轮 searchExerciseResources input。",
         querySpecificity: buildQuerySpecificityObservation(output),
         filterSemantics: output.query.filterSemantics,
-        finalAnswerGrounding: broadQuery
-          ? "本次 ok=true 结果是过宽查询诊断；可支撑普通文本解释条件过宽，但不能支撑 visibleTrainingProposal。"
-          : "本次 ok=true 查询事实可通过 usedRefs[] 中的 { type: \"tool_result\", id: 当前 toolResultId } 支撑普通事实回答；训练推送仍需由 visibleOutputs[] 或当前 run 可消费事实承载。",
-        candidateConsumptionBoundary: broadQuery
-          ? "groups.<section>.exercises[] 仍是数据库摘要，但本次 query 缺少可解释约束，不能作为训练推送可消费事实；应先澄清或说明事实不足。"
-          : "groups.<section>.exercises[] 是本次实际返回的 section-scoped 动作事实。availableSections 只包含本次 groups 中有动作的 section；prescription、schedule 和最终 payload.kind 仍需由 terminal action 明确输出。",
+        finalAnswerSupport: broadQuery
+          ? "本次结果只能解释条件过宽或事实不足，不能支撑 visibleTrainingProposal。"
+          : "groups.<section>.exercises[] 是本次实际返回的 section-scoped 动作事实；训练推送仍需由 visibleOutputs[] 或当前 run 可消费事实承载。",
         positiveAnchorBoundary: output.query.requiredExerciseIds?.length
-          ? "本次查询使用 requiredExerciseIds 作为正向锚点；这些 id 只表示应优先纳入对应 groups.<section>.exercises 的受控动作事实，不表示排除、替换或已经生成最终训练方案。"
-          : "本次查询未使用 requiredExerciseIds；如果目标是保留、复用、派生或调整当前 run 可见动作，应优先把受控动作作为正向事实来源，而不是写入 excludeExerciseIds。",
+          ? "requiredExerciseIds 是正向锚点，只表示优先纳入对应 groups.<section>.exercises 的受控动作事实。"
+          : "本次查询未使用 requiredExerciseIds。",
         refreshExclusionBoundary: output.query.excludedCount > 0
-          ? "本次查询已应用 excludeExerciseIds；这些 id 只能代表当前 run 可见且当前目标需要替换、排除或避免重复的动作，或用户明确要求排除的动作。若当前条件下可替代候选不足，模型应说明无法完全换新、询问是否放宽条件或只输出可支撑结构，不得为了填满新方案回填已排除动作。"
-          : "本次查询未应用 excludeExerciseIds；该查询只提供动作事实，不证明当前 run 存在上一套可操作的 visibleTrainingProposal，也不证明已经完成刷新、替换或调整。如果目标是操作已有对象，应先基于当前可见引用事实确认对象；引用对象不可见时，不得用本查询结果宣称刷新、替换或调整成功。",
+          ? "本次查询已应用 excludeExerciseIds；候选不足时不得回填已排除动作。"
+          : "本次查询未应用 excludeExerciseIds；该结果不证明当前 run 存在上一套可操作对象，也不代表刷新、替换或调整已完成。",
         routinePlanCompositionBoundary: buildRoutinePlanCompositionBoundary(output.groups),
         groupSemantics: {
           groupKey: "groups.<section>",
           sectionRelation: "groups.<section>.exercises[] 中的动作是当前查询按该 section 返回的动作事实；生成 visibleTrainingProposal.exerciseItems[] 时，section 应与使用的 group key 保持一致。",
           allowedSectionsRelation: "每个动作的 allowedSections 是可进入哪些 section 的事实字段；exerciseItems[*].section 必须包含在该动作 allowedSections 中。",
         },
+        nextActionHints: buildSearchNextActionHints(broadQuery, coverage.missingSectionsForRoutineOrPlan),
         appliedFilters: output.query.appliedFilters,
         groups: mapGroups(output.groups, (exercise) => ({
           exerciseId: exercise.exerciseId,
@@ -564,12 +566,8 @@ function buildQuerySpecificityObservation(output: SearchExerciseResourcesOutput)
       status: "too_broad",
       specificFilters,
       boundary: "本次 searchExerciseResources input 除默认 suitabilities、published、sort 外没有任何目标、facet、器械、场地、点名动作或当前 run 可见动作锚点；fulfillment.satisfied=false。",
-      forbiddenFinalAnswer: "不得用本次结果支撑 visibleTrainingProposal、routine、plan 或随机动作卡片；普通 final_answer 只能解释当前条件过宽或事实不足。",
-      allowedNextActions: [
-        "使用 ask_user 澄清训练目标、身体部位、器械、场地、时长、频率或其他必要约束。",
-        "使用不带 visibleOutputs 的 final_answer 说明当前事实不足，并给出可点击的具体方向。",
-        "在下一轮基于用户补充条件提交带结构化约束的 searchExerciseResources input。",
-      ],
+      finalAnswerSupport: "普通 final_answer 只能解释当前条件过宽或事实不足，不能输出 visibleTrainingProposal。",
+      nextActionHints: ["ask_user", "final_answer_without_visible_outputs", "continue_tool_call"],
     };
   }
 
@@ -577,6 +575,7 @@ function buildQuerySpecificityObservation(output: SearchExerciseResourcesOutput)
     status: "constrained",
     specificFilters,
     boundary: "本次查询包含可解释结构化约束；仍需满足 section、动作事实、prescription、schedule 和 terminal validator 边界后，才能支撑对应训练输出。",
+    nextActionHints: ["continue_tool_call", "final_answer_with_visible_outputs", "ask_user"],
   };
 }
 
@@ -820,10 +819,10 @@ function equalsAnyText(query: string, ...values: Array<string | null | undefined
 
 function outputNoCandidatesMessage(suitability: string, excludeExerciseIds: string[] | undefined) {
   if (excludeExerciseIds?.length) {
-    return `${suitability} 用途在排除用户已看到或明确要求排除的动作后没有更多匹配候选；Agent 可说明无法完全换新、询问是否放宽条件或只输出当前事实可支撑的结构，不得回填已排除动作。`;
+    return `${suitability} 用途在排除当前可见或明确排除动作后没有更多匹配候选。`;
   }
 
-  return `${suitability} 用途当前没有匹配候选；Agent 可调整结构化筛选、澄清用户条件或失败收口。`;
+  return `${suitability} 用途当前没有匹配候选。`;
 }
 
 function mapGroups<T>(
@@ -849,11 +848,22 @@ function mapGroups<T>(
   }));
 }
 
+function buildSearchNextActionHints(broadQuery: boolean, missingSectionsForRoutineOrPlan: string[]) {
+  if (broadQuery) {
+    return ["ask_user", "final_answer_without_visible_outputs", "continue_tool_call"];
+  }
+
+  if (missingSectionsForRoutineOrPlan.length > 0) {
+    return ["continue_tool_call", "ask_user", "final_answer_without_visible_outputs"];
+  }
+
+  return ["final_answer_with_visible_outputs", "continue_tool_call", "ask_user"];
+}
+
 function buildRoutinePlanCompositionBoundary(groups: SearchExerciseResourcesOutput["groups"]) {
   const coverage = buildSearchResultCoverage(groups);
   const returnedSections = coverage.availableSections;
   const missingSectionsForRoutineOrPlan = coverage.missingSectionsForRoutineOrPlan;
-  const onlyTrainingReturned = returnedSections.length === 1 && returnedSections[0] === "training";
 
   return {
     returnedSections,
@@ -861,22 +871,10 @@ function buildRoutinePlanCompositionBoundary(groups: SearchExerciseResourcesOutp
     sectionSummary: coverage.sectionSummary,
     missingSectionsForRoutineOrPlan,
     supportsOutputKinds: coverage.supportsOutputKinds,
-    forbiddenFinalVisibleOutputs: missingSectionsForRoutineOrPlan.length > 0
-      ? "missingSectionsForRoutineOrPlan 非空时，当前结果不能支撑 successful routine 或 plan visible output；缺口补齐前只能继续补事实、澄清或失败收口。"
+    finalAnswerSupport: missingSectionsForRoutineOrPlan.length > 0
+      ? "missingSectionsForRoutineOrPlan 非空时，当前结果不能支撑 successful routine 或 plan visible output。"
       : "missingSectionsForRoutineOrPlan 为空时，仍需确保 exerciseItems[*].exerciseId、section、prescription 和 schedule 由当前 run 可见事实支撑。",
-    allowedNextActions: missingSectionsForRoutineOrPlan.length > 0
-      ? [
-        "如果目标已经是 routine 或 plan，且关键约束足以解释方案，可继续用 suitabilities = [\"warmup\", \"stretch\"] 或等价缺失 section 查询候选。",
-        "只有候选不足、约束冲突、tool 不可用或关键约束仍不足时，才使用 ask_user 澄清必要约束。",
-        "无法补齐时不输出 visibleOutputs，应说明缺少哪些 section 候选和可恢复下一步。",
-      ]
-      : [
-        "基于当前 run 可消费事实输出可校验结构。",
-        "必要时继续查询、澄清或失败收口。",
-      ],
-    note: onlyTrainingReturned
-      ? "当前结果只提供 training 动作事实；若最终目标是 routine 或 plan，还需要当前 run 可消费的 warmup 和 stretch 动作事实。不得把未返回 section 伪造成已获得事实，也不得把本次 tool result 直接当作最终 visibleTrainingProposal。"
-      : "如果最终目标是 routine 或 plan，应检查 returnedSections、sectionSummary 与 missingSectionsForRoutineOrPlan；缺失 section 可通过 suitabilities 指定缺失用途继续查询，候选不足或约束冲突时说明缺口和可恢复下一步。",
+    nextActionHints: buildSearchNextActionHints(false, missingSectionsForRoutineOrPlan),
   };
 }
 

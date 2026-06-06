@@ -256,6 +256,27 @@ function createProviderFailureDiagnostic(status: number): PlannerModelTraceEvent
     request: {
       model: agentRuntimeConfig.llm.deepSeek.defaultModel,
       response_format: { type: "json_object" },
+      layers: {
+        protocol: {
+          present: true,
+          promptVersion: "diagnostic-fixture",
+          actionContractSchemaId: "AgentAction",
+          actionContractSchemaVersion: "1",
+          outputContractCount: 0,
+        },
+        context: {
+          present: true,
+          keys: ["run", "step", "tools", "observations", "toolResults"],
+          toolCount: 3,
+          observationCount: 0,
+          toolResultCount: 0,
+        },
+        repairContext: {
+          present: false,
+          errorCount: 0,
+          factCount: 0,
+        },
+      },
       messageCount: 1,
       messages: [],
       run: {

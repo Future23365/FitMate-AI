@@ -20,18 +20,20 @@ describe("agent LLM prompt configuration", () => {
     const serializedContract = JSON.stringify(actionContract);
 
     expect(agentLlmPromptConfig.promptVersion).toBe(agentLlmPromptVersion);
-    expect(agentLlmPromptVersion).toBe("agent-action-v22-success-suggested-questions");
+    expect(agentLlmPromptVersion).toBe("agent-action-v23-planner-input-layers");
     expect(systemPrompt.length).toBeLessThan(1500);
 
     for (const required of [
       "只能返回一个合法 JSON object",
-      "actionContract、tools、outputContracts、observations、toolResults",
+      "system message 中的 protocol",
+      "user payload 中的 context",
+      "只有出现 repairContext 时才进入修复语境",
       "type 只能是 tool_call、final_answer、ask_user",
       "字段合法性由服务端 Zod 校验",
       "toolName 必须来自 tools[].name",
       "决策顺序",
       "final_answer 是本轮终态",
-      "输出 visibleOutputs[] 时只遵守当前 outputContracts[]",
+      "输出 visibleOutputs[] 时只遵守 protocol.outputContracts[]",
       "satisfied=true tool result、consumable resource",
       "reuse、derive、modify、replace、clarify",
       "不得提供医疗诊断、治疗建议",
@@ -130,7 +132,7 @@ describe("agent LLM prompt configuration", () => {
       "最多 3 条用户口吻",
       "不是只写在 content",
       "给我一批更简单的徒手动作",
-      "validator repair details",
+      "repairContext",
     ]) {
       expect(serializedContract).toContain(required);
     }
@@ -177,7 +179,7 @@ describe("agent LLM prompt configuration", () => {
       "返回测试专用 AgentAction JSON object。 这个测试只期望 final_answer。",
     );
     expect(buildAgentActionSystemPrompt()).toContain("tool_call、final_answer、ask_user");
-    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v22-success-suggested-questions");
+    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v23-planner-input-layers");
   });
 
   it("exposes a dedicated terminal failure finalizer prompt and budget config", () => {

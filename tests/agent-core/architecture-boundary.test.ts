@@ -330,6 +330,42 @@ describe("agent-core architecture boundaries", () => {
     expect(matches).toEqual([]);
   });
 
+  it("keeps planner input layering free of business tool branches and user text routing", () => {
+    const files = [
+      "lib/server/agent-core/planner-port.ts",
+      "lib/server/agent-core/runtime.ts",
+      "lib/server/agent-planners/model-adapters/deepseek-model-adapter.ts",
+    ];
+    const forbiddenTerms = [
+      "userInput.includes",
+      "message.content.includes",
+      ".includes(input.run.userInput",
+      "latestUserMessage.includes",
+      "new RegExp",
+      "toolName === \"inspectVisibleTrainingProposals\"",
+      "toolName === \"resolveExerciseResourceMentions\"",
+      "toolName === \"searchExerciseResources\"",
+      "case \"inspectVisibleTrainingProposals\"",
+      "case \"resolveExerciseResourceMentions\"",
+      "case \"searchExerciseResources\"",
+    ];
+    const matches: string[] = [];
+
+    for (const file of files) {
+      const content = readRelative(file);
+      for (const term of forbiddenTerms) {
+        if (content.includes(term)) {
+          matches.push(`${file}: ${term}`);
+        }
+      }
+    }
+
+    expect(readRelative("lib/server/agent-core/planner-port.ts")).toContain("PlannerRepairContext");
+    expect(readRelative("lib/server/agent-planners/model-adapters/deepseek-model-adapter.ts")).toContain("protocol");
+    expect(readRelative("lib/server/agent-planners/model-adapters/deepseek-model-adapter.ts")).toContain("context");
+    expect(matches).toEqual([]);
+  });
+
   it("keeps terminal completion hardening free of assistant text routing and concrete production tool branches", () => {
     const files = [
       ...productionChatEntryFiles,

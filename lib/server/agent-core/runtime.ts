@@ -38,7 +38,7 @@ import type {
   ToolResult,
 } from "./contracts";
 import { AGENT_ERROR_CODES, isAgentContractError } from "./errors";
-import type { PlannerPort } from "./planner-port";
+import type { PlannerPort, PlannerRepairContext } from "./planner-port";
 import type { ToolRegistry } from "./tool-registry";
 
 /** AgentRuntimeTraceObserver 是 runtime 对外暴露的只读观察点，失败时不得影响执行结果。 */
@@ -102,6 +102,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
   let plannerCalls = 0;
   let toolCalls = 0;
   let invalidActions = 0;
+  let pendingRepairContext: PlannerRepairContext | undefined;
 
   const recordTraceEvent = async (event: AgentTraceEvent) => {
     traceEvents.push(event);
@@ -142,14 +143,22 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
       )));
     }
 
-    const plannerInput = {
+    const plannerContext = {
       run: input.run,
       step,
       manifests,
       observations: compressPlannerObservations(observations),
       toolResults: toolResults.map(redactToolResultForPlanner),
     };
-    const estimatedTokens = estimateJsonTokens(plannerInput);
+    const plannerInput = {
+      ...plannerContext,
+      context: plannerContext,
+      repairContext: pendingRepairContext,
+    };
+    const estimatedTokens = estimateJsonTokens({
+      context: plannerInput.context,
+      repairContext: plannerInput.repairContext,
+    });
 
     if (limits.maxEstimatedTokens && estimatedTokens > limits.maxEstimatedTokens) {
       await recordTraceEvent(createBudgetEvent("estimated_tokens", "exhausted", estimatedTokens, limits.maxEstimatedTokens, step));
@@ -202,10 +211,12 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
         )));
       }
 
+      pendingRepairContext = createPlannerRepairContext(plannerAction.action, validation.error);
       await recordTraceEvent(createBudgetEvent("repair_attempts", "used", invalidActions, repairLimit, step, validation.error.code));
 
       continue;
     }
+    pendingRepairContext = undefined;
 
     if (validation.action.type === "final_answer") {
       await recordTraceEvent({
@@ -734,6 +745,49 @@ function createPlannerActionTrace(step: number, action: unknown): AgentTraceEven
   };
 }
 
+// createPlannerRepairContext 将 validator 错误拆成独立 repair 层，避免正常 planning prompt 携带上一轮失败内容。
+function createPlannerRepairContext(failedAction: unknown, error: ToolError): PlannerRepairContext {
+  const safeDetails = error.details ? redactJsonValue(error.details) : undefined;
+
+  return {
+    failedAction: redactJsonValue(failedAction),
+    error: {
+      code: error.code,
+      message: error.message,
+      details: safeDetails,
+    },
+    errors: extractRepairErrors(safeDetails),
+    facts: extractRepairFacts(safeDetails),
+  };
+}
+
+function extractRepairErrors(details: JsonValue | undefined): PlannerRepairContext["errors"] {
+  if (!isJsonRecord(details) || !Array.isArray(details.errors)) {
+    return [];
+  }
+
+  return details.errors
+    .filter(isJsonRecord)
+    .map((error) => ({
+      code: readString(error.code),
+      path: readString(error.path),
+      expected: isJsonValue(error.expected) ? error.expected : undefined,
+      actual: isJsonValue(error.actual) ? error.actual : undefined,
+      allowedFields: readStringArray(error.allowedFields),
+      requiredFields: readStringArray(error.requiredFields),
+      allowedValues: readJsonArray(error.allowedValues),
+    }));
+}
+
+function extractRepairFacts(details: JsonValue | undefined): JsonValue[] | undefined {
+  if (!isJsonRecord(details) || !Array.isArray(details.facts)) {
+    return undefined;
+  }
+
+  const facts = details.facts.filter(isJsonValue);
+  return facts.length > 0 ? facts : undefined;
+}
+
 function getToolExecutionDurationMs(startedAt: string, completedAt: string) {
   const started = Date.parse(startedAt);
   const completed = Date.parse(completedAt);
@@ -831,6 +885,37 @@ function classifyToolResultFactChannel(result: ToolResult): "fact" | "diagnostic
   }
 
   return result.fulfillment.satisfied ? "fact" : "diagnostic";
+}
+
+function isJsonRecord(value: JsonValue | undefined): value is Record<string, JsonValue> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isJsonValue(value: unknown): value is JsonValue {
+  return value === null
+    || typeof value === "string"
+    || typeof value === "number"
+    || typeof value === "boolean"
+    || (Array.isArray(value) && value.every(isJsonValue))
+    || (
+      typeof value === "object"
+      && value !== null
+      && Object.values(value).every(isJsonValue)
+    );
+}
+
+function readString(value: JsonValue | undefined) {
+  return typeof value === "string" ? value : undefined;
+}
+
+function readStringArray(value: JsonValue | undefined) {
+  return Array.isArray(value) && value.every((item) => typeof item === "string")
+    ? value
+    : undefined;
+}
+
+function readJsonArray(value: JsonValue | undefined) {
+  return Array.isArray(value) ? value.filter(isJsonValue) : undefined;
 }
 
 function finalizeToolResultResources(input: {

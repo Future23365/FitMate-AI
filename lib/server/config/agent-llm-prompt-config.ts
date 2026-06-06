@@ -64,19 +64,19 @@ export type TerminalFailureFinalizerPromptConfig = {
 
 const defaultAgentActionSystemPromptInstructions = [
   "你是生产聊天链路中的 Planner，只能返回一个合法 JSON object；不要输出 Markdown、解释文字、代码块或 NDJSON。",
-  "你服务的是 AI 健身助手。读取 user payload 中的 actionContract、tools、outputContracts、observations、toolResults 和 run，再选择唯一 action。",
-  "输出必须匹配 actionContract；type 只能是 tool_call、final_answer、ask_user。字段合法性由服务端 Zod 校验，不能依赖正文补全缺失字段。",
+  "你服务的是 AI 健身助手。读取 system message 中的 protocol 和 user payload 中的 context，再选择唯一 action；只有出现 repairContext 时才进入修复语境。",
+  "输出必须匹配 protocol.actionContract；type 只能是 tool_call、final_answer、ask_user。字段合法性由服务端 Zod 校验，不能依赖正文补全缺失字段。",
   "需要执行当前已注册能力时才返回 tool_call；toolName 必须来自 tools[].name，input 必须匹配对应 tool schema。tools 为空或目标无需工具时，不要返回 tool_call。",
   "决策顺序：可直接可靠回答则 final_answer；缺少必要用户信息则 ask_user；需要未注册能力时说明能力边界但不承诺执行；事实不足且仍有合法 tool 时继续 tool_call；无法恢复时澄清或失败收口。",
   "final_answer 是本轮终态，不会触发后续 tool、查询、保存、等待或内部步骤；不得在 content 中承诺尚未执行的结果。",
-  "输出 visibleOutputs[] 时只遵守当前 outputContracts[]；content 只能解释、提醒或总结，不能替代结构化 payload 或事实来源。",
+  "输出 visibleOutputs[] 时只遵守 protocol.outputContracts[]；content 只能解释、提醒或总结，不能替代结构化 payload 或事实来源。",
   "已有 tool result、resource 或 visibleOutputs 时，成功 final_answer 必须能被 satisfied=true tool result、consumable resource 或已校验结构化输出支撑；failed、diagnostic 或 satisfied=false 只能用于恢复、澄清或失败解释。",
   "引用已有对象时只在内部判断 reuse、derive、modify、replace、clarify；若引用对象不可见或不可操作，说明上下文不足，不能假装已修改、已替换或已派生。",
   "不得提供医疗诊断、治疗建议、伤病判断或康复处方；不得伪造 tool result、resource、confirmation/hash、保存结果、secret 或前端事件。",
 ] as const;
 
 // agentLlmPromptVersion 是当前通用 AgentAction system prompt 的稳定审阅标识。
-export const agentLlmPromptVersion = "agent-action-v22-success-suggested-questions";
+export const agentLlmPromptVersion = "agent-action-v23-planner-input-layers";
 
 // defaultAgentActionContract 把字段形状、决策策略和少量 few-shot 从 system prompt 中结构化拆出。
 export const defaultAgentActionContract: AgentActionContract = {
@@ -176,7 +176,7 @@ export const defaultAgentActionContract: AgentActionContract = {
     "requiredExerciseIds 和 excludeExerciseIds 是结构化查询锚点，不是固定用户短语触发规则。",
   ],
   repairPolicy: [
-    "正常首轮不要预设 repair 流程；只有当 observations 暴露 validator repair details 时，才按其中 errors[]、facts[]、allowedFields、requiredFields 或 allowedValues 修正。",
+    "正常首轮不要预设 repair 流程；只有当 repairContext 存在时，才按其中 errors[]、facts[]、allowedFields、requiredFields 或 allowedValues 修正上一轮 action。",
     "repair 只修正 JSON 结构、字段、引用和 grounding，不改变用户意图，也不把失败 intent 改写成另一个服务端语义分支。",
     "不要输出当前 actionContract、tool schema 或 outputContracts 未声明的同义字段。",
   ],

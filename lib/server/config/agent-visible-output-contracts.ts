@@ -2,10 +2,16 @@ import "server-only";
 
 import type { JsonValue } from "@/lib/server/agent-core/contracts";
 
+export type AgentVisibleOutputContractActionExample = {
+  type: "tool_call" | "final_answer" | "ask_user";
+  [field: string]: JsonValue;
+};
+
 export type AgentVisibleOutputContractExample = {
   description: string;
   userSituation?: string;
-  expectedAction?: JsonValue;
+  expectedAction?: AgentVisibleOutputContractActionExample;
+  expectedDecision?: string;
   visibleOutputShape?: JsonValue;
   notes: readonly string[];
 };
@@ -209,7 +215,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
     {
       description: "需要动作事实：用户要结构化训练结果但当前 run 没有可消费动作事实时先 tool_call。",
       userSituation: "用户目标、频次、时长和器械明确，但当前 run 没有动作事实。",
-      expectedAction: "如果 tools 中存在能查询动作事实的已注册 tool，返回合法 tool_call；如果没有合法 tool，则 ask_user 或失败收口。",
+      expectedDecision: "如果 tools 中存在能查询动作事实的已注册 tool，返回合法 tool_call；如果没有合法 tool，则 ask_user 或失败收口。",
       notes: [
         "toolName 必须来自 tools[].name，不能照抄示例占位。",
         "output contract 不规定固定 tool 调用顺序。",
@@ -250,7 +256,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
     {
       description: "事实不足的 routine：只有 training 动作事实但用户要一次完整训练时继续补齐或澄清。",
       userSituation: "当前 tool result 只提供 training 动作，用户目标需要 routine。",
-      expectedAction: "继续合法 tool_call 补齐 warmup/stretch；若无法继续获取事实，ask_user 或失败收口；不得输出缺 section 的 routine，也不得降级为 exercise_selection。",
+      expectedDecision: "继续合法 tool_call 补齐 warmup/stretch；若无法继续获取事实，ask_user 或失败收口；不得输出缺 section 的 routine，也不得降级为 exercise_selection。",
       notes: [
         "这是 section readiness 的业务边界，不是固定 toolName 规则。",
         "missingSectionsForRoutineOrPlan 只作为诊断事实使用。",
@@ -383,7 +389,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
     {
       description: "基于已有结构派生计划：用户要求按当前内容做一周计划时使用 derive。",
       userSituation: "当前 run 可见对象已经可消费，用户要求基于这个结果派生周期安排。",
-      expectedAction: "如果事实满足 plan schema，返回 final_answer + plan visibleOutputs；如果事实不足，继续合法 tool_call 或 ask_user。",
+      expectedDecision: "如果事实满足 plan schema，返回 final_answer + plan visibleOutputs；如果事实不足，继续合法 tool_call 或 ask_user。",
       notes: [
         "derive 只是内部推理标签，不能出现在 AgentAction JSON。",
         "引用对象不可见时不能假装已基于它生成。",
@@ -392,7 +398,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
     {
       description: "替换或修改：用户要求换一批、避免重复或组数少一点时使用 replace / modify。",
       userSituation: "当前 run 可见对象可操作，用户要求替换动作或调整处方。",
-      expectedAction: "根据当前可见事实和 tools 自主选择合法 tool_call 或 final_answer + visibleOutputs；引用不可见时 ask_user 或说明上下文不足。",
+      expectedDecision: "根据当前可见事实和 tools 自主选择合法 tool_call 或 final_answer + visibleOutputs；引用不可见时 ask_user 或说明上下文不足。",
       notes: [
         "replace / modify 是内部推理标签，不能写入 AgentAction JSON。",
         "不能根据固定短语硬编码 toolName 或 payload.kind。",

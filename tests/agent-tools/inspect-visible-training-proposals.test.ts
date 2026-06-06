@@ -141,17 +141,18 @@ describe("inspectVisibleTrainingProposals tool", () => {
       projection: expect.objectContaining({
         model: expect.objectContaining({
           operation: "list_recent",
+          factLevel: "diagnostic_index",
           factCount: 0,
           facts: [],
-          factsBoundary: expect.stringContaining("facts[] 是当前 actor 和当前 conversation 中当前可见、可引用的 visibleTrainingProposal 事实索引集合"),
-          emptyFactsBoundary: expect.stringContaining("空 facts[] 可作为解释缺少引用对象或向用户澄清的事实依据"),
-          nextStepBoundary: expect.stringContaining("若本轮目标依赖该引用对象"),
+          refSource: expect.stringContaining("read_recent.ref.value"),
+          finalAnswerSupport: expect.stringContaining("不能直接支撑成功 visibleTrainingProposal 输出"),
+          nextActionHints: ["ask_user", "final_answer_without_visible_outputs", "fail_closed"],
         }),
       }),
     });
-    expect(serializedToolResultForPlanner).toContain("facts=[] 只表示当前可见事实中没有这类引用对象");
-    expect(serializedToolResultForPlanner).toContain("不能支撑成功训练方案刷新、替换、调整或新训练方案生成");
-    expect(serializedToolResultForPlanner).toContain("解释缺少引用对象、追问或失败收口");
+    expect(serializedToolResultForPlanner).toContain("\"factLevel\":\"diagnostic_index\"");
+    expect(serializedToolResultForPlanner).toContain("\"nextActionHints\"");
+    expect(serializedToolResultForPlanner).toContain("不能直接支撑成功 visibleTrainingProposal 输出");
     expect(serializedToolResultForPlanner).not.toContain("开始新的生成");
     expect(serializedToolResultForPlanner).not.toContain("如果用户这样说");
     expect(serializedToolResultForPlanner).not.toContain("答案模板");
@@ -245,6 +246,7 @@ describe("inspectVisibleTrainingProposals tool", () => {
       projection: expect.objectContaining({
         model: expect.objectContaining({
           operation: "read_recent",
+          factLevel: "consumable",
           currentRunImport: expect.objectContaining({
             imported: true,
             role: "consumable",
@@ -253,7 +255,7 @@ describe("inspectVisibleTrainingProposals tool", () => {
           availableSections: ["warmup", "training", "stretch"],
           missingSectionsForRoutineOrPlan: [],
           supportsOutputKinds: ["exercise_selection", "routine"],
-          refreshPlanningBoundary: expect.stringContaining("本 tool 只读取上一套用户可见训练方案事实，不生成新的 visibleTrainingProposal"),
+          nextActionHints: ["final_answer_with_visible_outputs", "continue_tool_call", "ask_user"],
           reusableExerciseItems: [
             expect.objectContaining({ exerciseId: "jumping-jack", section: "warmup" }),
             expect.objectContaining({ exerciseId: "squat", section: "training" }),
@@ -271,14 +273,10 @@ describe("inspectVisibleTrainingProposals tool", () => {
     });
     expect(serializedToolResultForPlanner).toContain("visibleOutputSchemaVersion");
     expect(serializedToolResultForPlanner).toContain("factSchemaVersion");
-    expect(serializedToolResultForPlanner).toContain("resourceOperationBoundary");
-    expect(serializedToolResultForPlanner).toContain("reuse、derive、modify");
-    expect(serializedToolResultForPlanner).toContain("replace");
+    expect(serializedToolResultForPlanner).toContain("\"factLevel\":\"consumable\"");
     expect(serializedToolResultForPlanner).toContain("正向消费的训练事实来源");
     expect(serializedToolResultForPlanner).toContain("不得把已导入动作默认排除");
-    expect(serializedToolResultForPlanner).toContain("最终结构仍必须由 final_answer.visibleOutputs[] 承载");
-    expect(serializedToolResultForPlanner).toContain("不代表本轮最终训练结构已经完成");
-    expect(serializedToolResultForPlanner).toContain("usedRefs");
+    expect(serializedToolResultForPlanner).toContain("\"nextActionHints\"");
     expect(serializedToolResultForPlanner).toContain("final_answer.visibleOutputs[]");
     expect(serializedToolResultForPlanner).not.toContain("displayedExerciseIds");
     expect(serializedToolResultForPlanner).not.toContain("displayedExercises");
@@ -323,10 +321,11 @@ describe("inspectVisibleTrainingProposals tool", () => {
     });
 
     const observationJson = JSON.stringify(result.ok ? result.projection.model : {});
-    expect(observationJson).toContain("继续获取缺失 section");
-    expect(observationJson).toContain("输出当前事实可支撑结构");
-    expect(observationJson).toContain("本 observation 不规定固定 tool 调用顺序");
+    expect(observationJson).toContain("\"factLevel\":\"consumable\"");
+    expect(observationJson).toContain("\"nextActionHints\"");
+    expect(observationJson).toContain("continue_tool_call");
     expect(observationJson).not.toContain("\"routine\",\"plan\"");
+    expect(observationJson).not.toContain("本 observation 不规定固定 tool 调用顺序");
     expect(observationJson).not.toContain("必须调用 searchExerciseResources");
   });
 
