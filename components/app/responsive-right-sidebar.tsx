@@ -13,6 +13,8 @@ import { createPortal } from "react-dom";
 
 const defaultRightSidebarWidth = 320;
 
+type SidebarFocusSource = "pointer" | "keyboard";
+
 type ResponsiveRightSidebarProps = {
   children: ReactNode;
   className?: string;
@@ -55,6 +57,7 @@ export function ResponsiveRightSidebar({
   width = defaultRightSidebarWidth,
 }: ResponsiveRightSidebarProps) {
   const sidebarRef = useRef<HTMLElement | null>(null);
+  const sidebarFocusSourceRef = useRef<SidebarFocusSource>("pointer");
   const [isExpanded, setIsExpanded] = useState(false);
   const [isInteractionReady, setIsInteractionReady] = useState(false);
   const [isMotionReady, setIsMotionReady] = useState(false);
@@ -95,23 +98,67 @@ export function ResponsiveRightSidebar({
     };
   }, [portalRoot]);
 
+  // 侧边栏同时服务鼠标 hover 和键盘访问；这里记录焦点来源，避免鼠标点击后的残留焦点锁住展开态。
+  useEffect(() => {
+    function handleGlobalKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key === "Tab") {
+        sidebarFocusSourceRef.current = "keyboard";
+      }
+    }
+
+    function handleGlobalPointerDown() {
+      sidebarFocusSourceRef.current = "pointer";
+    }
+
+    document.addEventListener("keydown", handleGlobalKeyDown, true);
+    document.addEventListener("pointerdown", handleGlobalPointerDown, true);
+
+    return () => {
+      document.removeEventListener("keydown", handleGlobalKeyDown, true);
+      document.removeEventListener("pointerdown", handleGlobalPointerDown, true);
+    };
+  }, []);
+
   function expandSidebar() {
     if (isInteractionReady) {
       setIsExpanded(true);
     }
   }
 
-  function collapseSidebarIfFocusOutside() {
+  function hasFocusInsideSidebar() {
+    const activeElement = document.activeElement;
+    return activeElement instanceof Node && Boolean(sidebarRef.current?.contains(activeElement));
+  }
+
+  function blurPointerFocusInsideSidebar() {
+    const activeElement = document.activeElement;
+    if (
+      activeElement instanceof HTMLElement &&
+      sidebarRef.current?.contains(activeElement)
+    ) {
+      activeElement.blur();
+    }
+  }
+
+  function handleSidebarPointerLeave() {
     if (!isInteractionReady) {
       return;
     }
 
-    const activeElement = document.activeElement;
-    if (activeElement instanceof Node && sidebarRef.current?.contains(activeElement)) {
+    if (sidebarFocusSourceRef.current === "keyboard" && hasFocusInsideSidebar()) {
       return;
     }
 
+    blurPointerFocusInsideSidebar();
     setIsExpanded(false);
+  }
+
+  function handleSidebarFocus() {
+    if (!isInteractionReady || sidebarFocusSourceRef.current !== "keyboard") {
+      return;
+    }
+
+    setIsExpanded(true);
   }
 
   function handleSidebarBlur(event: FocusEvent<HTMLElement>) {
@@ -135,10 +182,10 @@ export function ResponsiveRightSidebar({
     <aside
       aria-label={label}
       onBlurCapture={handleSidebarBlur}
-      onFocusCapture={expandSidebar}
+      onFocusCapture={handleSidebarFocus}
       onPointerDown={expandSidebar}
       onPointerEnter={expandSidebar}
-      onPointerLeave={collapseSidebarIfFocusOutside}
+      onPointerLeave={handleSidebarPointerLeave}
       onPointerMove={expandSidebar}
       ref={sidebarRef}
       className={`responsive-right-sidebar app-right-sidebar-surface fixed right-0 top-0 z-30 flex h-screen flex-col border-l border-line/70 shadow-nav ${
