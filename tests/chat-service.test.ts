@@ -1432,7 +1432,7 @@ describe("chat service agent text flow boundary", () => {
               allowedSections: ["training"],
               currentVisibleCoverage: expect.objectContaining({
                 availableSections: ["training"],
-                missingSectionsForRoutineOrPlan: ["warmup", "stretch"],
+                missingSections: ["warmup", "stretch"],
               }),
             }),
           ]),
@@ -1757,14 +1757,10 @@ describe("chat service agent text flow boundary", () => {
           previousToolResultId: expectedReadToolResultId,
           previousOk: true,
           repeatCount: 2,
-          nextActionHints: expect.arrayContaining([
-            "final_answer_with_current_tool_result",
-            "continue_tool_call",
-            "ask_user",
-          ]),
         }),
       }),
     });
+    expect(JSON.stringify(duplicateFeedback)).not.toContain("\"nextActionHints\"");
     expect(planner.calls[3].repairContext).toMatchObject({
       error: {
         code: AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT,
@@ -1772,13 +1768,12 @@ describe("chat service agent text flow boundary", () => {
       facts: [
         expect.objectContaining({
           previousToolResultId: expectedReadToolResultId,
-          nextActionHints: expect.arrayContaining([
-            "final_answer_with_current_tool_result",
-            "continue_tool_call",
-          ]),
+          reusableRef: { type: "tool_result", id: expectedReadToolResultId },
+          recoveryBoundary: expect.stringContaining("satisfied=true"),
         }),
       ],
     });
+    expect(JSON.stringify(planner.calls[3].repairContext)).not.toContain("final_answer_with_current_tool_result");
     expect(trace).toMatchObject({
       steps: expect.arrayContaining([
         expect.objectContaining({
@@ -2208,9 +2203,8 @@ describe("chat service agent text flow boundary", () => {
     expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mock.calls.map(([input]) => (
       isRecord(input) ? input.suitability : undefined
     ))).toEqual(["training", "warmup", "stretch"]);
-    expect(supportPlannerInputJson).toContain("missingSectionsForRoutineOrPlan");
-    expect(supportPlannerInputJson).toContain("\"nextActionHints\"");
-    expect(supportPlannerInputJson).toContain("continue_tool_call");
+    expect(supportPlannerInputJson).toContain("missingSections");
+    expect(supportPlannerInputJson).not.toContain("\"nextActionHints\"");
     expect(supportPlannerInputJson).not.toContain("suitabilities = [\\\"warmup\\\", \\\"stretch\\\"]");
     expect(finalPlannerToolResultsJson).toContain(warmupExercise.id);
     expect(finalPlannerToolResultsJson).toContain(trainingExercise.id);
@@ -2339,14 +2333,13 @@ describe("chat service agent text flow boundary", () => {
     expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mock.calls.map(([input]) => (
       isRecord(input) ? input.suitability : undefined
     ))).toEqual(["training", "warmup", "stretch"]);
-    expect(supportPlannerToolResultsJson).toContain("\"nextActionHints\"");
-    expect(supportPlannerToolResultsJson).toContain("continue_tool_call");
+    expect(supportPlannerToolResultsJson).not.toContain("\"nextActionHints\"");
     expect(supportPlannerToolResultsJson).not.toContain("suitabilities = [\\\"warmup\\\"");
     expect(finalPlannerToolResultsJson).toContain("push-up");
     expect(finalPlannerToolResultsJson).toContain("jumping-jack");
     expect(finalPlannerToolResultsJson).toContain("chest-stretch");
-    expect(finalPlannerToolResultsJson).toContain("missingSectionsForRoutineOrPlan");
-    expect(finalPlannerToolResultsJson).toContain("groups.<section>.exercises[] 是本次实际返回的 section-scoped 动作事实");
+    expect(finalPlannerToolResultsJson).toContain("missingSections");
+    expect(finalPlannerToolResultsJson).toContain("groups.<section>.exercises[] 中的动作是当前查询按该 section 返回的动作事实");
     expect(events).toEqual([
       expect.objectContaining({
         type: "tool_result",
@@ -2488,15 +2481,15 @@ describe("chat service agent text flow boundary", () => {
         }),
       ],
     });
-    expect(supportPlannerInputJson).toContain("missingSectionsForRoutineOrPlan");
+    expect(supportPlannerInputJson).toContain("missingSections");
     expect(supportPlannerInputJson).toContain("warmup");
     expect(supportPlannerInputJson).toContain("stretch");
     expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries).toHaveBeenCalledTimes(2);
     expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries.mock.calls.map(([input]) => (
       isRecord(input) ? input.suitability : undefined
     ))).toEqual(["warmup", "stretch"]);
-    expect(finalPlannerToolResultsJson).toContain("finalAnswerSupport");
-    expect(finalPlannerToolResultsJson).toContain("missingSectionsForRoutineOrPlan 非空时");
+    expect(finalPlannerToolResultsJson).not.toContain("finalAnswerSupport");
+    expect(finalPlannerToolResultsJson).toContain("missingSections");
     expect(finalPlannerToolResultsJson).toContain("jumping-jack");
     expect(finalPlannerToolResultsJson).toContain("chest-stretch");
     expect(events).toEqual([
@@ -3049,7 +3042,7 @@ describe("chat service agent text flow boundary", () => {
     expect(JSON.stringify(events)).not.toContain("visible_output");
     expect(JSON.stringify(events)).not.toContain("聊天生成失败");
     expect(repairObservationJson).toContain("section_coverage_missing");
-    expect(repairObservationJson).toContain("missingSectionsForRoutineOrPlan");
+    expect(repairObservationJson).toContain("missingSections");
     expect(repairObservationJson).toContain("currentVisibleCoverage");
     expect(repairObservationJson).not.toContain("recoveryDirections");
     expect(repairObservationJson).not.toContain("继续获取缺失 section");

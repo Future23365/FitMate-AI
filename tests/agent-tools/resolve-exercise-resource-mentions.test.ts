@@ -97,9 +97,9 @@ describe("resolveExerciseResourceMentions tool", () => {
       notFoundCount: 0,
       requiredExerciseIdsBoundary: expect.stringContaining("requiredExerciseIds"),
       outputBoundary: expect.stringContaining("不能直接作为 visibleTrainingProposal.exerciseItems[*].exerciseId"),
-      nextActionHints: ["continue_tool_call", "ask_user", "final_answer_without_visible_outputs"],
     });
     expect(JSON.stringify(modelObservation)).toContain("allowedSections");
+    expect(JSON.stringify(modelObservation)).not.toContain("\"nextActionHints\"");
     const serializedProjection = JSON.stringify(result.projection);
     expect(serializedProjection).toContain("requiredExerciseIds");
     expect(serializedProjection).toContain("Pushups");
@@ -191,13 +191,13 @@ describe("resolveExerciseResourceMentions tool", () => {
       matchedCount: 0,
       ambiguousCount: 1,
       notFoundCount: 1,
-      nextActionHints: ["continue_tool_call", "ask_user", "final_answer_without_visible_outputs"],
     });
     const observationJson = JSON.stringify(modelObservation);
     expect(observationJson).toContain("mention_ambiguous");
     expect(observationJson).toContain("mention_not_found");
     expect(observationJson).toContain("allowedSections");
     expect(observationJson).toContain("requiredExerciseIds");
+    expect(observationJson).not.toContain("\"nextActionHints\"");
     expect(observationJson).not.toContain("必须调用 searchExerciseResources");
   });
 

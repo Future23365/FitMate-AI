@@ -314,11 +314,6 @@ describe("agent-core runtime budget and idempotency hardening", () => {
         code: AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT,
         details: expect.objectContaining({
           previousToolResultId: expectedToolResultId,
-          nextActionHints: expect.arrayContaining([
-            "final_answer_with_current_tool_result",
-            "continue_tool_call",
-            "ask_user",
-          ]),
           producedResources: [
             expect.objectContaining({
               resourceType: "satisfied_resource",
@@ -341,13 +336,14 @@ describe("agent-core runtime budget and idempotency hardening", () => {
       facts: [
         expect.objectContaining({
           previousToolResultId: expectedToolResultId,
-          nextActionHints: expect.arrayContaining([
-            "final_answer_with_current_tool_result",
-            "continue_tool_call",
-          ]),
+          reusableRef: { type: "tool_result", id: expectedToolResultId },
+          recoveryBoundary: expect.stringContaining("satisfied=true"),
         }),
       ],
     });
+    expect(JSON.stringify(duplicateFeedback)).not.toContain("\"nextActionHints\"");
+    expect(JSON.stringify(planner.calls[2].repairContext)).not.toContain("final_answer_with_current_tool_result");
+    expect(JSON.stringify(planner.calls[2].repairContext)).not.toContain("continue_tool_call");
   });
 
   it("does not treat changed input as duplicate and dedupes repeated ok diagnostic results", async () => {
@@ -410,14 +406,10 @@ describe("agent-core runtime budget and idempotency hardening", () => {
       content: expect.objectContaining({
         details: expect.objectContaining({
           previousSatisfied: false,
-          nextActionHints: expect.arrayContaining([
-            "continue_tool_call",
-            "ask_user",
-            "fail_closed",
-          ]),
         }),
       }),
     });
+    expect(JSON.stringify(unsatisfiedDuplicateFeedback)).not.toContain("\"nextActionHints\"");
     expect(JSON.stringify(unsatisfiedDuplicateFeedback)).not.toContain("final_answer_with_current_tool_result");
     expect(unsatisfiedResult.traceEvents).toEqual(expect.arrayContaining([
       expect.objectContaining({

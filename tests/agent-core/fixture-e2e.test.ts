@@ -60,13 +60,11 @@ describe("agent-core fixture read tool end to end", () => {
           detailedFacts: TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
           projectionModelOmitted: true,
         },
-        finalAnswerSupport: {
-          supported: true,
-          requiredRef: { type: "tool_result", id: expectedToolResultId },
-        },
-        nextActionHints: expect.arrayContaining(["final_answer_with_current_tool_result", "continue_tool_call"]),
+        terminalUsedRef: { type: "tool_result", id: expectedToolResultId },
       },
     });
+    expect(JSON.stringify(planner.calls[1].observations[0])).not.toContain("finalAnswerSupport");
+    expect(JSON.stringify(planner.calls[1].observations[0])).not.toContain("\"nextActionHints\"");
     expect(JSON.stringify(planner.calls[1].observations[0])).not.toContain("Fixture alpha-intro");
     expect(planner.calls[1].toolResults[0]).toMatchObject({
       output: "[redacted]",

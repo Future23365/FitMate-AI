@@ -354,7 +354,6 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
           satisfied: false,
         },
         code: output.code,
-        nextActionHints: ["continue_tool_call", "ask_user", "final_answer_without_visible_outputs"],
       });
     }
 
@@ -365,17 +364,12 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
         factLevel: "diagnostic_index",
         fulfillment: {
           satisfied: true,
-          supportsSuccessfulVisibleOutputs: false,
         },
         factCount: output.facts.length,
         facts: output.facts,
         refSource: "facts[].factRef 或 facts[].messageId 只可复制到本轮 read_recent.ref.value。",
         visibilityBoundary: "facts[] 是当前 actor 和当前 conversation 可见的轻量索引；不包含完整 payload、prescription、schedule 或未展示候选。",
-        finalAnswerSupport: "可支撑是否存在可引用方案的解释或澄清；不能直接支撑成功 visibleTrainingProposal 输出。",
         schemaVersionBoundary: "visibleOutputSchemaVersion 是 visibleOutputs[].schemaVersion 可参考的字符串版本；factSchemaVersion 是服务端事实存储版本。",
-        nextActionHints: output.facts.length > 0
-          ? ["continue_tool_call", "ask_user", "final_answer_without_visible_outputs"]
-          : ["ask_user", "final_answer_without_visible_outputs", "fail_closed"],
       });
     }
 
@@ -387,7 +381,6 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
       factLevel: "consumable",
       fulfillment: {
         satisfied: true,
-        supportsSuccessfulVisibleOutputs: true,
       },
       sourceReferenceBoundary: "本次读取使用的 factRef/messageId 是源业务引用，不是当前 run 登记的 resourceId。",
       currentRunImport: {
@@ -411,13 +404,10 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
         })),
       sectionSummary: resourceConsumption.sectionSummary,
       availableSections: resourceConsumption.availableSections,
-      missingSectionsForRoutineOrPlan: resourceConsumption.missingSectionsForRoutineOrPlan,
-      supportsOutputKinds: resourceConsumption.supportsOutputKinds,
+      missingSections: resourceConsumption.missingSections,
+      hasSchedule: Boolean(output.fact.proposal.schedule),
       schedule: output.fact.proposal.schedule,
       outputBoundary: "最终结构必须写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal payload，或通过当前 run tool result / consumable resource 做 grounded terminal action。",
-      nextActionHints: resourceConsumption.missingSectionsForRoutineOrPlan.length > 0
-        ? ["continue_tool_call", "ask_user", "final_answer_without_visible_outputs"]
-        : ["final_answer_with_visible_outputs", "continue_tool_call", "ask_user"],
     });
   },
   toUserProjection: (output) => {
@@ -493,11 +483,11 @@ function buildReadRecentResourceConsumptionSummary(
   return {
     ...summarizeVisibleTrainingResourceCoverage({
       exerciseItems: output.fact.proposal.exerciseItems,
-      hasSchedule: Boolean(output.fact.proposal.schedule),
     }),
+    hasSchedule: Boolean(output.fact.proposal.schedule),
     positiveConsumptionBoundary: "这些 exerciseItems 是当前 run 可消费的正向训练事实来源，可用于保留、复用、派生或调整。",
     negativeConstraintBoundary: "只有替换、排除或避免重复目标才适合把这些 exerciseId 转成负向 excludeExerciseIds；不得把已导入动作默认排除。",
-    outputBoundary: "supportsOutputKinds 只说明该事实当前可直接支撑的 visibleTrainingProposal 输出强度；最终新输出仍必须由 final_answer.visibleOutputs[] 承载并通过 validator。",
+    outputBoundary: "该摘要只表达已导入事实的 section 覆盖和 schedule 是否存在；最终新输出仍必须由 final_answer.visibleOutputs[] 承载并通过 validator。",
   };
 }
 

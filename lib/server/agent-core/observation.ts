@@ -55,34 +55,8 @@ function createOkToolResultIndexObservation(result: Extract<ToolResult, { ok: tr
         detailedFacts: TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
         projectionModelOmitted: true,
       },
-      finalAnswerSupport: result.fulfillment.satisfied
-        ? {
-            supported: true,
-            requiredRef: { type: "tool_result", id: result.toolResultId },
-          }
-        : {
-            supported: false,
-            reason: "fulfillment.satisfied=false，只能用于恢复、澄清或失败解释。",
-          },
-      nextActionHints: getToolResultIndexNextActionHints(result.fulfillment.satisfied),
     }),
   };
-}
-
-/** getToolResultIndexNextActionHints 用短枚举表达成功结果索引的可选恢复出口。 */
-function getToolResultIndexNextActionHints(satisfied: boolean): readonly string[] {
-  return satisfied
-    ? [
-        "final_answer_with_current_tool_result",
-        "continue_tool_call",
-        "ask_user",
-      ]
-    : [
-        "continue_tool_call",
-        "ask_user",
-        "final_answer_without_visible_outputs",
-        "fail_closed",
-      ];
 }
 
 /** createInvalidActionObservation 将非法 action 反馈给后续 Planner，M0 不做服务端语义改写。 */
@@ -130,27 +104,9 @@ export function createDuplicateToolInputObservation(input: {
         repeatCount: input.repeatCount,
         resultSummary: input.resultSummary,
         producedResources: input.producedResources,
-        nextActionHints: getDuplicateToolInputNextActionHints(input.previousSatisfied),
       },
     }),
   };
-}
-
-/** getDuplicateToolInputNextActionHints 提供重复 tool input repair 的短枚举出口，不绑定具体业务 tool。 */
-export function getDuplicateToolInputNextActionHints(previousSatisfied: boolean): readonly string[] {
-  return previousSatisfied
-    ? [
-        "final_answer_with_current_tool_result",
-        "continue_tool_call",
-        "ask_user",
-        "final_answer_without_visible_outputs",
-      ]
-    : [
-        "continue_tool_call",
-        "ask_user",
-        "final_answer_without_visible_outputs",
-        "fail_closed",
-      ];
 }
 
 /** compressPlannerObservations 控制模型上下文增长，只保留可校验引用、错误码和安全摘要。 */

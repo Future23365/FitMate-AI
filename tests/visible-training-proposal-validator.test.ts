@@ -323,12 +323,11 @@ describe("visible training proposal validator", () => {
         path: "payload.exerciseItems",
         payloadKind: "routine",
         availableSections: ["training"],
-        missingSectionsForRoutineOrPlan: ["warmup", "stretch"],
+        missingSections: ["warmup", "stretch"],
         outputCoverage: {
           sectionSummary: { warmup: 0, training: 1, stretch: 0 },
           availableSections: ["training"],
-          missingSectionsForRoutineOrPlan: ["warmup", "stretch"],
-          supportsOutputKinds: ["exercise_selection"],
+          missingSections: ["warmup", "stretch"],
         },
       },
     });
@@ -353,7 +352,7 @@ describe("visible training proposal validator", () => {
       ok: false,
       details: {
         code: "section_coverage_missing",
-        missingSectionsForRoutineOrPlan: ["warmup", "stretch"],
+        missingSections: ["warmup", "stretch"],
       },
     });
     const result = await validateVisibleTrainingProposalOutput(

@@ -145,14 +145,13 @@ describe("inspectVisibleTrainingProposals tool", () => {
           factCount: 0,
           facts: [],
           refSource: expect.stringContaining("read_recent.ref.value"),
-          finalAnswerSupport: expect.stringContaining("不能直接支撑成功 visibleTrainingProposal 输出"),
-          nextActionHints: ["ask_user", "final_answer_without_visible_outputs", "fail_closed"],
         }),
       }),
     });
     expect(serializedToolResultForPlanner).toContain("\"factLevel\":\"diagnostic_index\"");
-    expect(serializedToolResultForPlanner).toContain("\"nextActionHints\"");
-    expect(serializedToolResultForPlanner).toContain("不能直接支撑成功 visibleTrainingProposal 输出");
+    expect(serializedToolResultForPlanner).not.toContain("\"nextActionHints\"");
+    expect(serializedToolResultForPlanner).not.toContain("supportsOutputKinds");
+    expect(serializedToolResultForPlanner).not.toContain("finalAnswerSupport");
     expect(serializedToolResultForPlanner).not.toContain("开始新的生成");
     expect(serializedToolResultForPlanner).not.toContain("如果用户这样说");
     expect(serializedToolResultForPlanner).not.toContain("答案模板");
@@ -253,9 +252,8 @@ describe("inspectVisibleTrainingProposals tool", () => {
             note: expect.stringContaining("正向消费的训练事实来源"),
           }),
           availableSections: ["warmup", "training", "stretch"],
-          missingSectionsForRoutineOrPlan: [],
-          supportsOutputKinds: ["exercise_selection", "routine"],
-          nextActionHints: ["final_answer_with_visible_outputs", "continue_tool_call", "ask_user"],
+          missingSections: [],
+          hasSchedule: false,
           reusableExerciseItems: [
             expect.objectContaining({ exerciseId: "jumping-jack", section: "warmup" }),
             expect.objectContaining({ exerciseId: "squat", section: "training" }),
@@ -276,7 +274,8 @@ describe("inspectVisibleTrainingProposals tool", () => {
     expect(serializedToolResultForPlanner).toContain("\"factLevel\":\"consumable\"");
     expect(serializedToolResultForPlanner).toContain("正向消费的训练事实来源");
     expect(serializedToolResultForPlanner).toContain("不得把已导入动作默认排除");
-    expect(serializedToolResultForPlanner).toContain("\"nextActionHints\"");
+    expect(serializedToolResultForPlanner).not.toContain("\"nextActionHints\"");
+    expect(serializedToolResultForPlanner).not.toContain("supportsOutputKinds");
     expect(serializedToolResultForPlanner).toContain("final_answer.visibleOutputs[]");
     expect(serializedToolResultForPlanner).not.toContain("displayedExerciseIds");
     expect(serializedToolResultForPlanner).not.toContain("displayedExercises");
@@ -309,12 +308,12 @@ describe("inspectVisibleTrainingProposals tool", () => {
       projection: {
         model: expect.objectContaining({
           availableSections: ["training"],
-          missingSectionsForRoutineOrPlan: ["warmup", "stretch"],
-          supportsOutputKinds: ["exercise_selection"],
+          missingSections: ["warmup", "stretch"],
+          hasSchedule: false,
           resourceConsumption: expect.objectContaining({
             availableSections: ["training"],
-            missingSectionsForRoutineOrPlan: ["warmup", "stretch"],
-            supportsOutputKinds: ["exercise_selection"],
+            missingSections: ["warmup", "stretch"],
+            hasSchedule: false,
           }),
         }),
       },
@@ -322,8 +321,9 @@ describe("inspectVisibleTrainingProposals tool", () => {
 
     const observationJson = JSON.stringify(result.ok ? result.projection.model : {});
     expect(observationJson).toContain("\"factLevel\":\"consumable\"");
-    expect(observationJson).toContain("\"nextActionHints\"");
-    expect(observationJson).toContain("continue_tool_call");
+    expect(observationJson).not.toContain("\"nextActionHints\"");
+    expect(observationJson).not.toContain("continue_tool_call");
+    expect(observationJson).not.toContain("supportsOutputKinds");
     expect(observationJson).not.toContain("\"routine\",\"plan\"");
     expect(observationJson).not.toContain("本 observation 不规定固定 tool 调用顺序");
     expect(observationJson).not.toContain("必须调用 searchExerciseResources");

@@ -35,7 +35,7 @@ describe("agent visible output contracts", () => {
       "toolResults[].producedResources",
       "resource summary",
       "toolResults[].fulfillment.satisfied",
-      "missingSectionsForRoutineOrPlan",
+      "missingSections",
       "payload",
       "exerciseItems",
       "schedule.assignments",

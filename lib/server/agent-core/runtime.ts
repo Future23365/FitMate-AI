@@ -17,7 +17,6 @@ import {
   createInvalidActionObservation,
   createRuntimeErrorObservation,
   createToolObservation,
-  getDuplicateToolInputNextActionHints,
 } from "./observation";
 import { evaluateToolPolicy } from "./policy-guard";
 import { redactJsonValue } from "./redaction";
@@ -761,17 +760,14 @@ function createDuplicateToolInputRepairError(input: DuplicateToolInputRepairFeed
     previousOk: input.previousOk,
     previousSatisfied: input.previousSatisfied,
     repeatCount: input.repeatCount,
-    nextActionHints: [...getDuplicateToolInputNextActionHints(input.previousSatisfied)],
-    finalAnswerSupport: input.previousSatisfied
-      ? {
-          supported: true,
-          requiredRef: { type: "tool_result", id: input.previousToolResultId },
-        }
-      : {
-          supported: false,
-          reason: "previous tool result 的 fulfillment.satisfied=false，不能支撑成功 final_answer。",
-        },
+    recoveryBoundary: input.previousSatisfied
+      ? "previousToolResultId 对应当前 run 已有 satisfied=true 的 tool result；模型可在合法 terminal usedRefs 中引用该事实，或提交不同的合法 tool input。"
+      : "previousToolResultId 对应当前 run 已有诊断 tool result；模型只能把它作为失败解释、澄清或修复事实，或提交不同的合法 tool input。",
   };
+
+  if (input.previousSatisfied) {
+    fact.reusableRef = { type: "tool_result", id: input.previousToolResultId };
+  }
 
   if (input.resultSummary) {
     fact.resultSummary = input.resultSummary;

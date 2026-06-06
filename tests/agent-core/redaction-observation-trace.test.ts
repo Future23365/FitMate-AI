@@ -111,14 +111,11 @@ describe("agent-core redaction, observation compression and trace audit", () => 
           detailedFacts: TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
           projectionModelOmitted: true,
         },
-        finalAnswerSupport: {
-          supported: true,
-          requiredRef: { type: "tool_result", id: result.toolResultId },
-        },
-        nextActionHints: expect.arrayContaining(["final_answer_with_current_tool_result", "continue_tool_call"]),
       },
     });
     expect(serializedObservation).toContain("\"terminalUsedRef\":{\"type\":\"tool_result\"");
+    expect(serializedObservation).not.toContain("finalAnswerSupport");
+    expect(serializedObservation).not.toContain("\"nextActionHints\"");
     expect(serializedObservation).not.toContain("\"resourceType\":\"tool_result\"");
     expect(serializedObservation).not.toContain("server-only-secret");
     expect(serializedObservation).not.toContain("visible");
@@ -193,11 +190,10 @@ describe("agent-core redaction, observation compression and trace audit", () => 
     expect(JSON.stringify(unsatisfiedObservation.content)).toContain("\"satisfied\":false");
     expect(unsatisfiedObservation.content).toMatchObject({
       factLevel: "diagnostic_tool_result_index",
-      finalAnswerSupport: {
-        supported: false,
-      },
-      nextActionHints: expect.arrayContaining(["continue_tool_call", "ask_user", "fail_closed"]),
+      modelFactsChannel: TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
     });
+    expect(JSON.stringify(unsatisfiedObservation.content)).not.toContain("finalAnswerSupport");
+    expect(JSON.stringify(unsatisfiedObservation.content)).not.toContain("\"nextActionHints\"");
     expect(JSON.stringify(unsatisfiedObservation.content)).not.toContain("no_candidates");
     expect(JSON.stringify(unsatisfiedResult.projection.model)).toContain("no_candidates");
     expect(JSON.stringify(unsatisfiedResult.projection.model)).toContain("放宽器械或目标部位");

@@ -120,33 +120,27 @@ describe("searchExerciseResources tool", () => {
     const serializedObservation = JSON.stringify(modelObservation);
     expect(serializedObservation).toContain("exerciseId");
     expect(serializedObservation).toContain("availableSections");
-    expect(serializedObservation).toContain("section-scoped 动作事实");
+    expect(serializedObservation).toContain("section_scoped_exercise_facts");
     expect(modelObservation).toMatchObject({
       factLevel: "section_scoped_exercise_facts",
       availableSections: ["training"],
       sectionSummary: { warmup: 0, training: 1, stretch: 0 },
-      missingSectionsForRoutineOrPlan: ["warmup", "stretch"],
-      supportsOutputKinds: ["exercise_selection"],
+      missingSections: ["warmup", "stretch"],
       groupSemantics: {
         groupKey: "groups.<section>",
         sectionRelation: expect.stringContaining("visibleTrainingProposal.exerciseItems[]"),
         allowedSectionsRelation: expect.stringContaining("allowedSections"),
       },
-      routinePlanCompositionBoundary: {
-        returnedSections: ["training"],
-        sectionSummary: { warmup: 0, training: 1, stretch: 0 },
-        missingSectionsForRoutineOrPlan: ["warmup", "stretch"],
-        finalAnswerSupport: expect.stringContaining("不能支撑 successful routine 或 plan visible output"),
-        nextActionHints: ["continue_tool_call", "ask_user", "final_answer_without_visible_outputs"],
-      },
       refreshExclusionBoundary: expect.stringContaining("本次查询未应用 excludeExerciseIds"),
-      nextActionHints: ["continue_tool_call", "ask_user", "final_answer_without_visible_outputs"],
       filterSemantics: [createNoEquipmentFilterSemantic("no_equipment")],
     });
     expect(serializedObservation).toContain("section 应与使用的 group key 保持一致");
-    expect(serializedObservation).toContain("missingSectionsForRoutineOrPlan 非空");
-    expect(serializedObservation).toContain("不能支撑 successful routine 或 plan visible output");
-    expect(serializedObservation).toContain("\"nextActionHints\"");
+    expect(serializedObservation).toContain("\"missingSections\"");
+    expect(serializedObservation).not.toContain("supportsOutputKinds");
+    expect(serializedObservation).not.toContain("supportsSuccessfulVisibleOutputs");
+    expect(serializedObservation).not.toContain("finalAnswerSupport");
+    expect(serializedObservation).not.toContain("routinePlanCompositionBoundary");
+    expect(serializedObservation).not.toContain("\"nextActionHints\"");
     expect(serializedObservation).toContain("本次查询未使用 requiredExerciseIds");
     expect(serializedObservation).toContain("地面/瑜伽垫");
     expect(serializedObservation).toContain("repository 只映射到自重动作字段");
@@ -162,13 +156,12 @@ describe("searchExerciseResources tool", () => {
     expect(serializedObservation).not.toContain("expandedMuscles");
     expect(serializedObservation).not.toContain("\"id\"");
     expect(serializedObservation).not.toContain("visibleTrainingProposal\":{\"");
-    expect(serializedObservation).toContain("groups.<section>.exercises[] 是本次实际返回的 section-scoped 动作事实");
+    expect(serializedObservation).toContain("groups.<section>.exercises[] 中的动作是当前查询按该 section 返回的动作事实");
     expect(serializedObservation).toContain("该结果不证明当前 run 存在上一套可操作对象");
     expect(serializedObservation).toContain("不代表刷新、替换或调整已完成");
     expect(serializedObservation).toContain("availableSections");
-    expect(serializedObservation).toContain("训练推送仍需由 visibleOutputs[] 或当前 run 可消费事实承载");
-    expect(serializedObservation).toContain("section-scoped 动作事实");
-    expect(serializedObservation).toContain("visibleOutputs[] 或当前 run 可消费事实承载");
+    expect(serializedObservation).toContain("allowedSections");
+    expect(serializedObservation).toContain("querySpecificity");
     expect(serializedObservation).not.toContain("不是 visibleTrainingProposal");
     expect(serializedObservation).not.toContain("\"warmup\":{\"suitability\":\"warmup\"");
     expect(serializedObservation).not.toContain("\"stretch\":{\"suitability\":\"stretch\"");
@@ -217,8 +210,9 @@ describe("searchExerciseResources tool", () => {
     );
     const observationJson = JSON.stringify(observation);
 
-    expect(observationJson).toContain("\"nextActionHints\"");
-    expect(observationJson).toContain("continue_tool_call");
+    expect(observationJson).toContain("\"missingSections\"");
+    expect(observationJson).not.toContain("\"nextActionHints\"");
+    expect(observationJson).not.toContain("continue_tool_call");
     expect(observationJson).not.toContain("suitabilities = [\\\"warmup\\\", \\\"stretch\\\"]");
     expect(observationJson).not.toContain("缺口补齐前只能继续补事实、澄清或失败收口");
     expect(observationJson).not.toContain("你可以从中挑选");
@@ -276,15 +270,14 @@ describe("searchExerciseResources tool", () => {
       querySpecificity: {
         status: "too_broad",
         specificFilters: [],
-        finalAnswerSupport: expect.stringContaining("普通 final_answer 只能解释当前条件过宽或事实不足"),
-        nextActionHints: ["ask_user", "final_answer_without_visible_outputs", "continue_tool_call"],
       },
     });
     const serializedObservation = JSON.stringify(modelObservation);
     expect(serializedObservation).toContain("fulfillment.satisfied=false");
     expect(serializedObservation).toContain("\"factLevel\":\"diagnostic\"");
-    expect(serializedObservation).toContain("不能支撑 visibleTrainingProposal");
-    expect(serializedObservation).toContain("\"nextActionHints\"");
+    expect(serializedObservation).not.toContain("supportsSuccessfulVisibleOutputs");
+    expect(serializedObservation).not.toContain("finalAnswerSupport");
+    expect(serializedObservation).not.toContain("\"nextActionHints\"");
 
     const sameInputDifferentUserTextResult = await executeTool({
       tool,
@@ -473,7 +466,7 @@ describe("searchExerciseResources tool", () => {
     const serializedObservation = JSON.stringify(modelObservation);
 
     expect(serializedObservation).toContain("候选不足时不得回填已排除动作");
-    expect(serializedObservation).toContain("\"nextActionHints\"");
+    expect(serializedObservation).not.toContain("\"nextActionHints\"");
     expect(serializedObservation).not.toContain("\"exerciseId\":\"squat\"");
     expect(serializedObservation).not.toContain("\"exerciseId\":\"lunge\"");
   });

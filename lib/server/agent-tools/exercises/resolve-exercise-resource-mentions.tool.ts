@@ -162,7 +162,6 @@ export const resolveExerciseResourceMentionsTool = defineTool<
     factLevel: "resolved_candidates",
     fulfillment: {
       satisfied: true,
-      supportsSuccessfulVisibleOutputs: false,
     },
     mentionCount: output.mentionCount,
     matchedCount: output.matchedCount,
@@ -170,7 +169,6 @@ export const resolveExerciseResourceMentionsTool = defineTool<
     notFoundCount: output.notFoundCount,
     requiredExerciseIdsBoundary: "matched 或模型从 ambiguous 候选中选择的 exerciseId 可作为后续 requiredExerciseIds 正向锚点。",
     outputBoundary: "本 observation 不能直接作为 visibleTrainingProposal.exerciseItems[*].exerciseId 的动作事实来源；最终动作事实仍需来自 section-scoped 动作查询结果或当前 run 可消费训练事实。",
-    nextActionHints: ["continue_tool_call", "ask_user", "final_answer_without_visible_outputs"],
     results: output.results.map((result) => ({
       text: result.text,
       ...(result.sectionHint ? { sectionHint: result.sectionHint } : {}),

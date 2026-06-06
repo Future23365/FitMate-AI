@@ -96,7 +96,6 @@ export async function validateVisibleTrainingProposalOutput(
         ...asObjectDetails(exerciseValidation.details),
         outputCoverage: summarizeVisibleTrainingResourceCoverage({
           exerciseItems: parsed.data.exerciseItems,
-          hasSchedule: Boolean(parsed.data.schedule),
         }),
         currentVisibleCoverage: summarizeCurrentVisibleTrainingCoverage(context),
       },
@@ -137,9 +136,8 @@ function createRoutinePlanCoverageFailure(
 
   const outputCoverage = summarizeVisibleTrainingResourceCoverage({
     exerciseItems,
-    hasSchedule: isRecord(payload.schedule),
   });
-  if (outputCoverage.missingSectionsForRoutineOrPlan.length === 0) {
+  if (outputCoverage.missingSections.length === 0) {
     return null;
   }
 
@@ -152,7 +150,7 @@ function createRoutinePlanCoverageFailure(
       payloadKind: payload.kind,
       outputCoverage,
       availableSections: outputCoverage.availableSections,
-      missingSectionsForRoutineOrPlan: outputCoverage.missingSectionsForRoutineOrPlan,
+      missingSections: outputCoverage.missingSections,
       currentVisibleCoverage: summarizeCurrentVisibleTrainingCoverage(context),
     },
   };

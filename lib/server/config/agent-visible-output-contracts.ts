@@ -74,8 +74,8 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
       meaning: "该 tool result 是否满足工具声明能力；false 表示诊断或不足，不能支撑成功训练交付。",
     },
     {
-      field: "missingSectionsForRoutineOrPlan",
-      meaning: "validator 或 observation 中可能出现的诊断字段，表示 routine/plan 还缺哪些 section 事实。",
+      field: "missingSections",
+      meaning: "validator 或 observation 中可能出现的诊断字段，表示当前训练事实还缺哪些 section。",
     },
     {
       field: "payload",
@@ -274,7 +274,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
       expectedDecision: "继续合法 tool_call 补齐 warmup/stretch；若无法继续获取事实，ask_user 或失败收口；不得输出缺 section 的 routine，也不得降级为 exercise_selection。",
       notes: [
         "这是 section readiness 的业务边界，不是固定 toolName 规则。",
-        "missingSectionsForRoutineOrPlan 只作为诊断事实使用。",
+        "missingSections 只作为诊断事实使用。",
       ],
     },
     {

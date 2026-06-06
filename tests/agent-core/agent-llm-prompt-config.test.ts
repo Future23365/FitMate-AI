@@ -59,7 +59,7 @@ describe("agent LLM prompt configuration", () => {
       "schedule.assignments 表达训练日和休息日",
       "setRestSeconds",
       "transitionRestSeconds",
-      "missingSectionsForRoutineOrPlan",
+      "missingSections",
       "visible_training_proposal_fact",
       "searchExerciseResources",
       "inspectVisibleTrainingProposals",

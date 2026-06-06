@@ -423,7 +423,6 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
         factLevel: broadQuery ? "diagnostic" : "section_scoped_exercise_facts",
         fulfillment: {
           satisfied: !broadQuery,
-          supportsSuccessfulVisibleOutputs: !broadQuery && coverage.supportsOutputKinds.length > 0,
         },
         suitabilities: output.query.suitabilities,
         totalMatches: output.query.totalMatches,
@@ -432,26 +431,20 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
         excludedCount: output.query.excludedCount,
         availableSections: coverage.availableSections,
         sectionSummary: coverage.sectionSummary,
-        missingSectionsForRoutineOrPlan: coverage.missingSectionsForRoutineOrPlan,
-        supportsOutputKinds: coverage.supportsOutputKinds,
+        missingSections: coverage.missingSections,
         querySpecificity: buildQuerySpecificityObservation(output),
         filterSemantics: output.query.filterSemantics,
-        finalAnswerSupport: broadQuery
-          ? "本次结果只能解释条件过宽或事实不足，不能支撑 visibleTrainingProposal。"
-          : "groups.<section>.exercises[] 是本次实际返回的 section-scoped 动作事实；训练推送仍需由 visibleOutputs[] 或当前 run 可消费事实承载。",
         positiveAnchorBoundary: output.query.requiredExerciseIds?.length
           ? "requiredExerciseIds 是正向锚点，只表示优先纳入对应 groups.<section>.exercises 的受控动作事实。"
           : "本次查询未使用 requiredExerciseIds。",
         refreshExclusionBoundary: output.query.excludedCount > 0
           ? "本次查询已应用 excludeExerciseIds；候选不足时不得回填已排除动作。"
           : "本次查询未应用 excludeExerciseIds；该结果不证明当前 run 存在上一套可操作对象，也不代表刷新、替换或调整已完成。",
-        routinePlanCompositionBoundary: buildRoutinePlanCompositionBoundary(output.groups),
         groupSemantics: {
           groupKey: "groups.<section>",
           sectionRelation: "groups.<section>.exercises[] 中的动作是当前查询按该 section 返回的动作事实；生成 visibleTrainingProposal.exerciseItems[] 时，section 应与使用的 group key 保持一致。",
           allowedSectionsRelation: "每个动作的 allowedSections 是可进入哪些 section 的事实字段；exerciseItems[*].section 必须包含在该动作 allowedSections 中。",
         },
-        nextActionHints: buildSearchNextActionHints(broadQuery, coverage.missingSectionsForRoutineOrPlan),
         appliedFilters: output.query.appliedFilters,
         groups: mapGroups(output.groups, (exercise) => ({
           exerciseId: exercise.exerciseId,
@@ -566,16 +559,13 @@ function buildQuerySpecificityObservation(output: SearchExerciseResourcesOutput)
       status: "too_broad",
       specificFilters,
       boundary: "本次 searchExerciseResources input 除默认 suitabilities、published、sort 外没有任何目标、facet、器械、场地、点名动作或当前 run 可见动作锚点；fulfillment.satisfied=false。",
-      finalAnswerSupport: "普通 final_answer 只能解释当前条件过宽或事实不足，不能输出 visibleTrainingProposal。",
-      nextActionHints: ["ask_user", "final_answer_without_visible_outputs", "continue_tool_call"],
     };
   }
 
   return {
     status: "constrained",
     specificFilters,
-    boundary: "本次查询包含可解释结构化约束；仍需满足 section、动作事实、prescription、schedule 和 terminal validator 边界后，才能支撑对应训练输出。",
-    nextActionHints: ["continue_tool_call", "final_answer_with_visible_outputs", "ask_user"],
+    boundary: "本次查询包含可解释结构化约束；返回事实仍需与 section、动作事实、prescription、schedule 和 terminal validator 边界共同校验。",
   };
 }
 
@@ -846,36 +836,6 @@ function mapGroups<T>(
       },
     ]];
   }));
-}
-
-function buildSearchNextActionHints(broadQuery: boolean, missingSectionsForRoutineOrPlan: string[]) {
-  if (broadQuery) {
-    return ["ask_user", "final_answer_without_visible_outputs", "continue_tool_call"];
-  }
-
-  if (missingSectionsForRoutineOrPlan.length > 0) {
-    return ["continue_tool_call", "ask_user", "final_answer_without_visible_outputs"];
-  }
-
-  return ["final_answer_with_visible_outputs", "continue_tool_call", "ask_user"];
-}
-
-function buildRoutinePlanCompositionBoundary(groups: SearchExerciseResourcesOutput["groups"]) {
-  const coverage = buildSearchResultCoverage(groups);
-  const returnedSections = coverage.availableSections;
-  const missingSectionsForRoutineOrPlan = coverage.missingSectionsForRoutineOrPlan;
-
-  return {
-    returnedSections,
-    availableSections: coverage.availableSections,
-    sectionSummary: coverage.sectionSummary,
-    missingSectionsForRoutineOrPlan,
-    supportsOutputKinds: coverage.supportsOutputKinds,
-    finalAnswerSupport: missingSectionsForRoutineOrPlan.length > 0
-      ? "missingSectionsForRoutineOrPlan 非空时，当前结果不能支撑 successful routine 或 plan visible output。"
-      : "missingSectionsForRoutineOrPlan 为空时，仍需确保 exerciseItems[*].exerciseId、section、prescription 和 schedule 由当前 run 可见事实支撑。",
-    nextActionHints: buildSearchNextActionHints(false, missingSectionsForRoutineOrPlan),
-  };
 }
 
 function buildSearchResultCoverage(groups: SearchExerciseResourcesOutput["groups"]) {
