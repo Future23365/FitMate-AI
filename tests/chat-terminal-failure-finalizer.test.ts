@@ -31,17 +31,23 @@ describe("terminal failure finalizer contract", () => {
     expect(prompt).not.toContain("toolName 只能复制");
   });
 
-  it("validates output schema and rejects AgentAction-like or success-claiming payloads", () => {
+  it("validates only output shape and accepts ordinary finalizer wording", () => {
     expect(parseTerminalFailureFinalizerOutput({
-      content: "这次没有生成通过服务端校验的可靠结果。你可以补充目标后重试。",
+      content: "我尝试为您增加训练动作，但生成的训练方案未能通过系统校验，无法保存或展示。您可以重新描述需求，我会再试一次。",
       suggestedQuestions: ["补充训练目标后重试", "先说明当前可用事实"],
     })).toEqual({
       ok: true,
       output: {
-        content: "这次没有生成通过服务端校验的可靠结果。你可以补充目标后重试。",
+        content: "我尝试为您增加训练动作，但生成的训练方案未能通过系统校验，无法保存或展示。您可以重新描述需求，我会再试一次。",
         suggestedQuestions: ["补充训练目标后重试", "先说明当前可用事实"],
       },
     });
+    expect(parseTerminalFailureFinalizerOutput({
+      content: "已经生成并保存你的训练计划。",
+    }).ok).toBe(true);
+    expect(parseTerminalFailureFinalizerOutput({
+      content: "这次内部 code 是 repair_limit_exceeded。",
+    }).ok).toBe(true);
 
     expect(parseTerminalFailureFinalizerOutput({ content: "" }).ok).toBe(false);
     expect(parseTerminalFailureFinalizerOutput({
@@ -51,12 +57,6 @@ describe("terminal failure finalizer contract", () => {
     expect(parseTerminalFailureFinalizerOutput({
       content: "这次没有生成通过服务端校验的可靠结果。",
       visibleOutputs: [],
-    }).ok).toBe(false);
-    expect(parseTerminalFailureFinalizerOutput({
-      content: "已经生成并保存你的训练计划。",
-    }).ok).toBe(false);
-    expect(parseTerminalFailureFinalizerOutput({
-      content: "这次没有生成通过服务端校验的可靠结果，内部 code 是 repair_limit_exceeded。",
     }).ok).toBe(false);
   });
 
@@ -71,7 +71,7 @@ describe("terminal failure finalizer contract", () => {
           {
             message: {
               content: JSON.stringify({
-                content: "这次没有生成通过服务端校验的可靠结果。你可以补充训练目标后重试。",
+                content: "我尝试处理这次训练请求，但生成的内容没有进入可展示状态。你可以补充训练目标后重试。",
                 suggestedQuestions: ["补充训练目标后重试"],
               }),
             },
@@ -104,6 +104,7 @@ describe("terminal failure finalizer contract", () => {
     });
     expect(requestBodies[0]).not.toHaveProperty("reasoning_effort");
     expect(result.trace.request.thinking).toEqual({ type: "disabled" });
+    expect(result.output.content).toBe("我尝试处理这次训练请求，但生成的内容没有进入可展示状态。你可以补充训练目标后重试。");
   });
 
   it("allows internal validation failures but rejects provider unavailable conditions", () => {

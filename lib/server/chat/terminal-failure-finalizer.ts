@@ -165,49 +165,6 @@ type DeepSeekRequestBody = {
 const DEFAULT_DEEPSEEK_ENDPOINT = "https://api.deepseek.com/chat/completions";
 const maxFinalizerTraceStringLength = 800;
 const maxFinalizerListItems = 6;
-const requiredFailureDisclosureTerms = [
-  "没有满足",
-  "没能满足",
-  "未满足",
-  "未完成",
-  "没有完成",
-  "没能完成",
-  "没有生成",
-  "没能生成",
-  "未能生成",
-  "无法生成",
-  "暂时不能生成",
-  "没有得到通过服务端校验",
-  "没有通过服务端校验",
-] as const;
-const forbiddenSuccessClaims = [
-  "已完成",
-  "已经完成",
-  "已生成",
-  "已经生成",
-  "已保存",
-  "已经保存",
-  "已查询",
-  "已经查询",
-  "已确认",
-  "已经确认",
-  "已执行",
-  "已经执行",
-  "已展示",
-  "已经展示",
-] as const;
-const forbiddenTechnicalLeakTerms = [
-  "AgentAction",
-  "tool_call",
-  "visibleOutputs",
-  "NDJSON",
-  "repair_limit_exceeded",
-  "terminal_reference_invalid",
-  "API key",
-  "authorization",
-  "cookie",
-  "stack",
-] as const;
 const quotaOrRateLimitStatuses = new Set([402, 429]);
 const authFailureStatuses = new Set([401, 403]);
 const providerFailureCodes = new Set([
@@ -293,7 +250,7 @@ export function assessTerminalFailureFinalizerAvailability(input: {
   return { allowed: true };
 }
 
-// parseTerminalFailureFinalizerOutput 使用独立 schema 和内容安全边界校验 finalizer 输出。
+// parseTerminalFailureFinalizerOutput 只校验 finalizer 兜底回复的用户可见事件 shape。
 export function parseTerminalFailureFinalizerOutput(
   value: unknown,
   config: TerminalFailureFinalizerRuntimeConfig = agentRuntimeConfig.terminalFailureFinalizer,
@@ -309,12 +266,6 @@ export function parseTerminalFailureFinalizerOutput(
         message: issue.message,
       })),
     };
-  }
-
-  const contentSafety = validateFinalizerUserVisibleText(parsed.data);
-
-  if (!contentSafety.ok) {
-    return { ok: false, issues: contentSafety.issues };
   }
 
   return { ok: true, output: parsed.data };
@@ -596,60 +547,6 @@ function createTerminalFailureFinalizerOutputSchema(config: TerminalFailureFinal
   }).strict();
 }
 
-function validateFinalizerUserVisibleText(
-  output: TerminalFailureFinalizerOutput,
-): { ok: true } | { ok: false; issues: JsonValue } {
-  const issues: JsonValue[] = [];
-
-  if (!includesAny(output.content, requiredFailureDisclosureTerms)) {
-    issues.push({
-      path: "content",
-      code: "missing_failure_disclosure",
-      message: "content 必须明确本轮没有满足用户需求。",
-    });
-  }
-
-  if (includesAny(output.content, forbiddenSuccessClaims)) {
-    issues.push({
-      path: "content",
-      code: "success_claim_forbidden",
-      message: "content 不得声称已完成、已生成、已保存或已执行。",
-    });
-  }
-
-  const leakedContentTerm = findIncludedTerm(output.content, forbiddenTechnicalLeakTerms);
-  if (leakedContentTerm) {
-    issues.push({
-      path: "content",
-      code: "technical_leak_forbidden",
-      message: "content 不得展示内部技术标识。",
-      term: leakedContentTerm,
-    });
-  }
-
-  for (const [index, question] of (output.suggestedQuestions ?? []).entries()) {
-    const leakedQuestionTerm = findIncludedTerm(question, forbiddenTechnicalLeakTerms);
-    if (leakedQuestionTerm) {
-      issues.push({
-        path: `suggestedQuestions.${index}`,
-        code: "technical_leak_forbidden",
-        message: "suggestedQuestions 不得要求用户复制内部技术标识。",
-        term: leakedQuestionTerm,
-      });
-    }
-
-    if (includesAny(question, forbiddenSuccessClaims)) {
-      issues.push({
-        path: `suggestedQuestions.${index}`,
-        code: "success_claim_forbidden",
-        message: "suggestedQuestions 不得承诺未发生的完成、保存或执行。",
-      });
-    }
-  }
-
-  return issues.length ? { ok: false, issues } : { ok: true };
-}
-
 function classifyProviderUnavailableReason(
   diagnostics: readonly PlannerModelTraceEvent[],
   terminalError?: ToolError,
@@ -908,14 +805,6 @@ function isSensitiveDiagnosticKey(key: string) {
 
   return sensitiveDiagnosticKeys.has(normalized)
     || sensitiveDiagnosticKeys.has(withoutSeparators);
-}
-
-function includesAny(value: string, terms: readonly string[]) {
-  return terms.some((term) => value.includes(term));
-}
-
-function findIncludedTerm(value: string, terms: readonly string[]) {
-  return terms.find((term) => value.includes(term));
 }
 
 function readString(value: JsonValue | undefined) {

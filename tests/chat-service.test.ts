@@ -3050,7 +3050,7 @@ describe("chat service agent text flow boundary", () => {
 
   it("finalizes a visible output validation failure as normal content when finalizer succeeds", async () => {
     const finalizer = new FakeTerminalFailureFinalizer((input) => createFakeFinalizerSuccessResult(input, {
-      content: "这次没有生成通过服务端校验的可靠训练结果，所以我不会展示这份方案。你可以补充时长或先让我只列动作事实。",
+      content: "我尝试为你整理这套训练，但生成的方案没有进入可展示状态。你可以补充时长或先让我只列动作事实。",
       suggestedQuestions: ["补充训练时长后重试", "先只列可用动作事实"],
     }));
     const planner = new ReplayPlanner([
@@ -3083,7 +3083,7 @@ describe("chat service agent text flow boundary", () => {
     expect(events).toEqual([
       {
         type: "content",
-        content: "这次没有生成通过服务端校验的可靠训练结果，所以我不会展示这份方案。你可以补充时长或先让我只列动作事实。",
+        content: "我尝试为你整理这套训练，但生成的方案没有进入可展示状态。你可以补充时长或先让我只列动作事实。",
       },
       {
         type: "suggested_questions",
