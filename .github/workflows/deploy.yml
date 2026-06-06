@@ -1,8 +1,9 @@
 name: Deploy
 
 on:
+  workflow_dispatch:
   push:
-    # 只有推送到 dev 时自动部署；如果生产分支改成 main/master，在这里调整。
+    # 只有推送到 main 时自动部署；如果生产分支改成 dev/master，在这里调整。
     branches:
       - main
 
@@ -35,6 +36,12 @@ jobs:
           echo "app=ghcr.io/${repo}" >> "$GITHUB_OUTPUT"
           echo "ops=ghcr.io/${repo}-ops" >> "$GITHUB_OUTPUT"
 
+      - name: Set up Docker Buildx
+        # 明确安装新版 Buildx，避免 GitHub Actions cache backend 走已废弃的旧 API。
+        uses: docker/setup-buildx-action@v4
+        with:
+          version: latest
+
       - name: Login to GHCR
         # 使用 GitHub Actions 自动注入的 GITHUB_TOKEN 推送当前仓库的容器镜像。
         uses: docker/login-action@v4
@@ -53,8 +60,8 @@ jobs:
           tags: |
             ${{ steps.image.outputs.app }}:latest
             ${{ steps.image.outputs.app }}:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=fitmate-runner,version=2
+          cache-to: type=gha,mode=max,scope=fitmate-runner,version=2
 
       - name: Build and push ops image
         # ops target 用于 Prisma migration、seed 和 embedding 刷新，不接收公网请求。
@@ -66,8 +73,8 @@ jobs:
           tags: |
             ${{ steps.image.outputs.ops }}:latest
             ${{ steps.image.outputs.ops }}:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=fitmate-ops,version=2
+          cache-to: type=gha,mode=max,scope=fitmate-ops,version=2
 
       - name: Prepare SSH
         shell: bash
