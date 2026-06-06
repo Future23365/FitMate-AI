@@ -4,7 +4,7 @@ on:
   push:
     # 只有推送到 dev 时自动部署；如果生产分支改成 main/master，在这里调整。
     branches:
-      - dev
+      - main
 
 permissions:
   # checkout 代码需要读取仓库内容。
