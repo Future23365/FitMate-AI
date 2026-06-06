@@ -287,6 +287,74 @@ describe("agent-planners LlmPlanner and model adapters", () => {
     });
   });
 
+  it("builds DeepSeek request and trace from the context layer instead of compatibility fields", async () => {
+    const { fetchImpl, requestBodies } = captureDeepSeekRequestBodies(JSON.stringify({
+      type: "final_answer",
+      content: "context layer used.",
+    }));
+    const adapter = new DeepSeekModelAdapter({
+      apiKey: "test-key",
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+    const input: PlannerInput = {
+      run: {
+        runId: "run-stale-top-level",
+        actor: {},
+        userInput: "stale top-level input",
+        metadata: { thinkingEnabled: true },
+      },
+      step: 99,
+      manifests: [],
+      observations: [],
+      toolResults: [],
+      context: {
+        run: {
+          runId: "run-context-layer",
+          actor: {},
+          userInput: "context layer input",
+          metadata: { thinkingEnabled: false },
+        },
+        step: 3,
+        manifests: [],
+        observations: [],
+        toolResults: [],
+      },
+    };
+
+    const completion = await adapter.completeAction(input);
+    const body = requestBodies[0] as {
+      thinking: { type: "enabled" | "disabled" };
+      messages: Array<{ content: string }>;
+    };
+    const userPayload = JSON.parse(body.messages[1].content) as {
+      context: {
+        run: {
+          runId: string;
+          userInput: string;
+        };
+        step: number;
+      };
+    };
+
+    expect(body.thinking).toEqual({ type: "disabled" });
+    expect(body).not.toHaveProperty("reasoning_effort");
+    expect(userPayload.context.run).toMatchObject({
+      runId: "run-context-layer",
+      userInput: "context layer input",
+    });
+    expect(userPayload.context.step).toBe(3);
+    expect(JSON.stringify(userPayload)).not.toContain("run-stale-top-level");
+    expect(completion.trace?.request.run).toMatchObject({
+      runId: "run-context-layer",
+      step: 3,
+      latestUserMessage: "context layer input",
+    });
+    expect(completion.trace?.request.thinking).toEqual({
+      type: "disabled",
+      enabled: false,
+    });
+  });
+
   it("parses AgentAction from content while keeping reasoning_content as trace diagnostics only", async () => {
     const hiddenReasoning = "内部 reasoning 内容不应进入用户可见 action。";
     const fetchImpl = vi.fn(async () => deepSeekResponse(JSON.stringify({

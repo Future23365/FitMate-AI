@@ -55,7 +55,16 @@ describe("agent-core fixture read tool end to end", () => {
         observationRole: OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
         toolResultId: expectedToolResultId,
         modelFactsChannel: TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
-        boundary: expect.stringContaining("详细事实见 toolResults[].projection.model"),
+        factLevel: "tool_result_index",
+        factSource: {
+          detailedFacts: TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
+          projectionModelOmitted: true,
+        },
+        finalAnswerSupport: {
+          supported: true,
+          requiredRef: { type: "tool_result", id: expectedToolResultId },
+        },
+        nextActionHints: expect.arrayContaining(["final_answer_with_current_tool_result", "continue_tool_call"]),
       },
     });
     expect(JSON.stringify(planner.calls[1].observations[0])).not.toContain("Fixture alpha-intro");

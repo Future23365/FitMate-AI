@@ -17,6 +17,7 @@ import {
   createInvalidActionObservation,
   createRuntimeErrorObservation,
   createToolObservation,
+  getDuplicateToolInputNextActionHints,
 } from "./observation";
 import { evaluateToolPolicy } from "./policy-guard";
 import { redactJsonValue } from "./redaction";
@@ -346,7 +347,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
     const previousOkResult = previousResult?.ok ? previousResult : undefined;
     if (previousOkResult) {
       invalidActions += 1;
-      observations.push(createDuplicateToolInputObservation({
+      const duplicateFeedback = {
         toolName: tool.name,
         toolVersion: tool.version,
         normalizedInputHash,
@@ -356,7 +357,9 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
         repeatCount: previousToolCallCount + 1,
         resultSummary: previousOkResult.fulfillment.summary,
         producedResources: previousOkResult.fulfillment.producedResources as JsonValue | undefined,
-      }));
+      };
+      const duplicateError = createDuplicateToolInputRepairError(duplicateFeedback);
+      observations.push(createDuplicateToolInputObservation(duplicateFeedback));
 
       if (invalidActions > repairLimit) {
         await recordTraceEvent(createBudgetEvent("repair_attempts", "exhausted", invalidActions, repairLimit, step, AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT));
@@ -367,6 +370,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
         )));
       }
 
+      pendingRepairContext = createPlannerRepairContext(validation.action, duplicateError);
       await recordTraceEvent(createBudgetEvent("repair_attempts", "used", invalidActions, repairLimit, step, AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT));
       continue;
     }
@@ -743,6 +747,59 @@ function createPlannerActionTrace(step: number, action: unknown): AgentTraceEven
     actionType: typeof actionRecord?.type === "string" ? actionRecord.type : "unknown",
     toolName: typeof actionRecord?.toolName === "string" ? actionRecord.toolName : undefined,
   };
+}
+
+type DuplicateToolInputRepairFeedback = Parameters<typeof createDuplicateToolInputObservation>[0];
+
+// createDuplicateToolInputRepairError 把重复成功 tool_call 转成独立 repair payload，避免只靠 observation 长句提示。
+function createDuplicateToolInputRepairError(input: DuplicateToolInputRepairFeedback): ToolError {
+  const fact: Record<string, JsonValue> = {
+    factLevel: input.previousSatisfied ? "current_run_tool_result" : "diagnostic_tool_result",
+    toolName: input.toolName,
+    toolVersion: input.toolVersion,
+    previousToolResultId: input.previousToolResultId,
+    previousOk: input.previousOk,
+    previousSatisfied: input.previousSatisfied,
+    repeatCount: input.repeatCount,
+    nextActionHints: [...getDuplicateToolInputNextActionHints(input.previousSatisfied)],
+    finalAnswerSupport: input.previousSatisfied
+      ? {
+          supported: true,
+          requiredRef: { type: "tool_result", id: input.previousToolResultId },
+        }
+      : {
+          supported: false,
+          reason: "previous tool result 的 fulfillment.satisfied=false，不能支撑成功 final_answer。",
+        },
+  };
+
+  if (input.resultSummary) {
+    fact.resultSummary = input.resultSummary;
+  }
+
+  if (input.producedResources) {
+    fact.producedResources = input.producedResources;
+  }
+
+  return createToolError(
+    AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT,
+    "当前 run 已存在相同 toolName、toolVersion 和 input 的执行结果；重复相同 input 不会产生新的 current-run 事实。",
+    {
+      errors: [
+        {
+          code: AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT,
+          path: "tool_call.input",
+          expected: "使用 previousToolResultId 对应的当前 run 结果，或提交不同的合法 tool input。",
+          actual: {
+            toolName: input.toolName,
+            toolVersion: input.toolVersion,
+            normalizedInputHash: input.normalizedInputHash,
+          },
+        },
+      ],
+      facts: [fact],
+    },
+  );
 }
 
 // createPlannerRepairContext 将 validator 错误拆成独立 repair 层，避免正常 planning prompt 携带上一轮失败内容。

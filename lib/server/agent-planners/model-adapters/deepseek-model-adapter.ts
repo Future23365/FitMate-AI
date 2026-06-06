@@ -12,6 +12,7 @@ import {
   ModelAdapterError,
   normalizeModelTokenUsage,
   type ModelActionCompletionParseStatus,
+  type ModelActionCompletionContextLayer,
   type ModelActionCompletionInput,
   type ModelActionCompletionEnvelope,
   type ModelActionCompletionResult,
@@ -71,7 +72,7 @@ type DeepSeekRequestBody = {
 
 const DEFAULT_DEEPSEEK_ENDPOINT = "https://api.deepseek.com/chat/completions";
 const REPAIR_ONLY_SYSTEM_INSTRUCTIONS = [
-  "Repair mode: 本轮只修正上一轮非法 AgentAction。",
+  "修复模式：本轮只修正上一轮非法 AgentAction。",
   "不要重新规划用户目标，不引入新事实，不编造 id，不扩大任务范围。",
   "只能依据 repairContext.error、repairContext.errors、repairContext.facts、当前 context、当前 protocol 和可见 tools 修正上一轮 action。",
   "事实不足时可以移除结构化输出、返回 ask_user，或用不带成功 visibleOutputs 的 final_answer 失败收口。",
@@ -300,8 +301,8 @@ export class DeepSeekModelAdapter implements ModelAdapter {
   }
 
   private createRequestBody(input: ModelActionCompletionInput): DeepSeekRequestBody {
-    const thinking = createDeepSeekThinkingRequest(input);
     const envelope = this.createModelInputEnvelope(input);
+    const thinking = createDeepSeekThinkingRequest(envelope.context);
 
     return {
       model: this.model,
@@ -341,10 +342,11 @@ export class DeepSeekModelAdapter implements ModelAdapter {
     input: ModelActionCompletionInput,
     requestBody: DeepSeekRequestBody,
   ): ModelActionCompletionTrace["request"] {
-    const dedupeSummary = summarizePlannerInputDedupe(input);
+    const envelope = this.createModelInputEnvelope(input);
+    const context = envelope.context;
+    const dedupeSummary = summarizePlannerInputDedupe(context);
     const outputContracts = summarizeAgentVisibleOutputContracts(this.outputContracts);
     const actionContract = this.promptConfig.actionContract;
-    const envelope = this.createModelInputEnvelope(input);
 
     return {
       model: requestBody.model,
@@ -366,25 +368,25 @@ export class DeepSeekModelAdapter implements ModelAdapter {
         contentLength: message.content.length,
       })),
       run: {
-        runId: input.run.runId,
-        step: input.step,
-        latestUserMessage: summarizeText(input.run.userInput),
-        messageCount: input.run.messages?.length ?? 0,
-        observationCount: input.observations.length,
-        toolResultCount: input.toolResults.length,
+        runId: context.run.runId,
+        step: context.step,
+        latestUserMessage: summarizeText(context.run.userInput),
+        messageCount: context.run.messages?.length ?? 0,
+        observationCount: context.observations.length,
+        toolResultCount: context.toolResults.length,
         successfulLightweightObservationCount: dedupeSummary.successfulLightweightObservationCount,
         repairDiagnosticObservationCount: dedupeSummary.repairDiagnosticObservationCount,
         toolResultProjectionCount: dedupeSummary.toolResultProjectionCount,
         toolResultProjectionPresence: dedupeSummary.toolResultProjectionPresence,
-        toolCount: input.manifests.length,
-        toolNames: input.manifests.map((manifest) => manifest.name),
+        toolCount: context.manifests.length,
+        toolNames: context.manifests.map((manifest) => manifest.name),
         actionContract: {
           schemaId: actionContract.schemaId,
           schemaVersion: actionContract.schemaVersion,
         },
         outputContractCount: outputContracts.count,
         outputContracts: outputContracts.contracts,
-        limits: safeTraceValue(input.run.limits ?? {}),
+        limits: safeTraceValue(context.run.limits ?? {}),
       },
     };
   }
@@ -548,8 +550,8 @@ function summarizeDeepSeekPayload(payload: DeepSeekChatResponse): JsonValue {
 }
 
 // createDeepSeekThinkingRequest 只把受控 run metadata 映射为 provider 参数，不参与业务语义推断。
-function createDeepSeekThinkingRequest(input: ModelActionCompletionInput) {
-  const enabled = readRunThinkingEnabled(input.run.metadata);
+function createDeepSeekThinkingRequest(context: ModelActionCompletionContextLayer) {
+  const enabled = readRunThinkingEnabled(context.run.metadata);
   const type: DeepSeekThinkingType = enabled ? "enabled" : "disabled";
 
   return {
@@ -558,7 +560,7 @@ function createDeepSeekThinkingRequest(input: ModelActionCompletionInput) {
   };
 }
 
-function readRunThinkingEnabled(metadata: ModelActionCompletionInput["run"]["metadata"]) {
+function readRunThinkingEnabled(metadata: ModelActionCompletionContextLayer["run"]["metadata"]) {
   const value = metadata?.thinkingEnabled;
 
   return typeof value === "boolean"
@@ -595,9 +597,9 @@ function summarizeText(value: string): JsonValue {
 }
 
 /** summarizePlannerInputDedupe 只记录去重诊断元数据，不复制模型可见 projection 或 handler output。 */
-function summarizePlannerInputDedupe(input: ModelActionCompletionInput) {
-  const successfulLightweightObservationCount = input.observations.filter(isSuccessfulLightweightObservation).length;
-  const toolResultProjectionPresence = input.toolResults.map((result) => ({
+function summarizePlannerInputDedupe(context: ModelActionCompletionContextLayer) {
+  const successfulLightweightObservationCount = context.observations.filter(isSuccessfulLightweightObservation).length;
+  const toolResultProjectionPresence = context.toolResults.map((result) => ({
     toolResultId: result.toolResultId,
     toolName: result.toolName,
     satisfied: result.fulfillment.satisfied,
@@ -607,13 +609,13 @@ function summarizePlannerInputDedupe(input: ModelActionCompletionInput) {
 
   return {
     successfulLightweightObservationCount,
-    repairDiagnosticObservationCount: Math.max(0, input.observations.length - successfulLightweightObservationCount),
+    repairDiagnosticObservationCount: Math.max(0, context.observations.length - successfulLightweightObservationCount),
     toolResultProjectionCount: toolResultProjectionPresence.filter((entry) => entry.hasModelProjection).length,
     toolResultProjectionPresence,
   };
 }
 
-function isSuccessfulLightweightObservation(observation: ModelActionCompletionInput["observations"][number]) {
+function isSuccessfulLightweightObservation(observation: ModelActionCompletionContextLayer["observations"][number]) {
   const content = observation.content;
 
   return observation.type === "tool_result"

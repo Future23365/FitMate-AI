@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { AgentActionSchema } from "@/lib/server/agent-core/contracts";
 import {
   getAgentVisibleOutputContracts,
   summarizeAgentVisibleOutputContracts,
@@ -122,6 +123,7 @@ describe("agent visible output contracts", () => {
         expect(example.expectedAction).toEqual(expect.objectContaining({
           type: expect.stringMatching(/^(tool_call|final_answer|ask_user)$/),
         }));
+        expect(AgentActionSchema.safeParse(example.expectedAction).success).toBe(true);
       }
 
       if (example.expectedDecision !== undefined) {

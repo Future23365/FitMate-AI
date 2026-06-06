@@ -50,9 +50,39 @@ function createOkToolResultIndexObservation(result: Extract<ToolResult, { ok: tr
       terminalUsedRef: { type: "tool_result", id: result.toolResultId },
       modelFactsChannel: TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
       projectionModelOmitted: true,
-      boundary: "详细事实见 toolResults[].projection.model；此 observation 只保留 ok=true 执行结果索引，避免同一事实在 observations 和 toolResults 中重复传递。如需在 terminal action 引用本次结果，usedRefs[] 中复制 terminalUsedRef 的 type/id 形状，不要把 resourceType 写成 tool_result。只有 ok=true 且 fulfillment.satisfied=true 的结果可支撑成功 final_answer；satisfied=false 只能用于 ask_user、继续合法 tool_call、repair 或失败收口。",
+      factLevel: result.fulfillment.satisfied ? "tool_result_index" : "diagnostic_tool_result_index",
+      factSource: {
+        detailedFacts: TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
+        projectionModelOmitted: true,
+      },
+      finalAnswerSupport: result.fulfillment.satisfied
+        ? {
+            supported: true,
+            requiredRef: { type: "tool_result", id: result.toolResultId },
+          }
+        : {
+            supported: false,
+            reason: "fulfillment.satisfied=false，只能用于恢复、澄清或失败解释。",
+          },
+      nextActionHints: getToolResultIndexNextActionHints(result.fulfillment.satisfied),
     }),
   };
+}
+
+/** getToolResultIndexNextActionHints 用短枚举表达成功结果索引的可选恢复出口。 */
+function getToolResultIndexNextActionHints(satisfied: boolean): readonly string[] {
+  return satisfied
+    ? [
+        "final_answer_with_current_tool_result",
+        "continue_tool_call",
+        "ask_user",
+      ]
+    : [
+        "continue_tool_call",
+        "ask_user",
+        "final_answer_without_visible_outputs",
+        "fail_closed",
+      ];
 }
 
 /** createInvalidActionObservation 将非法 action 反馈给后续 Planner，M0 不做服务端语义改写。 */
@@ -100,24 +130,27 @@ export function createDuplicateToolInputObservation(input: {
         repeatCount: input.repeatCount,
         resultSummary: input.resultSummary,
         producedResources: input.producedResources,
-        allowedNextActions: input.previousSatisfied
-          ? [
-              "基于 previousToolResultId 输出带 usedRefs 的合法 final_answer。",
-              "调用其他当前 manifest 中可见且 input 不同的合法 tool。",
-              "提交改变后的合法 tool input。",
-              "使用 ask_user 澄清缺失信息。",
-              "在当前事实不足时用不带 visibleOutputs 的 final_answer 失败收口。",
-            ]
-          : [
-              "previousToolResultId 是 satisfied=false 诊断结果，不能支撑成功 final_answer。",
-              "调用其他当前 manifest 中可见且 input 不同的合法 tool。",
-              "提交改变后的合法 tool input。",
-              "使用 ask_user 澄清缺失信息或放宽条件。",
-              "在当前事实不足时交由 repair 或失败 fallback 收口。",
-            ],
+        nextActionHints: getDuplicateToolInputNextActionHints(input.previousSatisfied),
       },
     }),
   };
+}
+
+/** getDuplicateToolInputNextActionHints 提供重复 tool input repair 的短枚举出口，不绑定具体业务 tool。 */
+export function getDuplicateToolInputNextActionHints(previousSatisfied: boolean): readonly string[] {
+  return previousSatisfied
+    ? [
+        "final_answer_with_current_tool_result",
+        "continue_tool_call",
+        "ask_user",
+        "final_answer_without_visible_outputs",
+      ]
+    : [
+        "continue_tool_call",
+        "ask_user",
+        "final_answer_without_visible_outputs",
+        "fail_closed",
+      ];
 }
 
 /** compressPlannerObservations 控制模型上下文增长，只保留可校验引用、错误码和安全摘要。 */

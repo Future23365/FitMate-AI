@@ -1757,13 +1757,27 @@ describe("chat service agent text flow boundary", () => {
           previousToolResultId: expectedReadToolResultId,
           previousOk: true,
           repeatCount: 2,
-          allowedNextActions: expect.arrayContaining([
-            "基于 previousToolResultId 输出带 usedRefs 的合法 final_answer。",
-            "提交改变后的合法 tool input。",
-            "使用 ask_user 澄清缺失信息。",
+          nextActionHints: expect.arrayContaining([
+            "final_answer_with_current_tool_result",
+            "continue_tool_call",
+            "ask_user",
           ]),
         }),
       }),
+    });
+    expect(planner.calls[3].repairContext).toMatchObject({
+      error: {
+        code: AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT,
+      },
+      facts: [
+        expect.objectContaining({
+          previousToolResultId: expectedReadToolResultId,
+          nextActionHints: expect.arrayContaining([
+            "final_answer_with_current_tool_result",
+            "continue_tool_call",
+          ]),
+        }),
+      ],
     });
     expect(trace).toMatchObject({
       steps: expect.arrayContaining([

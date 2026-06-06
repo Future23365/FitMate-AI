@@ -232,7 +232,22 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
           "给我一批更简单的徒手动作",
           "只保留适合在家练的动作",
         ],
-        visibleOutputs: ["见 visibleOutputShape"],
+        visibleOutputs: [
+          {
+            outputType: "visibleTrainingProposal",
+            schemaVersion: "1",
+            payload: {
+              kind: "exercise_selection",
+              exerciseItems: [
+                {
+                  exerciseId: "必须替换为当前 run 可见 training 动作事实中的真实 exerciseId",
+                  section: "training",
+                  order: 1,
+                },
+              ],
+            },
+          },
+        ],
       },
       visibleOutputShape: {
         outputType: "visibleTrainingProposal",
@@ -268,7 +283,53 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
       expectedAction: {
         type: "final_answer",
         content: "简短说明这是一套可直接照做的训练编排。",
-        visibleOutputs: ["见 visibleOutputShape"],
+        visibleOutputs: [
+          {
+            outputType: "visibleTrainingProposal",
+            schemaVersion: "1",
+            payload: {
+              kind: "routine",
+              exerciseItems: [
+                {
+                  exerciseId: "必须替换为当前 run 可见 warmup 动作事实中的真实 exerciseId",
+                  section: "warmup",
+                  order: 1,
+                  prescription: {
+                    mode: "duration",
+                    sets: 1,
+                    target: 60,
+                    setRestSeconds: 0,
+                    transitionRestSeconds: 30,
+                  },
+                },
+                {
+                  exerciseId: "必须替换为当前 run 可见 training 动作事实中的真实 exerciseId",
+                  section: "training",
+                  order: 1,
+                  prescription: {
+                    mode: "reps",
+                    sets: 3,
+                    target: 12,
+                    setRestSeconds: 60,
+                    transitionRestSeconds: 45,
+                  },
+                },
+                {
+                  exerciseId: "必须替换为当前 run 可见 stretch 动作事实中的真实 exerciseId",
+                  section: "stretch",
+                  order: 1,
+                  prescription: {
+                    mode: "duration",
+                    sets: 1,
+                    target: 45,
+                    setRestSeconds: 0,
+                    transitionRestSeconds: 0,
+                  },
+                },
+              ],
+            },
+          },
+        ],
       },
       visibleOutputShape: {
         outputType: "visibleTrainingProposal",
@@ -326,7 +387,60 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
       expectedAction: {
         type: "final_answer",
         content: "简短说明这是一个单训练模板重复计划。",
-        visibleOutputs: ["见 visibleOutputShape"],
+        visibleOutputs: [
+          {
+            outputType: "visibleTrainingProposal",
+            schemaVersion: "1",
+            payload: {
+              kind: "plan",
+              exerciseItems: [
+                {
+                  exerciseId: "必须替换为当前 run 可见 warmup 动作事实中的真实 exerciseId",
+                  section: "warmup",
+                  order: 1,
+                  prescription: {
+                    mode: "duration",
+                    sets: 1,
+                    target: 60,
+                    setRestSeconds: 0,
+                    transitionRestSeconds: 30,
+                  },
+                },
+                {
+                  exerciseId: "必须替换为当前 run 可见 training 动作事实中的真实 exerciseId",
+                  section: "training",
+                  order: 1,
+                  prescription: {
+                    mode: "reps",
+                    sets: 3,
+                    target: 10,
+                    setRestSeconds: 75,
+                    transitionRestSeconds: 45,
+                  },
+                },
+                {
+                  exerciseId: "必须替换为当前 run 可见 stretch 动作事实中的真实 exerciseId",
+                  section: "stretch",
+                  order: 1,
+                  prescription: {
+                    mode: "duration",
+                    sets: 1,
+                    target: 45,
+                    setRestSeconds: 0,
+                    transitionRestSeconds: 0,
+                  },
+                },
+              ],
+              schedule: {
+                cycleLengthDays: 2,
+                assignments: [
+                  { cycleDayIndex: 1, type: "training" },
+                  { cycleDayIndex: 2, type: "rest" },
+                ],
+              },
+            },
+          },
+        ],
       },
       visibleOutputShape: {
         outputType: "visibleTrainingProposal",
