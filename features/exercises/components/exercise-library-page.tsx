@@ -965,7 +965,7 @@ export function ExerciseLibraryPage() {
                             alt={`${exercise.nameZh} 动作示意图`}
                             className="object-cover transition duration-500 hover:scale-105"
                             fill
-                            sizes="(min-width: 1536px) 220px, (min-width: 768px) 30vw, 45vw"
+                            sizes="(min-width: 1530px) 220px, (min-width: 768px) 30vw, 45vw"
                             src={getExerciseImage(exercise)}
                           />
                         </div>

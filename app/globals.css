@@ -15,7 +15,7 @@ layer(base);
   --breakpoint-md: 0px;
   --breakpoint-lg: 0px;
   --breakpoint-xl: 0px;
-  --breakpoint-2xl: 1536px;
+  --breakpoint-2xl: 1530px;
 
   --color-ink: #111827;
   --color-muted: #667085;
@@ -511,13 +511,13 @@ body,
   --responsive-right-sidebar-peek: 44px;
 }
 
-@media (max-width: 1279px) {
+@media (max-width: 1530px) {
   :root {
     --app-sidebar-offset: var(--app-sidebar-rail-width);
   }
 }
 
-@media (max-width: 1279px) {
+@media (max-width: 1530px) {
   .responsive-right-sidebar-scope {
     --responsive-right-sidebar-offset: var(--responsive-right-sidebar-peek);
   }
@@ -547,7 +547,7 @@ body,
     box-shadow 0.22s ease;
 }
 
-@media (max-width: 1279px) {
+@media (max-width: 1530px) {
   .responsive-right-sidebar {
     border-left-color: rgba(215, 221, 229, 0.9);
     box-shadow: -10px 0 28px rgba(16, 24, 40, 0.08);
@@ -606,7 +606,7 @@ body,
   line-height: 1;
 }
 
-@media (max-width: 1279px) {
+@media (max-width: 1530px) {
   .app-sidebar {
     align-items: stretch;
     overflow: hidden;

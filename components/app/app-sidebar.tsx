@@ -17,6 +17,8 @@ const navItems = [
   { label: "动作库", icon: "fitness_center", href: "/exercises" },
 ];
 
+const sidebarRailMediaQuery = "(max-width: 1530px)";
+
 type SidebarHistoryItem = {
   id: string;
   title: string;
@@ -336,7 +338,8 @@ export function AppSidebar() {
   }, [isMobileNavOpen]);
 
   useEffect(() => {
-    const railMediaQuery = window.matchMedia("(max-width: 1279px)");
+    // 与 app/globals.css 的侧边栏收缩断点保持一致，驱动主体缩放联动。
+    const railMediaQuery = window.matchMedia(sidebarRailMediaQuery);
 
     function syncSidebarRailMode(event: MediaQueryListEvent | MediaQueryList) {
       setIsSidebarRailMode(event.matches);
