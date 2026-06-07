@@ -87,7 +87,7 @@ function AgentActivityScroller({
   return (
     <div
       aria-live="polite"
-      className="agent-activity-indicator relative inline-flex h-[20px] min-w-0 max-w-[min(34rem,100%)] items-baseline gap-[2px] overflow-hidden py-[2px] pl-0 pr-xs font-label-sm text-label-sm font-bold leading-[16px] transition-colors duration-200 motion-reduce:animate-none"
+      className="agent-activity-indicator agent-activity-breathe relative inline-flex h-[20px] min-w-0 max-w-[min(34rem,100%)] items-baseline gap-[2px] overflow-hidden py-[2px] pl-0 pr-xs font-label-sm text-label-sm font-bold leading-[16px] transition-colors duration-200 motion-reduce:animate-none"
       role="status"
     >
       {animationState.previous ? (

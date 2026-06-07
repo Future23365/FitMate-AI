@@ -446,6 +446,7 @@ describe("AgentActivityIndicator", () => {
     expect(html).toContain("motion-reduce:animate-none");
     expect(html).not.toContain("motion-safe:animate-pulse");
     expect(html).toContain("agent-activity-indicator");
+    expect(html).toContain("agent-activity-breathe");
     expect(html).not.toContain("validateRoutineDraft");
   });
 
@@ -526,6 +527,8 @@ describe("AgentActivityIndicator", () => {
 
     expect(componentSource).toContain("agent-activity-roll-current");
     expect(componentSource).toContain("agent-activity-roll-previous");
+    expect(componentSource).toContain("agent-activity-breathe");
+    expect(globalCss).toContain("@keyframes agent-activity-breathe");
     expect(globalCss).toContain("@keyframes agent-activity-current-in");
     expect(globalCss).toContain("@keyframes agent-activity-previous-out");
     expect(globalCss).toContain("@media (prefers-reduced-motion: reduce)");
