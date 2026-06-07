@@ -180,8 +180,20 @@ function UsersPanel({
                 selectedUserId={selectedUserId}
                 sort={sort}
               />
-              <TableHead>会话</TableHead>
-              <TableHead>消息</TableHead>
+              <SortableTableHead
+                field="conversationCount"
+                label="会话"
+                selectedConversationId={selectedConversationId}
+                selectedUserId={selectedUserId}
+                sort={sort}
+              />
+              <SortableTableHead
+                field="messageCount"
+                label="消息"
+                selectedConversationId={selectedConversationId}
+                selectedUserId={selectedUserId}
+                sort={sort}
+              />
               <SortableTableHead
                 field="totalTokens"
                 label="Token 总量"
@@ -466,6 +478,10 @@ function getSortLabel(field: AdminUserListSortField) {
       return "创建时间";
     case "lastReplyAt":
       return "最后回复时间";
+    case "conversationCount":
+      return "会话数";
+    case "messageCount":
+      return "消息数";
     case "totalTokens":
       return "Token 总量";
   }

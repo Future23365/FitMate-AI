@@ -17,7 +17,7 @@
 
 ### Requirement: 后台用户列表必须支持服务端排序
 
-后台用户列表 SHALL 支持按 `createdAt`、`lastReplyAt` 和 `totalTokens` 排序，并且排序 MUST 在后台查询 service 中完成；UI 不得仅对当前已返回列表做最终排序。
+后台用户列表 SHALL 支持按 `createdAt`、`lastReplyAt`、`conversationCount`、`messageCount` 和 `totalTokens` 排序，并且排序 MUST 在后台查询 service 中完成；UI 不得仅对当前已返回列表做最终排序。
 
 #### Scenario: 按创建时间排序
 
@@ -35,6 +35,16 @@
 - **WHEN** 管理员选择按 `totalTokens` 排序
 - **THEN** 后台查询 service 按用户 token 总量返回排序后的用户列表
 - **AND** 未知 token 总量的用户排在已知 token 总量用户之后
+
+#### Scenario: 按会话数排序
+
+- **WHEN** 管理员选择按 `conversationCount` 排序
+- **THEN** 后台查询 service 按用户会话数量返回排序后的用户列表
+
+#### Scenario: 按消息数排序
+
+- **WHEN** 管理员选择按 `messageCount` 排序
+- **THEN** 后台查询 service 按用户消息数量返回排序后的用户列表
 
 ### Requirement: 后台排序必须支持升序和降序
 

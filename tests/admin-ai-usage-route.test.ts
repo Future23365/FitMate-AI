@@ -9,7 +9,7 @@ const adminServiceMocks = vi.hoisted(() => ({
   getAdminUserDetail: vi.fn(),
   listAdminUsers: vi.fn(),
   resolveAdminUserListSort: vi.fn((input: { sortBy?: string | null; sortDirection?: string | null } = {}) => ({
-    sortBy: ["createdAt", "lastReplyAt", "totalTokens"].includes(String(input.sortBy))
+    sortBy: ["createdAt", "lastReplyAt", "conversationCount", "messageCount", "totalTokens"].includes(String(input.sortBy))
       ? input.sortBy
       : "createdAt",
     sortDirection: ["asc", "desc"].includes(String(input.sortDirection))
@@ -123,6 +123,14 @@ describe("admin AI usage route", () => {
       limit: 10,
       sortBy: "lastReplyAt",
       sortDirection: "asc",
+    });
+
+    await route.GET(new Request("http://localhost/api/admin/ai-usage?limit=10&sortBy=messageCount&sortDirection=desc"));
+
+    expect(adminServiceMocks.listAdminUsers).toHaveBeenLastCalledWith({
+      limit: 10,
+      sortBy: "messageCount",
+      sortDirection: "desc",
     });
 
     await route.GET(new Request("http://localhost/api/admin/ai-usage?sortBy=unknown&sortDirection=sideways"));

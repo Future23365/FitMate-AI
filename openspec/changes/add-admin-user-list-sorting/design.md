@@ -9,7 +9,7 @@
 **Goals:**
 
 - 在 admin service 投影中新增 `lastReplyAt`，表示用户最近一次聊天活动时间。
-- 支持按 `createdAt`、`lastReplyAt`、`totalTokens` 做服务端排序。
+- 支持按 `createdAt`、`lastReplyAt`、`conversationCount`、`messageCount`、`totalTokens` 做服务端排序。
 - 支持 `asc` 和 `desc` 两个排序方向。
 - 页面和 JSON API 都使用同一套排序参数解析和 service 输入合同。
 - 通过测试覆盖排序投影、API 参数传递和页面不会直接依赖 Prisma shape。
@@ -33,7 +33,7 @@
 
 3. **Prisma reader 先按排序字段选择候选用户。**
 
-   `createdAt` 使用 `User.createdAt` 直接排序；`lastReplyAt` 使用 `ChatSession.groupBy(userId)._max.updatedAt`；`totalTokens` 使用 `AiTokenUsageSummary.groupBy(userId)._sum.totalTokens`。service 仍会在投影后做一次稳定排序，保证测试 reader 和 Prisma reader 输出都符合 UI 合同。
+   `createdAt` 使用 `User.createdAt` 直接排序；`lastReplyAt` 使用 `ChatSession.groupBy(userId)._max.updatedAt`；`conversationCount` 和 `messageCount` 使用会话统计投影；`totalTokens` 使用 `AiTokenUsageSummary.groupBy(userId)._sum.totalTokens`。service 仍会在投影后做一次稳定排序，保证测试 reader 和 Prisma reader 输出都符合 UI 合同。
 
 4. **token 排序按投影后的 `totalTokens`。**
 

@@ -14,7 +14,7 @@ export type AdminTokenUsageProjection = {
   recordedUsageCount: number;
 };
 
-export const adminUserListSortFields = ["createdAt", "lastReplyAt", "totalTokens"] as const;
+export const adminUserListSortFields = ["createdAt", "lastReplyAt", "conversationCount", "messageCount", "totalTokens"] as const;
 export const adminSortDirections = ["asc", "desc"] as const;
 
 export type AdminUserListSortField = typeof adminUserListSortFields[number];
@@ -416,6 +416,10 @@ async function listPrismaAdminUsers(
       });
     case "lastReplyAt":
       return listPrismaUsersByLastReplyAt(prisma, input);
+    case "conversationCount":
+      return listPrismaUsersByConversationCount(prisma, input);
+    case "messageCount":
+      return listPrismaUsersByMessageCount(prisma, input);
     case "totalTokens":
       return listPrismaUsersByTotalTokens(prisma, input);
   }
@@ -443,6 +447,45 @@ async function listPrismaUsersByLastReplyAt(
   const users = await listUsersByIdsInOrder(prisma, groups.map((group) => group.userId));
 
   return appendRemainingUsers(prisma, users, input.limit);
+}
+
+async function listPrismaUsersByConversationCount(
+  prisma: PrismaClient,
+  input: { limit: number; sort: AdminUserListSortState },
+) {
+  // 会话数排序由持久化 adapter 聚合，UI 和 Route 只消费稳定 sort field。
+  const orderDirection = resolveSqlSortDirection(input.sort.sortDirection);
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT u."id"
+    FROM "User" u
+    LEFT JOIN "ChatSession" s ON s."userId" = u."id"
+    WHERE u."deletedAt" IS NULL
+    GROUP BY u."id", u."createdAt"
+    ORDER BY COUNT(s."id") ${orderDirection}, u."createdAt" DESC
+    LIMIT ${input.limit}
+  `);
+
+  return listUsersByIdsInOrder(prisma, rows.map((row) => row.id));
+}
+
+async function listPrismaUsersByMessageCount(
+  prisma: PrismaClient,
+  input: { limit: number; sort: AdminUserListSortState },
+) {
+  // 消息数跨 ChatSession / ChatMessage 聚合，集中在 Prisma adapter，避免页面复刻 DB shape。
+  const orderDirection = resolveSqlSortDirection(input.sort.sortDirection);
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT u."id"
+    FROM "User" u
+    LEFT JOIN "ChatSession" s ON s."userId" = u."id"
+    LEFT JOIN "ChatMessage" m ON m."chatSessionId" = s."id"
+    WHERE u."deletedAt" IS NULL
+    GROUP BY u."id", u."createdAt"
+    ORDER BY COUNT(m."id") ${orderDirection}, u."createdAt" DESC
+    LIMIT ${input.limit}
+  `);
+
+  return listUsersByIdsInOrder(prisma, rows.map((row) => row.id));
 }
 
 async function listPrismaUsersByTotalTokens(
@@ -654,6 +697,10 @@ function compareAdminUserListItems(
         right.lastReplyAt ? Date.parse(right.lastReplyAt) : null,
         sort.sortDirection,
       );
+    case "conversationCount":
+      return compareNullableNumbers(left.conversationCount, right.conversationCount, sort.sortDirection);
+    case "messageCount":
+      return compareNullableNumbers(left.messageCount, right.messageCount, sort.sortDirection);
     case "totalTokens":
       return compareNullableNumbers(left.tokenUsage.totalTokens, right.tokenUsage.totalTokens, sort.sortDirection);
   }
@@ -677,6 +724,10 @@ function compareNullableNumbers(left: number | null, right: number | null, direc
 
 function maxDate(left: Date | null, right: Date) {
   return !left || right.getTime() > left.getTime() ? right : left;
+}
+
+function resolveSqlSortDirection(direction: AdminSortDirection) {
+  return direction === "asc" ? Prisma.sql`ASC` : Prisma.sql`DESC`;
 }
 
 function aggregateUsageRowsBy(rows: AdminUsageSummaryRow[], getKey: (row: AdminUsageSummaryRow) => string) {
