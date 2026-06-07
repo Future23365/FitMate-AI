@@ -511,13 +511,13 @@ body,
   --responsive-right-sidebar-peek: 44px;
 }
 
-@media (max-width: 1530px) {
+@media (max-width: 1380px) {
   :root {
     --app-sidebar-offset: var(--app-sidebar-rail-width);
   }
 }
 
-@media (max-width: 1530px) {
+@media (max-width: 1380px) {
   .responsive-right-sidebar-scope {
     --responsive-right-sidebar-offset: var(--responsive-right-sidebar-peek);
   }
@@ -547,7 +547,7 @@ body,
     box-shadow 0.22s ease;
 }
 
-@media (max-width: 1530px) {
+@media (max-width: 1380px) {
   .responsive-right-sidebar {
     border-left-color: rgba(215, 221, 229, 0.9);
     box-shadow: -10px 0 28px rgba(16, 24, 40, 0.08);
@@ -557,6 +557,21 @@ body,
   .responsive-right-sidebar.responsive-right-sidebar-expanded {
     box-shadow: -18px 0 40px rgba(16, 24, 40, 0.12);
     transform: translateX(0);
+  }
+}
+
+/* 动作编排页在中等桌面宽度下保留主信息横向阅读，把处方控件下沉避免挤压重叠。 */
+@media (min-width: 1380px) and (max-width: 1440px) {
+  .composer-exercise-body {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+  }
+
+  .composer-prescription-control {
+    flex-basis: 100%;
+    margin-left: 0;
+    width: max-content;
   }
 }
 
@@ -606,7 +621,7 @@ body,
   line-height: 1;
 }
 
-@media (max-width: 1530px) {
+@media (max-width: 1380px) {
   .app-sidebar {
     align-items: stretch;
     overflow: hidden;

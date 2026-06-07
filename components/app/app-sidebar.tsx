@@ -17,7 +17,7 @@ const navItems = [
   { label: "动作库", icon: "fitness_center", href: "/exercises" },
 ];
 
-const sidebarRailMediaQuery = "(max-width: 1530px)";
+const sidebarRailMediaQuery = "(max-width: 1380px)";
 
 type SidebarHistoryItem = {
   id: string;

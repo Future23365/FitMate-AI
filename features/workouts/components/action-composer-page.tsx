@@ -2149,7 +2149,7 @@ function WorkoutPrescriptionControl({
 
   return (
     <div
-      className="flex h-[50px] shrink-0 items-center rounded-[10px] border border-line bg-white px-[5px] shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:ml-auto"
+      className="composer-prescription-control flex h-[50px] shrink-0 items-center rounded-[10px] border border-line bg-white px-[5px] shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:ml-auto"
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
       title={`${targetLabel} ${item.target}${item.mode === "duration" ? "s" : ""} · ${item.sets}组 · 组间 ${item.setRestSeconds}s`}
@@ -2281,7 +2281,7 @@ function WorkoutExerciseRow({
           <SymbolIcon>drag_indicator</SymbolIcon>
         </button>
       </div>
-      <div className="flex min-w-0 flex-1 flex-col gap-md md:flex-row md:items-center">
+      <div className="composer-exercise-body flex min-w-0 flex-1 flex-col gap-md md:flex-row md:items-center">
         <div className="flex min-w-0 flex-1 items-center gap-md md:min-w-[250px]">
           <button
             aria-label={`查看动作详情：${item.nameZh}`}
