@@ -823,13 +823,13 @@ describe("workout plan candidate and validation services", () => {
         sessionMinutes: "current_user_message",
       },
     });
+    const supportSectionMissingResult = validateWorkoutRoutineDraft(missingSectionDraft, intent, {
+      exercises,
+      candidateExerciseIds: ["warmup", "push-up", "stretch"],
+    });
 
-    expect(() =>
-      validateWorkoutRoutineDraft(missingSectionDraft, intent, {
-        exercises,
-        candidateExerciseIds: ["warmup", "push-up", "stretch"],
-      }),
-    ).toThrow();
+    expect(supportSectionMissingResult.valid).toBe(true);
+    expect(supportSectionMissingResult.errors.map((issue) => issue.code)).not.toContain("missing_routine_section");
     expect(invalidAndOutsideResult.valid).toBe(false);
     expect(invalidAndOutsideResult.errors.map((issue) => issue.code)).toEqual(
       expect.arrayContaining(["invalid_exercise_id", "outside_candidate_exercise_id"]),

@@ -625,13 +625,12 @@ export function validateWorkoutRoutineDraft(
     });
   }
 
-  for (const section of ["warmup", "training", "stretch"] as const) {
-    if (!draft.sections.some((candidate) => candidate.section === section && candidate.items.length > 0)) {
-      errors.push({
-        code: "missing_routine_section",
-        message: `单次训练编排缺少 ${section} 阶段动作。`,
-      });
-    }
+  // routine 的确定性硬边界只要求存在主训练；support section 保持模型生成偏好，不由 validator 拒绝或补齐。
+  if (!draft.sections.some((candidate) => candidate.section === "training" && candidate.items.length > 0)) {
+    errors.push({
+      code: "missing_routine_section",
+      message: "单次训练编排缺少 training 阶段动作。",
+    });
   }
 
   for (const exerciseId of exerciseIdValidation.invalidExerciseIds) {
