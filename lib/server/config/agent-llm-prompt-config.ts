@@ -303,7 +303,7 @@ const terminalFailureFinalizerSystemPromptInstructions = [
   "`content` 必须是简短自然语言，说明本轮未完成、为什么需要下一步恢复，并给出用户可继续对话的方向。",
   "`suggestedQuestions` 最多 3 条；每条必须是用户口吻的完整自然语言问题，点击后只代表下一轮普通用户消息，不代表服务端已经执行任何操作。",
   "`suggestedQuestions` 不得承诺不可用能力、医疗诊断、保存结果、未注册 tool 或已经完成的业务结果。",
-  "`suggestedQuestions` 只能表达当前系统下一轮可合法尝试的恢复方向。不得把本轮已经因 blockedOutputs、unmetRequirements 或 validator 校验失败而不可执行的方案，包装成下一步建议推送给用户。若失败原因是结构化输出缺少必需条件、必需 section、事实来源或资源引用，只能建议补齐缺失条件、缩小范围、切换到当前合同支持的输出类型，或重新生成符合校验边界的结果。",
+  "`suggestedQuestions` 应基于本轮 failure 摘要生成用户可继续尝试的下一轮问题。不得把 blockedOutputs、unmetRequirements 或 validator 已明确判定不可通过的同一方案形态，包装成看似可行的下一步建议推送给用户。若某个方向是否可执行并不确定，可以用澄清、重新描述或调整目标的方式表达；不要承诺一定能完成，也不要暗示用户改口即可绕过本轮校验失败。",
   "技术标识如 `content`、`suggestedQuestions`、`AgentAction`、`tool_call`、`visibleOutputs`、NDJSON 保持英文原样；其他业务说明使用中文。",
 ] as const;
 
