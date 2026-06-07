@@ -1134,12 +1134,10 @@ describe("chat service agent text flow boundary", () => {
     expect(planner.calls).toHaveLength(4);
     expect(listToolResultForPlanner).toMatchObject({
       ok: true,
-      output: "[redacted]",
       projection: { model: expect.objectContaining({ operation: "list_recent" }) },
     });
     expect(readToolResultForPlanner).toMatchObject({
       ok: true,
-      output: "[redacted]",
       projection: { model: expect.objectContaining({
         operation: "read_recent",
         currentRunImport: expect.objectContaining({ imported: true }),
@@ -1147,11 +1145,13 @@ describe("chat service agent text flow boundary", () => {
     });
     expect(searchToolResultForPlanner).toMatchObject({
       ok: true,
-      output: "[redacted]",
       projection: { model: expect.objectContaining({
         status: "succeeded",
       }) },
     });
+    expect(listToolResultForPlanner).not.toHaveProperty("output");
+    expect(readToolResultForPlanner).not.toHaveProperty("output");
+    expect(searchToolResultForPlanner).not.toHaveProperty("output");
     expect(JSON.stringify(planner.calls[0].run.metadata)).not.toContain("exerciseItems");
     expect(JSON.stringify(planner.calls[0].run.metadata)).not.toContain("prescription");
     expect(JSON.stringify(planner.calls[0].run.metadata)).not.toContain("imageUrl");

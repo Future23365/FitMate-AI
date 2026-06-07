@@ -1,4 +1,12 @@
-import type { AgentAction, AgentObservation, AgentRunInput, JsonValue, ToolError, ToolManifest, ToolResult } from "./contracts";
+import type {
+  AgentAction,
+  AgentObservation,
+  AgentRunInput,
+  JsonValue,
+  PlannerVisibleToolResult,
+  ToolError,
+  ToolManifest,
+} from "./contracts";
 
 /** PlannerRepairContextError 是 validator 反馈给 repair 轮的字段级错误摘要，不携带 provider 原文或 handler output。 */
 export type PlannerRepairContextError = {
@@ -27,19 +35,19 @@ export type PlannerContextLayer = {
   step: number;
   manifests: ToolManifest[];
   observations: AgentObservation[];
-  toolResults: ToolResult[];
+  toolResults: PlannerVisibleToolResult[];
 };
 
 /**
  * PlannerInput 是 core 传给 PlannerPort 的模型无关状态快照。
- * toolResults 承载成功 tool facts 的详细权威投影，observations 承载 repair / diagnostic 和成功结果轻量索引。
+ * toolResults 承载成功 tool facts 的 Planner 专用瘦身投影，observations 承载 repair / diagnostic 和成功结果轻量索引。
  */
 export type PlannerInput = {
   run: AgentRunInput;
   step: number;
   manifests: ToolManifest[];
   observations: AgentObservation[];
-  toolResults: ToolResult[];
+  toolResults: PlannerVisibleToolResult[];
   context: PlannerContextLayer;
   repairContext?: PlannerRepairContext;
 };
