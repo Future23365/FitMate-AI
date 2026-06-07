@@ -58,6 +58,8 @@ export type AgentProgressPayload = {
   stage: AgentProgressStage | (string & {});
   status: AgentProgressStatus;
   messageKey?: AgentProgressStage;
+  /** activitySummary 是服务端投影的短活动摘要，只用于当前请求展示，不写入消息或历史。 */
+  activitySummary?: string;
   sequence: number;
 };
 

@@ -70,6 +70,7 @@ const defaultAgentActionSystemPromptInstructions = [
   "决策顺序：可直接可靠回答则 final_answer；缺少必要用户信息则 ask_user；需要未注册能力时说明能力边界但不承诺执行；事实不足且仍有合法 tool 时继续 tool_call；无法恢复时澄清或失败收口。",
   "final_answer 是本轮终态，不会触发后续 tool、查询、保存、等待或内部步骤；不得在 content 中承诺尚未执行的结果。",
   "输出 visibleOutputs[] 时只遵守 protocol.outputContracts[]；content 只能解释、提醒或总结，不能替代结构化 payload 或事实来源。",
+  "`activitySummary` 是可选用户态短中文活动摘要；它不是推理内容、最终回答、tool input、业务判断或 NDJSON event。",
   "已有 tool result、resource 或 visibleOutputs 时，成功 final_answer 必须能被 satisfied=true tool result、consumable resource 或已校验结构化输出支撑；failed、diagnostic 或 satisfied=false 只能用于恢复、澄清或失败解释。",
   "引用已有对象时只在内部判断 reuse、derive、modify、replace、clarify；若引用对象不可见或不可操作，说明上下文不足，不能假装已修改、已替换或已派生。",
   "不得提供医疗诊断、治疗建议、伤病判断或康复处方；不得伪造 tool result、resource、confirmation/hash、保存结果、secret 或前端事件。",
@@ -79,7 +80,7 @@ const defaultAgentActionSystemPromptInstructions = [
 ] as const;
 
 // agentLlmPromptVersion 是当前通用 AgentAction system prompt 的稳定审阅标识。
-export const agentLlmPromptVersion = "agent-action-v23-planner-input-layers";
+export const agentLlmPromptVersion = "agent-action-v24-activity-summary";
 
 // defaultAgentActionContract 把字段形状、决策策略和少量 few-shot 从 system prompt 中结构化拆出。
 export const defaultAgentActionContract: AgentActionContract = {
@@ -91,6 +92,7 @@ export const defaultAgentActionContract: AgentActionContract = {
       type: "tool_call",
       toolName: "从 tools[].name 复制真实存在的 toolName",
       input: "严格匹配该 tool inputJsonSchema 的 JSON 值",
+      activitySummary: "可选，40 字以内中文短句，只描述本轮准备做什么",
     },
     final_answer: {
       type: "final_answer",
@@ -98,6 +100,7 @@ export const defaultAgentActionContract: AgentActionContract = {
       suggestedQuestions: ["可选，最多 3 条用户口吻下一轮问题"],
       usedRefs: ["可选，引用本 run 已使用事实来源"],
       visibleOutputs: ["可选，遵守 outputContracts[] 的结构化用户可见输出"],
+      activitySummary: "可选，40 字以内中文短句，只描述本轮正在整理最终回复",
     },
     ask_user: {
       type: "ask_user",
@@ -108,6 +111,7 @@ export const defaultAgentActionContract: AgentActionContract = {
         "我想增肌，每周练 5 天，每次 60 分钟，可以去健身房",
       ],
       usedRefs: ["可选，引用导致澄清的诊断事实"],
+      activitySummary: "可选，40 字以内中文短句，只描述本轮需要向用户确认什么",
     },
     usedRefs: {
       tool_result: {
@@ -130,6 +134,7 @@ export const defaultAgentActionContract: AgentActionContract = {
     { field: "type", meaning: "唯一 action 判别字段，只能是 tool_call、final_answer 或 ask_user。" },
     { field: "toolName", meaning: "只在 tool_call 中使用，必须来自当前 tools[].name。" },
     { field: "input", meaning: "tool_call 的工具入参，必须匹配该工具模型可见 schema。" },
+    { field: "activitySummary", meaning: "可选用户态短中文活动摘要，只用于当前请求活动条展示；不是最终回答、推理内容、tool input、业务判断或 NDJSON event，不能包含工具名、schema 字段、validator、runtime、resource、trace、provider、prompt、AgentAction、错误码或 raw model output。" },
     { field: "content", meaning: "final_answer 或 ask_user 的用户可见文本；结构化事实不能只写在 content 里。" },
     { field: "suggestedQuestions", meaning: "最多 3 条用户口吻的下一轮消息候选；点击后只是普通用户消息，不代表已执行操作。" },
     { field: "usedRefs", meaning: "terminal action 使用过的当前 run 事实来源引用数组。" },
@@ -186,6 +191,7 @@ export const defaultAgentActionContract: AgentActionContract = {
   safetyPolicy: [
     "不提供医疗诊断、治疗建议、伤病判断或康复处方。",
     "不伪造 tool result、resource、confirmation/hash、保存结果、数据库写入或前端事件。",
+    "`activitySummary` 不参与 action type、toolName、tool input、usedRefs、visibleOutputs、权限、确认、grounding 或最终回答决策。",
     "不泄漏 secret、provider 原文、内部 stack、authorization、cookie 或服务端内部 details。",
   ],
   examples: [
@@ -195,6 +201,7 @@ export const defaultAgentActionContract: AgentActionContract = {
       actionChoice: "final_answer",
       expectedAction: {
         type: "final_answer",
+        activitySummary: "正在整理训练解释",
         content: "用简短中文直接回答，并说明可继续提供的非医疗训练帮助。",
       },
       notes: ["不因为出现健身主题就强行 tool_call 或 ask_user。"],
@@ -205,6 +212,7 @@ export const defaultAgentActionContract: AgentActionContract = {
       actionChoice: "ask_user",
       expectedAction: {
         type: "ask_user",
+        activitySummary: "需要确认训练条件",
         content: "为了生成可执行训练计划，我还需要知道你每周想练几天、每次多久、有哪些器械。",
         suggestedQuestions: [
           "我每周练 3 天，每次 45 分钟，只能在家徒手训练",
@@ -235,6 +243,7 @@ export const defaultAgentActionContract: AgentActionContract = {
       actionChoice: "tool_call",
       expectedAction: {
         type: "tool_call",
+        activitySummary: "需要查询可用事实",
         toolName: "从 tools[].name 复制可完成该能力的真实 toolName",
         input: "按该 tool schema 构造 JSON input",
       },

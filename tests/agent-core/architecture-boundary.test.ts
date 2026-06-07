@@ -330,6 +330,35 @@ describe("agent-core architecture boundaries", () => {
     expect(matches).toEqual([]);
   });
 
+  it("keeps activitySummary scoped to contracts, safe projection and frontend display only", () => {
+    const allowedFiles = new Set([
+      "lib/shared/agent-activity-summary.ts",
+      "lib/server/agent-core/contracts.ts",
+      "lib/server/agent-core/redaction.ts",
+      "lib/server/agent-core/runtime.ts",
+      "lib/server/chat/agent-text-chat-service.ts",
+      "lib/server/config/agent-llm-prompt-config.ts",
+      "features/chat/api/chat-client.ts",
+      "features/chat/lib/agent-activity.ts",
+      "features/chat/types.ts",
+    ]);
+    const scannedFiles = [
+      ...collectFiles("lib"),
+      ...collectFiles("features"),
+      ...collectFiles("app"),
+    ]
+      .map((file) => path.relative(repoRoot, file))
+      .filter((file) => /\.(ts|tsx)$/.test(file));
+    const matches = scannedFiles
+      .filter((file) => readRelative(file).includes("activitySummary"))
+      .filter((file) => !allowedFiles.has(file));
+
+    expect(matches).toEqual([]);
+    expect(readRelative("lib/server/agent-core/action-validator.ts")).not.toContain("activitySummary");
+    expect(readRelative("lib/server/agent-core/response-renderer.ts")).not.toContain("activitySummary");
+    expect(readRelative("app/api/chat/route.ts")).not.toContain("activitySummary");
+  });
+
   it("keeps planner input layering free of business tool branches and user text routing", () => {
     const files = [
       "lib/server/agent-core/planner-port.ts",

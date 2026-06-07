@@ -7,6 +7,7 @@ import {
   type AgentLoopPayload,
   type AgentProgressPayload,
 } from "@/features/chat/types";
+import { sanitizeAgentActivitySummary } from "@/lib/shared/agent-activity-summary";
 
 export type AgentTextChatErrorPayload = {
   code?: string;
@@ -319,8 +320,19 @@ function parseAgentProgressEvent(event: Record<string, unknown>): AgentTextChatE
     stage: event.stage,
     status: event.status,
     messageKey,
+    ...parseAgentActivitySummary(event.activitySummary),
     sequence: event.sequence,
   };
+}
+
+function parseAgentActivitySummary(value: unknown): Pick<AgentProgressPayload, "activitySummary"> {
+  if (value === undefined) {
+    return {};
+  }
+
+  const sanitized = sanitizeAgentActivitySummary(value);
+
+  return sanitized.ok ? { activitySummary: sanitized.summary } : {};
 }
 
 async function createHttpError(response: Response) {

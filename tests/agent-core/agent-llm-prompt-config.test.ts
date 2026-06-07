@@ -12,6 +12,7 @@ import {
   terminalFailureFinalizerPromptVersion,
   type AgentLlmPromptConfig,
 } from "@/lib/server/config";
+import { AgentActionSchema } from "@/lib/server/agent-core/contracts";
 
 describe("agent LLM prompt configuration", () => {
   it("exposes a short default system prompt and structured AgentAction contract", () => {
@@ -20,8 +21,8 @@ describe("agent LLM prompt configuration", () => {
     const serializedContract = JSON.stringify(actionContract);
 
     expect(agentLlmPromptConfig.promptVersion).toBe(agentLlmPromptVersion);
-    expect(agentLlmPromptVersion).toBe("agent-action-v23-planner-input-layers");
-    expect(systemPrompt.length).toBeLessThan(2200);
+    expect(agentLlmPromptVersion).toBe("agent-action-v24-activity-summary");
+    expect(systemPrompt.length).toBeLessThan(2400);
 
     for (const required of [
       "只能返回一个合法 JSON object",
@@ -34,6 +35,8 @@ describe("agent LLM prompt configuration", () => {
       "决策顺序",
       "final_answer 是本轮终态",
       "输出 visibleOutputs[] 时只遵守 protocol.outputContracts[]",
+      "`activitySummary` 是可选用户态短中文活动摘要",
+      "不是推理内容、最终回答、tool input、业务判断或 NDJSON event",
       "satisfied=true tool result、consumable resource",
       "reuse、derive、modify、replace、clarify",
       "不得提供医疗诊断、治疗建议",
@@ -91,19 +94,26 @@ describe("agent LLM prompt configuration", () => {
       shapes: {
         tool_call: {
           type: "tool_call",
+          activitySummary: "可选，40 字以内中文短句，只描述本轮准备做什么",
         },
         final_answer: {
           type: "final_answer",
           content: "用户可见文本",
+          activitySummary: "可选，40 字以内中文短句，只描述本轮正在整理最终回复",
         },
         ask_user: {
           type: "ask_user",
           content: "需要用户补充的信息",
+          activitySummary: "可选，40 字以内中文短句，只描述本轮需要向用户确认什么",
         },
       },
     });
     for (const required of [
       "fieldDictionary",
+      "activitySummary",
+      "只用于当前请求活动条展示",
+      "需要确认训练条件",
+      "需要查询可用事实",
       "suggestedQuestionsPolicy",
       "decisionPolicy",
       "groundingPolicy",
@@ -137,6 +147,22 @@ describe("agent LLM prompt configuration", () => {
     ]) {
       expect(serializedContract).toContain(required);
     }
+    expect(AgentActionSchema.safeParse({
+      type: "tool_call",
+      toolName: "readFixture",
+      input: {},
+      activitySummary: "需要查询可用事实",
+    }).success).toBe(true);
+    expect(AgentActionSchema.safeParse({
+      type: "final_answer",
+      content: "可以。",
+      activitySummary: "正在整理训练解释",
+    }).success).toBe(true);
+    expect(AgentActionSchema.safeParse({
+      type: "ask_user",
+      content: "你今天能练多久？",
+      activitySummary: "需要确认训练条件",
+    }).success).toBe(true);
     expect(serializedContract).not.toContain("schema_validation_failed");
     expect(serializedContract).not.toContain("domain_validation_failed");
     for (const forbidden of [
@@ -149,6 +175,7 @@ describe("agent LLM prompt configuration", () => {
       "searchExerciseResources",
       "inspectVisibleTrainingProposals",
       "resolveExerciseResourceMentions",
+      "\"rationale\"",
     ]) {
       expect(serializedContract).not.toContain(forbidden);
     }
@@ -207,7 +234,7 @@ describe("agent LLM prompt configuration", () => {
       "返回测试专用 AgentAction JSON object。 这个测试只期望 final_answer。",
     );
     expect(buildAgentActionSystemPrompt()).toContain("tool_call、final_answer、ask_user");
-    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v23-planner-input-layers");
+    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v24-activity-summary");
   });
 
   it("exposes a dedicated terminal failure finalizer prompt and budget config", () => {

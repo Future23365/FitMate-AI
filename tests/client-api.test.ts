@@ -43,6 +43,7 @@ describe("frontend API clients", () => {
       .mockResolvedValueOnce(new Response([
         JSON.stringify({ type: "agent_progress", stage: "preparing_context", status: "active", messageKey: "preparing_context", sequence: 1, toolName: "searchExerciseResources" }),
         JSON.stringify({ type: "agent_loop", loopTurn: 1, sequence: 2, toolName: "searchExerciseResources" }),
+        JSON.stringify({ type: "agent_progress", stage: "analyzing_request", status: "active", messageKey: "analyzing_request", activitySummary: "需要查询动作库", sequence: 3 }),
         JSON.stringify({ type: "content", content: "你好" }),
         "",
         JSON.stringify({ type: "suggested_questions", suggestedQuestions: ["继续"] }),
@@ -70,6 +71,7 @@ describe("frontend API clients", () => {
     expect(events).toEqual([
       { type: "agent_progress", stage: "preparing_context", status: "active", messageKey: "preparing_context", sequence: 1 },
       { type: "agent_loop", loopTurn: 1, sequence: 2 },
+      { type: "agent_progress", stage: "analyzing_request", status: "active", messageKey: "analyzing_request", activitySummary: "需要查询动作库", sequence: 3 },
       { type: "content", content: "你好" },
       { type: "suggested_questions", suggestedQuestions: ["继续"] },
       { type: "done" },
@@ -112,17 +114,28 @@ describe("frontend API clients", () => {
         status: "active",
         sequence: 7,
         toolName: "searchExerciseResources",
+        activitySummary: "需要确认训练条件",
+      }),
+      JSON.stringify({
+        type: "agent_progress",
+        stage: "validating_result",
+        status: "active",
+        messageKey: "validating_result",
+        sequence: 8,
+        activitySummary: "toolName=searchExerciseResources 内部调试",
       }),
       JSON.stringify({ type: "done" }),
     ].join("\n")), (event) => events.push(event));
 
     expect(events).toEqual([
       { type: "agent_loop", loopTurn: 2, sequence: 6 },
-      { type: "agent_progress", stage: "raw_internal_tool_name", status: "active", messageKey: undefined, sequence: 7 },
+      { type: "agent_progress", stage: "raw_internal_tool_name", status: "active", messageKey: undefined, activitySummary: "需要确认训练条件", sequence: 7 },
+      { type: "agent_progress", stage: "validating_result", status: "active", messageKey: "validating_result", sequence: 8 },
       { type: "done" },
     ]);
     expect(JSON.stringify(events)).not.toContain("toolName");
     expect(JSON.stringify(events)).not.toContain("searchExerciseResources");
+    expect(JSON.stringify(events)).not.toContain("内部调试");
 
     const streamError = await consumeAgentTextChatNdjson(new Response(JSON.stringify({
       type: "agent_progress",

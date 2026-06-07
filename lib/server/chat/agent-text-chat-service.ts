@@ -38,6 +38,7 @@ import { createProductionTerminalOutputValidatorRegistry } from "@/lib/server/vi
 import { createProductionVisibleOutputRendererRegistry } from "@/lib/server/visible-training-proposals/visible-training-proposal-renderer";
 import { readExerciseResourceFacetCatalog } from "@/lib/server/exercises/exercise-repository";
 import { agentRuntimeConfig } from "@/lib/server/config";
+import { sanitizeAgentActivitySummary } from "@/lib/shared/agent-activity-summary";
 import {
   startAiTrace,
   summarizeLatestUserMessage,
@@ -271,7 +272,7 @@ export async function createAgentTextChatResponse(input: CreateAgentTextChatResp
 
           if (stage) {
             // 活动条只表达用户可见进度；可恢复失败保留在 trace 和最终错误事件中处理。
-            await activityWriter.writeActivity(stage);
+            await activityWriter.writeActivity(stage, "active", readPlannerActionActivitySummary(event));
           }
         },
       });
@@ -480,13 +481,16 @@ function createAgentActivityStreamWriter(writer: AgentTextChatNdjsonWriter) {
     writeActivity: async (
       stage: AgentProgressStage,
       status: AgentProgressEvent["status"] = "active",
+      activitySummary?: string,
     ) => {
       sequence += 1;
+      const sanitizedActivitySummary = sanitizeAgentActivitySummary(activitySummary);
       await writer.write({
         type: "agent_progress",
         stage,
         status,
         messageKey: stage,
+        ...(sanitizedActivitySummary.ok ? { activitySummary: sanitizedActivitySummary.summary } : {}),
         sequence,
       });
     },
@@ -503,6 +507,10 @@ function createAgentActivityStreamWriter(writer: AgentTextChatNdjsonWriter) {
       });
     },
   };
+}
+
+function readPlannerActionActivitySummary(event: AgentTraceEvent) {
+  return event.type === "planner_action" ? event.activitySummary : undefined;
 }
 
 function mapRuntimeTraceEventToAgentProgressStage(
@@ -1573,6 +1581,9 @@ function summarizeRuntimeTraceEvent(event: AgentTraceEvent): unknown {
         step: event.step,
         actionType: event.actionType,
         toolName: event.toolName,
+        activitySummary: event.activitySummary,
+        activitySummarySource: event.activitySummarySource,
+        activitySummaryRejectedReason: event.activitySummaryRejectedReason,
       };
     case "validation_result":
       return {
@@ -1859,6 +1870,7 @@ function summarizeAgentTextChatResponseEvents(
     projectionType: getAgentTextChatResponseProjectionType(events, context),
     content: summarizeText(content),
     contentLength: content.length,
+    activitySummaryCount: events.filter((event) => event.type === "agent_progress" && Boolean(event.activitySummary)).length,
     suggestionCount: suggestedQuestions.length,
     suggestedQuestions,
     errorCodes,

@@ -1,4 +1,5 @@
 import type { JsonValue, ToolError } from "./contracts";
+import { sanitizeAgentActivitySummary } from "@/lib/shared/agent-activity-summary";
 
 export const REDACTED_VALUE = "[redacted]";
 
@@ -94,6 +95,11 @@ export function redactJsonValue(value: JsonValue | unknown, policy: RedactionPol
         continue;
       }
 
+      if (key === "activitySummary") {
+        entries.push([key, redactActivitySummary(child)]);
+        continue;
+      }
+
       entries.push([key, redactJsonValue(child, policy, childPath)]);
     }
 
@@ -101,6 +107,14 @@ export function redactJsonValue(value: JsonValue | unknown, policy: RedactionPol
   }
 
   return REDACTED_VALUE;
+}
+
+function redactActivitySummary(value: unknown): JsonValue {
+  const sanitized = sanitizeAgentActivitySummary(value);
+
+  return sanitized.ok
+    ? sanitized.summary
+    : { rejectedReason: sanitized.reason };
 }
 
 /** auditRedactedValue 扫描脱敏后对象，发现 secret、完整 output 或内部 capability 立即暴露为测试失败证据。 */

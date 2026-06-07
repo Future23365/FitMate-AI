@@ -203,6 +203,57 @@ describe("Agent progress activity UI state", () => {
     expect(getAgentActivityDisplay(secondLoop!).label).toBe("正在查询动作库...");
   });
 
+  it("prioritizes safe activitySummary without using it to infer loopTurn", () => {
+    const initial = reduceAgentActivity(null, {
+      type: "agent_progress",
+      stage: "analyzing_request",
+      status: "active",
+      messageKey: "analyzing_request",
+      sequence: 1,
+    }, { nowMs: 0 });
+    const firstLoop = reduceAgentActivity(initial, {
+      type: "agent_loop",
+      loopTurn: 1,
+      sequence: 2,
+    }, { nowMs: 100 });
+    const summary = reduceAgentActivity(firstLoop, {
+      type: "agent_progress",
+      stage: "analyzing_request",
+      status: "active",
+      messageKey: "analyzing_request",
+      activitySummary: "需要查询动作库",
+      sequence: 3,
+    }, { nowMs: 1_100 });
+    const secondLoop = reduceAgentActivity(summary, {
+      type: "agent_loop",
+      loopTurn: 2,
+      sequence: 4,
+    }, { nowMs: 1_200 });
+
+    expect(summary?.loopTurn).toBe(1);
+    expect(summary?.activityStage?.activitySummary).toBe("需要查询动作库");
+    expect(getAgentActivityDisplay(summary!).label).toBe("需要查询动作库");
+    expect(secondLoop?.loopTurn).toBe(2);
+    expect(secondLoop?.activityStage?.activitySummary).toBe("需要查询动作库");
+    expect(getAgentActivityDisplay(secondLoop!).label).toBe("需要查询动作库");
+  });
+
+  it("ignores unsafe activitySummary values and keeps the stage fallback user-safe", () => {
+    const next = reduceAgentActivity(null, {
+      type: "agent_progress",
+      stage: "validating_result",
+      status: "active",
+      messageKey: "validating_result",
+      activitySummary: "toolName=searchExerciseResources 内部调试",
+      sequence: 1,
+    }, { nowMs: 0 });
+
+    expect(next?.activityStage?.activitySummary).toBeUndefined();
+    expect(getAgentActivityDisplay(next!).label).toBe("正在校验训练内容...");
+    expect(getAgentActivityDisplay(next!).label).not.toContain("toolName");
+    expect(JSON.stringify(next)).not.toContain("searchExerciseResources");
+  });
+
   it("holds visible copy before showing rapid specific stage changes", () => {
     const reading = reduceAgentActivity(null, {
       type: "agent_progress",
@@ -327,6 +378,29 @@ describe("AgentActivityIndicator", () => {
     expect(html).toContain("motion-safe:animate-pulse");
     expect(html).toContain("motion-reduce:animate-none");
     expect(html).not.toContain("validateRoutineDraft");
+  });
+
+  it("renders safe activitySummary as the visible label while keeping loop prefix accessible", () => {
+    const html = renderToStaticMarkup(
+      createElement(AgentActivityIndicator, {
+        activity: createVisibleActivityForTest({
+          loopTurn: 2,
+          activityStage: {
+            stage: "analyzing_request",
+            status: "active",
+            messageKey: "analyzing_request",
+            activitySummary: "需要读取已有训练内容",
+            sequence: 3,
+          },
+        }),
+      }),
+    );
+
+    expect(html).toContain("#2");
+    expect(html).toContain("需要读取已有训练内容");
+    expect(html).not.toContain("正在规划下一步...");
+    expect(html).not.toContain("toolName");
+    expect(html).toContain("aria-live=\"polite\"");
   });
 
   it("renders unknown stages with a safe fallback label", () => {

@@ -5,6 +5,7 @@ import type {
   AgentProgressStage,
 } from "@/features/chat/types";
 import { isKnownAgentProgressStage } from "@/features/chat/types";
+import { sanitizeAgentActivitySummary } from "@/lib/shared/agent-activity-summary";
 
 export type AgentActivityDisplay = {
   label: string;
@@ -151,7 +152,8 @@ function isSameVisibleActivity(
 ) {
   return currentActivity.stage === nextActivity.stage
     && currentActivity.status === nextActivity.status
-    && currentActivity.messageKey === nextActivity.messageKey;
+    && currentActivity.messageKey === nextActivity.messageKey
+    && currentActivity.activitySummary === nextActivity.activitySummary;
 }
 
 function rememberIgnoredActivitySequence(
@@ -211,18 +213,20 @@ export function reduceVisibleAgentActivity(
   const genericCooldownMs = options.genericCooldownMs ?? genericAgentActivityCooldownMs;
   const lastActivitySequence = Math.max(current?.lastActivitySequence ?? -1, next.sequence);
   const currentActivity = current?.activityStage ?? null;
+  const nextHasActivitySummary = sanitizeAgentActivitySummary(next.activitySummary).ok;
 
   if (current && next.sequence <= current.lastActivitySequence) {
     return current;
   }
 
-  if (current && currentActivity && next.stage === "analyzing_request") {
+  if (current && currentActivity && next.stage === "analyzing_request" && !nextHasActivitySummary) {
     return rememberIgnoredActivitySequence(current, lastActivitySequence);
   }
 
   if (
     current &&
     currentActivity &&
+    !nextHasActivitySummary &&
     isSpecificAgentActivityStage(currentActivity.stage) &&
     isGenericAgentActivityStage(next.stage)
   ) {
@@ -324,8 +328,19 @@ export function reduceAgentActivity(
     stage: event.stage,
     status: event.status,
     messageKey: event.messageKey,
+    ...projectSafeActivitySummary(event.activitySummary),
     sequence: event.sequence,
   }, options);
+}
+
+function projectSafeActivitySummary(value: unknown): Pick<AgentProgressPayload, "activitySummary"> {
+  if (value === undefined) {
+    return {};
+  }
+
+  const sanitized = sanitizeAgentActivitySummary(value);
+
+  return sanitized.ok ? { activitySummary: sanitized.summary } : {};
 }
 
 export function createWritingReplyAgentActivity(
@@ -347,9 +362,18 @@ export function shouldClearAgentActivityForStreamEvent(event: AgentTextChatEvent
 
 // getAgentActivityDisplay 是 UI 文案白名单，未知 stage 统一展示不泄漏内部信息的兜底文案。
 export function getAgentActivityDisplay(
-  activity: Pick<AgentProgressPayload, "stage" | "status"> | Pick<VisibleAgentActivity, "activityStage">,
+  activity: Pick<AgentProgressPayload, "stage" | "status" | "activitySummary"> | Pick<VisibleAgentActivity, "activityStage">,
 ): AgentActivityDisplay {
   const activityStage = "activityStage" in activity ? activity.activityStage : activity;
+  const sanitizedActivitySummary = sanitizeAgentActivitySummary(activityStage?.activitySummary);
+
+  if (sanitizedActivitySummary.ok) {
+    return {
+      label: sanitizedActivitySummary.summary,
+      icon: "auto_awesome",
+      toneClass: "text-primary",
+    };
+  }
 
   if (activityStage && typeof activityStage.stage === "string" && isKnownAgentProgressStage(activityStage.stage)) {
     return agentActivityDisplayByStage[activityStage.stage];
