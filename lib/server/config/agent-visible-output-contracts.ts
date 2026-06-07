@@ -106,7 +106,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
   whenNotToUse: [
     "用户只需要普通健身解释、能力说明、训练原则、总结整理或不需要结构化训练结果的文本回答。",
     "当前事实只包含 failed tool result、diagnostic observation 或 satisfied=false result。",
-    "缺少足以解释训练结构的目标、约束或动作事实时，不要伪造训练卡片，应继续合法 tool_call、ask_user 或失败收口。",
+    "缺少足以解释主训练结构的目标、约束或 training 动作事实时，不要伪造训练卡片，应继续合法 tool_call、ask_user 或失败收口。",
     "不要用 content 正文、历史 assistant 文本、示例占位值或 provider 原文作为动作、处方、编排或计划事实源。",
   ],
   kindSelectionRules: [
@@ -287,9 +287,9 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
       ],
     },
     {
-      description: "事实不足的 routine：只有 training 动作事实但用户要一次完整训练时优先补齐或澄清。",
+      description: "support section 未齐的 routine：只有 training 动作事实时优先补齐。",
       userSituation: "当前 tool result 只提供 training 动作，用户目标需要 routine。",
-      expectedDecision: "优先继续合法 tool_call 补齐 warmup/stretch；若无法继续获取事实，ask_user 或失败收口；不得降级为 exercise_selection 来假装满足 routine。",
+      expectedDecision: "优先继续合法 tool_call 补齐 warmup/stretch；生成最终 routine 时只能使用实际存在的 section 动作事实，不得伪造缺失 section，也不得降级为 exercise_selection 来假装满足 routine。",
       notes: [
         "这是 section readiness 的业务边界，不是固定 toolName 规则。",
         "missingSections 只作为诊断事实使用。",

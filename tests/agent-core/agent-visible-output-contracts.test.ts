@@ -92,7 +92,7 @@ describe("agent visible output contracts", () => {
       "只保留适合在家练的动作",
       "7 天周期",
       "每周 3 练",
-      "事实不足的 routine",
+      "support section 未齐的 routine",
       "基于已有结构派生计划",
       "替换或修改",
     ]) {
@@ -194,7 +194,7 @@ describe("agent visible output contracts", () => {
     expect(expectedDecisionExamples.length).toBeGreaterThan(0);
     expect(expectedDecisionExamples.map((example) => example.description)).toEqual(expect.arrayContaining([
       "需要动作事实：用户要结构化训练结果但当前上下文没有模型可见动作事实时先 tool_call。",
-      "事实不足的 routine：只有 training 动作事实但用户要一次完整训练时继续补齐或澄清。",
+      "support section 未齐的 routine：只有 training 动作事实时优先补齐。",
       "基于已有结构派生计划：用户要求按当前内容做一周计划时使用 derive。",
       "替换或修改：用户要求替换已有动作、避免重复或调整处方时使用 replace / modify。",
     ]));
@@ -213,6 +213,25 @@ describe("agent visible output contracts", () => {
         expect(example.expectedDecision).toMatch(/[\u4e00-\u9fff]/);
       }
     }
+  });
+
+  it("keeps support sections as a completion preference without model-visible omission wording", () => {
+    const serialized = JSON.stringify(visibleTrainingProposalOutputContract);
+    const routineSupportExample = visibleTrainingProposalOutputContract.examples.find((example) =>
+      example.description.startsWith("support section 未齐的 routine")
+    );
+
+    expect(serialized).toContain("应优先组织为 warmup、training、stretch");
+    expect(serialized).toContain("生成 routine 或 plan 时应优先补齐 warmup 和 stretch");
+    expect(serialized).toContain("已有可用 warmup 或 stretch 动作事实时，不要只输出主训练");
+    expect(routineSupportExample?.expectedDecision).toContain("优先继续合法 tool_call 补齐 warmup/stretch");
+    expect(routineSupportExample?.expectedDecision).toContain("不得伪造缺失 section");
+    expect(routineSupportExample?.expectedDecision).not.toContain("ask_user 或失败收口");
+    expect(serialized).not.toContain("可以不生成热身");
+    expect(serialized).not.toContain("可以不生成拉伸");
+    expect(serialized).not.toContain("可以省略");
+    expect(serialized).not.toContain("可省略");
+    expect(serialized).not.toContain("warmup/stretch optional");
   });
 
   it("returns cloned contracts and records a safe trace summary", () => {
