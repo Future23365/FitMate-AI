@@ -1175,11 +1175,13 @@ function ExerciseDetailPanel({
                     src={activeImageUrl}
                   />
                 ) : null}
-                <div className="absolute inset-x-0 bottom-0 flex items-center justify-end bg-gradient-to-t from-black/58 to-transparent px-sm pb-sm pt-xl">
-                  <span className="rounded-full bg-black/55 px-sm py-[2px] font-label-sm text-label-sm text-white">
-                    {exercise.categoryZh || "训练动作"}
-                  </span>
-                </div>
+                {activeImageUrl ? (
+                  <div className="absolute inset-x-0 bottom-0 flex items-center justify-end bg-gradient-to-t from-black/58 to-transparent px-sm pb-sm pt-xl">
+                    <span className="rounded-full bg-black/55 px-sm py-[2px] font-label-sm text-label-sm text-white">
+                      {exercise.categoryZh || "训练动作"}
+                    </span>
+                  </div>
+                ) : null}
                 {hasMultipleImages ? (
                   <>
                     <button
@@ -1215,9 +1217,9 @@ function ExerciseDetailPanel({
                 ) : null}
               </div>
 
-              {hasImages ? (
-                <div className="flex gap-xs overflow-x-auto pb-xs scrollbar-none">
-                  {imageUrls.map((imageUrl, index) => (
+              <div className="flex min-h-[24px] gap-xs overflow-x-auto pb-xs scrollbar-none">
+                {hasImages
+                  ? imageUrls.map((imageUrl, index) => (
                     <button
                       aria-label={`查看第 ${index + 1} 步动作图`}
                       className={`flex shrink-0 items-center gap-xs rounded-full px-sm py-[3px] font-label-sm text-label-sm transition-colors ${
@@ -1231,9 +1233,9 @@ function ExerciseDetailPanel({
                     >
                       第 {index + 1} 步
                     </button>
-                  ))}
-                </div>
-              ) : null}
+                  ))
+                  : null}
+              </div>
             </div>
 
             <div className="flex flex-col gap-lg">
