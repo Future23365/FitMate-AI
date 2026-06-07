@@ -18,6 +18,7 @@ import {
   type AdminUserListItemProjection,
   type AdminUsageOverviewProjection,
 } from "@/lib/server/admin/admin-ai-usage-service";
+import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
   title: "AI 使用后台 | FitMate AI",
@@ -48,9 +49,10 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
     selectedConversationId ? getAdminConversationDetail(selectedConversationId) : Promise.resolve(null),
   ]);
 
+  // 后台页面使用自身滚动容器，避免全局 body overflow hidden 阻断列表和详情上下滚动。
   return (
-    <main className="min-h-screen bg-background px-8 py-6 text-foreground">
-      <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-6">
+    <main className="h-dvh overflow-y-auto bg-background px-8 py-6 text-foreground">
+      <div className="mx-auto flex min-h-full w-full max-w-[1440px] flex-col gap-6 xl:h-full xl:min-h-0">
         <header className="flex items-center justify-between gap-4">
           <div>
             <h1 className="text-headline-md font-semibold tracking-normal">AI 使用后台</h1>
@@ -66,10 +68,14 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
 
         <OverviewPanel overview={overview} />
 
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.9fr)]">
+        <div className="grid gap-6 xl:min-h-0 xl:flex-1 xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.9fr)]">
           <UsersPanel users={users.items} />
-          <div className="flex flex-col gap-6">
-            {selectedUser ? <UserDetailPanel detail={selectedUser} /> : <EmptySelection title="用户详情" />}
+          <div className="grid gap-6 xl:min-h-0 xl:grid-rows-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+            {selectedUser ? (
+              <UserDetailPanel detail={selectedUser} selectedConversationId={selectedConversationId} />
+            ) : (
+              <EmptySelection title="用户详情" />
+            )}
             {selectedConversation ? (
               <ConversationDetailPanel detail={selectedConversation} />
             ) : (
@@ -84,7 +90,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
 
 function OverviewPanel({ overview }: { overview: AdminUsageOverviewProjection }) {
   return (
-    <section className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+    <section className="grid shrink-0 gap-4 md:grid-cols-3 xl:grid-cols-6">
       <MetricCard label="用户" value={overview.userCount.toLocaleString("zh-CN")} icon="group" />
       <MetricCard label="会话" value={overview.conversationCount.toLocaleString("zh-CN")} icon="forum" />
       <MetricCard label="消息" value={overview.messageCount.toLocaleString("zh-CN")} icon="chat" />
@@ -123,12 +129,12 @@ function MetricCard({
 
 function UsersPanel({ users }: { users: AdminUserListItemProjection[] }) {
   return (
-    <Card className="rounded-lg">
-      <CardHeader>
+    <Card className="min-h-0 overflow-hidden rounded-lg xl:h-full">
+      <CardHeader className="shrink-0">
         <CardTitle>用户列表</CardTitle>
         <CardDescription>按创建时间倒序</CardDescription>
       </CardHeader>
-      <CardContent className="overflow-x-auto">
+      <CardContent className="custom-scrollbar min-h-0 overflow-x-auto pb-6 xl:flex-1 xl:overflow-auto">
         <table className="w-full min-w-[760px] border-separate border-spacing-0 text-left text-body-sm">
           <thead className="text-label-sm text-muted-foreground">
             <tr>
@@ -168,35 +174,55 @@ function UsersPanel({ users }: { users: AdminUserListItemProjection[] }) {
   );
 }
 
-function UserDetailPanel({ detail }: { detail: AdminUserDetailProjection }) {
+function UserDetailPanel({
+  detail,
+  selectedConversationId,
+}: {
+  detail: AdminUserDetailProjection;
+  selectedConversationId: string | undefined;
+}) {
   return (
-    <Card className="rounded-lg">
-      <CardHeader>
+    <Card className="min-h-0 overflow-hidden rounded-lg xl:h-full">
+      <CardHeader className="shrink-0">
         <CardTitle>{detail.user.identityLabel}</CardTitle>
         <CardDescription>{detail.user.userId}</CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-col gap-4">
+      <CardContent className="flex min-h-0 flex-col gap-4 pb-6 xl:flex-1">
         <TokenGrid usage={detail.tokenUsage} />
         <div className="grid grid-cols-2 gap-3 text-body-sm">
           <SummaryPill label="会话" value={detail.conversationCount} />
           <SummaryPill label="消息" value={detail.messageCount} />
         </div>
-        <div className="flex flex-col gap-2">
-          {detail.conversations.map((conversation) => (
-            <Link
-              key={conversation.conversationId}
-              href={`/admin?userId=${encodeURIComponent(detail.user.userId)}&conversationId=${encodeURIComponent(conversation.conversationId)}`}
-              className="rounded-lg border border-border px-3 py-2 transition-colors hover:bg-accent"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <span className="truncate font-medium">{conversation.title ?? "未命名会话"}</span>
-                <span className="text-label-sm text-muted-foreground">{conversation.messageCount} 条</span>
-              </div>
-              <div className="mt-1 text-label-sm text-muted-foreground">
-                {formatDate(conversation.updatedAt)} · <TokenInline usage={conversation.tokenUsage} />
-              </div>
-            </Link>
-          ))}
+        <div className="custom-scrollbar -mr-2 flex min-h-0 flex-col gap-2 pr-2 xl:flex-1 xl:overflow-y-auto">
+          {detail.conversations.length > 0 ? (
+            detail.conversations.map((conversation) => {
+              const isSelected = conversation.conversationId === selectedConversationId;
+
+              return (
+                <Link
+                  key={conversation.conversationId}
+                  href={`/admin?userId=${encodeURIComponent(detail.user.userId)}&conversationId=${encodeURIComponent(conversation.conversationId)}`}
+                  aria-current={isSelected ? "page" : undefined}
+                  className={cn(
+                    "rounded-lg border px-3 py-2 transition-colors",
+                    isSelected
+                      ? "border-primary/40 bg-primary-soft/70 text-primary"
+                      : "border-border hover:bg-accent",
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="truncate font-medium">{conversation.title ?? "未命名会话"}</span>
+                    <span className="text-label-sm text-muted-foreground">{conversation.messageCount} 条</span>
+                  </div>
+                  <div className="mt-1 text-label-sm text-muted-foreground">
+                    {formatDate(conversation.updatedAt)} · <TokenInline usage={conversation.tokenUsage} />
+                  </div>
+                </Link>
+              );
+            })
+          ) : (
+            <EmptyPanelMessage>暂无会话记录</EmptyPanelMessage>
+          )}
         </div>
       </CardContent>
     </Card>
@@ -205,29 +231,33 @@ function UserDetailPanel({ detail }: { detail: AdminUserDetailProjection }) {
 
 function ConversationDetailPanel({ detail }: { detail: AdminConversationDetailProjection }) {
   return (
-    <Card className="rounded-lg">
-      <CardHeader>
+    <Card className="min-h-0 overflow-hidden rounded-lg xl:h-full">
+      <CardHeader className="shrink-0">
         <CardTitle>{detail.conversation.title ?? "未命名会话"}</CardTitle>
         <CardDescription>{detail.conversation.conversationId}</CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-col gap-4">
+      <CardContent className="flex min-h-0 flex-col gap-4 pb-6 xl:flex-1">
         <TokenGrid usage={detail.conversation.tokenUsage} />
-        <div className="flex flex-col gap-3">
-          {detail.messages.map((message) => (
-            <div key={message.messageId} className="rounded-lg border border-border bg-card px-3 py-3">
-              <div className="flex items-center justify-between gap-3 text-label-sm text-muted-foreground">
-                <span>{message.role}</span>
-                <span>{formatDate(message.createdAt)}</span>
+        <div className="custom-scrollbar -mr-2 flex min-h-0 flex-col gap-3 pr-2 xl:flex-1 xl:overflow-y-auto">
+          {detail.messages.length > 0 ? (
+            detail.messages.map((message) => (
+              <div key={message.messageId} className="rounded-lg border border-border bg-card px-3 py-3">
+                <div className="flex items-center justify-between gap-3 text-label-sm text-muted-foreground">
+                  <span>{message.role}</span>
+                  <span>{formatDate(message.createdAt)}</span>
+                </div>
+                <p className="mt-2 whitespace-pre-wrap break-words text-body-sm leading-6">{message.content}</p>
+                <div className="mt-2 text-label-sm text-muted-foreground">
+                  <TokenInline usage={message.tokenUsage} />
+                </div>
               </div>
-              <p className="mt-2 whitespace-pre-wrap break-words text-body-sm leading-6">{message.content}</p>
-              <div className="mt-2 text-label-sm text-muted-foreground">
-                <TokenInline usage={message.tokenUsage} />
-              </div>
-            </div>
-          ))}
+            ))
+          ) : (
+            <EmptyPanelMessage>暂无消息记录</EmptyPanelMessage>
+          )}
         </div>
         {detail.usageSummaries.length > 0 ? (
-          <div className="rounded-lg border border-border bg-muted/30 p-3 text-label-sm text-muted-foreground">
+          <div className="shrink-0 rounded-lg border border-border bg-muted/30 p-3 text-label-sm text-muted-foreground">
             {detail.usageSummaries.length} 条 usage summary
           </div>
         ) : null}
@@ -274,12 +304,20 @@ function SummaryPill({
 
 function EmptySelection({ title }: { title: string }) {
   return (
-    <Card className="rounded-lg border-dashed">
+    <Card className="min-h-0 overflow-hidden rounded-lg border-dashed xl:h-full">
       <CardHeader>
         <CardTitle>{title}</CardTitle>
         <CardDescription>未选择</CardDescription>
       </CardHeader>
     </Card>
+  );
+}
+
+function EmptyPanelMessage({ children }: { children: ReactNode }) {
+  return (
+    <div className="rounded-lg border border-dashed border-border bg-muted/30 px-3 py-4 text-body-sm text-muted-foreground">
+      {children}
+    </div>
   );
 }
 
