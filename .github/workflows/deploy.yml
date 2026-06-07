@@ -13,6 +13,11 @@ permissions:
   # 推送 GHCR 镜像需要写 GitHub Packages。
   packages: write
 
+concurrency:
+  # 同一分支只保留最新部署，避免连续 push 的旧部署任务后完成并覆盖运行态。
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   # 服务器上的部署目录，需要和 deploy/server 模板实际上传位置一致。
   DEPLOY_PATH: /opt/fitmate
@@ -100,23 +105,49 @@ jobs:
         shell: bash
         run: |
           ssh -i ~/.ssh/deploy_key -p "${{ secrets.SERVER_PORT }}" \
-            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" << EOF
-              set -e
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
+            APP_IMAGE="${{ steps.image.outputs.app }}:${{ github.sha }}" \
+            OPS_IMAGE="${{ steps.image.outputs.ops }}:${{ github.sha }}" \
+            DEPLOY_PATH="${{ env.DEPLOY_PATH }}" \
+            'bash -s' <<'EOF'
+              set -euo pipefail
+
+              set_env_value() {
+                key="$1"
+                value="$2"
+
+                if grep -q "^${key}=" .env; then
+                  sed -i "s|^${key}=.*|${key}=${value}|" .env
+                else
+                  printf '\n%s=%s\n' "$key" "$value" >> .env
+                fi
+              }
 
               # 部署目录内的 docker-compose.yml / Caddyfile 已由上一步同步；生产 .env 仍由服务器维护。
-              cd "${{ env.DEPLOY_PATH }}"
+              cd "$DEPLOY_PATH"
 
               # 每次部署把 .env 中的镜像版本锁到当前提交，便于回滚和排查。
-              sed -i 's|^APP_IMAGE=.*|APP_IMAGE=${{ steps.image.outputs.app }}:${{ github.sha }}|' .env
-              sed -i 's|^OPS_IMAGE=.*|OPS_IMAGE=${{ steps.image.outputs.ops }}:${{ github.sha }}|' .env
+              set_env_value "APP_IMAGE" "$APP_IMAGE"
+              set_env_value "OPS_IMAGE" "$OPS_IMAGE"
 
               # 先校验最终 Compose 配置但不打印展开后的生产 .env，避免部署日志泄露密钥。
               docker compose config >/dev/null
 
-              # 拉取新镜像，先运行 migration，再更新 app 容器。
+              # 拉取新镜像，先运行 migration，再强制替换 app 容器，避免 .env 已更新但旧容器继续运行。
               docker compose --profile ops pull app migrator
               docker compose --profile ops run --rm migrator
-              docker compose up -d --remove-orphans
+              docker compose up -d --force-recreate --no-deps app
+              docker compose up -d --remove-orphans caddy db
+
+              # 部署成功必须以运行态镜像等于当前 commit 镜像为准，而不是只看 workflow 命令退出。
+              running_image="$(docker inspect fitmate-app --format '{{.Config.Image}}')"
+              if [ "$running_image" != "$APP_IMAGE" ]; then
+                echo "fitmate-app image mismatch: expected $APP_IMAGE, got $running_image" >&2
+                docker compose ps >&2
+                exit 1
+              fi
+
+              echo "fitmate-app is running $running_image"
 
               # 清理无引用旧镜像，避免轻量服务器磁盘被历史镜像占满。
               docker image prune -f
