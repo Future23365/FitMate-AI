@@ -19,6 +19,10 @@ import {
   type VisibleAgentActivity,
 } from "@/features/chat/lib/agent-activity";
 import { readChatConversation, saveChatConversation } from "@/features/chat/lib/chat-history";
+import {
+  createAsyncToastLifecycle,
+  type AsyncToastLifecycle,
+} from "@/lib/client/async-feedback";
 import type {
   ApiChatMessage,
   ChatMessage,
@@ -34,6 +38,11 @@ import {
 const chatRequestTimeoutMs = 45_000;
 const thinkingEnabledStorageKey = "fitmate.chat.thinkingEnabled";
 const defaultThinkingEnabled = false;
+
+type ChatInitialResponseToastUpdate =
+  | { type: "dismiss" }
+  | { type: "error"; message: string }
+  | null;
 
 function createMessage(role: ChatMessage["role"], content: string): ChatMessage {
   return {
@@ -92,6 +101,27 @@ export function applyAgentTextChatEventToAssistantMessage(
   }
 }
 
+// 首包 Toast 只覆盖请求发出到首个用户可见 stream event 的空窗，后续进度交给气泡和活动条。
+export function getChatInitialResponseToastUpdate(
+  event: AgentTextChatEvent,
+): ChatInitialResponseToastUpdate {
+  if (!["agent_loop", "agent_progress", "content", "done", "error"].includes(event.type)) {
+    return null;
+  }
+
+  if (event.type === "error") {
+    return { type: "error", message: getAgentTextChatEventErrorMessage(event) };
+  }
+
+  return { type: "dismiss" };
+}
+
+export function getChatInitialResponseRequestErrorMessage(error: unknown) {
+  return isAgentTextChatAbortError(error)
+    ? "聊天请求超时。你可以缩小问题范围后再试。"
+    : getAgentTextChatErrorMessage(error);
+}
+
 function readThinkingEnabledPreference() {
   try {
     return window.localStorage.getItem(thinkingEnabledStorageKey) === "true";
@@ -118,6 +148,7 @@ export function useChatController() {
     summary: "",
   });
   const skipNextAutoSaveRef = useRef(false);
+  const pendingInitialResponseToastRef = useRef<AsyncToastLifecycle | null>(null);
 
   // pending 活动阶段只在最短展示时间结束后释放，避免中文状态连续跳变。
   useEffect(() => {
@@ -260,6 +291,13 @@ export function useChatController() {
     conversationContext,
   ]);
 
+  useEffect(() => {
+    return () => {
+      pendingInitialResponseToastRef.current?.dismiss();
+      pendingInitialResponseToastRef.current = null;
+    };
+  }, []);
+
   function updateAssistantMessage(
     assistantId: string,
     updater: (message: ChatMessage) => ChatMessage,
@@ -303,6 +341,38 @@ export function useChatController() {
 
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), chatRequestTimeoutMs);
+    const initialResponseToast = createAsyncToastLifecycle({
+      id: "chat-send-initial-response",
+      loading: "正在发送消息...",
+      error: (toastError) => (toastError instanceof Error ? toastError.message : "聊天服务暂时没能完成这次回复。"),
+      minVisibleMs: 300,
+    });
+    let hasSettledInitialResponseToast = false;
+
+    pendingInitialResponseToastRef.current?.dismiss();
+    pendingInitialResponseToastRef.current = initialResponseToast;
+    initialResponseToast.start();
+
+    function settleInitialResponseToastForEvent(event: AgentTextChatEvent) {
+      if (hasSettledInitialResponseToast) {
+        return;
+      }
+
+      const toastUpdate = getChatInitialResponseToastUpdate(event);
+
+      if (!toastUpdate) {
+        return;
+      }
+
+      hasSettledInitialResponseToast = true;
+
+      if (toastUpdate.type === "error") {
+        initialResponseToast.error(new Error(toastUpdate.message));
+        return;
+      }
+
+      initialResponseToast.dismiss();
+    }
 
     try {
       await requestAgentTextChatResponse({
@@ -314,6 +384,8 @@ export function useChatController() {
         thinkingEnabled,
         signal: controller.signal,
         onEvent: (event) => {
+          settleInitialResponseToastForEvent(event);
+
           if (event.type === "agent_loop" || event.type === "agent_progress") {
             setAgentActivity((current) => reduceAgentActivity(current, event));
           }
@@ -344,10 +416,12 @@ export function useChatController() {
         },
       });
     } catch (requestError) {
-      const errorMessage = isAgentTextChatAbortError(requestError)
-        ? "聊天请求超时。你可以缩小问题范围后再试。"
-        : getAgentTextChatErrorMessage(requestError);
+      const errorMessage = getChatInitialResponseRequestErrorMessage(requestError);
 
+      if (!hasSettledInitialResponseToast) {
+        hasSettledInitialResponseToast = true;
+        initialResponseToast.error(new Error(errorMessage));
+      }
       setError(errorMessage);
       setAgentActivity(null);
       setActiveAgentActivityMessageId(null);
@@ -361,6 +435,13 @@ export function useChatController() {
       setIsLoading(false);
       setAgentActivity(null);
       setActiveAgentActivityMessageId(null);
+      if (!hasSettledInitialResponseToast) {
+        hasSettledInitialResponseToast = true;
+        initialResponseToast.dismiss();
+      }
+      if (pendingInitialResponseToastRef.current === initialResponseToast) {
+        pendingInitialResponseToastRef.current = null;
+      }
     }
   }
 

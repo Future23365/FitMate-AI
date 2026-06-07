@@ -11,6 +11,7 @@ import {
   resolveWorkoutDraftExerciseImageState,
   WorkoutDraftExerciseItem,
 } from "@/features/workouts/components/workout-draft-exercise-item";
+import { runWithAsyncToast } from "@/lib/client/async-feedback";
 import { clientRequest } from "@/lib/client/http/client-request";
 import type { Exercise } from "@/lib/shared/exercises/types";
 import type { WorkoutRoutineDraft, WorkoutRoutineDraftItem } from "@/lib/shared/workout-plans/draft-schema";
@@ -264,22 +265,32 @@ export function WorkoutRoutineDraftCard({
     setSaveError("");
 
     try {
-      const draftExercises = await fetchDraftExercises(draft, exerciseMap);
-      setFetchedExerciseMap((current) => {
-        const next = new Map(current);
-        draftExercises.forEach((exercise) => {
-          next.set(exercise.id, exercise);
-          next.set(exercise.id.toLowerCase(), exercise);
-        });
-        return next;
-      });
-      const routine = convertWorkoutRoutineDraftToWorkoutRoutine(draft, draftExercises);
-      await createWorkoutRoutine(routine, {
-        sourceChatMessageId,
-        sourceArtifactKind: "routine",
-      });
-      setSaveSuccess(true);
-      window.setTimeout(() => router.push("/composer"), 900);
+      await runWithAsyncToast(
+        {
+          id: "workout-routine-draft-save",
+          loading: "正在保存本次编排...",
+          success: "本次编排已保存",
+          error: "保存动作编排失败，请检查数据。",
+        },
+        async () => {
+          const draftExercises = await fetchDraftExercises(draft, exerciseMap);
+          setFetchedExerciseMap((current) => {
+            const next = new Map(current);
+            draftExercises.forEach((exercise) => {
+              next.set(exercise.id, exercise);
+              next.set(exercise.id.toLowerCase(), exercise);
+            });
+            return next;
+          });
+          const routine = convertWorkoutRoutineDraftToWorkoutRoutine(draft, draftExercises);
+          await createWorkoutRoutine(routine, {
+            sourceChatMessageId,
+            sourceArtifactKind: "routine",
+          });
+          setSaveSuccess(true);
+          window.setTimeout(() => router.push("/composer"), 900);
+        },
+      );
     } catch (error) {
       console.error("[WorkoutRoutineDraftCard] Save failed:", error);
       setSaveError(error instanceof Error ? error.message : "保存动作编排失败，请检查数据。");

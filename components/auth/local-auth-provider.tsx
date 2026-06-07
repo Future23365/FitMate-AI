@@ -23,6 +23,7 @@ import {
   resetLocalAnonymousSession,
   type LocalAuthUser,
 } from "@/lib/client/auth/local-auth-session";
+import { runWithAsyncToast } from "@/lib/client/async-feedback";
 import {
   initialLocalAuthRuntimeState,
   localAuthAuthenticatingState,
@@ -88,12 +89,16 @@ export function LocalAuthProvider({ children }: { children: React.ReactNode }) {
       setAuthState(localAuthResettingState(previousState));
 
       try {
-        await resetLocalAnonymousSession();
+        await runWithAsyncToast(
+          {
+            id: localAuthResetToastId,
+            loading: "正在重置本地用户...",
+            success: "重置成功",
+            error: "重置失败，请稍后重试。",
+          },
+          resetLocalAnonymousSession,
+        );
         setAuthState(localAuthResetState());
-        toast.success("重置成功", {
-          id: localAuthResetToastId,
-          description: "本地用户已重置，可以重新匿名登录使用。",
-        });
       } catch (error) {
         setAuthState(previousState);
         throw error;

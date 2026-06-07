@@ -25,6 +25,7 @@ import {
   listWorkoutRoutines,
   saveWorkoutRoutine,
 } from "@/features/workouts/api/workout-data-client";
+import { runWithAsyncToast } from "@/lib/client/async-feedback";
 import { clientRequest } from "@/lib/client/http/client-request";
 import type { Exercise, ExerciseFacets, ExerciseListItem, ExerciseSuitability } from "@/lib/shared/exercises/types";
 import { toUtcISOString } from "@/lib/shared/time/utc-date-time";
@@ -78,6 +79,7 @@ type TemplateExerciseConfig = {
 };
 
 type LibrarySuitabilityFilter = "all" | ExerciseSuitability;
+type ComposerPendingAction = "import-template" | "save-composition" | `duplicate:${string}` | `delete:${string}` | null;
 type RightPanelView = "library" | "saved";
 
 const sectionConfigs = workoutSectionConfigs;
@@ -444,6 +446,7 @@ export function ActionComposerPage() {
   const [selectedLibraryExerciseId, setSelectedLibraryExerciseId] = useState("");
   const [isLoadingLibrary, setIsLoadingLibrary] = useState(true);
   const [isLoadingMoreLibrary, setIsLoadingMoreLibrary] = useState(false);
+  const [pendingComposerAction, setPendingComposerAction] = useState<ComposerPendingAction>(null);
   const [rightPanelView, setRightPanelView] = useState<RightPanelView>("library");
   const [draggingItemId, setDraggingItemId] = useState("");
   const [dragOverItemId, setDragOverItemId] = useState("");
@@ -708,6 +711,33 @@ export function ActionComposerPage() {
     Boolean(libraryEquipment) ||
     Boolean(libraryHomeRequirement) ||
     Boolean(libraryLevel);
+  const isComposerActionPending = pendingComposerAction !== null;
+
+  async function runComposerCommand<T>(
+    pendingAction: Exclude<ComposerPendingAction, null>,
+    toastOptions: {
+      id: string;
+      loading: string;
+      success?: string | ((value: T) => string | null | undefined);
+      error: string;
+    },
+    action: () => Promise<T>,
+  ) {
+    if (isComposerActionPending) {
+      return null;
+    }
+
+    setPendingComposerAction(pendingAction);
+
+    try {
+      return await runWithAsyncToast(toastOptions, action);
+    } catch {
+      // 失败 Toast 由 async feedback helper 统一展示。
+      return undefined;
+    } finally {
+      setPendingComposerAction((current) => (current === pendingAction ? null : current));
+    }
+  }
 
   function updateItem(id: string, updater: (item: WorkoutItem) => WorkoutItem) {
     setItems((current) => current.map((item) => (item.id === id ? updater(item) : item)));
@@ -870,57 +900,65 @@ export function ActionComposerPage() {
   }
 
   async function importTemplate() {
-    showComposerToast("正在从动作库生成模板...", "loading");
+    const importedCount = await runComposerCommand<number | null>(
+      "import-template",
+      {
+        id: "action-composer-import-template",
+        loading: "正在从动作库生成模板...",
+        success: (count) => (count ? `已从动作库导入 ${count} 个模板动作` : undefined),
+        error: "模板动作加载失败",
+      },
+      async () => {
+        const templateExercises = await Promise.all(
+          templateExerciseConfigs.map(async (config) => ({
+            config,
+            exercise: await fetchTemplateExercise(config),
+          })),
+        );
+        const nextItems = templateExercises.flatMap(({ config, exercise }) =>
+          exercise
+            ? [
+                toWorkoutItem(exercise, {
+                  mode: config.mode,
+                  section: config.section,
+                  target: config.target,
+                  sets: config.sets,
+                  setRestSeconds: config.setRestSeconds,
+                  transitionRestSeconds: config.transitionRestSeconds,
+                }),
+              ]
+            : [],
+        );
 
-    try {
-      const templateExercises = await Promise.all(
-        templateExerciseConfigs.map(async (config) => ({
-          config,
-          exercise: await fetchTemplateExercise(config),
-        })),
-      );
-      const nextItems = templateExercises.flatMap(({ config, exercise }) =>
-        exercise
-          ? [
-              toWorkoutItem(exercise, {
-                mode: config.mode,
-                section: config.section,
-                target: config.target,
-                sets: config.sets,
-                setRestSeconds: config.setRestSeconds,
-                transitionRestSeconds: config.transitionRestSeconds,
-              }),
-            ]
-          : [],
-      );
+        if (!nextItems.length) {
+          return null;
+        }
 
-      if (!nextItems.length) {
-        showComposerToast("动作库中没有找到可用模板动作", "warning");
-        return;
-      }
+        const selectedIds = new Set(nextItems.map((item) => item.exerciseId));
+        const supplementalSummaries = libraryItems
+          .filter((exercise) => !selectedIds.has(exercise.id))
+          .filter((exercise) => exercise.equipmentZh === "自重" || exercise.goalTags.includes("home_friendly"))
+          .slice(0, Math.max(0, 3 - nextItems.length));
+        const supplementalExercises = await Promise.all(
+          supplementalSummaries.map((exercise) => readExerciseDetailFromCache(exercise.id)),
+        );
+        const supplementalItems = supplementalExercises.map((exercise) => toWorkoutItem(exercise));
 
-      const selectedIds = new Set(nextItems.map((item) => item.exerciseId));
-      const supplementalSummaries = libraryItems
-        .filter((exercise) => !selectedIds.has(exercise.id))
-        .filter((exercise) => exercise.equipmentZh === "自重" || exercise.goalTags.includes("home_friendly"))
-        .slice(0, Math.max(0, 3 - nextItems.length));
-      const supplementalExercises = await Promise.all(
-        supplementalSummaries.map((exercise) => readExerciseDetailFromCache(exercise.id)),
-      );
-      const supplementalItems = supplementalExercises.map((exercise) => toWorkoutItem(exercise));
+        const composedItems = [...nextItems, ...supplementalItems];
 
-      const composedItems = [...nextItems, ...supplementalItems];
+        applyPlanTitle("燃脂循环训练 A");
+        setTrainingLoopRounds(defaultTrainingLoopRounds);
+        setTrainingLoopRestSeconds(defaultTrainingLoopRestSeconds);
+        setWarmupToTrainingRestSeconds(defaultWarmupToTrainingRestSeconds);
+        setTrainingToStretchRestSeconds(defaultTrainingToStretchRestSeconds);
+        setItems(composedItems);
+        setSelectedItemId(composedItems[0]?.id ?? "");
+        return composedItems.length;
+      },
+    );
 
-      applyPlanTitle("燃脂循环训练 A");
-      setTrainingLoopRounds(defaultTrainingLoopRounds);
-      setTrainingLoopRestSeconds(defaultTrainingLoopRestSeconds);
-      setWarmupToTrainingRestSeconds(defaultWarmupToTrainingRestSeconds);
-      setTrainingToStretchRestSeconds(defaultTrainingToStretchRestSeconds);
-      setItems(composedItems);
-      setSelectedItemId(composedItems[0]?.id ?? "");
-      showComposerToast(`已从动作库导入 ${composedItems.length} 个模板动作`);
-    } catch {
-      showComposerToast("模板动作加载失败", "error");
+    if (importedCount === null) {
+      showComposerToast("动作库中没有找到可用模板动作", "warning");
     }
   }
 
@@ -952,13 +990,20 @@ export function ActionComposerPage() {
       })),
     };
 
-    try {
-      const savedCopy = await createWorkoutRoutine(copiedWorkout);
-      setWorkoutRoutines((current) => [savedCopy, ...current].slice(0, 8));
-      showComposerToast(`已复制：${workout.title}`);
-    } catch {
-      showComposerToast("复制训练编排失败", "error");
-    }
+    await runComposerCommand<WorkoutRoutine>(
+      `duplicate:${workout.id}`,
+      {
+        id: "action-composer-duplicate-routine",
+        loading: "正在复制训练编排...",
+        success: `已复制：${workout.title}`,
+        error: "复制训练编排失败",
+      },
+      async () => {
+        const savedCopy = await createWorkoutRoutine(copiedWorkout);
+        setWorkoutRoutines((current) => [savedCopy, ...current].slice(0, 8));
+        return savedCopy;
+      },
+    );
   }
 
   async function removeWorkoutRoutine(workout: WorkoutRoutine) {
@@ -968,18 +1013,23 @@ export function ActionComposerPage() {
       return;
     }
 
-    try {
-      await deleteWorkoutRoutineRequest(workout.id);
-      setWorkoutRoutines((current) => current.filter((routine) => routine.id !== workout.id));
+    await runComposerCommand<void>(
+      `delete:${workout.id}`,
+      {
+        id: "action-composer-delete-routine",
+        loading: "正在删除训练编排...",
+        success: `已删除：${workout.title}`,
+        error: "删除训练编排失败",
+      },
+      async () => {
+        await deleteWorkoutRoutineRequest(workout.id);
+        setWorkoutRoutines((current) => current.filter((routine) => routine.id !== workout.id));
 
-      if (activeWorkoutRoutineId === workout.id) {
-        setActiveWorkoutRoutineId("");
-      }
-
-      showComposerToast(`已删除：${workout.title}`);
-    } catch {
-      showComposerToast("删除训练编排失败", "error");
-    }
+        if (activeWorkoutRoutineId === workout.id) {
+          setActiveWorkoutRoutineId("");
+        }
+      },
+    );
   }
 
   async function saveComposition() {
@@ -997,25 +1047,31 @@ export function ActionComposerPage() {
       items: items.map(normalizeWorkoutItem),
     };
 
-    try {
-      const persistedWorkout = activeWorkoutExists
-        ? await saveWorkoutRoutine(routine)
-        : await createWorkoutRoutine(routine);
-      setWorkoutRoutines((current) =>
-        activeWorkoutExists
-          ? current.map((workout) => (workout.id === routineId ? persistedWorkout : workout))
-          : [persistedWorkout, ...current].slice(0, 8),
-      );
-      setActiveWorkoutRoutineId(routineId);
-      window.history.replaceState(null, "", `#${routineId}`);
-      showComposerToast(
-        activeWorkoutExists
-          ? `已更新：${persistedWorkout.updatedAt}`
-          : `已保存：${persistedWorkout.updatedAt}`,
-      );
-    } catch {
-      showComposerToast("保存训练编排失败，请确认动作来自数据库", "error");
-    }
+    await runComposerCommand<WorkoutRoutine>(
+      "save-composition",
+      {
+        id: "action-composer-save-routine",
+        loading: activeWorkoutExists ? "正在更新训练编排..." : "正在保存训练编排...",
+        success: (persistedWorkout) =>
+          activeWorkoutExists
+            ? `已更新：${persistedWorkout.updatedAt}`
+            : `已保存：${persistedWorkout.updatedAt}`,
+        error: "保存训练编排失败，请确认动作来自数据库",
+      },
+      async () => {
+        const persistedWorkout = activeWorkoutExists
+          ? await saveWorkoutRoutine(routine)
+          : await createWorkoutRoutine(routine);
+        setWorkoutRoutines((current) =>
+          activeWorkoutExists
+            ? current.map((workout) => (workout.id === routineId ? persistedWorkout : workout))
+            : [persistedWorkout, ...current].slice(0, 8),
+        );
+        setActiveWorkoutRoutineId(routineId);
+        window.history.replaceState(null, "", `#${routineId}`);
+        return persistedWorkout;
+      },
+    );
   }
 
   function moveItem(draggedId: string, targetId: string, targetSection: WorkoutSection) {
@@ -1147,11 +1203,22 @@ export function ActionComposerPage() {
                 <button className="h-10 rounded-xl border border-outline px-md font-label-md text-label-md transition-colors hover:bg-surface-container-low" onClick={createNewComposition} type="button">
                   新增
                 </button>
-                <button className="h-10 rounded-xl border border-outline px-md font-label-md text-label-md transition-colors hover:bg-surface-container-low" onClick={importTemplate} type="button">
+                <button
+                  className="h-10 rounded-xl border border-outline px-md font-label-md text-label-md transition-colors hover:bg-surface-container-low disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={isComposerActionPending}
+                  onClick={importTemplate}
+                  type="button"
+                >
                   导入模板
                 </button>
-                <button className="h-10 rounded-xl bg-primary-container px-md font-label-md text-label-md text-white shadow-sm transition-opacity hover:opacity-90" onClick={saveComposition} type="button">
-                  保存
+                <button
+                  aria-busy={pendingComposerAction === "save-composition"}
+                  className="h-10 rounded-xl bg-primary-container px-md font-label-md text-label-md text-white shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={isComposerActionPending}
+                  onClick={saveComposition}
+                  type="button"
+                >
+                  {pendingComposerAction === "save-composition" ? "保存中" : "保存"}
                 </button>
               </div>
             </div>
@@ -1510,6 +1577,7 @@ export function ActionComposerPage() {
                 workoutRoutines.map((workout) => (
                   <RoutineCompositionCard
                     isActive={workout.id === activeWorkoutRoutineId}
+                    isPending={isComposerActionPending}
                     key={workout.id}
                     onDelete={() => {
                       void removeWorkoutRoutine(workout);
@@ -1527,14 +1595,15 @@ export function ActionComposerPage() {
                     保存当前编排后，会在这里快速切换、复制或删除。
                   </p>
                   <button
-                    className="mt-sm flex w-full items-center justify-center gap-xs rounded-xl bg-primary px-md py-sm font-label-md text-label-md font-bold text-white transition-colors hover:bg-primary-deep"
+                    className="mt-sm flex w-full items-center justify-center gap-xs rounded-xl bg-primary px-md py-sm font-label-md text-label-md font-bold text-white transition-colors hover:bg-primary-deep disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={isComposerActionPending}
                     onClick={() => {
                       void saveComposition();
                     }}
                     type="button"
                   >
                     <SymbolIcon className="text-[18px]">save</SymbolIcon>
-                    保存当前编排
+                    {pendingComposerAction === "save-composition" ? "保存中" : "保存当前编排"}
                   </button>
                 </div>
               )}
@@ -1715,12 +1784,14 @@ function SectionSummaryPill({
 
 function RoutineCompositionCard({
   isActive,
+  isPending,
   onDelete,
   onDuplicate,
   onOpen,
   workout,
 }: {
   isActive: boolean;
+  isPending: boolean;
   onDelete: () => void;
   onDuplicate: () => void;
   onOpen: () => void;
@@ -1759,6 +1830,7 @@ function RoutineCompositionCard({
       />
       <button
         className="flex min-w-0 flex-1 items-center gap-sm pl-[2px] text-left transition-[padding] md:group-hover:pr-16"
+        disabled={isPending}
         onClick={onOpen}
         title={workout.title}
         type="button"
@@ -1797,6 +1869,7 @@ function RoutineCompositionCard({
         <button
           aria-label={`复制 ${workout.title}`}
           className="grid h-7 w-7 place-items-center rounded-full text-outline transition-colors hover:bg-primary/10 hover:text-primary"
+          disabled={isPending}
           onClick={onDuplicate}
           type="button"
         >
@@ -1805,6 +1878,7 @@ function RoutineCompositionCard({
         <button
           aria-label={`删除 ${workout.title}`}
           className="grid h-7 w-7 place-items-center rounded-full text-outline transition-colors hover:bg-error/10 hover:text-error"
+          disabled={isPending}
           onClick={onDelete}
           type="button"
         >

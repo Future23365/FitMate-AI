@@ -25,6 +25,7 @@ import {
   selectWorkoutPlanSchedulesToReplace,
   type WorkoutPlanImportOption,
 } from "@/features/workout-plans/lib/workout-plan-scheduling";
+import { runWithAsyncToast } from "@/lib/client/async-feedback";
 import { clientRequest } from "@/lib/client/http/client-request";
 import { placeholderWorkoutImage, workoutSectionConfigs } from "@/lib/shared/workouts/composition";
 
@@ -137,6 +138,7 @@ export function WorkoutPlanDraftCard({
     draft.days[0]?.cycleDayIndex ?? 1
   );
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [selectedImportOptionId, setSelectedImportOptionId] =
     useState<WorkoutPlanImportOption["id"]>("cycle-1");
@@ -267,70 +269,81 @@ export function WorkoutPlanDraftCard({
 
   const handleSave = async () => {
     setIsSaving(true);
+    setSaveError("");
     try {
-      const draftExercises = await fetchDraftExercises(draft, exerciseMap);
-      setFetchedExerciseMap((current) => {
-        const next = new Map(current);
-        draftExercises.forEach((exercise) => {
-          next.set(exercise.id, exercise);
-          next.set(exercise.id.toLowerCase(), exercise);
-        });
-        return next;
-      });
-      // 只为非休息训练日保存 routine，休息日会在日历中生成 rest schedule。
-      const draftRoutines = getWorkoutPlanTrainingDays(draft).map((day) => {
-        const workout = convertWorkoutPlanDraftToWorkoutRoutine(draft, draftExercises, {
-          dayIndex: day.cycleDayIndex,
-        });
-        workout.title = `[${draft.title}] ${day.title || `训练日 ${day.cycleDayIndex || 1}`}`;
-        return {
-          cycleDayIndex: day.cycleDayIndex,
-          workout,
-        };
-      });
-      const persistedWorkouts = await Promise.all(
-        draftRoutines.map(async ({ cycleDayIndex, workout }) => ({
-          cycleDayIndex,
-          routine: await createWorkoutRoutine(workout, {
-            sourceChatMessageId,
-            sourceArtifactKind: "plan",
-          }),
-        })),
+      await runWithAsyncToast(
+        {
+          id: "workout-plan-draft-save",
+          loading: "正在导入长期训练计划...",
+          success: "长期训练计划已导入",
+          error: "保存计划失败，请检查数据。",
+        },
+        async () => {
+          const draftExercises = await fetchDraftExercises(draft, exerciseMap);
+          setFetchedExerciseMap((current) => {
+            const next = new Map(current);
+            draftExercises.forEach((exercise) => {
+              next.set(exercise.id, exercise);
+              next.set(exercise.id.toLowerCase(), exercise);
+            });
+            return next;
+          });
+          // 只为非休息训练日保存 routine，休息日会在日历中生成 rest schedule。
+          const draftRoutines = getWorkoutPlanTrainingDays(draft).map((day) => {
+            const workout = convertWorkoutPlanDraftToWorkoutRoutine(draft, draftExercises, {
+              dayIndex: day.cycleDayIndex,
+            });
+            workout.title = `[${draft.title}] ${day.title || `训练日 ${day.cycleDayIndex || 1}`}`;
+            return {
+              cycleDayIndex: day.cycleDayIndex,
+              workout,
+            };
+          });
+          const persistedWorkouts = await Promise.all(
+            draftRoutines.map(async ({ cycleDayIndex, workout }) => ({
+              cycleDayIndex,
+              routine: await createWorkoutRoutine(workout, {
+                sourceChatMessageId,
+                sourceArtifactKind: "plan",
+              }),
+            })),
+          );
+
+          // AI 长期计划保存后按周期日序展开到日历，保留训练日和休息日节奏。
+          {
+            const today = new Date();
+            const newWorkoutSchedules = buildWorkoutPlanSchedules(draft, persistedWorkouts, {
+              startDate: today,
+              daysToImport: selectedImportOption.daysToImport,
+            });
+            const existingSchedule = await listWorkoutSchedules();
+            const importedSessionsToReplace = selectWorkoutPlanSchedulesToReplace(existingSchedule, draft, {
+              startDate: today,
+              daysToImport: selectedImportOption.daysToImport,
+            });
+
+            await Promise.all(importedSessionsToReplace.map((item) => deleteWorkoutSchedule(item.id)));
+            await Promise.all(
+              newWorkoutSchedules.map((workout) =>
+                createWorkoutSchedule(workout, {
+                  sourceChatMessageId,
+                  sourceArtifactKind: "plan",
+                }),
+              ),
+            );
+          }
+
+          setSaveSuccess(true);
+
+          // 停留 1.2 秒展现成功状态，随后顺滑跳转
+          setTimeout(() => {
+            router.push("/plans");
+          }, 1200);
+        },
       );
-
-      // AI 长期计划保存后按周期日序展开到日历，保留训练日和休息日节奏。
-      {
-        const today = new Date();
-        const newWorkoutSchedules = buildWorkoutPlanSchedules(draft, persistedWorkouts, {
-          startDate: today,
-          daysToImport: selectedImportOption.daysToImport,
-        });
-        const existingSchedule = await listWorkoutSchedules();
-        const importedSessionsToReplace = selectWorkoutPlanSchedulesToReplace(existingSchedule, draft, {
-          startDate: today,
-          daysToImport: selectedImportOption.daysToImport,
-        });
-
-        await Promise.all(importedSessionsToReplace.map((item) => deleteWorkoutSchedule(item.id)));
-        await Promise.all(
-          newWorkoutSchedules.map((workout) =>
-            createWorkoutSchedule(workout, {
-              sourceChatMessageId,
-              sourceArtifactKind: "plan",
-            }),
-          ),
-        );
-      }
-
-      setSaveSuccess(true);
-
-      // 停留 1.2 秒展现成功状态，随后顺滑跳转
-      setTimeout(() => {
-        router.push("/plans");
-      }, 1200);
     } catch (error) {
       console.error("[WorkoutPlanDraftCard] Save failed:", error);
-      alert("保存计划失败，请检查数据。");
+      setSaveError("保存计划失败，请检查数据。");
     } finally {
       setIsSaving(false);
     }
@@ -534,9 +547,16 @@ export function WorkoutPlanDraftCard({
 
         {/* 底部操作闭环区 */}
         <div className="mt-lg flex flex-col gap-md border-t border-outline-variant/40 pt-lg sm:flex-row sm:items-center sm:justify-between">
-          <p className="font-label-xs text-label-xs text-on-surface-variant">
-            {`* 导入后将保存到编排列表，并排定未来 ${selectedImportOption.daysToImport} 天的周期日程`}
-          </p>
+          <div className="min-w-0 flex-1">
+            <p className="font-label-xs text-label-xs text-on-surface-variant">
+              {`* 导入后将保存到编排列表，并排定未来 ${selectedImportOption.daysToImport} 天的周期日程`}
+            </p>
+            {saveError ? (
+              <p className="mt-xs rounded-lg border border-error-container bg-error-container/20 px-sm py-xs font-body-xs text-body-xs text-on-error-container">
+                {saveError}
+              </p>
+            ) : null}
+          </div>
           <button
             onClick={handleSave}
             disabled={isSaving || saveSuccess}

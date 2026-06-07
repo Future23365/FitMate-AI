@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { applyAgentTextChatEventToAssistantMessage } from "@/features/chat/hooks/use-chat-controller";
+import {
+  applyAgentTextChatEventToAssistantMessage,
+  getChatInitialResponseRequestErrorMessage,
+  getChatInitialResponseToastUpdate,
+} from "@/features/chat/hooks/use-chat-controller";
 import type { ChatMessage } from "@/features/chat/types";
 
 function createAssistantMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
@@ -14,6 +18,34 @@ function createAssistantMessage(overrides: Partial<ChatMessage> = {}): ChatMessa
 }
 
 describe("chat controller Agent text event projection", () => {
+  it("settles the initial response toast on the first user-visible stream event", () => {
+    expect(getChatInitialResponseToastUpdate({
+      type: "agent_progress",
+      stage: "preparing_context",
+      status: "active",
+      messageKey: "preparing_context",
+      sequence: 1,
+    })).toEqual({ type: "dismiss" });
+    expect(getChatInitialResponseToastUpdate({ type: "content", content: "你好" })).toEqual({ type: "dismiss" });
+    expect(getChatInitialResponseToastUpdate({ type: "done" })).toEqual({ type: "dismiss" });
+  });
+
+  it("updates the initial response toast with safe error text before the stream has visible progress", () => {
+    expect(getChatInitialResponseToastUpdate({
+      type: "error",
+      error: {
+        code: "chat_ai_not_configured",
+        message: "Chat AI model configuration is missing.",
+      },
+    })).toEqual({
+      type: "error",
+      message: "聊天服务暂时不可用，请稍后再试。",
+    });
+
+    const abortError = new DOMException("aborted", "AbortError");
+    expect(getChatInitialResponseRequestErrorMessage(abortError)).toBe("聊天请求超时。你可以缩小问题范围后再试。");
+  });
+
   it("appends content chunks to the current assistant message", () => {
     const first = applyAgentTextChatEventToAssistantMessage(createAssistantMessage(), {
       type: "content",

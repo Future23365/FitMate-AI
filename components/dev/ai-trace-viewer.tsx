@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { runWithAsyncToast } from "@/lib/client/async-feedback";
 import { clientRequest } from "@/lib/client/http/client-request";
 import type { AiTrace, AiTraceStep } from "@/lib/server/dev/ai-trace-store";
 
@@ -137,6 +138,7 @@ export function AiTraceViewer() {
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isClearingTraces, setIsClearingTraces] = useState(false);
   const [savingLogTarget, setSavingLogTarget] = useState<string | null>(null);
   const [saveLogMessage, setSaveLogMessage] = useState<string | null>(null);
   const lastAutoRefreshAtRef = useRef(0);
@@ -194,13 +196,32 @@ export function AiTraceViewer() {
   }, [loadTraces]);
 
   async function clearTraces() {
-    await clientRequest("/api/dev/ai-traces", {
-      method: "DELETE",
-      responseType: "raw",
-      errorMessage: "Failed to clear AI traces.",
-    });
-    setTraces([]);
-    setSelectedTraceId(null);
+    setIsClearingTraces(true);
+    setError(null);
+
+    try {
+      await runWithAsyncToast(
+        {
+          id: "ai-trace-clear",
+          loading: "正在清空 Trace...",
+          success: "Trace 已清空",
+          error: "清空 Trace 失败",
+        },
+        async () => {
+          await clientRequest("/api/dev/ai-traces", {
+            method: "DELETE",
+            responseType: "raw",
+            errorMessage: "Failed to clear AI traces.",
+          });
+          setTraces([]);
+          setSelectedTraceId(null);
+        },
+      );
+    } catch (clearError) {
+      setError(clearError instanceof Error ? clearError.message : "Failed to clear AI traces.");
+    } finally {
+      setIsClearingTraces(false);
+    }
   }
 
   async function saveTraceLog(input: {
@@ -214,19 +235,32 @@ export function AiTraceViewer() {
     setError(null);
 
     try {
-      const data = await clientRequest<SaveLogResponse>("/api/dev/ai-traces", {
-        method: "POST",
-        body: {
-          logType: input.logType,
-          target: input.target,
-          payload: input.payload,
+      const data = await runWithAsyncToast(
+        {
+          id: `ai-trace-save-log:${input.targetId}`,
+          loading: input.logType === "prompt" ? "正在保存用户问答记录..." : "正在保存全链路 log...",
+          success: (result: SaveLogResponse) =>
+            result.textPath ? `已保存到 ${result.path}，长文本映射 ${result.textPath}` : `已保存到 ${result.path}`,
+          error: "保存 trace log 失败",
         },
-        errorMessage: "Failed to save AI trace log.",
-      });
+        async () => {
+          const response = await clientRequest<SaveLogResponse>("/api/dev/ai-traces", {
+            method: "POST",
+            body: {
+              logType: input.logType,
+              target: input.target,
+              payload: input.payload,
+            },
+            errorMessage: "Failed to save AI trace log.",
+          });
 
-      if (!data.ok) {
-        throw new Error(data.error || "Failed to save AI trace log.");
-      }
+          if (!response.ok) {
+            throw new Error(response.error || "Failed to save AI trace log.");
+          }
+
+          return response;
+        },
+      );
 
       setSaveLogMessage(data.textPath ? `已保存到 ${data.path}，长文本映射 ${data.textPath}` : `已保存到 ${data.path}`);
     } catch (saveError) {
@@ -318,10 +352,10 @@ export function AiTraceViewer() {
           <button
             className="w-full rounded-md border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
             type="button"
-            disabled={traces.length === 0}
+            disabled={traces.length === 0 || isClearingTraces}
             onClick={() => void clearTraces()}
           >
-            清空 Trace
+            {isClearingTraces ? "清空中" : "清空 Trace"}
           </button>
         </div>
       </aside>

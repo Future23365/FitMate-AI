@@ -1,12 +1,13 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { RightDrawer } from "@/components/app/right-drawer";
 import { ResponsiveRightSidebar } from "@/components/app/responsive-right-sidebar";
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { useAutoHideScrollbar } from "@/components/app/use-auto-hide-scrollbar";
+import { createAsyncToastLifecycle } from "@/lib/client/async-feedback";
 import { clientRequest } from "@/lib/client/http/client-request";
 import type { Exercise, ExerciseFacets, ExerciseListItem, ExerciseSort } from "@/lib/shared/exercises/types";
 
@@ -445,9 +446,17 @@ export function ExerciseLibraryPage() {
   const [isLoadingExercises, setIsLoadingExercises] = useState(true);
   const [exerciseError, setExerciseError] = useState("");
   const [isMoreFiltersOpen, setIsMoreFiltersOpen] = useState(false);
+  const hasLoadedExerciseListRef = useRef(false);
+  const userSelectedExerciseRef = useRef(false);
 
   useEffect(() => {
     const controller = new AbortController();
+    const listLoadingToast = createAsyncToastLifecycle({
+      id: "exercise-library-list-loading",
+      loading: "正在加载动作列表...",
+      error: (error) => (error instanceof Error ? error.message : "动作库加载失败，请稍后重试。"),
+      delayMs: 650,
+    });
     const params = new URLSearchParams({
       page: String(page),
       pageSize: String(pageSize),
@@ -498,6 +507,10 @@ export function ExerciseLibraryPage() {
       params.set("published", published);
     }
 
+    if (hasLoadedExerciseListRef.current) {
+      listLoadingToast.start();
+    }
+
     clientRequest<ExerciseApiResponse>(`/api/exercises?${params.toString()}`, {
       signal: controller.signal,
       errorMessage: "动作库加载失败，请稍后重试。",
@@ -511,13 +524,18 @@ export function ExerciseLibraryPage() {
         setHasPreviousPage(data.hasPreviousPage);
         setExerciseError("");
         setSelectedId((current) => current || data.items[0]?.id || "");
+        hasLoadedExerciseListRef.current = true;
+        listLoadingToast.success();
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") {
+          listLoadingToast.dismiss();
           return;
         }
 
         setExerciseError(error instanceof Error ? error.message : "动作库加载失败，请稍后重试。");
+        hasLoadedExerciseListRef.current = true;
+        listLoadingToast.error(error);
       })
       .finally(() => {
         if (!controller.signal.aborted) {
@@ -525,7 +543,10 @@ export function ExerciseLibraryPage() {
         }
       });
 
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      listLoadingToast.dismiss();
+    };
   }, [
     category,
     equipment,
@@ -703,10 +724,23 @@ export function ExerciseLibraryPage() {
     }
 
     const controller = new AbortController();
+    const detailLoadingToast = createAsyncToastLifecycle({
+      id: "exercise-library-detail-loading",
+      loading: "正在加载动作详情...",
+      error: (error) => (error instanceof Error ? error.message : "动作详情加载失败，请稍后重试。"),
+      delayMs: 500,
+    });
+    const shouldShowDetailToast = userSelectedExerciseRef.current;
+    userSelectedExerciseRef.current = false;
+
     applyDetailState(() => {
       setIsLoadingExerciseDetail(true);
       setExerciseDetailError("");
     });
+
+    if (shouldShowDetailToast) {
+      detailLoadingToast.start();
+    }
 
     clientRequest<ExerciseDetailApiResponse>(`/api/exercises/${encodeURIComponent(effectiveSelectedId)}`, {
       signal: controller.signal,
@@ -722,17 +756,21 @@ export function ExerciseLibraryPage() {
           return next;
         });
         setSelectedExercise(data.item);
+        detailLoadingToast.success();
       })
       .catch((error: unknown) => {
         if (cancelled) {
+          detailLoadingToast.dismiss();
           return;
         }
         if (error instanceof DOMException && error.name === "AbortError") {
+          detailLoadingToast.dismiss();
           return;
         }
 
         setSelectedExercise(null);
         setExerciseDetailError(error instanceof Error ? error.message : "动作详情加载失败，请稍后重试。");
+        detailLoadingToast.error(error);
       })
       .finally(() => {
         if (!cancelled && !controller.signal.aborted) {
@@ -743,6 +781,7 @@ export function ExerciseLibraryPage() {
     return () => {
       cancelled = true;
       controller.abort();
+      detailLoadingToast.dismiss();
     };
   }, [detailCache, effectiveSelectedId]);
 
@@ -915,7 +954,10 @@ export function ExerciseLibraryPage() {
                             : "border border-line bg-white shadow-card hover:border-primary hover:shadow-lift"
                         }`}
                         key={exercise.id}
-                        onClick={() => setSelectedId(exercise.id)}
+                        onClick={() => {
+                          userSelectedExerciseRef.current = true;
+                          setSelectedId(exercise.id);
+                        }}
                         type="button"
                       >
                         <div className="relative mb-sm aspect-square overflow-hidden rounded-lg bg-panel-soft">
@@ -1017,7 +1059,10 @@ export function ExerciseLibraryPage() {
         exercise={selectedExercise}
         fallbackExercise={selectedListItem}
         isLoading={isLoadingExerciseDetail}
-        onSelectExercise={setSelectedId}
+        onSelectExercise={(id) => {
+          userSelectedExerciseRef.current = true;
+          setSelectedId(id);
+        }}
         relatedExercises={relatedExercises}
       />
     </div>

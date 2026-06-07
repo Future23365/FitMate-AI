@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
@@ -17,6 +17,10 @@ import type {
   ExerciseRecommendationItem,
 } from "@/lib/shared/exercise-recommendations/schema";
 import type { Exercise } from "@/lib/shared/exercises/types";
+import {
+  createAsyncToastLifecycle,
+  type AsyncToastLifecycle,
+} from "@/lib/client/async-feedback";
 import { clientRequest } from "@/lib/client/http/client-request";
 
 type ExerciseRecommendationCardProps = {
@@ -40,6 +44,11 @@ export function ExerciseRecommendationCard({
   const [activePreviewExercise, setActivePreviewExercise] = useState<Exercise | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [exerciseMap, setExerciseMap] = useState<Map<string, Exercise>>(() => new Map());
+  const previewRequestRef = useRef<{
+    controller: AbortController;
+    requestId: number;
+    toast: AsyncToastLifecycle;
+  } | null>(null);
 
   const totalMuscles = useMemo(() => {
     const muscles = new Set(card.items.flatMap((item) => item.primaryMusclesZh));
@@ -47,28 +56,71 @@ export function ExerciseRecommendationCard({
     return [...muscles].slice(0, 4);
   }, [card.items]);
 
+  useEffect(() => {
+    return () => {
+      previewRequestRef.current?.controller.abort();
+      previewRequestRef.current?.toast.dismiss();
+      previewRequestRef.current = null;
+    };
+  }, []);
+
   function handleOpenPreview(item: ExerciseRecommendationItem) {
     const cachedExercise = exerciseMap.get(item.exerciseId);
 
     setActivePreviewExercise(cachedExercise ?? createExercisePreviewFromRecommendationItem(item));
     setIsPreviewOpen(true);
 
-    if (!cachedExercise) {
-      void clientRequest<ExerciseApiResponse>(`/api/exercises/${encodeURIComponent(item.exerciseId)}`, {
-        errorMessage: "动作详情加载失败",
-      })
-        .then((data) => {
-          setExerciseMap((current) => {
-            const next = new Map(current);
-            next.set(data.item.id, data.item);
-            return next;
-          });
-          setActivePreviewExercise(data.item);
-        })
-        .catch(() => {
-          setActivePreviewExercise(createExercisePreviewFromRecommendationItem(item));
-        });
+    if (cachedExercise) {
+      previewRequestRef.current?.controller.abort();
+      previewRequestRef.current?.toast.dismiss();
+      previewRequestRef.current = null;
+      return;
     }
+
+    const requestId = (previewRequestRef.current?.requestId ?? 0) + 1;
+    const controller = new AbortController();
+    const detailToast = createAsyncToastLifecycle({
+      id: "exercise-recommendation-detail-loading",
+      loading: "正在加载动作详情...",
+      error: "动作详情加载失败",
+      delayMs: 500,
+    });
+
+    previewRequestRef.current?.controller.abort();
+    previewRequestRef.current?.toast.dismiss();
+    previewRequestRef.current = { controller, requestId, toast: detailToast };
+    detailToast.start();
+
+    void clientRequest<ExerciseApiResponse>(`/api/exercises/${encodeURIComponent(item.exerciseId)}`, {
+      signal: controller.signal,
+      errorMessage: "动作详情加载失败",
+    })
+      .then((data) => {
+        if (previewRequestRef.current?.requestId !== requestId) {
+          return;
+        }
+
+        setExerciseMap((current) => {
+          const next = new Map(current);
+          next.set(data.item.id, data.item);
+          return next;
+        });
+        setActivePreviewExercise(data.item);
+        detailToast.success();
+      })
+      .catch((error: unknown) => {
+        if (previewRequestRef.current?.requestId !== requestId) {
+          return;
+        }
+
+        setActivePreviewExercise(createExercisePreviewFromRecommendationItem(item));
+        detailToast.error(error);
+      })
+      .finally(() => {
+        if (previewRequestRef.current?.requestId === requestId) {
+          previewRequestRef.current = null;
+        }
+      });
   }
 
   return (

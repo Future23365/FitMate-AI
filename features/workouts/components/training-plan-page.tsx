@@ -13,6 +13,7 @@ import {
   listWorkoutSchedules,
   updateWorkoutScheduleStatus,
 } from "@/features/workouts/api/workout-data-client";
+import { runWithAsyncToast } from "@/lib/client/async-feedback";
 import {
   estimateWorkoutCalories,
   estimateWorkoutMinutes,
@@ -22,6 +23,7 @@ import {
   type WorkoutSchedule,
   type WorkoutScheduleStatus,
 } from "@/lib/shared/workouts/composition";
+import { toast as sonnerToast } from "sonner";
 
 type CalendarCell = {
   date: Date;
@@ -134,7 +136,7 @@ export function TrainingPlanPage() {
   const [schedule, setSchedule] = useState<WorkoutSchedule[]>([]);
   // 右侧栏模式承载当前日期详情和计划选择，避免顶部浮层覆盖月历主体。
   const [sidePanelMode, setSidePanelMode] = useState<"day" | "saved-plans">("day");
-  const [toast, setToast] = useState("");
+  const [pendingTrainingAction, setPendingTrainingAction] = useState<string | null>(null);
 
   useEffect(() => {
     async function syncData() {
@@ -146,7 +148,7 @@ export function TrainingPlanPage() {
         setWorkoutRoutines(nextWorkouts.map(normalizeWorkoutRoutine));
         setSchedule(nextSchedule);
       } catch {
-        setToast("训练数据加载失败");
+        sonnerToast.error("训练数据加载失败", { id: "training-calendar-sync-error" });
       }
     }
 
@@ -160,16 +162,8 @@ export function TrainingPlanPage() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!toast) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => setToast(""), 1800);
-    return () => window.clearTimeout(timer);
-  }, [toast]);
-
   const filteredWorkouts = workoutRoutines;
+  const isTrainingActionPending = pendingTrainingAction !== null;
   const cells = getCalendarCells(monthDate);
   const selectedDayPlans = schedule.filter((plan) => plan.date === selectedDateKey);
   const expandedPlanId = selectedDayPlans.some((plan) => plan.id === selectedScheduleId)
@@ -196,24 +190,46 @@ export function TrainingPlanPage() {
   }
 
   async function scheduleWorkout(plan: WorkoutRoutine, dateKey = selectedDateKey) {
-    const scheduledWorkout = createScheduledEntry(plan, dateKey);
+    if (isTrainingActionPending) {
+      return;
+    }
 
+    const scheduledWorkout = createScheduledEntry(plan, dateKey);
+    const actionId = `schedule:${plan.id}:${dateKey}`;
+
+    setPendingTrainingAction(actionId);
     try {
-      const persistedWorkout = await createWorkoutSchedule(scheduledWorkout);
-      setSchedule((current) => [
-        ...current.filter((item) => !(item.date === dateKey && item.status === "rest")),
-        persistedWorkout,
-      ]);
-      setSelectedDateKey(dateKey);
-      setSelectedScheduleId(persistedWorkout.id);
-      setSidePanelMode("day");
-      setToast(`已安排：${plan.title} · ${formatDayLabel(dateKey)}`);
+      await runWithAsyncToast(
+        {
+          id: "training-calendar-schedule-workout",
+          loading: "正在安排训练...",
+          success: `已安排：${plan.title} · ${formatDayLabel(dateKey)}`,
+          error: "安排训练失败",
+        },
+        async () => {
+          const persistedWorkout = await createWorkoutSchedule(scheduledWorkout);
+          setSchedule((current) => [
+            ...current.filter((item) => !(item.date === dateKey && item.status === "rest")),
+            persistedWorkout,
+          ]);
+          setSelectedDateKey(dateKey);
+          setSelectedScheduleId(persistedWorkout.id);
+          setSidePanelMode("day");
+          return persistedWorkout;
+        },
+      );
     } catch {
-      setToast("安排训练失败");
+      // 失败 Toast 由 async feedback helper 统一展示。
+    } finally {
+      setPendingTrainingAction((current) => (current === actionId ? null : current));
     }
   }
 
   async function addRestDay() {
+    if (isTrainingActionPending) {
+      return;
+    }
+
     const restDay: WorkoutSchedule = {
       id: `rest-${selectedDateKey}-${crypto.randomUUID()}`,
       date: selectedDateKey,
@@ -223,42 +239,93 @@ export function TrainingPlanPage() {
       calories: 0,
       items: [],
     };
+    const actionId = `rest:${selectedDateKey}`;
 
+    setPendingTrainingAction(actionId);
     try {
-      await Promise.all(schedule.filter((item) => item.date === selectedDateKey).map((item) => deleteWorkoutSchedule(item.id)));
-      const persistedRestDay = await createWorkoutSchedule(restDay);
-      setSchedule((current) => [
-        ...current.filter((item) => item.date !== selectedDateKey),
-        persistedRestDay,
-      ]);
-      setSelectedScheduleId(persistedRestDay.id);
-      setToast(`已设置休息日：${formatDayLabel(selectedDateKey)}`);
+      await runWithAsyncToast(
+        {
+          id: "training-calendar-rest-day",
+          loading: "正在设置休息日...",
+          success: `已设置休息日：${formatDayLabel(selectedDateKey)}`,
+          error: "设置休息日失败",
+        },
+        async () => {
+          await Promise.all(schedule.filter((item) => item.date === selectedDateKey).map((item) => deleteWorkoutSchedule(item.id)));
+          const persistedRestDay = await createWorkoutSchedule(restDay);
+          setSchedule((current) => [
+            ...current.filter((item) => item.date !== selectedDateKey),
+            persistedRestDay,
+          ]);
+          setSelectedScheduleId(persistedRestDay.id);
+          return persistedRestDay;
+        },
+      );
     } catch {
-      setToast("设置休息日失败");
+      // 失败 Toast 由 async feedback helper 统一展示。
+    } finally {
+      setPendingTrainingAction((current) => (current === actionId ? null : current));
     }
   }
 
   async function updatePlanStatus(scheduleId: string, status: WorkoutScheduleStatus) {
+    if (isTrainingActionPending) {
+      return;
+    }
+
+    const actionId = `status:${scheduleId}`;
+
+    setPendingTrainingAction(actionId);
     try {
-      const persistedPlan = await updateWorkoutScheduleStatus(scheduleId, status);
-      setSchedule((current) => current.map((plan) => (plan.id === scheduleId ? persistedPlan : plan)));
-      setSelectedScheduleId(scheduleId);
-      setToast(`状态已更新为：${getStatusConfig(status).label}`);
+      await runWithAsyncToast(
+        {
+          id: "training-calendar-update-status",
+          loading: "正在更新训练状态...",
+          success: `状态已更新为：${getStatusConfig(status).label}`,
+          error: "训练状态更新失败",
+        },
+        async () => {
+          const persistedPlan = await updateWorkoutScheduleStatus(scheduleId, status);
+          setSchedule((current) => current.map((plan) => (plan.id === scheduleId ? persistedPlan : plan)));
+          setSelectedScheduleId(scheduleId);
+          return persistedPlan;
+        },
+      );
     } catch {
-      setToast("训练状态更新失败");
+      // 失败 Toast 由 async feedback helper 统一展示。
+    } finally {
+      setPendingTrainingAction((current) => (current === actionId ? null : current));
     }
   }
 
   async function removePlan(scheduleId: string) {
+    if (isTrainingActionPending) {
+      return;
+    }
+
+    const actionId = `remove:${scheduleId}`;
+
+    setPendingTrainingAction(actionId);
     try {
-      await deleteWorkoutSchedule(scheduleId);
-      setSchedule((current) => current.filter((plan) => plan.id !== scheduleId));
-      if (selectedScheduleId === scheduleId) {
-        setSelectedScheduleId("");
-      }
-      setToast("已移除当天安排");
+      await runWithAsyncToast(
+        {
+          id: "training-calendar-remove-plan",
+          loading: "正在移除当天安排...",
+          success: "已移除当天安排",
+          error: "移除当天安排失败",
+        },
+        async () => {
+          await deleteWorkoutSchedule(scheduleId);
+          setSchedule((current) => current.filter((plan) => plan.id !== scheduleId));
+          if (selectedScheduleId === scheduleId) {
+            setSelectedScheduleId("");
+          }
+        },
+      );
     } catch {
-      setToast("移除当天安排失败");
+      // 失败 Toast 由 async feedback helper 统一展示。
+    } finally {
+      setPendingTrainingAction((current) => (current === actionId ? null : current));
     }
   }
 
@@ -443,6 +510,7 @@ export function TrainingPlanPage() {
               <div className="training-saved-plan-list custom-scrollbar min-h-0 flex-1 space-y-sm overflow-y-auto rounded-2xl border border-line bg-panel-soft p-sm">
                 {filteredWorkouts.map((workout) => (
                   <SavedPlanListItem
+                    disabled={isTrainingActionPending}
                     key={workout.id}
                     onSchedule={() => void scheduleWorkout(workout)}
                     workout={workout}
@@ -503,6 +571,7 @@ export function TrainingPlanPage() {
                       {isExpanded ? (
                         <CurrentPlanCard
                           plan={plan}
+                          isPending={isTrainingActionPending}
                           onRemove={() => void removePlan(plan.id)}
                           onStatusChange={(status) => void updatePlanStatus(plan.id, status)}
                         />
@@ -564,6 +633,7 @@ export function TrainingPlanPage() {
               <h2 className="font-label-md text-label-md font-bold text-secondary">快速建议</h2>
               <button
                 className="group flex w-full items-center justify-between rounded-xl border border-line bg-white p-md text-left shadow-card transition-colors hover:border-primary"
+                disabled={isTrainingActionPending}
                 onClick={() => void addRestDay()}
                 type="button"
               >
@@ -578,20 +648,17 @@ export function TrainingPlanPage() {
         ) : null}
       </ResponsiveRightSidebar>
 
-      {toast ? (
-        <div className="fixed bottom-lg left-1/2 z-50 -translate-x-1/2 rounded-full bg-inverse-surface px-lg py-sm font-label-md text-label-md text-inverse-on-surface shadow-lg">
-          {toast}
-        </div>
-      ) : null}
     </div>
   );
 }
 
 // SavedPlanListItem 承载右侧栏中的排期素材，展示编排关键信息并保持添加动作明确。
 function SavedPlanListItem({
+  disabled,
   onSchedule,
   workout,
 }: {
+  disabled: boolean;
   onSchedule: () => void;
   workout: WorkoutRoutine;
 }) {
@@ -639,6 +706,7 @@ function SavedPlanListItem({
             <button
               aria-label={`添加 ${workout.title}`}
               className="shrink-0 rounded-lg bg-primary px-sm py-xs font-label-sm text-label-sm font-bold text-white shadow-sm transition-colors hover:bg-primary-deep"
+              disabled={disabled}
               onClick={onSchedule}
               type="button"
             >
@@ -711,10 +779,12 @@ function CollapsedDayPlanButton({
 }
 
 function CurrentPlanCard({
+  isPending,
   onRemove,
   onStatusChange,
   plan,
 }: {
+  isPending: boolean;
   onRemove: () => void;
   onStatusChange: (status: WorkoutScheduleStatus) => void;
   plan: WorkoutSchedule;
@@ -731,6 +801,7 @@ function CurrentPlanCard({
         </p>
         <button
           className="mt-md rounded-xl bg-white px-md py-sm font-label-md text-label-md font-bold text-primary"
+          disabled={isPending}
           onClick={onRemove}
           type="button"
         >
@@ -770,6 +841,7 @@ function CurrentPlanCard({
         </Link>
         <button
           className="rounded-xl border border-line bg-white px-sm py-sm font-label-sm text-label-sm font-bold text-primary"
+          disabled={isPending}
           onClick={() => onStatusChange("completed")}
           type="button"
         >
@@ -777,6 +849,7 @@ function CurrentPlanCard({
         </button>
         <button
           className="rounded-xl border border-line bg-white px-sm py-sm font-label-sm text-label-sm font-bold text-muted"
+          disabled={isPending}
           onClick={() => onStatusChange("missed")}
           type="button"
         >
@@ -784,6 +857,7 @@ function CurrentPlanCard({
         </button>
         <button
           className="rounded-xl border border-line bg-white px-sm py-sm font-label-sm text-label-sm font-bold text-muted"
+          disabled={isPending}
           onClick={onRemove}
           type="button"
         >
