@@ -9,8 +9,8 @@ services:
     image: postgres:17
     # 固定容器名方便本地排查和手工连接。
     container_name: fitmate-postgres
-    # 本机重启或 Docker daemon 重启后自动恢复数据库容器。
-    restart: unless-stopped
+    # 本地数据库按需手动启动，避免 Docker Desktop 重启后自动占用本机资源。
+    restart: "no"
     environment:
       # POSTGRES_DB 是首次初始化创建的本地数据库名。
       POSTGRES_DB: fitmate
