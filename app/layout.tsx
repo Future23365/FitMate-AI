@@ -122,7 +122,7 @@ const rootBootNoticeScript = `
       notice.id = noticeId;
       notice.setAttribute("role", "status");
       notice.setAttribute("aria-live", "polite");
-      notice.innerHTML = '<div class="fitmate-root-boot-notice__panel"><div class="fitmate-root-boot-notice__mark" aria-hidden="true">!</div><div class="fitmate-root-boot-notice__copy"><p class="fitmate-root-boot-notice__title">访问可能较慢</p><p class="fitmate-root-boot-notice__description">当前项目部署在香港服务器，如果页面长时间停留在加载状态，可能与跨境网络有关。可以使用稳定的代理环境访问。</p></div></div>';
+      notice.innerHTML = '<div class="fitmate-root-boot-notice__panel"><div class="fitmate-root-boot-notice__mark" aria-hidden="true">!</div><div class="fitmate-root-boot-notice__copy"><p class="fitmate-root-boot-notice__title">访问可能较慢</p><p class="fitmate-root-boot-notice__description">当前项目部署在香港服务器，<br/>如果页面长时间停留在加载状态，可能与跨境网络有关。<br/>建议使用稳定的代理环境访问。</p></div></div>';
       document.body.appendChild(notice);
     }
 

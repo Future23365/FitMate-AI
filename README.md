@@ -291,3 +291,6 @@ example/                   # 设计参考 HTML
 - 当前生产 Agent 只开放只读资源查询和可见训练方案输出，不开放由模型直接写入、保存、覆盖或执行训练计划。
 - `UserProfile`、`UserMemory` 和 `UserExerciseFeedback` 的数据结构与服务已存在，但正式用户画像管理流程仍不是完整产品能力。
 - AI trace 调试能力面向开发和内测；生产环境只有显式设置 `ENABLE_AI_TRACE_LOG=true` 时才写入 trace，公开部署应谨慎开启。
+
+## TODO
+- 查询动作增加自定义返回数量参数
