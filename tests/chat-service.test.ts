@@ -575,6 +575,98 @@ describe("chat service agent text flow boundary", () => {
     expect(exerciseResourceRepositoryMocks.searchExerciseResourceSummaries).not.toHaveBeenCalled();
   });
 
+  it("streams safe activitySummary after agent_loop without putting it in terminal payloads or replay summary", async () => {
+    const prepared = prepareChatRequest({
+      latestUserMessage: "今天练胸",
+      conversationSummary: "",
+    });
+    const planner = new ReplayPlanner([
+      { type: "final_answer", content: "可以，今天先做轻量胸部训练。", activitySummary: "正在整理胸部训练建议" },
+    ]);
+    const response = await createAgentTextChatResponse({
+      request: prepared,
+      currentUser: { id: "user-1" },
+      planner,
+    });
+    const rawEvents = await readNdjsonEvents(response, { includeProgress: true });
+    const terminalEvents = rawEvents.filter((event) => !isTransientAgentActivityEvent(event));
+    const loopIndex = rawEvents.findIndex((event) => event.type === "agent_loop");
+    const summaryProgressIndex = rawEvents.findIndex((event) => (
+      event.type === "agent_progress" && event.activitySummary === "正在整理胸部训练建议"
+    ));
+    const trace = listAiTracesForUser("user-1")[0];
+
+    expect(loopIndex).toBeGreaterThanOrEqual(0);
+    expect(summaryProgressIndex).toBeGreaterThan(loopIndex);
+    expect(rawEvents[summaryProgressIndex]).toMatchObject({
+      type: "agent_progress",
+      stage: "analyzing_request",
+      status: "active",
+      messageKey: "analyzing_request",
+      activitySummary: "正在整理胸部训练建议",
+      sequence: expect.any(Number),
+    });
+    expect(terminalEvents).toEqual([
+      { type: "content", content: "可以，今天先做轻量胸部训练。" },
+      { type: "done" },
+    ]);
+    expect(JSON.stringify(terminalEvents)).not.toContain("activitySummary");
+    expect(planner.calls[0].context.run.metadata).not.toHaveProperty("activitySummary");
+    expect(trace.steps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "Planner action",
+        output: expect.objectContaining({
+          type: "planner_action",
+          actionType: "final_answer",
+          activitySummary: "正在整理胸部训练建议",
+          activitySummarySource: "AgentAction.activitySummary",
+        }),
+      }),
+      expect.objectContaining({
+        type: "response_write",
+        output: expect.not.objectContaining({
+          activitySummary: expect.anything(),
+        }),
+      }),
+    ]));
+  });
+
+  it("falls back to fixed activity stages when activitySummary is unsafe", async () => {
+    const planner = new ReplayPlanner([
+      { type: "final_answer", content: "可以。", activitySummary: "toolName=readOne 内部调试" },
+    ]);
+    const response = await createAgentTextChatResponse({
+      request: prepareChatRequest({
+        latestUserMessage: "今天练胸",
+        conversationSummary: "",
+      }),
+      currentUser: { id: "user-1" },
+      planner,
+    });
+    const rawEvents = await readNdjsonEvents(response, { includeProgress: true });
+    const progressEvents = rawEvents.filter((event) => event.type === "agent_progress");
+    const trace = listAiTracesForUser("user-1")[0];
+
+    expect(progressEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ stage: "analyzing_request", status: "active" }),
+    ]));
+    expect(progressEvents.some((event) => "activitySummary" in event)).toBe(false);
+    expect(JSON.stringify(rawEvents)).not.toContain("toolName=readOne");
+    expect(JSON.stringify(rawEvents)).not.toContain("内部调试");
+    expect(trace.steps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "Planner action",
+        output: expect.objectContaining({
+          type: "planner_action",
+          actionType: "final_answer",
+          activitySummaryRejectedReason: "internal_term",
+        }),
+      }),
+    ]));
+    expect(JSON.stringify(trace)).not.toContain("toolName=readOne");
+    expect(JSON.stringify(trace)).not.toContain("内部调试");
+  });
+
   it("runs searchExerciseResources when the model explicitly calls the production tool", async () => {
     const toolInput = { q: "胸", suitabilities: ["training"] };
     const expectedToolResultId = createToolResultId(

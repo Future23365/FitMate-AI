@@ -514,4 +514,49 @@ describe("agent-core runtime budget and idempotency hardening", () => {
     ]);
     expect(result.traceEvents.map((event) => event.type)).toEqual(observedTypes);
   });
+
+  it("projects only safe activitySummary diagnostics into planner_action trace and keeps replay summary clean", async () => {
+    const safeResult = await runAgentRuntime({
+      registry: new ToolRegistry(),
+      planner: new ReplayPlanner([
+        { type: "final_answer", content: "可以。", activitySummary: "正在整理最终回复" },
+      ]),
+      run: {
+        runId: "run-safe-activity-summary",
+        actor: {},
+        userInput: "hello",
+      },
+    });
+    const safePlannerAction = safeResult.traceEvents.find((event) => event.type === "planner_action");
+
+    expect(safePlannerAction).toMatchObject({
+      type: "planner_action",
+      actionType: "final_answer",
+      activitySummary: "正在整理最终回复",
+      activitySummarySource: "AgentAction.activitySummary",
+    });
+    expect(JSON.stringify(safeResult.replaySummary)).not.toContain("activitySummary");
+    expect(JSON.stringify(safeResult.replaySummary)).not.toContain("正在整理最终回复");
+
+    const rejectedResult = await runAgentRuntime({
+      registry: new ToolRegistry(),
+      planner: new ReplayPlanner([
+        { type: "final_answer", content: "可以。", activitySummary: "toolName=readOne 内部调试" },
+      ]),
+      run: {
+        runId: "run-rejected-activity-summary",
+        actor: {},
+        userInput: "hello",
+      },
+    });
+    const rejectedPlannerAction = rejectedResult.traceEvents.find((event) => event.type === "planner_action");
+
+    expect(rejectedPlannerAction).toMatchObject({
+      type: "planner_action",
+      actionType: "final_answer",
+      activitySummaryRejectedReason: "internal_term",
+    });
+    expect(JSON.stringify(rejectedPlannerAction)).not.toContain("toolName=readOne");
+    expect(JSON.stringify(rejectedPlannerAction)).not.toContain("内部调试");
+  });
 });

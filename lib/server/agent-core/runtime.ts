@@ -22,6 +22,7 @@ import { evaluateToolPolicy } from "./policy-guard";
 import { redactJsonValue } from "./redaction";
 import { validateAndRegisterProducedResources, validateConsumedResources } from "./resource-contract";
 import { ResourceStore } from "./resource-store";
+import { sanitizeAgentActivitySummary } from "@/lib/shared/agent-activity-summary";
 import type { TerminalOutputValidatorRegistry } from "./terminal-output-validator";
 import type {
   AgentObservation,
@@ -739,13 +740,33 @@ function createToolExecutionTrace(input: {
 
 function createPlannerActionTrace(step: number, action: unknown): AgentTraceEvent {
   const actionRecord = action && typeof action === "object" ? action as Partial<ToolCallAction> : undefined;
+  const activitySummaryProjection = projectPlannerActionActivitySummary(actionRecord?.activitySummary);
 
   return {
     type: "planner_action",
     step,
     actionType: typeof actionRecord?.type === "string" ? actionRecord.type : "unknown",
     toolName: typeof actionRecord?.toolName === "string" ? actionRecord.toolName : undefined,
+    ...activitySummaryProjection,
   };
+}
+
+// projectPlannerActionActivitySummary 只记录已安全投影的活动摘要或拒绝原因，不保存原始不安全文本。
+function projectPlannerActionActivitySummary(value: unknown): Partial<Extract<AgentTraceEvent, { type: "planner_action" }>> {
+  if (value === undefined) {
+    return {};
+  }
+
+  const sanitized = sanitizeAgentActivitySummary(value);
+
+  return sanitized.ok
+    ? {
+        activitySummary: sanitized.summary,
+        activitySummarySource: "AgentAction.activitySummary",
+      }
+    : {
+        activitySummaryRejectedReason: sanitized.reason,
+      };
 }
 
 type DuplicateToolInputRepairFeedback = Parameters<typeof createDuplicateToolInputObservation>[0];

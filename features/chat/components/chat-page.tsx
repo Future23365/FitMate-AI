@@ -590,12 +590,12 @@ export function ChatPage() {
                       <div className="flex w-9 shrink-0 justify-center pt-[2px]">
                         <ChatMessageAvatar role={isUserMessage ? "user" : "assistant"} />
                       </div>
-                      <div className="flex flex-1 flex-col gap-xs min-w-0">
+                      <div className={`flex min-w-0 flex-1 flex-col gap-xs ${isUserMessage ? "items-end" : "items-start"}`}>
                         {message.role === "assistant" && (
                           <AgentActivityIndicator activity={visibleAgentActivity} />
                         )}
                         <div
-                          className={`ai-chat-bubble min-w-0 rounded-2xl p-lg transition-shadow ${
+                          className={`ai-chat-bubble max-w-full min-w-0 rounded-2xl p-lg transition-shadow ${
                             isUserMessage
                               ? "rounded-tr-sm bg-primary text-white shadow-[0_12px_26px_rgba(36,89,230,0.16)]"
                               : "rounded-tl-sm border border-line bg-white text-ink shadow-[0_12px_26px_rgba(16,24,40,0.06)]"

@@ -1,5 +1,10 @@
 import { z, type ZodTypeAny } from "zod";
 
+import {
+  agentActivitySummarySchemaMaxLength,
+  type AgentActivitySummaryRejectionReason,
+} from "@/lib/shared/agent-activity-summary";
+
 import type { AgentErrorCode } from "./errors";
 
 /** JsonValue 是 manifest、projection 和 stream event 可安全序列化字段的基础类型。 */
@@ -192,6 +197,9 @@ export type ResourceRequirementFailure = {
   message: string;
 };
 
+/** AgentActionActivitySummarySchema 约束本轮 action 可选活动摘要的硬结构，展示安全另由 stream adapter 投影。 */
+const AgentActionActivitySummarySchema = z.string().trim().max(agentActivitySummarySchemaMaxLength).optional();
+
 /** ToolCallAction 是 Planner 请求执行已注册 tool 的唯一 M0 动作。 */
 export const ToolCallActionSchema = z.object({
   type: z.literal("tool_call"),
@@ -199,6 +207,7 @@ export const ToolCallActionSchema = z.object({
   input: z.unknown(),
   consumes: z.array(agentResourceRefSchema).optional(),
   rationale: z.string().optional(),
+  activitySummary: AgentActionActivitySummarySchema,
 }).strict();
 
 /** FinalAnswerAction 是 Planner 以最终回答收口时使用的终止动作。 */
@@ -234,6 +243,7 @@ export const FinalAnswerActionSchema = z.object({
     .max(4)
     .optional(),
   suggestedQuestions: SuggestedQuestionsSchema.optional(),
+  activitySummary: AgentActionActivitySummarySchema,
 }).strict();
 
 /** AskUserAction 是 Planner 需要用户补充信息时使用的终止动作，与 final_answer 共享 content/usedRefs 语义槽。 */
@@ -242,6 +252,7 @@ export const AskUserActionSchema = z.object({
   content: z.string().min(1),
   suggestedQuestions: SuggestedQuestionsSchema.optional(),
   usedRefs: terminalUsedRefsSchema,
+  activitySummary: AgentActionActivitySummarySchema,
 }).strict();
 
 /** AgentActionSchema 将 M0 action 限定为 tool_call、final_answer 和 ask_user 三类。 */
@@ -498,6 +509,9 @@ export type AgentTraceEvent =
       step: number;
       actionType: string;
       toolName?: string;
+      activitySummary?: string;
+      activitySummarySource?: "AgentAction.activitySummary";
+      activitySummaryRejectedReason?: AgentActivitySummaryRejectionReason;
     }
   | {
       type: "validation_result";
@@ -575,6 +589,7 @@ export type AgentProgressEvent = {
   stage: AgentProgressStage | (string & {});
   status: "active" | "completed" | "skipped" | "failed";
   messageKey?: AgentProgressStage;
+  activitySummary?: string;
   sequence: number;
 };
 

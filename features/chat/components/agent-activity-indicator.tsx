@@ -19,7 +19,7 @@ export function AgentActivityIndicator({
   return (
     <div
       aria-live="polite"
-      className={`agent-activity-indicator flex min-h-[18px] items-baseline gap-[2px] py-[2px] pl-0 pr-xs font-label-sm text-label-sm font-bold leading-[16px] ${toneClass} transition-colors duration-200 motion-safe:animate-pulse motion-reduce:animate-none`}
+      className={`agent-activity-indicator inline-flex min-h-[18px] min-w-0 max-w-[min(34rem,100%)] items-baseline gap-[2px] overflow-hidden py-[2px] pl-0 pr-xs font-label-sm text-label-sm font-bold leading-[16px] ${toneClass} transition-colors duration-200 motion-safe:animate-pulse motion-reduce:animate-none`}
       role="status"
     >
       <span
@@ -28,7 +28,7 @@ export function AgentActivityIndicator({
       >
         {roundLabel ?? ""}
       </span>
-      <span className="block leading-[16px]">{display.label}</span>
+      <span className="block min-w-0 truncate leading-[16px]">{display.label}</span>
     </div>
   );
 }

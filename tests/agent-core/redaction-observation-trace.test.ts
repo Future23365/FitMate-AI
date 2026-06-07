@@ -72,6 +72,34 @@ describe("agent-core redaction, observation compression and trace audit", () => 
     });
   });
 
+  it("redacts unsafe activitySummary values in trace-like payloads without hiding safe summaries", () => {
+    const redacted = redactJsonValue({
+      parsedAction: {
+        type: "final_answer",
+        content: "可以。",
+        activitySummary: "toolName=readOne 内部调试",
+      },
+      safeAction: {
+        type: "tool_call",
+        activitySummary: "需要查询动作库",
+      },
+    });
+
+    expect(redacted).toMatchObject({
+      parsedAction: {
+        type: "final_answer",
+        content: "可以。",
+        activitySummary: { rejectedReason: "internal_term" },
+      },
+      safeAction: {
+        type: "tool_call",
+        activitySummary: "需要查询动作库",
+      },
+    });
+    expect(JSON.stringify(redacted)).not.toContain("toolName=readOne");
+    expect(JSON.stringify(redacted)).not.toContain("内部调试");
+  });
+
   it("keeps satisfied success observations lightweight and points detailed facts to toolResults", async () => {
     const result = await executeTool({
       tool: createSecretOutputTool(),

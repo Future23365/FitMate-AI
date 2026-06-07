@@ -37,6 +37,7 @@ describe("chat controller Agent text event projection", () => {
         stage: "querying_exercises",
         status: "active",
         messageKey: "querying_exercises",
+        activitySummary: "需要查询动作库",
         sequence: 2,
       }),
     ).toEqual(createAssistantMessage());

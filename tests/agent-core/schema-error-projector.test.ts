@@ -35,7 +35,7 @@ describe("schema error projector", () => {
         expect.objectContaining({
           code: "unknown_field",
           path: "question",
-          allowedFields: expect.arrayContaining(["type", "content", "usedRefs", "suggestedQuestions"]),
+          allowedFields: expect.arrayContaining(["type", "content", "usedRefs", "suggestedQuestions", "activitySummary"]),
         }),
       ]),
     });

@@ -9,7 +9,7 @@ import { TerminalOutputValidatorRegistry } from "@/lib/server/agent-core/termina
 import { ToolRegistry } from "@/lib/server/agent-core/tool-registry";
 import { createProductionToolRegistry } from "@/lib/server/agent-tools";
 import { ReplayPlanner } from "@/lib/server/agent-planners/replay-planner";
-import { toTerminalResourceRefs, toTerminalToolResultRefs, type ToolResult } from "@/lib/server/agent-core/contracts";
+import { AgentActionSchema, toTerminalResourceRefs, toTerminalToolResultRefs, type ToolResult } from "@/lib/server/agent-core/contracts";
 import type { PlannerInput } from "@/lib/server/agent-core/planner-port";
 
 function createRegistry() {
@@ -170,6 +170,69 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
     });
 
     expect(result.ok).toBe(true);
+  });
+
+  it("accepts optional activitySummary on all AgentAction variants and reports only deterministic field errors", () => {
+    const registry = createRegistry();
+    const manifests = registry.serializeForPlanner();
+
+    expect(validateAgentAction({
+      action: { type: "tool_call", toolName: "readOne", input: { id: "a" }, activitySummary: "需要读取测试事实" },
+      registry,
+      manifests,
+      toolResults: [],
+    })).toMatchObject({ ok: true });
+
+    expect(validateAgentAction({
+      action: { type: "final_answer", content: "可以。", activitySummary: "正在整理最终回复" },
+      registry,
+      manifests,
+      toolResults: [],
+    })).toMatchObject({ ok: true });
+
+    expect(validateAgentAction({
+      action: { type: "ask_user", content: "你今天能练多久？", activitySummary: "需要确认训练时间" },
+      registry,
+      manifests,
+      toolResults: [],
+    })).toMatchObject({ ok: true });
+
+    const parsed = AgentActionSchema.safeParse({
+      type: "ask_user",
+      content: "你今天能练多久？",
+      activitySummary: { debug: "internal" },
+    });
+
+    expect(parsed.success).toBe(false);
+    expect(validateAgentAction({
+      action: {
+        type: "ask_user",
+        content: "你今天能练多久？",
+        activitySummary: { debug: "internal" },
+      },
+      registry,
+      manifests,
+      toolResults: [],
+    })).toMatchObject({
+      ok: false,
+      error: {
+        code: AGENT_ERROR_CODES.INVALID_ACTION,
+        details: expect.objectContaining({
+          target: expect.objectContaining({
+            kind: "AgentAction",
+            schemaId: "AgentAction",
+            variant: "ask_user",
+          }),
+          errors: expect.arrayContaining([
+            expect.objectContaining({
+              code: "invalid_type",
+              path: "activitySummary",
+              expected: { type: "string" },
+            }),
+          ]),
+        }),
+      },
+    });
   });
 
   it("accepts suggestedQuestions on terminal actions and rejects legacy suggestion fields", () => {
