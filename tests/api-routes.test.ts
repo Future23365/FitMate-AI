@@ -59,6 +59,9 @@ const visibleTrainingProposalFactStoreMocks = vi.hoisted(() => ({
   persistVisibleTrainingProposalFactsFromEvents: vi.fn(async () => ({ ok: true, savedCount: 0 })),
   readVisibleTrainingProposalFact: vi.fn(),
 }));
+const usageSummaryServiceMocks = vi.hoisted(() => ({
+  recordAiTokenUsageSummary: vi.fn(async () => ({ ok: true as const })),
+}));
 const currentUserMocks = vi.hoisted(() => ({
   getCurrentUser: vi.fn(),
 }));
@@ -101,6 +104,14 @@ vi.mock("@/lib/server/visible-training-proposals/visible-training-proposal-fact-
   },
   toJsonValue: (value: unknown) => JSON.parse(JSON.stringify(value)),
 }));
+vi.mock("@/lib/server/usage/ai-token-usage-summary-service", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/server/usage/ai-token-usage-summary-service")>();
+
+  return {
+    ...actual,
+    recordAiTokenUsageSummary: usageSummaryServiceMocks.recordAiTokenUsageSummary,
+  };
+});
 vi.mock("@/lib/server/users/current-user", () => currentUserMocks);
 vi.mock("@/lib/server/auth/local-anonymous-auth", () => authMocks);
 
@@ -137,6 +148,7 @@ describe("API route boundaries", () => {
     artifactMocks.listRecentArtifactSummariesForCurrentUser.mockResolvedValue([]);
     currentUserMocks.getCurrentUser.mockResolvedValue({ id: "user-1" });
     authMocks.requireCurrentUser.mockResolvedValue({ id: "user-1", displayName: "匿名用户" });
+    usageSummaryServiceMocks.recordAiTokenUsageSummary.mockResolvedValue({ ok: true });
   });
 
   it("validates /api/chat body and returns stable configuration errors without model configuration", async () => {

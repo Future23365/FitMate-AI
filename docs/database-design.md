@@ -21,6 +21,7 @@
 | 动作库 | `Exercise` | 保存训练动作的标准事实数据，包括来源、分类、肌群、器械、居家可做条件、图片、教学步骤和审核状态。 |
 | 训练编排、日历与结果 | `WorkoutRoutine`、`WorkoutRoutineItem`、`WorkoutSchedule`、`WorkoutSessionResult` | 保存用户可复用动作编排、编排项、日历安排和实际训练结果摘要。 |
 | 聊天历史 | `ChatSession`、`ChatMessage`、`ConversationArtifact`、`ArtifactIndex`、`ConversationBusinessFact` | 保存用户和 AI 的对话历史、聊天结构化卡片事实源、轻量索引、跨 run 业务事实和自然语言上下文总结。 |
+| AI usage 后台统计 | `AiTokenUsageSummary` | 保存生产聊天请求 / 消息级 token usage 汇总，供只读后台按全站、用户、会话和消息聚合展示。 |
 
 主要关系如下：
 
@@ -36,6 +37,7 @@ User
   │    └─ WorkoutSessionResult
   ├─ WorkoutSchedule
   │    └─ WorkoutSessionResult
+  ├─ AiTokenUsageSummary
   └─ ChatSession
        ├─ ChatMessage
        ├─ ConversationArtifact
@@ -215,6 +217,7 @@ artifact 保存后的来源实体类型。
 | `schedules` | 一个用户可以拥有多个训练日历安排。 |
 | `results` | 一个用户可以拥有多个训练结果。 |
 | `chatSessions` | 一个用户可以拥有多个聊天会话。 |
+| `aiTokenUsageSummaries` | 一个用户可以拥有多条生产 AI token usage 汇总记录。 |
 
 ### UserIdentity
 
@@ -492,6 +495,29 @@ artifact 轻量检索索引。聊天上下文和后续引用解析优先读取�
 
 当前唯一约束为 `userId + conversationId + messageId + kind + schemaVersion`，用于同一响应重复投影时幂等覆盖。
 
+### AiTokenUsageSummary
+
+生产 AI token usage 汇总表。该表记录一次聊天请求或 assistant 消息对应的输入 token、输出 token 和总 token 汇总，供 `/admin` 只读后台聚合展示。
+
+该表不依赖 AI trace、内存 trace store、导出的 `codex_logs` 或 `ChatMessage.metadata`。它只保存 token 数量和后台聚合需要的最小归属字段，不保存 Agent loop、planner call、model call、source、model、runtime step、错误 code 或错误日志明细。
+
+该表只强制关联 `User`。`conversationId` 和 `messageId` 作为稳定字符串保存，不强制引用 `ChatSession` 或 `ChatMessage`，原因是 `/api/chat` 响应生成时 assistant 消息通常尚未保存，且聊天历史保存会重写 `ChatMessage` 行；usage summary 不能因此丢失或被重算。
+
+| 字段 | 类型 | 约束 / 默认值 | 作用 |
+|---|---|---|---|
+| `id` | `String` | 主键，默认 `cuid()` | usage summary 记录唯一标识。 |
+| `userId` | `String` | 外键，关联 `User.id` | 所属用户，用于权限隔离和后台用户聚合。 |
+| `conversationId` | `String` | 已参与唯一约束和组合索引 | 所属聊天会话 id；不强制外键，避免响应生成早于会话保存。 |
+| `messageId` | `String` | 已参与唯一约束，已建索引 | 对应 assistant 响应消息 id 或请求级消息 id，用于幂等去重和消息级展示。 |
+| `promptTokens` | `Int?` | 可空 | provider usage 中已知的输入 token 汇总。为空表示未知，不等同于真实 0。 |
+| `completionTokens` | `Int?` | 可空 | provider usage 中已知的输出 token 汇总。为空表示未知，不等同于真实 0。 |
+| `totalTokens` | `Int?` | 可空 | provider usage 中已知或在输入/输出都已知时推导出的总 token。为空表示未知，不等同于真实 0。 |
+| `hasUnknownUsage` | `Boolean` | 默认 `false` | 同一次请求内是否存在 provider 未返回或部分返回 usage 的模型调用。 |
+| `createdAt` | `DateTime` | 默认 `now()` | usage summary 创建时间。 |
+| `updatedAt` | `DateTime` | `@updatedAt` | usage summary 最后更新时间。 |
+
+当前唯一约束为 `userId + conversationId + messageId`，用于同一请求或消息重复记录时幂等覆盖。当前聚合索引覆盖 `userId + createdAt`、`conversationId + createdAt` 和 `messageId`。
+
 ## 4. 关系与删除策略总结
 
 | 从表 | 关联主表 | 删除主表时的行为 | 设计原因 |
@@ -515,6 +541,7 @@ artifact 轻量检索索引。聊天上下文和后续引用解析优先读取�
 | `ConversationArtifact` | `ChatMessage` | `SetNull` | 聊天历史重写消息时保留 artifact 事实源。 |
 | `ArtifactIndex` | `ConversationArtifact` | `Cascade` | 索引不能脱离 artifact 存在。 |
 | `ConversationBusinessFact` | `User` | `Cascade` | 跨 run 业务事实属于用户私有数据，删除用户时同步删除。 |
+| `AiTokenUsageSummary` | `User` | `Cascade` | 生产 AI usage 统计属于用户私有数据，删除用户时同步删除。 |
 
 ## 5. 当前实现注意事项
 
@@ -529,4 +556,5 @@ artifact 轻量检索索引。聊天上下文和后续引用解析优先读取�
 - `UserMemory` 和 `UserExerciseFeedback` 只读取当前 `userId` 下 `active` 或待确认且未过期的数据；长期强约束在确认前不会作为已生效排除规则。
 - `ChatMessage.metadata` 是聊天上下文总结和卡片数据的落点；当前 `plan` 保存长期训练计划草稿，`routine` 保存单次训练编排草稿。如果某类数据变成稳定查询条件，应优先升级为显式字段。
 - `ConversationBusinessFact` 是跨 run read/import 的轻量业务事实源；当前可见训练方案事实只保存 Response Renderer 用户事件中的 `visibleTrainingProposal` payload，不保存 `searchExerciseResources` handler 内部候选作为最终方案事实。
+- `AiTokenUsageSummary` 是生产 token usage 后台统计事实源；Trace 仍可展示诊断 usage，但后台不读取 Trace、内存 store、导出日志或 `ChatMessage.metadata`。
 - 当前 `ChatSession` 不保存 `metadata`；旧模型可见上下文材料保留在 `ChatMessage.metadata.conversationSummary` 中，仅用于历史迁移和后续重建设计参考。

@@ -217,8 +217,8 @@ export function normalizeModelTokenUsage(usage: unknown): ModelTokenUsage | unde
   );
   const totalTokens = readFiniteNumber(record.total_tokens ?? record.totalTokens)
     ?? (
-      promptTokens !== undefined || completionTokens !== undefined
-        ? (promptTokens ?? 0) + (completionTokens ?? 0)
+      promptTokens !== undefined && completionTokens !== undefined
+        ? promptTokens + completionTokens
         : undefined
     );
 

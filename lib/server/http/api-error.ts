@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 export type ApiErrorCode =
   | "bad_request"
+  | "forbidden"
   | "unauthenticated"
   | "validation_failed"
   | "missing_configuration"

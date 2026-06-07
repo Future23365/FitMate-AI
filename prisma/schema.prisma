@@ -132,6 +132,7 @@ model User {
   artifacts       ConversationArtifact[]
   artifactIndexes ArtifactIndex[]
   businessFacts   ConversationBusinessFact[]
+  aiTokenUsageSummaries AiTokenUsageSummary[]
   memories        UserMemory[]
   exerciseFeedback UserExerciseFeedback[]
 
@@ -440,6 +441,26 @@ model ConversationBusinessFact {
 
   @@unique([userId, conversationId, messageId, kind, schemaVersion], name: "conversationBusinessFactIdentity", map: "ConversationBusinessFact_identity_key")
   @@index([userId, conversationId, kind, status, createdAt], map: "ConversationBusinessFact_lookup_idx")
+  @@index([messageId])
+}
+
+/// AiTokenUsageSummary 保存生产聊天请求 / 消息级 token 汇总，独立于 Trace 和 ChatMessage.metadata。
+model AiTokenUsageSummary {
+  id               String   @id @default(cuid())
+  userId           String
+  conversationId   String
+  messageId        String
+  promptTokens     Int?
+  completionTokens Int?
+  totalTokens      Int?
+  hasUnknownUsage  Boolean  @default(false)
+  createdAt        DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(3)
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, conversationId, messageId], name: "aiTokenUsageSummaryIdentity", map: "AiTokenUsageSummary_identity_key")
+  @@index([userId, createdAt])
+  @@index([conversationId, createdAt])
   @@index([messageId])
 }
 

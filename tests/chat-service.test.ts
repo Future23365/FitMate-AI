@@ -64,6 +64,9 @@ const visibleTrainingProposalFactStoreMocks = vi.hoisted(() => ({
   persistVisibleTrainingProposalFactsFromEvents: vi.fn(),
   readVisibleTrainingProposalFact: vi.fn(),
 }));
+const usageSummaryServiceMocks = vi.hoisted(() => ({
+  recordAiTokenUsageSummary: vi.fn(async () => ({ ok: true as const })),
+}));
 
 vi.mock("@/lib/server/exercises/exercise-repository", () => exerciseResourceRepositoryMocks);
 vi.mock("@/lib/server/visible-training-proposals/visible-training-proposal-fact-store", () => ({
@@ -91,6 +94,14 @@ vi.mock("@/lib/server/visible-training-proposals/visible-training-proposal-fact-
   },
   toJsonValue: (value: unknown) => JSON.parse(JSON.stringify(value)),
 }));
+vi.mock("@/lib/server/usage/ai-token-usage-summary-service", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/server/usage/ai-token-usage-summary-service")>();
+
+  return {
+    ...actual,
+    recordAiTokenUsageSummary: usageSummaryServiceMocks.recordAiTokenUsageSummary,
+  };
+});
 
 const productionToolNames = [
   "inspectVisibleTrainingProposals",
@@ -334,6 +345,8 @@ describe("chat service agent text flow boundary", () => {
     visibleTrainingProposalFactStoreMocks.persistVisibleTrainingProposalFactsFromEvents.mockReset();
     visibleTrainingProposalFactStoreMocks.persistVisibleTrainingProposalFactsFromEvents.mockResolvedValue({ ok: true, savedCount: 0, skippedReason: "no_visible_training_proposal" });
     visibleTrainingProposalFactStoreMocks.readVisibleTrainingProposalFact.mockReset();
+    usageSummaryServiceMocks.recordAiTokenUsageSummary.mockReset();
+    usageSummaryServiceMocks.recordAiTokenUsageSummary.mockResolvedValue({ ok: true });
   });
 
   it("accepts current chat request shape and ignores removed legacy event toggles", () => {
@@ -2940,6 +2953,176 @@ describe("chat service agent text flow boundary", () => {
         }),
       ]),
     });
+  });
+
+  it("records multiple planner model calls as one request/message usage summary", async () => {
+    const toolInput = { q: "胸", suitabilities: ["training"] };
+    const responseMessageId = "assistant-usage-tool";
+    const expectedToolResultId = createToolResultId(
+      `chat_${responseMessageId}`,
+      "searchExerciseResources",
+      hashNormalizedInput(toolInput),
+    );
+    const usageRecorder = vi.fn(async () => ({ ok: true as const }));
+    const planner = createTracePlanner([
+      {
+        actionCandidate: { type: "tool_call", toolName: "searchExerciseResources", input: toolInput },
+        tokenUsage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 },
+      },
+      {
+        actionCandidate: {
+          type: "final_answer",
+          content: "可以参考俯卧撑。",
+          usedRefs: toTerminalToolResultRefs([expectedToolResultId]),
+        },
+        tokenUsage: { prompt_tokens: 7, completion_tokens: 4, total_tokens: 11 },
+      },
+    ]);
+    const response = await createAgentTextChatResponse({
+      request: prepareChatRequest({
+        conversationId: "conversation-usage-tool",
+        responseMessageId,
+        latestUserMessage: "找几个胸部训练动作",
+        conversationSummary: "",
+      }),
+      currentUser: { id: "user-1" },
+      planner,
+      usageRecorder,
+    });
+
+    await expect(readNdjsonEvents(response)).resolves.toEqual([
+      expect.objectContaining({ type: "tool_result", toolName: "searchExerciseResources" }),
+      { type: "content", content: "可以参考俯卧撑。" },
+      { type: "done" },
+    ]);
+    expect(usageRecorder).toHaveBeenCalledTimes(1);
+    expect(usageRecorder).toHaveBeenCalledWith({
+      userId: "user-1",
+      conversationId: "conversation-usage-tool",
+      messageId: responseMessageId,
+      usage: {
+        promptTokens: 10,
+        completionTokens: 6,
+        totalTokens: 16,
+        hasUnknownUsage: false,
+      },
+    });
+  });
+
+  it("merges repair model call usage into the same request/message summary", async () => {
+    const usageRecorder = vi.fn(async () => ({ ok: true as const }));
+    const planner = createTracePlanner([
+      {
+        actionCandidate: { type: "final_answer", content: 123 },
+        tokenUsage: { prompt_tokens: 2, completion_tokens: 1, total_tokens: 3 },
+      },
+      {
+        actionCandidate: { type: "final_answer", content: "修正后可以继续。" },
+        tokenUsage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
+      },
+    ]);
+    const response = await createAgentTextChatResponse({
+      request: prepareChatRequest({
+        conversationId: "conversation-usage-repair",
+        responseMessageId: "assistant-usage-repair",
+        latestUserMessage: "今天练胸",
+        conversationSummary: "",
+      }),
+      currentUser: { id: "user-1" },
+      planner,
+      usageRecorder,
+    });
+
+    await expect(readNdjsonEvents(response)).resolves.toEqual([
+      { type: "content", content: "修正后可以继续。" },
+      { type: "done" },
+    ]);
+    expect(usageRecorder).toHaveBeenCalledWith(expect.objectContaining({
+      usage: {
+        promptTokens: 7,
+        completionTokens: 3,
+        totalTokens: 10,
+        hasUnknownUsage: false,
+      },
+    }));
+  });
+
+  it("merges terminal failure finalizer usage into the same request/message summary", async () => {
+    const usageRecorder = vi.fn(async () => ({ ok: true as const }));
+    const finalizer = new FakeTerminalFailureFinalizer((input) => createFakeFinalizerSuccessResult(input, {
+      content: "这次生成的方案没有进入可展示状态。你可以补充时长后重试。",
+    }));
+    const planner = createTracePlanner([
+      {
+        actionCandidate: {
+          type: "final_answer",
+          content: "我会把热身和拉伸写在说明里。",
+          visibleOutputs: [createTrainingOnlyRoutineOutput()],
+        },
+        tokenUsage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
+      },
+      {
+        actionCandidate: {
+          type: "final_answer",
+          content: "我还是把热身和拉伸写在正文里。",
+          visibleOutputs: [createTrainingOnlyRoutineOutput()],
+        },
+        tokenUsage: { prompt_tokens: 4, completion_tokens: 5, total_tokens: 9 },
+      },
+    ]);
+    const response = await createAgentTextChatResponse({
+      request: prepareChatRequest({
+        conversationId: "conversation-usage-finalizer",
+        responseMessageId: "assistant-usage-finalizer",
+        latestUserMessage: "把这些动作帮我组一套 30 分钟训练。",
+        conversationSummary: "",
+      }),
+      currentUser: { id: "user-1" },
+      planner,
+      terminalFailureFinalizer: finalizer,
+      usageRecorder,
+    });
+
+    await expect(readNdjsonEvents(response)).resolves.toEqual([
+      { type: "content", content: "这次生成的方案没有进入可展示状态。你可以补充时长后重试。" },
+      { type: "done" },
+    ]);
+    expect(usageRecorder).toHaveBeenCalledWith(expect.objectContaining({
+      usage: {
+        promptTokens: 16,
+        completionTokens: 12,
+        totalTokens: 28,
+        hasUnknownUsage: false,
+      },
+    }));
+  });
+
+  it("does not append user-visible errors when usage recording fails", async () => {
+    const usageRecorder = vi.fn(async () => {
+      throw new Error("usage write failed");
+    });
+    const planner = createTracePlanner([
+      {
+        actionCandidate: { type: "final_answer", content: "可以，今天先做轻量胸部训练。" },
+      },
+    ]);
+    const response = await createAgentTextChatResponse({
+      request: prepareChatRequest({
+        conversationId: "conversation-usage-failure",
+        responseMessageId: "assistant-usage-failure",
+        latestUserMessage: "今天练胸",
+        conversationSummary: "",
+      }),
+      currentUser: { id: "user-1" },
+      planner,
+      usageRecorder,
+    });
+
+    await expect(readNdjsonEvents(response)).resolves.toEqual([
+      { type: "content", content: "可以，今天先做轻量胸部训练。" },
+      { type: "done" },
+    ]);
+    expect(usageRecorder).toHaveBeenCalledTimes(1);
   });
 
   it("projects ask_user into clarification content and suggested_questions", async () => {

@@ -28,6 +28,12 @@ import { DeepSeekModelAdapter } from "@/lib/server/agent-planners/model-adapters
 import type { PlannerModelTraceEvent } from "@/lib/server/agent-planners/model-adapters/model-adapter";
 import type { PlannerPort } from "@/lib/server/agent-core/planner-port";
 import {
+  recordAiTokenUsageSummary,
+  summarizeModelTokenUsages,
+  type AiTokenUsageSummaryWriteResult,
+  type RecordAiTokenUsageSummaryInput,
+} from "@/lib/server/usage/ai-token-usage-summary-service";
+import {
   listRecentVisibleTrainingProposalSummaries,
   persistVisibleTrainingProposalFactsFromEvents,
   toVisibleTrainingProposalMetadataSummary,
@@ -169,6 +175,7 @@ type PlannerFactoryResult =
 type PlannerFactory = () => PlannerFactoryResult;
 type TerminalFailureFinalizerFactoryResult = ReturnType<typeof createProductionTerminalFailureFinalizerFromEnv>;
 type TerminalFailureFinalizerFactory = () => TerminalFailureFinalizerFactoryResult;
+type AiTokenUsageRecorder = (input: RecordAiTokenUsageSummaryInput) => Promise<AiTokenUsageSummaryWriteResult>;
 
 type AgentTextChatTerminalFailureProjection = {
   projectionType: AgentTextChatResponseProjectionType;
@@ -201,6 +208,7 @@ export type CreateAgentTextChatResponseInput = {
   plannerFactory?: PlannerFactory;
   terminalFailureFinalizer?: TerminalFailureFinalizer;
   terminalFailureFinalizerFactory?: TerminalFailureFinalizerFactory;
+  usageRecorder?: AiTokenUsageRecorder;
 };
 
 type DeepSeekPlannerFactoryInput = {
@@ -328,6 +336,14 @@ export async function createAgentTextChatResponse(input: CreateAgentTextChatResp
     for (const event of events) {
       await writer.write(event);
     }
+
+    await recordAgentTextChatUsageSummary({
+      request: input.request,
+      currentUser: input.currentUser,
+      planner: plannerResult.planner,
+      responseProjection,
+      usageRecorder: input.usageRecorder ?? recordAiTokenUsageSummary,
+    });
   });
 }
 
@@ -804,6 +820,33 @@ function resolveTerminalFailureFinalizerFactory(input: CreateAgentTextChatRespon
   }
 
   return createProductionTerminalFailureFinalizerFromEnv();
+}
+
+async function recordAgentTextChatUsageSummary(input: {
+  request: PreparedChatRequest;
+  currentUser: CurrentUser;
+  planner: PlannerPort;
+  responseProjection: AgentTextChatResponseProjection;
+  usageRecorder: AiTokenUsageRecorder;
+}) {
+  const plannerDiagnostics = readPlannerModelTraceEvents(input.planner);
+  const modelUsages = plannerDiagnostics.map((diagnostic) => diagnostic.tokenUsage);
+  const finalizerSummary = input.responseProjection.terminalFailureFinalizer;
+
+  if (finalizerSummary?.finalizerCalled) {
+    modelUsages.push(finalizerSummary.finalizerTrace?.tokenUsage);
+  }
+
+  try {
+    await input.usageRecorder({
+      userId: input.currentUser.id,
+      conversationId: input.request.conversationId,
+      messageId: input.request.responseMessageId,
+      usage: summarizeModelTokenUsages(modelUsages),
+    });
+  } catch {
+    // usage summary 是生产统计旁路，不能向用户响应流追加错误事件或阻断失败收口。
+  }
 }
 
 function getTerminalFailureFinalizerRemainingTimeMs(requestStartedAtMs: number) {

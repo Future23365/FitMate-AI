@@ -4,7 +4,7 @@ FitMate AI 是一个基于 Agent 编排的 AI 健身聊天助手。系统通过�
 
 项目采用 Next.js App Router + React + TypeScript 构建前端体验和 API Route，使用 PostgreSQL / Prisma 作为事实数据源。动作库、聊天历史、训练编排、训练日历、训练执行状态和可见训练方案事实均持久化到数据库；AI 链路通过自研 `agent-core` 接入 DeepSeek planner，生产环境只开放受控只读 tool 查询动作资源和历史可见训练事实，模型输出会经过服务端结构校验、数据库事实校验和 response renderer 后再展示给用户。
 
-当前已实现 AI 聊天、训练方案卡片、动作库搜索筛选、训练编排、训练日历、训练执行、动作图片本地解析、AI trace 调试和自动化测试体系。当前身份体系仍是本地匿名 auth cookie，不是正式账号登录体系；生产 Agent 也尚未开放直接保存、覆盖或执行训练计划的写入型 tool。
+当前已实现 AI 聊天、训练方案卡片、动作库搜索筛选、训练编排、训练日历、训练执行、动作图片本地解析、AI trace 调试、只读 AI usage 后台和自动化测试体系。当前身份体系仍是本地匿名 auth cookie，不是正式账号登录体系；生产 Agent 也尚未开放直接保存、覆盖或执行训练计划的写入型 tool。
 
 ## 当前状态
 
@@ -17,6 +17,7 @@ FitMate AI 是一个基于 Agent 编排的 AI 健身聊天助手。系统通过�
 - 动作编排页面，支持从动作库添加动作、调整组数/次数/休息，并保存到数据库。
 - 训练日历页面，支持数据库持久化安排训练、设置休息日、标记完成/未完成。
 - 训练执行页面，支持倒计时、动作切换、暂停、结束训练，并同步训练完成状态。
+- `/admin` 只读后台通过集中配置的管理员 userId 授权，展示生产用户、聊天会话、聊天消息和 AI token usage summary。
 - 基础响应式 UI、Tailwind CSS 主题和侧边栏导航。
 - 前端页面与服务端业务代码已分离：`features/` 承载前端功能模块，`lib/server/` 承载服务端服务，`lib/shared/` 承载共享类型和 Schema。
 
@@ -30,6 +31,7 @@ FitMate AI 是一个基于 Agent 编排的 AI 健身聊天助手。系统通过�
 - 动作检索以 PostgreSQL/Prisma 为主，使用结构化过滤和本地 `embeddingText` / `embedding` 辅助检索，不依赖独立向量数据库。
 - 服务端只处理确定性边界：Schema、权限隔离、数据库事实、resource 引用、grounding、限流预算和错误恢复；不基于用户原文关键词或短句模板改写模型意图。
 - AI trace 调试台记录 Agent run、planner request/response、tool execution、token usage 和终态决策，便于复盘真实聊天链路。
+- 生产 AI token usage 通过独立 `AiTokenUsageSummary` 表按请求 / 消息级汇总，后台不依赖 AI trace、内存 store、导出日志或 `ChatMessage.metadata` 推断 token。
 
 ## 技术栈
 
@@ -61,6 +63,7 @@ cp .env.example .env.local
 DATABASE_URL="postgresql://fitmate:fitmate@localhost:5432/fitmate?schema=public"
 DEEPSEEK_API_KEY=
 FITMATE_LOCAL_AUTH_SECRET=
+FITMATE_ADMIN_USER_IDS=
 CONFIRMATION_TOKEN_SECRET=
 EXERCISE_IMAGE_LOCAL_DIR="exercises_picture"
 EXERCISE_IMAGE_PUBLIC_BASE_URL="/api/exercise-images"
@@ -74,6 +77,7 @@ ENABLE_AI_TRACE_LOG=
 - `DATABASE_URL`：PostgreSQL 连接串，服务端运行、Prisma CLI、seed 和搜索 embedding 刷新都依赖它。当前 Prisma 7 基线通过 `prisma.config.ts` 读取连接串，运行时通过 `@prisma/adapter-pg` 创建 `PrismaClient`。
 - `DEEPSEEK_API_KEY`：生产 `/api/chat` 和手动 LLM 黑盒测试需要的模型 API key；缺少时聊天接口会返回稳定的 `chat_ai_not_configured` 配置错误。
 - `FITMATE_LOCAL_AUTH_SECRET`：用于签发和校验本地匿名 auth cookie。生产环境必须显式配置；本地开发未配置时会使用固定开发 fallback，方便重启后继续验证同一浏览器匿名会话。
+- `FITMATE_ADMIN_USER_IDS`：允许访问 `/admin` 和后台数据接口的管理员 userId 列表，使用逗号或空白分隔；未配置时后台默认拒绝所有访问。
 - `CONFIRMATION_TOKEN_SECRET`：用于签名高影响操作确认 token。当前生产 Agent 尚未开放写入型 tool，但服务器部署仍应显式配置，避免使用开发 fallback。
 - `EXERCISE_IMAGE_LOCAL_DIR`：动作图片本地目录，默认值为 `exercises_picture`。
 - `EXERCISE_IMAGE_PUBLIC_BASE_URL`：动作图片对前端暴露的基础 URL，默认值为 `/api/exercise-images`。
@@ -198,6 +202,7 @@ npm start
 app/
   api/                     # Route Handlers，仅做 HTTP 入参/出参和服务层调用
     auth/local-anonymous/  # 本地匿名用户 cookie 签发与恢复
+    admin/ai-usage/        # 只读后台 AI usage 数据投影接口
     chat/                  # 聊天请求接口；校验、历史 hydration 和 agent-core 文本流接入
     chat/conversations/    # 聊天会话历史读取
     dev/ai-traces/         # AI trace 调试数据接口
@@ -213,6 +218,7 @@ app/
     settings/page.tsx      # 设置页路由入口
     layout.tsx             # 主应用侧栏和 route transition，只包裹常规应用页面
   training/page.tsx        # 训练执行页路由入口
+  admin/page.tsx           # 只读后台页面，展示用户、会话、消息和生产 token usage 汇总
   dev/ai-traces/page.tsx   # AI trace 调试台，生产环境默认不开放 trace 写入
 
 components/
@@ -238,6 +244,8 @@ lib/
   server/                  # 服务端专用基础设施和业务服务
     agent-core/            # Agent runtime、tool registry、validator、resource store 和 response renderer
     agent-planners/        # LLM planner 与 DeepSeek model adapter
+    admin/                 # 后台查询服务投影，隔离 UI 和 Prisma shape
+    usage/                 # 生产 usage summary 等统计写入入口
     agent-tools/           # 生产 Agent tool 白名单和 fixture tool 定义
     auth/                  # 本地匿名 auth cookie 与当前用户恢复
     chat/                  # 服务端聊天请求归一化、历史 hydration 和 agent-core 文本流接入

@@ -4,6 +4,15 @@ export {
 } from "./agent-runtime-config";
 
 export {
+  getAdminConfig,
+  isAdminAccessConfigured,
+  isAdminIdentity,
+  resolveAdminConfig,
+  type AdminConfig,
+  type AdminIdentityCandidate,
+} from "./admin-config";
+
+export {
   agentLlmPromptConfig,
   agentLlmPromptVersion,
   buildAgentActionSystemPrompt,
