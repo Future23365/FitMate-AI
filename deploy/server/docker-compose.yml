@@ -49,6 +49,8 @@ services:
       DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-}
       # 匿名 auth 和高影响操作确认 token 的生产签名密钥。
       FITMATE_LOCAL_AUTH_SECRET: ${FITMATE_LOCAL_AUTH_SECRET:?FITMATE_LOCAL_AUTH_SECRET is required}
+      # FITMATE_ADMIN_USER_IDS 控制 /admin 后台访问；未配置时应用内 admin guard 默认拒绝访问。
+      FITMATE_ADMIN_USER_IDS: ${FITMATE_ADMIN_USER_IDS:-}
       CONFIRMATION_TOKEN_SECRET: ${CONFIRMATION_TOKEN_SECRET:?CONFIRMATION_TOKEN_SECRET is required}
       # 动作图片读取目录和前端展示基础 URL。
       EXERCISE_IMAGE_LOCAL_DIR: ${EXERCISE_IMAGE_LOCAL_DIR:-exercises_picture}
