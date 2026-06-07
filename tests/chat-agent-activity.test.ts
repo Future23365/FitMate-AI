@@ -369,6 +369,9 @@ describe("AgentActivityIndicator", () => {
     expect(html).not.toContain("fact_check");
     expect(html).toContain("items-baseline");
     expect(html).toContain("gap-[2px]");
+    expect(html).toContain("max-w-[min(34rem,100%)]");
+    expect(html).toContain("overflow-hidden");
+    expect(html).toContain("truncate");
     expect(html).toContain("pl-0");
     expect(html).toContain("w-[1.375rem]");
     expect(html).toContain("text-left");
@@ -464,6 +467,22 @@ describe("ChatPage activity placement", () => {
     expect(bubbleIndex).toBeGreaterThan(activityIndex);
     expect(thinkingIndex).toBeGreaterThan(bubbleIndex);
     expect(inputShellSource).not.toContain("<AgentActivityIndicator");
+  });
+
+  it("keeps long Agent activity text from stretching the answer bubble width", () => {
+    const source = readFileSync(
+      fileURLToPath(new URL("../features/chat/components/chat-page.tsx", import.meta.url)),
+      "utf8",
+    );
+    const activityIndex = source.indexOf("<AgentActivityIndicator");
+    const bubbleIndex = source.indexOf("ai-chat-bubble", activityIndex);
+    const messageColumnSource = source.slice(
+      source.lastIndexOf("flex min-w-0 flex-1 flex-col gap-xs", activityIndex),
+      bubbleIndex,
+    );
+
+    expect(messageColumnSource).toContain('isUserMessage ? "items-end" : "items-start"');
+    expect(source).toContain("ai-chat-bubble max-w-full min-w-0");
   });
 });
 
