@@ -107,7 +107,7 @@ function VisibleTrainingProposalRichCardRenderer({
 
   if (richCard.kind === "exerciseRecommendation") {
     return (
-      <div className="mt-md">
+      <div className="chat-visible-output-enter mt-md">
         <ExerciseRecommendationCard card={richCard.card} />
       </div>
     );
@@ -115,7 +115,7 @@ function VisibleTrainingProposalRichCardRenderer({
 
   if (richCard.kind === "routine") {
     return (
-      <div className="mt-md">
+      <div className="chat-visible-output-enter mt-md">
         <WorkoutRoutineDraftCard
           draft={richCard.draft}
           sourceChatMessageId={sourceChatMessageId}
@@ -125,7 +125,7 @@ function VisibleTrainingProposalRichCardRenderer({
   }
 
   return (
-    <div className="mt-md">
+    <div className="chat-visible-output-enter mt-md">
       <WorkoutPlanDraftCard
         draft={richCard.draft}
         sourceChatMessageId={sourceChatMessageId}
@@ -574,6 +574,10 @@ export function ChatPage() {
                   !isUserMessage && message.id === activeAgentActivityMessageId
                     ? agentActivity
                     : null;
+                const cleanAssistantContent = !isUserMessage
+                  ? stripHistoricalLegacyTriggerBlocks(message.content)
+                  : "";
+                const hasAssistantContent = cleanAssistantContent.length > 0;
 
                 return (
                   <div
@@ -595,25 +599,27 @@ export function ChatPage() {
                           <AgentActivityIndicator activity={visibleAgentActivity} />
                         )}
                         <div
-                          className={`ai-chat-bubble max-w-full min-w-0 rounded-2xl p-lg transition-shadow ${
+                          className={`ai-chat-bubble max-w-full min-w-0 rounded-2xl p-lg ${
                             isUserMessage
                               ? "rounded-tr-sm bg-primary text-white shadow-[0_12px_26px_rgba(36,89,230,0.16)]"
-                              : "rounded-tl-sm border border-line bg-white text-ink shadow-[0_12px_26px_rgba(16,24,40,0.06)]"
+                              : `ai-chat-bubble-assistant rounded-tl-sm border border-line bg-white text-ink shadow-[0_12px_26px_rgba(16,24,40,0.06)] ${
+                                  hasAssistantContent ? "ai-chat-bubble-answer-ready" : ""
+                                }`
                           }`}
                         >
                           {(() => {
-                            const cleanContent = stripHistoricalLegacyTriggerBlocks(message.content);
+                            const cleanContent = cleanAssistantContent;
                             const suggestedQuestions = message.suggestedQuestions ?? [];
 
                             if (message.role === "assistant") {
                               return (
                                 <>
                                   {cleanContent ? (
-                                    <div className="markdown-answer">
+                                    <div className="markdown-answer chat-answer-content-enter">
                                       <MarkdownContent content={cleanContent} />
                                     </div>
                                   ) : (
-                                    <div>
+                                    <div className="chat-thinking-hold">
                                       <ChatThinkingIndicator showThinkingIcon={thinkingEnabled || message.isReasoning === true} />
                                     </div>
                                   )}

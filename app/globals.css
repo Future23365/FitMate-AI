@@ -342,6 +342,89 @@ button:not(:disabled),
 
 .ai-chat-bubble {
   box-shadow: var(--shadow-card);
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    background-color 180ms ease;
+}
+
+/* 回答已就绪时只做短促落位反馈，避免把完整回复伪装成慢速打字。 */
+.ai-chat-bubble-answer-ready {
+  animation: chat-answer-bubble-ready 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.chat-answer-content-enter {
+  animation: chat-answer-content-enter 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform-origin: top left;
+}
+
+.chat-thinking-hold {
+  animation: chat-thinking-hold 180ms ease-out both;
+}
+
+.chat-visible-output-enter {
+  animation: chat-visible-output-enter 220ms cubic-bezier(0.16, 1, 0.3, 1) 80ms both;
+}
+
+@keyframes chat-answer-bubble-ready {
+  0% {
+    border-color: rgba(36, 89, 230, 0.22);
+    box-shadow:
+      0 1px 2px rgba(16, 24, 40, 0.06),
+      0 14px 30px rgba(36, 89, 230, 0.10);
+  }
+
+  100% {
+    border-color: var(--color-line);
+    box-shadow: var(--shadow-card);
+  }
+}
+
+@keyframes chat-answer-content-enter {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 4px, 0);
+    filter: blur(1px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+    filter: blur(0);
+  }
+}
+
+@keyframes chat-thinking-hold {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 3px, 0);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes chat-visible-output-enter {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-chat-bubble-answer-ready,
+  .chat-answer-content-enter,
+  .chat-thinking-hold,
+  .chat-visible-output-enter {
+    animation: none;
+  }
 }
 
 body,
