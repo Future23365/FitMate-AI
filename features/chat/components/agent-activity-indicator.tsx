@@ -84,21 +84,24 @@ function AgentActivityScroller({
     previousSnapshot,
   ]);
 
+  // 呼吸动画挂在稳定容器上，避免每次文案滚动时重新计时。
   return (
     <div
       aria-live="polite"
-      className="agent-activity-indicator relative inline-flex h-[20px] min-w-0 max-w-[min(34rem,100%)] items-baseline gap-[2px] overflow-hidden py-[2px] pl-0 pr-xs font-label-sm text-label-sm font-bold leading-[16px] transition-colors duration-200 motion-reduce:animate-none"
+      className="agent-activity-indicator relative inline-flex h-[20px] min-w-0 max-w-[min(34rem,100%)] items-baseline gap-[2px] overflow-hidden py-[2px] pl-0 pr-xs font-label-sm text-label-sm font-bold leading-[16px] transition-colors duration-200 motion-safe:animate-pulse motion-reduce:animate-none"
       role="status"
     >
       {animationState.previous ? (
         <AgentActivityLine
           ariaHidden
           className="agent-activity-roll-previous absolute left-0 right-0 top-[2px]"
+          key={`previous:${animationState.previous.key}`}
           snapshot={animationState.previous}
         />
       ) : null}
       <AgentActivityLine
         className={animationState.previous ? "agent-activity-roll-current relative" : "relative"}
+        key={`current:${animationState.current.key}`}
         snapshot={animationState.current}
       />
     </div>
@@ -119,7 +122,7 @@ function AgentActivityLine({
       aria-hidden={ariaHidden || undefined}
       className={`inline-flex min-w-0 max-w-full items-baseline gap-[2px] ${snapshot.toneClass} ${className}`}
     >
-      <span className="inline-flex min-w-0 max-w-full items-baseline gap-[2px] motion-safe:animate-pulse motion-reduce:animate-none">
+      <span className="inline-flex min-w-0 max-w-full items-baseline gap-[2px]">
         <span
           className="inline-block w-[1.375rem] shrink-0 text-left font-mono text-label-sm leading-[16px] tabular-nums text-primary/55"
         >

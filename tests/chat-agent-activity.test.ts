@@ -528,11 +528,15 @@ describe("AgentActivityIndicator", () => {
     expect(componentSource).toContain("agent-activity-roll-current");
     expect(componentSource).toContain("agent-activity-roll-previous");
     expect(componentSource).toContain("motion-safe:animate-pulse");
+    expect(componentSource).toContain("transition-colors duration-200 motion-safe:animate-pulse motion-reduce:animate-none");
+    expect(componentSource).not.toContain("items-baseline gap-[2px] motion-safe:animate-pulse");
     expect(componentSource).not.toContain("agent-activity-breathe");
     expect(globalCss).not.toContain("@keyframes agent-activity-breathe");
     expect(globalCss).not.toContain(".agent-activity-breathe::before");
     expect(globalCss).toContain("@keyframes agent-activity-current-in");
     expect(globalCss).toContain("@keyframes agent-activity-previous-out");
+    expect(globalCss).toContain("agent-activity-current-in 0.18s cubic-bezier(0.2, 0, 0, 1) both");
+    expect(globalCss).toContain("agent-activity-previous-out 0.18s cubic-bezier(0.2, 0, 0, 1) both");
     expect(globalCss).toContain("@media (prefers-reduced-motion: reduce)");
   });
 });

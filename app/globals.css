@@ -1230,11 +1230,11 @@ body.drawer-open {
 }
 
 .agent-activity-roll-current {
-  animation: agent-activity-current-in 0.18s cubic-bezier(0.2, 0, 0, 1);
+  animation: agent-activity-current-in 0.18s cubic-bezier(0.2, 0, 0, 1) both;
 }
 
 .agent-activity-roll-previous {
-  animation: agent-activity-previous-out 0.18s cubic-bezier(0.2, 0, 0, 1);
+  animation: agent-activity-previous-out 0.18s cubic-bezier(0.2, 0, 0, 1) both;
 }
 
 @media (min-width: 640px) {
