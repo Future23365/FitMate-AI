@@ -148,6 +148,7 @@ export function useChatController() {
     summary: "",
   });
   const skipNextAutoSaveRef = useRef(false);
+  const pendingConversationLoadToastRef = useRef<AsyncToastLifecycle | null>(null);
   const pendingInitialResponseToastRef = useRef<AsyncToastLifecycle | null>(null);
 
   // pending 活动阶段只在最短展示时间结束后释放，避免中文状态连续跳变。
@@ -193,30 +194,50 @@ export function useChatController() {
         return;
       }
 
-      const matchedConversation = await readChatConversation(id);
+      const conversationLoadToast = createAsyncToastLifecycle({
+        id: "chat-history-load",
+        loading: "正在加载聊天记录...",
+        error: "聊天记录加载失败，请稍后重试。",
+        minVisibleMs: 300,
+      });
 
-      if (!matchedConversation) {
-        return;
+      pendingConversationLoadToastRef.current?.dismiss();
+      pendingConversationLoadToastRef.current = conversationLoadToast;
+      conversationLoadToast.start();
+
+      try {
+        const matchedConversation = await readChatConversation(id);
+
+        if (!matchedConversation) {
+          throw new Error("聊天记录加载失败，请稍后重试。");
+        }
+
+        skipNextAutoSaveRef.current = true;
+        setConversationId(matchedConversation.id);
+        setMessages(matchedConversation.messages);
+        setConversationContext(
+          matchedConversation.conversationContext ??
+            buildFitnessConversationContext(matchedConversation.messages),
+        );
+        setConversationSummary(
+          matchedConversation.conversationSummary ??
+            initializeConversationSummary(
+              matchedConversation.messages,
+              matchedConversation.conversationContext,
+            ),
+        );
+        setError("");
+        setInput("");
+        setAgentActivity(null);
+        setActiveAgentActivityMessageId(null);
+        conversationLoadToast.success();
+      } catch (loadError) {
+        conversationLoadToast.error(loadError);
+      } finally {
+        if (pendingConversationLoadToastRef.current === conversationLoadToast) {
+          pendingConversationLoadToastRef.current = null;
+        }
       }
-
-      skipNextAutoSaveRef.current = true;
-      setConversationId(matchedConversation.id);
-      setMessages(matchedConversation.messages);
-      setConversationContext(
-        matchedConversation.conversationContext ??
-          buildFitnessConversationContext(matchedConversation.messages),
-      );
-      setConversationSummary(
-        matchedConversation.conversationSummary ??
-          initializeConversationSummary(
-            matchedConversation.messages,
-            matchedConversation.conversationContext,
-          ),
-      );
-      setError("");
-      setInput("");
-      setAgentActivity(null);
-      setActiveAgentActivityMessageId(null);
     }
 
     function handleHashChange() {
@@ -293,6 +314,8 @@ export function useChatController() {
 
   useEffect(() => {
     return () => {
+      pendingConversationLoadToastRef.current?.dismiss();
+      pendingConversationLoadToastRef.current = null;
       pendingInitialResponseToastRef.current?.dismiss();
       pendingInitialResponseToastRef.current = null;
     };

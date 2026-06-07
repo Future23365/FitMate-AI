@@ -25,7 +25,7 @@ import {
   listWorkoutRoutines,
   saveWorkoutRoutine,
 } from "@/features/workouts/api/workout-data-client";
-import { runWithAsyncToast } from "@/lib/client/async-feedback";
+import { createAsyncToastLifecycle, runWithAsyncToast } from "@/lib/client/async-feedback";
 import { clientRequest } from "@/lib/client/http/client-request";
 import type { Exercise, ExerciseFacets, ExerciseListItem, ExerciseSuitability } from "@/lib/shared/exercises/types";
 import { toUtcISOString } from "@/lib/shared/time/utc-date-time";
@@ -79,7 +79,14 @@ type TemplateExerciseConfig = {
 };
 
 type LibrarySuitabilityFilter = "all" | ExerciseSuitability;
-type ComposerPendingAction = "import-template" | "save-composition" | `duplicate:${string}` | `delete:${string}` | null;
+type ComposerPendingAction =
+  | "import-template"
+  | "save-composition"
+  | "sync-routines"
+  | `duplicate:${string}`
+  | `delete:${string}`
+  | `load:${string}`
+  | null;
 type RightPanelView = "library" | "saved";
 
 const sectionConfigs = workoutSectionConfigs;
@@ -459,9 +466,12 @@ export function ActionComposerPage() {
   const [activePreviewSource, setActivePreviewSource] = useState<"library" | "plan" | null>(null);
   const [isPreviewSheetOpen, setIsPreviewSheetOpen] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const hasLoadedComposerLibraryRef = useRef(false);
+  const hasLoadedWorkoutRoutinesRef = useRef(false);
   const hasHandledInitialWorkoutLoadRef = useRef(false);
   const isLibraryRequestInFlightRef = useRef(false);
   const previewRequestIdRef = useRef(0);
+  const previewDetailToastRef = useRef<ReturnType<typeof createAsyncToastLifecycle> | null>(null);
 
   // 标题更新集中在这里，避免展示态标题和编辑态草稿在切换编排时出现不同步。
   const applyPlanTitle = useCallback((nextTitle: string) => {
@@ -471,7 +481,7 @@ export function ActionComposerPage() {
   }, []);
 
   const openWorkoutRoutine = useCallback(
-    (workout: WorkoutRoutine, updateHash = true) => {
+    (workout: WorkoutRoutine, updateHash = true, options: { showLoadedToast?: boolean } = {}) => {
       const normalizedWorkout = normalizeWorkoutRoutine(workout);
       const normalizedItems = normalizedWorkout.items;
 
@@ -484,7 +494,10 @@ export function ActionComposerPage() {
       setSelectedItemId(normalizedItems[0]?.id ?? "");
       setSelectedSection(normalizedItems[0]?.section ?? "training");
       setActiveWorkoutRoutineId(workout.id);
-      showComposerToast(`已加载：${workout.title}`);
+
+      if (options.showLoadedToast ?? true) {
+        showComposerToast(`已加载：${workout.title}`);
+      }
 
       if (updateHash) {
         window.history.replaceState(null, "", `#${workout.id}`);
@@ -501,6 +514,13 @@ export function ActionComposerPage() {
       sort: "name_asc",
     });
     const isFirstPage = libraryPage === 1;
+    const libraryLoadingToast = createAsyncToastLifecycle({
+      id: "action-composer-library-loading",
+      loading: isFirstPage ? "正在加载动作库..." : "正在加载更多动作...",
+      error: isFirstPage ? "动作库加载失败" : "更多动作加载失败",
+      delayMs: 650,
+    });
+    const shouldShowLibraryToast = hasLoadedComposerLibraryRef.current || rightPanelView === "library";
 
     isLibraryRequestInFlightRef.current = true;
     queueMicrotask(() => {
@@ -509,6 +529,10 @@ export function ActionComposerPage() {
         setIsLoadingMoreLibrary(!isFirstPage);
       }
     });
+
+    if (shouldShowLibraryToast) {
+      libraryLoadingToast.start();
+    }
 
     if (libraryQuery.trim()) {
       params.set("q", libraryQuery.trim());
@@ -603,16 +627,20 @@ export function ActionComposerPage() {
         ) {
           showComposerToast("已清除与当前用途不匹配的筛选", "info");
         }
+        hasLoadedComposerLibraryRef.current = true;
+        libraryLoadingToast.success();
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") {
+          libraryLoadingToast.dismiss();
           return;
         }
 
         setLibraryItems([]);
         setLibraryTotal(0);
         setLibraryHasNextPage(false);
-        showComposerToast(isFirstPage ? "动作库加载失败" : "更多动作加载失败", "error");
+        hasLoadedComposerLibraryRef.current = true;
+        libraryLoadingToast.error(error);
       })
       .finally(() => {
         if (!controller.signal.aborted) {
@@ -622,7 +650,10 @@ export function ActionComposerPage() {
         }
       });
 
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      libraryLoadingToast.dismiss();
+    };
   }, [
     libraryCategory,
     libraryEquipment,
@@ -642,11 +673,26 @@ export function ActionComposerPage() {
         return;
       }
 
+      setPendingComposerAction(`load:${hashId}`);
+
       try {
-        const matchedWorkout = await getWorkoutRoutine(hashId);
-        openWorkoutRoutine(matchedWorkout, false);
+        await runWithAsyncToast(
+          {
+            id: "action-composer-load-routine",
+            loading: "正在加载训练编排...",
+            success: (matchedWorkout) => `已加载：${matchedWorkout.title}`,
+            error: "训练编排读取失败",
+          },
+          async () => {
+            const matchedWorkout = await getWorkoutRoutine(hashId);
+            openWorkoutRoutine(matchedWorkout, false, { showLoadedToast: false });
+            return matchedWorkout;
+          },
+        );
       } catch {
-        showComposerToast("训练编排读取失败", "error");
+        // 失败 Toast 由 async feedback helper 统一展示。
+      } finally {
+        setPendingComposerAction((current) => (current === `load:${hashId}` ? null : current));
       }
     }
 
@@ -658,9 +704,22 @@ export function ActionComposerPage() {
 
   useEffect(() => {
     async function syncWorkoutRoutines() {
+      const shouldShowRoutinesToast = !hasLoadedWorkoutRoutinesRef.current || rightPanelView === "saved";
+      const routinesLoadingToast = createAsyncToastLifecycle({
+        id: "action-composer-routines-loading",
+        loading: "正在加载已保存编排...",
+        error: "已保存编排加载失败",
+        delayMs: 650,
+      });
+
+      if (shouldShowRoutinesToast) {
+        routinesLoadingToast.start();
+      }
+
       try {
         const nextWorkouts = await listWorkoutRoutines();
         setWorkoutRoutines(nextWorkouts.map(normalizeWorkoutRoutine));
+        hasLoadedWorkoutRoutinesRef.current = true;
 
         if (!hasHandledInitialWorkoutLoadRef.current) {
           hasHandledInitialWorkoutLoadRef.current = true;
@@ -670,8 +729,10 @@ export function ActionComposerPage() {
             openWorkoutRoutine(nextWorkouts[0], false);
           }
         }
+        routinesLoadingToast.success();
       } catch {
-        showComposerToast("已保存编排加载失败", "error");
+        hasLoadedWorkoutRoutinesRef.current = true;
+        routinesLoadingToast.error(new Error("已保存编排加载失败"));
         setWorkoutRoutines([]);
       }
     }
@@ -692,6 +753,13 @@ export function ActionComposerPage() {
     titleInputRef.current?.focus();
     titleInputRef.current?.select();
   }, [isEditingTitle]);
+
+  useEffect(() => {
+    return () => {
+      previewDetailToastRef.current?.dismiss();
+      previewDetailToastRef.current = null;
+    };
+  }, []);
 
   const selectedLibraryExercise =
     libraryItems.find((exercise) => exercise.id === selectedLibraryExerciseId) ?? libraryItems[0];
@@ -737,6 +805,22 @@ export function ActionComposerPage() {
     } finally {
       setPendingComposerAction((current) => (current === pendingAction ? null : current));
     }
+  }
+
+  async function loadWorkoutRoutineIntoEditor(workout: WorkoutRoutine) {
+    await runComposerCommand<WorkoutRoutine>(
+      `load:${workout.id}`,
+      {
+        id: "action-composer-load-routine",
+        loading: "正在加载训练编排...",
+        success: `已加载：${workout.title}`,
+        error: "训练编排加载失败",
+      },
+      async () => {
+        openWorkoutRoutine(workout, true, { showLoadedToast: false });
+        return workout;
+      },
+    );
   }
 
   function updateItem(id: string, updater: (item: WorkoutItem) => WorkoutItem) {
@@ -791,7 +875,14 @@ export function ActionComposerPage() {
   function openLibraryPreview(exercise: ExerciseListItem) {
     const cachedExercise = exerciseCache.get(exercise.id);
     const requestId = previewRequestIdRef.current + 1;
+    const detailToast = createAsyncToastLifecycle({
+      id: "action-composer-preview-detail-loading",
+      loading: "正在加载动作详情...",
+      error: "动作详情加载失败",
+      delayMs: 500,
+    });
 
+    previewDetailToastRef.current?.dismiss();
     previewRequestIdRef.current = requestId;
     setSelectedLibraryExerciseId(exercise.id);
     setActivePreviewExercise(cachedExercise ?? createExercisePreviewFromListItem(exercise));
@@ -802,24 +893,37 @@ export function ActionComposerPage() {
       return;
     }
 
+    previewDetailToastRef.current = detailToast;
+    detailToast.start();
+
     void readExerciseDetailFromCache(exercise.id)
       .then((fullExercise) => {
         if (previewRequestIdRef.current !== requestId) {
+          detailToast.dismiss();
           return;
         }
 
         setActivePreviewExercise(fullExercise);
+        detailToast.success();
       })
       .catch((error: unknown) => {
         if (previewRequestIdRef.current !== requestId) {
+          detailToast.dismiss();
           return;
         }
 
-        showComposerToast(error instanceof Error ? error.message : "动作详情加载失败", "error");
+        detailToast.error(error);
+      })
+      .finally(() => {
+        if (previewDetailToastRef.current === detailToast) {
+          previewDetailToastRef.current = null;
+        }
       });
   }
 
   function openPlanPreview(item: WorkoutItem) {
+    previewDetailToastRef.current?.dismiss();
+    previewDetailToastRef.current = null;
     previewRequestIdRef.current += 1;
     setActivePreviewExercise(toPreviewExercise(item, exerciseCache));
     setActivePreviewSource("plan");
@@ -827,6 +931,8 @@ export function ActionComposerPage() {
   }
 
   function closePreviewSheet() {
+    previewDetailToastRef.current?.dismiss();
+    previewDetailToastRef.current = null;
     previewRequestIdRef.current += 1;
     setIsPreviewSheetOpen(false);
     setActivePreviewExercise(null);
@@ -1585,7 +1691,9 @@ export function ActionComposerPage() {
                     onDuplicate={() => {
                       void duplicateWorkoutRoutine(workout);
                     }}
-                    onOpen={() => openWorkoutRoutine(workout)}
+                    onOpen={() => {
+                      void loadWorkoutRoutineIntoEditor(workout);
+                    }}
                     workout={workout}
                   />
                 ))

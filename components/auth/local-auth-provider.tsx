@@ -108,18 +108,31 @@ export function LocalAuthProvider({ children }: { children: React.ReactNode }) {
 
   async function createSession() {
     setAuthState(localAuthAuthenticatingState);
-    const session = await requestLocalAnonymousSession();
 
-    if (session.ok && session.user) {
+    try {
+      const session = await runWithAsyncToast(
+        {
+          id: localAuthSucceededToastId,
+          loading: "正在匿名登录...",
+          success: "登录成功",
+          error: "匿名登录失败，请稍后重试。",
+        },
+        async () => {
+          const nextSession = await requestLocalAnonymousSession();
+
+          if (!nextSession.ok || !nextSession.user) {
+            throw new Error("匿名登录失败，请稍后重试。");
+          }
+
+          return nextSession;
+        },
+      );
+
       setAuthState((current) => localAuthSucceededState(current, session.user as LocalAuthUser));
-      toast.success("登录成功", {
-        id: localAuthSucceededToastId,
-        description: "已完成本地匿名登录。",
-      });
       return;
+    } catch {
+      setAuthState(localAuthFailedState);
     }
-
-    setAuthState(localAuthFailedState);
   }
 
   return (

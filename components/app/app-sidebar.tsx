@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 
 import { useLocalAuth } from "@/components/auth/local-auth-provider";
 import { deleteChatConversation, readChatHistory } from "@/features/chat/lib/chat-history";
+import { runWithAsyncToast } from "@/lib/client/async-feedback";
 import { LogoMark } from "./logo-mark";
 import { SymbolIcon } from "./symbol-icon";
 
@@ -30,6 +31,7 @@ type SidebarPanelProps = {
   onDeleteConversation: (id: string) => void;
   onHistorySelect: (id: string) => void;
   onNavigate?: () => void;
+  deletingConversationId?: string | null;
   titleId?: string;
 };
 
@@ -72,6 +74,7 @@ function formatHistoryTime(isoString: string | undefined | null): string {
 }
 
 function SidebarPanel({
+  deletingConversationId,
   historyItems,
   isSettingsActive,
   pathname,
@@ -166,7 +169,9 @@ function SidebarPanel({
                   </span>
                   <button
                     className="hidden shrink-0 items-center justify-center rounded-md p-[2px] text-muted transition-colors hover:bg-error-container hover:text-error group-hover/hist:flex"
+                    disabled={deletingConversationId === item.id}
                     title="删除对话"
+                    type="button"
                     onClick={(e) => {
                       // 阻止事件冒泡到外层 <a>，避免触发加载对话
                       e.preventDefault();
@@ -228,6 +233,7 @@ export function AppSidebar() {
   const [isSidebarCollapseLocked, setIsSidebarCollapseLocked] = useState(false);
   const [isDesktopSidebarExpanded, setIsDesktopSidebarExpanded] = useState(false);
   const [isSidebarRailMode, setIsSidebarRailMode] = useState(false);
+  const [deletingConversationId, setDeletingConversationId] = useState<string | null>(null);
   const isSettingsActive = pathname.startsWith("/settings");
   const userName = user?.displayName || "匿名用户";
 
@@ -262,13 +268,26 @@ export function AppSidebar() {
 
   /** 删除指定对话，并同步侧边栏与聊天页状态 */
   function deleteConversation(id: string) {
-    void deleteChatConversation(id).then(() => {
-      window.dispatchEvent(new Event("fitmate:chat-history-updated"));
+    setDeletingConversationId(id);
 
-      const currentHash = window.location.hash.replace(/^#/, "");
-      if (currentHash === id) {
-        window.dispatchEvent(new Event("fitmate:new-chat"));
-      }
+    void runWithAsyncToast(
+      {
+        id: "chat-history-delete",
+        loading: "正在删除对话...",
+        success: "对话已删除",
+        error: "删除对话失败",
+      },
+      async () => {
+        await deleteChatConversation(id);
+        window.dispatchEvent(new Event("fitmate:chat-history-updated"));
+
+        const currentHash = window.location.hash.replace(/^#/, "");
+        if (currentHash === id) {
+          window.dispatchEvent(new Event("fitmate:new-chat"));
+        }
+      },
+    ).finally(() => {
+      setDeletingConversationId((current) => (current === id ? null : current));
     });
   }
 
@@ -383,6 +402,7 @@ export function AppSidebar() {
         }}
       >
         <SidebarPanel
+          deletingConversationId={deletingConversationId}
           historyItems={historyItems}
           isSettingsActive={isSettingsActive}
           pathname={pathname}
@@ -417,6 +437,7 @@ export function AppSidebar() {
               <SymbolIcon className="text-[20px]">close</SymbolIcon>
             </button>
             <SidebarPanel
+              deletingConversationId={deletingConversationId}
               historyItems={historyItems}
               isSettingsActive={isSettingsActive}
               pathname={pathname}
