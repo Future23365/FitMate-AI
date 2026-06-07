@@ -17,27 +17,11 @@ export type AgentActivityDisplay = {
 export type VisibleAgentActivity = {
   loopTurn?: number;
   activityStage: AgentProgressPayload | null;
-  pendingActivityStage?: AgentProgressPayload;
-  pendingVisibleAtMs?: number;
-  visibleSinceMs: number;
-  holdUntilMs: number;
   lastActivitySequence: number;
   lastLoopSequence: number;
 };
 
 export const fallbackAgentActivityLabel = "正在思考...";
-export const visibleAgentActivityMinimumMs = 1_000;
-export const genericAgentActivityCooldownMs = 2_500;
-
-const specificAgentActivityStages = new Set<string>([
-  "querying_exercises",
-  "reading_artifacts",
-  "generating_workout",
-  "validating_result",
-  "saving_result",
-  "writing_reply",
-  "finalizing",
-]);
 
 const genericAgentActivityStages = new Set<string>([
   "preparing_context",
@@ -103,10 +87,10 @@ export function createInitialAgentActivity(): AgentProgressPayload {
 }
 
 export function createInitialVisibleAgentActivity(nowMs = Date.now()): VisibleAgentActivity {
+  void nowMs;
+
   return createVisibleAgentActivity(
     createInitialAgentActivity(),
-    nowMs,
-    visibleAgentActivityMinimumMs,
     0,
     undefined,
   );
@@ -114,33 +98,18 @@ export function createInitialVisibleAgentActivity(nowMs = Date.now()): VisibleAg
 
 export type AgentActivityReductionOptions = {
   nowMs?: number;
-  minimumStageMs?: number;
-  genericCooldownMs?: number;
 };
-
-export function isSpecificAgentActivityStage(stage: string) {
-  return specificAgentActivityStages.has(stage);
-}
-
-function isGenericAgentActivityStage(stage: string) {
-  return genericAgentActivityStages.has(stage);
-}
 
 function createVisibleAgentActivity(
   activity: AgentProgressPayload,
-  nowMs: number,
-  minimumStageMs: number,
   lastActivitySequence: number,
   current: VisibleAgentActivity | undefined,
 ): VisibleAgentActivity {
-  const holdUntilMs = nowMs + minimumStageMs;
   const loopTurn = typeof current?.loopTurn === "number" ? { loopTurn: current.loopTurn } : {};
 
   return {
     ...loopTurn,
     activityStage: activity,
-    visibleSinceMs: nowMs,
-    holdUntilMs,
     lastActivitySequence,
     lastLoopSequence: current?.lastLoopSequence ?? -1,
   };
@@ -172,61 +141,28 @@ function rememberCurrentActivitySequence(
   current: VisibleAgentActivity,
   lastActivitySequence: number,
 ): VisibleAgentActivity {
-  if (
-    current.lastActivitySequence === lastActivitySequence
-    && !current.pendingActivityStage
-    && typeof current.pendingVisibleAtMs !== "number"
-  ) {
+  if (current.lastActivitySequence === lastActivitySequence) {
     return current;
   }
 
   return {
     ...current,
-    pendingActivityStage: undefined,
-    pendingVisibleAtMs: undefined,
     lastActivitySequence,
   };
-}
-
-function rememberPendingActivity(
-  current: VisibleAgentActivity,
-  pendingActivityStage: AgentProgressPayload,
-  pendingVisibleAtMs: number,
-  lastActivitySequence: number,
-): VisibleAgentActivity {
-  return {
-    ...current,
-    pendingActivityStage,
-    pendingVisibleAtMs,
-    lastActivitySequence,
-  };
-}
-
-function forgetPendingActivity(current: VisibleAgentActivity): VisibleAgentActivity {
-  return {
-    ...current,
-    pendingActivityStage: undefined,
-    pendingVisibleAtMs: undefined,
-  };
-}
-
-function forgetPendingFallbackActivity(current: VisibleAgentActivity): VisibleAgentActivity {
-  return hasActivitySummary(current.pendingActivityStage) ? current : forgetPendingActivity(current);
 }
 
 function hasActivitySummary(activity: Pick<AgentProgressPayload, "activitySummary"> | null | undefined) {
   return sanitizeAgentActivitySummary(activity?.activitySummary).ok;
 }
 
-// reduceVisibleAgentActivity 是生产聊天页的展示仲裁器，只折叠用户可见文案，不修改 Agent Loop 轮次。
+// reduceVisibleAgentActivity 是生产聊天页的即时展示仲裁器，只处理用户可见文案优先级，不延迟 Agent Loop 轮次。
 export function reduceVisibleAgentActivity(
   current: VisibleAgentActivity | null,
   next: AgentProgressPayload,
   options: AgentActivityReductionOptions = {},
 ): VisibleAgentActivity | null {
-  const nowMs = options.nowMs ?? Date.now();
-  const minimumStageMs = options.minimumStageMs ?? visibleAgentActivityMinimumMs;
-  const genericCooldownMs = options.genericCooldownMs ?? genericAgentActivityCooldownMs;
+  void options.nowMs;
+
   const lastActivitySequence = Math.max(current?.lastActivitySequence ?? -1, next.sequence);
   const currentActivity = current?.activityStage ?? null;
   const currentHasActivitySummary = hasActivitySummary(currentActivity);
@@ -237,7 +173,7 @@ export function reduceVisibleAgentActivity(
   }
 
   if (current && currentActivity && currentHasActivitySummary && !nextHasActivitySummary) {
-    return rememberIgnoredActivitySequence(forgetPendingFallbackActivity(current), lastActivitySequence);
+    return rememberIgnoredActivitySequence(current, lastActivitySequence);
   }
 
   if (current && currentActivity && next.stage === "analyzing_request" && !nextHasActivitySummary) {
@@ -248,61 +184,17 @@ export function reduceVisibleAgentActivity(
     current &&
     currentActivity &&
     !nextHasActivitySummary &&
-    isSpecificAgentActivityStage(currentActivity.stage) &&
-    isGenericAgentActivityStage(next.stage)
+    currentActivity.stage !== next.stage &&
+    genericAgentActivityStages.has(next.stage)
   ) {
-    const genericBlockedUntilMs = Math.max(
-      current.holdUntilMs,
-      current.visibleSinceMs + genericCooldownMs,
-    );
-
-    if (nowMs < genericBlockedUntilMs) {
-      return {
-        ...current,
-        lastActivitySequence,
-      };
-    }
+    return rememberIgnoredActivitySequence(current, lastActivitySequence);
   }
 
   if (current && currentActivity && isSameVisibleActivity(currentActivity, next)) {
     return rememberCurrentActivitySequence(current, lastActivitySequence);
   }
 
-  if (current && currentActivity && nowMs < current.holdUntilMs) {
-    // 新阶段先进入 pending，避免用户可见中文在短时间内连续跳变。
-    return rememberPendingActivity(current, next, current.holdUntilMs, lastActivitySequence);
-  }
-
-  return createVisibleAgentActivity(next, nowMs, minimumStageMs, lastActivitySequence, current ?? undefined);
-}
-
-/** flushPendingAgentActivity 在最短展示时间结束后显示最近一次被延迟的活动阶段。 */
-export function flushPendingAgentActivity(
-  current: VisibleAgentActivity | null,
-  options: AgentActivityReductionOptions = {},
-): VisibleAgentActivity | null {
-  if (!current?.pendingActivityStage || typeof current.pendingVisibleAtMs !== "number") {
-    return current;
-  }
-
-  const nowMs = options.nowMs ?? Date.now();
-  if (nowMs < current.pendingVisibleAtMs) {
-    return current;
-  }
-
-  if (hasActivitySummary(current.activityStage) && !hasActivitySummary(current.pendingActivityStage)) {
-    return forgetPendingActivity(current);
-  }
-
-  const minimumStageMs = options.minimumStageMs ?? visibleAgentActivityMinimumMs;
-
-  return createVisibleAgentActivity(
-    current.pendingActivityStage,
-    nowMs,
-    minimumStageMs,
-    current.lastActivitySequence,
-    current,
-  );
+  return createVisibleAgentActivity(next, lastActivitySequence, current ?? undefined);
 }
 
 /** reduceAgentLoopTurn 只消费合法 agent_loop 事件，禁止用 Activity sequence 推断轮次。 */
@@ -311,6 +203,8 @@ export function reduceAgentLoopTurn(
   event: { type: "agent_loop" } & AgentLoopPayload,
   nowMs = Date.now(),
 ): VisibleAgentActivity | null {
+  void nowMs;
+
   if (!Number.isSafeInteger(event.loopTurn) || event.loopTurn <= 0) {
     return current;
   }
@@ -325,10 +219,6 @@ export function reduceAgentLoopTurn(
 
   return {
     activityStage: current?.activityStage ?? null,
-    pendingActivityStage: current?.pendingActivityStage,
-    pendingVisibleAtMs: current?.pendingVisibleAtMs,
-    visibleSinceMs: current?.visibleSinceMs ?? nowMs,
-    holdUntilMs: current?.holdUntilMs ?? nowMs,
     lastActivitySequence: current?.lastActivitySequence ?? -1,
     lastLoopSequence: event.sequence,
     loopTurn: event.loopTurn,

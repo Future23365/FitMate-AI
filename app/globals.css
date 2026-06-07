@@ -1156,6 +1156,39 @@ body.drawer-open {
   }
 }
 
+/* Agent 活动条用整行滚动吸收快速状态变化，避免轮次和文案分开跳动。 */
+@keyframes agent-activity-current-in {
+  from {
+    opacity: 0.45;
+    transform: translateY(-100%);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes agent-activity-previous-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  to {
+    opacity: 0.2;
+    transform: translateY(100%);
+  }
+}
+
+.agent-activity-roll-current {
+  animation: agent-activity-current-in 0.18s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.agent-activity-roll-previous {
+  animation: agent-activity-previous-out 0.18s cubic-bezier(0.2, 0, 0, 1);
+}
+
 @media (min-width: 640px) {
   body.drawer-open #app-content-wrapper {
     transform: scale(0.97); /* 抽屉打开时只保留主体整体缩放，不额外卡片化背景 */
@@ -1168,6 +1201,8 @@ body.drawer-open {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .agent-activity-roll-current,
+  .agent-activity-roll-previous,
   .workout-completion-aura,
   .workout-completion-orbit,
   .workout-completion-ray,

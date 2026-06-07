@@ -8,7 +8,6 @@ import { AgentActivityIndicator } from "@/features/chat/components/agent-activit
 import {
   createWritingReplyAgentActivity,
   fallbackAgentActivityLabel,
-  flushPendingAgentActivity,
   getAgentActivityDisplay,
   reduceAgentActivity,
   reduceVisibleAgentActivity,
@@ -33,8 +32,6 @@ function createVisibleActivityForTest(
       sequence: 4,
     },
     loopTurn: 4,
-    visibleSinceMs: 0,
-    holdUntilMs: 0,
     lastActivitySequence: 4,
     lastLoopSequence: 3,
     ...overrides,
@@ -276,7 +273,6 @@ describe("Agent progress activity UI state", () => {
 
     expect(validating?.activityStage?.stage).toBe("analyzing_request");
     expect(validating?.activityStage?.activitySummary).toBe("正在读取模型摘要");
-    expect(validating?.pendingActivityStage).toBeUndefined();
     expect(validating?.lastActivitySequence).toBe(2);
     expect(getAgentActivityDisplay(validating!).label).toBe("正在读取模型摘要");
     expect(writing?.activityStage?.activitySummary).toBe("正在读取模型摘要");
@@ -284,7 +280,7 @@ describe("Agent progress activity UI state", () => {
     expect(getAgentActivityDisplay(writing!).label).toBe("正在读取模型摘要");
   });
 
-  it("keeps pending model activitySummary when a later fallback progress arrives", () => {
+  it("updates model activitySummary immediately while ignoring later fallback progress", () => {
     const firstSummary = reduceAgentActivity(null, {
       type: "agent_progress",
       stage: "analyzing_request",
@@ -311,15 +307,12 @@ describe("Agent progress activity UI state", () => {
       sequence: 3,
     }, { nowMs: 600 });
 
-    const flushed = flushPendingAgentActivity(fallbackProgress, { nowMs: 1_000 });
-
-    expect(fallbackProgress?.activityStage?.activitySummary).toBe("正在理解你的目标");
-    expect(fallbackProgress?.pendingActivityStage?.activitySummary).toBe("正在筛选训练条件");
+    expect(pendingSummary?.activityStage?.activitySummary).toBe("正在筛选训练条件");
+    expect(pendingSummary?.lastActivitySequence).toBe(2);
+    expect(getAgentActivityDisplay(pendingSummary!).label).toBe("正在筛选训练条件");
+    expect(fallbackProgress?.activityStage?.activitySummary).toBe("正在筛选训练条件");
     expect(fallbackProgress?.lastActivitySequence).toBe(3);
-    expect(getAgentActivityDisplay(fallbackProgress!).label).toBe("正在理解你的目标");
-    expect(flushed?.activityStage?.activitySummary).toBe("正在筛选训练条件");
-    expect(flushed?.lastActivitySequence).toBe(3);
-    expect(getAgentActivityDisplay(flushed!).label).toBe("正在筛选训练条件");
+    expect(getAgentActivityDisplay(fallbackProgress!).label).toBe("正在筛选训练条件");
   });
 
   it("shows raw activitySummary values while debug safety is disabled", () => {
@@ -337,7 +330,7 @@ describe("Agent progress activity UI state", () => {
     expect(JSON.stringify(next)).toContain("searchExerciseResources");
   });
 
-  it("holds visible copy before showing rapid specific stage changes", () => {
+  it("updates rapid specific stage changes immediately", () => {
     const reading = reduceAgentActivity(null, {
       type: "agent_progress",
       stage: "reading_artifacts",
@@ -360,33 +353,22 @@ describe("Agent progress activity UI state", () => {
       sequence: 3,
     }, { nowMs: 300 });
 
-    const stillReading = flushPendingAgentActivity(saving, { nowMs: 999 });
-    const flushedSaving = flushPendingAgentActivity(stillReading, { nowMs: 1_000 });
     const writing = reduceVisibleAgentActivity(
-      flushedSaving,
-      createWritingReplyAgentActivity(flushedSaving),
+      saving,
+      createWritingReplyAgentActivity(saving),
       { nowMs: 1_300 },
     );
-    const flushedWriting = flushPendingAgentActivity(writing, { nowMs: 2_000 });
 
     expect(reading?.activityStage?.stage).toBe("reading_artifacts");
     expect(withLoop?.loopTurn).toBe(5);
-    expect(saving?.activityStage?.stage).toBe("reading_artifacts");
-    expect(saving?.pendingActivityStage?.stage).toBe("saving_result");
-    expect(saving?.pendingVisibleAtMs).toBe(1_000);
+    expect(saving?.activityStage?.stage).toBe("saving_result");
     expect(saving?.loopTurn).toBe(5);
-    expect(stillReading?.activityStage?.stage).toBe("reading_artifacts");
-    expect(flushedSaving?.activityStage?.stage).toBe("saving_result");
-    expect(flushedSaving?.pendingActivityStage).toBeUndefined();
-    expect(flushedSaving?.loopTurn).toBe(5);
-    expect(writing?.activityStage?.stage).toBe("saving_result");
-    expect(writing?.pendingActivityStage?.stage).toBe("writing_reply");
-    expect(flushedWriting?.activityStage?.stage).toBe("writing_reply");
-    expect(flushedWriting?.loopTurn).toBe(5);
-    expect(flushedWriting?.activityStage?.sequence).toBe(4);
+    expect(writing?.activityStage?.stage).toBe("writing_reply");
+    expect(writing?.loopTurn).toBe(5);
+    expect(writing?.activityStage?.sequence).toBe(4);
   });
 
-  it("accepts specific stages after the current label has met its minimum display time", () => {
+  it("keeps loopTurn synced when writing reply replaces the current label", () => {
     const reading = reduceAgentActivity(null, {
       type: "agent_progress",
       stage: "reading_artifacts",
@@ -461,8 +443,9 @@ describe("AgentActivityIndicator", () => {
     expect(html).toContain("tabular-nums");
     expect(html).not.toContain("text-right");
     expect(html).not.toContain("translate-y-[1px]");
-    expect(html).toContain("motion-safe:animate-pulse");
     expect(html).toContain("motion-reduce:animate-none");
+    expect(html).not.toContain("motion-safe:animate-pulse");
+    expect(html).toContain("agent-activity-indicator");
     expect(html).not.toContain("validateRoutineDraft");
   });
 
@@ -529,6 +512,23 @@ describe("AgentActivityIndicator", () => {
     expect(html).toContain("w-[1.375rem]");
     expect(html).toContain("#1");
     expect(html).not.toContain("#0");
+  });
+
+  it("defines rolling transition styles for activity row changes", () => {
+    const componentSource = readFileSync(
+      fileURLToPath(new URL("../features/chat/components/agent-activity-indicator.tsx", import.meta.url)),
+      "utf8",
+    );
+    const globalCss = readFileSync(
+      fileURLToPath(new URL("../app/globals.css", import.meta.url)),
+      "utf8",
+    );
+
+    expect(componentSource).toContain("agent-activity-roll-current");
+    expect(componentSource).toContain("agent-activity-roll-previous");
+    expect(globalCss).toContain("@keyframes agent-activity-current-in");
+    expect(globalCss).toContain("@keyframes agent-activity-previous-out");
+    expect(globalCss).toContain("@media (prefers-reduced-motion: reduce)");
   });
 });
 
