@@ -16,6 +16,7 @@ import {
   type BasicChatTurnRunRecord,
 } from "@/manual-tests/llm/basic-chat-report";
 import {
+  createManualBlackboxUserDisplayName,
   createBasicChatRequestBody,
   normalizeChatOutput,
   summarizeBasicVisibleAnswer,
@@ -71,6 +72,11 @@ describe("manual basic LLM blackbox fixtures", () => {
     expect(serialized).not.toContain("toolOverride");
     expect(serialized).not.toContain("traceOverride");
     expect(serialized).not.toContain("runtimeState");
+  });
+
+  it("marks manual blackbox users with a distinguishable display name", () => {
+    expect(createManualBlackboxUserDisplayName("cmq3iem6g0000xknb3gt9whdr")).toBe("LLM黑盒测试用户 cmq3iem6");
+    expect(createManualBlackboxUserDisplayName("")).toBe("LLM黑盒测试用户");
   });
 
   it("fails preflight before model calls for missing columns, duplicate ids, and empty fields", () => {

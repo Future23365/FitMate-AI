@@ -18,6 +18,7 @@ import {
   prepareChatRequest,
   type ChatHistoryHydrationMetadata,
 } from "@/lib/server/chat/chat-service";
+import { getPrismaClient } from "@/lib/server/db/prisma";
 import { clearAiTraces, listAiTracesForUser } from "@/lib/server/dev/ai-trace-store";
 import {
   buildConversationSummaryContext,
@@ -98,6 +99,16 @@ export type NormalizedChatOutput = {
 const defaultReportPath = "docs/manual-llm-basic-blackbox-latest-report.md";
 const defaultChatModel = "deepseek-v4-flash";
 const estimatedChatTokensPerTurn = 36_000;
+const manualBlackboxUserDisplayNamePrefix = "LLM黑盒测试用户";
+
+// createManualBlackboxUserDisplayName 标记基础黑盒产生的本地匿名用户，方便 Admin 后台和真人匿名用户区分。
+export function createManualBlackboxUserDisplayName(userId: string) {
+  const suffix = userId.trim().slice(0, 8);
+
+  return suffix
+    ? `${manualBlackboxUserDisplayNamePrefix} ${suffix}`
+    : manualBlackboxUserDisplayNamePrefix;
+}
 
 // createBasicChatBlackboxRunOptionsFromEnv 让专用命令通过 env 传入筛选条件和报告路径。
 export function createBasicChatBlackboxRunOptionsFromEnv(env: NodeJS.ProcessEnv = process.env): BasicChatBlackboxRunOptions {
@@ -580,7 +591,23 @@ async function createManualAuthSession(): Promise<AuthSession> {
     throw new Error(`local anonymous auth failed: HTTP ${response.status}`);
   }
 
+  await markManualBlackboxUser(userId);
+
   return { cookie, userId };
+}
+
+async function markManualBlackboxUser(userId: string) {
+  try {
+    await getPrismaClient().user.update({
+      where: { id: userId },
+      data: {
+        displayName: createManualBlackboxUserDisplayName(userId),
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`local anonymous auth user marker failed: ${message}`);
+  }
 }
 
 // normalizeChatOutput 复用生产 NDJSON parser，并只投影最终用户可见内容给 runner。
