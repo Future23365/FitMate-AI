@@ -1,18 +1,12 @@
 import type { ExerciseRecommendationItem } from "@/lib/shared/exercise-recommendations/schema";
 import type { Exercise, ExerciseListItem } from "@/lib/shared/exercises/types";
-import { exercisePreviewPlaceholderImage } from "./exercise-preview-images";
-
-// exercisePreviewPlaceholderImage 是详情抽屉 preview 在缺少真实图片时使用的统一占位图。
-export { exercisePreviewPlaceholderImage };
 
 function normalizePreviewImages(imageUrls: Array<string | null | undefined>) {
-  const normalizedImages = imageUrls.flatMap((imageUrl) => {
+  return imageUrls.flatMap((imageUrl) => {
     const normalizedImageUrl = imageUrl?.trim();
 
     return normalizedImageUrl ? [normalizedImageUrl] : [];
   });
-
-  return normalizedImages.length ? normalizedImages : [exercisePreviewPlaceholderImage];
 }
 
 // createExercisePreviewFromListItem 将动作列表 DTO 投影成详情抽屉的即时预览数据，完整详情返回后可直接替换。

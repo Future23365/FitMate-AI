@@ -142,7 +142,6 @@ export const defaultTrainingLoopRestSeconds = 120;
 export const defaultWarmupToTrainingRestSeconds = 60;
 export const defaultTrainingToStretchRestSeconds = 60;
 export const defaultRepIntervalSeconds = 2;
-export const placeholderWorkoutImage = "/images/exercise-placeholder.svg";
 
 // 根据动作名称和分类为编排项补齐训练阶段。
 export function inferWorkoutSection(item: Pick<WorkoutItem, "categoryZh" | "nameZh">): WorkoutSection {
@@ -166,7 +165,7 @@ export function normalizeWorkoutItem(item: WorkoutItem): WorkoutItem {
 
   return {
     ...item,
-    imageUrl: imageUrls[0],
+    imageUrl: imageUrls[0] ?? "",
     imageUrls,
     setRestSeconds: item.setRestSeconds ?? legacyRestSeconds,
     transitionRestSeconds: item.transitionRestSeconds ?? item.restSeconds ?? defaultTransitionRestSeconds,
@@ -174,14 +173,13 @@ export function normalizeWorkoutItem(item: WorkoutItem): WorkoutItem {
   };
 }
 
-// 兼容旧单图字段和新多图字段，保证动作卡片总有可渲染图片。
+// 兼容旧单图字段和新多图字段，只返回真实可展示图片。
 export function getWorkoutItemImageUrls(item: Pick<WorkoutItem, "imageUrl" | "imageUrls">) {
   const imageUrls = [...(item.imageUrls ?? []), item.imageUrl]
     .map((imageUrl) => imageUrl.trim())
     .filter(Boolean);
-  const uniqueImageUrls = Array.from(new Set(imageUrls));
 
-  return uniqueImageUrls.length ? uniqueImageUrls : [placeholderWorkoutImage];
+  return Array.from(new Set(imageUrls));
 }
 
 // 统一 routine 的循环配置和动作项，作为保存、排期和执行前的共同入口。

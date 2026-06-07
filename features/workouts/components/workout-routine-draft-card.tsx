@@ -17,7 +17,6 @@ import type { Exercise } from "@/lib/shared/exercises/types";
 import type { WorkoutRoutineDraft, WorkoutRoutineDraftItem } from "@/lib/shared/workout-plans/draft-schema";
 import {
   estimateWorkoutMinutes,
-  placeholderWorkoutImage,
   workoutSectionConfigs,
   type WorkoutSection,
 } from "@/lib/shared/workouts/composition";
@@ -110,7 +109,7 @@ function toFallbackPreviewExercise(item: WorkoutRoutineDraftItem): Exercise {
     instructionsEn: [],
     instructionsZh: item.notes ? [item.notes] : [],
     images: [],
-    imageUrls: [placeholderWorkoutImage],
+    imageUrls: [],
     allowedSections: [item.section],
     intensityRole: item.section === "warmup" ? "activation" : item.section === "stretch" ? "recovery" : "strength",
     movementPattern: item.section === "stretch" ? "stretch" : "other",

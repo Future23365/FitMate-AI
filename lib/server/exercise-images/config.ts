@@ -6,8 +6,8 @@ import path from "node:path";
 export const defaultExerciseImageLocalDir = "exercises_picture";
 // 默认对外展示入口，由 Next.js Route 受控读取本地目录。
 export const defaultExerciseImagePublicBaseUrl = "/api/exercise-images";
-// 动作图片不可解析时使用现有公共占位图，避免列表和训练页整体失败。
-export const defaultExerciseImageFallbackUrl = "/images/exercise-placeholder.svg";
+// 动作图片不可解析时不注入公共占位资源，交由展示层渲染空白状态。
+export const defaultExerciseImageFallbackUrl = "";
 
 // 动作图片配置描述本地文件根、对外 URL 和兜底图之间的映射关系。
 export type ExerciseImageConfig = {

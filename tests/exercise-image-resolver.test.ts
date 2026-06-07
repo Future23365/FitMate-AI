@@ -8,7 +8,6 @@ import {
   clearExerciseImageResolverCache,
   resolveExerciseImageUrls,
 } from "@/lib/server/exercise-images/exercise-image-resolver";
-import { defaultExerciseImageFallbackUrl } from "@/lib/server/exercise-images/config";
 
 import { createExercise } from "./fixtures/domain";
 
@@ -75,7 +74,7 @@ describe("exercise image resolver", () => {
     expect(urls).toEqual(["/api/exercise-images/pull-up/0.jpg"]);
   });
 
-  it("falls back to the placeholder when local resources are missing", () => {
+  it("returns an empty list when local resources are missing and no fallback is configured", () => {
     writeManifest([
       manifestRecord({ exerciseId: "missing-push-up", stepIndex: 0, sourceImagePath: "missing-push-up/0.jpg" }),
     ]);
@@ -85,7 +84,7 @@ describe("exercise image resolver", () => {
       testConfig(),
     );
 
-    expect(urls).toEqual([defaultExerciseImageFallbackUrl]);
+    expect(urls).toEqual([]);
   });
 
   it("keeps existing non-GitHub display URLs when no local resource is available", () => {

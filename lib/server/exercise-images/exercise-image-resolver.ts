@@ -60,7 +60,7 @@ export function resolveExerciseImageUrls(exercise: ExerciseImageSource, input: E
     .filter((imageUrl): imageUrl is string => Boolean(imageUrl));
   const uniqueImageUrls = dedupeStrings(imageUrls);
 
-  return uniqueImageUrls.length ? uniqueImageUrls : [config.fallbackUrl];
+  return uniqueImageUrls.length ? uniqueImageUrls : getFallbackImageUrls(config);
 }
 
 // 单图入口服务推荐卡等只需要首张展示图的业务出口。
@@ -94,6 +94,12 @@ function loadExerciseImageManifestIndex(config: ExerciseImageConfig) {
   manifestIndexCache.set(cacheKey, index);
 
   return index;
+}
+
+function getFallbackImageUrls(config: ExerciseImageConfig) {
+  const fallbackUrl = config.fallbackUrl.trim();
+
+  return fallbackUrl ? [fallbackUrl] : [];
 }
 
 function readManifestIndex(manifestPath: string, localDir: string, config: ExerciseImageConfig): ManifestIndex | null {

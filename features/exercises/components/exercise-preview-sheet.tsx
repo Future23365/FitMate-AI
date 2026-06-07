@@ -148,8 +148,9 @@ function ExercisePreviewSheetContent({
     canLoad: false,
   });
 
+  const hasImages = images.length > 0;
   const activeImageIndex =
-    imageSelection.exerciseId === exerciseId && imageSelection.imageSetKey === imageSetKey
+    hasImages && imageSelection.exerciseId === exerciseId && imageSelection.imageSetKey === imageSetKey
       ? Math.min(imageSelection.index, images.length - 1)
       : 0;
   const hasMultipleImages = images.length > 1;
@@ -165,10 +166,10 @@ function ExercisePreviewSheetContent({
     imageLoadGate.imageSetKey === imageSetKey &&
     imageLoadGate.canLoad;
   const canAutoSwitchImages = canLoadImages && canExercisePreviewAutoPlay(images, imageLoadStatus);
-  const activeImageUrl = images[activeImageIndex];
-  const activeImageStatus = imageLoadStatus[activeImageUrl];
-  const didActiveImageFail = canLoadImages && activeImageStatus === "failed";
-  const shouldShowImagePlaceholder = !canLoadImages || activeImageStatus !== "loaded";
+  const activeImageUrl = hasImages ? images[activeImageIndex] : undefined;
+  const activeImageStatus = activeImageUrl ? imageLoadStatus[activeImageUrl] : undefined;
+  const didActiveImageFail = Boolean(activeImageUrl) && canLoadImages && activeImageStatus === "failed";
+  const shouldShowImagePlaceholder = hasImages && (!canLoadImages || activeImageStatus !== "loaded");
 
   const setImageStatus = useCallback((
     nextExerciseId: string,
@@ -350,9 +351,11 @@ function ExercisePreviewSheetContent({
                   )}
 
                   {/* 步骤角标 */}
-                  <div className="absolute bottom-sm right-sm z-20 rounded-full bg-black/60 px-sm py-[2px] font-label-xs text-label-xs font-semibold text-white backdrop-blur-sm">
-                    {activeImageIndex + 1} / {images.length}
-                  </div>
+                  {hasImages ? (
+                    <div className="absolute bottom-sm right-sm z-20 rounded-full bg-black/60 px-sm py-[2px] font-label-xs text-label-xs font-semibold text-white backdrop-blur-sm">
+                      {activeImageIndex + 1} / {images.length}
+                    </div>
+                  ) : null}
                 </div>
 
                 {/* 一键快切步骤点按指示器 */}

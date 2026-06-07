@@ -27,7 +27,7 @@ import {
 } from "@/features/workout-plans/lib/workout-plan-scheduling";
 import { runWithAsyncToast } from "@/lib/client/async-feedback";
 import { clientRequest } from "@/lib/client/http/client-request";
-import { placeholderWorkoutImage, workoutSectionConfigs } from "@/lib/shared/workouts/composition";
+import { workoutSectionConfigs } from "@/lib/shared/workouts/composition";
 
 interface WorkoutPlanDraftCardProps {
   draft: WorkoutPlanDraft;
@@ -112,7 +112,7 @@ function toFallbackPreviewExercise(item: WorkoutPlanItemDraft): Exercise {
     instructionsEn: [],
     instructionsZh: item.notes ? [item.notes] : [],
     images: [],
-    imageUrls: [placeholderWorkoutImage],
+    imageUrls: [],
     allowedSections: [item.section],
     intensityRole: item.section === "warmup" ? "activation" : item.section === "stretch" ? "recovery" : "strength",
     movementPattern: item.section === "stretch" ? "stretch" : "other",

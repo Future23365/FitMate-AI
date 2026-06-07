@@ -3,14 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   canExercisePreviewAutoPlay,
   createExercisePreviewImageSetKey,
-  exercisePreviewPlaceholderImage,
   normalizeExercisePreviewImages,
 } from "@/features/exercises/lib/exercise-preview-images";
 
 describe("exercise preview image state", () => {
-  it("uses the shared placeholder when an exercise has no usable images", () => {
-    expect(normalizeExercisePreviewImages([])).toEqual([exercisePreviewPlaceholderImage]);
-    expect(normalizeExercisePreviewImages(["", "  "])).toEqual([exercisePreviewPlaceholderImage]);
+  it("returns an empty image set when an exercise has no usable images", () => {
+    expect(normalizeExercisePreviewImages([])).toEqual([]);
+    expect(normalizeExercisePreviewImages(["", "  "])).toEqual([]);
     expect(normalizeExercisePreviewImages(["  /exercise/a.jpg  "])).toEqual(["/exercise/a.jpg"]);
   });
 

@@ -40,7 +40,6 @@ import {
   getRepIntervalSeconds,
   getWorkoutTimingConfig,
   normalizeWorkoutItem,
-  placeholderWorkoutImage,
   type WorkoutSchedule,
   type WorkoutItem,
   type WorkoutMode,
@@ -203,7 +202,7 @@ function createFallbackItem(
     equipmentZh: "自重",
     musclesZh,
     instructionsZh: ["保持核心收紧，动作标准，注意呼吸节奏。"],
-    imageUrl: placeholderWorkoutImage,
+    imageUrl: "",
     mode,
     target,
     sets: 1,
@@ -2047,14 +2046,14 @@ function WorkoutDemoImageStage({
   item: WorkoutItem;
   priority: boolean;
 }) {
-  const activeImageUrl = imageUrls[activeIndex] ?? placeholderWorkoutImage;
+  const activeImageUrl = imageUrls[activeIndex];
   const renderableImages = imageUrls
     .map((imageUrl, imageIndex) => ({ imageIndex, imageUrl }))
-    .filter(({ imageUrl }) => imageUrl && imageUrl !== placeholderWorkoutImage);
+    .filter(({ imageUrl }) => imageUrl);
 
   return (
     <div className="relative grid min-h-0 flex-1 place-items-center overflow-hidden rounded-xl bg-panel-soft">
-      {activeImageUrl && activeImageUrl !== placeholderWorkoutImage && renderableImages.length ? (
+      {activeImageUrl && renderableImages.length ? (
         <>
           {renderableImages.map(({ imageIndex, imageUrl }) => {
             const isActiveImage = imageIndex === activeIndex;
@@ -2092,7 +2091,7 @@ function WorkoutDemoImageStage({
 function ExerciseThumb({ index, item }: { index: number; item: WorkoutItem }) {
   return (
     <div className="relative grid h-12 w-14 place-items-center overflow-hidden rounded-[8px] bg-panel-soft">
-      {item.imageUrl && item.imageUrl !== placeholderWorkoutImage ? (
+      {item.imageUrl ? (
         <Image
           alt={`${item.nameZh} 缩略图`}
           className="object-contain p-xs"

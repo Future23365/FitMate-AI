@@ -1,7 +1,6 @@
 import type { Exercise } from "@/lib/shared/exercises/types";
 import {
   defaultTrainingLoopRestSeconds,
-  placeholderWorkoutImage,
   type WorkoutItem,
   type WorkoutMode,
   type WorkoutRoutine,
@@ -66,7 +65,7 @@ export function convertWorkoutPlanDraftToWorkoutRoutine(
           throw new Error(`Invalid exerciseId: ${item.exerciseId}`);
         }
 
-        const imageUrls = exercise.imageUrls.length ? exercise.imageUrls : [placeholderWorkoutImage];
+        const imageUrls = exercise.imageUrls.map((imageUrl) => imageUrl.trim()).filter(Boolean);
 
         return {
           id: createId(),
@@ -77,7 +76,7 @@ export function convertWorkoutPlanDraftToWorkoutRoutine(
           equipmentZh: exercise.equipmentZh || "未标注器械",
           musclesZh: exercise.primaryMusclesZh.length ? exercise.primaryMusclesZh : ["综合"],
           instructionsZh: exercise.instructionsZh,
-          imageUrl: imageUrls[0],
+          imageUrl: imageUrls[0] ?? "",
           imageUrls,
           mode: item.mode,
           target: item.target,
@@ -118,7 +117,7 @@ export function convertWorkoutRoutineDraftToWorkoutRoutine(
           throw new Error(`Invalid exerciseId: ${item.exerciseId}`);
         }
 
-        const imageUrls = exercise.imageUrls.length ? exercise.imageUrls : [placeholderWorkoutImage];
+        const imageUrls = exercise.imageUrls.map((imageUrl) => imageUrl.trim()).filter(Boolean);
 
         return {
           id: createId(),
@@ -129,7 +128,7 @@ export function convertWorkoutRoutineDraftToWorkoutRoutine(
           equipmentZh: exercise.equipmentZh || "未标注器械",
           musclesZh: exercise.primaryMusclesZh.length ? exercise.primaryMusclesZh : ["综合"],
           instructionsZh: exercise.instructionsZh,
-          imageUrl: imageUrls[0],
+          imageUrl: imageUrls[0] ?? "",
           imageUrls,
           mode: item.mode,
           target: item.target,

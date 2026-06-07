@@ -498,7 +498,7 @@ function mapWorkoutRoutineItemRecord(item: WorkoutRoutineWithItems["items"][numb
     equipmentZh: exercise.equipmentZh || "未标注器械",
     musclesZh: exercise.primaryMusclesZh.length ? exercise.primaryMusclesZh : ["综合"],
     instructionsZh: exercise.instructionsZh,
-    imageUrl: imageUrls[0],
+    imageUrl: imageUrls[0] ?? "",
     imageUrls,
     mode: item.mode === "duration" ? "duration" : "reps",
     target: item.target,

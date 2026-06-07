@@ -44,7 +44,6 @@ import {
   loopRoundOptions,
   normalizeWorkoutRoutine,
   normalizeWorkoutItem,
-  placeholderWorkoutImage,
   restOptions,
   workoutSectionConfigs,
   type WorkoutRoutine,
@@ -267,7 +266,7 @@ function toWorkoutItem(
   > = {},
 ): WorkoutItem {
   const category = exercise.categoryZh || "训练";
-  const imageUrls = exercise.imageUrls.length ? exercise.imageUrls : [placeholderWorkoutImage];
+  const imageUrls = exercise.imageUrls.map((imageUrl) => imageUrl.trim()).filter(Boolean);
   const isDuration =
     category.includes("拉伸") ||
     exercise.nameZh.includes("支撑") ||
@@ -282,7 +281,7 @@ function toWorkoutItem(
     equipmentZh: exercise.equipmentZh || "未标注器械",
     musclesZh: exercise.primaryMusclesZh.length ? exercise.primaryMusclesZh : ["综合"],
     instructionsZh: exercise.instructionsZh,
-    imageUrl: imageUrls[0],
+    imageUrl: imageUrls[0] ?? "",
     imageUrls,
     mode: overrides.mode ?? (isDuration ? "duration" : "reps"),
     target: overrides.target ?? (isDuration ? 45 : 12),
@@ -328,7 +327,7 @@ function toPreviewExercise(item: WorkoutItem, exerciseById: Map<string, Exercise
     instructionsEn: [],
     instructionsZh: item.instructionsZh,
     images: [],
-    imageUrls: item.imageUrls?.length ? item.imageUrls : [item.imageUrl || placeholderWorkoutImage],
+    imageUrls: item.imageUrls?.length ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [],
     allowedSections: [section],
     intensityRole: section === "warmup" ? "activation" : section === "stretch" ? "recovery" : "strength",
     movementPattern: section === "stretch" ? "stretch" : "other",
@@ -1596,6 +1595,7 @@ export function ActionComposerPage() {
                   <>
                     {libraryItems.map((exercise) => {
                       const isSelected = exercise.id === selectedLibraryExercise?.id;
+                      const exerciseImageUrl = exercise.imageUrls[0];
 
                       return (
                         <div
@@ -1608,13 +1608,15 @@ export function ActionComposerPage() {
                           onClick={() => setSelectedLibraryExerciseId(exercise.id)}
                         >
                           <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-surface-container-low">
-                            <Image
-                              alt=""
-                              className="object-cover"
-                              fill
-                              sizes="40px"
-                              src={exercise.imageUrls[0] || placeholderWorkoutImage}
-                            />
+                            {exerciseImageUrl ? (
+                              <Image
+                                alt=""
+                                className="object-cover"
+                                fill
+                                sizes="40px"
+                                src={exerciseImageUrl}
+                              />
+                            ) : null}
                           </div>
                           <div className="min-w-0 flex-1">
                             <p className="truncate font-label-md text-label-md font-bold">{exercise.nameZh}</p>
@@ -2292,13 +2294,15 @@ function WorkoutExerciseRow({
             }}
             type="button"
           >
-            <Image
-              alt=""
-              className="object-cover"
-              fill
-              sizes="64px"
-              src={item.imageUrl}
-            />
+            {item.imageUrl ? (
+              <Image
+                alt=""
+                className="object-cover"
+                fill
+                sizes="64px"
+                src={item.imageUrl}
+              />
+            ) : null}
           </button>
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 flex-wrap items-center gap-xs">

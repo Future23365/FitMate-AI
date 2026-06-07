@@ -1,5 +1,3 @@
-export const exercisePreviewPlaceholderImage = "/images/exercise-placeholder.svg";
-
 export type ExercisePreviewImageLoadStatus = "loaded" | "failed";
 
 export type ExercisePreviewImageLoadState = {
@@ -14,15 +12,13 @@ export const exercisePreviewAutoplayIntervalMs = 1200;
 
 export const emptyExercisePreviewImageLoadStatus: Record<string, ExercisePreviewImageLoadStatus> = {};
 
-// normalizeExercisePreviewImages 保证详情抽屉始终有可预加载的图片集合。
+// normalizeExercisePreviewImages 只保留可展示图片；缺图时返回空集合，由展示层渲染空白状态。
 export function normalizeExercisePreviewImages(imageUrls: readonly string[] | null | undefined) {
-  const normalizedImages = (imageUrls ?? []).flatMap((url) => {
+  return (imageUrls ?? []).flatMap((url) => {
     const normalizedUrl = url.trim();
 
     return normalizedUrl ? [normalizedUrl] : [];
   });
-
-  return normalizedImages.length ? normalizedImages : [exercisePreviewPlaceholderImage];
 }
 
 // createExercisePreviewImageSetKey 标识同一个动作下的图片来源版本，用于完整详情替换预览详情时重置旧图。

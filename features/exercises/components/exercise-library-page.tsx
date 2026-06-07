@@ -71,10 +71,7 @@ const exerciseSortOptions: Array<{ value: ExerciseSort; label: string }> = [
 
 const pageSizeOptions = [12, 24, 48, 96];
 function getExerciseImage(exercise?: Pick<Exercise, "imageUrls"> | Pick<ExerciseListItem, "imageUrls">) {
-  return (
-    exercise?.imageUrls[0] ||
-    "/images/exercise-placeholder.svg"
-  );
+  return exercise?.imageUrls.find((imageUrl) => imageUrl.trim())?.trim();
 }
 
 function getDifficultyDot(level?: string | null) {
@@ -945,6 +942,7 @@ export function ExerciseLibraryPage() {
                 <div className="grid grid-cols-2 gap-lg md:grid-cols-3 2xl:grid-cols-4">
                   {items.map((exercise) => {
                     const isSelected = exercise.id === effectiveSelectedId;
+                    const exerciseImageUrl = getExerciseImage(exercise);
 
                     return (
                       <button
@@ -961,13 +959,15 @@ export function ExerciseLibraryPage() {
                         type="button"
                       >
                         <div className="relative mb-sm aspect-square overflow-hidden rounded-lg bg-panel-soft">
-                          <Image
-                            alt={`${exercise.nameZh} 动作示意图`}
-                            className="object-cover transition duration-500 hover:scale-105"
-                            fill
-                            sizes="(min-width: 1530px) 220px, (min-width: 768px) 30vw, 45vw"
-                            src={getExerciseImage(exercise)}
-                          />
+                          {exerciseImageUrl ? (
+                            <Image
+                              alt={`${exercise.nameZh} 动作示意图`}
+                              className="object-cover transition duration-500 hover:scale-105"
+                              fill
+                              sizes="(min-width: 1530px) 220px, (min-width: 768px) 30vw, 45vw"
+                              src={exerciseImageUrl}
+                            />
+                          ) : null}
                         </div>
                         <div className="mb-[2px] flex min-w-0 items-center gap-xs">
                           <p
@@ -1090,12 +1090,15 @@ function ExerciseDetailPanel({
   });
   const [isAutoPlaying, setIsAutoPlaying] = useState(false);
 
-  const imageUrls = exercise?.imageUrls.length
-    ? exercise.imageUrls
-    : ["/images/exercise-placeholder.svg"];
+  const imageUrls = exercise?.imageUrls.flatMap((imageUrl) => {
+    const normalizedImageUrl = imageUrl.trim();
+
+    return normalizedImageUrl ? [normalizedImageUrl] : [];
+  }) ?? [];
+  const hasImages = imageUrls.length > 0;
   const activeImageIndex =
-    selectedImage.exerciseId === exercise?.id ? Math.min(selectedImage.index, imageUrls.length - 1) : 0;
-  const activeImageUrl = imageUrls[activeImageIndex];
+    hasImages && selectedImage.exerciseId === exercise?.id ? Math.min(selectedImage.index, imageUrls.length - 1) : 0;
+  const activeImageUrl = hasImages ? imageUrls[activeImageIndex] : undefined;
   const hasMultipleImages = imageUrls.length > 1;
   const detailStats = exercise
     ? [
@@ -1163,13 +1166,15 @@ function ExerciseDetailPanel({
             <div className="mb-lg flex flex-col gap-sm">
               <div className="relative aspect-[3/2] w-full overflow-hidden rounded-xl bg-[#EEF2F6] shadow-card ring-1 ring-line/70">
                 <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(230,236,255,0.95),rgba(246,248,251,0.76)_48%,rgba(238,242,246,0.96))]" />
-                <Image
-                  alt={`${exercise.nameZh} 第 ${activeImageIndex + 1} 步示意图`}
-                  className="object-cover mix-blend-multiply contrast-[1.05] saturate-[0.98]"
-                  fill
-                  sizes="320px"
-                  src={activeImageUrl}
-                />
+                {activeImageUrl ? (
+                  <Image
+                    alt={`${exercise.nameZh} 第 ${activeImageIndex + 1} 步示意图`}
+                    className="object-cover mix-blend-multiply contrast-[1.05] saturate-[0.98]"
+                    fill
+                    sizes="320px"
+                    src={activeImageUrl}
+                  />
+                ) : null}
                 <div className="absolute inset-x-0 bottom-0 flex items-center justify-end bg-gradient-to-t from-black/58 to-transparent px-sm pb-sm pt-xl">
                   <span className="rounded-full bg-black/55 px-sm py-[2px] font-label-sm text-label-sm text-white">
                     {exercise.categoryZh || "训练动作"}
@@ -1210,23 +1215,25 @@ function ExerciseDetailPanel({
                 ) : null}
               </div>
 
-              <div className="flex gap-xs overflow-x-auto pb-xs scrollbar-none">
-                {imageUrls.map((imageUrl, index) => (
-                  <button
-                    aria-label={`查看第 ${index + 1} 步动作图`}
-                    className={`flex shrink-0 items-center gap-xs rounded-full px-sm py-[3px] font-label-sm text-label-sm transition-colors ${
-                      activeImageIndex === index
-                        ? "bg-primary text-white"
-                        : "bg-panel-soft text-muted hover:bg-primary-soft hover:text-primary"
-                    }`}
-                    key={`${imageUrl}-${index}`}
-                    onClick={() => selectImage(index)}
-                    type="button"
-                  >
-                    第 {index + 1} 步
-                  </button>
-                ))}
-              </div>
+              {hasImages ? (
+                <div className="flex gap-xs overflow-x-auto pb-xs scrollbar-none">
+                  {imageUrls.map((imageUrl, index) => (
+                    <button
+                      aria-label={`查看第 ${index + 1} 步动作图`}
+                      className={`flex shrink-0 items-center gap-xs rounded-full px-sm py-[3px] font-label-sm text-label-sm transition-colors ${
+                        activeImageIndex === index
+                          ? "bg-primary text-white"
+                          : "bg-panel-soft text-muted hover:bg-primary-soft hover:text-primary"
+                      }`}
+                      key={`${imageUrl}-${index}`}
+                      onClick={() => selectImage(index)}
+                      type="button"
+                    >
+                      第 {index + 1} 步
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
 
             <div className="flex flex-col gap-lg">
@@ -1309,27 +1316,33 @@ function ExerciseDetailPanel({
                 <h3 className="mb-sm font-title-lg text-title-lg">相关动作</h3>
                 <div className="custom-scrollbar thin-horizontal-scrollbar flex gap-sm overflow-x-auto pb-sm">
                   {relatedExercises.length ? (
-                    relatedExercises.map((relatedExercise) => (
-                      <button
-                        className="w-[76px] shrink-0 rounded-xl p-xs text-left transition-colors hover:bg-primary-soft"
-                        key={relatedExercise.id}
-                        onClick={() => onSelectExercise(relatedExercise.id)}
-                        type="button"
-                      >
-                        <div className="relative mb-xs aspect-square overflow-hidden rounded-lg bg-surface-container ring-1 ring-line/70">
-                          <Image
-                            alt={`${relatedExercise.nameZh} 预览`}
-                            className="object-cover"
-                            fill
-                            sizes="76px"
-                            src={getExerciseImage(relatedExercise)}
-                          />
-                        </div>
-                        <p className="line-clamp-2 font-label-sm text-label-sm leading-tight">
-                          {relatedExercise.nameZh}
-                        </p>
-                      </button>
-                    ))
+                    relatedExercises.map((relatedExercise) => {
+                      const relatedExerciseImageUrl = getExerciseImage(relatedExercise);
+
+                      return (
+                        <button
+                          className="w-[76px] shrink-0 rounded-xl p-xs text-left transition-colors hover:bg-primary-soft"
+                          key={relatedExercise.id}
+                          onClick={() => onSelectExercise(relatedExercise.id)}
+                          type="button"
+                        >
+                          <div className="relative mb-xs aspect-square overflow-hidden rounded-lg bg-surface-container ring-1 ring-line/70">
+                            {relatedExerciseImageUrl ? (
+                              <Image
+                                alt={`${relatedExercise.nameZh} 预览`}
+                                className="object-cover"
+                                fill
+                                sizes="76px"
+                                src={relatedExerciseImageUrl}
+                              />
+                            ) : null}
+                          </div>
+                          <p className="line-clamp-2 font-label-sm text-label-sm leading-tight">
+                            {relatedExercise.nameZh}
+                          </p>
+                        </button>
+                      );
+                    })
                   ) : (
             <p className="font-label-md text-label-md text-muted">
                       暂无相关动作
