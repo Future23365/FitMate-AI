@@ -87,7 +87,7 @@ describe("Agent progress activity UI state", () => {
       status: "failed",
     });
 
-    expect(knownFailed.label).toBe("正在校验训练内容...");
+    expect(knownFailed.label).toBe("正在思考...");
     expect(knownFailed.toneClass).toBe("text-primary");
     expect(unknownFailed.label).toBe(fallbackAgentActivityLabel);
     expect(unknownFailed.toneClass).toBe("text-primary");
@@ -105,7 +105,7 @@ describe("Agent progress activity UI state", () => {
     }, { nowMs: 0 });
 
     expect(analyzing?.activityStage?.stage).toBe("analyzing_request");
-    expect(getAgentActivityDisplay(analyzing!).label).toBe("正在规划下一步...");
+    expect(getAgentActivityDisplay(analyzing!).label).toBe("正在思考...");
   });
 
   it("keeps loopTurn independent when Activity arbitration ignores analyzing_request after an informative stage", () => {
@@ -149,7 +149,7 @@ describe("Agent progress activity UI state", () => {
     expect(afterCooldown?.activityStage?.stage).toBe("querying_exercises");
     expect(afterCooldown?.loopTurn).toBe(1);
     expect(afterCooldown?.lastActivitySequence).toBe(4);
-    expect(getAgentActivityDisplay(afterCooldown!).label).toBe("正在查询动作库...");
+    expect(getAgentActivityDisplay(afterCooldown!).label).toBe("正在思考...");
   });
 
   it("uses safe fallback copy for unknown Activity stages without exposing raw stage", () => {
@@ -200,7 +200,7 @@ describe("Agent progress activity UI state", () => {
     expect(repeatedQuery?.loopTurn).toBe(1);
     expect(secondLoop?.activityStage?.stage).toBe("querying_exercises");
     expect(secondLoop?.loopTurn).toBe(2);
-    expect(getAgentActivityDisplay(secondLoop!).label).toBe("正在查询动作库...");
+    expect(getAgentActivityDisplay(secondLoop!).label).toBe("正在思考...");
   });
 
   it("prioritizes safe activitySummary without using it to infer loopTurn", () => {
@@ -249,7 +249,7 @@ describe("Agent progress activity UI state", () => {
     }, { nowMs: 0 });
 
     expect(next?.activityStage?.activitySummary).toBeUndefined();
-    expect(getAgentActivityDisplay(next!).label).toBe("正在校验训练内容...");
+    expect(getAgentActivityDisplay(next!).label).toBe("正在思考...");
     expect(getAgentActivityDisplay(next!).label).not.toContain("toolName");
     expect(JSON.stringify(next)).not.toContain("searchExerciseResources");
   });
@@ -365,7 +365,7 @@ describe("AgentActivityIndicator", () => {
     expect(html).toContain("aria-live=\"polite\"");
     expect(html).toContain("role=\"status\"");
     expect(html).toContain("#4");
-    expect(html).toContain("正在校验训练内容...");
+    expect(html).toContain("正在思考...");
     expect(html).not.toContain("fact_check");
     expect(html).toContain("items-baseline");
     expect(html).toContain("gap-[2px]");
@@ -401,7 +401,7 @@ describe("AgentActivityIndicator", () => {
 
     expect(html).toContain("#2");
     expect(html).toContain("需要读取已有训练内容");
-    expect(html).not.toContain("正在规划下一步...");
+    expect(html).not.toContain("正在思考...");
     expect(html).not.toContain("toolName");
     expect(html).toContain("aria-live=\"polite\"");
   });
@@ -442,7 +442,7 @@ describe("AgentActivityIndicator", () => {
       }),
     );
 
-    expect(html).toContain("正在整理上下文...");
+    expect(html).toContain("正在思考...");
     expect(html).toContain("w-[1.375rem]");
     expect(html).toContain("#1");
     expect(html).not.toContain("#0");

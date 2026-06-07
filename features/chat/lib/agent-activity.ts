@@ -25,7 +25,7 @@ export type VisibleAgentActivity = {
   lastLoopSequence: number;
 };
 
-export const fallbackAgentActivityLabel = "正在处理请求...";
+export const fallbackAgentActivityLabel = "正在思考...";
 export const visibleAgentActivityMinimumMs = 1_000;
 export const genericAgentActivityCooldownMs = 2_500;
 
@@ -46,47 +46,47 @@ const genericAgentActivityStages = new Set<string>([
 
 const agentActivityDisplayByStage: Record<AgentProgressStage, AgentActivityDisplay> = {
   preparing_context: {
-    label: "正在整理上下文...",
+    label: "正在思考...",
     icon: "dataset",
     toneClass: "text-primary",
   },
   analyzing_request: {
-    label: "正在规划下一步...",
+    label: "正在思考...",
     icon: "psychology",
     toneClass: "text-primary",
   },
   querying_exercises: {
-    label: "正在查询动作库...",
+    label: "正在思考...",
     icon: "exercise",
     toneClass: "text-primary",
   },
   reading_artifacts: {
-    label: "正在读取已有训练内容...",
+    label: "正在思考...",
     icon: "folder_open",
     toneClass: "text-primary",
   },
   generating_workout: {
-    label: "正在生成训练安排...",
+    label: "正在思考...",
     icon: "fitness_center",
     toneClass: "text-primary",
   },
   validating_result: {
-    label: "正在校验训练内容...",
+    label: "正在思考...",
     icon: "fact_check",
     toneClass: "text-primary",
   },
   saving_result: {
-    label: "正在保存训练结果...",
+    label: "正在思考...",
     icon: "save",
     toneClass: "text-primary",
   },
   writing_reply: {
-    label: "正在整理回复...",
+    label: "正在思考...",
     icon: "rate_review",
     toneClass: "text-primary",
   },
   finalizing: {
-    label: "正在收尾...",
+    label: "正在思考...",
     icon: "task_alt",
     toneClass: "text-primary",
   },
