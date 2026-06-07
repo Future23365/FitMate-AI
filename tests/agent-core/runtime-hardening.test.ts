@@ -283,6 +283,114 @@ describe("agent-core runtime budget and idempotency hardening", () => {
     ]));
   });
 
+  it("normalizes discardable top-level fields without consuming repair budget and traces only field shapes", async () => {
+    const handler = vi.fn();
+    const registry = new ToolRegistry();
+    registry.register(createIdempotencyTool(handler));
+    const input = { id: "a" };
+    const expectedToolResultId = createToolResultId(
+      "run-normalized-tool-call",
+      "idempotencyRead",
+      hashNormalizedInput(input),
+    );
+
+    const result = await runAgentRuntime({
+      registry,
+      planner: new ReplayPlanner([
+        {
+          type: "tool_call",
+          toolName: "idempotencyRead",
+          input,
+          content: "这段顶层说明不应进入 trace 诊断完整值。",
+        },
+        {
+          type: "final_answer",
+          content: "done",
+          usedRefs: toTerminalToolResultRefs([expectedToolResultId]),
+        },
+      ]),
+      run: {
+        runId: "run-normalized-tool-call",
+        actor: {},
+        userInput: "normalize",
+        limits: {
+          maxRepairAttempts: 0,
+        },
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: "completed",
+      terminalAction: { type: "final_answer", content: "done" },
+    });
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(result.traceEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "action_normalization",
+        step: 1,
+        selectedActionType: "tool_call",
+        status: "normalized_and_executed",
+        normalizedActionContinues: true,
+        droppedFields: [
+          expect.objectContaining({ path: "content", valueType: "string", length: expect.any(Number) }),
+        ],
+      }),
+      expect.objectContaining({ type: "tool_execution", toolName: "idempotencyRead", inputSummary: input }),
+    ]));
+    expect(result.traceEvents).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "budget_event", budget: "repair_attempts" }),
+    ]));
+    expect(JSON.stringify(result.traceEvents)).not.toContain("这段顶层说明不应进入 trace 诊断完整值");
+
+    const invalidHandler = vi.fn();
+    const invalidRegistry = new ToolRegistry();
+    invalidRegistry.register(createIdempotencyTool(invalidHandler));
+    const invalidResult = await runAgentRuntime({
+      registry: invalidRegistry,
+      planner: new ReplayPlanner([
+        {
+          type: "tool_call",
+          toolName: "idempotencyRead",
+          input: { id: 1 },
+          content: "非法 input 仍应走 repair。",
+        },
+      ]),
+      run: {
+        runId: "run-normalized-tool-call-invalid-input",
+        actor: {},
+        userInput: "normalize invalid",
+        limits: {
+          maxRepairAttempts: 0,
+        },
+      },
+    });
+
+    expect(invalidResult).toMatchObject({
+      status: "failed",
+      terminalError: { code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED },
+    });
+    expect(invalidHandler).not.toHaveBeenCalled();
+    expect(invalidResult.traceEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "action_normalization",
+        step: 1,
+        selectedActionType: "tool_call",
+        status: "normalized_then_failed",
+        normalizedActionContinues: false,
+        droppedFields: [
+          expect.objectContaining({ path: "content", valueType: "string", length: expect.any(Number) }),
+        ],
+      }),
+      expect.objectContaining({
+        type: "validation_result",
+        ok: false,
+        code: AGENT_ERROR_CODES.INVALID_TOOL_INPUT,
+      }),
+      expect.objectContaining({ type: "budget_event", budget: "repair_attempts", status: "exhausted" }),
+    ]));
+    expect(JSON.stringify(invalidResult.traceEvents)).not.toContain("非法 input 仍应走 repair");
+  });
+
   it("injects stable idempotencyKey into ordinary tool execution", async () => {
     const keys: string[] = [];
     const registry = new ToolRegistry();

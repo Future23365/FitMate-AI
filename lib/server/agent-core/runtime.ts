@@ -193,6 +193,9 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
       resourceStore,
       terminalOutputValidators: input.terminalOutputValidators,
     });
+    if (validation.normalization) {
+      await recordTraceEvent(createActionNormalizationTrace(step, validation.normalization, validation.ok));
+    }
     await recordTraceEvent({
       type: "validation_result",
       step,
@@ -749,6 +752,22 @@ function createPlannerActionTrace(step: number, action: unknown): AgentTraceEven
     actionType: typeof actionRecord?.type === "string" ? actionRecord.type : "unknown",
     toolName: typeof actionRecord?.toolName === "string" ? actionRecord.toolName : undefined,
     ...activitySummaryProjection,
+  };
+}
+
+// createActionNormalizationTrace 记录顶层字段裁剪事实，不保存被丢弃字段的完整值。
+function createActionNormalizationTrace(
+  step: number,
+  normalization: NonNullable<ReturnType<typeof validateAgentAction>["normalization"]>,
+  validationOk: boolean,
+): Extract<AgentTraceEvent, { type: "action_normalization" }> {
+  return {
+    type: "action_normalization",
+    step,
+    selectedActionType: normalization.selectedActionType,
+    status: validationOk ? "normalized_and_executed" : "normalized_then_failed",
+    normalizedActionContinues: validationOk,
+    droppedFields: normalization.droppedFields,
   };
 }
 

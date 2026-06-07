@@ -1582,6 +1582,8 @@ function getRuntimeTraceEventLabel(event: AgentTraceEvent) {
       return "Agent Loop 轮次";
     case "planner_action":
       return "Planner action";
+    case "action_normalization":
+      return "Action normalization";
     case "validation_result":
       return event.ok ? "Action 校验通过" : "Action 校验失败";
     case "budget_event":
@@ -1634,6 +1636,15 @@ function summarizeRuntimeTraceEvent(event: AgentTraceEvent): unknown {
         step: event.step,
         ok: event.ok,
         code: event.code,
+      };
+    case "action_normalization":
+      return {
+        type: event.type,
+        step: event.step,
+        selectedActionType: event.selectedActionType,
+        status: event.status,
+        normalizedActionContinues: event.normalizedActionContinues,
+        droppedFields: event.droppedFields,
       };
     case "budget_event":
       return {

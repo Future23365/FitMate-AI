@@ -268,6 +268,20 @@ export type AskUserAction = z.infer<typeof AskUserActionSchema>;
 export type AgentAction = z.infer<typeof AgentActionSchema>;
 export type TerminalAgentAction = FinalAnswerAction | AskUserAction;
 
+/** AgentActionTopLevelFieldAllowlist 定义各 action variant 可进入执行语义的顶层字段。 */
+export const AgentActionTopLevelFieldAllowlist = {
+  tool_call: ["type", "toolName", "input", "consumes", "rationale", "activitySummary"],
+  final_answer: ["type", "content", "activitySummary", "suggestedQuestions", "usedRefs", "visibleOutputs"],
+  ask_user: ["type", "content", "activitySummary", "suggestedQuestions", "usedRefs"],
+} as const satisfies Record<AgentAction["type"], readonly string[]>;
+
+/** AgentActionRequiredTopLevelFields 定义 normalization 前必须已经存在的执行关键字段。 */
+export const AgentActionRequiredTopLevelFields = {
+  tool_call: ["type", "toolName", "input"],
+  final_answer: ["type", "content"],
+  ask_user: ["type", "content"],
+} as const satisfies Record<AgentAction["type"], readonly string[]>;
+
 /** ToolPolicy 描述 tool 的副作用、风险、权限和确认策略，M1 由 Policy Guard 统一裁决。 */
 export type ToolPolicy = {
   sideEffect: "read" | "write";
@@ -515,6 +529,20 @@ export type ConfirmationResumeInput = {
   clientAction?: unknown;
 };
 
+/** AgentActionDroppedFieldDiagnostic 只记录被 normalization 丢弃字段的路径和形状，不保存完整值。 */
+export type AgentActionDroppedFieldDiagnostic = {
+  path: string;
+  valueType: "string" | "number" | "boolean" | "null" | "array" | "object" | "undefined" | "bigint" | "symbol" | "function";
+  length?: number;
+  propertyCount?: number;
+};
+
+/** AgentActionNormalizationDiagnostic 是 validator 返回给 runtime trace 的脱敏 normalization 摘要。 */
+export type AgentActionNormalizationDiagnostic = {
+  selectedActionType: AgentAction["type"];
+  droppedFields: AgentActionDroppedFieldDiagnostic[];
+};
+
 /** AgentTraceEvent 是 M1 fixture 用来断言资源、策略和确认链路的安全摘要。 */
 export type AgentTraceEvent =
   | { type: "registry_snapshot"; snapshotId: string; manifestHash: string; toolCount: number }
@@ -537,6 +565,14 @@ export type AgentTraceEvent =
       step: number;
       ok: boolean;
       code?: AgentErrorCode;
+    }
+  | {
+      type: "action_normalization";
+      step: number;
+      selectedActionType: AgentAction["type"];
+      status: "normalized_and_executed" | "normalized_then_failed" | "not_normalizable";
+      normalizedActionContinues: boolean;
+      droppedFields: AgentActionDroppedFieldDiagnostic[];
     }
   | {
       type: "budget_event";

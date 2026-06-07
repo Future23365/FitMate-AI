@@ -1,6 +1,9 @@
 import {
   parseAgentAction,
   AgentActionSchema,
+  AgentActionRequiredTopLevelFields,
+  AgentActionTopLevelFieldAllowlist,
+  type AgentActionNormalizationDiagnostic,
   type AgentResourceRef,
   type AgentAction,
   type AgentRunInput,
@@ -33,8 +36,8 @@ export type ActionValidationInput = {
 
 /** ActionValidationResult 用稳定 ToolError 表达 action 是否可执行。 */
 export type ActionValidationResult =
-  | { ok: true; action: AgentAction; terminalOutputValidation?: TerminalOutputValidationSummary }
-  | { ok: false; error: ToolError };
+  | { ok: true; action: AgentAction; terminalOutputValidation?: TerminalOutputValidationSummary; normalization?: AgentActionNormalizationDiagnostic }
+  | { ok: false; error: ToolError; normalization?: AgentActionNormalizationDiagnostic };
 
 /** validateAgentAction 在执行前校验 action 结构、tool 可用性、input schema 和 M0 resource 禁用边界。 */
 export function validateAgentAction(input: ActionValidationInput): ActionValidationResult {
@@ -68,21 +71,115 @@ function validateAgentActionInternal(
     };
   }
 
-  const parsed = parseAgentAction(input.action);
+  const candidate = normalizeAgentActionTopLevel(input.action);
+  const parsed = parseAgentAction(candidate.action);
 
   if (!parsed.success) {
-    return invalidAction(createInvalidActionMessage(parsed.error), createInvalidActionDetails(parsed.error, input.action));
+    return attachNormalization(
+      invalidAction(createInvalidActionMessage(parsed.error), createInvalidActionDetails(parsed.error, candidate.action)),
+      candidate.normalization,
+    );
   }
 
   const action = parsed.data;
 
   if (action.type === "tool_call") {
-    return validateToolCallAction(action, input);
+    return attachNormalization(validateToolCallAction(action, input), candidate.normalization);
   }
 
-  return mode === "async"
-    ? validateTerminalAction(action, input, "async")
-    : validateTerminalAction(action, input, "sync");
+  if (mode === "async") {
+    return Promise.resolve(validateTerminalAction(action, input, "async"))
+      .then((result) => attachNormalization(result, candidate.normalization));
+  }
+
+  return attachNormalization(validateTerminalAction(action, input, "sync"), candidate.normalization);
+}
+
+const agentActionTopLevelFieldAllowlist = mapFieldAllowlists(AgentActionTopLevelFieldAllowlist);
+type AgentActionTopLevelType = keyof typeof AgentActionTopLevelFieldAllowlist;
+
+function normalizeAgentActionTopLevel(action: unknown): {
+  action: unknown;
+  normalization?: AgentActionNormalizationDiagnostic;
+} {
+  if (!isRecord(action) || !isAgentActionTopLevelType(action.type)) {
+    return { action };
+  }
+
+  const selectedActionType = action.type;
+  const allowedFields = agentActionTopLevelFieldAllowlist[selectedActionType];
+  const unknownTopLevelKeys = Object.keys(action).filter((key) => !allowedFields.has(key));
+
+  if (unknownTopLevelKeys.length === 0) {
+    return { action };
+  }
+
+  const requiredFields = AgentActionRequiredTopLevelFields[selectedActionType];
+  const hasRequiredTopLevelFields = requiredFields.every((field) => hasOwn(action, field));
+
+  if (!hasRequiredTopLevelFields) {
+    return { action };
+  }
+
+  // Normalization 只裁剪 selected variant 顶层无关字段，不能补齐 required field 或转换旧同义字段。
+  const normalizedAction = Object.fromEntries(
+    Object.entries(action).filter(([key]) => allowedFields.has(key)),
+  );
+
+  return {
+    action: normalizedAction,
+    normalization: {
+      selectedActionType,
+      droppedFields: unknownTopLevelKeys.map((key) => summarizeDroppedTopLevelField(key, action[key])),
+    },
+  };
+}
+
+function isAgentActionTopLevelType(value: unknown): value is AgentActionTopLevelType {
+  return value === "tool_call" || value === "final_answer" || value === "ask_user";
+}
+
+function mapFieldAllowlists<T extends Record<string, readonly string[]>>(allowlists: T): {
+  [K in keyof T]: ReadonlySet<string>;
+} {
+  const mapped = {} as { [K in keyof T]: ReadonlySet<string> };
+
+  for (const type of Object.keys(allowlists) as Array<keyof T>) {
+    mapped[type] = new Set(allowlists[type]);
+  }
+
+  return mapped;
+}
+
+function hasOwn(value: Record<string, unknown>, key: string) {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function summarizeDroppedTopLevelField(path: string, value: unknown): AgentActionNormalizationDiagnostic["droppedFields"][number] {
+  if (value === null) {
+    return { path, valueType: "null" };
+  }
+
+  if (Array.isArray(value)) {
+    return { path, valueType: "array", length: value.length };
+  }
+
+  if (typeof value === "string") {
+    return { path, valueType: "string", length: value.length };
+  }
+
+  if (typeof value === "object") {
+    return { path, valueType: "object", propertyCount: Object.keys(value as Record<string, unknown>).length };
+  }
+
+  return { path, valueType: typeof value };
+}
+
+function attachNormalization<T extends ActionValidationResult>(
+  result: T,
+  normalization: AgentActionNormalizationDiagnostic | undefined,
+): T {
+  return normalization ? { ...result, normalization } : result;
 }
 
 function validateToolCallAction(action: ToolCallAction, input: ActionValidationInput): ActionValidationResult {

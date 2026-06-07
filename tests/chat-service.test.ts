@@ -2239,6 +2239,7 @@ describe("chat service agent text flow boundary", () => {
       suitabilities: ["warmup", "stretch"],
       sort: "name_asc",
     };
+    const supportToolCallContent = "模型误把中间说明放到 tool_call 顶层，不能阻断 warmup/stretch 查询。";
     const expectedTrainingToolResultId = createToolResultId(
       `chat_${responseMessageId}`,
       "searchExerciseResources",
@@ -2286,7 +2287,7 @@ describe("chat service agent text flow boundary", () => {
     });
     const planner = new ReplayPlanner([
       { type: "tool_call", toolName: "searchExerciseResources", input: trainingSearchInput },
-      { type: "tool_call", toolName: "searchExerciseResources", input: supportSearchInput },
+      { type: "tool_call", toolName: "searchExerciseResources", input: supportSearchInput, content: supportToolCallContent },
       {
         type: "final_answer",
         content: "这是一套完整训练，已经包含热身、主训练和拉伸。",
@@ -2305,6 +2306,7 @@ describe("chat service agent text flow boundary", () => {
       planner,
     });
     const events = await readNdjsonEvents(response);
+    const trace = listAiTracesForUser("user-1")[0];
     const supportPlannerInputJson = JSON.stringify(planner.calls[1]);
     const finalPlannerToolResultsJson = JSON.stringify(planner.calls[2].toolResults);
 
@@ -2318,6 +2320,24 @@ describe("chat service agent text flow boundary", () => {
     expect(finalPlannerToolResultsJson).toContain(warmupExercise.id);
     expect(finalPlannerToolResultsJson).toContain(trainingExercise.id);
     expect(finalPlannerToolResultsJson).toContain(stretchExercise.id);
+    expect(trace).toMatchObject({
+      steps: expect.arrayContaining([
+        expect.objectContaining({
+          name: "Action normalization",
+          output: expect.objectContaining({
+            type: "action_normalization",
+            step: 2,
+            selectedActionType: "tool_call",
+            status: "normalized_and_executed",
+            normalizedActionContinues: true,
+            droppedFields: [
+              expect.objectContaining({ path: "content", valueType: "string", length: supportToolCallContent.length }),
+            ],
+          }),
+        }),
+      ]),
+    });
+    expect(JSON.stringify(trace)).not.toContain(supportToolCallContent);
     expect(events).toEqual([
       expect.objectContaining({
         type: "tool_result",

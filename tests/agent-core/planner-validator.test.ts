@@ -172,6 +172,40 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("normalizes discardable top-level tool_call fields without touching tool input", () => {
+    const registry = createRegistry();
+    const result = validateAgentAction({
+      action: {
+        type: "tool_call",
+        toolName: "readOne",
+        input: { id: "a" },
+        content: "这段中间说明不能进入工具执行或前端响应。",
+        suggestedQuestions: ["换一个动作"],
+        visibleOutputs: [{ outputType: "debug", schemaVersion: "1", payload: { hidden: true } }],
+      },
+      registry,
+      manifests: registry.serializeForPlanner(),
+      toolResults: [],
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      action: { type: "tool_call", toolName: "readOne", input: { id: "a" } },
+      normalization: {
+        selectedActionType: "tool_call",
+        droppedFields: expect.arrayContaining([
+          expect.objectContaining({ path: "content", valueType: "string", length: expect.any(Number) }),
+          expect.objectContaining({ path: "suggestedQuestions", valueType: "array", length: 1 }),
+          expect.objectContaining({ path: "visibleOutputs", valueType: "array", length: 1 }),
+        ]),
+      },
+    });
+    expect(result.ok ? result.action : undefined).not.toHaveProperty("content");
+    expect(result.ok ? result.action : undefined).not.toHaveProperty("suggestedQuestions");
+    expect(result.ok ? result.action : undefined).not.toHaveProperty("visibleOutputs");
+    expect(JSON.stringify(result)).not.toContain("这段中间说明不能进入工具执行或前端响应");
+  });
+
   it("accepts optional activitySummary on all AgentAction variants and reports only deterministic field errors", () => {
     const registry = createRegistry();
     const manifests = registry.serializeForPlanner();
@@ -235,7 +269,7 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
     });
   });
 
-  it("accepts suggestedQuestions on terminal actions and rejects legacy suggestion fields", () => {
+  it("accepts suggestedQuestions on terminal actions and drops discardable legacy extra fields", () => {
     const registry = createRegistry();
     const manifests = registry.serializeForPlanner();
 
@@ -304,7 +338,7 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       toolResults: [],
     })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.INVALID_ACTION } });
 
-    expect(validateAgentAction({
+    const finalWithLegacySuggestion = validateAgentAction({
       action: {
         type: "final_answer",
         content: "可以继续。",
@@ -313,9 +347,20 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       registry,
       manifests,
       toolResults: [],
-    })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.INVALID_ACTION } });
+    });
 
-    expect(validateAgentAction({
+    expect(finalWithLegacySuggestion).toMatchObject({
+      ok: true,
+      normalization: {
+        selectedActionType: "final_answer",
+        droppedFields: [
+          expect.objectContaining({ path: "assistantSuggestions", valueType: "array", length: 1 }),
+        ],
+      },
+    });
+    expect(finalWithLegacySuggestion.ok ? finalWithLegacySuggestion.action : undefined).not.toHaveProperty("assistantSuggestions");
+
+    const askUserWithLegacySuggestion = validateAgentAction({
       action: {
         type: "ask_user",
         content: "你今天有多少时间？",
@@ -324,7 +369,18 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       registry,
       manifests,
       toolResults: [],
-    })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.INVALID_ACTION } });
+    });
+
+    expect(askUserWithLegacySuggestion).toMatchObject({
+      ok: true,
+      normalization: {
+        selectedActionType: "ask_user",
+        droppedFields: [
+          expect.objectContaining({ path: "suggestions", valueType: "array", length: 1 }),
+        ],
+      },
+    });
+    expect(askUserWithLegacySuggestion.ok ? askUserWithLegacySuggestion.action : undefined).not.toHaveProperty("suggestions");
   });
 
   it("rejects unknown action, confirmation action, unknown tool and invalid input", () => {
@@ -346,11 +402,61 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
     })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.UNKNOWN_TOOL } });
 
     expect(validateAgentAction({
-      action: { type: "tool_call", toolName: "readOne", input: { id: 1 } },
+      action: { type: "tool_call", input: { id: "a" }, content: "不能补 toolName" },
       registry,
       manifests,
       toolResults: [],
     })).toMatchObject({
+      ok: false,
+      error: {
+        code: AGENT_ERROR_CODES.INVALID_ACTION,
+        details: expect.objectContaining({
+          errors: expect.arrayContaining([
+            expect.objectContaining({
+              code: "required_field_missing",
+              path: "toolName",
+            }),
+            expect.objectContaining({
+              code: "unknown_field",
+              path: "content",
+            }),
+          ]),
+        }),
+      },
+    });
+
+    expect(validateAgentAction({
+      action: { type: "tool_call", toolName: "readOne", content: "不能补 input" },
+      registry,
+      manifests,
+      toolResults: [],
+    })).toMatchObject({
+      ok: false,
+      error: {
+        code: AGENT_ERROR_CODES.INVALID_ACTION,
+        details: expect.objectContaining({
+          errors: expect.arrayContaining([
+            expect.objectContaining({
+              code: "required_field_missing",
+              path: "input",
+            }),
+            expect.objectContaining({
+              code: "unknown_field",
+              path: "content",
+            }),
+          ]),
+        }),
+      },
+    });
+
+    const invalidToolInput = validateAgentAction({
+      action: { type: "tool_call", toolName: "readOne", input: { id: 1 } },
+      registry,
+      manifests,
+      toolResults: [],
+    });
+
+    expect(invalidToolInput).toMatchObject({
       ok: false,
       error: {
         code: AGENT_ERROR_CODES.INVALID_TOOL_INPUT,
@@ -365,6 +471,38 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
               path: "id",
               expected: { type: "string" },
               actual: { type: "number", value: 1 },
+            }),
+          ]),
+        }),
+      },
+    });
+
+    const invalidToolInputWithTopLevelNoise = validateAgentAction({
+      action: { type: "tool_call", toolName: "readOne", input: { id: 1 }, content: "不会放宽 input schema" },
+      registry,
+      manifests,
+      toolResults: [],
+    });
+
+    expect(invalidToolInputWithTopLevelNoise).toMatchObject({
+      ok: false,
+      normalization: {
+        selectedActionType: "tool_call",
+        droppedFields: [
+          expect.objectContaining({ path: "content", valueType: "string", length: expect.any(Number) }),
+        ],
+      },
+      error: {
+        code: AGENT_ERROR_CODES.INVALID_TOOL_INPUT,
+        details: expect.objectContaining({
+          target: expect.objectContaining({
+            kind: "ToolInput",
+            toolName: "readOne",
+          }),
+          errors: expect.arrayContaining([
+            expect.objectContaining({
+              code: "invalid_type",
+              path: "id",
             }),
           ]),
         }),
