@@ -2244,7 +2244,7 @@ function WorkoutExerciseRow({
 
   return (
     <div
-      className={`relative flex flex-col gap-md overflow-hidden rounded-2xl border border-line bg-white/95 p-md shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all hover:border-primary/35 hover:shadow-[0_12px_26px_rgba(15,23,42,0.07)] hover:ring-1 hover:ring-primary/10 md:flex-row md:items-center ${
+      className={`composer-exercise-row relative flex flex-col gap-md overflow-hidden rounded-2xl border border-line bg-white/95 p-md shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all hover:border-primary/35 hover:shadow-[0_12px_26px_rgba(15,23,42,0.07)] hover:ring-1 hover:ring-primary/10 md:flex-row md:items-center ${
         dragState === "dragging" ? "opacity-50" : ""
       } ${
         dragState === "over" ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""
@@ -2268,7 +2268,7 @@ function WorkoutExerciseRow({
       }}
     >
       <div className={`absolute inset-y-0 left-0 w-1 ${visual.line}`} aria-hidden="true" />
-      <div className="flex items-center gap-sm pl-xs md:w-[58px] md:shrink-0">
+      <div className="composer-exercise-order flex items-center gap-sm pl-xs md:w-[58px] md:shrink-0">
         <div className={`flex h-9 w-9 items-center justify-center rounded-full border font-label-md text-label-md font-extrabold ${visual.chip}`}>
           {String(index + 1).padStart(2, "0")}
         </div>
@@ -2322,7 +2322,7 @@ function WorkoutExerciseRow({
         </div>
         <WorkoutPrescriptionControl item={item} onUpdate={onUpdate} />
       </div>
-      <div className="flex shrink-0 gap-[2px] md:pl-xs">
+      <div className="composer-exercise-actions flex shrink-0 gap-[2px] md:pl-xs">
         <button
           aria-label={`查看动作详情：${item.nameZh}`}
           className="grid h-8 w-8 place-items-center rounded-lg text-outline transition-colors hover:bg-primary/5 hover:text-primary"
