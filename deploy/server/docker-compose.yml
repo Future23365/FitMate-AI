@@ -64,7 +64,7 @@ services:
         condition: service_healthy
 
   db:
-    # PostgreSQL 是运行时事实数据源，不暴露 5432 到公网。
+    # PostgreSQL 是运行时事实数据源，只绑定宿主机回环地址，供 SSH 隧道和服务器本机运维访问。
     image: postgres:17-alpine
     container_name: fitmate-db
     restart: unless-stopped
@@ -82,6 +82,9 @@ services:
       - shared_buffers=128MB
       - -c
       - max_connections=30
+    ports:
+      # 只监听服务器本机 127.0.0.1，不对公网开放；本地 DBeaver/Prisma 通过 SSH tunnel 转发到这里。
+      - "127.0.0.1:5432:5432"
     volumes:
       # 数据库数据持久化在 Docker volume 中，容器重建不会丢数据。
       - postgres_data:/var/lib/postgresql/data
