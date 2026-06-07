@@ -55,27 +55,24 @@ function AgentActivityScroller({
     previous: null,
   });
 
-  useEffect(() => {
-    setAnimationState((currentState) => {
-      if (currentState.current.key === nextSnapshot.key) {
-        return currentState;
-      }
-
-      return {
-        current: nextSnapshot,
-        previous: currentState.current,
-      };
+  if (animationState.current.key !== nextSnapshot.key) {
+    setAnimationState({
+      current: nextSnapshot,
+      previous: animationState.current,
     });
-  }, [nextSnapshot]);
+  }
+
+  const currentAnimationKey = animationState.current.key;
+  const previousSnapshot = animationState.previous;
 
   useEffect(() => {
-    if (!animationState.previous) {
+    if (!previousSnapshot) {
       return;
     }
 
     const timer = window.setTimeout(() => {
       setAnimationState((currentState) => (
-        currentState.current.key === animationState.current.key
+        currentState.current.key === currentAnimationKey
           ? { ...currentState, previous: null }
           : currentState
       ));
@@ -83,8 +80,8 @@ function AgentActivityScroller({
 
     return () => window.clearTimeout(timer);
   }, [
-    animationState.current.key,
-    animationState.previous,
+    currentAnimationKey,
+    previousSnapshot,
   ]);
 
   return (

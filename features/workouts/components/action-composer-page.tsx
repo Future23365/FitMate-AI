@@ -466,6 +466,7 @@ export function ActionComposerPage() {
   const [activePreviewSource, setActivePreviewSource] = useState<"library" | "plan" | null>(null);
   const [isPreviewSheetOpen, setIsPreviewSheetOpen] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const rightPanelViewRef = useRef<RightPanelView>("library");
   const hasLoadedComposerLibraryRef = useRef(false);
   const hasLoadedWorkoutRoutinesRef = useRef(false);
   const hasHandledInitialWorkoutLoadRef = useRef(false);
@@ -507,6 +508,10 @@ export function ActionComposerPage() {
   );
 
   useEffect(() => {
+    rightPanelViewRef.current = rightPanelView;
+  }, [rightPanelView]);
+
+  useEffect(() => {
     const controller = new AbortController();
     const params = new URLSearchParams({
       page: String(libraryPage),
@@ -520,7 +525,7 @@ export function ActionComposerPage() {
       error: isFirstPage ? "动作库加载失败" : "更多动作加载失败",
       delayMs: 650,
     });
-    const shouldShowLibraryToast = hasLoadedComposerLibraryRef.current || rightPanelView === "library";
+    const shouldShowLibraryToast = hasLoadedComposerLibraryRef.current || rightPanelViewRef.current === "library";
 
     isLibraryRequestInFlightRef.current = true;
     queueMicrotask(() => {
@@ -704,7 +709,7 @@ export function ActionComposerPage() {
 
   useEffect(() => {
     async function syncWorkoutRoutines() {
-      const shouldShowRoutinesToast = !hasLoadedWorkoutRoutinesRef.current || rightPanelView === "saved";
+      const shouldShowRoutinesToast = !hasLoadedWorkoutRoutinesRef.current || rightPanelViewRef.current === "saved";
       const routinesLoadingToast = createAsyncToastLifecycle({
         id: "action-composer-routines-loading",
         loading: "正在加载已保存编排...",
