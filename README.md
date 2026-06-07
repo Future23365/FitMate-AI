@@ -145,12 +145,12 @@ docker compose down
 
 - `Dockerfile`：包含 `runner` 和 `ops` 两个 target。`runner` 运行 Next.js standalone 应用；`ops` 保留 Prisma CLI、migration、seed 和 embedding 刷新脚本。
 - `.dockerignore`：控制 Docker build 上下文，避免把 `.env`、`.env.local`、`node_modules`、`.next`、测试和调试产物打进镜像。
-- `.github/workflows/deploy.yml`：推送到 `dev` 分支时构建 app / ops 两个 GHCR 镜像，通过 SSH 更新服务器并先执行 `prisma migrate deploy`。
+- `.github/workflows/deploy.yml`：推送到 `main` 分支时构建 app / ops 两个 GHCR 镜像，自动同步服务器 `docker-compose.yml` / `Caddyfile`，再通过 SSH 更新服务器并先执行 `prisma migrate deploy`。
 - `deploy/server/docker-compose.yml`：服务器 `/opt/fitmate/docker-compose.yml` 模板，包含 `caddy`、`app`、`db` 和 `ops` profile 下的 `migrator` / `seed` / `refresh_embeddings`。
 - `deploy/server/Caddyfile`：Caddy HTTPS 和反向代理模板，通过服务器 `.env` 中的 `DOMAIN` 注入域名。
 - `deploy/server/.env.example`：服务器生产 `.env` 模板，真实 `.env` 只保存在服务器，不提交到 Git。
 
-服务器首次准备时，将 `deploy/server/docker-compose.yml`、`deploy/server/Caddyfile` 和 `deploy/server/.env.example` 复制到 `/opt/fitmate/`，把 `.env.example` 改名为 `.env` 并填写真实值。GitHub Actions 需要配置 `SERVER_HOST`、`SERVER_PORT`、`SERVER_USER`、`SERVER_SSH_KEY` 这几个 Repository secrets。
+服务器首次准备时，将 `deploy/server/docker-compose.yml`、`deploy/server/Caddyfile` 和 `deploy/server/.env.example` 复制到 `/opt/fitmate/`，把 `.env.example` 改名为 `.env` 并填写真实值。之后 GitHub Actions 会在每次部署时自动同步 `docker-compose.yml` 和 `Caddyfile`，但不会覆盖服务器生产 `.env`。GitHub Actions 需要配置 `SERVER_HOST`、`SERVER_PORT`、`SERVER_USER`、`SERVER_SSH_KEY` 这几个 Repository secrets。
 
 首次上线或动作 seed 数据变化后，在服务器执行：
 

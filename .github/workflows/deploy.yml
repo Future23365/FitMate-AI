@@ -87,6 +87,15 @@ jobs:
           # SERVER_HOST / SERVER_PORT 来自 GitHub Actions Repository secrets。
           ssh-keyscan -p "${{ secrets.SERVER_PORT }}" "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts
 
+      - name: Sync server deployment files
+        shell: bash
+        run: |
+          # docker-compose.yml 和 Caddyfile 是版本化部署配置；生产 .env 只保留在服务器，不从仓库覆盖。
+          scp -i ~/.ssh/deploy_key -P "${{ secrets.SERVER_PORT }}" \
+            deploy/server/docker-compose.yml \
+            deploy/server/Caddyfile \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:${{ env.DEPLOY_PATH }}/"
+
       - name: Deploy on server
         shell: bash
         run: |
@@ -94,12 +103,15 @@ jobs:
             "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" << EOF
               set -e
 
-              # 部署目录内应已放置 deploy/server/docker-compose.yml、Caddyfile 和生产 .env。
+              # 部署目录内的 docker-compose.yml / Caddyfile 已由上一步同步；生产 .env 仍由服务器维护。
               cd "${{ env.DEPLOY_PATH }}"
 
               # 每次部署把 .env 中的镜像版本锁到当前提交，便于回滚和排查。
               sed -i 's|^APP_IMAGE=.*|APP_IMAGE=${{ steps.image.outputs.app }}:${{ github.sha }}|' .env
               sed -i 's|^OPS_IMAGE=.*|OPS_IMAGE=${{ steps.image.outputs.ops }}:${{ github.sha }}|' .env
+
+              # 先校验最终 Compose 配置但不打印展开后的生产 .env，避免部署日志泄露密钥。
+              docker compose config >/dev/null
 
               # 拉取新镜像，先运行 migration，再更新 app 容器。
               docker compose --profile ops pull app migrator
