@@ -458,6 +458,7 @@ function formatTokenValue(
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
     dateStyle: "short",
     timeStyle: "short",
     hour12: false,
