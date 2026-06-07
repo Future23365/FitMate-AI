@@ -9,6 +9,7 @@ import {
   OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
   TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
 } from "@/lib/server/agent-core/observation";
+import { toPlannerVisibleToolResult } from "@/lib/server/agent-core/planner-visible-tool-result";
 import { auditRedactedValue, redactJsonValue } from "@/lib/server/agent-core/redaction";
 import { auditAgentTrace } from "@/lib/server/agent-core/trace-audit";
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
@@ -226,6 +227,67 @@ describe("agent-core redaction, observation compression and trace audit", () => 
     expect(JSON.stringify(unsatisfiedResult.projection.model)).toContain("no_candidates");
     expect(JSON.stringify(unsatisfiedResult.projection.model)).toContain("放宽器械或目标部位");
     expect(JSON.stringify(unsatisfiedObservation.content)).toContain(OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE);
+  });
+
+  it("projects failed tool results for Planner without execution metadata", () => {
+    const failedResult: ToolResult = {
+      toolResultId: "tr_failed_projection",
+      toolName: "diagnosticFixture",
+      toolVersion: "0.1.0",
+      toolCallId: "tc_failed_projection",
+      idempotencyKey: "idem_failed_projection",
+      normalizedInputHash: "hash_failed_projection",
+      startedAt: "2026-06-05T00:00:00.000Z",
+      completedAt: "2026-06-05T00:00:01.000Z",
+      ok: false,
+      error: {
+        code: AGENT_ERROR_CODES.INVALID_TOOL_INPUT,
+        message: "Tool input failed.",
+        retryable: false,
+        details: {
+          repairFacts: ["保留失败 details 供 Planner 修复。"],
+          expectedInput: { id: "valid-id" },
+        },
+      },
+      fulfillment: {
+        satisfied: false,
+        summary: "输入不满足合同。",
+        consumedResources: [
+          {
+            resourceId: "resource-1",
+            resourceType: "fixture_document",
+            role: "consumable",
+            schemaVersion: "1",
+          },
+        ],
+        unmetRequirements: [
+          {
+            reason: AGENT_ERROR_CODES.INVALID_TOOL_INPUT,
+            message: "需要修正 input。",
+          },
+        ],
+      },
+    };
+
+    const plannerVisibleResult = toPlannerVisibleToolResult(failedResult);
+    const serialized = JSON.stringify(plannerVisibleResult);
+
+    expect(plannerVisibleResult).toEqual({
+      toolResultId: "tr_failed_projection",
+      toolName: "diagnosticFixture",
+      ok: false,
+      error: failedResult.error,
+      fulfillment: failedResult.fulfillment,
+    });
+    expect(serialized).toContain("保留失败 details");
+    expect(serialized).toContain("unmetRequirements");
+    expect(serialized).not.toContain("tc_failed_projection");
+    expect(serialized).not.toContain("idem_failed_projection");
+    expect(serialized).not.toContain("hash_failed_projection");
+    expect(serialized).not.toContain("2026-06-05T00:00:00.000Z");
+    expect(serialized).not.toContain("toolVersion");
+    expect(plannerVisibleResult).not.toHaveProperty("projection");
+    expect(serialized).not.toContain("output");
   });
 
   it("compresses observations without changing diagnostic resource role", () => {

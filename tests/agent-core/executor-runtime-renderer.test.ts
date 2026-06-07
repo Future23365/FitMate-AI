@@ -149,9 +149,11 @@ describe("agent-core Executor, Runtime and Response Renderer", () => {
     expect(JSON.stringify(planner.calls[1].observations[0])).not.toContain("\"nextActionHints\"");
     expect(JSON.stringify(planner.calls[1].observations[0])).not.toContain("\"text\":\"hello\"");
     expect(planner.calls[1].toolResults[0]).toMatchObject({
-      output: "[redacted]",
       projection: { model: { text: "hello" } },
     });
+    expect(planner.calls[1].toolResults[0]).not.toHaveProperty("output");
+    expect(planner.calls[1].toolResults[0]).not.toHaveProperty("toolCallId");
+    expect(JSON.stringify(planner.calls[1].toolResults[0])).not.toContain("\"user\"");
     expect(result.traceEvents).toEqual(expect.arrayContaining([
       expect.objectContaining({
         type: "tool_execution",

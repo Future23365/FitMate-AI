@@ -114,6 +114,74 @@ function createUnsatisfiedReadTool(handler: (id: string) => void) {
   });
 }
 
+type PlannerVisibleProjectionOutput = {
+  id: string;
+  factText: string;
+  userOnlyText: string;
+};
+
+function createPlannerVisibleProjectionTool() {
+  return defineTool({
+    name: "plannerVisibleProjectionRead",
+    version: "0.1.0",
+    description: "读取测试中的 Planner 可见投影边界。",
+    whenToUse: "仅在 Planner 输入瘦身测试中使用。",
+    whenNotToUse: "不要在测试之外使用。",
+    inputSchema: z.object({ id: z.string() }).strict(),
+    outputSchema: z.object({
+      id: z.string(),
+      factText: z.string(),
+      userOnlyText: z.string(),
+    }).strict(),
+    policy: {
+      sideEffect: "read",
+      riskLevel: "low",
+      confirmation: "never",
+    },
+    resourceContract: {
+      produces: [
+        {
+          resourceType: "planner_visible_fixture",
+          role: "consumable",
+          schemaVersion: "1",
+        },
+      ],
+    },
+    handler: (input: { id: string }): PlannerVisibleProjectionOutput => ({
+      id: input.id,
+      factText: "Planner 必须保留的模型事实。",
+      userOnlyText: "Planner 不应看到的用户展示投影。",
+    }),
+    toFulfillment: () => ({
+      satisfied: true,
+      summary: "已读取 Planner 投影测试资源。",
+      unmetRequirements: [],
+    }),
+    toResources: (output: PlannerVisibleProjectionOutput) => [
+      {
+        resourceId: `planner-visible-${output.id}`,
+        resourceType: "planner_visible_fixture",
+        role: "consumable",
+        schemaVersion: "1",
+        summary: { id: output.id },
+      },
+    ],
+    toModelObservation: (output: PlannerVisibleProjectionOutput) => ({
+      id: output.id,
+      factText: output.factText,
+      appliedFilters: { id: output.id },
+      groups: {
+        training: [{ exerciseId: output.id, allowedSections: ["training"] }],
+      },
+    }),
+    toUserProjection: (output: PlannerVisibleProjectionOutput) => ({
+      id: output.id,
+      userOnlyText: output.userOnlyText,
+      imageUrl: "https://example.test/user-only.png",
+    }),
+  });
+}
+
 describe("agent-core runtime budget and idempotency hardening", () => {
   it("stops before planner when planner or token budgets are exhausted", async () => {
     const planner = new ReplayPlanner([
@@ -244,6 +312,86 @@ describe("agent-core runtime budget and idempotency hardening", () => {
     });
 
     expect(keys).toEqual([expectedKey]);
+  });
+
+  it("passes only Planner-visible tool result facts while preserving full runtime results", async () => {
+    const input = { id: "alpha" };
+    const expectedToolResultId = createToolResultId(
+      "run-planner-visible-tool-result",
+      "plannerVisibleProjectionRead",
+      hashNormalizedInput(input),
+    );
+    const registry = new ToolRegistry();
+    registry.register(createPlannerVisibleProjectionTool());
+    const planner = new ReplayPlanner([
+      { type: "tool_call", toolName: "plannerVisibleProjectionRead", input },
+      {
+        type: "final_answer",
+        content: "已经基于 Planner 可见事实收口。",
+        usedRefs: toTerminalToolResultRefs([expectedToolResultId]),
+      },
+    ]);
+
+    const result = await runAgentRuntime({
+      registry,
+      planner,
+      run: {
+        runId: "run-planner-visible-tool-result",
+        actor: { userId: "user-1" },
+        userInput: "读取投影边界",
+        limits: { maxPlannerCalls: 3, maxToolCalls: 2, maxSteps: 3 },
+      },
+    });
+
+    const fullRuntimeToolResultJson = JSON.stringify(result.toolResults);
+    const plannerVisibleToolResultJson = JSON.stringify(planner.calls[1].toolResults);
+    const plannerVisibleResult = planner.calls[1].toolResults[0];
+
+    expect(result.status).toBe("completed");
+    expect(planner.calls[1].manifests).toEqual(planner.calls[0].manifests);
+    expect(plannerVisibleResult).toMatchObject({
+      toolName: "plannerVisibleProjectionRead",
+      toolResultId: expectedToolResultId,
+      ok: true,
+      projection: {
+        model: {
+          factText: "Planner 必须保留的模型事实。",
+          appliedFilters: { id: "alpha" },
+          groups: {
+            training: [
+              expect.objectContaining({
+                exerciseId: "alpha",
+                allowedSections: ["training"],
+              }),
+            ],
+          },
+        },
+      },
+      fulfillment: {
+        satisfied: true,
+        producedResources: [
+          expect.objectContaining({
+            resourceType: "planner_visible_fixture",
+            role: "consumable",
+          }),
+        ],
+        unmetRequirements: [],
+      },
+    });
+    expect(plannerVisibleResult).not.toHaveProperty("output");
+    expect(plannerVisibleResult).not.toHaveProperty("toolCallId");
+    expect(plannerVisibleResult).not.toHaveProperty("toolVersion");
+    expect(plannerVisibleResult).not.toHaveProperty("idempotencyKey");
+    expect(plannerVisibleResult).not.toHaveProperty("normalizedInputHash");
+    expect(plannerVisibleResult).not.toHaveProperty("startedAt");
+    expect(plannerVisibleResult).not.toHaveProperty("completedAt");
+    expect(JSON.stringify(plannerVisibleResult)).not.toContain("projection\":{\"user\"");
+    expect(plannerVisibleToolResultJson).not.toContain("Planner 不应看到的用户展示投影。");
+    expect(plannerVisibleToolResultJson).not.toContain("https://example.test/user-only.png");
+    expect(plannerVisibleToolResultJson.length).toBeLessThan(fullRuntimeToolResultJson.length);
+    expect(fullRuntimeToolResultJson).toContain("Planner 不应看到的用户展示投影。");
+    expect(fullRuntimeToolResultJson).toContain("toolCallId");
+    expect(fullRuntimeToolResultJson).toContain("startedAt");
   });
 
   it("returns duplicate input feedback without executing the same handler or registering resources again", async () => {

@@ -444,8 +444,9 @@ describe("AgentActivityIndicator", () => {
     expect(html).not.toContain("text-right");
     expect(html).not.toContain("translate-y-[1px]");
     expect(html).toContain("motion-reduce:animate-none");
-    expect(html).not.toContain("motion-safe:animate-pulse");
+    expect(html).toContain("motion-safe:animate-pulse");
     expect(html).toContain("agent-activity-indicator");
+    expect(html).not.toContain("agent-activity-breathe");
     expect(html).not.toContain("validateRoutineDraft");
   });
 
@@ -526,6 +527,10 @@ describe("AgentActivityIndicator", () => {
 
     expect(componentSource).toContain("agent-activity-roll-current");
     expect(componentSource).toContain("agent-activity-roll-previous");
+    expect(componentSource).toContain("motion-safe:animate-pulse");
+    expect(componentSource).not.toContain("agent-activity-breathe");
+    expect(globalCss).not.toContain("@keyframes agent-activity-breathe");
+    expect(globalCss).not.toContain(".agent-activity-breathe::before");
     expect(globalCss).toContain("@keyframes agent-activity-current-in");
     expect(globalCss).toContain("@keyframes agent-activity-previous-out");
     expect(globalCss).toContain("@media (prefers-reduced-motion: reduce)");

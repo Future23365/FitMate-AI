@@ -67,7 +67,6 @@ describe("agent-core fixture read tool end to end", () => {
     expect(JSON.stringify(planner.calls[1].observations[0])).not.toContain("\"nextActionHints\"");
     expect(JSON.stringify(planner.calls[1].observations[0])).not.toContain("Fixture alpha-intro");
     expect(planner.calls[1].toolResults[0]).toMatchObject({
-      output: "[redacted]",
       projection: {
         model: expect.objectContaining({
           fixtureId: "alpha-intro",
@@ -75,6 +74,8 @@ describe("agent-core fixture read tool end to end", () => {
         }),
       },
     });
+    expect(planner.calls[1].toolResults[0]).not.toHaveProperty("output");
+    expect(planner.calls[1].toolResults[0]).not.toHaveProperty("toolCallId");
     expect(renderAgentResponseEvents(result)).toMatchObject([
       { type: "tool_result", toolName: "readFixture" },
       { type: "content", content: "fixture 已读取。" },

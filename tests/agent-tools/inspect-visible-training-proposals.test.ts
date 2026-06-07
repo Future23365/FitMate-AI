@@ -137,7 +137,6 @@ describe("inspectVisibleTrainingProposals tool", () => {
 
     expect(listToolResultForPlanner).toMatchObject({
       ok: true,
-      output: "[redacted]",
       projection: expect.objectContaining({
         model: expect.objectContaining({
           operation: "list_recent",
@@ -148,6 +147,7 @@ describe("inspectVisibleTrainingProposals tool", () => {
         }),
       }),
     });
+    expect(serializedToolResultForPlanner).not.toContain("\"output\"");
     expect(serializedToolResultForPlanner).toContain("\"factLevel\":\"diagnostic_index\"");
     expect(serializedToolResultForPlanner).not.toContain("\"nextActionHints\"");
     expect(serializedToolResultForPlanner).not.toContain("supportsOutputKinds");
@@ -241,7 +241,6 @@ describe("inspectVisibleTrainingProposals tool", () => {
 
     expect(readToolResultForPlanner).toMatchObject({
       ok: true,
-      output: "[redacted]",
       projection: expect.objectContaining({
         model: expect.objectContaining({
           operation: "read_recent",
@@ -269,6 +268,7 @@ describe("inspectVisibleTrainingProposals tool", () => {
         }),
       }),
     });
+    expect(serializedToolResultForPlanner).not.toContain("\"output\"");
     expect(serializedToolResultForPlanner).toContain("visibleOutputSchemaVersion");
     expect(serializedToolResultForPlanner).toContain("factSchemaVersion");
     expect(serializedToolResultForPlanner).toContain("\"factLevel\":\"consumable\"");

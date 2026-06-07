@@ -62,8 +62,16 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
       meaning: "ResourceStore 中 role = consumable 的当前 run resource，可用于支撑成功 final_answer 或结构化输出。",
     },
     {
-      field: "toolResults[].producedResources",
+      field: "toolResults[].fulfillment.producedResources",
       meaning: "tool 执行后登记给当前 run 的 resource 引用来源；模型不能自行编造。",
+    },
+    {
+      field: "toolResults[].fulfillment.consumedResources",
+      meaning: "tool 执行时已经消费的当前 run resource 引用，说明当前结果依赖哪些已登记事实。",
+    },
+    {
+      field: "toolResults[].fulfillment.unmetRequirements",
+      meaning: "tool 暴露的未满足条件，只能用于补充 tool 调用、澄清或失败解释，不能当成成功训练交付事实。",
     },
     {
       field: "resource summary",

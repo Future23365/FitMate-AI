@@ -9,6 +9,7 @@ import {
   OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
   TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
 } from "@/lib/server/agent-core/observation";
+import { toPlannerVisibleToolResult } from "@/lib/server/agent-core/planner-visible-tool-result";
 import { runAgentRuntime } from "@/lib/server/agent-core/runtime";
 import { createM0FixtureToolRegistry } from "@/lib/server/agent-tools";
 import { LlmPlanner } from "@/lib/server/agent-planners/llm-planner";
@@ -466,6 +467,9 @@ describe("agent-planners LlmPlanner and model adapters", () => {
         model: {
           factText: "权威成功事实只应在 toolResults 中出现。",
         },
+        user: {
+          displayText: "用户展示投影不应进入 Planner。",
+        },
       },
       fulfillment: {
         satisfied: true,
@@ -483,7 +487,7 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       step: 2,
       manifests: [],
       observations: [observation],
-      toolResults: [successResult],
+      toolResults: [toPlannerVisibleToolResult(successResult)],
     }));
     const body = requestBodies[0] as {
       messages: Array<{ role: string; content: string }>;
@@ -499,7 +503,15 @@ describe("agent-planners LlmPlanner and model adapters", () => {
     expect(JSON.stringify(modelInput.context.observations)).toContain(TOOL_RESULT_MODEL_PROJECTION_CHANNEL);
     expect(JSON.stringify(modelInput.context.observations)).not.toContain("权威成功事实只应在 toolResults 中出现");
     expect(JSON.stringify(modelInput.context.toolResults)).toContain("权威成功事实只应在 toolResults 中出现");
+    expect(JSON.stringify(modelInput.context.toolResults)).not.toContain("用户展示投影不应进入 Planner。");
     expect(JSON.stringify(modelInput.context.toolResults)).not.toContain("raw handler output");
+    expect(JSON.stringify(modelInput.context.toolResults)).not.toContain("\"output\"");
+    expect(JSON.stringify(modelInput.context.toolResults)).not.toContain("tc_projection");
+    expect(JSON.stringify(modelInput.context.toolResults)).not.toContain("idem_projection");
+    expect(JSON.stringify(modelInput.context.toolResults)).not.toContain("hash_projection");
+    expect(JSON.stringify(modelInput.context.toolResults)).not.toContain("toolVersion");
+    expect(JSON.stringify(modelInput.context.toolResults)).not.toContain("startedAt");
+    expect(JSON.stringify(modelInput.context.toolResults).length).toBeLessThan(JSON.stringify([successResult]).length);
     expect(completion.trace?.request.run).toMatchObject({
       observationCount: 1,
       toolResultCount: 1,
@@ -666,6 +678,8 @@ describe("agent-planners LlmPlanner and model adapters", () => {
     expect(modelInput.context.toolResults).toEqual([]);
     expect(body.messages[0].content).toContain(JSON.stringify(getAgentActionContract().schemaId));
     expect(body.messages[0].content).toContain("fieldDictionary");
+    expect(body.messages[0].content).toContain("toolResults[].fulfillment.producedResources");
+    expect(body.messages[0].content).not.toContain("toolResults[].producedResources");
     expect(body.messages[0].content).toContain("missing_training_constraints");
     expect(body.messages[0].content).not.toContain("ask_user.question");
     expect(body.messages[0].content).toContain("outputContracts");

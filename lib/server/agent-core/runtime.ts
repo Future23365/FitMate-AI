@@ -19,6 +19,7 @@ import {
   createToolObservation,
 } from "./observation";
 import { evaluateToolPolicy } from "./policy-guard";
+import { toPlannerVisibleToolResult } from "./planner-visible-tool-result";
 import { redactJsonValue } from "./redaction";
 import { validateAndRegisterProducedResources, validateConsumedResources } from "./resource-contract";
 import { ResourceStore } from "./resource-store";
@@ -149,7 +150,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
       step,
       manifests,
       observations: compressPlannerObservations(observations),
-      toolResults: toolResults.map(redactToolResultForPlanner),
+      toolResults: toolResults.map(toPlannerVisibleToolResult),
     };
     const plannerInput = {
       ...plannerContext,
@@ -1065,17 +1066,5 @@ function finalizeToolResultResources(input: {
       },
     },
     resourceTraceEvents,
-  };
-}
-
-/** redactToolResultForPlanner 防止完整 handler output 回灌给 Planner，只保留安全投影和履约摘要。 */
-function redactToolResultForPlanner(result: ToolResult): ToolResult {
-  if (!result.ok) {
-    return result;
-  }
-
-  return {
-    ...result,
-    output: "[redacted]",
   };
 }

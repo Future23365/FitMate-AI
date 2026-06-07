@@ -141,7 +141,9 @@ export const defaultAgentActionContract: AgentActionContract = {
     { field: "visibleOutputs", meaning: "final_answer 可选结构化用户可见输出；每项都必须遵守 outputContracts[]。" },
     { field: "outputContracts", meaning: "当前 run 可输出结构化结果的模型可见能力说明，不是服务端路由规则。" },
     { field: "toolResults[].fulfillment.satisfied", meaning: "该 tool result 是否满足工具能力；false 只能用于恢复、澄清或失败解释。" },
-    { field: "toolResults[].producedResources", meaning: "本 run 工具执行后登记的 resource 引用来源；只有 consumable resource 可支撑成功结果。" },
+    { field: "toolResults[].fulfillment.producedResources", meaning: "本 run 工具执行后登记的 resource 引用来源；只有 consumable resource 可支撑成功结果。" },
+    { field: "toolResults[].fulfillment.consumedResources", meaning: "该 tool result 已消费的当前 run resource 引用，用于解释事实依赖和后续恢复边界。" },
+    { field: "toolResults[].fulfillment.unmetRequirements", meaning: "该 tool result 暴露的未满足条件；只能用于恢复、澄清、失败解释或下一轮 tool input 修正。" },
     { field: "factRef", meaning: "历史可见训练方案事实引用，只能作为对应读取 tool 的 ref.value；不能写入 final_answer.usedRefs.resource.id。" },
     { field: "messageId", meaning: "历史消息引用，只能作为对应读取 tool 的 ref.value；不能写入 final_answer.usedRefs.resource.id。" },
     { field: "resource.id", meaning: "当前 run 已登记 resourceId；只有这种 id 能进入 final_answer.usedRefs 中 type=resource 的引用。" },
@@ -301,6 +303,7 @@ const terminalFailureFinalizerSystemPromptInstructions = [
   "`content` 必须是简短自然语言，说明本轮未完成、为什么需要下一步恢复，并给出用户可继续对话的方向。",
   "`suggestedQuestions` 最多 3 条；每条必须是用户口吻的完整自然语言问题，点击后只代表下一轮普通用户消息，不代表服务端已经执行任何操作。",
   "`suggestedQuestions` 不得承诺不可用能力、医疗诊断、保存结果、未注册 tool 或已经完成的业务结果。",
+  "`suggestedQuestions` 应基于本轮 failure 摘要生成用户可继续尝试的下一轮问题。不得把 blockedOutputs、unmetRequirements 或 validator 已明确判定不可通过的同一方案形态，包装成看似可行的下一步建议推送给用户。若某个方向是否可执行并不确定，可以用澄清、重新描述或调整目标的方式表达；不要承诺一定能完成，也不要暗示用户改口即可绕过本轮校验失败。",
   "技术标识如 `content`、`suggestedQuestions`、`AgentAction`、`tool_call`、`visibleOutputs`、NDJSON 保持英文原样；其他业务说明使用中文。",
 ] as const;
 

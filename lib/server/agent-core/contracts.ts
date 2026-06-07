@@ -426,6 +426,25 @@ export type ToolResult<Output = unknown> = {
     }
 );
 
+/** PlannerVisibleToolResult 是传给 Planner 的 tool result 瘦身事实视图，不携带用户展示投影或执行元数据。 */
+export type PlannerVisibleToolResult =
+  | {
+      toolResultId: string;
+      toolName: string;
+      ok: true;
+      projection: {
+        model?: JsonValue;
+      };
+      fulfillment: ToolFulfillment;
+    }
+  | {
+      toolResultId: string;
+      toolName: string;
+      ok: false;
+      error: ToolError;
+      fulfillment: ToolFulfillment;
+    };
+
 /** AgentObservation 是 Runtime 回传给 Planner 的安全观察值，不承载完整 tool output。 */
 export type AgentObservation = {
   type: "tool_result" | "invalid_action" | "runtime_error";

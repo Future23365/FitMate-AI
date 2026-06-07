@@ -55,27 +55,24 @@ function AgentActivityScroller({
     previous: null,
   });
 
-  useEffect(() => {
-    setAnimationState((currentState) => {
-      if (currentState.current.key === nextSnapshot.key) {
-        return currentState;
-      }
-
-      return {
-        current: nextSnapshot,
-        previous: currentState.current,
-      };
+  if (animationState.current.key !== nextSnapshot.key) {
+    setAnimationState({
+      current: nextSnapshot,
+      previous: animationState.current,
     });
-  }, [nextSnapshot]);
+  }
+
+  const currentAnimationKey = animationState.current.key;
+  const previousSnapshot = animationState.previous;
 
   useEffect(() => {
-    if (!animationState.previous) {
+    if (!previousSnapshot) {
       return;
     }
 
     const timer = window.setTimeout(() => {
       setAnimationState((currentState) => (
-        currentState.current.key === animationState.current.key
+        currentState.current.key === currentAnimationKey
           ? { ...currentState, previous: null }
           : currentState
       ));
@@ -83,8 +80,8 @@ function AgentActivityScroller({
 
     return () => window.clearTimeout(timer);
   }, [
-    animationState.current.key,
-    animationState.previous,
+    currentAnimationKey,
+    previousSnapshot,
   ]);
 
   return (
@@ -122,12 +119,14 @@ function AgentActivityLine({
       aria-hidden={ariaHidden || undefined}
       className={`inline-flex min-w-0 max-w-full items-baseline gap-[2px] ${snapshot.toneClass} ${className}`}
     >
-      <span
-        className="inline-block w-[1.375rem] shrink-0 text-left font-mono text-label-sm leading-[16px] tabular-nums text-primary/55"
-      >
-        {snapshot.roundLabel}
+      <span className="inline-flex min-w-0 max-w-full items-baseline gap-[2px] motion-safe:animate-pulse motion-reduce:animate-none">
+        <span
+          className="inline-block w-[1.375rem] shrink-0 text-left font-mono text-label-sm leading-[16px] tabular-nums text-primary/55"
+        >
+          {snapshot.roundLabel}
+        </span>
+        <span className="block min-w-0 truncate leading-[16px]">{snapshot.label}</span>
       </span>
-      <span className="block min-w-0 truncate leading-[16px]">{snapshot.label}</span>
     </span>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import {
   getAgentTextChatErrorMessage,
@@ -36,7 +36,9 @@ import {
 
 const chatRequestTimeoutMs = 45_000;
 const thinkingEnabledStorageKey = "fitmate.chat.thinkingEnabled";
+const thinkingEnabledPreferenceChangeEvent = "fitmate:chat-thinking-enabled-changed";
 const defaultThinkingEnabled = false;
+let inMemoryThinkingEnabledPreference = defaultThinkingEnabled;
 
 type ChatInitialResponseToastUpdate =
   | { type: "dismiss" }
@@ -122,11 +124,59 @@ export function getChatInitialResponseRequestErrorMessage(error: unknown) {
 }
 
 function readThinkingEnabledPreference() {
-  try {
-    return window.localStorage.getItem(thinkingEnabledStorageKey) === "true";
-  } catch {
+  if (typeof window === "undefined") {
     return defaultThinkingEnabled;
   }
+
+  try {
+    const storedPreference = window.localStorage.getItem(thinkingEnabledStorageKey);
+    return storedPreference === null
+      ? inMemoryThinkingEnabledPreference
+      : storedPreference === "true";
+  } catch {
+    return inMemoryThinkingEnabledPreference;
+  }
+}
+
+function getDefaultThinkingEnabledPreference() {
+  return defaultThinkingEnabled;
+}
+
+function subscribeThinkingEnabledPreference(onStoreChange: () => void) {
+  if (typeof window === "undefined") {
+    return () => {};
+  }
+
+  function handleStorageChange(event: StorageEvent) {
+    if (event.key === thinkingEnabledStorageKey || event.key === null) {
+      onStoreChange();
+    }
+  }
+
+  window.addEventListener("storage", handleStorageChange);
+  window.addEventListener(thinkingEnabledPreferenceChangeEvent, onStoreChange);
+
+  return () => {
+    window.removeEventListener("storage", handleStorageChange);
+    window.removeEventListener(thinkingEnabledPreferenceChangeEvent, onStoreChange);
+  };
+}
+
+function writeThinkingEnabledPreference(nextValue: boolean) {
+  if (typeof window === "undefined") {
+    inMemoryThinkingEnabledPreference = nextValue;
+    return;
+  }
+
+  inMemoryThinkingEnabledPreference = nextValue;
+
+  try {
+    window.localStorage.setItem(thinkingEnabledStorageKey, String(nextValue));
+  } catch {
+    // localStorage 不可用时保留当前会话内偏好，并通过订阅通知刷新 UI。
+  }
+
+  window.dispatchEvent(new Event(thinkingEnabledPreferenceChangeEvent));
 }
 
 export function useChatController() {
@@ -137,9 +187,17 @@ export function useChatController() {
   const [error, setError] = useState("");
   const [agentActivity, setAgentActivity] = useState<VisibleAgentActivity | null>(null);
   const [activeAgentActivityMessageId, setActiveAgentActivityMessageId] = useState<string | null>(null);
-  // 首帧使用固定默认值，挂载后再读取 localStorage，避免 SSR 与客户端首帧不一致。
-  const [thinkingEnabled, setThinkingEnabled] = useState(defaultThinkingEnabled);
-  const [thinkingPreferenceReady, setThinkingPreferenceReady] = useState(false);
+  // useSyncExternalStore 用 server snapshot 稳住 hydration，再从客户端偏好源刷新显示。
+  const thinkingEnabled = useSyncExternalStore(
+    subscribeThinkingEnabledPreference,
+    readThinkingEnabledPreference,
+    getDefaultThinkingEnabledPreference,
+  );
+  const setThinkingEnabled = useCallback((nextValue: boolean | ((current: boolean) => boolean)) => {
+    writeThinkingEnabledPreference(
+      typeof nextValue === "function" ? nextValue(readThinkingEnabledPreference()) : nextValue,
+    );
+  }, []);
   const [conversationContext, setConversationContext] = useState<FitnessConversationContext>(() =>
     buildFitnessConversationContext([]),
   );
@@ -149,23 +207,6 @@ export function useChatController() {
   const skipNextAutoSaveRef = useRef(false);
   const pendingConversationLoadToastRef = useRef<AsyncToastLifecycle | null>(null);
   const pendingInitialResponseToastRef = useRef<AsyncToastLifecycle | null>(null);
-
-  useEffect(() => {
-    setThinkingEnabled(readThinkingEnabledPreference());
-    setThinkingPreferenceReady(true);
-  }, []);
-
-  useEffect(() => {
-    if (!thinkingPreferenceReady) {
-      return;
-    }
-
-    try {
-      window.localStorage.setItem(thinkingEnabledStorageKey, String(thinkingEnabled));
-    } catch {
-      // localStorage 不可用时保持当前会话内状态即可
-    }
-  }, [thinkingEnabled, thinkingPreferenceReady]);
 
   useEffect(() => {
     async function loadConversation(id: string) {
