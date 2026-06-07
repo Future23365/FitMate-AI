@@ -1,4 +1,5 @@
 # FitMate AI
+体验地址：[https://www.proshow.site/](https://www.proshow.site/)（香港服务器，大陆内访问可能较慢）
 
 FitMate AI 是一个基于 Agent 编排的 AI 健身聊天助手。系统通过自然语言理解用户的训练目标、可用时间、器械条件、身体限制和训练偏好，并结合数据库中的动作事实生成可展示、可校验的训练建议。
 

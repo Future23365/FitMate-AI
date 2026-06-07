@@ -5,6 +5,8 @@
 本项目是一个 AI 健身聊天助手。系统通过自然语言交互理解用户的健身目标、身体状态、训练限制、训练偏好和可用时间，并据此生成、调整和执行个性化训练计划。
 
 完整架构说明见：`docs/architecture.md`。
+AgentLoop架构设计：`docs/agent-tool-orchestrator-design.md`
+Prompt设计规范：`docs/llm-prompt-guidance.md`
 
 ## OpenSpec 使用规则
 
