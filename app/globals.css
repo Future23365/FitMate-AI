@@ -566,7 +566,7 @@ body,
     align-items: flex-start;
     column-gap: var(--spacing-md);
     display: grid;
-    grid-template-columns: 58px minmax(0, 1fr) auto;
+    grid-template-columns: 58px minmax(0, 1fr) 104px;
   }
 
   .composer-exercise-order {
@@ -584,21 +584,27 @@ body,
   }
 
   .composer-prescription-control {
-    justify-content: center;
-    justify-self: center;
+    align-items: center;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    justify-items: center;
+    justify-self: stretch;
     margin-left: 0;
     margin-right: 0;
-    width: max-content;
+    width: 100%;
   }
 
   .composer-exercise-actions {
-    align-self: center;
+    align-items: center;
+    align-self: stretch;
     flex-direction: column;
     gap: 4px;
     grid-column: 3;
     grid-row: 1;
+    justify-content: center;
     margin-top: 0;
     padding-left: 0;
+    width: 104px;
   }
 }
 
