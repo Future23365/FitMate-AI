@@ -53,6 +53,11 @@ function findExerciseById(exerciseId: string, exerciseMap: Map<string, Exercise>
   return exerciseMap.get(exerciseId) ?? exerciseMap.get(exerciseId.toLowerCase());
 }
 
+// 卡片摘要和顶部时长 badge 共享最终渲染估算，避免同一卡片出现两个分钟数。
+function syncSummaryEstimatedMinutes(summary: string | undefined, estimatedMinutes: number) {
+  return summary?.replace(/预估\s*\d+\s*分钟/g, `预估 ${estimatedMinutes} 分钟`);
+}
+
 async function fetchExerciseById(exerciseId: string) {
   const data = await clientRequest<ExerciseApiResponse>(
     `/api/exercises/${encodeURIComponent(exerciseId)}`,
@@ -167,6 +172,10 @@ export function WorkoutRoutineDraftCard({
         trainingLoopRestSeconds: draft.trainingLoopRestSeconds,
       })
     : draft.estimatedSessionMinutes;
+  const displaySummary = useMemo(
+    () => syncSummaryEstimatedMinutes(draft.summary, estimatedMinutes),
+    [draft.summary, estimatedMinutes],
+  );
 
   useEffect(() => {
     const missingExerciseIds = draftExerciseIds.filter(
@@ -311,8 +320,8 @@ export function WorkoutRoutineDraftCard({
             <h3 className="mt-sm font-title-lg text-title-lg font-bold text-on-surface">
               {draft.title}
             </h3>
-            {draft.summary && (
-              <p className="mt-xs font-body-sm text-body-sm text-muted">{draft.summary}</p>
+            {displaySummary && (
+              <p className="mt-xs font-body-sm text-body-sm text-muted">{displaySummary}</p>
             )}
           </div>
           <div className="shrink-0 self-start">
