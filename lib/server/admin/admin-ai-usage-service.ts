@@ -14,6 +14,27 @@ export type AdminTokenUsageProjection = {
   recordedUsageCount: number;
 };
 
+export const adminUserListSortFields = ["createdAt", "lastReplyAt", "totalTokens"] as const;
+export const adminSortDirections = ["asc", "desc"] as const;
+
+export type AdminUserListSortField = typeof adminUserListSortFields[number];
+export type AdminSortDirection = typeof adminSortDirections[number];
+
+export type AdminUserListSortInput = {
+  sortBy?: string | null;
+  sortDirection?: string | null;
+};
+
+export type AdminUserListSortState = {
+  sortBy: AdminUserListSortField;
+  sortDirection: AdminSortDirection;
+};
+
+export const defaultAdminUserListSort: AdminUserListSortState = {
+  sortBy: "createdAt",
+  sortDirection: "desc",
+};
+
 export type AdminUsageOverviewProjection = {
   userCount: number;
   conversationCount: number;
@@ -27,6 +48,7 @@ export type AdminUserListItemProjection = {
   displayName: string | null;
   identityLabel: string;
   createdAt: string;
+  lastReplyAt: string | null;
   conversationCount: number;
   messageCount: number;
   tokenUsage: AdminTokenUsageProjection;
@@ -76,6 +98,7 @@ export type AdminMessageUsageProjection = {
 export type AdminListUsersResult = {
   items: AdminUserListItemProjection[];
   limit: number;
+  sort: AdminUserListSortState;
 };
 
 type AdminUserRow = {
@@ -132,7 +155,7 @@ type AdminAiUsageReader = {
   countConversations: () => Promise<number>;
   countMessages: () => Promise<number>;
   aggregateUsage: (filter?: AdminUsageSummaryFilter) => Promise<AdminUsageAggregateRow>;
-  listUsers: (input: { limit: number }) => Promise<AdminUserRow[]>;
+  listUsers: (input: { limit: number; sort: AdminUserListSortState }) => Promise<AdminUserRow[]>;
   findUser: (userId: string) => Promise<AdminUserRow | null>;
   listSessionsForUserIds: (userIds: string[]) => Promise<AdminSessionRow[]>;
   listSessionsForUser: (input: { userId: string; limit: number }) => Promise<AdminSessionRow[]>;
@@ -166,13 +189,14 @@ export async function getAdminUsageOverview(options: AdminServiceOptions = {}): 
 
 /** listAdminUsers 输出后台用户列表投影，并用集中配置限制默认分页规模。 */
 export async function listAdminUsers(
-  input: { limit?: number } = {},
+  input: { limit?: number } & AdminUserListSortInput = {},
   options: AdminServiceOptions = {},
 ): Promise<AdminListUsersResult> {
   const config = options.config ?? getAdminConfig();
   const reader = options.reader ?? createPrismaAdminAiUsageReader();
   const limit = clampLimit(input.limit, config);
-  const users = await reader.listUsers({ limit });
+  const sort = resolveAdminUserListSort(input);
+  const users = await reader.listUsers({ limit, sort });
   const userIds = users.map((user) => user.id);
   const [sessions, usageRows] = await Promise.all([
     reader.listSessionsForUserIds(userIds),
@@ -183,12 +207,21 @@ export async function listAdminUsers(
 
   return {
     limit,
-    items: users.map((user) => ({
-      ...toAdminUserIdentityProjection(user),
-      conversationCount: sessionStats.get(user.id)?.conversationCount ?? 0,
-      messageCount: sessionStats.get(user.id)?.messageCount ?? 0,
-      tokenUsage: toTokenUsageProjection(usageByUser.get(user.id) ?? emptyUsageAggregate()),
-    })),
+    sort,
+    items: sortAdminUserListItems(
+      users.map((user) => {
+        const stats = sessionStats.get(user.id);
+
+        return {
+          ...toAdminUserIdentityProjection(user),
+          lastReplyAt: stats?.lastReplyAt ? toUtcISOString(stats.lastReplyAt) : null,
+          conversationCount: stats?.conversationCount ?? 0,
+          messageCount: stats?.messageCount ?? 0,
+          tokenUsage: toTokenUsageProjection(usageByUser.get(user.id) ?? emptyUsageAggregate()),
+        };
+      }),
+      sort,
+    ),
   };
 }
 
@@ -280,12 +313,7 @@ function createPrismaAdminAiUsageReader(prisma: PrismaClient = getPrismaClient()
     countConversations: () => prisma.chatSession.count(),
     countMessages: () => prisma.chatMessage.count(),
     aggregateUsage: (filter) => aggregatePrismaUsage(prisma, filter),
-    listUsers: async ({ limit }) => prisma.user.findMany({
-      where: { deletedAt: null },
-      orderBy: { createdAt: "desc" },
-      take: limit,
-      select: userSelect,
-    }),
+    listUsers: (input) => listPrismaAdminUsers(prisma, input),
     findUser: async (userId) => prisma.user.findFirst({
       where: { id: userId, deletedAt: null },
       select: userSelect,
@@ -374,6 +402,117 @@ async function aggregatePrismaUsage(
   };
 }
 
+async function listPrismaAdminUsers(
+  prisma: PrismaClient,
+  input: { limit: number; sort: AdminUserListSortState },
+) {
+  switch (input.sort.sortBy) {
+    case "createdAt":
+      return prisma.user.findMany({
+        where: { deletedAt: null },
+        orderBy: { createdAt: input.sort.sortDirection },
+        take: input.limit,
+        select: userSelect,
+      });
+    case "lastReplyAt":
+      return listPrismaUsersByLastReplyAt(prisma, input);
+    case "totalTokens":
+      return listPrismaUsersByTotalTokens(prisma, input);
+  }
+}
+
+async function listPrismaUsersByLastReplyAt(
+  prisma: PrismaClient,
+  input: { limit: number; sort: AdminUserListSortState },
+) {
+  const groups = await prisma.chatSession.groupBy({
+    by: ["userId"],
+    where: {
+      user: { deletedAt: null },
+    },
+    _max: {
+      updatedAt: true,
+    },
+    orderBy: {
+      _max: {
+        updatedAt: input.sort.sortDirection,
+      },
+    },
+    take: input.limit,
+  });
+  const users = await listUsersByIdsInOrder(prisma, groups.map((group) => group.userId));
+
+  return appendRemainingUsers(prisma, users, input.limit);
+}
+
+async function listPrismaUsersByTotalTokens(
+  prisma: PrismaClient,
+  input: { limit: number; sort: AdminUserListSortState },
+) {
+  const groups = await prisma.aiTokenUsageSummary.groupBy({
+    by: ["userId"],
+    where: {
+      totalTokens: { not: null },
+      user: { deletedAt: null },
+    },
+    _sum: {
+      totalTokens: true,
+    },
+    orderBy: {
+      _sum: {
+        totalTokens: input.sort.sortDirection,
+      },
+    },
+    take: input.limit,
+  });
+  const users = await listUsersByIdsInOrder(prisma, groups.map((group) => group.userId));
+
+  return appendRemainingUsers(prisma, users, input.limit);
+}
+
+async function listUsersByIdsInOrder(prisma: PrismaClient, userIds: string[]) {
+  if (userIds.length === 0) {
+    return [];
+  }
+
+  const users = await prisma.user.findMany({
+    where: {
+      id: { in: userIds },
+      deletedAt: null,
+    },
+    select: userSelect,
+  });
+  const usersById = new Map(users.map((user) => [user.id, user]));
+
+  return userIds.flatMap((userId) => {
+    const user = usersById.get(userId);
+
+    return user ? [user] : [];
+  });
+}
+
+async function appendRemainingUsers(
+  prisma: PrismaClient,
+  users: AdminUserRow[],
+  limit: number,
+) {
+  if (users.length >= limit) {
+    return users;
+  }
+
+  const remainingUsers = await prisma.user.findMany({
+    where: {
+      deletedAt: null,
+      id: { notIn: users.map((user) => user.id) },
+    },
+    orderBy: { createdAt: "desc" },
+    take: limit - users.length,
+    select: userSelect,
+  });
+
+  return [...users, ...remainingUsers];
+}
+
 const userSelect = {
   id: true,
   email: true,
@@ -460,17 +599,84 @@ function getUserIdentityLabel(user: Pick<AdminUserRow, "email" | "displayName" |
   return user.displayName ?? user.email ?? `匿名用户 ${user.id.slice(0, 8)}`;
 }
 
+/** resolveAdminUserListSort 收敛后台用户列表排序输入，避免 UI 和 Route 复制默认规则。 */
+export function resolveAdminUserListSort(input: AdminUserListSortInput = {}): AdminUserListSortState {
+  const sortBy = input.sortBy && isAdminUserListSortField(input.sortBy)
+    ? input.sortBy
+    : defaultAdminUserListSort.sortBy;
+  const sortDirection = input.sortDirection && isAdminSortDirection(input.sortDirection)
+    ? input.sortDirection
+    : defaultAdminUserListSort.sortDirection;
+
+  return { sortBy, sortDirection };
+}
+
+function isAdminUserListSortField(value: string): value is AdminUserListSortField {
+  return adminUserListSortFields.includes(value as AdminUserListSortField);
+}
+
+function isAdminSortDirection(value: string): value is AdminSortDirection {
+  return adminSortDirections.includes(value as AdminSortDirection);
+}
+
 function buildSessionStatsByUser(sessions: AdminSessionRow[]) {
-  const statsByUser = new Map<string, { conversationCount: number; messageCount: number }>();
+  const statsByUser = new Map<string, { conversationCount: number; messageCount: number; lastReplyAt: Date | null }>();
 
   for (const session of sessions) {
-    const current = statsByUser.get(session.userId) ?? { conversationCount: 0, messageCount: 0 };
+    const current = statsByUser.get(session.userId) ?? { conversationCount: 0, messageCount: 0, lastReplyAt: null };
     current.conversationCount += 1;
     current.messageCount += session.messageCount;
+    current.lastReplyAt = maxDate(current.lastReplyAt, session.updatedAt);
     statsByUser.set(session.userId, current);
   }
 
   return statsByUser;
+}
+
+function sortAdminUserListItems(
+  items: AdminUserListItemProjection[],
+  sort: AdminUserListSortState,
+) {
+  return [...items].sort((left, right) => compareAdminUserListItems(left, right, sort));
+}
+
+function compareAdminUserListItems(
+  left: AdminUserListItemProjection,
+  right: AdminUserListItemProjection,
+  sort: AdminUserListSortState,
+) {
+  switch (sort.sortBy) {
+    case "createdAt":
+      return compareNullableNumbers(Date.parse(left.createdAt), Date.parse(right.createdAt), sort.sortDirection);
+    case "lastReplyAt":
+      return compareNullableNumbers(
+        left.lastReplyAt ? Date.parse(left.lastReplyAt) : null,
+        right.lastReplyAt ? Date.parse(right.lastReplyAt) : null,
+        sort.sortDirection,
+      );
+    case "totalTokens":
+      return compareNullableNumbers(left.tokenUsage.totalTokens, right.tokenUsage.totalTokens, sort.sortDirection);
+  }
+}
+
+function compareNullableNumbers(left: number | null, right: number | null, direction: AdminSortDirection) {
+  if (left === null && right === null) {
+    return 0;
+  }
+
+  if (left === null) {
+    return 1;
+  }
+
+  if (right === null) {
+    return -1;
+  }
+
+  return direction === "asc" ? left - right : right - left;
+}
+
+function maxDate(left: Date | null, right: Date) {
+  return !left || right.getTime() > left.getTime() ? right : left;
 }
 
 function aggregateUsageRowsBy(rows: AdminUsageSummaryRow[], getKey: (row: AdminUsageSummaryRow) => string) {

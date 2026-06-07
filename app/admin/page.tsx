@@ -8,14 +8,18 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { isAdminAuthError, requireAdminUserFromCookieHeader } from "@/lib/server/auth/admin-guard";
 import {
+  defaultAdminUserListSort,
   getAdminConversationDetail,
   getAdminUsageOverview,
   getAdminUserDetail,
   listAdminUsers,
+  resolveAdminUserListSort,
   type AdminConversationDetailProjection,
   type AdminTokenUsageProjection,
   type AdminUserDetailProjection,
   type AdminUserListItemProjection,
+  type AdminUserListSortField,
+  type AdminUserListSortState,
   type AdminUsageOverviewProjection,
 } from "@/lib/server/admin/admin-ai-usage-service";
 import { cn } from "@/lib/utils";
@@ -42,9 +46,13 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
   const params = await searchParams;
   const selectedUserId = readFirstParam(params?.userId);
   const selectedConversationId = readFirstParam(params?.conversationId);
+  const userListSort = resolveAdminUserListSort({
+    sortBy: readFirstParam(params?.sortBy),
+    sortDirection: readFirstParam(params?.sortDirection),
+  });
   const [overview, users, selectedUser, selectedConversation] = await Promise.all([
     getAdminUsageOverview(),
-    listAdminUsers(),
+    listAdminUsers(userListSort),
     selectedUserId ? getAdminUserDetail(selectedUserId) : Promise.resolve(null),
     selectedConversationId ? getAdminConversationDetail(selectedConversationId) : Promise.resolve(null),
   ]);
@@ -69,10 +77,19 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
         <OverviewPanel overview={overview} />
 
         <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.9fr)]">
-          <UsersPanel users={users.items} />
+          <UsersPanel
+            selectedConversationId={selectedConversationId}
+            selectedUserId={selectedUserId}
+            sort={users.sort}
+            users={users.items}
+          />
           <div className="flex flex-col gap-6">
             {selectedUser ? (
-              <UserDetailPanel detail={selectedUser} selectedConversationId={selectedConversationId} />
+              <UserDetailPanel
+                detail={selectedUser}
+                selectedConversationId={selectedConversationId}
+                sort={users.sort}
+              />
             ) : (
               <EmptySelection title="用户详情" />
             )}
@@ -127,22 +144,51 @@ function MetricCard({
   );
 }
 
-function UsersPanel({ users }: { users: AdminUserListItemProjection[] }) {
+function UsersPanel({
+  selectedConversationId,
+  selectedUserId,
+  sort,
+  users,
+}: {
+  selectedConversationId: string | undefined;
+  selectedUserId: string | undefined;
+  sort: AdminUserListSortState;
+  users: AdminUserListItemProjection[];
+}) {
   return (
     <Card className="rounded-lg">
       <CardHeader>
         <CardTitle>用户列表</CardTitle>
-        <CardDescription>按创建时间倒序</CardDescription>
+        <CardDescription>{formatSortDescription(sort)}</CardDescription>
       </CardHeader>
       <CardContent className="custom-scrollbar max-h-[min(760px,calc(100dvh-260px))] overflow-auto pb-6">
         <table className="w-full min-w-[760px] border-separate border-spacing-0 text-left text-body-sm">
           <thead className="text-label-sm text-muted-foreground">
             <tr>
               <TableHead>用户</TableHead>
-              <TableHead>创建时间</TableHead>
+              <SortableTableHead
+                field="createdAt"
+                label="创建时间"
+                selectedConversationId={selectedConversationId}
+                selectedUserId={selectedUserId}
+                sort={sort}
+              />
+              <SortableTableHead
+                field="lastReplyAt"
+                label="最后回复时间"
+                selectedConversationId={selectedConversationId}
+                selectedUserId={selectedUserId}
+                sort={sort}
+              />
               <TableHead>会话</TableHead>
               <TableHead>消息</TableHead>
-              <TableHead>Token</TableHead>
+              <SortableTableHead
+                field="totalTokens"
+                label="Token 总量"
+                selectedConversationId={selectedConversationId}
+                selectedUserId={selectedUserId}
+                sort={sort}
+              />
               <TableHead>操作</TableHead>
             </tr>
           </thead>
@@ -154,12 +200,13 @@ function UsersPanel({ users }: { users: AdminUserListItemProjection[] }) {
                   <div className="max-w-[220px] truncate text-label-sm text-muted-foreground">{user.userId}</div>
                 </TableCell>
                 <TableCell>{formatDate(user.createdAt)}</TableCell>
+                <TableCell>{formatNullableDate(user.lastReplyAt)}</TableCell>
                 <TableCell>{user.conversationCount}</TableCell>
                 <TableCell>{user.messageCount}</TableCell>
                 <TableCell><TokenInline usage={user.tokenUsage} /></TableCell>
                 <TableCell>
                   <Button asChild variant="outline" size="sm">
-                    <Link href={`/admin?userId=${encodeURIComponent(user.userId)}`}>
+                    <Link href={createAdminHref({ sort, userId: user.userId })}>
                       <SymbolIcon className="text-[18px]">person_search</SymbolIcon>
                       查看
                     </Link>
@@ -177,9 +224,11 @@ function UsersPanel({ users }: { users: AdminUserListItemProjection[] }) {
 function UserDetailPanel({
   detail,
   selectedConversationId,
+  sort,
 }: {
   detail: AdminUserDetailProjection;
   selectedConversationId: string | undefined;
+  sort: AdminUserListSortState;
 }) {
   return (
     <Card className="rounded-lg">
@@ -201,7 +250,11 @@ function UserDetailPanel({
               return (
                 <Link
                   key={conversation.conversationId}
-                  href={`/admin?userId=${encodeURIComponent(detail.user.userId)}&conversationId=${encodeURIComponent(conversation.conversationId)}`}
+                  href={createAdminHref({
+                    conversationId: conversation.conversationId,
+                    sort,
+                    userId: detail.user.userId,
+                  })}
                   aria-current={isSelected ? "page" : undefined}
                   className={cn(
                     "rounded-lg border px-3 py-2 transition-colors",
@@ -338,6 +391,42 @@ function TableHead({ children }: { children: ReactNode }) {
   return <th className="border-b border-border px-3 py-2 font-medium">{children}</th>;
 }
 
+function SortableTableHead({
+  field,
+  label,
+  selectedConversationId,
+  selectedUserId,
+  sort,
+}: {
+  field: AdminUserListSortField;
+  label: string;
+  selectedConversationId: string | undefined;
+  selectedUserId: string | undefined;
+  sort: AdminUserListSortState;
+}) {
+  const isActive = sort.sortBy === field;
+  const nextSort = getNextSort(sort, field);
+
+  return (
+    <th className="border-b border-border px-3 py-2 font-medium">
+      <Link
+        className={cn(
+          "inline-flex items-center gap-1 rounded-md px-1 py-0.5 transition-colors hover:bg-accent hover:text-foreground",
+          isActive ? "text-primary" : "text-muted-foreground",
+        )}
+        href={createAdminHref({
+          conversationId: selectedConversationId,
+          sort: nextSort,
+          userId: selectedUserId,
+        })}
+      >
+        {label}
+        <SymbolIcon className="text-[16px]">{getSortIconName(sort, field)}</SymbolIcon>
+      </Link>
+    </th>
+  );
+}
+
 function TableCell({ children }: { children: ReactNode }) {
   return <td className="border-b border-border px-3 py-3 align-top">{children}</td>;
 }
@@ -361,6 +450,73 @@ function formatDate(value: string) {
     timeStyle: "short",
     hour12: false,
   }).format(new Date(value));
+}
+
+function formatNullableDate(value: string | null) {
+  return value ? formatDate(value) : "无回复";
+}
+
+function formatSortDescription(sort: AdminUserListSortState) {
+  return `当前按${getSortLabel(sort.sortBy)}${sort.sortDirection === "desc" ? "降序" : "升序"}`;
+}
+
+function getSortLabel(field: AdminUserListSortField) {
+  switch (field) {
+    case "createdAt":
+      return "创建时间";
+    case "lastReplyAt":
+      return "最后回复时间";
+    case "totalTokens":
+      return "Token 总量";
+  }
+}
+
+function getNextSort(
+  current: AdminUserListSortState,
+  field: AdminUserListSortField,
+): AdminUserListSortState {
+  if (current.sortBy !== field) {
+    return { sortBy: field, sortDirection: "desc" };
+  }
+
+  return {
+    sortBy: field,
+    sortDirection: current.sortDirection === "desc" ? "asc" : "desc",
+  };
+}
+
+function getSortIconName(sort: AdminUserListSortState, field: AdminUserListSortField) {
+  if (sort.sortBy !== field) {
+    return "unfold_more";
+  }
+
+  return sort.sortDirection === "desc" ? "arrow_downward" : "arrow_upward";
+}
+
+function createAdminHref({
+  conversationId,
+  sort,
+  userId,
+}: {
+  conversationId?: string;
+  sort?: AdminUserListSortState;
+  userId?: string;
+}) {
+  const params = new URLSearchParams();
+  const resolvedSort = sort ?? defaultAdminUserListSort;
+
+  params.set("sortBy", resolvedSort.sortBy);
+  params.set("sortDirection", resolvedSort.sortDirection);
+
+  if (userId) {
+    params.set("userId", userId);
+  }
+
+  if (conversationId) {
+    params.set("conversationId", conversationId);
+  }
+
+  return `/admin?${params.toString()}`;
 }
 
 async function readCookieHeader() {

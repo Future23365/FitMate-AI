@@ -57,8 +57,8 @@ describe("admin AI usage service", () => {
         ];
       }),
       listSessionsForUserIds: vi.fn(async () => [
-        createSession({ id: "conversation-1", userId: "user-1", messageCount: 2 }),
-        createSession({ id: "conversation-2", userId: "user-1", messageCount: 1 }),
+        createSession({ id: "conversation-1", userId: "user-1", messageCount: 2, updatedAt: new Date("2026-06-07T06:02:00.000Z") }),
+        createSession({ id: "conversation-2", userId: "user-1", messageCount: 1, updatedAt: new Date("2026-06-07T06:05:00.000Z") }),
         createSession({ id: "conversation-3", userId: "user-2", messageCount: 1 }),
       ]),
       listUsageSummaries: vi.fn(async () => [
@@ -73,6 +73,7 @@ describe("admin AI usage service", () => {
         {
           userId: "user-1",
           identityLabel: "用户一",
+          lastReplyAt: "2026-06-07T06:05:00.000Z",
           conversationCount: 2,
           messageCount: 3,
           tokenUsage: { promptTokens: 5, completionTokens: 2, totalTokens: 7, hasUnknownUsage: false },
@@ -80,10 +81,66 @@ describe("admin AI usage service", () => {
         {
           userId: "user-2",
           identityLabel: "u2@example.com",
+          lastReplyAt: "2026-06-07T06:02:00.000Z",
           conversationCount: 1,
           messageCount: 1,
           tokenUsage: { promptTokens: null, completionTokens: null, totalTokens: null, hasUnknownUsage: true },
         },
+      ],
+    });
+  });
+
+  it("sorts user list by created time, last reply time and total tokens", async () => {
+    const reader = createReader({
+      listUsers: vi.fn(async ({ limit }) => {
+        expect(limit).toBe(3);
+
+        return [
+          createUser({ id: "user-old", displayName: "旧用户", createdAt: new Date("2026-06-07T06:00:00.000Z") }),
+          createUser({ id: "user-empty", displayName: "空用户", createdAt: new Date("2026-06-07T06:01:00.000Z") }),
+          createUser({ id: "user-new", displayName: "新用户", createdAt: new Date("2026-06-07T06:02:00.000Z") }),
+        ];
+      }),
+      listSessionsForUserIds: vi.fn(async () => [
+        createSession({ id: "conversation-old", userId: "user-old", updatedAt: new Date("2026-06-07T06:05:00.000Z") }),
+        createSession({ id: "conversation-new", userId: "user-new", updatedAt: new Date("2026-06-07T06:03:00.000Z") }),
+      ]),
+      listUsageSummaries: vi.fn(async () => [
+        createUsage({ userId: "user-old", conversationId: "conversation-old", messageId: "assistant-old", promptTokens: 8, completionTokens: 4, totalTokens: 12 }),
+        createUsage({ userId: "user-new", conversationId: "conversation-new", messageId: "assistant-new", promptTokens: 20, completionTokens: 10, totalTokens: 30 }),
+      ]),
+    });
+
+    await expect(
+      listAdminUsers({ limit: 3, sortBy: "createdAt", sortDirection: "asc" }, { reader, config: adminConfig }),
+    ).resolves.toMatchObject({
+      sort: { sortBy: "createdAt", sortDirection: "asc" },
+      items: [
+        { userId: "user-old" },
+        { userId: "user-empty" },
+        { userId: "user-new" },
+      ],
+    });
+
+    await expect(
+      listAdminUsers({ limit: 3, sortBy: "lastReplyAt", sortDirection: "desc" }, { reader, config: adminConfig }),
+    ).resolves.toMatchObject({
+      sort: { sortBy: "lastReplyAt", sortDirection: "desc" },
+      items: [
+        { userId: "user-old", lastReplyAt: "2026-06-07T06:05:00.000Z" },
+        { userId: "user-new", lastReplyAt: "2026-06-07T06:03:00.000Z" },
+        { userId: "user-empty", lastReplyAt: null },
+      ],
+    });
+
+    await expect(
+      listAdminUsers({ limit: 3, sortBy: "totalTokens", sortDirection: "desc" }, { reader, config: adminConfig }),
+    ).resolves.toMatchObject({
+      sort: { sortBy: "totalTokens", sortDirection: "desc" },
+      items: [
+        { userId: "user-new", tokenUsage: { totalTokens: 30 } },
+        { userId: "user-old", tokenUsage: { totalTokens: 12 } },
+        { userId: "user-empty", tokenUsage: { totalTokens: null } },
       ],
     });
   });

@@ -8,6 +8,14 @@ const adminServiceMocks = vi.hoisted(() => ({
   getAdminUsageOverview: vi.fn(),
   getAdminUserDetail: vi.fn(),
   listAdminUsers: vi.fn(),
+  resolveAdminUserListSort: vi.fn((input: { sortBy?: string | null; sortDirection?: string | null } = {}) => ({
+    sortBy: ["createdAt", "lastReplyAt", "totalTokens"].includes(String(input.sortBy))
+      ? input.sortBy
+      : "createdAt",
+    sortDirection: ["asc", "desc"].includes(String(input.sortDirection))
+      ? input.sortDirection
+      : "desc",
+  })),
 }));
 
 vi.mock("@/lib/server/auth/admin-guard", async (importOriginal) => {
@@ -42,11 +50,13 @@ describe("admin AI usage route", () => {
           displayName: "用户一",
           identityLabel: "用户一",
           createdAt: "2026-06-07T06:00:00.000Z",
+          lastReplyAt: "2026-06-07T06:04:00.000Z",
           conversationCount: 1,
           messageCount: 2,
           tokenUsage: createTokenUsage({ promptTokens: 10, completionTokens: 5, totalTokens: 15 }),
         },
       ],
+      sort: { sortBy: "createdAt", sortDirection: "desc" },
     });
     adminServiceMocks.getAdminUserDetail.mockResolvedValue(null);
     adminServiceMocks.getAdminConversationDetail.mockResolvedValue(null);
@@ -97,9 +107,31 @@ describe("admin AI usage route", () => {
         ],
       },
     });
-    expect(adminServiceMocks.listAdminUsers).toHaveBeenCalledWith({ limit: 10 });
+    expect(adminServiceMocks.listAdminUsers).toHaveBeenCalledWith({
+      limit: 10,
+      sortBy: "createdAt",
+      sortDirection: "desc",
+    });
     expect(JSON.stringify(body)).not.toContain("delete");
     expect(JSON.stringify(body)).not.toContain("ban");
+  });
+
+  it("passes supported sorting parameters and falls back invalid sorting query", async () => {
+    await route.GET(new Request("http://localhost/api/admin/ai-usage?limit=10&sortBy=lastReplyAt&sortDirection=asc"));
+
+    expect(adminServiceMocks.listAdminUsers).toHaveBeenLastCalledWith({
+      limit: 10,
+      sortBy: "lastReplyAt",
+      sortDirection: "asc",
+    });
+
+    await route.GET(new Request("http://localhost/api/admin/ai-usage?sortBy=unknown&sortDirection=sideways"));
+
+    expect(adminServiceMocks.listAdminUsers).toHaveBeenLastCalledWith({
+      limit: undefined,
+      sortBy: "createdAt",
+      sortDirection: "desc",
+    });
   });
 });
 

@@ -6,6 +6,7 @@ import {
   getAdminUsageOverview,
   getAdminUserDetail,
   listAdminUsers,
+  resolveAdminUserListSort,
 } from "@/lib/server/admin/admin-ai-usage-service";
 import { jsonApiError } from "@/lib/server/http/api-error";
 
@@ -20,6 +21,10 @@ export async function GET(request: Request) {
   const limit = readLimit(url.searchParams.get("limit"));
   const userId = url.searchParams.get("userId")?.trim();
   const conversationId = url.searchParams.get("conversationId")?.trim();
+  const sort = resolveAdminUserListSort({
+    sortBy: url.searchParams.get("sortBy"),
+    sortDirection: url.searchParams.get("sortDirection"),
+  });
 
   if (conversationId) {
     const conversation = await getAdminConversationDetail(conversationId);
@@ -43,7 +48,7 @@ export async function GET(request: Request) {
 
   const [overview, users] = await Promise.all([
     getAdminUsageOverview(),
-    listAdminUsers({ limit }),
+    listAdminUsers({ limit, ...sort }),
   ]);
 
   return NextResponse.json({ view: "overview", overview, users });
