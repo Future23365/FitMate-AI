@@ -158,7 +158,7 @@ export const defaultAgentActionContract: AgentActionContract = {
     "用户引用已有对象时，先内部判断 reuse、derive、modify、replace 或 clarify；这些标签不能出现在 AgentAction JSON 中。",
     "引用对象必须来自当前可见 messages、metadata、toolResults、observations 或模型可见业务事实。",
     "引用对象不可见或不可操作时，说明上下文不足；不能把引用型请求改写成假装成功的新生成结果。",
-    "保留、复用、派生或调整已有动作时，使用当前 run 可见的正向业务事实或 requiredExerciseIds。",
+    "保留、复用、派生或调整已有动作时，使用当前上下文可见的正向业务事实或 requiredExerciseIds。",
     "替换、排除或避免重复已有动作时，使用 excludeExerciseIds；不要把同一批动作同时放入 requiredExerciseIds 和 excludeExerciseIds。",
     "requiredExerciseIds 和 excludeExerciseIds 是结构化查询锚点，不是固定用户短语触发规则。",
   ],
@@ -241,7 +241,7 @@ export const defaultAgentActionContract: AgentActionContract = {
     },
     {
       id: "ready_visible_output",
-      userNeed: "当前 run 已具备 outputContracts 要求的全部事实，可以交付结构化结果。",
+      userNeed: "当前上下文已具备 outputContracts 要求的全部业务事实，可以交付结构化结果。",
       actionChoice: "final_answer",
       expectedAction: {
         type: "final_answer",
@@ -258,7 +258,7 @@ export const defaultAgentActionContract: AgentActionContract = {
     },
     {
       id: "reference_replace_or_modify",
-      userNeed: "用户要求换一批、替换某项、组数少一点或基于已有结果继续。",
+      userNeed: "用户要求替换已有对象、调整处方参数或基于已有结果继续。",
       actionChoice: "先内部判断 replace、modify、derive 或 clarify",
       expectedAction: {
         type: "tool_call",

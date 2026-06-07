@@ -108,6 +108,7 @@ describe("agent visible output contracts", () => {
       "provider raw",
       "schemaVersion = 1",
       "当前 run 可消费动作事实",
+      "必须替换为当前 run 可见",
       "consumable resource",
       "producedResources",
       "consumedResources",
@@ -195,7 +196,7 @@ describe("agent visible output contracts", () => {
       "需要动作事实：用户要结构化训练结果但当前上下文没有模型可见动作事实时先 tool_call。",
       "事实不足的 routine：只有 training 动作事实但用户要一次完整训练时继续补齐或澄清。",
       "基于已有结构派生计划：用户要求按当前内容做一周计划时使用 derive。",
-      "替换或修改：用户要求换一批、避免重复或组数少一点时使用 replace / modify。",
+      "替换或修改：用户要求替换已有动作、避免重复或调整处方时使用 replace / modify。",
     ]));
 
     for (const example of examples) {

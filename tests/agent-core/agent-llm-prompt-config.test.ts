@@ -179,6 +179,9 @@ describe("agent LLM prompt configuration", () => {
       "searchExerciseResources",
       "inspectVisibleTrainingProposals",
       "resolveExerciseResourceMentions",
+      "换一批",
+      "再来一组",
+      "用户说某个固定词语",
       "\"rationale\"",
     ]) {
       expect(serializedContract).not.toContain(forbidden);

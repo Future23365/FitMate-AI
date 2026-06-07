@@ -99,7 +99,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
     },
   ],
   whenToUse: [
-    "用户目标需要结构化训练结果，并且当前 run 已有足够训练目标、限制、场地或器械等关键约束。",
+    "用户目标需要结构化训练结果，并且当前上下文已有足够训练目标、限制、场地或器械等关键约束。",
     "当前上下文已存在模型可见动作业务事实，或已通过工具导入当前用户可访问的 visible_training_proposal_fact。",
     "模型可以基于用户目标、messages、metadata、tools、observations、toolResults 和模型可见业务事实自主判断输出 kind。",
   ],
@@ -257,7 +257,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
               kind: "exercise_selection",
               exerciseItems: [
                 {
-                  exerciseId: "必须替换为当前 run 可见 training 动作事实中的真实 exerciseId",
+                  exerciseId: "必须替换为模型可见 training 动作业务事实或已导入历史方案事实中的真实 exerciseId",
                   section: "training",
                   order: 1,
                 },
@@ -273,7 +273,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
           kind: "exercise_selection",
           exerciseItems: [
             {
-              exerciseId: "必须替换为当前 run 可见 training 动作事实中的真实 exerciseId",
+              exerciseId: "必须替换为模型可见 training 动作业务事实或已导入历史方案事实中的真实 exerciseId",
               section: "training",
               order: 1,
             },
@@ -308,7 +308,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
               kind: "routine",
               exerciseItems: [
                 {
-                  exerciseId: "必须替换为当前 run 可见 warmup 动作事实中的真实 exerciseId",
+                  exerciseId: "必须替换为模型可见 warmup 动作业务事实或已导入历史方案事实中的真实 exerciseId",
                   section: "warmup",
                   order: 1,
                   prescription: {
@@ -320,7 +320,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
                   },
                 },
                 {
-                  exerciseId: "必须替换为当前 run 可见 training 动作事实中的真实 exerciseId",
+                  exerciseId: "必须替换为模型可见 training 动作业务事实或已导入历史方案事实中的真实 exerciseId",
                   section: "training",
                   order: 1,
                   prescription: {
@@ -332,7 +332,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
                   },
                 },
                 {
-                  exerciseId: "必须替换为当前 run 可见 stretch 动作事实中的真实 exerciseId",
+                  exerciseId: "必须替换为模型可见 stretch 动作业务事实或已导入历史方案事实中的真实 exerciseId",
                   section: "stretch",
                   order: 1,
                   prescription: {
@@ -355,7 +355,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
           kind: "routine",
           exerciseItems: [
             {
-              exerciseId: "必须替换为当前 run 可见 warmup 动作事实中的真实 exerciseId",
+              exerciseId: "必须替换为模型可见 warmup 动作业务事实或已导入历史方案事实中的真实 exerciseId",
               section: "warmup",
               order: 1,
               prescription: {
@@ -367,7 +367,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
               },
             },
             {
-              exerciseId: "必须替换为当前 run 可见 training 动作事实中的真实 exerciseId",
+              exerciseId: "必须替换为模型可见 training 动作业务事实或已导入历史方案事实中的真实 exerciseId",
               section: "training",
               order: 1,
               prescription: {
@@ -379,7 +379,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
               },
             },
             {
-              exerciseId: "必须替换为当前 run 可见 stretch 动作事实中的真实 exerciseId",
+              exerciseId: "必须替换为模型可见 stretch 动作业务事实或已导入历史方案事实中的真实 exerciseId",
               section: "stretch",
               order: 1,
               prescription: {
@@ -412,7 +412,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
               kind: "plan",
               exerciseItems: [
                 {
-                  exerciseId: "必须替换为当前 run 可见 warmup 动作事实中的真实 exerciseId",
+                  exerciseId: "必须替换为模型可见 warmup 动作业务事实或已导入历史方案事实中的真实 exerciseId",
                   section: "warmup",
                   order: 1,
                   prescription: {
@@ -424,7 +424,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
                   },
                 },
                 {
-                  exerciseId: "必须替换为当前 run 可见 training 动作事实中的真实 exerciseId",
+                  exerciseId: "必须替换为模型可见 training 动作业务事实或已导入历史方案事实中的真实 exerciseId",
                   section: "training",
                   order: 1,
                   prescription: {
@@ -436,7 +436,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
                   },
                 },
                 {
-                  exerciseId: "必须替换为当前 run 可见 stretch 动作事实中的真实 exerciseId",
+                  exerciseId: "必须替换为模型可见 stretch 动作业务事实或已导入历史方案事实中的真实 exerciseId",
                   section: "stretch",
                   order: 1,
                   prescription: {
@@ -471,7 +471,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
           kind: "plan",
           exerciseItems: [
             {
-              exerciseId: "必须替换为当前 run 可见 warmup 动作事实中的真实 exerciseId",
+              exerciseId: "必须替换为模型可见 warmup 动作业务事实或已导入历史方案事实中的真实 exerciseId",
               section: "warmup",
               order: 1,
               prescription: {
@@ -483,7 +483,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
               },
             },
             {
-              exerciseId: "必须替换为当前 run 可见 training 动作事实中的真实 exerciseId",
+              exerciseId: "必须替换为模型可见 training 动作业务事实或已导入历史方案事实中的真实 exerciseId",
               section: "training",
               order: 1,
               prescription: {
@@ -495,7 +495,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
               },
             },
             {
-              exerciseId: "必须替换为当前 run 可见 stretch 动作事实中的真实 exerciseId",
+              exerciseId: "必须替换为模型可见 stretch 动作业务事实或已导入历史方案事实中的真实 exerciseId",
               section: "stretch",
               order: 1,
               prescription: {
@@ -531,7 +531,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
     },
     {
       description: "基于已有结构派生计划：用户要求按当前内容做一周计划时使用 derive。",
-      userSituation: "当前 run 可见对象已经可操作，用户要求基于这个结果派生周期安排。",
+      userSituation: "当前上下文可见对象已经可操作，用户要求基于该对象派生周期安排。",
       expectedDecision: "如果事实满足 plan schema，返回 final_answer + plan visibleOutputs；如果事实不足，继续合法 tool_call 或 ask_user。",
       notes: [
         "derive 只是内部推理标签，不能出现在 AgentAction JSON。",
@@ -539,8 +539,8 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
       ],
     },
     {
-      description: "替换或修改：用户要求换一批、避免重复或组数少一点时使用 replace / modify。",
-      userSituation: "当前 run 可见对象可操作，用户要求替换动作或调整处方。",
+      description: "替换或修改：用户要求替换已有动作、避免重复或调整处方时使用 replace / modify。",
+      userSituation: "当前上下文可见对象可操作，用户要求替换动作或调整处方。",
       expectedDecision: "根据当前可见事实和 tools 自主选择合法 tool_call 或 final_answer + visibleOutputs；引用不可见时 ask_user 或说明上下文不足。",
       notes: [
         "replace / modify 是内部推理标签，不能写入 AgentAction JSON。",

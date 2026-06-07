@@ -247,20 +247,29 @@ ask_user：
 例如：
 
 ```txt
-toolResultId
-resourceId
-factRef
-messageId
 visibleOutputs
-usedRefs
-producedResources
 diagnostic
 consumable
 outputContract
 resourceContract
+serverProvenance
+business fact
 ```
 
 这些都应该集中解释。
+
+如果某些内部 provenance 字段仍存在于 runtime、trace 或 ResourceStore 中，例如：
+
+```txt
+toolResultId
+resourceId
+factRef
+messageId
+usedRefs
+producedResources
+```
+
+必须明确它们是否真的属于当前 Planner 可见 schema。默认情况下，这些字段只服务端内部维护，不应作为模型需要输出、复制或修复的字段暴露。
 
 原则：
 
@@ -276,12 +285,14 @@ resourceContract
 示例结构：
 
 ```md
-| 概念 | 含义 | 来源 | 能否进入最终引用 | 常见误用 |
+| 概念 | 含义 | 来源 | Planner 是否输出 | 常见误用 |
 |---|---|---|---|---|
-| toolResultId | 当前 run 工具结果 id | toolResults | 可以 | 用历史 id 冒充 |
-| resourceId | 当前 run 资源 id | producedResources | 可以 | 把业务 id 当 resourceId |
-| factRef | 历史事实引用 | 查询工具返回 | 不可以 | 当成 resourceId |
-| messageId | 历史消息 id | 查询工具返回 | 不可以 | 当成 resourceId |
+| exerciseId | 业务动作 id | 模型可见动作事实或历史方案事实 | 可以，若 output contract 允许 | 从示例复制或编造 |
+| visibleOutputs | 结构化用户可见输出 | outputContracts | 可以，若 schema 允许 | 用正文 Markdown 代替 payload |
+| toolResultId | 当前 run 工具结果 id | runtime / trace | 默认不输出 | 当成 final_answer grounding 字段 |
+| resourceId | 当前 run 资源 id | ResourceStore | 默认不输出 | 把业务 id 当 resourceId |
+| factRef | 历史事实引用 | fact store / trace | 默认不输出 | 要求模型二次读取或复制 |
+| messageId | 历史消息 id | conversation store | 默认不输出 | 当成当前 run 可消费 resource |
 ```
 
 原则：
@@ -379,10 +390,10 @@ Planner Policy 的核心是告诉模型：
 ```txt
 只有同时满足以下条件，才允许输出结构化结果：
 1. 当前目标明确；
-2. 当前 run 有足够事实；
+2. 当前上下文有足够业务事实；
 3. 所有 ID 来自可信来源；
 4. 结构满足 output contract；
-5. 使用的事实可以被 usedRefs 或 resource 支撑。
+5. 使用的事实可以被模型可见业务事实和服务端 validator 支撑。
 ```
 
 原则：
@@ -677,6 +688,7 @@ enum
 3. 不能让模型把用户自然语言当 ID。
 4. 不能让模型把历史文本里的 ID 当成本轮可用 ID。
 5. 只能从当前 run 明确暴露的位置取。
+6. 如果字段只存在于服务端 trace、ResourceStore 或 provenance 中，不要让模型在 action 中输出。
 ```
 
 原则：
@@ -770,9 +782,9 @@ equipment 可以写 no_equipment，也可以写 无器械。
 输出可以用于：
 - 普通文本回答？
 - 下一个工具的 input？
-- 最终 usedRefs？
 - 最终 visibleOutputs？
 - 结构化字段？
+- 服务端内部 provenance？
 ```
 
 也要说明：
@@ -780,7 +792,7 @@ equipment 可以写 no_equipment，也可以写 无器械。
 ```txt
 输出不能用于：
 - 直接写入最终结构？
-- 作为 resourceId？
+- 作为模型输出的 resourceId？
 - 作为已保存结果？
 - 作为用户已经看到的对象？
 ```
@@ -1314,7 +1326,7 @@ section 不匹配
 Prompt 只写高层原则：
 
 ```txt
-所有结构化输出必须由当前 run 可见事实支撑。
+所有结构化输出必须由模型可见业务事实、output contract 和服务端 validator 共同支撑。
 ```
 
 原则：
@@ -1333,8 +1345,9 @@ Prompt 只写高层原则：
 用户输入
 metadata
 toolResults
-producedResources
-consumable resources
+observations
+模型可见业务事实
+服务端内部 provenance
 ```
 
 不能来自：
@@ -1346,6 +1359,7 @@ consumable resources
 失败工具结果
 未注册工具
 未暴露数据库事实
+服务端内部 trace id
 ```
 
 ---
@@ -1360,7 +1374,8 @@ consumable resources
 -> resolve tool
 -> resolved candidate
 -> search/read tool
--> consumable fact
+-> 模型可见业务事实
+-> 服务端内部 provenance
 -> final visible output
 ```
 
@@ -1374,7 +1389,7 @@ index result -> final structured output
 
 原则：
 
-> 每一步事实升级都要有工具或资源支撑。
+> 每一步事实升级都要有工具、业务事实投影、validator 或服务端内部 provenance 支撑。
 
 ---
 
