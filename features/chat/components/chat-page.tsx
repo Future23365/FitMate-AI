@@ -482,10 +482,14 @@ export function ChatPage() {
       return;
     }
 
-    chatScroll.scrollTo({
-      top: chatScroll.scrollHeight,
-      behavior: "smooth",
+    const scrollFrame = window.requestAnimationFrame(() => {
+      chatScroll.scrollTo({
+        top: chatScroll.scrollHeight,
+        behavior: "smooth",
+      });
     });
+
+    return () => window.cancelAnimationFrame(scrollFrame);
   }, [latestMessageState, error, isLoading, chatScrollRef]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
