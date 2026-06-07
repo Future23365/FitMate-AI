@@ -52,7 +52,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
   // 后台页面使用自身滚动容器，避免全局 body overflow hidden 阻断列表和详情上下滚动。
   return (
     <main className="h-dvh overflow-y-auto bg-background px-8 py-6 text-foreground">
-      <div className="mx-auto flex min-h-full w-full max-w-[1440px] flex-col gap-6 xl:h-full xl:min-h-0">
+      <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-6 pb-2">
         <header className="flex items-center justify-between gap-4">
           <div>
             <h1 className="text-headline-md font-semibold tracking-normal">AI 使用后台</h1>
@@ -68,9 +68,9 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
 
         <OverviewPanel overview={overview} />
 
-        <div className="grid gap-6 xl:min-h-0 xl:flex-1 xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.9fr)]">
+        <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.9fr)]">
           <UsersPanel users={users.items} />
-          <div className="grid gap-6 xl:min-h-0 xl:grid-rows-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+          <div className="flex flex-col gap-6">
             {selectedUser ? (
               <UserDetailPanel detail={selectedUser} selectedConversationId={selectedConversationId} />
             ) : (
@@ -129,12 +129,12 @@ function MetricCard({
 
 function UsersPanel({ users }: { users: AdminUserListItemProjection[] }) {
   return (
-    <Card className="min-h-0 overflow-hidden rounded-lg xl:h-full">
-      <CardHeader className="shrink-0">
+    <Card className="rounded-lg">
+      <CardHeader>
         <CardTitle>用户列表</CardTitle>
         <CardDescription>按创建时间倒序</CardDescription>
       </CardHeader>
-      <CardContent className="custom-scrollbar min-h-0 overflow-x-auto pb-6 xl:flex-1 xl:overflow-auto">
+      <CardContent className="custom-scrollbar max-h-[min(760px,calc(100dvh-260px))] overflow-auto pb-6">
         <table className="w-full min-w-[760px] border-separate border-spacing-0 text-left text-body-sm">
           <thead className="text-label-sm text-muted-foreground">
             <tr>
@@ -182,18 +182,18 @@ function UserDetailPanel({
   selectedConversationId: string | undefined;
 }) {
   return (
-    <Card className="min-h-0 overflow-hidden rounded-lg xl:h-full">
-      <CardHeader className="shrink-0">
+    <Card className="rounded-lg">
+      <CardHeader>
         <CardTitle>{detail.user.identityLabel}</CardTitle>
         <CardDescription>{detail.user.userId}</CardDescription>
       </CardHeader>
-      <CardContent className="flex min-h-0 flex-col gap-4 pb-6 xl:flex-1">
+      <CardContent className="flex flex-col gap-4 pb-6">
         <TokenGrid usage={detail.tokenUsage} />
         <div className="grid grid-cols-2 gap-3 text-body-sm">
           <SummaryPill label="会话" value={detail.conversationCount} />
           <SummaryPill label="消息" value={detail.messageCount} />
         </div>
-        <div className="custom-scrollbar -mr-2 flex min-h-0 flex-col gap-2 pr-2 xl:flex-1 xl:overflow-y-auto">
+        <div className="custom-scrollbar -mr-2 flex max-h-[360px] flex-col gap-2 overflow-y-auto pr-2">
           {detail.conversations.length > 0 ? (
             detail.conversations.map((conversation) => {
               const isSelected = conversation.conversationId === selectedConversationId;
@@ -231,14 +231,14 @@ function UserDetailPanel({
 
 function ConversationDetailPanel({ detail }: { detail: AdminConversationDetailProjection }) {
   return (
-    <Card className="min-h-0 overflow-hidden rounded-lg xl:h-full">
-      <CardHeader className="shrink-0">
+    <Card className="rounded-lg">
+      <CardHeader>
         <CardTitle>{detail.conversation.title ?? "未命名会话"}</CardTitle>
         <CardDescription>{detail.conversation.conversationId}</CardDescription>
       </CardHeader>
-      <CardContent className="flex min-h-0 flex-col gap-4 pb-6 xl:flex-1">
+      <CardContent className="flex flex-col gap-4 pb-6">
         <TokenGrid usage={detail.conversation.tokenUsage} />
-        <div className="custom-scrollbar -mr-2 flex min-h-0 flex-col gap-3 pr-2 xl:flex-1 xl:overflow-y-auto">
+        <div className="custom-scrollbar -mr-2 flex max-h-[min(720px,calc(100dvh-300px))] flex-col gap-3 overflow-y-auto pr-2">
           {detail.messages.length > 0 ? (
             detail.messages.map((message) => (
               <div key={message.messageId} className="rounded-lg border border-border bg-card px-3 py-3">
@@ -304,7 +304,7 @@ function SummaryPill({
 
 function EmptySelection({ title }: { title: string }) {
   return (
-    <Card className="min-h-0 overflow-hidden rounded-lg border-dashed xl:h-full">
+    <Card className="rounded-lg border-dashed">
       <CardHeader>
         <CardTitle>{title}</CardTitle>
         <CardDescription>未选择</CardDescription>
