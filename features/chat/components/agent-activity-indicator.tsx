@@ -1,6 +1,7 @@
 import { getAgentActivityDisplay } from "@/features/chat/lib/agent-activity";
 import type { VisibleAgentActivity } from "@/features/chat/lib/agent-activity";
 
+// AgentActivityIndicator 只负责展示当前请求的安全活动文案，轮次缺省时用首轮保持视觉稳定。
 export function AgentActivityIndicator({
   activity,
 }: {
@@ -14,7 +15,7 @@ export function AgentActivityIndicator({
   const toneClass = display.toneClass === "text-error" ? "text-error" : "text-primary/80";
   const roundLabel = typeof activity.loopTurn === "number" && Number.isSafeInteger(activity.loopTurn) && activity.loopTurn > 0
     ? `#${activity.loopTurn}`
-    : null;
+    : "#1";
 
   return (
     <div
@@ -23,10 +24,9 @@ export function AgentActivityIndicator({
       role="status"
     >
       <span
-        aria-hidden={roundLabel ? undefined : true}
         className="inline-block w-[1.375rem] shrink-0 text-left font-mono text-label-sm leading-[16px] tabular-nums text-primary/55"
       >
-        {roundLabel ?? ""}
+        {roundLabel}
       </span>
       <span className="block min-w-0 truncate leading-[16px]">{display.label}</span>
     </div>

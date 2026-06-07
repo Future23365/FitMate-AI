@@ -425,7 +425,7 @@ describe("AgentActivityIndicator", () => {
     expect(html).not.toContain("raw_internal_tool_name");
   });
 
-  it("does not render a local loop prefix before a valid backend loop event", () => {
+  it("renders the first loop prefix before a valid backend loop event", () => {
     const activity = createVisibleActivityForTest({
       activityStage: {
         stage: "preparing_context",
@@ -443,10 +443,9 @@ describe("AgentActivityIndicator", () => {
     );
 
     expect(html).toContain("正在整理上下文...");
-    expect(html).toContain("aria-hidden=\"true\"");
     expect(html).toContain("w-[1.375rem]");
+    expect(html).toContain("#1");
     expect(html).not.toContain("#0");
-    expect(html).not.toContain("#1");
   });
 });
 
