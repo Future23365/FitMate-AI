@@ -4,16 +4,16 @@ import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
 import { ExerciseSummaryMetaChip } from "@/features/exercises/components/exercise-summary-meta-chip";
 import { ExerciseDetailIconButton } from "@/features/exercises/components/exercise-detail-icon-button";
-import {
-  createExercisePreviewFromRecommendationItem,
-  exercisePreviewPlaceholderImage,
-} from "@/features/exercises/lib/exercise-preview-fallback";
+import { createExercisePreviewFromRecommendationItem } from "@/features/exercises/lib/exercise-preview-fallback";
 import {
   mergeRecommendationItemWithExercise,
+  resolveRecommendationItemImageState,
   shouldHydrateRecommendationItem,
+  type RecommendationItemImageState,
 } from "@/features/exercises/lib/exercise-recommendation-display";
 import type { AssistantSuggestion } from "@/lib/shared/chat/assistant-suggestions";
 import type {
@@ -240,47 +240,46 @@ export function ExerciseRecommendationCard({
         ) : null}
 
         <div className="mt-sm grid gap-sm sm:grid-cols-2">
-          {displayItems.map((item) => (
-            <div
-              className="group/exercise-card relative min-w-0 rounded-xl border border-line bg-white p-sm pr-xl text-left transition-all duration-200 hover:border-primary/35 hover:bg-panel-soft/50 hover:shadow-sm"
-              key={item.exerciseId}
-            >
-              <ExerciseDetailIconButton onClick={() => handleOpenPreview(item)} />
-              <div className="grid min-w-0 grid-cols-[68px_minmax(0,1fr)] items-start gap-sm">
-                <button
-                  aria-label={`查看${item.nameZh}动作详情`}
-                  className="relative h-[68px] w-[68px] shrink-0 cursor-pointer overflow-hidden rounded-xl border border-line bg-panel-soft transition-colors hover:border-primary/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-                  onClick={() => handleOpenPreview(item)}
-                  type="button"
-                >
-                  <Image
-                    alt={item.nameZh}
-                    className="object-cover transition-transform duration-300 group-hover/exercise-card:scale-105"
-                    fill
-                    sizes="68px"
-                    src={item.imageUrl || exercisePreviewPlaceholderImage}
-                  />
-                </button>
+          {displayItems.map((item) => {
+            const imageState = resolveRecommendationItemImageState(item, failedExerciseIds);
 
-                <div className="min-w-0 pt-[3px]">
-                  <h4 className="truncate font-body-md text-body-md font-extrabold leading-tight text-on-surface">
-                    {item.nameZh}
-                  </h4>
-                  <div className="mt-sm flex min-w-0 flex-wrap items-center gap-xs">
-                    <ExerciseSummaryMetaChip tone="primary">
-                      {item.primaryMusclesZh[0] || "综合"}
-                    </ExerciseSummaryMetaChip>
-                    <ExerciseSummaryMetaChip>
-                      {item.levelZh || "未标注难度"}
-                    </ExerciseSummaryMetaChip>
-                    <ExerciseSummaryMetaChip tone="outline">
-                      {item.equipmentZh || "未标注器械"}
-                    </ExerciseSummaryMetaChip>
+            return (
+              <div
+                className="group/exercise-card relative min-w-0 rounded-xl border border-line bg-white p-sm pr-xl text-left transition-all duration-200 hover:border-primary/35 hover:bg-panel-soft/50 hover:shadow-sm"
+                key={item.exerciseId}
+              >
+                <ExerciseDetailIconButton onClick={() => handleOpenPreview(item)} />
+                <div className="grid min-w-0 grid-cols-[68px_minmax(0,1fr)] items-start gap-sm">
+                  <button
+                    aria-busy={imageState === "loading"}
+                    aria-label={`查看${item.nameZh}动作详情`}
+                    className="relative h-[68px] w-[68px] shrink-0 cursor-pointer overflow-hidden rounded-xl border border-line bg-panel-soft transition-colors hover:border-primary/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                    onClick={() => handleOpenPreview(item)}
+                    type="button"
+                  >
+                    <RecommendationExerciseImage imageState={imageState} item={item} />
+                  </button>
+
+                  <div className="min-w-0 pt-[3px]">
+                    <h4 className="truncate font-body-md text-body-md font-extrabold leading-tight text-on-surface">
+                      {item.nameZh}
+                    </h4>
+                    <div className="mt-sm flex min-w-0 flex-wrap items-center gap-xs">
+                      <ExerciseSummaryMetaChip tone="primary">
+                        {item.primaryMusclesZh[0] || "综合"}
+                      </ExerciseSummaryMetaChip>
+                      <ExerciseSummaryMetaChip>
+                        {item.levelZh || "未标注难度"}
+                      </ExerciseSummaryMetaChip>
+                      <ExerciseSummaryMetaChip tone="outline">
+                        {item.equipmentZh || "未标注器械"}
+                      </ExerciseSummaryMetaChip>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {assistantSuggestions.length > 0 ? (
@@ -308,6 +307,32 @@ export function ExerciseRecommendationCard({
       />
     </div>
   );
+}
+
+function RecommendationExerciseImage({
+  imageState,
+  item,
+}: {
+  imageState: RecommendationItemImageState;
+  item: ExerciseRecommendationItem;
+}) {
+  if (imageState === "available" && item.imageUrl) {
+    return (
+      <Image
+        alt={item.nameZh}
+        className="object-cover transition-transform duration-300 group-hover/exercise-card:scale-105"
+        fill
+        sizes="68px"
+        src={item.imageUrl}
+      />
+    );
+  }
+
+  if (imageState === "loading") {
+    return <Skeleton className="absolute inset-0 h-full w-full rounded-xl" />;
+  }
+
+  return <div aria-hidden="true" className="absolute inset-0 bg-panel-soft" />;
 }
 
 async function fetchExerciseById(exerciseId: string, signal?: AbortSignal) {

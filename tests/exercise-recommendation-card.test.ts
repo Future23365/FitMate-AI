@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { mergeRecommendationItemWithExercise } from "@/features/exercises/lib/exercise-recommendation-display";
+import {
+  mergeRecommendationItemWithExercise,
+  resolveRecommendationItemImageState,
+} from "@/features/exercises/lib/exercise-recommendation-display";
 import type { ExerciseRecommendationItem } from "@/lib/shared/exercise-recommendations/schema";
 
 import { createExercise } from "./fixtures/domain";
@@ -41,6 +44,17 @@ describe("ExerciseRecommendationCard display hydration", () => {
     const item = createRecommendationItem({ exerciseId: "unknown", nameZh: "unknown" });
 
     expect(mergeRecommendationItemWithExercise(item, undefined)).toEqual(item);
+  });
+
+  it("does not treat the old SVG placeholder as the recommendation image fallback", () => {
+    const item = createRecommendationItem({
+      exerciseId: "Leg_Pull-In",
+      imageUrl: undefined,
+      nameZh: "Leg_Pull-In",
+    });
+
+    expect(resolveRecommendationItemImageState(item, new Set())).toBe("loading");
+    expect(resolveRecommendationItemImageState(item, new Set([item.exerciseId]))).toBe("unavailable");
   });
 });
 

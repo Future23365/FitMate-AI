@@ -1,6 +1,8 @@
 import type { ExerciseRecommendationItem } from "@/lib/shared/exercise-recommendations/schema";
 import type { Exercise } from "@/lib/shared/exercises/types";
 
+export type RecommendationItemImageState = "available" | "loading" | "unavailable";
+
 /** mergeRecommendationItemWithExercise 用数据库动作事实补齐推荐卡片首屏展示字段。 */
 export function mergeRecommendationItemWithExercise(
   item: ExerciseRecommendationItem,
@@ -26,6 +28,20 @@ export function mergeRecommendationItemWithExercise(
 /** shouldHydrateRecommendationItem 判断推荐卡片是否缺少首屏展示所需的稳定动作事实。 */
 export function shouldHydrateRecommendationItem(item: ExerciseRecommendationItem) {
   return !nonEmptyString(item.imageUrl) || item.nameZh.trim() === item.exerciseId.trim();
+}
+
+/** resolveRecommendationItemImageState 区分推荐卡片图片加载中和真实无图状态。 */
+export function resolveRecommendationItemImageState(
+  item: ExerciseRecommendationItem,
+  failedExerciseIds: Set<string>,
+): RecommendationItemImageState {
+  if (nonEmptyString(item.imageUrl)) {
+    return "available";
+  }
+
+  return shouldHydrateRecommendationItem(item) && !failedExerciseIds.has(item.exerciseId)
+    ? "loading"
+    : "unavailable";
 }
 
 function firstExerciseImageUrl(exercise: Exercise) {
