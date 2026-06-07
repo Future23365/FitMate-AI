@@ -678,6 +678,8 @@ describe("agent-planners LlmPlanner and model adapters", () => {
     expect(modelInput.context.toolResults).toEqual([]);
     expect(body.messages[0].content).toContain(JSON.stringify(getAgentActionContract().schemaId));
     expect(body.messages[0].content).toContain("fieldDictionary");
+    expect(body.messages[0].content).toContain("toolResults[].fulfillment.producedResources");
+    expect(body.messages[0].content).not.toContain("toolResults[].producedResources");
     expect(body.messages[0].content).toContain("missing_training_constraints");
     expect(body.messages[0].content).not.toContain("ask_user.question");
     expect(body.messages[0].content).toContain("outputContracts");
