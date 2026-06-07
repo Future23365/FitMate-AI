@@ -50,7 +50,7 @@
 - **AND** 系统 MUST NOT 通过 tool result 或历史事实绕过该发布态校验
 
 ### Requirement: 跨轮可见训练事实必须复核当前数据库
-系统 SHALL 保留 `visible_training_proposal_fact` 作为跨 run 引用用户已见训练方案的事实来源，但历史事实中的动作 MUST 在再次输出为 `visibleTrainingProposal` 前通过当前数据库事实校验。历史事实可以通过 `inspectVisibleTrainingProposals(operation = "list_recent")` 或等价服务端受控读取导入当前 run；系统 MUST NOT 继续要求模型额外调用 `read_recent` 才能消费同一历史事实。
+系统 SHALL 保留 `visible_training_proposal_fact` 作为跨 run 引用用户已见训练方案的服务端内部事实来源，但历史事实中的动作 MUST 在再次输出为 `visibleTrainingProposal` 前通过当前数据库事实校验。历史事实可以通过 `inspectVisibleTrainingProposals(operation = "list_recent")` 或等价服务端受控读取投影成模型可见业务事实；系统 MUST NOT 继续要求模型额外调用 `read_recent` 才能消费同一历史事实，也 MUST NOT 要求模型输出历史 `factRef`、`messageId`、`resourceId` 或 `toolResultId`。
 
 #### Scenario: 历史方案动作仍可用
 - **WHEN** Planner 通过 `inspectVisibleTrainingProposals(operation = "list_recent")` 或等价事实读取恢复历史 `visibleTrainingProposal`

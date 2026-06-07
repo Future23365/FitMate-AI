@@ -1,14 +1,15 @@
 ## ADDED Requirements
 
 ### Requirement: inspectVisibleTrainingProposals 必须通过 list_recent 直接提供可消费历史方案事实
-系统 SHALL 将 `inspectVisibleTrainingProposals` 收敛为当前生产聊天中历史可见训练方案事实的单步只读入口。模型可见 input MUST 只暴露 `operation = "list_recent"`；系统 MUST NOT 要求 Planner 额外调用 `read_recent` 才能复用、派生、调整或替换当前 conversation 中已展示的 `visibleTrainingProposal`。
+系统 SHALL 将 `inspectVisibleTrainingProposals` 收敛为当前生产聊天中历史可见训练方案事实的单步只读入口。模型可见 input MUST 只暴露 `operation = "list_recent"`；系统 MUST NOT 要求 Planner 额外调用 `read_recent` 才能复用、派生、调整或替换当前 conversation 中已展示的 `visibleTrainingProposal`。模型可见 input / output / observation MUST NOT 要求或暴露可复制的 `factRef`、`messageId`、`resourceId` 或 `toolResultId`。
 
 #### Scenario: 单步查询历史可见训练方案事实
 - **WHEN** Planner 需要确认当前 actor 和 conversation 是否存在历史生成并已展示的 `visibleTrainingProposal`
 - **THEN** `inspectVisibleTrainingProposals` MUST 支持 input 使用 `operation = "list_recent"` 完成查询
 - **AND** 该调用 MUST 不需要 `ref`、`factRef`、`messageId`、`resourceId`、`cursor`、`limit` 或 `detailLevel`
 - **AND** handler MUST 只查询当前 actor 和当前 conversation 可访问的事实
-- **AND** 成功结果 MUST 可以登记当前 run 可消费 `visible_training_proposal_fact` resource
+- **AND** 成功结果 MUST 可以由服务端内部登记当前 run 可消费 `visible_training_proposal_fact` resource
+- **AND** 登记用内部 resource 引用 MUST NOT 暴露成模型需要复制或输出的字段
 
 #### Scenario: read_recent 不再是模型可见 operation
 - **WHEN** production registry 序列化 `inspectVisibleTrainingProposals` manifest 或 input schema
@@ -19,7 +20,7 @@
 
 #### Scenario: 禁止隐式操作和旧读取字段
 - **WHEN** Planner 调用 `inspectVisibleTrainingProposals`
-- **AND** input 缺少 `operation`、使用未知 operation、传入 `ref`、顶层 `factRef`、顶层 `messageId` 或旧 `read_recent` 专用字段
+- **AND** input 缺少 `operation`、使用未知 operation、传入 `ref`、顶层 `factRef`、顶层 `messageId`、`resourceId`、`toolResultId`、`usedRefs` 或旧 `read_recent` 专用字段
 - **THEN** input schema MUST 在 handler 执行前拒绝该调用
 - **AND** runtime MUST 按结构化非法输入或 repair 边界处理
 - **AND** repair feedback MUST 引导模型改用合法 `operation = "list_recent"`、`ask_user` 或失败收口
@@ -31,18 +32,20 @@
 - **WHEN** `list_recent` 查询到当前 actor 和 conversation 可访问的历史 `visibleTrainingProposal` 事实
 - **THEN** output MUST 使用 `status = "succeeded"` 和 `operation = "list_recent"`
 - **AND** output MUST 包含 `facts[]`
-- **AND** 每个 fact MUST 至少包含 `factRef`、`messageId`、`proposalKind`、`status`、`visibleOutputSchemaVersion`、`factSchemaVersion` 和 section 摘要
+- **AND** 每个 fact MUST 至少包含服务端生成的事实顺序或用户可理解标签、`proposalKind`、`status`、`visibleOutputSchemaVersion`、`factSchemaVersion` 和 section 摘要
 - **AND** 每个可消费 fact MUST 包含受控压缩的 `exerciseItems`，字段至少覆盖 `exerciseId`、`section`、`order` 和 `prescription`
 - **AND** 如历史方案包含 `schedule`，output MUST 包含足以复用或解释周期安排的受控 `schedule` 摘要
 - **AND** output MAY 包含动作展示名、`allowedSections` 和必要有限详情
+- **AND** output MUST NOT 包含可复制的 `factRef`、`messageId`、`resourceId`、`toolResultId`、`usedRefs` 或等价内部引用字段
 - **AND** output MUST NOT 返回完整历史消息、完整 UI payload、完整 handler output、未展示候选或跨用户数据
 
 #### Scenario: list_recent 登记 consumable resource
 - **WHEN** `list_recent` 成功返回至少一条可消费历史方案事实
 - **THEN** runtime MUST 将这些事实登记为当前 run 内可消费的 `visible_training_proposal_fact` resource 或等价可消费事实
-- **AND** resource summary MUST 使用受控压缩事实，不得泄漏完整数据库对象、secret、跨用户 payload 或未展示候选
+- **AND** resource summary MUST 使用受控压缩事实，不得泄漏完整数据库对象、secret、跨用户 payload、未展示候选或模型可复制的内部引用 ID
 - **AND** fulfillment MUST 表示该事实查询已满足
-- **AND** observation MUST 说明这些事实已经导入当前 run，可作为复用、派生、保留、替换或调整依据
+- **AND** observation MUST 说明这些业务事实已经由服务端读取并可作为复用、派生、保留、替换或调整依据
+- **AND** observation MUST NOT 要求模型在最终 action 中引用内部 `resourceId` 或 `toolResultId`
 
 #### Scenario: list_recent 空结果
 - **WHEN** 当前 actor 和 conversation 没有可访问的历史 `visibleTrainingProposal` 事实
@@ -74,7 +77,7 @@
 - **WHEN** production registry 序列化 `inspectVisibleTrainingProposals` examples
 - **THEN** examples MUST 包含完整 `{ type: "tool_call", toolName: "inspectVisibleTrainingProposals", input: { operation: "list_recent" } }`
 - **AND** examples MUST NOT 包含 `read_recent`
-- **AND** examples MUST NOT 包含可复制的 fake `factRef`、`messageId`、`resourceId` 或其他引用值
+- **AND** examples MUST NOT 包含可复制的 fake `factRef`、`messageId`、`resourceId`、`toolResultId`、`usedRefs` 或其他内部引用值
 
 #### Scenario: 不写固定短语强制调用
 - **WHEN** 模型可见说明描述替换、刷新、省略表达、指代或上下文继续请求
@@ -83,13 +86,13 @@
 - **AND** 服务端 MUST NOT 根据这些短语选择是否调用 `inspectVisibleTrainingProposals`
 
 ### Requirement: list_recent observation 必须表达导入事实和终态边界
-`inspectVisibleTrainingProposals(operation = "list_recent")` 的模型 observation SHALL 描述当前 actor 和 conversation 中历史 `visibleTrainingProposal` 事实的可用性、导入状态、resource role 和终态边界。Observation MUST NOT 替模型判断用户意图，也 MUST NOT 规定模型在某个用户短语、空结果或字段组合条件下输出固定答案。
+`inspectVisibleTrainingProposals(operation = "list_recent")` 的模型 observation SHALL 描述当前 actor 和 conversation 中历史 `visibleTrainingProposal` 业务事实的可用性、服务端内部读取状态和终态边界。Observation MUST NOT 替模型判断用户意图，也 MUST NOT 规定模型在某个用户短语、空结果或字段组合条件下输出固定答案。
 
 #### Scenario: list_recent observation 表达可消费事实
 - **WHEN** `inspectVisibleTrainingProposals(operation = "list_recent")` 成功返回历史方案事实并进入下一轮 Planner 输入
 - **THEN** model observation MUST 表达 `facts[]` 是当前 actor 和 conversation 可访问的历史 `visibleTrainingProposal` 事实集合
-- **AND** model observation MUST 表达可消费事实已经导入当前 run
-- **AND** model observation MUST 表达导入 resource 的 `resourceType` 和 `role`
+- **AND** model observation MUST 表达可用业务事实已经由服务端读取和校验
+- **AND** model observation MUST NOT 暴露导入 resource 的 `resourceId`、`resourceType`、`role` 或要求模型引用这些内部字段
 - **AND** model observation MUST 表达该事实可作为 reuse、derive、modify、replace 或 preserve 的正向来源
 - **AND** model observation MUST 表达是否转成排除或替换依据由 Planner 基于用户目标判断
 
@@ -123,7 +126,7 @@
 - **THEN** tests MUST 断言 manifest 包含 `inspectVisibleTrainingProposals` 和 `operation = "list_recent"` 的中文说明
 - **AND** tests MUST 断言 manifest 不包含旧 `readRecentVisibleTrainingProposal`
 - **AND** tests MUST 断言 manifest 不包含 `operation = "read_recent"`
-- **AND** tests MUST 断言 manifest 不包含可直接复制的占位 `factRef`、`messageId` 或 `resourceId`
+- **AND** tests MUST 断言 manifest 不包含可直接复制的占位 `factRef`、`messageId`、`resourceId`、`toolResultId` 或 `usedRefs`
 - **AND** tests MUST 断言 manifest 不把固定自然语言短语表达成强制 tool 调用条件
 
 #### Scenario: 生产聊天回归覆盖同类省略表达
@@ -179,7 +182,7 @@
 - **AND** 服务端 MUST NOT 根据这些短语选择 `list_recent`
 
 ### Requirement: run metadata 不得暴露可复制的 visibleTrainingProposal 业务引用
-系统 SHALL 在 `/api/chat` 构造 `AgentRunInput` 时，将 `run.metadata.recentVisibleTrainingProposals` 投影为轻量状态摘要。该 metadata MAY 表达最近可见方案的 kind、status、schemaVersion、createdAt、proposalKind、section 摘要和可复用 training 数量；MUST NOT 暴露完整可消费事实、完整 `exerciseItems`、`prescription`、`schedule`、`exerciseDetails` 或可被模型直接当作当前 run resource grounding 的内部 resource id。
+系统 SHALL 在 `/api/chat` 构造 `AgentRunInput` 时，将 `run.metadata.recentVisibleTrainingProposals` 投影为轻量状态摘要。该 metadata MAY 表达最近可见方案的 kind、status、schemaVersion、createdAt、proposalKind、section 摘要和可复用 training 数量；MUST NOT 暴露完整可消费事实、完整 `exerciseItems`、`prescription`、`schedule`、`exerciseDetails`、`factRef`、`messageId` 或可被模型直接当作当前 run grounding 的内部 resource id。
 
 #### Scenario: metadata summary 不包含完整可消费事实
 - **WHEN** 当前 actor 和 conversation 存在最近用户可见 `visibleTrainingProposal` 事实
@@ -187,7 +190,7 @@
 - **THEN** `run.metadata.recentVisibleTrainingProposals[]` MUST NOT 包含完整 `exerciseItems`
 - **AND** `run.metadata.recentVisibleTrainingProposals[]` MUST NOT 包含完整 `prescription`
 - **AND** `run.metadata.recentVisibleTrainingProposals[]` MUST NOT 包含完整 `schedule`
-- **AND** metadata MUST NOT 包含 `exerciseDetails`、动作图片详情或当前 run registered `resourceId`
+- **AND** metadata MUST NOT 包含 `exerciseDetails`、动作图片详情、`factRef`、`messageId` 或当前 run registered `resourceId`
 - **AND** 如模型需要具体历史方案事实，MUST 通过本轮 `inspectVisibleTrainingProposals(operation = "list_recent")` 获取
 
 ## REMOVED Requirements
@@ -218,7 +221,7 @@
 
 ### Requirement: list_recent 索引引用不得作为 terminal resource grounding
 **Reason**: `list_recent` 不再只是 diagnostic index；成功时会登记可消费历史方案 resource。
-**Migration**: `factRef` / `messageId` 仍不得伪装成 `usedRefs.resource.id`，但 `list_recent` 产出的当前 run registered resource 可以作为合法 grounding。
+**Migration**: `factRef` / `messageId` / `resourceId` / `toolResultId` 不再作为模型可见 grounding 字段；`list_recent` 产出的当前 run registered resource 只由服务端内部用于 provenance、trace 和后续受控处理。
 
 ### Requirement: `inspectVisibleTrainingProposals` 模型可见说明必须聚焦引用事实边界
 **Reason**: 旧 requirement 围绕 `list_recent / read_recent` 引用边界；新合同不再暴露 `read_recent`。

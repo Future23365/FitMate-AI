@@ -7,11 +7,12 @@
 - **WHEN** production Planner 可输出训练推荐、训练编排或多天训练计划
 - **THEN** `outputContracts` MUST 包含 `outputType = "visibleTrainingProposal"` 的合同
 - **AND** 该合同 MUST 声明 `schemaVersion = "1"`
-- **AND** 该合同 MUST 集中提供字段字典，解释 `visibleTrainingProposal`、`visible_training_proposal_fact`、`consumable resource`、`producedResources`、`resource summary`、`fulfillment.satisfied`、`missingSectionsForRoutineOrPlan`、`payload`、`exerciseItems` 和 `schedule.assignments`
+- **AND** 该合同 MUST 集中提供字段字典，解释 `visibleTrainingProposal`、历史可见训练方案事实、`payload`、`exerciseItems`、`prescription`、`schedule.assignments` 和 `missingSectionsForRoutineOrPlan`
 - **AND** 该合同 MUST 说明 payload `kind` 只能是 `exercise_selection`、`routine` 或 `plan`
 - **AND** 该合同 MUST 说明 `exerciseItems[*].exerciseId` 必须引用服务端数据库中存在、发布态可展示且当前用户可访问的动作
 - **AND** 该合同 MUST 说明 `exerciseItems[*].section` 必须被对应数据库动作事实的 `allowedSections` 覆盖
-- **AND** 该合同 MUST 说明当前 run tool result 或 consumable resource 可以作为可追溯来源，但不是新生成训练卡片通过 validator 的唯一准入条件
+- **AND** 该合同 MUST 说明当前 run tool result 或服务端内部可消费事实可以作为 trace / provenance 来源，但不是新生成训练卡片通过 validator 的唯一准入条件
+- **AND** 该合同 MUST NOT 要求模型在 `visibleTrainingProposal`、`final_answer` 或 `ask_user` 中输出 `usedRefs`、`resourceId`、`toolResultId`、`factRef` 或 `messageId`
 - **AND** 该合同 MUST 说明 `content` 不能作为动作、处方、编排或计划事实源
 - **AND** 该合同 MUST 说明 `final_answer.content` 中承诺的训练频次、周期、多天或一周安排必须由同一 `visibleOutputs[].payload` 的 `kind = "plan"` 和 `schedule.assignments` 表达
 - **AND** 该合同 MUST 说明当 payload 为 `kind = "routine"` 时，`content` 只能描述单次训练编排，不能声称已生成多天、周期或每周计划
@@ -20,7 +21,8 @@
 - **WHEN** `visibleTrainingProposal` output contract 描述 `routine` 或 `plan`
 - **THEN** 合同 MUST 说明 `routine` 和 `plan` 需要 `warmup`、`training`、`stretch` 三类 section 的结构化动作项
 - **AND** 合同 MUST 说明每个动作项都必须通过数据库事实、发布态、可访问性和 `allowedSections` 校验
-- **AND** 合同 MUST 说明已导入当前 run 的历史 `visible_training_proposal_fact` 可以作为复用、派生或调整事实
+- **AND** 合同 MUST 说明服务端已读取并投影给模型的历史训练方案业务事实可以作为复用、派生或调整依据
+- **AND** 合同 MUST 说明历史事实的内部来源、resource 和 trace 引用由服务端维护，模型不得复制或输出内部 ID
 - **AND** 合同 MUST 说明 `routine` 和 `plan` 的每个动作项都必须绑定 `prescription`
 - **AND** 合同 MUST 说明 `routine` 只表达一次可执行训练编排
 - **AND** 合同 MUST 说明 `routine` 不得包含 `schedule`
