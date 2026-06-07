@@ -40,6 +40,18 @@ describe("shared schemas", () => {
           ],
         }),
       ).success,
+    ).toBe(true);
+    expect(
+      workoutPlanDraftSchema.safeParse(
+        createWorkoutPlanDraft({
+          days: [
+            {
+              ...createWorkoutPlanDraft().days[0],
+              sections: createWorkoutPlanDraft().days[0].sections.filter((section) => section.section !== "training"),
+            },
+          ],
+        }),
+      ).success,
     ).toBe(false);
     expect(
       workoutPlanDraftSchema.safeParse(
@@ -72,6 +84,20 @@ describe("shared schemas", () => {
     ).toBe(false);
     expect(workoutRoutineDraftSchema.safeParse(createWorkoutRoutineDraft()).success).toBe(true);
     expect(workoutRoutineDraftSchema.safeParse(createWorkoutRoutineDraft({ sections: [] })).success).toBe(false);
+    expect(
+      workoutRoutineDraftSchema.safeParse(
+        createWorkoutRoutineDraft({
+          sections: createWorkoutRoutineDraft().sections.filter((section) => section.section === "training"),
+        }),
+      ).success,
+    ).toBe(true);
+    expect(
+      workoutRoutineDraftSchema.safeParse(
+        createWorkoutRoutineDraft({
+          sections: createWorkoutRoutineDraft().sections.filter((section) => section.section !== "training"),
+        }),
+      ).success,
+    ).toBe(false);
     expect(
       workoutRoutineDraftSchema.safeParse(
         createWorkoutRoutineDraft({

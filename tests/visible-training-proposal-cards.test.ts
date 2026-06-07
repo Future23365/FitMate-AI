@@ -96,6 +96,25 @@ describe("visible training proposal rich card adapter", () => {
     });
   });
 
+  it("adapts routine payload facts with only training section without fabricating support sections", () => {
+    const card = adaptVisibleTrainingProposalToRichCard(createVisibleOutput({
+      kind: "routine",
+      exerciseItems: createTrainingOnlyRoutineItems(),
+    }));
+
+    expect(card?.kind).toBe("routine");
+    if (card?.kind !== "routine") {
+      throw new Error("Expected routine rich card");
+    }
+
+    expect(workoutRoutineDraftSchema.safeParse(card.draft).success).toBe(true);
+    expect(card.draft.goal).toBe("完成 1 个动作的本次训练");
+    expect(card.draft.summary).toBe("包含主训练，共 1 个动作，预估 5 分钟。");
+    expect(card.draft.sections.map((section) => section.section)).toEqual(["training"]);
+    expect(JSON.stringify(card.draft)).not.toContain("热身激活");
+    expect(JSON.stringify(card.draft)).not.toContain("拉伸放松");
+  });
+
   it("adapts plan payload facts into a cycle draft that reuses routine sections for training days", () => {
     const card = adaptVisibleTrainingProposalToRichCard(createVisibleOutput({
       kind: "plan",
@@ -127,6 +146,29 @@ describe("visible training proposal rich card adapter", () => {
       sections: [],
       recoveryNotes: ["安排低强度活动、补水并保证睡眠。"],
     });
+  });
+
+  it("adapts plan payload facts with only training section into training days", () => {
+    const card = adaptVisibleTrainingProposalToRichCard(createVisibleOutput({
+      kind: "plan",
+      exerciseItems: createTrainingOnlyRoutineItems(),
+      schedule: {
+        cycleLengthDays: 2,
+        assignments: [
+          { cycleDayIndex: 1, type: "training" },
+          { cycleDayIndex: 2, type: "rest" },
+        ],
+      },
+    }));
+
+    expect(card?.kind).toBe("plan");
+    if (card?.kind !== "plan") {
+      throw new Error("Expected plan rich card");
+    }
+
+    expect(workoutPlanDraftSchema.safeParse(card.draft).success).toBe(true);
+    expect(card.draft.days[0].sections.map((section) => section.section)).toEqual(["training"]);
+    expect(card.draft.days[1]).toMatchObject({ isRestDay: true, sections: [] });
   });
 });
 
@@ -193,4 +235,8 @@ function createRoutineItems() {
       },
     },
   ];
+}
+
+function createTrainingOnlyRoutineItems() {
+  return createRoutineItems().filter((item) => item.section === "training");
 }

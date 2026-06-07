@@ -348,7 +348,7 @@ describe("visible training proposal validator", () => {
     });
   });
 
-  it("returns recoverable coverage diagnostics when routine output only contains training facts", async () => {
+  it("accepts routine payloads when support sections are missing but training facts are valid", async () => {
     await expect(validateVisibleTrainingProposalOutput(
       createEnvelope({
         kind: "routine",
@@ -359,24 +359,16 @@ describe("visible training proposal validator", () => {
       createContext(),
       { loadExerciseRecordsByIds: createExerciseFactLoader() },
     )).resolves.toMatchObject({
-      ok: false,
-      message: "visibleTrainingProposal 缺少 routine 或 plan 必要 section。",
-      details: {
-        code: "section_coverage_missing",
-        path: "payload.exerciseItems",
-        payloadKind: "routine",
-        availableSections: ["training"],
-        missingSections: ["warmup", "stretch"],
-        outputCoverage: {
-          sectionSummary: { warmup: 0, training: 1, stretch: 0 },
-          availableSections: ["training"],
-          missingSections: ["warmup", "stretch"],
-        },
+      ok: true,
+      metadata: {
+        exerciseDetails: [
+          expect.objectContaining({ exerciseId: "push-up", allowedSections: ["training"] }),
+        ],
       },
     });
   });
 
-  it("rejects routine section coverage even when final answer content mentions warmup and stretch", async () => {
+  it("accepts routine support-section omissions even when final answer content mentions warmup and stretch", async () => {
     await expect(validateVisibleTrainingProposalOutput(
       createEnvelope({
         kind: "routine",
@@ -392,11 +384,7 @@ describe("visible training proposal validator", () => {
       }),
       { loadExerciseRecordsByIds: createExerciseFactLoader() },
     )).resolves.toMatchObject({
-      ok: false,
-      details: {
-        code: "section_coverage_missing",
-        missingSections: ["warmup", "stretch"],
-      },
+      ok: true,
     });
     const result = await validateVisibleTrainingProposalOutput(
       createEnvelope({
@@ -414,6 +402,35 @@ describe("visible training proposal validator", () => {
       { loadExerciseRecordsByIds: createExerciseFactLoader() },
     );
     expectNoRecoverySuggestionFields(result);
+  });
+
+  it("returns recoverable coverage diagnostics when routine output misses training facts", async () => {
+    await expect(validateVisibleTrainingProposalOutput(
+      createEnvelope({
+        kind: "routine",
+        exerciseItems: [
+          { exerciseId: "jumping-jack", section: "warmup", order: 1, prescription: createPrescription("reps", 20) },
+          { exerciseId: "chest-stretch", section: "stretch", order: 1, prescription: createPrescription("duration", 30) },
+        ],
+      }),
+      createContext(),
+      { loadExerciseRecordsByIds: createExerciseFactLoader() },
+    )).resolves.toMatchObject({
+      ok: false,
+      message: "visibleTrainingProposal 缺少 routine 或 plan 必要 training section。",
+      details: {
+        code: "section_coverage_missing",
+        path: "payload.exerciseItems",
+        payloadKind: "routine",
+        availableSections: ["warmup", "stretch"],
+        missingSections: ["training"],
+        outputCoverage: {
+          sectionSummary: { warmup: 1, training: 0, stretch: 1 },
+          availableSections: ["warmup", "stretch"],
+          missingSections: ["training"],
+        },
+      },
+    });
   });
 
   it("accepts routine payloads when warmup training and stretch facts are structurally present", async () => {

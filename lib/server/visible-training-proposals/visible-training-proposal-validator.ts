@@ -135,20 +135,20 @@ function createRoutinePlanCoverageFailure(
   const outputCoverage = summarizeVisibleTrainingResourceCoverage({
     exerciseItems,
   });
-  if (outputCoverage.missingSections.length === 0) {
+  if (!outputCoverage.missingSections.includes("training")) {
     return null;
   }
 
   return {
     ok: false,
-    message: "visibleTrainingProposal 缺少 routine 或 plan 必要 section。",
+    message: "visibleTrainingProposal 缺少 routine 或 plan 必要 training section。",
     details: {
       code: "section_coverage_missing",
       path: "payload.exerciseItems",
       payloadKind: payload.kind,
       outputCoverage,
       availableSections: outputCoverage.availableSections,
-      missingSections: outputCoverage.missingSections,
+      missingSections: ["training"],
       currentVisibleCoverage: summarizeCurrentVisibleTrainingCoverage(context),
     },
   };

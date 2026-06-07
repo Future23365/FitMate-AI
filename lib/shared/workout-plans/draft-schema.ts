@@ -40,7 +40,7 @@ export const workoutPlanItemDraftSchema = workoutDraftItemBaseSchema.extend({
   section: workoutRoutineSectionSchema,
 });
 
-// AI 长期计划训练日阶段，和 routine 草稿共用 warmup/training/stretch 的可执行分段语义。
+// AI 长期计划训练日阶段，和 routine 草稿共用已生成 section 的可执行分段语义。
 export const workoutPlanDaySectionDraftSchema = z.object({
   section: workoutRoutineSectionSchema,
   title: z.string().trim().min(1, "阶段标题不能为空").max(80),
@@ -69,20 +69,28 @@ export const workoutDayDraftSchema = z.object({
   sections: z.array(workoutPlanDaySectionDraftSchema).max(3).default([]),
   safetyNotes: z.array(z.string().trim().min(1)).max(8).default([]),
 }).superRefine((day, ctx) => {
-  const expectedSections = ["warmup", "training", "stretch"] as const;
-
   if (day.isRestDay) {
     return;
   }
 
-  for (const section of expectedSections) {
-    if (!day.sections.some((candidate) => candidate.section === section && candidate.items.length > 0)) {
+  if (!day.sections.some((candidate) => candidate.section === "training" && candidate.items.length > 0)) {
+    ctx.addIssue({
+      code: "custom",
+      message: "训练日缺少 training 阶段",
+      path: ["sections"],
+    });
+  }
+
+  const seenSections = new Set<string>();
+  for (const [index, section] of day.sections.entries()) {
+    if (seenSections.has(section.section)) {
       ctx.addIssue({
         code: "custom",
-        message: `训练日缺少 ${section} 阶段`,
-        path: ["sections"],
+        message: "训练日 section 不能重复",
+        path: ["sections", index, "section"],
       });
     }
+    seenSections.add(section.section);
   }
 });
 
@@ -166,14 +174,14 @@ export const workoutPlanDraftSchema = z.object({
 // AI 单次训练编排动作项，直接对应可执行 routine item 的核心参数。
 export const workoutRoutineDraftItemSchema = workoutPlanItemDraftSchema;
 
-// AI 单次训练编排阶段，要求热身、主训练和拉伸以结构化方式分段。
+// AI 单次训练编排阶段，承载模型实际生成的 warmup/training/stretch 分段。
 export const workoutRoutineDraftSectionSchema = z.object({
   section: workoutRoutineSectionSchema,
   title: z.string().trim().min(1, "阶段标题不能为空").max(80),
   items: z.array(workoutRoutineDraftItemSchema).min(1, "训练阶段至少需要 1 个动作").max(12),
 });
 
-// AI 单次训练编排草稿，是聊天推送 routine 的唯一结构化数据源。
+// AI 单次训练编排草稿，是聊天推送 routine 的唯一结构化数据源；主训练必需，support section 不由服务端伪造。
 export const workoutRoutineDraftSchema = z.object({
   kind: z.literal("routine"),
   title: z.string().trim().min(1, "动作编排标题不能为空").max(100),
@@ -182,28 +190,34 @@ export const workoutRoutineDraftSchema = z.object({
   estimatedSessionMinutes: z.number().int().min(5).max(240),
   trainingLoopRounds: z.number().int().min(1).max(12),
   trainingLoopRestSeconds: z.number().int().min(0).max(600),
-  sections: z.array(workoutRoutineDraftSectionSchema).length(3, "必须包含热身、训练、拉伸三个阶段"),
+  sections: z.array(workoutRoutineDraftSectionSchema).min(1, "必须包含 training 阶段").max(3),
   safetyNotes: z.array(z.string().trim().min(1)).max(10).default([]),
 }).superRefine((draft, ctx) => {
-  const expectedSections = ["warmup", "training", "stretch"] as const;
-
-  for (const section of expectedSections) {
-    if (!draft.sections.some((candidate) => candidate.section === section)) {
-      ctx.addIssue({
-        code: "custom",
-        message: `缺少 ${section} 阶段`,
-        path: ["sections"],
-      });
-    }
+  if (!draft.sections.some((candidate) => candidate.section === "training" && candidate.items.length > 0)) {
+    ctx.addIssue({
+      code: "custom",
+      message: "缺少 training 阶段",
+      path: ["sections"],
+    });
   }
 
-  for (const section of draft.sections) {
+  const seenSections = new Set<string>();
+  for (const [sectionIndex, section] of draft.sections.entries()) {
+    if (seenSections.has(section.section)) {
+      ctx.addIssue({
+        code: "custom",
+        message: "section 不能重复",
+        path: ["sections", sectionIndex, "section"],
+      });
+    }
+    seenSections.add(section.section);
+
     for (const [itemIndex, item] of section.items.entries()) {
       if (item.section !== section.section) {
         ctx.addIssue({
           code: "custom",
           message: "动作项 section 必须与所属阶段一致",
-          path: ["sections", draft.sections.indexOf(section), "items", itemIndex, "section"],
+          path: ["sections", sectionIndex, "items", itemIndex, "section"],
         });
       }
     }

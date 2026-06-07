@@ -23,6 +23,11 @@ const sectionTitles: Record<WorkoutRoutineSection, string> = {
   training: "主训练",
   stretch: "拉伸放松",
 };
+const sectionSummaryLabels: Record<WorkoutRoutineSection, string> = {
+  warmup: "热身",
+  training: "主训练",
+  stretch: "拉伸",
+};
 
 type VisibleTrainingProposalKind = "exercise_selection" | "routine" | "plan";
 type ScheduleAssignment = { cycleDayIndex: number; type: "training" | "rest" };
@@ -149,7 +154,7 @@ function createRoutineCardView(
     kind: "routine",
     title: "本次训练编排",
     goal: createRoutineGoal(routineItems.length),
-    summary: createRoutineSummary(routineItems.length, estimatedSessionMinutes),
+    summary: createRoutineSummary(sections, routineItems.length, estimatedSessionMinutes),
     estimatedSessionMinutes,
     trainingLoopRounds: 1,
     trainingLoopRestSeconds: 60,
@@ -261,9 +266,9 @@ function createRoutineSections(items: VisibleTrainingExerciseItem[]): WorkoutRou
       title: sectionTitles[section],
       items: sectionItems,
     };
-  });
+  }).filter((section) => section.items.length > 0);
 
-  return sections.every((section) => section.items.length > 0) ? sections : null;
+  return sections.some((section) => section.section === "training") ? sections : null;
 }
 
 function cloneRoutineSectionsForPlan(sections: WorkoutRoutineDraftSection[]) {
@@ -460,8 +465,21 @@ function createRoutineGoal(itemCount: number) {
   return itemCount > 0 ? `完成 ${itemCount} 个动作的本次训练` : "完成本次训练";
 }
 
-function createRoutineSummary(itemCount: number, estimatedSessionMinutes: number) {
-  return limitText(`包含热身、主训练和拉伸，共 ${itemCount} 个动作，预估 ${estimatedSessionMinutes} 分钟。`, 400);
+function createRoutineSummary(
+  sections: Pick<WorkoutRoutineDraftSection, "section">[],
+  itemCount: number,
+  estimatedSessionMinutes: number,
+) {
+  const sectionText = sections
+    .map((section) => sectionSummaryLabels[section.section])
+    .reduce((text, label, index, labels) => {
+      if (index === 0) {
+        return label;
+      }
+      return index === labels.length - 1 ? `${text}和${label}` : `${text}、${label}`;
+    }, "");
+
+  return limitText(`包含${sectionText}，共 ${itemCount} 个动作，预估 ${estimatedSessionMinutes} 分钟。`, 400);
 }
 
 function createPlanGoal(trainingDayCount: number) {

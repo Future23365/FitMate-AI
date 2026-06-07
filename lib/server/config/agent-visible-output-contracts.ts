@@ -115,7 +115,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
     "用户要多天、频次、周期或一周安排时，选择 payload.kind = \"plan\"；plan 必须通过 schedule.assignments 表达周期内 training/rest 日。",
     "final_answer.content 和 visibleOutputs[].payload 必须一致：正文如果承诺训练频次、周期、多天或一周安排，同一 visibleTrainingProposal payload 必须使用 kind = \"plan\" 并提供 schedule.assignments。",
     "如果当前事实只能支撑 payload.kind = \"routine\"，final_answer.content 只能描述单次训练编排；不得在正文中把 routine 伪装成多天、周期或每周计划。",
-    "routine 和 plan 都必须具备 warmup、training、stretch 三类模型可见动作业务事实；如果缺失，不得降级输出 exercise_selection 来假装满足 routine/plan。",
+    "routine 和 plan 必须具备 training 主训练动作业务事实，并应优先组织为 warmup、training、stretch 三类 section；已有 warmup 或 stretch 动作事实时，不应只输出主训练。",
     "当前 plan 只支持 one routine template + schedule：payload.exerciseItems 是一个可重复训练模板，schedule.assignments 只安排 training/rest 日。",
     "当前 plan 不支持 routines[]、schedule.assignments[].routineId 或每天不同完整动作编排；需要 A/B 训练日模板时必须等待新的 output contract schema。",
   ],
@@ -174,7 +174,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
         kind: "routine",
         requirements: [
           "表达一次可执行训练编排。",
-          "必须包含 warmup、training、stretch 三类 section 的模型可见动作业务事实。",
+          "必须包含 training 主训练动作业务事实，并应优先包含 warmup、training、stretch 三类 section 的模型可见动作业务事实。",
           "每个 exerciseItems[*] 都必须绑定 prescription。",
           "不输出 schedule。",
           "final_answer.content 只能描述一次可执行训练编排，不得声称已生成多天、周期或每周训练计划。",
@@ -185,7 +185,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
         requirements: [
           "表达多天或周期训练计划。",
           "当前 schema 表达 one routine template + schedule，不表达 A/B 多模板训练日。",
-          "必须包含 warmup、training、stretch 三类 section 的模型可见动作业务事实。",
+          "必须包含 training 主训练动作业务事实，并应优先包含 warmup、training、stretch 三类 section 的模型可见动作业务事实。",
           "每个 exerciseItems[*] 都必须绑定 prescription。",
           "必须通过 schedule.assignments 表达周期内 training/rest 日。",
           "schedule.assignments 必须覆盖 1..cycleLengthDays，type 只能是 training 或 rest。",
@@ -197,7 +197,8 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
   groundingRequirements: [
     "结构化训练输出必须来自模型可见业务事实；不要复写完整数据库对象或 handler output。",
     "exerciseItems[*].exerciseId 必须来自模型可见动作事实，或已导入的当前用户可访问 visible_training_proposal_fact。",
-    "exerciseItems[*].section 必须和动作事实中的 allowedSections 相容；缺少 warmup、training 或 stretch 动作业务事实时，不得伪造 routine 或 plan。",
+    "exerciseItems[*].section 必须和动作事实中的 allowedSections 相容；缺少 training 主训练动作业务事实时，不得伪造 routine 或 plan。",
+    "生成 routine 或 plan 时应优先补齐 warmup 和 stretch；已有可用 warmup 或 stretch 动作事实时，不要只输出主训练。",
     "failed tool result、diagnostic observation 或 satisfied=false result 只能用于恢复、澄清、repair 或 fallback，不能支撑成功 visibleTrainingProposal。",
     "ok=true 且 satisfied=true 的 0 条查询结果可以支撑普通文本解释，但不能伪装成结构化训练卡片、routine、plan 或已保存结果。",
     "content 不能替代 payload：如果结构化输出没有 kind = \"plan\" 和 schedule.assignments，正文不得承诺已生成训练频次、周期、多天或一周安排。",
@@ -286,9 +287,9 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
       ],
     },
     {
-      description: "事实不足的 routine：只有 training 动作事实但用户要一次完整训练时继续补齐或澄清。",
+      description: "事实不足的 routine：只有 training 动作事实但用户要一次完整训练时优先补齐或澄清。",
       userSituation: "当前 tool result 只提供 training 动作，用户目标需要 routine。",
-      expectedDecision: "继续合法 tool_call 补齐 warmup/stretch；若无法继续获取事实，ask_user 或失败收口；不得输出缺 section 的 routine，也不得降级为 exercise_selection。",
+      expectedDecision: "优先继续合法 tool_call 补齐 warmup/stretch；若无法继续获取事实，ask_user 或失败收口；不得降级为 exercise_selection 来假装满足 routine。",
       notes: [
         "这是 section readiness 的业务边界，不是固定 toolName 规则。",
         "missingSections 只作为诊断事实使用。",
@@ -394,7 +395,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
         },
       },
       notes: [
-        "routine 必须覆盖 warmup、training、stretch。",
+        "routine 应优先覆盖 warmup、training、stretch。",
         "每个动作项都必须包含 prescription。",
       ],
     },
@@ -522,7 +523,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
         },
       },
       notes: [
-        "plan 必须覆盖 warmup、training、stretch。",
+        "plan 应优先覆盖 warmup、training、stretch。",
         "当前 plan = one routine template + schedule。",
         "示例使用 7 天周期和 3 个 training 日，不新增 routines[]、routineId 或 A/B 多模板结构。",
         "schedule.assignments 只表达训练日和休息日，不内嵌每天不同的完整动作列表。",

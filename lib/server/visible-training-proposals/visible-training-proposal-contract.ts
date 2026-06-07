@@ -118,16 +118,12 @@ export const visibleTrainingProposalPayloadSchema = z.object({
     });
   }
 
-  if (payload.kind === "routine" || payload.kind === "plan") {
-    for (const section of ["warmup", "training", "stretch"] as const) {
-      if (!sectionCounts[section]) {
-        ctx.addIssue({
-          code: "custom",
-          message: `routine 和 plan 必须包含 ${section} 动作项。`,
-          path: ["exerciseItems"],
-        });
-      }
-    }
+  if ((payload.kind === "routine" || payload.kind === "plan") && !sectionCounts.training) {
+    ctx.addIssue({
+      code: "custom",
+      message: "routine 和 plan 必须包含 training 动作项。",
+      path: ["exerciseItems"],
+    });
   }
 
   if (payload.kind === "routine" && payload.schedule) {

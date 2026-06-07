@@ -2026,6 +2026,51 @@ describe("chat service agent text flow boundary", () => {
     expect(JSON.stringify(events)).not.toContain("displayedExerciseIds");
   });
 
+  it("renders a routine visible output when support sections are missing but training is valid", async () => {
+    const planner = new ReplayPlanner([
+      {
+        type: "final_answer",
+        content: "这是一套可直接照做的主训练编排。",
+        visibleOutputs: [createTrainingOnlyRoutineOutput()],
+      },
+    ]);
+    const response = await createAgentTextChatResponse({
+      request: prepareChatRequest({
+        conversationId: "conversation-training-only-routine-visible",
+        responseMessageId: "assistant-training-only-routine-visible",
+        latestUserMessage: "帮我做一套训练编排",
+        conversationSummary: "",
+      }),
+      currentUser: { id: "user-1" },
+      planner,
+    });
+    const events = await readNdjsonEvents(response);
+
+    expect(events).toEqual([
+      { type: "content", content: "这是一套可直接照做的主训练编排。" },
+      expect.objectContaining({
+        type: "visible_output",
+        outputType: "visibleTrainingProposal",
+        payload: expect.objectContaining({
+          kind: "routine",
+          exerciseItems: [
+            expect.objectContaining({ exerciseId: "push-up", section: "training" }),
+          ],
+        }),
+      }),
+      { type: "done" },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("section_coverage_missing");
+    expect(listAiTracesForUser("user-1")[0]).toMatchObject({
+      status: "success",
+      finalDecision: {
+        status: "success",
+        reason: "completed",
+        responseType: "final_answer",
+      },
+    });
+  });
+
   it.each([
     {
       caseId: "chest-no-equipment",
@@ -2890,7 +2935,7 @@ describe("chat service agent text flow boundary", () => {
         actionCandidate: {
           type: "final_answer",
           content: "我会把热身和拉伸写在说明里。",
-          visibleOutputs: [createTrainingOnlyRoutineOutput()],
+          visibleOutputs: [createRoutineOutputMissingTraining()],
         },
         tokenUsage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
       },
@@ -2898,7 +2943,7 @@ describe("chat service agent text flow boundary", () => {
         actionCandidate: {
           type: "final_answer",
           content: "我还是把热身和拉伸写在正文里。",
-          visibleOutputs: [createTrainingOnlyRoutineOutput()],
+          visibleOutputs: [createRoutineOutputMissingTraining()],
         },
         tokenUsage: { prompt_tokens: 4, completion_tokens: 5, total_tokens: 9 },
       },
@@ -3143,12 +3188,12 @@ describe("chat service agent text flow boundary", () => {
       {
         type: "final_answer",
         content: "我会把热身和拉伸写在说明里。",
-        visibleOutputs: [createTrainingOnlyRoutineOutput()],
+        visibleOutputs: [createRoutineOutputMissingTraining()],
       },
       {
         type: "final_answer",
         content: "我还是把热身和拉伸写在正文里。",
-        visibleOutputs: [createTrainingOnlyRoutineOutput()],
+        visibleOutputs: [createRoutineOutputMissingTraining()],
       },
     ]);
     const response = await createAgentTextChatResponse({
@@ -3219,12 +3264,12 @@ describe("chat service agent text flow boundary", () => {
       {
         type: "final_answer",
         content: "我会把热身和拉伸写在说明里。",
-        visibleOutputs: [createTrainingOnlyRoutineOutput()],
+        visibleOutputs: [createRoutineOutputMissingTraining()],
       },
       {
         type: "final_answer",
         content: "我还是把热身和拉伸写在正文里。",
-        visibleOutputs: [createTrainingOnlyRoutineOutput()],
+        visibleOutputs: [createRoutineOutputMissingTraining()],
       },
     ]);
     const response = await createAgentTextChatResponse({
@@ -3373,12 +3418,12 @@ describe("chat service agent text flow boundary", () => {
       {
         type: "final_answer",
         content: "我会把热身和拉伸写在说明里。",
-        visibleOutputs: [createTrainingOnlyRoutineOutput()],
+        visibleOutputs: [createRoutineOutputMissingTraining()],
       },
       {
         type: "final_answer",
         content: "我还是把热身和拉伸写在正文里。",
-        visibleOutputs: [createTrainingOnlyRoutineOutput()],
+        visibleOutputs: [createRoutineOutputMissingTraining()],
       },
     ]);
     const response = await createAgentTextChatResponse({
@@ -3913,6 +3958,20 @@ function createVisibleRoutineOutputForExercises(input: {
         { exerciseId: input.warmupExerciseId, section: "warmup" as const, order: 1, prescription: createVisiblePrescription("reps", 20) },
         { exerciseId: input.trainingExerciseId, section: "training" as const, order: 1, prescription: createVisiblePrescription("reps", 12) },
         { exerciseId: input.stretchExerciseId, section: "stretch" as const, order: 1, prescription: createVisiblePrescription("duration", 30) },
+      ],
+    },
+  };
+}
+
+function createRoutineOutputMissingTraining() {
+  return {
+    outputType: "visibleTrainingProposal" as const,
+    schemaVersion: "1",
+    payload: {
+      kind: "routine" as const,
+      exerciseItems: [
+        { exerciseId: "jumping-jack", section: "warmup" as const, order: 1, prescription: createVisiblePrescription("reps", 20) },
+        { exerciseId: "chest-stretch", section: "stretch" as const, order: 1, prescription: createVisiblePrescription("duration", 30) },
       ],
     },
   };
