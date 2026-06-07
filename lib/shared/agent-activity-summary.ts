@@ -4,6 +4,9 @@ export const agentActivitySummaryDisplayMaxLength = 40;
 /** agentActivitySummarySchemaMaxLength 是 AgentAction schema 的硬结构上限，超过后进入结构 repair。 */
 export const agentActivitySummarySchemaMaxLength = 80;
 
+/** agentActivitySummarySafetyEnabled 控制调试期是否拦截模型活动摘要中的内部词、长度和字符风险。 */
+export const agentActivitySummarySafetyEnabled = false;
+
 export type AgentActivitySummaryRejectionReason =
   | "not_string"
   | "empty"
@@ -56,7 +59,7 @@ const internalActivitySummaryPatterns = [
   /执行合同/,
 ] as const;
 
-/** sanitizeAgentActivitySummary 只做展示安全投影，不根据用户原文或摘要语义改写内容。 */
+/** sanitizeAgentActivitySummary 只做活动摘要展示投影，不根据用户原文或摘要语义改写内容。 */
 export function sanitizeAgentActivitySummary(value: unknown): AgentActivitySummarySanitizationResult {
   if (typeof value !== "string") {
     return { ok: false, reason: "not_string" };
@@ -66,6 +69,10 @@ export function sanitizeAgentActivitySummary(value: unknown): AgentActivitySumma
 
   if (!summary) {
     return { ok: false, reason: "empty" };
+  }
+
+  if (!agentActivitySummarySafetyEnabled) {
+    return { ok: true, summary };
   }
 
   if (summary.length > agentActivitySummaryDisplayMaxLength) {

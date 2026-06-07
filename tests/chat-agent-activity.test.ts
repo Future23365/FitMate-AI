@@ -15,6 +15,10 @@ import {
   shouldClearAgentActivityForStreamEvent,
 } from "@/features/chat/lib/agent-activity";
 import { createChatConversationSavePayload } from "@/features/chat/lib/chat-history";
+import {
+  agentActivitySummarySafetyEnabled,
+  sanitizeAgentActivitySummary,
+} from "@/lib/shared/agent-activity-summary";
 import type { AgentTextChatEvent } from "@/features/chat/api/chat-client";
 import type { ChatMessage } from "@/features/chat/types";
 
@@ -38,6 +42,14 @@ function createVisibleActivityForTest(
 }
 
 describe("Agent progress activity UI state", () => {
+  it("keeps activitySummary safety filtering disabled for debug visibility", () => {
+    expect(agentActivitySummarySafetyEnabled).toBe(false);
+    expect(sanitizeAgentActivitySummary("toolName=searchExerciseResources 内部调试")).toEqual({
+      ok: true,
+      summary: "toolName=searchExerciseResources 内部调试",
+    });
+  });
+
   it("updates activity by sequence and falls back for unknown stages", () => {
     const current = reduceAgentActivity(null, {
       type: "agent_progress",
@@ -238,7 +250,7 @@ describe("Agent progress activity UI state", () => {
     expect(getAgentActivityDisplay(secondLoop!).label).toBe("需要查询动作库");
   });
 
-  it("ignores unsafe activitySummary values and keeps the stage fallback user-safe", () => {
+  it("shows raw activitySummary values while debug safety is disabled", () => {
     const next = reduceAgentActivity(null, {
       type: "agent_progress",
       stage: "validating_result",
@@ -248,10 +260,9 @@ describe("Agent progress activity UI state", () => {
       sequence: 1,
     }, { nowMs: 0 });
 
-    expect(next?.activityStage?.activitySummary).toBeUndefined();
-    expect(getAgentActivityDisplay(next!).label).toBe("正在思考...");
-    expect(getAgentActivityDisplay(next!).label).not.toContain("toolName");
-    expect(JSON.stringify(next)).not.toContain("searchExerciseResources");
+    expect(next?.activityStage?.activitySummary).toBe("toolName=searchExerciseResources 内部调试");
+    expect(getAgentActivityDisplay(next!).label).toBe("toolName=searchExerciseResources 内部调试");
+    expect(JSON.stringify(next)).toContain("searchExerciseResources");
   });
 
   it("holds visible copy before showing rapid specific stage changes", () => {

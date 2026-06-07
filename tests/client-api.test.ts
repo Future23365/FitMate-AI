@@ -98,7 +98,7 @@ describe("frontend API clients", () => {
     expect(JSON.stringify(events)).not.toContain("suggestedQuestions");
   });
 
-  it("parses agent_loop and agent_progress safely and rejects invalid activity payloads", async () => {
+  it("parses agent_loop and agent_progress while preserving debug activitySummary text", async () => {
     const events: unknown[] = [];
     await consumeAgentTextChatNdjson(new Response([
       JSON.stringify({
@@ -130,12 +130,12 @@ describe("frontend API clients", () => {
     expect(events).toEqual([
       { type: "agent_loop", loopTurn: 2, sequence: 6 },
       { type: "agent_progress", stage: "raw_internal_tool_name", status: "active", messageKey: undefined, activitySummary: "需要确认训练条件", sequence: 7 },
-      { type: "agent_progress", stage: "validating_result", status: "active", messageKey: "validating_result", sequence: 8 },
+      { type: "agent_progress", stage: "validating_result", status: "active", messageKey: "validating_result", activitySummary: "toolName=searchExerciseResources 内部调试", sequence: 8 },
       { type: "done" },
     ]);
-    expect(JSON.stringify(events)).not.toContain("toolName");
-    expect(JSON.stringify(events)).not.toContain("searchExerciseResources");
-    expect(JSON.stringify(events)).not.toContain("内部调试");
+    expect(events[1]).not.toHaveProperty("toolName");
+    expect(events[2]).not.toHaveProperty("toolName");
+    expect(JSON.stringify(events)).toContain("toolName=searchExerciseResources 内部调试");
 
     const streamError = await consumeAgentTextChatNdjson(new Response(JSON.stringify({
       type: "agent_progress",

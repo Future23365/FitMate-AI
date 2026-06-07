@@ -515,7 +515,7 @@ describe("agent-core runtime budget and idempotency hardening", () => {
     expect(result.traceEvents.map((event) => event.type)).toEqual(observedTypes);
   });
 
-  it("projects only safe activitySummary diagnostics into planner_action trace and keeps replay summary clean", async () => {
+  it("projects activitySummary diagnostics into planner_action trace and keeps replay summary clean", async () => {
     const safeResult = await runAgentRuntime({
       registry: new ToolRegistry(),
       planner: new ReplayPlanner([
@@ -538,7 +538,7 @@ describe("agent-core runtime budget and idempotency hardening", () => {
     expect(JSON.stringify(safeResult.replaySummary)).not.toContain("activitySummary");
     expect(JSON.stringify(safeResult.replaySummary)).not.toContain("正在整理最终回复");
 
-    const rejectedResult = await runAgentRuntime({
+    const debugResult = await runAgentRuntime({
       registry: new ToolRegistry(),
       planner: new ReplayPlanner([
         { type: "final_answer", content: "可以。", activitySummary: "toolName=readOne 内部调试" },
@@ -549,14 +549,15 @@ describe("agent-core runtime budget and idempotency hardening", () => {
         userInput: "hello",
       },
     });
-    const rejectedPlannerAction = rejectedResult.traceEvents.find((event) => event.type === "planner_action");
+    const debugPlannerAction = debugResult.traceEvents.find((event) => event.type === "planner_action");
 
-    expect(rejectedPlannerAction).toMatchObject({
+    expect(debugPlannerAction).toMatchObject({
       type: "planner_action",
       actionType: "final_answer",
-      activitySummaryRejectedReason: "internal_term",
+      activitySummary: "toolName=readOne 内部调试",
+      activitySummarySource: "AgentAction.activitySummary",
     });
-    expect(JSON.stringify(rejectedPlannerAction)).not.toContain("toolName=readOne");
-    expect(JSON.stringify(rejectedPlannerAction)).not.toContain("内部调试");
+    expect(JSON.stringify(debugResult.replaySummary)).not.toContain("activitySummary");
+    expect(JSON.stringify(debugResult.replaySummary)).not.toContain("toolName=readOne");
   });
 });
