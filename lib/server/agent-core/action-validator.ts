@@ -4,10 +4,8 @@ import {
   AgentActionRequiredTopLevelFields,
   AgentActionTopLevelFieldAllowlist,
   type AgentActionNormalizationDiagnostic,
-  type AgentResourceRef,
   type AgentAction,
   type AgentRunInput,
-  type AgentTerminalRef,
   type TerminalOutputValidationSummary,
   type TerminalAgentAction,
   type ToolCallAction,
@@ -97,6 +95,17 @@ function validateAgentActionInternal(
 
 const agentActionTopLevelFieldAllowlist = mapFieldAllowlists(AgentActionTopLevelFieldAllowlist);
 type AgentActionTopLevelType = keyof typeof AgentActionTopLevelFieldAllowlist;
+const plannerOwnedReferenceFields = new Set([
+  "usedRefs",
+  "usedToolResultIds",
+  "usedResourceRefs",
+  "consumes",
+  "resourceId",
+  "toolResultId",
+  "factRef",
+  "messageId",
+  "resource",
+]);
 
 function normalizeAgentActionTopLevel(action: unknown): {
   action: unknown;
@@ -111,6 +120,10 @@ function normalizeAgentActionTopLevel(action: unknown): {
   const unknownTopLevelKeys = Object.keys(action).filter((key) => !allowedFields.has(key));
 
   if (unknownTopLevelKeys.length === 0) {
+    return { action };
+  }
+
+  if (unknownTopLevelKeys.some((key) => plannerOwnedReferenceFields.has(key))) {
     return { action };
   }
 
@@ -192,16 +205,6 @@ function attachNormalization<T extends ActionValidationResult>(
 }
 
 function validateToolCallAction(action: ToolCallAction, input: ActionValidationInput): ActionValidationResult {
-  if (action.consumes?.length && !input.resourceStore) {
-    return {
-      ok: false,
-      error: createToolError(
-        AGENT_ERROR_CODES.INVALID_RESOURCE_REFERENCE,
-        "M0 does not consume resource references. ResourceStore belongs to M1.",
-      ),
-    };
-  }
-
   const tool = input.registry.get(action.toolName);
   if (!tool) {
     return {
@@ -284,110 +287,7 @@ function validateTerminalAction(
   input: ActionValidationInput,
   mode: "sync" | "async",
 ): ActionValidationResult | Promise<ActionValidationResult> {
-  const toolResultRefIds = collectTerminalToolResultIds(action);
-  const resourceRefs = collectTerminalResourceRefs(action);
-
-  if (resourceRefs.length && !input.resourceStore) {
-    return {
-      ok: false,
-      error: createToolError(
-        AGENT_ERROR_CODES.INVALID_RESOURCE_REFERENCE,
-        "M0 terminal actions cannot use resource references. ResourceStore belongs to M1.",
-      ),
-    };
-  }
-
-  if (resourceRefs.length && input.resourceStore) {
-    for (const ref of resourceRefs) {
-      try {
-        const resource = input.resourceStore.assertRegistered(ref);
-
-        if (action.type === "final_answer" && resource.role !== "consumable") {
-          return {
-            ok: false,
-            error: createToolError(
-              AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID,
-              "Final answer cannot use diagnostic resources as successful grounding.",
-              { resourceId: resource.resourceId, role: resource.role },
-            ),
-          };
-        }
-      } catch (error) {
-        if (error instanceof AgentContractError) {
-          const details = error.code === AGENT_ERROR_CODES.RESOURCE_MISSING
-            ? createMissingResourceReferenceDetails(ref, action.type)
-            : error.details as ToolError["details"];
-
-          return {
-            ok: false,
-            error: createToolError(error.code, error.message, details),
-          };
-        }
-        throw error;
-      }
-    }
-  }
-
-  const knownToolResults = new Map(input.toolResults.map((result) => [result.toolResultId, result]));
-  const knownToolResultIds = new Set(knownToolResults.keys());
-  const unknownIds = toolResultRefIds.filter((id) => !knownToolResultIds.has(id));
-
-  if (unknownIds.length > 0) {
-    return {
-      ok: false,
-      error: createToolError(
-        AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID,
-        "Terminal action references tool results that do not exist in the current run.",
-        { unknownIds },
-      ),
-    };
-  }
-
-  // 成功 final_answer 只能引用当前 run 内 ok=true 且 satisfied=true 的 tool result；诊断结果只能用于 ask_user 或 repair。
   if (action.type === "final_answer") {
-    const failedToolResultIds = toolResultRefIds.filter((id) => {
-      const result = knownToolResults.get(id);
-      return result ? !result.ok : false;
-    });
-
-    if (failedToolResultIds.length > 0) {
-      return {
-        ok: false,
-        error: createToolError(
-          AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID,
-          "Final answer cannot use failed tool results as grounding.",
-          { toolResultIds: failedToolResultIds },
-        ),
-      };
-    }
-
-    const diagnosticToolResultIds = toolResultRefIds.filter((id) => {
-      const result = knownToolResults.get(id);
-      return result?.ok ? !result.fulfillment.satisfied : false;
-    });
-
-    if (diagnosticToolResultIds.length > 0) {
-      return {
-        ok: false,
-        error: createToolError(
-          AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID,
-          "Final answer cannot use diagnostic tool results as successful grounding.",
-          { toolResultIds: diagnosticToolResultIds },
-        ),
-      };
-    }
-
-    if (input.toolResults.length > 0 && !hasTerminalGrounding(action, toolResultRefIds)) {
-      return {
-        ok: false,
-        error: createToolError(
-          AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID,
-          "Final answer after tool execution must use current-run grounding or continue with another action.",
-          createMissingTerminalGroundingDetails(input.toolResults.length),
-        ),
-      };
-    }
-
     if (action.visibleOutputs?.length) {
       if (!input.terminalOutputValidators) {
         return {
@@ -443,84 +343,6 @@ function validateTerminalAction(
   return { ok: true, action };
 }
 
-function hasTerminalGrounding(action: Extract<TerminalAgentAction, { type: "final_answer" }>, toolResultRefIds: string[]) {
-  return toolResultRefIds.length > 0
-    || collectTerminalResourceRefs(action).length > 0
-    || (action.visibleOutputs?.length ?? 0) > 0;
-}
-
-function createMissingTerminalGroundingDetails(toolResultCount: number): ToolError["details"] {
-  return {
-    type: "domain_validation_failed",
-    target: {
-      kind: "DomainValidation",
-      schemaId: "AgentAction",
-      variant: "final_answer",
-    },
-    facts: [
-      {
-        code: "missing_terminal_grounding_after_tool_result",
-        path: "usedRefs",
-        expected: {
-          anyOf: [
-            "current_run_ok_tool_result_ref",
-            "consumable_resource_ref",
-            "valid_visibleOutputs",
-          ],
-        },
-        actual: { kind: "missing" },
-        toolResultCount,
-      },
-    ],
-  };
-}
-
-function createMissingResourceReferenceDetails(
-  ref: AgentResourceRef,
-  actionType: TerminalAgentAction["type"],
-): ToolError["details"] {
-  const actual: Record<string, string> = {
-    resourceId: ref.resourceId,
-  };
-
-  if (ref.resourceType) {
-    actual.resourceType = ref.resourceType;
-  }
-  if (ref.role) {
-    actual.role = ref.role;
-  }
-  if (ref.runId) {
-    actual.runId = ref.runId;
-  }
-  if (ref.schemaVersion) {
-    actual.schemaVersion = ref.schemaVersion;
-  }
-
-  return {
-    type: "domain_validation_failed",
-    target: {
-      kind: "DomainValidation",
-      schemaId: "AgentAction",
-      variant: actionType,
-    },
-    facts: [
-      {
-        code: "resource_missing",
-        path: "usedRefs.resource.id",
-        expected: {
-          anyOf: [
-            "current_run_registered_resourceId",
-            "current_run_ok_tool_result_ref",
-            "valid_visibleOutputs",
-          ],
-        },
-        actual,
-        repair: "usedRefs.resource.id 必须是当前 run 已登记的 resourceId，通常来自 fulfillment.producedResources[].resourceId；不要把业务对象 id、历史消息 id、示例 id 或正文里的 id 当作 resourceId。若普通回答事实来自当前 run ok=true 的 tool result，优先改用 usedRefs: [{ type: \"tool_result\", id: \"...\" }]。",
-      },
-    ],
-  };
-}
-
 function invalidAction(message: string, details?: ToolError["details"]): ActionValidationResult {
   return {
     ok: false,
@@ -574,25 +396,6 @@ function hasNumericVisibleOutputSchemaVersionIssue(error: { issues: Array<{ path
       && path[path.length - 1] === "schemaVersion"
       && issue.message.includes("expected string");
   });
-}
-
-function collectTerminalToolResultIds(action: TerminalAgentAction) {
-  return (action.usedRefs ?? [])
-    .filter((ref): ref is Extract<AgentTerminalRef, { type: "tool_result" }> => ref.type === "tool_result")
-    .map((ref) => ref.id);
-}
-
-function collectTerminalResourceRefs(action: TerminalAgentAction): AgentResourceRef[] {
-  return (action.usedRefs ?? [])
-    .filter((ref): ref is Extract<AgentTerminalRef, { type: "resource" }> => ref.type === "resource")
-    .map((ref) => ({
-      resourceId: ref.id,
-      resourceType: ref.resourceType,
-      role: ref.role,
-      runId: ref.runId,
-      version: ref.version,
-      schemaVersion: ref.schemaVersion,
-    }));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

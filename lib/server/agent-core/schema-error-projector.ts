@@ -46,6 +46,18 @@ type ProjectDomainValidationFeedbackInput = {
   fallbackCode?: string;
 };
 
+const plannerOwnedReferenceFields = new Set([
+  "usedRefs",
+  "usedToolResultIds",
+  "usedResourceRefs",
+  "consumes",
+  "resourceId",
+  "toolResultId",
+  "factRef",
+  "messageId",
+  "resource",
+]);
+
 /** projectSchemaValidationFeedback 把 Zod/schema issue 投影为模型可见的脱敏字段事实。 */
 export function projectSchemaValidationFeedback(input: ProjectSchemaValidationFeedbackInput): JsonValue {
   const flattened = flattenSchemaIssues(input.issues);
@@ -87,6 +99,7 @@ function projectIssue(issue: SchemaIssueLike, schema: ZodTypeAny | undefined, va
         actual: summarizeActual(readPath(value, path), path),
         allowedFields: objectMeta.allowedFields,
         requiredFields: objectMeta.requiredFields,
+        repair: createUnknownFieldRepair(String(key)),
       });
     });
   }
@@ -107,6 +120,14 @@ function projectIssue(issue: SchemaIssueLike, schema: ZodTypeAny | undefined, va
     requiredFields: code === "required_field_missing" ? objectMeta.requiredFields : undefined,
     allowedValues,
   })];
+}
+
+function createUnknownFieldRepair(field: string): string | undefined {
+  if (!plannerOwnedReferenceFields.has(field)) {
+    return undefined;
+  }
+
+  return "该字段不属于当前 Planner 可见合同，请删除；tool result、ResourceStore、历史事实引用和 terminal provenance 由服务端内部维护，模型只输出合法 action 字段和业务结构。";
 }
 
 function normalizeIssueCode(issue: SchemaIssueLike, actualExists: boolean) {

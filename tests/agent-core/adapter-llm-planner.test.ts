@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
-import { createToolResultId, hashNormalizedInput } from "@/lib/server/agent-core/executor";
-import { toTerminalToolResultRefs, type ToolResult } from "@/lib/server/agent-core/contracts";
+import type { ToolResult } from "@/lib/server/agent-core/contracts";
 import type { PlannerInput } from "@/lib/server/agent-core/planner-port";
 import {
   createToolObservation,
@@ -94,13 +93,11 @@ describe("agent-planners LlmPlanner and model adapters", () => {
   it("uses a fake ModelAdapter without changing agent-core runtime", async () => {
     const registry = createM0FixtureToolRegistry();
     const toolInput = { fixtureId: "adapter-fixture" };
-    const expectedToolResultId = createToolResultId("run-fake-adapter", "readFixture", hashNormalizedInput(toolInput));
     const adapter = new FakeModelAdapter([
       { type: "tool_call", toolName: "readFixture", input: toolInput },
       {
         type: "final_answer",
         content: "fake adapter completed.",
-        usedRefs: toTerminalToolResultRefs([expectedToolResultId]),
       },
     ]);
     const planner = new LlmPlanner(adapter);
@@ -446,7 +443,6 @@ describe("agent-planners LlmPlanner and model adapters", () => {
     const { fetchImpl, requestBodies } = captureDeepSeekRequestBodies(JSON.stringify({
       type: "final_answer",
       content: "facts consumed.",
-      usedRefs: toTerminalToolResultRefs(["tr_projection"]),
     }));
     const adapter = new DeepSeekModelAdapter({
       apiKey: "test-key",
@@ -520,7 +516,6 @@ describe("agent-planners LlmPlanner and model adapters", () => {
       toolResultProjectionCount: 1,
       toolResultProjectionPresence: [
         {
-          toolResultId: "tr_projection",
           toolName: "readFixture",
           satisfied: true,
           hasModelProjection: true,
@@ -678,7 +673,8 @@ describe("agent-planners LlmPlanner and model adapters", () => {
     expect(modelInput.context.toolResults).toEqual([]);
     expect(body.messages[0].content).toContain(JSON.stringify(getAgentActionContract().schemaId));
     expect(body.messages[0].content).toContain("fieldDictionary");
-    expect(body.messages[0].content).toContain("toolResults[].fulfillment.producedResources");
+    expect(body.messages[0].content).toContain("toolResults[].fulfillment.summary");
+    expect(body.messages[0].content).not.toContain("toolResults[].fulfillment.producedResources");
     expect(body.messages[0].content).not.toContain("toolResults[].producedResources");
     expect(body.messages[0].content).toContain("missing_training_constraints");
     expect(body.messages[0].content).not.toContain("ask_user.question");

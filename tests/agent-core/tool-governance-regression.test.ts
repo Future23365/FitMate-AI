@@ -9,14 +9,13 @@ import { createM1FixtureToolRegistry } from "@/lib/server/agent-tools";
 import {
   getConfirmationWriteFixtureExecutions,
   M1_FIXTURE_DIAGNOSTIC_TYPE,
-  M1_FIXTURE_RESOURCE_TYPE,
   M1_FIXTURE_SCHEMA_VERSION,
   resetConfirmationWriteFixtureExecutions,
   summarizeM1FixtureTrace,
 } from "@/lib/server/agent-tools/fixture/m1-safety-fixture.tools";
 import { ReplayPlanner } from "@/lib/server/agent-planners/replay-planner";
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
-import { toTerminalResourceRefs, toTerminalToolResultRefs, type AgentResourceRef } from "@/lib/server/agent-core/contracts";
+import type { AgentResourceRef } from "@/lib/server/agent-core/contracts";
 
 describe("agent tool governance regressions", () => {
   it("does not execute write or high-risk tools before Policy Guard returns confirmation", async () => {
@@ -49,7 +48,7 @@ describe("agent tool governance regressions", () => {
     expect(getConfirmationWriteFixtureExecutions()).toHaveLength(0);
   });
 
-  it("does not allow diagnostic resources to support successful final answer", async () => {
+  it("rejects stale diagnostic terminal refs in final answers", async () => {
     const diagnosticInput = {
       code: "fixture_blocked",
       message: "fixture 被阻断。",
@@ -85,8 +84,8 @@ describe("agent tool governance regressions", () => {
           type: "final_answer",
           content: "已成功完成。",
           usedRefs: [
-            ...toTerminalToolResultRefs([diagnosticToolResultId]),
-            ...toTerminalResourceRefs([diagnosticRef]),
+            { type: "tool_result", id: diagnosticToolResultId },
+            { type: "resource", id: diagnosticRef.resourceId, resourceType: diagnosticRef.resourceType },
           ],
         },
       ]),
@@ -105,7 +104,7 @@ describe("agent tool governance regressions", () => {
     expect(result.observations).toEqual(expect.arrayContaining([
       expect.objectContaining({
         type: "invalid_action",
-        content: expect.objectContaining({ code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID }),
+        content: expect.objectContaining({ code: AGENT_ERROR_CODES.INVALID_ACTION }),
       }),
     ]));
   });
@@ -116,24 +115,6 @@ describe("agent tool governance regressions", () => {
       body: "safe body",
       includeSecret: true,
     };
-    const producerToolResultId = createToolResultId(
-      "run-governance-projection",
-      "m1ResourceProducer",
-      hashNormalizedInput(producerInput),
-    );
-    const resourceRef: AgentResourceRef = {
-      resourceId: createResourceId({
-        runId: "run-governance-projection",
-        sourceToolResultId: producerToolResultId,
-        resourceType: M1_FIXTURE_RESOURCE_TYPE,
-        role: "consumable",
-        schemaVersion: M1_FIXTURE_SCHEMA_VERSION,
-      }),
-      resourceType: M1_FIXTURE_RESOURCE_TYPE,
-      role: "consumable",
-      runId: "run-governance-projection",
-      schemaVersion: M1_FIXTURE_SCHEMA_VERSION,
-    };
     const planner = new ReplayPlanner([
       {
         type: "tool_call",
@@ -143,10 +124,6 @@ describe("agent tool governance regressions", () => {
       {
         type: "final_answer",
         content: "资源已创建。",
-        usedRefs: [
-          ...toTerminalToolResultRefs([producerToolResultId]),
-          ...toTerminalResourceRefs([resourceRef]),
-        ],
       },
     ]);
     const result = await runAgentRuntime({

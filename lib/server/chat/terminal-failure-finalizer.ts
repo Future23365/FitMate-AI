@@ -651,13 +651,11 @@ function summarizeVerifiedFacts(result: AgentRunResult): JsonValue {
   const facts = result.toolResults
     .filter((toolResult) => toolResult.ok)
     .slice(0, maxFinalizerListItems)
-    .map((toolResult) => ({
-      toolResultId: toolResult.toolResultId,
+    .map((toolResult, index) => ({
+      index: index + 1,
       toolName: toolResult.toolName,
       satisfied: toolResult.fulfillment.satisfied,
       summary: summarizeText(toolResult.fulfillment.summary),
-      producedResourceCount: toolResult.fulfillment.producedResources?.length ?? 0,
-      consumedResourceCount: toolResult.fulfillment.consumedResources?.length ?? 0,
     }));
 
   return {

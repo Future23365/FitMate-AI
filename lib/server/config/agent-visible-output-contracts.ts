@@ -55,27 +55,23 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
     },
     {
       field: "visible_training_proposal_fact",
-      meaning: "当前 run 已导入或登记的可消费训练方案事实 resourceType；生命周期只在当前 run 和当前用户可访问边界内有效。",
+      meaning: "当前用户可访问的历史可见训练方案业务事实；模型只使用其中的动作、section、处方和计划结构，不复制内部引用。",
     },
     {
-      field: "consumable resource",
-      meaning: "ResourceStore 中 role = consumable 的当前 run resource，可用于支撑成功 final_answer 或结构化输出。",
+      field: "business fact",
+      meaning: "模型可见且经过服务端受控投影的训练业务事实，可用于支撑成功 final_answer 或结构化输出。",
     },
     {
-      field: "toolResults[].fulfillment.producedResources",
-      meaning: "tool 执行后登记给当前 run 的 resource 引用来源；模型不能自行编造。",
-    },
-    {
-      field: "toolResults[].fulfillment.consumedResources",
-      meaning: "tool 执行时已经消费的当前 run resource 引用，说明当前结果依赖哪些已登记事实。",
+      field: "toolResults[].fulfillment.summary",
+      meaning: "tool result 对模型可见的受控事实摘要；不是完整数据库对象，也不是用户可见结构化输出。",
     },
     {
       field: "toolResults[].fulfillment.unmetRequirements",
       meaning: "tool 暴露的未满足条件，只能用于补充 tool 调用、澄清或失败解释，不能当成成功训练交付事实。",
     },
     {
-      field: "resource summary",
-      meaning: "当前 run resource 的安全压缩摘要，帮助模型理解事实边界，不是完整数据库对象。",
+      field: "currentRunSourceDiagnostic",
+      meaning: "服务端可记录的诊断信息，表示某些动作未由当前 run 事实来源支撑；它不替代数据库发布态和 section 校验。",
     },
     {
       field: "toolResults[].fulfillment.satisfied",
@@ -104,12 +100,12 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
   ],
   whenToUse: [
     "用户目标需要结构化训练结果，并且当前 run 已有足够训练目标、限制、场地或器械等关键约束。",
-    "当前 run 已存在可消费的动作事实，或已导入当前用户可访问的 consumable visible_training_proposal_fact。",
-    "模型可以基于用户目标、messages、metadata、tools、observations、toolResults 和可消费 resource 自主判断输出 kind。",
+    "当前上下文已存在模型可见动作业务事实，或已通过工具导入当前用户可访问的 visible_training_proposal_fact。",
+    "模型可以基于用户目标、messages、metadata、tools、observations、toolResults 和模型可见业务事实自主判断输出 kind。",
   ],
   whenNotToUse: [
     "用户只需要普通健身解释、能力说明、训练原则、总结整理或不需要结构化训练结果的文本回答。",
-    "当前事实只包含 failed tool result、diagnostic resource、不可消费 resource 或 satisfied=false result。",
+    "当前事实只包含 failed tool result、diagnostic observation 或 satisfied=false result。",
     "缺少足以解释训练结构的目标、约束或动作事实时，不要伪造训练卡片，应继续合法 tool_call、ask_user 或失败收口。",
     "不要用 content 正文、历史 assistant 文本、示例占位值或 provider 原文作为动作、处方、编排或计划事实源。",
   ],
@@ -119,7 +115,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
     "用户要多天、频次、周期或一周安排时，选择 payload.kind = \"plan\"；plan 必须通过 schedule.assignments 表达周期内 training/rest 日。",
     "final_answer.content 和 visibleOutputs[].payload 必须一致：正文如果承诺训练频次、周期、多天或一周安排，同一 visibleTrainingProposal payload 必须使用 kind = \"plan\" 并提供 schedule.assignments。",
     "如果当前事实只能支撑 payload.kind = \"routine\"，final_answer.content 只能描述单次训练编排；不得在正文中把 routine 伪装成多天、周期或每周计划。",
-    "routine 和 plan 都必须具备 warmup、training、stretch 三类当前 run 可消费动作事实；如果缺失，不得降级输出 exercise_selection 来假装满足 routine/plan。",
+    "routine 和 plan 都必须具备 warmup、training、stretch 三类模型可见动作业务事实；如果缺失，不得降级输出 exercise_selection 来假装满足 routine/plan。",
     "当前 plan 只支持 one routine template + schedule：payload.exerciseItems 是一个可重复训练模板，schedule.assignments 只安排 training/rest 日。",
     "当前 plan 不支持 routines[]、schedule.assignments[].routineId 或每天不同完整动作编排；需要 A/B 训练日模板时必须等待新的 output contract schema。",
   ],
@@ -139,7 +135,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
         field: "payload.exerciseItems",
         itemFields: ["exerciseId", "section", "order", "prescription?"],
         sectionValues: ["warmup", "training", "stretch"],
-        grounding: "exerciseId 和 section 必须由当前 run 可见动作事实或 consumable visible_training_proposal_fact 支撑；section 必须被动作事实 allowedSections 覆盖。",
+        grounding: "exerciseId 和 section 必须由模型可见动作业务事实或 visible_training_proposal_fact 支撑；section 必须被动作事实 allowedSections 覆盖。",
       },
       prescription: {
         field: "exerciseItems[*].prescription",
@@ -178,7 +174,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
         kind: "routine",
         requirements: [
           "表达一次可执行训练编排。",
-          "必须包含 warmup、training、stretch 三类 section 的当前 run 可消费动作事实。",
+          "必须包含 warmup、training、stretch 三类 section 的模型可见动作业务事实。",
           "每个 exerciseItems[*] 都必须绑定 prescription。",
           "不输出 schedule。",
           "final_answer.content 只能描述一次可执行训练编排，不得声称已生成多天、周期或每周训练计划。",
@@ -189,7 +185,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
         requirements: [
           "表达多天或周期训练计划。",
           "当前 schema 表达 one routine template + schedule，不表达 A/B 多模板训练日。",
-          "必须包含 warmup、training、stretch 三类 section 的当前 run 可消费动作事实。",
+          "必须包含 warmup、training、stretch 三类 section 的模型可见动作业务事实。",
           "每个 exerciseItems[*] 都必须绑定 prescription。",
           "必须通过 schedule.assignments 表达周期内 training/rest 日。",
           "schedule.assignments 必须覆盖 1..cycleLengthDays，type 只能是 training 或 rest。",
@@ -199,16 +195,17 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
     ],
   },
   groundingRequirements: [
-    "结构化训练输出必须来自当前 run 可见事实；不要复写完整数据库对象或 handler output。",
-    "exerciseItems[*].exerciseId 必须来自当前 run 可见且可消费的发布态动作事实，或当前 run 已登记的 consumable visible_training_proposal_fact。",
-    "exerciseItems[*].section 必须和动作事实中的 allowedSections 相容；缺少 warmup、training 或 stretch 可消费事实时，不得伪造 routine 或 plan。",
-    "failed tool result、diagnostic resource、不可消费 resource 或 satisfied=false result 只能用于恢复、澄清、repair 或 fallback，不能支撑成功 visibleTrainingProposal。",
+    "结构化训练输出必须来自模型可见业务事实；不要复写完整数据库对象或 handler output。",
+    "exerciseItems[*].exerciseId 必须来自模型可见动作事实，或已导入的当前用户可访问 visible_training_proposal_fact。",
+    "exerciseItems[*].section 必须和动作事实中的 allowedSections 相容；缺少 warmup、training 或 stretch 动作业务事实时，不得伪造 routine 或 plan。",
+    "failed tool result、diagnostic observation 或 satisfied=false result 只能用于恢复、澄清、repair 或 fallback，不能支撑成功 visibleTrainingProposal。",
     "ok=true 且 satisfied=true 的 0 条查询结果可以支撑普通文本解释，但不能伪装成结构化训练卡片、routine、plan 或已保存结果。",
     "content 不能替代 payload：如果结构化输出没有 kind = \"plan\" 和 schedule.assignments，正文不得承诺已生成训练频次、周期、多天或一周安排。",
   ],
   validatorBoundary: [
     "服务端会校验 outputType、schemaVersion、payload.kind、exerciseItems、prescription、schedule 和字段严格性。",
     "服务端会在渲染和保存前复核 exerciseId、发布态、当前用户可访问性和 allowedSections。",
+    "服务端不会因为动作缺少当前 run 来源就直接拒绝通过数据库硬校验的结构化输出；缺少当前 run 来源只记录为 currentRunSourceDiagnostic。",
     "schemaVersion 必须是字符串 \"1\"，不要输出数字 1。",
     "validator 不接受正文 content 里的动作、处方、编排或计划作为结构化事实。",
     "服务端不根据用户原文关键词、正则、同义词、短句模板或 final_answer.content 语义替模型判断或改写 payload.kind；模型必须在输出前让 content 与 payload 自洽。",
@@ -233,8 +230,8 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
       ],
     },
     {
-      description: "需要动作事实：用户要结构化训练结果但当前 run 没有可消费动作事实时先 tool_call。",
-      userSituation: "用户目标、频次、时长和器械明确，但当前 run 没有动作事实。",
+      description: "需要动作事实：用户要结构化训练结果但当前上下文没有模型可见动作事实时先 tool_call。",
+      userSituation: "用户目标、频次、时长和器械明确，但当前上下文没有动作事实。",
       expectedDecision: "如果 tools 中存在能查询动作事实的已注册 tool，返回合法 tool_call；如果没有合法 tool，则 ask_user 或失败收口。",
       notes: [
         "toolName 必须来自 tools[].name，不能照抄示例占位。",
@@ -298,8 +295,8 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
       ],
     },
     {
-      description: "一次训练编排：已有 warmup、training、stretch 三类可消费动作事实时使用 routine。",
-      userSituation: "当前 run 已有三类 section 的可消费动作事实，用户要一次可执行训练。",
+      description: "一次训练编排：已有 warmup、training、stretch 三类模型可见动作事实时使用 routine。",
+      userSituation: "当前上下文已有三类 section 的动作事实，用户要一次可执行训练。",
       expectedAction: {
         type: "final_answer",
         content: "简短说明这是一套可直接照做的训练编排。",
@@ -403,7 +400,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
     },
     {
       description: "多天计划：已有三类 section 动作事实且需要周期安排时使用 plan。",
-      userSituation: "当前 run 已有三类 section 的可消费动作事实，用户要一周或多天训练安排。",
+      userSituation: "当前上下文已有三类 section 的动作事实，用户要一周或多天训练安排。",
       expectedAction: {
         type: "final_answer",
         content: "这是一套 7 天周期、每周 3 练的单训练模板重复计划。",
@@ -534,7 +531,7 @@ export const visibleTrainingProposalOutputContract: AgentVisibleOutputContract =
     },
     {
       description: "基于已有结构派生计划：用户要求按当前内容做一周计划时使用 derive。",
-      userSituation: "当前 run 可见对象已经可消费，用户要求基于这个结果派生周期安排。",
+      userSituation: "当前 run 可见对象已经可操作，用户要求基于这个结果派生周期安排。",
       expectedDecision: "如果事实满足 plan schema，返回 final_answer + plan visibleOutputs；如果事实不足，继续合法 tool_call 或 ask_user。",
       notes: [
         "derive 只是内部推理标签，不能出现在 AgentAction JSON。",

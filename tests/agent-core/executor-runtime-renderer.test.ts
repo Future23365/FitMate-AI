@@ -3,7 +3,6 @@ import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import { describe, expect, it, vi } from "vitest";
 
-import { toTerminalToolResultRefs } from "@/lib/server/agent-core/contracts";
 import { defineTool } from "@/lib/server/agent-core/define-tool";
 import { createToolResultId, executeTool, hashNormalizedInput } from "@/lib/server/agent-core/executor";
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
@@ -114,7 +113,6 @@ describe("agent-core Executor, Runtime and Response Renderer", () => {
       {
         type: "final_answer",
         content: "已读取。",
-        usedRefs: toTerminalToolResultRefs([expectedToolResultId]),
         suggestedQuestions: ["继续"],
       },
     ]);
@@ -135,16 +133,16 @@ describe("agent-core Executor, Runtime and Response Renderer", () => {
       ok: true,
       content: {
         observationRole: OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
-        toolResultId: expectedToolResultId,
         modelFactsChannel: TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
         factLevel: "tool_result_index",
         factSource: {
           detailedFacts: TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
           projectionModelOmitted: true,
         },
-        terminalUsedRef: { type: "tool_result", id: expectedToolResultId },
       },
     });
+    expect(JSON.stringify(planner.calls[1].observations[0])).not.toContain(expectedToolResultId);
+    expect(JSON.stringify(planner.calls[1].observations[0])).not.toContain("terminalUsedRef");
     expect(JSON.stringify(planner.calls[1].observations[0])).not.toContain("finalAnswerSupport");
     expect(JSON.stringify(planner.calls[1].observations[0])).not.toContain("\"nextActionHints\"");
     expect(JSON.stringify(planner.calls[1].observations[0])).not.toContain("\"text\":\"hello\"");
@@ -283,7 +281,15 @@ describe("agent-core Executor, Runtime and Response Renderer", () => {
       },
       { type: "done" },
     ]);
-    expect(JSON.stringify(result.traceEvents)).not.toContain("fixtureVisible");
+    expect(result.traceEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "terminal_provenance",
+        serverProvenance: expect.objectContaining({
+          visibleOutputCount: 1,
+          validatedOutputCount: 1,
+        }),
+      }),
+    ]));
   });
 
   it("enforces maxSteps, overall timeout and duplicate failure fuse", async () => {

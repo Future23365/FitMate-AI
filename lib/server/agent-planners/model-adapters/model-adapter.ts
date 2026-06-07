@@ -130,7 +130,6 @@ export type ModelActionCompletionTrace = {
       repairDiagnosticObservationCount: number;
       toolResultProjectionCount: number;
       toolResultProjectionPresence: Array<{
-        toolResultId: string;
         toolName: string;
         satisfied: boolean;
         factChannel: "fact" | "diagnostic" | "failed";

@@ -102,15 +102,13 @@ export async function validateVisibleTrainingProposalOutput(
     };
   }
 
-  const sourceValidation = validateCurrentRunExerciseSources(parsed.data.exerciseItems, context);
-  if (!sourceValidation.ok) {
-    return sourceValidation;
-  }
+  const currentRunSourceDiagnostic = createCurrentRunExerciseSourceDiagnostic(parsed.data.exerciseItems, context);
 
   return {
     ok: true,
     metadata: toJsonValue({
       exerciseDetails: exerciseValidation.exerciseDetails,
+      ...(currentRunSourceDiagnostic ? { currentRunSourceDiagnostic } : {}),
     }),
   };
 }
@@ -236,33 +234,30 @@ function readExerciseSections(value: JsonValue | undefined): Array<Pick<VisibleT
   return sections;
 }
 
-function validateCurrentRunExerciseSources(
+function createCurrentRunExerciseSourceDiagnostic(
   exerciseItems: readonly Pick<VisibleTrainingExerciseItem, "exerciseId" | "section" | "order">[],
   context: TerminalOutputValidationContext,
-): TerminalOutputValidationResult {
+): JsonValue | undefined {
   const sources = collectCurrentRunExerciseSources(context);
   const missingItems = exerciseItems.filter((item) => !sources.has(createExerciseSourceKey(item)));
 
   if (missingItems.length === 0) {
-    return { ok: true };
+    return undefined;
   }
 
-  return {
-    ok: false,
-    message: "visibleTrainingProposal 动作项缺少当前 run 可消费动作事实来源。",
-    details: {
-      code: "current_run_source_missing",
-      path: "payload.exerciseItems",
-      missingExerciseItems: missingItems.map((item) => ({
-        exerciseId: item.exerciseId,
-        section: item.section,
-        order: item.order,
-      })),
-      currentRunSourceSummary: {
-        sourceCount: sources.size,
-      },
+  return toJsonValue({
+    code: "current_run_source_missing",
+    path: "payload.exerciseItems",
+    severity: "diagnostic",
+    missingExerciseItems: missingItems.map((item) => ({
+      exerciseId: item.exerciseId,
+      section: item.section,
+      order: item.order,
+    })),
+    currentRunSourceSummary: {
+      sourceCount: sources.size,
     },
-  };
+  });
 }
 
 // collectCurrentRunExerciseSources 只读取当前 run 可用于训练结构交付的 tool result 和 consumable resource，不解释用户原文或绑定具体 toolName。

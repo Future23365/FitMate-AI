@@ -2,7 +2,6 @@ import { z } from "zod";
 import { describe, expect, it, vi } from "vitest";
 
 import { InMemoryConfirmationStore } from "@/lib/server/agent-core/confirmation-store";
-import { toTerminalToolResultRefs } from "@/lib/server/agent-core/contracts";
 import { defineTool } from "@/lib/server/agent-core/define-tool";
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
 import { createToolResultId, hashNormalizedInput } from "@/lib/server/agent-core/executor";
@@ -300,12 +299,6 @@ describe("agent-core runtime budget and idempotency hardening", () => {
     const registry = new ToolRegistry();
     registry.register(createIdempotencyTool(handler));
     const input = { id: "a" };
-    const expectedToolResultId = createToolResultId(
-      "run-normalized-tool-call",
-      "idempotencyRead",
-      hashNormalizedInput(input),
-    );
-
     const result = await runAgentRuntime({
       registry,
       planner: new ReplayPlanner([
@@ -318,7 +311,6 @@ describe("agent-core runtime budget and idempotency hardening", () => {
         {
           type: "final_answer",
           content: "done",
-          usedRefs: toTerminalToolResultRefs([expectedToolResultId]),
         },
       ]),
       run: {
@@ -436,11 +428,6 @@ describe("agent-core runtime budget and idempotency hardening", () => {
 
   it("passes only Planner-visible tool result facts while preserving full runtime results", async () => {
     const input = { id: "alpha" };
-    const expectedToolResultId = createToolResultId(
-      "run-planner-visible-tool-result",
-      "plannerVisibleProjectionRead",
-      hashNormalizedInput(input),
-    );
     const registry = new ToolRegistry();
     registry.register(createPlannerVisibleProjectionTool());
     const planner = new ReplayPlanner([
@@ -448,7 +435,6 @@ describe("agent-core runtime budget and idempotency hardening", () => {
       {
         type: "final_answer",
         content: "已经基于 Planner 可见事实收口。",
-        usedRefs: toTerminalToolResultRefs([expectedToolResultId]),
       },
     ]);
 
@@ -471,7 +457,6 @@ describe("agent-core runtime budget and idempotency hardening", () => {
     expect(planner.calls[1].manifests).toEqual(planner.calls[0].manifests);
     expect(plannerVisibleResult).toMatchObject({
       toolName: "plannerVisibleProjectionRead",
-      toolResultId: expectedToolResultId,
       ok: true,
       projection: {
         model: {
@@ -489,15 +474,12 @@ describe("agent-core runtime budget and idempotency hardening", () => {
       },
       fulfillment: {
         satisfied: true,
-        producedResources: [
-          expect.objectContaining({
-            resourceType: "planner_visible_fixture",
-            role: "consumable",
-          }),
-        ],
         unmetRequirements: [],
       },
     });
+    expect(plannerVisibleResult).not.toHaveProperty("toolResultId");
+    expect(JSON.stringify(plannerVisibleResult)).not.toContain("resourceId");
+    expect(JSON.stringify(plannerVisibleResult)).not.toContain("planner_visible_fixture");
     expect(plannerVisibleResult).not.toHaveProperty("output");
     expect(plannerVisibleResult).not.toHaveProperty("toolCallId");
     expect(plannerVisibleResult).not.toHaveProperty("toolVersion");
@@ -527,7 +509,7 @@ describe("agent-core runtime budget and idempotency hardening", () => {
     const planner = new ReplayPlanner([
       { type: "tool_call", toolName: "satisfiedResourceRead", input },
       { type: "tool_call", toolName: "satisfiedResourceRead", input },
-      { type: "final_answer", content: "已经基于第一次成功结果收口。", usedRefs: toTerminalToolResultRefs([expectedToolResultId]) },
+      { type: "final_answer", content: "已经基于第一次成功结果收口。" },
     ]);
 
     const result = await runAgentRuntime({
@@ -552,7 +534,7 @@ describe("agent-core runtime budget and idempotency hardening", () => {
       status: "completed",
       terminalAction: {
         type: "final_answer",
-        usedRefs: toTerminalToolResultRefs([expectedToolResultId]),
+        content: "已经基于第一次成功结果收口。",
       },
     });
     expect(handler).toHaveBeenCalledTimes(1);
@@ -576,21 +558,16 @@ describe("agent-core runtime budget and idempotency hardening", () => {
       }),
     ]));
     expect(duplicateFeedback).toMatchObject({
-      toolResultId: expectedToolResultId,
       toolName: "satisfiedResourceRead",
       content: expect.objectContaining({
         code: AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT,
         details: expect.objectContaining({
-          previousToolResultId: expectedToolResultId,
-          producedResources: [
-            expect.objectContaining({
-              resourceType: "satisfied_resource",
-              role: "consumable",
-            }),
-          ],
+          previousSatisfied: true,
         }),
       }),
     });
+    expect(JSON.stringify(duplicateFeedback)).not.toContain(expectedToolResultId);
+    expect(JSON.stringify(duplicateFeedback)).not.toContain("resourceId");
     expect(planner.calls[2].repairContext).toMatchObject({
       error: {
         code: AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT,
@@ -603,12 +580,12 @@ describe("agent-core runtime budget and idempotency hardening", () => {
       ],
       facts: [
         expect.objectContaining({
-          previousToolResultId: expectedToolResultId,
-          reusableRef: { type: "tool_result", id: expectedToolResultId },
           recoveryBoundary: expect.stringContaining("satisfied=true"),
         }),
       ],
     });
+    expect(JSON.stringify(planner.calls[2].repairContext)).not.toContain(expectedToolResultId);
+    expect(JSON.stringify(planner.calls[2].repairContext)).not.toContain("resourceId");
     expect(JSON.stringify(duplicateFeedback)).not.toContain("\"nextActionHints\"");
     expect(JSON.stringify(planner.calls[2].repairContext)).not.toContain("final_answer_with_current_tool_result");
     expect(JSON.stringify(planner.calls[2].repairContext)).not.toContain("continue_tool_call");
@@ -623,10 +600,7 @@ describe("agent-core runtime budget and idempotency hardening", () => {
       planner: new ReplayPlanner([
         { type: "tool_call", toolName: "satisfiedResourceRead", input: { id: "a" } },
         { type: "tool_call", toolName: "satisfiedResourceRead", input: { id: "b" } },
-        { type: "final_answer", content: "两个不同输入都已执行。", usedRefs: toTerminalToolResultRefs([
-          createToolResultId("run-changed-input", "satisfiedResourceRead", hashNormalizedInput({ id: "a" })),
-          createToolResultId("run-changed-input", "satisfiedResourceRead", hashNormalizedInput({ id: "b" })),
-        ]) },
+        { type: "final_answer", content: "两个不同输入都已执行。" },
       ]),
       run: {
         runId: "run-changed-input",
@@ -778,7 +752,7 @@ describe("agent-core runtime budget and idempotency hardening", () => {
       "budget_event",
       "planner_action",
       "validation_result",
-      "terminal_grounding",
+      "terminal_provenance",
     ]);
     expect(result.traceEvents.map((event) => event.type)).toEqual(observedTypes);
   });

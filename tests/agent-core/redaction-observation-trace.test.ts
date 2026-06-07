@@ -129,12 +129,10 @@ describe("agent-core redaction, observation compression and trace audit", () => 
       ok: true,
       content: {
         observationRole: OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
-        toolResultId: result.toolResultId,
         toolName: "secretOutputFixture",
         ok: true,
         modelFactsChannel: TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
         projectionModelOmitted: true,
-        terminalUsedRef: { type: "tool_result", id: result.toolResultId },
         factLevel: "tool_result_index",
         factSource: {
           detailedFacts: TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
@@ -142,7 +140,7 @@ describe("agent-core redaction, observation compression and trace audit", () => 
         },
       },
     });
-    expect(serializedObservation).toContain("\"terminalUsedRef\":{\"type\":\"tool_result\"");
+    expect(serializedObservation).not.toContain("\"terminalUsedRef\"");
     expect(serializedObservation).not.toContain("finalAnswerSupport");
     expect(serializedObservation).not.toContain("\"nextActionHints\"");
     expect(serializedObservation).not.toContain("\"resourceType\":\"tool_result\"");
@@ -273,11 +271,19 @@ describe("agent-core redaction, observation compression and trace audit", () => 
     const serialized = JSON.stringify(plannerVisibleResult);
 
     expect(plannerVisibleResult).toEqual({
-      toolResultId: "tr_failed_projection",
       toolName: "diagnosticFixture",
       ok: false,
       error: failedResult.error,
-      fulfillment: failedResult.fulfillment,
+      fulfillment: {
+        satisfied: false,
+        summary: "输入不满足合同。",
+        unmetRequirements: [
+          {
+            reason: AGENT_ERROR_CODES.INVALID_TOOL_INPUT,
+            message: "需要修正 input。",
+          },
+        ],
+      },
     });
     expect(serialized).toContain("保留失败 details");
     expect(serialized).toContain("unmetRequirements");

@@ -1,14 +1,13 @@
 import { z } from "zod";
 
-import type { ToolHandlerContext } from "@/lib/server/agent-core/contracts";
 import { defineTool } from "@/lib/server/agent-core/define-tool";
 import { agentRuntimeConfig } from "@/lib/server/config";
 import {
-  visibleTrainingProposalFactIndexResourceType,
   visibleTrainingProposalFactKind,
   visibleTrainingProposalFactResourceType,
   visibleTrainingProposalFactSchemaVersion,
-  visibleTrainingProposalPayloadSchema,
+  visibleTrainingExerciseItemSchema,
+  visibleTrainingScheduleSchema,
   visibleTrainingProposalSchemaVersion,
   type VisibleTrainingExerciseItem,
 } from "@/lib/server/visible-training-proposals/visible-training-proposal-contract";
@@ -18,47 +17,16 @@ import {
 } from "@/lib/server/visible-training-proposals/visible-training-resource-coverage";
 import {
   listRecentVisibleTrainingProposalSummaries,
-  readVisibleTrainingProposalFact,
   toJsonValue,
   type VisibleTrainingProposalFactSummary,
 } from "@/lib/server/visible-training-proposals/visible-training-proposal-fact-store";
 import { exerciseAllowedSectionSchema } from "@/lib/shared/exercises/types";
 
-const factRefSchema = z.string().trim().min(1).max(160);
-const readRecentOperationDescription = "读取本轮 list_recent 返回的具体可见训练方案事实，并导入当前 run。";
-const readRecentRefSchema = z.object({
-  type: z.enum(["fact_ref", "message_id"]).describe("引用类型；fact_ref 表示 ref.value 复制本轮 list_recent 返回的 factRef，message_id 表示 ref.value 复制本轮 list_recent 返回的 messageId。"),
-  value: factRefSchema.describe("只能复制本轮 list_recent 返回的 factRef 或 messageId；没有真实返回值时先调用 list_recent，不要编造。"),
-}).strict();
-
 const listRecentInputSchema = z.object({
-  operation: z.literal("list_recent").describe("查询当前 actor 和当前 conversation 可访问的最近 visibleTrainingProposal 轻量事实索引；不需要 ref。"),
+  operation: z.literal("list_recent").describe("查询并导入当前 actor 和当前 conversation 可访问的最近 visibleTrainingProposal 业务事实；不需要内部引用字段。"),
 }).strict();
 
-const readRecentInputSchema = z.object({
-  operation: z.literal("read_recent").describe(readRecentOperationDescription),
-  ref: readRecentRefSchema.describe("统一读取引用槽；用 ref.type 区分 factRef 或 messageId，用 ref.value 复制本轮 list_recent 返回的真实 factRef 或 messageId。没有真实返回值时先 list_recent、澄清或失败收口。"),
-}).strict();
-
-const inspectVisibleTrainingProposalsInputSchema = z.union([
-  listRecentInputSchema,
-  readRecentInputSchema,
-]);
-
-const visibleTrainingProposalReferenceSchema = z.object({
-  factRef: factRefSchema.optional(),
-  messageId: factRefSchema.optional(),
-}).passthrough();
-
-const exerciseDetailSchema = z.object({
-  exerciseId: z.string(),
-  nameZh: z.string().optional(),
-  nameEn: z.string().optional(),
-  equipmentZh: z.string().nullable().optional(),
-  primaryMusclesZh: z.array(z.string()).default([]),
-  allowedSections: z.array(exerciseAllowedSectionSchema).default([]),
-  imageUrl: z.string().nullable().optional(),
-}).strict();
+const inspectVisibleTrainingProposalsInputSchema = listRecentInputSchema;
 
 const sectionSummarySchema = z.object({
   warmup: z.number().int().min(0),
@@ -75,9 +43,9 @@ const reusableTrainingExerciseSchema = z.object({
   nameEn: z.string().optional(),
 }).strict();
 
-const visibleTrainingProposalFactIndexSchema = z.object({
-  factRef: z.string(),
-  messageId: z.string(),
+const visibleTrainingProposalBusinessFactSchema = z.object({
+  index: z.number().int().min(1),
+  displayLabel: z.string(),
   kind: z.literal(visibleTrainingProposalFactKind),
   status: z.literal("active"),
   createdAt: z.string(),
@@ -85,6 +53,15 @@ const visibleTrainingProposalFactIndexSchema = z.object({
   visibleOutputSchemaVersion: z.literal(visibleTrainingProposalSchemaVersion),
   factSchemaVersion: z.literal(visibleTrainingProposalFactSchemaVersion),
   sectionSummary: sectionSummarySchema,
+  exerciseItems: z.array(visibleTrainingExerciseItemSchema.extend({
+    nameZh: z.string().optional(),
+    nameEn: z.string().optional(),
+    equipmentZh: z.string().nullable().optional(),
+    primaryMusclesZh: z.array(z.string()).default([]),
+    allowedSections: z.array(exerciseAllowedSectionSchema).default([]),
+    imageUrl: z.string().nullable().optional(),
+  }).strict()),
+  schedule: visibleTrainingScheduleSchema.optional(),
   reusableTrainingExerciseCount: z.number().int().min(0),
   reusableTrainingExercises: z.array(reusableTrainingExerciseSchema),
 }).strict();
@@ -93,27 +70,11 @@ const inspectVisibleTrainingProposalsOutputSchema = z.union([
   z.object({
     status: z.literal("succeeded"),
     operation: z.literal("list_recent"),
-    facts: z.array(visibleTrainingProposalFactIndexSchema),
-  }).strict(),
-  z.object({
-    status: z.literal("succeeded"),
-    operation: z.literal("read_recent"),
-    fact: z.object({
-      factRef: z.string(),
-      messageId: z.string(),
-      kind: z.literal(visibleTrainingProposalFactKind),
-      status: z.literal("active"),
-      createdAt: z.string(),
-      proposalKind: z.enum(["exercise_selection", "routine", "plan"]),
-      visibleOutputSchemaVersion: z.literal(visibleTrainingProposalSchemaVersion),
-      factSchemaVersion: z.literal(visibleTrainingProposalFactSchemaVersion),
-      proposal: visibleTrainingProposalPayloadSchema,
-      exerciseDetails: z.array(exerciseDetailSchema),
-    }).strict(),
+    facts: z.array(visibleTrainingProposalBusinessFactSchema),
   }).strict(),
   z.object({
     status: z.literal("failed"),
-    operation: z.enum(["list_recent", "read_recent"]),
+    operation: z.literal("list_recent"),
     code: z.string(),
     message: z.string(),
   }).strict(),
@@ -121,12 +82,9 @@ const inspectVisibleTrainingProposalsOutputSchema = z.union([
 
 type InspectVisibleTrainingProposalsInput = z.infer<typeof inspectVisibleTrainingProposalsInputSchema>;
 type InspectVisibleTrainingProposalsOutput = z.infer<typeof inspectVisibleTrainingProposalsOutputSchema>;
-type ReadRecentInput = Extract<InspectVisibleTrainingProposalsInput, { operation: "read_recent" }>;
-type VisibleTrainingProposalFactIndex = z.infer<typeof visibleTrainingProposalFactIndexSchema>;
+type VisibleTrainingProposalBusinessFact = z.infer<typeof visibleTrainingProposalBusinessFactSchema>;
 
 const factStoreListFailedCode = "fact_store_list_failed";
-const factStoreReadFailedCode = "fact_store_read_failed";
-const factReferenceNotVisibleCode = "fact_reference_not_visible_in_run";
 
 /** inspectVisibleTrainingProposalsTool 是当前会话可见训练方案事实的只读 inspect 入口，不做自然语言语义分流。 */
 export const inspectVisibleTrainingProposalsTool = defineTool<
@@ -134,20 +92,18 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
   InspectVisibleTrainingProposalsOutput
 >({
   name: "inspectVisibleTrainingProposals",
-  version: "0.6.0",
-  description: "只读查询当前会话中用户已经看到的 visibleTrainingProposal。list_recent 列出最近可引用方案索引；read_recent 读取本轮索引中的具体方案，成功后导入 consumable visible_training_proposal_fact。",
+  version: "0.7.0",
+  description: "只读查询并导入当前会话中用户已经看到的 visibleTrainingProposal 业务事实。operation = \"list_recent\" 会由服务端读取、校验并返回受控压缩事实，可供 Planner 复用、派生、保留、替换或调整。",
   whenToUse: [
-    "需要确认当前会话是否存在可操作的 visibleTrainingProposal 时，先用 operation = \"list_recent\"；该操作不需要 ref，只返回轻量索引。",
-    "需要读取一个具体历史方案时，用 operation = \"read_recent\"；ref 必须来自本轮 list_recent 返回的 factRef 或 messageId。",
-    "read_recent 成功后会把 visible_training_proposal_fact 作为当前 run 的 consumable resource 导入，可支撑复用、修改、派生或替换判断。",
-    "factRef 和 messageId 只用于 read_recent.ref.value；final_answer.usedRefs.resource.id 必须来自当前 run producedResources 中的 resourceId。",
+    "当本轮目标需要了解当前会话上一套用户已见 visibleTrainingProposal 的 exerciseItems、section 摘要、处方或计划结构时使用。",
+    "读取成功后，facts[] 是当前 actor 和 conversation 可访问的历史训练方案业务事实，并会作为后续可用于本轮推理的事实由服务端内部登记。",
+    "该 tool 只读取历史事实，不生成最终新训练方案；最终新结构仍必须由合法 final_answer.visibleOutputs[] 承载并通过 validator。",
   ].join(" "),
   whenNotToUse: [
     "不要用本 tool 查询动作库、读取其他 conversation 的方案或跨用户引用历史事实。",
-    "不要在 operation = \"list_recent\" 时传入 ref、factRef、messageId、分页、limit、cursor、userId 或 conversationId；服务端固定最近数量并从 actor 推导权限边界。",
-    "不要在 operation = \"read_recent\" 时传入顶层 factRef 或 messageId；读取引用统一写入 ref: { type: \"fact_ref\" | \"message_id\", value: \"...\" }。",
-    "不要从历史 assistant 消息、示例、trace 摘要或业务存储 id 猜测 ref.value；没有本轮 list_recent 索引时应先调用 operation = \"list_recent\"。",
-    "不要在 operation = \"read_recent\" 时编造 ref.value；失败结果不能支撑成功训练方案生成。",
+    "不要传入内部引用、分页、limit、cursor、userId 或 conversationId；服务端固定读取范围并从 actor 推导权限边界。",
+    "不要把本 tool 当作动作库搜索、训练方案生成、保存或渲染工具；它只提供历史已展示方案事实。",
+    "不要把空 facts[] 伪装成已导入历史方案；空结果只能说明当前可见事实中没有这类历史训练方案对象。",
   ].join(" "),
   inputSchema: inspectVisibleTrainingProposalsInputSchema,
   outputSchema: inspectVisibleTrainingProposalsOutputSchema,
@@ -162,166 +118,70 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
   resourceContract: {
     produces: [
       {
-        resourceType: visibleTrainingProposalFactIndexResourceType,
-        role: "diagnostic",
-        schemaVersion: String(visibleTrainingProposalFactSchemaVersion),
-      },
-      {
         resourceType: visibleTrainingProposalFactResourceType,
         role: "consumable",
         schemaVersion: String(visibleTrainingProposalFactSchemaVersion),
+        required: false,
       },
     ],
   },
   examples: [
     {
-      description: "查询当前会话最近是否有可引用的 visibleTrainingProposal 事实索引。",
+      description: "查询并导入当前会话最近已展示的 visibleTrainingProposal 业务事实。",
       action: {
         type: "tool_call",
         toolName: "inspectVisibleTrainingProposals",
         input: { operation: "list_recent" },
       },
     },
-    {
-      description: "读取本轮 list_recent 返回的具体方案；ref.value 必须复制真实返回的 factRef。",
-      action: {
-        type: "tool_call",
-        toolName: "inspectVisibleTrainingProposals",
-        input: {
-          operation: "read_recent",
-          ref: {
-            type: "fact_ref",
-            value: "本轮 list_recent 返回的 factRef",
-          },
-        },
-      },
-    },
   ],
   handler: async (input, context) => {
-    if (input.operation === "list_recent") {
-      if (!context.actor.userId) {
-        return {
-          status: "failed",
-          operation: "list_recent",
-          code: "actor_missing",
-          message: "当前 actor 缺少 userId，无法查询可见训练方案事实索引。",
-        };
-      }
-
-      try {
-        const facts = await listRecentVisibleTrainingProposalSummaries({
-          userId: context.actor.userId,
-          conversationId: context.actor.sessionId,
-          limit: agentRuntimeConfig.tools.inspectVisibleTrainingProposals.recentFactListLimit,
-        });
-
-        return {
-          status: "succeeded",
-          operation: "list_recent",
-          facts: facts.map(toFactIndex),
-        };
-      } catch {
-        return {
-          status: "failed",
-          operation: "list_recent",
-          code: factStoreListFailedCode,
-          message: "可见训练方案事实索引读取失败。",
-        };
-      }
-    }
-
-    if (!isReferenceVisibleInCurrentRun(input, context)) {
+    if (!context.actor.userId) {
       return {
         status: "failed",
-        operation: "read_recent",
-        code: factReferenceNotVisibleCode,
-        message: "当前 run 可见事实索引中没有该 visibleTrainingProposal 引用。",
+        operation: "list_recent",
+        code: "actor_missing",
+        message: "当前 actor 缺少 userId，无法查询可见训练方案事实。",
       };
     }
 
     try {
-      const result = await readVisibleTrainingProposalFact({
+      const facts = await listRecentVisibleTrainingProposalSummaries({
         userId: context.actor.userId,
         conversationId: context.actor.sessionId,
-        factRef: input.ref.type === "fact_ref" ? input.ref.value : undefined,
-        messageId: input.ref.type === "message_id" ? input.ref.value : undefined,
+        limit: agentRuntimeConfig.tools.inspectVisibleTrainingProposals.recentFactListLimit,
       });
-
-      if (!result.ok) {
-        return {
-          status: "failed",
-          operation: "read_recent",
-          code: result.code,
-          message: result.message,
-        };
-      }
 
       return {
         status: "succeeded",
-        operation: "read_recent",
-        fact: {
-          factRef: result.fact.factRef,
-          messageId: result.fact.messageId,
-          kind: result.fact.kind,
-          status: result.fact.status,
-          createdAt: result.fact.createdAt,
-          proposalKind: result.fact.proposalKind,
-          visibleOutputSchemaVersion: visibleTrainingProposalSchemaVersion,
-          factSchemaVersion: result.fact.schemaVersion,
-          proposal: result.fact.payload,
-          exerciseDetails: result.fact.exerciseDetails,
-        },
+        operation: input.operation,
+        facts: facts.map(toBusinessFact),
       };
     } catch {
       return {
         status: "failed",
-        operation: "read_recent",
-        code: factStoreReadFailedCode,
-        message: "可见训练方案事实存储读取失败。",
+        operation: "list_recent",
+        code: factStoreListFailedCode,
+        message: "可见训练方案事实读取失败。",
       };
     }
   },
   toFulfillment: (output) => {
     if (output.status === "failed") {
-      return {
-        satisfied: false,
-        summary: output.operation === "list_recent"
-          ? `查询可见训练方案事实索引失败：${output.code}。`
-          : `读取可见训练方案事实失败：${output.code}。`,
-      };
-    }
+        return {
+          satisfied: false,
+          summary: `查询可见训练方案事实失败：${output.code}。`,
+        };
+      }
 
-    if (output.operation === "list_recent") {
       return {
         satisfied: true,
-        summary: `已查询当前会话最近可见训练方案事实索引，返回 ${output.facts.length} 条。`,
+        summary: `已查询并导入当前会话最近可见训练方案业务事实，返回 ${output.facts.length} 条。`,
       };
-    }
-
-    return {
-      satisfied: true,
-      summary: `已读取并导入用户可见训练方案，包含 ${output.fact.proposal.exerciseItems.length} 个动作项。`,
-    };
   },
   toResources: (output) => {
-    if (output.status !== "succeeded") {
+    if (output.status !== "succeeded" || output.facts.length === 0) {
       return [];
-    }
-
-    if (output.operation === "list_recent") {
-      return [
-        {
-          resourceType: visibleTrainingProposalFactIndexResourceType,
-          role: "diagnostic" as const,
-          schemaVersion: String(visibleTrainingProposalFactSchemaVersion),
-          summary: toJsonValue({
-            operation: output.operation,
-            facts: output.facts,
-            boundary: "这是当前 run 的只读事实索引，只能帮助 Planner 判断是否需要 read_recent；不能作为 visibleTrainingProposal payload 或训练方案生成事实源。",
-            refValueBoundary: "facts[].factRef/messageId 只可作为本轮 read_recent.ref.value，不是 final_answer.usedRefs.resource.id。",
-          }),
-        },
-      ];
     }
 
     return [
@@ -330,16 +190,10 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
         role: "consumable" as const,
         schemaVersion: String(visibleTrainingProposalFactSchemaVersion),
         summary: toJsonValue({
-          resourceConsumption: buildReadRecentResourceConsumptionSummary(output),
-          sourceReferenceBoundary: "源业务引用已用于导入事实；usedRefs.resource.id 必须使用当前 run 登记的 resourceId，不能使用源业务引用或 messageId。",
-          proposalKind: output.fact.proposalKind,
-          visibleOutputSchemaVersion: output.fact.visibleOutputSchemaVersion,
-          factSchemaVersion: output.fact.factSchemaVersion,
-          exerciseItems: output.fact.proposal.exerciseItems.map((item) => ({
-            ...item,
-            ...output.fact.exerciseDetails.find((exercise) => exercise.exerciseId === item.exerciseId),
-          })),
-          schedule: output.fact.proposal.schedule,
+          operation: output.operation,
+          factCount: output.facts.length,
+          facts: output.facts,
+          boundary: "这些 facts 是当前 run 已由服务端读取和校验的历史 visibleTrainingProposal 业务事实，可用于复用、派生、保留、替换或调整；内部来源引用不进入模型 action。",
         }),
       },
     ];
@@ -357,57 +211,29 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
       });
     }
 
-    if (output.operation === "list_recent") {
-      return toJsonValue({
-        status: output.status,
-        operation: output.operation,
-        factLevel: "diagnostic_index",
-        fulfillment: {
-          satisfied: true,
-        },
-        factCount: output.facts.length,
-        facts: output.facts,
-        refSource: "facts[].factRef 或 facts[].messageId 只可复制到本轮 read_recent.ref.value。",
-        visibilityBoundary: "facts[] 是当前 actor 和当前 conversation 可见的轻量索引；不包含完整 payload、prescription、schedule 或未展示候选。",
-        schemaVersionBoundary: "visibleOutputSchemaVersion 是 visibleOutputs[].schemaVersion 可参考的字符串版本；factSchemaVersion 是服务端事实存储版本。",
-      });
-    }
-
-    const resourceConsumption = buildReadRecentResourceConsumptionSummary(output);
+    const coverage = summarizeBusinessFactsCoverage(output.facts);
 
     return toJsonValue({
       status: output.status,
       operation: output.operation,
-      factLevel: "consumable",
+      factLevel: output.facts.length > 0 ? "consumable" : "diagnostic",
       fulfillment: {
         satisfied: true,
       },
-      sourceReferenceBoundary: "本次读取使用的 factRef/messageId 是源业务引用，不是当前 run 登记的 resourceId。",
       currentRunImport: {
-          imported: true,
-          resourceType: visibleTrainingProposalFactResourceType,
-          role: "consumable",
-          note: "该 visibleTrainingProposal 事实已导入当前 run，是当前 Planner 可正向消费的训练事实来源。",
+        imported: output.facts.length > 0,
+        note: output.facts.length > 0
+          ? "facts[] 已由服务端读取和校验，可作为当前 run 的历史训练方案业务事实来源。"
+          : "facts[] 为空，只表示当前可见事实中没有历史 visibleTrainingProposal，不能支撑历史方案复用、替换或调整。",
       },
-      resourceConsumption,
-      proposalKind: output.fact.proposalKind,
-      visibleOutputSchemaVersion: output.fact.visibleOutputSchemaVersion,
-      factSchemaVersion: output.fact.factSchemaVersion,
-      reusableExerciseItems: toReusableExerciseItems(output),
-      trainingExerciseItems: output.fact.proposal.exerciseItems
-        .filter((item) => item.section === "training")
-        .map((item) => ({
-          exerciseId: item.exerciseId,
-          section: item.section,
-          order: item.order,
-          prescription: item.prescription,
-        })),
-      sectionSummary: resourceConsumption.sectionSummary,
-      availableSections: resourceConsumption.availableSections,
-      missingSections: resourceConsumption.missingSections,
-      hasSchedule: Boolean(output.fact.proposal.schedule),
-      schedule: output.fact.proposal.schedule,
-      outputBoundary: "最终结构必须写入 final_answer.visibleOutputs[] 的 visibleTrainingProposal payload，或通过当前 run tool result / consumable resource 做 grounded terminal action。",
+      factCount: output.facts.length,
+      facts: output.facts,
+      sectionSummary: coverage.sectionSummary,
+      availableSections: coverage.availableSections,
+      missingSections: coverage.missingSections,
+      hasSchedule: coverage.hasSchedule,
+      outputBoundary: "该 tool 只读取和导入历史业务事实；最终新训练结构仍必须写入 final_answer.visibleOutputs[] 并通过 visibleTrainingProposal validator。",
+      decisionBoundary: "是否复用、派生、保留、替换、继续查询、追问或失败收口，由 Planner 结合本轮用户目标和当前事实自行决定。",
     });
   },
   toUserProjection: (output) => {
@@ -419,27 +245,17 @@ export const inspectVisibleTrainingProposalsTool = defineTool<
       });
     }
 
-    if (output.operation === "list_recent") {
-      return toJsonValue({
-        status: output.status,
-        operation: output.operation,
-        factCount: output.facts.length,
-        facts: output.facts.map((fact) => ({
-          factRef: fact.factRef,
-          messageId: fact.messageId,
-          proposalKind: fact.proposalKind,
-          sectionSummary: fact.sectionSummary,
-          reusableTrainingExerciseCount: fact.reusableTrainingExerciseCount,
-        })),
-      });
-    }
-
     return toJsonValue({
       status: output.status,
       operation: output.operation,
-      sourceReferenceBoundary: "源业务引用只用于本轮 read_recent 输入和服务端读取，不作为 final_answer.usedRefs.resource.id。",
-      proposalKind: output.fact.proposalKind,
-      exerciseItemCount: output.fact.proposal.exerciseItems.length,
+      factCount: output.facts.length,
+      facts: output.facts.map((fact) => ({
+        index: fact.index,
+        displayLabel: fact.displayLabel,
+        proposalKind: fact.proposalKind,
+        sectionSummary: fact.sectionSummary,
+        reusableTrainingExerciseCount: fact.reusableTrainingExerciseCount,
+      })),
     });
   },
 });
@@ -449,12 +265,12 @@ export {
   inspectVisibleTrainingProposalsOutputSchema,
 };
 
-function toFactIndex(fact: VisibleTrainingProposalFactSummary): VisibleTrainingProposalFactIndex {
+function toBusinessFact(fact: VisibleTrainingProposalFactSummary, index: number): VisibleTrainingProposalBusinessFact {
   const trainingItems = fact.exerciseItems.filter((item) => item.section === "training");
 
   return {
-    factRef: fact.factRef,
-    messageId: fact.messageId,
+    index: index + 1,
+    displayLabel: `最近第 ${index + 1} 条已展示训练方案`,
     kind: fact.kind,
     status: fact.status,
     createdAt: fact.createdAt,
@@ -462,6 +278,8 @@ function toFactIndex(fact: VisibleTrainingProposalFactSummary): VisibleTrainingP
     visibleOutputSchemaVersion: visibleTrainingProposalSchemaVersion,
     factSchemaVersion: fact.schemaVersion,
     sectionSummary: summarizeSections(fact.exerciseItems),
+    exerciseItems: fact.exerciseItems.map(toCompressedExerciseItem),
+    schedule: fact.schedule,
     reusableTrainingExerciseCount: trainingItems.length,
     reusableTrainingExercises: trainingItems.map((item) => ({
       exerciseId: item.exerciseId,
@@ -473,66 +291,32 @@ function toFactIndex(fact: VisibleTrainingProposalFactSummary): VisibleTrainingP
   };
 }
 
-function summarizeSections(items: readonly Pick<VisibleTrainingExerciseItem, "section">[]): SectionSummary {
-  return summarizeVisibleTrainingSections(items) satisfies SectionSummary;
-}
-
-function buildReadRecentResourceConsumptionSummary(
-  output: Extract<InspectVisibleTrainingProposalsOutput, { status: "succeeded"; operation: "read_recent" }>,
-) {
+function toCompressedExerciseItem(item: VisibleTrainingProposalFactSummary["exerciseItems"][number]) {
   return {
-    ...summarizeVisibleTrainingResourceCoverage({
-      exerciseItems: output.fact.proposal.exerciseItems,
-    }),
-    hasSchedule: Boolean(output.fact.proposal.schedule),
-    positiveConsumptionBoundary: "这些 exerciseItems 是当前 run 可消费的正向训练事实来源，可用于保留、复用、派生或调整。",
-    negativeConstraintBoundary: "只有替换、排除或避免重复目标才适合把这些 exerciseId 转成负向 excludeExerciseIds；不得把已导入动作默认排除。",
-    outputBoundary: "该摘要只表达已导入事实的 section 覆盖和 schedule 是否存在；最终新输出仍必须由 final_answer.visibleOutputs[] 承载并通过 validator。",
+    exerciseId: item.exerciseId,
+    section: item.section,
+    order: item.order,
+    prescription: item.prescription,
+    nameZh: item.nameZh,
+    nameEn: item.nameEn,
+    equipmentZh: item.equipmentZh,
+    primaryMusclesZh: item.primaryMusclesZh ?? [],
+    allowedSections: item.allowedSections ?? [],
+    imageUrl: item.imageUrl,
   };
 }
 
-function toReusableExerciseItems(
-  output: Extract<InspectVisibleTrainingProposalsOutput, { status: "succeeded"; operation: "read_recent" }>,
-) {
-  return output.fact.proposal.exerciseItems.map((item) => {
-    const detail = output.fact.exerciseDetails.find((exercise) => exercise.exerciseId === item.exerciseId);
-
-    return {
-      exerciseId: item.exerciseId,
-      section: item.section,
-      order: item.order,
-      nameZh: detail?.nameZh,
-      nameEn: detail?.nameEn,
-      equipmentZh: detail?.equipmentZh,
-      primaryMusclesZh: detail?.primaryMusclesZh ?? [],
-      allowedSections: detail?.allowedSections ?? [],
-    };
+function summarizeBusinessFactsCoverage(facts: readonly VisibleTrainingProposalBusinessFact[]) {
+  const coverage = summarizeVisibleTrainingResourceCoverage({
+    exerciseItems: facts.flatMap((fact) => fact.exerciseItems),
   });
+
+  return {
+    ...coverage,
+    hasSchedule: facts.some((fact) => Boolean(fact.schedule)),
+  };
 }
 
-function isReferenceVisibleInCurrentRun(input: ReadRecentInput, context: ToolHandlerContext) {
-  return isReferenceListedInDiagnosticResources(input, context);
-}
-
-function isReferenceListedInDiagnosticResources(input: ReadRecentInput, context: ToolHandlerContext) {
-  const resources = context.resources?.list({
-    resourceType: visibleTrainingProposalFactIndexResourceType,
-    role: "diagnostic",
-  }) ?? [];
-
-  return resources.some((resource) => {
-    const parsed = z.object({
-      facts: z.array(visibleTrainingProposalReferenceSchema),
-    }).passthrough().safeParse(resource.summary);
-
-    return parsed.success && parsed.data.facts.some((fact) => referenceMatches(input, fact));
-  });
-}
-
-function referenceMatches(input: ReadRecentInput, reference: z.infer<typeof visibleTrainingProposalReferenceSchema>) {
-  if (input.ref.type === "fact_ref") {
-    return reference.factRef === input.ref.value;
-  }
-
-  return reference.messageId === input.ref.value;
+function summarizeSections(items: readonly Pick<VisibleTrainingExerciseItem, "section">[]): SectionSummary {
+  return summarizeVisibleTrainingSections(items) satisfies SectionSummary;
 }

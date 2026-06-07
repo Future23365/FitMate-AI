@@ -35,11 +35,12 @@ describe("schema error projector", () => {
         expect.objectContaining({
           code: "unknown_field",
           path: "question",
-          allowedFields: expect.arrayContaining(["type", "content", "usedRefs", "suggestedQuestions", "activitySummary"]),
+          allowedFields: expect.arrayContaining(["type", "content", "suggestedQuestions", "activitySummary"]),
         }),
       ]),
     });
     expect(JSON.stringify(feedback)).not.toContain("question 改成 content");
+    expect(JSON.stringify(feedback)).not.toContain("usedRefs");
   });
 
   it("projects type, enum and literal errors without runtime repair prose", () => {
@@ -116,7 +117,7 @@ describe("schema error projector", () => {
     });
   });
 
-  it("projects terminal usedRefs discriminator failures with allowed ref variants", () => {
+  it("projects stale terminal reference fields as unknown fields with delete repair", () => {
     const action = {
       type: "final_answer",
       content: "基于本轮查询结果回答。",
@@ -146,13 +147,14 @@ describe("schema error projector", () => {
       },
       errors: expect.arrayContaining([
         expect.objectContaining({
-          code: "invalid_discriminator",
-          path: "usedRefs[0].type",
-          allowedValues: expect.arrayContaining(["tool_result", "resource"]),
-          actual: { kind: "missing" },
+          code: "unknown_field",
+          path: "usedRefs",
+          allowedFields: expect.arrayContaining(["type", "content", "visibleOutputs", "suggestedQuestions", "activitySummary"]),
+          repair: expect.stringContaining("请删除"),
         }),
       ]),
     });
+    expect(JSON.stringify(feedback)).toContain("terminal provenance 由服务端内部维护");
     expect(JSON.stringify(feedback)).not.toContain("resourceType 改成 type");
   });
 

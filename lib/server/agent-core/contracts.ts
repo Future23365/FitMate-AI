@@ -62,7 +62,7 @@ export type AgentRunInput = {
 /** ResourceRole 区分可被下游消费的业务资源和只能解释失败的诊断证据。 */
 export type ResourceRole = "consumable" | "diagnostic";
 
-/** AgentResourceRef 是 Planner 和 Runtime 之间传递已登记资源引用的最小安全形状。 */
+/** AgentResourceRef 是 Runtime 内部传递已登记资源引用的最小安全形状，不属于 Planner 输出合同。 */
 export type AgentResourceRef = {
   resourceId: string;
   resourceType?: string;
@@ -71,15 +71,6 @@ export type AgentResourceRef = {
   version?: string;
   schemaVersion?: string;
 };
-
-const agentResourceRefSchema = z.object({
-  resourceId: z.string().min(1),
-  resourceType: z.string().min(1).optional(),
-  role: z.enum(["consumable", "diagnostic"]).optional(),
-  runId: z.string().min(1).optional(),
-  version: z.string().min(1).optional(),
-  schemaVersion: z.string().min(1).optional(),
-}).strict();
 
 const terminalToolResultRefSchema = z.object({
   type: z.literal("tool_result"),
@@ -96,26 +87,26 @@ const terminalResourceRefSchema = z.object({
   schemaVersion: z.string().min(1).optional(),
 }).strict();
 
-/** AgentTerminalRef 统一表达 terminal action 使用过的事实来源，来源差异由 type 判别。 */
+/** AgentTerminalRef 统一表达服务端内部 terminal provenance 使用过的事实来源，来源差异由 type 判别。 */
 export const AgentTerminalRefSchema = z.discriminatedUnion("type", [
   terminalToolResultRefSchema,
   terminalResourceRefSchema,
 ]);
 
-/** AgentTerminalRef 是 final_answer / ask_user 统一 usedRefs 数组中的单个事实引用。 */
+/** AgentTerminalRef 是 server-owned terminal provenance 中的单个内部事实引用。 */
 export type AgentTerminalRef = z.infer<typeof AgentTerminalRefSchema>;
 
-/** toTerminalToolResultRef 将当前 run 的 toolResultId 转成 terminal usedRefs 的 tool_result 项。 */
+/** toTerminalToolResultRef 将当前 run 的 toolResultId 转成内部 terminal provenance 的 tool_result 项。 */
 export function toTerminalToolResultRef(id: string): Extract<AgentTerminalRef, { type: "tool_result" }> {
   return { type: "tool_result", id };
 }
 
-/** toTerminalToolResultRefs 批量生成 terminal usedRefs 的 tool_result 引用。 */
+/** toTerminalToolResultRefs 批量生成内部 terminal provenance 的 tool_result 引用。 */
 export function toTerminalToolResultRefs(ids: readonly string[]): Array<Extract<AgentTerminalRef, { type: "tool_result" }>> {
   return ids.map(toTerminalToolResultRef);
 }
 
-/** toTerminalResourceRef 将已登记 resource ref 转成 terminal usedRefs 的 resource 项。 */
+/** toTerminalResourceRef 将已登记 resource ref 转成内部 terminal provenance 的 resource 项。 */
 export function toTerminalResourceRef(ref: AgentResourceRef): Extract<AgentTerminalRef, { type: "resource" }> {
   return {
     type: "resource",
@@ -128,7 +119,7 @@ export function toTerminalResourceRef(ref: AgentResourceRef): Extract<AgentTermi
   };
 }
 
-/** toTerminalResourceRefs 批量生成 terminal usedRefs 的 resource 引用。 */
+/** toTerminalResourceRefs 批量生成内部 terminal provenance 的 resource 引用。 */
 export function toTerminalResourceRefs(refs: readonly AgentResourceRef[]): Array<Extract<AgentTerminalRef, { type: "resource" }>> {
   return refs.map(toTerminalResourceRef);
 }
@@ -171,6 +162,7 @@ export type ToolResourceProduction = {
   resourceType: string;
   role: ResourceRole;
   schemaVersion?: string;
+  required?: boolean;
 };
 
 /** ToolResourceContract 是 M1 Resource Contract Validator 校验 requires/produces 的共享合同。 */
@@ -205,7 +197,6 @@ export const ToolCallActionSchema = z.object({
   type: z.literal("tool_call"),
   toolName: z.string().min(1),
   input: z.unknown(),
-  consumes: z.array(agentResourceRefSchema).optional(),
   rationale: z.string().optional(),
   activitySummary: AgentActionActivitySummarySchema,
 }).strict();
@@ -233,12 +224,9 @@ export type TerminalOutputValidationSummary = {
   }>;
 };
 
-const terminalUsedRefsSchema = z.array(AgentTerminalRefSchema).optional();
-
 export const FinalAnswerActionSchema = z.object({
   type: z.literal("final_answer"),
   content: z.string().min(1),
-  usedRefs: terminalUsedRefsSchema,
   visibleOutputs: z.array(VisibleOutputEnvelopeSchema)
     .max(4)
     .optional(),
@@ -246,12 +234,11 @@ export const FinalAnswerActionSchema = z.object({
   activitySummary: AgentActionActivitySummarySchema,
 }).strict();
 
-/** AskUserAction 是 Planner 需要用户补充信息时使用的终止动作，与 final_answer 共享 content/usedRefs 语义槽。 */
+/** AskUserAction 是 Planner 需要用户补充信息时使用的终止动作，只承载用户可见问题和建议选项。 */
 export const AskUserActionSchema = z.object({
   type: z.literal("ask_user"),
   content: z.string().min(1),
   suggestedQuestions: SuggestedQuestionsSchema.optional(),
-  usedRefs: terminalUsedRefsSchema,
   activitySummary: AgentActionActivitySummarySchema,
 }).strict();
 
@@ -270,9 +257,9 @@ export type TerminalAgentAction = FinalAnswerAction | AskUserAction;
 
 /** AgentActionTopLevelFieldAllowlist 定义各 action variant 可进入执行语义的顶层字段。 */
 export const AgentActionTopLevelFieldAllowlist = {
-  tool_call: ["type", "toolName", "input", "consumes", "rationale", "activitySummary"],
-  final_answer: ["type", "content", "activitySummary", "suggestedQuestions", "usedRefs", "visibleOutputs"],
-  ask_user: ["type", "content", "activitySummary", "suggestedQuestions", "usedRefs"],
+  tool_call: ["type", "toolName", "input", "rationale", "activitySummary"],
+  final_answer: ["type", "content", "activitySummary", "suggestedQuestions", "visibleOutputs"],
+  ask_user: ["type", "content", "activitySummary", "suggestedQuestions"],
 } as const satisfies Record<AgentAction["type"], readonly string[]>;
 
 /** AgentActionRequiredTopLevelFields 定义 normalization 前必须已经存在的执行关键字段。 */
@@ -443,20 +430,18 @@ export type ToolResult<Output = unknown> = {
 /** PlannerVisibleToolResult 是传给 Planner 的 tool result 瘦身事实视图，不携带用户展示投影或执行元数据。 */
 export type PlannerVisibleToolResult =
   | {
-      toolResultId: string;
       toolName: string;
       ok: true;
       projection: {
         model?: JsonValue;
       };
-      fulfillment: ToolFulfillment;
+      fulfillment: Pick<ToolFulfillment, "summary" | "satisfied" | "unmetRequirements">;
     }
   | {
-      toolResultId: string;
       toolName: string;
       ok: false;
       error: ToolError;
-      fulfillment: ToolFulfillment;
+      fulfillment: Pick<ToolFulfillment, "summary" | "satisfied" | "unmetRequirements">;
     };
 
 /** AgentObservation 是 Runtime 回传给 Planner 的安全观察值，不承载完整 tool output。 */
@@ -625,7 +610,21 @@ export type AgentTraceEvent =
   | { type: "policy_decision"; toolName: string; decision: PolicyDecision["kind"]; policyVersion: string }
   | { type: "confirmation_request"; request: ConfirmationRequest }
   | { type: "confirmation_resume"; pendingActionId: string; status: "consumed" }
-  | { type: "terminal_grounding"; actionType: TerminalAgentAction["type"]; usedRefs: AgentTerminalRef[] };
+  | {
+      type: "terminal_provenance";
+      actionType: TerminalAgentAction["type"];
+      serverProvenance: {
+        toolResultCount: number;
+        okToolResultCount: number;
+        satisfiedToolResultCount: number;
+        diagnosticToolResultCount: number;
+        failedToolResultCount: number;
+        visibleOutputCount?: number;
+        validatedOutputCount?: number;
+        availableResourceCount?: number;
+        validationMetadata?: JsonValue;
+      };
+    };
 
 /** AgentProgressStage 是可投影给用户的粗粒度 Agent 进度阶段，不包含 toolName 或 trace 详情。 */
 export type AgentProgressStage =

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { InMemoryConfirmationStore } from "@/lib/server/agent-core/confirmation-store";
-import { toTerminalResourceRefs, toTerminalToolResultRefs, type AgentResourceRef } from "@/lib/server/agent-core/contracts";
+import type { AgentResourceRef } from "@/lib/server/agent-core/contracts";
 import { createToolResultId, hashNormalizedInput } from "@/lib/server/agent-core/executor";
 import { createResourceId, ResourceStore } from "@/lib/server/agent-core/resource-store";
 import { resumeConfirmedAction, runAgentRuntime } from "@/lib/server/agent-core/runtime";
@@ -45,13 +45,11 @@ function createScriptedDeepSeekPlanner(actions: unknown[]) {
 describe("agent-core DeepSeek adapter fixture E2E", () => {
   it("drives read fixture through AgentAction and generic runtime", async () => {
     const toolInput = { fixtureId: "deepseek-read" };
-    const expectedToolResultId = createToolResultId("run-deepseek-read", "readFixture", hashNormalizedInput(toolInput));
     const { planner, fetchImpl } = createScriptedDeepSeekPlanner([
       { type: "tool_call", toolName: "readFixture", input: toolInput },
       {
         type: "final_answer",
         content: "read completed.",
-        usedRefs: toTerminalToolResultRefs([expectedToolResultId]),
       },
     ]);
 
@@ -96,12 +94,10 @@ describe("agent-core DeepSeek adapter fixture E2E", () => {
         type: "tool_call",
         toolName: "m1ResourceConsumer",
         input: { label: "consumed" },
-        consumes: [resourceRef],
       },
       {
         type: "final_answer",
         content: "resource completed.",
-        usedRefs: toTerminalResourceRefs([resourceRef]),
       },
     ]);
 
@@ -186,7 +182,7 @@ describe("agent-core DeepSeek adapter fixture E2E", () => {
     expect(getConfirmationWriteFixtureExecutions()).toHaveLength(1);
   });
 
-  it("does not let diagnostic resources support a successful final answer", async () => {
+  it("rejects stale terminal refs before accepting diagnostic ask_user", async () => {
     const diagnosticInput = {
       code: "deepseek_blocked",
       message: "fixture blocked.",
@@ -210,11 +206,10 @@ describe("agent-core DeepSeek adapter fixture E2E", () => {
       {
         type: "final_answer",
         content: "success.",
-        usedRefs: toTerminalResourceRefs([diagnosticRef]),
+        usedRefs: [{ type: "resource", id: diagnosticRef.resourceId, resourceType: diagnosticRef.resourceType }],
       },
       {
         type: "ask_user", content: "fixture blocked.",
-        usedRefs: toTerminalResourceRefs([diagnosticRef]),
       },
     ]);
 
@@ -236,7 +231,7 @@ describe("agent-core DeepSeek adapter fixture E2E", () => {
     expect(result.observations).toEqual(expect.arrayContaining([
       expect.objectContaining({
         type: "invalid_action",
-        content: expect.objectContaining({ code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID }),
+        content: expect.objectContaining({ code: AGENT_ERROR_CODES.INVALID_ACTION }),
       }),
     ]));
   });

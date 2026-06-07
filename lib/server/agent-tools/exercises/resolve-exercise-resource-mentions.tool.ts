@@ -90,7 +90,7 @@ export const resolveExerciseResourceMentionsTool = defineTool<
     "mentions[].text 只放单个动作名；mentions[].sectionHint 可选，只能是 warmup、training 或 stretch。",
     "matched exerciseId 只能作为后续 searchExerciseResources.requiredExerciseIds，让这些发布态动作优先进入 section-scoped groups。",
     "ambiguous 需要模型选择候选、重新查询或 ask_user；not_found 不能作为动作事实。",
-    "本 tool result 不能直接写入 visibleTrainingProposal.exerciseItems；最终动作事实仍需来自 searchExerciseResources.groups.<section>.exercises[] 或当前 run 可消费训练事实。",
+    "本 tool result 不能直接写入 visibleTrainingProposal.exerciseItems；最终动作事实仍需来自 searchExerciseResources.groups.<section>.exercises[] 或已导入的训练业务事实。",
   ].join(" "),
   whenNotToUse: [
     "不要把完整用户消息、conversationSummary、历史自然语言、分页、userId、sql、candidateUse、resultRequirements 或训练生成参数传给本 tool。",
@@ -168,7 +168,7 @@ export const resolveExerciseResourceMentionsTool = defineTool<
     ambiguousCount: output.ambiguousCount,
     notFoundCount: output.notFoundCount,
     requiredExerciseIdsBoundary: "matched 或模型从 ambiguous 候选中选择的 exerciseId 可作为后续 requiredExerciseIds 正向锚点。",
-    outputBoundary: "本 observation 不能直接作为 visibleTrainingProposal.exerciseItems[*].exerciseId 的动作事实来源；最终动作事实仍需来自 section-scoped 动作查询结果或当前 run 可消费训练事实。",
+    outputBoundary: "本 observation 不能直接作为 visibleTrainingProposal.exerciseItems[*].exerciseId 的动作事实来源；最终动作事实仍需来自 section-scoped 动作查询结果或已导入的训练业务事实。",
     results: output.results.map((result) => ({
       text: result.text,
       ...(result.sectionHint ? { sectionHint: result.sectionHint } : {}),

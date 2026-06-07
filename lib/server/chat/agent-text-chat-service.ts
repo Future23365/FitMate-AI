@@ -7,7 +7,6 @@ import type {
   AgentResourceRef,
   AgentRunInput,
   AgentRunResult,
-  AgentTerminalRef,
   AgentLoopEvent,
   AgentProgressEvent,
   AgentProgressStage,
@@ -549,7 +548,7 @@ function mapRuntimeTraceEventToAgentProgressStage(
       return resolveToolExecutionProgressStage(event, registry);
     case "resource_registered":
     case "confirmation_request":
-    case "terminal_grounding":
+    case "terminal_provenance":
       return "finalizing";
     case "confirmation_resume":
       return undefined;
@@ -569,7 +568,6 @@ function resolveToolExecutionProgressStage(
 
   if (tool?.resourceContract?.produces?.some((resource) => (
     resource.resourceType === "visible_training_proposal_fact"
-    || resource.resourceType === "visible_training_proposal_fact_index"
   ))) {
     return "reading_artifacts";
   }
@@ -1567,7 +1565,7 @@ function getRuntimeTraceStepType(event: AgentTraceEvent) {
     return "runtime_event";
   }
 
-  if (event.type === "terminal_grounding") {
+  if (event.type === "terminal_provenance") {
     return "final_response";
   }
 
@@ -1600,8 +1598,8 @@ function getRuntimeTraceEventLabel(event: AgentTraceEvent) {
       return "确认请求";
     case "confirmation_resume":
       return "确认恢复";
-    case "terminal_grounding":
-      return "Terminal grounding";
+    case "terminal_provenance":
+      return "Terminal provenance";
   }
 }
 
@@ -1719,11 +1717,11 @@ function summarizeRuntimeTraceEvent(event: AgentTraceEvent): unknown {
         pendingActionId: event.pendingActionId,
         status: event.status,
       };
-    case "terminal_grounding":
+    case "terminal_provenance":
       return {
         type: event.type,
         actionType: event.actionType,
-        usedRefs: event.usedRefs.map(summarizeTerminalRef),
+        serverProvenance: redactTraceValue(event.serverProvenance),
       };
   }
 }
@@ -1881,25 +1879,6 @@ function summarizeResourceRef(resource: AgentResourceRef): unknown {
     runId: resource.runId,
     version: resource.version,
     schemaVersion: resource.schemaVersion,
-  };
-}
-
-function summarizeTerminalRef(ref: AgentTerminalRef): unknown {
-  if (ref.type === "tool_result") {
-    return {
-      type: ref.type,
-      id: ref.id,
-    };
-  }
-
-  return {
-    type: ref.type,
-    id: ref.id,
-    resourceType: ref.resourceType,
-    role: ref.role,
-    runId: ref.runId,
-    version: ref.version,
-    schemaVersion: ref.schemaVersion,
   };
 }
 

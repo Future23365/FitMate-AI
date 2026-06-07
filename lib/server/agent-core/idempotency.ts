@@ -24,7 +24,7 @@ export function createToolExecutionIdempotencyKey(input: CreateToolIdempotencyKe
     toolVersion: input.toolVersion,
     input,
     actionType: input.action?.type,
-    resourceRefs: input.resourceRefs ?? input.action?.consumes ?? [],
+    resourceRefs: input.resourceRefs ?? [],
     pendingActionId: input.pendingActionId,
     actionHash: input.actionHash,
   };

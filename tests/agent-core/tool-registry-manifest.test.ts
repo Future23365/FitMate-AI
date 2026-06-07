@@ -96,30 +96,6 @@ function collectSchemaDescriptions(value: JsonValue | undefined, descriptions: s
   }
 }
 
-function collectJsonObjects(value: JsonValue | undefined, objects: Array<Record<string, JsonValue>>) {
-  if (Array.isArray(value)) {
-    value.forEach((item) => collectJsonObjects(item, objects));
-    return;
-  }
-
-  if (!value || typeof value !== "object") {
-    return;
-  }
-
-  objects.push(value as Record<string, JsonValue>);
-  Object.values(value).forEach((child) => collectJsonObjects(child as JsonValue, objects));
-}
-
-function objectHasReadRecentOperation(value: Record<string, JsonValue>) {
-  const properties = value.properties;
-  if (!properties || typeof properties !== "object" || Array.isArray(properties)) {
-    return false;
-  }
-
-  const operation = (properties as Record<string, JsonValue>).operation;
-  return JSON.stringify(operation ?? "").includes("read_recent");
-}
-
 function createExerciseResourceFacetCatalog(): ExerciseResourceFacetCatalog {
   return {
     muscles: ["胸部", "肱三头肌", "股四头肌"],
@@ -211,7 +187,7 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(manifestJson).not.toContain("should-not-leak");
   });
 
-  it("serializes the production registry with visible training proposal inspect/read and search schema fields", () => {
+  it("serializes the production registry with visible training proposal inspect and search schema fields", () => {
     const facetCatalog = createExerciseResourceFacetCatalog();
     const registry = createProductionToolRegistry({
       searchExerciseResourcesFacetCatalog: facetCatalog,
@@ -220,7 +196,6 @@ describe("agent-core ToolRegistry and manifest", () => {
     const inspectFactManifest = manifests.find((tool) => tool.name === "inspectVisibleTrainingProposals");
     const resolveMentionManifest = manifests.find((tool) => tool.name === "resolveExerciseResourceMentions");
     const searchManifest = manifests.find((tool) => tool.name === "searchExerciseResources");
-    const inspectInputSchemaObjects: Array<Record<string, JsonValue>> = [];
     const inputSchema = searchManifest?.inputJsonSchema as {
       properties: {
         q: unknown;
@@ -256,9 +231,6 @@ describe("agent-core ToolRegistry and manifest", () => {
     const searchManifestJson = JSON.stringify(searchManifest);
     const manifestJson = JSON.stringify(manifests);
     const searchFacetCatalog = searchManifest?.metadata?.facetCatalog as ExerciseResourceFacetCatalog | undefined;
-    collectJsonObjects(inspectFactManifest?.inputJsonSchema, inspectInputSchemaObjects);
-    const readRecentInputBranches = inspectInputSchemaObjects.filter(objectHasReadRecentOperation);
-
     expect(manifests.map((tool) => tool.name)).toEqual([
       "inspectVisibleTrainingProposals",
       "resolveExerciseResourceMentions",
@@ -291,17 +263,18 @@ describe("agent-core ToolRegistry and manifest", () => {
     }
     expect(inspectManifestJson).toContain("operation");
     expect(inspectManifestJson).toContain("list_recent");
-    expect(inspectManifestJson).toContain("read_recent");
-    expect(inspectManifestJson).toContain("factRef");
-    expect(inspectManifestJson).toContain("messageId");
-    expect(inspectManifestJson).toContain("visible_training_proposal_fact_index");
+    expect(inspectManifestJson).not.toContain("read_recent");
+    expect(inspectManifestJson).not.toContain("factRef");
+    expect(inspectManifestJson).not.toContain("messageId");
+    expect(inspectManifestJson).not.toContain("resourceId");
+    expect(inspectManifestJson).not.toContain("toolResultId");
+    expect(inspectManifestJson).not.toContain("usedRefs");
+    expect(inspectManifestJson).not.toContain("visible_training_proposal_fact_index");
     expect(inspectManifestJson).toContain("visible_training_proposal_fact");
     expect(inspectManifestJson).toContain("visibleOutputSchemaVersion");
     expect(inspectManifestJson).toContain("factSchemaVersion");
-    expect(inspectManifestJson).toContain("consumable visible_training_proposal_fact");
-    expect(inspectManifestJson).toContain("没有本轮 list_recent 索引时应先调用 operation = \\\"list_recent\\\"");
-    expect(inspectManifestJson).toContain("final_answer.usedRefs.resource.id 必须来自当前 run producedResources");
-    expect(inspectManifestJson).toContain("ref.value 复制本轮 list_recent 返回的真实 factRef 或 messageId");
+    expect(inspectManifestJson).toContain("历史训练方案业务事实");
+    expect(inspectManifestJson).toContain("不需要内部引用字段");
     expect(inspectManifestJson).not.toContain("diagnostic index resource");
     expect(inspectManifestJson).not.toContain("readRecentVisibleTrainingProposal");
     expect(inspectManifestJson).not.toContain("fact_recent_visible_training_01");
@@ -315,16 +288,13 @@ describe("agent-core ToolRegistry and manifest", () => {
     expect(inspectManifestJson).not.toContain("factCount = 0");
     expect(inspectExamplesJson).toContain("\"type\":\"tool_call\"");
     expect(inspectExamplesJson).toContain("\"toolName\":\"inspectVisibleTrainingProposals\"");
-    expect(inspectExamplesJson).toContain("\"operation\":\"read_recent\"");
-    expect(inspectExamplesJson).toContain("\"ref\"");
+    expect(inspectExamplesJson).not.toContain("\"operation\":\"read_recent\"");
+    expect(inspectExamplesJson).not.toContain("\"ref\"");
     expect(inspectExamplesJson).not.toContain("\"fact-1\"");
     expect(inspectExamplesJson).not.toContain("fact_recent_visible_training_01");
     expect(inspectExamplesJson).toContain("\"operation\":\"list_recent\"");
-    expect(readRecentInputBranches.some((branch) => Array.isArray(branch.required) && branch.required.includes("ref"))).toBe(true);
-    expect(readRecentInputBranches.some((branch) => Array.isArray(branch.required) && branch.required.includes("factRef"))).toBe(false);
-    expect(readRecentInputBranches.some((branch) => Array.isArray(branch.required) && branch.required.includes("messageId"))).toBe(false);
     expect(manifestJson).toContain("operation = \\\"list_recent\\\"");
-    expect(manifestJson).toContain("operation = \\\"read_recent\\\"");
+    expect(manifestJson).not.toContain("operation = \\\"read_recent\\\"");
     expect(inputSchema.properties).toHaveProperty("q");
     expect(inputSchema.properties).not.toHaveProperty("maxReturned");
     expect(inputSchema.properties).not.toHaveProperty("purpose");
@@ -392,7 +362,11 @@ describe("agent-core ToolRegistry and manifest", () => {
     ]);
     expect(inputSchema.properties.sort.default).toBe("name_asc");
     expect(inputSchema.additionalProperties).toBe(false);
-    expect(manifestJson).toContain("usedRefs");
+    expect(manifestJson).not.toContain("usedRefs");
+    expect(manifestJson).not.toContain("factRef");
+    expect(manifestJson).not.toContain("messageId");
+    expect(manifestJson).not.toContain("resourceId");
+    expect(manifestJson).not.toContain("toolResultId");
     expect(manifestJson).not.toContain("usedToolResultIds");
     expect(manifestJson).not.toContain("usedResourceRefs");
     expect(manifestJson).toContain("visibleOutputs");

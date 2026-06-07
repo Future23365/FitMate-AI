@@ -17,26 +17,15 @@ export type ConsumedResourceValidation =
   | { ok: true; consumedResources: AgentResourceRef[] }
   | { ok: false; error: ToolError };
 
-/** validateConsumedResources 在 Executor 前校验 tool_call.consumes 是否满足 tool.resourceContract.requires。 */
+/** validateConsumedResources 在 Executor 前由服务端内部从 ResourceStore 匹配 tool.resourceContract.requires。 */
 export function validateConsumedResources(input: {
   tool: AnyTool;
   action: ToolCallAction;
   resourceStore?: ResourceStore;
 }): ConsumedResourceValidation {
-  const consumes = input.action.consumes ?? [];
   const requirements = input.tool.resourceContract?.requires ?? [];
 
-  if (consumes.length > 0 && !input.resourceStore) {
-    return {
-      ok: false,
-      error: createContractToolError(
-        AGENT_ERROR_CODES.INVALID_RESOURCE_REFERENCE,
-        "Resource references require ResourceStore validation.",
-      ),
-    };
-  }
-
-  if (requirements.length === 0 && consumes.length === 0) {
+  if (requirements.length === 0) {
     return { ok: true, consumedResources: [] };
   }
 
@@ -52,7 +41,7 @@ export function validateConsumedResources(input: {
 
   const unmet: ResourceRequirementFailure[] = [];
   const consumedResources: AgentResourceRef[] = [];
-  const matchedConsumeIds = new Set<string>();
+  const consumedResourceIds = new Set<string>();
 
   for (const requirement of requirements) {
     if (requirement.required === false) {
@@ -60,16 +49,11 @@ export function validateConsumedResources(input: {
     }
 
     const requiredCount = requirement.minCount ?? 1;
-    const matchingRefs = consumes.filter((ref) => {
-      if (ref.resourceType && ref.resourceType !== requirement.resourceType) {
-        return false;
-      }
+    const matchingResources = input.resourceStore
+      .list({ resourceType: requirement.resourceType, role: requirement.role ?? "consumable" })
+      .filter((resource) => !consumedResourceIds.has(resource.resourceId));
 
-      const resource = input.resourceStore?.get(ref);
-      return resource?.resourceType === requirement.resourceType;
-    });
-
-    if (matchingRefs.length < requiredCount) {
+    if (matchingResources.length < requiredCount) {
       unmet.push({
         resourceType: requirement.resourceType,
         role: requirement.role ?? "consumable",
@@ -79,12 +63,12 @@ export function validateConsumedResources(input: {
       continue;
     }
 
-    for (const ref of matchingRefs) {
+    for (const resource of matchingResources.slice(0, requiredCount)) {
       try {
-        const resource = input.resourceStore.assertConsumable(ref, requirement);
         const safeRef = toResourceRef(resource);
+        input.resourceStore.assertConsumable(safeRef, requirement);
         consumedResources.push(safeRef);
-        matchedConsumeIds.add(ref.resourceId);
+        consumedResourceIds.add(resource.resourceId);
       } catch (error) {
         if (error instanceof AgentContractError) {
           return {
@@ -104,18 +88,6 @@ export function validateConsumedResources(input: {
         AGENT_ERROR_CODES.RESOURCE_REQUIREMENT_UNMET,
         "Tool call does not satisfy required resource contracts.",
         { unmet },
-      ),
-    };
-  }
-
-  const unexpectedRefs = consumes.filter((ref) => !matchedConsumeIds.has(ref.resourceId));
-  if (unexpectedRefs.length > 0) {
-    return {
-      ok: false,
-      error: createContractToolError(
-        AGENT_ERROR_CODES.RESOURCE_CONTRACT_VIOLATION,
-        "Tool call consumes resources not declared by the tool resource contract.",
-        { unexpectedRefs },
       ),
     };
   }
@@ -142,8 +114,9 @@ export function validateAndRegisterProducedResources(input: {
     return { ok: true, producedResources: [] };
   }
 
-  // 对声明 produces 但返回诊断结果的 tool，允许不登记 resource；普通 final_answer grounding 不依赖 satisfied。
-  if (declaredResources.length === 0 && productions.length > 0 && input.result.fulfillment.satisfied) {
+  // 对声明 optional produces 或返回诊断结果的 tool，允许不登记 resource；required production 仍保持合同约束。
+  const missingRequiredProduction = productions.some((production) => production.required !== false);
+  if (declaredResources.length === 0 && missingRequiredProduction && input.result.fulfillment.satisfied) {
     return {
       ok: false,
       error: createContractToolError(

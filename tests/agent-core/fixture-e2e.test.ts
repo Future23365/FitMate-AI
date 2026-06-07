@@ -2,8 +2,6 @@ import { z } from "zod";
 import { describe, expect, it } from "vitest";
 
 import { defineTool } from "@/lib/server/agent-core/define-tool";
-import { toTerminalToolResultRefs } from "@/lib/server/agent-core/contracts";
-import { createToolResultId, hashNormalizedInput } from "@/lib/server/agent-core/executor";
 import {
   OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
   TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
@@ -18,13 +16,11 @@ describe("agent-core fixture read tool end to end", () => {
   it("exposes manifest, runs fixture tool, creates observation and renders safe events", async () => {
     const registry = createM0FixtureToolRegistry();
     const toolInput = { fixtureId: "alpha-intro", includeMeta: true, tags: ["alpha"] };
-    const expectedToolResultId = createToolResultId("run-fixture", "readFixture", hashNormalizedInput(toolInput));
     const planner = new ReplayPlanner([
       { type: "tool_call", toolName: "readFixture", input: toolInput },
       {
         type: "final_answer",
         content: "fixture 已读取。",
-        usedRefs: toTerminalToolResultRefs([expectedToolResultId]),
       },
     ]);
 
@@ -53,14 +49,12 @@ describe("agent-core fixture read tool end to end", () => {
       ok: true,
       content: {
         observationRole: OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
-        toolResultId: expectedToolResultId,
         modelFactsChannel: TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
         factLevel: "tool_result_index",
         factSource: {
           detailedFacts: TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
           projectionModelOmitted: true,
         },
-        terminalUsedRef: { type: "tool_result", id: expectedToolResultId },
       },
     });
     expect(JSON.stringify(planner.calls[1].observations[0])).not.toContain("finalAnswerSupport");
@@ -104,7 +98,6 @@ describe("agent-core fixture read tool end to end", () => {
     }));
 
     const input = { id: "two" };
-    const expectedToolResultId = createToolResultId("run-second-fixture", "readSecondFixture", hashNormalizedInput(input));
     const result = await runAgentRuntime({
       registry,
       planner: new ReplayPlanner([
@@ -112,7 +105,6 @@ describe("agent-core fixture read tool end to end", () => {
         {
           type: "final_answer",
           content: "second fixture 已读取。",
-          usedRefs: toTerminalToolResultRefs([expectedToolResultId]),
         },
       ]),
       run: {

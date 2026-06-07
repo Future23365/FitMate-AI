@@ -31,11 +31,10 @@ describe("agent visible output contracts", () => {
     expect(contract.fieldDictionary.map((field) => field.field)).toEqual(expect.arrayContaining([
       "visibleTrainingProposal",
       "visible_training_proposal_fact",
-      "consumable resource",
-      "toolResults[].fulfillment.producedResources",
-      "toolResults[].fulfillment.consumedResources",
+      "business fact",
+      "toolResults[].fulfillment.summary",
       "toolResults[].fulfillment.unmetRequirements",
-      "resource summary",
+      "currentRunSourceDiagnostic",
       "toolResults[].fulfillment.satisfied",
       "missingSections",
       "payload",
@@ -82,8 +81,10 @@ describe("agent visible output contracts", () => {
       "训练频次、周期、多天或一周安排",
       "visible_training_proposal_fact",
       "failed tool result",
-      "diagnostic resource",
+      "diagnostic observation",
       "satisfied=false",
+      "currentRunSourceDiagnostic",
+      "数据库硬校验",
       "缺少训练约束",
       "需要动作事实",
       "把这些动作编成一套 30 分钟训练",
@@ -106,6 +107,10 @@ describe("agent visible output contracts", () => {
       "stack trace",
       "provider raw",
       "schemaVersion = 1",
+      "当前 run 可消费动作事实",
+      "consumable resource",
+      "producedResources",
+      "consumedResources",
     ]) {
       expect(serialized).not.toContain(forbidden);
     }
@@ -142,6 +147,7 @@ describe("agent visible output contracts", () => {
       "final_answer.content 中关于训练频次、周期、多天或一周安排的承诺，必须能由同一 payload 的 schedule.assignments 支撑。",
     ]));
     expect(validatorBoundary).toContain("服务端不根据用户原文关键词、正则、同义词、短句模板或 final_answer.content 语义替模型判断或改写 payload.kind");
+    expect(validatorBoundary).toContain("缺少当前 run 来源只记录为 currentRunSourceDiagnostic");
   });
 
   it("uses a 7-day 3-training-day single-template plan example", () => {
@@ -186,7 +192,7 @@ describe("agent visible output contracts", () => {
 
     expect(expectedDecisionExamples.length).toBeGreaterThan(0);
     expect(expectedDecisionExamples.map((example) => example.description)).toEqual(expect.arrayContaining([
-      "需要动作事实：用户要结构化训练结果但当前 run 没有可消费动作事实时先 tool_call。",
+      "需要动作事实：用户要结构化训练结果但当前上下文没有模型可见动作事实时先 tool_call。",
       "事实不足的 routine：只有 training 动作事实但用户要一次完整训练时继续补齐或澄清。",
       "基于已有结构派生计划：用户要求按当前内容做一周计划时使用 derive。",
       "替换或修改：用户要求换一批、避免重复或组数少一点时使用 replace / modify。",

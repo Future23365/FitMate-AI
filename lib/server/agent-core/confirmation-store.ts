@@ -71,7 +71,7 @@ export function createPendingAction(input: CreatePendingActionInput): PendingAct
     toolVersion: input.tool.version,
     toolCall: input.action,
     inputHash,
-    resourceRefs: input.action.consumes ?? [],
+    resourceRefs: [],
     policyVersion: input.decision.policyVersion,
     status: "pending",
     createdAt,

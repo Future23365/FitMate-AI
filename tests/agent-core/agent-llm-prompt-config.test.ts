@@ -21,7 +21,7 @@ describe("agent LLM prompt configuration", () => {
     const serializedContract = JSON.stringify(actionContract);
 
     expect(agentLlmPromptConfig.promptVersion).toBe(agentLlmPromptVersion);
-    expect(agentLlmPromptVersion).toBe("agent-action-v24-activity-summary");
+    expect(agentLlmPromptVersion).toBe("agent-action-v25-server-provenance");
     expect(systemPrompt.length).toBeLessThan(2400);
 
     for (const required of [
@@ -37,7 +37,7 @@ describe("agent LLM prompt configuration", () => {
       "输出 visibleOutputs[] 时只遵守 protocol.outputContracts[]",
       "`activitySummary` 是可选用户态短中文活动摘要",
       "不是推理内容、最终回答、tool input、业务判断或 NDJSON event",
-      "satisfied=true tool result、consumable resource",
+      "satisfied=true tool result、模型可见业务事实",
       "reuse、derive、modify、replace、clarify",
       "不得提供医疗诊断、治疗建议",
       "用户可见文本，只能使用面向用户的产品语言",
@@ -50,8 +50,13 @@ describe("agent LLM prompt configuration", () => {
       "\"usedRefs\":[]",
       "\"resourceType\":\"tool_result\"",
       "ask_user.question",
+      "usedRefs",
       "usedToolResultIds",
       "usedResourceRefs",
+      "resourceId",
+      "toolResultId",
+      "factRef",
+      "messageId",
       "schema_validation_failed",
       "domain_validation_failed",
       "visibleTrainingProposal",
@@ -75,9 +80,6 @@ describe("agent LLM prompt configuration", () => {
       "换一批",
       "再来一组",
       "toolName = inspectVisibleTrainingProposals",
-      "\"factRef\":\"",
-      "\"messageId\":\"",
-      "\"resourceId\":\"",
       "searchExercises",
       "generateRoutine",
       "generatePlanDraft",
@@ -119,15 +121,12 @@ describe("agent LLM prompt configuration", () => {
       "groundingPolicy",
       "referencePolicy",
       "repairPolicy",
-      "factRef",
-      "messageId",
-      "resource.id",
-      "diagnostic resource",
-      "consumable resource",
+      "diagnostic fact",
+      "business fact",
       "factSchemaVersion",
       "visibleOutputs[].schemaVersion",
       "tool result 不是最终回答",
-      "usedRefs 只表示 terminal action 引用了当前 run 的事实来源",
+      "不需要输出内部引用字段",
       "必须把结构写入 visibleOutputs[]",
       "requiredExerciseIds",
       "excludeExerciseIds",
@@ -169,8 +168,13 @@ describe("agent LLM prompt configuration", () => {
       "ask_user.question",
       "final_answer.assistantSuggestions",
       "ask_user.suggestions",
+      "usedRefs",
       "usedToolResultIds",
       "usedResourceRefs",
+      "resourceId",
+      "toolResultId",
+      "factRef",
+      "messageId",
       "visibleTrainingProposal.payload.kind",
       "searchExerciseResources",
       "inspectVisibleTrainingProposals",
@@ -234,7 +238,7 @@ describe("agent LLM prompt configuration", () => {
       "返回测试专用 AgentAction JSON object。 这个测试只期望 final_answer。",
     );
     expect(buildAgentActionSystemPrompt()).toContain("tool_call、final_answer、ask_user");
-    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v24-activity-summary");
+    expect(agentLlmPromptConfig.promptVersion).toBe("agent-action-v25-server-provenance");
   });
 
   it("exposes a dedicated terminal failure finalizer prompt and budget config", () => {

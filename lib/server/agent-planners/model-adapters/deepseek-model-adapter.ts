@@ -600,7 +600,6 @@ function summarizeText(value: string): JsonValue {
 function summarizePlannerInputDedupe(context: ModelActionCompletionContextLayer) {
   const successfulLightweightObservationCount = context.observations.filter(isSuccessfulLightweightObservation).length;
   const toolResultProjectionPresence = context.toolResults.map((result) => ({
-    toolResultId: result.toolResultId,
     toolName: result.toolName,
     satisfied: result.fulfillment.satisfied,
     factChannel: result.ok ? (result.fulfillment.satisfied ? "fact" as const : "diagnostic" as const) : "failed" as const,

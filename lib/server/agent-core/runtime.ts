@@ -35,6 +35,8 @@ import type {
   DynamicConfirmationEvaluator,
   JsonValue,
   RegistrySnapshot,
+  TerminalAgentAction,
+  TerminalOutputValidationSummary,
   ToolCallAction,
   ToolError,
   ToolResult,
@@ -225,9 +227,14 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
 
     if (validation.action.type === "final_answer") {
       await recordTraceEvent({
-        type: "terminal_grounding",
+        type: "terminal_provenance",
         actionType: validation.action.type,
-        usedRefs: validation.action.usedRefs ?? [],
+        serverProvenance: createTerminalProvenance({
+          action: validation.action,
+          toolResults,
+          terminalOutputValidation: validation.terminalOutputValidation,
+          resourceStore,
+        }),
       });
       return finish({
         runId: input.run.runId,
@@ -243,9 +250,13 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
 
     if (validation.action.type === "ask_user") {
       await recordTraceEvent({
-        type: "terminal_grounding",
+        type: "terminal_provenance",
         actionType: validation.action.type,
-        usedRefs: validation.action.usedRefs ?? [],
+        serverProvenance: createTerminalProvenance({
+          action: validation.action,
+          toolResults,
+          resourceStore,
+        }),
       });
       return finish({
         runId: input.run.runId,
@@ -360,7 +371,6 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
         previousSatisfied: previousOkResult.fulfillment.satisfied,
         repeatCount: previousToolCallCount + 1,
         resultSummary: previousOkResult.fulfillment.summary,
-        producedResources: previousOkResult.fulfillment.producedResources as JsonValue | undefined,
       };
       const duplicateError = createDuplicateToolInputRepairError(duplicateFeedback);
       observations.push(createDuplicateToolInputObservation(duplicateFeedback));
@@ -410,7 +420,7 @@ export async function runAgentRuntime(input: RunAgentRuntimeInput): Promise<Agen
       toolVersion: tool.version,
       input: validation.action.input,
       action: validation.action,
-      resourceRefs: validation.action.consumes ?? [],
+      resourceRefs: consumedValidation.consumedResources,
     });
     const result = await executeTool({
       tool,
@@ -551,7 +561,7 @@ export async function resumeConfirmedAction(input: ResumeConfirmedActionRuntimeI
     toolVersion: tool.version,
     input: validation.action.input,
     action: validation.action,
-    resourceRefs: validation.action.consumes ?? [],
+    resourceRefs: consumedValidation.consumedResources,
     pendingActionId: claim.pendingAction.pendingActionId,
     actionHash: claim.pendingAction.actionHash,
   });
@@ -755,6 +765,39 @@ function createPlannerActionTrace(step: number, action: unknown): AgentTraceEven
   };
 }
 
+// createTerminalProvenance 只在服务端 trace 中记录终态来源摘要，不回写到 Planner action。
+function createTerminalProvenance(input: {
+  action: TerminalAgentAction;
+  toolResults: ToolResult[];
+  terminalOutputValidation?: TerminalOutputValidationSummary;
+  resourceStore: ResourceStore;
+}): Extract<AgentTraceEvent, { type: "terminal_provenance" }>["serverProvenance"] {
+  const okToolResults = input.toolResults.filter((result) => result.ok);
+  const satisfiedToolResults = okToolResults.filter((result) => result.fulfillment.satisfied);
+  const diagnosticToolResults = okToolResults.filter((result) => !result.fulfillment.satisfied);
+  const failedToolResults = input.toolResults.filter((result) => !result.ok);
+  const validationOutputs = input.terminalOutputValidation?.outputs ?? [];
+
+  return {
+    toolResultCount: input.toolResults.length,
+    okToolResultCount: okToolResults.length,
+    satisfiedToolResultCount: satisfiedToolResults.length,
+    diagnosticToolResultCount: diagnosticToolResults.length,
+    failedToolResultCount: failedToolResults.length,
+    visibleOutputCount: input.action.type === "final_answer" ? input.action.visibleOutputs?.length ?? 0 : undefined,
+    validatedOutputCount: input.terminalOutputValidation ? validationOutputs.length : undefined,
+    availableResourceCount: input.resourceStore.inventory().length,
+    validationMetadata: validationOutputs.length > 0
+      ? validationOutputs.map((output) => ({
+          index: output.index,
+          outputType: output.outputType,
+          schemaVersion: output.schemaVersion,
+          ...(output.metadata === undefined ? {} : { metadata: output.metadata }),
+        }))
+      : undefined,
+  };
+}
+
 // createActionNormalizationTrace 记录顶层字段裁剪事实，不保存被丢弃字段的完整值。
 function createActionNormalizationTrace(
   step: number,
@@ -799,25 +842,16 @@ function createDuplicateToolInputRepairError(input: DuplicateToolInputRepairFeed
     factLevel: input.previousSatisfied ? "current_run_tool_result" : "diagnostic_tool_result",
     toolName: input.toolName,
     toolVersion: input.toolVersion,
-    previousToolResultId: input.previousToolResultId,
     previousOk: input.previousOk,
     previousSatisfied: input.previousSatisfied,
     repeatCount: input.repeatCount,
     recoveryBoundary: input.previousSatisfied
-      ? "previousToolResultId 对应当前 run 已有 satisfied=true 的 tool result；模型可在合法 terminal usedRefs 中引用该事实，或提交不同的合法 tool input。"
-      : "previousToolResultId 对应当前 run 已有诊断 tool result；模型只能把它作为失败解释、澄清或修复事实，或提交不同的合法 tool input。",
+      ? "当前 run 已有相同 toolName、toolVersion 和 input 的 satisfied=true 业务事实；模型可以基于已暴露的业务投影收口，或提交不同的合法 tool input。"
+      : "当前 run 已有相同 toolName、toolVersion 和 input 的诊断结果；模型只能把它作为失败解释、澄清或修复事实，或提交不同的合法 tool input。",
   };
-
-  if (input.previousSatisfied) {
-    fact.reusableRef = { type: "tool_result", id: input.previousToolResultId };
-  }
 
   if (input.resultSummary) {
     fact.resultSummary = input.resultSummary;
-  }
-
-  if (input.producedResources) {
-    fact.producedResources = input.producedResources;
   }
 
   return createToolError(
@@ -828,7 +862,7 @@ function createDuplicateToolInputRepairError(input: DuplicateToolInputRepairFeed
         {
           code: AGENT_ERROR_CODES.DUPLICATE_TOOL_INPUT,
           path: "tool_call.input",
-          expected: "使用 previousToolResultId 对应的当前 run 结果，或提交不同的合法 tool input。",
+          expected: "基于当前 run 已有业务事实继续规划，或提交不同的合法 tool input；不要输出内部引用字段。",
           actual: {
             toolName: input.toolName,
             toolVersion: input.toolVersion,

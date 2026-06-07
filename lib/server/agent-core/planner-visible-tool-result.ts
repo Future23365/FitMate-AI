@@ -4,21 +4,28 @@ import type { PlannerVisibleToolResult, ToolResult } from "./contracts";
 export function toPlannerVisibleToolResult(result: ToolResult): PlannerVisibleToolResult {
   if (!result.ok) {
     return {
-      toolResultId: result.toolResultId,
       toolName: result.toolName,
       ok: false,
       error: result.error,
-      fulfillment: result.fulfillment,
+      fulfillment: createPlannerVisibleFulfillment(result.fulfillment),
     };
   }
 
   return {
-    toolResultId: result.toolResultId,
     toolName: result.toolName,
     ok: true,
     projection: {
       model: result.projection.model,
     },
-    fulfillment: result.fulfillment,
+    fulfillment: createPlannerVisibleFulfillment(result.fulfillment),
+  };
+}
+
+/** createPlannerVisibleFulfillment 只保留模型决策需要的业务状态，不暴露 resource/tool result 引用。 */
+function createPlannerVisibleFulfillment(result: ToolResult["fulfillment"]): PlannerVisibleToolResult["fulfillment"] {
+  return {
+    summary: result.summary,
+    satisfied: result.satisfied,
+    unmetRequirements: result.unmetRequirements,
   };
 }

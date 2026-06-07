@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { toTerminalToolResultRefs } from "@/lib/server/agent-core/contracts";
-import { createToolResultId, executeTool, hashNormalizedInput } from "@/lib/server/agent-core/executor";
+import { executeTool } from "@/lib/server/agent-core/executor";
 import { AGENT_ERROR_CODES } from "@/lib/server/agent-core/errors";
 import { renderAgentResponseEvents } from "@/lib/server/agent-core/response-renderer";
 import { runAgentRuntime } from "@/lib/server/agent-core/runtime";
@@ -913,12 +912,11 @@ describe("searchExerciseResources tool", () => {
     const registry = new ToolRegistry();
     registry.register(tool);
     const toolInput = { muscles: ["腹肌"], suitabilities: ["training"] };
-    const expectedToolResultId = createToolResultId("run-runtime-search", "searchExerciseResources", hashNormalizedInput(toolInput));
     const result = await runAgentRuntime({
       registry,
       planner: new ReplayPlanner([
         { type: "tool_call", toolName: "searchExerciseResources", input: toolInput },
-        { type: "final_answer", content: "找到平板支撑这类核心训练动作。", usedRefs: toTerminalToolResultRefs([expectedToolResultId]) },
+        { type: "final_answer", content: "找到平板支撑这类核心训练动作。" },
       ]),
       run: {
         runId: "run-runtime-search",

@@ -23,7 +23,6 @@ export function createToolObservation(result: ToolResult): AgentObservation {
         details: result.error.details,
         fulfillment: {
           satisfied: result.fulfillment.satisfied,
-          consumedResources: result.fulfillment.consumedResources,
           unmetRequirements: result.fulfillment.unmetRequirements,
         },
       }),
@@ -43,11 +42,9 @@ function createOkToolResultIndexObservation(result: Extract<ToolResult, { ok: tr
     ok: true,
     content: redactJsonValue({
       observationRole: OK_TOOL_RESULT_INDEX_OBSERVATION_ROLE,
-      toolResultId: result.toolResultId,
       toolName: result.toolName,
       ok: true,
       fulfillment: createLightweightFulfillmentSummary(result),
-      terminalUsedRef: { type: "tool_result", id: result.toolResultId },
       modelFactsChannel: TOOL_RESULT_MODEL_PROJECTION_CHANNEL,
       projectionModelOmitted: true,
       factLevel: result.fulfillment.satisfied ? "tool_result_index" : "diagnostic_tool_result_index",
@@ -83,7 +80,6 @@ export function createDuplicateToolInputObservation(input: {
   previousSatisfied: boolean;
   repeatCount: number;
   resultSummary?: string;
-  producedResources?: JsonValue;
 }): AgentObservation {
   return {
     type: "invalid_action",
@@ -98,12 +94,10 @@ export function createDuplicateToolInputObservation(input: {
         toolName: input.toolName,
         toolVersion: input.toolVersion,
         normalizedInputHash: input.normalizedInputHash,
-        previousToolResultId: input.previousToolResultId,
         previousOk: input.previousOk,
         previousSatisfied: input.previousSatisfied,
         repeatCount: input.repeatCount,
         resultSummary: input.resultSummary,
-        producedResources: input.producedResources,
       },
     }),
   };
@@ -114,7 +108,6 @@ export function compressPlannerObservations(observations: AgentObservation[], ma
   return observations.map((observation) => ({
     type: observation.type,
     source: observation.source,
-    toolResultId: observation.toolResultId,
     toolName: observation.toolName,
     ok: observation.ok,
     content: compactJsonValue(redactJsonValue(observation.content), maxContentCharacters),
@@ -128,11 +121,7 @@ function createLightweightFulfillmentSummary(result: Extract<ToolResult, { ok: t
   };
 
   if (result.fulfillment.producedResources) {
-    summary.producedResources = result.fulfillment.producedResources as unknown as JsonValue;
-  }
-
-  if (result.fulfillment.consumedResources) {
-    summary.consumedResources = result.fulfillment.consumedResources as unknown as JsonValue;
+    summary.producedResourceCount = result.fulfillment.producedResources.length;
   }
 
   return summary;

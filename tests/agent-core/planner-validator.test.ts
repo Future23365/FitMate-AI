@@ -4,12 +4,12 @@ import { describe, expect, it } from "vitest";
 import { validateAgentAction } from "@/lib/server/agent-core/action-validator";
 import { defineTool } from "@/lib/server/agent-core/define-tool";
 import { AGENT_ERROR_CODES, AgentContractError } from "@/lib/server/agent-core/errors";
-import { ResourceStore, toResourceRef } from "@/lib/server/agent-core/resource-store";
+import { ResourceStore } from "@/lib/server/agent-core/resource-store";
 import { TerminalOutputValidatorRegistry } from "@/lib/server/agent-core/terminal-output-validator";
 import { ToolRegistry } from "@/lib/server/agent-core/tool-registry";
 import { createProductionToolRegistry } from "@/lib/server/agent-tools";
 import { ReplayPlanner } from "@/lib/server/agent-planners/replay-planner";
-import { AgentActionSchema, toTerminalResourceRefs, toTerminalToolResultRefs, type ToolResult } from "@/lib/server/agent-core/contracts";
+import { AgentActionSchema, type ToolResult } from "@/lib/server/agent-core/contracts";
 import type { PlannerInput } from "@/lib/server/agent-core/planner-port";
 
 function createRegistry() {
@@ -520,7 +520,7 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
     });
   });
 
-  it("returns field-level schema facts for missing read_recent references", () => {
+  it("returns field-level schema facts for stale read_recent operation", () => {
     const registry = createProductionToolRegistry();
     const result = validateAgentAction({
       action: {
@@ -545,8 +545,9 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
           }),
           errors: expect.arrayContaining([
             expect.objectContaining({
-              code: "required_field_missing",
-              path: "ref",
+              code: "invalid_literal",
+              path: "operation",
+              allowedValues: ["list_recent"],
             }),
           ]),
         }),
@@ -554,7 +555,7 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
     });
     expect(detailsJson).toContain("schema_validation_failed");
     expect(detailsJson).toContain("invalid_literal");
-    expect(detailsJson).toContain("required_field_missing");
+    expect(detailsJson).toContain("list_recent");
     expect(detailsJson).not.toContain("payload");
     expect(detailsJson).not.toContain("stack");
   });
@@ -622,7 +623,7 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
     });
   });
 
-  it("rejects non-M0 capabilities and non-empty resource references", () => {
+  it("rejects non-M0 capabilities and Planner-owned internal reference fields", () => {
     const registry = createRegistry();
     const manifests = registry.serializeForPlanner();
 
@@ -643,36 +644,49 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       registry,
       manifests,
       toolResults: [],
-    })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.INVALID_RESOURCE_REFERENCE } });
+    })).toMatchObject({
+      ok: false,
+      error: {
+        code: AGENT_ERROR_CODES.INVALID_ACTION,
+        details: expect.objectContaining({
+          errors: expect.arrayContaining([
+            expect.objectContaining({
+              code: "unknown_field",
+              path: "consumes",
+              repair: expect.stringContaining("服务端内部维护"),
+            }),
+          ]),
+        }),
+      },
+    });
 
     expect(validateAgentAction({
       action: {
         type: "final_answer",
         content: "done",
-        usedRefs: toTerminalResourceRefs([{ resourceId: "resource-1" }]),
+        usedRefs: [{ type: "resource", id: "resource-1" }],
       },
       registry,
       manifests,
       toolResults: [],
-    })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.INVALID_RESOURCE_REFERENCE } });
-  });
-
-  it("rejects terminal actions that cite tool result ids outside the current run", () => {
-    const registry = createRegistry();
-
-    expect(validateAgentAction({
-      action: {
-        type: "final_answer",
-        content: "done",
-        usedRefs: toTerminalToolResultRefs(["missing-tool-result"]),
+    })).toMatchObject({
+      ok: false,
+      error: {
+        code: AGENT_ERROR_CODES.INVALID_ACTION,
+        details: expect.objectContaining({
+          errors: expect.arrayContaining([
+            expect.objectContaining({
+              code: "unknown_field",
+              path: "usedRefs",
+              repair: expect.stringContaining("服务端内部维护"),
+            }),
+          ]),
+        }),
       },
-      registry,
-      manifests: registry.serializeForPlanner(),
-      toolResults: [],
-    })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID } });
+    });
   });
 
-  it("rejects ungrounded final_answer after current-run tool results", () => {
+  it("accepts final_answer and ask_user without usedRefs after current-run tool results", () => {
     const registry = createRegistry();
     const manifests = registry.serializeForPlanner();
     const satisfiedResult = createTerminalGroundingToolResult({
@@ -690,31 +704,20 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       registry,
       manifests,
       toolResults: [satisfiedResult],
-    })).toMatchObject({
-      ok: false,
-      error: {
-        code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID,
-        details: expect.objectContaining({
-          type: "domain_validation_failed",
-          target: expect.objectContaining({
-            kind: "DomainValidation",
-            schemaId: "AgentAction",
-            variant: "final_answer",
-          }),
-          facts: expect.arrayContaining([
-            expect.objectContaining({
-              code: "missing_terminal_grounding_after_tool_result",
-              path: "usedRefs",
-              actual: { kind: "missing" },
-              toolResultCount: 1,
-            }),
-          ]),
-        }),
+    })).toMatchObject({ ok: true });
+
+    expect(validateAgentAction({
+      action: {
+        type: "ask_user",
+        content: "你希望保留哪些动作？",
       },
-    });
+      registry,
+      manifests,
+      toolResults: [satisfiedResult],
+    })).toMatchObject({ ok: true });
   });
 
-  it("projects missing terminal resource refs as repairable grounding facts", () => {
+  it("projects legacy terminal resource refs as removable schema fields", () => {
     const registry = createRegistry();
     const manifests = registry.serializeForPlanner();
     const resourceStore = new ResourceStore("run-missing-terminal-resource");
@@ -723,9 +726,7 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       action: {
         type: "final_answer",
         content: "我已基于这个资源回答。",
-        usedRefs: toTerminalResourceRefs([
-          { resourceId: "business-object-id", resourceType: "fixture_document" },
-        ]),
+        usedRefs: [{ type: "resource", id: "business-object-id", resourceType: "fixture_document" }],
       },
       registry,
       manifests,
@@ -736,55 +737,35 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
     expect(result).toMatchObject({
       ok: false,
       error: {
-        code: AGENT_ERROR_CODES.RESOURCE_MISSING,
+        code: AGENT_ERROR_CODES.INVALID_ACTION,
         details: expect.objectContaining({
-          type: "domain_validation_failed",
+          type: "schema_validation_failed",
           target: expect.objectContaining({
-            kind: "DomainValidation",
+            kind: "AgentAction",
             schemaId: "AgentAction",
             variant: "final_answer",
           }),
-          facts: expect.arrayContaining([
+          errors: expect.arrayContaining([
             expect.objectContaining({
-              code: "resource_missing",
-              path: "usedRefs.resource.id",
-              expected: expect.objectContaining({
-                anyOf: expect.arrayContaining([
-                  "current_run_registered_resourceId",
-                  "current_run_ok_tool_result_ref",
-                  "valid_visibleOutputs",
-                ]),
-              }),
-              actual: expect.objectContaining({
-                resourceId: "business-object-id",
-                resourceType: "fixture_document",
-              }),
-              repair: expect.stringContaining("fulfillment.producedResources[].resourceId"),
+              code: "unknown_field",
+              path: "usedRefs",
+              repair: expect.stringContaining("请删除"),
             }),
           ]),
         }),
       },
     });
-    expect(JSON.stringify(result)).toContain("tool_result");
+    expect(JSON.stringify(result)).not.toContain("fulfillment.producedResources");
     expect(JSON.stringify(result)).not.toContain("inspectVisibleTrainingProposals");
   });
 
-  it("allows plain no-tool final_answer and grounded final_answer after tool results", () => {
+  it("allows plain terminal actions after tool results and still validates visibleOutputs", () => {
     const registry = createRegistry();
     const manifests = registry.serializeForPlanner();
     const satisfiedResult = createTerminalGroundingToolResult({
       toolResultId: "tr_satisfied",
       ok: true,
       satisfied: true,
-    });
-    const resourceStore = new ResourceStore("run-grounded-terminal");
-    const consumable = resourceStore.register({
-      resourceId: "fixture-doc",
-      resourceType: "fixture_document",
-      role: "consumable",
-      schemaVersion: "fixture@v1",
-      sourceToolResultId: satisfiedResult.toolResultId,
-      summary: { title: "Doc" },
     });
     const terminalOutputValidators = new TerminalOutputValidatorRegistry();
     terminalOutputValidators.register({
@@ -811,7 +792,6 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       action: {
         type: "final_answer",
         content: "已基于 tool result 回答。",
-        usedRefs: toTerminalToolResultRefs([satisfiedResult.toolResultId]),
       },
       registry,
       manifests,
@@ -820,14 +800,12 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
 
     expect(validateAgentAction({
       action: {
-        type: "final_answer",
-        content: "已基于 consumable resource 回答。",
-        usedRefs: toTerminalResourceRefs([toResourceRef(consumable)]),
+        type: "ask_user",
+        content: "还需要确认训练时间。",
       },
       registry,
       manifests,
       toolResults: [satisfiedResult],
-      resourceStore,
     })).toMatchObject({ ok: true });
 
     expect(validateAgentAction({
@@ -845,7 +823,7 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
     })).toMatchObject({ ok: true });
   });
 
-  it("rejects final_answer grounding by failed or diagnostic tool results", () => {
+  it("accepts plain terminal actions after failed or diagnostic tool results but rejects legacy refs", () => {
     const registry = createRegistry();
     const manifests = registry.serializeForPlanner();
     const failedResult = createTerminalGroundingToolResult({
@@ -867,19 +845,17 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
     expect(validateAgentAction({
       action: {
         type: "final_answer",
-        content: "done",
-        usedRefs: toTerminalToolResultRefs([failedResult.toolResultId]),
+        content: "工具失败了，我无法基于它给出结构化结果。",
       },
       registry,
       manifests,
       toolResults: [failedResult],
-    })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID } });
+    })).toMatchObject({ ok: true });
 
     expect(validateAgentAction({
       action: {
         type: "final_answer",
         content: "查询成功但没有找到满足条件的结果。",
-        usedRefs: toTerminalToolResultRefs([emptySatisfiedResult.toolResultId]),
       },
       registry,
       manifests,
@@ -890,18 +866,17 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       action: {
         type: "final_answer",
         content: "done",
-        usedRefs: toTerminalToolResultRefs([unsatisfiedResult.toolResultId]),
+        usedRefs: [{ type: "tool_result", id: unsatisfiedResult.toolResultId }],
       },
       registry,
       manifests,
       toolResults: [unsatisfiedResult],
-    })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID } });
+    })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.INVALID_ACTION } });
 
     expect(validateAgentAction({
       action: {
         type: "ask_user",
         content: "需要补充信息。",
-        usedRefs: toTerminalToolResultRefs([unsatisfiedResult.toolResultId]),
       },
       registry,
       manifests,
@@ -1067,10 +1042,10 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
     })).toMatchObject({ ok: true });
   });
 
-  it("validates M1 resource consumes and terminal grounding by resource role", () => {
+  it("validates M1 resource requirements through server-owned ResourceStore matching", () => {
     const registry = createM1ResourceRegistry();
     const store = new ResourceStore("run-m1-validator");
-    const consumable = store.register({
+    store.register({
       resourceId: "doc-1",
       resourceType: "fixture_document",
       role: "consumable",
@@ -1078,9 +1053,10 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
       sourceToolResultId: "tr_doc",
       summary: { title: "Doc" },
     });
-    const diagnostic = store.register({
+    const diagnosticOnlyStore = new ResourceStore("run-m1-validator-diagnostic");
+    diagnosticOnlyStore.register({
       resourceId: "diag-1",
-      resourceType: "fixture_diagnostic",
+      resourceType: "fixture_document",
       role: "diagnostic",
       schemaVersion: "fixture@v1",
       sourceToolResultId: "tr_diag",
@@ -1092,7 +1068,6 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
         type: "tool_call",
         toolName: "consumeResource",
         input: {},
-        consumes: [toResourceRef(consumable)],
       },
       registry,
       manifests: registry.serializeForPlanner(),
@@ -1105,31 +1080,29 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
         type: "tool_call",
         toolName: "consumeResource",
         input: {},
-        consumes: [toResourceRef(diagnostic)],
       },
       registry,
       manifests: registry.serializeForPlanner(),
       toolResults: [],
-      resourceStore: store,
+      resourceStore: diagnosticOnlyStore,
     })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.RESOURCE_REQUIREMENT_UNMET } });
 
     expect(validateAgentAction({
       action: {
         type: "final_answer",
         content: "done",
-        usedRefs: toTerminalResourceRefs([toResourceRef(diagnostic)]),
+        usedRefs: [{ type: "resource", id: "diag-1", resourceType: "fixture_document", role: "diagnostic" }],
       },
       registry,
       manifests: registry.serializeForPlanner(),
       toolResults: [],
       resourceStore: store,
-    })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID } });
+    })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.INVALID_ACTION } });
 
     expect(validateAgentAction({
       action: {
         type: "ask_user",
         content: "需要补充信息。",
-        usedRefs: toTerminalResourceRefs([toResourceRef(diagnostic)]),
       },
       registry,
       manifests: registry.serializeForPlanner(),

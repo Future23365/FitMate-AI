@@ -15,7 +15,7 @@ import {
   summarizeM1FixtureTrace,
 } from "@/lib/server/agent-tools/fixture/m1-safety-fixture.tools";
 import { ReplayPlanner } from "@/lib/server/agent-planners/replay-planner";
-import { toTerminalResourceRefs, toTerminalToolResultRefs, type AgentResourceRef } from "@/lib/server/agent-core/contracts";
+import type { AgentResourceRef } from "@/lib/server/agent-core/contracts";
 
 describe("agent-core M1 resource runtime", () => {
   it("runs producer -> consumer -> final answer with consumable resource grounding", async () => {
@@ -50,12 +50,10 @@ describe("agent-core M1 resource runtime", () => {
         type: "tool_call",
         toolName: "m1ResourceConsumer",
         input: { label: "used" },
-        consumes: [resourceRef],
       },
       {
         type: "final_answer",
         content: "资源链路完成。",
-        usedRefs: toTerminalResourceRefs([resourceRef]),
       },
     ]);
 
@@ -84,7 +82,14 @@ describe("agent-core M1 resource runtime", () => {
     });
     expect(result.traceEvents).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: "resource_registered", resource: resourceRef }),
-      expect.objectContaining({ type: "terminal_grounding", usedRefs: toTerminalResourceRefs([resourceRef]) }),
+      expect.objectContaining({
+        type: "terminal_provenance",
+        serverProvenance: expect.objectContaining({
+          toolResultCount: 2,
+          satisfiedToolResultCount: 2,
+          availableResourceCount: 1,
+        }),
+      }),
     ]));
     expect(summarizeM1FixtureTrace(result)).toMatchObject({ status: "completed" });
     expect(events).toEqual([
@@ -188,8 +193,8 @@ describe("agent-core M1 confirmation runtime", () => {
   });
 });
 
-describe("agent-core M1 diagnostic grounding", () => {
-  it("rejects diagnostic resource final answer grounding but allows ask_user explanation without success projection", async () => {
+describe("agent-core M1 diagnostic provenance", () => {
+  it("allows ask_user explanation after diagnostic resource without success projection", async () => {
     const registry = createM1FixtureToolRegistry();
     const diagnosticToolResultId = createToolResultId("run-m1-diagnostic", "m1DiagnosticFailure", hashNormalizedInput({
       code: "fixture_blocked",
@@ -220,13 +225,8 @@ describe("agent-core M1 diagnostic grounding", () => {
           },
         },
         {
-          type: "final_answer",
-          content: "已成功完成。",
-          usedRefs: toTerminalResourceRefs([diagnosticRef]),
-        },
-        {
-          type: "ask_user", content: "fixture 被阻断，需要补充信息。",
-          usedRefs: toTerminalResourceRefs([diagnosticRef]),
+          type: "ask_user",
+          content: "fixture 被阻断，需要补充信息。",
         },
       ]),
       run: {
@@ -246,10 +246,14 @@ describe("agent-core M1 diagnostic grounding", () => {
         producedResources: [diagnosticRef],
       },
     });
-    expect(result.observations).toEqual(expect.arrayContaining([
+    expect(result.traceEvents).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        type: "invalid_action",
-        content: expect.objectContaining({ code: AGENT_ERROR_CODES.TERMINAL_REFERENCE_INVALID }),
+        type: "terminal_provenance",
+        serverProvenance: expect.objectContaining({
+          toolResultCount: 1,
+          diagnosticToolResultCount: 1,
+          availableResourceCount: 1,
+        }),
       }),
     ]));
     expect(events).toEqual([

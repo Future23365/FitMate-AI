@@ -233,7 +233,7 @@ export function createSearchExerciseResourcesTool(options: CreateSearchExerciseR
       "过宽查询不能支撑 visibleOutputs；如果 input 只有默认 suitabilities、published 或 sort，且没有目标约束、器械、肌群、场地、难度或 requiredExerciseIds，则结果只能用于诊断。",
     ].join(" "),
     whenNotToUse: [
-      "不要用它判断当前会话有没有上一轮 visibleTrainingProposal、列出 factRef/messageId、读取完整 visibleTrainingProposal.payload，或替代历史方案读取工具。",
+      "不要用它判断当前会话有没有上一轮 visibleTrainingProposal、列出内部引用、读取完整 visibleTrainingProposal.payload，或替代历史方案读取工具。",
       "不要把 totalMatches=0、failed result、invalid-input result 或过宽查询诊断当作训练结构的动作事实。",
       "不要把 groups.training 中且 allowedSections 不包含 warmup/stretch 的动作写入 visibleTrainingProposal.exerciseItems[*].section = warmup 或 stretch；不同 section 需要对应 section 的动作事实支撑。",
       "不要用它查询未发布动作、单个动作详情、唯一动作名解析、全库 facet 统计、分页、limit、offset、page、pageSize 或语义向量检索。",

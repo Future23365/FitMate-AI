@@ -181,7 +181,6 @@ describe("agent-core Resource Contract Validator", () => {
         type: "tool_call",
         toolName: "resourceConsumerForTest",
         input: {},
-        consumes: [toResourceRef(registered)],
       },
     });
 
@@ -191,7 +190,7 @@ describe("agent-core Resource Contract Validator", () => {
     });
   });
 
-  it("rejects missing requirements, type mismatch and diagnostic consumes", () => {
+  it("rejects missing requirements and ignores diagnostic resources", () => {
     const store = new ResourceStore("run-resource");
     store.register({
       ...fixtureResource,
@@ -212,9 +211,8 @@ describe("agent-core Resource Contract Validator", () => {
         type: "tool_call",
         toolName: "resourceConsumerForTest",
         input: {},
-        consumes: [{ resourceId: "diagnostic-1", resourceType: "fixture_document", role: "diagnostic" }],
       },
-    })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.RESOURCE_ROLE_INVALID } });
+    })).toMatchObject({ ok: false, error: { code: AGENT_ERROR_CODES.RESOURCE_REQUIREMENT_UNMET } });
   });
 
   it("registers declared produced resources and rejects undeclared or missing productions", async () => {
