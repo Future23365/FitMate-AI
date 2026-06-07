@@ -202,6 +202,22 @@ function rememberPendingActivity(
   };
 }
 
+function forgetPendingActivity(current: VisibleAgentActivity): VisibleAgentActivity {
+  return {
+    ...current,
+    pendingActivityStage: undefined,
+    pendingVisibleAtMs: undefined,
+  };
+}
+
+function forgetPendingFallbackActivity(current: VisibleAgentActivity): VisibleAgentActivity {
+  return hasActivitySummary(current.pendingActivityStage) ? current : forgetPendingActivity(current);
+}
+
+function hasActivitySummary(activity: Pick<AgentProgressPayload, "activitySummary"> | null | undefined) {
+  return sanitizeAgentActivitySummary(activity?.activitySummary).ok;
+}
+
 // reduceVisibleAgentActivity 是生产聊天页的展示仲裁器，只折叠用户可见文案，不修改 Agent Loop 轮次。
 export function reduceVisibleAgentActivity(
   current: VisibleAgentActivity | null,
@@ -213,10 +229,15 @@ export function reduceVisibleAgentActivity(
   const genericCooldownMs = options.genericCooldownMs ?? genericAgentActivityCooldownMs;
   const lastActivitySequence = Math.max(current?.lastActivitySequence ?? -1, next.sequence);
   const currentActivity = current?.activityStage ?? null;
-  const nextHasActivitySummary = sanitizeAgentActivitySummary(next.activitySummary).ok;
+  const currentHasActivitySummary = hasActivitySummary(currentActivity);
+  const nextHasActivitySummary = hasActivitySummary(next);
 
   if (current && next.sequence <= current.lastActivitySequence) {
     return current;
+  }
+
+  if (current && currentActivity && currentHasActivitySummary && !nextHasActivitySummary) {
+    return rememberIgnoredActivitySequence(forgetPendingFallbackActivity(current), lastActivitySequence);
   }
 
   if (current && currentActivity && next.stage === "analyzing_request" && !nextHasActivitySummary) {
@@ -267,6 +288,10 @@ export function flushPendingAgentActivity(
   const nowMs = options.nowMs ?? Date.now();
   if (nowMs < current.pendingVisibleAtMs) {
     return current;
+  }
+
+  if (hasActivitySummary(current.activityStage) && !hasActivitySummary(current.pendingActivityStage)) {
+    return forgetPendingActivity(current);
   }
 
   const minimumStageMs = options.minimumStageMs ?? visibleAgentActivityMinimumMs;

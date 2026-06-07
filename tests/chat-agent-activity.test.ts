@@ -250,6 +250,78 @@ describe("Agent progress activity UI state", () => {
     expect(getAgentActivityDisplay(secondLoop!).label).toBe("需要查询动作库");
   });
 
+  it("keeps model activitySummary visible when later progress has no summary", () => {
+    const summary = reduceAgentActivity(null, {
+      type: "agent_progress",
+      stage: "analyzing_request",
+      status: "active",
+      messageKey: "analyzing_request",
+      activitySummary: "正在读取模型摘要",
+      sequence: 1,
+    }, { nowMs: 0 });
+
+    const validating = reduceAgentActivity(summary, {
+      type: "agent_progress",
+      stage: "validating_result",
+      status: "active",
+      messageKey: "validating_result",
+      sequence: 2,
+    }, { nowMs: 2_000 });
+
+    const writing = reduceVisibleAgentActivity(
+      validating,
+      createWritingReplyAgentActivity(validating),
+      { nowMs: 3_000 },
+    );
+
+    expect(validating?.activityStage?.stage).toBe("analyzing_request");
+    expect(validating?.activityStage?.activitySummary).toBe("正在读取模型摘要");
+    expect(validating?.pendingActivityStage).toBeUndefined();
+    expect(validating?.lastActivitySequence).toBe(2);
+    expect(getAgentActivityDisplay(validating!).label).toBe("正在读取模型摘要");
+    expect(writing?.activityStage?.activitySummary).toBe("正在读取模型摘要");
+    expect(writing?.lastActivitySequence).toBe(3);
+    expect(getAgentActivityDisplay(writing!).label).toBe("正在读取模型摘要");
+  });
+
+  it("keeps pending model activitySummary when a later fallback progress arrives", () => {
+    const firstSummary = reduceAgentActivity(null, {
+      type: "agent_progress",
+      stage: "analyzing_request",
+      status: "active",
+      messageKey: "analyzing_request",
+      activitySummary: "正在理解你的目标",
+      sequence: 1,
+    }, { nowMs: 0 });
+
+    const pendingSummary = reduceAgentActivity(firstSummary, {
+      type: "agent_progress",
+      stage: "analyzing_request",
+      status: "active",
+      messageKey: "analyzing_request",
+      activitySummary: "正在筛选训练条件",
+      sequence: 2,
+    }, { nowMs: 500 });
+
+    const fallbackProgress = reduceAgentActivity(pendingSummary, {
+      type: "agent_progress",
+      stage: "validating_result",
+      status: "active",
+      messageKey: "validating_result",
+      sequence: 3,
+    }, { nowMs: 600 });
+
+    const flushed = flushPendingAgentActivity(fallbackProgress, { nowMs: 1_000 });
+
+    expect(fallbackProgress?.activityStage?.activitySummary).toBe("正在理解你的目标");
+    expect(fallbackProgress?.pendingActivityStage?.activitySummary).toBe("正在筛选训练条件");
+    expect(fallbackProgress?.lastActivitySequence).toBe(3);
+    expect(getAgentActivityDisplay(fallbackProgress!).label).toBe("正在理解你的目标");
+    expect(flushed?.activityStage?.activitySummary).toBe("正在筛选训练条件");
+    expect(flushed?.lastActivitySequence).toBe(3);
+    expect(getAgentActivityDisplay(flushed!).label).toBe("正在筛选训练条件");
+  });
+
   it("shows raw activitySummary values while debug safety is disabled", () => {
     const next = reduceAgentActivity(null, {
       type: "agent_progress",
