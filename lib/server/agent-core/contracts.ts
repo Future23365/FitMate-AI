@@ -539,7 +539,8 @@ export type AgentActionDroppedFieldDiagnostic = {
 
 /** AgentActionNormalizationDiagnostic 是 validator 返回给 runtime trace 的脱敏 normalization 摘要。 */
 export type AgentActionNormalizationDiagnostic = {
-  selectedActionType: AgentAction["type"];
+  diagnosticStatus: "normalized" | "not_normalizable";
+  selectedActionType?: AgentAction["type"];
   droppedFields: AgentActionDroppedFieldDiagnostic[];
 };
 
@@ -569,7 +570,7 @@ export type AgentTraceEvent =
   | {
       type: "action_normalization";
       step: number;
-      selectedActionType: AgentAction["type"];
+      selectedActionType?: AgentAction["type"];
       status: "normalized_and_executed" | "normalized_then_failed" | "not_normalizable";
       normalizedActionContinues: boolean;
       droppedFields: AgentActionDroppedFieldDiagnostic[];

@@ -423,6 +423,11 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
           ]),
         }),
       },
+      normalization: {
+        diagnosticStatus: "not_normalizable",
+        selectedActionType: "tool_call",
+        droppedFields: [],
+      },
     });
 
     expect(validateAgentAction({
@@ -446,6 +451,11 @@ describe("agent-core PlannerPort, ReplayPlanner and Action Validator", () => {
             }),
           ]),
         }),
+      },
+      normalization: {
+        diagnosticStatus: "not_normalizable",
+        selectedActionType: "tool_call",
+        droppedFields: [],
       },
     });
 

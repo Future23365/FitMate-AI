@@ -279,6 +279,18 @@ describe("agent-core runtime budget and idempotency hardening", () => {
       terminalError: { code: AGENT_ERROR_CODES.REPAIR_LIMIT_EXCEEDED },
     });
     expect(repairResult.traceEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "action_normalization",
+        step: 1,
+        status: "not_normalizable",
+        normalizedActionContinues: false,
+        droppedFields: [],
+      }),
+      expect.objectContaining({
+        type: "validation_result",
+        ok: false,
+        code: AGENT_ERROR_CODES.INVALID_ACTION,
+      }),
       expect.objectContaining({ type: "budget_event", budget: "repair_attempts", status: "exhausted" }),
     ]));
   });

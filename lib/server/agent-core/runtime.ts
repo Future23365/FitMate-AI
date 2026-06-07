@@ -765,7 +765,9 @@ function createActionNormalizationTrace(
     type: "action_normalization",
     step,
     selectedActionType: normalization.selectedActionType,
-    status: validationOk ? "normalized_and_executed" : "normalized_then_failed",
+    status: normalization.diagnosticStatus === "not_normalizable"
+      ? "not_normalizable"
+      : (validationOk ? "normalized_and_executed" : "normalized_then_failed"),
     normalizedActionContinues: validationOk,
     droppedFields: normalization.droppedFields,
   };

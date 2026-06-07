@@ -77,7 +77,7 @@ function validateAgentActionInternal(
   if (!parsed.success) {
     return attachNormalization(
       invalidAction(createInvalidActionMessage(parsed.error), createInvalidActionDetails(parsed.error, candidate.action)),
-      candidate.normalization,
+      candidate.normalization ?? createNotNormalizableDiagnostic(input.action),
     );
   }
 
@@ -129,9 +129,18 @@ function normalizeAgentActionTopLevel(action: unknown): {
   return {
     action: normalizedAction,
     normalization: {
+      diagnosticStatus: "normalized",
       selectedActionType,
       droppedFields: unknownTopLevelKeys.map((key) => summarizeDroppedTopLevelField(key, action[key])),
     },
+  };
+}
+
+function createNotNormalizableDiagnostic(action: unknown): AgentActionNormalizationDiagnostic {
+  return {
+    diagnosticStatus: "not_normalizable",
+    selectedActionType: isRecord(action) && isAgentActionTopLevelType(action.type) ? action.type : undefined,
+    droppedFields: [],
   };
 }
 
