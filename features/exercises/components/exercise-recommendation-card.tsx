@@ -11,6 +11,10 @@ import {
   createExercisePreviewFromRecommendationItem,
   exercisePreviewPlaceholderImage,
 } from "@/features/exercises/lib/exercise-preview-fallback";
+import {
+  mergeRecommendationItemWithExercise,
+  shouldHydrateRecommendationItem,
+} from "@/features/exercises/lib/exercise-recommendation-display";
 import type { AssistantSuggestion } from "@/lib/shared/chat/assistant-suggestions";
 import type {
   ExerciseRecommendationCard as ExerciseRecommendationCardData,
@@ -44,17 +48,21 @@ export function ExerciseRecommendationCard({
   const [activePreviewExercise, setActivePreviewExercise] = useState<Exercise | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [exerciseMap, setExerciseMap] = useState<Map<string, Exercise>>(() => new Map());
+  const [failedExerciseIds, setFailedExerciseIds] = useState<Set<string>>(() => new Set());
   const previewRequestRef = useRef<{
     controller: AbortController;
     requestId: number;
     toast: AsyncToastLifecycle;
   } | null>(null);
+  const displayItems = useMemo(() => {
+    return card.items.map((item) => mergeRecommendationItemWithExercise(item, findCachedExercise(item.exerciseId, exerciseMap)));
+  }, [card.items, exerciseMap]);
 
   const totalMuscles = useMemo(() => {
-    const muscles = new Set(card.items.flatMap((item) => item.primaryMusclesZh));
+    const muscles = new Set(displayItems.flatMap((item) => item.primaryMusclesZh));
 
     return [...muscles].slice(0, 4);
-  }, [card.items]);
+  }, [displayItems]);
 
   useEffect(() => {
     return () => {
@@ -64,8 +72,67 @@ export function ExerciseRecommendationCard({
     };
   }, []);
 
+  useEffect(() => {
+    const missingExerciseIds = uniqueExerciseIds(
+      card.items
+        .filter((item) => shouldHydrateRecommendationItem(item))
+        .map((item) => item.exerciseId)
+        .filter((exerciseId) => !findCachedExercise(exerciseId, exerciseMap) && !failedExerciseIds.has(exerciseId)),
+    );
+
+    if (missingExerciseIds.length === 0) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    // 推荐卡片的首屏展示也要用动作库事实补齐，不能等用户点开详情后才显示名称和图片。
+    void Promise.allSettled(missingExerciseIds.map((exerciseId) => fetchExerciseById(exerciseId))).then((results) => {
+      if (isCancelled) {
+        return;
+      }
+
+      const loadedExercises: Exercise[] = [];
+      const failedIds: string[] = [];
+
+      results.forEach((result, index) => {
+        if (result.status === "fulfilled") {
+          loadedExercises.push(result.value);
+          return;
+        }
+
+        failedIds.push(missingExerciseIds[index]);
+      });
+
+      if (loadedExercises.length > 0) {
+        setExerciseMap((current) => {
+          const next = new Map(current);
+
+          loadedExercises.forEach((exercise) => addExerciseToMap(next, exercise));
+
+          return next;
+        });
+      }
+
+      if (loadedExercises.length > 0 || failedIds.length > 0) {
+        setFailedExerciseIds((current) => {
+          const next = new Set(current);
+
+          loadedExercises.forEach((exercise) => next.delete(exercise.id));
+          failedIds.forEach((id) => next.add(id));
+
+          return next;
+        });
+      }
+    });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [card.items, exerciseMap, failedExerciseIds]);
+
   function handleOpenPreview(item: ExerciseRecommendationItem) {
-    const cachedExercise = exerciseMap.get(item.exerciseId);
+    const cachedExercise = findCachedExercise(item.exerciseId, exerciseMap);
 
     setActivePreviewExercise(cachedExercise ?? createExercisePreviewFromRecommendationItem(item));
     setIsPreviewOpen(true);
@@ -91,10 +158,7 @@ export function ExerciseRecommendationCard({
     previewRequestRef.current = { controller, requestId, toast: detailToast };
     detailToast.start();
 
-    void clientRequest<ExerciseApiResponse>(`/api/exercises/${encodeURIComponent(item.exerciseId)}`, {
-      signal: controller.signal,
-      errorMessage: "动作详情加载失败",
-    })
+    void fetchExerciseById(item.exerciseId, controller.signal)
       .then((data) => {
         if (previewRequestRef.current?.requestId !== requestId) {
           return;
@@ -102,10 +166,10 @@ export function ExerciseRecommendationCard({
 
         setExerciseMap((current) => {
           const next = new Map(current);
-          next.set(data.item.id, data.item);
+          addExerciseToMap(next, data);
           return next;
         });
-        setActivePreviewExercise(data.item);
+        setActivePreviewExercise(data);
         detailToast.success();
       })
       .catch((error: unknown) => {
@@ -176,7 +240,7 @@ export function ExerciseRecommendationCard({
         ) : null}
 
         <div className="mt-sm grid gap-sm sm:grid-cols-2">
-          {card.items.map((item) => (
+          {displayItems.map((item) => (
             <div
               className="group/exercise-card relative min-w-0 rounded-xl border border-line bg-white p-sm pr-xl text-left transition-all duration-200 hover:border-primary/35 hover:bg-panel-soft/50 hover:shadow-sm"
               key={item.exerciseId}
@@ -244,4 +308,26 @@ export function ExerciseRecommendationCard({
       />
     </div>
   );
+}
+
+async function fetchExerciseById(exerciseId: string, signal?: AbortSignal) {
+  const data = await clientRequest<ExerciseApiResponse>(`/api/exercises/${encodeURIComponent(exerciseId)}`, {
+    signal,
+    errorMessage: "动作详情加载失败",
+  });
+
+  return data.item;
+}
+
+function addExerciseToMap(exerciseMap: Map<string, Exercise>, exercise: Exercise) {
+  exerciseMap.set(exercise.id, exercise);
+  exerciseMap.set(exercise.id.toLowerCase(), exercise);
+}
+
+function findCachedExercise(exerciseId: string, exerciseMap: Map<string, Exercise>) {
+  return exerciseMap.get(exerciseId) ?? exerciseMap.get(exerciseId.toLowerCase());
+}
+
+function uniqueExerciseIds(exerciseIds: string[]) {
+  return [...new Set(exerciseIds)];
 }
