@@ -72,7 +72,7 @@ describe("agent-core redaction, observation compression and trace audit", () => 
     });
   });
 
-  it("redacts unsafe activitySummary values in trace-like payloads without hiding safe summaries", () => {
+  it("keeps raw activitySummary values in trace-like payloads while debug safety is disabled", () => {
     const redacted = redactJsonValue({
       parsedAction: {
         type: "final_answer",
@@ -89,15 +89,15 @@ describe("agent-core redaction, observation compression and trace audit", () => 
       parsedAction: {
         type: "final_answer",
         content: "可以。",
-        activitySummary: { rejectedReason: "internal_term" },
+        activitySummary: "toolName=readOne 内部调试",
       },
       safeAction: {
         type: "tool_call",
         activitySummary: "需要查询动作库",
       },
     });
-    expect(JSON.stringify(redacted)).not.toContain("toolName=readOne");
-    expect(JSON.stringify(redacted)).not.toContain("内部调试");
+    expect(JSON.stringify(redacted)).toContain("toolName=readOne");
+    expect(JSON.stringify(redacted)).toContain("内部调试");
   });
 
   it("keeps satisfied success observations lightweight and points detailed facts to toolResults", async () => {

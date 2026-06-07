@@ -631,7 +631,7 @@ describe("chat service agent text flow boundary", () => {
     ]));
   });
 
-  it("falls back to fixed activity stages when activitySummary is unsafe", async () => {
+  it("streams raw activitySummary while debug safety is disabled", async () => {
     const planner = new ReplayPlanner([
       { type: "final_answer", content: "可以。", activitySummary: "toolName=readOne 内部调试" },
     ]);
@@ -648,23 +648,27 @@ describe("chat service agent text flow boundary", () => {
     const trace = listAiTracesForUser("user-1")[0];
 
     expect(progressEvents).toEqual(expect.arrayContaining([
-      expect.objectContaining({ stage: "analyzing_request", status: "active" }),
+      expect.objectContaining({
+        stage: "analyzing_request",
+        status: "active",
+        activitySummary: "toolName=readOne 内部调试",
+      }),
     ]));
-    expect(progressEvents.some((event) => "activitySummary" in event)).toBe(false);
-    expect(JSON.stringify(rawEvents)).not.toContain("toolName=readOne");
-    expect(JSON.stringify(rawEvents)).not.toContain("内部调试");
+    expect(JSON.stringify(rawEvents)).toContain("toolName=readOne");
+    expect(JSON.stringify(rawEvents)).toContain("内部调试");
     expect(trace.steps).toEqual(expect.arrayContaining([
       expect.objectContaining({
         name: "Planner action",
         output: expect.objectContaining({
           type: "planner_action",
           actionType: "final_answer",
-          activitySummaryRejectedReason: "internal_term",
+          activitySummary: "toolName=readOne 内部调试",
+          activitySummarySource: "AgentAction.activitySummary",
         }),
       }),
     ]));
-    expect(JSON.stringify(trace)).not.toContain("toolName=readOne");
-    expect(JSON.stringify(trace)).not.toContain("内部调试");
+    expect(JSON.stringify(trace)).toContain("toolName=readOne");
+    expect(JSON.stringify(trace)).toContain("内部调试");
   });
 
   it("runs searchExerciseResources when the model explicitly calls the production tool", async () => {

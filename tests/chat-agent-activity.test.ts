@@ -8,13 +8,16 @@ import { AgentActivityIndicator } from "@/features/chat/components/agent-activit
 import {
   createWritingReplyAgentActivity,
   fallbackAgentActivityLabel,
-  flushPendingAgentActivity,
   getAgentActivityDisplay,
   reduceAgentActivity,
   reduceVisibleAgentActivity,
   shouldClearAgentActivityForStreamEvent,
 } from "@/features/chat/lib/agent-activity";
 import { createChatConversationSavePayload } from "@/features/chat/lib/chat-history";
+import {
+  agentActivitySummarySafetyEnabled,
+  sanitizeAgentActivitySummary,
+} from "@/lib/shared/agent-activity-summary";
 import type { AgentTextChatEvent } from "@/features/chat/api/chat-client";
 import type { ChatMessage } from "@/features/chat/types";
 
@@ -29,8 +32,6 @@ function createVisibleActivityForTest(
       sequence: 4,
     },
     loopTurn: 4,
-    visibleSinceMs: 0,
-    holdUntilMs: 0,
     lastActivitySequence: 4,
     lastLoopSequence: 3,
     ...overrides,
@@ -38,6 +39,14 @@ function createVisibleActivityForTest(
 }
 
 describe("Agent progress activity UI state", () => {
+  it("keeps activitySummary safety filtering disabled for debug visibility", () => {
+    expect(agentActivitySummarySafetyEnabled).toBe(false);
+    expect(sanitizeAgentActivitySummary("toolName=searchExerciseResources 内部调试")).toEqual({
+      ok: true,
+      summary: "toolName=searchExerciseResources 内部调试",
+    });
+  });
+
   it("updates activity by sequence and falls back for unknown stages", () => {
     const current = reduceAgentActivity(null, {
       type: "agent_progress",
@@ -87,7 +96,7 @@ describe("Agent progress activity UI state", () => {
       status: "failed",
     });
 
-    expect(knownFailed.label).toBe("正在校验训练内容...");
+    expect(knownFailed.label).toBe("正在思考...");
     expect(knownFailed.toneClass).toBe("text-primary");
     expect(unknownFailed.label).toBe(fallbackAgentActivityLabel);
     expect(unknownFailed.toneClass).toBe("text-primary");
@@ -105,7 +114,7 @@ describe("Agent progress activity UI state", () => {
     }, { nowMs: 0 });
 
     expect(analyzing?.activityStage?.stage).toBe("analyzing_request");
-    expect(getAgentActivityDisplay(analyzing!).label).toBe("正在规划下一步...");
+    expect(getAgentActivityDisplay(analyzing!).label).toBe("正在思考...");
   });
 
   it("keeps loopTurn independent when Activity arbitration ignores analyzing_request after an informative stage", () => {
@@ -149,7 +158,7 @@ describe("Agent progress activity UI state", () => {
     expect(afterCooldown?.activityStage?.stage).toBe("querying_exercises");
     expect(afterCooldown?.loopTurn).toBe(1);
     expect(afterCooldown?.lastActivitySequence).toBe(4);
-    expect(getAgentActivityDisplay(afterCooldown!).label).toBe("正在查询动作库...");
+    expect(getAgentActivityDisplay(afterCooldown!).label).toBe("正在思考...");
   });
 
   it("uses safe fallback copy for unknown Activity stages without exposing raw stage", () => {
@@ -200,7 +209,7 @@ describe("Agent progress activity UI state", () => {
     expect(repeatedQuery?.loopTurn).toBe(1);
     expect(secondLoop?.activityStage?.stage).toBe("querying_exercises");
     expect(secondLoop?.loopTurn).toBe(2);
-    expect(getAgentActivityDisplay(secondLoop!).label).toBe("正在查询动作库...");
+    expect(getAgentActivityDisplay(secondLoop!).label).toBe("正在思考...");
   });
 
   it("prioritizes safe activitySummary without using it to infer loopTurn", () => {
@@ -238,7 +247,75 @@ describe("Agent progress activity UI state", () => {
     expect(getAgentActivityDisplay(secondLoop!).label).toBe("需要查询动作库");
   });
 
-  it("ignores unsafe activitySummary values and keeps the stage fallback user-safe", () => {
+  it("keeps model activitySummary visible when later progress has no summary", () => {
+    const summary = reduceAgentActivity(null, {
+      type: "agent_progress",
+      stage: "analyzing_request",
+      status: "active",
+      messageKey: "analyzing_request",
+      activitySummary: "正在读取模型摘要",
+      sequence: 1,
+    }, { nowMs: 0 });
+
+    const validating = reduceAgentActivity(summary, {
+      type: "agent_progress",
+      stage: "validating_result",
+      status: "active",
+      messageKey: "validating_result",
+      sequence: 2,
+    }, { nowMs: 2_000 });
+
+    const writing = reduceVisibleAgentActivity(
+      validating,
+      createWritingReplyAgentActivity(validating),
+      { nowMs: 3_000 },
+    );
+
+    expect(validating?.activityStage?.stage).toBe("analyzing_request");
+    expect(validating?.activityStage?.activitySummary).toBe("正在读取模型摘要");
+    expect(validating?.lastActivitySequence).toBe(2);
+    expect(getAgentActivityDisplay(validating!).label).toBe("正在读取模型摘要");
+    expect(writing?.activityStage?.activitySummary).toBe("正在读取模型摘要");
+    expect(writing?.lastActivitySequence).toBe(3);
+    expect(getAgentActivityDisplay(writing!).label).toBe("正在读取模型摘要");
+  });
+
+  it("updates model activitySummary immediately while ignoring later fallback progress", () => {
+    const firstSummary = reduceAgentActivity(null, {
+      type: "agent_progress",
+      stage: "analyzing_request",
+      status: "active",
+      messageKey: "analyzing_request",
+      activitySummary: "正在理解你的目标",
+      sequence: 1,
+    }, { nowMs: 0 });
+
+    const pendingSummary = reduceAgentActivity(firstSummary, {
+      type: "agent_progress",
+      stage: "analyzing_request",
+      status: "active",
+      messageKey: "analyzing_request",
+      activitySummary: "正在筛选训练条件",
+      sequence: 2,
+    }, { nowMs: 500 });
+
+    const fallbackProgress = reduceAgentActivity(pendingSummary, {
+      type: "agent_progress",
+      stage: "validating_result",
+      status: "active",
+      messageKey: "validating_result",
+      sequence: 3,
+    }, { nowMs: 600 });
+
+    expect(pendingSummary?.activityStage?.activitySummary).toBe("正在筛选训练条件");
+    expect(pendingSummary?.lastActivitySequence).toBe(2);
+    expect(getAgentActivityDisplay(pendingSummary!).label).toBe("正在筛选训练条件");
+    expect(fallbackProgress?.activityStage?.activitySummary).toBe("正在筛选训练条件");
+    expect(fallbackProgress?.lastActivitySequence).toBe(3);
+    expect(getAgentActivityDisplay(fallbackProgress!).label).toBe("正在筛选训练条件");
+  });
+
+  it("shows raw activitySummary values while debug safety is disabled", () => {
     const next = reduceAgentActivity(null, {
       type: "agent_progress",
       stage: "validating_result",
@@ -248,13 +325,12 @@ describe("Agent progress activity UI state", () => {
       sequence: 1,
     }, { nowMs: 0 });
 
-    expect(next?.activityStage?.activitySummary).toBeUndefined();
-    expect(getAgentActivityDisplay(next!).label).toBe("正在校验训练内容...");
-    expect(getAgentActivityDisplay(next!).label).not.toContain("toolName");
-    expect(JSON.stringify(next)).not.toContain("searchExerciseResources");
+    expect(next?.activityStage?.activitySummary).toBe("toolName=searchExerciseResources 内部调试");
+    expect(getAgentActivityDisplay(next!).label).toBe("toolName=searchExerciseResources 内部调试");
+    expect(JSON.stringify(next)).toContain("searchExerciseResources");
   });
 
-  it("holds visible copy before showing rapid specific stage changes", () => {
+  it("updates rapid specific stage changes immediately", () => {
     const reading = reduceAgentActivity(null, {
       type: "agent_progress",
       stage: "reading_artifacts",
@@ -277,33 +353,22 @@ describe("Agent progress activity UI state", () => {
       sequence: 3,
     }, { nowMs: 300 });
 
-    const stillReading = flushPendingAgentActivity(saving, { nowMs: 999 });
-    const flushedSaving = flushPendingAgentActivity(stillReading, { nowMs: 1_000 });
     const writing = reduceVisibleAgentActivity(
-      flushedSaving,
-      createWritingReplyAgentActivity(flushedSaving),
+      saving,
+      createWritingReplyAgentActivity(saving),
       { nowMs: 1_300 },
     );
-    const flushedWriting = flushPendingAgentActivity(writing, { nowMs: 2_000 });
 
     expect(reading?.activityStage?.stage).toBe("reading_artifacts");
     expect(withLoop?.loopTurn).toBe(5);
-    expect(saving?.activityStage?.stage).toBe("reading_artifacts");
-    expect(saving?.pendingActivityStage?.stage).toBe("saving_result");
-    expect(saving?.pendingVisibleAtMs).toBe(1_000);
+    expect(saving?.activityStage?.stage).toBe("saving_result");
     expect(saving?.loopTurn).toBe(5);
-    expect(stillReading?.activityStage?.stage).toBe("reading_artifacts");
-    expect(flushedSaving?.activityStage?.stage).toBe("saving_result");
-    expect(flushedSaving?.pendingActivityStage).toBeUndefined();
-    expect(flushedSaving?.loopTurn).toBe(5);
-    expect(writing?.activityStage?.stage).toBe("saving_result");
-    expect(writing?.pendingActivityStage?.stage).toBe("writing_reply");
-    expect(flushedWriting?.activityStage?.stage).toBe("writing_reply");
-    expect(flushedWriting?.loopTurn).toBe(5);
-    expect(flushedWriting?.activityStage?.sequence).toBe(4);
+    expect(writing?.activityStage?.stage).toBe("writing_reply");
+    expect(writing?.loopTurn).toBe(5);
+    expect(writing?.activityStage?.sequence).toBe(4);
   });
 
-  it("accepts specific stages after the current label has met its minimum display time", () => {
+  it("keeps loopTurn synced when writing reply replaces the current label", () => {
     const reading = reduceAgentActivity(null, {
       type: "agent_progress",
       stage: "reading_artifacts",
@@ -365,7 +430,7 @@ describe("AgentActivityIndicator", () => {
     expect(html).toContain("aria-live=\"polite\"");
     expect(html).toContain("role=\"status\"");
     expect(html).toContain("#4");
-    expect(html).toContain("正在校验训练内容...");
+    expect(html).toContain("正在思考...");
     expect(html).not.toContain("fact_check");
     expect(html).toContain("items-baseline");
     expect(html).toContain("gap-[2px]");
@@ -378,8 +443,9 @@ describe("AgentActivityIndicator", () => {
     expect(html).toContain("tabular-nums");
     expect(html).not.toContain("text-right");
     expect(html).not.toContain("translate-y-[1px]");
-    expect(html).toContain("motion-safe:animate-pulse");
     expect(html).toContain("motion-reduce:animate-none");
+    expect(html).not.toContain("motion-safe:animate-pulse");
+    expect(html).toContain("agent-activity-indicator");
     expect(html).not.toContain("validateRoutineDraft");
   });
 
@@ -401,7 +467,7 @@ describe("AgentActivityIndicator", () => {
 
     expect(html).toContain("#2");
     expect(html).toContain("需要读取已有训练内容");
-    expect(html).not.toContain("正在规划下一步...");
+    expect(html).not.toContain("正在思考...");
     expect(html).not.toContain("toolName");
     expect(html).toContain("aria-live=\"polite\"");
   });
@@ -425,7 +491,7 @@ describe("AgentActivityIndicator", () => {
     expect(html).not.toContain("raw_internal_tool_name");
   });
 
-  it("does not render a local loop prefix before a valid backend loop event", () => {
+  it("renders the first loop prefix before a valid backend loop event", () => {
     const activity = createVisibleActivityForTest({
       activityStage: {
         stage: "preparing_context",
@@ -442,11 +508,27 @@ describe("AgentActivityIndicator", () => {
       }),
     );
 
-    expect(html).toContain("正在整理上下文...");
-    expect(html).toContain("aria-hidden=\"true\"");
+    expect(html).toContain("正在思考...");
     expect(html).toContain("w-[1.375rem]");
+    expect(html).toContain("#1");
     expect(html).not.toContain("#0");
-    expect(html).not.toContain("#1");
+  });
+
+  it("defines rolling transition styles for activity row changes", () => {
+    const componentSource = readFileSync(
+      fileURLToPath(new URL("../features/chat/components/agent-activity-indicator.tsx", import.meta.url)),
+      "utf8",
+    );
+    const globalCss = readFileSync(
+      fileURLToPath(new URL("../app/globals.css", import.meta.url)),
+      "utf8",
+    );
+
+    expect(componentSource).toContain("agent-activity-roll-current");
+    expect(componentSource).toContain("agent-activity-roll-previous");
+    expect(globalCss).toContain("@keyframes agent-activity-current-in");
+    expect(globalCss).toContain("@keyframes agent-activity-previous-out");
+    expect(globalCss).toContain("@media (prefers-reduced-motion: reduce)");
   });
 });
 

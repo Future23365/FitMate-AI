@@ -342,6 +342,89 @@ button:not(:disabled),
 
 .ai-chat-bubble {
   box-shadow: var(--shadow-card);
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    background-color 180ms ease;
+}
+
+/* 回答已就绪时只做短促落位反馈，避免把完整回复伪装成慢速打字。 */
+.ai-chat-bubble-answer-ready {
+  animation: chat-answer-bubble-ready 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.chat-answer-content-enter {
+  animation: chat-answer-content-enter 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform-origin: top left;
+}
+
+.chat-thinking-hold {
+  animation: chat-thinking-hold 180ms ease-out both;
+}
+
+.chat-visible-output-enter {
+  animation: chat-visible-output-enter 220ms cubic-bezier(0.16, 1, 0.3, 1) 80ms both;
+}
+
+@keyframes chat-answer-bubble-ready {
+  0% {
+    border-color: rgba(36, 89, 230, 0.22);
+    box-shadow:
+      0 1px 2px rgba(16, 24, 40, 0.06),
+      0 14px 30px rgba(36, 89, 230, 0.10);
+  }
+
+  100% {
+    border-color: var(--color-line);
+    box-shadow: var(--shadow-card);
+  }
+}
+
+@keyframes chat-answer-content-enter {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 4px, 0);
+    filter: blur(1px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+    filter: blur(0);
+  }
+}
+
+@keyframes chat-thinking-hold {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 3px, 0);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes chat-visible-output-enter {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-chat-bubble-answer-ready,
+  .chat-answer-content-enter,
+  .chat-thinking-hold,
+  .chat-visible-output-enter {
+    animation: none;
+  }
 }
 
 body,
@@ -1073,6 +1156,39 @@ body.drawer-open {
   }
 }
 
+/* Agent 活动条用整行滚动吸收快速状态变化，避免轮次和文案分开跳动。 */
+@keyframes agent-activity-current-in {
+  from {
+    opacity: 0.45;
+    transform: translateY(-100%);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes agent-activity-previous-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  to {
+    opacity: 0.2;
+    transform: translateY(100%);
+  }
+}
+
+.agent-activity-roll-current {
+  animation: agent-activity-current-in 0.18s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.agent-activity-roll-previous {
+  animation: agent-activity-previous-out 0.18s cubic-bezier(0.2, 0, 0, 1);
+}
+
 @media (min-width: 640px) {
   body.drawer-open #app-content-wrapper {
     transform: scale(0.97); /* 抽屉打开时只保留主体整体缩放，不额外卡片化背景 */
@@ -1085,6 +1201,8 @@ body.drawer-open {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .agent-activity-roll-current,
+  .agent-activity-roll-previous,
   .workout-completion-aura,
   .workout-completion-orbit,
   .workout-completion-ray,

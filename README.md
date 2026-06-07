@@ -170,6 +170,7 @@ npm start
 部署注意事项：
 
 - 生产环境不要使用 `npm run db:migrate`；该脚本执行的是 `prisma migrate dev`，适合本地开发。服务器应使用 `npx prisma migrate deploy` 应用已提交的 migration。
+- 服务器 PostgreSQL 只绑定宿主机 `127.0.0.1:5432`，不对公网开放；本地 DBeaver、Prisma 或 `psql` 需要通过 SSH tunnel 连接，例如把本机端口转发到服务器 `127.0.0.1:5432`。
 - `npm start` 运行的是 `next start`，需要先执行 `npm run build`。
 - `npm run db:seed` 会把 `data/exercises.zh.json` 写入 PostgreSQL；首次部署必须执行。后续如果动作 seed 数据没有变化，可以跳过。
 - `npm run db:refresh-embeddings` 会刷新动作搜索使用的本地 embedding/hash 数据；首次部署和动作 seed 更新后需要执行。
