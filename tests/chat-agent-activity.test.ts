@@ -529,6 +529,7 @@ describe("AgentActivityIndicator", () => {
     expect(componentSource).toContain("agent-activity-roll-previous");
     expect(componentSource).toContain("agent-activity-breathe");
     expect(globalCss).toContain("@keyframes agent-activity-breathe");
+    expect(globalCss).toContain(".agent-activity-breathe::before");
     expect(globalCss).toContain("@keyframes agent-activity-current-in");
     expect(globalCss).toContain("@keyframes agent-activity-previous-out");
     expect(globalCss).toContain("@media (prefers-reduced-motion: reduce)");

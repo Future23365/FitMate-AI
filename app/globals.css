@@ -1160,13 +1160,13 @@ body.drawer-open {
 @keyframes agent-activity-breathe {
   0%,
   100% {
-    opacity: 0.72;
-    transform: scale(0.996);
+    opacity: 0.18;
+    transform: translateY(-50%) scaleX(0.82);
   }
 
   50% {
-    opacity: 1;
-    transform: scale(1);
+    opacity: 0.62;
+    transform: translateY(-50%) scaleX(1);
   }
 }
 
@@ -1195,8 +1195,25 @@ body.drawer-open {
 }
 
 .agent-activity-breathe {
-  animation: agent-activity-breathe 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  isolation: isolate;
+}
+
+.agent-activity-breathe::before {
+  position: absolute;
+  top: 50%;
+  left: 1.625rem;
+  z-index: -1;
+  width: min(8rem, calc(100% - 1.625rem));
+  height: 14px;
+  border-radius: 9999px;
+  background:
+    radial-gradient(circle at left, rgba(36, 89, 230, 0.42), rgba(36, 89, 230, 0) 72%),
+    linear-gradient(90deg, rgba(36, 89, 230, 0.18), rgba(36, 89, 230, 0));
+  content: "";
+  filter: blur(0.5px);
+  pointer-events: none;
   transform-origin: left center;
+  animation: agent-activity-breathe 1.35s cubic-bezier(0.4, 0, 0.2, 1) infinite;
   will-change: opacity, transform;
 }
 
@@ -1229,6 +1246,11 @@ body.drawer-open {
   .workout-completion-spark,
   .workout-completion-medal {
     animation: none;
+  }
+
+  .agent-activity-breathe::before {
+    animation: none;
+    opacity: 0;
   }
 
   .workout-completion-aura,
