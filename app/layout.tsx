@@ -14,24 +14,24 @@ const rootBootNoticeDelayMs = 2800;
 const rootBootNoticeStyles = `
 #fitmate-root-boot-notice {
   position: fixed;
-  inset: 0;
+  top: 16px;
+  left: 0;
+  right: 0;
   z-index: 2147483646;
   display: flex;
   align-items: flex-start;
   justify-content: center;
   box-sizing: border-box;
-  padding: 24px;
-  background: linear-gradient(180deg, rgba(248, 251, 255, 0.96), rgba(237, 244, 255, 0.92));
+  padding: 0 16px;
   color: #172033;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 180ms ease;
+  transition: opacity 120ms ease;
 }
 
 #fitmate-root-boot-notice[data-visible="true"] {
   opacity: 1;
-  pointer-events: auto;
 }
 
 .fitmate-root-boot-notice__panel {
@@ -39,7 +39,6 @@ const rootBootNoticeStyles = `
   width: min(100%, 520px);
   align-items: flex-start;
   gap: 12px;
-  margin-top: 16px;
   border: 1px solid rgba(36, 89, 230, 0.18);
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.96);
@@ -84,11 +83,7 @@ const rootBootNoticeStyles = `
 
 @media (min-width: 768px) {
   #fitmate-root-boot-notice {
-    align-items: center;
-  }
-
-  .fitmate-root-boot-notice__panel {
-    margin-top: 0;
+    top: 20px;
   }
 }
 `;
@@ -108,13 +103,9 @@ const rootBootNoticeScript = `
       return;
     }
 
-    notice.setAttribute("data-visible", "false");
-
-    window.setTimeout(function () {
-      if (notice.parentNode) {
-        notice.parentNode.removeChild(notice);
-      }
-    }, 200);
+    if (notice.parentNode) {
+      notice.parentNode.removeChild(notice);
+    }
   }
 
   window[removeKey] = removeNotice;
