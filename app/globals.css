@@ -280,7 +280,7 @@ button:not(:disabled),
   text-transform: none;
   white-space: nowrap;
   word-wrap: normal;
-  font-variation-settings: "opsz" 24, "wght" 500, "FILL" 0, "GRAD" 0;
+  font-variation-settings: "opsz" 24, "wght" 500, "FILL" 1, "GRAD" 0;
 }
 
 .material-symbols-filled {
