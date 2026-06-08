@@ -267,20 +267,34 @@ button:not(:disabled),
 .material-symbols-outlined {
   -webkit-font-feature-settings: "liga" 1;
   -webkit-font-smoothing: antialiased;
+  align-items: center;
   direction: ltr;
-  display: inline-block;
+  display: inline-flex;
+  flex: 0 0 auto;
   font-family: "Material Symbols Rounded";
   font-feature-settings: "liga" 1;
   font-variant-ligatures: normal;
   font-style: normal;
   font-weight: 500;
+  block-size: 1em;
+  inline-size: 1em;
+  justify-content: center;
   letter-spacing: normal;
   line-height: 1;
+  max-inline-size: 1em;
+  min-inline-size: 1em;
+  overflow: hidden;
   text-rendering: optimizelegibility;
   text-transform: none;
+  user-select: none;
   white-space: nowrap;
   word-wrap: normal;
   font-variation-settings: "opsz" 24, "wght" 500, "FILL" 1, "GRAD" 0;
+}
+
+/* 字体 pending 时只隐藏 ligature 文本，保留 1em 图标槽位避免布局抖动。 */
+html[data-symbol-font-ready="pending"] .material-symbols-outlined[data-symbol-icon] {
+  color: transparent;
 }
 
 .material-symbols-filled {

@@ -1,3 +1,4 @@
+/** SymbolIcon 统一承载 Material Symbols ligature 图标，保证全站图标加载策略集中生效。 */
 export function SymbolIcon({
   children,
   className = "",
@@ -10,6 +11,7 @@ export function SymbolIcon({
   return (
     <span
       className={`material-symbols-outlined ${filled ? "material-symbols-filled" : ""} ${className}`}
+      data-symbol-icon=""
     >
       {children}
     </span>

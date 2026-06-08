@@ -9,6 +9,45 @@ export const metadata: Metadata = {
   description: "AI 健身聊天助手",
 };
 
+// Material Symbols 首屏加载策略在根布局集中处理，避免 ligature 文本短暂暴露。
+const materialSymbolsFontHref = "/fonts/material-symbols/MaterialSymbolsRounded%5BFILL,GRAD,opsz,wght%5D.woff2";
+
+const materialSymbolsFontReadyScript = `
+(function () {
+  var root = document.documentElement;
+  var attr = "data-symbol-font-ready";
+  var fontQuery = '1em "Material Symbols Rounded"';
+  var sampleText = "fitness_center";
+
+  function markReady() {
+    root.setAttribute(attr, "true");
+  }
+
+  function keepPending() {
+    root.setAttribute(attr, "pending");
+  }
+
+  if (!("fonts" in document)) {
+    markReady();
+    return;
+  }
+
+  keepPending();
+
+  document.fonts.load(fontQuery, sampleText).then(function (fonts) {
+    if (fonts.length > 0) {
+      markReady();
+    }
+  }, keepPending);
+
+  document.fonts.ready.then(function () {
+    if (document.fonts.check(fontQuery, sampleText)) {
+      markReady();
+    }
+  }, keepPending);
+})();
+`.trim();
+
 const rootBootNoticeDelayMs = 2800;
 
 const rootBootNoticeStyles = `
@@ -141,8 +180,21 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-CN">
+    <html lang="zh-CN" data-symbol-font-ready="pending" suppressHydrationWarning>
+      <head>
+        <link
+          rel="preload"
+          href={materialSymbolsFontHref}
+          as="font"
+          type="font/woff2"
+          crossOrigin="anonymous"
+        />
+      </head>
       <body>
+        <script
+          id="fitmate-material-symbols-ready-script"
+          dangerouslySetInnerHTML={{ __html: materialSymbolsFontReadyScript }}
+        />
         <style
           id="fitmate-root-boot-notice-style"
           dangerouslySetInnerHTML={{ __html: rootBootNoticeStyles }}
