@@ -123,7 +123,7 @@ function SidebarPanel({
             const isActive = pathname === item.href;
             const itemClassName = `flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold transition-colors ${
               isActive
-                ? "bg-primary-soft font-extrabold text-primary ring-1 ring-primary/10"
+                ? "bg-primary-soft font-extrabold text-primary ring-1 ring-inset ring-primary/10"
                 : "text-muted hover:bg-panel-soft hover:text-primary"
             }`;
 
