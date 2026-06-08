@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { RightDrawer } from "@/components/app/right-drawer";
 import { ResponsiveRightSidebar } from "@/components/app/responsive-right-sidebar";
@@ -180,6 +180,48 @@ function ActiveFilterChips({
   );
 }
 
+// NativeSelectControl 保留浏览器原生选择能力，同时统一动作库筛选控件的文字、内边距和箭头位置。
+function NativeSelectControl({
+  children,
+  fieldClassName,
+  label,
+  layout = "stacked",
+  onChange,
+  value,
+}: {
+  children: ReactNode;
+  fieldClassName?: string;
+  label: string;
+  layout?: "inline" | "stacked";
+  onChange: (value: string) => void;
+  value: string | number;
+}) {
+  const labelClassName = layout === "inline"
+    ? "flex min-w-0 items-center gap-sm"
+    : "flex min-w-0 flex-col gap-xs";
+  const labelTextClassName = layout === "inline"
+    ? "shrink-0 font-label-md text-label-md text-muted"
+    : "font-label-md text-label-md text-muted";
+
+  return (
+    <label className={labelClassName}>
+      <span className={labelTextClassName}>{label}:</span>
+      <span className={`relative block min-w-0 ${fieldClassName ?? "w-full"}`}>
+        <select
+          className="h-10 w-full cursor-pointer appearance-none rounded-lg border border-line bg-white pl-md pr-10 font-label-md text-label-md text-ink outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10"
+          onChange={(event) => onChange(event.target.value)}
+          value={value}
+        >
+          {children}
+        </select>
+        <SymbolIcon className="pointer-events-none absolute right-md top-1/2 -translate-y-1/2 text-[18px] text-muted">
+          expand_more
+        </SymbolIcon>
+      </span>
+    </label>
+  );
+}
+
 function SelectFilter({
   label,
   options,
@@ -194,21 +236,14 @@ function SelectFilter({
   placeholder: string;
 }) {
   return (
-    <label className="flex min-w-0 flex-col gap-xs">
-      <span className="font-label-md text-label-md text-muted">{label}:</span>
-      <select
-        className="h-10 w-full cursor-pointer rounded-lg border border-line bg-white px-md font-label-md text-label-md text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
-        onChange={(event) => onChange(event.target.value)}
-        value={value}
-      >
-        <option value="">{placeholder}</option>
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label} ({option.count})
-          </option>
-        ))}
-      </select>
-    </label>
+    <NativeSelectControl label={label} onChange={onChange} value={value}>
+      <option value="">{placeholder}</option>
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label} ({option.count})
+        </option>
+      ))}
+    </NativeSelectControl>
   );
 }
 
@@ -395,18 +430,11 @@ function FilterDrawer({
                 placeholder="全部风险"
                 value={riskTag}
               />
-              <label className="flex min-w-0 flex-col gap-xs">
-                <span className="font-label-md text-label-md text-muted">状态:</span>
-                <select
-                  className="h-10 w-full cursor-pointer rounded-lg border border-line bg-white px-md font-label-md text-label-md text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
-                  onChange={(event) => onPublishedChange(event.target.value)}
-                  value={published}
-                >
-                  <option value="">全部状态</option>
-                  <option value="true">已发布</option>
-                  <option value="false">未发布</option>
-                </select>
-              </label>
+              <NativeSelectControl label="状态" onChange={onPublishedChange} value={published}>
+                <option value="">全部状态</option>
+                <option value="true">已发布</option>
+                <option value="false">未发布</option>
+              </NativeSelectControl>
             </div>
           </section>
     </RightDrawer>
@@ -883,40 +911,38 @@ export function ExerciseLibraryPage() {
               </p>
             </div>
             <div className="flex flex-col gap-sm sm:flex-row sm:items-center">
-              <label className="flex items-center gap-sm">
-                <span className="shrink-0 font-label-md text-label-md text-muted">排序:</span>
-                <select
-                  className="h-10 cursor-pointer rounded-lg border border-line bg-white px-md font-label-md text-label-md text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
-                  onChange={(event) =>
-                    updateFilter(() => setSortBy(event.target.value as ExerciseSort))
-                  }
-                  value={sortBy}
-                >
-                  {exerciseSortOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex items-center gap-sm">
-                <span className="shrink-0 font-label-md text-label-md text-muted">每页:</span>
-                <select
-                  className="h-10 cursor-pointer rounded-lg border border-line bg-white px-md font-label-md text-label-md text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
-                  onChange={(event) => {
-                    setIsLoadingExercises(true);
-                    setPage(1);
-                    setPageSize(Number(event.target.value));
-                  }}
-                  value={pageSize}
-                >
-                  {pageSizeOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {option} 条
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <NativeSelectControl
+                fieldClassName="w-[168px]"
+                label="排序"
+                layout="inline"
+                onChange={(value) =>
+                  updateFilter(() => setSortBy(value as ExerciseSort))
+                }
+                value={sortBy}
+              >
+                {exerciseSortOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </NativeSelectControl>
+              <NativeSelectControl
+                fieldClassName="w-[104px]"
+                label="每页"
+                layout="inline"
+                onChange={(value) => {
+                  setIsLoadingExercises(true);
+                  setPage(1);
+                  setPageSize(Number(value));
+                }}
+                value={pageSize}
+              >
+                {pageSizeOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option} 条
+                  </option>
+                ))}
+              </NativeSelectControl>
             </div>
           </div>
 
