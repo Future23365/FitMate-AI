@@ -7,8 +7,10 @@ import { RightDrawer } from "@/components/app/right-drawer";
 import { ResponsiveRightSidebar } from "@/components/app/responsive-right-sidebar";
 import { SymbolIcon } from "@/components/app/symbol-icon";
 import { useAutoHideScrollbar } from "@/components/app/use-auto-hide-scrollbar";
+import { exerciseSearchDebounceMs } from "@/features/exercises/lib/exercise-search-config";
 import { createAsyncToastLifecycle } from "@/lib/client/async-feedback";
 import { clientRequest } from "@/lib/client/http/client-request";
+import { useDebouncedValue } from "@/lib/client/use-debounced-value";
 import type { Exercise, ExerciseFacets, ExerciseListItem, ExerciseSort } from "@/lib/shared/exercises/types";
 
 type ExerciseFacet = {
@@ -444,6 +446,7 @@ function FilterDrawer({
 export function ExerciseLibraryPage() {
   const mainScrollRef = useAutoHideScrollbar<HTMLElement>();
   const [query, setQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(query, exerciseSearchDebounceMs);
   const [category, setCategory] = useState("");
   const [muscle, setMuscle] = useState("");
   const [level, setLevel] = useState("");
@@ -475,6 +478,13 @@ export function ExerciseLibraryPage() {
   const userSelectedExerciseRef = useRef(false);
 
   useEffect(() => {
+    const normalizedQuery = query.trim();
+    const normalizedDebouncedQuery = debouncedQuery.trim();
+
+    if (normalizedQuery !== normalizedDebouncedQuery) {
+      return;
+    }
+
     const controller = new AbortController();
     const listLoadingToast = createAsyncToastLifecycle({
       id: "exercise-library-list-loading",
@@ -488,8 +498,8 @@ export function ExerciseLibraryPage() {
       sort: sortBy,
     });
 
-    if (query.trim()) {
-      params.set("q", query.trim());
+    if (normalizedDebouncedQuery) {
+      params.set("q", normalizedDebouncedQuery);
     }
 
     if (category) {
@@ -584,6 +594,7 @@ export function ExerciseLibraryPage() {
     page,
     pageSize,
     published,
+    debouncedQuery,
     query,
     riskTag,
     sortBy,

@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { ExercisePreviewSheet } from "@/features/exercises/components/exercise-preview-sheet";
+import { exerciseSearchDebounceMs } from "@/features/exercises/lib/exercise-search-config";
 import { createExercisePreviewFromListItem } from "@/features/exercises/lib/exercise-preview-fallback";
 import {
   createWorkoutRoutine,
@@ -27,6 +28,7 @@ import {
 } from "@/features/workouts/api/workout-data-client";
 import { createAsyncToastLifecycle, runWithAsyncToast } from "@/lib/client/async-feedback";
 import { clientRequest } from "@/lib/client/http/client-request";
+import { useDebouncedValue } from "@/lib/client/use-debounced-value";
 import type { Exercise, ExerciseFacets, ExerciseListItem, ExerciseSuitability } from "@/lib/shared/exercises/types";
 import { toUtcISOString } from "@/lib/shared/time/utc-date-time";
 import {
@@ -442,6 +444,7 @@ export function ActionComposerPage() {
   const [libraryHasNextPage, setLibraryHasNextPage] = useState(false);
   const [libraryFacets, setLibraryFacets] = useState<ExerciseFacets>(defaultExerciseFacets);
   const [libraryQuery, setLibraryQuery] = useState("");
+  const debouncedLibraryQuery = useDebouncedValue(libraryQuery, exerciseSearchDebounceMs);
   const [libraryCategory, setLibraryCategory] = useState("");
   const [librarySuitabilityFilter, setLibrarySuitabilityFilter] =
     useState<LibrarySuitabilityFilter>("all");
@@ -511,6 +514,13 @@ export function ActionComposerPage() {
   }, [rightPanelView]);
 
   useEffect(() => {
+    const normalizedLibraryQuery = libraryQuery.trim();
+    const normalizedDebouncedLibraryQuery = debouncedLibraryQuery.trim();
+
+    if (normalizedLibraryQuery !== normalizedDebouncedLibraryQuery) {
+      return;
+    }
+
     const controller = new AbortController();
     const params = new URLSearchParams({
       page: String(libraryPage),
@@ -538,8 +548,8 @@ export function ActionComposerPage() {
       libraryLoadingToast.start();
     }
 
-    if (libraryQuery.trim()) {
-      params.set("q", libraryQuery.trim());
+    if (normalizedDebouncedLibraryQuery) {
+      params.set("q", normalizedDebouncedLibraryQuery);
     }
 
     if (libraryCategory) {
@@ -665,6 +675,7 @@ export function ActionComposerPage() {
     libraryLevel,
     libraryMuscle,
     libraryPage,
+    debouncedLibraryQuery,
     libraryQuery,
     librarySuitabilityFilter,
   ]);
