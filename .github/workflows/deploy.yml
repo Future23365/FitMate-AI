@@ -135,38 +135,62 @@ jobs:
             'bash -s' <<'EOF'
               set -euo pipefail
 
+              # 显式绑定服务器部署文件，避免 docker compose 读取到其他目录或旧环境文件。
+              ENV_FILE="$DEPLOY_PATH/.env"
+              COMPOSE_FILE="$DEPLOY_PATH/docker-compose.yml"
+
+              compose() {
+                docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+              }
+
               set_env_value() {
                 key="$1"
                 value="$2"
 
-                if grep -q "^${key}=" .env; then
-                  sed -i "s|^${key}=.*|${key}=${value}|" .env
+                if grep -q "^${key}=" "$ENV_FILE"; then
+                  sed -i "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
                 else
-                  printf '\n%s=%s\n' "$key" "$value" >> .env
+                  printf '\n%s=%s\n' "$key" "$value" >> "$ENV_FILE"
                 fi
               }
 
               # 部署目录内的 docker-compose.yml / Caddyfile 已由上一步同步；生产 .env 仍由服务器维护。
               cd "$DEPLOY_PATH"
+              test -f "$ENV_FILE"
+              test -f "$COMPOSE_FILE"
 
               # 每次部署把 .env 中的镜像版本锁到当前提交，便于回滚和排查。
               set_env_value "APP_IMAGE" "$APP_IMAGE"
               set_env_value "OPS_IMAGE" "$OPS_IMAGE"
 
               # 先校验最终 Compose 配置但不打印展开后的生产 .env，避免部署日志泄露密钥。
-              docker compose config >/dev/null
+              compose config >/dev/null
 
-              # 拉取新镜像，先运行 migration，再强制替换 app 容器，避免 .env 已更新但旧容器继续运行。
-              docker compose --profile ops pull app migrator
-              docker compose --profile ops run --rm migrator
-              docker compose up -d --force-recreate --no-deps app
-              docker compose up -d --remove-orphans caddy db
+              configured_images="$(compose config --images)"
+              printf '%s\n' "$configured_images"
+
+              if ! printf '%s\n' "$configured_images" | grep -Fxq "$APP_IMAGE"; then
+                echo "APP_IMAGE is not used by compose config: $APP_IMAGE" >&2
+                exit 1
+              fi
+
+              if ! printf '%s\n' "$configured_images" | grep -Fxq "$OPS_IMAGE"; then
+                echo "OPS_IMAGE is not used by compose config: $OPS_IMAGE" >&2
+                exit 1
+              fi
+
+              # 拉取新镜像，先运行 migration，再替换无状态 app 容器，避免 .env 已更新但旧容器继续运行。
+              compose --profile ops pull app migrator
+              compose --profile ops run --rm migrator
+              docker rm -f fitmate-app 2>/dev/null || true
+              compose up -d --force-recreate --no-deps app
+              compose up -d --remove-orphans caddy db
 
               # 部署成功必须以运行态镜像等于当前 commit 镜像为准，而不是只看 workflow 命令退出。
               running_image="$(docker inspect fitmate-app --format '{{.Config.Image}}')"
               if [ "$running_image" != "$APP_IMAGE" ]; then
                 echo "fitmate-app image mismatch: expected $APP_IMAGE, got $running_image" >&2
-                docker compose ps >&2
+                compose ps >&2
                 exit 1
               fi
 
