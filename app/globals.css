@@ -6,7 +6,7 @@
   font-display: block;
   font-style: normal;
   font-weight: 100 700;
-  src: url("/fonts/material-symbols/MaterialSymbolsRounded[FILL,GRAD,opsz,wght].woff2") format("woff2");
+  src: url("/fonts/material-symbols/material-symbols-rounded.woff2") format("woff2");
 }
 
 @theme {

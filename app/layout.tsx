@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 };
 
 // Material Symbols 首屏加载策略在根布局集中处理，避免 ligature 文本短暂暴露。
-const materialSymbolsFontHref = "/fonts/material-symbols/MaterialSymbolsRounded%5BFILL,GRAD,opsz,wght%5D.woff2";
+const materialSymbolsFontHref = "/fonts/material-symbols/material-symbols-rounded.woff2";
 
 const materialSymbolsFontReadyScript = `
 (function () {
