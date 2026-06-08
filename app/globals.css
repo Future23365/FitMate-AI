@@ -727,6 +727,8 @@ body,
 
   .app-sidebar:is(:hover, :focus-within) .app-sidebar-primary-action {
     column-gap: 8px;
+    grid-template-columns: max-content max-content;
+    justify-content: center;
     padding: 0;
   }
 
@@ -823,6 +825,11 @@ body,
   .app-sidebar.app-sidebar-collapse-locked .app-sidebar-primary-action,
   .app-sidebar.app-sidebar-collapse-locked .app-sidebar-nav-link {
     column-gap: 0;
+  }
+
+  .app-sidebar.app-sidebar-collapse-locked .app-sidebar-primary-action {
+    grid-template-columns: 44px minmax(0, 1fr);
+    justify-content: stretch;
   }
 
   .app-sidebar.app-sidebar-collapse-locked .app-sidebar-copy,
