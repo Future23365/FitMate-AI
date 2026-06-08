@@ -166,7 +166,7 @@ jobs:
               # 先校验最终 Compose 配置但不打印展开后的生产 .env，避免部署日志泄露密钥。
               compose config >/dev/null
 
-              configured_images="$(compose config --images)"
+              configured_images="$(compose --profile ops config --images)"
               printf '%s\n' "$configured_images"
 
               if ! printf '%s\n' "$configured_images" | grep -Fxq "$APP_IMAGE"; then
