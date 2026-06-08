@@ -183,7 +183,18 @@ jobs:
               echo "pulling deployment images..."
               compose --profile ops pull app migrator
               echo "running migrator..."
-              compose --profile ops run --rm -T migrator
+              migration_container="fitmate-migrator-deploy"
+              docker rm -f "$migration_container" >/dev/null 2>&1 || true
+              compose --profile ops run -d --name "$migration_container" migrator >/dev/null
+              migration_exit_code="$(docker wait "$migration_container")"
+              docker logs "$migration_container" || true
+              docker rm -f "$migration_container" >/dev/null 2>&1 || true
+
+              if [ "$migration_exit_code" != "0" ]; then
+                echo "migrator failed with exit code $migration_exit_code" >&2
+                exit "$migration_exit_code"
+              fi
+
               echo "migration complete"
               echo "recreating app container..."
               docker rm -f fitmate-app 2>/dev/null || true
