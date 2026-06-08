@@ -180,13 +180,19 @@ jobs:
               fi
 
               # 拉取新镜像，先运行 migration，再替换无状态 app 容器，避免 .env 已更新但旧容器继续运行。
+              echo "pulling deployment images..."
               compose --profile ops pull app migrator
-              compose --profile ops run --rm migrator
+              echo "running migrator..."
+              compose --profile ops run --rm -T migrator
+              echo "migration complete"
+              echo "recreating app container..."
               docker rm -f fitmate-app 2>/dev/null || true
               compose up -d --force-recreate --no-deps app
+              echo "ensuring caddy and db are running..."
               compose up -d --remove-orphans caddy db
 
               # 部署成功必须以运行态镜像等于当前 commit 镜像为准，而不是只看 workflow 命令退出。
+              echo "verifying running app image..."
               running_image="$(docker inspect fitmate-app --format '{{.Config.Image}}')"
               if [ "$running_image" != "$APP_IMAGE" ]; then
                 echo "fitmate-app image mismatch: expected $APP_IMAGE, got $running_image" >&2
