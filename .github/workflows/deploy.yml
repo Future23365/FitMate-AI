@@ -6,6 +6,29 @@ on:
     # 只有推送到 main 时自动部署；如果生产分支改成 dev/master，在这里调整。
     branches:
       - main
+    # 只有当本次 push 的全部变更都属于非运行态协作、文档、测试或示例资产时才跳过部署。
+    # 任意未命中 paths-ignore 的代码、依赖、数据、图片、Docker 或服务器部署配置变更仍会触发构建。
+    paths-ignore:
+      - ".agents/**"
+      - ".codex/**"
+      - ".env.example"
+      - ".gitignore"
+      - "AGENTS.md"
+      - "README.md"
+      - "backup/**"
+      - "codex_logs/**"
+      - "components.json"
+      - "compose.yaml"
+      - "deploy/server/.env.example"
+      - "docs/**"
+      - "eslint.config.mjs"
+      - "example/**"
+      - "manual-tests/**"
+      - "openspec/**"
+      - "skills-lock.json"
+      - "tests/**"
+      - "vitest.config.ts"
+      - "vitest.manual-llm.config.ts"
 
 permissions:
   # checkout 代码需要读取仓库内容。
