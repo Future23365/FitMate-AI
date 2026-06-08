@@ -7,6 +7,12 @@ import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState }
 import { createPortal } from "react-dom";
 
 import { SymbolIcon } from "@/components/app/symbol-icon";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { LazyExercisePreviewSheet } from "@/features/exercises/components/lazy-exercise-preview-sheet";
 import {
   getWorkoutSchedule,
@@ -664,6 +670,10 @@ export function WorkoutSessionPage() {
   const isVoiceBroadcastActive =
     isVoicePreferenceOn && (voiceStatus === "active" || voiceStatus === "speaking" || voiceStatus === "activating");
   const shouldShowVoiceFirstTip = isVoicePreferenceLoaded && showVoiceTip && !isVoicePreferenceOn;
+  const voiceToggleLabel = getWorkoutVoiceToggleLabel({
+    isPreferenceOn: isVoicePreferenceOn,
+    isSupported: isVoiceSupported,
+  });
 
   const handleVoiceButtonClick = useCallback(() => {
     const toggleIntent = resolveWorkoutVoiceToggleIntent({
@@ -1008,29 +1018,35 @@ export function WorkoutSessionPage() {
               <SymbolIcon className="text-2xl">settings</SymbolIcon>
             </button>
             <div className="relative">
-              <button
-                aria-label={getWorkoutVoiceToggleLabel({
-                  isPreferenceOn: isVoicePreferenceOn,
-                  isSupported: isVoiceSupported,
-                })}
-                className={`grid h-11 w-11 place-items-center rounded-xl border transition-colors ${
-                  !isVoiceSupported
-                    ? "cursor-not-allowed border-line bg-panel-soft text-muted"
-                    : isVoicePreferenceOn
-                    ? "border-primary/20 bg-primary-soft text-primary"
-                    : showVoiceTip
-                      ? "border-primary bg-primary-soft text-primary shadow-lift ring-4 ring-primary/15"
-                    : "border-line bg-white text-muted hover:text-primary"
-                }`}
-                data-workout-voice-button
-                disabled={!isVoiceSupported}
-                onClick={handleVoiceButtonClick}
-                type="button"
-              >
-                <SymbolIcon className="text-2xl">
-                  {isVoiceSupported && isVoicePreferenceOn ? "volume_up" : "volume_off"}
-                </SymbolIcon>
-              </button>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-grid">
+                      <button
+                        aria-label={voiceToggleLabel}
+                        className={`grid h-11 w-11 place-items-center rounded-xl border transition-colors ${
+                          !isVoiceSupported
+                            ? "cursor-not-allowed border-line bg-panel-soft text-muted"
+                            : isVoicePreferenceOn
+                            ? "border-primary/20 bg-primary-soft text-primary"
+                            : showVoiceTip
+                              ? "border-primary bg-primary-soft text-primary shadow-lift ring-4 ring-primary/15"
+                            : "border-line bg-white text-muted hover:text-primary"
+                        }`}
+                        data-workout-voice-button
+                        disabled={!isVoiceSupported}
+                        onClick={handleVoiceButtonClick}
+                        type="button"
+                      >
+                        <SymbolIcon className="text-2xl">
+                          {isVoiceSupported && isVoicePreferenceOn ? "volume_up" : "volume_off"}
+                        </SymbolIcon>
+                      </button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">{voiceToggleLabel}</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
               {shouldShowVoiceFirstTip ? (
                 <VoiceTipBubble
                   actionLabel="开启"
