@@ -32,6 +32,8 @@
 - **AND** repair feedback MUST 要求模型删除旧字段或改用业务结构
 - **AND** repair feedback MUST NOT 要求模型补一个正确的内部 ID
 
+## ADDED Requirements
+
 ### Requirement: ResourceStore 必须保持服务端内部事实边界
 系统 SHALL 继续使用 `ResourceStore` 或等价机制维护当前 run 内的受控资源事实。ResourceStore 的 resource id、role、sourceToolResultId 和 inventory SHALL 保持服务端内部机制，用于权限、tool handler、trace、replay 和 provenance；这些字段 MUST NOT 成为 Planner 必须输出、复制或修复的模型可见合同。
 
@@ -46,13 +48,3 @@
 - **THEN** 服务端 MUST 继续校验权限、schemaVersion、状态、resource type 和 role
 - **AND** `visibleTrainingProposal` 最终输出仍 MUST 通过数据库动作事实、payload、prescription 和 schedule 校验
 - **AND** runtime MUST NOT 因 resource 曾经存在就绕过最终业务 validator
-
-## REMOVED Requirements
-
-### Requirement: Planner terminal action 必须使用 usedRefs 表达 grounding
-**Reason**: `usedRefs` 要求模型手写内部 `toolResultId` 或 `resourceId`，会把服务端 provenance 暴露为模型输出合同，并导致业务正确结果因为引用协议失败而被拒绝。
-**Migration**: Planner 可见 terminal action 不再包含 `usedRefs`；runtime 以 server-owned provenance 记录 terminal action 关联的 tool results、resources、visible output validation metadata 和 failure context。
-
-### Requirement: read/import resource id 必须由 Planner 写入 tool_call consumes
-**Reason**: 模型不应选择或复制 current-run `resourceId`。资源选择和消费属于服务端执行边界。
-**Migration**: 需要历史事实或可消费资源的 tool 由服务端内部从 actor context、runtime context、ResourceStore 或受控业务输入读取，不让 Planner 手写 `consumes`。

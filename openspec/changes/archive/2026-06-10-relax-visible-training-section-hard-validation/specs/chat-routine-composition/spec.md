@@ -1,6 +1,6 @@
 ## MODIFIED Requirements
 
-### Requirement: 聊天推送 routine 使用结构化草稿
+### Requirement: 聊天推送 routine 使用三段式草稿结构
 聊天页面推送单次训练编排时，系统 SHALL 使用 routine 专用结构化草稿表达已生成的训练 section，不得继续用单日长期计划结构代表 routine。草稿 MUST 至少包含 `training` section；`warmup` 和 `stretch` 若由模型生成则 MUST 以结构化 section 展示，若缺失则系统 MUST NOT 伪造动作补齐。
 
 #### Scenario: AI 生成单次训练编排

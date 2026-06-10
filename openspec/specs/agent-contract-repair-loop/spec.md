@@ -128,7 +128,7 @@ TBD - created by archiving change harden-agent-contract-repair-loop. Update Purp
 - **AND** feedback MUST NOT 基于用户原文替模型补齐 tool input
 
 ### Requirement: schema repair feedback 必须由通用错误投影器生成
-系统 SHALL 在模型输出违反 `AgentAction`、tool input 或 terminal visible output envelope 的结构合同时，通过通用 schema error projector 生成模型可见 repair feedback。Projector MUST 只使用 schema、discriminator、validator issue、字段路径和脱敏实际值等确定性输入，不得依赖用户自然语言、业务 phrasing、具体 trace case 或手写 tool 特判。
+系统 SHALL 在模型输出违反 `AgentAction`、tool input 或 terminal visible output envelope 的结构合同时，通过通用 schema error projector 生成模型可见 repair feedback。Projector MUST 只使用 schema、discriminator、validator issue、字段路径和脱敏实际值等确定性输入，不得依赖用户自然语言、业务 phrasing、具体 trace case 或手写 tool 特判。若 `AgentAction` 顶层未知字段已被 type-aware normalization 安全丢弃且 normalized action 可执行，系统 SHALL NOT 为这些被丢弃字段生成 repair feedback。
 
 #### Scenario: AgentAction variant 缺少必填字段
 - **WHEN** 模型返回一个 discriminator 可确定的 `AgentAction` variant
@@ -140,8 +140,19 @@ TBD - created by archiving change harden-agent-contract-repair-loop. Update Purp
 - **AND** feedback MUST NOT 用自然语言解释该字段的业务语义
 - **AND** feedback MUST NOT 要求服务端替模型补齐或转换字段
 
-#### Scenario: AgentAction 包含未知字段
+#### Scenario: AgentAction 顶层未知字段被 normalization 安全丢弃
+- **WHEN** 模型返回的 `AgentAction` variant 中包含当前 variant 不允许的顶层字段
+- **AND** 这些字段不参与 selected variant 的执行语义
+- **AND** selected variant 的 required fields 均存在
+- **AND** normalized action 通过后续 schema、registry、tool input、policy、resource 或 terminal 校验
+- **THEN** runtime MUST NOT 为这些被丢弃字段生成 `unknown_field` repair feedback
+- **AND** runtime MUST NOT 消耗 repair budget
+- **AND** runtime MUST 继续执行 normalized action
+- **AND** runtime MUST NOT 将被丢弃字段映射成另一个字段或用来补齐 required fields
+
+#### Scenario: AgentAction 包含不可安全处理的未知字段
 - **WHEN** 模型返回的 `AgentAction` variant 中包含当前 schema 不允许的字段
+- **AND** 该字段不符合 type-aware normalization 的丢弃条件
 - **THEN** repair feedback MUST 包含 `errors[]` 项，且 `code = "unknown_field"`
 - **AND** 该 error MUST 包含未知字段的 `path`
 - **AND** 该 error SHOULD 包含当前 variant 的 `allowedFields`
@@ -168,10 +179,11 @@ TBD - created by archiving change harden-agent-contract-repair-loop. Update Purp
 #### Scenario: 旧字段只作为 schema 错误事实出现
 - **WHEN** 模型输出当前合同不再允许的旧字段
 - **AND** 当前 schema 已经不接受该字段
+- **AND** 该字段未被 type-aware normalization 作为 selected variant 的无关顶层字段安全丢弃
 - **THEN** repair feedback MUST 将旧字段表达为 `unknown_field`
 - **AND** 如果主字段缺失，feedback MUST 另外表达 `required_field_missing`
 - **AND** feedback MUST NOT 包含固定旧字段到新字段的替换文案
-- **AND** feedback MUST NOT 静默接受、删除、转换或长期兼容该旧字段
+- **AND** feedback MUST NOT 静默接受、转换或长期兼容该旧字段
 
 ### Requirement: domain validation feedback 只能承载确定性事实
 系统 SHALL 在业务 validator 发现 terminal visible output 或 tool result 违反数据库事实、资源事实或业务确定性边界时，向 repair loop 暴露结构化 domain facts。Domain facts MUST 描述 validator 已确定的错误事实，不得描述模型下一步必须如何修复。
@@ -250,4 +262,37 @@ TBD - created by archiving change harden-agent-contract-repair-loop. Update Purp
 - **THEN** 用户意图、字段用途、恢复边界和失败含义 MUST 使用中文描述
 - **AND** `toolName`、`AgentAction`、`tool_call`、`final_answer`、`ask_user`、`visibleOutputs`、`usedRefs`、`resourceId` 和错误 code MUST 保持英文原样
 - **AND** repair payload MUST NOT 暴露 provider 原文、secret、stack trace、完整 handler output 或跨用户事实
+
+### Requirement: Repair feedback 必须修复当前 Planner 可见合同
+系统 SHALL 在模型输出违反 `AgentAction`、tool input 或 terminal visible output envelope 的结构合同时，通过通用 schema error projector 生成模型可见 repair feedback。Repair feedback MUST 对齐当前 Planner 可见合同；当旧内部引用字段出现时，feedback MUST 要求删除或改用业务结构，而不是要求模型补正确的内部 ID。
+
+#### Scenario: AgentAction 包含旧 usedRefs 字段
+- **WHEN** 模型返回的 `final_answer` 或 `ask_user` 中包含 `usedRefs`、`usedToolResultIds` 或 `usedResourceRefs`
+- **THEN** repair feedback MUST 定位到对应字段路径
+- **AND** feedback MUST 说明这些字段不属于当前 Planner 可见合同
+- **AND** feedback MUST 要求模型删除这些字段
+- **AND** feedback MUST NOT 要求模型改填某个 `toolResultId`、`resourceId` 或 resource ref
+
+#### Scenario: tool_call 包含旧 resource consumption 字段
+- **WHEN** 模型返回的 `tool_call` 中包含 `consumes`、`resourceId`、`resource`、`factRef`、`messageId` 或 `toolResultId`
+- **THEN** repair feedback MUST 定位到对应字段路径
+- **AND** feedback MUST 说明资源选择和 provenance 由服务端内部维护
+- **AND** feedback MUST 要求模型只保留合法 `toolName` 和匹配 schema 的业务 `input`
+- **AND** feedback MUST NOT 引导模型从 observations、metadata、trace 或历史文本中复制内部 ID
+
+#### Scenario: visible output validation failure 不要求补引用
+- **WHEN** `final_answer.visibleOutputs[]` 通过静态 envelope 但未通过业务 terminal output validator
+- **THEN** feedback MUST 保留 output index、`outputType`、`schemaVersion` 和业务 validator 返回的脱敏 details
+- **AND** 如果失败原因是数据库动作、payload、prescription、schedule 或 section 边界，feedback MUST 要求修正业务 payload
+- **AND** feedback MUST NOT 要求模型通过 `usedRefs`、`read_recent`、`resourceId` 或 current-run tool result provenance 来修复新生成卡片
+
+### Requirement: terminal failure finalizer 输入不得恢复旧 AgentAction 引用合同
+系统 SHALL 在 terminal failure finalizer 的模型输入中提供用户可见失败解释所需的脱敏摘要。该输入 MUST NOT 要求 finalizer 理解或输出主 Agent 的 `usedRefs`、`resourceId`、`toolResultId`、`factRef`、`messageId` 或其他内部引用字段。
+
+#### Scenario: finalizer 只看到用户可解释失败摘要
+- **WHEN** runtime 因 invalid action、visible output validation、tool failure 或 repair limit 进入 terminal failure finalizer
+- **THEN** finalizer input MUST 包含用户请求摘要、失败类别、blocked outputs、unmet requirements 和可恢复建议边界
+- **AND** finalizer input MAY 包含脱敏内部诊断 code
+- **AND** finalizer input MUST NOT 要求 finalizer 输出 `AgentAction`
+- **AND** finalizer input MUST NOT 要求 finalizer 修复或引用内部 ID
 

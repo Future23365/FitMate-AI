@@ -18,6 +18,8 @@
 - **AND** 模型可见说明 MUST NOT 要求模型复制、选择、拼接或修复 `resourceId`、`toolResultId`、`factRef` 或 `messageId`
 - **AND** 模型可见说明 MUST 使用中文描述业务含义，`AgentAction`、`tool_call`、`final_answer`、`ask_user`、`visibleOutputs` 等技术标识保持英文原样
 
+## ADDED Requirements
+
 ### Requirement: 模型可见输入不得暴露可操作内部引用 ID
 系统 SHALL 将 `toolResults`、`observations`、resource 摘要、history fact 摘要和 compressed tool results 投影为模型可消费的业务事实。模型可见内容 MAY 包含业务对象的稳定标识，例如数据库 `exerciseId`；MUST NOT 暴露可被模型复制到 action 的 `toolResultId`、`resourceId`、`factRef`、`messageId` 或 trace id。
 
@@ -44,14 +46,6 @@
 
 ## REMOVED Requirements
 
-### Requirement: 默认 prompt 必须说明 usedRefs 结构
-**Reason**: `usedRefs` 不再是 Planner 可见 terminal action 字段。
-**Migration**: 模型可见 prompt / actionContract 说明 final answer 通过 `content`、`suggestedQuestions` 和可选 `visibleOutputs[]` 表达；服务端内部 provenance 由 runtime 记录。
-
 ### Requirement: 默认 prompt 必须区分 business reference 与 current-run resourceId
 **Reason**: 模型不再输出 `usedRefs.resource.id`，也不再需要区分 `factRef`、`messageId` 和 current-run `resourceId` 的可输出位置。
 **Migration**: 模型可见内容不得暴露可复制内部引用 ID；如需历史事实，服务端通过 tool 投影受控业务事实。
-
-### Requirement: actionContract 必须包含引用操作和 resource.id grounding 说明
-**Reason**: 引用操作从 Planner 可见合同中移除。
-**Migration**: `actionContract` 只描述允许 action、业务字段、`visibleOutputs[]`、`suggestedQuestions`、tool loop、policy 和失败出口；内部 provenance 不进入模型输出形状。

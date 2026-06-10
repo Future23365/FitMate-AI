@@ -84,26 +84,36 @@ TBD - created by archiving change add-agent-tool-contract-kernel-m0. Update Purp
 - **AND** Runtime MUST NOT 信任 Planner 生成的 confirmation hash、pendingActionId 或用户可见确认事件
 
 ### Requirement: AgentAction 必须经过确定性校验
-系统 SHALL 定义 `AgentAction` Schema，并在执行前校验 `tool_call`、`final_answer` 和 `ask_user` 的结构、引用和可执行边界。`final_answer` 与 `ask_user` SHALL 都使用 `content` 承载用户可见文本；terminal action SHALL 使用统一 `usedRefs` 承载已使用事实来源引用。
+系统 SHALL 定义 Planner 可见 `AgentAction` Schema，并在执行前校验 `tool_call`、`final_answer` 和 `ask_user` 的结构与可执行边界。Planner 可见 `AgentAction` SHALL 只承载模型需要表达的业务动作；服务端内部 grounding、tool result provenance、ResourceStore resource 和 trace 引用 SHALL 由 runtime 维护，不作为模型必须输出或修复的字段。
 
-#### Scenario: 合法 final_answer terminal action
+#### Scenario: 合法 final_answer terminal action 不需要模型手写 usedRefs
 - **WHEN** Planner 返回 `final_answer`
-- **THEN** Action Validator MUST 要求用户可见文本写入 `content`
-- **AND** 如果 action 包含 `usedRefs`，validator MUST 校验每个 ref 属于当前 run 的已登记事实来源
-- **AND** `usedRefs[type = "tool_result"]` MUST 指向当前 run 中已登记且 `ok = true` 的 tool result
-- **AND** `usedRefs[type = "tool_result"]` MAY 指向返回 0 条、候选不足或诊断摘要的成功 tool result，用于支撑普通事实回答
-- **AND** `usedRefs[type = "resource"]` MUST 指向当前 run 中已登记且 role / resourceType 满足 terminal grounding 要求的 resource
-- **AND** `final_answer` MUST NOT 携带任意 NDJSON event、未登记 resource 或 handler output
-- **AND** Action Validator MUST NOT 因 tool result 的业务结果为空、候选不足或中间满足度字段为 false 而拒绝普通 `final_answer`
+- **THEN** action MUST 包含用户可见 `content`
+- **AND** action MAY 包含 `suggestedQuestions`
+- **AND** action MAY 包含通过静态 envelope 和业务 validator 校验的 `visibleOutputs[]`
+- **AND** action MUST NOT 需要 `usedRefs`、`usedToolResultIds`、`usedResourceRefs`、`resourceId` 或 `toolResultId`
+- **AND** validator MUST NOT 因本轮存在 tool result 而要求 Planner 手写 current-run grounding refs
+- **AND** runtime MAY 在内部 trace、result metadata 或 server-owned provenance 中记录该 terminal action 关联的 tool results、visible output validation metadata 或 failure context
 
-#### Scenario: 普通 final_answer 可以解释 0 条结果
-- **WHEN** 当前 run 中存在 `ok = true` 的只读查询 tool result
-- **AND** 该 result 的安全投影表达 `totalMatches = 0` 或等价空结果事实
-- **AND** Planner 返回不带 `visibleOutputs` 的 `final_answer`
-- **AND** `usedRefs` 引用该 current-run tool result
-- **THEN** Action Validator MUST 接受该 terminal action
-- **AND** Runtime MAY 渲染普通文本回答说明当前条件下没有匹配数据
-- **AND** Runtime MUST NOT 因该 tool result 没有产生业务候选而返回 `terminal_reference_invalid`
+#### Scenario: 合法 ask_user terminal action 不需要模型手写 usedRefs
+- **WHEN** Planner 返回 `ask_user`
+- **THEN** action MUST 包含用户可见 `content`
+- **AND** action MAY 包含 `suggestedQuestions`
+- **AND** action MUST NOT 需要 `usedRefs`、`resourceId`、`toolResultId`、`factRef` 或 `messageId`
+- **AND** runtime MAY 在内部 trace 中记录导致澄清的 diagnostic facts
+
+#### Scenario: tool_call 不允许模型手写 resource consumption refs
+- **WHEN** Planner 返回 `tool_call`
+- **THEN** action MUST 包含已注册 `toolName` 和匹配该 tool input schema 的 `input`
+- **AND** Planner-visible action MUST NOT 暴露 `consumes`、`resourceId`、`toolResultId` 或等价 resource 引用字段
+- **AND** 如果某个 tool 需要当前 run resource，服务端 MUST 通过 tool handler、ResourceStore、actor context、runtime context 或受控业务输入选择可消费资源
+- **AND** 模型不得把 `factRef`、`messageId`、历史业务对象 id 或 trace id 当作 resource 引用传入 tool
+
+#### Scenario: 旧 terminal 引用字段被拒绝
+- **WHEN** Planner 返回的 `final_answer`、`ask_user` 或 `tool_call` 包含 `usedRefs`、`usedToolResultIds`、`usedResourceRefs`、`consumes`、`resourceId`、`toolResultId`、`factRef` 或 `messageId` 等旧内部引用字段
+- **THEN** schema 或 validator MUST 拒绝该 action 或剥离到脱敏 diagnostic
+- **AND** repair feedback MUST 要求模型删除旧字段或改用业务结构
+- **AND** repair feedback MUST NOT 要求模型补一个正确的内部 ID
 
 ### Requirement: Executor 必须通用执行 tool 并归一化结果
 系统 SHALL 提供通用 Executor 调用 tool handler，并统一处理输入 Schema、输出 Schema、per-tool timeout、AbortSignal、异常、错误 code 和 `ToolResult` 归一化。
@@ -282,4 +292,19 @@ TBD - created by archiving change add-agent-tool-contract-kernel-m0. Update Purp
 - **AND** `repairContext` MUST NOT 包含 `nextActionHints`
 - **AND** `repairContext` MUST NOT 包含 `final_answer_with_visible_outputs`、`final_answer_without_visible_outputs`、`final_answer_with_current_tool_result`、`continue_tool_call`、`ask_user` 或等价下一步 action 枚举
 - **AND** `repairContext` MUST NOT 让服务端根据用户自然语言、具体 phrasing 或具体业务 `toolName` 改写下一轮 action
+
+### Requirement: ResourceStore 必须保持服务端内部事实边界
+系统 SHALL 继续使用 `ResourceStore` 或等价机制维护当前 run 内的受控资源事实。ResourceStore 的 resource id、role、sourceToolResultId 和 inventory SHALL 保持服务端内部机制，用于权限、tool handler、trace、replay 和 provenance；这些字段 MUST NOT 成为 Planner 必须输出、复制或修复的模型可见合同。
+
+#### Scenario: Runtime 内部登记可消费资源
+- **WHEN** tool handler 或 runtime 导入历史训练方案、候选集合或其他可消费事实
+- **THEN** 服务端 MAY 在 `ResourceStore` 中登记 resource
+- **AND** resource MUST 绑定当前 run、source tool result、resource type、role 和受控 summary
+- **AND** registered resource id MUST NOT 暴露为模型需要在 `AgentAction` 中复制的字段
+
+#### Scenario: 内部 resource 不绕过业务 validator
+- **WHEN** server-owned resource 被用于后续 tool handler、visible output validation、trace 或 persistence
+- **THEN** 服务端 MUST 继续校验权限、schemaVersion、状态、resource type 和 role
+- **AND** `visibleTrainingProposal` 最终输出仍 MUST 通过数据库动作事实、payload、prescription 和 schedule 校验
+- **AND** runtime MUST NOT 因 resource 曾经存在就绕过最终业务 validator
 

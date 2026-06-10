@@ -226,27 +226,22 @@ TBD - created by archiving change externalize-agent-llm-prompts. Update Purpose 
 - **AND** 通用 Agent prompt MUST NOT 把这些业务名写成语义触发条件或固定 tool 调用流程
 
 ### Requirement: 默认 prompt 必须用短 JSON 形状表达 AgentAction 字段
-系统 SHALL 在默认 Agent LLM prompt 或等价模型可见输入中，用简短 JSON 形状表达当前允许的 `AgentAction` 类型和必需字段。字段示例 MUST 与当前 schema 完全一致，并且 MUST 遵守同一语义槽只使用一个字段名的原则。
+系统 SHALL 在默认 Agent LLM prompt、`actionContract` 或等价模型可见输入中，用短 JSON 形状表达当前允许的 `AgentAction` 类型和字段。该形状 MUST 与 Planner 可见 schema 一致，并 MUST NOT 要求模型输出内部 grounding、tool result、ResourceStore 或历史事实引用 ID。
 
-#### Scenario: prompt 展示三类 action 的合法形状
-- **WHEN** 默认 prompt 配置生成 system message
+#### Scenario: Prompt 展示新的最小 AgentAction 形状
+- **WHEN** production Planner 构造模型可见协议层
 - **THEN** 模型可见输入 MUST 包含 `tool_call`、`final_answer` 和 `ask_user` 的最小合法 JSON 形状
-- **AND** `final_answer` 示例 MUST 使用 `content`
-- **AND** `ask_user` 示例 MUST 使用 `content`
-- **AND** `tool_call` 示例 MUST 使用 `toolName` 和 `input`
-- **AND** 示例 MUST NOT 使用 `ask_user.question`、`usedToolResultIds`、`usedResourceRefs` 或其他已废弃同义字段
+- **AND** `tool_call` 示例 MUST 只包含 `type`、`toolName`、`input` 和可选活动摘要
+- **AND** `final_answer` 示例 MUST 只包含 `type`、`content`、可选 `suggestedQuestions`、可选 `visibleOutputs` 和可选活动摘要
+- **AND** `ask_user` 示例 MUST 只包含 `type`、`content`、可选 `suggestedQuestions` 和可选活动摘要
+- **AND** 示例 MUST NOT 包含 `usedRefs`、`usedToolResultIds`、`usedResourceRefs`、`consumes`、`resourceId`、`toolResultId`、`factRef` 或 `messageId`
 
-#### Scenario: prompt 说明语义差异由 type 表达
-- **WHEN** 模型可见输入说明 terminal action
-- **THEN** prompt MUST 说明 `final_answer` 与 `ask_user` 的用户可见文本都写入 `content`
-- **AND** prompt MUST 说明两者差异由 action `type` 表达
-- **AND** prompt MUST 使用中文解释业务含义，`type`、`content`、`tool_call`、`final_answer`、`ask_user` 等技术标识保持英文原样
-
-#### Scenario: prompt 说明旧字段不可用
-- **WHEN** prompt 描述字段要求或 repair 规则
-- **THEN** prompt MUST 明确 `ask_user.question`、`final_answer.assistantSuggestions`、`ask_user.suggestions`、`usedToolResultIds` 和 `usedResourceRefs` 不属于新主合同
-- **AND** prompt MUST NOT 暗示服务端会把这些字段转换成新字段
-- **AND** prompt MUST 引导模型在 repair 时直接输出新字段形状
+#### Scenario: Prompt 说明内部 provenance 由服务端维护
+- **WHEN** prompt、`actionContract`、glossary 或 planner policy 描述 final grounding
+- **THEN** 模型可见说明 MUST 表达模型只输出业务 action 和业务结构
+- **AND** 模型可见说明 MUST 表达服务端内部负责记录 tool results、ResourceStore resource、history fact provenance、visible output validation metadata 和 trace
+- **AND** 模型可见说明 MUST NOT 要求模型复制、选择、拼接或修复 `resourceId`、`toolResultId`、`factRef` 或 `messageId`
+- **AND** 模型可见说明 MUST 使用中文描述业务含义，`AgentAction`、`tool_call`、`final_answer`、`ask_user`、`visibleOutputs` 等技术标识保持英文原样
 
 ### Requirement: 默认 prompt 必须表达统一 grounding 引用字段
 系统 SHALL 在默认 Agent LLM prompt 中表达 terminal action 使用统一 `usedRefs` 引用当前 run 中已登记事实来源。Prompt MUST NOT 继续要求模型在 tool result 和 resource 之间切换不同顶层字段名。
@@ -331,16 +326,6 @@ TBD - created by archiving change externalize-agent-llm-prompts. Update Purpose 
 - **THEN** system message MUST NOT 要求每个 `final_answer` 或每个 `ask_user` 都必须包含 `suggestedQuestions`
 - **AND** system message MUST 将是否输出建议提问交给模型基于当前可见上下文、tool result、observations 和用户目标判断
 - **AND** system message MUST NOT 用固定用户短语或关键词作为输出建议提问的触发条件
-
-### Requirement: 默认 prompt 必须区分 business reference 与 current-run resourceId
-系统 SHALL 在默认 Agent LLM prompt 中说明 `final_answer.usedRefs.resource.id` 和 `ask_user.usedRefs.resource.id` 必须引用当前 run 已登记的 `resourceId`。Prompt MUST 明确业务对象 id、历史 `messageId`、示例 id、正文 id、`factRef` 或其他跨轮引用值不能当作 `resourceId` 使用。
-
-#### Scenario: resource grounding 来源可见
-- **WHEN** 默认 prompt 配置生成 system message
-- **THEN** system message MUST 说明 `resource` 引用里的 `id` 必须是当前 run registered `resourceId`
-- **AND** system message SHOULD 说明 registered `resourceId` 通常来自 tool result 的 `fulfillment.producedResources[].resourceId`
-- **AND** system message MUST 说明如果事实来自 satisfied tool result，模型可以优先使用 `usedRefs: [{ type: "tool_result", id: "..." }]`
-- **AND** system message MUST NOT 鼓励模型复制 metadata、历史消息或 tool 示例中的业务 id 作为 resource id
 
 ### Requirement: 默认 prompt 必须表达 recentVisibleTrainingProposals 的非引用边界
 系统 SHALL 在默认 prompt 中说明 `run.metadata.recentVisibleTrainingProposals` 只是不含具体引用 id 的最近可见训练方案状态摘要。该 metadata MUST NOT 被描述为 `read_recent` input 来源、`exerciseId` 来源或 terminal resource grounding 来源。
@@ -680,4 +665,28 @@ terminal failure finalizer system prompt SHALL 明确告知模型：主 Agent �
 - **THEN** repair feedback MAY 指出字段类型、长度、未知字段或内部术语泄漏等确定性错误
 - **AND** repair feedback MUST NOT 根据用户语义替模型生成新的摘要
 - **AND** 如果摘要缺失，系统 MUST NOT 因缺失该可选字段进入 repair
+
+### Requirement: 模型可见输入不得暴露可操作内部引用 ID
+系统 SHALL 将 `toolResults`、`observations`、resource 摘要、history fact 摘要和 compressed tool results 投影为模型可消费的业务事实。模型可见内容 MAY 包含业务对象的稳定标识，例如数据库 `exerciseId`；MUST NOT 暴露可被模型复制到 action 的 `toolResultId`、`resourceId`、`factRef`、`messageId` 或 trace id。
+
+#### Scenario: toolResults projection 使用业务事实而非引用操作
+- **WHEN** adapter 构造 production Planner 的当前事实层
+- **THEN** `toolResults[]` 或等价事实投影 MUST 保留模型判断下一步所需的业务事实、成功/失败状态、约束和诊断摘要
+- **AND** 投影 MUST NOT 要求模型在最终 action 中引用 `toolResultId`
+- **AND** 如 trace 仍记录 `toolResultId`，该字段 MUST 留在 trace / server metadata，不作为模型输出合同的一部分
+
+#### Scenario: history facts projection 不暴露源业务引用
+- **WHEN** 当前会话历史 `visibleTrainingProposal` 事实进入模型可见输入
+- **THEN** projection MUST 使用受控压缩业务事实表达 `proposalKind`、section 摘要、`exerciseItems`、`prescription`、`schedule` 和必要动作详情
+- **AND** projection MUST NOT 暴露 `factRef`、`messageId`、`resourceId` 或 `toolResultId`
+- **AND** projection MUST 表达这些事实来自当前 actor 和 conversation 可访问边界，但不要求模型输出来源 ID
+
+### Requirement: actionContract 必须表达 visibleOutputs 是结构化交付通道
+系统 SHALL 在 `actionContract`、output contract 或 planner policy 中表达：结构化用户可见结果通过 `final_answer.visibleOutputs[]` 交付；该结构通过 terminal output validator 后即可作为成功交付依据。模型不需要额外输出 `usedRefs` 来证明同一个 `visibleOutputs[]`。
+
+#### Scenario: visibleOutputs 成功不需要 usedRefs
+- **WHEN** 模型可见合同描述 `final_answer.visibleOutputs[]`
+- **THEN** 合同 MUST 表达 `visibleOutputs[]` 是结构化交付字段
+- **AND** 合同 MUST 表达 `visibleOutputs[]` 会由服务端基于 `outputType`、`schemaVersion` 和业务 validator 校验
+- **AND** 合同 MUST NOT 要求同一个 `final_answer` 同时输出 `usedRefs`
 
