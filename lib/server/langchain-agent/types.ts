@@ -39,6 +39,7 @@ export type LangChainAgentSchemaIssue = {
   keys?: readonly string[];
   expected?: string;
   received?: string;
+  actual?: string;
   options?: readonly string[];
 };
 

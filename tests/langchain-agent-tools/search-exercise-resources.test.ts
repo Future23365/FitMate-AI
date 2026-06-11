@@ -43,8 +43,10 @@ describe("searchExerciseResources LangChain tool", () => {
       equipment: "no_equipment",
       suitability: "training",
       maxReturned: agentRuntimeConfig.tools.searchExerciseResources.maxReturnedPerSection,
-      published: true,
       sort: "name_asc",
+    }));
+    expect(repository.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.not.objectContaining({
+      published: expect.anything(),
     }));
     expect(result.record).toMatchObject({
       toolCallId: "tc_search",
@@ -86,6 +88,12 @@ describe("searchExerciseResources LangChain tool", () => {
         exerciseSelectionRelation: expect.stringContaining("visibleTrainingProposal(kind=\"exercise_selection\")"),
       },
     });
+    expect(modelMessage).not.toHaveProperty("published");
+    expect(modelMessage.appliedFilters).toEqual(
+      expect.not.arrayContaining([
+        expect.objectContaining({ field: "published" }),
+      ]),
+    );
     expect(modelMessage.supportSectionCompletionBoundary).toContain("缺少 warmup 或 stretch");
     expect(modelMessage.supportSectionCompletionBoundary).toContain("对应 suitabilities");
     expect(modelMessage.supportSectionCompletionBoundary).not.toContain("当前 run");
@@ -164,14 +172,13 @@ describe("searchExerciseResources LangChain tool", () => {
     });
   });
 
-  it("rejects invalid fields and unpublished queries before repository execution", async () => {
+  it("rejects invalid fields and removed published input before repository execution", async () => {
     const { executeLangChainToolWrapper, tool, repository } = await importToolWithRepositoryImplementation({
       searchImplementation: async (input) => createSearchResult({ query: input }),
     });
 
     for (const input of [
       { muscles: ["胸部"], limit: 10 },
-      { muscles: ["胸部"], published: false },
       { muscles: ["胸部"], homeRequirement: "无器械" },
     ]) {
       const result = await executeLangChainToolWrapper(
@@ -186,6 +193,37 @@ describe("searchExerciseResources LangChain tool", () => {
         failureCode: "tool_schema_invalid",
       });
     }
+
+    const removedPublishedResult = await executeLangChainToolWrapper(
+      tool,
+      { muscles: ["胸部"], published: false },
+      { actor: { userId: "user-1" } },
+    );
+    const modelMessage = JSON.parse(removedPublishedResult.modelMessage);
+
+    expect(removedPublishedResult.record).toMatchObject({
+      toolName: "searchExerciseResources",
+      status: "failed",
+      failureCode: "tool_schema_invalid",
+      schemaIssues: [
+        expect.objectContaining({
+          path: "$",
+          code: "unrecognized_keys",
+          keys: ["published"],
+        }),
+      ],
+    });
+    expect(modelMessage).toMatchObject({
+      status: "failed",
+      code: "tool_schema_invalid",
+      issues: [
+        expect.objectContaining({
+          path: "$",
+          code: "unrecognized_keys",
+          keys: ["published"],
+        }),
+      ],
+    });
     expect(repository.searchExerciseResourceSummaries).not.toHaveBeenCalled();
   });
 });

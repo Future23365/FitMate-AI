@@ -169,6 +169,8 @@ export async function executeLangChainToolWrapper<SchemaT extends z.ZodObject, O
   }
 
   if (!parsedInput.success) {
+    const schemaIssues = summarizeZodIssues(parsedInput.error, rawInput);
+
     return createFailedToolExecution({
       wrapper,
       toolCallId: options.toolCallId,
@@ -176,11 +178,12 @@ export async function executeLangChainToolWrapper<SchemaT extends z.ZodObject, O
       inputSummary,
       failureCode: "tool_schema_invalid",
       failureMessage: "工具参数未通过服务端 schema 校验。",
-      schemaIssues: summarizeZodIssues(parsedInput.error),
+      schemaIssues,
       modelMessage: {
         status: "failed",
         code: "tool_schema_invalid",
-        message: "工具参数未通过服务端 schema 校验；请只修正当前工具参数，不要假装工具已成功。",
+        message: "工具参数未通过服务端 schema 校验；请只修正 issues 中列出的字段，不要假装工具已成功。",
+        issues: schemaIssues,
       },
     });
   }
@@ -193,6 +196,8 @@ export async function executeLangChainToolWrapper<SchemaT extends z.ZodObject, O
     const parsedOutput = wrapper.outputSchema?.safeParse(rawOutput);
 
     if (parsedOutput && !parsedOutput.success) {
+      const schemaIssues = summarizeZodIssues(parsedOutput.error, rawOutput);
+
       return createFailedToolExecution({
         wrapper,
         toolCallId: options.toolCallId,
@@ -200,7 +205,7 @@ export async function executeLangChainToolWrapper<SchemaT extends z.ZodObject, O
         inputSummary,
         failureCode: "structured_output_validation_failed",
         failureMessage: "工具输出未通过服务端 schema 校验。",
-        schemaIssues: summarizeZodIssues(parsedOutput.error),
+        schemaIssues,
         modelMessage: {
           status: "failed",
           code: "structured_output_validation_failed",
@@ -312,7 +317,7 @@ function createFailedToolExecution(input: {
 }
 
 // summarizeZodIssues 只记录可定位 schema 问题的稳定字段，避免把完整 tool payload 写进 trace。
-function summarizeZodIssues(error: z.ZodError): readonly LangChainAgentSchemaIssue[] {
+function summarizeZodIssues(error: z.ZodError, rawValue: unknown): readonly LangChainAgentSchemaIssue[] {
   return error.issues.slice(0, 20).map((issue) => {
     const baseIssue: LangChainAgentSchemaIssue = {
       path: issue.path.length ? issue.path.map(String).join(".") : "$",
@@ -323,17 +328,34 @@ function summarizeZodIssues(error: z.ZodError): readonly LangChainAgentSchemaIss
       keys?: unknown;
       expected?: unknown;
       received?: unknown;
+      values?: unknown;
       options?: unknown;
     };
+    const actual = isSensitiveIssuePath(issue.path)
+      ? "redacted"
+      : summarizeIssueActualValue(readIssuePathValue(rawValue, issue.path));
 
     return {
       ...baseIssue,
       ...readStringArrayIssueField(details.keys, "keys"),
-      ...readStringIssueField(details.expected, "expected"),
+      ...readExpectedIssueField(details),
       ...readStringIssueField(details.received, "received"),
+      ...(actual ? { actual } : {}),
       ...readStringArrayIssueField(details.options, "options"),
     };
   });
+}
+
+function readExpectedIssueField(details: z.ZodIssue & { expected?: unknown; values?: unknown }) {
+  if (typeof details.expected === "string") {
+    return { expected: details.expected };
+  }
+
+  if (Array.isArray(details.values) && details.values.length > 0) {
+    return { expected: details.values.slice(0, 20).map(summarizePrimitiveIssueValue).join(" | ") };
+  }
+
+  return {};
 }
 
 function readStringIssueField(value: unknown, key: "expected" | "received") {
@@ -344,4 +366,90 @@ function readStringArrayIssueField(value: unknown, key: "keys" | "options") {
   return Array.isArray(value)
     ? { [key]: value.slice(0, 20).map(String) }
     : {};
+}
+
+function readIssuePathValue(rawValue: unknown, path: readonly (string | number | symbol)[]) {
+  let current = rawValue;
+
+  for (const segment of path) {
+    if (typeof segment === "symbol") {
+      return undefined;
+    }
+
+    if (current === null || current === undefined) {
+      return undefined;
+    }
+
+    if (Array.isArray(current) && typeof segment === "number") {
+      current = current[segment];
+      continue;
+    }
+
+    if (typeof current === "object" && String(segment) in current) {
+      current = (current as Record<string, unknown>)[String(segment)];
+      continue;
+    }
+
+    return undefined;
+  }
+
+  return current;
+}
+
+function isSensitiveIssuePath(path: readonly (string | number | symbol)[]) {
+  const sensitivePattern = /password|token|secret|authorization|api[_-]?key|credential/i;
+
+  return path.some((segment) => typeof segment !== "symbol" && sensitivePattern.test(String(segment)));
+}
+
+function summarizeIssueActualValue(value: unknown) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return "null";
+  }
+
+  if (typeof value === "string") {
+    return `string ${JSON.stringify(truncateIssueValue(value))}`;
+  }
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? `number ${value}` : "number";
+  }
+
+  if (typeof value === "boolean") {
+    return `boolean ${value}`;
+  }
+
+  if (Array.isArray(value)) {
+    return `array(length=${value.length})`;
+  }
+
+  if (typeof value === "object") {
+    return "object";
+  }
+
+  return typeof value;
+}
+
+function summarizePrimitiveIssueValue(value: unknown) {
+  if (typeof value === "string") {
+    return JSON.stringify(truncateIssueValue(value));
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  if (value === null) {
+    return "null";
+  }
+
+  return typeof value;
+}
+
+function truncateIssueValue(value: string) {
+  return value.length > 80 ? `${value.slice(0, 77)}...` : value;
 }

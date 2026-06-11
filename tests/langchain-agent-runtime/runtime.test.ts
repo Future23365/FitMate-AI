@@ -1,4 +1,4 @@
-import { AIMessage, fakeModel } from "langchain";
+import { AIMessage, ToolMessage, fakeModel } from "langchain";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
@@ -40,6 +40,19 @@ const failingTool = defineLangChainToolWrapper({
     throw new Error("repository unavailable");
   },
   toModelVisibleSummary: () => "不会执行到这里。",
+});
+
+const sensitiveTool = defineLangChainToolWrapper({
+  name: "sensitiveCredentialTool",
+  description: "用于验证 schema repair payload 不回显敏感字段值的测试工具。",
+  inputSchema: z.object({
+    apiToken: z.string(),
+  }).strict(),
+  handler: async (input) => ({
+    status: "succeeded" as const,
+    tokenLength: input.apiToken.length,
+  }),
+  toModelVisibleSummary: (output) => output,
 });
 
 const baseInput = {
@@ -404,8 +417,63 @@ describe("LangChain Agent runtime", () => {
         toolName: "echoExerciseGoal",
         status: "failed",
         failureCode: "tool_schema_invalid",
+        schemaIssues: [
+          expect.objectContaining({
+            path: "goal",
+            code: "invalid_type",
+            expected: "string",
+          }),
+        ],
       },
     ]);
+
+    const failedToolMessage = result.messages
+      .filter((message): message is ToolMessage => ToolMessage.isInstance(message))
+      .find((message) => String(message.content).includes("tool_schema_invalid"));
+    const modelVisibleFailure = JSON.parse(String(failedToolMessage?.content));
+
+    expect(modelVisibleFailure).toMatchObject({
+      status: "failed",
+      code: "tool_schema_invalid",
+      issues: [
+        expect.objectContaining({
+          path: "goal",
+          code: "invalid_type",
+          expected: "string",
+        }),
+      ],
+    });
+  });
+
+  it("redacts sensitive actual values from schema repair payloads", async () => {
+    const model = fakeModel()
+      .respondWithTools([{ name: "sensitiveCredentialTool", args: { apiToken: 123456 }, id: "call_1" }])
+      .respondWithTools([createFinalResponseToolCall({ content: "工具参数需要修正。" })]);
+
+    const result = await runLangChainAgentRuntime({
+      ...baseInput,
+      model,
+      toolWrappers: [sensitiveTool],
+    });
+    const failedToolMessage = result.messages
+      .filter((message): message is ToolMessage => ToolMessage.isInstance(message))
+      .find((message) => String(message.content).includes("tool_schema_invalid"));
+    const modelVisibleFailure = JSON.parse(String(failedToolMessage?.content));
+
+    expect(result.toolExecutions[0]).toMatchObject({
+      status: "failed",
+      failureCode: "tool_schema_invalid",
+      schemaIssues: [
+        expect.objectContaining({
+          path: "apiToken",
+          actual: "redacted",
+        }),
+      ],
+    });
+    expect(modelVisibleFailure.issues[0]).toMatchObject({
+      path: "apiToken",
+      actual: "redacted",
+    });
   });
 
   it("returns wrapper failure summaries to the model context", async () => {

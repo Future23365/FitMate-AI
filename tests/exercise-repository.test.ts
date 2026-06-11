@@ -89,7 +89,6 @@ describe("exercise repository", () => {
       riskTag: "shoulder_pain",
       requiredExerciseIds: ["required-training"],
       excludeExerciseIds: ["excluded-training"],
-      published: true,
       sort: "name_asc",
     });
     const countArgs = prismaMock.exercise.count.mock.calls[0][0];
@@ -109,11 +108,11 @@ describe("exercise repository", () => {
     expect(serializedWhere).toContain("\"primaryMuscles\":{\"has\":\"胸部\"}");
     expect(serializedWhere).toContain("\"id\":{\"in\":[\"required-training\"]}");
     expect(serializedWhere).toContain("\"id\":{\"notIn\":[\"excluded-training\"]}");
+    expect(serializedWhere).not.toContain("isPublished");
     expect(result.filterApplication).toMatchObject({
       section: "training",
       hardFilterPolicy: "training",
       appliedHardFilters: expect.arrayContaining([
-        "published",
         "suitabilities",
         "q",
         "category",
@@ -159,7 +158,6 @@ describe("exercise repository", () => {
       riskTag: "shoulder_pain",
       requiredExerciseIds: ["required-warmup"],
       excludeExerciseIds: ["excluded-warmup"],
-      published: true,
       sort: "name_asc",
     });
     const countArgs = prismaMock.exercise.count.mock.calls[0][0];
@@ -168,7 +166,7 @@ describe("exercise repository", () => {
 
     expect(countArgs.where).toEqual(findManyArgs.where);
     expect(findManyArgs.take).toBeGreaterThan(1);
-    expect(serializedWhere).toContain("\"isPublished\":true");
+    expect(serializedWhere).not.toContain("isPublished");
     expect(serializedWhere).toContain("\"allowedSections\":{\"has\":\"warmup\"}");
     expect(serializedWhere).toContain("\"equipment\":{\"in\":[\"body only\",\"bodyweight\"]}");
     expect(serializedWhere).toContain("\"equipmentZh\":{\"in\":[\"自重\"]}");
@@ -187,7 +185,6 @@ describe("exercise repository", () => {
       section: "warmup",
       hardFilterPolicy: "support_section",
       appliedHardFilters: expect.arrayContaining([
-        "published",
         "suitabilities",
         "equipment",
         "homeRequirement",

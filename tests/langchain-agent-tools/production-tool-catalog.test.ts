@@ -60,6 +60,20 @@ describe("production LangChain tool catalog", () => {
     expect(searchTool?.description).toContain("胸部");
     expect(searchTool?.description).toContain("no_equipment");
   });
+
+  it("does not expose published as searchExerciseResources model input", () => {
+    const tools = createProductionLangChainToolCatalog({
+      searchExerciseResourcesFacetCatalog: createFacetCatalog(),
+    });
+    const searchTool = tools.find((tool) => tool.name === "searchExerciseResources");
+
+    expect(searchTool?.description).not.toContain("published");
+    expect(searchTool?.inputSchema.safeParse({
+      muscles: ["胸部"],
+      published: true,
+      sort: "name_asc",
+    }).success).toBe(false);
+  });
 });
 
 function createFacetCatalog(): ExerciseResourceFacetCatalog {

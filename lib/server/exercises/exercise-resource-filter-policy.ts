@@ -39,13 +39,11 @@ export type ExerciseResourceFilterPolicyInput = {
   riskTag?: string;
   excludeExerciseIds?: string[];
   requiredExerciseIds?: string[];
-  published?: boolean;
 };
 
-type FilterValue = string | boolean | string[] | undefined;
+type FilterValue = string | string[] | undefined;
 
 export const EXERCISE_RESOURCE_FILTER_APPLICATION_FIELDS = [
-  "published",
   "suitabilities",
   "q",
   "category",
@@ -65,7 +63,6 @@ export const EXERCISE_RESOURCE_SUPPORT_SECTION_UNAPPLIED_FILTER_CODE =
   "not_applied_as_hard_filter_for_support_section" as const;
 
 const supportSectionAppliedHardFilters = new Set<ExerciseResourceFilterApplicationField>([
-  "published",
   "suitabilities",
   "equipment",
   "homeRequirement",
@@ -75,7 +72,6 @@ const supportSectionAppliedHardFilters = new Set<ExerciseResourceFilterApplicati
 ]);
 
 const trainingAppliedHardFilters = new Set<ExerciseResourceFilterApplicationField>([
-  "published",
   "suitabilities",
   "q",
   "category",
@@ -95,7 +91,6 @@ const fieldReaders: Array<{
   field: ExerciseResourceFilterApplicationField;
   read: (input: ExerciseResourceFilterPolicyInput) => FilterValue;
 }> = [
-  { field: "published", read: (input) => input.published },
   { field: "suitabilities", read: (input) => input.suitability ? [input.suitability] : undefined },
   { field: "q", read: (input) => input.q },
   { field: "category", read: (input) => input.category },

@@ -80,7 +80,6 @@ export type ExerciseResourceSearchInput = {
   requiredExerciseIds?: string[];
   excludeExerciseIds?: string[];
   maxReturned?: number;
-  published: boolean;
   sort: ExerciseSort;
 };
 
@@ -93,7 +92,7 @@ export type ExerciseResourceMentionResolutionInput = {
 
 export type ExerciseResourceAppliedFilter = {
   field: ExerciseResourceFilterField;
-  value: string | boolean | string[];
+  value: string | string[];
 };
 
 export type ExerciseResourceFilterSemantic = {
@@ -808,7 +807,7 @@ export async function getExerciseResourceSummariesByIds(ids: readonly string[]):
     .map(mapExerciseResourceSummary);
 }
 
-/** readExerciseResourceFacetCatalog 暴露发布态动作库当前可执行 facet，供 Planner manifest 使用。 */
+/** readExerciseResourceFacetCatalog 暴露动作库当前可执行 facet，供 Planner manifest 使用。 */
 export async function readExerciseResourceFacetCatalog(): Promise<ExerciseResourceFacetCatalog> {
   if (!isDatabaseConfigured()) {
     throw new Error("DATABASE_URL is required before reading exercise facet catalog from PostgreSQL.");
@@ -816,7 +815,6 @@ export async function readExerciseResourceFacetCatalog(): Promise<ExerciseResour
 
   const prisma = getPrismaClient();
   const records = await prisma.exercise.findMany({
-    where: { isPublished: true },
     select: exerciseResourceFacetCatalogSelect,
   });
 
@@ -923,10 +921,6 @@ function buildExerciseResourceWhere(
   const sharedHardFilters: Prisma.ExerciseWhereInput[] = [];
   const candidateHardFilters: Prisma.ExerciseWhereInput[] = [];
 
-  if (isExerciseResourceHardFilterApplied(filterApplication, "published")) {
-    sharedHardFilters.push({ isPublished: input.published });
-  }
-
   if (input.suitability && isExerciseResourceHardFilterApplied(filterApplication, "suitabilities")) {
     sharedHardFilters.push({ allowedSections: { has: input.suitability } });
   }
@@ -975,7 +969,7 @@ function buildExerciseResourceWhere(
   if (requiredExerciseIds.length > 0 && isExerciseResourceHardFilterApplied(filterApplication, "requiredExerciseIds")) {
     const requiredExerciseIdFilter: Prisma.ExerciseWhereInput = { id: { in: requiredExerciseIds } };
 
-    // requiredExerciseIds 是正向锚点：发布态、section 和 exclude 仍是共同硬边界，其他 facet 冲突交给 diagnostics 暴露。
+    // requiredExerciseIds 是正向锚点：section 和 exclude 仍是共同硬边界，其他 facet 冲突交给 diagnostics 暴露。
     return {
       AND: [
         ...sharedHardFilters,
@@ -1140,7 +1134,6 @@ function collectExerciseResourceAppliedFilters(
     "riskTag",
     "requiredExerciseIds",
     "excludeExerciseIds",
-    "published",
   ] satisfies ExerciseResourceFilterField[])
     .flatMap((field) => {
       const applicationField = (field === "suitability" ? "suitabilities" : field) as ExerciseResourceFilterApplication["appliedHardFilters"][number];

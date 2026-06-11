@@ -32,7 +32,6 @@ import { toLangChainJsonValue } from "../utils";
 const maxMentionCount = 12;
 const textFilterValueSchema = z.string().trim().min(1).max(120);
 const optionalTextFilterSchema = textFilterValueSchema.optional();
-const publishedInputSchema = z.literal(true).optional().default(true);
 const maxExcludeExerciseIds = 50;
 const maxRequiredExerciseIds = 12;
 const maxMuscles = 20;
@@ -108,9 +107,8 @@ const appliedFilterSchema = z.object({
     "riskTag",
     "excludeExerciseIds",
     "requiredExerciseIds",
-    "published",
   ]),
-  value: z.union([z.string(), z.boolean(), z.array(z.string())]),
+  value: z.union([z.string(), z.array(z.string())]),
 }).strict();
 
 const filterApplicationFieldSchema = z.enum(EXERCISE_RESOURCE_FILTER_APPLICATION_FIELDS);
@@ -173,7 +171,7 @@ const suitabilityGroupSchema = z.object({
   returnedCount: z.number().int().min(0),
   truncated: z.boolean(),
   exercises: z.array(exerciseResourceSummarySchema)
-    .describe("该 groups.<section> 分组下返回的发布态动作事实；生成 visibleTrainingProposal.exerciseItems[] 时，section 应与所在 group key 和动作 allowedSections 保持一致。"),
+    .describe("该 groups.<section> 分组下返回的动作库事实；生成 visibleTrainingProposal.exerciseItems[] 时，section 应与所在 group key 和动作 allowedSections 保持一致。"),
 }).strict();
 
 /** resolveExerciseResourceMentionsInputSchema 定义模型可调用的点名动作解析输入，只接受结构化 mention。 */
@@ -194,7 +192,7 @@ export const resolveExerciseResourceMentionsOutputSchema = z.object({
   results: z.array(mentionResolutionResultSchema),
 }).strict();
 
-/** searchExerciseResourcesInputSchema 定义发布态动作事实查询输入，不接受分页、limit、userId 或自然语言分流参数。 */
+/** searchExerciseResourcesInputSchema 定义动作库事实查询输入，不接受分页、limit、userId 或自然语言分流参数。 */
 export const searchExerciseResourcesInputSchema = z.object({
   q: optionalTextFilterSchema.describe("确定性动作文本搜索字段，可匹配动作名称、公开分类、肌群、标签或 embeddingText；不是向量语义召回；仅在 training policy 中作为 hard filter，support_section policy 会披露其未作为 hard filter 使用且模型可见投影不回灌 q 原文。"),
   category: optionalTextFilterSchema.describe(`动作分类或中文分类的精确筛选值。${trainingPolicyFacetDescription}`),
@@ -202,7 +200,7 @@ export const searchExerciseResourcesInputSchema = z.object({
     .min(1)
     .max(3)
     .optional()
-    .describe("动作适配用途数组，只允许 warmup、training 或 stretch；省略时按 training 主训练候选查询。training 使用严格 hard filter policy；warmup / stretch 使用 support_section policy，只把发布态、section、器械、场地、肌群和受控动作 id 作为 hard filter。目标需要 routine 或 plan、模型可见事实已覆盖 training 动作且缺少 warmup / stretch 时，可用 [\"warmup\", \"stretch\"] 或等价缺失 section 查询补齐候选。"),
+    .describe("动作适配用途数组，只允许 warmup、training 或 stretch；省略时按 training 主训练候选查询。training 使用严格 hard filter policy；warmup / stretch 使用 support_section policy，只把 section、器械、场地、肌群和受控动作 id 作为 hard filter。目标需要 routine 或 plan、模型可见事实已覆盖 training 动作且缺少 warmup / stretch 时，可用 [\"warmup\", \"stretch\"] 或等价缺失 section 查询补齐候选。"),
   level: optionalTextFilterSchema.describe(`动作难度或中文难度的精确筛选值。${trainingPolicyFacetDescription}`),
   force: optionalTextFilterSchema.describe(`发力类型或中文发力类型的精确筛选值。${trainingPolicyFacetDescription}`),
   mechanic: optionalTextFilterSchema.describe(`动作机制或中文动作机制的精确筛选值。${trainingPolicyFacetDescription}`),
@@ -222,8 +220,7 @@ export const searchExerciseResourcesInputSchema = z.object({
   requiredExerciseIds: z.array(exerciseIdSchema)
     .max(maxRequiredExerciseIds)
     .optional()
-    .describe("正向查询锚点；当模型已有受控发布态动作 id 时使用，例如来自 resolveExerciseResourceMentions、已导入可见训练事实或用户明确给出的受控 id。tool 会优先把这些动作纳入现有 groups.<section>.exercises 列表，并用 diagnostics 说明无法纳入或筛选不完全一致的原因。"),
-  published: publishedInputSchema.describe("生产聊天只能查询发布态动作；省略时固定为 true，显式 false 会被拒绝。"),
+    .describe("正向查询锚点；当模型已有受控动作 id 时使用，例如来自 resolveExerciseResourceMentions、已导入可见训练事实或用户明确给出的受控 id。tool 会优先把这些动作纳入现有 groups.<section>.exercises 列表，并用 diagnostics 说明无法纳入或筛选不完全一致的原因。"),
   sort: exerciseSortSchema.default("name_asc").describe("固定排序字段，不支持分页、limit、offset、page 或 pageSize。"),
 }).strict();
 
@@ -244,7 +241,6 @@ export const searchExerciseResourcesOutputSchema = z.object({
     riskTag: z.string().optional(),
     excludeExerciseIds: z.array(exerciseIdSchema).optional(),
     requiredExerciseIds: z.array(exerciseIdSchema).optional(),
-    published: z.literal(true),
     sort: exerciseSortSchema,
     appliedFilters: z.array(appliedFilterSchema),
     filterApplications: z.array(filterApplicationSchema)
@@ -266,7 +262,6 @@ export const searchExerciseResourcesOutputSchema = z.object({
     code: z.enum([
       "no_candidates",
       "required_exercise_not_found",
-      "required_exercise_unpublished",
       "required_exercise_section_conflict",
       "required_exercise_excluded",
       "required_exercise_filter_mismatch",
@@ -388,20 +383,20 @@ export const resolveExerciseResourceMentionsLangChainTool = defineLangChainToolW
   }),
 });
 
-/** createSearchExerciseResourcesLangChainTool 构造发布态动作事实查询 LangChain tool，可注入当前动作库 facet catalog。 */
+/** createSearchExerciseResourcesLangChainTool 构造动作库事实查询 LangChain tool，可注入当前动作库 facet catalog。 */
 export function createSearchExerciseResourcesLangChainTool(
   options: CreateSearchExerciseResourcesLangChainToolOptions = {},
 ) {
   return defineLangChainToolWrapper<typeof searchExerciseResourcesInputSchema, SearchExerciseResourcesOutput>({
     name: "searchExerciseResources",
     description: [
-      "只读查询发布态 Exercise 动作事实，并按 suitabilities 返回 groups.<section>.exercises[]；这些 section-scoped exercises 是训练结构动作项的主要事实来源。",
+      "只读查询 Exercise 动作库事实，并按 suitabilities 返回 groups.<section>.exercises[]；这些 section-scoped exercises 是训练结构动作项的主要事实来源。",
       "使用边界：用户需要动作候选、routine 或 plan，并且已有肌群、器械、难度、场地、目标标签、section 用途或受控 exerciseId 等结构化约束时使用。",
       "当目标需要 routine 或 plan，且模型可见动作事实已覆盖 training 但缺少 warmup 或 stretch 时，应优先用缺失 section 的 suitabilities 继续查询 support section 候选。",
       "本 tool 只提供动作事实，不生成 visibleTrainingProposal 或训练卡片；若要把一组动作作为用户可见、可后续引用的训练结果交付，需要通过结构化收口 tool 提交并通过服务端校验。",
       "所有精确 facet 值应优先从动作库 facet catalog 选择；无外部器械统一写 equipment: \"no_equipment\"；homeRequirement 只表示环境、场地或支撑条件。",
-      "requiredExerciseIds 是正向锚点，用于让已解析或已导入的发布态动作优先进入 groups；excludeExerciseIds 是负向排除，用于替换或避免重复。",
-      "不要用本 tool 判断当前会话有没有上一轮 visibleTrainingProposal、读取完整历史方案、查询未发布动作、分页、limit、offset、page、pageSize 或语义向量检索。",
+      "requiredExerciseIds 是正向锚点，用于让已解析或已导入的受控动作优先进入 groups；excludeExerciseIds 是负向排除，用于替换或避免重复。",
+      "不要用本 tool 判断当前会话有没有上一轮 visibleTrainingProposal、读取完整历史方案、分页、limit、offset、page、pageSize 或语义向量检索。",
       formatFacetCatalogForDescription(options.facetCatalog),
     ].filter(Boolean).join("\n"),
     inputSchema: searchExerciseResourcesInputSchema,
@@ -421,7 +416,6 @@ export function createSearchExerciseResourcesLangChainTool(
         suitability,
         excludeExerciseIds,
         requiredExerciseIds,
-        published: input.published,
       }));
       const [requiredExercises, results] = await Promise.all([
         requiredExerciseIds?.length
@@ -442,7 +436,6 @@ export function createSearchExerciseResourcesLangChainTool(
           requiredExerciseIds,
           excludeExerciseIds,
           maxReturned: agentRuntimeConfig.tools.searchExerciseResources.maxReturnedPerSection,
-          published: input.published,
           sort: input.sort,
         }))),
       ]);
@@ -511,7 +504,6 @@ export function createSearchExerciseResourcesLangChainTool(
           riskTag: firstResult.query.riskTag,
           excludeExerciseIds: firstResult.query.excludeExerciseIds,
           requiredExerciseIds,
-          published: true,
           sort: firstResult.query.sort,
           appliedFilters: collectAppliedFilters(normalizedInput, filterApplications, suitabilities, excludeExerciseIds, requiredExerciseIds),
           filterApplications,
@@ -776,7 +768,7 @@ function isBroadExerciseResourceQueryOutput(output: SearchExerciseResourcesOutpu
 }
 
 function isSpecificExerciseResourceFilter(field: SearchExerciseResourcesOutput["query"]["filterApplications"][number]["appliedHardFilters"][number]) {
-  return field !== "suitabilities" && field !== "published";
+  return field !== "suitabilities";
 }
 
 function buildQuerySpecificityObservation(output: SearchExerciseResourcesOutput): Record<string, string | string[]> {
@@ -791,7 +783,7 @@ function buildQuerySpecificityObservation(output: SearchExerciseResourcesOutput)
     return {
       status: "too_broad",
       specificFilters,
-      boundary: "本次 searchExerciseResources input 除默认 suitabilities、published、sort 外没有任何目标、facet、器械、场地、点名动作或模型可见动作锚点；fulfillment.satisfied=false。",
+      boundary: "本次 searchExerciseResources input 除默认 suitabilities、sort 外没有任何目标、facet、器械、场地、点名动作或模型可见动作锚点；fulfillment.satisfied=false。",
     };
   }
 
@@ -837,7 +829,6 @@ function collectAppliedFilters(
     riskTag: input.riskTag,
     excludeExerciseIds,
     requiredExerciseIds,
-    published: input.published,
   } as const;
 
   for (const [field, value] of Object.entries(entries)) {
@@ -896,16 +887,6 @@ function collectRequiredExerciseDiagnostics(input: {
       continue;
     }
 
-    if (!exercise.isPublished) {
-      diagnostics.push({
-        suitability: input.suitability,
-        code: "required_exercise_unpublished",
-        exerciseId,
-        message: `指定动作 ${exerciseId} 不是发布态动作，无法纳入 ${input.suitability} 动作列表。`,
-      });
-      continue;
-    }
-
     if (excludedIds.has(exerciseId)) {
       diagnostics.push({
         suitability: input.suitability,
@@ -958,7 +939,6 @@ function collectRequiredExercisesForGroup(input: {
   return input.requiredExerciseIds
     .map((exerciseId) => input.requiredById.get(exerciseId))
     .filter((exercise): exercise is ExerciseResourceSummary => Boolean(exercise))
-    .filter((exercise) => exercise.isPublished)
     .filter((exercise) => !excludedIds.has(exercise.id))
     .filter((exercise) => exercise.allowedSections.includes(input.suitability));
 }
