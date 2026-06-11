@@ -44,7 +44,8 @@ export function buildLangChainAgentSystemPrompt(input: BuildLangChainAgentSystem
     "- 需要用户补充信息时，直接提出一个清晰问题。",
     "",
     "运行预算：",
-    `- 本轮最多 ${config.runBudget.maxToolCalls} 次工具调用。`,
+    `- 本轮最多 ${config.runBudget.maxToolCalls} 次业务工具调用。`,
+    `- reportAgentActivity 最多 ${config.runBudget.maxActivityReports} 次；它不计入业务工具调用预算，但仍受本轮模型调用预算约束。`,
     `- 单次工具默认超时 ${config.toolWrapper.defaultTimeoutMs}ms。`,
   ].filter((line): line is string => typeof line === "string").join("\n");
 }

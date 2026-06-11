@@ -21,12 +21,10 @@ export type AgentRuntimeConfig = {
       };
     };
     runBudget: {
-      maxIterations: number;
       maxModelCalls: number;
       maxToolCalls: number;
       maxActivityReports: number;
       overallTimeoutMs: number;
-      structuredOutputValidationTimeoutMs: number;
     };
     activityReport: {
       maxSummaryLength: number;
@@ -140,18 +138,14 @@ export const agentRuntimeConfig = {
     },
     /** runBudget 控制 LangChain agent harness 最大推进范围，避免 provider/tool 循环拖垮请求。 */
     runBudget: {
-      /** maxIterations 限制 LangChain agent 迭代次数；调大增加模型和 tool 成本。 */
-      maxIterations: 8,
-      /** maxModelCalls 限制单次聊天最多模型调用次数；调大可能掩盖 prompt 或 tool 合同问题。 */
-      maxModelCalls: 6,
+      /** maxModelCalls 限制单次聊天最多 provider 模型调用次数；runtime 也用它推导 LangChain graph recursionLimit。 */
+      maxModelCalls: 8,
       /** maxToolCalls 限制单次聊天最多业务 tool 执行次数；调大增加数据库压力和上下文体积。 */
       maxToolCalls: 5,
-      /** maxActivityReports 限制模型当前步骤汇报次数；不计入业务 tool 预算，但仍防止状态刷屏。 */
-      maxActivityReports: 8,
+      /** maxActivityReports 限制模型当前步骤汇报次数；不计入业务 tool 预算，但仍消耗模型调用和 graph step。 */
+      maxActivityReports: 2,
       /** overallTimeoutMs 是整次 LangChain run 墙钟预算；调大增加请求占用，调小可能中断合法慢路径。 */
       overallTimeoutMs: 40_000,
-      /** structuredOutputValidationTimeoutMs 限制终态结构化校验等待时间，防止 validator 卡住响应投影。 */
-      structuredOutputValidationTimeoutMs: 3_000,
     },
     /** activityReport 控制模型生成活动摘要的宽松展示边界，不参与业务 grounding。 */
     activityReport: {

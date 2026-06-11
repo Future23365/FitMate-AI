@@ -4,6 +4,7 @@ import {
   agentRuntimeConfig,
   resolveLangChainDeepSeekProviderConfig,
 } from "@/lib/server/config";
+import { resolveLangChainGraphRecursionLimit } from "@/lib/server/langchain-agent";
 
 describe("LangChain Agent runtime config", () => {
   it("centralizes DeepSeek native tool calling defaults", () => {
@@ -27,12 +28,30 @@ describe("LangChain Agent runtime config", () => {
 
   it("keeps production tool catalog static and free of fixture tools", () => {
     expect(agentRuntimeConfig.langChain.toolCatalog.allowedToolNames).toEqual([
+      "reportAgentActivity",
       "inspectVisibleTrainingProposals",
       "resolveExerciseResourceMentions",
       "searchExerciseResources",
       "submitVisibleTrainingProposal",
     ]);
     expect(agentRuntimeConfig.langChain.toolCatalog.allowedToolNames).not.toContain("readFixture");
+  });
+
+  it("keeps LangChain run budgets synchronized with graph recursion semantics", () => {
+    expect(agentRuntimeConfig.langChain.runBudget).toMatchObject({
+      maxModelCalls: 8,
+      maxToolCalls: 5,
+      maxActivityReports: 2,
+      overallTimeoutMs: 40_000,
+    });
+    expect(resolveLangChainGraphRecursionLimit(agentRuntimeConfig.langChain.runBudget)).toBe(17);
+    expect(agentRuntimeConfig.langChain.runBudget.maxModelCalls).toBe(
+      agentRuntimeConfig.langChain.runBudget.maxToolCalls
+        + agentRuntimeConfig.langChain.runBudget.maxActivityReports
+        + 1,
+    );
+    expect("maxIterations" in agentRuntimeConfig.langChain.runBudget).toBe(false);
+    expect("structuredOutputValidationTimeoutMs" in agentRuntimeConfig.langChain.runBudget).toBe(false);
   });
 
   it("resolves DeepSeek deployment env without route-level parsing", () => {

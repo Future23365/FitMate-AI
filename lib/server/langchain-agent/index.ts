@@ -40,6 +40,7 @@ export {
 
 export {
   runLangChainAgentRuntime,
+  resolveLangChainGraphRecursionLimit,
   type RunLangChainAgentRuntimeInput,
 } from "./runtime";
 

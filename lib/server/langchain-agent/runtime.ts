@@ -3,7 +3,7 @@ import "server-only";
 import { createAgent, createMiddleware, AIMessage, ToolMessage, toolStrategy } from "langchain";
 import type { ModelRequest } from "langchain";
 
-import { agentRuntimeConfig } from "@/lib/server/config";
+import { agentRuntimeConfig, type AgentRuntimeConfig } from "@/lib/server/config";
 
 import { createLangChainDeepSeekModel, type LangChainDeepSeekModelFactoryResult } from "./model-factory";
 import { buildLangChainAgentSystemPrompt } from "./prompt";
@@ -65,6 +65,7 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
   const toolWrappers = input.toolWrappers ?? [];
   const modelCallRecorder = createLangChainModelCallTraceRecorder({
     toolWrappers,
+    maxModelCalls: config.runBudget.maxModelCalls,
     onRuntimeEvent: input.onRuntimeEvent,
   });
   const abortController = new AbortController();
@@ -106,7 +107,7 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
     const state = await agent.invoke({
       messages: input.messages.map((message) => ({ role: message.role, content: message.content })),
     }, {
-      recursionLimit: Math.max(2, config.runBudget.maxIterations + 2),
+      recursionLimit: resolveLangChainGraphRecursionLimit(config.runBudget),
       signal: abortController.signal,
     });
     const messages = Array.isArray(state.messages) ? state.messages : [];
@@ -208,6 +209,13 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
   }
 }
 
+/** resolveLangChainGraphRecursionLimit 将模型调用预算映射为 LangChain graph step 上限，避免旧 iteration 语义与 LangGraph 计数脱节。 */
+export function resolveLangChainGraphRecursionLimit(
+  runBudget: Pick<AgentRuntimeConfig["langChain"]["runBudget"], "maxModelCalls">,
+) {
+  return Math.max(2, (runBudget.maxModelCalls * 2) + 1);
+}
+
 function createToolExecutionBudget(input: {
   maxBusinessToolCalls: number;
   maxActivityReports: number;
@@ -307,6 +315,7 @@ function findToolCallModelLinkage(
 
 function createLangChainModelCallTraceRecorder(input: {
   toolWrappers: readonly LangChainToolWrapper[];
+  maxModelCalls: number;
   onRuntimeEvent?: (event: LangChainAgentRuntimeObserverEvent) => void | Promise<void>;
 }) {
   const modelCalls: LangChainAgentModelCallTrace[] = [];
@@ -319,9 +328,14 @@ function createLangChainModelCallTraceRecorder(input: {
       name: "FitMateLangChainTraceMiddleware",
       wrapModelCall: async (request, handler) => {
         const currentModelCallIndex = modelCallIndex + 1;
+        const requestSummary = summarizeLangChainModelRequest(request, input.toolWrappers);
+
+        if (currentModelCallIndex > input.maxModelCalls) {
+          throw new Error(`LangChain model call budget exhausted before provider call: maxModelCalls=${input.maxModelCalls}.`);
+        }
+
         modelCallIndex = currentModelCallIndex;
         const startedAt = Date.now();
-        const requestSummary = summarizeLangChainModelRequest(request, input.toolWrappers);
 
         await emitRuntimeObserverSafely(input.onRuntimeEvent, {
           type: "model_call_started",
@@ -633,6 +647,10 @@ function normalizeLangChainRuntimeError(error: unknown): { code: LangChainAgentR
   const message = getErrorMessage(error);
 
   if (message.includes("Recursion limit") || message.includes("recursion limit") || message.includes("GraphRecursionError")) {
+    return { code: "budget_exhausted", message, retryable: true };
+  }
+
+  if (message.includes("model call budget exhausted")) {
     return { code: "budget_exhausted", message, retryable: true };
   }
 
