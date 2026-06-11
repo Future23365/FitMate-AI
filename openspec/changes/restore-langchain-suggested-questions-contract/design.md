@@ -23,9 +23,11 @@
 
 ## Decisions
 
-### 1. 使用 LangChain `responseFormat` 承载成功终态结构
+### 1. 使用 LangChain `toolStrategy` 承载成功终态结构
 
-给 `createAgent()` 配置项目定义的 `LangChainFinalResponseSchema`。LangChain 官方文档说明 `createAgent` 支持 `responseFormat`，结构化结果会进入 final state 的 `structuredResponse`；当前本地依赖 `langchain@^1.4.4` 也暴露 `toolStrategy` 和 `structuredResponse` 类型。
+给 `createAgent()` 配置项目定义的 `LangChainFinalResponseSchema`，但必须显式包裹为 `toolStrategy(...)`。LangChain 官方文档说明 `createAgent` 支持 `responseFormat`，结构化结果会进入 final state 的 `structuredResponse`；当前本地依赖 `langchain@^1.4.4` 暴露 `toolStrategy` 和 `structuredResponse` 类型。
+
+不能把裸 JSON Schema 直接传给 `responseFormat`。裸 schema 会根据模型 profile 自动选择 provider-native structured output；当前 DeepSeek 生产链路曾因此向 provider 发送不兼容的 `response_format` 类型，并返回 `400 This response_format type is unavailable now`。DeepSeek 官方 JSON Output 支持的是 `{ type: "json_object" }`，不等同于 LangChain provider-native JSON Schema structured output。显式 `toolStrategy` 让终态结构通过 DeepSeek 已支持的 tool calling 承载，避免 provider-native `response_format` 兼容性风险。
 
 替代方案是要求模型在正文中输出 JSON，再由服务端手动解析。该方案会把用户可见正文和协议 JSON 混在同一个文本通道里，容易导致 Markdown 噪音、解析失败和提示词漂移，不符合当前 native tool calling 主链方向。
 
@@ -46,12 +48,15 @@ Zod schema 负责：
 
 ### 4. Prompt 表达输出合同，不承载业务 tool 规则
 
-默认 LangChain system prompt 补充终态结构规则：最终可见回复必须符合 `content` / `suggestedQuestions` 的结构化合同，`suggestedQuestions` 是用户口吻的下一轮消息，最多 3 条；`content` 不使用独立 `---` 分隔线。该规则属于通用 output contract，不写入任何具体业务 tool 说明。
+默认 LangChain system prompt 补充终态结构规则：最终可见回复必须通过结构化终态工具提交 `content` / `suggestedQuestions`，`suggestedQuestions` 是用户口吻的下一轮消息，最多 3 条；`content` 不使用独立 `---` 分隔线。该规则属于通用 output contract，不写入任何具体业务 tool 说明。
 
 ## Risks / Trade-offs
 
-- [Risk] `responseFormat` 使用 tool strategy 时会把结构化输出作为额外 tool 形态进入 LangChain 内部消息。
+- [Risk] `toolStrategy` 会把结构化输出作为额外 tool 形态进入 LangChain 内部消息。
   Mitigation: runtime 只把项目业务 tool wrapper 的执行结果用于业务预算和用户投影；结构化 response tool 只用于 `structuredResponse`，测试覆盖不会把它当成业务 tool 分支。
+
+- [Risk] 如果后续又把裸 JSON Schema 传给 `responseFormat`，LangChain 可能因模型 profile 重新选择 provider-native structured output。
+  Mitigation: runtime 回归测试模拟模型声明 `structuredOutput: true`，仍要求请求 tool 列表包含结构化终态 tool，确保终态结构继续走 tool calling。
 
 - [Risk] 某些模型调用未产出合法 `structuredResponse`。
   Mitigation: runtime 将其归一为 `structured_output_validation_failed` 或等价失败，走现有安全 fallback，而不是输出未校验正文。
@@ -62,7 +67,7 @@ Zod schema 负责：
 ## Migration Plan
 
 1. 新增结构化 final response schema 与类型。
-2. 在 LangChain runtime 接入 `responseFormat`，解析 `structuredResponse`。
+2. 在 LangChain runtime 以 `toolStrategy` 接入 `responseFormat`，解析 `structuredResponse`。
 3. 调整 response adapter 读取成功结果中的建议提问。
 4. 更新 prompt 和测试。
 5. 运行 OpenSpec 校验、相关 runtime/adapter 测试和 TypeScript 检查。

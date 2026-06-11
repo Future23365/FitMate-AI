@@ -33,7 +33,7 @@ export function buildLangChainAgentSystemPrompt(input: BuildLangChainAgentSystem
     "- 需要当前工具未注册的能力时，说明能力边界或向用户澄清，不要承诺已执行。",
     "",
     "回答规则：",
-    "- 最终回答必须符合当前 LangChain responseFormat：content 为用户可见正文，suggestedQuestions 为可选建议提问数组。",
+    "- 最终回答必须通过 LangChain 结构化终态工具提交：content 为用户可见正文，suggestedQuestions 为可选建议提问数组。",
     "- content 使用中文，简洁、可执行、不过度承诺，不使用独立的 --- 或等价 Markdown horizontal rule 分隔线。",
     "- suggestedQuestions 每条都是用户点击后可直接发送的完整用户消息；自然存在下一步时给 1-3 条，没有自然下一步时省略。",
     "- 可给训练建议，但不要把未经校验的模型想象当作数据库动作事实。",

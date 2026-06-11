@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createAgent, createMiddleware, AIMessage, ToolMessage } from "langchain";
+import { createAgent, createMiddleware, AIMessage, ToolMessage, toolStrategy } from "langchain";
 import type { ModelRequest } from "langchain";
 
 import { agentRuntimeConfig } from "@/lib/server/config";
@@ -81,7 +81,10 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
     const agent = createAgent({
       model: modelResult.model,
       tools,
-      responseFormat: langChainFinalResponseJsonSchema,
+      // 显式使用 toolStrategy，避免 DeepSeek provider profile 把裸 JSON Schema 映射成当前不兼容的 response_format。
+      responseFormat: toolStrategy(langChainFinalResponseJsonSchema, {
+        toolMessageContent: "结构化最终回答已接收。",
+      }),
       systemPrompt: input.systemPrompt ?? buildLangChainAgentSystemPrompt(),
       middleware: [modelCallRecorder.middleware],
     });

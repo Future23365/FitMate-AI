@@ -107,6 +107,43 @@ describe("LangChain Agent runtime", () => {
     expect(result.traceSummary?.runtimeVersion).toBe("langchain-agent-runtime-v1");
   });
 
+  it("keeps final response on tool strategy even when the model advertises native structured output", async () => {
+    const model = fakeModel().respondWithTools([
+      createFinalResponseToolCall({
+        content: "可以，今天先用自重动作热身。",
+        suggestedQuestions: ["帮我安排 15 分钟自重训练"],
+      }),
+    ]);
+    Object.defineProperty(model, "profile", {
+      value: { structuredOutput: true },
+      configurable: true,
+    });
+    const boundToolNames: string[] = [];
+    const originalBindTools = model.bindTools.bind(model);
+    vi.spyOn(model, "bindTools").mockImplementation((tools) => {
+      boundToolNames.push(...tools.map((tool) => {
+        const record = tool as { name?: unknown; function?: { name?: unknown } };
+        const name = typeof record.name === "string" ? record.name : record.function?.name;
+
+        return typeof name === "string" ? name : "unknown";
+      }));
+
+      return originalBindTools(tools);
+    });
+
+    const result = await runLangChainAgentRuntime({
+      ...baseInput,
+      model,
+      toolWrappers: [],
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.finalText).toBe("可以，今天先用自重动作热身。");
+      expect(boundToolNames).toContain(langChainFinalResponseToolName);
+    }
+  });
+
   it("records one successful tool call before final text", async () => {
     const model = fakeModel()
       .respondWithTools([{ name: "echoExerciseGoal", args: { goal: "胸部训练" }, id: "call_1" }])
@@ -419,7 +456,7 @@ describe("LangChain Agent prompt", () => {
     const prompt = buildLangChainAgentSystemPrompt({ currentDate: "2026-06-11" });
 
     expect(prompt).toContain("DeepSeek native tool calling");
-    expect(prompt).toContain("responseFormat");
+    expect(prompt).toContain("结构化终态工具");
     expect(prompt).toContain("suggestedQuestions");
     expect(prompt).toContain("不使用独立的 ---");
     expect(prompt).toContain("服务端负责认证、权限隔离、Zod 校验");

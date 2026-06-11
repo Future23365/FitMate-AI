@@ -26,7 +26,7 @@ export const LangChainFinalResponseSchema = z.object({
 
 export type LangChainFinalResponse = z.infer<typeof LangChainFinalResponseSchema>;
 
-/** langChainFinalResponseJsonSchema 是传给 LangChain responseFormat 的模型可见结构化输出形状。 */
+/** langChainFinalResponseJsonSchema 是传给 LangChain toolStrategy 的模型可见结构化终态形状。 */
 export const langChainFinalResponseJsonSchema: LangChainJsonSchemaObject = {
   title: langChainFinalResponseToolName,
   description: "FitMate 聊天成功终态。content 是用户可见正文；suggestedQuestions 是可点击的下一轮用户消息。",

@@ -8,7 +8,7 @@
 ## 2. Runtime 输出合同
 
 - [x] 2.1 新增 LangChain final response Zod schema，定义 `content` 与可选 `suggestedQuestions` 的结构、数量和 trim 边界。
-- [x] 2.2 在 `runLangChainAgentRuntime()` 接入 LangChain `responseFormat`，从 `state.structuredResponse` 读取成功终态。
+- [x] 2.2 在 `runLangChainAgentRuntime()` 接入 LangChain `toolStrategy` 形式的 `responseFormat`，从 `state.structuredResponse` 读取成功终态。
 - [x] 2.3 更新 `LangChainAgentRunSuccess`、trace summary 和失败归一化，确保结构非法不会作为成功正文返回。
 - [x] 2.4 确认结构化 response tool 不被当成业务 toolName 分支、服务端关键词路由或业务 handler。
 
@@ -20,8 +20,9 @@
 
 ## 4. 测试与验证
 
-- [x] 4.1 更新 `tests/langchain-agent-runtime/runtime.test.ts`，覆盖结构化成功终态、建议提问、非法结构 fallback 和 prompt 合同。
+- [x] 4.1 更新 `tests/langchain-agent-runtime/runtime.test.ts`，覆盖结构化成功终态、建议提问、非法结构 fallback、prompt 合同和 provider-native structured output 回归边界。
 - [x] 4.2 更新 `tests/langchain-agent-runtime/response-adapter.test.ts`，覆盖成功结果自带 `suggestedQuestions` 的投影和最多 3 条限制。
 - [x] 4.3 运行 `npm test -- tests/langchain-agent-runtime/runtime.test.ts tests/langchain-agent-runtime/response-adapter.test.ts`。
 - [x] 4.4 运行 `npm run typecheck`。
-- [x] 4.5 最终 diff 检查确认没有新增服务端关键词规则、自然语言模板路由、phrasing 特判或具体业务 `toolName` 语义分支。
+- [x] 4.5 重新运行 `openspec validate restore-langchain-suggested-questions-contract --strict`。
+- [x] 4.6 最终 diff 检查确认没有新增服务端关键词规则、自然语言模板路由、phrasing 特判或具体业务 `toolName` 语义分支。
