@@ -26,19 +26,21 @@ LangChain JS 已支持 `toolCallLimitMiddleware`，可以按 `toolName` 设置�
 
 ## Decisions
 
-### 1. 使用 LangChain `toolCallLimitMiddleware` 做 per-tool 限制
+### 1. 使用 request-time tool 过滤和 LangChain `toolCallLimitMiddleware` 共同做 per-tool 限制
 
-选择：Runtime 在创建 `createAgent` 时，为每个 `executionKind !== "activity"` 的 production tool wrapper 生成：
+选择：Runtime 在创建 `createAgent` 时，先注册一个通用 LangChain middleware，在每次 provider model call 前统计当前 run 内已经出现过的业务 `AIMessage.tool_calls`。当某个业务 tool 已达到 `maxToolCallsPerTool` 时，后续请求会从 `request.tools` 中移除该 tool，使模型不再继续看到并请求它。
+
+同时，为每个 `executionKind !== "activity"` 的 production tool wrapper 继续生成 LangChain 原生 per-tool middleware：
 
 ```ts
 toolCallLimitMiddleware({
   toolName: wrapper.name,
-  runLimit: config.runBudget.maxBusinessToolCallsPerTool,
+  runLimit: config.runBudget.maxToolCallsPerTool,
   exitBehavior: "continue",
 })
 ```
 
-理由：这是 LangChain 原生支持的 tool 调用限制能力，能让模型在超过单个 tool 上限时收到 ToolMessage 错误并继续收口。相比在业务 handler 内加计数，它不会污染业务 tool；相比手写 runtime 分支，它更贴近 LangChain agent loop。
+理由：`toolCallLimitMiddleware` 的 `exitBehavior: "continue"` 只能阻止超限 handler 执行，并向模型返回 ToolMessage 错误；如果模型持续不收口，它仍可能在后续 provider 调用里继续请求同一个 tool，直到耗尽更大的模型调用预算。请求前过滤解决 provider 侧重复尝试问题，LangChain 原生 middleware 继续作为同一模型响应内多个同名 tool_calls 的执行兜底。两层限制都从 wrapper 列表自动生成，不写具体业务 toolName、用户 phrasing 或关键词规则。
 
 备选方案：完全自定义 `reserveToolCall`，按 toolName 维护计数。缺点是会重复 LangChain 已有能力，也需要维护 limit exceeded ToolMessage 语义。
 
@@ -68,7 +70,7 @@ toolCallLimitMiddleware({
 
 ## Risks / Trade-offs
 
-- [Risk] `toolCallLimitMiddleware` 和项目自定义 `reserveToolCall` 都会参与限制，可能出现两个错误来源。→ Mitigation: 明确分层：LangChain middleware 管 per-tool `runLimit`，项目预算管总业务 tool 安全上限；测试分别覆盖 per-tool 超限和总预算超限。
+- [Risk] 请求前 tool 过滤、`toolCallLimitMiddleware` 和项目自定义 `reserveToolCall` 都会参与限制，可能出现多个错误来源。→ Mitigation: 明确分层：请求前过滤负责后续 provider 请求不再暴露已达上限的业务 tool；LangChain middleware 负责同一响应内超限 tool_call 不执行 handler；项目预算管总业务 tool 安全上限；测试分别覆盖连续多轮 per-tool 重复、同一响应内 per-tool 超限和总预算超限。
 - [Risk] 总预算从 5 调到 20 会增加最坏路径模型成本和延迟。→ Mitigation: 保留 `maxModelCalls`、`overallTimeoutMs`、per-tool `runLimit = 2` 和 tool timeout；测试更新 `maxModelCalls` 与新预算的关系。
 - [Risk] production catalog 新增业务 tool 时忘记应用 per-tool 限制。→ Mitigation: Runtime 从 `toolWrappers` 自动生成 middleware，不需要新增 tool 时手动注册 limit。
 - [Risk] LangChain middleware 超限错误文案与项目结构化失败格式不同。→ Mitigation: Runtime tests 只依赖稳定行为和预算结果，不把 LangChain 内部英文文案当作业务合同；后续如需统一投影，可单独 change 处理。

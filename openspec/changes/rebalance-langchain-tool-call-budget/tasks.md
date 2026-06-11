@@ -30,3 +30,11 @@
 - [x] 5.3 运行 `npm run typecheck`。
 - [x] 5.4 检查 `git diff --name-status`，确认没有无关删除、重命名或用户已有改动被混入。
 - [x] 5.5 完成本 change 的任务勾选，并准备中文提交信息。
+
+## 6. 真实重复调用修复
+
+- [x] 6.1 基于 2026-06-11 19:05 trace 复核 per-tool 上限实际语义，区分 provider tool_call 尝试次数和 wrapper handler 执行次数。
+- [x] 6.2 在 LangChain runtime 中新增请求前业务 tool 可用性过滤，确保已达到 `maxToolCallsPerTool` 的业务 tool 不再暴露给后续 provider model request。
+- [x] 6.3 保留 LangChain `toolCallLimitMiddleware` 作为同一 provider response 内多个同名 tool_calls 的 handler 执行兜底。
+- [x] 6.4 补充连续多轮重复调用同一业务 tool 的 runtime 回归测试，断言 provider tool_call 尝试次数不会继续增长到总预算上限。
+- [x] 6.5 重新运行 OpenSpec、runtime / config 测试、typecheck、lint 和最终 diff 检查。

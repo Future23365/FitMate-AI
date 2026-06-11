@@ -103,6 +103,7 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
       }),
       systemPrompt: input.systemPrompt ?? buildLangChainAgentSystemPrompt(),
       middleware: [
+        ...createBusinessToolAvailabilityMiddleware(toolWrappers, config.runBudget.maxToolCallsPerTool),
         modelCallRecorder.middleware,
         ...createBusinessToolCallLimitMiddleware(toolWrappers, config.runBudget.maxToolCallsPerTool),
       ],
@@ -240,6 +241,44 @@ function createToolExecutionBudget(input: {
   };
 }
 
+/** createBusinessToolAvailabilityMiddleware 在下一次模型调用前移除已达上限的业务 tool，避免模型继续重复请求同一 tool。 */
+function createBusinessToolAvailabilityMiddleware(
+  toolWrappers: readonly LangChainToolWrapper[],
+  maxToolCallsPerTool: number,
+) {
+  const businessToolNames = new Set(toolWrappers
+    .filter((wrapper) => (wrapper.executionKind ?? "business") === "business")
+    .map((wrapper) => wrapper.name));
+
+  if (businessToolNames.size === 0) {
+    return [];
+  }
+
+  return [createMiddleware({
+    name: "FitMateBusinessToolAvailabilityMiddleware",
+    wrapModelCall: async (request, handler) => {
+      const exhaustedToolNames = findExhaustedBusinessToolNamesInCurrentRun(
+        request.messages,
+        businessToolNames,
+        maxToolCallsPerTool,
+      );
+
+      if (exhaustedToolNames.size === 0) {
+        return handler(request);
+      }
+
+      return handler({
+        ...request,
+        tools: request.tools.filter((tool) => {
+          const toolName = readLangChainToolName(tool);
+
+          return !toolName || !exhaustedToolNames.has(toolName);
+        }),
+      });
+    },
+  })];
+}
+
 /** createBusinessToolCallLimitMiddleware 用 LangChain 原生 middleware 给每个业务 tool 分配独立单轮调用上限。 */
 function createBusinessToolCallLimitMiddleware(
   toolWrappers: readonly LangChainToolWrapper[],
@@ -252,6 +291,56 @@ function createBusinessToolCallLimitMiddleware(
       runLimit: maxToolCallsPerTool,
       exitBehavior: "continue",
     }));
+}
+
+function findExhaustedBusinessToolNamesInCurrentRun(
+  messages: readonly unknown[],
+  businessToolNames: ReadonlySet<string>,
+  maxToolCallsPerTool: number,
+) {
+  const currentRunMessages = messages.slice(findCurrentRunMessageStartIndex(messages));
+  const callCounts = new Map<string, number>();
+
+  for (const message of currentRunMessages) {
+    if (!AIMessage.isInstance(message)) {
+      continue;
+    }
+
+    for (const toolCall of message.tool_calls ?? []) {
+      if (!businessToolNames.has(toolCall.name)) {
+        continue;
+      }
+
+      callCounts.set(toolCall.name, (callCounts.get(toolCall.name) ?? 0) + 1);
+    }
+  }
+
+  return new Set([...callCounts.entries()]
+    .filter(([, count]) => count >= maxToolCallsPerTool)
+    .map(([toolName]) => toolName));
+}
+
+function findCurrentRunMessageStartIndex(messages: readonly unknown[]) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const role = readLangChainMessageRole(messages[index]);
+
+    if (role === "user" || role === "human") {
+      return index + 1;
+    }
+  }
+
+  return 0;
+}
+
+function readLangChainToolName(tool: unknown) {
+  const record = readRecord(tool);
+  const directName = readStringFromRecord(record, "name");
+
+  if (directName) {
+    return directName;
+  }
+
+  return readStringFromRecord(readRecord(record.function), "name");
 }
 
 async function emitLangChainRuntimeObserverEvent(input: {
@@ -485,7 +574,7 @@ function summarizeLangChainModelRequest(
     ),
   }));
   const requestToolNames = request.tools
-    .map((tool) => readStringFromRecord(readRecord(tool), "name"))
+    .map((tool) => readLangChainToolName(tool))
     .filter((toolName): toolName is string => Boolean(toolName));
   const fallbackToolNames = toolWrappers.map((wrapper) => wrapper.name);
   const toolNames = requestToolNames.length > 0 ? requestToolNames : fallbackToolNames;

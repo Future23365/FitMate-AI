@@ -32,7 +32,8 @@
 #### Scenario: 单个业务 tool 有独立单轮上限
 - **WHEN** 同一轮 Agent run 中模型重复调用同一个业务 tool
 - **THEN** 系统 MUST 使用集中配置的 `maxToolCallsPerTool = 2` 或等价字段限制该业务 tool 的单轮调用次数
-- **AND** 超过单 tool 上限的调用 MUST 被阻止并反馈给模型收口或调整
+- **AND** 达到单 tool 上限后，后续 provider model request MUST NOT 继续暴露该业务 tool
+- **AND** 同一 provider response 内超过单 tool 上限的调用 MUST 被阻止执行 handler
 - **AND** 其他业务 tool 的调用机会 MUST NOT 因该 tool 达到自身上限而被直接耗尽
 
 #### Scenario: activity tool 不计入业务 tool per-tool 限制

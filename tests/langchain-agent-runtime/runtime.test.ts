@@ -104,6 +104,78 @@ class RepeatingUnknownToolModel extends BaseChatModel {
   }
 }
 
+class RepeatingAvailableToolModel extends BaseChatModel {
+  private callIndex = 0;
+  private currentToolNames: readonly string[] = [];
+
+  readonly boundToolNamesByCall: string[][] = [];
+
+  constructor(private readonly repeatedToolName: string) {
+    super({});
+  }
+
+  _llmType() {
+    return "repeating-available-tool-model";
+  }
+
+  _combineLLMOutput() {
+    return [];
+  }
+
+  bindTools(tools: unknown[]) {
+    this.currentToolNames = tools
+      .map((tool) => {
+        const record = tool && typeof tool === "object" ? tool as { name?: unknown; function?: { name?: unknown } } : {};
+        const name = typeof record.name === "string" ? record.name : record.function?.name;
+
+        return typeof name === "string" ? name : undefined;
+      })
+      .filter((toolName): toolName is string => Boolean(toolName));
+    this.boundToolNamesByCall.push([...this.currentToolNames]);
+
+    return this;
+  }
+
+  async _generate() {
+    this.callIndex += 1;
+
+    if (this.currentToolNames.includes(this.repeatedToolName)) {
+      const message = new AIMessage({
+        content: "",
+        id: `model_${this.callIndex}`,
+        tool_calls: [{
+          name: this.repeatedToolName,
+          args: { goal: `训练目标 ${this.callIndex}` },
+          id: `call_repeated_${this.callIndex}`,
+          type: "tool_call",
+        }],
+      });
+
+      return {
+        generations: [{
+          text: "",
+          message,
+        }],
+        llmOutput: {},
+      };
+    }
+
+    const message = createFinalResponseMessage({
+      content: "同一个工具达到上限后已收口。",
+    }, {
+      id: `call_final_${this.callIndex}`,
+    });
+
+    return {
+      generations: [{
+        text: "",
+        message,
+      }],
+      llmOutput: {},
+    };
+  }
+}
+
 function createFinalResponseToolCall(
   args: { content?: string; suggestedQuestions?: string[] },
   id = "call_final",
@@ -459,6 +531,48 @@ describe("LangChain Agent runtime", () => {
       enteredModelContext: true,
     });
     expect(blockedExecution?.modelVisibleSummary).toContain("Tool call limit exceeded");
+  });
+
+  it("removes an exhausted business tool from later provider requests in the same run", async () => {
+    const handler = vi.fn(async (input: { goal: string }) => ({
+      status: "succeeded" as const,
+      goal: input.goal,
+    }));
+    const limitedTool = defineLangChainToolWrapper({
+      name: "limitedExerciseGoal",
+      description: "用于验证单个业务 tool 达到上限后不再暴露给后续模型请求。",
+      inputSchema: z.object({
+        goal: z.string(),
+      }).strict(),
+      handler,
+      toModelVisibleSummary: (output) => ({
+        status: output.status,
+        goal: output.goal,
+      }),
+    });
+    const model = new RepeatingAvailableToolModel("limitedExerciseGoal");
+
+    const result = await runLangChainAgentRuntime({
+      ...baseInput,
+      model,
+      toolWrappers: [limitedTool],
+    });
+
+    expect(result.ok).toBe(true);
+    expect(handler).toHaveBeenCalledTimes(agentRuntimeConfig.langChain.runBudget.maxToolCallsPerTool);
+    expect(model.boundToolNamesByCall).toHaveLength(agentRuntimeConfig.langChain.runBudget.maxToolCallsPerTool + 1);
+    expect(model.boundToolNamesByCall[0]).toContain("limitedExerciseGoal");
+    expect(model.boundToolNamesByCall[1]).toContain("limitedExerciseGoal");
+    expect(model.boundToolNamesByCall[2]).not.toContain("limitedExerciseGoal");
+    expect(result.traceSummary?.providerToolCalls.filter((toolCall) => toolCall.name === "limitedExerciseGoal")).toHaveLength(
+      agentRuntimeConfig.langChain.runBudget.maxToolCallsPerTool,
+    );
+    expect(result.toolExecutions.filter((execution) => execution.toolName === "limitedExerciseGoal")).toHaveLength(
+      agentRuntimeConfig.langChain.runBudget.maxToolCallsPerTool,
+    );
+    if (result.ok) {
+      expect(result.finalText).toBe("同一个工具达到上限后已收口。");
+    }
   });
 
   it("blocks tool handler execution after the configured total business tool call budget is exhausted", async () => {
