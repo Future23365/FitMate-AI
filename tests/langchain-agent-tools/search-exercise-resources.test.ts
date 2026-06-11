@@ -143,7 +143,10 @@ describe("searchExerciseResources LangChain tool", () => {
 
     expect(modelMessage.groups.training.zeroMatchMuscles).toEqual(["肩部"]);
     expect(modelMessage.groupSemantics.zeroMatchMusclesBoundary).toContain("当前 section");
+    expect(modelMessage.groupSemantics.zeroMatchMusclesBoundary).toContain("诊断事实");
+    expect(modelMessage.groupSemantics.zeroMatchMusclesBoundary).toContain("解释、澄清或调整查询");
     expect(modelMessage.groupSemantics.zeroMatchMusclesBoundary).toContain("不表示动作库永久缺失");
+    expect(modelMessage.groupSemantics.zeroMatchMusclesBoundary).toContain("必须继续补查每个肌群");
     expect(result.record.userProjection).toMatchObject({
       groups: {
         training: {
@@ -381,8 +384,11 @@ describe("searchExerciseResources LangChain tool", () => {
       JSON.stringify(tool.inputSchema),
     ].join("\n");
 
-    expect(modelVisibleText).toContain("多 muscles 查询会尽量均衡返回各请求肌群的候选");
-    expect(modelVisibleText).toContain("zeroMatchMuscles 不表示动作库永久缺失");
+    expect(modelVisibleText).toContain("多 muscles 查询用于获得代表性候选覆盖");
+    expect(modelVisibleText).toContain("zeroMatchMuscles 是诊断事实");
+    expect(modelVisibleText).toContain("不是必须继续补查每个肌群的义务");
+    expect(modelVisibleText).toContain("homeRequirement 只表示环境、场地或支撑条件");
+    expect(modelVisibleText).toContain("只在用户目标、上下文、已验证事实或当前规划确实需要该条件时填写");
     expect(modelVisibleText).not.toContain("全身");
     expect(modelVisibleText).not.toContain("当用户说");
     expect(modelVisibleText).not.toContain("关键词");

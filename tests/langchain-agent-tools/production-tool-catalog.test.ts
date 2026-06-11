@@ -42,7 +42,9 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).toContain("服务端");
     expect(descriptions).toContain("动作候选");
     expect(descriptions).toContain("zeroMatchMuscles");
-    expect(descriptions).toContain("多 muscles 查询会尽量均衡返回各请求肌群的候选");
+    expect(descriptions).toContain("多 muscles 查询用于获得代表性候选覆盖");
+    expect(descriptions).toContain("不是必须继续补查每个肌群的义务");
+    expect(descriptions).toContain("只在用户目标、上下文、已验证事实或当前规划确实需要该条件时填写");
     expect(descriptions).toContain("exercise_selection");
     expect(descriptions).toContain("validator");
     expect(descriptions).not.toContain("缺少 warmup 或 stretch");
@@ -70,6 +72,21 @@ describe("production LangChain tool catalog", () => {
     expect(searchTool?.description).toContain("当前动作库 facet catalog 摘要");
     expect(searchTool?.description).toContain("胸部");
     expect(searchTool?.description).toContain("no_equipment");
+  });
+
+  it("keeps search schema descriptions aligned with default and clarification boundaries", () => {
+    const samples = createProductionAgentModelVisibleTextSamples({
+      searchExerciseResourcesFacetCatalog: createFacetCatalog(),
+    });
+    const schemaDescriptions = samples
+      .filter((sample) => sample.id.startsWith("searchExerciseResources.input_schema."))
+      .map((sample) => sample.text)
+      .join("\n");
+
+    expect(schemaDescriptions).toContain("多值查询用于获得代表性候选覆盖");
+    expect(schemaDescriptions).toContain("不是必须继续补查每个肌群的义务");
+    expect(schemaDescriptions).toContain("只在用户目标、上下文、已验证事实或当前规划确实需要环境、场地或支撑条件时填写");
+    expect(schemaDescriptions).toContain("省略表示不额外限定环境条件");
   });
 
   it("does not expose published as searchExerciseResources model input", () => {
