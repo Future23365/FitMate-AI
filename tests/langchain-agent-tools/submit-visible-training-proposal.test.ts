@@ -11,6 +11,14 @@ const baseContext = {
 };
 
 describe("submitVisibleTrainingProposal LangChain tool", () => {
+  it("exposes support-section readiness guidance in the model-visible description", () => {
+    const tool = createSubmitVisibleTrainingProposalLangChainTool();
+
+    expect(tool.description).toContain("warmup、training、stretch");
+    expect(tool.description).toContain("缺 warmup 或 stretch");
+    expect(tool.description).toContain("先查询缺失 support section");
+  });
+
   it("validates visibleTrainingProposal payloads before exposing visible_output projection", async () => {
     const tool = createSubmitVisibleTrainingProposalLangChainTool({
       loadExerciseRecordsByIds: createExerciseFactLoader(),

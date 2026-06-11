@@ -32,6 +32,8 @@ describe("production LangChain tool catalog", () => {
 
     expect(descriptions).toContain("只读");
     expect(descriptions).toContain("服务端");
+    expect(descriptions).toContain("缺少 warmup 或 stretch");
+    expect(descriptions).toContain("support section");
     expect(descriptions).not.toContain("AgentAction");
     expect(descriptions).not.toContain("ToolRegistry");
     expect(descriptions).not.toContain("PlannerPort");

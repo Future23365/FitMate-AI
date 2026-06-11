@@ -397,6 +397,7 @@ export function createSearchExerciseResourcesLangChainTool(
     description: [
       "只读查询发布态 Exercise 动作事实，并按 suitabilities 返回 groups.<section>.exercises[]；这些 section-scoped exercises 是训练结构动作项的主要事实来源。",
       "使用边界：用户需要动作候选、routine 或 plan，并且已有肌群、器械、难度、场地、目标标签、section 用途或受控 exerciseId 等结构化约束时使用。",
+      "当目标需要 routine 或 plan，且当前可见动作事实已覆盖 training 但缺少 warmup 或 stretch 时，应优先用缺失 section 的 suitabilities 继续查询 support section 候选。",
       "所有精确 facet 值应优先从动作库 facet catalog 选择；无外部器械统一写 equipment: \"no_equipment\"；homeRequirement 只表示环境、场地或支撑条件。",
       "requiredExerciseIds 是正向锚点，用于让已解析或已导入的发布态动作优先进入 groups；excludeExerciseIds 是负向排除，用于替换或避免重复。",
       "不要用本 tool 判断当前会话有没有上一轮 visibleTrainingProposal、读取完整历史方案、查询未发布动作、分页、limit、offset、page、pageSize 或语义向量检索。",
@@ -551,6 +552,9 @@ export function createSearchExerciseResourcesLangChainTool(
         availableSections: coverage.availableSections,
         sectionSummary: coverage.sectionSummary,
         missingSections: coverage.missingSections,
+        supportSectionCompletionBoundary: coverage.missingSections.includes("warmup") || coverage.missingSections.includes("stretch")
+          ? "若用户目标需要 routine 或 plan，且当前 run 仍可继续查询，缺少 warmup 或 stretch 时应优先用对应 suitabilities 补齐 support section 动作事实；不得把 training 动作或正文建议伪装成缺失 section。"
+          : "当前查询已覆盖可见 support section；最终结构仍需遵守 visibleTrainingProposal 的 section、处方和校验边界。",
         querySpecificity: buildQuerySpecificityObservation(output),
         filterSemantics: output.query.filterSemantics,
         positiveAnchorBoundary: output.query.requiredExerciseIds?.length

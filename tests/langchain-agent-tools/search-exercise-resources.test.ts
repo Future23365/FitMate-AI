@@ -85,6 +85,8 @@ describe("searchExerciseResources LangChain tool", () => {
         groupKey: "groups.<section>",
       },
     });
+    expect(modelMessage.supportSectionCompletionBoundary).toContain("缺少 warmup 或 stretch");
+    expect(modelMessage.supportSectionCompletionBoundary).toContain("对应 suitabilities");
     expect(JSON.stringify(modelMessage)).not.toContain("instructionsZh");
     expect(JSON.stringify(modelMessage)).not.toContain("embedding");
   });
