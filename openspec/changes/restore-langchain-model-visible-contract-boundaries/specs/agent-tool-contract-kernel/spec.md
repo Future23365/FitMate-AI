@@ -16,6 +16,7 @@
 - **THEN** summary MUST NOT 包含 `visibleDeliveryBoundary`
 - **AND** summary MUST NOT 包含 `supportSectionCompletionBoundary`
 - **AND** summary MUST NOT 包含 `routinePlanCompositionBoundary`
+- **AND** summary MUST NOT 包含 `supportsOutputKinds`
 - **AND** summary MUST NOT 包含 `nextActionHints`、`finalAnswerSupport`、`supportsSuccessfulVisibleOutputs` 或等价下一步指导字段
 - **AND** summary MUST NOT 包含“下一步应调用某 tool”“缺少某 section 应继续查询”“若要交付应调用结构化收口 tool”或等价固定 workflow 文案
 
@@ -24,6 +25,17 @@
 - **THEN** model-visible summary MUST 表达稳定错误 code、字段 path、expected、actual、allowedValues、当前事实覆盖或 diagnostics
 - **AND** summary MUST 表达失败结果不能伪装成成功事实
 - **AND** summary MUST NOT 根据用户原文、具体 `toolName`、字段组合或业务 section 替模型选择后续 tool、固定回答或固定结构化输出
+
+#### Scenario: repair feedback 不输出下一步 action 枚举
+- **WHEN** tool schema、domain validator、finalization validator、duplicate input 或 runtime 预算生成模型可见 repair feedback
+- **THEN** feedback MAY 表达错误 code、字段 path、expected、actual、allowedFields、requiredFields、allowedValues、当前事实覆盖和可恢复边界
+- **AND** feedback MUST NOT 包含 `nextActionHints`
+- **AND** feedback MUST NOT 包含 `final_answer_with_visible_outputs`
+- **AND** feedback MUST NOT 包含 `final_answer_without_visible_outputs`
+- **AND** feedback MUST NOT 包含 `final_answer_with_current_tool_result`
+- **AND** feedback MUST NOT 包含 `continue_tool_call`
+- **AND** feedback MUST NOT 包含 `ask_user` 作为下一步建议
+- **AND** feedback MUST NOT 根据用户自然语言、具体 phrasing、具体业务 `toolName` 或字段组合改写下一轮 tool call 或最终回答策略
 
 ### Requirement: LangChain tool description 必须描述能力边界而非业务编排
 系统 SHALL 让生产 LangChain tool 的 description、schema description 和 examples 只描述该 tool 的稳定资源、能力、输入来源、输出事实含义和确定性边界。Tool description MUST NOT 承担完整业务 workflow、Planner policy 或 finalization 编排职责。
@@ -57,6 +69,7 @@
 - **AND** summary MUST NOT 包含“必须调用 `searchExerciseResources`”或等价固定 tool 流程
 - **AND** summary MUST NOT 指导模型补查 `warmup`、`training`、`stretch` 或其他固定业务 section
 - **AND** summary MUST NOT 根据具体业务字段组合替模型选择下一步
+- **AND** summary MUST NOT 包含 `nextActionHints`、`final_answer_with_visible_outputs`、`continue_tool_call`、`ask_user` 或等价下一步 action 枚举
 
 #### Scenario: finalization tool 不承担动作查询职责
 - **WHEN** production catalog 序列化 `submitVisibleTrainingProposal` description 或 schema description

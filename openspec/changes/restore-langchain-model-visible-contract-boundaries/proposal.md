@@ -13,7 +13,10 @@ LangChain 迁移后，部分 tool 的 model-visible summary、tool description�
 - 收口所有 LangChain tool description / schema description / model-visible summary：只描述稳定能力、输入来源、输出事实和确定性边界，不写“下一步应调用哪个 tool”、固定 workflow、用户短句触发规则或业务补查流程。
 - 收口默认 system prompt：普通文本建议允许基于成功事实直接回答；只有明确需要用户可见、可后续引用并需要服务端 validator 的结构化训练结果时，才通过结构化收口能力提交。
 - 收口 `submitVisibleTrainingProposal` 模型可见说明：只描述 finalization 能力、输入结构、accepted / rejected 含义和 validator 确定性边界，不指导模型补查 warmup / stretch / training 或按固定流程重试。
-- 建立通用重复 tool input 合同：同一 run 内同 tool、同版本、同归一化 input 已成功时，runtime 不应反复执行 handler 或烧到总预算；应提供事实已存在的可恢复反馈，并保留模型自主选择澄清、回答或调用其他合法工具的空间。
+- 建立通用重复 tool input 合同：同一 run 内同 tool、同版本、同归一化 input 已经产生结果时，runtime 不应反复执行 handler 或烧到总预算；应提供中性的 `duplicate_tool_input` / duplicate input 可恢复反馈，并保留模型自主选择澄清、回答或调用其他合法工具的空间。
+- 明确 0 条结果、空候选或候选不足只要是 `ok=true` 的成功 tool result，就必须作为 current-run 事实材料进入模型可见边界；普通文本回答可以解释这些事实，结构化训练交付仍由 finalization / validator 判定。
+- 明确 repair feedback、duplicate feedback 和 trace 不得使用 `success` / `satisfied` / 下一步 action 枚举表达业务成败或编排建议。
+- 为 `resolveExerciseResourceMentions`、`inspectVisibleTrainingProposals` 和 AI trace 补专属 spec delta，避免只靠通用任务描述遗漏非 search tool。
 - 补充负面测试门禁，确保模型可见 summary、tool description、schema description、失败反馈和 prompt 不再包含被禁止字段与固定 workflow 文案。
 
 ## Capabilities
@@ -21,11 +24,14 @@ LangChain 迁移后，部分 tool 的 model-visible summary、tool description�
 ### New Capabilities
 
 - `agent-tool-contract-kernel`: LangChain tool model-visible summary 必须保持事实摘要和确定性诊断边界，不得暴露业务目标满足度或下一步 workflow 指令。
-- `langchain-agent-runtime`: Runtime 必须对同 run 内重复成功的同 tool / 同版本 / 同归一化 input 提供通用可恢复反馈，避免依赖 20 多轮预算耗尽来终止重复调用。
+- `langchain-agent-runtime`: Runtime 必须对同 run 内重复的同 tool / 同版本 / 同归一化 input 提供通用 duplicate input 可恢复反馈，避免依赖 20 多轮预算耗尽来终止重复调用。
+- `ai-run-trace`: Trace 必须区分 tool execution、事实摘要、duplicate input feedback、terminal validator 和 response projection，不得把中间 tool result 记录成业务成功 / 失败判定。
 
 ### Modified Capabilities
 
 - `agent-exercise-resource-query-tool`: `searchExerciseResources` 的模型可见摘要必须收敛为查询事实、分组事实、section 覆盖事实和 diagnostics，不得承载业务满足度、结构化交付指令或 support section 补查流程。
+- `agent-exercise-mention-resolution-tool`: `resolveExerciseResourceMentions` 的模型可见摘要必须只表达 mention 解析事实、候选状态和 diagnostics，不得把 matched 候选直接升级成结构化训练动作或下一步查询指令。
+- `visible-proposal-reference-tool`: `inspectVisibleTrainingProposals` 的模型可见摘要必须只表达历史可见训练事实状态、受控压缩事实、空结果含义和 diagnostics，不得输出固定 answer 模板、下一步 action 建议或业务满足度。
 - `agent-llm-prompt-configuration`: 默认 prompt 和模型可见工具说明必须区分普通文本建议与结构化训练结果交付；不得把普通建议强制卡片化，也不得把 tool description 写成完整业务编排。
 - `agent-tool-contract-kernel`: `submitVisibleTrainingProposal` 的模型可见说明必须只描述 finalization / validator 边界，不得指导模型继续查询特定业务 tool 或补齐特定训练 section。
 
@@ -37,6 +43,7 @@ LangChain 迁移后，部分 tool 的 model-visible summary、tool description�
   - `lib/server/langchain-agent/tools/visible-training-proposal-tools.ts`
   - `lib/server/langchain-agent/tools/visible-training-proposal-finalization-tool.ts`
   - `lib/server/langchain-agent/runtime.ts`
+  - LangChain trace summary / AI trace projection
   - `tests/langchain-agent-tools/*.test.ts`
   - `tests/langchain-agent-runtime/runtime.test.ts`
 - 不修改数据库 schema、前端卡片渲染、Prisma 模型、`/api/chat` 请求 schema 或 response adapter 用户事件合同。
