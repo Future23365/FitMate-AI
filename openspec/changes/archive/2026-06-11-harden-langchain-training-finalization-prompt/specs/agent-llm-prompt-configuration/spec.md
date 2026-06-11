@@ -21,6 +21,8 @@
 - **AND** system message MUST 表达 `content` 只负责解释推荐理由、动作注意事项、对比说明、训练建议或补充说明
 - **AND** system message MUST NOT 包含 `visibleTrainingProposal` 的完整 payload 结构、固定 `payload.kind` 选择规则或具体业务 tool 调用流程
 
+## ADDED Requirements
+
 ### Requirement: 最终正文格式必须避免装饰性分隔线
 系统 SHALL 在模型可见 final response 合同中约束 `content` 输出格式。模型生成的用户可见正文 MUST NOT 使用 Markdown 水平分割线或装饰性分隔行。
 

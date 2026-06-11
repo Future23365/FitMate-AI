@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: inspectVisibleTrainingProposals 模型可见摘要必须表达事实边界而非答案模板
 `inspectVisibleTrainingProposals` 的模型可见 description、schema description、examples 和 summary SHALL 描述当前 actor / conversation 中历史 `visibleTrainingProposal` 事实的事实边界、可访问状态、受控压缩事实和空结果含义。模型可见内容 MUST NOT 替模型判断用户意图，也 MUST NOT 规定模型在某个用户短语、空结果或字段组合条件下输出固定答案、固定 tool flow 或固定结构化输出。

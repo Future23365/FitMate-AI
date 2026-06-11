@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: 最终正文格式必须使用聊天 Markdown 子集
 系统 SHALL 在模型可见 final response 合同中约束 `content` 输出格式。模型生成的用户可见正文 MUST 使用适合聊天气泡的 Markdown 子集，并避免会改变渲染结构或造成误解的高风险 Markdown / HTML 语法。

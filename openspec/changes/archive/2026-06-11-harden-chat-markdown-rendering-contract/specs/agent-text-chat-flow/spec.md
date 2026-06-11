@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: 前端聊天正文必须按受控 Markdown 子集渲染
 前端聊天页面 SHALL 将 assistant `content` 渲染为受控 Markdown 子集。渲染层 MUST 保留 emoji 和普通训练说明，但 MUST 避免 GFM 或 HTML 结构造成删除线、水平线、表格、脚注、任务清单、代码块或 raw HTML 等不适合聊天正文的视觉结构。
