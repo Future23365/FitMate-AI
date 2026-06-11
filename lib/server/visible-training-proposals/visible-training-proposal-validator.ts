@@ -160,12 +160,6 @@ function createRoutinePlanCoverageFailure(
 function summarizeCurrentVisibleTrainingCoverage(context: VisibleOutputValidationContext) {
   const sections = new Set<VisibleTrainingCompositionSection>();
 
-  for (const result of context.toolResults) {
-    if (result.ok) {
-      collectSectionsFromJson(result.projection.model, sections);
-    }
-  }
-
   for (const resource of context.resourceStore?.inventory() ?? []) {
     collectSectionsFromJson(resource.summary, sections);
   }
@@ -263,17 +257,9 @@ function createCurrentRunExerciseSourceDiagnostic(
   });
 }
 
-// collectCurrentRunExerciseSources 只读取当前 run 可用于训练结构交付的 tool result 和 consumable resource，不解释用户原文或绑定具体 toolName。
+// collectCurrentRunExerciseSources 只读取受控可消费训练事实，不解释用户原文、tool result projection 或具体 toolName。
 function collectCurrentRunExerciseSources(context: VisibleOutputValidationContext) {
   const sources = new Set<string>();
-
-  for (const result of context.toolResults) {
-    if (!result.ok || !result.fulfillment.satisfied) {
-      continue;
-    }
-
-    collectSourcesFromGroupedExerciseProjection(result.projection.model, sources);
-  }
 
   for (const resource of context.resourceStore?.inventory() ?? []) {
     if (
@@ -287,25 +273,6 @@ function collectCurrentRunExerciseSources(context: VisibleOutputValidationContex
   }
 
   return sources;
-}
-
-function collectSourcesFromGroupedExerciseProjection(value: JsonValue | undefined, sources: Set<string>) {
-  if (!isRecord(value) || !isRecord(value.groups)) {
-    return;
-  }
-
-  for (const section of visibleTrainingCompositionSections) {
-    const group = value.groups[section];
-    if (!isRecord(group) || !Array.isArray(group.exercises)) {
-      continue;
-    }
-
-    for (const exercise of group.exercises) {
-      if (isRecord(exercise) && typeof exercise.exerciseId === "string") {
-        sources.add(createExerciseSourceKey({ exerciseId: exercise.exerciseId, section }));
-      }
-    }
-  }
 }
 
 function collectSourcesFromExerciseItems(value: JsonValue | undefined, sources: Set<string>) {

@@ -35,24 +35,6 @@ export type VisibleOutputValidationSummary = {
   }>;
 };
 
-/** VisibleOutputValidationToolResult 是结构化输出校验可读取的当前 run 工具事实最小视图。 */
-export type VisibleOutputValidationToolResult =
-  | {
-      ok: true;
-      projection: {
-        model?: JsonValue;
-      };
-      fulfillment: {
-        satisfied: boolean;
-      };
-    }
-  | {
-      ok: false;
-      fulfillment?: {
-        satisfied?: boolean;
-      };
-    };
-
 export type VisibleOutputValidationResourceRef = {
   resourceId?: string;
   resourceType?: string;
@@ -71,7 +53,6 @@ export type VisibleOutputValidationContext = {
   run?: {
     metadata?: Record<string, JsonValue>;
   };
-  toolResults: readonly VisibleOutputValidationToolResult[];
   resourceStore?: VisibleOutputValidationResourceInventory;
 };
 

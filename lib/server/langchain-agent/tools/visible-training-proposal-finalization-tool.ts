@@ -90,7 +90,7 @@ export function createSubmitVisibleTrainingProposalLangChainTool(
       };
       const validation = await validateVisibleTrainingProposalOutput(
         envelope,
-        { toolResults: [] },
+        {},
         options,
       );
 
