@@ -22,12 +22,15 @@
     "seed": "node scripts/seed-exercises.mjs"
   },
   "dependencies": {
+    "@langchain/core": "^1.1.48",
+    "@langchain/deepseek": "^1.0.27",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-slot": "^1.2.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "langchain": "^1.4.4",
     "lucide-react": "^1.17.0",
     "next": "^16.2.5",
     "next-themes": "^0.4.6",

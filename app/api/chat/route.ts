@@ -4,7 +4,7 @@ import {
   chatRequestSchema,
   prepareChatRequest,
 } from "@/lib/server/chat/chat-service";
-import { createAgentTextChatResponse } from "@/lib/server/chat/agent-text-chat-service";
+import { createLangChainAgentTextChatResponse } from "@/lib/server/chat/langchain-agent-text-chat-service";
 import { getChatConversationById } from "@/lib/server/chat/chat-history-service";
 
 export async function POST(request: Request) {
@@ -39,7 +39,7 @@ export async function POST(request: Request) {
     return jsonApiError("validation_failed", "At least one valid message is required.", 400);
   }
 
-  return createAgentTextChatResponse({
+  return createLangChainAgentTextChatResponse({
     request: preparedRequest,
     currentUser: user,
   });

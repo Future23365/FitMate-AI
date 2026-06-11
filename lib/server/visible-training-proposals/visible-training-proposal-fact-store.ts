@@ -4,8 +4,8 @@ import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 
 import { agentRuntimeConfig } from "@/lib/server/config";
-import type { AgentStreamEvent, JsonValue } from "@/lib/server/agent-core/contracts";
 import { getPrismaClient, isDatabaseConfigured } from "@/lib/server/db/prisma";
+import type { JsonValue, VisibleOutputStreamEvent } from "@/lib/server/visible-outputs/contracts";
 
 import {
   toJsonValue,
@@ -67,6 +67,10 @@ type ConversationBusinessFactDelegate = {
 type ConversationBusinessFactClient = {
   conversationBusinessFact: ConversationBusinessFactDelegate;
 };
+
+export type VisibleTrainingProposalFactSourceEvent =
+  | VisibleOutputStreamEvent
+  | { type: string; [key: string]: unknown };
 
 export type VisibleTrainingProposalFactSummary = {
   factRef: string;
@@ -133,7 +137,7 @@ export async function persistVisibleTrainingProposalFactsFromEvents(input: {
   userId: string;
   conversationId?: string;
   messageId?: string;
-  events: AgentStreamEvent[];
+  events: readonly VisibleTrainingProposalFactSourceEvent[];
   client?: ConversationBusinessFactClient;
 }): Promise<PersistVisibleTrainingProposalFactsResult> {
   if (!input.conversationId || !input.messageId) {
@@ -326,7 +330,7 @@ export async function readVisibleTrainingProposalFact(input: {
   };
 }
 
-function createFactPayloadFromEvent(event: AgentStreamEvent): VisibleTrainingProposalFactPayload[] {
+function createFactPayloadFromEvent(event: VisibleTrainingProposalFactSourceEvent): VisibleTrainingProposalFactPayload[] {
   const parsed = visibleOutputEventSchema.safeParse(event);
   if (!parsed.success) {
     return [];

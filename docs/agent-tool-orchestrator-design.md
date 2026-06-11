@@ -1,4 +1,6 @@
-# Agent Tool 编排器通用设计方案（修订版）
+# Agent Tool 编排器通用设计方案（历史设计与当前迁移说明）
+
+> 当前状态（2026-06-11 12:45:34 CST）：生产 `/api/chat` 已迁移到 `LangChain Agent Runtime + @langchain/deepseek + DeepSeek native tool_calls`。本文主体 1-23 节保留为旧自研 `agent-core` 的历史设计记录，不再作为当前生产主链的实现真相。后续 Agent tool 默认扩展 `lib/server/langchain-agent/tool-wrapper.ts`、`lib/server/langchain-agent/tools/*` 和 production tool catalog；不得恢复旧 `AgentAction` / `PlannerPort` / `ToolRegistry` 作为生产聊天主链。
 
 > 目标：实现一个与具体 LLM、业务场景、具体 tool 解耦的通用 `Agent Tool Orchestrator`。后续新增业务能力时，只新增并注册 tool，不改 orchestrator 主循环、不改 planner 接口、不改 executor 主流程、不改 policy 主流程、不改 `/api/chat` 主链路。
 
@@ -1243,40 +1245,38 @@ invalid action fixture
 允许做：
 
 ```txt
-1. 新增 tool 文件
+1. 新增或修改 LangChain tool wrapper 文件
 2. 定义 inputSchema
-3. 定义 outputSchema
-4. 定义 policy metadata
-5. 定义 resourceContract，如需要
+3. 定义 output / summary schema
+4. 定义 model-visible summary
+5. 定义 user projection
 6. 实现 handler
-7. 可选实现 toModelObservation
-8. 可选实现 toUserEvents
-9. 可选实现 traceProjection
-10. 注册到 ToolRegistry
-11. 补 tool contract 测试
+7. 可选实现 trace summary
+8. 如是写入 / 高风险能力，补 policy / confirmation / idempotency 边界
+9. 注册到 production LangChain tool catalog
+10. 补 tool contract 测试
 ```
 
 不得做：
 
 ```txt
-1. 修改 orchestrator 主循环
-2. 修改 PlannerPort 接口
-3. 修改 Executor 主流程
-4. 修改 Policy Guard 主流程
-5. 修改 Resource Contract Validator 主流程
-6. 修改 Response Renderer 主流程
-7. 修改 /api/chat 主链路
-8. 在服务端增加关键词意图分流
-9. 在 core 里写具体 toolName 分支
-10. 在 tool handler 里绕过 confirmation 或权限
+1. 修改 LangChain runtime 主循环
+2. 修改 model factory 的 provider payload 合同
+3. 修改 production response adapter 主流程
+4. 修改 /api/chat 主链路
+5. 恢复旧 AgentAction JSON 输出合同
+6. 恢复旧 PlannerPort / ToolRegistry 生产主链
+7. 在服务端增加关键词意图分流
+8. 在 runtime 里写具体 toolName 分支
+9. 在 tool handler 里绕过 confirmation 或权限
 ```
 
 如果新增 tool 必须改 core 才能工作，按下面规则判断：
 
 ```txt
-只有一个 tool 需要：优先改 tool contract，不改 core。
-两个以上无关 tool 都需要：考虑抽象成 core 的通用扩展点。
-涉及安全、权限、资源、trace、stream 协议：必须回到 core contract 统一设计，不能开业务特例。
+只有一个 tool 需要：优先改该 LangChain tool wrapper，不改 runtime。
+两个以上无关 tool 都需要：考虑抽象成 LangChain runtime / wrapper 的通用扩展点。
+涉及安全、权限、结构化输出、trace、stream 协议：必须回到 OpenSpec 和通用合同设计，不能开业务特例。
 ```
 
 ### 24.1 Agent prompt / model input 合同治理
@@ -1286,8 +1286,8 @@ invalid action fixture
 该 Skill 只治理模型实际可见合同，不替代 `.codex/skills/agent-tool-change-governance/SKILL.md`：
 
 ```txt
-agent-tool-change-governance：先判断 Agent tool / core / production 变更能改哪里、不能改哪里。
-agent-prompt-contract-governance：再检查 prompt / model input 是否正确表达 AgentAction、tool loop、resource、policy、grounding 和 repair 合同。
+agent-tool-change-governance：先判断 LangChain tool / runtime / production 变更能改哪里、不能改哪里。
+agent-prompt-contract-governance：再检查 prompt / model input 是否正确表达 native tool calling、tool result summary、结构化输出、policy、grounding 和 repair 合同。
 ```
 
 如果一次 change 同时新增业务 tool 和修改模型可见说明，先用 `agent-tool-change-governance` 定模块边界，再用 `agent-prompt-contract-governance` 审模型可见合同。
@@ -1310,17 +1310,17 @@ prompt 合同治理时必须优先确认模型实际看到的输入，而不是�
 通用 Agent prompt 必须表达：
 
 ```txt
-1. 模型只能输出受控 AgentAction。
-2. 允许的 action 类型和每类 action 的必需字段。
-3. toolName 只能来自 ToolRegistry。
+1. 模型通过 DeepSeek native tool_calls 请求工具，不能输出旧 AgentAction JSON。
+2. 工具只能来自当前 LangChain tool catalog。
+3. toolName 只能来自当前 provider tools。
 4. tool input 必须严格匹配 schema。
 5. 模型不能假装 tool 已执行或虚构 tool result。
-6. 普通 final_answer 必须基于当前 run 中 ok=true 的 tool result、合法 resource 或通过 validator 的 visibleOutputs。
+6. 普通最终回答必须基于当前用户输入、模型可见上下文或成功 tool result。
 7. ok=true 的 0 条、空候选或诊断摘要 tool result 可以支撑普通事实回答，例如说明“没有匹配数据”。
-8. final_answer.visibleOutputs[] 是结构化业务交付，必须通过对应业务 validator；正文 content 不能替代结构化事实。
-9. failed / diagnostic 事实只能用于 ask_user、失败解释、阻断说明或 repair，不能伪装成通过 validator 的结构化业务交付。
+8. 训练卡片、routine 或 plan 等结构化业务交付必须通过 finalization tool 和服务端 validator；正文 content 不能替代结构化事实。
+9. failed / diagnostic 事实只能用于澄清、失败解释、阻断说明或下一轮修正，不能伪装成通过 validator 的结构化业务交付。
 10. write / high risk tool 必须经过 Policy Guard / confirmation。
-11. 模型不能绕过 ResourceStore、Policy Guard、Resource Contract Validator 或 Response Renderer。
+11. 模型不能绕过 LangChain tool wrapper、服务端 validator、policy 或 production response adapter。
 ```
 
 新增业务 tool 时，业务 tool 的模型可见说明必须覆盖：何时使用、何时不用、input schema 关键字段、成功结果含义、失败或 diagnostic 含义、resource role 和 final answer 引用方式。上述说明默认使用中文，技术标识保持英文原样。不得把单个业务 tool 的语义特例写进通用 prompt，也不得新增服务端关键词、正则、同义词表、短句模板或业务 `toolName` 特判去改写 LLM 的高层语义决策。
@@ -1395,14 +1395,14 @@ resource role 由 contract 和 validator 共同约束。
 错误做法：
 
 ```txt
-core contract 直接使用某模型的 tool_calls 格式。
+业务 tool、response adapter 或 API route 直接依赖 DeepSeek 原始 tool_calls payload。
 ```
 
 正确做法：
 
 ```txt
-core 使用 AgentAction。
-模型 adapter 负责厂商格式转换。
+LangChain model factory / runtime 负责 provider 接入。
+业务 tool 只依赖项目 wrapper 合同、Zod schema 和安全投影。
 ```
 
 ---
@@ -1414,18 +1414,18 @@ core 使用 AgentAction。
 ```txt
 [ ] core 中 grep 不到具体业务 toolName。
 [ ] /api/chat 中没有业务关键词分流。
-[ ] Planner 输出非法 toolName 时不会执行。
-[ ] Planner 输出非法 input 时不会执行。
-[ ] Planner 引用不存在 resource 时不会执行。
+[ ] DeepSeek 请求未知 toolName 时不会执行业务 handler。
+[ ] DeepSeek 请求非法 input 时不会执行业务 handler。
+[ ] 结构化训练输出未通过 validator 时不会渲染或保存。
 [ ] diagnostic resource 不能支撑成功 final answer。
 [ ] write/high risk tool 未确认不会执行。
 [ ] confirmation hash 由服务端生成并校验。
 [ ] confirmation resume 执行的是服务端保存的 pending action，不是客户端新传 input。
 [ ] tool output 不会默认进入 model/user/trace。
 [ ] trace 不含 secret、完整敏感 payload。
-[ ] ReplayPlanner 能复现 runtime 行为。
-[ ] 替换 LLM adapter 不需要修改 agent-core。
-[ ] 新增 fixture tool 不需要修改 runtime/executor/policy/response/api。
+[ ] LangChain trace 能复盘 provider tool_calls、tool wrapper 和 response projection。
+[ ] 替换 provider adapter 不需要修改业务 tool wrapper。
+[ ] 新增 fixture tool 不需要修改 runtime/response/api。
 ```
 
 ---

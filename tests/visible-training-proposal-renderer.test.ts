@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import type { AgentRunResult } from "@/lib/server/agent-core/contracts";
-import { renderAgentResponseEvents } from "@/lib/server/agent-core/response-renderer";
 import { createProductionVisibleOutputRendererRegistry } from "@/lib/server/visible-training-proposals/visible-training-proposal-renderer";
+import type {
+  VisibleOutputEnvelope,
+  VisibleOutputRendererRunResult,
+} from "@/lib/server/visible-outputs/contracts";
 
 describe("visible training proposal renderer", () => {
   it("renders exercise card details from validated metadata instead of concrete tool result shapes", () => {
-    const events = renderAgentResponseEvents(createRunResult(), {
-      visibleOutputRenderers: createProductionVisibleOutputRendererRegistry(),
+    const registry = createProductionVisibleOutputRendererRegistry();
+    const events = registry.render(createVisibleOutput(), {
+      result: createRunResult(),
+      outputIndex: 0,
     });
 
     expect(events).toEqual(expect.arrayContaining([
@@ -38,26 +42,21 @@ describe("visible training proposal renderer", () => {
   });
 });
 
-function createRunResult(): AgentRunResult {
+function createVisibleOutput(): VisibleOutputEnvelope {
   return {
-    runId: "run-render-visible-training-proposal",
-    status: "completed",
-    terminalAction: {
-      type: "final_answer",
-      content: "可以参考这个动作。",
-      visibleOutputs: [
-        {
-          outputType: "visibleTrainingProposal",
-          schemaVersion: "1",
-          payload: {
-            kind: "exercise_selection",
-            exerciseItems: [
-              { exerciseId: "push-up", section: "training", order: 1 },
-            ],
-          },
-        },
+    outputType: "visibleTrainingProposal",
+    schemaVersion: "1",
+    payload: {
+      kind: "exercise_selection",
+      exerciseItems: [
+        { exerciseId: "push-up", section: "training", order: 1 },
       ],
     },
+  };
+}
+
+function createRunResult(): VisibleOutputRendererRunResult {
+  return {
     terminalOutputValidation: {
       outputs: [
         {
@@ -80,32 +79,5 @@ function createRunResult(): AgentRunResult {
         },
       ],
     },
-    toolResults: [
-      {
-        ok: true,
-        toolResultId: "tr_legacy_shape",
-        toolName: "someFutureExerciseTool",
-        toolVersion: "0.1.0",
-        toolCallId: "tc_legacy_shape",
-        idempotencyKey: "idem_legacy_shape",
-        normalizedInputHash: "hash_legacy_shape",
-        startedAt: "2026-06-04T00:00:00.000Z",
-        completedAt: "2026-06-04T00:00:00.000Z",
-        output: {
-          groups: {
-            training: {
-              exercises: [
-                { exerciseId: "push-up", nameZh: "来自旧 tool result 的名称" },
-              ],
-            },
-          },
-        },
-        projection: { model: {}, user: {} },
-        fulfillment: { satisfied: true, summary: "future tool result" },
-      },
-    ],
-    observations: [],
-    traceEvents: [],
-    steps: 1,
   };
 }

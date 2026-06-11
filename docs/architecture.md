@@ -52,19 +52,21 @@ requireCurrentUser()
   ↓
 prepareChatRequest()
   ↓
-createAgentTextChatResponse()
+createLangChainAgentTextChatResponse()
   ↓
-createProductionToolRegistry()
+createProductionLangChainToolCatalog()
   ↓
-LlmPlanner + DeepSeekModelAdapter
+LangChain Agent Runtime + ChatDeepSeek
   ↓
-runAgentRuntime()
+DeepSeek native tool_calls
   ↓
-terminal output validator / visible output renderer
+LangChain tool wrappers
+  ↓
+production response adapter
   ↓
 NDJSON events
   ↓
-visibleTrainingProposal facts + AI token usage summary + AI trace
+visibleTrainingProposal facts + AI trace
 ```
 
 ## 3. 当前技术栈
@@ -78,7 +80,7 @@ visibleTrainingProposal facts + AI token usage summary + AI trace
 | 数据库 | PostgreSQL 17 |
 | ORM | Prisma 7、`@prisma/adapter-pg`、`pg` |
 | 校验 | Zod、JSON Schema、服务端 terminal output validator |
-| AI 编排 | 自研 `agent-core`、`PlannerPort`、`ToolRegistry`、DeepSeek Chat Completions adapter |
+| AI 编排 | LangChain Agent Runtime、`@langchain/deepseek`、DeepSeek native Tool Calling、生产 LangChain tool wrappers |
 | 测试 | Vitest、ESLint、`tsc --noEmit`、手动 LLM 黑盒测试入口 |
 | 部署 | Next.js standalone、Docker、Docker Compose、Caddy、GitHub Actions、GHCR |
 
@@ -171,10 +173,12 @@ API 层不承载复杂业务逻辑，不直接把客户端传入的裸 `userId` 
 | 模块 | 职责 |
 |---|---|
 | `auth/` | 本地匿名 auth cookie 与当前用户恢复 |
-| `chat/` | 聊天请求归一化、历史 hydration、Agent 文本流接入、终态失败收口 |
-| `agent-core/` | Agent runtime、tool registry、resource store、policy guard、response renderer、trace audit |
-| `agent-planners/` | LLM planner 与 DeepSeek model adapter |
-| `agent-tools/` | 生产只读业务 tool 和 fixture tool |
+| `chat/` | 聊天请求归一化、历史 hydration、LangChain Agent 文本流接入、NDJSON 投影 |
+| `langchain-agent/` | LangChain runtime、DeepSeek model factory、tool wrapper、production tool catalog、response adapter |
+| `visible-outputs/` | 结构化可见输出 envelope、validator registry 和 renderer registry |
+| `agent-core/` | 旧自研 Agent runtime 迁移遗留代码，当前 `/api/chat` 生产主链不再导入 |
+| `agent-planners/` | 旧 LLM planner 与 DeepSeek adapter 迁移遗留代码，当前 `/api/chat` 生产主链不再导入 |
+| `agent-tools/` | 旧自研 Agent tool 迁移遗留代码，当前生产工具由 `langchain-agent/tools/` 提供 |
 | `config/` | Agent runtime、LLM prompt、输出合同等集中配置 |
 | `db/` | Prisma Client 单例和数据库配置 |
 | `exercises/` | 动作库查询、结构化过滤、facet catalog 和动作事实投影 |
@@ -229,7 +233,7 @@ PostgreSQL 是运行时事实数据源，Prisma 是唯一 ORM 边界。`data/exe
 | `ChatSession` / `ChatMessage` | 聊天会话和消息 |
 | `ConversationArtifact` / `ArtifactIndex` | 对话产物和索引投影 |
 | `ConversationBusinessFact` | 跨 run 的轻量业务事实 |
-| `AiTokenUsageSummary` | 生产聊天 token 汇总，独立于 trace |
+| `AiTokenUsageSummary` | 旧生产聊天 token 汇总表；LangChain 主链 usage 写入仍待迁移 |
 
 时间字段约定：
 
@@ -260,17 +264,16 @@ PostgreSQL 是运行时事实数据源，Prisma 是唯一 ORM 边界。`data/exe
 
 ### 11.1 Agent runtime
 
-`lib/server/agent-core/*` 是模型无关的 Agent 执行内核，包含：
+当前生产 `/api/chat` 使用 `lib/server/langchain-agent/*` 作为 Agent 主链。核心文件包括：
 
-- `contracts.ts`：Agent action、tool、resource、trace 等核心合同。
-- `runtime.ts`：Agent 主循环。
-- `tool-registry.ts`：tool 注册表。
-- `resource-store.ts`：resource 注册和读取边界。
-- `policy-guard.ts`：策略与确认边界。
-- `terminal-output-validator.ts`：终态输出校验。
-- `response-renderer.ts` / `visible-output-renderer.ts`：用户可见响应渲染。
-- `manifest.ts` / `manifest-hardening.ts`：模型可见 tool manifest。
-- `redaction.ts` / `trace-audit.ts`：trace 脱敏和审计。
+- `runtime.ts`：封装 LangChain agent harness、运行预算、AbortSignal、错误归一化和 trace 摘要。
+- `model-factory.ts`：集中构造 `ChatDeepSeek`，读取 `DEEPSEEK_API_KEY`、`DEEPSEEK_API_URL`、`DEEPSEEK_MODEL` 和集中默认参数。
+- `prompt.ts`：构造 LangChain system prompt，不要求模型输出旧自定义 action JSON。
+- `tool-wrapper.ts`：把业务能力封装为 LangChain tools，并统一处理 Zod 校验、handler context、timeout、model-visible summary、user projection 和 trace summary。
+- `tools/production-tool-catalog.ts`：从集中配置白名单构造生产 tool catalog，不按用户原文动态增减工具。
+- `response-adapter.ts`：把 LangChain run result 和已校验结构化输出投影为 NDJSON 白名单事件。
+
+旧 `lib/server/agent-core/*`、`lib/server/agent-planners/*` 和旧 `lib/server/agent-tools/*` 目前仍在仓库中用于迁移对照和旧测试资产，但当前 `app/api/chat/route.ts` 不再通过它们执行生产聊天。
 
 Agent runtime 只处理确定性合同，不基于用户原文关键词或短句模板改写模型意图。
 
@@ -279,12 +282,14 @@ Agent runtime 只处理确定性合同，不基于用户原文关键词或短句
 生产聊天使用：
 
 ```txt
-LlmPlanner
+LangChain createAgent()
   +
-DeepSeekModelAdapter
+@langchain/deepseek ChatDeepSeek
+  +
+DeepSeek native tool_calls
 ```
 
-`createProductionAgentTextChatPlanner()` 从环境变量读取：
+`createLangChainDeepSeekModel()` 通过集中配置和环境变量构造模型：
 
 - `DEEPSEEK_API_KEY`
 - `DEEPSEEK_API_URL`
@@ -296,12 +301,13 @@ Agent runtime、模型 token、超时、tool 返回数量等预算集中在 `lib
 
 ### 11.3 生产 tool 白名单
 
-当前生产聊天只注册低风险只读业务 tool：
+当前生产聊天注册这些 LangChain tool：
 
 ```txt
 inspectVisibleTrainingProposals
 resolveExerciseResourceMentions
 searchExerciseResources
+submitVisibleTrainingProposal
 ```
 
 它们分别用于：
@@ -309,8 +315,9 @@ searchExerciseResources
 - 读取当前用户当前会话已展示的 `visibleTrainingProposal` 业务事实。
 - 把用户明确点名动作解析为受控发布态 Exercise 候选。
 - 查询 section-scoped 的发布态动作事实。
+- 提交模型已构造好的 `visibleTrainingProposal` 结构给服务端 validator 和 renderer，成功后输出已校验训练卡片。
 
-fixture tool、写入型 tool、训练保存 tool、训练执行 tool 不进入生产聊天主链。
+fixture tool、写入型 tool、训练保存 tool、训练执行 tool 不进入生产聊天主链。`submitVisibleTrainingProposal` 不保存、不覆盖、不写入用户数据，只做 validate / finalize。
 
 ### 11.4 可见训练方案输出
 
@@ -319,7 +326,7 @@ fixture tool、写入型 tool、训练保存 tool、训练执行 tool 不进入�
 服务端链路：
 
 ```txt
-模型 final_answer.visibleOutputs[]
+模型调用 submitVisibleTrainingProposal
   ↓
 visibleTrainingProposalPayloadSchema
   ↓
@@ -328,6 +335,8 @@ validateVisibleTrainingProposalOutput()
 数据库动作事实校验
   ↓
 visibleTrainingProposal renderer
+  ↓
+production response adapter
   ↓
 前端训练方案卡片
   ↓
@@ -338,17 +347,19 @@ ConversationBusinessFact 持久化为后续轮次可读取事实
 
 ### 11.5 失败收口、trace 与 usage
 
-主 Agent 失败后，`terminal-failure-finalizer` 可在受控预算内生成用户可见失败解释和建议问题；如果 finalizer 不可用，则返回确定性 fallback。
+当前 LangChain 主链失败后，production response adapter 会按错误类型输出安全 fallback；旧 `terminal-failure-finalizer` 属于旧自研主链遗留能力，不再是 `/api/chat` 当前生产主链的必经步骤。
 
 AI trace 用于开发和内测诊断：
 
 - 记录 run 输入摘要。
-- 记录 planner request/response。
-- 记录 tool execution。
+- 记录 LangChain model request / response 摘要。
+- 记录 DeepSeek native `tool_calls`。
+- 记录 LangChain tool wrapper execution。
+- 记录结构化 validator 和 NDJSON projection 摘要。
 - 记录 token usage 和终态决策。
 - 生产环境只有 `ENABLE_AI_TRACE_LOG=true` 时写入。
 
-生产 token 统计写入 `AiTokenUsageSummary`，不依赖 trace、内存 store 或 `ChatMessage.metadata` 推断。
+`AiTokenUsageSummary` 表和后台统计能力仍存在；新 LangChain `/api/chat` 主链的 provider usage 提取和写入还未完成迁移，当前不要把后台 token 统计当成本轮 LangChain 调用的完整事实来源。
 
 ## 12. 部署架构
 

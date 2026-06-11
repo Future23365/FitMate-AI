@@ -19,6 +19,11 @@ const exerciseServiceMocks = vi.hoisted(() => ({
   listExercises: vi.fn(),
 }));
 const exerciseRepositoryMocks = vi.hoisted(() => ({
+  getExerciseRecordsByIds: vi.fn(),
+  getExerciseResourceSummariesByIds: vi.fn(async () => []),
+  isBodyweightExerciseResourceEquipment: vi.fn((exercise) => exercise.equipment === "body only" || exercise.equipmentZh === "自重"),
+  isNoEquipmentResourceQueryValue: vi.fn((value) => value === "no_equipment" || value === "无器械"),
+  isRemovedNoEquipmentHomeRequirementValue: vi.fn((value) => ["none", "no_equipment", "无器械"].includes(value)),
   normalizeExerciseResourceFacetCatalogForPlanner: vi.fn((catalog) => catalog),
   readExerciseResourceFacetCatalog: vi.fn(async () => ({
     muscles: [],
@@ -32,6 +37,8 @@ const exerciseRepositoryMocks = vi.hoisted(() => ({
     riskTags: [],
     suitabilities: ["warmup", "training", "stretch"],
   })),
+  resolveExerciseResourceMentionSummaries: vi.fn(),
+  searchExerciseResourceSummaries: vi.fn(),
 }));
 const workoutPersistenceMocks = vi.hoisted(() => ({
   createWorkoutSchedule: vi.fn(),
@@ -149,6 +156,10 @@ describe("API route boundaries", () => {
     currentUserMocks.getCurrentUser.mockResolvedValue({ id: "user-1" });
     authMocks.requireCurrentUser.mockResolvedValue({ id: "user-1", displayName: "匿名用户" });
     usageSummaryServiceMocks.recordAiTokenUsageSummary.mockResolvedValue({ ok: true });
+    exerciseRepositoryMocks.resolveExerciseResourceMentionSummaries.mockResolvedValue(createMentionResolutionResult());
+    exerciseRepositoryMocks.getExerciseRecordsByIds.mockImplementation(async (ids: readonly string[]) => (
+      ids.flatMap((id) => (id === "push-up" ? [createExerciseFactRecord(id)] : []))
+    ));
   });
 
   it("validates /api/chat body and returns stable configuration errors without model configuration", async () => {
@@ -172,23 +183,15 @@ describe("API route boundaries", () => {
     expect(traceMocks.startAiTrace).toHaveBeenCalledWith(expect.objectContaining({
       route: "/api/chat",
       userId: "user-1",
-      input: expect.objectContaining({
-        latestUserMessage: "练胸",
-        registry: {
-          manifestHash: expect.any(String),
-          toolCount: 3,
-          toolNames: ["inspectVisibleTrainingProposals", "resolveExerciseResourceMentions", "searchExerciseResources"],
-        },
-      }),
     }));
     expect(traceMocks.startAiTrace.mock.results[0].value.addStep).toHaveBeenCalledWith(expect.objectContaining({
-      name: "模型配置错误",
+      name: "LangChain Agent Runtime 摘要",
       type: "error",
       status: "failed",
     }));
     expect(traceMocks.startAiTrace.mock.results[0].value.finish).toHaveBeenCalledWith(
       "failed",
-      expect.objectContaining({ code: "chat_ai_not_configured", responseType: "error" }),
+      expect.objectContaining({ reason: "transport_config_failure", responseType: "error" }),
     );
   });
 
@@ -196,14 +199,12 @@ describe("API route boundaries", () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(Response.json({
       model: "deepseek-v4-flash",
       choices: [
-        {
-          message: {
-            content: JSON.stringify({
-              type: "final_answer",
+          {
+            message: {
+              role: "assistant",
               content: "可以，今天先做低强度胸部训练。",
-            }),
+            },
           },
-        },
       ],
       usage: {
         prompt_tokens: 20,
@@ -236,11 +237,9 @@ describe("API route boundaries", () => {
     const modelRequest = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     expect(modelRequest).toMatchObject({
       model: "deepseek-v4-flash",
-      thinking: { type: "enabled" },
-      reasoning_effort: "high",
-      messages: expect.arrayContaining([
+      tools: expect.arrayContaining([
         expect.objectContaining({
-          content: expect.stringContaining("\"name\":\"searchExerciseResources\""),
+          function: expect.objectContaining({ name: "searchExerciseResources" }),
         }),
       ]),
     });
@@ -253,33 +252,418 @@ describe("API route boundaries", () => {
       messageId: "assistant-1",
     }));
     expect(traceMocks.startAiTrace.mock.results[0].value.addStep).toHaveBeenCalledWith(expect.objectContaining({
-      type: "model_request",
+      name: "LangChain Agent Runtime 摘要",
+      type: "runtime_event",
       output: expect.objectContaining({
-        plannerCallIndex: 1,
-        runtimeStep: 1,
-        model: "deepseek-v4-flash",
-        thinking: expect.objectContaining({
-          type: "enabled",
-          reasoning_effort: "high",
+        traceSummary: expect.objectContaining({
+          runtimeVersion: "langchain-agent-runtime-v1",
         }),
-      }),
-    }));
-    expect(traceMocks.startAiTrace.mock.results[0].value.addStep).toHaveBeenCalledWith(expect.objectContaining({
-      type: "model_response",
-      status: "success",
-      output: expect.objectContaining({
-        parseStatus: "parsed",
-        actionType: "final_answer",
-        tokenUsage: { prompt_tokens: 20, completion_tokens: 8, total_tokens: 28 },
       }),
     }));
     expect(traceMocks.startAiTrace.mock.results[0].value.addStep).toHaveBeenCalledWith(expect.objectContaining({
       type: "response_write",
       output: expect.objectContaining({ eventTypes: ["content", "done"] }),
       metadata: expect.objectContaining({
-        plannerModelCallCount: 1,
-        tokenUsageSummary: { prompt_tokens: 20, completion_tokens: 8, total_tokens: 28 },
+        projectionType: "content",
+        pipeline: "langchain-agent-text-chat",
       }),
+    }));
+  });
+
+  it("runs native DeepSeek tool calls through the LangChain production tool catalog", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json({
+        model: "deepseek-v4-flash",
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: null,
+              tool_calls: [
+                {
+                  id: "call_resolve_1",
+                  type: "function",
+                  function: {
+                    name: "resolveExerciseResourceMentions",
+                    arguments: JSON.stringify({
+                      mentions: [{ text: "俯卧撑", sectionHint: "training" }],
+                    }),
+                  },
+                },
+              ],
+            },
+            finish_reason: "tool_calls",
+          },
+        ],
+      }))
+      .mockResolvedValueOnce(Response.json({
+        model: "deepseek-v4-flash",
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: "已确认动作库里有俯卧撑，可以作为主训练候选。",
+            },
+          },
+        ],
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await chatRoute.POST(jsonRequest("/api/chat", {
+      latestUserMessage: "我想做俯卧撑",
+      conversationSummary: "用户想练上肢。",
+      conversationId: "conversation-1",
+      responseMessageId: "assistant-tool-1",
+    }));
+    const rawEvents = parseNdjson(await response.text());
+    const events = rawEvents.filter((event) => event.type !== "agent_progress" && event.type !== "agent_loop");
+
+    expect(response.status).toBe(200);
+    expect(events).toEqual([
+      { type: "content", content: "已确认动作库里有俯卧撑，可以作为主训练候选。" },
+      { type: "done" },
+    ]);
+    expect(exerciseRepositoryMocks.resolveExerciseResourceMentionSummaries).toHaveBeenCalledWith({
+      text: "俯卧撑",
+      maxMatches: 5,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const firstModelRequest = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    const secondModelRequest = JSON.parse(fetchMock.mock.calls[1][1].body as string);
+    expect(firstModelRequest.tools).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        function: expect.objectContaining({ name: "resolveExerciseResourceMentions" }),
+      }),
+    ]));
+    expect(JSON.stringify(secondModelRequest.messages)).toContain("tool");
+    expect(JSON.stringify(secondModelRequest.messages)).toContain("Pushups");
+    expect(traceMocks.startAiTrace.mock.results[0].value.addStep).toHaveBeenCalledWith(expect.objectContaining({
+      name: "LangChain Agent Runtime 摘要",
+      output: expect.objectContaining({
+        traceSummary: expect.objectContaining({
+          providerToolCalls: [
+            expect.objectContaining({
+              id: "call_resolve_1",
+              name: "resolveExerciseResourceMentions",
+            }),
+          ],
+          toolCallCount: 1,
+        }),
+      }),
+    }));
+  });
+
+  it("projects provider failures into safe NDJSON fallback events", async () => {
+    const fetchMock = vi.fn().mockRejectedValueOnce(new Error("provider connection failed"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await chatRoute.POST(jsonRequest("/api/chat", {
+      latestUserMessage: "练胸",
+      conversationSummary: "用户想练胸。",
+      conversationId: "conversation-1",
+      responseMessageId: "assistant-provider-failure",
+    }));
+    const rawEvents = parseNdjson(await response.text());
+    const events = rawEvents.filter((event) => event.type !== "agent_progress" && event.type !== "agent_loop");
+
+    expect(response.status).toBe(200);
+    expect(events).toEqual([
+      { type: "content", content: expect.stringContaining("模型服务暂时不可用") },
+      { type: "suggested_questions", suggestedQuestions: ["为什么没成功？", "你再试试", "要不换个别的？"] },
+      { type: "done" },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("provider connection failed");
+    expect(traceMocks.startAiTrace.mock.results[0].value.addStep).toHaveBeenCalledWith(expect.objectContaining({
+      name: "LangChain Agent Runtime 摘要",
+      type: "error",
+      status: "failed",
+    }));
+  });
+
+  it("keeps trace write failures non-fatal for /api/chat responses", async () => {
+    traceMocks.startAiTrace.mockReturnValueOnce({
+      id: "trace-throws",
+      addStep: vi.fn(() => {
+        throw new Error("trace write failed");
+      }),
+      finish: vi.fn(),
+      update: vi.fn(),
+    });
+    const fetchMock = vi.fn().mockResolvedValueOnce(Response.json({
+      model: "deepseek-v4-flash",
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: "trace 写入失败也不影响回复。",
+          },
+        },
+      ],
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await chatRoute.POST(jsonRequest("/api/chat", {
+      latestUserMessage: "练胸",
+      conversationSummary: "用户想练胸。",
+      conversationId: "conversation-1",
+      responseMessageId: "assistant-trace-failure",
+    }));
+    const rawEvents = parseNdjson(await response.text());
+    const events = rawEvents.filter((event) => event.type !== "agent_progress" && event.type !== "agent_loop");
+
+    expect(response.status).toBe(200);
+    expect(events).toEqual([
+      { type: "content", content: "trace 写入失败也不影响回复。" },
+      { type: "done" },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps invalid provider tool arguments inside the LangChain repair loop", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json({
+        model: "deepseek-v4-flash",
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: null,
+              tool_calls: [
+                {
+                  id: "call_invalid_search",
+                  type: "function",
+                  function: {
+                    name: "searchExerciseResources",
+                    arguments: JSON.stringify({
+                      muscles: ["胸部"],
+                      published: false,
+                    }),
+                  },
+                },
+              ],
+            },
+            finish_reason: "tool_calls",
+          },
+        ],
+      }))
+      .mockResolvedValueOnce(Response.json({
+        model: "deepseek-v4-flash",
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: "工具参数需要修正，我不会把这次查询当作成功事实。",
+            },
+          },
+        ],
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await chatRoute.POST(jsonRequest("/api/chat", {
+      latestUserMessage: "练胸",
+      conversationSummary: "用户想练胸。",
+      conversationId: "conversation-1",
+      responseMessageId: "assistant-invalid-tool",
+    }));
+    const rawEvents = parseNdjson(await response.text());
+    const events = rawEvents.filter((event) => event.type !== "agent_progress" && event.type !== "agent_loop");
+
+    expect(response.status).toBe(200);
+    expect(events).toEqual([
+      { type: "content", content: "工具参数需要修正，我不会把这次查询当作成功事实。" },
+      { type: "done" },
+    ]);
+    expect(exerciseRepositoryMocks.searchExerciseResourceSummaries).not.toHaveBeenCalled();
+    const secondModelRequest = JSON.parse(fetchMock.mock.calls[1][1].body as string);
+    expect(JSON.stringify(secondModelRequest.messages)).toContain("tool_schema_invalid");
+    expect(traceMocks.startAiTrace.mock.results[0].value.addStep).toHaveBeenCalledWith(expect.objectContaining({
+      name: "LangChain Agent Runtime 摘要",
+      output: expect.objectContaining({
+        traceSummary: expect.objectContaining({
+          providerToolCalls: [
+            expect.objectContaining({
+              id: "call_invalid_search",
+              name: "searchExerciseResources",
+            }),
+          ],
+          toolCallCount: 1,
+        }),
+        toolExecutions: [
+          expect.objectContaining({
+            toolName: "searchExerciseResources",
+            status: "failed",
+            failureCode: "tool_schema_invalid",
+          }),
+        ],
+      }),
+    }));
+  });
+
+  it("projects validated visible training proposals from the LangChain finalization tool", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json({
+        model: "deepseek-v4-flash",
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: null,
+              tool_calls: [
+                {
+                  id: "call_submit_visible_1",
+                  type: "function",
+                  function: {
+                    name: "submitVisibleTrainingProposal",
+                    arguments: JSON.stringify({
+                      outputType: "visibleTrainingProposal",
+                      schemaVersion: "1",
+                      payload: {
+                        kind: "exercise_selection",
+                        exerciseItems: [
+                          { exerciseId: "push-up", section: "training", order: 1 },
+                        ],
+                      },
+                    }),
+                  },
+                },
+              ],
+            },
+            finish_reason: "tool_calls",
+          },
+        ],
+      }))
+      .mockResolvedValueOnce(Response.json({
+        model: "deepseek-v4-flash",
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: "已生成一个经过校验的训练动作卡片。",
+            },
+          },
+        ],
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await chatRoute.POST(jsonRequest("/api/chat", {
+      latestUserMessage: "给我一个练胸动作卡片",
+      conversationSummary: "用户想练胸。",
+      conversationId: "conversation-1",
+      responseMessageId: "assistant-visible-output",
+    }));
+    const rawEvents = parseNdjson(await response.text());
+    const events = rawEvents.filter((event) => event.type !== "agent_progress" && event.type !== "agent_loop");
+
+    expect(response.status).toBe(200);
+    expect(events).toEqual([
+      { type: "content", content: "已生成一个经过校验的训练动作卡片。" },
+      expect.objectContaining({
+        type: "visible_output",
+        outputType: "visibleTrainingProposal",
+        schemaVersion: "1",
+        payload: expect.objectContaining({
+          kind: "exercise_selection",
+          exerciseItems: [expect.objectContaining({ exerciseId: "push-up", section: "training" })],
+        }),
+        content: expect.objectContaining({
+          sections: [
+            expect.objectContaining({
+              section: "training",
+              items: [
+                expect.objectContaining({
+                  exerciseId: "push-up",
+                  exercise: expect.objectContaining({ nameZh: "俯卧撑" }),
+                }),
+              ],
+            }),
+          ],
+        }),
+      }),
+      { type: "done" },
+    ]);
+    expect(exerciseRepositoryMocks.getExerciseRecordsByIds).toHaveBeenCalledWith(["push-up"]);
+    expect(visibleTrainingProposalFactStoreMocks.persistVisibleTrainingProposalFactsFromEvents).toHaveBeenCalledWith(expect.objectContaining({
+      messageId: "assistant-visible-output",
+      events: [expect.objectContaining({ type: "visible_output" })],
+    }));
+    expect(traceMocks.startAiTrace.mock.results[0].value.addStep).toHaveBeenCalledWith(expect.objectContaining({
+      name: "LangChain Agent Runtime 摘要",
+      output: expect.objectContaining({
+        structuredOutputValidation: { validatedVisibleOutputCount: 1 },
+      }),
+    }));
+    expect(traceMocks.startAiTrace.mock.results[0].value.addStep).toHaveBeenCalledWith(expect.objectContaining({
+      type: "response_write",
+      metadata: expect.objectContaining({ visibleOutputCount: 1 }),
+    }));
+  });
+
+  it("keeps rejected visible training proposals out of NDJSON visible outputs", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json({
+        model: "deepseek-v4-flash",
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: null,
+              tool_calls: [
+                {
+                  id: "call_submit_invalid_visible",
+                  type: "function",
+                  function: {
+                    name: "submitVisibleTrainingProposal",
+                    arguments: JSON.stringify({
+                      outputType: "visibleTrainingProposal",
+                      schemaVersion: "1",
+                      payload: {
+                        kind: "exercise_selection",
+                        exerciseItems: [
+                          { exerciseId: "missing-exercise", section: "training", order: 1 },
+                        ],
+                      },
+                    }),
+                  },
+                },
+              ],
+            },
+            finish_reason: "tool_calls",
+          },
+        ],
+      }))
+      .mockResolvedValueOnce(Response.json({
+        model: "deepseek-v4-flash",
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: "这个动作没通过数据库校验，我不会生成训练卡片。",
+            },
+          },
+        ],
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await chatRoute.POST(jsonRequest("/api/chat", {
+      latestUserMessage: "给我一个不存在动作的卡片",
+      conversationSummary: "用户想练胸。",
+      conversationId: "conversation-1",
+      responseMessageId: "assistant-visible-output-invalid",
+    }));
+    const rawEvents = parseNdjson(await response.text());
+    const events = rawEvents.filter((event) => event.type !== "agent_progress" && event.type !== "agent_loop");
+    const secondModelRequest = JSON.parse(fetchMock.mock.calls[1][1].body as string);
+
+    expect(response.status).toBe(200);
+    expect(events).toEqual([
+      { type: "content", content: "这个动作没通过数据库校验，我不会生成训练卡片。" },
+      { type: "done" },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("visible_output");
+    expect(JSON.stringify(secondModelRequest.messages)).toContain("structured_output_validation_failed");
+    expect(visibleTrainingProposalFactStoreMocks.persistVisibleTrainingProposalFactsFromEvents).toHaveBeenCalledWith(expect.objectContaining({
+      messageId: "assistant-visible-output-invalid",
+      events: [],
     }));
   });
 
@@ -383,4 +767,57 @@ function params(id: string) {
 
 function parseNdjson(text: string) {
   return text.trim().split("\n").map((line) => JSON.parse(line));
+}
+
+function createMentionResolutionResult() {
+  return {
+    text: "俯卧撑",
+    totalMatches: 1,
+    returnedCount: 1,
+    maxMatches: 5,
+    truncated: false,
+    exactMatchCount: 1,
+    exercises: [
+      {
+        id: "Pushups",
+        nameEn: "Pushups",
+        nameZh: "俯卧撑",
+        category: "strength",
+        categoryZh: "力量",
+        level: "beginner",
+        levelZh: "初级",
+        force: "push",
+        forceZh: "推",
+        mechanic: "compound",
+        mechanicZh: "复合",
+        equipment: "body only",
+        equipmentZh: "自重",
+        homeRequirement: "none",
+        homeRequirementZh: "无器械",
+        primaryMuscles: ["chest"],
+        primaryMusclesZh: ["胸部"],
+        secondaryMuscles: ["triceps"],
+        secondaryMusclesZh: ["肱三头肌"],
+        imageUrls: ["/push-up.png"],
+        allowedSections: ["training"],
+        goalTags: ["strength"],
+        riskTags: [],
+        reviewStatus: "human_reviewed",
+        isPublished: true,
+      },
+    ],
+  };
+}
+
+function createExerciseFactRecord(id: string) {
+  return {
+    id,
+    nameZh: "俯卧撑",
+    nameEn: "Push-Up",
+    equipmentZh: "自重",
+    primaryMusclesZh: ["胸大肌"],
+    allowedSections: ["training"],
+    imageUrls: ["https://example.test/push-up.jpg"],
+    isPublished: true,
+  };
 }

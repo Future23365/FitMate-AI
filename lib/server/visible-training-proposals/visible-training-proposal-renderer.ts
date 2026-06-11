@@ -1,8 +1,11 @@
 import {
   VisibleOutputRendererRegistry,
   type VisibleOutputRenderer,
-} from "@/lib/server/agent-core/visible-output-renderer";
-import type { AgentRunResult, VisibleOutputEnvelope } from "@/lib/server/agent-core/contracts";
+} from "@/lib/server/visible-outputs/visible-output-renderer";
+import type {
+  VisibleOutputEnvelope,
+  VisibleOutputRendererRunResult,
+} from "@/lib/server/visible-outputs/contracts";
 
 import {
   toJsonValue,
@@ -30,9 +33,10 @@ export function createProductionVisibleOutputRendererRegistry() {
   return registry;
 }
 
-function renderVisibleTrainingProposalOutput(
+/** renderVisibleTrainingProposalOutput 使用 validator 元数据补齐动作详情，不读取 tool raw output。 */
+export function renderVisibleTrainingProposalOutput(
   output: VisibleOutputEnvelope,
-  result: AgentRunResult,
+  result: VisibleOutputRendererRunResult,
   outputIndex: number,
 ) {
   const parsed = visibleTrainingProposalPayloadSchema.safeParse(output.payload);
@@ -89,7 +93,7 @@ function renderExerciseItem(
   };
 }
 
-function collectValidatedExerciseDetails(result: AgentRunResult, outputIndex: number) {
+function collectValidatedExerciseDetails(result: VisibleOutputRendererRunResult, outputIndex: number) {
   const metadata = result.terminalOutputValidation?.outputs.find((output) => (
     output.index === outputIndex && output.outputType === visibleTrainingProposalOutputType
   ))?.metadata;

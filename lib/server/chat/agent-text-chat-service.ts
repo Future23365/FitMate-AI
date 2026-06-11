@@ -39,8 +39,8 @@ import {
   toJsonValue,
   type PersistVisibleTrainingProposalFactsResult,
 } from "@/lib/server/visible-training-proposals/visible-training-proposal-fact-store";
-import { createProductionTerminalOutputValidatorRegistry } from "@/lib/server/visible-training-proposals/visible-training-proposal-validator";
-import { createProductionVisibleOutputRendererRegistry } from "@/lib/server/visible-training-proposals/visible-training-proposal-renderer";
+import { createProductionTerminalOutputValidatorRegistry } from "@/lib/server/visible-training-proposals/legacy-visible-training-proposal-validator";
+import { createProductionVisibleOutputRendererRegistry } from "@/lib/server/visible-training-proposals/legacy-visible-training-proposal-renderer";
 import { readExerciseResourceFacetCatalog } from "@/lib/server/exercises/exercise-repository";
 import { agentRuntimeConfig } from "@/lib/server/config";
 import { sanitizeAgentActivitySummary } from "@/lib/shared/agent-activity-summary";

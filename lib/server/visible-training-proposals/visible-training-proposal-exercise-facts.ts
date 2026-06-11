@@ -2,7 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 
-import type { JsonValue } from "@/lib/server/agent-core/contracts";
+import type { JsonValue } from "@/lib/server/visible-outputs/contracts";
 import { getExerciseRecordsByIds } from "@/lib/server/exercises/exercise-repository";
 import {
   exerciseAllowedSectionSchema,
@@ -23,7 +23,7 @@ export const visibleTrainingProposalCanonicalExerciseSchema = z.object({
 
 export const visibleTrainingProposalValidationMetadataSchema = z.object({
   exerciseDetails: z.array(visibleTrainingProposalCanonicalExerciseSchema),
-}).strict();
+}).passthrough();
 
 export type VisibleTrainingProposalCanonicalExercise = z.infer<typeof visibleTrainingProposalCanonicalExerciseSchema>;
 

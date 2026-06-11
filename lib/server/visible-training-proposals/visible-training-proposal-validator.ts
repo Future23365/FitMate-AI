@@ -1,10 +1,13 @@
 import {
-  TerminalOutputValidatorRegistry,
-  type TerminalOutputValidator,
-  type TerminalOutputValidationContext,
-  type TerminalOutputValidationResult,
-} from "@/lib/server/agent-core/terminal-output-validator";
-import type { JsonValue, VisibleOutputEnvelope } from "@/lib/server/agent-core/contracts";
+  VisibleOutputValidatorRegistry,
+  type VisibleOutputValidator,
+} from "@/lib/server/visible-outputs/terminal-output-validator";
+import type {
+  JsonValue,
+  VisibleOutputEnvelope,
+  VisibleOutputValidationContext,
+  VisibleOutputValidationResult,
+} from "@/lib/server/visible-outputs/contracts";
 
 import {
   toJsonValue,
@@ -25,14 +28,14 @@ import {
   type VisibleTrainingCompositionSection,
 } from "./visible-training-resource-coverage";
 
-type VisibleTrainingProposalValidatorOptions = {
+export type VisibleTrainingProposalValidatorOptions = {
   loadExerciseRecordsByIds?: VisibleTrainingProposalExerciseFactLoader;
 };
 
 /** createVisibleTrainingProposalValidator 校验训练方案 payload 结构，并通过注入的动作事实服务复核数据库边界。 */
 export function createVisibleTrainingProposalValidator(
   options: VisibleTrainingProposalValidatorOptions = {},
-): TerminalOutputValidator {
+): VisibleOutputValidator {
   return {
     outputType: visibleTrainingProposalOutputType,
     schemaVersions: [visibleTrainingProposalSchemaVersion],
@@ -40,11 +43,11 @@ export function createVisibleTrainingProposalValidator(
   };
 }
 
-/** createProductionTerminalOutputValidatorRegistry 装配生产聊天允许的用户可见结构化输出 validator。 */
-export function createProductionTerminalOutputValidatorRegistry(
+/** createProductionVisibleOutputValidatorRegistry 装配生产聊天允许的用户可见结构化输出 validator。 */
+export function createProductionVisibleOutputValidatorRegistry(
   options: VisibleTrainingProposalValidatorOptions = {},
 ) {
-  const registry = new TerminalOutputValidatorRegistry();
+  const registry = new VisibleOutputValidatorRegistry();
   registry.register(createVisibleTrainingProposalValidator(options));
   return registry;
 }
@@ -52,9 +55,9 @@ export function createProductionTerminalOutputValidatorRegistry(
 /** validateVisibleTrainingProposalOutput 是 visibleTrainingProposal 的终态输出安全边界，不读取用户原文。 */
 export async function validateVisibleTrainingProposalOutput(
   output: VisibleOutputEnvelope,
-  context: TerminalOutputValidationContext,
+  context: VisibleOutputValidationContext,
   options: VisibleTrainingProposalValidatorOptions = {},
-): Promise<TerminalOutputValidationResult> {
+): Promise<VisibleOutputValidationResult> {
   const legacyIdPath = findLegacyIdField(output.payload);
   if (legacyIdPath) {
     return {
@@ -121,8 +124,8 @@ function asObjectDetails(details: JsonValue): Record<string, JsonValue> {
 
 function createRoutinePlanCoverageFailure(
   payload: JsonValue,
-  context: TerminalOutputValidationContext,
-): TerminalOutputValidationResult | null {
+  context: VisibleOutputValidationContext,
+): VisibleOutputValidationResult | null {
   if (!isRecord(payload) || (payload.kind !== "routine" && payload.kind !== "plan")) {
     return null;
   }
@@ -154,7 +157,7 @@ function createRoutinePlanCoverageFailure(
   };
 }
 
-function summarizeCurrentVisibleTrainingCoverage(context: TerminalOutputValidationContext) {
+function summarizeCurrentVisibleTrainingCoverage(context: VisibleOutputValidationContext) {
   const sections = new Set<VisibleTrainingCompositionSection>();
 
   for (const result of context.toolResults) {
@@ -236,7 +239,7 @@ function readExerciseSections(value: JsonValue | undefined): Array<Pick<VisibleT
 
 function createCurrentRunExerciseSourceDiagnostic(
   exerciseItems: readonly Pick<VisibleTrainingExerciseItem, "exerciseId" | "section" | "order">[],
-  context: TerminalOutputValidationContext,
+  context: VisibleOutputValidationContext,
 ): JsonValue | undefined {
   const sources = collectCurrentRunExerciseSources(context);
   const missingItems = exerciseItems.filter((item) => !sources.has(createExerciseSourceKey(item)));
@@ -261,7 +264,7 @@ function createCurrentRunExerciseSourceDiagnostic(
 }
 
 // collectCurrentRunExerciseSources 只读取当前 run 可用于训练结构交付的 tool result 和 consumable resource，不解释用户原文或绑定具体 toolName。
-function collectCurrentRunExerciseSources(context: TerminalOutputValidationContext) {
+function collectCurrentRunExerciseSources(context: VisibleOutputValidationContext) {
   const sources = new Set<string>();
 
   for (const result of context.toolResults) {

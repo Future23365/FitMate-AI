@@ -1,5 +1,7 @@
 # 大模型 Planner Prompt 与 Tool Manifest 设计原则
 
+> 当前状态（2026-06-11 12:45:34 CST）：生产 `/api/chat` 已迁移到 LangChain Agent Runtime 和 DeepSeek native Tool Calling，不再要求模型输出旧 `AgentAction` JSON。本文保留 Prompt / Tool / Runtime / Validator 的分层原则；涉及 `AgentAction`、`final_answer`、`ask_user` 或完整 action 示例的段落属于旧自定义 JSON action 设计示例，当前实现应映射为 provider `tool_calls`、LangChain tool description / schema、tool result summary、结构化 finalization tool 和 production response adapter。
+
 ## 0. 核心结论
 
 Prompt 和 Tool Manifest 不是越长越好。
@@ -33,7 +35,7 @@ Prompt 和 Tool Manifest 不是越长越好。
 
 ```txt
 System Prompt      ：定义角色、硬约束、输出格式、安全边界
-Action Contract    ：定义 AgentAction 的合法 JSON 结构
+Action Contract    ：旧自定义 action 场景定义 AgentAction；当前生产由 provider tool_calls + LangChain tool schema 承担
 Output Contract    ：定义最终结构化输出的合法形状
 Glossary           ：定义容易混淆的业务概念
 Planner Policy     ：定义业务决策规则
@@ -53,7 +55,7 @@ Repair Prompt      ：只在校验失败后做局部修复
 | 模块              | 负责什么           | 不负责什么        |
 | --------------- | -------------- | ------------ |
 | System Prompt   | 最高级行为约束        | 具体业务字段细节     |
-| Action Contract | action JSON 形状 | 业务决策         |
+| Action Contract | action JSON 形状或 provider tool call 形状 | 业务决策         |
 | Output Contract | 结构化输出形状        | 事实是否可信       |
 | Glossary        | 概念定义           | 工作流编排        |
 | Planner Policy  | 什么时候做什么        | 具体 schema 校验 |
@@ -1240,7 +1242,7 @@ failure mode
 - 输出不能支撑什么
 
 ### Examples
-- 完整 AgentAction 示例
+- 当前 LangChain tool 场景使用完整 provider tool call / tool input 示例；旧自定义 action 场景才使用完整 AgentAction 示例
 ```
 
 ---
@@ -1428,7 +1430,7 @@ index result -> final structured output
 7. 输出属于什么事实等级？
 8. 输出能不能直接支撑最终结构？
 9. 输出为空、歧义、失败时怎么办？
-10. examples 是否是完整 AgentAction？
+10. examples 是否匹配当前执行合同？旧自定义 action 用完整 AgentAction；当前 LangChain tool 用完整 tool input / provider tool call 示例。
 ```
 
 ---

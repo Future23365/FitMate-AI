@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { workoutModeSchema } from "@/lib/shared/workout-plans/draft-schema";
 import { exerciseAllowedSectionSchema } from "@/lib/shared/exercises/types";
-import type { JsonValue } from "@/lib/server/agent-core/contracts";
+import type { JsonValue } from "@/lib/server/visible-outputs/contracts";
 
 export const visibleTrainingProposalOutputType = "visibleTrainingProposal";
 export const visibleTrainingProposalSchemaVersion = "1";

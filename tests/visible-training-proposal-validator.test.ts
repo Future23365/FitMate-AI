@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ResourceStore } from "@/lib/server/agent-core/resource-store";
-import type { ToolResult, VisibleOutputEnvelope } from "@/lib/server/agent-core/contracts";
+import type { ToolResult } from "@/lib/server/agent-core/contracts";
+import type { VisibleOutputEnvelope } from "@/lib/server/visible-outputs/contracts";
 import { validateVisibleTrainingProposalOutput } from "@/lib/server/visible-training-proposals/visible-training-proposal-validator";
 import type { VisibleTrainingProposalExerciseFactLoader } from "@/lib/server/visible-training-proposals/visible-training-proposal-exercise-facts";
 import { visibleTrainingProposalFactResourceType } from "@/lib/server/visible-training-proposals/visible-training-proposal-contract";

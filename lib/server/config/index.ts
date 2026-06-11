@@ -1,6 +1,10 @@
 export {
   agentRuntimeConfig,
+  resolveLangChainDeepSeekProviderConfig,
   type AgentRuntimeConfig,
+  type LangChainDeepSeekProviderConfig,
+  type LangChainDeepSeekProviderConfigResult,
+  type LangChainDeepSeekProviderEnv,
 } from "./agent-runtime-config";
 
 export {
