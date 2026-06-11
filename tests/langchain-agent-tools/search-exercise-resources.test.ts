@@ -79,10 +79,10 @@ describe("searchExerciseResources LangChain tool", () => {
         equipment: "no_equipment",
         sort: "name_asc",
       },
-      totalMatches: 1,
       returnedCount: 1,
       groups: {
         training: {
+          returnedCount: 1,
           zeroMatchMuscles: [],
           exercises: [
             {
@@ -97,6 +97,12 @@ describe("searchExerciseResources LangChain tool", () => {
         groupKey: "groups.<section>",
       },
     });
+    expect(modelMessage).not.toHaveProperty("totalMatches");
+    expect(modelMessage).not.toHaveProperty("maxReturned");
+    expect(modelMessage).not.toHaveProperty("truncated");
+    expect(modelMessage.groups.training).not.toHaveProperty("totalMatches");
+    expect(modelMessage.groups.training).not.toHaveProperty("maxReturned");
+    expect(modelMessage.groups.training).not.toHaveProperty("truncated");
     expect(modelMessage).not.toHaveProperty("fulfillment");
     expect(modelMessage).not.toHaveProperty("satisfied");
     expect(modelMessage).not.toHaveProperty("supportSectionCompletionBoundary");

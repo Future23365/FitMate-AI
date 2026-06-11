@@ -552,9 +552,7 @@ export function createSearchExerciseResourcesLangChainTool(
           ...(output.query.excludeExerciseIds ? { excludeExerciseIds: output.query.excludeExerciseIds } : {}),
           sort: output.query.sort,
         },
-        totalMatches: output.query.totalMatches,
         returnedCount: output.query.returnedCount,
-        truncated: output.query.truncated,
         excludedCount: output.query.excludedCount,
         availableSections: coverage.availableSections,
         sectionSummary: coverage.sectionSummary,
@@ -576,15 +574,19 @@ export function createSearchExerciseResourcesLangChainTool(
         appliedFilters: output.query.appliedFilters,
         filterApplicationBoundary: "filterApplications 是 searchExerciseResources 的 section 级 tool 执行事实摘要；hardFilterPolicy 只表示数据库 hard filter 口径，不表示 Planner 下一步行为策略。",
         filterApplications: toProjectionFilterApplications(output.query.filterApplications),
-        groups: mapGroups(output.groups, (exercise) => ({
-          exerciseId: exercise.exerciseId,
-          nameZh: exercise.nameZh,
-          nameEn: exercise.nameEn,
-          equipmentZh: exercise.equipmentZh,
-          homeRequirementZh: exercise.homeRequirementZh,
-          primaryMusclesZh: exercise.primaryMusclesZh,
-          allowedSections: exercise.allowedSections,
-        })),
+        groups: mapGroups(
+          output.groups,
+          (exercise) => ({
+            exerciseId: exercise.exerciseId,
+            nameZh: exercise.nameZh,
+            nameEn: exercise.nameEn,
+            equipmentZh: exercise.equipmentZh,
+            homeRequirementZh: exercise.homeRequirementZh,
+            primaryMusclesZh: exercise.primaryMusclesZh,
+            allowedSections: exercise.allowedSections,
+          }),
+          { includeResultSetMetadata: false },
+        ),
         diagnostics: output.diagnostics,
       };
     },
@@ -1089,7 +1091,10 @@ function outputNoCandidatesMessage(suitability: string, excludeExerciseIds: stri
 function mapGroups<T>(
   groups: SearchExerciseResourcesOutput["groups"],
   mapExercise: (exercise: ExerciseResourceOutput) => T,
+  options: { includeResultSetMetadata?: boolean } = {},
 ) {
+  const includeResultSetMetadata = options.includeResultSetMetadata ?? true;
+
   return Object.fromEntries(Object.entries(groups).flatMap(([section, group]) => {
     if (!group) {
       return [];
@@ -1100,9 +1105,9 @@ function mapGroups<T>(
       section,
       {
         suitability: typedGroup.suitability,
-        totalMatches: typedGroup.totalMatches,
+        ...(includeResultSetMetadata ? { totalMatches: typedGroup.totalMatches } : {}),
         returnedCount: typedGroup.returnedCount,
-        truncated: typedGroup.truncated,
+        ...(includeResultSetMetadata ? { truncated: typedGroup.truncated } : {}),
         zeroMatchMuscles: typedGroup.zeroMatchMuscles,
         exercises: typedGroup.exercises.map(mapExercise),
       },
