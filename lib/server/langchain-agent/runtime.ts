@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createAgent, createMiddleware, AIMessage, ToolMessage, toolCallLimitMiddleware, toolStrategy } from "langchain";
+import { createAgent, createMiddleware, AIMessage, ToolMessage, toolStrategy } from "langchain";
 import type { ModelRequest } from "langchain";
 
 import { agentRuntimeConfig, type AgentRuntimeConfig } from "@/lib/server/config";
@@ -87,6 +87,10 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
       maxActivityReports: config.runBudget.maxActivityReports,
     });
     const duplicateInputCoordinator = createDuplicateInputExecutionCoordinator();
+    const consecutiveToolCallCoordinator = createConsecutiveBusinessToolCallCoordinator({
+      maxConsecutiveBusinessToolCalls: config.runBudget.maxToolCallsPerTool,
+      delegate: duplicateInputCoordinator,
+    });
     const tools = toolWrappers.map((wrapper) => createExecutableLangChainTool(
       wrapper,
       {
@@ -102,8 +106,12 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
         });
       },
       toolExecutionBudget,
-      duplicateInputCoordinator,
+      consecutiveToolCallCoordinator,
     ));
+    const middleware = [
+      ...createBusinessToolAvailabilityMiddleware(toolWrappers, config.runBudget.maxToolCallsPerTool),
+      modelCallRecorder.middleware,
+    ] as const;
     const agent = createAgent({
       model: modelResult.model,
       tools,
@@ -112,11 +120,7 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
         toolMessageContent: "结构化最终回答已接收。",
       }),
       systemPrompt: input.systemPrompt ?? buildLangChainAgentSystemPrompt(),
-      middleware: [
-        ...createBusinessToolAvailabilityMiddleware(toolWrappers, config.runBudget.maxToolCallsPerTool),
-        modelCallRecorder.middleware,
-        ...createBusinessToolCallLimitMiddleware(toolWrappers, config.runBudget.maxToolCallsPerTool),
-      ],
+      middleware,
     });
     const state = await agent.invoke({
       messages: input.messages.map((message) => ({ role: message.role, content: message.content })),
@@ -305,6 +309,42 @@ function createDuplicateInputExecutionCoordinator(): LangChainToolExecutionCoord
   };
 }
 
+function createConsecutiveBusinessToolCallCoordinator(input: {
+  maxConsecutiveBusinessToolCalls: number;
+  delegate: LangChainToolExecutionCoordinator;
+}): LangChainToolExecutionCoordinator {
+  let lastBusinessToolName: string | undefined;
+  let consecutiveBusinessToolCalls = 0;
+
+  return {
+    // 业务 tool 连续限制只防止模型原地反复请求同一能力；总成本仍由全局 tool/model budget 控制。
+    execute: async ({ wrapper, rawInput, toolCallId, runExecution }) => {
+      if ((wrapper.executionKind ?? "business") !== "business") {
+        return input.delegate.execute({ wrapper, rawInput, toolCallId, runExecution });
+      }
+
+      if (wrapper.name === lastBusinessToolName) {
+        consecutiveBusinessToolCalls += 1;
+      } else {
+        lastBusinessToolName = wrapper.name;
+        consecutiveBusinessToolCalls = 1;
+      }
+
+      if (consecutiveBusinessToolCalls > input.maxConsecutiveBusinessToolCalls) {
+        return createConsecutiveBusinessToolLimitExecution({
+          wrapper,
+          rawInput,
+          toolCallId,
+          limit: input.maxConsecutiveBusinessToolCalls,
+          consecutiveCount: consecutiveBusinessToolCalls,
+        });
+      }
+
+      return input.delegate.execute({ wrapper, rawInput, toolCallId, runExecution });
+    },
+  };
+}
+
 function createDuplicateInputKey(wrapper: LangChainToolWrapper, rawInput: unknown): DuplicateInputKey | undefined {
   const parsedInput = wrapper.inputSchema.safeParse(rawInput);
 
@@ -375,6 +415,50 @@ function createDuplicateInputExecution(input: {
   };
 }
 
+function createConsecutiveBusinessToolLimitExecution(input: {
+  wrapper: LangChainToolWrapper;
+  rawInput: unknown;
+  toolCallId?: string;
+  limit: number;
+  consecutiveCount: number;
+}): LangChainToolExecutionResult {
+  const startedAt = Date.now();
+  const config = agentRuntimeConfig.langChain;
+  const inputSummary = toLangChainJsonValue(input.rawInput, config.trace.toolArgumentsPreviewMaxLength);
+  const modelVisibleSummary = stringifyForModelSummary({
+    status: "failed",
+    code: "tool_consecutive_call_limit_exceeded",
+    toolName: input.wrapper.name,
+    limit: input.limit,
+    consecutiveCount: input.consecutiveCount,
+    message: "同一个业务工具已连续调用达到本轮上限；请先使用其他已满足条件的业务工具、提交结构化终态、直接收口或向用户澄清。不要假装该工具已执行成功。",
+    boundary: "activity 工具不计入也不打断业务工具连续计数；整轮 maxToolCalls 和 maxModelCalls 仍是安全熔断。",
+  }, config.toolWrapper.modelVisibleSummaryMaxLength);
+
+  return {
+    modelMessage: modelVisibleSummary,
+    record: {
+      toolCallId: input.toolCallId,
+      toolName: input.wrapper.name,
+      executionKind: input.wrapper.executionKind ?? "business",
+      status: "failed",
+      durationMs: Date.now() - startedAt,
+      inputSummary,
+      modelVisibleSummary,
+      traceSummary: toLangChainJsonValue({
+        status: "failed",
+        code: "tool_consecutive_call_limit_exceeded",
+        toolName: input.wrapper.name,
+        limit: input.limit,
+        consecutiveCount: input.consecutiveCount,
+      }, config.toolWrapper.traceSummaryMaxLength),
+      failureCode: "tool_handler_failed",
+      failureMessage: "同一个业务工具连续调用次数超过本轮上限。",
+      enteredModelContext: true,
+    },
+  };
+}
+
 /** resolveLangChainGraphRecursionLimit 将模型调用预算映射为 LangChain graph step 上限，避免旧 iteration 语义与 LangGraph 计数脱节。 */
 export function resolveLangChainGraphRecursionLimit(
   runBudget: Pick<AgentRuntimeConfig["langChain"]["runBudget"], "maxModelCalls">,
@@ -403,7 +487,7 @@ function createToolExecutionBudget(input: {
   };
 }
 
-/** createBusinessToolAvailabilityMiddleware 在下一次模型调用前移除已达上限的业务 tool，避免模型继续重复请求同一 tool。 */
+/** createBusinessToolAvailabilityMiddleware 在下一次模型调用前移除连续达上限的业务 tool，避免模型原地重复请求同一能力。 */
 function createBusinessToolAvailabilityMiddleware(
   toolWrappers: readonly LangChainToolWrapper[],
   maxToolCallsPerTool: number,
@@ -419,13 +503,13 @@ function createBusinessToolAvailabilityMiddleware(
   return [createMiddleware({
     name: "FitMateBusinessToolAvailabilityMiddleware",
     wrapModelCall: async (request, handler) => {
-      const exhaustedToolNames = findExhaustedBusinessToolNamesInCurrentRun(
+      const exhaustedToolName = findConsecutivelyExhaustedBusinessToolNameInCurrentRun(
         request.messages,
         businessToolNames,
         maxToolCallsPerTool,
       );
 
-      if (exhaustedToolNames.size === 0) {
+      if (!exhaustedToolName) {
         return handler(request);
       }
 
@@ -434,34 +518,20 @@ function createBusinessToolAvailabilityMiddleware(
         tools: request.tools.filter((tool) => {
           const toolName = readLangChainToolName(tool);
 
-          return !toolName || !exhaustedToolNames.has(toolName);
+          return !toolName || toolName !== exhaustedToolName;
         }),
       });
     },
   })];
 }
 
-/** createBusinessToolCallLimitMiddleware 用 LangChain 原生 middleware 给每个业务 tool 分配独立单轮调用上限。 */
-function createBusinessToolCallLimitMiddleware(
-  toolWrappers: readonly LangChainToolWrapper[],
-  maxToolCallsPerTool: number,
-) {
-  return toolWrappers
-    .filter((wrapper) => (wrapper.executionKind ?? "business") === "business")
-    .map((wrapper) => toolCallLimitMiddleware({
-      toolName: wrapper.name,
-      runLimit: maxToolCallsPerTool,
-      exitBehavior: "continue",
-    }));
-}
-
-function findExhaustedBusinessToolNamesInCurrentRun(
+function findConsecutivelyExhaustedBusinessToolNameInCurrentRun(
   messages: readonly unknown[],
   businessToolNames: ReadonlySet<string>,
   maxToolCallsPerTool: number,
 ) {
   const currentRunMessages = messages.slice(findCurrentRunMessageStartIndex(messages));
-  const callCounts = new Map<string, number>();
+  const businessToolCallNames: string[] = [];
 
   for (const message of currentRunMessages) {
     if (!AIMessage.isInstance(message)) {
@@ -473,13 +543,27 @@ function findExhaustedBusinessToolNamesInCurrentRun(
         continue;
       }
 
-      callCounts.set(toolCall.name, (callCounts.get(toolCall.name) ?? 0) + 1);
+      businessToolCallNames.push(toolCall.name);
     }
   }
 
-  return new Set([...callCounts.entries()]
-    .filter(([, count]) => count >= maxToolCallsPerTool)
-    .map(([toolName]) => toolName));
+  const lastToolName = businessToolCallNames.at(-1);
+
+  if (!lastToolName) {
+    return undefined;
+  }
+
+  let consecutiveCount = 0;
+
+  for (let index = businessToolCallNames.length - 1; index >= 0; index -= 1) {
+    if (businessToolCallNames[index] !== lastToolName) {
+      break;
+    }
+
+    consecutiveCount += 1;
+  }
+
+  return consecutiveCount >= maxToolCallsPerTool ? lastToolName : undefined;
 }
 
 function findCurrentRunMessageStartIndex(messages: readonly unknown[]) {

@@ -177,6 +177,79 @@ class RepeatingAvailableToolModel extends BaseChatModel {
   }
 }
 
+class SequencedAvailableToolModel extends BaseChatModel {
+  private callIndex = 0;
+  private currentToolNames: readonly string[] = [];
+
+  readonly boundToolNamesByCall: string[][] = [];
+
+  constructor(private readonly toolCalls: Array<{ name: string; args: Record<string, unknown>; id: string }>) {
+    super({});
+  }
+
+  _llmType() {
+    return "sequenced-available-tool-model";
+  }
+
+  _combineLLMOutput() {
+    return [];
+  }
+
+  bindTools(tools: unknown[]) {
+    this.currentToolNames = tools
+      .map((tool) => {
+        const record = tool && typeof tool === "object" ? tool as { name?: unknown; function?: { name?: unknown } } : {};
+        const name = typeof record.name === "string" ? record.name : record.function?.name;
+
+        return typeof name === "string" ? name : undefined;
+      })
+      .filter((toolName): toolName is string => Boolean(toolName));
+    this.boundToolNamesByCall.push([...this.currentToolNames]);
+
+    return this;
+  }
+
+  async _generate() {
+    this.callIndex += 1;
+    const nextToolCall = this.toolCalls[this.callIndex - 1];
+
+    if (nextToolCall && this.currentToolNames.includes(nextToolCall.name)) {
+      const message = new AIMessage({
+        content: "",
+        id: `model_${this.callIndex}`,
+        tool_calls: [{
+          ...nextToolCall,
+          type: "tool_call",
+        }],
+      });
+
+      return {
+        generations: [{
+          text: "",
+          message,
+        }],
+        llmOutput: {},
+      };
+    }
+
+    const message = createFinalResponseMessage({
+      content: nextToolCall
+        ? `工具 ${nextToolCall.name} 当前不可用，已收口。`
+        : "工具序列已完成。",
+    }, {
+      id: `call_final_${this.callIndex}`,
+    });
+
+    return {
+      generations: [{
+        text: "",
+        message,
+      }],
+      llmOutput: {},
+    };
+  }
+}
+
 function createFinalResponseToolCall(
   args: { content?: string; suggestedQuestions?: string[] },
   id = "call_final",
@@ -588,7 +661,7 @@ describe("LangChain Agent runtime", () => {
     ]);
   });
 
-  it("limits each business tool independently with LangChain tool call limit middleware", async () => {
+  it("blocks the third consecutive call to the same business tool", async () => {
     const handler = vi.fn(async (input: { goal: string }) => ({
       status: "succeeded" as const,
       goal: input.goal,
@@ -630,12 +703,13 @@ describe("LangChain Agent runtime", () => {
       toolCallId: "call_limited_3",
       toolName: "limitedExerciseGoal",
       status: "failed",
+      failureCode: "tool_handler_failed",
       enteredModelContext: true,
     });
-    expect(blockedExecution?.modelVisibleSummary).toContain("Tool call limit exceeded");
+    expect(blockedExecution?.modelVisibleSummary).toContain("tool_consecutive_call_limit_exceeded");
   });
 
-  it("removes an exhausted business tool from later provider requests in the same run", async () => {
+  it("removes a consecutively exhausted business tool from the next provider request", async () => {
     const handler = vi.fn(async (input: { goal: string }) => ({
       status: "succeeded" as const,
       goal: input.goal,
@@ -675,6 +749,121 @@ describe("LangChain Agent runtime", () => {
     if (result.ok) {
       expect(result.finalText).toBe("同一个工具达到上限后已收口。");
     }
+  });
+
+  it("allows a business tool again after another business tool interrupts the consecutive sequence", async () => {
+    const firstHandler = vi.fn(async (input: { goal: string }) => ({
+      status: "succeeded" as const,
+      goal: input.goal,
+    }));
+    const secondHandler = vi.fn(async (input: { goal: string }) => ({
+      status: "succeeded" as const,
+      goal: input.goal,
+    }));
+    const firstTool = defineLangChainToolWrapper({
+      name: "primaryExerciseSearch",
+      description: "用于验证连续业务 tool 限制中第一个业务能力的测试工具。",
+      inputSchema: z.object({
+        goal: z.string(),
+      }).strict(),
+      handler: firstHandler,
+      toModelVisibleSummary: (output) => ({
+        status: output.status,
+        goal: output.goal,
+      }),
+    });
+    const secondTool = defineLangChainToolWrapper({
+      name: "secondaryExerciseResolver",
+      description: "用于验证连续业务 tool 限制中打断连续序列的测试工具。",
+      inputSchema: z.object({
+        goal: z.string(),
+      }).strict(),
+      handler: secondHandler,
+      toModelVisibleSummary: (output) => ({
+        status: output.status,
+        goal: output.goal,
+      }),
+    });
+    const model = new SequencedAvailableToolModel([
+      { name: "primaryExerciseSearch", args: { goal: "初次查询" }, id: "call_primary_1" },
+      { name: "primaryExerciseSearch", args: { goal: "补充查询" }, id: "call_primary_2" },
+      { name: "secondaryExerciseResolver", args: { goal: "解析候选" }, id: "call_secondary_1" },
+      { name: "primaryExerciseSearch", args: { goal: "回访查询" }, id: "call_primary_3" },
+    ]);
+
+    const result = await runLangChainAgentRuntime({
+      ...baseInput,
+      model,
+      toolWrappers: [firstTool, secondTool],
+    });
+
+    expect(result.ok).toBe(true);
+    expect(firstHandler).toHaveBeenCalledTimes(3);
+    expect(secondHandler).toHaveBeenCalledTimes(1);
+    expect(model.boundToolNamesByCall[2]).not.toContain("primaryExerciseSearch");
+    expect(model.boundToolNamesByCall[2]).toContain("secondaryExerciseResolver");
+    expect(model.boundToolNamesByCall[3]).toContain("primaryExerciseSearch");
+    expect(result.toolExecutions.filter((execution) => execution.toolName === "primaryExerciseSearch")).toHaveLength(3);
+    expect(result.toolExecutions.every((execution) => execution.status === "succeeded")).toBe(true);
+  });
+
+  it("keeps a business tool consecutively exhausted across activity reports", async () => {
+    const handler = vi.fn(async (input: { goal: string }) => ({
+      status: "succeeded" as const,
+      goal: input.goal,
+    }));
+    const limitedTool = defineLangChainToolWrapper({
+      name: "activityBypassExerciseSearch",
+      description: "用于验证 activity tool 不打断业务 tool 连续限制的测试工具。",
+      inputSchema: z.object({
+        goal: z.string(),
+      }).strict(),
+      handler,
+      toModelVisibleSummary: (output) => ({
+        status: output.status,
+        goal: output.goal,
+      }),
+    });
+    const model = fakeModel()
+      .respondWithTools([{ name: "activityBypassExerciseSearch", args: { goal: "第一次查询" }, id: "call_search_1" }])
+      .respondWithTools([{ name: "activityBypassExerciseSearch", args: { goal: "第二次查询" }, id: "call_search_2" }])
+      .respondWithTools([{ name: "reportAgentActivity", args: { summary: "我正在整理已有事实" }, id: "call_activity_1" }])
+      .respondWithTools([{ name: "activityBypassExerciseSearch", args: { goal: "第三次查询" }, id: "call_search_3" }])
+      .respondWithTools([createFinalResponseToolCall({ content: "已停止连续重复查询。" })]);
+
+    const result = await runLangChainAgentRuntime({
+      ...baseInput,
+      model,
+      toolWrappers: [limitedTool, reportAgentActivityLangChainTool],
+    });
+
+    expect(result.ok).toBe(true);
+    expect(handler).toHaveBeenCalledTimes(agentRuntimeConfig.langChain.runBudget.maxToolCallsPerTool);
+    expect(result.toolExecutions).toMatchObject([
+      {
+        toolCallId: "call_search_1",
+        toolName: "activityBypassExerciseSearch",
+        status: "succeeded",
+      },
+      {
+        toolCallId: "call_search_2",
+        toolName: "activityBypassExerciseSearch",
+        status: "succeeded",
+      },
+      {
+        toolCallId: "call_activity_1",
+        toolName: "reportAgentActivity",
+        executionKind: "activity",
+        status: "succeeded",
+      },
+      {
+        toolCallId: "call_search_3",
+        toolName: "activityBypassExerciseSearch",
+        status: "failed",
+        failureCode: "tool_handler_failed",
+      },
+    ]);
+    expect(result.toolExecutions[3].modelVisibleSummary).toContain("tool_consecutive_call_limit_exceeded");
   });
 
   it("blocks tool handler execution after the configured total business tool call budget is exhausted", async () => {
@@ -987,8 +1176,9 @@ describe("LangChain Agent prompt", () => {
       expect(prompt).toContain("reportAgentActivity");
       expect(prompt).toContain("活动摘要");
       expect(prompt).toContain(`本轮最多 ${agentRuntimeConfig.langChain.runBudget.maxToolCalls} 次业务工具调用`);
-      expect(prompt).toContain(`每个业务工具本轮最多 ${agentRuntimeConfig.langChain.runBudget.maxToolCallsPerTool} 次调用`);
+      expect(prompt).toContain(`同一个业务工具最多连续调用 ${agentRuntimeConfig.langChain.runBudget.maxToolCallsPerTool} 次`);
       expect(prompt).toContain(`reportAgentActivity 最多 ${agentRuntimeConfig.langChain.runBudget.maxActivityReports} 次`);
+      expect(prompt).toContain("不打断业务工具连续调用计数");
     expect(prompt).toContain("不计入业务工具调用预算");
     expect(prompt).toContain("普通训练知识、动作教学、注意事项、热身或拉伸方法、动作原理或差异解释");
     expect(prompt).toContain("最终回答准备向用户呈现一个或多个具体训练动作");

@@ -143,7 +143,7 @@ export const agentRuntimeConfig = {
       maxModelCalls: 23,
       /** maxToolCalls 限制单次聊天最多业务 tool 总执行次数；调大增加数据库压力和上下文体积。 */
       maxToolCalls: 20,
-      /** maxToolCallsPerTool 限制单个业务 tool 单轮最多调用次数，给每个 tool 保留独立修正空间。 */
+      /** maxToolCallsPerTool 限制同一业务 tool 的连续调用次数，避免模型原地重复请求同一能力。 */
       maxToolCallsPerTool: 2,
       /** maxActivityReports 限制模型当前步骤汇报次数；不计入业务 tool 预算，但仍消耗模型调用和 graph step。 */
       maxActivityReports: 2,
