@@ -2,8 +2,8 @@ import "server-only";
 
 import type { Prisma, PrismaClient } from "@prisma/client";
 
-import type { ModelTokenUsage } from "@/lib/server/agent-planners/model-adapters/model-adapter";
 import { getPrismaClient } from "@/lib/server/db/prisma";
+import type { ModelTokenUsage } from "@/lib/server/usage/model-token-usage";
 
 export type ProductionTokenUsageSummary = {
   promptTokens?: number;

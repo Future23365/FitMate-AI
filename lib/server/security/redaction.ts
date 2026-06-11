@@ -1,9 +1,9 @@
-import type { JsonValue, ToolError } from "./contracts";
+import type { JsonValue } from "@/lib/server/visible-outputs/contracts";
 import { sanitizeAgentActivitySummary } from "@/lib/shared/agent-activity-summary";
 
 export const REDACTED_VALUE = "[redacted]";
 
-const DEFAULT_SENSITIVE_KEY_PATTERNS = [
+const defaultSensitiveKeyPatterns = [
   /^output$/i,
   /secret/i,
   /token/i,
@@ -17,7 +17,7 @@ const DEFAULT_SENSITIVE_KEY_PATTERNS = [
   /^payload$/i,
 ];
 
-const DEFAULT_SENSITIVE_VALUE_PATTERNS = [
+const defaultSensitiveValuePatterns = [
   /server-only/i,
   /secretInternalValue/i,
   /api[_-]?key/i,
@@ -34,23 +34,10 @@ export type RedactionPolicy = {
   maxStringLength?: number;
 };
 
-/** RedactionAuditFinding 记录某个安全投影中仍可疑的泄漏位置。 */
-export type RedactionAuditFinding = {
-  path: string;
-  code: "sensitive_key" | "sensitive_value" | "complete_output" | "internal_capability";
-  message: string;
-};
-
-/** RedactionAuditResult 是 trace、manifest 和 event 投影的可测试审计结果。 */
-export type RedactionAuditResult = {
-  ok: boolean;
-  findings: RedactionAuditFinding[];
-};
-
-/** redactJsonValue 统一脱敏模型 observation、用户事件和 trace 摘要。 */
+/** redactJsonValue 是 trace、开发日志和安全摘要共享的脱敏入口，不依赖旧 Agent runtime。 */
 export function redactJsonValue(value: JsonValue | unknown, policy: RedactionPolicy = {}, path = "$"): JsonValue {
-  const keyPatterns = policy.sensitiveKeyPatterns ?? DEFAULT_SENSITIVE_KEY_PATTERNS;
-  const valuePatterns = policy.sensitiveValuePatterns ?? DEFAULT_SENSITIVE_VALUE_PATTERNS;
+  const keyPatterns = policy.sensitiveKeyPatterns ?? defaultSensitiveKeyPatterns;
+  const valuePatterns = policy.sensitiveValuePatterns ?? defaultSensitiveValuePatterns;
 
   if (policy.defaultDeny && policy.allowedPaths && !isPathAllowed(path, policy.allowedPaths) && !hasAllowedDescendant(path, policy.allowedPaths)) {
     return REDACTED_VALUE;
@@ -115,76 +102,6 @@ function redactActivitySummary(value: unknown): JsonValue {
   return sanitized.ok
     ? sanitized.summary
     : { rejectedReason: sanitized.reason };
-}
-
-/** auditRedactedValue 扫描脱敏后对象，发现 secret、完整 output 或内部 capability 立即暴露为测试失败证据。 */
-export function auditRedactedValue(value: unknown): RedactionAuditResult {
-  const findings: RedactionAuditFinding[] = [];
-  walk(value, "$", findings);
-  return {
-    ok: findings.length === 0,
-    findings,
-  };
-}
-
-/** redactToolError 防止错误 details 把内部 payload 带进用户事件或 trace。 */
-export function redactToolError(error: ToolError): ToolError {
-  return {
-    ...error,
-    details: error.details ? redactJsonValue(error.details) : undefined,
-  };
-}
-
-function walk(value: unknown, path: string, findings: RedactionAuditFinding[]) {
-  if (typeof value === "string") {
-    if (value !== REDACTED_VALUE && DEFAULT_SENSITIVE_VALUE_PATTERNS.some((pattern) => pattern.test(value))) {
-      findings.push({
-        path,
-        code: "sensitive_value",
-        message: "Projection still contains a sensitive string value.",
-      });
-    }
-    return;
-  }
-
-  if (Array.isArray(value)) {
-    value.forEach((item, index) => walk(item, `${path}[${index}]`, findings));
-    return;
-  }
-
-  if (!value || typeof value !== "object") {
-    return;
-  }
-
-  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-    const childPath = `${path}.${key}`;
-
-    if (key === "output" && child !== REDACTED_VALUE) {
-      findings.push({
-        path: childPath,
-        code: "complete_output",
-        message: "Projection contains a complete tool output field.",
-      });
-    }
-
-    if (/capabilit/i.test(key) && child !== REDACTED_VALUE) {
-      findings.push({
-        path: childPath,
-        code: "internal_capability",
-        message: "Projection contains internal capability data.",
-      });
-    }
-
-    if (DEFAULT_SENSITIVE_KEY_PATTERNS.some((pattern) => pattern.test(key)) && child !== REDACTED_VALUE) {
-      findings.push({
-        path: childPath,
-        code: "sensitive_key",
-        message: "Projection contains an unredacted sensitive key.",
-      });
-    }
-
-    walk(child, childPath, findings);
-  }
 }
 
 function isPathAllowed(path: string, allowedPaths: string[]) {

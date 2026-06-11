@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Prisma } from "@prisma/client";
 
-import { normalizeModelTokenUsage } from "@/lib/server/agent-planners/model-adapters/model-adapter";
 import {
   recordAiTokenUsageSummary,
   summarizeModelTokenUsages,
 } from "@/lib/server/usage/ai-token-usage-summary-service";
+import { normalizeModelTokenUsage } from "@/lib/server/usage/model-token-usage";
 
 describe("AI token usage summary service", () => {
   it("writes a request/message scoped usage summary through an idempotent upsert", async () => {

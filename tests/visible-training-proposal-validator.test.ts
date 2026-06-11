@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { ResourceStore } from "@/lib/server/agent-core/resource-store";
-import type { ToolResult } from "@/lib/server/agent-core/contracts";
-import type { VisibleOutputEnvelope } from "@/lib/server/visible-outputs/contracts";
+import type {
+  JsonValue,
+  VisibleOutputEnvelope,
+  VisibleOutputValidationResourceInventory,
+  VisibleOutputValidationToolResult,
+} from "@/lib/server/visible-outputs/contracts";
 import { validateVisibleTrainingProposalOutput } from "@/lib/server/visible-training-proposals/visible-training-proposal-validator";
 import type { VisibleTrainingProposalExerciseFactLoader } from "@/lib/server/visible-training-proposals/visible-training-proposal-exercise-facts";
 import { visibleTrainingProposalFactResourceType } from "@/lib/server/visible-training-proposals/visible-training-proposal-contract";
@@ -144,9 +147,7 @@ describe("visible training proposal validator", () => {
   });
 
   it("accepts exerciseItems from a current-run consumable visible training proposal fact", async () => {
-    const resourceStore = new ResourceStore("run-visible-resource");
-    resourceStore.register({
-      sourceToolResultId: "tr_read_recent",
+    const resourceStore = createValidationResourceInventory({
       resourceType: visibleTrainingProposalFactResourceType,
       role: "consumable",
       schemaVersion: "1",
@@ -170,9 +171,7 @@ describe("visible training proposal validator", () => {
   });
 
   it("revalidates historical visible proposal fact exercises against current database facts", async () => {
-    const resourceStore = new ResourceStore("run-visible-resource-unpublished");
-    resourceStore.register({
-      sourceToolResultId: "tr_list_recent",
+    const resourceStore = createValidationResourceInventory({
       resourceType: visibleTrainingProposalFactResourceType,
       role: "consumable",
       schemaVersion: "1",
@@ -599,18 +598,9 @@ function createSearchToolResult(input: {
   satisfied: boolean;
   section: "warmup" | "training" | "stretch";
   exerciseIds: string[];
-}): ToolResult {
+}): VisibleOutputValidationToolResult {
   return {
-    toolResultId: `tr_${input.section}_${input.exerciseIds.join("_")}_${input.satisfied ? "satisfied" : "unsatisfied"}`,
-    toolName: "searchExerciseResources",
-    toolVersion: "0.5.0",
-    toolCallId: `tc_${input.section}`,
-    idempotencyKey: `idem_${input.section}`,
-    normalizedInputHash: `hash_${input.section}`,
-    startedAt: "2026-06-05T00:00:00.000Z",
-    completedAt: "2026-06-05T00:00:01.000Z",
     ok: true,
-    output: {},
     projection: {
       model: {
         groups: {
@@ -622,8 +612,25 @@ function createSearchToolResult(input: {
     },
     fulfillment: {
       satisfied: input.satisfied,
-      summary: input.satisfied ? "查询已满足。" : "查询未满足。",
     },
+  };
+}
+
+function createValidationResourceInventory(input: {
+  resourceType: string;
+  role: "consumable" | "diagnostic";
+  schemaVersion: string;
+  summary: JsonValue;
+}): VisibleOutputValidationResourceInventory {
+  return {
+    inventory: () => [{
+      ref: {
+        resourceType: input.resourceType,
+        role: input.role,
+        schemaVersion: input.schemaVersion,
+      },
+      summary: input.summary,
+    }],
   };
 }
 

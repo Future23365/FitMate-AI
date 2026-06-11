@@ -64,10 +64,10 @@
 
 ## 9. 删除旧 Agent Core 和旧测试资产
 
-- [ ] 9.1 删除旧 `lib/server/agent-core/**`、`lib/server/agent-planners/**`、旧 `AgentAction` schema / validator / repair loop、旧 ToolRegistry、旧 Executor、旧 ResourceStore 主链、旧 Response Renderer 主链和旧 ReplayPlanner。
-- [ ] 9.2 删除或迁移旧 `tests/agent-core/**`、旧 `tests/agent-tools/**`、旧 chat-service 中只断言旧 AgentAction / ToolRegistry / runAgentRuntime 的测试。
-- [ ] 9.3 审核旧 tool 文件中的领域逻辑，能复用的先抽到领域 service 或 repository，不能复用的旧 wrapper 直接删除。
-- [ ] 9.4 更新 manual LLM 黑盒 runner，使其贴近真实 `/api/chat` + LangChain runtime；删除依赖旧 AgentAction / PlannerPort / ToolRegistry 的 fixture 和报告字段。
+- [x] 9.1 删除旧 `lib/server/agent-core/**`、`lib/server/agent-planners/**`、旧 `AgentAction` schema / validator / repair loop、旧 ToolRegistry、旧 Executor、旧 ResourceStore 主链、旧 Response Renderer 主链和旧 ReplayPlanner。
+- [x] 9.2 删除或迁移旧 `tests/agent-core/**`、旧 `tests/agent-tools/**`、旧 chat-service 中只断言旧 AgentAction / ToolRegistry / runAgentRuntime 的测试。
+- [x] 9.3 审核旧 tool 文件中的领域逻辑，能复用的先抽到领域 service 或 repository，不能复用的旧 wrapper 直接删除。
+- [x] 9.4 更新 manual LLM 黑盒 runner，使其贴近真实 `/api/chat` + LangChain runtime；删除依赖旧 AgentAction / PlannerPort / ToolRegistry 的 fixture 和报告字段。
 - [x] 9.5 增加架构扫描，证明生产代码不再导入旧 `agent-core`、旧 `agent-planners`、旧 `AgentAction`、旧 `PlannerPort`、旧 `ToolRegistry`、旧 `runAgentRuntime()`、旧 `DeepSeekModelAdapter` 或旧 Response Renderer。
 
 ## 10. 文档和 OpenSpec 收口

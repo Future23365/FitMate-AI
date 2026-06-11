@@ -38,20 +38,27 @@ export type BasicChatHydrationDiagnostic = {
   save?: BasicChatHydrationSaveDiagnostic;
 };
 
-// BasicChatResponseOutcomeDiagnostic 区分主 Agent 成功、finalizer 可恢复失败和确定性兜底。
+// BasicChatResponseOutcomeDiagnostic 记录 LangChain runtime 与 response adapter 的安全摘要，用于排查真实 /api/chat 黑盒结果。
 export type BasicChatResponseOutcomeDiagnostic = {
   status:
-    | "main_agent_completed"
-    | "terminal_failure_finalizer"
-    | "deterministic_fallback"
+    | "langchain_completed"
     | "provider_unavailable"
+    | "budget_timeout"
+    | "tool_failure"
+    | "transport_config_failure"
+    | "response_adapter_failed"
     | "hard_failure"
     | "missing";
   projectionType?: string;
-  mainAgentFailureCode?: string;
-  finalizerCalled?: boolean;
-  finalizerSkippedReason?: string;
-  finalizerDegradedReason?: string;
+  errorCode?: string;
+  runtimeVersion?: string;
+  model?: string;
+  modelCallCount?: number;
+  providerToolCallCount?: number;
+  toolExecutionCount?: number;
+  visibleOutputCount?: number;
+  suggestedQuestionCount?: number;
+  eventTypes?: string[];
 };
 
 export type BasicChatTurnRunStatus =
@@ -281,11 +288,16 @@ function formatResponseOutcome(outcome: BasicChatResponseOutcomeDiagnostic | und
   }
 
   const details = [
+    outcome.runtimeVersion ? `runtime=${outcome.runtimeVersion}` : undefined,
+    outcome.model ? `model=${outcome.model}` : undefined,
     outcome.projectionType ? `projection=${outcome.projectionType}` : undefined,
-    outcome.mainAgentFailureCode ? `code=${outcome.mainAgentFailureCode}` : undefined,
-    outcome.finalizerCalled !== undefined ? `finalizerCalled=${String(outcome.finalizerCalled)}` : undefined,
-    outcome.finalizerSkippedReason ? `skipped=${outcome.finalizerSkippedReason}` : undefined,
-    outcome.finalizerDegradedReason ? `degraded=${outcome.finalizerDegradedReason}` : undefined,
+    outcome.errorCode ? `errorCode=${outcome.errorCode}` : undefined,
+    outcome.modelCallCount !== undefined ? `modelCalls=${outcome.modelCallCount}` : undefined,
+    outcome.providerToolCallCount !== undefined ? `providerToolCalls=${outcome.providerToolCallCount}` : undefined,
+    outcome.toolExecutionCount !== undefined ? `toolExecutions=${outcome.toolExecutionCount}` : undefined,
+    outcome.visibleOutputCount !== undefined ? `visibleOutputs=${outcome.visibleOutputCount}` : undefined,
+    outcome.suggestedQuestionCount !== undefined ? `suggestions=${outcome.suggestedQuestionCount}` : undefined,
+    outcome.eventTypes?.length ? `events=${outcome.eventTypes.join(",")}` : undefined,
   ].filter(Boolean);
 
   return details.length ? `${outcome.status} (${details.join(", ")})` : outcome.status;

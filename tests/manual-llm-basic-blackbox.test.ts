@@ -136,15 +136,11 @@ describe("manual basic LLM visible answer contract", () => {
     }).ok).toBe(true);
     expect(summarizeBasicVisibleAnswer({
       ...baseOutput,
-      confirmationRequests: ["是否保存这套训练？"],
-    }).ok).toBe(true);
-    expect(summarizeBasicVisibleAnswer({
-      ...baseOutput,
       safeErrorMessage: "聊天服务暂时不可用，请稍后再试。",
     }).ok).toBe(true);
     expect(summarizeBasicVisibleAnswer(baseOutput)).toEqual({
       ok: false,
-      reason: "聊天响应已结束，但没有 assistant 文本、可见输出、建议提问、确认请求或安全兜底文案。",
+      reason: "聊天响应已结束，但没有 assistant 文本、可见输出、建议提问或安全兜底文案。",
     });
   });
 
@@ -160,14 +156,6 @@ describe("manual basic LLM visible answer contract", () => {
       }),
       JSON.stringify({ type: "suggested_questions", suggestedQuestions: ["换一批", "只要徒手"] }),
       JSON.stringify({
-        type: "confirmation_request",
-        pendingActionId: "pending-1",
-        actionHash: "hash-1",
-        expiresAt: "2026-06-04T09:00:00.000Z",
-        message: "是否保存这套训练？",
-        toolName: "saveRoutine",
-      }),
-      JSON.stringify({
         type: "error",
         error: { code: "chat_ai_not_configured", message: "Chat AI model configuration is missing." },
       }),
@@ -178,7 +166,7 @@ describe("manual basic LLM visible answer contract", () => {
       assistantText: "可以。",
       visibleOutputKinds: ["visibleTrainingProposal@1"],
       assistantSuggestions: ["换一批", "只要徒手"],
-      confirmationRequests: ["是否保存这套训练？"],
+      confirmationRequests: [],
       safeErrorMessage: "聊天服务暂时不可用，请稍后再试。",
       done: true,
     });
@@ -205,10 +193,10 @@ describe("manual basic LLM report and isolation", () => {
       status: "passed",
       finalAssistantTextSummary: "可以，给你推荐几个胸部动作。",
       visibleOutputKinds: ["exercise_recommendation@1"],
-      resultReason: "收到用户可见回答：assistant_text, visible_output, suggested_questions, confirmation_request, safe_error_message",
+      resultReason: "收到用户可见回答：assistant_text, visible_output, suggested_questions, safe_error_message",
       chatTokenUsage: { promptTokens: 10, completionTokens: 4, totalTokens: 14 },
       assistantSuggestions: ["换一批"],
-      confirmationRequests: ["是否保存这套训练？"],
+      confirmationRequests: [],
       safeErrorMessage: "聊天生成失败，请稍后重试。",
       hydration: {
         source: "server_saved",
@@ -228,10 +216,16 @@ describe("manual basic LLM report and isolation", () => {
         reason: "trace token usage not found",
       },
       responseOutcome: {
-        status: "terminal_failure_finalizer",
-        projectionType: "terminal_failure_finalizer",
-        mainAgentFailureCode: "repair_limit_exceeded",
-        finalizerCalled: true,
+        status: "langchain_completed",
+        runtimeVersion: "langchain-agent-runtime-v1",
+        model: "deepseek-v4-flash",
+        projectionType: "content_with_visible_output",
+        modelCallCount: 2,
+        providerToolCallCount: 2,
+        toolExecutionCount: 2,
+        visibleOutputCount: 1,
+        suggestedQuestionCount: 1,
+        eventTypes: ["content", "visible_output", "suggested_questions", "done"],
       },
     }];
     const summary: BasicChatSuiteSummary = {
@@ -273,10 +267,12 @@ describe("manual basic LLM report and isolation", () => {
     expect(report).toContain("收到用户可见回答");
     expect(report).toContain("exercise_recommendation@1");
     expect(report).toContain("换一批");
-    expect(report).toContain("是否保存这套训练？");
     expect(report).toContain("source=server_saved");
-    expect(report).toContain("terminal_failure_finalizer");
-    expect(report).toContain("finalizerCalled=true");
+    expect(report).toContain("langchain_completed");
+    expect(report).toContain("runtime=langchain-agent-runtime-v1");
+    expect(report).toContain("providerToolCalls=2");
+    expect(report).toContain("visibleOutputs=1");
+    expect(report).toContain("events=content,visible_output,suggested_questions,done");
     expect(report).toContain("source=dev_trace_store, available=0, missing=1, unavailable=0");
     expect(report).toContain("status=missing");
     expect(report).not.toContain("完整 prompt");

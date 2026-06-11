@@ -463,7 +463,6 @@ export function summarizeBasicVisibleAnswer(output: NormalizedChatOutput): { ok:
     output.assistantText.trim() ? "assistant_text" : undefined,
     output.visibleOutputs.length > 0 ? "visible_output" : undefined,
     output.assistantSuggestions.length > 0 ? "suggested_questions" : undefined,
-    output.confirmationRequests.length > 0 ? "confirmation_request" : undefined,
     output.safeErrorMessage?.trim() ? "safe_error_message" : undefined,
   ].filter(Boolean);
 
@@ -476,7 +475,7 @@ export function summarizeBasicVisibleAnswer(output: NormalizedChatOutput): { ok:
 
   return {
     ok: false,
-    reason: "聊天响应已结束，但没有 assistant 文本、可见输出、建议提问、确认请求或安全兜底文案。",
+    reason: "聊天响应已结束，但没有 assistant 文本、可见输出、建议提问或安全兜底文案。",
   };
 }
 
@@ -816,16 +815,28 @@ function readChatResponseOutcome(userId: string, responseMessageId: string): Bas
       return { status: "missing" };
     }
 
-    const finalizerGateStep = trace.steps.find((step) => step.name === "Terminal failure finalizer gate");
-    const finalizerOutput = isRecord(finalizerGateStep?.output) ? finalizerGateStep.output : {};
+    const runtimeSummary = readLangChainRuntimeSummary(trace.steps);
+    const responseSummary = readLangChainResponseProjectionSummary(trace.steps);
+    const structuredOutputValidation = isRecord(runtimeSummary.output.structuredOutputValidation)
+      ? runtimeSummary.output.structuredOutputValidation
+      : {};
 
     return {
       status: classifyChatResponseOutcome(projectionType, trace.finalDecision.status),
       projectionType,
-      mainAgentFailureCode: trace.finalDecision.code,
-      finalizerCalled: readBoolean(finalizerOutput.finalizerCalled),
-      finalizerSkippedReason: readString(finalizerOutput.skippedReason),
-      finalizerDegradedReason: readString(finalizerOutput.degradedReason),
+      errorCode: readString(responseSummary.output.errorCode)
+        ?? trace.finalDecision.code
+        ?? readString(runtimeSummary.output.code),
+      runtimeVersion: readString(runtimeSummary.traceSummary.runtimeVersion),
+      model: readString(runtimeSummary.traceSummary.model),
+      modelCallCount: readNumber(runtimeSummary.traceSummary.modelCallCount),
+      providerToolCallCount: countProviderToolCalls(runtimeSummary.traceSummary),
+      toolExecutionCount: readArrayLength(runtimeSummary.output.toolExecutions)
+        ?? readArrayLength(responseSummary.output.toolExecutions),
+      visibleOutputCount: readNumber(responseSummary.output.visibleOutputCount)
+        ?? readNumber(structuredOutputValidation.validatedVisibleOutputCount),
+      suggestedQuestionCount: readNumber(responseSummary.output.suggestedQuestionCount),
+      eventTypes: readStringArray(responseSummary.output.eventTypes),
     };
   } catch {
     return { status: "missing" };
@@ -836,23 +847,75 @@ function classifyChatResponseOutcome(
   projectionType: string,
   finalDecisionStatus: string,
 ): BasicChatResponseOutcomeDiagnostic["status"] {
-  if (projectionType === "terminal_failure_finalizer") {
-    return "terminal_failure_finalizer";
+  if (
+    projectionType === "content"
+    || projectionType === "content_with_visible_output"
+    || projectionType === "content_with_suggestions"
+  ) {
+    return "langchain_completed";
   }
 
   if (projectionType === "provider_unavailable_fallback") {
     return "provider_unavailable";
   }
 
-  if (projectionType.endsWith("_fallback")) {
-    return "deterministic_fallback";
+  if (projectionType === "budget_timeout_fallback") {
+    return "budget_timeout";
+  }
+
+  if (projectionType === "tool_failure_fallback") {
+    return "tool_failure";
+  }
+
+  if (projectionType === "transport_config_failure") {
+    return "transport_config_failure";
+  }
+
+  if (projectionType === "response_adapter_failed") {
+    return "response_adapter_failed";
   }
 
   if (finalDecisionStatus === "success") {
-    return "main_agent_completed";
+    return "langchain_completed";
   }
 
   return "hard_failure";
+}
+
+function readLangChainRuntimeSummary(steps: ReturnType<typeof listAiTracesForUser>[number]["steps"]) {
+  const step = steps.find((item) => item.name === "LangChain Agent Runtime 摘要");
+  const output = isRecord(step?.output) ? step.output : {};
+  const traceSummary = isRecord(output.traceSummary) ? output.traceSummary : {};
+
+  return { output, traceSummary };
+}
+
+function readLangChainResponseProjectionSummary(steps: ReturnType<typeof listAiTracesForUser>[number]["steps"]) {
+  const step = steps.find((item) => item.name === "NDJSON 响应写入");
+  const output = isRecord(step?.output) ? step.output : {};
+
+  return { output };
+}
+
+function countProviderToolCalls(traceSummary: Record<string, unknown>) {
+  const directCalls = readArrayLength(traceSummary.providerToolCalls);
+
+  if (directCalls !== undefined) {
+    return directCalls;
+  }
+
+  const modelCalls = Array.isArray(traceSummary.modelCalls) ? traceSummary.modelCalls : undefined;
+  if (!modelCalls) {
+    return readNumber(traceSummary.providerToolCallCount);
+  }
+
+  return modelCalls.reduce((total, modelCall) => {
+    if (!isRecord(modelCall)) {
+      return total;
+    }
+
+    return total + (readArrayLength(modelCall.providerToolCalls) ?? 0);
+  }, 0);
 }
 
 function jsonRequest(url: string, body: unknown, cookie: string) {
@@ -951,8 +1014,18 @@ function readString(value: unknown) {
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
-function readBoolean(value: unknown) {
-  return typeof value === "boolean" ? value : undefined;
+function readStringArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const strings = value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+
+  return strings.length > 0 ? strings : undefined;
+}
+
+function readArrayLength(value: unknown) {
+  return Array.isArray(value) ? value.length : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

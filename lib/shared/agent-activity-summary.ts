@@ -1,7 +1,7 @@
 /** activitySummary 是当前请求内活动条的用户可见短文案，不参与 Agent 决策或持久化。 */
 export const agentActivitySummaryDisplayMaxLength = 40;
 
-/** agentActivitySummarySchemaMaxLength 是 AgentAction schema 的硬结构上限，超过后进入结构 repair。 */
+/** agentActivitySummarySchemaMaxLength 是模型活动摘要的硬结构上限，超过后只保留通用进度。 */
 export const agentActivitySummarySchemaMaxLength = 80;
 
 /** agentActivitySummarySafetyEnabled 控制调试期是否拦截模型活动摘要中的内部词、长度和字符风险。 */
@@ -20,7 +20,6 @@ export type AgentActivitySummarySanitizationResult =
   | { ok: false; reason: AgentActivitySummaryRejectionReason };
 
 const internalActivitySummaryPatterns = [
-  /\bAgentAction\b/i,
   /\btoolName\b/i,
   /\btool_call\b/i,
   /\bfinal_answer\b/i,

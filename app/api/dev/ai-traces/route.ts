@@ -3,7 +3,7 @@ import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { authErrorToApiResponse, requireCurrentUser } from "@/lib/server/auth/local-anonymous-auth";
-import { REDACTED_VALUE, redactJsonValue } from "@/lib/server/agent-core/redaction";
+import { REDACTED_VALUE, redactJsonValue } from "@/lib/server/security/redaction";
 import { clearAiTraces, isAiTraceEnabled, listAiTracesForUser } from "@/lib/server/dev/ai-trace-store";
 
 type SaveAiTraceLogRequest = {

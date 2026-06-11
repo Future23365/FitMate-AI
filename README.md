@@ -4,7 +4,7 @@
 
 FitMate AI 是一个 AI 健身聊天助手。系统通过自然语言理解用户的训练目标、可用时间、器械条件、身体限制和训练偏好，并结合数据库中的动作事实生成可展示、可校验的训练建议。
 
-当前项目使用 PostgreSQL / Prisma 作为运行时事实数据源，使用 Next.js App Router 承载前端页面和 API Route。生产聊天链路通过自研 `agent-core` 接入 DeepSeek planner，模型输出在展示前会经过服务端结构校验、数据库事实校验和 response renderer。
+当前项目使用 PostgreSQL / Prisma 作为运行时事实数据源，使用 Next.js App Router 承载前端页面和 API Route。生产聊天链路通过 LangChain Agent Runtime 接入 DeepSeek native Tool Calling，模型输出在展示前会经过服务端结构校验、数据库事实校验和受控 response adapter 投影。
 
 ## 当前能力
 
@@ -48,14 +48,14 @@ docker compose stop postgres
 docker compose down
 ```
 
-`npm test` 不会调用真实模型；`npm run test:llm:basic` 会真实调用模型并消费 token。
+`npm test` 不会调用真实模型；`npm run test:llm:basic` 通过真实 `/api/chat` + LangChain 主链执行，会调用模型并消费 token。
 
 ## 技术栈
 
 - 前端：Next.js 16 App Router、React 19、TypeScript 5。
 - UI：Tailwind CSS 4、shadcn/ui 风格组件、Radix UI、Material Symbols、lucide-react、Sonner。
 - 服务端与数据：Next.js Route Handlers、PostgreSQL 17、Prisma 7、`@prisma/adapter-pg`、`pg`。
-- AI 编排：自研 `agent-core`、`PlannerPort`、`ToolRegistry`、DeepSeek Chat Completions adapter。
+- AI 编排：LangChain Agent Runtime、DeepSeek native Tool Calling、服务端 LangChain tool wrapper。
 - 校验与测试：Zod、JSON Schema、Vitest、ESLint、`tsc --noEmit`。
 - 部署：Next.js standalone、Docker、Docker Compose、Caddy、GitHub Actions、GHCR。
 
@@ -73,5 +73,5 @@ docker compose down
 
 - 当前身份体系是本地匿名 auth cookie，不是正式账号登录、权限后台或多端账号同步。
 - 运行时动作事实以 PostgreSQL 为准，`data/exercises.zh.json` 只作为动作 seed 来源。
-- 当前生产 Agent 不开放写入型训练 tool；训练保存、日历安排和训练执行仍由页面已有业务入口完成。
+- 当前生产 Agent 不开放未经校验的写入型训练 tool；训练保存、日历安排和训练执行仍由页面已有业务入口完成。
 - AI trace 面向开发和内测；公开环境只有显式设置 `ENABLE_AI_TRACE_LOG=true` 时才写入 trace。
