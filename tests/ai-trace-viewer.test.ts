@@ -22,19 +22,19 @@ describe("AI trace viewer step grouping", () => {
 
     expect(groups.map((group) => group.title)).toEqual([
       "入口与上下文",
-      "ToolRegistry / Manifest",
-      "Planner / ModelAdapter",
-      "Runtime / Validator",
+      "LangChain Tool Catalog",
+      "LangChain / DeepSeek",
+      "Runtime / Tool Wrapper / Validator",
       "Policy / Resource",
-      "Response Renderer",
+      "Production Response Adapter",
       "错误诊断",
       "Raw / 导出",
     ]);
     expect(groups.find((group) => group.id === "runtime_validation")?.steps).toHaveLength(4);
-    expect(groups.find((group) => group.id === "planner_model")?.skipReason).toContain("未记录模型调用");
+    expect(groups.find((group) => group.id === "planner_model")?.skipReason).toContain("未记录独立模型请求步骤");
   });
 
-  it("groups agent-core text chat runtime events even when registry is empty", () => {
+  it("groups LangChain text chat runtime events even when the catalog has no tools", () => {
     const groups = groupTraceSteps([
       createStep({
         type: "user_input",
@@ -60,16 +60,16 @@ describe("AI trace viewer step grouping", () => {
 
     expect(groups.map((group) => group.title)).toEqual([
       "入口与上下文",
-      "ToolRegistry / Manifest",
-      "Planner / ModelAdapter",
-      "Runtime / Validator",
+      "LangChain Tool Catalog",
+      "LangChain / DeepSeek",
+      "Runtime / Tool Wrapper / Validator",
       "Policy / Resource",
-      "Response Renderer",
+      "Production Response Adapter",
       "错误诊断",
       "Raw / 导出",
     ]);
     expect(groups.find((group) => group.id === "registry_manifest")).toMatchObject({
-      title: "ToolRegistry / Manifest",
+      title: "LangChain Tool Catalog",
       placement: "main_flow",
       steps: [
         expect.objectContaining({
@@ -78,9 +78,155 @@ describe("AI trace viewer step grouping", () => {
       ],
       summary: expect.arrayContaining([
         { label: "tool count", value: "0" },
-        { label: "tool names", value: "空 ToolRegistry" },
+        { label: "tool names", value: "未记录 Tool" },
       ]),
     });
+  });
+
+  it("surfaces LangChain runtime, DeepSeek tool calls, wrapper results, and response projection", () => {
+    const trace: AiTrace = {
+      id: "trace-langchain",
+      runId: "run-langchain",
+      route: "/api/chat",
+      title: "LangChain trace",
+      status: "success",
+      createdAt: "2026-06-11T05:00:00.000Z",
+      steps: [
+        createStep({
+          id: "request-context",
+          type: "runtime_event",
+          name: "LangChain Agent 请求上下文",
+          output: {
+            runtime: "langchain-agent-runtime-v1",
+            messageCount: 2,
+            conversationId: "conversation-1",
+            toolNames: ["searchExerciseResources", "submitVisibleTrainingProposal"],
+          },
+          metadata: {
+            pipeline: "langchain-agent-text-chat",
+            boundary: "request_context",
+          },
+        }),
+        createStep({
+          id: "runtime-summary",
+          type: "runtime_event",
+          name: "LangChain Agent Runtime 摘要",
+          output: {
+            finalTextLength: 12,
+            traceSummary: {
+              runtimeVersion: "langchain-agent-runtime-v1",
+              model: "deepseek-v4-flash",
+              toolNames: ["searchExerciseResources", "submitVisibleTrainingProposal"],
+              modelRequestSummary: {
+                inputMessageCount: 2,
+                inputMessagePreviews: [{ role: "user", contentPreview: "给我练胸动作" }],
+                toolCount: 2,
+              },
+              modelResponseSummary: {
+                generatedMessageCount: 3,
+                assistantMessageCount: 2,
+                toolMessageCount: 1,
+                finalTextPreview: "已生成动作卡片。",
+              },
+              providerToolCalls: [
+                { id: "call_search_1", name: "searchExerciseResources", argsSummary: { query: "胸部" } },
+                { id: "call_submit_1", name: "submitVisibleTrainingProposal", argsSummary: { outputType: "visibleTrainingProposal" } },
+              ],
+              modelCallCount: 2,
+              toolCallCount: 2,
+              messageCount: 5,
+              durationMs: 150,
+            },
+            toolExecutions: [
+              { toolCallId: "call_search_1", toolName: "searchExerciseResources", status: "succeeded", enteredModelContext: true },
+              { toolCallId: "call_submit_1", toolName: "submitVisibleTrainingProposal", status: "succeeded", enteredModelContext: true },
+            ],
+            structuredOutputValidation: {
+              validatedVisibleOutputCount: 1,
+            },
+          },
+          metadata: {
+            pipeline: "langchain-agent-text-chat",
+            boundary: "langchain_runtime",
+          },
+        }),
+        createStep({
+          id: "response-write",
+          type: "response_write",
+          name: "NDJSON 响应写入",
+          output: {
+            eventTypes: ["content", "visible_output", "done"],
+            visibleOutputCount: 1,
+            suggestedQuestionCount: 0,
+            projectionType: "content_with_visible_output",
+          },
+          metadata: {
+            pipeline: "langchain-agent-text-chat",
+            projectionType: "content_with_visible_output",
+          },
+        }),
+      ],
+    };
+    const groups = groupTraceSteps(trace.steps);
+    const requestGroup = groups.find((group) => group.id === "request_context");
+    const runtimeGroup = groups.find((group) => group.id === "runtime_validation");
+    const responseGroup = groups.find((group) => group.id === "response_rendering");
+    const loops = buildAgentLoopTimeline(trace.steps);
+    const payload = createTraceLogPayload(trace, groups) as Record<string, unknown>;
+
+    expect(requestGroup).toMatchObject({
+      title: "入口与上下文",
+      summary: expect.arrayContaining([
+        { label: "tool catalog", value: "searchExerciseResources, submitVisibleTrainingProposal" },
+      ]),
+    });
+    expect(runtimeGroup).toMatchObject({
+      title: "Runtime / Tool Wrapper / Validator",
+      summary: expect.arrayContaining([
+        { label: "runtime", value: "langchain-agent-runtime-v1" },
+        { label: "model", value: "deepseek-v4-flash" },
+        { label: "provider tool_calls", value: "2 次：searchExerciseResources, submitVisibleTrainingProposal" },
+        { label: "tool wrappers", value: "2 次，成功 2 / 失败 0：searchExerciseResources, submitVisibleTrainingProposal" },
+        { label: "structured output", value: "validated visible outputs: 1" },
+        { label: "旧 core", value: "未使用 AgentAction / PlannerPort / ToolRegistry" },
+      ]),
+    });
+    expect(responseGroup).toMatchObject({
+      title: "Production Response Adapter",
+      summary: expect.arrayContaining([
+        { label: "done", value: "true" },
+        { label: "projection", value: "content_with_visible_output" },
+      ]),
+    });
+    expect(loops).toHaveLength(1);
+    expect(loops[0]).toMatchObject({
+      runtimeStep: 1,
+      toolNames: ["searchExerciseResources", "submitVisibleTrainingProposal"],
+    });
+    expect(payload).toMatchObject({
+      langChainRuntimeSummaries: [
+        expect.objectContaining({
+          runtimeVersion: "langchain-agent-runtime-v1",
+          model: "deepseek-v4-flash",
+          toolNames: ["searchExerciseResources", "submitVisibleTrainingProposal"],
+          providerToolCalls: [
+            expect.objectContaining({ id: "call_search_1", name: "searchExerciseResources" }),
+            expect.objectContaining({ id: "call_submit_1", name: "submitVisibleTrainingProposal" }),
+          ],
+          structuredOutputValidation: { validatedVisibleOutputCount: 1 },
+        }),
+      ],
+      providerToolCalls: [
+        expect.objectContaining({ id: "call_search_1", name: "searchExerciseResources" }),
+        expect.objectContaining({ id: "call_submit_1", name: "submitVisibleTrainingProposal" }),
+      ],
+      langChainToolExecutions: [
+        expect.objectContaining({ toolName: "searchExerciseResources", status: "succeeded" }),
+        expect.objectContaining({ toolName: "submitVisibleTrainingProposal", status: "succeeded" }),
+      ],
+    });
+    expect(JSON.stringify(payload)).not.toContain("planner_action");
+    expect(JSON.stringify(payload)).not.toContain("duplicate_tool_call");
   });
 
   it("keeps module view, planner calls, token usage, and detail refs in full trace log exports", () => {
@@ -197,7 +343,7 @@ describe("AI trace viewer step grouping", () => {
         expect.objectContaining({
           id: "registry_manifest",
           summary: expect.arrayContaining([
-            { label: "tool names", value: "空 ToolRegistry" },
+            { label: "tool names", value: "未记录 Tool" },
           ]),
         }),
         expect.objectContaining({
@@ -271,7 +417,7 @@ describe("AI trace viewer step grouping", () => {
       groupedSteps: expect.arrayContaining([
         expect.objectContaining({
           id: "registry_manifest",
-          title: "ToolRegistry / Manifest",
+          title: "LangChain Tool Catalog",
           stepIds: ["step-runtime_event"],
         }),
       ]),
@@ -511,12 +657,6 @@ describe("AI trace viewer step grouping", () => {
         metadata: { plannerCallIndex: 1, runtimeStep: 1 },
       }),
       createStep({
-        id: "action-1",
-        type: "runtime_event",
-        name: "Planner action",
-        output: { type: "planner_action", step: 1, actionType: "tool_call", toolName: "readFixture" },
-      }),
-      createStep({
         id: "validation-1",
         type: "validation",
         name: "Action 校验通过",
@@ -584,7 +724,6 @@ describe("AI trace viewer step grouping", () => {
         expect.objectContaining({
           id: "runtime_validation",
           steps: [
-            expect.objectContaining({ id: "action-1" }),
             expect.objectContaining({ id: "validation-1" }),
             expect.objectContaining({ id: "tool-1" }),
           ],

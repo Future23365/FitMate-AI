@@ -1,7 +1,8 @@
 import { AIMessage, fakeModel } from "langchain";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
+import { agentRuntimeConfig } from "@/lib/server/config";
 import {
   buildLangChainAgentSystemPrompt,
   defineLangChainToolWrapper,
@@ -109,6 +110,52 @@ describe("LangChain Agent runtime", () => {
     expect(result.ok).toBe(true);
     expect(result.toolExecutions.map((execution) => execution.toolCallId)).toEqual(["call_1", "call_2"]);
     expect(result.traceSummary?.toolCallCount).toBe(2);
+  });
+
+  it("blocks tool handler execution after the configured tool call budget is exhausted", async () => {
+    const handler = vi.fn(async (input: { goal: string }) => ({
+      status: "succeeded" as const,
+      goal: input.goal,
+    }));
+    const budgetedTool = defineLangChainToolWrapper({
+      name: "budgetedExerciseGoal",
+      description: "用于验证 LangChain runtime 工具调用预算的测试工具。",
+      inputSchema: z.object({
+        goal: z.string(),
+      }).strict(),
+      handler,
+      toModelVisibleSummary: (output) => ({
+        status: output.status,
+        goal: output.goal,
+      }),
+    });
+    const requestedToolCalls = agentRuntimeConfig.langChain.runBudget.maxToolCalls + 1;
+    const model = fakeModel()
+      .respondWithTools(Array.from({ length: requestedToolCalls }, (_, index) => ({
+        name: "budgetedExerciseGoal",
+        args: { goal: `训练目标 ${index + 1}` },
+        id: `call_budget_${index + 1}`,
+      })))
+      .respond(new AIMessage("预算超限后不应作为成功结果。"));
+
+    const result = await runLangChainAgentRuntime({
+      ...baseInput,
+      model,
+      toolWrappers: [budgetedTool],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(handler).toHaveBeenCalledTimes(agentRuntimeConfig.langChain.runBudget.maxToolCalls);
+    if (!result.ok) {
+      expect(result.code).toBe("budget_exhausted");
+      expect(result.toolExecutions).toHaveLength(requestedToolCalls);
+      expect(result.toolExecutions.at(-1)).toMatchObject({
+        toolName: "budgetedExerciseGoal",
+        status: "failed",
+        failureCode: "budget_exhausted",
+        enteredModelContext: true,
+      });
+    }
   });
 
   it("normalizes unknown tool calls from LangChain tool messages", async () => {

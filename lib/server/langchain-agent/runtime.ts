@@ -57,6 +57,7 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
   input.signal?.addEventListener("abort", abortFromInput);
 
   try {
+    const toolExecutionBudget = createToolExecutionBudget(config.runBudget.maxToolCalls);
     const tools = (input.toolWrappers ?? []).map((wrapper) => createExecutableLangChainTool(
       wrapper,
       {
@@ -64,6 +65,7 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
         signal: abortController.signal,
       },
       (execution) => toolExecutions.push(execution),
+      toolExecutionBudget,
     ));
     const agent = createAgent({
       model: modelResult.model,
@@ -79,6 +81,27 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
     const messages = Array.isArray(state.messages) ? state.messages : [];
     const generatedMessages = messages.slice(input.messages.length);
     const mergedToolExecutions = mergeToolExecutions(toolExecutions, messages);
+    const budgetFailure = mergedToolExecutions.find((execution) => execution.failureCode === "budget_exhausted");
+
+    if (budgetFailure) {
+      return createFailure({
+        code: "budget_exhausted",
+        message: "LangChain agent exceeded the configured tool call budget.",
+        retryable: true,
+        messages,
+        toolExecutions: mergedToolExecutions,
+        traceSummary: createTraceSummary({
+          startedAt,
+          modelName: modelResult.modelName,
+          inputMessages: input.messages,
+          messages,
+          toolExecutions: mergedToolExecutions,
+          toolWrappers: input.toolWrappers ?? [],
+          finalText: undefined,
+        }),
+      });
+    }
+
     const finalMessage = [...generatedMessages].reverse().find((message) => (
       AIMessage.isInstance(message)
       && (!message.tool_calls || message.tool_calls.length === 0)
@@ -133,6 +156,17 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
     clearTimeout(timeout);
     input.signal?.removeEventListener("abort", abortFromInput);
   }
+}
+
+function createToolExecutionBudget(maxToolCalls: number) {
+  let reservedToolCalls = 0;
+
+  return {
+    reserveToolCall: () => {
+      reservedToolCalls += 1;
+      return reservedToolCalls <= maxToolCalls;
+    },
+  };
 }
 
 function mergeToolExecutions(

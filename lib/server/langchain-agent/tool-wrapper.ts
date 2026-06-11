@@ -48,6 +48,9 @@ export type LangChainToolWrapper<SchemaT extends z.ZodObject = z.ZodObject, Outp
   LangChainToolWrapperDefinition<SchemaT, OutputT>;
 
 export type LangChainToolExecutionRecorder = (execution: LangChainAgentToolExecution) => void;
+export type LangChainToolExecutionBudget = {
+  reserveToolCall: () => boolean;
+};
 
 /** defineLangChainToolWrapper 定义生产 LangChain tool 的服务端 wrapper 合同，统一 schema、权限上下文、摘要和 trace 边界。 */
 export function defineLangChainToolWrapper<SchemaT extends z.ZodObject, OutputT>(
@@ -61,10 +64,13 @@ export function createExecutableLangChainTool<SchemaT extends z.ZodObject, Outpu
   wrapper: LangChainToolWrapper<SchemaT, OutputT>,
   context: LangChainToolWrapperContext,
   recordExecution: LangChainToolExecutionRecorder,
+  budget?: LangChainToolExecutionBudget,
 ) {
   const executableTool = tool(async (input, runtime) => {
+    const budgetExceeded = budget ? !budget.reserveToolCall() : false;
     const execution = await executeLangChainToolWrapper(wrapper, input, context, {
       toolCallId: readLangChainToolCallId(runtime),
+      budgetExceeded,
     });
 
     recordExecution(execution.record);
@@ -81,8 +87,10 @@ export function createExecutableLangChainTool<SchemaT extends z.ZodObject, Outpu
     // 覆盖 invoke 可以保留 provider schema，同时把执行、校验和错误消毒统一交给项目 wrapper。
     invoke: async (input: unknown, runtime: unknown) => {
       const toolInput = readLangChainToolInvokeInput(input, runtime);
+      const budgetExceeded = budget ? !budget.reserveToolCall() : false;
       const execution = await executeLangChainToolWrapper(wrapper, toolInput.rawInput, context, {
         toolCallId: toolInput.toolCallId,
+        budgetExceeded,
       });
 
       recordExecution(execution.record);
@@ -134,12 +142,28 @@ export async function executeLangChainToolWrapper<SchemaT extends z.ZodObject, O
   wrapper: LangChainToolWrapper<SchemaT, OutputT>,
   rawInput: unknown,
   context: LangChainToolWrapperContext,
-  options: { toolCallId?: string } = {},
+  options: { toolCallId?: string; budgetExceeded?: boolean } = {},
 ): Promise<{ modelMessage: string; record: LangChainAgentToolExecution }> {
   const startedAt = Date.now();
   const config = agentRuntimeConfig.langChain;
   const parsedInput = wrapper.inputSchema.safeParse(rawInput);
   const inputSummary = toLangChainJsonValue(rawInput, config.trace.toolArgumentsPreviewMaxLength);
+
+  if (options.budgetExceeded) {
+    return createFailedToolExecution({
+      wrapper,
+      toolCallId: options.toolCallId,
+      startedAt,
+      inputSummary,
+      failureCode: "budget_exhausted",
+      failureMessage: "工具调用次数超过本轮运行预算。",
+      modelMessage: {
+        status: "failed",
+        code: "budget_exhausted",
+        message: "工具调用次数超过本轮运行预算；不要继续假装工具已执行成功。",
+      },
+    });
+  }
 
   if (!parsedInput.success) {
     return createFailedToolExecution({

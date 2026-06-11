@@ -178,6 +178,7 @@ describe("API route boundaries", () => {
       { type: "error", error: { code: "chat_ai_not_configured" } },
       { type: "done" },
     ]);
+    expect(exerciseRepositoryMocks.readExerciseResourceFacetCatalog).not.toHaveBeenCalled();
     expect(JSON.stringify(events)).not.toContain("chat_ai_disabled");
     expect(traceMocks.startAiTrace).toHaveBeenCalledTimes(1);
     expect(traceMocks.startAiTrace).toHaveBeenCalledWith(expect.objectContaining({

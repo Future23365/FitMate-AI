@@ -132,7 +132,7 @@ type TraceLogDetailState = {
 const traceLogLongTextThreshold = 600;
 const traceLogLongTextPreviewEdgeLength = 120;
 
-// AiTraceViewer 是开发态模块化 trace 壳，按 agent-core 职责边界展示可保存诊断。
+// AiTraceViewer 是开发态模块化 trace 壳，按 LangChain 主链职责展示可保存诊断。
 export function AiTraceViewer() {
   const [traces, setTraces] = useState<AiTrace[]>([]);
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
@@ -435,7 +435,7 @@ function TraceHero({
             <StatusBadge status={trace.status} />
           </div>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
-            当前页面按 Agent loop 组织模型调用、runtime 校验和策略资源诊断，便于按轮次定位问题。
+            当前页面按 LangChain runtime、provider tool calls、tool wrapper 和响应投影组织诊断，便于定位主链问题。
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -460,7 +460,7 @@ function TraceHero({
 
       <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="接口路径" value={trace.route} description="本次 trace 关联的服务端入口。" />
-        <MetricCard label="Agent Loop" value={`${loopCount} 轮`} description="按 runtime step / planner call 归并后的执行轮次。" />
+        <MetricCard label="Runtime 轮次" value={`${loopCount} 轮`} description="按 LangChain runtime step 归并后的执行轮次。" />
         <MetricCard label="总耗时" value={formatDuration(trace.durationMs)} description="trace 从创建到结束的总耗时。" />
         <MetricCard
           label="Token"
@@ -543,7 +543,7 @@ function AgentLoopTimeline({ loops }: { loops: TraceLoopTurn[] }) {
     <section className="mt-6 space-y-4">
       {loops.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
-          没有记录 Agent loop。配置错误、入口拒绝或预算前置失败可能不会产生 loop。
+          没有记录 LangChain runtime 轮次。配置错误、入口拒绝或预算前置失败可能不会产生 loop。
         </div>
       ) : (
         loops.map((loop) => (
@@ -559,7 +559,7 @@ function AgentLoopTimeline({ loops }: { loops: TraceLoopTurn[] }) {
                   <p className="mt-1 text-sm text-slate-500">
                     runtime step {loop.runtimeStep}
                     {loop.plannerCallIndexes.length > 0
-                      ? ` · planner call ${loop.plannerCallIndexes.join(", ")}`
+                      ? ` · model call ${loop.plannerCallIndexes.join(", ")}`
                       : ""}
                   </p>
                 </div>
@@ -643,8 +643,8 @@ function ModelCallCard({ call }: { call: TraceLoopModelCall }) {
       <summary className="flex cursor-pointer list-none items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium text-slate-950">
-              LLM Call {call.plannerCallIndex ? `#${call.plannerCallIndex}` : ""}
+              <span className="font-medium text-slate-950">
+              Model Call {call.plannerCallIndex ? `#${call.plannerCallIndex}` : ""}
             </span>
             <TokenUsageBadge usage={call.tokenUsage} />
             <StatusBadge status={call.status} />
@@ -888,20 +888,20 @@ const moduleDefinitions: Array<Omit<TraceStepGroup, "status" | "steps" | "summar
   },
   {
     id: "registry_manifest",
-    title: "ToolRegistry / Manifest",
-    description: "当前 run 暴露给 Planner 的 tool manifest 快照。",
+    title: "LangChain Tool Catalog",
+    description: "当前 run 暴露给 DeepSeek native tool calling 的生产工具集合。",
     placement: "main_flow",
   },
   {
     id: "planner_model",
-    title: "Planner / ModelAdapter",
-    description: "LLM 请求配置、messages 摘要、模型响应、parsed action 和真实 token usage。",
+    title: "LangChain / DeepSeek",
+    description: "模型请求配置、messages 摘要、DeepSeek tool_calls 和真实 token usage。",
     placement: "main_flow",
   },
   {
     id: "runtime_validation",
-    title: "Runtime / Validator",
-    description: "planner action、预算事件、结构校验、terminal grounding 和失败收口。",
+    title: "Runtime / Tool Wrapper / Validator",
+    description: "LangChain runtime、tool wrapper 执行、结构化输出校验和失败收口。",
     placement: "main_flow",
   },
   {
@@ -912,8 +912,8 @@ const moduleDefinitions: Array<Omit<TraceStepGroup, "status" | "steps" | "summar
   },
   {
     id: "response_rendering",
-    title: "Response Renderer",
-    description: "真实返回前端的 NDJSON 事件摘要。",
+    title: "Production Response Adapter",
+    description: "真实返回前端的 NDJSON 白名单事件摘要。",
     placement: "main_flow",
   },
   {
@@ -936,6 +936,15 @@ const moduleDefinitionsById = Object.fromEntries(
 
 function getStepGroupDefinition(step: AiTraceStep): Omit<TraceStepGroup, "status" | "steps" | "summary" | "skipReason" | "startedAt" | "endedAt" | "durationMs"> {
   const runtimeEventType = readRuntimeEventType(step);
+  const boundary = readStepBoundary(step);
+
+  if (boundary === "request_context") {
+    return moduleDefinitionsById.request_context;
+  }
+
+  if (boundary === "langchain_runtime") {
+    return moduleDefinitionsById.runtime_validation;
+  }
 
   if (step.status === "failed" && step.type !== "model_response" && step.type !== "tool_call") {
     return moduleDefinitionsById.errors_diagnostics;
@@ -1021,8 +1030,8 @@ function createLoopModules(runtimeStep: number, steps: AiTraceStep[]): TraceLoop
   if (plannerSteps.length > 0 || plannerModelCalls.length > 0) {
     modules.push(createLoopModule({
       id: "planner_model",
-      title: "Planner / ModelAdapter",
-      description: "本轮 LLM call 的请求、响应、解析结果和 token 明细。",
+      title: "LangChain / DeepSeek",
+      description: "本轮模型请求、响应、provider tool_calls 和 token 明细。",
       steps: plannerSteps,
       modelCalls: plannerModelCalls,
       tokenUsage: sumTokenUsageValues(plannerModelCalls.map((call) => call.tokenUsage)),
@@ -1032,8 +1041,8 @@ function createLoopModules(runtimeStep: number, steps: AiTraceStep[]): TraceLoop
   if (runtimeSteps.length > 0) {
     modules.push(createLoopModule({
       id: "runtime_validation",
-      title: "Runtime / Validator",
-      description: "本轮 planner action、预算事件、校验和 terminal grounding。",
+      title: "Runtime / Tool Wrapper / Validator",
+      description: "本轮 LangChain runtime、tool wrapper、结构化校验和终态收口。",
       steps: runtimeSteps,
       modelCalls: [],
       tokenUsage: null,
@@ -1101,14 +1110,16 @@ function buildLoopModelCalls(runtimeStep: number, steps: AiTraceStep[]): TraceLo
 function createModuleSummary(group: TraceStepGroup): Array<{ label: string; value: string }> {
   switch (group.id) {
     case "request_context": {
-      const requestStep = group.steps.find((step) => step.type === "user_input");
+      const requestStep = group.steps.find((step) => readStepBoundary(step) === "request_context")
+        ?? group.steps.find((step) => step.type === "user_input");
       const input = isRecord(requestStep?.input) ? requestStep.input : {};
+      const output = isRecord(requestStep?.output) ? requestStep.output : {};
 
       return [
-        { label: "最新用户输入", value: readString(input.latestUserMessage) || "-" },
-        { label: "消息数", value: formatOptionalNumber(readNumber(input.messageCount)) },
-        { label: "会话", value: readString(input.conversationId) || "-" },
-        { label: "hydration", value: readNestedString(input.hydration, "source") || "-" },
+        { label: "最新用户输入", value: readString(input.latestUserMessage) || readString(output.latestUserMessage) || "-" },
+        { label: "消息数", value: formatOptionalNumber(readNumber(input.messageCount) ?? readNumber(output.messageCount)) },
+        { label: "会话", value: readString(input.conversationId) || readString(output.conversationId) || "-" },
+        { label: "tool catalog", value: formatToolNames(readStringArray(output.toolNames)) },
       ];
     }
     case "registry_manifest": {
@@ -1145,15 +1156,28 @@ function createModuleSummary(group: TraceStepGroup): Array<{ label: string; valu
       ];
     }
     case "runtime_validation": {
-      const plannerAction = [...group.steps].reverse().find((step) => readRuntimeEventType(step) === "planner_action");
+      const langChainRuntimeStep = [...group.steps].reverse().find((step) => readLangChainRuntimeTraceSummary(step));
+      const langChainSummary = langChainRuntimeStep ? readLangChainRuntimeTraceSummary(langChainRuntimeStep) : undefined;
+      const langChainOutput = isRecord(langChainRuntimeStep?.output) ? langChainRuntimeStep.output : {};
+
+      if (langChainSummary) {
+        return [
+          { label: "runtime", value: readString(langChainSummary.runtimeVersion) || "LangChain" },
+          { label: "model", value: readString(langChainSummary.model) || "-" },
+          { label: "provider tool_calls", value: formatProviderToolCallSummary(langChainSummary.providerToolCalls) },
+          { label: "tool wrappers", value: formatLangChainToolExecutionSummary(langChainOutput.toolExecutions) },
+          { label: "structured output", value: formatStructuredOutputValidation(langChainOutput.structuredOutputValidation) },
+          { label: "旧 core", value: "未使用 AgentAction / PlannerPort / ToolRegistry" },
+        ];
+      }
+
       const validation = [...group.steps].reverse().find((step) => step.type === "validation" || readRuntimeEventType(step) === "validation_result");
-      const actionOutput = isRecord(plannerAction?.output) ? plannerAction.output : {};
       const validationOutput = isRecord(validation?.output) ? validation.output : {};
       const budgetEvents = group.steps.filter((step) => step.type === "token_budget" || readRuntimeEventType(step) === "budget_event");
+      const toolNames = readLoopToolNames(group.steps);
 
       return [
-        { label: "action type", value: readString(actionOutput.actionType) || "-" },
-        { label: "toolName", value: readString(actionOutput.toolName) || "-" },
+        { label: "toolName", value: formatToolNames(toolNames) },
         { label: "validator", value: formatValidatorSummary(validationOutput) },
         { label: "budget events", value: `${budgetEvents.length} 个` },
       ];
@@ -1167,12 +1191,14 @@ function createModuleSummary(group: TraceStepGroup): Array<{ label: string; valu
     case "response_rendering": {
       const responseStep = group.steps.find((step) => step.type === "response_write");
       const output = isRecord(responseStep?.output) ? responseStep.output : {};
+      const eventTypes = readStringArray(output.eventTypes);
 
       return [
         { label: "event types", value: formatEventTypes(output.eventTypes) || "-" },
-        { label: "done", value: output.done === true ? "true" : "false" },
-        { label: "suggestions", value: formatOptionalNumber(readNumber(output.suggestionCount)) },
-        { label: "error codes", value: formatEventTypes(output.errorCodes) || "-" },
+        { label: "done", value: eventTypes.includes("done") || output.done === true ? "true" : "false" },
+        { label: "suggestions", value: formatOptionalNumber(readNumber(output.suggestedQuestionCount) ?? readNumber(output.suggestionCount)) },
+        { label: "projection", value: readString(output.projectionType) || "-" },
+        { label: "error code", value: readString(output.errorCode) || formatEventTypes(output.errorCodes) || "-" },
       ];
     }
     case "errors_diagnostics": {
@@ -1200,7 +1226,9 @@ function createModuleSkipReason(group: TraceStepGroup) {
 
   switch (group.id) {
     case "planner_model":
-      return "未记录模型调用。Replay/Fake planner 或配置阶段失败可以没有 model_request/model_response。";
+      return "未记录独立模型请求步骤。LangChain runtime 摘要可能已在 Runtime 模块中记录 provider tool_calls。";
+    case "registry_manifest":
+      return "本次 trace 未记录独立 tool catalog 快照；LangChain 请求上下文或 runtime 摘要中可查看 toolNames。";
     case "policy_resource":
       return "本次 run 没有 Policy Guard、confirmation 或 ResourceStore 事件。";
     case "errors_diagnostics":
@@ -1225,6 +1253,24 @@ function readRuntimeEventType(step: AiTraceStep) {
       : undefined;
 }
 
+function readStepBoundary(step: AiTraceStep) {
+  const metadata = isRecord(step.metadata) ? step.metadata : {};
+  const boundary = metadata.boundary;
+
+  return typeof boundary === "string" ? boundary : undefined;
+}
+
+function readLangChainRuntimeTraceSummary(step: AiTraceStep) {
+  const output = isRecord(step.output) ? step.output : {};
+  const traceSummary = isRecord(output.traceSummary) ? output.traceSummary : undefined;
+
+  if (!traceSummary || typeof traceSummary.runtimeVersion !== "string") {
+    return undefined;
+  }
+
+  return traceSummary;
+}
+
 function readStepRuntimeStep(step: AiTraceStep) {
   const metadata = isRecord(step.metadata) ? step.metadata : {};
   const output = isRecord(step.output) ? step.output : {};
@@ -1234,11 +1280,25 @@ function readStepRuntimeStep(step: AiTraceStep) {
       ? metadata.runtimeLinkage
       : {};
 
-  return readNumber(metadata.runtimeStep)
+  const directStep = readNumber(metadata.runtimeStep)
     ?? readNumber(output.runtimeStep)
     ?? readNumber(runtimeLinkage.runtimeStep)
     ?? readNumber(output.step)
     ?? readNumber(metadata.step);
+
+  if (directStep !== undefined) {
+    return directStep;
+  }
+
+  if (metadata.pipeline === "langchain-agent-text-chat" && readStepBoundary(step) === "langchain_runtime") {
+    return 1;
+  }
+
+  if (metadata.pipeline === "langchain-agent-text-chat" && step.type === "response_write") {
+    return 1;
+  }
+
+  return undefined;
 }
 
 function readStepPlannerCallIndex(step: AiTraceStep) {
@@ -1271,6 +1331,15 @@ function readStepToolNames(step: AiTraceStep) {
   const metadata = isRecord(step.metadata) ? step.metadata : {};
   const input = isRecord(step.input) ? step.input : {};
   const output = isRecord(step.output) ? step.output : {};
+  const langChainSummary = readLangChainRuntimeTraceSummary(step);
+
+  if (langChainSummary) {
+    return uniqueStrings([
+      ...readProviderToolCallNames(langChainSummary.providerToolCalls),
+      ...readToolExecutionNames(output.toolExecutions),
+    ]);
+  }
+
   const runtimeEventType = readRuntimeEventType(step);
   const actionType = readString(output.actionType);
   const toolName = readString(output.toolName) || readString(metadata.toolName) || readString(input.toolName);
@@ -1278,8 +1347,6 @@ function readStepToolNames(step: AiTraceStep) {
   if (
     step.type === "tool_call" ||
     runtimeEventType === "tool_execution" ||
-    runtimeEventType === "duplicate_tool_call" ||
-    (runtimeEventType === "planner_action" && actionType === "tool_call") ||
     (step.type === "model_response" && actionType === "tool_call")
   ) {
     return toolName ? [toolName] : [];
@@ -1303,7 +1370,78 @@ function readManifestToolNames(output: Record<string, unknown>) {
 }
 
 function formatToolNames(toolNames: string[]) {
-  return toolNames.length > 0 ? toolNames.join(", ") : "空 ToolRegistry";
+  return toolNames.length > 0 ? toolNames.join(", ") : "未记录 Tool";
+}
+
+function formatProviderToolCallSummary(value: unknown) {
+  const names = readProviderToolCallNames(value);
+
+  return names.length > 0 ? `${names.length} 次：${names.join(", ")}` : "0 次";
+}
+
+function formatLangChainToolExecutionSummary(value: unknown) {
+  const executions = readToolExecutions(value);
+
+  if (executions.length === 0) {
+    return "0 次";
+  }
+
+  const succeeded = executions.filter((execution) => execution.status === "succeeded").length;
+  const failed = executions.filter((execution) => execution.status === "failed").length;
+  const names = uniqueStrings(executions.map((execution) => execution.toolName).filter(Boolean));
+
+  return `${executions.length} 次，成功 ${succeeded} / 失败 ${failed}${names.length ? `：${names.join(", ")}` : ""}`;
+}
+
+function formatStructuredOutputValidation(value: unknown) {
+  if (!isRecord(value)) {
+    return "未记录";
+  }
+
+  const count = readNumber(value.validatedVisibleOutputCount) ?? 0;
+
+  return `validated visible outputs: ${count}`;
+}
+
+function readProviderToolCallNames(value: unknown) {
+  return Array.isArray(value)
+    ? uniqueStrings(value
+      .map((item) => (isRecord(item) ? readString(item.name) : undefined))
+      .filter((name): name is string => Boolean(name)))
+    : [];
+}
+
+function readToolExecutionNames(value: unknown) {
+  return uniqueStrings(readToolExecutions(value).map((execution) => execution.toolName).filter(Boolean));
+}
+
+function readToolExecutions(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((item) => {
+    if (!isRecord(item)) {
+      return [];
+    }
+
+    const toolName = readString(item.toolName);
+    const status = readString(item.status);
+
+    if (!toolName) {
+      return [];
+    }
+
+    return [{
+      toolName,
+      status,
+      failureCode: readString(item.failureCode),
+    }];
+  });
+}
+
+function uniqueStrings(values: readonly string[]) {
+  return Array.from(new Set(values));
 }
 
 function deriveGroupStatus(steps: AiTraceStep[]): AiTrace["status"] {
@@ -1577,6 +1715,15 @@ function createTraceStepReportSummary(step: AiTraceStep) {
     thinking: step.type === "model_request" ? output.thinking ?? metadata.thinking : undefined,
     reasoning: step.type === "model_response" ? output.reasoning ?? metadata.reasoning : undefined,
     tokenUsage: getStepModelTokenUsage(step, []),
+    langChainRuntime: readLangChainRuntimeTraceSummary(step)
+      ? {
+          runtimeVersion: readString(readLangChainRuntimeTraceSummary(step)?.runtimeVersion),
+          model: readString(readLangChainRuntimeTraceSummary(step)?.model),
+          providerToolCallCount: Array.isArray(readLangChainRuntimeTraceSummary(step)?.providerToolCalls)
+            ? (readLangChainRuntimeTraceSummary(step)?.providerToolCalls as unknown[]).length
+            : 0,
+        }
+      : undefined,
   };
 }
 
@@ -1591,6 +1738,23 @@ function createRuntimeTraceEventReport(step: AiTraceStep) {
 
 function summarizeRuntimeEventOutput(output: Record<string, unknown>) {
   const eventType = readString(output.type);
+  const traceSummary = isRecord(output.traceSummary) ? output.traceSummary : undefined;
+
+  if (traceSummary && typeof traceSummary.runtimeVersion === "string") {
+    return {
+      type: "langchain_runtime",
+      runtimeVersion: readString(traceSummary.runtimeVersion),
+      model: readString(traceSummary.model),
+      toolNames: readStringArray(traceSummary.toolNames),
+      providerToolCalls: traceSummary.providerToolCalls,
+      modelCallCount: readNumber(traceSummary.modelCallCount),
+      toolCallCount: readNumber(traceSummary.toolCallCount),
+      messageCount: readNumber(traceSummary.messageCount),
+      durationMs: readNumber(traceSummary.durationMs),
+      toolExecutions: output.toolExecutions,
+      structuredOutputValidation: output.structuredOutputValidation,
+    };
+  }
 
   switch (eventType) {
     case "registry_snapshot":
@@ -1610,13 +1774,6 @@ function summarizeRuntimeEventOutput(output: Record<string, unknown>) {
         limit: readNumber(output.limit),
         step: readNumber(output.step),
         reason: readString(output.reason),
-      };
-    case "planner_action":
-      return {
-        type: eventType,
-        step: readNumber(output.step),
-        actionType: readString(output.actionType),
-        toolName: readString(output.toolName),
       };
     case "validation_result":
       return {
@@ -1669,9 +1826,37 @@ function summarizeRuntimeEventOutput(output: Record<string, unknown>) {
   }
 }
 
+function readLangChainRuntimeSummaries(trace: AiTrace) {
+  return trace.steps.flatMap((step) => {
+    const traceSummary = readLangChainRuntimeTraceSummary(step);
+    const output = isRecord(step.output) ? step.output : {};
+
+    if (!traceSummary) {
+      return [];
+    }
+
+    return [{
+      stepId: step.id,
+      runtimeVersion: readString(traceSummary.runtimeVersion),
+      model: readString(traceSummary.model),
+      toolNames: readStringArray(traceSummary.toolNames),
+      modelRequestSummary: traceSummary.modelRequestSummary,
+      modelResponseSummary: traceSummary.modelResponseSummary,
+      providerToolCalls: Array.isArray(traceSummary.providerToolCalls) ? traceSummary.providerToolCalls : [],
+      modelCallCount: readNumber(traceSummary.modelCallCount),
+      toolCallCount: readNumber(traceSummary.toolCallCount),
+      messageCount: readNumber(traceSummary.messageCount),
+      durationMs: readNumber(traceSummary.durationMs),
+      toolExecutions: Array.isArray(output.toolExecutions) ? output.toolExecutions : [],
+      structuredOutputValidation: output.structuredOutputValidation,
+    }];
+  });
+}
+
 export function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) {
   const tokenUsageSummary = getTraceTokenUsage(trace);
   const agentLoops = buildAgentLoopTimeline(trace.steps);
+  const langChainRuntimeSummaries = readLangChainRuntimeSummaries(trace);
   const detailState: TraceLogDetailState = { details: [] };
   const traceDetailRef = createTraceLogDetailEntry(detailState, {
     path: "$.trace",
@@ -1735,6 +1920,9 @@ export function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) 
       skipReason: group.skipReason,
     })),
     plannerModelCalls: readPlannerModelCalls(trace),
+    langChainRuntimeSummaries,
+    providerToolCalls: langChainRuntimeSummaries.flatMap((summary) => summary.providerToolCalls),
+    langChainToolExecutions: langChainRuntimeSummaries.flatMap((summary) => summary.toolExecutions),
     tokenUsageSummary,
     runtimeTraceEvents: trace.steps
       .filter((step) => ["runtime_event", "validation", "token_budget", "tool_call", "final_response"].includes(step.type))

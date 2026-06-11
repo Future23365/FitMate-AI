@@ -418,3 +418,108 @@ git diff --name-status
 - `npm run build` 首次在 sandbox 内失败，Turbopack 报 `binding to a port` / `Operation not permitted (os error 1)`；按权限规则在 sandbox 外重跑同一命令后通过。
 - 生产新路径旧核心标识扫描无命中；测试中的旧术语只作为反向断言存在。
 - `git diff --name-status` 没有 `D` 或 `R`，本阶段没有删除或重命名已跟踪文件。
+
+## 2026-06-11 回归复查修复
+
+### 配置缺失短路
+
+复查发现 `createLangChainAgentTextChatResponse()` 在检查 DeepSeek provider 配置前先构造 production tool catalog，会提前读取动作库 facet catalog。这样在 `DEEPSEEK_API_KEY` 缺失时，本应稳定返回配置错误，却可能先被动作库 / 数据库读取失败打断。
+
+已调整为：
+
+```txt
+createLangChainAgentTextChatMessages()
+  -> startAiTrace()
+  -> resolveLangChainDeepSeekProviderConfig()
+  -> config_missing 时直接返回 503 + NDJSON error
+  -> provider 配置有效后才构造 production tool catalog
+```
+
+回归测试：
+
+```txt
+tests/api-routes.test.ts
+```
+
+新增断言：配置缺失时不调用 `readExerciseResourceFacetCatalog()`。
+
+### Tool call budget 硬门禁
+
+复查发现集中配置中声明了 `agentRuntimeConfig.langChain.runBudget.maxToolCalls`，但 runtime 主要依赖 LangChain recursion limit，tool wrapper 执行前没有共享的 tool call hard gate。这样第 N+1 次工具调用仍可能进入业务 handler。
+
+已在 `runLangChainAgentRuntime()` 中创建每次 run 共享的 tool execution budget，并传入所有 `createExecutableLangChainTool()`。第 N+1 次工具调用会：
+
+- 不执行业务 handler。
+- 记录 `failureCode = "budget_exhausted"`。
+- 返回模型可见消毒失败摘要。
+- 将整轮 run 按 `budget_exhausted` 失败收口，不进入成功投影路径。
+
+回归测试：
+
+```txt
+tests/langchain-agent-runtime/runtime.test.ts
+```
+
+新增断言：超过 `maxToolCalls` 后 handler 调用次数不超过配置上限，超限 tool execution 记录为 `budget_exhausted`。
+
+### Dev trace view model 迁移
+
+复查发现 `components/dev/ai-trace-viewer.tsx` 仍以旧 `ToolRegistry / Manifest`、`Planner / ModelAdapter`、`Runtime / Validator`、`Response Renderer` 和旧 `planner_action` / `duplicate_tool_call` 语义组织调试视图。虽然新 trace 已写入 `LangChain Agent Runtime 摘要`，但 dev viewer 没有把它提升成一等 view model。
+
+已调整为：
+
+- `LangChain Tool Catalog`
+- `LangChain / DeepSeek`
+- `Runtime / Tool Wrapper / Validator`
+- `Production Response Adapter`
+
+新 view model 直接读取：
+
+- `traceSummary.runtimeVersion`
+- `traceSummary.model`
+- `traceSummary.providerToolCalls`
+- `toolExecutions`
+- `structuredOutputValidation.validatedVisibleOutputCount`
+- response projection summary
+
+保存到 `codex_logs/ai_trace_log.js` 的 payload 新增：
+
+- `langChainRuntimeSummaries`
+- `providerToolCalls`
+- `langChainToolExecutions`
+
+回归测试：
+
+```txt
+tests/ai-trace-viewer.test.ts
+```
+
+新增 LangChain trace fixture，覆盖 runtime、DeepSeek native tool calls、tool wrapper results、结构化输出校验、response projection 和旧 core 缺席证据。
+
+### 生产路径旧 core 扫描
+
+已在 `tests/architecture-agent-core-removal.test.ts` 增加 production LangChain chat path 扫描，覆盖：
+
+```txt
+app/api/chat/route.ts
+lib/server/chat/langchain-agent-text-chat-service.ts
+lib/server/langchain-agent/**
+```
+
+扫描旧核心标识：
+
+```txt
+AgentAction
+PlannerPort
+ToolRegistry
+runAgentRuntime
+LlmPlanner
+DeepSeekModelAdapter
+planner_action
+duplicate_tool_call
+AgentRunResult
+@/lib/server/agent-core
+@/lib/server/agent-planners
+```
+
+该扫描只覆盖当前生产 LangChain 路径，不误扫尚未确认删除的旧目录。

@@ -56,8 +56,8 @@
 
 - [x] 8.1 实现 LangChain run trace 投影，记录 run metadata、model request / response 摘要、DeepSeek `tool_calls`、tool wrapper 执行、结构化 validator 和 final NDJSON projection。
 - [x] 8.2 确认 trace 写入是非致命诊断，trace 失败不得重试模型、重复执行 tool 或改变用户可见响应。
-- [ ] 8.3 更新 dev trace view model 和相关测试，展示 LangChain runtime、DeepSeek native tool calls、tool wrapper results、结构化输出校验和旧 core 缺席证据。
-- [ ] 8.4 删除或重写旧 trace 字段依赖，至少覆盖旧 `planner_action`、旧 `AgentAction`、旧 `duplicate_tool_call`、旧 resource refs、旧 `PlannerModelTraceEvent` 和旧 Response Renderer step。
+- [x] 8.3 更新 dev trace view model 和相关测试，展示 LangChain runtime、DeepSeek native tool calls、tool wrapper results、结构化输出校验和旧 core 缺席证据。
+- [x] 8.4 删除或重写旧 trace 字段依赖，至少覆盖旧 `planner_action`、旧 `AgentAction`、旧 `duplicate_tool_call`、旧 resource refs、旧 `PlannerModelTraceEvent` 和旧 Response Renderer step。
 
 ## 9. 删除旧 Agent Core 和旧测试资产
 
@@ -65,7 +65,7 @@
 - [ ] 9.2 删除或迁移旧 `tests/agent-core/**`、旧 `tests/agent-tools/**`、旧 chat-service 中只断言旧 AgentAction / ToolRegistry / runAgentRuntime 的测试。
 - [ ] 9.3 审核旧 tool 文件中的领域逻辑，能复用的先抽到领域 service 或 repository，不能复用的旧 wrapper 直接删除。
 - [ ] 9.4 更新 manual LLM 黑盒 runner，使其贴近真实 `/api/chat` + LangChain runtime；删除依赖旧 AgentAction / PlannerPort / ToolRegistry 的 fixture 和报告字段。
-- [ ] 9.5 增加架构扫描，证明生产代码不再导入旧 `agent-core`、旧 `agent-planners`、旧 `AgentAction`、旧 `PlannerPort`、旧 `ToolRegistry`、旧 `runAgentRuntime()`、旧 `DeepSeekModelAdapter` 或旧 Response Renderer。
+- [x] 9.5 增加架构扫描，证明生产代码不再导入旧 `agent-core`、旧 `agent-planners`、旧 `AgentAction`、旧 `PlannerPort`、旧 `ToolRegistry`、旧 `runAgentRuntime()`、旧 `DeepSeekModelAdapter` 或旧 Response Renderer。
 
 ## 10. 文档和 OpenSpec 收口
 

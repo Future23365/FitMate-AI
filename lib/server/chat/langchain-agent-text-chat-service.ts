@@ -40,7 +40,6 @@ export type CreateLangChainAgentTextChatResponseInput = {
 export async function createLangChainAgentTextChatResponse(
   input: CreateLangChainAgentTextChatResponseInput,
 ): Promise<Response> {
-  const toolWrappers = await createProductionLangChainTextChatTools();
   const messages = createLangChainAgentTextChatMessages(input.request);
   const trace = startAiTrace({
     route: langChainAgentTextChatRoute,
@@ -50,16 +49,15 @@ export async function createLangChainAgentTextChatResponse(
     title: summarizeLatestUserMessage(input.request.rawMessages),
   });
 
-  recordLangChainAgentRequestContextTrace({
-    trace,
-    currentUser: input.currentUser,
-    request: input.request,
-    messages,
-    toolNames: toolWrappers.map((tool) => tool.name),
-  });
-
   const providerConfig = resolveLangChainDeepSeekProviderConfig();
   if (!providerConfig.ok) {
+    recordLangChainAgentRequestContextTrace({
+      trace,
+      currentUser: input.currentUser,
+      request: input.request,
+      messages,
+      toolNames: [],
+    });
     const responseProjection = createLangChainAgentResponseProjection({
       result: {
         ok: false,
@@ -85,6 +83,16 @@ export async function createLangChainAgentTextChatResponse(
 
     return createLangChainAgentTextChatNdjsonResponse(responseProjection.events, { status: 503 });
   }
+
+  const toolWrappers = await createProductionLangChainTextChatTools();
+
+  recordLangChainAgentRequestContextTrace({
+    trace,
+    currentUser: input.currentUser,
+    request: input.request,
+    messages,
+    toolNames: toolWrappers.map((tool) => tool.name),
+  });
 
   return createLangChainAgentTextChatStreamingResponse(async (writer) => {
     const activityWriter = createLangChainAgentActivityStreamWriter(writer);

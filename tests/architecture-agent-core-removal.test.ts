@@ -13,6 +13,12 @@ const scanTargets = [
   "package.json",
 ];
 
+const productionLangChainTargets = [
+  "app/api/chat/route.ts",
+  "lib/server/chat/langchain-agent-text-chat-service.ts",
+  "lib/server/langchain-agent",
+];
+
 const excludedFiles = new Set([
   "tests/architecture-agent-core-removal.test.ts",
 ]);
@@ -43,6 +49,22 @@ function oldRuntimeTerms() {
     "run-manual" + "-agent-tool-tests",
     "@/lib/server/" + "agent" + "-orchestrator",
     "@/lib/server/" + "ai",
+  ];
+}
+
+function oldAgentCoreProductionTerms() {
+  return [
+    /\bAgentAction\b/,
+    /\bPlannerPort\b/,
+    /\bToolRegistry\b/,
+    /\brunAgentRuntime\b/,
+    /\bLlmPlanner\b/,
+    /\bDeepSeekModelAdapter\b/,
+    /\bplanner_action\b/,
+    /\bduplicate_tool_call\b/,
+    /(?<!LangChain)\bAgentRunResult\b/,
+    /@\/lib\/server\/agent-core\b/,
+    /@\/lib\/server\/agent-planners\b/,
   ];
 }
 
@@ -88,6 +110,22 @@ describe("removed Agent core runtime architecture", () => {
     expect(matches).toEqual([]);
   });
 
+  it("keeps the production LangChain chat path free of old agent-core contracts", () => {
+    const matches = [];
+
+    for (const file of collectProductionLangChainFiles()) {
+      const content = readFileSync(path.join(repoRoot, file), "utf8");
+
+      for (const pattern of oldAgentCoreProductionTerms()) {
+        if (pattern.test(content)) {
+          matches.push(`${file}: ${pattern.source}`);
+        }
+      }
+    }
+
+    expect(matches).toEqual([]);
+  });
+
   it("keeps public non-AI domain services importable without the removed runtime", async () => {
     const modules = await Promise.all([
       import("@/lib/server/exercises/exercise-service"),
@@ -101,3 +139,8 @@ describe("removed Agent core runtime architecture", () => {
     expect(modules.every((module) => Object.keys(module).length > 0)).toBe(true);
   });
 });
+
+function collectProductionLangChainFiles() {
+  return productionLangChainTargets.flatMap((target) => collectPath(path.join(repoRoot, target)))
+    .map((file) => path.relative(repoRoot, file));
+}
