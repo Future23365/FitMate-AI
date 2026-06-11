@@ -1,6 +1,6 @@
 ---
 name: agent-prompt-contract-governance
-description: 治理 AITest 中 Agent prompt 与模型实际可见输入的合同变更，并要求所有传给 AI 的提示词、LangChain tool description、schema description 和模型可见说明先对齐 docs/llm-prompt-guidance.md 的分层、职责和检查清单。作为 primary skill 用于修改 Agent prompt、model input、LangChain tool description、schema description、examples、失败反馈、context package、tool result summary、structured final response / finalization tool 说明、final grounding 说明，新增/调整业务 Agent tool 的模型可见说明，或在 tool 字段重命名后同步模型可见字段说明；不用于普通 UI 文案、README 文案、tool handler、runtime validation、production response adapter、production route 或与模型执行合同无关的小修。
+description: 治理 AITest 中 Agent prompt 与模型实际可见输入的合同变更，并要求所有传给 AI 的提示词、LangChain tool description、schema description 和模型可见说明先对齐 docs/llm-prompt-guidance.md 的分层、职责和检查清单。作为 primary skill 用于修改 Agent prompt、model input、LangChain tool description、schema description、examples、失败反馈、context package、tool result summary、structured final response / finalization tool 说明、final grounding 说明，新增/调整业务 Agent tool 的模型可见说明，或在 tool 字段重命名后同步模型可见字段说明；大范围 prompt / model input / output contract / model-visible summary 重组还必须在本 Skill 检查模型实际可见合同后使用 agent-regression-contract-audit；普通局部 prompt 或单个 tool description 小修不因此扩大流程。不用于普通 UI 文案、README 文案、tool handler、runtime validation、production response adapter、production route 或与模型执行合同无关的小修。
 ---
 
 # Agent Prompt 合同治理
@@ -20,6 +20,14 @@ description: 治理 AITest 中 Agent prompt 与模型实际可见输入的合同
    - 涉及业务 tool `inputSchema`、`outputSchema`、handler、resource、projection、trace 或测试中的字段命名、弃用和重命名时，先用 `agent-tool-change-governance` 治理执行合同，再用本 Skill 检查模型可见说明。
    - 只修改 prompt、model input、tool description、schema description、examples、失败反馈、context package 或 tool result summary 时，用本 Skill 治理模型可见合同。
 5. 实现前说明问题根因或产品需求、设计方向、预计影响模块和取舍。
+
+## 历史回归审计触发
+
+当 change 批量修改 Agent prompt、model input builder、LangChain tool description、schema description、examples、repair feedback、tool result summary、finalization tool description、structured final response 合同或 model-visible summary 时，本 Skill 先确认当前模型实际可见输入和分层边界。随后必须使用 `agent-regression-contract-audit` 做 secondary audit，回查归档 OpenSpec 和项目演进记录中已移除或收口的字段、workflow 文案、output contract 边界和 repair feedback 边界。
+
+这不会替代 prompt 分层治理，也不会触发在普通局部文案小修上。只修改单个 prompt 片段、单个 tool description、单个 schema description、单个 examples description 或单个 repair feedback，且不属于 framework migration、核心链路替换、批量模型可见合同重组或历史回归调查时，不因本条自动触发 `agent-regression-contract-audit`。
+
+触发历史回归审计的大范围 prompt / model-visible change 的 `tasks.md` 必须包含 Agent model-visible contract gate 验证，覆盖白名单 summary schema、production tool catalog contract tests、模型可见文本 linter 和历史禁止项补充扫描。
 
 ## 修改类型
 

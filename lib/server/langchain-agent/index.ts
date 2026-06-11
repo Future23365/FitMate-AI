@@ -29,6 +29,19 @@ export {
 } from "./prompt";
 
 export {
+  collectLangChainToolWrapperModelVisibleSamples,
+  collectZodSchemaDescriptionTexts,
+  createProductionAgentModelVisibleTextSamples,
+  lintAgentModelVisibleTextSamples,
+  validateAgentModelVisibleSummaryContract,
+  type AgentModelVisibleContractFinding,
+  type AgentModelVisibleSummaryContractResult,
+  type AgentModelVisibleSummarySample,
+  type AgentModelVisibleTextKind,
+  type AgentModelVisibleTextSample,
+} from "./model-visible-contract-gate";
+
+export {
   createExecutableLangChainTool,
   defineLangChainToolWrapper,
   executeLangChainToolWrapper,

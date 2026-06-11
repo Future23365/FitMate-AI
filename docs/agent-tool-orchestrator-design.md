@@ -1325,6 +1325,18 @@ prompt 合同治理时必须优先确认模型实际看到的输入，而不是�
 
 新增业务 tool 时，业务 tool 的模型可见说明必须覆盖：何时使用、何时不用、input schema 关键字段、成功结果含义、失败或 diagnostic 含义、resource role 和 final answer 引用方式。上述说明默认使用中文，技术标识保持英文原样。不得把单个业务 tool 的语义特例写进通用 prompt，也不得新增服务端关键词、正则、同义词表、短句模板或业务 `toolName` 特判去改写 LLM 的高层语义决策。
 
+### 24.2 历史回归审计与模型可见合同门禁
+
+Agent 大迁移、大重构、核心链路替换、framework migration、LangChain runtime 替换、production tool catalog 重写，或大范围 prompt / model input / output contract / model-visible summary 重组时，治理顺序固定为：
+
+1. 先使用 primary governance skill 定当前边界：
+   - tool / runtime / production / response adapter / `/api/chat` 执行边界使用 `.codex/skills/agent-tool-change-governance/SKILL.md`。
+   - prompt / model input / tool description / schema description / repair feedback / final grounding 等模型可见边界使用 `.codex/skills/agent-prompt-contract-governance/SKILL.md`。
+2. 再使用 `.codex/skills/agent-regression-contract-audit/SKILL.md` 做 secondary audit，回查 `openspec/changes/archive/**`、`docs/项目演变历程.md` 和 `docs/方案变更历史/**`，确认历史禁止字段、过时协议字段、固定 workflow 文案、业务目标满足度和 case-specific 生产规则没有回归。
+3. 高风险 Agent / model-visible contract change 的 `tasks.md` 必须包含 Agent model-visible contract gate 验证。当前通用门禁入口是 `lib/server/langchain-agent/model-visible-contract-gate.ts`，测试覆盖在 `tests/langchain-agent-tools/model-visible-contract-gate.test.ts`。
+
+该历史审计只在大迁移、大重构、核心链路替换或用户明确怀疑历史回归时触发。普通单个 tool description、schema description、model-visible summary、repair feedback、prompt 局部文案或单个 handler 小修，不因涉及 Agent 自动触发历史回归审计；仍按当前 primary governance skill 和最窄相关测试执行。
+
 ---
 
 ## 25. 最容易走偏的地方

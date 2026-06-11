@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import { agentRuntimeConfig } from "@/lib/server/config";
 import {
+  createProductionAgentModelVisibleTextSamples,
   createProductionLangChainToolCatalog,
+  lintAgentModelVisibleTextSamples,
   productionLangChainTools,
 } from "@/lib/server/langchain-agent";
 import type { ExerciseResourceFacetCatalog } from "@/lib/server/exercises/exercise-repository";
@@ -31,6 +33,7 @@ describe("production LangChain tool catalog", () => {
 
   it("keeps tool descriptions in Chinese without old AgentAction contract terms", () => {
     const descriptions = productionLangChainTools.map((tool) => tool.description).join("\n");
+    const findings = lintAgentModelVisibleTextSamples(createProductionAgentModelVisibleTextSamples());
 
     expect(descriptions).toContain("当前步骤");
     expect(descriptions).toContain("summary");
@@ -52,6 +55,7 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).not.toContain("PlannerPort");
     expect(descriptions).not.toContain("final_answer");
     expect(descriptions).not.toContain("ask_user");
+    expect(findings).toEqual([]);
   });
 
   it("injects search facet catalog into the search tool description without changing the whitelist", () => {

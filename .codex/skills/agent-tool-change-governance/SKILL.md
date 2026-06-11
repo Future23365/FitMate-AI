@@ -1,6 +1,6 @@
 ---
 name: agent-tool-change-governance
-description: 治理 AITest 中 Agent tool、LangChain tool wrapper、执行合同、LangChain runtime 和 production 接入相关变更的实现前流程。作为 primary skill 用于新增或修改 LangChain tool、tool schema、handler、policy / confirmation metadata、model-visible summary、user projection、trace summary、production tool catalog、structured final response / finalization tool、response adapter、terminal failure finalizer 或 /api/chat 生产聊天接入；也用于业务 tool 输入/输出字段命名、弃用和重命名。纯 prompt/model input/model-visible 文案变更不以本 Skill 为主，应使用 agent-prompt-contract-governance；如果 tool 变更牵涉传给 AI 的 system prompt、tool description、schema description、examples、失败反馈、上下文摘要或 tool result summary，本 Skill 只定执行边界，并引导使用 agent-prompt-contract-governance 做模型可见合同检查；普通 trace 根因排查不自动触发。
+description: 治理 AITest 中 Agent tool、LangChain tool wrapper、执行合同、LangChain runtime 和 production 接入相关变更的实现前流程。作为 primary skill 用于新增或修改 LangChain tool、tool schema、handler、policy / confirmation metadata、model-visible summary、user projection、trace summary、production tool catalog、structured final response / finalization tool、response adapter、terminal failure finalizer 或 /api/chat 生产聊天接入；也用于业务 tool 输入/输出字段命名、弃用和重命名。Agent 主链迁移、framework migration、LangChain runtime 替换、production tool catalog 或跨模块 tool/runtime 大重构还必须在本 Skill 定边界后使用 agent-regression-contract-audit；普通单 tool 修改不因此扩大流程。纯 prompt/model input/model-visible 文案变更不以本 Skill 为主，应使用 agent-prompt-contract-governance；如果 tool 变更牵涉传给 AI 的 system prompt、tool description、schema description、examples、失败反馈、上下文摘要或 tool result summary，本 Skill 只定执行边界，并引导使用 agent-prompt-contract-governance 做模型可见合同检查；普通 trace 根因排查不自动触发。
 ---
 
 # Agent Tool 变更治理
@@ -14,6 +14,14 @@ description: 治理 AITest 中 Agent tool、LangChain tool wrapper、执行合�
 4. 将任务归为一个主类型：新增业务 tool、Agent tool bug 修复、LangChain runtime / wrapper 通用合同变更、production 接入变更。
 5. 字段命名、弃用或重命名不是独立主类型：只影响单个业务 tool 时归为 Agent tool bug 修复或已有 tool 合同调整；影响两个以上无关 tool、provider tool call 合同、结构化终态输出、trace summary 或通用 response adapter 时归为 LangChain runtime / wrapper 通用合同变更。
 6. 实现前先说明问题根因或产品需求、设计方向、预计影响模块和取舍。
+
+## 历史回归审计触发
+
+当 change 属于 Agent 主链迁移、framework migration、LangChain runtime 替换、production tool catalog 重写、批量 tool wrapper / model-visible summary 重构，或跨模块改造 Agent tool / prompt / finalization 链路时，本 Skill 只负责先定当前 tool/runtime 可改边界。随后必须使用 `agent-regression-contract-audit` 做 secondary audit，对照归档 OpenSpec 和演进记录确认历史禁止字段、固定 workflow 文案、过时协议字段、业务目标满足度和 case-specific 生产规则没有回归。
+
+这不会扩大普通单个 tool 修改的流程。只新增或调整单个业务 tool、tool schema、handler、policy metadata、model-visible summary、projection 或 trace summary，且不替换 runtime、不迁移 framework、不批量改模型可见合同、不恢复历史行为时，不因本条自动触发 `agent-regression-contract-audit`；仍按本 Skill 和必要的 `agent-prompt-contract-governance` 执行。
+
+触发历史回归审计的大重构 change 的 `tasks.md` 必须包含 Agent model-visible contract gate 验证，覆盖白名单 summary schema、production tool catalog contract tests、模型可见文本 linter 和历史禁止项补充扫描。
 
 ## 任务分类
 
