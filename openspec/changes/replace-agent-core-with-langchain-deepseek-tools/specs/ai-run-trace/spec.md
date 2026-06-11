@@ -16,6 +16,13 @@
 - **AND** trace MUST 能定位每个 tool call 对应的 LangChain tool wrapper 执行结果
 - **AND** trace MUST NOT 将 provider tool call 记录为已成功执行业务结果，除非 wrapper 已完成并通过校验
 
+#### Scenario: LangChain model call usage 和 Loop 关联
+- **WHEN** LangChain Agent Runtime 完成或在一轮或多轮 model call 后失败
+- **THEN** trace MUST 记录每次 LangChain model call 的请求摘要、响应摘要、modelCallIndex 和 runtimeStep
+- **AND** trace MUST 在 provider 暴露 `usage_metadata` 或 `response_metadata.tokenUsage` 时记录 prompt、completion 和 total token usage
+- **AND** trace MUST 通过 provider tool call id 将 DeepSeek `tool_calls` 与 LangChain tool wrapper 执行结果关联
+- **AND** trace MUST 在 recursion / budget exhausted 等失败路径保留已捕获的 model calls、provider tool calls 和 tool wrapper executions
+
 #### Scenario: LangChain tool wrapper 执行完成
 - **WHEN** LangChain tool wrapper 成功、失败、被 policy 阻断或因 schema 拒绝而结束
 - **THEN** trace MUST 记录 toolName、durationMs、input summary、output summary、failureCode、userId 隔离摘要和关键 resource id

@@ -27,6 +27,7 @@ const baseSuccess: LangChainAgentRunSuccess = {
       toolMessageCount: 0,
       finalTextPreview: "可以，今天先做低强度胸部训练。",
     },
+    modelCalls: [],
     providerToolCalls: [],
     modelCallCount: 1,
     toolCallCount: 0,

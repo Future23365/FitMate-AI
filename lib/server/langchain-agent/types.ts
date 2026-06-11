@@ -33,6 +33,9 @@ export type LangChainAgentRuntimeErrorCode =
 export type LangChainAgentToolExecutionStatus = "succeeded" | "failed";
 
 export type LangChainAgentToolExecution = {
+  sequence?: number;
+  modelCallIndex?: number;
+  runtimeStep?: number;
   toolCallId?: string;
   toolName: string;
   status: LangChainAgentToolExecutionStatus;
@@ -44,6 +47,45 @@ export type LangChainAgentToolExecution = {
   failureCode?: LangChainAgentRuntimeErrorCode;
   failureMessage?: string;
   enteredModelContext: boolean;
+};
+
+export type LangChainTokenUsage = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+};
+
+export type LangChainAgentProviderToolCallTrace = {
+  id?: string;
+  name: string;
+  argsSummary: LangChainJsonValue;
+  modelCallIndex?: number;
+  runtimeStep?: number;
+};
+
+export type LangChainAgentModelCallTrace = {
+  modelCallIndex: number;
+  runtimeStep: number;
+  status: "success" | "failed";
+  durationMs?: number;
+  requestSummary: {
+    messageCount: number;
+    messagePreviews: readonly {
+      role: string;
+      contentPreview: string;
+    }[];
+    toolCount: number;
+    toolNames: readonly string[];
+  };
+  responseSummary?: {
+    contentPreview?: string;
+    contentLength: number;
+    finishReason?: string;
+  };
+  providerToolCalls: readonly LangChainAgentProviderToolCallTrace[];
+  tokenUsage?: LangChainTokenUsage;
+  failureCode?: LangChainAgentRuntimeErrorCode;
+  failureMessage?: string;
 };
 
 /** LangChainValidatedVisibleOutput 是 response adapter 允许输出的服务端已校验结构化结果。 */
@@ -72,11 +114,8 @@ export type LangChainAgentRunTraceSummary = {
     toolMessageCount: number;
     finalTextPreview?: string;
   };
-  providerToolCalls: readonly {
-    id?: string;
-    name: string;
-    argsSummary: LangChainJsonValue;
-  }[];
+  modelCalls: readonly LangChainAgentModelCallTrace[];
+  providerToolCalls: readonly LangChainAgentProviderToolCallTrace[];
   modelCallCount: number;
   toolCallCount: number;
   messageCount: number;

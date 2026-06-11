@@ -58,6 +58,9 @@
 - [x] 8.2 确认 trace 写入是非致命诊断，trace 失败不得重试模型、重复执行 tool 或改变用户可见响应。
 - [x] 8.3 更新 dev trace view model 和相关测试，展示 LangChain runtime、DeepSeek native tool calls、tool wrapper results、结构化输出校验和旧 core 缺席证据。
 - [x] 8.4 删除或重写旧 trace 字段依赖，至少覆盖旧 `planner_action`、旧 `AgentAction`、旧 `duplicate_tool_call`、旧 resource refs、旧 `PlannerModelTraceEvent` 和旧 Response Renderer step。
+- [x] 8.5 补齐 LangChain model call middleware trace，记录每次模型调用、token usage、provider `tool_calls` 和失败路径 `traceSummary`。
+- [x] 8.6 更新日志页 Loop 聚合，按 LangChain `modelCallIndex` / `runtimeStep` 展示每轮模型调用和 tool wrapper 执行。
+- [x] 8.7 增加 LangChain runtime 和 trace viewer 回归测试，覆盖 token usage、tool execution 关联和 budget failure trace。
 
 ## 9. 删除旧 Agent Core 和旧测试资产
 

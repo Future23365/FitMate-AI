@@ -89,6 +89,63 @@ describe("LangChain Agent runtime", () => {
         id: "call_1",
         name: "echoExerciseGoal",
         argsSummary: { goal: "胸部训练" },
+        modelCallIndex: 1,
+        runtimeStep: 1,
+      },
+    ]);
+    expect(result.traceSummary?.modelCalls).toMatchObject([
+      {
+        modelCallIndex: 1,
+        runtimeStep: 1,
+        status: "success",
+        providerToolCalls: [
+          {
+            id: "call_1",
+            name: "echoExerciseGoal",
+          },
+        ],
+      },
+      {
+        modelCallIndex: 2,
+        runtimeStep: 2,
+        status: "success",
+        providerToolCalls: [],
+      },
+    ]);
+    expect(result.toolExecutions).toMatchObject([
+      {
+        sequence: 1,
+        modelCallIndex: 1,
+        runtimeStep: 1,
+      },
+    ]);
+  });
+
+  it("records LangChain model token usage from provider response metadata", async () => {
+    const model = fakeModel().respond(new AIMessage({
+      content: "可以，今天先做低强度胸部训练。",
+      usage_metadata: {
+        input_tokens: 12,
+        output_tokens: 4,
+        total_tokens: 16,
+      },
+    }));
+
+    const result = await runLangChainAgentRuntime({
+      ...baseInput,
+      model,
+      toolWrappers: [],
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.traceSummary?.modelCalls).toMatchObject([
+      {
+        modelCallIndex: 1,
+        tokenUsage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
       },
     ]);
   });
@@ -149,6 +206,16 @@ describe("LangChain Agent runtime", () => {
     if (!result.ok) {
       expect(result.code).toBe("budget_exhausted");
       expect(result.toolExecutions).toHaveLength(requestedToolCalls);
+      expect(result.traceSummary).toMatchObject({
+        providerToolCalls: expect.arrayContaining([
+          expect.objectContaining({
+            id: "call_budget_1",
+            modelCallIndex: 1,
+            runtimeStep: 1,
+          }),
+        ]),
+      });
+      expect(result.traceSummary?.modelCallCount).toBeGreaterThanOrEqual(1);
       expect(result.toolExecutions.at(-1)).toMatchObject({
         toolName: "budgetedExerciseGoal",
         status: "failed",
@@ -240,6 +307,17 @@ describe("LangChain Agent runtime", () => {
       retryable: true,
       message: "provider unavailable",
     });
+    expect(result.traceSummary).toMatchObject({
+      modelCallCount: 1,
+      modelCalls: [
+        expect.objectContaining({
+          modelCallIndex: 1,
+          status: "failed",
+          failureCode: "provider_error",
+          failureMessage: "provider unavailable",
+        }),
+      ],
+    });
   });
 
   it("normalizes agent budget exhaustion", async () => {
@@ -261,6 +339,17 @@ describe("LangChain Agent runtime", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("budget_exhausted");
+      expect(result.traceSummary?.modelCallCount).toBeGreaterThan(0);
+      expect(result.traceSummary?.modelCalls[0]).toMatchObject({
+        modelCallIndex: 1,
+        providerToolCalls: [
+          expect.objectContaining({
+            id: "call_1",
+            modelCallIndex: 1,
+            runtimeStep: 1,
+          }),
+        ],
+      });
     }
   });
 });

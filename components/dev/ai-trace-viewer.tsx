@@ -1294,10 +1294,6 @@ function readStepRuntimeStep(step: AiTraceStep) {
     return 1;
   }
 
-  if (metadata.pipeline === "langchain-agent-text-chat" && step.type === "response_write") {
-    return 1;
-  }
-
   return undefined;
 }
 
@@ -1310,7 +1306,10 @@ function readStepPlannerCallIndex(step: AiTraceStep) {
       ? metadata.runtimeLinkage
       : {};
 
-  return readNumber(metadata.plannerCallIndex)
+  return readNumber(metadata.modelCallIndex)
+    ?? readNumber(output.modelCallIndex)
+    ?? readNumber(runtimeLinkage.modelCallIndex)
+    ?? readNumber(metadata.plannerCallIndex)
     ?? readNumber(output.plannerCallIndex)
     ?? readNumber(runtimeLinkage.plannerCallIndex);
 }
@@ -1349,7 +1348,10 @@ function readStepToolNames(step: AiTraceStep) {
     runtimeEventType === "tool_execution" ||
     (step.type === "model_response" && actionType === "tool_call")
   ) {
-    return toolName ? [toolName] : [];
+    return uniqueStrings([
+      ...(toolName ? [toolName] : []),
+      ...readProviderToolCallNames(output.providerToolCalls),
+    ]);
   }
 
   return [];
@@ -1476,7 +1478,7 @@ function getStepModelTokenUsage(step: AiTraceStep, peerSteps: AiTraceStep[]): To
     return null;
   }
 
-  const plannerCallIndex = readNumber(step.metadata?.plannerCallIndex);
+  const plannerCallIndex = readStepPlannerCallIndex(step);
 
   if (plannerCallIndex === undefined) {
     return null;
@@ -1484,7 +1486,7 @@ function getStepModelTokenUsage(step: AiTraceStep, peerSteps: AiTraceStep[]): To
 
   const matchingResponse = peerSteps.find((candidate) => (
     candidate.type === "model_response" &&
-    readNumber(candidate.metadata?.plannerCallIndex) === plannerCallIndex
+    readStepPlannerCallIndex(candidate) === plannerCallIndex
   ));
 
   return matchingResponse ? readStepTokenUsage(matchingResponse) : null;
@@ -1637,9 +1639,12 @@ function readPlannerModelCalls(trace: AiTrace) {
   const calls = new Map<string, Record<string, unknown>>();
 
   for (const step of trace.steps.filter((item) => item.type === "model_request" || item.type === "model_response")) {
-    const plannerCallIndex = readNumber(step.metadata?.plannerCallIndex);
+    const plannerCallIndex = readStepPlannerCallIndex(step);
     const key = plannerCallIndex === undefined ? step.id : String(plannerCallIndex);
-    const existing = calls.get(key) ?? { plannerCallIndex };
+    const existing = calls.get(key) ?? {
+      plannerCallIndex,
+      modelCallIndex: readNumber(step.metadata?.modelCallIndex) ?? readNumber((isRecord(step.output) ? step.output : {}).modelCallIndex),
+    };
 
     if (step.type === "model_request") {
       existing.request = {
@@ -1707,6 +1712,7 @@ function createTraceStepReportSummary(step: AiTraceStep) {
     eventType: readRuntimeEventType(step),
     runtimeStep: readStepRuntimeStep(step),
     plannerCallIndex: readStepPlannerCallIndex(step),
+    modelCallIndex: readNumber(metadata.modelCallIndex) ?? readNumber(output.modelCallIndex),
     actionType: readString(output.actionType),
     toolName: readString(output.toolName) ?? readString(metadata.toolName),
     toolResultId: readString(output.toolResultId) ?? readString(metadata.toolResultId),
@@ -1719,9 +1725,10 @@ function createTraceStepReportSummary(step: AiTraceStep) {
       ? {
           runtimeVersion: readString(readLangChainRuntimeTraceSummary(step)?.runtimeVersion),
           model: readString(readLangChainRuntimeTraceSummary(step)?.model),
-          providerToolCallCount: Array.isArray(readLangChainRuntimeTraceSummary(step)?.providerToolCalls)
+      providerToolCallCount: Array.isArray(readLangChainRuntimeTraceSummary(step)?.providerToolCalls)
             ? (readLangChainRuntimeTraceSummary(step)?.providerToolCalls as unknown[]).length
             : 0,
+          modelCallCount: readNumber(readLangChainRuntimeTraceSummary(step)?.modelCallCount),
         }
       : undefined,
   };
@@ -1747,6 +1754,7 @@ function summarizeRuntimeEventOutput(output: Record<string, unknown>) {
       model: readString(traceSummary.model),
       toolNames: readStringArray(traceSummary.toolNames),
       providerToolCalls: traceSummary.providerToolCalls,
+      modelCalls: traceSummary.modelCalls,
       modelCallCount: readNumber(traceSummary.modelCallCount),
       toolCallCount: readNumber(traceSummary.toolCallCount),
       messageCount: readNumber(traceSummary.messageCount),
@@ -1842,6 +1850,7 @@ function readLangChainRuntimeSummaries(trace: AiTrace) {
       toolNames: readStringArray(traceSummary.toolNames),
       modelRequestSummary: traceSummary.modelRequestSummary,
       modelResponseSummary: traceSummary.modelResponseSummary,
+      modelCalls: Array.isArray(traceSummary.modelCalls) ? traceSummary.modelCalls : [],
       providerToolCalls: Array.isArray(traceSummary.providerToolCalls) ? traceSummary.providerToolCalls : [],
       modelCallCount: readNumber(traceSummary.modelCallCount),
       toolCallCount: readNumber(traceSummary.toolCallCount),

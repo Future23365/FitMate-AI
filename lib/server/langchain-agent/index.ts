@@ -74,7 +74,9 @@ export {
 
 export type {
   LangChainAgentMessage,
+  LangChainAgentModelCallTrace,
   LangChainAgentModel,
+  LangChainAgentProviderToolCallTrace,
   LangChainAgentRunFailure,
   LangChainAgentRunResult,
   LangChainAgentRunSuccess,
@@ -83,5 +85,6 @@ export type {
   LangChainAgentToolExecution,
   LangChainAgentToolExecutionStatus,
   LangChainJsonValue,
+  LangChainTokenUsage,
   LangChainValidatedVisibleOutput,
 } from "./types";

@@ -1,6 +1,7 @@
 import "server-only";
 
-import { createAgent, AIMessage, ToolMessage } from "langchain";
+import { createAgent, createMiddleware, AIMessage, ToolMessage } from "langchain";
+import type { ModelRequest } from "langchain";
 
 import { agentRuntimeConfig } from "@/lib/server/config";
 
@@ -14,12 +15,15 @@ import {
 } from "./utils";
 import type {
   LangChainAgentMessage,
+  LangChainAgentModelCallTrace,
   LangChainAgentModel,
+  LangChainAgentProviderToolCallTrace,
   LangChainAgentRunFailure,
   LangChainAgentRunResult,
   LangChainAgentRunTraceSummary,
   LangChainAgentRuntimeErrorCode,
   LangChainAgentToolExecution,
+  LangChainTokenUsage,
 } from "./types";
 
 export type RunLangChainAgentRuntimeInput = {
@@ -51,6 +55,8 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
     });
   }
 
+  const toolWrappers = input.toolWrappers ?? [];
+  const modelCallRecorder = createLangChainModelCallTraceRecorder({ toolWrappers });
   const abortController = new AbortController();
   const timeout = setTimeout(() => abortController.abort(), config.runBudget.overallTimeoutMs);
   const abortFromInput = () => abortController.abort();
@@ -58,7 +64,7 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
 
   try {
     const toolExecutionBudget = createToolExecutionBudget(config.runBudget.maxToolCalls);
-    const tools = (input.toolWrappers ?? []).map((wrapper) => createExecutableLangChainTool(
+    const tools = toolWrappers.map((wrapper) => createExecutableLangChainTool(
       wrapper,
       {
         actor: input.actor,
@@ -71,6 +77,7 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
       model: modelResult.model,
       tools,
       systemPrompt: input.systemPrompt ?? buildLangChainAgentSystemPrompt(),
+      middleware: [modelCallRecorder.middleware],
     });
     const state = await agent.invoke({
       messages: input.messages.map((message) => ({ role: message.role, content: message.content })),
@@ -80,7 +87,10 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
     });
     const messages = Array.isArray(state.messages) ? state.messages : [];
     const generatedMessages = messages.slice(input.messages.length);
-    const mergedToolExecutions = mergeToolExecutions(toolExecutions, messages);
+    const mergedToolExecutions = annotateToolExecutionsWithModelCalls(
+      mergeToolExecutions(toolExecutions, messages),
+      modelCallRecorder.modelCalls,
+    );
     const budgetFailure = mergedToolExecutions.find((execution) => execution.failureCode === "budget_exhausted");
 
     if (budgetFailure) {
@@ -96,7 +106,8 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
           inputMessages: input.messages,
           messages,
           toolExecutions: mergedToolExecutions,
-          toolWrappers: input.toolWrappers ?? [],
+          toolWrappers,
+          modelCalls: modelCallRecorder.modelCalls,
           finalText: undefined,
         }),
       });
@@ -121,7 +132,8 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
           inputMessages: input.messages,
           messages,
           toolExecutions: mergedToolExecutions,
-          toolWrappers: input.toolWrappers ?? [],
+          toolWrappers,
+          modelCalls: modelCallRecorder.modelCalls,
           finalText: undefined,
         }),
       });
@@ -138,19 +150,34 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
         inputMessages: input.messages,
         messages,
         toolExecutions: mergedToolExecutions,
-        toolWrappers: input.toolWrappers ?? [],
+        toolWrappers,
+        modelCalls: modelCallRecorder.modelCalls,
         finalText: messageContentToText(finalMessage.content).trim(),
       }),
     };
   } catch (error) {
     const normalized = normalizeLangChainRuntimeError(error);
+    const linkedToolExecutions = annotateToolExecutionsWithModelCalls(
+      toolExecutions,
+      modelCallRecorder.modelCalls,
+    );
 
     return createFailure({
       code: normalized.code,
       message: normalized.message,
       retryable: normalized.retryable,
       messages: [],
-      toolExecutions,
+      toolExecutions: linkedToolExecutions,
+      traceSummary: createTraceSummary({
+        startedAt,
+        modelName: modelResult.modelName,
+        inputMessages: input.messages,
+        messages: [],
+        toolExecutions: linkedToolExecutions,
+        toolWrappers,
+        modelCalls: modelCallRecorder.modelCalls,
+        finalText: undefined,
+      }),
     });
   } finally {
     clearTimeout(timeout);
@@ -166,6 +193,60 @@ function createToolExecutionBudget(maxToolCalls: number) {
       reservedToolCalls += 1;
       return reservedToolCalls <= maxToolCalls;
     },
+  };
+}
+
+function createLangChainModelCallTraceRecorder(input: {
+  toolWrappers: readonly LangChainToolWrapper[];
+}) {
+  const modelCalls: LangChainAgentModelCallTrace[] = [];
+  let modelCallIndex = 0;
+
+  return {
+    modelCalls,
+    // middleware 是 LangChain runtime 的观测入口，用框架级 hook 记录每次真实 provider model call。
+    middleware: createMiddleware({
+      name: "FitMateLangChainTraceMiddleware",
+      wrapModelCall: async (request, handler) => {
+        const currentModelCallIndex = modelCallIndex + 1;
+        modelCallIndex = currentModelCallIndex;
+        const startedAt = Date.now();
+        const requestSummary = summarizeLangChainModelRequest(request, input.toolWrappers);
+
+        try {
+          const response = await handler(request);
+          const providerToolCalls = readAIMessageProviderToolCalls(response, currentModelCallIndex);
+
+          modelCalls.push({
+            modelCallIndex: currentModelCallIndex,
+            runtimeStep: currentModelCallIndex,
+            status: "success",
+            durationMs: Date.now() - startedAt,
+            requestSummary,
+            responseSummary: summarizeLangChainModelResponse(response),
+            providerToolCalls,
+            tokenUsage: readAIMessageTokenUsage(response),
+          });
+
+          return response;
+        } catch (error) {
+          const normalized = normalizeLangChainRuntimeError(error);
+
+          modelCalls.push({
+            modelCallIndex: currentModelCallIndex,
+            runtimeStep: currentModelCallIndex,
+            status: "failed",
+            durationMs: Date.now() - startedAt,
+            requestSummary,
+            providerToolCalls: [],
+            failureCode: normalized.code,
+            failureMessage: normalized.message,
+          });
+
+          throw error;
+        }
+      },
+    }),
   };
 }
 
@@ -205,6 +286,167 @@ function mergeToolExecutions(
   return projected.length > 0 ? projected : wrapperExecutions;
 }
 
+function annotateToolExecutionsWithModelCalls(
+  executions: readonly LangChainAgentToolExecution[],
+  modelCalls: readonly LangChainAgentModelCallTrace[],
+): readonly LangChainAgentToolExecution[] {
+  const linkageByToolCallId = new Map<string, { modelCallIndex: number; runtimeStep: number }>();
+
+  for (const modelCall of modelCalls) {
+    for (const toolCall of modelCall.providerToolCalls) {
+      if (!toolCall.id) {
+        continue;
+      }
+
+      linkageByToolCallId.set(toolCall.id, {
+        modelCallIndex: toolCall.modelCallIndex ?? modelCall.modelCallIndex,
+        runtimeStep: toolCall.runtimeStep ?? modelCall.runtimeStep,
+      });
+    }
+  }
+
+  return executions.map((execution, index) => {
+    const linkage = execution.toolCallId ? linkageByToolCallId.get(execution.toolCallId) : undefined;
+
+    return {
+      ...execution,
+      sequence: execution.sequence ?? index + 1,
+      modelCallIndex: execution.modelCallIndex ?? linkage?.modelCallIndex,
+      runtimeStep: execution.runtimeStep ?? linkage?.runtimeStep,
+    };
+  });
+}
+
+function summarizeLangChainModelRequest(
+  request: ModelRequest<Record<string, unknown>, unknown>,
+  toolWrappers: readonly LangChainToolWrapper[],
+): LangChainAgentModelCallTrace["requestSummary"] {
+  const messagePreviews = request.messages.map((message) => ({
+    role: readLangChainMessageRole(message),
+    contentPreview: messageContentToText(message.content).slice(
+      0,
+      agentRuntimeConfig.langChain.trace.modelMessagePreviewMaxLength,
+    ),
+  }));
+  const requestToolNames = request.tools
+    .map((tool) => readStringFromRecord(readRecord(tool), "name"))
+    .filter((toolName): toolName is string => Boolean(toolName));
+  const fallbackToolNames = toolWrappers.map((wrapper) => wrapper.name);
+  const toolNames = requestToolNames.length > 0 ? requestToolNames : fallbackToolNames;
+
+  return {
+    messageCount: request.messages.length,
+    messagePreviews,
+    toolCount: toolNames.length,
+    toolNames,
+  };
+}
+
+function summarizeLangChainModelResponse(response: AIMessage): LangChainAgentModelCallTrace["responseSummary"] {
+  const content = messageContentToText(response.content);
+  const responseMetadata = readRecord(response.response_metadata);
+
+  return {
+    contentPreview: content.slice(0, agentRuntimeConfig.langChain.trace.modelMessagePreviewMaxLength),
+    contentLength: content.length,
+    finishReason: readStringFromRecord(responseMetadata, "finish_reason")
+      ?? readStringFromRecord(responseMetadata, "finishReason"),
+  };
+}
+
+function readAIMessageProviderToolCalls(
+  response: AIMessage,
+  modelCallIndex: number,
+): readonly LangChainAgentProviderToolCallTrace[] {
+  return (response.tool_calls ?? []).map((toolCall) => ({
+    id: toolCall.id,
+    name: toolCall.name,
+    argsSummary: toLangChainJsonValue(
+      toolCall.args,
+      agentRuntimeConfig.langChain.trace.toolArgumentsPreviewMaxLength,
+    ),
+    modelCallIndex,
+    runtimeStep: modelCallIndex,
+  }));
+}
+
+function readAIMessageTokenUsage(response: AIMessage): LangChainTokenUsage | undefined {
+  const usageMetadata = readTokenUsageFromRecord(readRecord(response.usage_metadata));
+
+  if (usageMetadata) {
+    return usageMetadata;
+  }
+
+  const responseMetadata = readRecord(response.response_metadata);
+  const camelTokenUsage = readRecord(responseMetadata.tokenUsage);
+  const snakeTokenUsage = readRecord(responseMetadata.token_usage);
+
+  return readTokenUsageFromRecord(camelTokenUsage)
+    ?? readTokenUsageFromRecord(snakeTokenUsage);
+}
+
+function readTokenUsageFromRecord(record: Record<string, unknown>): LangChainTokenUsage | undefined {
+  const promptTokens = readFiniteNumber(record.input_tokens)
+    ?? readFiniteNumber(record.prompt_tokens)
+    ?? readFiniteNumber(record.promptTokens);
+  const completionTokens = readFiniteNumber(record.output_tokens)
+    ?? readFiniteNumber(record.completion_tokens)
+    ?? readFiniteNumber(record.completionTokens);
+  const totalTokens = readFiniteNumber(record.total_tokens)
+    ?? readFiniteNumber(record.totalTokens);
+
+  if (promptTokens === undefined && completionTokens === undefined && totalTokens === undefined) {
+    return undefined;
+  }
+
+  return {
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    total_tokens: totalTokens,
+  };
+}
+
+function readLangChainMessageRole(message: unknown) {
+  if (AIMessage.isInstance(message)) {
+    return "assistant";
+  }
+
+  if (ToolMessage.isInstance(message)) {
+    return "tool";
+  }
+
+  const record = readRecord(message);
+  const directRole = readStringFromRecord(record, "role");
+
+  if (directRole) {
+    return directRole;
+  }
+
+  const directType = readStringFromRecord(record, "type");
+
+  if (directType) {
+    return directType;
+  }
+
+  const getType = record._getType;
+
+  return typeof getType === "function" ? String(getType.call(message)) : "unknown";
+}
+
+function readRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" ? value as Record<string, unknown> : {};
+}
+
+function readStringFromRecord(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+
+  return typeof value === "string" ? value : undefined;
+}
+
+function readFiniteNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
 function isToolMessageErrorContent(content: string) {
   return content.startsWith("Error invoking tool") || content.startsWith("Error:");
 }
@@ -228,9 +470,11 @@ function createTraceSummary(input: {
   messages: readonly unknown[];
   toolExecutions: readonly LangChainAgentToolExecution[];
   toolWrappers: readonly LangChainToolWrapper[];
+  modelCalls: readonly LangChainAgentModelCallTrace[];
   finalText?: string;
 }): LangChainAgentRunTraceSummary {
   const generatedMessages = input.messages.slice(input.inputMessages.length);
+  const providerToolCalls = input.modelCalls.flatMap((modelCall) => modelCall.providerToolCalls);
 
   return {
     runtimeVersion: agentRuntimeConfig.langChain.runtimeVersion,
@@ -252,17 +496,9 @@ function createTraceSummary(input: {
         ? { finalTextPreview: input.finalText.slice(0, agentRuntimeConfig.langChain.trace.modelMessagePreviewMaxLength) }
         : {}),
     },
-    providerToolCalls: input.messages
-      .filter((message): message is AIMessage => AIMessage.isInstance(message))
-      .flatMap((message) => (message.tool_calls ?? []).map((toolCall) => ({
-        id: toolCall.id,
-        name: toolCall.name,
-        argsSummary: toLangChainJsonValue(
-          toolCall.args,
-          agentRuntimeConfig.langChain.trace.toolArgumentsPreviewMaxLength,
-        ),
-      }))),
-    modelCallCount: input.messages.filter((message) => AIMessage.isInstance(message)).length,
+    modelCalls: input.modelCalls,
+    providerToolCalls,
+    modelCallCount: input.modelCalls.length,
     toolCallCount: input.toolExecutions.length,
     messageCount: input.messages.length,
     durationMs: Date.now() - input.startedAt,

@@ -229,6 +229,283 @@ describe("AI trace viewer step grouping", () => {
     expect(JSON.stringify(payload)).not.toContain("duplicate_tool_call");
   });
 
+  it("builds LangChain loops from model calls, provider tool calls, wrapper executions, and token usage", () => {
+    const traceSummary = {
+      runtimeVersion: "langchain-agent-runtime-v1",
+      model: "deepseek-v4-flash",
+      toolNames: ["searchExerciseResources", "submitVisibleTrainingProposal"],
+      modelRequestSummary: {
+        inputMessageCount: 2,
+        inputMessagePreviews: [{ role: "user", contentPreview: "给我练胸动作" }],
+        toolCount: 2,
+      },
+      modelResponseSummary: {
+        generatedMessageCount: 4,
+        assistantMessageCount: 2,
+        toolMessageCount: 1,
+        finalTextPreview: "已生成动作卡片。",
+      },
+      modelCalls: [
+        {
+          modelCallIndex: 1,
+          runtimeStep: 1,
+          status: "success",
+          requestSummary: {
+            messageCount: 2,
+            messagePreviews: [{ role: "human", contentPreview: "给我练胸动作" }],
+            toolCount: 2,
+            toolNames: ["searchExerciseResources", "submitVisibleTrainingProposal"],
+          },
+          responseSummary: { contentPreview: "", contentLength: 0 },
+          providerToolCalls: [
+            {
+              id: "call_search_1",
+              name: "searchExerciseResources",
+              argsSummary: { query: "胸部" },
+              modelCallIndex: 1,
+              runtimeStep: 1,
+            },
+          ],
+          tokenUsage: { prompt_tokens: 14, completion_tokens: 3, total_tokens: 17 },
+        },
+        {
+          modelCallIndex: 2,
+          runtimeStep: 2,
+          status: "success",
+          requestSummary: {
+            messageCount: 4,
+            messagePreviews: [{ role: "tool", contentPreview: "动作查询结果" }],
+            toolCount: 2,
+            toolNames: ["searchExerciseResources", "submitVisibleTrainingProposal"],
+          },
+          responseSummary: { contentPreview: "已生成动作卡片。", contentLength: 8 },
+          providerToolCalls: [],
+          tokenUsage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 },
+        },
+      ],
+      providerToolCalls: [
+        {
+          id: "call_search_1",
+          name: "searchExerciseResources",
+          argsSummary: { query: "胸部" },
+          modelCallIndex: 1,
+          runtimeStep: 1,
+        },
+      ],
+      modelCallCount: 2,
+      toolCallCount: 1,
+      messageCount: 5,
+      durationMs: 150,
+    };
+    const trace: AiTrace = {
+      id: "trace-langchain-detail",
+      runId: "run-langchain-detail",
+      route: "/api/chat",
+      title: "LangChain detailed trace",
+      status: "success",
+      createdAt: "2026-06-11T05:00:00.000Z",
+      steps: [
+        createStep({
+          id: "lc-request-1",
+          type: "model_request",
+          name: "LangChain 模型请求 #1",
+          output: {
+            provider: "langchain",
+            model: "deepseek-v4-flash",
+            modelCallIndex: 1,
+            runtimeStep: 1,
+            toolNames: ["searchExerciseResources", "submitVisibleTrainingProposal"],
+          },
+          metadata: {
+            pipeline: "langchain-agent-text-chat",
+            boundary: "planner_model",
+            modelCallIndex: 1,
+            runtimeStep: 1,
+          },
+        }),
+        createStep({
+          id: "lc-response-1",
+          type: "model_response",
+          name: "LangChain 模型响应 #1",
+          output: {
+            provider: "langchain",
+            model: "deepseek-v4-flash",
+            modelCallIndex: 1,
+            runtimeStep: 1,
+            parseStatus: "parsed",
+            actionType: "tool_call",
+            providerToolCalls: traceSummary.providerToolCalls,
+            tokenUsage: { prompt_tokens: 14, completion_tokens: 3, total_tokens: 17 },
+          },
+          metadata: {
+            pipeline: "langchain-agent-text-chat",
+            boundary: "planner_model",
+            modelCallIndex: 1,
+            runtimeStep: 1,
+            tokenUsage: { prompt_tokens: 14, completion_tokens: 3, total_tokens: 17 },
+          },
+        }),
+        createStep({
+          id: "lc-tool-1",
+          type: "tool_call",
+          name: "LangChain Tool Wrapper 执行: searchExerciseResources",
+          output: {
+            type: "tool_execution",
+            runtime: "langchain-agent-runtime-v1",
+            sequence: 1,
+            runtimeStep: 1,
+            modelCallIndex: 1,
+            toolCallId: "call_search_1",
+            toolName: "searchExerciseResources",
+            ok: true,
+            status: "succeeded",
+            enteredModelContext: true,
+          },
+          metadata: {
+            pipeline: "langchain-agent-text-chat",
+            boundary: "langchain_runtime",
+            eventType: "tool_execution",
+            sequence: 1,
+            modelCallIndex: 1,
+            runtimeStep: 1,
+            toolCallId: "call_search_1",
+            toolName: "searchExerciseResources",
+          },
+        }),
+        createStep({
+          id: "lc-request-2",
+          type: "model_request",
+          name: "LangChain 模型请求 #2",
+          output: {
+            provider: "langchain",
+            model: "deepseek-v4-flash",
+            modelCallIndex: 2,
+            runtimeStep: 2,
+          },
+          metadata: {
+            pipeline: "langchain-agent-text-chat",
+            boundary: "planner_model",
+            modelCallIndex: 2,
+            runtimeStep: 2,
+          },
+        }),
+        createStep({
+          id: "lc-response-2",
+          type: "model_response",
+          name: "LangChain 模型响应 #2",
+          output: {
+            provider: "langchain",
+            model: "deepseek-v4-flash",
+            modelCallIndex: 2,
+            runtimeStep: 2,
+            parseStatus: "parsed",
+            actionType: "final_answer",
+            response: { contentPreview: "已生成动作卡片。", contentLength: 8 },
+            tokenUsage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 },
+          },
+          metadata: {
+            pipeline: "langchain-agent-text-chat",
+            boundary: "planner_model",
+            modelCallIndex: 2,
+            runtimeStep: 2,
+            tokenUsage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 },
+          },
+        }),
+        createStep({
+          id: "lc-runtime-summary",
+          type: "runtime_event",
+          name: "LangChain Agent Runtime 摘要",
+          output: {
+            finalTextLength: 8,
+            traceSummary,
+            toolExecutions: [
+              {
+                sequence: 1,
+                modelCallIndex: 1,
+                runtimeStep: 1,
+                toolCallId: "call_search_1",
+                toolName: "searchExerciseResources",
+                status: "succeeded",
+                enteredModelContext: true,
+              },
+            ],
+            structuredOutputValidation: {
+              validatedVisibleOutputCount: 1,
+            },
+          },
+          metadata: {
+            pipeline: "langchain-agent-text-chat",
+            boundary: "langchain_runtime_summary",
+          },
+        }),
+        createStep({
+          id: "lc-response-write",
+          type: "response_write",
+          name: "NDJSON 响应写入",
+          output: {
+            eventTypes: ["content", "visible_output", "done"],
+            visibleOutputCount: 1,
+            projectionType: "content_with_visible_output",
+          },
+          metadata: {
+            pipeline: "langchain-agent-text-chat",
+            projectionType: "content_with_visible_output",
+          },
+        }),
+      ],
+    };
+    const loops = buildAgentLoopTimeline(trace.steps);
+    const payload = createTraceLogPayload(trace, groupTraceSteps(trace.steps)) as Record<string, unknown>;
+
+    expect(loops).toHaveLength(2);
+    expect(loops[0]).toMatchObject({
+      runtimeStep: 1,
+      toolNames: ["searchExerciseResources"],
+      plannerCallIndexes: [1],
+      tokenUsage: { prompt_tokens: 14, completion_tokens: 3, total_tokens: 17 },
+    });
+    expect(loops[1]).toMatchObject({
+      runtimeStep: 2,
+      toolNames: [],
+      plannerCallIndexes: [2],
+      tokenUsage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 },
+    });
+    expect(payload).toMatchObject({
+      tokenUsageSummary: { prompt_tokens: 34, completion_tokens: 8, total_tokens: 42 },
+      langChainRuntimeSummaries: [
+        expect.objectContaining({
+          modelCallCount: 2,
+          modelCalls: [
+            expect.objectContaining({
+              modelCallIndex: 1,
+              tokenUsage: { prompt_tokens: 14, completion_tokens: 3, total_tokens: 17 },
+            }),
+            expect.objectContaining({
+              modelCallIndex: 2,
+              tokenUsage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 },
+            }),
+          ],
+        }),
+      ],
+      providerToolCalls: [
+        expect.objectContaining({
+          id: "call_search_1",
+          name: "searchExerciseResources",
+          modelCallIndex: 1,
+          runtimeStep: 1,
+        }),
+      ],
+      langChainToolExecutions: [
+        expect.objectContaining({
+          toolCallId: "call_search_1",
+          toolName: "searchExerciseResources",
+          modelCallIndex: 1,
+          runtimeStep: 1,
+        }),
+      ],
+    });
+  });
+
   it("keeps module view, planner calls, token usage, and detail refs in full trace log exports", () => {
     const trace: AiTrace = {
       id: "trace-1",

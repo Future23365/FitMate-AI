@@ -320,6 +320,11 @@ function recordLangChainAgentTextChatTrace(input: {
   validatedVisibleOutputCount?: number;
 }) {
   try {
+    recordLangChainAgentRuntimeDetailTrace({
+      trace: input.trace,
+      result: input.result,
+    });
+
     input.trace.addStep({
       name: "LangChain Agent Runtime 摘要",
       type: input.result.ok ? "runtime_event" : "error",
@@ -337,11 +342,12 @@ function recordLangChainAgentTextChatTrace(input: {
             code: input.result.code,
             retryable: input.result.retryable,
             message: input.result.message,
+            traceSummary: input.result.traceSummary,
             toolExecutions: input.result.toolExecutions,
           },
       metadata: {
         pipeline: "langchain-agent-text-chat",
-        boundary: "langchain_runtime",
+        boundary: "langchain_runtime_summary",
       },
     });
 
@@ -367,6 +373,126 @@ function recordLangChainAgentTextChatTrace(input: {
     });
   } catch {
     // trace 是非致命诊断，写入失败不能重试模型或改变响应。
+  }
+}
+
+function recordLangChainAgentRuntimeDetailTrace(input: {
+  trace: ReturnType<typeof startAiTrace>;
+  result: LangChainAgentRunResult;
+}) {
+  const traceSummary = input.result.traceSummary;
+
+  if (!traceSummary) {
+    return;
+  }
+
+  for (const modelCall of traceSummary.modelCalls) {
+    const modelLinkage = {
+      pipeline: "langchain-agent-text-chat",
+      boundary: "planner_model",
+      modelCallIndex: modelCall.modelCallIndex,
+      plannerCallIndex: modelCall.modelCallIndex,
+      runtimeStep: modelCall.runtimeStep,
+    };
+
+    input.trace.addStep({
+      name: `LangChain 模型请求 #${modelCall.modelCallIndex}`,
+      type: "model_request",
+      input: {
+        messages: modelCall.requestSummary.messagePreviews,
+        toolNames: modelCall.requestSummary.toolNames,
+      },
+      output: {
+        runtime: traceSummary.runtimeVersion,
+        provider: "langchain",
+        model: traceSummary.model,
+        modelCallIndex: modelCall.modelCallIndex,
+        plannerCallIndex: modelCall.modelCallIndex,
+        runtimeStep: modelCall.runtimeStep,
+        messageCount: modelCall.requestSummary.messageCount,
+        toolCount: modelCall.requestSummary.toolCount,
+        toolNames: modelCall.requestSummary.toolNames,
+      },
+      metadata: {
+        ...modelLinkage,
+        toolNames: modelCall.requestSummary.toolNames,
+      },
+    });
+
+    const singleToolName = modelCall.providerToolCalls.length === 1
+      ? modelCall.providerToolCalls[0]?.name
+      : undefined;
+
+    input.trace.addStep({
+      name: `LangChain 模型响应 #${modelCall.modelCallIndex}`,
+      type: "model_response",
+      status: modelCall.status === "success" ? "success" : "failed",
+      output: {
+        runtime: traceSummary.runtimeVersion,
+        provider: "langchain",
+        model: traceSummary.model,
+        modelCallIndex: modelCall.modelCallIndex,
+        plannerCallIndex: modelCall.modelCallIndex,
+        runtimeStep: modelCall.runtimeStep,
+        parseStatus: modelCall.status === "success" ? "parsed" : "failed",
+        actionType: modelCall.providerToolCalls.length > 0 ? "tool_call" : "final_answer",
+        toolName: singleToolName,
+        providerToolCalls: modelCall.providerToolCalls,
+        response: modelCall.responseSummary,
+        tokenUsage: modelCall.tokenUsage,
+        failureCode: modelCall.failureCode,
+        failureMessage: modelCall.failureMessage,
+      },
+      metadata: {
+        ...modelLinkage,
+        tokenUsage: modelCall.tokenUsage,
+        failureCode: modelCall.failureCode,
+      },
+    });
+  }
+
+  for (const execution of input.result.toolExecutions) {
+    input.trace.addStep({
+      name: `LangChain Tool Wrapper 执行: ${execution.toolName}`,
+      type: "tool_call",
+      status: execution.status === "succeeded" ? "success" : "failed",
+      input: {
+        toolCallId: execution.toolCallId,
+        toolName: execution.toolName,
+        inputSummary: execution.inputSummary,
+      },
+      output: {
+        type: "tool_execution",
+        runtime: traceSummary.runtimeVersion,
+        sequence: execution.sequence,
+        step: execution.runtimeStep,
+        runtimeStep: execution.runtimeStep,
+        modelCallIndex: execution.modelCallIndex,
+        toolCallId: execution.toolCallId,
+        toolName: execution.toolName,
+        ok: execution.status === "succeeded",
+        status: execution.status,
+        durationMs: execution.durationMs,
+        modelVisibleSummary: execution.modelVisibleSummary,
+        userProjection: execution.userProjection,
+        traceSummary: execution.traceSummary,
+        failureCode: execution.failureCode,
+        failureMessage: execution.failureMessage,
+        enteredModelContext: execution.enteredModelContext,
+      },
+      metadata: {
+        pipeline: "langchain-agent-text-chat",
+        boundary: "langchain_runtime",
+        eventType: "tool_execution",
+        sequence: execution.sequence,
+        runtimeStep: execution.runtimeStep,
+        modelCallIndex: execution.modelCallIndex,
+        plannerCallIndex: execution.modelCallIndex,
+        toolCallId: execution.toolCallId,
+        toolName: execution.toolName,
+        failureCode: execution.failureCode,
+      },
+    });
   }
 }
 
