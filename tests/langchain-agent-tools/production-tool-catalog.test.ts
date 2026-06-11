@@ -32,6 +32,9 @@ describe("production LangChain tool catalog", () => {
 
     expect(descriptions).toContain("只读");
     expect(descriptions).toContain("服务端");
+    expect(descriptions).toContain("动作候选");
+    expect(descriptions).toContain("kind=exercise_selection");
+    expect(descriptions).toContain("visible_output");
     expect(descriptions).toContain("缺少 warmup 或 stretch");
     expect(descriptions).toContain("support section");
     expect(descriptions).not.toContain("AgentAction");

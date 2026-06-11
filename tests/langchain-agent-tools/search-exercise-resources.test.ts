@@ -83,10 +83,14 @@ describe("searchExerciseResources LangChain tool", () => {
       },
       groupSemantics: {
         groupKey: "groups.<section>",
+        exerciseSelectionRelation: expect.stringContaining("visibleTrainingProposal(kind=\"exercise_selection\")"),
       },
     });
     expect(modelMessage.supportSectionCompletionBoundary).toContain("缺少 warmup 或 stretch");
     expect(modelMessage.supportSectionCompletionBoundary).toContain("对应 suitabilities");
+    expect(modelMessage.supportSectionCompletionBoundary).not.toContain("当前 run");
+    expect(modelMessage.visibleDeliveryBoundary).toContain("只提供模型可见、可被服务端数据库复核的动作事实");
+    expect(modelMessage.visibleDeliveryBoundary).toContain("结构化收口工具提交");
     expect(JSON.stringify(modelMessage)).not.toContain("instructionsZh");
     expect(JSON.stringify(modelMessage)).not.toContain("embedding");
   });

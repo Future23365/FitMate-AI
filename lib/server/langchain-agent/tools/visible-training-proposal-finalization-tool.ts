@@ -30,7 +30,7 @@ const submitVisibleTrainingProposalInputSchema = z.object({
   schemaVersion: z.literal(visibleTrainingProposalSchemaVersion)
     .describe("固定为当前 visibleTrainingProposal schemaVersion。"),
   payload: visibleTrainingProposalPayloadSchema
-    .describe("训练方案结构。exerciseItems[].exerciseId 必须来自当前可见数据库动作事实，不能编造。kind=routine 或 kind=plan 时，training 是硬边界；若当前可见工具事实已提示缺少 warmup 或 stretch 且仍可继续查询，应优先补齐 support section 后再提交。"),
+    .describe("训练方案结构。exerciseItems[].exerciseId 必须来自模型可见、可被服务端数据库复核的受控动作事实，不能编造。kind=exercise_selection 表示动作候选或动作推荐卡片，只需要 exerciseId、section、order，不包含处方或日程；kind=routine 或 kind=plan 时，training 是硬边界。"),
 }).strict();
 
 const acceptedVisibleOutputSchema = z.object({
@@ -74,9 +74,10 @@ export function createSubmitVisibleTrainingProposalLangChainTool(
     name: "submitVisibleTrainingProposal",
     description: [
       "提交已经生成完成的 visibleTrainingProposal 结构，让服务端校验并生成用户可见训练卡片投影。",
-      "只有当你已经有足够的动作事实、section、顺序和处方时才调用；本 tool 不查询动作库、不保存计划、不写入用户数据。",
-      "routine 和 plan 应优先使用 warmup、training、stretch 三类当前可见动作事实；已有 training 但缺 warmup 或 stretch 且仍可继续查询时，应先查询缺失 support section，不要把正文建议当作结构化动作事实。",
-      "如果校验失败，返回 rejected 诊断；不得把失败结果说成已生成卡片或已保存。",
+      "当用户需要用户可见、可后续引用的动作候选、动作推荐卡片、routine 或 plan，且你已有模型可见、可被服务端数据库复核的受控动作事实时调用。",
+      "kind=exercise_selection 表示动作候选或动作推荐卡片；通常只提交 training section 的 exerciseId、section、order，不包含 prescription 或 schedule。",
+      "kind=routine 或 kind=plan 表示带训练处方或日程的结构化方案；应优先使用 warmup、training、stretch 三类动作事实，已有 training 但缺 warmup 或 stretch 且仍可继续查询时，应先查询缺失 support section。",
+      "本 tool 不查询动作库、不保存计划、不写入用户数据；accepted 才会生成 visible_output，rejected 不能说成已生成卡片或已保存。",
     ].join("\n"),
     inputSchema: submitVisibleTrainingProposalInputSchema,
     outputSchema: submitVisibleTrainingProposalOutputSchema,

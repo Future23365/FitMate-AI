@@ -11,12 +11,22 @@ const baseContext = {
 };
 
 describe("submitVisibleTrainingProposal LangChain tool", () => {
-  it("exposes support-section readiness guidance in the model-visible description", () => {
+  it("exposes exercise-selection delivery and support-section boundaries in the model-visible description", () => {
     const tool = createSubmitVisibleTrainingProposalLangChainTool();
 
+    expect(tool.description).toContain("动作候选");
+    expect(tool.description).toContain("动作推荐卡片");
+    expect(tool.description).toContain("kind=exercise_selection");
+    expect(tool.description).toContain("不包含 prescription 或 schedule");
     expect(tool.description).toContain("warmup、training、stretch");
     expect(tool.description).toContain("缺 warmup 或 stretch");
     expect(tool.description).toContain("先查询缺失 support section");
+    expect(tool.description).toContain("accepted 才会生成 visible_output");
+    expect(tool.description).not.toContain("当前 run");
+    expect(tool.description).not.toContain("factRef");
+    expect(tool.description).not.toContain("messageId");
+    expect(tool.description).not.toContain("resourceId");
+    expect(tool.description).not.toContain("toolResultId");
   });
 
   it("validates visibleTrainingProposal payloads before exposing visible_output projection", async () => {

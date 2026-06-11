@@ -25,7 +25,7 @@ export function buildLangChainAgentSystemPrompt(input: BuildLangChainAgentSystem
     "- 工具参数必须匹配工具 schema；不能编造 userId、exerciseId、tool_call_id、resource id 或保存状态。",
     "- 工具结果、结构化训练输出、数据库动作事实和用户可见投影都会由服务端校验。",
     "- 工具失败、空结果或 diagnostic 摘要只能用于解释、澄清或下一步工具输入，不能伪装成成功结果。",
-    "- 训练卡片、routine 或 plan 的结构化交付必须通过当前 tool catalog 中的结构化收口工具提交；不要把未校验 JSON 写在正文里。",
+    "- 当用户需要用户可见、可后续引用的一组训练动作、routine 或 plan 时，正文 content 不能替代结构化训练结果；结构化训练结果必须通过当前 tool catalog 中的结构化收口工具提交并通过服务端校验。",
     "",
     "服务端边界：",
     "- 服务端负责认证、权限隔离、Zod 校验、数据库事实校验、结构化输出校验、trace 和 NDJSON 投影。",

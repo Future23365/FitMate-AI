@@ -457,6 +457,8 @@ describe("LangChain Agent prompt", () => {
 
     expect(prompt).toContain("DeepSeek native tool calling");
     expect(prompt).toContain("结构化终态工具");
+    expect(prompt).toContain("用户可见、可后续引用的一组训练动作");
+    expect(prompt).toContain("正文 content 不能替代结构化训练结果");
     expect(prompt).toContain("suggestedQuestions");
     expect(prompt).toContain("不使用独立的 ---");
     expect(prompt).toContain("服务端负责认证、权限隔离、Zod 校验");

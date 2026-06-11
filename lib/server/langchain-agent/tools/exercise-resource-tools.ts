@@ -202,7 +202,7 @@ export const searchExerciseResourcesInputSchema = z.object({
     .min(1)
     .max(3)
     .optional()
-    .describe("动作适配用途数组，只允许 warmup、training 或 stretch；省略时按 training 主训练候选查询。training 使用严格 hard filter policy；warmup / stretch 使用 support_section policy，只把发布态、section、器械、场地、肌群和受控动作 id 作为 hard filter。目标需要 routine 或 plan、当前 run 已有 training 动作事实且缺少 warmup / stretch 时，可用 [\"warmup\", \"stretch\"] 或等价缺失 section 查询补齐候选。"),
+    .describe("动作适配用途数组，只允许 warmup、training 或 stretch；省略时按 training 主训练候选查询。training 使用严格 hard filter policy；warmup / stretch 使用 support_section policy，只把发布态、section、器械、场地、肌群和受控动作 id 作为 hard filter。目标需要 routine 或 plan、模型可见事实已覆盖 training 动作且缺少 warmup / stretch 时，可用 [\"warmup\", \"stretch\"] 或等价缺失 section 查询补齐候选。"),
   level: optionalTextFilterSchema.describe(`动作难度或中文难度的精确筛选值。${trainingPolicyFacetDescription}`),
   force: optionalTextFilterSchema.describe(`发力类型或中文发力类型的精确筛选值。${trainingPolicyFacetDescription}`),
   mechanic: optionalTextFilterSchema.describe(`动作机制或中文动作机制的精确筛选值。${trainingPolicyFacetDescription}`),
@@ -218,11 +218,11 @@ export const searchExerciseResourcesInputSchema = z.object({
   excludeExerciseIds: z.array(exerciseIdSchema)
     .max(maxExcludeExerciseIds)
     .optional()
-    .describe("明确替换、排除或避免重复时使用的负向动作 id 列表，只能来自当前 run 可见的用户已经看到动作事实，或用户明确要求不要再出现的动作；不用于保留、复用、派生或调整已有动作，不支持用内部候选、trace 摘要或未读取完整事实填充。"),
+    .describe("明确替换、排除或避免重复时使用的负向动作 id 列表，只能来自模型可见且用户已经看到的受控动作事实，或用户明确要求不要再出现的动作；不用于保留、复用、派生或调整已有动作，不支持用内部候选、trace 摘要或未读取完整事实填充。"),
   requiredExerciseIds: z.array(exerciseIdSchema)
     .max(maxRequiredExerciseIds)
     .optional()
-    .describe("正向查询锚点；当当前 run 已有受控发布态动作 id 时使用，例如来自 resolveExerciseResourceMentions、已导入可消费训练事实或用户明确给出的受控 id。tool 会优先把这些动作纳入现有 groups.<section>.exercises 列表，并用 diagnostics 说明无法纳入或筛选不完全一致的原因。"),
+    .describe("正向查询锚点；当模型已有受控发布态动作 id 时使用，例如来自 resolveExerciseResourceMentions、已导入可见训练事实或用户明确给出的受控 id。tool 会优先把这些动作纳入现有 groups.<section>.exercises 列表，并用 diagnostics 说明无法纳入或筛选不完全一致的原因。"),
   published: publishedInputSchema.describe("生产聊天只能查询发布态动作；省略时固定为 true，显式 false 会被拒绝。"),
   sort: exerciseSortSchema.default("name_asc").describe("固定排序字段，不支持分页、limit、offset、page 或 pageSize。"),
 }).strict();
@@ -397,7 +397,8 @@ export function createSearchExerciseResourcesLangChainTool(
     description: [
       "只读查询发布态 Exercise 动作事实，并按 suitabilities 返回 groups.<section>.exercises[]；这些 section-scoped exercises 是训练结构动作项的主要事实来源。",
       "使用边界：用户需要动作候选、routine 或 plan，并且已有肌群、器械、难度、场地、目标标签、section 用途或受控 exerciseId 等结构化约束时使用。",
-      "当目标需要 routine 或 plan，且当前可见动作事实已覆盖 training 但缺少 warmup 或 stretch 时，应优先用缺失 section 的 suitabilities 继续查询 support section 候选。",
+      "当目标需要 routine 或 plan，且模型可见动作事实已覆盖 training 但缺少 warmup 或 stretch 时，应优先用缺失 section 的 suitabilities 继续查询 support section 候选。",
+      "本 tool 只提供动作事实，不生成 visibleTrainingProposal 或训练卡片；若要把一组动作作为用户可见、可后续引用的训练结果交付，需要通过结构化收口 tool 提交并通过服务端校验。",
       "所有精确 facet 值应优先从动作库 facet catalog 选择；无外部器械统一写 equipment: \"no_equipment\"；homeRequirement 只表示环境、场地或支撑条件。",
       "requiredExerciseIds 是正向锚点，用于让已解析或已导入的发布态动作优先进入 groups；excludeExerciseIds 是负向排除，用于替换或避免重复。",
       "不要用本 tool 判断当前会话有没有上一轮 visibleTrainingProposal、读取完整历史方案、查询未发布动作、分页、limit、offset、page、pageSize 或语义向量检索。",
@@ -553,8 +554,9 @@ export function createSearchExerciseResourcesLangChainTool(
         sectionSummary: coverage.sectionSummary,
         missingSections: coverage.missingSections,
         supportSectionCompletionBoundary: coverage.missingSections.includes("warmup") || coverage.missingSections.includes("stretch")
-          ? "若用户目标需要 routine 或 plan，且当前 run 仍可继续查询，缺少 warmup 或 stretch 时应优先用对应 suitabilities 补齐 support section 动作事实；不得把 training 动作或正文建议伪装成缺失 section。"
+          ? "若用户目标需要 routine 或 plan，且本轮工具预算和上下文仍允许继续查询，缺少 warmup 或 stretch 时应优先用对应 suitabilities 补齐 support section 动作事实；不得把 training 动作或正文建议伪装成缺失 section。"
           : "当前查询已覆盖可见 support section；最终结构仍需遵守 visibleTrainingProposal 的 section、处方和校验边界。",
+        visibleDeliveryBoundary: "本 observation 只提供模型可见、可被服务端数据库复核的动作事实，不表示已经生成 visibleTrainingProposal 或 visible_output；若要把一组动作作为用户可见、可后续引用的训练结果交付，应通过结构化收口工具提交。",
         querySpecificity: buildQuerySpecificityObservation(output),
         filterSemantics: output.query.filterSemantics,
         positiveAnchorBoundary: output.query.requiredExerciseIds?.length
@@ -562,11 +564,12 @@ export function createSearchExerciseResourcesLangChainTool(
           : "本次查询未使用 requiredExerciseIds。",
         refreshExclusionBoundary: output.query.excludedCount > 0
           ? "本次查询已应用 excludeExerciseIds；候选不足时不得回填已排除动作。"
-          : "本次查询未应用 excludeExerciseIds；该结果不证明当前 run 存在上一套可操作对象，也不代表刷新、替换或调整已完成。",
+          : "本次查询未应用 excludeExerciseIds；该结果不证明存在上一套可操作对象，也不代表刷新、替换或调整已完成。",
         groupSemantics: {
           groupKey: "groups.<section>",
           sectionRelation: "groups.<section>.exercises[] 中的动作是当前查询按该 section 返回的动作事实；生成 visibleTrainingProposal.exerciseItems[] 时，section 应与使用的 group key 保持一致。",
           allowedSectionsRelation: "每个动作的 allowedSections 是可进入哪些 section 的事实字段；exerciseItems[*].section 必须包含在该动作 allowedSections 中。",
+          exerciseSelectionRelation: "当最终结构是 visibleTrainingProposal(kind=\"exercise_selection\") 时，可用 groups.<section>.exercises[] 中的动作事实构造 exerciseItems[]；searchExerciseResources 本身不生成卡片。",
         },
         appliedFilters: output.query.appliedFilters,
         filterApplicationBoundary: "filterApplications 是 searchExerciseResources 的 section 级 tool 执行事实摘要；hardFilterPolicy 只表示数据库 hard filter 口径，不表示 Planner 下一步行为策略。",
@@ -788,7 +791,7 @@ function buildQuerySpecificityObservation(output: SearchExerciseResourcesOutput)
     return {
       status: "too_broad",
       specificFilters,
-      boundary: "本次 searchExerciseResources input 除默认 suitabilities、published、sort 外没有任何目标、facet、器械、场地、点名动作或当前 run 可见动作锚点；fulfillment.satisfied=false。",
+      boundary: "本次 searchExerciseResources input 除默认 suitabilities、published、sort 外没有任何目标、facet、器械、场地、点名动作或模型可见动作锚点；fulfillment.satisfied=false。",
     };
   }
 
@@ -1072,7 +1075,7 @@ function equalsAnyText(query: string, ...values: Array<string | null | undefined
 
 function outputNoCandidatesMessage(suitability: string, excludeExerciseIds: string[] | undefined) {
   if (excludeExerciseIds?.length) {
-    return `${suitability} 用途在排除当前可见或明确排除动作后没有更多匹配候选。`;
+    return `${suitability} 用途在排除模型可见或明确排除动作后没有更多匹配候选。`;
   }
 
   return `${suitability} 用途当前没有匹配候选。`;
