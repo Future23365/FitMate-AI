@@ -63,8 +63,8 @@ describe("resolveExerciseResourceMentions LangChain tool", () => {
       factLevel: "resolved_candidates",
       mentionCount: 2,
       matchedCount: 2,
-      requiredExerciseIdsBoundary: expect.stringContaining("requiredExerciseIds"),
-      outputBoundary: expect.stringContaining("不能直接作为 visibleTrainingProposal.exerciseItems[*].exerciseId"),
+      candidateBoundary: expect.stringContaining("发布态动作候选事实"),
+      outputBoundary: expect.stringContaining("不是最终训练卡片"),
       results: [
         { text: "俯卧撑", status: "matched", matches: [{ exerciseId: "Pushups" }] },
         { text: "深蹲", status: "matched", matches: [{ exerciseId: "Bodyweight_Squat" }] },
@@ -126,8 +126,9 @@ describe("resolveExerciseResourceMentions LangChain tool", () => {
         { text: "火星跳跃", status: "not_found", diagnostics: [{ code: "mention_not_found" }] },
       ],
     });
-    expect(modelJson).toContain("requiredExerciseIds");
+    expect(modelJson).toContain("发布态动作候选事实");
     expect(modelJson).not.toContain("必须调用 searchExerciseResources");
+    expect(modelJson).not.toContain("supportsOutputKinds");
   });
 
   it("rejects invalid inputs before repository execution", async () => {

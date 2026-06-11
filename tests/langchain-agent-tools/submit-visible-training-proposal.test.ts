@@ -11,17 +11,21 @@ const baseContext = {
 };
 
 describe("submitVisibleTrainingProposal LangChain tool", () => {
-  it("exposes exercise-selection delivery and support-section boundaries in the model-visible description", () => {
+  it("exposes finalization and validator boundaries without support-section workflow instructions", () => {
     const tool = createSubmitVisibleTrainingProposalLangChainTool();
 
-    expect(tool.description).toContain("动作候选");
-    expect(tool.description).toContain("动作推荐卡片");
-    expect(tool.description).toContain("kind=exercise_selection");
-    expect(tool.description).toContain("不包含 prescription 或 schedule");
-    expect(tool.description).toContain("warmup、training、stretch");
-    expect(tool.description).toContain("缺 warmup 或 stretch");
-    expect(tool.description).toContain("先查询缺失 support section");
-    expect(tool.description).toContain("accepted 才会生成 visible_output");
+    expect(tool.description).toContain("visibleTrainingProposal");
+    expect(tool.description).toContain("服务端 validator");
+    expect(tool.description).toContain("payload.kind");
+    expect(tool.description).toContain("exercise_selection");
+    expect(tool.description).toContain("routine");
+    expect(tool.description).toContain("plan");
+    expect(tool.description).toContain("accepted 表示结构已通过服务端 validator");
+    expect(tool.description).toContain("rejected 只表示结构或确定性事实校验失败");
+    expect(tool.description).not.toContain("缺 warmup 或 stretch");
+    expect(tool.description).not.toContain("先查询");
+    expect(tool.description).not.toContain("support section");
+    expect(tool.description).not.toContain("必须调用");
     expect(tool.description).not.toContain("当前 run");
     expect(tool.description).not.toContain("factRef");
     expect(tool.description).not.toContain("messageId");
@@ -109,7 +113,10 @@ describe("submitVisibleTrainingProposal LangChain tool", () => {
     });
     expect(JSON.stringify(execution.record.userProjection)).not.toContain("validatedVisibleOutputs");
     expect(execution.modelMessage).toContain("\"status\":\"rejected\"");
-    expect(execution.modelMessage).toContain("不要把该结构当作已生成卡片");
+    expect(execution.modelMessage).toContain("validationBoundary");
+    expect(execution.modelMessage).not.toContain("重新调用工具");
+    expect(execution.modelMessage).not.toContain("必须调用");
+    expect(execution.modelMessage).not.toContain("nextActionHints");
   });
 
   it("rejects malformed tool input before running the business validator", async () => {

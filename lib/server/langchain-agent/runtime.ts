@@ -12,10 +12,18 @@ import {
   langChainFinalResponseToolName,
   parseLangChainFinalResponse,
 } from "./final-response-schema";
-import { createExecutableLangChainTool, type LangChainToolWrapper, type LangChainToolWrapperContext } from "./tool-wrapper";
 import {
+  createExecutableLangChainTool,
+  type LangChainToolExecutionCoordinator,
+  type LangChainToolExecutionResult,
+  type LangChainToolWrapper,
+  type LangChainToolWrapperContext,
+} from "./tool-wrapper";
+import {
+  createStableLangChainInputHash,
   getErrorMessage,
   messageContentToText,
+  stringifyForModelSummary,
   toLangChainJsonValue,
 } from "./utils";
 import type {
@@ -78,6 +86,7 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
       maxBusinessToolCalls: config.runBudget.maxToolCalls,
       maxActivityReports: config.runBudget.maxActivityReports,
     });
+    const duplicateInputCoordinator = createDuplicateInputExecutionCoordinator();
     const tools = toolWrappers.map((wrapper) => createExecutableLangChainTool(
       wrapper,
       {
@@ -93,6 +102,7 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
         });
       },
       toolExecutionBudget,
+      duplicateInputCoordinator,
     ));
     const agent = createAgent({
       model: modelResult.model,
@@ -211,6 +221,158 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
     clearTimeout(timeout);
     input.signal?.removeEventListener("abort", abortFromInput);
   }
+}
+
+type DuplicateInputKey = {
+  key: string;
+  toolVersion: string;
+  normalizedInputHash: string;
+};
+
+type DuplicateInputEntry = {
+  toolName: string;
+  toolVersion: string;
+  normalizedInputHash: string;
+};
+
+/** createDuplicateInputExecutionCoordinator 在单次 run 内复用同参成功工具事实，避免重复执行 handler 或烧尽预算。 */
+function createDuplicateInputExecutionCoordinator(): LangChainToolExecutionCoordinator {
+  const completedInputs = new Map<string, DuplicateInputEntry>();
+  const pendingInputs = new Map<string, Promise<LangChainToolExecutionResult>>();
+
+  return {
+    execute: async ({ wrapper, rawInput, toolCallId, runExecution }) => {
+      if ((wrapper.executionKind ?? "business") !== "business") {
+        return runExecution();
+      }
+
+      const duplicateKey = createDuplicateInputKey(wrapper, rawInput);
+
+      if (!duplicateKey) {
+        return runExecution();
+      }
+
+      const completed = completedInputs.get(duplicateKey.key);
+
+      if (completed) {
+        return createDuplicateInputExecution({
+          wrapper,
+          rawInput,
+          toolCallId,
+          duplicateKey,
+          completed,
+        });
+      }
+
+      const pendingExecution = pendingInputs.get(duplicateKey.key);
+
+      if (pendingExecution) {
+        const previousExecution = await pendingExecution;
+
+        if (previousExecution.record.status === "succeeded") {
+          const completedEntry = createDuplicateInputEntry(wrapper, duplicateKey);
+
+          completedInputs.set(duplicateKey.key, completedEntry);
+          return createDuplicateInputExecution({
+            wrapper,
+            rawInput,
+            toolCallId,
+            duplicateKey,
+            completed: completedEntry,
+          });
+        }
+
+        return runExecution();
+      }
+
+      const executionPromise = runExecution();
+      pendingInputs.set(duplicateKey.key, executionPromise);
+
+      try {
+        const execution = await executionPromise;
+
+        if (execution.record.status === "succeeded") {
+          completedInputs.set(duplicateKey.key, createDuplicateInputEntry(wrapper, duplicateKey));
+        }
+
+        return execution;
+      } finally {
+        if (pendingInputs.get(duplicateKey.key) === executionPromise) {
+          pendingInputs.delete(duplicateKey.key);
+        }
+      }
+    },
+  };
+}
+
+function createDuplicateInputKey(wrapper: LangChainToolWrapper, rawInput: unknown): DuplicateInputKey | undefined {
+  const parsedInput = wrapper.inputSchema.safeParse(rawInput);
+
+  if (!parsedInput.success) {
+    return undefined;
+  }
+
+  const toolVersion = wrapper.version ?? "v1";
+  const normalizedInputHash = createStableLangChainInputHash(parsedInput.data);
+
+  return {
+    key: `${wrapper.name}:${toolVersion}:${normalizedInputHash}`,
+    toolVersion,
+    normalizedInputHash,
+  };
+}
+
+function createDuplicateInputEntry(
+  wrapper: LangChainToolWrapper,
+  duplicateKey: DuplicateInputKey,
+): DuplicateInputEntry {
+  return {
+    toolName: wrapper.name,
+    toolVersion: duplicateKey.toolVersion,
+    normalizedInputHash: duplicateKey.normalizedInputHash,
+  };
+}
+
+function createDuplicateInputExecution(input: {
+  wrapper: LangChainToolWrapper;
+  rawInput: unknown;
+  toolCallId?: string;
+  duplicateKey: DuplicateInputKey;
+  completed: DuplicateInputEntry;
+}): LangChainToolExecutionResult {
+  const startedAt = Date.now();
+  const config = agentRuntimeConfig.langChain;
+  const inputSummary = toLangChainJsonValue(input.rawInput, config.trace.toolArgumentsPreviewMaxLength);
+  const modelVisibleSummary = stringifyForModelSummary({
+    status: "duplicate_tool_input",
+    code: "duplicate_tool_input",
+    toolName: input.wrapper.name,
+    toolVersion: input.duplicateKey.toolVersion,
+    message: "同一 run 内该工具已使用相同归一化 input 产生过模型可见事实；重复调用不会产生新的事实。请基于本轮已可见事实继续推理，或在确实需要新事实时调整工具输入。",
+    factBoundary: "这是重复输入反馈，不表示用户业务目标已经完成，也不要求调用任何下一步业务 tool。",
+  }, config.toolWrapper.modelVisibleSummaryMaxLength);
+
+  return {
+    modelMessage: modelVisibleSummary,
+    record: {
+      toolCallId: input.toolCallId,
+      toolName: input.wrapper.name,
+      executionKind: input.wrapper.executionKind ?? "business",
+      status: "duplicate_input",
+      durationMs: Date.now() - startedAt,
+      inputSummary,
+      modelVisibleSummary,
+      traceSummary: toLangChainJsonValue({
+        status: "duplicate_input",
+        code: "duplicate_tool_input",
+        toolName: input.completed.toolName,
+        toolVersion: input.completed.toolVersion,
+        normalizedInputHash: input.completed.normalizedInputHash,
+      }, config.toolWrapper.traceSummaryMaxLength),
+      feedbackCode: "duplicate_tool_input",
+      enteredModelContext: true,
+    },
+  };
 }
 
 /** resolveLangChainGraphRecursionLimit 将模型调用预算映射为 LangChain graph step 上限，避免旧 iteration 语义与 LangGraph 计数脱节。 */

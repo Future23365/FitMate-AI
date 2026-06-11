@@ -30,7 +30,7 @@ const submitVisibleTrainingProposalInputSchema = z.object({
   schemaVersion: z.literal(visibleTrainingProposalSchemaVersion)
     .describe("固定为当前 visibleTrainingProposal schemaVersion。"),
   payload: visibleTrainingProposalPayloadSchema
-    .describe("训练方案结构。exerciseItems[].exerciseId 必须来自模型可见、可被服务端数据库复核的受控动作事实，不能编造。kind=exercise_selection 表示动作候选或动作推荐卡片，只需要 exerciseId、section、order，不包含处方或日程；kind=routine 或 kind=plan 时，training 是硬边界。"),
+    .describe("训练方案结构。exerciseItems[].exerciseId 必须来自模型可见、可被服务端数据库复核的受控动作事实，不能编造。kind=exercise_selection、kind=routine 和 kind=plan 表示不同结构类型；字段、section、处方和日程由 schema 与服务端 validator 校验。"),
 }).strict();
 
 const acceptedVisibleOutputSchema = z.object({
@@ -73,11 +73,11 @@ export function createSubmitVisibleTrainingProposalLangChainTool(
   >({
     name: "submitVisibleTrainingProposal",
     description: [
-      "提交已经生成完成的 visibleTrainingProposal 结构，让服务端校验并生成用户可见训练卡片投影。",
-      "当用户需要用户可见、可后续引用的动作候选、动作推荐卡片、routine 或 plan，且你已有模型可见、可被服务端数据库复核的受控动作事实时调用。",
-      "kind=exercise_selection 表示动作候选或动作推荐卡片；通常只提交 training section 的 exerciseId、section、order，不包含 prescription 或 schedule。",
-      "kind=routine 或 kind=plan 表示带训练处方或日程的结构化方案；应优先使用 warmup、training、stretch 三类动作事实，已有 training 但缺 warmup 或 stretch 且仍可继续查询时，应先查询缺失 support section。",
-      "本 tool 不查询动作库、不保存计划、不写入用户数据；accepted 才会生成 visible_output，rejected 不能说成已生成卡片或已保存。",
+      "提交模型已经构造好的 visibleTrainingProposal 结构，让服务端 validator 校验并生成用户可见投影。",
+      "使用边界：仅当当前回答需要用户可见、可后续引用且需要服务端 validator 的动作候选、routine 或 plan 结构时调用。",
+      "payload.kind 可为 exercise_selection、routine 或 plan；字段、section、prescription、schedule 和动作数据库事实都必须匹配当前 schema 与 validator 边界。",
+      "本 tool 不查询动作库、不自动补全动作、不生成处方、不保存计划、不写入用户数据。",
+      "accepted 表示结构已通过服务端 validator 并生成可渲染投影；rejected 只表示结构或确定性事实校验失败。",
     ].join("\n"),
     inputSchema: submitVisibleTrainingProposalInputSchema,
     outputSchema: submitVisibleTrainingProposalOutputSchema,
@@ -155,7 +155,7 @@ function createSubmitVisibleTrainingProposalModelSummary(
       code: output.code,
       message: output.message,
       ...(output.details === undefined ? {} : { details: output.details }),
-      instruction: "不要把该结构当作已生成卡片；请修正结构、重新调用工具，或向用户说明无法生成。",
+      validationBoundary: "rejected payload 不会渲染为训练卡片，也不会保存为已展示事实；message 和 details 只表达服务端 validator 的确定性失败事实。",
     };
   }
 
@@ -166,7 +166,7 @@ function createSubmitVisibleTrainingProposalModelSummary(
     schemaVersion: output.visibleOutput.schemaVersion,
     ...(payloadKind === undefined ? {} : { payloadKind }),
     exerciseItemCount: countExerciseItems(output.visibleOutput.payload),
-    instruction: "服务端已校验该结构，最终回答可以引用这张已验证训练卡片。",
+    validationBoundary: "accepted 表示服务端已校验该结构，并生成可渲染的用户可见投影事实。",
   };
 }
 

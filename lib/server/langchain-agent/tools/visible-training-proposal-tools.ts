@@ -141,9 +141,6 @@ export const inspectVisibleTrainingProposalsLangChainTool = defineLangChainToolW
         status: output.status,
         operation: output.operation,
         factLevel: "diagnostic",
-        fulfillment: {
-          satisfied: false,
-        },
         code: output.code,
       });
     }
@@ -153,15 +150,12 @@ export const inspectVisibleTrainingProposalsLangChainTool = defineLangChainToolW
     return toLangChainJsonValue({
       status: output.status,
       operation: output.operation,
-      factLevel: output.facts.length > 0 ? "consumable" : "diagnostic",
-      fulfillment: {
-        satisfied: true,
-      },
+      factLevel: "visible_training_facts",
       currentRunImport: {
         imported: output.facts.length > 0,
         note: output.facts.length > 0
           ? "facts[] 已由服务端读取和校验，可作为当前 run 的历史训练方案业务事实来源。"
-          : "facts[] 为空，只表示当前可见事实中没有历史 visibleTrainingProposal，不能支撑历史方案复用、替换或调整。",
+          : "facts[] 为空，只表示当前可见事实中没有历史 visibleTrainingProposal，可作为解释缺少引用对象、澄清或继续推理的事实依据。",
       },
       factCount: output.facts.length,
       facts: output.facts,
@@ -169,8 +163,8 @@ export const inspectVisibleTrainingProposalsLangChainTool = defineLangChainToolW
       availableSections: coverage.availableSections,
       missingSections: coverage.missingSections,
       hasSchedule: coverage.hasSchedule,
-      outputBoundary: "该 tool 只读取和导入历史业务事实；最终新训练结构仍必须通过 visibleTrainingProposal validator。",
-      decisionBoundary: "是否复用、派生、保留、替换、继续查询、追问或失败收口，由模型结合本轮用户目标和当前事实自行决定。",
+      outputBoundary: "该 tool 只读取和导入历史业务事实；不会生成新的训练卡片、routine、plan 或保存结果。",
+      usageBoundary: "后续如何使用这些历史事实，由模型结合本轮用户目标和当前可见事实自行判断；服务端不根据事实数量替模型选择回答策略。",
     });
   },
   toUserProjection: (output) => {

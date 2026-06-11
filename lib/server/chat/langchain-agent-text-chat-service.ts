@@ -8,6 +8,7 @@ import {
   type LangChainAgentMessage,
   type LangChainAgentRunResult,
   type LangChainAgentStreamEvent,
+  type LangChainAgentToolExecution,
   type LangChainValidatedVisibleOutput,
   type LangChainTerminalFailureFinalizerResult,
 } from "@/lib/server/langchain-agent";
@@ -538,7 +539,7 @@ function recordLangChainAgentRuntimeDetailTrace(input: {
     input.trace.addStep({
       name: `LangChain Tool Wrapper 执行: ${execution.toolName}`,
       type: "tool_call",
-      status: execution.status === "succeeded" ? "success" : "failed",
+      status: mapLangChainToolExecutionTraceStatus(execution.status),
       input: {
         toolCallId: execution.toolCallId,
         toolName: execution.toolName,
@@ -553,13 +554,13 @@ function recordLangChainAgentRuntimeDetailTrace(input: {
         modelCallIndex: execution.modelCallIndex,
         toolCallId: execution.toolCallId,
         toolName: execution.toolName,
-        ok: execution.status === "succeeded",
         status: execution.status,
         durationMs: execution.durationMs,
         modelVisibleSummary: execution.modelVisibleSummary,
         userProjection: execution.userProjection,
         traceSummary: execution.traceSummary,
         failureCode: execution.failureCode,
+        feedbackCode: execution.feedbackCode,
         failureMessage: execution.failureMessage,
         enteredModelContext: execution.enteredModelContext,
       },
@@ -574,9 +575,22 @@ function recordLangChainAgentRuntimeDetailTrace(input: {
         toolCallId: execution.toolCallId,
         toolName: execution.toolName,
         failureCode: execution.failureCode,
+        feedbackCode: execution.feedbackCode,
       },
     });
   }
+}
+
+function mapLangChainToolExecutionTraceStatus(status: LangChainAgentToolExecution["status"]) {
+  if (status === "succeeded") {
+    return "success";
+  }
+
+  if (status === "failed") {
+    return "failed";
+  }
+
+  return "neutral";
 }
 
 /** collectLangChainValidatedVisibleOutputs 只接受 tool wrapper 明确标记的 validator-approved 可见输出。 */

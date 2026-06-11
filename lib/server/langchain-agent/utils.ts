@@ -79,3 +79,38 @@ export function messageContentToText(content: unknown) {
 export function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
+
+/** createStableLangChainInputHash 为同 run duplicate input 检测生成稳定哈希，不保存完整 tool input。 */
+export function createStableLangChainInputHash(value: unknown) {
+  const serialized = stableJsonStringify(value);
+  let hash = 2166136261;
+
+  for (let index = 0; index < serialized.length; index += 1) {
+    hash ^= serialized.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return `fnv1a:${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+function stableJsonStringify(value: unknown): string {
+  if (value === undefined) {
+    return "undefined";
+  }
+
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJsonStringify).join(",")}]`;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  return `{${Object.keys(record)
+    .filter((key) => record[key] !== undefined)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableJsonStringify(record[key])}`)
+    .join(",")}}`;
+}

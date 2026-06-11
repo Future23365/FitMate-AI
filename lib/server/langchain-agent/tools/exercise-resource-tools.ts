@@ -200,7 +200,7 @@ export const searchExerciseResourcesInputSchema = z.object({
     .min(1)
     .max(3)
     .optional()
-    .describe("动作适配用途数组，只允许 warmup、training 或 stretch；省略时按 training 主训练候选查询。training 使用严格 hard filter policy；warmup / stretch 使用 support_section policy，只把 section、器械、场地、肌群和受控动作 id 作为 hard filter。目标需要 routine 或 plan、模型可见事实已覆盖 training 动作且缺少 warmup / stretch 时，可用 [\"warmup\", \"stretch\"] 或等价缺失 section 查询补齐候选。"),
+    .describe("动作适配用途数组，只允许 warmup、training 或 stretch；省略时按 training 主训练候选查询。training 使用严格 hard filter policy；warmup / stretch 使用 support_section policy，只把 section、器械、场地、肌群和受控动作 id 作为 hard filter。"),
   level: optionalTextFilterSchema.describe(`动作难度或中文难度的精确筛选值。${trainingPolicyFacetDescription}`),
   force: optionalTextFilterSchema.describe(`发力类型或中文发力类型的精确筛选值。${trainingPolicyFacetDescription}`),
   mechanic: optionalTextFilterSchema.describe(`动作机制或中文动作机制的精确筛选值。${trainingPolicyFacetDescription}`),
@@ -295,8 +295,8 @@ export const resolveExerciseResourceMentionsLangChainTool = defineLangChainToolW
   description: [
     "把用户明确点名的单个动作名解析为发布态 Exercise 候选，返回 matched、ambiguous 或 not_found。",
     "使用边界：mentions[].text 只放单个动作名；不要传完整用户消息、历史摘要、分页、userId、sql 或训练生成参数。",
-    "matched exerciseId 只能作为后续 searchExerciseResources.requiredExerciseIds；本 tool result 不能直接写入 visibleTrainingProposal.exerciseItems。",
-    "ambiguous 需要模型选择候选、重新查询或向用户澄清；not_found 不能作为动作事实。",
+    "matched exerciseId 表示已解析到发布态动作候选，可作为模型后续推理和合法 tool input 的受控事实材料。",
+    "ambiguous 表示存在多个候选事实，not_found 表示未解析为数据库动作事实；本 tool result 不是训练卡片、routine、plan 或保存结果。",
   ].join("\n"),
   inputSchema: resolveExerciseResourceMentionsInputSchema,
   outputSchema: resolveExerciseResourceMentionsOutputSchema,
@@ -322,15 +322,12 @@ export const resolveExerciseResourceMentionsLangChainTool = defineLangChainToolW
   toModelVisibleSummary: (output) => ({
     status: output.status,
     factLevel: "resolved_candidates",
-    fulfillment: {
-      satisfied: true,
-    },
     mentionCount: output.mentionCount,
     matchedCount: output.matchedCount,
     ambiguousCount: output.ambiguousCount,
     notFoundCount: output.notFoundCount,
-    requiredExerciseIdsBoundary: "matched 或模型从 ambiguous 候选中选择的 exerciseId 可作为后续 requiredExerciseIds 正向锚点。",
-    outputBoundary: "本 observation 不能直接作为 visibleTrainingProposal.exerciseItems[*].exerciseId 的动作事实来源；最终动作事实仍需来自 section-scoped 动作查询结果或已导入的训练业务事实。",
+    candidateBoundary: "matched 或模型从 ambiguous 候选中选择的 exerciseId 是发布态动作候选事实，可用于后续模型自主推理。",
+    outputBoundary: "本 observation 只表达 mention 解析事实；它不是最终训练卡片、routine、plan 或保存结果。",
     results: output.results.map((result) => ({
       text: result.text,
       ...(result.sectionHint ? { sectionHint: result.sectionHint } : {}),
@@ -390,10 +387,10 @@ export function createSearchExerciseResourcesLangChainTool(
   return defineLangChainToolWrapper<typeof searchExerciseResourcesInputSchema, SearchExerciseResourcesOutput>({
     name: "searchExerciseResources",
     description: [
-      "只读查询 Exercise 动作库事实，并按 suitabilities 返回 groups.<section>.exercises[]；这些 section-scoped exercises 是训练结构动作项的主要事实来源。",
-      "使用边界：用户需要动作候选、routine 或 plan，并且已有肌群、器械、难度、场地、目标标签、section 用途或受控 exerciseId 等结构化约束时使用。",
-      "当目标需要 routine 或 plan，且模型可见动作事实已覆盖 training 但缺少 warmup 或 stretch 时，应优先用缺失 section 的 suitabilities 继续查询 support section 候选。",
-      "本 tool 只提供动作事实，不生成 visibleTrainingProposal 或训练卡片；若要把一组动作作为用户可见、可后续引用的训练结果交付，需要通过结构化收口 tool 提交并通过服务端校验。",
+      "只读查询 Exercise 动作库事实，并按 suitabilities 返回 groups.<section>.exercises[]、section 覆盖和 diagnostics。",
+      "使用边界：需要基于结构化数据库 facet、section 用途或受控 exerciseId 获取发布态动作事实时使用。",
+      "输出含 query、filters、groups、sectionSummary、availableSections、missingSections、diagnostics、totalMatches、returnedCount 和 truncated 等事实。",
+      "本 tool 不生成 visibleTrainingProposal、训练卡片、routine、plan、处方、日程或保存结果。",
       "所有精确 facet 值应优先从动作库 facet catalog 选择；无外部器械统一写 equipment: \"no_equipment\"；homeRequirement 只表示环境、场地或支撑条件。",
       "requiredExerciseIds 是正向锚点，用于让已解析或已导入的受控动作优先进入 groups；excludeExerciseIds 是负向排除，用于替换或避免重复。",
       "不要用本 tool 判断当前会话有没有上一轮 visibleTrainingProposal、读取完整历史方案、分页、limit、offset、page、pageSize 或语义向量检索。",
@@ -534,10 +531,22 @@ export function createSearchExerciseResourcesLangChainTool(
       return {
         status: output.status,
         factLevel: broadQuery ? "diagnostic" : "section_scoped_exercise_facts",
-        fulfillment: {
-          satisfied: !broadQuery,
-        },
         suitabilities: output.query.suitabilities,
+        query: {
+          ...(output.query.q ? { q: output.query.q } : {}),
+          ...(output.query.category ? { category: output.query.category } : {}),
+          ...(output.query.level ? { level: output.query.level } : {}),
+          ...(output.query.force ? { force: output.query.force } : {}),
+          ...(output.query.mechanic ? { mechanic: output.query.mechanic } : {}),
+          ...(output.query.equipment ? { equipment: output.query.equipment } : {}),
+          ...(output.query.homeRequirement ? { homeRequirement: output.query.homeRequirement } : {}),
+          ...(output.query.muscles ? { muscles: output.query.muscles } : {}),
+          ...(output.query.goalTag ? { goalTag: output.query.goalTag } : {}),
+          ...(output.query.riskTag ? { riskTag: output.query.riskTag } : {}),
+          ...(output.query.requiredExerciseIds ? { requiredExerciseIds: output.query.requiredExerciseIds } : {}),
+          ...(output.query.excludeExerciseIds ? { excludeExerciseIds: output.query.excludeExerciseIds } : {}),
+          sort: output.query.sort,
+        },
         totalMatches: output.query.totalMatches,
         returnedCount: output.query.returnedCount,
         truncated: output.query.truncated,
@@ -545,10 +554,6 @@ export function createSearchExerciseResourcesLangChainTool(
         availableSections: coverage.availableSections,
         sectionSummary: coverage.sectionSummary,
         missingSections: coverage.missingSections,
-        supportSectionCompletionBoundary: coverage.missingSections.includes("warmup") || coverage.missingSections.includes("stretch")
-          ? "若用户目标需要 routine 或 plan，且本轮工具预算和上下文仍允许继续查询，缺少 warmup 或 stretch 时应优先用对应 suitabilities 补齐 support section 动作事实；不得把 training 动作或正文建议伪装成缺失 section。"
-          : "当前查询已覆盖可见 support section；最终结构仍需遵守 visibleTrainingProposal 的 section、处方和校验边界。",
-        visibleDeliveryBoundary: "本 observation 只提供模型可见、可被服务端数据库复核的动作事实，不表示已经生成 visibleTrainingProposal 或 visible_output；若要把一组动作作为用户可见、可后续引用的训练结果交付，应通过结构化收口工具提交。",
         querySpecificity: buildQuerySpecificityObservation(output),
         filterSemantics: output.query.filterSemantics,
         positiveAnchorBoundary: output.query.requiredExerciseIds?.length
@@ -559,9 +564,8 @@ export function createSearchExerciseResourcesLangChainTool(
           : "本次查询未应用 excludeExerciseIds；该结果不证明存在上一套可操作对象，也不代表刷新、替换或调整已完成。",
         groupSemantics: {
           groupKey: "groups.<section>",
-          sectionRelation: "groups.<section>.exercises[] 中的动作是当前查询按该 section 返回的动作事实；生成 visibleTrainingProposal.exerciseItems[] 时，section 应与使用的 group key 保持一致。",
+          sectionRelation: "groups.<section>.exercises[] 中的动作是当前查询按该 section 返回的动作事实。",
           allowedSectionsRelation: "每个动作的 allowedSections 是可进入哪些 section 的事实字段；exerciseItems[*].section 必须包含在该动作 allowedSections 中。",
-          exerciseSelectionRelation: "当最终结构是 visibleTrainingProposal(kind=\"exercise_selection\") 时，可用 groups.<section>.exercises[] 中的动作事实构造 exerciseItems[]；searchExerciseResources 本身不生成卡片。",
         },
         appliedFilters: output.query.appliedFilters,
         filterApplicationBoundary: "filterApplications 是 searchExerciseResources 的 section 级 tool 执行事实摘要；hardFilterPolicy 只表示数据库 hard filter 口径，不表示 Planner 下一步行为策略。",
@@ -672,7 +676,7 @@ function createMentionDiagnostics(
   if (status === "ambiguous") {
     return [{
       code: "mention_ambiguous",
-      message: `点名动作“${mention.text}”匹配到多个发布态动作；模型应选择候选、重新查询或向用户澄清。`,
+      message: `点名动作“${mention.text}”匹配到多个发布态动作；该结果只表达候选歧义事实，不自动决定唯一动作。`,
       text: mention.text,
       sectionHint: mention.sectionHint,
     }];
@@ -680,7 +684,7 @@ function createMentionDiagnostics(
 
   return [{
     code: "mention_not_found",
-    message: `点名动作“${mention.text}”没有解析到发布态数据库动作；该结果不能作为 visibleTrainingProposal 动作来源。`,
+    message: `点名动作“${mention.text}”没有解析到发布态数据库动作；该结果不能作为动作事实来源。`,
     text: mention.text,
     sectionHint: mention.sectionHint,
   }];
@@ -783,7 +787,7 @@ function buildQuerySpecificityObservation(output: SearchExerciseResourcesOutput)
     return {
       status: "too_broad",
       specificFilters,
-      boundary: "本次 searchExerciseResources input 除默认 suitabilities、sort 外没有任何目标、facet、器械、场地、点名动作或模型可见动作锚点；fulfillment.satisfied=false。",
+      boundary: "本次 searchExerciseResources input 除默认 suitabilities、sort 外没有目标、facet、器械、场地、点名动作或模型可见动作锚点；该结果只表达查询口径和返回事实。",
     };
   }
 

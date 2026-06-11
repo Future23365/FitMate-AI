@@ -58,6 +58,7 @@ export type LangChainAgentResponseProjectionSummary = {
     toolName: string;
     status: LangChainAgentToolExecution["status"];
     failureCode?: LangChainAgentRuntimeErrorCode;
+    feedbackCode?: LangChainAgentToolExecution["feedbackCode"];
     enteredModelContext: boolean;
   }[];
   errorCode?: string;
@@ -119,6 +120,7 @@ export function summarizeLangChainAgentResponseProjection(input: {
       toolName: execution.toolName,
       status: execution.status,
       failureCode: execution.failureCode,
+      feedbackCode: execution.feedbackCode,
       enteredModelContext: execution.enteredModelContext,
     })),
     ...(!input.result.ok ? { errorCode: input.result.code } : {}),

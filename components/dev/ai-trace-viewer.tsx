@@ -1394,9 +1394,10 @@ function formatLangChainToolExecutionSummary(value: unknown) {
 
   const succeeded = executions.filter((execution) => execution.status === "succeeded").length;
   const failed = executions.filter((execution) => execution.status === "failed").length;
+  const duplicateInputs = executions.filter((execution) => execution.status === "duplicate_input").length;
   const names = uniqueStrings(executions.map((execution) => execution.toolName).filter(Boolean));
 
-  return `${executions.length} 次，成功 ${succeeded} / 失败 ${failed}${names.length ? `：${names.join(", ")}` : ""}`;
+  return `${executions.length} 次，成功 ${succeeded} / 失败 ${failed} / 重复输入 ${duplicateInputs}${names.length ? `：${names.join(", ")}` : ""}`;
 }
 
 function formatStructuredOutputValidation(value: unknown) {
@@ -1865,10 +1866,12 @@ function summarizeRuntimeEventOutput(output: Record<string, unknown>) {
         toolVersion: readString(output.toolVersion),
         toolCallId: readString(output.toolCallId),
         toolResultId: readString(output.toolResultId),
+        status: readString(output.status),
         ok: output.ok === true,
         satisfied: output.satisfied === true,
         factChannel: readString(output.factChannel),
         failureCode: readString(output.failureCode),
+        feedbackCode: readString(output.feedbackCode),
         producedResources: output.producedResources,
         consumedResources: output.consumedResources,
         durationMs: readNumber(output.durationMs),
@@ -1960,6 +1963,7 @@ function createLangChainToolExecutionReport(execution: Record<string, unknown>) 
     modelCallIndex: readNumber(execution.modelCallIndex),
     runtimeStep: readNumber(execution.runtimeStep),
     failureCode: readString(execution.failureCode),
+    feedbackCode: readString(execution.feedbackCode),
     schemaIssues: execution.schemaIssues,
   };
 }

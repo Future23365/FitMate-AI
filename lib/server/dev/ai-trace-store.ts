@@ -1,6 +1,6 @@
 import { parseUtcDateTimeInput, toUtcISOString } from "@/lib/shared/time/utc-date-time";
 
-export type AiTraceStatus = "running" | "success" | "failed";
+export type AiTraceStatus = "running" | "success" | "failed" | "neutral";
 
 export type AiRunFinalDecision = {
   status: "success" | "recoverable_failure" | "hard_failure";

@@ -68,8 +68,12 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelMessage).toMatchObject({
       status: "succeeded",
       factLevel: "section_scoped_exercise_facts",
-      fulfillment: { satisfied: true },
       suitabilities: ["training"],
+      query: {
+        muscles: ["胸部"],
+        equipment: "no_equipment",
+        sort: "name_asc",
+      },
       totalMatches: 1,
       returnedCount: 1,
       groups: {
@@ -85,22 +89,25 @@ describe("searchExerciseResources LangChain tool", () => {
       },
       groupSemantics: {
         groupKey: "groups.<section>",
-        exerciseSelectionRelation: expect.stringContaining("visibleTrainingProposal(kind=\"exercise_selection\")"),
       },
     });
+    expect(modelMessage).not.toHaveProperty("fulfillment");
+    expect(modelMessage).not.toHaveProperty("satisfied");
+    expect(modelMessage).not.toHaveProperty("supportSectionCompletionBoundary");
+    expect(modelMessage).not.toHaveProperty("visibleDeliveryBoundary");
+    expect(modelMessage).not.toHaveProperty("supportsOutputKinds");
     expect(modelMessage).not.toHaveProperty("published");
     expect(modelMessage.appliedFilters).toEqual(
       expect.not.arrayContaining([
         expect.objectContaining({ field: "published" }),
       ]),
     );
-    expect(modelMessage.supportSectionCompletionBoundary).toContain("缺少 warmup 或 stretch");
-    expect(modelMessage.supportSectionCompletionBoundary).toContain("对应 suitabilities");
-    expect(modelMessage.supportSectionCompletionBoundary).not.toContain("当前 run");
-    expect(modelMessage.visibleDeliveryBoundary).toContain("只提供模型可见、可被服务端数据库复核的动作事实");
-    expect(modelMessage.visibleDeliveryBoundary).toContain("结构化收口工具提交");
-    expect(JSON.stringify(modelMessage)).not.toContain("instructionsZh");
-    expect(JSON.stringify(modelMessage)).not.toContain("embedding");
+    const modelJson = JSON.stringify(modelMessage);
+    expect(modelJson).not.toContain("instructionsZh");
+    expect(modelJson).not.toContain("embedding");
+    expect(modelJson).not.toContain("缺少 warmup 或 stretch");
+    expect(modelJson).not.toContain("结构化收口工具");
+    expect(modelJson).not.toContain("continue_tool_call");
   });
 
   it("prioritizes requiredExerciseIds and reports filter mismatch diagnostics", async () => {
@@ -165,11 +172,12 @@ describe("searchExerciseResources LangChain tool", () => {
 
     expect(modelMessage).toMatchObject({
       factLevel: "diagnostic",
-      fulfillment: { satisfied: false },
       querySpecificity: {
         status: "too_broad",
       },
     });
+    expect(modelMessage).not.toHaveProperty("fulfillment");
+    expect(JSON.stringify(modelMessage)).not.toContain("satisfied");
   });
 
   it("rejects invalid fields and removed published input before repository execution", async () => {

@@ -52,7 +52,7 @@ describe("inspectVisibleTrainingProposals LangChain tool", () => {
     expect(modelMessage).toMatchObject({
       status: "succeeded",
       operation: "list_recent",
-      factLevel: "consumable",
+      factLevel: "visible_training_facts",
       factCount: 1,
       currentRunImport: { imported: true },
       sectionSummary: { warmup: 1, training: 1, stretch: 1 },
@@ -70,6 +70,9 @@ describe("inspectVisibleTrainingProposals LangChain tool", () => {
     expect(modelJson).not.toContain("messageId");
     expect(modelJson).not.toContain("resourceId");
     expect(modelJson).not.toContain("read_recent");
+    expect(modelJson).not.toContain("fulfillment");
+    expect(modelJson).not.toContain("supportsOutputKinds");
+    expect(modelJson).not.toContain("final_answer_with_visible_outputs");
   });
 
   it("returns an empty diagnostic when no visible facts exist", async () => {
@@ -86,11 +89,15 @@ describe("inspectVisibleTrainingProposals LangChain tool", () => {
     expect(modelMessage).toMatchObject({
       status: "succeeded",
       operation: "list_recent",
-      factLevel: "diagnostic",
+      factLevel: "visible_training_facts",
       factCount: 0,
       currentRunImport: { imported: false },
     });
-    expect(JSON.stringify(modelMessage)).not.toContain("换一批");
+    const modelJson = JSON.stringify(modelMessage);
+    expect(modelJson).not.toContain("换一批");
+    expect(modelJson).not.toContain("fulfillment");
+    expect(modelJson).not.toContain("固定");
+    expect(modelJson).not.toContain("continue_tool_call");
   });
 
   it("normalizes fact-store failures into a model-visible failed diagnostic", async () => {
@@ -110,8 +117,8 @@ describe("inspectVisibleTrainingProposals LangChain tool", () => {
       operation: "list_recent",
       factLevel: "diagnostic",
       code: "fact_store_list_failed",
-      fulfillment: { satisfied: false },
     });
+    expect(JSON.stringify(modelMessage)).not.toContain("fulfillment");
   });
 
   it("rejects old read_recent and internal reference inputs before fact-store access", async () => {

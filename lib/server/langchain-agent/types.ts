@@ -30,7 +30,9 @@ export type LangChainAgentRuntimeErrorCode =
   | "response_adapter_failed"
   | "empty_final_message";
 
-export type LangChainAgentToolExecutionStatus = "succeeded" | "failed";
+export type LangChainAgentToolExecutionStatus = "succeeded" | "failed" | "duplicate_input";
+
+export type LangChainAgentToolFeedbackCode = "duplicate_tool_input";
 
 export type LangChainAgentSchemaIssue = {
   path: string;
@@ -57,6 +59,7 @@ export type LangChainAgentToolExecution = {
   userProjection?: LangChainJsonValue;
   traceSummary?: LangChainJsonValue;
   failureCode?: LangChainAgentRuntimeErrorCode;
+  feedbackCode?: LangChainAgentToolFeedbackCode;
   failureMessage?: string;
   schemaIssues?: readonly LangChainAgentSchemaIssue[];
   enteredModelContext: boolean;
