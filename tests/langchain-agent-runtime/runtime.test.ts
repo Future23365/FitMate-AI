@@ -1,4 +1,5 @@
 import { AIMessage, ToolMessage, fakeModel } from "langchain";
+import { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
@@ -60,6 +61,48 @@ const baseInput = {
   messages: [{ role: "user" as const, content: "我今天想练胸。" }],
   actor: { userId: "user-1", conversationId: "conversation-1" },
 };
+
+class RepeatingUnknownToolModel extends BaseChatModel {
+  private callIndex = 0;
+
+  constructor() {
+    super({});
+  }
+
+  _llmType() {
+    return "repeating-unknown-tool-model";
+  }
+
+  _combineLLMOutput() {
+    return [];
+  }
+
+  bindTools() {
+    return this;
+  }
+
+  async _generate() {
+    this.callIndex += 1;
+    const message = new AIMessage({
+      content: "",
+      id: `model_${this.callIndex}`,
+      tool_calls: [{
+        name: "unknownExerciseTool",
+        args: { goal: "胸部训练" },
+        id: `call_unknown_${this.callIndex}`,
+        type: "tool_call",
+      }],
+    });
+
+    return {
+      generations: [{
+        text: "",
+        message,
+      }],
+      llmOutput: {},
+    };
+  }
+}
 
 function createFinalResponseToolCall(
   args: { content?: string; suggestedQuestions?: string[] },
@@ -275,35 +318,44 @@ describe("LangChain Agent runtime", () => {
   });
 
   it("keeps graph recursion budget aligned for activity report, business tools, and final response", async () => {
-    let model = fakeModel()
+    const businessToolWrappers = Array.from({ length: agentRuntimeConfig.langChain.runBudget.maxToolCalls }, (_, index) => defineLangChainToolWrapper({
+      name: `echoExerciseGoal${index + 1}`,
+      description: "用于验证 LangChain runtime 图递归预算的测试工具。",
+      inputSchema: z.object({
+        goal: z.string(),
+      }).strict(),
+      handler: async (input) => ({
+        status: "succeeded" as const,
+        goal: input.goal,
+      }),
+      toModelVisibleSummary: (output) => ({
+        status: output.status,
+        goal: output.goal,
+      }),
+    }));
+    const businessToolCalls = businessToolWrappers.map((wrapper, index) => ({
+      name: wrapper.name,
+      args: { goal: `训练目标 ${index + 1}` },
+      id: `call_business_${index + 1}`,
+    }));
+    const model = fakeModel()
       .respondWithTools([
         { name: "reportAgentActivity", args: { summary: "我先说明正在确认动作事实" }, id: "call_activity_1" },
-      ]);
-    const businessToolCalls = Array.from(
-      { length: agentRuntimeConfig.langChain.runBudget.maxToolCalls },
-      (_, index) => ({
-        name: "echoExerciseGoal",
-        args: { goal: `训练目标 ${index + 1}` },
-        id: `call_business_${index + 1}`,
-      }),
-    );
-
-    for (const toolCall of businessToolCalls) {
-      model = model.respondWithTools([toolCall]);
-    }
-    model = model.respondWithTools([createFinalResponseToolCall({ content: "已基于全部工具事实完成回答。" })]);
+        ...businessToolCalls,
+      ])
+      .respondWithTools([createFinalResponseToolCall({ content: "已基于全部工具事实完成回答。" })]);
 
     const result = await runLangChainAgentRuntime({
       ...baseInput,
       model,
-      toolWrappers: [reportAgentActivityLangChainTool, echoTool],
+      toolWrappers: [reportAgentActivityLangChainTool, ...businessToolWrappers],
     });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.finalText).toBe("已基于全部工具事实完成回答。");
     }
-    expect(result.traceSummary?.modelCallCount).toBe(agentRuntimeConfig.langChain.runBudget.maxToolCalls + 2);
+    expect(result.traceSummary?.modelCallCount).toBe(2);
     expect(result.toolExecutions.filter((execution) => execution.executionKind !== "activity")).toHaveLength(
       agentRuntimeConfig.langChain.runBudget.maxToolCalls,
     );
@@ -362,14 +414,14 @@ describe("LangChain Agent runtime", () => {
     expect(result.traceSummary?.toolCallCount).toBe(2);
   });
 
-  it("blocks tool handler execution after the configured tool call budget is exhausted", async () => {
+  it("limits each business tool independently with LangChain tool call limit middleware", async () => {
     const handler = vi.fn(async (input: { goal: string }) => ({
       status: "succeeded" as const,
       goal: input.goal,
     }));
-    const budgetedTool = defineLangChainToolWrapper({
-      name: "budgetedExerciseGoal",
-      description: "用于验证 LangChain runtime 工具调用预算的测试工具。",
+    const limitedTool = defineLangChainToolWrapper({
+      name: "limitedExerciseGoal",
+      description: "用于验证单个业务 tool 独立调用上限的测试工具。",
       inputSchema: z.object({
         goal: z.string(),
       }).strict(),
@@ -379,10 +431,57 @@ describe("LangChain Agent runtime", () => {
         goal: output.goal,
       }),
     });
-    const requestedToolCalls = agentRuntimeConfig.langChain.runBudget.maxToolCalls + 1;
+    const requestedToolCalls = agentRuntimeConfig.langChain.runBudget.maxToolCallsPerTool + 1;
     const model = fakeModel()
       .respondWithTools(Array.from({ length: requestedToolCalls }, (_, index) => ({
-        name: "budgetedExerciseGoal",
+        name: "limitedExerciseGoal",
+        args: { goal: `训练目标 ${index + 1}` },
+        id: `call_limited_${index + 1}`,
+      })))
+      .respondWithTools([createFinalResponseToolCall({ content: "已停止重复调用同一个工具。" })]);
+
+    const result = await runLangChainAgentRuntime({
+      ...baseInput,
+      model,
+      toolWrappers: [limitedTool],
+    });
+
+    expect(result.ok).toBe(true);
+    expect(handler).toHaveBeenCalledTimes(agentRuntimeConfig.langChain.runBudget.maxToolCallsPerTool);
+    expect(result.toolExecutions.filter((execution) => execution.toolName === "limitedExerciseGoal")).toHaveLength(
+      requestedToolCalls,
+    );
+    const blockedExecution = result.toolExecutions.find((execution) => execution.toolCallId === "call_limited_3");
+    expect(blockedExecution).toMatchObject({
+      toolCallId: "call_limited_3",
+      toolName: "limitedExerciseGoal",
+      status: "failed",
+      enteredModelContext: true,
+    });
+    expect(blockedExecution?.modelVisibleSummary).toContain("Tool call limit exceeded");
+  });
+
+  it("blocks tool handler execution after the configured total business tool call budget is exhausted", async () => {
+    const handler = vi.fn(async (input: { goal: string }) => ({
+      status: "succeeded" as const,
+      goal: input.goal,
+    }));
+    const requestedToolCalls = agentRuntimeConfig.langChain.runBudget.maxToolCalls + 1;
+    const budgetedTools = Array.from({ length: requestedToolCalls }, (_, index) => defineLangChainToolWrapper({
+      name: `budgetedExerciseGoal${index + 1}`,
+      description: "用于验证 LangChain runtime 工具调用总预算的测试工具。",
+      inputSchema: z.object({
+        goal: z.string(),
+      }).strict(),
+      handler,
+      toModelVisibleSummary: (output) => ({
+        status: output.status,
+        goal: output.goal,
+      }),
+    }));
+    const model = fakeModel()
+      .respondWithTools(Array.from({ length: requestedToolCalls }, (_, index) => ({
+        name: `budgetedExerciseGoal${index + 1}`,
         args: { goal: `训练目标 ${index + 1}` },
         id: `call_budget_${index + 1}`,
       })))
@@ -391,7 +490,7 @@ describe("LangChain Agent runtime", () => {
     const result = await runLangChainAgentRuntime({
       ...baseInput,
       model,
-      toolWrappers: [budgetedTool],
+      toolWrappers: budgetedTools,
     });
 
     expect(result.ok).toBe(false);
@@ -409,8 +508,9 @@ describe("LangChain Agent runtime", () => {
         ]),
       });
       expect(result.traceSummary?.modelCallCount).toBeGreaterThanOrEqual(1);
-      expect(result.toolExecutions.at(-1)).toMatchObject({
-        toolName: "budgetedExerciseGoal",
+      const budgetExecution = result.toolExecutions.find((execution) => execution.toolCallId === `call_budget_${requestedToolCalls}`);
+      expect(budgetExecution).toMatchObject({
+        toolName: `budgetedExerciseGoal${requestedToolCalls}`,
         status: "failed",
         failureCode: "budget_exhausted",
         enteredModelContext: true,
@@ -418,22 +518,22 @@ describe("LangChain Agent runtime", () => {
     }
   });
 
-  it("derives LangChain recursion limit from the model call budget", () => {
-    expect(resolveLangChainGraphRecursionLimit(agentRuntimeConfig.langChain.runBudget)).toBe(
-      (agentRuntimeConfig.langChain.runBudget.maxModelCalls * 2) + 1,
-    );
-  });
+    it("derives LangChain recursion limit from the model call budget", () => {
+      expect(resolveLangChainGraphRecursionLimit(agentRuntimeConfig.langChain.runBudget)).toBe(
+        agentRuntimeConfig.langChain.runBudget.maxModelCalls * 3,
+      );
+    });
 
   it("normalizes unknown tool calls from LangChain tool messages", async () => {
     const model = fakeModel()
       .respondWithTools([{ name: "unknownExerciseTool", args: { goal: "胸部训练" }, id: "call_1" }])
       .respondWithTools([createFinalResponseToolCall({ content: "当前工具不可用。" })]);
 
-    const result = await runLangChainAgentRuntime({
-      ...baseInput,
-      model,
-      toolWrappers: [echoTool],
-    });
+      const result = await runLangChainAgentRuntime({
+        ...baseInput,
+        model,
+        toolWrappers: [echoTool],
+      });
 
     expect(result.ok).toBe(true);
     expect(result.toolExecutions).toMatchObject([
@@ -575,55 +675,63 @@ describe("LangChain Agent runtime", () => {
   });
 
   it("normalizes agent budget exhaustion", async () => {
-    let model = fakeModel();
-    for (const index of Array.from({ length: 20 }, (_, itemIndex) => itemIndex)) {
-      model = model.respondWithTools([{
-        name: "echoExerciseGoal",
+    const requestedToolCalls = agentRuntimeConfig.langChain.runBudget.maxToolCalls + 1;
+    const budgetedTools = Array.from({ length: requestedToolCalls }, (_, index) => defineLangChainToolWrapper({
+      name: `budgetNormalizationTool${index + 1}`,
+      description: "用于验证预算耗尽归一化的测试工具。",
+      inputSchema: z.object({
+        goal: z.string(),
+      }).strict(),
+      handler: async (input) => ({
+        status: "succeeded" as const,
+        goal: input.goal,
+      }),
+      toModelVisibleSummary: (output) => ({
+        status: output.status,
+        goal: output.goal,
+      }),
+    }));
+    const model = fakeModel()
+      .respondWithTools(budgetedTools.map((wrapper, index) => ({
+        name: wrapper.name,
         args: { goal: "胸部训练" },
         id: `call_${index + 1}`,
-      }]);
-    }
+      })))
+      .respondWithTools([createFinalResponseToolCall({ content: "预算超限后不应作为成功结果。" })]);
 
     const result = await runLangChainAgentRuntime({
       ...baseInput,
       model,
-      toolWrappers: [echoTool],
-    });
+      toolWrappers: budgetedTools,
+	    });
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.code).toBe("budget_exhausted");
-      expect(result.traceSummary?.modelCallCount).toBeGreaterThan(0);
-      expect(result.traceSummary?.modelCalls[0]).toMatchObject({
-        modelCallIndex: 1,
-        providerToolCalls: [
-          expect.objectContaining({
-            id: "call_1",
-            modelCallIndex: 1,
-            runtimeStep: 1,
-          }),
-        ],
-      });
-    }
-  });
+	    expect(result.ok).toBe(false);
+	    if (!result.ok) {
+	      expect(result.code).toBe("budget_exhausted");
+	      expect(result.traceSummary?.modelCallCount).toBeGreaterThan(0);
+	      expect(result.traceSummary?.modelCalls[0]).toMatchObject({
+	        modelCallIndex: 1,
+	        providerToolCalls: expect.arrayContaining([
+	          expect.objectContaining({
+	            id: "call_1",
+	            modelCallIndex: 1,
+	            runtimeStep: 1,
+	          }),
+	        ]),
+	      });
+	    }
+	  });
 
-  it("stops before provider calls exceed the configured model call budget", async () => {
-    let model = fakeModel();
-    for (const index of Array.from({ length: agentRuntimeConfig.langChain.runBudget.maxModelCalls + 2 }, (_, itemIndex) => itemIndex)) {
-      model = model.respondWithTools([{
-        name: "unknownExerciseTool",
-        args: { goal: "胸部训练" },
-        id: `call_unknown_${index + 1}`,
-      }]);
-    }
+	  it("stops before provider calls exceed the configured model call budget", async () => {
+	    const model = new RepeatingUnknownToolModel();
 
-    const result = await runLangChainAgentRuntime({
-      ...baseInput,
-      model,
-      toolWrappers: [echoTool],
-    });
+	    const result = await runLangChainAgentRuntime({
+	      ...baseInput,
+	      model,
+	      toolWrappers: [echoTool],
+	    });
 
-    expect(result.ok).toBe(false);
+	    expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("budget_exhausted");
       expect(result.message).toContain("model call budget exhausted");
@@ -660,10 +768,11 @@ describe("LangChain Agent prompt", () => {
 
     expect(prompt).toContain("DeepSeek native tool calling");
     expect(prompt).toContain("结构化终态工具");
-    expect(prompt).toContain("reportAgentActivity");
-    expect(prompt).toContain("活动摘要");
-    expect(prompt).toContain(`本轮最多 ${agentRuntimeConfig.langChain.runBudget.maxToolCalls} 次业务工具调用`);
-    expect(prompt).toContain(`reportAgentActivity 最多 ${agentRuntimeConfig.langChain.runBudget.maxActivityReports} 次`);
+      expect(prompt).toContain("reportAgentActivity");
+      expect(prompt).toContain("活动摘要");
+      expect(prompt).toContain(`本轮最多 ${agentRuntimeConfig.langChain.runBudget.maxToolCalls} 次业务工具调用`);
+      expect(prompt).toContain(`每个业务工具本轮最多 ${agentRuntimeConfig.langChain.runBudget.maxToolCallsPerTool} 次调用`);
+      expect(prompt).toContain(`reportAgentActivity 最多 ${agentRuntimeConfig.langChain.runBudget.maxActivityReports} 次`);
     expect(prompt).toContain("不计入业务工具调用预算");
     expect(prompt).toContain("用户可见、可后续引用的一组训练动作");
     expect(prompt).toContain("正文 content 不能替代结构化训练结果");

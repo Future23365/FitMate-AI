@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createAgent, createMiddleware, AIMessage, ToolMessage, toolStrategy } from "langchain";
+import { createAgent, createMiddleware, AIMessage, ToolMessage, toolCallLimitMiddleware, toolStrategy } from "langchain";
 import type { ModelRequest } from "langchain";
 
 import { agentRuntimeConfig, type AgentRuntimeConfig } from "@/lib/server/config";
@@ -102,12 +102,15 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
         toolMessageContent: "结构化最终回答已接收。",
       }),
       systemPrompt: input.systemPrompt ?? buildLangChainAgentSystemPrompt(),
-      middleware: [modelCallRecorder.middleware],
+      middleware: [
+        modelCallRecorder.middleware,
+        ...createBusinessToolCallLimitMiddleware(toolWrappers, config.runBudget.maxToolCallsPerTool),
+      ],
     });
     const state = await agent.invoke({
       messages: input.messages.map((message) => ({ role: message.role, content: message.content })),
     }, {
-      recursionLimit: resolveLangChainGraphRecursionLimit(config.runBudget),
+      recursionLimit: resolveLangChainGraphRecursionLimit(config.runBudget, toolWrappers.length),
       signal: abortController.signal,
     });
     const messages = Array.isArray(state.messages) ? state.messages : [];
@@ -212,8 +215,9 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
 /** resolveLangChainGraphRecursionLimit 将模型调用预算映射为 LangChain graph step 上限，避免旧 iteration 语义与 LangGraph 计数脱节。 */
 export function resolveLangChainGraphRecursionLimit(
   runBudget: Pick<AgentRuntimeConfig["langChain"]["runBudget"], "maxModelCalls">,
+  toolMiddlewareCount = 0,
 ) {
-  return Math.max(2, (runBudget.maxModelCalls * 2) + 1);
+  return Math.max(2, runBudget.maxModelCalls * Math.max(3, toolMiddlewareCount + 3));
 }
 
 function createToolExecutionBudget(input: {
@@ -234,6 +238,20 @@ function createToolExecutionBudget(input: {
       return reservedBusinessToolCalls <= input.maxBusinessToolCalls;
     },
   };
+}
+
+/** createBusinessToolCallLimitMiddleware 用 LangChain 原生 middleware 给每个业务 tool 分配独立单轮调用上限。 */
+function createBusinessToolCallLimitMiddleware(
+  toolWrappers: readonly LangChainToolWrapper[],
+  maxToolCallsPerTool: number,
+) {
+  return toolWrappers
+    .filter((wrapper) => (wrapper.executionKind ?? "business") === "business")
+    .map((wrapper) => toolCallLimitMiddleware({
+      toolName: wrapper.name,
+      runLimit: maxToolCallsPerTool,
+      exitBehavior: "continue",
+    }));
 }
 
 async function emitLangChainRuntimeObserverEvent(input: {
