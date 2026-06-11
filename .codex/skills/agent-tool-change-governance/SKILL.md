@@ -80,6 +80,7 @@ description: 治理 AITest 中 Agent tool、LangChain tool wrapper、执行合�
 - `/api/chat` main route 或 chat production chain
 - LangChain runtime 或 response adapter 内基于具体业务 `toolName` 的分支
 - 服务端关键词、正则、同义词或自然语言模板路由
+- Tool handler / validator / 服务端 route 不得编码业务建议、训练合理性建议、语义偏好或模型决策策略；只能校验 schema、enum、权限、存在性、引用可达性、受控事实可消费性、policy / confirmation、成本限流、安全边界和可渲染性。
 - handler 内绕过 schema、permission、confirmation、projection 或 finalization 校验
 
 如果必须触碰以上区域，先停下来确认 OpenSpec design 已写清任务分类、允许模块、禁止模块、验证计划和通用合同理由。
