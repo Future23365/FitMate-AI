@@ -32,6 +32,16 @@ export type LangChainAgentRuntimeErrorCode =
 
 export type LangChainAgentToolExecutionStatus = "succeeded" | "failed";
 
+export type LangChainAgentSchemaIssue = {
+  path: string;
+  code: string;
+  message: string;
+  keys?: readonly string[];
+  expected?: string;
+  received?: string;
+  options?: readonly string[];
+};
+
 export type LangChainAgentToolExecution = {
   sequence?: number;
   modelCallIndex?: number;
@@ -46,6 +56,7 @@ export type LangChainAgentToolExecution = {
   traceSummary?: LangChainJsonValue;
   failureCode?: LangChainAgentRuntimeErrorCode;
   failureMessage?: string;
+  schemaIssues?: readonly LangChainAgentSchemaIssue[];
   enteredModelContext: boolean;
 };
 
@@ -139,6 +150,11 @@ export type LangChainAgentRunFailure = {
   messages: readonly unknown[];
   toolExecutions: readonly LangChainAgentToolExecution[];
   traceSummary?: LangChainAgentRunTraceSummary;
+};
+
+export type LangChainTerminalFailureFinalizerOutput = {
+  content: string;
+  suggestedQuestions: readonly string[];
 };
 
 export type LangChainAgentRunResult = LangChainAgentRunSuccess | LangChainAgentRunFailure;

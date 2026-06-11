@@ -27,6 +27,16 @@ export type AgentRuntimeConfig = {
       overallTimeoutMs: number;
       structuredOutputValidationTimeoutMs: number;
     };
+    terminalFailureFinalizer: {
+      defaultEnabled: boolean;
+      timeoutMs: number;
+      maxTokens: number;
+      maxContentLength: number;
+      maxSuggestedQuestions: number;
+      maxSuggestedQuestionLength: number;
+      inputSummaryMaxLength: number;
+      maxToolExecutionSummaries: number;
+    };
     toolWrapper: {
       defaultTimeoutMs: number;
       modelVisibleSummaryMaxLength: number;
@@ -104,7 +114,7 @@ export const agentRuntimeConfig = {
       /** temperature 越高越容易改变 tool calling 决策；生产默认保持确定性。 */
       temperature: 0,
       /** maxTokens 限制最终回答和 tool 调用上下文的输出体积；调大增加成本和延迟。 */
-      maxTokens: 6_000,
+      maxTokens: 20_000,
       /** timeoutMs 限制单次 provider 请求等待时间；调小会增加慢响应失败，调大增加请求占用。 */
       timeoutMs: 30_000,
       /** toolCalling 控制 provider native tools 暴露方式；schema 正确性仍由 wrapper Zod 校验。 */
@@ -134,6 +144,25 @@ export const agentRuntimeConfig = {
       overallTimeoutMs: 40_000,
       /** structuredOutputValidationTimeoutMs 限制终态结构化校验等待时间，防止 validator 卡住响应投影。 */
       structuredOutputValidationTimeoutMs: 3_000,
+    },
+    /** terminalFailureFinalizer 控制主 Agent 失败后的受限模型兜底回复，不参与业务 tool loop。 */
+    terminalFailureFinalizer: {
+      /** defaultEnabled 控制生产失败后是否默认尝试模型兜底；关闭时直接走确定性 fallback。 */
+      defaultEnabled: true,
+      /** timeoutMs 限制 finalizer 单次模型调用等待时间，避免失败收口拖住 stream。 */
+      timeoutMs: 12_000,
+      /** maxTokens 限制 finalizer 回复体积；finalizer 只输出普通解释和建议问题。 */
+      maxTokens: 900,
+      /** maxContentLength 限制用户可见兜底正文长度。 */
+      maxContentLength: 900,
+      /** maxSuggestedQuestions 限制 finalizer 可输出的建议问题数量。 */
+      maxSuggestedQuestions: 3,
+      /** maxSuggestedQuestionLength 限制单条建议问题长度。 */
+      maxSuggestedQuestionLength: 80,
+      /** inputSummaryMaxLength 限制 finalizer 模型输入中每段诊断摘要长度。 */
+      inputSummaryMaxLength: 1_200,
+      /** maxToolExecutionSummaries 限制传给 finalizer 的 tool 执行摘要数量。 */
+      maxToolExecutionSummaries: 6,
     },
     /** toolWrapper 控制所有 LangChain tool wrapper 的默认超时和投影裁剪预算。 */
     toolWrapper: {

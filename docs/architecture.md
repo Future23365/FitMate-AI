@@ -347,7 +347,7 @@ ConversationBusinessFact 持久化为后续轮次可读取事实
 
 ### 11.5 失败收口、trace 与 usage
 
-当前 LangChain 主链失败后，production response adapter 会按错误类型输出安全 fallback；旧 `terminal-failure-finalizer` 属于旧自研主链遗留能力，不再是 `/api/chat` 当前生产主链的必经步骤。
+当前 LangChain 主链失败后，`/api/chat` 会先尝试受限 terminal failure finalizer：它只接收脱敏失败摘要、schema issue 摘要和已验证 tool 事实摘要，只能生成普通 `content` 与可选 `suggested_questions`。finalizer 跳过、超时、provider 失败或输出不合法时，production response adapter 再按错误类型输出确定性安全 fallback。finalizer 不恢复旧 `AgentAction` JSON、不执行业务 tool、不生成或保存 `visible_output`。
 
 AI trace 用于开发和内测诊断：
 

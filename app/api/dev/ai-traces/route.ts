@@ -49,7 +49,6 @@ const traceLogSensitiveKeyPatterns = [
   /credential/i,
   /handler/i,
   /database/i,
-  /^payload$/i,
   /tool[_-]?output/i,
 ];
 const traceLongTextFileName = "ai_trace_texts.jsonl";

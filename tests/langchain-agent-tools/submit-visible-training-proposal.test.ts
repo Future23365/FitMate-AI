@@ -116,6 +116,13 @@ describe("submitVisibleTrainingProposal LangChain tool", () => {
       toolName: "submitVisibleTrainingProposal",
       status: "failed",
       failureCode: "tool_schema_invalid",
+      schemaIssues: [
+        expect.objectContaining({
+          path: "payload",
+          code: expect.any(String),
+          message: expect.any(String),
+        }),
+      ],
       enteredModelContext: true,
     });
   });

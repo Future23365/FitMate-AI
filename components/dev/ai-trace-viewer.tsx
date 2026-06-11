@@ -1960,6 +1960,7 @@ function createLangChainToolExecutionReport(execution: Record<string, unknown>) 
     modelCallIndex: readNumber(execution.modelCallIndex),
     runtimeStep: readNumber(execution.runtimeStep),
     failureCode: readString(execution.failureCode),
+    schemaIssues: execution.schemaIssues,
   };
 }
 

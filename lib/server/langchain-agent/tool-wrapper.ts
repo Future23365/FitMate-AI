@@ -14,6 +14,7 @@ import type {
   LangChainAgentToolExecution,
   LangChainAgentRuntimeErrorCode,
   LangChainJsonValue,
+  LangChainAgentSchemaIssue,
 } from "./types";
 
 export type LangChainToolWrapperContext = {
@@ -173,6 +174,7 @@ export async function executeLangChainToolWrapper<SchemaT extends z.ZodObject, O
       inputSummary,
       failureCode: "tool_schema_invalid",
       failureMessage: "工具参数未通过服务端 schema 校验。",
+      schemaIssues: summarizeZodIssues(parsedInput.error),
       modelMessage: {
         status: "failed",
         code: "tool_schema_invalid",
@@ -196,6 +198,7 @@ export async function executeLangChainToolWrapper<SchemaT extends z.ZodObject, O
         inputSummary,
         failureCode: "structured_output_validation_failed",
         failureMessage: "工具输出未通过服务端 schema 校验。",
+        schemaIssues: summarizeZodIssues(parsedOutput.error),
         modelMessage: {
           status: "failed",
           code: "structured_output_validation_failed",
@@ -282,6 +285,7 @@ function createFailedToolExecution(input: {
   inputSummary: LangChainJsonValue;
   failureCode: LangChainAgentRuntimeErrorCode;
   failureMessage: string;
+  schemaIssues?: readonly LangChainAgentSchemaIssue[];
   modelMessage: LangChainJsonValue;
 }): { modelMessage: string; record: LangChainAgentToolExecution } {
   return {
@@ -297,7 +301,43 @@ function createFailedToolExecution(input: {
       inputSummary: input.inputSummary,
       failureCode: input.failureCode,
       failureMessage: input.failureMessage,
+      ...(input.schemaIssues?.length ? { schemaIssues: input.schemaIssues } : {}),
       enteredModelContext: true,
     },
   };
+}
+
+// summarizeZodIssues 只记录可定位 schema 问题的稳定字段，避免把完整 tool payload 写进 trace。
+function summarizeZodIssues(error: z.ZodError): readonly LangChainAgentSchemaIssue[] {
+  return error.issues.slice(0, 20).map((issue) => {
+    const baseIssue: LangChainAgentSchemaIssue = {
+      path: issue.path.length ? issue.path.map(String).join(".") : "$",
+      code: issue.code,
+      message: issue.message,
+    };
+    const details = issue as z.ZodIssue & {
+      keys?: unknown;
+      expected?: unknown;
+      received?: unknown;
+      options?: unknown;
+    };
+
+    return {
+      ...baseIssue,
+      ...readStringArrayIssueField(details.keys, "keys"),
+      ...readStringIssueField(details.expected, "expected"),
+      ...readStringIssueField(details.received, "received"),
+      ...readStringArrayIssueField(details.options, "options"),
+    };
+  });
+}
+
+function readStringIssueField(value: unknown, key: "expected" | "received") {
+  return typeof value === "string" ? { [key]: value } : {};
+}
+
+function readStringArrayIssueField(value: unknown, key: "keys" | "options") {
+  return Array.isArray(value)
+    ? { [key]: value.slice(0, 20).map(String) }
+    : {};
 }

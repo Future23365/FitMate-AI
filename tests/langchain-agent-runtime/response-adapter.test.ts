@@ -262,6 +262,52 @@ describe("LangChain Agent response adapter", () => {
     });
     expect(JSON.stringify(toolFailureProjection.events)).not.toContain("invalid args");
   });
+
+  it("projects terminal failure finalizer output as normal chat events without visible outputs", () => {
+    const projection = createLangChainAgentResponseProjection({
+      result: createFailure({
+        code: "budget_exhausted",
+        message: "recursion",
+        retryable: true,
+        toolExecutions: [
+          {
+            toolName: "submitVisibleTrainingProposal",
+            status: "failed",
+            failureCode: "tool_schema_invalid",
+            enteredModelContext: true,
+          },
+        ],
+      }),
+      terminalFailureFinalizerOutput: {
+        content: "这次没有生成可靠训练卡片。你可以先缩小成一次训练再试。",
+        suggestedQuestions: ["先生成一次 30 分钟徒手训练"],
+      },
+      terminalFailureFinalizerTrace: {
+        status: "succeeded",
+        failureCategory: "budget_exhausted",
+        errorCode: "budget_exhausted",
+      },
+    });
+
+    expect(projection).toMatchObject({
+      projectionType: "terminal_failure_finalizer",
+      events: [
+        { type: "content", content: "这次没有生成可靠训练卡片。你可以先缩小成一次训练再试。" },
+        { type: "suggested_questions", suggestedQuestions: ["先生成一次 30 分钟徒手训练"] },
+        { type: "done" },
+      ],
+      summary: {
+        eventTypes: ["content", "suggested_questions", "done"],
+        visibleOutputCount: 0,
+        errorCode: "budget_exhausted",
+        terminalFailureFinalizer: {
+          status: "succeeded",
+          failureCategory: "budget_exhausted",
+        },
+      },
+    });
+    expect(JSON.stringify(projection.events)).not.toContain("visible_output");
+  });
 });
 
 function createFailure(input: {

@@ -44,6 +44,19 @@ export {
 } from "./runtime";
 
 export {
+  buildLangChainTerminalFailureFinalizerInput,
+  buildLangChainTerminalFailureFinalizerSystemPrompt,
+  runLangChainTerminalFailureFinalizer,
+  type LangChainTerminalFailureFinalizerDegradedReason,
+  type LangChainTerminalFailureFinalizerFailureCategory,
+  type LangChainTerminalFailureFinalizerInput,
+  type LangChainTerminalFailureFinalizerResult,
+  type LangChainTerminalFailureFinalizerSkipReason,
+  type LangChainTerminalFailureFinalizerTraceSummary,
+  type RunLangChainTerminalFailureFinalizerInput,
+} from "./terminal-failure-finalizer";
+
+export {
   createLangChainAgentResponseProjection,
   summarizeLangChainAgentResponseProjection,
   type CreateLangChainAgentResponseProjectionInput,
@@ -93,6 +106,7 @@ export type {
   LangChainAgentToolExecution,
   LangChainAgentToolExecutionStatus,
   LangChainJsonValue,
+  LangChainTerminalFailureFinalizerOutput,
   LangChainTokenUsage,
   LangChainValidatedVisibleOutput,
 } from "./types";

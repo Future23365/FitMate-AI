@@ -8,8 +8,10 @@ import type {
   LangChainAgentRuntimeErrorCode,
   LangChainAgentToolExecution,
   LangChainJsonValue,
+  LangChainTerminalFailureFinalizerOutput,
   LangChainValidatedVisibleOutput,
 } from "./types";
+import type { LangChainTerminalFailureFinalizerTraceSummary } from "./terminal-failure-finalizer";
 
 export type LangChainAgentStreamEvent =
   | { type: "content"; content: string }
@@ -31,12 +33,15 @@ export type LangChainAgentResponseProjectionType =
   | "provider_unavailable_fallback"
   | "budget_timeout_fallback"
   | "tool_failure_fallback"
+  | "terminal_failure_finalizer"
   | "response_adapter_failed"
   | "transport_config_failure";
 
 export type CreateLangChainAgentResponseProjectionInput = {
   result: LangChainAgentRunResult;
   validatedVisibleOutputs?: readonly LangChainValidatedVisibleOutput[];
+  terminalFailureFinalizerOutput?: LangChainTerminalFailureFinalizerOutput;
+  terminalFailureFinalizerTrace?: LangChainTerminalFailureFinalizerTraceSummary;
 };
 
 export type LangChainAgentResponseProjection = {
@@ -57,6 +62,11 @@ export type LangChainAgentResponseProjectionSummary = {
   }[];
   errorCode?: string;
   projectionType: LangChainAgentResponseProjectionType;
+  terminalFailureFinalizer?: {
+    status: "succeeded" | "skipped" | "failed";
+    reason?: string;
+    failureCategory?: string;
+  };
 };
 
 const langChainProviderUnavailableFailureMessage = "模型服务暂时不可用或请求受限，所以这次不能继续生成可靠回复。你可以稍后重试，或先把问题缩小后再发一次。";
@@ -76,12 +86,13 @@ export function createLangChainAgentResponseProjection(
 ): LangChainAgentResponseProjection {
   const events = input.result.ok
     ? createSuccessEvents(input)
-    : createFailureEvents(input.result);
-  const projectionType = resolveProjectionType(input.result, events);
+    : createFailureEvents(input);
+  const projectionType = resolveProjectionType(input, events);
   const summary = summarizeLangChainAgentResponseProjection({
     result: input.result,
     events,
     projectionType,
+    terminalFailureFinalizerTrace: input.terminalFailureFinalizerTrace,
   });
 
   return {
@@ -96,6 +107,7 @@ export function summarizeLangChainAgentResponseProjection(input: {
   result: LangChainAgentRunResult;
   events: readonly LangChainAgentStreamEvent[];
   projectionType: LangChainAgentResponseProjectionType;
+  terminalFailureFinalizerTrace?: LangChainTerminalFailureFinalizerTraceSummary;
 }): LangChainAgentResponseProjectionSummary {
   return {
     eventTypes: input.events.map((event) => event.type),
@@ -110,13 +122,24 @@ export function summarizeLangChainAgentResponseProjection(input: {
       enteredModelContext: execution.enteredModelContext,
     })),
     ...(!input.result.ok ? { errorCode: input.result.code } : {}),
+    ...(input.terminalFailureFinalizerTrace
+      ? {
+          terminalFailureFinalizer: {
+            status: input.terminalFailureFinalizerTrace.status,
+            ...(input.terminalFailureFinalizerTrace.reason ? { reason: input.terminalFailureFinalizerTrace.reason } : {}),
+            ...(input.terminalFailureFinalizerTrace.failureCategory
+              ? { failureCategory: input.terminalFailureFinalizerTrace.failureCategory }
+              : {}),
+          },
+        }
+      : {}),
     projectionType: input.projectionType,
   };
 }
 
 function createSuccessEvents(input: CreateLangChainAgentResponseProjectionInput): LangChainAgentStreamEvent[] {
   if (!input.result.ok) {
-    return createFailureEvents(input.result);
+    return createFailureEvents(input);
   }
 
   const content = input.result.finalText.trim();
@@ -147,7 +170,30 @@ function createSuccessEvents(input: CreateLangChainAgentResponseProjectionInput)
   return events;
 }
 
-function createFailureEvents(result: Extract<LangChainAgentRunResult, { ok: false }>): LangChainAgentStreamEvent[] {
+function createFailureEvents(input: CreateLangChainAgentResponseProjectionInput): LangChainAgentStreamEvent[] {
+  const result = input.result;
+
+  if (!result.ok && input.terminalFailureFinalizerOutput) {
+    const events: LangChainAgentStreamEvent[] = [
+      { type: "content", content: input.terminalFailureFinalizerOutput.content },
+    ];
+    const suggestedQuestions = input.terminalFailureFinalizerOutput.suggestedQuestions
+      .slice(0, agentRuntimeConfig.langChain.terminalFailureFinalizer.maxSuggestedQuestions)
+      .map((question) => question.trim())
+      .filter(Boolean);
+
+    if (suggestedQuestions.length) {
+      events.push({ type: "suggested_questions", suggestedQuestions });
+    }
+
+    events.push({ type: "done" });
+    return events;
+  }
+
+  if (result.ok) {
+    return createSuccessEvents(input);
+  }
+
   if (result.code === "config_missing") {
     return [
       {
@@ -170,10 +216,15 @@ function createFailureEvents(result: Extract<LangChainAgentRunResult, { ok: fals
 }
 
 function resolveProjectionType(
-  result: LangChainAgentRunResult,
+  input: CreateLangChainAgentResponseProjectionInput,
   events: readonly LangChainAgentStreamEvent[],
 ): LangChainAgentResponseProjectionType {
+  const result = input.result;
+
   if (!result.ok) {
+    if (events.some((event) => event.type === "content") && input.terminalFailureFinalizerOutput) {
+      return "terminal_failure_finalizer";
+    }
     if (result.code === "config_missing") {
       return "transport_config_failure";
     }

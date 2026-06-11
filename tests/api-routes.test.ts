@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { agentRuntimeConfig } from "@/lib/server/config";
+
 import { createChatConversation, createExercise, createWorkoutRoutine, createWorkoutSchedule } from "./fixtures/domain";
 
 const traceMocks = vi.hoisted(() => ({
@@ -197,20 +199,8 @@ describe("API route boundaries", () => {
   });
 
   it("streams /api/chat final answers from the production text Agent flow", async () => {
-    const fetchMock = vi.fn().mockResolvedValueOnce(Response.json({
-      model: "deepseek-v4-flash",
-      choices: [
-          {
-            message: {
-              role: "assistant",
-              content: "可以，今天先做低强度胸部训练。",
-            },
-          },
-      ],
-      usage: {
-        prompt_tokens: 20,
-        completion_tokens: 8,
-      },
+    const fetchMock = vi.fn().mockResolvedValueOnce(deepSeekStructuredFinalResponse({
+      content: "可以，今天先做低强度胸部训练。",
     }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -297,16 +287,8 @@ describe("API route boundaries", () => {
           },
         ],
       }))
-      .mockResolvedValueOnce(Response.json({
-        model: "deepseek-v4-flash",
-        choices: [
-          {
-            message: {
-              role: "assistant",
-              content: "已确认动作库里有俯卧撑，可以作为主训练候选。",
-            },
-          },
-        ],
+      .mockResolvedValueOnce(deepSeekStructuredFinalResponse({
+        content: "已确认动作库里有俯卧撑，可以作为主训练候选。",
       }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -390,16 +372,8 @@ describe("API route boundaries", () => {
       finish: vi.fn(),
       update: vi.fn(),
     });
-    const fetchMock = vi.fn().mockResolvedValueOnce(Response.json({
-      model: "deepseek-v4-flash",
-      choices: [
-        {
-          message: {
-            role: "assistant",
-            content: "trace 写入失败也不影响回复。",
-          },
-        },
-      ],
+    const fetchMock = vi.fn().mockResolvedValueOnce(deepSeekStructuredFinalResponse({
+      content: "trace 写入失败也不影响回复。",
     }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -447,16 +421,8 @@ describe("API route boundaries", () => {
           },
         ],
       }))
-      .mockResolvedValueOnce(Response.json({
-        model: "deepseek-v4-flash",
-        choices: [
-          {
-            message: {
-              role: "assistant",
-              content: "工具参数需要修正，我不会把这次查询当作成功事实。",
-            },
-          },
-        ],
+      .mockResolvedValueOnce(deepSeekStructuredFinalResponse({
+        content: "工具参数需要修正，我不会把这次查询当作成功事实。",
       }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -533,16 +499,8 @@ describe("API route boundaries", () => {
           },
         ],
       }))
-      .mockResolvedValueOnce(Response.json({
-        model: "deepseek-v4-flash",
-        choices: [
-          {
-            message: {
-              role: "assistant",
-              content: "已生成一个经过校验的训练动作卡片。",
-            },
-          },
-        ],
+      .mockResolvedValueOnce(deepSeekStructuredFinalResponse({
+        content: "已生成一个经过校验的训练动作卡片。",
       }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -632,16 +590,8 @@ describe("API route boundaries", () => {
           },
         ],
       }))
-      .mockResolvedValueOnce(Response.json({
-        model: "deepseek-v4-flash",
-        choices: [
-          {
-            message: {
-              role: "assistant",
-              content: "这个动作没通过数据库校验，我不会生成训练卡片。",
-            },
-          },
-        ],
+      .mockResolvedValueOnce(deepSeekStructuredFinalResponse({
+        content: "这个动作没通过数据库校验，我不会生成训练卡片。",
       }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -665,6 +615,80 @@ describe("API route boundaries", () => {
     expect(visibleTrainingProposalFactStoreMocks.persistVisibleTrainingProposalFactsFromEvents).toHaveBeenCalledWith(expect.objectContaining({
       messageId: "assistant-visible-output-invalid",
       events: [],
+    }));
+  });
+
+  it("uses the terminal failure finalizer before the deterministic /api/chat fallback", async () => {
+    const requestedToolCalls = agentRuntimeConfig.langChain.runBudget.maxToolCalls + 1;
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json({
+        model: "deepseek-v4-flash",
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: null,
+              tool_calls: Array.from({ length: requestedToolCalls }, (_, index) => ({
+                id: `call_finalizer_budget_${index + 1}`,
+                type: "function",
+                function: {
+                  name: "resolveExerciseResourceMentions",
+                  arguments: JSON.stringify({
+                    mentions: [{ text: `俯卧撑 ${index + 1}`, sectionHint: "training" }],
+                  }),
+                },
+              })),
+            },
+            finish_reason: "tool_calls",
+          },
+        ],
+      }))
+      .mockResolvedValueOnce(deepSeekStructuredFinalResponse({
+        content: "预算耗尽后这条主链结果不应该作为成功回复。",
+      }))
+      .mockResolvedValueOnce(deepSeekStructuredFinalResponse({
+        content: "这次没有生成可靠的训练结果。你可以缩小目标后让我重新生成。",
+        suggestedQuestions: ["帮我生成 20 分钟徒手胸部训练"],
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await chatRoute.POST(jsonRequest("/api/chat", {
+      latestUserMessage: "给我一个练胸训练",
+      conversationSummary: "用户想练胸。",
+      conversationId: "conversation-1",
+      responseMessageId: "assistant-terminal-finalizer",
+    }));
+    const rawEvents = parseNdjson(await response.text());
+    const events = rawEvents.filter((event) => event.type !== "agent_progress" && event.type !== "agent_loop");
+
+    expect(response.status).toBe(200);
+    expect(events).toEqual([
+      { type: "content", content: "这次没有生成可靠的训练结果。你可以缩小目标后让我重新生成。" },
+      { type: "suggested_questions", suggestedQuestions: ["帮我生成 20 分钟徒手胸部训练"] },
+      { type: "done" },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(exerciseRepositoryMocks.resolveExerciseResourceMentionSummaries).toHaveBeenCalledTimes(
+      agentRuntimeConfig.langChain.runBudget.maxToolCalls,
+    );
+    expect(traceMocks.startAiTrace.mock.results[0].value.addStep).toHaveBeenCalledWith(expect.objectContaining({
+      name: "LangChain Terminal Failure Finalizer",
+      type: "model_response",
+      output: expect.objectContaining({
+        status: "succeeded",
+        failureCategory: "budget_exhausted",
+        errorCode: "budget_exhausted",
+      }),
+      metadata: expect.objectContaining({
+        boundary: "terminal_failure_finalizer",
+        projectionType: "terminal_failure_finalizer",
+      }),
+    }));
+    expect(traceMocks.startAiTrace.mock.results[0].value.addStep).toHaveBeenCalledWith(expect.objectContaining({
+      type: "response_write",
+      metadata: expect.objectContaining({
+        projectionType: "terminal_failure_finalizer",
+      }),
     }));
   });
 
@@ -768,6 +792,33 @@ function params(id: string) {
 
 function parseNdjson(text: string) {
   return text.trim().split("\n").map((line) => JSON.parse(line));
+}
+
+/** deepSeekStructuredFinalResponse 模拟生产 LangChain provider structured output 的 JSON content 终态。 */
+function deepSeekStructuredFinalResponse(input: {
+  content: string;
+  suggestedQuestions?: string[];
+}) {
+  return Response.json({
+    model: "deepseek-v4-flash",
+    choices: [
+      {
+        message: {
+          role: "assistant",
+          content: JSON.stringify({
+            content: input.content,
+            ...(input.suggestedQuestions ? { suggestedQuestions: input.suggestedQuestions } : {}),
+          }),
+        },
+        finish_reason: "stop",
+      },
+    ],
+    usage: {
+      prompt_tokens: 20,
+      completion_tokens: 8,
+      total_tokens: 28,
+    },
+  });
 }
 
 function createMentionResolutionResult() {

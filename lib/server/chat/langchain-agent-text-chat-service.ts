@@ -4,10 +4,12 @@ import {
   createLangChainAgentResponseProjection,
   createProductionLangChainToolCatalog,
   runLangChainAgentRuntime,
+  runLangChainTerminalFailureFinalizer,
   type LangChainAgentMessage,
   type LangChainAgentRunResult,
   type LangChainAgentStreamEvent,
   type LangChainValidatedVisibleOutput,
+  type LangChainTerminalFailureFinalizerResult,
 } from "@/lib/server/langchain-agent";
 import { resolveLangChainDeepSeekProviderConfig } from "@/lib/server/config";
 import { readExerciseResourceFacetCatalog } from "@/lib/server/exercises/exercise-repository";
@@ -108,7 +110,23 @@ export async function createLangChainAgentTextChatResponse(
       toolWrappers,
     });
     const validatedVisibleOutputs = collectLangChainValidatedVisibleOutputs(result);
-    const responseProjection = createLangChainAgentResponseProjection({ result, validatedVisibleOutputs });
+    const terminalFailureFinalizerResult = result.ok
+      ? undefined
+      : await runLangChainTerminalFailureFinalizer({
+          result,
+          userRequestSummary: summarizeLatestUserMessage(input.request.rawMessages),
+          providerConfigResult: providerConfig,
+        });
+    const responseProjection = createLangChainAgentResponseProjection({
+      result,
+      validatedVisibleOutputs,
+      ...(terminalFailureFinalizerResult?.status === "succeeded"
+        ? { terminalFailureFinalizerOutput: terminalFailureFinalizerResult.output }
+        : {}),
+      ...(terminalFailureFinalizerResult
+        ? { terminalFailureFinalizerTrace: terminalFailureFinalizerResult.trace }
+        : {}),
+    });
 
     await persistLangChainVisibleTrainingFacts({
       request: input.request,
@@ -120,6 +138,7 @@ export async function createLangChainAgentTextChatResponse(
       result,
       responseProjection,
       validatedVisibleOutputCount: validatedVisibleOutputs.length,
+      terminalFailureFinalizerResult,
     });
 
     await activityWriter.writeActivity("writing_reply");
@@ -318,11 +337,16 @@ function recordLangChainAgentTextChatTrace(input: {
   result: LangChainAgentRunResult;
   responseProjection: ReturnType<typeof createLangChainAgentResponseProjection>;
   validatedVisibleOutputCount?: number;
+  terminalFailureFinalizerResult?: LangChainTerminalFailureFinalizerResult;
 }) {
   try {
     recordLangChainAgentRuntimeDetailTrace({
       trace: input.trace,
       result: input.result,
+    });
+    recordLangChainTerminalFailureFinalizerTrace({
+      trace: input.trace,
+      terminalFailureFinalizerResult: input.terminalFailureFinalizerResult,
     });
 
     input.trace.addStep({
@@ -374,6 +398,32 @@ function recordLangChainAgentTextChatTrace(input: {
   } catch {
     // trace 是非致命诊断，写入失败不能重试模型或改变响应。
   }
+}
+
+function recordLangChainTerminalFailureFinalizerTrace(input: {
+  trace: ReturnType<typeof startAiTrace>;
+  terminalFailureFinalizerResult?: LangChainTerminalFailureFinalizerResult;
+}) {
+  const finalizerResult = input.terminalFailureFinalizerResult;
+
+  if (!finalizerResult) {
+    return;
+  }
+
+  input.trace.addStep({
+    name: "LangChain Terminal Failure Finalizer",
+    type: finalizerResult.status === "succeeded" ? "model_response" : "runtime_event",
+    status: finalizerResult.status === "failed" ? "failed" : undefined,
+    output: finalizerResult.trace,
+    metadata: {
+      pipeline: "langchain-agent-text-chat",
+      boundary: "terminal_failure_finalizer",
+      status: finalizerResult.status,
+      projectionType: finalizerResult.status === "succeeded"
+        ? "terminal_failure_finalizer"
+        : "deterministic_fallback",
+    },
+  });
 }
 
 function recordLangChainAgentRuntimeDetailTrace(input: {

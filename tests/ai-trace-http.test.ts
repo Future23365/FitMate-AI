@@ -250,7 +250,7 @@ describe("AI trace store and HTTP request helpers", () => {
   it("saves full trace logs as a lightweight report plus long text mapping", async () => {
     const longModelText = `模型可见长文本 ${"请严格遵守 AgentAction 合同。".repeat(5000)}`;
     const longDetailText = `完整 runtime 详情 ${"保留 input output metadata 方便复盘。".repeat(3000)}`;
-    const sensitivePayloadText = `不要保存完整 payload ${"secret ".repeat(120)}`;
+    const diagnosticPayloadText = `保留可排查 payload ${"exercise ".repeat(120)}`;
     const response = await devTraceRoute.POST(jsonRequest("/api/dev/ai-traces", {
       logType: "trace",
       payload: {
@@ -270,9 +270,9 @@ describe("AI trace store and HTTP request helpers", () => {
             contentRef: "text_0002",
             path: "$.trace.steps[0].output.payload",
             kind: "trace_step_output",
-            originalLength: sensitivePayloadText.length,
+            originalLength: diagnosticPayloadText.length,
             hash: "fnv1a:22222222",
-            preview: "不要保存完整 payload",
+            preview: "保留可排查 payload",
             textFile: "codex_logs/ai_trace_texts.jsonl",
           },
         ],
@@ -290,10 +290,10 @@ describe("AI trace store and HTTP request helpers", () => {
             contentRef: "text_0002",
             path: "$.trace.steps[0].output.payload",
             kind: "trace_step_output",
-            originalLength: sensitivePayloadText.length,
+            originalLength: diagnosticPayloadText.length,
             hash: "fnv1a:22222222",
-            preview: "不要保存完整 payload",
-            content: sensitivePayloadText,
+            preview: "保留可排查 payload",
+            content: diagnosticPayloadText,
           },
         ],
         plannerModelCalls: [
@@ -344,6 +344,10 @@ describe("AI trace store and HTTP request helpers", () => {
                 type: "tool_execution",
                 toolName: "readFixture",
                 toolResultId: "tr_1",
+                payload: {
+                  exerciseId: "Pushups",
+                  authorization: "Bearer secret-token",
+                },
                 diagnostic: longDetailText,
               },
               metadata: { authorization: "Bearer secret-token" },
@@ -356,7 +360,7 @@ describe("AI trace store and HTTP request helpers", () => {
           steps: [
             {
               type: "runtime_event",
-              output: { payload: "不要保存完整 payload" },
+              output: { payload: "保留可排查 payload" },
               metadata: { authorization: "Bearer secret-token" },
             },
           ],
@@ -378,7 +382,7 @@ describe("AI trace store and HTTP request helpers", () => {
 
     expect(savedContent).not.toContain("sk-secret-value");
     expect(savedContent).not.toContain("Bearer secret-token");
-    expect(savedContent).not.toContain("不要保存完整 payload");
+    expect(savedContent).toContain("保留可排查 payload");
     expect(savedContent).not.toContain(longModelText);
     expect(savedContent).not.toContain(longDetailText);
     expect(savedContent).toContain("plannerModelCalls");
@@ -401,8 +405,7 @@ describe("AI trace store and HTTP request helpers", () => {
     expect(longTextContent).toContain("\"recordType\":\"text_chunk\"");
     expect(longTextContent).toContain("\"recordType\":\"detail\"");
     expect(longTextContent).toContain("\"recordType\":\"detail_chunk\"");
-    expect(longTextContent).toContain("\"content\":\"[redacted]\"");
-    expect(longTextContent).not.toContain(sensitivePayloadText);
+    expect(longTextContent).toContain(diagnosticPayloadText.slice(0, 80));
     expect(longTextContent).not.toContain("Bearer secret-token");
     expect(longTextContent).not.toContain("...[truncated]");
     const mappingRecords = parseJsonlRecords(longTextContent);
@@ -414,7 +417,9 @@ describe("AI trace store and HTTP request helpers", () => {
     expect(textChunks.length).toBeGreaterThan(1);
     expect(textChunks.map((record) => record.content).join("")).toBe(longModelText);
     expect(detailChunks.length).toBeGreaterThan(1);
-    expect(detailChunks.map((record) => record.content).join("")).toContain(longDetailText);
+    const detailContent = detailChunks.map((record) => record.content).join("");
+    expect(detailContent).toContain(longDetailText);
+    expect(detailContent).toContain("\"authorization\": \"[redacted]\"");
     expect(contentRefRecords).toHaveLength(1);
     expect(detailRefRecords).toHaveLength(1);
     expect(textChunks.every((record) => record.contentRef === undefined)).toBe(true);
