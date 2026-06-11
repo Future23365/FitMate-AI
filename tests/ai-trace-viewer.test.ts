@@ -209,11 +209,13 @@ describe("AI trace viewer step grouping", () => {
           runtimeVersion: "langchain-agent-runtime-v1",
           model: "deepseek-v4-flash",
           toolNames: ["searchExerciseResources", "submitVisibleTrainingProposal"],
-          providerToolCalls: [
-            expect.objectContaining({ id: "call_search_1", name: "searchExerciseResources" }),
-            expect.objectContaining({ id: "call_submit_1", name: "submitVisibleTrainingProposal" }),
-          ],
+          providerToolCallCount: 2,
+          toolExecutionCount: 2,
           structuredOutputValidation: { validatedVisibleOutputCount: 1 },
+          detailRef: expect.objectContaining({
+            kind: "langchain_runtime_detail",
+            path: "$.langChainRuntimeSummaries[0]",
+          }),
         }),
       ],
       providerToolCalls: [
@@ -475,16 +477,12 @@ describe("AI trace viewer step grouping", () => {
       langChainRuntimeSummaries: [
         expect.objectContaining({
           modelCallCount: 2,
-          modelCalls: [
-            expect.objectContaining({
-              modelCallIndex: 1,
-              tokenUsage: { prompt_tokens: 14, completion_tokens: 3, total_tokens: 17 },
-            }),
-            expect.objectContaining({
-              modelCallIndex: 2,
-              tokenUsage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 },
-            }),
-          ],
+          providerToolCallCount: 1,
+          toolExecutionCount: 1,
+          detailRef: expect.objectContaining({
+            kind: "langchain_runtime_detail",
+            path: "$.langChainRuntimeSummaries[0]",
+          }),
         }),
       ],
       providerToolCalls: [
@@ -639,12 +637,14 @@ describe("AI trace viewer step grouping", () => {
           request: expect.objectContaining({ id: "step-model_request" }),
           response: expect.objectContaining({
             id: "step-model_response",
-            output: expect.objectContaining({
-              reasoning: expect.objectContaining({
-                received: true,
-                contentLength: 12,
-              }),
+            reasoning: expect.objectContaining({
+              received: true,
+              contentLength: 12,
             }),
+          }),
+          detailRef: expect.objectContaining({
+            kind: "model_call_detail",
+            path: "$.plannerModelCalls[0]",
           }),
         }),
       ],
@@ -673,23 +673,6 @@ describe("AI trace viewer step grouping", () => {
           detailRef: "detail_0001",
           kind: "full_trace",
         }),
-        steps: expect.arrayContaining([
-          expect.objectContaining({
-            id: "step-runtime_event",
-            type: "runtime_event",
-            eventType: "registry_snapshot",
-          }),
-          expect.objectContaining({
-            id: "step-model_request",
-            type: "model_request",
-            thinking: expect.objectContaining({ type: "enabled", reasoning_effort: "high" }),
-          }),
-          expect.objectContaining({
-            id: "step-model_response",
-            type: "model_response",
-            reasoning: expect.objectContaining({ received: true, contentLength: 12 }),
-          }),
-        ]),
       },
       groupedSteps: expect.arrayContaining([
         expect.objectContaining({
@@ -708,6 +691,10 @@ describe("AI trace viewer step grouping", () => {
           detailRef: "detail_0001",
           kind: "full_trace",
           path: "$.trace",
+        }),
+        expect.objectContaining({
+          kind: "model_call_detail",
+          path: "$.plannerModelCalls[0]",
         }),
         expect.objectContaining({
           kind: "runtime_event_detail",
@@ -854,6 +841,11 @@ describe("AI trace viewer step grouping", () => {
         content: longRawText,
       }),
     ]);
+    expect(longTextRefs[0]).toMatchObject({
+      contentRef: "text_0001",
+      pathCount: 2,
+    });
+    expect(longTextRefs[0]).not.toHaveProperty("paths");
   });
 
   it("merges chunked model request trace envelopes into one long text mapping", () => {

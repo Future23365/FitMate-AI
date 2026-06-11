@@ -90,11 +90,15 @@ type TraceLogLongTextKind =
 
 type TraceLogDetailKind =
   | "full_trace"
+  | "model_call_detail"
+  | "langchain_runtime_detail"
+  | "tool_execution_detail"
   | "runtime_event_detail";
 
 export type TraceLogLongTextRef = {
   contentRef: string;
   path: string;
+  pathCount?: number;
   kind: TraceLogLongTextKind;
   originalLength: number;
   hash: string;
@@ -1668,6 +1672,69 @@ function readPlannerModelCalls(trace: AiTrace) {
   return Array.from(calls.values());
 }
 
+function createPlannerModelCallReport(call: Record<string, unknown>) {
+  const request = isRecord(call.request) ? call.request : {};
+  const response = isRecord(call.response) ? call.response : {};
+  const requestInput = isRecord(request.input) ? request.input : {};
+  const requestOutput = isRecord(request.output) ? request.output : {};
+  const requestMetadata = isRecord(request.metadata) ? request.metadata : {};
+  const responseOutput = isRecord(response.output) ? response.output : {};
+  const responseMetadata = isRecord(response.metadata) ? response.metadata : {};
+  const providerToolCalls = Array.isArray(responseOutput.providerToolCalls) ? responseOutput.providerToolCalls : [];
+  const responseBody = isRecord(responseOutput.response) ? responseOutput.response : {};
+  const toolNames = readStringArray(requestInput.toolNames);
+
+  return {
+    plannerCallIndex: readNumber(call.plannerCallIndex),
+    modelCallIndex: readNumber(call.modelCallIndex)
+      ?? readNumber(requestOutput.modelCallIndex)
+      ?? readNumber(responseOutput.modelCallIndex)
+      ?? readNumber(requestMetadata.modelCallIndex)
+      ?? readNumber(responseMetadata.modelCallIndex),
+    runtimeStep: readNumber(responseOutput.runtimeStep)
+      ?? readNumber(requestOutput.runtimeStep)
+      ?? readNumber(responseMetadata.runtimeStep)
+      ?? readNumber(requestMetadata.runtimeStep),
+    request: Object.keys(request).length > 0
+      ? {
+          id: readString(request.id),
+          messageCount: Array.isArray(requestInput.messages) ? requestInput.messages.length : undefined,
+          toolCount: readNumber(requestOutput.toolCount) ?? toolNames.length,
+          toolNames,
+          thinking: requestOutput.thinking ?? requestMetadata.thinking,
+        }
+      : undefined,
+    response: Object.keys(response).length > 0
+      ? {
+          id: readString(response.id),
+          status: readString(response.status),
+          parseStatus: readString(responseOutput.parseStatus),
+          actionType: readString(responseOutput.actionType),
+          toolName: readString(responseOutput.toolName),
+          toolCallCount: providerToolCalls.length || undefined,
+          providerToolCalls: providerToolCalls.map(createProviderToolCallReport),
+          contentPreview: readString(responseBody.contentPreview) ?? readString(responseOutput.contentPreview),
+          contentLength: readNumber(responseBody.contentLength) ?? readNumber(responseOutput.contentLength),
+          reasoning: responseOutput.reasoning ?? responseMetadata.reasoning,
+          failureCode: readString(responseOutput.failureCode),
+        }
+      : undefined,
+    tokenUsage: readTokenUsage(responseOutput.tokenUsage) ?? readTokenUsage(responseMetadata.tokenUsage),
+  };
+}
+
+function createProviderToolCallReport(value: unknown) {
+  const call = isRecord(value) ? value : {};
+
+  return {
+    id: readString(call.id) ?? readString(call.toolCallId),
+    name: readString(call.name) ?? readString(call.toolName),
+    modelCallIndex: readNumber(call.modelCallIndex),
+    runtimeStep: readNumber(call.runtimeStep),
+    argsSummary: call.argsSummary,
+  };
+}
+
 function readTraceResponseSummary(trace: AiTrace) {
   const responseStep = [...trace.steps].reverse().find((step) => step.type === "response_write");
 
@@ -1692,7 +1759,6 @@ function createTraceReportSummary(trace: AiTrace) {
     finalDecision: trace.finalDecision,
     metadata: trace.metadata,
     stepCount: trace.steps.length,
-    steps: trace.steps.map(createTraceStepReportSummary),
   };
 }
 
@@ -1753,13 +1819,12 @@ function summarizeRuntimeEventOutput(output: Record<string, unknown>) {
       runtimeVersion: readString(traceSummary.runtimeVersion),
       model: readString(traceSummary.model),
       toolNames: readStringArray(traceSummary.toolNames),
-      providerToolCalls: traceSummary.providerToolCalls,
-      modelCalls: traceSummary.modelCalls,
       modelCallCount: readNumber(traceSummary.modelCallCount),
       toolCallCount: readNumber(traceSummary.toolCallCount),
       messageCount: readNumber(traceSummary.messageCount),
       durationMs: readNumber(traceSummary.durationMs),
-      toolExecutions: output.toolExecutions,
+      providerToolCallCount: Array.isArray(traceSummary.providerToolCalls) ? traceSummary.providerToolCalls.length : undefined,
+      toolExecutionCount: Array.isArray(output.toolExecutions) ? output.toolExecutions.length : undefined,
       structuredOutputValidation: output.structuredOutputValidation,
     };
   }
@@ -1862,10 +1927,126 @@ function readLangChainRuntimeSummaries(trace: AiTrace) {
   });
 }
 
+function createLangChainRuntimeSummaryReport(summary: Record<string, unknown>) {
+  const toolExecutions = Array.isArray(summary.toolExecutions) ? summary.toolExecutions : [];
+  const providerToolCalls = Array.isArray(summary.providerToolCalls) ? summary.providerToolCalls : [];
+
+  return {
+    stepId: readString(summary.stepId),
+    runtimeVersion: readString(summary.runtimeVersion),
+    model: readString(summary.model),
+    toolNames: readStringArray(summary.toolNames),
+    modelCallCount: readNumber(summary.modelCallCount),
+    toolCallCount: readNumber(summary.toolCallCount),
+    messageCount: readNumber(summary.messageCount),
+    durationMs: readNumber(summary.durationMs),
+    providerToolCallCount: providerToolCalls.length,
+    toolExecutionCount: toolExecutions.length,
+    structuredOutputValidation: summary.structuredOutputValidation,
+  };
+}
+
+function createLangChainToolExecutionReport(execution: Record<string, unknown>) {
+  return {
+    toolCallId: readString(execution.toolCallId),
+    toolName: readString(execution.toolName),
+    status: readString(execution.status),
+    durationMs: readNumber(execution.durationMs),
+    inputSummary: execution.inputSummary,
+    modelVisibleSummary: execution.modelVisibleSummary,
+    traceSummary: execution.traceSummary,
+    enteredModelContext: execution.enteredModelContext,
+    sequence: readNumber(execution.sequence),
+    modelCallIndex: readNumber(execution.modelCallIndex),
+    runtimeStep: readNumber(execution.runtimeStep),
+    failureCode: readString(execution.failureCode),
+  };
+}
+
+function createProviderToolCallReports(summaries: Record<string, unknown>[]) {
+  return summaries.flatMap((summary) => (
+    Array.isArray(summary.providerToolCalls)
+      ? summary.providerToolCalls.map(createProviderToolCallReport)
+      : []
+  ));
+}
+
+function createLangChainToolExecutionReports(
+  summaries: Record<string, unknown>[],
+  detailState: TraceLogDetailState,
+) {
+  return summaries
+    .flatMap((summary) => (Array.isArray(summary.toolExecutions) ? summary.toolExecutions : []))
+    .filter((execution): execution is Record<string, unknown> => isRecord(execution))
+    .map((execution, index) => ({
+      ...createLangChainToolExecutionReport(execution),
+      detailRef: createTraceLogDetailEntry(detailState, {
+        path: `$.langChainToolExecutions[${index}]`,
+        kind: "tool_execution_detail",
+        summary: {
+          toolName: readString(execution.toolName),
+          status: readString(execution.status),
+          toolCallId: readString(execution.toolCallId),
+          runtimeStep: readNumber(execution.runtimeStep),
+          modelCallIndex: readNumber(execution.modelCallIndex),
+        },
+        content: execution,
+      }),
+    }));
+}
+
+function createLangChainRuntimeReports(
+  summaries: Record<string, unknown>[],
+  detailState: TraceLogDetailState,
+) {
+  return summaries.map((summary, index) => ({
+    ...createLangChainRuntimeSummaryReport(summary),
+    detailRef: createTraceLogDetailEntry(detailState, {
+      path: `$.langChainRuntimeSummaries[${index}]`,
+      kind: "langchain_runtime_detail",
+      summary: {
+        stepId: readString(summary.stepId),
+        runtimeVersion: readString(summary.runtimeVersion),
+        model: readString(summary.model),
+        modelCallCount: readNumber(summary.modelCallCount),
+        toolCallCount: readNumber(summary.toolCallCount),
+      },
+      content: summary,
+    }),
+  }));
+}
+
+function createPlannerModelCallReports(
+  calls: Record<string, unknown>[],
+  detailState: TraceLogDetailState,
+) {
+  return calls.map((call, index) => {
+    const report = createPlannerModelCallReport(call);
+
+    return {
+      ...report,
+      detailRef: createTraceLogDetailEntry(detailState, {
+        path: `$.plannerModelCalls[${index}]`,
+        kind: "model_call_detail",
+        summary: {
+          plannerCallIndex: report.plannerCallIndex,
+          modelCallIndex: report.modelCallIndex,
+          runtimeStep: report.runtimeStep,
+          actionType: isRecord(report.response) ? readString(report.response.actionType) : undefined,
+          toolName: isRecord(report.response) ? readString(report.response.toolName) : undefined,
+        },
+        content: call,
+      }),
+    };
+  });
+}
+
+// createTraceLogPayload 生成 Codex 优先阅读的轻量索引报告，完整证据通过 detailRef/contentRef 保留在映射文件。
 export function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) {
   const tokenUsageSummary = getTraceTokenUsage(trace);
   const agentLoops = buildAgentLoopTimeline(trace.steps);
   const langChainRuntimeSummaries = readLangChainRuntimeSummaries(trace);
+  const plannerModelCalls = readPlannerModelCalls(trace);
   const detailState: TraceLogDetailState = { details: [] };
   const traceDetailRef = createTraceLogDetailEntry(detailState, {
     path: "$.trace",
@@ -1928,10 +2109,10 @@ export function createTraceLogPayload(trace: AiTrace, groups: TraceStepGroup[]) 
       summary: group.summary,
       skipReason: group.skipReason,
     })),
-    plannerModelCalls: readPlannerModelCalls(trace),
-    langChainRuntimeSummaries,
-    providerToolCalls: langChainRuntimeSummaries.flatMap((summary) => summary.providerToolCalls),
-    langChainToolExecutions: langChainRuntimeSummaries.flatMap((summary) => summary.toolExecutions),
+    plannerModelCalls: createPlannerModelCallReports(plannerModelCalls, detailState),
+    langChainRuntimeSummaries: createLangChainRuntimeReports(langChainRuntimeSummaries, detailState),
+    providerToolCalls: createProviderToolCallReports(langChainRuntimeSummaries),
+    langChainToolExecutions: createLangChainToolExecutionReports(langChainRuntimeSummaries, detailState),
     tokenUsageSummary,
     runtimeTraceEvents: trace.steps
       .filter((step) => ["runtime_event", "validation", "token_budget", "tool_call", "final_response"].includes(step.type))
@@ -2068,7 +2249,10 @@ export function extractTraceLogLongTexts(payload: Record<string, unknown>) {
   };
   const report = replaceLongTextStrings(payload, "$", longTextState);
   const longTexts = longTextState.longTexts;
-  const longTextRefs = longTexts.map(({ content: _content, ...ref }) => ref);
+  const longTextRefs = longTexts.map(({ content: _content, paths, ...ref }) => ({
+    ...ref,
+    pathCount: paths.length,
+  }));
 
   return {
     ...(isRecord(report) ? report : { value: report }),
