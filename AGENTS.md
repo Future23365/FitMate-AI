@@ -5,8 +5,10 @@
 本项目是一个 AI 健身聊天助手。系统通过自然语言交互理解用户的健身目标、身体状态、训练限制、训练偏好和可用时间，并据此生成、调整和执行个性化训练计划。
 
 完整架构说明见：`docs/architecture.md`。
-AgentLoop架构设计：`docs/agent-tool-orchestrator-design.md`
+Agent / Tool 架构设计与迁移说明：`docs/agent-tool-orchestrator-design.md`
 Prompt设计规范：`docs/llm-prompt-guidance.md`
+
+当前生产 `/api/chat` 已迁移到 `LangChain Agent Runtime + @langchain/deepseek + DeepSeek native tool_calls`。旧自研 `AgentAction` / `PlannerPort` / `ToolRegistry` / `agent-core` 只能作为历史设计或迁移对照，不能作为当前生产主链的新实现目标。
 
 ## OpenSpec 使用规则
 
@@ -300,7 +302,7 @@ OpenSpec 生成或修改的说明性文档应使用中文，便于人工 review�
 ## AI 规则
 
 - 模型生成的数据必须使用 Structured Outputs、Zod Schema 或 JSON Schema 进行结构约束。
-- 所有发给模型的描述性自然语言 prompt / model input 默认使用中文，包括但不限于 system / developer prompt、tool manifest、`description`、`whenToUse`、`whenNotToUse`、schema description、examples description、repair feedback、observations、compressed tool results 和 final grounding 说明。
+- 所有发给模型的描述性自然语言 prompt / model input 默认使用中文，包括但不限于 system / developer prompt、LangChain tool description、schema description、examples description、tool result summary、repair feedback、observations、compressed tool results 和 final grounding 说明。
   - `toolName`、字段名、枚举值、action type、resource type、schema id、命令、路径、代码标识符和外部 API 标识必须保持英文原样，不要为了中文化而改动执行合同。
   - 如必须引用英文原文，应同时提供中文解释；不得只用英文说明模型可见的业务规则、使用条件或失败含义。
 - 所有模型输出在保存或执行前都必须经过服务端校验。
@@ -312,10 +314,10 @@ OpenSpec 生成或修改的说明性文档应使用中文，便于人工 review�
 
 ### AI / Agent 边界：模型能力优先，服务端只管契约
 
-- AI 相关需求或 bug 默认优先增强模型可用能力：tool、manifest / schema / examples、context / resource 摘要、repair feedback 和 grounding；不要用业务端编排分支替代模型自主 tool calling。
-- LLM 是自然语言语义理解的唯一来源。服务端不得基于用户原始文本、关键词、正则、短句模板、同义词表、历史摘要推断或业务特例改写 action、`toolName`、调用顺序、引用目标、调整目标或最终回答策略。
-- 服务端只校验确定性边界：Schema / enum / 字段自洽、权限隔离、数据库事实、resource 可访问/可消费、policy / confirmation、成本限流、安全拒绝、trace / projection / response rendering。
-- 当模型输出结构冲突、字段缺失、引用不可用或结果不可执行时，只能进入 LLM repair、向用户澄清或拒绝并返回可恢复错误；不得把该 intent 改写成另一个语义意图或 action。
+- AI 相关需求或 bug 默认优先增强模型可用能力：LangChain tool description / schema / examples、上下文摘要、tool result summary、失败反馈和 grounding；不要用业务端编排分支替代模型自主 tool calling。
+- LLM 是自然语言语义理解的唯一来源。服务端不得基于用户原始文本、关键词、正则、短句模板、同义词表、历史摘要推断或业务特例改写 provider `tool_calls`、`toolName`、调用顺序、引用目标、调整目标或最终回答策略。
+- 服务端只校验确定性边界：Schema / enum / 字段自洽、权限隔离、数据库事实、受控业务事实可访问/可消费、policy / confirmation、成本限流、安全拒绝、trace / projection / response adapter。
+- 当模型输出结构冲突、字段缺失、引用不可用或结果不可执行时，只能进入 LangChain tool wrapper 的结构化失败、terminal failure finalizer、向用户澄清或拒绝并返回可恢复错误；不得把该 intent 改写成另一个语义意图或 provider tool call。
 - Agent tool 按稳定 resource 和能力族设计。新增或调整 tool 前说明 resource、能力族（query / list / read / register / validate / policy / save / update）、同类变体和命名理由。
 - `recent`、`current`、`latest`、`fromCard`、`forThisFlow` 等如果只是当前需求默认值，应落到 filter / sort / limit / cursor / resource reference，不写进 `toolName`；通用范围只能覆盖同一资源、能力族、权限和投影边界。
 - bug 若表现为某个 phrasing、模型输出形态或 trace 个例失败，先按合同/上下文链路缺口定位根因，说明影响的同类变体、修复边界和回归测试；不能只修当前 case。
@@ -327,25 +329,25 @@ OpenSpec 生成或修改的说明性文档应使用中文，便于人工 review�
 
 1. 失败证据：只能描述本次 case 发生了什么。
 2. 通用合同：只能使用稳定抽象，例如引用对象、可见资源、tool result、resource role、grounding、repair、clarification。
-3. 业务实例：`visibleTrainingProposal`、`searchExerciseResources`、`inspectVisibleTrainingProposals` 等只能作为 tool manifest、observation 或测试样例出现，不得直接升格成通用 prompt 规则。
+3. 业务实例：`visibleTrainingProposal`、`searchExerciseResources`、`inspectVisibleTrainingProposals` 等只能作为 LangChain tool description、schema description、tool result summary、业务事实合同或测试样例出现，不得直接升格成通用 prompt 规则。
 4. 回归测试：可以包含用户原话和具体 tool 输出，但测试样例不得反向决定生产规则。
 
 禁止把以下形态作为修复方案：
 - “当用户说 X 时……”
 - “当 toolName = Y 且字段 Z = 某值时，模型必须……”
 - “针对这次 trace 的短句/资源/字段组合增加一条行为规则”
-- 服务端根据用户自然语言、关键词、短句模板或具体 phrasing 改写 action、toolName、回复策略。
+- 服务端根据用户自然语言、关键词、短句模板或具体 phrasing 改写 provider tool call、toolName、回复策略。
 
 如果方案中必须出现具体业务名，Codex 必须说明它属于：
 - tool 自身模型可见说明；
-- observation projection；
-- resource contract；
+- model-visible summary / tool result summary；
+- 受控业务事实或 resource contract；
 - 回归测试；
 而不是通用语义规则。
 
 给 Agent / prompt / tool 修复方案时，必须按以下顺序输出：
 
-1. 抽象问题类型：例如引用对象缺失、grounding 缺失、tool observation 不足、repair feedback 不足。
+1. 抽象问题类型：例如引用对象缺失、grounding 缺失、tool result summary 不足、失败反馈不足。
 2. 通用合同修复：不使用具体用户短句，不使用具体业务 toolName 作为触发条件。
 3. 业务 tool 局部说明：如需涉及具体 tool，只说明该 tool 暴露什么事实、不能支撑什么事实。
 4. 回归测试样例：具体用户输入和 trace 条件只能放在测试里。

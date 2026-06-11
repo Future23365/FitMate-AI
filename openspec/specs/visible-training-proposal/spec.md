@@ -3,27 +3,27 @@
 ## Purpose
 TBD - created by archiving change unify-visible-training-proposal. Update Purpose after archive.
 ## Requirements
-### Requirement: Final answer 必须通过通用 visibleOutputs 承载训练方案
-训练推送类 `final_answer` SHALL 使用通用 `visibleOutputs[]` 承载用户可见结构化输出。`visibleTrainingProposal` SHALL 作为 `visibleOutputs[]` 中 `outputType = "visibleTrainingProposal"` 的业务 payload 出现；用户可见正文 MUST NOT 作为动作、处方、编排或计划事实源保存或渲染。`agent-core` SHALL 只校验 visible output envelope 的通用结构，不得硬编码 `visibleTrainingProposal` 的健身业务字段。
+### Requirement: 训练方案必须通过 submitVisibleTrainingProposal 提交
+训练推送类结构化输出 SHALL 通过 LangChain 业务 tool `submitVisibleTrainingProposal` 提交。`visibleTrainingProposal` SHALL 作为该 tool input 中 `outputType = "visibleTrainingProposal"` 的业务 payload 出现；`fitmate_final_response.content` 只用于解释、提醒或总结，MUST NOT 作为动作、处方、编排或计划事实源保存或渲染。
 
-#### Scenario: final_answer 输出训练方案
+#### Scenario: submitVisibleTrainingProposal 输出训练方案
 - **WHEN** 模型需要向用户推送动作推荐、训练编排或多天计划
-- **THEN** 模型 MUST 输出 `final_answer.visibleOutputs[]`
-- **AND** 对应 visible output MUST 使用 `outputType = "visibleTrainingProposal"`
-- **AND** 对应 visible output MUST 使用 `schemaVersion = "1"`
-- **AND** 训练方案结构 MUST 位于该 visible output 的 `payload` 字段
-- **AND** `content` MUST 只用于解释、提醒或总结，不得作为训练事实源
+- **THEN** 模型 MUST 调用 `submitVisibleTrainingProposal`
+- **AND** tool input MUST 使用 `outputType = "visibleTrainingProposal"`
+- **AND** tool input MUST 使用 `schemaVersion = "1"`
+- **AND** 训练方案结构 MUST 位于该 tool input 的 `payload` 字段
+- **AND** 最终 `fitmate_final_response.content` MUST 只解释已通过服务端校验的结构，不得重新输出未校验 JSON
 
-#### Scenario: agent-core 处理 visible output envelope
-- **WHEN** `final_answer.visibleOutputs[]` 进入 Agent action 校验
-- **THEN** `agent-core` MUST 只校验 envelope 的通用字段、JSON 可序列化边界、数组大小和 terminal grounding
-- **AND** `agent-core` MUST NOT 读取 `visibleTrainingProposal.payload.exerciseItems`、`kind`、`prescription` 或 `schedule` 的业务含义
-- **AND** `agent-core` MUST NOT 按 `outputType = "visibleTrainingProposal"` 写业务分支
+#### Scenario: LangChain tool wrapper 处理 visible output envelope
+- **WHEN** `submitVisibleTrainingProposal` 接收 `visibleTrainingProposal` tool input
+- **THEN** tool wrapper MUST 先校验 envelope 的通用字段、JSON 可序列化边界和 schemaVersion
+- **AND** 业务 validator MUST 校验 `visibleTrainingProposal.payload.exerciseItems`、`kind`、`prescription`、`schedule` 和数据库动作事实
+- **AND** runtime MUST NOT 按用户原文、关键词或具体 phrasing 改写 `payload.kind`
 
 #### Scenario: 业务 validator 校验 visibleTrainingProposal
-- **WHEN** visible output 使用 `outputType = "visibleTrainingProposal"`
-- **THEN** terminal output validator registry MUST 调用训练方案业务 validator 校验 payload
-- **AND** 校验失败 MUST 进入结构化 repair、澄清或失败收口
+- **WHEN** tool input 使用 `outputType = "visibleTrainingProposal"`
+- **THEN** `submitVisibleTrainingProposal` MUST 调用训练方案业务 validator 校验 payload
+- **AND** 校验失败 MUST 返回 `status = "rejected"` 诊断、澄清或失败收口
 - **AND** 系统 MUST NOT 在校验失败后继续渲染或保存该训练方案
 
 ### Requirement: visibleTrainingProposal 必须声明 kind 并满足对应结构
@@ -89,7 +89,7 @@ TBD - created by archiving change unify-visible-training-proposal. Update Purpos
 #### Scenario: 推荐动作不需要处方
 - **WHEN** `visibleTrainingProposal.payload.kind` 为 `exercise_selection`
 - **THEN** 服务端 MUST 接受缺少 `prescription` 的 `training` 动作项
-- **AND** Response Renderer MUST 将该结果渲染为动作推荐而不是可执行编排
+- **AND** visible training proposal renderer / response adapter MUST 将该结果渲染为动作推荐而不是可执行编排
 
 #### Scenario: 处方与动作分离
 - **WHEN** 模型输出独立处方数组、正文处方、`restSeconds` 主合同字段或无法确定归属动作的执行参数
@@ -113,22 +113,22 @@ TBD - created by archiving change unify-visible-training-proposal. Update Purpos
 - **AND** `schedule` MUST NOT 复制多套不同 routine
 - **AND** 渲染结果 MUST NOT 引入 payload 中不存在的每日独立编排
 
-### Requirement: Response Renderer 和事实桥必须消费同一结构
-系统 SHALL 从已校验的 `visibleOutputs[]` 渲染用户可见训练推送，并在确认本轮 assistant response 对用户可见后，将同一份 `visibleTrainingProposal` payload 保存为跨轮事实。跨轮事实桥 MUST NOT 保存与用户可见结构不同的一份动作列表。
+### Requirement: response adapter 和事实桥必须消费同一结构
+系统 SHALL 从 `submitVisibleTrainingProposal` accepted 后生成的 `validatedVisibleOutputs` 渲染用户可见训练推送，并在确认本轮 assistant response 对用户可见后，将同一份 `visibleTrainingProposal` payload 保存为跨轮事实。跨轮事实桥 MUST NOT 保存与用户可见结构不同的一份动作列表。
 
 #### Scenario: 渲染动作推荐
-- **WHEN** `visibleOutputs[]` 包含 `outputType = "visibleTrainingProposal"` 且 payload `kind = "exercise_selection"`
-- **THEN** Response Renderer MUST 输出动作推荐可消费事件或等价结构化投影
+- **WHEN** `validatedVisibleOutputs` 包含 `outputType = "visibleTrainingProposal"` 且 payload `kind = "exercise_selection"`
+- **THEN** response adapter MUST 输出动作推荐可消费事件或等价结构化投影
 - **AND** 用户可见动作列表 MUST 来自 `payload.exerciseItems`
 
 #### Scenario: 渲染训练编排
 - **WHEN** `visibleTrainingProposal.payload.kind` 为 `routine`
-- **THEN** Response Renderer MUST 按 `warmup`、`training`、`stretch` 顺序渲染编排
+- **THEN** response adapter MUST 按 `warmup`、`training`、`stretch` 顺序渲染编排
 - **AND** 用户可见处方 MUST 来自同一动作项的 `prescription`
 
 #### Scenario: 渲染训练计划
 - **WHEN** `visibleTrainingProposal.payload.kind` 为 `plan`
-- **THEN** Response Renderer MUST 在同一套编排基础上渲染训练日和休息日安排
+- **THEN** response adapter MUST 在同一套编排基础上渲染训练日和休息日安排
 - **AND** 渲染结果 MUST NOT 引入 payload 中不存在的每日独立编排
 
 #### Scenario: 保存跨轮事实
@@ -156,14 +156,14 @@ TBD - created by archiving change unify-visible-training-proposal. Update Purpos
 - **WHEN** 旧 `exercise_recommendation_*` 事实或旧 `displayedExerciseIds` payload 存在
 - **THEN** 新 fact bridge MUST NOT 读取、转换、迁移或投影这些旧事实
 - **AND** 模型可见上下文 MUST NOT 暴露旧事实引用或旧字段
-- **AND** 旧 read tool MUST NOT 注册到生产聊天 ToolRegistry
+- **AND** 旧 read tool MUST NOT 注册到生产 LangChain tool catalog
 
 #### Scenario: 旧字段残留检查
 - **WHEN** 实现完成本 change
-- **THEN** 测试或架构扫描 MUST 证明模型可见 prompt、tool manifest、schema summary、examples、observations、compressed tool results、repair feedback、production registry 和新事实桥主路径中不存在旧字段残留
+- **THEN** 测试或架构扫描 MUST 证明模型可见 prompt、tool description、schema description、examples、tool result summary、compressed tool results、repair feedback、production catalog 和新事实桥主路径中不存在旧字段残留
 
 ### Requirement: 模型可见合同必须引导语义理解而非关键词分流
-模型可见 prompt、schema summary、tool manifest、examples、observations 和 repair feedback SHALL 使用中文说明 `visibleOutputs[]`、`visibleTrainingProposal` 的作用、字段含义和逐步增强关系。说明 MUST 引导模型根据用户自然语言目标理解用户要动作、编排还是计划；系统 MUST NOT 在 prompt 或服务端中写入固定关键词、正则、同义词表或短句模板式分流规则。
+模型可见 prompt、tool description、schema description、examples、tool result summary 和 repair feedback SHALL 使用中文说明 `submitVisibleTrainingProposal`、`visibleTrainingProposal`、`validatedVisibleOutputs` 的作用、字段含义和逐步增强关系。说明 MUST 引导模型根据用户自然语言目标理解用户要动作、编排还是计划；系统 MUST NOT 在 prompt 或服务端中写入固定关键词、正则、同义词表或短句模板式分流规则。
 
 #### Scenario: Prompt 描述动作推荐
 - **WHEN** 构造模型可见输出合同
@@ -186,12 +186,12 @@ TBD - created by archiving change unify-visible-training-proposal. Update Purpos
 - **AND** prompt MUST NOT 要求模型一次生成每天不同的完整编排
 
 #### Scenario: 模型可见描述语言
-- **WHEN** `visibleOutputs` 或 `visibleTrainingProposal` 相关说明出现在 prompt、schema description、examples、repair feedback、observations 或 compressed tool results 中
+- **WHEN** `submitVisibleTrainingProposal`、`validatedVisibleOutputs` 或 `visibleTrainingProposal` 相关说明出现在 prompt、schema description、examples、repair feedback、tool result summary 或 compressed tool results 中
 - **THEN** 描述性自然语言 MUST 使用中文
-- **AND** `visibleOutputs`、`outputType`、`visibleTrainingProposal`、`payload`、`kind`、`exerciseItems`、`exerciseId`、`section`、`prescription`、`schedule`、`training`、`warmup`、`stretch` 等字段名和枚举值 MUST 保持英文原样
+- **AND** `submitVisibleTrainingProposal`、`validatedVisibleOutputs`、`outputType`、`visibleTrainingProposal`、`payload`、`kind`、`exerciseItems`、`exerciseId`、`section`、`prescription`、`schedule`、`training`、`warmup`、`stretch` 等字段名和枚举值 MUST 保持英文原样
 
 ### Requirement: 训练方案生成必须遵循分阶段动作证据流程
-Agent SHALL 基于当前可见事实、tool manifest、observations、用户目标和模型自主推理组合 `visibleTrainingProposal`。主训练动作 SHALL 先被确定；热身和拉伸 SHOULD 围绕已确定的主训练动作补充；`routine` SHALL 至少由 `training` 动作和处方组成，并 SHOULD 包含 `warmup` / `stretch`；`plan` SHALL 在同一套编排上增加 `schedule.assignments`。系统 MUST NOT 用服务端规则、固定关键词、固定工具调用次数或固定工具调用顺序替代模型决策；但模型可见合同 MUST 阻止 `routine` / `plan` 目标在可继续补事实时降级成纯动作推荐。
+LangChain Agent SHALL 基于当前可见事实、tool description、ToolMessage summary、用户目标和模型自主推理组合 `visibleTrainingProposal`。主训练动作 SHALL 先被确定；热身和拉伸 SHOULD 围绕已确定的主训练动作补充；`routine` SHALL 至少由 `training` 动作和处方组成，并 SHOULD 包含 `warmup` / `stretch`；`plan` SHALL 在同一套编排上增加 `schedule.assignments`。系统 MUST NOT 用服务端规则、固定关键词、固定工具调用次数或固定工具调用顺序替代模型决策；但模型可见合同 MUST 阻止 `routine` / `plan` 目标在可继续补事实时降级成纯动作推荐。
 
 #### Scenario: 只推荐动作
 - **WHEN** 用户目标只需要动作推荐
@@ -247,7 +247,7 @@ Agent SHALL 基于当前可见事实、tool manifest、observations、用户目�
 #### Scenario: plan 事实不足时不伪造结构
 - **WHEN** 用户目标需要 `plan`
 - **AND** 当前可见 tools 不可用、必要约束不足或动作事实无法支撑合法结构
-- **THEN** Agent MUST 使用 `ask_user`、失败收口或不伪造结构事实的解释
+- **THEN** Agent MUST 通过 `fitmate_final_response.content` 澄清、失败收口或给出不伪造结构事实的解释
 - **AND** Agent MUST NOT 编造未获得的 `exerciseId`
 - **AND** Agent MUST NOT 把 `groups.training` 中且 `allowedSections` 不包含 `warmup` / `stretch` 的动作写入 `warmup` 或 `stretch`
 - **AND** Agent MUST NOT 输出缺少 `training` 事实但伪装成功的 `plan`
@@ -301,26 +301,26 @@ Agent SHALL 基于当前可见事实、tool manifest、observations、用户目�
 - **AND** 刷新语义 MUST NOT 放宽既有 `visibleTrainingProposal` validator
 
 ### Requirement: 从可见训练事实派生输出必须受资源覆盖能力约束
-Planner SHALL 仅基于当前 run 可见且可消费的训练事实派生新的 `visibleTrainingProposal`。当可见事实只覆盖部分 section 时，Planner MUST NOT 输出超出该事实覆盖能力的最终结构，除非先通过可见 tool 获取缺失 section 的可消费动作事实。
+模型 SHALL 仅基于当前 run 可见且可消费的训练事实派生新的 `visibleTrainingProposal`。当可见事实只覆盖部分 section 时，模型 MUST NOT 输出超出该事实覆盖能力的最终结构，除非先通过可见 tool 获取缺失 section 的可消费动作事实。
 
 #### Scenario: 历史 training 事实可作为主训练来源
 - **WHEN** 当前 run 已通过 read/import tool 导入可访问的 `visible_training_proposal_fact`
 - **AND** 该 fact 包含 `training` 动作事实
-- **THEN** Planner MAY 将这些 `training` 动作作为新的 `visibleTrainingProposal` 主训练来源
-- **AND** Planner MUST NOT 在用户目标不是替换或排除时默认丢弃这些动作
-- **AND** Planner MUST NOT 把这些动作默认写入 `excludeExerciseIds`
+- **THEN** 模型 MAY 将这些 `training` 动作作为新的 `visibleTrainingProposal` 主训练来源
+- **AND** 模型 MUST NOT 在用户目标不是替换或排除时默认丢弃这些动作
+- **AND** 模型 MUST NOT 把这些动作默认写入 `excludeExerciseIds`
 
 #### Scenario: 只有 training 覆盖时不得伪造 routine
 - **WHEN** 当前可消费训练事实只覆盖 `training`
-- **AND** Planner 判断最终目标需要 `routine` 或 `plan`
-- **THEN** Planner MUST 继续获取 `warmup` 和 `stretch` 的可消费动作事实、澄清、失败收口或输出当前事实可支撑的结构
-- **AND** Planner MUST NOT 把 `allowedSections` 不包含 `warmup` 或 `stretch` 的动作放入这些 section
+- **AND** 模型判断最终目标需要 `routine` 或 `plan`
+- **THEN** 模型 MUST 继续获取 `warmup` 和 `stretch` 的可消费动作事实、澄清、失败收口或输出当前事实可支撑的结构
+- **AND** 模型 MUST NOT 把 `allowedSections` 不包含 `warmup` 或 `stretch` 的动作放入这些 section
 - **AND** 系统 MUST 在终态校验中拒绝超出 section 覆盖能力的输出
 
 #### Scenario: 派生 exercise_selection 可只使用 training 事实
 - **WHEN** 当前可消费训练事实只覆盖 `training`
-- **AND** Planner 判断最终目标只需要一批可选主训练动作
-- **THEN** Planner MAY 输出 `payload.kind = "exercise_selection"`
+- **AND** 模型判断最终目标只需要一批可选主训练动作
+- **THEN** 模型 MAY 输出 `payload.kind = "exercise_selection"`
 - **AND** `exerciseItems` MUST 只包含 `section = "training"` 的动作项
 - **AND** `exercise_selection` MUST NOT 包含 `prescription` 或 `schedule`
 
@@ -337,7 +337,7 @@ Planner SHALL 仅基于当前 run 可见且可消费的训练事实派生新的 
 - **WHEN** model observation 表达 output support
 - **THEN** observation MUST NOT 直接生成 `visibleTrainingProposal`
 - **AND** observation MUST NOT 指定固定 action、固定 tool 调用顺序或固定 `payload.kind`
-- **AND** 最终结构仍 MUST 由 `final_answer.visibleOutputs[]` 承载并通过业务 validator 校验
+- **AND** 最终结构仍 MUST 由 `submitVisibleTrainingProposal` 承载并通过业务 validator 校验
 
 ### Requirement: 明确 routine 目标不得以动作选择替代
 从当前 run 可见动作事实派生 `visibleTrainingProposal` 时，模型若判断用户目标需要一次可执行 `routine`，系统 SHALL 要求最终结构使用 `payload.kind = "routine"` 并包含 `warmup`、`training`、`stretch` 三类动作与处方。模型 MUST NOT 用 `payload.kind = "exercise_selection"`、正文动作列表或“用户自行组合”的说明替代明确 routine 目标。
@@ -345,7 +345,7 @@ Planner SHALL 仅基于当前 run 可见且可消费的训练事实派生新的 
 #### Scenario: 候选足够时输出 routine
 - **WHEN** 当前 run 已有可消费 `training`、`warmup`、`stretch` 动作事实
 - **AND** 模型判断用户目标需要一次可执行 routine
-- **THEN** 模型 MUST 输出 `final_answer.visibleOutputs[]` 中的 `visibleTrainingProposal.payload.kind = "routine"`
+- **THEN** 模型 MUST 调用 `submitVisibleTrainingProposal`，且 `visibleTrainingProposal.payload.kind = "routine"`
 - **AND** payload MUST 包含三类 section 的 `exerciseItems`
 - **AND** 每个动作项 MUST 包含可校验的 `prescription`
 
@@ -354,7 +354,7 @@ Planner SHALL 仅基于当前 run 可见且可消费的训练事实派生新的 
 - **AND** 当前 run 缺少 `warmup`、`training` 或 `stretch` 中任一 section 的可消费动作事实
 - **THEN** 模型 MUST NOT 输出 `payload.kind = "exercise_selection"` 来冒充完整 routine
 - **AND** 模型 MUST NOT 只在 `content` 中给出动作列表、组数或循环建议并要求用户自行组合
-- **AND** 模型 MUST 继续获取缺失事实、使用 `ask_user` 澄清，或使用不带 `visibleOutputs` 的 `final_answer` 说明缺口和下一步
+- **AND** 模型 MUST 继续获取缺失事实，或使用 `fitmate_final_response.content` 澄清、说明缺口和下一步
 
 #### Scenario: 服务端不改写 kind
 - **WHEN** 模型输出 `visibleTrainingProposal.payload.kind`
@@ -366,9 +366,9 @@ Planner SHALL 仅基于当前 run 可见且可消费的训练事实派生新的 
 系统 SHALL 在 `visibleTrainingProposal` 终态输出校验中复核每个 `exerciseItems[*].exerciseId + section` 来自当前 run 已满足的动作查询结果，或来自当前 run 中已导入的 `role=consumable` 训练事实 resource。仅数据库存在、发布态和 section 允许，MUST NOT 单独支撑新的用户可见训练卡片。
 
 #### Scenario: 无当前 run 动作事实来源时拒绝 visibleTrainingProposal
-- **WHEN** Planner 输出 `final_answer.visibleOutputs[]` 中的 `visibleTrainingProposal`
+- **WHEN** 模型通过 `submitVisibleTrainingProposal` 提交 `visibleTrainingProposal`
 - **AND** 当前 run 没有 satisfied tool result 或 consumable resource 可支撑其中某个 `exerciseId + section`
-- **THEN** terminal output validator MUST reject the visible output before rendering or persistence
+- **THEN** `submitVisibleTrainingProposal` MUST reject the visible output before rendering or persistence
 - **AND** rejection details MUST include recoverable directions to query facts, import visible facts, ask the user, or fail without rendering unsupported structure
 
 #### Scenario: satisfied searchExerciseResources 可支撑同 section 动作项
@@ -383,33 +383,33 @@ Planner SHALL 仅基于当前 run 可见且可消费的训练事实派生新的 
 - **AND** validator MUST reject matching exerciseItems as lacking current-run consumable source
 
 #### Scenario: 已导入可消费 visible_training_proposal_fact 可作为来源
-- **WHEN** 当前 run 的 `ResourceStore` 中存在 `role=consumable` 的 `visible_training_proposal_fact`
+- **WHEN** 当前 run 的服务端受控事实边界中存在可消费 `visible_training_proposal_fact`
 - **THEN** validator MAY accept matching `exerciseItems[*].exerciseId + section` from that resource summary
 - **AND** validator MUST NOT accept `visible_training_proposal_fact_index` or metadata-only recent summaries as action fact sources
 
 ### Requirement: routine 和 plan final 输出必须受 section readiness 约束
-从当前 run 可见训练事实派生 `visibleTrainingProposal` 时，Planner SHALL 在输出 `routine` 或 `plan` 的 `final_answer.visibleOutputs[]` 前确认当前可消费动作事实至少覆盖 `training` section，并 SHOULD 优先覆盖 `warmup`、`training`、`stretch` 三类 section。若 `training` coverage 不足，Planner MUST 先获取缺失事实、澄清、失败收口，或只输出当前事实可支撑的结构。服务端 SHALL 继续只校验结构、权限、数据库事实和 resource 边界，MUST NOT 根据用户自然语言替模型补动作或改写 `payload.kind`。
+从当前 run 可见训练事实派生 `visibleTrainingProposal` 时，模型 SHALL 在调用 `submitVisibleTrainingProposal` 提交 `routine` 或 `plan` 前确认当前可消费动作事实至少覆盖 `training` section，并 SHOULD 优先覆盖 `warmup`、`training`、`stretch` 三类 section。若 `training` coverage 不足，模型 MUST 先获取缺失事实、澄清、失败收口，或只输出当前事实可支撑的结构。服务端 SHALL 继续只校验结构、权限、数据库事实和受控事实边界，MUST NOT 根据用户自然语言替模型补动作或改写 `payload.kind`。
 
-#### Scenario: 缺 training 时不得提交 routine 或 plan visibleOutputs
+#### Scenario: 缺 training 时不得提交 routine 或 plan 结构
 - **WHEN** 当前 run 可消费动作事实缺少 `training` section
-- **AND** Planner 判断最终目标需要 `routine` 或 `plan`
-- **THEN** Planner MUST NOT 输出 `final_answer.visibleOutputs[]` 中的 `payload.kind = "routine"` 或 `"plan"`
-- **AND** Planner MUST NOT 在 `content` 中说明缺少主训练后仍提交不完整的 `routine` 或 `plan`
-- **AND** Planner MUST 先获取 `training` 的可消费动作事实、使用 `ask_user` 澄清、失败收口，或不输出 `visibleOutputs` 并说明当前事实不足
+- **AND** 模型判断最终目标需要 `routine` 或 `plan`
+- **THEN** 模型 MUST NOT 调用 `submitVisibleTrainingProposal` 提交 `payload.kind = "routine"` 或 `"plan"`
+- **AND** 模型 MUST NOT 在 `content` 中说明缺少主训练后仍提交不完整的 `routine` 或 `plan`
+- **AND** 模型 MUST 先获取 `training` 的可消费动作事实，或通过 `fitmate_final_response.content` 澄清、失败收口并说明当前事实不足
 
 #### Scenario: 缺 support section 时应优先补齐
 - **WHEN** 当前 run 可消费动作事实覆盖 `training`，但缺少 `warmup` 或 `stretch`
-- **AND** Planner 判断最终目标需要 `routine` 或 `plan`
+- **AND** 模型判断最终目标需要 `routine` 或 `plan`
 - **AND** 当前可见 tools 可继续查询缺失 support section
-- **THEN** Planner SHOULD 优先继续获取缺失 support section 的动作事实
-- **AND** Planner MUST NOT 把 `allowedSections` 不包含 `warmup` 或 `stretch` 的动作放入这些 section
-- **AND** Planner MUST NOT 把正文中的热身或拉伸说明当作结构化动作事实
+- **THEN** 模型 SHOULD 优先继续获取缺失 support section 的动作事实
+- **AND** 模型 MUST NOT 把 `allowedSections` 不包含 `warmup` 或 `stretch` 的动作放入这些 section
+- **AND** 模型 MUST NOT 把正文中的热身或拉伸说明当作结构化动作事实
 
 #### Scenario: 缺 support section 时不触发终态硬拦截
-- **WHEN** Planner 提交 `payload.kind = "routine"` 或 `"plan"`
+- **WHEN** 模型通过 `submitVisibleTrainingProposal` 提交 `payload.kind = "routine"` 或 `"plan"`
 - **AND** `payload.exerciseItems` 覆盖合法 `training` section
 - **AND** `payload.exerciseItems` 缺少 `warmup` 或 `stretch`
-- **THEN** 业务 terminal output validator MUST NOT 因 support section 缺失拒绝该 `visibleTrainingProposal`
+- **THEN** 业务 validator MUST NOT 因 support section 缺失拒绝该 `visibleTrainingProposal`
 - **AND** 系统 MUST 继续校验 payload schema、数据库动作事实、发布态、权限、`allowedSections`、`prescription` 和 `schedule`
 - **AND** 系统 MUST NOT 自动选择或补入缺失 support section 动作
 
@@ -429,6 +429,5 @@ Planner SHALL 仅基于当前 run 可见且可消费的训练事实派生新的 
 - **WHEN** 用户目标提供明确的每周训练频次
 - **AND** 模型选择输出 `kind = "plan"`
 - **THEN** `schedule.assignments` 中 `type = "training"` 的数量 SHOULD 与该频次一致
-- **AND** 如果模型无法在当前结构中可靠表达该频次，Planner SHOULD 继续合法 `tool_call`、`ask_user` 或失败收口
+- **AND** 如果模型无法在当前结构中可靠表达该频次，模型 SHOULD 继续合法 tool call、通过 `fitmate_final_response.content` 澄清，或失败收口
 - **AND** 系统 MUST NOT 通过服务端读取用户原文来改写 `schedule.assignments`
-

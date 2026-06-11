@@ -1,10 +1,10 @@
-# 大模型 Planner Prompt 与 Tool Manifest 设计原则
+# 大模型 Prompt 与 LangChain Tool Description 设计原则
 
-> 当前状态（2026-06-11 12:45:34 CST）：生产 `/api/chat` 已迁移到 LangChain Agent Runtime 和 DeepSeek native Tool Calling，不再要求模型输出旧 `AgentAction` JSON。本文保留 Prompt / Tool / Runtime / Validator 的分层原则；涉及 `AgentAction`、`final_answer`、`ask_user` 或完整 action 示例的段落属于旧自定义 JSON action 设计示例，当前实现应映射为 provider `tool_calls`、LangChain tool description / schema、tool result summary、结构化 finalization tool 和 production response adapter。
+> 当前状态（2026-06-11 12:45:34 CST）：生产 `/api/chat` 已迁移到 LangChain Agent Runtime 和 DeepSeek native Tool Calling，不再要求模型输出旧 `AgentAction` JSON。本文保留 Prompt / Tool / Runtime / Validator 的分层原则；涉及 `AgentAction`、`final_answer`、`ask_user` 或完整 action 示例的段落属于旧自定义 JSON action 设计示例，当前实现应映射为 provider `tool_calls`、LangChain tool description / schema description、tool result summary、结构化 finalization tool 和 production response adapter。
 
 ## 0. 核心结论
 
-Prompt 和 Tool Manifest 不是越长越好。
+Prompt 和 LangChain tool description / schema description 不是越长越好。
 
 它们的目标不是把所有业务细节都告诉大模型，而是让大模型在每一轮稳定判断：
 
@@ -39,7 +39,7 @@ Action Contract    ：旧自定义 action 场景定义 AgentAction；当前生�
 Output Contract    ：定义最终结构化输出的合法形状
 Glossary           ：定义容易混淆的业务概念
 Planner Policy     ：定义业务决策规则
-Tool Manifest      ：定义每个工具的能力边界
+Tool Description   ：定义每个工具的能力边界
 Runtime Context    ：提供当前 run 的用户输入、历史、metadata、toolResults
 Validator          ：校验字段和事实是否合法
 Repair Prompt      ：只在校验失败后做局部修复
@@ -59,7 +59,7 @@ Repair Prompt      ：只在校验失败后做局部修复
 | Output Contract | 结构化输出形状        | 事实是否可信       |
 | Glossary        | 概念定义           | 工作流编排        |
 | Planner Policy  | 什么时候做什么        | 具体 schema 校验 |
-| Tool Manifest   | 工具能力和边界        | 最终回答生成       |
+| Tool Description | 工具能力和边界        | 最终回答生成       |
 | Runtime Context | 当前事实           | 通用规则         |
 | Validator       | 合法性和事实校验       | 用户意图理解       |
 | Repair Prompt   | 修复上一轮非法输出      | 正常规划         |
@@ -455,9 +455,9 @@ Agent 必须知道什么时候停止。
 
 ---
 
-# 6. Tool Manifest 设计原则
+# 6. LangChain Tool Description 设计原则
 
-## 6.1 Tool Manifest 不是后端 API 文档
+## 6.1 Tool Description 不是后端 API 文档
 
 后端 API 文档关心：
 
@@ -473,7 +473,7 @@ Agent 必须知道什么时候停止。
 handler 行为
 ```
 
-Tool Manifest 关心：
+Tool description / schema description 关心：
 
 ```txt
 这个工具解决什么问题
@@ -487,7 +487,7 @@ Tool Manifest 关心：
 
 原则：
 
-> Tool Manifest 面向模型的调用决策，不面向工程维护。
+> Tool description 面向模型的调用决策，不面向工程维护。
 
 ---
 
@@ -573,7 +573,7 @@ commonTool
 
 ---
 
-## 6.5 whenToUse 写意图，不写关键词
+## 6.5 description 写能力边界，不写关键词
 
 不推荐：
 
@@ -599,7 +599,7 @@ commonTool
 
 ---
 
-## 6.6 whenNotToUse 只写特有边界
+## 6.6 schema description 只写字段特有边界
 
 不要每个工具都重复全局禁止项。
 
@@ -615,7 +615,7 @@ commonTool
 
 这些应该放到全局工具规则。
 
-Tool 级 `whenNotToUse` 只写本工具和其他工具的边界：
+Tool 级 schema description / description 只写本工具和其他工具的边界：
 
 ```txt
 这个工具不用于解析名称。
@@ -768,7 +768,7 @@ equipment 可以写 no_equipment，也可以写 无器械。
 | consumable | 可作为最终结构的事实来源   |
 | terminal   | 可直接支撑最终用户回答    |
 
-每个 tool manifest 都应说明它的输出属于哪类。
+每个 tool description / schema description 都应说明它的输出属于哪类。
 
 原则：
 
@@ -1191,7 +1191,7 @@ failure mode
 
 ## 13.5 不要重复解释
 
-同一规则不要在 system prompt、tool manifest、policy、repair prompt 都讲一遍。
+同一规则不要在 system prompt、tool description、policy、repair prompt 都讲一遍。
 
 重复会导致：
 
@@ -1208,7 +1208,7 @@ failure mode
 
 ---
 
-# 14. 写 Tool Manifest 的具体风格规则
+# 14. 写 LangChain Tool Description 的具体风格规则
 
 ## 14.1 推荐固定模板
 
@@ -1261,11 +1261,11 @@ Grounding Rules：3～6 条
 Examples：1～3 个
 ```
 
-不要把一个 tool manifest 写成几千字。
+不要把一个 tool description 写成几千字。
 
 原则：
 
-> Tool Manifest 要让模型快速选工具，不是让模型读完整产品文档。
+> Tool description 要让模型快速选工具，不是让模型读完整产品文档。
 
 ---
 
@@ -1279,7 +1279,7 @@ Examples：1～3 个
 
 这种应该放 Planner Policy 或 examples。
 
-Tool Manifest 只说：
+Tool description 只说：
 
 ```txt
 这个工具能做什么。
@@ -1289,7 +1289,7 @@ Tool Manifest 只说：
 
 原则：
 
-> Tool Manifest 讲能力，Planner Policy 讲编排。
+> Tool description 讲能力，Planner Policy 讲编排。
 
 ---
 
@@ -1405,7 +1405,7 @@ index result -> final structured output
 1. 这条规则是否长期稳定？
 2. 它是否属于 system prompt？
 3. 它是否应该放到 schema？
-4. 它是否应该放到 tool manifest？
+4. 它是否应该放到 tool description 或 schema description？
 5. 它是否应该放到 glossary？
 6. 它是否只在 repair 时需要？
 7. 它是否和其他规则重复？
@@ -1416,7 +1416,7 @@ index result -> final structured output
 
 ---
 
-## 17.2 Tool Manifest 检查清单
+## 17.2 Tool Description 检查清单
 
 每个工具都问：
 
@@ -1441,7 +1441,7 @@ index result -> final structured output
 
 ```txt
 1. 当前 tools 是否只包含本轮可用工具？
-2. tool schema 是否和 manifest 一致？
+2. tool schema 是否和 description / schema description 一致？
 3. metadata 是否使用 canonical value？
 4. toolResults 是否有摘要？
 5. producedResources 是否明确 role？
@@ -1480,7 +1480,7 @@ Repair 修错误。
 
 ## 18.3 判断一个设计好不好的标准
 
-一个好的 Planner Prompt + Tool Manifest 设计，应该让模型每轮都能稳定回答：
+一个好的 Prompt + Tool Description 设计，应该让模型每轮都能稳定回答：
 
 ```txt
 1. 我现在是否有足够事实？

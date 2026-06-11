@@ -1,4 +1,4 @@
 interface:
   display_name: "Agent Prompt 合同治理"
   short_description: "按提示词指南治理 Agent prompt 和模型可见输入"
-  default_prompt: "Use $agent-prompt-contract-governance 作为 primary skill，按 docs/llm-prompt-guidance.md 治理一次 Agent prompt、tool manifest 或模型实际可见输入变更。"
+  default_prompt: "Use $agent-prompt-contract-governance 作为 primary skill，按 docs/llm-prompt-guidance.md 治理一次 Agent prompt、LangChain tool description、schema description 或模型实际可见输入变更。"
