@@ -4,17 +4,17 @@
 TBD - created by archiving change centralize-agent-runtime-config. Update Purpose after archive.
 ## Requirements
 ### Requirement: Agent runtime 配置必须集中在服务端 TS config
-系统 SHALL 在 `lib/server/config/` 中提供集中 Agent runtime 配置，统一管理生产 `/api/chat` 使用的 LLM 请求参数、Agent runtime limits、业务 tool 可见事实数量和 trace 文本裁剪参数。该配置 MUST 是版本化 TypeScript 代码配置，不要求通过环境变量覆盖。
+系统 SHALL 在 `lib/server/config/` 中提供集中 Agent runtime 配置，统一管理生产 `/api/chat` 使用的 LangChain agent 运行预算、DeepSeek native Tool Calling 请求参数、业务 tool 可见事实数量、tool wrapper timeout 和 trace 文本裁剪参数。该配置 MUST 是版本化 TypeScript 代码配置，不要求通过环境变量覆盖。
 
-#### Scenario: 生产 Agent 从集中配置读取预算
-- **WHEN** `/api/chat` 构造生产 `AgentRunInput`
-- **THEN** `maxSteps`、`maxPlannerCalls`、`maxToolCalls`、`maxInvalidActions`、`maxRepairAttempts`、`overallTimeoutMs` 和 `perToolTimeoutMs` MUST 来自 `lib/server/config/` 下的集中配置
+#### Scenario: 生产 LangChain Agent 从集中配置读取预算
+- **WHEN** `/api/chat` 构造生产 LangChain Agent Runtime 输入
+- **THEN** 最大 agent 迭代次数、最大 tool calls、最大模型调用次数、整体 timeout、单 tool timeout 和结构化输出校验预算 MUST 来自 `lib/server/config/` 下的集中配置
 - **AND** 生产聊天接入层 MUST NOT 内联这些 runtime budget 数字
 
-#### Scenario: 模型请求从集中配置读取默认值
-- **WHEN** `DeepSeekModelAdapter` 构造生产模型请求
-- **THEN** `temperature`、`max_tokens` 和模型请求 timeout MUST 来自集中配置或显式测试注入配置
-- **AND** adapter MUST NOT 自己拥有与生产默认值重复的硬编码 `maxTokens` 或 timeout 来源
+#### Scenario: DeepSeek Tool Calling 请求从集中配置读取默认值
+- **WHEN** LangChain model factory 构造 DeepSeek 请求
+- **THEN** model、temperature、max tokens、timeout、tool calling 开启策略和 thinking / reasoning 策略 MUST 来自集中配置或显式测试注入配置
+- **AND** route、tool wrapper 或业务 service MUST NOT 自己拥有与生产默认值重复的硬编码 provider 参数
 
 #### Scenario: 不要求环境变量覆盖行为预算
 - **WHEN** 系统加载 Agent runtime 配置
@@ -137,23 +137,26 @@ TBD - created by archiving change centralize-agent-runtime-config. Update Purpos
 - **THEN** gate MUST 允许 production adapter 调用 finalizer
 - **AND** 该允许结果 MUST 不代表主 Agent 可以继续 repair
 
-### Requirement: DeepSeek 模型与 Thinking Mode 默认值必须集中配置
-系统 SHALL 在 `lib/server/config/` 中集中定义生产 DeepSeek adapter 的默认模型、Thinking Mode 默认推理强度和相关请求策略。默认聊天模型 MUST 为 `deepseek-v4-flash`，Thinking Mode 开启时默认 `reasoning_effort` MUST 为 `high`。
+### Requirement: LangChain Tool Catalog 配置必须集中管理
+系统 SHALL 在集中配置或等价生产注册入口中声明生产 LangChain tool catalog 的允许列表、默认启用状态和模型可见预算。
 
-#### Scenario: 默认模型来自集中配置
-- **WHEN** `DeepSeekModelAdapter` 构造生产模型请求
-- **THEN** 默认 model MUST 为 `deepseek-v4-flash`
-- **AND** `DEEPSEEK_MODEL` MAY 继续覆盖部署环境中的最终 model
-- **AND** adapter MUST NOT 在集中配置之外重复硬编码生产默认模型名
+#### Scenario: production tool catalog 从集中入口构造
+- **WHEN** `/api/chat` 准备生产 LangChain tools
+- **THEN** 系统 MUST 从集中 tool catalog 入口读取允许的 tool 列表
+- **AND** route MUST NOT 在局部硬编码工具集合
+- **AND** tool catalog MUST NOT 根据用户原文关键词动态变更工具集合
 
-#### Scenario: Thinking 推理强度来自集中配置
-- **WHEN** `DeepSeekModelAdapter` 构造开启 Thinking Mode 的请求
-- **THEN** `reasoning_effort` MUST 来自 `lib/server/config/` 下的集中配置
-- **AND** 默认值 MUST 为 `high`
-- **AND** 配置项 MUST 有中文注释说明它影响推理深度、延迟、成本和模型输出稳定性
+#### Scenario: tool 可见 payload 预算来自集中配置
+- **WHEN** tool wrapper 构造模型可见 result summary
+- **THEN** 返回数量、摘要长度、trace 裁剪长度和大 payload 截断策略 MUST 来自集中配置或 tool 局部 hard cap
+- **AND** tool wrapper MUST 保留确定性 hard cap，防止配置误调导致模型可见 payload 过大
 
-#### Scenario: Thinking 配置不扩大业务能力
-- **WHEN** `/api/chat` 接收用户消息
-- **THEN** Thinking Mode 配置 MUST NOT 新增业务 tool、训练生成能力、保存能力或服务端语义分流
-- **AND** 系统 MUST NOT 基于用户原文关键词、正则、同义词表或短句模板动态改变 `reasoning_effort`
+### Requirement: LangChain 配置项必须有中文意图注释
+系统 SHALL 为集中 LangChain / DeepSeek / tool calling 配置中的公开配置项提供简短中文注释。注释 MUST 说明参数负责的链路、主要影响和调大/调小的风险。
+
+#### Scenario: 开发者查看配置文件
+- **WHEN** 开发者打开 `lib/server/config/` 下的 LangChain Agent 配置
+- **THEN** 导出的配置对象和核心配置项 MUST 有中文意图注释
+- **AND** 注释 MUST 能说明参数对模型调用、tool loop、成本、延迟、trace 或用户体验的影响
+- **AND** 注释 MUST NOT 只重复变量名本身
 

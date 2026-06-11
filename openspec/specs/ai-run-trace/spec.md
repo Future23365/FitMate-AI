@@ -45,81 +45,6 @@ TBD - created by archiving change change-010-ai-trace-eval. Update Purpose after
 - **THEN** trace 的 `tool_call` step MUST 记录失败 code 和可诊断原因
 - **AND** 用户可见回复 MUST 继续使用可恢复失败引导
 
-### Requirement: Trace 必须记录 Agent 执行证据和旧路径缺席
-系统 SHALL 在 `/api/chat` trace 中记录 Tool-first Agent 的执行证据，并明确证明旧 intent-first 路径、旧只读 tool loop、summary-only 上下文和旧兼容事件没有参与生产执行。
-
-#### Scenario: Agent run 完成
-- **WHEN** `/api/chat` 完成一次 Agent run
-- **THEN** trace MUST 记录 `agent_context_build`、`agent_tool_decision`、`agent_tool_execution`、`agent_final_result`、`agent_response_writer` 或等价阶段
-- **AND** trace MUST 记录每一轮 LLM 输入、LLM 输出解析、tool decision、tool result、下一轮 prompt 可见性和最终结果引用
-- **AND** trace MUST 记录 `AgentExecutionResult.status`、使用的 tool result id、candidateSetId、validationId、policyDecisionId、revisionId 和最终用户可见投影摘要
-- **AND** trace MUST 能关联最终回复使用了哪些 tool result、resource id 和 AgentExecutionResult 字段
-
-#### Scenario: 旧路径未参与执行
-- **WHEN** trace 展示一次生产聊天请求
-- **THEN** trace MUST 记录旧 intent resolution、resolved intent repair、`runReadonlyToolLoop`、旧 ReferenceResolver-first 主路径和旧 `assistant_action` 生产输出均未参与执行
-- **AND** 旧路径缺席证据 MUST 可被自动化测试读取
-
-#### Scenario: Agent-only failure handling 发生
-- **WHEN** Agent 进入 repair、tool retry、clarification、blocked、failed、validation / policy failure handling 或用户确认路径
-- **THEN** trace MUST 记录失败来源、失败边界、使用的 tool result 或 blocking reason
-- **AND** trace MUST 记录本次失败处理没有调用旧 intent-first 架构、旧只读 tool loop 或 summary-only payload reconstruction
-
-### Requirement: Trace must record Agent loop model exchanges
-系统 SHALL 为 Tool-first Agent loop 中每一次 LLM 调用记录可复盘的模型输入、模型输出、解析结果和关联标识。
-
-#### Scenario: Agent loop 发送模型请求
-- **WHEN** Agent loop 调用 LLM 进行 tool decision、final result、Response Writer 或等价模型阶段
-- **THEN** trace MUST 记录 `model_request` step
-- **AND** step MUST 包含 model、messages、response_format、thinking、promptModules、aiStage、loopTurnId 或等价 turn index
-- **AND** step MUST 包含本轮模型可见的 ContextPackage 摘要、registered tools 摘要、visibleToolResultIds、dependency graph 摘要和 remainingSteps
-- **AND** step MUST 不记录 API key、authorization、cookie、跨用户 payload 或未经脱敏的大 payload
-
-#### Scenario: Agent loop 收到模型回复
-- **WHEN** Agent loop 收到 LLM 回复
-- **THEN** trace MUST 记录 `model_response` step
-- **AND** step MUST 包含 content 或 rawResponse 摘要、tokenUsage、status、loopTurnId 或等价 turn index
-- **AND** step MUST 记录解析后的 action、toolName、tool input 摘要、reason、AgentExecutionResult、usedToolResultIds 或 parsing failure
-- **AND** 解析失败时 step MUST 记录失败 code、错误详情和可恢复路径
-
-### Requirement: Trace must link LLM decisions to tool execution results
-系统 SHALL 用结构化 id 连接 LLM tool decision、tool execution result、后续 LLM 输入和最终 AgentExecutionResult。
-
-#### Scenario: LLM 决定调用工具
-- **WHEN** LLM 在 Agent loop 中选择工具
-- **THEN** trace MUST 记录 tool decision 的 loopTurnId、modelCallId、toolCallId、toolName、输入摘要、reason 和 step index
-- **AND** trace MUST 能从该 decision 定位到对应的 tool result
-
-#### Scenario: Tool 执行完成
-- **WHEN** Agent tool 执行成功、失败或被跳过
-- **THEN** trace MUST 记录 `agent_tool_result` 或等价 step
-- **AND** step MUST 包含 loopTurnId、toolCallId、toolResultId、toolName、status、durationMs、输入摘要、输出摘要和 failureCode
-- **AND** step MUST 包含 candidateSetId、artifactId、validationId、policyDecisionId、confirmationId、revisionId 或其他关键 resource id 摘要
-
-#### Scenario: Tool result 进入下一轮模型输入
-- **WHEN** 后续 Agent loop model request 可见某个已登记 tool result
-- **THEN** trace MUST 在 model_request metadata 或 input 摘要中记录 visibleToolResultIds
-- **AND** trace MUST 能证明该 tool result 已进入下一轮 LLM 输入
-- **AND** 如果 tool result 未进入后续 LLM 输入但被最终结果使用，trace MUST 记录该使用路径
-
-### Requirement: Trace must support Agent loop diagnostics
-系统 SHALL 记录足够诊断 Agent loop 断链、无效输出和用户可见回复不一致的信息。
-
-#### Scenario: Tool decision 和 tool result 断链
-- **WHEN** trace 中存在 tool decision 但没有对应 tool result
-- **THEN** trace MUST 保留 decision 的 modelCallId、toolCallId、toolName、输入摘要和错误状态
-- **AND** trace MUST 记录断链原因或可诊断 failureCode
-
-#### Scenario: Tool result 未被消费
-- **WHEN** tool result 已产生但没有被后续 model request、Agent final result、validator、policy、persistence 或 Response Writer 引用
-- **THEN** trace MUST 保留该 toolResultId、产生 step、输出摘要和 orphaned 状态
-- **AND** trace MUST NOT 通过用户文本或 step title 推断消费关系
-
-#### Scenario: 最终回复与 AgentExecutionResult 不一致
-- **WHEN** Response Writer 的用户可见回复承诺了未执行的生成、修改、保存、确认或 tool 结果
-- **THEN** trace MUST 保留 AgentExecutionResult、Response Writer 输入摘要、用户可见回复摘要和缺失的 resource id 或 toolResultId
-- **AND** trace MUST 将该问题标记为 response writer boundary diagnostic
-
 ### Requirement: Trace 必须记录 Agent decision JSON 恢复证据
 系统 SHALL 在 Agent decision 模型输出发生 JSON 格式恢复时记录可诊断 trace，使开发者能区分严格解析失败、非语义格式恢复、恢复后 schema 失败和最终执行结果。
 
@@ -159,78 +84,6 @@ TBD - created by archiving change change-010-ai-trace-eval. Update Purpose after
 - **AND** trace MUST 记录原始失败 tool result id
 - **AND** trace MUST 记录重复次数或等价计数
 - **AND** trace MUST 能区分真实底层工具执行失败和 runtime 熔断
-
-### Requirement: Trace 必须记录 Tool-first Agent 执行链路
-
-系统 SHALL 为 Tool-first Agent 主链记录可复盘 trace，覆盖 Agent 状态、工具决策、工具执行、校验、写入和最终回复。
-
-#### Scenario: Agent run 开始
-- **WHEN** `/api/chat` 进入 AgentOrchestrator
-- **THEN** trace MUST 记录 `agent_run_started` 或等价 step
-- **AND** step MUST 包含 runId、userId、sessionId、messageId、latestUserMessage、ContextPackage 摘要、recent artifact 摘要和工具版本
-- **AND** step MUST 记录 context provenance、截断策略和是否存在可选 ContextSnapshot
-
-#### Scenario: LLM 决定调用工具
-- **WHEN** LLM 在 Agent loop 中选择工具
-- **THEN** trace MUST 记录 `agent_tool_decision`
-- **AND** step MUST 包含 toolName、参数摘要、选择原因、step index 和模型信息
-- **AND** step MUST NOT 包含敏感认证信息或未经摘要的大 payload
-
-#### Scenario: 工具执行完成
-- **WHEN** Agent 工具执行成功或失败
-- **THEN** trace MUST 记录 `agent_tool_result`
-- **AND** step MUST 包含工具名称、状态、耗时、输入摘要、输出摘要、失败 code、toolResultId 和候选或资源 id 摘要
-- **AND** step MUST 记录 candidateSetId、artifactPayloadId、validationId、policyDecisionId、confirmationId 或 revisionId 等可关联 id
-
-#### Scenario: Agent 完成本轮
-- **WHEN** Agent 产出 `AgentExecutionResult`
-- **THEN** trace MUST 记录 `agent_final_result`
-- **AND** finalDecision MUST 能区分 answered、needs_clarification、generated、patched、failed 和 blocked
-- **AND** trace MUST 能关联最终回复使用了哪些 tool result
-
-#### Scenario: Agent 模型调用与预算观测
-- **WHEN** `/api/chat` 执行 Agent 主链中的模型调用
-- **THEN** trace MUST 记录 Agent prompt module、模型阶段、ContextPackage 可见性摘要、tool result 可见性摘要、截断策略和 token 使用
-- **AND** 阶段名称 MUST 能表达 `agent_context_build`、`agent_tool_decision`、`agent_tool_execution`、`agent_response_writer`、`agent_summary_update` 或等价 Agent 阶段
-- **AND** trace MUST NOT 将 `/api/chat` 主链描述为 summary-only、intent-first 或旧只读 tool loop 决策链
-
-#### Scenario: Agent 输出解析失败
-- **WHEN** Agent decision、final result 或 Response Writer 的模型输出解析失败、Schema 失败、未知工具、非法参数或 repair 失败
-- **THEN** trace MUST 记录失败 code、模型阶段、输入摘要、输出摘要和恢复路径
-- **AND** trace MUST 能区分失败后进入 blocked、failed、needs_clarification 或 retry/repair
-
-#### Scenario: 旧路径防回归
-- **WHEN** 本轮 Agent 执行完成
-- **THEN** trace MUST 能标识是否调用了旧 intent-first 分支、旧 normalize、旧只读 trigger matrix、summary-only 上下文或 ReferenceResolver-first 主路径
-- **AND** 自动化测试 MUST 能断言生产主链没有依赖这些旧路径触发执行结果
-
-#### Scenario: Replay fixture
-- **WHEN** 系统生成 Agent replay fixture
-- **THEN** fixture MUST 包含 ContextPackage 摘要、tool decision、tool result、dependency graph、AgentExecutionResult 和 Response Writer 输入摘要
-- **AND** fixture MUST 不包含敏感认证信息或未经摘要的大 payload
-- **AND** fixture MUST 足以复盘最终 artifact 事件为何出现或为何被阻断
-
-### Requirement: Trace 必须记录 Agent 合同修复循环
-系统 SHALL 在 AiRunTrace 中记录 Agent 决策合同失败、结构化反馈、修复尝试、熔断和最终收口来源，使开发者能复盘模型如何基于错误修正。
-
-#### Scenario: 生成 AgentDecisionFeedback
-- **WHEN** runtime 将模型决策拒绝为可恢复合同失败
-- **THEN** trace MUST 记录 feedback 的稳定 code、retryable 状态、失败边界、推荐下一步工具和关键资源 id
-- **AND** trace MUST 记录原始被拒绝决策的摘要
-- **AND** trace MUST 记录 `repairTurnCount`、剩余 repair 预算和当前 `repairFeedbackCodes`
-- **AND** trace MUST NOT 暴露未授权 payload 或其他用户数据
-
-#### Scenario: 修复后成功
-- **WHEN** 模型基于 feedback 重新调用工具并最终成功
-- **THEN** trace MUST 能关联原始失败 feedback、修复工具调用、写工具结果和最终 `AgentExecutionResult`
-- **AND** trace MUST 记录最终结构化字段来自哪一个 tool result
-- **AND** trace MUST 记录 `finalProjectionSourceToolResultId` 或等价来源字段
-
-#### Scenario: 修复循环被熔断
-- **WHEN** runtime 因修复预算耗尽或重复失败停止继续修复
-- **THEN** trace MUST 记录熔断原因、预算类型、repeat count、firstToolResultId 和 latestToolResultId
-- **AND** trace MUST 记录 `fusedFailureCount` 和 `repairBudgetExhaustedReason`
-- **AND** 最终失败摘要 MUST 能被黑盒报告读取
 
 ### Requirement: Trace 必须区分模型错误、合同拒绝和服务端事实收口
 系统 SHALL 在 trace phase 与 step metadata 中区分模型原始输出、runtime 合同校验、结构化反馈和服务端 final result 投影。
@@ -506,4 +359,59 @@ TBD - created by archiving change change-010-ai-trace-eval. Update Purpose after
 - **WHEN** Runtime 无法通过 normalization 得到可执行 AgentAction
 - **THEN** trace MUST 继续记录 invalid action 或 schema validation failure
 - **AND** trace MUST 能区分 normalized-and-executed、normalized-then-failed 和 not-normalizable 三类边界
+
+### Requirement: Trace 必须记录 LangChain Agent 执行证据
+系统 SHALL 为生产 `/api/chat` 的 LangChain Agent Runtime 记录可复盘 trace。trace MUST 记录请求上下文、模型请求/响应摘要、DeepSeek native `tool_calls`、LangChain tool wrapper 执行、结构化 validator 和最终 NDJSON 投影。
+
+#### Scenario: LangChain run 开始
+- **WHEN** `/api/chat` 进入 LangChain Agent Runtime
+- **THEN** trace MUST 记录 runId、userId、conversationId、responseMessageId、latestUserMessage 摘要和 model / tool catalog 摘要
+- **AND** trace MUST 记录 LangChain runtime version 或等价实现标识
+- **AND** trace MUST 记录 DeepSeek model、tool calling enabled 状态、预算和超时配置摘要
+- **AND** trace MUST NOT 记录 API key、authorization、cookie、跨用户 payload 或未经脱敏的大 payload
+
+#### Scenario: DeepSeek 返回 tool calls
+- **WHEN** DeepSeek 响应包含 native `tool_calls`
+- **THEN** trace MUST 记录 tool call id、tool name、arguments 安全摘要、provider status 和关联 model call id
+- **AND** trace MUST 能定位每个 tool call 对应的 LangChain tool wrapper 执行结果
+- **AND** trace MUST NOT 将 provider tool call 记录为已成功执行业务结果，除非 wrapper 已完成并通过校验
+
+#### Scenario: LangChain model call usage 和 Loop 关联
+- **WHEN** LangChain Agent Runtime 完成或在一轮或多轮 model call 后失败
+- **THEN** trace MUST 记录每次 LangChain model call 的请求摘要、响应摘要、modelCallIndex 和 runtimeStep
+- **AND** trace MUST 在 provider 暴露 `usage_metadata` 或 `response_metadata.tokenUsage` 时记录 prompt、completion 和 total token usage
+- **AND** trace MUST 通过 provider tool call id 将 DeepSeek `tool_calls` 与 LangChain tool wrapper 执行结果关联
+- **AND** trace MUST 在 recursion / budget exhausted 等失败路径保留已捕获的 model calls、provider tool calls 和 tool wrapper executions
+
+#### Scenario: LangChain tool wrapper 执行完成
+- **WHEN** LangChain tool wrapper 成功、失败、被 policy 阻断或因 schema 拒绝而结束
+- **THEN** trace MUST 记录 toolName、durationMs、input summary、output summary、failureCode、userId 隔离摘要和关键 resource id
+- **AND** trace MUST 标记 tool result 是否进入后续模型上下文
+- **AND** trace MUST NOT 保存完整敏感 handler output
+
+#### Scenario: 终态响应投影完成
+- **WHEN** production response adapter 输出 NDJSON 响应
+- **THEN** trace MUST 记录输出事件类型摘要、content 长度、visible output 数量、suggestion 数量和错误 code
+- **AND** trace MUST 能区分 LangChain 成功终态、结构化输出校验失败、tool wrapper 失败、provider 失败和配置失败
+
+### Requirement: Trace 必须证明旧 Agent Core 缺席
+系统 SHALL 在迁移后通过 trace 或架构扫描证明生产 `/api/chat` 未使用旧自研 Agent core。
+
+#### Scenario: 生产聊天 trace 展示旧路径缺席
+- **WHEN** trace 展示一次生产聊天请求
+- **THEN** trace MUST 不再记录旧 `planner_action`、旧 `AgentAction`、旧 `ToolRegistry` manifest、旧 `runAgentRuntime` step 或旧 Response Renderer step
+- **AND** trace SHOULD 记录 runtime family 为 LangChain 或等价标识
+
+#### Scenario: 架构扫描验证旧 trace 字段缺席
+- **WHEN** 本 change 完成实现
+- **THEN** 自动化扫描 MUST 证明生产 trace 写入路径不再依赖旧 `AgentAction`、旧 `PlannerModelTraceEvent`、旧 `duplicate_tool_call` 或旧 resource refs 作为运行时合同
+
+### Requirement: Trace 写入必须保持非致命
+系统 SHALL 将 LangChain trace 观测视为开发诊断。trace 创建、step 写入、planner diagnostics 保存或摘要保存失败不得改变用户可见响应。
+
+#### Scenario: trace step 写入失败
+- **WHEN** model request、tool call、tool result 或 response projection trace 写入失败
+- **THEN** `/api/chat` MUST 继续按 LangChain runtime 结果返回响应
+- **AND** 系统 MUST 记录非致命开发诊断
+- **AND** 系统 MUST NOT 因 trace 写入失败重试模型、重复执行 tool 或改写最终回答
 

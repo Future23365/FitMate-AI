@@ -441,3 +441,53 @@ Production response adapter SHALL 将已校验的 `suggestedQuestions` 投影为
 - **WHEN** `activitySummary` 因安全校验未被投影
 - **THEN** trace MAY 记录稳定拒绝原因或计数
 - **AND** trace MUST NOT 保存未脱敏的长摘要、内部 raw model response、provider 原文或不安全内部字段
+
+### Requirement: LangChain terminal failure finalizer 响应必须投影为普通聊天事件
+
+生产 `/api/chat` SHALL 在 LangChain 主 Agent 失败且 terminal failure finalizer 返回合法输出时，将 finalizer 输出投影为当前 NDJSON 白名单中的普通聊天事件。该响应 MUST 区分于主 Agent 成功终态，MUST NOT 输出未通过校验的结构化训练卡片。
+
+#### Scenario: finalizer 成功输出普通回复
+
+- **WHEN** LangChain terminal failure finalizer 返回合法 `content`
+- **AND** 可选返回合法 `suggestedQuestions`
+- **THEN** `/api/chat` MUST 输出 `content` 事件
+- **AND** 如存在建议问题，`/api/chat` MUST 输出 `suggested_questions` 事件
+- **AND** `/api/chat` MUST 输出 `done` 事件
+- **AND** `/api/chat` MUST NOT 输出被拒绝的 `visible_output`
+- **AND** response summary MUST 将 `projectionType` 记录为 `terminal_failure_finalizer`
+
+#### Scenario: finalizer 不可用时降级到确定性 fallback
+
+- **WHEN** terminal failure finalizer 因配置缺失、provider 失败、超时、输出不可解析或输出 shape 不合法而失败
+- **THEN** `/api/chat` MUST 使用现有确定性 fallback 事件收口
+- **AND** 响应 MUST 包含 `done` 事件
+- **AND** trace MUST 记录 finalizer 失败或跳过原因
+- **AND** 主 Agent 原始失败 code MUST 保留在 response summary 或 trace 中
+
+### Requirement: LangChain 成功终态必须使用结构化 final response 合同
+生产 `/api/chat` 的 LangChain 文本聊天主链 SHALL 使用服务端可校验的结构化 final response 合同表达成功终态。该合同 MUST 至少包含用户可见 `content`，并 MAY 包含 `suggestedQuestions`。LLM MUST NOT 直接生成 NDJSON event。
+
+#### Scenario: 成功终态包含正文和建议提问
+- **WHEN** LangChain agent 以成功终态结束
+- **THEN** runtime MUST 从结构化 final response 中读取非空 `content`
+- **AND** runtime MUST 校验可选 `suggestedQuestions`
+- **AND** response adapter MUST 将 `content` 投影为 `content` 事件
+- **AND** 如存在建议提问，response adapter MUST 将其投影为 `suggested_questions` 事件
+- **AND** 响应 MUST 以 `done` 事件结束
+
+#### Scenario: 成功终态结构非法
+- **WHEN** LangChain agent 未返回合法结构化 final response
+- **THEN** runtime MUST 将该结果归一为结构化输出校验失败或等价安全失败
+- **AND** production response adapter MUST 使用安全 fallback 响应
+- **AND** 服务端 MUST NOT 把未校验的 assistant 正文当成成功终态直接返回
+
+#### Scenario: 终态合同不引入业务语义分流
+- **WHEN** 系统校验或投影结构化 final response
+- **THEN** 服务端 MUST 只校验结构、数量、空值和安全投影边界
+- **AND** 服务端 MUST NOT 根据用户原文、关键词、正则、同义词表、短句模板、具体 `toolName` 或业务字段组合生成、过滤或改写 `suggestedQuestions`
+
+#### Scenario: 用户可见正文不使用 Markdown 分隔线
+- **WHEN** LangChain 默认 system prompt 说明结构化 final response 合同
+- **THEN** prompt MUST 要求 `content` 不使用独立 `---` 或等价 Markdown horizontal rule 分隔线
+- **AND** 该要求 MUST 作为通用输出格式约束表达
+- **AND** 系统 MUST NOT 通过前端正文解析或服务端语义正则把分隔线改造成建议按钮
