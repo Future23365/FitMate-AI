@@ -30,7 +30,7 @@ const submitVisibleTrainingProposalInputSchema = z.object({
   schemaVersion: z.literal(visibleTrainingProposalSchemaVersion)
     .describe("固定为当前 visibleTrainingProposal schemaVersion。"),
   payload: visibleTrainingProposalPayloadSchema
-    .describe("结构化训练结果。exerciseItems[].exerciseId 必须来自模型可见、可被服务端数据库复核的受控动作事实，不能编造。kind=exercise_selection 表示训练动作集合，kind=routine 表示单次训练，kind=plan 表示多天训练计划；字段、section、处方和日程由 schema 与服务端 validator 校验。"),
+    .describe("结构化训练结果。exerciseItems[].exerciseId 必须来自模型可见、可被服务端数据库复核的受控动作事实，不能编造。当最终回答要向用户呈现具体数据库动作集合时，kind=exercise_selection 表示这些动作事实本身；kind=routine 表示单次训练，kind=plan 表示多天训练计划；字段、section、处方和日程由 schema 与服务端 validator 校验。"),
 }).strict();
 
 const acceptedVisibleOutputSchema = z.object({
@@ -74,8 +74,9 @@ export function createSubmitVisibleTrainingProposalLangChainTool(
     name: "submitVisibleTrainingProposal",
     description: [
       "Purpose：提交模型已经构造好的 visibleTrainingProposal 结构化训练结果，让服务端 validator 校验并生成用户可见投影。",
-      "Use When：当前回答要交付可展示、可后续引用或可继续调整的训练动作集合、单次训练 routine 或多天训练 plan。",
-      "Do Not Use When：只回答普通训练知识、动作教学、注意事项、热身或拉伸方法、筛选结果说明等纯文本内容时，不需要使用本 tool。",
+      "Use When：最终回答会向用户呈现一个或多个具体训练动作，且这些动作来自模型可见、可被服务端数据库复核的受控动作事实；或当前回答要交付单次训练 routine / 多天训练 plan。",
+      "Content Boundary：如果 content 准备列出这些具体动作，动作事实本身应由 visibleTrainingProposal.kind=exercise_selection 承载；content 只写推荐理由、动作注意事项、对比说明、训练建议或补充说明。",
+      "Do Not Use When：只回答普通训练知识、动作教学、注意事项、热身或拉伸方法、动作原理或差异解释、空结果或条件不足说明，且不把具体数据库动作作为回答条目展示时，不需要使用本 tool。",
       "Input Source：payload 中的 exerciseItems[].exerciseId 必须来自模型可见、可被服务端数据库复核的受控动作事实；不能编造动作 id 或复写完整动作详情。",
       "Output Meaning：payload.kind 可为 exercise_selection、routine 或 plan；字段、section、prescription、schedule 和动作数据库事实都必须匹配当前 schema 与 validator 边界。",
       "Grounding Rules：本 tool 不查询动作库、不自动补全动作、不生成处方、不保存计划、不写入用户数据。",

@@ -6,7 +6,8 @@
 #### Scenario: finalization tool description 表达训练结构收口边界
 - **WHEN** production catalog 序列化 `submitVisibleTrainingProposal` description 或 schema description
 - **THEN** description MUST 表达该 tool 用于提交模型已经构造好的结构化训练结果，并由服务端 validator 生成用户可见投影
-- **AND** description MUST 表达该 tool 适用于训练动作集合、单次训练 routine 或多天训练 plan 的结构化收口
-- **AND** description MUST 表达普通训练知识、动作教学、注意事项或筛选结果说明等纯文本回答不需要调用该 tool
+- **AND** description MUST 表达该 tool 适用于最终回答中准备呈现的具体数据库动作集合、单次训练 routine 或多天训练 plan 的结构化收口
+- **AND** description MUST 表达当 `content` 准备列出具体数据库动作时，动作事实本身应由 `visibleTrainingProposal.kind = "exercise_selection"` 承载
+- **AND** description MUST 表达普通训练知识、动作教学、注意事项、动作原理 / 差异解释、空结果或条件不足说明等不展示具体数据库动作条目的纯文本回答不需要调用该 tool
 - **AND** description MUST NOT 表达该 tool 会查询动作库、自动补全动作、保存计划、生成处方或替模型选择动作
 - **AND** description MUST NOT 根据用户原文、关键词、短句模板、具体 `toolName` 结果或字段组合规定固定调用流程

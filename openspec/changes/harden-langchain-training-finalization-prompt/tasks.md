@@ -18,3 +18,8 @@
 - [x] 4.1 更新 `docs/方案变更历史` 中本次 prompt 合同调整记录。
 - [x] 4.2 在 `docs/项目演变历程.md` 末尾追加本次调整摘要。
 - [x] 4.3 最终 diff 检查，确认没有新增服务端关键词规则、自然语言模板路由、phrasing 特判或具体业务 `toolName` 语义分支。
+
+- [x] 5.1 根据复测不稳定现象，更新 OpenSpec proposal / design / specs，将结构化动作卡片准入从“用户目标”收紧为“最终回答准备呈现可校验数据库动作事实”。
+- [x] 5.2 更新 `buildLangChainAgentSystemPrompt()` 和 `submitVisibleTrainingProposal` description / schema description，表达具体数据库动作集合应由 `visibleTrainingProposal.kind = "exercise_selection"` 承载。
+- [x] 5.3 更新 prompt 和 tool description 测试，覆盖具体动作事实进入 `exercise_selection`、不展示具体动作条目的普通文本边界，以及没有新增服务端语义分流。
+- [x] 5.4 重新运行 `openspec validate harden-langchain-training-finalization-prompt --strict`、相关自动化测试和 typecheck。
