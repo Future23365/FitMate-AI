@@ -37,7 +37,7 @@ export const langChainFinalResponseJsonSchema: LangChainJsonSchemaObject = {
     content: {
       type: "string",
       minLength: 1,
-      description: "用户可见正文。使用中文，简洁可执行，不使用独立的 --- 或等价 Markdown horizontal rule 分隔线。",
+      description: "用户可见正文。使用中文，简洁可执行；禁止使用 Markdown 水平分割线或装饰性分隔行，包括单独一行的 ---、***、___、<hr>，以及只由横线、星号或下划线组成的分隔行。需要分段时使用标题、编号列表、项目列表或空行。",
     },
     suggestedQuestions: {
       type: "array",

@@ -7,6 +7,7 @@ import { agentRuntimeConfig } from "@/lib/server/config";
 import {
   buildLangChainAgentSystemPrompt,
   defineLangChainToolWrapper,
+  langChainFinalResponseJsonSchema,
   langChainFinalResponseToolName,
   reportAgentActivityLangChainTool,
   resolveLangChainGraphRecursionLimit,
@@ -989,17 +990,30 @@ describe("LangChain Agent prompt", () => {
       expect(prompt).toContain(`每个业务工具本轮最多 ${agentRuntimeConfig.langChain.runBudget.maxToolCallsPerTool} 次调用`);
       expect(prompt).toContain(`reportAgentActivity 最多 ${agentRuntimeConfig.langChain.runBudget.maxActivityReports} 次`);
     expect(prompt).toContain("不计入业务工具调用预算");
-    expect(prompt).toContain("普通文本建议、动作说明、热身或拉伸方法");
-    expect(prompt).toContain("用户可见、可后续引用且需要服务端 validator 的训练卡片");
+    expect(prompt).toContain("普通训练知识、动作教学、注意事项、热身或拉伸方法");
+    expect(prompt).toContain("可展示、可后续引用或可继续调整的训练结构");
+    expect(prompt).toContain("训练动作集合、单次训练 routine 或多天训练 plan");
+    expect(prompt).toContain("结构化训练收口工具");
     expect(prompt).toContain("正文 content 不能替代结构化训练结果");
+    expect(prompt).toContain("content 只负责解释推荐理由、注意事项、训练建议或补充说明");
     expect(prompt).toContain("suggestedQuestions");
-    expect(prompt).toContain("不使用独立的 ---");
+    expect(prompt).toContain("禁止使用 Markdown 水平分割线或装饰性分隔行");
+    expect(prompt).toContain("单独一行的 ---、***、___、<hr>");
     expect(prompt).toContain("服务端负责认证、权限隔离、Zod 校验");
+    expect(prompt).not.toContain("当用户说");
     expect(prompt).not.toContain("AgentAction");
     expect(prompt).not.toContain("ToolRegistry");
     expect(prompt).not.toContain("PlannerPort");
     expect(prompt).not.toContain("final_answer");
     expect(prompt).not.toContain("ask_user");
     expect(prompt).not.toContain(`本轮最多 ${agentRuntimeConfig.langChain.runBudget.maxToolCalls} 次工具调用`);
+  });
+
+  it("keeps final response content schema aligned with the no-divider output contract", () => {
+    const contentProperty = langChainFinalResponseJsonSchema.properties?.content as { description?: string };
+
+    expect(contentProperty.description).toContain("禁止使用 Markdown 水平分割线或装饰性分隔行");
+    expect(contentProperty.description).toContain("单独一行的 ---、***、___、<hr>");
+    expect(contentProperty.description).toContain("标题、编号列表、项目列表或空行");
   });
 });

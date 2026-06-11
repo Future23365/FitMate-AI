@@ -16,6 +16,11 @@ describe("submitVisibleTrainingProposal LangChain tool", () => {
 
     expect(tool.description).toContain("visibleTrainingProposal");
     expect(tool.description).toContain("服务端 validator");
+    expect(tool.description).toContain("训练动作集合");
+    expect(tool.description).toContain("单次训练 routine");
+    expect(tool.description).toContain("多天训练 plan");
+    expect(tool.description).toContain("纯文本内容");
+    expect(tool.description).toContain("受控动作事实");
     expect(tool.description).toContain("payload.kind");
     expect(tool.description).toContain("exercise_selection");
     expect(tool.description).toContain("routine");
