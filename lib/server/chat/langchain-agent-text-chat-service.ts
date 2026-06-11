@@ -27,9 +27,15 @@ type LangChainAgentTextChatStreamEvent =
   | LangChainAgentStreamEvent
   | {
       type: "agent_progress";
-      stage: "preparing_context" | "analyzing_request" | "writing_reply";
+      stage: "preparing_context" | "analyzing_request" | "model_activity" | "writing_reply";
       status: "active";
-      messageKey: "preparing_context" | "analyzing_request" | "writing_reply";
+      messageKey: "preparing_context" | "analyzing_request" | "model_activity" | "writing_reply";
+      activitySummary?: string;
+      sequence: number;
+    }
+  | {
+      type: "agent_loop";
+      loopTurn: number;
       sequence: number;
     };
 
@@ -108,6 +114,14 @@ export async function createLangChainAgentTextChatResponse(
         conversationId: input.request.conversationId,
       },
       toolWrappers,
+      onRuntimeEvent: async (event) => {
+        if (event.type === "model_call_started") {
+          await activityWriter.writeLoop(event.loopTurn);
+          return;
+        }
+
+        await activityWriter.writeModelActivity(event.summary);
+      },
     });
     const validatedVisibleOutputs = collectLangChainValidatedVisibleOutputs(result);
     const terminalFailureFinalizerResult = result.ok
@@ -273,6 +287,25 @@ function createLangChainAgentActivityStreamWriter(writer: LangChainAgentTextChat
         stage,
         status: "active",
         messageKey: stage,
+        sequence,
+      });
+    },
+    writeModelActivity: async (activitySummary: string) => {
+      sequence += 1;
+      await writer.write({
+        type: "agent_progress",
+        stage: "model_activity",
+        status: "active",
+        messageKey: "model_activity",
+        activitySummary,
+        sequence,
+      });
+    },
+    writeLoop: async (loopTurn: number) => {
+      sequence += 1;
+      await writer.write({
+        type: "agent_loop",
+        loopTurn,
         sequence,
       });
     },

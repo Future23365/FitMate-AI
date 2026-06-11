@@ -48,6 +48,7 @@ export type LangChainAgentToolExecution = {
   runtimeStep?: number;
   toolCallId?: string;
   toolName: string;
+  executionKind?: "business" | "activity";
   status: LangChainAgentToolExecutionStatus;
   durationMs?: number;
   inputSummary?: LangChainJsonValue;
@@ -59,6 +60,23 @@ export type LangChainAgentToolExecution = {
   schemaIssues?: readonly LangChainAgentSchemaIssue[];
   enteredModelContext: boolean;
 };
+
+/** LangChainAgentRuntimeObserverEvent 是 runtime 发给 /api/chat adapter 的当前请求内观察事件，不进入模型长期上下文或业务事实。 */
+export type LangChainAgentRuntimeObserverEvent =
+  | {
+      type: "model_call_started";
+      loopTurn: number;
+      modelCallIndex: number;
+      runtimeStep: number;
+    }
+  | {
+      type: "model_activity_reported";
+      summary: string;
+      stepType?: string;
+      toolCallId?: string;
+      modelCallIndex?: number;
+      runtimeStep?: number;
+    };
 
 export type LangChainTokenUsage = {
   prompt_tokens?: number;

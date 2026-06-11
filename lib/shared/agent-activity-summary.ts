@@ -70,16 +70,16 @@ export function sanitizeAgentActivitySummary(value: unknown): AgentActivitySumma
     return { ok: false, reason: "empty" };
   }
 
+  if (/[\u0000-\u001F\u007F]/.test(summary)) {
+    return { ok: false, reason: "control_character" };
+  }
+
   if (!agentActivitySummarySafetyEnabled) {
     return { ok: true, summary };
   }
 
   if (summary.length > agentActivitySummaryDisplayMaxLength) {
     return { ok: false, reason: "too_long" };
-  }
-
-  if (/[\u0000-\u001F\u007F]/.test(summary)) {
-    return { ok: false, reason: "control_character" };
   }
 
   if (!/\p{Script=Han}/u.test(summary)) {

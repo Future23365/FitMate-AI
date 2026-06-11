@@ -7,6 +7,7 @@ import {
   buildLangChainAgentSystemPrompt,
   defineLangChainToolWrapper,
   langChainFinalResponseToolName,
+  reportAgentActivityLangChainTool,
   runLangChainAgentRuntime,
 } from "@/lib/server/langchain-agent";
 
@@ -199,6 +200,63 @@ describe("LangChain Agent runtime", () => {
         modelCallIndex: 1,
         runtimeStep: 1,
       },
+    ]);
+  });
+
+  it("streams model activity observer events without consuming business tool budget", async () => {
+    const model = fakeModel()
+      .respondWithTools([
+        { name: "reportAgentActivity", args: { summary: "我先去动作库里确认可用动作", stepType: "query_resources" }, id: "call_activity_1" },
+        { name: "echoExerciseGoal", args: { goal: "胸部训练" }, id: "call_1" },
+      ])
+      .respondWithTools([createFinalResponseToolCall({ content: "已按胸部训练目标整理。" })]);
+    const runtimeEvents: unknown[] = [];
+
+    const result = await runLangChainAgentRuntime({
+      ...baseInput,
+      model,
+      toolWrappers: [reportAgentActivityLangChainTool, echoTool],
+      onRuntimeEvent: (event) => {
+        runtimeEvents.push(event);
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.toolExecutions).toMatchObject([
+      {
+        toolCallId: "call_activity_1",
+        toolName: "reportAgentActivity",
+        executionKind: "activity",
+        status: "succeeded",
+        userProjection: {
+          activitySummary: "我先去动作库里确认可用动作",
+          stepType: "query_resources",
+        },
+      },
+      {
+        toolCallId: "call_1",
+        toolName: "echoExerciseGoal",
+        executionKind: "business",
+        status: "succeeded",
+      },
+    ]);
+    expect(runtimeEvents).toEqual([
+      expect.objectContaining({
+        type: "model_call_started",
+        loopTurn: 1,
+        modelCallIndex: 1,
+      }),
+      expect.objectContaining({
+        type: "model_activity_reported",
+        summary: "我先去动作库里确认可用动作",
+        stepType: "query_resources",
+        toolCallId: "call_activity_1",
+      }),
+      expect.objectContaining({
+        type: "model_call_started",
+        loopTurn: 2,
+        modelCallIndex: 2,
+      }),
     ]);
   });
 
@@ -457,6 +515,8 @@ describe("LangChain Agent prompt", () => {
 
     expect(prompt).toContain("DeepSeek native tool calling");
     expect(prompt).toContain("结构化终态工具");
+    expect(prompt).toContain("reportAgentActivity");
+    expect(prompt).toContain("活动摘要");
     expect(prompt).toContain("用户可见、可后续引用的一组训练动作");
     expect(prompt).toContain("正文 content 不能替代结构化训练结果");
     expect(prompt).toContain("suggestedQuestions");

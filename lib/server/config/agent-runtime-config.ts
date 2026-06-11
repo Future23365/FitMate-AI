@@ -24,8 +24,13 @@ export type AgentRuntimeConfig = {
       maxIterations: number;
       maxModelCalls: number;
       maxToolCalls: number;
+      maxActivityReports: number;
       overallTimeoutMs: number;
       structuredOutputValidationTimeoutMs: number;
+    };
+    activityReport: {
+      maxSummaryLength: number;
+      maxStepTypeLength: number;
     };
     terminalFailureFinalizer: {
       defaultEnabled: boolean;
@@ -46,6 +51,7 @@ export type AgentRuntimeConfig = {
     toolCatalog: {
       defaultEnabled: true;
       allowedToolNames: readonly [
+        "reportAgentActivity",
         "inspectVisibleTrainingProposals",
         "resolveExerciseResourceMentions",
         "searchExerciseResources",
@@ -140,10 +146,19 @@ export const agentRuntimeConfig = {
       maxModelCalls: 6,
       /** maxToolCalls 限制单次聊天最多业务 tool 执行次数；调大增加数据库压力和上下文体积。 */
       maxToolCalls: 5,
+      /** maxActivityReports 限制模型当前步骤汇报次数；不计入业务 tool 预算，但仍防止状态刷屏。 */
+      maxActivityReports: 8,
       /** overallTimeoutMs 是整次 LangChain run 墙钟预算；调大增加请求占用，调小可能中断合法慢路径。 */
       overallTimeoutMs: 40_000,
       /** structuredOutputValidationTimeoutMs 限制终态结构化校验等待时间，防止 validator 卡住响应投影。 */
       structuredOutputValidationTimeoutMs: 3_000,
+    },
+    /** activityReport 控制模型生成活动摘要的宽松展示边界，不参与业务 grounding。 */
+    activityReport: {
+      /** maxSummaryLength 是服务端投影给活动条的摘要上限；超出时裁剪而不是拒绝。 */
+      maxSummaryLength: 120,
+      /** maxStepTypeLength 限制模型自报步骤类别的诊断字段长度。 */
+      maxStepTypeLength: 48,
     },
     /** terminalFailureFinalizer 控制主 Agent 失败后的受限模型兜底回复，不参与业务 tool loop。 */
     terminalFailureFinalizer: {
@@ -179,8 +194,9 @@ export const agentRuntimeConfig = {
     toolCatalog: {
       /** defaultEnabled 控制生产 tool catalog 是否默认可用；关闭时只允许基础文本回答。 */
       defaultEnabled: true,
-      /** allowedToolNames 是当前 OpenSpec 声明的生产业务 tool 集合，不包含 fixture 或写入 tool。 */
+      /** allowedToolNames 是当前 OpenSpec 声明的生产 tool 集合，包含 request-local 活动汇报 tool，不包含 fixture。 */
       allowedToolNames: [
+        "reportAgentActivity",
         "inspectVisibleTrainingProposals",
         "resolveExerciseResourceMentions",
         "searchExerciseResources",

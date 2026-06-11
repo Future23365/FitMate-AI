@@ -38,6 +38,8 @@ export type LangChainToolWrapperDefinition<SchemaT extends z.ZodObject, OutputT>
   description: string;
   inputSchema: SchemaT;
   outputSchema?: z.ZodType<OutputT>;
+  /** executionKind 区分真实业务工具和 request-local 活动汇报工具，避免 UI 状态消耗业务工具预算。 */
+  executionKind?: "business" | "activity";
   timeoutMs?: number;
   handler: LangChainToolWrapperHandler<SchemaT, OutputT>;
   toModelVisibleSummary: LangChainToolOutputMapper<OutputT, string | LangChainJsonValue>;
@@ -48,9 +50,9 @@ export type LangChainToolWrapperDefinition<SchemaT extends z.ZodObject, OutputT>
 export type LangChainToolWrapper<SchemaT extends z.ZodObject = z.ZodObject, OutputT = unknown> =
   LangChainToolWrapperDefinition<SchemaT, OutputT>;
 
-export type LangChainToolExecutionRecorder = (execution: LangChainAgentToolExecution) => void;
+export type LangChainToolExecutionRecorder = (execution: LangChainAgentToolExecution) => void | Promise<void>;
 export type LangChainToolExecutionBudget = {
-  reserveToolCall: () => boolean;
+  reserveToolCall: (wrapper: LangChainToolWrapper) => boolean;
 };
 
 /** defineLangChainToolWrapper 定义生产 LangChain tool 的服务端 wrapper 合同，统一 schema、权限上下文、摘要和 trace 边界。 */
@@ -68,13 +70,13 @@ export function createExecutableLangChainTool<SchemaT extends z.ZodObject, Outpu
   budget?: LangChainToolExecutionBudget,
 ) {
   const executableTool = tool(async (input, runtime) => {
-    const budgetExceeded = budget ? !budget.reserveToolCall() : false;
+    const budgetExceeded = budget ? !budget.reserveToolCall(wrapper) : false;
     const execution = await executeLangChainToolWrapper(wrapper, input, context, {
       toolCallId: readLangChainToolCallId(runtime),
       budgetExceeded,
     });
 
-    recordExecution(execution.record);
+    await recordExecution(execution.record);
 
     return execution.modelMessage;
   }, {
@@ -88,13 +90,13 @@ export function createExecutableLangChainTool<SchemaT extends z.ZodObject, Outpu
     // 覆盖 invoke 可以保留 provider schema，同时把执行、校验和错误消毒统一交给项目 wrapper。
     invoke: async (input: unknown, runtime: unknown) => {
       const toolInput = readLangChainToolInvokeInput(input, runtime);
-      const budgetExceeded = budget ? !budget.reserveToolCall() : false;
+      const budgetExceeded = budget ? !budget.reserveToolCall(wrapper) : false;
       const execution = await executeLangChainToolWrapper(wrapper, toolInput.rawInput, context, {
         toolCallId: toolInput.toolCallId,
         budgetExceeded,
       });
 
-      recordExecution(execution.record);
+      await recordExecution(execution.record);
       return execution.modelMessage;
     },
   });
@@ -226,6 +228,7 @@ export async function executeLangChainToolWrapper<SchemaT extends z.ZodObject, O
       record: {
         toolCallId: options.toolCallId,
         toolName: wrapper.name,
+        executionKind: wrapper.executionKind ?? "business",
         status: "succeeded",
         durationMs: Date.now() - startedAt,
         inputSummary,
@@ -296,6 +299,7 @@ function createFailedToolExecution(input: {
     record: {
       toolCallId: input.toolCallId,
       toolName: input.wrapper.name,
+      executionKind: input.wrapper.executionKind ?? "business",
       status: "failed",
       durationMs: Date.now() - input.startedAt,
       inputSummary: input.inputSummary,

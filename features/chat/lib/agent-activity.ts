@@ -39,6 +39,11 @@ const agentActivityDisplayByStage: Record<AgentProgressStage, AgentActivityDispl
     icon: "psychology",
     toneClass: "text-primary",
   },
+  model_activity: {
+    label: "正在思考...",
+    icon: "psychology",
+    toneClass: "text-primary",
+  },
   querying_exercises: {
     label: "正在思考...",
     icon: "exercise",

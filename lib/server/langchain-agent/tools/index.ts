@@ -1,4 +1,9 @@
 export {
+  reportAgentActivityInputSchema,
+  reportAgentActivityLangChainTool,
+  type ReportAgentActivityOutput,
+} from "./activity-tool";
+export {
   createSearchExerciseResourcesLangChainTool,
   resolveExerciseResourceMentionsInputSchema,
   resolveExerciseResourceMentionsLangChainTool,

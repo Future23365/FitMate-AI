@@ -33,6 +33,7 @@ export type ApiChatMessage = Pick<ChatMessage, "role" | "content">;
 export const agentProgressStageValues = [
   "preparing_context",
   "analyzing_request",
+  "model_activity",
   "querying_exercises",
   "reading_artifacts",
   "generating_workout",

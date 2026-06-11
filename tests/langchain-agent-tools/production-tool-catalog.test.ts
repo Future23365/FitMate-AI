@@ -13,6 +13,7 @@ describe("production LangChain tool catalog", () => {
 
     expect(tools.map((tool) => tool.name)).toEqual(agentRuntimeConfig.langChain.toolCatalog.allowedToolNames);
     expect(tools.map((tool) => tool.name)).toEqual([
+      "reportAgentActivity",
       "inspectVisibleTrainingProposals",
       "resolveExerciseResourceMentions",
       "searchExerciseResources",
@@ -20,6 +21,7 @@ describe("production LangChain tool catalog", () => {
     ]);
     expect(tools.map((tool) => tool.name)).not.toContain("readFixture");
     expect(tools.map((tool) => tool.timeoutMs)).toEqual([
+      undefined,
       agentRuntimeConfig.tools.inspectVisibleTrainingProposals.timeoutMs,
       agentRuntimeConfig.tools.resolveExerciseResourceMentions.timeoutMs,
       agentRuntimeConfig.tools.searchExerciseResources.timeoutMs,
@@ -30,6 +32,9 @@ describe("production LangChain tool catalog", () => {
   it("keeps tool descriptions in Chinese without old AgentAction contract terms", () => {
     const descriptions = productionLangChainTools.map((tool) => tool.description).join("\n");
 
+    expect(descriptions).toContain("当前步骤");
+    expect(descriptions).toContain("summary");
+    expect(descriptions).toContain("不替代业务工具");
     expect(descriptions).toContain("只读");
     expect(descriptions).toContain("服务端");
     expect(descriptions).toContain("动作候选");

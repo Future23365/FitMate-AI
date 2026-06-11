@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { agentRuntimeConfig } from "@/lib/server/config";
+import { langChainFinalResponseToolName } from "@/lib/server/langchain-agent";
 
 import { createChatConversation, createExercise, createWorkoutRoutine, createWorkoutSchedule } from "./fixtures/domain";
 
@@ -272,6 +273,17 @@ describe("API route boundaries", () => {
               content: null,
               tool_calls: [
                 {
+                  id: "call_activity_1",
+                  type: "function",
+                  function: {
+                    name: "reportAgentActivity",
+                    arguments: JSON.stringify({
+                      summary: "我先识别你提到的动作，再查询动作库事实",
+                      stepType: "resolve_mentions",
+                    }),
+                  },
+                },
+                {
                   id: "call_resolve_1",
                   type: "function",
                   function: {
@@ -306,6 +318,17 @@ describe("API route boundaries", () => {
       { type: "content", content: "已确认动作库里有俯卧撑，可以作为主训练候选。" },
       { type: "done" },
     ]);
+    expect(rawEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "agent_loop",
+        loopTurn: 1,
+      }),
+      expect.objectContaining({
+        type: "agent_progress",
+        stage: "model_activity",
+        activitySummary: "我先识别你提到的动作，再查询动作库事实",
+      }),
+    ]));
     expect(exerciseRepositoryMocks.resolveExerciseResourceMentionSummaries).toHaveBeenCalledWith({
       text: "俯卧撑",
       maxMatches: 5,
@@ -314,6 +337,9 @@ describe("API route boundaries", () => {
     const firstModelRequest = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     const secondModelRequest = JSON.parse(fetchMock.mock.calls[1][1].body as string);
     expect(firstModelRequest.tools).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        function: expect.objectContaining({ name: "reportAgentActivity" }),
+      }),
       expect.objectContaining({
         function: expect.objectContaining({ name: "resolveExerciseResourceMentions" }),
       }),
@@ -324,13 +350,17 @@ describe("API route boundaries", () => {
       name: "LangChain Agent Runtime 摘要",
       output: expect.objectContaining({
         traceSummary: expect.objectContaining({
-          providerToolCalls: [
+          providerToolCalls: expect.arrayContaining([
+            expect.objectContaining({
+              id: "call_activity_1",
+              name: "reportAgentActivity",
+            }),
             expect.objectContaining({
               id: "call_resolve_1",
               name: "resolveExerciseResourceMentions",
             }),
-          ],
-          toolCallCount: 1,
+          ]),
+          toolCallCount: 2,
         }),
       }),
     }));
@@ -646,7 +676,7 @@ describe("API route boundaries", () => {
       .mockResolvedValueOnce(deepSeekStructuredFinalResponse({
         content: "预算耗尽后这条主链结果不应该作为成功回复。",
       }))
-      .mockResolvedValueOnce(deepSeekStructuredFinalResponse({
+      .mockResolvedValueOnce(deepSeekJsonContentResponse({
         content: "这次没有生成可靠的训练结果。你可以缩小目标后让我重新生成。",
         suggestedQuestions: ["帮我生成 20 分钟徒手胸部训练"],
       }));
@@ -794,8 +824,45 @@ function parseNdjson(text: string) {
   return text.trim().split("\n").map((line) => JSON.parse(line));
 }
 
-/** deepSeekStructuredFinalResponse 模拟生产 LangChain provider structured output 的 JSON content 终态。 */
+/** deepSeekStructuredFinalResponse 模拟生产 LangChain provider structured output 的 final response tool call 终态。 */
 function deepSeekStructuredFinalResponse(input: {
+  content: string;
+  suggestedQuestions?: string[];
+}) {
+  return Response.json({
+    model: "deepseek-v4-flash",
+    choices: [
+      {
+        message: {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            {
+              id: "call_final_response",
+              type: "function",
+              function: {
+                name: langChainFinalResponseToolName,
+                arguments: JSON.stringify({
+                  content: input.content,
+                  ...(input.suggestedQuestions ? { suggestedQuestions: input.suggestedQuestions } : {}),
+                }),
+              },
+            },
+          ],
+        },
+        finish_reason: "tool_calls",
+      },
+    ],
+    usage: {
+      prompt_tokens: 20,
+      completion_tokens: 8,
+      total_tokens: 28,
+    },
+  });
+}
+
+/** deepSeekJsonContentResponse 模拟 terminal failure finalizer 这类非 agent toolStrategy 调用的 JSON content 终态。 */
+function deepSeekJsonContentResponse(input: {
   content: string;
   suggestedQuestions?: string[];
 }) {

@@ -26,6 +26,7 @@ import type {
   LangChainAgentRunFailure,
   LangChainAgentRunResult,
   LangChainAgentRunTraceSummary,
+  LangChainAgentRuntimeObserverEvent,
   LangChainAgentRuntimeErrorCode,
   LangChainAgentToolExecution,
   LangChainTokenUsage,
@@ -39,6 +40,7 @@ export type RunLangChainAgentRuntimeInput = {
   toolWrappers?: readonly LangChainToolWrapper[];
   systemPrompt?: string;
   signal?: AbortSignal;
+  onRuntimeEvent?: (event: LangChainAgentRuntimeObserverEvent) => void | Promise<void>;
 };
 
 /** runLangChainAgentRuntime 封装 LangChain agent harness，保留服务端工具校验、预算、错误归一化和 trace 摘要边界。 */
@@ -61,21 +63,34 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
   }
 
   const toolWrappers = input.toolWrappers ?? [];
-  const modelCallRecorder = createLangChainModelCallTraceRecorder({ toolWrappers });
+  const modelCallRecorder = createLangChainModelCallTraceRecorder({
+    toolWrappers,
+    onRuntimeEvent: input.onRuntimeEvent,
+  });
   const abortController = new AbortController();
   const timeout = setTimeout(() => abortController.abort(), config.runBudget.overallTimeoutMs);
   const abortFromInput = () => abortController.abort();
   input.signal?.addEventListener("abort", abortFromInput);
 
   try {
-    const toolExecutionBudget = createToolExecutionBudget(config.runBudget.maxToolCalls);
+    const toolExecutionBudget = createToolExecutionBudget({
+      maxBusinessToolCalls: config.runBudget.maxToolCalls,
+      maxActivityReports: config.runBudget.maxActivityReports,
+    });
     const tools = toolWrappers.map((wrapper) => createExecutableLangChainTool(
       wrapper,
       {
         actor: input.actor,
         signal: abortController.signal,
       },
-      (execution) => toolExecutions.push(execution),
+      async (execution) => {
+        toolExecutions.push(execution);
+        await emitLangChainRuntimeObserverEvent({
+          execution,
+          modelCalls: modelCallRecorder.modelCalls,
+          onRuntimeEvent: input.onRuntimeEvent,
+        });
+      },
       toolExecutionBudget,
     ));
     const agent = createAgent({
@@ -100,7 +115,9 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
       mergeToolExecutions(toolExecutions, messages),
       modelCallRecorder.modelCalls,
     );
-    const budgetFailure = mergedToolExecutions.find((execution) => execution.failureCode === "budget_exhausted");
+    const budgetFailure = mergedToolExecutions.find((execution) => (
+      execution.failureCode === "budget_exhausted" && execution.executionKind !== "activity"
+    ));
 
     if (budgetFailure) {
       return createFailure({
@@ -191,19 +208,106 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
   }
 }
 
-function createToolExecutionBudget(maxToolCalls: number) {
-  let reservedToolCalls = 0;
+function createToolExecutionBudget(input: {
+  maxBusinessToolCalls: number;
+  maxActivityReports: number;
+}) {
+  let reservedBusinessToolCalls = 0;
+  let reservedActivityReports = 0;
 
   return {
-    reserveToolCall: () => {
-      reservedToolCalls += 1;
-      return reservedToolCalls <= maxToolCalls;
+    reserveToolCall: (wrapper: LangChainToolWrapper) => {
+      if (wrapper.executionKind === "activity") {
+        reservedActivityReports += 1;
+        return reservedActivityReports <= input.maxActivityReports;
+      }
+
+      reservedBusinessToolCalls += 1;
+      return reservedBusinessToolCalls <= input.maxBusinessToolCalls;
     },
   };
 }
 
+async function emitLangChainRuntimeObserverEvent(input: {
+  execution: LangChainAgentToolExecution;
+  modelCalls: readonly LangChainAgentModelCallTrace[];
+  onRuntimeEvent?: (event: LangChainAgentRuntimeObserverEvent) => void | Promise<void>;
+}) {
+  if (!input.onRuntimeEvent || input.execution.toolName !== "reportAgentActivity" || input.execution.status !== "succeeded") {
+    return;
+  }
+
+  const activityProjection = readAgentActivityUserProjection(input.execution.userProjection);
+
+  if (!activityProjection?.summary) {
+    return;
+  }
+
+  const linkage = findToolCallModelLinkage(input.execution.toolCallId, input.modelCalls);
+
+  await emitRuntimeObserverSafely(input.onRuntimeEvent, {
+    type: "model_activity_reported",
+    summary: activityProjection.summary,
+    ...(activityProjection.stepType ? { stepType: activityProjection.stepType } : {}),
+    ...(input.execution.toolCallId ? { toolCallId: input.execution.toolCallId } : {}),
+    ...(linkage?.modelCallIndex ? { modelCallIndex: linkage.modelCallIndex } : {}),
+    ...(linkage?.runtimeStep ? { runtimeStep: linkage.runtimeStep } : {}),
+  });
+}
+
+async function emitRuntimeObserverSafely(
+  onRuntimeEvent: ((event: LangChainAgentRuntimeObserverEvent) => void | Promise<void>) | undefined,
+  event: LangChainAgentRuntimeObserverEvent,
+) {
+  if (!onRuntimeEvent) {
+    return;
+  }
+
+  try {
+    await onRuntimeEvent(event);
+  } catch {
+    // Runtime observer 只服务 request-local UI / trace，失败不能改变模型调用或 tool 执行结果。
+  }
+}
+
+function readAgentActivityUserProjection(value: unknown) {
+  const record = readRecord(value);
+  const summary = readStringFromRecord(record, "activitySummary");
+  const stepType = readStringFromRecord(record, "stepType");
+
+  return summary
+    ? {
+        summary,
+        ...(stepType ? { stepType } : {}),
+      }
+    : undefined;
+}
+
+function findToolCallModelLinkage(
+  toolCallId: string | undefined,
+  modelCalls: readonly LangChainAgentModelCallTrace[],
+) {
+  if (!toolCallId) {
+    return undefined;
+  }
+
+  for (const modelCall of modelCalls) {
+    const providerToolCall = modelCall.providerToolCalls.find((toolCall) => toolCall.id === toolCallId);
+
+    if (providerToolCall) {
+      return {
+        modelCallIndex: providerToolCall.modelCallIndex ?? modelCall.modelCallIndex,
+        runtimeStep: providerToolCall.runtimeStep ?? modelCall.runtimeStep,
+      };
+    }
+  }
+
+  return undefined;
+}
+
 function createLangChainModelCallTraceRecorder(input: {
   toolWrappers: readonly LangChainToolWrapper[];
+  onRuntimeEvent?: (event: LangChainAgentRuntimeObserverEvent) => void | Promise<void>;
 }) {
   const modelCalls: LangChainAgentModelCallTrace[] = [];
   let modelCallIndex = 0;
@@ -218,6 +322,13 @@ function createLangChainModelCallTraceRecorder(input: {
         modelCallIndex = currentModelCallIndex;
         const startedAt = Date.now();
         const requestSummary = summarizeLangChainModelRequest(request, input.toolWrappers);
+
+        await emitRuntimeObserverSafely(input.onRuntimeEvent, {
+          type: "model_call_started",
+          loopTurn: currentModelCallIndex,
+          modelCallIndex: currentModelCallIndex,
+          runtimeStep: currentModelCallIndex,
+        });
 
         try {
           const response = await handler(request);

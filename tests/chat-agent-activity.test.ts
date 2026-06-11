@@ -45,6 +45,14 @@ describe("Agent progress activity UI state", () => {
       ok: true,
       summary: "toolName=searchExerciseResources 内部调试",
     });
+    expect(sanitizeAgentActivitySummary("I am checking the exercise facts now.")).toEqual({
+      ok: true,
+      summary: "I am checking the exercise facts now.",
+    });
+    expect(sanitizeAgentActivitySummary("正在查询\n动作库")).toEqual({
+      ok: false,
+      reason: "control_character",
+    });
   });
 
   it("updates activity by sequence and falls back for unknown stages", () => {
@@ -283,18 +291,18 @@ describe("Agent progress activity UI state", () => {
   it("updates model activitySummary immediately while ignoring later fallback progress", () => {
     const firstSummary = reduceAgentActivity(null, {
       type: "agent_progress",
-      stage: "analyzing_request",
+      stage: "model_activity",
       status: "active",
-      messageKey: "analyzing_request",
+      messageKey: "model_activity",
       activitySummary: "正在理解你的目标",
       sequence: 1,
     }, { nowMs: 0 });
 
     const pendingSummary = reduceAgentActivity(firstSummary, {
       type: "agent_progress",
-      stage: "analyzing_request",
+      stage: "model_activity",
       status: "active",
-      messageKey: "analyzing_request",
+      messageKey: "model_activity",
       activitySummary: "正在筛选训练条件",
       sequence: 2,
     }, { nowMs: 500 });

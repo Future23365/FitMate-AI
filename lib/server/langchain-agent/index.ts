@@ -75,6 +75,8 @@ export {
 } from "./tools/production-tool-catalog";
 
 export {
+  reportAgentActivityInputSchema,
+  reportAgentActivityLangChainTool,
   createSearchExerciseResourcesLangChainTool,
   inspectVisibleTrainingProposalsInputSchema,
   inspectVisibleTrainingProposalsLangChainTool,
@@ -90,6 +92,7 @@ export {
   submitVisibleTrainingProposalOutputType,
   type CreateSearchExerciseResourcesLangChainToolOptions,
   type CreateSubmitVisibleTrainingProposalLangChainToolOptions,
+  type ReportAgentActivityOutput,
   type SubmitVisibleTrainingProposalOutput,
 } from "./tools";
 
@@ -102,6 +105,7 @@ export type {
   LangChainAgentRunResult,
   LangChainAgentRunSuccess,
   LangChainAgentRunTraceSummary,
+  LangChainAgentRuntimeObserverEvent,
   LangChainAgentRuntimeErrorCode,
   LangChainAgentToolExecution,
   LangChainAgentToolExecutionStatus,
