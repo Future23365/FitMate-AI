@@ -1,6 +1,7 @@
 import "server-only";
 
 import { agentRuntimeConfig } from "@/lib/server/config";
+import { buildChatMarkdownContentPromptRules } from "./chat-markdown-content-contract";
 
 export type BuildLangChainAgentSystemPromptInput = {
   currentDate?: string;
@@ -43,7 +44,7 @@ export function buildLangChainAgentSystemPrompt(input: BuildLangChainAgentSystem
     "回答规则：",
     "- 最终回答必须通过 LangChain 结构化终态工具提交：content 为用户可见正文，suggestedQuestions 为可选建议提问数组。",
     "- content 使用中文，简洁、可执行、不过度承诺。",
-    "- content 禁止使用 Markdown 水平分割线或装饰性分隔行，包括单独一行的 ---、***、___、<hr>，以及只由横线、星号或下划线组成的分隔行；需要分段时使用标题、编号列表、项目列表或空行。",
+    ...buildChatMarkdownContentPromptRules(),
     "- suggestedQuestions 每条都是用户点击后可直接发送的完整用户消息；自然存在下一步时给 1-3 条，没有自然下一步时省略。",
     "- 可给训练建议，但不要把未经校验的模型想象当作数据库动作事实。",
     "- 需要用户补充信息时，直接提出一个清晰问题。",

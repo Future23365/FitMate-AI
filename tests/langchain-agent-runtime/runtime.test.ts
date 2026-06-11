@@ -999,9 +999,16 @@ describe("LangChain Agent prompt", () => {
     expect(prompt).toContain("正文 content 不能替代结构化训练结果");
     expect(prompt).toContain("content 只负责解释推荐理由、动作注意事项、对比说明、训练建议或补充说明");
     expect(prompt).toContain("suggestedQuestions");
+    expect(prompt).toContain("适合聊天正文的 Markdown 子集");
+    expect(prompt).toContain("emoji、段落、短标题、编号列表、项目列表、加粗、斜体和行内代码");
+    expect(prompt).toContain("emoji 可以正常使用");
+    expect(prompt).toContain("raw HTML、Markdown 水平分割线、删除线、表格、脚注、任务清单、代码块和一级大标题");
     expect(prompt).toContain("禁止使用 Markdown 水平分割线或装饰性分隔行");
     expect(prompt).toContain("单独一行的 ---、***、___、<hr>");
+    expect(prompt).toContain("数字范围使用 8-12、8 到 12 或 8 至 12");
+    expect(prompt).toContain("不要使用 ~ 表达范围");
     expect(prompt).toContain("服务端负责认证、权限隔离、Zod 校验");
+    expect(prompt).not.toContain("禁止 emoji");
     expect(prompt).not.toContain("当用户说");
     expect(prompt).not.toContain("AgentAction");
     expect(prompt).not.toContain("ToolRegistry");
@@ -1012,11 +1019,16 @@ describe("LangChain Agent prompt", () => {
     expect(prompt).not.toContain(`本轮最多 ${agentRuntimeConfig.langChain.runBudget.maxToolCalls} 次工具调用`);
   });
 
-  it("keeps final response content schema aligned with the no-divider output contract", () => {
+  it("keeps final response content schema aligned with the chat markdown subset contract", () => {
     const contentProperty = langChainFinalResponseJsonSchema.properties?.content as { description?: string };
 
+    expect(contentProperty.description).toContain("适合聊天正文的 Markdown 子集");
+    expect(contentProperty.description).toContain("emoji、段落、短标题、编号列表、项目列表、加粗、斜体和行内代码");
+    expect(contentProperty.description).toContain("emoji 可以正常使用");
+    expect(contentProperty.description).toContain("raw HTML、Markdown 水平分割线、删除线、表格、脚注、任务清单、代码块和一级大标题");
     expect(contentProperty.description).toContain("禁止使用 Markdown 水平分割线或装饰性分隔行");
     expect(contentProperty.description).toContain("单独一行的 ---、***、___、<hr>");
-    expect(contentProperty.description).toContain("标题、编号列表、项目列表或空行");
+    expect(contentProperty.description).toContain("数字范围使用 8-12、8 到 12 或 8 至 12");
+    expect(contentProperty.description).toContain("不要使用 ~ 表达范围");
   });
 });

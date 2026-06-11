@@ -1,6 +1,7 @@
 import "server-only";
 
 import { z } from "zod";
+import { buildChatMarkdownContentSchemaDescription } from "./chat-markdown-content-contract";
 
 /** langChainFinalResponseToolName 是 LangChain 结构化终态工具的稳定名称，不代表业务 tool。 */
 export const langChainFinalResponseToolName = "fitmate_final_response";
@@ -37,7 +38,7 @@ export const langChainFinalResponseJsonSchema: LangChainJsonSchemaObject = {
     content: {
       type: "string",
       minLength: 1,
-      description: "用户可见正文。使用中文，简洁可执行；禁止使用 Markdown 水平分割线或装饰性分隔行，包括单独一行的 ---、***、___、<hr>，以及只由横线、星号或下划线组成的分隔行。需要分段时使用标题、编号列表、项目列表或空行。",
+      description: buildChatMarkdownContentSchemaDescription(),
     },
     suggestedQuestions: {
       type: "array",
