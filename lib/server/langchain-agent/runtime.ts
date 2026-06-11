@@ -7,6 +7,11 @@ import { agentRuntimeConfig } from "@/lib/server/config";
 
 import { createLangChainDeepSeekModel, type LangChainDeepSeekModelFactoryResult } from "./model-factory";
 import { buildLangChainAgentSystemPrompt } from "./prompt";
+import {
+  langChainFinalResponseJsonSchema,
+  langChainFinalResponseToolName,
+  parseLangChainFinalResponse,
+} from "./final-response-schema";
 import { createExecutableLangChainTool, type LangChainToolWrapper, type LangChainToolWrapperContext } from "./tool-wrapper";
 import {
   getErrorMessage,
@@ -76,6 +81,7 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
     const agent = createAgent({
       model: modelResult.model,
       tools,
+      responseFormat: langChainFinalResponseJsonSchema,
       systemPrompt: input.systemPrompt ?? buildLangChainAgentSystemPrompt(),
       middleware: [modelCallRecorder.middleware],
     });
@@ -113,16 +119,12 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
       });
     }
 
-    const finalMessage = [...generatedMessages].reverse().find((message) => (
-      AIMessage.isInstance(message)
-      && (!message.tool_calls || message.tool_calls.length === 0)
-      && messageContentToText(message.content).trim().length > 0
-    ));
+    const structuredFinalResponse = parseLangChainFinalResponse(readStructuredResponseFromState(state));
 
-    if (!finalMessage) {
+    if (!structuredFinalResponse.success) {
       return createFailure({
-        code: "empty_final_message",
-        message: "LangChain agent completed without a final assistant text message.",
+        code: "structured_output_validation_failed",
+        message: "LangChain agent completed without a valid structured final response.",
         retryable: true,
         messages,
         toolExecutions: mergedToolExecutions,
@@ -141,7 +143,8 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
 
     return {
       ok: true,
-      finalText: messageContentToText(finalMessage.content).trim(),
+      finalText: structuredFinalResponse.data.content,
+      suggestedQuestions: structuredFinalResponse.data.suggestedQuestions,
       messages,
       toolExecutions: mergedToolExecutions,
       traceSummary: createTraceSummary({
@@ -152,7 +155,7 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
         toolExecutions: mergedToolExecutions,
         toolWrappers,
         modelCalls: modelCallRecorder.modelCalls,
-        finalText: messageContentToText(finalMessage.content).trim(),
+        finalText: structuredFinalResponse.data.content,
       }),
     };
   } catch (error) {
@@ -259,6 +262,7 @@ function mergeToolExecutions(
     .map((execution) => [execution.toolCallId, execution]));
   const projected = messages
     .filter((message): message is ToolMessage => ToolMessage.isInstance(message))
+    .filter((message) => message.name !== langChainFinalResponseToolName)
     .map((message) => {
       const existing = byToolCallId.get(message.tool_call_id);
 
@@ -284,6 +288,12 @@ function mergeToolExecutions(
     });
 
   return projected.length > 0 ? projected : wrapperExecutions;
+}
+
+function readStructuredResponseFromState(state: unknown) {
+  const record = readRecord(state);
+
+  return record.structuredResponse;
 }
 
 function annotateToolExecutionsWithModelCalls(

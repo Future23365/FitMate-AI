@@ -6,6 +6,7 @@ import { agentRuntimeConfig } from "@/lib/server/config";
 import {
   buildLangChainAgentSystemPrompt,
   defineLangChainToolWrapper,
+  langChainFinalResponseToolName,
   runLangChainAgentRuntime,
 } from "@/lib/server/langchain-agent";
 
@@ -45,9 +46,51 @@ const baseInput = {
   actor: { userId: "user-1", conversationId: "conversation-1" },
 };
 
+function createFinalResponseToolCall(
+  args: { content?: string; suggestedQuestions?: string[] },
+  id = "call_final",
+) {
+  return {
+    name: langChainFinalResponseToolName,
+    args,
+    id,
+  };
+}
+
+function createFinalResponseMessage(
+  args: { content?: string; suggestedQuestions?: string[] },
+  options: { id?: string; usageMetadata?: { input_tokens: number; output_tokens: number; total_tokens: number } } = {},
+) {
+  return new AIMessage({
+    content: "",
+    tool_calls: [
+      {
+        ...createFinalResponseToolCall(args, options.id),
+        type: "tool_call",
+      },
+    ],
+    ...(options.usageMetadata
+      ? {
+          response_metadata: {
+            token_usage: {
+              prompt_tokens: options.usageMetadata.input_tokens,
+              completion_tokens: options.usageMetadata.output_tokens,
+              total_tokens: options.usageMetadata.total_tokens,
+            },
+          },
+        }
+      : {}),
+  });
+}
+
 describe("LangChain Agent runtime", () => {
-  it("returns a normal text final message without tools", async () => {
-    const model = fakeModel().respond(new AIMessage("可以，今天先做低强度胸部训练。"));
+  it("returns a structured final response without business tools", async () => {
+    const model = fakeModel().respondWithTools([
+      createFinalResponseToolCall({
+        content: "可以，今天先做低强度胸部训练。",
+        suggestedQuestions: ["帮我安排 20 分钟训练"],
+      }),
+    ]);
 
     const result = await runLangChainAgentRuntime({
       ...baseInput,
@@ -58,6 +101,7 @@ describe("LangChain Agent runtime", () => {
     expect(result).toMatchObject({
       ok: true,
       finalText: "可以，今天先做低强度胸部训练。",
+      suggestedQuestions: ["帮我安排 20 分钟训练"],
       toolExecutions: [],
     });
     expect(result.traceSummary?.runtimeVersion).toBe("langchain-agent-runtime-v1");
@@ -66,7 +110,7 @@ describe("LangChain Agent runtime", () => {
   it("records one successful tool call before final text", async () => {
     const model = fakeModel()
       .respondWithTools([{ name: "echoExerciseGoal", args: { goal: "胸部训练" }, id: "call_1" }])
-      .respond(new AIMessage("已按胸部训练目标整理。"));
+      .respondWithTools([createFinalResponseToolCall({ content: "已按胸部训练目标整理。" })]);
 
     const result = await runLangChainAgentRuntime({
       ...baseInput,
@@ -123,7 +167,7 @@ describe("LangChain Agent runtime", () => {
 
   it("records LangChain model token usage from provider response metadata", async () => {
     const model = fakeModel().respond(new AIMessage({
-      content: "可以，今天先做低强度胸部训练。",
+      content: "这条回复缺少结构化 final response。",
       usage_metadata: {
         input_tokens: 12,
         output_tokens: 4,
@@ -137,7 +181,7 @@ describe("LangChain Agent runtime", () => {
       toolWrappers: [],
     });
 
-    expect(result.ok).toBe(true);
+    expect(result.ok).toBe(false);
     expect(result.traceSummary?.modelCalls).toMatchObject([
       {
         modelCallIndex: 1,
@@ -156,7 +200,7 @@ describe("LangChain Agent runtime", () => {
         { name: "echoExerciseGoal", args: { goal: "热身" }, id: "call_1" },
         { name: "echoExerciseGoal", args: { goal: "主训练" }, id: "call_2" },
       ])
-      .respond(new AIMessage("已整理热身和主训练。"));
+      .respondWithTools([createFinalResponseToolCall({ content: "已整理热身和主训练。" })]);
 
     const result = await runLangChainAgentRuntime({
       ...baseInput,
@@ -193,7 +237,7 @@ describe("LangChain Agent runtime", () => {
         args: { goal: `训练目标 ${index + 1}` },
         id: `call_budget_${index + 1}`,
       })))
-      .respond(new AIMessage("预算超限后不应作为成功结果。"));
+      .respondWithTools([createFinalResponseToolCall({ content: "预算超限后不应作为成功结果。" })]);
 
     const result = await runLangChainAgentRuntime({
       ...baseInput,
@@ -228,7 +272,7 @@ describe("LangChain Agent runtime", () => {
   it("normalizes unknown tool calls from LangChain tool messages", async () => {
     const model = fakeModel()
       .respondWithTools([{ name: "unknownExerciseTool", args: { goal: "胸部训练" }, id: "call_1" }])
-      .respond(new AIMessage("当前工具不可用。"));
+      .respondWithTools([createFinalResponseToolCall({ content: "当前工具不可用。" })]);
 
     const result = await runLangChainAgentRuntime({
       ...baseInput,
@@ -250,7 +294,7 @@ describe("LangChain Agent runtime", () => {
   it("normalizes illegal tool arguments before domain side effects", async () => {
     const model = fakeModel()
       .respondWithTools([{ name: "echoExerciseGoal", args: {}, id: "call_1" }])
-      .respond(new AIMessage("工具参数需要修正。"));
+      .respondWithTools([createFinalResponseToolCall({ content: "工具参数需要修正。" })]);
 
     const result = await runLangChainAgentRuntime({
       ...baseInput,
@@ -272,7 +316,7 @@ describe("LangChain Agent runtime", () => {
   it("returns wrapper failure summaries to the model context", async () => {
     const model = fakeModel()
       .respondWithTools([{ name: "failingExerciseTool", args: { goal: "胸部训练" }, id: "call_1" }])
-      .respond(new AIMessage("工具失败，建议稍后重试。"));
+      .respondWithTools([createFinalResponseToolCall({ content: "工具失败，建议稍后重试。" })]);
 
     const result = await runLangChainAgentRuntime({
       ...baseInput,
@@ -352,6 +396,22 @@ describe("LangChain Agent runtime", () => {
       });
     }
   });
+
+  it("rejects unstructured final assistant text as a structured output failure", async () => {
+    const model = fakeModel().respond(new AIMessage("可以，今天先做低强度胸部训练。"));
+
+    const result = await runLangChainAgentRuntime({
+      ...baseInput,
+      model,
+      toolWrappers: [],
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: "structured_output_validation_failed",
+      retryable: true,
+    });
+  });
 });
 
 describe("LangChain Agent prompt", () => {
@@ -359,6 +419,9 @@ describe("LangChain Agent prompt", () => {
     const prompt = buildLangChainAgentSystemPrompt({ currentDate: "2026-06-11" });
 
     expect(prompt).toContain("DeepSeek native tool calling");
+    expect(prompt).toContain("responseFormat");
+    expect(prompt).toContain("suggestedQuestions");
+    expect(prompt).toContain("不使用独立的 ---");
     expect(prompt).toContain("服务端负责认证、权限隔离、Zod 校验");
     expect(prompt).not.toContain("AgentAction");
     expect(prompt).not.toContain("ToolRegistry");

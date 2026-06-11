@@ -16,6 +16,14 @@ export {
 } from "./model-factory";
 
 export {
+  langChainFinalResponseToolName,
+  langChainFinalResponseJsonSchema,
+  LangChainFinalResponseSchema,
+  parseLangChainFinalResponse,
+  type LangChainFinalResponse,
+} from "./final-response-schema";
+
+export {
   buildLangChainAgentSystemPrompt,
   type BuildLangChainAgentSystemPromptInput,
 } from "./prompt";

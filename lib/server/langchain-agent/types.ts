@@ -125,6 +125,7 @@ export type LangChainAgentRunTraceSummary = {
 export type LangChainAgentRunSuccess = {
   ok: true;
   finalText: string;
+  suggestedQuestions: readonly string[];
   messages: readonly unknown[];
   toolExecutions: readonly LangChainAgentToolExecution[];
   traceSummary: LangChainAgentRunTraceSummary;

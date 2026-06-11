@@ -36,7 +36,6 @@ export type LangChainAgentResponseProjectionType =
 
 export type CreateLangChainAgentResponseProjectionInput = {
   result: LangChainAgentRunResult;
-  suggestedQuestions?: readonly string[];
   validatedVisibleOutputs?: readonly LangChainValidatedVisibleOutput[];
 };
 
@@ -137,10 +136,10 @@ function createSuccessEvents(input: CreateLangChainAgentResponseProjectionInput)
     });
   }
 
-  if (input.suggestedQuestions?.length) {
+  if (input.result.suggestedQuestions.length) {
     events.push({
       type: "suggested_questions",
-      suggestedQuestions: input.suggestedQuestions.slice(0, 3).map((question) => question.trim()).filter(Boolean),
+      suggestedQuestions: input.result.suggestedQuestions.slice(0, 3).map((question) => question.trim()).filter(Boolean),
     });
   }
 

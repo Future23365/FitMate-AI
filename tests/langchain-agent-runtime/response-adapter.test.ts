@@ -10,6 +10,7 @@ import {
 const baseSuccess: LangChainAgentRunSuccess = {
   ok: true,
   finalText: "可以，今天先做低强度胸部训练。",
+  suggestedQuestions: [],
   messages: [],
   toolExecutions: [],
   traceSummary: {
@@ -61,8 +62,8 @@ describe("LangChain Agent response adapter", () => {
       result: {
         ...baseSuccess,
         finalText: "你今天有多少时间？",
+        suggestedQuestions: ["10 分钟", "20 分钟", "30 分钟", "60 分钟"],
       },
-      suggestedQuestions: ["10 分钟", "20 分钟", "30 分钟", "60 分钟"],
     });
 
     expect(projection.projectionType).toBe("content_with_suggestions");
