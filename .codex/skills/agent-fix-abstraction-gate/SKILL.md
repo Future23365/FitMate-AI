@@ -104,7 +104,7 @@ description: 审查 AITest 中 Agent / prompt / tool 相关 OpenSpec change 或�
 
 ## OpenSpec 与验证
 
-如果审查对象是非文案类 Agent / prompt / tool change，`tasks.md` 必须包含：
+如果审查对象是改变语义或行为合同的 Agent / prompt / tool change，`tasks.md` 必须包含：
 
 - 使用本 Skill 完成抽象层级门禁审查。
 - `openspec validate <change> --strict`。

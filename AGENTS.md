@@ -13,7 +13,7 @@ Prompt设计规范：`docs/llm-prompt-guidance.md`
 ## OpenSpec 使用规则
 
 - OpenSpec 负责具体的 proposal / apply / archive 工作流；本要求只规定什么时候必须使用 OpenSpec，以及 Codex 在使用 OpenSpec 时的边界。
-- 对于非简单改动，在实现前必须先进入 OpenSpec，并补充OpenSpec流程相关文档。OpenSpec 规则优先于直接实现规则，除非我明确要求跳过 OpenSpec 或直接实现。
+- 对于非简单改动，在实现前必须先进入 OpenSpec，并补充OpenSpec流程相关文档。这里的“非简单改动”指会改变业务行为、架构边界、执行合同、数据结构、核心 AI 行为或用户可观察流程的变更；普通小修小补按下方豁免规则处理。OpenSpec 规则优先于直接实现规则，除非我明确要求跳过 OpenSpec 或直接实现。
 - 必须先走 OpenSpec 的场景包括：
   - 新功能开发
   - 行为逻辑变更
@@ -21,7 +21,8 @@ Prompt设计规范：`docs/llm-prompt-guidance.md`
   - 架构调整
   - API 契约变更
   - 数据模型、Prisma Schema、数据库迁移或持久化结构变更
-  - AI 编排逻辑、Prompt、Tool Calling、模型输出结构或校验逻辑变更
+  - AI 编排逻辑、Tool Calling、模型输出结构或校验逻辑变更
+  - 会改变模型意图理解、工具调用策略、输出合同、grounding / repair / finalization 合同、训练计划生成规则或模型可见事实边界的 prompt / model input 变更
   - 健身领域规则、训练计划生成规则、动作选择规则变更
   - 权限、安全、限流、成本控制或用户数据隔离逻辑变更
   - 重构
@@ -32,9 +33,10 @@ Prompt设计规范：`docs/llm-prompt-guidance.md`
   - 简单样式调整
   - 小范围 bug 修复，且不改变业务行为、数据结构、API 契约、AI 输出结构或权限校验逻辑
   - 单文件内的低风险改动，且仅限不改变业务行为、不改变数据结构、不改变 API 契约、不改变 AI 输出结构的小修复
+  - 单个 prompt 片段、tool description、schema description、examples、失败反馈或模型可见说明的局部措辞、中文化、错别字修正或澄清小修，且不改变模型可执行能力、工具调用策略、输出结构、校验边界、训练规则或用户可观察流程
   - 明确要求直接修改、跳过 OpenSpec、hotfix、quick patch、minimal change 或最小改动的任务
 
-- 即使只涉及单个文件，只要改变核心业务行为、AI 行为、数据模型、权限安全、训练计划生成规则或用户可观察流程，也必须先走 OpenSpec。
+- 即使只涉及单个文件，只要改变核心业务行为、核心 AI 行为、模型可执行合同、数据模型、权限安全、训练计划生成规则或用户可观察流程，也必须先走 OpenSpec。只是在原有语义内把表达改清楚、补中文说明或修正局部 prompt 文案，不自动触发 OpenSpec；如果含义完全变化，或把局部说明升级为稳定生产规则，则必须先走 OpenSpec。
 - 当我明确要求归档、archive、finalize、完成 change，或某个 OpenSpec change 的实现已完成并需要收尾时，优先使用 OpenSpec CLI 的内置命令：
 
 

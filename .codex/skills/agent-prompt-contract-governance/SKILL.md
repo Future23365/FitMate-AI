@@ -1,6 +1,6 @@
 ---
 name: agent-prompt-contract-governance
-description: 治理 AITest 中 Agent prompt 与模型实际可见输入的合同变更，并要求所有传给 AI 的提示词、LangChain tool description、schema description 和模型可见说明先对齐 docs/llm-prompt-guidance.md 的分层、职责和检查清单。作为 primary skill 用于修改 Agent prompt、model input、LangChain tool description、schema description、examples、失败反馈、context package、tool result summary、structured final response / finalization tool 说明、final grounding 说明，新增/调整业务 Agent tool 的模型可见说明，或在 tool 字段重命名后同步模型可见字段说明；大范围 prompt / model input / output contract / model-visible summary 重组还必须在本 Skill 检查模型实际可见合同后使用 agent-regression-contract-audit；普通局部 prompt 或单个 tool description 小修不因此扩大流程。不用于普通 UI 文案、README 文案、tool handler、runtime validation、production response adapter、production route 或与模型执行合同无关的小修。
+description: 治理 AITest 中 Agent prompt 与模型实际可见输入的合同变更，并要求所有传给 AI 的提示词、LangChain tool description、schema description 和模型可见说明先对齐 docs/llm-prompt-guidance.md 的分层、职责和检查清单。作为 primary skill 用于修改 Agent prompt、model input、LangChain tool description、schema description、examples、失败反馈、context package、tool result summary、structured final response / finalization tool 说明、final grounding 说明，新增/调整业务 Agent tool 的模型可见说明，或在 tool 字段重命名后同步模型可见字段说明；大范围 prompt / model input / output contract / model-visible summary 重组还必须在本 Skill 检查模型实际可见合同后使用 agent-regression-contract-audit；普通局部 prompt 或单个 tool description 小修不因此扩大流程，也不自动要求 OpenSpec。不用于普通 UI 文案、README 文案、tool handler、runtime validation、production response adapter、production route 或与模型执行合同无关的小修。
 ---
 
 # Agent Prompt 合同治理
@@ -12,7 +12,7 @@ description: 治理 AITest 中 Agent prompt 与模型实际可见输入的合同
 ## 前置检查
 
 0. 每个任务只选择一个 primary governance skill。本 Skill 只在模型实际可见输入是主问题时作为 primary；涉及 tool/core/runtime/production 执行合同时，`agent-tool-change-governance` 作为 primary，本 Skill 只做模型可见说明的 secondary 检查。
-1. 运行或读取当前 OpenSpec change 状态；非文案类 prompt / model input 变更必须先有 OpenSpec 边界。
+1. 判断本次 prompt / model input 变更是否改变模型意图理解、工具调用策略、输出合同、grounding / repair / finalization 合同、训练计划生成规则或模型可见事实边界；只有这类语义或行为合同变化才必须先有 OpenSpec 边界。局部措辞、中文化、错别字修正或不改变原有含义的澄清小修，不自动要求 OpenSpec。
 2. 读取 `docs/llm-prompt-guidance.md` 中与本次改动相关的章节，并把它作为 prompt / tool 模型可见提示词设计的基准；不要把指南整篇复制进 prompt。
 3. 运行 `git status --short`。如有无关改动，不要混入当前 diff 或 commit。
 4. 判断是否还需要同时使用 `agent-tool-change-governance`：
@@ -169,7 +169,7 @@ prompt / model input 修复的目标不是把业务流程写死给服务端，�
 
 ## OpenSpec 要求
 
-非文案类 Agent prompt change 的 `proposal.md`、`design.md` 和 `tasks.md` 必须写清：
+改变语义或行为合同的 Agent prompt change，必须先走 OpenSpec；对应 `proposal.md`、`design.md` 和 `tasks.md` 必须写清：
 
 - prompt 修改类型。
 - 已对照 `docs/llm-prompt-guidance.md` 的相关章节，以及本次规则属于哪个层级。
@@ -179,7 +179,7 @@ prompt / model input 修复的目标不是把业务流程写死给服务端，�
 - 是否涉及 LangChain runtime / wrapper 通用合同、受控业务事实、policy、grounding 或 production 接入。
 - 验证计划。
 
-`tasks.md` 至少包含：
+这类 change 的 `tasks.md` 至少包含：
 
 - `openspec validate <change> --strict`。
 - 与改动范围相关的 prompt config、tool description、schema description、model input builder、Agent runtime、final grounding 或黑盒验证。
