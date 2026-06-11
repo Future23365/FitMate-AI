@@ -92,3 +92,127 @@ TBD - created by archiving change replace-agent-core-with-langchain-deepseek-too
 - **AND** 生产 `/api/chat` MUST NOT 导入或调用 `lib/server/agent-planners/**`
 - **AND** 生产 `/api/chat` MUST NOT 使用旧 `AgentAction`、旧 `PlannerPort`、旧 `ToolRegistry`、旧 `Executor` 或旧 Response Renderer
 - **AND** 旧 core 只能存在于迁移过程的未完成 diff 中，最终交付前 MUST 删除或移出生产代码
+
+### Requirement: LangChain runtime 必须支持模型活动汇报 tool
+系统 SHALL 在生产 LangChain tool catalog 中提供受控的模型活动汇报 tool，使模型可以用短自然语言报告当前步骤正在做什么。该 tool MUST 只用于当前请求的用户界面活动状态，不得读写业务数据、产生业务 resource、支撑最终回答 grounding 或替代业务 tool。
+
+#### Scenario: 模型汇报当前步骤活动
+- **WHEN** LangChain 模型通过 native `tool_calls` 调用 `reportAgentActivity`
+- **THEN** runtime MUST 将该 tool call 路由到受控 LangChain tool wrapper
+- **AND** wrapper MUST 校验输入结构并宽松归一化 `summary`
+- **AND** wrapper MUST NOT 查询数据库、读取用户私有数据、写入训练事实或生成 visible output
+- **AND** wrapper MUST NOT 将活动摘要作为最终回答事实来源
+
+#### Scenario: 活动摘要校验保持宽松
+- **WHEN** `reportAgentActivity` 收到非空字符串 `summary`
+- **THEN** 服务端 MUST 保留模型自然语言摘要的主要内容
+- **AND** 服务端 MAY trim 空白、去除控制字符、压平换行或按长度上限裁剪
+- **AND** 服务端 MUST NOT 因摘要包含普通英文、普通标点、非固定模板或未命中服务端 stage 文案而拒绝
+- **AND** 服务端 MUST NOT 根据用户原文、业务 `toolName`、tool input 或关键词改写摘要
+
+#### Scenario: 活动汇报不占用业务 tool 预算
+- **WHEN** 模型在同一轮请求中调用 `reportAgentActivity` 和业务 tool
+- **THEN** runtime MUST 能将活动汇报与业务 tool 执行区分
+- **AND** 活动汇报 MUST NOT 消耗业务 tool 调用预算
+- **AND** runtime MUST 为活动汇报保留独立上限或防循环边界
+- **AND** 业务 tool 预算超限逻辑 MUST 继续只保护真实业务 tool 执行
+
+### Requirement: LangChain runtime 必须把模型活动汇报投影为 request-local observer 事件
+系统 SHALL 在 `reportAgentActivity` 成功归一化后，通过 runtime observer 产出当前请求内的活动事件。该事件 MUST 可被 `/api/chat` streaming adapter 实时消费，并且 MUST 不进入聊天历史、conversation summary、visible output、artifact payload 或训练事实。
+
+#### Scenario: 活动 tool 成功后产生 observer 事件
+- **WHEN** `reportAgentActivity` wrapper 成功得到可展示摘要
+- **THEN** runtime MUST 触发 `model_activity_reported` 或等价 observer 事件
+- **AND** 事件 MUST 包含宽松归一化后的 `summary`
+- **AND** 事件 MAY 包含 `stepType`、`modelCallIndex`、`runtimeStep` 和 `toolCallId` 等诊断字段
+- **AND** 事件 MUST NOT 包含 raw provider payload、完整 tool arguments、数据库对象、secret 或跨用户数据
+
+#### Scenario: `/api/chat` 实时输出模型活动摘要
+- **WHEN** production chat adapter 收到模型活动 observer 事件
+- **THEN** adapter MUST 立即写出 `agent_progress` NDJSON 事件
+- **AND** 事件 MUST 使用 `activitySummary` 承载模型生成摘要
+- **AND** 事件 MUST 使用稳定 stage，例如 `model_activity`
+- **AND** adapter MUST NOT 把摘要追加到 assistant `content`、`suggested_questions`、`visible_output` 或 `done`
+
+### Requirement: 模型可见 prompt 必须说明活动汇报 tool 的用途和边界
+系统 SHALL 在模型实际可见输入中说明 `reportAgentActivity` 的用途、输入边界和非业务事实属性。该说明 MUST 是通用 LangChain Agent 合同，不得把具体业务 tool 流程或用户 phrasing 写成触发规则。
+
+#### Scenario: 模型看到活动汇报规则
+- **WHEN** runtime 构造生产 LangChain system prompt 和 tool catalog
+- **THEN** 模型 MUST 能看到可以使用 `reportAgentActivity` 报告当前步骤活动
+- **AND** 模型 MUST 能看到 `summary` 应是短中文自然语言步骤总结
+- **AND** 模型 MUST 能看到活动汇报不替代业务 tool、结构化终态工具或最终回答
+- **AND** 模型 MUST 能看到不要在摘要中暴露内部字段、trace、数据库 id、错误堆栈或未完成即宣称完成
+
+#### Scenario: 活动汇报不改变业务决策
+- **WHEN** 模型需要查询动作、读取可见训练方案、校验结构化输出或提交最终回答
+- **THEN** 模型 MAY 先调用 `reportAgentActivity` 说明下一步
+- **AND** 模型 MUST 继续调用对应业务 tool 或结构化终态工具完成真实工作
+- **AND** 服务端 MUST NOT 因活动摘要内容替模型选择业务 `toolName`、改写 tool arguments 或跳过 validator
+
+### Requirement: LangChain tool schema 失败必须返回字段级 repair payload
+系统 SHALL 在 LangChain tool wrapper 的 input schema 校验失败时，向模型可见 tool message 返回脱敏字段级 repair payload，而不是只返回泛化 `tool_schema_invalid` 文案。
+
+#### Scenario: Tool input schema 失败返回可修正字段事实
+- **WHEN** DeepSeek native `tool_calls.arguments` 未通过某个已注册 LangChain tool wrapper 的 input schema 校验
+- **THEN** wrapper MUST 拒绝执行 handler
+- **AND** 模型可见 tool message MUST 包含 `status = "failed"`
+- **AND** 模型可见 tool message MUST 包含 `code = "tool_schema_invalid"`
+- **AND** 模型可见 tool message MUST 包含 `issues[]`
+- **AND** 每个 issue MUST 至少包含脱敏字段路径 `path` 和稳定 `code`
+- **AND** issue SHOULD 包含可安全暴露的 `message`、`expected` 或 `actual`
+- **AND** 模型可见 tool message MUST NOT 包含 stack trace、完整 Zod schema、内部文件路径、完整 handler payload、数据库对象、secret 或跨用户数据
+
+#### Scenario: 字段级 repair payload 不依赖业务 tool 特判
+- **WHEN** 任意业务 LangChain tool 的 input schema 校验失败
+- **THEN** 字段级 repair payload MUST 由通用 wrapper / schema issue projector 生成
+- **AND** 实现 MUST NOT 为 `searchExerciseResources` 或其他具体业务 `toolName` 增加专属 runtime 分支
+- **AND** 实现 MUST NOT 根据用户原文、关键词、正则、同义词表或具体 phrasing 改写 tool input
+
+### Requirement: LangChain graph step 预算必须与模型调用预算同步
+系统 SHALL 将传给 LangChain agent 的 `recursionLimit` 视为 graph step 预算，而不是旧自研 Agent 的迭代次数。`recursionLimit` MUST 由集中配置中的真实模型调用预算推导，且 MUST 为工具调用后的最终结构化回答预留 graph step 空间。
+
+#### Scenario: 工具调用后仍可提交最终回答
+- **WHEN** LangChain runtime 的集中配置允许 N 次模型调用
+- **AND** 模型在前 N-1 次调用中持续返回合法 provider `tool_calls`
+- **THEN** runtime MUST 为第 N 次模型调用提交 `fitmate_final_response` 保留 LangChain graph step 预算
+- **AND** runtime MUST NOT 因旧 `maxIterations + 2` 计算提前触发 `budget_exhausted`
+
+#### Scenario: 模型调用预算耗尽
+- **WHEN** LangChain runtime 即将发起超过集中配置 `maxModelCalls` 的 provider model call
+- **THEN** runtime MUST 停止继续调用 provider
+- **AND** runtime MUST 返回稳定 `budget_exhausted` 失败
+- **AND** trace summary MUST 保留已经发生的 model call、provider tool call 和 tool execution 摘要
+
+#### Scenario: 业务 tool 预算不包含 activity report
+- **WHEN** 模型调用 `reportAgentActivity`
+- **THEN** 该调用 MUST 只消耗 activity report 预算、模型调用预算和 LangChain graph step 预算
+- **AND** 该调用 MUST NOT 消耗业务 tool 调用预算
+- **AND** runtime MUST 继续限制 activity report 次数，防止模型刷屏或空转
+
+### Requirement: Runtime 必须限制业务 tool 的单轮重复请求和执行
+系统 SHALL 在生产 LangChain Agent Runtime 中使用 LangChain middleware，为每个业务 tool 设置单轮调用上限。该限制 MUST 同时覆盖后续 provider 请求中的 tool 可见性和实际 handler 执行；限制 MUST 由当前 production tool wrapper 列表自动生成，不得在 runtime 中写用户原文、关键词或业务 phrasing 分支。
+
+#### Scenario: 每个业务 tool 自动获得 runLimit
+- **WHEN** Runtime 基于 production tool wrappers 构造 `createAgent`
+- **THEN** Runtime MUST 为每个 `executionKind != "activity"` 的 tool 配置 per-tool run limit
+- **AND** per-tool run limit MUST 来自集中配置
+- **AND** Runtime MUST NOT 手写用户原文关键词、短句模板或自然语言语义判断来决定某个 tool 是否可重试
+
+#### Scenario: 达到单 tool 上限后不再暴露给后续 provider 请求
+- **WHEN** 当前 Agent run 中某个业务 tool 的 provider tool_call 次数已经达到 per-tool run limit
+- **THEN** Runtime MUST 在后续 model request 中从可用 `tools` 列表移除该业务 tool
+- **AND** 其他未达上限的业务 tool SHOULD 继续可用
+- **AND** 模型后续 provider tool_call 尝试 MUST NOT 继续消耗整轮业务 tool 总预算
+
+#### Scenario: 单个业务 tool 超限不执行 handler
+- **WHEN** 模型在同一 run 中调用同一业务 tool 超过 per-tool run limit
+- **THEN** LangChain Runtime MUST 阻止该超限 tool call 执行对应 handler
+- **AND** 同一 model response 内已经超出上限的 tool_call MAY 进入 LangChain tool limit 失败结果
+- **AND** 该行为 MUST 不绕过项目现有 schema、权限、projection、trace 和最终结构化回复校验
+
+#### Scenario: 全局预算仍然作为安全熔断
+- **WHEN** 模型跨多个业务 tool 的总调用次数超过集中配置的整轮业务 tool 总预算
+- **THEN** Runtime MUST 继续阻止后续业务 tool handler
+- **AND** Runtime MUST 记录或返回稳定预算失败
+- **AND** per-tool 限制 MUST NOT 删除整轮安全熔断

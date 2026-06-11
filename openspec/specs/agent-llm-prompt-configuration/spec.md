@@ -77,16 +77,24 @@ TBD - created by archiving change externalize-agent-llm-prompts. Update Purpose 
 - **WHEN** LangChain runtime 构造生产模型请求
 - **THEN** 模型可见输入 MUST 说明 `visibleTrainingProposal` 可通过 `payload.kind = "exercise_selection" | "routine" | "plan"` 表达不同训练输出结构
 - **AND** 该说明 MUST 位于结构化收口 tool description、schema description 或等价模型可见说明中
-- **AND** 该说明 MUST 表达每种结构对应的必需字段和服务端校验边界
+- **AND** 该说明 MUST 表达每种结构对应的必需字段、禁止字段和服务端校验边界
+- **AND** 该说明 MUST 表达 `exercise_selection` 是动作候选 / 动作推荐卡片的结构化交付形态，只包含可展示动作项，不包含 `prescription` 或 `schedule`
 - **AND** 该说明 MUST 表达模型应根据用户目标、上下文、已获得事实和 tool result 自主选择输出结构
 - **AND** 该说明 MUST NOT 写入“用户说某个固定词语就必须输出某个 kind”的规则
 
 #### Scenario: 模型可见合同表达事实来源边界
 - **WHEN** 模型可见输入描述 `visibleTrainingProposal.exerciseItems[*].exerciseId`
-- **THEN** 说明 MUST 表达动作 id 应来自当前 run 可见且可消费的动作事实来源，或当前用户可访问的 `visible_training_proposal_fact`
+- **THEN** 说明 MUST 表达动作 id 应来自模型可见、可被服务端数据库复核的受控动作事实，例如成功动作查询结果、已导入的可见训练事实或等价受控数据库事实
 - **AND** 说明 MUST 表达服务端会在渲染和保存前复核数据库事实
+- **AND** 说明 MUST NOT 要求模型传递 `factRef`、`messageId`、`toolResultId`、`resourceId` 或等价内部 provenance 字段来证明 current-run 可消费性
 - **AND** 说明 MUST NOT 要求模型复写完整动作详情
 - **AND** 默认 system prompt MUST NOT 承载这类业务字段的完整来源规则
+
+#### Scenario: 结构化训练结果正文不可替代
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 简短表达正文 `content` 不能替代用户可见训练卡片、routine 或 plan 的结构化交付
+- **AND** system message MUST 要求结构化训练结果通过当前 tool catalog 中的结构化收口工具和服务端 validator 交付
+- **AND** system message MUST NOT 包含 `visibleTrainingProposal` 的完整 payload 结构、固定 `payload.kind` 选择规则或具体业务 tool 调用流程
 
 #### Scenario: Prompt 不引入旧式 draft tool
 - **WHEN** 默认 prompt 配置生成 system message
@@ -95,13 +103,14 @@ TBD - created by archiving change externalize-agent-llm-prompts. Update Purpose 
 - **AND** system message MUST NOT 描述未注册 tool、隐藏业务服务或绕过 LangChain tool catalog 的训练生成能力
 
 ### Requirement: 模型可见合同必须表达 visibleTrainingProposal 的动作 section 事实来源
-系统 SHALL 在生产模型可见的 tool description、schema description、tool result summary、失败反馈或等价合同说明中表达 `visibleTrainingProposal.exerciseItems[*]` 的动作事实边界。说明 MUST 表达 `exerciseId` 和 `section` 需要由当前 run 可见动作事实支撑，`allowedSections` 表示该动作可进入哪些 section。该说明 MUST NOT 把具体业务 tool 的调用顺序写成通用 Agent system prompt 规则。
+系统 SHALL 在生产模型可见的 tool description、schema description、tool result summary、失败反馈或等价合同说明中表达 `visibleTrainingProposal.exerciseItems[*]` 的动作事实边界。说明 MUST 表达 `exerciseId` 和 `section` 需要由模型可见、可被服务端数据库复核的受控动作事实支撑，`allowedSections` 表示该动作可进入哪些 section。该说明 MUST NOT 把具体业务 tool 的调用顺序写成通用 Agent system prompt 规则。
 
 #### Scenario: structured finalization tool 表达 allowedSections 合同
 - **WHEN** LangChain runtime 构造生产模型请求
 - **THEN** 模型可见输入 MUST 包含 `visibleTrainingProposal.exerciseItems[*]` 与动作事实的合同说明
-- **AND** 该说明 SHOULD 位于 `visibleTrainingProposal` output contract 的 `groundingRequirements`、`schemaSummary` 或等价字段中
+- **AND** 该说明 SHOULD 位于 `visibleTrainingProposal` output contract 的 `groundingRequirements`、`schemaSummary`、结构化收口 tool description、schema description 或等价字段中
 - **AND** 模型可见输入 MUST 表达 `allowedSections` 是校验 `exerciseItems[*].section` 的确定性动作事实字段
+- **AND** 模型可见输入 MUST 表达服务端根据数据库事实复核 `exerciseId`、发布态和 `allowedSections`，而不是要求模型提交内部 current-run provenance 字段
 - **AND** 模型可见输入 MUST 使用中文描述业务含义
 - **AND** 模型可见输入 MUST 保持 `visibleTrainingProposal`、`exerciseItems`、`exerciseId`、`section`、`allowedSections` 等技术标识英文原样
 
@@ -525,3 +534,32 @@ terminal failure finalizer system prompt SHALL 明确告知模型：主 LangChai
 - **THEN** 模型 MAY 基于 LangChain prompt 和 tools 自主选择 tool call、回答或澄清
 - **AND** 服务端 MUST NOT 根据用户原文固定选择 tool、固定输出结构或固定回复策略
 - **AND** 具体业务名只可出现在对应 tool description、schema、observation / tool result summary、spec 或测试样例中
+
+### Requirement: 默认 prompt 必须区分业务 tool 预算和 activity report 预算
+系统 SHALL 在默认 LangChain Agent system prompt 的运行预算说明中区分业务 tool 调用预算和 `reportAgentActivity` 活动汇报预算。该说明 MUST 保持短句化，只表达稳定运行边界，不得写入具体用户 phrasing、具体 trace 条件或业务 tool 固定流程。
+
+#### Scenario: Prompt 说明业务工具调用预算
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 说明业务工具调用有集中配置的次数上限
+- **AND** system message MUST NOT 把 `reportAgentActivity` 描述为会消耗业务 tool 预算
+- **AND** system message MUST NOT 要求模型为了消耗预算而调用工具
+
+#### Scenario: Prompt 说明活动汇报不是业务事实
+- **WHEN** 默认 prompt 配置生成 system message
+- **THEN** system message MUST 继续说明 `reportAgentActivity` 只用于当前请求活动条展示
+- **AND** system message MUST 说明 activity report 有独立次数上限或等价受控边界
+- **AND** system message MUST 说明 activity report 不支撑最终回答 grounding、不替代业务工具、不保存到聊天历史
+
+### Requirement: 模型可见运行预算必须区分总预算和单 tool 上限
+系统 SHALL 在生产 LangChain Agent system prompt 或等价模型可见运行规则中说明整轮业务 tool 总预算、单个业务 tool 单轮调用上限和 activity report 上限。该说明 MUST 使用中文描述业务含义，技术字段名保持英文原样。
+
+#### Scenario: system prompt 暴露新的预算边界
+- **WHEN** Runtime 构造生产 LangChain Agent system prompt
+- **THEN** 模型可见内容 MUST 说明本轮业务工具调用总预算为集中配置值
+- **AND** 模型可见内容 MUST 说明每个业务工具的单轮调用上限为集中配置值
+- **AND** 模型可见内容 MUST 说明 `reportAgentActivity` 不计入业务工具预算且有独立上限
+
+#### Scenario: prompt 不新增业务流程特判
+- **WHEN** 本 change 更新运行预算说明
+- **THEN** prompt MUST NOT 根据用户原文、关键词、短句模板或具体 phrasing 指示固定 tool 调用流程
+- **AND** prompt MUST NOT 把某个业务 tool 的异常 case 写成通用语义规则

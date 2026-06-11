@@ -22,7 +22,7 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 
 ### Requirement: `searchExerciseResources` 输入必须只包含动作列表结构化筛选字段
 
-系统 SHALL 使用严格 input schema 约束 `searchExerciseResources` 入参，字段范围必须对齐当前发布态 `Exercise` 数据库可确定性执行的筛选字段和 tool 合同层定义的稳定查询语义。系统 MUST 删除 `bodyRegions`，不得再使用高层身体区域 enum 或服务端区域展开替代模型对真实数据库 facet 的选择。刷新场景 MAY 通过 `excludeExerciseIds` 排除指定发布态动作 id；点名动作已解析为数据库 id 后，MAY 通过 `requiredExerciseIds` 请求返回列表优先包含这些动作。肌群筛选 MUST 使用统一 `muscles` 数组字段表达，一个肌群也写成单项数组。
+系统 SHALL 使用严格 input schema 约束 `searchExerciseResources` 入参，字段范围必须对齐当前 `Exercise` 数据库可确定性执行的筛选字段和 tool 合同层定义的稳定查询语义。系统 MUST 删除 `bodyRegions`，不得再使用高层身体区域 enum 或服务端区域展开替代模型对真实数据库 facet 的选择。系统 MUST NOT 将 `published` 暴露为模型可传 input；动作可用性边界属于服务端数据库事实或下游 validator，不由 Planner 控制。刷新场景 MAY 通过 `excludeExerciseIds` 排除指定动作 id；点名动作已解析为数据库 id 后，MAY 通过 `requiredExerciseIds` 请求返回列表优先包含这些动作。肌群筛选 MUST 使用统一 `muscles` 数组字段表达，一个肌群也写成单项数组。
 
 #### Scenario: equipment 使用 canonical no_equipment 模型可见值
 - **WHEN** production registry 序列化 `searchExerciseResources` manifest、schema description 或 examples
@@ -39,24 +39,32 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 - **AND** 说明 SHOULD 给出最小选择策略：用户说宽泛区域时，从 `facetCatalog.muscles` 中选择更具体肌群；没有合适值时应使用其他约束、澄清或失败收口
 - **AND** 服务端 MUST NOT 根据用户原文把宽泛区域词改写成数据库肌群
 
+#### Scenario: Planner 不再看到 published 输入字段
+- **WHEN** production registry 序列化 `searchExerciseResources` manifest、input schema、schema description 或 examples
+- **THEN** 模型可见输入合同 MUST NOT 包含 `published`
+- **AND** examples MUST NOT 包含 `published`
+- **AND** 模型 MUST NOT 通过 `published` 控制动作可见性、发布态过滤或数据库查询范围
+
 #### Scenario: 过宽查询不能支撑 visibleOutputs
-- **WHEN** `searchExerciseResources` input 只有默认字段，例如只包含 `suitabilities`、`published` 或 `sort`
+- **WHEN** `searchExerciseResources` input 只有默认字段，例如只包含 `suitabilities` 或 `sort`
 - **AND** input 没有目标约束、器械、肌群、场地、难度、目标标签、点名动作或当前 run 可见动作锚点
 - **THEN** 模型可见说明 MUST 表达该结果只能用于诊断
 - **AND** 该结果 MUST NOT 支撑成功 `final_answer.visibleOutputs`
 
 ### Requirement: `searchExerciseResources` 必须返回查询摘要和动作资源摘要
 
-系统 SHALL 让 `searchExerciseResources` 返回稳定的成功 output，包含实际查询口径、命中数量、截断状态、应用的数据库 facet 摘要和有限动作资源摘要。Output MUST NOT 暴露 `bodyRegions` 或服务端区域展开结果。
+系统 SHALL 让 `searchExerciseResources` 返回稳定的成功 output，包含实际查询口径、命中数量、截断状态、应用的数据库 facet 摘要和有限动作资源摘要。Output MUST NOT 暴露 `bodyRegions`、服务端区域展开结果或模型可消费的 `query.published` 字段。
 
 #### Scenario: 查询成功并返回动作
 - **WHEN** `searchExerciseResources` 使用合法输入完成数据库查询
 - **THEN** output MUST 包含 `status: "succeeded"`
-- **AND** output MUST 包含 `query.sort`、`query.published`、`query.appliedFilters`、`query.totalMatches`、`query.returnedCount`、`query.maxReturned` 和 `query.truncated`
+- **AND** output MUST 包含 `query.sort`、`query.appliedFilters`、`query.totalMatches`、`query.returnedCount`、`query.maxReturned` 和 `query.truncated`
+- **AND** output MUST NOT 包含模型可消费的 `query.published`
+- **AND** output `query.appliedFilters` MUST NOT 将 `published` 作为 Planner 输入过滤条件
 - **AND** 当输入包含 `muscle` 或 `muscles` 时，output MUST 包含实际应用的真实肌群 facet 摘要
 - **AND** output MUST NOT 包含 `bodyRegions` 或 `expandedMuscles`
 - **AND** output MUST 包含 `exercises`
-- **AND** 每个动作摘要 MUST 至少包含 `id`、`nameZh`、`nameEn`、器械、居家条件、主肌群、辅助肌群、`allowedSections`、`goalTags`、`riskTags`、图片 URL 和发布态摘要字段
+- **AND** 每个动作摘要 MUST 至少包含 `id`、`nameZh`、`nameEn`、器械、居家条件、主肌群、辅助肌群、`allowedSections`、`goalTags`、`riskTags` 和图片 URL 等动作事实摘要字段
 
 #### Scenario: 具体筛选查询命中为空
 - **WHEN** `searchExerciseResources` 的合法查询得到 `totalMatches = 0`
@@ -69,14 +77,14 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 
 ### Requirement: `searchExerciseResources` 必须下推数据库查询且不得全表读取
 
-系统 SHALL 为 `searchExerciseResources` 使用专用动作资源查询 repository，在数据库层执行发布态、结构化数据库 facet、tool 合同层确定性映射、section-aware hard filter policy 和排除条件筛选，并避免每次 tool 调用读取全量 `Exercise` 数据后再内存过滤。Repository MUST NOT 使用 `bodyRegions` 或服务端区域展开构造查询。
+系统 SHALL 为 `searchExerciseResources` 使用专用动作资源查询 repository，在数据库层执行结构化数据库 facet、tool 合同层确定性映射、section-aware hard filter policy 和排除条件筛选，并避免每次 tool 调用读取全量 `Exercise` 数据后再内存过滤。Repository MUST NOT 使用 `bodyRegions` 或服务端区域展开构造查询。Repository MUST NOT 从 Planner input 读取 `published`，也 MUST NOT 把 `published` 作为模型可控 hard filter。
 
 #### Scenario: Repository 查询下推结构化筛选
 - **WHEN** `searchExerciseResources` handler 接收到合法结构化输入
 - **THEN** handler MUST 调用专用 repository 查询入口，而不是调用 `listExerciseRecords()`、`listAllExercises()`、旧 `searchExercises()` 或其他全量动作读取入口
-- **AND** repository MUST 将 `published`、`category`、`suitabilities`、`level`、`force`、`mechanic`、`equipment`、`homeRequirement`、`muscle`、`muscles`、`goalTag`、`riskTag`、`q`、`requiredExerciseIds` 和 `excludeExerciseIds` 按当前 section 的 hard filter policy 转换为数据库可执行 `where` 条件
+- **AND** repository MUST 将 `category`、`suitabilities`、`level`、`force`、`mechanic`、`equipment`、`homeRequirement`、`muscle`、`muscles`、`goalTag`、`riskTag`、`q`、`requiredExerciseIds` 和 `excludeExerciseIds` 按当前 section 的 hard filter policy 转换为数据库可执行 `where` 条件
 - **AND** repository MUST 对 `training` 查询应用 `level`、`force`、`mechanic`、`category`、`goalTag`、`riskTag` 和 `q` hard filters
-- **AND** repository MUST 对 `warmup` 和 `stretch` 查询只应用发布态、section、器械、场地、肌群、`requiredExerciseIds` 和 `excludeExerciseIds` hard filters
+- **AND** repository MUST 对 `warmup` 和 `stretch` 查询只应用 section、器械、场地、肌群、`requiredExerciseIds` 和 `excludeExerciseIds` hard filters
 - **AND** repository MUST 将 `warmup` 和 `stretch` 查询中传入但未作为 hard filter 使用的字段记录到 `filterApplications.unappliedInputFilters`
 - **AND** repository MUST 将 `equipment = "no_equipment"` 或 `"无器械"` 映射为数据库自重动作查询条件，例如 `equipment = "body only"` 或 `equipmentZh = "自重"`
 - **AND** repository MUST NOT 因 `equipment = "no_equipment"` 或 `"无器械"` 自动添加 `homeRequirement = "none"`、`homeRequirementZh = "无器械"` 或等价居家条件过滤
@@ -137,9 +145,9 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 #### Scenario: Tool 单测覆盖业务行为和安全边界
 - **WHEN** 本 change 完成实现
 - **THEN** 自动化测试 MUST 直接覆盖 `searchExerciseResources` 的 handler、`executeTool` 或当前真实 runtime 执行入口
-- **AND** 测试 MUST 覆盖 `bodyRegions=["lower_body"]` 能返回真实下肢动作
-- **AND** 测试 MUST 覆盖 `muscle="腿部"` 这种未知精确 facet 的空结果不会被标记为 `satisfied=true`
-- **AND** 测试 MUST 覆盖成功路径、schema 拒绝、发布态默认值、`published = false` 拒绝、空结果、数据库下推查询、projection / redaction、trace summary、handler 失败归一化、`excludeExerciseIds` 去重、数量上限、非法 id 拒绝、数据库层排除、排除后候选不足和摘要投影
+- **AND** 测试 MUST 覆盖 `published` 不再出现在模型可见 input schema、description、examples、query summary 或 `appliedFilters` 中
+- **AND** 测试 MUST 覆盖模型传入 `published` 会作为未知字段被 schema 拒绝，且失败反馈包含字段级 issue
+- **AND** 测试 MUST 覆盖成功路径、schema 拒绝、空结果、数据库下推查询、projection / redaction、trace summary、handler 失败归一化、`excludeExerciseIds` 去重、数量上限、非法 id 拒绝、数据库层排除、排除后候选不足和摘要投影
 - **AND** 测试 MUST 使用接近 AITest 真实动作库查询的健身业务输入
 - **AND** 测试 MUST 证明被排除动作不会出现在返回动作中
 - **AND** 测试 MUST 证明该 tool 仍不产出 `candidateSetId`、`candidate_set` resource、训练卡片或保存事件
@@ -802,4 +810,25 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 - **THEN** 系统 MUST 使用同一个 section-aware hard filter policy helper 决定该 section 的数据库 where 字段和 `filterApplications` 摘要
 - **AND** 系统 MUST NOT 为 where 构造和 `filterApplications` 摘要维护两套可漂移的字段清单
 - **AND** 该 helper MUST NOT 读取用户原文、查询结果、trace 或模型自然语言输出
+
+### Requirement: searchExerciseResources observation 必须区分动作事实查询和可见卡片交付
+`searchExerciseResources` 的模型可见 manifest、schema description、examples 和 observation SHALL 表达：该 tool 只查询发布态动作事实，并按 `groups.<section>` 提供 section-scoped 动作来源；它不生成 `visibleTrainingProposal`、`routine`、`plan`、`prescription`、`schedule`、训练卡片、保存结果或用户记忆。当模型需要把一组动作作为用户可见、可后续引用的训练结果交付时，MUST 通过结构化收口 tool 提交可被服务端校验的 `visibleTrainingProposal`。
+
+#### Scenario: 动作候选可作为 exercise_selection 的事实来源
+- **WHEN** `searchExerciseResources` 执行成功并进入下一轮 Planner 输入
+- **THEN** model observation MUST 表达 `groups.<section>.exercises[]` 是模型可见、可被服务端数据库复核的动作事实来源
+- **AND** model observation MUST 表达这些动作事实可以用于构造 `visibleTrainingProposal(kind = "exercise_selection")` 的 `exerciseItems[]`
+- **AND** model observation MUST 表达 `searchExerciseResources` 本身没有生成最终 `visibleTrainingProposal`
+- **AND** model observation MUST 使用中文描述业务含义，`searchExerciseResources`、`groups`、`visibleTrainingProposal`、`exercise_selection`、`exerciseItems` 等技术标识保持英文原样
+
+#### Scenario: 查询成功不等于卡片已生成
+- **WHEN** 模型仅调用 `searchExerciseResources` 并获得成功结果
+- **THEN** 模型可见说明 MUST 表达该结果只证明动作查询完成并返回动作事实
+- **AND** 模型可见说明 MUST 表达最终用户可见训练卡片仍必须由结构化收口 tool accepted 后才能进入 `visible_output`
+- **AND** 模型可见说明 MUST NOT 暗示正文列出动作名称可以替代 `visibleTrainingProposal` 结构化交付
+
+#### Scenario: 不新增固定 kind 映射
+- **WHEN** 本 change 实现 `searchExerciseResources` 模型可见说明
+- **THEN** manifest、schema description、examples 和 observation MUST NOT 根据固定用户短句、关键词、正则、同义词表、具体 phrasing 或单个字段组合规定必须选择 `payload.kind = "exercise_selection"`
+- **AND** `/api/chat`、LangChain runtime、tool wrapper、validator 和 response adapter MUST NOT 根据用户原文或 `searchExerciseResources` 字段组合自动生成、改写或补发 `submitVisibleTrainingProposal`
 

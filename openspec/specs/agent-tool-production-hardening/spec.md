@@ -95,13 +95,14 @@ TBD - created by archiving change add-agent-tool-production-hardening-m2. Update
 - **AND** ask_user MAY 引用未满足或诊断性 tool result 用于解释阻断或追问
 
 ### Requirement: Planner 和 tool budget 必须限制运行成本
-系统 SHALL 在 Runtime 中执行 planner call、tool call、repair、token 或等价成本预算。预算耗尽后 Runtime MUST 结构化失败收口，并不得继续调用模型或 tool handler。Production `/api/chat` 的低风险只读 Agent 链路 MUST 支持多 tool 调用，不得将总 tool 调用预算固定为 1。
+系统 SHALL 在 Runtime 中执行 planner call、tool call、repair、token 或等价成本预算。预算耗尽后 Runtime MUST 结构化失败收口，并不得继续调用模型或 tool handler。Production `/api/chat` 的低风险 LangChain Agent 链路 MUST 支持多 tool 调用，不得将所有业务 tool 共享预算固定为过小值导致单个 tool 独占整轮预算。
 
 #### Scenario: Production 文本聊天允许低风险多 tool 链路
 - **WHEN** production `/api/chat` 构造 Agent run limits
-- **THEN** `maxToolCalls` MUST 设置为 10
-- **AND** `maxPlannerCalls` 和 `maxSteps` MUST 与 10 次 tool 调用加一次 terminal action 的最坏路径匹配，不能低于完成该链路所需的 planner / step 上限
-- **AND** 该预算放宽 MUST 只改变总运行预算，不得绕过 Action Validator、Policy Guard、Resource Contract Validator、ResourceStore 或 Response Renderer
+- **THEN** 整轮业务 tool 总预算 MUST 设置为 20
+- **AND** 单个业务 tool 单轮调用上限 MUST 设置为 2
+- **AND** 模型调用预算和 LangChain graph step 上限 MUST 与 20 次业务 tool 调用、activity report 和最终结构化回答的最坏路径匹配，不能低于完成该链路所需的模型调用 / graph step 上限
+- **AND** 该预算放宽 MUST 只改变运行预算，不得绕过 LangChain tool wrapper、服务端 Zod 校验、Policy Guard、Resource Contract Validator、visible output validator、trace 或 production response adapter
 
 #### Scenario: Planner call 预算耗尽
 - **WHEN** `LlmPlanner` 调用次数达到 run 配置的 planner budget

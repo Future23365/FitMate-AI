@@ -8,7 +8,7 @@ TBD - created by archiving change centralize-agent-runtime-config. Update Purpos
 
 #### Scenario: 生产 LangChain Agent 从集中配置读取预算
 - **WHEN** `/api/chat` 构造生产 LangChain Agent Runtime 输入
-- **THEN** 最大 agent 迭代次数、最大 tool calls、最大模型调用次数、整体 timeout、单 tool timeout 和结构化输出校验预算 MUST 来自 `lib/server/config/` 下的集中配置
+- **THEN** 最大模型调用次数、整轮业务 tool 总调用预算、单个业务 tool 单轮调用预算、最大 activity report 次数、LangChain graph step 限制、整体 timeout、单 tool timeout 和结构化输出校验预算 MUST 来自 `lib/server/config/` 下的集中配置或由集中配置稳定推导
 - **AND** 生产聊天接入层 MUST NOT 内联这些 runtime budget 数字
 
 #### Scenario: DeepSeek Tool Calling 请求从集中配置读取默认值
@@ -159,4 +159,45 @@ TBD - created by archiving change centralize-agent-runtime-config. Update Purpos
 - **THEN** 导出的配置对象和核心配置项 MUST 有中文意图注释
 - **AND** 注释 MUST 能说明参数对模型调用、tool loop、成本、延迟、trace 或用户体验的影响
 - **AND** 注释 MUST NOT 只重复变量名本身
+
+### Requirement: LangChain runBudget 字段必须真实生效
+系统 SHALL 只在 `runBudget` 中保留当前 LangChain production runtime 会真实消费或稳定推导的字段。每个字段 MUST 有一个明确消费点或推导出口；删除字段时 MUST 同步更新类型、注释、OpenSpec 和测试。
+
+#### Scenario: maxModelCalls 是硬门禁
+- **WHEN** LangChain runtime 即将发起下一次 provider model call
+- **THEN** runtime MUST 使用集中配置的 `maxModelCalls` 判断是否允许继续
+- **AND** 超限时 MUST 不调用 provider
+- **AND** 超限结果 MUST 归一为 `budget_exhausted`
+
+#### Scenario: recursionLimit 由模型调用预算推导
+- **WHEN** LangChain runtime 调用 `createAgent().invoke()` 或等价入口
+- **THEN** 传入 LangChain 的 `recursionLimit` MUST 由集中配置中的模型调用预算稳定推导
+- **AND** 推导逻辑 MUST 集中在 runtime 或 config helper 中
+- **AND** route、tool wrapper、业务 service 和测试 fixture MUST NOT 重复手写不同的 `recursionLimit` 公式
+
+#### Scenario: 删除无消费点配置
+- **WHEN** 某个 `runBudget` 字段没有被 production runtime、tool wrapper、model factory、response adapter、trace 或测试注入真实消费
+- **THEN** 系统 MUST 删除该字段或补上真实消费点
+- **AND** 系统 MUST NOT 只因为旧设计文档提到该字段就继续保留它
+
+### Requirement: 业务 tool 预算必须区分全局总量和单 tool 上限
+系统 SHALL 将生产 LangChain Agent 的业务 tool 预算拆分为整轮总调用上限和单个业务 tool 单轮调用上限。整轮总调用上限 MUST 默认为 20；单个业务 tool 单轮调用上限 MUST 默认为 2。
+
+#### Scenario: 全局业务 tool 安全上限为 20
+- **WHEN** Runtime 执行生产业务 tool call
+- **THEN** 系统 MUST 使用集中配置的 `maxToolCalls = 20` 作为整轮业务 tool 安全熔断上限
+- **AND** 超过该上限时 Runtime MUST NOT 执行后续业务 tool handler
+- **AND** 超限结果 MUST 归一为 `budget_exhausted` 或等价预算失败
+
+#### Scenario: 单个业务 tool 有独立单轮上限
+- **WHEN** 同一轮 Agent run 中模型重复调用同一个业务 tool
+- **THEN** 系统 MUST 使用集中配置的 `maxToolCallsPerTool = 2` 或等价字段限制该业务 tool 的单轮调用次数
+- **AND** 达到单 tool 上限后，后续 provider model request MUST NOT 继续暴露该业务 tool
+- **AND** 同一 provider response 内超过单 tool 上限的调用 MUST 被阻止执行 handler
+- **AND** 其他业务 tool 的调用机会 MUST NOT 因该 tool 达到自身上限而被直接耗尽
+
+#### Scenario: activity tool 不计入业务 tool per-tool 限制
+- **WHEN** 模型调用 `reportAgentActivity`
+- **THEN** 该调用 MUST 继续由 `maxActivityReports` 控制
+- **AND** 该调用 MUST NOT 消耗业务 tool 总预算或业务 tool per-tool 上限
 
