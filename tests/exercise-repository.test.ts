@@ -211,6 +211,76 @@ describe("exercise repository", () => {
       }),
     ]);
   });
+
+  it("balances multi-muscle resource candidates and reports zero-match muscles from independent counts", async () => {
+    prismaMock.exercise.count
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(5);
+    prismaMock.exercise.findMany
+      .mockResolvedValueOnce([
+        createRepositoryExerciseRecord({ id: "chest-a", nameZh: "胸部 A", primaryMusclesZh: ["胸部"] }),
+        createRepositoryExerciseRecord({ id: "chest-b", nameZh: "胸部 B", primaryMusclesZh: ["胸部"] }),
+      ])
+      .mockResolvedValueOnce([
+        createRepositoryExerciseRecord({ id: "back-a", nameZh: "背部 A", primaryMusclesZh: ["背部"], primaryMuscles: ["back"] }),
+        createRepositoryExerciseRecord({ id: "back-b", nameZh: "背部 B", primaryMusclesZh: ["背部"], primaryMuscles: ["back"] }),
+      ]);
+
+    const result = await searchExerciseResourceSummaries({
+      suitability: "training",
+      muscles: ["胸部", "背部", "肩部"],
+      excludeExerciseIds: ["excluded-training"],
+      maxReturned: 3,
+      sort: "name_asc",
+    });
+    const serializedCountWheres = prismaMock.exercise.count.mock.calls.map(([input]) => JSON.stringify(input.where));
+    const serializedFindWheres = prismaMock.exercise.findMany.mock.calls.map(([input]) => JSON.stringify(input.where));
+
+    expect(result.exercises.map((exercise) => exercise.id)).toEqual(["chest-a", "back-a", "chest-b"]);
+    expect(result.zeroMatchMuscles).toEqual(["肩部"]);
+    expect(result.totalMatches).toBe(5);
+    expect(result.returnedCount).toBe(3);
+    expect(result.truncated).toBe(true);
+    expect(prismaMock.exercise.count).toHaveBeenCalledTimes(4);
+    expect(prismaMock.exercise.findMany).toHaveBeenCalledTimes(2);
+    expect(serializedCountWheres[0]).toContain("\"primaryMuscles\":{\"has\":\"胸部\"}");
+    expect(serializedCountWheres[1]).toContain("\"primaryMuscles\":{\"has\":\"背部\"}");
+    expect(serializedCountWheres[2]).toContain("\"primaryMuscles\":{\"has\":\"肩部\"}");
+    expect(serializedCountWheres[3]).toContain("\"primaryMuscles\":{\"has\":\"胸部\"}");
+    expect(serializedCountWheres[3]).toContain("\"primaryMuscles\":{\"has\":\"背部\"}");
+    expect(serializedCountWheres[3]).toContain("\"primaryMuscles\":{\"has\":\"肩部\"}");
+    for (const serializedWhere of [...serializedCountWheres, ...serializedFindWheres]) {
+      expect(serializedWhere).toContain("\"id\":{\"notIn\":[\"excluded-training\"]}");
+    }
+  });
+
+  it("does not let requiredExerciseIds turn independent muscle counts into non-zero matches", async () => {
+    prismaMock.exercise.count
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(1);
+
+    const result = await searchExerciseResourceSummaries({
+      suitability: "training",
+      muscles: ["胸部", "背部"],
+      requiredExerciseIds: ["required-training"],
+      maxReturned: 3,
+      sort: "name_asc",
+    });
+    const perMuscleCountWheres = prismaMock.exercise.count.mock.calls.slice(0, 2).map(([input]) => JSON.stringify(input.where));
+    const totalCountWhere = JSON.stringify(prismaMock.exercise.count.mock.calls[2][0].where);
+
+    expect(result.exercises).toEqual([]);
+    expect(result.zeroMatchMuscles).toEqual(["胸部", "背部"]);
+    expect(result.totalMatches).toBe(1);
+    expect(prismaMock.exercise.findMany).not.toHaveBeenCalled();
+    for (const serializedWhere of perMuscleCountWheres) {
+      expect(serializedWhere).not.toContain("required-training");
+    }
+    expect(totalCountWhere).toContain("required-training");
+  });
 });
 
 function createRepositoryExerciseRecord(overrides: Record<string, unknown> = {}) {

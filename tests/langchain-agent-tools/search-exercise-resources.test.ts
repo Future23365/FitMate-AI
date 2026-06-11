@@ -63,6 +63,11 @@ describe("searchExerciseResources LangChain tool", () => {
         suitabilities: ["training"],
         totalMatches: 1,
         returnedCount: 1,
+        groups: {
+          training: {
+            zeroMatchMuscles: [],
+          },
+        },
       },
     });
     expect(modelMessage).toMatchObject({
@@ -78,6 +83,7 @@ describe("searchExerciseResources LangChain tool", () => {
       returnedCount: 1,
       groups: {
         training: {
+          zeroMatchMuscles: [],
           exercises: [
             {
               exerciseId: "Pushups",
@@ -108,6 +114,108 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelJson).not.toContain("缺少 warmup 或 stretch");
     expect(modelJson).not.toContain("结构化收口工具");
     expect(modelJson).not.toContain("continue_tool_call");
+  });
+
+  it("projects zeroMatchMuscles in model, user and trace summaries without exposing handler internals", async () => {
+    const { executeLangChainToolWrapper, tool } = await importToolWithRepositoryImplementation({
+      searchImplementation: async (input) => createSearchResult({
+        query: input,
+        exercises: [
+          createExerciseSummary({ id: "Pushups", primaryMusclesZh: ["胸部"], primaryMuscles: ["chest"] }),
+          createExerciseSummary({ id: "InvertedRow", nameZh: "反向划船", nameEn: "Inverted Row", primaryMusclesZh: ["背部"], primaryMuscles: ["back"] }),
+        ],
+        totalMatches: 2,
+        zeroMatchMuscles: ["肩部"],
+      }),
+    });
+
+    const result = await executeLangChainToolWrapper(
+      tool,
+      {
+        muscles: ["胸部", "背部", "肩部"],
+        equipment: "no_equipment",
+        suitabilities: ["training"],
+        sort: "name_asc",
+      },
+      { actor: { userId: "user-1", conversationId: "conversation-1" } },
+    );
+    const modelMessage = JSON.parse(result.modelMessage);
+
+    expect(modelMessage.groups.training.zeroMatchMuscles).toEqual(["肩部"]);
+    expect(modelMessage.groupSemantics.zeroMatchMusclesBoundary).toContain("当前 section");
+    expect(modelMessage.groupSemantics.zeroMatchMusclesBoundary).toContain("不表示动作库永久缺失");
+    expect(result.record.userProjection).toMatchObject({
+      groups: {
+        training: {
+          zeroMatchMuscles: ["肩部"],
+          exercises: [
+            { exerciseId: "Pushups" },
+            { exerciseId: "InvertedRow" },
+          ],
+        },
+      },
+    });
+    expect(result.record.traceSummary).toMatchObject({
+      groups: {
+        training: {
+          zeroMatchMuscles: ["肩部"],
+          returnedCount: 2,
+        },
+      },
+    });
+    const projectedJson = JSON.stringify(result.record);
+    expect(projectedJson).not.toContain("instructionsZh");
+    expect(projectedJson).not.toContain("embedding");
+    expect(projectedJson).not.toContain("candidatePool");
+    expect(projectedJson).not.toContain("handlerOutput");
+  });
+
+  it("keeps zeroMatchMuscles empty when the query has one or no muscle filters", async () => {
+    const { executeLangChainToolWrapper, tool } = await importToolWithRepositoryImplementation({
+      searchImplementation: async (input) => createSearchResult({
+        query: input,
+        exercises: [createExerciseSummary()],
+      }),
+    });
+
+    for (const input of [
+      { muscles: ["胸部"], suitabilities: ["training"], sort: "name_asc" },
+      { suitabilities: ["training"], sort: "name_asc" },
+    ]) {
+      const result = await executeLangChainToolWrapper(
+        tool,
+        input,
+        { actor: { userId: "user-1", conversationId: "conversation-1" } },
+      );
+      const modelMessage = JSON.parse(result.modelMessage);
+
+      expect(modelMessage.groups.training.zeroMatchMuscles).toEqual([]);
+    }
+  });
+
+  it("does not infer zeroMatchMuscles from muscles missing in the final returned list", async () => {
+    const { executeLangChainToolWrapper, tool } = await importToolWithRepositoryImplementation({
+      searchImplementation: async (input) => createSearchResult({
+        query: input,
+        exercises: [createExerciseSummary({ id: "Pushups", primaryMusclesZh: ["胸部"], primaryMuscles: ["chest"] })],
+        totalMatches: 4,
+        zeroMatchMuscles: [],
+      }),
+    });
+
+    const result = await executeLangChainToolWrapper(
+      tool,
+      {
+        muscles: ["胸部", "背部"],
+        suitabilities: ["training"],
+        sort: "name_asc",
+      },
+      { actor: { userId: "user-1", conversationId: "conversation-1" } },
+    );
+    const modelMessage = JSON.parse(result.modelMessage);
+
+    expect(modelMessage.groups.training.exercises.map((exercise: { exerciseId: string }) => exercise.exerciseId)).toEqual(["Pushups"]);
+    expect(modelMessage.groups.training.zeroMatchMuscles).toEqual([]);
   });
 
   it("prioritizes requiredExerciseIds and reports filter mismatch diagnostics", async () => {
@@ -234,6 +342,52 @@ describe("searchExerciseResources LangChain tool", () => {
     });
     expect(repository.searchExerciseResourceSummaries).not.toHaveBeenCalled();
   });
+
+  it("keeps excluded exercises out of section groups when balanced candidates fill the result", async () => {
+    const { executeLangChainToolWrapper, tool, repository } = await importToolWithRepositoryImplementation({
+      searchImplementation: async (input) => createSearchResult({
+        query: input,
+        exercises: [
+          createExerciseSummary({ id: "Pushups", primaryMusclesZh: ["胸部"], primaryMuscles: ["chest"] }),
+          createExerciseSummary({ id: "InvertedRow", nameZh: "反向划船", nameEn: "Inverted Row", primaryMusclesZh: ["背部"], primaryMuscles: ["back"] }),
+        ],
+      }),
+    });
+
+    const result = await executeLangChainToolWrapper(
+      tool,
+      {
+        muscles: ["胸部", "背部"],
+        excludeExerciseIds: ["ExcludedPushup"],
+        suitabilities: ["training"],
+        sort: "name_asc",
+      },
+      { actor: { userId: "user-1", conversationId: "conversation-1" } },
+    );
+    const modelMessage = JSON.parse(result.modelMessage);
+
+    expect(repository.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
+      excludeExerciseIds: ["ExcludedPushup"],
+    }));
+    expect(modelMessage.groups.training.exercises.map((exercise: { exerciseId: string }) => exercise.exerciseId)).not.toContain("ExcludedPushup");
+  });
+
+  it("keeps multi-muscle coverage guidance inside the tool contract without phrasing triggers", async () => {
+    const { tool } = await importToolWithRepositoryImplementation({
+      searchImplementation: async (input) => createSearchResult({ query: input }),
+    });
+    const modelVisibleText = [
+      tool.description,
+      JSON.stringify(tool.inputSchema),
+    ].join("\n");
+
+    expect(modelVisibleText).toContain("多 muscles 查询会尽量均衡返回各请求肌群的候选");
+    expect(modelVisibleText).toContain("zeroMatchMuscles 不表示动作库永久缺失");
+    expect(modelVisibleText).not.toContain("全身");
+    expect(modelVisibleText).not.toContain("当用户说");
+    expect(modelVisibleText).not.toContain("关键词");
+    expect(modelVisibleText).not.toContain("短句模板");
+  });
 });
 
 async function importToolWithRepositoryImplementation(input: {
@@ -271,6 +425,7 @@ function createSearchResult(input: {
   query: ExerciseResourceSearchInput;
   exercises?: ExerciseResourceSummary[];
   totalMatches?: number;
+  zeroMatchMuscles?: string[];
 }): ExerciseResourceSearchResult {
   const exercises = input.exercises ?? [];
   const filterApplication = buildExerciseResourceFilterApplication(input.query);
@@ -290,6 +445,7 @@ function createSearchResult(input: {
         note: "no_equipment 映射到自重动作。",
       }]
       : [],
+    zeroMatchMuscles: input.zeroMatchMuscles ?? [],
     totalMatches: input.totalMatches ?? exercises.length,
     returnedCount: exercises.length,
     maxReturned: input.query.maxReturned ?? agentRuntimeConfig.tools.searchExerciseResources.maxReturnedPerSection,

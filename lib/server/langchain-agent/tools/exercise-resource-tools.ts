@@ -170,6 +170,8 @@ const suitabilityGroupSchema = z.object({
   totalMatches: z.number().int().min(0),
   returnedCount: z.number().int().min(0),
   truncated: z.boolean(),
+  zeroMatchMuscles: z.array(z.string())
+    .describe("当前 groups.<section>、当前过滤条件和当前排除条件下独立 count 为 0 的请求肌群；只使用 input.muscles 的 canonical facet 值。"),
   exercises: z.array(exerciseResourceSummarySchema)
     .describe("该 groups.<section> 分组下返回的动作库事实；生成 visibleTrainingProposal.exerciseItems[] 时，section 应与所在 group key 和动作 allowedSections 保持一致。"),
 }).strict();
@@ -210,7 +212,7 @@ export const searchExerciseResourcesInputSchema = z.object({
     .min(1)
     .max(maxMuscles)
     .optional()
-    .describe(`一个或多个主肌群或辅助肌群真实数据库 facet 的 OR 查询数组；单个肌群也写成一项数组。${catalogFacetDescription}`),
+    .describe(`一个或多个主肌群或辅助肌群真实数据库 facet 的 OR 查询数组；单个肌群也写成一项数组。多值查询会尽量均衡返回各请求肌群的候选，groups.<section>.zeroMatchMuscles 只表示当前 section 和当前过滤条件下独立 count 为 0 的请求肌群。${catalogFacetDescription}`),
   goalTag: optionalTextFilterSchema.describe(`动作目标标签的精确筛选值。${trainingPolicyFacetDescription}`),
   riskTag: optionalTextFilterSchema.describe(`动作风险标签的精确筛选值。${trainingPolicyFacetDescription}`),
   excludeExerciseIds: z.array(exerciseIdSchema)
@@ -389,7 +391,9 @@ export function createSearchExerciseResourcesLangChainTool(
     description: [
       "只读查询 Exercise 动作库事实，并按 suitabilities 返回 groups.<section>.exercises[]、section 覆盖和 diagnostics。",
       "使用边界：需要基于结构化数据库 facet、section 用途或受控 exerciseId 获取发布态动作事实时使用。",
-      "输出含 query、filters、groups、sectionSummary、availableSections、missingSections、diagnostics、totalMatches、returnedCount 和 truncated 等事实。",
+      "输出含 query、filters、groups、sectionSummary、availableSections、missingSections、diagnostics、totalMatches、returnedCount、truncated 和 zeroMatchMuscles 等事实。",
+      "多 muscles 查询会尽量均衡返回各请求肌群的候选；groups.<section>.zeroMatchMuscles 只表示当前 section、当前过滤条件和当前排除条件下没有候选的请求肌群。",
+      "zeroMatchMuscles 不表示动作库永久缺失该肌群，不表示用户训练目标失败，也不要求固定继续调用某个 tool。",
       "本 tool 不生成 visibleTrainingProposal、训练卡片、routine、plan、处方、日程或保存结果。",
       "所有精确 facet 值应优先从动作库 facet catalog 选择；无外部器械统一写 equipment: \"no_equipment\"；homeRequirement 只表示环境、场地或支撑条件。",
       "requiredExerciseIds 是正向锚点，用于让已解析或已导入的受控动作优先进入 groups；excludeExerciseIds 是负向排除，用于替换或避免重复。",
@@ -472,6 +476,7 @@ export function createSearchExerciseResourcesLangChainTool(
             totalMatches,
             returnedCount: mergedExercises.length,
             truncated: result.truncated || requiredExercisesForGroup.length + baseExercises.length > result.maxReturned,
+            zeroMatchMuscles: result.zeroMatchMuscles,
             exercises: mergedExercises,
           },
         ]];
@@ -566,6 +571,7 @@ export function createSearchExerciseResourcesLangChainTool(
           groupKey: "groups.<section>",
           sectionRelation: "groups.<section>.exercises[] 中的动作是当前查询按该 section 返回的动作事实。",
           allowedSectionsRelation: "每个动作的 allowedSections 是可进入哪些 section 的事实字段；exerciseItems[*].section 必须包含在该动作 allowedSections 中。",
+          zeroMatchMusclesBoundary: "groups.<section>.zeroMatchMuscles 只表示当前 section、当前过滤条件和当前排除条件下独立 count 为 0 的请求肌群；不表示动作库永久缺失或用户目标失败。",
         },
         appliedFilters: output.query.appliedFilters,
         filterApplicationBoundary: "filterApplications 是 searchExerciseResources 的 section 级 tool 执行事实摘要；hardFilterPolicy 只表示数据库 hard filter 口径，不表示 Planner 下一步行为策略。",
@@ -610,6 +616,21 @@ export function createSearchExerciseResourcesLangChainTool(
       suitabilities: output.query.suitabilities,
       totalMatches: output.query.totalMatches,
       returnedCount: output.query.returnedCount,
+      groups: Object.fromEntries(Object.entries(output.groups).flatMap(([section, group]) => {
+        if (!group) {
+          return [];
+        }
+
+        return [[
+          section,
+          {
+            totalMatches: group.totalMatches,
+            returnedCount: group.returnedCount,
+            truncated: group.truncated,
+            zeroMatchMuscles: group.zeroMatchMuscles,
+          },
+        ]];
+      })),
       diagnostics: output.diagnostics.map((diagnostic) => ({
         suitability: diagnostic.suitability,
         code: diagnostic.code,
@@ -1082,6 +1103,7 @@ function mapGroups<T>(
         totalMatches: typedGroup.totalMatches,
         returnedCount: typedGroup.returnedCount,
         truncated: typedGroup.truncated,
+        zeroMatchMuscles: typedGroup.zeroMatchMuscles,
         exercises: typedGroup.exercises.map(mapExercise),
       },
     ]];

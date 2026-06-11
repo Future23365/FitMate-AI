@@ -41,6 +41,8 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).toContain("只读");
     expect(descriptions).toContain("服务端");
     expect(descriptions).toContain("动作候选");
+    expect(descriptions).toContain("zeroMatchMuscles");
+    expect(descriptions).toContain("多 muscles 查询会尽量均衡返回各请求肌群的候选");
     expect(descriptions).toContain("exercise_selection");
     expect(descriptions).toContain("validator");
     expect(descriptions).not.toContain("缺少 warmup 或 stretch");

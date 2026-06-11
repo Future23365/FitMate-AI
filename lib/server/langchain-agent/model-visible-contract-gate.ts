@@ -195,6 +195,8 @@ const allowedSummaryKeys = new Set([
   "visibleOutput",
   "visibleOutputSchemaVersion",
   "warmup",
+  "zeroMatchMuscles",
+  "zeroMatchMusclesBoundary",
 ]);
 
 const historicalForbiddenKeys = new Set([

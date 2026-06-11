@@ -110,6 +110,7 @@ export type ExerciseResourceSearchResult = {
   appliedFilters: ExerciseResourceAppliedFilter[];
   filterApplication: ExerciseResourceFilterApplication;
   filterSemantics: ExerciseResourceFilterSemantic[];
+  zeroMatchMuscles: string[];
   totalMatches: number;
   returnedCount: number;
   maxReturned: number;
@@ -224,6 +225,8 @@ const exerciseResourceSummarySelect = {
   reviewStatus: true,
   isPublished: true,
 } satisfies Prisma.ExerciseSelect;
+
+type ExerciseResourceSummaryRecord = Prisma.ExerciseGetPayload<{ select: typeof exerciseResourceSummarySelect }>;
 
 type ExerciseListRecord = Prisma.ExerciseGetPayload<{ select: typeof exerciseListSelect }>;
 
@@ -703,29 +706,118 @@ export async function searchExerciseResourceSummaries(
   const where = buildExerciseResourceWhere(input, filterApplication);
   const orderBy = buildExerciseResourceOrderBy(input.sort);
   const maxReturned = clampExerciseResourceSearchMaxReturned(input.maxReturned);
+  const balancedSearch = await searchBalancedExerciseResourceMuscleBuckets({
+    input,
+    filterApplication,
+    orderBy,
+    maxReturned,
+  });
   const [totalMatches, records] = await Promise.all([
     prisma.exercise.count({ where }),
-    prisma.exercise.findMany({
+    balancedSearch ?? prisma.exercise.findMany({
       where,
       orderBy,
       take: maxReturned + 1,
       select: exerciseResourceSummarySelect,
-    }),
+    }).then((defaultRecords) => ({
+      records: defaultRecords.slice(0, maxReturned),
+      zeroMatchMuscles: [],
+      truncatedByFetch: defaultRecords.length > maxReturned,
+    })),
   ]);
-  const visibleRecords = records.slice(0, maxReturned);
 
   return {
     query: input,
     appliedFilters: collectExerciseResourceAppliedFilters(input, filterApplication),
     filterApplication,
     filterSemantics: collectExerciseResourceFilterSemantics(input),
+    zeroMatchMuscles: records.zeroMatchMuscles,
     totalMatches,
-    returnedCount: visibleRecords.length,
+    returnedCount: records.records.length,
     maxReturned,
-    truncated: records.length > maxReturned,
+    truncated: balancedSearch ? totalMatches > records.records.length : records.truncatedByFetch,
     excludedCount: input.excludeExerciseIds?.length ?? 0,
-    exercises: visibleRecords.map(mapExerciseResourceSummary),
+    exercises: records.records.map(mapExerciseResourceSummary),
   };
+}
+
+async function searchBalancedExerciseResourceMuscleBuckets(input: {
+  input: ExerciseResourceSearchInput;
+  filterApplication: ExerciseResourceFilterApplication;
+  orderBy: Prisma.ExerciseOrderByWithRelationInput[];
+  maxReturned: number;
+}): Promise<{
+  records: ExerciseResourceSummaryRecord[];
+  zeroMatchMuscles: string[];
+  truncatedByFetch: boolean;
+} | null> {
+  const requestedMuscles = uniqueStrings(input.input.muscles ?? []);
+  if (
+    requestedMuscles.length <= 1
+    || !isExerciseResourceHardFilterApplied(input.filterApplication, "muscles")
+  ) {
+    return null;
+  }
+
+  const prisma = getPrismaClient();
+  const muscleQueries = requestedMuscles.map((muscle) => {
+    // 多肌群均衡只填充普通候选；requiredExerciseIds 仍由 tool wrapper 作为正向锚点优先合并。
+    const queryInput = {
+      ...input.input,
+      muscles: [muscle],
+      requiredExerciseIds: undefined,
+    } satisfies ExerciseResourceSearchInput;
+    const queryFilterApplication = buildExerciseResourceFilterApplication(queryInput);
+    const where = buildExerciseResourceWhere(queryInput, queryFilterApplication);
+
+    return { muscle, where };
+  });
+  const muscleCounts = await Promise.all(muscleQueries.map((query) =>
+    prisma.exercise.count({ where: query.where }),
+  ));
+  const zeroMatchMuscles = muscleQueries
+    .filter((_, index) => muscleCounts[index] === 0)
+    .map((query) => query.muscle);
+  const nonEmptyQueries = muscleQueries.filter((_, index) => muscleCounts[index] > 0);
+  const bucketRecords = await Promise.all(nonEmptyQueries.map((query) =>
+    prisma.exercise.findMany({
+      where: query.where,
+      orderBy: input.orderBy,
+      take: input.maxReturned + 1,
+      select: exerciseResourceSummarySelect,
+    }),
+  ));
+
+  return {
+    records: selectRoundRobinExerciseResourceRecords(bucketRecords, input.maxReturned),
+    zeroMatchMuscles,
+    truncatedByFetch: bucketRecords.some((records) => records.length > input.maxReturned),
+  };
+}
+
+function selectRoundRobinExerciseResourceRecords(
+  buckets: ExerciseResourceSummaryRecord[][],
+  maxReturned: number,
+) {
+  const byId = new Map<string, ExerciseResourceSummaryRecord>();
+  let cursor = 0;
+
+  while (byId.size < maxReturned && buckets.some((bucket) => cursor < bucket.length)) {
+    for (const bucket of buckets) {
+      const record = bucket[cursor];
+      if (!record || byId.has(record.id)) {
+        continue;
+      }
+
+      byId.set(record.id, record);
+      if (byId.size >= maxReturned) {
+        break;
+      }
+    }
+    cursor += 1;
+  }
+
+  return [...byId.values()];
 }
 
 /** resolveExerciseResourceMentionSummaries 只把结构化 mention 文本解析为发布态 Exercise 摘要，不读取聊天原文做拆词。 */
@@ -1214,9 +1306,9 @@ function sortFacetValues(values: string[]) {
 }
 
 function uniqueExerciseSummaryRecords(
-  records: Array<Prisma.ExerciseGetPayload<{ select: typeof exerciseResourceSummarySelect }>>,
+  records: ExerciseResourceSummaryRecord[],
 ) {
-  const byId = new Map<string, Prisma.ExerciseGetPayload<{ select: typeof exerciseResourceSummarySelect }>>();
+  const byId = new Map<string, ExerciseResourceSummaryRecord>();
   for (const record of records) {
     byId.set(record.id, record);
   }
@@ -1225,7 +1317,7 @@ function uniqueExerciseSummaryRecords(
 
 function scoreMentionRecord(
   text: string,
-  record: Prisma.ExerciseGetPayload<{ select: typeof exerciseResourceSummarySelect }>,
+  record: ExerciseResourceSummaryRecord,
 ) {
   const normalizedText = text.toLowerCase();
   const nameEn = record.nameEn.toLowerCase();
