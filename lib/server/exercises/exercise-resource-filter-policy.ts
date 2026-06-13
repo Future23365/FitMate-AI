@@ -26,7 +26,7 @@ export type ExerciseResourceFilterApplication = {
 
 /** ExerciseResourceFilterPolicyInput 是 policy helper 读取的结构化 tool input 子集。 */
 export type ExerciseResourceFilterPolicyInput = {
-  q?: string;
+  exerciseNames?: string[];
   category?: string;
   suitability?: ExerciseSuitability;
   level?: string;
@@ -45,7 +45,7 @@ type FilterValue = string | string[] | undefined;
 
 export const EXERCISE_RESOURCE_FILTER_APPLICATION_FIELDS = [
   "suitabilities",
-  "q",
+  "exerciseNames",
   "category",
   "level",
   "force",
@@ -64,6 +64,7 @@ export const EXERCISE_RESOURCE_SUPPORT_SECTION_UNAPPLIED_FILTER_CODE =
 
 const supportSectionAppliedHardFilters = new Set<ExerciseResourceFilterApplicationField>([
   "suitabilities",
+  "exerciseNames",
   "equipment",
   "homeRequirement",
   "muscles",
@@ -73,7 +74,7 @@ const supportSectionAppliedHardFilters = new Set<ExerciseResourceFilterApplicati
 
 const trainingAppliedHardFilters = new Set<ExerciseResourceFilterApplicationField>([
   "suitabilities",
-  "q",
+  "exerciseNames",
   "category",
   "level",
   "force",
@@ -92,7 +93,7 @@ const fieldReaders: Array<{
   read: (input: ExerciseResourceFilterPolicyInput) => FilterValue;
 }> = [
   { field: "suitabilities", read: (input) => input.suitability ? [input.suitability] : undefined },
-  { field: "q", read: (input) => input.q },
+  { field: "exerciseNames", read: (input) => input.exerciseNames },
   { field: "category", read: (input) => input.category },
   { field: "level", read: (input) => input.level },
   { field: "force", read: (input) => input.force },
@@ -177,10 +178,6 @@ function summarizeUnappliedFilterValue(
   field: ExerciseResourceFilterApplicationField,
   value: Exclude<FilterValue, undefined>,
 ): Pick<ExerciseResourceUnappliedInputFilter, "valueSummary"> {
-  if (field === "q") {
-    return {};
-  }
-
   const summary = Array.isArray(value)
     ? summarizeStringArray(value)
     : String(value).trim();

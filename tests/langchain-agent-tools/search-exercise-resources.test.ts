@@ -4,6 +4,7 @@ import { z } from "zod";
 import { agentRuntimeConfig } from "@/lib/server/config";
 import { buildExerciseResourceFilterApplication } from "@/lib/server/exercises/exercise-resource-filter-policy";
 import type {
+  ExerciseResourceNameDiagnostic,
   ExerciseResourceSearchInput,
   ExerciseResourceSearchResult,
   ExerciseResourceSummary,
@@ -276,6 +277,89 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelMessage.positiveAnchorBoundary).toContain("requiredExerciseIds");
   });
 
+  it("queries multiple exerciseNames through section groups without parallel name result structures", async () => {
+    const namedExercises = [
+      createExerciseSummary({ id: "Pushups", nameZh: "俯卧撑", nameEn: "Pushups" }),
+      createExerciseSummary({ id: "Bodyweight_Squat", nameZh: "深蹲", nameEn: "Bodyweight Squat", primaryMusclesZh: ["股四头肌"], primaryMuscles: ["quadriceps"] }),
+      createExerciseSummary({ id: "Plank", nameZh: "平板支撑", nameEn: "Plank", primaryMusclesZh: ["腹肌"], primaryMuscles: ["abdominals"] }),
+    ];
+    const { executeLangChainToolWrapper, tool, repository } = await importToolWithRepositoryImplementation({
+      searchImplementation: async (input) => createSearchResult({
+        query: input,
+        exercises: namedExercises,
+        totalMatches: 3,
+      }),
+    });
+
+    const result = await executeLangChainToolWrapper(
+      tool,
+      {
+        exerciseNames: ["俯卧撑", "深蹲", "平板支撑"],
+        suitabilities: ["training"],
+        sort: "name_asc",
+      },
+      { actor: { userId: "user-1", conversationId: "conversation-1" } },
+    );
+    const modelMessage = JSON.parse(result.modelMessage);
+
+    expect(repository.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
+      exerciseNames: ["俯卧撑", "深蹲", "平板支撑"],
+      suitability: "training",
+    }));
+    expect(modelMessage.query.exerciseNames).toEqual(["俯卧撑", "深蹲", "平板支撑"]);
+    expect(modelMessage.groups.training.exercises.map((exercise: { exerciseId: string }) => exercise.exerciseId)).toEqual([
+      "Pushups",
+      "Bodyweight_Squat",
+      "Plank",
+    ]);
+    expect(modelMessage.appliedFilters).toEqual(expect.arrayContaining([
+      { field: "exerciseNames", value: ["俯卧撑", "深蹲", "平板支撑"] },
+    ]));
+    expect(JSON.stringify(modelMessage)).not.toContain("exerciseNameResults");
+    expect(JSON.stringify(modelMessage)).not.toContain("resolvedMentions");
+    expect(JSON.stringify(modelMessage)).not.toContain("nameMatches");
+  });
+
+  it("projects exerciseNames diagnostics as facts without exposing parallel result structures", async () => {
+    const { executeLangChainToolWrapper, tool } = await importToolWithRepositoryImplementation({
+      searchImplementation: async (input) => createSearchResult({
+        query: input,
+        exercises: [createExerciseSummary({ id: "Pushups", nameZh: "俯卧撑" })],
+        diagnostics: [
+          { code: "exercise_name_not_found", exerciseName: "火星跳跃", totalMatches: 0 },
+          { code: "exercise_name_ambiguous", exerciseName: "划船", totalMatches: 3, returnedCount: 2 },
+          { code: "exercise_name_filter_mismatch", exerciseName: "平板支撑", conflictFields: ["muscles"], totalMatches: 1 },
+        ],
+      }),
+    });
+
+    const result = await executeLangChainToolWrapper(
+      tool,
+      {
+        exerciseNames: ["俯卧撑", "火星跳跃", "划船", "平板支撑"],
+        muscles: ["胸部"],
+        suitabilities: ["training"],
+        sort: "name_asc",
+      },
+      { actor: { userId: "user-1", conversationId: "conversation-1" } },
+    );
+    const modelMessage = JSON.parse(result.modelMessage);
+
+    expect(modelMessage.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "exercise_name_not_found", exerciseName: "火星跳跃" }),
+      expect.objectContaining({ code: "exercise_name_ambiguous", exerciseName: "划船", totalMatches: 3 }),
+      expect.objectContaining({ code: "exercise_name_filter_mismatch", exerciseName: "平板支撑", conflictFields: ["muscles"] }),
+    ]));
+    expect(result.record.traceSummary).toMatchObject({
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({ code: "exercise_name_not_found", exerciseName: "火星跳跃" }),
+      ]),
+    });
+    expect(JSON.stringify(result.record)).not.toContain("exerciseNameResults");
+    expect(JSON.stringify(result.record)).not.toContain("resolvedMentions");
+    expect(JSON.stringify(result.record)).not.toContain("nameMatches");
+  });
+
   it("marks default-only searches as diagnostic instead of fulfilled facts", async () => {
     const { executeLangChainToolWrapper, tool } = await importToolWithRepositoryImplementation({
       searchImplementation: async (input) => createSearchResult({
@@ -308,6 +392,7 @@ describe("searchExerciseResources LangChain tool", () => {
 
     for (const input of [
       { muscles: ["胸部"], limit: 10 },
+      { q: "俯卧撑" },
       { muscles: ["胸部"], homeRequirement: "无器械" },
     ]) {
       const result = await executeLangChainToolWrapper(
@@ -406,6 +491,9 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelVisibleText).toContain("不是必须继续补查每个肌群的义务");
     expect(modelVisibleText).toContain("homeRequirement 只表示环境、场地或支撑条件");
     expect(modelVisibleText).toContain("只在用户目标、上下文、已验证事实或当前规划确实需要该条件时填写");
+    expect(modelVisibleText).toContain("exerciseNames");
+    expect(modelVisibleText).toContain("模型已经结构化提取出的点名动作名称数组");
+    expect(modelVisibleText).toContain("不是语义搜索、向量召回、肌群推断、标签推断或自然语言搜索字段");
     expect(modelVisibleText).not.toContain("全身");
     expect(modelVisibleText).not.toContain("当用户说");
     expect(modelVisibleText).not.toContain("关键词");
@@ -427,7 +515,6 @@ async function importToolWithRepositoryImplementation(input: {
     isNoEquipmentResourceQueryValue: (value: string) => value === "no_equipment" || value === "无器械",
     isRemovedNoEquipmentHomeRequirementValue: (value: string) => ["none", "no_equipment", "无器械"].includes(value),
     normalizeExerciseResourceFacetCatalogForPlanner: (catalog: unknown) => catalog,
-    resolveExerciseResourceMentionSummaries: vi.fn(),
     searchExerciseResourceSummaries,
   }));
   const [{ executeLangChainToolWrapper }, toolModule] = await Promise.all([
@@ -450,6 +537,7 @@ function createSearchResult(input: {
   exercises?: ExerciseResourceSummary[];
   totalMatches?: number;
   zeroMatchMuscles?: string[];
+  diagnostics?: ExerciseResourceNameDiagnostic[];
 }): ExerciseResourceSearchResult {
   const exercises = input.exercises ?? [];
   const filterApplication = buildExerciseResourceFilterApplication(input.query);
@@ -469,6 +557,7 @@ function createSearchResult(input: {
         note: "no_equipment 映射到自重动作。",
       }]
       : [],
+    diagnostics: input.diagnostics ?? [],
     zeroMatchMuscles: input.zeroMatchMuscles ?? [],
     totalMatches: input.totalMatches ?? exercises.length,
     returnedCount: exercises.length,

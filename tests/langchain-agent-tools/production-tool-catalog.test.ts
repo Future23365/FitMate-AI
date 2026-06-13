@@ -18,7 +18,6 @@ describe("production LangChain tool catalog", () => {
     expect(tools.map((tool) => tool.name)).toEqual(agentRuntimeConfig.langChain.toolCatalog.allowedToolNames);
     expect(tools.map((tool) => tool.name)).toEqual([
       "inspectVisibleTrainingProposals",
-      "resolveExerciseResourceMentions",
       "searchExerciseResources",
       "submitVisibleTrainingProposal",
     ]);
@@ -26,7 +25,6 @@ describe("production LangChain tool catalog", () => {
     expect(tools.map((tool) => tool.name)).not.toContain("reportAgentActivity");
     expect(tools.map((tool) => tool.timeoutMs)).toEqual([
       agentRuntimeConfig.tools.inspectVisibleTrainingProposals.timeoutMs,
-      agentRuntimeConfig.tools.resolveExerciseResourceMentions.timeoutMs,
       agentRuntimeConfig.tools.searchExerciseResources.timeoutMs,
       agentRuntimeConfig.tools.submitVisibleTrainingProposal.timeoutMs,
     ]);
@@ -55,6 +53,7 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).toContain("只读");
     expect(descriptions).toContain("服务端");
     expect(descriptions).toContain("动作候选");
+    expect(descriptions).toContain("exerciseNames");
     expect(descriptions).toContain("zeroMatchMuscles");
     expect(descriptions).toContain("多 muscles 查询用于获得代表性候选覆盖");
     expect(descriptions).toContain("不是必须继续补查每个肌群的义务");
@@ -70,6 +69,7 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).toContain("不主动输出组数、次数、时长、休息时间、训练频率、日程或等价处方参数");
     expect(descriptions).toContain("validator");
     expect(schemaDescriptions).toContain("完整单次训练 routine 通常会分别使用 warmup、training、stretch 对应 section 的动作事实");
+    expect(schemaDescriptions).toContain("模型已经结构化提取出的点名动作名称数组");
     expect(finalizationDescriptions).toContain("补齐未覆盖 section 的用户消息");
     expect(systemPrompt).not.toContain("缺少 warmup");
     expect(systemPrompt).not.toContain("缺少 stretch");
@@ -87,6 +87,8 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).not.toContain("final_answer");
     expect(descriptions).not.toContain("ask_user");
     expect(descriptions).not.toContain("reportAgentActivity");
+    expect(descriptions).not.toContain("resolveExerciseResourceMentions");
+    expect(schemaDescriptions).not.toContain("\"q\"");
     expect(findings).toEqual([]);
   });
 
@@ -129,6 +131,7 @@ describe("production LangChain tool catalog", () => {
     expect(schemaDescriptions).toContain("多值查询用于获得代表性候选覆盖");
     expect(schemaDescriptions).toContain("不是必须继续补查每个肌群的义务");
     expect(schemaDescriptions).toContain("动作适配用途数组，只允许 warmup、training 或 stretch");
+    expect(schemaDescriptions).toContain("模型已经结构化提取出的点名动作名称数组");
     expect(schemaDescriptions).toContain("完整单次训练 routine 通常会分别使用 warmup、training、stretch 对应 section 的动作事实");
     expect(schemaDescriptions).toContain("training 对应用户主训练目标");
     expect(schemaDescriptions).toContain("只在用户目标、上下文、已验证事实或当前规划确实需要环境、场地或支撑条件时填写");
@@ -147,6 +150,11 @@ describe("production LangChain tool catalog", () => {
       published: true,
       sort: "name_asc",
     }).success).toBe(false);
+    expect(searchTool?.inputSchema.safeParse({
+      q: "俯卧撑",
+      sort: "name_asc",
+    }).success).toBe(false);
+    expect(JSON.stringify(z.toJSONSchema(searchTool!.inputSchema))).not.toContain("\"q\"");
   });
 });
 

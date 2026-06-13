@@ -1,8 +1,5 @@
 export {
   createSearchExerciseResourcesLangChainTool,
-  resolveExerciseResourceMentionsInputSchema,
-  resolveExerciseResourceMentionsLangChainTool,
-  resolveExerciseResourceMentionsOutputSchema,
   searchExerciseResourcesInputSchema,
   searchExerciseResourcesLangChainTool,
   searchExerciseResourcesOutputSchema,

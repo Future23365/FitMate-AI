@@ -6,7 +6,6 @@ import type { ExerciseResourceFacetCatalog } from "@/lib/server/exercises/exerci
 import type { LangChainToolWrapper } from "../tool-wrapper";
 import {
   createSearchExerciseResourcesLangChainTool,
-  resolveExerciseResourceMentionsLangChainTool,
   searchExerciseResourcesLangChainTool,
 } from "./exercise-resource-tools";
 import { inspectVisibleTrainingProposalsLangChainTool } from "./visible-training-proposal-tools";
@@ -42,7 +41,6 @@ export function createProductionLangChainToolCatalog(
 /** productionLangChainTools 暴露默认生产 tool 集合，供测试和非 route 注入场景使用。 */
 export const productionLangChainTools = [
   inspectVisibleTrainingProposalsLangChainTool,
-  resolveExerciseResourceMentionsLangChainTool,
   searchExerciseResourcesLangChainTool,
   submitVisibleTrainingProposalLangChainTool,
 ] as const;
@@ -54,7 +52,6 @@ function createProductionToolMap(facetCatalog?: ExerciseResourceFacetCatalog) {
 
   return new Map<ProductionLangChainToolName, LangChainToolWrapper>([
     ["inspectVisibleTrainingProposals", inspectVisibleTrainingProposalsLangChainTool],
-    ["resolveExerciseResourceMentions", resolveExerciseResourceMentionsLangChainTool],
     ["searchExerciseResources", searchTool],
     ["submitVisibleTrainingProposal", submitVisibleTrainingProposalLangChainTool],
   ]);

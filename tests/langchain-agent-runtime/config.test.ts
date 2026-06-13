@@ -29,7 +29,6 @@ describe("LangChain Agent runtime config", () => {
   it("keeps production tool catalog static and free of fixture tools", () => {
     expect(agentRuntimeConfig.langChain.toolCatalog.allowedToolNames).toEqual([
       "inspectVisibleTrainingProposals",
-      "resolveExerciseResourceMentions",
       "searchExerciseResources",
       "submitVisibleTrainingProposal",
     ]);

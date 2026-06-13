@@ -27,8 +27,6 @@ import type {
 
 /** EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED 是动作查询 payload 的安全上限，防止配置误调撑爆模型上下文。 */
 export const EXERCISE_RESOURCE_SEARCH_HARD_MAX_RETURNED = 24;
-/** EXERCISE_RESOURCE_MENTION_HARD_MAX_MATCHES 是点名解析候选的安全上限，默认值仍来自 Agent runtime config。 */
-export const EXERCISE_RESOURCE_MENTION_HARD_MAX_MATCHES = 10;
 /** EXERCISE_RESOURCE_NO_EQUIPMENT_QUERY_VALUES 是 Planner 可见的无外部器械 canonical 查询值，不是 homeRequirement facet。 */
 export const EXERCISE_RESOURCE_NO_EQUIPMENT_QUERY_VALUES = ["no_equipment"] as const;
 
@@ -66,7 +64,7 @@ export type ExerciseResourceSummary = Pick<
 >;
 
 export type ExerciseResourceSearchInput = {
-  q?: string;
+  exerciseNames?: string[];
   category?: string;
   suitability?: ExerciseSuitability;
   level?: string;
@@ -84,11 +82,6 @@ export type ExerciseResourceSearchInput = {
 };
 
 export type ExerciseResourceFilterField = Exclude<keyof ExerciseResourceSearchInput, "sort" | "maxReturned">;
-
-export type ExerciseResourceMentionResolutionInput = {
-  text: string;
-  maxMatches?: number;
-};
 
 export type ExerciseResourceAppliedFilter = {
   field: ExerciseResourceFilterField;
@@ -110,6 +103,7 @@ export type ExerciseResourceSearchResult = {
   appliedFilters: ExerciseResourceAppliedFilter[];
   filterApplication: ExerciseResourceFilterApplication;
   filterSemantics: ExerciseResourceFilterSemantic[];
+  diagnostics: ExerciseResourceNameDiagnostic[];
   zeroMatchMuscles: string[];
   totalMatches: number;
   returnedCount: number;
@@ -132,14 +126,17 @@ export type ExerciseResourceFacetCatalog = {
   suitabilities: ExerciseSuitability[];
 };
 
-export type ExerciseResourceMentionResolutionResult = {
-  text: string;
-  totalMatches: number;
-  returnedCount: number;
-  maxMatches: number;
-  truncated: boolean;
-  exactMatchCount: number;
-  exercises: ExerciseResourceSummary[];
+export type ExerciseResourceNameDiagnostic = {
+  code:
+    | "exercise_name_not_found"
+    | "exercise_name_section_conflict"
+    | "exercise_name_filter_mismatch"
+    | "exercise_name_ambiguous"
+    | "exercise_name_too_broad";
+  exerciseName: string;
+  totalMatches?: number;
+  returnedCount?: number;
+  conflictFields?: string[];
 };
 
 type ExerciseRecord = Omit<
@@ -706,21 +703,30 @@ export async function searchExerciseResourceSummaries(
   const where = buildExerciseResourceWhere(input, filterApplication);
   const orderBy = buildExerciseResourceOrderBy(input.sort);
   const maxReturned = clampExerciseResourceSearchMaxReturned(input.maxReturned);
-  const balancedSearch = await searchBalancedExerciseResourceMuscleBuckets({
+  const bucketedNameSearch = await searchBucketedExerciseResourceNameBuckets({
     input,
     filterApplication,
     orderBy,
     maxReturned,
   });
+  const balancedSearch = bucketedNameSearch
+    ? null
+    : await searchBalancedExerciseResourceMuscleBuckets({
+        input,
+        filterApplication,
+        orderBy,
+        maxReturned,
+      });
   const [totalMatches, records] = await Promise.all([
     prisma.exercise.count({ where }),
-    balancedSearch ?? prisma.exercise.findMany({
+    bucketedNameSearch ?? balancedSearch ?? prisma.exercise.findMany({
       where,
       orderBy,
       take: maxReturned + 1,
       select: exerciseResourceSummarySelect,
     }).then((defaultRecords) => ({
       records: defaultRecords.slice(0, maxReturned),
+      diagnostics: [],
       zeroMatchMuscles: [],
       truncatedByFetch: defaultRecords.length > maxReturned,
     })),
@@ -731,6 +737,7 @@ export async function searchExerciseResourceSummaries(
     appliedFilters: collectExerciseResourceAppliedFilters(input, filterApplication),
     filterApplication,
     filterSemantics: collectExerciseResourceFilterSemantics(input),
+    diagnostics: records.diagnostics,
     zeroMatchMuscles: records.zeroMatchMuscles,
     totalMatches,
     returnedCount: records.records.length,
@@ -741,6 +748,163 @@ export async function searchExerciseResourceSummaries(
   };
 }
 
+async function searchBucketedExerciseResourceNameBuckets(input: {
+  input: ExerciseResourceSearchInput;
+  filterApplication: ExerciseResourceFilterApplication;
+  orderBy: Prisma.ExerciseOrderByWithRelationInput[];
+  maxReturned: number;
+}): Promise<{
+  records: ExerciseResourceSummaryRecord[];
+  diagnostics: ExerciseResourceNameDiagnostic[];
+  zeroMatchMuscles: string[];
+  truncatedByFetch: boolean;
+} | null> {
+  const exerciseNames = uniqueStrings(input.input.exerciseNames ?? []);
+  if (
+    exerciseNames.length === 0
+    || !isExerciseResourceHardFilterApplied(input.filterApplication, "exerciseNames")
+  ) {
+    return null;
+  }
+
+  const prisma = getPrismaClient();
+  const bucketQueries = exerciseNames.map((exerciseName) => {
+    // 名称查询负责候选分布；其他结构化 hard filters 仍在每个名称桶内执行。
+    const queryInput = {
+      ...input.input,
+      exerciseNames: [exerciseName],
+    } satisfies ExerciseResourceSearchInput;
+    const queryFilterApplication = buildExerciseResourceFilterApplication(queryInput);
+    const where = buildExerciseResourceWhere(queryInput, queryFilterApplication);
+
+    return { exerciseName, queryInput, queryFilterApplication, where };
+  });
+  const bucketCounts = await Promise.all(bucketQueries.map((query) =>
+    prisma.exercise.count({ where: query.where }),
+  ));
+  const nonEmptyQueries = bucketQueries.filter((_, index) => bucketCounts[index] > 0);
+  const bucketRecords = await Promise.all(nonEmptyQueries.map((query) =>
+    prisma.exercise.findMany({
+      where: query.where,
+      orderBy: input.orderBy,
+      take: input.maxReturned + 1,
+      select: exerciseResourceSummarySelect,
+    }),
+  ));
+  const bucketDiagnostics = await collectExerciseNameDiagnostics({
+    input: input.input,
+    bucketQueries,
+    bucketCounts,
+    maxReturned: input.maxReturned,
+  });
+
+  return {
+    records: selectRoundRobinExerciseResourceRecords(bucketRecords, input.maxReturned),
+    diagnostics: bucketDiagnostics,
+    zeroMatchMuscles: [],
+    truncatedByFetch: bucketRecords.some((records) => records.length > input.maxReturned),
+  };
+}
+
+async function collectExerciseNameDiagnostics(input: {
+  input: ExerciseResourceSearchInput;
+  bucketQueries: Array<{
+    exerciseName: string;
+    queryInput: ExerciseResourceSearchInput;
+    queryFilterApplication: ExerciseResourceFilterApplication;
+    where: Prisma.ExerciseWhereInput;
+  }>;
+  bucketCounts: number[];
+  maxReturned: number;
+}): Promise<ExerciseResourceNameDiagnostic[]> {
+  const prisma = getPrismaClient();
+  const diagnostics: ExerciseResourceNameDiagnostic[] = [];
+  const zeroMatchDiagnostics = await Promise.all(input.bucketQueries.map(async (query, index): Promise<ExerciseResourceNameDiagnostic | null> => {
+    const totalMatches = input.bucketCounts[index] ?? 0;
+    if (totalMatches > 0) {
+      return null;
+    }
+
+    const [nameOnlyCount, sectionOnlyCount] = await Promise.all([
+      prisma.exercise.count({ where: buildExerciseResourceNameWhere([query.exerciseName]) }),
+      prisma.exercise.count({
+        where: buildExerciseResourceNameSectionWhere(
+          query.exerciseName,
+          query.queryInput.suitability ?? "training",
+        ),
+      }),
+    ]);
+
+    if (nameOnlyCount === 0) {
+      return {
+        code: "exercise_name_not_found" as const,
+        exerciseName: query.exerciseName,
+        totalMatches: 0,
+      };
+    }
+
+    if (sectionOnlyCount === 0) {
+      return {
+        code: "exercise_name_section_conflict" as const,
+        exerciseName: query.exerciseName,
+        totalMatches: nameOnlyCount,
+        conflictFields: ["suitabilities"],
+      };
+    }
+
+    return {
+      code: "exercise_name_filter_mismatch" as const,
+      exerciseName: query.exerciseName,
+      totalMatches: nameOnlyCount,
+      conflictFields: collectExerciseNameFilterConflictFields(query.queryFilterApplication),
+    };
+  }));
+
+  diagnostics.push(...zeroMatchDiagnostics.filter(isExerciseResourceNameDiagnostic));
+
+  input.bucketQueries.forEach((query, index) => {
+    const totalMatches = input.bucketCounts[index] ?? 0;
+    if (totalMatches <= 1) {
+      return;
+    }
+
+    diagnostics.push({
+      code: "exercise_name_ambiguous",
+      exerciseName: query.exerciseName,
+      totalMatches,
+      returnedCount: Math.min(totalMatches, input.maxReturned),
+    });
+
+    if (totalMatches > input.maxReturned) {
+      diagnostics.push({
+        code: "exercise_name_too_broad",
+        exerciseName: query.exerciseName,
+        totalMatches,
+        returnedCount: input.maxReturned,
+      });
+    }
+  });
+
+  return diagnostics;
+}
+
+function isExerciseResourceNameDiagnostic(
+  diagnostic: ExerciseResourceNameDiagnostic | null,
+): diagnostic is ExerciseResourceNameDiagnostic {
+  return Boolean(diagnostic);
+}
+
+function collectExerciseNameFilterConflictFields(
+  filterApplication: ExerciseResourceFilterApplication,
+) {
+  return filterApplication.appliedHardFilters.filter((field) => ![
+    "suitabilities",
+    "exerciseNames",
+    "requiredExerciseIds",
+    "excludeExerciseIds",
+  ].includes(field));
+}
+
 async function searchBalancedExerciseResourceMuscleBuckets(input: {
   input: ExerciseResourceSearchInput;
   filterApplication: ExerciseResourceFilterApplication;
@@ -748,6 +912,7 @@ async function searchBalancedExerciseResourceMuscleBuckets(input: {
   maxReturned: number;
 }): Promise<{
   records: ExerciseResourceSummaryRecord[];
+  diagnostics: ExerciseResourceNameDiagnostic[];
   zeroMatchMuscles: string[];
   truncatedByFetch: boolean;
 } | null> {
@@ -790,6 +955,7 @@ async function searchBalancedExerciseResourceMuscleBuckets(input: {
 
   return {
     records: selectRoundRobinExerciseResourceRecords(bucketRecords, input.maxReturned),
+    diagnostics: [],
     zeroMatchMuscles,
     truncatedByFetch: bucketRecords.some((records) => records.length > input.maxReturned),
   };
@@ -818,54 +984,6 @@ function selectRoundRobinExerciseResourceRecords(
   }
 
   return [...byId.values()];
-}
-
-/** resolveExerciseResourceMentionSummaries 只把结构化 mention 文本解析为发布态 Exercise 摘要，不读取聊天原文做拆词。 */
-export async function resolveExerciseResourceMentionSummaries(
-  input: ExerciseResourceMentionResolutionInput,
-): Promise<ExerciseResourceMentionResolutionResult> {
-  if (!isDatabaseConfigured()) {
-    throw new Error("DATABASE_URL is required before reading exercises from PostgreSQL.");
-  }
-
-  const prisma = getPrismaClient();
-  const text = input.text.trim();
-  const maxMatches = Math.min(
-    Math.max(input.maxMatches ?? agentRuntimeConfig.tools.resolveExerciseResourceMentions.maxMatches, 1),
-    EXERCISE_RESOURCE_MENTION_HARD_MAX_MATCHES,
-  );
-  const exactWhere = buildExerciseMentionExactWhere(text);
-  const mentionWhere = buildExerciseMentionWhere(text);
-  const [totalMatches, exactRecords, records] = await Promise.all([
-    prisma.exercise.count({ where: mentionWhere }),
-    prisma.exercise.findMany({
-      where: exactWhere,
-      orderBy: [{ nameZh: "asc" }, { id: "asc" }],
-      take: maxMatches + 1,
-      select: exerciseResourceSummarySelect,
-    }),
-    prisma.exercise.findMany({
-      where: mentionWhere,
-      orderBy: [{ nameZh: "asc" }, { id: "asc" }],
-      take: maxMatches + 1,
-      select: exerciseResourceSummarySelect,
-    }),
-  ]);
-  const orderedRecords = [...uniqueExerciseSummaryRecords([...exactRecords, ...records])]
-    .sort((a, b) => scoreMentionRecord(text, a) - scoreMentionRecord(text, b)
-      || a.nameZh.localeCompare(b.nameZh, "zh-Hans")
-      || a.id.localeCompare(b.id));
-  const visibleRecords = orderedRecords.slice(0, maxMatches);
-
-  return {
-    text,
-    totalMatches,
-    returnedCount: visibleRecords.length,
-    maxMatches,
-    truncated: totalMatches > maxMatches,
-    exactMatchCount: exactRecords.length,
-    exercises: visibleRecords.map(mapExerciseResourceSummary),
-  };
 }
 
 function clampExerciseResourceSearchMaxReturned(maxReturned?: number) {
@@ -1049,8 +1167,9 @@ function buildExerciseResourceWhere(
     candidateHardFilters.push({ riskTags: { has: input.riskTag } });
   }
 
-  if (input.q && isExerciseResourceHardFilterApplied(filterApplication, "q")) {
-    candidateHardFilters.push(buildExerciseResourceTextWhere(input.q));
+  const exerciseNames = uniqueStrings(input.exerciseNames ?? []);
+  if (exerciseNames.length > 0 && isExerciseResourceHardFilterApplied(filterApplication, "exerciseNames")) {
+    candidateHardFilters.push(buildExerciseResourceNameWhere(exerciseNames));
   }
 
   if (input.excludeExerciseIds?.length && isExerciseResourceHardFilterApplied(filterApplication, "excludeExerciseIds")) {
@@ -1126,66 +1245,31 @@ function buildNoEquipmentResourceWhere(): Prisma.ExerciseWhereInput {
   };
 }
 
-function buildExerciseResourceTextWhere(q: string): Prisma.ExerciseWhereInput {
-  const contains = { contains: q, mode: "insensitive" as const };
-
+function buildExerciseResourceNameWhere(exerciseNames: string[]): Prisma.ExerciseWhereInput {
   return {
-    OR: [
-      { nameEn: contains },
-      { nameZh: { contains: q } },
-      { category: contains },
-      { categoryZh: { contains: q } },
-      { level: contains },
-      { levelZh: { contains: q } },
-      { force: contains },
-      { forceZh: { contains: q } },
-      { mechanic: contains },
-      { mechanicZh: { contains: q } },
-      { equipment: contains },
-      { equipmentZh: { contains: q } },
-      { homeRequirement: contains },
-      { homeRequirementZh: { contains: q } },
-      { primaryMuscles: { has: q } },
-      { primaryMusclesZh: { has: q } },
-      { secondaryMuscles: { has: q } },
-      { secondaryMusclesZh: { has: q } },
-      { goalTags: { has: q } },
-      { riskTags: { has: q } },
-      { embeddingText: contains },
-    ],
+    OR: exerciseNames.flatMap((exerciseName) => {
+      const insensitive = { mode: "insensitive" as const };
+
+      return [
+        { nameZh: exerciseName },
+        { nameEn: { equals: exerciseName, ...insensitive } },
+        { nameZh: { startsWith: exerciseName } },
+        { nameEn: { startsWith: exerciseName, ...insensitive } },
+        { nameZh: { contains: exerciseName } },
+        { nameEn: { contains: exerciseName, ...insensitive } },
+      ];
+    }),
   };
 }
 
-function buildExerciseMentionWhere(text: string): Prisma.ExerciseWhereInput {
-  const contains = { contains: text, mode: "insensitive" as const };
-
+function buildExerciseResourceNameSectionWhere(
+  exerciseName: string,
+  suitability: ExerciseSuitability,
+): Prisma.ExerciseWhereInput {
   return {
     AND: [
-      { isPublished: true },
-      {
-        OR: [
-          { id: text },
-          { sourceId: text },
-          { nameZh: { contains: text } },
-          { nameEn: contains },
-        ],
-      },
-    ],
-  };
-}
-
-function buildExerciseMentionExactWhere(text: string): Prisma.ExerciseWhereInput {
-  return {
-    AND: [
-      { isPublished: true },
-      {
-        OR: [
-          { id: text },
-          { sourceId: text },
-          { nameZh: text },
-          { nameEn: { equals: text, mode: "insensitive" } },
-        ],
-      },
+      buildExerciseResourceNameWhere([exerciseName]),
+      { allowedSections: { has: suitability } },
     ],
   };
 }
@@ -1213,7 +1297,7 @@ function collectExerciseResourceAppliedFilters(
   filterApplication: ExerciseResourceFilterApplication,
 ): ExerciseResourceAppliedFilter[] {
   return ([
-    "q",
+    "exerciseNames",
     "category",
     "suitability",
     "level",
@@ -1303,39 +1387,6 @@ function collectDistinctSuitabilities(records: ExerciseResourceFacetCatalogRecor
 
 function sortFacetValues(values: string[]) {
   return values.sort((left, right) => left.localeCompare(right, "zh-Hans-CN") || left.localeCompare(right));
-}
-
-function uniqueExerciseSummaryRecords(
-  records: ExerciseResourceSummaryRecord[],
-) {
-  const byId = new Map<string, ExerciseResourceSummaryRecord>();
-  for (const record of records) {
-    byId.set(record.id, record);
-  }
-  return [...byId.values()];
-}
-
-function scoreMentionRecord(
-  text: string,
-  record: ExerciseResourceSummaryRecord,
-) {
-  const normalizedText = text.toLowerCase();
-  const nameEn = record.nameEn.toLowerCase();
-
-  if (
-    record.id === text
-    || record.sourceId === text
-    || record.nameZh === text
-    || nameEn === normalizedText
-  ) {
-    return 0;
-  }
-
-  if (record.nameZh.startsWith(text) || nameEn.startsWith(normalizedText)) {
-    return 1;
-  }
-
-  return 2;
 }
 
 function mapExerciseResourceSummary(

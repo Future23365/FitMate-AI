@@ -9,11 +9,10 @@ import {
   isNoEquipmentResourceQueryValue,
   isRemovedNoEquipmentHomeRequirementValue,
   normalizeExerciseResourceFacetCatalogForPlanner,
-  resolveExerciseResourceMentionSummaries,
   searchExerciseResourceSummaries,
   type ExerciseResourceFacetCatalog,
   type ExerciseResourceFilterSemantic,
-  type ExerciseResourceMentionResolutionResult,
+  type ExerciseResourceNameDiagnostic,
   type ExerciseResourceSummary,
 } from "@/lib/server/exercises/exercise-repository";
 import {
@@ -29,59 +28,15 @@ import { exerciseAllowedSectionSchema } from "@/lib/shared/exercises/types";
 import { defineLangChainToolWrapper } from "../tool-wrapper";
 import { toLangChainJsonValue } from "../utils";
 
-const maxMentionCount = 12;
 const textFilterValueSchema = z.string().trim().min(1).max(120);
 const optionalTextFilterSchema = textFilterValueSchema.optional();
+const maxExerciseNames = 12;
 const maxExcludeExerciseIds = 50;
 const maxRequiredExerciseIds = 12;
 const maxMuscles = 20;
 const exerciseIdSchema = z.string().trim().min(1).max(120).regex(/^[A-Za-z0-9:_-]+$/);
 const catalogFacetDescription = "精确筛选值应优先从动作库 facet catalog 的对应数组中选择；服务端只执行 schema、去空、去重和数据库查询。";
 const trainingPolicyFacetDescription = `${catalogFacetDescription}该字段在 training policy 中作为 hard filter；warmup / stretch 的 support_section policy 会在 filterApplications.unappliedInputFilters 中披露其未作为 hard filter 使用。`;
-
-const mentionInputSchema = z.object({
-  text: z.string()
-    .trim()
-    .min(1)
-    .max(80)
-    .describe("模型从用户表达中结构化提取出的单个动作点名文本；不要传入完整用户消息、历史摘要或多个动作拼成的长句。"),
-  sectionHint: exerciseAllowedSectionSchema
-    .optional()
-    .describe("可选动作用途提示，只允许 warmup、training 或 stretch；该字段只辅助模型理解结果，不替代数据库 allowedSections。"),
-}).strict();
-
-const exerciseMentionSummarySchema = z.object({
-  exerciseId: z.string().min(1),
-  nameEn: z.string(),
-  nameZh: z.string(),
-  categoryZh: z.string().nullable(),
-  levelZh: z.string().nullable(),
-  equipmentZh: z.string().nullable(),
-  homeRequirementZh: z.string(),
-  primaryMusclesZh: z.array(z.string()),
-  allowedSections: z.array(exerciseAllowedSectionSchema),
-  imageUrl: z.string().nullable(),
-  reviewStatus: z.string(),
-  isPublished: z.literal(true),
-}).strict();
-
-const mentionDiagnosticSchema = z.object({
-  code: z.enum(["mention_ambiguous", "mention_not_found"]),
-  message: z.string(),
-  text: z.string(),
-  sectionHint: exerciseAllowedSectionSchema.optional(),
-}).strict();
-
-const mentionResolutionResultSchema = z.object({
-  text: z.string(),
-  sectionHint: exerciseAllowedSectionSchema.optional(),
-  status: z.enum(["matched", "ambiguous", "not_found"]),
-  totalMatches: z.number().int().min(0),
-  returnedCount: z.number().int().min(0),
-  truncated: z.boolean(),
-  matches: z.array(exerciseMentionSummarySchema),
-  diagnostics: z.array(mentionDiagnosticSchema),
-}).strict();
 
 const equipmentFilterSchema = optionalTextFilterSchema
   .describe(`器械可用性或器械类别的精确筛选值；无外部器械统一使用 no_equipment。${catalogFacetDescription}`);
@@ -92,9 +47,21 @@ const homeRequirementFilterSchema = textFilterValueSchema
   .optional()
   .describe(`环境、场地或支撑条件的精确筛选值，例如地面、支撑物、户外、搭档、居家小器械或健身房器械；不表示器械可用性。只在用户目标、上下文、已验证事实或当前规划确实需要环境、场地或支撑条件时填写；省略表示不额外限定环境条件。${catalogFacetDescription}`);
 
+const exerciseNamesFilterSchema = z.array(
+  z.string()
+    .trim()
+    .min(1)
+    .max(80)
+    .describe("单个动作名称；只能放模型已从用户请求、上下文或当前 tool result summary 中结构化提取出的动作名。"),
+)
+  .min(1)
+  .max(maxExerciseNames)
+  .optional()
+  .describe("模型已经结构化提取出的点名动作名称数组；只在动作名称字段执行精确、前缀和包含匹配。不要传入完整用户消息、历史摘要、肌群、分类、标签、训练目标或语义搜索文本。");
+
 const appliedFilterSchema = z.object({
   field: z.enum([
-    "q",
+    "exerciseNames",
     "category",
     "suitabilities",
     "level",
@@ -176,27 +143,9 @@ const suitabilityGroupSchema = z.object({
     .describe("该 groups.<section> 分组下返回的动作库事实；生成 visibleTrainingProposal.exerciseItems[] 时，section 应与所在 group key 和动作 allowedSections 保持一致。"),
 }).strict();
 
-/** resolveExerciseResourceMentionsInputSchema 定义模型可调用的点名动作解析输入，只接受结构化 mention。 */
-export const resolveExerciseResourceMentionsInputSchema = z.object({
-  mentions: z.array(mentionInputSchema)
-    .min(1)
-    .max(maxMentionCount)
-    .describe("用户明确点名的动作数组，由模型负责从自然语言中结构化提取；服务端只处理这里的文本。"),
-}).strict();
-
-/** resolveExerciseResourceMentionsOutputSchema 校验点名解析工具返回给模型和 trace 的发布态候选事实。 */
-export const resolveExerciseResourceMentionsOutputSchema = z.object({
-  status: z.literal("succeeded"),
-  mentionCount: z.number().int().min(0),
-  matchedCount: z.number().int().min(0),
-  ambiguousCount: z.number().int().min(0),
-  notFoundCount: z.number().int().min(0),
-  results: z.array(mentionResolutionResultSchema),
-}).strict();
-
 /** searchExerciseResourcesInputSchema 定义动作库事实查询输入，不接受分页、limit、userId 或自然语言分流参数。 */
 export const searchExerciseResourcesInputSchema = z.object({
-  q: optionalTextFilterSchema.describe("确定性动作文本搜索字段，可匹配动作名称、公开分类、肌群、标签或 embeddingText；不是向量语义召回；仅在 training policy 中作为 hard filter，support_section policy 会披露其未作为 hard filter 使用且模型可见投影不回灌 q 原文。"),
+  exerciseNames: exerciseNamesFilterSchema,
   category: optionalTextFilterSchema.describe(`动作分类或中文分类的精确筛选值。${trainingPolicyFacetDescription}`),
   suitabilities: z.array(exerciseAllowedSectionSchema)
     .min(1)
@@ -222,7 +171,7 @@ export const searchExerciseResourcesInputSchema = z.object({
   requiredExerciseIds: z.array(exerciseIdSchema)
     .max(maxRequiredExerciseIds)
     .optional()
-    .describe("正向查询锚点；当模型已有受控动作 id 时使用，例如来自 resolveExerciseResourceMentions、已导入可见训练事实或用户明确给出的受控 id。tool 会优先把这些动作纳入现有 groups.<section>.exercises 列表，并用 diagnostics 说明无法纳入或筛选不完全一致的原因。"),
+    .describe("正向查询锚点；当模型已有受控动作 id 时使用，例如来自已导入可见训练事实、当前 tool result summary 或用户明确给出的受控 id。tool 会优先把这些动作纳入现有 groups.<section>.exercises 列表，并用 diagnostics 说明无法纳入或筛选不完全一致的原因。"),
   sort: exerciseSortSchema.default("name_asc").describe("固定排序字段，不支持分页、limit、offset、page 或 pageSize。"),
 }).strict();
 
@@ -230,7 +179,7 @@ export const searchExerciseResourcesInputSchema = z.object({
 export const searchExerciseResourcesOutputSchema = z.object({
   status: z.literal("succeeded"),
   query: z.object({
-    q: z.string().optional(),
+    exerciseNames: z.array(z.string()).optional(),
     category: z.string().optional(),
     suitabilities: z.array(exerciseAllowedSectionSchema),
     level: z.string().optional(),
@@ -263,22 +212,25 @@ export const searchExerciseResourcesOutputSchema = z.object({
     suitability: exerciseAllowedSectionSchema,
     code: z.enum([
       "no_candidates",
+      "exercise_name_not_found",
+      "exercise_name_section_conflict",
+      "exercise_name_filter_mismatch",
+      "exercise_name_ambiguous",
+      "exercise_name_too_broad",
       "required_exercise_not_found",
       "required_exercise_section_conflict",
       "required_exercise_excluded",
       "required_exercise_filter_mismatch",
     ]),
     message: z.string(),
+    exerciseName: z.string().optional(),
     exerciseId: exerciseIdSchema.optional(),
+    totalMatches: z.number().int().min(0).optional(),
+    returnedCount: z.number().int().min(0).optional(),
     conflictFields: z.array(z.string()).optional(),
   }).strict()),
 }).strict();
 
-type ResolveExerciseResourceMentionsInput = z.infer<typeof resolveExerciseResourceMentionsInputSchema>;
-type ResolveExerciseResourceMentionsOutput = z.infer<typeof resolveExerciseResourceMentionsOutputSchema>;
-type MentionInput = z.infer<typeof mentionInputSchema>;
-type MentionResolutionOutput = z.infer<typeof mentionResolutionResultSchema>;
-type ExerciseMentionSummaryOutput = z.infer<typeof exerciseMentionSummarySchema>;
 type SearchExerciseResourcesInput = z.infer<typeof searchExerciseResourcesInputSchema>;
 type SearchExerciseResourcesOutput = z.infer<typeof searchExerciseResourcesOutputSchema>;
 type ExerciseResourceOutput = z.infer<typeof exerciseResourceSummarySchema>;
@@ -287,103 +239,6 @@ type SuitabilityGroupOutput = z.infer<typeof suitabilityGroupSchema>;
 export type CreateSearchExerciseResourcesLangChainToolOptions = {
   facetCatalog?: ExerciseResourceFacetCatalog;
 };
-
-/** resolveExerciseResourceMentionsLangChainTool 解析用户明确点名的动作到发布态 Exercise 候选，不做自然语言分流。 */
-export const resolveExerciseResourceMentionsLangChainTool = defineLangChainToolWrapper<
-  typeof resolveExerciseResourceMentionsInputSchema,
-  ResolveExerciseResourceMentionsOutput
->({
-  name: "resolveExerciseResourceMentions",
-  description: [
-    "把用户明确点名的单个动作名解析为发布态 Exercise 候选，返回 matched、ambiguous 或 not_found。",
-    "使用边界：mentions[].text 只放单个动作名；不要传完整用户消息、历史摘要、分页、userId、sql 或训练生成参数。",
-    "matched exerciseId 表示已解析到发布态动作候选，可作为模型后续推理和合法 tool input 的受控事实材料。",
-    "ambiguous 表示存在多个候选事实，not_found 表示未解析为数据库动作事实；本 tool result 不是训练卡片、routine、plan 或保存结果。",
-  ].join("\n"),
-  inputSchema: resolveExerciseResourceMentionsInputSchema,
-  outputSchema: resolveExerciseResourceMentionsOutputSchema,
-  runtimeActivity: {
-    defaultSummary: "正在确认你提到的动作",
-  },
-  timeoutMs: agentRuntimeConfig.tools.resolveExerciseResourceMentions.timeoutMs,
-  handler: async (input) => {
-    const resolved = await Promise.all(input.mentions.map(async (mention) => {
-      const result = await resolveExerciseResourceMentionSummaries({
-        text: mention.text,
-        maxMatches: agentRuntimeConfig.tools.resolveExerciseResourceMentions.maxMatches,
-      });
-      return toMentionResolutionOutput(mention, result);
-    }));
-
-    return {
-      status: "succeeded",
-      mentionCount: input.mentions.length,
-      matchedCount: resolved.filter((result) => result.status === "matched").length,
-      ambiguousCount: resolved.filter((result) => result.status === "ambiguous").length,
-      notFoundCount: resolved.filter((result) => result.status === "not_found").length,
-      results: resolved,
-    };
-  },
-  toModelVisibleSummary: (output) => ({
-    status: output.status,
-    factLevel: "resolved_candidates",
-    mentionCount: output.mentionCount,
-    matchedCount: output.matchedCount,
-    ambiguousCount: output.ambiguousCount,
-    notFoundCount: output.notFoundCount,
-    candidateBoundary: "matched 或模型从 ambiguous 候选中选择的 exerciseId 是发布态动作候选事实，可用于后续模型自主推理。",
-    outputBoundary: "本 observation 只表达 mention 解析事实；它不是最终训练卡片、routine、plan 或保存结果。",
-    results: output.results.map((result) => ({
-      text: result.text,
-      ...(result.sectionHint ? { sectionHint: result.sectionHint } : {}),
-      status: result.status,
-      totalMatches: result.totalMatches,
-      returnedCount: result.returnedCount,
-      truncated: result.truncated,
-      matches: result.matches.map((match) => ({
-        exerciseId: match.exerciseId,
-        nameZh: match.nameZh,
-        nameEn: match.nameEn,
-        equipmentZh: match.equipmentZh,
-        homeRequirementZh: match.homeRequirementZh,
-        primaryMusclesZh: match.primaryMusclesZh,
-        allowedSections: match.allowedSections,
-        imageUrl: match.imageUrl,
-      })),
-      diagnostics: result.diagnostics.map(toJsonMentionDiagnostic),
-    })),
-  }),
-  toUserProjection: (output) => ({
-    status: output.status,
-    mentionCount: output.mentionCount,
-    matchedCount: output.matchedCount,
-    ambiguousCount: output.ambiguousCount,
-    notFoundCount: output.notFoundCount,
-    results: output.results.map((result) => ({
-      text: result.text,
-      ...(result.sectionHint ? { sectionHint: result.sectionHint } : {}),
-      status: result.status,
-      matches: result.matches.map((match) => ({
-        exerciseId: match.exerciseId,
-        nameZh: match.nameZh,
-        nameEn: match.nameEn,
-        equipmentZh: match.equipmentZh,
-        homeRequirementZh: match.homeRequirementZh,
-        primaryMusclesZh: match.primaryMusclesZh,
-        allowedSections: match.allowedSections,
-        imageUrl: match.imageUrl,
-      })),
-      diagnostics: result.diagnostics.map(toJsonMentionDiagnostic),
-    })),
-  }),
-  toTraceSummary: (output) => ({
-    status: output.status,
-    mentionCount: output.mentionCount,
-    matchedCount: output.matchedCount,
-    ambiguousCount: output.ambiguousCount,
-    notFoundCount: output.notFoundCount,
-  }),
-});
 
 /** createSearchExerciseResourcesLangChainTool 构造动作库事实查询 LangChain tool，可注入当前动作库 facet catalog。 */
 export function createSearchExerciseResourcesLangChainTool(
@@ -394,15 +249,16 @@ export function createSearchExerciseResourcesLangChainTool(
     description: [
       "只读查询 Exercise 动作库事实，并按 suitabilities 返回 groups.<section>.exercises[]、section 覆盖和 diagnostics。",
       "使用边界：需要基于结构化数据库 facet、section 用途或受控 exerciseId 获取发布态动作事实时使用。",
-      "输出含 query、filters、groups、sectionSummary、availableSections、missingSections、diagnostics、totalMatches、returnedCount、truncated 和 zeroMatchMuscles 等事实。",
+      "输出含 query、filters、groups、sectionSummary、availableSections、missingSections、diagnostics、totalMatches、returnedCount、truncated 和 zeroMatchMuscles 等动作候选事实。",
       "suitabilities 可声明 warmup、training、stretch；完整单次训练 routine 的动作事实通常来自这三类 section，training 对应用户主训练目标。",
       "sectionSummary、availableSections、missingSections 只描述当前查询口径下 groups.<section> 的覆盖事实，不表达下一步 tool workflow、固定补查流程或收口要求。",
       "多 muscles 查询用于获得代表性候选覆盖，并会尽量均衡返回各请求肌群的候选；groups.<section>.zeroMatchMuscles 只表示当前 section、当前过滤条件和当前排除条件下没有候选的请求肌群。",
       "zeroMatchMuscles 是诊断事实，可用于解释、澄清或调整查询；不表示动作库永久缺失该肌群，不表示用户训练目标失败，也不是必须继续补查每个肌群的义务。",
       "本 tool 不生成 visibleTrainingProposal、训练卡片、routine、plan、处方、日程或保存结果。",
+      "当模型已经从用户请求、上下文或 tool result summary 中结构化提取动作名称时，使用 exerciseNames 查询动作名称字段；exerciseNames 不接受完整用户消息，也不是语义搜索、向量召回、肌群推断、标签推断或自然语言搜索字段。",
       "所有精确 facet 值应优先从动作库 facet catalog 选择；无外部器械统一写 equipment: \"no_equipment\"；homeRequirement 只表示环境、场地或支撑条件，只在用户目标、上下文、已验证事实或当前规划确实需要该条件时填写。",
       "requiredExerciseIds 是正向锚点，用于让已解析或已导入的受控动作优先进入 groups；excludeExerciseIds 是负向排除，用于替换或避免重复。",
-      "不要用本 tool 判断当前会话有没有上一轮 visibleTrainingProposal、读取完整历史方案、分页、limit、offset、page、pageSize 或语义向量检索。",
+      "不要用本 tool 判断当前会话有没有上一轮 visibleTrainingProposal、读取完整历史方案、分页、limit、offset、page、pageSize、完整自然语言搜索或语义向量检索。",
       formatFacetCatalogForDescription(options.facetCatalog),
     ].filter(Boolean).join("\n"),
     inputSchema: searchExerciseResourcesInputSchema,
@@ -415,8 +271,10 @@ export function createSearchExerciseResourcesLangChainTool(
       const excludeExerciseIds = normalizeExcludeExerciseIds(input.excludeExerciseIds);
       const requiredExerciseIds = normalizeRequiredExerciseIds(input.requiredExerciseIds);
       const muscles = normalizeFacetList(input.muscles);
+      const exerciseNames = normalizeFacetList(input.exerciseNames);
       const normalizedInput = {
         ...input,
+        exerciseNames,
         muscles,
       };
       const suitabilities = normalizeSuitabilities(input.suitabilities);
@@ -431,7 +289,7 @@ export function createSearchExerciseResourcesLangChainTool(
           ? getExerciseResourceSummariesByIds(requiredExerciseIds)
           : Promise.resolve([]),
         Promise.all(suitabilities.map((suitability) => searchExerciseResourceSummaries({
-          q: input.q,
+          exerciseNames,
           category: input.category,
           suitability,
           level: input.level,
@@ -456,6 +314,9 @@ export function createSearchExerciseResourcesLangChainTool(
           return [];
         }
         const baseExercises = result.exercises.map(toExerciseResourceOutput);
+        diagnostics.push(...result.diagnostics.map((diagnostic) =>
+          toSearchExerciseNameDiagnosticOutput(suitability, diagnostic),
+        ));
         const requiredDiagnostics = collectRequiredExerciseDiagnostics({
           requiredExerciseIds,
           requiredById,
@@ -501,7 +362,7 @@ export function createSearchExerciseResourcesLangChainTool(
       return {
         status: "succeeded",
         query: {
-          q: firstResult.query.q,
+          exerciseNames: firstResult.query.exerciseNames,
           category: firstResult.query.category,
           suitabilities,
           level: firstResult.query.level,
@@ -546,7 +407,7 @@ export function createSearchExerciseResourcesLangChainTool(
         factLevel: broadQuery ? "diagnostic" : "section_scoped_exercise_facts",
         suitabilities: output.query.suitabilities,
         query: {
-          ...(output.query.q ? { q: output.query.q } : {}),
+          ...(output.query.exerciseNames ? { exerciseNames: output.query.exerciseNames } : {}),
           ...(output.query.category ? { category: output.query.category } : {}),
           ...(output.query.level ? { level: output.query.level } : {}),
           ...(output.query.force ? { force: output.query.force } : {}),
@@ -644,7 +505,9 @@ export function createSearchExerciseResourcesLangChainTool(
       diagnostics: output.diagnostics.map((diagnostic) => ({
         suitability: diagnostic.suitability,
         code: diagnostic.code,
+        ...(diagnostic.exerciseName ? { exerciseName: diagnostic.exerciseName } : {}),
         ...(diagnostic.exerciseId ? { exerciseId: diagnostic.exerciseId } : {}),
+        ...(diagnostic.conflictFields ? { conflictFields: diagnostic.conflictFields } : {}),
       })),
     }),
   });
@@ -652,100 +515,6 @@ export function createSearchExerciseResourcesLangChainTool(
 
 /** searchExerciseResourcesLangChainTool 是生产 LangChain 默认动作库查询能力，facet catalog 可由 route 注入替换。 */
 export const searchExerciseResourcesLangChainTool = createSearchExerciseResourcesLangChainTool();
-
-function toMentionResolutionOutput(
-  mention: MentionInput,
-  result: ExerciseResourceMentionResolutionResult,
-): MentionResolutionOutput {
-  const status = resolveMentionStatus(result);
-  const matches = selectMentionMatches(status, result).map(toExerciseMentionSummaryOutput);
-  const diagnostics = createMentionDiagnostics(mention, status);
-
-  return {
-    text: mention.text,
-    sectionHint: mention.sectionHint,
-    status,
-    totalMatches: result.totalMatches,
-    returnedCount: matches.length,
-    truncated: result.truncated,
-    matches,
-    diagnostics,
-  };
-}
-
-function resolveMentionStatus(result: ExerciseResourceMentionResolutionResult): MentionResolutionOutput["status"] {
-  if (result.totalMatches === 0 || result.exercises.length === 0) {
-    return "not_found";
-  }
-
-  if (result.exactMatchCount === 1 || result.totalMatches === 1) {
-    return "matched";
-  }
-
-  return "ambiguous";
-}
-
-function selectMentionMatches(
-  status: MentionResolutionOutput["status"],
-  result: ExerciseResourceMentionResolutionResult,
-) {
-  if (status === "matched") {
-    return result.exercises.slice(0, 1);
-  }
-
-  return result.exercises;
-}
-
-function createMentionDiagnostics(
-  mention: MentionInput,
-  status: MentionResolutionOutput["status"],
-): MentionResolutionOutput["diagnostics"] {
-  if (status === "matched") {
-    return [];
-  }
-
-  if (status === "ambiguous") {
-    return [{
-      code: "mention_ambiguous",
-      message: `点名动作“${mention.text}”匹配到多个发布态动作；该结果只表达候选歧义事实，不自动决定唯一动作。`,
-      text: mention.text,
-      sectionHint: mention.sectionHint,
-    }];
-  }
-
-  return [{
-    code: "mention_not_found",
-    message: `点名动作“${mention.text}”没有解析到发布态数据库动作；该结果不能作为动作事实来源。`,
-    text: mention.text,
-    sectionHint: mention.sectionHint,
-  }];
-}
-
-function toExerciseMentionSummaryOutput(summary: ExerciseResourceSummary): ExerciseMentionSummaryOutput {
-  return {
-    exerciseId: summary.id,
-    nameEn: summary.nameEn,
-    nameZh: summary.nameZh,
-    categoryZh: summary.categoryZh,
-    levelZh: summary.levelZh,
-    equipmentZh: summary.equipmentZh,
-    homeRequirementZh: summary.homeRequirementZh,
-    primaryMusclesZh: summary.primaryMusclesZh,
-    allowedSections: summary.allowedSections,
-    imageUrl: summary.imageUrls[0] ?? null,
-    reviewStatus: summary.reviewStatus,
-    isPublished: true,
-  };
-}
-
-function toJsonMentionDiagnostic(diagnostic: MentionResolutionOutput["diagnostics"][number]) {
-  return {
-    code: diagnostic.code,
-    message: diagnostic.message,
-    text: diagnostic.text,
-    ...(diagnostic.sectionHint ? { sectionHint: diagnostic.sectionHint } : {}),
-  };
-}
 
 function toExerciseResourceOutput(summary: ExerciseResourceSummary): ExerciseResourceOutput {
   return {
@@ -851,7 +620,7 @@ function collectAppliedFilters(
   const filters: SearchExerciseResourcesOutput["query"]["appliedFilters"] = [];
   const commonAppliedFields = collectCommonAppliedFilterFields(filterApplications);
   const entries = {
-    q: input.q,
+    exerciseNames: input.exerciseNames,
     category: input.category,
     suitabilities,
     level: input.level,
@@ -895,6 +664,39 @@ function collectCommonAppliedFilterFields(filterApplications: ExerciseResourceFi
   }
 
   return new Set([...commonFields] as SearchExerciseResourcesOutput["query"]["appliedFilters"][number]["field"][]);
+}
+
+function toSearchExerciseNameDiagnosticOutput(
+  suitability: z.infer<typeof exerciseAllowedSectionSchema>,
+  diagnostic: ExerciseResourceNameDiagnostic,
+): SearchExerciseResourcesOutput["diagnostics"][number] {
+  return {
+    suitability,
+    code: diagnostic.code,
+    exerciseName: diagnostic.exerciseName,
+    ...(diagnostic.totalMatches === undefined ? {} : { totalMatches: diagnostic.totalMatches }),
+    ...(diagnostic.returnedCount === undefined ? {} : { returnedCount: diagnostic.returnedCount }),
+    ...(diagnostic.conflictFields?.length ? { conflictFields: diagnostic.conflictFields } : {}),
+    message: createExerciseNameDiagnosticMessage(suitability, diagnostic),
+  };
+}
+
+function createExerciseNameDiagnosticMessage(
+  suitability: z.infer<typeof exerciseAllowedSectionSchema>,
+  diagnostic: ExerciseResourceNameDiagnostic,
+) {
+  switch (diagnostic.code) {
+    case "exercise_name_not_found":
+      return `动作名称“${diagnostic.exerciseName}”没有命中数据库动作名称字段，无法纳入 ${suitability} 动作列表。`;
+    case "exercise_name_section_conflict":
+      return `动作名称“${diagnostic.exerciseName}”存在名称匹配候选，但不适配 ${suitability} 用途。`;
+    case "exercise_name_filter_mismatch":
+      return `动作名称“${diagnostic.exerciseName}”存在名称匹配候选，但与当前结构化筛选字段不一致：${diagnostic.conflictFields?.join(", ") || "unknown"}。`;
+    case "exercise_name_ambiguous":
+      return `动作名称“${diagnostic.exerciseName}”匹配到多个动作候选；该诊断只表达数据库名称匹配歧义事实。`;
+    case "exercise_name_too_broad":
+      return `动作名称“${diagnostic.exerciseName}”匹配候选超过当前名称桶可见上限；该诊断只表达候选过宽事实。`;
+  }
 }
 
 function collectRequiredExerciseDiagnostics(input: {
@@ -998,8 +800,9 @@ function collectRequiredExerciseFilterMismatches(
 ) {
   const conflicts: string[] = [];
 
-  if (input.q && !matchesExerciseText(exercise, input.q)) {
-    conflicts.push("q");
+  const exerciseNames = normalizeFacetList(input.exerciseNames) ?? [];
+  if (exerciseNames.length > 0 && !exerciseNames.some((exerciseName) => matchesExerciseName(exercise, exerciseName))) {
+    conflicts.push("exerciseNames");
   }
   if (input.category && !equalsAnyText(input.category, exercise.category, exercise.categoryZh)) {
     conflicts.push("category");
@@ -1038,31 +841,8 @@ function collectRequiredExerciseFilterMismatches(
   return conflicts;
 }
 
-function matchesExerciseText(exercise: ExerciseResourceSummary, query: string) {
-  return matchesAnyText(
-    query,
-    exercise.id,
-    exercise.nameEn,
-    exercise.nameZh,
-    exercise.category,
-    exercise.categoryZh,
-    exercise.level,
-    exercise.levelZh,
-    exercise.force,
-    exercise.forceZh,
-    exercise.mechanic,
-    exercise.mechanicZh,
-    exercise.equipment,
-    exercise.equipmentZh,
-    exercise.homeRequirement,
-    exercise.homeRequirementZh,
-    ...exercise.primaryMuscles,
-    ...exercise.primaryMusclesZh,
-    ...exercise.secondaryMuscles,
-    ...exercise.secondaryMusclesZh,
-    ...exercise.goalTags,
-    ...exercise.riskTags,
-  );
+function matchesExerciseName(exercise: ExerciseResourceSummary, query: string) {
+  return matchesAnyText(query, exercise.nameEn, exercise.nameZh);
 }
 
 function matchesRequiredExerciseEquipment(requestedEquipment: string, exercise: ExerciseResourceSummary) {

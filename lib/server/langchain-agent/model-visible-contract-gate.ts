@@ -84,6 +84,8 @@ const allowedSummaryKeys = new Set([
   "errorCode",
   "excludedCount",
   "excludeExerciseIds",
+  "exerciseName",
+  "exerciseNames",
   "exercises",
   "exerciseId",
   "exerciseItemCount",
@@ -149,7 +151,6 @@ const allowedSummaryKeys = new Set([
   "primaryMusclesZh",
   "projectionBoundary",
   "proposalKind",
-  "q",
   "query",
   "querySpecificity",
   "reason",
@@ -239,7 +240,7 @@ const historicalForbiddenTextPatterns: readonly RegExp[] = [
 
 const workflowInstructionPatterns: readonly RegExp[] = [
   /(缺少|没有|未覆盖).{0,24}(warmup|stretch|training|热身|拉伸|主训练).{0,40}(必须|务必|应当|应该|需要|请|继续|先).{0,24}(调用|使用|查询|补查|收口)/i,
-  /(必须|务必|应当|应该|需要|请|继续|先).{0,24}(调用|使用).{0,40}(searchExerciseResources|resolveExerciseResourceMentions|inspectVisibleTrainingProposals|submitVisibleTrainingProposal|结构化收口工具|动作查询工具)/i,
+  /(必须|务必|应当|应该|需要|请|继续|先).{0,24}(调用|使用).{0,40}(searchExerciseResources|inspectVisibleTrainingProposals|submitVisibleTrainingProposal|结构化收口工具|动作查询工具)/i,
   /(下一步|next step).{0,24}(必须|务必|应当|应该|需要|请).{0,24}(调用|使用|查询|补查)/i,
 ];
 

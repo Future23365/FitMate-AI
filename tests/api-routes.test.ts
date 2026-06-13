@@ -40,7 +40,6 @@ const exerciseRepositoryMocks = vi.hoisted(() => ({
     riskTags: [],
     suitabilities: ["warmup", "training", "stretch"],
   })),
-  resolveExerciseResourceMentionSummaries: vi.fn(),
   searchExerciseResourceSummaries: vi.fn(),
 }));
 const workoutPersistenceMocks = vi.hoisted(() => ({
@@ -159,7 +158,6 @@ describe("API route boundaries", () => {
     currentUserMocks.getCurrentUser.mockResolvedValue({ id: "user-1" });
     authMocks.requireCurrentUser.mockResolvedValue({ id: "user-1", displayName: "匿名用户" });
     usageSummaryServiceMocks.recordAiTokenUsageSummary.mockResolvedValue({ ok: true });
-    exerciseRepositoryMocks.resolveExerciseResourceMentionSummaries.mockResolvedValue(createMentionResolutionResult());
     exerciseRepositoryMocks.searchExerciseResourceSummaries.mockImplementation(async (input) => createExerciseSearchResult(input));
     exerciseRepositoryMocks.getExerciseRecordsByIds.mockImplementation(async (ids: readonly string[]) => (
       ids.flatMap((id) => (id === "push-up" ? [createExerciseFactRecord(id)] : []))
@@ -274,15 +272,16 @@ describe("API route boundaries", () => {
               content: null,
               tool_calls: [
                 {
-                  id: "call_resolve_1",
+                  id: "call_search_1",
                   type: "function",
                   function: {
-                    name: "resolveExerciseResourceMentions",
+                    name: "searchExerciseResources",
                     arguments: JSON.stringify({
                       runtimeMetadata: {
-                        activitySummary: "正在确认你提到的动作",
+                        activitySummary: "正在查询动作库",
                       },
-                      mentions: [{ text: "俯卧撑", sectionHint: "training" }],
+                      exerciseNames: ["俯卧撑"],
+                      suitabilities: ["training"],
                     }),
                   },
                 },
@@ -319,19 +318,20 @@ describe("API route boundaries", () => {
       expect.objectContaining({
         type: "agent_progress",
         stage: "analyzing_request",
-        activitySummary: "正在确认你提到的动作",
+        activitySummary: "正在查询动作库",
       }),
     ]));
-    expect(exerciseRepositoryMocks.resolveExerciseResourceMentionSummaries).toHaveBeenCalledWith({
-      text: "俯卧撑",
-      maxMatches: 5,
-    });
+    expect(exerciseRepositoryMocks.searchExerciseResourceSummaries).toHaveBeenCalledWith(expect.objectContaining({
+      exerciseNames: ["俯卧撑"],
+      suitability: "training",
+      maxReturned: agentRuntimeConfig.tools.searchExerciseResources.maxReturnedPerSection,
+    }));
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const firstModelRequest = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     const secondModelRequest = JSON.parse(fetchMock.mock.calls[1][1].body as string);
     expect(firstModelRequest.tools).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        function: expect.objectContaining({ name: "resolveExerciseResourceMentions" }),
+        function: expect.objectContaining({ name: "searchExerciseResources" }),
       }),
     ]));
     expect(JSON.stringify(firstModelRequest.tools)).toContain("runtimeMetadata");
@@ -345,15 +345,15 @@ describe("API route boundaries", () => {
         traceSummary: expect.objectContaining({
           providerToolCalls: expect.arrayContaining([
             expect.objectContaining({
-              id: "call_resolve_1",
-              name: "resolveExerciseResourceMentions",
+              id: "call_search_1",
+              name: "searchExerciseResources",
             }),
           ]),
           toolCallCount: 1,
           runtimeActivities: expect.arrayContaining([
             expect.objectContaining({
-              toolName: "resolveExerciseResourceMentions",
-              activitySummary: "正在确认你提到的动作",
+              toolName: "searchExerciseResources",
+              activitySummary: "正在查询动作库",
             }),
           ]),
         }),
@@ -643,34 +643,7 @@ describe("API route boundaries", () => {
     }));
   });
 
-  it("uses the terminal failure finalizer before the deterministic /api/chat fallback", async () => {
-    const requestedToolCalls = agentRuntimeConfig.langChain.runBudget.maxToolCalls + 1;
-    const toolCalls = Array.from({ length: requestedToolCalls }, (_, index) => {
-      if (index % 2 === 0) {
-        return {
-          id: `call_finalizer_budget_resolve_${index + 1}`,
-          type: "function",
-          function: {
-            name: "resolveExerciseResourceMentions",
-            arguments: JSON.stringify({
-              mentions: [{ text: `俯卧撑 ${index + 1}`, sectionHint: "training" }],
-            }),
-          },
-        };
-      }
-
-      return {
-        id: `call_finalizer_budget_inspect_${index + 1}`,
-        type: "function",
-        function: {
-          name: "searchExerciseResources",
-          arguments: JSON.stringify({
-            q: `胸部动作 ${index + 1}`,
-            suitabilities: ["training"],
-          }),
-        },
-      };
-    });
+  it("rejects unknown provider tool calls without executing business handlers", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(Response.json({
         model: "deepseek-v4-flash",
@@ -679,18 +652,22 @@ describe("API route boundaries", () => {
             message: {
               role: "assistant",
               content: null,
-              tool_calls: toolCalls,
+              tool_calls: [
+                {
+                  id: "call_finalizer_unknown_tool_1",
+                  type: "function",
+                  function: {
+                    name: "unregisteredExerciseLookup",
+                    arguments: JSON.stringify({
+                      exerciseNames: ["俯卧撑"],
+                    }),
+                  },
+                },
+              ],
             },
             finish_reason: "tool_calls",
           },
         ],
-      }))
-      .mockResolvedValueOnce(deepSeekStructuredFinalResponse({
-        content: "预算耗尽后这条主链结果不应该作为成功回复。",
-      }))
-      .mockResolvedValueOnce(deepSeekJsonContentResponse({
-        content: "这次没有生成可靠的训练结果。你可以缩小目标后让我重新生成。",
-        suggestedQuestions: ["帮我生成 20 分钟徒手胸部训练"],
       }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -705,34 +682,16 @@ describe("API route boundaries", () => {
 
     expect(response.status).toBe(200);
     expect(events).toEqual([
-      { type: "content", content: "这次没有生成可靠的训练结果。你可以缩小目标后让我重新生成。" },
-      { type: "suggested_questions", suggestedQuestions: ["帮我生成 20 分钟徒手胸部训练"] },
+      { type: "content", content: "模型服务暂时不可用或请求受限，所以这次不能继续生成可靠回复。你可以稍后重试，或先把问题缩小后再发一次。" },
+      { type: "suggested_questions", suggestedQuestions: ["为什么没成功？", "你再试试", "要不换个别的？"] },
       { type: "done" },
     ]);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(exerciseRepositoryMocks.resolveExerciseResourceMentionSummaries).toHaveBeenCalledTimes(
-      agentRuntimeConfig.langChain.runBudget.maxToolCalls / 2,
-    );
-    expect(exerciseRepositoryMocks.searchExerciseResourceSummaries).toHaveBeenCalledTimes(
-      agentRuntimeConfig.langChain.runBudget.maxToolCalls / 2,
-    );
-    expect(traceMocks.startAiTrace.mock.results[0].value.addStep).toHaveBeenCalledWith(expect.objectContaining({
-      name: "LangChain Terminal Failure Finalizer",
-      type: "model_response",
-      output: expect.objectContaining({
-        status: "succeeded",
-        failureCategory: "budget_exhausted",
-        errorCode: "budget_exhausted",
-      }),
-      metadata: expect.objectContaining({
-        boundary: "terminal_failure_finalizer",
-        projectionType: "terminal_failure_finalizer",
-      }),
-    }));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(exerciseRepositoryMocks.searchExerciseResourceSummaries).not.toHaveBeenCalled();
     expect(traceMocks.startAiTrace.mock.results[0].value.addStep).toHaveBeenCalledWith(expect.objectContaining({
       type: "response_write",
       metadata: expect.objectContaining({
-        projectionType: "terminal_failure_finalizer",
+        projectionType: "provider_unavailable_fallback",
       }),
     }));
   });
@@ -903,16 +862,9 @@ function deepSeekJsonContentResponse(input: {
   });
 }
 
-function createMentionResolutionResult() {
-  return {
-    text: "俯卧撑",
-    totalMatches: 1,
-    returnedCount: 1,
-    maxMatches: 5,
-    truncated: false,
-    exactMatchCount: 1,
-    exercises: [
-      {
+function createExerciseSearchResult(input: Record<string, any>) {
+  const exercises = Array.isArray(input.exerciseNames) && input.exerciseNames.includes("俯卧撑")
+    ? [{
         id: "Pushups",
         nameEn: "Pushups",
         nameZh: "俯卧撑",
@@ -938,12 +890,9 @@ function createMentionResolutionResult() {
         riskTags: [],
         reviewStatus: "human_reviewed",
         isPublished: true,
-      },
-    ],
-  };
-}
+      }]
+    : [];
 
-function createExerciseSearchResult(input: Record<string, any>) {
   return {
     query: input,
     appliedFilters: [],
@@ -954,13 +903,14 @@ function createExerciseSearchResult(input: Record<string, any>) {
       unappliedInputFilters: [],
     },
     filterSemantics: [],
+    diagnostics: [],
     zeroMatchMuscles: [],
-    totalMatches: 0,
-    returnedCount: 0,
+    totalMatches: exercises.length,
+    returnedCount: exercises.length,
     maxReturned: input.maxReturned ?? agentRuntimeConfig.tools.searchExerciseResources.maxReturnedPerSection,
     truncated: false,
     excludedCount: input.excludeExerciseIds?.length ?? 0,
-    exercises: [],
+    exercises,
   };
 }
 

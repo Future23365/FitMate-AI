@@ -76,7 +76,7 @@ describe("exercise repository", () => {
     ]);
 
     const result = await searchExerciseResourceSummaries({
-      q: "俯卧撑",
+      exerciseNames: ["俯卧撑"],
       category: "strength",
       suitability: "training",
       level: "intermediate",
@@ -114,7 +114,7 @@ describe("exercise repository", () => {
       hardFilterPolicy: "training",
       appliedHardFilters: expect.arrayContaining([
         "suitabilities",
-        "q",
+        "exerciseNames",
         "category",
         "level",
         "force",
@@ -131,7 +131,7 @@ describe("exercise repository", () => {
     });
   });
 
-  it("uses support section filters without applying level, q, category, tags or mechanics as hard filters", async () => {
+  it("uses support section filters without applying level, category, tags or mechanics as hard filters", async () => {
     prismaMock.exercise.count.mockResolvedValue(1);
     prismaMock.exercise.findMany.mockResolvedValue([
       createRepositoryExerciseRecord({
@@ -145,7 +145,7 @@ describe("exercise repository", () => {
     ]);
 
     const result = await searchExerciseResourceSummaries({
-      q: "胸部热身文本",
+      exerciseNames: ["胸部动态热身"],
       category: "mobility",
       suitability: "warmup",
       level: "intermediate",
@@ -168,13 +168,13 @@ describe("exercise repository", () => {
     expect(findManyArgs.take).toBeGreaterThan(1);
     expect(serializedWhere).not.toContain("isPublished");
     expect(serializedWhere).toContain("\"allowedSections\":{\"has\":\"warmup\"}");
+    expect(serializedWhere).toContain("\"contains\":\"胸部动态热身\"");
     expect(serializedWhere).toContain("\"equipment\":{\"in\":[\"body only\",\"bodyweight\"]}");
     expect(serializedWhere).toContain("\"equipmentZh\":{\"in\":[\"自重\"]}");
     expect(serializedWhere).toContain("\"homeRequirement\":\"floor\"");
     expect(serializedWhere).toContain("\"primaryMuscles\":{\"has\":\"胸部\"}");
     expect(serializedWhere).toContain("\"id\":{\"in\":[\"required-warmup\"]}");
     expect(serializedWhere).toContain("\"id\":{\"notIn\":[\"excluded-warmup\"]}");
-    expect(serializedWhere).not.toContain("胸部热身文本");
     expect(serializedWhere).not.toContain("\"category\":\"mobility\"");
     expect(serializedWhere).not.toContain("\"level\":\"intermediate\"");
     expect(serializedWhere).not.toContain("\"force\":\"push\"");
@@ -186,6 +186,7 @@ describe("exercise repository", () => {
       hardFilterPolicy: "support_section",
       appliedHardFilters: expect.arrayContaining([
         "suitabilities",
+        "exerciseNames",
         "equipment",
         "homeRequirement",
         "muscles",
@@ -193,7 +194,6 @@ describe("exercise repository", () => {
         "excludeExerciseIds",
       ]),
       unappliedInputFilters: expect.arrayContaining([
-        { field: "q", code: "not_applied_as_hard_filter_for_support_section" },
         { field: "category", code: "not_applied_as_hard_filter_for_support_section", valueSummary: "mobility" },
         { field: "level", code: "not_applied_as_hard_filter_for_support_section", valueSummary: "intermediate" },
         { field: "force", code: "not_applied_as_hard_filter_for_support_section", valueSummary: "push" },
@@ -202,7 +202,6 @@ describe("exercise repository", () => {
         { field: "riskTag", code: "not_applied_as_hard_filter_for_support_section", valueSummary: "shoulder_pain" },
       ]),
     });
-    expect(result.filterApplication.unappliedInputFilters.find((filter) => filter.field === "q")).not.toHaveProperty("valueSummary");
     expect(result.exercises).toEqual([
       expect.objectContaining({
         id: "warmup-bodyweight-chest",
@@ -254,6 +253,57 @@ describe("exercise repository", () => {
     for (const serializedWhere of [...serializedCountWheres, ...serializedFindWheres]) {
       expect(serializedWhere).toContain("\"id\":{\"notIn\":[\"excluded-training\"]}");
     }
+  });
+
+  it("buckets multiple exerciseNames before applying muscle filters and deduplicates returned candidates", async () => {
+    prismaMock.exercise.count
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(3);
+    prismaMock.exercise.findMany
+      .mockResolvedValueOnce([
+        createRepositoryExerciseRecord({ id: "push-a", nameZh: "俯卧撑", primaryMusclesZh: ["胸部"] }),
+        createRepositoryExerciseRecord({ id: "push-b", nameZh: "上斜俯卧撑", primaryMusclesZh: ["胸部"] }),
+      ])
+      .mockResolvedValueOnce([
+        createRepositoryExerciseRecord({ id: "squat-a", nameZh: "深蹲", primaryMusclesZh: ["胸部"] }),
+      ]);
+
+    const result = await searchExerciseResourceSummaries({
+      suitability: "training",
+      exerciseNames: ["俯卧撑", "深蹲", "平板支撑"],
+      muscles: ["胸部"],
+      maxReturned: 3,
+      sort: "name_asc",
+    });
+    const serializedFindWheres = prismaMock.exercise.findMany.mock.calls.map(([input]) => JSON.stringify(input.where));
+
+    expect(result.exercises.map((exercise) => exercise.id)).toEqual(["push-a", "squat-a", "push-b"]);
+    expect(result.zeroMatchMuscles).toEqual([]);
+    expect(result.appliedFilters).toEqual(expect.arrayContaining([
+      { field: "exerciseNames", value: ["俯卧撑", "深蹲", "平板支撑"] },
+      { field: "muscles", value: ["胸部"] },
+    ]));
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        code: "exercise_name_not_found",
+        exerciseName: "平板支撑",
+      }),
+      expect.objectContaining({
+        code: "exercise_name_ambiguous",
+        exerciseName: "俯卧撑",
+        totalMatches: 2,
+      }),
+    ]);
+    expect(prismaMock.exercise.findMany).toHaveBeenCalledTimes(2);
+    for (const serializedWhere of serializedFindWheres) {
+      expect(serializedWhere).toContain("\"primaryMuscles\":{\"has\":\"胸部\"}");
+    }
+    expect(serializedFindWheres[0]).toContain("\"contains\":\"俯卧撑\"");
+    expect(serializedFindWheres[1]).toContain("\"contains\":\"深蹲\"");
   });
 
   it("does not let requiredExerciseIds turn independent muscle counts into non-zero matches", async () => {

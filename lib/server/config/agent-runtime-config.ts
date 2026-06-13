@@ -51,7 +51,6 @@ export type AgentRuntimeConfig = {
       defaultEnabled: true;
       allowedToolNames: readonly [
         "inspectVisibleTrainingProposals",
-        "resolveExerciseResourceMentions",
         "searchExerciseResources",
         "submitVisibleTrainingProposal",
       ];
@@ -68,10 +67,6 @@ export type AgentRuntimeConfig = {
     searchExerciseResources: {
       timeoutMs: number;
       maxReturnedPerSection: number;
-    };
-    resolveExerciseResourceMentions: {
-      timeoutMs: number;
-      maxMatches: number;
     };
     inspectVisibleTrainingProposals: {
       timeoutMs: number;
@@ -193,7 +188,6 @@ export const agentRuntimeConfig = {
       /** allowedToolNames 是当前 OpenSpec 声明的生产业务 tool 集合，不包含 fixture 或独立 activity tool。 */
       allowedToolNames: [
         "inspectVisibleTrainingProposals",
-        "resolveExerciseResourceMentions",
         "searchExerciseResources",
         "submitVisibleTrainingProposal",
       ],
@@ -220,13 +214,6 @@ export const agentRuntimeConfig = {
       timeoutMs: 2_000,
       /** maxReturnedPerSection 控制每个 warmup/training/stretch section 的可见动作数量；调大增加模型上下文体积。 */
       maxReturnedPerSection: 8,
-    },
-    /** resolveExerciseResourceMentions 控制点名动作解析返回给模型的候选规模。 */
-    resolveExerciseResourceMentions: {
-      /** timeoutMs 限制点名解析 tool 的单次执行时间；调大可能放大慢查询影响。 */
-      timeoutMs: 2_000,
-      /** maxMatches 控制每个 mention 的默认候选数；调大可能增加歧义 payload，调小可能漏掉可选动作。 */
-      maxMatches: 5,
     },
     /** inspectVisibleTrainingProposals 控制最近可见训练方案事实索引的读取规模。 */
     inspectVisibleTrainingProposals: {

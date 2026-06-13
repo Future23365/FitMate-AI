@@ -128,7 +128,7 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 - **WHEN** Agent 构造 Planner 可见 tool manifest
 - **THEN** `searchExerciseResources` 的模型可见说明 MUST 表达它适用于查询符合结构化数据库 facet 的发布态动作列表
 - **AND** 模型可见说明 MUST 表达所有 facet 值应优先来自 `facetCatalog`
-- **AND** 模型可见说明 MUST 表达它不适用于生成训练、保存结果、读取单个动作完整详情、解析唯一动作名、统计全库 facet 或构建 routine / plan / patch 候选集合
+- **AND** 模型可见说明 MUST 表达它不适用于生成训练、保存结果、读取单个动作完整详情、从完整自然语言中做服务端语义解析、替模型做唯一身份强决策、统计全库 facet 或构建 routine / plan / patch 候选集合
 - **AND** 模型可见说明 MUST NOT 表达成功结果通过 `satisfied=true`、`fulfillment.satisfied=true` 或等价业务目标满足度支撑普通回答
 - **AND** 模型可见说明 MUST NOT 表达 failed、非法输入、0 条结果或候选不足通过 `satisfied=false`、`fulfillment.satisfied=false` 或等价业务目标未满足字段进入下一步
 - **AND** 模型可见说明 MUST NOT 表达 `supportsOutputKinds`、`supportsSuccessfulVisibleOutputs`、`finalAnswerSupport` 或等价业务输出可行性判断
@@ -915,4 +915,3 @@ TBD - created by archiving change introduce-search-exercise-resources-tool. Upda
 - **WHEN** `searchExerciseResources` 返回均衡后的多肌群候选
 - **THEN** 该 tool result MUST NOT 生成 `visibleTrainingProposal`、routine、plan、patch、prescription、schedule、保存结果或 NDJSON 业务事件
 - **AND** 结构化训练输出 MUST 继续通过 `submitVisibleTrainingProposal` 或等价终态校验工具提交并由服务端 validator 校验
-

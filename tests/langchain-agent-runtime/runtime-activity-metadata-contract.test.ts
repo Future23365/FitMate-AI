@@ -17,7 +17,6 @@ const productionContractFiles = [
 const businessToolNames = [
   "searchExerciseResources",
   "inspectVisibleTrainingProposals",
-  "resolveExerciseResourceMentions",
   "submitVisibleTrainingProposal",
 ] as const;
 

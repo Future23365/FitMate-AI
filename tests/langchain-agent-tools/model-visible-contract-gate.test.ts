@@ -8,7 +8,6 @@ import {
   lintAgentModelVisibleTextSamples,
   validateAgentModelVisibleSummaryContract,
   type AgentModelVisibleSummarySample,
-  type LangChainJsonValue,
   type LangChainToolWrapper,
 } from "@/lib/server/langchain-agent";
 import type { ExerciseResourceFacetCatalog } from "@/lib/server/exercises/exercise-repository";
@@ -147,52 +146,6 @@ const modelVisibleOutputFixtures: Record<string, readonly { id: string; output: 
       },
     },
   ],
-  resolveExerciseResourceMentions: [
-    {
-      id: "mixed_resolution",
-      output: {
-        status: "succeeded",
-        mentionCount: 3,
-        matchedCount: 1,
-        ambiguousCount: 1,
-        notFoundCount: 1,
-        results: [
-          createMentionResult({
-            text: "俯卧撑",
-            status: "matched",
-            matches: [createExerciseMention({ exerciseId: "push-up", nameZh: "俯卧撑" })],
-          }),
-          createMentionResult({
-            text: "划船",
-            status: "ambiguous",
-            totalMatches: 2,
-            matches: [
-              createExerciseMention({ exerciseId: "dumbbell-row", nameZh: "哑铃划船" }),
-              createExerciseMention({ exerciseId: "cable-row", nameZh: "绳索划船" }),
-            ],
-            diagnostics: [{
-              code: "mention_ambiguous",
-              message: "点名动作匹配到多个发布态动作；该结果只表达候选歧义事实。",
-              text: "划船",
-              sectionHint: "training",
-            }],
-          }),
-          createMentionResult({
-            text: "火星跳跃",
-            status: "not_found",
-            totalMatches: 0,
-            matches: [],
-            diagnostics: [{
-              code: "mention_not_found",
-              message: "点名动作没有解析到发布态数据库动作；该结果不能作为动作事实来源。",
-              text: "火星跳跃",
-              sectionHint: "training",
-            }],
-          }),
-        ],
-      },
-    },
-  ],
   searchExerciseResources: [
     {
       id: "no_candidates",
@@ -238,11 +191,13 @@ const modelVisibleOutputFixtures: Record<string, readonly { id: string; output: 
         status: "succeeded",
         query: {
           equipment: "no_equipment",
+          exerciseNames: ["俯卧撑"],
           muscles: ["胸部"],
           suitabilities: ["training"],
           sort: "name_asc",
           appliedFilters: [
             { field: "suitabilities", value: ["training"] },
+            { field: "exerciseNames", value: ["俯卧撑"] },
             { field: "equipment", value: "no_equipment" },
             { field: "muscles", value: ["胸部"] },
           ],
@@ -277,7 +232,14 @@ const modelVisibleOutputFixtures: Record<string, readonly { id: string; output: 
             exercises: [createExerciseResource()],
           },
         },
-        diagnostics: [],
+        diagnostics: [{
+          suitability: "training",
+          code: "exercise_name_ambiguous",
+          exerciseName: "俯卧撑",
+          totalMatches: 2,
+          returnedCount: 1,
+          message: "动作名称“俯卧撑”匹配到多个动作候选；该诊断只表达数据库名称匹配歧义事实。",
+        }],
       },
     },
   ],
@@ -362,42 +324,6 @@ function createRepresentativeRuntimeBoundarySamples(): AgentModelVisibleSummaryS
       },
     },
   ];
-}
-
-function createMentionResult(input: {
-  text: string;
-  status: "matched" | "ambiguous" | "not_found";
-  totalMatches?: number;
-  matches: ReturnType<typeof createExerciseMention>[];
-  diagnostics?: LangChainJsonValue[];
-}) {
-  return {
-    text: input.text,
-    sectionHint: "training",
-    status: input.status,
-    totalMatches: input.totalMatches ?? input.matches.length,
-    returnedCount: input.matches.length,
-    truncated: false,
-    matches: input.matches,
-    diagnostics: input.diagnostics ?? [],
-  };
-}
-
-function createExerciseMention(input: { exerciseId: string; nameZh: string }) {
-  return {
-    exerciseId: input.exerciseId,
-    nameEn: input.exerciseId,
-    nameZh: input.nameZh,
-    categoryZh: "力量",
-    levelZh: "初级",
-    equipmentZh: "自重",
-    homeRequirementZh: "无器械",
-    primaryMusclesZh: ["胸部"],
-    allowedSections: ["training"],
-    imageUrl: "/exercise.png",
-    reviewStatus: "human_reviewed",
-    isPublished: true,
-  };
 }
 
 function createExerciseResource() {

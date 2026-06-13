@@ -68,8 +68,8 @@ describe("DeepSeek native tool calling provider contract", () => {
           id: "call_1",
           type: "function",
           function: {
-            name: "resolveExerciseResourceMentions",
-            arguments: "{\"mentions\":[{\"text\":\"俯卧撑\"}]}",
+            name: "searchExerciseResources",
+            arguments: "{\"exerciseNames\":[\"俯卧撑\"]}",
           },
         },
       ],
@@ -79,6 +79,6 @@ describe("DeepSeek native tool calling provider contract", () => {
 
     expect(parsed.tool_calls).toHaveLength(1);
     expect(parsed.tool_calls[0]?.id).toBe("call_1");
-    expect(parsed.tool_calls[0]?.function.name).toBe("resolveExerciseResourceMentions");
+    expect(parsed.tool_calls[0]?.function.name).toBe("searchExerciseResources");
   });
 });
