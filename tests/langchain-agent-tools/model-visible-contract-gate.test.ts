@@ -204,7 +204,7 @@ const modelVisibleOutputFixtures: Record<string, readonly { id: string; output: 
           filterApplications: [{
             section: "training",
             hardFilterPolicy: "training",
-            appliedHardFilters: ["suitabilities", "equipment", "muscles"],
+            appliedHardFilters: ["suitabilities", "exerciseNames", "equipment", "muscles"],
             unappliedInputFilters: [],
           }],
           filterSemantics: [{

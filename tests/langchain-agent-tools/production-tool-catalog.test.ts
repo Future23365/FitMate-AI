@@ -45,6 +45,12 @@ describe("production LangChain tool catalog", () => {
       .filter((sample) => sample.kind === "finalization_tool_description")
       .map((sample) => sample.text)
       .join("\n");
+    const modelVisibleText = [
+      systemPrompt,
+      descriptions,
+      schemaDescriptions,
+      finalizationDescriptions,
+    ].join("\n");
     const findings = lintAgentModelVisibleTextSamples(modelVisibleSamples);
 
     expect(schemaDescriptions).toContain("当前业务 tool call 的用户可见 UI 状态短句");
@@ -88,6 +94,11 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).not.toContain("ask_user");
     expect(descriptions).not.toContain("reportAgentActivity");
     expect(descriptions).not.toContain("resolveExerciseResourceMentions");
+    expect(modelVisibleText).not.toContain("fulfillment.satisfied");
+    expect(modelVisibleText).not.toContain("supportsSuccessfulVisibleOutputs");
+    expect(modelVisibleText).not.toContain("finalAnswerSupport");
+    expect(modelVisibleText).not.toContain("nextActionHints");
+    expect(modelVisibleText).not.toContain("resolveExerciseResourceMentions");
     expect(schemaDescriptions).not.toContain("\"q\"");
     expect(findings).toEqual([]);
   });

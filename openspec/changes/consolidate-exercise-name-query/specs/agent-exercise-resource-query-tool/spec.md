@@ -44,7 +44,7 @@
 - **WHEN** `searchExerciseResources` input 只有默认字段，例如只包含 `suitabilities` 或 `sort`
 - **AND** input 没有目标约束、器械、肌群、场地、难度、目标标签、风险标签、点名动作名称、点名动作 id 或当前 run 可见动作锚点
 - **THEN** 模型可见说明 MUST 表达该结果只能用于诊断
-- **AND** 该结果 MUST NOT 支撑成功 `final_answer.visibleOutputs`
+- **AND** 该结果 MUST NOT 支撑成功结构化训练输出
 
 ### Requirement: `searchExerciseResources` 必须返回查询摘要和动作资源摘要
 
@@ -69,8 +69,7 @@
 - **AND** 输入包含 `exerciseNames`、`requiredExerciseIds`、`muscle`、`muscles`、`equipment`、`category`、`suitabilities`、`level`、`goalTag`、`riskTag`、`homeRequirement`、`force` 或 `mechanic` 等具体筛选条件
 - **THEN** 工具 MUST 返回成功 output
 - **AND** output MUST 保持 `query`、`groups` 和 `diagnostics` 结构
-- **AND** fulfillment MUST 表示查询事实已完成
-- **AND** fulfillment summary MUST 说明查询已执行但没有满足当前筛选条件的动作
+- **AND** output MUST 通过 `query.totalMatches`、`groups.<section>.returnedCount` 和 `diagnostics` 表达查询已执行但没有满足当前筛选条件的动作
 - **AND** 模型 MUST NOT 将该 tool result 当作成功动作推荐候选集合
 - **AND** 模型 MAY 基于该 tool result 解释当前筛选未命中、发起澄清或在下一轮使用其他 `facetCatalog` 值重查
 
@@ -188,7 +187,7 @@
 #### Scenario: 服务端不抽取 exerciseNames
 - **WHEN** `/api/chat`、LangChain runtime、tool wrapper、handler 或 repository 处理用户自然语言输入
 - **THEN** 服务端 MUST NOT 根据用户原文、关键词、正则、同义词表、短句模板、历史摘要或 conversationSummary 抽取或补写 `exerciseNames`
-- **AND** Planner MUST remain responsible for choosing `exerciseNames` based on model-visible context, manifest, observations and tool results
+- **AND** Planner MUST 继续基于模型可见 context、manifest、observations 和 tool results 自主选择 `exerciseNames`
 
 ### Requirement: `searchExerciseResources` 必须废弃宽口径 q 输入
 
