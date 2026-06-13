@@ -38,7 +38,7 @@ function AgentActivityScroller({
     ? `#${activity.loopTurn}`
     : "#1";
   const nextSnapshot = useMemo(() => ({
-    key: `${display.label}:${toneClass}`,
+    key: `${roundLabel}:${display.label}:${toneClass}`,
     label: display.label,
     roundLabel,
     toneClass,
@@ -59,11 +59,6 @@ function AgentActivityScroller({
     setAnimationState({
       current: nextSnapshot,
       previous: animationState.current,
-    });
-  } else if (animationState.current.roundLabel !== nextSnapshot.roundLabel) {
-    setAnimationState({
-      current: nextSnapshot,
-      previous: null,
     });
   }
 

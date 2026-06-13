@@ -535,8 +535,7 @@ describe("AgentActivityIndicator", () => {
 
     expect(componentSource).toContain("agent-activity-roll-current");
     expect(componentSource).toContain("agent-activity-roll-previous");
-    expect(componentSource).toContain("key: `${display.label}:${toneClass}`");
-    expect(componentSource).not.toContain("key: `${roundLabel}:${display.label}:${toneClass}`");
+    expect(componentSource).toContain("key: `${roundLabel}:${display.label}:${toneClass}`");
     expect(componentSource).toContain("motion-safe:animate-pulse");
     expect(componentSource).toContain("transition-colors duration-200 motion-safe:animate-pulse motion-reduce:animate-none");
     expect(componentSource).not.toContain("items-baseline gap-[2px] motion-safe:animate-pulse");
