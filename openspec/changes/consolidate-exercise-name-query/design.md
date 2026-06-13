@@ -48,11 +48,15 @@ Repository 只在当前动作名称字段中做精确、前缀和包含匹配。
 
 替代方案是把多个名称合成一个 OR 条件后统一排序。这个方案更简单，但候选分布不可控，容易让一个名称占满返回上限，因此不采用。
 
+如果 `exerciseNames` 与 `muscles` 同时存在，名称桶优先承担结果分布控制：每个名称桶在当前 section 和合法结构化筛选条件下独立查询有限候选，再统一合并。现有多肌群均衡只在没有 `exerciseNames` 时作为普通候选分布策略，避免名称桶和肌群桶叠加后出现不可解释的双重分桶。
+
 ### 4. 输出结构保持稳定
 
 名称查询不会引入并行结果结构。成功候选继续进入 `groups.<section>.exercises[]`；未命中、section 冲突、筛选冲突或候选过宽通过 `diagnostics` 表达。`query.appliedFilters` 需要记录 `exerciseNames`，让模型和 trace 能看到实际查询口径。
 
 这样做可以保证同一个 tool 不会因为传不传 `exerciseNames` 而输出两套结构。
+
+候选过宽或同名/包含匹配产生多个候选时，也只进入 `diagnostics`，例如 `exercise_name_ambiguous` 或 `exercise_name_too_broad`。这些 code 只表达数据库名称匹配事实，不指挥模型必须澄清、必须重查或必须调用某个固定 tool。
 
 ### 5. 删除 production 可见的 `resolveExerciseResourceMentions`
 
@@ -60,10 +64,18 @@ Repository 只在当前动作名称字段中做精确、前缀和包含匹配。
 
 不保留长期兼容别名。保留兼容别名会继续让模型看到两套能力，无法解决根因。
 
+### 6. 同步清理旧模型可见边界
+
+当前基线 spec 曾把 `searchExerciseResources` 描述为不适合“解析唯一动作名”。本 change 后这句话需要拆开：`searchExerciseResources` 仍不负责完整自然语言语义解析，也不替模型做唯一身份强决策；但当模型已经把用户点名动作结构化为 `exerciseNames` 时，它就是执行数据库名称匹配和 section-scoped 动作事实查询的稳定入口。
+
+这个修正应落在 `searchExerciseResources` 的 tool description / schema description / examples 和 spec delta 中，不写进通用 Agent prompt，也不新增服务端自然语言分流。
+
 ## Risks / Trade-offs
 
 - `exerciseNames` 被传入完整自然语言句子 → 通过 schema description、examples 和 tests 约束字段只能包含单个动作名称；必要时由 schema 长度/数量上限拒绝明显越界输入。
 - 名称包含匹配过宽 → 每个名称使用有限候选上限，过宽结果通过 `diagnostics` 表达，模型可自主澄清或收窄查询。
+- 名称查询和多肌群均衡同时出现 → `exerciseNames` 使用名称分桶优先，`muscles` 仍作为每个名称桶内的结构化筛选条件；没有 `exerciseNames` 时保留现有多肌群均衡。
+- 基线 spec 仍表达 `searchExerciseResources` 不适合解析唯一动作名 → 本 change 需要同步修改该模型可见边界，改为不承担“完整自然语言语义解析或唯一身份强决策”，但支持模型已提取名称后的数据库名称查询。
 - 删除 `resolveExerciseResourceMentions` 影响现有测试和 manifest 快照 → 实现任务包含 catalog tests、tool-level tests、`rg` 检查和 `npm run typecheck`。
 - 名称查询与 section/facet 冲突 → 不由服务端替模型决定放弃动作，冲突进入 `diagnostics`，由模型基于可见事实自主处理。
 - 旧 `q` 调用失败影响 repair → input schema 应拒绝 `q`，失败反馈表达可使用 `exerciseNames` 或对应结构化筛选字段。
@@ -73,11 +85,11 @@ Repository 只在当前动作名称字段中做精确、前缀和包含匹配。
 1. 更新 `searchExerciseResources` input schema，新增 `exerciseNames`，删除 `q`。
 2. 更新动作 repository 查询入口，新增名称分桶匹配和 `exerciseNames` 查询摘要。
 3. 更新 `searchExerciseResources` handler、model-visible summary、user projection 和 trace summary，保持 `query`、`groups`、`diagnostics` 输出结构。
-4. 从 production tool catalog 和模型可见 manifest 中移除 `resolveExerciseResourceMentions`。
-5. 删除或迁移 `resolveExerciseResourceMentions` 的 handler / tests / exports，保留范围以实现阶段实际依赖扫描为准。
-6. 补充 tool-level tests、production catalog tests 和模型可见合同测试。
+4. 更新 `exercise-resource-filter-policy`，让 `exerciseNames` 进入 section-aware hard filter policy，并移除 `q` 的 hard filter 口径。
+5. 从 production tool catalog、集中配置白名单、模型可见 manifest 和导出列表中移除 `resolveExerciseResourceMentions`。
+6. 删除或迁移 `resolveExerciseResourceMentions` 的 handler / tests / exports，保留范围以实现阶段实际依赖扫描为准。
+7. 补充 tool-level tests、production catalog tests、model-visible contract tests、provider contract tests 和 route/catalog fixture tests。
 
 ## Open Questions
 
 无需要先确认的阻塞问题。实现阶段如果发现当前 `Exercise` 模型存在额外名称字段，可在不修改数据库 schema 的前提下纳入名称字段匹配；不能把标签、肌群或描述字段纳入 `exerciseNames` 的确定性名称匹配范围。
-

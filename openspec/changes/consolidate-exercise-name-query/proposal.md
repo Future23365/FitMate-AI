@@ -18,6 +18,7 @@
 - 多个 `exerciseNames` 必须按名称分桶查询后合并，避免单个名称的大量候选挤占其他名称的候选。
 - `searchExerciseResources` 输出结构保持稳定，继续使用 `query`、`groups` 和 `diagnostics`；不得因为传入 `exerciseNames` 新增 `exerciseNameResults`、`resolvedMentions`、`nameMatches` 或等价并行顶层结果。
 - 通过 `diagnostics` 表达名称未命中、名称与 section 冲突、名称与筛选条件冲突、候选过宽等确定性查询事实。
+- 候选过宽或多候选歧义也必须作为名称查询事实进入 `diagnostics`，不得恢复独立 mention 解析结果结构。
 - 更新 tool schema、tool description、schema description、examples、tool-level tests 和 production catalog/model-visible contract tests。
 - 不新增服务端关键词规则、用户原文分流、phrasing 特判或 provider tool call 改写。
 
@@ -42,9 +43,17 @@
 - 预计影响文件：
   - `lib/server/langchain-agent/tools/exercise-resource-tools.ts`
   - `lib/server/exercises/exercise-repository.ts`
+  - `lib/server/exercises/exercise-resource-filter-policy.ts`
   - `lib/server/langchain-agent/tools/production-tool-catalog.ts`
+  - `lib/server/langchain-agent/tools/index.ts`
+  - `lib/server/config/agent-runtime-config.ts`
   - `tests/langchain-agent-tools/search-exercise-resources.test.ts`
   - `tests/langchain-agent-tools/resolve-exercise-resource-mentions.test.ts`
+  - `tests/langchain-agent-tools/model-visible-contract-gate.test.ts`
+  - `tests/langchain-agent-runtime/config.test.ts`
+  - `tests/langchain-agent-runtime/deepseek-provider-contract.test.ts`
+  - `tests/api-routes.test.ts`
+  - `tests/ai-trace-viewer.test.ts`
   - production tool catalog / model-visible contract 相关测试
 - 不涉及：
   - LangChain runtime 主循环
@@ -53,4 +62,3 @@
   - production response adapter
   - Prisma schema 或数据库迁移
   - 服务端从用户自然语言中抽取动作名
-

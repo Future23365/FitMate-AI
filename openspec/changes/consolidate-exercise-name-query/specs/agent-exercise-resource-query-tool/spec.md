@@ -136,6 +136,29 @@
 - **AND** tool MUST 在 `diagnostics` 中返回稳定 code，例如 `required_exercise_not_found`、`required_exercise_unpublished`、`required_exercise_excluded` 或 `required_exercise_section_conflict`
 - **AND** 模型 MAY 基于该诊断澄清、放宽条件重查或解释当前无法包含该动作
 
+### Requirement: `searchExerciseResources` 模型可见说明必须表达业务边界
+系统 SHALL 在 tool manifest、schema 描述、examples、facet catalog 或 observation 中为模型提供 `searchExerciseResources` 的使用边界，且不得把该 tool 的业务特例写入通用 Agent prompt。该边界 SHALL 表达 tool 只接受数据库真实 facet 和模型已经结构化提取出的动作名称；高层自然语言目标由模型基于 `facetCatalog`、上下文和可见事实自主选择结构化字段。该边界 MUST NOT 表达业务目标满足度，也 MUST NOT 将查询结果包装成结构化训练交付流程。
+
+#### Scenario: Manifest 说明何时使用和何时不用
+- **WHEN** Agent 构造 Planner 可见 tool manifest
+- **THEN** `searchExerciseResources` 的模型可见说明 MUST 表达它适用于查询符合结构化数据库 facet 的发布态动作列表
+- **AND** 模型可见说明 MUST 表达当模型已经从用户请求或上下文中结构化提取动作名称时，动作名称查询应使用 `exerciseNames`
+- **AND** 模型可见说明 MUST 表达所有 facet 值应优先来自 `facetCatalog`
+- **AND** 模型可见说明 MUST 表达它不适用于生成训练、保存结果、读取单个动作完整详情、从完整自然语言中做服务端语义解析、统计全库 facet 或构建 routine / plan / patch 候选集合
+- **AND** 模型可见说明 MUST NOT 表达成功结果通过 `satisfied=true`、`fulfillment.satisfied=true` 或等价业务目标满足度支撑普通回答
+- **AND** 模型可见说明 MUST NOT 表达 failed、非法输入、0 条结果或候选不足通过 `satisfied=false`、`fulfillment.satisfied=false` 或等价业务目标未满足字段进入下一步
+- **AND** 模型可见说明 MUST NOT 表达 `supportsOutputKinds`、`supportsSuccessfulVisibleOutputs`、`finalAnswerSupport` 或等价业务输出可行性判断
+- **AND** 模型可见说明 MUST NOT 把自然语言短语写成固定 facet 或 `exerciseNames` 选择规则
+- **AND** 通用 Agent prompt MUST NOT 新增 `searchExerciseResources` toolName 特例或服务端关键词路由规则
+
+#### Scenario: 查询结果事实可用于模型自主推理
+- **WHEN** `searchExerciseResources` 返回动作列表、空列表或部分 section 覆盖
+- **THEN** 模型可见说明 MUST 表达该结果是当前查询口径下的数据库事实
+- **AND** 模型可见说明 MAY 表达 `groups.<section>.exercises[]` 中的动作属于该 section 分组下的动作事实
+- **AND** 模型可见说明 MAY 表达 `allowedSections` 是动作可进入哪些 section 的数据库事实
+- **AND** 模型可见说明 MUST NOT 表达缺少某 section 时模型必须继续调用 `searchExerciseResources`
+- **AND** 模型可见说明 MUST NOT 表达若要交付用户可见结果就必须继续调用 `submitVisibleTrainingProposal`
+
 ## ADDED Requirements
 
 ### Requirement: `searchExerciseResources` 必须支持点名动作名称查询
@@ -154,6 +177,13 @@
 - **THEN** tool MUST 同时应用名称匹配和合法结构化筛选
 - **AND** 不满足筛选条件的名称候选 MUST 不进入 `groups.<section>.exercises[]`
 - **AND** tool MUST 通过 `diagnostics` 表达名称存在但与 section 或筛选条件冲突
+
+#### Scenario: exerciseNames 与 muscles 同时存在时按名称分桶
+- **WHEN** Planner 调用 `searchExerciseResources` 并同时传入多个 `exerciseNames` 和 `muscles`
+- **THEN** repository MUST 以每个 `exerciseNames` 条目作为独立名称查询桶
+- **AND** `muscles` MUST 作为每个名称桶内的结构化筛选条件参与查询
+- **AND** 单个名称或单个肌群的大量候选 MUST NOT 挤掉其他名称的候选
+- **AND** 没有 `exerciseNames` 时，系统 MAY 保留现有多肌群均衡返回策略
 
 #### Scenario: 服务端不抽取 exerciseNames
 - **WHEN** `/api/chat`、LangChain runtime、tool wrapper、handler 或 repository 处理用户自然语言输入
@@ -193,6 +223,15 @@
 - **AND** diagnostics MUST 包含冲突字段摘要
 - **AND** diagnostics MUST NOT 替模型决定放弃该动作、改用其他动作或继续查询
 
+#### Scenario: 名称候选过宽或歧义进入 diagnostics
+- **WHEN** 某个 `exerciseNames` 条目通过包含匹配得到多个候选，或命中数量超过该名称桶的可见候选上限
+- **THEN** output MUST 继续使用 `query`、`groups` 和 `diagnostics` 主结构
+- **AND** output MAY 返回有限候选到对应 `groups.<section>.exercises[]`
+- **AND** output MUST 在 `diagnostics` 中返回稳定 code，例如 `exercise_name_ambiguous` 或 `exercise_name_too_broad`
+- **AND** diagnostics MUST 包含该名称的有限摘要、命中数量或截断摘要
+- **AND** output MUST NOT 新增 `resolvedMentions`、`nameMatches`、`exerciseNameResults` 或等价并行动作列表字段
+- **AND** diagnostics MUST NOT 指挥模型必须澄清、必须重查或必须调用某个固定 tool
+
 ### Requirement: `searchExerciseResources` 必须具备名称查询回归验证
 
 系统 SHALL 为 `exerciseNames`、`q` 移除、输出结构稳定和无服务端语义分流提供自动化测试。
@@ -201,7 +240,7 @@
 - **WHEN** tool-level test 调用 `searchExerciseResources` 并传入 `exerciseNames = ["俯卧撑", "深蹲", "平板支撑"]`
 - **THEN** 测试 MUST 证明查询结果使用 `groups.<section>.exercises[]`
 - **AND** 测试 MUST 证明 output 不包含 `exerciseNameResults`、`resolvedMentions`、`nameMatches` 或等价并行结构
-- **AND** 测试 MUST 覆盖成功命中、未命中、section 冲突、筛选冲突、候选去重和 projection / redaction 边界
+- **AND** 测试 MUST 覆盖成功命中、未命中、section 冲突、筛选冲突、候选过宽、候选歧义、候选去重和 projection / redaction 边界
 
 #### Scenario: q 移除测试覆盖模型可见合同和 schema
 - **WHEN** 本 change 完成实现
@@ -214,4 +253,3 @@
 - **THEN** tests MUST prove no new keyword, regex, synonym table or fixed phrase routing is introduced for `exerciseNames`
 - **AND** tests MUST prove `/api/chat`、LangChain runtime、renderer、tool handler 和 repository 不根据用户原文补写动作名称
 - **AND** Planner MUST remain responsible for selecting `exerciseNames`
-
