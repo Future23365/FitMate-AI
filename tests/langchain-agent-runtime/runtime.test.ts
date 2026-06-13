@@ -7,9 +7,10 @@ import { agentRuntimeConfig } from "@/lib/server/config";
 import {
   buildLangChainAgentSystemPrompt,
   defineLangChainToolWrapper,
+  executeLangChainToolWrapper,
+  getLangChainToolProviderInputSchema,
   langChainFinalResponseJsonSchema,
   langChainFinalResponseToolName,
-  reportAgentActivityLangChainTool,
   resolveLangChainGraphRecursionLimit,
   runLangChainAgentRuntime,
 } from "@/lib/server/langchain-agent";
@@ -20,6 +21,9 @@ const echoTool = defineLangChainToolWrapper({
   inputSchema: z.object({
     goal: z.string().describe("用户明确表达的训练目标。"),
   }).strict(),
+  runtimeActivity: {
+    defaultSummary: "正在整理训练目标",
+  },
   handler: async (input) => ({
     status: "succeeded" as const,
     goal: input.goal,
@@ -288,6 +292,157 @@ function createFinalResponseMessage(
 }
 
 describe("LangChain Agent runtime", () => {
+  it("injects runtimeMetadata into provider schema while keeping handler input business-only", async () => {
+    const handler = vi.fn(async (input: { goal: string }) => ({
+      status: "succeeded" as const,
+      goal: input.goal,
+    }));
+    const wrapper = defineLangChainToolWrapper({
+      name: "runtimeMetadataEcho",
+      description: "用于验证 runtime metadata envelope 的测试业务工具。",
+      inputSchema: z.object({
+        goal: z.string().describe("用户明确表达的训练目标。"),
+      }).strict(),
+      runtimeActivity: {
+        defaultSummary: "正在整理训练目标",
+      },
+      handler,
+      toModelVisibleSummary: (output) => output,
+      toUserProjection: (output) => output,
+      toTraceSummary: (output) => output,
+    });
+    const providerSchemaDescriptions = JSON.stringify(z.toJSONSchema(getLangChainToolProviderInputSchema(wrapper)));
+    const runtimeActivities: unknown[] = [];
+
+    const result = await executeLangChainToolWrapper(
+      wrapper,
+      {
+        goal: "核心训练",
+        runtimeMetadata: {
+          activitySummary: "正在整理核心训练目标",
+        },
+      },
+      baseInput,
+      {
+        toolCallId: "call_runtime_metadata",
+        onRuntimeActivity: (activity) => {
+          runtimeActivities.push(activity);
+        },
+      },
+    );
+
+    expect(providerSchemaDescriptions).toContain("runtimeMetadata");
+    expect(providerSchemaDescriptions).toContain("activitySummary");
+    expect(providerSchemaDescriptions).toContain("当前业务 tool call 的用户可见 UI 状态短句");
+    expect(handler).toHaveBeenCalledWith({ goal: "核心训练" }, baseInput);
+    expect(JSON.stringify(handler.mock.calls[0][0])).not.toContain("runtimeMetadata");
+    expect(runtimeActivities).toEqual([
+      expect.objectContaining({
+        toolName: "runtimeMetadataEcho",
+        toolCallId: "call_runtime_metadata",
+        activitySummary: "正在整理核心训练目标",
+        source: "model",
+      }),
+    ]);
+    expect(result.record).toMatchObject({
+      status: "succeeded",
+      inputSummary: { goal: "核心训练" },
+      runtimeActivity: {
+        activitySummary: "正在整理核心训练目标",
+        source: "model",
+      },
+    });
+    expect(JSON.stringify(result.record.modelVisibleSummary)).not.toContain("runtimeMetadata");
+    expect(JSON.stringify(result.record.userProjection)).not.toContain("activitySummary");
+    expect(JSON.stringify(result.record.traceSummary)).not.toContain("activitySummary");
+  });
+
+  it("falls back for missing or unsafe runtimeMetadata without blocking valid business input", async () => {
+    const handler = vi.fn(async (input: { goal: string }) => ({
+      status: "succeeded" as const,
+      goal: input.goal,
+    }));
+    const wrapper = defineLangChainToolWrapper({
+      name: "runtimeMetadataFallback",
+      description: "用于验证 runtime metadata fallback 的测试业务工具。",
+      inputSchema: z.object({
+        goal: z.string(),
+      }).strict(),
+      runtimeActivity: {
+        defaultSummary: "正在整理训练目标",
+      },
+      handler,
+      toModelVisibleSummary: (output) => output,
+    });
+    const runtimeActivities: unknown[] = [];
+
+    const result = await executeLangChainToolWrapper(
+      wrapper,
+      {
+        goal: "胸部训练",
+        runtimeMetadata: {
+          activitySummary: "toolName=runtimeMetadataFallback 已完成",
+        },
+      },
+      baseInput,
+      {
+        onRuntimeActivity: (activity) => {
+          runtimeActivities.push(activity);
+        },
+      },
+    );
+
+    expect(result.record.status).toBe("succeeded");
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(runtimeActivities).toEqual([
+      expect.objectContaining({
+        activitySummary: "正在整理训练目标",
+        source: "tool_default",
+        discardedSummaryReason: "internal_detail",
+      }),
+    ]);
+    expect(result.record.runtimeActivity).toMatchObject({
+      activitySummary: "正在整理训练目标",
+      source: "tool_default",
+      discardedSummaryReason: "internal_detail",
+    });
+  });
+
+  it("keeps business schema failures independent from runtimeMetadata", async () => {
+    const handler = vi.fn(async (input: { goal: string }) => ({
+      status: "succeeded" as const,
+      goal: input.goal,
+    }));
+    const wrapper = defineLangChainToolWrapper({
+      name: "runtimeMetadataSchemaFailure",
+      description: "用于验证 metadata 不放宽业务 schema 的测试业务工具。",
+      inputSchema: z.object({
+        goal: z.string(),
+      }).strict(),
+      runtimeActivity: {
+        defaultSummary: "正在整理训练目标",
+      },
+      handler,
+      toModelVisibleSummary: (output) => output,
+    });
+
+    const result = await executeLangChainToolWrapper(
+      wrapper,
+      {
+        runtimeMetadata: {
+          activitySummary: "正在整理训练目标",
+        },
+      },
+      baseInput,
+    );
+
+    expect(result.record.status).toBe("failed");
+    expect(result.record.failureCode).toBe("tool_schema_invalid");
+    expect(handler).not.toHaveBeenCalled();
+    expect(result.record.schemaIssues?.[0]?.path).toBe("goal");
+    expect(JSON.stringify(result.record.inputSummary)).not.toContain("runtimeMetadata");
+  });
+
   it("returns a structured final response without business tools", async () => {
     const model = fakeModel().respondWithTools([
       createFinalResponseToolCall({
@@ -406,11 +561,41 @@ describe("LangChain Agent runtime", () => {
     ]);
   });
 
-  it("streams model activity observer events without consuming business tool budget", async () => {
+  it("streams runtime activity metadata before handler without consuming extra tool budget", async () => {
+    const executionOrder: string[] = [];
+    const runtimeActivityTool = defineLangChainToolWrapper({
+      name: "runtimeActivityExerciseGoal",
+      description: "用于验证 runtime metadata 投影时序的测试业务工具。",
+      inputSchema: z.object({
+        goal: z.string(),
+      }).strict(),
+      runtimeActivity: {
+        defaultSummary: "正在整理训练目标",
+      },
+      handler: async (input) => {
+        executionOrder.push(`handler:${input.goal}`);
+        return {
+          status: "succeeded" as const,
+          goal: input.goal,
+        };
+      },
+      toModelVisibleSummary: (output) => ({
+        status: output.status,
+        goal: output.goal,
+      }),
+    });
     const model = fakeModel()
       .respondWithTools([
-        { name: "reportAgentActivity", args: { summary: "我先去动作库里确认可用动作", stepType: "query_resources" }, id: "call_activity_1" },
-        { name: "echoExerciseGoal", args: { goal: "胸部训练" }, id: "call_1" },
+        {
+          name: "runtimeActivityExerciseGoal",
+          args: {
+            goal: "胸部训练",
+            runtimeMetadata: {
+              activitySummary: "正在确认胸部训练目标",
+            },
+          },
+          id: "call_1",
+        },
       ])
       .respondWithTools([createFinalResponseToolCall({ content: "已按胸部训练目标整理。" })]);
     const runtimeEvents: unknown[] = [];
@@ -418,30 +603,34 @@ describe("LangChain Agent runtime", () => {
     const result = await runLangChainAgentRuntime({
       ...baseInput,
       model,
-      toolWrappers: [reportAgentActivityLangChainTool, echoTool],
+      toolWrappers: [runtimeActivityTool],
       onRuntimeEvent: (event) => {
         runtimeEvents.push(event);
+        if (event.type === "runtime_activity_reported") {
+          executionOrder.push(`activity:${event.activitySummary}`);
+        }
       },
     });
 
     expect(result.ok).toBe(true);
     expect(result.toolExecutions).toMatchObject([
       {
-        toolCallId: "call_activity_1",
-        toolName: "reportAgentActivity",
-        executionKind: "activity",
-        status: "succeeded",
-        userProjection: {
-          activitySummary: "我先去动作库里确认可用动作",
-          stepType: "query_resources",
-        },
-      },
-      {
         toolCallId: "call_1",
-        toolName: "echoExerciseGoal",
+        toolName: "runtimeActivityExerciseGoal",
         executionKind: "business",
         status: "succeeded",
+        inputSummary: {
+          goal: "胸部训练",
+        },
+        runtimeActivity: {
+          activitySummary: "正在确认胸部训练目标",
+          source: "model",
+        },
       },
+    ]);
+    expect(executionOrder).toEqual([
+      "activity:正在确认胸部训练目标",
+      "handler:胸部训练",
     ]);
     expect(runtimeEvents).toEqual([
       expect.objectContaining({
@@ -450,10 +639,10 @@ describe("LangChain Agent runtime", () => {
         modelCallIndex: 1,
       }),
       expect.objectContaining({
-        type: "model_activity_reported",
-        summary: "我先去动作库里确认可用动作",
-        stepType: "query_resources",
-        toolCallId: "call_activity_1",
+        type: "runtime_activity_reported",
+        activitySummary: "正在确认胸部训练目标",
+        source: "model",
+        toolCallId: "call_1",
       }),
       expect.objectContaining({
         type: "model_call_started",
@@ -461,15 +650,25 @@ describe("LangChain Agent runtime", () => {
         modelCallIndex: 2,
       }),
     ]);
+    expect(result.traceSummary?.runtimeActivities).toEqual([
+      expect.objectContaining({
+        toolName: "runtimeActivityExerciseGoal",
+        toolCallId: "call_1",
+        activitySummary: "正在确认胸部训练目标",
+      }),
+    ]);
   });
 
-  it("keeps graph recursion budget aligned for activity report, business tools, and final response", async () => {
+  it("keeps graph recursion budget aligned for runtime metadata, business tools, and final response", async () => {
     const businessToolWrappers = Array.from({ length: agentRuntimeConfig.langChain.runBudget.maxToolCalls }, (_, index) => defineLangChainToolWrapper({
       name: `echoExerciseGoal${index + 1}`,
       description: "用于验证 LangChain runtime 图递归预算的测试工具。",
       inputSchema: z.object({
         goal: z.string(),
       }).strict(),
+      runtimeActivity: {
+        defaultSummary: "正在整理训练目标",
+      },
       handler: async (input) => ({
         status: "succeeded" as const,
         goal: input.goal,
@@ -481,20 +680,22 @@ describe("LangChain Agent runtime", () => {
     }));
     const businessToolCalls = businessToolWrappers.map((wrapper, index) => ({
       name: wrapper.name,
-      args: { goal: `训练目标 ${index + 1}` },
+      args: {
+        goal: `训练目标 ${index + 1}`,
+        runtimeMetadata: {
+          activitySummary: `正在整理第 ${index + 1} 个训练目标`,
+        },
+      },
       id: `call_business_${index + 1}`,
     }));
     const model = fakeModel()
-      .respondWithTools([
-        { name: "reportAgentActivity", args: { summary: "我先说明正在确认动作事实" }, id: "call_activity_1" },
-        ...businessToolCalls,
-      ])
+      .respondWithTools(businessToolCalls)
       .respondWithTools([createFinalResponseToolCall({ content: "已基于全部工具事实完成回答。" })]);
 
     const result = await runLangChainAgentRuntime({
       ...baseInput,
       model,
-      toolWrappers: [reportAgentActivityLangChainTool, ...businessToolWrappers],
+      toolWrappers: businessToolWrappers,
     });
 
     expect(result.ok).toBe(true);
@@ -502,14 +703,16 @@ describe("LangChain Agent runtime", () => {
       expect(result.finalText).toBe("已基于全部工具事实完成回答。");
     }
     expect(result.traceSummary?.modelCallCount).toBe(2);
-    expect(result.toolExecutions.filter((execution) => execution.executionKind !== "activity")).toHaveLength(
-      agentRuntimeConfig.langChain.runBudget.maxToolCalls,
-    );
+    expect(result.toolExecutions).toHaveLength(agentRuntimeConfig.langChain.runBudget.maxToolCalls);
     expect(result.toolExecutions[0]).toMatchObject({
-      toolName: "reportAgentActivity",
-      executionKind: "activity",
+      toolName: "echoExerciseGoal1",
+      executionKind: "business",
       status: "succeeded",
+      runtimeActivity: {
+        activitySummary: "正在整理第 1 个训练目标",
+      },
     });
+    expect(result.traceSummary?.runtimeActivities).toHaveLength(agentRuntimeConfig.langChain.runBudget.maxToolCalls);
   });
 
   it("records LangChain model token usage from provider response metadata", async () => {
@@ -807,17 +1010,20 @@ describe("LangChain Agent runtime", () => {
     expect(result.toolExecutions.every((execution) => execution.status === "succeeded")).toBe(true);
   });
 
-  it("keeps a business tool consecutively exhausted across activity reports", async () => {
+  it("keeps a business tool consecutively exhausted when only runtimeMetadata changes", async () => {
     const handler = vi.fn(async (input: { goal: string }) => ({
       status: "succeeded" as const,
       goal: input.goal,
     }));
     const limitedTool = defineLangChainToolWrapper({
       name: "activityBypassExerciseSearch",
-      description: "用于验证 activity tool 不打断业务 tool 连续限制的测试工具。",
+      description: "用于验证 runtime metadata 不打断业务 tool 连续限制的测试工具。",
       inputSchema: z.object({
         goal: z.string(),
       }).strict(),
+      runtimeActivity: {
+        defaultSummary: "正在查询动作库",
+      },
       handler,
       toModelVisibleSummary: (output) => ({
         status: output.status,
@@ -825,16 +1031,15 @@ describe("LangChain Agent runtime", () => {
       }),
     });
     const model = fakeModel()
-      .respondWithTools([{ name: "activityBypassExerciseSearch", args: { goal: "第一次查询" }, id: "call_search_1" }])
-      .respondWithTools([{ name: "activityBypassExerciseSearch", args: { goal: "第二次查询" }, id: "call_search_2" }])
-      .respondWithTools([{ name: "reportAgentActivity", args: { summary: "我正在整理已有事实" }, id: "call_activity_1" }])
-      .respondWithTools([{ name: "activityBypassExerciseSearch", args: { goal: "第三次查询" }, id: "call_search_3" }])
+      .respondWithTools([{ name: "activityBypassExerciseSearch", args: { goal: "第一次查询", runtimeMetadata: { activitySummary: "正在查询第一组动作" } }, id: "call_search_1" }])
+      .respondWithTools([{ name: "activityBypassExerciseSearch", args: { goal: "第二次查询", runtimeMetadata: { activitySummary: "正在查询第二组动作" } }, id: "call_search_2" }])
+      .respondWithTools([{ name: "activityBypassExerciseSearch", args: { goal: "第三次查询", runtimeMetadata: { activitySummary: "正在查询第三组动作" } }, id: "call_search_3" }])
       .respondWithTools([createFinalResponseToolCall({ content: "已停止连续重复查询。" })]);
 
     const result = await runLangChainAgentRuntime({
       ...baseInput,
       model,
-      toolWrappers: [limitedTool, reportAgentActivityLangChainTool],
+      toolWrappers: [limitedTool],
     });
 
     expect(result.ok).toBe(true);
@@ -851,19 +1056,13 @@ describe("LangChain Agent runtime", () => {
         status: "succeeded",
       },
       {
-        toolCallId: "call_activity_1",
-        toolName: "reportAgentActivity",
-        executionKind: "activity",
-        status: "succeeded",
-      },
-      {
         toolCallId: "call_search_3",
         toolName: "activityBypassExerciseSearch",
         status: "failed",
         failureCode: "tool_handler_failed",
       },
     ]);
-    expect(result.toolExecutions[3].modelVisibleSummary).toContain("tool_consecutive_call_limit_exceeded");
+    expect(result.toolExecutions[2].modelVisibleSummary).toContain("tool_consecutive_call_limit_exceeded");
   });
 
   it("blocks tool handler execution after the configured total business tool call budget is exhausted", async () => {
@@ -1173,13 +1372,12 @@ describe("LangChain Agent prompt", () => {
 
     expect(prompt).toContain("DeepSeek native tool calling");
     expect(prompt).toContain("结构化终态工具");
-    expect(prompt).toContain("reportAgentActivity");
+    expect(prompt).toContain("runtimeMetadata.activitySummary");
     expect(prompt).toContain("活动摘要");
     expect(prompt).toContain(`本轮最多 ${agentRuntimeConfig.langChain.runBudget.maxToolCalls} 次业务工具调用`);
     expect(prompt).toContain(`同一个业务工具最多连续调用 ${agentRuntimeConfig.langChain.runBudget.maxToolCallsPerTool} 次`);
-    expect(prompt).toContain(`reportAgentActivity 最多 ${agentRuntimeConfig.langChain.runBudget.maxActivityReports} 次`);
+    expect(prompt).toContain("runtimeMetadata.activitySummary 不计入业务工具调用预算");
     expect(prompt).toContain("不打断业务工具连续调用计数");
-    expect(prompt).toContain("不计入业务工具调用预算");
     expect(prompt).toContain("保守默认继续");
     expect(prompt).toContain("追问一个最影响结果质量的关键问题");
     expect(prompt).toContain("只补齐完成当前任务所需的最小边界");
@@ -1210,6 +1408,8 @@ describe("LangChain Agent prompt", () => {
     expect(prompt).toContain("不要把未经校验的模型想象当作数据库动作事实或处方参数");
     expect(prompt).not.toContain("禁止 emoji");
     expect(prompt).not.toContain("当用户说");
+    expect(prompt).not.toContain("reportAgentActivity");
+    expect(prompt).not.toContain("maxActivityReports");
     expect(prompt).not.toContain("AgentAction");
     expect(prompt).not.toContain("ToolRegistry");
     expect(prompt).not.toContain("PlannerPort");

@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import { agentRuntimeConfig } from "@/lib/server/config";
 import {
   createProductionAgentModelVisibleTextSamples,
   createProductionLangChainToolCatalog,
+  getLangChainToolProviderInputSchema,
   lintAgentModelVisibleTextSamples,
   productionLangChainTools,
 } from "@/lib/server/langchain-agent";
@@ -15,15 +17,14 @@ describe("production LangChain tool catalog", () => {
 
     expect(tools.map((tool) => tool.name)).toEqual(agentRuntimeConfig.langChain.toolCatalog.allowedToolNames);
     expect(tools.map((tool) => tool.name)).toEqual([
-      "reportAgentActivity",
       "inspectVisibleTrainingProposals",
       "resolveExerciseResourceMentions",
       "searchExerciseResources",
       "submitVisibleTrainingProposal",
     ]);
     expect(tools.map((tool) => tool.name)).not.toContain("readFixture");
+    expect(tools.map((tool) => tool.name)).not.toContain("reportAgentActivity");
     expect(tools.map((tool) => tool.timeoutMs)).toEqual([
-      undefined,
       agentRuntimeConfig.tools.inspectVisibleTrainingProposals.timeoutMs,
       agentRuntimeConfig.tools.resolveExerciseResourceMentions.timeoutMs,
       agentRuntimeConfig.tools.searchExerciseResources.timeoutMs,
@@ -33,11 +34,16 @@ describe("production LangChain tool catalog", () => {
 
   it("keeps tool descriptions in Chinese without old AgentAction contract terms", () => {
     const descriptions = productionLangChainTools.map((tool) => tool.description).join("\n");
-    const findings = lintAgentModelVisibleTextSamples(createProductionAgentModelVisibleTextSamples());
+    const modelVisibleSamples = createProductionAgentModelVisibleTextSamples();
+    const schemaDescriptions = modelVisibleSamples
+      .filter((sample) => sample.kind === "schema_description")
+      .map((sample) => sample.text)
+      .join("\n");
+    const findings = lintAgentModelVisibleTextSamples(modelVisibleSamples);
 
-    expect(descriptions).toContain("当前步骤");
-    expect(descriptions).toContain("summary");
-    expect(descriptions).toContain("不替代业务工具");
+    expect(schemaDescriptions).toContain("当前业务 tool call 的用户可见 UI 状态短句");
+    expect(schemaDescriptions).toContain("不是调用理由、业务事实、tool output 或最终回答依据");
+    expect(schemaDescriptions).not.toContain("reportAgentActivity");
     expect(descriptions).toContain("只读");
     expect(descriptions).toContain("服务端");
     expect(descriptions).toContain("动作候选");
@@ -62,7 +68,23 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).not.toContain("PlannerPort");
     expect(descriptions).not.toContain("final_answer");
     expect(descriptions).not.toContain("ask_user");
+    expect(descriptions).not.toContain("reportAgentActivity");
     expect(findings).toEqual([]);
+  });
+
+  it("exposes runtimeMetadata only through provider-visible business tool schemas", () => {
+    const tools = createProductionLangChainToolCatalog();
+
+    for (const tool of tools) {
+      const providerSchemaJson = JSON.stringify(z.toJSONSchema(getLangChainToolProviderInputSchema(tool)));
+
+      expect(tool.executionKind ?? "business").toBe("business");
+      expect(providerSchemaJson).toContain("runtimeMetadata");
+      expect(providerSchemaJson).toContain("activitySummary");
+      expect(tool.inputSchema.safeParse({
+        runtimeMetadata: { activitySummary: "正在处理当前请求" },
+      }).success).toBe(false);
+    }
   });
 
   it("injects search facet catalog into the search tool description without changing the whitelist", () => {

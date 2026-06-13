@@ -45,7 +45,10 @@ export {
   createExecutableLangChainTool,
   defineLangChainToolWrapper,
   executeLangChainToolWrapper,
+  getLangChainToolProviderInputSchema,
+  toolCallRuntimeMetadataSchema,
   type LangChainToolExecutionRecorder,
+  type LangChainToolRuntimeActivityRecorder,
   type LangChainToolWrapper,
   type LangChainToolWrapperContext,
   type LangChainToolWrapperDefinition,
@@ -89,8 +92,6 @@ export {
 } from "./tools/production-tool-catalog";
 
 export {
-  reportAgentActivityInputSchema,
-  reportAgentActivityLangChainTool,
   createSearchExerciseResourcesLangChainTool,
   inspectVisibleTrainingProposalsInputSchema,
   inspectVisibleTrainingProposalsLangChainTool,
@@ -106,7 +107,6 @@ export {
   submitVisibleTrainingProposalOutputType,
   type CreateSearchExerciseResourcesLangChainToolOptions,
   type CreateSubmitVisibleTrainingProposalLangChainToolOptions,
-  type ReportAgentActivityOutput,
   type SubmitVisibleTrainingProposalOutput,
 } from "./tools";
 
@@ -124,7 +124,12 @@ export type {
   LangChainAgentToolExecution,
   LangChainAgentToolExecutionStatus,
   LangChainJsonValue,
+  LangChainRuntimeActivitySummaryDiscardReason,
+  LangChainRuntimeActivitySummarySource,
   LangChainTerminalFailureFinalizerOutput,
+  LangChainToolRuntimeActivityMetadata,
   LangChainTokenUsage,
+  RuntimeMetadataEnvelope,
+  ToolCallRuntimeMetadata,
   LangChainValidatedVisibleOutput,
 } from "./types";

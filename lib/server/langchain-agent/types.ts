@@ -34,6 +34,34 @@ export type LangChainAgentToolExecutionStatus = "succeeded" | "failed" | "duplic
 
 export type LangChainAgentToolFeedbackCode = "duplicate_tool_input";
 
+/** ToolCallRuntimeMetadata 是业务 tool call arguments 中的 request-local UI metadata，不进入业务 handler 或模型结果。 */
+export type ToolCallRuntimeMetadata = {
+  activitySummary?: string;
+};
+
+/** RuntimeMetadataEnvelope 表达 provider-visible schema 的通用外壳，服务端执行前会剥离 runtimeMetadata。 */
+export type RuntimeMetadataEnvelope<TBusinessInput> = TBusinessInput & {
+  runtimeMetadata?: ToolCallRuntimeMetadata;
+};
+
+export type LangChainRuntimeActivitySummarySource = "model" | "tool_default" | "fallback";
+
+export type LangChainRuntimeActivitySummaryDiscardReason =
+  | "not_string"
+  | "empty"
+  | "control_character"
+  | "too_long"
+  | "internal_detail"
+  | "completion_claim";
+
+/** LangChainToolRuntimeActivityMetadata 只记录 wrapper 投影给 UI / trace 的安全活动摘要来源。 */
+export type LangChainToolRuntimeActivityMetadata = {
+  activitySummary: string;
+  source: LangChainRuntimeActivitySummarySource;
+  discardedSummaryReason?: LangChainRuntimeActivitySummaryDiscardReason;
+  rawSummaryLength?: number;
+};
+
 export type LangChainAgentSchemaIssue = {
   path: string;
   code: string;
@@ -51,13 +79,14 @@ export type LangChainAgentToolExecution = {
   runtimeStep?: number;
   toolCallId?: string;
   toolName: string;
-  executionKind?: "business" | "activity";
+  executionKind?: "business";
   status: LangChainAgentToolExecutionStatus;
   durationMs?: number;
   inputSummary?: LangChainJsonValue;
   modelVisibleSummary?: string;
   userProjection?: LangChainJsonValue;
   traceSummary?: LangChainJsonValue;
+  runtimeActivity?: LangChainToolRuntimeActivityMetadata;
   failureCode?: LangChainAgentRuntimeErrorCode;
   feedbackCode?: LangChainAgentToolFeedbackCode;
   failureMessage?: string;
@@ -74,9 +103,10 @@ export type LangChainAgentRuntimeObserverEvent =
       runtimeStep: number;
     }
   | {
-      type: "model_activity_reported";
-      summary: string;
-      stepType?: string;
+      type: "runtime_activity_reported";
+      activitySummary: string;
+      source: LangChainRuntimeActivitySummarySource;
+      discardedSummaryReason?: LangChainRuntimeActivitySummaryDiscardReason;
       toolCallId?: string;
       modelCallIndex?: number;
       runtimeStep?: number;
@@ -133,6 +163,12 @@ export type LangChainAgentRunTraceSummary = {
   runtimeVersion: string;
   model: string;
   toolNames: readonly string[];
+  runtimeActivities: readonly (LangChainToolRuntimeActivityMetadata & {
+    toolName: string;
+    toolCallId?: string;
+    modelCallIndex?: number;
+    runtimeStep?: number;
+  })[];
   modelRequestSummary: {
     inputMessageCount: number;
     inputMessagePreviews: readonly {

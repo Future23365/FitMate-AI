@@ -302,6 +302,9 @@ export const resolveExerciseResourceMentionsLangChainTool = defineLangChainToolW
   ].join("\n"),
   inputSchema: resolveExerciseResourceMentionsInputSchema,
   outputSchema: resolveExerciseResourceMentionsOutputSchema,
+  runtimeActivity: {
+    defaultSummary: "正在确认你提到的动作",
+  },
   timeoutMs: agentRuntimeConfig.tools.resolveExerciseResourceMentions.timeoutMs,
   handler: async (input) => {
     const resolved = await Promise.all(input.mentions.map(async (mention) => {
@@ -402,6 +405,9 @@ export function createSearchExerciseResourcesLangChainTool(
     ].filter(Boolean).join("\n"),
     inputSchema: searchExerciseResourcesInputSchema,
     outputSchema: searchExerciseResourcesOutputSchema,
+    runtimeActivity: {
+      defaultSummary: "正在查询动作库",
+    },
     timeoutMs: agentRuntimeConfig.tools.searchExerciseResources.timeoutMs,
     handler: async (input) => {
       const excludeExerciseIds = normalizeExcludeExerciseIds(input.excludeExerciseIds);

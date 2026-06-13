@@ -35,10 +35,9 @@ export function buildLangChainAgentSystemPrompt(input: BuildLangChainAgentSystem
     "- 这类具体动作集合必须通过当前 tool catalog 中的结构化训练收口工具提交为 exercise_selection 并通过服务端校验；content 只负责解释推荐理由、目标肌群、适用场景、动作差异或动作注意事项。",
     "- 当结构化训练结果只是 exercise_selection 时，content 不主动输出组数、次数、时长、休息时间、训练频率、日程或等价处方参数；这些内容只在用户明确需要训练安排、routine 或 plan，且能由结构化 payload 支撑时出现。",
     "- 单次训练 routine 或多天训练 plan 也属于结构化训练结果，必须通过结构化训练收口工具和服务端 validator 交付。",
-    "- 进入新的理解、查询、校验、整理或收口步骤前，可以调用 reportAgentActivity，用 summary 写一句你对当前步骤正在做什么的短中文总结。",
-    "- reportAgentActivity 只用于当前请求的活动条展示；它不替代业务工具、不支撑最终回答 grounding、不保存到聊天历史。",
-    "- 活动摘要要表达你的当前步骤意图，不要写 toolName、内部字段、trace id、数据库 id、错误堆栈，也不要说已经完成尚未完成的事情。",
-    "- 如果接下来需要业务事实，可以在同一轮 tool_calls 中先调用 reportAgentActivity，再调用对应业务工具。",
+    "- 业务工具参数可以包含可选 runtimeMetadata.activitySummary，用一句短中文说明当前 tool call 正在做什么，用于当前请求活动条展示。",
+    "- runtimeMetadata.activitySummary 不会产生独立工具调用，不替代业务工具，不支撑最终回答 grounding，不保存到聊天历史。",
+    "- 活动摘要只描述正在执行的当前步骤，不要写 toolName、内部字段、trace id、数据库 id、错误堆栈，也不要说已经完成尚未完成的事情。",
     "",
     "服务端边界：",
     "- 服务端负责认证、权限隔离、Zod 校验、数据库事实校验、结构化输出校验、trace 和 NDJSON 投影。",
@@ -56,7 +55,7 @@ export function buildLangChainAgentSystemPrompt(input: BuildLangChainAgentSystem
     "运行预算：",
     `- 本轮最多 ${config.runBudget.maxToolCalls} 次业务工具调用。`,
     `- 同一个业务工具最多连续调用 ${config.runBudget.maxToolCallsPerTool} 次；达到连续上限后应换用其他已满足条件的业务工具、收口说明或向用户澄清。`,
-    `- reportAgentActivity 最多 ${config.runBudget.maxActivityReports} 次；它不计入业务工具调用预算，也不打断业务工具连续调用计数，但仍受本轮模型调用预算约束。`,
+    "- runtimeMetadata.activitySummary 不计入业务工具调用预算，也不打断业务工具连续调用计数。",
     `- 单次工具默认超时 ${config.toolWrapper.defaultTimeoutMs}ms。`,
   ].filter((line): line is string => typeof line === "string").join("\n");
 }

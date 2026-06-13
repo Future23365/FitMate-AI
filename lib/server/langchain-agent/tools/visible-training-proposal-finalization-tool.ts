@@ -84,6 +84,9 @@ export function createSubmitVisibleTrainingProposalLangChainTool(
     ].join("\n"),
     inputSchema: submitVisibleTrainingProposalInputSchema,
     outputSchema: submitVisibleTrainingProposalOutputSchema,
+    runtimeActivity: {
+      defaultSummary: "正在校验训练卡片内容",
+    },
     timeoutMs: agentRuntimeConfig.tools.submitVisibleTrainingProposal.timeoutMs,
     handler: async (input) => {
       const envelope: VisibleOutputEnvelope = {

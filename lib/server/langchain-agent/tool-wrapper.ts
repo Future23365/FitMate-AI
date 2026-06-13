@@ -15,6 +15,8 @@ import type {
   LangChainAgentRuntimeErrorCode,
   LangChainJsonValue,
   LangChainAgentSchemaIssue,
+  LangChainToolRuntimeActivityMetadata,
+  LangChainRuntimeActivitySummaryDiscardReason,
 } from "./types";
 
 export type LangChainToolWrapperContext = {
@@ -39,8 +41,12 @@ export type LangChainToolWrapperDefinition<SchemaT extends z.ZodObject, OutputT>
   description: string;
   inputSchema: SchemaT;
   outputSchema?: z.ZodType<OutputT>;
-  /** executionKind 区分真实业务工具和 request-local 活动汇报工具，避免 UI 状态消耗业务工具预算。 */
-  executionKind?: "business" | "activity";
+  /** executionKind 标记真实业务工具；runtimeMetadata 只作为该业务调用的 request-local metadata。 */
+  executionKind?: "business";
+  /** runtimeActivity 定义业务 tool handler 前可投影的安全 UI metadata，不参与业务事实。 */
+  runtimeActivity?: {
+    defaultSummary?: string;
+  };
   timeoutMs?: number;
   handler: LangChainToolWrapperHandler<SchemaT, OutputT>;
   toModelVisibleSummary: LangChainToolOutputMapper<OutputT, string | LangChainJsonValue>;
@@ -53,6 +59,9 @@ export type LangChainToolWrapper<SchemaT extends z.ZodObject = z.ZodObject, Outp
 
 export type LangChainToolExecutionResult = { modelMessage: string; record: LangChainAgentToolExecution };
 export type LangChainToolExecutionRecorder = (execution: LangChainAgentToolExecution) => void | Promise<void>;
+export type LangChainToolRuntimeActivityRecorder = (
+  activity: LangChainToolRuntimeActivityMetadata & { toolName: string; toolCallId?: string },
+) => void | Promise<void>;
 export type LangChainToolExecutionBudget = {
   reserveToolCall: (wrapper: LangChainToolWrapper) => boolean;
 };
@@ -66,11 +75,27 @@ export type LangChainToolExecutionCoordinator = {
   }) => Promise<LangChainToolExecutionResult>;
 };
 
+/** toolCallRuntimeMetadataSchema 是所有生产业务 LangChain tool provider-visible input 共享的 UI metadata envelope。 */
+export const toolCallRuntimeMetadataSchema = z.object({
+  activitySummary: z.string()
+    .optional()
+    .describe("当前业务 tool call 的用户可见 UI 状态短句；只描述正在做什么，不是调用理由、业务事实、tool output 或最终回答依据。建议中文 8-40 个字，不写 toolName、trace、schema、数据库 id、错误码或完成态承诺。"),
+}).strict().describe("可选 request-local runtime metadata，只服务当前请求的 UI 进度和 trace 诊断；服务端会在业务 schema 校验和 handler 执行前剥离。");
+
 /** defineLangChainToolWrapper 定义生产 LangChain tool 的服务端 wrapper 合同，统一 schema、权限上下文、摘要和 trace 边界。 */
 export function defineLangChainToolWrapper<SchemaT extends z.ZodObject, OutputT>(
   definition: LangChainToolWrapperDefinition<SchemaT, OutputT>,
 ): LangChainToolWrapper<SchemaT, OutputT> {
   return definition;
+}
+
+/** getLangChainToolProviderInputSchema 给业务 tool 统一注入 runtimeMetadata，同时保持源 inputSchema 只描述业务字段。 */
+export function getLangChainToolProviderInputSchema<SchemaT extends z.ZodObject>(
+  wrapper: LangChainToolWrapper<SchemaT, unknown>,
+) {
+  return wrapper.inputSchema.extend({
+    runtimeMetadata: toolCallRuntimeMetadataSchema.optional(),
+  });
 }
 
 /** createExecutableLangChainTool 将项目 wrapper 转为 LangChain tool，并记录安全执行摘要。 */
@@ -80,6 +105,7 @@ export function createExecutableLangChainTool<SchemaT extends z.ZodObject, Outpu
   recordExecution: LangChainToolExecutionRecorder,
   budget?: LangChainToolExecutionBudget,
   coordinator?: LangChainToolExecutionCoordinator,
+  recordRuntimeActivity?: LangChainToolRuntimeActivityRecorder,
 ) {
   const executableTool = tool(async (input, runtime) => {
     const toolCallId = readLangChainToolCallId(runtime);
@@ -90,6 +116,7 @@ export function createExecutableLangChainTool<SchemaT extends z.ZodObject, Outpu
       toolCallId,
       budget,
       coordinator,
+      onRuntimeActivity: recordRuntimeActivity,
     });
 
     await recordExecution(execution.record);
@@ -98,7 +125,7 @@ export function createExecutableLangChainTool<SchemaT extends z.ZodObject, Outpu
   }, {
     name: wrapper.name,
     description: wrapper.description,
-    schema: wrapper.inputSchema,
+    schema: getLangChainToolProviderInputSchema(wrapper),
   });
 
   return Object.assign(executableTool, {
@@ -113,6 +140,7 @@ export function createExecutableLangChainTool<SchemaT extends z.ZodObject, Outpu
         toolCallId: toolInput.toolCallId,
         budget,
         coordinator,
+        onRuntimeActivity: recordRuntimeActivity,
       });
 
       await recordExecution(execution.record);
@@ -166,6 +194,7 @@ async function executeLangChainToolWithRuntimeBoundaries<SchemaT extends z.ZodOb
   toolCallId?: string;
   budget?: LangChainToolExecutionBudget;
   coordinator?: LangChainToolExecutionCoordinator;
+  onRuntimeActivity?: LangChainToolRuntimeActivityRecorder;
 }): Promise<LangChainToolExecutionResult> {
   const runExecution = async () => {
     const budgetExceeded = input.budget ? !input.budget.reserveToolCall(input.wrapper) : false;
@@ -173,6 +202,7 @@ async function executeLangChainToolWithRuntimeBoundaries<SchemaT extends z.ZodOb
     return executeLangChainToolWrapper(input.wrapper, input.rawInput, input.context, {
       toolCallId: input.toolCallId,
       budgetExceeded,
+      onRuntimeActivity: input.onRuntimeActivity,
     });
   };
 
@@ -191,12 +221,17 @@ export async function executeLangChainToolWrapper<SchemaT extends z.ZodObject, O
   wrapper: LangChainToolWrapper<SchemaT, OutputT>,
   rawInput: unknown,
   context: LangChainToolWrapperContext,
-  options: { toolCallId?: string; budgetExceeded?: boolean } = {},
+  options: {
+    toolCallId?: string;
+    budgetExceeded?: boolean;
+    onRuntimeActivity?: LangChainToolRuntimeActivityRecorder;
+  } = {},
 ): Promise<LangChainToolExecutionResult> {
   const startedAt = Date.now();
   const config = agentRuntimeConfig.langChain;
-  const parsedInput = wrapper.inputSchema.safeParse(rawInput);
-  const inputSummary = toLangChainJsonValue(rawInput, config.trace.toolArgumentsPreviewMaxLength);
+  const runtimeMetadata = extractRuntimeMetadataEnvelope(wrapper, rawInput);
+  const parsedInput = wrapper.inputSchema.safeParse(runtimeMetadata.businessInput);
+  const inputSummary = toLangChainJsonValue(runtimeMetadata.businessInput, config.trace.toolArgumentsPreviewMaxLength);
 
   if (options.budgetExceeded) {
     return createFailedToolExecution({
@@ -215,7 +250,7 @@ export async function executeLangChainToolWrapper<SchemaT extends z.ZodObject, O
   }
 
   if (!parsedInput.success) {
-    const schemaIssues = summarizeZodIssues(parsedInput.error, rawInput);
+    const schemaIssues = summarizeZodIssues(parsedInput.error, runtimeMetadata.businessInput);
 
     return createFailedToolExecution({
       wrapper,
@@ -235,6 +270,13 @@ export async function executeLangChainToolWrapper<SchemaT extends z.ZodObject, O
   }
 
   try {
+    await emitToolRuntimeActivityBeforeHandler({
+      wrapper,
+      toolCallId: options.toolCallId,
+      runtimeActivity: runtimeMetadata.runtimeActivity,
+      onRuntimeActivity: options.onRuntimeActivity,
+    });
+
     const rawOutput = await runWithToolTimeout(
       wrapper.handler(parsedInput.data, context),
       wrapper.timeoutMs ?? config.toolWrapper.defaultTimeoutMs,
@@ -249,6 +291,7 @@ export async function executeLangChainToolWrapper<SchemaT extends z.ZodObject, O
         toolCallId: options.toolCallId,
         startedAt,
         inputSummary,
+        runtimeActivity: runtimeMetadata.runtimeActivity,
         failureCode: "structured_output_validation_failed",
         failureMessage: "工具输出未通过服务端 schema 校验。",
         schemaIssues,
@@ -286,6 +329,7 @@ export async function executeLangChainToolWrapper<SchemaT extends z.ZodObject, O
         modelVisibleSummary,
         userProjection,
         traceSummary,
+        ...(runtimeMetadata.runtimeActivity ? { runtimeActivity: runtimeMetadata.runtimeActivity } : {}),
         enteredModelContext: true,
       },
     };
@@ -300,6 +344,7 @@ export async function executeLangChainToolWrapper<SchemaT extends z.ZodObject, O
       toolCallId: options.toolCallId,
       startedAt,
       inputSummary,
+      runtimeActivity: runtimeMetadata.runtimeActivity,
       failureCode,
       failureMessage: message,
       modelMessage: {
@@ -310,6 +355,160 @@ export async function executeLangChainToolWrapper<SchemaT extends z.ZodObject, O
           : "工具执行失败；请解释失败或改用可恢复的问题收口。",
       },
     });
+  }
+}
+
+function extractRuntimeMetadataEnvelope(
+  wrapper: LangChainToolWrapper,
+  rawInput: unknown,
+): {
+  businessInput: unknown;
+  runtimeActivity?: LangChainToolRuntimeActivityMetadata;
+} {
+  if (!rawInput || typeof rawInput !== "object" || Array.isArray(rawInput)) {
+    return {
+      businessInput: rawInput,
+      runtimeActivity: createFallbackRuntimeActivity(wrapper, undefined),
+    };
+  }
+
+  const { runtimeMetadata, ...businessInput } = rawInput as Record<string, unknown>;
+
+  return {
+    businessInput,
+    runtimeActivity: createRuntimeActivityMetadata(wrapper, runtimeMetadata),
+  };
+}
+
+function createRuntimeActivityMetadata(
+  wrapper: LangChainToolWrapper,
+  runtimeMetadata: unknown,
+): LangChainToolRuntimeActivityMetadata {
+  const metadataRecord = runtimeMetadata && typeof runtimeMetadata === "object" && !Array.isArray(runtimeMetadata)
+    ? runtimeMetadata as Record<string, unknown>
+    : {};
+  const normalizedSummary = normalizeRuntimeActivitySummary(metadataRecord.activitySummary);
+
+  if (normalizedSummary.ok) {
+    return {
+      activitySummary: normalizedSummary.summary,
+      source: "model",
+      rawSummaryLength: normalizedSummary.rawSummaryLength,
+    };
+  }
+
+  return createFallbackRuntimeActivity(wrapper, normalizedSummary.reason, normalizedSummary.rawSummaryLength);
+}
+
+function createFallbackRuntimeActivity(
+  wrapper: LangChainToolWrapper,
+  discardedSummaryReason: LangChainRuntimeActivitySummaryDiscardReason | undefined,
+  rawSummaryLength?: number,
+): LangChainToolRuntimeActivityMetadata {
+  const toolDefaultSummary = normalizeStaticRuntimeActivitySummary(wrapper.runtimeActivity?.defaultSummary);
+  const fallbackSummary = normalizeStaticRuntimeActivitySummary(agentRuntimeConfig.langChain.runtimeActivity.defaultSummary)
+    ?? "正在处理当前请求";
+
+  return {
+    activitySummary: toolDefaultSummary ?? fallbackSummary,
+    source: toolDefaultSummary ? "tool_default" : "fallback",
+    ...(discardedSummaryReason ? { discardedSummaryReason } : {}),
+    ...(rawSummaryLength === undefined ? {} : { rawSummaryLength }),
+  };
+}
+
+function normalizeRuntimeActivitySummary(value: unknown): (
+  | { ok: true; summary: string; rawSummaryLength: number }
+  | { ok: false; reason: LangChainRuntimeActivitySummaryDiscardReason; rawSummaryLength?: number }
+) {
+  if (typeof value !== "string") {
+    return { ok: false, reason: "not_string" };
+  }
+
+  const rawSummaryLength = value.length;
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return { ok: false, reason: "empty", rawSummaryLength };
+  }
+
+  if (/[\u0000-\u001F\u007F]/.test(trimmed)) {
+    return { ok: false, reason: "control_character", rawSummaryLength };
+  }
+
+  const normalized = trimmed.replace(/\s+/g, " ");
+
+  if (normalized.length > agentRuntimeConfig.langChain.runtimeActivity.maxSummaryLength) {
+    return { ok: false, reason: "too_long", rawSummaryLength };
+  }
+
+  if (containsRuntimeInternalDetail(normalized)) {
+    return { ok: false, reason: "internal_detail", rawSummaryLength };
+  }
+
+  if (containsPrematureCompletionClaim(normalized)) {
+    return { ok: false, reason: "completion_claim", rawSummaryLength };
+  }
+
+  return {
+    ok: true,
+    summary: normalized,
+    rawSummaryLength,
+  };
+}
+
+function normalizeStaticRuntimeActivitySummary(value: string | undefined) {
+  const normalized = normalizeRuntimeActivitySummary(value);
+
+  return normalized.ok ? normalized.summary : undefined;
+}
+
+function containsRuntimeInternalDetail(summary: string) {
+  return [
+    /\btoolName\b/i,
+    /\btool_call\b/i,
+    /\btool result\b/i,
+    /\bruntime\b/i,
+    /\bprovider\b/i,
+    /\btrace\b/i,
+    /\bschema\b/i,
+    /\bpayload\b/i,
+    /\bNDJSON\b/i,
+    /\bJSON\b/,
+    /\bstack\b/i,
+    /[`{}[\]]/,
+    /字段路径/,
+    /错误码/,
+    /数据库\s*id/i,
+    /trace\s*id/i,
+    /内部/,
+    /调试/,
+    /执行合同/,
+  ].some((pattern) => pattern.test(summary));
+}
+
+function containsPrematureCompletionClaim(summary: string) {
+  return /(已|已经).{0,8}(完成|生成|保存|写入|提交|通过校验|校验通过)/.test(summary);
+}
+
+async function emitToolRuntimeActivityBeforeHandler(input: {
+  wrapper: LangChainToolWrapper;
+  toolCallId?: string;
+  runtimeActivity?: LangChainToolRuntimeActivityMetadata;
+  onRuntimeActivity?: LangChainToolRuntimeActivityRecorder;
+}) {
+  if (!input.runtimeActivity || !input.onRuntimeActivity) {
+    return;
+  }
+
+  try {
+    await input.onRuntimeActivity({
+      ...input.runtimeActivity,
+      toolName: input.wrapper.name,
+      ...(input.toolCallId ? { toolCallId: input.toolCallId } : {}),
+    });
+  } catch {
+    // runtime activity 只服务 request-local UI / trace，投影失败不能改变业务 tool 执行。
   }
 }
 
@@ -337,6 +536,7 @@ function createFailedToolExecution(input: {
   toolCallId?: string;
   startedAt: number;
   inputSummary: LangChainJsonValue;
+  runtimeActivity?: LangChainToolRuntimeActivityMetadata;
   failureCode: LangChainAgentRuntimeErrorCode;
   failureMessage: string;
   schemaIssues?: readonly LangChainAgentSchemaIssue[];
@@ -354,6 +554,7 @@ function createFailedToolExecution(input: {
       status: "failed",
       durationMs: Date.now() - input.startedAt,
       inputSummary: input.inputSummary,
+      ...(input.runtimeActivity ? { runtimeActivity: input.runtimeActivity } : {}),
       failureCode: input.failureCode,
       failureMessage: input.failureMessage,
       ...(input.schemaIssues?.length ? { schemaIssues: input.schemaIssues } : {}),

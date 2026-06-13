@@ -52,6 +52,7 @@ const baseFailure: LangChainAgentRunFailure = {
     },
     modelCalls: [],
     providerToolCalls: [],
+    runtimeActivities: [],
     modelCallCount: 5,
     toolCallCount: 6,
     messageCount: 11,

@@ -128,22 +128,6 @@ function readFixturesForTool(tool: LangChainToolWrapper) {
 }
 
 const modelVisibleOutputFixtures: Record<string, readonly { id: string; output: unknown }[]> = {
-  reportAgentActivity: [
-    {
-      id: "recorded",
-      output: {
-        status: "recorded",
-        summary: "正在整理动作候选。",
-        stepType: "planning",
-      },
-    },
-    {
-      id: "skipped",
-      output: {
-        status: "skipped",
-      },
-    },
-  ],
   inspectVisibleTrainingProposals: [
     {
       id: "empty_facts",

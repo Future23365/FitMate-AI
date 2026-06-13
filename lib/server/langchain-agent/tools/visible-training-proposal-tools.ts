@@ -103,6 +103,9 @@ export const inspectVisibleTrainingProposalsLangChainTool = defineLangChainToolW
   ].join("\n"),
   inputSchema: inspectVisibleTrainingProposalsInputSchema,
   outputSchema: inspectVisibleTrainingProposalsOutputSchema,
+  runtimeActivity: {
+    defaultSummary: "正在读取已有训练方案",
+  },
   timeoutMs: agentRuntimeConfig.tools.inspectVisibleTrainingProposals.timeoutMs,
   handler: async (input, context) => {
     if (!context.actor.userId) {

@@ -28,7 +28,6 @@ describe("LangChain Agent runtime config", () => {
 
   it("keeps production tool catalog static and free of fixture tools", () => {
     expect(agentRuntimeConfig.langChain.toolCatalog.allowedToolNames).toEqual([
-      "reportAgentActivity",
       "inspectVisibleTrainingProposals",
       "resolveExerciseResourceMentions",
       "searchExerciseResources",
@@ -39,18 +38,21 @@ describe("LangChain Agent runtime config", () => {
 
   it("keeps LangChain run budgets synchronized with graph recursion semantics", () => {
     expect(agentRuntimeConfig.langChain.runBudget).toMatchObject({
-      maxModelCalls: 23,
+      maxModelCalls: 21,
       maxToolCalls: 20,
       maxToolCallsPerTool: 2,
-      maxActivityReports: 2,
       overallTimeoutMs: 40_000,
     });
-    expect(resolveLangChainGraphRecursionLimit(agentRuntimeConfig.langChain.runBudget)).toBe(69);
+    expect(resolveLangChainGraphRecursionLimit(agentRuntimeConfig.langChain.runBudget)).toBe(63);
     expect(agentRuntimeConfig.langChain.runBudget.maxModelCalls).toBe(
-      agentRuntimeConfig.langChain.runBudget.maxToolCalls
-        + agentRuntimeConfig.langChain.runBudget.maxActivityReports
-        + 1,
+      agentRuntimeConfig.langChain.runBudget.maxToolCalls + 1,
     );
+    expect("maxActivityReports" in agentRuntimeConfig.langChain.runBudget).toBe(false);
+    expect(agentRuntimeConfig.langChain.runtimeActivity).toMatchObject({
+      maxSummaryLength: 80,
+      maxMetadataEvents: 20,
+      defaultSummary: "正在处理当前请求",
+    });
     expect("maxIterations" in agentRuntimeConfig.langChain.runBudget).toBe(false);
     expect("structuredOutputValidationTimeoutMs" in agentRuntimeConfig.langChain.runBudget).toBe(false);
   });

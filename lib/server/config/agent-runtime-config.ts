@@ -24,12 +24,12 @@ export type AgentRuntimeConfig = {
       maxModelCalls: number;
       maxToolCalls: number;
       maxToolCallsPerTool: number;
-      maxActivityReports: number;
       overallTimeoutMs: number;
     };
-    activityReport: {
+    runtimeActivity: {
       maxSummaryLength: number;
-      maxStepTypeLength: number;
+      maxMetadataEvents: number;
+      defaultSummary: string;
     };
     terminalFailureFinalizer: {
       defaultEnabled: boolean;
@@ -50,7 +50,6 @@ export type AgentRuntimeConfig = {
     toolCatalog: {
       defaultEnabled: true;
       allowedToolNames: readonly [
-        "reportAgentActivity",
         "inspectVisibleTrainingProposals",
         "resolveExerciseResourceMentions",
         "searchExerciseResources",
@@ -140,22 +139,22 @@ export const agentRuntimeConfig = {
     /** runBudget 控制 LangChain agent harness 最大推进范围，避免 provider/tool 循环拖垮请求。 */
     runBudget: {
       /** maxModelCalls 限制单次聊天最多 provider 模型调用次数；runtime 也用它推导 LangChain graph recursionLimit。 */
-      maxModelCalls: 23,
+      maxModelCalls: 21,
       /** maxToolCalls 限制单次聊天最多业务 tool 总执行次数；调大增加数据库压力和上下文体积。 */
       maxToolCalls: 20,
       /** maxToolCallsPerTool 限制同一业务 tool 的连续调用次数，避免模型原地重复请求同一能力。 */
       maxToolCallsPerTool: 2,
-      /** maxActivityReports 限制模型当前步骤汇报次数；不计入业务 tool 预算，但仍消耗模型调用和 graph step。 */
-      maxActivityReports: 2,
       /** overallTimeoutMs 是整次 LangChain run 墙钟预算；调大增加请求占用，调小可能中断合法慢路径。 */
       overallTimeoutMs: 40_000,
     },
-    /** activityReport 控制模型生成活动摘要的宽松展示边界，不参与业务 grounding。 */
-    activityReport: {
-      /** maxSummaryLength 是服务端投影给活动条的摘要上限；超出时裁剪而不是拒绝。 */
-      maxSummaryLength: 120,
-      /** maxStepTypeLength 限制模型自报步骤类别的诊断字段长度。 */
-      maxStepTypeLength: 48,
+    /** runtimeActivity 控制业务 tool call metadata 的安全投影边界，不产生独立 provider tool call。 */
+    runtimeActivity: {
+      /** maxSummaryLength 是 runtimeMetadata.activitySummary 的服务端安全上限；超出时降级到默认摘要。 */
+      maxSummaryLength: 80,
+      /** maxMetadataEvents 限制单次请求最多投影的 UI metadata 事件数，避免重复摘要刷屏。 */
+      maxMetadataEvents: 20,
+      /** defaultSummary 是业务 tool 未声明默认摘要时的通用安全兜底。 */
+      defaultSummary: "正在处理当前请求",
     },
     /** terminalFailureFinalizer 控制主 Agent 失败后的受限模型兜底回复，不参与业务 tool loop。 */
     terminalFailureFinalizer: {
@@ -191,9 +190,8 @@ export const agentRuntimeConfig = {
     toolCatalog: {
       /** defaultEnabled 控制生产 tool catalog 是否默认可用；关闭时只允许基础文本回答。 */
       defaultEnabled: true,
-      /** allowedToolNames 是当前 OpenSpec 声明的生产 tool 集合，包含 request-local 活动汇报 tool，不包含 fixture。 */
+      /** allowedToolNames 是当前 OpenSpec 声明的生产业务 tool 集合，不包含 fixture 或独立 activity tool。 */
       allowedToolNames: [
-        "reportAgentActivity",
         "inspectVisibleTrainingProposals",
         "resolveExerciseResourceMentions",
         "searchExerciseResources",

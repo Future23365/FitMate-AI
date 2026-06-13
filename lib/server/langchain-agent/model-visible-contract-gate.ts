@@ -9,7 +9,10 @@ import {
 import { buildLangChainAgentSystemPrompt } from "./prompt";
 import { buildLangChainTerminalFailureFinalizerSystemPrompt } from "./terminal-failure-finalizer";
 import type { LangChainJsonValue } from "./types";
-import type { LangChainToolWrapper } from "./tool-wrapper";
+import {
+  getLangChainToolProviderInputSchema,
+  type LangChainToolWrapper,
+} from "./tool-wrapper";
 import {
   createProductionLangChainToolCatalog,
   type CreateProductionLangChainToolCatalogOptions,
@@ -74,6 +77,7 @@ const allowedSummaryKeys = new Set([
   "databaseMapping",
   "details",
   "diagnostics",
+  "discardedSummaryReason",
   "durationMs",
   "equipment",
   "equipmentZh",
@@ -159,6 +163,9 @@ const allowedSummaryKeys = new Set([
   "reusableTrainingExerciseCount",
   "reusableTrainingExercises",
   "riskTag",
+  "rawSummaryLength",
+  "runtimeActivities",
+  "runtimeActivity",
   "runtimeVersion",
   "schemaIssues",
   "schemaVersion",
@@ -168,6 +175,7 @@ const allowedSummaryKeys = new Set([
   "sectionHint",
   "sectionSummary",
   "sort",
+  "source",
   "specificFilters",
   "status",
   "stepType",
@@ -284,11 +292,11 @@ export function createProductionAgentModelVisibleTextSamples(
       text: wrapper.description,
     });
 
-    for (const [index, text] of collectZodSchemaDescriptionTexts(wrapper.inputSchema).entries()) {
+    for (const [index, text] of collectZodSchemaDescriptionTexts(getLangChainToolProviderInputSchema(wrapper)).entries()) {
       samples.push({
         id: `${wrapper.name}.input_schema.${index + 1}`,
         kind: "schema_description",
-        source: `${wrapper.name}.inputSchema`,
+        source: `${wrapper.name}.providerInputSchema`,
         text,
       });
     }

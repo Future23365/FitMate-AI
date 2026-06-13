@@ -4,7 +4,6 @@ import { agentRuntimeConfig } from "@/lib/server/config";
 import type { ExerciseResourceFacetCatalog } from "@/lib/server/exercises/exercise-repository";
 
 import type { LangChainToolWrapper } from "../tool-wrapper";
-import { reportAgentActivityLangChainTool } from "./activity-tool";
 import {
   createSearchExerciseResourcesLangChainTool,
   resolveExerciseResourceMentionsLangChainTool,
@@ -42,7 +41,6 @@ export function createProductionLangChainToolCatalog(
 
 /** productionLangChainTools 暴露默认生产 tool 集合，供测试和非 route 注入场景使用。 */
 export const productionLangChainTools = [
-  reportAgentActivityLangChainTool,
   inspectVisibleTrainingProposalsLangChainTool,
   resolveExerciseResourceMentionsLangChainTool,
   searchExerciseResourcesLangChainTool,
@@ -55,7 +53,6 @@ function createProductionToolMap(facetCatalog?: ExerciseResourceFacetCatalog) {
     : searchExerciseResourcesLangChainTool;
 
   return new Map<ProductionLangChainToolName, LangChainToolWrapper>([
-    ["reportAgentActivity", reportAgentActivityLangChainTool],
     ["inspectVisibleTrainingProposals", inspectVisibleTrainingProposalsLangChainTool],
     ["resolveExerciseResourceMentions", resolveExerciseResourceMentionsLangChainTool],
     ["searchExerciseResources", searchTool],

@@ -12,7 +12,7 @@ import {
   type LangChainValidatedVisibleOutput,
   type LangChainTerminalFailureFinalizerResult,
 } from "@/lib/server/langchain-agent";
-import { resolveLangChainDeepSeekProviderConfig } from "@/lib/server/config";
+import { agentRuntimeConfig, resolveLangChainDeepSeekProviderConfig } from "@/lib/server/config";
 import { readExerciseResourceFacetCatalog } from "@/lib/server/exercises/exercise-repository";
 import { startAiTrace, summarizeLatestUserMessage } from "@/lib/server/dev/ai-trace-logger";
 import type { CurrentUser } from "@/lib/server/users/current-user";
@@ -28,9 +28,9 @@ type LangChainAgentTextChatStreamEvent =
   | LangChainAgentStreamEvent
   | {
       type: "agent_progress";
-      stage: "preparing_context" | "analyzing_request" | "model_activity" | "writing_reply";
+      stage: "preparing_context" | "analyzing_request" | "writing_reply";
       status: "active";
-      messageKey: "preparing_context" | "analyzing_request" | "model_activity" | "writing_reply";
+      messageKey: "preparing_context" | "analyzing_request" | "writing_reply";
       activitySummary?: string;
       sequence: number;
     }
@@ -121,7 +121,7 @@ export async function createLangChainAgentTextChatResponse(
           return;
         }
 
-        await activityWriter.writeModelActivity(event.summary);
+        await activityWriter.writeRuntimeActivity(event.activitySummary);
       },
     });
     const validatedVisibleOutputs = collectLangChainValidatedVisibleOutputs(result);
@@ -279,6 +279,7 @@ type LangChainAgentTextChatNdjsonWriter = {
 
 function createLangChainAgentActivityStreamWriter(writer: LangChainAgentTextChatNdjsonWriter) {
   let sequence = 0;
+  let runtimeActivityEventCount = 0;
 
   return {
     writeActivity: async (stage: Extract<LangChainAgentTextChatStreamEvent, { type: "agent_progress" }>["stage"]) => {
@@ -291,13 +292,18 @@ function createLangChainAgentActivityStreamWriter(writer: LangChainAgentTextChat
         sequence,
       });
     },
-    writeModelActivity: async (activitySummary: string) => {
+    writeRuntimeActivity: async (activitySummary: string) => {
+      if (runtimeActivityEventCount >= agentRuntimeConfig.langChain.runtimeActivity.maxMetadataEvents) {
+        return;
+      }
+
+      runtimeActivityEventCount += 1;
       sequence += 1;
       await writer.write({
         type: "agent_progress",
-        stage: "model_activity",
+        stage: "analyzing_request",
         status: "active",
-        messageKey: "model_activity",
+        messageKey: "analyzing_request",
         activitySummary,
         sequence,
       });
@@ -559,6 +565,7 @@ function recordLangChainAgentRuntimeDetailTrace(input: {
         modelVisibleSummary: execution.modelVisibleSummary,
         userProjection: execution.userProjection,
         traceSummary: execution.traceSummary,
+        runtimeActivity: execution.runtimeActivity,
         failureCode: execution.failureCode,
         feedbackCode: execution.feedbackCode,
         failureMessage: execution.failureMessage,

@@ -271,7 +271,7 @@ export function buildLangChainTerminalFailureFinalizerSystemPrompt() {
     "你是 FitMate 的失败收口回复生成器。",
     "主 Agent 已经没有完成用户请求，你只能基于输入中的失败摘要生成普通用户可见回复。",
     "不要继续执行原始任务，不要声称训练卡片、训练计划、保存或写入已经成功。",
-    "不要输出 tool_call、AgentAction、visibleOutputs、artifact、NDJSON event 或 Markdown 代码块。",
+    "不要输出 tool_call、旧 action JSON、visibleOutputs、artifact、NDJSON event 或 Markdown 代码块。",
     "不要泄漏内部错误堆栈、provider、API、数据库、token、trace id 或实现细节。",
     "可以用自然语言说明这次没有生成可靠结果，并给出用户下一步可以怎么缩小范围、补充条件或重试。",
     `只返回 JSON object：{"content": string, "suggestedQuestions"?: string[]}。`,

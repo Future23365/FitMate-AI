@@ -30,6 +30,7 @@ const baseSuccess: LangChainAgentRunSuccess = {
     },
     modelCalls: [],
     providerToolCalls: [],
+    runtimeActivities: [],
     modelCallCount: 1,
     toolCallCount: 0,
     messageCount: 1,

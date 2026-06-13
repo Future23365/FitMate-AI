@@ -84,7 +84,6 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
   try {
     const toolExecutionBudget = createToolExecutionBudget({
       maxBusinessToolCalls: config.runBudget.maxToolCalls,
-      maxActivityReports: config.runBudget.maxActivityReports,
     });
     const duplicateInputCoordinator = createDuplicateInputExecutionCoordinator();
     const consecutiveToolCallCoordinator = createConsecutiveBusinessToolCallCoordinator({
@@ -99,14 +98,16 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
       },
       async (execution) => {
         toolExecutions.push(execution);
-        await emitLangChainRuntimeObserverEvent({
-          execution,
+      },
+      toolExecutionBudget,
+      consecutiveToolCallCoordinator,
+      async (activity) => {
+        await emitLangChainRuntimeActivityObserverEvent({
+          activity,
           modelCalls: modelCallRecorder.modelCalls,
           onRuntimeEvent: input.onRuntimeEvent,
         });
       },
-      toolExecutionBudget,
-      consecutiveToolCallCoordinator,
     ));
     const middleware = [
       ...createBusinessToolAvailabilityMiddleware(toolWrappers, config.runBudget.maxToolCallsPerTool),
@@ -134,9 +135,7 @@ export async function runLangChainAgentRuntime(input: RunLangChainAgentRuntimeIn
       mergeToolExecutions(toolExecutions, messages),
       modelCallRecorder.modelCalls,
     );
-    const budgetFailure = mergedToolExecutions.find((execution) => (
-      execution.failureCode === "budget_exhausted" && execution.executionKind !== "activity"
-    ));
+    const budgetFailure = mergedToolExecutions.find((execution) => execution.failureCode === "budget_exhausted");
 
     if (budgetFailure) {
       return createFailure({
@@ -246,10 +245,6 @@ function createDuplicateInputExecutionCoordinator(): LangChainToolExecutionCoord
 
   return {
     execute: async ({ wrapper, rawInput, toolCallId, runExecution }) => {
-      if ((wrapper.executionKind ?? "business") !== "business") {
-        return runExecution();
-      }
-
       const duplicateKey = createDuplicateInputKey(wrapper, rawInput);
 
       if (!duplicateKey) {
@@ -319,10 +314,6 @@ function createConsecutiveBusinessToolCallCoordinator(input: {
   return {
     // 业务 tool 连续限制只防止模型原地反复请求同一能力；总成本仍由全局 tool/model budget 控制。
     execute: async ({ wrapper, rawInput, toolCallId, runExecution }) => {
-      if ((wrapper.executionKind ?? "business") !== "business") {
-        return input.delegate.execute({ wrapper, rawInput, toolCallId, runExecution });
-      }
-
       if (wrapper.name === lastBusinessToolName) {
         consecutiveBusinessToolCalls += 1;
       } else {
@@ -346,7 +337,7 @@ function createConsecutiveBusinessToolCallCoordinator(input: {
 }
 
 function createDuplicateInputKey(wrapper: LangChainToolWrapper, rawInput: unknown): DuplicateInputKey | undefined {
-  const parsedInput = wrapper.inputSchema.safeParse(rawInput);
+  const parsedInput = wrapper.inputSchema.safeParse(readBusinessToolInputForRuntimeBoundary(wrapper, rawInput));
 
   if (!parsedInput.success) {
     return undefined;
@@ -360,6 +351,18 @@ function createDuplicateInputKey(wrapper: LangChainToolWrapper, rawInput: unknow
     toolVersion,
     normalizedInputHash,
   };
+}
+
+function readBusinessToolInputForRuntimeBoundary(wrapper: LangChainToolWrapper, rawInput: unknown) {
+  void wrapper;
+
+  if (!rawInput || typeof rawInput !== "object" || Array.isArray(rawInput)) {
+    return rawInput;
+  }
+
+  const { runtimeMetadata: _runtimeMetadata, ...businessInput } = rawInput as Record<string, unknown>;
+
+  return businessInput;
 }
 
 function createDuplicateInputEntry(
@@ -382,7 +385,10 @@ function createDuplicateInputExecution(input: {
 }): LangChainToolExecutionResult {
   const startedAt = Date.now();
   const config = agentRuntimeConfig.langChain;
-  const inputSummary = toLangChainJsonValue(input.rawInput, config.trace.toolArgumentsPreviewMaxLength);
+  const inputSummary = toLangChainJsonValue(
+    readBusinessToolInputForRuntimeBoundary(input.wrapper, input.rawInput),
+    config.trace.toolArgumentsPreviewMaxLength,
+  );
   const modelVisibleSummary = stringifyForModelSummary({
     status: "duplicate_tool_input",
     code: "duplicate_tool_input",
@@ -424,7 +430,10 @@ function createConsecutiveBusinessToolLimitExecution(input: {
 }): LangChainToolExecutionResult {
   const startedAt = Date.now();
   const config = agentRuntimeConfig.langChain;
-  const inputSummary = toLangChainJsonValue(input.rawInput, config.trace.toolArgumentsPreviewMaxLength);
+  const inputSummary = toLangChainJsonValue(
+    readBusinessToolInputForRuntimeBoundary(input.wrapper, input.rawInput),
+    config.trace.toolArgumentsPreviewMaxLength,
+  );
   const modelVisibleSummary = stringifyForModelSummary({
     status: "failed",
     code: "tool_consecutive_call_limit_exceeded",
@@ -432,7 +441,7 @@ function createConsecutiveBusinessToolLimitExecution(input: {
     limit: input.limit,
     consecutiveCount: input.consecutiveCount,
     message: "同一个业务工具已连续调用达到本轮上限；请先使用其他已满足条件的业务工具、提交结构化终态、直接收口或向用户澄清。不要假装该工具已执行成功。",
-    boundary: "activity 工具不计入也不打断业务工具连续计数；整轮 maxToolCalls 和 maxModelCalls 仍是安全熔断。",
+    boundary: "runtimeMetadata 不产生独立工具调用，也不打断业务工具连续计数；整轮 maxToolCalls 和 maxModelCalls 仍是安全熔断。",
   }, config.toolWrapper.modelVisibleSummaryMaxLength);
 
   return {
@@ -469,18 +478,12 @@ export function resolveLangChainGraphRecursionLimit(
 
 function createToolExecutionBudget(input: {
   maxBusinessToolCalls: number;
-  maxActivityReports: number;
 }) {
   let reservedBusinessToolCalls = 0;
-  let reservedActivityReports = 0;
 
   return {
     reserveToolCall: (wrapper: LangChainToolWrapper) => {
-      if (wrapper.executionKind === "activity") {
-        reservedActivityReports += 1;
-        return reservedActivityReports <= input.maxActivityReports;
-      }
-
+      void wrapper;
       reservedBusinessToolCalls += 1;
       return reservedBusinessToolCalls <= input.maxBusinessToolCalls;
     },
@@ -589,28 +592,28 @@ function readLangChainToolName(tool: unknown) {
   return readStringFromRecord(readRecord(record.function), "name");
 }
 
-async function emitLangChainRuntimeObserverEvent(input: {
-  execution: LangChainAgentToolExecution;
+async function emitLangChainRuntimeActivityObserverEvent(input: {
+  activity: NonNullable<LangChainAgentToolExecution["runtimeActivity"]> & {
+    toolName: string;
+    toolCallId?: string;
+  };
   modelCalls: readonly LangChainAgentModelCallTrace[];
   onRuntimeEvent?: (event: LangChainAgentRuntimeObserverEvent) => void | Promise<void>;
 }) {
-  if (!input.onRuntimeEvent || input.execution.toolName !== "reportAgentActivity" || input.execution.status !== "succeeded") {
+  if (!input.onRuntimeEvent) {
     return;
   }
 
-  const activityProjection = readAgentActivityUserProjection(input.execution.userProjection);
-
-  if (!activityProjection?.summary) {
-    return;
-  }
-
-  const linkage = findToolCallModelLinkage(input.execution.toolCallId, input.modelCalls);
+  const linkage = findToolCallModelLinkage(input.activity.toolCallId, input.modelCalls);
 
   await emitRuntimeObserverSafely(input.onRuntimeEvent, {
-    type: "model_activity_reported",
-    summary: activityProjection.summary,
-    ...(activityProjection.stepType ? { stepType: activityProjection.stepType } : {}),
-    ...(input.execution.toolCallId ? { toolCallId: input.execution.toolCallId } : {}),
+    type: "runtime_activity_reported",
+    activitySummary: input.activity.activitySummary,
+    source: input.activity.source,
+    ...(input.activity.discardedSummaryReason
+      ? { discardedSummaryReason: input.activity.discardedSummaryReason }
+      : {}),
+    ...(input.activity.toolCallId ? { toolCallId: input.activity.toolCallId } : {}),
     ...(linkage?.modelCallIndex ? { modelCallIndex: linkage.modelCallIndex } : {}),
     ...(linkage?.runtimeStep ? { runtimeStep: linkage.runtimeStep } : {}),
   });
@@ -629,19 +632,6 @@ async function emitRuntimeObserverSafely(
   } catch {
     // Runtime observer 只服务 request-local UI / trace，失败不能改变模型调用或 tool 执行结果。
   }
-}
-
-function readAgentActivityUserProjection(value: unknown) {
-  const record = readRecord(value);
-  const summary = readStringFromRecord(record, "activitySummary");
-  const stepType = readStringFromRecord(record, "stepType");
-
-  return summary
-    ? {
-        summary,
-        ...(stepType ? { stepType } : {}),
-      }
-    : undefined;
 }
 
 function findToolCallModelLinkage(
@@ -971,6 +961,19 @@ function createTraceSummary(input: {
     runtimeVersion: agentRuntimeConfig.langChain.runtimeVersion,
     model: input.modelName,
     toolNames: input.toolWrappers.map((wrapper) => wrapper.name),
+    runtimeActivities: input.toolExecutions.flatMap((execution) => {
+      if (!execution.runtimeActivity) {
+        return [];
+      }
+
+      return [{
+        toolName: execution.toolName,
+        ...(execution.toolCallId ? { toolCallId: execution.toolCallId } : {}),
+        ...(execution.modelCallIndex ? { modelCallIndex: execution.modelCallIndex } : {}),
+        ...(execution.runtimeStep ? { runtimeStep: execution.runtimeStep } : {}),
+        ...execution.runtimeActivity,
+      }];
+    }),
     modelRequestSummary: {
       inputMessageCount: input.inputMessages.length,
       inputMessagePreviews: input.inputMessages.map((message) => ({

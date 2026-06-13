@@ -288,21 +288,21 @@ describe("Agent progress activity UI state", () => {
     expect(getAgentActivityDisplay(writing!).label).toBe("正在读取模型摘要");
   });
 
-  it("updates model activitySummary immediately while ignoring later fallback progress", () => {
+  it("updates runtime activitySummary immediately while ignoring later fallback progress", () => {
     const firstSummary = reduceAgentActivity(null, {
       type: "agent_progress",
-      stage: "model_activity",
+      stage: "analyzing_request",
       status: "active",
-      messageKey: "model_activity",
+      messageKey: "analyzing_request",
       activitySummary: "正在理解你的目标",
       sequence: 1,
     }, { nowMs: 0 });
 
     const pendingSummary = reduceAgentActivity(firstSummary, {
       type: "agent_progress",
-      stage: "model_activity",
+      stage: "analyzing_request",
       status: "active",
-      messageKey: "model_activity",
+      messageKey: "analyzing_request",
       activitySummary: "正在筛选训练条件",
       sequence: 2,
     }, { nowMs: 500 });
@@ -535,6 +535,8 @@ describe("AgentActivityIndicator", () => {
 
     expect(componentSource).toContain("agent-activity-roll-current");
     expect(componentSource).toContain("agent-activity-roll-previous");
+    expect(componentSource).toContain("key: `${display.label}:${toneClass}`");
+    expect(componentSource).not.toContain("key: `${roundLabel}:${display.label}:${toneClass}`");
     expect(componentSource).toContain("motion-safe:animate-pulse");
     expect(componentSource).toContain("transition-colors duration-200 motion-safe:animate-pulse motion-reduce:animate-none");
     expect(componentSource).not.toContain("items-baseline gap-[2px] motion-safe:animate-pulse");
