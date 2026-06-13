@@ -46,6 +46,9 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).toContain("不是必须继续补查每个肌群的义务");
     expect(descriptions).toContain("只在用户目标、上下文、已验证事实或当前规划确实需要该条件时填写");
     expect(descriptions).toContain("exercise_selection");
+    expect(descriptions).toContain("动作推荐集合");
+    expect(descriptions).toContain("不包含 prescription 或 schedule");
+    expect(descriptions).toContain("不主动输出组数、次数、时长、休息时间、训练频率、日程或等价处方参数");
     expect(descriptions).toContain("validator");
     expect(descriptions).not.toContain("缺少 warmup 或 stretch");
     expect(descriptions).not.toContain("缺 warmup 或 stretch");

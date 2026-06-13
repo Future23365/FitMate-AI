@@ -1193,7 +1193,10 @@ describe("LangChain Agent prompt", () => {
     expect(prompt).toContain("单次训练 routine 或多天训练 plan");
     expect(prompt).toContain("结构化训练收口工具");
     expect(prompt).toContain("正文 content 不能替代结构化训练结果");
-    expect(prompt).toContain("content 只负责解释推荐理由、动作注意事项、对比说明、训练建议或补充说明");
+    expect(prompt).toContain("content 只负责解释推荐理由、目标肌群、适用场景、动作差异或动作注意事项");
+    expect(prompt).toContain("content 不主动输出组数、次数、时长、休息时间、训练频率、日程或等价处方参数");
+    expect(prompt).toContain("用户明确需要训练安排、routine 或 plan");
+    expect(prompt).toContain("能由结构化 payload 支撑");
     expect(prompt).toContain("suggestedQuestions");
     expect(prompt).toContain("适合聊天正文的 Markdown 子集");
     expect(prompt).toContain("emoji、段落、短标题、编号列表、项目列表、加粗、斜体和行内代码");
@@ -1204,6 +1207,7 @@ describe("LangChain Agent prompt", () => {
     expect(prompt).toContain("数字范围使用 8-12、8 到 12 或 8 至 12");
     expect(prompt).toContain("不要使用 ~ 表达范围");
     expect(prompt).toContain("服务端负责认证、权限隔离、Zod 校验");
+    expect(prompt).toContain("不要把未经校验的模型想象当作数据库动作事实或处方参数");
     expect(prompt).not.toContain("禁止 emoji");
     expect(prompt).not.toContain("当用户说");
     expect(prompt).not.toContain("AgentAction");

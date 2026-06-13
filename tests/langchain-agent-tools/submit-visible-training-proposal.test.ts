@@ -20,6 +20,15 @@ describe("submitVisibleTrainingProposal LangChain tool", () => {
     expect(tool.description).toContain("受控动作事实");
     expect(tool.description).toContain("Content Boundary");
     expect(tool.description).toContain("visibleTrainingProposal.kind=exercise_selection");
+    expect(tool.description).toContain("payload.kind=exercise_selection");
+    expect(tool.description).toContain("动作推荐集合");
+    expect(tool.description).toContain("不包含 prescription 或 schedule");
+    expect(tool.description).toContain("payload.kind=routine");
+    expect(tool.description).toContain("动作项必须包含 prescription");
+    expect(tool.description).toContain("payload.kind=plan");
+    expect(tool.description).toContain("必须包含 schedule");
+    expect(tool.description).toContain("content 只写推荐理由、目标肌群、适用场景、动作差异或动作注意事项");
+    expect(tool.description).toContain("不主动输出组数、次数、时长、休息时间、训练频率、日程或等价处方参数");
     expect(tool.description).toContain("不把具体数据库动作作为回答条目展示");
     expect(tool.description).toContain("单次训练 routine");
     expect(tool.description).toContain("多天训练 plan");
