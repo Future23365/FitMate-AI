@@ -35,8 +35,16 @@ describe("production LangChain tool catalog", () => {
   it("keeps tool descriptions in Chinese without old AgentAction contract terms", () => {
     const descriptions = productionLangChainTools.map((tool) => tool.description).join("\n");
     const modelVisibleSamples = createProductionAgentModelVisibleTextSamples();
+    const systemPrompt = modelVisibleSamples
+      .filter((sample) => sample.kind === "system_prompt")
+      .map((sample) => sample.text)
+      .join("\n");
     const schemaDescriptions = modelVisibleSamples
       .filter((sample) => sample.kind === "schema_description")
+      .map((sample) => sample.text)
+      .join("\n");
+    const finalizationDescriptions = modelVisibleSamples
+      .filter((sample) => sample.kind === "finalization_tool_description")
       .map((sample) => sample.text)
       .join("\n");
     const findings = lintAgentModelVisibleTextSamples(modelVisibleSamples);
@@ -54,8 +62,18 @@ describe("production LangChain tool catalog", () => {
     expect(descriptions).toContain("exercise_selection");
     expect(descriptions).toContain("动作推荐集合");
     expect(descriptions).toContain("不包含 prescription 或 schedule");
+    expect(descriptions).toContain("默认完整 routine 由 warmup、training、stretch 三段组成");
+    expect(descriptions).toContain("training 段承载用户主训练目标");
+    expect(descriptions).toContain("suitabilities 可声明 warmup、training、stretch");
+    expect(descriptions).toContain("完整单次训练 routine 的动作事实通常来自这三类 section");
+    expect(descriptions).toContain("sectionSummary、availableSections、missingSections 只描述当前查询口径");
     expect(descriptions).toContain("不主动输出组数、次数、时长、休息时间、训练频率、日程或等价处方参数");
     expect(descriptions).toContain("validator");
+    expect(schemaDescriptions).toContain("完整单次训练 routine 通常会分别使用 warmup、training、stretch 对应 section 的动作事实");
+    expect(finalizationDescriptions).toContain("补齐未覆盖 section 的用户消息");
+    expect(systemPrompt).not.toContain("缺少 warmup");
+    expect(systemPrompt).not.toContain("缺少 stretch");
+    expect(systemPrompt).not.toContain("warmup、training、stretch");
     expect(descriptions).not.toContain("缺少 warmup 或 stretch");
     expect(descriptions).not.toContain("缺 warmup 或 stretch");
     expect(descriptions).not.toContain("support section");
@@ -110,6 +128,9 @@ describe("production LangChain tool catalog", () => {
 
     expect(schemaDescriptions).toContain("多值查询用于获得代表性候选覆盖");
     expect(schemaDescriptions).toContain("不是必须继续补查每个肌群的义务");
+    expect(schemaDescriptions).toContain("动作适配用途数组，只允许 warmup、training 或 stretch");
+    expect(schemaDescriptions).toContain("完整单次训练 routine 通常会分别使用 warmup、training、stretch 对应 section 的动作事实");
+    expect(schemaDescriptions).toContain("training 对应用户主训练目标");
     expect(schemaDescriptions).toContain("只在用户目标、上下文、已验证事实或当前规划确实需要环境、场地或支撑条件时填写");
     expect(schemaDescriptions).toContain("省略表示不额外限定环境条件");
   });

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import { agentRuntimeConfig } from "@/lib/server/config";
 import { buildExerciseResourceFilterApplication } from "@/lib/server/exercises/exercise-resource-filter-policy";
@@ -80,6 +81,9 @@ describe("searchExerciseResources LangChain tool", () => {
         sort: "name_asc",
       },
       returnedCount: 1,
+      availableSections: ["training"],
+      sectionSummary: { warmup: 0, training: 1, stretch: 0 },
+      missingSections: ["warmup", "stretch"],
       groups: {
         training: {
           returnedCount: 1,
@@ -387,9 +391,16 @@ describe("searchExerciseResources LangChain tool", () => {
     });
     const modelVisibleText = [
       tool.description,
-      JSON.stringify(tool.inputSchema),
+      JSON.stringify(z.toJSONSchema(tool.inputSchema)),
     ].join("\n");
 
+    expect(modelVisibleText).toContain("suitabilities 可声明 warmup、training、stretch");
+    expect(modelVisibleText).toContain("完整单次训练 routine 的动作事实通常来自这三类 section");
+    expect(modelVisibleText).toContain("sectionSummary、availableSections、missingSections 只描述当前查询口径");
+    expect(modelVisibleText).toContain("不表达下一步 tool workflow");
+    expect(modelVisibleText).toContain("动作适配用途数组，只允许 warmup、training 或 stretch");
+    expect(modelVisibleText).toContain("完整单次训练 routine 通常会分别使用 warmup、training、stretch 对应 section 的动作事实");
+    expect(modelVisibleText).toContain("training 对应用户主训练目标");
     expect(modelVisibleText).toContain("多 muscles 查询用于获得代表性候选覆盖");
     expect(modelVisibleText).toContain("zeroMatchMuscles 是诊断事实");
     expect(modelVisibleText).toContain("不是必须继续补查每个肌群的义务");
@@ -399,6 +410,7 @@ describe("searchExerciseResources LangChain tool", () => {
     expect(modelVisibleText).not.toContain("当用户说");
     expect(modelVisibleText).not.toContain("关键词");
     expect(modelVisibleText).not.toContain("短句模板");
+    expect(modelVisibleText).not.toContain("必须调用");
   });
 });
 

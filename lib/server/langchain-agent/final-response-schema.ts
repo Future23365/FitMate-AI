@@ -43,7 +43,7 @@ export const langChainFinalResponseJsonSchema: LangChainJsonSchemaObject = {
     suggestedQuestions: {
       type: "array",
       maxItems: 3,
-      description: "可选的建议提问。每条都是用户点击后可直接发送的完整用户消息，最多 3 条；没有自然下一步时省略。",
+      description: "可选的建议提问。每条都是用户点击后可直接发送的完整用户消息，最多 3 条；没有自然下一步时省略。本轮已交付结构化训练结果，且模型可见 section 覆盖事实显示完整 routine 默认三段中仍有未覆盖 section 时，可以给出补齐未覆盖 section 的用户消息；不要写工具调用指令。",
       items: {
         type: "string",
         minLength: 1,

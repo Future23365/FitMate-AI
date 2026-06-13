@@ -14,6 +14,10 @@ import {
   visibleTrainingProposalSchemaVersion,
 } from "@/lib/server/visible-training-proposals/visible-training-proposal-contract";
 import {
+  isVisibleTrainingCompositionSection,
+  summarizeVisibleTrainingResourceCoverage,
+} from "@/lib/server/visible-training-proposals/visible-training-resource-coverage";
+import {
   validateVisibleTrainingProposalOutput,
   type VisibleTrainingProposalValidatorOptions,
 } from "@/lib/server/visible-training-proposals/visible-training-proposal-validator";
@@ -30,7 +34,7 @@ const submitVisibleTrainingProposalInputSchema = z.object({
   schemaVersion: z.literal(visibleTrainingProposalSchemaVersion)
     .describe("固定为当前 visibleTrainingProposal schemaVersion。"),
   payload: visibleTrainingProposalPayloadSchema
-    .describe("结构化训练结果。exerciseItems[].exerciseId 必须来自模型可见、可被服务端数据库复核的受控动作事实，不能编造。kind=exercise_selection 表示动作推荐集合，只承载动作事实，不包含 prescription 或 schedule；kind=routine 表示单次可执行训练，动作项必须包含 prescription；kind=plan 表示多天训练计划，动作项必须包含 prescription，并必须包含 schedule。字段、section、prescription、schedule 和动作数据库事实由 schema 与服务端 validator 校验。"),
+    .describe("结构化训练结果。exerciseItems[].exerciseId 必须来自模型可见、可被服务端数据库复核的受控动作事实，不能编造。kind=exercise_selection 表示动作推荐集合，只承载动作事实，不包含 prescription 或 schedule；kind=routine 表示单次可执行训练，默认完整编排由 warmup、training、stretch 三段组成，training 承载用户主训练目标，动作项必须包含 prescription；用户明确只要部分范围、明确排除某段或当前事实不足时，可以只承载当前已支撑的 section，并由最终回答说明交付范围。kind=plan 表示多天训练计划，动作项必须包含 prescription，并必须包含 schedule。字段、section、prescription、schedule 和动作数据库事实由 schema 与服务端 validator 校验。"),
 }).strict();
 
 const acceptedVisibleOutputSchema = z.object({
@@ -78,8 +82,9 @@ export function createSubmitVisibleTrainingProposalLangChainTool(
       "Content Boundary：如果 content 准备列出这些具体动作，动作事实本身应由 visibleTrainingProposal.kind=exercise_selection 承载；当 payload.kind=exercise_selection 时，content 只写推荐理由、目标肌群、适用场景、动作差异或动作注意事项，不主动输出组数、次数、时长、休息时间、训练频率、日程或等价处方参数。",
       "Do Not Use When：只回答普通训练知识、动作教学、注意事项、热身或拉伸方法、动作原理或差异解释、空结果或条件不足说明，且不把具体数据库动作作为回答条目展示时，不需要使用本 tool。",
       "Input Source：payload 中的 exerciseItems[].exerciseId 必须来自模型可见、可被服务端数据库复核的受控动作事实；不能编造动作 id 或复写完整动作详情。",
-      "Output Meaning：payload.kind=exercise_selection 表示动作推荐集合，只承载动作事实，不包含 prescription 或 schedule；payload.kind=routine 表示单次可执行训练，动作项必须包含 prescription；payload.kind=plan 表示多天训练计划，动作项必须包含 prescription，并必须包含 schedule。字段、section、prescription、schedule 和动作数据库事实都必须匹配当前 schema 与 validator 边界。",
+      "Output Meaning：payload.kind=exercise_selection 表示动作推荐集合，只承载动作事实，不包含 prescription 或 schedule；payload.kind=routine 表示单次可执行训练，默认完整 routine 由 warmup、training、stretch 三段组成，training 段承载用户主训练目标；用户明确只要部分范围、明确排除某段或当前事实不足时，可以只交付已支撑 section 并在最终回答说明范围。payload.kind=plan 表示多天训练计划，动作项必须包含 prescription，并必须包含 schedule。字段、section、prescription、schedule 和动作数据库事实都必须匹配当前 schema 与 validator 边界。",
       "Grounding Rules：本 tool 不查询动作库、不自动补全动作、不生成处方、不保存计划、不写入用户数据。",
+      "accepted summary 会暴露已校验 payload 的 sectionSummary、availableSections、missingSections；这些字段只描述当前结构覆盖事实。",
       "accepted 表示结构已通过服务端 validator 并生成可渲染投影；rejected 只表示结构或确定性事实校验失败。",
     ].join("\n"),
     inputSchema: submitVisibleTrainingProposalInputSchema,
@@ -166,12 +171,14 @@ function createSubmitVisibleTrainingProposalModelSummary(
   }
 
   const payloadKind = readPayloadKind(output.visibleOutput.payload);
+  const coverage = summarizeAcceptedVisibleOutputCoverage(output.visibleOutput);
   return {
     status: "accepted",
     outputType: output.visibleOutput.outputType,
     schemaVersion: output.visibleOutput.schemaVersion,
     ...(payloadKind === undefined ? {} : { payloadKind }),
     exerciseItemCount: countExerciseItems(output.visibleOutput.payload),
+    ...(coverage === undefined ? {} : coverage),
     validationBoundary: "accepted 表示服务端已校验该结构，并生成可渲染的用户可见投影事实。",
   };
 }
@@ -205,12 +212,14 @@ function createSubmitVisibleTrainingProposalTraceSummary(
   }
 
   const payloadKind = readPayloadKind(output.visibleOutput.payload);
+  const coverage = summarizeAcceptedVisibleOutputCoverage(output.visibleOutput);
   return {
     status: "accepted",
     outputType: output.visibleOutput.outputType,
     schemaVersion: output.visibleOutput.schemaVersion,
     ...(payloadKind === undefined ? {} : { payloadKind }),
     exerciseItemCount: countExerciseItems(output.visibleOutput.payload),
+    ...(coverage === undefined ? {} : coverage),
   };
 }
 
@@ -230,4 +239,27 @@ function countExerciseItems(payload: unknown) {
 
   const exerciseItems = (payload as { exerciseItems?: unknown }).exerciseItems;
   return Array.isArray(exerciseItems) ? exerciseItems.length : 0;
+}
+
+function summarizeAcceptedVisibleOutputCoverage(output: AcceptedVisibleTrainingProposalOutput) {
+  const payload = output.payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return undefined;
+  }
+
+  const exerciseItems = (payload as { exerciseItems?: unknown }).exerciseItems;
+  if (!Array.isArray(exerciseItems)) {
+    return undefined;
+  }
+
+  const sectionItems = exerciseItems.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return [];
+    }
+
+    const section = (item as { section?: unknown }).section;
+    return isVisibleTrainingCompositionSection(section) ? [{ section }] : [];
+  });
+
+  return summarizeVisibleTrainingResourceCoverage({ exerciseItems: sectionItems });
 }

@@ -202,7 +202,7 @@ export const searchExerciseResourcesInputSchema = z.object({
     .min(1)
     .max(3)
     .optional()
-    .describe("动作适配用途数组，只允许 warmup、training 或 stretch；省略时按 training 主训练候选查询。training 使用严格 hard filter policy；warmup / stretch 使用 support_section policy，只把 section、器械、场地、肌群和受控动作 id 作为 hard filter。"),
+    .describe("动作适配用途数组，只允许 warmup、training 或 stretch；省略时按 training 主训练候选查询。完整单次训练 routine 通常会分别使用 warmup、training、stretch 对应 section 的动作事实，training 对应用户主训练目标。training 使用严格 hard filter policy；warmup / stretch 使用 support_section policy，只把 section、器械、场地、肌群和受控动作 id 作为 hard filter。"),
   level: optionalTextFilterSchema.describe(`动作难度或中文难度的精确筛选值。${trainingPolicyFacetDescription}`),
   force: optionalTextFilterSchema.describe(`发力类型或中文发力类型的精确筛选值。${trainingPolicyFacetDescription}`),
   mechanic: optionalTextFilterSchema.describe(`动作机制或中文动作机制的精确筛选值。${trainingPolicyFacetDescription}`),
@@ -395,6 +395,8 @@ export function createSearchExerciseResourcesLangChainTool(
       "只读查询 Exercise 动作库事实，并按 suitabilities 返回 groups.<section>.exercises[]、section 覆盖和 diagnostics。",
       "使用边界：需要基于结构化数据库 facet、section 用途或受控 exerciseId 获取发布态动作事实时使用。",
       "输出含 query、filters、groups、sectionSummary、availableSections、missingSections、diagnostics、totalMatches、returnedCount、truncated 和 zeroMatchMuscles 等事实。",
+      "suitabilities 可声明 warmup、training、stretch；完整单次训练 routine 的动作事实通常来自这三类 section，training 对应用户主训练目标。",
+      "sectionSummary、availableSections、missingSections 只描述当前查询口径下 groups.<section> 的覆盖事实，不表达下一步 tool workflow、固定补查流程或收口要求。",
       "多 muscles 查询用于获得代表性候选覆盖，并会尽量均衡返回各请求肌群的候选；groups.<section>.zeroMatchMuscles 只表示当前 section、当前过滤条件和当前排除条件下没有候选的请求肌群。",
       "zeroMatchMuscles 是诊断事实，可用于解释、澄清或调整查询；不表示动作库永久缺失该肌群，不表示用户训练目标失败，也不是必须继续补查每个肌群的义务。",
       "本 tool 不生成 visibleTrainingProposal、训练卡片、routine、plan、处方、日程或保存结果。",

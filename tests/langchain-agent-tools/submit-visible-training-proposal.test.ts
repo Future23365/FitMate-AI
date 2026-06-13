@@ -9,6 +9,7 @@ import type { VisibleTrainingProposalExerciseFactLoader } from "@/lib/server/vis
 const baseContext = {
   actor: { userId: "user-1", conversationId: "conversation-1" },
 };
+type ExerciseFactRecord = Awaited<ReturnType<VisibleTrainingProposalExerciseFactLoader>>[number];
 
 describe("submitVisibleTrainingProposal LangChain tool", () => {
   it("exposes finalization and validator boundaries without support-section workflow instructions", () => {
@@ -24,9 +25,16 @@ describe("submitVisibleTrainingProposal LangChain tool", () => {
     expect(tool.description).toContain("动作推荐集合");
     expect(tool.description).toContain("不包含 prescription 或 schedule");
     expect(tool.description).toContain("payload.kind=routine");
+    expect(tool.description).toContain("默认完整 routine 由 warmup、training、stretch 三段组成");
+    expect(tool.description).toContain("training 段承载用户主训练目标");
+    expect(tool.description).toContain("用户明确只要部分范围");
+    expect(tool.description).toContain("可以只交付已支撑 section");
     expect(tool.description).toContain("动作项必须包含 prescription");
     expect(tool.description).toContain("payload.kind=plan");
     expect(tool.description).toContain("必须包含 schedule");
+    expect(tool.description).toContain("sectionSummary");
+    expect(tool.description).toContain("availableSections");
+    expect(tool.description).toContain("missingSections");
     expect(tool.description).toContain("content 只写推荐理由、目标肌群、适用场景、动作差异或动作注意事项");
     expect(tool.description).toContain("不主动输出组数、次数、时长、休息时间、训练频率、日程或等价处方参数");
     expect(tool.description).toContain("不把具体数据库动作作为回答条目展示");
@@ -99,7 +107,74 @@ describe("submitVisibleTrainingProposal LangChain tool", () => {
         ],
       },
     });
-    expect(execution.modelMessage).toContain("\"status\":\"accepted\"");
+    const modelMessage = JSON.parse(execution.modelMessage);
+
+    expect(modelMessage).toMatchObject({
+      status: "accepted",
+      payloadKind: "exercise_selection",
+      exerciseItemCount: 1,
+      sectionSummary: { warmup: 0, training: 1, stretch: 0 },
+      availableSections: ["training"],
+      missingSections: ["warmup", "stretch"],
+    });
+    expect(modelMessage).not.toHaveProperty("nextActionHints");
+    expect(modelMessage).not.toHaveProperty("recommendedNextStep");
+    expect(modelMessage).not.toHaveProperty("satisfied");
+  });
+
+  it("summarizes accepted routine coverage across warmup training and stretch", async () => {
+    const tool = createSubmitVisibleTrainingProposalLangChainTool({
+      loadExerciseRecordsByIds: createExerciseFactLoader(),
+    });
+
+    const execution = await executeLangChainToolWrapper(tool, {
+      outputType: "visibleTrainingProposal",
+      schemaVersion: "1",
+      payload: {
+        kind: "routine",
+        exerciseItems: [
+          {
+            exerciseId: "jumping-jack",
+            section: "warmup",
+            order: 1,
+            prescription: createPrescription({ mode: "reps", target: 20 }),
+          },
+          {
+            exerciseId: "push-up",
+            section: "training",
+            order: 1,
+            prescription: createPrescription({ mode: "reps", target: 10 }),
+          },
+          {
+            exerciseId: "standing-quad-stretch",
+            section: "stretch",
+            order: 1,
+            prescription: createPrescription({ mode: "duration", target: 30 }),
+          },
+        ],
+      },
+    }, baseContext);
+    const modelMessage = JSON.parse(execution.modelMessage);
+
+    expect(modelMessage).toMatchObject({
+      status: "accepted",
+      payloadKind: "routine",
+      exerciseItemCount: 3,
+      sectionSummary: { warmup: 1, training: 1, stretch: 1 },
+      availableSections: ["warmup", "training", "stretch"],
+      missingSections: [],
+    });
+    expect(execution.record.traceSummary).toMatchObject({
+      status: "accepted",
+      payloadKind: "routine",
+      exerciseItemCount: 3,
+      sectionSummary: { warmup: 1, training: 1, stretch: 1 },
+      availableSections: ["warmup", "training", "stretch"],
+      missingSections: [],
+    });
+    expect(JSON.stringify(modelMessage)).not.toContain("nextActionHints");
+    expect(JSON.stringify(modelMessage)).not.toContain("recommendedNextStep");
+    expect(JSON.stringify(modelMessage)).not.toContain("satisfied");
   });
 
   it("returns validator rejection without creating a visible output projection", async () => {
@@ -163,13 +238,19 @@ describe("submitVisibleTrainingProposal LangChain tool", () => {
 });
 
 function createExerciseFactLoader(): VisibleTrainingProposalExerciseFactLoader {
-  return async (ids) => ids.flatMap((id) => {
-    if (id !== "push-up") {
-      return [];
-    }
-
-    return [{
-      id,
+  const records: Record<string, ExerciseFactRecord> = {
+    "jumping-jack": {
+      id: "jumping-jack",
+      nameZh: "开合跳",
+      nameEn: "Jumping Jack",
+      equipmentZh: "自重",
+      primaryMusclesZh: ["全身"],
+      allowedSections: ["warmup"],
+      imageUrls: ["https://example.test/jumping-jack.jpg"],
+      isPublished: true,
+    },
+    "push-up": {
+      id: "push-up",
       nameZh: "俯卧撑",
       nameEn: "Push-Up",
       equipmentZh: "自重",
@@ -177,6 +258,28 @@ function createExerciseFactLoader(): VisibleTrainingProposalExerciseFactLoader {
       allowedSections: ["training"],
       imageUrls: ["https://example.test/push-up.jpg"],
       isPublished: true,
-    }];
-  });
+    },
+    "standing-quad-stretch": {
+      id: "standing-quad-stretch",
+      nameZh: "站姿股四头肌拉伸",
+      nameEn: "Standing Quad Stretch",
+      equipmentZh: "自重",
+      primaryMusclesZh: ["股四头肌"],
+      allowedSections: ["stretch"],
+      imageUrls: ["https://example.test/standing-quad-stretch.jpg"],
+      isPublished: true,
+    },
+  };
+
+  return async (ids) => ids.flatMap((id) => records[id] ? [records[id]] : []);
+}
+
+function createPrescription(input: { mode: "reps" | "duration"; target: number }) {
+  return {
+    mode: input.mode,
+    sets: 1,
+    target: input.target,
+    setRestSeconds: 30,
+    transitionRestSeconds: 30,
+  };
 }
