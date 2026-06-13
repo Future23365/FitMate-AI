@@ -56,6 +56,8 @@ type RuntimeMetadataEnvelope<TBusinessInput> = TBusinessInput & {
 
 服务端 wrapper 先读取 `runtimeMetadata.activitySummary`，投影活动事件，再剥离 `runtimeMetadata` 并用原业务 schema 校验剩余 input。handler 只能看到业务字段。
 
+`runtimeMetadata` 由通用 LangChain tool wrapper / production catalog schema serialization 自动注入 provider-visible schema，不要求每个业务 tool 的源 `inputSchema` 手写该字段。业务 `inputSchema` 仍只表达业务字段；runtime metadata envelope 是 wrapper 层的执行合同。
+
 **取舍：**
 
 - 相比继续使用 `reportAgentActivity + businessTool` companion tool，这个方案不会产生额外 tool action、ToolMessage 或 activity-only loop。
@@ -107,9 +109,9 @@ type RuntimeMetadataEnvelope<TBusinessInput> = TBusinessInput & {
 
 ### 5. 生产 catalog 迁移出 `reportAgentActivity`
 
-迁移完成后，生产 tool catalog 不应再暴露 `reportAgentActivity` 作为活动条主入口。相关配置中的 `maxActivityReports` 需要删除或改名为 runtime metadata projection 防刷屏边界，例如 `maxActivityMetadataEvents`，并且不再以独立 tool 次数计数。
+迁移完成后，生产 tool catalog 不应再暴露 `reportAgentActivity` 作为活动条主入口。本 change 选择直接从 production catalog / 默认可用 tools 中移除或停用该 tool，不保留生产 deprecated 兼容窗口；如果测试或开发 fixture 临时保留同名工具，也不得进入 production catalog、默认 prompt、预算说明或 `/api/chat` 主链路。
 
-如果保留短期兼容，只能在迁移窗口内作为 deprecated tool，并且不得作为最终实现依赖；OpenSpec 实现任务应默认移除生产 catalog 中的独立 activity tool。
+相关配置中的 `maxActivityReports` 需要删除或迁移为 runtime metadata 投影防刷屏边界，例如 `maxActivityMetadataEvents`。该边界只限制 request-local UI projection / trace warning 数量，不是 provider-visible tool 预算，不产生独立 ToolMessage、model call、graph step 或 activity-only loop。
 
 ### 6. 前端只对真实文案变化做滚动
 
@@ -119,6 +121,18 @@ type RuntimeMetadataEnvelope<TBusinessInput> = TBusinessInput & {
 - `agent_progress.activitySummary` 或 stage fallback 只更新右侧文案。
 
 活动条可以显示新的 `#N` 前缀，但如果右侧文案与上一帧相同，不能触发“上一条文案滚出 / 同一文案滚入”的滚动动画。这样保留 loop 前缀可见，同时避免重复文案刷屏。
+
+本 change 保留 `#N` 前缀显示。重复摘要场景只更新不可动画的前缀文本；右侧文案、滚动动画和 `aria-live` 播报只由真实文案变化触发。
+
+### 7. active spec 迁移和历史回归审计
+
+本 change 反转了多个历史 activity 合同：
+
+- `openspec/changes/archive/2026-06-11-restore-langchain-agent-activity-stream` 引入 `reportAgentActivity` 作为模型活动汇报 tool。
+- `openspec/changes/archive/2026-06-11-align-langchain-runtime-budget-config`、`openspec/changes/archive/2026-06-11-limit-consecutive-langchain-tool-calls` 和 `openspec/changes/archive/2026-06-11-rebalance-langchain-tool-call-budget` 将 `maxActivityReports` 建模为独立 activity report 预算。
+- `openspec/changes/archive/2026-06-07-add-llm-agent-activity-summary` 曾将 `activitySummary` 建模为旧 `AgentAction` 顶层字段。
+
+因此本 change 不只修改 runtime / wrapper 实现，还必须同步覆盖 active specs 中仍然表达旧合同的位置：`langchain-agent-runtime`、`agent-llm-prompt-configuration`、`agent-text-chat-flow`、`agent-runtime-configuration`、`agent-tool-production-hardening`、`chat-agent-activity-indicator` 和 `chat-agent-activity-display-stability`。实现完成前必须运行历史回归合同审计和文本扫描，确认 active specs、prompt、production catalog、runtime、adapter 与前端测试不再把 `reportAgentActivity`、`maxActivityReports`、`AgentAction.activitySummary` 或 `model_activity` stage 当作当前生产主合同。
 
 ## Risks / Trade-offs
 
@@ -139,8 +153,8 @@ type RuntimeMetadataEnvelope<TBusinessInput> = TBusinessInput & {
 6. 更新 `/api/chat` stream tests、LangChain runtime tests、tool catalog tests、model-visible contract gate 和前端 activity tests。
 7. 运行 `openspec validate add-tool-call-runtime-activity-metadata --strict`、相关 `npm test` 和 `npm run typecheck`。
 
-## Open Questions
+## Resolved Questions
 
-- 是否需要保留一个短期 deprecated `reportAgentActivity` 兼容窗口，还是实现时直接从生产 catalog 移除？
-- `runtimeMetadata.activitySummary` 是否在 provider-visible schema 中设为全局 optional，还是对所有业务 tool 通过 helper 自动注入并隐藏在源业务 schema 外？
-- 前端是否继续显示 `#N` 前缀，还是在重复摘要场景只更新不可动画的前缀文本？
+- 不保留生产 deprecated `reportAgentActivity` 兼容窗口；默认从 production catalog / 默认可用 tools / prompt / 预算说明移除。
+- `runtimeMetadata.activitySummary` 由 wrapper / catalog helper 自动注入 provider-visible schema，不写入各业务 tool 的源 `inputSchema`。
+- 前端继续显示 `#N` 前缀；重复摘要时只更新前缀，不触发右侧文案动画或重复可访问性播报。

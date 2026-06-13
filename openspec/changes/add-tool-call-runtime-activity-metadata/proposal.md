@@ -24,10 +24,14 @@
 - `agent-llm-prompt-configuration`: 将模型可见运行规则从独立 activity report 预算迁移到 `runtimeMetadata.activitySummary` 字段说明，避免鼓励 activity-only tool call。
 - `agent-text-chat-flow`: 明确 `/api/chat` 的 `agent_progress.activitySummary` 来源可以是已校验 runtime metadata，但 `agent_loop`、`stage`、`status` 和 `sequence` 仍来自服务端生命周期。
 - `chat-agent-activity-display-stability`: 调整聊天活动条展示仲裁，确保只有新活动摘要或真实 stage 文案变化才触发文案滚动；单独的 `agent_loop` 轮次变化不得重复滚动上一条相同摘要。
+- `agent-runtime-configuration`: 将独立 `maxActivityReports` activity tool 预算迁移为 runtime metadata 投影、安全清洗和去重边界，避免配置层继续表达已废弃 activity-only tool。
+- `agent-tool-production-hardening`: 更新生产预算最坏路径说明，确保模型调用预算和 graph step 上限覆盖 runtime metadata 投影但不保留独立 activity report 预算。
+- `chat-agent-activity-indicator`: 将活动条摘要来源从“模型通过活动汇报 tool 生成”迁移为 `/api/chat` 投影的已校验 runtime metadata、tool 静态默认摘要或安全 fallback。
 
 ## Impact
 
 - 影响服务端 Agent tool wrapper、production tool catalog、LangChain runtime observer、`/api/chat` NDJSON activity projection、trace projection 和相关配置。
 - 影响传给模型的 system prompt、LangChain tool schema description / description、tool catalog contract tests 和 model-visible contract gate。
 - 影响前端聊天活动条 reducer / indicator 的重复文案动画策略，但不改变聊天历史、visible output、训练事实或业务 tool handler 输出。
+- 影响已有 active specs 中关于 `reportAgentActivity`、`maxActivityReports`、`AgentAction.activitySummary`、`model_activity` activity stage 的旧合同，需要在本 change 内同步移除或迁移，避免 archive 后规范互相冲突。
 - 需要新增或更新 OpenSpec specs、runtime / tool wrapper 单测、API stream 单测、前端 activity 单测，并运行 `openspec validate <change> --strict`、相关 `npm test` 和 `npm run typecheck`。

@@ -4,6 +4,9 @@
 - [ ] 1.2 按 `agent-prompt-contract-governance` 对齐 `docs/llm-prompt-guidance.md`，确认 `runtimeMetadata.activitySummary` 的模型可见说明只表达字段用途、UI metadata 边界和非业务事实属性。
 - [ ] 1.3 按 `agent-fix-abstraction-gate` 检查实现方案，不得把具体用户原话、具体 trace、具体业务 `toolName` 或字段组合升级成通用 runtime / prompt 规则。
 - [ ] 1.4 在实现前确认当前生产主链仍是 LangChain Agent Runtime + DeepSeek native `tool_calls`，不得恢复旧 `AgentAction.activitySummary`、旧 `agent-core` 或旧 stream 事件协议。
+- [ ] 1.5 按 `agent-regression-contract-audit` 回查 `restore-langchain-agent-activity-stream`、`align-langchain-runtime-budget-config`、`limit-consecutive-langchain-tool-calls`、`rebalance-langchain-tool-call-budget` 和 `add-llm-agent-activity-summary` 等归档 change，确认旧 `reportAgentActivity`、`maxActivityReports`、`AgentAction.activitySummary` 和 `model_activity` stage 合同没有作为当前生产主合同回归。
+- [ ] 1.6 确认本 change 的 active spec delta 已覆盖 `langchain-agent-runtime`、`agent-llm-prompt-configuration`、`agent-text-chat-flow`、`agent-runtime-configuration`、`agent-tool-production-hardening`、`chat-agent-activity-indicator` 和 `chat-agent-activity-display-stability` 中的旧 activity 合同。
+- [ ] 1.7 实现前确认 `design.md` 的 resolved decisions 仍成立：production 不保留 deprecated `reportAgentActivity` 兼容窗口，`runtimeMetadata` 由 wrapper / catalog helper 注入 provider-visible schema，前端保留 `#N` 前缀但重复摘要不触发右侧文案动画。
 
 ## 2. Runtime Metadata Envelope
 
@@ -44,4 +47,5 @@
 - [ ] 6.4 增加 `/api/chat` stream 测试，覆盖 handler 前 `agent_progress.activitySummary`、`agent_loop` 独立递增、非安全摘要 fallback、stream 写入失败非致命和最终响应事实隔离。
 - [ ] 6.5 增加前端 activity 测试，覆盖相同文案不因 `agent_loop` 递增而重新滚动、新摘要正常更新、重复 fallback 不刷屏、生命周期清理和可访问性播报边界。
 - [ ] 6.6 增加架构或文本扫描测试，证明 runtime / adapter 没有针对 `searchExerciseResources`、`inspectVisibleTrainingProposals`、`resolveExerciseResourceMentions`、`submitVisibleTrainingProposal` 或用户 phrasing 的语义分支。
-- [ ] 6.7 运行 `openspec validate add-tool-call-runtime-activity-metadata --strict`、相关 `npm test` 或定向测试，并按影响范围运行 `npm run typecheck`。
+- [ ] 6.7 增加 active spec / prompt / production catalog 残留扫描，证明 `reportAgentActivity`、`maxActivityReports`、`AgentAction.activitySummary`、`model_activity` 和 `activity report` 不再作为当前生产主合同残留；如仅在 archive、removed delta 或迁移说明中出现，必须标明非当前合同语境。
+- [ ] 6.8 运行 `openspec validate add-tool-call-runtime-activity-metadata --strict`、相关 `npm test` 或定向测试，并按影响范围运行 `npm run typecheck`。

@@ -1,5 +1,18 @@
 ## MODIFIED Requirements
 
+### Requirement: 文本聊天 trace 不得扩大当前业务能力
+系统 SHALL 保持当前文本聊天阶段的受控 LangChain tool catalog、跨 run 事实恢复边界和通用 NDJSON 事件边界。新增 trace 写入 MUST NOT 注册额外业务 tool、恢复旧事件或引入服务端自然语言分流。独立 activity tool 废弃后，trace MUST 将活动摘要记录为 runtime / UI metadata，而不是旧 activity report 预算或业务事实。
+
+#### Scenario: trace 写入记录预算和 runtime activity metadata
+- **WHEN** `/api/chat` 为文本聊天请求创建 trace
+- **THEN** trace MUST 记录 production LangChain tool catalog 摘要、toolCount、toolNames 或等价 catalogHash 证据
+- **AND** trace SHOULD 记录本轮 Agent run 的 `maxModelCalls`、`maxToolCalls`、`maxToolCallsPerTool`、`graphRecursionLimit` 或等价 LangChain `recursionLimit`、整体 timeout 和预算事件
+- **AND** trace MAY 在独立 runtime / UI metadata 区域记录已投影、被丢弃或 fallback 的 `runtimeMetadata.activitySummary` 摘要和稳定 reason
+- **AND** trace MUST NOT 将 `maxActivityReports` 记录为当前生产 activity 摘要预算
+- **AND** trace MUST NOT 继续把旧 `maxIterations` 当作当前 LangChain runtime 的预算语义
+- **AND** 如本轮恢复了动作事实摘要，trace MUST 只记录安全摘要和引用 id
+- **AND** trace MUST NOT 记录完整历史 payload、跨用户 payload、未展示内部候选或未经脱敏的大 payload
+
 ### Requirement: 文本聊天 stream 必须支持用户安全 Agent 进度事件
 生产 `/api/chat` 文本聊天 NDJSON stream SHALL 支持用户安全的 Agent 进度事件，例如 `agent_progress`。该事件只服务当前请求的聊天 UI 活动条，MUST NOT 替代 `content`、`visible_output`、`tool_result`、`confirmation_request`、`assistant_suggestions`、`error` 或 `done` 等最终用户事件。事件的 `stage`、`status`、`sequence` 和生命周期 MUST 来自服务端当前请求生命周期；可选 `activitySummary` MAY 来自已校验的 `runtimeMetadata.activitySummary` 或服务端安全 fallback。
 
