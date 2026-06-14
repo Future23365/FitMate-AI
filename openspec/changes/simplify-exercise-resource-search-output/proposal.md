@@ -4,8 +4,8 @@
 
 ## What Changes
 
-- **BREAKING** 简化 `searchExerciseResources` 的模型可见 observation：从 `groups.<section>.exercises[]` 改为顶层 `exercises[]` 候选列表，不再向模型暴露 `sectionSummary`、`availableSections`、`missingSections`、`allowedSections` 和 `allowedSectionsRelation`。
-- 保留 `suitabilities` 作为查询输入，模型需要主训练、热身或拉伸候选时仍通过 `suitabilities = ["training"]`、`["warmup"]` 或 `["stretch"]` 表达查询口径。
+- **BREAKING** 简化 `searchExerciseResources` 的模型可见 observation：从旧 `groups.<section>.exercises[]` 和 section coverage 诊断，调整为按查询口径分组的 `candidateGroups[]` 候选列表；每组保留 `suitability` 作为本次查询来源，不再向模型暴露 `sectionSummary`、`availableSections`、`missingSections`、每个动作的 `allowedSections`、`allowedSectionsRelation` 和 `groupSemantics`。
+- 保留 `suitabilities` 作为查询输入，模型需要主训练、热身或拉伸候选时仍通过 `suitabilities = ["training"]`、`["warmup"]` 或 `["stretch"]` 表达查询口径；模型可见结果中的 `candidateGroups[].suitability` 只回显查询来源，不是最终训练编排命令。
 - 新增受控候选数量输入 `candidateCountPerSection?: number`，默认值为 8，最大值为 24；该字段只控制每个请求 section 的候选返回数量，不提供分页、offset、cursor 或任意全库读取能力。
 - 保守保留最终 `visibleTrainingProposal` 服务端校验：最终输出仍由服务端基于数据库事实复核 `exerciseId`、发布态和 `allowedSections`，不把训练 section 合法性完全交给模型自由判断。
 - 同步更新 `searchExerciseResources` 的 description、schema description、model-visible summary、user projection、trace summary 和相关测试，明确该 tool 只返回动作候选事实，不生成 routine、plan、训练卡片、处方或保存结果。
@@ -21,7 +21,7 @@
 
 - `agent-exercise-resource-query-tool`: 调整 `searchExerciseResources` 的输入数量控制、模型可见 observation 形状、section coverage 暴露边界和动作候选事实合同。
 - `agent-tool-production-hardening`: 区分受控候选数量字段和分页 / offset 控制字段，继续禁止 `limit`、`page`、`pageSize`、`offset`、`take`、`maxReturned` 等可复制分页字段。
-- `ai-token-budgeting`: 调整 Planner 模型投影保留字段要求，避免继续要求 `searchExerciseResources` 的模型可见投影保留已删除的 `allowedSections` / section coverage 字段。
+- `ai-token-budgeting`: 调整 Planner 模型投影保留字段要求，保留 `searchExerciseResources` 的 `candidateGroups[]` 查询口径分组，避免继续要求模型可见投影保留已删除的 `allowedSections` / section coverage 字段。
 
 ## Impact
 

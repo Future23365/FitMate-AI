@@ -10,7 +10,7 @@
 
 **Goals:**
 
-- 让 `searchExerciseResources` 的模型可见结果只表达动作候选事实，不再表达 section coverage 缺口或每个动作的 placement eligibility。
+- 让 `searchExerciseResources` 的模型可见结果只表达按查询口径分组的动作候选事实，不再表达 section coverage 缺口或每个动作的 placement eligibility。
 - 保留 `suitabilities` 作为模型主动选择候选用途的查询输入，模型需要主训练、热身或拉伸候选时仍通过结构化字段表达。
 - 新增 `candidateCountPerSection`，让模型在受控上限内表达每个 section 需要多少候选动作；默认 8，最大 24。
 - 保守保留最终 `visibleTrainingProposal` 服务端数据库事实校验，继续按数据库 `allowedSections` 复核最终 `exerciseItems[*].section`。
@@ -26,17 +26,17 @@
 
 ## Decisions
 
-### 1. observation 使用顶层 `exercises[]`，不再暴露 `groups.<section>.exercises[]`
+### 1. observation 使用 `candidateGroups[]` 保留查询口径，不再暴露旧 section coverage
 
-`searchExerciseResources` 的 handler 可以继续按 `suitabilities` 分 section 查询和合并内部结果，但模型可见 observation 改为顶层 `exercises[]`。每个动作摘要保留 `exerciseId`、`nameZh`、`nameEn`、`equipmentZh`、`homeRequirementZh`、`primaryMusclesZh`、`imageUrl` 等动作事实，不再包含 `allowedSections`。
+`searchExerciseResources` 的 handler 可以继续按 `suitabilities` 分 section 查询和合并内部结果；模型可见 observation 改为 `candidateGroups[] = [{ suitability, returnedCount, truncated, zeroMatchMuscles, exercises[] }]`。每个 group 只表示本次查询输入中的候选用途来源，只包含实际请求到的 `suitability`，不填充缺失 section，也不表达完整 routine / plan coverage。每个动作摘要保留 `exerciseId`、`nameZh`、`nameEn`、`equipmentZh`、`homeRequirementZh`、`primaryMusclesZh`、`imageUrl` 等动作事实，不再包含 `allowedSections`。
 
-理由：模型已经通过 input 的 `suitabilities` 表达了本次候选用途。返回结果再次按 section 分组并附带 coverage / eligibility，会把查询事实包装成编排边界。顶层 `exercises[]` 更符合“这个 tool 返回动作候选”的稳定职责。
+理由：顶层拍平 `exercises[]` 会在多 `suitabilities` 查询时丢失候选来源；旧 `groups.<section>` 又容易和 `sectionSummary`、`missingSections` 一起被理解成训练编排 coverage。`candidateGroups[]` 只保留查询来源，不暴露 placement eligibility，让模型能知道“这些候选是按哪个 `suitability` 查出来的”，但不能从 tool result 推导“还缺哪个 section”或“这个动作还能放在哪里”。
 
-备选方案是保留 `groups` 但重命名 `allowedSections` 为 `eligibleSections`。不采用，因为用户明确希望模型不要再从 tool result 中看到“应该放在哪里”的字段；保留同类字段仍容易让模型围绕 placement 继续推理。
+备选方案一是使用顶层 `exercises[]`。不采用，因为它会丢失查询来源，尤其在 `suitabilities` 同时包含多个值时会让模型难以区分候选用途。备选方案二是保留旧 `groups` 并把 `allowedSections` 重命名为 `eligibleSections`。不采用，因为用户明确希望模型不要再从 tool result 中看到“应该放在哪里”的字段；保留同类字段仍容易让模型围绕 placement 继续推理。
 
 ### 2. 从模型可见 observation 删除 section coverage 字段
 
-模型可见 summary 删除 `sectionSummary`、`availableSections`、`missingSections` 和 `allowedSectionsRelation`。`query.suitabilities`、`returnedCount`、`truncated`、`appliedFilters`、`filterApplications` 和 diagnostics 仍可作为查询事实存在，但不得表达缺失 section、固定补查流程或最终输出禁令。
+模型可见 summary 删除 `sectionSummary`、`availableSections`、`missingSections`、`allowedSectionsRelation` 和 `groupSemantics`。`query.suitabilities`、`candidateGroups[].suitability`、`returnedCount`、`truncated`、`appliedFilters`、`filterApplications` 和 diagnostics 仍可作为查询事实存在，但不得表达缺失 section、固定补查流程或最终输出禁令。
 
 理由：`missingSections` 的词义天然像“任务缺口”，在动作集合请求中会误导模型继续补查。是否需要完整 routine / plan 结构应由模型根据用户目标判断，并通过后续 `suitabilities` 查询或 finalization validator 的反馈修正，而不是由 `searchExerciseResources` observation 主动提示缺口。
 
@@ -62,7 +62,7 @@
 
 1. 抽象问题类型：tool result summary 把动作候选事实和 section 编排诊断混在一起。
 2. 通用合同修复：query tool 只暴露资源候选事实和受控候选规模，不表达最终编排缺口。
-3. 业务 tool 局部说明：`searchExerciseResources` 返回动作候选；`suitabilities` 是查询口径；最终编排由模型决定，服务端复核。
+3. 业务 tool 局部说明：`searchExerciseResources` 返回按查询口径分组的动作候选；`suitabilities` / `candidateGroups[].suitability` 是查询来源，不是最终 placement；最终编排由模型决定，服务端复核。
 4. 回归测试样例：覆盖“取 10 个动作”“推荐 12 个练胸动作”“生成完整训练 routine”三类语义。
 5. 服务端语义分流检查：不新增关键词规则、自然语言模板路由、phrasing 特判或具体 `toolName` 语义分支。
 
@@ -74,7 +74,7 @@
 - [Risk] `candidateCountPerSection = 24` 会放大模型上下文。  
   → Mitigation: 默认仍是 8；24 是显式上限；tool result summary 继续只返回有限动作摘要，不返回完整 handler output 或数据库对象。
 
-- [Risk] 旧 specs / tests 中仍断言 `groups`、`missingSections` 或 `allowedSections` 存在。  
+- [Risk] 旧 specs / tests 中仍断言旧 `groups`、`missingSections` 或 `allowedSections` 存在，或新测试误把 `candidateGroups[].suitability` 当成 placement eligibility。  
   → Mitigation: 本 change 明确修改 `agent-exercise-resource-query-tool`、`agent-tool-production-hardening` 和 `ai-token-budgeting` specs，并要求更新 tool-level、catalog 和 contract gate 测试。
 
 - [Risk] 将 `candidateCountPerSection` 误用为分页。  

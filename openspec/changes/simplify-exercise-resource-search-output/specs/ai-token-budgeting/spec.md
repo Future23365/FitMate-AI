@@ -12,7 +12,7 @@
 - **AND** Planner 可见 tool result MUST NOT 包含 `projection.user`
 - **AND** Planner 可见 tool result MUST NOT 包含 `output: "[redacted]"` 或完整 handler output
 - **AND** Planner 可见 tool result MUST NOT 包含 `toolCallId`、`toolVersion`、`idempotencyKey`、`normalizedInputHash`、`startedAt` 或 `completedAt`
-- **AND** 本优化 MUST NOT 删除或压缩当前 tool model-visible summary 合同中仍需要的查询条件摘要、`appliedFilters`、`filterApplications`、`exercises`、diagnostics 或其他业务事实字段
+- **AND** 本优化 MUST NOT 删除或压缩当前 tool model-visible summary 合同中仍需要的查询条件摘要、`appliedFilters`、`filterApplications`、`candidateGroups`、diagnostics 或其他业务事实字段
 - **AND** 本优化 MUST NOT 因历史通用白名单而重新注入 `searchExerciseResources` 已删除的 `groups`、`allowedSections`、`sectionSummary`、`availableSections`、`missingSections`、`allowedSectionsRelation` 或 `groupSemantics`
 
 #### Scenario: 完整 tool result 仍保留在服务端内部结果中

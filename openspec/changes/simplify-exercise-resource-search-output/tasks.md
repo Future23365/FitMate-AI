@@ -15,9 +15,9 @@
 
 ## 3. Tool 输出和模型可见投影
 
-- [ ] 3.1 将 `searchExerciseResources` model-visible summary 从 `groups.<section>.exercises[]` 简化为顶层 `exercises[]` 候选列表。
-- [ ] 3.2 从 `searchExerciseResources` model-visible summary 中删除 `sectionSummary`、`availableSections`、`missingSections`、`allowedSections`、`allowedSectionsRelation` 和 `groupSemantics`。
-- [ ] 3.3 保留 `query.suitabilities`、`returnedCount`、`truncated`、`appliedFilters`、`filterApplications`、`filterSemantics`、`zeroMatchMuscles` 和必要 `diagnostics[]`，但不得表达固定补查流程、section 缺口或最终输出禁令。
+- [ ] 3.1 将 `searchExerciseResources` model-visible summary 从旧 `groups.<section>.exercises[]` 调整为 `candidateGroups[]` 候选列表，每组保留 `suitability`、候选数量、截断状态、`zeroMatchMuscles` 和 `exercises[]`。
+- [ ] 3.2 从 `searchExerciseResources` model-visible summary 中删除旧 `groups`、`sectionSummary`、`availableSections`、`missingSections`、每个动作的 `allowedSections`、`allowedSectionsRelation` 和 `groupSemantics`。
+- [ ] 3.3 保留 `query.suitabilities`、`candidateGroups[].suitability`、`returnedCount`、`truncated`、`appliedFilters`、`filterApplications`、`filterSemantics`、`zeroMatchMuscles` 和必要 `diagnostics[]`，但不得表达固定补查流程、section 缺口、动作 placement eligibility 或最终输出禁令。
 - [ ] 3.4 更新 user projection 和 trace summary，确保用户 / trace 可复盘查询口径、候选数量和 diagnostics，但不会把删除字段回灌到 Planner 可见输入。
 - [ ] 3.5 确认最终 `visibleTrainingProposal` validator 继续基于数据库动作事实校验 `exerciseId`、发布态和 `allowedSections`，本 change 不放宽最终结构化输出的确定性校验。
 
@@ -26,7 +26,7 @@
 - [ ] 4.1 更新 `searchExerciseResources` tool description，表达该 tool 只返回动作候选事实，不生成 `visibleTrainingProposal`、routine、plan、训练卡片、处方、日程或保存结果。
 - [ ] 4.2 更新 `candidateCountPerSection` 的 schema description，说明字段来源可以是用户明确数量要求或模型需要的候选规模；禁止解释为分页或最终展示数量承诺。
 - [ ] 4.3 更新 `suitabilities` 的 schema description，表达它是查询候选用途的结构化口径，模型需要主训练、热身或拉伸候选时自行选择，不由服务端根据用户原文分流。
-- [ ] 4.4 更新 model-visible contract gate，确认模型可见文本不再要求暴露 `groups`、`allowedSections`、`allowedSectionsRelation`、`sectionSummary`、`availableSections` 或 `missingSections`。
+- [ ] 4.4 更新 model-visible contract gate，确认模型可见文本不再要求暴露旧 `groups`、每个动作的 `allowedSections`、`allowedSectionsRelation`、`sectionSummary`、`availableSections` 或 `missingSections`，并确认 `candidateGroups[].suitability` 只表达查询来源。
 - [ ] 4.5 最终 diff 检查，确认没有新增服务端关键词规则、自然语言模板路由、phrasing 特判或具体业务 `toolName` runtime 分支。
 
 ## 5. Tool 级测试
@@ -34,15 +34,16 @@
 - [ ] 5.1 更新 `tests/langchain-agent-tools/search-exercise-resources.test.ts`，覆盖传入 `candidateCountPerSection = 10` 时 repository 收到 `maxReturned = 10`。
 - [ ] 5.2 更新 `tests/langchain-agent-tools/search-exercise-resources.test.ts`，覆盖未传 `candidateCountPerSection` 时默认使用 8。
 - [ ] 5.3 更新 `tests/langchain-agent-tools/search-exercise-resources.test.ts`，覆盖 `candidateCountPerSection > 24` 被 schema validation 拒绝且不执行 handler。
-- [ ] 5.4 更新 `tests/langchain-agent-tools/search-exercise-resources.test.ts`，断言 model-visible summary 使用顶层 `exercises[]`，并且不包含 `groups`、`sectionSummary`、`availableSections`、`missingSections`、`allowedSections`、`allowedSectionsRelation` 或 `groupSemantics`。
-- [ ] 5.5 更新 `tests/langchain-agent-tools/search-exercise-resources.test.ts`，覆盖多肌群查询仍能在 `candidateCountPerSection` 上限内尽量均衡返回候选，并保留 `zeroMatchMuscles` 诊断边界。
-- [ ] 5.6 运行 `npm test -- tests/langchain-agent-tools/search-exercise-resources.test.ts`。
+- [ ] 5.4 更新 `tests/langchain-agent-tools/search-exercise-resources.test.ts`，断言 model-visible summary 使用 `candidateGroups[]`，每组包含 `suitability` 和 `exercises[]`，并且不包含旧 `groups`、`sectionSummary`、`availableSections`、`missingSections`、每个动作的 `allowedSections`、`allowedSectionsRelation` 或 `groupSemantics`。
+- [ ] 5.5 更新 `tests/langchain-agent-tools/search-exercise-resources.test.ts`，覆盖多 `suitabilities` 查询时 `candidateGroups[]` 保留每个查询来源，且不会生成缺失 section、placement eligibility 或固定补查提示。
+- [ ] 5.6 更新 `tests/langchain-agent-tools/search-exercise-resources.test.ts`，覆盖多肌群查询仍能在 `candidateCountPerSection` 上限内尽量均衡返回候选，并保留 `zeroMatchMuscles` 诊断边界。
+- [ ] 5.7 运行 `npm test -- tests/langchain-agent-tools/search-exercise-resources.test.ts`。
 
 ## 6. Catalog、投影和回归测试
 
 - [ ] 6.1 更新 `tests/langchain-agent-tools/production-tool-catalog.test.ts`，断言 schema 暴露 `candidateCountPerSection`，并继续不暴露 `limit`、`page`、`pageSize`、`offset`、`take`、`cursor`、`maxReturned`、`published` 或 `q`。
 - [ ] 6.2 更新 `tests/langchain-agent-tools/model-visible-contract-gate.test.ts`，断言 `searchExerciseResources` 模型可见合同不包含固定 workflow、业务满足度、`allowedSectionsRelation`、section coverage 缺口或 placement 指令。
-- [ ] 6.3 如有 token 瘦身投影相关测试，更新其期望：Planner 可见 tool result 必须保留当前 model-visible summary 需要的 `exercises[]` 和查询摘要，不得因历史白名单重新注入 `groups` / `allowedSections`。
+- [ ] 6.3 如有 token 瘦身投影相关测试，更新其期望：Planner 可见 tool result 必须保留当前 model-visible summary 需要的 `candidateGroups[]` 和查询摘要，不得因历史白名单重新注入旧 `groups` / `allowedSections`。
 - [ ] 6.4 运行 `npm test -- tests/langchain-agent-tools/production-tool-catalog.test.ts tests/langchain-agent-tools/model-visible-contract-gate.test.ts`。
 - [ ] 6.5 运行 `npm run typecheck`。
 
